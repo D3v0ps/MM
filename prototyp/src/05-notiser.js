@@ -6,6 +6,7 @@
     assignment: { label: 'Tilldelning', icon: 'user', tone: 'bluetone' },
     progress_reminder: { label: 'Påminnelse', icon: 'bell', tone: 'grey' },
     progress_escalation: { label: 'Eskalering', icon: 'flag', tone: 'red' },
+    message: { label: 'Meddelande', icon: 'message', tone: 'outline' },
   };
   const MB_ROLES = ['samordnare', 'avtalsansvarig', 'coach', 'handledare', 'chef', 'ekonom', 'admin'];
 
@@ -27,7 +28,7 @@
         <${ui.Seg} ariaLabel="Filter" value=${filter} onChange=${setFilter} options=${[{ value: 'alla', label: `Alla (${all.length})` }, { value: 'olasta', label: `Olästa (${unread.length})` },
           ...Object.entries(KIND).filter(([k]) => all.some((n) => n.kind === k)).map(([k, v]) => ({ value: k, label: v.label, icon: v.icon }))]} />
         ${isEscalationRole && html`<${ui.PerspectiveSwitch} role="coach" view="notiser" label="Se coachens notiser (Amira)" />`}
-        ${role === 'coach' && html`<${ui.PerspectiveSwitch} role="chef" view="notiser" label="Se vad chefen får" />`}
+        ${role === 'coach' && html`<${ui.PerspectiveSwitch} role="chef" view="notiser" label="Prototyp: jämför med chefens notiser" />`}
       </div>
       <${ui.Card} flush>
         ${list.length === 0 ? html`<${ui.Empty} icon="bell" title="Inga notiser">När du får ett ärende tilldelat eller en påminnelse visas den här.<//>` : html`<div class="list">
@@ -43,7 +44,7 @@
                 ${isOpen && html`<div class="demo-note"><${I} name="mail" /><div><b>E-post (utan personuppgifter):</b> ${n.emailBody}</div></div>`}
               </div>
               <div class="li-side">
-                ${c && html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => { MM.dispatch('notif.read', { ids: [n.id] }, { silent: true }); MM.nav(n.kind === 'progress_reminder' ? 'coach.avstamning' : 'arende.kort', { caseId: c.id }); }}>${n.kind === 'progress_reminder' ? 'Gör avstämning' : 'Öppna ärendet'}<//>`}
+                ${c && html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => { MM.dispatch('notif.read', { ids: [n.id] }, { silent: true }); MM.nav(n.kind === 'progress_reminder' ? 'coach.avstamning' : 'arende.kort', n.kind === 'message' ? { caseId: c.id, tab: 'meddelanden' } : { caseId: c.id }); }}>${n.kind === 'progress_reminder' ? 'Gör avstämning' : n.kind === 'message' ? 'Läs meddelandet' : 'Öppna ärendet'}<//>`}
                 ${!n.readAt && html`<${ui.Btn} kind="ghost" icon="check" onClick=${() => MM.dispatch('notif.read', { ids: [n.id] }, { silent: true })}>Läst<//>`}
               </div>
             </div>`; })}

@@ -110,6 +110,9 @@
     fmtDateNum(s) { return s ? d.dayOf(s) : '–'; },
     fmtTime(s) { return s ? d.timeOf(s).replace(':', '.') : '–'; },
     fmtDateTime(s) { if (!s) return '–'; return `${d.fmtDateShort(s)} kl. ${d.fmtTime(s)}`; },
+    /** Utan förkortningar – för kommunportalen: "1 februari 2027" och "1 februari 2027 klockan 09.12". */
+    fmtDateFull(s) { if (!s) return '–'; const x = new Date(d.ms(s)); return `${x.getUTCDate()} ${MON[x.getUTCMonth()]} ${x.getUTCFullYear()}`; },
+    fmtDateTimeFull(s) { if (!s) return '–'; return `${d.fmtDateFull(s)} klockan ${d.fmtTime(s)}`; },
     fmtDateTimeLong(s) { if (!s) return '–'; return `${WD[d.weekday(s)]} ${d.fmtDate(s)} kl. ${d.fmtTime(s)}`; },
     fmtWeekday(s) { const x = new Date(d.ms(s)); return `${WD[d.weekday(s)]} ${x.getUTCDate()} ${MON[x.getUTCMonth()]}`; },
     fmtWeek(s) { const w = d.isoWeek(s); return `v. ${w.week}`; },
@@ -155,6 +158,8 @@
     pnrFormat(s) { return /^(\d{6}|\d{8})[-+]?\d{4}$/.test(String(s || '').trim()); },
     luhn(digits) { let sum = 0; for (let i = 0; i < digits.length; i++) { let v = +digits[i] * (i % 2 === 0 ? 2 : 1); if (v > 9) v -= 9; sum += v; } return sum % 10 === 0; },
     email(s) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim()); },
+    /** "8–10" ur mönstret för beställarreferens i konfigurationen. */
+    buyerRefLengthText(cfg) { const m = (cfg || MM.cfg()).billing.buyerReference.pattern.match(/\{(\d+),(\d+)\}/); return m ? `${m[1]}–${m[2]}` : ''; },
   };
 
   // ---------------------------------------------------------------- Slump (deterministisk)

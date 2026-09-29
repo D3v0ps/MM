@@ -47,7 +47,7 @@
       case 'handledare': return inTeam && !prot ? 'team' : 'none';
       case 'ekonom': return 'billing';
       case 'kommun_handlaggare': return c.referrerId === pid ? 'customer' : 'none';
-      case 'kommun_chef': return 'customer';
+      case 'kommun_chef': return prot ? 'restricted' : 'customer';
       default: return 'none';
     }
   };
@@ -218,7 +218,7 @@
         checks, blocked, needsApproval, status: blocked && status === 'draft' ? 'blocked' : status, manualInvoiceNo: approvals.manual[c.id] || null,
         fortnoxNo: ['fortnox_created', 'booked', 'sent', 'paid', 'returned'].includes(status) ? String(10000 + (parseInt(c.number.slice(-4), 10) * 7 + Number(mk.slice(5)) * 311) % 89999) : null,
         lineText: `${c.number} · ${weekText}`,
-        invoiceText: `Beställning ${c.number}: planerat ${orderWeeks} veckor, ${fmt.kr(orderValue)}. Fakturerat inklusive denna faktura: ${accruedWeeks} veckor, ${fmt.kr(accrued)}. Återstår: ${remainingWeeks} veckor, ${fmt.kr(Math.max(0, orderValue - accrued))}.`,
+        invoiceText: `Beställning ${c.number}: planerat ${fmt.plural(orderWeeks, 'vecka', 'veckor')}, ${fmt.kr(orderValue)}. Fakturerat inklusive denna faktura: ${fmt.plural(accruedWeeks, 'vecka', 'veckor')}, ${fmt.kr(accrued)}. Återstår: ${fmt.plural(remainingWeeks, 'vecka', 'veckor')}, ${fmt.kr(Math.max(0, orderValue - accrued))}.`,
       });
     }
     invoices.sort(MM.by('number'));
@@ -284,7 +284,7 @@
     const cfg = MM.cfg();
     const k = kpiCfg(key); const target = k.internalTarget;
     const wrap = (num, den, extra = {}) => { const value = den ? num / den : null; const unset = MM.isUnset(target); return { key, label: k.label, value, num, den, target: unset ? null : target, targetUnset: unset, status: den === 0 ? 'no_data' : unset ? 'no_target' : value < target ? 'below_internal' : 'ok', ...extra }; };
-    if (key === 'avrop_besvarade_i_tid') { const cs = monthCases(month).filter((c) => c.confirmedAt || c.declinedAt); return wrap(cs.filter((c) => (c.confirmedAt || c.declinedAt) <= d.addWorkingDays(c.referredAt, 1)).length, cs.length, { late: cs.filter((c) => (c.confirmedAt || c.declinedAt) > d.addWorkingDays(c.referredAt, 1)) }); }
+    if (key === 'avrop_besvarade_i_tid') { const cs = monthCases(month).filter((c) => c.confirmedAt || c.declinedAt); return wrap(cs.filter((c) => (c.confirmedAt || c.declinedAt) <= sel.avropDue(c)).length, cs.length, { late: cs.filter((c) => (c.confirmedAt || c.declinedAt) > sel.avropDue(c)) }); }
     if (key === 'forsta_mote_inom_en_vecka') { const days = cfg.sla.find((s) => s.key === 'forsta_mote').within.days; const cs = monthCases(month).filter((c) => c.firstMeetingAt); return wrap(cs.filter((c) => c.firstMeetingAt <= d.addDays(c.referredAt, days)).length, cs.length, { late: cs.filter((c) => c.firstMeetingAt > d.addDays(c.referredAt, days)) }); }
     if (key === 'veckorapporter_i_tid') { const rs = S().reports.filter((r) => r.kind === 'weekly_attendance' && d.monthKey(r.dueAt) === month && r.dueAt < d.now()); return wrap(rs.filter((r) => r.deliveredAt && r.deliveredAt <= r.dueAt).length, rs.length); }
     if (key === 'manadsrapporter_i_tid') { const rs = S().reports.filter((r) => r.kind === 'monthly' && d.monthKey(r.dueAt) === month && r.dueAt < d.now()); return wrap(rs.filter((r) => r.deliveredAt && r.deliveredAt <= r.dueAt).length, rs.length, { provisional: true }); }
@@ -296,9 +296,10 @@
   sel.kpis = (opts = {}) => MM.cfg().kpis.map((k) => sel.kpiValue(k.key, opts)).filter(Boolean);
 
   // ------------------------------------------------------------ Puls
-  sel.pulseStats = ({ from = windowStart('rolling_3m'), coachId = null } = {}) => {
-    const inv = S().pulseInvites.filter((x) => x.sentAt >= from && !x.demo && (!coachId || (sel.caseById(x.caseId) || {}).leadCoachId === coachId));
-    const rs = S().pulseResponses.filter((x) => x.submittedAt >= from && (!coachId || x.coachId === coachId));
+  sel.pulseStats = ({ from = windowStart('rolling_3m'), to = null, coachId = null } = {}) => {
+    const end = to ? `${to}T23:59` : '9999';
+    const inv = S().pulseInvites.filter((x) => x.sentAt >= from && x.sentAt <= end && !x.demo && (!coachId || (sel.caseById(x.caseId) || {}).leadCoachId === coachId));
+    const rs = S().pulseResponses.filter((x) => x.submittedAt >= from && x.submittedAt <= end && (!coachId || x.coachId === coachId));
     const dist = (q) => [1, 2, 3, 4, 5].map((v) => rs.filter((x) => x.answers[q] === v).length);
     const share45 = (q) => (rs.length ? rs.filter((x) => x.answers[q] >= 4).length / rs.length : null);
     const q4 = MM.groupBy(rs, (x) => x.answers.q4);
@@ -317,7 +318,8 @@
     if (mins <= 60 * 8) return { label: `${d.relative(dueAt).replace('om ', '')} kvar`, tone: 'soon', minutes: mins };
     return { label: `Senast ${d.fmtDateTime(dueAt)}`, tone: 'ok', minutes: mins };
   };
-  sel.avropDue = (c) => d.addWorkingDays(c.referredAt, 1);
+  sel.avropDue = (c) => d.addWorkingDays(c.referredAt, MM.cfg().sla.find((x) => x.key === 'avrop_svar').within.workingDays);
+  sel.finalReportWorkingDays = () => MM.cfg().sla.find((x) => x.key === 'slutrapport').proposal.workingDays;
   sel.firstMeetingDue = (c) => d.addDays(c.referredAt, MM.cfg().sla.find((s) => s.key === 'forsta_mote').within.days);
   /** Ärenden som väntar på svar (acceptera/avböj) oavsett kanal – mejl, portal eller telefon. */
   sel.awaitingAnswer = () => S().cases.filter((c) => ['acknowledged', 'received'].includes(c.status));
@@ -383,7 +385,7 @@
         const ra = sel.repeatedAbsence(c.id);
         if (ra) add({ key: `absence:${c.id}:${ra[ra.length - 1].id}`, kind: 'absence', severity: 'warning', title: 'Upprepad ogiltig frånvaro', text: `${c.number}: ${ra.length} ogiltiga frånvarotillfällen inom ${MM.cfg().attendance.repeatedAbsenceRule.withinDays} dagar. Förslag: åtgärdsplan och uppföljningsmöte med handläggaren.`, caseId: c.id, roles: ['coach', 'samordnare'], coachId: c.leadCoachId, createdAt: ra[ra.length - 1].registeredAt, link: { view: 'arende.kort', params: { caseId: c.id, tab: 'narvaro' } } });
       }
-      if (c.status === 'confirmed' && !c.firstMeetingAt && d.diffDays(c.referredAt, d.today()) >= 3) add({ key: `nomeeting:${c.id}`, kind: 'first_meeting', severity: 'critical', title: 'Första möte inte bokat', text: `${c.number} mottogs ${d.fmtDate(c.referredAt)}. Mötet ska vara bokat inom en vecka (senast ${d.fmtDateTime(sel.firstMeetingDue(c))}).`, caseId: c.id, roles: ['samordnare', 'coach'], coachId: c.leadCoachId, createdAt: `${d.addDays(c.referredAt.slice(0, 10), 3)}T08:00`, link: { view: 'arende.kort', params: { caseId: c.id } } });
+      if (c.status === 'confirmed' && !c.firstMeetingAt && d.diffDays(c.referredAt, d.today()) >= st.orgConfig.alerts.firstMeetingNotBookedAfterDays) add({ key: `nomeeting:${c.id}`, kind: 'first_meeting', severity: 'critical', title: 'Första möte inte bokat', text: `${c.number} mottogs ${d.fmtDate(c.referredAt)}. Mötet ska vara bokat inom en vecka (senast ${d.fmtDateTime(sel.firstMeetingDue(c))}).`, caseId: c.id, roles: ['samordnare', 'coach'], coachId: c.leadCoachId, createdAt: `${d.addDays(c.referredAt.slice(0, 10), st.orgConfig.alerts.firstMeetingNotBookedAfterDays)}T08:00`, link: { view: 'arende.kort', params: { caseId: c.id } } });
     }
     for (const w of sel.progressionWatch()) {
       const c = w.case;
@@ -397,7 +399,7 @@
     const ub = sel.unbilledOld();
     for (const [caseId, rows] of Object.entries(MM.groupBy(ub, (x) => x.case.id))) {
       const c = sel.caseById(caseId);
-      add({ key: `unbilled:${caseId}`, kind: 'unbilled', severity: 'critical', title: 'Ofakturerade veckor äldre än 45 dagar', text: `${c.number}: ${rows.length} veckor (${fmt.kr(MM.sum(rows, (x) => x.amountOre))}). Preskription två månader efter utfört arbete.`, caseId, roles: ['ekonom', 'chef'], createdAt: `${d.today()}T06:00`, link: { view: 'eko.start', params: {} } });
+      add({ key: `unbilled:${caseId}`, kind: 'unbilled', severity: 'critical', title: `Ofakturerade veckor äldre än ${MM.cfg().billing.unbilledWarningDays} dagar`, text: `${c.number}: ${rows.length} veckor (${fmt.kr(MM.sum(rows, (x) => x.amountOre))}). Preskription två månader efter utfört arbete.`, caseId, roles: ['ekonom', 'chef'], createdAt: `${d.today()}T06:00`, link: { view: 'eko.start', params: {} } });
     }
     for (const x of st.pulseResponses.filter((p) => p.contactRequested)) add({ key: `pulse_contact:${x.id}`, kind: 'pulse_contact', severity: 'info', title: 'Deltagare vill bli kontaktad', text: `Svar i pulsmätningen ${d.fmtDate(x.submittedAt)} (${(sel.caseById(x.caseId) || {}).number}). Samordnaren avgör vem som tar kontakten.`, caseId: x.caseId, roles: ['samordnare'], createdAt: x.submittedAt, link: { view: 'arende.kort', params: { caseId: x.caseId } } });
     for (const x of st.pulseResponses.filter((p) => p.answers.q3 <= 2 && p.submittedAt >= '2027-01-01')) add({ key: `pulse_low:${x.id}`, kind: 'pulse_low', severity: 'warning', title: 'Lågt betyg på stödet från coachen', text: `Ett svar ${d.fmtDate(x.submittedAt)} gav ${x.answers.q3} av 5 på frågan om stöd från coachen. Går till chef, inte till coachen.`, roles: ['chef'], createdAt: x.submittedAt, link: { view: 'chef.oversikt', params: { tab: 'puls' } } });
@@ -423,6 +425,8 @@
     return { recipientId, weekKey, monday: mon, sunday: sun, sections, complete: sections.every((s) => s.stats.unregistered === 0) };
   };
   /** Beställarrapport (kommunens chef): grupper under minN redovisas som "färre än 5". Internt mål visas aldrig. */
+  /** Tar bort det interna målet ur resultat som ska till kunden (det får aldrig visas i kundens perspektiv). */
+  const strip = (r) => { const { internalTarget, status, ...rest } = r; return { ...rest, status: status === 'below_internal' ? 'ok' : status }; };
   sel.customerSummary = (mk) => {
     const minN = MM.cfg().pulse.minNForAggregate;
     const start = `${mk}-01`, end = d.monthEnd(mk);
@@ -437,11 +441,11 @@
     const any = mas.filter((m) => Object.values(m.areas).some((a) => a.level >= 1)).length;
     const areaDist = MM.cfg().progression.areas.map((key) => ({ key, label: MM.cfg().progression.areaLabels[key], clear: mas.filter((m) => (m.areas[key] || {}).level >= 2).length, n: mas.length }));
     const att = sel.attendanceStats(null, start, end);
-    const pulse = sel.pulseStats({ from: `${d.addMonths(mk, -2)}-01` });
+    const pulse = sel.pulseStats({ from: `${d.addMonths(mk, -2)}-01`, to: end });
     const k = kpiCfg('resultatgrad');
     return {
       month: mk, minN, active: active.length, started: started.length, closed: closed.length, byArea, byTrack,
-      result: { rolling: sel.resultRate({ window: 'rolling_6m', to: end }), sinceStart: sel.resultRate({ from: MM.contract().startsOn, to: end }), month: sel.resultRate({ from: start, to: end }), contractTarget: k.contractTarget },
+      result: { rolling: strip(sel.resultRate({ window: 'rolling_6m', to: end })), sinceStart: strip(sel.resultRate({ from: MM.contract().startsOn, to: end })), month: strip(sel.resultRate({ from: start, to: end })), contractTarget: k.contractTarget },
       progression: { assessed: mas.length, clear, any, areaDist }, attendanceRate: att.rate, attendance: att,
       deviations: S().deviations.filter((x) => x.createdAt.slice(0, 10) >= start && x.createdAt.slice(0, 10) <= end).length,
       contractDeviations: S().contractDeviations.filter((x) => x.raisedAt.slice(0, 10) >= start && x.raisedAt.slice(0, 10) <= end).length,
@@ -532,6 +536,13 @@
   const A = MM.defineAction;
   const findCase = (st, id) => st.cases.find((c) => c.id === id);
   const customerEmail = (st, id) => (st.customerUsers.find((u) => u.id === id) || {}).email || '';
+  /** "Behöver beslut/stöd från kommunen" – skapar en uppgift till beställande handläggare och en notis utan personuppgifter. */
+  const customerDecisionTask = (st, ctx, dv) => {
+    const c = st.cases.find((x) => x.id === dv.caseId); if (!c || st.tasks.some((t) => t.deviationId === dv.id)) return;
+    st.tasks.push({ id: ctx.id('task'), toRole: 'kommun_handlaggare', toId: c.referrerId, fromId: ctx.actorId, createdAt: ctx.now, status: 'open', kind: 'customer_decision', caseIds: [c.id], deviationId: dv.id,
+      text: `Miljonbemanning behöver ert beslut eller stöd i ärende ${c.number}: ${dv.description}. Läs mer och svara under ärendets meddelanden.` });
+    ctx.notify('email', customerEmail(st, c.referrerId), 'beslut_behovs', `Ärende ${c.number} behöver ert beslut eller stöd – logga in för att läsa.`, c.id);
+  };
   /** Notis till coach/teammedlem vid tilldelning: i appen + e-post utan personuppgifter (interna regler, orgConfig). */
   const notifyAssignment = (st, ctx, c, userId, role) => {
     const rule = st.orgConfig.notifications.onAssignment; const lead = role === 'lead_coach';
@@ -562,11 +573,12 @@
     st.cases.push(c);
     st.caseStatusHistory.push({ id: ctx.id('csh'), caseId: c.id, fromStatus: null, toStatus: c.status, changedBy: ctx.actorId, changedAt: ctx.now, reason: `Beställning via ${({ portal: 'portalen', email: 'mejl', phone: 'telefon' })[c.source]}` });
     ctx.audit('case.created', 'case', c.id, { number, source: c.source });
+    if (prot) st.tasks.push({ id: ctx.id('task'), toRole: 'avtalsansvarig', fromId: 'system', createdAt: ctx.now, status: 'open', kind: 'protected_order', caseIds: [c.id], text: `Beställning ${number} med skyddade personuppgifter. Ring handläggaren enligt den säkra rutinen. Ingen automatik har körts.` });
     if (!prot) ctx.notify('email', customerEmail(st, p.referrerId), 'ordererkannande', sel.ackTextFor(c, st), c.id);
     else ctx.notify('email', customerEmail(st, p.referrerId), 'generisk_mottagningsbekraftelse', 'Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.', null);
     return { caseId: c.id, number };
   });
-  sel.ackTextFor = (c) => `Tack! Vi har tagit emot er beställning och gett den ärendenummer ${c.number}. Ni får besked om startdatum och ansvarig coach senast ${d.fmtDateTimeLong(d.addWorkingDays(c.referredAt, 1))}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.`;
+  sel.ackTextFor = (c) => `Tack! Vi har tagit emot er beställning och gett den ärendenummer ${c.number}. Ni får besked om startdatum och ansvarig coach senast ${d.fmtDateTimeLong(sel.avropDue(c))}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.`;
 
   /** Acceptera avrop → orderbekräftelse. p = { caseId, leadCoachId, startDate, firstMeetingAt, team, plannedWeeks, buyerReference, emailId } */
   A('case.accept', (st, p, ctx) => {
@@ -581,10 +593,10 @@
     if (c.plannedStart && c.plannedWeeks) c.plannedEnd = d.addDays(d.monday(c.plannedStart), (c.plannedWeeks - 1) * 7 + 4);
     c.team = [{ userId: p.leadCoachId, role: 'lead_coach' }, ...(p.team || []).filter((t) => t.userId !== p.leadCoachId)];
     st.caseStatusHistory.push({ id: ctx.id('csh'), caseId: c.id, fromStatus: 'acknowledged', toStatus: 'confirmed', toCoach: p.leadCoachId, changedBy: ctx.actorId, changedAt: ctx.now, reason: 'Avrop accepterat' });
-    const rep = { id: ctx.id('rep'), contractId: c.contractId, caseId: c.id, kind: 'order_confirmation', periodStart: ctx.now.slice(0, 10), periodEnd: ctx.now.slice(0, 10), status: 'delivered', version: 1, dueAt: d.addWorkingDays(c.referredAt, 1), approvedBy: ctx.actorId, approvedAt: ctx.now, deliveredAt: ctx.now, deliveredTo: [c.referrerId], openedAt: null, createdInDemo: true };
+    const rep = { id: ctx.id('rep'), contractId: c.contractId, caseId: c.id, kind: 'order_confirmation', periodStart: ctx.now.slice(0, 10), periodEnd: ctx.now.slice(0, 10), status: 'delivered', version: 1, dueAt: sel.avropDue(c), approvedBy: ctx.actorId, approvedAt: ctx.now, deliveredAt: ctx.now, deliveredTo: [c.referrerId], openedAt: null, createdInDemo: true };
     st.reports.push(rep);
     const em = st.inboundEmails.find((e) => e.caseId === c.id && ['acknowledged', 'received'].includes(e.status)); if (em) { em.status = 'accepted'; em.handledBy = ctx.actorId; em.handledAt = ctx.now; }
-    ctx.audit('case.accepted', 'case', c.id, { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt, withinSla: ctx.now <= d.addWorkingDays(c.referredAt, 1) });
+    ctx.audit('case.accepted', 'case', c.id, { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt, withinSla: ctx.now <= sel.avropDue(c) });
     for (const t of c.team) notifyAssignment(st, ctx, c, t.userId, t.role);
     ctx.notify('email', customerEmail(st, c.referrerId), 'orderbekraftelse', `Orderbekräftelse för ärende ${c.number} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`, c.id);
     const protectedPerson = (st.persons.find((x) => x.id === c.personId) || {}).protectedIdentity;
@@ -636,7 +648,7 @@
     c.resultClass = cfg.result.countsAsResult.includes(p.endReason) ? 'result' : excluded ? 'excluded' : 'no_result';
     c.resultVerifiedAt = c.resultClass === 'result' && p.verified ? ctx.now : null;
     st.caseStatusHistory.push({ id: ctx.id('csh'), caseId: c.id, fromStatus: 'active', toStatus: 'closed', changedBy: ctx.actorId, changedAt: ctx.now, reason: p.endReason });
-    const rep = { id: ctx.id('rep'), contractId: 'c-bot', caseId: c.id, kind: 'final', periodStart: c.startDate, periodEnd: p.endDate, status: 'draft', version: 1, dueAt: d.addWorkingDays(`${p.endDate}T23:59`, 5), approvedBy: null, approvedAt: null, deliveredAt: null, deliveredTo: [], openedAt: null, provisionalDue: true, createdInDemo: true };
+    const rep = { id: ctx.id('rep'), contractId: 'c-bot', caseId: c.id, kind: 'final', periodStart: c.startDate, periodEnd: p.endDate, status: 'draft', version: 1, dueAt: d.addWorkingDays(`${p.endDate}T23:59`, cfg.sla.find((x) => x.key === 'slutrapport').proposal.workingDays), approvedBy: null, approvedAt: null, deliveredAt: null, deliveredTo: [], openedAt: null, provisionalDue: true, createdInDemo: true };
     st.reports.push(rep);
     const pers = st.persons.find((x) => x.id === c.personId);
     if (!pers.protectedIdentity) st.pulseInvites.push({ id: ctx.id('pi'), caseId: c.id, channel: pers.preferredContact === 'email' ? 'email' : 'sms', language: 'sv', occasion: 'exit', sentAt: ctx.now, expiresAt: d.addDays(ctx.now, 7), usedAt: null });
@@ -683,6 +695,7 @@
     if (!ci) { ci = { id: ctx.id('ci'), caseId: c.id, heldAt: p.data.heldAt || ctx.now, status: 'draft', approvedBy: null, approvedAt: null, aiRunId: null }; st.checkIns.push(ci); }
     Object.assign(ci, p.data);
     if (p.data.overallStatus === 'red' && !p.deviation) return { error: 'deviation_required' };
+    if (p.data.inputMethod && p.data.inputMethod !== 'manual' && !sel.aiAllowed(c)) return { error: 'ai_not_allowed' };
     if (p.approve) { ci.status = 'approved'; ci.approvedBy = ctx.actorId; ci.approvedAt = ctx.now; if (ci.phase) c.phase = Number(ci.phase); }
     if (p.aiDecisions && p.aiDecisions.length) { st.aiFieldDecisions = st.aiFieldDecisions || []; for (const x of p.aiDecisions) st.aiFieldDecisions.push({ id: ctx.id('afd'), aiRunId: ci.aiRunId, ...x, decidedBy: ctx.actorId, decidedAt: ctx.now }); }
     if (p.approve && ci.ai) { ci.ai.rawTranscriptDeletedAt = ctx.now; ci.ai.transcript = []; ctx.audit('transcript.deleted', 'check_in', ci.id, { reason: 'Avstämningen godkänd' }); }
@@ -690,6 +703,7 @@
     if (p.data.overallStatus === 'red' && p.deviation) {
       const dv = { id: ctx.id('dev'), caseId: c.id, createdAt: ctx.now, description: p.deviation.description, assessment: p.deviation.assessment || '', action: p.deviation.action, ownerId: p.deviation.ownerId, followUpOn: p.deviation.followUpOn, needsCustomerDecision: !!p.deviation.needsCustomerDecision, followUpMeetingAt: null, status: 'open', checkInId: ci.id };
       st.deviations.push(dv); devId = dv.id; ctx.audit('deviation.created', 'deviation', dv.id, { caseId: c.id, fromCheckIn: ci.id });
+      if (dv.needsCustomerDecision) customerDecisionTask(st, ctx, dv);
     }
     ctx.audit(p.approve ? 'check_in.approved' : 'check_in.saved', 'check_in', ci.id, { caseId: c.id, aiUsed: !!ci.ai });
     return { checkInId: ci.id, deviationId: devId };
@@ -697,7 +711,9 @@
   A('deviation.save', (st, p, ctx) => {
     let dv = p.id ? st.deviations.find((x) => x.id === p.id) : null;
     if (!dv) { dv = { id: ctx.id('dev'), caseId: p.caseId, createdAt: ctx.now, status: 'open' }; st.deviations.push(dv); }
-    Object.assign(dv, p.data || {}); ctx.audit('deviation.saved', 'deviation', dv.id, { caseId: dv.caseId, status: dv.status }); return { deviationId: dv.id };
+    Object.assign(dv, p.data || {}); ctx.audit('deviation.saved', 'deviation', dv.id, { caseId: dv.caseId, status: dv.status });
+    if (dv.needsCustomerDecision) customerDecisionTask(st, ctx, dv);
+    return { deviationId: dv.id };
   });
   /** Kalla kommunen till uppföljning (AFK 7.8) – skickar mötesförfrågan som säkert meddelande + notis utan personuppgifter. */
   A('deviation.callCustomer', (st, p, ctx) => {
@@ -753,12 +769,14 @@
     const r = st.reports.find((x) => x.id === p.reportId); if (!['approved', 'reviewed'].includes(r.status) && r.kind !== 'weekly_attendance') return { error: 'not_approved' };
     const c = r.caseId ? findCase(st, r.caseId) : null; const to = r.recipientUserId || (c && c.referrerId);
     r.status = 'delivered'; r.deliveredAt = ctx.now; r.deliveredTo = [to]; if (!r.approvedAt) { r.approvedAt = ctx.now; r.approvedBy = ctx.actorId; }
-    ctx.audit('report.delivered', 'report', r.id, { kind: r.kind, channel: 'portal' });
+    if (r.previousId) { const prev = st.reports.find((x) => x.id === r.previousId); if (prev) { prev.superseded = true; prev.supersededAt = ctx.now; prev.supersededBy = r.id; } }
+    ctx.audit('report.delivered', 'report', r.id, { kind: r.kind, channel: 'portal', version: r.version });
     ctx.notify('email', customerEmail(st, to), 'ny_rapport', `${sel.reportKindLabel(r.kind)}${c ? ` för ärende ${c.number}` : ''} finns i portalen – logga in för att läsa.`, r.caseId);
     return {};
   });
-  A('report.correct', (st, p, ctx) => { const r = st.reports.find((x) => x.id === p.reportId); const nr = { ...r, id: ctx.id('rep'), version: r.version + 1, status: 'draft', deliveredAt: null, openedAt: null, approvedAt: null, approvedBy: null, previousId: r.id }; r.superseded = true; st.reports.push(nr); ctx.audit('report.corrected', 'report', nr.id, { previous: r.id }); return { reportId: nr.id }; });
-  A('report.open', (st, p, ctx) => { const r = st.reports.find((x) => x.id === p.reportId); if (r && !r.openedAt && ['delivered'].includes(r.status)) { r.openedAt = ctx.now; } ctx.audit('report.view', 'report', p.reportId, { by: 'customer' }); return {}; });
+  A('report.correct', (st, p, ctx) => { const r = st.reports.find((x) => x.id === p.reportId); const nr = { ...r, id: ctx.id('rep'), version: r.version + 1, status: 'draft', deliveredAt: null, openedAt: null, approvedAt: null, approvedBy: null, previousId: r.id }; r.correctionPending = nr.id; st.reports.push(nr); ctx.audit('report.corrected', 'report', nr.id, { previous: r.id }); return { reportId: nr.id }; });
+  /** Kvittens: bara när en mottagare själv öppnar en levererad rapport. Andra kommunanvändare som läser den kvitterar inte. */
+  A('report.open', (st, p, ctx) => { const r = st.reports.find((x) => x.id === p.reportId); const isRecipient = r && (r.deliveredTo || []).includes(ctx.actorId); if (r && isRecipient && !r.openedAt && ['delivered'].includes(r.status)) { r.openedAt = ctx.now; r.openedBy = ctx.actorId; } ctx.audit('report.view', 'report', p.reportId, { by: 'customer', acknowledged: !!isRecipient }); return { acknowledged: !!isRecipient }; });
 
   // ---- Meddelanden
   A('message.send', (st, p, ctx) => {
@@ -766,7 +784,14 @@
     const m = { id: ctx.id('msg'), caseId: c.id, senderId: ctx.actorId, body: p.body, createdAt: ctx.now, readBy: [], readAt: null };
     st.messages.push(m);
     const toCustomer = !String(ctx.actorId).startsWith('k-');
-    ctx.notify('email', toCustomer ? customerEmail(st, c.referrerId) : 'coach (e-post)', 'nytt_meddelande', `Du har ett nytt meddelande om ärende ${c.number} – logga in för att läsa.`, c.id);
+    if (toCustomer) ctx.notify('email', customerEmail(st, c.referrerId), 'nytt_meddelande', `Du har ett nytt meddelande om ärende ${c.number} – logga in för att läsa.`, c.id);
+    else {
+      const coach = st.users.find((u) => u.id === c.leadCoachId);
+      if (coach) {
+        st.userNotifications.push({ id: ctx.id('un'), recipientId: coach.id, kind: 'message', caseId: c.id, createdAt: ctx.now, channels: ['app', 'email'], title: 'Nytt meddelande från kommunen', body: `Nytt säkert meddelande om ${c.number}. Läs och svara i ärendets flik Meddelanden.`, emailBody: `Du har ett nytt meddelande om ärende ${c.number} – logga in för att läsa.` });
+        ctx.notify('email', coach.email, 'nytt_meddelande', `Du har ett nytt meddelande om ärende ${c.number} – logga in för att läsa.`, c.id);
+      }
+    }
     ctx.audit('message.sent', 'case', c.id, {});
     return { messageId: m.id };
   });
@@ -788,7 +813,9 @@
     ctx.audit(`consent.${p.value}`, 'consent', c.id, { caseId: c.id });
     return {};
   });
-  A('ai.run', (st, p, ctx) => { const run = { id: ctx.id('ai'), caseId: p.caseId, kind: p.kind, provider: 'Berget AI (test)', model: p.model || 'KB-Whisper + öppen språkmodell', status: 'succeeded', createdAt: ctx.now, audioSeconds: p.audioSeconds || 0, costOre: p.costOre || 80, latencyMs: 64000, inputDeletedAt: p.audioSeconds ? ctx.now : null }; st.aiRuns.push(run); ctx.audit('ai.run', 'ai_run', run.id, { kind: p.kind, caseId: p.caseId }); if (p.audioSeconds) ctx.audit('audio.deleted', 'ai_run', run.id, { reason: 'Transkribering klar' }); return { runId: run.id }; });
+  /** AI får bara köras med registrerat samtycke och aldrig för skyddade personuppgifter (regel 5 och 8). */
+  sel.aiAllowed = (c) => { const pers = S().persons.find((x) => x.id === c.personId); return !!c && !(pers && pers.protectedIdentity) && c.aiConsent === 'given'; };
+  A('ai.run', (st, p, ctx) => { const cc = findCase(st, p.caseId); if (p.caseId && p.kind !== 'parse_email' && !(cc && sel.aiAllowed(cc))) { ctx.audit('ai.blocked', 'case', p.caseId, { reason: 'Samtycke saknas eller skyddade personuppgifter' }); return { error: 'not_allowed' }; } const run = { id: ctx.id('ai'), caseId: p.caseId, kind: p.kind, provider: 'Berget AI (test)', model: p.model || 'KB-Whisper + öppen språkmodell', status: 'succeeded', createdAt: ctx.now, audioSeconds: p.audioSeconds || 0, costOre: p.costOre || 80, latencyMs: 64000, inputDeletedAt: p.audioSeconds ? ctx.now : null }; st.aiRuns.push(run); ctx.audit('ai.run', 'ai_run', run.id, { kind: p.kind, caseId: p.caseId }); if (p.audioSeconds) ctx.audit('audio.deleted', 'ai_run', run.id, { reason: 'Transkribering klar' }); return { runId: run.id }; });
 
   // ---- Fakturering
   const appr = (st, mk) => { st.billingApprovals = st.billingApprovals || {}; st.billingApprovals[mk] = st.billingApprovals[mk] || { zeroWeeks: {}, approved: {}, manual: {} }; return st.billingApprovals[mk]; };

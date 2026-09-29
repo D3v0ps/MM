@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import { chromium } from 'playwright';
+const html = fs.readFileSync(process.argv[2], 'utf8');
+const lib = fs.readFileSync('tools/htm-preact.js', 'utf8');
+const b = await chromium.launch(); const p = await b.newPage();
+p.on('pageerror', (e) => console.log('pageerror', e.message)); p.on('console', (m) => { if (m.type() === 'error') console.log('console', m.text()); });
+await p.route('**/*', (r) => { const u = r.request().url(); if (u.startsWith('http://proto.test/')) return r.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html }); if (u.includes('standalone.umd.js')) return r.fulfill({ status: 200, contentType: 'application/javascript', body: lib }); return r.abort(); });
+await p.goto('http://proto.test/index.html'); await p.waitForTimeout(3000);
+console.log(await p.evaluate(() => !!(window.MM && document.querySelector('.protobar'))));
+await b.close();

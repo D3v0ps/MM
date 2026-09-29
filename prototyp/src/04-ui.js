@@ -203,9 +203,9 @@
   const seen = new Set();
   ui.useAuditView = (entity, entityId, action = `${entity}.view`) => {
     useEffect(() => {
-      if (!entityId) return; const k = `${action}:${entityId}`; if (seen.has(k)) return; seen.add(k);
+      if (!entityId) return; const k = `${MM.currentPersonaId()}:${action}:${entityId}`; if (seen.has(k)) return; seen.add(k);
       MM.dispatch('audit.view', { action, entity, entityId }, { silent: true });
-    }, [entityId]);
+    }, [entityId, MM.currentPersonaId()]);
   };
 
   /** Liten stapel-/linjediagramhjälpare är inte gemensam – rita SVG i vyn och använd klassen .chart. */

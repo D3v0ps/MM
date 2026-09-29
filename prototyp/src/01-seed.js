@@ -235,6 +235,7 @@
     // Interna regler för Miljonbemanning (inte avtalskrav) – styr notiser, påminnelser och eskalering.
     S.orgConfig = {
       billing: { fortnoxWithinWorkingDays: 3, internalGoal: true },
+      alerts: { firstMeetingNotBookedAfterDays: 3 },
       notifications: {
         onAssignment: { to: ['lead_coach', 'team'], channels: ['app', 'email'], emailContainsPersonalData: false },
         progressionWatch: {
@@ -244,7 +245,7 @@
           escalateAfterConsecutiveWeeks: 2,
           escalateTo: ['chef'],
           escalationVisibleToCoach: false,
-          reminderSchedule: 'måndag 08.00 (samt direkt när en avstämning godkänns med veckomålet Nej)',
+          reminderSchedule: 'måndag 08.00 för föregående vecka',
           channels: ['app', 'email'],
         },
       },
@@ -668,19 +669,27 @@
         const coachFast = ['u-mats', 'u-sofia'].includes(c.leadCoachId);
         const approved = !isJan || (c.status === 'closed') || (coachFast && r.chance(0.7));
         const areas = {};
+        // Underlag för AI-utkast: bara godkända avstämningar och registrerad närvaro i månaden
+        const monthCis = S.checkIns.filter((x) => x.caseId === c.id && x.status === 'approved' && x.heldAt.slice(0, 7) === mk).sort((a, b) => (a.heldAt < b.heldAt ? -1 : 1));
+        const monthActs = S.activities.filter((a) => a.caseId === c.id && a.startsAt.slice(0, 7) === mk && a.startsAt < NOW);
+        const monthAtt = monthActs.map((a) => S.attendance.find((x) => x.activityId === a.id)).filter(Boolean);
+        const attended = monthAtt.filter((x) => ['present', 'late'].includes(x.status)).length;
+        const contacts = monthCis.filter((x) => x.employerContacts && x.employerContacts.count && x.employerContacts.count !== '0').length;
+        const srcLabel = (ci) => `Avstämning ${d.fmtDateShort(ci.heldAt)}`;
         for (const key of CONFIG_BOT.progression.areas) {
           const lvl = levelFor(key, idx);
           const aiLevel = Math.max(0, Math.min(3, lvl + r.pick([0, 0, 1, -1])));
           areas[key] = approved
             ? { level: lvl, observation: lvl >= 1 ? r.pick(OBS[key]) : '', nextStep: NEXT[key], aiLevelSuggestion: null, aiObservationDraft: null }
             : { level: null, observation: '', nextStep: '', aiLevelSuggestion: c.aiConsent === 'given' ? aiLevel : null,
-                aiObservationDraft: c.aiConsent === 'given' && aiLevel >= 1 ? { text: r.pick(OBS[key]), sources: ['Avstämning ' + d.fmtDateShort(d.addDays('2027-01-11', r.int(0, 14)))] } : null };
+                aiObservationDraft: c.aiConsent === 'given' && aiLevel >= 1 && monthCis.length ? { text: r.pick(OBS[key]), sources: MM.uniq([srcLabel(r.pick(monthCis)), srcLabel(monthCis[monthCis.length - 1])]) } : null };
         }
         const ma = { id: nid('ma'), caseId: c.id, month: mk, areas, status: approved ? 'approved' : 'draft', decidedBy: approved ? c.leadCoachId : null, decidedAt: approved ? `${d.nthWorkingDay(d.addMonths(mk, 1), r.int(1, 4))}T14:00` : null,
           summary: approved ? 'Deltagaren följer planen och har gjort tydlig progression inom yrkesfärdigheter. Fortsatt fokus på tempo och arbetsgivarkontakter.' : '',
-          aiSummaryDraft: !approved && c.aiConsent === 'given' ? 'Under januari har deltagaren deltagit i 11 av 12 planerade tillfällen och klarat två nya yrkesmoment. Arbetsgivarkontakter: ett studiebesök. (Källa: fyra godkända avstämningar.)' : null,
+          aiSummaryDraft: !approved && c.aiConsent === 'given' && monthCis.length ? `Under ${d.MON[Number(mk.slice(5)) - 1]} deltog deltagaren i ${attended} av ${monthAtt.length} registrerade tillfällen. ${contacts ? `Arbetsgivarkontakter fanns ${contacts === 1 ? 'en vecka' : `${contacts} veckor`}.` : 'Inga arbetsgivarkontakter framgår.'} (Källa: ${monthCis.length} godkända avstämningar, ${monthCis.map((x) => d.fmtDateShort(x.heldAt)).join(', ')}.)` : null,
           overallStatus: approved ? r.weighted([['green', 70], ['yellow', 25], ['red', 5]]) : null };
-        if (approved && ma.decidedAt.slice(0, 10) > TODAY) ma.decidedAt = `${TODAY}T08:00`;
+        if (approved && ma.decidedAt >= NOW) ma.decidedAt = `${d.addDays(TODAY, -r.int(0, 3))}T${String(r.int(8, 8)).padStart(2, '0')}:${String(r.int(0, 55)).padStart(2, '0')}`;
+        if (approved && ma.decidedAt >= NOW) ma.decidedAt = `${d.addDays(TODAY, -3)}T15:00`;
         S.monthlyAssessments.push(ma);
         S.monthlyPlans.push({ id: nid('mp'), caseId: c.id, month: mk, goal1: r.pick(GOALS[Math.min(5, c.phase)]), goal2: r.pick(GOALS[Math.min(5, c.phase + 1)] || GOALS[5]),
           plannedActivities: 'Yrkesmoment två dagar i veckan och en coachträff', plannedEmployerContact: c.phase >= 3 ? 'Studiebesök hos arbetsgivare inom spåret' : 'Inget planerat', plannedAdaptation: '', nextCustomerMeeting: approved ? null : '2027-02-15', status: approved ? 'approved' : 'draft' });
@@ -703,7 +712,7 @@
 
     // ---- Slutrapporter
     for (const c of cases.filter((x) => x.status === 'closed')) {
-      const due = d.addWorkingDays(`${c.endDate}T23:59`, 5);
+      const due = d.addWorkingDays(`${c.endDate}T23:59`, CONFIG_BOT.sla.find((x) => x.key === 'slutrapport').proposal.workingDays);
       let status = 'delivered', delivered = d.addDays(c.closedAt, r.int(1, 4)); if (delivered > due) delivered = d.addMinutes(due, -600);
       if (c.tags.includes('slutsen')) { status = 'draft'; delivered = null; }
       if (delivered && delivered > NOW) { status = c.endDate >= '2027-01-27' ? 'draft' : 'approved'; delivered = null; }
@@ -914,7 +923,7 @@
     // Uppgift till ekonom (ekonomen ser inte meddelanden – avtalsansvarig vidarebefordrar referensen som uppgift)
     S.tasks.push({ id: 'task-1', toRole: 'ekonom', fromId: 'u-johan', createdAt: '2027-01-14T09:05', status: 'open', caseIds: [script.reffel1.id, script.reffel2.id],
       text: `Kommunen har bekräftat rätt beställarreferens 55102938 för ${script.reffel1.number} och ${script.reffel2.number}. Decemberfakturorna ska krediteras och göras om, och januari faktureras med rätt referens.` });
-    S.tasks.push({ id: 'task-2', toRole: 'samordnare', fromId: 'system', createdAt: '2027-02-01T07:55', status: 'open', text: 'Avrop med skyddade personuppgifter från Omar Farah. Ring handläggaren enligt den säkra rutinen.', emailId: 'em-104' });
+    S.tasks.push({ id: 'task-2', toRole: 'avtalsansvarig', fromId: 'system', createdAt: '2027-02-01T07:55', status: 'open', text: 'Avrop med skyddade personuppgifter från Omar Farah. Ring handläggaren enligt den säkra rutinen.', emailId: 'em-104' });
     S.cases = cases;
     // Scriptreferenser för scenarier (id:n)
     S.script = Object.fromEntries(Object.entries(script).map(([k, c]) => [k, c.id]));
