@@ -742,7 +742,8 @@
       ${inviting && html`<${InviteModal} onClose=${() => setInviting(false)} />`}
     <//>`;
   };
-  MM.registerView('admin.anvandare', { title: 'Användare och roller', roles: ['admin', 'avtalsansvarig'], component: UsersView });
+  // Nyckel per roll: skalet återanvänder komponenten när bara rollen byts, men flikar och formulär beror på rollen.
+  MM.registerView('admin.anvandare', { title: 'Användare och roller', roles: ['admin', 'avtalsansvarig'], component: ({ params, role }) => html`<${UsersView} key=${role} params=${params} role=${role} />` });
 
   // ============================================================ admin.integrationer – Underbiträden och integrationer
   const SUBPROCESSORS = [
@@ -1110,7 +1111,7 @@
       <${ui.DemoNote}>Loggen innehåller ett urval från demodatat plus allt du gör i prototypen. Exporten loggas som en egen post innan filen skapas.<//>
     <//>`;
   };
-  MM.registerView('admin.logg', { title: 'Revisionslogg', roles: ['admin', 'chef'], component: LogView });
+  MM.registerView('admin.logg', { title: 'Revisionslogg', roles: ['admin', 'chef'], component: ({ params, role }) => html`<${LogView} key=${role} params=${params} role=${role} />` });
 
   // ============================================================ puls.svar – Pulsmätning (deltagare, engångslänk)
   const PT = {
@@ -1387,6 +1388,6 @@
     <//>`;
   };
 
-  const PraktikView = ({ params, role }) => (params && params.employerId ? html`<${EmployerDetail} id=${params.employerId} role=${role} />` : html`<${EmployerList} role=${role} />`);
+  const PraktikView = ({ params, role }) => (params && params.employerId ? html`<${EmployerDetail} key=${role} id=${params.employerId} role=${role} />` : html`<${EmployerList} key=${role} role=${role} />`);
   MM.registerView('praktik.arbetsgivare', { title: (p) => { const e = p && p.employerId ? S().employers.find((x) => x.id === p.employerId) : null; return e ? e.name : 'Arbetsgivare och praktik'; }, roles: ['samordnare', 'avtalsansvarig', 'coach', 'handledare'], component: PraktikView });
 })();
