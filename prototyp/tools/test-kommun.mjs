@@ -190,6 +190,7 @@ ok(!!ack && ack.body.includes(created.c.number) && !/Samira|Testsson|3456|Tumba/
 const doneText = await text();
 ok(doneText.includes(created.c.number) && /Tack! Vi har tagit emot er beställning/.test(doneText), 'ordererkännandet visas direkt på skärmen');
 ok(/Mejlet innehåller bara ärendenumret/.test(doneText), 'förklarar att mejlet bara innehåller ärendenumret');
+ok(!/\bkl\.|\b(jan|feb|dec)\b/.test(doneText) && /klockan/.test(doneText), 'kvittot skriver ut datum och tid utan förkortningar');
 await shot('bestall-klar');
 await noHScroll('Ordererkännande');
 // Perspektivbyte till samordnarens inkorg
@@ -424,7 +425,7 @@ ok((await st(() => MM.dispatch('kom.approveActionPlan', { id: 'cd-3' }))).error 
 // Perspektivbyte till ledningsvyn
 await visit(page, 'kommun_chef', 'kom.chef');
 const hasLedning = await st(() => !!MM.views['chef.oversikt']);
-await page.getByRole('button', { name: 'Se Miljonbemannings interna ledningsvy' }).click();
+await page.getByRole('button', { name: 'Se samma resultat i Miljonbemannings ledningsvy' }).click();
 await page.waitForTimeout(120);
 r = await route();
 ok(hasLedning ? (r.view === 'chef.oversikt' && r.role === 'chef') : r.view === 'kom.chef', 'perspektivbyte till ledningsvyn');

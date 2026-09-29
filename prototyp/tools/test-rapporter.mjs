@@ -31,7 +31,7 @@ let probs = await visit(page, 'samordnare', 'rapporter.lista', {});
 ok(probs.length === 0, `listan renderar utan problem ${probs.join(' ')}`);
 let t = await mainText();
 ok(/FÖRSENADE/i.test(t) && /FÖRFALLER DENNA VECKA/i.test(t) && /VÄNTAR PÅ GODKÄNNANDE/i.test(t), 'sammanfattning överst: försenade, förfaller denna vecka, väntar på godkännande');
-ok(/Ej fastställd deadline/.test(t), 'förfallotid utan fastställd deadline märks');
+ok(/Sista dag ej fastställd/.test(t) && !/deadline/i.test(t), 'förfallotid som inte är fastställd märks – utan ordet "deadline"');
 const overdueCount = await st(() => MM.store.state.reports.filter((r) => !r.superseded && !['delivered', 'opened'].includes(r.status) && r.dueAt && r.dueAt < MM.d.now()).length);
 await page.getByRole('button', { name: /^Försenade/ }).click(); await wait();
 t = await mainText();
@@ -113,6 +113,48 @@ ok(/inte klar ännu/.test(t) && !(await rep(undelivered)).openedAt, 'ej leverera
 await btn('Se från leverantörens håll').click(); await wait(200);
 ok(await st(() => MM.perspective()) === 'leverantor', 'perspektivbytet tillbaka till leverantören fungerar');
 
+console.log('\n3b. Kvittens bara av mottagaren');
+const unopened = await st(() => MM.store.state.reports.find((r) => r.kind === 'monthly' && r.status === 'delivered' && !r.openedAt && (r.deliveredTo || []).includes('k-maria') && !MM.sel.person(MM.sel.caseById(r.caseId)).protectedIdentity).id);
+await visit(page, 'kommun_chef', 'rapport.visa', { reportId: unopened });
+t = await mainText();
+ok(!(await rep(unopened)).openedAt, 'kommunens chef kvitterar inte en rapport till handläggaren');
+ok(/Kvitteras bara av mottagaren/i.test(t) && /Maria Ekdahl/.test(t), 'chefen ser "Kvitteras bara av mottagaren"');
+ok(await st((id) => MM.store.state.auditLog.some((l) => l.action === 'report.view' && l.entityId === id && l.actorId === 'k-eva'), unopened), 'chefens visning loggas utan kvittens');
+ok(!/ kl\. | jan | feb | dec /.test(t.split('1. GRUNDUPPGIFTER')[0]), 'portalens rubrikrad har datum utan förkortningar');
+await visit(page, 'samordnare', 'rapport.visa', { reportId: unopened });
+await btn('Se som kommunen').click(); await wait(250);
+ok(!(await rep(unopened)).openedAt || await st(() => MM.role()) === 'kommun_handlaggare', 'perspektivbytet kvitterar bara om man blir mottagaren');
+await st(() => MM.nav('kom.deltagare', { caseId: MM.store.state.script.nadia }, { role: 'kommun_handlaggare' })); await wait();
+await st((id) => MM.nav('rapport.visa', { reportId: id }), ids.nadiaJan); await wait();
+await btn('Tillbaka till deltagaren').click(); await wait();
+ok(await st(() => MM.route.view) === 'kom.deltagare', '"Tillbaka" går till sidan rapporten öppnades från');
+
+console.log('\n3c. Levererade rapporter är låsta');
+const dec = await st((id) => MM.store.state.reports.find((r) => r.caseId === id && r.kind === 'monthly' && r.month === '2026-12').id, ids.nadia);
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: dec });
+const totalRow = () => mainText().then((x) => (x.match(/Totalt[^\n]*/) || [])[0]);
+const before = await totalRow();
+await st((id) => { const a = MM.sel.activitiesOf(id).find((x) => x.startsAt.startsWith('2026-12') && (MM.sel.attendanceFor(x.id) || {}).status === 'present'); return MM.dispatch('attendance.set', { activityId: a.id, status: 'absent_invalid', reason: '' }); }, ids.nadia);
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: dec });
+ok(before && before === await totalRow(), `seedad levererad decemberrapport ändras inte när närvaron ändras (${before})`);
+await visit(page, 'coach', 'rapport.visa', { reportId: dec });
+t = await mainText();
+ok(/Underlaget har ändrats efter leveransen/.test(t) && before === await totalRow(), 'leverantören varnas att underlaget har ändrats – dokumentet är oförändrat');
+r = await rep(ids.nadiaJan);
+ok(r.snapshot && r.snapshot.reportId === ids.nadiaJan && r.snapshot.model.kind === 'monthly', 'leveransen sparar en ögonblicksbild (rap.snapshot)');
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: ids.nadiaJan });
+const janBefore = await totalRow();
+await st((id) => { const a = MM.sel.activitiesOf(id).find((x) => x.startsAt.startsWith('2027-01') && (MM.sel.attendanceFor(x.id) || {}).status === 'present'); return MM.dispatch('attendance.set', { activityId: a.id, status: 'absent_invalid', reason: '' }); }, ids.nadia);
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: ids.nadiaJan });
+ok(janBefore === await totalRow(), `januarirapporten visas från ögonblicksbilden efter en ändring (${janBefore})`);
+const finDel = await st(() => MM.store.state.reports.find((r) => r.kind === 'final' && r.status === 'delivered' && !r.finalText && MM.sel.caseById(r.caseId).referrerId === 'k-maria').id);
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: finDel });
+t = await mainText();
+ok(/Rekommenderad fortsättning:\s*\S/.test(t), 'seedad levererad slutrapport har en fryst rekommendation');
+await visit(page, 'kommun_chef', 'rapport.visa', { reportId: ids.csDec });
+t = await mainText();
+ok(/svar under oktober–december 2026/.test(t) && !/senaste tre månaderna/.test(t), 'nöjdheten i beställarrapporten gäller rapportens månader');
+
 // ---------------------------------------------------------------- 4. Rättelse = ny version
 console.log('\n4. Rätta en levererad rapport');
 await visit(page, 'coach', 'rapport.visa', { reportId: ids.nadiaJan });
@@ -124,10 +166,29 @@ await btn('Skapa ny version').click(); await wait(250);
 const newId = await st(() => MM.route.params.reportId);
 const nr = await rep(newId); const old = await rep(ids.nadiaJan);
 ok(newId !== ids.nadiaJan && nr.version === 2 && nr.status === 'draft' && nr.previousId === ids.nadiaJan, 'ny version 2 skapas som utkast (report.correct)');
-ok(old.superseded === true && old.status === 'delivered', 'den gamla versionen sparas');
+ok(!old.superseded && old.status === 'delivered' && old.correctionPending === newId, 'den gamla versionen sparas och är inte ersatt medan rättelsen är ett utkast');
 ok(nr.correctionReason === 'Fel datum för praktikstart.', 'orsaken sparas på den nya versionen');
+ok(!nr.snapshot, 'den nya versionen har ingen kopierad ögonblicksbild');
 t = await mainText();
 ok(/Version 1/.test(t) && /Version 2 \(visas nu\)/.test(t), 'versionshistoriken visar båda versionerna');
+await visit(page, 'coach', 'rapport.visa', { reportId: ids.nadiaJan });
+t = await mainText();
+ok(/Rättelse pågår – version 2 är ett utkast/i.test(t) && await btn('Rätta').count() === 0, 'version 1 visar att rättelse pågår och kan inte rättas en gång till');
+console.log('\n4b. Kunden ser senaste levererade versionen medan rättelsen är ett utkast');
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: ids.nadiaJan });
+t = await mainText();
+ok(/Rapporten rättas/i.test(t) && /1\. GRUNDUPPGIFTER/i.test(t), 'kommunen ser version 1 med beskedet att rapporten rättas');
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: newId });
+t = await mainText();
+ok(/1\. GRUNDUPPGIFTER/i.test(t) && !/inte klar ännu/.test(t) && /version 1/i.test(t), 'länk till utkastet (version 2) visar kommunen den levererade version 1');
+await visit(page, 'coach', 'rapport.visa', { reportId: newId });
+await btn('Godkänn').click(); await wait();
+await btn('Leverera till kommunen').click(); await wait();
+await btn('Leverera i portalen').click(); await wait();
+ok((await rep(ids.nadiaJan)).superseded === true && (await rep(newId)).status === 'delivered', 'när version 2 levereras blir version 1 ersatt');
+await visit(page, 'kommun_handlaggare', 'rapport.visa', { reportId: ids.nadiaJan });
+t = await mainText();
+ok(/Rapporten har rättats/i.test(t) && await btn('Visa den rättade versionen').count() === 1, 'kommunen hänvisas från version 1 till den rättade versionen');
 
 // ---------------------------------------------------------------- 5. Samordnarens kvalitetsgranskning
 console.log('\n5. Samordnarens valfria kvalitetsgranskning');
@@ -172,6 +233,13 @@ ok(/Väntar på närvaroregistrering/.test(t) && /tillfällen? saknas/.test(t), 
 await visit(page, 'coach', 'rapport.visa', { reportId: ids.weeklyWait });
 t = await mainText();
 ok(/Du ser \d+ av \d+ deltagare/.test(t), 'coachen ser bara sina egna deltagare i veckorapporten');
+await st((id) => { const r = MM.store.state.reports.find((x) => x.id === id); const wr = MM.sel.weeklyReport(r.recipientUserId, r.week);
+  for (const s of wr.sections) for (const row of s.rows) if (!row.att && row.activity.startsAt < MM.d.now()) MM.dispatch('attendance.set', { activityId: row.activity.id, status: 'present', reason: '' }); }, ids.weeklyWait);
+r = await rep(ids.weeklyWait);
+ok(r.status === 'delivered' && r.snapshot && r.snapshot.reportId === r.id, 'veckorapporten publiceras automatiskt och får en ögonblicksbild direkt');
+await visit(page, 'handledare', 'rapport.visa', { reportId: ids.weeklyWait });
+t = await mainText();
+ok(/VECKORAPPORT NÄRVARO|Veckorapport närvaro/.test(t) && !/visas inte för handledare/i.test(t), 'handledaren kan läsa veckorapporten (närvaro)');
 
 // ---------------------------------------------------------------- 8. Slutrapport: coachens text → godkänn
 console.log('\n8. Slutrapport efter avslut');
@@ -200,7 +268,25 @@ if (prot) {
   await visit(page, 'avtalsansvarig', 'rapport.visa', { reportId: prot.id });
   ok(/1\. GRUNDUPPGIFTER/i.test(await mainText()), 'avtalsansvarig ser rapporten för det skyddade ärendet');
 }
-ok(await st(() => typeof MM.reports === 'object' && typeof MM.reports.ReportDocument === 'function'), 'MM.reports.ReportDocument exporteras');
+if (prot) {
+  const protDel = await st(() => (MM.store.state.reports.find((r) => r.kind === 'monthly' && r.caseId === MM.store.state.script.skyddad && ['delivered', 'opened'].includes(r.status)) || {}).id);
+  await visit(page, 'kommun_chef', 'rapport.visa', { reportId: protDel });
+  t = await mainText();
+  const pname = await st(() => { const p = MM.sel.person(MM.sel.caseById(MM.store.state.script.skyddad)); return `${p.firstName} ${p.lastName}`; });
+  ok(!t.includes(pname) && /Skyddade personuppgifter/.test(t), 'kommunens chef ser aldrig namnet i ett skyddat ärende');
+}
+await visit(page, 'handledare', 'rapport.visa', { reportId: dec });
+t = await mainText();
+ok(/visas inte för handledare/i.test(t) && !/4\. PROGRESSION/i.test(t) && !/8\. COACHENS SAMMANFATTANDE/i.test(t), 'handledaren får en förklaring i stället för månadsrapporten');
+const nadiaFinal = await st(() => MM.store.state.reports.find((r) => r.kind === 'final' && (MM.sel.caseById(r.caseId).team || []).some((x) => x.userId === 'u-petra')));
+if (nadiaFinal) { await visit(page, 'handledare', 'rapport.visa', { reportId: nadiaFinal.id }); ok(/visas inte för handledare/i.test(await mainText()), 'handledaren ser inte slutrapporten'); }
+const apprFinal = await st(() => (MM.store.state.reports.find((r) => r.kind === 'final' && r.status === 'approved' && !r.finalText && !MM.sel.person(MM.sel.caseById(r.caseId)).protectedIdentity) || {}).id);
+if (apprFinal) {
+  await visit(page, 'samordnare', 'rapport.visa', { reportId: apprFinal });
+  t = await mainText();
+  ok(/Rekommenderad fortsättning saknas/.test(t) && await btn('Leverera till kommunen').count() === 0, 'godkänd slutrapport utan rekommendation kan inte levereras (texten skapas inte automatiskt)');
+}
+ok(await st(() => typeof MM.reports === 'object' && typeof MM.reports.ReportDocument === 'function' && typeof MM.reports.modelFor === 'function'), 'MM.reports.ReportDocument och modelFor exporteras');
 
 console.log(`\n${passed} ok, ${failed} fel. Konsolfel: ${errors.length}`);
 if (errors.length) console.log(errors.join('\n'));

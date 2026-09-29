@@ -157,8 +157,9 @@
     const st = MM.seed(); seedCache = { st, idx: buildIdx(st) };
     return seedCache;
   };
-  const makeSrc = (st, idx, asOf) => {
-    const ok = (t) => !asOf || !t || t <= asOf;
+  /** demoToo: räkna också med ändringar som gjorts i demon (används för att upptäcka att underlaget ändrats efter leveransen). */
+  const makeSrc = (st, idx, asOf, demoToo = false) => {
+    const ok = (t) => !asOf || !t || t <= asOf || (demoToo && t >= SEED_NOW);
     const src = {
       st, asOf, now: asOf || d.now(), ok,
       caseById: (id) => idx.cases[id] || null,
@@ -420,11 +421,12 @@
     }
     return baseCache.models[key];
   };
-  /** Har underlaget ändrats efter leveransen? (Jämför den frysta versionen med dagens data.) */
+  /** Har underlaget för den rapporterade perioden ändrats efter leveransen? Jämför den frysta versionen med samma uppgifter
+   *  plus allt som ändrats i demon. Uppgifter som tillkom i seedens historik efter leveransen räknas inte. */
   const driftedSinceDelivery = (r) => {
-    if (!isDelivered(r) || r.superseded) return false;
-    const a = modelFor(r); const b = modelFor(r, { live: true }); if (!a || !b) return false;
-    const norm = (m) => JSON.stringify({ ...m, now: null, summary: null, recommendation: null, sla: null });
+    if (!isDelivered(r) || r.superseded || !BUILD[r.kind]) return false;
+    const a = modelFor(r); const b = BUILD[r.kind](makeSrc(S(), liveIdx(), r.deliveredAt || null, true), r, true); if (!a || !b) return false;
+    const norm = (m) => JSON.stringify({ ...m, now: null, summary: null, recommendation: null, sla: null, basics: null });
     return norm(a) !== norm(b);
   };
 
@@ -1244,5 +1246,5 @@
     title: (params) => { const r = params && params.reportId && MM.store.state ? MM.store.state.reports.find((x) => x.id === params.reportId) : null; return r ? reportTitle(r) : 'Rapport'; },
     roles: VIEW_ROLES, component: ReportView,
   });
-  MM.reports = { ReportDocument, StatusBadge, reportTitle, periodText, effStatus, statusLabel, nextStep, isDelivered, isOverdue, reportAccess, modelFor, latestDelivered, pendingCorrection };
+  MM.reports = { ReportDocument, StatusBadge, reportTitle, periodText, effStatus, statusLabel, nextStep, isDelivered, isOverdue, reportAccess, modelFor, latestDelivered, pendingCorrection, driftedSinceDelivery };
 })();

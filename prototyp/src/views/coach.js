@@ -1,7 +1,7 @@
 // views/coach.js – coachens vardag: Min vecka, närvaro, veckoavstämning (manuellt eller med AI-stöd),
 // månadsbedömning, kartläggning vecka 1 samt händelser och avslut.
 // Roll: coach (Amira Haddad). Närvaro även för handledare (teamärenden).
-// Regler: coachen ser bara sina ärenden och aldrig eskaleringar till chef. AI föreslår – människan bedömer.
+// Regler: coachen ser bara sina ärenden och sina egna påminnelser (interna flaggor till andra roller visas aldrig). AI föreslår – människan bedömer.
 (() => {
   const { html, useState, useEffect, useRef, d, fmt } = MM;
   const ui = MM.ui; const I = ui.Icon; const sel = MM.sel;
@@ -598,7 +598,7 @@
         </div>
       <//>
 
-      ${role === 'handledare' && html`<${ui.Notice} tone="info" title="Dina teamärenden">Du ser tillfällen för de ${cases.length} ärenden där du ingår i teamet. Ärenden med skyddade personuppgifter visas bara för namngiven coach.<//>`}
+      ${role === 'handledare' && html`<${ui.Notice} tone="info" title="Dina teamärenden">Du ser tillfällen för ${cases.length === 1 ? 'det ärende' : `de ${cases.length} ärenden`} där du ingår i teamet. Ärenden med skyddade personuppgifter visas bara för namngiven coach.<//>`}
 
       <div class="stack-sm">
         <span class="eyebrow">Dag</span>
@@ -1359,7 +1359,7 @@
         for (const k of res.missing || []) e[k] = areas[k].level == null ? 'Välj nivå.' : `Skriv en konkret observation. Mallen kräver belägg från nivå ${reqFrom}.`;
         if (!overall) e.overall = 'Välj samlad status.';
         setErrors(e);
-        MM.toast(`Bedömningen kan inte godkännas: ${(res.missing || []).length} områden saknar uppgifter${!overall ? ' och samlad status saknas' : ''}.`, 'red');
+        MM.toast(`Bedömningen kan inte godkännas: ${plural((res.missing || []).length, 'område saknar', 'områden saknar')} uppgifter${!overall ? ' och samlad status saknas' : ''}.`, 'red');
         setTimeout(() => { const first = document.querySelector('.cm-table tr.row-alert select, #cm-overall'); if (first) { try { first.scrollIntoView({ block: 'center' }); } catch (err) { /* */ } first.focus && first.focus(); } }, 40);
         return;
       }
@@ -1497,7 +1497,7 @@
         <//>
       </div>
 
-      ${Object.keys(errors).length > 0 && html`<${ui.Notice} tone="critical" title="Bedömningen är inte komplett">${Object.keys(errors).filter((k) => k !== 'overall').length} områden är markerade${errors.overall ? ' och samlad status saknas' : ''}. Mallen kräver alltid belägg eller exempel från nivå ${reqFrom}.<//>`}
+      ${Object.keys(errors).length > 0 && html`<${ui.Notice} tone="critical" title="Bedömningen är inte komplett">${plural(Object.keys(errors).filter((k) => k !== 'overall').length, 'område är markerat', 'områden är markerade')}${errors.overall ? ' och samlad status saknas' : ''}. Mallen kräver alltid belägg eller exempel från nivå ${reqFrom}.<//>`}
       <div class="row">
         <${ui.Btn} kind="primary" size="lg" icon="check" onClick=${() => save(true)}>Godkänn bedömningen<//>
         <${ui.Btn} kind="secondary" icon="file" onClick=${() => save(false)}>Spara utkast<//>
@@ -1615,7 +1615,7 @@
     MM.useStore();
     if (!params.caseId) {
       return html`<${CasePicker} view="coach.handelse" extra=${params.mode ? { mode: params.mode } : {}} title=${params.mode === 'close' ? 'Avsluta insatsen' : 'Registrera händelse'} actionLabel="Välj"
-        lead="Välj deltagare." statusOf=${(c) => html`<span class="small muted">${sel.eventsOf(c.id).length} händelser registrerade</span>`} />`;
+        lead="Välj deltagare." statusOf=${(c) => html`<span class="small muted">${plural(sel.eventsOf(c.id).length, 'händelse registrerad', 'händelser registrerade')}</span>`} />`;
     }
     const c = sel.caseById(params.caseId);
     const g = gate(c); if (g) return html`<${GateView} g=${g} title="Händelser" view="coach.handelse" />`;
@@ -1674,7 +1674,7 @@
       <div class="stack-sm">
         <div class="row-sm"><${ui.Badge} tone="grey" icon="minus-circle">${bonusOn() ? 'Aktiv' : 'Avstängd – modellen ej fastställd'}<//></div>
         <p class="small">Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag. Underlaget samlas in redan nu, men inget bonusanspråk skapas förrän incitamentsmodellen är beslutad.</p>
-        <p class="small muted">${events.filter((x) => x.possibleBonus).length} händelser i ärendet är markerade som möjligt bonusunderlag.</p>
+        <p class="small muted">${events.filter((x) => x.possibleBonus).length === 1 ? '1 händelse i ärendet är markerad' : `${events.filter((x) => x.possibleBonus).length} händelser i ärendet är markerade`} som möjligt bonusunderlag.</p>
       </div>
     <//>`;
 

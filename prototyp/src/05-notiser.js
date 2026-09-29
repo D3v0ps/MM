@@ -50,7 +50,7 @@
             </div>`; })}
         </div>`}
       <//>
-      <${ui.DemoNote}>Påminnelser och eskaleringar räknas fram av reglerna i Admin → Avtal och konfiguration → Interna regler. I den riktiga tjänsten skickas de av ett schemalagt jobb och lagras i en tabell där varje rad bara kan läsas av sin mottagare (radnivåsäkerhet).<//>
+      <${ui.DemoNote}>${isEscalationRole || role === 'admin' ? 'Påminnelser och eskaleringar räknas fram av reglerna i Admin → Avtal och konfiguration → Interna regler.' : 'Påminnelser räknas fram av reglerna i adminvyn.'} I den riktiga tjänsten skickas de av ett schemalagt jobb och lagras i en tabell där varje rad bara kan läsas av sin mottagare (radnivåsäkerhet).<//>
     <//>`;
   };
   MM.registerView('notiser', { title: 'Notiser', roles: MB_ROLES, component: NotisView });

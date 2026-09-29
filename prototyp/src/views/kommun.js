@@ -45,6 +45,8 @@
 .kom-details > summary .ic { transition: transform 0.15s ease; }
 .kom-details[open] > summary .ic { transform: rotate(180deg); }
 .kom-stepper li.review .n .ic { width: 16px; height: 16px; }
+.kom .tab .count { font-size: 1rem; }
+.kom-narrow .stepper li .n, .kom .stepper li .n { font-size: 1rem; }
 .kom-group + .kom-group { border-top: 1px solid var(--line); }
 .kom-group-label { padding: 14px 20px 4px; }
 .kom-head { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -1025,7 +1027,7 @@
           : html`<p class="muted">Meddelanden om deltagaren skickas av handläggaren som beställde insatsen (${MM.personName(c.referrerId)}). Du kan läsa dem här.</p>`}
         </div>
       <//>
-      <p class="muted small">Säkra meddelanden ersätter mejl med personuppgifter. Allt sparas i ärendet och syns för den ansvariga coachen.</p>
+      <p class="muted small">Säkra meddelanden ersätter mejl med personuppgifter. Allt sparas under ärendenumret och syns för den ansvariga coachen.</p>
     </div>`;
   };
 
@@ -1100,6 +1102,22 @@
   };
 
   // ============================================================ kom.chef
+  /** Beställarrapportens siffror. En levererad rapport ska inte räknas om i efterhand, så siffrorna tas från rapportdokumentets
+   *  frysta innehåll när rapportvyn finns. Fält som dokumentet saknar (t.ex. "någon progression") tas från sel.customerSummary. */
+  const frozenSummary = (rep, month) => {
+    const live = sel.customerSummary(month);
+    let doc = null;
+    try { doc = MM.reports && typeof MM.reports.modelFor === 'function' ? MM.reports.modelFor(rep) : null; } catch (e) { doc = null; }
+    if (!doc || doc.kind !== 'customer_summary' || !doc.result || doc.month !== month) return live;
+    const res = (a, b) => ({ ...a, ...(b || {}) });
+    return {
+      ...live, active: doc.active, started: doc.started, closed: doc.closed, byArea: doc.byArea || live.byArea, byTrack: doc.byTrack || live.byTrack,
+      result: { ...live.result, rolling: res(live.result.rolling, doc.result.rolling), sinceStart: res(live.result.sinceStart, doc.result.sinceStart), month: res(live.result.month, doc.result.month) },
+      attendanceRate: doc.attendanceRate, attendance: doc.attendance || live.attendance,
+      pulse: { ...live.pulse, ...(doc.pulse || {}) }, progression: { ...live.progression, ...(doc.progression || {}) },
+      deviations: doc.deviations, contractDeviations: doc.contractDeviations,
+    };
+  };
   const seenSummary = new Set();
   const ChefView = () => {
     const st = MM.useStore(); const pid = pidNow();
@@ -1116,7 +1134,8 @@
       if (!rep.openedAt) MM.dispatch('report.open', { reportId: rep.id }, { silent: true });
       else MM.dispatch('audit.view', { action: 'report.view', entity: 'report', entityId: rep.id }, { silent: true });
     }, [rep && rep.id, ok]);
-    const s = useMemo(() => (ok ? sel.customerSummary(month) : null), [month, ok, MM.store.version]);
+    // Levererade siffror: samma frysta innehåll som rapportdokumentet (MM.reports.modelFor) när det finns, annars sel.customerSummary.
+    const s = useMemo(() => (ok ? frozenSummary(rep, month) : null), [month, ok, MM.store.version]);
     const pending = sel.komPendingActionPlans();
     const approved = st.contractDeviations.filter((x) => x.contractId === 'c-bot' && x.customerApprovedAt).sort(MM.by('customerApprovedAt', -1));
     const ladder = MM.cfg().escalationLadder || [];
@@ -1145,7 +1164,8 @@
       : r.value >= target ? html`<${ui.Badge} tone="blue" icon="check-circle">Når avtalsmålet<//>` : html`<${ui.Badge} tone="red" icon="alert">Under avtalsmålet<//>`);
     const avslutText = (r) => `${small(r.num)} av ${small(r.den)} avslut`;
     const pctOrHidden = (num, den) => (den === 0 ? '–' : den < N || (num > 0 && num < N) ? 'Redovisas inte' : fmt.pct(num / den, 0));
-    const attPct = (v) => (v == null ? '–' : fmt.pct(v, 0));
+    // Samma antal decimaler som i rapportdokumentet.
+    const attPct = (v) => (v == null ? '–' : fmt.pct(v));
     const satisfactionLabel = 'Andel som svarat 4 eller 5 på en skala 1–5';
 
     return html`<div class="kom">
@@ -1253,7 +1273,7 @@
         </div>
       <//>
       <${ui.DemoNote}>Siffrorna räknas fram ur prototypens påhittade data. Vad beställarrapporten ska innehålla och hur ofta den kommer är en öppen fråga till kommunen.<//>
-      <div class="kom-actions"><${ui.PerspectiveSwitch} role="chef" view="chef.oversikt" label="Se Miljonbemannings interna ledningsvy" /></div>
+      <div class="kom-actions"><${ui.PerspectiveSwitch} role="chef" view="chef.oversikt" label="Se samma resultat i Miljonbemannings ledningsvy" /></div>
     </div>`;
   };
 
