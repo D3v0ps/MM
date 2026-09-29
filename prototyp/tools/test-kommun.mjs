@@ -64,6 +64,32 @@ await page.getByRole('button', { name: 'Logga in' }).click();
 await page.waitForTimeout(150);
 r = await route();
 ok(r.view === 'kom.chef' && r.role === 'kommun_chef', `chefens adress loggar in som kommunens chef (${r.role} / ${r.view})`);
+// Okänd adress på rätt domän: inte inbjuden, ingen inloggning
+await visit(page, 'kommun_handlaggare', 'kom.login');
+const auditBeforeUnknown = await st(() => MM.store.state.auditLog.filter((x) => x.action === 'auth.login').length);
+await page.fill('#kom-login-email', 'okand.person@botkyrka.se');
+await page.getByRole('button', { name: 'Skicka kod' }).click();
+ok(/inte inbjuden till portalen/.test(await text()) && (await page.locator('#kom-login-code').count()) === 0, 'okänd @botkyrka.se-adress får beskedet att den inte är inbjuden');
+ok((await st(() => MM.store.state.auditLog.filter((x) => x.action === 'auth.login').length)) === auditBeforeUnknown, 'ingen inloggning loggas för okänd adress');
+ok((await st(() => MM.dispatch('kom.login', { email: 'okand.person@botkyrka.se' }))).error === 'unknown', 'kom.login avvisar okänd adress (ingen reserv till aktuell roll)');
+await shot('login-okand');
+// Spärrad användare kommer inte in
+await st(() => MM.dispatch('admin.setCustomerActive', { userId: 'k-maria', active: false }));
+await visit(page, 'kommun_handlaggare', 'kom.login');
+await page.fill('#kom-login-email', 'maria.ekdahl@botkyrka.se');
+await page.getByRole('button', { name: 'Skicka kod' }).click();
+ok(/spärrat/.test(await text()) && (await page.locator('#kom-login-code').count()) === 0, 'spärrad användare stoppas vid inloggningen');
+ok((await st(() => MM.dispatch('kom.login', { email: 'maria.ekdahl@botkyrka.se' }))).error === 'blocked', 'kom.login avvisar spärrad användare');
+await st(() => MM.dispatch('admin.setCustomerActive', { userId: 'k-maria', active: true }));
+await visit(page, 'kommun_handlaggare', 'kom.login');
+await page.fill('#kom-login-email', 'maria.ekdahl@botkyrka.se');
+await page.getByRole('button', { name: 'Skicka kod' }).click();
+ok((await page.locator('#kom-login-code').count()) === 1, 'aktiverad igen – kan få kod');
+// Kolla din e-post: adressen bryts på mobil
+await page.setViewportSize({ width: 400, height: 860 }); await page.waitForTimeout(80);
+const mailOverflow = await st(() => { const b = document.querySelector('.notice b'); const n = document.querySelector('.notice'); return b && n ? b.getBoundingClientRect().right - n.getBoundingClientRect().right : 0; });
+ok(mailOverflow <= 0, `e-postadressen stannar inne i rutan på 400 px (${Math.round(mailOverflow)})`);
+await page.setViewportSize({ width: 1280, height: 900 }); await page.waitForTimeout(40);
 
 // ------------------------------------------------------------ 2. Startsida
 console.log('\n2. Startsida för handläggaren');
@@ -71,8 +97,15 @@ await visit(page, 'kommun_handlaggare', 'kom.start');
 ok((await page.locator('.bigbtn').count()) === 3, 'tre stora knappar');
 const bigTexts = await page.locator('.bigbtn').allInnerTexts();
 ok(/Beställ ny insats/.test(bigTexts[0]) && /Mina deltagare/.test(bigTexts[1]) && /Rapporter och meddelanden/.test(bigTexts[2]), 'knapparna har rätt text och ordning');
-const unreadCount = await st(() => MM.sel.komUnreadReports('k-maria').length + MM.sel.komUnreadMessages('k-maria', 'kommun_handlaggare').length);
-ok(new RegExp(`Nytt för dig \\(${unreadCount}\\)`, 'i').test(await text()), `olästa överst (${unreadCount})`);
+const unreadCount = await st(() => MM.sel.komUnreadReports('k-maria').filter((r) => r.kind !== 'order_confirmation').length + MM.sel.komUnreadMessages('k-maria', 'kommun_handlaggare').length);
+ok(new RegExp(`Olästa rapporter och meddelanden \\(${unreadCount}\\)`, 'i').test(await text()), `olästa överst (${unreadCount})`);
+ok(/Tre korta steg och en granskning/.test(await text()), 'startknappen säger tre steg och en granskning');
+ok((await page.getByRole('button', { name: 'Se startsidan hos Miljonbemanning' }).count()) === 1, 'perspektivbyte finns på startsidan');
+await page.getByRole('button', { name: /Visa alla olästa/ }).click();
+r = await route();
+ok(r.view === 'kom.rapporter' && r.params.filter === 'olasta', 'Visa alla olästa öppnar rapporterna med filtret Olästa');
+ok(await page.locator('[aria-label="Visa rapporter"] button[aria-pressed="true"]', { hasText: 'Olästa' }).count() === 1, 'filtret Olästa är valt');
+await visit(page, 'kommun_handlaggare', 'kom.start');
 const firstNew = await page.locator('.kom-unread').first().boundingBox(); const firstBig = await page.locator('.bigbtn').first().boundingBox();
 ok(firstNew && firstBig && firstNew.y < firstBig.y, 'olästa visas ovanför knapparna');
 await shot('start');
@@ -83,6 +116,10 @@ ok((await route()).view === 'kom.bestall', 'knappen öppnar beställningen');
 console.log('\n3. Beställning i tre steg');
 await visit(page, 'kommun_handlaggare', 'kom.bestall');
 ok((await page.inputValue('#kom-o-name')) === 'Maria Ekdahl' && (await page.inputValue('#kom-o-email')) === 'maria.ekdahl@botkyrka.se', 'kontaktuppgifter förifyllda');
+ok(/Steg 1 av 3/i.test(await text()) && /tre korta steg och en granskning/.test(await text()), 'stegvisaren och ingressen säger tre steg och en granskning');
+ok((await page.locator('.kom-stepper li').count()) === 4 && (await page.locator('.kom-stepper li.review .n svg, .kom-stepper li.review .n .ic').count()) >= 1, 'granskningen visas utan stegnummer i stegvisaren');
+ok(/8–10 siffror/.test(await text()) === (await st(() => MM.valid.buyerRefLengthText() === '8–10')), 'hjälptexten för referensen läses från avtalet');
+ok((await page.getByRole('button', { name: 'Se hur beställningar tas emot hos Miljonbemanning' }).count()) === 1, 'perspektivbyte finns i beställningen');
 ok((await page.inputValue('#kom-o-ref')) === '4410023817', 'sparad beställarreferens förifylld');
 await page.fill('#kom-o-ref', '44100');
 ok(/ska vara 8–10 siffror\. Du har skrivit 5/.test(await text()), 'beställarreferensen valideras direkt');
@@ -133,6 +170,7 @@ ok((await page.inputValue('#kom-o-track')) === 'Truckförare A+B', 'förslag på
 await page.fill('#kom-o-bg', 'Har arbetat på lager i två år. Vill ta truckkort.');
 await page.getByRole('button', { name: /Nästa/ }).click();
 ok((await page.locator('h2', { hasText: 'Granska och skicka' }).count()) === 1, 'granskningssteg');
+ok(/Granska innan du skickar/i.test(await text()) && !/Steg 4 av/i.test(await text()), 'granskningen räknas inte som ett fjärde steg');
 const review = await text();
 ok(/•+-?3456/.test(review) && !/19880412-3456/.test(review), 'personnumret visas maskerat i granskningen');
 ok(/Beställningens värde/i.test(review) && /8 veckor ×/.test(review), 'beställningens värde visas');
@@ -179,13 +217,24 @@ await page.getByRole('button', { name: 'Skicka beställningen' }).click();
 await page.waitForTimeout(150);
 const prot = await st(() => { const c = MM.store.state.cases.slice(-1)[0]; const p = MM.sel.person(c); const n = MM.store.state.notifications.slice(-1)[0]; return { c, p, n }; });
 ok(prot.p.protectedIdentity && prot.p.phone === '' && prot.p.address === null && prot.p.city === '' && prot.c.status === 'received', 'bara namn, personnummer och handläggare sparas');
-ok(!prot.c.buyerReference && !prot.c.primaryArea && !prot.c.backgroundInfo, 'inga övriga uppgifter sparas');
+ok(prot.c.buyerReference === '4410023817' && prot.c.plannedWeeks === 6 && !!prot.c.desiredStart, 'uppgifterna från steg 1 (beställarreferens, start, veckor) behålls');
+ok(!prot.c.primaryArea && !prot.c.backgroundInfo, 'inga övriga uppgifter om deltagaren sparas');
 ok(prot.n.template === 'generisk_mottagningsbekraftelse' && !prot.n.body.includes(prot.c.number), 'bara generisk mottagningsbekräftelse i mejlet');
+const protDone = await text();
+ok(/utan ärendenummer och utan personuppgifter/.test(protDone) && !/Mejlet innehåller bara ärendenumret/.test(protDone), 'kvittot beskriver den generiska bekräftelsen rätt');
+ok(!/på det sätt du valde/.test(protDone) && /säkra rutinen/.test(protDone), 'kvittot lovar ingen kallelse enligt vald kontaktväg');
+ok(await st((id) => MM.store.state.tasks.some((t) => t.kind === 'protected_order' && (t.caseIds || []).includes(id)), prot.c.id), 'avtalsansvarig får en uppgift om skyddad beställning');
+await shot('bestall-skyddad-klar');
+await page.getByRole('button', { name: 'Se hur beställningen landar hos Miljonbemanning' }).click();
+await page.waitForTimeout(150);
+r = await route();
+ok(r.role === 'avtalsansvarig' && r.view === 'sam.inkorg', `skyddad beställning öppnas som avtalsansvarig (${r.role})`);
 
 // ------------------------------------------------------------ 4. Deltagare
 console.log('\n4. Mina deltagare');
 await visit(page, 'kommun_handlaggare', 'kom.deltagare');
 const nOwn = await st(() => MM.sel.visibleCases('kommun_handlaggare', 'k-maria').filter((c) => !['closed', 'declined'].includes(c.status)).length);
+ok(/De deltagare som du har beställt en insats för/.test(await text()) && new RegExp(`${nOwn} deltagare`, 'i').test(await text()), 'listan använder begreppet deltagare');
 ok(new RegExp(`Pågår och på väg \\(${nOwn}\\)`).test(await text()), `lista med egna aktuella ärenden (${nOwn})`);
 await page.fill('#kom-sok', 'BOT-26-0143');
 ok((await page.locator('.list .list-item').count()) === 1 && /Nadia Warsame/.test(await text()), 'sök på ärendenummer');
@@ -234,11 +283,27 @@ await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: await st(() =
 ok(/Du har inte tillgång/i.test(await text()), 'handläggaren ser inte andras ärenden');
 // Chefen ser enhetens ärenden men skyddade namn döljs
 await visit(page, 'kommun_chef', 'kom.deltagare');
-ok(/Enhetens ärenden/i.test(await text()) && (await page.locator('#kom-who').count()) === 1, 'chefen ser enhetens ärenden med filter per handläggare');
+ok(/Enhetens deltagare/i.test(await text()) && (await page.locator('#kom-who').count()) === 1, 'chefen ser enhetens deltagare med filter per handläggare');
 await visit(page, 'kommun_chef', 'kom.deltagare', { caseId: await st(() => MM.store.state.script.skyddad) });
 const skT = await text();
 ok(/Skyddade personuppgifter/i.test(skT) && !(await st(() => { const p = MM.sel.person(MM.sel.caseByTag('skyddad')); return document.querySelector('#main').innerText.includes(p.lastName); })), 'skyddat namn visas inte för chefen');
 ok(!(await page.locator('#kom-msg').count()), 'chefen kan inte skriva meddelanden');
+ok(/Bara handläggaren som beställde/.test(skT), 'chefen ser att uppgifterna bara visas för handläggaren');
+await page.getByRole('tab', { name: /Meddelanden/ }).click();
+ok(/Meddelandena visas bara för handläggaren/.test(await text()), 'chefen läser inte meddelanden om skyddad deltagare');
+await page.getByRole('button', { name: 'Se samma deltagare hos Miljonbemanning' }).click();
+await page.waitForTimeout(150);
+r = await route();
+ok(r.role === 'avtalsansvarig' && r.view === 'arende.kort' && r.params.tab === 'meddelanden', `skyddat ärende byter till avtalsansvarig på samma flik (${r.role}, ${r.params.tab})`);
+ok(!/Du saknar åtkomst|Ingen åtkomst/.test(await text()), 'bytet landar i en roll med åtkomst');
+// Chefen: texter i tredje person, mötesförfrågan i läsläge
+const elifId = await st(() => MM.store.state.script.elif);
+await st((caseId) => MM.dispatch('deviation.callCustomer', { caseId, body: 'Hej Linda! Kan vi ses om Elifs närvaro?', proposedAt: '2027-02-05T10:00' }), elifId);
+await visit(page, 'kommun_chef', 'kom.deltagare', { caseId: elifId });
+const elifT = await text();
+ok(/Mötesförfrågan till handläggaren/i.test(elifT) && /Skickad till Linda Karlsson/.test(elifT), 'chefen ser mötesförfrågan i läsläge');
+ok(/Handläggaren \(Linda Karlsson\) fick ärendenummer/.test(elifT) && !/Du fick ärendenummer/.test(elifT), 'chefen får texter i tredje person');
+await shot('chef-deltagare-elif');
 
 // ------------------------------------------------------------ 5. Rapporter och meddelanden
 console.log('\n5. Rapporter och meddelanden');
@@ -263,6 +328,58 @@ await page.locator('.list .list-item').first().click();
 r = await route();
 ok(r.view === 'kom.deltagare' && r.params.tab === 'meddelanden', 'tråden öppnas i deltagarens meddelandeflik');
 
+// ------------------------------------------------------------ 5b. Händelser, uppgifter och rättelser
+console.log('\n5b. Händelser i dina ärenden, uppgifter och rättade rapporter');
+const ids = await st(() => ({ mall: MM.store.state.script['inkorg-mall'], nadia: MM.store.state.script.nadia, yusuf: MM.store.state.script.yusuf, samira: MM.store.state.cases.find((c) => c.referrerId === 'k-maria' && c.source === 'portal' && c.status === 'acknowledged').id }));
+await visit(page, 'samordnare', 'sam.start');
+await st((x) => {
+  MM.dispatch('case.decline', { caseId: x.mall, reason: 'Vi har ingen ledig plats inom avtalsområdet den önskade veckan.' });
+  MM.dispatch('case.accept', { caseId: x.samira, leadCoachId: 'u-amira', firstMeetingAt: '2027-02-08T10:00', plannedWeeks: 8, buyerReference: '4410023817' });
+  MM.dispatch('case.changeCoach', { caseId: x.nadia, toCoachId: 'u-sofia', reason: 'Amira är föräldraledig.' });
+}, ids);
+await visit(page, 'coach', 'coach.minvecka');
+await st((x) => MM.dispatch('deviation.save', { caseId: x.yusuf, data: { description: 'Upprepad ogiltig frånvaro', action: 'Möte med deltagaren', needsCustomerDecision: true } }), ids);
+await visit(page, 'kommun_handlaggare', 'kom.start');
+let startT = await text();
+ok(/Händelser i dina ärenden \(3\)/i.test(startT), 'startsidan visar tre händelser');
+ok(/BOT-27-0050 kunde inte tas emot/.test(startT), 'avböjd beställning syns på startsidan');
+ok(/Ny ansvarig coach för BOT-26-0143/.test(startT), 'byte av coach syns på startsidan');
+ok(/Orderbekräftelse för BOT-/.test(startT), 'ny orderbekräftelse syns på startsidan');
+ok(/Att göra \(1\)/i.test(startT) && /Miljonbemanning behöver ditt beslut om BOT-26-0148/.test(startT), 'uppgiften customer_decision syns på startsidan');
+ok(!/ kl\. |\b(jan|feb|dec)\b/.test(startT), 'startsidan har inga förkortningar i datum');
+await shot('start-handelser');
+await noHScroll('Startsidan med händelser');
+// Avböjd syns i standardfiltret
+await visit(page, 'kommun_handlaggare', 'kom.deltagare');
+ok(/BOT-27-0050/.test(await text()), 'avböjd beställning syns i standardfiltret Pågår och på väg');
+ok((await page.getByRole('group', { name: 'Visa deltagare' }).getByRole('button', { name: /^Avböjda/ }).count()) === 1, 'eget filter för avböjda');
+// Öppna den avböjda – händelsen räknas som läst
+await visit(page, 'kommun_handlaggare', 'kom.start');
+await page.getByRole('button', { name: /BOT-27-0050 kunde inte tas emot/ }).click();
+await page.waitForTimeout(150);
+ok(/Vi har ingen ledig plats/.test(await text()), 'orsaken visas i ärendet');
+await visit(page, 'kommun_handlaggare', 'kom.start');
+startT = await text();
+ok(!/BOT-27-0050 kunde inte tas emot/.test(startT) && /Händelser i dina ärenden \(2\)/i.test(startT), 'händelsen försvinner när ärendet har öppnats');
+// Uppgiften visas i ärendet och kan markeras som klar
+await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: ids.yusuf });
+ok(/Miljonbemanning behöver ditt beslut/.test(await text()), 'uppgiften syns i ärendets översikt');
+await page.getByRole('button', { name: 'Markera som klar' }).first().click();
+await page.waitForTimeout(100);
+ok(await st(() => MM.store.state.tasks.filter((t) => t.kind === 'customer_decision').every((t) => t.status === 'done' && t.doneBy === 'k-maria')), 'uppgiften är markerad som klar');
+ok((await st(() => { const t = MM.store.state.tasks.find((x) => x.kind === 'customer_decision'); return MM.dispatch('kom.taskDone', { taskId: t.id }); })).error !== 'forbidden', 'handläggaren äger uppgiften');
+// Rättelse: den levererade rapporten finns kvar tills den nya versionen är levererad
+const delivered = await st(() => MM.store.state.reports.find((r) => r.kind === 'monthly' && r.status === 'delivered' && !r.superseded && (r.deliveredTo || []).includes('k-maria')));
+await visit(page, 'coach', 'coach.minvecka');
+const corr = await st((id) => MM.dispatch('report.correct', { reportId: id }), delivered.id);
+await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: delivered.caseId, tab: 'rapporter' });
+ok(/Rättas – en ny version kommer/.test(await text()), 'rapporten som rättas finns kvar med märket Rättas');
+ok(await st((id) => MM.sel.komReports('k-maria').some((r) => r.id === id), delivered.id), 'rapporten finns kvar i kundens rapportlista');
+await st((id) => { MM.dispatch('report.approve', { reportId: id }); MM.dispatch('report.deliver', { reportId: id }); }, corr.reportId);
+await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: delivered.caseId, tab: 'rapporter' });
+ok(await st((x) => { const ids = MM.sel.komReports('k-maria').map((r) => r.id); return ids.includes(x.n) && !ids.includes(x.o); }, { n: corr.reportId, o: delivered.id }), 'när den nya versionen levererats visas bara den');
+ok(/version 2/.test(await text()), 'version 2 visas');
+
 // ------------------------------------------------------------ 6. Kommunens chef
 console.log('\n6. Beställarrapport för kommunens chef');
 await visit(page, 'kommun_chef', 'kom.chef');
@@ -278,8 +395,16 @@ for (const tabName of ['Deltagare', 'Progression', 'Närvaro och nöjdhet']) {
 }
 await page.getByRole('tab', { name: 'Deltagare' }).click();
 ok(/färre än 5/.test(await text()), 'små grupper redovisas som "färre än 5"');
+ok(/Aktiva under månaden/i.test(await text()) && /Andel som svarat 4 eller 5 på en skala 1–5/.test(await text()), 'etiketterna är utskrivna utan förkortningar');
+ok(/Under avtalsmålet/i.test(await page.locator('.kom-kpis .kpi').first().innerText()), 'resultatrutan har statustext och inte bara färg');
 await shot('chef');
 await noHScroll('Beställarrapport');
+// Oktober: 4 av 6 avslut – täljaren är färre än 5 och andelen redovisas inte (samma regel som dokumentet)
+await page.getByRole('group', { name: 'Välj månad' }).getByRole('button', { name: /Oktober 2026/ }).click();
+await page.getByRole('tab', { name: 'Resultat' }).click();
+const octT = await text();
+ok(/färre än 5 av 6 avslut/.test(octT) && /Redovisas inte/.test(octT) && !/66,7\s%/.test(octT) && !/\b4 av 6\b/.test(octT), 'små resultatgrupper döljs i oktober');
+await shot('chef-oktober');
 await page.getByRole('group', { name: 'Välj månad' }).getByRole('button', { name: /Januari 2027/ }).click();
 ok(/inte klar än/.test(await text()) && /Du ser inga siffror förrän rapporten är godkänd/.test(await text()), 'januari är utkast och visar inga siffror');
 ok(!(await page.locator('.kom-kpis').count()), 'inga nyckeltal för utkastet');

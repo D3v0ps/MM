@@ -181,6 +181,124 @@ try {
     const over = await ev(() => document.documentElement.scrollWidth - window.innerWidth);
     ok(over <= 1, `${view} utan horisontell scroll på 400 px (${over})`);
   }
+
+  // ------------------------------------------------------------ 12. Historik: coachen ser aldrig andras visningar (t.ex. chefens)
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await visit(page, 'chef', 'chef.oversikt', {});
+  await visit(page, 'chef', 'arende.kort', { caseId: sc.yusuf });
+  ok(await ev((id) => MM.store.state.auditLog.some((x) => x.action === 'case.view' && x.entityId === id && x.actorId === 'u-karin'), sc.yusuf), 'Chefens visning loggas');
+  pr = await visit(page, 'coach', 'arende.kort', { caseId: sc.yusuf, tab: 'historik' });
+  t = await main();
+  ok(pr.length === 0 && !t.includes('Karin Wallin') && !/Öppnade deltagarkortet/.test(t), 'Coachens historik visar inte chefens (eller andras) visningar');
+  ok(/Dina åtgärder i ärendet/i.test(t) && /Status och coachbyten/i.test(t), 'Coachen ser statushistorik och egna åtgärder');
+  ok(t.includes('Avstämning godkändes') && !/eskaler/i.test(t), 'Egna åtgärder visas (godkända avstämningar), ingen eskalering');
+  const others = await ev(() => [...document.querySelectorAll('.arn-tabs table tbody tr')].length);
+  ok(others > 0, `Egna åtgärder listas (${others} rader)`);
+  pr = await visit(page, 'chef', 'arende.kort', { caseId: sc.yusuf, tab: 'historik' });
+  ok((await main()).includes('Karin Wallin') && /Revisionslogg för ärendet/i.test(await main()), 'Chefen ser hela revisionsloggen');
+  for (const [role, view, params] of [['coach', 'arenden.lista', {}], ['coach', 'arenden.lista', { filter: 'flaggor' }], ['handledare', 'hand.start', {}], ['handledare', 'arenden.lista', {}]]) {
+    await visit(page, role, view, params);
+    ok(!/eskaler/i.test(await main()), `${role} ${view}${params.filter ? ` (${params.filter})` : ''}: ingen text om eskalering`);
+  }
+
+  // ------------------------------------------------------------ 13. Perspektivbyten: rätt roll och rätt flik, döljs för skyddade
+  const sw = (name) => page.getByRole('button', { name });
+  await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab: 'rapporter' });
+  await sw('Så ser kommunen rapporterna').click(); await wait(200);
+  let rt = await ev(() => MM.route);
+  ok(rt.role === 'kommun_handlaggare' && rt.view === 'kom.deltagare' && rt.params.tab === 'rapporter', `"Så ser kommunen rapporterna" öppnar Marias rapportflik (${JSON.stringify(rt)})`);
+  await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab: 'meddelanden' });
+  await sw('Se tråden som kommunen').click(); await wait(200);
+  rt = await ev(() => MM.route);
+  ok(rt.role === 'kommun_handlaggare' && rt.params.tab === 'meddelanden', '"Se tråden som kommunen" öppnar meddelandefliken');
+  await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab: 'meddelanden' });
+  await sw('Se ärendet som kommunen').click(); await wait(200);
+  rt = await ev(() => MM.route);
+  ok(rt.params.tab === 'meddelanden', 'Huvudets perspektivbyte behåller fliken Meddelanden');
+  await visit(page, 'coach', 'arende.kort', { caseId: sc.elif, tab: 'avvikelser' });
+  ok(await sw('Se ärendet som kommunens chef').count() === 1, 'Ärende från annan handläggare: bytet går till kommunens chef och säger det');
+  await btn('Kalla kommunen till uppföljning').first().click(); await wait();
+  await btn('Skicka kallelsen').click(); await wait(200);
+  ok((await main()).includes('finns inte som roll i prototypen'), 'Kallelsen: förklaring när mottagaren inte finns som roll');
+  await sw('Se kallelsen som kommunens chef').click(); await wait(200);
+  rt = await ev(() => MM.route);
+  ok(rt.role === 'kommun_chef' && rt.params.tab === 'meddelanden', 'Kallelsen öppnas på meddelandefliken hos kommunens chef');
+  ok(/uppföljningsmöte/i.test(await main()), 'Kommunens chef ser kallelsen i tråden');
+  const protRoles = await ev((id) => ['kommun_handlaggare', 'kommun_chef'].map((r) => MM.sel.access(MM.sel.caseById(id), r, MM.roleDef(r).personaId)), sc.skyddad);
+  for (const tab of ['oversikt', 'rapporter', 'meddelanden', 'avvikelser']) {
+    await visit(page, 'avtalsansvarig', 'arende.kort', { caseId: sc.skyddad, tab });
+    ok(await page.locator('#main button', { hasText: /som kommunen|kommunens chef|Så ser/ }).count() === 0, `Skyddat ärende (${tab}): inget perspektivbyte till kund utan åtkomst (${protRoles.join('/')})`);
+  }
+  ok((await main()).length > 0 && await ev(() => /bara beställande handläggare/.test(document.querySelector('#main').innerText)), 'Skyddat ärende: förklaring till varför bytet saknas');
+  pr = await visit(page, 'chef', 'arende.kort', { caseId: sc.skyddad });
+  t = await main();
+  ok(t.includes('Du saknar åtkomst') && !t.includes('Sanna'), 'Chefen får ingen-åtkomst och ser inte namnet i skyddat ärende');
+
+  // ------------------------------------------------------------ 14. Olästa meddelanden från kommunen markeras i ärendelistan
+  await ev((id) => { const r = MM.route.role; MM.route.role = 'kommun_handlaggare'; MM.dispatch('message.send', { caseId: id, body: 'Tiden passar bra.' }); MM.route.role = r; }, sc.nadia);
+  await visit(page, 'coach', 'arenden.lista', {});
+  await page.check('#arn-onlyunread'); await wait();
+  let ut = await page.locator('.arn-wide tbody').innerText();
+  ok(ut.includes('BOT-26-0143') && ut.includes('Nytt meddelande'), 'Coachens lista markerar Nadias ärende med "Nytt meddelande"');
+  await visit(page, 'coach', 'arende.kort', { caseId: sc.nadia, tab: 'meddelanden' }); await wait(250);
+  await visit(page, 'coach', 'arenden.lista', {});
+  await page.fill('#arn-q', '0143'); await wait();
+  ut = await page.locator('.arn-wide tbody').innerText();
+  ok(!ut.includes('Nytt meddelande'), 'Markeringen försvinner när meddelandet är läst');
+  await visit(page, 'chef', 'arenden.lista', {});
+  ok(await page.locator('#arn-onlyunread').count() === 0, 'Chefen (läsläge) får ingen olästmarkering');
+
+  // ------------------------------------------------------------ 15. Texter på svenska och från avtalet
+  await visit(page, 'handledare', 'hand.start', {});
+  t = await main();
+  ok(!/timing|deadline/i.test(t) && t.includes('Tidpunkt'), 'hand.start: "Tidpunkt" i stället för "Timing"');
+  await visit(page, 'coach', 'arende.kort', { caseId: sc.nadia, tab: 'praktik' });
+  t = await main();
+  ok(!/timing|deadline/i.test(t) && t.includes('rätt tidpunkt'), 'Praktikfliken: "rätt tidpunkt" i stället för "timing"');
+  await visit(page, 'coach', 'arende.kort', { caseId: sc.nadia, tab: 'narvaro' });
+  const reg = await ev(() => { const x = MM.cfg().sla.find((s) => s.key === 'veckorapport_registrering'); const old = x.time; x.time = '09:30'; return old; });
+  await visit(page, 'coach', 'arende.kort', { caseId: sc.nadia, tab: 'narvaro' });
+  const regTxt = await main();
+  await ev((old) => { MM.cfg().sla.find((s) => s.key === 'veckorapport_registrering').time = old; }, reg);
+  ok(!/saknar registrering/i.test(regTxt) || regTxt.includes('måndag 09.30') || regTxt.includes('allt är registrerat'), 'Registreringstiden läses från avtalet');
+  await visit(page, 'samordnare', 'arende.kort', { caseId: sc.ingetmote });
+  const fmDays = await ev(() => MM.cfg().sla.find((s) => s.key === 'forsta_mote').within.days);
+  ok((await main()).includes(fmDays === 7 ? 'inom en vecka' : `inom ${fmDays} dagar`), 'Första mötets tidsgräns läses från avtalet');
+
+  // ------------------------------------------------------------ 16. Rättelse av levererad rapport syns
+  const delivered = await ev((id) => (MM.sel.reportsOf(id).find((r) => ['delivered', 'opened'].includes(r.status) && r.kind === 'monthly') || {}).id, sc.nadia);
+  if (delivered) {
+    await ev((rid) => MM.dispatch('report.correct', { reportId: rid }), delivered);
+    await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab: 'rapporter' });
+    ok((await main()).includes('Rättelse pågår'), 'Rapportfliken visar att en rättelse pågår och att kommunen ser den levererade versionen');
+  }
+
+  // ------------------------------------------------------------ 17. Mobil 400 px: klickytor och inget utanför korten
+  await page.setViewportSize({ width: 400, height: 860 });
+  const probe = () => ev(() => {
+    const vis = (el) => { const st = getComputedStyle(el); if (st.display === 'none' || st.visibility === 'hidden') return false; const b = el.getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+    const out = [];
+    document.querySelectorAll('#main *').forEach((el) => {
+      if (!vis(el) || el.closest('.table-wrap, .tabs, svg, .sr-only')) return;
+      const b = el.getBoundingClientRect();
+      const box = el.parentElement && el.parentElement.closest('.card, .notice, .list-item, .kpi, .modal, .demo-note, .empty');
+      if (box) { const cb = box.getBoundingClientRect(); if (b.right > cb.right + 1.5 || b.left < cb.left - 1.5) out.push(`${el.tagName} "${(el.innerText || '').slice(0, 30)}" utanför kortet`); }
+      if (el.matches('.btn, button') && el.scrollWidth > el.clientWidth + 1) out.push(`knapp "${(el.innerText || '').slice(0, 30)}" klipps`);
+      if (el.matches('.btn, button, [role=tab], select') && (b.height < 43.5 || b.width < 43.5)) out.push(`klickyta "${(el.innerText || '').slice(0, 30)}" ${Math.round(b.width)}x${Math.round(b.height)}`);
+    });
+    return [...new Set(out)];
+  });
+  const mob = [
+    ['hand.start', () => visit(page, 'handledare', 'hand.start', {})],
+    ['arenden.lista', () => visit(page, 'coach', 'arenden.lista', {})],
+    ['arende.kort översikt', () => visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia })],
+    ['arende.kort rapporter', () => visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab: 'rapporter' })],
+    ['arende.kort meddelanden', () => visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab: 'meddelanden' })],
+    ['ny avvikelse', async () => { await visit(page, 'coach', 'arende.kort', { caseId: sc.elif, tab: 'avvikelser' }); await btn('Ny avvikelse').click(); }],
+    ['kallelse skickad', async () => { await btn('Kalla kommunen till uppföljning').first().click(); await wait(); await btn('Skicka kallelsen').click(); }],
+    ['byt huvudcoach', async () => { await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia }); await btn('Byt huvudcoach').click(); }],
+  ];
+  for (const [name, fn] of mob) { await fn(); await wait(200); const r = await probe(); ok(r.length === 0, `400 px ${name}: knappar och text inom korten, klickytor minst 44 px (${r.slice(0, 3).join('; ')})`); }
 } catch (e) {
   fails++; console.log('FEL  Undantag:', e.message);
 }

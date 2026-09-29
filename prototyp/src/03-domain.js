@@ -629,7 +629,8 @@
   A('case.bookFirstMeeting', (st, p, ctx) => {
     const c = findCase(st, p.caseId); c.firstMeetingAt = p.at; c.plannedStart = p.at.slice(0, 10);
     ctx.audit('case.first_meeting_booked', 'case', c.id, { at: p.at });
-    if (!(st.persons.find((x) => x.id === c.personId) || {}).protectedIdentity) ctx.notify('sms', 'deltagare (föredragen kontaktväg)', 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.at)} kl. ${d.fmtTime(p.at)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
+    const pers0 = st.persons.find((x) => x.id === c.personId) || {}; const pc0 = pers0.preferredContact || 'sms';
+    if (!pers0.protectedIdentity) ctx.notify(({ email: 'email', letter: 'brev', phone: 'sms', sms: 'sms' })[pc0], `deltagare (${({ email: 'e-post', letter: 'brev', phone: 'SMS (telefon vald – coachen ringer också)', sms: 'SMS' })[pc0]})`, 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.at)} kl. ${d.fmtTime(p.at)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
     return {};
   });
   A('case.changeCoach', (st, p, ctx) => {

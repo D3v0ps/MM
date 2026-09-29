@@ -170,18 +170,19 @@
 
   // ---- Beställarreferens
   /** Anteckning från referensregistret med datum i läsbar form (2027-01-12 → 12 jan 2027). */
-  const noteText = (s) => String(s || '').trim().replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (m) => d.fmtDate(m));
+  //  Kärnans valideringstext för saknad referens är skriven till kommunen – skriv om den för ekonomen.
+  const noteText = (s) => String(s || '').trim().replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (m) => d.fmtDate(m)).replace('Den får ni av kommunens ekonomi eller er chef.', 'Kommunen lämnar den när de beställer.');
   const refInfo = (ref) => {
     const v = String(ref || '').trim();
     const known = S().buyerReferences.find((b) => b.reference === v);
     if (!v) return { ok: false, label: 'Saknas', text: 'Beställarreferens saknas. Ingen faktura kan skapas utan den.' };
     const err = MM.valid.buyerRefError(v);
-    if (err) return { ok: false, label: 'Fel format', text: err };
+    if (err) return { ok: false, label: 'Fel format', text: noteText(err) };
     if (known && !known.active) return { ok: false, label: 'Spärrad', text: noteText(known.note) || 'Referensen finns inte hos kommunen.', unit: known.unit };
     return { ok: true, label: 'Giltig', unit: known ? known.unit : null, text: known ? `Tillhör ${known.unit}.` : 'Rätt format. Kontrollera mot kommunens beställning.' };
   };
   const refError = (v, current) => {
-    const e = MM.valid.buyerRefError(v); if (e) return e;
+    const e = MM.valid.buyerRefError(v); if (e) return noteText(e);
     const r = refInfo(v);
     if (!r.ok) return `Referensen ${String(v).trim()} är spärrad hos kommunen. Använd referensen som kommunen har bekräftat.`;
     if (current && String(v).trim() === current) return 'Det är samma referens som ärendet redan har.';
@@ -824,7 +825,7 @@
           ]} />
         </div>
       <//>
-      <${ui.DemoNote}>Fortnox, kreditering och statushämtning är simulerade. Allt du gör sparas i revisionsloggen. Priserna är exempel inom avtalets spann.<//>
+      <${ui.DemoNote}>Fortnox, kreditering och statushämtning är simulerade. Allt du gör sparas i revisionsloggen. Priserna är exempel${priceSpan() ? ` inom prislistans spann (${priceSpan()} per vecka)` : ''}.<//>
       ${refModal && html`<${RefModal} cases=${refModal.cases} task=${refModal.task} onClose=${() => setRefModal(null)} />`}
     <//>`;
   };

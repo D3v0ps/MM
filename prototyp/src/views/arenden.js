@@ -1163,6 +1163,21 @@
   };
   /** Rena visningar – egna visningar är brus i coachens logg. */
   const VIEW_ACTIONS = ['case.view', 'case.view_denied', 'report.view', 'transcript.view'];
+  /** Coachens och handledarens egna åtgärder: egna poster i revisionsloggen plus det personen själv har godkänt, skickat eller registrerat
+   *  (demodatan har ingen revisionslogg för äldre händelser). Dubbletter mot revisionsloggen tas bort. */
+  const ownActions = (c, me, auditOwn) => {
+    const have = new Set(auditOwn.map((x) => `${x.action}:${x.entityId}`));
+    const haveAt = new Set(auditOwn.map((x) => `${x.action}@${x.occurredAt}`));
+    const out = [];
+    const push = (action, entityId, at, text) => { if (!at || have.has(`${action}:${entityId}`) || haveAt.has(`${action}@${at}`)) return; out.push({ id: `own-${action}-${entityId}`, occurredAt: at, actorId: me, action, entityId, text }); };
+    for (const x of sel.checkInsOf(c.id)) if (x.status === 'approved' && x.approvedBy === me) push('check_in.approved', x.id, x.approvedAt, `Avstämningen ${fd(x.heldAt)}`);
+    for (const x of sel.assessmentsOf(c.id)) if (x.status === 'approved' && x.decidedBy === me) push('assessment.approved', x.id, x.decidedAt, cap(d.monthName(x.month)));
+    const ia = sel.intakeOf(c.id); if (ia && ia.status === 'approved' && ia.approvedBy === me) push('intake.approved', ia.id, ia.approvedAt, '');
+    for (const m of sel.messagesOf(c.id)) if (m.senderId === me) push('message.sent', m.id, m.createdAt, m.kind === 'meeting_request' ? 'Kallelse till uppföljning' : clip(m.body, 60));
+    const att = MM.groupBy(S().attendance.filter((a) => a.caseId === c.id && a.registeredBy === me && a.registeredAt && !have.has(`attendance.registered:${a.id}`)), (a) => a.registeredAt.slice(0, 10));
+    for (const [day, xs] of Object.entries(att)) { const at = xs.map((a) => a.registeredAt).sort().pop(); out.push({ id: `own-att-${day}`, occurredAt: at, actorId: me, action: 'attendance.registered', entityId: null, text: fmt.plural(xs.length, 'tillfälle', 'tillfällen') }); }
+    return out;
+  };
   const TabHistorik = ({ c, role }) => {
     const [n, setN] = useState(25);
     const me = MM.currentPersonaId();
@@ -1171,9 +1186,9 @@
     const ownOnly = role === 'coach' || role === 'handledare';
     const hist = sel.historyOf(c.id);
     const repIds = new Set(sel.reportsOf(c.id).map((r) => r.id));
-    const log = S().auditLog.filter((x) => x.entityId === c.id || (x.details && x.details.caseId === c.id) || (x.entity === 'report' && repIds.has(x.entityId)) || (x.entity === 'person' && x.entityId === c.personId))
-      .filter((x) => !ownOnly || (x.actorId === me && !VIEW_ACTIONS.includes(x.action)))
-      .slice().sort(MM.by('occurredAt', -1));
+    const all = S().auditLog.filter((x) => x.entityId === c.id || (x.details && x.details.caseId === c.id) || (x.entity === 'report' && repIds.has(x.entityId)) || (x.entity === 'person' && x.entityId === c.personId));
+    const auditOwn = ownOnly ? all.filter((x) => x.actorId === me && !VIEW_ACTIONS.includes(x.action)) : all;
+    const log = (ownOnly ? [...auditOwn, ...ownActions(c, me, auditOwn)] : all).slice().sort(MM.by('occurredAt', -1));
     const items = hist.map((h) => {
       const coachChange = h.fromCoach && h.toCoach && h.fromCoach !== h.toCoach;
       const reason = sel.END_REASONS.includes(h.reason) ? sel.endReasonLabel(h.reason) : h.reason;
@@ -1191,11 +1206,11 @@
       <//>
       <${ui.Card} flush title=${ownOnly ? 'Dina åtgärder i ärendet' : 'Revisionslogg för ärendet'} icon="book"
         foot=${log.length > n && html`<span class="small muted">Visar ${n} av ${log.length}</span><span class="spacer"></span><${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setN(log.length)}>Visa alla<//>`}>
-        ${ownOnly && html`<div class="card-body" style="padding-bottom:0"><p class="small muted">Här ser du det du själv har gjort i ärendet. Statusändringar och coachbyten finns i historiken bredvid.</p></div>`}
+        ${ownOnly && html`<div class="card-body" style="padding-bottom:0"><p class="small muted">Här ser du det du själv har gjort i ärendet: godkända avstämningar och bedömningar, meddelanden, närvaro och ändringar. Statusändringar och coachbyten finns i historiken bredvid.</p></div>`}
         <${ui.Table} caption=${ownOnly ? 'Dina åtgärder' : 'Revisionslogg'} empty=${ownOnly ? 'Du har inte gjort några loggade ändringar i ärendet ännu.' : 'Inga loggade händelser ännu.'} rows=${log.slice(0, n)} columns=${[
           { key: 't', label: 'Tidpunkt', nowrap: true, render: (x) => d.fmtDateTime(x.occurredAt) },
           ...(ownOnly ? [] : [{ key: 'a', label: 'Vem', render: (x) => MM.personName(x.actorId) }]),
-          { key: 'h', label: 'Händelse', render: (x) => html`<span>${AUDIT[x.action] || x.action}</span>${x.byTester && html`<div class="cell-sub">Gjort i prototypen</div>`}${detailText(x) && html`<div class="cell-sub">${clip(detailText(x), 90)}</div>`}` },
+          { key: 'h', label: 'Händelse', render: (x) => html`<span>${AUDIT[x.action] || x.action}</span>${x.byTester && html`<div class="cell-sub">Gjort i prototypen</div>`}${(x.text || detailText(x)) && html`<div class="cell-sub">${clip(x.text || detailText(x), 90)}</div>`}` },
         ]} />
       <//>
     </div>`;
