@@ -85,6 +85,8 @@
   const PortalHeader = () => {
     const route = MM.useRoute(); const persona = MM.persona(); const items = KOM_NAV[route.role] || [];
     if (route.view === 'kom.login') return html`<header class="portal-header"><div class="brand">Miljonbemanning<span class="dot" aria-hidden="true"></span></div><span class="who">Portal för beställare</span></header>`;
+    // Handläggarens startsida: bara de tre stora knapparna – ingen annan navigation (SPEC §7.0)
+    if (route.view === 'kom.start') return html`<header class="portal-header"><div class="brand">Miljonbemanning<span class="dot" aria-hidden="true"></span></div><span class="spacer"></span><span class="who" style="display:inline">${persona ? `${persona.name}, ${persona.unit}` : ''}</span><button type="button" class="btn btn-ghost" style="font-size:1rem" onClick=${() => MM.nav('kom.login', {})}><${I} name="logout" />Logga ut</button></header>`;
     return html`<header class="portal-header">
       <div class="brand">Miljonbemanning<span class="dot" aria-hidden="true"></span></div>
       <nav aria-label="Portalmeny" class="row-sm" style="flex:1;gap:4px">${items.map(([v, label]) => html`<button type="button" class=${MM.cls('btn', route.view === v ? 'btn-primary' : 'btn-ghost')} style="min-height:44px;font-size:1rem;text-decoration:none" aria-current=${route.view === v ? 'page' : undefined} onClick=${() => MM.nav(v, {})}>${label}</button>`)}</nav>

@@ -177,7 +177,7 @@
     if (!p.pnr) return html`<span class="muted">–</span>`;
     const masked = `${p.pnr.slice(0, p.pnr.length - 4).replace(/\d/g, '•')}${p.pnrLast4}`;
     return html`<span class="row-sm"><span class="mono">${show ? p.pnr : masked}</span>
-      ${!show ? html`<button type="button" class="btn btn-ghost" style="min-height:36px;padding:4px 8px" onClick=${() => { setShow(true); MM.dispatch('audit.view', { action: 'pnr.revealed', entity: 'person', entityId: p.id, details: { caseId } }, { silent: true }); }}><${I} name="eye" />Visa</button>`
+      ${!show ? html`<button type="button" class="btn btn-ghost" style="min-height:44px;padding:4px 8px" onClick=${() => { setShow(true); MM.dispatch('audit.view', { action: 'pnr.revealed', entity: 'person', entityId: p.id, details: { caseId } }, { silent: true }); }}><${I} name="eye" />Visa</button>`
         : html`<span class="small muted">(visning loggad)</span>`}</span>`;
   };
 

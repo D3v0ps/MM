@@ -28,7 +28,7 @@
         <${ui.Seg} ariaLabel="Filter" value=${filter} onChange=${setFilter} options=${[{ value: 'alla', label: `Alla (${all.length})` }, { value: 'olasta', label: `Olästa (${unread.length})` },
           ...Object.entries(KIND).filter(([k]) => all.some((n) => n.kind === k)).map(([k, v]) => ({ value: k, label: v.label, icon: v.icon }))]} />
         ${isEscalationRole && html`<${ui.PerspectiveSwitch} role="coach" view="notiser" label="Se coachens notiser (Amira)" />`}
-        ${role === 'coach' && html`<${ui.PerspectiveSwitch} role="chef" view="notiser" label="Prototyp: jämför med chefens notiser" />`}
+
       </div>
       <${ui.Card} flush>
         ${list.length === 0 ? html`<${ui.Empty} icon="bell" title="Inga notiser">När du får ett ärende tilldelat eller en påminnelse visas den här.<//>` : html`<div class="list">
@@ -40,7 +40,7 @@
                 <div class="li-title">${n.title}</div>
                 <div>${n.body}</div>
                 <div class="row-sm small muted"><span>Kanaler:</span>${(n.channels || []).map((ch) => html`<${ui.Badge} tone="outline" icon=${ch === 'email' ? 'mail' : 'bell'}>${ch === 'email' ? 'E-post' : 'I appen'}<//>`)}
-                  ${(n.channels || []).includes('email') && html`<button type="button" class="btn btn-ghost" style="min-height:32px;padding:2px 6px" aria-expanded=${isOpen ? 'true' : 'false'} onClick=${() => setOpen(isOpen ? null : n.id)}>Visa e-postens text</button>`}</div>
+                  ${(n.channels || []).includes('email') && html`<button type="button" class="btn btn-ghost" style="min-height:44px;padding:2px 6px" aria-expanded=${isOpen ? 'true' : 'false'} onClick=${() => setOpen(isOpen ? null : n.id)}>Visa e-postens text</button>`}</div>
                 ${isOpen && html`<div class="demo-note"><${I} name="mail" /><div><b>E-post (utan personuppgifter):</b> ${n.emailBody}</div></div>`}
               </div>
               <div class="li-side">

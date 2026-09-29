@@ -265,7 +265,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px
 .check input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--antracit); flex: none; }
 .seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .seg button {
-  min-height: var(--tap); padding: 8px 14px; border-radius: var(--radius); border: 1.5px solid var(--line-strong); background: var(--vit);
+  min-height: var(--tap); min-width: var(--tap); justify-content: center; padding: 8px 14px; border-radius: var(--radius); border: 1.5px solid var(--line-strong); background: var(--vit);
   font: inherit; font-weight: 600; font-size: 0.9375rem; cursor: pointer; color: var(--antracit); display: inline-flex; align-items: center; gap: 6px;
 }
 .seg button:hover { border-color: var(--antracit); }
