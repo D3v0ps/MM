@@ -47,7 +47,7 @@ export async function setup(sid, opts = {}) {
   const prev = async () => { await bar.getByRole('button', { name: /Föregående/ }).click(); await page.waitForTimeout(250); stepNo--; return route(); };
   const markTested = async () => { await bar.getByRole('button', { name: /Testat/ }).click(); await page.waitForTimeout(80); };
   const endStep = async () => { const errs = newErrors(); if (errs.length) note('FEL', 'Konsolfel: ' + errs.join(' | ')); };
-  const mainText = () => main.innerText();
+  const mainText = async () => (await main.innerText()).replace(/[\u00a0\u202f]/g, ' ');
   const expectStep = async (n) => { const t = await barText(); if (!new RegExp(`steg ${n} av`, 'i').test(t)) note('FEL', `Scenariofältet visar inte steg ${n}: ${t.slice(0, 120)}`); };
   const done = async () => {
     await endStep();

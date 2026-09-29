@@ -58,7 +58,7 @@ await check('Steg 3: Acceptera avropet från kompletteringen', async () => {
   const ref = await page.inputValue('#ink-ref'); assert.equal(ref, '55102938', 'Referensen följer inte med in i modalen');
   await dialog.getByText('Leila Nouri', { exact: false }).first().click();
   await dialog.getByRole('button', { name: 'Acceptera avropet' }).click(); await page.waitForTimeout(200);
-  const t = await dialog.innerText(); assert.match(t, /Avropet är accepterat/);
+  const t = await dialog.innerText(); assert.match(t, /Avropet är accepterat/i);
   const c = await S((id) => MM.sel.caseById(id).status, caseId); assert.equal(c, 'confirmed');
   return (t.match(/Planerad omfattning[^\n]*\n[^\n]*/) || [''])[0].replace(/\n/g, ' ');
 });

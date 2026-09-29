@@ -27,9 +27,9 @@ await check('Steg 2: rätta BOT-26-0117 via förslaget från uppgiften', async (
 await check('Steg 2: stäng och rätta BOT-26-0121', async () => {
   if (await page.getByRole('dialog').count()) await page.keyboard.press('Escape'); await page.waitForTimeout(100);
   if (await page.getByRole('dialog').count()) await dlg().getByRole('button', { name: /Stäng/ }).first().click();
-  await main.getByRole('button', { name: /^Stoppade/ }).click().catch(() => {}); await page.waitForTimeout(80);
+  await main.getByRole('tab', { name: /^Stoppade/ }).click().catch(() => {}); await page.waitForTimeout(80);
   const row = main.locator('tbody tr', { hasText: 'BOT-26-0121' });
-  if (!(await row.count())) { await main.getByRole('button', { name: /^Alla/ }).first().click(); await page.fill('#eko-search', '0121'); await page.waitForTimeout(80); }
+  if (!(await row.count())) { await main.getByRole('tab', { name: /^Alla/ }).first().click(); await page.fill('#eko-search', '0121'); await page.waitForTimeout(80); }
   await main.locator('tbody tr', { hasText: 'BOT-26-0121' }).click(); await dlg().waitFor();
   await dlg().getByRole('button', { name: /Använd 55102938/ }).click(); await dlg().getByRole('button', { name: 'Spara referensen' }).click(); await page.waitForTimeout(150);
   const ref = await S(() => MM.sel.caseByTag('reffel2').buyerReference); assert.equal(ref, '55102938');
@@ -46,7 +46,7 @@ for (const num of zeroCases) {
   await check(`Steg 3: godkänn vecka utan närvaro för ${num} och godkänn fakturan`, async () => {
     if (await page.getByRole('dialog').count()) await page.keyboard.press('Escape');
     await page.fill('#eko-search', num.slice(-4)); await page.waitForTimeout(100);
-    await main.getByRole('button', { name: /^Alla/ }).first().click().catch(() => {}); await page.waitForTimeout(60);
+    await main.getByRole('tab', { name: /^Alla/ }).first().click().catch(() => {}); await page.waitForTimeout(60);
     await main.locator('tbody tr', { hasText: num }).first().click(); await dlg().waitFor();
     const ta = dlg().locator('textarea[id^=eko-zero]'); const n = await ta.count();
     for (let i = 0; i < n; i++) { await dlg().locator('textarea[id^=eko-zero]').first().fill('Kontrollerat med samordnaren – inskriven hela veckan.'); await dlg().getByRole('button', { name: 'Godkänn veckan för fakturering' }).first().click(); await page.waitForTimeout(80); }

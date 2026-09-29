@@ -25,6 +25,13 @@ await check('Steg 1: AI-sammanfattningen stämmer med underlaget', async () => {
 await check('Steg 1: AI-observation om frånvaro trots 0 frånvaro', async () => {
   const t = await T.mainText(); if (/meddelat frånvaro i förväg vid två tillfällen/.test(t) && /100 %\n9 av 9/.test(t)) throw new Error('AI-utkast: "Har själv meddelat frånvaro i förväg vid två tillfällen" – men närvarograd 100 %, 9 av 9, ingen frånvaro i januari');
 });
+await check('Steg 1: AI-observationerna stämmer med månadens närvaro och avstämningar', async () => {
+  const t = await T.mainText(); const probs = [];
+  const narv = (t.match(/NÄRVAROGRAD\n[^\n]+\n([^\n]+)/) || [])[1] || '';
+  const m1 = t.match(/Kom i tid till samtliga tillfällen under månaden \((\d+) av (\d+)\)/); if (m1 && !narv.includes(`${m1[1]} av ${m1[2]}`)) probs.push(`"${m1[0]}" – underlaget säger ${narv} och en sen ankomst`);
+  if (/studiebesök och intervju/.test(t)) { const st = await S((id) => MM.store.state.checkIns.filter((x) => x.caseId === id && x.status === 'approved' && x.heldAt.startsWith('2027-01')).flatMap((x) => (x.employerContacts || {}).types || []), caseId); if (!st.includes('studiebesök')) probs.push(`"två arbetsgivarkontakter (studiebesök och intervju)" – de godkända avstämningarna har ${st.join(' + ')}`); }
+  if (probs.length) throw new Error(probs.join(' ; '));
+});
 await shot('steg1');
 
 await T.next();
@@ -71,5 +78,9 @@ await check('Steg 4: öppna rapporten', async () => {
 });
 await check('Steg 4: kvitterad i tillståndet', () => S((id) => { const r = MM.store.state.reports.find((x) => x.id === id); if (!r.openedAt) throw new Error('inte kvitterad'); return r.status + ' ' + r.openedAt; }, repId));
 await check('Steg 4: kunden ser inte coachens anteckningar i rapporten', async () => { const t = await T.mainText(); return t.length; });
+await check('Steg 4: kvittensen syns hos Miljonbemanning', async () => {
+  await S((id) => MM.nav('rapport.visa', { reportId: id }, { role: 'coach' }), repId); await page.waitForTimeout(150);
+  const t = await T.mainText(); await S(() => MM.gotoStep(3)); await page.waitForTimeout(100); return (t.match(/Kvitterad\n[^\n]+/) || ['saknas'])[0].replace(/\n/, ' ');
+});
 await shot('steg4');
 await T.done();

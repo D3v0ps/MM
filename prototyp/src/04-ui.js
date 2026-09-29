@@ -99,21 +99,37 @@
         return html`<button type="button" aria-pressed=${on ? 'true' : 'false'} class=${o.tone ? `tone-${o.tone}` : ''} onClick=${() => onChange(multi ? (on ? value.filter((x) => x !== v) : [...(value || []), v]) : v)}>${o.icon && html`<${I} name=${o.icon} />`}${lab}</button>`; })}
     </div>`;
 
-  ui.Tabs = ({ tabs, active, onChange, ariaLabel = 'Flikar' }) => html`
-    <div class="tabs" role="tablist" aria-label=${ariaLabel}>
-      ${tabs.map((t) => html`<button type="button" role="tab" class="tab" aria-selected=${active === t.id ? 'true' : 'false'} onClick=${() => onChange(t.id)}>${t.icon && html`<${I} name=${t.icon} />`}${t.label}${t.count != null && t.count !== 0 && html`<span class="count">${t.count}</span>`}</button>`)}
+  ui.Tabs = ({ tabs, active, onChange, ariaLabel = 'Flikar' }) => {
+    const onKey = (e) => {
+      const i = tabs.findIndex((t) => t.id === active); let j = null;
+      if (e.key === 'ArrowRight') j = (i + 1) % tabs.length; if (e.key === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
+      if (e.key === 'Home') j = 0; if (e.key === 'End') j = tabs.length - 1;
+      if (j === null) return; e.preventDefault(); onChange(tabs[j].id);
+      setTimeout(() => { const b = e.currentTarget && e.currentTarget.querySelectorAll('[role=tab]')[j]; if (b) b.focus(); }, 0);
+    };
+    return html`
+    <div class="tabs" role="tablist" aria-label=${ariaLabel} onKeyDown=${onKey}>
+      ${tabs.map((t) => html`<button type="button" role="tab" class="tab" tabIndex=${active === t.id ? 0 : -1} aria-selected=${active === t.id ? 'true' : 'false'} onClick=${() => onChange(t.id)}>${t.icon && html`<${I} name=${t.icon} />`}${t.label}${t.count != null && t.count !== 0 && html`<span class="count">${t.count}</span>`}</button>`)}
     </div>`;
+  };
 
   ui.Modal = ({ title, onClose, children, footer, wide }) => {
     const ref = useRef(null);
     useEffect(() => {
       const prev = document.activeElement; const el = ref.current; if (el) { const f = el.querySelector('input, select, textarea, button:not(.modal-x)'); (f || el).focus(); }
-      const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { onClose && onClose(); return; }
+        if (e.key === 'Tab' && el) { // håll fokus inne i dialogen
+          const f = [...el.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((x) => x.offsetParent !== null);
+          if (!f.length) return; const first = f[0], last = f[f.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+        }
+      };
       document.addEventListener('keydown', onKey); return () => { document.removeEventListener('keydown', onKey); if (prev && prev.focus) prev.focus(); };
     }, []);
     return html`<div class="modal-backdrop" onClick=${(e) => { if (e.target === e.currentTarget && onClose) onClose(); }}>
       <div class=${cls('modal', wide && 'wide')} role="dialog" aria-modal="true" aria-label=${title} ref=${ref} tabIndex="-1">
-        <div class="modal-head"><h2 class="modal-title">${title}</h2>${onClose && html`<${ui.Btn} kind="ghost" icon="x" title="Stäng" onClick=${onClose} />`}</div>
+        <div class="modal-head"><h2 class="modal-title">${title}</h2>${onClose && html`<button type="button" class="btn btn-ghost btn-icon modal-x" aria-label="Stäng" title="Stäng" onClick=${onClose}><${I} name="x" /></button>`}</div>
         <div class="modal-body">${children}</div>
         ${footer && html`<div class="modal-foot">${footer}</div>`}
       </div></div>`;
@@ -129,7 +145,10 @@
   ui.DemoNote = ({ children }) => html`<div class="demo-note"><${I} name="info" /><div><b>Prototyp:</b> ${children}</div></div>`;
   ui.Empty = ({ icon = 'inbox', title, children, action }) => html`<div class="empty"><${I} name=${icon} /><div class="empty-title">${title}</div>${children && html`<div>${children}</div>`}${action}</div>`;
 
-  ui.Kpi = ({ label, value, sub, tone, children }) => html`<div class=${cls('kpi', tone)}><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>${sub && html`<div class="kpi-sub">${sub}</div>`}${children}</div>`;
+  /** tone 'alert' = under mål (kräver åtgärd), 'watch' = bevaka. Status visas alltid med text och ikon, aldrig bara med ramfärg. */
+  ui.Kpi = ({ label, value, sub, tone, statusText, children }) => html`<div class=${cls('kpi', tone)}><div class="kpi-label">${label}</div><div class="kpi-value">${value}</div>
+    ${tone && (tone === 'alert' || tone === 'watch') && html`<div class="kpi-state"><${I} name=${tone === 'alert' ? 'alert' : 'eye'} />${statusText || (tone === 'alert' ? 'Kräver åtgärd' : 'Bevaka')}</div>`}
+    ${sub && html`<div class="kpi-sub">${sub}</div>`}${children}</div>`;
   /** Mätare 0–max med målmarkeringar. markers: [{ value, label, tone: 'red'|'dark' }] */
   ui.Meter = ({ value, max = 1, markers = [], tone, label }) => html`
     <div class="stack-sm" style="gap:6px">
@@ -196,7 +215,7 @@
     const persp = MM.perspective();
     const view = persp === 'kund' ? 'kom.deltagare' : MM.role() === 'ekonom' ? 'eko.arende' : 'arende.kort';
     const canOpen = MM.sel.access(c) !== 'none' && MM.views[view];
-    return canOpen ? html`<button type="button" class="btn btn-ghost" style="min-height:32px;padding:2px 4px;font-weight:700" onClick=${(e) => { e.stopPropagation(); MM.nav(view, { caseId }); }}>${children || c.number}</button>` : html`<span class="strong mono">${children || c.number}</span>`;
+    return canOpen ? html`<button type="button" class="btn btn-ghost" style="min-height:44px;padding:2px 6px;font-weight:700" onClick=${(e) => { e.stopPropagation(); MM.nav(view, { caseId }); }}>${children || c.number}</button>` : html`<span class="strong mono">${children || c.number}</span>`;
   };
 
   /** Loggar visning en gång per sidladdning (deltagarkort, rapport, transkript). */

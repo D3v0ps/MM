@@ -1,0 +1,175 @@
+{
+ "reviewer": "scenarier",
+ "findings": [
+  {
+   "id": "s7-steg3-ej-genomforbart",
+   "file": "src/90-feedback.js",
+   "view": "rapport.visa",
+   "severity": "major",
+   "title": "Scenario 7 steg 3 \"Godkänn och leverera\" går inte att göra om man följer texten",
+   "detail": "Steg 2 säger bara \"Försök godkänna med nivå 1 eller högre utan observation. Det stoppas\". Ingen text säger att bedömningen sedan måste fyllas i och godkännas. I steg 3 (rapport.visa) visar vyn \"Rapporten kan inte godkännas ännu – Månadsbedömningen för januari 2027 är inte godkänd\" och det finns varken Godkänn eller Leverera, bara \"Öppna bedömningen\". Då går inte heller steg 4 att göra: rapporten finns inte hos kommunen. Kontrollerat i tools/review-scenarier-s7.mjs: först när alla tio områden har nivå och observation och samlad status är vald går det att godkänna och leverera. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/explore/s7-3.png",
+   "repro": "Scenario 7 (s7), steg 2→3: gör bara det steg 2 säger (nivå 1 utan observation → stoppas), klicka Nästa steg. I steg 3 finns ingen Godkänn- eller Leverera-knapp.",
+   "fix": "Lägg till i steg 2: \"Välj sedan nivå för alla områden (Använd utkastet), välj samlad status och klicka Godkänn bedömningen.\" Ett annat sätt är att dela steg 2 i två steg, eller att peka steg 3 på ett ärende där bedömningen redan är godkänd och rapporten har status Granskad."
+  },
+  {
+   "id": "s9-kundsiffra-stammer-inte",
+   "file": "src/views/ledning.js",
+   "view": "chef.oversikt",
+   "severity": "major",
+   "title": "Ledningsvyn säger att kommunens chef ser 33,9 %, men kommunens chef ser 31,2 % och \"Under avtalsmålet\"",
+   "detail": "Kortet \"Så ser kommunens chef resultatet\" (ledning.js rad ~311) räknar live: \"Resultatgrad 33,9 % mot avtalsmålet 32 %, rullande och sedan start.\" kom.chef visar den senast levererade beställarrapporten (december 2026): \"RESULTAT, 6 MÅNADER 31,2 % · Under avtalsmålet\". Januari är ett utkast som kommunen inte ser. Scenariots ingress säger \"Samma resultat – olika perspektiv\" och steg 1 säger att resultatet ligger över avtalets 32 %. Chefen som byter perspektiv i steg 4 ser alltså en annan siffra och det motsatta omdömet. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s9-steg1.png och /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s9-steg4.png",
+   "repro": "Scenario 9 (s9), steg 1: läs kortet \"Så ser kommunens chef resultatet\" (33,9 %). Klicka Nästa steg till steg 4 (kommun_chef, kom.chef): där står 31,2 % och \"Under avtalsmålet\" för december 2026.",
+   "fix": "Låt kortet i ledningsvyn visa siffran i den senast levererade beställarrapporten (december 31,2 %, Under avtalsmålet), och skriv att januarirapporten (33,9 %) är ett utkast tills avtalsansvarig godkänner den. Justera texten i steg 4 till exempel så här: \"…ser decemberrapporten (31,2 %) mot bara avtalsmålet 32 %. Januari syns när rapporten är godkänd.\""
+  },
+  {
+   "id": "s2-ai-hittar-pa",
+   "file": "src/01-seed.js",
+   "view": "sam.inkorg",
+   "severity": "major",
+   "title": "AI-tolkningen av fritextmejlet em-102 visar uppgifter som inte står i mejlet, med 90 % säkerhet",
+   "detail": "Steg 1 ber chefen titta på säkerheten per fält. Mejlet säger \"Hon har jobbat i kök i Syrien … sex veckor … bäst att ringa\". I det tolkade formuläret står ändå Bakgrund \"Har arbetat i restaurangkök under två somrar. Vill arbeta i storkök.\" (90 %), Önskat yrkesspår \"Restaurangbiträde\" (90 %) och Bostadsort \"Tumba\" (90 %). Tumba kommer från handläggarens enhet, inte från deltagaren. Orsaken är att seed rad ~825 (templateExtract(cAhmed, 0.9)) kopierar ärendets backgroundInfo, vocationalTrack och city. Det bryter mot regeln att AI inte spekulerar och att okänt skrivs \"Framgår inte\", och det undergräver det steget ska visa. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s2-steg1.png",
+   "repro": "Scenario 2 (s2), steg 1: samordnare, sam.inkorg em-102. Jämför ORIGINALMEJLET med TOLKAT FORMULÄR under Bakgrund, Önskat yrkesspår och Bostadsort.",
+   "fix": "I seed för em-102: sätt background till det mejlet säger (\"Har arbetat i kök i Syrien. Vill börja så snart som möjligt.\") med ~0,85 säkerhet. Sätt vocationalTrack och city till \"\" med säkerheten 0, så att de visas som \"Framgår inte\". Alternativt: yrkesspåret som osäkert förslag under 80 %."
+  },
+  {
+   "id": "s7-ai-observationer-motsager-underlag",
+   "file": "src/01-seed.js",
+   "view": "coach.manad",
+   "severity": "major",
+   "title": "AI-utkasten i januaribedömningen för Nadia påstår saker som motsäger underlaget de hänvisar till",
+   "detail": "Källorna pekar nu på riktiga avstämningar, och AI-sammanfattningen stämmer. Observationstexterna väljs ändå slumpmässigt (seed rad ~685: r.pick(OBS[key])). \"Närvaro, punktlighet och rutiner\": \"Kom i tid till samtliga tillfällen under månaden (12 av 12)\". Underlaget i samma vy säger \"NÄRVAROGRAD 100 % – 9 av 9 tillfällen\" (11 planerade, 1 sen, 2 ej registrerade). \"Arbetsgivarkontakter/nätverk\": \"Har haft två arbetsgivarkontakter (studiebesök och intervju)\". De godkända avstämningarna har ansökan och intervju, och i rapportens avsnitt 3 står Studiebesök som \"Inte genomförd\". Klickar coachen \"Använd utkastet\" hamnar de felaktiga uppgifterna i månadsrapporten till kommunen. Det motsäger \"AI föreslår text med belägg\" och att rapporten bara byggs av godkända uppgifter. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s7-steg1.png",
+   "repro": "Scenario 7 (s7), steg 1: coach, coach.manad Nadia 2027-01. Jämför AI-UTKAST under Närvaro och Arbetsgivarkontakter med rutorna NÄRVAROGRAD och HÄNDELSER högst upp.",
+   "fix": "Bygg observationsutkasten av samma underlag som sammanfattningen: närvarostatistik, employerContacts.types och note i monthCis. Alternativt: skriv Nadias utkast för hand så att de stämmer med hennes data. Använd inga OBS-texter med siffror eller aktivitetstyper som inte finns i källan."
+  },
+  {
+   "id": "s2-stopp-syns-inte",
+   "file": "src/views/inkorg.js",
+   "view": "sam.inkorg",
+   "severity": "major",
+   "title": "Acceptera utan beställarreferens: inget syns hända, felet hamnar nedanför den synliga delen av dialogen",
+   "detail": "Steg 2 säger \"Försök acceptera. Det stoppas eftersom beställarreferensen saknas.\" I AcceptModal (inkorg.js rad ~442) sätter submit() bara felet på fältet. Ingen toast visas, dialogen scrollar inte och fokus flyttas inte. Med 1280×900 hamnar felet \"Beställarreferens saknas…\" på y=1034 medan dialogens synliga yta slutar vid y=811. Chefen klickar \"Acceptera avropet\" och det ser ut som om knappen inte fungerar. Felet är också skrivet till kommunen (\"Den får ni av kommunens ekonomi eller er chef\", 00-core.js buyerRefError) och passar inte för samordnaren. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s2dbg-dbg-after-click.png",
+   "repro": "Scenario 2 (s2), steg 2: samordnare, sam.inkorg em-102. Klicka Acceptera, välj en coach och klicka Acceptera avropet. Inget synligt händer förrän man scrollar ner i dialogen.",
+   "fix": "Vid valideringsfel: scrolla till och fokusera första felaktiga fältet (#ink-ref) och visa en toast (\"Beställarreferens saknas – avropet kan inte bekräftas\"). Alternativt: visa en röd Notice överst i dialogen när referensen saknas, redan när dialogen öppnas. Ge samordnaren en egen feltext (\"Kommunen har inte angett någon referens – be handläggaren om den\")."
+  },
+  {
+   "id": "s4-lindas-rapport-publicerad-for-tidigt",
+   "file": "src/01-seed.js",
+   "view": "coach.narvaro",
+   "severity": "major",
+   "title": "Veckorapporten v. 4 till Linda Karlsson är \"Publicerad 07.00\" fast två av hennes tillfällen saknar närvaro",
+   "detail": "I steg 2 visar coach.narvaro under VECKORAPPORTER: \"Linda Karlsson · 2 av dina tillfällen kvar · Publicerad 1 feb kl. 07.00\". Det motsäger regeln som scenariot visar (\"publiceras när allt är klart\"). Orsaken: seed rad ~736 sätter alla v. 4-rapporter utom Marias till delivered 07.00, fast Elif (BOT-27-0003, referrer k-linda, seed rad 390) har oregistrerade tillfällen 27 och 28 jan. Rapportens innehåll räknas dessutom live (sel.weeklyReport i rapporter.js rad 329/798). När coachen registrerar Elifs närvaro ändras en rapport som redan är levererad, utan ny version. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/explore/s4-2.png",
+   "repro": "Scenario 4 (s4), steg 2: coach, coach.narvaro week=last. Se raden Linda Karlsson under VECKORAPPORTER – VECKA 4.",
+   "fix": "Seed: sätt v. 4-rapporten till waiting för alla handläggare som har oregistrerade tillfällen (samma kontroll som weekCompleteRaw), eller flytta Elif till k-maria. Spara helst en ögonblicksbild av rapportens innehåll vid publiceringen, så att en levererad rapport inte ändras i efterhand."
+  },
+  {
+   "id": "mobil-topbar-tar-halva-skarmen",
+   "file": "src/styles.css",
+   "view": "-",
+   "severity": "major",
+   "title": "På mobil tar det klistrade prototyp- och scenariofältet 58 % av skärmen",
+   "detail": ".topbars har position: sticky (styles.css rad 61). Med 400×860 px och ett aktivt scenario är fälten 426–496 px höga och ligger kvar när man scrollar. Bara ~360 px återstår för själva vyn. Utan scenario är de 239 px. Det drabbar särskilt steg som ska testas på telefon, till exempel deltagarens pulsmätning (s11 steg 1: 426 px) och coachens vyer. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/mob-scrolled-s7.png",
+   "repro": "Valfritt scenario, till exempel scenario 7 (s7) steg 1, i 400×860: scrolla ner i vyn. Prototypfältet och scenariofältet täcker övre halvan av skärmen.",
+   "fix": "Gör .topbars sticky bara på bredare skärmar (@media (min-width: 721px)). På mobil kan scenariofältet vara hopfällbart: en rad med \"Steg 2 av 3\", Nästa och en knapp som visar texten. Prototypfältet kan samlas i en meny."
+  },
+  {
+   "id": "s4-tre-eller-sex-tillfallen",
+   "file": "src/90-feedback.js",
+   "view": "coach.minvecka",
+   "severity": "minor",
+   "title": "Scenario 4 steg 1 säger \"tre tillfällen saknar närvaro\", vyn visar sex",
+   "detail": "Min vecka visar \"NÄRVARO ATT REGISTRERA 6\" och \"6 tillfällen från förra veckan saknar närvaro\" (Nadia, Elif och Amal, två tillfällen var). I steg 2 krävs 6 klick. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s4-steg1.png",
+   "repro": "Scenario 4 (s4), steg 1: coach, coach.minvecka.",
+   "fix": "Ändra texten till \"sex tillfällen (tre deltagare)\", eller ändra seed så att det verkligen är tre."
+  },
+  {
+   "id": "s3-tre-steg-ar-fyra",
+   "file": "src/views/kommun.js",
+   "view": "kom.bestall",
+   "severity": "minor",
+   "title": "Beställningen sägs ha \"tre steg\" men stegindikatorn visar fyra",
+   "detail": "Scenario 3 steg 2 och vyns ingress (kommun.js rad 551, \"i tre korta steg\") säger tre steg. Vyn visar \"Steg 1 av 4\" och stegindikatorn har fyra steg (Beställning och kontakt, Deltagare, Avtalsområde, Granska och skicka). För en ovan kommunanvändare blir det förvirrande. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s3-steg2-felref.png",
+   "repro": "Scenario 3 (s3), steg 2: kommun_handlaggare, kom.bestall.",
+   "fix": "Skriv \"i fyra korta steg\" (eller \"tre steg och en granskning\") både i ingressen och i scenariotexten. Alternativt: visa granskningen utan stegnummer."
+  },
+  {
+   "id": "s3-steg4-fel-avrop-valt",
+   "file": "src/90-feedback.js",
+   "view": "sam.inkorg",
+   "severity": "minor",
+   "title": "Scenario 3 steg 4 öppnar inkorgen med Lindas avrop valt, inte den nya portalbeställningen",
+   "detail": "Steget har params {} och inkorgen väljer det mest brådskande (BOT-27-0048, Linda Karlsson). Beställningen chefen just skickade (till exempel BOT-27-0051, \"Beställning i portalen\") ligger längre ner i listan. Man måste hitta och klicka på den för att se SLA-klockan som texten talar om. Beställningen finns i inkorgen och kan accepteras (verifierat). Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s3-steg4.png",
+   "repro": "Scenario 3 (s3): skicka en beställning i steg 2 och klicka Nästa steg till steg 4 (samordnare, sam.inkorg).",
+   "fix": "Räkna ut params på samma sätt som sc(): { caseId: senaste ärendet med source \"portal\" som testaren skapat } om det finns, annars {}. Alternativt: skriv i texten \"Klicka på Beställning i portalen i listan\"."
+  },
+  {
+   "id": "s12-paketpriser-annan-flik",
+   "file": "src/90-feedback.js",
+   "view": "admin.avtal",
+   "severity": "minor",
+   "title": "Scenario 12 steg 2 ber chefen jämföra paketpriser, men de syns inte på fliken som öppnas",
+   "detail": "Steget öppnar admin.avtal {contract: \"c-kk\"} på fliken \"Avtal och regler\". Där finns KPI:er och SLA men inga priser. Paketpriserna (Startpaket 4 120 kr med flera) finns bara under fliken \"Prislista\". Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/explore/s12-2.png",
+   "repro": "Scenario 12 (s12, visas som \"Scenario 13\"), steg 2: admin, admin.avtal contract=c-kk.",
+   "fix": "Lägg till tab: \"priser\" i stegets params (vyn stöder det), eller skriv \"Öppna fliken Prislista för paketpriserna\"."
+  },
+  {
+   "id": "s13-yusuf-namn-syns-inte",
+   "file": "src/90-feedback.js",
+   "view": "notiser",
+   "severity": "minor",
+   "title": "Scenario 13 steg 3 säger \"till exempel Yusuf Abdi\", men chefens notiser visar bara ärendenumret",
+   "detail": "Chefens notis lyder \"Eskalering: 3 veckor i rad utan progression – BOT-26-0148 · coach Amira Haddad …\". Namnet Yusuf Abdi syns inte, så chefen kan inte hitta exemplet som texten nämner. Att notisen inte innehåller personuppgifter är rätt. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s13-steg3.png",
+   "repro": "Scenario 13 (s13, visas som \"Scenario 12\"), steg 3: chef, notiser.",
+   "fix": "Skriv \"till exempel BOT-26-0148 (Yusuf Abdi) …\" i scenariotexten."
+  },
+  {
+   "id": "s6-ai-utkast-motsager-arendet",
+   "file": "src/01-seed.js",
+   "view": "coach.avstamning",
+   "severity": "minor",
+   "title": "AI-utkastet för Mehmet föreslår fas 3 och \"praktik i mars\" fast han har praktik sedan 26 januari",
+   "detail": "Ärendet är i fas 4 Praktik/APL sedan 15 jan och har pågående praktik hos Södertörns Distribution AB (26 jan–12 feb). AI-förslagen säger ändå \"Fas 3 · Yrkesspecifika moment\" och \"Södertörns Distribution ringde och frågade om praktik i mars\". Ett förslag att gå bakåt i fasen kan vara avsiktligt för att visa Avvisa, men arbetsgivarkontakten motsäger den registrerade praktiken. Det förvirrar den som granskar belägg. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s6-steg1.png",
+   "repro": "Scenario 6 (s6), steg 1: coach, coach.avstamning Mehmet med AI-utkast.",
+   "fix": "Anpassa transkriptet och förslagen i seed (ai-run-mehmet) till fas 4, till exempel \"handledaren på Södertörns Distribution frågade om förlängd praktik\". Om ett förslag ska avvisas: skriv det i scenariotexten."
+  },
+  {
+   "id": "s5-avvikelse-forifylld",
+   "file": "src/views/coach.js",
+   "view": "coach.avstamning",
+   "severity": "minor",
+   "title": "Scenario 5 steg 2: kravet på avvikelse syns inte, eftersom alla fält fylls i automatiskt",
+   "detail": "När man väljer Röd visas avvikelsekortet med förifyllda uppgifter från flaggan: beskrivning, åtgärd, ansvarig (Amira), uppföljning (8 feb) och \"Beslut från kommunen: Ja\". Klickar man Godkänn godkänns avstämningen direkt. Texten \"Systemet kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum\" syns alltså aldrig som ett stopp. Förifyllningen i sig är bra. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s5-steg2-stopp.png",
+   "repro": "Scenario 5 (s5), steg 2: coach, coach.avstamning Yusuf. Välj Röd, fyll i veckomål och kontakter, klicka Godkänn avstämningen.",
+   "fix": "Ändra texten till \"…Avvikelsen är förifylld från flaggan – töm Åtgärd och försök godkänna för att se kravet.\" Alternativt: fyll bara i beskrivningen och låt åtgärd och ansvarig vara tomma."
+  },
+  {
+   "id": "s1-kallelse-alltid-sms",
+   "file": "src/03-domain.js",
+   "view": "sam.inkorg",
+   "severity": "minor",
+   "title": "Kallelsen skickas alltid som SMS, även när deltagaren har valt e-post",
+   "detail": "Diego Morales (em-101) har Föredragen kontaktväg: E-post. Efter Acceptera står det ändå \"Deltagaren fick kallelse (SMS)\", och utskicksloggen visar kanalen sms. Dialogen lovar \"Deltagaren får kallelse via sin föredragna kontaktväg\". case.accept och case.bookFirstMeeting (03-domain.js rad ~603 och ~631) har ctx.notify(\"sms\", …) hårdkodat, och ConfirmationCard (inkorg.js) har etiketten \"(SMS)\" hårdkodad. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-scenarier/s1-steg2-klart.png",
+   "repro": "Scenario 1 (s1), steg 2: samordnare, sam.inkorg em-101. Klicka Acceptera, välj Amira och klicka Acceptera avropet. Se raden \"Deltagaren fick kallelse (SMS)\".",
+   "fix": "Välj kanal från person.preferredContact (sms, email, letter, phone → ingen automatisk kallelse). Visa kanalen i ConfirmationCard från notifikationens channel."
+  },
+  {
+   "id": "s6-andra-loggas-som-accepterad",
+   "file": "src/views/coach.js",
+   "view": "coach.avstamning",
+   "severity": "minor",
+   "title": "AI-förslag markerat \"Ändrat\" räknas och loggas som \"accepterat\" om värdet inte ändras",
+   "detail": "Klickar man Ändra på \"Genomförda aktiviteter\" visas badgen \"Ändrat\". Behåller man värdet sparar aiDecisionList() beslutet som accepted, och sammanfattningen efter godkännandet visar \"6 / 0 / 1 accepterade / ändrade / avvisade\". Steg 3 säger att varje beslut loggas, men loggen visar inte det val coachen gjorde.",
+   "repro": "Scenario 6 (s6), steg 2–3: coach, Mehmets AI-utkast. Klicka Ändra på aktiviteterna men behåll valen, acceptera resten och avvisa fas. Välj Grön och godkänn.",
+   "fix": "Visa badgen utifrån det faktiska resultatet (\"Accepterat – oförändrat\"). Alternativt: spara både coachens val och om värdet ändrades (decision + changed: true/false)."
+  },
+  {
+   "id": "scenario-forsvinner-vid-omladdning",
+   "file": "src/90-feedback.js",
+   "view": "-",
+   "severity": "minor",
+   "title": "Scenariofältet försvinner när sidan laddas om",
+   "detail": "MM.scen (aktivt scenario och steg) sparas inte. Efter en omladdning, till exempel i scenario 7 steg 3, ligger chefen kvar i vyn men fältet med stegtext och knappar är borta. Starta börjar om på steg 1. Övrigt i scenariofältet fungerar: alla 47 steg i 13 scenarier navigerar rätt med Nästa steg och Föregående, utan konsolfel, utan undefined/NaN och utan horisontell scroll i 1280 px. Testat räknas upp på startsidan och varje Starta-knapp startar rätt scenario (tools/review-scenarier-bar.mjs).",
+   "repro": "Starta valfritt scenario, gå till steg 2 eller 3 och ladda om sidan (F5).",
+   "fix": "Spara { active, step } i localStorage (samma nyckel som route, eller LS_PROG) och återställ i MM.ScenarioBar vid start."
+  }
+ ]
+}

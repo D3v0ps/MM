@@ -127,7 +127,8 @@
 
   MM.resetDemo = () => {
     store.state = MM.seed(); store.state.clockOffset = 0; store.mut++; store.log = []; MM.visited = {};
-    try { localStorage.removeItem(LS_KEY); } catch (e) { /* */ }
+    try { localStorage.removeItem(LS_KEY); localStorage.removeItem('miljonmatch-prototyp-aktivt-scenario'); } catch (e) { /* */ }
+    if (MM.stopScenario) MM.stopScenario();
     MM.setRole('samordnare', { view: 'om.start' });
     bump();
     MM.toast('Demodata återställd. Allt du gjort i prototypen är borttaget.', 'blue');

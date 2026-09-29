@@ -326,7 +326,7 @@
       const pc = r.weighted([['sms', 55], ['phone', 25], ['email', 15], ['letter', 5]]);
       const person = {
         id: nid('p'), firstName: first, lastName: last, pnr: p.full, pnrLast4: p.last4, birthYear: by,
-        phone: `070-${r.int(100, 999)} ${r.int(10, 99)} ${r.int(10, 99)}`.replace(/^070-(\d)/, '070-0$1').slice(0, 14),
+        phone: `070-${r.int(100, 999)} ${r.int(10, 99)} ${r.int(10, 99)}`,
         email: `${first}.${last}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z.]/g, '') + '@example.com',
         city: r.pick(CITIES), address: pc === 'letter' ? `Exempelvägen ${r.int(1, 60)}, 147 00 Tumba` : null, preferredContact: pc,
         protectedIdentity: false, accessibilityNeeds: r.chance(0.22) ? r.pick(NEEDS) : '', language: r.weighted(LANGS), needsInterpreter: false, ...over,
@@ -389,7 +389,7 @@
     S1('yusuf', '2026-12-10', (c) => { c.leadCoachId = 'u-amira'; c.primaryArea = 'D'; c.vocationalTrack = 'Restaurangbiträde'; c.referrerId = 'k-maria'; c.buyerReference = brFor('k-maria'); c.aiConsent = 'declined'; setStart(c, '2026-12-14', 8, '11:00'); c.backgroundInfo = BACKGROUND.D; });
     S1('elif', '2027-01-05', (c) => { c.leadCoachId = 'u-amira'; c.primaryArea = 'A'; c.vocationalTrack = 'Kontor och reception'; c.referrerId = 'k-linda'; c.buyerReference = brFor('k-linda'); c.aiConsent = 'not_asked'; setStart(c, '2027-01-11', 6, '13:00'); c.backgroundInfo = BACKGROUND.A; });
     S1('hodan', '2026-11-24', (c) => { c.leadCoachId = 'u-amira'; c.primaryArea = 'F'; c.vocationalTrack = 'Lokalvårdare med certifiering'; c.referrerId = 'k-maria'; c.buyerReference = brFor('k-maria'); c.aiConsent = 'given'; setStart(c, '2026-11-30', 10, '15:00'); c.backgroundInfo = BACKGROUND.F; });
-    S1('mehmet', '2026-12-01', (c) => { c.leadCoachId = 'u-amira'; c.primaryArea = 'E'; c.vocationalTrack = 'Budbil och distribution'; c.referrerId = 'k-omar'; c.buyerReference = brFor('k-omar'); c.aiConsent = 'given'; setStart(c, '2026-12-11', 10, '13:00'); c.backgroundInfo = BACKGROUND.E; });
+    S1('mehmet', '2026-12-01', (c) => { c.forcePhase = 3; c.phaseSince = '2027-01-04'; c.leadCoachId = 'u-amira'; c.primaryArea = 'E'; c.vocationalTrack = 'Budbil och distribution'; c.referrerId = 'k-omar'; c.buyerReference = brFor('k-omar'); c.aiConsent = 'given'; setStart(c, '2026-12-11', 10, '13:00'); c.backgroundInfo = BACKGROUND.E; });
     S1('amal', '2027-01-12', (c) => { c.leadCoachId = 'u-amira'; c.primaryArea = 'H'; c.vocationalTrack = 'Butik och kundservice'; c.referrerId = 'k-maria'; c.buyerReference = brFor('k-maria'); c.aiConsent = 'not_asked'; setStart(c, '2027-01-18', 8, '14:00'); c.backgroundInfo = BACKGROUND.L; c.primaryArea = 'L'; c.vocationalTrack = 'Individuellt spår'; });
     S1('skyddad', '2026-11-24', (c) => { c.leadCoachId = 'u-erik'; c.source = 'phone'; c.primaryArea = 'F'; c.vocationalTrack = 'Lokalvårdare med certifiering'; c.referrerId = 'k-omar'; c.buyerReference = brFor('k-omar'); c.aiConsent = 'not_applicable'; setStart(c, '2026-12-01', 10, '09:00'); });
     S1('reffel1', '2026-11-23', (c) => { c.referrerId = 'k-ahmed'; c.buyerReference = '55102983'; c.leadCoachId = 'u-mats'; setStart(c, '2026-11-30', 10); c.primaryArea = 'G'; c.vocationalTrack = 'Lagerarbetare – plock och pack'; });
@@ -676,13 +676,29 @@
         const attended = monthAtt.filter((x) => ['present', 'late'].includes(x.status)).length;
         const contacts = monthCis.filter((x) => x.employerContacts && x.employerContacts.count && x.employerContacts.count !== '0').length;
         const srcLabel = (ci) => `Avstämning ${d.fmtDateShort(ci.heldAt)}`;
+        const late = monthAtt.filter((x) => x.status === 'late').length; const invalid = monthAtt.filter((x) => x.status === 'absent_invalid').length;
+        const goalsMet = monthCis.filter((x) => ['yes', 'partly'].includes(x.goalStatus));
+        const withAct = (t) => monthCis.filter((x) => (x.activitiesDone || []).includes(t));
+        const allSrc = monthCis.map(srcLabel);
+        /** AI-utkast med belägg ur godkända avstämningar och registrerad närvaro. Saknas belägg: "Framgår inte". */
+        const evidenceDraft = (key) => {
+          const nf = { text: 'Framgår inte av månadens godkända avstämningar.', sources: [], noEvidence: true };
+          if (key === 'narvaro_rutiner') return monthAtt.length ? { text: `Närvarande vid ${attended} av ${monthAtt.length} registrerade tillfällen${late ? `, varav ${late} med sen ankomst` : ''}.${invalid ? ` ${invalid} ogiltig frånvaro.` : ' Ingen ogiltig frånvaro.'}`, sources: ['Närvaroregistrering', ...allSrc.slice(-1)] } : nf;
+          if (key === 'arbetsgivarkontakter') return contacts ? { text: `Arbetsgivarkontakt registrerad ${contacts === 1 ? 'en vecka' : `${contacts} veckor`} (${MM.uniq(monthCis.flatMap((x) => (x.employerContacts && x.employerContacts.types) || [])).join(', ')}).`, sources: monthCis.filter((x) => x.employerContacts && x.employerContacts.count && x.employerContacts.count !== '0').map(srcLabel) } : { text: 'Ingen arbetsgivarkontakt framgår av avstämningarna.', sources: allSrc, noEvidence: true };
+          if (key === 'yrkesfardigheter' && withAct('Yrkesspecifika moment').length) return { text: `Yrkesspecifika moment genomförda ${withAct('Yrkesspecifika moment').length} av ${monthCis.length} veckor.`, sources: withAct('Yrkesspecifika moment').map(srcLabel) };
+          if (key === 'beredskap' && withAct('Praktik/APL').length) return { text: `Har genomfört praktik ${withAct('Praktik/APL').length === 1 ? 'en vecka' : `${withAct('Praktik/APL').length} veckor`} under månaden.`, sources: withAct('Praktik/APL').map(srcLabel) };
+          if (key === 'sjalvstandighet' && monthCis.length) return { text: `Veckomålet uppnått helt eller delvis ${goalsMet.length} av ${monthCis.length} veckor.`, sources: allSrc };
+          if (key === 'digital_sjalvstandighet' && withAct('CV och ansökningar').length) return { text: `Har arbetat med CV och ansökningar ${withAct('CV och ansökningar').length === 1 ? 'en vecka' : `${withAct('CV och ansökningar').length} veckor`}.`, sources: withAct('CV och ansökningar').map(srcLabel) };
+          return nf;
+        };
         for (const key of CONFIG_BOT.progression.areas) {
           const lvl = levelFor(key, idx);
           const aiLevel = Math.max(0, Math.min(3, lvl + r.pick([0, 0, 1, -1])));
           areas[key] = approved
             ? { level: lvl, observation: lvl >= 1 ? r.pick(OBS[key]) : '', nextStep: NEXT[key], aiLevelSuggestion: null, aiObservationDraft: null }
             : { level: null, observation: '', nextStep: '', aiLevelSuggestion: c.aiConsent === 'given' ? aiLevel : null,
-                aiObservationDraft: c.aiConsent === 'given' && aiLevel >= 1 && monthCis.length ? { text: r.pick(OBS[key]), sources: MM.uniq([srcLabel(r.pick(monthCis)), srcLabel(monthCis[monthCis.length - 1])]) } : null };
+                aiObservationDraft: c.aiConsent === 'given' && monthCis.length ? evidenceDraft(key) : null };
+          if (!approved && areas[key].aiObservationDraft && areas[key].aiObservationDraft.noEvidence) areas[key].aiLevelSuggestion = null;
         }
         const ma = { id: nid('ma'), caseId: c.id, month: mk, areas, status: approved ? 'approved' : 'draft', decidedBy: approved ? c.leadCoachId : null, decidedAt: approved ? `${d.nthWorkingDay(d.addMonths(mk, 1), r.int(1, 4))}T14:00` : null,
           summary: approved ? 'Deltagaren följer planen och har gjort tydlig progression inom yrkesfärdigheter. Fortsatt fokus på tempo och arbetsgivarkontakter.' : '',
@@ -733,7 +749,10 @@
         const dueAt = `${repMon}T16:00`; let deliveredAt = `${repMon}T${r.pick(['07:00', '09:40', '10:05', '11:20'])}`;
         if (wk.key === '2026-W47' && k.id === 'k-linda') deliveredAt = `${repMon}T16:40`;
         let status = 'delivered';
-        if (wk.key === '2027-W04') { deliveredAt = k.id === 'k-maria' ? null : `${repMon}T07:00`; status = k.id === 'k-maria' ? 'waiting' : 'delivered'; }
+        if (wk.key === '2027-W04') {
+          const waitingFor = new Set(S.activities.filter((a) => w4Missing.has(a.id)).map((a) => (cases.find((x) => x.id === a.caseId) || {}).referrerId));
+          const waiting = waitingFor.has(k.id); deliveredAt = waiting ? null : `${repMon}T07:00`; status = waiting ? 'waiting' : 'delivered';
+        }
         S.reports.push({ id: nid('rep'), contractId: 'c-bot', caseId: null, recipientUserId: k.id, kind: 'weekly_attendance', week: wk.key, periodStart: mon, periodEnd: d.addDays(mon, 6), status, version: 1,
           dueAt, approvedBy: 'system', approvedAt: deliveredAt, deliveredAt, deliveredTo: deliveredAt ? [k.id] : [], openedAt: deliveredAt && wk.key !== '2027-W04' && r.chance(0.85) ? d.addMinutes(deliveredAt, r.int(30, 2000)) : null });
       }
@@ -823,6 +842,10 @@
       attachments: [{ name: 'Avropsmall_01.docx', kind: 'docx' }], parseMethod: 'template', classification: 'order', extracted: t2.ex, confidence: t2.confidence, missingFields: [],
       status: 'acknowledged', caseId: cLinda.id, ackSentAt: d.addMinutes(cLinda.referredAt, 2), handledBy: null, handledAt: null });
     const t3 = templateExtract(cAhmed, 0.9);
+    // Fritext: AI får bara föra över det som står i mejlet – resten lämnas tomt ("Framgår inte")
+    for (const k0 of ['city', 'vocationalTrack', 'preferredContact', 'secondaryArea', 'email', 'accessibilityNeeds']) { t3.ex[k0] = ''; t3.confidence[k0] = 0; }
+    t3.ex.background = 'Har jobbat i kök i Syrien. Vill börja så snart som möjligt.'; t3.confidence.background = 0.86;
+    t3.ex.preferredContact = 'phone'; t3.confidence.preferredContact = 0.81; t3.ex.desiredStart = '2027-02-08'; t3.confidence.desiredStart = 0.7;
     t3.ex.buyerReference = ''; t3.confidence.buyerReference = 0; t3.ex.primaryArea = 'D'; t3.confidence.primaryArea = 0.72; t3.ex.secondaryArea = ''; t3.ex.plannedWeeks = 6; t3.confidence.plannedWeeks = 0.64;
     t3.ex.pnr = personOf(cAhmed).pnr; t3.confidence.pnr = 0.97; t3.ex.email = ''; t3.confidence.email = 0; t3.ex.accessibilityNeeds = ''; t3.ex.plannedEnd = ''; t3.confidence.plannedEnd = 0;
     S.inboundEmails.push({ id: 'em-102', graphMessageId: 'AAMk-demo-102', receivedAt: cAhmed.referredAt, fromAddress: 'ahmed.yusuf@botkyrka.se', fromName: 'Ahmed Yusuf',

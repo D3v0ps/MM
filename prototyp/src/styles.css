@@ -141,7 +141,7 @@ button { font-family: inherit; }
 .nav-item.active { background: rgba(255,255,255,0.12); font-weight: 700; }
 .nav-item.active::before { content: ""; position: absolute; left: -14px; top: 10px; bottom: 10px; width: 4px; background: var(--rod); border-radius: 0 3px 3px 0; }
 .nav-item .count { margin-left: auto; font-size: 0.75rem; font-weight: 700; background: var(--vit); color: var(--antracit); border-radius: 999px; padding: 1px 8px; }
-.nav-item .count.hot { background: var(--rod); color: var(--vit); }
+.nav-item .count.hot { background: var(--vit); color: var(--antracit); box-shadow: 0 0 0 2px var(--rod); }
 .sidebar-foot { margin-top: auto; font-size: 0.75rem; color: rgba(255,255,255,0.72); padding: 0 8px; line-height: 1.4; }
 .main { min-width: 0; background: var(--bg); }
 .page { max-width: 1240px; margin: 0 auto; padding-block: 28px 64px; padding-inline: 32px; display: flex; flex-direction: column; gap: 24px; }
@@ -166,7 +166,7 @@ button { font-family: inherit; }
 .page-title .dot { width: 10px; height: 10px; }
 .page-lead { color: var(--fg-muted); max-width: 70ch; }
 .crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-small); color: var(--fg-muted); }
-.crumbs button { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; min-height: 32px; }
+.crumbs button { background: none; border: 0; padding: 0 4px; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; min-height: 44px; }
 
 /* ---------- Kort och sektioner ---------- */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); min-width: 0; }
@@ -218,7 +218,8 @@ button { font-family: inherit; }
 .badge-grey { background: var(--ljusgra); color: var(--antracit); }
 .badge-red { background: var(--vit); color: var(--antracit); border-color: var(--rod); }
 .badge-red .ic { color: var(--rod); }
-.badge-redfill { background: var(--rod); color: var(--vit); font-weight: 800; }
+.badge-redfill { background: var(--rod-ton2); color: var(--antracit); font-weight: 800; border: 2px solid var(--rod); }
+.badge-redfill .ic { color: var(--rod); }
 .badge-dark { background: var(--antracit); color: var(--vit); }
 .badge-outline { background: var(--vit); color: var(--antracit); border-color: var(--line-strong); }
 .badge-plan { background: var(--vit); color: var(--antracit); border: 1.5px dashed var(--antracit); font-weight: 700; }
@@ -386,7 +387,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px
 .sla .ic { width: 15px; height: 15px; }
 .sla-ok { background: var(--surface-sub2); color: var(--antracit); }
 .sla-soon { background: var(--vit); color: var(--antracit); border: 2px solid var(--antracit); }
-.sla-urgent { background: var(--rod); color: var(--vit); font-weight: 800; }
+.sla-urgent { background: var(--vit); color: var(--antracit); font-weight: 800; border: 2px solid var(--rod); }
+.sla-urgent .ic { color: var(--rod); }
 .sla-over { background: var(--antracit); color: var(--vit); }
 .sla-over .ic { color: var(--rod); }
 .sla-met { background: var(--bla); color: var(--antracit); }
@@ -499,3 +501,30 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px
 .chart text { fill: var(--antracit); font-family: var(--font); font-size: 12px; }
 .chart .axis { stroke: var(--line-strong); stroke-width: 1; }
 .chart .grid-line { stroke: var(--line); stroke-width: 1; }
+
+/* ---------- Tillgänglighet och mobil (efter designgranskning) ---------- */
+.skip-link { position: absolute; left: 12px; top: -80px; z-index: 100; background: var(--antracit); color: var(--vit); padding: 12px 16px; border-radius: var(--radius); font-weight: 700; text-decoration: none; }
+.skip-link:focus { top: calc(env(safe-area-inset-top, 0px) + 8px); outline: 3px solid var(--rod); }
+.page { padding-bottom: 96px; }
+.portal-main { padding-bottom: 104px; }
+[id] { scroll-margin-top: 140px; }
+@media (max-width: 900px) {
+  .topbars { position: static; }
+  [id] { scroll-margin-top: 16px; }
+  .protobar { gap: 6px 8px; padding: 6px 12px; }
+  .protobar .seg button { min-height: 44px; padding: 6px 10px; }
+  .fb-fab .fb-fab-text { display: none; }
+  .fb-fab { padding: 10px; border-radius: 999px; }
+}
+@media (max-width: 620px) {
+  .list-item { flex-wrap: wrap; }
+  .list-item .li-main { flex-basis: calc(100% - 44px); }
+  .list-item .li-side { width: 100%; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; }
+}
+/* Kommunportalen: brödtext minst 18 px, metadata minst 16 px */
+.portal .help, .portal p, .portal td, .portal li, .portal .li-sub, .portal .kpi-sub, .portal .cell-sub, .portal .notice, .portal .demo-note, .portal .kv dd, .portal .kv dt { font-size: 1.125rem; }
+.portal .small, .portal .badge, .portal .status, .portal .sla, .portal .tab, .portal .kpi .kpi-label, .portal .eyebrow, .portal .table th, .portal .fb-meta, .portal .stepper li { font-size: 1rem; }
+.portal .btn-ghost { min-height: 44px; }
+.kpi-state { display: inline-flex; align-items: center; gap: 6px; font-size: 0.875rem; font-weight: 800; }
+.kpi-state .ic { width: 16px; height: 16px; }
+.kpi.alert .kpi-state .ic { color: var(--rod); }

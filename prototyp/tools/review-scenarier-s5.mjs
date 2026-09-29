@@ -65,4 +65,10 @@ await check('Steg 4: kommunen kan svara', async () => {
   await main.getByRole('button', { name: /Skicka/ }).first().click(); await page.waitForTimeout(150);
   return S((id) => MM.store.state.messages.filter((m) => m.caseId === id).slice(-1)[0].body, caseId);
 });
+await check('Steg 4: kommunens svar syns för coachen (notis/meddelanden)', async () => {
+  await S(() => MM.nav('notiser', {}, { role: 'coach' })); await page.waitForTimeout(120); const t = await T.mainText();
+  await S((id) => MM.nav('arende.kort', { caseId: id, tab: 'meddelanden' }, { role: 'coach' }), caseId); await page.waitForTimeout(120); const t2 = await T.mainText();
+  await S(() => MM.gotoStep(3)); await page.waitForTimeout(100);
+  assert.match(t2, /Tiden passar bra/); return /BOT-26-0148/.test(t) && /[Mm]eddelande/.test(t) ? 'notis finns' : 'ingen notis i Notiser';
+});
 await T.done();

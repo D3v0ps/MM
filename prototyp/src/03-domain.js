@@ -600,7 +600,8 @@
     for (const t of c.team) notifyAssignment(st, ctx, c, t.userId, t.role);
     ctx.notify('email', customerEmail(st, c.referrerId), 'orderbekraftelse', `Orderbekräftelse för ärende ${c.number} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`, c.id);
     const protectedPerson = (st.persons.find((x) => x.id === c.personId) || {}).protectedIdentity;
-    if (p.firstMeetingAt && !protectedPerson) ctx.notify('sms', 'deltagare (föredragen kontaktväg)', 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.firstMeetingAt)} kl. ${d.fmtTime(p.firstMeetingAt)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
+    const pc = (st.persons.find((x) => x.id === c.personId) || {}).preferredContact || 'sms';
+    if (p.firstMeetingAt && !protectedPerson) ctx.notify(({ email: 'email', letter: 'brev', phone: 'sms', sms: 'sms' })[pc], `deltagare (${({ email: 'e-post', letter: 'brev', phone: 'SMS (telefon vald – coachen ringer också)', sms: 'SMS' })[pc]})`, 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.firstMeetingAt)} kl. ${d.fmtTime(p.firstMeetingAt)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
     return { reportId: rep.id };
   });
   A('case.decline', (st, p, ctx) => {

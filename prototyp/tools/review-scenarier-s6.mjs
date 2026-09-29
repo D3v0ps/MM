@@ -54,5 +54,9 @@ await check('Steg 3: fasen oförändrad (4) efter avvisat fasförslag', () => S(
 await check('Steg 3: besluten syns i revisionsloggen', async () => {
   const a = await S(() => MM.store.state.auditLog.filter((x) => x.byTester).map((x) => x.action)); return a;
 });
+await check('Steg 3: påminnelsen för Mehmet försvinner hos coachen efter godkännandet', async () => {
+  await S(() => MM.nav('coach.minvecka', {})); await page.waitForTimeout(120); const t = await T.mainText(); await S(() => MM.gotoStep(2)); await page.waitForTimeout(100);
+  const m = t.match(/Mehmet Kaya BOT-26-0130\n[^\n]*progression[^\n]*/); if (m) throw new Error('Min vecka visar fortfarande: ' + m[0].replace(/\n/g, ' | '));
+});
 await shot('steg3');
 await T.done();

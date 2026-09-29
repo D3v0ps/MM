@@ -104,13 +104,13 @@
     ] },
     { id: 's3', title: 'Kommunen beställer i portalen', lead: 'För den som hellre beställer i portalen än via mejl. Skrivet för ovana användare: en sak per skärm.', steps: [
       { role: 'kommun_handlaggare', view: 'kom.login', params: {}, text: 'Logga in med e-post och sexsiffrig engångskod (ingen magisk länk – Safe Links förbrukar dem).' },
-      { role: 'kommun_handlaggare', view: 'kom.bestall', params: {}, text: 'Beställ en ny insats i tre steg. Testa gärna en felaktig beställarreferens och se hjälptexten.' },
+      { role: 'kommun_handlaggare', view: 'kom.bestall', params: {}, text: 'Beställ en ny insats i tre steg och granska innan du skickar. Testa gärna en felaktig beställarreferens och se hjälptexten.' },
       { role: 'kommun_handlaggare', view: 'kom.bestall', params: {}, text: 'Se ordererkännandet med ärendenummer direkt på skärmen.' },
-      { role: 'samordnare', view: 'sam.inkorg', params: {}, text: 'Byt till leverantörens perspektiv. Beställningen ligger i inkorgen med SLA-klocka (en arbetsdag).' },
+      { role: 'samordnare', view: 'sam.inkorg', params: { latest: true }, text: 'Byt till leverantörens perspektiv. Den senaste beställningen ligger i inkorgen med SLA-klocka (en arbetsdag).' },
     ] },
     { id: 's4', title: 'Coachens måndag och veckorapporten', lead: 'Närvaro ska vara registrerad senast måndag 10.00. Veckorapporten publiceras när allt är klart.', steps: [
-      { role: 'coach', view: 'coach.minvecka', params: {}, text: 'Min vecka: tre tillfällen från förra veckan saknar närvaro. Nedräkningen visar tiden till 10.00.' },
-      { role: 'coach', view: 'coach.narvaro', params: { week: 'last' }, text: 'Registrera närvaron med ett klick per tillfälle. När allt är klart publiceras veckorapporten till Maria automatiskt.' },
+      { role: 'coach', view: 'coach.minvecka', params: {}, text: 'Min vecka: några tillfällen från förra veckan saknar närvaro. Nedräkningen visar tiden till måndag 10.00.' },
+      { role: 'coach', view: 'coach.narvaro', params: { week: 'last' }, text: 'Registrera närvaron med ett klick per tillfälle. När alla tillfällen för en handläggares deltagare är klara publiceras veckorapporten automatiskt (Maria och Linda väntar).' },
       { role: 'kommun_handlaggare', view: 'kom.rapporter', params: {}, text: 'Byt till kundens perspektiv och öppna veckorapporten för vecka 4.' },
     ] },
     { id: 's5', title: 'Röd status blir en avvikelse', lead: 'Avvikelse = åtgärd. Röd status kräver åtgärd, ansvarig och uppföljningsdatum.', steps: [
@@ -126,8 +126,8 @@
     ] },
     { id: 's7', title: 'Månadsbedömning till kommunen', lead: 'Progression per område enligt mall 02. Rapporten byggs bara av godkända uppgifter.', steps: [
       { role: 'coach', view: 'coach.manad', params: { caseId: sc('nadia'), month: '2027-01' }, text: 'Öppna januaribedömningen för Nadia Warsame. AI:s nivåförslag visas bredvid, men rullgardinen är tom tills du väljer.' },
-      { role: 'coach', view: 'coach.manad', params: { caseId: sc('nadia'), month: '2027-01' }, text: 'Försök godkänna med nivå 1 eller högre utan observation. Det stoppas – mallen kräver alltid belägg.' },
-      { role: 'coach', view: 'rapport.visa', params: { reportId: reportOf('nadia', 'monthly', '2027-01') }, text: 'Förhandsgranska månadsrapporten (avsnitt 1–8). Godkänn och leverera.' },
+      { role: 'coach', view: 'coach.manad', params: { caseId: sc('nadia'), month: '2027-01' }, text: 'Försök godkänna med nivå 1 eller högre utan observation – det stoppas, mallen kräver alltid belägg. Fyll sedan i observationerna (använd gärna AI-utkasten) och godkänn bedömningen.' },
+      { role: 'coach', view: 'rapport.visa', params: { reportId: reportOf('nadia', 'monthly', '2027-01') }, text: 'Förhandsgranska månadsrapporten (avsnitt 1–8). Den bygger bara på godkända uppgifter. Godkänn och leverera till kommunen.' },
       { role: 'kommun_handlaggare', view: 'kom.rapporter', params: {}, text: 'Byt till kundens perspektiv och öppna rapporten. Den kvitteras som läst.' },
     ] },
     { id: 's8', title: 'Fakturering januari', lead: 'En faktura per ärende och månad. Beställarreferens krävs. Veckor utan närvaro kontrolleras.', steps: [
@@ -155,19 +155,21 @@
     { id: 's13', title: 'Notiser, påminnelser och tidig eskalering', lead: 'Coachen får notis vid tilldelning och påminnelse när progression uteblir. Två veckor i rad eskaleras till chef/controller – utan att coachen ser det.', steps: [
       { role: 'samordnare', view: 'sam.inkorg', params: { emailId: 'em-106' }, text: 'Acceptera avropet från Linda Karlsson och välj Amira Haddad som huvudcoach. Hon får en notis i appen och ett mejl utan personuppgifter.' },
       { role: 'coach', view: 'notiser', params: {}, text: 'Byt till coachen. Under Notiser finns tilldelningen och påminnelser om ärenden utan progression förra veckan. Inget visar att chefen fått en eskalering.' },
-      { role: 'chef', view: 'notiser', params: {}, text: 'Byt till chef/controller. Här syns eskaleringarna, till exempel Yusuf Abdi som har flera veckor i rad utan progression.' },
+      { role: 'chef', view: 'notiser', params: {}, text: 'Byt till chef/controller. Här syns eskaleringarna – ärenden med två eller fler veckor i rad utan progression, med coach och orsak per vecka.' },
       { role: 'chef', view: 'chef.oversikt', params: {}, text: 'I ledningsvyn syns tidig uppmärksamhet per coach. Kvittera med en kort åtgärd.' },
       { role: 'admin', view: 'admin.avtal', params: { tab: 'interna' }, text: 'Reglerna (antal veckor, mottagare, kanaler) är interna regler för Miljonbemanning och kan ändras i adminvyn.' },
     ] },
     { id: 's12', title: 'Avtalet är konfiguration', lead: 'Samma kod för Botkyrka och Kammarkollegiet. Inga avtalsvärden är hårdkodade.', steps: [
       { role: 'admin', view: 'admin.avtal', params: {}, text: 'Se Botkyrkas avtalskonfiguration. Värden som ska fastställas är markerade och aktiveras inte.' },
-      { role: 'admin', view: 'admin.avtal', params: { contract: 'c-kk' }, text: 'Jämför med skissen för Kammarkollegiet: paketpriser, andra KPI:er och SLA.' },
+      { role: 'admin', view: 'admin.avtal', params: { contract: 'c-kk', tab: 'jamfor' }, text: 'Jämför med skissen för Kammarkollegiet: paketpriser, andra KPI:er och SLA.' },
       { role: 'admin', view: 'om.fragor', params: {}, text: 'Gå igenom de öppna frågorna till Botkyrka.' },
     ] },
   ];
+  const LS_SCEN = 'miljonmatch-prototyp-aktivt-scenario';
   const scen = { active: null, step: 0, listeners: new Set() };
+  try { const saved = JSON.parse(localStorage.getItem(LS_SCEN) || 'null'); if (saved && saved.active) { scen.active = saved.active; scen.step = saved.step || 0; } } catch (e) { /* */ }
   MM.scen = scen;
-  const semit = () => scen.listeners.forEach((f) => f());
+  const semit = () => { try { localStorage.setItem(LS_SCEN, JSON.stringify({ active: scen.active, step: scen.step })); } catch (e) { /* */ } scen.listeners.forEach((f) => f()); };
   MM.useScen = () => { const [, set] = useState(0); useEffect(() => { const f = () => set((x) => x + 1); scen.listeners.add(f); return () => scen.listeners.delete(f); }, []); return scen; };
   MM.startScenario = (id, step = 0) => { scen.active = id; scen.step = step; semit(); const s = MM.scenarios().find((x) => x.id === id); const st = s.steps[step]; MM.nav(st.view, st.params, { role: st.role }); };
   MM.gotoStep = (i) => { const s = MM.scenarios().find((x) => x.id === scen.active); if (!s) return; scen.step = Math.max(0, Math.min(s.steps.length - 1, i)); semit(); const st = s.steps[scen.step]; if (st.role !== MM.route.role || st.view !== MM.route.view || JSON.stringify(st.params) !== JSON.stringify(MM.route.params)) MM.nav(st.view, st.params, { role: st.role }); };
@@ -190,12 +192,12 @@
           <div style="font-size:.9375rem">${st.text}</div>
         </div>
         <div class="row-sm">
-          <button type="button" class="btn btn-secondary" style="background:transparent;color:var(--vit);border-color:var(--vit);min-height:40px" disabled=${s.step === 0} onClick=${() => MM.gotoStep(s.step - 1)}><${I} name="chevron-left" />Föregående</button>
-          <button type="button" class="btn" style="background:${done ? 'var(--bla)' : 'var(--vit)'};color:var(--antracit);min-height:40px" onClick=${() => fb.markStep(def.id, s.step, !done)} aria-pressed=${done ? 'true' : 'false'}><${I} name=${done ? 'check-square' : 'square'} />Testat</button>
+          <button type="button" class="btn btn-secondary" style="background:transparent;color:var(--vit);border-color:var(--vit);min-height:44px" disabled=${s.step === 0} onClick=${() => MM.gotoStep(s.step - 1)}><${I} name="chevron-left" />Föregående</button>
+          <button type="button" class="btn" style="background:${done ? 'var(--bla)' : 'var(--vit)'};color:var(--antracit);min-height:44px" onClick=${() => fb.markStep(def.id, s.step, !done)} aria-pressed=${done ? 'true' : 'false'}><${I} name=${done ? 'check-square' : 'square'} />Testat</button>
           ${s.step < def.steps.length - 1
-            ? html`<button type="button" class="btn" style="background:var(--vit);color:var(--antracit);min-height:40px" onClick=${() => MM.gotoStep(s.step + 1)}>Nästa steg<${I} name="chevron-right" /></button>`
-            : html`<button type="button" class="btn" style="background:var(--vit);color:var(--antracit);min-height:40px" onClick=${() => { MM.openFeedback({ scenarioId: def.id }); }}><${I} name="message-circle" />Feedback på scenariot</button>`}
-          <button type="button" class="btn btn-ghost" style="color:var(--vit);min-height:40px" onClick=${MM.stopScenario} title="Avsluta scenariot"><${I} name="x" /><span class="sr-only">Avsluta scenariot</span></button>
+            ? html`<button type="button" class="btn" style="background:var(--vit);color:var(--antracit);min-height:44px" onClick=${() => MM.gotoStep(s.step + 1)}>Nästa steg<${I} name="chevron-right" /></button>`
+            : html`<button type="button" class="btn" style="background:var(--vit);color:var(--antracit);min-height:44px" onClick=${() => { MM.openFeedback({ scenarioId: def.id }); }}><${I} name="message-circle" />Feedback på scenariot</button>`}
+          <button type="button" class="btn btn-ghost" style="color:var(--vit);min-height:44px" onClick=${MM.stopScenario} title="Avsluta scenariot"><${I} name="x" /><span class="sr-only">Avsluta scenariot</span></button>
         </div>
       </div></div>`;
   };
@@ -245,6 +247,14 @@
     const [type, setType] = useState('forbattring'); const [prio, setPrio] = useState('bor'); const [text, setText] = useState(''); const [scope, setScope] = useState('view');
     const [filter, setFilter] = useState('alla'); const [sent, setSent] = useState(null); const [err, setErr] = useState(null);
     useEffect(() => { if (dr.open) { setSent(null); setErr(null); if (dr.preset.scenarioId) setScope('scenario'); else setScope('view'); } }, [dr.open, dr.preset]);
+    useEffect(() => {
+      if (!dr.open) return undefined;
+      const prev = document.activeElement;
+      setTimeout(() => { const el = document.querySelector('.drawer textarea, .drawer [role=tab][aria-selected=true]'); if (el) el.focus(); }, 30);
+      const onKey = (e) => { if (e.key === 'Escape') MM.closeFeedback(); };
+      document.addEventListener('keydown', onKey);
+      return () => { document.removeEventListener('keydown', onKey); if (prev && prev.focus) prev.focus(); };
+    }, [dr.open]);
     if (!dr.open) return null;
     const view = MM.views[route.view] || {}; const scenDef = MM.scenarios().find((x) => x.id === (dr.preset.scenarioId || MM.scen.active));
     const persp = MM.perspective();
@@ -302,7 +312,7 @@
 
   // ============================================================ Startsida (om.start)
   const RoleCard = ({ r }) => html`<button type="button" class="rolecard" onClick=${() => MM.setRole(r.key)}>
-    <span class="rc-title"><${I} name=${({ samordnare: 'inbox', avtalsansvarig: 'briefcase', coach: 'calendar', handledare: 'tool', chef: 'chart', ekonom: 'card', admin: 'settings', kommun_handlaggare: 'building', kommun_chef: 'bar-chart', deltagare: 'smile' })[r.key] || 'user'} />${r.label}</span>
+    <span class="rc-title"><${I} name=${({ samordnare: 'inbox', avtalsansvarig: 'briefcase', coach: 'calendar', handledare: 'tool', chef: 'chart', ekonom: 'card', admin: 'settings', kommun_handlaggare: 'building', kommun_chef: 'chart', deltagare: 'smile' })[r.key] || 'user'} />${r.label}</span>
     <span class="rc-sub">${r.personaId ? `${MM.personName(r.personaId)} · ` : ''}${r.desc}</span>
   </button>`;
 

@@ -26,6 +26,7 @@
 
   const navCount = (kind) => {
     try {
+      if (kind === 'inbox' && MM.sel.inboxToHandle) return MM.sel.inboxToHandle().length;
       if (kind === 'inbox') return MM.sel.awaitingAnswer().length + MM.sel.inbox().filter((e) => !e.caseId || !['acknowledged', 'received'].includes((MM.sel.caseById(e.caseId) || {}).status)).length;
       if (kind === 'deadlines') { const xs = MM.sel.deadlines({ days: 0 }); return xs.filter((x) => x.bucket !== 'week').length; }
       if (kind === 'unregistered') { const lastMon = d.addDays(d.monday(d.today()), -7); return MM.sel.unregistered(MM.currentPersonaId(), lastMon, d.today()).length; }
@@ -50,11 +51,11 @@
         <select id="role-select" value=${route.role} onChange=${(e) => MM.setRole(e.target.value)}>${pDef.roles.map((r) => html`<option value=${r}>${MM.roleDef(r).label}${MM.roleDef(r).personaId ? ` – ${MM.personName(MM.roleDef(r).personaId)}` : ''}</option>`)}</select></div>`}
       <span class="proto-clock"><${I} name="clock" /> Demodatum ${d.fmtWeekday(d.now())} ${d.now().slice(0, 4)} kl. ${d.fmtTime(d.now())} · ${d.fmtWeek(d.now())}</span>
       <span class="spacer"></span>
-      <${ui.Btn} kind="ghost" icon="home" onClick=${() => MM.nav('om.start', {})}><span class="hide-narrow">Start och scenarier</span><//>
+      <${ui.Btn} kind="ghost" icon="home" ariaLabel="Start och scenarier" onClick=${() => MM.nav('om.start', {})}><span class="hide-narrow">Start och scenarier</span><//>
       <${ui.Btn} kind="secondary" icon="message-circle" onClick=${() => MM.nav('om.feedback', {})}>Genomgång${open ? ` (${open} nya)` : ''}<//>
       ${confirmReset
         ? html`<span class="row-sm"><span class="small strong">Ta bort allt du gjort?</span><${ui.Btn} kind="danger" icon="reset" onClick=${() => { setConfirmReset(false); MM.resetDemo(); }}>Ja, återställ<//><${ui.Btn} kind="ghost" onClick=${() => setConfirmReset(false)}>Avbryt<//></span>`
-        : html`<${ui.Btn} kind="ghost" icon="reset" title="Återställ demodata" onClick=${() => setConfirmReset(true)}><span class="hide-narrow">Återställ</span><//>`}
+        : html`<${ui.Btn} kind="ghost" icon="reset" title="Återställ demodata" ariaLabel="Återställ demodata" onClick=${() => setConfirmReset(true)}><span class="hide-narrow">Återställ</span><//>`}
     </header>`;
   };
 
@@ -135,9 +136,9 @@
     else if (persp === 'kund') body = html`<div class="portal"><${PortalHeader} /><main id="main" tabIndex="-1"><div class="portal-main"><${ViewHost} /></div></main></div>`;
     else if (persp === 'deltagare') body = html`<main id="main" tabIndex="-1" class="pulse-stage"><${ViewHost} /></main>`;
     else body = html`<div class="app"><${Sidebar} /><main id="main" tabIndex="-1" class="main"><${ViewHost} /></main></div>`;
-    return html`<a href="#main" class="sr-only" onClick=${(e) => { e.preventDefault(); const m = document.getElementById('main'); if (m) m.focus(); }}>Hoppa till innehållet</a>
+    return html`<a href="#main" class="skip-link" onClick=${(e) => { e.preventDefault(); const m = document.getElementById('main'); if (m) m.focus(); }}>Hoppa till innehållet</a>
       <div class="topbars"><${ProtoBar} /><${MM.ScenarioBar} /></div>${body}
-      <button type="button" class="btn btn-primary fb-fab" onClick=${() => MM.openFeedback()}><${I} name="message-circle" />Feedback</button>
+      <button type="button" class="btn btn-primary fb-fab" aria-label="Lämna feedback" onClick=${() => MM.openFeedback()}><${I} name="message-circle" /><span class="fb-fab-text">Feedback</span></button>
       <${MM.FeedbackDrawer} /><${DialogHost} /><${TextHost} /><${Toasts} />`;
   };
 

@@ -1,0 +1,11 @@
+import path from 'node:path';
+import { openProto } from './lib.mjs';
+const dir = process.argv[2];
+const { page, close } = await openProto();
+await page.evaluate(() => MM.startScenario('s9', 0)); await page.waitForTimeout(200);
+await page.screenshot({ path: path.join(dir, 'scen-s9-d.png') });
+await page.evaluate(() => MM.startScenario('s13', 1)); await page.waitForTimeout(200);
+console.log(await page.evaluate(() => document.querySelector('.scenbar').innerText.split('\n')[0]));
+await page.evaluate(() => MM.startScenario('s12', 0)); await page.waitForTimeout(200);
+console.log(await page.evaluate(() => document.querySelector('.scenbar').innerText.split('\n')[0]));
+await close();
