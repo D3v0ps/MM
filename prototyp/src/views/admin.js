@@ -754,7 +754,7 @@
     { id: 'epost', name: 'E-postleverantör', what: 'Notiser och inloggningskoder', where: 'Väljs – helst inom EU', status: 'not_chosen', us: false },
     { id: 'microsoft', name: 'Microsoft', what: 'Inloggning (Entra ID) och avrop@-brevlådan (Graph)', where: 'Befintligt Microsoft 365', status: 'approved', us: true },
   ];
-  const SubStatus = ({ s }) => (s === 'approved' ? html`<${ui.Badge} tone="blue" icon="check">Godkänd ${d.fmtDate(APPROVED_ON)}<//>`
+  const SubStatus = ({ s }) => (s === 'approved' ? html`<${ui.Badge} tone="blue" icon="check">Godkänd<//><div class="cell-sub">${d.fmtDate(APPROVED_ON)}</div>`
     : s === 'approved_test' ? html`<${ui.Badge} tone="bluetone" icon="check">Godkänd – väljs genom test<//>` : html`<${ui.Badge} tone="outline" icon="alert-circle">Ej vald – fråga 18<//>`);
   const IntStatus = ({ s }) => ({ active: html`<${ui.Badge} tone="blue" icon="check-circle">Aktiv<//>`, test: html`<${ui.Badge} tone="bluetone" icon="sparkles">Test<//>`, off: html`<${ui.Badge} tone="grey" icon="minus-circle">Ej ansluten<//>`, notchosen: html`<${ui.Badge} tone="outline" icon="alert-circle">Ej vald<//>` })[s];
   const JobStatus = ({ s }) => ({ ok: html`<${ui.Badge} tone="blue" icon="check">Klar<//>`, waiting: html`<${ui.Badge} tone="grey" icon="clock">Väntar<//>`, disabled: html`<${ui.Badge} tone="outline" icon="minus-circle">Inte aktiverad<//>`, failed: html`<${ui.Badge} tone="red" icon="alert">Fel<//>` })[s];
@@ -844,11 +844,10 @@
       <${ui.Card} title="Bakgrundsjobb (tabellen jobs)" icon="refresh" flush
         foot=${html`<span class="small muted">En skyddad route körs av cron varje minut. Jobben hämtas med FOR UPDATE SKIP LOCKED, är idempotenta, har ett begränsat antal försök och sparar felorsaken.</span>`}>
         <${ui.Table} caption="Bakgrundsjobb" rows=${jobs} columns=${[
-          { key: 'name', label: 'Jobb', render: (j) => html`<span class="strong">${j.name}</span>${j.phase && html`<div style="margin-top:4px"><${ui.BuildPhase} fas=${j.phase} /></div>`}` },
-          { key: 'schedule', label: 'Schema', render: (j) => html`<span class="small">${j.schedule}</span>` },
+          { key: 'name', label: 'Jobb och schema', render: (j) => html`<span class="strong">${j.name}</span><div class="cell-sub">${j.schedule}</div>${j.phase && html`<div style="margin-top:4px"><${ui.BuildPhase} fas=${j.phase} /></div>`}` },
           { key: 'last', label: 'Senaste körning', nowrap: true, render: (j) => (j.last ? html`${d.fmtDateTime(j.last)}${j.manual && html`<div class="cell-sub">Manuellt av dig</div>`}` : '–') },
           { key: 'status', label: 'Status', render: (j) => html`<${JobStatus} s=${j.status} />` },
-          { key: 'result', label: 'Resultat', render: (j) => html`<span class="small">${j.result}</span>` },
+          { key: 'result', label: 'Resultat', render: (j) => html`<span style="font-size:.875rem">${j.result}</span>` },
           { key: 'run', label: 'Kör', render: (j) => html`<${ui.Btn} kind="ghost" icon="play" disabled=${!!j.disabled} title=${`Kör ${j.name.toLowerCase()} nu`} onClick=${() => { MM.dispatch('admin.runJob', { key: j.key }); MM.toast(`${j.name} kördes (simulerat).`, 'blue'); }}>Kör nu<//>` },
         ]} />
       <//>
@@ -859,7 +858,7 @@
 
   // ============================================================ admin.mallar – Mallar och utskick
   const ChannelBadge = ({ ch }) => html`<${ui.Badge} tone="outline" icon=${ch === 'sms' ? 'message' : 'mail'}>${ch === 'sms' ? 'SMS' : 'E-post'}<//>`;
-  const CheckBadge = ({ c }) => (c.ok ? html`<${ui.Badge} tone="blue" icon="check">Inga personuppgifter<//>` : html`<${ui.Badge} tone="red" icon="alert">Innehåller personuppgifter<//>`);
+  const CheckBadge = ({ c }) => (c.ok ? html`<${ui.Badge} tone="outline" icon="check">Inga personuppgifter<//>` : html`<${ui.Badge} tone="red" icon="alert">Innehåller personuppgifter<//>`);
 
   const TemplateEditor = ({ tpl }) => {
     const st = MM.useStore();
@@ -882,7 +881,7 @@
         <${KV} items=${[['Avsändare', tpl.from], ['Mottagare', tpl.to], ['Skickas', when], ['Senast ändrad', `${d.fmtDate(tpl.updatedAt)} av ${MM.personName(tpl.updatedBy)}`]]} />
         ${tpl.channel === 'email' && html`<${ui.Field} id="tpl-subject" label="Ämnesrad" help="Visas i mottagarens inkorg. Bara ärendenummer – aldrig namn."><${ui.Input} id="tpl-subject" value=${subject} onInput=${setSubject} invalid=${!chk.ok} /><//>`}
         <${ui.Field} id="tpl-body" label="Text" help=${html`Tillåtna platshållare: ${ALLOWED_PH.map((p) => `{${p}}`).join(', ')}.${tpl.channel === 'sms' ? html` <b>${body.length} tecken</b> – ett SMS rymmer 160.` : ''}`}>
-          <${ui.TextArea} id="tpl-body" rows=${5} value=${body} onInput=${setBody} invalid=${!chk.ok} /><//>
+          <${ui.TextArea} id="tpl-body" rows=${tpl.channel === 'sms' ? 4 : 7} value=${body} onInput=${setBody} invalid=${!chk.ok} /><//>
         ${chk.ok ? html`<${ui.Notice} tone="ok" title="Innehåller inga personuppgifter">Texten innehåller inga platshållare för namn, personnummer eller adress. Utskicket får bara innehålla ärendenummer och länk till portalen.<//>`
           : html`<${ui.Notice} tone="critical" title="Innehåller personuppgifter – kan inte sparas">${chk.pii.length > 0 ? html`Ta bort ${chk.pii.join(', ')}. ` : ''}${chk.pnr ? 'Texten innehåller något som liknar ett personnummer. ' : ''}E-post och SMS får aldrig innehålla personuppgifter – bara ärendenummer och en uppmaning att logga in.<//>`}
         ${chk.unknown.length > 0 && html`<${ui.Notice} tone="warn" title="Okänd platshållare">${chk.unknown.join(', ')} fylls inte i automatiskt. Använd bara de tillåtna platshållarna.<//>`}
@@ -912,7 +911,7 @@
       <div class="split">
         <${ui.Card} title="Mallar" icon="list" flush>
           <div class="list">${list.map((t) => { const c = tplCheck(`${t.subject || ''}\n${t.body}`); const on = t.key === selKey;
-            return html`<button type="button" key=${t.key} class="list-item clickable" aria-current=${on ? 'true' : undefined} onClick=${() => setSelKey(t.key)}
+            return html`<button type="button" key=${t.key} class="list-item clickable" aria-current=${on ? 'true' : undefined} onClick=${() => { setSelKey(t.key); setTimeout(() => { const el = document.getElementById('tpl-editor'); if (el) { const r = el.getBoundingClientRect(); if (r.top < 100 || r.top > window.innerHeight - 120) el.scrollIntoView({ block: 'start' }); } }, 30); }}
                 style=${on ? 'background:var(--bla-ton);box-shadow:inset 4px 0 0 var(--rod)' : ''}>
               <${I} name=${t.channel === 'sms' ? 'message' : 'mail'} />
               <span class="li-main"><span class="li-title">${t.name}</span><span class="li-sub">${t.to}</span>
@@ -920,7 +919,7 @@
               <${I} name="chevron-right" />
             </button>`; })}</div>
         <//>
-        <${TemplateEditor} tpl=${cur} key=${`${cur.key}:${cur.version}`} />
+        <div id="tpl-editor" style="scroll-margin-top:140px;min-width:0"><${TemplateEditor} tpl=${cur} key=${`${cur.key}:${cur.version}`} /></div>
       </div>
       <${ui.DemoNote}>I prototypen påverkar en ny mallversion bara den här vyn – utskicken i demot använder de ursprungliga texterna. I den riktiga tjänsten skickas all e-post och alla SMS via en gemensam modul som alltid läser senaste versionen.<//>
     </div>`;
@@ -1279,7 +1278,8 @@
     const [q, setQ] = useState(''); const [area, setArea] = useState(''); const [adding, setAdding] = useState(false);
     const today = d.today(); const in7 = d.addDays(today, 7);
     const ongoing = st.placements.filter((p) => p.status === 'ongoing');
-    const upcoming = ongoing.flatMap((p) => (p.followUpDates || []).filter((x) => x >= today && x <= in7).map((x) => ({ p, x }))).sort((a, b) => (a.x < b.x ? -1 : 1));
+    const mineOnly = ['coach', 'handledare'].includes(role);
+    const upcoming = ongoing.filter((p) => !mineOnly || canSeeCase(sel.caseById(p.caseId), role)).flatMap((p) => (p.followUpDates || []).filter((x) => x >= today && x <= in7).map((x) => ({ p, x }))).sort((a, b) => (a.x < b.x ? -1 : 1));
     const full = ongoing.filter((p) => rightsDone(p) === 4).length;
     const empName = (id) => (st.employers.find((e) => e.id === id) || {}).name || '–';
     const rows = st.employers.filter((e) => (!q.trim() || `${e.name} ${e.contactName}`.toLowerCase().includes(q.trim().toLowerCase())) && (!area || e.areas.includes(area)))
@@ -1292,10 +1292,10 @@
       <div class="grid-4">
         <${ui.Kpi} label="Arbetsgivare" value=${st.employers.length} sub="i registret" />
         <${ui.Kpi} label="Pågående praktik" value=${ongoing.length} sub=${`${st.placements.length} praktikplatser totalt`} />
-        <${ui.Kpi} label="Uppföljningar" value=${upcoming.length} sub="de närmaste 7 dagarna" />
+        <${ui.Kpi} label="Uppföljningar" value=${upcoming.length} sub=${mineOnly ? 'i dina ärenden de närmaste 7 dagarna' : 'de närmaste 7 dagarna'} />
         <${ui.Kpi} label="Alla fyra rätt" value=${`${full} av ${ongoing.length}`} sub="pågående praktikplatser" tone=${full < ongoing.length ? 'watch' : ''} />
       </div>
-      ${upcoming.length > 0 && html`<${ui.Card} title="Uppföljningar de närmaste 7 dagarna" icon="calendar" flush>
+      ${upcoming.length > 0 && html`<${ui.Card} title=${mineOnly ? 'Dina uppföljningar de närmaste 7 dagarna' : 'Uppföljningar de närmaste 7 dagarna'} icon="calendar" flush>
         <div class="list">${upcoming.slice(0, 6).map(({ p, x }) => { const c = sel.caseById(p.caseId); const ok = canSeeCase(c, role);
           return html`<button type="button" key=${`${p.id}:${x}`} class="list-item clickable" onClick=${() => MM.nav('praktik.arbetsgivare', { employerId: p.employerId })}>
             <${I} name="calendar" /><span class="li-main"><span class="li-title">${d.fmtWeekday(x)} · ${empName(p.employerId)}</span>
@@ -1310,7 +1310,7 @@
           { key: 'name', label: 'Företag', render: (r) => html`<span class="strong">${r.name}</span><div class="cell-sub">${r.orgNr || 'Organisationsnummer saknas'}</div>` },
           { key: 'contact', label: 'Kontaktperson', render: (r) => html`${r.contactName || '–'}${r.phone && html`<div class="cell-sub">${r.phone}</div>`}` },
           { key: 'areas', label: 'Avtalsområden', render: (r) => html`<span class="row-sm">${r.areas.map((a) => html`<${ui.Badge} key=${a} tone="outline" title=${sel.areaName(a)}>${a}<//>`)}</span>` },
-          { key: 'pl', label: 'Praktik', render: (r) => html`<span class="strong">${r.ongoing} pågående</span><div class="cell-sub">${r.total} totalt</div>` },
+          { key: 'pl', label: 'Praktik', nowrap: true, render: (r) => html`<span class="strong">${r.ongoing} pågående</span><div class="cell-sub">${r.total} totalt</div>` },
           { key: 'next', label: 'Nästa uppföljning', nowrap: true, render: (r) => (r.next ? d.fmtDate(r.next) : '–') },
           { key: 'go', label: '', render: () => html`<${I} name="chevron-right" />` },
         ]} />

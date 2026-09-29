@@ -109,7 +109,7 @@
     if (err) return html`<div class="page"><${ui.Notice} tone="critical" title="Den här vyn kunde inte visas">Det är ett fel i prototypen. Beskriv gärna vad du gjorde i feedbacken. (${String(err && err.message || err)})<//><div class="row"><${ui.Btn} onClick=${() => { reset(); MM.back(); }} icon="arrow-left">Tillbaka<//><${ui.Btn} kind="primary" icon="message-circle" onClick=${() => MM.openFeedback()}>Lämna feedback<//></div></div>`;
     if (Array.isArray(view.roles) && !view.roles.includes(route.role)) return html`<${NoAccess} view=${view} />`;
     const C = view.component;
-    return html`<${C} key=${route.view + JSON.stringify(route.params)} params=${route.params || {}} role=${route.role} />`;
+    return html`<${C} key=${route.role + ':' + route.view + JSON.stringify(route.params)} params=${route.params || {}} role=${route.role} />`;
   };
 
   // ------------------------------------------------------------ Globala värdar (toast, dialog, text)
