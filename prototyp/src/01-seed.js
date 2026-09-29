@@ -705,8 +705,8 @@
           summary: approved ? 'Deltagaren följer planen och har gjort tydlig progression inom yrkesfärdigheter. Fortsatt fokus på tempo och arbetsgivarkontakter.' : '',
           aiSummaryDraft: !approved && c.aiConsent === 'given' && monthCis.length ? `Under ${d.MON[Number(mk.slice(5)) - 1]} deltog deltagaren i ${attended} av ${monthAtt.length} registrerade tillfällen. ${contacts ? `Arbetsgivarkontakter fanns ${contacts === 1 ? 'en vecka' : `${contacts} veckor`}.` : 'Inga arbetsgivarkontakter framgår.'} (Källa: ${monthCis.length} godkända avstämningar, ${monthCis.map((x) => d.fmtDateShort(x.heldAt)).join(', ')}.)` : null,
           overallStatus: approved ? r.weighted([['green', 70], ['yellow', 25], ['red', 5]]) : null };
-        if (approved && ma.decidedAt >= NOW) ma.decidedAt = `${d.addDays(TODAY, -r.int(0, 3))}T${String(r.int(8, 8)).padStart(2, '0')}:${String(r.int(0, 55)).padStart(2, '0')}`;
-        if (approved && ma.decidedAt >= NOW) ma.decidedAt = `${d.addDays(TODAY, -3)}T15:00`;
+        // Januaribedömningar godkänns tidigast måndag morgon efter månadsskiftet (före demoklockan). Slumpanropen behålls så att övriga testdata inte ändras.
+        if (approved && ma.decidedAt >= NOW) { r.int(0, 3); r.int(8, 8); r.int(0, 55); ma.decidedAt = `${TODAY}T0${['7:35', '7:50', '8:05', '8:20', '8:40'][parseInt(c.number.slice(-4), 10) % 5]}`; }
         S.monthlyAssessments.push(ma);
         S.monthlyPlans.push({ id: nid('mp'), caseId: c.id, month: mk, goal1: r.pick(GOALS[Math.min(5, c.phase)]), goal2: r.pick(GOALS[Math.min(5, c.phase + 1)] || GOALS[5]),
           plannedActivities: 'Yrkesmoment två dagar i veckan och en coachträff', plannedEmployerContact: c.phase >= 3 ? 'Studiebesök hos arbetsgivare inom spåret' : 'Inget planerat', plannedAdaptation: '', nextCustomerMeeting: approved ? null : '2027-02-15', status: approved ? 'approved' : 'draft' });
@@ -714,7 +714,7 @@
         const dueDay = d.nthWorkingDay(d.addMonths(mk, 1), 5);
         let status = 'draft', deliveredAt = null, approvedAt = null, openedAt = null;
         if (approved) {
-          status = 'delivered'; approvedAt = ma.decidedAt; deliveredAt = d.addMinutes(ma.decidedAt, r.int(10, 120)); openedAt = r.chance(0.8) ? d.addDays(deliveredAt, r.int(0, 3)) : null;
+          status = 'delivered'; approvedAt = ma.decidedAt; deliveredAt = d.addMinutes(ma.decidedAt, r.int(10, 120)); openedAt = r.chance(0.8) ? d.addDays(deliveredAt, r.int(0, 3)) : (deliveredAt < '2027-01-25' ? d.addDays(deliveredAt, 1) : null);
           if (isJan && r.chance(0.3)) { status = 'approved'; deliveredAt = null; openedAt = null; }
           if (openedAt && openedAt > NOW) openedAt = null;
           if (deliveredAt && deliveredAt > NOW) { deliveredAt = null; status = 'approved'; }
@@ -734,7 +734,7 @@
       if (c.tags.includes('slutsen')) { status = 'draft'; delivered = null; }
       if (delivered && delivered > NOW) { status = c.endDate >= '2027-01-27' ? 'draft' : 'approved'; delivered = null; }
       S.reports.push({ id: nid('rep'), contractId: 'c-bot', caseId: c.id, kind: 'final', periodStart: c.startDate, periodEnd: c.endDate, status, version: 1, dueAt: due, approvedBy: delivered ? c.leadCoachId : null,
-        approvedAt: delivered ? d.addMinutes(delivered, -30) : null, deliveredAt: delivered, deliveredTo: delivered ? [c.referrerId] : [], openedAt: delivered && r.chance(0.7) ? d.addDays(delivered, 1) : null, provisionalDue: true });
+        approvedAt: delivered ? d.addMinutes(delivered, -30) : null, deliveredAt: delivered, deliveredTo: delivered ? [c.referrerId] : [], openedAt: delivered && (r.chance(0.7) || delivered < '2027-01-25') ? d.addDays(delivered, 1) : null, provisionalDue: true });
     }
     // Orderbekräftelser
     for (const c of cases.filter((x) => x.confirmedAt)) {
@@ -755,7 +755,7 @@
           const waiting = waitingFor.has(k.id); deliveredAt = waiting ? null : `${repMon}T07:00`; status = waiting ? 'waiting' : 'delivered';
         }
         S.reports.push({ id: nid('rep'), contractId: 'c-bot', caseId: null, recipientUserId: k.id, kind: 'weekly_attendance', week: wk.key, periodStart: mon, periodEnd: d.addDays(mon, 6), status, version: 1,
-          dueAt, approvedBy: 'system', approvedAt: deliveredAt, deliveredAt, deliveredTo: deliveredAt ? [k.id] : [], openedAt: deliveredAt && wk.key !== '2027-W04' && r.chance(0.85) ? d.addMinutes(deliveredAt, r.int(30, 2000)) : null });
+          dueAt, approvedBy: 'system', approvedAt: deliveredAt, deliveredAt, deliveredTo: deliveredAt ? [k.id] : [], openedAt: (() => { if (!(deliveredAt && wk.key !== '2027-W04')) return null; if (r.chance(0.85)) return d.addMinutes(deliveredAt, r.int(30, 2000)); return deliveredAt < '2027-01-18' ? d.addMinutes(deliveredAt, 240) : null; })() });
       }
     }
     // Beställarrapporter (kommunens chef) per månad

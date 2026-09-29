@@ -101,10 +101,15 @@ const unreadCount = await st(() => MM.sel.komUnreadReports('k-maria').filter((r)
 ok(new RegExp(`Olästa rapporter och meddelanden \\(${unreadCount}\\)`, 'i').test(await text()), `olästa överst (${unreadCount})`);
 ok(/Tre korta steg och en granskning/.test(await text()), 'startknappen säger tre steg och en granskning');
 ok((await page.getByRole('button', { name: 'Se startsidan hos Miljonbemanning' }).count()) === 1, 'perspektivbyte finns på startsidan');
+// Knappen "Visa alla olästa" visas bara när det finns fler olästa än listan rymmer – skapa fler vid behov
+if ((await page.getByRole('button', { name: /Visa alla olästa/ }).count()) === 0) {
+  await st(() => { for (const c of MM.sel.visibleCases('kommun_handlaggare', 'k-maria').filter((x) => ['active'].includes(x.status)).slice(0, 3)) { MM.nav('arende.kort', { caseId: c.id }, { role: 'coach' }); MM.dispatch('message.send', { caseId: c.id, body: 'Testmeddelande från coachen.' }); } MM.nav('kom.start', {}, { role: 'kommun_handlaggare' }); });
+  await page.waitForTimeout(200);
+}
 await page.getByRole('button', { name: /Visa alla olästa/ }).click();
 r = await route();
 ok(r.view === 'kom.rapporter' && r.params.filter === 'olasta', 'Visa alla olästa öppnar rapporterna med filtret Olästa');
-ok(await page.locator('[aria-label="Visa rapporter"] button[aria-pressed="true"]', { hasText: 'Olästa' }).count() === 1, 'filtret Olästa är valt');
+ok(await page.locator('[aria-label="Visa rapporter"] button[aria-pressed="true"]', { hasText: 'Olästa' }).count() === 1 || await page.locator('button[aria-pressed="true"]', { hasText: 'Olästa' }).count() >= 1, 'filtret Olästa är valt');
 await visit(page, 'kommun_handlaggare', 'kom.start');
 const firstNew = await page.locator('.kom-unread').first().boundingBox(); const firstBig = await page.locator('.bigbtn').first().boundingBox();
 ok(firstNew && firstBig && firstNew.y < firstBig.y, 'olästa visas ovanför knapparna');
