@@ -33,16 +33,16 @@
   .ink-quote { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; padding: 10px 14px; border-left: 3px solid var(--antracit); background: var(--surface-sub); border-radius: 0 var(--radius) var(--radius) 0; }
   .ink-groupt { font-size: var(--fs-label); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; padding: 14px 18px 6px; }
   .ink-fields { container-type: inline-size; }
-  @container (min-width: 520px) { .ink-f { grid-template-columns: 190px minmax(0, 1fr) auto; } .ink-fl { grid-column: auto; } }
   .ink-meta { display: grid; gap: 6px; margin: 0; }
   .ink-meta > div { display: flex; flex-wrap: wrap; gap: 0 10px; min-width: 0; }
-  .ink-meta dt { font-weight: 600; color: var(--fg-muted); min-width: 72px; }
+  .ink-meta dt { font-weight: 600; color: var(--fg-muted); min-width: 84px; }
   .ink-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .ink-f { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 8px 18px; border-bottom: 1px solid var(--line); align-items: center; }
   .ink-f:last-child { border-bottom: 0; }
   .ink-fl { grid-column: 1 / -1; font-size: 0.8125rem; font-weight: 600; color: var(--fg-muted); }
   .ink-fv { min-width: 0; overflow-wrap: anywhere; }
   .ink-fc { justify-self: end; }
+  @container (min-width: 520px) { .ink-f { grid-template-columns: 190px minmax(0, 1fr) auto; } .ink-fl { grid-column: auto; } }
   .ink-f.is-low { background: var(--surface-sub); }
   .ink-f.is-missing { background: var(--rod-ton); box-shadow: inset 4px 0 0 var(--rod); }
   .ink-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); font-size: var(--fs-small); color: var(--fg-muted); }

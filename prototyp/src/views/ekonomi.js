@@ -35,6 +35,8 @@
 .eko-step .txt{display:flex;flex-direction:column;gap:4px;min-width:min(100%,280px);flex:1}
 .eko-tbl .table th,.eko-tbl .table td{padding-left:8px;padding-right:8px}
 .eko-tbl .table th:first-child,.eko-tbl .table td:first-child{padding-left:16px}
+.eko-tbl .table th{white-space:normal;vertical-align:bottom}
+.eko-tbl .eko-ic-row{flex-direction:column;align-items:flex-start}
 .eko-scroll{overflow-x:auto;max-width:100%}
 .eko-sums{margin-left:auto;width:min(100%,340px);display:flex;flex-direction:column}
 .eko-sums>div{display:flex;justify-content:space-between;gap:16px;padding:5px 0;border-bottom:1px solid var(--ljusgra);font-variant-numeric:tabular-nums}
@@ -462,7 +464,7 @@
       { key: 'quantity', label: 'Antal', num: true },
       { key: 'price', label: 'À-pris', num: true, nowrap: true, render: (r) => fmt.kr(r.unitPriceOre) },
       { key: 'amount', label: 'Belopp', num: true, nowrap: true, render: (r) => html`<span class="strong">${fmt.kr(r.amountOre)}</span>` },
-      { key: 'ref', label: 'Beställarreferens', render: (r) => html`<${RefCell} value=${r.buyerReference} />` },
+      { key: 'ref', label: 'Beställar\u00ADreferens', render: (r) => html`<${RefCell} value=${r.buyerReference} />` },
       { key: 'status', label: 'Status', render: (r) => html`<${InvStatus} status=${r.status} />` },
       { key: 'checks', label: 'Kontroller', render: (r) => html`<${CheckIcons} inv=${r} />` },
     ];
@@ -634,12 +636,13 @@
         <${ui.Card} title=${`Ofakturerade veckor äldre än ${limit} dagar`} icon="alert" tone=${ubRows.length ? 'red' : undefined} flush>
           ${ubRows.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Inga gamla ofakturerade veckor">Alla debiterbara veckor äldre än ${limit} dagar är fakturerade.<//>` : html`
             <div style="padding:14px 18px 0"><${ui.Notice} tone="critical" title="Risk för preskription">Faktureringen preskriberas två månader efter utfört arbete. Rätta referensen och fakturera veckorna nu.<//></div>
-            <${ui.Table} caption="Ofakturerade veckor" columns=${[
-              { key: 'c', label: 'Ärende', nowrap: true, render: (r) => html`<${ui.CaseLink} caseId=${r.c.id} /><div class="cell-sub">${sel.invoiceStatusLabel(r.status)}</div>` },
-              { key: 'weeks', label: 'Veckor', nowrap: true, render: (r) => html`${weekText(r.weeks)}<div class="cell-sub">äldsta ${r.age} dagar</div>` },
-              { key: 'amount', label: 'Belopp', num: true, nowrap: true, render: (r) => fmt.kr(r.amount) },
-              { key: 'presc', label: 'Preskriberas', nowrap: true, render: (r) => html`<span class="strong">${d.fmtDate(r.presc)}</span><div class="cell-sub">${r.left >= 0 ? `om ${plural(r.left, 'dag', 'dagar')}` : 'passerat'}</div>` },
-            ]} rows=${ubRows} />`}
+            <div class="list">${ubRows.map((r) => html`<div class="list-item" key=${r.id}>
+              <div class="li-main">
+                <div class="row-sm"><${ui.CaseLink} caseId=${r.c.id} /><${InvStatus} status=${r.status} /></div>
+                <span class="small">${weekText(r.weeks)} · ${fmt.kr(r.amount)} · äldsta veckan ${r.age} dagar</span>
+              </div>
+              <div class="li-side"><span class="small muted">Preskriberas</span><span class="strong nowrap">${d.fmtDate(r.presc)}</span><span class="small nowrap">${r.left >= 0 ? `om ${plural(r.left, 'dag', 'dagar')}` : 'passerat'}</span></div>
+            </div>`)}</div>`}
         <//>
         <${ui.Card} title="Returnerade fakturor" icon="reply" flush>
           ${returned.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Inga returnerade fakturor">Kommunen har inte returnerat någon faktura.<//>` : html`<div class="list">${returned.map((inv) => {
@@ -647,13 +650,14 @@
             return html`<div class="list-item" key=${inv.id}>
               <${I} name=${cr ? 'check-circle' : 'reply'} size="lg" cls=${cr ? '' : 'ic-red'} />
               <div class="li-main">
-                <div class="row-sm"><span class="li-title mono">${inv.number}</span><span class="muted small">${monthLabel(inv.month)} · ${weekText(inv.weeks)} · ${fmt.kr(inv.amountOre)}</span></div>
-                <div class="row-sm"><${InvStatus} status=${inv.status} /><${RefBadge} value=${c.buyerReference} /></div>
+                <div class="row-sm"><span class="li-title mono">${inv.number}</span><${InvStatus} status=${inv.status} /></div>
+                <span class="small">${monthLabel(inv.month)} · ${weekText(inv.weeks)} · ${fmt.kr(inv.amountOre)}</span>
+                <div class="row-sm"><span class="small">Beställarreferens:</span><${RefBadge} value=${c.buyerReference} /></div>
                 <div class="small">${cr ? `Krediterad och fakturerad på nytt ${d.fmtDateTime(cr.at)} med referens ${cr.reference}.` : refOk ? 'Referensen är rättad. Kreditera den returnerade fakturan och skapa en ny.' : 'Returnerad eftersom beställarreferensen inte finns hos kommunen. Rätta referensen först.'}</div>
+                ${act && !cr && html`<div class="row-sm">${refOk
+                  ? html`<${ui.Btn} kind="primary" icon="refresh" onClick=${() => reissue(inv)}>Kreditera och skapa ny<//><${ui.BuildPhase} fas=${2} />`
+                  : html`<${ui.Btn} kind="secondary" icon="edit" onClick=${() => setRefModal({ cases: [c], task: taskFor(c.id) })}>Rätta referensen<//>`}</div>`}
               </div>
-              ${act && !cr && html`<div class="li-side">${refOk
-                ? html`<${ui.Btn} kind="primary" icon="refresh" onClick=${() => reissue(inv)}>Kreditera och skapa ny<//>`
-                : html`<${ui.Btn} kind="secondary" icon="edit" onClick=${() => setRefModal({ cases: [c], task: taskFor(c.id) })}>Rätta referensen<//>`}</div>`}
             </div>`; })}</div>`}
         <//>
       </div>
@@ -664,8 +668,8 @@
               <div class="row-sm"><${ui.CaseLink} caseId=${c.id} /><${RefBadge} value=${c.buyerReference} /></div>
               <div class="small">${sel.buyerRefProblem(c)}</div>
               ${!c.startDate && html`<div class="small muted">Insatsen har inte startat. Ingen faktura ännu – samordnaren tar in referensen från kommunen.</div>`}
+              ${act && c.startDate && html`<div><${ui.Btn} kind="secondary" icon="edit" onClick=${() => setRefModal({ cases: [c], task: taskFor(c.id) })}>Rätta referensen<//></div>`}
             </div>
-            ${act && c.startDate && html`<div class="li-side"><${ui.Btn} kind="secondary" icon="edit" onClick=${() => setRefModal({ cases: [c], task: taskFor(c.id) })}>Rätta<//></div>`}
           </div>`)}</div>`}
           <div class="card-foot"><span class="small muted">Kommunen anger referensen när de beställer.</span><${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.bestall" label="Se var kommunen anger den" /></div>
         <//>

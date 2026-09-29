@@ -29,7 +29,7 @@
   const dueThisWeek = (r) => !isDelivered(r) && !r.superseded && !!r.dueAt && r.dueAt >= d.now() && r.dueAt <= weekEnd();
   const isProvisional = (r) => !!r.provisionalDue || r.kind === 'customer_summary';
   const ucfirst = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-  const lcfirst = (s) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
+  const lcfirst = (s) => (s && !(s.length > 1 && s.charAt(1) === s.charAt(1).toUpperCase() && /[A-ZÅÄÖ]/.test(s.charAt(1))) ? s.charAt(0).toLowerCase() + s.slice(1) : s);
   const joinSv = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} och ${xs[xs.length - 1]}`);
   const unitOf = (id) => { const p = MM.personById(id); return p && p.unit ? p.unit : ''; };
   const maxS = (a, b) => (a > b ? a : b);
@@ -558,6 +558,24 @@
         <span class="small strong row-sm" style="gap:4px;margin-top:auto"><${I} name=${active ? 'check' : 'filter'} />${active ? 'Filtret är på' : 'Visa i listan'}</span>
       <//>
     </button>`;
+  /** Smal skärm (mobil): listan visas som kort i stället för tabell. */
+  const useNarrow = (px = 620) => {
+    const q = () => { try { return window.matchMedia(`(max-width: ${px}px)`).matches; } catch (e) { return false; } };
+    const [narrow, setNarrow] = useState(q());
+    useEffect(() => { const on = () => setNarrow(q()); window.addEventListener('resize', on); return () => window.removeEventListener('resize', on); }, []);
+    return narrow;
+  };
+  const MobileRows = ({ rows }) => html`<div class="list">${rows.length === 0 ? html`<div class="list-item muted">Inga rapporter matchar filtret.</div>` : rows.map((x) => html`
+    <button type="button" key=${x.id} class="list-item clickable" style=${x.overdue ? 'box-shadow:inset 4px 0 0 var(--rod)' : ''} onClick=${() => MM.nav('rapport.visa', { reportId: x.id })}>
+      <div class="li-main">
+        <span class="li-title">${x.title}</span>
+        <span class="li-sub">${x.sub}</span>
+        <div class="row-sm" style="margin-top:4px"><${StatusBadge} r=${x.r} />${x.r.dueAt && (isDelivered(x.r) ? html`<${ui.SlaBadge} dueAt=${x.r.dueAt} metAt=${x.r.deliveredAt} />` : html`<${ui.SlaBadge} dueAt=${x.r.dueAt} />`)}</div>
+        <span class="li-sub">${x.next.label}${x.r.version > 1 ? ` · version ${x.r.version}` : ''}</span>
+        ${!isDelivered(x.r) && html`<${ProvisionalNote} r=${x.r} />`}
+      </div>
+      <${I} name="chevron-right" />
+    </button>`)}</div>`;
   const TILES_STYLE = 'display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,165px),1fr))';
 
   const ListView = ({ params, role }) => {
@@ -570,6 +588,7 @@
     const [quick, setQuick] = useState(init.quick || null);
     const [q, setQ] = useState('');
     const [limit, setLimit] = useState(PAGE_SIZE);
+    const narrow = useNarrow();
     const all = useMemo(() => buildRows(role, pid), [MM.store.version, role, pid]);
     const counts = { overdue: all.filter((x) => x.overdue).length, week: all.filter((x) => x.week).length, approval: all.filter((x) => x.next.key === 'approval').length, deliver: all.filter((x) => x.next.key === 'deliver').length };
     const blockedWeek = all.filter((x) => (x.week || x.overdue) && x.next.key === 'blocked').length;
@@ -614,7 +633,7 @@
       <${ui.Card} flush title=${`${fmt.num(rows.length)} ${rows.length === 1 ? 'rapport' : 'rapporter'}${quick ? ` · ${QUICK[quick].toLowerCase()}` : ''}`}
         actions=${html`<span class="small muted">Mest brådskande först</span>`}
         foot=${rows.length > limit ? html`<${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setLimit(limit + PAGE_SIZE)}>Visa ${Math.min(PAGE_SIZE, rows.length - limit)} till<//><span class="small muted">Visar ${shown.length} av ${fmt.num(rows.length)}</span>` : null}>
-        <${ui.Table} columns=${columns} rows=${shown} caption="Rapporter" empty="Inga rapporter matchar filtret." rowClass=${(x) => (x.overdue ? 'row-alert' : '')} onRowClick=${(x) => MM.nav('rapport.visa', { reportId: x.id })} />
+        ${narrow ? html`<${MobileRows} rows=${shown} />` : html`<${ui.Table} columns=${columns} rows=${shown} caption="Rapporter" empty="Inga rapporter matchar filtret." rowClass=${(x) => (x.overdue ? 'row-alert' : '')} onRowClick=${(x) => MM.nav('rapport.visa', { reportId: x.id })} />`}
       <//>
       <${ui.Card} title="Så fungerar rapporterna" icon="info">
         <div class="stack">

@@ -22,7 +22,13 @@
 .arn-flags{display:flex;flex-wrap:wrap;gap:4px}
 .arn-flags .badge{font-size:.75rem;padding:2px 7px}
 .arn-restricted td{background:var(--surface-sub)}
-.arn-head-grid{display:grid;gap:18px 24px;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))}
+.arn-facts{display:grid;gap:14px 20px;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));margin:0}
+@media (max-width:620px){.arn-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}}
+.arn-facts dt{font-size:.8125rem;font-weight:600;color:var(--fg-muted);line-height:1.3}
+.arn-facts dd{margin:3px 0 0;min-width:0;overflow-wrap:anywhere;line-height:1.4}
+.arn-section+.arn-section{border-top:1px solid var(--line);padding-top:16px}
+@media (min-width:621px){.arn-tabs .tabs{flex-wrap:wrap;overflow-x:visible}}
+.arn-tabs .tab{padding:10px 12px}
 .arn-label{font-size:var(--fs-label);font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted);margin-bottom:8px}
 .arn-mini{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
 .arn-mini li{display:flex;gap:8px;align-items:flex-start;min-width:0}
@@ -78,6 +84,8 @@
   };
   const AttBadge = ({ status }) => { const [tone, icon, label] = ATT[status] || ATT.none; return html`<${ui.Badge} tone=${tone} icon=${icon}>${label}<//>`; };
 
+  /** Faktarutnät: etikett ovanför värdet (tätare och tydligare än två kolumner i smala kort). */
+  const Facts = ({ items }) => html`<dl class="arn-facts">${items.filter(Boolean).map(([k, v]) => html`<div key=${k}><dt>${k}</dt><dd>${v == null || v === '' ? '–' : v}</dd></div>`)}</dl>`;
   const thisYear = () => d.today().slice(0, 4);
   /** Datum utan år om det är innevarande år. */
   const fd = (s) => (!s ? '–' : String(s).slice(0, 4) === thisYear() ? d.fmtDateShort(s) : d.fmtDate(s));
@@ -234,6 +242,17 @@
 
     return html`<${ui.Page} title=${title} eyebrow=${readOnly ? 'Läsläge' : MM.roleDef(role).label} lead=${lead}
       actions=${html`${readOnly && html`<${ui.Badge} tone="outline" icon="eye">Läsläge – inga ändringar<//>`}<${ui.PerspectiveSwitch} role="kommun_chef" view="kom.deltagare" params=${{}} label="Se kommunens lista" />`}>
+      ${onlyProt && html`<${ui.Notice} tone="info" icon="shield" title="Skyddade personuppgifter – vem ser vad?">
+        <div class="stack-sm">
+          <div>Ärenden med skyddade personuppgifter visas med namn bara för <b>namngiven huvudcoach</b> och <b>avtalsansvarig</b>. Samordnare, chef och systemadmin ser att ärendet finns – så att det kan planeras och följas upp – men inte vem det gäller, och kan inte öppna deltagarkortet. Övriga coacher och handledare ser inte ärendet alls.</div>
+          <div>Ingen adress lagras, inga SMS eller mejl skickas till deltagaren och AI används aldrig.</div>
+          <div class="strong">${role === 'avtalsansvarig' ? 'Du är avtalsansvarig och ser därför namn och deltagarkort.' : ['samordnare', 'chef', 'admin'].includes(role) ? 'I din roll ser du bara ärendenumret.' : 'Du är inte namngiven i något sådant ärende och ser därför inga.'}</div>
+          <div class="row">${role === 'avtalsansvarig'
+            ? html`<${ui.PerspectiveSwitch} role="samordnare" view="arenden.lista" params=${{ filter: 'skyddade' }} label="Jämför som samordnare" />`
+            : html`<${ui.PerspectiveSwitch} role="avtalsansvarig" view="arenden.lista" params=${{ filter: 'skyddade' }} label="Jämför som avtalsansvarig" />`}</div>
+        </div>
+      <//>`}
+
       <div class="arn-kpi-row">
         <${ui.Kpi} label="Ärenden du ser" value=${fmt.num(all.length)} sub=${protCount > 0 ? `varav ${protCount} med skyddade personuppgifter` : 'enligt din behörighet'} />
         <${ui.Kpi} label="Pågår" value=${fmt.num(nActive)} sub="aktiva insatser" />
@@ -258,16 +277,6 @@
         </div>
       <//>
 
-      ${onlyProt && html`<${ui.Notice} tone="info" icon="shield" title="Skyddade personuppgifter – vem ser vad?">
-        <div class="stack-sm">
-          <div>Ärenden med skyddade personuppgifter visas med namn bara för <b>namngiven huvudcoach</b> och <b>avtalsansvarig</b>. Samordnare, chef och systemadmin ser att ärendet finns – så att det kan planeras och följas upp – men inte vem det gäller, och kan inte öppna deltagarkortet. Övriga coacher och handledare ser inte ärendet alls.</div>
-          <div>Ingen adress lagras, inga SMS eller mejl skickas till deltagaren och AI används aldrig.</div>
-          <div class="strong">${role === 'avtalsansvarig' ? 'Du är avtalsansvarig och ser därför namn och deltagarkort.' : ['samordnare', 'chef', 'admin'].includes(role) ? 'I din roll ser du bara ärendenumret.' : 'Du är inte namngiven i något sådant ärende och ser därför inga.'}</div>
-          <div class="row">${role === 'avtalsansvarig'
-            ? html`<${ui.PerspectiveSwitch} role="samordnare" view="arenden.lista" params=${{ filter: 'skyddade' }} label="Jämför som samordnare" />`
-            : html`<${ui.PerspectiveSwitch} role="avtalsansvarig" view="arenden.lista" params=${{ filter: 'skyddade' }} label="Jämför som avtalsansvarig" />`}</div>
-        </div>
-      <//>`}
 
       <${ui.Card} flush title=${`${fmt.num(rows.length)} ${rows.length === 1 ? 'ärende' : 'ärenden'}`} icon="list"
         actions=${rows.length > 1 && html`<div class="arn-sort"><label class="small strong" for="arn-sort">Sortera</label><${ui.Select} id="arn-sort" value=${sort} onChange=${setSort} options=${sortOpts} /></div>`}
@@ -377,7 +386,7 @@
         </div>
       </div>
 
-      <div class="stack">
+      <div class="stack arn-tabs">
         <${ui.Tabs} tabs=${tabs} active=${tab} onChange=${setTab} ariaLabel="Delar av deltagarkortet" />
         ${blockedTab && html`<${ui.Notice} tone="info" title="Den delen visas inte för din roll">${TAB_LABEL[params.tab]} innehåller coachens anteckningar och bedömningar. Du ser översikten i stället.<//>`}
         ${tab === 'oversikt' && html`<${TabOversikt} ...${ctx} />`}
@@ -425,12 +434,12 @@
     ];
     const kommun = [
       ['Handläggare', k ? html`${k.name}<div class="small muted">${k.title}, ${k.unit}</div>` : '–'],
-      !team ? ['Beställar­referens', c.buyerReference
+      !team ? ['Beställarreferens', c.buyerReference
         ? html`<span class="mono">${c.buyerReference}</span>${refProblem && html`<div style="margin-top:4px"><${ui.Badge} tone="red" icon="alert-circle">${refProblem}<//></div>`}`
         : html`<${ui.Badge} tone="red" icon="alert-circle">Saknas – krävs för bekräftelse och faktura<//>`] : null,
       !team && c.purchaseOrderNumber ? ['Inköpsorder', html`<span class="mono">${c.purchaseOrderNumber}</span>`] : null,
       ['Huvudcoach', c.leadCoachId ? html`<${ui.UserName} id=${c.leadCoachId} />` : html`<span class="muted">Inte tilldelad</span>`],
-      ['Team', others.length ? html`<ul class="arn-mini">${others.map((t) => html`<li key=${t.userId}><span>${MM.personName(t.userId)} <span class="small muted">– ${sel.teamLabel(t.role).toLowerCase()}</span></span></li>`)}</ul>` : (lead ? 'Bara huvudcoach' : '–')],
+      ['Team', others.length ? html`<div class="stack-sm" style="gap:4px">${others.map((t) => html`<div key=${t.userId}>${MM.personName(t.userId)}<div class="small muted">${sel.teamLabel(t.role)}</div></div>`)}</div>` : (lead ? 'Bara huvudcoach' : '–')],
     ];
     return html`<${ui.Card}>
       <div class="stack">
@@ -444,11 +453,9 @@
           <${ui.PhaseBar} phase=${c.phase} />
           <div class="small muted">Fas ${c.phase} av ${MM.cfg().phases.length} · ${sel.phaseName(c.phase)}${since && c.status === 'active' ? ` · sedan ${fd(since)}` : ''}${c.status === 'paused' ? ' · pausad' : ''}</div>
         </div>
-        <div class="arn-head-grid">
-          <div><div class="arn-label">Insatsen</div><${ui.Kv} items=${insats} /></div>
-          <div><div class="arn-label">Deltagaren</div><${ui.Kv} items=${deltagare} /></div>
-          <div><div class="arn-label">Kommunen och teamet</div><${ui.Kv} items=${kommun} /></div>
-        </div>
+        <div class="arn-section"><div class="arn-label">Insatsen</div><${Facts} items=${insats} /></div>
+        <div class="arn-section"><div class="arn-label">Deltagaren</div><${Facts} items=${deltagare} /></div>
+        <div class="arn-section"><div class="arn-label">Kommunen och teamet</div><${Facts} items=${kommun} /></div>
       </div>
     <//>`;
   };
@@ -605,7 +612,7 @@
         ${manage && html`<div><${ui.Btn} kind="primary" icon="calendar" onClick=${() => setModal('meeting')}>Boka första möte<//></div>`}</div><//>`}
       <div class="grid">
         <${ui.Card} title="Nästa möte" icon="calendar">
-          ${nm ? html`<div class="stack-sm"><div class="strong" style="font-size:1.0625rem">${cap(d.fmtDateTimeLong(nm.startsAt))}</div><div class="small muted">${nm.first ? 'Första mötet' : 'Coachmöte'} · ${nm.location}</div></div>`
+          ${nm ? html`<div class="stack-sm"><div class="strong" style="font-size:1.0625rem">${d.dayOf(nm.startsAt) === d.today() ? `I dag kl. ${d.fmtTime(nm.startsAt)}` : cap(d.fmtDateTimeLong(nm.startsAt))}</div><div class="small muted">${d.relative(nm.startsAt)} · ${nm.first ? 'Första mötet' : 'Coachmöte'} · ${nm.location}</div></div>`
             : html`<p class="small muted">${['closed', 'declined'].includes(c.status) ? 'Insatsen är avslutad.' : 'Inget möte bokat.'}</p>`}
         <//>
         ${!team && html`<${ui.Card} title="Senaste avstämning" icon="check-square">
@@ -626,12 +633,12 @@
           <div style="margin-top:8px"><${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => setTab('narvaro')}>Visa närvaro per vecka<//></div>
         <//>
       </div>
-      <div class="split">
-        <${ui.Card} title="Flaggor för ärendet" icon="flag" flush>
+      <div class=${team && alerts.length === 0 ? 'stack' : 'split'}>
+        ${(!team || alerts.length > 0) && html`<${ui.Card} title="Flaggor för ärendet" icon="flag" flush>
           ${alerts.length === 0 ? html`<div class="card-body"><p class="small muted">Inga flaggor för din roll just nu.</p></div>` : html`<div class="list">${alerts.map((a) => { const s = SEV[a.severity] || SEV.info; return html`<div class="list-item" key=${a.key}>
               <div class="li-main"><div class="row-sm"><${ui.Badge} tone=${s.tone} icon=${s.icon}>${s.label}<//><span class="li-title">${a.title}</span></div><div class="small">${a.text}</div></div>
               <div class="li-side">${followLink(a)}</div></div>`; })}</div>`}
-        <//>
+        <//>`}
         <${ui.Card} title=${team ? 'Kommande moment och praktikdagar' : 'Kommande 14 dagar'} icon="clock">
           <${ActList} acts=${upcoming.slice(0, 8)} empty="Inga planerade tillfällen de närmaste två veckorna." />
           ${upcoming.length > 8 && html`<p class="small muted" style="margin-top:8px">och ${upcoming.length - 8} till.</p>`}
@@ -926,6 +933,7 @@
   const TabAvvikelser = ({ c, role, edit, k, readOnly }) => {
     const devs = sel.deviationsOf(c.id);
     const open = devs.filter((x) => x.status === 'open');
+    const rep = sel.repeatedAbsence(c.id);
     const [form, setForm] = useState(false);
     const [call, setCall] = useState(null); // { id }
     const [sent, setSent] = useState(null);
@@ -946,7 +954,8 @@
         <div class="stack-sm"><div>${k ? k.name : 'Kommunen'} har fått ett säkert meddelande med förslag på tid ${d.fmtDateTimeLong(sent)} och ett mejl utan personuppgifter.</div>
         <div><${ui.PerspectiveSwitch} role=${custRole(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se kallelsen som kommunen" /></div></div><//>`}
       ${form && html`<${ui.Card} title="Ny avvikelse" icon="flag"><${DeviationForm} c=${c} onDone=${(id, needsCust) => { setForm(false); if (id && needsCust) setCall({ id }); }} /><//>`}
-      ${devs.length === 0 && !form && html`<${ui.Card}><${ui.Empty} icon="flag" title="Inga avvikelser">Bra! Inget har behövt åtgärdas i ärendet.<//><//>`}
+      ${rep && open.length === 0 && html`<${ui.Notice} tone="warn" title="Upprepad ogiltig frånvaro är flaggad">${rep.length} ogiltiga frånvarotillfällen inom ${MM.cfg().attendance.repeatedAbsenceRule.withinDays} dagar. Registrera en avvikelse med åtgärd och kalla kommunen till uppföljning.<//>`}
+      ${devs.length === 0 && !form && html`<${ui.Card}><${ui.Empty} icon="flag" title="Inga avvikelser registrerade">Avvikelser skapas här eller automatiskt när en avstämning får röd samlad status.<//><//>`}
       ${devs.map((dv) => html`<${ui.Card} key=${dv.id} tone=${dv.status === 'open' ? 'red' : undefined}
           title=${dv.status === 'open' ? 'Öppen avvikelse' : 'Åtgärdad avvikelse'} icon=${dv.status === 'open' ? 'alert-circle' : 'check-circle'}
           actions=${html`<span class="small muted">${d.fmtDateTime(dv.createdAt)}${dv.checkInId ? ' · från veckoavstämning' : ''}</span>`}
