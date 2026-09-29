@@ -1,0 +1,10 @@
+Du granskar en klickbar prototyp av "Miljonmatch" (plattform för arbetsmarknadsinsatser, Miljonbemanning AB och Botkyrka kommun) som ska visas för MB:s chef för test och feedback.
+Projektmapp: /home/user/MM/prototyp. Läs AGENTS-GUIDE.md (byggmanual och regler), CLAUDE-projekt.md (projektets icke förhandlingsbara regler) och relevanta delar av SPEC.md.
+Koden: src/*.js (kärna) och src/views/*.js (vyer). Bygg: node tools/build.mjs. Röktest: node tools/check.mjs [--views ...] [--mobile] [--shots DIR]. Playwright-hjälpare: tools/lib.mjs (openProto, visit).
+Viktigt för användaren: allt ska kunna granskas från två perspektiv – leverantören (Miljonbemanning) och kunden (Botkyrka kommun) – plus deltagaren. Nya krav: notis till coach vid tilldelning, påminnelse vid utebliven progression, eskalering till chef/controller efter två veckor i rad, och coachen får aldrig se att något eskalerats till chefen.
+DU ÄNDRAR INTE i src/. Du får skriva egna testskript i tools/review-<ditt-namn>-*.mjs och skärmdumpar i /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-<ditt-namn>/.
+Var noggrann och konkret. Verifiera varje fynd (kör koden, klicka, läs källan) innan du rapporterar det – inga gissningar. Rapportera inte smaksaker som fel; rapportera det som är fel, bryter mot regler, förvirrar en chef som testar, eller ser trasigt ut.
+LEVERANS: skriv dina fynd som JSON till /home/user/MM/prototyp/review/<ditt-namn>.json i formatet
+{ "reviewer": "<ditt-namn>", "findings": [ { "id": "<kort-id>", "file": "src/views/xxx.js eller src/yy.js", "view": "vy-id eller -", "severity": "blocker|major|minor", "title": "kort rubrik", "detail": "vad som är fel och varför", "repro": "hur man ser det (roll, vy, klick)", "fix": "konkret förslag på rättelse" } ] }
+Sortera allvarligast först. blocker = kraschar, går inte att genomföra ett scenario, bryter mot dataskydd/behörighet eller visar internt mål för kunden. major = fel data, fel regel, trasig layout, vilseledande. minor = småfel i text eller layout.
+Svara till sist med en kort sammanfattning (antal fynd per allvarlighet och de viktigaste).

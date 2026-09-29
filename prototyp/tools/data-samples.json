@@ -1,0 +1,2658 @@
+{
+ "script_tags": {
+  "nadia": "case-260143",
+  "yusuf": "case-260148",
+  "elif": "case-270003",
+  "hodan": "case-260119",
+  "mehmet": "case-260130",
+  "amal": "case-270012",
+  "skyddad": "case-260120",
+  "reffel1": "case-260117",
+  "reffel2": "case-260121",
+  "overlapGammal": "case-260131",
+  "overlapNy": "case-270004",
+  "noll1": "case-260157",
+  "noll2": "case-260159",
+  "pausad": "case-260132",
+  "slutsen": "case-260099",
+  "prelim": "case-260124",
+  "fastnat3": "case-260128",
+  "ingetmote": "case-270039",
+  "coachbyte": "case-260135",
+  "inkorg-brattom": "case-270048",
+  "inkorg-fritext": "case-270049",
+  "inkorg-mall": "case-270050"
+ },
+ "contract": {
+  "id": "c-bot",
+  "name": "Yrkesförberedande och yrkesinriktade insatser",
+  "customerName": "Botkyrka kommun",
+  "customerOrgNr": "212000-2882",
+  "supplierName": "Miljonbemanning AB",
+  "supplierOrgNr": "556959-9318",
+  "contractNumber": "332026110",
+  "dnr": "AVN/2026:00048",
+  "startsOn": "2026-09-10",
+  "endsOn": "2030-09-10",
+  "casePrefix": "BOT",
+  "dataRole": "processor",
+  "status": "active",
+  "config": "(se MM.cfg() – SPEC §6.2)",
+  "emailDomains": [
+   "botkyrka.se"
+  ],
+  "contractManagerId": "u-johan"
+ },
+ "area": {
+  "contractId": "c-bot",
+  "code": "A",
+  "name": "Administration",
+  "active": true
+ },
+ "priceItem": {
+  "id": "pi-A",
+  "contractId": "c-bot",
+  "areaCode": "A",
+  "code": "vecka-A",
+  "unit": "participant_week",
+  "priceOre": 152300,
+  "vatRate": 25,
+  "validFrom": "2026-09-10",
+  "validTo": "2027-09-09",
+  "fortnoxArticleNo": "BOT-A",
+  "exampleOnly": true
+ },
+ "user": {
+  "id": "u-amira",
+  "name": "Amira Haddad",
+  "title": "Huvudcoach",
+  "role": "coach",
+  "org": "mb",
+  "email": "amira.haddad@miljonbemanning.se",
+  "phone": "08-000 00 10",
+  "active": true
+ },
+ "customerUser": {
+  "id": "k-maria",
+  "name": "Maria Ekdahl",
+  "title": "Handläggare",
+  "unit": "Arbetsmarknadsenheten Alby",
+  "buyerReferenceId": "br-alby",
+  "role": "handlaggare",
+  "org": "customer",
+  "email": "maria.ekdahl@botkyrka.se",
+  "phone": "08-530 000 10",
+  "active": true,
+  "lastLoginAt": "2027-01-27T13:40"
+ },
+ "buyerReference": [
+  {
+   "id": "br-alby",
+   "customer": "Botkyrka kommun",
+   "reference": "4410023817",
+   "unit": "Arbetsmarknadsenheten Alby",
+   "active": true
+  },
+  {
+   "id": "br-tumba",
+   "customer": "Botkyrka kommun",
+   "reference": "55102938",
+   "unit": "Arbetsmarknadsenheten Tumba",
+   "active": true
+  },
+  {
+   "id": "br-hallunda",
+   "customer": "Botkyrka kommun",
+   "reference": "7730045120",
+   "unit": "Arbetsmarknadsenheten Hallunda–Fittja",
+   "active": true
+  },
+  {
+   "id": "br-tumba-fel",
+   "customer": "Botkyrka kommun",
+   "reference": "55102983",
+   "unit": "Arbetsmarknadsenheten Tumba",
+   "active": false,
+   "note": "Finns inte hos kommunen. Decemberfakturorna returnerades 2027-01-12."
+  }
+ ],
+ "person": {
+  "id": "p-5143",
+  "firstName": "Nadia",
+  "lastName": "Warsame",
+  "pnr": "19730216-9545",
+  "pnrLast4": "9545",
+  "birthYear": 1973,
+  "phone": "070-0390 37 72",
+  "email": "nadia.warsame@example.com",
+  "city": "Alby",
+  "address": null,
+  "preferredContact": "sms",
+  "protectedIdentity": false,
+  "accessibilityNeeds": "Behöver skriftliga instruktioner",
+  "language": "somaliska",
+  "needsInterpreter": false
+ },
+ "case_active_nadia": {
+  "id": "case-260143",
+  "number": "BOT-26-0143",
+  "contractId": "c-bot",
+  "personId": "p-5143",
+  "status": "active",
+  "source": "email",
+  "referredAt": "2026-12-08T15:40",
+  "referrerId": "k-maria",
+  "buyerReference": "4410023817",
+  "purchaseOrderNumber": null,
+  "primaryArea": "G",
+  "secondaryArea": null,
+  "vocationalTrack": "Truckförare A+B",
+  "desiredStart": "2026-12-15",
+  "plannedWeeks": 10,
+  "plannedEnd": "2027-02-19",
+  "acknowledgedAt": "2026-12-08T15:42",
+  "confirmedAt": "2026-12-08T16:03",
+  "firstMeetingAt": "2026-12-14T10:00",
+  "startDate": "2026-12-14",
+  "endDate": null,
+  "endReason": null,
+  "resultClass": null,
+  "resultVerifiedAt": null,
+  "phase": 4,
+  "leadCoachId": "u-amira",
+  "team": [
+   {
+    "userId": "u-amira",
+    "role": "lead_coach"
+   },
+   {
+    "userId": "u-petra",
+    "role": "vocational_supervisor"
+   },
+   {
+    "userId": "u-david",
+    "role": "employer_matcher"
+   }
+  ],
+  "backgroundInfo": "Har arbetat på lager i tidigare hemland. Vill ta truckkort och arbeta inom logistik.",
+  "aiConsent": "given",
+  "meetingDay": 0,
+  "meetingTime": "10:00",
+  "location": "Alby",
+  "pausedWeeks": [],
+  "tags": [
+   "nadia"
+  ],
+  "declineReason": null,
+  "orderValueWeeks": 10,
+  "closedAt": null
+ },
+ "case_inbox": {
+  "id": "case-270049",
+  "number": "BOT-27-0049",
+  "contractId": "c-bot",
+  "personId": "p-17260",
+  "status": "acknowledged",
+  "source": "email",
+  "referredAt": "2027-01-29T15:20",
+  "referrerId": "k-ahmed",
+  "buyerReference": null,
+  "purchaseOrderNumber": null,
+  "primaryArea": "D",
+  "secondaryArea": null,
+  "vocationalTrack": "Restaurangbiträde",
+  "desiredStart": "2027-02-08",
+  "plannedWeeks": 6,
+  "plannedEnd": null,
+  "acknowledgedAt": "2027-01-29T15:22",
+  "confirmedAt": null,
+  "firstMeetingAt": null,
+  "startDate": null,
+  "endDate": null,
+  "endReason": null,
+  "resultClass": null,
+  "resultVerifiedAt": null,
+  "phase": 1,
+  "leadCoachId": null,
+  "team": [],
+  "backgroundInfo": "Har arbetat i restaurangkök under två somrar. Vill arbeta i storkök.",
+  "aiConsent": "not_asked",
+  "meetingDay": null,
+  "meetingTime": null,
+  "location": "Alby",
+  "pausedWeeks": [],
+  "tags": [
+   "inkorg-fritext"
+  ],
+  "orderValueWeeks": 6,
+  "declineReason": null
+ },
+ "case_closed": {
+  "id": "case-260007",
+  "number": "BOT-26-0007",
+  "contractId": "c-bot",
+  "personId": "p-5007",
+  "status": "closed",
+  "source": "email",
+  "referredAt": "2026-09-17T12:25",
+  "referrerId": "k-ahmed",
+  "buyerReference": "55102938",
+  "purchaseOrderNumber": null,
+  "primaryArea": "D",
+  "secondaryArea": null,
+  "vocationalTrack": "Kallskänka och disk",
+  "desiredStart": "2026-09-24",
+  "plannedWeeks": 6,
+  "plannedEnd": "2026-10-30",
+  "acknowledgedAt": "2026-09-17T12:26",
+  "confirmedAt": "2026-09-17T14:10",
+  "firstMeetingAt": "2026-09-21T11:00",
+  "startDate": "2026-09-21",
+  "endDate": "2026-10-30",
+  "endReason": "arbete",
+  "resultClass": "result",
+  "resultVerifiedAt": "2026-11-04T10:00",
+  "phase": 5,
+  "leadCoachId": "u-erik",
+  "team": [
+   {
+    "userId": "u-erik",
+    "role": "lead_coach"
+   },
+   {
+    "userId": "u-david",
+    "role": "employer_matcher"
+   }
+  ],
+  "backgroundInfo": "Har arbetat i restaurangkök under två somrar. Vill arbeta i storkök.",
+  "aiConsent": "given",
+  "meetingDay": 0,
+  "meetingTime": "11:00",
+  "location": "Alby",
+  "pausedWeeks": [],
+  "tags": [],
+  "declineReason": null,
+  "orderValueWeeks": 6,
+  "closedAt": "2026-10-30T16:41"
+ },
+ "inboundEmail_template": {
+  "id": "em-101",
+  "graphMessageId": "AAMk-demo-101",
+  "receivedAt": "2027-02-01T08:41",
+  "fromAddress": "maria.ekdahl@botkyrka.se",
+  "fromName": "Maria Ekdahl",
+  "subject": "Avrop – yrkesinriktad insats, handel",
+  "bodyText": "Hej!\n\nHär kommer ett avrop enligt bifogad mall.\n\nMed vänlig hälsning\nMaria Ekdahl\nHandläggare, Arbetsmarknadsenheten Alby\nBotkyrka kommun",
+  "attachments": [
+   {
+    "name": "Avropsmall_01_ifylld.docx",
+    "kind": "docx"
+   }
+  ],
+  "parseMethod": "template",
+  "classification": "order",
+  "extracted": {
+   "referrerName": "Maria Ekdahl",
+   "referrerUnit": "Arbetsmarknadsenheten Alby",
+   "referrerPhone": "08-530 000 10",
+   "referrerEmail": "maria.ekdahl@botkyrka.se",
+   "buyerReference": "4410023817",
+   "desiredStart": "2027-02-15",
+   "plannedEnd": "2027-04-23",
+   "plannedWeeks": 10,
+   "firstName": "Diego",
+   "lastName": "Morales",
+   "pnr": "20011016-6387",
+   "phone": "070-0313 76 36",
+   "email": "diego.morales@example.com",
+   "city": "Alby",
+   "preferredContact": "email",
+   "protectedIdentity": false,
+   "accessibilityNeeds": "Behöver skriftliga instruktioner",
+   "primaryArea": "J",
+   "secondaryArea": "H",
+   "vocationalTrack": "Butikssäljare",
+   "background": "Har erfarenhet av försäljning på marknad. Vill arbeta i butik."
+  },
+  "confidence": {
+   "referrerName": 0.99,
+   "referrerUnit": 0.99,
+   "referrerPhone": 0.99,
+   "referrerEmail": 0.99,
+   "buyerReference": 0.99,
+   "desiredStart": 0.99,
+   "plannedEnd": 0.99,
+   "plannedWeeks": 0.99,
+   "firstName": 0.99,
+   "lastName": 0.99,
+   "pnr": 0.99,
+   "phone": 0.99,
+   "email": 0.99,
+   "city": 0.99,
+   "preferredContact": 0.99,
+   "protectedIdentity": 0.99,
+   "accessibilityNeeds": 0.99,
+   "primaryArea": 0.99,
+   "secondaryArea": 0.99,
+   "vocationalTrack": 0.99,
+   "background": 0.99
+  },
+  "missingFields": [],
+  "status": "acknowledged",
+  "caseId": "case-270050",
+  "ackSentAt": "2027-02-01T08:43",
+  "handledBy": null,
+  "handledAt": null
+ },
+ "inboundEmail_ai": {
+  "id": "em-102",
+  "graphMessageId": "AAMk-demo-102",
+  "receivedAt": "2027-01-29T15:20",
+  "fromAddress": "ahmed.yusuf@botkyrka.se",
+  "fromName": "Ahmed Yusuf",
+  "subject": "Ny deltagare till er – kök",
+  "bodyText": "Hej!\n\nJag skulle vilja anvisa Rasha Khalaf (19750818-8340) till en insats inom kök och restaurang, ungefär sex veckor. Hon har jobbat i kök i Syrien och vill gärna börja så snart som möjligt, helst v. 6. Hon nås på 070-0922 58 10, bäst att ringa.\n\nMvh Ahmed Yusuf\nHandläggare, Arbetsmarknadsenheten Tumba\n08-530 000 11",
+  "attachments": [],
+  "parseMethod": "ai",
+  "classification": "order",
+  "extracted": {
+   "referrerName": "Ahmed Yusuf",
+   "referrerUnit": "Arbetsmarknadsenheten Tumba",
+   "referrerPhone": "08-530 000 10",
+   "referrerEmail": "ahmed.yusuf@botkyrka.se",
+   "buyerReference": "",
+   "desiredStart": "2027-02-08",
+   "plannedEnd": "",
+   "plannedWeeks": 6,
+   "firstName": "Rasha",
+   "lastName": "Khalaf",
+   "pnr": "19750818-8340",
+   "phone": "070-0922 58 10",
+   "email": "",
+   "city": "Tumba",
+   "preferredContact": "phone",
+   "protectedIdentity": false,
+   "accessibilityNeeds": "",
+   "primaryArea": "D",
+   "secondaryArea": "",
+   "vocationalTrack": "Restaurangbiträde",
+   "background": "Har arbetat i restaurangkök under två somrar. Vill arbeta i storkök."
+  },
+  "confidence": {
+   "referrerName": 0.9,
+   "referrerUnit": 0.9,
+   "referrerPhone": 0.9,
+   "referrerEmail": 0.9,
+   "buyerReference": 0,
+   "desiredStart": 0.9,
+   "plannedEnd": 0,
+   "plannedWeeks": 0.64,
+   "firstName": 0.9,
+   "lastName": 0.9,
+   "pnr": 0.97,
+   "phone": 0.9,
+   "email": 0,
+   "city": 0.9,
+   "preferredContact": 0.9,
+   "protectedIdentity": 0.9,
+   "accessibilityNeeds": 0.9,
+   "primaryArea": 0.72,
+   "secondaryArea": 0.9,
+   "vocationalTrack": 0.9,
+   "background": 0.9
+  },
+  "missingFields": [
+   "buyerReference",
+   "plannedEnd"
+  ],
+  "status": "acknowledged",
+  "caseId": "case-270049",
+  "ackSentAt": "2027-01-29T15:23",
+  "handledBy": null,
+  "handledAt": null,
+  "aiRunId": "ai-run-mail-102"
+ },
+ "inboundEmail_supplement": {
+  "id": "em-103",
+  "graphMessageId": "AAMk-demo-103",
+  "receivedAt": "2027-02-01T08:02",
+  "fromAddress": "ahmed.yusuf@botkyrka.se",
+  "fromName": "Ahmed Yusuf",
+  "subject": "SV: Vi har tagit emot er beställning – BOT-27-0049",
+  "bodyText": "Hej,\nBeställarreferens: 55102938\nPlanerat slutdatum: 19 mars.\n\n/Ahmed",
+  "attachments": [],
+  "parseMethod": "ai",
+  "classification": "supplement",
+  "extracted": {
+   "buyerReference": "55102938",
+   "plannedEnd": "2027-03-19"
+  },
+  "confidence": {
+   "buyerReference": 0.98,
+   "plannedEnd": 0.9
+  },
+  "missingFields": [],
+  "status": "linked",
+  "caseId": "case-270049",
+  "linkedBy": "ärendenummer i ämnesraden",
+  "ackSentAt": null,
+  "handledBy": null,
+  "handledAt": null
+ },
+ "intakeAssessment": {
+  "id": "ia-14432",
+  "caseId": "case-260001",
+  "workExperience": "Har arbetat inom bygg utan formell utbildning.",
+  "education": "Grundskola i hemlandet",
+  "languageNotes": "Förstår vardagssvenska. Modersmål: turkiska.",
+  "digitalSkills": "Använder e-post och BankID själv",
+  "drivingLicence": "Övningskör",
+  "workGoals": "Arbete inom bygg och anläggning",
+  "chosenTrack": "Bygg – grund och arbetsmiljö",
+  "adaptations": "",
+  "firstWeekGoal": "Slutföra kartläggningen och välja yrkesspår",
+  "status": "approved",
+  "approvedBy": "u-leila",
+  "approvedAt": "2026-09-18T15:30"
+ },
+ "activity": {
+  "id": "a-5819",
+  "caseId": "case-260001",
+  "kind": "möte",
+  "startsAt": "2026-09-17T13:00",
+  "durationMin": 60,
+  "location": "Miljonbemanning Alby",
+  "note": ""
+ },
+ "attendance": {
+  "id": "at-5820",
+  "activityId": "a-5819",
+  "caseId": "case-260001",
+  "status": "present",
+  "reason": "",
+  "registeredBy": "u-leila",
+  "registeredAt": "2026-09-17T14:42",
+  "customerNotifiedAt": null
+ },
+ "checkIn": {
+  "id": "ci-5823",
+  "caseId": "case-260001",
+  "heldAt": "2026-09-17T13:00",
+  "durationMin": 60,
+  "mode": "telefon",
+  "inputMethod": "manual",
+  "goalStatus": "yes",
+  "nextGoal": "Komma i tid till alla tillfällen denna vecka",
+  "phase": 1,
+  "activitiesDone": [
+   "Kartläggning och individuell planering"
+  ],
+  "employerContacts": {
+   "count": "0",
+   "types": []
+  },
+  "overallStatus": "green",
+  "obstacles": [
+   "Digital vana"
+  ],
+  "note": "Genomförde veckans moment. Behöver fortsatt öva på tempo.",
+  "status": "approved",
+  "approvedBy": "u-leila",
+  "approvedAt": "2026-09-17T14:53",
+  "aiRunId": null,
+  "docMinutes": 4
+ },
+ "checkIn_aiDraft": {
+  "id": "ci-11917",
+  "caseId": "case-260130",
+  "heldAt": "2027-01-29T13:00",
+  "durationMin": 45,
+  "mode": "fysiskt",
+  "inputMethod": "ai_recording",
+  "goalStatus": null,
+  "nextGoal": "",
+  "phase": 4,
+  "activitiesDone": [],
+  "employerContacts": {
+   "count": null,
+   "types": []
+  },
+  "overallStatus": null,
+  "obstacles": [],
+  "note": "",
+  "status": "draft",
+  "approvedBy": null,
+  "approvedAt": null,
+  "aiRunId": "ai-run-mehmet",
+  "docMinutes": 3,
+  "ai": {
+   "goalStatus": {
+    "value": "partly",
+    "quote": "Jag hann två leveranser själv, men den tredje åkte jag med Kristina.",
+    "t": 312
+   },
+   "nextGoal": {
+    "value": "Köra hela distributionsrundan själv en dag",
+    "quote": "Nästa vecka vill jag köra hela rundan själv på tisdag.",
+    "t": 1510
+   },
+   "phase": {
+    "value": 3,
+    "quote": "Vi fortsätter med ruttplaneringen och lastsäkringen.",
+    "t": 1622
+   },
+   "activitiesDone": {
+    "value": [
+     "Yrkesspecifika moment",
+     "CV och ansökningar"
+    ],
+    "quote": "I onsdags gjorde vi lastsäkring, och så skrev vi om CV:t.",
+    "t": 205
+   },
+   "employerContacts": {
+    "value": {
+     "count": "1",
+     "types": [
+      "praktikkontakt"
+     ]
+    },
+    "quote": "Södertörns Distribution ringde och frågade om praktik i mars.",
+    "t": 948
+   },
+   "obstacles": {
+    "value": [
+     "Språk"
+    ],
+    "quote": "Ibland förstår jag inte ruttlappen, orden är svåra.",
+    "t": 1133
+   },
+   "note": {
+    "value": "Har kört två leveranser på egen hand. Behöver stöd med yrkesord på ruttlappen. Intresse för praktik hos Södertörns Distribution i mars.",
+    "quote": "Framgår av samtalet 03:25–18:53",
+    "t": 205
+   },
+   "transcript": [
+    {
+     "t": 205,
+     "who": "Coach",
+     "text": "Vad gjorde ni i onsdags?"
+    },
+    {
+     "t": 212,
+     "who": "Deltagare",
+     "text": "I onsdags gjorde vi lastsäkring, och så skrev vi om CV:t."
+    },
+    {
+     "t": 312,
+     "who": "Deltagare",
+     "text": "Jag hann två leveranser själv, men den tredje åkte jag med Kristina."
+    },
+    {
+     "t": 948,
+     "who": "Deltagare",
+     "text": "Södertörns Distribution ringde och frågade om praktik i mars."
+    },
+    {
+     "t": 1133,
+     "who": "Deltagare",
+     "text": "Ibland förstår jag inte ruttlappen, orden är svåra."
+    },
+    {
+     "t": 1510,
+     "who": "Deltagare",
+     "text": "Nästa vecka vill jag köra hela rundan själv på tisdag."
+    },
+    {
+     "t": 1622,
+     "who": "Coach",
+     "text": "Vi fortsätter med ruttplaneringen och lastsäkringen."
+    }
+   ],
+   "audioDeletedAt": "2027-01-29T13:49",
+   "rawTranscriptDeleteBy": "2027-02-28T13:00"
+  },
+  "tags": [
+   "ai-draft"
+  ]
+ },
+ "monthlyAssessment_draft": {
+  "id": "ma-16010",
+  "caseId": "case-260143",
+  "month": "2027-01",
+  "areas": {
+   "narvaro_rutiner": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 1,
+    "aiObservationDraft": {
+     "text": "Har själv meddelat frånvaro i förväg vid två tillfällen.",
+     "sources": [
+      "Avstämning 15 jan"
+     ]
+    }
+   },
+   "yrkesfardigheter": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 1,
+    "aiObservationDraft": {
+     "text": "Har klarat tre av fem yrkesmoment i momentlistan.",
+     "sources": [
+      "Avstämning 23 jan"
+     ]
+    }
+   },
+   "arbetskapacitet": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 2,
+    "aiObservationDraft": {
+     "text": "Har ökat från halvdag till heldag på praktiken.",
+     "sources": [
+      "Avstämning 17 jan"
+     ]
+    }
+   },
+   "sjalvstandighet": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 1,
+    "aiObservationDraft": {
+     "text": "Planerar själv sin vecka i kalendern.",
+     "sources": [
+      "Avstämning 25 jan"
+     ]
+    }
+   },
+   "digital_sjalvstandighet": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 2,
+    "aiObservationDraft": {
+     "text": "Loggar själv in på Platsbanken och sparar annonser.",
+     "sources": [
+      "Avstämning 21 jan"
+     ]
+    }
+   },
+   "instruktioner": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 3,
+    "aiObservationDraft": {
+     "text": "Följer skriftliga arbetsinstruktioner i rätt ordning.",
+     "sources": [
+      "Avstämning 19 jan"
+     ]
+    }
+   },
+   "arbetsgivarkontakter": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 3,
+    "aiObservationDraft": {
+     "text": "Har själv kontaktat en arbetsgivare per telefon.",
+     "sources": [
+      "Avstämning 13 jan"
+     ]
+    }
+   },
+   "beredskap": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 2,
+    "aiObservationDraft": {
+     "text": "Bedöms redo för praktik – kraven, tempot och rutinerna fungerar.",
+     "sources": [
+      "Avstämning 11 jan"
+     ]
+    }
+   },
+   "sprak_kommunikation": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 2,
+    "aiObservationDraft": {
+     "text": "Använder yrkesord på svenska i samtal med handledaren.",
+     "sources": [
+      "Avstämning 21 jan"
+     ]
+    }
+   },
+   "ovrigt": {
+    "level": null,
+    "observation": "",
+    "nextStep": "",
+    "aiLevelSuggestion": 0,
+    "aiObservationDraft": null
+   }
+  },
+  "status": "draft",
+  "decidedBy": null,
+  "decidedAt": null,
+  "summary": "",
+  "aiSummaryDraft": "Under januari har deltagaren deltagit i 11 av 12 planerade tillfällen och klarat två nya yrkesmoment. Arbetsgivarkontakter: ett studiebesök. (Källa: fyra godkända avstämningar.)",
+  "overallStatus": null
+ },
+ "monthlyAssessment_approved": {
+  "id": "ma-15203",
+  "caseId": "case-260001",
+  "month": "2026-09",
+  "areas": {
+   "narvaro_rutiner": {
+    "level": 1,
+    "observation": "Kom i tid till samtliga tillfällen under månaden (12 av 12).",
+    "nextStep": "Fortsätta meddela frånvaro före kl. 08.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "yrkesfardigheter": {
+    "level": 2,
+    "observation": "Utför plock och pack enligt instruktion utan stöd.",
+    "nextStep": "Öva de två återstående momenten.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "arbetskapacitet": {
+    "level": 2,
+    "observation": "Har ökat från halvdag till heldag på praktiken.",
+    "nextStep": "Öka till heldag två dagar i veckan.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "sjalvstandighet": {
+    "level": 1,
+    "observation": "Tar egna initiativ till nästa arbetsuppgift.",
+    "nextStep": "Planera nästa vecka själv.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "digital_sjalvstandighet": {
+    "level": 1,
+    "observation": "Loggar själv in på Platsbanken och sparar annonser.",
+    "nextStep": "Skicka en ansökan helt själv.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "instruktioner": {
+    "level": 1,
+    "observation": "Ställer frågor när en instruktion är oklar.",
+    "nextStep": "Öva på muntliga instruktioner.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "arbetsgivarkontakter": {
+    "level": 2,
+    "observation": "Har haft två arbetsgivarkontakter (studiebesök och intervju).",
+    "nextStep": "Boka ett studiebesök.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "beredskap": {
+    "level": 1,
+    "observation": "Har förberett sig inför anställningsintervju.",
+    "nextStep": "Starta praktik enligt plan.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "sprak_kommunikation": {
+    "level": 1,
+    "observation": "Använder yrkesord på svenska i samtal med handledaren.",
+    "nextStep": "Öva yrkesord inför praktiken.",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   },
+   "ovrigt": {
+    "level": 0,
+    "observation": "",
+    "nextStep": "–",
+    "aiLevelSuggestion": null,
+    "aiObservationDraft": null
+   }
+  },
+  "status": "approved",
+  "decidedBy": "u-leila",
+  "decidedAt": "2026-10-05T14:00",
+  "summary": "Deltagaren följer planen och har gjort tydlig progression inom yrkesfärdigheter. Fortsatt fokus på tempo och arbetsgivarkontakter.",
+  "aiSummaryDraft": null,
+  "overallStatus": "green"
+ },
+ "monthlyPlan": {
+  "id": "mp-15204",
+  "caseId": "case-260001",
+  "month": "2026-09",
+  "goal1": "Skicka tre ansökningar",
+  "goal2": "Förbereda anställningsintervjun",
+  "plannedActivities": "Yrkesmoment två dagar i veckan och en coachträff",
+  "plannedEmployerContact": "Studiebesök hos arbetsgivare inom spåret",
+  "plannedAdaptation": "",
+  "nextCustomerMeeting": null,
+  "status": "approved"
+ },
+ "outcomeEvent": {
+  "id": "oe-14815",
+  "caseId": "case-260001",
+  "kind": "praktik_startad",
+  "occurredOn": "2026-11-02",
+  "actor": "Alby Bygg & Mark AB",
+  "verificationKind": "praktikavtal",
+  "verificationFile": "praktikavtal.pdf",
+  "note": ""
+ },
+ "deviation": {
+  "id": "dev-6857",
+  "caseId": "case-260022",
+  "createdAt": "2026-11-06T10:10",
+  "description": "Planen håller inte – behöver omplanering",
+  "assessment": "Deltagaren behöver annan uppläggning.",
+  "action": "Uppföljningsmöte med handläggaren och ny plan.",
+  "ownerId": "u-sofia",
+  "followUpOn": "2026-11-13",
+  "needsCustomerDecision": false,
+  "followUpMeetingAt": null,
+  "status": "closed"
+ },
+ "contractDeviation": {
+  "id": "cd-2",
+  "contractId": "c-bot",
+  "source": "beställare",
+  "type": "kvalitet",
+  "level": "större",
+  "description": "Månadsrapport för december saknade konkret observation för två progressionsområden.",
+  "raisedAt": "2027-01-08T09:20",
+  "actionPlan": "Systemet stoppar godkännande om observation saknas från nivå 1. Genomgång med alla coacher på APT 2027-01-14.",
+  "actionPlanDue": "2027-02-05",
+  "customerApprovedAt": "2027-01-15T14:10",
+  "warningIssued": false,
+  "penaltyOre": 0,
+  "status": "action_plan",
+  "lessons": ""
+ },
+ "employer": {
+  "id": "emp-1",
+  "name": "Hallunda Lagerservice AB",
+  "orgNr": "556000-1000",
+  "contactName": "Peter Lund",
+  "phone": "08-000 11 20",
+  "email": "kontakt@example.com",
+  "areas": [
+   "G",
+   "J"
+  ]
+ },
+ "placement": {
+  "id": "pl-14814",
+  "caseId": "case-260001",
+  "employerId": "emp-9",
+  "startsOn": "2026-11-02",
+  "endsOn": "2026-11-20",
+  "tasks": "Arbetsuppgifter inom bygg – grund och arbetsmiljö",
+  "supervisorName": "Stefan Ek",
+  "goals": "Klara arbetsuppgifterna i rätt tempo med stöd av handledaren",
+  "followUpDates": [
+   "2026-11-09",
+   "2026-11-16"
+  ],
+  "status": "completed",
+  "fourRights": {
+   "uppgift": true,
+   "handledning": true,
+   "timing": true,
+   "uppfoljning": true
+  }
+ },
+ "report_monthly": {
+  "id": "rep-15205",
+  "contractId": "c-bot",
+  "caseId": "case-260001",
+  "kind": "monthly",
+  "periodStart": "2026-09-01",
+  "periodEnd": "2026-09-30",
+  "month": "2026-09",
+  "status": "delivered",
+  "version": 1,
+  "dueAt": "2026-10-07T23:59",
+  "approvedBy": "u-leila",
+  "approvedAt": "2026-10-05T14:00",
+  "deliveredAt": "2026-10-05T15:26",
+  "deliveredTo": [
+   "k-maria"
+  ],
+  "openedAt": "2026-10-07T15:26",
+  "provisionalDue": true
+ },
+ "report_weekly": {
+  "id": "rep-16621",
+  "contractId": "c-bot",
+  "caseId": null,
+  "recipientUserId": "k-maria",
+  "kind": "weekly_attendance",
+  "week": "2026-W38",
+  "periodStart": "2026-09-14",
+  "periodEnd": "2026-09-20",
+  "status": "delivered",
+  "version": 1,
+  "dueAt": "2026-09-21T16:00",
+  "approvedBy": "system",
+  "approvedAt": "2026-09-21T10:05",
+  "deliveredAt": "2026-09-21T10:05",
+  "deliveredTo": [
+   "k-maria"
+  ],
+  "openedAt": "2026-09-21T19:29"
+ },
+ "report_final": {
+  "id": "rep-16259",
+  "contractId": "c-bot",
+  "caseId": "case-260001",
+  "kind": "final",
+  "periodStart": "2026-09-17",
+  "periodEnd": "2026-11-20",
+  "status": "delivered",
+  "version": 1,
+  "dueAt": "2026-11-27T23:59",
+  "approvedBy": "u-leila",
+  "approvedAt": "2026-11-21T16:13",
+  "deliveredAt": "2026-11-21T16:43",
+  "deliveredTo": [
+   "k-maria"
+  ],
+  "openedAt": "2026-11-22T16:43",
+  "provisionalDue": true
+ },
+ "report_customer_summary": {
+  "id": "rep-16697",
+  "contractId": "c-bot",
+  "caseId": null,
+  "recipientUserId": "k-eva",
+  "kind": "customer_summary",
+  "month": "2026-10",
+  "periodStart": "2026-10-01",
+  "periodEnd": "2026-10-31",
+  "status": "delivered",
+  "version": 1,
+  "dueAt": "2026-11-11T16:00",
+  "approvedBy": "u-johan",
+  "approvedAt": "2026-11-09T10:00",
+  "deliveredAt": "2026-11-09T10:05",
+  "deliveredTo": [
+   "k-eva"
+  ],
+  "openedAt": "2026-11-10T08:30",
+  "aiSummaryDraft": null
+ },
+ "report_order_confirmation": {
+  "id": "rep-16393",
+  "contractId": "c-bot",
+  "caseId": "case-260001",
+  "kind": "order_confirmation",
+  "periodStart": "2026-09-14",
+  "periodEnd": "2026-09-14",
+  "status": "delivered",
+  "version": 1,
+  "dueAt": "2026-09-15T08:25",
+  "approvedBy": "u-sara",
+  "approvedAt": "2026-09-14T09:00",
+  "deliveredAt": "2026-09-14T09:00",
+  "deliveredTo": [
+   "k-maria"
+  ],
+  "openedAt": "2026-09-14T15:30"
+ },
+ "pulseInvite": {
+  "id": "pi-16701",
+  "caseId": "case-260001",
+  "channel": "sms",
+  "language": "sv",
+  "occasion": "week2",
+  "sentAt": "2026-09-25T10:00",
+  "expiresAt": "2026-10-02T10:00",
+  "usedAt": "2026-09-27T12:10"
+ },
+ "pulseResponse": {
+  "id": "pr-16702",
+  "inviteId": "pi-16701",
+  "caseId": "case-260001",
+  "coachId": "u-leila",
+  "occasion": "week2",
+  "language": "sv",
+  "answers": {
+   "q1": 4,
+   "q2": 2,
+   "q3": 5,
+   "q4": "jobb",
+   "q5": "nej"
+  },
+  "text": "",
+  "contactRequested": false,
+  "submittedAt": "2026-09-27T12:10"
+ },
+ "message": {
+  "id": "msg-1",
+  "caseId": "case-260143",
+  "senderId": "k-maria",
+  "body": "Hej! Hur går praktiken? Behöver hon stöd med resorna till Hallunda?",
+  "createdAt": "2027-01-27T09:14",
+  "readBy": [
+   "u-amira"
+  ],
+  "readAt": "2027-01-27T10:02"
+ },
+ "consent": {
+  "id": "cons-14657",
+  "personId": "p-5002",
+  "caseId": "case-260002",
+  "kind": "recording_and_ai",
+  "textVersion": "v1.0 (2026-10-01)",
+  "givenAt": "2026-09-16T13:00",
+  "informedBy": "u-erik",
+  "language": "lättläst svenska",
+  "revokedAt": null
+ },
+ "aiRun": {
+  "id": "ai-run-mehmet",
+  "caseId": "case-260130",
+  "kind": "transcribe_extract",
+  "provider": "Berget AI (test)",
+  "model": "KB-Whisper large + öppen språkmodell",
+  "status": "succeeded",
+  "createdAt": "2027-01-29T13:48",
+  "audioSeconds": 2460,
+  "costOre": 82,
+  "latencyMs": 71000,
+  "inputDeletedAt": "2027-01-29T13:49"
+ },
+ "auditLog": {
+  "id": "log-17285",
+  "occurredAt": "2027-01-29T10:05",
+  "actorId": "system",
+  "action": "email.received",
+  "entity": "inbound_email",
+  "entityId": "em-106",
+  "contractId": "c-bot",
+  "details": {
+   "parseMethod": "template"
+  }
+ },
+ "notification": {
+  "id": "ntf-17305",
+  "at": "2027-01-29T10:07",
+  "channel": "email",
+  "to": "linda.karlsson@botkyrka.se",
+  "template": "ordererkannande",
+  "body": "Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0048. Ni får besked om startdatum och ansvarig coach senast måndag 1 februari kl. 10.05. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.",
+  "caseId": "case-270048"
+ },
+ "caseStatusHistory": {
+  "id": "csh-5228",
+  "caseId": "case-260001",
+  "fromStatus": null,
+  "toStatus": "acknowledged",
+  "changedBy": "system",
+  "changedAt": "2026-09-14T08:27",
+  "reason": "Ordererkännande skickat automatiskt"
+ },
+ "billingRuns": [
+  {
+   "id": "br-2026-09",
+   "month": "2026-09",
+   "status": "closed",
+   "createdBy": "u-lars",
+   "createdAt": "2026-10-02T09:00"
+  },
+  {
+   "id": "br-2026-10",
+   "month": "2026-10",
+   "status": "closed",
+   "createdBy": "u-lars",
+   "createdAt": "2026-11-03T09:00"
+  },
+  {
+   "id": "br-2026-11",
+   "month": "2026-11",
+   "status": "closed",
+   "createdBy": "u-lars",
+   "createdAt": "2026-12-02T09:00"
+  },
+  {
+   "id": "br-2026-12",
+   "month": "2026-12",
+   "status": "closed",
+   "createdBy": "u-lars",
+   "createdAt": "2027-01-05T09:00"
+  },
+  {
+   "id": "br-2027-01",
+   "month": "2027-01",
+   "status": "draft",
+   "createdBy": "system",
+   "createdAt": "2027-02-01T06:00"
+  }
+ ],
+ "invoiceStatus_example": {
+  "2026-12": {
+   "default": "sent",
+   "case-260117": "returned",
+   "case-260121": "returned"
+  }
+ },
+ "counts": {
+  "contracts": 2,
+  "areas": 12,
+  "priceItems": 12,
+  "users": 13,
+  "customerUsers": 5,
+  "buyerReferences": 4,
+  "persons": 230,
+  "cases": 231,
+  "caseStatusHistory": 594,
+  "inboundEmails": 27,
+  "intakeAssessments": 225,
+  "activities": 3861,
+  "attendance": 3590,
+  "checkIns": 1144,
+  "monthlyAssessments": 352,
+  "monthlyPlans": 352,
+  "outcomeEvents": 230,
+  "deviations": 18,
+  "contractDeviations": 3,
+  "employers": 12,
+  "placements": 159,
+  "reports": 794,
+  "pulseInvites": 341,
+  "pulseResponses": 217,
+  "messages": 7,
+  "billingRuns": 5,
+  "consents": 157,
+  "aiRuns": 2,
+  "auditLog": 20,
+  "notifications": 8,
+  "tasks": 0
+ },
+ "sample_billing_jan": {
+  "month": "2027-01",
+  "invoices": [
+   {
+    "id": "inv-2027-01-case-260072",
+    "month": "2027-01",
+    "caseId": "case-260072",
+    "number": "BOT-26-0072",
+    "area": "E",
+    "weeks": [
+     {
+      "key": "2027-W01",
+      "week": 1,
+      "year": 2027,
+      "monday": "2027-01-04",
+      "monthKey": "2027-01",
+      "paused": false,
+      "partial": true,
+      "enrolledDays": 5,
+      "planned": 2,
+      "attended": 1,
+      "registered": 2,
+      "zeroAttendance": false,
+      "missingRegistration": false
+     }
+    ],
+    "quantity": 1,
+    "unitPriceOre": 156200,
+    "amountOre": 156200,
+    "vatRate": 25,
+    "articleNo": "BOT-E",
+    "buyerReference": "4410023817",
+    "purchaseOrderNumber": "",
+    "orderWeeks": 10,
+    "orderValueOre": 1562000,
+    "accruedWeeks": 10,
+    "accruedOre": 1562000,
+    "remainingWeeks": 0,
+    "remainingOre": 0,
+    "checks": [
+     {
+      "kind": "partial",
+      "severity": "info",
+      "label": "Delvis vecka",
+      "text": "Start- eller slutveckan är bara delvis, men räknas som debiterbar vecka enligt Botkyrkas besked."
+     }
+    ],
+    "blocked": false,
+    "needsApproval": false,
+    "status": "draft",
+    "manualInvoiceNo": null,
+    "fortnoxNo": null,
+    "lineText": "BOT-26-0072 · v. 1 2027",
+    "invoiceText": "Beställning BOT-26-0072: planerat 10 veckor, 15 620 kr. Fakturerat inklusive denna faktura: 10 veckor, 15 620 kr. Återstår: 0 veckor, 0 kr."
+   },
+   {
+    "id": "inv-2027-01-case-260073",
+    "month": "2027-01",
+    "caseId": "case-260073",
+    "number": "BOT-26-0073",
+    "area": "G",
+    "weeks": [
+     {
+      "key": "2027-W01",
+      "week": 1,
+      "year": 2027,
+      "monday": "2027-01-04",
+      "monthKey": "2027-01",
+      "paused": false,
+      "partial": true,
+      "enrolledDays": 5,
+      "planned": 2,
+      "attended": 2,
+      "registered": 2,
+      "zeroAttendance": false,
+      "missingRegistration": false
+     }
+    ],
+    "quantity": 1,
+    "unitPriceOre": 139800,
+    "amountOre": 139800,
+    "vatRate": 25,
+    "articleNo": "BOT-G",
+    "buyerReference": "55102938",
+    "purchaseOrderNumber": "",
+    "orderWeeks": 10,
+    "orderValueOre": 1398000,
+    "accruedWeeks": 10,
+    "accruedOre": 1398000,
+    "remainingWeeks": 0,
+    "remainingOre": 0,
+    "checks": [
+     {
+      "kind": "partial",
+      "severity": "info",
+      "label": "Delvis vecka",
+      "text": "Start- eller slutveckan är bara delvis, men räknas som debiterbar vecka enligt Botkyrkas besked."
+     }
+    ],
+    "blocked": false,
+    "needsApproval": false,
+    "status": "draft",
+    "manualInvoiceNo": null,
+    "fortnoxNo": null,
+    "lineText": "BOT-26-0073 · v. 1 2027",
+    "invoiceText": "Beställning BOT-26-0073: planerat 10 veckor, 13 980 kr. Fakturerat inklusive denna faktura: 10 veckor, 13 980 kr. Återstår: 0 veckor, 0 kr."
+   },
+   {
+    "id": "inv-2027-01-case-260075",
+    "month": "2027-01",
+    "caseId": "case-260075",
+    "number": "BOT-26-0075",
+    "area": "G",
+    "weeks": [
+     {
+      "key": "2027-W01",
+      "week": 1,
+      "year": 2027,
+      "monday": "2027-01-04",
+      "monthKey": "2027-01",
+      "paused": false,
+      "partial": true,
+      "enrolledDays": 5,
+      "planned": 2,
+      "attended": 2,
+      "registered": 2,
+      "zeroAttendance": false,
+      "missingRegistration": false
+     }
+    ],
+    "quantity": 1,
+    "unitPriceOre": 139800,
+    "amountOre": 139800,
+    "vatRate": 25,
+    "articleNo": "BOT-G",
+    "buyerReference": "55102938",
+    "purchaseOrderNumber": "",
+    "orderWeeks": 10,
+    "orderValueOre": 1398000,
+    "accruedWeeks": 10,
+    "accruedOre": 1398000,
+    "remainingWeeks": 0,
+    "remainingOre": 0,
+    "checks": [
+     {
+      "kind": "partial",
+      "severity": "info",
+      "label": "Delvis vecka",
+      "text": "Start- eller slutveckan är bara delvis, men räknas som debiterbar vecka enligt Botkyrkas besked."
+     }
+    ],
+    "blocked": false,
+    "needsApproval": false,
+    "status": "draft",
+    "manualInvoiceNo": null,
+    "fortnoxNo": null,
+    "lineText": "BOT-26-0075 · v. 1 2027",
+    "invoiceText": "Beställning BOT-26-0075: planerat 10 veckor, 13 980 kr. Fakturerat inklusive denna faktura: 10 veckor, 13 980 kr. Återstår: 0 veckor, 0 kr."
+   },
+   {
+    "id": "inv-2027-01-case-260077",
+    "month": "2027-01",
+    "caseId": "case-260077",
+    "number": "BOT-26-0077",
+    "area": "K",
+    "weeks": [
+     {
+      "key": "2027-W01",
+      "week": 1,
+      "year": 2027,
+      "monday": "2027-01-04",
+      "monthKey": "2027-01",
+      "paused": false,
+      "partial": true,
+      "enrolledDays": 5,
+      "planned": 2,
+      "attended": 2,
+      "registered": 2,
+      "zeroAttendance": false,
+      "missingRegistration": false
+     }
+    ],
+    "quantity": 1,
+    "unitPriceOre": 153400,
+    "amountOre": 153400,
+    "vatRate": 25,
+    "articleNo": "BOT-K",
+    "buyerReference": "4410023817",
+    "purchaseOrderNumber": "",
+    "orderWeeks": 10,
+    "orderValueOre": 1534000,
+    "accruedWeeks": 10,
+    "accruedOre": 1534000,
+    "remainingWeeks": 0,
+    "remainingOre": 0,
+    "checks": [
+     {
+      "kind": "partial",
+      "severity": "info",
+      "label": "Delvis vecka",
+      "text": "Start- eller slutveckan är bara delvis, men räknas som debiterbar vecka enligt Botkyrkas besked."
+     }
+    ],
+    "blocked": false,
+    "needsApproval": false,
+    "status": "draft",
+    "manualInvoiceNo": null,
+    "fortnoxNo": null,
+    "lineText": "BOT-26-0077 · v. 1 2027",
+    "invoiceText": "Beställning BOT-26-0077: planerat 10 veckor, 15 340 kr. Fakturerat inklusive denna faktura: 10 veckor, 15 340 kr. Återstår: 0 veckor, 0 kr."
+   }
+  ],
+  "totalOre": 51133200,
+  "count": 124,
+  "blocked": 2,
+  "needsApproval": 3,
+  "weeks": 356,
+  "collectiveAllowed": false
+ },
+ "sample_kpis": [
+  {
+   "key": "resultatgrad",
+   "label": "Resultatgrad (arbete eller studier)",
+   "value": 0.33858267716535434,
+   "num": 43,
+   "den": 127,
+   "target": 0.35,
+   "contractTarget": 0.32,
+   "status": "below_internal",
+   "prelim": 2
+  },
+  {
+   "key": "avrop_besvarade_i_tid",
+   "label": "Avrop besvarade inom en arbetsdag",
+   "value": 0.9574468085106383,
+   "num": 45,
+   "den": 47,
+   "target": 1,
+   "targetUnset": false,
+   "status": "below_internal",
+   "late": [
+    {
+     "id": "case-270003",
+     "number": "BOT-27-0003",
+     "contractId": "c-bot",
+     "personId": "p-5184",
+     "status": "active",
+     "source": "email",
+     "referredAt": "2027-01-05T08:50",
+     "referrerId": "k-linda",
+     "buyerReference": "7730045120",
+     "purchaseOrderNumber": null,
+     "primaryArea": "A",
+     "secondaryArea": null,
+     "vocationalTrack": "Kontor och reception",
+     "desiredStart": "2027-01-12",
+     "plannedWeeks": 6,
+     "plannedEnd": "2027-02-19",
+     "acknowledgedAt": "2027-01-05T08:53",
+     "confirmedAt": "2027-01-07T09:13",
+     "firstMeetingAt": "2027-01-11T13:00",
+     "startDate": "2027-01-11",
+     "endDate": null,
+     "endReason": null,
+     "resultClass": null,
+     "resultVerifiedAt": null,
+     "phase": 4,
+     "leadCoachId": "u-amira",
+     "team": [
+      {
+       "userId": "u-amira",
+       "role": "lead_coach"
+      },
+      {
+       "userId": "u-david",
+       "role": "employer_matcher"
+      }
+     ],
+     "backgroundInfo": "Har gymnasieutbildning och vill arbeta på kontor eller reception.",
+     "aiConsent": "not_asked",
+     "meetingDay": 0,
+     "meetingTime": "13:00",
+     "location": "Alby",
+     "pausedWeeks": [],
+     "tags": [
+      "elif"
+     ],
+     "declineReason": null,
+     "orderValueWeeks": 6,
+     "closedAt": null
+    },
+    {
+     "id": "case-270016",
+     "number": "BOT-27-0016",
+     "contractId": "c-bot",
+     "personId": "p-5196",
+     "status": "active",
+     "source": "email",
+     "referredAt": "2027-01-13T15:35",
+     "referrerId": "k-linda",
+     "buyerReference": "7730045120",
+     "purchaseOrderNumber": null,
+     "primaryArea": "E",
+     "secondaryArea": "F",
+     "vocationalTrack": "Budbil och distribution",
+     "desiredStart": "2027-01-20",
+     "plannedWeeks": 10,
+     "plannedEnd": "2027-03-19",
+     "acknowledgedAt": "2027-01-13T15:39",
+     "confirmedAt": "2027-01-14T16:34",
+     "firstMeetingAt": "2027-01-15T10:00",
+     "startDate": "2027-01-15",
+     "endDate": null,
+     "endReason": null,
+     "resultClass": null,
+     "resultVerifiedAt": null,
+     "phase": 2,
+     "leadCoachId": "u-mats",
+     "team": [
+      {
+       "userId": "u-mats",
+       "role": "lead_coach"
+      },
+      {
+       "userId": "u-petra",
+       "role": "vocational_supervisor"
+      },
+      {
+       "userId": "u-hanna",
+       "role": "guidance_counselor"
+      }
+     ],
+     "backgroundInfo": "Har B-körkort. Vill arbeta med distribution.",
+     "aiConsent": "not_asked",
+     "meetingDay": 4,
+     "meetingTime": "10:00",
+     "location": "Alby",
+     "pausedWeeks": [],
+     "tags": [],
+     "declineReason": null,
+     "orderValueWeeks": 10,
+     "closedAt": null
+    }
+   ]
+  },
+  {
+   "key": "forsta_mote_inom_en_vecka",
+   "label": "Första möte inom en vecka",
+   "value": 0.9347826086956522,
+   "num": 43,
+   "den": 46,
+   "target": 1,
+   "targetUnset": false,
+   "status": "below_internal",
+   "late": [
+    {
+     "id": "case-270001",
+     "number": "BOT-27-0001",
+     "contractId": "c-bot",
+     "personId": "p-5182",
+     "status": "active",
+     "source": "portal",
+     "referredAt": "2027-01-04T11:45",
+     "referrerId": "k-linda",
+     "buyerReference": "7730045120",
+     "purchaseOrderNumber": null,
+     "primaryArea": "F",
+     "secondaryArea": null,
+     "vocationalTrack": "Lokalvårdare med certifiering",
+     "desiredStart": "2027-01-11",
+     "plannedWeeks": 6,
+     "plannedEnd": "2027-02-19",
+     "acknowledgedAt": "2027-01-04T11:48",
+     "confirmedAt": "2027-01-04T12:14",
+     "firstMeetingAt": "2027-01-11T13:00",
+     "startDate": "2027-01-11",
+     "endDate": null,
+     "endReason": null,
+     "resultClass": null,
+     "resultVerifiedAt": null,
+     "phase": 4,
+     "leadCoachId": "u-mats",
+     "team": [
+      {
+       "userId": "u-mats",
+       "role": "lead_coach"
+      },
+      {
+       "userId": "u-david",
+       "role": "employer_matcher"
+      },
+      {
+       "userId": "u-hanna",
+       "role": "guidance_counselor"
+      }
+     ],
+     "backgroundInfo": "Har städat privat och i föreningslokal. Vill ha anställning inom lokalvård.",
+     "aiConsent": "not_asked",
+     "meetingDay": 0,
+     "meetingTime": "13:00",
+     "location": "Hallunda",
+     "pausedWeeks": [],
+     "tags": [],
+     "declineReason": null,
+     "orderValueWeeks": 6,
+     "closedAt": null
+    },
+    {
+     "id": "case-270010",
+     "number": "BOT-27-0010",
+     "contractId": "c-bot",
+     "personId": "p-5190",
+     "status": "active",
+     "source": "email",
+     "referredAt": "2027-01-11T11:00",
+     "referrerId": "k-omar",
+     "buyerReference": "4410023817",
+     "purchaseOrderNumber": null,
+     "primaryArea": "F",
+     "secondaryArea": "J",
+     "vocationalTrack": "Lokalvårdare med certifiering",
+     "desiredStart": "2027-01-18",
+     "plannedWeeks": 10,
+     "plannedEnd": "2027-03-26",
+     "acknowledgedAt": "2027-01-11T11:03",
+     "confirmedAt": "2027-01-11T13:38",
+     "firstMeetingAt": "2027-01-18T13:00",
+     "startDate": "2027-01-18",
+     "endDate": null,
+     "endReason": null,
+     "resultClass": null,
+     "resultVerifiedAt": null,
+     "phase": 2,
+     "leadCoachId": "u-sofia",
+     "team": [
+      {
+       "userId": "u-sofia",
+       "role": "lead_coach"
+      }
+     ],
+     "backgroundInfo": "Har städat privat och i föreningslokal. Vill ha anställning inom lokalvård.",
+     "aiConsent": "given",
+     "meetingDay": 0,
+     "meetingTime": "13:00",
+     "location": "Hallunda",
+     "pausedWeeks": [],
+     "tags": [],
+     "declineReason": null,
+     "orderValueWeeks": 10,
+     "closedAt": null
+    },
+    {
+     "id": "case-270026",
+     "number": "BOT-27-0026",
+     "contractId": "c-bot",
+     "personId": "p-5206",
+     "status": "active",
+     "source": "email",
+     "referredAt": "2027-01-18T14:35",
+     "referrerId": "k-omar",
+     "buyerReference": "4410023817",
+     "purchaseOrderNumber": null,
+     "primaryArea": "A",
+     "secondaryArea": null,
+     "vocationalTrack": "Administrativ assistent",
+     "desiredStart": "2027-01-25",
+     "plannedWeeks": 8,
+     "plannedEnd": "2027-03-19",
+     "acknowledgedAt": "2027-01-18T14:38",
+     "confirmedAt": "2027-01-19T08:17",
+     "firstMeetingAt": "2027-01-26T10:00",
+     "startDate": "2027-01-26",
+     "endDate": null,
+     "endReason": null,
+     "resultClass": null,
+     "resultVerifiedAt": null,
+     "phase": 1,
+     "leadCoachId": "u-mats",
+     "team": [
+      {
+       "userId": "u-mats",
+       "role": "lead_coach"
+      },
+      {
+       "userId": "u-hanna",
+       "role": "guidance_counselor"
+      }
+     ],
+     "backgroundInfo": "Har gymnasieutbildning och vill arbeta på kontor eller reception.",
+     "aiConsent": "given",
+     "meetingDay": 1,
+     "meetingTime": "10:00",
+     "location": "Tumba",
+     "pausedWeeks": [],
+     "tags": [],
+     "declineReason": null,
+     "orderValueWeeks": 8,
+     "closedAt": null
+    }
+   ]
+  },
+  {
+   "key": "veckorapporter_i_tid",
+   "label": "Veckorapporter i tid",
+   "value": 1,
+   "num": 16,
+   "den": 16,
+   "target": 1,
+   "targetUnset": false,
+   "status": "ok"
+  },
+  {
+   "key": "manadsrapporter_i_tid",
+   "label": "Månadsrapporter i tid",
+   "value": 0.9907407407407407,
+   "num": 107,
+   "den": 108,
+   "target": 1,
+   "targetUnset": false,
+   "status": "below_internal",
+   "provisional": true
+  },
+  {
+   "key": "narvarograd",
+   "label": "Närvarograd",
+   "value": 0.8821052631578947,
+   "num": 838,
+   "den": 950,
+   "target": null,
+   "targetUnset": true,
+   "status": "no_target",
+   "absentValid": 76,
+   "absentInvalid": 36
+  },
+  {
+   "key": "nojdhet",
+   "label": "Nöjdhet (andel 4–5)",
+   "value": 0.7814207650273224,
+   "num": 143,
+   "den": 183,
+   "target": null,
+   "targetUnset": true,
+   "status": "no_target",
+   "minN": 5
+  }
+ ],
+ "sample_resultRate": {
+  "value": 0.33858267716535434,
+  "num": 43,
+  "den": 127,
+  "prelim": 2,
+  "excluded": 7,
+  "closed": 134,
+  "status": "below_internal",
+  "minN": 10,
+  "contractTarget": 0.32,
+  "internalTarget": 0.35
+ },
+ "sample_forecast": {
+  "value": 0.44966442953020136,
+  "candidates": 22,
+  "withOffer": 4,
+  "offerOnly": 0.37404580152671757,
+  "prelim": 2
+ },
+ "sample_trend": [
+  {
+   "month": "2026-09",
+   "value": null,
+   "num": 0,
+   "den": 0,
+   "prelim": 0,
+   "excluded": 0,
+   "closed": 0,
+   "status": "insufficient",
+   "minN": 10,
+   "contractTarget": 0.32,
+   "internalTarget": 0.35,
+   "cumulative": null,
+   "cumulativeN": 0
+  },
+  {
+   "month": "2026-10",
+   "value": 0.6666666666666666,
+   "num": 4,
+   "den": 6,
+   "prelim": 0,
+   "excluded": 2,
+   "closed": 8,
+   "status": "insufficient",
+   "minN": 10,
+   "contractTarget": 0.32,
+   "internalTarget": 0.35,
+   "cumulative": 0.6666666666666666,
+   "cumulativeN": 6
+  },
+  {
+   "month": "2026-11",
+   "value": 0.20588235294117646,
+   "num": 7,
+   "den": 34,
+   "prelim": 0,
+   "excluded": 2,
+   "closed": 36,
+   "status": "below_contract",
+   "minN": 10,
+   "contractTarget": 0.32,
+   "internalTarget": 0.35,
+   "cumulative": 0.275,
+   "cumulativeN": 40
+  },
+  {
+   "month": "2026-12",
+   "value": 0.35135135135135137,
+   "num": 13,
+   "den": 37,
+   "prelim": 0,
+   "excluded": 2,
+   "closed": 39,
+   "status": "ok",
+   "minN": 10,
+   "contractTarget": 0.32,
+   "internalTarget": 0.35,
+   "cumulative": 0.3116883116883117,
+   "cumulativeN": 77
+  },
+  {
+   "month": "2027-01",
+   "value": 0.38,
+   "num": 19,
+   "den": 50,
+   "prelim": 2,
+   "excluded": 1,
+   "closed": 51,
+   "status": "ok",
+   "minN": 10,
+   "contractTarget": 0.32,
+   "internalTarget": 0.35,
+   "cumulative": 0.33858267716535434,
+   "cumulativeN": 127
+  }
+ ],
+ "sample_alerts_chef": [
+  {
+   "key": "unbilled:case-260121",
+   "kind": "unbilled",
+   "severity": "critical",
+   "title": "Ofakturerade veckor äldre än 45 dagar",
+   "text": "BOT-26-0121: 2 veckor (2 778 kr). Preskription två månader efter utfört arbete.",
+   "caseId": "case-260121",
+   "roles": [
+    "ekonom",
+    "chef"
+   ],
+   "createdAt": "2027-02-01T06:00",
+   "link": {
+    "view": "eko.start",
+    "params": {}
+   },
+   "ack": null
+  },
+  {
+   "key": "unbilled:case-260117",
+   "kind": "unbilled",
+   "severity": "critical",
+   "title": "Ofakturerade veckor äldre än 45 dagar",
+   "text": "BOT-26-0117: 2 veckor (2 796 kr). Preskription två månader efter utfört arbete.",
+   "caseId": "case-260117",
+   "roles": [
+    "ekonom",
+    "chef"
+   ],
+   "createdAt": "2027-02-01T06:00",
+   "link": {
+    "view": "eko.start",
+    "params": {}
+   },
+   "ack": null
+  },
+  {
+   "key": "overdue:rep-16357",
+   "kind": "report_overdue",
+   "severity": "critical",
+   "title": "Slutrapport försenad",
+   "text": "BOT-26-0099: förföll 29 jan kl. 23.59. Vitesrisk vid bristfällig löpande information.",
+   "caseId": "case-260099",
+   "roles": [
+    "coach",
+    "samordnare",
+    "chef"
+   ],
+   "coachId": "u-leila",
+   "createdAt": "2027-01-29T23:59",
+   "link": {
+    "view": "rapport.visa",
+    "params": {
+     "reportId": "rep-16357"
+    }
+   },
+   "ack": null
+  },
+  {
+   "key": "kpi:manadsrapporter_i_tid:2027-01",
+   "kind": "kpi",
+   "severity": "warning",
+   "title": "Bevaka: månadsrapporter i tid januari 2027",
+   "text": "99,1 % (107 av 108). Internt mål 100 %.",
+   "roles": [
+    "chef",
+    "samordnare",
+    "avtalsansvarig"
+   ],
+   "createdAt": "2027-02-01T06:00",
+   "link": {
+    "view": "chef.oversikt",
+    "params": {}
+   },
+   "ack": null
+  },
+  {
+   "key": "kpi:forsta_mote_inom_en_vecka:2027-01",
+   "kind": "kpi",
+   "severity": "warning",
+   "title": "Bevaka: första möte inom en vecka januari 2027",
+   "text": "93,5 % (43 av 46). Internt mål 100 %.",
+   "roles": [
+    "chef",
+    "samordnare",
+    "avtalsansvarig"
+   ],
+   "createdAt": "2027-02-01T06:00",
+   "link": {
+    "view": "chef.oversikt",
+    "params": {}
+   },
+   "ack": null
+  },
+  {
+   "key": "kpi:avrop_besvarade_i_tid:2027-01",
+   "kind": "kpi",
+   "severity": "warning",
+   "title": "Bevaka: avrop besvarade inom en arbetsdag januari 2027",
+   "text": "95,7 % (45 av 47). Internt mål 100 %.",
+   "roles": [
+    "chef",
+    "samordnare",
+    "avtalsansvarig"
+   ],
+   "createdAt": "2027-02-01T06:00",
+   "link": {
+    "view": "chef.oversikt",
+    "params": {}
+   },
+   "ack": null
+  }
+ ],
+ "sample_alerts_coach": [
+  {
+   "key": "stuck:case-270012:1",
+   "kind": "stuck",
+   "severity": "warning",
+   "title": "Fastnat i fas 1",
+   "text": "BOT-27-0012 har varit i fas 1 (Kartläggning) i 14 dagar. Gräns: 10 dagar.",
+   "caseId": "case-270012",
+   "roles": [
+    "coach",
+    "samordnare"
+   ],
+   "coachId": "u-amira",
+   "createdAt": "2027-02-01T06:00",
+   "link": {
+    "view": "arende.kort",
+    "params": {
+     "caseId": "case-270012"
+    }
+   },
+   "ack": null
+  },
+  {
+   "key": "absence:case-260148:at-12689",
+   "kind": "absence",
+   "severity": "warning",
+   "title": "Upprepad ogiltig frånvaro",
+   "text": "BOT-26-0148: 2 ogiltiga frånvarotillfällen inom 14 dagar. Förslag: åtgärdsplan och uppföljningsmöte med handläggaren.",
+   "caseId": "case-260148",
+   "roles": [
+    "coach",
+    "samordnare"
+   ],
+   "coachId": "u-amira",
+   "createdAt": "2027-01-27T12:35",
+   "link": {
+    "view": "arende.kort",
+    "params": {
+     "caseId": "case-260148",
+     "tab": "narvaro"
+    }
+   },
+   "ack": null
+  },
+  {
+   "key": "ai_draft:ci-11917",
+   "kind": "ai_draft",
+   "severity": "info",
+   "title": "AI-utkast att granska",
+   "text": "Avstämning 29 jan kl. 13.00 (BOT-26-0130). Råtranskriptet raderas senast 28 feb 2027.",
+   "caseId": "case-260130",
+   "roles": [
+    "coach"
+   ],
+   "coachId": "u-amira",
+   "createdAt": "2027-01-29T13:48",
+   "link": {
+    "view": "coach.avstamning",
+    "params": {
+     "caseId": "case-260130",
+     "checkInId": "ci-11917"
+    }
+   },
+   "ack": null
+  }
+ ],
+ "sample_deadlines": [
+  {
+   "id": "rep:rep-16357",
+   "kind": "slutrapport",
+   "label": "Slutrapport",
+   "dueAt": "2027-01-29T23:59",
+   "reportId": "rep-16357",
+   "caseId": "case-260099",
+   "provisional": true,
+   "link": {
+    "view": "rapport.visa",
+    "params": {
+     "reportId": "rep-16357"
+    }
+   },
+   "sla": {
+    "label": "Försenad 2 dagar",
+    "tone": "over",
+    "minutes": -3433
+   },
+   "bucket": "overdue"
+  },
+  {
+   "id": "reg:u-amira",
+   "kind": "veckorapport_registrering",
+   "label": "Närvaro vecka 4: 6 tillfällen ej registrerade",
+   "dueAt": "2027-02-01T10:00",
+   "ownerId": "u-amira",
+   "count": 6,
+   "link": {
+    "view": "coach.narvaro",
+    "params": {
+     "week": "last"
+    }
+   },
+   "sla": {
+    "label": "48 min kvar",
+    "tone": "urgent",
+    "minutes": 48
+   },
+   "bucket": "today"
+  },
+  {
+   "id": "avrop:case-270048",
+   "kind": "avrop_svar",
+   "label": "Svar på avrop (acceptera eller avböj)",
+   "dueAt": "2027-02-01T10:05",
+   "caseId": "case-270048",
+   "owner": "samordnare",
+   "link": {
+    "view": "sam.inkorg",
+    "params": {
+     "caseId": "case-270048"
+    }
+   },
+   "sla": {
+    "label": "53 min kvar",
+    "tone": "urgent",
+    "minutes": 53
+   },
+   "bucket": "today"
+  },
+  {
+   "id": "avrop:case-270049",
+   "kind": "avrop_svar",
+   "label": "Svar på avrop (acceptera eller avböj)",
+   "dueAt": "2027-02-01T15:20",
+   "caseId": "case-270049",
+   "owner": "samordnare",
+   "link": {
+    "view": "sam.inkorg",
+    "params": {
+     "caseId": "case-270049"
+    }
+   },
+   "sla": {
+    "label": "6 tim kvar",
+    "tone": "soon",
+    "minutes": 368
+   },
+   "bucket": "today"
+  },
+  {
+   "id": "rep:rep-16693",
+   "kind": "veckorapport_publicering",
+   "label": "Veckorapport v. 4 2027 till Maria Ekdahl",
+   "dueAt": "2027-02-01T16:00",
+   "reportId": "rep-16693",
+   "owner": "samordnare",
+   "link": {
+    "view": "rapport.visa",
+    "params": {
+     "reportId": "rep-16693"
+    }
+   },
+   "sla": {
+    "label": "6 tim kvar",
+    "tone": "soon",
+    "minutes": 408
+   },
+   "bucket": "today"
+  },
+  {
+   "id": "avrop:case-270050",
+   "kind": "avrop_svar",
+   "label": "Svar på avrop (acceptera eller avböj)",
+   "dueAt": "2027-02-02T08:41",
+   "caseId": "case-270050",
+   "owner": "samordnare",
+   "link": {
+    "view": "sam.inkorg",
+    "params": {
+     "caseId": "case-270050"
+    }
+   },
+   "sla": {
+    "label": "Senast 2 feb kl. 08.41",
+    "tone": "ok",
+    "minutes": 1409
+   },
+   "bucket": "week"
+  },
+  {
+   "id": "fm:case-270039",
+   "kind": "forsta_mote",
+   "label": "Första möte ska vara bokat",
+   "dueAt": "2027-02-02T10:40",
+   "caseId": "case-270039",
+   "owner": "samordnare",
+   "link": {
+    "view": "arende.kort",
+    "params": {
+     "caseId": "case-270039"
+    }
+   },
+   "sla": {
+    "label": "Senast 2 feb kl. 10.40",
+    "tone": "ok",
+    "minutes": 1528
+   },
+   "bucket": "week"
+  },
+  {
+   "id": "bill:2027-01",
+   "kind": "fakturering",
+   "label": "Fakturor för januari 2027 i Fortnox (internt mål: 3 arbetsdagar)",
+   "dueAt": "2027-02-03T16:00",
+   "owner": "ekonom",
+   "link": {
+    "view": "eko.korning",
+    "params": {
+     "month": "2027-01"
+    }
+   },
+   "sla": {
+    "label": "Senast 3 feb kl. 16.00",
+    "tone": "ok",
+    "minutes": 3288
+   },
+   "bucket": "week"
+  },
+  {
+   "id": "dev:dev-14315",
+   "kind": "avvikelse_uppfoljning",
+   "label": "Uppföljning av avvikelse: Planen håller inte – behöver omplanering",
+   "dueAt": "2027-02-04T16:00",
+   "caseId": "case-270028",
+   "ownerId": "u-erik",
+   "link": {
+    "view": "arende.kort",
+    "params": {
+     "caseId": "case-270028",
+     "tab": "avvikelser"
+    }
+   },
+   "sla": {
+    "label": "Senast 4 feb kl. 16.00",
+    "tone": "ok",
+    "minutes": 4728
+   },
+   "bucket": "week"
+  },
+  {
+   "id": "cd:cd-2",
+   "kind": "atgardsplan",
+   "label": "Åtgärdsplan: Månadsrapport för december saknade konkret observation för t…",
+   "dueAt": "2027-02-05T16:00",
+   "owner": "avtalsansvarig",
+   "link": {
+    "view": "chef.avvikelser",
+    "params": {
+     "id": "cd-2"
+    }
+   },
+   "sla": {
+    "label": "Senast 5 feb kl. 16.00",
+    "tone": "ok",
+    "minutes": 6168
+   },
+   "bucket": "week"
+  },
+  {
+   "id": "rep:rep-15673",
+   "kind": "manadsrapport",
+   "label": "Månadsrapport januari 2027",
+   "dueAt": "2027-02-05T23:59",
+   "reportId": "rep-15673",
+   "caseId": "case-260085",
+   "provisional": true,
+   "link": {
+    "view": "rapport.visa",
+    "params": {
+     "reportId": "rep-15673"
+    }
+   },
+   "sla": {
+    "label": "Senast 5 feb kl. 23.59",
+    "tone": "ok",
+    "minutes": 6647
+   },
+   "bucket": "week"
+  },
+  {
+   "id": "rep:rep-15682",
+   "kind": "manadsrapport",
+   "label": "Månadsrapport januari 2027",
+   "dueAt": "2027-02-05T23:59",
+   "reportId": "rep-15682",
+   "caseId": "case-260086",
+   "provisional": true,
+   "link": {
+    "view": "rapport.visa",
+    "params": {
+     "reportId": "rep-15682"
+    }
+   },
+   "sla": {
+    "label": "Senast 5 feb kl. 23.59",
+    "tone": "ok",
+    "minutes": 6647
+   },
+   "bucket": "week"
+  }
+ ],
+ "sample_weeklyReport_keys": [
+  "recipientId",
+  "weekKey",
+  "monday",
+  "sunday",
+  "sections",
+  "complete"
+ ],
+ "sample_customerSummary": {
+  "month": "2027-01",
+  "minN": 5,
+  "active": 134,
+  "started": 44,
+  "closed": 51,
+  "byArea": [
+   {
+    "code": "A",
+    "name": "A Administration",
+    "active": 4,
+    "started": 3,
+    "closed": 0
+   },
+   {
+    "code": "B",
+    "name": "B Hälsa och sjukvård",
+    "active": 12,
+    "started": 3,
+    "closed": 6
+   },
+   {
+    "code": "C",
+    "name": "C Bygg och anläggning",
+    "active": 6,
+    "started": 0,
+    "closed": 4
+   },
+   {
+    "code": "D",
+    "name": "D Kök, restaurang och måltidsservice",
+    "active": 14,
+    "started": 4,
+    "closed": 5
+   },
+   {
+    "code": "E",
+    "name": "E Transport och åkeri",
+    "active": 7,
+    "started": 2,
+    "closed": 3
+   },
+   {
+    "code": "F",
+    "name": "F Lokalvård",
+    "active": 27,
+    "started": 15,
+    "closed": 8
+   },
+   {
+    "code": "G",
+    "name": "G Lager och logistik",
+    "active": 31,
+    "started": 10,
+    "closed": 12
+   },
+   {
+    "code": "H",
+    "name": "H Serviceyrken",
+    "active": 11,
+    "started": 1,
+    "closed": 6
+   },
+   {
+    "code": "I",
+    "name": "I Fastighet, mark och park",
+    "active": 3,
+    "started": 0,
+    "closed": 2
+   },
+   {
+    "code": "J",
+    "name": "J Parti- och detaljhandel",
+    "active": 15,
+    "started": 4,
+    "closed": 4
+   },
+   {
+    "code": "K",
+    "name": "K Industri",
+    "active": 3,
+    "started": 1,
+    "closed": 1
+   },
+   {
+    "code": "L",
+    "name": "L Övrigt",
+    "active": 1,
+    "started": 1,
+    "closed": 0
+   }
+  ],
+  "byTrack": [
+   {
+    "track": "Lokalvårdare med certifiering",
+    "active": 27
+   },
+   {
+    "track": "Lagerarbetare – plock och pack",
+    "active": 22
+   },
+   {
+    "track": "E-handelslager",
+    "active": 10
+   },
+   {
+    "track": "Truckförare A+B",
+    "active": 9
+   },
+   {
+    "track": "Kallskänka och disk",
+    "active": 8
+   },
+   {
+    "track": "Vård- och omsorgsassistent",
+    "active": 6
+   },
+   {
+    "track": "Service i vården",
+    "active": 6
+   },
+   {
+    "track": "Restaurangbiträde",
+    "active": 6
+   },
+   {
+    "track": "Butik och kundservice",
+    "active": 6
+   },
+   {
+    "track": "Bygg – grund och arbetsmiljö",
+    "active": 6
+   },
+   {
+    "track": "Hotell och konferens",
+    "active": 5
+   },
+   {
+    "track": "Butikssäljare",
+    "active": 5
+   },
+   {
+    "track": "Förberedelse för C-körkort",
+    "active": 4
+   },
+   {
+    "track": "Industrioperatör",
+    "active": 3
+   },
+   {
+    "track": "Budbil och distribution",
+    "active": 3
+   },
+   {
+    "track": "Park och grönyta",
+    "active": 2
+   },
+   {
+    "track": "Kontor och reception",
+    "active": 2
+   },
+   {
+    "track": "Administrativ assistent",
+    "active": 2
+   },
+   {
+    "track": "Fastighetsskötsel",
+    "active": 1
+   },
+   {
+    "track": "Individuellt spår",
+    "active": 1
+   }
+  ],
+  "result": {
+   "rolling": {
+    "value": 0.33858267716535434,
+    "num": 43,
+    "den": 127,
+    "prelim": 2,
+    "excluded": 7,
+    "closed": 134,
+    "status": "below_internal",
+    "minN": 10,
+    "contractTarget": 0.32,
+    "internalTarget": 0.35
+   },
+   "sinceStart": {
+    "value": 0.33858267716535434,
+    "num": 43,
+    "den": 127,
+    "prelim": 2,
+    "excluded": 7,
+    "closed": 134,
+    "status": "below_internal",
+    "minN": 10,
+    "contractTarget": 0.32,
+    "internalTarget": 0.35
+   },
+   "month": {
+    "value": 0.38,
+    "num": 19,
+    "den": 50,
+    "prelim": 2,
+    "excluded": 1,
+    "closed": 51,
+    "status": "ok",
+    "minN": 10,
+    "contractTarget": 0.32,
+    "internalTarget": 0.35
+   },
+   "contractTarget": 0.32
+  },
+  "progression": {
+   "assessed": 57,
+   "clear": 56,
+   "any": 57,
+   "areaDist": [
+    {
+     "key": "narvaro_rutiner",
+     "label": "Närvaro, punktlighet och rutiner",
+     "clear": 38,
+     "n": 57
+    },
+    {
+     "key": "yrkesfardigheter",
+     "label": "Yrkesfärdigheter/praktisk förmåga",
+     "clear": 41,
+     "n": 57
+    },
+    {
+     "key": "arbetskapacitet",
+     "label": "Arbetskapacitet och uthållighet",
+     "clear": 39,
+     "n": 57
+    },
+    {
+     "key": "sjalvstandighet",
+     "label": "Självständighet och ansvarstagande",
+     "clear": 39,
+     "n": 57
+    },
+    {
+     "key": "digital_sjalvstandighet",
+     "label": "Digital självständighet",
+     "clear": 36,
+     "n": 57
+    },
+    {
+     "key": "instruktioner",
+     "label": "Förmåga att förstå och följa yrkesrelaterade instruktioner",
+     "clear": 38,
+     "n": 57
+    },
+    {
+     "key": "arbetsgivarkontakter",
+     "label": "Arbetsgivarkontakter/nätverk",
+     "clear": 37,
+     "n": 57
+    },
+    {
+     "key": "beredskap",
+     "label": "Beredskap för praktik, arbete eller studier",
+     "clear": 38,
+     "n": 57
+    },
+    {
+     "key": "sprak_kommunikation",
+     "label": "Språk och kommunikation",
+     "clear": 43,
+     "n": 57
+    },
+    {
+     "key": "ovrigt",
+     "label": "Övrig relevant progression",
+     "clear": 14,
+     "n": 57
+    }
+   ]
+  },
+  "attendanceRate": 0.8821052631578947,
+  "attendance": {
+   "planned": 956,
+   "present": 793,
+   "late": 45,
+   "absentValid": 76,
+   "absentInvalid": 36,
+   "unregistered": 6,
+   "reasons": {
+    "Annat giltigt skäl": 17,
+    "Sjukdom": 9,
+    "Myndighetsbesök": 22,
+    "Vård av barn": 28
+   },
+   "rate": 0.8821052631578947
+  },
+  "deviations": 2,
+  "contractDeviations": 2,
+  "pulse": {
+   "invites": 275,
+   "responses": 183,
+   "responseRate": 0.6472727272727272,
+   "q1": [
+    2,
+    8,
+    30,
+    69,
+    74
+   ],
+   "q2": [
+    6,
+    10,
+    44,
+    73,
+    50
+   ],
+   "q3": [
+    1,
+    5,
+    20,
+    68,
+    89
+   ],
+   "satisfaction": 0.7814207650273224,
+   "closer": 0.6721311475409836,
+   "support": 0.8579234972677595,
+   "priorities": {
+    "utbildning": 44,
+    "annat": 33,
+    "svenska": 35,
+    "praktik": 47,
+    "jobb": 24
+   },
+   "enough": true,
+   "minN": 5
+  },
+  "seesSlaStats": false
+ },
+ "sample_pulse": {
+  "invites": 275,
+  "responses": 183,
+  "responseRate": 0.6472727272727272,
+  "q1": [
+   2,
+   8,
+   30,
+   69,
+   74
+  ],
+  "q2": [
+   6,
+   10,
+   44,
+   73,
+   50
+  ],
+  "q3": [
+   1,
+   5,
+   20,
+   68,
+   89
+  ],
+  "satisfaction": 0.7814207650273224,
+  "closer": 0.6721311475409836,
+  "support": 0.8579234972677595,
+  "priorities": {
+   "utbildning": 44,
+   "annat": 33,
+   "svenska": 35,
+   "praktik": 47,
+   "jobb": 24
+  },
+  "enough": true,
+  "minN": 5
+ },
+ "unbilledOld": [
+  {
+   "case": "BOT-26-0117",
+   "week": "2026-W49",
+   "age": 57,
+   "status": "returned"
+  },
+  {
+   "case": "BOT-26-0117",
+   "week": "2026-W50",
+   "age": 50,
+   "status": "returned"
+  },
+  {
+   "case": "BOT-26-0121",
+   "week": "2026-W49",
+   "age": 57,
+   "status": "returned"
+  },
+  {
+   "case": "BOT-26-0121",
+   "week": "2026-W50",
+   "age": 50,
+   "status": "returned"
+  }
+ ],
+ "amiraActive": 14
+}

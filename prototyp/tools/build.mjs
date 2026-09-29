@@ -1,0 +1,23 @@
+// Bygger en fristående HTML-fil av src/. Användning: node tools/build.mjs [--out dist/index.html]
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const args = process.argv.slice(2);
+const outArg = args.indexOf('--out');
+const out = outArg >= 0 ? path.resolve(args[outArg + 1]) : path.join(root, 'dist', 'index.html');
+const src = (p) => fs.readFileSync(path.join(root, 'src', p), 'utf8');
+export const CDN = 'https://cdn.jsdelivr.net/npm/htm@3.1.1/preact/standalone.umd.js';
+const viewFiles = fs.existsSync(path.join(root, 'src', 'views')) ? fs.readdirSync(path.join(root, 'src', 'views')).filter((f) => f.endsWith('.js')).sort() : [];
+const scripts = ['00-core.js', '01-seed.js', '02-store.js', '03-domain.js', '04-ui.js', '05-notiser.js', ...viewFiles.map((f) => `views/${f}`), '90-feedback.js', '99-shell.js'];
+const esc = (s) => s.replace(/<\/script/gi, '<\\/script');
+let htmlOut = src('head.html');
+htmlOut += `<style>\n${src('styles.css')}\n</style>\n`;
+htmlOut += `<div id="app"><div style="padding:32px;font-family:Montserrat,system-ui,sans-serif">Laddar Miljonmatch-prototypen …</div></div>\n`;
+htmlOut += `<noscript>Prototypen behöver JavaScript.</noscript>\n`;
+htmlOut += `<script src="${CDN}"></script>\n`;
+for (const s of scripts) htmlOut += `<script data-src="${s}">\n${esc(src(s))}\n</script>\n`;
+htmlOut += `<script>window.MM && window.MM.boot ? window.MM.boot() : (document.getElementById('app').textContent = 'Prototypen kunde inte starta. Ladda om sidan.');</script>\n`;
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, htmlOut);
+console.log(`Byggd: ${path.relative(process.cwd(), out)} (${(htmlOut.length / 1024).toFixed(0)} kB, ${scripts.length} skript)`);
