@@ -298,6 +298,12 @@ try {
     ['byt huvudcoach', async () => { await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia }); await btn('Byt huvudcoach').click(); }],
   ];
   for (const [name, fn] of mob) { await fn(); await wait(200); const r = await probe(); ok(r.length === 0, `400 px ${name}: knappar och text inom korten, klickytor minst 44 px (${r.slice(0, 3).join('; ')})`); }
+  for (const tab of ['avstamningar', 'narvaro', 'rapporter', 'historik']) {
+    await visit(page, 'samordnare', 'arende.kort', { caseId: sc.nadia, tab }); await wait(150);
+    const scroll = await ev(() => [...document.querySelectorAll('#main .table-wrap')].filter((el) => el.offsetParent && el.scrollWidth > el.clientWidth + 2).length);
+    const r = await probe();
+    ok(scroll === 0 && r.length === 0, `400 px fliken ${tab}: tabellerna visas som listor utan sidledsscroll (${scroll} scrollar; ${r.slice(0, 2).join('; ')})`);
+  }
 } catch (e) {
   fails++; console.log('FEL  Undantag:', e.message);
 }

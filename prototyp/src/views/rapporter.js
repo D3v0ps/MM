@@ -47,7 +47,9 @@
   const wdFull = (s) => (s ? `${d.WD[d.weekday(s)]} ${d.fmtDateTimeFull(s)}` : '–');
   const weekText = (key) => { const m = String(key || '').match(/^(\d{4})-W(\d{2})$/); return m ? `vecka ${+m[2]} ${m[1]}` : ''; };
   const weekRange = (key) => { const mon = d.weekMonday(key); const sun = d.addDays(mon, 6); return mon.slice(0, 4) === sun.slice(0, 4) ? `${dayMonth(mon)} – ${dayMonth(sun)} ${sun.slice(0, 4)}` : `${dFull(mon)} – ${dFull(sun)}`; };
-  const phaseText = (n) => `Fas ${n} · ${sel.phaseName(n)}`.replace(/\/APL\b/, ' (arbetsplatsförlagt lärande)');
+  /** Förkortningar skrivs ut (dokumenten visas i kommunportalen): "Praktik/APL" → "Praktik (arbetsplatsförlagt lärande)". */
+  const plain = (t) => String(t == null ? '' : t).replace(/\/APL\b/i, ' (arbetsplatsförlagt lärande)');
+  const phaseText = (n) => plain(`Fas ${n} · ${sel.phaseName(n)}`);
   const personWithUnit = (id) => `${MM.personName(id)}${unitOf(id) ? `, ${unitOf(id)}` : ''}`;
 
   const reportTitle = (r) => ({
@@ -215,7 +217,7 @@
     const times = (n) => `${n} ${n === 1 ? 'gång' : 'gånger'}`;
     return [
       `Under ${label} genomfördes ${cis.length} godkända veckoavstämningar.`,
-      acts.length ? `Deltagaren har arbetat med ${joinSv(acts.map(lcfirst))}.` : '',
+      acts.length ? `Deltagaren har arbetat med ${joinSv(acts.map((a) => plain(lcfirst(a))))}.` : '',
       `Arbetsgivarkontakter: ${contacts}${types.length ? ` (${types.join(', ')})` : ''}.`,
       `Veckomålet uppnåddes ${times(g.yes)}, delvis ${times(g.partly)} och inte ${times(g.no)}.`,
     ].filter(Boolean).join(' ');
@@ -448,7 +450,7 @@
   const ActivityChecklist = ({ a }) => {
     const done = new Set(a.done);
     return html`<ul style="list-style:none;margin:0;padding:0;display:grid;gap:6px 18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr))">
-      ${a.types.map((t) => html`<li key=${t} style="display:flex;align-items:flex-start;gap:2px"><span class="xbox" aria-hidden="true">${done.has(t) ? 'X' : ''}</span><span><span class="sr-only">${done.has(t) ? 'Genomförd: ' : 'Inte genomförd: '}</span>${String(t).replace(/\/APL\b/, ' (arbetsplatsförlagt lärande)')}</span></li>`)}
+      ${a.types.map((t) => html`<li key=${t} style="display:flex;align-items:flex-start;gap:2px"><span class="xbox" aria-hidden="true">${done.has(t) ? 'X' : ''}</span><span><span class="sr-only">${done.has(t) ? 'Genomförd: ' : 'Inte genomförd: '}</span>${plain(t)}</span></li>`)}
     </ul>`;
   };
 

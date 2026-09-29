@@ -236,7 +236,7 @@
     // Interna regler för Miljonbemanning (inte avtalskrav) – styr notiser, påminnelser och eskalering.
     S.orgConfig = {
       billing: { fortnoxWithinWorkingDays: 3, internalGoal: true },
-      alerts: { firstMeetingNotBookedAfterDays: 3 },
+      alerts: { firstMeetingNotBookedAfterDays: 3, followUpDueTime: '16:00' },
       notifications: {
         onAssignment: { to: ['lead_coach', 'team'], channels: ['app', 'email'], emailContainsPersonalData: false },
         progressionWatch: {

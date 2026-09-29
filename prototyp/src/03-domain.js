@@ -353,13 +353,13 @@
       if (r.kind === 'customer_summary') push({ id: `rep:${r.id}`, kind: 'bestallarrapport', label: `Beställarrapport ${d.monthName(r.month)}`, dueAt: r.dueAt, reportId: r.id, owner: 'avtalsansvarig', provisional: true, link: { view: 'rapport.visa', params: { reportId: r.id } } });
     }
     if (!coachId) {
-      for (const cd of S().contractDeviations.filter((x) => x.status !== 'closed' && x.actionPlanDue)) push({ id: `cd:${cd.id}`, kind: 'atgardsplan', label: `Åtgärdsplan: ${cd.description.slice(0, 60)}…`, dueAt: `${cd.actionPlanDue}T16:00`, owner: 'avtalsansvarig', link: { view: 'chef.avvikelser', params: { id: cd.id } } });
+      for (const cd of S().contractDeviations.filter((x) => x.status !== 'closed' && x.actionPlanDue)) push({ id: `cd:${cd.id}`, kind: 'atgardsplan', label: `Åtgärdsplan: ${cd.description.slice(0, 60)}…`, dueAt: `${cd.actionPlanDue}T${S().orgConfig.alerts.followUpDueTime}`, owner: 'avtalsansvarig', link: { view: 'chef.avvikelser', params: { id: cd.id } } });
       const run = S().billingRuns.find((b) => b.status === 'draft');
       if (run) push({ id: `bill:${run.month}`, kind: 'fakturering', label: `Fakturor för ${d.monthName(run.month)} i Fortnox (internt mål: ${S().orgConfig.billing.fortnoxWithinWorkingDays} arbetsdagar)`, dueAt: `${d.nthWorkingDay(d.addMonths(run.month, 1), S().orgConfig.billing.fortnoxWithinWorkingDays)}T16:00`, owner: 'ekonom', link: { view: 'eko.korning', params: { month: run.month } } });
     }
     for (const dv of S().deviations.filter((x) => x.status === 'open' && x.followUpOn)) {
       const c = sel.caseById(dv.caseId); if (coachId && (!c || c.leadCoachId !== coachId)) continue;
-      push({ id: `dev:${dv.id}`, kind: 'avvikelse_uppfoljning', label: `Uppföljning av avvikelse: ${dv.description}`, dueAt: `${dv.followUpOn}T16:00`, caseId: dv.caseId, ownerId: dv.ownerId, link: { view: 'arende.kort', params: { caseId: dv.caseId, tab: 'avvikelser' } } });
+      push({ id: `dev:${dv.id}`, kind: 'avvikelse_uppfoljning', label: `Uppföljning av avvikelse: ${dv.description}`, dueAt: `${dv.followUpOn}T${S().orgConfig.alerts.followUpDueTime}`, caseId: dv.caseId, ownerId: dv.ownerId, link: { view: 'arende.kort', params: { caseId: dv.caseId, tab: 'avvikelser' } } });
     }
     for (const x of out) { x.sla = sel.slaStatus(x.dueAt); x.bucket = x.dueAt < now ? 'overdue' : d.dayOf(x.dueAt) === d.today() ? 'today' : 'week'; }
     return out.sort(MM.by('dueAt'));
