@@ -31,10 +31,48 @@ await step('sam.deadlines: grupper, filter per typ och sammanslagna månadsrappo
 });
 
 // ------------------------------------------------------------ Startsidan
+// ------------------------------------------------------------ Samma tal i menyn, sammanfattningen, fliken och på startsidan (MM.sel.inboxToHandle)
+await step('Inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar samma tal', async () => {
+  noProblems(await visit(page, 'samordnare', 'sam.inkorg', {}));
+  const n = await S(() => MM.sel.inboxToHandle().length);
+  const r = await S(() => ({ nav: document.querySelector('.nav-item.active .count')?.innerText.trim(), sum: document.querySelector('.ink-sum .ink-sum-n')?.innerText.trim(),
+    tab: (document.querySelector('[role=tab][aria-selected=true] .count') || {}).innerText, parts: [...document.querySelectorAll('.ink-sum:not(:first-child):not(.grow) .ink-sum-n')].map((x) => Number(x.innerText)) }));
+  assert.deepEqual([r.nav, r.sum, r.tab], [String(n), String(n), String(n)], `Olika tal: ${JSON.stringify(r)}`);
+  assert.equal(r.parts.reduce((a, b) => a + b, 0), n, 'Uppdelningen ska summera till Att hantera');
+  noProblems(await visit(page, 'samordnare', 'sam.start', {}));
+  const tile = await page.locator('#main .ink-tile').first().innerText();
+  assert.match(tile, new RegExp(`Att hantera i inkorgen\\s+${n}\\b`, 'i'));
+});
+
+await step('sam.start: SLA-märket överlappar inte rubriken (1280 och 1024 px), status med text i rutor', async () => {
+  for (const [role, w] of [['samordnare', 1280], ['avtalsansvarig', 1280], ['samordnare', 1024]]) {
+    await page.setViewportSize({ width: w, height: 900 });
+    noProblems(await visit(page, role, 'sam.start', {}));
+    const over = await S(() => [...document.querySelectorAll('.ink-mini-row')].map((r) => { const l = r.querySelector('.ink-l'); const m = r.querySelector('.ink-m'); if (!l || !m) return null;
+      const a = (l.firstElementChild || l).getBoundingClientRect(); const b = m.getBoundingClientRect(); // riktig överlappning av rektanglarna (märket kan ligga ovanför texten i smal layout)
+      return a.right > b.left + 1 && a.left < b.right - 1 && a.bottom > b.top + 1 && a.top < b.bottom - 1 ? `${l.innerText.trim()} / ${m.innerText.split('\n')[0]}` : null; }).filter(Boolean));
+    assert.deepEqual(over, [], `${role} ${w}: överlapp`);
+    const noState = await S(() => [...document.querySelectorAll('#main .kpi.alert, #main .kpi.watch')].filter((k) => !k.querySelector('.kpi-state')).map((k) => k.innerText.split('\n')[0]));
+    assert.deepEqual(noState, [], 'Rutor med röd/mörk ram ska ha statustext med ikon');
+    const btn = await S(() => { const b = [...document.querySelectorAll('#main button')].find((x) => /notiser/.test(x.innerText) && x.closest('.card')); const c = b.closest('.card'); return Math.round(b.getBoundingClientRect().right) <= Math.round(c.getBoundingClientRect().right); });
+    assert.ok(btn, 'Knappen till coachens notiser ska ligga inom kortet');
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
+  assert.ok(!/deadline/i.test(await page.locator('#main').innerText()), 'Inga engelska ord (deadline)');
+});
+
+await step('sam.start (avtalsansvarig): uppgiften om det skyddade avropet ligger hos avtalsansvarig', async () => {
+  noProblems(await visit(page, 'avtalsansvarig', 'sam.start', {}));
+  const main = page.locator('#main');
+  await main.getByText('Öppna uppgifter (1)').waitFor();
+  await main.getByText('Avrop med skyddade personuppgifter från Omar Farah', { exact: false }).first().waitFor();
+  await main.getByText('Skapad automatiskt', { exact: false }).first().waitFor();
+});
+
 await step('sam.start: översikt, kvittera flagga med åtgärdsplan', async () => {
   noProblems(await visit(page, 'samordnare', 'sam.start', {}));
   const main = page.locator('#main');
-  for (const t of ['Avrop att besvara', 'Första möten ej bokade', 'Förfaller i dag', 'Flaggor att kvittera', 'Avrop besvarade inom en arbetsdag', 'Första möte inom en vecka', 'Tilldelning ger notis', 'Öppna uppgifter (1)']) await main.getByText(t, { exact: false }).first().waitFor();
+  for (const t of ['Att hantera i inkorgen', 'Första möten ej bokade', 'Förfaller i dag', 'Flaggor att kvittera', 'Avrop besvarade inom en arbetsdag', 'Första möte inom en vecka', 'Tilldelning ger notis', 'Öppna uppgifter (0)', 'hanteras av avtalsansvarig']) await main.getByText(t, { exact: false }).first().waitFor();
   const before = await S(() => Object.keys(MM.store.state.alertAcks).length);
   await main.getByRole('button', { name: 'Kvittera', exact: true }).first().click();
   await dialog().getByRole('button', { name: 'Kvittera', exact: true }).click();
@@ -71,6 +109,8 @@ await step('sam.inkorg em-101: acceptera med coach och team → orderbekräftels
   await page.check('#ink-coach-u-amira'); await page.check('#ink-team-u-petra');
   await dialog().getByRole('button', { name: 'Acceptera avropet' }).click();
   await dialog().getByText('Amira Haddad har fått en notis om tilldelningen').waitFor();
+  await dialog().getByText('Deltagaren fick kallelse via e-post, sin föredragna kontaktväg', { exact: false }).waitFor();
+  assert.equal(await S((id) => MM.store.state.notifications.filter((x) => x.caseId === id && x.template === 'kallelse').slice(-1)[0].channel, await S(() => MM.sel.caseByTag('inkorg-mall').id)), 'email');
   const c = await caseOf('inkorg-mall');
   assert.equal(c.status, 'confirmed'); assert.equal(c.leadCoachId, 'u-amira');
   assert.ok(c.team.some((t) => t.userId === 'u-petra'), 'Petra ska vara med i teamet');
@@ -85,14 +125,20 @@ await step('sam.inkorg em-101: acceptera med coach och team → orderbekräftels
 });
 
 // ------------------------------------------------------------ Fritext (em-102): stoppas utan beställarreferens, rätta uppgifter
-await step('sam.inkorg em-102: acceptera stoppas – felet visas i fältet för beställarreferens', async () => {
+await step('sam.inkorg em-102: acceptera stoppas – felet syns direkt (överst, toast, fokus i fältet)', async () => {
   noProblems(await visit(page, 'samordnare', 'sam.inkorg', { emailId: 'em-102' }));
   const main = page.locator('#main');
-  await main.getByText('Tolkat med AI').waitFor(); await main.getByText(/Osäker 64/).waitFor();
+  await main.getByText('Tolkat med AI').waitFor(); await main.getByText(/Osäker \d+/).first().waitFor();
+  assert.ok(await main.getByRole('button', { name: /Se vad kommunen fick \(kommunens chef\)/ }).count() > 0, 'Perspektivbyte till kommunens chef när handläggaren inte är Maria');
   await main.getByRole('button', { name: 'Acceptera', exact: true }).click();
+  await dialog().getByText('Beställarreferens saknas – avropet kan inte bekräftas').first().waitFor(); // överst redan när dialogen öppnas
   await page.check('#ink-coach-u-erik');
   await dialog().getByRole('button', { name: 'Acceptera avropet' }).click();
-  await dialog().locator('.field.invalid').filter({ hasText: 'Beställarreferens' }).getByText(/Beställarreferens saknas/).waitFor();
+  await page.locator('.toast').filter({ hasText: 'Beställarreferens saknas' }).first().waitFor();
+  await dialog().locator('.field.invalid').filter({ hasText: 'Beställarreferens' }).getByText(/Beställarreferens saknas\. Kommunen har inte angett någon/).waitFor();
+  await page.waitForFunction(() => document.activeElement && document.activeElement.id === 'ink-ref');
+  const inView = await S(() => { const el = document.getElementById('ink-ref'); const b = el.getBoundingClientRect(); const m = el.closest('.modal-body').getBoundingClientRect(); return b.top >= m.top && b.bottom <= m.bottom; });
+  assert.ok(inView, 'Fältet för beställarreferens ska synas i dialogen');
   assert.equal((await caseOf('inkorg-fritext')).status, 'acknowledged');
   await dialog().getByText('Det finns en komplettering att föra in först').waitFor();
   await dialog().getByRole('button', { name: 'Avbryt' }).click();
@@ -127,6 +173,17 @@ await step('sam.inkorg em-103: för in kompletteringen och acceptera', async () 
 });
 
 // ------------------------------------------------------------ Skyddade personuppgifter (em-104)
+await step('sam.inkorg em-104 som samordnare: ingen registrering – förklaring och perspektivbyte till avtalsansvarig', async () => {
+  noProblems(await visit(page, 'samordnare', 'sam.inkorg', { emailId: 'em-104' }));
+  const main = page.locator('#main');
+  await main.getByText('Avtalsansvarig hanterar skyddade avrop enligt den säkra rutinen').first().waitFor();
+  assert.equal(await main.getByRole('button', { name: 'Registrera efter telefonsamtal' }).count(), 0, 'Samordnaren ska inte kunna registrera');
+  assert.equal(await main.getByRole('button', { name: 'Acceptera', exact: true }).count(), 0);
+  await main.getByRole('button', { name: 'Se avtalsansvarigs vy' }).click();
+  await page.waitForFunction(() => MM.role() === 'avtalsansvarig');
+  await main.getByRole('button', { name: 'Registrera efter telefonsamtal' }).waitFor();
+});
+
 await step('sam.inkorg em-104: registrera efter telefonsamtal (case.create skyddad, telefon, k-omar)', async () => {
   noProblems(await visit(page, 'avtalsansvarig', 'sam.inkorg', { emailId: 'em-104' }));
   const main = page.locator('#main');
@@ -143,10 +200,12 @@ await step('sam.inkorg em-104: registrera efter telefonsamtal (case.create skydd
   await dialog().waitFor({ state: 'detached' });
   const r = await S(() => { const st = MM.store.state; const e = st.inboundEmails.find((x) => x.id === 'em-104'); const c = st.cases.find((x) => x.id === e.caseId); const p = st.persons.find((x) => x.id === c.personId);
     return { status: e.status, source: c.source, referrerId: c.referrerId, prot: p.protectedIdentity, phone: p.phone, address: p.address, referredAt: c.referredAt, received: e.receivedAt, task: st.tasks.find((t) => t.id === 'task-2').status,
+      openProt: st.tasks.filter((t) => t.status === 'open' && t.kind === 'protected_order' && (t.caseIds || []).includes(c.id)).length,
       alert: MM.sel.alerts({ role: 'avtalsansvarig' }).some((a) => a.key === 'protected:em-104') }; });
   assert.deepEqual([r.status, r.source, r.referrerId, r.prot, r.phone, r.address], ['received', 'phone', 'k-omar', true, '', null]);
   assert.equal(r.referredAt, r.received, 'SLA ska räknas från mejlets mottagning');
-  assert.equal(r.task, 'done', 'Uppgiften till samordnaren ska stängas'); assert.equal(r.alert, false, 'Flaggan ska stängas');
+  assert.equal(r.task, 'done', 'Uppgiften till avtalsansvarig ska stängas'); assert.equal(r.alert, false, 'Flaggan ska stängas');
+  assert.equal(r.openProt, 0, 'Uppgiften som case.create skapade ska stängas – samtalet är redan taget');
 });
 
 await step('sam.inkorg em-104: acceptera skyddat ärende – ingen kallelse till deltagaren', async () => {
@@ -166,7 +225,8 @@ await step('sam.inkorg em-104 som samordnare: namnet visas inte', async () => {
   noProblems(await visit(page, 'samordnare', 'sam.inkorg', { emailId: 'em-104' }));
   const txt = await page.locator('#main').innerText();
   assert.ok(txt.includes('Skyddade personuppgifter'));
-  assert.ok(!txt.includes('Lindqvist-Test'), 'Samordnaren får inte se namnet');
+  assert.ok(!txt.includes('Lindqvist-Test') && !txt.includes('Samir'), 'Samordnaren får inte se namnet');
+  assert.equal(await page.locator('#main').getByRole('button', { name: 'Registrera efter telefonsamtal' }).count(), 0);
 });
 
 // ------------------------------------------------------------ Övrigt (em-105)
@@ -221,9 +281,10 @@ await step('Portalbeställning från kommunen syns i inkorgen och kan accepteras
   const res = await S(() => { MM.nav('om.start', {}, { role: 'kommun_handlaggare' });
     return MM.dispatch('case.create', { source: 'portal', referrerId: 'k-maria', firstName: 'Lina', lastName: 'Portaltest', pnr: '19950505-1111', buyerReference: '4410023817', primaryArea: 'F', plannedWeeks: 6, desiredStart: '2027-02-10', vocationalTrack: 'Lokalvårdare med certifiering' }); });
   assert.ok(res && res.caseId, 'Portalbeställningen ska skapas');
-  noProblems(await visit(page, 'samordnare', 'sam.inkorg', { caseId: res.caseId }));
+  noProblems(await visit(page, 'samordnare', 'sam.inkorg', { latest: true }));
   const main = page.locator('#main');
-  await main.getByRole('heading', { name: 'Beställning i portalen' }).waitFor();
+  await main.getByRole('heading', { name: 'Beställning i portalen' }).waitFor(); // params.latest väljer den senast mottagna (scenario 3 steg 4)
+  await main.locator('.ink-detail').getByText(res.number).first().waitFor();
   await main.getByText('Ordererkännandet visades direkt', { exact: false }).or(main.getByText('Ordererkännande', { exact: true })).first().waitFor();
   await main.getByRole('button', { name: 'Acceptera', exact: true }).click();
   await page.check('#ink-coach-u-mats');

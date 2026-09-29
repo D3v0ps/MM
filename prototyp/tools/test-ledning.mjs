@@ -21,6 +21,47 @@ try {
   ok(/Tidig uppmärksamhet/i.test(t) && /ser inte att ärendet har eskalerats/i.test(t), 'Tidig uppmärksamhet med text om att coachen inte ser eskaleringen');
   ok(/0 av 3/.test(t), 'Varningar visas som 0 av 3');
 
+  // "Så ser kommunens chef resultatet" = exakt det kom.chef visar som standard: senast levererade beställarrapporten
+  const custData = () => state(() => {
+    const pid = MM.store.state.customerUsers.find((u) => u.role === 'chef').id;
+    const done = (r) => !!r.deliveredAt && ['delivered', 'opened'].includes(r.status) && !r.superseded;
+    const reps = MM.store.state.reports.filter((r) => r.kind === 'customer_summary' && !r.superseded && (r.recipientUserId === pid || (r.deliveredTo || []).includes(pid))).sort(MM.by('month'));
+    const latest = reps.filter(done).slice(-1)[0];
+    const s = MM.sel.customerSummary(latest.month); const rr = s.result.rolling;
+    const next = reps.find((r) => !done(r) && r.month > latest.month);
+    const nrr = next ? MM.sel.customerSummary(next.month).result.rolling : null;
+    return { month: MM.d.monthName(latest.month), value: MM.fmt.pct(rr.value), n: `${rr.num} av ${rr.den}`, below: rr.den >= rr.minN && rr.value < s.result.contractTarget,
+      nextId: next ? next.id : null, next: next ? MM.d.monthName(next.month) : null, nextValue: nrr ? MM.fmt.pct(nrr.value) : null };
+  });
+  const cust = await custData();
+  const custCard = card('Så ser kommunens chef resultatet');
+  let ct = await custCard.innerText();
+  ok(ct.includes(cust.month) && ct.includes(cust.value) && ct.includes(cust.n), `Kundkortet visar ${cust.month}: ${cust.value} (${cust.n}) – samma som kom.chef (${ct.split('\n').slice(1, 3).join(' ')})`);
+  ok(cust.below ? /Under avtalsmålet/.test(ct) : /Når avtalsmålet|För få avslut/.test(ct), 'Kundkortet visar samma omdöme som kommunens chef ser');
+  ok(!cust.next || (ct.includes(cust.next) && ct.includes(cust.nextValue) && /utkast/.test(ct)), 'Kundkortet säger att nästa rapport är ett utkast och vad den visar med dagens underlag');
+  ok(/färre än 5/.test(ct) && !/35\s?%/.test(ct), 'Kundkortet nämner små grupper men inte det interna målets värde');
+
+  // Status med text och ikon, inte bara färg (SLA-staplar)
+  const slaCard = card('SLA-uppfyllnad');
+  const slaRows = await slaCard.locator('.ldg-slarow').count();
+  ok(slaRows === 4 && await slaCard.locator('.ldg-slarow .badge').count() === slaRows && await slaCard.locator('.ldg-slarow .badge svg').count() === slaRows, 'Varje SLA-rad har ett statusmärke med text och ikon');
+  ok(/Når målet|Under målet/.test(await slaCard.innerText()) && /mål 100\s?%/.test(await slaCard.innerText()), 'SLA-raderna visar status och mål i text');
+  ok(await page.locator('#main .kpi.alert .kpi-state, #main .kpi.watch .kpi-state').count() === await page.locator('#main .kpi.alert, #main .kpi.watch').count(), 'KPI-rutor med markerad ram har statustext');
+  ok(!/deadline/i.test(await mainText()), 'Inga engelska ord (deadline) i ledningsvyn');
+  ok(await page.locator('#main details.ldg-details > summary .ldg-chev').count() >= 1, 'Utfällbara avsnitt har en pilmarkering');
+
+  // Knappar ryms i sina kort (1280 och 400 px)
+  const btnFits = () => page.evaluate(() => {
+    const b = [...document.querySelectorAll('#main button')].find((x) => /Förfaller i dag och denna vecka/.test(x.innerText)); if (!b) return 'saknas';
+    const c = b.closest('.card').getBoundingClientRect(); const r = b.getBoundingClientRect();
+    const out = [...document.querySelectorAll('#main .card .btn')].filter((x) => x.offsetParent && !x.closest('.table-wrap') && x.getBoundingClientRect().right > x.closest('.card').getBoundingClientRect().right + 1).map((x) => x.innerText.trim());
+    return r.right <= c.right + 1 && b.scrollWidth <= b.clientWidth + 1 && out.length === 0 ? true : `${Math.round(r.right - c.right)} px; utanför: ${out.join(', ')}`;
+  });
+  let fit = await btnFits(); ok(fit === true, `Knapparna ryms i korten på 1280 px (${fit})`);
+  await page.setViewportSize({ width: 400, height: 860 }); await page.waitForTimeout(150);
+  fit = await btnFits(); ok(fit === true, `Knapparna ryms i korten på 400 px (${fit})`);
+  await page.setViewportSize({ width: 1280, height: 900 }); await page.waitForTimeout(100);
+
   // Kvittera resultatflaggan – först utan text (valideras), sedan med plan
   const rrKey = await state(() => (MM.sel.alerts({ role: 'chef', personaId: 'u-karin' }).find((a) => a.key.startsWith('kpi:resultatgrad')) || {}).key);
   ok(!!rrKey, 'Resultatflaggan finns för chefen');
@@ -60,10 +101,15 @@ try {
   ok(await page.locator('#main table tbody tr').count() === await state(() => MM.sel.coaches().length), 'En rad per coach');
   t = await mainText();
   ok(/Dokumentationstid/i.test(t) && /median utan AI/.test(t), 'Dokumentationstid (baslinje utan AI) visas');
+  ok(/Aktiva ärenden just nu/i.test(t) && /Aktiva nu/i.test(t), 'Per coach: aktiva ärenden är tydligt märkta som "just nu"');
 
   await page.getByRole('tab', { name: /Per avtalsområde/ }).click(); await page.waitForTimeout(150);
   ok(await page.locator('#main table tbody tr').count() === await state(() => MM.store.state.areas.filter((a) => a.contractId === 'c-bot').length), 'En rad per avtalsområde');
-  ok(/Litet underlag/.test(await mainText()), 'Små grupper markeras');
+  t = await mainText();
+  ok(/Litet underlag/.test(t), 'Små grupper markeras');
+  const monthActive = await state(() => MM.sel.customerSummary(MM.d.addMonths(MM.d.monthKey(MM.d.today()), -1)).active);
+  ok(/Aktiva just nu/i.test(t) && new RegExp(`Aktiva under [^\\n]+\\n${monthActive}\\n`, 'i').test(t) && !/^Aktiva deltagare$/im.test(t),
+    `Per avtalsområde: "Aktiva just nu" och "Aktiva under månaden" (${monthActive}, beställarrapportens räknesätt) skiljs åt`);
 
   await page.getByRole('tab', { name: /Deltagarnas röst/ }).click(); await page.waitForTimeout(150);
   t = await mainText();
@@ -197,6 +243,23 @@ try {
   const hasKomChef = await state(() => !!MM.views['kom.chef']);
   if (hasKomChef) { const r = await state(() => MM.route); ok(r.role === 'kommun_chef' && r.view === 'kom.chef', 'Perspektivbytet öppnar kom.chef som kommunens chef'); }
   else console.log('     (kom.chef finns inte ännu – perspektivbytet kontrolleras inte)');
+
+  // Bytet från kundkortet landar på samma månad och samma siffra i kom.chef
+  if (hasKomChef) {
+    await visit(page, 'chef', 'chef.oversikt', {});
+    const c1 = await custData();
+    await card('Så ser kommunens chef resultatet').getByRole('button', { name: /som kommunens chef/ }).click(); await page.waitForTimeout(200);
+    const kt = await mainText();
+    ok(await state(() => MM.route.view) === 'kom.chef' && kt.toLowerCase().includes(c1.month) && kt.includes(c1.value) && (c1.below ? /Under avtalsmålet/.test(kt) : true),
+      `kom.chef visar samma månad och resultat som kundkortet (${c1.month}, ${c1.value})`);
+    // När nästa rapport levereras följer kortet med
+    if (c1.nextId) {
+      await state((id) => { MM.setRole('avtalsansvarig', { view: 'rapporter.lista' }); MM.dispatch('report.approve', { reportId: id }); MM.dispatch('report.deliver', { reportId: id }); }, c1.nextId);
+      await visit(page, 'chef', 'chef.oversikt', {});
+      const c2 = await custData(); const ct2 = await card('Så ser kommunens chef resultatet').innerText();
+      ok(c2.month === c1.next && ct2.includes(c2.month) && ct2.includes(c2.value) && !/är ett utkast/.test(ct2), `Efter leverans visar kundkortet ${c2.month} (${c2.value})`);
+    }
+  }
 
   // Omladdning: åtgärderna spelas upp igen deterministiskt
   await page.reload();

@@ -74,9 +74,17 @@
   .co-chip { border: 1.5px dashed var(--line-strong); background: var(--vit); border-radius: 999px; padding: 6px 12px; min-height: 44px; font: inherit; font-size: 0.875rem; cursor: pointer; color: var(--antracit); text-align: left; }
   .co-chip:hover { border-color: var(--antracit); }
   .cm-table { table-layout: fixed; min-width: 860px; }
-  .cm-area { font-weight: 700; overflow-wrap: anywhere; }
+  .cm-area { font-weight: 700; overflow-wrap: break-word; hyphens: manual; }
   .cm-table td { min-width: 0; }
-  .cm-table .ai-tag { white-space: normal; }
+  .cm-ai-lvl { display: block; font-size: 0.875rem; line-height: 1.5; }
+  .cm-ai-lvl .ai-tag { margin-right: 6px; vertical-align: 1px; }
+  .ai-box.is-empty { background: var(--vit); border-style: dashed; }
+  .co-persp { display: inline-flex; max-width: 100%; min-width: 0; }
+  .co-persp .btn { white-space: normal; text-align: left; max-width: 100%; }
+  .co-kpis .kpi-label { overflow-wrap: break-word; hyphens: manual; }
+  .co-dec { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .co-stop { border-left: 4px solid var(--rod); }
+  @media (max-width: 620px) { .co-wrap > .li-side > .btn { flex: 1 1 100%; } }
   .cm-table tr.row-alert td:first-child { box-shadow: inset 4px 0 0 var(--rod); }
   @media (max-width: 760px) {
     .cm-table thead { display: none; }
@@ -130,7 +138,12 @@
   const pubTimeText = () => `${d.WD[slaCfg('veckorapport_publicering').weekday || 0]} ${(slaCfg('veckorapport_publicering').time || '16:00').replace(':', '.')}`;
   const monthNth = () => ((slaCfg('manadsrapport').proposal || {}).nthWorkingDay) || 5;
   const monthDueFor = (mk) => `${d.nthWorkingDay(d.addMonths(mk, 1), monthNth())}T23:59`;
-  const monthDueNote = () => (MM.isUnset(slaCfg('manadsrapport').due) ? `Ej fastställd deadline – förslag ${monthNth()}:e arbetsdagen` : 'Deadline enligt avtalet');
+  const monthDueNote = () => (MM.isUnset(slaCfg('manadsrapport').due) ? `Sista dag ej fastställd – förslag ${monthNth()}:e arbetsdagen` : 'Sista dag enligt avtalet');
+  const plural = (n, one, many) => fmt.plural(n, one, many);
+  /** Perspektivbyte som får radbrytas (långa etiketter på smal skärm). */
+  const Persp = (p) => html`<span class="co-persp"><${ui.PerspectiveSwitch} ...${p} /></span>`;
+  /** Mjuka bindestreck i långa sammansatta ord och brytpunkt efter snedstreck (t.ex. "Arbetsgivar-kontakter/nätverk"). */
+  const breakable = (s) => String(s || '').replace(/\//g, '/​').replace(/(Arbetsgivar|Arbets|Yrkes|yrkes|Själv|själv|ansvars|kommu)(?=[a-zåäö]{4,})/g, '$1­');
   /** Visa länk till en annan vy om den inte uttryckligen stänger ute rollen. */
   const canOpen = (view, role = MM.role()) => { const v = MM.views[view]; return !v || !Array.isArray(v.roles) || v.roles.includes(role); };
   const go = (view, params = {}) => MM.nav(view, params);
@@ -210,7 +223,7 @@
       <div class="co-cal">
         ${[0, 1, 2, 3, 4].map((i) => { const day = d.addDays(mon, i); const list = byDay[day] || []; const hol = d.holidayName(day);
           return html`<div class=${cls('co-day', day === today && 'today')} key=${day}>
-            <div class="co-day-head"><span class="wd">${d.WD[i]} ${d.fmtDateShort(day)}</span>${day === today ? html`<${ui.Badge} tone="dark">I dag<//>` : html`<span class="small muted">${list.length} tillfällen</span>`}</div>
+            <div class="co-day-head"><span class="wd">${d.WD[i]} ${d.fmtDateShort(day)}</span>${day === today ? html`<${ui.Badge} tone="dark">I dag<//>` : html`<span class="small muted">${plural(list.length, 'tillfälle', 'tillfällen')}</span>`}</div>
             <div class="co-day-body">
               ${hol && html`<span class="small muted">${hol}</span>`}
               ${list.length === 0 && !hol && html`<span class="small muted">Inga aktiviteter</span>`}
@@ -292,6 +305,10 @@
     const reminders = sel.progressionWatch({ coachId: pid });
     const flags = sel.alerts({ role: 'coach', personaId: pid }).filter((a) => !['no_progress', 'ai_draft'].includes(a.kind) && !/escalat/i.test(a.kind));
     const unread = sel.notificationsFor(pid, role).filter((n) => !n.readAt && n.kind !== 'progress_escalation');
+    // Olästa meddelanden från kommunen (notis av typen 'message' till huvudcoachen)
+    const unreadMsgs = unread.filter((n) => n.kind === 'message' && n.caseId && caseIds.has(n.caseId));
+    const openMessage = (n) => { MM.dispatch('notif.read', { ids: [n.id] }, { silent: true }); go('arende.kort', { caseId: n.caseId, tab: 'meddelanden' }); };
+    const latestCustomerMsg = (caseId) => sel.messagesOf(caseId).filter((m) => String(m.senderId).startsWith('k-')).sort(MM.by('createdAt')).pop();
     const due = sel.deadlines({ days: 7, coachId: pid }).filter((x) => x.kind !== 'veckorapport_registrering');
     const dueMonthly = due.filter((x) => x.kind === 'manadsrapport');
     const dueOther = due.filter((x) => x.kind !== 'manadsrapport');
@@ -310,7 +327,7 @@
           sub=${unreg.length > 0 ? `Vecka ${wLast} · senast ${regDueText()} · ${regSla.label.toLowerCase()}` : `Vecka ${wLast} är klar`} />
         <${ui.Kpi} label="Aktiviteter i dag" value=${String(todays.length)} sub=${next ? `Nästa ${d.fmtTime(next.startsAt)}: ${kindOf(next.kind).label.toLowerCase()} med ${shortName(caseOf(next.caseId))}` : 'Inga fler aktiviteter i dag'} />
         <${ui.Kpi} label="AI-utkast att granska" value=${String(drafts.length)} sub=${drafts.length > 0 ? 'Råtranskript raderas när du godkänner' : 'Inget väntar'} />
-        <${ui.Kpi} label=${`Månadsbedömningar ${monShort(pm)}`} value=${`${maDone} av ${assessments.length}`} sub=${`klara · förslag senast ${d.fmtDateShort(maDue)}`} />
+        <${ui.Kpi} label=${`Månads­bedömningar ${monShort(pm)}`} value=${`${maDone} av ${assessments.length}`} sub=${`klara · förslag senast ${d.fmtDateShort(maDue)}`} />
       </div>
 
       <div class="split-wide">
@@ -318,7 +335,7 @@
           <${ui.Card} title=${`Närvaro att registrera – vecka ${wLast}`} icon="check-square" tone=${unreg.length > 0 ? 'red' : undefined}
             actions=${unreg.length > 0 ? html`<${ui.SlaBadge} dueAt=${regDue} prefix="Registrera" />` : html`<${ui.Badge} tone="blue" icon="check">Klart<//>`}>
             ${unreg.length > 0 ? html`<div class="stack">
-              <p><b>${unreg.length} tillfällen</b> från förra veckan saknar närvaro. Registrera senast <b>${regDueText()}</b>. Veckorapporten till varje handläggare publiceras automatiskt när alla handläggarens deltagare är registrerade, senast ${pubTimeText()}.</p>
+              <p><b>${plural(unreg.length, 'tillfälle', 'tillfällen')}</b> från förra veckan saknar närvaro. Registrera senast <b>${regDueText()}</b>. Veckorapporten till varje handläggare publiceras automatiskt när alla handläggarens deltagare är registrerade, senast ${pubTimeText()}.</p>
               <div class="list" style="border:1px solid var(--line);border-radius:var(--radius)">
                 ${Object.entries(unregByCase).map(([cid, rows]) => { const c = caseOf(cid); return html`<div class="list-item" key=${cid}>
                   <div class="li-main"><div class="li-title">${nameOf(c)} <span class="mono small muted nowrap">${c.number}</span></div>
@@ -326,10 +343,10 @@
                   <div class="li-side"><${ui.Badge} tone="outline">${rows.length} kvar<//></div>
                 </div>`; })}
               </div>
-              ${waitingReports.length > 0 && html`<${ui.Notice} tone="warn" title="Väntar på dig">${waitingReports.map((r) => `Veckorapporten till ${MM.personName(r.recipientUserId)}`).join(', ')} publiceras när dina tillfällen är registrerade.<//>`}
+              ${waitingReports.length > 0 && html`<${ui.Notice} tone="warn" title="Väntar på dig">${waitingReports.length === 1 ? 'Veckorapporten' : 'Veckorapporterna'} till ${waitingReports.map((r) => MM.personName(r.recipientUserId)).join(' och ')} publiceras när dina tillfällen är registrerade.<//>`}
               <div class="row">
                 <${ui.Btn} kind="primary" icon="check-square" onClick=${() => go('coach.narvaro', { week: 'last' })}>Registrera närvaro för vecka ${wLast}<//>
-                <${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.rapporter" label="Se vad handläggaren får" />
+                <${Persp} role="kommun_handlaggare" view="kom.rapporter" label="Se vad handläggaren får" />
               </div>
             </div>` : html`<${ui.Notice} tone="ok" title=${`Allt är registrerat för vecka ${wLast}`}>Veckorapporterna till handläggarna publiceras automatiskt.<//>`}
           <//>
@@ -378,21 +395,37 @@
                 <div class="row-between small"><span><b>${maDone} av ${assessments.length}</b> godkända · ${maOpen.length} utkast kvar</span><span class="muted">${monthDueNote()}</span></div>
               </div>
               ${maOpen.length === 0 ? html`<${ui.Notice} tone="ok" title="Alla bedömningar är godkända">Månadsrapporterna kan godkännas och levereras.<//>` : html`
-                <${ui.Table} caption="Månadsbedömningar som återstår" rowKey="key" onRowClick=${(r) => go('coach.manad', { caseId: r.c.id, month: pm })}
-                  rows=${maRows.map((x) => ({ ...x, key: x.c.id }))}
-                  columns=${[
-                    { key: 'n', label: 'Deltagare', render: (r) => html`<div class="strong">${nameOf(r.c)}</div><div class="cell-sub mono">${r.c.number}</div>` },
-                    { key: 'u', label: 'Underlag', render: (r) => { const hasAi = r.ma.aiSummaryDraft || Object.values(r.ma.areas || {}).some((x) => x && x.aiObservationDraft);
-                      return hasAi ? html`<${ui.AiTag}>AI-utkast finns<//>` : html`<span class="small muted">Manuellt</span>`; } },
-                    { key: 's', label: 'Status', render: () => html`<${ui.Badge} tone="outline" icon="edit">Utkast<//>` },
-                    { key: 'a', label: '', render: (r) => html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${(e) => { e.stopPropagation(); go('coach.manad', { caseId: r.c.id, month: pm }); }}>Bedöm<//>` },
-                  ]} />
+                <div class="list" role="list" aria-label="Månadsbedömningar som återstår" style="border:1px solid var(--line);border-radius:var(--radius)">
+                  ${maRows.map((r) => { const hasAi = r.ma.aiSummaryDraft || Object.values(r.ma.areas || {}).some((x) => x && x.aiObservationDraft && !x.aiObservationDraft.noEvidence);
+                    return html`<div class="list-item co-wrap" role="listitem" key=${r.c.id}>
+                      <div class="li-main">
+                        <div class="li-title">${nameOf(r.c)} <span class="mono small muted nowrap">${r.c.number}</span></div>
+                        <div class="row-sm"><${ui.Badge} tone="outline" icon="edit">Utkast<//>${hasAi ? html`<${ui.AiTag}>AI-utkast finns<//>` : html`<span class="small muted">Underlag: manuellt</span>`}</div>
+                      </div>
+                      <div class="li-side"><${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => go('coach.manad', { caseId: r.c.id, month: pm })}>Bedöm<//></div>
+                    </div>`; })}
+                </div>
                 ${maOpen.length > 5 && html`<div><${ui.Btn} kind="ghost" icon=${showAllMa ? 'chevron-up' : 'chevron-down'} onClick=${() => setShowAllMa(!showAllMa)}>${showAllMa ? 'Visa färre' : `Visa alla ${maOpen.length}`}<//></div>`}`}
             </div>
           <//>
         </div>
 
         <div class="stack">
+          <${ui.Card} title="Meddelanden från kommunen" icon="message" flush tone=${unreadMsgs.length > 0 ? 'blue' : undefined}
+            actions=${unreadMsgs.length > 0 ? html`<${ui.Badge} tone="dark" icon="message">${plural(unreadMsgs.length, 'oläst', 'olästa')}<//>` : undefined}>
+            ${unreadMsgs.length === 0 ? html`<${ui.Empty} icon="message" title="Inga olästa meddelanden">När en handläggare skriver till dig i portalen syns det här och under Notiser.<//>` : html`<div class="list">
+              ${unreadMsgs.map((n) => { const c = caseOf(n.caseId); const m = latestCustomerMsg(n.caseId); return html`<div class="list-item" key=${n.id}>
+                <${I} name="message" />
+                <div class="li-main">
+                  <div class="li-title">${nameOf(c)} <span class="mono small muted nowrap">${c.number}</span></div>
+                  <div class="small">Från ${m ? MM.personName(m.senderId) : 'handläggaren'} · ${d.fmtDateTime(n.createdAt)}</div>
+                  ${m && html`<div class="small muted" style="overflow-wrap:break-word">”${m.body.length > 90 ? `${m.body.slice(0, 90)} …` : m.body}”</div>`}
+                  ${canOpen('arende.kort') && html`<div><${ui.Btn} kind="primary" iconRight="arrow-right" onClick=${() => openMessage(n)}>Läs och svara<//></div>`}
+                </div>
+              </div>`; })}
+            </div>`}
+          <//>
+
           <${ui.Card} title="Påminnelser" icon="bell" flush>
             ${reminders.length === 0 ? html`<${ui.Empty} icon="bell" title="Inga påminnelser">Alla dina ärenden har dokumenterad progression.<//>` : html`<div class="list">
               ${reminders.map((w) => { const last = w.weeks[w.weeks.length - 1]; return html`<div class="list-item" key=${w.case.id}>
@@ -413,7 +446,7 @@
 
           <${ui.Card} title="Olästa notiser" icon="bell" actions=${html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => go('notiser', {})}>Öppna notiser<//>`}>
             ${unread.length === 0 ? html`<p class="muted">Du har inga olästa notiser.</p>` : html`<div class="stack-sm">
-              <p><b>${unread.length} olästa.</b> De senaste:</p>
+              <p><b>${plural(unread.length, 'oläst', 'olästa')}.</b> ${unread.length === 1 ? 'Den senaste:' : 'De senaste:'}</p>
               <ul class="stack-sm" style="margin:0;padding-left:20px">${unread.slice(0, 3).map((n) => { const nc = n.caseId ? sel.caseById(n.caseId) : null; return html`<li key=${n.id}><span class="strong">${n.title}</span>${nc && html` <span class="mono small muted nowrap">${nc.number}</span>`}</li>`; })}</ul>
             </div>`}
           <//>
@@ -422,8 +455,8 @@
             ${due.length === 0 ? html`<${ui.Empty} icon="file" title="Inga rapporter förfaller inom 7 dagar" />` : html`<div class="list">
               ${dueMonthly.length > 0 && html`<div class="list-item">
                 <div class="li-main">
-                  <div class="li-title">Månadsrapporter ${d.monthName(pm)}: ${dueMonthly.length} st</div>
-                  <div class="small">${[['draft', 'väntar på din bedömning'], ['reviewed', 'granskade, ska godkännas'], ['approved', 'godkända, ska levereras']].filter(([k]) => (monthlyByStatus[k] || []).length > 0).map(([k, t]) => `${monthlyByStatus[k].length} ${t}`).join(' · ')}</div>
+                  <div class="li-title">Månadsrapporter ${d.monthName(pm)}: ${dueMonthly.length} st</div>
+                  <div class="small">${[['draft', 'Väntar på din bedömning'], ['reviewed', 'Granskade, ska godkännas'], ['approved', 'Godkända, ska levereras']].filter(([k]) => (monthlyByStatus[k] || []).length > 0).map(([k, t]) => `${t}: ${monthlyByStatus[k].length}`).join(' · ')}</div>
                   <div class="row-sm"><${ui.SlaBadge} dueAt=${dueMonthly[0].dueAt} /><${ui.Badge} tone="plan">Förslag – ej fastställt<//></div>
                 </div>
                 <div class="li-side">${canOpen('rapporter.lista') && html`<${ui.Btn} kind="ghost" onClick=${() => go('rapporter.lista', {})}>Visa<//>`}</div>
@@ -558,7 +591,7 @@
         <div class="co-counter">
           <span class="big" aria-hidden="true">${open.length}</span>
           <div class="stack-sm" style="gap:4px;flex:1 1 240px">
-            <div class="strong" style="font-size:1.125rem">${open.length === 0 ? `Alla passerade tillfällen vecka ${wk.week} är registrerade` : `${open.length} tillfällen kvar – senast ${regDueText()}`}</div>
+            <div class="strong" style="font-size:1.125rem">${open.length === 0 ? `Alla passerade tillfällen vecka ${wk.week} är registrerade` : `${plural(open.length, 'tillfälle', 'tillfällen')} kvar – senast ${regDueText()}`}</div>
             <div class="small muted">${passed.length - open.length} av ${passed.length} passerade tillfällen registrerade${all.length > passed.length ? ` · ${all.length - passed.length} planerade senare i veckan` : ''}. Registrera senast ${d.fmtDateTimeLong(due)}.</div>
           </div>
           ${open.length > 0 ? html`<${ui.SlaBadge} dueAt=${due} />` : html`<${ui.Badge} tone="blue" icon="check">Klart<//>`}
@@ -583,7 +616,7 @@
       <//>
 
       <div class="split">
-        <${ui.Card} title=${`Veckorapporter – vecka ${wk.week}`} icon="file" foot=${role === 'coach' ? html`<${ui.PerspectiveSwitch} role=${customerRole} view="kom.rapporter" label="Se veckorapporten från kundens håll" />` : undefined}>
+        <${ui.Card} title=${`Veckorapporter – vecka ${wk.week}`} icon="file" foot=${role === 'coach' ? html`<${Persp} role=${customerRole} view="kom.rapporter" label="Se veckorapporten från kundens håll" />` : undefined}>
           ${week === 'this' ? html`<p>Veckorapporten för vecka ${wk.week} skapas ${d.fmtWeekday(d.addDays(thisMon, 7))} och publiceras när allt är registrerat, senast ${pubTimeText()}.</p>`
             : reports.length === 0 ? html`<p class="muted">Inga veckorapporter berörs.</p>` : html`<div class="stack-sm">
               ${reports.map((x) => html`<div class="row-between" key=${x.rid} style="padding:8px 0;border-bottom:1px solid var(--line)">
@@ -617,7 +650,8 @@
   const AI_FIELDS = ['goalStatus', 'nextGoal', 'phase', 'activitiesDone', 'employerContacts', 'obstacles', 'note'];
   const FIELD_ID = { goalStatus: 'ci-goal', nextGoal: 'ci-nextgoal', phase: 'ci-phase', activitiesDone: 'ci-acts', employerContacts: 'ci-ec', obstacles: 'ci-obst', note: 'ci-note' };
   const FIELD_LABEL = { goalStatus: 'Veckomål uppnått', nextGoal: 'Nytt veckomål', phase: 'Fas', activitiesDone: 'Genomförda aktiviteter', employerContacts: 'Arbetsgivarkontakter', obstacles: 'Hinder', note: 'Anteckning' };
-  const DEC_LABEL = { accepted: 'Accepterat', changed: 'Ändrat', rejected: 'Avvisat', pending: 'Ej granskat' };
+  /** Loggat utfall per AI-förslag: accepted (värdet oförändrat), edited (coachen ändrade värdet), rejected (avvisat). */
+  const OUTCOME_LABEL = { accepted: 'Accepterat', edited: 'Ändrat', rejected: 'Avvisat' };
   const SOURCE = {
     recording: { label: 'Inspelning i rummet', icon: 'mic', method: 'ai_recording', audio: true },
     upload: { label: 'Uppladdad ljudfil', icon: 'upload', method: 'ai_upload', audio: true },
@@ -652,11 +686,65 @@
       obstacles: { value: obst, quote: obst.length ? OBST_QUOTE[obst[0]] || 'Det har varit lite svårt den här veckan.' : 'Det har inte varit några problem den här veckan.', t: 1034 },
       note: { value: `Har arbetat med ${lc(acts[0])}. Veckomålet nåddes delvis. Nästa steg: ${lc(goal)}.`, quote: 'Sammanfattning av samtalet 01:36–24:45', t: 96 },
     };
-    if (source === 'notes') {
-      const sentences = String(text || '').split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x.length > 3);
-      AI_FIELDS.forEach((f, i) => { s[f] = { ...s[f], quote: sentences.length ? sentences[i % sentences.length] : 'Framgår inte', t: null }; });
-      s.note = { value: sentences.slice(0, 2).join(' ') || s.note.value, quote: 'Sammanfattning av de inklistrade anteckningarna', t: null };
-    }
+    if (source === 'notes') return parseNotes(text);
+    return s;
+  };
+
+  /** Simulerad tolkning av inklistrade anteckningar: bara det som står i texten blir ett förslag, med meningen som belägg.
+   *  Det som inte framgår ger "Framgår inte" utan förslag (SPEC §8.3). Samlad status föreslås aldrig. */
+  const NO_EVIDENCE = (why = 'Framgår inte av anteckningarna. Fyll i själv.') => ({ value: null, quote: why, t: null, noEvidence: true });
+  const ACT_KEYWORDS = [
+    ['Kartläggning och individuell planering', /kartlägg|individuell plan/i],
+    ['Yrkesförberedande träning', /yrkesförbered|arbetsträn|grundträn/i],
+    ['Yrkesspecifika moment', /yrkesspecifik|yrkesmoment|truck|lastsäkr|plockade|ruttplan/i],
+    ['Studiebesök och arbetsplatsbesök', /studiebesök|arbetsplatsbesök/i],
+    ['Praktik/APL', /\b(på|i) praktik\b|praktiken|praktikdag|\bapl\b/i],
+    ['CV och ansökningar', /\bcv\b|cv:t|ansök|sökte (jobb|tjänst)/i],
+    ['Intervjuträning', /intervjuträn|övade (på )?intervju/i],
+    ['Matchning mot arbetsgivare', /matchning/i],
+    ['Vägledning om studier och validering', /vägledning|validering/i],
+  ];
+  const OBST_KEYWORDS = [
+    ['Språk', /språk|svenskan|förstå orden|förstår inte orden/i],
+    ['Digital vana', /dator|digital|bankid|platsbanken/i],
+    ['Praktiska förutsättningar (t.ex. barnomsorg, resor)', /barnomsorg|förskola|lämna barnen|buss|pendel|resväg|resor\b/i],
+    ['Behov av anpassning', /anpassning|på papper|bildstöd/i],
+    ['Motivation', /motivation|orkade inte|ville inte komma|omotiverad/i],
+  ];
+  const EC_KEYWORDS = [['intervju', /intervju(?!trän)/i], ['ansökan', /ansök|sökte (jobb|tjänst)/i], ['studiebesök', /studiebesök|arbetsplatsbesök/i], ['praktikkontakt', /praktikplats|praktikkontakt/i]];
+  const parseNotes = (text) => {
+    const sentences = String(text || '').split(/(?<=[.!?])\s+|\n+/).map((x) => x.trim()).filter((x) => x.length > 3);
+    const find = (re) => sentences.find((x) => re.test(x));
+    const ev = (value, quote) => ({ value, quote, t: null });
+    const s = {};
+    const absentAll = find(/sjuk (i )?hela veckan|frånvarande hela veckan|deltog inte i något|deltog inte alls|var inte här (alls|på hela veckan)/i);
+    // Veckomål
+    const gNo = absentAll || find(/(nådde|klarade|uppnådde) inte (vecko)?målet|(vecko)?målet (nåddes|uppnåddes) inte|inte (nått|klarat) (vecko)?målet/i);
+    const gPartly = find(/delvis|nästan hela (vecko)?målet|en del av (vecko)?målet/i);
+    const gYes = find(/(nådde|klarade|uppnådde) (vecko)?målet|(vecko)?målet (är |var )?(nått|uppnått|klart)|(vecko)?målet (nåddes|uppnåddes)(?! inte)/i);
+    s.goalStatus = gNo ? ev('no', gNo) : gPartly ? ev('partly', gPartly) : gYes ? ev('yes', gYes) : NO_EVIDENCE();
+    // Nytt veckomål
+    const ng = find(/nästa vecka|nytt (vecko)?mål|veckomål(et)? (för|till) nästa/i);
+    s.nextGoal = ng ? ev(cap(ng.replace(/^(nytt (vecko)?mål|veckomål|mål)\s*:\s*/i, '').replace(/[.!]$/, '')).slice(0, 140), ng) : NO_EVIDENCE();
+    // Fas
+    const ph = find(/\bfas\s*[1-5]\b/i);
+    s.phase = ph ? ev(Number(ph.match(/\bfas\s*([1-5])\b/i)[1]), ph) : NO_EVIDENCE('Framgår inte av anteckningarna. Fasen ändras inte.');
+    // Genomförda aktiviteter
+    const acts = ACT_KEYWORDS.filter(([, re]) => sentences.some((x) => re.test(x))).map(([a]) => a);
+    s.activitiesDone = acts.length ? ev(acts, find(ACT_KEYWORDS.find(([a]) => a === acts[0])[1])) : absentAll ? ev([], absentAll) : NO_EVIDENCE();
+    // Arbetsgivarkontakter
+    const ecZero = find(/ingen arbetsgivarkontakt|inga arbetsgivarkontakter|ingen kontakt med (någon )?arbetsgivare|inte haft kontakt med (någon )?arbetsgivare/i);
+    const ecTypes = EC_KEYWORDS.filter(([, re]) => sentences.some((x) => re.test(x))).map(([t]) => t);
+    const ecQuote = ecTypes.length ? find(EC_KEYWORDS.find(([t]) => t === ecTypes[0])[1]) : null;
+    s.employerContacts = ecZero ? ev({ count: '0', types: [] }, ecZero)
+      : ecTypes.length ? ev({ count: ecTypes.length > 1 || /\b(två|tre|fyra|fem|[2-9])\b/i.test(ecQuote) ? '2+' : '1', types: ecTypes }, ecQuote)
+        : absentAll ? ev({ count: '0', types: [] }, absentAll) : NO_EVIDENCE();
+    // Hinder
+    const obst = OBST_KEYWORDS.filter(([, re]) => sentences.some((x) => re.test(x))).map(([o]) => o);
+    const noObst = find(/inga hinder|inget hindrar|inga problem/i);
+    s.obstacles = obst.length ? ev(obst, find(OBST_KEYWORDS.find(([o]) => o === obst[0])[1])) : noObst ? ev([], noObst) : NO_EVIDENCE();
+    // Anteckning: kort sammanfattning av de två första meningarna
+    s.note = sentences.length ? ev(sentences.slice(0, 2).join(' ').slice(0, 500), 'Sammanfattning av de inklistrade anteckningarna') : NO_EVIDENCE();
     return s;
   };
   const suggestionText = (field, v) => {
@@ -668,16 +756,31 @@
     return String(v);
   };
 
-  const AiSuggestion = ({ field, s, decision, onDecide }) => {
+  /** Ett AI-förslag med belägg. decision = coachens klick (accepted | edit | rejected), outcome = det som loggas. */
+  const AiSuggestion = ({ field, s, decision, outcome, onDecide }) => {
     if (!s) return null;
-    const dec = decision || 'pending';
-    return html`<div class="ai-box" role="group" aria-label=${`AI-förslag för ${FIELD_LABEL[field].toLowerCase()}`}>
-      <div class="row-sm"><${ui.AiTag} />${dec !== 'pending' ? html`<${ui.Badge} tone=${dec === 'rejected' ? 'outline' : 'bluetone'} icon=${dec === 'rejected' ? 'x' : dec === 'changed' ? 'edit' : 'check'}>${DEC_LABEL[dec]}<//>` : html`<span class="small muted">Ta ställning till förslaget</span>`}</div>
+    const label = `AI-förslag för ${FIELD_LABEL[field].toLowerCase()}`;
+    if (s.noEvidence) {
+      return html`<div class="ai-box is-empty" role="group" aria-label=${label}>
+        <div class="row-sm"><${ui.AiTag} /><span class="small muted">Inget förslag</span></div>
+        <div class="strong">Framgår inte</div>
+        <div class="small muted">${s.quote || 'Framgår inte av underlaget. Fyll i själv.'}</div>
+      </div>`;
+    }
+    const dec = decision || null;
+    const badge = !dec ? html`<span class="small muted">Ta ställning till förslaget</span>`
+      : outcome === 'rejected' ? html`<${ui.Badge} tone="outline" icon="x">Avvisat<//>`
+        : outcome === 'edited' ? html`<${ui.Badge} tone="bluetone" icon="edit">Ändrat – loggas som ändrat<//>`
+          : dec === 'edit' ? html`<${ui.Badge} tone="outline" icon="edit">Oförändrat – loggas som accepterat<//>`
+            : html`<${ui.Badge} tone="bluetone" icon="check">Accepterat<//>`;
+    return html`<div class="ai-box" role="group" aria-label=${label}>
+      <div class="co-dec"><${ui.AiTag} />${badge}</div>
       <div class="strong">${suggestionText(field, s.value)}</div>
       <${ui.Evidence} quote=${s.quote} t=${s.t} />
+      ${dec === 'edit' && outcome !== 'edited' && html`<div class="small">Ändra värdet i fältet. Behåller du förslaget loggas beslutet som accepterat.</div>`}
       <div class="row-sm">
         <${ui.Btn} kind=${dec === 'accepted' ? 'primary' : 'secondary'} icon="check" ariaPressed=${dec === 'accepted' ? 'true' : 'false'} onClick=${() => onDecide(field, 'accepted')}>Acceptera<//>
-        <${ui.Btn} kind=${dec === 'changed' ? 'primary' : 'secondary'} icon="edit" ariaPressed=${dec === 'changed' ? 'true' : 'false'} onClick=${() => onDecide(field, 'changed')}>Ändra<//>
+        <${ui.Btn} kind=${dec === 'edit' ? 'primary' : 'secondary'} icon="edit" ariaPressed=${dec === 'edit' ? 'true' : 'false'} onClick=${() => onDecide(field, 'edit')}>Ändra<//>
         <${ui.Btn} kind=${dec === 'rejected' ? 'primary' : 'ghost'} icon="x" ariaPressed=${dec === 'rejected' ? 'true' : 'false'} onClick=${() => onDecide(field, 'rejected')}>Avvisa<//>
       </div>
     </div>`;
@@ -757,8 +860,12 @@
     const person = sel.person(c) || {};
     const [consentLang, setConsentLang] = useState(['arabiska', 'somaliska', 'tigrinja', 'engelska', 'turkiska'].includes(person.language) ? person.language : 'lättläst svenska');
     const repeated = sel.repeatedAbsence(c.id);
-    const [dev, setDev] = useState(() => ({ description: repeated ? `Upprepad ogiltig frånvaro (${repeated.length} tillfällen inom ${MM.cfg().attendance.repeatedAbsenceRule.withinDays} dagar)` : '',
-      action: repeated ? 'Samtal om hinder, ny veckoplan och uppföljningsmöte med handläggaren.' : '', ownerId: pid, followUpOn: d.addDays(today, 7), needsCustomerDecision: repeated ? 'yes' : 'no' }));
+    // Avvikelsen fylls aldrig i automatiskt: kravet ska synas som ett stopp. Förslaget från flaggan kan coachen själv välja att använda.
+    const devSuggestion = repeated ? { description: `Upprepad ogiltig frånvaro (${repeated.length} tillfällen inom ${MM.cfg().attendance.repeatedAbsenceRule.withinDays} dagar)`,
+      action: 'Samtal om hinder, ny veckoplan och uppföljningsmöte med handläggaren.' } : null;
+    const [dev, setDevRaw] = useState(() => ({ description: '', action: '', ownerId: '', followUpOn: '', needsCustomerDecision: null }));
+    const DEV_ERR = { description: 'devDescription', action: 'devAction', ownerId: 'devOwner', followUpOn: 'devFollow', needsCustomerDecision: 'devCust' };
+    const setDev = (next) => { setDevRaw(next); setErrors((e) => { const n = { ...e }; for (const [k, ek] of Object.entries(DEV_ERR)) if (n[ek] && next[k]) delete n[ek]; return n; }); };
     const [errors, setErrors] = useState({});
     const [ciId, setCiId] = useState(ci0 ? ci0.id : null);
     const [done, setDone] = useState(null);
@@ -787,9 +894,11 @@
         if (field === 'employerContacts') setForm((f) => ({ ...f, ecCount: v ? v.count : null, ecTypes: v ? v.types || [] : [] }));
         else setForm((f) => ({ ...f, [field]: Array.isArray(v) ? v.slice() : v }));
       };
+      if (s.noEvidence) return;
       if (dec === 'rejected') apply(field === 'employerContacts' ? null : blank[field]);
       else apply(s.value);
-      if (dec === 'changed') setTimeout(() => { const el = document.getElementById(FIELD_ID[field]); if (!el) return; const f = el.matches('input,textarea,select') ? el : el.querySelector('input,textarea,button'); if (f) f.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* */ } }, 40);
+      if (errors.ai) setErrors((e) => { const n = { ...e }; delete n.ai; return n; });
+      if (dec === 'edit') setTimeout(() => { const el = document.getElementById(FIELD_ID[field]); if (!el) return; const f = el.matches('input,textarea,select') ? el : el.querySelector('input,textarea,button'); if (f) f.focus(); try { el.scrollIntoView({ block: 'center' }); } catch (e) { /* */ } }, 40);
     };
     const runSteps = (steps, then) => {
       let i = 0; setProc({ steps, i: 0 });
@@ -798,12 +907,15 @@
     };
     const finishAi = (src) => {
       const audio = SOURCE[src].audio; const secs = audio ? Math.max(60, form.durationMin * 60) : 0;
+      if (!sel.aiAllowed(c)) { MM.toast('AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.', 'red'); setMethod('manual'); return; }
       const res = MM.dispatch('ai.run', { caseId: c.id, kind: src === 'notes' ? 'extract_notes' : src === 'teams' ? 'extract_teams' : 'transcribe_extract', audioSeconds: secs, costOre: audio ? 80 : 4 }) || {};
+      if (res.error) { MM.toast(res.error === 'not_allowed' ? 'AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.' : 'AI-tolkningen gick inte att göra. Dokumentera manuellt.', 'red'); setMethod('manual'); return; }
       const s = makeSuggestions(c, src, notesText);
       const transcript = src === 'notes' ? [] : AI_FIELDS.map((f) => s[f]).filter((x) => x.t != null).sort(MM.by('t')).map((x) => ({ t: x.t, who: 'Deltagare', text: x.quote }));
       setSugg(s); setDecisions({});
       setAiMeta({ runId: res.runId || null, audioDeletedAt: audio ? d.now() : null, deleteBy: d.addDays(d.now(), 30), transcript, source: src });
-      MM.toast(audio ? 'Förslagen är klara. Ljudet raderades direkt efter transkriberingen.' : 'Förslagen är klara. Granska varje förslag.', 'blue');
+      const missing = AI_FIELDS.filter((f) => s[f] && s[f].noEvidence).length;
+      MM.toast(`${audio ? 'Förslagen är klara. Ljudet raderades direkt efter transkriberingen.' : 'Förslagen är klara. Granska varje förslag.'}${missing ? ` ${plural(missing, 'fält framgår', 'fält framgår')} inte av underlaget – fyll i dem själv.` : ''}`, 'blue');
     };
     const startProcessing = (src) => {
       const steps = src === 'recording' ? ['Laddar upp inspelningen …', 'Transkriberar …', 'Tolkar till formuläret …', 'Raderar ljudet …']
@@ -811,25 +923,31 @@
           : src === 'teams' ? ['Hämtar transkriptet från Teams …', 'Tolkar till formuläret …'] : ['Tolkar anteckningarna …'];
       runSteps(steps, () => finishAi(src));
     };
-    const pendingAi = sugg ? AI_FIELDS.filter((f) => sugg[f] && !decisions[f]) : [];
+    const aiActive = method === 'ai' && !!sugg;
+    const pendingAi = aiActive ? AI_FIELDS.filter((f) => sugg[f] && !sugg[f].noEvidence && !decisions[f]) : [];
+    /** Jämför fältets nuvarande värde med förslaget (ordning i listor spelar ingen roll). */
+    const norm = (v) => (Array.isArray(v) ? [...v].sort() : v && typeof v === 'object' ? { count: v.count == null ? null : String(v.count), types: v.count && v.count !== '0' ? [...(v.types || [])].sort() : [] } : typeof v === 'string' ? v.trim() : v);
+    const currentValue = (f) => (f === 'employerContacts' ? { count: form.ecCount, types: form.ecTypes } : f === 'phase' ? Number(form.phase) : form[f]);
+    const suggestedValue = (f) => (f === 'phase' ? Number(sugg[f].value) : sugg[f].value);
+    /** Det som loggas: avvisat, eller accepterat/ändrat utifrån om värdet faktiskt ändrats. */
+    const outcomeOf = (f) => { const dec = decisions[f]; if (!dec || !sugg || !sugg[f] || sugg[f].noEvidence) return null; if (dec === 'rejected') return 'rejected';
+      return JSON.stringify(norm(currentValue(f))) === JSON.stringify(norm(suggestedValue(f))) ? 'accepted' : 'edited'; };
 
     // ---- Spara
     const buildData = () => {
       const data = {
         heldAt: `${form.date}T${form.time || '09:00'}`, durationMin: Number(form.durationMin), mode: form.mode,
-        inputMethod: method === 'manual' ? 'manual' : SOURCE[source].method, goalStatus: form.goalStatus, nextGoal: form.nextGoal.trim(), phase: Number(form.phase),
+        inputMethod: aiActive ? SOURCE[source].method : 'manual', goalStatus: form.goalStatus, nextGoal: form.nextGoal.trim(), phase: Number(form.phase),
         activitiesDone: form.activitiesDone, employerContacts: { count: form.ecCount, types: form.ecCount && form.ecCount !== '0' ? form.ecTypes : [] },
         overallStatus: form.overallStatus, obstacles: form.obstacles, note: form.note.trim(), attendanceComment: form.attendanceComment.trim(),
         docMinutes: Math.max(1, Math.round((Date.now() - startRef.current) / 60000)),
       };
-      if (sugg && aiMeta && !aiMeta.fromSeed) Object.assign(data, { aiRunId: aiMeta.runId, ai: { ...sugg, transcript: aiMeta.transcript, audioDeletedAt: aiMeta.audioDeletedAt, rawTranscriptDeleteBy: aiMeta.deleteBy } });
+      if (aiActive && aiMeta && !aiMeta.fromSeed) Object.assign(data, { aiRunId: aiMeta.runId, ai: { ...sugg, transcript: aiMeta.transcript, audioDeletedAt: aiMeta.audioDeletedAt, rawTranscriptDeleteBy: aiMeta.deleteBy } });
       return data;
     };
-    const aiDecisionList = () => (sugg ? AI_FIELDS.filter((f) => sugg[f] && decisions[f]).map((f) => {
-      const final = buildData()[f === 'employerContacts' ? 'employerContacts' : f];
-      const same = JSON.stringify(final) === JSON.stringify(f === 'employerContacts' ? { count: sugg[f].value.count, types: sugg[f].value.count !== '0' ? sugg[f].value.types : [] } : sugg[f].value);
-      const decision = decisions[f] === 'rejected' ? 'rejected' : same ? 'accepted' : 'changed';
-      return { field: f, decision, suggested: sugg[f].value, final: decision === 'rejected' ? null : final };
+    const aiDecisionList = () => (aiActive ? AI_FIELDS.filter((f) => outcomeOf(f)).map((f) => {
+      const decision = outcomeOf(f); const final = buildData()[f];
+      return { field: f, decision, clicked: decisions[f] === 'edit' ? 'edit' : decisions[f], changed: decision === 'edited', suggested: sugg[f].value, final: decision === 'rejected' ? null : final };
     }) : []);
     const validate = (approve) => {
       const e = {};
@@ -845,18 +963,29 @@
         if (!dev.action.trim()) e.devAction = 'Skriv vilken åtgärd som ska göras.';
         if (!dev.ownerId) e.devOwner = 'Välj ansvarig.';
         if (!dev.followUpOn) e.devFollow = 'Välj datum för uppföljning.';
+        if (!dev.needsCustomerDecision) e.devCust = 'Välj om kommunen behöver fatta beslut.';
       }
       return e;
     };
+    const DEV_MISSING = { devDescription: 'beskrivning', devAction: 'åtgärd', devOwner: 'ansvarig', devFollow: 'uppföljningsdatum', devCust: 'om kommunen behöver fatta beslut' };
+    const devMissing = Object.keys(DEV_MISSING).filter((k) => errors[k]).map((k) => DEV_MISSING[k]);
     const save = (approve) => {
       const e = validate(approve); setErrors(e);
-      if (Object.keys(e).length) { MM.toast(approve ? 'Avstämningen kan inte godkännas ännu. Se markerade fält.' : 'Fyll i avvikelsen innan du sparar.', 'red'); return; }
+      if (Object.keys(e).length) {
+        const devStop = Object.keys(DEV_MISSING).some((k) => e[k]);
+        MM.toast(devStop ? 'Röd status kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum.' : approve ? 'Avstämningen kan inte godkännas ännu. Se markerade fält.' : 'Fyll i avvikelsen innan du sparar.', 'red');
+        if (devStop) setTimeout(() => { const el = document.getElementById('dev-card'); if (el) { try { el.scrollIntoView({ block: 'start' }); } catch (err) { /* */ } } const first = ['dev-desc', 'dev-action', 'dev-owner', 'dev-follow'].map((id) => document.getElementById(id)).find((x) => x && !x.value); if (first) first.focus(); }, 40);
+        return;
+      }
+      if (aiActive && !sel.aiAllowed(c)) { MM.toast('AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.', 'red'); return; }
       const payload = { caseId: c.id, checkInId: ciId || undefined, data: buildData(), approve };
       if (form.overallStatus === 'red') payload.deviation = { description: dev.description.trim(), action: dev.action.trim(), ownerId: dev.ownerId, followUpOn: dev.followUpOn, needsCustomerDecision: dev.needsCustomerDecision === 'yes' };
-      if (approve && sugg) payload.aiDecisions = aiDecisionList();
+      if (approve && aiActive) payload.aiDecisions = aiDecisionList();
       const res = MM.dispatch('checkin.save', payload);
       if (!res) return;
       if (res.error === 'deviation_required') { setErrors({ devDescription: 'Röd status kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum.' }); MM.toast('Röd status kräver en avvikelse.', 'red'); return; }
+      if (res.error === 'ai_not_allowed') { MM.toast('AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.', 'red'); return; }
+      if (res.error) { MM.toast('Avstämningen kunde inte sparas.', 'red'); return; }
       setCiId(res.checkInId);
       if (!approve) { MM.toast('Utkastet är sparat. Du kan fortsätta senare.', 'blue'); return; }
       const ci = S().checkIns.find((x) => x.id === res.checkInId);
@@ -868,7 +997,7 @@
     if (done) return html`<${CheckInDone} c=${c} done=${done} start=${startRef.current} />`;
 
     const ecOn = form.ecCount && form.ecCount !== '0';
-    const aiBox = (f) => (method === 'ai' && sugg ? html`<${AiSuggestion} field=${f} s=${sugg[f]} decision=${decisions[f]} onDecide=${decide} />` : null);
+    const aiBox = (f) => (method === 'ai' && sugg ? html`<${AiSuggestion} field=${f} s=${sugg[f]} decision=${decisions[f]} outcome=${outcomeOf(f)} onDecide=${decide} />` : null);
     /** AI-förslaget till vänster och coachens fält till höger (på bred skärm), annars under varandra. */
     const pair = (f, control) => (method === 'ai' && sugg && sugg[f] ? html`<div class="co-pair">${aiBox(f)}<div class="stack-sm">${control}</div></div>` : control);
     const goalSuggestions = (SC.GOALS[Number(form.phase)] || []).filter((x) => x !== form.nextGoal);
@@ -906,7 +1035,7 @@
       <//>
 
       <${ui.Card} title="Avstämningen" icon="clipboard">
-        ${sugg && method === 'ai' && html`<div style="margin-bottom:16px"><${ui.Notice} tone="info" title="AI-förslag – du bedömer">Varje förslag visas med citat och tidpunkt. Acceptera, ändra eller avvisa. <b>Samlad status föreslås aldrig</b> – den väljer du själv.<//></div>`}
+        ${sugg && method === 'ai' && html`<div style="margin-bottom:16px"><${ui.Notice} tone="info" title="AI-förslag – du bedömer">Varje förslag visas med belägg${source === 'notes' ? ' (meningen i dina anteckningar)' : ' (citat och tidpunkt)'}. Acceptera, ändra eller avvisa. Det som inte framgår av underlaget visas som <b>Framgår inte</b> och fyller du i själv. <b>Samlad status föreslås aldrig</b> – den väljer du själv.<//></div>`}
         <div>
           <${Section} n="1" title="Datum, längd och sätt" ok=${!!form.date} extra=${html`<span class="small muted" style="font-weight:500">Förifyllt från kalendern</span>`}>
             <div class="form-grid">
@@ -968,17 +1097,25 @@
             <${ui.Field} label="Samlad status" id="ci-status" required error=${errors.overallStatus} help="Grön = enligt plan. Gul = risk eller extra åtgärd. Röd = kräver omplanering eller dialog med kommunen.">
               <${ui.Seg} id="ci-status" ariaLabel="Samlad status" value=${form.overallStatus} onChange=${(v) => set('overallStatus', v)} options=${STATUS_OPTIONS} />
             <//>
-            ${form.overallStatus === 'red' && html`<${ui.Card} tone="red" title="Avvikelse – krävs vid röd status" icon="alert">
+            ${form.overallStatus === 'red' && html`<${ui.Card} id="dev-card" tone="red" title="Avvikelse – krävs vid röd status" icon="alert">
               <div class="stack">
-                <p>Avvikelse = åtgärd. Beskriv vad som hänt, vad som ska göras, vem som ansvarar och när ni följer upp.</p>
+                <p>Avvikelse = åtgärd. Röd status kan inte godkännas utan en avvikelse: beskriv vad som hänt, vad som ska göras, vem som ansvarar och när ni följer upp.</p>
+                ${devSuggestion && html`<div class="ai-box is-empty">
+                  <div class="row-sm"><${ui.Badge} tone="grey" icon="flag">Flagga: upprepad ogiltig frånvaro<//></div>
+                  <div class="small">Förslag utifrån flaggan: ”${devSuggestion.description}” – ${lc(devSuggestion.action)}</div>
+                  <div><${ui.Btn} kind="secondary" icon="copy" onClick=${() => setDev({ ...dev, description: dev.description.trim() ? dev.description : devSuggestion.description, action: dev.action.trim() ? dev.action : devSuggestion.action })}>Använd förslaget från flaggan<//></div>
+                </div>`}
                 <${ui.Field} label="Beskrivning" id="dev-desc" required error=${errors.devDescription} help="Sakligt och funktionellt. Inga diagnoser."><${ui.TextArea} id="dev-desc" rows=${2} value=${dev.description} onInput=${(v) => setDev({ ...dev, description: v })} maxLength=${300} /><//>
                 <${ui.Field} label="Åtgärd" id="dev-action" required error=${errors.devAction} help="Vad görs för att planen ska hålla?"><${ui.TextArea} id="dev-action" rows=${2} value=${dev.action} onInput=${(v) => setDev({ ...dev, action: v })} maxLength=${300} /><//>
                 <div class="form-grid">
-                  <${ui.Field} label="Ansvarig" id="dev-owner" required error=${errors.devOwner} help="Den som ser till att åtgärden blir gjord."><${ui.Select} id="dev-owner" value=${dev.ownerId} onChange=${(v) => setDev({ ...dev, ownerId: v })} options=${owners} /><//>
-                  <${ui.Field} label="Uppföljningsdatum" id="dev-follow" required error=${errors.devFollow} help="Förslag: om en vecka."><${ui.Input} id="dev-follow" type="date" value=${dev.followUpOn} onInput=${(v) => setDev({ ...dev, followUpOn: v })} /><//>
+                  <${ui.Field} label="Ansvarig" id="dev-owner" required error=${errors.devOwner} help="Den som ser till att åtgärden blir gjord."><${ui.Select} id="dev-owner" value=${dev.ownerId} placeholder="Välj ansvarig" invalid=${!!errors.devOwner} onChange=${(v) => setDev({ ...dev, ownerId: v })} options=${owners} /><//>
+                  <${ui.Field} label="Uppföljningsdatum" id="dev-follow" required error=${errors.devFollow} help="Förslag: om en vecka.">
+                    <${ui.Input} id="dev-follow" type="date" value=${dev.followUpOn} onInput=${(v) => setDev({ ...dev, followUpOn: v })} />
+                    ${dev.followUpOn !== d.addDays(today, 7) && html`<div class="co-chips"><button type="button" class="co-chip" onClick=${() => setDev({ ...dev, followUpOn: d.addDays(today, 7) })}>Om en vecka: ${d.fmtWeekday(d.addDays(today, 7))}</button></div>`}
+                  <//>
                 </div>
-                <${ui.Field} label="Behöver beslut från kommunen" id="dev-cust" help="Till exempel om planen, omfattningen eller ett avbrott."><${ui.Seg} id="dev-cust" ariaLabel="Behöver beslut från kommunen" value=${dev.needsCustomerDecision} onChange=${(v) => setDev({ ...dev, needsCustomerDecision: v })} options=${[{ value: 'yes', label: 'Ja' }, { value: 'no', label: 'Nej' }]} /><//>
-                <p class="small muted">När avstämningen är sparad kan du kalla kommunen till ett uppföljningsmöte.</p>
+                <${ui.Field} label="Behöver beslut från kommunen" id="dev-cust" required error=${errors.devCust} help="Till exempel om planen, omfattningen eller ett avbrott. Vid Ja får handläggaren en uppgift i portalen."><${ui.Seg} id="dev-cust" ariaLabel="Behöver beslut från kommunen" value=${dev.needsCustomerDecision} onChange=${(v) => setDev({ ...dev, needsCustomerDecision: v })} options=${[{ value: 'yes', label: 'Ja' }, { value: 'no', label: 'Nej' }]} /><//>
+                <p class="small muted">När avstämningen är godkänd kan du kalla kommunen till ett uppföljningsmöte.</p>
               </div>
             <//>`}
           <//>
@@ -999,6 +1136,8 @@
       <//>
 
       ${errors.ai && html`<${ui.Notice} tone="critical" title="AI-förslag väntar på ditt beslut">${errors.ai}<//>`}
+      ${devMissing.length > 0 && html`<${ui.Notice} tone="critical" title="Stopp: röd status kräver en avvikelse">Avstämningen godkänns inte förrän avvikelsen är ifylld. Det saknas: ${devMissing.join(', ')}.
+        <div style="margin-top:8px"><${ui.Btn} kind="secondary" icon="chevron-up" onClick=${() => { const el = document.getElementById('dev-card'); if (el) { try { el.scrollIntoView({ block: 'start' }); } catch (err) { /* */ } } }}>Gå till avvikelsen<//></div><//>`}
       <div class="row-between">
         <div class="row">
           <${ui.Btn} kind="primary" size="lg" icon="check" onClick=${() => save(true)}>Godkänn avstämningen<//>
@@ -1121,8 +1260,21 @@
       <div class="grid-3">
         <${ui.Kpi} label="Dokumentationstid" value=${`${m} min ${String(s).padStart(2, '0')} s`} sub=${m < 5 ? 'Under målet 5 min' : 'Över målet 5 min'} tone=${m < 5 ? undefined : 'watch'} />
         <${ui.Kpi} label="Samlad status" value=${html`<${ui.Status} value=${ci.overallStatus} short />`} sub=${ci.phase ? sel.phaseLabel(ci.phase) : ''} />
-        <${ui.Kpi} label="AI-förslag" value=${done.decisions.length ? `${count('accepted')} / ${count('changed')} / ${count('rejected')}` : '–'} sub=${done.decisions.length ? 'accepterade / ändrade / avvisade' : 'Manuell dokumentation'} />
+        <${ui.Kpi} label="AI-förslag" value=${done.decisions.length ? `${count('accepted')} / ${count('edited')} / ${count('rejected')}` : '–'} sub=${done.decisions.length ? 'accepterade / ändrade / avvisade' : 'Manuell dokumentation'} />
       </div>
+      ${done.decisions.length > 0 && html`<${ui.Card} title="Loggade AI-beslut" icon="check-square" flush>
+        <div class="list">
+          ${done.decisions.map((x) => html`<div class="list-item co-wrap" key=${x.field}>
+            <div class="li-main">
+              <div class="li-title">${FIELD_LABEL[x.field]}</div>
+              <div class="small muted">Förslag: ${suggestionText(x.field, x.suggested)}${x.decision === 'edited' ? ` · Sparat: ${suggestionText(x.field, x.final)}` : ''}</div>
+              ${x.clicked === 'edit' && x.decision === 'accepted' && html`<div class="small">Du valde Ändra men behöll förslaget. Därför loggas beslutet som accepterat.</div>`}
+            </div>
+            <div class="li-side"><${ui.Badge} tone=${x.decision === 'rejected' ? 'outline' : 'bluetone'} icon=${x.decision === 'rejected' ? 'x' : x.decision === 'edited' ? 'edit' : 'check'}>${OUTCOME_LABEL[x.decision]}<//></div>
+          </div>`)}
+        </div>
+        <div class="card-foot small muted">Varje beslut sparas med vem som beslutade och när. Förslag som inte framgick av underlaget räknas inte.</div>
+      <//>`}
       ${ci.ai && html`<${ui.Card} title="Dataminimering" icon="shield">
         <${ui.Timeline} items=${[
           ci.ai.audioDeletedAt ? { icon: 'trash', filled: true, title: 'Ljudet raderades direkt efter transkriberingen', sub: d.fmtDateTimeLong(ci.ai.audioDeletedAt) } : { icon: 'info', title: 'Inget ljud användes' },
@@ -1133,6 +1285,7 @@
       ${dv && html`<${ui.Card} tone="red" title="Avvikelse skapad" icon="alert">
         <div class="stack">
           <${ui.Kv} items=${[['Beskrivning', dv.description], ['Åtgärd', dv.action], ['Ansvarig', MM.personName(dv.ownerId)], ['Uppföljning', d.fmtDate(dv.followUpOn)], ['Beslut från kommunen', dv.needsCustomerDecision ? 'Behövs' : 'Behövs inte']]} />
+          ${dv.needsCustomerDecision && (st.tasks || []).some((t) => t.deviationId === dv.id) && html`<p class="small">Handläggaren ${ref ? ref.name : ''} har fått en uppgift i portalen om att beslutet behövs. Mejlet innehåller bara ärendenumret.</p>`}
           ${!sent ? html`<div class="stack">
             <span class="section-title"><span class="dot" aria-hidden="true"></span>Kalla kommunen till uppföljning</span>
             <p class="small">Mötesförfrågan skickas som ett säkert meddelande i portalen till ${ref ? `${ref.name}, ${ref.unit}` : 'handläggaren'}. Mejlet till handläggaren innehåller bara ärendenumret.</p>
@@ -1143,7 +1296,7 @@
             <div class="row"><${ui.Btn} kind="primary" icon="send" disabled=${!body.trim() || !proposed} onClick=${() => { MM.dispatch('deviation.callCustomer', { caseId: c.id, deviationId: dv.id, body: body.trim(), proposedAt: proposed }); setSent(true); MM.toast('Mötesförfrågan är skickad till kommunen.', 'blue'); }}>Kalla kommunen till uppföljning<//></div>
           </div>` : html`<div class="stack">
             <${ui.Notice} tone="ok" title="Mötesförfrågan är skickad">Föreslagen tid: ${d.fmtDateTimeLong(proposed)}. Handläggaren fick mejlet: ”Du har ett nytt meddelande om ärende ${c.number} – logga in för att läsa.”<//>
-            <div class="row"><${ui.PerspectiveSwitch} role=${customerRoleFor(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se mötesförfrågan som kommunen" /></div>
+            <div class="row"><${Persp} role=${customerRoleFor(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se mötesförfrågan som kommunen" /></div>
           </div>`}
         </div>
       <//>`}
@@ -1223,7 +1376,7 @@
         <div class="row">
           ${rep && html`<${ui.Btn} kind="primary" icon="file" onClick=${() => go('rapport.visa', { reportId: rep.id })}>Förhandsgranska månadsrapporten<//>`}
           <${ui.Btn} kind="secondary" onClick=${() => go('coach.minvecka', {})}>Till Min vecka<//>
-          <${ui.PerspectiveSwitch} role=${customerRoleFor(c)} view="kom.rapporter" label="Se kommunens rapportlista" />
+          <${Persp} role=${customerRoleFor(c)} view="kom.rapporter" label="Se kommunens rapportlista" />
         </div>
         <${ui.Card} title="Progressionsområden" icon="chart" flush>
           <${ui.Table} caption="Godkänd bedömning" rowKey="key" rows=${prog.areas.map((k) => ({ key: k, ...(ma0.areas[k] || {}) }))} columns=${[
@@ -1263,27 +1416,29 @@
         <//>
       </div>
 
-      ${aiOk ? html`<${ui.Notice} tone="info" title="AI-stöd">AI har skrivit utkast till observationer utifrån månadens godkända avstämningar, med källor. Nivåförslaget visas bredvid rullgardinen men fylls aldrig i. <${ui.BuildPhase} fas=${2} /><//>`
+      ${aiOk ? html`<${ui.Notice} tone="info" title="AI-stöd">AI har skrivit utkast till observationer utifrån månadens godkända avstämningar och närvaron, med källor. Där underlaget inte räcker står det <b>Framgår inte</b> och inget nivåförslag ges. Nivåförslaget visas under rullgardinen men fylls aldrig i. <${ui.BuildPhase} fas=${2} /><//>`
         : html`<p class="small muted">AI-stöd används inte i det här ärendet${isProtected(c) ? ' (skyddade personuppgifter)' : ' eftersom deltagaren inte har samtyckt'}. Dokumentera manuellt.</p>`}
 
       <${ui.Card} title="Progressionsområden" icon="chart" flush actions=${html`<span class="small muted">${levels.length} av ${prog.areas.length} bedömda</span>`}>
         <div class="table-wrap">
           <table class="table cm-table">
             <caption class="sr-only">Progressionsområden med nivå, observation och nästa steg</caption>
-            <colgroup><col style="width:19%" /><col style="width:21%" /><col style="width:38%" /><col style="width:22%" /></colgroup>
+            <colgroup><col style="width:20%" /><col style="width:22%" /><col style="width:37%" /><col style="width:21%" /></colgroup>
             <thead><tr><th scope="col">Område</th><th scope="col">Nivå 0–3</th><th scope="col">Konkret observation</th><th scope="col">Nästa steg</th></tr></thead>
             <tbody>
               ${prog.areas.map((k) => { const a = areas[k]; const src = (ma0 && ma0.areas && ma0.areas[k]) || {}; const err = errors[k]; const lab = prog.areaLabels[k];
                 const needObs = a.level != null && a.level >= reqFrom;
-                const aiLvl = aiOk ? src.aiLevelSuggestion : null; const aiObs = aiOk ? src.aiObservationDraft : null;
+                const aiObs = aiOk ? src.aiObservationDraft : null; const noEv = !!(aiObs && aiObs.noEvidence);
+                const aiLvl = aiOk && !noEv ? src.aiLevelSuggestion : null;
                 return html`<tr key=${k} class=${err ? 'row-alert' : ''}>
-                  <td class="cm-area">${lab}</td>
+                  <td class="cm-area" lang="sv">${breakable(lab)}</td>
                   <td data-label="Nivå 0–3">
                     <div class="stack-sm">
                       <label class="sr-only" for=${`lvl-${k}`}>Nivå för ${lab}</label>
                       <${ui.Select} id=${`lvl-${k}`} value=${a.level == null ? '' : String(a.level)} invalid=${!!(err && a.level == null)} placeholder="Välj nivå"
                         onChange=${(v) => setArea(k, { level: v === '' ? null : Number(v) })} options=${[0, 1, 2, 3].map((n) => ({ value: String(n), label: `${n} – ${scale[n]}` }))} />
-                      ${aiLvl != null && html`<span><${ui.AiTag}>Förslag: ${aiLvl} – ${scale[aiLvl]}<//></span>`}
+                      ${aiLvl != null && html`<div class="cm-ai-lvl"><${ui.AiTag}>AI<//><span>Förslag: <b>${aiLvl}\u00A0–\u00A0${scale[aiLvl]}</b></span></div>`}
+                      ${noEv && html`<div class="cm-ai-lvl"><${ui.AiTag}>AI<//><span class="muted">Inget nivåförslag</span></div>`}
                     </div>
                   </td>
                   <td data-label="Konkret observation" class="cm-obs">
@@ -1292,10 +1447,14 @@
                       <${ui.TextArea} id=${`obs-${k}`} rows=${2} value=${a.observation} invalid=${!!(err && a.level != null)} onInput=${(v) => setArea(k, { observation: v })} maxLength=${400} />
                       ${needObs && !a.observation.trim() && !err && html`<span class="small muted">Obligatorisk från nivå ${reqFrom}.</span>`}
                       ${err && html`<div class="error-text" role="alert"><${I} name="alert-circle" />${err}</div>`}
-                      ${aiObs && html`<div class="ai-box">
-                        <div class="row-sm"><${ui.AiTag}>AI-utkast<//><span class="small muted">Källa: ${(aiObs.sources || []).join(', ')}</span></div>
+                      ${aiObs && !noEv && html`<div class="ai-box">
+                        <div class="row-sm"><${ui.AiTag}>AI-utkast<//><span class="small muted">Källa: ${(aiObs.sources || []).join(', ') || 'godkända avstämningar'}</span></div>
                         <div>${aiObs.text}</div>
                         <div><${ui.Btn} kind="secondary" icon="copy" onClick=${() => setArea(k, { observation: aiObs.text })}>Använd utkastet<//></div>
+                      </div>`}
+                      ${noEv && html`<div class="ai-box is-empty">
+                        <div class="row-sm"><${ui.AiTag}>AI-utkast<//><span class="strong">Framgår inte</span></div>
+                        <div class="small muted">${aiObs.text || 'Framgår inte av månadens godkända avstämningar.'} Skriv din egen observation om du bedömer området.</div>
                       </div>`}
                     </div>
                   </td>
@@ -1319,7 +1478,7 @@
               <${ui.TextArea} id="cm-summary" rows=${4} value=${summary} onInput=${setSummary} maxLength=${800} />
             <//>
             ${aiOk && ma0 && ma0.aiSummaryDraft && html`<div class="ai-box">
-              <div class="row-sm"><${ui.AiTag}>AI-utkast<//><span class="small muted">Bygger bara på godkända avstämningar</span></div>
+              <div class="row-sm"><${ui.AiTag}>AI-utkast<//><span class="small muted">Bygger bara på godkända avstämningar och registrerad närvaro</span></div>
               <div>${ma0.aiSummaryDraft}</div>
               <div><${ui.Btn} kind="secondary" icon="copy" onClick=${() => setSummary(ma0.aiSummaryDraft)}>Använd utkastet<//></div>
             </div>`}
@@ -1394,7 +1553,7 @@
       lead="Dokumentera deltagarens reella kompetens. Underlaget används för validering, matchning och CV."
       crumbs=${[{ label: 'Min vecka', view: 'coach.minvecka' }, { label: 'Kartläggning' }]}
       actions=${html`${approved ? html`<${ui.Badge} tone="blue" icon="check">Godkänd ${ia.approvedAt ? d.fmtDate(ia.approvedAt) : ''}<//>` : html`<${ui.Badge} tone="outline" icon="edit">${ia ? 'Utkast' : 'Ny'}<//>`}`}>
-      <${ui.Card}><div class="row-between"><${CaseHead} c=${c} /><${ui.PerspectiveSwitch} role=${customerRoleFor(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se deltagaren från kommunens håll" /></div><//>
+      <${ui.Card}><div class="row-between"><${CaseHead} c=${c} /><${Persp} role=${customerRoleFor(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se deltagaren från kommunens håll" /></div><//>
       ${stuck && html`<${ui.Notice} tone="warn" title=${`Fastnat i fas ${stuck.phase}`}>Ärendet har varit i fas ${stuck.phase} (${sel.phaseName(stuck.phase)}) i ${stuck.days} dagar. Gränsen är ${stuck.maxDays} dagar. Slutför kartläggningen och välj yrkesspår så att deltagaren kan gå vidare.<//>`}
       ${c.backgroundInfo && html`<${ui.Notice} tone="info" title="Från beställningen">${c.backgroundInfo}${(sel.person(c) || {}).needsInterpreter ? ' Deltagaren behöver tolk.' : ''}<//>`}
       ${savedNow === 'approved' && html`<${ui.Notice} tone="ok" title="Kartläggningen är godkänd">Nästa steg: sätt veckomålet i veckoavstämningen och flytta ärendet till fas 2 när deltagaren är redo.
@@ -1547,12 +1706,12 @@
             ${pulse ? html`<div class="stack-sm">
               <p>Skickad ${d.fmtDateTime(pulse.sentAt)} via ${pulse.channel === 'email' ? 'e-post' : 'SMS'}. Länken gäller till ${d.fmtDate(pulse.expiresAt)}.</p>
               <div class="demo-note"><${I} name="message" /><div><b>Utskicket (utan personuppgifter):</b> Hej! Din tid hos Miljonbemanning är avslutad. Svara gärna på fem korta frågor: portal.miljonbemanning.se/p/••••• Det är frivilligt.</div></div>
-              <div><${ui.PerspectiveSwitch} role="deltagare" view="puls.svar" label="Se pulsmätningen som deltagaren" /></div>
+              <div><${Persp} role="deltagare" view="puls.svar" label="Se pulsmätningen som deltagaren" /></div>
             </div>` : html`<p class="muted">Ingen pulsmätning skickas – deltagaren har skyddade personuppgifter.</p>`}
           <//>
         </div>
         <div class="row"><${ui.Btn} kind="secondary" icon="calendar" onClick=${() => go('coach.minvecka', {})}>Till Min vecka<//>
-          <${ui.PerspectiveSwitch} role=${customerRoleFor(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se avslutet från kommunens håll" /></div>
+          <${Persp} role=${customerRoleFor(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se avslutet från kommunens håll" /></div>
       </div>` : c.status === 'closed' ? html`<${ui.Notice} tone="info" title="Insatsen är avslutad">${sel.endReasonLabel(c.endReason)} · ${d.fmtDate(c.endDate)}.<//>`
         : mode === 'event' ? html`<div class="split-wide">
           <${ui.Card} title="Ny händelse" icon="plus">

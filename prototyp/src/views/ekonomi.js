@@ -14,13 +14,44 @@
   const monthLabel = (mk) => cap(d.monthName(mk));
   const canAct = () => MM.role() === 'ekonom';
   const plural = (n, one, many) => `${fmt.num(n)} ${n === 1 ? one : many}`;
+  /** Böjer bara ordet (utan talet): pl(1, 'är godkänd', 'är godkända'). */
+  const pl = (n, one, many) => (n === 1 ? one : many);
+
+  // ---- Avtalsvärden som text (läses från MM.cfg(), hårdkodas inte)
+  const refLen = () => MM.valid.buyerRefLengthText() || '8–10';
+  /** "9 siffror som börjar med 99" ur mönstret för inköpsordernummer. */
+  const poText = () => {
+    const p = ((MM.cfg().billing || {}).purchaseOrderNumber || {}).pattern || '';
+    const m = p.match(/^\^?(\d*)\[0-9\]\{(\d+)\}\$?$/);
+    return m ? `${m[1].length + Number(m[2])} siffror${m[1] ? ` som börjar med ${m[1]}` : ''}` : 'kommunens format';
+  };
+  const NUMWORD = ['noll', 'en', 'två', 'tre', 'fyra', 'fem', 'sex'];
+  /** Faktureringspreskription (SPEC §3: två månader efter utfört arbete). */
+  const prescMonths = () => (MM.cfg().billing || {}).prescriptionMonths || 2;
+  const prescText = () => { const n = prescMonths(); return `${NUMWORD[n] || n} ${pl(n, 'månad', 'månader')}`; };
+  /** Prisspannet i prislistan som gäller i dag, t.ex. "1 323–1 668 kr". */
+  const priceSpan = () => {
+    const today = d.today();
+    const ps = (S().priceItems || []).filter((p) => p.validFrom <= today && (!p.validTo || p.validTo >= today)).map((p) => p.priceOre);
+    if (!ps.length) return null;
+    const lo = Math.min(...ps); const hi = Math.max(...ps);
+    return lo === hi ? fmt.kr(lo) : `${fmt.num(Math.round(lo / 100))}–${fmt.kr(hi)}`;
+  };
 
   // ------------------------------------------------------------ Layout (bara MB-tokens, inga egna färger)
   const CSS = `
 .eko-kpis{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
-.eko-kpis .kpi{padding:14px 16px}
+.eko-kpis .kpi{padding:14px 16px;container-type:inline-size}
 @media (max-width:620px){.eko-kpis .kpi{padding:12px}}
-.eko-kpis .kpi-value{font-size:clamp(1.375rem,2.3vw,1.75rem)}
+.eko-kpis .kpi-label{overflow-wrap:break-word;hyphens:manual}
+.eko-kpis .kpi-value{font-size:1.625rem;font-size:clamp(1.125rem,14cqi,1.75rem);white-space:nowrap}
+.eko-kpis .kpi-state{font-size:.8125rem}
+.eko-ledger{display:flex;flex-direction:column;width:100%}
+.eko-ledger>div{display:flex;justify-content:space-between;align-items:baseline;gap:6px 16px;padding:8px 0;border-bottom:1px solid var(--ljusgra);font-variant-numeric:tabular-nums;flex-wrap:wrap}
+.eko-ledger>div>span:first-child{flex:1 1 200px;min-width:0}
+.eko-ledger>div>span:last-child{text-align:right;margin-left:auto}
+.eko-ledger>div.sum{font-weight:800;border-bottom:2px solid var(--antracit)}
+.eko-ledger .sub{display:block;font-weight:400;font-size:.8125rem;color:var(--fg-muted)}
 .eko-check{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-top:1px solid var(--line)}
 .eko-check:first-child{border-top:0;padding-top:4px}
 .eko-fix{padding:14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-sub);display:flex;flex-direction:column;gap:12px}
@@ -89,14 +120,64 @@
   };
   const periodOf = (weeks) => (weeks.length ? [weeks[0].monday, d.addDays(weeks[weeks.length - 1].monday, 6)] : [null, null]);
 
+  // ---- Ärendets veckor per månad – samma begrepp i alla ekonomivyer:
+  //   Upparbetat   = debiterbara veckor (pausade veckor räknas inte)
+  //   Fakturerat   = veckor på fakturor som är skapade i Fortnox, bokförda, skickade, betalda eller manuellt fakturerade
+  //   Faktureras om = veckor på en faktura som kommunen har returnerat (krediteras och faktureras på nytt)
+  //   Ej fakturerat = underlag, godkänd men inte skapad, stoppad eller pågående månad
+  //   Upparbetat = fakturerat + faktureras om + ej fakturerat. Återstår = beställda veckor − upparbetade veckor.
+  const KIND_OF = (status) => (BILLED.includes(status) ? 'billed' : status === 'returned' ? 'returned' : 'unbilled');
+  const ledger = (c) => memo(`l:${c.id}`, () => {
+    const weeks = sel.billableWeeks(c).filter((w) => !w.paused);
+    const runMonths = S().billingRuns.map((r) => r.month);
+    return MM.uniq(weeks.map((w) => w.monthKey)).sort().map((mk) => {
+      const ws = weeks.filter((w) => w.monthKey === mk);
+      const inv = runMonths.includes(mk) ? billing(mk).invoices.find((x) => x.caseId === c.id) || null : null;
+      const status = inv ? inv.status : null;
+      return { mk, weeks: ws, qty: ws.length, amountOre: inv ? inv.amountOre : ws.length * sel.priceFor(c.primaryArea, ws[0].monday), inv, status, kind: KIND_OF(status) };
+    });
+  });
+  const tally = (rows) => ({ qty: MM.sum(rows, (r) => r.qty), amountOre: MM.sum(rows, (r) => r.amountOre), rows });
+  const qtyKr = (t) => `${plural(t.qty, 'vecka', 'veckor')}, ${fmt.kr(t.amountOre)}`;
+  /** Upparbetat och återstående för en faktura (till och med fakturans månad). */
+  const invoiceSummary = (inv) => {
+    const c = sel.caseById(inv.caseId);
+    const upto = ledger(c).filter((r) => r.mk <= inv.month);
+    const earlier = upto.filter((r) => r.mk < inv.month);
+    const accrued = tally(upto);
+    const billed = tally(earlier.filter((r) => r.kind === 'billed'));
+    const returned = tally(earlier.filter((r) => r.kind === 'returned'));
+    const pending = tally(earlier.filter((r) => r.kind === 'unbilled'));
+    const current = { qty: inv.quantity, amountOre: inv.amountOre };
+    const orderWeeks = inv.orderWeeks || 0;
+    const remaining = { qty: Math.max(0, orderWeeks - accrued.qty), amountOre: Math.max(0, orderWeeks - accrued.qty) * inv.unitPriceOre };
+    const over = Math.max(0, accrued.qty - orderWeeks);
+    const order = { qty: orderWeeks, amountOre: inv.orderValueOre };
+    const monthsText = (t) => t.rows.map((r) => `${d.monthName(r.mk)} (${weekText(r.weeks)})`).join(', ');
+    const sentences = [
+      `Beställning ${inv.number}: ${qtyKr(order)}.`,
+      `Denna faktura: ${plural(current.qty, 'vecka', 'veckor')} (${weekText(inv.weeks)}), ${fmt.kr(current.amountOre)}.`,
+      `Tidigare fakturerat: ${qtyKr(billed)}.`,
+      returned.qty > 0 && `${pl(returned.rows.length, 'Returnerad faktura', 'Returnerade fakturor')} för ${monthsText(returned)}: ${qtyKr(returned)}. ${pl(returned.rows.length, 'Fakturan krediteras', 'Fakturorna krediteras')} och ${pl(returned.qty, 'veckan', 'veckorna')} faktureras om på en ny faktura.`,
+      pending.qty > 0 && `Ännu inte fakturerat från ${monthsText(pending)}: ${qtyKr(pending)}. Faktureras på en egen faktura per månad.`,
+      `Upparbetat inklusive denna faktura: ${qtyKr(accrued)}.`,
+      over > 0 ? `Upparbetat är ${plural(over, 'vecka', 'veckor')} mer än beställningen.` : `Återstår av beställningen: ${qtyKr(remaining)}.`,
+    ].filter(Boolean);
+    return { order, current, billed, returned, pending, accrued, remaining, over, text: sentences.join(' ') };
+  };
+  /** Kärnans kontrolltext för "fler veckor än beställningen" säger "fakturerade" om upparbetade veckor – visa samma begrepp som fakturatexten. */
+  const checkText = (ch, inv) => (ch.kind === 'over_order' && inv ? `Beställningen gäller ${plural(inv.orderWeeks, 'vecka', 'veckor')} men ${plural(inv.accruedWeeks, 'vecka', 'veckor')} är upparbetade inklusive denna faktura.` : noteText(ch.text));
+
   // ---- Beställarreferens
+  /** Anteckning från referensregistret med datum i läsbar form (2027-01-12 → 12 jan 2027). */
+  const noteText = (s) => String(s || '').trim().replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (m) => d.fmtDate(m));
   const refInfo = (ref) => {
     const v = String(ref || '').trim();
     const known = S().buyerReferences.find((b) => b.reference === v);
     if (!v) return { ok: false, label: 'Saknas', text: 'Beställarreferens saknas. Ingen faktura kan skapas utan den.' };
     const err = MM.valid.buyerRefError(v);
     if (err) return { ok: false, label: 'Fel format', text: err };
-    if (known && !known.active) return { ok: false, label: 'Spärrad', text: `Referensen finns inte hos kommunen. ${known.note || ''}`.trim(), unit: known.unit };
+    if (known && !known.active) return { ok: false, label: 'Spärrad', text: noteText(known.note) || 'Referensen finns inte hos kommunen.', unit: known.unit };
     return { ok: true, label: 'Giltig', unit: known ? known.unit : null, text: known ? `Tillhör ${known.unit}.` : 'Rätt format. Kontrollera mot kommunens beställning.' };
   };
   const refError = (v, current) => {
@@ -166,6 +247,7 @@
     booked: { tone: 'bluetone', icon: 'book' }, sent: { tone: 'bluetone', icon: 'send' }, paid: { tone: 'blue', icon: 'check-circle' },
     returned: { tone: 'red', icon: 'reply' }, manual: { tone: 'dark', icon: 'edit' }, blocked: { tone: 'red', icon: 'x-circle' },
   };
+  const STATUS_ONE = { draft: 'underlag', approved: 'godkänd', fortnox_created: 'skapad i Fortnox', booked: 'bokförd', sent: 'skickad', paid: 'betald', returned: 'returnerad', manual: 'manuellt fakturerad', blocked: 'stoppad' };
   const STATUS_PLURAL = { draft: 'underlag', approved: 'godkända', fortnox_created: 'skapade i Fortnox', booked: 'bokförda', sent: 'skickade', paid: 'betalda', returned: 'returnerade', manual: 'manuellt fakturerade', blocked: 'stoppade' };
   const InvStatus = ({ status }) => { const m = STATUS[status] || STATUS.draft; return html`<${ui.Badge} tone=${m.tone} icon=${m.icon}>${sel.invoiceStatusLabel(status)}<//>`; };
   const CHECK = {
@@ -177,7 +259,7 @@
     if (!inv.checks.length) return html`<span class="row-sm small nowrap"><${I} name="check" />Inga</span>`;
     const main = inv.checks.filter((c) => c.severity !== 'info'); const info = inv.checks.filter((c) => c.severity === 'info');
     return html`<div class="eko-ic-row">
-      ${main.map((c) => html`<${ui.Badge} tone=${CHECK[c.severity].tone} icon=${CHECK[c.severity].icon} title=${`${c.label}. ${c.text}`}>${c.severity === 'approved' ? 'Vecka godkänd' : SHORT[c.kind] || c.label}<//>`)}
+      ${main.map((c) => html`<${ui.Badge} tone=${CHECK[c.severity].tone} icon=${CHECK[c.severity].icon} title=${`${c.label}. ${checkText(c, inv)}`}>${c.severity === 'approved' ? 'Vecka godkänd' : SHORT[c.kind] || c.label}<//>`)}
       ${info.map((c) => html`<span class="muted" title=${c.label}><${I} name=${c.kind === 'paused' ? 'pause' : 'info'} label=${c.label} /></span>`)}
     </div>`;
   };
@@ -222,7 +304,7 @@
     return html`<div class="eko-fix">
       ${t && html`<div class="eko-quote"><span class="small muted">Uppgift från ${MM.personName(t.fromId)} (${d.fmtDateTime(t.createdAt)})</span><span>${t.text}</span></div>`}
       <${ui.Field} id=${id} label="Rätt beställarreferens" required error=${tried ? err : null}
-        help=${info && info.unit ? `8–10 siffror. Referensen tillhör ${info.unit}.` : '8–10 siffror, bara siffror. Referensen kommer från kommunens beställning – hitta aldrig på en egen.'}>
+        help=${info && info.unit ? `${refLen()} siffror. Referensen tillhör ${info.unit}.` : `${refLen()} siffror, bara siffror. Referensen kommer från kommunens beställning – hitta aldrig på en egen.`}>
         <${ui.Input} id=${id} value=${val} onInput=${setVal} inputMode="numeric" maxLength=${10} invalid=${tried && !!err} />
       <//>
       <div class="row-sm">
@@ -243,7 +325,7 @@
     const [note, setNote] = useState(''); const [tried, setTried] = useState(false);
     const id = `eko-zero-${inv.caseId}-${ch.weekKey}`;
     const err = note.trim().length < 5 ? 'Skriv en kort kommentar (minst 5 tecken). Den sparas i revisionsloggen.' : null;
-    const facts = w ? html`<div class="small">${d.fmtWeekRange(w.key)}: ${plural(w.planned, 'planerat tillfälle', 'planerade tillfällen')}, ${w.registered} registrerade, ${w.attended} med närvaro. Inskriven ${w.enrolledDays} av 7 dagar.</div>` : null;
+    const facts = w ? html`<div class="small">${d.fmtWeekRange(w.key)}: ${plural(w.planned, 'planerat tillfälle', 'planerade tillfällen')}, ${w.registered} ${pl(w.registered, 'registrerat', 'registrerade')}, ${w.attended} med närvaro. Inskriven ${w.enrolledDays} av 7 dagar.</div>` : null;
     if (ch.severity === 'approved') {
       const a = ch.approval || {};
       return html`<div class="eko-quote">${facts}<span class="small"><b>Godkänd</b> av ${MM.personName(a.by)} ${d.fmtDateTime(a.at)}: ”${a.note}”</span></div>`;
@@ -281,12 +363,26 @@
       <${I} name=${m.icon} size="lg" cls=${ch.severity === 'blocking' ? 'ic-red' : ''} />
       <div class="stack-sm" style="gap:8px;min-width:0;flex:1">
         <div class="row-sm"><span class="strong">${ch.label}</span><${ui.Badge} tone=${m.tone}>${m.word}<//></div>
-        <div class="small">${ch.text}</div>
+        <div class="small">${checkText(ch, inv)}</div>
         ${ch.kind === 'buyer_ref' && html`<${RefForm} cases=${[c]} idSuffix=${`detail-${c.id}`} />`}
         ${ch.kind === 'zero_week' && html`<${ZeroWeek} inv=${inv} ch=${ch} month=${month} />`}
         ${ch.kind === 'overlap' && html`<${OverlapInfo} inv=${inv} ch=${ch} month=${month} onOpen=${onOpen} />`}
         ${ch.kind === 'paused' && html`<div class="small muted">Orsaken till uppehållet visas inte för ekonom. Fakturan tar bara med de veckor som inte är pausade: ${weekText(inv.weeks)}.</div>`}
       </div>
+    </div>`;
+  };
+  /** Upparbetat och återstående för en faktura – samma siffror och ord som fakturatexten. */
+  const SummaryList = ({ inv }) => {
+    const sm = invoiceSummary(inv);
+    const months = (t) => t.rows.map((r) => d.monthName(r.mk)).join(', ');
+    return html`<div class="eko-ledger">
+      <div><span>Tidigare fakturerat<span class="sub">Skapat i Fortnox eller manuellt fakturerat</span></span><span class="num">${qtyKr(sm.billed)}</span></div>
+      ${sm.returned.qty > 0 && html`<div><span><span class="strong">Faktureras om</span><span class="sub">${pl(sm.returned.rows.length, 'Returnerad faktura', 'Returnerade fakturor')} för ${months(sm.returned)}. Krediteras och faktureras på en ny faktura.</span></span><span class="num strong">${qtyKr(sm.returned)}</span></div>`}
+      ${sm.pending.qty > 0 && html`<div><span>Ännu inte fakturerat<span class="sub">Från ${months(sm.pending)} – faktureras på en egen faktura per månad</span></span><span class="num">${qtyKr(sm.pending)}</span></div>`}
+      <div><span>Denna faktura<span class="sub">${weekText(inv.weeks)}</span></span><span class="num">${qtyKr(sm.current)}</span></div>
+      <div class="sum"><span>Upparbetat inklusive denna faktura</span><span class="num">${qtyKr(sm.accrued)}</span></div>
+      <div><span>Beställning</span><span class="num">${qtyKr(sm.order)}</span></div>
+      <div><span class="strong">${sm.over ? 'Över beställningen' : 'Återstår av beställningen'}</span><span class="num strong">${sm.over ? plural(sm.over, 'vecka', 'veckor') : qtyKr(sm.remaining)}</span></div>
     </div>`;
   };
   const InvoiceDetail = ({ inv, month, onClose, onOpen, onManual }) => {
@@ -314,10 +410,11 @@
         ['Veckor', html`${weekText(inv.weeks)} <span class="muted">(${d.fmtDateShort(periodOf(inv.weeks)[0])}–${d.fmtDate(periodOf(inv.weeks)[1])})</span>`],
         ['Belopp', html`<span class="num">${inv.quantity} × ${fmt.krExact(inv.unitPriceOre)} = <b>${fmt.krExact(inv.amountOre)}</b> exkl. moms</span>`],
         ['Beställarreferens', html`<${RefBadge} value=${inv.buyerReference} />`],
-        ['Beställningen', `${plural(inv.orderWeeks, 'vecka', 'veckor')}. Fakturerat inklusive denna: ${plural(inv.accruedWeeks, 'vecka', 'veckor')}. Återstår ${plural(inv.remainingWeeks, 'vecka', 'veckor')}.`],
         inv.fortnoxNo && ['Fakturanummer i Fortnox', inv.fortnoxNo],
         inv.manualInvoiceNo && ['Manuellt fakturanummer', inv.manualInvoiceNo],
       ]} />
+      <div class="section-title"><span class="dot" aria-hidden="true"></span>Upparbetat och återstående</div>
+      <${SummaryList} inv=${inv} />
       <div class="section-title"><span class="dot" aria-hidden="true"></span>Kontroller</div>
       ${inv.checks.length === 0 ? html`<${ui.Notice} tone="ok" title="Inga anmärkningar">Referensen är giltig och alla veckor har närvaro.<//>`
         : html`<div>${inv.checks.map((ch) => html`<${CheckRow} inv=${inv} ch=${ch} month=${month} c=${c} onOpen=${onOpen} />`)}</div>`}
@@ -361,7 +458,7 @@
   const toCsv = (b) => {
     const head = ['Ärendenummer (faktureringsobjekt)', 'Avtalsområde', 'Artikel', 'Veckor', 'Antal veckor', 'À-pris exkl. moms (kr)', 'Belopp exkl. moms (kr)', 'Moms (%)', 'Beställarreferens', 'Inköpsordernummer', 'Radtext', 'Fakturatext', 'Status', 'Kontroller'];
     const rows = b.invoices.map((x) => [x.number, sel.areaName(x.area), x.articleNo, x.weeks.map((w) => w.week).join(' '), x.quantity, krCsv(x.unitPriceOre), krCsv(x.amountOre), x.vatRate, x.buyerReference || '', x.purchaseOrderNumber || '',
-      `${x.number} · ${weekText(x.weeks)}`, x.invoiceText, sel.invoiceStatusLabel(x.status), x.checks.map((c) => c.label).join(', ')]);
+      `${x.number} · ${weekText(x.weeks)}`, invoiceSummary(x).text, sel.invoiceStatusLabel(x.status), x.checks.map((c) => c.label).join(', ')]);
     return [head, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n');
   };
 
@@ -387,7 +484,7 @@
         <div class="eko-rule">
           <div class="strong">${coll ? 'Samlingsfaktura per beställarreferens är tillåten' : 'En faktura per ärende och månad'}</div>
           <div class="small">${coll ? 'Kommunen har skriftligt godkänt samlingsfakturor per beställarreferens.' : 'Samlingsfakturor är inte tillåtna enligt avtalet med Botkyrka kommun. Varje ärende får en egen faktura med ärendenumret som faktureringsobjekt.'}</div>
-          <div class="small">Utan giltig beställarreferens (8–10 siffror) kan ingen faktura skapas. Inköpsordernummer används bara om kommunen beställer via sin e-handel.</div>
+          <div class="small">Utan giltig beställarreferens (${refLen()} siffror) kan ingen faktura skapas. Inköpsordernummer används bara om kommunen beställer via sin e-handel.</div>
         </div>
       </div>
     <//>`;
@@ -429,27 +526,27 @@
     const setF = (f) => { setFilter(f); setPage(0); };
 
     const approveAll = async () => {
-      const ok = await MM.confirm({ title: 'Godkänn fakturor utan anmärkning', confirmLabel: `Godkänn ${clean.length} fakturor`,
+      const ok = await MM.confirm({ title: 'Godkänn fakturor utan anmärkning', confirmLabel: `Godkänn ${plural(clean.length, 'faktura', 'fakturor')}`,
         body: html`<div class="stack-sm"><p>${plural(clean.length, 'faktura', 'fakturor')} har giltig beställarreferens och inga anmärkningar. De blir klara att skapa i Fortnox.</p><p class="small muted">${plural(withRemarks, 'faktura', 'fakturor')} med anmärkning och ${plural(counts.stoppade, 'stoppad faktura', 'stoppade fakturor')} tas inte med. Dem granskar du var för sig.</p></div>` });
       if (!ok) return;
       MM.dispatch('billing.approveInvoice', { month: mk, caseIds: clean.map((r) => r.caseId) });
-      MM.toast(`${plural(clean.length, 'faktura', 'fakturor')} är godkända. ${plural(withRemarks, 'faktura', 'fakturor')} med anmärkning återstår.`, 'blue');
+      MM.toast(`${plural(clean.length, 'faktura', 'fakturor')} ${pl(clean.length, 'är godkänd', 'är godkända')}. ${plural(withRemarks, 'faktura', 'fakturor')} med anmärkning återstår.`, 'blue');
     };
     const sendFortnox = async () => {
       const notReady = counts.godkannande;
-      const ok = await MM.confirm({ title: 'Skapa fakturor i Fortnox', confirmLabel: fresh.length ? `Skapa ${fresh.length} fakturor` : 'Kör ändå',
+      const ok = await MM.confirm({ title: 'Skapa fakturor i Fortnox', confirmLabel: fresh.length ? `Skapa ${plural(fresh.length, 'faktura', 'fakturor')}` : 'Kör ändå',
         body: html`<div class="stack-sm">
-          <p>${fresh.length ? `${plural(fresh.length, 'godkänd faktura', 'godkända fakturor')} skapas som ej bokförda utkast i Fortnox.` : 'Det finns inga nya godkända fakturor att skapa.'}</p>
+          <p>${fresh.length ? `${plural(fresh.length, 'godkänd faktura', 'godkända fakturor')} skapas som ${pl(fresh.length, 'ej bokfört utkast', 'ej bokförda utkast')} i Fortnox.` : 'Det finns inga nya godkända fakturor att skapa.'}</p>
           <ul class="small" style="margin:0;padding-left:20px">
-            <li>${plural(already.length, 'faktura finns', 'fakturor finns')} redan i Fortnox eller är manuellt fakturerade och hoppas över. En omkörning skapar inga dubbletter.</li>
+            <li>${plural(already.length, 'faktura finns', 'fakturor finns')} redan i Fortnox eller är ${pl(already.length, 'manuellt fakturerad', 'manuellt fakturerade')} och hoppas över. En omkörning skapar inga dubbletter.</li>
             <li>${plural(counts.stoppade, 'stoppad faktura', 'stoppade fakturor')} kan inte skapas.</li>
-            <li>${plural(notReady, 'faktura', 'fakturor')} som inte är godkända tas inte med.</li>
+            <li>${plural(notReady, 'faktura som inte är godkänd', 'fakturor som inte är godkända')} tas inte med.</li>
           </ul>
           <p class="small muted">I den riktiga tjänsten skickas anropen i takt med Fortnox gräns (25 anrop per 5 sekunder) och varje faktura får idempotensnyckeln månad + ärendenummer.</p></div>` });
       if (!ok) return;
       if (fresh.length) MM.dispatch('billing.sendFortnox', { month: mk, caseIds: fresh.map((r) => r.caseId) });
       MM.dispatch('eko.fortnoxLog', { month: mk, created: fresh.map((r) => r.caseId), skipped: already.length, notReady, blocked: counts.stoppade });
-      MM.toast(fresh.length ? `${plural(fresh.length, 'faktura', 'fakturor')} skapades i Fortnox som ej bokförda utkast (simulerat). Inga dubbletter.` : `Inga nya fakturor. ${plural(already.length, 'faktura', 'fakturor')} fanns redan – inga dubbletter skapades.`, 'blue');
+      MM.toast(fresh.length ? `${plural(fresh.length, 'faktura', 'fakturor')} skapades i Fortnox som ${pl(fresh.length, 'ej bokfört utkast', 'ej bokförda utkast')} (simulerat). Inga dubbletter.` : `Inga nya fakturor. ${plural(already.length, 'faktura', 'fakturor')} fanns redan – inga dubbletter skapades.`, 'blue');
     };
     const sync = () => {
       const r = MM.dispatch('eko.fortnoxSync', { month: mk, caseIds: toSync.map((x) => x.caseId) });
@@ -487,8 +584,8 @@
         <${ui.Kpi} label="Fakturor" value=${fmt.num(b.count)} sub=${`${plural(b.weeks, 'vecka', 'veckor')} · en per ärende`} />
         <${ui.Kpi} label="Belopp exkl. moms" value=${fmt.kr(b.totalOre)} sub=${`Inkl. moms ${fmt.kr(b.totalOre + vatTotal)}`} />
         <${ui.Kpi} label="Veckor" value=${fmt.num(b.weeks)} sub=${`${plural(d.weeksOfMonth(mk).length, 'kalendervecka', 'kalenderveckor')} i månaden`} />
-        <${ui.Kpi} label="Stoppade" value=${fmt.num(counts.stoppade)} tone=${counts.stoppade ? 'alert' : ''} sub=${counts.stoppade ? 'Kan inte skapas – rätta först' : 'Inga stoppade'} />
-        <${ui.Kpi} label="Kräver godkännande" value=${fmt.num(counts.godkannande)} tone=${withRemarks ? 'watch' : ''} sub=${`Varav ${withRemarks} med anmärkning`} />
+        <${ui.Kpi} label="Stoppade" value=${fmt.num(counts.stoppade)} tone=${counts.stoppade ? 'alert' : ''} statusText="Rätta först" sub=${counts.stoppade ? 'Kan inte skapas utan giltig beställarreferens' : 'Inga stoppade'} />
+        <${ui.Kpi} label=${'Kräver godkän\u00ADnande'} value=${fmt.num(counts.godkannande)} tone=${withRemarks ? 'watch' : ''} statusText="Granska" sub=${`Varav ${withRemarks} med anmärkning`} />
       </div>
       <${MonthRules} mk=${mk} />
       <${ui.Card} title="Gör körningen" icon="list" foot=${html`
@@ -512,7 +609,7 @@
           </div></div>
           <div class=${MM.cls('eko-step', step3Done && 'done')}><span class="n">${step3Done ? html`<${I} name="check" />` : '3'}</span><div class="body">
             <div class="txt"><div class="row-sm"><span class="strong">Skapa i Fortnox</span><${ui.BuildPhase} fas=${2} /></div>
-            <div class="small">${fresh.length ? `${plural(fresh.length, 'godkänd faktura väntar', 'godkända fakturor väntar')}.` : 'Inga nya godkända fakturor väntar.'} ${already.length ? `${plural(already.length, 'faktura', 'fakturor')} är redan skapade eller manuellt fakturerade.` : ''} Stoppade fakturor kan inte skapas.</div>
+            <div class="small">${fresh.length ? `${plural(fresh.length, 'godkänd faktura väntar', 'godkända fakturor väntar')}.` : 'Inga nya godkända fakturor väntar.'} ${already.length ? `${plural(already.length, 'faktura är redan skapad eller manuellt fakturerad', 'fakturor är redan skapade eller manuellt fakturerade')}.` : ''} Stoppade fakturor kan inte skapas.</div>
             <div class="eko-ic-row small"><${InvStatus} status="fortnox_created" /><${I} name="arrow-right" /><${InvStatus} status="booked" /><${I} name="arrow-right" /><${InvStatus} status="sent" /><${I} name="arrow-right" /><${InvStatus} status="paid" /></div></div>
             <div class="row-sm">
               ${act && html`<${ui.Btn} kind="primary" icon="upload" disabled=${!fresh.length && !already.length} onClick=${sendFortnox}>Skapa i Fortnox (${fresh.length})<//>`}
@@ -554,11 +651,11 @@
         <div class="stack-sm">${fxState().runs.filter((r) => r.month === mk).slice().reverse().map((r) => html`<div class="row-sm" key=${r.id}>
           <${I} name="upload" /><span class="strong">${d.fmtDateTime(r.at)}</span><span class="muted">${MM.personName(r.by)}</span>
           <${ui.Badge} tone="bluetone" icon="check">${plural(r.created, 'skapad', 'skapade')}<//><${ui.Badge} tone="outline" icon="copy">${plural(r.skipped, 'dubblett hoppades över', 'dubbletter hoppades över')}<//>
-          ${r.blocked > 0 && html`<${ui.Badge} tone="red" icon="x-circle">${r.blocked} stoppade<//>`}</div>`)}
+          ${r.blocked > 0 && html`<${ui.Badge} tone="red" icon="x-circle">${plural(r.blocked, 'stoppad', 'stoppade')}<//>`}</div>`)}
           <div class="small muted">Idempotensnyckel: månad + ärendenummer (till exempel ${mk}:${(rows[0] || {}).number || 'BOT-26-0001'}). Samma nyckel skapar aldrig en ny faktura.</div>
         </div>
       <//>`}
-      <${ui.DemoNote}>Fortnox är simulerat. ”Skapa i Fortnox” sätter status ”Skapad i Fortnox (ej bokförd)” och ”Hämta status” flyttar fakturorna ett steg i taget. Priserna är exempel inom avtalets spann (1 323–1 668 kr per vecka).<//>
+      <${ui.DemoNote}>Fortnox är simulerat. ”Skapa i Fortnox” sätter status ”Skapad i Fortnox (ej bokförd)” och ”Hämta status” flyttar fakturorna ett steg i taget. Priserna är exempel${priceSpan() ? ` inom prislistans spann (${priceSpan()} per vecka)` : ''}.<//>
       ${openInv && html`<${InvoiceDetail} inv=${openInv} month=${mk} onClose=${() => setOpenId(null)} onOpen=${(id) => setOpenId(id)} onManual=${(id) => { setOpenId(null); setManual({ presetId: id }); }} />`}
       ${manual && html`<${ManualModal} month=${mk} invoices=${rows} presetId=${manual.presetId} onClose=${() => setManual(null)} />`}
     <//>`;
@@ -582,10 +679,10 @@
     const refCases = st.cases.filter((c) => !['declined'].includes(c.status) && sel.buyerRefProblem(c));
     // Veckor utan närvaro (öppna körningar)
     const zero = openRuns.flatMap((r) => billing(r.month).invoices.flatMap((inv) => inv.checks.filter((ch) => ch.kind === 'zero_week').map((ch) => ({ id: `${r.month}:${inv.caseId}:${ch.weekKey}`, month: r.month, inv, ch, w: inv.weeks.find((w) => w.key === ch.weekKey) }))));
-    // Ofakturerade veckor > 45 dagar, per ärende
+    // Ofakturerade veckor äldre än varningsgränsen (unbilledWarningDays), per ärende
     const ubRows = Object.entries(MM.groupBy(ub, (x) => x.case.id)).map(([caseId, xs]) => {
       const sorted = xs.slice().sort((a, x) => (a.week.key < x.week.key ? -1 : 1)); const oldest = sorted[0];
-      const presc = addMonthsDate(d.addDays(oldest.week.monday, 6), 2);
+      const presc = addMonthsDate(d.addDays(oldest.week.monday, 6), prescMonths());
       return { id: caseId, c: xs[0].case, weeks: sorted.map((x) => x.week), age: Math.max(...xs.map((x) => x.age)), amount: MM.sum(xs, (x) => x.amountOre), presc, left: d.diffDays(d.today(), presc), status: oldest.status };
     }).sort(MM.by('presc'));
     // Returnerade fakturor (och de som krediterats i prototypen)
@@ -614,9 +711,9 @@
       <${RoleNotice} />
       ${b && html`<div class="eko-kpis">
         <${ui.Kpi} label=${`${cap(d.monthName(mk).split(' ')[0])} att fakturera`} value=${fmt.kr(b.totalOre)} sub=${`${plural(b.count, 'faktura', 'fakturor')} · ${plural(b.weeks, 'vecka', 'veckor')} · exkl. moms`} />
-        <${ui.Kpi} label="Stoppade fakturor" value=${fmt.num(b.blocked)} tone=${b.blocked ? 'alert' : ''} sub=${b.blocked ? 'Fel eller saknad beställarreferens' : 'Inga stoppade'} />
-        <${ui.Kpi} label="Preskriptionsrisk" value=${fmt.kr(MM.sum(ub, (x) => x.amountOre))} tone=${ub.length ? 'alert' : ''} sub=${ub.length ? `${plural(ub.length, 'vecka', 'veckor')} ofakturerade i mer än ${limit} dagar` : `Inga veckor äldre än ${limit} dagar`} />
-        ${cur && cur.status === 'draft' ? html`<${ui.Kpi} label="Senast i Fortnox" value=${d.fmtDateShort(due)} tone="watch" sub=${`${cap(d.relative(due))} kl. ${d.fmtTime(due)} · internt mål ${fortnoxDays()} arbetsdagar efter månadsskiftet`} />`
+        <${ui.Kpi} label="Stoppade fakturor" value=${fmt.num(b.blocked)} tone=${b.blocked ? 'alert' : ''} statusText="Rätta referensen" sub=${b.blocked ? 'Fel eller saknad beställarreferens' : 'Inga stoppade'} />
+        <${ui.Kpi} label=${'Preskriptions\u00ADrisk'} value=${fmt.kr(MM.sum(ub, (x) => x.amountOre))} tone=${ub.length ? 'alert' : ''} statusText="Fakturera nu" sub=${ub.length ? `${plural(ub.length, 'vecka ofakturerad', 'veckor ofakturerade')} i mer än ${limit} dagar` : `Inga veckor äldre än ${limit} dagar`} />
+        ${cur && cur.status === 'draft' ? html`<${ui.Kpi} label="Senast i Fortnox" value=${d.fmtDateShort(due)} tone="watch" statusText="Bevaka tiden" sub=${`${cap(d.relative(due))} kl. ${d.fmtTime(due)} · internt mål ${fortnoxDays()} arbetsdagar efter månadsskiftet`} />`
           : html`<${ui.Kpi} label="Öppna uppgifter" value=${fmt.num(openTasks.length)} sub="Från avtalsansvarig" />`}
       </div>`}
       <div class="split">
@@ -636,7 +733,7 @@
             <div class="small muted">Veckorna faktureras i den månad där torsdagen infaller. Samlingsfakturor är ${MM.cfg().billing.collectiveInvoiceAllowed ? 'tillåtna per beställarreferens' : 'inte tillåtna'}.</div>
           </div>
         <//>`}
-        <${ui.Card} title="Uppgifter till dig" icon="inbox" flush actions=${openTasks.length > 0 && html`<${ui.Badge} tone="dark">${openTasks.length} öppna<//>`}>
+        <${ui.Card} title="Uppgifter till dig" icon="inbox" flush actions=${openTasks.length > 0 && html`<${ui.Badge} tone="dark">${plural(openTasks.length, 'öppen', 'öppna')}<//>`}>
           ${tasks.length === 0 ? html`<${ui.Empty} icon="inbox" title="Inga uppgifter">Avtalsansvarig skickar uppgifter hit, till exempel rätt beställarreferens från kommunen.<//>`
             : tasks.map((t) => { const cs = (t.caseIds || []).map(sel.caseById).filter(Boolean); const fixed = cs.every((c) => !sel.buyerRefProblem(c));
               return html`<div class=${MM.cls('eko-task', t.status !== 'open' && 'done')} key=${t.id}>
@@ -653,11 +750,11 @@
       <div class="grid-2">
         <${ui.Card} title=${`Ofakturerade veckor äldre än ${limit} dagar`} icon="alert" tone=${ubRows.length ? 'red' : undefined} flush>
           ${ubRows.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Inga gamla ofakturerade veckor">Alla debiterbara veckor äldre än ${limit} dagar är fakturerade.<//>` : html`
-            <div style="padding:14px 18px 0"><${ui.Notice} tone="critical" title="Risk för preskription">Faktureringen preskriberas två månader efter utfört arbete. Rätta referensen och fakturera veckorna nu.<//></div>
+            <div style="padding:14px 18px 0"><${ui.Notice} tone="critical" title="Risk för preskription">Faktureringen preskriberas ${prescText()} efter utfört arbete. Rätta referensen och fakturera veckorna nu.<//></div>
             <div class="list">${ubRows.map((r) => html`<div class="list-item" key=${r.id}>
               <div class="li-main">
                 <div class="row-sm"><${ui.CaseLink} caseId=${r.c.id} /><${InvStatus} status=${r.status} /></div>
-                <span class="small">${weekText(r.weeks)} · ${fmt.kr(r.amount)} · äldsta veckan ${r.age} dagar</span>
+                <span class="small">${plural(r.weeks.length, 'vecka', 'veckor')} (${weekText(r.weeks)}) · ${fmt.kr(r.amount)} · äldsta veckan ${plural(r.age, 'dag', 'dagar')}</span>
               </div>
               <div class="li-side"><span class="small muted">Preskriberas</span><span class="strong nowrap">${d.fmtDate(r.presc)}</span><span class="small nowrap">${r.left >= 0 ? `om ${plural(r.left, 'dag', 'dagar')}` : 'passerat'}</span></div>
             </div>`)}</div>`}
@@ -671,7 +768,8 @@
                 <div class="row-sm"><span class="li-title mono">${inv.number}</span><${InvStatus} status=${inv.status} /></div>
                 <span class="small">${monthLabel(inv.month)} · ${weekText(inv.weeks)} · ${fmt.kr(inv.amountOre)}</span>
                 <div class="row-sm"><span class="small">Beställarreferens:</span><${RefBadge} value=${c.buyerReference} /></div>
-                <div class="small">${cr ? `Krediterad och fakturerad på nytt ${d.fmtDateTime(cr.at)} med referens ${cr.reference}.` : refOk ? 'Referensen är rättad. Kreditera den returnerade fakturan och skapa en ny.' : 'Returnerad eftersom beställarreferensen inte finns hos kommunen. Rätta referensen först.'}</div>
+                <div class="small">${cr ? `Krediterad och fakturerad på nytt ${d.fmtDateTime(cr.at)} med referens ${cr.reference}. ${pl(inv.quantity, 'Veckan', 'Veckorna')} räknas nu som ${pl(inv.quantity, 'fakturerad', 'fakturerade')}.`
+                  : `${plural(inv.quantity, 'vecka faktureras', 'veckor faktureras')} om på en ny faktura. ${refOk ? 'Referensen är rättad. Kreditera den returnerade fakturan och skapa en ny.' : 'Fakturan returnerades eftersom beställarreferensen inte finns hos kommunen. Rätta referensen först.'}`}</div>
                 ${act && !cr && html`<div class="row-sm">${refOk
                   ? html`<${ui.Btn} kind="primary" icon="refresh" onClick=${() => reissue(inv)}>Kreditera och skapa ny<//><${ui.BuildPhase} fas=${2} />`
                   : html`<${ui.Btn} kind="secondary" icon="edit" onClick=${() => setRefModal({ cases: [c], task: taskFor(c.id) })}>Rätta referensen<//>`}</div>`}
@@ -684,7 +782,7 @@
           ${refCases.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Alla referenser är giltiga" />` : html`<div class="list">${refCases.map((c) => html`<div class="list-item" key=${c.id}>
             <div class="li-main">
               <div class="row-sm"><${ui.CaseLink} caseId=${c.id} /><${RefBadge} value=${c.buyerReference} /></div>
-              <div class="small">${sel.buyerRefProblem(c)}</div>
+              <div class="small">${noteText(sel.buyerRefProblem(c))}</div>
               ${!c.startDate && html`<div class="small muted">Insatsen har inte startat. Ingen faktura ännu – samordnaren tar in referensen från kommunen.</div>`}
               ${act && c.startDate && html`<div><${ui.Btn} kind="secondary" icon="edit" onClick=${() => setRefModal({ cases: [c], task: taskFor(c.id) })}>Rätta referensen<//></div>`}
             </div>
@@ -694,7 +792,7 @@
         <${ui.Card} title="Veckor utan närvaro att kontrollera" icon="clock" flush>
           ${zero.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Inga veckor att kontrollera" />` : html`<div class="list">${zero.map((z) => html`<button type="button" class="list-item clickable" key=${z.id} onClick=${() => MM.nav('eko.korning', { month: z.month, caseId: z.inv.caseId })}>
             <${I} name=${z.ch.severity === 'approved' ? 'check' : 'clock'} />
-            <span class="li-main"><span class="li-title mono">${z.inv.number}</span><span class="li-sub">${d.fmtWeekKey(z.ch.weekKey)} (${d.fmtWeekRange(z.ch.weekKey)}) · ${z.w ? `0 av ${z.w.planned} tillfällen med närvaro` : ''}</span></span>
+            <span class="li-main"><span class="li-title mono">${z.inv.number}</span><span class="li-sub">${d.fmtWeekKey(z.ch.weekKey)} (${d.fmtWeekRange(z.ch.weekKey)}) · ${z.w ? `0 av ${plural(z.w.planned, 'tillfälle', 'tillfällen')} med närvaro` : ''}</span></span>
             <span class="li-side"><${ui.Badge} tone=${z.ch.severity === 'approved' ? 'bluetone' : 'grey'} icon=${z.ch.severity === 'approved' ? 'check' : 'clock'}>${z.ch.severity === 'approved' ? 'Godkänd' : 'Kontrollera'}<//></span>
           </button>`)}</div>`}
         <//>
@@ -706,7 +804,7 @@
           { key: 'count', label: 'Fakturor', num: true, render: (r) => fmt.num(r.bb.count) },
           { key: 'weeks', label: 'Veckor', num: true, render: (r) => fmt.num(r.bb.weeks) },
           { key: 'total', label: 'Belopp exkl. moms', num: true, nowrap: true, render: (r) => fmt.kr(r.bb.totalOre) },
-          { key: 'status', label: 'Fakturastatus', render: (r) => html`<div class="stack-sm" style="gap:4px"><span><${InvStatus} status=${r.entries[0] ? r.entries[0][0] : 'draft'} /></span>${r.entries.length > 1 && html`<span class="small">${r.entries.slice(1).map(([s, xs]) => `${xs.length} ${STATUS_PLURAL[s] || s}`).join(' · ')}</span>`}</div>` },
+          { key: 'status', label: 'Fakturastatus', render: (r) => html`<div class="stack-sm" style="gap:4px"><span><${InvStatus} status=${r.entries[0] ? r.entries[0][0] : 'draft'} /></span>${r.entries.length > 1 && html`<span class="small">${r.entries.slice(1).map(([s, xs]) => `${xs.length} ${(xs.length === 1 ? STATUS_ONE : STATUS_PLURAL)[s] || s}`).join(' · ')}</span>`}</div>` },
           { key: 'todo', label: 'Att åtgärda', render: (r) => (r.todo ? html`<span class="row-sm nowrap"><${I} name="alert-circle" />${r.todo}</span>` : html`<span class="row-sm nowrap"><${I} name="check" />Inget</span>`) },
         ]} />
       <//>
@@ -714,14 +812,14 @@
         <div class="split">
           <${ui.Kv} items=${[
             ['Koppling', 'Simulerad i prototypen. I fas 1 används export och manuell registrering i Fortnox.'],
-            ['Inloggning', 'OAuth 2.0 (authorization code flow). Nycklarna sparas krypterade.'],
+            ['Inloggning', 'Via OAuth 2.0 – Fortnox godkänner kopplingen. Nycklarna sparas krypterade.'],
             ['Hastighetsgräns', '25 anrop per 5 sekunder. Körningen köar anropen.'],
             ['Dubbletter', 'Idempotensnyckel månad + ärendenummer. En omkörning skapar inga dubbletter.'],
           ]} />
           <${ui.Kv} items=${[
             ['Status tillbaka', 'Skapad → bokförd → skickad → betald'],
             ['Senaste körning', (() => { const r = fxState().runs[fxState().runs.length - 1]; return r ? `${d.fmtDateTime(r.at)}: ${plural(r.created, 'faktura skapad', 'fakturor skapade')}, ${plural(r.skipped, 'dubblett', 'dubbletter')} hoppades över` : 'Ingen körning i prototypen ännu'; })()],
-            ['Senaste statushämtning', fxState().lastSync ? `${d.fmtDateTime(fxState().lastSync.at)} (${plural(fxState().lastSync.changed, 'faktura', 'fakturor')} uppdaterade)` : 'Ingen ännu'],
+            ['Senaste statushämtning', fxState().lastSync ? `${d.fmtDateTime(fxState().lastSync.at)} (${plural(fxState().lastSync.changed, 'faktura uppdaterad', 'fakturor uppdaterade')})` : 'Ingen ännu'],
             ['Att kontrollera', 'Licenser för Fortnox Integration och Fortnox e-faktura, samt Botkyrkas Peppol-id.'],
           ]} />
         </div>
@@ -761,13 +859,14 @@
     const desc = `${inv.number} · ${weekText(inv.weeks)}`;
     const stepIdx = STEPS.indexOf(inv.status);
     const custRole = c.referrerId === 'k-maria' ? 'kommun_handlaggare' : 'kommun_chef';
+    const summary = invoiceSummary(inv);
     const vatNo = `SE${String(k.supplierOrgNr).replace(/\D/g, '')}01`;
     const mapping = [
-      { id: 'm1', f: 'Er referens', p: 'BuyerReference (BT-10)', v: inv.buyerReference || '–', note: 'Kommunens beställarreferens, 8–10 siffror. Krävs – utan den kan fakturan inte skapas.' },
-      { id: 'm2', f: 'Ert ordernummer', p: 'OrderReference (BT-13)', v: po || 'Tomt', note: 'Bara kommunens inköpsordernummer (99 + 7 siffror). Aldrig ärendenumret eller andra egna nummer.' },
+      { id: 'm1', f: 'Er referens', p: 'BuyerReference (BT-10)', v: inv.buyerReference || '–', note: `Kommunens beställarreferens, ${refLen()} siffror. Krävs – utan den kan fakturan inte skapas.` },
+      { id: 'm2', f: 'Ert ordernummer', p: 'OrderReference (BT-13)', v: po || 'Tomt', note: `Bara kommunens inköpsordernummer (${poText()}). Aldrig ärendenumret eller andra egna nummer.` },
       { id: 'm3', f: 'Artikel och benämning', p: 'Item (BT-153, BT-155)', v: `${inv.articleNo} · ${areaName}`, note: 'En artikel per avtalsområde, pris per deltagarvecka.' },
       { id: 'm4', f: 'Radtext', p: 'InvoiceLine Note (BT-127)', v: desc, note: 'Ärendenummer och veckor på varje rad. Inga namn.' },
-      { id: 'm5', f: 'Fakturatext', p: 'Note (BT-22)', v: 'Upparbetat och återstående', note: 'Beställningens värde, fakturerat hittills och återstående.' },
+      { id: 'm5', f: 'Fakturatext', p: 'Note (BT-22)', v: 'Upparbetat och återstående', note: 'Beställningen, denna faktura, tidigare fakturerat, veckor som faktureras om efter returnerad faktura, upparbetat och återstående.' },
       { id: 'm6', f: 'Faktureringsobjekt', p: 'InvoicedObjectIdentifier (BT-18)', v: inv.number, note: 'Ärendenumret. Hur fältet fylls från Fortnox ska bekräftas.' },
       { id: 'm7', f: 'Betalningsvillkor', p: 'PaymentTerms (BT-20)', v: `${cfgB.paymentTermsDays} dagar`, note: 'Enligt avtalet.' },
       { id: 'm8', f: 'Bankgiro', p: 'PaymentMeans (BG-16)', v: 'Hämtas från Fortnox', note: 'Anges inte i Miljonmatch.' },
@@ -778,7 +877,7 @@
       <div class="stack-sm">
         <div class="row-sm"><${InvStatus} status=${inv.status} />${inv.fortnoxNo && html`<span class="small">Fakturanummer i Fortnox: <b class="mono">${inv.fortnoxNo}</b></span>`}${inv.manualInvoiceNo && html`<span class="small">Manuellt fakturanummer: <b class="mono">${inv.manualInvoiceNo}</b></span>`}
           <span class="small strong" style="margin-left:8px">Kontroller:</span>${inv.checks.filter((x) => x.severity !== 'info').length === 0 ? html`<span class="row-sm small"><${I} name="check-circle" />Inga anmärkningar</span>`
-            : inv.checks.filter((x) => x.severity !== 'info').map((ch) => html`<${ui.Badge} tone=${CHECK[ch.severity].tone} icon=${CHECK[ch.severity].icon} title=${ch.text}>${ch.label}<//>`)}</div>
+            : inv.checks.filter((x) => x.severity !== 'info').map((ch) => html`<${ui.Badge} tone=${CHECK[ch.severity].tone} icon=${CHECK[ch.severity].icon} title=${checkText(ch, inv)}>${ch.label}<//>`)}</div>
         ${stepIdx >= 0 && html`<${ui.Stepper} steps=${STEP_LABEL} current=${inv.status === 'paid' ? STEPS.length : stepIdx} />`}
       </div>
       ${inv.blocked && html`<${ui.Notice} tone="critical" title="Fakturan kan inte skapas">${ref.text} Rätta beställarreferensen i fakturakörningen.<//>`}
@@ -815,7 +914,7 @@
         <div class="eko-scroll"><table>
           <thead><tr><th>Artikel</th><th>Beskrivning</th><th class="right">Antal</th><th class="right">À-pris</th><th class="right">Moms</th><th class="right">Belopp</th></tr></thead>
           <tbody><tr><td><b class="nowrap">${inv.articleNo}</b><div class="small">${areaName}, deltagarvecka</div></td><td>${desc}</td>
-            <td class="right num nowrap">${inv.quantity} veckor</td><td class="right num nowrap">${fmt.krExact(inv.unitPriceOre)}</td><td class="right num nowrap">${inv.vatRate} %</td><td class="right num nowrap">${fmt.krExact(inv.amountOre)}</td></tr></tbody>
+            <td class="right num nowrap">${plural(inv.quantity, 'vecka', 'veckor')}</td><td class="right num nowrap">${fmt.krExact(inv.unitPriceOre)}</td><td class="right num nowrap">${inv.vatRate} %</td><td class="right num nowrap">${fmt.krExact(inv.amountOre)}</td></tr></tbody>
         </table></div>
         <div class="eko-sums">
           <div><span>Summa exkl. moms</span><span>${fmt.krExact(inv.amountOre)}</span></div>
@@ -824,10 +923,23 @@
           <div class="total"><span>Att betala</span><span>${fmt.krExact(grossRounded)}</span></div>
         </div>
         <h2>Fakturatext</h2>
-        <p>${inv.invoiceText}</p>
+        <p>${summary.text}</p>
         <h2>Betalning</h2>
         <p>Betalningsvillkor ${cfgB.paymentTermsDays} dagar efter godkänd leverans och korrekt faktura. Bankgiro hämtas från Fortnox. Ange fakturanumret vid betalning.</p>
         <p class="fixed-text">Periodisk fakturering, månadsvis i efterskott, en faktura per ärende och månad. Ärendenumret ${inv.number} är faktureringsobjekt. Fakturan skickas som Peppol BIS Billing 3 – inte som e-post eller papper.</p>
+      <//>
+      <${ui.Card} title="Upparbetat och återstående" icon="layers">
+        <div class="split">
+          <${SummaryList} inv=${inv} />
+          <div class="stack-sm small">
+            <p><b>Upparbetat</b> är alla debiterbara veckor till och med ${d.monthName(mk)}. Pausade veckor räknas inte.</p>
+            <p><b>Tidigare fakturerat</b> är veckor på fakturor som är skapade i Fortnox eller manuellt fakturerade.</p>
+            ${summary.returned.qty > 0
+              ? html`<p><b>Faktureras om</b>: kommunen returnerade fakturan för ${summary.returned.rows.map((r) => d.monthName(r.mk)).join(', ')}. ${pl(summary.returned.qty, 'Veckan', 'Veckorna')} räknas som ${pl(summary.returned.qty, 'upparbetad', 'upparbetade')} men inte som ${pl(summary.returned.qty, 'fakturerad', 'fakturerade')} förrän den returnerade fakturan är krediterad och en ny faktura är skapad.</p>`
+              : html`<p><b>Faktureras om</b>: veckor på en faktura som kommunen har returnerat. De räknas inte som fakturerade förrän en ny faktura är skapad.</p>`}
+            <p>Samma siffror står i fakturatexten och i ärendets vy.</p>
+          </div>
+        </div>
       <//>
       <${ui.Card} title="Fältmappning Fortnox → Peppol" icon="link" flush>
         <${ui.Table} caption="Fältmappning Fortnox till Peppol" rows=${mapping} columns=${[
@@ -873,16 +985,19 @@
     const orderWeeks = c.orderValueWeeks || c.plannedWeeks || 0;
     const orderValue = sel.orderValueOre(c);
     const curMk = d.monthKey(d.today());
-    const runMonths = st.billingRuns.map((r) => r.month);
+    const led = ledger(c);
     const months = MM.uniq(weeks.map((w) => w.monthKey)).sort();
     const rows = months.map((mk) => {
-      const ws = weeks.filter((w) => w.monthKey === mk); const bill = ws.filter((w) => !w.paused);
-      const inv = runMonths.includes(mk) ? billing(mk).invoices.find((x) => x.caseId === c.id) : null;
-      return { id: mk, mk, bill, paused: ws.filter((w) => w.paused), qty: bill.length, amount: inv ? inv.amountOre : bill.length * price, inv, status: inv ? inv.status : mk >= curMk ? 'open' : null };
+      const ws = weeks.filter((w) => w.monthKey === mk); const l = led.find((x) => x.mk === mk) || null; const inv = l ? l.inv : null;
+      return { id: mk, mk, bill: l ? l.weeks : [], paused: ws.filter((w) => w.paused), qty: l ? l.qty : 0, amount: l ? l.amountOre : 0, inv, status: inv ? inv.status : mk >= curMk ? 'open' : null };
     });
-    const billable = weeks.filter((w) => !w.paused);
-    const invoicedWeeks = MM.sum(rows.filter((r) => r.inv && BILLED.includes(r.inv.status)), (r) => r.qty);
-    const accrued = billable.length; const remaining = Math.max(0, orderWeeks - accrued);
+    // Samma begrepp som fakturatexten: upparbetat = fakturerat + faktureras om + ej fakturerat.
+    const accrued = tally(led);
+    const billed = tally(led.filter((x) => x.kind === 'billed'));
+    const returned = tally(led.filter((x) => x.kind === 'returned'));
+    const pending = tally(led.filter((x) => x.kind === 'unbilled'));
+    const notBilled = { qty: returned.qty + pending.qty, amountOre: returned.amountOre + pending.amountOre };
+    const remaining = Math.max(0, orderWeeks - accrued.qty); const over = Math.max(0, accrued.qty - orderWeeks);
     const r = refInfo(c.buyerReference);
     const custRole = c.referrerId === 'k-maria' ? 'kommun_handlaggare' : 'kommun_chef';
     const paused = (c.pausedWeeks || []);
@@ -893,11 +1008,14 @@
       <${RoleNotice} />
       <div class="eko-kpis">
         <${ui.Kpi} label="Beställning" value=${fmt.kr(orderValue)} sub=${`${plural(orderWeeks, 'vecka', 'veckor')} × ${fmt.kr(price)}`} />
-        <${ui.Kpi} label="Upparbetat" value=${fmt.kr(accrued * price)} sub=${`${plural(accrued, 'debiterbar vecka', 'debiterbara veckor')} hittills`} />
-        <${ui.Kpi} label="Fakturerat" value=${fmt.kr(invoicedWeeks * price)} sub=${`${plural(invoicedWeeks, 'vecka', 'veckor')} i Fortnox eller manuellt`} />
-        <${ui.Kpi} label="Återstående" value=${fmt.kr(remaining * price)} tone=${accrued > orderWeeks ? 'alert' : ''} sub=${accrued > orderWeeks ? `${accrued - orderWeeks} veckor över beställningen` : `${plural(remaining, 'vecka', 'veckor')} kvar av beställningen`} />
+        <${ui.Kpi} label="Upparbetat" value=${fmt.kr(accrued.amountOre)} sub=${`${plural(accrued.qty, 'debiterbar vecka', 'debiterbara veckor')} hittills`} />
+        <${ui.Kpi} label="Fakturerat" value=${fmt.kr(billed.amountOre)} sub=${`${plural(billed.qty, 'vecka', 'veckor')} i Fortnox eller manuellt fakturerade`} />
+        <${ui.Kpi} label="Ej fakturerat" value=${fmt.kr(notBilled.amountOre)} tone=${returned.qty > 0 ? 'watch' : ''} statusText="Faktureras om"
+          sub=${returned.qty > 0 ? `${plural(notBilled.qty, 'vecka', 'veckor')}, varav ${plural(returned.qty, 'vecka', 'veckor')} på returnerad faktura` : `${plural(notBilled.qty, 'vecka', 'veckor')} – underlag eller pågående månad`} />
+        <${ui.Kpi} label="Återstående" value=${fmt.kr(remaining * price)} tone=${over > 0 ? 'alert' : ''} statusText="Över beställningen" sub=${over > 0 ? `${plural(over, 'vecka', 'veckor')} över beställningen` : `${plural(remaining, 'vecka', 'veckor')} kvar av beställningen`} />
       </div>
-      ${orderWeeks > 0 && html`<${ui.Meter} value=${Math.min(accrued, orderWeeks)} max=${orderWeeks} tone="blue" label=${`${accrued} av ${orderWeeks} beställda veckor upparbetade`} markers=${[{ value: invoicedWeeks, label: `Fakturerat: ${invoicedWeeks} veckor` }]} />`}
+      ${orderWeeks > 0 && html`<${ui.Meter} value=${Math.min(accrued.qty, orderWeeks)} max=${orderWeeks} tone="blue" label=${`Upparbetat: ${accrued.qty} av ${plural(orderWeeks, 'beställd vecka', 'beställda veckor')}`} markers=${[{ value: billed.qty, label: `Fakturerat: ${plural(billed.qty, 'vecka', 'veckor')}` }]} />`}
+      <p class="small muted">Upparbetat ${plural(accrued.qty, 'vecka', 'veckor')} = fakturerat ${billed.qty} + faktureras om efter returnerad faktura ${returned.qty} + ännu inte fakturerat ${pending.qty}. Pausade veckor räknas inte.</p>
       <div class="split">
         <${ui.Card} title="Ärendet" icon="briefcase">
           <${ui.Kv} items=${[
@@ -927,7 +1045,7 @@
           { key: 'weeks', label: 'Veckor', render: (x) => html`<span class="nowrap">${weekText(x.bill)}</span>${x.paused.length > 0 && html`<div class="cell-sub">Pausad ${x.paused.map((w) => d.fmtWeekKey(w.key)).join(', ')}</div>`}` },
           { key: 'qty', label: 'Antal', num: true },
           { key: 'amount', label: 'Belopp', num: true, nowrap: true, render: (x) => fmt.kr(x.amount) },
-          { key: 'status', label: 'Fakturastatus', render: (x) => (x.status === 'open' ? html`<${ui.Badge} tone="outline" icon="clock">Faktureras efter månadsskiftet<//>` : x.status ? html`<${InvStatus} status=${x.status} />` : '–') },
+          { key: 'status', label: 'Fakturastatus', render: (x) => (x.status === 'open' ? html`<${ui.Badge} tone="outline" icon="clock">Faktureras efter månadsskiftet<//>` : x.status ? html`<${InvStatus} status=${x.status} />${x.status === 'returned' && html`<div class="cell-sub">${pl(x.qty, 'Veckan', 'Veckorna')} faktureras om på en ny faktura</div>`}` : '–') },
           { key: 'no', label: 'Fakturanummer', nowrap: true, render: (x) => (x.inv && (x.inv.fortnoxNo || x.inv.manualInvoiceNo)) || '–' },
           { key: 'go', label: '', render: (x) => x.inv && html`<span class="row-sm small nowrap"><${I} name="file" />Förhandsgranska</span>` },
         ]} />`}
@@ -936,11 +1054,11 @@
           { key: 'range', label: 'Period', nowrap: true, render: (w) => d.fmtWeekRange(w.key) },
           { key: 'month', label: 'Faktureras i', nowrap: true, render: (w) => monthLabel(w.monthKey) },
           { key: 'days', label: 'Inskrivna dagar', num: true, render: (w) => w.enrolledDays },
-          { key: 'att', label: 'Närvaro', nowrap: true, render: (w) => (w.planned ? `${w.attended} av ${w.planned} tillfällen` : 'Inga tillfällen än') },
+          { key: 'att', label: 'Närvaro', nowrap: true, render: (w) => (w.planned ? `${w.attended} av ${plural(w.planned, 'tillfälle', 'tillfällen')}` : 'Inga tillfällen än') },
           { key: 'note', label: 'Anmärkning', render: (w) => html`<div class="eko-ic-row">${w.paused && html`<${ui.Badge} tone="grey" icon="pause">Pausad – debiteras inte<//>`}${w.partial && !w.paused && html`<${ui.Badge} tone="outline" icon="info">Delvis vecka<//>`}${w.zeroAttendance && html`<${ui.Badge} tone="grey" icon="clock">Ingen närvaro<//>`}${w.missingRegistration && !w.paused && w.monday < d.monday(d.today()) && html`<${ui.Badge} tone="outline" icon="alert-circle">Närvaro saknas<//>`}</div>` },
         ]} /></div>`}
       <//>
-      <${ui.DemoNote}>Upparbetat räknas som alla debiterbara veckor till och med innevarande vecka. Fakturerat är veckor i fakturor som är skapade i Fortnox eller manuellt fakturerade.<//>
+      <${ui.DemoNote}>Upparbetat räknas som alla debiterbara veckor till och med innevarande vecka. Fakturerat är veckor på fakturor som är skapade i Fortnox eller manuellt fakturerade. Veckor på en returnerad faktura räknas som ej fakturerade tills en ny faktura är skapad. Fakturastatus och Fortnox är simulerade.<//>
       ${refModal && html`<${RefModal} cases=${[c]} task=${taskFor(c.id)} onClose=${() => setRefModal(false)} />`}
     <//>`;
   };

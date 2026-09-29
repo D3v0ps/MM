@@ -25,6 +25,15 @@ try {
   ok(t.includes('Returnerade fakturor') && t.includes('BOT-26-0117'), 'Returnerade decemberfakturor visas');
   ok(t.includes('Uppgifter till dig') && t.includes('55102938'), 'Uppgiften från avtalsansvarig visas med rätt referens');
   ok(t.includes('Byggs i fas 2') && t.includes('Fortnox-synk'), 'Fortnox-synk märkt som fas 2');
+  ok(!/authorization code flow/i.test(t.raw) && t.includes('Fortnox godkänner kopplingen'), 'Fortnox-kortet har ingen engelsk fackterm');
+  ok(t.includes('Rätta referensen') && t.includes('Fakturera nu'), 'KPI-rutor med röd ram har statustext (inte bara färg)');
+  ok(t.includes('5 veckor faktureras om på en ny faktura'), 'Returnerade fakturor: det står att veckorna faktureras om');
+  ok(!/\b1 (veckor|fakturor|öppna|stoppade|returnerade|godkända)\b/.test(t.raw), 'Inga felaktiga pluralformer efter 1 på startsidan');
+  const kpiOverflow = await S(() => [...document.querySelectorAll('.eko-kpis .kpi > *')].filter((el) => el.scrollWidth > el.clientWidth + 1).length);
+  ok(kpiOverflow === 0, 'KPI-värden och etiketter ryms i rutorna (1280 px)');
+  await page.setViewportSize({ width: 400, height: 900 }); await page.waitForTimeout(120);
+  ok(await S(() => [...document.querySelectorAll('.eko-kpis .kpi > *')].filter((el) => el.scrollWidth > el.clientWidth + 1).length) === 0, 'KPI-värden och etiketter ryms i rutorna (400 px)');
+  await page.setViewportSize({ width: 1280, height: 900 }); await page.waitForTimeout(80);
 
   console.log('2. Körningen januari: rätta stoppad faktura i radens detalj');
   probs = await visit(page, 'ekonom', 'eko.korning', { month: '2027-01' });
@@ -32,6 +41,9 @@ try {
   t = await mainText();
   ok(/torsdag/.test(t.raw) && /v\. 53 2026/i.test(t.raw) && /december 2026/.test(t.raw), 'Förklaring av torsdagsregeln (v. 53 hör till december)');
   ok(t.includes('Samlingsfakturor är inte tillåtna'), 'Samlingsfakturor förklaras som inte tillåtna');
+  ok(t.includes(`(${await S(() => MM.valid.buyerRefLengthText())} siffror)`), 'Referensens längd läses från konfigurationen');
+  ok(!t.includes('1 323–1 668') || t.includes('prislistans spann'), 'Prisspannet räknas fram ur prislistan');
+  ok(await S(() => [...document.querySelectorAll('.eko-kpis .kpi > *')].filter((el) => el.scrollWidth > el.clientWidth + 1).length) === 0, 'KPI-värdet 511 332 kr ryms i rutan');
   await page.getByRole('tab', { name: /Stoppade/ }).click(); await page.waitForTimeout(80);
   ok(await page.locator('table.table tbody tr').count() === 2, 'Filtret Stoppade visar två fakturor');
   await page.locator('tr', { hasText: 'BOT-26-0117' }).first().click(); await page.waitForTimeout(120);
@@ -135,10 +147,28 @@ try {
   ok(t.includes('BuyerReference') && t.includes('OrderReference') && t.includes('Er referens') && t.includes('Ert ordernummer'), 'Fältmappningen visas');
   ok(t.includes('BOT-26-0132 · v. 1, 3–4 2027'), 'Radtexten visar veckorna utan den pausade veckan');
   ok(t.includes('Att betala') && t.includes('Moms 25 %') && t.includes('Betalningsvillkor 30 dagar'), 'Summor, moms och betalningsvillkor visas');
-  ok(t.includes('Beställning BOT-26-0132: planerat'), 'Fakturatext med upparbetat och återstående visas');
+  ok(t.includes('Beställning BOT-26-0132: 10 veckor') && t.includes('Tidigare fakturerat:') && t.includes('Upparbetat inklusive denna faktura:') && t.includes('Återstår av beställningen:'), 'Fakturatext med tidigare fakturerat, upparbetat och återstående visas');
+  ok(!/\b1 veckor\b/.test(t.raw), 'Inga "1 veckor" på fakturan');
+  ok(t.includes('9 siffror som börjar med 99') && t.includes(`${await S(() => MM.valid.buyerRefLengthText())} siffror`), 'Fältmappningen hämtar referensmönstren från konfigurationen');
   const pausName = await S((id) => { const p = MM.sel.person(id); return [p.firstName, p.lastName]; }, sc.pausad);
   ok(!pausName.some((n) => t.raw.includes(n)), 'Fakturan innehåller inga namn');
   ok(!t.includes('Sjukhusvistelse'), 'Pausorsaken (hälsouppgift) visas inte');
+
+  console.log('7b. Returnerad decemberfaktura: veckorna räknas och benämns lika i faktura och ärendevy');
+  const acc = await S((id) => { const all = MM.sel.billableWeeks(MM.sel.caseById(id)).filter((w) => !w.paused); return { dec: all.filter((w) => w.monthKey === '2026-12').length, jan: all.filter((w) => w.monthKey === '2027-01').length, upToJan: all.filter((w) => w.monthKey <= '2027-01').length }; }, sc.reffel2);
+  probs = await visit(page, 'ekonom', 'eko.faktura', { month: '2027-01', caseId: sc.reffel2 });
+  ok(!probs.length, 'eko.faktura för ärendet med returnerad decemberfaktura renderar');
+  t = await mainText();
+  const ftext = (t.raw.match(/Beställning BOT-26-0121:[^\n]*/) || [''])[0].replace(/\u00a0/g, ' ');
+  ok(ftext.includes('Tidigare fakturerat: 0 veckor, 0 kr.'), `Returnerade veckor räknas inte som fakturerade (${ftext.slice(0, 160)}…)`);
+  ok(ftext.includes(`Returnerad faktura för december 2026`) && ftext.includes(`${acc.dec} veckor`) && ftext.includes('faktureras om på en ny faktura'), 'Fakturatexten säger att de returnerade veckorna faktureras om');
+  ok(ftext.includes(`Upparbetat inklusive denna faktura: ${acc.upToJan} veckor`) && acc.upToJan === acc.dec + acc.jan, 'Upparbetat = returnerat + denna faktura');
+  ok(!ftext.includes('Fakturerat inklusive'), 'Upparbetade veckor kallas inte fakturerade');
+  ok(t.includes('Faktureras om') && t.includes('Upparbetat och återstående'), 'Sammanställningen visar raden Faktureras om');
+  probs = await visit(page, 'ekonom', 'eko.arende', { caseId: sc.reffel2 });
+  t = await mainText();
+  ok(/Fakturerat\s*0\s*kr/i.test(t.raw) && /Ej fakturerat/i.test(t.raw) && t.includes(`varav ${acc.dec} veckor på returnerad faktura`), 'Ärendevyn: fakturerat 0 kr och returnerade veckor under Ej fakturerat');
+  ok(t.includes('faktureras om på en ny faktura'), 'Ärendevyn: returnerad månad märkt Faktureras om');
 
   console.log('8. Ekonomens ärendevy');
   probs = await visit(page, 'ekonom', 'eko.arende', { caseId: sc.nadia });
@@ -163,8 +193,15 @@ try {
   const dec = await S((ids) => ids.map((id) => MM.store.state.invoiceStatus['2026-12'][id]), [sc.reffel1, sc.reffel2]);
   ok(dec.every((x) => x === 'fortnox_created'), 'eko.reissue: decemberfakturorna krediterades och skapades på nytt');
   ok(await S(() => MM.sel.unbilledOld().length) < before, 'Preskriptionsvarningen försvann för de omfakturerade veckorna');
+  ok((await mainText()).includes('räknas nu som fakturerade'), 'Krediterade fakturor: veckorna räknas nu som fakturerade');
   await clickBtn('Markera som klar');
   ok(await S(() => MM.store.state.tasks.find((x) => x.id === 'task-1').status) === 'done', 'eko.taskDone markerade uppgiften som klar');
+
+  console.log('9b. Efter omfakturering räknas decemberveckorna som fakturerade');
+  await visit(page, 'ekonom', 'eko.faktura', { month: '2027-01', caseId: sc.reffel2 });
+  const ftext2 = ((await mainText()).raw.match(/Beställning BOT-26-0121:[^\n]*/) || [''])[0].replace(/\u00a0/g, ' ');
+  ok(ftext2.includes(`Tidigare fakturerat: ${acc.dec} veckor`) && !ftext2.includes('Returnerad faktura'), 'Fakturatexten räknar de omfakturerade veckorna som tidigare fakturerade');
+  await visit(page, 'ekonom', 'eko.start', {});
 
   console.log('10. Chef ser läsläge');
   probs = await visit(page, 'chef', 'eko.korning', { month: '2027-01' });

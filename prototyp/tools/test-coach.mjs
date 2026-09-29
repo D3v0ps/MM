@@ -18,7 +18,15 @@ try {
   await noBadText('Min vecka');
   const kpi = await page.locator('.kpi').first().innerText();
   ok(/NÄRVARO ATT REGISTRERA\s*6/i.test(kpi), 'KPI visar 6 tillfällen att registrera');
-  ok(await page.getByText('Ej fastställd deadline – förslag 5:e arbetsdagen').first().isVisible(), 'Månadsbedömningar märkta "Ej fastställd deadline – förslag 5:e arbetsdagen"');
+  ok(await page.getByText('Sista dag ej fastställd – förslag 5:e arbetsdagen').first().isVisible(), 'Månadsbedömningar märkta "Sista dag ej fastställd – förslag 5:e arbetsdagen"');
+  ok(!/deadline/i.test(await page.locator('#main').innerText()), 'Inga engelska "deadline" i Min vecka');
+  ok(!/\b1 (godkända|granskade|tillfällen|olästa)\b/.test(await page.locator('#main').innerText()), 'Inga felaktiga pluralformer ("1 godkända", "1 tillfällen")');
+  ok(await page.getByRole('button', { name: 'Bedöm', exact: true }).count() >= 1, 'Månadsbedömningarna har Bedöm-knappar');
+  ok(await page.locator('.card').filter({ hasText: 'Meddelanden från kommunen' }).getByText('Inga olästa meddelanden').isVisible(), 'Kortet Meddelanden från kommunen visas (tomt)');
+  await page.setViewportSize({ width: 400, height: 860 }); await page.waitForTimeout(120);
+  { const bb = await page.getByRole('button', { name: 'Bedöm', exact: true }).first().boundingBox(); const over = await ev(() => document.documentElement.scrollWidth - window.innerWidth);
+    ok(bb && bb.x >= 0 && bb.x + bb.width <= 400 && over <= 1, 'Mobil 400 px: Bedöm-knappen syns inom skärmen, ingen sidledsscroll'); }
+  await page.setViewportSize({ width: 1280, height: 900 }); await page.waitForTimeout(80);
   ok(await page.locator('.co-cal .co-day').count() === 5, 'Veckokalendern visar måndag–fredag');
   ok(await page.getByRole('button', { name: 'Granska' }).count() === 1, 'Ett AI-utkast att granska (Mehmet)');
   ok(await page.getByRole('button', { name: 'Öppna notiser' }).isVisible(), 'Länk till notiser finns');
@@ -47,6 +55,7 @@ try {
   ok(st1.left === 0, 'Alla tillfällen vecka 4 är registrerade');
   ok(st1.valid === 1, 'Giltig frånvaro sparad med orsaken Sjukdom');
   ok(st1.rep === 'delivered', 'Veckorapporten till Maria Ekdahl publicerades automatiskt');
+  ok(await ev(() => MM.store.state.reports.find((r) => r.kind === 'weekly_attendance' && r.week === '2027-W04' && r.recipientUserId === 'k-linda').status) === 'delivered', 'Veckorapporten till Linda Karlsson publicerades när Elifs tillfällen registrerats');
   ok(/Maria Ekdahl[\s\S]*?Publicerad 1 feb/.test(await page.locator('.card').filter({ hasText: 'Veckorapporter – vecka 4' }).innerText()), 'Veckorapporten till Maria visas som publicerad');
   // Uppspelning: efter omladdning ska rapporten fortfarande vara publicerad
   await page.waitForTimeout(400); // låt prototypen spara loggen (sparas med 150 ms fördröjning)
@@ -78,17 +87,25 @@ try {
   await btn(page.getByRole('group', { name: 'Antal arbetsgivarkontakter' }), '0').click();
   await page.getByRole('group', { name: 'Samlad status' }).getByRole('button', { name: /Röd/ }).click();
   ok(await page.locator('#dev-desc').isVisible(), 'Röd status visar avvikelseformuläret');
-  ok((await page.locator('#dev-desc').inputValue()).includes('Upprepad ogiltig frånvaro'), 'Avvikelsen är förifylld utifrån frånvaron');
-  await page.locator('#dev-desc').fill('');
-  await page.getByRole('button', { name: 'Godkänn avstämningen' }).click();
-  ok(await page.getByText('Beskriv avvikelsen.').isVisible(), 'Godkännande stoppas utan beskrivning');
-  ok(await ev((id) => MM.store.state.checkIns.filter((x) => x.caseId === id).length, sc.yusuf) === nCi0, 'Ingen avstämning sparades utan avvikelse');
-  await page.locator('#dev-desc').fill('Upprepad ogiltig frånvaro två onsdagar i rad');
+  ok(await ev(() => ['dev-desc', 'dev-action', 'dev-owner', 'dev-follow'].every((id) => document.getElementById(id).value === '') && !document.querySelector('#dev-cust button[aria-pressed="true"]')), 'Avvikelsen är inte förifylld (beskrivning, åtgärd, ansvarig, datum, beslut)');
   await page.locator('#ci-note').fill('Uteblev två onsdagar. Vi har gått igenom schemat och bokat uppföljning med handläggaren.');
+  await page.getByRole('button', { name: 'Godkänn avstämningen' }).click();
+  ok(await page.getByText('Stopp: röd status kräver en avvikelse').isVisible(), 'Godkännande stoppas: stoppet om avvikelse syns');
+  ok(await page.getByText('Beskriv avvikelsen.').isVisible() && await page.getByText('Skriv vilken åtgärd som ska göras.').isVisible() && await page.getByText('Välj ansvarig.').isVisible() && await page.getByText('Välj datum för uppföljning.').isVisible(), 'Varje saknat avvikelsefält markeras');
+  ok(await ev((id) => MM.store.state.checkIns.filter((x) => x.caseId === id).length, sc.yusuf) === nCi0, 'Ingen avstämning sparades utan avvikelse');
+  await page.getByRole('button', { name: 'Använd förslaget från flaggan' }).click();
+  ok((await page.locator('#dev-desc').inputValue()).includes('Upprepad ogiltig frånvaro') && (await page.locator('#dev-action').inputValue()).length > 10, 'Förslaget från flaggan kan användas på coachens eget klick');
+  await page.locator('#dev-desc').fill('Upprepad ogiltig frånvaro två onsdagar i rad');
+  await page.selectOption('#dev-owner', 'u-amira');
+  await page.getByRole('button', { name: /^Om en vecka/ }).click();
+  await btn(page.getByRole('group', { name: 'Behöver beslut från kommunen' }), 'Ja').click();
+  ok(!(await page.getByText('Stopp: röd status kräver en avvikelse').count()), 'Stoppet försvinner när avvikelsen är ifylld');
   await page.getByRole('button', { name: 'Godkänn avstämningen' }).click();
   const y = await ev((id) => { const st = MM.store.state; const ci = st.checkIns.filter((x) => x.caseId === id).sort(MM.by('approvedAt')).pop(); const dv = st.deviations.find((x) => x.checkInId === ci.id); return { status: ci.status, overall: ci.overallStatus, goal: ci.goalStatus, doc: ci.docMinutes, dev: dv ? { owner: dv.ownerId, follow: dv.followUpOn, cust: dv.needsCustomerDecision } : null, devId: dv && dv.id }; }, sc.yusuf);
   ok(y.status === 'approved' && y.overall === 'red' && y.goal === 'no', 'Avstämningen är godkänd med röd status');
   ok(y.dev && y.dev.owner === 'u-amira' && y.dev.follow === '2027-02-08' && y.dev.cust === true, 'Avvikelse skapad med ansvarig, uppföljningsdatum och beslut från kommunen');
+  ok(await ev((dev) => MM.store.state.tasks.some((t) => t.deviationId === dev && t.kind === 'customer_decision' && t.toId === 'k-maria'), y.devId), 'Handläggaren fick en uppgift om beslut');
+  ok(await page.getByText(/har fått en uppgift i portalen/).isVisible(), 'Kvittot visar att handläggaren fått en uppgift');
   ok(typeof y.doc === 'number' && y.doc >= 1, 'Dokumentationstid sparad');
   await page.getByRole('button', { name: 'Kalla kommunen till uppföljning' }).click();
   const msg = await ev(({ id, dev }) => { const st = MM.store.state; const m = st.messages.filter((x) => x.caseId === id && x.kind === 'meeting_request').pop(); const dv = st.deviations.find((x) => x.id === dev); const n = st.notifications.filter((x) => x.caseId === id && x.template === 'nytt_meddelande').pop();
@@ -108,13 +125,17 @@ try {
   ok(await page.getByText('Ljudet är raderat').isVisible(), 'Visar att ljudet raderades efter transkribering');
   await page.getByRole('button', { name: 'Visa råtranskriptet' }).click();
   ok(await page.locator('.co-transcript').isVisible(), 'Råtranskriptet kan visas');
-  ok(await ev((id) => MM.store.state.auditLog.some((l) => l.action === 'transcript.view' && l.entityId === id), ciM), 'Visning av transkript loggas');
+  ok(await page.waitForFunction((id) => MM.store.state.auditLog.some((l) => l.action === 'transcript.view' && l.entityId === id), ciM, { timeout: 2000 }).then(() => true, () => false), 'Visning av transkript loggas');
   await page.getByRole('group', { name: 'Samlad status' }).getByRole('button', { name: /Grön/ }).click();
   await page.getByRole('button', { name: 'Godkänn avstämningen' }).click();
   ok(await page.getByText(/Ta ställning till alla AI-förslag/).isVisible(), 'Godkännande stoppas tills alla förslag är granskade');
-  for (const f of ['veckomål uppnått', 'fas', 'genomförda aktiviteter', 'arbetsgivarkontakter', 'anteckning']) await page.getByRole('group', { name: `AI-förslag för ${f}` }).getByRole('button', { name: 'Acceptera' }).click();
+  for (const f of ['veckomål uppnått', 'fas', 'arbetsgivarkontakter', 'anteckning']) await page.getByRole('group', { name: `AI-förslag för ${f}` }).getByRole('button', { name: 'Acceptera' }).click();
+  // Ändra men behåll värdet → loggas som accepterat, och det syns
+  await page.getByRole('group', { name: 'AI-förslag för genomförda aktiviteter' }).getByRole('button', { name: 'Ändra' }).click();
+  ok(await page.getByRole('group', { name: 'AI-förslag för genomförda aktiviteter' }).getByText('Oförändrat – loggas som accepterat').isVisible(), 'Ändra utan nytt värde visar "Oförändrat – loggas som accepterat"');
   await page.getByRole('group', { name: 'AI-förslag för nytt veckomål' }).getByRole('button', { name: 'Ändra' }).click();
   await page.locator('#ci-nextgoal').fill('Köra hela distributionsrundan själv på tisdag');
+  ok(await page.getByRole('group', { name: 'AI-förslag för nytt veckomål' }).getByText('Ändrat – loggas som ändrat').isVisible(), 'Ändrat värde visar "Ändrat – loggas som ändrat"');
   await page.getByRole('group', { name: 'AI-förslag för hinder' }).getByRole('button', { name: 'Avvisa' }).click();
   ok(await ev(() => document.activeElement && document.activeElement.id === 'ci-nextgoal') || true, 'Ändra flyttar fokus till fältet');
   await page.getByRole('button', { name: 'Godkänn avstämningen' }).click();
@@ -124,10 +145,35 @@ try {
   ok(m.status === 'approved' && m.overall === 'green', 'AI-utkastet godkändes med coachens status');
   ok(m.rawDel && m.tr === 0, 'Råtranskriptet raderades vid godkännandet');
   ok(m.phase === 3, 'Accepterat fasförslag sparat');
-  ok(m.decs.goalStatus === 'accepted' && m.decs.nextGoal === 'changed' && m.decs.obstacles === 'rejected', 'Besluten (accepterat/ändrat/avvisat) sparas per fält');
+  ok(m.decs.goalStatus === 'accepted' && m.decs.nextGoal === 'edited' && m.decs.obstacles === 'rejected', 'Besluten (accepterat/ändrat/avvisat) sparas per fält');
+  ok(m.decs.activitiesDone === 'accepted', 'Ändra utan ändrat värde loggas som accepterat');
+  ok(/5 \/ 1 \/ 1/.test(await page.locator('.kpi').filter({ hasText: 'AI-förslag' }).innerText()), 'Kvittot räknar 5 accepterade / 1 ändrat / 1 avvisat');
+  ok(await page.locator('.card').filter({ hasText: 'Loggade AI-beslut' }).getByText('Du valde Ändra men behöll förslaget').isVisible(), 'Kvittot förklarar att Ändra utan ändring loggades som accepterat');
   ok(Array.isArray(m.obst) && m.obst.length === 0 && m.goal === 'Köra hela distributionsrundan själv på tisdag', 'Avvisat förslag töms och ändrat värde sparas');
   ok(await page.getByText('Råtranskriptet raderades vid godkännandet').isVisible(), 'Kvittot visar att råtranskriptet raderades');
   ok(await page.getByText('Ljudet raderades direkt efter transkriberingen').isVisible(), 'Kvittot visar att ljudet raderades');
+
+  // ------------------------------------------------------------------ AI från inklistrade anteckningar (Hodan)
+  step('AI-förslag från inklistrade anteckningar – Hodan');
+  await visit(page, 'coach', 'coach.avstamning', { caseId: sc.hodan });
+  await page.getByRole('button', { name: 'Med AI-stöd' }).click();
+  await page.getByRole('button', { name: 'Inklistrade anteckningar' }).click();
+  await page.locator('#ai-notes').fill('Deltagaren var sjuk hela veckan och deltog inte i något. Ingen arbetsgivarkontakt.');
+  await page.getByRole('button', { name: 'Tolka anteckningarna' }).click();
+  await page.getByRole('group', { name: 'AI-förslag för veckomål uppnått' }).waitFor({ timeout: 5000 });
+  const grp = (f) => page.getByRole('group', { name: `AI-förslag för ${f}` });
+  ok(/\bNej\b/.test(await grp('veckomål uppnått').innerText()) && /sjuk hela veckan/.test(await grp('veckomål uppnått').innerText()), 'Veckomål: förslaget Nej med meningen om sjukdom som belägg');
+  ok(/^\s*0\b/m.test((await grp('arbetsgivarkontakter').locator('.strong').innerText())) && /Ingen arbetsgivarkontakt/.test(await grp('arbetsgivarkontakter').innerText()), 'Arbetsgivarkontakter: förslaget 0 med belägg');
+  for (const f of ['nytt veckomål', 'fas', 'hinder']) ok(/Framgår inte/.test(await grp(f).innerText()) && !(await grp(f).getByRole('button', { name: 'Acceptera' }).count()), `${f}: "Framgår inte" utan förslag`);
+  await noBadText('Avstämning Hodan (anteckningar)');
+  for (const f of ['veckomål uppnått', 'genomförda aktiviteter', 'arbetsgivarkontakter', 'anteckning']) await grp(f).getByRole('button', { name: 'Acceptera' }).click();
+  await page.locator('#ci-nextgoal').fill('Komma tillbaka och gå igenom ansökningarna');
+  await page.getByRole('group', { name: 'Samlad status' }).getByRole('button', { name: /Gul/ }).click();
+  await page.getByRole('button', { name: 'Godkänn avstämningen' }).click();
+  const hn = await ev((id) => { const st = MM.store.state; const ci = st.checkIns.filter((x) => x.caseId === id && x.status === 'approved').sort(MM.by('approvedAt')).pop(); const dec = (st.aiFieldDecisions || []).filter((x) => x.aiRunId === ci.aiRunId);
+    return { method: ci.inputMethod, goal: ci.goalStatus, ec: ci.employerContacts.count, fields: dec.map((x) => x.field).sort().join(',') }; }, sc.hodan);
+  ok(hn.method === 'notes' && hn.goal === 'no' && hn.ec === '0', 'Avstämningen sparad med Nej och 0 arbetsgivarkontakter');
+  ok(hn.fields === 'activitiesDone,employerContacts,goalStatus,note', 'Bara förslag med belägg loggas som AI-beslut');
 
   // ------------------------------------------------------------------ Samtycke + simulerad inspelning (Elif)
   step('Samtycke och simulerad inspelning – Elif');
@@ -169,7 +215,11 @@ try {
   const selects = page.locator('.cm-table select');
   ok(await selects.count() === 10, 'Tio progressionsområden');
   ok((await ev(() => [...document.querySelectorAll('.cm-table select')].every((s) => s.value === ''))), 'Alla nivåer är tomma tills coachen väljer');
-  ok(await page.getByText(/Förslag: \d – /).first().isVisible(), 'AI-nivåförslag visas bredvid rullgardinen');
+  ok(await page.getByText(/Förslag:\s\d\s–\s/).first().isVisible(), 'AI-nivåförslag visas under rullgardinen');
+  const rowsInfo = await ev(() => [...document.querySelectorAll('.cm-table tbody tr')].map((tr) => ({ t: tr.innerText, use: !!([...tr.querySelectorAll('button')].find((b) => b.innerText.includes('Använd utkastet'))) })));
+  const noEvRows = rowsInfo.filter((r) => /Framgår inte/.test(r.t));
+  ok(noEvRows.length > 0 && noEvRows.every((r) => !/Förslag:\s\d/.test(r.t) && !r.use), 'Utkast utan belägg visar "Framgår inte" utan nivåförslag och utan "Använd utkastet"');
+  ok(await ev(() => { const tag = document.querySelector('.cm-ai-lvl'); return !!tag && tag.getBoundingClientRect().height < 50; }), 'AI-nivåförslaget är vanlig text på en rad, inte fyra rader versaler');
   await selects.nth(0).selectOption('2');
   await page.getByRole('button', { name: 'Godkänn bedömningen' }).click();
   ok(await page.getByText(/Skriv en konkret observation/).first().isVisible(), 'Nivå 2 utan observation stoppas');
@@ -245,6 +295,17 @@ try {
   // Min vecka efter allt: närvaron klar
   await visit(page, 'coach', 'coach.minvecka', {});
   ok(await page.getByText('Allt är registrerat för vecka 4').isVisible(), 'Min vecka visar att vecka 4 är klar');
+
+  step('Meddelande från kommunen syns i Min vecka');
+  await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: sc.nadia });
+  await ev((id) => MM.dispatch('message.send', { caseId: id, body: 'Tiden passar bra. Vi ses på torsdag.' }), sc.nadia);
+  await visit(page, 'coach', 'coach.minvecka', {});
+  const msgCard = page.locator('.card').filter({ hasText: 'Meddelanden från kommunen' });
+  ok(/Tiden passar bra/.test(await msgCard.innerText()) && /BOT-26-0143/.test(await msgCard.innerText()), 'Oläst meddelande från kommunen visas med ärendenummer och utdrag');
+  await msgCard.getByRole('button', { name: 'Läs och svara' }).click();
+  ok(await ev(() => MM.route.view === 'arende.kort' && MM.route.params.tab === 'meddelanden'), '"Läs och svara" öppnar ärendets meddelanden');
+  await visit(page, 'coach', 'coach.minvecka', {});
+  ok(await page.locator('.card').filter({ hasText: 'Meddelanden från kommunen' }).getByText('Inga olästa meddelanden').isVisible(), 'Meddelandet räknas som läst efteråt');
   await noBadText('Min vecka efter flöden');
 } catch (e) {
   failed++; console.log('  FEL  Undantag:', e.message.split('\n')[0]);

@@ -43,7 +43,16 @@
 .ldg-case { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:flex-start; padding-top:10px; border-top:1px solid var(--line); }
 .ldg-case:first-of-type { border-top:0; padding-top:0; }
 .ldg-case .main { flex:1 1 220px; min-width:0; display:flex; flex-direction:column; gap:6px; }
-details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px; display:flex; align-items:center; gap:8px; }
+details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px; display:flex; align-items:center; gap:8px; list-style:none; text-decoration:underline; text-underline-offset:3px; border-radius:var(--radius); padding:0 6px; margin:0 -6px; }
+details.ldg-details > summary::-webkit-details-marker { display:none; }
+details.ldg-details > summary:hover { background:var(--antracit-ton); }
+details.ldg-details > summary .ldg-chev { display:inline-flex; transition:transform .15s; }
+details.ldg-details[open] > summary .ldg-chev { transform:rotate(180deg); }
+.ldg-slarow .ldg-slameta { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 8px; }
+.ldg-tight .table th { white-space:normal; }
+.ldg-tight .table th, .ldg-tight .table td { padding-left:8px; padding-right:8px; }
+.ldg-tight .table th:first-child, .ldg-tight .table td:first-child { padding-left:12px; }
+.ldg-cust .ldg-custval { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; }
 .ldg-big { font-size:2.25rem; font-weight:800; line-height:1.05; font-variant-numeric:tabular-nums; }
 .ldg-alert { display:grid; grid-template-columns:24px minmax(0, 1fr); gap:6px 12px; align-items:start; padding:12px 0; border-top:1px solid var(--line); }
 .ldg-alert:first-child { border-top:0; padding-top:0; }
@@ -51,7 +60,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
 .ldg-alert .side { grid-column:2; display:flex; flex-wrap:wrap; gap:6px; }
 .ldg-summary h3 { font-size:var(--fs-label); font-weight:800; letter-spacing:.1em; text-transform:uppercase; margin-top:6px; }
 .ldg-wrapbtn { display:inline-flex; max-width:100%; min-width:0; }
-.ldg-wrapbtn .btn { white-space:normal; text-align:left; max-width:100%; }
+.ldg-wrapbtn .btn { white-space:normal; text-align:left; max-width:100%; min-width:0; }
 .ldg-summary ul { margin:0; padding-left:1.2em; display:flex; flex-direction:column; gap:6px; }
 `;
   if (typeof document !== 'undefined' && !document.getElementById('ldg-style')) {
@@ -68,6 +77,65 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
   const kpiCfg = (key) => MM.cfg().kpis.find((k) => k.key === key);
   const mbUsers = () => S().users.filter((u) => u.active !== false);
   const customerChef = () => S().customerUsers.find((u) => u.role === 'chef');
+  /** Gränsen för små grupper i kundens rapporter ("färre än N") – från avtalskonfigurationen. */
+  const smallGroupN = () => MM.cfg().pulse.minNForAggregate;
+  const fmtWhen = (s) => (!s ? '–' : s.length > 10 ? d.fmtDateTime(s) : d.fmtDate(s));
+  /** Förfallotider för öppna åtgärdsplaner, hämtade från samma källa som listan Förfaller (sel.deadlines), så att klockslaget inte hårdkodas här. */
+  const planDueMap = () => Object.fromEntries(sel.deadlines({ days: 3660 }).filter((x) => x.kind === 'atgardsplan').map((x) => [x.id.replace(/^cd:/, ''), x.dueAt]));
+
+  /**
+   * Efter flikbyte: lägg fokus på den valda fliken igen. MM.nav flyttar annars fokus till huvudinnehållet,
+   * och då slutar piltangenterna i fliklistan att fungera.
+   */
+  const refocusTab = (label) => setTimeout(() => {
+    const a = document.activeElement; const main = document.getElementById('main');
+    if (a && a !== main && a !== document.body && a.getAttribute('role') !== 'tab') return;
+    const b = document.querySelector(`#main [role=tablist][aria-label="${label}"] [role=tab][aria-selected="true"]`);
+    if (b && b !== a) b.focus({ preventScroll: true });
+  }, 0);
+
+  // ------------------------------------------------------------ Kundens bild (samma urval som kom.chef)
+  const deliveredOk = (r) => !!r.deliveredAt && ['delivered', 'opened'].includes(r.status) && !r.superseded;
+  /**
+   * Det kommunens chef ser som standard i kom.chef: den senast levererade beställarrapporten och dess
+   * rullande resultatgrad (sel.customerSummary(månad).result.rolling). next = närmast följande utkast.
+   */
+  const customerView = () => {
+    const pid = (customerChef() || {}).id;
+    const reps = S().reports.filter((r) => r.kind === 'customer_summary' && !r.superseded && (r.recipientUserId === pid || (r.deliveredTo || []).includes(pid))).sort(MM.by('month'));
+    const delivered = reps.filter(deliveredOk);
+    const latest = delivered[delivered.length - 1] || null;
+    const next = reps.find((r) => !deliveredOk(r) && (!latest || r.month > latest.month)) || null;
+    const sum = latest ? sel.customerSummary(latest.month) : null;
+    return {
+      latest, rolling: sum ? sum.result.rolling : null, target: sum ? sum.result.contractTarget : kpiCfg('resultatgrad').contractTarget,
+      next, nextRolling: next ? sel.customerSummary(next.month).result.rolling : null,
+      correction: latest && latest.correctionPending ? S().reports.find((r) => r.id === latest.correctionPending) || null : null,
+    };
+  };
+  /** Kundens omdöme om resultatgraden – samma regel och text som i kom.chef. */
+  const CustVerdict = ({ r, target }) => (!r || r.den < r.minN ? html`<${ui.Badge} tone="grey" icon="info">För få avslut för att bedöma<//>`
+    : r.value >= target ? html`<${ui.Badge} tone="blue" icon="check-circle">Når avtalsmålet<//>` : html`<${ui.Badge} tone="red" icon="alert">Under avtalsmålet<//>`);
+  const CustomerCard = ({ liveValue }) => {
+    const cv = customerView(); const r = cv.rolling; const n = smallGroupN();
+    return html`<${ui.Card} title="Så ser kommunens chef resultatet" icon="building" tone="sub">
+      <div class="stack-sm ldg-cust">
+        ${cv.latest && r ? html`
+          <p>I beställarrapporten för <b>${d.monthName(cv.latest.month)}</b>: resultatgrad <b>${r.value == null ? '–' : pct(r.value)}</b> (${r.num} av ${r.den} avslut, rullande 6 månader) mot avtalsmålet <b>${pct0(cv.target)}</b>.</p>
+          <div class="ldg-custval"><${CustVerdict} r=${r} target=${cv.target} /></div>
+          <p class="small">Det är den senast levererade rapporten (levererad ${d.fmtDateTime(cv.latest.deliveredAt)}). Den visas när kommunens chef öppnar beställarrapporten.</p>`
+        : html`<p>Kommunens chef har inte fått någon beställarrapport ännu. Siffrorna syns för kommunen först när avtalsansvarig har godkänt och levererat den första rapporten.</p>`}
+        ${cv.next && cv.nextRolling && html`<p class="small">Rapporten för ${d.monthName(cv.next.month)} är ett utkast tills avtalsansvarig godkänner den. Med dagens underlag visar den ${cv.nextRolling.value == null ? '–' : pct(cv.nextRolling.value)} (${cv.nextRolling.num} av ${cv.nextRolling.den} avslut).</p>`}
+        ${cv.correction && html`<p class="small">En rättad version av rapporten väntar på leverans. Kommunens chef ser den levererade versionen tills den nya har levererats.</p>`}
+        ${r && r.value != null && liveValue != null && pct(liveValue) !== pct(r.value) && html`<p class="small muted">Ledningsvyns ${pct(liveValue)} räknas fram till i dag och tar med avslut som ännu inte finns i en levererad rapport.</p>`}
+        <p class="small muted">Kommunen ser inte det interna målet, prognosen, jämförelsen per coach eller flaggorna. Grupper med färre än ${n} personer redovisas som "färre än ${n}".</p>
+        <div class="row-sm">
+          <span class="ldg-wrapbtn"><${ui.PerspectiveSwitch} role="kommun_chef" view="kom.chef" label=${cv.latest ? `Se ${d.monthName(cv.latest.month)} som kommunens chef` : 'Se beställarrapporten som kommunens chef'} /></span>
+          ${cv.next && canOpen('rapport.visa') && html`<span class="ldg-wrapbtn"><${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => MM.nav('rapport.visa', { reportId: cv.next.id })}>${`Öppna utkastet för ${d.monthName(cv.next.month)}`}<//></span>`}
+        </div>
+      </div>
+    <//>`;
+  };
 
   const RR_STATUS = {
     ok: { tone: 'blue', icon: 'check-circle', label: 'Över internt mål' },
@@ -213,13 +281,12 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
         <span><span class="ldg-sw ldg-sw-internal" aria-hidden="true"></span>Internt mål ${pct0(internal)}</span>
       </div>
       <details class="ldg-details">
-        <summary><${I} name="list" />Visa siffrorna som tabell</summary>
+        <summary><span class="ldg-chev" aria-hidden="true"><${I} name="chevron-down" /></span>Visa siffrorna som tabell</summary>
         <${ui.Table} rowKey="month" caption="Resultatgrad per månad" rows=${rows} columns=${[
           { key: 'month', label: 'Månad', render: (r) => d.monthName(r.month) },
-          { key: 'value', label: 'Resultatgrad', num: true, render: (r) => (r.value == null ? '–' : pct(r.value)) },
-          { key: 'n', label: 'Resultat av avslut', num: true, render: (r) => `${r.num} av ${r.den}` },
+          { key: 'value', label: 'Resultatgrad', num: true, render: (r) => html`<span class="strong">${r.value == null ? '–' : pct(r.value)}</span><div class="cell-sub nowrap">${r.num} av ${r.den} avslut</div>` },
           { key: 'ex', label: 'Räknas inte', num: true, render: (r) => r.excluded },
-          { key: 'cum', label: 'Kumulativt', num: true, render: (r) => (r.cumulative == null ? '–' : `${pct(r.cumulative)} (${r.cumulativeN})`) },
+          { key: 'cum', label: 'Kumulativt', num: true, render: (r) => (r.cumulative == null ? '–' : html`${pct(r.cumulative)}<div class="cell-sub nowrap">${r.cumulativeN} avslut</div>`) },
         ]} />
       </details>
     </div>`;
@@ -263,15 +330,18 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     const byCoach = MM.groupBy(escalated, (w) => w.case.leadCoachId);
     const lm = lastMonth();
     const resultDefUnset = MM.isUnset(cfg.result.definition);
+    const slaTargets = MM.uniq(sla.filter((x) => x.target != null).map((x) => x.target));
+    const slaTargetText = slaTargets.length === 1 ? `internt mål ${pct0(slaTargets[0])}` : 'internt mål per rad';
+    const dueOf = planDueMap();
     return html`<div class="stack-lg">
       <div class="ldg-tiles">
-        <${ui.Kpi} label="Resultatgrad, rullande 6 mån" value=${rolling.value == null ? '–' : pct(rolling.value)} tone=${tone}
-          sub=${`${rolling.num} av ${rolling.den} avslut · minst ${rolling.minN} krävs för flagga`}><${RrBadge} status=${rolling.status} /><//>
+        <${ui.Kpi} label="Resultatgrad, rullande 6 mån" value=${rolling.value == null ? '–' : pct(rolling.value)} tone=${tone} statusText=${tone ? (RR_STATUS[rolling.status] || {}).label : undefined}
+          sub=${`${rolling.num} av ${rolling.den} avslut · minst ${rolling.minN} krävs för flagga`}>${!tone && html`<${RrBadge} status=${rolling.status} />`}<//>
         <${ui.Kpi} label="Sedan avtalsstart" value=${sinceStart.value == null ? '–' : pct(sinceStart.value)}
           sub=${`${sinceStart.num} av ${sinceStart.den} avslut sedan ${d.fmtDate(MM.contract().startsOn)}`} />
         <${ui.Kpi} label="Prognos" value=${pct(forecast.value)} sub=${`Om ${forecast.candidates} deltagare med arbetserbjudande eller i fas 5 når resultat`} />
-        <${ui.Kpi} label="Flaggor att hantera" value=${String(alerts.length)} tone=${critical > 0 ? 'alert' : undefined}
-          sub=${`${critical} kritiska · ${escalated.length} ärenden med tidig uppmärksamhet`} />
+        <${ui.Kpi} label="Flaggor att hantera" value=${String(alerts.length)} tone=${critical > 0 ? 'alert' : undefined} statusText=${critical > 0 ? `${fmt.plural(critical, 'kritisk flagga', 'kritiska flaggor')}` : undefined}
+          sub=${critical > 0 ? `${fmt.plural(escalated.length, 'ärende', 'ärenden')} med tidig uppmärksamhet` : `Inga kritiska · ${fmt.plural(escalated.length, 'ärende', 'ärenden')} med tidig uppmärksamhet`} />
       </div>
 
       <div class="split-wide">
@@ -308,13 +378,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
               <div class="small muted">Prognosen är ett räkneexempel för ledningen. Den visas inte för kommunen.</div>
             </div>
           <//>
-          <${ui.Card} title="Så ser kommunens chef resultatet" icon="building" tone="sub">
-            <div class="stack-sm">
-              <p>Resultatgrad <b>${rolling.value == null ? '–' : pct(rolling.value)}</b> mot avtalsmålet <b>${pct0(k.contractTarget)}</b>, rullande och sedan start.</p>
-              <p class="small muted">Kommunen ser inte det interna målet, prognosen, jämförelsen per coach eller flaggorna. Grupper med färre än 5 personer redovisas som "färre än 5".</p>
-              <div><span class="ldg-wrapbtn"><${ui.PerspectiveSwitch} role="kommun_chef" view="kom.chef" label="Så ser kommunens chef resultatet – utan internt mål" /></span></div>
-            </div>
-          <//>
+          <${CustomerCard} liveValue=${rolling.value} />
         </div>
       </div>
 
@@ -324,7 +388,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
             ${flagAlerts.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Inga flaggor att kvittera">Nya flaggor visas här när de uppstår.<//>`
               : html`<div>${flagAlerts.map((a) => html`<${AlertRow} key=${a.key} a=${a} onAck=${onAck} />`)}</div>`}
             <div class="small muted">Eskaleringar om utebliven progression visas under Tidig uppmärksamhet.</div>
-            ${acked.length > 0 && html`<details class="ldg-details"><summary><${I} name="check-square" />Kvitterade flaggor (${acked.length})</summary>
+            ${acked.length > 0 && html`<details class="ldg-details"><summary><span class="ldg-chev" aria-hidden="true"><${I} name="chevron-down" /></span>Kvitterade flaggor (${acked.length})</summary>
               <div>${acked.map((a) => html`<${AlertRow} key=${a.key} a=${a} />`)}</div></details>`}
           </div>
         <//>
@@ -359,18 +423,20 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
       <div class="grid-3">
         <${ui.Card} title="SLA-uppfyllnad" icon="clock">
           <div class="stack">
-            <div class="small muted">${d.monthName(lm)} · mål 100 %</div>
-            ${sla.map((x) => html`<div class="stack-sm" style="gap:4px" key=${x.key}>
+            <div class="small muted">${d.monthName(lm)} · ${slaTargetText}</div>
+            ${sla.map((x) => { const s = KPI_STATUS[x.status] || KPI_STATUS.no_data; return html`<div class="stack-sm ldg-slarow" style="gap:4px" key=${x.key}>
               <div class="row-between" style="gap:6px"><span class="small strong">${x.label}</span><span class="num strong">${x.value == null ? '–' : pct(x.value)}</span></div>
-              <${MiniBar} value=${x.value || 0} tone=${x.status === 'ok' ? 'blue' : undefined} markers=${x.target != null ? [{ value: x.target, label: `Mål ${pct0(x.target)}` }] : []} label=${`${x.label}: ${pct(x.value)}`} />
-              <span class="small muted">${x.num} av ${x.den}${x.provisional ? ' · deadline ej fastställd med Botkyrka' : ''}</span>
-            </div>`)}
-            <div class="row-between"><span class="strong">Försenat just nu</span><${ui.Badge} tone=${overdue.length ? 'red' : 'blue'} icon=${overdue.length ? 'alert' : 'check'}>${overdue.length} ${overdue.length === 1 ? 'deadline' : 'deadlines'}<//></div>
-            ${canOpen('sam.deadlines') && html`<div><${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => MM.nav('sam.deadlines', {})}>Förfaller i dag och denna vecka<//></div>`}
+              <${MiniBar} value=${x.value || 0} tone=${x.status === 'ok' ? 'blue' : undefined} markers=${x.target != null ? [{ value: x.target, label: `Mål ${pct0(x.target)}` }] : []} label=${`${x.label}: ${pct(x.value)}${x.target != null ? `, mål ${pct0(x.target)}` : ''}. ${s.label}.`} />
+              <div class="ldg-slameta"><span class="small muted">${x.num} av ${x.den}${x.target != null ? ` · mål ${pct0(x.target)}` : ''}</span><${ui.Badge} tone=${s.tone} icon=${s.icon}>${s.label}<//></div>
+              ${x.provisional && html`<span class="small muted">Sista dag är inte fastställd med Botkyrka.</span>`}
+            </div>`; })}
+            <div class="row-between"><span class="strong">Försenat just nu</span><${ui.Badge} tone=${overdue.length ? 'red' : 'blue'} icon=${overdue.length ? 'alert' : 'check'}>${overdue.length ? fmt.plural(overdue.length, 'uppgift', 'uppgifter') : 'Inget'}<//></div>
+            ${canOpen('sam.deadlines') && html`<div><span class="ldg-wrapbtn"><${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => MM.nav('sam.deadlines', {})}>Förfaller i dag och denna vecka<//></span></div>`}
             ${!cfg.customerVisibility.seesSlaStats && html`<div class="small muted">SLA-statistiken visas inte för kommunen (beslut i ledningen, öppen fråga 17).</div>`}
           </div>
         <//>
-        <${ui.Card} title="Ofakturerat" icon="card" tone=${unbilled.length ? 'red' : undefined}>
+        <${ui.Card} title="Ofakturerat" icon="card" tone=${unbilled.length ? 'red' : undefined}
+          actions=${unbilled.length ? html`<${ui.Badge} tone="red" icon="alert">Kräver åtgärd<//>` : html`<${ui.Badge} tone="blue" icon="check-circle">Når målet<//>`}>
           <div class="stack">
             <div class="ldg-big">${fmt.kr(MM.sum(unbilled, (x) => x.amountOre))}</div>
             <p>${unbilled.length === 0 ? `Inga debiterbara veckor äldre än ${cfg.billing.unbilledWarningDays} dagar är ofakturerade.` : html`<b>${unbilled.length} veckor</b> i ${fmt.plural(unbilledCases.length, 'ärende', 'ärenden')} är äldre än ${cfg.billing.unbilledWarningDays} dagar utan faktura.`}</p>
@@ -389,7 +455,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
               <span class="small strong">Öppna åtgärdsplaner</span>
               ${openPlans.length === 0 ? html`<span class="small muted">Inga öppna åtgärdsplaner.</span>` : openPlans.map((x) => html`<div class="row-between" key=${x.id} style="gap:6px">
                 <span class="small" style="min-width:0;flex:1 1 140px">${x.description.length > 60 ? `${x.description.slice(0, 58)}…` : x.description}</span>
-                ${x.actionPlanDue ? html`<${ui.SlaBadge} dueAt=${`${x.actionPlanDue}T16:00`} />` : html`<span class="small muted">Datum saknas</span>`}
+                ${dueOf[x.id] ? html`<${ui.SlaBadge} dueAt=${dueOf[x.id]} />` : x.actionPlanDue ? html`<span class="small">Klart senast ${d.fmtDate(x.actionPlanDue)}</span>` : html`<span class="small muted">Datum saknas</span>`}
               </div>`)}
             </div>
             <div class="small muted">${cfg.warningsBeforeTermination} skriftliga varningar kan leda till uppsägning av avtalet.</div>
@@ -408,7 +474,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
           { key: 'status', label: 'Status', render: (x) => { const s = KPI_STATUS[x.status] || KPI_STATUS.no_data; return html`<${ui.Badge} tone=${s.tone} icon=${s.icon}>${s.label}<//>`; } },
         ]} />
       <//>
-      <p class="small muted" style="margin-top:-16px">Mål som inte är fastställda med Botkyrka ger ingen flagga förrän de är fastställda. Månadsrapporternas deadline är ett förslag tills kommunen bekräftat den (öppen fråga 8).</p>
+      <p class="small muted" style="margin-top:-16px">Mål som inte är fastställda med Botkyrka ger ingen flagga förrän de är fastställda. Sista dag för månadsrapporterna är ett förslag tills kommunen bekräftat den (öppen fråga 8).</p>
       <${ui.DemoNote}>Siffrorna räknas fram ur påhittade testdata varje gång sidan visas. I den riktiga tjänsten räknar ett schemalagt jobb om resultatgraden varje vecka och skickar veckosammanfattning via e-post till chef och controller.<//>
     </div>`;
   };
@@ -448,16 +514,17 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     const docOver = allDoc != null && allDoc > INTERNAL_GOALS.docMinutes;
     return html`<div class="stack-lg">
       <div class="ldg-tiles">
-        <${ui.Kpi} label="Aktiva ärenden" value=${String(tot.active)} sub=${`fördelade på ${rows.length} coacher`} />
-        <${ui.Kpi} label="Resultatgrad, alla" value=${all.value == null ? '–' : pct(all.value)} sub=${`${rows.filter((r) => r.rr.status === 'below_contract').length} av ${rows.length} coacher under avtalsmålet`} tone=${all.status === 'below_contract' ? 'alert' : all.status === 'below_internal' ? 'watch' : undefined} />
-        <${ui.Kpi} label="Dokumentationstid" value=${fmtMin(allDoc)} tone=${docOver ? 'watch' : undefined} sub=${`median utan AI, ${d.monthName(mk)} · internt mål högst ${INTERNAL_GOALS.docMinutes} min`} />
+        <${ui.Kpi} label="Aktiva ärenden just nu" value=${String(tot.active)} sub=${`status aktiv i dag · fördelade på ${rows.length} coacher`} />
+        <${ui.Kpi} label="Resultatgrad, alla" value=${all.value == null ? '–' : pct(all.value)} sub=${`${rows.filter((r) => r.rr.status === 'below_contract').length} av ${rows.length} coacher under avtalsmålet`}
+          tone=${all.status === 'below_contract' ? 'alert' : all.status === 'below_internal' ? 'watch' : undefined} statusText=${['below_contract', 'below_internal'].includes(all.status) ? RR_STATUS[all.status].label : undefined} />
+        <${ui.Kpi} label="Dokumentationstid" value=${fmtMin(allDoc)} tone=${docOver ? 'watch' : undefined} statusText=${docOver ? 'Bevaka – över internt mål' : undefined} sub=${`median utan AI, ${d.monthName(mk)} · internt mål högst ${INTERNAL_GOALS.docMinutes} min`} />
         <${ui.Kpi} label="Påminnelser denna vecka" value=${String(tot.reminders)} sub=${`${tot.escalated} ärenden eskalerade till dig`} />
       </div>
-      <${ui.Card} title="Per coach" icon="users" flush actions=${html`<span class="small muted">Resultatgrad rullande 6 mån · övrigt ${d.monthName(mk)}</span>`}>
-        <${ui.Table} caption="Nyckeltal per coach" rows=${rows} columns=${[
+      <${ui.Card} title="Per coach" icon="users" flush actions=${html`<span class="small muted">Aktiva just nu · resultatgrad rullande 6 mån · övrigt ${d.monthName(mk)}</span>`}>
+        <div class="ldg-tight"><${ui.Table} caption="Nyckeltal per coach" rows=${rows} columns=${[
           { key: 'name', label: 'Coach', nowrap: true, render: (r) => html`<${ui.UserName} id=${r.id} />` },
-          { key: 'active', label: 'Aktiva', num: true },
-          { key: 'rr', label: 'Resultatgrad', render: (r) => html`<div class="stack-sm" style="gap:5px;min-width:150px">
+          { key: 'active', label: 'Aktiva nu', num: true },
+          { key: 'rr', label: 'Resultatgrad', render: (r) => html`<div class="stack-sm" style="gap:5px;min-width:136px">
               <div class="row-between" style="gap:6px"><span class="strong num">${r.rr.value == null ? '–' : pct(r.rr.value)}</span><span class="small muted num">${r.rr.num} av ${r.rr.den}</span></div>
               <${MiniBar} value=${r.rr.value || 0} max=${0.6} markers=${markers} tone=${r.rr.status === 'ok' ? 'blue' : undefined} label=${`Resultatgrad ${pct(r.rr.value)}`} />
               <div><${RrBadge} status=${r.rr.status} short /></div></div>` },
@@ -465,7 +532,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
           { key: 'ci', label: 'Avstämningar', num: true, render: (r) => html`<span class="strong">${r.ciRate == null ? '–' : pct(r.ciRate)}</span><div class="cell-sub nowrap">${r.wkOk} av ${r.wk} veckor</div>` },
           { key: 'doc', label: 'Dokumentation', num: true, render: (r) => html`<span class="strong nowrap">${fmtMin(r.docMedian)}</span><div class="cell-sub nowrap">median utan AI</div>` },
           { key: 'rem', label: 'Påminnelser', num: true, render: (r) => html`<span class="strong">${r.reminders}</span><div class="cell-sub nowrap">${r.escalated} eskalerade</div>` },
-        ]} footer=${html`<tr><td>Alla coacher</td><td class="num">${tot.active}</td><td>${all.value == null ? '–' : pct(all.value)}<div class="cell-sub nowrap">${all.num} av ${all.den}</div></td><td class="num">${tot.reg ? pct(tot.att / tot.reg) : '–'}</td><td class="num">${tot.wk ? pct(tot.wkOk / tot.wk) : '–'}</td><td class="num">${fmtMin(allDoc)}</td><td class="num">${tot.reminders}<div class="cell-sub nowrap">${tot.escalated} eskalerade</div></td></tr>`} />
+        ]} footer=${html`<tr><td>Alla coacher</td><td class="num">${tot.active}</td><td>${all.value == null ? '–' : pct(all.value)}<div class="cell-sub nowrap">${all.num} av ${all.den}</div></td><td class="num">${tot.reg ? pct(tot.att / tot.reg) : '–'}</td><td class="num">${tot.wk ? pct(tot.wkOk / tot.wk) : '–'}</td><td class="num">${fmtMin(allDoc)}</td><td class="num">${tot.reminders}<div class="cell-sub nowrap">${tot.escalated} eskalerade</div></td></tr>`} /></div>
       <//>
       <div class="grid-3">
         <${ui.Notice} tone="info" title="Så räknas det">Resultatgrad: avslut med verifierat resultat delat med avslut som räknas. Under ${k.minN} avslut markeras underlaget som för litet och ingen flagga sätts. Närvarograd: närvarande eller sen delat med registrerade tillfällen. Godkända avstämningar: andel veckor med en godkänd veckoavstämning (startveckor och pausade veckor räknas inte).<//>
@@ -487,23 +554,29 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     const tot = { active: MM.sum(rows, (r) => r.active), closed: MM.sum(rows, (r) => r.closed) };
     const all = sel.resultRate({ from: MM.contract().startsOn });
     const smallCount = rows.filter((r) => r.rr.den < minN).length;
+    const lm = lastMonth();
+    const monthActive = useMemo(() => sel.customerSummary(lm).active, [lm, MM.store.version]);
     return html`<div class="stack-lg">
       <div class="ldg-tiles">
-        <${ui.Kpi} label="Aktiva deltagare" value=${String(tot.active)} sub=${`i ${rows.filter((r) => r.active > 0).length} av ${rows.length} avtalsområden`} />
+        <${ui.Kpi} label="Aktiva just nu" value=${String(tot.active)} sub=${`Deltagare med status aktiv i dag, i ${rows.filter((r) => r.active > 0).length} av ${rows.length} avtalsområden`} />
+        <${ui.Kpi} label=${`Aktiva under ${d.monthName(lm)}`} value=${String(monthActive)} sub="Aktiva någon gång under månaden – samma räknesätt som i beställarrapporten till kommunen" />
         <${ui.Kpi} label="Avslutade sedan start" value=${String(tot.closed)} sub=${`${all.num} med verifierat resultat`} />
         <${ui.Kpi} label="Områden med litet underlag" value=${String(smallCount)} sub=${`färre än ${minN} avslut som räknas`} />
       </div>
       <${ui.Card} title="Per avtalsområde" icon="grid" flush actions=${html`<span class="small muted">Resultatgrad sedan avtalsstart</span>`}>
         <${ui.Table} caption="Deltagare och resultat per avtalsområde" rows=${rows} columns=${[
           { key: 'name', label: 'Avtalsområde', render: (r) => html`<span class="strong">${r.code}</span> ${r.name}` },
-          { key: 'active', label: 'Aktiva', render: (r) => html`<div class="row-sm" style="flex-wrap:nowrap;min-width:110px"><span class="num strong" style="min-width:2ch;text-align:right">${r.active}</span><div style="flex:1"><${MiniBar} value=${r.active} max=${maxActive} tone="blue" label=${`${r.active} aktiva`} /></div></div>` },
+          { key: 'active', label: 'Aktiva nu', render: (r) => html`<div class="row-sm" style="flex-wrap:nowrap;min-width:110px"><span class="num strong" style="min-width:2ch;text-align:right">${r.active}</span><div style="flex:1"><${MiniBar} value=${r.active} max=${maxActive} tone="blue" label=${`${r.active} aktiva just nu`} /></div></div>` },
           { key: 'closed', label: 'Avslutade', num: true },
           { key: 'rr', label: 'Resultatgrad', num: true, nowrap: true, render: (r) => (r.rr.value == null ? html`<span class="muted">–</span>` : html`<span class=${r.rr.den < minN ? 'muted' : 'strong'}>${pct(r.rr.value)}</span><div class="cell-sub">${r.rr.num} av ${r.rr.den}</div>`) },
           { key: 'n', label: 'Underlag', render: (r) => (r.rr.den >= minN ? html`<${ui.Badge} tone="outline" icon="check">Tillräckligt<//>`
             : html`<div class="stack-sm" style="gap:2px"><${ui.Badge} tone="grey" icon="alert-circle">Litet underlag<//>${r.rr.den > 0 && r.rr.den < small && html`<span class="cell-sub">Kommunen ser "färre än ${small}"</span>`}</div>`) },
         ]} footer=${html`<tr><td>Alla områden</td><td>${tot.active}</td><td class="num">${tot.closed}</td><td class="num">${all.value == null ? '–' : pct(all.value)}</td><td></td></tr>`} />
       <//>
-      <${ui.Notice} tone="info" title="Små grupper">Resultatgrad i områden med färre än ${minN} avslut svänger kraftigt och ska inte jämföras rakt av. I beställarrapporten till kommunen redovisas grupper med färre än ${small} personer som "färre än ${small}".<//>
+      <div class="grid-2">
+        <${ui.Notice} tone="info" title="Små grupper">Resultatgrad i områden med färre än ${minN} avslut svänger kraftigt och ska inte jämföras rakt av. I beställarrapporten till kommunen redovisas grupper med färre än ${small} personer som "färre än ${small}".<//>
+        <${ui.Notice} tone="info" title="Två sätt att räkna aktiva">"Aktiva just nu" är deltagare med status aktiv i dag. Beställarrapporten räknar i stället alla som var aktiva någon gång under månaden, även de som avslutades eller startade under månaden.${monthActive !== tot.active ? ` Därför skiljer sig talen åt: ${tot.active} just nu och ${monthActive} under ${d.monthName(lm)}.` : ''}<//>
+      </div>
     </div>`;
   };
 
@@ -526,18 +599,19 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     const st = useMemo(() => sel.pulseStats(), [MM.store.version]);
     const minN = st.minN;
     const lowAlerts = sel.alerts({ role: 'chef', personaId: MM.currentPersonaId(), includeAcked: true }).filter((a) => a.kind === 'pulse_low');
+    const lowOpen = lowAlerts.filter((a) => !a.ack).length;
     const contact = S().pulseResponses.filter((p) => p.contactRequested).length;
     const perCoach = useMemo(() => sel.coaches().map((u) => ({ id: u.id, name: u.name, s: sel.pulseStats({ coachId: u.id }) })), [MM.store.version]);
     const prio = Object.entries(st.priorities || {}).sort((a, b) => b[1] - a[1]);
     const prioTotal = MM.sum(prio, (x) => x[1]);
     const rateOk = st.responseRate != null && st.responseRate >= INTERNAL_GOALS.pulseResponseRate;
     return html`<div class="stack-lg">
-      <div class="row-between"><div class="row-sm"><${ui.BuildPhase} fas=${2} /><span class="small muted">Rullande 3 månader · vecka 2 och vid avslut, plus var 30:e dag för längre insatser</span></div>
+      <div class="row-between"><div class="row-sm"><${ui.BuildPhase} fas=${2} /><span class="small muted">Rullande 3 månader · vecka 2 och vid avslut, plus var ${MM.cfg().pulse.periodicEveryDays}:e dag för längre insatser</span></div>
         ${MM.views['puls.svar'] ? html`<span class="ldg-wrapbtn"><${ui.PerspectiveSwitch} role="deltagare" view="puls.svar" label="Se pulsmätningen som deltagaren" /></span>` : null}</div>
       ${!st.enough ? html`<${ui.Notice} tone="info" title=${`Färre än ${minN} svar`}>Aggregat visas först när det finns minst ${minN} svar. Det skyddar deltagarna från att kunna identifieras.<//>` : html`
       <div class="ldg-tiles">
-        <${ui.Kpi} label="Svarsfrekvens" value=${pct(st.responseRate)} tone=${rateOk ? undefined : 'watch'} sub=${`${st.responses} svar på ${st.invites} utskick · mål ${pct0(INTERNAL_GOALS.pulseResponseRate)}`}>
-          <${ui.Badge} tone=${rateOk ? 'blue' : 'grey'} icon=${rateOk ? 'check-circle' : 'alert-circle'}>${rateOk ? 'Når målet' : 'Under målet'}<//><//>
+        <${ui.Kpi} label="Svarsfrekvens" value=${pct(st.responseRate)} tone=${rateOk ? undefined : 'watch'} statusText=${rateOk ? undefined : 'Under målet'} sub=${`${st.responses} svar på ${st.invites} utskick · internt mål ${pct0(INTERNAL_GOALS.pulseResponseRate)}`}>
+          ${rateOk && html`<${ui.Badge} tone="blue" icon="check-circle">Når målet<//>`}<//>
         <${ui.Kpi} label="Nöjdhet" value=${pct(st.satisfaction)} sub="Andel som svarat 4 eller 5 på fråga 1 (trivsel)" />
         <${ui.Kpi} label="Närmare jobb eller studier" value=${pct(st.closer)} sub="Andel 4 eller 5 på fråga 2" />
         <${ui.Kpi} label="Stöd från coachen" value=${pct(st.support)} sub="Andel 4 eller 5 på fråga 3" />
@@ -554,7 +628,8 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
               <span class="v small">${n} · ${prioTotal ? pct0(n / prioTotal) : '–'}</span>`)}</div>
             <div class="small muted" style="margin-top:10px">Fråga 4. Används för att planera praktik, utbildning och språkstöd.</div>
           <//>
-          <${ui.Card} title="Lågt betyg på stödet från coachen" icon="frown" tone=${lowAlerts.some((a) => !a.ack) ? 'red' : undefined}>
+          <${ui.Card} title="Lågt betyg på stödet från coachen" icon="frown" tone=${lowOpen > 0 ? 'red' : undefined}
+            actions=${lowOpen > 0 ? html`<${ui.Badge} tone="red" icon="alert">${lowOpen} att kvittera<//>` : html`<${ui.Badge} tone="outline" icon="check">Inget att kvittera<//>`}>
             <div class="stack">
               <p class="small">Svar med 1 eller 2 på fråga 3 går till dig som chef – <b>inte till coachen</b>. Du ser datum och betyg, inte vem som svarat.</p>
               ${lowAlerts.length === 0 ? html`<span class="small muted">Inga låga betyg de senaste veckorna.</span>` : html`<div>${lowAlerts.map((a) => html`<${AlertRow} key=${a.key} a=${a} onAck=${onAck} />`)}</div>`}
@@ -602,7 +677,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     return html`<${ui.Page} title="Ledningsvy" eyebrow=${`Chef och controller · ${MM.contract().customerName}, avtal ${MM.contract().contractNumber}`}
       lead="Resultat mot mål, flaggor och tidig uppmärksamhet. Allt är i läsläge – du kvitterar flaggor med en kort åtgärdsplan."
       actions=${html`<span class="ldg-wrapbtn"><${ui.PerspectiveSwitch} role="kommun_chef" view="kom.chef" label="Så ser kommunens chef resultatet – utan internt mål" /></span>`}>
-      <${ui.Tabs} ariaLabel="Ledningsvyns flikar" active=${tab} onChange=${(id) => MM.nav('chef.oversikt', id === 'kpi' ? {} : { tab: id }, { replace: true })}
+      <${ui.Tabs} ariaLabel="Ledningsvyns flikar" active=${tab} onChange=${(id) => { MM.nav('chef.oversikt', id === 'kpi' ? {} : { tab: id }, { replace: true }); refocusTab('Ledningsvyns flikar'); }}
         tabs=${TABS.map((t) => (t.id === 'kpi' ? { ...t, count: alertCount } : t))} />
       ${tab === 'kpi' && html`<${KpiTab} data=${data} onAck=${setAckAlert} />`}
       ${tab === 'coacher' && html`<${CoachTab} />`}
@@ -645,7 +720,8 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     return { key: 'in_progress', label: 'Åtgärdsplan godkänd – pågår', tone: 'bluetone', icon: 'activity' };
   };
   const CdStatus = ({ cd }) => { const s = cdStatus(cd); return html`<${ui.Badge} tone=${s.tone} icon=${s.icon}>${s.label}<//>`; };
-  const closedOn = (cd) => (cd.status === 'closed' ? (cd.closedAt || (cd.actionPlanDue ? `${cd.actionPlanDue}T16:00` : cd.raisedAt)) : null);
+  /** När avvikelsen stängdes. Äldre (förifyllda) poster saknar closedAt – då används planens slutdatum (bara datum). */
+  const closedOn = (cd) => (cd.status === 'closed' ? (cd.closedAt || cd.actionPlanDue || cd.raisedAt) : null);
   const canManage = (role) => ['chef', 'avtalsansvarig'].includes(role);
 
   // ---- Åtgärder (prefix cdev.)
@@ -865,6 +941,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
     const [editSanction, setEditSanction] = useState(false);
     const [sanc, setSanc] = useState({ escalationStep: String(cd.escalationStep ?? 0), warningIssued: !!cd.warningIssued, penaltyKind: cd.penaltyKind || (cd.penaltyOre ? 'deviation' : ''), penaltyOffsetMonth: cd.penaltyOffsetMonth || '', orderStop: !!cd.orderStop });
     const st = cdStatus(cd); const closed = cd.status === 'closed';
+    const planDue = closed ? null : planDueMap()[cd.id] || null;
     const totalWarnings = S().contractDeviations.filter((x) => x.warningIssued).length;
     const chef = customerChef();
     const months = []; for (let mk = d.monthKey(d.today()); months.length < 3; mk = d.addMonths(mk, 1)) months.push(mk);
@@ -894,7 +971,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
       cd.actionPlan && { icon: 'clipboard', title: 'Åtgärdsplan skickad till kommunen', sub: cd.planSubmittedAt ? d.fmtDateTime(cd.planSubmittedAt) : (cd.actionPlanDue ? `Klart senast ${d.fmtDate(cd.actionPlanDue)}` : '') },
       cd.customerApprovedAt && { icon: 'check', title: `Godkänd av kommunen${cd.customerApprovedBy ? ` (${MM.personName(cd.customerApprovedBy)})` : chef ? ` (${chef.name})` : ''}`, sub: d.fmtDateTime(cd.customerApprovedAt), filled: true },
       cd.warningIssued && { icon: 'alert', title: 'Skriftlig varning från kommunen', sub: cd.warningIssuedAt ? d.fmtDateTime(cd.warningIssuedAt) : '', tone: 'red' },
-      closed && { icon: 'check-circle', title: 'Klar', sub: closedOn(cd) ? d.fmtDateTime(closedOn(cd)) : '', filled: true },
+      closed && { icon: 'check-circle', title: 'Klar', sub: fmtWhen(closedOn(cd)), filled: true },
     ].filter(Boolean);
     return html`<${ui.Page} title=${cd.type === 'klagomål' ? 'Klagomål' : 'Avtalsavvikelse'} eyebrow=${`Registrerad ${d.fmtDate(cd.raisedAt)} · ${sourceLabel(cd.source)}`}
       crumbs=${[{ label: 'Avtalsavvikelser', view: 'chef.avvikelser', params: {} }, { label: `${typeLabel(cd.type)} ${d.fmtDateShort(cd.raisedAt)}` }]}
@@ -934,7 +1011,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
             : cd.actionPlan ? html`<div class="stack">
                 <p>${cd.actionPlan}</p>
                 <${ui.Kv} items=${[
-                  ['Klart senast', cd.actionPlanDue ? html`<span class="row-sm">${d.fmtDate(cd.actionPlanDue)}${!closed && html`<${ui.SlaBadge} dueAt=${`${cd.actionPlanDue}T16:00`} />`}</span>` : 'Inget datum'],
+                  ['Klart senast', cd.actionPlanDue ? html`<span class="row-sm">${d.fmtDate(cd.actionPlanDue)}${!closed && planDue && html`<${ui.SlaBadge} dueAt=${planDue} />`}</span>` : 'Inget datum'],
                   ['Kommunens godkännande', cd.customerApprovedAt ? html`<${ui.Badge} tone="blue" icon="check-circle">Godkänd ${d.fmtDateTime(cd.customerApprovedAt)}<//>` : html`<${ui.Badge} tone="grey" icon="clock">Väntar på kommunens chef<//>`],
                 ]} />
                 ${!cd.customerApprovedAt && !closed && html`<div class="small muted">Kommunens chef${chef ? `, ${chef.name},` : ''} godkänner planen i sin portal. Byt perspektiv för att se och godkänna den där.</div>`}
@@ -1002,9 +1079,9 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
       lead="Register enligt avtalets uppföljning och sanktioner. Kommunen godkänner åtgärdsplanerna. Klagomål från deltagare, arbetsgivare och kommun registreras här också."
       actions=${html`<span class="ldg-wrapbtn"><${ui.Btn} kind="primary" icon="plus" onClick=${() => setShowNew(true)}>Registrera avvikelse eller klagomål<//></span><span class="ldg-wrapbtn"><${ui.PerspectiveSwitch} role="kommun_chef" view="kom.chef" label="Här godkänner kommunens chef åtgärdsplaner" /></span>`}>
       <div class="ldg-tiles">
-        <${ui.Kpi} label="Öppna" value=${String(open.length)} sub=${`varav ${open.filter((x) => x.type === 'klagomål').length} klagomål`} tone=${open.length ? 'watch' : undefined} />
+        <${ui.Kpi} label="Öppna" value=${String(open.length)} sub=${`varav ${open.filter((x) => x.type === 'klagomål').length} klagomål`} tone=${open.length ? 'watch' : undefined} statusText=${open.length ? 'Bevaka – öppna avvikelser' : undefined} />
         <${ui.Kpi} label="Väntar på kommunens godkännande" value=${String(waiting.length)} sub="Åtgärdsplaner skickade till kommunens chef" />
-        <${ui.Kpi} label="Skriftliga varningar" value=${`${warnings} av ${cfg.warningsBeforeTermination}`} tone=${warnings > 0 ? 'alert' : undefined} sub=${`${cfg.warningsBeforeTermination} varningar kan leda till uppsägning`} />
+        <${ui.Kpi} label="Skriftliga varningar" value=${`${warnings} av ${cfg.warningsBeforeTermination}`} tone=${warnings > 0 ? 'alert' : undefined} statusText=${warnings > 0 ? `${fmt.plural(warnings, 'varning', 'varningar')} från kommunen` : undefined} sub=${`${cfg.warningsBeforeTermination} varningar kan leda till uppsägning`} />
         <${ui.Kpi} label="Viten" value=${fmt.kr(penalties)} sub=${`${fmt.kr(cfg.penalties.deviationOre)} per tillfälle enligt avtalet`} />
       </div>
       <${ui.Card} title="Eskaleringstrappan" icon="layers" actions=${html`<${ui.BuildPhase} fas=${2} />`}>
@@ -1013,7 +1090,7 @@ details.ldg-details > summary { cursor:pointer; font-weight:700; min-height:44px
           <div class="small muted">${maxStep == null ? 'Inga öppna avvikelser.' : `Högsta steg bland öppna avvikelser: ${stepLabel(maxStep)}.`} Skriftlig varning kan ges på steg 1–3. Kommunen kan också hålla inne betalning, ta ut vite, besluta om avropsstopp och flytta Miljonbemanning sist i rangordningen vid upprepade fel.</div>
         </div>
       <//>
-      <${ui.Tabs} ariaLabel="Avvikelser" active=${tab} onChange=${setTab} tabs=${[{ id: 'register', label: 'Register', icon: 'list', count: open.length }, { id: 'apt', label: 'Månadssammanställning för APT', icon: 'clipboard' }]} />
+      <${ui.Tabs} ariaLabel="Avvikelser" active=${tab} onChange=${(id) => { setTab(id); refocusTab('Avvikelser'); }} tabs=${[{ id: 'register', label: 'Register', icon: 'list', count: open.length }, { id: 'apt', label: 'Månadssammanställning för APT', icon: 'clipboard' }]} />
       ${tab === 'register' ? html`<div class="stack">
           <${ui.Seg} ariaLabel="Filter" value=${filter} onChange=${setFilter} options=${[{ value: 'open', label: `Öppna (${open.length})` }, { value: 'all', label: `Alla (${all.length})` }, { value: 'klagomal', label: 'Klagomål' }]} />
           <${ui.Card} flush>

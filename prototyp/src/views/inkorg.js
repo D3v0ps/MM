@@ -13,7 +13,8 @@
   .ink-md { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; }
   @media (min-width: 1100px) { .ink-md { grid-template-columns: minmax(280px, 340px) minmax(0, 1fr); } }
   .ink-tabs .tab { padding: 10px 12px; gap: 6px; }
-  .ink-detail { container-type: inline-size; min-width: 0; scroll-margin-top: 110px; }
+  .ink-detail { container-type: inline-size; min-width: 0; scroll-margin-top: 140px; }
+  @media (max-width: 900px) { .ink-detail { scroll-margin-top: 16px; } }
   .ink-pair { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
   @container (min-width: 720px) { .ink-pair { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } .ink-pair.even { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
   .ink-row { gap: 10px; }
@@ -65,7 +66,8 @@
   .ink-mini-row > .ink-m { grid-area: m; min-width: 0; }
   .ink-mini-row > .ink-r { grid-area: r; }
   .ink-mini-row > .ink-l:empty { display: none; }
-  @container (min-width: 560px) { .ink-mini-row { grid-template-columns: 170px minmax(0, 1fr) auto; grid-template-areas: "l m r"; } }
+  @container (min-width: 560px) { .ink-mini-row { grid-template-columns: minmax(170px, max-content) minmax(0, 1fr) auto; grid-template-areas: "l m r"; } }
+  .ink-wrapbtn .btn { white-space: normal; text-align: left; max-width: 100%; }
   `;
   try { if (!document.getElementById('ink-css')) { const el = document.createElement('style'); el.id = 'ink-css'; el.textContent = CSS; document.head.appendChild(el); } } catch (e) { /* */ }
 
@@ -76,6 +78,20 @@
   const answerText = () => { const n = answerDays(); return `${NUMWORD[n] || n} arbetsdag${n === 1 ? '' : 'ar'}`; };
   const ackMinutes = () => (slaRule('ordererkannande').within || {}).minutes || 5;
   const meetingDays = () => (slaRule('forsta_mote').within || {}).days || 7;
+  /** "en vecka" / "10 dagar" – första mötet enligt avtalskonfigurationen. */
+  const meetingText = () => { const n = meetingDays(); return n % 7 === 0 ? `${NUMWORD[n / 7] || n / 7} veck${n === 7 ? 'a' : 'or'}` : `${n} dagar`; };
+  /** Intern regel (orgConfig): flagga när första mötet inte är bokat efter så här många dagar. */
+  const flagDays = () => ((S().orgConfig || {}).alerts || {}).firstMeetingNotBookedAfterDays;
+  const flagDaysText = () => { const n = flagDays(); return n ? `${NUMWORD[n] || n} ${n === 1 ? 'dag' : 'dagar'}` : 'en tid'; };
+  const refLen = () => MM.valid.buyerRefLengthText();
+  /** Feltext om beställarreferensen, skriven till Miljonbemanning (kärnans text är skriven till kommunen). */
+  const refErrorMB = (s) => {
+    const v = String(s || '').trim();
+    if (!v) return 'Beställarreferens saknas. Kommunen har inte angett någon – be handläggaren om den.';
+    if (/\D/.test(v)) return 'Beställarreferensen får bara innehålla siffror – inga mellanslag, bindestreck eller bokstäver.';
+    if (!MM.valid.buyerRef(v)) return `Beställarreferensen ska vara ${refLen()} siffror. Här står ${v.length}.`;
+    return null;
+  };
   const canOpen = (view, role = MM.role()) => { const v = MM.views[view]; return !!v && (!Array.isArray(v.roles) || v.roles.includes(role)); };
   const go = (link) => { if (link && canOpen(link.view)) MM.nav(link.view, link.params || {}); };
   const when = (s) => {
@@ -98,6 +114,14 @@
   const PHONE_RE = /\b0\d{1,3}-\d{2,3}[ \d]{3,8}\d\b/;
   const phoneIn = (text) => { const m = String(text || '').match(PHONE_RE); return m ? m[0].trim() : null; };
   const LOW = 0.8; // konfidens under detta markeras
+  /** Skyddade avrop hanteras av avtalsansvarig enligt den säkra rutinen – inte av samordnaren. */
+  const handlesProtected = (role) => role === 'avtalsansvarig';
+  const isProtectedItem = (it) => !!(it && (it.cls === 'order_protected' || (it.case && isProtected(it.case))));
+  /** Perspektivbyte till kommunen: beställande handläggare om det är Maria (personan), annars kommunens chef. */
+  const KommunSwitch = ({ c, label = 'Se vad kommunen fick' }) => (!c ? null : c.referrerId === MM.roleDef('kommun_handlaggare').personaId
+    ? html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label=${label} />`
+    : html`<${ui.PerspectiveSwitch} role="kommun_chef" view="kom.deltagare" params=${{ caseId: c.id }} label=${`${label} (kommunens chef)`} />`);
+  const CHANNEL = { sms: ['SMS', 'phone'], email: ['e-post', 'mail'], brev: ['brev', 'mail'] };
 
   // ------------------------------------------------------------ Egna åtgärder (prefix ink.)
   /** Acceptera avrop för en person med skyddade personuppgifter: som case.accept men utan kallelse via SMS/e-post till deltagaren. */
@@ -118,7 +142,8 @@
     if (!e || !c) return { error: 'not_found' };
     e.caseId = c.id; e.status = 'received'; e.registeredBy = ctx.actorId; e.registeredAt = ctx.now; e.linkedBy = 'registrerat efter telefonsamtal';
     c.referredAt = e.receivedAt; c.sourceEmailId = e.id;
-    for (const t of (st.tasks || []).filter((x) => x.emailId === e.id && x.status === 'open')) { t.status = 'done'; t.doneBy = ctx.actorId; t.doneAt = ctx.now; }
+    // Uppgiften från mejlet och den som case.create skapade för det skyddade ärendet är klara – samtalet är redan taget.
+    for (const t of (st.tasks || []).filter((x) => x.status === 'open' && (x.emailId === e.id || (x.kind === 'protected_order' && (x.caseIds || []).includes(c.id))))) { t.status = 'done'; t.doneBy = ctx.actorId; t.doneAt = ctx.now; }
     ctx.audit('email.registered_by_phone', 'inbound_email', e.id, { caseId: c.id });
     return {};
   });
@@ -200,6 +225,9 @@
     const ad = a.sla ? a.sla.dueAt : '9999'; const bd = b.sla ? b.sla.dueAt : '9999';
     return ad < bd ? -1 : ad > bd ? 1 : a.receivedAt < b.receivedAt ? -1 : 1;
   };
+  /** Exakt samma lista som fliken "Att hantera" (mest brådskande först). Skalets menyräknare använder den,
+   *  så att menyn, sammanfattningen och fliken visar samma tal. */
+  MM.sel.inboxToHandle = () => buildItems(S()).filter((x) => x.pending).sort(sortPending);
   const ackFor = (it) => {
     const st = S(); const e = it.email;
     if (e && e.classification === 'order_protected') return st.notifications.find((n) => n.template === 'generisk_mottagningsbekraftelse' && n.to === e.fromAddress && n.at >= e.receivedAt) || null;
@@ -250,7 +278,7 @@
         <dl class="ink-meta">${[['Från', `${e.fromName} <${e.fromAddress}>`], ['Till', 'avrop@miljonbemanning.se'], ['Mottaget', d.fmtDateTimeLong(e.receivedAt)], ['Ämne', e.subject]].map(([k, v]) => html`<div key=${k}><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>
         <pre class="ink-mail">${reveal ? e.bodyText : maskPnr(e.bodyText)}</pre>
         ${pnrInText && html`<div class="row-sm small muted"><${I} name="eye-off" /><span>Personnummer i mejltexten visas maskerat.</span>
-          ${!reveal && mayReveal && html`<button type="button" class="btn btn-ghost" style="min-height:36px;padding:4px 8px" onClick=${() => { setReveal(true); MM.dispatch('audit.view', { action: 'pnr.revealed', entity: 'inbound_email', entityId: e.id, details: { caseId: c ? c.id : null } }, { silent: true }); }}><${I} name="eye" />Visa</button>`}
+          ${!reveal && mayReveal && html`<button type="button" class="btn btn-ghost" style="min-height:44px;padding:4px 8px" onClick=${() => { setReveal(true); MM.dispatch('audit.view', { action: 'pnr.revealed', entity: 'inbound_email', entityId: e.id, details: { caseId: c ? c.id : null } }, { silent: true }); }}><${I} name="eye" />Visa</button>`}
           ${reveal && html`<span>(visning loggad)</span>`}</div>`}
         ${(e.attachments || []).length > 0 ? html`<div class="stack-sm" style="gap:6px"><div class="label-caps">Bilagor</div><div class="row-sm">${e.attachments.map((a) => html`<${ui.Badge} tone="outline" icon="paperclip">${a.name}<//>`)}</div></div>`
           : html`<div class="small muted">Inga bilagor.</div>`}
@@ -318,7 +346,7 @@
   const AckCard = ({ it }) => {
     MM.useStore();
     const n = ackFor(it); const c = it.case;
-    const kommunSwitch = c && c.referrerId === 'k-maria' ? html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label="Se vad kommunen fick" />` : null;
+    const kommunSwitch = c ? html`<div class="ink-wrapbtn"><${KommunSwitch} c=${c} /></div>` : null;
     if (!n) {
       return html`<${ui.Card} title="Automatiskt svar" icon="mail" foot=${kommunSwitch}>
         <p class="muted">${it.cls === 'other' ? 'Inget automatiskt svar. Mejl som klassas som Övrigt lämnas till en människa.' : it.kind === 'case' ? 'Ordererkännandet visades direkt på skärmen för handläggaren.' : 'Inget automatiskt svar hittades.'}</p>
@@ -364,15 +392,17 @@
     const leadNotif = notifs.find((n) => n.recipientId === c.leadCoachId);
     const others = notifs.filter((n) => n.recipientId !== c.leadCoachId).map((n) => MM.personName(n.recipientId));
     const custMail = st.notifications.filter((n) => n.caseId === c.id && n.template === 'orderbekraftelse').slice(-1)[0];
-    const sms = st.notifications.filter((n) => n.caseId === c.id && n.template === 'kallelse').slice(-1)[0];
+    const kallelse = st.notifications.filter((n) => n.caseId === c.id && n.template === 'kallelse').slice(-1)[0];
+    const [chLabel, chIcon] = kallelse ? CHANNEL[kallelse.channel] || [kallelse.channel, 'mail'] : [];
+    const prefersPhone = ((sel.person(c) || {}).preferredContact) === 'phone';
     const team = (c.team || []).filter((t) => t.role !== 'lead_coach');
     const weeks = c.orderValueWeeks || c.plannedWeeks; const price = sel.priceFor(c.primaryArea, c.startDate || c.plannedStart || d.today());
     const prot = isProtected(c);
     const coachPid = MM.roleDef('coach').personaId;
     return html`<${ui.Card} tone="blue" title="Orderbekräftelse skickad" icon="check-circle"
         actions=${rep && canOpen('rapport.visa') ? html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => MM.nav('rapport.visa', { reportId: rep.id })}>Öppna<//>` : null}
-        foot=${(c.referrerId === 'k-maria' || c.leadCoachId === coachPid) ? html`${c.referrerId === 'k-maria' && html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label="Se vad kommunen fick" />`}
-          ${c.leadCoachId === coachPid && html`<${ui.PerspectiveSwitch} role="coach" view="notiser" label=${`Se ${firstNameOf(coachPid)}s notis`} />`}` : null}>
+        foot=${html`<div class="row-sm ink-wrapbtn"><${KommunSwitch} c=${c} />
+          ${c.leadCoachId === coachPid && html`<${ui.PerspectiveSwitch} role="coach" view="notiser" label=${`Se ${firstNameOf(coachPid)}s notis`} />`}</div>`}>
       <div class="stack">
         <${ui.Kv} items=${[
           ['Ärendenummer', html`<span class="strong mono">${c.number}</span>`],
@@ -389,7 +419,7 @@
         <div class="stack-sm small">
           ${custMail && html`<div class="row-sm" style="align-items:flex-start;flex-wrap:nowrap"><${I} name="mail" /><span><b>Kommunen fick:</b> ${custMail.body}</span></div>`}
           ${prot ? html`<div class="row-sm" style="align-items:flex-start;flex-wrap:nowrap"><${I} name="lock" /><span><b>Deltagaren:</b> ingen kallelse via SMS eller e-post (skyddade personuppgifter). Coachen ringer enligt den säkra rutinen.</span></div>`
-            : sms && html`<div class="row-sm" style="align-items:flex-start;flex-wrap:nowrap"><${I} name="phone" /><span><b>Deltagaren fick kallelse (SMS):</b> ${sms.body}</span></div>`}
+            : kallelse && html`<div class="row-sm" style="align-items:flex-start;flex-wrap:nowrap"><${I} name=${chIcon} /><span><b>${prefersPhone ? `Deltagaren fick kallelse via ${chLabel} och har valt telefon – coachen ringer också:` : `Deltagaren fick kallelse via ${chLabel}, sin föredragna kontaktväg:`}</b> ${kallelse.body}</span></div>`}
         </div>
       </div>
     <//>`;
@@ -435,18 +465,28 @@
       time: !time ? 'Välj tid för första mötet.' : null,
       weeks: !(Number.isInteger(w) && w >= 1 && w <= 52) ? 'Ange planerad omfattning i hela veckor (1–52).' : null,
     };
-    const refErr = refServerErr || ((tried || ref) ? MM.valid.buyerRefError(ref) : null);
+    const refNow = refErrorMB(ref);
+    const refErr = refServerErr || ((tried || ref) ? refNow : null);
+    const refTitle = !ref.trim() ? 'Beställarreferens saknas – avropet kan inte bekräftas' : 'Beställarreferensen är fel – avropet kan inte bekräftas';
+    /** Fältordning i dialogen: vid fel scrollas och fokuseras det första felaktiga fältet. */
+    const ORDER = [['coach', `ink-coach-${coach || (coaches[0] || {}).id}`], ['date', 'ink-fm-date'], ['time', 'ink-fm-time'], ['weeks', 'ink-weeks'], ['ref', 'ink-ref']];
+    const focusField = (id) => setTimeout(() => { try { const el = document.getElementById(id); if (el) { el.scrollIntoView({ block: 'center' }); el.focus({ preventScroll: true }); } } catch (e) { /* */ } }, 0);
     const late = date && date > d.dayOf(due);
     const daysAfter = date ? d.diffDays(c.referredAt, date) : 0;
     const price = sel.priceFor(c.primaryArea, date || d.today());
     const submit = () => {
       setTried(true);
-      if (Object.values(errs).some(Boolean)) return;
+      const all = { ...errs, ref: refNow };
+      const first = ORDER.find(([k]) => all[k]);
+      if (first) {
+        MM.toast(first[0] === 'ref' ? `${refTitle}.` : `Avropet kan inte accepteras ännu. ${all[first[0]]}`, 'red');
+        focusField(first[1]); return;
+      }
       const payload = { caseId: c.id, leadCoachId: coach, firstMeetingAt: `${date}T${time}`, plannedWeeks: w, buyerReference: ref.trim(),
         team: team.map((id) => ({ userId: id, role: (userById(id) || {}).teamRole || 'vocational_supervisor' })) };
       const res = MM.dispatch(prot ? 'ink.acceptProtected' : 'case.accept', payload);
       if (!res) return;
-      if (res.error === 'buyer_ref') { setRefServerErr(MM.valid.buyerRefError(ref) || 'Beställarreferensen godkändes inte. Den ska vara 8–10 siffror.'); return; }
+      if (res.error === 'buyer_ref') { setRefServerErr(refErrorMB(ref) || `Beställarreferensen godkändes inte. Den ska vara ${refLen()} siffror.`); MM.toast(`${refTitle}.`, 'red'); focusField('ink-ref'); return; }
       if (res.error) { MM.toast('Avropet kunde inte accepteras. Försök igen.', 'red'); return; }
       MM.toast(`${c.number} är accepterat. Orderbekräftelsen är skickad till kommunen.`, 'blue');
       setDone({ reportId: res.reportId });
@@ -463,6 +503,8 @@
       footer=${html`<${ui.Btn} kind="ghost" onClick=${onClose}>Avbryt<//><${ui.Btn} kind="primary" icon="check" onClick=${submit}>Acceptera avropet<//>`}>
       <div class="row-between"><span class="small muted">Från ${MM.personName(c.referrerId)} · ${sel.areaName(c.primaryArea)} · ${sel.displayName(c)}</span>
         <${ui.SlaBadge} dueAt=${sel.avropDue(c)} prefix="Svar:" /></div>
+      ${refNow && (tried || !c.buyerReference) && html`<${ui.Notice} tone="critical" title=${refTitle}>
+        ${refNow} Fältet finns längst ned i dialogen.${pendingSup ? ' Kompletteringen kan innehålla referensen.' : ''}<//>`}
       ${prot && html`<${ui.Notice} tone="critical" icon="lock" title="Skyddade personuppgifter">Deltagaren får ingen kallelse via SMS eller e-post. Den namngivna coachen ringer enligt den säkra rutinen. Bara coachen och avtalsansvarig ser namn och personnummer.<//>`}
       ${pendingSup && html`<${ui.Notice} tone="info" icon="link" title="Det finns en komplettering att föra in först">${pendingSup.fromName} svarade ${when(pendingSup.receivedAt)} med uppgifter som saknas i avropet.
         ${onShowEmail && html`<div style="margin-top:8px"><${ui.Btn} kind="secondary" icon="arrow-right" onClick=${() => onShowEmail(pendingSup.id)}>Visa kompletteringen<//></div>`}<//>`}
@@ -487,15 +529,15 @@
       </fieldset>
 
       <div class="form-grid">
-        <${ui.Field} id="ink-fm-date" label="Första möte – datum" required help=${`Ska vara inom en vecka från avropet: senast ${d.fmtWeekday(due)}.${c.desiredStart ? ` Kommunen önskar start ${d.fmtDate(c.desiredStart)}.` : ''}`} error=${tried ? errs.date : null}>
+        <${ui.Field} id="ink-fm-date" label="Första möte – datum" required help=${`Ska vara inom ${meetingText()} från avropet: senast ${d.fmtWeekday(due)}.${c.desiredStart ? ` Kommunen önskar start ${d.fmtDate(c.desiredStart)}.` : ''}`} error=${tried ? errs.date : null}>
           <${ui.Input} id="ink-fm-date" type="date" value=${date} onInput=${setDate} invalid=${tried && !!errs.date} /><//>
         <${ui.Field} id="ink-fm-time" label="Första möte – tid" required help="Mötet hålls i Alby om inget annat bokas." error=${tried ? errs.time : null}>
           <${ui.Input} id="ink-fm-time" type="time" value=${time} onInput=${setTime} invalid=${tried && !!errs.time} /><//>
-        ${late && html`<div class="full"><${ui.Notice} tone="warn" title=${`Mötet ligger ${daysAfter} dagar efter avropet`}>Avtalet kräver att första mötet sker inom ${meetingDays()} dagar (senast ${d.fmtDate(due)}). Ärendet markeras i uppföljningen av nyckeltalet Första möte inom en vecka.<//></div>`}
+        ${late && html`<div class="full"><${ui.Notice} tone="warn" title=${`Mötet ligger ${daysAfter} dagar efter avropet`}>Avtalet kräver att första mötet sker inom ${meetingText()} (senast ${d.fmtDate(due)}). Ärendet markeras i uppföljningen av nyckeltalet för första möte.<//></div>`}
         ${date && !d.isWorkingDay(date) && html`<div class="full"><${ui.Notice} tone="warn" title="Inte en arbetsdag">${d.fmtWeekday(date)} är ${d.holidayName(date) ? d.holidayName(date).toLowerCase() : 'en helgdag'}. Välj en vardag.<//></div>`}
         <${ui.Field} id="ink-weeks" label="Planerad omfattning (veckor)" required help=${price && w > 0 ? `Beställningens värde: ${w} veckor × ${fmt.kr(price)} = ${fmt.kr(w * price)} (exempelpris i prototypen).` : 'Används för orderns värde och för upparbetat och återstående belopp på fakturan.'} error=${tried ? errs.weeks : null}>
           <${ui.Input} id="ink-weeks" type="number" inputMode="numeric" value=${weeks} onInput=${setWeeks} invalid=${tried && !!errs.weeks} /><//>
-        <${ui.Field} id="ink-ref" label="Beställarreferens" required help=${c.buyerReference ? 'Från avropet. 8–10 siffror, bara siffror. Krävs för att fakturan ska godkännas.' : 'Kommunen har inte angett någon. Ordererkännandet bad om den. Utan giltig referens kan ärendet inte bekräftas.'} error=${refErr}>
+        <${ui.Field} id="ink-ref" label="Beställarreferens" required help=${c.buyerReference ? `Från avropet. ${refLen()} siffror, bara siffror. Krävs för att fakturan ska godkännas.` : `Kommunen har inte angett någon. Ordererkännandet bad om den. ${refLen()} siffror. Utan giltig referens kan ärendet inte bekräftas.`} error=${refErr}>
           <${ui.Input} id="ink-ref" value=${ref} inputMode="numeric" maxLength=${12} onInput=${(v) => { setRef(v); setRefServerErr(null); }} invalid=${!!refErr} /><//>
       </div>
 
@@ -538,7 +580,7 @@
     const lowNote = (k) => (e && conf[k] != null && conf[k] < LOW && ex[k] !== '' && ex[k] != null ? ` AI var osäker (${pct(conf[k])}) – kontrollera mot originalet.` : '');
     const w = Number(v.plannedWeeks);
     const errs = {
-      buyerReference: v.buyerReference ? MM.valid.buyerRefError(v.buyerReference) : null,
+      buyerReference: v.buyerReference ? refErrorMB(v.buyerReference) : null,
       plannedWeeks: v.plannedWeeks && !(Number.isInteger(w) && w >= 1 && w <= 52) ? 'Ange hela veckor (1–52).' : null,
       primaryArea: !v.primaryArea ? 'Välj avtalsområde.' : null,
       plannedEnd: v.plannedEnd && v.desiredStart && v.plannedEnd < v.desiredStart ? 'Slutdatum kan inte vara före startdatum.' : null,
@@ -558,7 +600,7 @@
       footer=${html`<${ui.Btn} kind="ghost" onClick=${onClose}>Avbryt<//><${ui.Btn} kind="primary" icon="check" onClick=${save}>Spara och markera som kontrollerat<//>`}>
       <p class="muted">Jämför med originalmejlet. Det du sparar markeras som kontrollerat av dig och loggas. Uppgifter om deltagaren rättas i deltagarkortet.</p>
       <div class="form-grid">
-        <${ui.Field} id="ink-c-ref" label="Beställarreferens" help=${`8–10 siffror, bara siffror.${lowNote('buyerReference')}`} error=${tried ? errs.buyerReference : null}>
+        <${ui.Field} id="ink-c-ref" label="Beställarreferens" help=${`${refLen()} siffror, bara siffror.${lowNote('buyerReference')}`} error=${tried ? errs.buyerReference : null}>
           <${ui.Input} id="ink-c-ref" value=${v.buyerReference} inputMode="numeric" maxLength=${12} onInput=${set('buyerReference')} invalid=${tried && !!errs.buyerReference} /><//>
         <${ui.Field} id="ink-c-weeks" label="Planerad omfattning (veckor)" help=${`Hela veckor.${lowNote('plannedWeeks')}`} error=${tried ? errs.plannedWeeks : null}>
           <${ui.Input} id="ink-c-weeks" type="number" inputMode="numeric" value=${v.plannedWeeks} onInput=${set('plannedWeeks')} invalid=${tried && !!errs.plannedWeeks} /><//>
@@ -590,7 +632,7 @@
     const errs = {
       firstName: !v.firstName.trim() ? 'Skriv förnamnet.' : null, lastName: !v.lastName.trim() ? 'Skriv efternamnet.' : null,
       pnr: !v.pnr.trim() ? 'Skriv personnummer eller samordningsnummer.' : !pnrOk ? 'Skriv som ÅÅÅÅMMDD-NNNN.' : dups.length ? 'Personen har redan en aktiv insats. Två aktiva ärenden samtidigt är inte tillåtet.' : null,
-      buyerReference: MM.valid.buyerRefError(v.buyerReference), primaryArea: !v.primaryArea ? 'Välj avtalsområde.' : null,
+      buyerReference: refErrorMB(v.buyerReference), primaryArea: !v.primaryArea ? 'Välj avtalsområde.' : null,
       plannedWeeks: !(Number.isInteger(w) && w >= 1 && w <= 52) ? 'Ange hela veckor (1–52).' : null, confirmed: !v.confirmed ? 'Bekräfta att uppgifterna togs per telefon.' : null,
     };
     const submit = () => {
@@ -612,7 +654,7 @@
         <${ui.Field} id="ink-p-last" label="Efternamn" required help="Som i folkbokföringen." error=${E('lastName')}><${ui.Input} id="ink-p-last" value=${v.lastName} onInput=${set('lastName')} invalid=${!!E('lastName')} /><//>
         <${ui.Field} id="ink-p-pnr" label="Personnummer" required help="ÅÅÅÅMMDD-NNNN. Kontrolleras mot aktiva ärenden i avtalet." error=${E('pnr') || (dups.length ? errs.pnr : null)}>
           <${ui.Input} id="ink-p-pnr" value=${v.pnr} onInput=${set('pnr')} inputMode="numeric" maxLength=${13} invalid=${!!E('pnr')} /><//>
-        <${ui.Field} id="ink-p-ref" label="Beställarreferens" required help=${br ? `${k.unit} har referensen ${br.reference}. Stäm av i samtalet.` : '8–10 siffror, bara siffror.'} error=${E('buyerReference')}>
+        <${ui.Field} id="ink-p-ref" label="Beställarreferens" required help=${br ? `${k.unit} har referensen ${br.reference}. Stäm av i samtalet.` : `${refLen()} siffror, bara siffror. Fråga handläggaren.`} error=${E('buyerReference')}>
           <${ui.Input} id="ink-p-ref" value=${v.buyerReference} onInput=${set('buyerReference')} inputMode="numeric" maxLength=${12} invalid=${!!E('buyerReference')} /><//>
         <${ui.Field} id="ink-p-area" label="Avtalsområde (primärt)" required help="Enligt handläggarens önskemål." error=${E('primaryArea')}>
           <${ui.Select} id="ink-p-area" value=${v.primaryArea} onChange=${set('primaryArea')} placeholder="Välj område" options=${areas} invalid=${!!E('primaryArea')} /><//>
@@ -628,8 +670,9 @@
   };
 
   // ------------------------------------------------------------ Detaljvy
-  const DetailHead = ({ it, onAccept, onDecline, onCorrect, onPhone }) => {
+  const DetailHead = ({ it, role, onAccept, onDecline, onCorrect, onPhone }) => {
     const c = it.case; const m = METHOD[it.method] || METHOD.manual;
+    const prot = isProtectedItem(it); const mine = !prot || handlesProtected(role);
     const [stLabel, stTone, stIcon] = STATUS[it.status] || [it.status, 'grey', 'circle'];
     const sla = it.sla;
     const decision = c && ['acknowledged', 'received'].includes(c.status) && ['order', 'order_protected'].includes(it.cls);
@@ -661,8 +704,14 @@
           ${it.email && it.email.handledBy && html`<span class="small muted">Hanterat av ${MM.personName(it.email.handledBy)} ${when(it.email.handledAt)}</span>`}
         </div>
         ${steps && html`<${ui.Stepper} steps=${steps} current=${current} />`}
-        ${it.cls === 'order_protected' && !c && onPhone && html`<div class="row"><${ui.Btn} kind="primary" icon="phone" onClick=${onPhone}>Registrera efter telefonsamtal<//></div>`}
-        ${decision && html`<div class="row">
+        ${prot && !mine && ((it.cls === 'order_protected' && !c) || decision) && html`<${ui.Notice} tone="info" icon="lock" title="Avtalsansvarig hanterar skyddade avrop enligt den säkra rutinen">
+          <div class="stack-sm">
+            <span>${MM.personName(MM.contract().contractManagerId)} har fått en flagga och en uppgift. Avtalsansvarig ringer handläggaren, registrerar minimala uppgifter och tilldelar en namngiven coach. Du behöver inte göra något här.</span>
+            <span>Efter registreringen ser du bara ärendenumret och texten ”Skyddade personuppgifter”.</span>
+            <div class="ink-wrapbtn"><${ui.PerspectiveSwitch} role="avtalsansvarig" view="sam.inkorg" params=${it.email ? { emailId: it.id } : { caseId: c.id }} label="Se avtalsansvarigs vy" /></div>
+          </div><//>`}
+        ${it.cls === 'order_protected' && !c && onPhone && mine && html`<div class="row"><${ui.Btn} kind="primary" icon="phone" onClick=${onPhone}>Registrera efter telefonsamtal<//></div>`}
+        ${decision && mine && html`<div class="row">
           <${ui.Btn} kind="primary" icon="check" onClick=${onAccept}>Acceptera<//>
           <${ui.Btn} kind="danger" icon="x-circle" onClick=${onDecline}>Avböj<//>
           ${onCorrect && html`<${ui.Btn} kind="ghost" icon="edit" onClick=${onCorrect}>Rätta uppgifter<//>`}
@@ -679,7 +728,7 @@
     const missing = e ? (e.missingFields || []).filter((k) => { const v = (e.extracted || {})[k]; return v == null || v === ''; }) : [];
     const pendingSup = c ? st.inboundEmails.filter((x) => x.caseId === c.id && x.classification === 'supplement' && x.status === 'linked') : [];
     const ack = ackFor(it);
-    const refMissing = c && pendingDecision && MM.valid.buyerRefError(c.buyerReference || '');
+    const refMissing = c && pendingDecision && refErrorMB(c.buyerReference || '');
     return html`
       ${decided && html`<${ConfirmationCard} c=${c} />`}
       ${c && c.status === 'declined' && html`<${DeclinedCard} c=${c} />`}
@@ -706,7 +755,7 @@
     const orig = st.inboundEmails.find((x) => x.caseId === c.id && x.classification === 'order');
     const applied = e.status === 'applied';
     const keys = Object.keys(e.extracted || {});
-    const refErr = e.extracted.buyerReference ? MM.valid.buyerRefError(e.extracted.buyerReference) : null;
+    const refErr = e.extracted.buyerReference ? refErrorMB(e.extracted.buyerReference) : null;
     const rows = keys.map((k) => ({ id: k, k }));
     const apply = () => {
       const res = MM.dispatch('email.applySupplement', { emailId: e.id });
@@ -782,7 +831,7 @@
       ${c && html`<${ui.Card} title="Svara" icon="send" foot=${html`
           ${!lastReply && html`<${ui.Btn} kind="primary" icon="send" onClick=${send}>Svara med säkert meddelande<//>`}
           ${!handled ? html`<${ui.Btn} kind=${lastReply ? 'primary' : 'secondary'} icon="check" onClick=${markHandled}>Markera som hanterad<//>` : html`<${ui.Badge} tone="bluetone" icon="check">Hanterad av ${MM.personName(e.handledBy)} ${when(e.handledAt)}<//>`}
-          ${c.referrerId === 'k-maria' && html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label="Se vad kommunen fick" />`}`}>
+          <span class="ink-wrapbtn"><${KommunSwitch} c=${c} /></span>`}>
         ${lastReply ? html`<div class="stack-sm">
             <${ui.Notice} tone="ok" title=${`Svar skickat ${when(lastReply.createdAt)} som säkert meddelande`}>Svaret ligger i ärendet i portalen. Svara inte med vanligt mejl när det gäller en deltagare.<//>
             <blockquote class="ink-quote">${lastReply.body}</blockquote>
@@ -801,8 +850,8 @@
     const tl = [
       { icon: 'mail', filled: true, title: 'Generisk mottagningsbekräftelse skickad', sub: e.ackSentAt ? when(e.ackSentAt) : '' },
       { icon: 'flag', filled: true, tone: 'red', title: `Flagga till avtalsansvarig ${MM.personName(managerId)}`, sub: `${when(e.receivedAt)}${role === 'avtalsansvarig' ? ' · gäller dig' : ''}` },
-      { icon: 'phone', filled: !!c, title: `Ring ${k.name || 'handläggaren'} på ${phoneIn(e.bodyText) || k.phone || '–'}`, sub: c ? `Klart – registrerat ${when(e.registeredAt)} av ${MM.personName(e.registeredBy)}` : 'Ta uppgifterna muntligt enligt den säkra rutinen' },
-      { icon: 'lock', filled: !!c, title: 'Registrera minimala uppgifter', sub: 'Namn, personnummer och handläggare. Ingen adress, inga kontaktuppgifter till deltagaren.' },
+      { icon: 'phone', filled: !!c, title: `${handlesProtected(role) ? 'Ring' : 'Avtalsansvarig ringer'} ${k.name || 'handläggaren'} på ${phoneIn(e.bodyText) || k.phone || '–'}`, sub: c ? `Klart – registrerat ${when(e.registeredAt)} av ${MM.personName(e.registeredBy)}` : 'Uppgifterna tas muntligt enligt den säkra rutinen' },
+      { icon: 'lock', filled: !!c, title: `${handlesProtected(role) ? 'Registrera' : 'Avtalsansvarig registrerar'} minimala uppgifter`, sub: 'Namn, personnummer och handläggare. Ingen adress, inga kontaktuppgifter till deltagaren.' },
       { icon: 'user', filled: !!(c && !['acknowledged', 'received'].includes(c.status)), title: 'Acceptera och tilldela en namngiven coach', sub: 'Bara coachen och avtalsansvarig får se namn och personnummer.' },
     ];
     return html`
@@ -814,7 +863,6 @@
         <${ui.Card} title="Säker rutin" icon="shield">
           <div class="stack">
             <${ui.Timeline} items=${tl} />
-            ${role === 'samordnare' && html`<div class="small muted">Du kan ta samtalet. Efter registreringen ser du bara ärendenumret och texten ”Skyddade personuppgifter”.</div>`}
           </div>
         <//>
       </div>
@@ -836,12 +884,12 @@
     else if (it.cls === 'other') body = html`<${OtherBody} it=${it} />`;
     else body = html`<${OrderBody} it=${it} onPick=${onPick} />`;
     return html`<div class="stack">
-      <${DetailHead} it=${it} onAccept=${() => setModal('accept')} onDecline=${() => setModal('decline')} onCorrect=${c && !isProtected(c) ? () => setModal('correct') : null} onPhone=${() => setModal('phone')} />
+      <${DetailHead} it=${it} role=${role} onAccept=${() => setModal('accept')} onDecline=${() => setModal('decline')} onCorrect=${c && !isProtected(c) ? () => setModal('correct') : null} onPhone=${handlesProtected(role) ? () => setModal('phone') : null} />
       ${body}
       ${modal === 'accept' && c && html`<${AcceptModal} c=${c} onClose=${close} onShowEmail=${showEmail} />`}
       ${modal === 'decline' && c && html`<${DeclineModal} c=${c} onClose=${close} />`}
       ${modal === 'correct' && c && html`<${CorrectModal} c=${c} e=${it.cls === 'order' ? it.email : null} onClose=${close} />`}
-      ${modal === 'phone' && it.email && html`<${PhoneModal} e=${it.email} onClose=${close} />`}
+      ${modal === 'phone' && it.email && handlesProtected(role) && html`<${PhoneModal} e=${it.email} onClose=${close} />`}
     </div>`;
   };
 
@@ -861,15 +909,15 @@
     </button>`;
   };
 
+  /** Sammanfattning: första rutan visar samma tal som fliken "Att hantera" och menyräknaren (MM.sel.inboxToHandle).
+   *  Övriga rutor delar upp talet så att de summerar till det. */
   const InboxSummary = ({ pending, onPick }) => {
-    const orders = pending.filter((x) => ['order', 'order_protected'].includes(x.cls));
     const urgent = pending.filter((x) => x.sla && !x.sla.metAt).sort(sortPending)[0];
     const n = (kind) => pending.filter((x) => x.cls === kind).length;
+    const parts = [['Avrop att besvara', n('order')], ['Skyddade avrop', n('order_protected')], ['Kompletteringar', n('supplement')], ['Övrigt', n('other')]];
     return html`<div class="ink-summary" role="group" aria-label="Sammanfattning av inkorgen">
-      <div class="ink-sum"><span class="label-caps">Avrop att besvara</span><span class="ink-sum-n">${orders.length}</span></div>
-      <div class="ink-sum"><span class="label-caps">Kompletteringar</span><span class="ink-sum-n">${n('supplement')}</span></div>
-      <div class="ink-sum"><span class="label-caps">Skyddade</span><span class="ink-sum-n">${n('order_protected')}</span></div>
-      <div class="ink-sum"><span class="label-caps">Övrigt</span><span class="ink-sum-n">${n('other')}</span></div>
+      <div class="ink-sum"><span class="label-caps">Att hantera</span><span class="ink-sum-n">${pending.length}</span><span class="small muted">mejl och beställningar</span></div>
+      ${parts.map(([label, k]) => html`<div class="ink-sum" key=${label}><span class="label-caps">${label}</span><span class="ink-sum-n">${k}</span></div>`)}
       <div class="ink-sum grow">${urgent ? html`<span class="label-caps">Mest brådskande</span>
         <span class="row-sm"><${ui.SlaBadge} dueAt=${urgent.sla.dueAt} /><span class="strong">${urgent.case ? urgent.case.number : urgent.subject}</span><span class="small muted">${urgent.from}</span>
           <${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => onPick(urgent.id)}>Öppna<//></span>` : html`<span class="label-caps">Mest brådskande</span><span class="muted">Inget väntar på svar.</span>`}</div>
@@ -879,7 +927,7 @@
   const InboxView = ({ params = {}, role }) => {
     const st = MM.useStore();
     const items = buildItems(st);
-    const pending = items.filter((x) => x.pending).sort(sortPending);
+    const pending = MM.sel.inboxToHandle();
     const handled = items.filter((x) => !x.pending).sort(MM.by((x) => x.handledAt || x.receivedAt, -1));
     const all = items.slice().sort(MM.by('receivedAt', -1));
     const initial = useMemo(() => {
@@ -888,6 +936,10 @@
         const byCase = items.filter((x) => x.case && x.case.id === params.caseId);
         const pick = byCase.find((x) => ['order', 'order_protected'].includes(x.cls)) || byCase[0];
         if (pick) return pick.id;
+      }
+      if (params.latest === true) { // senast mottagna avropet som väntar på svar (scenario 3 steg 4)
+        const latest = pending.filter((x) => ['order', 'order_protected'].includes(x.cls)).sort(MM.by('receivedAt', -1))[0];
+        if (latest) return latest.id;
       }
       return pending[0] ? pending[0].id : null;
     }, []);
@@ -993,7 +1045,7 @@
     return html`<span class="small muted">${byCoach.map((b) => `${b.name} ${b.n}`).join(' · ')}</span>`;
   };
 
-  const DeadlineTable = ({ rows }) => html`<${ui.Table} caption="Deadlines" rows=${rows} empty="Inget förfaller här." rowClass=${(x) => (x.bucket === 'overdue' ? 'row-alert' : '')} columns=${[
+  const DeadlineTable = ({ rows }) => html`<${ui.Table} caption="Det som förfaller" rows=${rows} empty="Inget förfaller här." rowClass=${(x) => (x.bucket === 'overdue' ? 'row-alert' : '')} columns=${[
     { key: 'due', label: 'Förfaller', render: (x) => (sel.slaStatus(x.dueAt).tone === 'ok'
       ? html`<span class="row-sm nowrap" style="flex-wrap:nowrap" title=${`Förfaller ${d.fmtDateTimeLong(x.dueAt)}`}><${I} name="clock" /><span class="strong">${when(x.dueAt)}</span></span>`
       : html`<div class="stack-sm" style="gap:4px;align-items:flex-start"><${ui.SlaBadge} dueAt=${x.dueAt} /><span class="cell-sub nowrap">${when(x.dueAt)}</span></div>`) },
@@ -1013,7 +1065,7 @@
     const counts = MM.groupBy(all, (x) => x.kind);
     const filtered = all.filter((x) => kind === 'alla' || x.kind === kind);
     const buckets = [
-      ['overdue', 'Försenat', 'alert', 'red', 'Passerad deadline eskaleras: coach → samordnare → chef.'],
+      ['overdue', 'Försenat', 'alert', 'red', 'Det som passerat sista dag eskaleras: coach → samordnare → chef.'],
       ['today', 'I dag', 'clock', undefined, null],
       ['week', 'Denna vecka', 'calendar', undefined, null],
     ];
@@ -1022,10 +1074,10 @@
     const unset = MM.cfg().sla.filter((s) => MM.isUnset(s.due) || MM.isUnset(s.within));
     const options = [{ value: 'alla', label: `Alla (${all.length})` }, ...Object.keys(DL_KIND).filter((k) => counts[k]).map((k) => ({ value: k, label: `${kindLabel(k)} (${counts[k].length})` }))];
     return html`<${ui.Page} title="Förfaller i dag och denna vecka" eyebrow=${`${d.fmtWeekday(d.now())} · ${d.fmtWeek(d.now())}`}
-      lead="Allt som förfaller inom 7 dagar enligt avtalets SLA-regler, räknat i arbetsdagar med svenska helgdagar. Passerad deadline blir röd och eskaleras: coach → samordnare → chef."
+      lead="Allt som förfaller inom 7 dagar enligt avtalets SLA-regler, räknat i arbetsdagar med svenska helgdagar. Det som passerat sista dag markeras och eskaleras: coach → samordnare → chef."
       actions=${html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.rapporter" label="Se vad kommunen får levererat" />`}>
       <div class="grid-4">
-        <${ui.Kpi} label="Försenat" value=${n('overdue')} tone=${n('overdue') > 0 ? 'alert' : undefined} sub="Eskaleras automatiskt" />
+        <${ui.Kpi} label="Försenat" value=${n('overdue')} tone=${n('overdue') > 0 ? 'alert' : undefined} statusText="Passerat – eskaleras" sub="Eskaleras automatiskt" />
         <${ui.Kpi} label="I dag" value=${n('today')} sub=${`Senast ${d.fmtWeekday(d.today())}`} />
         <${ui.Kpi} label="Denna vecka" value=${n('week')} sub="Inom 7 dagar" />
         <${ui.Kpi} label="Ej fastställda" value=${prov} sub="Regeln ska bekräftas med Botkyrka" />
@@ -1042,7 +1094,7 @@
       ${unset.length > 0 && html`<${ui.Notice} tone="info" title="Märkningen Ej fastställd med Botkyrka">
         Förfallotiderna bygger på förslag i avtalskonfigurationen tills Botkyrka bekräftat: ${unset.map((s) => `${s.label.toLowerCase()} – ${String(s.due || s.within).replace(/^ATT_FASTSTÄLLA\s*\(?/, '').replace(/\)$/, '')}`).join('; ')}.<//>`}
       <${ui.Notice} tone="info" icon="eye-off" title="Kommunen ser inte den här listan">Avtalskonfigurationen visar inte SLA-statistik för kommunen. Kommunen ser det som levereras i portalen.<//>
-      <${ui.DemoNote}>Deadlines räknas fram av SLA-reglerna och demoklockan. I tjänsten sparas de som rader med förfallotid och tidpunkt för leverans, så att ni kan visa vad som levererades och när om kommunen skulle hävda en avvikelse.<//>
+      <${ui.DemoNote}>Förfallotiderna räknas fram av SLA-reglerna och demoklockan. I tjänsten sparas de som rader med förfallotid och tidpunkt för leverans, så att ni kan visa vad som levererades och när om kommunen skulle hävda en avvikelse.<//>
     <//>`;
   };
 
@@ -1078,25 +1130,28 @@
     };
     return html`<${ui.Modal} title=${`Boka första möte – ${c.number}`} onClose=${onClose}
       footer=${html`<${ui.Btn} kind="ghost" onClick=${onClose}>Avbryt<//><${ui.Btn} kind="primary" icon="calendar" onClick=${submit}>Boka mötet<//>`}>
-      <p>Huvudcoach: <b>${MM.personName(c.leadCoachId)}</b>. Mötet ska vara bokat senast ${d.fmtWeekday(due)} (inom en vecka från avropet).</p>
+      <p>Huvudcoach: <b>${MM.personName(c.leadCoachId)}</b>. Mötet ska vara bokat senast ${d.fmtWeekday(due)} (inom ${meetingText()} från avropet).</p>
       <div class="form-grid">
         <${ui.Field} id="ink-b-date" label="Datum" required help="En vardag." error=${tried ? err : null}><${ui.Input} id="ink-b-date" type="date" value=${date} onInput=${setDate} invalid=${tried && !!err} /><//>
         <${ui.Field} id="ink-b-time" label="Tid" required help="Mötet hålls i Alby."><${ui.Input} id="ink-b-time" type="time" value=${time} onInput=${setTime} /><//>
       </div>
-      ${date > d.dayOf(due) && html`<${ui.Notice} tone="warn" title="Senare än en vecka efter avropet">Mötet markeras i uppföljningen av nyckeltalet Första möte inom en vecka.<//>`}
+      ${date > d.dayOf(due) && html`<${ui.Notice} tone="warn" title=${`Senare än ${meetingText()} efter avropet`}>Mötet markeras i uppföljningen av nyckeltalet för första möte.<//>`}
       <div class="small muted">Deltagaren får kallelse via sin föredragna kontaktväg och en SMS-påminnelse dagen före. Inga personuppgifter i utskicket.</div>
     <//>`;
   };
 
-  const Tile = ({ label, value, sub, tone, onClick }) => html`<button type="button" class=${cls('kpi ink-tile', tone)} onClick=${onClick}>
-    <span class="kpi-label">${label}</span><span class="kpi-value">${value}</span>${sub && html`<span class="kpi-sub">${sub}</span>`}</button>`;
+  /** Klickbar nyckeltalsruta. Status visas alltid med text och ikon (inte bara ramfärg), som ui.Kpi. */
+  const Tile = ({ label, value, sub, tone, statusText, onClick }) => html`<button type="button" class=${cls('kpi ink-tile', tone)} onClick=${onClick}>
+    <span class="kpi-label">${label}</span><span class="kpi-value">${value}</span>
+    ${(tone === 'alert' || tone === 'watch') && html`<span class="kpi-state"><${I} name=${tone === 'alert' ? 'alert' : 'eye'} />${statusText || (tone === 'alert' ? 'Kräver åtgärd' : 'Bevaka')}</span>`}
+    ${sub && html`<span class="kpi-sub">${sub}</span>`}</button>`;
 
   const KpiCard = ({ keyName }) => {
     const v = sel.kpiValue(keyName);
     const month = d.addMonths(d.monthKey(d.today()), -1);
     if (!v) return null;
     const below = v.status === 'below_internal';
-    return html`<${ui.Kpi} label=${v.label} value=${v.value == null ? '–' : fmt.pct(v.value)} tone=${below ? 'watch' : undefined}
+    return html`<${ui.Kpi} label=${v.label} value=${v.value == null ? '–' : fmt.pct(v.value)} tone=${below ? 'watch' : undefined} statusText="Under internt mål"
       sub=${`${v.num} av ${v.den} · ${d.monthName(month)}${v.targetUnset ? ' · mål ej fastställt' : ''}`}>
       ${v.value != null && html`<${ui.Meter} value=${v.value} max=${1} tone="blue" label=${`${fmt.pct(v.value)} av målet`} markers=${v.target != null ? [{ value: v.target, label: `Internt mål ${fmt.pct(v.target, 0)}`, tone: 'dark' }] : []} />`}
       ${(v.late || []).length > 0 && html`<div class="stack-sm" style="gap:0"><span class="small muted">Inte i tid:</span><span class="row-sm small" style="gap:0 4px">${v.late.map((c) => html`<${ui.CaseLink} key=${c.id} caseId=${c.id} />`)}</span></div>`}
@@ -1110,9 +1165,8 @@
     const persona = MM.persona();
     const [ackFor_, setAckFor] = useState(null); const [book, setBook] = useState(null);
     const [showAllAlerts, setShowAllAlerts] = useState(false); const [showAcked, setShowAcked] = useState(false);
-    const items = buildItems(st).filter((x) => x.pending).sort(sortPending);
+    const items = MM.sel.inboxToHandle(); // samma lista och samma tal som fliken "Att hantera" och menyn
     const orders = items.filter((x) => x.sla && ['order', 'order_protected', 'supplement'].includes(x.cls) && !x.sla.metAt);
-    const answerOrders = items.filter((x) => ['order', 'order_protected'].includes(x.cls));
     const urgent = orders[0];
     const noCoach = st.cases.filter((c) => !c.leadCoachId && ['received', 'acknowledged', 'confirmed', 'active', 'paused'].includes(c.status)).sort(MM.by('referredAt'));
     const alerts = sel.alerts({ role });
@@ -1124,6 +1178,8 @@
     const dlWeek = groupDeadlines(dls.filter((x) => x.bucket === 'week'));
     const tasks = (st.tasks || []).filter((t) => t.toRole === role && t.status === 'open').sort(MM.by('createdAt', -1));
     const cds = st.contractDeviations.filter((x) => x.status !== 'closed').sort(MM.by('actionPlanDue'));
+    // Förfallotid för åtgärdsplaner tas från kärnans förfallolista (samma tidpunkt som i Förfaller), inte hårdkodad här.
+    const cdDue = Object.fromEntries(sel.deadlines({ days: 366 }).filter((x) => x.kind === 'atgardsplan').map((x) => [x.id.replace(/^cd:/, ''), x.dueAt]));
     const cfg = MM.cfg();
     const warnings = st.contractDeviations.filter((x) => x.warningIssued).length;
     const assignNotifs = st.userNotifications.filter((n) => n.kind === 'assignment').sort(MM.by('createdAt', -1)).slice(0, 3);
@@ -1139,13 +1195,15 @@
     return html`<${ui.Page} title="Startsida" eyebrow=${`${MM.roleDef(role).label} · ${persona ? persona.name : ''}`}
       lead=${`${greet}${persona ? `, ${persona.name.split(' ')[0]}` : ''}! ${d.fmtWeekday(d.now()).replace(/^./, (x) => x.toUpperCase())}, ${d.fmtWeek(d.now())}. Det mest brådskande står först.`}>
       <div class="grid-4">
-        <${Tile} label="Avrop att besvara" value=${answerOrders.length} tone=${urgent && ['urgent', 'over'].includes(sel.slaStatus(urgent.sla.dueAt).tone) ? 'alert' : undefined} onClick=${() => MM.nav('sam.inkorg', !urgent ? {} : urgent.email ? { emailId: urgent.id } : { caseId: urgent.case.id })}
-          sub=${urgent ? html`<span>Närmast:</span><${ui.SlaBadge} dueAt=${urgent.sla.dueAt} />` : 'Inget väntar'} />
-        <${Tile} label="Första möten ej bokade" value=${fmCases.length} tone=${fmFlags.size > 0 ? 'watch' : undefined} onClick=${() => { const el = document.getElementById('ink-fm'); if (el) el.scrollIntoView({ block: 'start' }); }}
-          sub=${fmFlags.size > 0 ? `${fmFlags.size} ${fmFlags.size === 1 ? 'flaggat' : 'flaggade'} efter tre dagar` : `Ska bokas inom ${meetingDays()} dagar`} />
-        <${Tile} label="Förfaller i dag" value=${dls.filter((x) => x.bucket !== 'week').length} tone=${dls.some((x) => x.bucket === 'overdue') ? 'alert' : undefined} onClick=${() => MM.nav('sam.deadlines', {})}
+        <${Tile} label="Att hantera i inkorgen" value=${items.length} tone=${urgent && ['urgent', 'over'].includes(sel.slaStatus(urgent.sla.dueAt).tone) ? 'alert' : undefined}
+          statusText=${urgent && sel.slaStatus(urgent.sla.dueAt).tone === 'over' ? 'Svarstiden har passerat' : 'Svarstiden går snart ut'}
+          onClick=${() => MM.nav('sam.inkorg', !urgent ? {} : urgent.email ? { emailId: urgent.id } : { caseId: urgent.case.id })}
+          sub=${urgent ? html`<span>Närmast:</span><${ui.SlaBadge} dueAt=${urgent.sla.dueAt} />` : 'Inget väntar på svar'} />
+        <${Tile} label="Första möten ej bokade" value=${fmCases.length} tone=${fmFlags.size > 0 ? 'watch' : undefined} statusText="Flaggat" onClick=${() => { const el = document.getElementById('ink-fm'); if (el) el.scrollIntoView({ block: 'start' }); }}
+          sub=${fmFlags.size > 0 ? `${fmFlags.size} ${fmFlags.size === 1 ? 'flaggat' : 'flaggade'} efter ${flagDaysText()}` : `Ska bokas inom ${meetingText()}`} />
+        <${Tile} label="Förfaller i dag" value=${dls.filter((x) => x.bucket !== 'week').length} tone=${dls.some((x) => x.bucket === 'overdue') ? 'alert' : undefined} statusText="Försenat – eskaleras" onClick=${() => MM.nav('sam.deadlines', {})}
           sub=${(() => { const o = dls.filter((x) => x.bucket === 'overdue').length; return `${o} ${o === 1 ? 'försenad' : 'försenade'} · ${dls.filter((x) => x.bucket === 'week').length} till denna vecka`; })()} />
-        <${Tile} label="Flaggor att kvittera" value=${alerts.length} tone=${crit > 0 ? 'watch' : undefined} onClick=${() => { const el = document.getElementById('ink-flags'); if (el) el.scrollIntoView({ block: 'start' }); }}
+        <${Tile} label="Flaggor att kvittera" value=${alerts.length} tone=${crit > 0 ? 'watch' : undefined} statusText="Kritiska flaggor" onClick=${() => { const el = document.getElementById('ink-flags'); if (el) el.scrollIntoView({ block: 'start' }); }}
           sub=${`${crit} ${crit === 1 ? 'kritisk' : 'kritiska'} · kvitteras med kort åtgärdsplan`} />
       </div>
 
@@ -1164,14 +1222,14 @@
             ${items.map((x) => html`<${MiniRow} key=${x.id}
               left=${x.sla ? html`<${ui.SlaBadge} dueAt=${x.sla.dueAt} metAt=${x.sla.metAt} />` : html`<${ui.Badge} tone="outline" icon="message">Övrigt<//>`}
               main=${html`${x.case && !x.subject.includes(x.case.number) ? html`<span class="mono">${x.case.number}</span> · ` : ''}${x.subject}`}
-              sub=${`${x.from} · ${CLASSIFICATION[x.cls]} · ${(METHOD[x.method] || METHOD.manual).label}${x.email && (x.email.missingFields || []).length ? ` · saknar ${x.email.missingFields.map((k) => FIELD_LABEL[k].toLowerCase()).join(' och ')}` : ''}`}
+              sub=${`${x.from} · ${CLASSIFICATION[x.cls]} · ${(METHOD[x.method] || METHOD.manual).label}${x.email && (x.email.missingFields || []).length ? ` · saknar ${x.email.missingFields.map((k) => FIELD_LABEL[k].toLowerCase()).join(' och ')}` : ''}${isProtectedItem(x) && !handlesProtected(role) ? ' · hanteras av avtalsansvarig' : ''}`}
               right=${html`<${ui.Btn} kind="secondary" onClick=${() => MM.nav('sam.inkorg', x.email ? { emailId: x.id } : { caseId: x.case.id })}>Öppna<//>`} />`)}
           </div>`}
         <//>
         <div class="stack">
           <${KpiCard} keyName="avrop_besvarade_i_tid" />
           <${KpiCard} keyName="forsta_mote_inom_en_vecka" />
-          <${ui.Card} title="Tilldelning ger notis" icon="bell" foot=${html`<${ui.PerspectiveSwitch} role="coach" view="notiser" label=${`Se coachens notiser (${MM.personName(coachPid)})`} />`}>
+          <${ui.Card} title="Tilldelning ger notis" icon="bell" foot=${html`<div class="ink-wrapbtn"><${ui.PerspectiveSwitch} role="coach" view="notiser" label=${`Se coachens notiser (${firstNameOf(coachPid)})`} /></div>`}>
             <div class="stack-sm">
               <p>Huvudcoach och team får en notis direkt när ett avrop accepteras eller coachen byts. E-posten innehåller bara ärendenumret.</p>
               <blockquote class="ink-quote">${assignNotifs[0] ? assignNotifs[0].emailBody : `Du har fått ett nytt ärende i Miljonmatch: ${sel.previewNextCaseNumber()}. Logga in för att se detaljerna.`}</blockquote>
@@ -1183,7 +1241,7 @@
       </div>
 
       <div class="split-wide">
-        <div id="ink-flags" style="scroll-margin-top:110px">
+        <div id="ink-flags">
         <${ui.Card} title=${`Flaggor (${alerts.length})`} icon="flag" flush
           actions=${acked.length > 0 ? html`<${ui.Btn} kind="ghost" onClick=${() => setShowAcked(!showAcked)}>${showAcked ? 'Dölj kvitterade' : `Visa kvitterade (${acked.length})`}<//>` : null}
           foot=${alerts.length > 5 ? html`<${ui.Btn} kind="ghost" onClick=${() => setShowAllAlerts(!showAllAlerts)}>${showAllAlerts ? 'Visa färre' : `Visa alla ${alerts.length}`}<//>` : null}>
@@ -1212,18 +1270,18 @@
             ${dlWeek.slice(0, 3).map((x) => html`<${MiniRow} key=${x.id} left=${html`<${ui.SlaBadge} dueAt=${x.dueAt} />`} main=${`${kindLabel(x.kind)}${x.aggregate ? ` · ${x.items.length} ärenden` : ''}`}
               sub=${dlSub(x)}
               right=${x.provisional ? html`<${ProvBadge} />` : null} />`)}
-            ${dlWeek.length > 3 && html`<div class="ink-mini-row"><span class="ink-m small muted">+ ${dlWeek.length - 3} till denna vecka (${dls.filter((x) => x.bucket === 'week').length} deadlines)</span></div>`}
+            ${dlWeek.length > 3 && html`<div class="ink-mini-row"><span class="ink-m small muted">+ ${dlWeek.length - 3} till denna vecka (totalt ${dls.filter((x) => x.bucket === 'week').length} som förfaller)</span></div>`}
           </div>
         <//>
       </div>
 
       <div class="grid-2">
-        <div id="ink-fm" style="scroll-margin-top:110px">
+        <div id="ink-fm">
         <${ui.Card} title="Första möten som inte är bokade" icon="calendar" flush>
           ${fmCases.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Alla första möten är bokade" />` : html`<div class="ink-mini">${fmCases.map((c) => html`<${MiniRow} key=${c.id}
             left=${html`<${ui.SlaBadge} dueAt=${sel.firstMeetingDue(c)} />`}
             main=${html`<${ui.CaseLink} caseId=${c.id} />`}
-            sub=${`Coach ${MM.personName(c.leadCoachId)} · mottaget ${d.fmtDate(c.referredAt)}${fmFlags.has(c.id) ? ' · flaggat efter tre dagar' : ''}`}
+            sub=${`Coach ${MM.personName(c.leadCoachId)} · mottaget ${d.fmtDate(c.referredAt)}${fmFlags.has(c.id) ? ` · flaggat efter ${flagDaysText()}` : ''}`}
             right=${isProtected(c) ? html`<span class="small muted">Coachen ringer</span>` : html`<${ui.Btn} kind="secondary" icon="calendar" onClick=${() => setBook(c)}>Boka<//>`} />`)}</div>`}
         <//>
         </div>
@@ -1240,9 +1298,10 @@
       <div class="grid-2">
         <${ui.Card} title=${`Öppna uppgifter (${tasks.length})`} icon="check-square" flush>
           ${tasks.length === 0 ? html`<${ui.Empty} icon="check-circle" title="Inga öppna uppgifter">Uppgifter till din roll visas här.<//>` : html`<div class="list">${tasks.map((t) => html`<div class="list-item" key=${t.id}>
-            <div class="li-main"><span class="li-title">${t.text}</span><span class="li-sub">Från ${MM.personName(t.fromId)} · ${when(t.createdAt)}</span>
+            <div class="li-main"><span class="li-title">${t.text}</span><span class="li-sub">${t.fromId === 'system' ? 'Skapad automatiskt' : `Från ${MM.personName(t.fromId)}`} · ${when(t.createdAt)}</span>
               <div class="row-sm">
                 ${t.emailId && html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => MM.nav('sam.inkorg', { emailId: t.emailId })}>Öppna mejlet<//>`}
+                ${!t.emailId && (t.caseIds || []).length === 1 && t.kind === 'protected_order' && html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => MM.nav('sam.inkorg', { caseId: t.caseIds[0] })}>Öppna beställningen<//>`}
                 <${ui.Btn} kind="ghost" icon="check" onClick=${() => { MM.dispatch('ink.taskDone', { taskId: t.id }); MM.toast('Uppgiften är markerad som klar.', 'blue'); }}>Markera som klar<//>
               </div></div></div>`)}</div>`}
         <//>
@@ -1251,7 +1310,7 @@
           <div class="ink-mini">
             ${cds.length === 0 && html`<div class="ink-mini-row"><span class="ink-m muted">Inga öppna avtalsavvikelser.</span></div>`}
             ${cds.map((x) => { const step = (cfg.escalationLadder || []).find((s) => s.step === x.escalationStep);
-              return html`<${MiniRow} key=${x.id} left=${x.actionPlanDue ? html`<${ui.SlaBadge} dueAt=${`${x.actionPlanDue}T16:00`} prefix="Åtgärdsplan" />` : null}
+              return html`<${MiniRow} key=${x.id} left=${x.actionPlanDue ? html`<${ui.SlaBadge} dueAt=${cdDue[x.id] || x.actionPlanDue} prefix="Åtgärdsplan" />` : null}
                 main=${x.description} sub=${`${x.source === 'beställare' ? 'Från kommunen' : x.source === 'deltagare' ? 'Från deltagare' : 'Intern'} · ${x.level}${step ? ` · steg ${step.step} i eskaleringstrappan` : ''} · ${x.status === 'action_plan' ? 'åtgärdsplan godkänd av kommunen' : 'öppen'}`}
                 right=${canOpen('chef.avvikelser') ? html`<${ui.Btn} kind="ghost" title="Öppna avvikelsen" icon="arrow-right" onClick=${() => MM.nav('chef.avvikelser', { id: x.id })} />` : null} />`; })}
             ${role === 'avtalsansvarig' && html`
@@ -1263,7 +1322,7 @@
         <//>
       </div>
 
-      <${ui.DemoNote}>Siffrorna räknas fram ur demodata och demoklockan. Flaggor och deadlines följer reglerna i avtalskonfigurationen och de interna reglerna för notiser.<//>
+      <${ui.DemoNote}>Siffrorna räknas fram ur demodata och demoklockan. Flaggor och förfallotider följer reglerna i avtalskonfigurationen och de interna reglerna för notiser.<//>
       ${ackFor_ && html`<${AckModal} a=${ackFor_} onClose=${() => setAckFor(null)} />`}
       ${book && html`<${BookModal} c=${book} onClose=${() => setBook(null)} />`}
     <//>`;

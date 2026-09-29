@@ -24,6 +24,8 @@ try {
   ok(!/\b35 %/.test(t) || t.includes('Internt mål'), 'internt mål visas bara som internt mål');
   await page.locator('summary', { hasText: 'Visa JSON (contracts.config)' }).click();
   ok((await text()).includes('"casePrefix": "BOT"'), '"Visa JSON" fäller ut konfigurationen');
+  ok(await page.locator('summary', { hasText: 'Dölj JSON (contracts.config)' }).count() === 1, 'den utfällda rutan säger "Dölj" (tydlig markör)');
+  ok(!/deadline/i.test(t), 'inga engelska "deadline" i avtalsvyn');
   await btn('Öppna frågor till Botkyrka').click(); await page.waitForTimeout(100);
   ok(await S(() => MM.route.view === 'om.fragor'), 'länken går till om.fragor');
   await visit(page, 'admin', 'admin.avtal', { contract: 'c-kk' });
@@ -37,6 +39,24 @@ try {
   t = await text();
   ok(t.includes('Inom 5 dagar') || t.includes('Första kontakt inom 5 dagar'), 'jämförelsen visar KK:s SLA 5 dagar');
   ok(t.includes('Startpaket') && t.includes('80 %') && t.includes('70 %'), 'jämförelsen visar paketpriser och KPI 80/70 %');
+
+  step('admin.avtal {contract:c-kk, tab:jamfor} – scenario 12 steg 2');
+  v = await visit(page, 'admin', 'admin.avtal', { contract: 'c-kk', tab: 'jamfor' });
+  ok(v.length === 0, 'vyn renderar utan problem');
+  ok(await page.getByRole('tab', { name: /Jämför avtalen/ }).getAttribute('aria-selected') === 'true', 'fliken Jämför avtalen är vald direkt');
+  t = await text();
+  ok(/Startpaket – 4 120 kr per paket \(4 månader\)/.test(t) && t.includes('Förlängt stöd – 1 200 kr per månad') && t.includes('Yttrande till CSN – 699 kr per styck'), 'paketpriserna syns direkt, med enhet');
+  ok(t.includes('Placeringsgrad: 60 %') && t.includes('Svarstider (SLA)') && t.includes('Första kontakt inom 5 dagar från beställning'), 'KPI:er och SLA syns i jämförelsen');
+  ok(t.includes('per deltagare och vecka'), 'Botkyrkas veckopris visas bredvid');
+  ok(await S(() => document.title.includes('Jämför avtalen') || MM.views['admin.avtal'].title({ contract: 'c-kk', tab: 'jamfor' }) === 'Jämför avtalen'), 'vyns titel är Jämför avtalen');
+  await btn('Visa Kammarkollegiets prislista').click(); await page.waitForTimeout(80);
+  t = await text();
+  ok(t.includes('Prislista – skiss') && t.includes('Arbetstagarstöd – startpaket'), 'knappen öppnar Kammarkollegiets prislista');
+  await visit(page, 'admin', 'admin.avtal', { tab: 'jamforelse' });
+  ok(await page.getByRole('tab', { name: /Jämför avtalen/ }).getAttribute('aria-selected') === 'true', 'gamla flik-id:t jamforelse fungerar också');
+  const cfgTexts = await S(() => ({ esc: MM.cfg().escalationLadder.filter((x) => /skriftlig varning/i.test(x.text)).map((x) => x.step) }));
+  await visit(page, 'admin', 'admin.avtal', {});
+  ok((await text()).includes(`Skriftliga varningar kan ges på steg ${Math.min(...cfgTexts.esc)}–${Math.max(...cfgTexts.esc)}`), 'eskaleringstrappans text räknas fram ur konfigurationen');
 
   step('admin.avtal {tab:interna} – admin.setOrgRule');
   await visit(page, 'admin', 'admin.avtal', { tab: 'interna' });
@@ -70,6 +90,10 @@ try {
   step('admin.anvandare – bjud in kommunanvändare');
   await visit(page, 'avtalsansvarig', 'admin.anvandare', {});
   ok((await text()).includes('Kommunens användare'), 'avtalsansvarig landar på kommunfliken');
+  await page.setViewportSize({ width: 400, height: 860 }); await page.waitForTimeout(80);
+  const sw = await page.getByRole('button', { name: 'Se kundens inloggning' }).evaluate((b) => { const card = b.closest('.card'); const r = b.getBoundingClientRect(); const c = card.getBoundingClientRect(); return { over: r.right - c.right, scroll: b.scrollWidth - b.clientWidth }; });
+  ok(sw.over <= 0 && sw.scroll <= 0, `perspektivknappen ryms i kortet på 400 px (${JSON.stringify(sw)})`);
+  await page.setViewportSize({ width: 1280, height: 900 });
   const nUsers = await S(() => MM.store.state.customerUsers.length);
   await btn('Bjud in kommunanvändare').click(); await page.waitForTimeout(80);
   await page.locator('#inv-name').fill('Kim Andersson');
@@ -101,10 +125,30 @@ try {
   t = await text();
   ok(t.includes('eu-north-1') && t.includes('arn1') && t.includes('Berget AI') && t.includes('Fortnox'), 'underbiträden, regioner och integrationer visas');
   ok(t.includes('Regeln är inte fastställd (fråga 11)'), 'gallringsjobbet är inte aktiverat (ATT_FASTSTÄLLA)');
+  const pubTime = await S(() => MM.cfg().sla.find((x) => x.key === 'veckorapport_publicering').time.replace(':', '.'));
+  ok(t.includes(`senast ${pubTime} enligt avtalet`), `veckorapportjobbets tid läses från avtalet (${pubTime})`);
   await page.getByRole('row', { name: /Läs avrop@-inkorgen/ }).getByRole('button', { name: /Kör nu/ }).click(); await page.waitForTimeout(80);
   ok(await S(() => !!(MM.store.state.adminJobRuns && MM.store.state.adminJobRuns.inbox) && MM.store.state.auditLog.some((a) => a.action === 'job.run_manual')), '"Kör nu" registreras och loggas');
 
   // ------------------------------------------------------------------ admin.mallar
+  step('admin.mallar – mallarna har samma text som utskicken');
+  await visit(page, 'admin', 'admin.mallar', {});
+  const mailGeneric = await S(() => MM.store.state.notifications.find((n) => n.template === 'generisk_mottagningsbekraftelse'));
+  await page.getByRole('button', { name: /Generisk mottagningsbekräftelse – mejl/ }).click(); await page.waitForTimeout(80);
+  ok(mailGeneric && (await page.locator('#tpl-body').inputValue()) === mailGeneric.body, 'mejlvarianten har exakt samma text som seedens utskick');
+  ok((await text()).includes('Två varianter skickas i dag'), 'mallen visar att det finns två varianter');
+  const portal = await S(() => { const r = MM.dispatch('case.create', { source: 'portal', referrerId: 'k-maria', firstName: 'Test', lastName: 'Skyddad', pnr: '19900101-0000', protectedIdentity: true, primaryArea: 'G', plannedWeeks: 6 }); const st = MM.store.state; return { r, n: st.notifications[st.notifications.length - 1] }; });
+  ok(portal.n && portal.n.template === 'generisk_mottagningsbekraftelse' && !portal.n.caseId, 'portalbeställning med skyddade personuppgifter ger generisk bekräftelse utan ärende');
+  await page.getByRole('button', { name: /Generisk mottagningsbekräftelse – portalen/ }).click(); await page.waitForTimeout(80);
+  ok((await page.locator('#tpl-body').inputValue()) === portal.n.body, 'portalvarianten har exakt samma text som case.create skickar');
+  const ackMin = await S(() => MM.cfg().sla.find((x) => x.key === 'ordererkannande').within.minutes);
+  await page.getByRole('button', { name: /^Ordererkännande/ }).click(); await page.waitForTimeout(80);
+  ok((await text()).includes(`Automatiskt inom ${ackMin} minuter`), 'ordererkännandets tidsgräns läses från avtalet');
+  await page.getByRole('tab', { name: /Utskickslogg/ }).click(); await page.waitForTimeout(80);
+  t = await text();
+  ok(t.includes('Generisk mottagningsbekräftelse – portalen') && t.includes('Generisk mottagningsbekräftelse – mejl'), 'utskicksloggen visar vilken variant som skickats');
+  ok(!/\b[a-z]+_[a-z_]+\b/.test(t.replace(/@[\w.-]+/g, '')), 'inga mallkoder syns i utskicksloggen');
+
   step('admin.mallar – personuppgiftskontroll och versioner');
   await visit(page, 'samordnare', 'admin.mallar', {});
   await page.getByRole('button', { name: /Pulslänk/ }).click(); await page.waitForTimeout(80);
@@ -166,6 +210,11 @@ try {
   step('admin.logg – filter, markering, export och loggkontroll');
   await visit(page, 'admin', 'admin.logg', {});
   t = await text();
+  ok(t.includes('Tolkning: Word-mall') && t.includes('Tolkning: AI') && t.includes('Period: rullande 6 månader') && t.includes('Typ: tolka mejl') && t.includes('Typ: transkribering och utkast'), 'revisionsloggen visar läsbara värden');
+  ok(!/Tolkning: template|Kanal: email|Typ: parse_email|rolling_6m|Mall: generisk_/.test(t), 'inga kodvärden i detaljerna');
+  ok(!/\b(report\.view|case\.view|notify\.email|email\.received)\b/.test(t), 'åtgärdskoderna visas inte i tabellen');
+  ok(await page.locator('[title="Åtgärdskod: notify.email"]').count() > 0, 'åtgärdskoden finns kvar som title');
+  ok(t.includes('Mall: Generisk mottagningsbekräftelse – mejl'), 'mallnamnet visas i detaljerna');
   ok(t.includes('Gjort av dig i prototypen'), 'testarens poster är märkta');
   ok(t.includes('Deltagare (engångslänk)'), 'pulssvaret loggas utan namn');
   await page.locator('#log-action').selectOption('org_rule.updated'); await page.waitForTimeout(80);
@@ -183,6 +232,7 @@ try {
   ok(await S(() => MM.store.state.auditLog.some((a) => a.action === 'export.audit_log')), 'exporten loggas via audit.view');
   const csv = await page.locator('#text-modal-area').inputValue().catch(() => '');
   ok(csv.startsWith('"Tidpunkt";"Aktör"'), 'CSV-filen skapas (visas för kopiering i testmiljön)');
+  ok(csv.includes('"Åtgärdskod"') && csv.includes('"notify.email"'), 'CSV-exporten har kvar åtgärdskoden');
   await page.keyboard.press('Escape');
   ok((await text()).includes('Gör kontrollen som chef'), 'admin ser att loggkontrollen görs av chef');
   await visit(page, 'chef', 'admin.logg', {});
@@ -227,6 +277,7 @@ try {
   ok(otherNames.length > 0 && otherNames.every((n) => !tNow.includes(n)), 'inga namn från andra coachers ärenden syns');
   await page.locator(`#fr-${nadiaPl}-uppfoljning`).check(); await page.waitForTimeout(80);
   ok(await S(() => MM.store.state.placements.find((p) => p.caseId === MM.store.state.script.nadia).fourRights.uppfoljning === true), 'coachen bockar i "Rätt uppföljning"');
+  ok((await text()).includes('Rätt tidpunkt') && !(await text()).includes('Rätt timing'), 'fyra rätt på svenska (Rätt tidpunkt)');
   await page.locator(`#fu-${nadiaPl}`).fill('2027-02-10');
   await page.getByRole('button', { name: 'Lägg till uppföljning' }).first().click(); await page.waitForTimeout(80);
   ok(await S(() => MM.store.state.placements.find((p) => p.caseId === MM.store.state.script.nadia).followUpDates.includes('2027-02-10')), 'uppföljningsdatum läggs till');

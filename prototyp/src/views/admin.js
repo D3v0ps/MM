@@ -3,7 +3,7 @@
 // Egna åtgärder: admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob,
 // admin.logCheck, pulse.submit, employer.add, employer.setRight, employer.addFollowUp.
 (() => {
-  const { html, useState, useMemo, d, fmt } = MM;
+  const { html, useState, useEffect, useMemo, d, fmt } = MM;
   const ui = MM.ui; const I = ui.Icon; const sel = MM.sel;
   const A = MM.defineAction;
   const S = () => MM.store.state;
@@ -12,26 +12,45 @@
   const APPROVED_ON = '2026-09-29'; // Botkyrkas besked om underbiträden och inspelning (SPEC §3.1)
 
   // ============================================================ Mallar för e-post och SMS (versioneras, SPEC §9)
+  const GENERIC = 'generisk_mottagningsbekraftelse'; const GENERIC_PORTAL = 'generisk_mottagningsbekraftelse_portal';
+  const OCCASION = { week2: 'vecka 2', exit: 'vid avslut' };
+  const withinText = (w) => (w.minutes != null ? `${w.minutes} minuter` : w.workingDays != null ? plural(w.workingDays, 'arbetsdag', 'arbetsdagar') : w.days != null ? plural(w.days, 'dag', 'dagar') : '–');
+  /** Tidsgräns för en SLA-regel i avtalskonfigurationen, t.ex. "5 minuter". */
+  const slaWithin = (key) => { const r = (MM.cfg().sla || []).find((x) => x.key === key); return r && r.within && typeof r.within === 'object' ? withinText(r.within) : 'den tid avtalet anger'; };
+  /** Klockslag för en SLA-regel ("16.00"). */
+  const slaTime = (key) => { const r = (MM.cfg().sla || []).find((x) => x.key === key); return r && r.time ? r.time.replace(':', '.') : null; };
+  const listSv = (xs) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} och ${xs[xs.length - 1]}` : xs.join(''));
+  /** "Vecka 2, vid avslut och var 30:e dag vid långa insatser" – från avtalets pulskonfiguration. */
+  const pulseWhen = () => { const p = MM.cfg().pulse; if (!p) return 'Enligt avtalet'; return cap(listSv([...p.occasions.map((o) => OCCASION[o] || o), ...(p.periodicEveryDays ? [`var ${p.periodicEveryDays}:e dag vid långa insatser`] : [])])); };
   const TEMPLATES = [
-    { key: 'ordererkannande', name: 'Ordererkännande', channel: 'email', from: 'avrop@miljonbemanning.se (samma tråd via Microsoft Graph)', to: 'Kommunens handläggare', when: 'Automatiskt inom 5 minuter när ett avrop kommit in', subject: 'Vi har tagit emot er beställning – {arendenummer}', body: 'Tack! Vi har tagit emot er beställning och gett den ärendenummer {arendenummer}. Ni får besked om startdatum och ansvarig coach senast {svar_senast}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', version: 3, updatedAt: '2026-12-02T10:14' },
-    { key: 'generisk_mottagningsbekraftelse', name: 'Generisk mottagningsbekräftelse', channel: 'email', from: 'avrop@miljonbemanning.se', to: 'Avsändaren av mejlet', when: 'När avropet gäller skyddade personuppgifter eller inte kan tolkas', subject: 'Vi har tagit emot ditt mejl', body: 'Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag.', version: 2, updatedAt: '2026-10-20T13:30' },
+    { key: 'ordererkannande', name: 'Ordererkännande', channel: 'email', from: 'avrop@miljonbemanning.se (samma tråd via Microsoft Graph)', to: 'Kommunens handläggare', when: () => `Automatiskt inom ${slaWithin('ordererkannande')} när ett avrop kommit in`, subject: 'Vi har tagit emot er beställning – {arendenummer}', body: 'Tack! Vi har tagit emot er beställning och gett den ärendenummer {arendenummer}. Ni får besked om startdatum och ansvarig coach senast {svar_senast}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', version: 3, updatedAt: '2026-12-02T10:14' },
+    // Generisk mottagningsbekräftelse finns i två varianter – texterna är exakt de som skickas (01-seed.js för mejl, case.create i 03-domain.js för portalen).
+    { key: 'generisk_mottagningsbekraftelse', name: 'Generisk mottagningsbekräftelse – mejl', channel: 'email', from: 'avrop@miljonbemanning.se', to: 'Avsändaren av mejlet', when: 'När ett mejl till avrop@ gäller skyddade personuppgifter eller inte kan tolkas', subject: 'Vi har tagit emot ditt mejl', body: 'Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag.', version: 2, updatedAt: '2026-10-20T13:30', variantOf: GENERIC },
+    { key: GENERIC_PORTAL, sendKey: GENERIC, name: 'Generisk mottagningsbekräftelse – portalen', channel: 'email', from: 'avrop@miljonbemanning.se', to: 'Kommunens handläggare som beställde i portalen', when: 'När en beställning i portalen gäller skyddade personuppgifter', subject: 'Vi har tagit emot er beställning', body: 'Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.', version: 1, updatedAt: '2026-10-20T13:30', variantOf: GENERIC },
     { key: 'orderbekraftelse', name: 'Orderbekräftelse', channel: 'email', from: 'avrop@miljonbemanning.se', to: 'Kommunens handläggare', when: 'När avropet accepteras', subject: 'Orderbekräftelse – {arendenummer}', body: 'Orderbekräftelse för ärende {arendenummer} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.\n\n{lank}', version: 2, updatedAt: '2026-10-20T13:32' },
     { key: 'ny_rapport', name: 'Ny rapport', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Mottagaren av rapporten', when: 'När en rapport levereras i portalen', subject: 'Ny rapport i portalen', body: '{rapporttyp} för ärende {arendenummer} finns i portalen – logga in för att läsa.\n\n{lank}', version: 2, updatedAt: '2026-11-05T09:00' },
     { key: 'nytt_meddelande', name: 'Nytt meddelande', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Kommunens handläggare eller coachen', when: 'När ett säkert meddelande skickas i ett ärende', subject: 'Nytt meddelande om {arendenummer}', body: 'Du har ett nytt meddelande om ärende {arendenummer} – logga in för att läsa.\n\n{lank}', version: 1, updatedAt: '2026-09-08T11:00' },
-    { key: 'kallelse', name: 'Kallelse till första möte', channel: 'sms', from: 'Miljonbemanning (SMS)', to: 'Deltagaren (föredragen kontaktväg)', when: 'När första mötet bokas', body: 'Välkommen till Miljonbemanning! Ditt första möte är {datum} kl. {tid} i {plats}. Frågor? Ring {telefon}.', version: 2, updatedAt: '2026-10-01T15:10' },
+    { key: 'kallelse', name: 'Kallelse till första möte', channel: 'sms', alsoVia: ['email', 'brev'], from: 'Miljonbemanning', to: 'Deltagaren – via föredragen kontaktväg (SMS, e-post eller brev)', when: 'När första mötet bokas. Aldrig vid skyddade personuppgifter.', body: 'Välkommen till Miljonbemanning! Ditt första möte är {datum} kl. {tid} i {plats}. Frågor? Ring {telefon}.', version: 2, updatedAt: '2026-10-01T15:10' },
     { key: 'motespaminnelse', name: 'Mötespåminnelse', channel: 'sms', from: 'Miljonbemanning (SMS)', to: 'Deltagaren', when: 'Dagen före ett möte kl. 18.00', body: 'Påminnelse: möte i morgon kl. {tid} hos Miljonbemanning i {plats}. Frågor? Ring {telefon}.', version: 1, updatedAt: '2026-09-08T11:00' },
-    { key: 'pulslank', name: 'Pulslänk', channel: 'sms', from: 'Miljonbemanning (SMS)', to: 'Deltagaren (aldrig vid skyddade personuppgifter)', when: 'Vecka 2, vid avslut och var 30:e dag vid långa insatser', body: 'Hej! Hur går det hos oss? Svara på fem korta frågor: {lank} Länken gäller i 7 dagar. Det är frivilligt att svara.', version: 2, updatedAt: '2026-11-18T10:40' },
+    { key: 'pulslank', name: 'Pulslänk', channel: 'sms', from: 'Miljonbemanning (SMS)', to: 'Deltagaren (aldrig vid skyddade personuppgifter)', when: () => pulseWhen(), body: 'Hej! Hur går det hos oss? Svara på fem korta frågor: {lank} Länken gäller i 7 dagar. Det är frivilligt att svara.', version: 2, updatedAt: '2026-11-18T10:40' },
     { key: 'tilldelning_coach', name: 'Tilldelning till coach', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Huvudcoach och team', when: 'När ett ärende tilldelas eller coach byts', subject: 'Nytt ärende i Miljonmatch', body: 'Du har fått ett nytt ärende i Miljonmatch: {arendenummer}. Logga in för att se detaljerna.', version: 1, updatedAt: '2027-01-11T08:30' },
     { key: 'paminnelse_progression', name: 'Påminnelse om progression', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Huvudcoachen', when: () => `Enligt interna regler: ${sel.orgRules().progressionWatch.reminderSchedule}`, subject: 'Påminnelse från Miljonmatch', body: 'Påminnelse från Miljonmatch: ett av dina ärenden ({arendenummer}) saknar dokumenterad progression. Logga in för att se vilket steg som behövs.', version: 1, updatedAt: '2027-01-11T08:30' },
     { key: 'eskalering_chef', name: 'Eskalering till chef', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Chef och controller – syns aldrig för coachen', when: () => `När ett ärende saknar progression ${sel.orgRules().progressionWatch.escalateAfterConsecutiveWeeks} veckor i rad`, subject: 'Eskalering i Miljonmatch', body: 'Eskalering i Miljonmatch: ett ärende ({arendenummer}) har {antal_veckor} veckor i rad utan progression. Logga in för att se detaljerna.', version: 1, updatedAt: '2027-01-11T08:30' },
     { key: 'avbojt', name: 'Avböjt avrop', channel: 'email', from: 'avrop@miljonbemanning.se', to: 'Kommunens handläggare', when: 'När ett avrop avböjs', subject: 'Besked om beställning {arendenummer}', body: 'Vi kan tyvärr inte ta emot beställning {arendenummer}. Logga in i portalen för att läsa orsaken.', version: 1, updatedAt: '2026-09-08T11:00' },
     { key: 'coachbyte', name: 'Byte av huvudcoach', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Kommunens handläggare', when: 'När huvudcoachen byts', subject: 'Ny huvudcoach för {arendenummer}', body: 'Ärende {arendenummer} har fått ny huvudcoach. Logga in i portalen för att se vem.', version: 1, updatedAt: '2026-09-08T11:00' },
+    { key: 'beslut_behovs', name: 'Beslut behövs från kommunen', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Kommunens handläggare', when: 'När en avvikelse kräver kommunens beslut eller stöd – kommunen får också en uppgift i portalen', subject: 'Ärende {arendenummer} behöver ert beslut', body: 'Ärende {arendenummer} behöver ert beslut eller stöd – logga in för att läsa.', version: 1, updatedAt: '2027-01-11T08:30' },
+    { key: 'atgardsplan_godkannande', name: 'Åtgärdsplan att godkänna', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Kommunens chef', when: 'När Miljonbemanning skickar en åtgärdsplan för en avtalsavvikelse till kommunen', subject: 'Åtgärdsplan väntar på ert godkännande', body: 'En åtgärdsplan inom avtalet med Miljonbemanning väntar på ert godkännande. Logga in i portalen för att läsa den.', version: 1, updatedAt: '2027-01-11T08:30' },
+    { key: 'atgardsplan_godkand', name: 'Åtgärdsplan godkänd', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Avtalsansvarig på Miljonbemanning', when: 'När kommunen godkänner en åtgärdsplan', subject: 'Åtgärdsplan godkänd', body: 'Beställaren har godkänt en åtgärdsplan i Miljonmatch. Logga in för att se den.', version: 1, updatedAt: '2027-01-11T08:30' },
     { key: 'inbjudan_kommun', name: 'Inbjudan till portalen', channel: 'email', from: 'notis@miljonbemanning.se', to: 'Ny kommunanvändare', when: 'När avtalsansvarig bjuder in en kommunanvändare', subject: 'Inbjudan till Miljonbemannings portal', body: 'Du har bjudits in till Miljonbemannings portal för beställare. Logga in på {lank} med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.', version: 1, updatedAt: '2026-09-08T11:00' },
   ];
   const INVITE_TEXT = 'Du har bjudits in till Miljonbemannings portal för beställare. Logga in på portal.miljonbemanning.se med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.';
   const TPL_NAME = Object.fromEntries(TEMPLATES.map((t) => [t.key, t.name]));
+  const PORTAL_GENERIC_BODY = TEMPLATES.find((t) => t.key === GENERIC_PORTAL).body;
+  /** Vilken mall ett utskick kommer från. Portalvarianten av den generiska bekräftelsen skickas med samma mallnyckel men har egen text. */
+  const tplKeyOf = (n) => (n.template === GENERIC && String(n.body || '').trim() === PORTAL_GENERIC_BODY ? GENERIC_PORTAL : n.template);
+  const tplLabel = (key) => TPL_NAME[key] || cap(String(key || 'Utskick').replace(/_/g, ' '));
   const ALLOWED_PH = ['arendenummer', 'lank', 'svar_senast', 'datum', 'tid', 'plats', 'telefon', 'rapporttyp', 'antal_veckor', 'vecka'];
-  const EXAMPLE = { arendenummer: 'BOT-27-0049', lank: 'https://portal.miljonbemanning.se', svar_senast: 'tisdag 2 feb 2027 kl. 08.41', datum: 'onsdag 3 februari', tid: '10.00', plats: 'Alby', telefon: '08-000 00 00', rapporttyp: 'Månadsrapport individ', antal_veckor: '2', vecka: 'vecka 4' };
+  const EXAMPLE = { arendenummer: 'BOT-27-0049', lank: 'https://portal.miljonbemanning.se', svar_senast: d.fmtDateTimeLong('2027-02-02T08:41'), datum: 'onsdag 3 februari', tid: '10.00', plats: 'Alby', telefon: '08-000 00 00', rapporttyp: 'Månadsrapport individ', antal_veckor: '2', vecka: 'vecka 4' };
   const PII_PH = /\{\s*(namn|förnamn|fornamn|efternamn|fullständigt_namn|deltagare|deltagarens?_namn|deltagarnamn|personnummer|pnr|samordningsnummer|födelsedatum|fodelsedatum|adress|gatuadress|postadress|hemadress|postnummer|telefon_deltagare|mobil_deltagare|mobilnummer|epost_deltagare|e-post_deltagare)\s*\}/gi;
   const PNR_RE = /\b(19|20)\d{6}[-+]?\d{4}\b|\b\d{6}[-+]\d{4}\b/;
   /** Kontroll "Innehåller inga personuppgifter": platshållare för namn/personnummer/adress och personnummer i klartext. */
@@ -190,9 +209,15 @@
       <div>${children}</div>
       ${error && html`<div class="error-text" role="alert"><${I} name="alert-circle" />${error}</div>`}
     </fieldset>`;
-  const Details = ({ summary, children }) => html`<details class="card">
-      <summary style="cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;padding:10px 18px;font-weight:700"><${I} name="chevron-down" />${summary}</summary>
+  /** Utfällbart kort. Pilen vänds när det är öppet och texten är understruken, så att det syns att det går att klicka. */
+  const Details = ({ summary, children }) => {
+    const [open, setOpen] = useState(false);
+    return html`<details class="card" onToggle=${(e) => setOpen(e.currentTarget.open)}>
+      <summary style="cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px;padding:10px 18px;font-weight:700;list-style:none">
+        <span style=${`display:inline-flex;transition:transform .15s;transform:rotate(${open ? 180 : 0}deg)`}><${I} name="chevron-down" /></span>
+        <span style="text-decoration:underline;text-underline-offset:3px">${open ? 'Dölj' : 'Visa'} ${summary}</span></summary>
       <div class="card-body" style="border-top:1px solid var(--line)">${children}</div></details>`;
+  };
   const Pre = ({ text }) => html`<pre style="margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.8125rem;line-height:1.45;background:var(--surface-sub);padding:12px 14px;border-radius:var(--radius);max-height:480px;overflow:auto">${text}</pre>`;
 
   // ============================================================ admin.avtal – Avtal och konfiguration
@@ -202,8 +227,8 @@
     'result.excludedFromDenominator': ['Vilka avslut som inte räknas i nämnaren', 6],
     'kpis.narvarograd.internalTarget': ['Internt mål för närvarograd', 'internt'],
     'kpis.nojdhet.internalTarget': ['Internt mål för nöjdhet', 'internt'],
-    'sla.manadsrapport.due': ['Deadline för månadsrapport', 8],
-    'sla.slutrapport.within': ['Deadline för slutrapport', 8],
+    'sla.manadsrapport.due': ['Sista dag för månadsrapport', 8],
+    'sla.slutrapport.within': ['Sista dag för slutrapport', 8],
     'attendance.sameDayNoticeOnInvalidAbsence': ['Frånvaronotis till kommunen samma dag', 7],
     'bonus.model': ['Incitamentsmodell för bonus', 13],
     retention: ['Gallring under avtalstiden', 11],
@@ -230,9 +255,8 @@
     'c-bot': { termination: 'Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.', scope: 'Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.' },
     'c-kk': { termination: 'Enligt KK-avtalet – kontrolleras före start.', scope: 'Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör.' },
   };
-  const within = (w) => (w.minutes != null ? `${w.minutes} minuter` : w.workingDays != null ? plural(w.workingDays, 'arbetsdag', 'arbetsdagar') : w.days != null ? plural(w.days, 'dag', 'dagar') : '–');
   const slaRule = (s) => {
-    if (s.within && typeof s.within === 'object') return `Inom ${within(s.within)} ${FROM[s.from] || ''}`.trim();
+    if (s.within && typeof s.within === 'object') return `Inom ${withinText(s.within)} ${FROM[s.from] || ''}`.trim();
     if (MM.isUnset(s.within)) return html`<${Unset} v=${s.within} />`;
     if (MM.isUnset(s.due)) return html`<${Unset} v=${s.due} />`;
     if (s.due) return cap(String(s.due).replace(/(\d\d):(\d\d)/, '$1.$2'));
@@ -301,7 +325,7 @@
         { key: 'it', label: 'Internt mål', render: (k) => pctOrUnset(k.internalTarget) },
         c.kpis.some((k) => k.minN != null) && { key: 'n', label: 'Minsta underlag', render: (k) => (k.minN != null ? `${k.minN} avslut` : '–') },
       ].filter(Boolean)} />` },
-    sla: { title: 'Svarstider och deadlines (SLA)', icon: 'clock', flush: true, wide: true, has: (c) => c.sla, body: (c) => html`<${ui.Table} caption="SLA" rows=${c.sla.map((s) => ({ ...s, id: s.key }))} columns=${[
+    sla: { title: 'Svarstider och sista dagar (SLA)', icon: 'clock', flush: true, wide: true, has: (c) => c.sla, body: (c) => html`<${ui.Table} caption="SLA" rows=${c.sla.map((s) => ({ ...s, id: s.key }))} columns=${[
       { key: 'label', label: 'Vad', render: (s) => html`<span class="strong">${s.label || SLA_LABEL[s.key] || s.key}</span>` },
       { key: 'rule', label: 'Regel', render: (s) => slaRule(s) },
       { key: 'auto', label: 'Automatiskt', render: (s) => (s.automatic ? html`<${YesNo} v=${true} />` : '–') },
@@ -343,7 +367,7 @@
       c.economicDeviation && ['Ekonomisk avvikelse', c.economicDeviation],
       'keyPersonnelChangeRequiresApproval' in c && ['Byte av nyckelpersonal', c.keyPersonnelChangeRequiresApproval ? 'Kräver kommunens godkännande' : 'Kräver inte godkännande'],
     ]} />` },
-    eskalering: { title: 'Eskaleringstrappa', icon: 'flag', flush: true, wide: true, has: (c) => c.escalationLadder, foot: (c) => html`<span class="small muted">Skriftliga varningar ges på steg 1–3. ${c.warningsBeforeTermination} varningar kan leda till uppsägning.</span>`,
+    eskalering: { title: 'Eskaleringstrappa', icon: 'flag', flush: true, wide: true, has: (c) => c.escalationLadder, foot: (c) => { const w = c.escalationLadder.filter((x) => /skriftlig varning/i.test(x.text)).map((x) => x.step); return html`<span class="small muted">${w.length ? `Skriftliga varningar kan ges på steg ${w.length > 1 ? `${Math.min(...w)}–${Math.max(...w)}` : w[0]}. ` : ''}${c.warningsBeforeTermination} varningar kan leda till uppsägning.</span>`; },
       body: (c) => html`<${ui.Table} caption="Eskaleringstrappa" rows=${c.escalationLadder.map((s) => ({ ...s, id: s.step }))} columns=${[
         { key: 'step', label: 'Steg', num: true }, { key: 'level', label: 'Nivå', render: (s) => cap(s.level) }, { key: 'text', label: 'Innebörd' }]} />` },
     avslut: { title: 'Avslut och gallring', icon: 'database', has: (c) => c.termination, body: (c) => html`<${KV} items=${[
@@ -401,12 +425,12 @@
     const card = (key) => { const c = CFG_CARDS[key]; if (!c || !c.has(cfg)) return null; return html`<${ui.Card} key=${key} title=${c.title} icon=${c.icon} flush=${c.flush} foot=${c.foot ? c.foot(cfg, x) : null}>${c.body(cfg, x)}<//>`; };
     const present = (keys) => keys.filter((key) => CFG_CARDS[key] && CFG_CARDS[key].has(cfg));
     return html`<div class="stack-lg">
-      ${contractId === 'c-bot' ? html`<${UnsetWarnings} list=${unset} />` : html`<${ui.Notice} tone="info" title="Utkast – avtalet startar 13 mars 2027">
+      ${contractId === 'c-bot' ? html`<${UnsetWarnings} list=${unset} />` : html`<${ui.Notice} tone="info" title=${`Utkast – avtalet startar ${d.fmtDate(k.startsOn)}`}>
         Konfigurationen är en skiss som visar att samma kod räcker. Övriga regler (faser, fakturering, puls med mera) läggs in när KK-avtalet konfigureras i utvecklingsfas 4. Kontrollera i KK-avtalet om dagarna är kalender- eller arbetsdagar och vilka de åtta statistikfälten är.<//>`}
       <${ContractFacts} k=${k} />
       ${CFG_SECTIONS.map(([title, keys]) => { const ks = present(keys); const narrow = ks.filter((key) => !CFG_CARDS[key].wide); const wide = ks.filter((key) => CFG_CARDS[key].wide);
         return ks.length > 0 && html`<${ui.Section} title=${title} key=${title}>${wide.map(card)}${narrow.length > 0 && html`<${Masonry} items=${narrow.map(card)} />`}<//>`; })}
-      <${Details} summary="Visa JSON (contracts.config)">
+      <${Details} summary="JSON (contracts.config)">
         <p class="small muted" style="margin-bottom:10px">Så lagras konfigurationen i databasen. Den valideras med ett zod-schema innan den sparas.</p>
         <${Pre} text=${JSON.stringify(cfg, null, 2)} />
       <//>
@@ -447,33 +471,45 @@
     </div>`;
   };
 
-  const CompareTab = () => {
+  /** En pris-rad i klarspråk: "Startpaket – 4 120 kr per paket (4 månader)". */
+  const priceLine = (p) => `${PRICE_CODE[p.code] || p.code} – ${fmt.kr(p.price * 100)} ${({ package: 'per paket', month: 'per månad', each: 'per styck', participant_week: 'per deltagare och vecka' })[p.unit] || ''}${p.packageMonths ? ` (${p.packageMonths} månader)` : ''}`.trim();
+  const Lines = ({ items }) => (items.length === 0 ? '–' : items.length === 1 ? items[0] : html`<ul class="stack-sm" style="margin:0;padding-left:18px;gap:2px">${items.map((x, i) => html`<li key=${i}>${x}</li>`)}</ul>`);
+  /** Jämförelsetabellen: tre kolumner på bred skärm, en regel i taget med rubrik per avtal på mobil (ingen sidledsscroll). */
+  const STACK_CSS = `.adm-stack tbody th{text-transform:none;letter-spacing:0;font-size:.9375rem;color:var(--antracit);white-space:normal;vertical-align:top;border-bottom:1px solid var(--line)}
+@media (max-width:720px){.adm-stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.adm-stack,.adm-stack tbody,.adm-stack tr,.adm-stack th,.adm-stack td{display:block;width:auto}
+.adm-stack tr{padding:8px 0;border-bottom:1px solid var(--line)}.adm-stack tbody th,.adm-stack td{border:0 !important;padding:3px 16px}
+.adm-stack td[data-label]::before{content:attr(data-label);display:block;font-size:var(--fs-label);font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-muted);margin:4px 0 2px}}`;
+  const CompareTab = ({ onShowPrices }) => {
     const st = MM.useStore(); const bot = MM.contract('c-bot'); const kk = MM.contract('c-kk');
-    const model = (k) => (k.config.priceItems ? MM.uniq(k.config.priceItems.map((p) => p.unit)) : MM.uniq(st.priceItems.filter((p) => p.contractId === k.id).map((p) => p.unit))).map((u) => (UNIT[u] || u).toLowerCase()).join(', ').replace(/^./, (s) => s.toUpperCase());
+    const model = (k) => (k.config.priceItems ? MM.uniq(k.config.priceItems.map((p) => p.unit)) : MM.uniq(st.priceItems.filter((p) => p.contractId === k.id).map((p) => p.unit))).map((u) => (UNIT[u] || u).toLowerCase()).join(', ').replace(/^./, (x) => x.toUpperCase());
     const prices = (k) => {
-      if (k.config.priceItems) return k.config.priceItems.map((p) => `${PRICE_CODE[p.code] || p.code} ${fmt.kr(p.price * 100)}${p.unit === 'month' ? ' per månad' : ''}`).join(' · ');
-      const ps = st.priceItems.filter((p) => p.contractId === k.id).map((p) => p.priceOre); return ps.length ? `${fmt.kr(Math.min(...ps))}–${fmt.kr(Math.max(...ps))} per vecka beroende på område (exempelpriser)` : '–';
+      if (k.config.priceItems) return html`<${Lines} items=${k.config.priceItems.map(priceLine)} />`;
+      const ps = st.priceItems.filter((p) => p.contractId === k.id).map((p) => p.priceOre);
+      return ps.length ? `${fmt.kr(Math.min(...ps))}–${fmt.kr(Math.max(...ps))} per deltagare och vecka beroende på avtalsområde (exempelpriser)` : '–';
     };
-    const kpis = (k) => k.config.kpis.filter((x) => typeof x.contractTarget === 'number').map((x) => `${x.label || KPI_LABEL[x.key] || x.key} ${fmt.pct(x.contractTarget, 0)}${typeof x.internalTarget === 'number' ? ` (internt mål ${fmt.pct(x.internalTarget, 0)})` : ''}`).join(' · ') || '–';
-    const sla = (k) => k.config.sla.filter((s) => s.within && typeof s.within === 'object' && !s.automatic).map((s) => `${s.label || SLA_LABEL[s.key] || s.key} inom ${within(s.within)}`).join(' · ') || '–';
-    const meet = (k) => (k.config.meetingMinimums || []).map(meetingText).join(' · ') || 'Inget krav';
-    const stats = (k) => [k.config.statistics && `På begäran, högst ${k.config.statistics.onRequestMaxPerYear} gånger per år`, ...(k.config.exports || []).map(exportText)].filter(Boolean).join(' · ') || '–';
+    const kpis = (k) => html`<${Lines} items=${k.config.kpis.filter((x) => typeof x.contractTarget === 'number').map((x) => `${x.label || KPI_LABEL[x.key] || x.key}: ${fmt.pct(x.contractTarget, 0)}${typeof x.internalTarget === 'number' ? ` (internt mål ${fmt.pct(x.internalTarget, 0)})` : ''}`)} />`;
+    const sla = (k) => html`<${Lines} items=${k.config.sla.filter((x) => x.within && typeof x.within === 'object' && !x.automatic).map((x) => `${x.label || SLA_LABEL[x.key] || x.key} inom ${withinText(x.within)} ${FROM[x.from] || ''}`.trim())} />`;
+    const meet = (k) => html`<${Lines} items=${(k.config.meetingMinimums || []).map(meetingText)} />`;
+    const stats = (k) => html`<${Lines} items=${[k.config.statistics && `På begäran, högst ${k.config.statistics.onRequestMaxPerYear} gånger per år`, ...(k.config.exports || []).map(exportText)].filter(Boolean)} />`;
     const status = (k) => (k.status === 'active' ? `Aktivt sedan ${d.fmtDate(k.startsOn)}` : `Utkast – startar ${d.fmtDate(k.startsOn)}`);
     const rows = [
       ['Status', status], ['Personuppgiftsroll', (k) => (k.dataRole === 'processor' ? 'Personuppgiftsbiträde' : 'Personuppgiftsansvarig')], ['Ärendenummer', (k) => `${k.casePrefix}-${d.today().slice(2, 4)}-0001`],
-      ['Prismodell', model], ['Priser', prices], ['Nyckeltal med avtalsmål', kpis], ['Svarstider', sla], ['Mötesminimum', meet],
+      ['Prismodell', model], ['Priser exkl. moms', prices], ['Nyckeltal med avtalsmål', kpis], ['Svarstider (SLA)', sla], ['Mötesminimum', (k) => ((k.config.meetingMinimums || []).length ? meet(k) : 'Inget krav')],
       ['Kunden ser individrapporter', (k) => html`<${YesNo} v=${!!k.config.customerVisibility.seesIndividualReports} />`], ['Kunden ser coachanteckningar', (k) => html`<${YesNo} v=${!!k.config.customerVisibility.seesCoachNotes} />`],
       ['Statistik', stats],
     ].map(([label, fn]) => ({ id: label, label, bot: fn(bot), kk: fn(kk) }));
     return html`<div class="stack">
       <${ui.Notice} tone="info" title="Samma kod – ny konfiguration">Kammarkollegiet blir avtal nr 2. Kärnflödena är desamma – det som skiljer läses från avtalets konfiguration. Acceptanskriterium i utvecklingsfas 4: KK-avtalet ska kunna konfigureras utan kodändring.<//>
       <${ui.Card} title="Botkyrka kommun och Kammarkollegiet" icon="layers" flush actions=${html`<${ui.BuildPhase} fas=${4} />`}
-        foot=${html`<span class="small muted">Att kontrollera i KK-avtalet: om dagarna i svarstiderna är kalender- eller arbetsdagar, och vilka de åtta statistikfälten är.</span>`}>
-        <${ui.Table} caption="Jämförelse mellan avtalen" rows=${rows} columns=${[
-          { key: 'label', label: 'Regel', render: (r) => html`<span class="strong">${r.label}</span>` },
-          { key: 'bot', label: 'Botkyrka kommun', render: (r) => r.bot },
-          { key: 'kk', label: 'Kammarkollegiet', render: (r) => r.kk },
-        ]} />
+        foot=${html`<span class="small muted">Botkyrka betalar per deltagare och vecka, Kammarkollegiet per paket, månad eller styck. Att kontrollera i KK-avtalet: om dagarna i svarstiderna är kalender- eller arbetsdagar, och vilka de åtta statistikfälten är.</span>
+          ${onShowPrices && html`<${ui.Btn} kind="secondary" icon="card" onClick=${onShowPrices}>Visa Kammarkollegiets prislista<//>`}`}>
+        <style>${STACK_CSS}</style>
+        <div class="table-wrap"><table class="table adm-stack">
+          <caption class="sr-only">Jämförelse mellan avtalen</caption>
+          <thead><tr><th scope="col" style="width:22%">Regel</th><th scope="col">Botkyrka kommun</th><th scope="col">Kammarkollegiet</th></tr></thead>
+          <tbody>${rows.map((r) => html`<tr key=${r.id}><th scope="row">${r.label}</th><td data-label="Botkyrka kommun">${r.bot}</td><td data-label="Kammarkollegiet">${r.kk}</td></tr>`)}</tbody>
+        </table></div>
       <//>
     </div>`;
   };
@@ -565,7 +601,7 @@
           <//>
         </div>
       </div>
-      <${Details} summary="Visa JSON (orgConfig.notifications)"><${Pre} text=${JSON.stringify(n, null, 2)} /><//>
+      <${Details} summary="JSON (orgConfig.notifications)"><${Pre} text=${JSON.stringify(n, null, 2)} /><//>
       <${ui.DemoNote}>Ändringen slår igenom direkt i prototypens notiser och flaggor. I den riktiga tjänsten sparas reglerna i en egen tabell för Miljonbemannings interna regler, och påminnelserna skickas av ett bakgrundsjobb måndag 08.00.<//>
     </div>`;
   };
@@ -573,25 +609,29 @@
   const AvtalView = ({ params }) => {
     const st = MM.useStore();
     const [contractId, setContract] = useState(params.contract === 'c-kk' ? 'c-kk' : 'c-bot');
-    const [tab, setTab] = useState(['avtal', 'priser', 'jamforelse', 'interna'].includes(params.tab) ? params.tab : 'avtal');
+    const TAB_ALIAS = { jamforelse: 'jamfor', prislista: 'priser' };
+    const want = TAB_ALIAS[params.tab] || params.tab;
+    const [tab, setTab] = useState(['avtal', 'priser', 'jamfor', 'interna'].includes(want) ? want : 'avtal');
     const k = st.contracts.find((c) => c.id === contractId);
     const unsetN = findUnset(k.config).length;
+    // På mobil ryms inte alla flikar – se till att den valda fliken syns när vyn öppnas med tab-param.
+    useEffect(() => { const t = setTimeout(() => { const el = document.querySelector('#main [role=tab][aria-selected=true]'); const strip = el && el.closest('[role=tablist]'); if (!strip || strip.scrollWidth <= strip.clientWidth) return; const a = el.getBoundingClientRect(); const b = strip.getBoundingClientRect(); if (a.left < b.left || a.right > b.right) strip.scrollLeft += a.left - b.left - 16; }, 0); return () => clearTimeout(t); }, [tab]);
     return html`<${ui.Page} title="Avtal och konfiguration" eyebrow=${`Systemadmin · ${MM.personName('u-robin')}`}
       lead="Ett avtal är en konfiguration. Samma kod används för Botkyrka och Kammarkollegiet – mål, svarstider, priser och rapportregler läses härifrån och är aldrig hårdkodade.">
       <${ui.Tabs} ariaLabel="Delar av avtalet" active=${tab} onChange=${setTab} tabs=${[
         { id: 'avtal', label: 'Avtal och regler', icon: 'file', count: unsetN },
         { id: 'priser', label: 'Prislista', icon: 'card' },
-        { id: 'jamforelse', label: 'Jämför avtalen', icon: 'layers' },
+        { id: 'jamfor', label: 'Jämför avtalen', icon: 'layers' },
         { id: 'interna', label: 'Interna regler (Miljonbemanning)', icon: 'bell' },
       ]} />
       ${['avtal', 'priser'].includes(tab) && html`<${ContractPicker} value=${contractId} onChange=${setContract} />`}
       ${tab === 'avtal' && html`<${ConfigTab} contractId=${contractId} key=${contractId} />`}
       ${tab === 'priser' && html`<${PriceTab} contractId=${contractId} key=${contractId} />`}
-      ${tab === 'jamforelse' && html`<${CompareTab} />`}
+      ${tab === 'jamfor' && html`<${CompareTab} onShowPrices=${() => { setContract('c-kk'); setTab('priser'); }} />`}
       ${tab === 'interna' && html`<${InternalRules} />`}
     <//>`;
   };
-  MM.registerView('admin.avtal', { title: (p) => (p && p.contract === 'c-kk' ? 'Avtal: Kammarkollegiet' : p && p.tab === 'interna' ? 'Interna regler (Miljonbemanning)' : 'Avtal och konfiguration'), roles: ['admin'], component: AvtalView });
+  MM.registerView('admin.avtal', { title: (p) => (p && ['jamfor', 'jamforelse'].includes(p.tab) ? 'Jämför avtalen' : p && p.tab === 'interna' ? 'Interna regler (Miljonbemanning)' : p && p.contract === 'c-kk' ? 'Avtal: Kammarkollegiet' : 'Avtal och konfiguration'), roles: ['admin'], component: AvtalView });
 
   // ============================================================ admin.anvandare – Användare och roller
   const ROLE_ORDER = ['admin', 'avtalsansvarig', 'samordnare', 'coach', 'handledare', 'chef', 'ekonom'];
@@ -719,7 +759,7 @@
       ${tab === 'kommun' && html`<${ui.Card} title="Kommunens användare" icon="building" flush
           actions=${html`<span class="small muted">Tillåtna domäner:</span>${(k.emailDomains || []).map((x) => html`<${ui.Badge} tone="outline" key=${x}>@${x}<//>`)}`}
           foot=${html`<div class="stack-sm" style="width:100%"><span class="small muted">Engångskoden gäller i 10 minuter och man har högst 5 försök. Ingen magisk länk – e-postskydd som Safe Links förbrukar sådana länkar i förväg. Mejlbeställning via avrop@ fungerar även för den som aldrig loggar in.</span>
-            <div><${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.login" label="Se inloggningen från kundens håll" /></div></div>`}>
+            <div><${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.login" label="Se kundens inloggning" /></div></div>`}>
         <${ui.Table} caption="Kommunens användare" rows=${ku} rowClass=${(u) => (!u.active ? 'row-muted' : '')} columns=${[
           { key: 'name', label: 'Namn', render: (u) => html`<span class="strong">${u.name}</span><div class="cell-sub">${u.email}</div>` },
           { key: 'unit', label: 'Roll och enhet', render: (u) => html`<span class="strong">${u.role === 'chef' ? 'Chef' : 'Handläggare'}</span><div>${u.unit}</div>${brOf(u) && html`<div class="cell-sub">Beställarreferens ${brOf(u).reference}</div>`}` },
@@ -776,7 +816,7 @@
     const J = (key, name, schedule, last, status, result, extra = {}) => ({ id: key, key, name, schedule, last: runs[key] ? runs[key].at : last, manual: !!runs[key], status, result, ...extra });
     return [
       J('inbox', 'Läs avrop@-inkorgen', 'Var 2–5 minut', `${today}T09:10`, 'ok', latestMail ? `Senaste mejl kom ${d.fmtDateTime(latestMail)}` : 'Inga mejl'),
-      J('weekly', 'Publicera veckorapporter', 'Måndag, när närvaron är komplett – senast 16.00', `${today}T07:00`, waiting.length ? 'waiting' : 'ok', `${weekly.length - waiting.length} publicerade, ${waiting.length} väntar på närvaro (${d.fmtWeekKey(lastWeek)})`),
+      J('weekly', 'Publicera veckorapporter', `Måndag, när närvaron är komplett${slaTime('veckorapport_publicering') ? ` – senast ${slaTime('veckorapport_publicering')} enligt avtalet` : ''}`, `${today}T07:00`, waiting.length ? 'waiting' : 'ok', `${weekly.length - waiting.length} publicerade, ${waiting.length} väntar på närvaro (${d.fmtWeekKey(lastWeek)})`),
       J('att_remind', 'Påminnelser om närvaroregistrering', 'Fredag 14.00 och måndag 08.00', `${today}T08:00`, 'ok', `${plural(coachesMissing, 'coach', 'coacher')} påmind${coachesMissing === 1 ? '' : 'a'} om förra veckan`),
       J('progress', 'Progressionspåminnelser', 'Måndag 08.00', `${today}T08:00`, 'ok', `${watch.length} påminnelser till coacher, ${watch.filter((w) => w.level === 'escalated').length} eskaleringar till chef`),
       J('audio', 'Radera ljud efter transkribering', 'Direkt efter lyckad transkribering – senast efter 24 timmar vid fel', lastAudio, 'ok', `${plural(audioDel.length, 'ljudfil', 'ljudfiler')} raderade`, { phase: 2 }),
@@ -857,7 +897,9 @@
   MM.registerView('admin.integrationer', { title: 'Underbiträden och integrationer', roles: ['admin'], component: IntegrationsView });
 
   // ============================================================ admin.mallar – Mallar och utskick
-  const ChannelBadge = ({ ch }) => html`<${ui.Badge} tone="outline" icon=${ch === 'sms' ? 'message' : 'mail'}>${ch === 'sms' ? 'SMS' : 'E-post'}<//>`;
+  const CH = { sms: ['message', 'SMS'], email: ['mail', 'E-post'], brev: ['file', 'Brev'], letter: ['file', 'Brev'] };
+  const ChannelBadge = ({ ch }) => { const [icon, label] = CH[ch] || ['mail', ch]; return html`<${ui.Badge} tone="outline" icon=${icon}>${label}<//>`; };
+  const ChannelBadges = ({ t }) => html`${[t.channel, ...(t.alsoVia || [])].map((c) => html`<${ChannelBadge} key=${c} ch=${c} />`)}`;
   const CheckBadge = ({ c }) => (c.ok ? html`<${ui.Badge} tone="outline" icon="check">Inga personuppgifter<//>` : html`<${ui.Badge} tone="red" icon="alert">Innehåller personuppgifter<//>`);
 
   const TemplateEditor = ({ tpl }) => {
@@ -874,11 +916,16 @@
       if (r && r.error) { MM.toast('Mallen kunde inte sparas. Texten får inte vara tom.', 'red'); return; }
       MM.toast(`${tpl.name} är sparad som version ${r.version}.`, 'blue');
     };
-    return html`<${ui.Card} title=${tpl.name} icon=${tpl.channel === 'sms' ? 'message' : 'mail'} actions=${html`<${ChannelBadge} ch=${tpl.channel} /><${ui.Badge} tone="dark">Version ${tpl.version}<//>`}
+    const variants = tpl.variantOf ? TEMPLATES.filter((t) => t.variantOf === tpl.variantOf && t.key !== tpl.key) : [];
+    return html`<${ui.Card} title=${tpl.name} icon=${tpl.channel === 'sms' ? 'message' : 'mail'} actions=${html`<${ChannelBadges} t=${tpl} /><${ui.Badge} tone="dark">Version ${tpl.version}<//>`}
       foot=${html`<${ui.Btn} kind="primary" icon="check" disabled=${!dirty || !chk.ok || !body.trim()} onClick=${save}>Spara som version ${tpl.version + 1}<//>
         ${dirty && html`<${ui.Btn} kind="ghost" icon="reset" onClick=${() => { setSubject(tpl.subject || ''); setBody(tpl.body); }}>Ångra ändringarna<//>`}`}>
       <div class="stack">
-        <${KV} items=${[['Avsändare', tpl.from], ['Mottagare', tpl.to], ['Skickas', when], ['Senast ändrad', `${d.fmtDate(tpl.updatedAt)} av ${MM.personName(tpl.updatedBy)}`]]} />
+        <${KV} items=${[['Avsändare', tpl.from], ['Mottagare', tpl.to], ['Skickas', when], tpl.alsoVia && ['Kanal', `${listSv([tpl.channel, ...tpl.alsoVia].map((c) => (CH[c] || [0, c])[1]))} – den kontaktväg deltagaren har valt`], ['Senast ändrad', `${d.fmtDate(tpl.updatedAt)} av ${MM.personName(tpl.updatedBy)}`]]} />
+        ${variants.length > 0 && html`<${ui.Notice} tone="info" title="Två varianter skickas i dag">
+          <div class="stack-sm"><p>Texten här är exakt den som skickas ${tpl.key === GENERIC_PORTAL ? 'när en beställning i portalen gäller skyddade personuppgifter' : 'när ett mejl till avrop@ gäller skyddade personuppgifter eller inte kan tolkas'}. Den andra varianten:</p>
+            ${variants.map((v) => { const cv = currentTpl(st, v.key); return html`<div key=${v.key} style="border-left:3px solid var(--line-strong);padding:4px 0 4px 10px"><div class="strong">${v.name}</div><div>${cv.body}</div></div>`; })}
+            <p class="small muted">Varianterna lovar olika saker: efter ett mejl ringer vi upp handläggaren, efter en portalbeställning ber vi handläggaren ringa oss. Bestäm vilken formulering som ska gälla innan tjänsten byggs.</p></div><//>`}
         ${tpl.channel === 'email' && html`<${ui.Field} id="tpl-subject" label="Ämnesrad" help="Visas i mottagarens inkorg. Bara ärendenummer – aldrig namn."><${ui.Input} id="tpl-subject" value=${subject} onInput=${setSubject} invalid=${!chk.ok} /><//>`}
         <${ui.Field} id="tpl-body" label="Text" help=${html`Tillåtna platshållare: ${ALLOWED_PH.map((p) => `{${p}}`).join(', ')}.${tpl.channel === 'sms' ? html` <b>${body.length} tecken</b> – ett SMS rymmer 160.` : ''}`}>
           <${ui.TextArea} id="tpl-body" rows=${tpl.channel === 'sms' ? 4 : 7} value=${body} onInput=${setBody} invalid=${!chk.ok} /><//>
@@ -915,7 +962,7 @@
                 style=${on ? 'background:var(--bla-ton);box-shadow:inset 4px 0 0 var(--rod)' : ''}>
               <${I} name=${t.channel === 'sms' ? 'message' : 'mail'} />
               <span class="li-main"><span class="li-title">${t.name}</span><span class="li-sub">${t.to}</span>
-                <span class="row-sm"><${ChannelBadge} ch=${t.channel} /><${ui.Badge} tone="grey">v${t.version}<//><${CheckBadge} c=${c} /></span></span>
+                <span class="row-sm"><${ChannelBadges} t=${t} /><${ui.Badge} tone="grey">v${t.version}<//><${CheckBadge} c=${c} /></span></span>
               <${I} name="chevron-right" />
             </button>`; })}</div>
         <//>
@@ -932,10 +979,11 @@
     const leak = (body) => { const s = String(body || '').toLowerCase(); return PNR_RE.test(String(body || '')) || names.some((n) => s.includes(n)); };
     const all = st.notifications.slice().sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
     const leaks = all.filter((n) => leak(n.body));
-    const list = all.filter((n) => (ch === 'alla' || n.channel === ch) && (!mine || n.byTester));
+    const list = all.filter((n) => (ch === 'alla' || n.channel === ch || (ch === 'brev' && n.channel === 'letter')) && (!mine || n.byTester));
+    const letters = all.filter((n) => ['brev', 'letter'].includes(n.channel)).length;
     return html`<div class="stack">
       <div class="grid-4">
-        <${ui.Kpi} label="Utskick" value=${all.length} sub="e-post och SMS" />
+        <${ui.Kpi} label="Utskick" value=${all.length} sub=${letters > 0 ? `e-post, SMS och ${plural(letters, 'brev', 'brev')}` : 'e-post och SMS'} />
         <${ui.Kpi} label="E-post" value=${all.filter((n) => n.channel === 'email').length} />
         <${ui.Kpi} label="SMS" value=${all.filter((n) => n.channel === 'sms').length} />
         <${ui.Kpi} label="Orsakade av dig" value=${all.filter((n) => n.byTester).length} sub="i prototypen" />
@@ -943,16 +991,16 @@
       ${leaks.length === 0 ? html`<${ui.Notice} tone="ok" title="Kontroll: inga utskick innehåller namn eller personnummer">Alla ${all.length} texter har kontrollerats mot deltagarregistret. De innehåller bara ärendenummer och en uppmaning att logga in i portalen.<//>`
         : html`<${ui.Notice} tone="critical" title=${`${leaks.length} utskick kan innehålla personuppgifter`}>Granska utskicken som är markerade nedan.<//>`}
       <div class="row-between">
-        <${ui.Seg} ariaLabel="Kanal" value=${ch} onChange=${setCh} options=${[{ value: 'alla', label: 'Alla' }, { value: 'email', label: 'E-post', icon: 'mail' }, { value: 'sms', label: 'SMS', icon: 'message' }]} />
+        <${ui.Seg} ariaLabel="Kanal" value=${ch} onChange=${setCh} options=${[{ value: 'alla', label: 'Alla' }, { value: 'email', label: 'E-post', icon: 'mail' }, { value: 'sms', label: 'SMS', icon: 'message' }, ...(letters > 0 ? [{ value: 'brev', label: 'Brev', icon: 'file' }] : [])]} />
         <${ui.Check} id="log-mine" checked=${mine} onChange=${setMine}>Bara utskick du orsakat<//>
       </div>
       <${ui.Card} title=${`Utskickslogg (${list.length})`} icon="send" flush>
         ${list.length === 0 ? html`<${ui.Empty} icon="send" title="Inga utskick att visa">Ändra filtret, eller gör något i prototypen som skickar e-post eller SMS – till exempel acceptera ett avrop.<//>`
           : html`<div class="list">${list.map((n) => { const c = n.caseId ? sel.caseById(n.caseId) : null; const bad = leak(n.body);
             return html`<div class="list-item" key=${n.id} style=${n.byTester ? 'box-shadow:inset 4px 0 0 var(--bla)' : ''}>
-              <${I} name=${n.channel === 'sms' ? 'message' : 'mail'} size="lg" />
+              <${I} name=${(CH[n.channel] || ['mail'])[0]} size="lg" />
               <div class="li-main">
-                <div class="row-sm"><span class="strong">${TPL_NAME[n.template] || n.template}</span><${ChannelBadge} ch=${n.channel} />${n.byTester && html`<${ui.Badge} tone="dark" icon="user">Orsakat av dig i prototypen<//>`}</div>
+                <div class="row-sm"><span class="strong">${tplLabel(tplKeyOf(n))}</span><${ChannelBadge} ch=${n.channel} />${n.byTester && html`<${ui.Badge} tone="dark" icon="user">Orsakat av dig i prototypen<//>`}</div>
                 <div class="li-sub">${d.fmtDateTime(n.at)} · Till ${n.to}${c ? ` · ärende ${c.number}` : ''}</div>
                 <div style="white-space:pre-wrap;overflow-wrap:anywhere;padding:8px 10px;border-left:3px solid var(--line);margin-top:4px">${n.body}</div>
                 <div>${bad ? html`<${ui.Badge} tone="red" icon="alert">Kan innehålla personuppgifter<//>` : html`<${ui.Badge} tone="blue" icon="check">Inga personuppgifter<//>`}</div>
@@ -991,27 +1039,92 @@
     'org_rule.updated': 'Ändrade interna regler', 'customer_user.invited': 'Bjöd in kommunanvändare', 'customer_user.blocked': 'Spärrade kommunanvändare', 'customer_user.reactivated': 'Aktiverade kommunanvändare',
     'template.saved': 'Sparade ny mallversion', 'job.run_manual': 'Körde bakgrundsjobb manuellt', 'audit.log_check': 'Signerade loggkontroll',
     'pulse.submitted': 'Pulssvar inskickat', 'employer.added': 'Lade till arbetsgivare', 'placement.four_rights_updated': 'Ändrade de fyra rätten', 'placement.follow_up_added': 'Lade till uppföljningsdatum',
+    'case.view_denied': 'Nekades att öppna deltagarkort', 'ai.blocked': 'AI stoppades', 'notify.suppressed': 'Stoppade utskick', 'email.registered_by_phone': 'Registrerade avrop per telefon', 'case.order_details_corrected': 'Rättade beställningsuppgifter',
+    'billing.fortnox_run': 'Körde överföring till Fortnox', 'billing.fortnox_status_synced': 'Hämtade fakturastatus från Fortnox', 'billing.credited_and_reissued': 'Krediterade och fakturerade på nytt', 'billing.run_closed': 'Stängde fakturakörning',
+    'task.created': 'Skapade uppgift', 'task.done': 'Markerade uppgift som klar', 'auth.login': 'Loggade in', 'contract_deviation.created': 'Registrerade avtalsavvikelse', 'contract_deviation.updated': 'Ändrade avtalsavvikelse',
+    'contract_deviation.action_plan_approved': 'Godkände åtgärdsplan', 'contract_deviation.closed': 'Stängde avtalsavvikelse', 'report.quality_reviewed': 'Kvalitetsgranskade rapport', 'report.final_text_saved': 'Sparade slutrapportens text',
+    'report.summary_saved': 'Sparade sammanfattning i rapport', 'report.correction_reason': 'Angav orsak till rättelse', view: 'Visade',
   };
-  const ENTITY_LABEL = { case: 'Ärende', person: 'Person', report: 'Rapport', inbound_email: 'Mejl', ai_run: 'AI-körning', attendance: 'Närvaro', check_in: 'Avstämning', deviation: 'Avvikelse', monthly_assessment: 'Månadsbedömning', intake_assessment: 'Kartläggning', outcome_event: 'Händelse', alert: 'Flagga', consent: 'Samtycke', billing_run: 'Fakturakörning', contract: 'Avtal', org_config: 'Interna regler', profile: 'Användare', template: 'Mall', job: 'Bakgrundsjobb', audit_log: 'Revisionslogg', pulse_response: 'Pulssvar', employer: 'Arbetsgivare', placement: 'Praktikplats' };
-  const DETAIL_KEY = { number: 'Ärendenummer', source: 'Kanal', parseMethod: 'Tolkning', template: 'Mall', to: 'Till', from: 'Från', kind: 'Typ', provider: 'Leverantör', reason: 'Orsak', status: 'Status', month: 'Månad', week: 'Vecka', count: 'Antal', format: 'Format', rows: 'Rader', role: 'Roll', unit: 'Enhet', domain: 'Domän', version: 'Version', language: 'Språk', contactRequested: 'Vill bli kontaktad', right: 'Rätt', value: 'Värde', date: 'Datum', areas: 'Områden', checked: 'Kontrollerade poster', deviations: 'Avvikelser', withinSla: 'Inom SLA', leadCoachId: 'Huvudcoach', firstMeetingAt: 'Första möte', fields: 'Fält', missing: 'Saknas', classification: 'Klassning', via: 'Via', kpi: 'Nyckeltal', window: 'Period', audioDeleted: 'Ljud raderat', automatic: 'Automatiskt', waiting: 'Väntar', endReason: 'Avslutsorsak', resultClass: 'Resultatklass', channel: 'Kanal', note: 'Anteckning', plan: 'Åtgärdsplan', filter: 'Filter', aiUsed: 'AI använd', fromCheckIn: 'Från avstämning', deviationId: 'Avvikelse', invoiceNo: 'Fakturanummer', idempotencyKey: 'Idempotensnyckel', by: 'Av', previous: 'Tidigare version' };
+  /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing: new thing". */
+  const actionLabel = (code) => ACTION_LABEL[code] || cap(String(code || '').replace(/[._]/g, ' '));
+  const ENTITY_LABEL = { customer_user: 'Kommunanvändare', contract_deviation: 'Avtalsavvikelse', task: 'Uppgift', case: 'Ärende', person: 'Person', report: 'Rapport', inbound_email: 'Mejl', ai_run: 'AI-körning', attendance: 'Närvaro', check_in: 'Avstämning', deviation: 'Avvikelse', monthly_assessment: 'Månadsbedömning', intake_assessment: 'Kartläggning', outcome_event: 'Händelse', alert: 'Flagga', consent: 'Samtycke', billing_run: 'Fakturakörning', contract: 'Avtal', org_config: 'Interna regler', profile: 'Användare', template: 'Mall', job: 'Bakgrundsjobb', audit_log: 'Revisionslogg', pulse_response: 'Pulssvar', employer: 'Arbetsgivare', placement: 'Praktikplats' };
+  const DETAIL_KEY = { number: 'Ärendenummer', source: 'Kanal', parseMethod: 'Tolkning', template: 'Mall', to: 'Till', from: 'Från', kind: 'Typ', provider: 'Leverantör', reason: 'Orsak', status: 'Status', month: 'Månad', week: 'Vecka', count: 'Antal', format: 'Format', rows: 'Rader', role: 'Roll', unit: 'Enhet', domain: 'Domän', version: 'Version', language: 'Språk', contactRequested: 'Vill bli kontaktad', right: 'Rätt', value: 'Värde', date: 'Datum', areas: 'Områden', checked: 'Kontrollerade poster', deviations: 'Avvikelser', withinSla: 'Inom SLA', leadCoachId: 'Huvudcoach', firstMeetingAt: 'Första möte', fields: 'Fält', missing: 'Saknas', classification: 'Klassning', via: 'Via', kpi: 'Nyckeltal', window: 'Period', audioDeleted: 'Ljud raderat', automatic: 'Automatiskt', waiting: 'Väntar', endReason: 'Avslutsorsak', resultClass: 'Resultatklass', channel: 'Kanal', note: 'Anteckning', plan: 'Åtgärdsplan', filter: 'Filter', aiUsed: 'AI använd', fromCheckIn: 'Från avstämning', deviationId: 'Avvikelse', invoiceNo: 'Fakturanummer', idempotencyKey: 'Idempotensnyckel', idempotencyKeys: 'Idempotensnycklar', by: 'Av', previous: 'Tidigare version',
+    at: 'Tidpunkt', created: 'Skapade', skippedAlreadyCreated: 'Redan skapade', skippedDuplicates: 'Dubbletter som hoppades över', blocked: 'Stoppade', notApproved: 'Inte godkända', changed: 'Ändrade',
+    buyerReference: 'Beställarreferens', toRole: 'Till roll', caseIds: 'Ärenden', emailId: 'Mejl', method: 'Inloggning', hadCustomerApproval: 'Godkänd av kommunen', type: 'Typ', level: 'Nivå', step: 'Steg',
+    sentToCustomer: 'Skickad till kommunen', acknowledged: 'Kvitterad', parse: 'Tolkning' };
+  /** Kodvärden i loggen som läsbar svenska (SPEC: klarspråk). Nyckelberoende först, sedan generella ord. */
+  const FIELD_WORD = { buyerReference: 'beställarreferens', purchaseOrderNumber: 'inköpsordernummer', primaryArea: 'avtalsområde', secondaryArea: 'andra avtalsområde', vocationalTrack: 'yrkesspår', desiredStart: 'önskad start',
+    plannedWeeks: 'antal veckor', plannedEnd: 'planerat slut', plannedEndDate: 'planerat slut', startDate: 'startdatum', endDate: 'slutdatum', backgroundInfo: 'bakgrund', aiConsent: 'AI-samtycke', meetingDay: 'mötesdag', meetingTime: 'mötestid',
+    location: 'plats', ordererContact: 'beställarens kontaktuppgifter', referrerId: 'handläggare', leadCoachId: 'huvudcoach', phase: 'fas', tags: 'taggar', pausedWeeks: 'pausade veckor', firstMeetingAt: 'första möte', team: 'team', status: 'status',
+    area: 'avtalsområde', unit: 'enhet', contactName: 'kontaktperson', contactPhone: 'telefon', contactEmail: 'e-post', person: 'deltagare' };
+  const VALUE_BY_KEY = {
+    parseMethod: { template: 'Word-mall', ai: 'AI', manual: 'manuellt', freetext: 'fritext' },
+    source: { email: 'e-post', portal: 'portalen', phone: 'telefon', manual: 'manuellt' },
+    channel: { email: 'e-post', sms: 'SMS', portal: 'portalen', app: 'appen', brev: 'brev', letter: 'brev' },
+    window: WINDOW,
+    by: { customer: 'kommunen', coach: 'coachen', system: 'systemet' },
+    method: { email_otp: 'e-post och engångskod', entra: 'Microsoft Entra ID' },
+    role: { handlaggare: 'handläggare', chef: 'chef', admin: 'systemadmin', avtalsansvarig: 'avtalsansvarig', samordnare: 'samordnare', coach: 'coach', handledare: 'handledare', ekonom: 'ekonom' },
+    toRole: { samordnare: 'samordnare', avtalsansvarig: 'avtalsansvarig', chef: 'chef', coach: 'coach', kommun_handlaggare: 'kommunens handläggare' },
+    language: { sv: 'svenska', en: 'engelska', ar: 'arabiska', so: 'somaliska' },
+    right: { uppgift: 'rätt arbetsuppgift', handledning: 'rätt handledning', timing: 'rätt tidpunkt', uppfoljning: 'rätt uppföljning' },
+    format: { csv: 'CSV', xlsx: 'Excel', pdf: 'PDF', sie: 'SIE', peppol: 'Peppol' },
+  };
+  const AI_KIND = { parse_email: 'tolka mejl', transcribe_extract: 'transkribering och utkast', extract_notes: 'utkast från anteckningar', extract_teams: 'utkast från Teams-transkript', report_summary: 'sammanfattning till rapport', monthly_draft: 'utkast till månadsbedömning' };
+  const STATUS_WORD = { open: 'öppen', closed: 'stängd', action_plan: 'åtgärdsplan', handled: 'hanterat', accepted: 'accepterat', declined: 'avböjt', protected: 'skyddade personuppgifter', other: 'övrigt', linked: 'kopplat', received: 'mottaget',
+    acknowledged: 'ordererkänt', draft: 'utkast', approved: 'godkänd', delivered: 'levererad', succeeded: 'klar', failed: 'fel', given: 'givet', revoked: 'återkallat', active: 'pågår', paused: 'pausad' };
+  const kindWord = (a, s) => {
+    if (a.action === 'ai.run' || a.entity === 'ai_run') return AI_KIND[s] || s;
+    if (a.action === 'event.added') return sel.eventLabel(s);
+    if (String(a.action).startsWith('report.') || a.entity === 'report') return sel.reportKindLabel(s);
+    return AI_KIND[s] || (sel.reportKindLabel(s) !== s ? sel.reportKindLabel(s) : sel.eventLabel(s) !== s ? sel.eventLabel(s) : s);
+  };
   const actorName = (id) => (id == null ? 'Deltagare (engångslänk)' : MM.personName(id));
   const caseIdOf = (a) => (['case', 'consent'].includes(a.entity) ? a.entityId : (a.details && a.details.caseId) || null);
   const caseNo = (a) => { const id = caseIdOf(a); const c = id ? sel.caseById(id) : null; return c ? c.number : ''; };
-  const fmtDetail = (k, v) => {
+  const fmtDetail = (k, v, a = {}) => {
     if (v === true) return 'Ja'; if (v === false) return 'Nej';
-    if (Array.isArray(v)) return v.map((x) => fmtDetail(k, x)).join(', ');
-    if (v && typeof v === 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return v.map((x) => fmtDetail(k, x, a)).join(', ');
+    if (v && typeof v === 'object') return Object.entries(v).map(([kk, vv]) => `${(DETAIL_KEY[kk] || FIELD_WORD[kk] || kk).toLowerCase()} ${fmtDetail(kk, vv, a)}`).join(', ');
     const s = String(v);
-    if (k === 'template' && TPL_NAME[s]) return TPL_NAME[s];
+    if (k === 'template') return tplLabel(s);
+    if (['fields', 'checked', 'missing'].includes(k)) return FIELD_WORD[s] || s;
+    if (k === 'kind') return kindWord(a, s);
+    if (k === 'kpi') { const x = (MM.cfg().kpis || []).find((y) => y.key === s); return x ? x.label || KPI_LABEL[s] || s : KPI_LABEL[s] || s; }
+    if (k === 'endReason') return sel.endReasonLabel(s);
+    if (k === 'status' && a.action === 'attendance.registered') return sel.attLabel(s);
+    if (k === 'status') return STATUS_WORD[s] || s;
+    if (VALUE_BY_KEY[k] && VALUE_BY_KEY[k][s]) return VALUE_BY_KEY[k][s];
     if (/^(u|k)-[a-z]+$/.test(s)) return MM.personName(s);
     if (/^case-\d+$/.test(s)) { const c = sel.caseById(s); return c ? c.number : s; }
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return d.fmtDateTime(s);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return d.fmtDate(s);
+    if (/^\d{4}-W\d{2}$/.test(s)) return d.fmtWeekKey(s);
+    if (/^\d{4}-\d{2}$/.test(s) && k === 'month') return d.monthName(s);
     return s;
   };
   const detailText = (a) => {
     const x = a.details || {};
     if (a.action === 'org_rule.updated' && x.from && x.to) return ruleDiffText(x.from, x.to);
-    return Object.entries(x).filter(([k, v]) => v != null && v !== '' && k !== 'caseId' && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${DETAIL_KEY[k] || k}: ${fmtDetail(k, v)}`).join(' · ');
+    return Object.entries(x).filter(([k, v]) => v != null && v !== '' && k !== 'caseId' && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${DETAIL_KEY[k] || cap(FIELD_WORD[k] || k)}: ${fmtDetail(k, v, a)}`).join(' · ');
+  };
+  const JOB_NAME = { inbox: 'Läs avrop@-inkorgen', weekly: 'Publicera veckorapporter', att_remind: 'Påminnelser om närvaroregistrering', progress: 'Progressionspåminnelser', audio: 'Radera ljud efter transkribering', transcripts: 'Radera råtranskript', kpi: 'Beräkna nyckeltal', retention: 'Gallring enligt PUB-avtalet' };
+  /** Objektets id som läsbar text där det går (mall, jobb, månad, avtal, användare). Deltagare visas aldrig med namn. */
+  const entityText = (a) => {
+    const id = String(a.entityId == null ? '' : a.entityId);
+    if (a.entity === 'template') return tplLabel(id);
+    if (a.entity === 'job') return JOB_NAME[id] || id;
+    if (a.entity === 'contract') { const k = S().contracts.find((c) => c.id === id); return k ? k.customerName : id; }
+    if (a.entity === 'org_config' && id === 'notifications') return 'Påminnelser och eskalering';
+    if (['profile', 'customer_user'].includes(a.entity) && MM.personById(id)) return MM.personName(id);
+    const m = id.match(/(\d{4}-\d{2})$/); if (['billing_run', 'audit_log'].includes(a.entity) && m) return cap(d.monthName(m[1]));
+    if (a.entity === 'report') {
+      const r = S().reports.find((x) => x.id === id);
+      if (r) return `${sel.reportKindLabel(r.kind)}${r.month ? ` ${d.monthName(r.month)}` : r.week ? ` ${d.fmtWeekKey(r.week)}` : ''}${r.version > 1 ? `, version ${r.version}` : ''}`;
+      const k = id.match(/^([a-z_]+)-(\d{4}-\d{2})$/); if (k) return `${sel.reportKindLabel(k[1])} ${d.monthName(k[2])}`;
+      const w = id.match(/^weekly-W(\d{2})$/); if (w) return `Veckorapporter vecka ${Number(w[1])}`;
+    }
+    return id;
   };
   const sortLog = (log) => log.map((a, i) => [a, i]).sort((x, y) => (x[0].occurredAt < y[0].occurredAt ? 1 : x[0].occurredAt > y[0].occurredAt ? -1 : y[1] - x[1])).map((x) => x[0]);
   const VIEW_ACTIONS = ['case.view', 'pnr.revealed', 'report.view', 'transcript.view'];
@@ -1052,9 +1165,9 @@
       <div class="stack">
         <p>Stickprov med ${plural(sample.length, 'post', 'poster')} från förra månaden, i första hand visningar och exporter. Bedöm om åtkomsten var motiverad av arbetet.</p>
         ${sample.length === 0 ? html`<p class="muted">Inga poster förra månaden.</p>` : html`<div class="stack-sm">${sample.map((a) => html`<div key=${a.id} class="row-between" style="padding:8px 0;border-bottom:1px solid var(--line)">
-          <div class="stack-sm" style="gap:2px;min-width:0;flex:1 1 240px"><span class="strong">${ACTION_LABEL[a.action] || a.action}</span>
-            <span class="small muted">${d.fmtDateTime(a.occurredAt)} · ${actorName(a.actorId)} · ${ENTITY_LABEL[a.entity] || a.entity}${caseNo(a) ? ` ${caseNo(a)}` : ''}</span></div>
-          <${ui.Seg} ariaLabel=${`Bedömning av ${ACTION_LABEL[a.action] || a.action} ${d.fmtDateTime(a.occurredAt)}`} value=${verdicts[a.id]} onChange=${(v) => setVerdicts((x) => ({ ...x, [a.id]: v }))}
+          <div class="stack-sm" style="gap:2px;min-width:0;flex:1 1 240px"><span class="strong">${actionLabel(a.action)}</span>
+            <span class="small muted">${d.fmtDateTime(a.occurredAt)} · ${actorName(a.actorId)} · ${ENTITY_LABEL[a.entity] || cap(String(a.entity || '').replace(/_/g, ' '))}${caseNo(a) ? ` ${caseNo(a)}` : ''}</span></div>
+          <${ui.Seg} ariaLabel=${`Bedömning av ${actionLabel(a.action)} ${d.fmtDateTime(a.occurredAt)}`} value=${verdicts[a.id]} onChange=${(v) => setVerdicts((x) => ({ ...x, [a.id]: v }))}
             options=${[{ value: 'ok', label: 'Motiverad', icon: 'check', tone: 'green' }, { value: 'avvikelse', label: 'Avvikelse', icon: 'alert', tone: 'red' }]} />
         </div>`)}</div>`}
         <${ui.Field} id="logcheck-note" label="Anteckning" help="Krävs om du markerat en avvikelse. Skriv vad som hände och vad som ska göras." error=${noteErr}><${ui.TextArea} id="logcheck-note" rows=${2} value=${note} onInput=${setNote} invalid=${!!noteErr} /><//>
@@ -1067,14 +1180,14 @@
     const [actor, setActor] = useState(''); const [action, setAction] = useState(''); const [q, setQ] = useState(''); const [mine, setMine] = useState(false); const [limit, setLimit] = useState(50);
     const all = useMemo(() => sortLog(st.auditLog), [st.auditLog.length]);
     const actors = MM.uniq(all.map((a) => (a.actorId == null ? '__null' : a.actorId))).map((id) => ({ value: id, label: id === '__null' ? 'Deltagare (engångslänk)' : MM.personName(id) })).sort((a, b) => a.label.localeCompare(b.label, 'sv'));
-    const actions = MM.uniq(all.map((a) => a.action)).map((x) => ({ value: x, label: ACTION_LABEL[x] || x })).sort((a, b) => a.label.localeCompare(b.label, 'sv'));
+    const actions = MM.uniq(all.map((a) => a.action)).map((x) => ({ value: x, label: actionLabel(x) })).sort((a, b) => a.label.localeCompare(b.label, 'sv'));
     const rows = all.filter((a) => (!actor || (actor === '__null' ? a.actorId == null : a.actorId === actor)) && (!action || a.action === action) && (!q.trim() || caseNo(a).toLowerCase().includes(q.trim().toLowerCase())) && (!mine || a.byTester));
-    const filterDesc = [actor && `aktör ${actor === '__null' ? 'deltagare' : MM.personName(actor)}`, action && `åtgärd ${ACTION_LABEL[action] || action}`, q.trim() && `ärende ${q.trim()}`, mine && 'bara prototypen'].filter(Boolean).join(', ');
+    const filterDesc = [actor && `aktör ${actor === '__null' ? 'deltagare' : MM.personName(actor)}`, action && `åtgärd ${actionLabel(action)}`, q.trim() && `ärende ${q.trim()}`, mine && 'bara prototypen'].filter(Boolean).join(', ');
     const exportCsv = () => {
       MM.dispatch('audit.view', { action: 'export.audit_log', entity: 'audit_log', entityId: 'c-bot', details: { rows: rows.length, filter: filterDesc || 'inget' } });
       const esc = (s) => `"${String(s == null ? '' : s).replace(/"/g, '""')}"`;
       const head = ['Tidpunkt', 'Aktör', 'Åtgärd', 'Åtgärdskod', 'Objekt', 'Objekt-id', 'Ärendenummer', 'Detaljer', 'Gjort i prototypen'];
-      const lines = rows.map((a) => [a.occurredAt.replace('T', ' '), actorName(a.actorId), ACTION_LABEL[a.action] || a.action, a.action, ENTITY_LABEL[a.entity] || a.entity, a.entityId, caseNo(a), detailText(a), a.byTester ? 'Ja' : 'Nej'].map(esc).join(';'));
+      const lines = rows.map((a) => [a.occurredAt.replace('T', ' '), actorName(a.actorId), actionLabel(a.action), a.action, ENTITY_LABEL[a.entity] || a.entity, a.entityId, caseNo(a), detailText(a), a.byTester ? 'Ja' : 'Nej'].map(esc).join(';'));
       MM.download(`revisionslogg-${d.today()}.csv`, [head.map(esc).join(';'), ...lines].join('\n'));
     };
     const views = all.filter((a) => VIEW_ACTIONS.includes(a.action)).length;
@@ -1099,13 +1212,21 @@
       <//>
       <${ui.Card} title=${`Poster (${rows.length})`} icon="book" flush
         foot=${rows.length > limit ? html`<${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setLimit(limit + 50)}>Visa 50 till<//><span class="small muted">Visar ${limit} av ${rows.length}</span>` : null}>
-        <${ui.Table} caption="Revisionslogg, nyast först" rows=${rows.slice(0, limit)} rowClass=${(a) => (a.byTester ? 'selected' : '')} empty="Inga poster matchar filtret." columns=${[
-          { key: 'at', label: 'Tidpunkt', nowrap: true, render: (a) => d.fmtDateTime(a.occurredAt) },
-          { key: 'actor', label: 'Aktör', render: (a) => html`<span>${actorName(a.actorId)}</span>${a.byTester && html`<div style="margin-top:4px"><${ui.Badge} tone="dark" icon="user">Gjort av dig i prototypen<//></div>`}` },
-          { key: 'action', label: 'Åtgärd', render: (a) => html`<span class="strong">${ACTION_LABEL[a.action] || a.action}</span><div class="cell-sub mono">${a.action}</div>` },
-          { key: 'entity', label: 'Objekt', render: (a) => { const cid = caseIdOf(a); return html`<span>${ENTITY_LABEL[a.entity] || a.entity}</span><div class="cell-sub">${cid && sel.caseById(cid) ? html`<${ui.CaseLink} caseId=${cid} />` : a.entityId}</div>`; } },
-          { key: 'details', label: 'Detaljer', render: (a) => html`<span class="small">${detailText(a) || '–'}</span>` },
-        ]} />
+        <style>${STACK_CSS}</style>
+        <div class="table-wrap"><table class="table adm-stack">
+          <caption class="sr-only">Revisionslogg, nyast först</caption>
+          <thead><tr><th scope="col">Tidpunkt</th><th scope="col">Aktör</th><th scope="col">Åtgärd</th><th scope="col">Objekt</th><th scope="col">Detaljer</th></tr></thead>
+          <tbody>
+            ${rows.length === 0 && html`<tr><td colspan="5" class="muted">Inga poster matchar filtret.</td></tr>`}
+            ${rows.slice(0, limit).map((a) => { const cid = caseIdOf(a); return html`<tr key=${a.id} class=${a.byTester ? 'selected' : ''}>
+              <td class="nowrap">${d.fmtDateTime(a.occurredAt)}</td>
+              <td data-label="Aktör"><span>${actorName(a.actorId)}</span>${a.byTester && html`<div style="margin-top:4px"><${ui.Badge} tone="dark" icon="user">Gjort av dig i prototypen<//></div>`}</td>
+              <td><span class="strong" title=${`Åtgärdskod: ${a.action}`}>${actionLabel(a.action)}</span></td>
+              <td data-label="Objekt"><span>${ENTITY_LABEL[a.entity] || cap(String(a.entity || '').replace(/_/g, ' '))}</span><div class="cell-sub">${cid && sel.caseById(cid) ? html`<${ui.CaseLink} caseId=${cid} />` : entityText(a)}</div></td>
+              <td data-label="Detaljer"><span class="small">${detailText(a) || '–'}</span></td>
+            </tr>`; })}
+          </tbody>
+        </table></div>
       <//>
       <${ui.DemoNote}>Loggen innehåller ett urval från demodatat plus allt du gör i prototypen. Exporten loggas som en egen post innan filen skapas.<//>
     <//>`;
@@ -1232,7 +1353,7 @@
   const RIGHTS = [
     ['uppgift', 'Rätt arbetsuppgift', 'Arbetsuppgifterna är kopplade till yrkesspåret.'],
     ['handledning', 'Rätt handledning', 'Handledare hos arbetsgivaren, mål och ansvar är bestämda.'],
-    ['timing', 'Rätt timing', 'Coachen har bedömt att deltagaren är redo: krav, tempo och rutiner.'],
+    ['timing', 'Rätt tidpunkt', 'Coachen har bedömt att deltagaren är redo: krav, tempo och rutiner.'],
     ['uppfoljning', 'Rätt uppföljning', 'Uppföljningsdatum är planerade. Återkopplingen dokumenteras och leder till nästa steg.'],
   ];
   const rightsDone = (pl) => RIGHTS.filter(([k]) => (pl.fourRights || {})[k]).length;

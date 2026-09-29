@@ -25,7 +25,7 @@
 .arn-facts{display:grid;gap:14px 20px;grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr));margin:0}
 @media (max-width:620px){.arn-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 14px}}
 .arn-facts dt{font-size:.8125rem;font-weight:600;color:var(--fg-muted);line-height:1.3}
-.arn-facts dd{margin:3px 0 0;min-width:0;overflow-wrap:anywhere;line-height:1.4}
+.arn-facts dd{margin:3px 0 0;min-width:0;overflow-wrap:anywhere;hyphens:auto;line-height:1.4}
 .arn-section+.arn-section{border-top:1px solid var(--line);padding-top:16px}
 @media (min-width:621px){.arn-tabs .tabs{flex-wrap:wrap;overflow-x:visible}}
 .arn-tabs .tab{padding:10px 12px}
@@ -47,7 +47,7 @@
 .arn-four-item.missing>span>.ic{color:var(--rod)}
 .arn-phasewrap{display:flex;flex-direction:column;gap:6px}
 .arn-phasewrap .phasebar .ph{height:10px}
-.arn-caselink{background:none;border:0;padding:0;font:inherit;font-weight:800;font-size:1.0625rem;color:var(--antracit);text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:3px;min-height:32px}
+.arn-caselink{background:none;border:0;padding:0;font:inherit;font-weight:800;font-size:1.0625rem;color:var(--antracit);text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:3px;min-height:var(--tap);display:inline-flex;align-items:center;max-width:100%;overflow-wrap:anywhere}
 .arn-kpi-row{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}
 @media (max-width:620px){.arn-kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}.arn-kpi-row .kpi{padding:12px}.arn-kpi-row .kpi-value{font-size:1.5rem}}
 .arn-table th{white-space:normal;vertical-align:bottom}
@@ -55,7 +55,12 @@
 .arn-table .arn-flags{max-width:150px}
 .arn-table td:first-child,.arn-table th:first-child{padding-left:16px}
 .arn-sort{display:flex;align-items:center;gap:8px}
-.arn-sort select{min-height:40px;padding:6px 10px;width:auto;font-size:.9375rem}
+.arn-sort select{min-height:var(--tap);padding:6px 10px;width:auto;max-width:100%;font-size:.9375rem}
+.arn-suggest{min-height:var(--tap);padding:6px 10px;white-space:normal;text-align:left;height:auto;max-width:100%}
+.arn-card-actions{display:flex;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%}
+.arn-card-actions .btn,.arn-wrapbtn{white-space:normal;text-align:left;height:auto;max-width:100%}
+.arn-root .btn{white-space:normal;max-width:100%;min-width:var(--tap)}
+.arn-root .card-head .spacer+*{max-width:100%}
 `;
       document.head.appendChild(el);
     } catch (e) { /* ingen head i testmiljö */ }
@@ -78,7 +83,7 @@
   const FOUR = [
     ['uppgift', 'Arbetsuppgifter', 'Kopplade till yrkesspåret.'],
     ['handledning', 'Handledning', 'Handledare hos arbetsgivaren med mål och ansvar.'],
-    ['timing', 'Timing', 'Coachen bedömer att deltagaren är redo för krav, tempo och rutiner.'],
+    ['timing', 'Tidpunkt', 'Rätt tidpunkt: coachen bedömer att deltagaren är redo för krav, tempo och rutiner.'],
     ['uppfoljning', 'Uppföljning', 'Planerade datum. Återkopplingen dokumenteras och leder till nästa steg.'],
   ];
   const ATT = {
@@ -100,8 +105,21 @@
   const custUser = (id) => (S().customerUsers || []).find((u) => u.id === id) || null;
   const firstName = (name) => String(name || '').split(' ')[0];
   const isManager = (role) => role === 'samordnare' || role === 'avtalsansvarig';
-  /** Kundens roll som har åtkomst till ärendet (för perspektivbytet). */
-  const custRole = (c) => (c.referrerId === 'k-maria' ? 'kommun_handlaggare' : 'kommun_chef');
+  /** Kundens roll som faktiskt har åtkomst till ärendet (för perspektivbytet): beställande handläggare i första hand,
+   *  annars kommunens chef. Skyddade ärenden: bara beställande handläggare – finns den inte som roll döljs bytet (null). */
+  const CUST_ROLES = ['kommun_handlaggare', 'kommun_chef'];
+  const custRole = (c) => CUST_ROLES.find((r) => sel.access(c, r, MM.roleDef(r).personaId) === 'customer') || null;
+  const CUST_WHO = { kommun_handlaggare: 'kommunen', kommun_chef: 'kommunens chef' };
+  /** Perspektivbyte till kundens ärendesida på rätt flik. label = (vem) => text. Visas inte om ingen kundroll har åtkomst. */
+  const CustSwitch = ({ c, tab, label }) => {
+    const r = custRole(c); if (!r) return null;
+    return html`<${ui.PerspectiveSwitch} role=${r} view="kom.deltagare" params=${tab ? { caseId: c.id, tab } : { caseId: c.id }} label=${label(CUST_WHO[r])} />`;
+  };
+  /** Avtalets tidsgränser som text (läses från MM.cfg(), inte hårdkodat). */
+  const slaCfg = (key) => (MM.cfg().sla || []).find((x) => x.key === key) || {};
+  const daysText = (n) => (n % 7 === 0 ? (n === 7 ? 'en vecka' : `${n / 7} veckor`) : `${n} dagar`);
+  const firstMeetingText = () => { const w = slaCfg('forsta_mote').within || {}; return w.days ? `inom ${daysText(w.days)} från beställningen` : 'så snart som möjligt efter beställningen'; };
+  const regDueText = () => { const x = slaCfg('veckorapport_registrering'); return x.time ? `${d.WD[x.weekday || 0]} ${x.time.replace(':', '.')}` : null; };
   /** Får rollen ändra i ärendet? Chef och systemadmin läser bara. Coachen bara i egna ärenden. */
   const canEditCase = (c, role, access) => access === 'full' && (isManager(role) || (role === 'coach' && c.leadCoachId === MM.currentPersonaId()));
   /** De fyra senaste hela ISO-veckorna. */
@@ -152,6 +170,15 @@
     const all = useMemo(() => sel.visibleCases(role), [ver, role]);
     const alerts = useMemo(() => alertsFor(role), [ver, role]);
     const byCase = useMemo(() => MM.groupBy(alerts.filter((a) => a.caseId), (a) => a.caseId), [alerts]);
+    // Olästa meddelanden från kommunen till den inloggade (samma regel som fliken Meddelanden). Chef och systemadmin läser bara.
+    const me = MM.currentPersonaId();
+    const unreadBy = useMemo(() => {
+      const m = {}; if (READ_ONLY.includes(role)) return m;
+      for (const x of S().messages) if (String(x.senderId).startsWith('k-') && !(x.readBy || []).includes(me)) m[x.caseId] = (m[x.caseId] || 0) + 1;
+      return m;
+    }, [ver, role, me]);
+    const unreadOf = (c) => (sel.access(c, role) === 'full' ? unreadBy[c.id] || 0 : 0);
+    const [onlyUnread, setOnlyUnread] = useState(false);
     const w4 = last4Weeks();
     const upd = (fn) => (v) => { fn(v); setLimit(PAGE); };
     const restricted = (c) => sel.access(c, role) === 'restricted';
@@ -166,6 +193,7 @@
       if (!['alla', 'open'].includes(status) && c.status !== status) return false;
       if (onlyProt && !isProt(c)) return false;
       if (onlyFlags && !byCase[c.id]) return false;
+      if (onlyUnread && !unreadOf(c)) return false;
       const r = restricted(c);
       if (r && (coach || area || phase)) return false; // skyddade ärenden avslöjar inga detaljer via filter
       if (coach && c.leadCoachId !== coach) return false;
@@ -185,10 +213,12 @@
     rows.sort(sorters[sort] || newest);
     const shown = rows.slice(0, limit).map((c) => {
       const r = restricted(c);
-      return { c, r, lc: r ? null : sel.latestCheckIn(c.id), ast: r ? null : sel.attendanceStats(c.id, w4.from, w4.to), flags: r ? null : byCase[c.id] };
+      return { c, r, lc: r ? null : sel.latestCheckIn(c.id), ast: r ? null : sel.attendanceStats(c.id, w4.from, w4.to), flags: r ? null : byCase[c.id], unread: r ? 0 : unreadOf(c) };
     });
-    const anyFilter = q || status !== 'alla' || coach || area || phase || onlyFlags || onlyProt;
-    const clear = () => { setQ(''); setStatus('alla'); setCoach(''); setArea(''); setPhase(''); setOnlyFlags(false); setOnlyProt(false); setLimit(PAGE); };
+    const anyFilter = q || status !== 'alla' || coach || area || phase || onlyFlags || onlyProt || onlyUnread;
+    const clear = () => { setQ(''); setStatus('alla'); setCoach(''); setArea(''); setPhase(''); setOnlyFlags(false); setOnlyProt(false); setOnlyUnread(false); setLimit(PAGE); };
+    const nUnread = all.filter((c) => unreadOf(c) > 0).length;
+    const UnreadBadge = ({ n }) => (n > 0 ? html`<${ui.Badge} tone="dark" icon="message" title="Olästa meddelanden från kommunen">${n === 1 ? 'Nytt meddelande' : `${n} nya meddelanden`}<//>` : null);
 
     const nActive = all.filter((c) => c.status === 'active').length;
     const nWaiting = all.filter((c) => WAITING.includes(c.status)).length;
@@ -210,7 +240,7 @@
     const phaseOpts = MM.cfg().phases.map((p) => ({ value: String(p.no), label: `Fas ${p.no} · ${p.name}` }));
     const sortOpts = [{ value: 'nyast', label: 'Senast beställda först' }, { value: 'flaggor', label: 'Flaggade först' }, { value: 'slut', label: 'Planerat slut – närmast först' }, { value: 'nummer', label: 'Ärendenummer' }];
 
-    const tableRow = ({ c, r, lc, ast, flags }) => {
+    const tableRow = ({ c, r, lc, ast, flags, unread }) => {
       if (r) {
         return html`<tr key=${c.id} class="arn-restricted"><td class="nowrap"><span class="strong mono">${c.number}</span></td>
           <td colspan="7"><span class="row-sm"><${I} name="lock" /><span class="strong">Skyddade personuppgifter – ingen åtkomst</span></span>
@@ -227,10 +257,10 @@
         <td class="nowrap">${fd(start)} –<br />${fd(c.endDate || c.plannedEnd)}${!c.startDate && html`<div class="cell-sub">${c.firstMeetingAt ? 'planerad start' : 'önskad start'}</div>`}</td>
         <td>${lc ? html`<${ui.Status} value=${lc.overallStatus} short /><div class="cell-sub">${fd(lc.heldAt)}</div>` : html`<span class="small muted">Ingen ännu</span>`}</td>
         <td><${AttCell} st=${ast} /></td>
-        <td><${FlagBadges} list=${flags} /></td>
+        <td>${unread > 0 ? html`<div class="arn-flags"><${UnreadBadge} n=${unread} />${flags && flags.length ? html`<${FlagBadges} list=${flags} />` : ''}</div>` : html`<${FlagBadges} list=${flags} />`}</td>
       </tr>`;
     };
-    const listItem = ({ c, r, lc, ast, flags }) => (r
+    const listItem = ({ c, r, lc, ast, flags, unread }) => (r
       ? html`<div class="list-item" key=${c.id}><${I} name="lock" size="lg" /><div class="li-main"><span class="strong mono">${c.number}</span><div class="li-title">Skyddade personuppgifter – ingen åtkomst</div><div class="li-sub">Bara namngiven huvudcoach och avtalsansvarig kan öppna ärendet.</div></div></div>`
       : html`<button type="button" class="list-item clickable" key=${c.id} onClick=${() => open(c)}>
           <div class="li-main">
@@ -238,7 +268,7 @@
             <div class="li-title">${sel.displayName(c, role)}</div>
             <div class="li-sub">${sel.areaName(c.primaryArea)} · Fas ${c.phase} · ${c.leadCoachId ? MM.personName(c.leadCoachId) : 'Ingen coach ännu'}</div>
             <div class="li-sub">Närvaro ${w4.label}: ${ast.planned - ast.unregistered > 0 ? fmt.pct(ast.rate, 0) : 'inga tillfällen'}</div>
-            ${flags && html`<${FlagBadges} list=${flags} />`}
+            ${(unread > 0 || flags) && html`<div class="arn-flags"><${UnreadBadge} n=${unread} />${flags && html`<${FlagBadges} list=${flags} />`}</div>`}
           </div>
           <div class="li-side">${lc ? html`<${ui.Status} value=${lc.overallStatus} short />` : html`<span class="small muted">Ej bedömd</span>`}</div>
         </button>`);
@@ -274,6 +304,7 @@
         </div>
         <div class="row" style="margin-top:8px;gap:4px 24px">
           <${ui.Check} id="arn-onlyflags" checked=${onlyFlags} onChange=${upd(setOnlyFlags)}>Bara ärenden med flaggor (${nFlag})<//>
+          ${(nUnread > 0 || onlyUnread) && html`<${ui.Check} id="arn-onlyunread" checked=${onlyUnread} onChange=${upd(setOnlyUnread)}>Bara olästa meddelanden från kommunen (${nUnread})<//>`}
           ${(protCount > 0 || onlyProt) && html`<${ui.Check} id="arn-onlyprot" checked=${onlyProt} onChange=${upd(setOnlyProt)}>Bara skyddade personuppgifter (${protCount})<//>`}
           <span class="spacer"></span>
           ${anyFilter && html`<${ui.Btn} kind="ghost" icon="x" onClick=${clear}>Rensa filter<//>`}
@@ -292,11 +323,11 @@
               ${onlyProt && protCount === 0 ? 'De syns bara för namngiven huvudcoach och avtalsansvarig.' : 'Ändra sökningen eller filtren.'}<//>`
           : html`<div class="arn-wide"><div class="table-wrap"><table class="table arn-table">
               <caption class="sr-only">Ärenden</caption>
-              <thead><tr><th scope="col">Ärende</th><th scope="col">Deltagare och område</th><th scope="col">Status och fas</th><th scope="col">Huvud­coach</th><th scope="col">Start – slut</th><th scope="col">Senaste status</th><th scope="col" title=${`${fd(w4.from)}–${fd(w4.to)}`}>Närvaro ${w4.label}</th><th scope="col">Flaggor</th></tr></thead>
+              <thead><tr><th scope="col">Ärende</th><th scope="col">Deltagare och område</th><th scope="col">Status och fas</th><th scope="col">Huvud­coach</th><th scope="col">Start – slut</th><th scope="col">Senaste status</th><th scope="col" title=${`${fd(w4.from)}–${fd(w4.to)}`}>Närvaro ${w4.label}</th><th scope="col">Flaggor och meddelanden</th></tr></thead>
               <tbody>${shown.map(tableRow)}</tbody></table></div></div>
             <div class="arn-narrow"><div class="list">${shown.map(listItem)}</div></div>`}
       <//>
-      <${ui.DemoNote}>Listan visar påhittade testdata. Senaste status är den samlade statusen i senaste godkända veckoavstämning. Flaggorna är de som gäller för din roll – coacher och handledare ser aldrig eskaleringar till chef.<//>
+      <${ui.DemoNote}>Listan visar påhittade testdata. Senaste status är den samlade statusen i senaste godkända veckoavstämning. ${['coach', 'handledare'].includes(role) ? 'Flaggorna är de som gäller för din roll.' : 'Flaggorna är de som gäller för din roll – coacher och handledare ser aldrig eskaleringar till chef.'}${!READ_ONLY.includes(role) ? ' Olästa meddelanden från kommunen markeras i listan.' : ''}<//>
     <//>`;
   };
 
@@ -376,10 +407,10 @@
 
     return html`<${ui.Page} eyebrow=${`Deltagarkort · ${c.number}`} title=${sel.displayName(c, role)} crumbs=${[...crumbs, { label: c.number }]}
       lead=${`${sel.areaName(c.primaryArea)}${c.vocationalTrack ? ` · ${c.vocationalTrack}` : ''}`}
-      actions=${!team && html`<${ui.PerspectiveSwitch} role=${custRole(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se ärendet som kommunen" />`}>
+      actions=${!team && html`<${CustSwitch} c=${c} tab=${['rapporter', 'meddelanden'].includes(tab) ? tab : null} label=${(who) => `Se ärendet som ${who}`} />`}>
       ${prot && html`<${ui.Notice} tone="warn" icon="shield" title="Skyddade personuppgifter">Ingen adress lagras. Inga SMS eller mejl skickas till deltagaren – kontakt sker per telefon enligt den säkra rutinen. AI och inspelning används aldrig. Bara namngiven huvudcoach och avtalsansvarig ser kortet.<//>`}
       ${readOnly && html`<${ui.Notice} tone="info" icon="eye" title="Läsläge">${role === 'chef' ? 'Som chef och controller ser du allt i ärendet men kan inte ändra något.' : 'Som systemadmin ser du ärendet men arbetar inte i det.'} Visningen är loggad.<//>`}
-      ${team && html`<${ui.Notice} tone="info" icon="users" title=${`Du ingår i teamet som ${sel.teamLabel(myTeamRole ? myTeamRole.role : '').toLowerCase()}`}>Du ser moment, närvaro, praktik och arbetsgivarkontakter. Coachens anteckningar, bedömningar och rapporter visas inte för handledare.<//>`}
+      ${team && html`<${ui.Notice} tone="info" icon="users" title=${`Du ingår i teamet som ${sel.teamLabel(myTeamRole ? myTeamRole.role : '').toLowerCase()}`}>Du ser moment, närvaro, praktik och arbetsgivarkontakter. Coachens anteckningar och bedömningar, månadsrapporter och slutrapporter visas inte för handledare.<//>`}
 
       <div class="split-wide">
         <${CaseHeader} ...${ctx} />
@@ -530,7 +561,7 @@
       <div class="stack-sm">
         ${btns.length > 0 ? btns : html`<p class="small muted">${readOnly ? 'Läsläge – du kan inte ändra i ärendet.' : team ? 'Du registrerar närvaro och praktik via Närvaro och Arbetsgivare och praktik.' : 'Inga åtgärder för din roll just nu.'}</p>`}
         ${manage && active && c.leadCoachId && html`<p class="small muted">Byte av huvudcoach kräver orsak. ${k ? k.name : 'Handläggaren'} och nya coachen får notis.${MM.cfg().keyPersonnelChangeRequiresApproval ? ' Avtalet kräver kommunens godkännande vid byte av nyckelpersonal.' : ''}</p>`}
-        ${!team && html`<div class="demo-note" style="margin-top:4px"><${I} name="building" /><div><b>Det här ser kommunen:</b> status, fas, huvudcoach, närvaro, levererade rapporter och meddelanden.${MM.cfg().customerVisibility.seesCoachNotes === false ? ' Inte coachens anteckningar.' : ''}</div></div>`}
+        ${!team && html`<div class="demo-note" style="margin-top:4px"><${I} name="building" /><div><b>Det här ser kommunen:</b> status, fas, huvudcoach, närvaro, levererade rapporter och meddelanden.${MM.cfg().customerVisibility.seesCoachNotes === false ? ' Inte coachens anteckningar.' : ''}${prot && !custRole(c) ? ` Skyddade personuppgifter: i portalen ser bara beställande handläggare (${k ? k.name : 'handläggaren'}) ärendet. Den rollen finns inte i prototypen, så du kan inte byta till kommunens vy här.` : ''}</div></div>`}
       </div>
     <//>`;
   };
@@ -584,7 +615,7 @@
     };
     return html`<${ui.Modal} title="Boka första möte" onClose=${onClose} footer=${html`<${ui.Btn} kind="ghost" onClick=${onClose}>Avbryt<//><${ui.Btn} kind="primary" icon="calendar" onClick=${save}>Boka mötet<//>`}>
       <${ui.Kv} items=${[['Ärende', html`<span class="mono strong">${c.number}</span>`], ['Huvudcoach', MM.personName(c.leadCoachId)], ['Beställt', d.fmtDateTimeLong(c.referredAt)], ['Senast bokat', html`<${ui.SlaBadge} dueAt=${due} />`]]} />
-      <${ui.Field} label="Datum och tid" id="arn-meet-at" required error=${err} help=${`Mötet ska hållas inom en vecka från beställningen – senast ${d.fmtDateTimeLong(due)}. Plats: Miljonbemanning ${c.location || ''}.`}>
+      <${ui.Field} label="Datum och tid" id="arn-meet-at" required error=${err} help=${`Mötet ska hållas ${firstMeetingText()} – senast ${d.fmtDateTimeLong(due)}. Plats: Miljonbemanning ${c.location || ''}.`}>
         <${ui.Input} id="arn-meet-at" type="datetime-local" value=${at} onInput=${(v) => { setAt(v); setErr(null); }} invalid=${!!err} /><//>
       ${late && html`<${ui.Notice} tone="warn" title="Senare än avtalets gräns">Tiden ligger efter ${d.fmtDateTimeLong(due)}. Mötet markeras som sent i uppföljningen.<//>`}
       <p class="small">${prot ? 'Skyddade personuppgifter: inga SMS eller mejl. Coachen ringer deltagaren enligt den säkra rutinen.' : `Deltagaren får en kallelse via ${sel.contactLabel(p.preferredContact).toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}</p>
@@ -612,7 +643,7 @@
     };
     return html`<div class="stack">
       ${needsMeeting && html`<${ui.Notice} tone="critical" title="Första mötet är inte bokat">
-        <div class="stack-sm"><div>Mötet ska hållas inom en vecka från beställningen. <${ui.SlaBadge} dueAt=${sel.firstMeetingDue(c)} /></div>
+        <div class="stack-sm"><div>Mötet ska hållas ${firstMeetingText()}. <${ui.SlaBadge} dueAt=${sel.firstMeetingDue(c)} /></div>
         ${manage && html`<div><${ui.Btn} kind="primary" icon="calendar" onClick=${() => setModal('meeting')}>Boka första möte<//></div>`}</div><//>`}
       <div class="grid">
         <${ui.Card} title="Nästa möte" icon="calendar">
@@ -739,7 +770,7 @@
         <${ui.Kpi} label="Närvarograd hela insatsen" value=${fmt.pct(total.rate, 0)} sub=${`${total.present + total.late} av ${total.planned - total.unregistered} registrerade tillfällen`} />
         <${ui.Kpi} label=${`Närvarograd ${w4.label}`} value=${fmt.pct(s4.rate, 0)} sub=${`${s4.present + s4.late} av ${s4.planned - s4.unregistered} tillfällen`} />
         <${ui.Kpi} label="Ogiltig frånvaro" value=${total.absentInvalid} sub="tillfällen under insatsen" tone=${rep ? 'alert' : undefined} />
-        <${ui.Kpi} label="Saknar registrering" value=${total.unregistered} sub=${total.unregistered > 0 ? 'registrera senast måndag 10.00' : 'allt är registrerat'} tone=${total.unregistered > 0 ? 'watch' : undefined} />
+        <${ui.Kpi} label="Saknar registrering" value=${total.unregistered} sub=${total.unregistered > 0 ? (regDueText() ? `registrera senast ${regDueText()}` : 'registrera så snart som möjligt') : 'allt är registrerat'} tone=${total.unregistered > 0 ? 'watch' : undefined} />
       </div>
       ${reasons.length > 0 && html`<p class="small"><span class="strong">Skäl till giltig frånvaro:</span> ${reasons.map(([r, n]) => `${r} (${n})`).join(' · ')}</p>`}
       <${ui.Card} flush title="Närvaro per ISO-vecka" icon="calendar" actions=${canReg && html`<${ui.Btn} kind="primary" icon="check-square" onClick=${() => MM.nav('coach.narvaro', {})}>Registrera närvaro<//>`}>
@@ -767,18 +798,23 @@
     const can = canOpen('coach.manad', role);
     const canRep = canOpen('rapport.visa', role);
     const nAreas = cfg.areas.length;
-    const clearLabel = `${String(cfg.scale[2] || '').toLowerCase()} eller ${String(cfg.scale[3] || '').toLowerCase()}`;
+    const lv = Object.keys(cfg.scale || {}).map(Number).filter((x) => !Number.isNaN(x)).sort((a, b) => a - b);
+    const minL = lv.length ? lv[0] : 0; const maxL = lv.length ? lv[lv.length - 1] : 3;
+    const clearFrom = Number((String((cfg.statDefinition && cfg.statDefinition.clear) || '').match(/>=\s*(\d+)/) || [])[1] || Math.min(2, maxL));
+    const lower = (x) => String(cfg.scale[x] || '').toLowerCase();
+    const clearLabel = clearFrom >= maxL ? lower(maxL) : `${lower(clearFrom)} eller ${lower(maxL)}`;
+    const clearRange = clearFrom >= maxL ? `nivå ${maxL}` : `nivå ${clearFrom}–${maxL}`;
     return html`<div class="stack">
-      <p class="muted">Progression bedöms per område och månad på skalan 0–3. Coachen väljer nivå. AI kan föreslå, men sätter aldrig nivån. Från nivå ${cfg.observationRequiredFromLevel} krävs en konkret observation.</p>
+      <p class="muted">Progression bedöms per område och månad på skalan ${minL}–${maxL}. Coachen väljer nivå. AI kan föreslå, men sätter aldrig nivån. Från nivå ${cfg.observationRequiredFromLevel} krävs en konkret observation.</p>
       ${missingLast && html`<${ui.Notice} tone="warn" title=${`${cap(d.monthName(lastMonth))} är inte påbörjad`}>
         <div class="stack-sm"><div>Månadsbedömningen är underlag för månadsrapporten till kommunen.</div>${edit && can && html`<div><${ui.Btn} kind="primary" icon="edit" onClick=${() => MM.nav('coach.manad', { caseId: c.id, month: lastMonth })}>Påbörja bedömningen<//></div>`}</div><//>`}
       ${list.length === 0 && !missingLast && html`<${ui.Card}><${ui.Empty} icon="chart" title="Inga månadsbedömningar ännu">Den första görs efter insatsens första hela månad.<//><//>`}
       ${list.map((ma) => {
         const approved = ma.status === 'approved';
         const levels = Object.values(ma.areas || {});
-        const clear = levels.filter((a) => a.level >= 2).length;
+        const clear = levels.filter((a) => a.level >= clearFrom).length;
         const plan = sel.planOf(c.id, ma.month);
-        const rep = reps.find((r) => r.month === ma.month);
+        const rep = reps.filter((r) => r.month === ma.month).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
         return html`<${ui.Card} key=${ma.id} title=${cap(d.monthName(ma.month))} icon="chart"
           actions=${html`${approved ? html`<${ui.Badge} tone="blue" icon="check">Godkänd<//>` : html`<${ui.Badge} tone="outline" icon="edit">Utkast<//>`}`}
           foot=${html`${rep ? html`<span class="row-sm small"><${I} name="file" />Månadsrapport: <b>${sel.reportStatusLabel(rep.status)}</b>${rep.openedAt ? ' · kvitterad av kommunen' : ''}</span>` : html`<span class="small muted">Ingen månadsrapport</span>`}
@@ -788,7 +824,7 @@
           <div class="stack-sm">
             <div class="row-sm"><span class="small muted">Samlad status:</span><${ui.Status} value=${approved ? ma.overallStatus : null} /></div>
             ${approved
-              ? html`<div>Progression ${clearLabel} (nivå 2–3) i <b>${clear} av ${nAreas}</b> områden.</div>${ma.summary && html`<div class="small">${ma.summary}</div>`}`
+              ? html`<div>Progression ${clearLabel} (${clearRange}) i <b>${clear} av ${nAreas}</b> områden.</div>${ma.summary && html`<div class="small">${ma.summary}</div>`}`
               : html`<div class="small muted">Nivåerna är tomma tills coachen har valt. AI-förslag visas bara i bedömningsvyn.</div>`}
             ${approved && plan && (plan.goal1 || plan.goal2) && html`<div class="small"><span class="strong">Plan för nästa månad:</span> ${[plan.goal1, plan.goal2].filter(Boolean).join(' · ')}</div>`}
           </div>
@@ -866,7 +902,7 @@
       onDone(res.deviationId, f.needsCustomerDecision);
     };
     return html`<form class="stack" onSubmit=${save} noValidate>
-      <div class="row-sm"><span class="small muted">Vanliga avvikelser:</span>${DEV_SUGGEST.map((s) => html`<button type="button" class="btn btn-ghost" style="min-height:36px;padding:4px 8px" onClick=${() => set('description')(s)}>${s}</button>`)}</div>
+      <div class="row-sm"><span class="small muted">Vanliga avvikelser:</span>${DEV_SUGGEST.map((s) => html`<button type="button" class="btn btn-ghost arn-suggest" onClick=${() => set('description')(s)}>${s}</button>`)}</div>
       <div class="form-grid">
         <${ui.Field} label="Vad har hänt?" id="arn-dev-desc" required full error=${err.description} help="Sakligt och funktionellt. Inga diagnoser eller omdömen om personen.">
           <${ui.TextArea} id="arn-dev-desc" value=${f.description} onInput=${set('description')} rows="2" invalid=${!!err.description} /><//>
@@ -941,6 +977,9 @@
     const [form, setForm] = useState(false);
     const [call, setCall] = useState(null); // { id }
     const [sent, setSent] = useState(null);
+    const ver = MM.store.version;
+    const dueOf = useMemo(() => { const m = {}; for (const x of sel.deadlines({ days: 3650, coachId: c.leadCoachId || null })) if (x.kind === 'avvikelse_uppfoljning') m[x.id] = x.dueAt; return m; }, [ver, c.id]);
+    const cr = custRole(c);
     const close = async (dv) => {
       const ok = await MM.confirm({ title: 'Markera avvikelsen som åtgärdad?', confirmLabel: 'Markera som åtgärdad', body: html`<p>${dv.description}</p><p class="small muted">Avvikelsen finns kvar i historiken och i rapporterna.</p>` });
       if (!ok) return;
@@ -956,7 +995,8 @@
       </div>
       ${sent && html`<${ui.Notice} tone="ok" title="Kallelsen är skickad">
         <div class="stack-sm"><div>${k ? k.name : 'Kommunen'} har fått ett säkert meddelande med förslag på tid ${d.fmtDateTimeLong(sent)} och ett mejl utan personuppgifter.</div>
-        <div><${ui.PerspectiveSwitch} role=${custRole(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se kallelsen som kommunen" /></div></div><//>`}
+        ${cr === 'kommun_chef' && html`<div class="small">${k ? k.name : 'Handläggaren'} finns inte som roll i prototypen. Kommunens chef kan läsa kallelsen i ärendets meddelanden men svarar inte på den.</div>`}
+        ${cr && html`<div><${CustSwitch} c=${c} tab="meddelanden" label=${(who) => `Se kallelsen som ${who}`} /></div>`}</div><//>`}
       ${form && html`<${ui.Card} title="Ny avvikelse" icon="flag"><${DeviationForm} c=${c} onDone=${(id, needsCust) => { setForm(false); if (id && needsCust) setCall({ id }); }} /><//>`}
       ${rep && open.length === 0 && html`<${ui.Notice} tone="warn" title="Upprepad ogiltig frånvaro är flaggad">${rep.length} ogiltiga frånvarotillfällen inom ${MM.cfg().attendance.repeatedAbsenceRule.withinDays} dagar. Registrera en avvikelse med åtgärd och kalla kommunen till uppföljning.<//>`}
       ${devs.length === 0 && !form && html`<${ui.Card}><${ui.Empty} icon="flag" title="Inga avvikelser registrerade">Avvikelser skapas här eller automatiskt när en avstämning får röd samlad status.<//><//>`}
@@ -970,7 +1010,7 @@
               dv.assessment ? ['Bedömning', dv.assessment] : null,
               ['Åtgärd', dv.action || '–'],
               ['Ansvarig', dv.ownerId ? MM.personName(dv.ownerId) : '–'],
-              ['Uppföljning', dv.followUpOn ? html`${d.fmtDate(dv.followUpOn)}${dv.status === 'open' ? html` <${ui.SlaBadge} dueAt=${`${dv.followUpOn}T16:00`} />` : ''}` : '–'],
+              ['Uppföljning', dv.followUpOn ? html`${d.fmtDate(dv.followUpOn)}${dv.status === 'open' ? html` <${ui.SlaBadge} dueAt=${dueOf[`dev:${dv.id}`] || `${dv.followUpOn}T23:59`} />` : ''}` : '–'],
               ['Kommunens beslut', dv.needsCustomerDecision ? 'Behövs' : 'Behövs inte'],
               ['Uppföljningsmöte', dv.followUpMeetingAt ? `Föreslaget ${d.fmtDateTimeLong(dv.followUpMeetingAt)}` : 'Inte föreslaget'],
             ]} />
@@ -988,10 +1028,10 @@
     const today = d.today();
     return html`<div class="stack">
       <div class="row-between">
-        <p class="muted" style="max-width:70ch">Varje praktikplats ska ha de fyra rätten: rätt arbetsuppgifter, rätt handledning, rätt timing och rätt uppföljning.</p>
+        <p class="muted" style="max-width:70ch">Varje praktikplats ska ha de fyra rätten: rätt arbetsuppgifter, rätt handledning, rätt tidpunkt och rätt uppföljning.</p>
         <div class="row-sm"><${ui.BuildPhase} fas=${3} />${canOpen('praktik.arbetsgivare', role) && html`<${ui.Btn} kind="secondary" icon="briefcase" onClick=${() => MM.nav('praktik.arbetsgivare', {})}>Arbetsgivarregistret<//>`}</div>
       </div>
-      ${pls.length === 0 && html`<${ui.Card}><${ui.Empty} icon="briefcase" title="Ingen praktik ännu">Praktik planeras oftast i fas ${c.phase < 4 ? '4' : c.phase}. Coachen bedömer när deltagaren är redo (timing).<//><//>`}
+      ${pls.length === 0 && html`<${ui.Card}><${ui.Empty} icon="briefcase" title="Ingen praktik ännu">Praktik planeras oftast i fas ${c.phase < 4 ? '4' : c.phase}. Coachen bedömer när deltagaren är redo (rätt tidpunkt).<//><//>`}
       ${pls.map((pl) => {
         const emp = employer(pl.employerId); const fr = pl.fourRights || {};
         const missing = FOUR.filter(([key]) => !fr[key]);
@@ -1031,14 +1071,18 @@
     const can = canOpen('rapport.visa', role);
     const cols = [
       { key: 'k', label: 'Rapport', render: (r) => html`<span class="strong">${sel.reportKindLabel(r.kind)}</span><div class="cell-sub">${r.month ? cap(d.monthName(r.month)) : r.kind === 'order_confirmation' ? fd(r.periodStart) : `${fd(r.periodStart)} – ${fd(r.periodEnd)}`}${r.version > 1 ? ` · version ${r.version}` : ''}</div>` },
-      { key: 's', label: 'Status', render: (r) => { const t = { draft: ['outline', 'edit'], reviewed: ['bluetone', 'eye'], approved: ['bluetone', 'check'], delivered: ['blue', 'send'], opened: ['blue', 'check-circle'], waiting: ['grey', 'clock'] }[r.status] || ['grey', 'circle']; return html`<${ui.Badge} tone=${t[0]} icon=${t[1]}>${sel.reportStatusLabel(r.status)}<//>`; } },
+      { key: 's', label: 'Status', render: (r) => {
+        const t = { draft: ['outline', 'edit'], reviewed: ['bluetone', 'eye'], approved: ['bluetone', 'check'], delivered: ['blue', 'send'], opened: ['blue', 'check-circle'], waiting: ['grey', 'clock'] }[r.status] || ['grey', 'circle'];
+        const nv = r.correctionPending ? S().reports.find((x) => x.id === r.correctionPending) : null;
+        return html`<${ui.Badge} tone=${t[0]} icon=${t[1]}>${sel.reportStatusLabel(r.status)}<//>${nv && !nv.deliveredAt && html`<div class="cell-sub">Rättelse pågår (version ${nv.version}). Kommunen ser den här versionen tills rättelsen levereras.</div>`}`;
+      } },
       { key: 'due', label: 'Tidsgräns', render: (r) => (r.dueAt ? html`<${ui.SlaBadge} dueAt=${r.dueAt} metAt=${r.deliveredAt} />${r.provisionalDue && html`<div class="cell-sub">Preliminär – ej fastställd i avtalet</div>`}` : '–') },
       { key: 'del', label: 'Levererad', nowrap: true, render: (r) => (r.deliveredAt ? d.fmtDateTime(r.deliveredAt) : '–') },
       { key: 'op', label: 'Kommunen', render: (r) => (r.openedAt ? html`<span class="row-sm"><${I} name="check" />Läst ${fd(r.openedAt)}</span>` : r.deliveredAt ? html`<span class="small muted">Inte öppnad än</span>` : '–') },
     ];
     return html`<div class="stack">
       <p class="muted" style="max-width:75ch">Rapporter byggs bara av godkända uppgifter – godkända avstämningar och bedömningar. Kommunen ser levererade rapporter i portalen. Mejlet till kommunen innehåller bara ärendenumret.</p>
-      <${ui.Card} flush title=${`Rapporter för ${c.number}`} icon="file" actions=${html`<${ui.PerspectiveSwitch} role=${custRole(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Så ser kommunen rapporterna" />`}>
+      <${ui.Card} flush title=${`Rapporter för ${c.number}`} icon="file" actions=${html`<${CustSwitch} c=${c} tab="rapporter" label=${(who) => `Så ser ${who} rapporterna`} />`}>
         <${ui.Table} columns=${cols} rows=${reps} caption="Rapporter" empty="Inga rapporter ännu." onRowClick=${can ? (r) => MM.nav('rapport.visa', { reportId: r.id }) : undefined} />
       <//>
     </div>`;
@@ -1090,7 +1134,7 @@
             <p class="muted">Inget innehåll och inga personuppgifter i mejlet.</p>
           </div>
         <//>
-        <${ui.PerspectiveSwitch} role=${custRole(c)} view="kom.deltagare" params=${{ caseId: c.id }} label="Se tråden som kommunen" />
+        <div><${CustSwitch} c=${c} tab="meddelanden" label=${(who) => `Se tråden som ${who}`} /></div>
       </div>
     </div>`;
   };
@@ -1117,11 +1161,18 @@
     if (dt.fields) return `Fält: ${dt.fields.join(', ')}`;
     return '';
   };
-  const TabHistorik = ({ c }) => {
+  /** Rena visningar – egna visningar är brus i coachens logg. */
+  const VIEW_ACTIONS = ['case.view', 'case.view_denied', 'report.view', 'transcript.view'];
+  const TabHistorik = ({ c, role }) => {
     const [n, setN] = useState(25);
+    const me = MM.currentPersonaId();
+    // Coach och handledare ser bara statushistoriken och sina egna åtgärder. Andras poster (t.ex. vem som har öppnat kortet)
+    // visas inte, så att ingen kan ana vad som följs upp på annat håll.
+    const ownOnly = role === 'coach' || role === 'handledare';
     const hist = sel.historyOf(c.id);
     const repIds = new Set(sel.reportsOf(c.id).map((r) => r.id));
     const log = S().auditLog.filter((x) => x.entityId === c.id || (x.details && x.details.caseId === c.id) || (x.entity === 'report' && repIds.has(x.entityId)) || (x.entity === 'person' && x.entityId === c.personId))
+      .filter((x) => !ownOnly || (x.actorId === me && !VIEW_ACTIONS.includes(x.action)))
       .slice().sort(MM.by('occurredAt', -1));
     const items = hist.map((h) => {
       const coachChange = h.fromCoach && h.toCoach && h.fromCoach !== h.toCoach;
@@ -1138,11 +1189,12 @@
       <${ui.Card} title="Status och coachbyten" icon="clock">
         ${items.length ? html`<${ui.Timeline} items=${items} />` : html`<p class="small muted">Ingen historik ännu.</p>`}
       <//>
-      <${ui.Card} flush title="Revisionslogg för ärendet" icon="book"
+      <${ui.Card} flush title=${ownOnly ? 'Dina åtgärder i ärendet' : 'Revisionslogg för ärendet'} icon="book"
         foot=${log.length > n && html`<span class="small muted">Visar ${n} av ${log.length}</span><span class="spacer"></span><${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setN(log.length)}>Visa alla<//>`}>
-        <${ui.Table} caption="Revisionslogg" empty="Inga loggade händelser ännu." rows=${log.slice(0, n)} columns=${[
+        ${ownOnly && html`<div class="card-body" style="padding-bottom:0"><p class="small muted">Här ser du det du själv har gjort i ärendet. Statusändringar och coachbyten finns i historiken bredvid.</p></div>`}
+        <${ui.Table} caption=${ownOnly ? 'Dina åtgärder' : 'Revisionslogg'} empty=${ownOnly ? 'Du har inte gjort några loggade ändringar i ärendet ännu.' : 'Inga loggade händelser ännu.'} rows=${log.slice(0, n)} columns=${[
           { key: 't', label: 'Tidpunkt', nowrap: true, render: (x) => d.fmtDateTime(x.occurredAt) },
-          { key: 'a', label: 'Vem', render: (x) => MM.personName(x.actorId) },
+          ...(ownOnly ? [] : [{ key: 'a', label: 'Vem', render: (x) => MM.personName(x.actorId) }]),
           { key: 'h', label: 'Händelse', render: (x) => html`<span>${AUDIT[x.action] || x.action}</span>${x.byTester && html`<div class="cell-sub">Gjort i prototypen</div>`}${detailText(x) && html`<div class="cell-sub">${clip(detailText(x), 90)}</div>`}` },
         ]} />
       <//>
@@ -1200,7 +1252,7 @@
     return html`<${ui.Page} title="Mina tilldelade ärenden" eyebrow=${`Handledare · ${persona ? persona.name : ''}`}
       lead="Här planerar du moment och praktik, registrerar närvaro och håller kontakten med arbetsgivarna."
       actions=${canOpen('coach.narvaro', role) && html`<${ui.Btn} kind="primary" icon="check-square" onClick=${() => MM.nav('coach.narvaro', {})}>Registrera närvaro<//>`}>
-      <${ui.Notice} tone="info" icon="shield" title="Du ser bara ärenden du är tilldelad">Behörigheten styrs av teamet i varje ärende. Du ser moment, närvaro, praktik och arbetsgivarkontakter – inte coachens anteckningar, bedömningar eller rapporter. Saknar du ett ärende? Be samordnaren lägga till dig i teamet.<//>
+      <${ui.Notice} tone="info" icon="shield" title="Du ser bara ärenden du är tilldelad">Behörigheten styrs av teamet i varje ärende. Du ser moment, närvaro, praktik och arbetsgivarkontakter – inte coachens anteckningar, bedömningar, månadsrapporter eller slutrapporter. Saknar du ett ärende? Be samordnaren lägga till dig i teamet.<//>
       <div class="arn-kpi-row">
         <${ui.Kpi} label="Pågående ärenden" value=${groups.pagaende.length} sub=${`${groups.start.length} väntar på start`} />
         <${ui.Kpi} label="Praktikdagar" value=${nPraktik} sub=${`den här veckan (${d.fmtWeek(d.today())})`} />
@@ -1230,10 +1282,12 @@
   };
 
   // ================================================================= Registrering
-  MM.registerView('arenden.lista', { title: 'Ärenden', roles: CASE_ROLES, component: ListView });
+  /** Omslag med klassen arn-root: gör att filens stilar (t.ex. radbrytning i knappar på smal skärm) bara gäller de här vyerna. */
+  const root = (C) => (props) => html`<div class="arn-root"><${C} ...${props} /></div>`;
+  MM.registerView('arenden.lista', { title: 'Ärenden', roles: CASE_ROLES, component: root(ListView) });
   MM.registerView('arende.kort', {
     title: (p) => { try { const c = p && p.caseId ? sel.caseById(p.caseId) : null; return c ? `Deltagarkort ${c.number}` : 'Deltagarkort'; } catch (e) { return 'Deltagarkort'; } },
-    roles: CASE_ROLES, component: KortView,
+    roles: CASE_ROLES, component: root(KortView),
   });
-  MM.registerView('hand.start', { title: 'Mina tilldelade ärenden', roles: ['handledare'], component: HandView });
+  MM.registerView('hand.start', { title: 'Mina tilldelade ärenden', roles: ['handledare'], component: root(HandView) });
 })();
