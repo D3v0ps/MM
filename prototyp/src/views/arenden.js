@@ -809,7 +809,7 @@
               <div class="li-sub">${d.fmtWeekRange(w.key)}</div>
               ${w.paused ? html`<div><${ui.Badge} tone="grey" icon="pause">Pausad – debiteras inte<//></div>`
                 : html`<div class="small">${fmt.plural(w.st.planned, 'tillfälle', 'tillfällen')}${w.future > 0 ? ` (+${w.future} kommande)` : ''} · närvarande ${w.st.present} · sen ${w.st.late} · giltig frånvaro ${w.st.absentValid}</div>
-                  <div class="row-sm">${w.st.absentInvalid > 0 && html`<${ui.Badge} tone="red" icon="x-circle">${w.st.absentInvalid} ogiltig frånvaro<//>`}${w.st.unregistered > 0 && html`<${ui.Badge} tone="outline" icon="help">${w.st.unregistered} saknar registrering<//>`}</div>`}
+                  ${(w.st.absentInvalid > 0 || w.st.unregistered > 0) && html`<div class="row-sm">${w.st.absentInvalid > 0 && html`<${ui.Badge} tone="red" icon="x-circle">${w.st.absentInvalid} ogiltig frånvaro<//>`}${w.st.unregistered > 0 && html`<${ui.Badge} tone="outline" icon="help">${w.st.unregistered} saknar registrering<//>`}</div>`}`}
             </div>
             <div class="li-side">${!w.paused && w.st.rate != null && html`<span class="strong">${fmt.pct(w.st.rate, 0)}</span><span class="small muted">närvaro</span>`}</div>
           <//>`} />
