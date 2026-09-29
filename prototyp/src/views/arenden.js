@@ -589,7 +589,8 @@
   };
 
   // ---------------------------------------------------------------- Flik: Översikt
-  const ActList = ({ acts, empty }) => (acts.length === 0 ? html`<p class="small muted">${empty}</p>` : html`<ul class="arn-mini">${acts.map((a) => html`<li key=${a.id}><${I} name=${actIcon(a)} /><span><span class="strong">${cap(d.fmtWeekday(a.startsAt))} kl. ${d.fmtTime(a.startsAt)}</span> · ${actLabel(a)}<span class="small muted"> · ${a.location}</span></span></li>`)}</ul>`);
+  const shortWhen = (s) => `${cap(d.WD_SHORT[d.weekday(s)])} ${d.fmtDateShort(s)} kl. ${d.fmtTime(s)}`;
+  const ActList = ({ acts, empty, short }) => (acts.length === 0 ? html`<p class="small muted">${empty}</p>` : html`<ul class="arn-mini">${acts.map((a) => html`<li key=${a.id}><${I} name=${actIcon(a)} /><span><span class="strong">${short ? shortWhen(a.startsAt) : `${cap(d.fmtWeekday(a.startsAt))} kl. ${d.fmtTime(a.startsAt)}`}</span> · ${actLabel(a)}<span class="small muted"> · ${a.location}</span></span></li>`)}</ul>`);
 
   const TabOversikt = ({ c, role, team, manage, edit, alerts, setTab, setModal }) => {
     const now = d.now();
@@ -1156,12 +1157,12 @@
     const contacts = sel.eventsOf(c.id).filter((e) => CONTACT_KINDS.includes(e.kind));
     const open = (tab) => MM.nav('arende.kort', { caseId: c.id, tab });
     return html`<${ui.Card} title=${c.number} icon="user" actions=${html`<${ui.CaseStatus} status=${c.status} />`}
-      foot=${html`${canOpen('coach.narvaro') && c.status === 'active' && html`<${ui.Btn} kind="secondary" icon="check-square" onClick=${() => MM.nav('coach.narvaro', {})}>Närvaro<//>`}<span class="spacer"></span><${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => open('oversikt')}>Deltagarkortet<//>`}>
+      foot=${html`${canOpen('coach.narvaro') && c.status === 'active' && html`<${ui.Btn} kind="secondary" icon="check-square" onClick=${() => MM.nav('coach.narvaro', {})}>Närvaro<//>`}<span class="spacer"></span><${ui.Btn} kind="ghost" iconRight="arrow-right" onClick=${() => open('oversikt')}>Öppna<//>`}>
       <div class="stack-sm">
         <button type="button" class="arn-caselink" onClick=${() => open('oversikt')}>${sel.displayName(c)}</button>
         <div class="row-sm"><${ui.Badge} tone="bluetone" icon="user">Din roll: ${sel.teamLabel(myRole)}<//></div>
         <div class="arn-phasewrap"><${ui.PhaseBar} phase=${c.phase} /><div class="small muted">Fas ${c.phase} · ${sel.phaseName(c.phase)}${c.vocationalTrack ? ` · ${c.vocationalTrack}` : ''}</div></div>
-        <div><div class="arn-label" style="margin-top:6px">Kommande moment och praktik</div><${ActList} acts=${acts} empty="Inga planerade moment eller praktikdagar." /></div>
+        <div><div class="arn-label" style="margin-top:6px">Kommande moment och praktik</div><${ActList} short acts=${acts} empty="Inga planerade moment eller praktikdagar." /></div>
         <div><div class="arn-label" style="margin-top:6px">Praktikplats</div>
           ${pl ? html`<div class="stack-sm" style="gap:6px"><div><span class="strong">${emp ? emp.name : 'Arbetsgivare'}</span> <span class="small muted">· ${fd(pl.startsOn)} – ${fd(pl.endsOn)}</span></div>
               <div class="arn-flags">${FOUR.map(([key, label]) => { const okk = !pl.fourRights || pl.fourRights[key]; return html`<${ui.Badge} tone=${okk ? 'bluetone' : 'red'} icon=${okk ? 'check' : 'x'}>${label}${okk ? '' : ' saknas'}<//>`; })}</div>
@@ -1169,7 +1170,7 @@
             : html`<p class="small muted">${c.phase >= 3 ? 'Ingen praktik planerad ännu.' : 'Praktik planeras senare i insatsen.'}</p>`}
         </div>
         <div><div class="arn-label" style="margin-top:6px">Arbetsgivarkontakter</div>
-          ${contacts.length ? html`<p class="small">${fmt.plural(contacts.length, 'kontakt', 'kontakter')} · senast ${sel.eventLabel(contacts[0].kind).toLowerCase()} hos ${contacts[0].actor || 'arbetsgivare'} ${fd(contacts[0].occurredOn)}</p>` : html`<p class="small muted">Inga registrerade ännu.</p>`}
+          ${contacts.length ? html`<p class="small"><b>${fmt.plural(contacts.length, 'kontakt', 'kontakter')}.</b> Senast ${fd(contacts[0].occurredOn)}: ${sel.eventLabel(contacts[0].kind)}${contacts[0].actor ? ` – ${contacts[0].actor}` : ''}.</p>` : html`<p class="small muted">Inga registrerade ännu.</p>`}
         </div>
       </div>
     <//>`;

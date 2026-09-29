@@ -448,6 +448,30 @@
   };
 
   // ============================================================ NÄRVARO
+  // Egen åtgärd: registrera närvaro och publicera veckorapporten när handläggarens alla deltagare är registrerade.
+  // Kärnans attendance.set gör samma kontroll, men via selektorernas cache (per store.version). Den ser inte registreringen
+  // som görs i samma åtgärd om vyn hunnit ritas om mellan klicken, och inte alls vid uppspelning efter omladdning.
+  // Därför kontrolleras det här en gång till direkt mot tillståndet (deterministiskt, ingen Date.now()).
+  const weekCompleteRaw = (st, rid, wk, now) => {
+    const mon = d.weekMonday(wk); const sun = d.addDays(mon, 6); const end = `${sun}T23:59`;
+    const ids = new Set(st.cases.filter((c) => c.referrerId === rid && c.startDate && c.startDate <= sun && (!c.endDate || c.endDate >= mon)).map((c) => c.id));
+    const reg = new Set(st.attendance.map((a) => a.activityId));
+    return st.activities.every((a) => !ids.has(a.caseId) || a.startsAt < mon || a.startsAt > end || a.startsAt >= now || reg.has(a.id));
+  };
+  MM.defineAction('coach.attendanceSet', (st, p, ctx) => {
+    const res = MM.actions['attendance.set'](st, p, ctx);
+    const act = st.activities.find((a) => a.id === p.activityId); if (!act) return res;
+    const c = st.cases.find((x) => x.id === act.caseId); const wk = d.isoWeek(act.startsAt).key;
+    const rep = c && st.reports.find((r) => r.kind === 'weekly_attendance' && r.week === wk && r.recipientUserId === c.referrerId && r.status === 'waiting');
+    if (rep && weekCompleteRaw(st, c.referrerId, wk, ctx.now)) {
+      rep.status = 'delivered'; rep.deliveredAt = ctx.now; rep.approvedAt = ctx.now; rep.deliveredTo = [c.referrerId];
+      ctx.audit('report.published', 'report', rep.id, { kind: 'weekly_attendance', week: wk, automatic: true });
+      ctx.notify('email', (st.customerUsers.find((u) => u.id === c.referrerId) || {}).email || '', 'ny_rapport', `Veckorapporten för ${d.fmtWeekKey(wk)} finns i portalen – logga in för att läsa.`, null);
+      ctx.toast(`Veckorapporten för ${d.fmtWeekKey(wk)} till ${MM.personName(c.referrerId)} publicerades automatiskt.`, 'blue');
+    }
+    return res;
+  });
+
   const Narvaro = ({ params }) => {
     const st = MM.useStore(); const role = MM.role(); const pid = me();
     const now = d.now(); const today = d.today(); const thisMon = d.monday(today); const lastMon = d.addDays(thisMon, -7);
@@ -474,7 +498,7 @@
     const sameDay = MM.cfg().attendance.sameDayNoticeOnInvalidAbsence;
 
     const register = (a, status, reason = '') => {
-      MM.dispatch('attendance.set', { activityId: a.id, status, reason });
+      MM.dispatch('coach.attendanceSet', { activityId: a.id, status, reason });
       setTouched((t) => ({ ...t, [a.id]: true })); setPending(null);
     };
     const pick = (a, v) => { if (v === 'absent_valid') setPending(a.id); else register(a, v); };

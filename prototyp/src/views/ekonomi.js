@@ -239,7 +239,7 @@
     const [note, setNote] = useState(''); const [tried, setTried] = useState(false);
     const id = `eko-zero-${inv.caseId}-${ch.weekKey}`;
     const err = note.trim().length < 5 ? 'Skriv en kort kommentar (minst 5 tecken). Den sparas i revisionsloggen.' : null;
-    const facts = w ? html`<div class="small">${d.fmtWeekRange(w.key)}: ${plural(w.planned, 'planerat tillfälle', 'planerade tillfällen')}, ${w.registered} registrerade, ${w.attended} med närvaro. Inskriven ${plural(w.enrolledDays, 'dag', 'dagar')} veckan.</div>` : null;
+    const facts = w ? html`<div class="small">${d.fmtWeekRange(w.key)}: ${plural(w.planned, 'planerat tillfälle', 'planerade tillfällen')}, ${w.registered} registrerade, ${w.attended} med närvaro. Inskriven ${w.enrolledDays} av 7 dagar.</div>` : null;
     if (ch.severity === 'approved') {
       const a = ch.approval || {};
       return html`<div class="eko-quote">${facts}<span class="small"><b>Godkänd</b> av ${MM.personName(a.by)} ${d.fmtDateTime(a.at)}: ”${a.note}”</span></div>`;
@@ -310,7 +310,7 @@
         ['Veckor', html`${weekText(inv.weeks)} <span class="muted">(${d.fmtDateShort(periodOf(inv.weeks)[0])}–${d.fmtDate(periodOf(inv.weeks)[1])})</span>`],
         ['Belopp', html`<span class="num">${inv.quantity} × ${fmt.krExact(inv.unitPriceOre)} = <b>${fmt.krExact(inv.amountOre)}</b> exkl. moms</span>`],
         ['Beställarreferens', html`<${RefBadge} value=${inv.buyerReference} />`],
-        ['Beställningen', `${inv.orderWeeks} veckor. Fakturerat inklusive denna: ${inv.accruedWeeks} veckor. Återstår ${inv.remainingWeeks} veckor.`],
+        ['Beställningen', `${plural(inv.orderWeeks, 'vecka', 'veckor')}. Fakturerat inklusive denna: ${plural(inv.accruedWeeks, 'vecka', 'veckor')}. Återstår ${plural(inv.remainingWeeks, 'vecka', 'veckor')}.`],
         inv.fortnoxNo && ['Fakturanummer i Fortnox', inv.fortnoxNo],
         inv.manualInvoiceNo && ['Manuellt fakturanummer', inv.manualInvoiceNo],
       ]} />
