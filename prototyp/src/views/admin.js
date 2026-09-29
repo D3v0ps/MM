@@ -171,13 +171,17 @@
       const inner = s.slice(1, -1).trim();
       if (/^förslag:/i.test(inner)) return `Förslag: ${inner.replace(/^förslag:\s*/i, '')}`;
       if (inner === 'own | unit | all') return 'Alternativ: egna ärenden, enhetens ärenden eller alla';
-      return cap(inner);
+      return cap(inner.replace(/\s*–\s*väljs genom test$/i, ''));
     }
     return `Fastställs ${s}`;
   };
   const Unset = ({ v }) => { const h = unsetHint(v); return html`<span class="stack-sm" style="display:inline-flex;gap:4px;align-items:flex-start"><${ui.Badge} tone="red" icon="alert">${UNSET_TEXT}<//>${h && html`<span class="small muted">${h}</span>`}</span>`; };
   const YesNo = ({ v, yes = 'Ja', no = 'Nej' }) => html`<span class="row-sm" style="flex-wrap:nowrap"><${I} name=${v ? 'check-circle' : 'x-circle'} />${v ? yes : no}</span>`;
   const Val = ({ v, children }) => (MM.isUnset(v) ? html`<${Unset} v=${v} />` : typeof v === 'boolean' ? html`<${YesNo} v=${v} />` : children != null ? children : v == null || v === '' ? '–' : String(v));
+  /** Etikett och värde på samma rad när det finns plats, annars under varandra (fungerar i smala kort och på 400 px). */
+  const KV = ({ items, label = 150 }) => html`<dl style="margin:0">${items.filter(Boolean).map(([k, v], i) => html`<div key=${i} style=${`display:flex;flex-wrap:wrap;gap:2px 16px;padding:${i ? '9px' : '0'} 0 9px;${i ? 'border-top:1px solid var(--line)' : ''}`}>
+      <dt style=${`flex:1 1 ${label}px;max-width:${label + 70}px;font-weight:600;color:var(--fg-muted);font-size:.9375rem`}>${k}</dt>
+      <dd style="flex:999 1 200px;margin:0;min-width:0;overflow-wrap:anywhere">${v == null || v === '' ? '–' : v}</dd></div>`)}</dl>`;
   const Masonry = ({ items }) => html`<div style="columns:2 380px;column-gap:16px">${items.filter(Boolean).map((x, i) => html`<div key=${i} style="break-inside:avoid;margin-bottom:16px">${x}</div>`)}</div>`;
   const Group = ({ legend, help, error, children, id }) => html`
     <fieldset class=${MM.cls('field', error && 'invalid')} style="border:0;padding:0;margin:0;min-width:0" aria-describedby=${help && id ? `${id}-help` : undefined}>
@@ -252,7 +256,7 @@
     synlighet: { title: 'Synlighet för kunden', icon: 'eye', has: (c) => c.customerVisibility, body: (c, x) => {
       const v = c.customerVisibility;
       return html`<div class="stack">
-        <${ui.Kv} items=${[
+        <${KV} items=${[
           'scope' in v && ['Ärenden kommunens användare ser', html`<${Val} v=${v.scope} />${v.prototypeScope && html`<div class="small muted" style="margin-top:4px">I prototypen: ${({ own: 'egna ärenden', unit: 'enhetens ärenden', all: 'alla ärenden' })[v.prototypeScope]}</div>`}`],
           ['Individrapporter', html`<${YesNo} v=${!!v.seesIndividualReports} />`],
           ['Coachanteckningar', html`<${YesNo} v=${!!v.seesCoachNotes} />`],
@@ -276,42 +280,42 @@
         <div class="stack-sm"><div class="label-caps">Skala</div><ul class="stack-sm" style="margin:0;padding-left:20px;gap:2px">${Object.entries(p.scale).map(([k, v]) => html`<li key=${k}><b>${k}</b> – ${v}</li>`)}</ul></div>
         <div class="stack-sm"><div class="label-caps">Områden (${p.areas.length})</div><ul style="margin:0;padding-left:20px">${p.areas.map((k) => html`<li key=${k}>${lab(k)}</li>`)}</ul>
           ${(p.optionalAreas || []).length > 0 && html`<p class="small muted">Valfria områden (öppen fråga 12): ${p.optionalAreas.map(lab).join(', ')}.</p>`}</div>
-        <${ui.Kv} items=${[['Observation krävs', `Från nivå ${p.observationRequiredFromLevel}`], p.statDefinition && ['Tydlig progression', cap(p.statDefinition.clear.replace('>=', '≥'))], p.statDefinition && ['Någon progression', cap(p.statDefinition.any.replace('>=', '≥'))]]} />
+        <${KV} items=${[['Observation krävs', `Från nivå ${p.observationRequiredFromLevel}`], p.statDefinition && ['Tydlig progression', cap(p.statDefinition.clear.replace('>=', '≥'))], p.statDefinition && ['Någon progression', cap(p.statDefinition.any.replace('>=', '≥'))]]} />
       </div>`; } },
-    narvaro: { title: 'Närvaro', icon: 'check-square', has: (c) => c.attendance, body: (c) => html`<${ui.Kv} items=${[
+    narvaro: { title: 'Närvaro', icon: 'check-square', has: (c) => c.attendance, body: (c) => html`<${KV} items=${[
       ['Frånvaronotis samma dag', html`<${Val} v=${c.attendance.sameDayNoticeOnInvalidAbsence} />`],
       ['Upprepad ogiltig frånvaro', `${c.attendance.repeatedAbsenceRule.absentInvalid} tillfällen inom ${c.attendance.repeatedAbsenceRule.withinDays} dagar ger flagga och förslag på uppföljningsmöte`],
       ['Veckorapport', 'Närvaro på deltagarnivå varje vecka, en rapport per handläggare'],
     ]} />` },
     moten: { title: 'Mötesminimum', icon: 'calendar', has: (c) => c.meetingMinimums, body: (c) => html`<ul class="stack-sm" style="margin:0;padding-left:20px">${c.meetingMinimums.map((m, i) => html`<li key=${i}>${meetingText(m)}</li>`)}</ul>` },
-    resultat: { title: 'Resultat', icon: 'target', has: (c) => c.result, body: (c) => { const r = c.result; return html`<${ui.Kv} items=${[
+    resultat: { title: 'Resultat', icon: 'target', has: (c) => c.result, body: (c) => { const r = c.result; return html`<${KV} items=${[
       ['Definition', html`<${Val} v=${r.definition} />${r.prototypeDefinition && html`<div class="small muted" style="margin-top:4px">${r.prototypeDefinition}</div>`}`],
       ['Räknas som resultat', r.countsAsResult.map((x) => sel.endReasonLabel(x)).join(', ')],
       ['Räknas inte i nämnaren', html`<${Val} v=${r.excludedFromDenominator} />${r.prototypeExcluded && html`<div class="small muted" style="margin-top:4px">I prototypen: ${r.prototypeExcluded.map((x) => sel.endReasonLabel(x).toLowerCase()).join(', ')}.</div>`}`],
       ['Kräver verifiering', html`<${YesNo} v=${!!r.requiresVerification} /><div class="small muted">Utan verifiering visas resultatet som preliminärt.</div>`],
     ]} />`; } },
-    kpi: { title: 'Nyckeltal (KPI:er)', icon: 'chart', flush: true, has: (c) => c.kpis, foot: (c) => { const r = c.kpis.find((k) => k.notify); return r ? html`<span class="small muted">Flagga under internt mål: ${r.notify.belowInternal.map((x) => ROLE_WORD[x] || x).join(', ')}. Under avtalsmål: ${r.notify.belowContract.map((x) => ROLE_WORD[x] || x).join(', ')}.</span>` : null; },
+    kpi: { title: 'Nyckeltal (KPI:er)', icon: 'chart', flush: true, wide: true, has: (c) => c.kpis, foot: (c) => { const r = c.kpis.find((k) => k.notify); return r ? html`<span class="small muted">Flagga under internt mål: ${r.notify.belowInternal.map((x) => ROLE_WORD[x] || x).join(', ')}. Under avtalsmål: ${r.notify.belowContract.map((x) => ROLE_WORD[x] || x).join(', ')}.</span>` : null; },
       body: (c) => html`<${ui.Table} caption="Nyckeltal och mål" rows=${c.kpis.map((k) => ({ ...k, id: k.key }))} columns=${[
         { key: 'label', label: 'Nyckeltal', render: (k) => html`<div class="strong">${k.label || KPI_LABEL[k.key] || k.key}</div>${k.windows && html`<div class="cell-sub">${cap(k.windows.map((w) => WINDOW[w] || w).join(', '))}</div>`}` },
         { key: 'ct', label: 'Avtalsmål', render: (k) => pctOrUnset(k.contractTarget) },
         { key: 'it', label: 'Internt mål', render: (k) => pctOrUnset(k.internalTarget) },
-        { key: 'n', label: 'Minsta antal', num: true, render: (k) => (k.minN != null ? k.minN : '–') },
-      ]} />` },
-    sla: { title: 'Svarstider och deadlines (SLA)', icon: 'clock', flush: true, has: (c) => c.sla, body: (c) => html`<${ui.Table} caption="SLA" rows=${c.sla.map((s) => ({ ...s, id: s.key }))} columns=${[
+        c.kpis.some((k) => k.minN != null) && { key: 'n', label: 'Minsta underlag', render: (k) => (k.minN != null ? `${k.minN} avslut` : '–') },
+      ].filter(Boolean)} />` },
+    sla: { title: 'Svarstider och deadlines (SLA)', icon: 'clock', flush: true, wide: true, has: (c) => c.sla, body: (c) => html`<${ui.Table} caption="SLA" rows=${c.sla.map((s) => ({ ...s, id: s.key }))} columns=${[
       { key: 'label', label: 'Vad', render: (s) => html`<span class="strong">${s.label || SLA_LABEL[s.key] || s.key}</span>` },
       { key: 'rule', label: 'Regel', render: (s) => slaRule(s) },
       { key: 'auto', label: 'Automatiskt', render: (s) => (s.automatic ? html`<${YesNo} v=${true} />` : '–') },
     ]} />` },
-    puls: { title: 'Pulsmätning', icon: 'smile', has: (c) => c.pulse, body: (c) => html`<${ui.Kv} items=${[
+    puls: { title: 'Pulsmätning', icon: 'smile', has: (c) => c.pulse, body: (c) => html`<${KV} items=${[
       ['Tillfällen', cap(c.pulse.occasions.map((o) => ({ week2: 'vecka 2', exit: 'vid avslut' })[o] || o).join(' och '))],
       ['Långa insatser', `Även var ${c.pulse.periodicEveryDays}:e dag`],
       ['Språk', cap(c.pulse.languages.map((l) => ({ sv: 'svenska', en: 'engelska', ar: 'arabiska', so: 'somaliska' })[l] || l).join(', '))],
       ['Sammanställning', `Visas först vid minst ${c.pulse.minNForAggregate} svar`],
       ['Synlighet', 'Coachen ser inte enskilda svar'],
     ]} />` },
-    statistik: { title: 'Statistik', icon: 'chart', has: (c) => c.statistics, body: (c) => html`<${ui.Kv} items=${[
+    statistik: { title: 'Statistik', icon: 'chart', has: (c) => c.statistics, body: (c) => html`<${KV} items=${[
       ['På begäran', `Högst ${c.statistics.onRequestMaxPerYear} gånger per år, även ett år efter avtalsslut`], ['Kostnadsfritt', html`<${YesNo} v=${!!c.statistics.free} />`]]} />` },
-    fakturering: { title: 'Fakturering', icon: 'card', has: (c) => c.billing, body: (c) => { const b = c.billing; return html`<${ui.Kv} items=${[
+    fakturering: { title: 'Fakturering', icon: 'card', has: (c) => c.billing, body: (c) => { const b = c.billing; return html`<${KV} items=${[
       ['Enhet', UNIT[b.unit] || b.unit],
       ['Debiterbar vecka', b.billableWeekRule === 'every_iso_week_with_at_least_one_enrolled_day_excluding_paused_weeks' ? 'Alla ISO-veckor med minst en inskriven dag, utom pausade veckor' : b.billableWeekRule],
       ['Veckans månad', b.weekToMonthRule === 'iso_thursday' ? 'Den månad där veckans torsdag infaller' : b.weekToMonthRule],
@@ -327,27 +331,27 @@
       ['Format', b.format === 'peppol_bis_3_via_fortnox' ? 'Peppol BIS Billing 3 via Fortnox' : b.format],
       ['Reserv', (b.fallback || []).map((f) => ({ export_xlsx_pdf: 'export till Excel och PDF', botkyrka_fakturaportal: 'Botkyrkas fakturaportal' })[f] || f).join(', ').replace(/^./, (s) => s.toUpperCase())],
     ]} />`; } },
-    bonus: { title: 'Bonus', icon: 'award', has: (c) => c.bonus, body: (c) => { const n = S().outcomeEvents.filter((e) => e.possibleBonus).length; return html`<${ui.Kv} items=${[
+    bonus: { title: 'Bonus', icon: 'award', has: (c) => c.bonus, body: (c) => { const n = S().outcomeEvents.filter((e) => e.possibleBonus).length; return html`<${KV} items=${[
       ['Status', html`<span class="row-sm">${c.bonus.enabled ? 'Aktiv' : 'Avstängd – modellen ej fastställd'}<${ui.BuildPhase} fas=${3} /></span>`],
       ['Modell', html`<${Val} v=${c.bonus.model} />`],
       ['Egen faktura', html`<${YesNo} v=${!!c.bonus.separateInvoice} />`],
       ['Underlag samlas in', `${plural(n, 'händelse', 'händelser')} markerade som möjligt bonusunderlag`],
     ]} />`; } },
-    viten: { title: 'Viten och avvikelser', icon: 'alert-circle', has: (c) => c.penalties, body: (c) => html`<${ui.Kv} items=${[
+    viten: { title: 'Viten och avvikelser', icon: 'alert-circle', has: (c) => c.penalties, body: (c) => html`<${KV} items=${[
       ['Vite vid avvikelse', `${fmt.kr(c.penalties.deviationOre)} per tillfälle`],
       ['Vite vid bristfällig information', `${fmt.kr(c.penalties.insufficientInformationOre)} per tillfälle`],
       c.economicDeviation && ['Ekonomisk avvikelse', c.economicDeviation],
       'keyPersonnelChangeRequiresApproval' in c && ['Byte av nyckelpersonal', c.keyPersonnelChangeRequiresApproval ? 'Kräver kommunens godkännande' : 'Kräver inte godkännande'],
     ]} />` },
-    eskalering: { title: 'Eskaleringstrappa', icon: 'flag', flush: true, has: (c) => c.escalationLadder, foot: (c) => html`<span class="small muted">Skriftliga varningar ges på steg 1–3. ${c.warningsBeforeTermination} varningar kan leda till uppsägning.</span>`,
+    eskalering: { title: 'Eskaleringstrappa', icon: 'flag', flush: true, wide: true, has: (c) => c.escalationLadder, foot: (c) => html`<span class="small muted">Skriftliga varningar ges på steg 1–3. ${c.warningsBeforeTermination} varningar kan leda till uppsägning.</span>`,
       body: (c) => html`<${ui.Table} caption="Eskaleringstrappa" rows=${c.escalationLadder.map((s) => ({ ...s, id: s.step }))} columns=${[
         { key: 'step', label: 'Steg', num: true }, { key: 'level', label: 'Nivå', render: (s) => cap(s.level) }, { key: 'text', label: 'Innebörd' }]} />` },
-    avslut: { title: 'Avslut och gallring', icon: 'database', has: (c) => c.termination, body: (c) => html`<${ui.Kv} items=${[
+    avslut: { title: 'Avslut och gallring', icon: 'database', has: (c) => c.termination, body: (c) => html`<${KV} items=${[
       ['Återlämning av data', `Inom ${c.termination.returnDataWithinDays} dagar efter avtalsslut`],
       ['Radering efter återlämning', html`<${YesNo} v=${!!c.termination.deleteAfterReturn} />`],
       'retention' in c && ['Gallring under avtalstiden', html`<${Val} v=${c.retention} />`],
     ]} />` },
-    ai: { title: 'AI-stöd', icon: 'sparkles', has: (c) => c.ai, body: (c) => html`<${ui.Kv} items=${[
+    ai: { title: 'AI-stöd', icon: 'sparkles', has: (c) => c.ai, body: (c) => html`<${KV} items=${[
       ['Status', html`<span class="row-sm">Test pågår<${ui.BuildPhase} fas=${2} /></span>`],
       ['AI-leverantör', html`<${Val} v=${c.ai.provider} />`],
       ['Inspelning', c.ai.recordingApprovedByCustomer ? `Godkänd av kommunen ${d.fmtDate(c.ai.recordingApprovedByCustomer)} – kräver deltagarens samtycke` : '–'],
@@ -368,12 +372,12 @@
     const n = CONTRACT_NOTES[k.id] || {}; const mgr = MM.personName(k.contractManagerId);
     return html`<${ui.Card} title="Avtalsfakta" icon="file">
       <div class="grid-2" style="gap:12px 32px">
-        <${ui.Kv} items=${[
+        <${KV} items=${[
           ['Kund', `${k.customerName} (${k.customerOrgNr})`], ['Leverantör', `${k.supplierName} (${k.supplierOrgNr})`], ['Avtal', k.name],
           ['Avtalsnummer', k.contractNumber], ['Diarienummer', k.dnr], ['Avtalsperiod', k.endsOn ? `${d.fmtDate(k.startsOn)} – ${d.fmtDate(k.endsOn)}` : `Från ${d.fmtDate(k.startsOn)}`],
           ['Uppsägning', n.termination || '–'],
         ]} />
-        <${ui.Kv} items=${[
+        <${KV} items=${[
           ['Status', k.status === 'active' ? html`<${ui.Badge} tone="blue" icon="check">Aktivt<//>` : html`<${ui.Badge} tone="outline" icon="clock">Utkast<//>`],
           ['Personuppgiftsroll', DATA_ROLE[k.dataRole] || k.dataRole], ['Ärendeprefix', `${k.casePrefix} – till exempel ${k.casePrefix}-${d.today().slice(2, 4)}-0001`],
           ['Tillåtna e-postdomäner', (k.emailDomains || []).length ? k.emailDomains.join(', ') : 'Inga ännu – läggs till före start'], ['Avtalsansvarig', mgr], ['Omfattning', n.scope || '–'],
@@ -386,7 +390,7 @@
     <div class="stack-sm" style="margin-top:4px">
       <p>Systemet vägrar aktivera en regel som fortfarande har värdet ATT_FASTSTÄLLA. Värdena är markerade i korten nedan.</p>
       <ul class="stack-sm" style="margin:0;padding-left:20px;gap:4px">${list.map((u) => { const info = UNSET_INFO[u.path] || [u.path, null]; const hint = unsetHint(u.value);
-        return html`<li key=${u.path}><b>${info[0]}</b> – ${info[1] != null ? whoDecides(info[1]) : 'Ska fastställas'}${hint ? html`<span class="muted"> (${hint.charAt(0).toLowerCase() + hint.slice(1)})</span>` : ''}</li>`; })}</ul>
+        return html`<li key=${u.path}><b>${info[0]}</b> – ${info[1] != null ? whoDecides(info[1]) : 'Ska fastställas'}${hint ? html`<span class="muted"> (${/^(Förslag|Alternativ|Fastställs)/.test(hint) ? hint.charAt(0).toLowerCase() + hint.slice(1) : hint})</span>` : ''}</li>`; })}</ul>
       <div><${ui.Btn} kind="secondary" icon="help" onClick=${() => MM.nav('om.fragor', {})}>Öppna frågor till Botkyrka<//></div>
     </div><//>`);
 
@@ -394,12 +398,14 @@
     const st = MM.useStore(); const k = st.contracts.find((c) => c.id === contractId); const cfg = k.config;
     const unset = findUnset(cfg);
     const x = { contractId };
-    const card = (key) => { const c = CFG_CARDS[key]; if (!c || !c.has(cfg)) return null; return html`<${ui.Card} title=${c.title} icon=${c.icon} flush=${c.flush} foot=${c.foot ? c.foot(cfg, x) : null}>${c.body(cfg, x)}<//>`; };
+    const card = (key) => { const c = CFG_CARDS[key]; if (!c || !c.has(cfg)) return null; return html`<${ui.Card} key=${key} title=${c.title} icon=${c.icon} flush=${c.flush} foot=${c.foot ? c.foot(cfg, x) : null}>${c.body(cfg, x)}<//>`; };
+    const present = (keys) => keys.filter((key) => CFG_CARDS[key] && CFG_CARDS[key].has(cfg));
     return html`<div class="stack-lg">
       ${contractId === 'c-bot' ? html`<${UnsetWarnings} list=${unset} />` : html`<${ui.Notice} tone="info" title="Utkast – avtalet startar 13 mars 2027">
         Konfigurationen är en skiss som visar att samma kod räcker. Övriga regler (faser, fakturering, puls med mera) läggs in när KK-avtalet konfigureras i utvecklingsfas 4. Kontrollera i KK-avtalet om dagarna är kalender- eller arbetsdagar och vilka de åtta statistikfälten är.<//>`}
       <${ContractFacts} k=${k} />
-      ${CFG_SECTIONS.map(([title, keys]) => { const items = keys.map(card).filter(Boolean); return items.length > 0 && html`<${ui.Section} title=${title} key=${title}><${Masonry} items=${items} /><//>`; })}
+      ${CFG_SECTIONS.map(([title, keys]) => { const ks = present(keys); const narrow = ks.filter((key) => !CFG_CARDS[key].wide); const wide = ks.filter((key) => CFG_CARDS[key].wide);
+        return ks.length > 0 && html`<${ui.Section} title=${title} key=${title}>${wide.map(card)}${narrow.length > 0 && html`<${Masonry} items=${narrow.map(card)} />`}<//>`; })}
       <${Details} summary="Visa JSON (contracts.config)">
         <p class="small muted" style="margin-bottom:10px">Så lagras konfigurationen i databasen. Den valideras med ett zod-schema innan den sparas.</p>
         <${Pre} text=${JSON.stringify(cfg, null, 2)} />
@@ -573,9 +579,9 @@
     return html`<${ui.Page} title="Avtal och konfiguration" eyebrow=${`Systemadmin · ${MM.personName('u-robin')}`}
       lead="Ett avtal är en konfiguration. Samma kod används för Botkyrka och Kammarkollegiet – mål, svarstider, priser och rapportregler läses härifrån och är aldrig hårdkodade.">
       <${ui.Tabs} ariaLabel="Delar av avtalet" active=${tab} onChange=${setTab} tabs=${[
-        { id: 'avtal', label: 'Avtal och regler', icon: 'file', count: tab === 'avtal' || contractId === 'c-bot' ? unsetN : 0 },
+        { id: 'avtal', label: 'Avtal och regler', icon: 'file', count: unsetN },
         { id: 'priser', label: 'Prislista', icon: 'card' },
-        { id: 'jamforelse', label: 'Botkyrka och Kammarkollegiet', icon: 'layers' },
+        { id: 'jamforelse', label: 'Jämför avtalen', icon: 'layers' },
         { id: 'interna', label: 'Interna regler (Miljonbemanning)', icon: 'bell' },
       ]} />
       ${['avtal', 'priser'].includes(tab) && html`<${ContractPicker} value=${contractId} onChange=${setContract} />`}
@@ -832,7 +838,7 @@
 
       <${ui.Section} title="Integrationer">
         <${Masonry} items=${INT.map((x) => html`<${ui.Card} title=${x.name} icon=${x.icon} actions=${html`${x.phase && html`<${ui.BuildPhase} fas=${x.phase} />`}<${IntStatus} s=${x.status} />`}>
-          <div class="stack-sm"><p class="muted">${x.sub}</p><${ui.Kv} items=${x.items} /></div><//>`)} />
+          <div class="stack-sm"><p class="muted">${x.sub}</p><${KV} items=${x.items} /></div><//>`)} />
       <//>
 
       <${ui.Card} title="Bakgrundsjobb (tabellen jobs)" icon="refresh" flush
@@ -873,7 +879,7 @@
       foot=${html`<${ui.Btn} kind="primary" icon="check" disabled=${!dirty || !chk.ok || !body.trim()} onClick=${save}>Spara som version ${tpl.version + 1}<//>
         ${dirty && html`<${ui.Btn} kind="ghost" icon="reset" onClick=${() => { setSubject(tpl.subject || ''); setBody(tpl.body); }}>Ångra ändringarna<//>`}`}>
       <div class="stack">
-        <${ui.Kv} items=${[['Avsändare', tpl.from], ['Mottagare', tpl.to], ['Skickas', when], ['Senast ändrad', `${d.fmtDate(tpl.updatedAt)} av ${MM.personName(tpl.updatedBy)}`]]} />
+        <${KV} items=${[['Avsändare', tpl.from], ['Mottagare', tpl.to], ['Skickas', when], ['Senast ändrad', `${d.fmtDate(tpl.updatedAt)} av ${MM.personName(tpl.updatedBy)}`]]} />
         ${tpl.channel === 'email' && html`<${ui.Field} id="tpl-subject" label="Ämnesrad" help="Visas i mottagarens inkorg. Bara ärendenummer – aldrig namn."><${ui.Input} id="tpl-subject" value=${subject} onInput=${setSubject} invalid=${!chk.ok} /><//>`}
         <${ui.Field} id="tpl-body" label="Text" help=${html`Tillåtna platshållare: ${ALLOWED_PH.map((p) => `{${p}}`).join(', ')}.${tpl.channel === 'sms' ? html` <b>${body.length} tecken</b> – ett SMS rymmer 160.` : ''}`}>
           <${ui.TextArea} id="tpl-body" rows=${5} value=${body} onInput=${setBody} invalid=${!chk.ok} /><//>
@@ -905,8 +911,8 @@
         : html`<${ui.Notice} tone="critical" title="Mallar med personuppgifter">${failing.map((t) => t.name).join(', ')}<//>`}
       <div class="split">
         <${ui.Card} title="Mallar" icon="list" flush>
-          <div class="list" role="list">${list.map((t) => { const c = tplCheck(`${t.subject || ''}\n${t.body}`); const on = t.key === selKey;
-            return html`<button type="button" role="listitem" key=${t.key} class="list-item clickable" aria-current=${on ? 'true' : undefined} onClick=${() => setSelKey(t.key)}
+          <div class="list">${list.map((t) => { const c = tplCheck(`${t.subject || ''}\n${t.body}`); const on = t.key === selKey;
+            return html`<button type="button" key=${t.key} class="list-item clickable" aria-current=${on ? 'true' : undefined} onClick=${() => setSelKey(t.key)}
                 style=${on ? 'background:var(--bla-ton);box-shadow:inset 4px 0 0 var(--rod)' : ''}>
               <${I} name=${t.channel === 'sms' ? 'message' : 'mail'} />
               <span class="li-main"><span class="li-title">${t.name}</span><span class="li-sub">${t.to}</span>
@@ -959,6 +965,7 @@
   };
 
   const TemplatesView = ({ params }) => {
+    MM.useStore();
     const [tab, setTab] = useState(params.tab === 'logg' ? 'logg' : 'mallar');
     return html`<${ui.Page} title="Mallar och utskick" eyebrow="E-post och SMS"
       lead="Alla utskick byggs från versionerade mallar. De innehåller aldrig personuppgifter – bara ärendenummer och en länk till portalen.">
@@ -996,6 +1003,7 @@
     if (Array.isArray(v)) return v.map((x) => fmtDetail(k, x)).join(', ');
     if (v && typeof v === 'object') return JSON.stringify(v);
     const s = String(v);
+    if (k === 'template' && TPL_NAME[s]) return TPL_NAME[s];
     if (/^(u|k)-[a-z]+$/.test(s)) return MM.personName(s);
     if (/^case-\d+$/.test(s)) { const c = sel.caseById(s); return c ? c.number : s; }
     if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return d.fmtDateTime(s);
@@ -1162,13 +1170,13 @@
       if (r && r.error) { MM.toast(r.error === 'used' ? t.used : r.error === 'expired' ? t.expired : t.missing, 'red'); return; }
       setStep(6);
     };
-    const Scale = ({ k }) => html`<div class="stack-sm">
+    const scale = (k) => html`<div class="stack-sm">
       <div class="smileys" role="group" aria-label=${t[k]}>${[1, 2, 3, 4, 5].map((v) => html`<button type="button" key=${v} class="smiley" aria-pressed=${ans[k] === v ? 'true' : 'false'} aria-label=${`${v} – ${t.scale[v - 1]}`} onClick=${() => set(k, v)}><${Face} v=${v} /><span>${v}</span></button>`)}</div>
       <div class="row-between small muted"><span>1 = ${t.scale[0]}</span><span>5 = ${t.scale[4]}</span></div>
       <p aria-live="polite" class="strong" style="min-height:1.5em">${ans[k] != null ? `${t.chose}: ${t.scale[ans[k] - 1]}` : ''}</p>
     </div>`;
     const question = () => {
-      if (step <= 3) return html`<${Scale} k=${qKey} />`;
+      if (step <= 3) return scale(qKey);
       if (step === 4) return html`<div class="stack-sm" role="group" aria-label=${t.q4}>${Q4_VALUES.map((v) => html`<button type="button" key=${v} class="smiley" style=${optBtn} aria-pressed=${ans.q4 === v ? 'true' : 'false'} onClick=${() => set('q4', v)}><${I} name=${ans.q4 === v ? 'check-circle' : 'circle'} />${t.q4o[v]}</button>`)}</div>`;
       return html`<div class="stack">
         <div class="grid-2" style="grid-template-columns:repeat(2,minmax(0,1fr))" role="group" aria-label=${t.q5}>${[['ja', t.yes], ['nej', t.no]].map(([v, l]) => html`<button type="button" key=${v} class="smiley" style="min-height:56px;font-size:1.0625rem" aria-pressed=${ans.q5 === v ? 'true' : 'false'} onClick=${() => set('q5', v)}>${l}</button>`)}</div>
@@ -1176,13 +1184,13 @@
           <textarea id="pulse-text" rows="3" maxLength="500" value=${text} aria-describedby="pulse-text-help" onInput=${(e) => setText(e.target.value)}></textarea></div>
       </div>`;
     };
-    const Screen = ({ icon, title, children }) => html`<div class="stack" style="align-items:center;text-align:center;padding:12px 0">
+    const screen = (icon, title, children) => html`<div class="stack" style="align-items:center;text-align:center;padding:12px 0">
       <${I} name=${icon} size="xl" /><h1 style="font-size:1.375rem;font-weight:800">${title}</h1>${children}</div>`;
     let content;
-    if (state === 'missing') content = html`<${Screen} icon="alert-circle" title=${t.missing}><p>${t.missingText}</p><//>`;
-    else if (state === 'thanks') content = html`<${Screen} icon="check-circle" title=${t.thanks}>${ans.q5 === 'ja' && html`<p>${t.thanksContact}</p>`}<p class="muted">${t.close}</p><//>`;
-    else if (state === 'used') content = html`<${Screen} icon="lock" title=${t.used}><p>${t.usedText}</p><//>`;
-    else if (state === 'expired') content = html`<${Screen} icon="clock" title=${t.expired}><p>${tr(t.expiredText, { days })}</p><//>`;
+    if (state === 'missing') content = screen('alert-circle', t.missing, html`<p>${t.missingText}</p>`);
+    else if (state === 'thanks') content = screen('check-circle', t.thanks, html`${ans.q5 === 'ja' && html`<p>${t.thanksContact}</p>`}<p class="muted">${t.close}</p>`);
+    else if (state === 'used') content = screen('lock', t.used, html`<p>${t.usedText}</p>`);
+    else if (state === 'expired') content = screen('clock', t.expired, html`<p>${tr(t.expiredText, { days })}</p>`);
     else if (step === 0) content = html`<div class="stack">
       <h1 style="font-size:1.5rem;font-weight:800">${t.title}</h1>
       <p>${t.intro}</p>
@@ -1227,7 +1235,8 @@
     ['uppfoljning', 'Rätt uppföljning', 'Uppföljningsdatum är planerade. Återkopplingen dokumenteras och leder till nästa steg.'],
   ];
   const rightsDone = (pl) => RIGHTS.filter(([k]) => (pl.fourRights || {})[k]).length;
-  const canSeeCase = (c, role) => !!c && sel.access(c, role) !== 'none';
+  const canSeeCase = (c, role) => !!c && ['full', 'team'].includes(sel.access(c, role));
+  const whoLabel = (c, role) => (canSeeCase(c, role) ? sel.displayName(c, role) : c && sel.access(c, role) === 'restricted' ? 'Skyddade personuppgifter' : 'Deltagare i ett annat team');
   const RightsBadge = ({ pl }) => { const n = rightsDone(pl); return html`<${ui.Badge} tone=${n === 4 ? 'blue' : 'outline'} icon=${n === 4 ? 'check' : 'alert-circle'}>${n} av 4 rätt<//>`; };
 
   const AddEmployer = ({ onClose }) => {
@@ -1288,7 +1297,7 @@
         <div class="list">${upcoming.slice(0, 6).map(({ p, x }) => { const c = sel.caseById(p.caseId); const ok = canSeeCase(c, role);
           return html`<button type="button" key=${`${p.id}:${x}`} class="list-item clickable" onClick=${() => MM.nav('praktik.arbetsgivare', { employerId: p.employerId })}>
             <${I} name="calendar" /><span class="li-main"><span class="li-title">${d.fmtWeekday(x)} · ${empName(p.employerId)}</span>
-            <span class="li-sub">${ok ? `${sel.displayName(c, role)} · ${c.number}` : 'Deltagare i ett annat team'}</span></span><${RightsBadge} pl=${p} /></button>`; })}</div>
+            <span class="li-sub">${ok ? `${sel.displayName(c, role)} · ${c.number}` : whoLabel(c, role)}</span></span><${RightsBadge} pl=${p} /></button>`; })}</div>
       <//>`}
       <div class="row" style="align-items:flex-end">
         <div style="flex:1 1 260px"><${ui.Field} id="emp-q" label="Sök arbetsgivare"><${ui.Input} id="emp-q" type="search" value=${q} onInput=${setQ} placeholder="Företag eller kontaktperson" /><//></div>
@@ -1311,17 +1320,17 @@
 
   const PlacementCard = ({ pl, role }) => {
     const c = sel.caseById(pl.caseId); const a = c ? sel.access(c, role) : 'none';
-    const ok = a !== 'none'; const canEdit = ['full', 'team'].includes(a);
+    const ok = ['full', 'team'].includes(a); const canEdit = ok;
     const [date, setDate] = useState('');
     const today = d.today(); const fr = pl.fourRights || {};
-    const title = ok ? sel.displayName(c, role) : 'Deltagare i ett annat team';
+    const title = whoLabel(c, role);
     return html`<${ui.Card} title=${title} icon=${ok ? 'user' : 'lock'} tone=${pl.status === 'ongoing' && rightsDone(pl) < 4 && ok ? 'red' : undefined}
       actions=${html`<${RightsBadge} pl=${pl} />${pl.status === 'ongoing' ? html`<${ui.Badge} tone="blue" icon="activity">Pågår<//>` : html`<${ui.Badge} tone="grey" icon="check-square">Avslutad<//>`}`}
       foot=${ok && c.referrerId === 'k-maria' ? html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label="Se från kundens håll" />` : null}>
       <div class="stack">
         <div class="row-sm small muted">${ok && html`<${ui.CaseLink} caseId=${c.id} /><span aria-hidden="true">·</span>`}<span>${d.fmtDate(pl.startsOn)} – ${d.fmtDate(pl.endsOn)}</span></div>
-        ${!ok ? html`<p class="muted">Namn och detaljer visas bara för teamet i ärendet. Arbetsuppgift: ${pl.tasks}.</p>` : html`
-          <${ui.Kv} items=${[['Arbetsuppgifter', pl.tasks], ['Handledare hos arbetsgivaren', pl.supervisorName || '–'], ['Mål', pl.goals || '–']]} />
+        ${!ok ? html`<p class="muted">${a === 'restricted' ? 'Skyddade personuppgifter – detaljer visas bara för namngiven coach och avtalsansvarig.' : `Namn och detaljer visas bara för teamet i ärendet. Arbetsuppgift: ${pl.tasks}.`}</p>` : html`
+          <${KV} items=${[['Arbetsuppgifter', pl.tasks], ['Handledare hos arbetsgivaren', pl.supervisorName || '–'], ['Mål', pl.goals || '–']]} />
           <${Group} id=${`fr-${pl.id}`} legend="De fyra rätten" help=${canEdit ? 'Bocka i när kravet är uppfyllt. Ändringen loggas.' : 'Bara teamet i ärendet kan ändra.'}>
             ${RIGHTS.map(([k, label, help]) => html`<${ui.Check} key=${k} id=${`fr-${pl.id}-${k}`} checked=${!!fr[k]} disabled=${!canEdit} onChange=${(v) => MM.dispatch('employer.setRight', { placementId: pl.id, right: k, value: v })}>
               <span><b>${label}</b><br /><span class="small muted">${help}</span></span><//>`)}
@@ -1348,8 +1357,8 @@
     return html`<${ui.Page} title=${e.name} eyebrow=${html`<span class="row-sm">Arbetsgivare <${ui.BuildPhase} fas=${3} /></span>`} crumbs=${[{ label: 'Arbetsgivare och praktik', view: 'praktik.arbetsgivare' }, { label: e.name }]}>
       <${ui.Card} title="Kontaktuppgifter" icon="building">
         <div class="grid-2" style="gap:12px 32px">
-          <${ui.Kv} items=${[['Organisationsnummer', e.orgNr || '–'], ['Kontaktperson', e.contactName || '–'], ['Telefon', e.phone || '–'], ['E-post', e.email || '–']]} />
-          <${ui.Kv} items=${[['Avtalsområden', html`<span class="row-sm">${e.areas.map((a) => html`<${ui.Badge} key=${a} tone="outline">${sel.areaName(a)}<//>`)}</span>`], ['Praktikplatser', `${on.length} pågående, ${ps.length} totalt`], e.createdAt && ['Tillagd', `${d.fmtDate(e.createdAt)} av ${MM.personName(e.createdBy)}`]]} />
+          <${KV} items=${[['Organisationsnummer', e.orgNr || '–'], ['Kontaktperson', e.contactName || '–'], ['Telefon', e.phone || '–'], ['E-post', e.email || '–']]} />
+          <${KV} items=${[['Avtalsområden', html`<span class="row-sm">${e.areas.map((a) => html`<${ui.Badge} key=${a} tone="outline">${sel.areaName(a)}<//>`)}</span>`], ['Praktikplatser', `${on.length} pågående, ${ps.length} totalt`], e.createdAt && ['Tillagd', `${d.fmtDate(e.createdAt)} av ${MM.personName(e.createdBy)}`]]} />
         </div>
       <//>
       <${ui.Section} title="Praktikplatser" actions=${html`<${ui.Seg} ariaLabel="Visa praktikplatser" value=${show} onChange=${(v) => { setShow(v); setLimit(8); }} options=${[{ value: 'ongoing', label: `Pågående (${on.length})` }, { value: 'done', label: `Avslutade (${done.length})` }]} />`}>

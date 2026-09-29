@@ -73,17 +73,16 @@
   .co-chips { display: flex; flex-wrap: wrap; gap: 6px; }
   .co-chip { border: 1.5px dashed var(--line-strong); background: var(--vit); border-radius: 999px; padding: 6px 12px; min-height: 44px; font: inherit; font-size: 0.875rem; cursor: pointer; color: var(--antracit); text-align: left; }
   .co-chip:hover { border-color: var(--antracit); }
-  .cm-area { font-weight: 700; min-width: 150px; }
+  .cm-table { table-layout: fixed; min-width: 860px; }
+  .cm-area { font-weight: 700; overflow-wrap: anywhere; }
   .cm-table td { min-width: 0; }
-  .cm-table td.cm-obs { min-width: 260px; }
-  .cm-table select { min-width: 150px; }
+  .cm-table .ai-tag { white-space: normal; }
   .cm-table tr.row-alert td:first-child { box-shadow: inset 4px 0 0 var(--rod); }
   @media (max-width: 760px) {
     .cm-table thead { display: none; }
-    .cm-table, .cm-table tbody, .cm-table tr, .cm-table td { display: block; width: 100%; }
+    .cm-table, .cm-table tbody, .cm-table tr, .cm-table td { display: block; width: 100%; min-width: 0; }
     .cm-table tr { border-bottom: 2px solid var(--line); padding: 8px 0; }
     .cm-table td { border-bottom: 0; padding: 6px 4px; }
-    .cm-table td.cm-obs, .cm-table select { min-width: 0; }
     .cm-table td[data-label]::before { content: attr(data-label); display: block; font-size: var(--fs-label); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-muted); margin-bottom: 4px; }
     .cm-table tr.row-alert td:first-child { box-shadow: none; }
     .cm-table tr.row-alert { box-shadow: inset 4px 0 0 var(--rod); padding-left: 8px; }
@@ -198,7 +197,7 @@
 
   // ============================================================ MIN VECKA
   /** Slår ihop tillfällen med samma tid och typ (t.ex. gemensamt yrkesmoment) till en rad i kalendern. */
-  const groupSlots = (list) => { const out = []; const idx = {}; for (const a of list) { const k = `${a.startsAt}|${a.kind}`; if (idx[k] == null) { idx[k] = out.length; out.push([]); } out[idx[k]].push(a); } return out; };
+  const groupSlots = (list) => { const out = []; const idx = {}; for (const a of list) { const k = a.kind === 'möte' ? a.id : `${a.startsAt}|${a.kind}|${a.location}`; if (idx[k] == null) { idx[k] = out.length; out.push([]); } out[idx[k]].push(a); } return out; };
   const WeekCalendar = ({ cases, mon }) => {
     const st = S(); const ids = new Set(cases.map((c) => c.id)); const now = d.now(); const today = d.today();
     const end = d.addDays(mon, 5);
@@ -413,7 +412,7 @@
           <${ui.Card} title="Olästa notiser" icon="bell" actions=${html`<${ui.Btn} kind="secondary" iconRight="arrow-right" onClick=${() => go('notiser', {})}>Öppna notiser<//>`}>
             ${unread.length === 0 ? html`<p class="muted">Du har inga olästa notiser.</p>` : html`<div class="stack-sm">
               <p><b>${unread.length} olästa.</b> De senaste:</p>
-              <ul class="stack-sm" style="margin:0;padding-left:20px">${unread.slice(0, 3).map((n) => html`<li key=${n.id}><span class="strong">${n.title}</span><div class="small muted">${n.body}</div></li>`)}</ul>
+              <ul class="stack-sm" style="margin:0;padding-left:20px">${unread.slice(0, 3).map((n) => { const nc = n.caseId ? sel.caseById(n.caseId) : null; return html`<li key=${n.id}><span class="strong">${n.title}</span>${nc && html` <span class="mono small muted nowrap">${nc.number}</span>`}</li>`; })}</ul>
             </div>`}
           <//>
 
@@ -1266,6 +1265,7 @@
         <div class="table-wrap">
           <table class="table cm-table">
             <caption class="sr-only">Progressionsområden med nivå, observation och nästa steg</caption>
+            <colgroup><col style="width:19%" /><col style="width:21%" /><col style="width:38%" /><col style="width:22%" /></colgroup>
             <thead><tr><th scope="col">Område</th><th scope="col">Nivå 0–3</th><th scope="col">Konkret observation</th><th scope="col">Nästa steg</th></tr></thead>
             <tbody>
               ${prog.areas.map((k) => { const a = areas[k]; const src = (ma0 && ma0.areas && ma0.areas[k]) || {}; const err = errors[k]; const lab = prog.areaLabels[k];

@@ -49,6 +49,7 @@ try {
   ok(st1.rep === 'delivered', 'Veckorapporten till Maria Ekdahl publicerades automatiskt');
   ok(/Maria Ekdahl[\s\S]*?Publicerad 1 feb/.test(await page.locator('.card').filter({ hasText: 'Veckorapporter – vecka 4' }).innerText()), 'Veckorapporten till Maria visas som publicerad');
   // Uppspelning: efter omladdning ska rapporten fortfarande vara publicerad
+  await page.waitForTimeout(400); // låt prototypen spara loggen (sparas med 150 ms fördröjning)
   await page.reload(); await page.waitForFunction(() => window.MM && MM.store && MM.store.state && document.querySelector('.protobar'));
   ok(await ev(() => MM.store.state.reports.find((r) => r.kind === 'weekly_attendance' && r.week === '2027-W04' && r.recipientUserId === 'k-maria').status) === 'delivered', 'Publiceringen finns kvar efter omladdning (uppspelning)');
   await visit(page, 'coach', 'coach.narvaro', { week: 'last' });
@@ -239,7 +240,7 @@ try {
   step('Vyer utan ärende visar lista');
   for (const v of ['coach.avstamning', 'coach.manad', 'coach.kartlaggning', 'coach.handelse']) {
     await visit(page, 'coach', v, {});
-    ok(await page.getByText('Välj deltagare').isVisible(), `${v} utan ärende visar deltagarlista`);
+    ok(await page.locator('.card-title').filter({ hasText: 'Välj deltagare' }).isVisible(), `${v} utan ärende visar deltagarlista`);
   }
   // Min vecka efter allt: närvaron klar
   await visit(page, 'coach', 'coach.minvecka', {});

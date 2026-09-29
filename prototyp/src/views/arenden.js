@@ -29,6 +29,9 @@
 .arn-section+.arn-section{border-top:1px solid var(--line);padding-top:16px}
 @media (min-width:621px){.arn-tabs .tabs{flex-wrap:wrap;overflow-x:visible}}
 .arn-tabs .tab{padding:10px 12px}
+.arn-tabs .table th{white-space:normal;vertical-align:bottom}
+.arn-tabs .table td,.arn-tabs .table th{padding:9px 8px}
+.arn-tabs .table td:first-child,.arn-tabs .table th:first-child{padding-left:16px}
 .arn-label{font-size:var(--fs-label);font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-muted);margin-bottom:8px}
 .arn-mini{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
 .arn-mini li{display:flex;gap:8px;align-items:flex-start;min-width:0}
@@ -684,7 +687,7 @@
       { key: 'heldAt', label: 'Datum', nowrap: true, render: (x) => html`<span class="strong">${fd(x.heldAt)}</span><div class="cell-sub">${d.fmtWeek(x.heldAt)} · kl. ${d.fmtTime(x.heldAt)}</div>` },
       { key: 'mode', label: 'Form', render: (x) => MODE[x.mode] || '–' },
       { key: 'goal', label: 'Veckomål', render: (x) => (x.status === 'approved' ? GOAL[x.goalStatus] || '–' : '–') },
-      { key: 'phase', label: 'Fas', render: (x) => (x.status === 'approved' && x.phase ? `Fas ${x.phase}` : '–') },
+      { key: 'phase', label: 'Fas', nowrap: true, render: (x) => (x.status === 'approved' && x.phase ? `Fas ${x.phase}` : '–') },
       { key: 'overall', label: 'Samlad status', render: (x) => (x.status === 'approved' ? html`<${ui.Status} value=${x.overallStatus} short />` : html`<${ui.Status} value=${null} />`) },
       { key: 'obst', label: 'Hinder', render: (x) => (x.obstacles && x.obstacles.length ? x.obstacles.join(', ') : '–') },
       { key: 'note', label: 'Anteckning', render: (x) => (x.status === 'approved' ? html`<span class="small">${clip(x.note, 80) || '–'}</span>` : html`<span class="small muted">Granskas av coachen</span>`) },
@@ -995,7 +998,7 @@
         return html`<${ui.Card} key=${pl.id} title=${emp ? emp.name : 'Praktikplats'} icon="building" tone=${missing.length && pl.status === 'ongoing' ? 'red' : undefined}
           actions=${html`<${ui.Badge} tone=${pl.status === 'ongoing' ? 'blue' : 'grey'} icon=${pl.status === 'ongoing' ? 'play' : 'check'}>${PLACEMENT[pl.status] || pl.status}<//>`}>
           <div class="stack">
-            ${missing.length > 0 && pl.status === 'ongoing' && html`<${ui.Notice} tone="warn" title=${`Saknas: ${missing.map((m) => m[1].toLowerCase()).join(', ')}`}>Komplettera innan nästa uppföljning. Klagomål från deltagare har tidigare gällt att praktikplatsen inte var förberedd.<//>`}
+            ${missing.length > 0 && pl.status === 'ongoing' && html`<${ui.Notice} tone="warn" title=${`Saknas: ${missing.map((m) => m[1].toLowerCase()).join(', ')}`}>Komplettera före nästa uppföljningsdatum. Praktikplatsen ska vara förberedd innan deltagaren börjar.<//>`}
             <div class="split">
               <${ui.Kv} items=${[
                 ['Period', `${d.fmtDate(pl.startsOn)} – ${d.fmtDate(pl.endsOn)}`],
@@ -1006,7 +1009,7 @@
               <${ui.Kv} items=${[
                 ['Kontaktperson', emp ? `${emp.contactName}` : '–'],
                 ['Telefon', emp ? emp.phone : '–'],
-                ['Uppföljning', (pl.followUpDates || []).length ? html`<ul class="arn-mini">${pl.followUpDates.map((x) => html`<li key=${x}><${I} name=${x < today ? 'check' : 'calendar'} /><span>${d.fmtDate(x)}<span class="small muted"> · ${x < today ? 'genomförd' : 'planerad'}</span></span></li>`)}</ul>` : 'Inga datum planerade'],
+                ['Uppföljning', (pl.followUpDates || []).length ? html`<ul class="arn-mini">${pl.followUpDates.map((x) => html`<li key=${x}><${I} name=${x < today ? 'check' : 'calendar'} /><span>${d.fmtDate(x)}<span class="small muted"> · ${x < today ? 'genomförd' : x === today ? 'i dag' : 'planerad'}</span></span></li>`)}</ul>` : 'Inga datum planerade'],
               ]} />
             </div>
             <div class="arn-four">${FOUR.map(([key, label, help]) => { const okk = !!fr[key]; return html`<div class=${cls('arn-four-item', !okk && 'missing')} key=${key}>

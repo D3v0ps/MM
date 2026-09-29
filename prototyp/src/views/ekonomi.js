@@ -36,7 +36,11 @@
 .eko-tbl .table th,.eko-tbl .table td{padding-left:8px;padding-right:8px}
 .eko-tbl .table th:first-child,.eko-tbl .table td:first-child{padding-left:16px}
 .eko-tbl .table th{white-space:normal;vertical-align:bottom}
-.eko-tbl .eko-ic-row{flex-direction:column;align-items:flex-start}
+.eko-tbl .table .eko-ic-row{flex-direction:column;align-items:flex-start}
+.eko .btn{white-space:normal}
+.eko-mlist{display:none}
+.eko-mlist .eko-alert{box-shadow:inset 4px 0 0 var(--rod)}
+@media (max-width:620px){.eko-tbl .table-wrap{display:none}.eko-mlist{display:flex}}
 .eko-scroll{overflow-x:auto;max-width:100%}
 .eko-sums{margin-left:auto;width:min(100%,340px);display:flex;flex-direction:column}
 .eko-sums>div{display:flex;justify-content:space-between;gap:16px;padding:5px 0;border-bottom:1px solid var(--ljusgra);font-variant-numeric:tabular-nums}
@@ -531,6 +535,20 @@
           rowClass=${(r) => MM.cls(r.bucket === 'blocked' && 'row-alert', openId === r.caseId && 'selected')}
           empty=${filter === 'stoppade' ? 'Inga stoppade fakturor.' : filter === 'godkannande' ? 'Inga fakturor väntar på godkännande.' : filter === 'klara' ? 'Inga fakturor är klara ännu. Godkänn fakturor i steg 2.' : 'Inga fakturor matchar sökningen.'}
           footer=${list.length > 0 && html`<tr><td colspan="3">Summa (${plural(list.length, 'faktura', 'fakturor')})</td><td class="num">${MM.sum(list, (x) => x.quantity)}</td><td></td><td class="num nowrap">${fmt.kr(MM.sum(list, (x) => x.amountOre))}</td><td colspan="3"></td></tr>`} />
+        <div class="eko-mlist list" style="border-top:2px solid var(--antracit)">
+          ${shown.length === 0 && html`<div class="list-item muted">Inga fakturor att visa.</div>`}
+          ${shown.map((r) => html`<button type="button" class=${MM.cls('list-item clickable', r.bucket === 'blocked' && 'eko-alert')} key=${r.id} onClick=${() => setOpenId(r.caseId)}>
+            <span class="li-main">
+              <span class="row-sm"><span class="li-title mono">${r.number}</span><${InvStatus} status=${r.status} /></span>
+              <span class="small">${sel.areaName(r.area)} · ${weekText(r.weeks)}</span>
+              <span class="small">${r.quantity} × ${fmt.kr(r.unitPriceOre)} = <b>${fmt.kr(r.amountOre)}</b></span>
+              <span class="row-sm small">Beställarreferens <${RefBadge} value=${r.buyerReference} /></span>
+              ${r.checks.some((x) => x.severity !== 'info') && html`<${CheckIcons} inv=${r} />`}
+            </span>
+            <${I} name="chevron-right" />
+          </button>`)}
+          ${list.length > 0 && html`<div class="list-item"><span class="li-main strong">Summa (${plural(list.length, 'faktura', 'fakturor')})</span><span class="strong nowrap">${fmt.kr(MM.sum(list, (x) => x.amountOre))}</span></div>`}
+        </div>
       <//></div>
       ${fxState().runs.filter((r) => r.month === mk).length > 0 && html`<${ui.Card} title="Fortnox-körningar" icon="refresh" actions=${html`<${ui.BuildPhase} fas=${2} />`}>
         <div class="stack-sm">${fxState().runs.filter((r) => r.month === mk).slice().reverse().map((r) => html`<div class="row-sm" key=${r.id}>
@@ -928,8 +946,9 @@
   };
 
   // ------------------------------------------------------------ Registrering
-  MM.registerView('eko.start', { title: 'Fakturering', roles: ROLES, component: StartView });
-  MM.registerView('eko.korning', { title: (p) => (p && p.month ? `Fakturakörning ${d.monthName(p.month)}` : 'Fakturakörning'), roles: ROLES, component: KorningView });
-  MM.registerView('eko.faktura', { title: 'Faktura', roles: ROLES, component: FakturaView });
-  MM.registerView('eko.arende', { title: 'Ärende (ekonomi)', roles: ROLES, component: ArendeView });
+  const wrap = (C) => (props) => html`<div class="eko"><${C} ...${props} /></div>`;
+  MM.registerView('eko.start', { title: 'Fakturering', roles: ROLES, component: wrap(StartView) });
+  MM.registerView('eko.korning', { title: (p) => (p && p.month ? `Fakturakörning ${d.monthName(p.month)}` : 'Fakturakörning'), roles: ROLES, component: wrap(KorningView) });
+  MM.registerView('eko.faktura', { title: 'Faktura', roles: ROLES, component: wrap(FakturaView) });
+  MM.registerView('eko.arende', { title: 'Ärende (ekonomi)', roles: ROLES, component: wrap(ArendeView) });
 })();

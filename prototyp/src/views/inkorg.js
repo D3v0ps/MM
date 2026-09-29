@@ -885,11 +885,11 @@
         const pick = byCase.find((x) => ['order', 'order_protected'].includes(x.cls)) || byCase[0];
         if (pick) return pick.id;
       }
-      return pending[0] ? pending[0].id : all[0] ? all[0].id : null;
+      return pending[0] ? pending[0].id : null;
     }, []);
     const initItem = items.find((x) => x.id === initial);
     const [selId, setSelId] = useState(initial);
-    const [tab, setTab] = useState(initItem && !initItem.pending ? 'alla' : 'att');
+    const [tab, setTab] = useState(initItem && !initItem.pending && (params.emailId || params.caseId) ? 'alla' : 'att');
     const [showAll, setShowAll] = useState(false);
     const detailRef = useRef(null); const userPick = useRef(false);
     useEffect(() => {
@@ -917,7 +917,7 @@
         </div>
         <div class="ink-detail" ref=${detailRef}>
           ${item ? html`<${Detail} key=${item.id} it=${item} role=${role} onPick=${pick} />`
-            : html`<${ui.Card}><${ui.Empty} icon="inbox" title="Välj ett mejl">Klicka på ett mejl i listan för att se originalet och det tolkade formuläret.<//><//>`}
+            : html`<${ui.Card}><${ui.Empty} icon="inbox" title=${pending.length ? 'Välj ett mejl' : 'Inget väntar på svar'}>${pending.length ? 'Klicka på ett mejl i listan för att se originalet och det tolkade formuläret.' : 'Alla avrop är besvarade. Under Hanterade ser du vad som gjorts och när.'}<//><//>`}
         </div>
       </div>
       <${ui.DemoNote}>Inläsningen är simulerad. I tjänsten hämtas mejlen från avrop@ via Microsoft Graph var 2–5 minut och flyttas till mappen Inläst, där de ligger kvar som reserv. Inga mejl eller SMS skickas på riktigt – de syns i utskicksloggen. Demoklockan går en minut framåt för varje åtgärd.<//>
