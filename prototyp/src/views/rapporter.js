@@ -448,7 +448,7 @@
   const ActivityChecklist = ({ a }) => {
     const done = new Set(a.done);
     return html`<ul style="list-style:none;margin:0;padding:0;display:grid;gap:6px 18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr))">
-      ${a.types.map((t) => html`<li key=${t} style="display:flex;align-items:flex-start;gap:2px"><span class="xbox" aria-hidden="true">${done.has(t) ? 'X' : ''}</span><span><span class="sr-only">${done.has(t) ? 'Genomförd: ' : 'Inte genomförd: '}</span>${t}</span></li>`)}
+      ${a.types.map((t) => html`<li key=${t} style="display:flex;align-items:flex-start;gap:2px"><span class="xbox" aria-hidden="true">${done.has(t) ? 'X' : ''}</span><span><span class="sr-only">${done.has(t) ? 'Genomförd: ' : 'Inte genomförd: '}</span>${String(t).replace(/\/APL\b/, ' (arbetsplatsförlagt lärande)')}</span></li>`)}
     </ul>`;
   };
 
@@ -1201,7 +1201,9 @@
       ${backBtn}
       <div class="stack-sm">
         <h1><span class="dot" aria-hidden="true"></span>${reportTitle(r)}</h1>
-        <p>${c && html`Gäller ${sel.displayName(c, role)}, ärende <span class="nowrap">${c.number}</span>. `}Levererad av Miljonbemanning ${wdFull(r.deliveredAt)}.${(r.version || 1) > 1 ? ` Det här är version ${r.version}, som ersätter en tidigare version.` : ''}</p>
+        <p>${c && (sel.access(c, role) === 'restricted'
+          ? html`Gäller ärende <span class="nowrap">${c.number}</span>. Deltagaren har skyddade personuppgifter, så namnet visas inte. `
+          : html`Gäller ${sel.displayName(c, role)}, ärende <span class="nowrap">${c.number}</span>. `)}Levererad av Miljonbemanning ${wdFull(r.deliveredAt)}.${(r.version || 1) > 1 ? ` Det här är version ${r.version}, som ersätter en tidigare version.` : ''}</p>
       </div>
       ${isRecipient && r.openedAt && html`<${ui.Notice} tone="ok" title="Rapporten är kvitterad">Du öppnade rapporten första gången ${dtFull(r.openedAt)}. Miljonbemanning ser att du har läst den.<//>`}
       ${!isRecipient && html`<${ui.Notice} tone="info" title="Kvitteras bara av mottagaren">Rapporten skickades till ${rName}. Den blir kvitterad först när ${rName} öppnar den – inte när du läser den. ${r.openedAt ? `${rName} öppnade rapporten ${dtFull(r.openedAt)}.` : `${rName} har inte öppnat rapporten än.`}<//>`}

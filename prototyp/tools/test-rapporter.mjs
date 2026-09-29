@@ -273,14 +273,21 @@ if (prot) {
   await visit(page, 'kommun_chef', 'rapport.visa', { reportId: protDel });
   t = await mainText();
   const pname = await st(() => { const p = MM.sel.person(MM.sel.caseById(MM.store.state.script.skyddad)); return `${p.firstName} ${p.lastName}`; });
-  ok(!t.includes(pname) && /Skyddade personuppgifter/.test(t), 'kommunens chef ser aldrig namnet i ett skyddat ärende');
+  ok(!t.includes(pname) && /skyddade personuppgifter/i.test(t), 'kommunens chef ser aldrig namnet i ett skyddat ärende');
+  const protWeek = await st(() => { const c = MM.sel.caseById(MM.store.state.script.skyddad); return (MM.store.state.reports.find((r) => r.kind === 'weekly_attendance' && r.recipientUserId === c.referrerId && ['delivered', 'opened'].includes(r.status) && r.periodEnd >= c.startDate) || {}).id; });
+  if (protWeek) {
+    await visit(page, 'kommun_chef', 'rapport.visa', { reportId: protWeek });
+    t = await mainText();
+    ok(!t.includes(pname) && /Skyddade personuppgifter/.test(t), 'veckorapporten visar en skyddad sektion utan namn för kommunens chef');
+  }
 }
 await visit(page, 'handledare', 'rapport.visa', { reportId: dec });
 t = await mainText();
 ok(/visas inte för handledare/i.test(t) && !/4\. PROGRESSION/i.test(t) && !/8\. COACHENS SAMMANFATTANDE/i.test(t), 'handledaren får en förklaring i stället för månadsrapporten');
 const nadiaFinal = await st(() => MM.store.state.reports.find((r) => r.kind === 'final' && (MM.sel.caseById(r.caseId).team || []).some((x) => x.userId === 'u-petra')));
 if (nadiaFinal) { await visit(page, 'handledare', 'rapport.visa', { reportId: nadiaFinal.id }); ok(/visas inte för handledare/i.test(await mainText()), 'handledaren ser inte slutrapporten'); }
-const apprFinal = await st(() => (MM.store.state.reports.find((r) => r.kind === 'final' && r.status === 'approved' && !r.finalText && !MM.sel.person(MM.sel.caseById(r.caseId)).protectedIdentity) || {}).id);
+// En godkänd slutrapport utan coachens text (godkänd direkt via domänåtgärden) får inte levereras med en automatisk text.
+const apprFinal = await st(() => { const r = MM.store.state.reports.find((x) => x.kind === 'final' && x.status === 'draft' && !x.finalText && !MM.sel.person(MM.sel.caseById(x.caseId)).protectedIdentity); if (!r) return null; MM.dispatch('report.approve', { reportId: r.id }); return r.id; });
 if (apprFinal) {
   await visit(page, 'samordnare', 'rapport.visa', { reportId: apprFinal });
   t = await mainText();

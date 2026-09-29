@@ -60,6 +60,13 @@
 .arn-card-actions{display:flex;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%}
 .arn-card-actions .btn,.arn-wrapbtn{white-space:normal;text-align:left;height:auto;max-width:100%}
 .arn-root .btn{white-space:normal;max-width:100%;min-width:var(--tap)}
+.arn-rt{container-type:inline-size}
+.arn-rt>.arn-m{display:none}
+@container (max-width:880px){.arn-rt.arn-lg>.arn-d{display:none}.arn-rt.arn-lg>.arn-m{display:block}}
+@container (max-width:560px){.arn-rt.arn-sm>.arn-d{display:none}.arn-rt.arn-sm>.arn-m{display:block}}
+.arn-m .list-item{text-align:left;width:100%;border-bottom:0}
+.arn-m .list>[role=listitem]+[role=listitem]{border-top:1px solid var(--line)}
+.arn-m .li-side{align-items:flex-end}
 .arn-root .card-head .spacer+*{max-width:100%}
 `;
       document.head.appendChild(el);
@@ -90,6 +97,17 @@
     present: ['blue', 'check', 'Närvarande'], late: ['bluetone', 'clock', 'Sen'], absent_valid: ['grey', 'minus-circle', 'Giltig frånvaro'],
     absent_invalid: ['red', 'x-circle', 'Ogiltig frånvaro'], none: ['outline', 'help', 'Saknar registrering'],
   };
+  /** Listrad för smala kort: knapp om raden går att öppna, annars en vanlig rad. */
+  const MItem = ({ onClick, children }) => (onClick
+    ? html`<button type="button" class="list-item clickable" onClick=${onClick}>${children}</button>`
+    : html`<div class="list-item">${children}</div>`);
+  /** ui.Table när kortet är brett, en lista (mobile(rad, klick)) när kortet är smalt – ingen text utanför kortet på 400 px. */
+  const RespTable = ({ size = 'lg', mobile, ...props }) => html`<div class=${cls('arn-rt', size === 'sm' ? 'arn-sm' : 'arn-lg')}>
+    <div class="arn-d"><${ui.Table} ...${props} /></div>
+    <div class="arn-m">${props.rows.length === 0 ? html`<div class="card-body"><p class="small muted">${props.empty}</p></div>`
+      : html`<div class="list" role="list" aria-label=${props.caption || 'Lista'}>${props.rows.map((r) => html`<div role="listitem" key=${r[props.rowKey || 'id']}>${mobile(r, props.onRowClick ? () => props.onRowClick(r) : null)}</div>`)}</div>`}</div>
+  </div>`;
+  const cell = (cols, key, x) => { const c = cols.find((y) => y.key === key); return c && c.render ? c.render(x) : null; };
   const AttBadge = ({ status }) => { const [tone, icon, label] = ATT[status] || ATT.none; return html`<${ui.Badge} tone=${tone} icon=${icon}>${label}<//>`; };
 
   /** Faktarutnät: etikett ovanför värdet (tätare och tydligare än två kolumner i smala kort). */
@@ -729,8 +747,18 @@
       <${ui.Card} flush title=${`Veckoavstämningar (${list.length})`} icon="check-square"
         actions=${edit && can && c.status === 'active' && html`<${ui.Btn} kind="primary" icon="plus" onClick=${() => MM.nav('coach.avstamning', { caseId: c.id })}>Ny avstämning<//>`}
         foot=${list.length > n && html`<span class="small muted">Visar ${n} av ${list.length}</span><span class="spacer"></span><${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setN(list.length)}>Visa alla<//>`}>
-        <${ui.Table} columns=${cols} rows=${list.slice(0, n)} caption="Veckoavstämningar" empty="Inga avstämningar ännu."
-          onRowClick=${can ? (x) => MM.nav('coach.avstamning', { caseId: c.id, checkInId: x.id }) : undefined} />
+        <${RespTable} columns=${cols} rows=${list.slice(0, n)} caption="Veckoavstämningar" empty="Inga avstämningar ännu."
+          onRowClick=${can ? (x) => MM.nav('coach.avstamning', { caseId: c.id, checkInId: x.id }) : undefined}
+          mobile=${(x, click) => html`<${MItem} onClick=${click}>
+            <div class="li-main">
+              <div class="li-title">${fd(x.heldAt)} · ${MODE[x.mode] || 'Form saknas'}</div>
+              <div class="li-sub">${d.fmtWeek(x.heldAt)} · kl. ${d.fmtTime(x.heldAt)}${x.status === 'approved' ? ` · veckomål ${String(GOAL[x.goalStatus] || '–').toLowerCase()}${x.phase ? ` · fas ${x.phase}` : ''}` : ''}</div>
+              ${x.obstacles && x.obstacles.length > 0 && html`<div class="small">Hinder: ${x.obstacles.join(', ')}</div>`}
+              <div>${cell(cols, 'note', x)}</div>
+              ${cell(cols, 'st', x)}
+            </div>
+            <div class="li-side">${cell(cols, 'overall', x)}</div>
+          <//>`} />
       <//>
     </div>`;
   };
@@ -774,10 +802,24 @@
       </div>
       ${reasons.length > 0 && html`<p class="small"><span class="strong">Skäl till giltig frånvaro:</span> ${reasons.map(([r, n]) => `${r} (${n})`).join(' · ')}</p>`}
       <${ui.Card} flush title="Närvaro per ISO-vecka" icon="calendar" actions=${canReg && html`<${ui.Btn} kind="primary" icon="check-square" onClick=${() => MM.nav('coach.narvaro', {})}>Registrera närvaro<//>`}>
-        <${ui.Table} columns=${cols} rows=${weeks} caption="Närvaro per vecka" empty="Inga veckor ännu." rowClass=${(w) => (w.paused ? 'row-muted' : w.st.absentInvalid > 0 ? 'row-alert' : '')} />
+        <${RespTable} columns=${cols} rows=${weeks} caption="Närvaro per vecka" empty="Inga veckor ännu." rowClass=${(w) => (w.paused ? 'row-muted' : w.st.absentInvalid > 0 ? 'row-alert' : '')}
+          mobile=${(w) => html`<${MItem}>
+            <div class="li-main">
+              <div class="li-title">${d.fmtWeekKey(w.key)}</div>
+              <div class="li-sub">${d.fmtWeekRange(w.key)}</div>
+              ${w.paused ? html`<div><${ui.Badge} tone="grey" icon="pause">Pausad – debiteras inte<//></div>`
+                : html`<div class="small">${fmt.plural(w.st.planned, 'tillfälle', 'tillfällen')}${w.future > 0 ? ` (+${w.future} kommande)` : ''} · närvarande ${w.st.present} · sen ${w.st.late} · giltig frånvaro ${w.st.absentValid}</div>
+                  <div class="row-sm">${w.st.absentInvalid > 0 && html`<${ui.Badge} tone="red" icon="x-circle">${w.st.absentInvalid} ogiltig frånvaro<//>`}${w.st.unregistered > 0 && html`<${ui.Badge} tone="outline" icon="help">${w.st.unregistered} saknar registrering<//>`}</div>`}
+            </div>
+            <div class="li-side">${!w.paused && w.st.rate != null && html`<span class="strong">${fmt.pct(w.st.rate, 0)}</span><span class="small muted">närvaro</span>`}</div>
+          <//>`} />
       <//>
       <${ui.Card} flush title="Senaste tillfällen" icon="list">
-        <${ui.Table} caption="Senaste tillfällen" empty="Inga tillfällen ännu." rows=${past} columns=${[
+        <${RespTable} size="sm" caption="Senaste tillfällen" empty="Inga tillfällen ännu." rows=${past}
+          mobile=${(a) => { const at = sel.attendanceFor(a.id); return html`<${MItem}><${I} name=${actIcon(a)} />
+            <div class="li-main"><div class="li-title">${cap(d.fmtWeekday(a.startsAt))} kl. ${d.fmtTime(a.startsAt)}</div><div class="li-sub">${actLabel(a)} · ${a.location}</div>
+              <div><${AttBadge} status=${at ? at.status : 'none'} /></div>${at && at.reason && html`<div class="small">Skäl: ${at.reason}</div>`}</div><//>`; }}
+          columns=${[
           { key: 'd', label: 'Tid', nowrap: true, render: (a) => html`${cap(d.fmtWeekday(a.startsAt))}<div class="cell-sub">kl. ${d.fmtTime(a.startsAt)}</div>` },
           { key: 'k', label: 'Tillfälle', render: (a) => html`<span class="row-sm"><${I} name=${actIcon(a)} />${actLabel(a)}</span><div class="cell-sub">${a.location}</div>` },
           { key: 's', label: 'Närvaro', render: (a) => { const at = sel.attendanceFor(a.id); return html`<${AttBadge} status=${at ? at.status : 'none'} />`; } },
@@ -1083,7 +1125,15 @@
     return html`<div class="stack">
       <p class="muted" style="max-width:75ch">Rapporter byggs bara av godkända uppgifter – godkända avstämningar och bedömningar. Kommunen ser levererade rapporter i portalen. Mejlet till kommunen innehåller bara ärendenumret.</p>
       <${ui.Card} flush title=${`Rapporter för ${c.number}`} icon="file" actions=${html`<${CustSwitch} c=${c} tab="rapporter" label=${(who) => `Så ser ${who} rapporterna`} />`}>
-        <${ui.Table} columns=${cols} rows=${reps} caption="Rapporter" empty="Inga rapporter ännu." onRowClick=${can ? (r) => MM.nav('rapport.visa', { reportId: r.id }) : undefined} />
+        <${RespTable} columns=${cols} rows=${reps} caption="Rapporter" empty="Inga rapporter ännu." onRowClick=${can ? (r) => MM.nav('rapport.visa', { reportId: r.id }) : undefined}
+          mobile=${(r, click) => html`<${MItem} onClick=${click}>
+            <div class="li-main">
+              <div>${cell(cols, 'k', r)}</div>
+              <div>${cell(cols, 's', r)}</div>
+              ${r.dueAt && html`<div class="small">Tidsgräns: ${cell(cols, 'due', r)}</div>`}
+              <div class="small">${r.deliveredAt ? `Levererad ${d.fmtDateTime(r.deliveredAt)}` : 'Inte levererad'}${r.openedAt ? ` · läst av kommunen ${fd(r.openedAt)}` : r.deliveredAt ? ' · inte öppnad av kommunen än' : ''}</div>
+            </div>
+          <//>`} />
       <//>
     </div>`;
   };

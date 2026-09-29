@@ -578,7 +578,7 @@
     else ctx.notify('email', customerEmail(st, p.referrerId), 'generisk_mottagningsbekraftelse', 'Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.', null);
     return { caseId: c.id, number };
   });
-  sel.ackTextFor = (c) => `Tack! Vi har tagit emot er beställning och gett den ärendenummer ${c.number}. Ni får besked om startdatum och ansvarig coach senast ${d.fmtDateTimeLong(sel.avropDue(c))}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.`;
+  sel.ackTextFor = (c) => `Tack! Vi har tagit emot er beställning och gett den ärendenummer ${c.number}. Ni får besked om startdatum och ansvarig coach senast ${d.WD[d.weekday(sel.avropDue(c))]} ${d.fmtDateTimeFull(sel.avropDue(c))}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.`;
 
   /** Acceptera avrop → orderbekräftelse. p = { caseId, leadCoachId, startDate, firstMeetingAt, team, plannedWeeks, buyerReference, emailId } */
   A('case.accept', (st, p, ctx) => {
@@ -601,7 +601,7 @@
     ctx.notify('email', customerEmail(st, c.referrerId), 'orderbekraftelse', `Orderbekräftelse för ärende ${c.number} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`, c.id);
     const protectedPerson = (st.persons.find((x) => x.id === c.personId) || {}).protectedIdentity;
     const pc = (st.persons.find((x) => x.id === c.personId) || {}).preferredContact || 'sms';
-    if (p.firstMeetingAt && !protectedPerson) ctx.notify(({ email: 'email', letter: 'brev', phone: 'sms', sms: 'sms' })[pc], `deltagare (${({ email: 'e-post', letter: 'brev', phone: 'SMS (telefon vald – coachen ringer också)', sms: 'SMS' })[pc]})`, 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.firstMeetingAt)} kl. ${d.fmtTime(p.firstMeetingAt)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
+    if (p.firstMeetingAt && !protectedPerson) ctx.notify(({ email: 'email', letter: 'brev', phone: 'sms', sms: 'sms' })[pc], `deltagare (${({ email: 'e-post', letter: 'brev', phone: 'SMS (telefon vald – coachen ringer också)', sms: 'SMS' })[pc]})`, 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.firstMeetingAt)} klockan ${d.fmtTime(p.firstMeetingAt)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
     return { reportId: rep.id };
   });
   A('case.decline', (st, p, ctx) => {
@@ -630,7 +630,7 @@
     const c = findCase(st, p.caseId); c.firstMeetingAt = p.at; c.plannedStart = p.at.slice(0, 10);
     ctx.audit('case.first_meeting_booked', 'case', c.id, { at: p.at });
     const pers0 = st.persons.find((x) => x.id === c.personId) || {}; const pc0 = pers0.preferredContact || 'sms';
-    if (!pers0.protectedIdentity) ctx.notify(({ email: 'email', letter: 'brev', phone: 'sms', sms: 'sms' })[pc0], `deltagare (${({ email: 'e-post', letter: 'brev', phone: 'SMS (telefon vald – coachen ringer också)', sms: 'SMS' })[pc0]})`, 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.at)} kl. ${d.fmtTime(p.at)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
+    if (!pers0.protectedIdentity) ctx.notify(({ email: 'email', letter: 'brev', phone: 'sms', sms: 'sms' })[pc0], `deltagare (${({ email: 'e-post', letter: 'brev', phone: 'SMS (telefon vald – coachen ringer också)', sms: 'SMS' })[pc0]})`, 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.at)} klockan ${d.fmtTime(p.at)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
     return {};
   });
   A('case.changeCoach', (st, p, ctx) => {

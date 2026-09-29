@@ -20,7 +20,7 @@
   };
   const KOM_NAV = {
     kommun_handlaggare: [['kom.start', 'Start'], ['kom.bestall', 'Beställ ny insats'], ['kom.deltagare', 'Mina deltagare'], ['kom.rapporter', 'Rapporter och meddelanden']],
-    kommun_chef: [['kom.chef', 'Beställarrapport'], ['kom.deltagare', 'Enhetens ärenden'], ['kom.rapporter', 'Rapporter']],
+    kommun_chef: [['kom.chef', 'Beställarrapport'], ['kom.deltagare', 'Enhetens deltagare'], ['kom.rapporter', 'Rapporter']],
   };
   MM.NAV = NAV; MM.KOM_NAV = KOM_NAV;
 
