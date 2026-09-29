@@ -414,8 +414,6 @@
         inv.fortnoxNo && ['Fakturanummer i Fortnox', inv.fortnoxNo],
         inv.manualInvoiceNo && ['Manuellt fakturanummer', inv.manualInvoiceNo],
       ]} />
-      <div class="section-title"><span class="dot" aria-hidden="true"></span>Upparbetat och återstående</div>
-      <${SummaryList} inv=${inv} />
       <div class="section-title"><span class="dot" aria-hidden="true"></span>Kontroller</div>
       ${inv.checks.length === 0 ? html`<${ui.Notice} tone="ok" title="Inga anmärkningar">Referensen är giltig och alla veckor har närvaro.<//>`
         : html`<div>${inv.checks.map((ch) => html`<${CheckRow} inv=${inv} ch=${ch} month=${month} c=${c} onOpen=${onOpen} />`)}</div>`}
@@ -425,6 +423,8 @@
       ${credit && html`<${ui.Notice} tone="ok" title="Krediterad och fakturerad på nytt">Kreditfaktura och ny faktura skapades ${d.fmtDateTime(credit.at)} med referens ${credit.reference}.<//>`}
       ${act && isDraft && !inv.blocked && !pendingZero.length && rem.length > 0 && html`<${ui.Check} id=${`eko-rem-${inv.caseId}`} checked=${checked} onChange=${setChecked}>Jag har kontrollerat anmärkningarna. Fakturan ska skickas som den är.<//>`}
       ${act && why && isDraft && html`<p class="small muted">${why}</p>`}
+      <div class="section-title"><span class="dot" aria-hidden="true"></span>Upparbetat och återstående</div>
+      <${SummaryList} inv=${inv} />
     <//>`;
   };
 

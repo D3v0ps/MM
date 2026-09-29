@@ -1115,7 +1115,7 @@
                   <//>
                 </div>
                 <${ui.Field} label="Behöver beslut från kommunen" id="dev-cust" required error=${errors.devCust} help="Till exempel om planen, omfattningen eller ett avbrott. Vid Ja får handläggaren en uppgift i portalen."><${ui.Seg} id="dev-cust" ariaLabel="Behöver beslut från kommunen" value=${dev.needsCustomerDecision} onChange=${(v) => setDev({ ...dev, needsCustomerDecision: v })} options=${[{ value: 'yes', label: 'Ja' }, { value: 'no', label: 'Nej' }]} /><//>
-                <p class="small muted">När avstämningen är godkänd kan du kalla kommunen till ett uppföljningsmöte.</p>
+                <p class="small muted">Efter godkännandet kan du kalla kommunen till ett uppföljningsmöte.</p>
               </div>
             <//>`}
           <//>

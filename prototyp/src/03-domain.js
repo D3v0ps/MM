@@ -197,7 +197,7 @@
       }
       for (const w of weeks.filter((x) => x.missingRegistration)) checks.push({ kind: 'missing_reg', severity: 'warning', label: `Närvaro saknas ${d.fmtWeekKey(w.key)}`, text: 'Alla tillfällen är inte registrerade.' });
       if (weeks.length > 5) checks.push({ kind: 'too_many', severity: 'warning', label: 'Fler än 5 veckor i månaden', text: 'Kontrollera veckornas månadstillhörighet.' });
-      if (accruedWeeks > orderWeeks) checks.push({ kind: 'over_order', severity: 'warning', label: 'Fler veckor än beställningen', text: `Beställningen gäller ${orderWeeks} veckor men ${accruedWeeks} veckor är fakturerade inklusive denna faktura.` });
+      if (accruedWeeks > orderWeeks) checks.push({ kind: 'over_order', severity: 'warning', label: 'Fler veckor än beställningen', text: `Beställningen gäller ${fmt.plural(orderWeeks, 'vecka', 'veckor')} men ${fmt.plural(accruedWeeks, 'vecka', 'veckor')} är upparbetade inklusive denna faktura.` });
       const others = S().cases.filter((o) => o.id !== c.id && o.personId === c.personId && o.startDate);
       for (const o of others) { const ow = sel.billableWeeks(o).filter((w) => w.monthKey === mk && !w.paused).map((w) => w.key); const overlap = weeks.filter((w) => ow.includes(w.key)); if (overlap.length) checks.push({ kind: 'overlap', severity: 'warning', label: `Överlappar ${o.number}`, text: `Samma deltagare har ett annat ärende samma vecka (${overlap.map((w) => d.fmtWeekKey(w.key)).join(', ')}). Samma vecka får bara faktureras en gång.` }); }
       if (pausedInMonth.length) checks.push({ kind: 'paused', severity: 'info', label: `Pausad ${pausedInMonth.map((w) => d.fmtWeekKey(w.key)).join(', ')}`, text: 'Pausade veckor debiteras inte.' });
@@ -218,7 +218,7 @@
         checks, blocked, needsApproval, status: blocked && status === 'draft' ? 'blocked' : status, manualInvoiceNo: approvals.manual[c.id] || null,
         fortnoxNo: ['fortnox_created', 'booked', 'sent', 'paid', 'returned'].includes(status) ? String(10000 + (parseInt(c.number.slice(-4), 10) * 7 + Number(mk.slice(5)) * 311) % 89999) : null,
         lineText: `${c.number} · ${weekText}`,
-        invoiceText: `Beställning ${c.number}: planerat ${fmt.plural(orderWeeks, 'vecka', 'veckor')}, ${fmt.kr(orderValue)}. Fakturerat inklusive denna faktura: ${fmt.plural(accruedWeeks, 'vecka', 'veckor')}, ${fmt.kr(accrued)}. Återstår: ${fmt.plural(remainingWeeks, 'vecka', 'veckor')}, ${fmt.kr(Math.max(0, orderValue - accrued))}.`,
+        invoiceText: `Beställning ${c.number}: planerat ${fmt.plural(orderWeeks, 'vecka', 'veckor')}, ${fmt.kr(orderValue)}. Upparbetat inklusive denna faktura: ${fmt.plural(accruedWeeks, 'vecka', 'veckor')}, ${fmt.kr(accrued)}. Återstår: ${fmt.plural(remainingWeeks, 'vecka', 'veckor')}, ${fmt.kr(Math.max(0, orderValue - accrued))}.`,
       });
     }
     invoices.sort(MM.by('number'));

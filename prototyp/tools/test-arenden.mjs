@@ -150,6 +150,8 @@ try {
   // ------------------------------------------------------------ 9. Boka första möte (samordnare)
   await visit(page, 'samordnare', 'arende.kort', { caseId: sc.ingetmote });
   ok((await main()).includes('Första mötet är inte bokat'), 'Saknat första möte flaggas');
+  const fmDays = await ev(() => MM.cfg().sla.find((x) => x.key === 'forsta_mote').within.days);
+  ok((await main()).includes(fmDays === 7 ? 'inom en vecka' : `inom ${fmDays} dagar`), 'Första mötets tidsgräns läses från avtalet');
   await btn('Boka första möte').first().click(); await wait();
   await page.fill('#arn-meet-at', '2027-02-06T10:00');
   await btn('Boka mötet', modal).click(); await wait();
@@ -261,9 +263,6 @@ try {
   const regTxt = await main();
   await ev((old) => { MM.cfg().sla.find((s) => s.key === 'veckorapport_registrering').time = old; }, reg);
   ok(!/saknar registrering/i.test(regTxt) || regTxt.includes('måndag 09.30') || regTxt.includes('allt är registrerat'), 'Registreringstiden läses från avtalet');
-  await visit(page, 'samordnare', 'arende.kort', { caseId: sc.ingetmote });
-  const fmDays = await ev(() => MM.cfg().sla.find((s) => s.key === 'forsta_mote').within.days);
-  ok((await main()).includes(fmDays === 7 ? 'inom en vecka' : `inom ${fmDays} dagar`), 'Första mötets tidsgräns läses från avtalet');
 
   // ------------------------------------------------------------ 16. Rättelse av levererad rapport syns
   const delivered = await ev((id) => (MM.sel.reportsOf(id).find((r) => ['delivered', 'opened'].includes(r.status) && r.kind === 'monthly') || {}).id, sc.nadia);

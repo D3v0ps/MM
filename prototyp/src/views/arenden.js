@@ -1206,7 +1206,7 @@
       <//>
       <${ui.Card} flush title=${ownOnly ? 'Dina åtgärder i ärendet' : 'Revisionslogg för ärendet'} icon="book"
         foot=${log.length > n && html`<span class="small muted">Visar ${n} av ${log.length}</span><span class="spacer"></span><${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setN(log.length)}>Visa alla<//>`}>
-        ${ownOnly && html`<div class="card-body" style="padding-bottom:0"><p class="small muted">Här ser du det du själv har gjort i ärendet: godkända avstämningar och bedömningar, meddelanden, närvaro och ändringar. Statusändringar och coachbyten finns i historiken bredvid.</p></div>`}
+        ${ownOnly && html`<div class="card-body" style="padding-bottom:0"><p class="small muted">Här ser du det du själv har gjort i ärendet: godkända avstämningar och bedömningar, meddelanden, närvaro och ändringar. Statusändringar och coachbyten finns i kortet Status och coachbyten.</p></div>`}
         <${ui.Table} caption=${ownOnly ? 'Dina åtgärder' : 'Revisionslogg'} empty=${ownOnly ? 'Du har inte gjort några loggade ändringar i ärendet ännu.' : 'Inga loggade händelser ännu.'} rows=${log.slice(0, n)} columns=${[
           { key: 't', label: 'Tidpunkt', nowrap: true, render: (x) => d.fmtDateTime(x.occurredAt) },
           ...(ownOnly ? [] : [{ key: 'a', label: 'Vem', render: (x) => MM.personName(x.actorId) }]),
