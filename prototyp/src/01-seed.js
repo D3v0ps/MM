@@ -234,6 +234,7 @@
     };
     // Interna regler för Miljonbemanning (inte avtalskrav) – styr notiser, påminnelser och eskalering.
     S.orgConfig = {
+      billing: { fortnoxWithinWorkingDays: 3, internalGoal: true },
       notifications: {
         onAssignment: { to: ['lead_coach', 'team'], channels: ['app', 'email'], emailContainsPersonalData: false },
         progressionWatch: {
@@ -265,7 +266,7 @@
     }
 
     // ---- Användare
-    const U = (id, name, title, role, extra = {}) => ({ id, name, title, role, org: 'mb', email: `${name.split(' ')[0].toLowerCase()}.${name.split(' ')[1].toLowerCase().replace('å', 'a').replace('ö', 'o').replace('ä', 'a')}@miljonbemanning.se`, phone: '08-000 00 ' + String(10 + S.users.length), active: true, ...extra });
+    const U = (id, name, title, role, extra = {}) => ({ id, name, title, role, org: 'mb', email: `${name.split(' ')[0].toLowerCase()}.${name.split(' ')[1].toLowerCase().replace('å', 'a').replace('ö', 'o').replace('ä', 'a')}@miljonbemanning.se`, phone: '08-000 00 ' + String(10 + (U.n = (U.n || 0) + 1)), active: true, ...extra });
     S.users.push(
       U('u-sara', 'Sara Lindqvist', 'Operativ samordnare', 'samordnare'),
       U('u-johan', 'Johan Berg', 'Avtalsansvarig (kundansvarig Botkyrka)', 'avtalsansvarig'),
@@ -287,7 +288,7 @@
       { id: 'br-hallunda', customer: 'Botkyrka kommun', reference: '7730045120', unit: 'Arbetsmarknadsenheten Hallunda–Fittja', active: true },
       { id: 'br-tumba-fel', customer: 'Botkyrka kommun', reference: '55102983', unit: 'Arbetsmarknadsenheten Tumba', active: false, note: 'Finns inte hos kommunen. Decemberfakturorna returnerades 2027-01-12.' },
     );
-    const K = (id, name, title, unit, brId, role = 'handlaggare') => ({ id, name, title, unit, buyerReferenceId: brId, role, org: 'customer', email: `${name.split(' ')[0].toLowerCase()}.${name.split(' ')[1].toLowerCase().replace('ö', 'o').replace('ä', 'a').replace('å', 'a')}@botkyrka.se`, phone: '08-530 000 ' + String(10 + S.customerUsers.length), active: true, lastLoginAt: null });
+    const K = (id, name, title, unit, brId, role = 'handlaggare') => ({ id, name, title, unit, buyerReferenceId: brId, role, org: 'customer', email: `${name.split(' ')[0].toLowerCase()}.${name.split(' ')[1].toLowerCase().replace('ö', 'o').replace('ä', 'a').replace('å', 'a')}@botkyrka.se`, phone: '08-530 000 ' + String(10 + (K.n = (K.n || 0) + 1)), active: true, lastLoginAt: null });
     S.customerUsers.push(
       K('k-maria', 'Maria Ekdahl', 'Handläggare', 'Arbetsmarknadsenheten Alby', 'br-alby'),
       K('k-ahmed', 'Ahmed Yusuf', 'Handläggare', 'Arbetsmarknadsenheten Tumba', 'br-tumba'),
@@ -551,8 +552,9 @@
             nextGoal: r.pick(GOALS[ph]), phase: ph, activitiesDone: ACTIVITY_TYPES.filter((_, i) => (ph === 1 ? [0] : ph === 2 ? [1, 5] : ph === 3 ? [1, 2, 5] : ph === 4 ? [2, 4, 7] : [5, 6, 7]).includes(i)),
             employerContacts: { count: ec, types: ec === '0' ? [] : [r.pick(['ansökan', 'intervju', 'praktikkontakt', 'studiebesök'])] },
             overallStatus: overall, obstacles: MM.uniq(obstacles), note: r.pick(NOTES[overall]), status: 'approved', approvedBy: c.leadCoachId,
-            approvedAt: d.addMinutes(meet.act.startsAt, r.int(65, 180)), aiRunId: null, docMinutes: r.int(3, 11),
+            approvedAt: d.addMinutes(meet.act.startsAt, r.int(65, 180)), aiRunId: null, docMinutes: null,
           });
+          { const ci = S.checkIns[S.checkIns.length - 1]; ci.docMinutes = ci.inputMethod === 'manual' ? r.int(5, 11) : r.int(2, 5); }
           if (overall === 'red') {
             S.deviations.push({ id: nid('dev'), caseId: c.id, createdAt: d.addMinutes(meet.act.startsAt, 70), description: invalids >= 2 ? 'Upprepad ogiltig frånvaro' : 'Planen håller inte – behöver omplanering', assessment: invalids >= 2 ? 'Risk att insatsen avbryts om frånvaron fortsätter.' : 'Deltagaren behöver annan uppläggning.',
               action: invalids >= 2 ? 'Samtal om hinder, ny veckoplan och uppföljningsmöte med handläggaren.' : 'Uppföljningsmöte med handläggaren och ny plan.', ownerId: c.leadCoachId, followUpOn: d.addDays(meet.act.startsAt.slice(0, 10), 7),
@@ -815,7 +817,7 @@
     t3.ex.buyerReference = ''; t3.confidence.buyerReference = 0; t3.ex.primaryArea = 'D'; t3.confidence.primaryArea = 0.72; t3.ex.secondaryArea = ''; t3.ex.plannedWeeks = 6; t3.confidence.plannedWeeks = 0.64;
     t3.ex.pnr = personOf(cAhmed).pnr; t3.confidence.pnr = 0.97; t3.ex.email = ''; t3.confidence.email = 0; t3.ex.accessibilityNeeds = ''; t3.ex.plannedEnd = ''; t3.confidence.plannedEnd = 0;
     S.inboundEmails.push({ id: 'em-102', graphMessageId: 'AAMk-demo-102', receivedAt: cAhmed.referredAt, fromAddress: 'ahmed.yusuf@botkyrka.se', fromName: 'Ahmed Yusuf',
-      subject: 'Ny deltagare till er – kök', bodyText: `Hej!\n\nJag skulle vilja anvisa ${personOf(cAhmed).firstName} ${personOf(cAhmed).lastName} (${personOf(cAhmed).pnr}) till en insats inom kök och restaurang, ungefär sex veckor. Hon har jobbat i kök i Syrien och vill gärna börja så snart som möjligt, helst v. 6. Hon nås på ${personOf(cAhmed).phone}, bäst att ringa.\n\nMvh Ahmed Yusuf\nHandläggare, Arbetsmarknadsenheten Tumba\n08-530 000 11`,
+      subject: 'Ny deltagare till er – kök', bodyText: `Hej!\n\nJag skulle vilja anvisa ${personOf(cAhmed).firstName} ${personOf(cAhmed).lastName} (${personOf(cAhmed).pnr}) till en insats inom kök och restaurang, ungefär sex veckor. Hon har jobbat i kök i Syrien och vill gärna börja så snart som möjligt, helst v. 6. Hon nås på ${personOf(cAhmed).phone}, bäst att ringa.\n\nMvh Ahmed Yusuf\nHandläggare, Arbetsmarknadsenheten Tumba\n${S.customerUsers.find((u) => u.id === 'k-ahmed').phone}`,
       attachments: [], parseMethod: 'ai', classification: 'order', extracted: t3.ex, confidence: t3.confidence, missingFields: ['buyerReference', 'plannedEnd'],
       status: 'acknowledged', caseId: cAhmed.id, ackSentAt: d.addMinutes(cAhmed.referredAt, 3), handledBy: null, handledAt: null, aiRunId: 'ai-run-mail-102' });
     S.aiRuns.push({ id: 'ai-run-mail-102', caseId: cAhmed.id, kind: 'parse_email', provider: 'Berget AI (test)', model: 'öppen språkmodell', status: 'succeeded', createdAt: d.addMinutes(cAhmed.referredAt, 1), costOre: 3, latencyMs: 6200 });
@@ -824,7 +826,7 @@
       attachments: [], parseMethod: 'ai', classification: 'supplement', extracted: { buyerReference: '55102938', plannedEnd: '2027-03-19' }, confidence: { buyerReference: 0.98, plannedEnd: 0.9 }, missingFields: [],
       status: 'linked', caseId: cAhmed.id, linkedBy: 'ärendenummer i ämnesraden', ackSentAt: null, handledBy: null, handledAt: null });
     S.inboundEmails.push({ id: 'em-104', graphMessageId: 'AAMk-demo-104', receivedAt: '2027-02-01T07:55', fromAddress: 'omar.farah@botkyrka.se', fromName: 'Omar Farah',
-      subject: 'Avrop – skyddade personuppgifter', bodyText: 'Hej,\nJag behöver anvisa en person med skyddade personuppgifter. Ring mig på 08-530 000 13 så tar vi uppgifterna enligt rutinen.\n\n/Omar Farah',
+      subject: 'Avrop – skyddade personuppgifter', bodyText: `Hej,\nJag behöver anvisa en person med skyddade personuppgifter. Ring mig på ${S.customerUsers.find((u) => u.id === 'k-omar').phone} så tar vi uppgifterna enligt rutinen.\n\n/Omar Farah`,
       attachments: [], parseMethod: 'manual', classification: 'order_protected', extracted: {}, confidence: {}, missingFields: [], status: 'protected', caseId: null,
       ackSentAt: '2027-02-01T07:57', ackKind: 'generic', handledBy: null, handledAt: null });
     S.inboundEmails.push({ id: 'em-105', graphMessageId: 'AAMk-demo-105', receivedAt: '2027-02-01T08:20', fromAddress: 'maria.ekdahl@botkyrka.se', fromName: 'Maria Ekdahl',

@@ -28,7 +28,7 @@ try {
   await btn('Rensa filter').click(); await wait();
   await page.selectOption('#arn-status', 'closed'); await wait();
   const closedN = await ev(() => MM.sel.visibleCases('samordnare').filter((c) => c.status === 'closed').length);
-  ok((await main()).includes(`${closedN} ärenden`), `Statusfilter Avslutad ger ${closedN} ärenden`);
+  ok(new RegExp(`${closedN} ärenden`, 'i').test(await main()), `Statusfilter Avslutad ger ${closedN} ärenden`); // rubriker är versaler via CSS
   await page.selectOption('#arn-status', 'alla');
   await page.selectOption('#arn-phase', '4'); await wait();
   const allPhase4 = await page.locator('.arn-wide tbody tr').evaluateAll((trs) => trs.every((tr) => tr.innerText.includes('Fas 4')));
@@ -94,7 +94,7 @@ try {
   const dev = await ev((id) => MM.store.state.deviations.filter((x) => x.caseId === id), sc.yusuf);
   ok(dev.length === devBefore + 1 && dev.some((x) => x.status === 'open' && x.action.startsWith('Samtal om hinder') && x.needsCustomerDecision && x.ownerId === 'u-amira'), 'Avvikelsen sparas med åtgärd, ansvarig och uppföljning');
   const modal = page.locator('.modal');
-  ok(await modal.count() === 1 && (await modal.innerText()).includes('Kalla kommunen till uppföljning'), 'Kräver kommunens beslut → kallelsen öppnas direkt');
+  ok(await modal.count() === 1 && /Kalla kommunen till uppföljning/i.test(await modal.innerText()), 'Kräver kommunens beslut → kallelsen öppnas direkt');
   await btn('Avbryt', modal).click(); await wait();
   await btn('Kalla kommunen till uppföljning').click(); await wait();
   const body = await page.inputValue('#arn-call-body');

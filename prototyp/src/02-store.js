@@ -3,7 +3,7 @@
 (() => {
   const { d } = MM;
   const LS_KEY = 'miljonmatch-prototyp-v1';
-  const store = { state: null, version: 0, log: [], listeners: new Set(), replaying: false };
+  const store = { state: null, version: 0, mut: 0, log: [], listeners: new Set(), replaying: false };
   MM.store = store;
 
   // ------------------------------------------------------------ Roller och personor
@@ -54,7 +54,9 @@
     let result;
     try {
       if (!meta.silent) store.state.clockOffset = (store.state.clockOffset || 0) + 1;
+      store.mut++;
       result = fn(store.state, payload, makeCtx(store.state, meta));
+      store.mut++;
     } catch (e) {
       console.error('Åtgärden misslyckades', type, e);
       MM.toast('Något gick fel i prototypen. Åtgärden sparades inte.', 'red');
@@ -73,7 +75,9 @@
       if (!fn) continue;
       try {
         if (!entry.meta.silent) store.state.clockOffset = (store.state.clockOffset || 0) + 1;
+        store.mut++;
         fn(store.state, entry.payload, makeCtx(store.state, entry.meta));
+        store.mut++;
         store.log.push(entry);
       } catch (e) { console.warn('Kunde inte spela upp', entry.type, e); }
     }
@@ -113,6 +117,7 @@
   MM.initState = (hot) => {
     store.state = MM.seed();
     store.state.clockOffset = 0;
+    store.mut++;
     store.log = [];
     const saved = (hot && hot.log) ? hot : loadSaved();
     if (saved && Array.isArray(saved.log)) replay(saved.log);
@@ -121,7 +126,7 @@
   };
 
   MM.resetDemo = () => {
-    store.state = MM.seed(); store.state.clockOffset = 0; store.log = []; MM.visited = {};
+    store.state = MM.seed(); store.state.clockOffset = 0; store.mut++; store.log = []; MM.visited = {};
     try { localStorage.removeItem(LS_KEY); } catch (e) { /* */ }
     MM.setRole('samordnare', { view: 'om.start' });
     bump();

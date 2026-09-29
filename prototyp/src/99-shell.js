@@ -26,7 +26,7 @@
 
   const navCount = (kind) => {
     try {
-      if (kind === 'inbox') return MM.sel.inbox().filter((e) => e.status !== 'linked' || true).length;
+      if (kind === 'inbox') return MM.sel.awaitingAnswer().length + MM.sel.inbox().filter((e) => !e.caseId || !['acknowledged', 'received'].includes((MM.sel.caseById(e.caseId) || {}).status)).length;
       if (kind === 'deadlines') { const xs = MM.sel.deadlines({ days: 0 }); return xs.filter((x) => x.bucket !== 'week').length; }
       if (kind === 'unregistered') { const lastMon = d.addDays(d.monday(d.today()), -7); return MM.sel.unregistered(MM.currentPersonaId(), lastMon, d.today()).length; }
     } catch (e) { return 0; }

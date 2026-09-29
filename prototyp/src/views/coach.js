@@ -145,6 +145,8 @@
   const EC_TYPES = ['ansökan', 'intervju', 'praktikkontakt', 'studiebesök'];
   const STATUS_OPTIONS = ['green', 'yellow', 'red'].map((v) => ({ value: v, label: ui.STATUS_TEXT[v], icon: ui.STATUS_ICON[v], tone: v }));
   const phaseOptions = () => MM.cfg().phases.map((p) => ({ value: p.no, label: `${p.no} ${p.name}` }));
+  const finalDays = () => ((slaCfg('slutrapport').proposal || {}).workingDays) || 5;
+  const finalDueNote = () => (MM.isUnset(slaCfg('slutrapport').within) ? `Förslag ${finalDays()} arbetsdagar – ej fastställt` : 'Enligt avtalet');
   const bonusOn = () => !!(MM.cfg().bonus && MM.cfg().bonus.enabled === true);
 
   /** Deltagarhuvud i ärendevyerna. */
@@ -894,7 +896,7 @@
             <div class="row-sm small">
               <${ui.Badge} tone="bluetone" icon="shield">Samtycke registrerat${consent && consent.givenAt ? ` ${d.fmtDate(consent.givenAt)}` : ''}<//>
               <span class="muted">${consent ? `Version ${consent.textVersion}, informerad av ${MM.personName(consent.informedBy)} på ${consent.language || 'lättläst svenska'}.` : ''}</span>
-              ${!sugg && html`<${ui.Btn} kind="ghost" onClick=${() => { MM.dispatch('consent.set', { caseId: c.id, value: 'revoked' }); MM.toast('Samtycket är återkallat. Dokumentera manuellt.', 'blue'); setMethod('manual'); }}>Deltagaren återkallar<//>`}
+              ${!sugg && !proc && html`<${ui.Btn} kind="ghost" onClick=${() => { MM.dispatch('consent.set', { caseId: c.id, value: 'revoked' }); MM.toast('Samtycket är återkallat. Dokumentera manuellt.', 'blue'); setMethod('manual'); }}>Deltagaren återkallar<//>`}
             </div>
             ${sugg ? html`<${AiSourceSummary} c=${c} ci0=${ci0} source=${source} aiMeta=${aiMeta} pending=${pendingAi.length} showTranscript=${showTranscript} setShowTranscript=${setShowTranscript} ciId=${ciId} />`
               : html`<${AiCapture} source=${source} setSource=${setSource} rec=${rec} setRec=${setRec} proc=${proc} start=${startProcessing}
@@ -1107,7 +1109,10 @@
     const dv = done.deviationId ? st.deviations.find((x) => x.id === done.deviationId) : null;
     const ref = referrerOf(c);
     const [proposed, setProposed] = useState(() => `${d.addWorkingDays(d.today(), 2)}T10:00`);
-    const [body, setBody] = useState(() => `Hej${ref ? ` ${ref.name.split(' ')[0]}` : ''}! Veckoavstämningen för ärende ${c.number} visar att planen behöver ses över. Jag föreslår ett uppföljningsmöte ${d.fmtDateTimeLong(`${d.addWorkingDays(d.today(), 2)}T10:00`)} hos oss i ${c.location || 'Alby'}. Svara gärna här om tiden passar eller föreslå en annan. Hälsningar ${MM.persona() ? MM.persona().name : ''}, Miljonbemanning`);
+    const template = (at) => `Hej${ref ? ` ${ref.name.split(' ')[0]}` : ''}! Veckoavstämningen för ärende ${c.number} visar att planen behöver ses över. Jag föreslår ett uppföljningsmöte ${/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at) ? d.fmtDateTimeLong(at) : 'en tid som passar dig'} hos oss i ${c.location || 'Alby'}. Svara gärna här om tiden passar eller föreslå en annan. Hälsningar ${MM.persona() ? MM.persona().name : ''}, Miljonbemanning`;
+    const [edited, setEdited] = useState(null);
+    const body = edited != null ? edited : template(proposed);
+    const setBody = (v) => setEdited(v);
     const [sent, setSent] = useState(false);
     const count = (k) => done.decisions.filter((x) => x.decision === k).length;
     const m = Math.floor(done.docSecs / 60); const s = done.docSecs % 60;
@@ -1519,13 +1524,22 @@
       <${ui.Card}><${CaseHead} c=${c} /><//>
       ${!closed && c.status !== 'closed' && html`<${ui.Seg} ariaLabel="Välj uppgift" value=${mode} onChange=${setMode} options=${[{ value: 'event', label: 'Registrera händelse', icon: 'plus' }, { value: 'close', label: 'Avsluta insatsen', icon: 'check-square' }]} />`}
 
+      ${mode === 'event' && !closed && html`<${ui.Card} title="Registrerade händelser" icon="list" flush>
+        <${ui.Table} caption="Registrerade händelser" empty="Inga händelser registrerade ännu." rows=${events} columns=${[
+          { key: 'occurredOn', label: 'Datum', nowrap: true, render: (e) => d.fmtDate(e.occurredOn) },
+          { key: 'kind', label: 'Händelse', render: (e) => html`<span class="strong">${sel.eventLabel(e.kind)}</span>${e.note && html`<div class="cell-sub">${e.note}</div>`}` },
+          { key: 'actor', label: 'Aktör', render: (e) => e.actor || '–' },
+          { key: 'ver', label: 'Verifiering', render: (e) => (e.verificationKind ? html`<${ui.Badge} tone="blue" icon="check">${cap(e.verificationKind)}<//>` : html`<${ui.Badge} tone="outline" icon="clock">Saknas<//>`) },
+          { key: 'bonus', label: 'Bonusunderlag', render: (e) => (e.possibleBonus ? html`<${ui.Badge} tone="plan" icon="award">Möjligt<//>` : '–') },
+        ]} />
+      <//>`}
       ${closed ? html`<div class="stack">
         <${ui.Notice} tone="ok" title="Insatsen är avslutad">${sel.endReasonLabel(c.endReason)} · ${d.fmtDate(c.endDate)}. Resultatklass: ${c.resultClass === 'result' ? (c.resultVerifiedAt ? 'resultat (verifierat)' : 'resultat (preliminärt tills verifierat)') : c.resultClass === 'excluded' ? 'exkluderas ur nämnaren' : 'ej resultat'}.<//>
         <div class="split">
           <${ui.Card} title="Utkast till slutrapport" icon="file">
             <div class="stack-sm">
               <p>Slutrapporten är skapad som utkast och byggs av godkända uppgifter.</p>
-              ${finalRep && html`<div class="row-sm"><${ui.SlaBadge} dueAt=${finalRep.dueAt} /><${ui.Badge} tone="plan">Förslag 5 arbetsdagar – ej fastställt<//></div>`}
+              ${finalRep && html`<div class="row-sm"><${ui.SlaBadge} dueAt=${finalRep.dueAt} /><${ui.Badge} tone="plan">${finalDueNote()}<//></div>`}
               ${finalRep && html`<div><${ui.Btn} kind="primary" icon="file" onClick=${() => go('rapport.visa', { reportId: finalRep.id })}>Öppna slutrapportutkastet<//></div>`}
             </div>
           <//>
@@ -1590,7 +1604,7 @@
             <//>
             <${ui.Card} title="Det här händer vid avslut" icon="info">
               <ul class="stack-sm" style="margin:0;padding-left:20px">
-                <li>Ett utkast till slutrapport skapas (förslag: klar inom 5 arbetsdagar).</li>
+                <li>Ett utkast till slutrapport skapas (${MM.isUnset(slaCfg('slutrapport').within) ? `förslag, ej fastställt: klar inom ${finalDays()} arbetsdagar` : `klar inom ${finalDays()} arbetsdagar`}).</li>
                 <li>En pulsmätning skickas till deltagaren via SMS eller e-post, utan personuppgifter.</li>
                 <li>Kommunen ser avslutet i portalen när slutrapporten är levererad.</li>
               </ul>
@@ -1598,15 +1612,6 @@
           </div>
         </div>`}
 
-      ${mode === 'event' && !closed && html`<${ui.Card} title="Registrerade händelser" icon="list" flush>
-        <${ui.Table} caption="Registrerade händelser" empty="Inga händelser registrerade ännu." rows=${events} columns=${[
-          { key: 'occurredOn', label: 'Datum', nowrap: true, render: (e) => d.fmtDate(e.occurredOn) },
-          { key: 'kind', label: 'Händelse', render: (e) => html`<span class="strong">${sel.eventLabel(e.kind)}</span>${e.note && html`<div class="cell-sub">${e.note}</div>`}` },
-          { key: 'actor', label: 'Aktör', render: (e) => e.actor || '–' },
-          { key: 'ver', label: 'Verifiering', render: (e) => (e.verificationKind ? html`<${ui.Badge} tone="blue" icon="check">${cap(e.verificationKind)}<//>` : html`<${ui.Badge} tone="outline" icon="clock">Saknas<//>`) },
-          { key: 'bonus', label: 'Bonusunderlag', render: (e) => (e.possibleBonus ? html`<${ui.Badge} tone="plan" icon="award">Möjligt<//>` : '–') },
-        ]} />
-      <//>`}
     <//>`;
   };
 

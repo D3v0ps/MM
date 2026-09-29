@@ -217,6 +217,22 @@ await step('sam.inkorg: flikar och caseId-parameter', async () => {
   await main.getByRole('heading', { name: 'Ny deltagare till er – kök' }).waitFor();
 });
 
+await step('Portalbeställning från kommunen syns i inkorgen och kan accepteras', async () => {
+  const res = await S(() => { MM.nav('om.start', {}, { role: 'kommun_handlaggare' });
+    return MM.dispatch('case.create', { source: 'portal', referrerId: 'k-maria', firstName: 'Lina', lastName: 'Portaltest', pnr: '19950505-1111', buyerReference: '4410023817', primaryArea: 'F', plannedWeeks: 6, desiredStart: '2027-02-10', vocationalTrack: 'Lokalvårdare med certifiering' }); });
+  assert.ok(res && res.caseId, 'Portalbeställningen ska skapas');
+  noProblems(await visit(page, 'samordnare', 'sam.inkorg', { caseId: res.caseId }));
+  const main = page.locator('#main');
+  await main.getByRole('heading', { name: 'Beställning i portalen' }).waitFor();
+  await main.getByText('Ordererkännandet visades direkt', { exact: false }).or(main.getByText('Ordererkännande', { exact: true })).first().waitFor();
+  await main.getByRole('button', { name: 'Acceptera', exact: true }).click();
+  await page.check('#ink-coach-u-mats');
+  await dialog().getByRole('button', { name: 'Acceptera avropet' }).click();
+  await dialog().getByText('Mats Holm har fått en notis om tilldelningen').waitFor();
+  await dialog().getByRole('button', { name: 'Klart' }).click();
+  assert.equal(await S((id) => MM.sel.caseById(id).status, res.caseId), 'confirmed');
+});
+
 await step('sam.start efter flödena: inkorgen tom, uppgiften klar', async () => {
   noProblems(await visit(page, 'samordnare', 'sam.start', {}));
   const main = page.locator('#main');

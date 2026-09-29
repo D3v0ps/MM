@@ -63,13 +63,17 @@
   };
 
   // ------------------------------------------------------------ Aktiviteter, närvaro
-  let idx = null; let idxVersion = -1;
+  let idx = null; let idxKey = '';
+  /** Index över aktiviteter, närvaro m.m. Nyckeln tar med mutationsräknaren och längderna så att nya poster
+   *  syns direkt – även inuti samma åtgärd och under uppspelning. */
   const index = () => {
-    if (idx && idxVersion === MM.store.version) return idx;
+    const st0 = S();
+    const key = `${MM.store.mut}:${st0.activities.length}:${st0.attendance.length}:${st0.checkIns.length}:${st0.monthlyAssessments.length}:${st0.reports.length}`;
+    if (idx && idxKey === key) return idx;
     const st = S();
     idx = { actByCase: MM.groupBy(st.activities, (a) => a.caseId), attByAct: {}, ciByCase: MM.groupBy(st.checkIns, (x) => x.caseId), maByCase: MM.groupBy(st.monthlyAssessments, (x) => x.caseId), repByCase: MM.groupBy(st.reports.filter((r) => r.caseId), (r) => r.caseId) };
     for (const a of st.attendance) idx.attByAct[a.activityId] = a;
-    idxVersion = MM.store.version; return idx;
+    idxKey = key; return idx;
   };
   sel.activitiesOf = (caseId) => (index().actByCase[caseId] || []).slice().sort(MM.by('startsAt'));
   sel.attendanceFor = (activityId) => index().attByAct[activityId] || null;
@@ -203,7 +207,9 @@
       const blocked = checks.some((x) => x.severity === 'blocking');
       const needsApproval = checks.some((x) => x.severity === 'needs_approval');
       const first = weeks[0], last = weeks[weeks.length - 1];
-      const weekText = first.key === last.key ? `v. ${first.week} ${first.year}` : `v. ${first.week}–${last.week} ${last.year}`;
+      // Veckotext med luckor för pausade veckor, t.ex. "v. 1, 3–4 2027"
+      const runs = []; for (const w of weeks) { const prev = runs[runs.length - 1]; if (prev && d.addDays(prev.last.monday, 7) === w.monday) prev.last = w; else runs.push({ first: w, last: w }); }
+      const weekText = `v. ${runs.map((x) => (x.first.key === x.last.key ? `${x.first.week}` : `${x.first.week}–${x.last.week}`)).join(', ')} ${last.year}`;
       const areaItem = sel.priceItem(c.primaryArea, first.monday);
       invoices.push({
         id: `inv-${mk}-${c.id}`, month: mk, caseId: c.id, number: c.number, area: c.primaryArea, weeks, quantity: weeks.length, unitPriceOre: price, amountOre: amount,
@@ -313,6 +319,8 @@
   };
   sel.avropDue = (c) => d.addWorkingDays(c.referredAt, 1);
   sel.firstMeetingDue = (c) => d.addDays(c.referredAt, MM.cfg().sla.find((s) => s.key === 'forsta_mote').within.days);
+  /** Ärenden som väntar på svar (acceptera/avböj) oavsett kanal – mejl, portal eller telefon. */
+  sel.awaitingAnswer = () => S().cases.filter((c) => ['acknowledged', 'received'].includes(c.status));
   sel.inbox = () => S().inboundEmails.filter((e) => ['acknowledged', 'protected', 'other', 'linked', 'received'].includes(e.status)).sort(MM.by('receivedAt'));
 
   /** Deadlines inom ett antal dagar. Filtrera med role/personaId för "mina". */
@@ -345,7 +353,7 @@
     if (!coachId) {
       for (const cd of S().contractDeviations.filter((x) => x.status !== 'closed' && x.actionPlanDue)) push({ id: `cd:${cd.id}`, kind: 'atgardsplan', label: `Åtgärdsplan: ${cd.description.slice(0, 60)}…`, dueAt: `${cd.actionPlanDue}T16:00`, owner: 'avtalsansvarig', link: { view: 'chef.avvikelser', params: { id: cd.id } } });
       const run = S().billingRuns.find((b) => b.status === 'draft');
-      if (run) push({ id: `bill:${run.month}`, kind: 'fakturering', label: `Fakturor för ${d.monthName(run.month)} i Fortnox (internt mål: 3 arbetsdagar)`, dueAt: `${d.nthWorkingDay(d.addMonths(run.month, 1), 3)}T16:00`, owner: 'ekonom', link: { view: 'eko.korning', params: { month: run.month } } });
+      if (run) push({ id: `bill:${run.month}`, kind: 'fakturering', label: `Fakturor för ${d.monthName(run.month)} i Fortnox (internt mål: ${S().orgConfig.billing.fortnoxWithinWorkingDays} arbetsdagar)`, dueAt: `${d.nthWorkingDay(d.addMonths(run.month, 1), S().orgConfig.billing.fortnoxWithinWorkingDays)}T16:00`, owner: 'ekonom', link: { view: 'eko.korning', params: { month: run.month } } });
     }
     for (const dv of S().deviations.filter((x) => x.status === 'open' && x.followUpOn)) {
       const c = sel.caseById(dv.caseId); if (coachId && (!c || c.leadCoachId !== coachId)) continue;
@@ -579,7 +587,8 @@
     ctx.audit('case.accepted', 'case', c.id, { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt, withinSla: ctx.now <= d.addWorkingDays(c.referredAt, 1) });
     for (const t of c.team) notifyAssignment(st, ctx, c, t.userId, t.role);
     ctx.notify('email', customerEmail(st, c.referrerId), 'orderbekraftelse', `Orderbekräftelse för ärende ${c.number} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`, c.id);
-    if (p.firstMeetingAt) ctx.notify('sms', 'deltagare (föredragen kontaktväg)', 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.firstMeetingAt)} kl. ${d.fmtTime(p.firstMeetingAt)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
+    const protectedPerson = (st.persons.find((x) => x.id === c.personId) || {}).protectedIdentity;
+    if (p.firstMeetingAt && !protectedPerson) ctx.notify('sms', 'deltagare (föredragen kontaktväg)', 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.firstMeetingAt)} kl. ${d.fmtTime(p.firstMeetingAt)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
     return { reportId: rep.id };
   });
   A('case.decline', (st, p, ctx) => {
@@ -607,7 +616,7 @@
   A('case.bookFirstMeeting', (st, p, ctx) => {
     const c = findCase(st, p.caseId); c.firstMeetingAt = p.at; c.plannedStart = p.at.slice(0, 10);
     ctx.audit('case.first_meeting_booked', 'case', c.id, { at: p.at });
-    ctx.notify('sms', 'deltagare (föredragen kontaktväg)', 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.at)} kl. ${d.fmtTime(p.at)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
+    if (!(st.persons.find((x) => x.id === c.personId) || {}).protectedIdentity) ctx.notify('sms', 'deltagare (föredragen kontaktväg)', 'kallelse', `Välkommen till Miljonbemanning! Ditt första möte är ${d.fmtWeekday(p.at)} kl. ${d.fmtTime(p.at)} i ${c.location || 'Alby'}. Frågor? Ring 08-000 00 00.`, c.id);
     return {};
   });
   A('case.changeCoach', (st, p, ctx) => {
@@ -785,7 +794,13 @@
   const appr = (st, mk) => { st.billingApprovals = st.billingApprovals || {}; st.billingApprovals[mk] = st.billingApprovals[mk] || { zeroWeeks: {}, approved: {}, manual: {} }; return st.billingApprovals[mk]; };
   A('billing.approveZeroWeek', (st, p, ctx) => { appr(st, p.month).zeroWeeks[`${p.caseId}:${p.weekKey}`] = { by: ctx.actorId, at: ctx.now, note: p.note || '' }; ctx.audit('billing.zero_week_approved', 'case', p.caseId, { week: p.weekKey, note: p.note }); return {}; });
   A('billing.approveInvoice', (st, p, ctx) => { for (const id of p.caseIds) appr(st, p.month).approved[id] = true; ctx.audit('billing.approved', 'billing_run', p.month, { count: p.caseIds.length }); return {}; });
-  A('billing.sendFortnox', (st, p, ctx) => { st.invoiceStatus[p.month] = st.invoiceStatus[p.month] || {}; for (const id of p.caseIds) st.invoiceStatus[p.month][id] = 'fortnox_created'; ctx.audit('billing.fortnox_created', 'billing_run', p.month, { count: p.caseIds.length, idempotencyKey: `${p.month}:{caseId}` }); return {}; });
+  /** Skapa fakturor i Fortnox (simulerat). Idempotent: en faktura som redan skapats skapas inte igen (nyckel månad:ärende). */
+  A('billing.sendFortnox', (st, p, ctx) => {
+    st.invoiceStatus[p.month] = st.invoiceStatus[p.month] || {}; const m = st.invoiceStatus[p.month]; const created = []; const skipped = [];
+    for (const id of p.caseIds) { const cur = m[id] || m.default || 'draft'; if (['fortnox_created', 'booked', 'sent', 'paid', 'manual'].includes(cur)) { skipped.push(id); continue; } m[id] = 'fortnox_created'; created.push(id); }
+    ctx.audit('billing.fortnox_created', 'billing_run', p.month, { created: created.length, skippedAlreadyCreated: skipped.length, idempotencyKeys: created.map((id) => `${p.month}:${id}`) });
+    return { created, skipped };
+  });
   A('billing.markManual', (st, p, ctx) => { st.invoiceStatus[p.month] = st.invoiceStatus[p.month] || {}; st.invoiceStatus[p.month][p.caseId] = 'manual'; appr(st, p.month).manual[p.caseId] = p.invoiceNo; ctx.audit('billing.manual', 'case', p.caseId, { month: p.month, invoiceNo: p.invoiceNo }); return {}; });
   A('billing.export', (st, p, ctx) => { ctx.audit('export.billing', 'billing_run', p.month, { format: p.format }); return {}; });
 })();

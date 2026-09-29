@@ -179,7 +179,7 @@
   const YesNo = ({ v, yes = 'Ja', no = 'Nej' }) => html`<span class="row-sm" style="flex-wrap:nowrap"><${I} name=${v ? 'check-circle' : 'x-circle'} />${v ? yes : no}</span>`;
   const Val = ({ v, children }) => (MM.isUnset(v) ? html`<${Unset} v=${v} />` : typeof v === 'boolean' ? html`<${YesNo} v=${v} />` : children != null ? children : v == null || v === '' ? '–' : String(v));
   /** Etikett och värde på samma rad när det finns plats, annars under varandra (fungerar i smala kort och på 400 px). */
-  const KV = ({ items, label = 150 }) => html`<dl style="margin:0">${items.filter(Boolean).map(([k, v], i) => html`<div key=${i} style=${`display:flex;flex-wrap:wrap;gap:2px 16px;padding:${i ? '9px' : '0'} 0 9px;${i ? 'border-top:1px solid var(--line)' : ''}`}>
+  const KV = ({ items, label = 170 }) => html`<dl style="margin:0">${items.filter(Boolean).map(([k, v], i) => html`<div key=${i} style=${`display:flex;flex-wrap:wrap;gap:2px 16px;padding:${i ? '9px' : '0'} 0 9px;${i ? 'border-top:1px solid var(--line)' : ''}`}>
       <dt style=${`flex:1 1 ${label}px;max-width:${label + 70}px;font-weight:600;color:var(--fg-muted);font-size:.9375rem`}>${k}</dt>
       <dd style="flex:999 1 200px;margin:0;min-width:0;overflow-wrap:anywhere">${v == null || v === '' ? '–' : v}</dd></div>`)}</dl>`;
   const Masonry = ({ items }) => html`<div style="columns:2 380px;column-gap:16px">${items.filter(Boolean).map((x, i) => html`<div key=${i} style="break-inside:avoid;margin-bottom:16px">${x}</div>`)}</div>`;
@@ -187,7 +187,7 @@
     <fieldset class=${MM.cls('field', error && 'invalid')} style="border:0;padding:0;margin:0;min-width:0" aria-describedby=${help && id ? `${id}-help` : undefined}>
       <legend class="flabel" style="padding:0;margin-bottom:6px">${legend}</legend>
       ${help && html`<div class="help" id=${id ? `${id}-help` : undefined} style="margin-bottom:4px">${help}</div>`}
-      ${children}
+      <div>${children}</div>
       ${error && html`<div class="error-text" role="alert"><${I} name="alert-circle" />${error}</div>`}
     </fieldset>`;
   const Details = ({ summary, children }) => html`<details class="card">
@@ -522,10 +522,10 @@
             ${!dirty && html`<span class="small muted">Inga osparade ändringar.</span>`}`}>
           <div class="stack">
             <div class="form-grid">
-              <${ui.Field} id="rule-remind" label="Påminnelse till coachen" help="Utan progression = veckomålet är inte uppnått eller ingen avstämning är godkänd.">
-                <${ui.Select} id="rule-remind" value=${String(f.remind)} onChange=${(v) => setF((x) => ({ ...x, remind: Number(v) }))} options=${[1, 2, 3, 4].map((w) => ({ value: String(w), label: `Efter ${weeksWord(w)} utan progression` }))} /><//>
-              <${ui.Field} id="rule-esc" label="Eskalering" help="Antal veckor i rad utan progression innan ärendet eskaleras." error=${errs.esc}>
-                <${ui.Select} id="rule-esc" value=${String(f.esc)} invalid=${!!errs.esc} onChange=${(v) => setF((x) => ({ ...x, esc: Number(v) }))} options=${[2, 3, 4, 5, 6].map((w) => ({ value: String(w), label: `Efter ${w} veckor i rad` }))} /><//>
+              <${ui.Field} id="rule-remind" label="Påminn coachen efter" help="Veckor utan progression: veckomålet är inte uppnått eller ingen avstämning är godkänd.">
+                <${ui.Select} id="rule-remind" value=${String(f.remind)} onChange=${(v) => setF((x) => ({ ...x, remind: Number(v) }))} options=${[1, 2, 3, 4].map((w) => ({ value: String(w), label: weeksWord(w) }))} /><//>
+              <${ui.Field} id="rule-esc" label="Eskalera efter" help="Veckor i rad utan progression innan ärendet eskaleras." error=${errs.esc}>
+                <${ui.Select} id="rule-esc" value=${String(f.esc)} invalid=${!!errs.esc} onChange=${(v) => setF((x) => ({ ...x, esc: Number(v) }))} options=${[2, 3, 4, 5, 6].map((w) => ({ value: String(w), label: `${w} veckor i rad` }))} /><//>
             </div>
             <${Group} id="rule-to" legend="Mottagare av eskaleringen" help="Varje notis har exakt en mottagare. Coachen kan inte väljas." error=${errs.to}>
               ${RECIPIENTS.map(([r, label]) => html`<${ui.Check} key=${r} id=${`rule-to-${r}`} checked=${f.to.includes(r)} onChange=${() => toggle('to', r)}>${label} <span class="muted">(${MM.personName(MM.roleDef(r).personaId)})</span><//>`)}
@@ -548,9 +548,9 @@
         <div class="stack">
           <${ui.Card} title="Så slår reglerna igenom just nu" icon="activity">
             <div class="stack">
-              <div class="grid-2" style="gap:12px">
-                <${ui.Kpi} label="Påminnelser" value=${count(f.remind)} sub=${`ärenden med minst ${weeksWord(f.remind)} utan progression`} />
-                <${ui.Kpi} label="Eskaleringar" value=${f.esc > f.remind ? count(f.esc) : '–'} sub=${`till ${toText}`} tone=${f.esc > f.remind && count(f.esc) > 0 ? 'watch' : ''} />
+              <div class="stack-sm" style="gap:12px">
+                <${ui.Kpi} label="Påminnelser till coacher" value=${count(f.remind)} sub=${`ärenden med minst ${weeksWord(f.remind)} utan progression`} />
+                <${ui.Kpi} label="Eskaleringar" value=${f.esc > f.remind ? count(f.esc) : '–'} sub=${`till ${toText} – syns inte för coachen`} tone=${f.esc > f.remind && count(f.esc) > 0 ? 'watch' : ''} />
               </div>
               ${dirty && html`<p class="small muted">Med de sparade reglerna: ${count(saved.remind)} påminnelser och ${count(saved.esc)} eskaleringar.</p>`}
               <p class="small muted">Påminnelsen skickas ${pw.reminderSchedule}. Ändringen slår igenom direkt i notiser och flaggor.</p>
@@ -607,7 +607,7 @@
     ['Kommunens chef', 'Botkyrka kommun', 'Beställarrapport och enhetens ärenden', 'Läser, laddar ner, godkänner åtgärdsplaner', 'E-post och engångskod'],
     ['Deltagare', 'Utan inloggning i piloten', 'Egen plan och bokningar (utvecklingsfas 4)', 'Svarar på pulsmätningen via engångslänk', 'Ingen – BankID senare'],
   ];
-  const MX_ROLES = [['admin', 'Admin'], ['avtalsansvarig', 'Avtals­ansvarig'], ['samordnare', 'Samordnare'], ['coach', 'Coach'], ['handledare', 'Handledare'], ['chef', 'Chef och controller'], ['ekonom', 'Ekonom'], ['kommun_handlaggare', 'Kommunens handläggare'], ['kommun_chef', 'Kommunens chef']];
+  const MX_ROLES = [['admin', 'Admin'], ['avtalsansvarig', 'Avtals\u00adansvarig'], ['samordnare', 'Sam\u00adordnare'], ['coach', 'Coach'], ['handledare', 'Hand\u00adledare'], ['chef', 'Chef och con\u00adtroller'], ['ekonom', 'Ekonom'], ['kommun_handlaggare', 'Kommunens hand\u00adläggare'], ['kommun_chef', 'Kommunens chef']];
   const MX_CELL = { ja: ['check', 'Ja'], alla: ['check', 'Alla'], nej: ['minus', 'Nej'], las: ['eye', 'Läsa'], egna: ['user', 'Egna'], tilldelade: ['user', 'Tilldelade'], namngiven: ['user', 'Om namngiven'], nummer: ['hash', 'Bara nummer'], enheten: ['users', 'Enhetens'], mottagare: ['bell', 'Mottagare'], dold: ['eye-off', 'Syns inte'], ser: ['eye', 'Ser att de skickats'] };
   const matrixGroups = () => {
     const pw = sel.orgRules().progressionWatch; const esc = pw.escalateTo;
@@ -639,12 +639,12 @@
   };
   const Matrix = () => html`<div class="table-wrap"><table class="table">
     <caption class="sr-only">Behörighetsmatris: vad varje roll ser, gör och får för notiser</caption>
-    <thead><tr><th scope="col" style="min-width:210px">Behörighet</th>${MX_ROLES.map(([k, l]) => html`<th scope="col" key=${k} style="white-space:normal;min-width:88px;vertical-align:bottom">${l}</th>`)}</tr></thead>
+    <thead><tr><th scope="col" style="min-width:150px;position:sticky;left:0;z-index:1;vertical-align:bottom">Behörighet</th>${MX_ROLES.map(([k, l]) => html`<th scope="col" key=${k} style="white-space:normal;vertical-align:bottom;padding:8px 6px;hyphens:manual;font-size:.6875rem;letter-spacing:.05em">${l}</th>`)}</tr></thead>
     <tbody>${matrixGroups().map(([g, rows]) => html`
       <tr key=${g}><th scope="rowgroup" colspan=${MX_ROLES.length + 1} style="background:var(--surface-sub);border-bottom:1px solid var(--line)">${g}</th></tr>
       ${rows.map(([label, cells]) => html`<tr key=${label}>
-        <th scope="row" style="text-transform:none;letter-spacing:0;font-size:.9375rem;font-weight:600;color:var(--antracit);white-space:normal;border-bottom:1px solid var(--line)">${label}</th>
-        ${cells.map((c, i) => { const [icon, txt] = MX_CELL[c]; return html`<td key=${i} class=${c === 'nej' ? 'muted' : ''}><span class="row-sm" style="gap:4px;align-items:flex-start;flex-wrap:nowrap"><${I} name=${icon} />${txt}</span></td>`; })}
+        <th scope="row" style="text-transform:none;letter-spacing:0;font-size:.875rem;font-weight:700;color:var(--antracit);white-space:normal;vertical-align:top;border-bottom:1px solid var(--line);position:sticky;left:0;z-index:1;background:var(--vit)">${label}</th>
+        ${cells.map((c, i) => { const [icon, txt] = MX_CELL[c]; return html`<td key=${i} class=${c === 'nej' ? 'muted' : ''} style="padding:8px 6px;font-size:.8125rem"><span style="display:inline-flex;flex-wrap:wrap;gap:2px 4px;align-items:center"><${I} name=${icon} /><span>${txt}</span></span></td>`; })}
       </tr>`)}`)}</tbody></table></div>`;
 
   const InviteModal = ({ onClose }) => {
@@ -722,8 +722,7 @@
             <div><${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.login" label="Se inloggningen från kundens håll" /></div></div>`}>
         <${ui.Table} caption="Kommunens användare" rows=${ku} rowClass=${(u) => (!u.active ? 'row-muted' : '')} columns=${[
           { key: 'name', label: 'Namn', render: (u) => html`<span class="strong">${u.name}</span><div class="cell-sub">${u.email}</div>` },
-          { key: 'unit', label: 'Enhet', render: (u) => html`${u.unit}${brOf(u) && html`<div class="cell-sub">Beställarreferens ${brOf(u).reference}</div>`}` },
-          { key: 'role', label: 'Roll', render: (u) => (u.role === 'chef' ? 'Chef' : 'Handläggare') },
+          { key: 'unit', label: 'Roll och enhet', render: (u) => html`<span class="strong">${u.role === 'chef' ? 'Chef' : 'Handläggare'}</span><div>${u.unit}</div>${brOf(u) && html`<div class="cell-sub">Beställarreferens ${brOf(u).reference}</div>`}` },
           { key: 'login', label: 'Senaste inloggning', nowrap: true, render: (u) => (u.lastLoginAt ? d.fmtDateTime(u.lastLoginAt) : html`<span class="muted">Har inte loggat in</span>`) },
           { key: 'st', label: 'Status', render: statusOf },
           { key: 'act', label: 'Åtgärd', render: (u) => html`<${ui.Btn} kind="ghost" icon=${u.active ? 'lock' : 'refresh'} onClick=${() => { MM.dispatch('admin.setCustomerActive', { userId: u.id, active: !u.active }); MM.toast(u.active ? `${u.name} är spärrad och kan inte logga in.` : `${u.name} kan logga in igen.`, 'blue'); }}>${u.active ? 'Spärra' : 'Aktivera'}<//>` },
@@ -1160,9 +1159,11 @@
     const t = PT[lang]; const days = inv ? d.diffDays(inv.sentAt, inv.expiresAt) : 7;
     let state = 'open';
     if (!inv) state = 'missing';
-    else if (step === 6 && preview === 'live') state = 'thanks';
-    else if (preview === 'used' || inv.usedAt) state = 'used';
-    else if (preview === 'expired' || d.now() > inv.expiresAt) state = 'expired';
+    else if (preview === 'used') state = 'used';
+    else if (preview === 'expired') state = 'expired';
+    else if (step === 6) state = 'thanks';
+    else if (inv.usedAt) state = 'used';
+    else if (d.now() > inv.expiresAt) state = 'expired';
     const qKey = `q${step}`; const answered = step >= 1 && step <= 5 && ans[qKey] != null;
     const set = (k, v) => setAns((x) => ({ ...x, [k]: v }));
     const submit = () => {
@@ -1219,8 +1220,8 @@
       </div>
       <div lang="sv" class="stack-sm">
         <${ui.DemoNote}>Deltagaren öppnar en engångslänk från SMS eller e-post – ingen inloggning. Länken är signerad, gäller i ${days} dagar och fungerar bara en gång. Den skickas aldrig till skyddade ärenden. Coachen ser inte enskilda svar. "Ja" på fråga 5 blir en uppgift till samordnaren, och lågt betyg på fråga 3 går till chefen.<//>
-        <div class="row-sm"><span class="small muted">Förhandsvisa:</span>
-          ${[['live', 'Länken'], ['used', 'Redan använd'], ['expired', 'Har gått ut']].map(([v, l]) => html`<${ui.Btn} key=${v} kind=${preview === v ? 'primary' : 'ghost'} ariaPressed=${preview === v ? 'true' : 'false'} onClick=${() => setPreview(v)}>${l}<//>`)}</div>
+        <div class="stack-sm" style="gap:4px"><span class="small strong">Förhandsvisa länkens lägen</span>
+          <${ui.Seg} ariaLabel="Förhandsvisa länkens lägen" value=${preview} onChange=${setPreview} options=${[{ value: 'live', label: 'Aktuell länk' }, { value: 'used', label: 'Redan använd' }, { value: 'expired', label: 'Har gått ut' }]} /></div>
         <div class="row-sm"><${ui.PerspectiveSwitch} role="chef" view="chef.oversikt" params=${{ tab: 'puls' }} label="Se sammanställningen som chef" /><${ui.PerspectiveSwitch} role="samordnare" view="sam.start" label="Se samordnarens uppgift" /></div>
       </div>
     </div>`;
@@ -1320,52 +1321,69 @@
 
   const PlacementCard = ({ pl, role }) => {
     const c = sel.caseById(pl.caseId); const a = c ? sel.access(c, role) : 'none';
-    const ok = ['full', 'team'].includes(a); const canEdit = ok;
+    const canEdit = ['full', 'team'].includes(a);
     const [date, setDate] = useState('');
-    const today = d.today(); const fr = pl.fourRights || {};
-    const title = whoLabel(c, role);
-    return html`<${ui.Card} title=${title} icon=${ok ? 'user' : 'lock'} tone=${pl.status === 'ongoing' && rightsDone(pl) < 4 && ok ? 'red' : undefined}
+    const today = d.today(); const fr = pl.fourRights || {}; const done = rightsDone(pl);
+    const upcoming = (pl.followUpDates || []).filter((x) => x >= today);
+    return html`<${ui.Card} title=${whoLabel(c, role)} icon="user" tone=${pl.status === 'ongoing' && done < 4 ? 'red' : undefined}
       actions=${html`<${RightsBadge} pl=${pl} />${pl.status === 'ongoing' ? html`<${ui.Badge} tone="blue" icon="activity">Pågår<//>` : html`<${ui.Badge} tone="grey" icon="check-square">Avslutad<//>`}`}
-      foot=${ok && c.referrerId === 'k-maria' ? html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label="Se från kundens håll" />` : null}>
+      foot=${c.referrerId === 'k-maria' ? html`<${ui.PerspectiveSwitch} role="kommun_handlaggare" view="kom.deltagare" params=${{ caseId: c.id }} label="Se från kundens håll" />` : null}>
       <div class="stack">
-        <div class="row-sm small muted">${ok && html`<${ui.CaseLink} caseId=${c.id} /><span aria-hidden="true">·</span>`}<span>${d.fmtDate(pl.startsOn)} – ${d.fmtDate(pl.endsOn)}</span></div>
-        ${!ok ? html`<p class="muted">${a === 'restricted' ? 'Skyddade personuppgifter – detaljer visas bara för namngiven coach och avtalsansvarig.' : `Namn och detaljer visas bara för teamet i ärendet. Arbetsuppgift: ${pl.tasks}.`}</p>` : html`
-          <${KV} items=${[['Arbetsuppgifter', pl.tasks], ['Handledare hos arbetsgivaren', pl.supervisorName || '–'], ['Mål', pl.goals || '–']]} />
-          <${Group} id=${`fr-${pl.id}`} legend="De fyra rätten" help=${canEdit ? 'Bocka i när kravet är uppfyllt. Ändringen loggas.' : 'Bara teamet i ärendet kan ändra.'}>
-            ${RIGHTS.map(([k, label, help]) => html`<${ui.Check} key=${k} id=${`fr-${pl.id}-${k}`} checked=${!!fr[k]} disabled=${!canEdit} onChange=${(v) => MM.dispatch('employer.setRight', { placementId: pl.id, right: k, value: v })}>
-              <span><b>${label}</b><br /><span class="small muted">${help}</span></span><//>`)}
-          <//>
-          <div class="stack-sm"><div class="label-caps">Uppföljning</div>
-            ${(pl.followUpDates || []).length === 0 ? html`<p class="muted">Inga uppföljningsdatum planerade.</p>` : html`<ul class="stack-sm" style="margin:0;padding:0;list-style:none;gap:4px">${pl.followUpDates.map((x) => html`<li key=${x} class="row-sm">
-              <${I} name="calendar" /><span>${d.fmtWeekday(x)} ${x.slice(0, 4)}</span>${x < today ? html`<${ui.Badge} tone="grey">Passerad<//>` : x === today ? html`<${ui.Badge} tone="dark">I dag<//>` : html`<${ui.Badge} tone="outline">Planerad<//>`}</li>`)}</ul>`}
-            ${canEdit && pl.status === 'ongoing' && html`<div class="row" style="align-items:flex-end">
-              <div style="flex:1 1 180px"><${ui.Field} id=${`fu-${pl.id}`} label="Nytt uppföljningsdatum"><${ui.Input} id=${`fu-${pl.id}`} type="date" value=${date} onInput=${setDate} /><//></div>
-              <${ui.Btn} kind="secondary" icon="plus" disabled=${!date} onClick=${() => { const r = MM.dispatch('employer.addFollowUp', { placementId: pl.id, date }); if (!r || !r.error) { setDate(''); MM.toast(`Uppföljning ${d.fmtDate(date)} är planerad.`, 'blue'); } }}>Lägg till<//>
-            </div>`}
+        <div class="row-sm small muted"><${ui.CaseLink} caseId=${c.id} /><span aria-hidden="true">·</span><span>${d.fmtDate(pl.startsOn)} – ${d.fmtDate(pl.endsOn)}</span><span aria-hidden="true">·</span><span>Handledare ${pl.supervisorName || '–'}</span></div>
+        <${KV} items=${[['Arbetsuppgifter', pl.tasks], ['Mål', pl.goals || '–']]} />
+        <${Group} id=${`fr-${pl.id}`} legend=${`De fyra rätten – ${done} av 4 uppfyllda`} help=${canEdit ? 'Bocka i när kravet är uppfyllt. Ändringen loggas.' : 'Bara teamet i ärendet kan ändra.'}>
+          <div class="grid-2" style="gap:0 20px">${RIGHTS.map(([k, label, help]) => html`<${ui.Check} key=${k} id=${`fr-${pl.id}-${k}`} checked=${!!fr[k]} disabled=${!canEdit} onChange=${(v) => MM.dispatch('employer.setRight', { placementId: pl.id, right: k, value: v })}>
+            <span><span class="strong">${label}</span><br /><span class="small muted">${help}</span></span><//>`)}</div>
+        <//>
+        <div class="stack-sm">
+          <div class="row-sm"><span class="label-caps">Uppföljning</span>
+            ${(pl.followUpDates || []).length === 0 ? html`<span class="muted small">Inga datum planerade</span>` : pl.followUpDates.map((x) => html`<${ui.Badge} key=${x} tone=${x < today ? 'grey' : x === today ? 'dark' : 'outline'} icon=${x < today ? 'check' : 'calendar'}>${d.fmtDate(x)} · ${x < today ? 'passerad' : x === today ? 'i dag' : 'planerad'}<//>`)}</div>
+          ${pl.status === 'ongoing' && upcoming.length === 0 && html`<p class="small strong"><${I} name="alert-circle" cls="ic-red" /> Ingen kommande uppföljning är planerad.</p>`}
+          ${canEdit && pl.status === 'ongoing' && html`<div class="row" style="align-items:flex-end">
+            <div style="flex:0 1 220px"><${ui.Field} id=${`fu-${pl.id}`} label="Nytt uppföljningsdatum"><${ui.Input} id=${`fu-${pl.id}`} type="date" value=${date} onInput=${setDate} /><//></div>
+            <${ui.Btn} kind="secondary" icon="plus" disabled=${!date} onClick=${() => { const r = MM.dispatch('employer.addFollowUp', { placementId: pl.id, date }); if (!r || !r.error) { MM.toast(`Uppföljning ${d.fmtDate(date)} är planerad.`, 'blue'); setDate(''); } }}>Lägg till uppföljning<//>
           </div>`}
+        </div>
       </div>
     <//>`;
   };
 
   const EmployerDetail = ({ id, role }) => {
     const st = MM.useStore(); const e = st.employers.find((x) => x.id === id);
-    const [show, setShow] = useState('ongoing'); const [limit, setLimit] = useState(8);
+    const [show, setShow] = useState('ongoing'); const [limit, setLimit] = useState(6);
     if (!e) return html`<${ui.Page} title="Arbetsgivaren finns inte" crumbs=${[{ label: 'Arbetsgivare och praktik', view: 'praktik.arbetsgivare' }]}><${ui.Empty} icon="building" title="Arbetsgivaren finns inte i registret" action=${html`<${ui.Btn} icon="arrow-left" onClick=${() => MM.nav('praktik.arbetsgivare', {})}>Till registret<//>`} /><//>`;
-    const ps = st.placements.filter((p) => p.employerId === e.id).sort((a, b) => (a.startsOn < b.startsOn ? 1 : -1));
+    const ps = st.placements.filter((p) => p.employerId === e.id);
     const on = ps.filter((p) => p.status === 'ongoing'); const done = ps.filter((p) => p.status !== 'ongoing');
     const list = show === 'ongoing' ? on : done;
+    const mine = list.filter((p) => canSeeCase(sel.caseById(p.caseId), role)).sort((a, b) => rightsDone(a) - rightsDone(b) || (a.startsOn < b.startsOn ? 1 : -1));
+    const others = list.filter((p) => !mine.includes(p)).sort((a, b) => (a.startsOn < b.startsOn ? 1 : -1));
+    const scope = ['samordnare', 'avtalsansvarig'].includes(role) ? 'Praktikplatser' : 'Praktikplatser i dina ärenden';
     return html`<${ui.Page} title=${e.name} eyebrow=${html`<span class="row-sm">Arbetsgivare <${ui.BuildPhase} fas=${3} /></span>`} crumbs=${[{ label: 'Arbetsgivare och praktik', view: 'praktik.arbetsgivare' }, { label: e.name }]}>
       <${ui.Card} title="Kontaktuppgifter" icon="building">
-        <div class="grid-2" style="gap:12px 32px">
+        <div class="grid-2" style="gap:0 32px">
           <${KV} items=${[['Organisationsnummer', e.orgNr || '–'], ['Kontaktperson', e.contactName || '–'], ['Telefon', e.phone || '–'], ['E-post', e.email || '–']]} />
           <${KV} items=${[['Avtalsområden', html`<span class="row-sm">${e.areas.map((a) => html`<${ui.Badge} key=${a} tone="outline">${sel.areaName(a)}<//>`)}</span>`], ['Praktikplatser', `${on.length} pågående, ${ps.length} totalt`], e.createdAt && ['Tillagd', `${d.fmtDate(e.createdAt)} av ${MM.personName(e.createdBy)}`]]} />
         </div>
       <//>
-      <${ui.Section} title="Praktikplatser" actions=${html`<${ui.Seg} ariaLabel="Visa praktikplatser" value=${show} onChange=${(v) => { setShow(v); setLimit(8); }} options=${[{ value: 'ongoing', label: `Pågående (${on.length})` }, { value: 'done', label: `Avslutade (${done.length})` }]} />`}>
-        ${list.length === 0 ? html`<${ui.Card}><${ui.Empty} icon="briefcase" title=${show === 'ongoing' ? 'Ingen pågående praktik' : 'Inga avslutade praktikplatser'}>Praktikplatser läggs till från deltagarens ärende.<//><//>`
-          : html`<div class="stack">${list.slice(0, limit).map((p) => html`<${PlacementCard} key=${p.id} pl=${p} role=${role} />`)}
-            ${list.length > limit && html`<div><${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setLimit(limit + 8)}>Visa fler (${list.length - limit} till)<//></div>`}</div>`}
-      <//>
+      <div class="row-between">
+        <${ui.Seg} ariaLabel="Visa praktikplatser" value=${show} onChange=${(v) => { setShow(v); setLimit(6); }} options=${[{ value: 'ongoing', label: `Pågående (${on.length})` }, { value: 'done', label: `Avslutade (${done.length})` }]} />
+        <span class="small muted">Ofullständiga fyra rätt visas först.</span>
+      </div>
+      ${list.length === 0 && html`<${ui.Card}><${ui.Empty} icon="briefcase" title=${show === 'ongoing' ? 'Ingen pågående praktik' : 'Inga avslutade praktikplatser'}>Praktikplatser läggs till från deltagarens ärende.<//><//>`}
+      ${mine.length > 0 && html`<${ui.Section} title=${`${scope} (${mine.length})`}>
+        <div class="stack">${mine.slice(0, limit).map((p) => html`<${PlacementCard} key=${p.id} pl=${p} role=${role} />`)}
+          ${mine.length > limit && html`<div><${ui.Btn} kind="secondary" icon="chevron-down" onClick=${() => setLimit(limit + 6)}>Visa fler (${mine.length - limit} till)<//></div>`}</div>
+      <//>`}
+      ${others.length > 0 && html`<${ui.Section} title=${`Praktikplatser i andra team (${others.length})`}>
+        <${ui.Card} flush foot=${html`<span class="small muted">Deltagarnas namn och ärendenummer visas bara för teamet i ärendet.</span>`}>
+          <${ui.Table} caption="Praktikplatser i andra team" rows=${others} columns=${[
+            { key: 'who', label: 'Deltagare', render: (p) => html`<span class="row-sm" style="flex-wrap:nowrap"><${I} name="lock" /><span>${whoLabel(sel.caseById(p.caseId), role)}</span></span>` },
+            { key: 'period', label: 'Period', nowrap: true, render: (p) => `${d.fmtDateShort(p.startsOn)} – ${d.fmtDate(p.endsOn)}` },
+            { key: 'tasks', label: 'Arbetsuppgifter', render: (p) => p.tasks },
+            { key: 'fr', label: 'Fyra rätt', render: (p) => html`<${RightsBadge} pl=${p} />` },
+          ]} />
+        <//>
+      <//>`}
     <//>`;
   };
 

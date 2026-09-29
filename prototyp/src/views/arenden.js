@@ -426,7 +426,7 @@
       ['Beställd', `${d.fmtDate(c.referredAt)} kl. ${d.fmtTime(c.referredAt)} via ${SRC[c.source] || c.source}`],
       ['Start', c.startDate ? d.fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${d.fmtDate(c.firstMeetingAt)}` : 'Inte bestämd'],
       ['Planerat slut', c.plannedEnd ? d.fmtDate(c.plannedEnd) : 'Inte angivet'],
-      c.endDate ? ['Avslutad', `${d.fmtDate(c.endDate)} · ${sel.endReasonLabel(c.endReason)}`] : null,
+      c.endDate ? ['Avslutad', html`${d.fmtDate(c.endDate)} · ${sel.endReasonLabel(c.endReason)}${c.resultClass === 'result' && !c.resultVerifiedAt ? html`<div style="margin-top:4px"><${ui.Badge} tone="red" icon="alert-circle">Preliminärt – verifiering saknas<//></div>` : ''}`] : null,
       !team ? ['Beställning', weeks ? html`${fmt.plural(weeks, 'vecka', 'veckor')} · <span class="strong">${fmt.kr(weeks * price)}</span><div class="small muted">${weeks} × ${fmt.kr(price)} per deltagarvecka</div>` : 'Omfattning inte angiven'] : null,
     ];
     const deltagare = [
@@ -488,7 +488,7 @@
         ${v === 'revoked' && cons && cons.revokedAt && html`<p class="small muted">Återkallat ${d.fmtDateTime(cons.revokedAt)}. Inspelning och AI är avstängt.</p>`}
         ${v === 'declined' && html`<p class="small muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</p>`}
         ${v === 'not_asked' && html`<p class="small muted">Inspelning kan bara startas när samtycke är registrerat.</p>`}
-        ${edit && v !== 'not_applicable' && html`<div class="row-sm">
+        ${edit && v !== 'not_applicable' && !['closed', 'declined'].includes(c.status) && html`<div class="row-sm">
           ${v === 'given' ? html`<${ui.Btn} kind="danger" icon="x-circle" onClick=${revoke}>Återkalla samtycke<//>`
             : html`<${ui.Btn} kind="secondary" icon="check" onClick=${() => setModal('consent')}>${v === 'revoked' ? 'Registrera nytt samtycke' : 'Registrera samtycke'}<//>`}
           ${v === 'not_asked' && html`<${ui.Btn} kind="ghost" onClick=${decline}>Deltagaren avböjer<//>`}
@@ -612,7 +612,7 @@
     };
     return html`<div class="stack">
       ${needsMeeting && html`<${ui.Notice} tone="critical" title="Första mötet är inte bokat">
-        <div class="stack-sm"><div>Mötet ska hållas inom en vecka från beställningen. <${ui.SlaBadge} dueAt=${sel.firstMeetingDue(c)} prefix="Boka senast:" /></div>
+        <div class="stack-sm"><div>Mötet ska hållas inom en vecka från beställningen. <${ui.SlaBadge} dueAt=${sel.firstMeetingDue(c)} /></div>
         ${manage && html`<div><${ui.Btn} kind="primary" icon="calendar" onClick=${() => setModal('meeting')}>Boka första möte<//></div>`}</div><//>`}
       <div class="grid">
         <${ui.Card} title="Nästa möte" icon="calendar">
