@@ -255,7 +255,7 @@
         viewId: scope === 'all' ? null : route.view, viewTitle: scope === 'all' ? null : (typeof view.title === 'function' ? view.title(route.params) : view.title) || route.view, viewParams: scope === 'all' ? null : route.params,
         scenarioId: scope === 'scenario' && scenDef ? scenDef.id : null, scenarioTitle: scope === 'scenario' && scenDef ? scenDef.title : null, prototypeVersion: MM.PROTOTYPE_VERSION };
       const res = await fb.add(entry);
-      if (res.ok) { setText(''); setSent(res.local ? 'local' : 'shared'); } else setErr(res.code === 'no_write' ? 'Du har bara läsbehörighet till den här prototypen, så feedbacken kunde inte sparas. Be den som delade länken ge dig behörigheten Bidragsgivare (Contributor). Du kan också kopiera texten nedan.' : res.code === 'quota' ? 'Databasen är full. Säg till den som delade länken.' : 'Feedbacken kunde inte sparas just nu. Försök igen om en stund.');
+      if (res.ok) { setText(''); setSent(res.local ? 'local' : 'shared'); } else setErr(res.code === 'no_write' ? 'Du har bara läsbehörighet till den här prototypen, så feedbacken kunde inte sparas. Be den som delade länken att bjuda in dig via e-post med behörigheten Redigerare (Editor). Du kan också kopiera texten nedan.' : res.code === 'quota' ? 'Databasen är full. Säg till den som delade länken.' : 'Feedbacken kunde inte sparas just nu. Försök igen om en stund.');
     };
     const items = f.items.filter((x) => filter === 'alla' || (filter === 'vy' && x.viewId === route.view) || (filter === 'nya' && x.status === 'ny') || (filter === 'kund' && x.perspective === 'kund') || (filter === 'leverantor' && x.perspective === 'leverantor') || (filter === 'oppna' && !['klar', 'avfardad'].includes(x.status)));
     const counts = { alla: f.items.length, nya: f.items.filter((x) => x.status === 'ny').length };
@@ -268,7 +268,7 @@
         <div style="padding:0 18px"><${ui.Tabs} tabs=${[{ id: 'ny', label: 'Lämna feedback', icon: 'edit' }, { id: 'lista', label: 'All feedback', count: counts.alla, icon: 'list' }]} active=${dr.tab} onChange=${(t) => { drawer.tab = t; demit(); }} /></div>
         <div class="drawer-body">
           ${f.mode === 'local' && html`<${ui.Notice} tone="warn" title="Sparas bara i din webbläsare">Den delade feedbackloggen är inte tillgänglig här. Öppna länken i claude.ai för att dela feedbacken, eller kopiera listan.<//>`}
-          ${f.mode === 'shared' && f.canWrite === false && html`<${ui.Notice} tone="warn" title="Du kan läsa men inte skriva">Be den som delade länken ge dig behörigheten Bidragsgivare (Contributor). Tills dess kan du kommentera med knappen längst ned.<//>`}
+          ${f.mode === 'shared' && f.canWrite === false && html`<${ui.Notice} tone="warn" title="Du kan läsa men inte skriva">Be den som delade länken att bjuda in dig via e-post med behörigheten Redigerare (Editor). Tills dess kan du kommentera med knappen längst ned.<//>`}
           ${dr.tab === 'ny' ? html`
             <form class="stack" onSubmit=${submit}>
               <div class="notice notice-info" style="font-size:.9375rem"><${I} name="map-pin" /><div><div class="strong">${MM.PERSPECTIVES.find((p) => p.key === persp).long}</div><div>${MM.roleDef(route.role).label} · ${(typeof view.title === 'function' ? view.title(route.params) : view.title) || route.view}</div></div></div>
