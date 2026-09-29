@@ -46,6 +46,7 @@
 .kom-details[open] > summary .ic { transform: rotate(180deg); }
 .kom-stepper li.review .n .ic { width: 16px; height: 16px; }
 .kom .tab .count { font-size: 1rem; }
+.kom .error-text { font-size: 1rem; }
 .kom-narrow .stepper li .n, .kom .stepper li .n { font-size: 1rem; }
 .kom-group + .kom-group { border-top: 1px solid var(--line); }
 .kom-group-label { padding: 14px 20px 4px; }
