@@ -5,27 +5,32 @@ import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { ROLE_LABEL, ROLES } from "@/api/roles";
 import { PerspectiveLink } from "@/ui";
 import { useNav, Link } from "./nav";
-import { useSession } from "./session";
+import { isAuthenticated, useSession } from "./session";
 import { DemoOnly } from "./runtime";
-import { resolveRoute, START_PATH, titleOf, type RouteDef, type RouteMatch } from "./routes";
+import { loginPathFor, resolveRoute, START_PATH, titleOf, type RouteDef, type RouteMatch } from "./routes";
 import { LayoutFor } from "./layouts";
 
 export function App({ routes }: { routes: readonly RouteDef[] }) {
   const nav = useNav();
-  const { actor } = useSession();
-  const start = START_PATH[actor.role];
+  const session = useSession();
+  const { actor } = session;
+  const signedIn = isAuthenticated(session);
+  const start = signedIn ? START_PATH[actor.role] : loginPathFor(nav.path);
+  const match = resolveRoute(routes, nav.path);
+  // Inte inloggad: bara publika sidor. Allt annat leder till rätt inloggning (portalen eller MB).
+  const mustLogin = !signedIn && !(match && match.route.public);
 
   useEffect(() => {
     if (nav.path === "/" || nav.path === "") nav.replace(start);
-  }, [nav, start]);
+    else if (mustLogin) nav.replace(`${loginPathFor(nav.path)}?till=${encodeURIComponent(nav.path)}`);
+  }, [nav, start, mustLogin]);
 
-  const match = resolveRoute(routes, nav.path);
   const title = match ? titleOf(match, nav.query) : "Sidan finns inte";
   useEffect(() => {
     document.title = `${title} – Miljonmatch`;
   }, [title]);
 
-  if (nav.path === "/" || nav.path === "") return null;
+  if (nav.path === "/" || nav.path === "" || mustLogin) return null;
   if (!match) {
     return (
       <LayoutFor match={notFoundMatch(nav.path)}>

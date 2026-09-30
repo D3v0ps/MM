@@ -3,7 +3,7 @@
 // för att få kommunportalens större text (variant `portal:` i globals.css matchar data-area="portal").
 import { createContext, useContext, type ReactNode } from "react";
 
-export type LayoutArea = "mb" | "portal" | "puls" | "om";
+export type LayoutArea = "mb" | "portal" | "puls" | "om" | "auth";
 const AreaContext = createContext<LayoutArea>("mb");
 
 export function AreaProvider({ area, children }: { area: LayoutArea; children: ReactNode }) {

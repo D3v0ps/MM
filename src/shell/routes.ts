@@ -13,7 +13,7 @@ export type RouteDef = {
   title: string | ((params: Record<string, string>, query: URLSearchParams) => string);
   roles: readonly Role[];
   /** Layout: MB:s arbetsyta med sidopanel, kommunens portal, deltagarens mobilvy eller prototypens egna sidor. */
-  area: "mb" | "portal" | "puls" | "om";
+  area: "mb" | "portal" | "puls" | "om" | "auth";
   screen: ComponentType<ScreenProps>;
   /** Utan inloggning (t.ex. portalens inloggning och pulslänken). */
   public?: boolean;
@@ -32,6 +32,9 @@ export const START_PATH: Record<Role, string> = {
   kommun_chef: "/portal/bestallarrapport",
   deltagare: "/puls",
 };
+
+/** Inloggningssida för en sökväg när besökaren inte är inloggad. */
+export const loginPathFor = (p: string): string => (p.startsWith("/portal") ? "/portal/logga-in" : "/logga-in");
 
 export type RouteMatch = { route: RouteDef; params: Record<string, string> };
 

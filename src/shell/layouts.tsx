@@ -30,6 +30,8 @@ export function LayoutFor({ match, children }: { match: RouteMatch; children: Re
   if (area === "portal") body = <PortalLayout match={match}>{children}</PortalLayout>;
   else if (area === "puls") body = <PulsLayout>{children}</PulsLayout>;
   else if (area === "om") body = <OmLayout>{children}</OmLayout>;
+  // Inloggningssidor: centrerad vy utan navigering (egen layout kan ersätta den här).
+  else if (area === "auth") body = <PulsLayout>{children}</PulsLayout>;
   else body = <MbLayout>{children}</MbLayout>;
   return (
     <AreaProvider area={area}>

@@ -15,9 +15,31 @@ export type SessionUser = {
 /** Valbar testperson (prototypen och utvecklingsläget). */
 export type PersonaOption = { userId: string; role: Role; name: string; title: string; isDefaultForRole?: boolean };
 
+/** Resultat av inloggningssteg. Felkoderna visas med text till användaren (aldrig om adressen finns eller inte). */
+export type AuthResult =
+  | { ok: true }
+  | { ok: false; error: "invalid_email" | "not_invited" | "invalid_code" | "expired" | "too_many_attempts" | "rate_limited" | "error"; message: string };
+
+/**
+ * Inloggning med e-post och sexsiffrig kod (SPEC §4). Riktiga appen: Supabase Auth via /api/auth/*.
+ * Prototypen: simulerad – koden visas i en förklaring och inloggningen byter testperson.
+ * Microsoft-inloggning för MB-personal läggs till som ett eget steg (Entra) när appregistreringen finns.
+ */
+export type AuthPort = {
+  kind: "demo" | "supabase";
+  sendCode(email: string): Promise<AuthResult>;
+  verifyCode(email: string, code: string): Promise<AuthResult>;
+  signOut(): Promise<void>;
+};
+
 export type Session = {
+  /** false = inte inloggad. Då finns bara publika sidor (inloggning och pulslänk); actor är en tom platshållare. */
+  authenticated?: boolean;
   actor: Actor;
   user: SessionUser;
+  auth?: AuthPort;
+  /** Staging: den inloggade testaren får agera som testpersoner (aldrig i produktion). */
+  isTester?: boolean;
   /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
   personas?: PersonaOption[];
   /** Bara prototypen: byt roll/persona. */
@@ -36,3 +58,12 @@ export function useSession(): Session {
   return s;
 }
 export const useRole = (): Role => useSession().actor.role;
+export const useAuth = (): AuthPort | undefined => useSession().auth;
+export const isAuthenticated = (s: Session): boolean => s.authenticated !== false;
+
+/** Platshållare för en besökare som inte är inloggad. Rollen "deltagare" når bara publika sidor. */
+export const ANONYMOUS: Pick<Session, "authenticated" | "actor" | "user"> = {
+  authenticated: false,
+  actor: { userId: "", role: "deltagare", contractIds: [] },
+  user: { id: "", name: "", title: "", email: "", orgName: "" },
+};

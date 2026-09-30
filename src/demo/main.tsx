@@ -140,6 +140,25 @@ function Root({ initial }: { initial: DemoRuntime }) {
           if (navSeq === before) nav.push(START_PATH[next.actor.role]);
         });
       },
+      // Simulerad inloggning med e-post och kod: vilken sexsiffrig kod som helst godtas och inloggningen byter till
+      // testpersonen med adressen. I riktiga appen skickar Supabase koden med e-post (se src/server/auth).
+      auth: {
+        kind: "demo",
+        sendCode: async (email: string) => {
+          const e = email.trim().toLowerCase();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { ok: false, error: "invalid_email", message: "Skriv en giltig e-postadress." };
+          return { ok: true };
+        },
+        verifyCode: async (email: string, code: string) => {
+          if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: "invalid_code", message: "Koden har sex siffror." };
+          const e = email.trim().toLowerCase();
+          const hit = personas.find((p) => p.user.email.toLowerCase() === e);
+          if (!hit) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
+          pick(hit);
+          return { ok: true };
+        },
+        signOut: async () => undefined,
+      },
     }),
     [persona, personas, demo, nav, pick],
   );
