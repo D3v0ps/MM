@@ -93,6 +93,17 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 - RLS-tester per roll: kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare ser bara tilldelade ärenden, skyddade ärenden syns bara för namngivna.
 - E2E: mejlavrop → ordererkännande med ärendenummer → orderbekräftelse → närvaro → veckorapport → månadsbedömning → månadsrapport-PDF → fakturaunderlag.
 
+## Arkitektur – prototypen speglar riktiga appen
+
+Läs `docs/ARKITEKTUR.md` innan du bygger något. Kort: skärmar, rutter, API-hanterare och domänlogik är **samma kod** i riktiga appen och i prototypen. Bara datalagret skiljer: prototypen och utvecklingsläget kör `MemoryRepo` (påhittade testdata, behörighet via `src/data/policy.ts` som speglar RLS), produktion kör Supabase med RLS. Prototypen byggs till en HTML-fil med `npm run demo:build` och publiceras som artefakt.
+
 ## Kommandon
 
-Fylls i när projektet är uppsatt: dev, test, lint, typecheck, `supabase db reset` + seed, deploy.
+- `npm run dev` – riktiga appen i utvecklingsläge (minnesläge med testdata, välj testperson i verktygsfältet)
+- `npm run check` – typkontroll + lint + enhetstester (körs före varje commit)
+- `npm run test` – enhetstester (Vitest)
+- `npm run demo:build` – bygg prototypen till `dist-demo/index.html`
+- `npm run build && npm run e2e` – E2E mot både prototypen och appen (Playwright)
+- Supabase (`supabase db reset` + seed) och deploy läggs till när databasplanen är godkänd.
+
+@AGENTS.md

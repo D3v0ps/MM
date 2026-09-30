@@ -1,0 +1,54 @@
+/* MB:s grafiska profil – inga andra färger (CLAUDE.md, Design). Delas av riktiga appen och prototypen.
+   Medvetet ett ljust tema: profilen och WCAG-beräkningarna utgår från antracit på vitt. */
+@import "tailwindcss";
+@source "../";
+
+@theme {
+  --color-antracit: #1e252b;
+  --color-rod: #ff0c01;
+  --color-rod-logo: #ed2526;
+  --color-ljusgra: #d1d3d3;
+  --color-bla: #6ba2b9;
+  --color-vit: #ffffff;
+  /* Tonade varianter av samma färger – bara för ytor och linjer. */
+  --color-antracit-ton: rgb(30 37 43 / 0.06);
+  --color-bla-ton: rgb(107 162 185 / 0.18);
+  --color-bla-ton2: rgb(107 162 185 / 0.32);
+  --color-rod-ton: rgb(255 12 1 / 0.07);
+  --color-rod-ton2: rgb(255 12 1 / 0.14);
+  --color-ljusgra-ton: rgb(209 211 211 / 0.28);
+  --color-ljusgra-ton2: rgb(209 211 211 / 0.5);
+  --color-text-muted: rgb(30 37 43 / 0.74);
+  --color-text-faint: rgb(30 37 43 / 0.62);
+  --color-line-strong: rgb(30 37 43 / 0.28);
+
+  --font-sans: var(--font-montserrat), "Montserrat", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
+:root {
+  color-scheme: light;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  background: var(--color-vit);
+  color: var(--color-antracit);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+:focus-visible {
+  outline: 3px solid var(--color-antracit);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,0 +1,110 @@
+"use client";
+// Klientsidans väg in i API:t. Riktiga appen skickar anropen till /api/rpc, prototypen kör hanterarna direkt i webbläsaren.
+// Skärmarna använder bara useQuery/useCommand och vet inte vilken backend som körs.
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider, useQuery as useTanstackQuery, useQueryClient } from "@tanstack/react-query";
+import type { CommandDef, QueryDef } from "@/api/contract";
+
+export type Backend = {
+  mode: "demo" | "app";
+  query(key: string, params: unknown): Promise<unknown>;
+  command(key: string, payload: unknown): Promise<unknown>;
+};
+
+export class BackendError extends Error {
+  constructor(public readonly status: number, public readonly code: string, message: string) {
+    super(message);
+  }
+}
+
+/** Transport för riktiga appen. */
+export const httpBackend: Backend = {
+  mode: "app",
+  query: (key, params) => rpc("query", key, params),
+  command: (key, payload) => rpc("command", key, payload),
+};
+async function rpc(kind: "query" | "command", key: string, input: unknown) {
+  const res = await fetch("/api/rpc", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind, key, input }),
+    credentials: "same-origin",
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new BackendError(res.status, body.code ?? "error", body.message ?? "Något gick fel. Försök igen.");
+  return body.result;
+}
+
+const BackendContext = createContext<Backend | null>(null);
+
+export function BackendProvider({ backend, children }: { backend: Backend; children: ReactNode }) {
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // Prototypen har all data lokalt; riktiga appen hämtar om efter 20 sekunder.
+            staleTime: backend.mode === "demo" ? Infinity : 20_000,
+            retry: backend.mode === "demo" ? false : 1,
+            refetchOnWindowFocus: backend.mode === "app",
+          },
+        },
+      }),
+  );
+  return (
+    <BackendContext.Provider value={backend}>
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    </BackendContext.Provider>
+  );
+}
+
+export function useBackend(): Backend {
+  const b = useContext(BackendContext);
+  if (!b) throw new Error("BackendProvider saknas");
+  return b;
+}
+
+/** Läs data. `params` null = hämta inte ännu. */
+export function useQuery<P, R>(def: QueryDef<P, R>, params: P | null, opts?: { enabled?: boolean }) {
+  const backend = useBackend();
+  return useTanstackQuery({
+    queryKey: [def.key, params],
+    queryFn: () => backend.query(def.key, params) as Promise<R>,
+    enabled: params !== null && opts?.enabled !== false,
+  });
+}
+
+/**
+ * Kör ett kommando. Efter ett lyckat anrop räknas alla frågor om (enkelt och korrekt i pilotens volym).
+ * Returnerar hanterarens resultat – affärsfel kommer som { ok: false, error }.
+ */
+export function useCommand<P, R>(def: CommandDef<P, R>) {
+  const backend = useBackend();
+  const qc = useQueryClient();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const run = useCallback(
+    async (payload: P): Promise<R> => {
+      setPending(true);
+      setError(null);
+      try {
+        const res = (await backend.command(def.key, payload)) as R;
+        await qc.invalidateQueries();
+        return res;
+      } catch (e) {
+        setError(e as Error);
+        throw e;
+      } finally {
+        setPending(false);
+      }
+    },
+    [backend, def.key, qc],
+  );
+  return useMemo(() => ({ run, pending, error }), [run, pending, error]);
+}
+
+/** Kör en fråga imperativt (t.ex. export). */
+export function useQueryRunner() {
+  const backend = useBackend();
+  return useCallback(<P, R>(def: QueryDef<P, R>, params: P) => backend.query(def.key, params) as Promise<R>, [backend]);
+}
