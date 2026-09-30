@@ -38,7 +38,7 @@ export type LedningTab = (typeof LEDNING_TABS)[number];
 export type RateView = { value: number | null; num: number; den: number; prelim: number; excluded: number; status: ResultStatus; minN: number };
 
 /** Resultatgradens mål från avtalskonfigurationen (kpis[resultatgrad]). Aldrig hårdkodat. */
-export type ResultTargets = { contract: number; internal: number; minN: number };
+export type ResultTargets = { contract: number | null; internal: number | null; minN: number };
 
 /** En flagga som ledningen ser. link = bara om rollen kan öppna sidan (och det inte är ledningsvyn själv). */
 export type AlertView = {
@@ -289,6 +289,10 @@ export type CdevForm = {
   ladder: LadderStep[];
   /** Chef och avtalsansvarig registrerar varningar, viten och avropsstopp. */
   canManage: boolean;
+  /** Exempel på ärendenummer med avtalets prefix, t.ex. "BOT-26-0042". */
+  caseNumberExample: string;
+  /** Steg där kommunen kan ge skriftlig varning (1–3 i eskaleringstrappan). */
+  warningSteps: { min: number; max: number };
 };
 
 export type CdevRegister = {

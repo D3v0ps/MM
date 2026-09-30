@@ -223,7 +223,7 @@ describe("skrivning: samma regler som policy.ts", () => {
       const expected: string[] = [];
       const plan: { label: string; sql: string; params: unknown[] }[] = [];
       for (const t of TABLE_NAMES) {
-        for (const row of sampleRows(t, p)) {
+        for (const row of sampleRows(t, p, 1)) {
           // Ändring: policy.ts kräver läsrätt på raden och skrivrätt på den nya raden (här oförändrad).
           const upd = canReadRow(t, row as never, p.actor, raw) && canWriteRow(t, row as never, p.actor, raw);
           expected.push(`update ${t} ${row.id}: ${upd}`);

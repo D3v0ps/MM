@@ -1,9 +1,12 @@
 // Kontrakt för området coach (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
-import { command, type Fail, type Result } from "@/api/contract";
+import { command, query, type Fail, type Result } from "@/api/contract";
+import type { SlaTone } from "@/core/sla";
 import {
   AI_DECISIONS, AI_RUN_KINDS, ATTENDANCE_STATUSES, CHECK_IN_MODES, DEVIATION_STATUSES, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES, INPUT_METHODS, OUTCOME_EVENT_KINDS,
-  TRAFFIC_LIGHTS, type TranscriptLine,
+  TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
+  type GoalStatus, type InputMethod, type LocalDate, type LocalDateTime, type MonthKey, type OutcomeEventKind, type ProgressLevel, type ReportStatus,
+  type ResultClass, type TrafficLight, type TranscriptLine, type WeekKey,
 } from "@/data/schema";
 import { AI_SOURCES, type AiSource, type CheckInSuggestions } from "../_shared/ai-types";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
@@ -195,3 +198,307 @@ export type AiRunResult = {
   audioDeletedAt: string | null;
   rawTranscriptDeleteBy: string | null;
 };
+
+// ================================================================ Frågor för coachens skärmar
+// En fråga per skärm (och några små för delar som ändras med formuläret). Resultatet är en vy-modell med bara det skärmen
+// visar. Ärendevyerna returnerar { kind: "gate" } när rollen inte får arbeta i ärendet (prototypens gate()).
+
+/** Tidsgräns med status, räknad i hanteraren (src/core/sla). */
+export type CoachSla = { label: string; tone: SlaTone };
+/** Registrerad närvaro (null = ej registrerad). */
+export type AttMark = { status: AttendanceStatus; reason: string } | null;
+/** Varför vyn inte kan visas ärendet (prototypens gate): "Ärendet finns inte" eller "Inte ditt ärende". */
+export type CoachGate = { title: string; text: string };
+/** Deltagarhuvudet i ärendevyerna (prototypens CaseHead). */
+export type CaseHead = {
+  caseId: string;
+  caseNumber: string;
+  /** Deltagarens namn (huvudcoachen har full åtkomst). */
+  name: string;
+  protected: boolean;
+  phase: number;
+  phaseName: string;
+  status: CaseStatus;
+  /** "G Lager och logistik" */
+  areaName: string;
+  /** Yrkesspåret, eller "Yrkesspår inte valt". */
+  track: string;
+};
+/** Beställande handläggare – för perspektivbytet i prototypen och texten om mötesförfrågan. */
+export type ReferrerView = { id: string | null; name: string | null; unit: string | null };
+type Gated<T> = { kind: "gate"; gate: CoachGate } | ({ kind: "ok" } & T);
+
+// ---------------------------------------------------------------- Min vecka (/min-vecka)
+export type TodayActivity = {
+  id: string;
+  caseId: string;
+  caseNumber: string;
+  name: string;
+  kind: ActivityKind;
+  startsAt: LocalDateTime;
+  durationMin: number;
+  location: string;
+  attendance: AttMark;
+  /** Dagens avstämning för coachträffen, om den påbörjats. */
+  checkIn: { id: string; approved: boolean } | null;
+};
+export type CalendarActivity = {
+  id: string;
+  caseId: string;
+  kind: ActivityKind;
+  startsAt: LocalDateTime;
+  location: string;
+  /** "Nadia W." (kortnamn i kalendern). */
+  shortName: string;
+  attendance: AttendanceStatus | null;
+};
+export type MinVeckaView = {
+  now: LocalDateTime;
+  /** Förra veckan: veckonummer och måndag. */
+  lastWeek: { no: number; mon: LocalDate };
+  /** Registrering av förra veckans närvaro: förfallotid och status, "måndag 10.00", publicering "måndag 16.00". */
+  reg: { dueAt: LocalDateTime; sla: CoachSla; dueText: string; pubText: string };
+  unregistered: {
+    count: number;
+    byCase: { caseId: string; caseNumber: string; name: string; items: { startsAt: LocalDateTime; kind: ActivityKind }[] }[];
+    /** Handläggare vars veckorapport väntar på coachens registrering. */
+    waitingFor: string[];
+  };
+  today: TodayActivity[];
+  /** Nästa aktivitet i dag (id) och kortnamn för KPI:n. */
+  next: { id: string; shortName: string } | null;
+  drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];
+  monthly: {
+    month: MonthKey;
+    dueAt: LocalDateTime;
+    /** "Sista dag ej fastställd – förslag 5:e arbetsdagen" eller "Sista dag enligt avtalet". */
+    dueNote: string;
+    done: number;
+    total: number;
+    open: { caseId: string; caseNumber: string; name: string; hasAi: boolean }[];
+  };
+  messages: { notificationId: string; caseId: string; caseNumber: string; name: string; createdAt: LocalDateTime; from: string | null; excerpt: string | null }[];
+  reminders: { caseId: string; caseNumber: string; name: string; streak: number; reason: string; weekKey: WeekKey }[];
+  flags: { key: string; kind: string; severity: "critical" | "warning" | "info"; title: string; text: string; caseId: string | null; href: string | null }[];
+  unread: { count: number; latest: { id: string; title: string; caseNumber: string | null }[] };
+  due: {
+    monthly: { count: number; byStatus: Partial<Record<ReportStatus, number>>; dueAt: LocalDateTime; sla: CoachSla } | null;
+    other: { id: string; label: string; caseNumber: string | null; name: string | null; dueAt: LocalDateTime; sla: CoachSla; provisional: boolean; href: string | null }[];
+  };
+  calendar: { mon: LocalDate; activities: CalendarActivity[] };
+};
+export const minVecka = query("coach.minVecka", z.object({})).returns<MinVeckaView>();
+
+// ---------------------------------------------------------------- Närvaro (/narvaro)
+export type NarvaroRow = {
+  activityId: string;
+  caseId: string;
+  caseNumber: string;
+  name: string;
+  kind: ActivityKind;
+  startsAt: LocalDateTime;
+  durationMin: number;
+  location: string;
+  attendance: AttMark;
+  /** Upprepad ogiltig frånvaro enligt avtalets regel (visas vid ogiltig frånvaro). */
+  repeated: boolean;
+  referrerId: string | null;
+};
+export type NarvaroReport = {
+  recipientId: string;
+  name: string;
+  unit: string;
+  reportId: string | null;
+  /** Publicerad (levererad eller kvitterad): tidpunkten. */
+  publishedAt: LocalDateTime | null;
+  /** Oregistrerade tillfällen i hela rapporten (alla handläggarens deltagare – bara antalet). */
+  left: number;
+  /** Mina oregistrerade tillfällen för handläggaren. */
+  mine: number;
+};
+export type NarvaroWeek = { key: WeekKey; no: number; mon: LocalDate; dueAt: LocalDateTime; sla: CoachSla; rows: NarvaroRow[]; reports: NarvaroReport[] };
+export type NarvaroView = {
+  now: LocalDateTime;
+  dueText: string;
+  pubText: string;
+  /** "Frånvaronotis samma dag: …" (avtalets tillval). */
+  sameDayText: string;
+  absenceReasons: string[];
+  repeatedRule: { absentInvalid: number; withinDays: number };
+  caseCount: number;
+  weeks: { last: NarvaroWeek; this: NarvaroWeek };
+};
+export const narvaroView = query("coach.narvaro", z.object({})).returns<NarvaroView>();
+
+// ---------------------------------------------------------------- Deltagarlistan när en vy öppnas utan ärende
+export const CASE_PICKER_KINDS = ["avstamning", "manad", "kartlaggning", "handelse"] as const;
+export type CasePickerKind = (typeof CASE_PICKER_KINDS)[number];
+export type CasePickerRow = {
+  caseId: string;
+  caseNumber: string;
+  name: string;
+  phaseLabel: string;
+  badge: { tone: "outline" | "blue"; icon: "edit" | "check" | null; text: string } | null;
+  note: string | null;
+};
+export type CasePickerView = { month: MonthKey; monthDueAt: LocalDateTime; monthDueNote: string; rows: CasePickerRow[] };
+export const casePicker = query("coach.casePicker", z.object({ kind: z.enum(CASE_PICKER_KINDS), month: MonthKeySchema.optional() })).returns<CasePickerView>();
+
+// ---------------------------------------------------------------- Veckoavstämning (/avstamning/:caseId?avstamning=)
+export type CheckInAi = CheckInSuggestions & {
+  transcript: TranscriptLine[];
+  audioDeletedAt: string | null;
+  rawTranscriptDeleteBy: string | null;
+  rawTranscriptDeletedAt: string | null;
+};
+export type CheckInView = {
+  id: string;
+  caseId: string;
+  status: "draft" | "approved";
+  heldAt: LocalDateTime;
+  durationMin: number | null;
+  mode: CheckInMode | null;
+  inputMethod: InputMethod;
+  goalStatus: GoalStatus | null;
+  nextGoal: string;
+  phase: number | null;
+  activitiesDone: string[];
+  employerContacts: EmployerContacts;
+  overallStatus: TrafficLight | null;
+  obstacles: string[];
+  note: string;
+  attendanceComment: string;
+  docMinutes: number | null;
+  approvedAt: LocalDateTime | null;
+  approvedByName: string | null;
+  aiRunId: string | null;
+  /** AI-utkastet (förslag med belägg). Aldrig för skyddade ärenden eller utan samtycke. */
+  ai: CheckInAi | null;
+};
+export type CheckInPage = Gated<{
+  now: LocalDateTime;
+  head: CaseHead;
+  referrer: ReferrerView;
+  aiConsent: AiConsentStatus;
+  consent: { givenAt: string | null; declinedAt: string | null; textVersion: string; informedByName: string; language: string | null } | null;
+  /** Förvalt språk för samtyckesinformationen (deltagarens språk om översättning finns). */
+  consentLanguage: string;
+  /** Avstämningen som öppnades (?avstamning=), om den finns i ärendet. */
+  checkIn: CheckInView | null;
+  /** Utkast i ärendet (för "Det finns ett sparat utkast"). */
+  drafts: { id: string; heldAt: LocalDateTime; ai: boolean }[];
+  lastApproved: { nextGoal: string; durationMin: number | null; mode: CheckInMode | null } | null;
+  /** Dagens coachträff (förifyllning av datum och tid). */
+  todayMeetingAt: LocalDateTime | null;
+  watch: { streak: number; reason: string; weekKey: WeekKey } | null;
+  repeatedAbsence: { count: number; withinDays: number } | null;
+  owners: { id: string; name: string }[];
+  phases: { no: number; name: string }[];
+  phaseSince: LocalDate | null;
+  seesCoachNotes: boolean;
+  options: { activityTypes: string[]; obstacles: string[]; goalsByPhase: Record<number, string[]> };
+}>;
+export const checkInPage = query("coach.checkInPage", z.object({ caseId: IdSchema, checkInId: IdSchema.optional() })).returns<CheckInPage>();
+
+/** Närvaron senaste veckan fram till avstämningens datum (sektion 2 – ändras med datumet). */
+export type CheckInAttendance = {
+  from: LocalDate;
+  to: LocalDate;
+  present: number;
+  late: number;
+  absentValid: number;
+  absentInvalid: number;
+  unregistered: number;
+  planned: number;
+  rate: number | null;
+};
+export const checkInAttendance = query("coach.checkInAttendance", z.object({ caseId: IdSchema, date: LocalDateSchema })).returns<CheckInAttendance | null>();
+
+/** AI-körningens leverantör och modell (visas vid utkastet). */
+export const aiRunInfo = query("coach.aiRunInfo", z.object({ runId: IdSchema })).returns<{ provider: string; model: string } | null>();
+
+/** Kvittot efter godkänd avstämning: status, dataminimering, avvikelse och mötesförfrågan. */
+export type CheckInReceipt = Gated<{
+  now: LocalDateTime;
+  caseNumber: string;
+  name: string;
+  location: string;
+  referrer: ReferrerView;
+  coachName: string;
+  /** Förslag på uppföljningsmöte: om två arbetsdagar kl. 10. */
+  proposedAt: LocalDateTime;
+  checkIn: { overallStatus: TrafficLight | null; phase: number | null; phaseLabel: string | null; ai: { audioDeletedAt: string | null; rawTranscriptDeletedAt: string | null } | null } | null;
+  deviation: { id: string; description: string; action: string; ownerName: string; followUpOn: LocalDate | null; needsCustomerDecision: boolean; taskCreated: boolean } | null;
+}>;
+export const checkInReceipt = query("coach.checkInReceipt", z.object({ caseId: IdSchema, checkInId: IdSchema, deviationId: IdSchema.nullable().optional() })).returns<CheckInReceipt>();
+
+// ---------------------------------------------------------------- Månadsbedömning (/manadsbedomning/:caseId?manad=)
+export type AssessmentArea = {
+  key: string;
+  label: string;
+  level: ProgressLevel | null;
+  observation: string;
+  nextStep: string;
+  /** AI:s förslag – bara när AI får användas i ärendet. Fylls aldrig i automatiskt. */
+  aiLevelSuggestion: ProgressLevel | null;
+  aiObservationDraft: { text: string; sources: string[]; noEvidence: boolean } | null;
+};
+export type AssessmentPage = Gated<{
+  now: LocalDateTime;
+  month: MonthKey;
+  head: CaseHead;
+  referrer: ReferrerView;
+  aiOk: boolean;
+  scale: Record<ProgressLevel, string>;
+  requiredFrom: number;
+  areas: AssessmentArea[];
+  assessment: { status: "draft" | "approved"; decidedAt: LocalDateTime | null; summary: string; aiSummaryDraft: string | null; overallStatus: TrafficLight | null } | null;
+  plan: { goal1: string; goal2: string; plannedActivities: string; plannedEmployerContact: string; plannedAdaptation: string; nextCustomerMeeting: LocalDate | null } | null;
+  basis: {
+    checkIns: LocalDateTime[];
+    attendance: { rate: number | null; present: number; late: number; planned: number; unregistered: number };
+    events: string[];
+  };
+  report: { id: string; statusLabel: string } | null;
+  dueAt: LocalDateTime;
+  dueNote: string;
+  goals: string[];
+}>;
+export const assessmentPage = query("coach.assessmentPage", z.object({ caseId: IdSchema, month: MonthKeySchema.optional() })).returns<AssessmentPage>();
+
+// ---------------------------------------------------------------- Kartläggning (/kartlaggning/:caseId)
+export type IntakePage = Gated<{
+  head: CaseHead;
+  referrer: ReferrerView;
+  intake: {
+    workExperience: string; education: string; languageNotes: string; digitalSkills: string; drivingLicence: string; workGoals: string;
+    chosenTrack: string; adaptations: string; firstWeekGoal: string; status: "draft" | "approved"; approvedAt: LocalDateTime | null;
+  } | null;
+  stuck: { phase: number; phaseName: string; days: number; maxDays: number } | null;
+  backgroundInfo: string;
+  needsInterpreter: boolean;
+  /** "G Lager och logistik" och ev. sekundärt område (för hjälptexten). */
+  areaNames: { primary: string; secondary: string | null };
+  tracks: { area: string[]; all: { value: string; label: string }[] };
+  firstWeekGoals: string[];
+}>;
+export const intakePage = query("coach.intakePage", z.object({ caseId: IdSchema })).returns<IntakePage>();
+
+// ---------------------------------------------------------------- Händelser och avslut (/handelse/:caseId?lage=avslut)
+export type EventsPage = Gated<{
+  now: LocalDateTime;
+  head: CaseHead;
+  referrer: ReferrerView;
+  closed: { endReason: EndReason | null; endDate: LocalDate | null; resultClass: ResultClass | null; resultVerifiedAt: LocalDateTime | null } | null;
+  events: { id: string; kind: OutcomeEventKind; label: string; occurredOn: LocalDate; actor: string; verificationKind: string | null; note: string; possibleBonus: boolean }[];
+  employers: { id: string; name: string }[];
+  eventKinds: { value: OutcomeEventKind; label: string }[];
+  endReasons: { value: EndReason; label: string }[];
+  result: { countsAsResult: EndReason[]; excluded: EndReason[]; definitionText: string };
+  finalReport: { id: string; dueAt: LocalDateTime | null; sla: CoachSla | null } | null;
+  exitPulse: { sentAt: LocalDateTime; channel: "sms" | "email"; expiresAt: LocalDateTime } | null;
+  finalDays: number;
+  finalProvisional: boolean;
+  bonusOn: boolean;
+}>;
+export const eventsPage = query("coach.eventsPage", z.object({ caseId: IdSchema })).returns<EventsPage>();
