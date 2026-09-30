@@ -94,10 +94,10 @@ export type Attempt = { ok: true; rows: number } | { ok: false; code: string; me
  * Kör en sats i en savepoint och rulla tillbaka den: 'ok' med antal påverkade rader, eller felkoden
  * (42501 = behörighet saknas eller raden bryter mot en policy). keep: behåll ändringen (inom transaktionen).
  */
-export async function attempt(tx: Tx, sql: string, params: unknown[] = [], opts: { keep?: boolean } = {}): Promise<Attempt> {
+export async function attempt(tx: Tx, sql: string, params: readonly unknown[] = [], opts: { keep?: boolean } = {}): Promise<Attempt> {
   await tx.exec("savepoint attempt");
   try {
-    const r = await tx.query(sql, params);
+    const r = await tx.query(sql, [...params]);
     await tx.exec(opts.keep ? "release savepoint attempt" : "rollback to savepoint attempt");
     return { ok: true, rows: r.affectedRows ?? r.rows.length };
   } catch (e) {

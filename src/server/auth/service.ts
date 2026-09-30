@@ -85,7 +85,7 @@ export async function requestCode(rawEmail: unknown, ip: string, later: (fn: () 
 }
 
 /** POST /api/auth/verify – `user` är SSR-klienten som sätter sessionens kakor. */
-export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCode: unknown, ip: string): Promise<AuthResponse & { profileId?: string }> {
+export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCode: unknown, ip: string, later: (fn: () => Promise<void>) => void): Promise<AuthResponse & { profileId?: string }> {
   const email = normalizeEmail(rawEmail);
   const code = String(rawCode ?? "").replace(/\s/g, "");
   if (!isValidEmail(email)) return fail(400, "invalid_email", AUTH_TEXT.invalidEmail);
@@ -104,8 +104,11 @@ export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCod
   const { data, error } = await user.auth.verifyOtp({ email, token: code, type: "email" });
   if (error || !data.user) {
     await attempts.record({ kind: "verify_failed", at: new Date(nowMs).toISOString(), ...h });
-    const hit = await profileByEmail(service, email).catch(() => null);
-    if (hit) await audit(service, now, { action: "auth.login_failed", actorId: null, entityId: hit.profile.id, contractId: hit.memberships[0]?.contractId ?? null, details: { method: "email_otp" } });
+    // Revisionsloggen skrivs efter svaret, så att svarstiden inte avslöjar om adressen har en profil.
+    later(async () => {
+      const hit = await profileByEmail(service, email).catch(() => null);
+      if (hit) await audit(service, now, { action: "auth.login_failed", actorId: null, entityId: hit.profile.id, contractId: hit.memberships[0]?.contractId ?? null, details: { method: "email_otp" } });
+    });
     return fail(401, error?.code === "otp_expired" ? "expired" : "invalid_code", AUTH_TEXT.wrongCode);
   }
 

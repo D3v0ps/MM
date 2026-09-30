@@ -361,17 +361,17 @@ grant select, insert, update on public.profiles, public.memberships to authentic
 -- ---------------------------------------------------------------- Policyer: testarens val av testperson
 -- Bara testaren själv, bara i testmiljön (mm.auth_is_tester). app_settings och login_attempts: bara service role.
 create policy tester_sessions_select on public.tester_sessions for select to authenticated using (
-  auth_user_id = auth.uid() and (select mm.auth_is_tester())
+  auth_user_id = (select auth.uid()) and (select mm.auth_is_tester())
 );
 create policy tester_sessions_insert on public.tester_sessions for insert to authenticated with check (
-  auth_user_id = auth.uid() and (select mm.auth_is_tester())
+  auth_user_id = (select auth.uid()) and (select mm.auth_is_tester())
 );
 create policy tester_sessions_update on public.tester_sessions for update to authenticated using (
-  auth_user_id = auth.uid() and (select mm.auth_is_tester())
+  auth_user_id = (select auth.uid()) and (select mm.auth_is_tester())
 ) with check (
-  auth_user_id = auth.uid() and (select mm.auth_is_tester())
+  auth_user_id = (select auth.uid()) and (select mm.auth_is_tester())
 );
 create policy tester_sessions_delete on public.tester_sessions for delete to authenticated using (
-  auth_user_id = auth.uid() and (select mm.auth_is_tester())
+  auth_user_id = (select auth.uid()) and (select mm.auth_is_tester())
 );
 grant select, insert, update, delete on public.tester_sessions to authenticated;

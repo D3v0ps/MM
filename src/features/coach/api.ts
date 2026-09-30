@@ -494,7 +494,7 @@ export type EventsPage = Gated<{
   employers: { id: string; name: string }[];
   eventKinds: { value: OutcomeEventKind; label: string }[];
   endReasons: { value: EndReason; label: string }[];
-  result: { countsAsResult: EndReason[]; excluded: EndReason[]; definitionText: string };
+  result: { countsAsResult: string[]; excluded: string[]; definitionText: string };
   finalReport: { id: string; dueAt: LocalDateTime | null; sla: CoachSla | null } | null;
   exitPulse: { sentAt: LocalDateTime; channel: "sms" | "email"; expiresAt: LocalDateTime } | null;
   finalDays: number;

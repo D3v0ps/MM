@@ -110,7 +110,10 @@ export type DeclinedView = { when: string; by: string | null; reason: string; ma
 export type CorrectForm = {
   caseId: string;
   emailId: string | null;
+  /** Formulärets startvärden (planerat slutdatum från mejlet om ärendet saknar det). */
   init: Record<OrderFieldKey, string>;
+  /** Ärendets nuvarande värden – det som ändras skickas i patch. */
+  current: Record<OrderFieldKey, string>;
   /** " AI var osäker (64 %) – kontrollera mot originalet." per fält. */
   lowNotes: Partial<Record<OrderFieldKey, string>>;
   areas: { value: string; label: string }[];

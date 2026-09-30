@@ -1,14 +1,35 @@
 // Hanterare för området ärenden (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
+import { loadDb } from "@/api/load";
 import { isCustomerRole, type Role } from "@/api/roles";
-import { handleCommand, type Ctx } from "@/api/server";
-import { ackTextFor, caseCounterId, duplicateActive, nextCaseNumber } from "@/core/cases";
-import { isOperational, isUnset, requireOperational } from "@/core/config";
-import { consentOf } from "@/core/db-index";
-import { avropDue, finalReportDueAt, isProvisionalDue } from "@/core/sla";
-import { addDays, dayOf, monday } from "@/core/time";
+import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { accessIndex, caseAccessIn, displayName, type AccessSource } from "@/core/access";
+import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
+import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
+import { buyerRefProblem } from "@/core/billing";
+import { ackTextFor, caseCounterId, coaches, duplicateActive, nextCaseNumber, phaseSince, priceFor, stuck } from "@/core/cases";
+import { isOperational, isUnset, phaseName, requireOperational, slaRule, type OperationalConfig } from "@/core/config";
+import {
+  activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
+  messagesOf, placementsOf, planOf, reportsOf,
+} from "@/core/db-index";
+import { domainEnv, type DomainEnv } from "@/core/env";
+import { plural } from "@/core/format";
+import {
+  areaName, attLabel, contactLabel, END_REASONS, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
+} from "@/core/labels";
+import { scopeToContract } from "@/core/scope";
+import { avropDue, finalReportDueAt, firstMeetingDays, firstMeetingDue, isProvisionalDue, slaStatus, type SlaTone } from "@/core/sla";
+import {
+  addDays, addMonths, addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, isoWeek, monday, monthEnd, monthKey, monthName, WEEKDAYS,
+} from "@/core/time";
+import { by, groupBy } from "@/core/util";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
-import type { Case, CaseStatus, CaseStatusHistory, Contract, Person, ResultClass, TeamRole } from "@/data/schema";
+import { PROTOTYPE_ROLES } from "@/data/actors";
+import { decodeTestPnr } from "@/data/seed/pnr";
+import type {
+  Activity, AlertKind, AlertSeverity, Case, CaseStatus, CaseStatusHistory, Contract, Db, FourRights, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+} from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation, userEmail,
 } from "../_shared/context";
@@ -17,6 +38,11 @@ import { newReport } from "../_shared/rows";
 import {
   caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseSetBuyerRef, caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
+  caseAssessments, caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseOverview, casePlacements,
+  caseReports, caseRevealPnr, supervisorStart, TEAM_TABS,
+  type AttendanceSummary, type CaseAssessments, type CaseAttendance, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
+  type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseOverview, type CasePlacements, type CaseReportRow,
+  type CaseTab, type SupervisorCase, type SupervisorStart,
 } from "./api";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -415,4 +441,793 @@ handleCommand(consentSet, { roles: ["samordnare", "avtalsansvarig", "coach"] }, 
   await ctx.repo.table("cases").update(c.id, { aiConsentStatus: p.value });
   await ctx.audit({ action: `consent.${p.value}`, entity: "consent", entityId: c.id, contractId: c.contractId, details: { caseId: c.id } });
   return ok({});
+});
+
+// ================================================================ Skärmarna (prototypens views/arenden.js)
+// Frågorna läser via ctx.repo (policyn/RLS avgör vad rollen ser). ctx.system används bara för uppslag som behörigheten
+// bygger på (samma som policyns security definer-uppslag: skyddad person, team, handläggarens enhet, avtalets synlighet)
+// och för att se om ett ärende finns när rollen saknar åtkomst (så att nekade försök kan loggas). Inga personuppgifter
+// lämnas ut via ctx.system.
+
+/** Rollerna som når ärendelistan och deltagarkortet (prototypens CASE_ROLES). */
+const CASE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
+/** Chef och systemadmin läser bara. */
+const READ_ONLY: readonly Role[] = ["chef", "admin"];
+/** Flaggor som coach och handledare aldrig ser (eskaleringar till chef, lågt pulsbetyg). */
+const HIDE_FOR_TEAM: readonly AlertKind[] = ["no_progress_escalated", "pulse_low"];
+const SEV_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
+/** Händelser som räknas som arbetsgivarkontakter (prototypens CONTACT_KINDS). */
+const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
+const FOUR_LABEL: [keyof FourRights, string][] = [["uppgift", "Arbetsuppgifter"], ["handledning", "Handledning"], ["timing", "Tidpunkt"], ["uppfoljning", "Uppföljning"]];
+/** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
+const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view"];
+
+const isManager = (role: Role) => role === "samordnare" || role === "avtalsansvarig";
+const cap = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
+const clip = (s: string | null | undefined, n = 90) => (!s ? "" : s.length > n ? `${s.slice(0, n - 1)}…` : s);
+/** Datum utan år om det är innevarande år (prototypens fd). */
+const fd = (s: string | null | undefined, today: string) => (!s ? "–" : String(s).slice(0, 4) === today.slice(0, 4) ? fmtDateShort(s) : fmtDate(s));
+const summary = (s: AttendanceStats): AttendanceSummary => ({
+  planned: s.planned, present: s.present, late: s.late, absentValid: s.absentValid, absentInvalid: s.absentInvalid, unregistered: s.unregistered, rate: s.rate,
+});
+/** Namnet för rollen. Skyddade ärenden visar "Skyddade personuppgifter" även när rollen inte får läsa personen. */
+const nameFor = (c: Case, person: Pick<Person, "firstName" | "lastName"> | null | undefined, access: ReturnType<typeof caseAccessIn>) =>
+  access === "restricted" ? "Skyddade personuppgifter" : displayName(c, person, access);
+const activityView = (a: Activity) => ({ id: a.id, kind: a.kind, startsAt: a.startsAt, location: a.location });
+/** De fyra senaste hela ISO-veckorna (prototypens last4Weeks). */
+function last4Weeks(today: string) {
+  const from = addDays(monday(today), -28);
+  const to = addDays(monday(today), -1);
+  return { from, to, label: `v. ${isoWeek(from).week}–${isoWeek(to).week}` };
+}
+
+/** Avtalets driftkonfiguration och domänmiljön (klocka, interna regler). */
+async function envFor(ctx: Ctx, contractId: string): Promise<{ contract: Contract; cfg: OperationalConfig; env: DomainEnv }> {
+  const { contract, cfg } = await contractOf(ctx, contractId);
+  return { contract, cfg, env: domainEnv(contract, await orgSettingsFor(ctx, contract), ctx.now()) };
+}
+
+/**
+ * Uppslagen som behörigheten bygger på för ärendena (skyddad person, team, handläggarens enhet, avtalets synlighet).
+ * ctx.system: samma uppslag som policyn gör utan filter (security definer i Postgres). Bara flaggor och id:n används.
+ */
+async function accessSourceFor(ctx: Ctx, cases: readonly Pick<Case, "id" | "personId" | "referrerId" | "contractId">[]): Promise<AccessSource> {
+  const personIds = [...new Set(cases.map((c) => c.personId))];
+  const caseIds = cases.map((c) => c.id);
+  const referrerIds = [...new Set(cases.map((c) => c.referrerId).filter((x): x is string => !!x))];
+  const contractIds = [...new Set(cases.map((c) => c.contractId))];
+  const [persons, team, profiles, contracts] = await Promise.all([
+    personIds.length ? ctx.system.table("persons").list({ id: { in: personIds } }) : [],
+    caseIds.length ? ctx.system.table("case_team").list({ caseId: { in: caseIds } }) : [],
+    referrerIds.length ? ctx.system.table("profiles").list({ id: { in: referrerIds } }) : [],
+    contractIds.length ? ctx.system.table("contracts").list({ id: { in: contractIds } }) : [],
+  ]);
+  return accessIndex({
+    persons: persons.map((p) => ({ ...p, firstName: "", lastName: "", personnummerEnc: "", phone: "", email: "", address: null })),
+    case_team: team, profiles, contracts,
+  });
+}
+
+/** Flaggor för rollen (prototypens alertsFor): coach och handledare ser aldrig eskaleringar till chef. */
+function flagsFor(db: AlertDb, ctx: Ctx, env: DomainEnv): AlertItem[] {
+  const role = ctx.actor.role;
+  const xs = alerts(db, { role, personaId: ctx.actor.userId }, env);
+  return role === "coach" || role === "handledare" ? xs.filter((a) => !HIDE_FOR_TEAM.includes(a.kind)) : xs;
+}
+function flagView(a: AlertItem, caseId: string | null): CaseFlag {
+  const same = caseId && a.link.view === "arende.kort" && a.link.params.caseId === caseId ? { tab: a.link.params.tab ?? null } : null;
+  return { key: a.key, kind: a.kind, severity: a.severity, title: a.title, text: a.text, href: a.href, sameCase: same, view: a.link.view };
+}
+
+/** Kunder (kommunens användare) – meddelanden från dem räknas som "från kommunen". */
+async function customerUserIds(ctx: Ctx): Promise<Set<string>> {
+  const [orgs, profiles] = await Promise.all([ctx.repo.table("organizations").list({ kind: "customer" }), ctx.repo.table("profiles").list()]);
+  const ids = new Set(orgs.map((o) => o.id));
+  return new Set(profiles.filter((p) => ids.has(p.organizationId)).map((p) => p.id));
+}
+
+/** Olästa meddelanden från kommunen till den inloggade (chef och systemadmin markerar inget som läst). */
+function unreadCount(msgs: readonly Message[], role: Role, me: string, fromCustomer: Set<string>): number {
+  if (READ_ONLY.includes(role)) return 0;
+  return msgs.filter((m) => fromCustomer.has(m.senderId) && !m.readBy.includes(me)).length;
+}
+
+/** Deltagarens personnummer som det skrevs (minnesläget). Produktion: dekryptering via adaptern (AES-256-GCM). */
+function decodePnr(p: Pick<Person, "personnummerEnc">): string {
+  try {
+    return decodeTestPnr(p.personnummerEnc);
+  } catch {
+    return "";
+  }
+}
+/** Maskerat personnummer som prototypens MaskedPnr: "••••••••-9545" (bara de fyra sista siffrorna syns). */
+function maskedPnr(p: Pick<Person, "personnummerEnc" | "personnummerLast4">): string | null {
+  if (!p.personnummerEnc && !p.personnummerLast4) return null;
+  const pnr = decodePnr(p);
+  if (!pnr) return `••••••••-${p.personnummerLast4}`;
+  return `${pnr.slice(0, pnr.length - 4).replace(/\d/g, "•")}${p.personnummerLast4}`;
+}
+
+/** "inom en vecka från beställningen" (avtalets tidsgräns för första mötet). */
+function firstMeetingText(cfg: OperationalConfig): string {
+  const days = firstMeetingDays(cfg);
+  if (!days) return "så snart som möjligt efter beställningen";
+  const t = days % 7 === 0 ? (days === 7 ? "en vecka" : `${days / 7} veckor`) : `${days} dagar`;
+  return `inom ${t} från beställningen`;
+}
+
+type Loaded = {
+  c: Case;
+  access: "full" | "team";
+  cfg: OperationalConfig;
+  env: DomainEnv;
+  contract: Contract;
+  today: string;
+  role: Role;
+  me: string;
+  team: boolean;
+  edit: boolean;
+};
+
+/** Ärendet med rollens åtkomst. null = finns inte, rollen saknar åtkomst eller fliken visas inte för rollen. */
+async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded | null> {
+  const c = await ctx.repo.table("cases").get(caseId);
+  if (!c) return null;
+  const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
+  if (access !== "full" && access !== "team") return null;
+  const team = access === "team";
+  if (tab && team && !(TEAM_TABS as readonly string[]).includes(tab)) return null;
+  const { contract, cfg, env } = await envFor(ctx, c.contractId);
+  const role = ctx.actor.role;
+  const me = ctx.actor.userId;
+  const edit = access === "full" && (isManager(role) || (role === "coach" && c.leadCoachId === me));
+  return { c, access, cfg, env, contract, today: dayOf(env.now), role, me, team, edit };
+}
+
+/** Tabeller för flaggorna (prototypens sel.alerts). */
+const ALERT_TABLES = [
+  "cases", "activities", "attendance", "check_ins", "placements", "reports", "price_items", "buyer_references", "invoice_drafts", "billing_runs",
+  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles",
+] as const;
+
+// ---------------------------------------------------------------- arenden.lista
+handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel> => {
+  const role = ctx.actor.role;
+  const me = ctx.actor.userId;
+  const db = await loadDb(ctx.repo, [...ALERT_TABLES, "memberships", "contract_areas", "messages", "persons"]);
+  const src = await accessSourceFor(ctx, db.cases);
+  const fromCustomer = await customerUserIds(ctx);
+  const contracts = (await ctx.repo.table("contracts").list()).filter((x) => x.status === "active" && isOperational(x.config));
+  const main = contracts.find((x) => ctx.actor.contractIds.includes(x.id)) ?? contracts[0];
+  const today = dayOf(ctx.now());
+  const w4 = last4Weeks(today);
+
+  // Flaggor per avtal (varje avtal har sin konfiguration).
+  const flagsByCase = new Map<string, AlertItem[]>();
+  const envs = new Map<string, DomainEnv>();
+  for (const k of contracts) {
+    if (!db.cases.some((c) => c.contractId === k.id)) continue;
+    const { env } = await envFor(ctx, k.id);
+    envs.set(k.id, env);
+    for (const a of flagsFor(scopeToContract(db, k.id), ctx, env)) {
+      if (!a.caseId) continue;
+      const l = flagsByCase.get(a.caseId);
+      if (l) l.push(a);
+      else flagsByCase.set(a.caseId, [a]);
+    }
+  }
+  const persons = byId(db.persons);
+  const msgsByCase = groupedBy(db.messages, "caseId", (m) => m.caseId);
+
+  const rows: CaseListRow[] = db.cases.map((c) => {
+    const access = caseAccessIn(c, ctx.actor, src);
+    const restricted = access === "restricted";
+    const person = persons.get(c.personId) ?? null;
+    const prot = restricted || !!person?.protectedIdentity;
+    const flags = flagsByCase.get(c.id) ?? [];
+    const closed = c.status === "closed" || c.status === "declined";
+    const base = {
+      id: c.id, caseNumber: c.caseNumber, status: c.status, referredAt: c.referredAt, endSortKey: closed ? "z" : c.plannedEnd || "y", restricted,
+      displayName: nameFor(c, person, access), protectedIdentity: prot, flagged: flags.length > 0,
+      flagRank: Math.min(9, ...flags.map((a) => SEV_RANK[a.severity] ?? 9)),
+    };
+    if (restricted) return { ...base, detail: null };
+    const env = envs.get(c.contractId);
+    const cfg = env?.cfg;
+    const latest = latestCheckIn(db, c.id);
+    return {
+      ...base,
+      detail: {
+        areaCode: c.primaryAreaCode, areaName: areaName(db.contract_areas.filter((a) => a.contractId === c.contractId), c.primaryAreaCode), vocationalTrack: c.vocationalTrack,
+        phase: c.phase, phaseName: cfg ? phaseName(cfg, c.phase) : "", leadCoachId: c.leadCoachId, leadCoachName: c.leadCoachId ? personName(db.profiles, c.leadCoachId) : null,
+        start: c.startDate || c.firstMeetingAt || c.desiredStart, startNote: c.startDate ? null : c.firstMeetingAt ? "planerad start" : "önskad start",
+        end: c.endDate || c.plannedEnd,
+        latest: latest ? { overallStatus: latest.overallStatus, heldAt: latest.heldAt } : null,
+        attendance: summary(attendanceStats(db, c.id, w4.from, w4.to, { now: ctx.now() })),
+        flags: flags.map((a) => flagView(a, c.id)),
+        unread: access === "full" ? unreadCount(msgsByCase.get(c.id) ?? [], role, me, fromCustomer) : 0,
+      },
+    };
+  });
+
+  const cfg = main && isOperational(main.config) ? main.config : null;
+  const customer = main ? await ctx.repo.table("organizations").get(main.customerId) : null;
+  return {
+    customerName: customer?.name ?? "",
+    today,
+    weeks: w4,
+    coaches: main ? coaches(db, main.id).map((u) => ({ id: u.id, name: u.fullName })) : [],
+    areas: db.contract_areas.filter((a) => a.contractId === main?.id).map((a) => ({ code: a.code, name: a.name })),
+    phases: cfg ? cfg.phases.map((p) => ({ no: p.no, name: p.name })) : [],
+    rows,
+  };
+});
+
+// ---------------------------------------------------------------- arenden.kort (huvudet och det som delas av flikarna)
+handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardResult> => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) {
+    // ctx.system: finns ärendet? Bara ja eller nej – så att "Du saknar åtkomst" kan visas och försöket loggas.
+    const exists = await ctx.system.table("cases").get(p.caseId);
+    return exists ? { kind: "denied", restricted: false, caseNumber: null, status: null } : { kind: "not_found" };
+  }
+  const src = await accessSourceFor(ctx, [c]);
+  const access = caseAccessIn(c, ctx.actor, src);
+  if (access !== "full" && access !== "team") {
+    return { kind: "denied", restricted: access === "restricted", caseNumber: access === "restricted" ? c.caseNumber : null, status: access === "restricted" ? c.status : null };
+  }
+  const L = (await loadCase(ctx, c.id))!;
+  const { cfg, env, today, role, me, team, edit } = L;
+  const now = env.now;
+  const byCase = { caseId: c.id };
+  const db = await loadDb(ctx.repo, [...ALERT_TABLES, "case_team", "messages", "deviations", "consents", "contract_areas", "memberships"], {
+    activities: byCase, attendance: byCase, check_ins: byCase, placements: byCase, reports: byCase, invoice_drafts: byCase, billing_week_approvals: byCase,
+    pulse_responses: byCase, inbound_emails: byCase, case_team: byCase, messages: byCase, deviations: byCase, consents: byCase,
+  });
+  // Flaggor för ärendet: bara ärendets rader behövs (flaggorna per ärende räknas på ärendets egna data).
+  const caseDb = { ...db, cases: db.cases.filter((x) => x.id === c.id) };
+  const flags = flagsFor(caseDb, ctx, env).filter((a) => a.caseId === c.id).map((a) => flagView(a, c.id));
+  const person = await ctx.repo.table("persons").get(c.personId);
+  const prot = !!person?.protectedIdentity;
+  const areas = db.contract_areas.filter((a) => a.contractId === c.contractId);
+  const referrerProfile = c.referrerId ? db.profiles.find((x) => x.id === c.referrerId) ?? null : null;
+  const teamRows = db.case_team.filter((t) => t.caseId === c.id);
+  const fromCustomer = await customerUserIds(ctx);
+  const cons = consentOf(db, c.id);
+  const due = firstMeetingDue(c, cfg);
+  const active = c.status !== "closed" && c.status !== "declined";
+  const manage = isManager(role) && access === "full";
+
+  // Kommunens roll för perspektivbytet (bara prototypen): beställande handläggare om hon är prototypens handläggare,
+  // annars kommunens chef om chefen ser ärendet. ctx.system: bara medlemskap och enhet för prototypens testpersoner.
+  let customerRole: CaseCard["customerRole"] = null;
+  for (const def of PROTOTYPE_ROLES.filter((r) => r.key === "kommun_handlaggare" || r.key === "kommun_chef")) {
+    if (!def.personaId) continue;
+    const ms = await ctx.system.table("memberships").list({ userId: def.personaId, role: def.key });
+    if (!ms.length) continue;
+    const prof = await ctx.system.table("profiles").get(def.personaId);
+    const actor = { userId: def.personaId, role: def.key, contractIds: ms.map((m) => m.contractId), customerUnit: ms[0].customerUnit ?? prof?.customerUnit ?? null };
+    if (caseAccessIn(c, actor, src) === "customer") {
+      customerRole = def.key as "kommun_handlaggare" | "kommun_chef";
+      break;
+    }
+  }
+
+  const lead = teamRows.find((t) => t.role === "lead_coach");
+  const myTeam = teamRows.find((t) => t.userId === me);
+  const price = priceFor(db.price_items, c.primaryAreaCode, c.startDate || today, c.contractId);
+  return {
+    kind: "ok",
+    now,
+    caseId: c.id,
+    caseNumber: c.caseNumber,
+    displayName: displayName(c, person, access),
+    access,
+    edit,
+    manage,
+    readOnly: READ_ONLY.includes(role),
+    protectedIdentity: prot,
+    status: c.status,
+    phase: c.phase,
+    phaseName: phaseName(cfg, c.phase),
+    phaseCount: cfg.phases.length,
+    phaseSince: c.startDate && c.status === "active" ? phaseSince(c, db) : null,
+    stuck: stuck(c, db, env),
+    areaName: areaName(areas, c.primaryAreaCode),
+    secondaryAreaName: c.secondaryAreaCode ? areaName(areas, c.secondaryAreaCode) : null,
+    vocationalTrack: c.vocationalTrack,
+    referredAt: c.referredAt,
+    sourceText: SOURCE_TEXT[c.source] ?? c.source,
+    startDate: c.startDate,
+    firstMeetingAt: c.firstMeetingAt,
+    plannedEnd: c.plannedEnd,
+    endDate: c.endDate,
+    endReasonLabel: c.endReason ? endReasonLabel(c.endReason) : null,
+    resultPrelim: c.resultClass === "result" && !c.resultVerifiedAt,
+    order: team ? null : { weeks: c.orderValueWeeks || c.plannedWeeks, priceOre: price },
+    pnr: person ? { masked: maskedPnr(person), canReveal: access === "full", hidden: false } : { masked: null, canReveal: false, hidden: true },
+    contactText: prot ? "Telefon enligt den säkra rutinen. Inga SMS eller mejl." : contactLabel(person?.preferredContact ?? ""),
+    contactLabel: prot || !person ? null : contactLabel(person.preferredContact),
+    languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
+    language: person?.language ?? "",
+    accessibilityNeeds: person?.accessibilityNeeds || "Inga behov angivna",
+    referrer: referrerProfile
+      ? { name: referrerProfile.fullName, title: referrerProfile.title, unit: referrerProfile.customerUnit ?? "", email: referrerProfile.email }
+      : c.referrerName ? { name: c.referrerName, title: "", unit: c.referrerUnit ?? "", email: c.referrerEmail ?? "" } : null,
+    buyer: team ? null : {
+      reference: c.buyerReference,
+      problem: c.buyerReference ? buyerRefProblem(c, db, cfg) : null,
+      purchaseOrderNumber: c.purchaseOrderNumber,
+    },
+    leadCoach: c.leadCoachId ? { id: c.leadCoachId, name: personName(db.profiles, c.leadCoachId) } : null,
+    team: teamRows.filter((t) => t.role !== "lead_coach").map((t) => ({ userId: t.userId, name: personName(db.profiles, t.userId), roleLabel: teamLabel(t.role) })),
+    hasLeadInTeam: !!lead,
+    myTeamRoleLabel: team ? teamLabel(myTeam?.role ?? "") : null,
+    location: c.location,
+    flags,
+    unread: READ_ONLY.includes(role) || team ? 0 : unreadCount(db.messages, role, me, fromCustomer),
+    openDeviations: db.deviations.filter((x) => x.status === "open").length,
+    consent: team ? null : {
+      value: prot ? "not_applicable" : c.aiConsentStatus || "not_asked",
+      givenAt: cons?.givenAt ?? null,
+      informedByName: cons ? personName(db.profiles, cons.informedBy) : null,
+      textVersion: cons?.textVersion ?? null,
+      language: cons?.language ?? null,
+      revokedAt: cons?.revokedAt ?? null,
+    },
+    firstMeeting: { dueAt: due, sla: due ? pickSla(slaStatus(due, null, env)) : null, withinText: firstMeetingText(cfg) },
+    keyPersonnelChangeRequiresApproval: !!cfg.keyPersonnelChangeRequiresApproval,
+    customerSeesCoachNotes: cfg.customerVisibility.seesCoachNotes !== false,
+    customerRole,
+    coachOptions: manage && active && c.leadCoachId
+      ? await coachOptionsFor(ctx, c)
+      : [],
+  };
+});
+
+const pickSla = (s: { label: string; tone: SlaTone }) => ({ label: s.label, tone: s.tone });
+
+/** Coacher att byta till med antal aktiva ärenden (prototypens CoachModal). */
+async function coachOptionsFor(ctx: Ctx, c: Case): Promise<CaseCard["coachOptions"]> {
+  const [profiles, memberships, cases] = await Promise.all([
+    ctx.repo.table("profiles").list(), ctx.repo.table("memberships").list({ contractId: c.contractId }), ctx.repo.table("cases").list({ status: "active" }),
+  ]);
+  return coaches({ profiles, memberships }, c.contractId)
+    .filter((u) => u.id !== c.leadCoachId)
+    .map((u) => ({ id: u.id, name: u.fullName, active: cases.filter((x) => x.leadCoachId === u.id).length }));
+}
+
+// ---------------------------------------------------------------- Flik: Översikt
+handleQuery(caseOverview, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseOverview | null> => {
+  const L = await loadCase(ctx, p.caseId, "oversikt");
+  if (!L) return null;
+  const { c, team, today, env } = L;
+  const now = env.now;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["activities", "attendance", "check_ins", "placements", "employers"], { activities: q, attendance: q, check_ins: q, placements: q });
+  const acts = activitiesOf(db, c.id);
+  const nm = acts.find((a) => a.kind === "möte" && a.startsAt >= now);
+  const nextMeeting = nm
+    ? { startsAt: nm.startsAt, first: false, location: nm.location }
+    : c.firstMeetingAt && c.firstMeetingAt >= now ? { startsAt: c.firstMeetingAt, first: true, location: `Miljonbemanning ${c.location || ""}`.trim() } : null;
+  const lc = team ? null : latestCheckIn(db, c.id);
+  const drafts = team ? [] : checkInsOf(db, c.id).filter((x) => x.status === "draft");
+  const w4 = last4Weeks(today);
+  const limit = `${addDays(today, 14)}T23:59`;
+  const pl = placementsOf(db, c.id).find((x) => x.status === "ongoing");
+  const emp = pl ? db.employers.find((e) => e.id === pl.employerId) : null;
+  return {
+    nextMeeting,
+    closed: c.status === "closed" || c.status === "declined",
+    latest: lc ? { overallStatus: lc.overallStatus, heldAt: lc.heldAt, mode: lc.mode, goalStatus: lc.goalStatus, nextGoal: lc.nextGoal, note: lc.note } : null,
+    drafts: { count: drafts.length, ai: drafts.some((x) => !!x.ai) },
+    weeksLabel: w4.label,
+    attendance: summary(attendanceStats(db, c.id, w4.from, w4.to, env)),
+    upcoming: acts.filter((a) => a.startsAt >= now && a.startsAt <= limit && (!team || a.kind !== "möte")).map(activityView),
+    placement: pl ? { employerName: emp?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, supervisorName: pl.supervisorName, fourRights: pl.fourRights ?? null } : null,
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Kartläggning
+handleQuery(caseIntake, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseIntake | null> => {
+  const L = await loadCase(ctx, p.caseId, "kartlaggning");
+  if (!L) return null;
+  const { c, env } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["intake_assessments", "check_ins", "placements", "profiles"], { intake_assessments: q, check_ins: q, placements: q });
+  const ia = intakeOf(db, c.id);
+  return {
+    intake: ia ? {
+      workExperience: ia.workExperience, education: ia.education, languageNotes: ia.languageNotes, digitalSkills: ia.digitalSkills, drivingLicence: ia.drivingLicence,
+      workGoals: ia.workGoals, chosenTrack: ia.chosenTrack, adaptations: ia.adaptations, firstWeekGoal: ia.firstWeekGoal, approved: ia.status === "approved",
+      approvedAt: ia.approvedAt, approvedByName: ia.approvedBy ? personName(db.profiles, ia.approvedBy) : null,
+    } : null,
+    stuck: stuck(c, db, env),
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Avstämningar
+handleQuery(caseCheckIns, { roles: CASE_ROLES }, async (ctx, p) => {
+  const L = await loadCase(ctx, p.caseId, "avstamningar");
+  if (!L) return null;
+  const db = await loadDb(ctx.repo, ["check_ins"], { check_ins: { caseId: L.c.id } });
+  return {
+    checkIns: checkInsOf(db, L.c.id).map((x) => ({
+      id: x.id, heldAt: x.heldAt, mode: x.mode, goalStatus: x.goalStatus, phase: x.phase, overallStatus: x.overallStatus, obstacles: x.obstacles, note: x.note,
+      approved: x.status === "approved", ai: !!x.ai,
+    })),
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Närvaro
+handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseAttendance | null> => {
+  const L = await loadCase(ctx, p.caseId, "narvaro");
+  if (!L) return null;
+  const { c, today, env, cfg } = L;
+  const now = env.now;
+  const w4 = last4Weeks(today);
+  const reg = slaRule(cfg, "veckorapport_registrering");
+  const registerBy = reg?.time ? `${WEEKDAYS[reg.weekday ?? 0]} ${reg.time.replace(":", ".")}` : null;
+  if (!c.startDate) {
+    const empty = summary(attendanceStats({ activities: [], attendance: [] }, c.id, today, today, env));
+    return { started: false, weeks: [], total: { ...empty, reasons: [] }, last4: empty, weeksLabel: w4.label, repeated: null, past: [], registerBy };
+  }
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["activities", "attendance"], { activities: q, attendance: q });
+  const acts = activitiesOf(db, c.id);
+  const endDay = c.endDate && c.endDate < today ? c.endDate : today;
+  const weeks: CaseAttendanceWeek[] = [];
+  for (let mon = monday(c.startDate); mon <= endDay; mon = addDays(mon, 7)) {
+    const w = isoWeek(mon);
+    const sun = addDays(mon, 6);
+    weeks.push({
+      key: w.key, paused: c.pausedWeeks.includes(w.key), stats: summary(attendanceStats(db, c.id, mon, sun, env)),
+      future: acts.filter((a) => a.startsAt >= now && a.startsAt <= `${sun}T23:59` && a.startsAt >= mon).length,
+    });
+  }
+  weeks.reverse();
+  const total = attendanceStats(db, c.id, c.startDate, endDay, env);
+  const rep = repeatedAbsence(db, c.id, env);
+  const rule = cfg.attendance.repeatedAbsenceRule;
+  return {
+    started: true,
+    weeks,
+    total: { ...summary(total), reasons: Object.entries(total.reasons) },
+    last4: summary(attendanceStats(db, c.id, w4.from, w4.to, env)),
+    weeksLabel: w4.label,
+    repeated: rep ? { dates: rep.map((x) => x.registeredAt), absentInvalid: rule.absentInvalid, withinDays: rule.withinDays } : null,
+    past: acts.filter((a) => a.startsAt < now).slice(-10).reverse().map((a) => {
+      const at = attendanceFor(db, a.id);
+      return { ...activityView(a), attendance: at ? { status: at.status, reason: at.reason } : null };
+    }),
+    registerBy,
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Månadsbedömning
+handleQuery(caseAssessments, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseAssessments | null> => {
+  const L = await loadCase(ctx, p.caseId, "manad");
+  if (!L) return null;
+  const { c, cfg, today } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["monthly_assessments", "monthly_plans", "reports"], { monthly_assessments: q, monthly_plans: q, reports: q });
+  const prog = cfg.progression;
+  const lastMonth = addMonths(monthKey(today), -1);
+  const lv = Object.keys(prog.scale || {}).map(Number).filter((x) => !Number.isNaN(x)).sort((a, b) => a - b);
+  const minL = lv.length ? lv[0] : 0;
+  const maxL = lv.length ? lv[lv.length - 1] : 3;
+  const m = String(prog.statDefinition?.clear ?? "").match(/>=\s*(\d+)/);
+  const clearFrom = Number(m?.[1] || Math.min(2, maxL));
+  const scale = prog.scale as Record<string, string>;
+  const lower = (x: number) => String(scale[String(x)] || "").toLowerCase();
+  const reps = reportsOf(db, c.id).filter((r) => r.kind === "monthly" && !r.superseded);
+  return {
+    list: assessmentsOf(db, c.id).map((ma) => {
+      const approved = ma.status === "approved";
+      const plan = planOf(db, c.id, ma.month);
+      const rep = reps.filter((r) => r.month === ma.month).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
+      return {
+        id: ma.id, month: ma.month, approved, overallStatus: approved ? ma.overallStatus : null,
+        clear: Object.values(ma.areas || {}).filter((a) => a.level != null && a.level >= clearFrom).length, summary: ma.summary,
+        planGoals: approved && plan ? [plan.goal1, plan.goal2].filter(Boolean) : [],
+        report: rep ? { id: rep.id, statusLabel: reportStatusLabel(rep.status), opened: !!rep.openedAt } : null,
+      };
+    }),
+    missingMonth: c.status === "active" && c.startDate && c.startDate <= monthEnd(lastMonth) && !assessmentFor(db, c.id, lastMonth) ? lastMonth : null,
+    nAreas: prog.areas.length,
+    scale: { min: minL, max: maxL },
+    observationFromLevel: prog.observationRequiredFromLevel,
+    clearLabel: clearFrom >= maxL ? lower(maxL) : `${lower(clearFrom)} eller ${lower(maxL)}`,
+    clearRange: clearFrom >= maxL ? `nivå ${maxL}` : `nivå ${clearFrom}–${maxL}`,
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Händelser och utfall
+handleQuery(caseEvents, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseEvents | null> => {
+  const L = await loadCase(ctx, p.caseId, "handelser");
+  if (!L) return null;
+  const { c, cfg, team } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["outcome_events", "check_ins"], { outcome_events: q, check_ins: q });
+  const ev = eventsOf(db, c.id);
+  const shown = team ? ev.filter((e) => CONTACT_KINDS.includes(e.kind) || e.kind === "praktik_startad") : ev;
+  return {
+    events: shown.map((e) => ({
+      id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, note: e.note, verificationKind: e.verificationKind,
+      needsVerification: (e.kind === "arbete_paborjat" || e.kind === "studier_paborjade") && !e.verificationKind, possibleBonus: !team && e.possibleBonus,
+    })),
+    checkInContacts: checkInContacts(db, c.id),
+    result: team ? null : c.status === "closed" ? { endDate: c.endDate, endReasonLabel: endReasonLabel(c.endReason), resultClass: c.resultClass, verifiedAt: c.resultVerifiedAt } : null,
+    resultDefinitionUnset: isUnset(cfg.result.definition),
+    prototypeDefinition: cfg.result.prototypeDefinition ?? null,
+    bonusEnabled: !!cfg.bonus.enabled,
+  };
+});
+
+/** Arbetsgivarkontakter i godkända avstämningar ("2+" räknas som 2). */
+function checkInContacts(db: Pick<Db, "check_ins">, caseId: string): number {
+  return checkInsOf(db, caseId).filter((x) => x.status === "approved").reduce((s, x) => {
+    const n = x.employerContacts?.count;
+    return s + (n === "2+" ? 2 : Number(n) || 0);
+  }, 0);
+}
+
+// ---------------------------------------------------------------- Flik: Avvikelser
+handleQuery(caseDeviations, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseDeviations | null> => {
+  const L = await loadCase(ctx, p.caseId, "avvikelser");
+  if (!L) return null;
+  const { c, env, cfg, today, me } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["deviations", "activities", "attendance", "profiles", "memberships"], { deviations: q, activities: q, attendance: q, memberships: { contractId: c.contractId } });
+  const rep = repeatedAbsence(db, c.id, env);
+  const ownerRoles: readonly Role[] = ["coach", "samordnare", "avtalsansvarig", "handledare"];
+  const ownerIds = new Set(db.memberships.filter((m) => ownerRoles.includes(m.role)).map((m) => m.userId));
+  return {
+    deviations: deviationsOf(db, c.id).map((dv) => {
+      const open = dv.status === "open";
+      const dueAt = dv.followUpOn ? `${dv.followUpOn}T${env.org.alerts.followUpDueTime}` : null;
+      return {
+        id: dv.id, createdAt: dv.createdAt, description: dv.description, assessment: dv.assessment, action: dv.action,
+        ownerName: dv.ownerId ? personName(db.profiles, dv.ownerId) : null, followUpOn: dv.followUpOn, needsCustomerDecision: dv.needsCustomerDecision,
+        followUpMeetingAt: dv.followUpMeetingAt, open, fromCheckIn: !!dv.checkInId,
+        due: open && dueAt ? { dueAt, sla: pickSla(slaStatus(dueAt, null, env)) } : null,
+      };
+    }),
+    repeated: rep ? { count: rep.length, withinDays: cfg.attendance.repeatedAbsenceRule.withinDays } : null,
+    owners: db.profiles.filter((u) => ownerIds.has(u.id) && u.active !== false).map((u) => ({ id: u.id, label: `${u.fullName} – ${u.title}` })),
+    defaultOwnerId: c.leadCoachId || me,
+    defaultFollowUpOn: addWorkingDays(today, 5),
+    defaultCallAt: `${addWorkingDays(today, 2)}T10:00`,
+    today,
+    now: env.now,
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Praktik
+handleQuery(casePlacements, { roles: CASE_ROLES }, async (ctx, p): Promise<CasePlacements | null> => {
+  const L = await loadCase(ctx, p.caseId, "praktik");
+  if (!L) return null;
+  const { c, today } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["placements", "employers", "outcome_events", "check_ins"], { placements: q, outcome_events: q, check_ins: q });
+  const emp = byId(db.employers);
+  return {
+    placements: placementsOf(db, c.id).slice().sort(by("startsOn", -1)).map((pl) => {
+      const e = emp.get(pl.employerId);
+      return {
+        id: pl.id, employerName: e?.name ?? null, contactName: e?.contactName ?? null, phone: e?.phone ?? null, status: pl.status, startsOn: pl.startsOn, endsOn: pl.endsOn,
+        tasks: pl.tasks, goals: pl.goals, supervisorName: pl.supervisorName, followUpDates: pl.followUpDates ?? [],
+        fourRights: pl.fourRights ?? { uppgift: false, handledning: false, timing: false, uppfoljning: false },
+      };
+    }),
+    contacts: eventsOf(db, c.id).filter((e) => CONTACT_KINDS.includes(e.kind)).map((e) => ({ id: e.id, actor: e.actor, label: eventLabel(e.kind), occurredOn: e.occurredOn })),
+    checkInContacts: checkInContacts(db, c.id),
+    phase: c.phase,
+    today,
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Rapporter
+handleQuery(caseReports, { roles: CASE_ROLES }, async (ctx, p) => {
+  const L = await loadCase(ctx, p.caseId, "rapporter");
+  if (!L) return null;
+  const { c, env, today } = L;
+  const db = await loadDb(ctx.repo, ["reports"], { reports: { caseId: c.id } });
+  const all = byId(db.reports);
+  return {
+    reports: reportsOf(db, c.id).filter((r) => !r.superseded).map((r): CaseReportRow => {
+      const nv = r.correctionPending ? all.get(r.correctionPending) : null;
+      return {
+        id: r.id, kind: r.kind, kindLabel: reportKindLabel(r.kind),
+        periodText: r.month ? cap(monthName(r.month)) : r.kind === "order_confirmation" ? fd(r.periodStart, today) : `${fd(r.periodStart, today)} – ${fd(r.periodEnd, today)}`,
+        version: r.version, status: r.status, statusLabel: reportStatusLabel(r.status), correctionVersion: nv && !nv.deliveredAt ? nv.version : null,
+        dueAt: r.dueAt, sla: r.dueAt ? pickSla(slaStatus(r.dueAt, r.deliveredAt, env)) : null, provisionalDue: r.provisionalDue, deliveredAt: r.deliveredAt, openedAt: r.openedAt,
+      };
+    }),
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Meddelanden
+handleQuery(caseMessages, { roles: CASE_ROLES }, async (ctx, p) => {
+  const L = await loadCase(ctx, p.caseId, "meddelanden");
+  if (!L) return null;
+  const { c, contract } = L;
+  const [msgs, profiles, fromCustomer, supplier, customer] = await Promise.all([
+    ctx.repo.table("messages").list({ caseId: c.id }), ctx.repo.table("profiles").list(), customerUserIds(ctx),
+    ctx.repo.table("organizations").get(contract.supplierId), ctx.repo.table("organizations").get(contract.customerId),
+  ]);
+  return {
+    messages: messagesOf({ messages: msgs }, c.id).map((m) => {
+      const mine = !fromCustomer.has(m.senderId);
+      const by = m.readBy.filter((id) => (mine ? fromCustomer.has(id) : !fromCustomer.has(id)));
+      const readText = mine
+        ? by.length ? `Läst av kommunen ${m.readAt ? fmtDateTime(m.readAt) : ""}`.trim() : "Inte läst av kommunen än"
+        : by.length ? `Läst av ${by.map((id) => personName(profiles, id)).join(", ")}` : "Oläst";
+      return {
+        id: m.id, senderName: personName(profiles, m.senderId), mine, orgName: (mine ? supplier?.name : customer?.name) ?? "", createdAt: m.createdAt,
+        meetingRequest: m.kind === "meeting_request", body: m.body, readText,
+      };
+    }),
+  };
+});
+
+// ---------------------------------------------------------------- Flik: Historik
+/** Händelser i revisionsloggen som text (prototypens AUDIT). */
+const AUDIT_TEXT: Record<string, string> = {
+  "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
+  "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
+  "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
+  "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
+  "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
+  "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
+  "intake.saved": "Kartläggning sparades", "intake.approved": "Kartläggning godkändes", "event.added": "Händelse registrerades", "result.verified": "Resultat verifierades",
+  "attendance.registered": "Närvaro registrerades", "report.approved": "Rapport godkändes", "report.delivered": "Rapport levererades", "report.corrected": "Rapport rättades", "report.view": "Rapport öppnades", "report.published": "Rapport publicerades",
+  "transcript.deleted": "Råtranskript raderades", "ai.run": "AI-körning", "audio.deleted": "Ljudfil raderades", "notify.email": "E-post skickades",
+};
+
+type LogEntry = { id: string; occurredAt: string; actorId: string | null; action: string; entity: string; entityId: string | null; details: Record<string, unknown>; text?: string };
+
+handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHistory | null> => {
+  const L = await loadCase(ctx, p.caseId, "historik");
+  if (!L) return null;
+  const { c, role, me, today } = L;
+  const q = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["case_status_history", "profiles", "reports", "check_ins", "monthly_assessments", "intake_assessments", "messages", "attendance"], {
+    case_status_history: q, reports: q, check_ins: q, monthly_assessments: q, intake_assessments: q, messages: q, attendance: q,
+  });
+  const name = (id: string | null | undefined) => personName(db.profiles, id);
+  // Coach och handledare ser bara statushistoriken och sina egna åtgärder – aldrig andras poster (t.ex. vem som öppnat kortet).
+  const ownOnly = role === "coach" || role === "handledare";
+  const repIds = new Set(db.reports.map((r) => r.id));
+  // Revisionsloggen läses via ctx.repo: behörigheten (policyn/RLS) avgör vilka poster rollen ser.
+  const audit = (await ctx.repo.table("audit_log").list()).filter(
+    (x) => x.entityId === c.id || x.details?.caseId === c.id || (x.entity === "report" && !!x.entityId && repIds.has(x.entityId)) || (x.entity === "person" && x.entityId === c.personId),
+  );
+  const auditOwn: LogEntry[] = ownOnly ? audit.filter((x) => x.actorId === me && !VIEW_ACTIONS.includes(x.action)) : audit;
+  const log = (ownOnly ? [...auditOwn, ...ownActions(db, c, me, auditOwn, today)] : auditOwn).slice().sort(by<LogEntry>("occurredAt", -1));
+
+  const detailText = (x: LogEntry): string => {
+    const dt = x.details ?? {};
+    const s = (v: unknown) => (typeof v === "string" ? v : "");
+    if (x.action === "case.coach_changed") return `${name(s(dt.from))} → ${name(s(dt.to))}. Orsak: ${s(dt.reason) || "–"}`;
+    if (dt.reason) return String(dt.reason);
+    if (dt.status && x.entity === "attendance") return attLabel(s(dt.status));
+    if (dt.at) return fmtDateTimeLong(s(dt.at));
+    if (dt.kind) return reportKindLabel(s(dt.kind)) !== dt.kind ? reportKindLabel(s(dt.kind)) : eventLabel(s(dt.kind));
+    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.join(", ")}`;
+    return "";
+  };
+  return {
+    ownOnly,
+    items: historyOf(db, c.id).map((h): CaseHistoryItem => {
+      const coachChange = !!h.fromCoach && !!h.toCoach && h.fromCoach !== h.toCoach;
+      const reason = (END_REASONS as readonly string[]).includes(h.reason) ? endReasonLabel(h.reason) : h.reason;
+      return {
+        id: h.id,
+        icon: coachChange ? "users" : h.toStatus === "closed" ? "check-square" : h.toStatus === "declined" ? "x-circle" : h.toStatus === "confirmed" ? "check" : "inbox",
+        filled: h.toStatus === "closed", red: h.toStatus === "declined",
+        title: coachChange ? `Huvudcoach bytt: ${name(h.fromCoach)} → ${name(h.toCoach)}` : `${h.fromStatus && h.fromStatus !== h.toStatus ? `${statusLabel(h.fromStatus)} → ` : ""}${statusLabel(h.toStatus)}`,
+        sub: `${fmtDateTime(h.changedAt)} · ${name(h.changedBy)}`,
+        reason: reason || null,
+        customerNotifiedAt: h.customerNotifiedAt,
+        leadCoachName: !coachChange && h.toCoach && h.toStatus === "confirmed" ? name(h.toCoach) : null,
+      };
+    }),
+    log: log.map((x) => ({ id: x.id, occurredAt: x.occurredAt, actorName: name(x.actorId), text: AUDIT_TEXT[x.action] || x.action, sub: clip(x.text || detailText(x), 90) })),
+  };
+});
+
+/**
+ * Coachens och handledarens egna åtgärder: det personen själv har godkänt, skickat eller registrerat (testdatat har ingen
+ * revisionslogg för äldre händelser). Dubbletter mot revisionsloggen tas bort (prototypens ownActions).
+ */
+function ownActions(db: Pick<Db, "check_ins" | "monthly_assessments" | "intake_assessments" | "messages" | "attendance">, c: Case, me: string, auditOwn: LogEntry[], today: string): LogEntry[] {
+  const have = new Set(auditOwn.map((x) => `${x.action}:${x.entityId}`));
+  const haveAt = new Set(auditOwn.map((x) => `${x.action}@${x.occurredAt}`));
+  const out: LogEntry[] = [];
+  const push = (action: string, entityId: string, at: string | null, text: string) => {
+    if (!at || have.has(`${action}:${entityId}`) || haveAt.has(`${action}@${at}`)) return;
+    out.push({ id: `own-${action}-${entityId}`, occurredAt: at, actorId: me, action, entity: "case", entityId, details: {}, text });
+  };
+  for (const x of checkInsOf(db, c.id)) if (x.status === "approved" && x.approvedBy === me) push("check_in.approved", x.id, x.approvedAt, `Avstämningen ${fd(x.heldAt, today)}`);
+  for (const x of assessmentsOf(db, c.id)) if (x.status === "approved" && x.decidedBy === me) push("assessment.approved", x.id, x.decidedAt, cap(monthName(x.month)));
+  const ia = intakeOf(db, c.id);
+  if (ia && ia.status === "approved" && ia.approvedBy === me) push("intake.approved", ia.id, ia.approvedAt, "");
+  for (const m of messagesOf(db, c.id)) if (m.senderId === me) push("message.sent", m.id, m.createdAt, m.kind === "meeting_request" ? "Kallelse till uppföljning" : clip(m.body, 60));
+  const att = groupBy(db.attendance.filter((a) => a.caseId === c.id && a.registeredBy === me && a.registeredAt && !have.has(`attendance.registered:${a.id}`)), (a) => a.registeredAt.slice(0, 10));
+  for (const [day, xs] of Object.entries(att)) {
+    const at = xs.map((a) => a.registeredAt).sort().pop() as string;
+    out.push({ id: `own-att-${day}`, occurredAt: at, actorId: me, action: "attendance.registered", entity: "attendance", entityId: null, details: {}, text: plural(xs.length, "tillfälle", "tillfällen") });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- arenden.visaPersonnummer
+handleCommand(caseRevealPnr, { roles: CASE_ROLES, silent: true }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) return fail("not_found", NOT_FOUND);
+  const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
+  if (access !== "full") return fail("forbidden", "Din roll kan inte visa personnumret.");
+  const person = await ctx.repo.table("persons").get(c.personId);
+  const pnr = person ? decodePnr(person) : "";
+  if (!person || !pnr) return fail("missing", "Personnummer saknas.");
+  await ctx.audit({ action: "pnr.revealed", entity: "person", entityId: person.id, contractId: c.contractId, details: { caseId: c.id } });
+  return ok({ pnr });
+});
+
+// ---------------------------------------------------------------- arenden.handledare (hand.start)
+handleQuery(supervisorStart, { roles: ["handledare"] }, async (ctx): Promise<SupervisorStart> => {
+  const me = ctx.actor.userId;
+  const now = ctx.now();
+  const today = dayOf(now);
+  const db = await loadDb(ctx.repo, ["cases", "case_team", "persons", "activities", "placements", "employers", "outcome_events"]);
+  const src = await accessSourceFor(ctx, db.cases);
+  const persons = byId(db.persons);
+  const emp = byId(db.employers);
+  const teamOf = groupedBy(db.case_team, "caseId", (t) => t.caseId);
+  const mine = db.cases.filter((c) => (teamOf.get(c.id) ?? []).some((t) => t.userId === me));
+  const name = (c: Case) => nameFor(c, persons.get(c.personId), caseAccessIn(c, ctx.actor, src));
+  const envs = new Map<string, OperationalConfig>();
+  for (const id of new Set(mine.map((c) => c.contractId))) envs.set(id, (await contractOf(ctx, id)).cfg);
+  const pagaende = mine.filter((c) => c.status === "active" || c.status === "paused");
+  const start = mine.filter((c) => c.status === "received" || c.status === "acknowledged" || c.status === "confirmed");
+  const avslutade = mine.filter((c) => c.status === "closed");
+  const card = (c: Case): SupervisorCase => {
+    const myRole = (teamOf.get(c.id) ?? []).find((t) => t.userId === me)?.role ?? "";
+    const acts = activitiesOf(db, c.id).filter((a) => a.startsAt >= now && a.kind !== "möte");
+    const pls = placementsOf(db, c.id);
+    const pl = pls.find((x) => x.status === "ongoing") ?? pls.find((x) => x.status === "planned") ?? null;
+    const e = pl ? emp.get(pl.employerId) : undefined;
+    const contacts = eventsOf(db, c.id).filter((x) => CONTACT_KINDS.includes(x.kind));
+    const cfg = envs.get(c.contractId);
+    return {
+      id: c.id, caseNumber: c.caseNumber, status: c.status, displayName: name(c), myRoleLabel: teamLabel(myRole), phase: c.phase, phaseName: cfg ? phaseName(cfg, c.phase) : "",
+      vocationalTrack: c.vocationalTrack, upcoming: acts.slice(0, 3).map(activityView), nextAt: acts[0]?.startsAt ?? null,
+      placement: pl ? { employerName: e?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, fourRights: pl.fourRights ?? null, contactName: e?.contactName ?? null, phone: e?.phone ?? null } : null,
+      contacts: contacts.length,
+      lastContact: contacts[0] ? { occurredOn: contacts[0].occurredOn, label: eventLabel(contacts[0].kind), actor: contacts[0].actor } : null,
+    };
+  };
+  const mon = monday(today);
+  const sun = addDays(mon, 6);
+  const weekActs = pagaende.flatMap((c) => activitiesOf(db, c.id).filter((a) => a.startsAt >= mon && a.startsAt <= `${sun}T23:59`));
+  const missingFour = pagaende.filter((c) => placementsOf(db, c.id).some((x) => x.status === "ongoing" && x.fourRights && Object.values(x.fourRights).some((v) => !v)));
+  const limit = `${addDays(today, 6)}T23:59`;
+  return {
+    today,
+    groups: { pagaende: pagaende.map(card), start: start.map(card), avslutade: avslutade.map(card) },
+    practiceDays: weekActs.filter((a) => a.kind === "praktikdag").length,
+    vocationalMoments: weekActs.filter((a) => a.kind === "yrkesmoment").length,
+    missingFour: missingFour.map((c) => {
+      const pl = placementsOf(db, c.id).find((x) => x.status === "ongoing");
+      const e = pl ? emp.get(pl.employerId) : undefined;
+      return {
+        caseId: c.id, caseNumber: c.caseNumber, displayName: name(c), employerName: e?.name ?? null,
+        missing: FOUR_LABEL.filter(([k]) => pl && pl.fourRights && !pl.fourRights[k]).map(([, l]) => l.toLowerCase()),
+      };
+    }),
+    upcoming: pagaende
+      .flatMap((c) => activitiesOf(db, c.id).filter((a) => a.startsAt >= now && a.startsAt <= limit && a.kind !== "möte").map((a) => ({ ...activityView(a), caseId: c.id, caseNumber: c.caseNumber, displayName: name(c) })))
+      .sort((x, y) => (x.startsAt < y.startsAt ? -1 : 1)),
+  };
 });

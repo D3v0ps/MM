@@ -125,7 +125,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
           <Notice tone="warn">Inloggning med kod finns inte här. Välj testperson i fältet överst på sidan.</Notice>
         ) : step === 0 ? (
           <form className="flex flex-col gap-4" onSubmit={send} noValidate>
-            <Field id="login-email" label="Din e-postadress" required error={emailErr ?? undefined} help={`Använd din e-postadress på jobbet. Vi skickar en kod med ${CODE.digits} siffror dit.`}>
+            <Field id="login-email" label="Din e-postadress" required error={emailErr ?? undefined} help="Använd din e-postadress på jobbet. Vi skickar en kod med sex siffror dit.">
               <Input
                 type="email"
                 value={email}
@@ -218,7 +218,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
 function Heading() {
   return (
     <div className="flex flex-col gap-1.5">
-      <Eyebrow>Miljonbemanning</Eyebrow>
+      <Eyebrow>Inloggning för personal</Eyebrow>
       <h1 className="flex items-center gap-2.5 text-h1 font-extrabold tracking-[0.03em] uppercase">
         Logga in
         <Dot />

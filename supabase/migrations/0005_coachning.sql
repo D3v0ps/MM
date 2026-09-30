@@ -59,6 +59,7 @@ create table public.check_ins (
   overall_status             text,
   obstacles                  text[] not null default '{}',
   note                       text not null,
+  attendance_comment         text,
   status                     text not null,
   approved_by                text,
   approved_at                timestamptz,
@@ -121,7 +122,8 @@ create table public.deviations (
   needs_customer_decision    boolean not null,
   follow_up_meeting_at       timestamptz,
   status                     text not null,
-  check_in_id                text
+  check_in_id                text,
+  closed_at                  timestamptz
 );
 create index deviations_case_id_idx on public.deviations (case_id);
 

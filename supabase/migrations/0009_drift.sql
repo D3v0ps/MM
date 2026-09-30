@@ -116,7 +116,7 @@ create index audit_log_contract_id_idx on public.audit_log (contract_id);
 create index audit_log_entity_idx on public.audit_log (entity, entity_id);
 
 create function mm.forbid_audit_change() returns trigger
-language plpgsql
+language plpgsql set search_path = public, mm
 as $$
 begin
   raise exception 'Revisionsloggen kan inte ändras eller tas bort' using errcode = '42501';

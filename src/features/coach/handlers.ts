@@ -14,6 +14,8 @@ import {
   aiRun, assessmentSave, attendanceSet, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, resultVerify,
 } from "./api";
 import { publishWeeklyIfComplete } from "../_shared/weekly";
+// Frågorna för coachens skärmar (vy-modellerna).
+import "./query-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

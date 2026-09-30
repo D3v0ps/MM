@@ -7,6 +7,8 @@ import type { Case, Report, WeekKey } from "@/data/schema";
 import { userEmail } from "../_shared/context";
 import { weeklyComplete } from "../_shared/weekly";
 import { reportApprove, reportCorrect, reportDeliver, reportOpen } from "./api";
+// Frågorna och områdets egna kommandon (prototypens rapporter.lista, rapport.visa och rap.*).
+import "./view-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

@@ -11,11 +11,11 @@ import { isOperational, isUnset, slaRule, type OperationalConfig, type ProgressL
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
-import { areaName, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel } from "@/core/labels";
+import { ABSENCE_REASONS, areaName, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel } from "@/core/labels";
 import { notificationsFor, progressionWatch } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
-import { addDays, addMonths, addWorkingDays, dayOf, isoWeek, monday, monthEnd, monthKey, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
+import { addDays, addMonths, addWorkingDays, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, weekMonday, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
@@ -329,7 +329,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
     dueText: weeklyRuleText(main.cfg, "veckorapport_registrering"),
     pubText: weeklyRuleText(main.cfg, "veckorapport_publicering"),
     sameDayText: `Frånvaronotis samma dag: ${isUnset(same) ? "tillval som inte är fastställt – ingen notis skickas." : same ? "skickas till handläggaren." : "används inte."}`,
-    absenceReasons: ["Sjukdom", "Vård av barn", "Myndighetsbesök", "Annat giltigt skäl"],
+    absenceReasons: [...ABSENCE_REASONS],
     repeatedRule: { ...main.cfg.attendance.repeatedAbsenceRule },
     caseCount: cases.length,
     weeks: { last: await week(lastMon), this: await week(thisMon) },
@@ -341,7 +341,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
  * ctx.system: rapporten omfattar deltagare som coachen inte har åtkomst till – bara antalet lämnas ut.
  */
 async function weeklyLeft(ctx: Ctx, recipientId: string, weekKey: string, now: LocalDateTime): Promise<number> {
-  const mon = addDays(`${weekKey}`.length ? monday(`${isoMonday(weekKey)}`) : "", 0);
+  const mon = weekMonday(weekKey);
   const sun = addDays(mon, 6);
   const cases = await ctx.system.table("cases").list({ referrerId: recipientId });
   const ids = cases.map((c) => c.id);
@@ -350,3 +350,278 @@ async function weeklyLeft(ctx: Ctx, recipientId: string, weekKey: string, now: L
   const wr = weeklyReport({ cases, activities, attendance, deviations: [] }, recipientId, weekKey, { now });
   return wr.sections.reduce((s, x) => s + x.stats.unregistered, 0);
 }
+
+// ================================================================ Deltagarlistan (vyerna utan ärende)
+handleQuery(casePicker, { roles: ["coach"] }, async (ctx, p) => {
+  const now = ctx.now();
+  const envOf = envCache(ctx);
+  const { cases, person } = await myCases(ctx);
+  const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
+  if (!main) throw new Error("Inget avtal med driftkonfiguration");
+  const month = p.month ?? addMonths(monthKey(now), -1);
+  const ids = { caseId: { in: cases.map((c) => c.id) } };
+  const db = await loadDb(ctx.repo, ["check_ins", "monthly_assessments", "intake_assessments", "outcome_events"], {
+    check_ins: ids, monthly_assessments: ids, intake_assessments: ids, outcome_events: ids,
+  });
+  // Månadsbedömningen: alla coachens ärenden som har en bedömning för månaden. Övriga vyer: pågående ärenden.
+  const list = cases.filter((c) => (p.kind === "manad" ? !!assessmentFor(db, c.id, month) : c.status === "active"));
+  const rows: CasePickerRow[] = [];
+  for (const c of list) {
+    const env = (await envOf(c.contractId)) ?? main;
+    const base = { caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person(c)), phaseLabel: phaseLabel(env.cfg, c.phase) };
+    if (p.kind === "avstamning") {
+      const last = latestCheckIn(db, c.id);
+      const draft = checkInsOf(db, c.id).find((y) => y.status === "draft");
+      rows.push({
+        ...base, badge: draft ? { tone: "outline", icon: "edit", text: draft.ai ? "AI-utkast att granska" : "Utkast sparat" } : null,
+        note: last ? `Senast godkänd ${fmtDate(last.heldAt)}` : "Ingen godkänd avstämning",
+      });
+    } else if (p.kind === "manad") {
+      const ma = assessmentFor(db, c.id, month);
+      rows.push({ ...base, badge: ma?.status === "approved" ? { tone: "blue", icon: "check", text: "Godkänd" } : { tone: "outline", icon: "edit", text: "Utkast" }, note: null });
+    } else if (p.kind === "kartlaggning") {
+      const ia = intakeOf(db, c.id);
+      rows.push({
+        ...base, note: null,
+        badge: !ia ? { tone: "outline", icon: null, text: "Inte påbörjad" } : ia.status === "approved" ? { tone: "blue", icon: "check", text: "Godkänd" } : { tone: "outline", icon: "edit", text: "Utkast" },
+      });
+    } else {
+      const n = eventsOf(db, c.id).length;
+      rows.push({ ...base, badge: null, note: `${n} ${n === 1 ? "händelse registrerad" : "händelser registrerade"}` });
+    }
+  }
+  return { month, monthDueAt: monthDueFor(main.cfg, month) ?? `${monthEnd(addMonths(month, 1))}T23:59`, monthDueNote: monthDueNote(main.cfg), rows };
+});
+
+// ================================================================ Veckoavstämning
+/** Språk som samtyckesinformationen finns översatt till (annars lättläst svenska). */
+const CONSENT_LANGUAGES = ["arabiska", "somaliska", "tigrinja", "engelska", "turkiska"];
+
+handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
+  const r = await caseFor(ctx, p.caseId, envCache(ctx));
+  if ("gate" in r) return { kind: "gate" as const, gate: r.gate };
+  const { c, person, env, head, referrer } = r;
+  const me = ctx.actor.userId;
+  const today = dayOf(env.now);
+  const byCase = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["check_ins", "activities", "attendance", "consents", "case_team", "memberships", "profiles"], {
+    check_ins: byCase, activities: byCase, attendance: byCase, consents: byCase, case_team: byCase, memberships: { contractId: c.contractId },
+  });
+  const ci0 = p.checkInId ? db.check_ins.find((x) => x.id === p.checkInId) ?? null : null;
+  const last = latestCheckIn(db, c.id);
+  const meeting = db.activities.filter((a) => a.kind === "möte" && dayOf(a.startsAt) === today).sort(by("startsAt"))[0] ?? null;
+  const watch = progressionWatch({ cases: [c], check_ins: db.check_ins }, { coachId: me }, env).find((w) => w.case.id === c.id) ?? null;
+  const rep = repeatedAbsence(db, c.id, env);
+  const consent = consentOf(db, c.id);
+  // Ansvarig för en avvikelse: coachen själv, ärendets team och avtalets samordnare (prototypen: u-sara).
+  const samordnare = db.memberships.filter((m) => m.role === "samordnare").map((m) => m.userId);
+  const owners = uniq([me, ...db.case_team.map((t) => t.userId), ...samordnare]).map((id) => ({ id, name: `${personName(db.profiles, id)}${id === me ? " (du)" : ""}` }));
+  const prot = !!person?.protectedIdentity;
+  const view = (ci: CheckIn): CheckInView => ({
+    id: ci.id, caseId: ci.caseId, status: ci.status, heldAt: ci.heldAt, durationMin: ci.durationMin, mode: ci.mode, inputMethod: ci.inputMethod, goalStatus: ci.goalStatus,
+    nextGoal: ci.nextGoal, phase: ci.phase, activitiesDone: ci.activitiesDone, employerContacts: ci.employerContacts, overallStatus: ci.overallStatus, obstacles: ci.obstacles,
+    note: ci.note, attendanceComment: ci.attendanceComment ?? "", docMinutes: ci.docMinutes, approvedAt: ci.approvedAt,
+    approvedByName: ci.approvedBy ? personName(db.profiles, ci.approvedBy) : null, aiRunId: ci.aiRunId,
+    // AI-utkastet visas aldrig för skyddade personuppgifter (CLAUDE.md punkt 8).
+    ai: ci.ai && !prot ? ({ ...ci.ai, transcript: ci.ai.transcript ?? [], rawTranscriptDeletedAt: ci.ai.rawTranscriptDeletedAt ?? null } as CheckInView["ai"]) : null,
+  });
+  return {
+    kind: "ok" as const,
+    now: env.now,
+    head,
+    referrer,
+    aiConsent: c.aiConsentStatus,
+    consent: consent
+      ? { givenAt: consent.givenAt, declinedAt: consent.declinedAt, textVersion: consent.textVersion, informedByName: personName(db.profiles, consent.informedBy), language: consent.language }
+      : null,
+    consentLanguage: person && CONSENT_LANGUAGES.includes(person.language) ? person.language : "lättläst svenska",
+    checkIn: ci0 ? view(ci0) : null,
+    drafts: checkInsOf(db, c.id).filter((x) => x.status === "draft").map((x) => ({ id: x.id, heldAt: x.heldAt, ai: !!x.ai })),
+    lastApproved: last ? { nextGoal: last.nextGoal, durationMin: last.durationMin, mode: last.mode } : null,
+    todayMeetingAt: meeting?.startsAt ?? null,
+    watch: watch ? { streak: watch.streak, reason: watch.weeks[watch.weeks.length - 1].reason, weekKey: watch.lastWeek } : null,
+    repeatedAbsence: rep ? { count: rep.length, withinDays: env.cfg.attendance.repeatedAbsenceRule.withinDays } : null,
+    owners,
+    phases: env.cfg.phases.map((x) => ({ no: x.no, name: x.name })),
+    phaseSince: phaseSince(c, db),
+    seesCoachNotes: !!env.cfg.customerVisibility.seesCoachNotes,
+    options: { activityTypes: [...ACTIVITY_TYPES], obstacles: [...OBSTACLES], goalsByPhase: Object.fromEntries(Object.entries(GOALS).map(([k, v]) => [Number(k), [...v]])) },
+  };
+});
+
+handleQuery(checkInAttendance, { roles: ["coach"] }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c || c.leadCoachId !== ctx.actor.userId) return null;
+  const db = await loadDb(ctx.repo, ["activities", "attendance"], { activities: { caseId: c.id }, attendance: { caseId: c.id } });
+  const from = addDays(p.date, -6);
+  const s = attendanceStats(db, c.id, from, p.date, { now: ctx.now() });
+  return { from, to: p.date, present: s.present, late: s.late, absentValid: s.absentValid, absentInvalid: s.absentInvalid, unregistered: s.unregistered, planned: s.planned, rate: s.rate };
+});
+
+handleQuery(aiRunInfo, { roles: ["coach"] }, async (ctx, p) => {
+  const run = await ctx.repo.table("ai_runs").get(p.runId);
+  return run ? { provider: run.provider, model: run.model } : null;
+});
+
+handleQuery(checkInReceipt, { roles: ["coach"] }, async (ctx, p) => {
+  const r = await caseFor(ctx, p.caseId, envCache(ctx));
+  if ("gate" in r) return { kind: "gate" as const, gate: r.gate };
+  const { c, env, head, referrer } = r;
+  const ci = await ctx.repo.table("check_ins").get(p.checkInId);
+  const dv = p.deviationId ? await ctx.repo.table("deviations").get(p.deviationId) : null;
+  const profiles = await ctx.repo.table("profiles").list();
+  const task = dv ? await ctx.repo.table("tasks").first({ deviationId: dv.id }) : null;
+  return {
+    kind: "ok" as const,
+    now: env.now,
+    caseNumber: c.caseNumber,
+    name: head.name,
+    location: c.location || "Alby",
+    referrer,
+    coachName: personName(profiles, ctx.actor.userId),
+    proposedAt: `${addWorkingDays(dayOf(env.now), 2)}T10:00`,
+    checkIn: ci && ci.caseId === c.id
+      ? {
+        overallStatus: ci.overallStatus, phase: ci.phase, phaseLabel: ci.phase ? phaseLabel(env.cfg, ci.phase) : null,
+        ai: ci.ai ? { audioDeletedAt: ci.ai.audioDeletedAt ?? null, rawTranscriptDeletedAt: ci.ai.rawTranscriptDeletedAt ?? null } : null,
+      }
+      : null,
+    deviation: dv && dv.caseId === c.id
+      ? {
+        id: dv.id, description: dv.description, action: dv.action, ownerName: personName(profiles, dv.ownerId), followUpOn: dv.followUpOn,
+        needsCustomerDecision: dv.needsCustomerDecision, taskCreated: !!task,
+      }
+      : null,
+  };
+});
+
+// ================================================================ Månadsbedömning
+handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
+  const r = await caseFor(ctx, p.caseId, envCache(ctx));
+  if ("gate" in r) return { kind: "gate" as const, gate: r.gate };
+  const { c, env, head, referrer } = r;
+  const month = p.month ?? addMonths(monthKey(env.now), -1);
+  const prog = env.cfg.progression;
+  // AI-stöd bara med samtycke och aldrig vid skyddade personuppgifter – annars skickas inga AI-utkast till skärmen.
+  const aiOk = c.aiConsentStatus === "given" && !head.protected;
+  const byCase = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["monthly_assessments", "monthly_plans", "check_ins", "activities", "attendance", "outcome_events", "reports"], {
+    monthly_assessments: byCase, monthly_plans: byCase, check_ins: byCase, activities: byCase, attendance: byCase, outcome_events: byCase, reports: { caseId: c.id, kind: "monthly", month },
+  });
+  const ma = assessmentFor(db, c.id, month);
+  const plan = planOf(db, c.id, month);
+  const mStart = `${month}-01`;
+  const mEnd = monthEnd(month);
+  const cis = checkInsOf(db, c.id).filter((x) => x.status === "approved" && x.heldAt >= mStart && x.heldAt <= `${mEnd}T23:59`).sort(by("heldAt"));
+  const att = attendanceStats(db, c.id, mStart, mEnd, env);
+  const events = eventsOf(db, c.id).filter((e) => e.occurredOn >= mStart && e.occurredOn <= mEnd);
+  const rep = db.reports[0] ?? null;
+  const due = rep?.dueAt ?? monthDueFor(env.cfg, month) ?? `${mEnd}T23:59`;
+  return {
+    kind: "ok" as const,
+    now: env.now,
+    month,
+    head,
+    referrer,
+    aiOk,
+    scale: { 0: prog.scale["0"], 1: prog.scale["1"], 2: prog.scale["2"], 3: prog.scale["3"] },
+    requiredFrom: prog.observationRequiredFromLevel,
+    areas: prog.areas.map((key) => {
+      const a = ma?.areas[key];
+      const obs = aiOk && a?.aiObservationDraft ? { text: a.aiObservationDraft.text, sources: [...(a.aiObservationDraft.sources ?? [])], noEvidence: !!a.aiObservationDraft.noEvidence } : null;
+      return {
+        key, label: prog.areaLabels[key] ?? key, level: (a?.level ?? null) as ProgressLevel | null, observation: a?.observation ?? "", nextStep: a?.nextStep ?? "",
+        aiLevelSuggestion: aiOk && !obs?.noEvidence ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null, aiObservationDraft: obs,
+      };
+    }),
+    assessment: ma
+      ? { status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus }
+      : null,
+    plan: plan
+      ? { goal1: plan.goal1, goal2: plan.goal2, plannedActivities: plan.plannedActivities, plannedEmployerContact: plan.plannedEmployerContact, plannedAdaptation: plan.plannedAdaptation, nextCustomerMeeting: plan.nextCustomerMeeting }
+      : null,
+    basis: {
+      checkIns: cis.map((x) => x.heldAt),
+      attendance: { rate: att.rate, present: att.present, late: att.late, planned: att.planned, unregistered: att.unregistered },
+      events: events.map((e) => eventLabel(e.kind)),
+    },
+    report: rep ? { id: rep.id, statusLabel: reportStatusLabel(rep.status) } : null,
+    dueAt: due,
+    dueNote: monthDueNote(env.cfg),
+    goals: [...(GOALS[Math.min(5, c.phase)] ?? [])],
+  };
+});
+
+// ================================================================ Kartläggning
+handleQuery(intakePage, { roles: ["coach"] }, async (ctx, p) => {
+  const r = await caseFor(ctx, p.caseId, envCache(ctx));
+  if ("gate" in r) return { kind: "gate" as const, gate: r.gate };
+  const { c, person, env, head, referrer } = r;
+  const byCase = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["intake_assessments", "check_ins", "placements", "contract_areas"], {
+    intake_assessments: byCase, check_ins: byCase, placements: byCase, contract_areas: { contractId: c.contractId },
+  });
+  const ia = intakeOf(db, c.id);
+  const s = stuck(c, db, env);
+  const areaTracks = uniq([...(c.primaryAreaCode ? TRACKS[c.primaryAreaCode] ?? [] : []), ...(c.secondaryAreaCode ? TRACKS[c.secondaryAreaCode] ?? [] : [])]);
+  return {
+    kind: "ok" as const,
+    head,
+    referrer,
+    intake: ia
+      ? {
+        workExperience: ia.workExperience, education: ia.education, languageNotes: ia.languageNotes, digitalSkills: ia.digitalSkills, drivingLicence: ia.drivingLicence,
+        workGoals: ia.workGoals, chosenTrack: ia.chosenTrack, adaptations: ia.adaptations, firstWeekGoal: ia.firstWeekGoal, status: ia.status, approvedAt: ia.approvedAt,
+      }
+      : null,
+    stuck: s ? { phase: s.phase, phaseName: phaseName(env.cfg, s.phase), days: s.days, maxDays: s.maxDays } : null,
+    backgroundInfo: c.backgroundInfo,
+    needsInterpreter: !!person?.needsInterpreter,
+    areaNames: { primary: areaName(db.contract_areas, c.primaryAreaCode), secondary: c.secondaryAreaCode ? areaName(db.contract_areas, c.secondaryAreaCode) : null },
+    tracks: {
+      area: areaTracks,
+      all: db.contract_areas.flatMap((a) => (TRACKS[a.code] ?? []).map((t) => ({ value: t, label: `${a.code} ${a.name} – ${t}` }))),
+    },
+    firstWeekGoals: [...(GOALS[1] ?? [])],
+  };
+});
+
+// ================================================================ Händelser och avslut
+handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
+  const r = await caseFor(ctx, p.caseId, envCache(ctx));
+  if ("gate" in r) return { kind: "gate" as const, gate: r.gate };
+  const { c, env, head, referrer } = r;
+  const byCase = { caseId: c.id };
+  const db = await loadDb(ctx.repo, ["outcome_events", "employers", "reports", "pulse_invites"], {
+    outcome_events: byCase, reports: { caseId: c.id, kind: "final" }, pulse_invites: { caseId: c.id, occasion: "exit" },
+  });
+  const res = env.cfg.result;
+  const areas = [c.primaryAreaCode, c.secondaryAreaCode].filter(Boolean);
+  const finalRep = db.reports.sort(by<Report>((x) => x.version, -1))[0] ?? null;
+  const pulse = db.pulse_invites.sort(by("sentAt", -1))[0] ?? null;
+  const days = finalReportWorkingDays(env.cfg);
+  return {
+    kind: "ok" as const,
+    now: env.now,
+    head,
+    referrer,
+    closed: c.status === "closed" ? { endReason: c.endReason, endDate: c.endDate, resultClass: c.resultClass, resultVerifiedAt: c.resultVerifiedAt } : null,
+    events: eventsOf(db, c.id).map((e) => ({
+      id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, verificationKind: e.verificationKind, note: e.note, possibleBonus: e.possibleBonus,
+    })),
+    employers: db.employers.filter((e) => e.areas.some((a) => areas.includes(a))).map((e) => ({ id: e.id, name: e.name })),
+    eventKinds: EVENT_KINDS.map((k) => ({ value: k, label: EVENT_LABEL[k] })),
+    endReasons: END_REASONS.map((k) => ({ value: k, label: END_REASON_LABEL[k] })),
+    result: {
+      countsAsResult: [...res.countsAsResult],
+      // Samma nämnarregel som avslutet (arenden.caseClose): tills undantagen är fastställda gäller den preliminära listan.
+      excluded: [...(isUnset(res.excludedFromDenominator) ? res.prototypeExcluded ?? [] : res.excludedFromDenominator ?? [])],
+      definitionText: isUnset(res.definition) ? `Resultatdefinitionen är inte fastställd i avtalet. ${res.prototypeDefinition ?? ""}`.trim() : String(res.definition),
+    },
+    finalReport: finalRep ? { id: finalRep.id, dueAt: finalRep.dueAt, sla: finalRep.dueAt ? sla(finalRep.dueAt, env) : null } : null,
+    exitPulse: pulse ? { sentAt: pulse.sentAt, channel: pulse.channel, expiresAt: pulse.expiresAt } : null,
+    finalDays: days ?? 0,
+    finalProvisional: isUnset(slaRule(env.cfg, "slutrapport")?.within) || slaRule(env.cfg, "slutrapport")?.within == null,
+    bonusOn: env.cfg.bonus?.enabled === true,
+  };
+});
