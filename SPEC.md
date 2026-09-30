@@ -71,6 +71,7 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 - **Inspelning av avstämningar och MB:s underleverantörer är godkända.** Beskedet ska in skriftligt i PUB-avtalets bilagor (instruktioner och förteckning över underbiträden), inklusive eventuell åtkomst från tredje land (§10).
 - **Kommunen har inget inköpsordersystem för detta.** MB bygger beställningsflödet i Miljonmatch (§7.1–7.4). Fakturan behöver ändå kommunens beställarreferens, eftersom köpet sker utanför kommunens e-handelssystem (§7.15).
 - **Debiterbar vecka = alla veckor deltagaren är inskriven hos MB** (§7.15).
+- **Tillägg 2026-09-30 (enligt MB):** Botkyrka har skriftligen godkänt röstinspelning och transkribering även för **kommunens handläggare** (inspelad information direkt i systemet) och **deltagaren** (egna inspelningar), inom det här projektet. Godkännandet ska in i PUB-avtalets instruktioner tillsammans med beskedet från 2026-09-29. Reglerna i §8.1 gäller för alla tre: samtycke, aldrig skyddade ärenden, ljud raderas efter transkribering och rapporter byggs bara av godkända uppgifter.
 
 ---
 
@@ -570,7 +571,9 @@ Samma adapter används för att tolka fritextmejl i avropsinkorgen (§7.1). Alla
 | Styrka | Bäst på svenska enligt KB:s mätningar; ingen fråga om tredjeland | Stark på blandade språk; ett anrop i stället för två |
 | Att tänka på | Textsteget körs med en öppen språkmodell – kvaliteten på svenska ska testas | Aldrig AI Studio/Gemini API-nyckel eller `global`-endpointen – de saknar garanti för var datan behandlas. EU-endpointen kostar 10 % extra |
 
-**Val genom test:** samma 10–20 samtyckta testinspelningar (varav flera med deltagare som har svenska som andraspråk) körs genom båda. Två coacher bedömer blint: korrekta uppgifter, saknade uppgifter, påhittade uppgifter (måste vara noll) och tid till godkännande. Leverantören väljs per avtal i konfigurationen och kan bytas utan kodändring.
+**Beslut 2026-09-30:** MB väljer **B – Gemini Flash via Vertex AI med EU multi-region-endpoint** (`aiplatform.eu.rep.googleapis.com`, location `eu`). Aldrig AI Studio-nyckel eller global endpoint – adaptern vägrar andra endpoints. Tills kontot i Google Cloud är klart körs en simulerad leverantör i testmiljön. Plan för inspelning från coach, kommunens handläggare och deltagare: `docs/PLAN-ROST.md`.
+
+**Val genom test (kvar som möjlighet):** samma 10–20 samtyckta testinspelningar (varav flera med deltagare som har svenska som andraspråk) körs genom båda. Två coacher bedömer blint: korrekta uppgifter, saknade uppgifter, påhittade uppgifter (måste vara noll) och tid till godkännande. Leverantören väljs per avtal i konfigurationen och kan bytas utan kodändring.
 
 ### 8.5 Mätning – siffran KK-kalkylen behöver
 
@@ -691,7 +694,7 @@ Auth och roller, avtalskonfiguration, mejlbeställning och portal, ärendenummer
 
 | # | Fråga | Svarar | Status |
 |---|---|---|---|
-| 1 | Inspelning och underbiträden | Botkyrka | **Godkänt 2026-09-29** – ska in skriftligt i PUB-avtalet, inklusive eventuell åtkomst från tredje land |
+| 1 | Inspelning och underbiträden | Botkyrka | **Godkänt 2026-09-29**, utökat 2026-09-30 till kommunens handläggare och deltagare – ska in skriftligt i PUB-avtalet, inklusive eventuell åtkomst från tredje land (Google/Vertex AI) |
 | 2 | Inköpsordersystem | Botkyrka | **Besvarad:** kommunen har inget – Miljonmatch är beställningssystemet |
 | 3 | Vilken beställarreferens (8–10 siffror) ska stå på fakturorna – en per handläggare, per enhet eller en för hela avtalet? Bekräfta skriftligt att mejlbeställning + beställarreferens + Peppol uppfyller e-handelsbilagan | Botkyrka (e-handel@botkyrka.se) | Öppen – **blockerar fakturering** |
 | 4 | Debiterbar vecka | Botkyrka | **Besvarad:** alla veckor deltagaren är inskriven. Tolkning: delvisa start- och slutveckor räknas, pausade veckor räknas inte |

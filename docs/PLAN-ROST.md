@@ -36,8 +36,8 @@ Punkt 1 är planerad i SPEC §8. Botkyrka har godkänt inspelning av avstämning
 - **Leverantör:** Berget AI (Sverige, KB-Whisper) eller Gemini via Vertex AI med EU-endpoint. Kostnaden är ungefär 1 kr per 30-minuterssamtal (SPEC §8.6). Leverantören väljs per avtal i konfigurationen.
 - **Innan leverantören är vald:** testmiljön kan köra en *simulerad* leverantör. Då går hela flödet att testa live, med riktig inspelning, uppladdning, samtycke och radering, men transkriptet är påhittat.
 
-## Beslut som behövs
+## Beslut (2026-09-30)
 
-1. **AI-leverantör:** Berget AI (rekommenderas: svenskt bolag, drift i Sverige, KB:s svenska taligenkänning) eller A/B-test mot Vertex EU enligt SPEC. Det kräver konto, personuppgiftsbiträdesavtal och API-nyckel.
-2. **Ordning:** steg 1 (våra coacher) nu. Steg 2 (kommunens handläggare) och steg 3 (deltagaren) när Botkyrka skriftligen har godkänt dem.
-3. **Bygga nu med simulerad leverantör**, så att flödet kan testas live medan leverantör och godkännanden ordnas?
+1. **AI-leverantör: Gemini Flash via Google Cloud Vertex AI, EU multi-region-endpoint** (`aiplatform.eu.rep.googleapis.com`, location `eu`). Aldrig AI Studio-nyckel eller global endpoint (CLAUDE.md). Kräver ett Google Cloud-projekt med Vertex AI API påslaget, ett tjänstekonto med rollen *Vertex AI User* och Google Clouds personuppgiftsbiträdesvillkor (CDPA).
+2. **Alla tre byggs nu.** Botkyrka har skriftligen godkänt inspelning för coacher, kommunens handläggare och deltagare inom projektet (SPEC §3.1). Varje del kan ändå slås av per avtal i konfigurationen.
+3. **Byggs nu med simulerad leverantör** i testmiljön; Vertex AI kopplas in när kontot finns.
