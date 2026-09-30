@@ -17,7 +17,8 @@ import { priceFor } from "@/core/cases";
 import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd, monthKey, monthName, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, groupBy, sum, uniq } from "@/core/util";
 import type { AttendanceStatus, Case, Db, MonthlyAssessment, MonthlyPlan, Report, ReportKind, TrafficLight } from "@/data/schema";
-import { dayMonth, dFull, dtFull, isDelivered, joinSv, lcfirst, plain, ucfirst, wdFull } from "./report-helpers";
+import { dayMonth, dFull, dtFull, isDelivered, joinSv, lcfirst, plain, smallN, ucfirst, wdFull } from "./report-helpers";
+export { smallN };
 
 // ================================================================ Indata
 /** Tabellerna som modellerna byggs av. Tabeller som inte behövs för rapporttypen kan vara tomma. */
@@ -157,7 +158,6 @@ function makeSrc(db: ReportDb, env: ReportEnv, asOf: LocalDateTime | null, since
 const maxS = (a: string, b: string) => (a > b ? a : b);
 const minS = (a: string, b: string) => (a < b ? a : b);
 const profileName = (db: ReportDb, id: string | null | undefined) => personName(db.profiles, id);
-const unitOf = (db: ReportDb, id: string | null | undefined) => (id ? byId(db.profiles).get(id)?.customerUnit ?? "" : "");
 /** "Maria Ekdahl, Arbetsmarknadsenheten Alby" */
 export const personWithUnit = (db: Pick<ReportDb, "profiles">, id: string | null | undefined): string => {
   const unit = id ? byId(db.profiles).get(id)?.customerUnit ?? "" : "";
@@ -426,8 +426,6 @@ function buildOrder(src: Src, r: Report): OrderModel | null {
 }
 
 // ================================================================ Beställarrapport (kommunens chef)
-/** Antal för kommunen: 1 till minN − 1 skrivs "färre än 5". */
-export const smallN = (minN: number, n: number): string => (n > 0 && n < minN ? `färre än ${minN}` : String(n));
 
 /** Förslag till sammanfattning ur rapportens siffror (avsnitt 1–6). Nämner aldrig det interna målet. */
 export function summaryFromNumbers(m: SummaryModel): string {

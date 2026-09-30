@@ -9,7 +9,7 @@ import { krExact } from "@/core/format";
 import { Badge, Button, Card, DemoNote, Empty, ErrorNotice, Icon, Kv, Loading, Notice, Page, Paper, PaperFixedText, PerspectiveLink, Stepper, Table } from "@/ui";
 import { ekoPreview, type InvoicePreviewView } from "../api";
 import { IN_FORTNOX, monthLabel, pl, plural, weekText } from "../model";
-import { CHECK, InvStatus, SummaryList } from "./parts";
+import { CHECK, InvStatus, SummaryList, WRAP } from "./parts";
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 const STEPS = ["draft", "approved", "fortnox_created", "booked", "sent", "paid"];
@@ -24,12 +24,12 @@ export function FakturaScreen({ params }: ScreenProps) {
       month ? { label: monthLabel(month), to: `/ekonomi/${month}` } : null,
       { label: v?.caseNumber ?? "Faktura" },
     ].filter((x): x is { label: string; to?: string } => !!x);
-  if (q.error) return <Page title="Faktura" crumbs={crumbsFor()}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
-  if (!q.data) return <Page title="Faktura" crumbs={crumbsFor()}><Loading /></Page>;
+  if (q.error) return <Page className={WRAP} title="Faktura" crumbs={crumbsFor()}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
+  if (!q.data) return <Page className={WRAP} title="Faktura" crumbs={crumbsFor()}><Loading /></Page>;
   const v = q.data;
   if (!v.preview) {
     return (
-      <Page title="Faktura" crumbs={crumbsFor(v)}>
+      <Page className={WRAP} title="Faktura" crumbs={crumbsFor(v)}>
         <Empty
           icon="file"
           title="Ingen faktura att visa"
@@ -75,7 +75,7 @@ function Faktura({ v, crumbs }: { v: InvoicePreviewView & { month: string }; cru
   ];
   const sm = p.summary;
   return (
-    <Page
+    <Page className={WRAP}
       title={`Faktura ${inv.caseNumber}`}
       eyebrow={`Förhandsvisning · Peppol BIS Billing 3 via Fortnox · ${monthName(mk)}`}
       crumbs={crumbs}

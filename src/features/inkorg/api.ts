@@ -292,7 +292,8 @@ export type StartView = {
     rows: { caseId: string; caseNumber: string; due: SlaInfo | null; sub: string; isProtected: boolean; coachName: string; dueText: string }[];
     flagged: number;
   };
-  deadlines: { soon: MiniDeadline[]; week: MiniDeadline[]; soonCount: number; overdue: number; weekCount: number };
+  /** soon = försenat och i dag, week = de tre första denna vecka (sammanslagna); weekGrouped = antal rader denna vecka efter sammanslagning. */
+  deadlines: { soon: MiniDeadline[]; week: MiniDeadline[]; weekGrouped: number; soonCount: number; overdue: number; weekCount: number };
   alerts: AlertView[];
   acked: { key: string; title: string; text: string }[];
   protectedItems: (InboxRow & { caseText: string })[];
@@ -307,6 +308,8 @@ export type StartView = {
   warnings: { issued: number; max: number; text: string };
   meetingText: string;
   flagDaysText: string;
+  /** Dagens datum (för bokning av första möte). */
+  today: string;
 };
 export const inboxStart = query("inkorg.start", z.object({})).returns<StartView>();
 

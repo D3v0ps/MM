@@ -16,6 +16,8 @@ import { notifRead } from "@/features/notiser/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
 import { ATT, AttBadge, cap, dayLabel, kindOf, lc, PageState, Persp } from "./shared";
 
+/** KPI:erna på smal skärm (prototypens co-kpis): mindre utfyllnad och siffror så att "4 av 15" får plats. */
+const KPI_SM = "max-[620px]:p-3 max-[620px]:[&>div:nth-child(2)]:text-[1.625rem]";
 const MONTHLY_STATUS: [string, string][] = [["draft", "Väntar på din bedömning"], ["reviewed", "Granskade, ska godkännas"], ["approved", "Godkända, ska levereras"]];
 
 export function MinVeckaScreen() {
@@ -55,18 +57,21 @@ function MinVecka({ v }: { v: MinVeckaView }) {
     >
       <Grid cols={4} className="max-[620px]:grid-cols-2 max-[620px]:gap-2.5">
         <Kpi
+          className={KPI_SM}
           label="Närvaro att registrera"
           value={String(unreg)}
           tone={unreg > 0 && (regTone === "urgent" || regTone === "over") ? "alert" : undefined}
           sub={unreg > 0 ? `Vecka ${wLast} · senast ${v.reg.dueText} · ${v.reg.sla.label.toLowerCase()}` : `Vecka ${wLast} är klar`}
         />
         <Kpi
+          className={KPI_SM}
           label="Aktiviteter i dag"
           value={String(v.today.length)}
           sub={next && v.next ? `Nästa ${fmtTime(next.startsAt)}: ${kindOf(next.kind).label.toLowerCase()} med ${v.next.shortName}` : "Inga fler aktiviteter i dag"}
         />
-        <Kpi label="AI-utkast att granska" value={String(v.drafts.length)} sub={v.drafts.length > 0 ? "Råtranskript raderas när du godkänner" : "Inget väntar"} />
+        <Kpi className={KPI_SM} label="AI-utkast att granska" value={String(v.drafts.length)} sub={v.drafts.length > 0 ? "Råtranskript raderas när du godkänner" : "Inget väntar"} />
         <Kpi
+          className={KPI_SM}
           label={<span className="[overflow-wrap:break-word] [hyphens:manual]">{`Månads­bedömningar ${MONTHS[Number(pm.slice(5, 7)) - 1]}`}</span>}
           value={`${v.monthly.done} av ${v.monthly.total}`}
           sub={`klara · förslag senast ${fmtDateShort(v.monthly.dueAt)}`}

@@ -3,7 +3,7 @@ import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { accessIndex, caseAccessIn, displayName, type AccessSource } from "@/core/access";
+import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
 import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
@@ -502,10 +502,17 @@ async function accessSourceFor(ctx: Ctx, cases: readonly Pick<Case, "id" | "pers
     referrerIds.length ? ctx.system.table("profiles").list({ id: { in: referrerIds } }) : [],
     contractIds.length ? ctx.system.table("contracts").list({ id: { in: contractIds } }) : [],
   ]);
-  return accessIndex({
-    persons: persons.map((p) => ({ ...p, firstName: "", lastName: "", personnummerEnc: "", phone: "", email: "", address: null })),
-    case_team: team, profiles, contracts,
-  });
+  // Bara flaggan för skyddade personuppgifter, teamets id:n, handläggarens enhet och avtalets konfiguration används.
+  const prot = new Map(persons.map((p) => [p.id, p.protectedIdentity]));
+  const teamIds = groupedBy(team, "caseId", (t) => t.caseId);
+  const profs = byId(profiles);
+  const ks = byId(contracts);
+  return {
+    person: (id) => (prot.has(id) ? { protectedIdentity: !!prot.get(id) } : undefined),
+    teamUserIds: (caseId) => (teamIds.get(caseId) ?? []).map((t) => t.userId),
+    profile: (id) => profs.get(id),
+    contract: (id) => ks.get(id),
+  };
 }
 
 /** Flaggor för rollen (prototypens alertsFor): coach och handledare ser aldrig eskaleringar till chef. */
@@ -1100,7 +1107,7 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
   const ownOnly = role === "coach" || role === "handledare";
   const repIds = new Set(db.reports.map((r) => r.id));
   // Revisionsloggen läses via ctx.repo: behörigheten (policyn/RLS) avgör vilka poster rollen ser.
-  const audit = (await ctx.repo.table("audit_log").list()).filter(
+  const audit = (await ctx.repo.table("audit_log").list({ contractId: c.contractId })).filter(
     (x) => x.entityId === c.id || x.details?.caseId === c.id || (x.entity === "report" && !!x.entityId && repIds.has(x.entityId)) || (x.entity === "person" && x.entityId === c.personId),
   );
   const auditOwn: LogEntry[] = ownOnly ? audit.filter((x) => x.actorId === me && !VIEW_ACTIONS.includes(x.action)) : audit;

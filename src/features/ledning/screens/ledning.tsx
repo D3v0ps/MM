@@ -974,7 +974,7 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
               </>
             )}
             <Notice tone="info" title="Vem ser vad">
-              <ul className="m-0 flex flex-col gap-1 pl-[1.2em]">
+              <ul className="m-0 flex list-disc flex-col gap-1 pl-[1.2em]">
                 <li>Coachen ser inte enskilda svar – bara samma aggregat som här, och först vid minst {d.minN} svar.</li>
                 <li>Lågt betyg på stödet från coachen (fråga 3) går till chef, inte till coachen.</li>
                 <li>Svarar deltagaren Ja på fråga 5 får samordnaren en uppgift.</li>

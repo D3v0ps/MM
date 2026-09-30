@@ -592,7 +592,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       }),
     },
     deadlines: {
-      soon: dlSoon.map(miniDeadline), week: dlWeek.slice(0, 3).map(miniDeadline), soonCount: dls.filter((x) => x.bucket !== "week").length,
+      soon: dlSoon.map(miniDeadline), week: dlWeek.slice(0, 3).map(miniDeadline), weekGrouped: dlWeek.length, soonCount: dls.filter((x) => x.bucket !== "week").length,
       overdue: dls.filter((x) => x.bucket === "overdue").length, weekCount: dls.filter((x) => x.bucket === "week").length,
     },
     alerts: alerts.map(alertView),
@@ -630,6 +630,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     warnings: { issued: warnings, max, text: `${max} varningar kan leda till uppsägning. Vite ${kr(e.cfg.penalties.deviationOre)} per tillfälle vid avvikelse.` },
     meetingText: meetingDaysText(meetingDays(e.cfg)),
     flagDaysText: flagText,
+    today: e.today,
   };
 }
 

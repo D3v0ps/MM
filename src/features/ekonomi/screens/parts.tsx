@@ -11,6 +11,9 @@ import { Badge, Button, cn, DemoNote, Dot, Field, Icon, Input, Kpi, Modal, Notic
 import type { InvoiceCheckView, InvoiceRow, RefFormCase, TaskRef } from "../api";
 import { pl, plural, qtyKr, refError, refFromTask, refInfo, refLenText, weekText, type InvoiceSummary, type RefInfo, type RefRules } from "../model";
 
+/** Knapptexter får brytas i ekonomins vyer och dialoger (prototypens .eko .btn { white-space: normal }). */
+export const WRAP = "[&_button:not([role=tab])]:whitespace-normal";
+
 // ---------------------------------------------------------------- KPI-rutor (värdet krymper så att det ryms, som prototypens .eko-kpis)
 export function EkoKpis({ children }: { children: ReactNode }) {
   return <div className="eko-kpis grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3">{children}</div>;
@@ -258,7 +261,7 @@ export function RefForm({
 export function RefModal({ cases, task, rules, canAct, onClose }: { cases: readonly RefFormCase[]; task: TaskRef | null; rules: RefRules; canAct: boolean; onClose: () => void }) {
   const first = cases[0];
   return (
-    <Modal title="Rätta beställarreferens" onClose={onClose}>
+    <Modal title="Rätta beställarreferens" onClose={onClose} className={WRAP}>
       <p>
         {cases.length === 1 ? `Ärende ${first.caseNumber}` : `Ärendena ${cases.map((c) => c.caseNumber).join(" och ")}`} har referensen{" "}
         <b className="tabular-nums">{first.buyerReference || "saknas"}</b>. {refInfo(first.buyerReference, rules).text}

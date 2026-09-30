@@ -93,7 +93,7 @@ export function FlagBadges({ list, className }: { list: readonly CaseFlag[] | nu
 /** Faktarutnät: etikett ovanför värdet (prototypens Facts). */
 export function Facts({ items }: { items: readonly ([string, ReactNode] | null | false)[] }) {
   return (
-    <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(min(100%,180px),1fr))] gap-x-5 gap-y-3.5 max-[620px]:grid-cols-2 max-[620px]:gap-x-3.5 max-[620px]:gap-y-3">
+    <dl className="m-0 grid grid-cols-[repeat(auto-fill,minmax(min(100%,190px),1fr))] gap-x-5 gap-y-3.5 max-[620px]:grid-cols-2 max-[620px]:gap-x-3.5 max-[620px]:gap-y-3">
       {items
         .filter((x): x is [string, ReactNode] => !!x)
         .map(([k, v]) => (
@@ -166,7 +166,7 @@ export function AttCell({ st }: { st: AttendanceSummary }) {
 // ---------------------------------------------------------------- Tabell som blir lista på smala kort
 /** Listrad för smala kort: knapp om raden går att öppna, annars en vanlig rad. */
 export function MItem({ onClick, children }: { onClick?: (() => void) | null; children: ReactNode }) {
-  const cls = "flex w-full min-w-0 items-start gap-3 px-[18px] py-3 text-left";
+  const cls = "flex w-full min-w-0 items-start gap-3 px-[18px] py-3 text-left max-[620px]:flex-wrap";
   return onClick ? (
     <button type="button" onClick={onClick} className={cn(cls, "cursor-pointer border-0 bg-transparent text-inherit [font:inherit] hover:bg-ljusgra-ton")}>
       {children}
@@ -175,10 +175,12 @@ export function MItem({ onClick, children }: { onClick?: (() => void) | null; ch
     <div className={cls}>{children}</div>
   );
 }
-export const LiMain = ({ children }: { children: ReactNode }) => <span className="flex min-w-0 flex-1 flex-col gap-[3px]">{children}</span>;
+export const LiMain = ({ children }: { children: ReactNode }) => <span className="flex min-w-0 flex-1 flex-col gap-[3px] max-[620px]:basis-[calc(100%-44px)]">{children}</span>;
 export const LiTitle = ({ children }: { children: ReactNode }) => <span className="block font-bold">{children}</span>;
 export const LiSub = ({ children }: { children: ReactNode }) => <span className="block text-small text-text-muted">{children}</span>;
-export const LiSide = ({ children }: { children: ReactNode }) => <span className="flex flex-none flex-col items-end gap-1">{children}</span>;
+export const LiSide = ({ children }: { children: ReactNode }) => (
+  <span className="flex flex-none flex-col items-end gap-1 max-[620px]:w-full max-[620px]:flex-row max-[620px]:flex-wrap max-[620px]:justify-start">{children}</span>
+);
 
 /**
  * Tabell när kortet är brett, lista när kortet är smalt (container query) – ingen text utanför kortet på 400 px.

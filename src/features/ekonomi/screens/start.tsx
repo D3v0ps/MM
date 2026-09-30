@@ -14,17 +14,17 @@ import {
 } from "@/ui";
 import { ekoReissue, ekoStart, ekoTaskDone, type BillingStartView, type RefFormCase, type ReturnedRow, type RunRow, type TaskRef, type TaskView } from "../api";
 import { cap, monthLabel, pl, plural, refInfo, weekText } from "../model";
-import { EkoKpi, EkoKpis, InvStatus, RefBadge, RefModal, RoleNotice, STATUS_ONE, STATUS_PLURAL } from "./parts";
+import { EkoKpi, EkoKpis, InvStatus, RefBadge, RefModal, RoleNotice, STATUS_ONE, STATUS_PLURAL, WRAP } from "./parts";
 
 export function StartScreen() {
   const session = useSession();
   const q = useQuery(ekoStart, {});
   const eyebrow = session.user.name ? `${session.user.name} · ${ROLE_LABEL[session.actor.role]}` : "Ekonomi";
   const lead = (name: string) => `Fakturaunderlag per ärende och månad för avtalet med ${name}. Peppol-faktura via Fortnox, en faktura per ärende och månad.`;
-  if (q.error) return <Page title="Fakturering" eyebrow={eyebrow}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
-  if (!q.data) return <Page title="Fakturering" eyebrow={eyebrow}><Loading /></Page>;
+  if (q.error) return <Page className={WRAP} title="Fakturering" eyebrow={eyebrow}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
+  if (!q.data) return <Page className={WRAP} title="Fakturering" eyebrow={eyebrow}><Loading /></Page>;
   return (
-    <Page title="Fakturering" eyebrow={eyebrow} lead={lead(q.data.customerName)}>
+    <Page className={WRAP} title="Fakturering" eyebrow={eyebrow} lead={lead(q.data.customerName)}>
       <Start v={q.data} />
     </Page>
   );

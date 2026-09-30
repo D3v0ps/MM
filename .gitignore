@@ -44,3 +44,6 @@ next-env.d.ts
 /dist-demo/
 /playwright-report/
 /test-results/
+
+# Mallen för miljövariabler ska finnas i repot (utan värden)
+!.env.example

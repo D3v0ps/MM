@@ -179,7 +179,7 @@ function CaseView({ card, crumbs, flik }: { card: CaseCard; crumbs: { label: str
           active={tab}
           onChange={setTab}
           ariaLabel="Delar av deltagarkortet"
-          className="min-[621px]:flex-wrap min-[621px]:overflow-x-visible [&_[role=tab]]:px-3"
+          className="relative min-[621px]:flex-wrap min-[621px]:overflow-x-visible [&_[role=tab]]:px-3"
         />
         {blocked && (
           <Notice tone="info" title="Den delen visas inte för din roll">

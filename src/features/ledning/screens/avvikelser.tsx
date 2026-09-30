@@ -383,7 +383,7 @@ function MonthSummary({ months, initial }: { months: string[]; initial: string }
         </>
       }
     >
-      <Stack className="[&_h3]:mt-1.5 [&_h3]:text-label [&_h3]:font-extrabold [&_h3]:tracking-[0.1em] [&_h3]:uppercase [&_ul]:m-0 [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-1.5 [&_ul]:pl-[1.2em]">
+      <Stack className="[&_h3]:mt-1.5 [&_h3]:text-label [&_h3]:font-extrabold [&_h3]:tracking-[0.1em] [&_h3]:uppercase [&_ul]:m-0 [&_ul]:list-disc [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-1.5 [&_ul]:pl-[1.2em]">
         <Field label="Månad" id="ldg-apt-month" help="Sammanställningen räknas fram ur registret för vald månad.">
           <Select value={mk} onValueChange={setMk} options={monthOptions(months)} />
         </Field>

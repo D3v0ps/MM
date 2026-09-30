@@ -53,6 +53,7 @@ export const reportOpen = command("rapporter.reportOpen", z.object({
 //   PortalReport ({ reportId, from? }) i components/portal-report.tsx – hela rapportsidan i portalen (prototypens
 //     PortalReport): tillbakaknapp, kvittens, rättelse, dokumentet, frågor och perspektivbyte.
 //   report-helpers.ts – reportTitle, periodText, statusLabel, effStatus, statusLook, isDelivered, DENIED …
+export type { ReportKind, ReportStatus } from "@/data/schema";
 export type { AttStats, AttRow, FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection, WeeklyRow, ReportModel } from "./model";
 
 // ---------------------------------------------------------------- Rapportlistan
@@ -134,6 +135,8 @@ export type ReportDocView =
 export type PortalReportInfo = {
   /** Rapporten som efterfrågades (kan vara ett utkast till rättelse). */
   requestedId: string;
+  /** Rubriken för den version som visas ("Månadsrapport januari 2027"). */
+  title: string;
   caseId: string | null;
   caseNumber: string | null;
   /** Deltagarens namn, null vid skyddade personuppgifter. */

@@ -8,7 +8,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
-import { Badge, Button, Card, DemoNote, Empty, Icon, Notice, Page, PerspectiveLink, QueryView, Row, Seg, cn, type BadgeTone, type IconName } from "@/ui";
+import { Badge, Button, Card, DemoNote, Empty, Icon, List, ListItem, Notice, Page, PerspectiveLink, QueryView, Row, Seg, type BadgeTone, type IconName } from "@/ui";
 import { notifList, notifRead, type NotifList, type NotifView } from "../api";
 
 const KIND: Record<NotifView["kind"], { label: string; icon: IconName; tone: BadgeTone }> = {
@@ -93,74 +93,72 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
             När du får ett ärende tilldelat eller en påminnelse visas den här.
           </Empty>
         ) : (
-          <div className="flex flex-col" data-notif-list="">
+          <List data-notif-list="">
             {list.map((n) => {
               const k = KIND[n.kind] ?? KIND.assignment;
               const isOpen = open === n.id;
               const go = target(n);
               const hasEmail = n.channels.includes("email");
               return (
-                <div
+                <ListItem
                   key={n.id}
-                  data-notif={n.id}
-                  className={cn(
-                    "grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3.5 gap-y-2 border-b border-ljusgra px-[18px] py-3.5 last:border-b-0 max-[620px]:grid-cols-[auto_minmax(0,1fr)]",
-                    !n.readAt && "shadow-[inset_4px_0_0_var(--color-rod)]",
-                  )}
+                  marked={!n.readAt}
+                  lead={<Icon name={k.icon} size="lg" className={n.kind === "progress_escalation" ? "text-rod" : undefined} />}
+                  side={
+                    go || !n.readAt ? (
+                      <>
+                        {go && (
+                          <Button
+                            iconRight="arrow-right"
+                            onClick={() => {
+                              void onRead([n.id]);
+                              nav.push(go.to);
+                            }}
+                          >
+                            {go.label}
+                          </Button>
+                        )}
+                        {!n.readAt && (
+                          <Button kind="ghost" icon="check" onClick={() => void onRead([n.id])}>
+                            Läst
+                          </Button>
+                        )}
+                      </>
+                    ) : undefined
+                  }
                 >
-                  <Icon name={k.icon} size="lg" className={n.kind === "progress_escalation" ? "text-rod" : undefined} />
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <Row gap="sm">
-                      <Badge tone={k.tone}>{k.label}</Badge>
-                      {!n.readAt && <Badge tone="dark">Oläst</Badge>}
-                      <span className="text-small text-text-muted">{fmtDateTime(n.createdAt)}</span>
-                    </Row>
-                    <div className="font-bold">{n.title}</div>
-                    <div>{n.body}</div>
-                    <Row gap="sm" className="text-small text-text-muted">
-                      <span>Kanaler:</span>
-                      {n.channels.map((ch) => (
-                        <Badge key={ch} tone="outline" icon={ch === "email" ? "mail" : "bell"}>
-                          {ch === "email" ? "E-post" : "I appen"}
-                        </Badge>
-                      ))}
-                      {hasEmail && (
-                        <Button kind="ghost" className="px-1.5 py-0.5" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : n.id)}>
-                          Visa e-postens text
-                        </Button>
-                      )}
-                    </Row>
-                    {isOpen && (
-                      <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
-                        <Icon name="mail" className="mt-px" />
-                        <div>
-                          <b className="font-bold text-antracit">E-post (utan personuppgifter):</b> {n.emailBody}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 max-[620px]:col-span-full max-[620px]:pl-9">
-                    {go && (
-                      <Button
-                        iconRight="arrow-right"
-                        onClick={() => {
-                          void onRead([n.id]);
-                          nav.push(go.to);
-                        }}
-                      >
-                        {go.label}
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <Badge tone={k.tone}>{k.label}</Badge>
+                    {!n.readAt && <Badge tone="dark">Oläst</Badge>}
+                    <span className="text-small text-text-muted">{fmtDateTime(n.createdAt)}</span>
+                  </span>
+                  <span className="block font-bold">{n.title}</span>
+                  <span className="block">{n.body}</span>
+                  <span className="flex flex-wrap items-center gap-1.5 text-small text-text-muted">
+                    <span>Kanaler:</span>
+                    {n.channels.map((ch) => (
+                      <Badge key={ch} tone="outline" icon={ch === "email" ? "mail" : "bell"}>
+                        {ch === "email" ? "E-post" : "I appen"}
+                      </Badge>
+                    ))}
+                    {hasEmail && (
+                      <Button kind="ghost" className="px-1.5 py-0.5" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : n.id)}>
+                        Visa e-postens text
                       </Button>
                     )}
-                    {!n.readAt && (
-                      <Button kind="ghost" icon="check" onClick={() => void onRead([n.id])}>
-                        Läst
-                      </Button>
-                    )}
-                  </div>
-                </div>
+                  </span>
+                  {isOpen && (
+                    <span className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
+                      <Icon name="mail" className="mt-px" />
+                      <span>
+                        <b className="font-bold text-antracit">E-post (utan personuppgifter):</b> {n.emailBody}
+                      </span>
+                    </span>
+                  )}
+                </ListItem>
               );
             })}
-          </div>
+          </List>
         )}
       </Card>
       <DemoNote>

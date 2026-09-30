@@ -44,6 +44,9 @@ export const joinSv = (xs: readonly string[]): string => (xs.length <= 1 ? xs.jo
 /** Förkortningar skrivs ut (dokumenten visas i kommunportalen): "Praktik/APL" → "Praktik (arbetsplatsförlagt lärande)". */
 export const plain = (t: string | null | undefined): string => String(t == null ? "" : t).replace(/\/APL\b/i, " (arbetsplatsförlagt lärande)");
 
+/** Antal för kommunen: 1 till minN − 1 skrivs "färre än 5" (små grupper redovisas inte). */
+export const smallN = (minN: number, n: number): string => (n > 0 && n < minN ? `färre än ${minN}` : String(n));
+
 // ---------------------------------------------------------------- Datum utan förkortningar
 /** "14 december" */
 export const dayMonth = (s: string | null | undefined): string => {

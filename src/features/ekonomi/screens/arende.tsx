@@ -12,7 +12,7 @@ import {
 } from "@/ui";
 import { ekoCase, ekoCaseList, type CaseBillingView, type CaseMonthRow } from "../api";
 import { monthLabel, pl, plural, weekText } from "../model";
-import { EkoKpi, EkoKpis, InvStatus, RefBadge, RefCell, RefModal, RoleNotice } from "./parts";
+import { EkoKpi, EkoKpis, InvStatus, RefBadge, RefCell, RefModal, RoleNotice, WRAP } from "./parts";
 
 export function ArendeScreen({ params }: ScreenProps) {
   if (!params.caseId) return <CasePicker />;
@@ -22,8 +22,8 @@ export function ArendeScreen({ params }: ScreenProps) {
 function ArendeLoader({ caseId }: { caseId: string }) {
   const q = useQuery(ekoCase, { caseId });
   const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: "Ärende", to: "/ekonomi/arende" }, { label: q.data?.caseNumber ?? "Ärende" }];
-  if (q.error) return <Page title="Ärende" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
-  if (q.data === undefined) return <Page title="Ärende" crumbs={crumbs}><Loading /></Page>;
+  if (q.error) return <Page className={WRAP} title="Ärende" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
+  if (q.data === undefined) return <Page className={WRAP} title="Ärende" crumbs={crumbs}><Loading /></Page>;
   if (q.data === null) return <CasePicker />;
   return <Arende v={q.data} crumbs={crumbs} />;
 }
@@ -37,7 +37,7 @@ function CasePicker() {
   const needle = search.trim().toUpperCase();
   const list = (q.data?.cases ?? []).filter((c) => !needle || c.caseNumber.includes(needle));
   return (
-    <Page title="Ärende" crumbs={crumbs} lead="Sök på ärendenumret för att se debiterbara veckor, fakturastatus och beställningens värde.">
+    <Page className={WRAP} title="Ärende" crumbs={crumbs} lead="Sök på ärendenumret för att se debiterbara veckor, fakturastatus och beställningens värde.">
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
       ) : !q.data ? (
@@ -67,7 +67,7 @@ function CasePicker() {
               footer={
                 list.length > 25 && (
                   <tr>
-                    <td colSpan={5} className="text-small font-normal text-text-muted">
+                    <td colSpan={5} className="text-small text-text-muted">
                       Visar 25 av {list.length}. Sök för att hitta fler.
                     </td>
                   </tr>
@@ -93,7 +93,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
   const over = Math.max(0, accrued.qty - orderWeeks);
   const custRole = v.referrerId ? "kommun_handlaggare" : "kommun_chef";
   return (
-    <Page
+    <Page className={WRAP}
       title={`Ärende ${v.caseNumber}`}
       eyebrow="Fakturering · ärendets underlag"
       crumbs={crumbs}

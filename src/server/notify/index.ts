@@ -1,26 +1,44 @@
-// PLATSHÅLLARE (serveragenten) – ersätts av utskicksagenten (Resend, spärrlista i testmiljön, jobb send_message).
-// Behåll signaturen: enqueueMessage(system, msg, now). Sparar bara utskicket i outbound_messages med status "queued".
-// Texten innehåller aldrig personuppgifter (CLAUDE.md punkt 9) – hanterarna skickar bara ärendenummer och länk.
+// Utskick i supabase-läget (ctx.notify -> enqueueMessage). Bara på servern.
+//   1. queueMessage sparar utskicket i outbound_messages (status queued) och lägger jobbet send_message
+//   2. after() kör jobben direkt när svaret skickats, så att mejlet går iväg utan att vänta på cron
+//   3. cron (pg_cron -> POST /api/jobs/run varje minut) tar det som blev kvar, t.ex. nya försök efter fel
+// Mejl skickas via Resend (resend.ts). I testmiljön får bara adresserna i MM_EMAIL_ALLOWLIST mejl (decision.ts).
+// Texten innehåller aldrig personuppgifter (CLAUDE.md punkt 9) – hanterarna skickar bara ärendenummer och "logga in".
+// Minnesläget (prototypen) använder inte den här filen – där sparas utskicken direkt i minnet (src/data/memory-runtime.ts).
+import "server-only";
+import { after } from "next/server";
 import type { OutgoingMessage } from "@/api/server";
 import type { LocalDateTime } from "@/core/time";
-import type { AppRepo, OutboundChannel } from "@/data/schema";
+import type { AppRepo } from "@/data/schema";
+import { randomId } from "../ctx";
+import { safeErrorText } from "../jobs/errors";
+import { runDueJobs } from "../jobs/live";
+import { queueMessage } from "./queue";
+import type { NotifyRepo } from "./types";
 
-const CHANNEL: Record<OutgoingMessage["channel"], OutboundChannel> = { email: "email", sms: "sms", letter: "brev" };
+/** Så många jobb körs direkt efter en förfrågan (resten tar cron). */
+const RUN_AFTER_REQUEST = 5;
 
 /** Lägg ett utskick i kön. Returnerar utskickets id. */
 export async function enqueueMessage(system: AppRepo, msg: OutgoingMessage, now: LocalDateTime): Promise<string> {
-  const id = `out-${crypto.randomUUID()}`;
-  await system.table("outbound_messages").insert({
-    id,
-    createdAt: now,
-    channel: CHANNEL[msg.channel],
-    to: msg.to,
-    template: msg.template,
-    subject: msg.subject ?? null,
-    body: msg.body,
-    caseId: msg.caseId ?? null,
-    status: "queued",
-    sentAt: null,
-  });
-  return id;
+  // ctx.system (service role): utskicksloggen och jobben skrivs bara av systemet.
+  const r = await queueMessage(system as unknown as NotifyRepo, msg, now, randomId);
+  if (r.jobId) sendSoon();
+  return r.messageId;
+}
+
+/** Kör jobben när svaret har skickats. Utanför en förfrågan (t.ex. i ett skript) skickar cron i stället inom en minut. */
+function sendSoon(): void {
+  try {
+    after(async () => {
+      try {
+        await runDueJobs({ limit: RUN_AFTER_REQUEST });
+      } catch (e) {
+        // Bara feltypen – aldrig adresser eller texter. Jobbet ligger kvar och cron försöker igen.
+        console.error("utskick: direktkörningen misslyckades", safeErrorText(e));
+      }
+    });
+  } catch {
+    // after() finns bara under en förfrågan.
+  }
 }

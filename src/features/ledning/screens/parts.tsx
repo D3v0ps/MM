@@ -184,7 +184,7 @@ export function AckModal({ alert, onClose }: { alert: AckTarget; onClose: () => 
         <span className="text-small text-text-muted">Förslag:</span>
         <Button
           kind="ghost"
-          className="text-left whitespace-normal"
+          className="justify-start text-left whitespace-normal"
           onClick={() => {
             setPlan(suggestion);
             setErr(null);

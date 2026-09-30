@@ -213,8 +213,8 @@ function invoiceFor(db: BillingData, c: Case, month: MonthKey, env: Base["env"])
   return billingForMonth({ ...db, cases: personCases }, month, env).invoices.find((x) => x.caseId === c.id) ?? null;
 }
 
-/** Öppen uppgift till ekonomen om ärendet (t.ex. rätt beställarreferens från avtalsansvarig). */
-async function openTasksToEkonom(ctx: Ctx): Promise<Task[]> {
+/** Uppgifter till ekonomen (t.ex. rätt beställarreferens från avtalsansvarig). Chef/controller ser dem via policyn. */
+async function ekonomTasks(ctx: Ctx): Promise<Task[]> {
   return ctx.repo.table("tasks").list({ toRole: "ekonom" });
 }
 const taskRef = (b: Base, t: Task): TaskRef => ({ id: t.id, fromName: personName(b.profiles, t.fromId), createdAt: t.createdAt, text: t.text });
@@ -258,7 +258,7 @@ handleQuery(ekoInvoice, { roles: READERS }, async (ctx, p) => {
   if (!c) return null;
   const inv = invoiceFor(db, c, p.month, b.env);
   if (!inv) return null;
-  const tasks = await openTasksToEkonom(ctx);
+  const tasks = await ekonomTasks(ctx);
   const questions = await ctx.repo.table("tasks").list({ kind: "billing_question", month: p.month });
   const overlaps: Record<string, OverlapView> = {};
   for (const ch of inv.checks.filter((x) => x.kind === "overlap")) {
@@ -358,7 +358,7 @@ handleQuery(ekoCase, { roles: READERS }, async (ctx, p) => {
     };
   });
   const qa = (t: { qty: number; amountOre: number }) => ({ qty: t.qty, amountOre: t.amountOre });
-  const tasks = await openTasksToEkonom(ctx);
+  const tasks = await ekonomTasks(ctx);
   const task = taskFor(tasks, c.id);
   return {
     canAct: b.canAct, caseId: c.id, caseNumber: c.caseNumber, name: await nameFor(ctx, c), areaName: areaName(b.areas, c.primaryAreaCode), articleNo: item?.fortnoxArticleNo || "–",
@@ -433,7 +433,7 @@ handleQuery(ekoStart, { roles: READERS }, async (ctx) => {
       }));
 
   // Uppgifter till ekonomen: öppna först, sedan nyast först
-  const tasks = (await openTasksToEkonom(ctx)).sort((a, x) => (a.status === x.status ? (a.createdAt < x.createdAt ? 1 : -1) : a.status === "open" ? -1 : 1));
+  const tasks = (await ekonomTasks(ctx)).sort((a, x) => (a.status === x.status ? (a.createdAt < x.createdAt ? 1 : -1) : a.status === "open" ? -1 : 1));
   const taskViews: TaskView[] = tasks.map((t) => ({
     ...taskRef(b, t), status: t.status, doneAt: t.doneAt, doneByName: t.doneBy ? personName(b.profiles, t.doneBy) : null,
     cases: t.caseIds.map((id) => caseById.get(id)).filter((c): c is Case => !!c).map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, buyerReference: c.buyerReference, problem: !!problem(c) })),

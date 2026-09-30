@@ -1,0 +1,509 @@
+"use client";
+// Avropsinkorgen (/inkorg/:emailId?) – port av prototypens vy sam.inkorg (prototyp/src/views/inkorg.js):
+// originalet bredvid det tolkade formuläret, ordererkännande, dubblettkontroll, acceptera/avböj, kompletteringar,
+// skyddade avrop enligt den säkra rutinen och mejl som klassats som Övrigt.
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { messageSend } from "@/features/arenden/api";
+import { useCommand, useQuery } from "@/shell/backend";
+import type { ScreenProps } from "@/shell/routes";
+import {
+  Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, DemoNote, Empty, ErrorNotice, Field, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
+  Table, Tabs, TextArea, Timeline, toast, type Column,
+} from "@/ui";
+import {
+  emailApplySupplement, emailSetStatus, inboxItem, inboxList, type InboxItemDetail, type InboxList, type InboxRow, type OrderBodyView, type OtherBodyView, type ProtectedBodyView, type SupplementBodyView,
+} from "../api";
+import { CLASS_ICON, CLASSIFICATION, METHOD, statusLook } from "../texts";
+import { AckCard, CaseFieldsCard, ConfirmationCard, DeclinedCard, DuplicateCard, OriginalCard, ParsedCard } from "./cards";
+import { AcceptModal, CorrectModal, DeclineModal, PhoneModal } from "./modals";
+import { Caps, IconLine, KommunSwitch, Quote, useIsDemo, WrapBtns } from "./parts";
+
+type Pick_ = (id: string) => void;
+const Pair = ({ even, children }: { even?: boolean; children?: ReactNode }) => (
+  <div className={cn("grid grid-cols-1 items-start gap-4", even ? "@min-[720px]:grid-cols-2" : "@min-[720px]:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]")}>{children}</div>
+);
+
+// ---------------------------------------------------------------- Skärmen
+export function InkorgScreen({ params, query }: ScreenProps) {
+  const q = useQuery(inboxList, {});
+  return (
+    <Page
+      title="Avropsinkorg"
+      eyebrow="avrop@miljonbemanning.se"
+      lead={q.data ? `Mejl till avrop@ läses in automatiskt och får ärendenummer och ordererkännande inom ${q.data.ackMinutes} minuter. Svara med Acceptera eller Avböj senast ${q.data.answerText} efter mottagandet.` : undefined}
+      actions={<PerspectiveLink role="kommun_handlaggare" to="/portal/bestall" label="Se hur kommunen beställer" />}
+    >
+      {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : (
+        <Inbox data={q.data} emailId={params.emailId ?? null} caseId={query.get("arende")} latest={query.get("senaste") === "1"} />
+      )}
+      <DemoNote>
+        Inläsningen är simulerad. I tjänsten hämtas mejlen från avrop@ via Microsoft Graph var 2–5 minut och flyttas till mappen Inläst, där de ligger kvar som reserv.
+        Inga mejl eller SMS skickas på riktigt – de syns i utskicksloggen. Demoklockan går en minut framåt för varje åtgärd.
+      </DemoNote>
+    </Page>
+  );
+}
+
+/** Posten som visas först (prototypens initial): mejlet i adressen, ärendets avrop, senaste avropet eller det mest brådskande. */
+function initialPick(d: InboxList, emailId: string | null, caseId: string | null, latest: boolean): string | null {
+  const rows = d.rows;
+  if (emailId && rows.some((x) => x.id === emailId)) return emailId;
+  if (caseId) {
+    const byCase = rows.filter((x) => x.caseId === caseId);
+    const pick = byCase.find((x) => x.cls === "order" || x.cls === "order_protected") ?? byCase[0];
+    if (pick) return pick.id;
+  }
+  if (latest) {
+    const pending = new Set(d.pending);
+    const l = rows.filter((x) => pending.has(x.id) && (x.cls === "order" || x.cls === "order_protected")).sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0))[0];
+    if (l) return l.id;
+  }
+  return d.pending[0] ?? null;
+}
+
+type Tab = "att" | "hanterade" | "alla";
+const LIMIT = 12;
+
+function Inbox({ data, emailId, caseId, latest }: { data: InboxList; emailId: string | null; caseId: string | null; latest: boolean }) {
+  const [selId, setSelId] = useState<string | null>(() => initialPick(data, emailId, caseId, latest));
+  const [tab, setTab] = useState<Tab>(() => {
+    const init = data.rows.find((x) => x.id === selId);
+    return init && !init.pending && (emailId || caseId) ? "alla" : "att";
+  });
+  const [showAll, setShowAll] = useState(false);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const userPick = useRef(false);
+  useEffect(() => {
+    if (!userPick.current) return;
+    userPick.current = false;
+    // Smal skärm: detaljen ligger under listan – visa den direkt.
+    if (window.matchMedia("(max-width: 1099px)").matches) detailRef.current?.scrollIntoView({ block: "start" });
+  }, [selId]);
+  const pick: Pick_ = (id) => {
+    userPick.current = true;
+    setSelId(id);
+  };
+  const byId = useMemo(() => new Map(data.rows.map((r) => [r.id, r])), [data]);
+  const pending = data.pending.map((id) => byId.get(id)).filter((x): x is InboxRow => !!x);
+  const handled = data.handled.map((id) => byId.get(id)).filter((x): x is InboxRow => !!x);
+  const list = tab === "att" ? pending : tab === "hanterade" ? handled : data.rows;
+  const shown = showAll ? list : list.slice(0, LIMIT);
+  const item = selId ? byId.get(selId) ?? null : null;
+
+  return (
+    <>
+      <Summary pending={pending} onPick={pick} />
+      <div className="grid grid-cols-1 items-start gap-5 min-[1100px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-2">
+          <Tabs<Tab>
+            ariaLabel="Filtrera inkorgen"
+            active={tab}
+            onChange={(t) => {
+              setTab(t);
+              setShowAll(false);
+            }}
+            tabs={[{ id: "att", label: "Att hantera", count: pending.length }, { id: "hanterade", label: "Hanterade" }, { id: "alla", label: "Alla" }]}
+            className="[&_[role=tab]]:gap-1.5 [&_[role=tab]]:px-3"
+          />
+          <span className="text-small text-text-muted">
+            {tab === "att" ? `${list.length} att hantera, mest brådskande först` : tab === "hanterade" ? `${list.length} hanterade, senaste först` : `${list.length} mejl och beställningar, senaste först`}
+          </span>
+          <Card flush foot={list.length > shown.length ? <Button kind="ghost" onClick={() => setShowAll(true)}>Visa alla {list.length}</Button> : undefined}>
+            {shown.length === 0 ? (
+              <Empty icon="check-circle" title="Inget att hantera">Alla avrop är besvarade.</Empty>
+            ) : (
+              <nav aria-label="Mejl i inkorgen" className="flex flex-col">
+                {shown.map((it) => <Row key={it.id} it={it} active={it.id === selId} onPick={pick} />)}
+              </nav>
+            )}
+          </Card>
+        </div>
+        <div ref={detailRef} className="@container min-w-0 scroll-mt-[140px] max-[900px]:scroll-mt-4" data-inkorg-detail="">
+          {item ? (
+            <Detail key={item.id} id={item.id} onPick={pick} />
+          ) : (
+            <Card>
+              <Empty icon="inbox" title={pending.length ? "Välj ett mejl" : "Inget väntar på svar"}>
+                {pending.length ? "Klicka på ett mejl i listan för att se originalet och det tolkade formuläret." : "Alla avrop är besvarade. Under Hanterade ser du vad som gjorts och när."}
+              </Empty>
+            </Card>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** Sammanfattning: första rutan visar samma tal som fliken "Att hantera" och menyräknaren. Övriga delar upp talet. */
+function Summary({ pending, onPick }: { pending: InboxRow[]; onPick: Pick_ }) {
+  const urgent = pending.find((x) => x.sla && !x.sla.metAt);
+  const n = (cls: InboxRow["cls"]) => pending.filter((x) => x.cls === cls).length;
+  const parts: [string, number][] = [["Avrop att besvara", n("order")], ["Skyddade avrop", n("order_protected")], ["Kompletteringar", n("supplement")], ["Övrigt", n("other")]];
+  const cell = "flex min-w-0 flex-col gap-0.5 border-r border-ljusgra px-[18px] py-3 max-[620px]:flex-[1_1_45%] max-[620px]:border-r-0 max-[620px]:border-b";
+  const num = "text-[1.5rem] leading-[1.1] font-extrabold tabular-nums";
+  return (
+    <div role="group" aria-label="Sammanfattning av inkorgen" className="flex flex-wrap items-stretch rounded-card border border-ljusgra bg-vit" data-inkorg-summary="">
+      <div className={cell}>
+        <Caps>Att hantera</Caps>
+        <span className={num} data-summary-total="">{pending.length}</span>
+        <span className="text-small text-text-muted">mejl och beställningar</span>
+      </div>
+      {parts.map(([label, k]) => (
+        <div key={label} className={cell}>
+          <Caps>{label}</Caps>
+          <span className={num} data-summary-part="">{k}</span>
+        </div>
+      ))}
+      <div className="flex min-w-0 flex-[1_1_260px] flex-col justify-center gap-0.5 px-[18px] py-3 max-[620px]:basis-full">
+        <Caps>Mest brådskande</Caps>
+        {urgent?.sla ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <SlaBadge sla={urgent.sla.sla} dueAt={urgent.sla.dueAt} />
+            <span className="font-bold">{urgent.caseNumber ?? urgent.subject}</span>
+            <span className="text-small text-text-muted">{urgent.from}</span>
+            <Button kind="ghost" iconRight="arrow-right" onClick={() => onPick(urgent.id)}>Öppna</Button>
+          </span>
+        ) : (
+          <span className="text-text-muted">Inget väntar på svar.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pick_ }) {
+  const m = METHOD[it.method] ?? METHOD.manual;
+  const [stLabel, stTone, stIcon] = statusLook(it.status);
+  return (
+    <button
+      type="button"
+      aria-current={active ? "true" : undefined}
+      onClick={() => onPick(it.id)}
+      data-inkorg-row=""
+      className={cn(
+        "flex w-full min-w-0 cursor-pointer items-start gap-2.5 border-x-0 border-t-0 border-b border-ljusgra bg-transparent px-[18px] py-3 text-left text-antracit [font:inherit] last:border-b-0 hover:bg-ljusgra-ton",
+        active && "bg-bla-ton shadow-[inset_4px_0_0_var(--color-antracit)] hover:bg-bla-ton",
+      )}
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="flex min-w-0 items-baseline justify-between gap-2">
+          <span className="min-w-0 truncate font-bold">{it.from}</span>
+          <span className="text-small whitespace-nowrap text-text-muted">{it.receivedWhen}</span>
+        </span>
+        <span className="text-ui [overflow-wrap:anywhere]">{it.subject}</span>
+        <span className="flex flex-wrap items-center gap-1.5">
+          {it.pending && it.sla ? <SlaBadge sla={it.sla.sla} dueAt={it.sla.dueAt} /> : <Badge tone={stTone} icon={stIcon}>{stLabel}</Badge>}
+          {it.cls === "order" || it.cls === "order_protected"
+            ? <Badge tone="outline" icon={m.icon}>{m.label}</Badge>
+            : <Badge tone="outline" icon={CLASS_ICON[it.cls] ?? "mail"}>{CLASSIFICATION[it.cls]}</Badge>}
+          {it.caseNumber && <span className="text-small font-bold tabular-nums tracking-[0.01em]">{it.caseNumber}</span>}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------- Detaljvyn
+type ModalKind = "accept" | "decline" | "correct" | "phone" | null;
+
+function Detail({ id, onPick }: { id: string; onPick: Pick_ }) {
+  const q = useQuery(inboxItem, { id });
+  const [modal, setModal] = useState<ModalKind>(null);
+  if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
+  if (q.isLoading || q.data === undefined) return <Loading />;
+  const it = q.data;
+  if (!it) return <Card><Empty icon="inbox" title="Mejlet finns inte">Det kan ha tagits bort, eller så har du inte behörighet att se det.</Empty></Card>;
+  const c = it.case;
+  const close = () => setModal(null);
+  const showEmail = (x: string) => {
+    setModal(null);
+    onPick(x);
+  };
+  const b = it.body;
+  return (
+    <div className="flex flex-col gap-4">
+      <DetailHead it={it} onAccept={() => setModal("accept")} onDecline={() => setModal("decline")} onCorrect={it.correct ? () => setModal("correct") : null} onPhone={() => setModal("phone")} />
+      {b.kind === "protected" && <ProtectedBody it={it} b={b} />}
+      {b.kind === "supplement" && <SupplementBody b={b} onPick={onPick} onAccept={() => setModal("accept")} />}
+      {b.kind === "other" && <OtherBody it={it} b={b} />}
+      {b.kind === "order" && <OrderBody it={it} b={b} onPick={onPick} />}
+      {modal === "accept" && c && <AcceptModal caseId={c.id} caseNumber={c.number} onClose={close} onShowEmail={showEmail} />}
+      {modal === "decline" && c && <DeclineModal caseId={c.id} caseNumber={c.number} onClose={close} />}
+      {modal === "correct" && it.correct && <CorrectModal f={it.correct} onClose={close} />}
+      {modal === "phone" && it.canPhone && <PhoneModal emailId={it.id} onClose={close} />}
+    </div>
+  );
+}
+
+function DetailHead({ it, onAccept, onDecline, onCorrect, onPhone }: { it: InboxItemDetail; onAccept: () => void; onDecline: () => void; onCorrect: (() => void) | null; onPhone: () => void }) {
+  const c = it.case;
+  const m = METHOD[it.method] ?? METHOD.manual;
+  const [stLabel, stTone, stIcon] = statusLook(it.status);
+  const s = it.headSla;
+  return (
+    <Card>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 flex-[1_1_260px] flex-col gap-1">
+            <Caps>{CLASSIFICATION[it.cls] ?? "Mejl"}{c ? ` · ${c.number}` : ""}</Caps>
+            <h2 className="text-h2 font-extrabold [overflow-wrap:anywhere]">{it.subject}</h2>
+            <div className="text-small text-text-muted">Från {it.from}{it.fromAddress ? ` (${it.fromAddress})` : ""} · mottaget {it.receivedWhen}</div>
+          </div>
+          {s && (
+            <div className="flex flex-col items-start gap-1">
+              <span className="text-small text-text-muted">{s.text}</span>
+              <SlaBadge sla={s.sla} dueAt={s.dueAt} />
+            </div>
+          )}
+          {!s && it.cls === "other" && <Badge tone="outline" icon="message">Inget avtals-SLA – svara samma dag</Badge>}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge tone={stTone} icon={stIcon}>{stLabel}</Badge>
+          <Badge tone="outline" icon={m.icon}>{m.label}</Badge>
+          {c && <span className="inline-flex flex-wrap items-center gap-1.5 text-small">Ärende <CaseLink caseId={c.id} caseNumber={c.number} /></span>}
+          {it.handledText && <span className="text-small text-text-muted">{it.handledText}</span>}
+        </div>
+        {it.steps && <Stepper steps={it.steps} current={it.current} />}
+        {it.isProtected && !it.mine && ((it.cls === "order_protected" && !c) || it.decision) && (
+          <Notice tone="info" icon="lock" title="Avtalsansvarig hanterar skyddade avrop enligt den säkra rutinen">
+            <div className="flex flex-col gap-2">
+              <span>{it.managerName} har fått en flagga och en uppgift. Avtalsansvarig ringer handläggaren, registrerar minimala uppgifter och tilldelar en namngiven coach. Du behöver inte göra något här.</span>
+              <span>Efter registreringen ser du bara ärendenumret och texten ”Skyddade personuppgifter”.</span>
+              <WrapBtns>
+                <PerspectiveLink role="avtalsansvarig" to={it.kind === "email" ? `/inkorg/${encodeURIComponent(it.id)}` : `/inkorg?arende=${encodeURIComponent(c?.id ?? "")}`} label="Se avtalsansvarigs vy" />
+              </WrapBtns>
+            </div>
+          </Notice>
+        )}
+        {it.canPhone && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button kind="primary" icon="phone" onClick={onPhone}>Registrera efter telefonsamtal</Button>
+          </div>
+        )}
+        {it.decision && it.mine && (
+          <div className="flex flex-wrap items-center gap-3">
+            <Button kind="primary" icon="check" onClick={onAccept}>Acceptera</Button>
+            <Button kind="danger" icon="x-circle" onClick={onDecline}>Avböj</Button>
+            {onCorrect && <Button kind="ghost" icon="edit" onClick={onCorrect}>Rätta uppgifter</Button>}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function OrderBody({ it, b, onPick }: { it: InboxItemDetail; b: OrderBodyView; onPick: Pick_ }) {
+  const c = it.case;
+  return (
+    <>
+      {b.decided && c && <ConfirmationCard caseId={c.id} />}
+      {b.declined && <DeclinedCard d={b.declined} />}
+      {b.pendingSups.map((s) => (
+        <Notice key={s.id} tone="info" icon="link" title="En komplettering har kommit">
+          <div className="flex flex-col gap-2">
+            {s.fromName} svarade {s.when}. Svaret kopplades automatiskt via ärendenumret i ämnesraden.
+            <div><Button kind="secondary" iconRight="arrow-right" onClick={() => onPick(s.id)}>Öppna kompletteringen</Button></div>
+          </div>
+        </Notice>
+      ))}
+      {b.missing && <Notice tone={b.missing.critical ? "critical" : "warn"} title={b.missing.title}>{b.missing.text}</Notice>}
+      {b.refProblem && <Notice tone="critical" title="Beställarreferens saknas eller är fel">{b.refProblem}</Notice>}
+      <Pair>
+        {b.original ? <OriginalCard o={b.original} /> : <AckCard a={b.ack} c={c} />}
+        {b.parsed ? <ParsedCard p={b.parsed} /> : b.caseFields && <CaseFieldsCard v={b.caseFields} />}
+      </Pair>
+      <Pair even>
+        {b.original && <AckCard a={b.ack} c={c} />}
+        {b.dup && <DuplicateCard d={b.dup} />}
+      </Pair>
+    </>
+  );
+}
+
+function SupplementBody({ b, onPick, onAccept }: { b: SupplementBodyView; onPick: Pick_; onAccept: () => void }) {
+  const apply = useCommand(emailApplySupplement);
+  if (!b.linked) return <Notice tone="warn" title="Inte kopplad">Kompletteringen kunde inte kopplas till något ärende. Koppla den manuellt.</Notice>;
+  type R = (typeof b.rows)[number];
+  const columns: Column<R>[] = [
+    { key: "f", label: "Fält", render: (r) => <span className="font-bold">{r.label}</span> },
+    { key: "now", label: "I ärendet nu", render: (r) => r.now ?? <span className="font-bold">Saknas</span> },
+    {
+      key: "new", label: "I kompletteringen", render: (r) => (
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="font-bold">{r.next}</span>
+          {r.low ? <Badge tone="grey" icon="alert-circle">Osäker {r.pct}</Badge> : <CellSub>Säkerhet {r.pct}</CellSub>}
+        </div>
+      ),
+    },
+  ];
+  const run = async () => {
+    const res = await apply.run({ emailId: b.original.emailId });
+    if (!res.ok) {
+      toast(res.message ?? "Uppgifterna kunde inte föras in.", "error");
+      return;
+    }
+    toast(`Uppgifterna är införda i ${b.caseNumber}. Nu kan avropet accepteras.`);
+  };
+  const cc = b.caseCard;
+  return (
+    <>
+      <Notice tone="info" icon="link" title={`Kopplad automatiskt till ${b.caseNumber}`}>Svaret på ordererkännandet kopplades via ärendenumret i ämnesraden. Ingen manuell sortering behövs.</Notice>
+      <Card
+        title={b.applied ? "Uppgifterna är införda" : "Uppgifter att föra in"}
+        icon={b.applied ? "check-circle" : "file-plus"}
+        tone={b.applied ? "blue" : undefined}
+        foot={
+          <>
+            {!b.applied && <Button kind="primary" icon="check" disabled={!!b.refErr} pending={apply.pending} onClick={() => void run()}>För in uppgifterna</Button>}
+            {b.applied && b.canAccept && <Button kind="primary" icon="check" onClick={onAccept}>Acceptera avropet</Button>}
+            {b.origEmailId && <Button kind="secondary" iconRight="arrow-right" onClick={() => onPick(b.origEmailId ?? "")}>Visa avropet</Button>}
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          {b.appliedText && <p>{b.appliedText}</p>}
+          <Table caption="Uppgifter i kompletteringen" rows={b.rows} rowKey="key" columns={columns} />
+          {b.refErr && <Notice tone="critical" title="Beställarreferensen har fel format">{b.refErr}</Notice>}
+        </div>
+      </Card>
+      <Pair>
+        <OriginalCard o={b.original} />
+        <Card title="Ärendet" icon="briefcase">
+          <Kv
+            items={[
+              ["Ärendenummer", <CaseLink key="c" caseId={cc.caseId} caseNumber={cc.caseNumber} />],
+              ["Status", <CaseStatusBadge key="s" status={cc.status} />],
+              ["Deltagare", cc.displayName],
+              ["Avtalsområde", cc.areaName],
+              ["Beställarreferens", cc.buyerReference || "Saknas"],
+              ["Svar på avropet", cc.sla ? <SlaBadge key="sla" sla={cc.sla.sla} dueAt={cc.sla.dueAt} /> : "–"],
+            ]}
+          />
+        </Card>
+      </Pair>
+    </>
+  );
+}
+
+function OtherBody({ it, b }: { it: InboxItemDetail; b: OtherBodyView }) {
+  const send = useCommand(messageSend);
+  const setStatus = useCommand(emailSetStatus);
+  const [draft, setDraft] = useState(b.draft);
+  const [err, setErr] = useState<string | null>(null);
+  const demo = useIsDemo();
+  const c = b.caseCard;
+  const doSend = async () => {
+    if (!c) return;
+    if (!draft.trim()) {
+      setErr("Skriv ett svar.");
+      return;
+    }
+    const res = await send.run({ caseId: c.caseId, body: draft.trim() });
+    if (!res.ok) {
+      toast(res.message ?? "Svaret kunde inte skickas.", "error");
+      return;
+    }
+    toast("Svaret är skickat som säkert meddelande. Kommunen fick ett mejl utan innehåll.");
+  };
+  const markHandled = async () => {
+    const res = await setStatus.run({ emailId: b.original.emailId, status: "handled", caseId: c?.caseId });
+    if (res.ok) toast("Mejlet är markerat som hanterat.");
+  };
+  return (
+    <>
+      <Notice tone="info" title="Klassat som Övrigt – inte en beställning">
+        Mejl som inte är beställningar lämnas till en människa.{b.caseNumber ? ` Det kopplades till ${b.caseNumber} via ärendenumret i texten.` : " Inget ärendenummer hittades."}
+      </Notice>
+      <Pair>
+        <OriginalCard o={b.original} />
+        {c ? (
+          <Card title="Ärendet" icon="briefcase">
+            <div className="flex flex-col gap-4">
+              <Kv
+                items={[
+                  ["Ärendenummer", <CaseLink key="c" caseId={c.caseId} caseNumber={c.caseNumber} />],
+                  ["Deltagare", c.displayName],
+                  ["Huvudcoach", c.coachName],
+                  ["Status", <CaseStatusBadge key="s" status={c.status} />],
+                  ["Fas", c.phase],
+                ]}
+              />
+              {b.custMsgs.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <Caps>Senaste säkra meddelanden från kommunen</Caps>
+                  {b.custMsgs.map((m) => (
+                    <div key={m.id} className="flex flex-col gap-0.5">
+                      <span className="text-small text-text-muted">{m.sender} · {m.when}{m.unread ? " · oläst" : ""}</span>
+                      <Quote>{m.body}</Quote>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+        ) : (
+          <Card title="Ärendet"><p className="text-text-muted">Inget ärende kopplat.</p></Card>
+        )}
+      </Pair>
+      {c && (
+        <Card
+          title="Svara"
+          icon="send"
+          foot={
+            <>
+              {!b.lastReply && <Button kind="primary" icon="send" pending={send.pending} onClick={() => void doSend()}>Svara med säkert meddelande</Button>}
+              {!b.handled
+                ? <Button kind={b.lastReply ? "primary" : "secondary"} icon="check" pending={setStatus.pending} onClick={() => void markHandled()}>Markera som hanterad</Button>
+                : <Badge tone="bluetone" icon="check">{b.handledText}</Badge>}
+              {demo && <WrapBtns><KommunSwitch c={it.case} /></WrapBtns>}
+            </>
+          }
+        >
+          {b.lastReply ? (
+            <div className="flex flex-col gap-2">
+              <Notice tone="ok" title={`Svar skickat ${b.lastReply.when} som säkert meddelande`}>Svaret ligger i ärendet i portalen. Svara inte med vanligt mejl när det gäller en deltagare.</Notice>
+              <Quote>{b.lastReply.body}</Quote>
+              {b.replyMail && <IconLine icon="mail" className="text-small"><b>Kommunen fick ett mejl utan innehåll:</b> {b.replyMail}</IconLine>}
+            </div>
+          ) : (
+            <Field
+              id="ink-reply" label="Svar till kommunen" required error={err}
+              help={`Skickas som säkert meddelande i ärendet. Kommunen får bara ett mejl: ”Du har ett nytt meddelande om ärende ${c.caseNumber} – logga in för att läsa.” Förslaget bygger på schemat i ärendet – ändra fritt.`}
+            >
+              <TextArea value={draft} onValueChange={(x) => { setDraft(x); setErr(null); }} rows={8} maxLength={2000} />
+            </Field>
+          )}
+        </Card>
+      )}
+    </>
+  );
+}
+
+function ProtectedBody({ it, b }: { it: InboxItemDetail; b: ProtectedBodyView }) {
+  const c = it.case;
+  return (
+    <>
+      {b.decided && c && <ConfirmationCard caseId={c.id} />}
+      {b.declined && <DeclinedCard d={b.declined} />}
+      <Notice tone="critical" icon="lock" title="Skyddade personuppgifter – ingen automatik">
+        Mejlet tolkas inte och inget ärende skapas automatiskt. Bara en generisk mottagningsbekräftelse skickas. Ingen adress sparas, inga SMS eller mejl går till deltagaren och ingen AI används.
+      </Notice>
+      <Pair>
+        <OriginalCard o={b.original} />
+        <Card title="Säker rutin" icon="shield">
+          <Timeline items={b.timeline.map((t, i) => ({ ...t, key: String(i) }))} />
+        </Card>
+      </Pair>
+      <Pair even>
+        <AckCard a={b.ack} c={c} />
+        {b.caseFields ? (
+          <CaseFieldsCard v={b.caseFields} />
+        ) : (
+          <Card title="Behörighet" icon="lock">
+            <p>Ärenden med skyddade personuppgifter syns med namn bara för avtalsansvarig och den namngivna coachen. Samordnare och chef ser ärendenumret.</p>
+          </Card>
+        )}
+      </Pair>
+    </>
+  );
+}

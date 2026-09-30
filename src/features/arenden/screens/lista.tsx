@@ -261,7 +261,7 @@ function List({ model, filter }: { model: CaseListModel; filter: string }) {
         ) : (
           <>
             <div className="max-[1240px]:hidden">
-              <WideTable rows={shown} today={today} weeks={w4} showCoach={showCoach} open={open} />
+              <WideTable rows={shown} today={today} weeks={w4} open={open} />
             </div>
             <div className="hidden max-[1240px]:block">
               <div className="flex flex-col">{shown.map((c) => <NarrowItem key={c.id} c={c} weeksLabel={w4.label} open={open} />)}</div>
@@ -293,8 +293,7 @@ const TH = "border-b-2 border-antracit bg-vit px-1.5 py-[9px] text-left align-bo
 const TD = "border-b border-ljusgra px-1.5 py-[9px] align-top first:pl-4";
 const sub = "text-small text-text-muted";
 
-function WideTable({ rows, today, weeks, showCoach, open }: { rows: CaseListRow[]; today: string; weeks: CaseListModel["weeks"]; showCoach: boolean; open: (c: CaseListRow) => void }) {
-  void showCoach;
+function WideTable({ rows, today, weeks, open }: { rows: CaseListRow[]; today: string; weeks: CaseListModel["weeks"]; open: (c: CaseListRow) => void }) {
   const onKey = (e: KeyboardEvent<HTMLTableRowElement>, c: CaseListRow) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
@@ -405,7 +404,7 @@ function WideTable({ rows, today, weeks, showCoach, open }: { rows: CaseListRow[
 }
 
 function NarrowItem({ c, weeksLabel, open }: { c: CaseListRow; weeksLabel: string; open: (c: CaseListRow) => void }) {
-  const cls = "flex w-full min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 text-left last:border-b-0";
+  const cls = "flex w-full min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 text-left last:border-b-0 max-[620px]:flex-wrap";
   if (c.restricted || !c.detail) {
     return (
       <div className={cls}>
@@ -422,7 +421,7 @@ function NarrowItem({ c, weeksLabel, open }: { c: CaseListRow; weeksLabel: strin
   const ast = d.attendance;
   return (
     <button type="button" className={`${cls} cursor-pointer bg-transparent text-inherit [font:inherit] hover:bg-ljusgra-ton`} onClick={() => open(c)}>
-      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+      <span className="flex min-w-0 flex-1 flex-col gap-[3px] max-[620px]:basis-[calc(100%-44px)]">
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="font-bold tabular-nums">{c.caseNumber}</span>
           <CaseStatusBadge status={c.status} />
@@ -442,7 +441,7 @@ function NarrowItem({ c, weeksLabel, open }: { c: CaseListRow; weeksLabel: strin
           </span>
         )}
       </span>
-      <span className="flex flex-none flex-col items-end gap-1">
+      <span className="flex flex-none flex-col items-end gap-1 max-[620px]:w-full max-[620px]:flex-row max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:justify-start">
         {d.latest ? <Status value={d.latest.overallStatus} short /> : <span className="text-small text-text-muted">Ej bedömd</span>}
       </span>
     </button>

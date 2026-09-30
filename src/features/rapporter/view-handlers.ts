@@ -4,7 +4,7 @@
 import { fail, ok } from "@/api/contract";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import type { OperationalConfig } from "@/core/config";
+import { isOperational, type OperationalConfig } from "@/core/config";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, type LocalDateTime } from "@/core/time";
@@ -15,9 +15,10 @@ import {
   reportCorrectionNote, reportDocument, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
   type PortalReportInfo, type ReportDocResult, type ReportDocView, type ReportList, type ReportListRow, type ReportVersion, type ReportView, type ReportViewDenied, type WeeklyDocSection,
 } from "./api";
+import { freezeReport } from "./freeze";
 import { contractInfo, loadReportDb, pendingCorrection, recipientOf, reportAccess, versionChain, viewerFor, type ContractInfo, type Viewer } from "./load";
 import {
-  driftedSinceDelivery, frozenModel, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel, summaryFromNumbers,
+  driftedSinceDelivery, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel, summaryFromNumbers,
   type ReportModel, type SummaryModel,
 } from "./model";
 import { effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
@@ -82,7 +83,9 @@ const monthlyAssessmentOf = async (ctx: Ctx, r: Report): Promise<MonthlyAssessme
 handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> => {
   const { role, userId } = ctx.actor;
   const now = ctx.now();
-  const contractId = ctx.actor.contractIds[0];
+  // Avtalet där rapporterna hanteras (ett avtal i utkast, t.ex. Kammarkollegiet, har inga rapporter än).
+  const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
+  const contractId = (contracts.find((c) => isOperational(c.config)) ?? contracts[0])?.id ?? ctx.actor.contractIds[0];
   const info = await contractInfo(ctx, contractId);
   // Ärendena läses via ctx.repo (behörigheten). Rapporterna via ctx.system: listan visar bara rubrik, ärendenummer, status
   // och förfallotid – även för ärenden med skyddade personuppgifter, där namnet inte visas (samma som ärendelistan).
@@ -205,7 +208,7 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
     const pend = await pendingCorrection(ctx, r);
     const access = viewer.access(c);
     portal = {
-      requestedId: req.id, caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null, participant: c && access !== "restricted" ? viewer.name(c) : null,
+      requestedId: req.id, title: reportTitle(r), caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null, participant: c && access !== "restricted" ? viewer.name(c) : null,
       deliveredText: wdFull(r.deliveredAt), version: r.version || 1, isRecipient: r.deliveredTo.includes(ctx.actor.userId), openedAt: r.openedAt,
       recipientName: personName(db.profiles, r.deliveredTo[0] || recipientOf(r, c)),
       correcting: !!pend, superseded: r.superseded,
@@ -366,16 +369,10 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
 handleCommand(reportSnapshot, { roles: VIEW_ROLES, silent: true }, async (ctx, p) => {
   const done: string[] = [];
   for (const id of p.reportIds) {
-    // Läsaren måste få se rapporten (policyn/RLS). Frysningen är ett systemsteg: ctx.system läser underlaget och skriver
-    // ögonblicksbilden – även roller som får läsa men inte ändra rapporten (chef, kommunen) fryser den när de öppnar den.
+    // Läsaren måste få se rapporten (policyn/RLS). Frysningen är ett systemsteg (freeze.ts): även roller som får läsa men
+    // inte ändra rapporten (chef, kommunen) fryser den när de öppnar den.
     const r = await ctx.repo.table("reports").get(id);
-    if (!r || !isDelivered(r) || !hasDocument(r.kind) || hasSnapshot(r)) continue;
-    const info = await contractInfo(ctx, r.contractId);
-    const db = await loadReportDb(ctx, r, info);
-    const m = frozenModel(db, r, { ...info.env, now: ctx.now() });
-    if (!m) continue;
-    await ctx.system.table("reports").update(r.id, { snapshot: { reportId: r.id, takenAt: ctx.now(), deliveredAt: r.deliveredAt, model: JSON.parse(JSON.stringify(m)) } });
-    done.push(r.id);
+    if (r && (await freezeReport(ctx, r))) done.push(r.id);
   }
   return ok({ reportIds: done });
 });

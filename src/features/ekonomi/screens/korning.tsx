@@ -16,7 +16,7 @@ import {
   ekoInvoice, ekoReissue, ekoRun, type InvoiceCheckView, type InvoiceDetailView, type InvoiceRow, type RunView,
 } from "../api";
 import { BILLED, BUCKET_ORDER, monthLabel, periodOf, pl, plural, weekText } from "../model";
-import { CHECK, CheckIcons, EkoKpi, EkoKpis, FixBox, InvStatus, PAGE_SIZE, Pager, Quote, RefBadge, RefCell, RefForm, RoleNotice, SectionTitle, SummaryList } from "./parts";
+import { CHECK, CheckIcons, EkoKpi, EkoKpis, FixBox, InvStatus, PAGE_SIZE, Pager, Quote, RefBadge, RefCell, RefForm, RoleNotice, SectionTitle, SummaryList, WRAP } from "./parts";
 
 type Filter = "alla" | "stoppade" | "godkannande" | "klara";
 const FILTERS: readonly Filter[] = ["alla", "stoppade", "godkannande", "klara"];
@@ -26,12 +26,12 @@ export function KorningScreen({ params, query }: ScreenProps) {
   const month = MONTH_RE.test(params.month ?? "") ? params.month : undefined;
   const q = useQuery(ekoRun, { month });
   const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: q.data?.month ? monthLabel(q.data.month) : "Fakturakörning" }];
-  if (q.error) return <Page title="Fakturakörning" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
-  if (!q.data) return <Page title="Fakturakörning" crumbs={crumbs}><Loading /></Page>;
+  if (q.error) return <Page className={WRAP} title="Fakturakörning" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
+  if (!q.data) return <Page className={WRAP} title="Fakturakörning" crumbs={crumbs}><Loading /></Page>;
   const v = q.data;
   if (!v.month) {
     return (
-      <Page title="Fakturakörning" crumbs={crumbs}>
+      <Page className={WRAP} title="Fakturakörning" crumbs={crumbs}>
         <Empty icon="file" title="Ingen fakturakörning ännu">
           Underlaget räknas fram efter varje månadsskifte.
         </Empty>
@@ -200,7 +200,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
   const openInv = openId ? rows.find((r) => r.caseId === openId) : null;
 
   return (
-    <Page
+    <Page className={WRAP}
       title={`Fakturakörning ${monthName(mk)}`}
       eyebrow={`Fakturering · ${v.customerName}`}
       crumbs={crumbs}
@@ -567,21 +567,21 @@ function InvoiceDetail({ month, caseId, onClose, onOpen, onManual }: { month: st
   const title = d ? `Faktura ${d.inv.caseNumber}` : "Faktura";
   if (q.error) {
     return (
-      <Modal title={title} onClose={onClose}>
+      <Modal className={WRAP} title={title} onClose={onClose}>
         <ErrorNotice error={q.error} />
       </Modal>
     );
   }
   if (d === undefined) {
     return (
-      <Modal title={title} onClose={onClose}>
+      <Modal className={WRAP} title={title} onClose={onClose}>
         <Loading />
       </Modal>
     );
   }
   if (d === null) {
     return (
-      <Modal title={title} onClose={onClose}>
+      <Modal className={WRAP} title={title} onClose={onClose}>
         <Empty icon="file" title="Ingen faktura att visa" />
       </Modal>
     );
@@ -638,7 +638,7 @@ function InvoiceDetailBody({ d, onClose, onOpen, onManual }: { d: InvoiceDetailV
     </>
   );
   return (
-    <Modal wide title={`Faktura ${inv.caseNumber}`} onClose={onClose} footer={footer}>
+    <Modal className={WRAP} wide title={`Faktura ${inv.caseNumber}`} onClose={onClose} footer={footer}>
       <div className="flex flex-wrap items-center gap-1.5">
         <InvStatus status={inv.status} />
         <span className="text-small text-text-muted">{monthLabel(month)} · en faktura per ärende och månad</span>
@@ -846,7 +846,7 @@ function ManualModal({ month, invoices, presetId, onClose }: { month: string; in
     onClose();
   };
   return (
-    <Modal
+    <Modal className={WRAP}
       title="Markera som manuellt fakturerad"
       onClose={onClose}
       footer={

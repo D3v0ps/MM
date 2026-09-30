@@ -4,7 +4,7 @@
 import type { ReactNode } from "react";
 import type { Role } from "@/api/roles";
 import { plural } from "@/core/format";
-import { fmtDate, fmtDateShort, weekday, WEEKDAYS_SHORT, type LocalDateTime } from "@/core/time";
+import { fmtDateShort, weekday, WEEKDAYS_SHORT, type LocalDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import {
@@ -213,7 +213,3 @@ export function Chips({ label, items, onPick }: { label: string; items: readonly
   );
 }
 
-/** "Godkänd 1 feb 2027" m.m. */
-export const dateText = (s: string | null | undefined) => (s ? fmtDate(s) : "");
-
-export type Children = { children?: ReactNode };

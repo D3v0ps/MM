@@ -7,6 +7,7 @@ import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
+import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast } from "@/ui";
 import { attendanceSet, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
@@ -29,6 +30,7 @@ const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.star
 
 function Narvaro({ v, initial }: { v: NarvaroView; initial: Week }) {
   const { actor } = useSession();
+  const runtime = useRuntime();
   const role = actor.role;
   const set = useCommand(attendanceSet);
   const now = v.now;
@@ -331,7 +333,7 @@ function Narvaro({ v, initial }: { v: NarvaroView; initial: Week }) {
               <li>Påminnelse fredag eftermiddag och måndag morgon. Saknas registreringen {v.dueText} går en påminnelse till samordnaren.</li>
             </ul>
             <Notice tone="info" title="Frånvaronotis samma dag – ej fastställd">
-              En notis till handläggaren samma dag vid ogiltig frånvaro är ett tillval i avtalet som inte är beslutat. Den är avstängd i prototypen.
+              En notis till handläggaren samma dag vid ogiltig frånvaro är ett tillval i avtalet som inte är beslutat. Den är avstängd{runtime === "demo" ? " i prototypen" : ""}.
             </Notice>
           </Stack>
         </Card>

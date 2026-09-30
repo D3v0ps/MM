@@ -90,7 +90,13 @@ export async function viewerFor(ctx: Ctx, cases: readonly Case[]): Promise<Viewe
   const personIds = [...new Set(visible.map((c) => c.personId))];
   const persons = personIds.length ? await ctx.repo.table("persons").list({ id: { in: personIds } }) : [];
   const byPerson = new Map(persons.map((p) => [p.id, p]));
-  return { actor: ctx.actor, access, name: (c) => (c ? displayName(c, byPerson.get(c.personId), access(c)) : "–") };
+  const name = (c: Case | null | undefined): string => {
+    if (!c) return "–";
+    // Skyddade personuppgifter: personen läses aldrig – bara texten visas.
+    if (access(c) === "restricted") return "Skyddade personuppgifter";
+    return displayName(c, byPerson.get(c.personId), access(c));
+  };
+  return { actor: ctx.actor, access, name };
 }
 
 // ---------------------------------------------------------------- Får läsaren se rapporten? (prototypens reportAccess)
@@ -201,9 +207,10 @@ export async function loadReportDb(ctx: Ctx, r: Report, info: ContractInfo): Pro
       const caseIds = cases.map((c) => c.id);
       const inCases = { caseId: { in: caseIds } };
       const sla = !!info.cfg.customerVisibility.seesSlaStats;
-      const [activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports] = await Promise.all([
-        s.table("activities").list({ ...inCases, startsAt: { gte: start, lte: `${end}T23:59` } }),
-        s.table("attendance").list(inCases),
+      const activities = await s.table("activities").list({ ...inCases, startsAt: { gte: start, lte: `${end}T23:59` } });
+      const actIds = activities.map((a) => a.id);
+      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports] = await Promise.all([
+        actIds.length ? s.table("attendance").list({ activityId: { in: actIds } }) : [],
         s.table("monthly_assessments").list({ ...inCases, month: mk }),
         s.table("pulse_responses").list(inCases),
         s.table("deviations").list(inCases),
