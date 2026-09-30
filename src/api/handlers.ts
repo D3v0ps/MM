@@ -11,4 +11,4 @@ import "@/features/admin/handlers";
 import "@/features/praktik/handlers";
 import "@/features/puls/handlers";
 import "@/features/notiser/handlers";
-export { execute, registeredKeys } from "./server";
+export { execute, isSilentCommand, registeredKeys } from "./server";

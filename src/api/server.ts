@@ -35,20 +35,22 @@ export type Ctx = {
 };
 
 type Handler = (ctx: Ctx, input: unknown) => Promise<unknown>;
-type Entry = { kind: "query" | "command"; roles?: readonly Role[]; run: Handler; schema: { safeParse(v: unknown): { success: boolean; data?: unknown; error?: { issues: unknown[] } } } };
+type Entry = { kind: "query" | "command"; roles?: readonly Role[]; silent?: boolean; run: Handler; schema: { safeParse(v: unknown): { success: boolean; data?: unknown; error?: { issues: unknown[] } } } };
 
 const registry = new Map<string, Entry>();
 
 export type HandlerOpts = {
   /** Roller som får anropa. Utelämnas bara när hanteraren själv filtrerar per roll. */
   roles?: readonly Role[];
+  /** Kommandon som bara registrerar att något lästs/visats (t.ex. läskvitto, visningslogg). Flyttar inte demoklockan. */
+  silent?: boolean;
 };
 
 export function handleQuery<P, R>(def: QueryDef<P, R>, opts: HandlerOpts, run: (ctx: Ctx, params: P) => Promise<R> | R) {
   register(def.key, { kind: "query", roles: opts.roles, run: (ctx, p) => Promise.resolve(run(ctx, p as P)), schema: def.schema as never });
 }
 export function handleCommand<P, R>(def: CommandDef<P, R>, opts: HandlerOpts, run: (ctx: Ctx, payload: P) => Promise<R> | R) {
-  register(def.key, { kind: "command", roles: opts.roles, run: (ctx, p) => Promise.resolve(run(ctx, p as P)), schema: def.schema as never });
+  register(def.key, { kind: "command", roles: opts.roles, silent: opts.silent, run: (ctx, p) => Promise.resolve(run(ctx, p as P)), schema: def.schema as never });
 }
 function register(key: string, e: Entry) {
   if (registry.has(key)) throw new Error(`Hanteraren ${key} är redan registrerad`);
@@ -72,3 +74,4 @@ export async function execute(kind: "query" | "command", key: string, input: unk
 }
 
 export const registeredKeys = () => [...registry.keys()];
+export const isSilentCommand = (key: string) => registry.get(key)?.silent === true;

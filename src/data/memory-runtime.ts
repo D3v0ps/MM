@@ -1,6 +1,6 @@
 // Kör API:t mot data i minnet. Används av prototypen (i webbläsaren) och av utvecklingsläget i Next.js (MM_BACKEND=memory).
 // Samma hanterare som i produktion – bara datalagret skiljer.
-import { execute } from "@/api/handlers";
+import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import { addMinutes, type LocalDateTime } from "@/core/time";
@@ -45,7 +45,7 @@ export function createMemoryRuntime(opts: { data: MemoryData<Tables>; clock: Dem
   /** Kör en fråga eller ett kommando. Resultatet serialiseras så att det beter sig exakt som över HTTP. */
   async function run(kind: "query" | "command", key: string, input: unknown, actor: Actor): Promise<unknown> {
     const res = await execute(kind, key, input, ctxFor(actor));
-    if (kind === "command") opts.clock.tick();
+    if (kind === "command" && !isSilentCommand(key)) opts.clock.tick();
     return res === undefined ? null : JSON.parse(JSON.stringify(res));
   }
 

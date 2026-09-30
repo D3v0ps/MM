@@ -76,6 +76,7 @@ function Root({ demo }: { demo: DemoRuntime }) {
     () => ({
       actor: persona.actor,
       user: persona.user,
+      personas: personas.map((p) => ({ userId: p.actor.userId, role: p.actor.role, name: p.user.name, title: p.user.title })),
       switchRole: (role: Role, userId?: string) => {
         const next = (userId && personaFor(demo.rt.raw(), userId, role)) || personas.find((p) => p.actor.role === role);
         if (!next) return;

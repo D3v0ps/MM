@@ -12,9 +12,14 @@ export type SessionUser = {
   orgName: string;
   unit?: string | null;
 };
+/** Valbar testperson (prototypen och utvecklingsläget). */
+export type PersonaOption = { userId: string; role: Role; name: string; title: string; isDefaultForRole?: boolean };
+
 export type Session = {
   actor: Actor;
   user: SessionUser;
+  /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
+  personas?: PersonaOption[];
   /** Bara prototypen: byt roll/persona. */
   switchRole?: (role: Role, userId?: string) => void;
   signOut?: () => void;

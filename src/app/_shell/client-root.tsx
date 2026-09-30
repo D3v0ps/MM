@@ -11,7 +11,7 @@ import type { Persona } from "@/data/actors";
 import type { Role } from "@/api/roles";
 import { NextNavProvider } from "./next-nav";
 
-type Loaded = { persona: Persona | null } | { error: true };
+type Loaded = { persona: Persona | null; personas: Persona[] } | { error: true };
 
 export function ClientRoot() {
   const router = useRouter();
@@ -22,7 +22,7 @@ export function ClientRoot() {
     let cancelled = false;
     fetch("/api/dev-session", { credentials: "same-origin" })
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error("session"))))
-      .then((body: { persona: Persona | null }) => !cancelled && setLoaded({ persona: body.persona }))
+      .then((body: { persona: Persona | null; personas: Persona[] }) => !cancelled && setLoaded({ persona: body.persona, personas: body.personas ?? [] }))
       .catch(() => !cancelled && setLoaded({ error: true }));
     return () => {
       cancelled = true;
@@ -35,6 +35,7 @@ export function ClientRoot() {
   const session: Session = {
     actor: persona.actor,
     user: persona.user,
+    personas: loaded.personas.map((p) => ({ userId: p.actor.userId, role: p.actor.role, name: p.user.name, title: p.user.title })),
     // Utvecklingsläget: byt testperson. I produktion loggar man in med Microsoft eller e-postkod.
     switchRole: async (role: Role, userId?: string) => {
       await fetch("/api/dev-session", {
