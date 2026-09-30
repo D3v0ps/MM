@@ -2,7 +2,7 @@
 // Behörigheten speglar Row Level Security: varje läsning filtreras genom policyn för tabellen,
 // så att prototypen visar exakt det rollen skulle få se i den riktiga databasen.
 import type { Actor } from "@/api/roles";
-import { applyOpts, matches, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
+import { applyOpts, matches, PolicyError, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
@@ -19,11 +19,7 @@ export type RawAccess<TT extends Record<string, Row>> = {
   all<N extends keyof TT & string>(name: N): readonly TT[N][];
 };
 
-export class PolicyError extends Error {
-  constructor(public readonly table: string) {
-    super(`Behörighet saknas för ${table}`);
-  }
-}
+export { PolicyError };
 
 /** Datat plus index på id. Delas mellan flera repo-instanser (en per aktör och anrop). */
 export class MemoryStore<TT extends Record<string, Row>> {

@@ -44,8 +44,20 @@ export function createMemoryRuntime(opts: { data: MemoryData<Tables>; clock: Dem
 
   /** Kör en fråga eller ett kommando. Resultatet serialiseras så att det beter sig exakt som över HTTP. */
   async function run(kind: "query" | "command", key: string, input: unknown, actor: Actor): Promise<unknown> {
-    const res = await execute(kind, key, input, ctxFor(actor));
-    if (kind === "command" && !isSilentCommand(key)) opts.clock.tick();
+    // Klockan flyttas en minut före varje kommando som inte är tyst – samma ordning som den gamla prototypen,
+    // så att tidsstämplarna blir identiska. Kastar kommandot ett fel eller avvisas det återställs klockan.
+    const ticks = kind === "command" && !isSilentCommand(key);
+    const before = opts.clock.now();
+    if (ticks) opts.clock.tick();
+    let res: unknown;
+    try {
+      res = await execute(kind, key, input, ctxFor(actor));
+    } catch (e) {
+      if (ticks) opts.clock.set(before);
+      throw e;
+    }
+    // Ett avvisat kommando (fail) motsvarar att prototypens formulär stoppade åtgärden – klockan står kvar.
+    if (ticks && res && typeof res === "object" && (res as { ok?: unknown }).ok === false) opts.clock.set(before);
     return res === undefined ? null : JSON.parse(JSON.stringify(res));
   }
 

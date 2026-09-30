@@ -1,6 +1,7 @@
 // Hanterarregister och körning. Isomorf: samma kod körs i Next.js-servern och i prototypen.
 // Hanterare får aldrig importera serverspecifika moduler direkt – sådant nås via ctx (t.ex. ctx.notify).
 import type { AppRepo } from "@/data/schema";
+import { PolicyError } from "@/data/repo";
 import type { LocalDateTime } from "@/core/time";
 import type { CommandDef, QueryDef } from "./contract";
 import type { Actor, Role } from "./roles";
@@ -71,7 +72,12 @@ export async function execute(kind: "query" | "command", key: string, input: unk
   if (e.roles && !e.roles.includes(ctx.actor.role)) throw new ApiError(403, "forbidden", "Din roll har inte behörighet till det här.");
   const parsed = e.schema.safeParse(input ?? {});
   if (!parsed.success) throw new ApiError(400, "invalid_input", "Ogiltiga uppgifter.");
-  return e.run(ctx, parsed.data);
+  try {
+    return await e.run(ctx, parsed.data);
+  } catch (err) {
+    if (err instanceof PolicyError) throw new ApiError(403, "forbidden", "Din roll har inte behörighet till det här.");
+    throw err;
+  }
 }
 
 export const registeredKeys = () => [...registry.keys()];

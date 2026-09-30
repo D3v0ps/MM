@@ -145,7 +145,7 @@ export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 export const CHECK_IN_MODES = ["fysiskt", "telefon", "video"] as const;
 export type CheckInMode = (typeof CHECK_IN_MODES)[number];
 
-export const INPUT_METHODS = ["manual", "ai_recording", "teams", "notes"] as const;
+export const INPUT_METHODS = ["manual", "ai_recording", "ai_upload", "teams", "notes"] as const;
 export type InputMethod = (typeof INPUT_METHODS)[number];
 
 export const GOAL_STATUSES = ["yes", "partly", "no"] as const;
@@ -589,9 +589,10 @@ export type Attendance = {
 };
 
 export type EmployerContacts = { count: EmployerContactCount | null; types: string[] };
-/** AI-förslag med belägg: citat och tidpunkt (sekunder in i samtalet). */
-export type AiSuggestion<T> = { value: T; quote: string; t: number };
-export type TranscriptLine = { t: number; who: string; text: string };
+/** AI-förslag med belägg: citat och tidpunkt (sekunder in i samtalet). Inklistrade anteckningar saknar tidpunkt (t = null).
+ *  noEvidence = inget belägg hittades – förslaget visas som "Framgår inte". */
+export type AiSuggestion<T> = { value: T; quote: string; t: number | null; noEvidence?: boolean };
+export type TranscriptLine = { t: number | null; who: string; text: string };
 /**
  * AI-utkast till en avstämning. Bedömningsfält (samlad status) föreslås aldrig – därför finns inget overallStatus här
  * (CLAUDE.md punkt 5). Råtranskriptet raderas när avstämningen godkänts, senast efter 30 dagar (punkt 7).
@@ -628,6 +629,8 @@ export type CheckIn = {
   overallStatus: TrafficLight | null;
   obstacles: string[];
   note: string;
+  /** Coachens kommentar till veckans närvaro (valfri). */
+  attendanceComment?: string | null;
   status: ApprovalStatus;
   approvedBy: UserId | null;
   approvedAt: LocalDateTime | null;
@@ -712,6 +715,7 @@ export type Deviation = {
   status: DeviationStatus;
   /** Avstämningen där avvikelsen registrerades (vid Röd). */
   checkInId: string | null;
+  closedAt?: LocalDateTime | null;
 };
 
 /** Avtalsavvikelser, varningar och klagomål (SPEC §7.16). */

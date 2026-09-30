@@ -140,5 +140,5 @@ export function simulatedTranscript(s: CheckInSuggestions, source: AiSource): Tr
     const x = s[f];
     if (x.t != null) lines.push({ t: x.t, who: "Deltagare", text: x.quote });
   }
-  return lines.sort((a, b) => a.t - b.t);
+  return lines.sort((a, b) => (a.t ?? 0) - (b.t ?? 0));
 }

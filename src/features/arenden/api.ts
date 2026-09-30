@@ -48,6 +48,8 @@ export const caseCreate = command("arenden.caseCreate", z.object({
  * Acceptera avrop → orderbekräftelse (prototypens case.accept). Beställarreferensen valideras mot avtalets mönster
  * innan något sparas. Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till
  * kommunen och kallelse till deltagaren (aldrig vid skyddade personuppgifter).
+ * Omfattar även prototypens ink.acceptProtected: vid skyddade personuppgifter skickas ingen kallelse och det loggas
+ * (notify.suppressed). Samordnaren får forbidden – skyddade avrop hanteras av avtalsansvarig.
  * buyerReference: utelämnas = ärendets nuvarande referens.
  */
 export const caseAccept = command("arenden.caseAccept", z.object({

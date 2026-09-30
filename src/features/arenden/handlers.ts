@@ -201,7 +201,12 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   const settings = await orgSettingsFor(ctx, contract);
   for (const t of team) await notifyAssignment(ctx, updated, t.userId, t.role, settings);
   await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelse för ärende ${c.caseNumber} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`);
-  if (p.firstMeetingAt) await sendMeetingInvitation(ctx, updated, person, p.firstMeetingAt);
+  if (person.protectedIdentity) {
+    // Prototypens ink.acceptProtected: ingen kallelse till deltagaren – den namngivna coachen ringer enligt den säkra rutinen.
+    await ctx.audit({ action: "notify.suppressed", entity: "case", entityId: c.id, contractId: c.contractId, details: { reason: "Skyddade personuppgifter – ingen kallelse via SMS eller e-post till deltagaren" } });
+  } else if (p.firstMeetingAt) {
+    await sendMeetingInvitation(ctx, updated, person, p.firstMeetingAt);
+  }
   return ok({ reportId: rep.id, caseNumber: c.caseNumber });
 });
 

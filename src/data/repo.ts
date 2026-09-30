@@ -5,6 +5,13 @@
 // Filtren är deklarativa så att de kan översättas till SQL.
 
 export type Row = { id: string };
+
+/** Behörighet saknas för en läsning eller skrivning (RLS/policy). Blir 403 i execute(). */
+export class PolicyError extends Error {
+  constructor(public readonly table: string) {
+    super(`Behörighet saknas för ${table}`);
+  }
+}
 export type Cmp<V> =
   | V
   | { in: readonly V[] }
