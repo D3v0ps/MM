@@ -73,7 +73,7 @@ export function Big({ children, className }: { children: ReactNode; className?: 
 }
 /** Versal etikett (prototypens label-caps). */
 export function Caps({ children, as: As = "span" }: { children: ReactNode; as?: "span" | "h3" }) {
-  return <As className="text-label font-extrabold tracking-[0.1em] text-text-muted uppercase">{children}</As>;
+  return <As className="text-label font-bold tracking-[0.09em] text-text-muted uppercase">{children}</As>;
 }
 /** Knapp som får radbrytas i smala kort (prototypens ldg-wrapbtn). */
 export function WrapBtn({ children }: { children: ReactNode }) {
