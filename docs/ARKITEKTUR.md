@@ -186,6 +186,9 @@ URL:er innehåller bara id:n – aldrig namn, personnummer eller andra personupp
 
 Startsida per roll finns i `START_PATH` (`src/shell/routes.ts`).
 
+**Frågeparametrar** som scenarierna och länkar använder (områdena ska läsa dem; hela listan och översättningen från prototypens vy-id finns i `src/demo/paths.ts`):
+`/inkorg?senaste=1` (senaste avropet som väntar på svar) · `/inkorg?arende=<caseId>` · `/arenden?filter=skyddade` · `/arenden/<id>?flik=` · `/narvaro?vecka=forra|denna` · `/avstamning/<caseId>?avstamning=<checkInId>` · `/manadsbedomning/<id>?manad=2027-01` · `/handelse/<id>?lage=avslut` · `/rapporter?filter=` · `/ledning?flik=kpi|puls|coacher|omraden` · `/portal/deltagare/<caseId>?flik=` · `/admin/avtal?avtal=&flik=` · `/admin/mallar?flik=logg`.
+
 ## Tid, belopp och id
 
 - `LocalDate` = `'YYYY-MM-DD'`, `LocalDateTime` = `'YYYY-MM-DDTHH:mm'`, alltid Europe/Stockholm (`src/core/time.ts`). Datalagret omvandlar till och från `timestamptz`.

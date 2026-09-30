@@ -1,6 +1,7 @@
 // Prototypens startpunkt. Byggs till en enda HTML-fil (npm run demo:build) och publiceras som artefakt.
-// Skärmar, rutter och hanterare är exakt samma kod som i riktiga appen.
-import { StrictMode, useEffect, useMemo, useState } from "react";
+// Skärmar, rutter och hanterare är exakt samma kod som i riktiga appen. Bara i prototypen: prototypfältet
+// (perspektiv, roll, demodatum, scenarier, feedback, återställ), sidorna under /om och frågan demo.refs.
+import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "@/app/globals.css";
 import { App } from "@/shell/app";
@@ -9,13 +10,22 @@ import { NavProvider, parseHash, type LinkImpl, type Nav } from "@/shell/nav";
 import { RuntimeProvider } from "@/shell/runtime";
 import { SessionProvider, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
+import { START_PATH } from "@/shell/routes";
 import { listPersonas, personaFor, type Persona } from "@/data/actors";
 import type { Role } from "@/api/roles";
+import { DownloadProvider } from "@/ui/download";
+import { toast } from "@/ui/toast";
 import { bootDemo, type DemoRuntime } from "./demo-runtime";
 import { DEMO_ROUTES } from "./routes";
 import { PrototypeChrome } from "./chrome";
+import { artifactDownload } from "./download";
+import { initFeedback } from "./feedback-store";
+import { stopScenario } from "./scenario-store";
+import "./handlers";
 
 const PERSONA_KEY = "miljonmatch-prototyp-v2-persona";
+/** Senast visade sökväg – öppnas igen när prototypen startas utan adress (som den gamla prototypen). */
+const PATH_KEY = "miljonmatch-prototyp-v2-sokvag";
 const ROUTES = [...DEMO_ROUTES, ...APP_ROUTES];
 
 const HashLink: LinkImpl = ({ href, children, ...rest }) => (
@@ -23,6 +33,24 @@ const HashLink: LinkImpl = ({ href, children, ...rest }) => (
     {children}
   </a>
 );
+
+const lsGet = (k: string): string | null => {
+  try {
+    return localStorage.getItem(k);
+  } catch {
+    return null;
+  }
+};
+const lsSet = (k: string, v: string) => {
+  try {
+    localStorage.setItem(k, v);
+  } catch {
+    /* privat läge */
+  }
+};
+
+/** Räknas upp vid varje navigering – så att ett rollbyte vet om anroparen själv navigerade i samma steg. */
+let navSeq = 0;
 
 function useHashNav(): Nav {
   const [hash, setHash] = useState(() => window.location.hash);
@@ -34,80 +62,128 @@ function useHashNav(): Nav {
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
   }, []);
+  useEffect(() => {
+    const p = hash.replace(/^#/, "");
+    if (p && p !== "/") lsSet(PATH_KEY, p);
+  }, [hash]);
   return useMemo(() => {
     const { path, query } = parseHash(hash);
     return {
       path,
       query,
-      push: (to) => { window.location.hash = to; },
-      replace: (to) => { window.history.replaceState(null, "", `#${to}`); setHash(`#${to}`); },
+      // Tillståndet uppdateras direkt (inte först vid hashchange), så att ett rollbyte och en navigering
+      // i samma klick blir en enda rendering – skärmen visas aldrig med fel roll.
+      push: (to) => {
+        navSeq++;
+        if (window.location.hash !== `#${to}`) window.location.hash = to;
+        setHash(`#${to}`);
+      },
+      replace: (to) => {
+        navSeq++;
+        window.history.replaceState(null, "", `#${to}`);
+        setHash(`#${to}`);
+      },
       back: () => window.history.back(),
       href: (to) => `#${to}`,
     };
   }, [hash]);
 }
 
-function readPersona(): { userId: string; role: Role } | null {
+type Chosen = { userId: string; role: Role };
+function readPersona(): Chosen | null {
   try {
-    return JSON.parse(localStorage.getItem(PERSONA_KEY) ?? "null");
+    return JSON.parse(lsGet(PERSONA_KEY) ?? "null") as Chosen | null;
   } catch {
     return null;
   }
 }
-function writePersona(v: { userId: string; role: Role }) {
-  try {
-    localStorage.setItem(PERSONA_KEY, JSON.stringify(v));
-  } catch {
-    /* ignoreras */
-  }
-}
 
-function Root({ demo }: { demo: DemoRuntime }) {
+function Root({ initial }: { initial: DemoRuntime }) {
   const nav = useHashNav();
+  const [demo, setDemo] = useState(initial);
+  const [generation, setGeneration] = useState(0);
   const personas = useMemo(() => listPersonas(demo.rt.raw()), [demo]);
-  const [persona, setPersona] = useState<Persona>(() => {
-    const saved = readPersona();
-    return (saved && personaFor(demo.rt.raw(), saved.userId, saved.role)) || personas[0];
-  });
+  const [picked, setPicked] = useState<Chosen | null>(readPersona);
+  const persona: Persona = useMemo(() => {
+    const p = picked && personaFor(demo.rt.raw(), picked.userId, picked.role);
+    return p && p.actor.role === picked?.role ? p : (personas.find((x) => x.actor.role === picked?.role) ?? personas[0]);
+  }, [picked, demo, personas]);
   const actor = persona.actor;
   const backend = useMemo(() => demo.backend(() => actor), [demo, actor]);
+
+  const pick = useCallback((p: Persona) => {
+    const v = { userId: p.actor.userId, role: p.actor.role };
+    lsSet(PERSONA_KEY, JSON.stringify(v));
+    setPicked(v);
+  }, []);
 
   const session: Session = useMemo(
     () => ({
       actor: persona.actor,
       user: persona.user,
-      personas: personas.map((p) => ({ userId: p.actor.userId, role: p.actor.role, name: p.user.name, title: p.user.title })),
+      personas: personas.map((p) => ({
+        userId: p.actor.userId,
+        role: p.actor.role,
+        name: p.user.name,
+        title: p.user.title,
+        isDefaultForRole: (p as Persona & { isDefaultForRole?: boolean }).isDefaultForRole,
+      })),
+      // Byter testperson. Anroparen navigerar oftast själv i samma klick (t.ex. PerspectiveLink); annars öppnas
+      // rollens startsida – samma som när man byter testperson i riktiga appens utvecklingsläge.
       switchRole: (role: Role, userId?: string) => {
-        const next = (userId && personaFor(demo.rt.raw(), userId, role)) || personas.find((p) => p.actor.role === role);
+        const byId = userId ? personaFor(demo.rt.raw(), userId, role) : null;
+        const next = byId && byId.actor.role === role ? byId : personas.find((p) => p.actor.role === role);
         if (!next) return;
-        writePersona({ userId: next.actor.userId, role: next.actor.role });
-        setPersona(next);
-        nav.push("/");
+        const before = navSeq;
+        pick(next);
+        queueMicrotask(() => {
+          if (navSeq === before) nav.push(START_PATH[next.actor.role]);
+        });
       },
     }),
-    [persona, personas, demo, nav],
+    [persona, personas, demo, nav, pick],
   );
+
+  // Återställ: nya testdata utan omladdning, samordnaren på startsidan (som den gamla prototypens MM.resetDemo).
+  const reset = useCallback(async () => {
+    demo.reset();
+    stopScenario();
+    const fresh = await bootDemo();
+    const first = listPersonas(fresh.rt.raw()).find((p) => p.actor.role === "samordnare");
+    if (first) pick(first);
+    setDemo(fresh);
+    setGeneration((g) => g + 1);
+    nav.push("/om");
+    toast("Demodata återställd. Allt du gjort i prototypen är borttaget.");
+  }, [demo, nav, pick]);
 
   return (
     <RuntimeProvider mode="demo">
-      <BackendProvider key={`${persona.actor.userId}|${persona.actor.role}`} backend={backend}>
-        <SessionProvider session={session}>
-          <NavProvider nav={nav} LinkImpl={HashLink}>
-            <PrototypeChrome personas={personas} onReset={() => { demo.reset(); window.location.reload(); }} />
-            <App routes={ROUTES} />
-          </NavProvider>
-        </SessionProvider>
-      </BackendProvider>
+      <DownloadProvider impl={artifactDownload}>
+        <BackendProvider key={`${generation}|${actor.userId}|${actor.role}`} backend={backend}>
+          <SessionProvider session={session}>
+            <NavProvider nav={nav} LinkImpl={HashLink}>
+              <PrototypeChrome routes={ROUTES} onReset={() => void reset()} />
+              <App routes={ROUTES} />
+            </NavProvider>
+          </SessionProvider>
+        </BackendProvider>
+      </DownloadProvider>
     </RuntimeProvider>
   );
 }
 
 async function main() {
   const el = document.getElementById("root")!;
+  // Utan adress: senast visade sida, annars prototypens startsida med scenarierna.
+  if (!window.location.hash || window.location.hash === "#" || window.location.hash === "#/") {
+    window.history.replaceState(null, "", `#${lsGet(PATH_KEY) || "/om"}`);
+  }
+  void initFeedback();
   const demo = await bootDemo();
   createRoot(el).render(
     <StrictMode>
-      <Root demo={demo} />
+      <Root initial={demo} />
     </StrictMode>,
   );
 }

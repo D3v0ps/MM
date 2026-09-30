@@ -2,9 +2,11 @@
 // Appens skal: väljer rutt, kontrollerar roll och renderar skärmen i rätt layout.
 // Används av både Next.js (src/app/client-root.tsx) och prototypen (src/demo/main.tsx).
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
-import { ROLE_LABEL } from "@/api/roles";
+import { ROLE_LABEL, ROLES } from "@/api/roles";
+import { PerspectiveLink } from "@/ui";
 import { useNav, Link } from "./nav";
 import { useSession } from "./session";
+import { DemoOnly } from "./runtime";
 import { resolveRoute, START_PATH, titleOf, type RouteDef, type RouteMatch } from "./routes";
 import { LayoutFor } from "./layouts";
 
@@ -24,11 +26,25 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
   }, [title]);
 
   if (nav.path === "/" || nav.path === "") return null;
-  if (!match) return <Problem title="Sidan finns inte" text="Adressen leder inte till någon sida." start={start} />;
+  if (!match) {
+    return (
+      <LayoutFor match={notFoundMatch(nav.path)}>
+        <Problem title="Sidan finns inte" text="Adressen leder inte till någon sida." start={start} />
+      </LayoutFor>
+    );
+  }
   if (!match.route.public && !match.route.roles.includes(actor.role)) {
     return (
       <LayoutFor match={match}>
-        <Problem title="Du har inte behörighet till den här sidan" text={`Din roll (${ROLE_LABEL[actor.role]}) har inte tillgång till sidan.`} start={start} />
+        <Problem title="Du har inte behörighet till den här sidan" text={`Din roll (${ROLE_LABEL[actor.role]}) har inte tillgång till sidan.`} start={start}>
+          <DemoOnly>
+            <div className="mt-6 flex flex-wrap gap-3">
+              {match.route.roles.map((r) => (
+                <PerspectiveLink key={r} role={r} to={nav.path + (nav.query.toString() ? `?${nav.query}` : "")} label={`Visa som ${ROLE_LABEL[r].toLowerCase()}`} />
+              ))}
+            </div>
+          </DemoOnly>
+        </Problem>
       </LayoutFor>
     );
   }
@@ -48,7 +64,13 @@ function Screen({ match }: { match: RouteMatch }) {
   );
 }
 
-function Problem({ title, text, start }: { title: string; text: string; start: string }) {
+/** Layout för en adress som inte finns: välj efter sökvägens början så att rätt navigering syns. */
+function notFoundMatch(p: string): RouteMatch {
+  const area: RouteDef["area"] = p.startsWith("/portal") ? "portal" : p.startsWith("/puls") ? "puls" : p.startsWith("/om") ? "om" : "mb";
+  return { route: { path: p, title: "Sidan finns inte", roles: ROLES, area, screen: () => null }, params: {} };
+}
+
+function Problem({ title, text, start, children }: { title: string; text: string; start: string; children?: ReactNode }) {
   return (
     <div role="alert" className="mx-auto max-w-xl p-8">
       <h1 className="text-2xl font-bold">{title}</h1>
@@ -56,6 +78,7 @@ function Problem({ title, text, start }: { title: string; text: string; start: s
       <p className="mt-4">
         <Link to={start} className="underline">Till startsidan</Link>
       </p>
+      {children}
     </div>
   );
 }

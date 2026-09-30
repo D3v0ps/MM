@@ -1,5 +1,6 @@
 /* MB:s grafiska profil – inga andra färger (CLAUDE.md, Design). Delas av riktiga appen och prototypen.
-   Medvetet ett ljust tema: profilen och WCAG-beräkningarna utgår från antracit på vitt. */
+   Medvetet ett ljust tema: profilen och WCAG-beräkningarna utgår från antracit på vitt.
+   Komponenterna i src/ui använder tokens härifrån (se src/ui/README.md). */
 @import "tailwindcss";
 @source "../";
 
@@ -22,33 +23,196 @@
   --color-text-faint: rgb(30 37 43 / 0.62);
   --color-line-strong: rgb(30 37 43 / 0.28);
 
-  --font-sans: var(--font-montserrat), "Montserrat", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  /* Montserrat: via next/font i appen (--font-montserrat), via Google Fonts i prototypen. Reservvärdet behövs –
+     en var() utan reserv gör hela typsnittslistan ogiltig när variabeln saknas. */
+  --font-sans: var(--font-montserrat, "Montserrat"), "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+
+  /* Textstorlekar (samma som prototypen). Radavståndet ärvs som i prototypen (1,5), rubriker 1,25. */
+  --text-label: 0.75rem; /* versala etiketter med spärrning */
+  --text-label--line-height: 1.5;
+  --text-meta: 0.8125rem; /* märken, förklaringar i diagram */
+  --text-meta--line-height: 1.5;
+  --text-small: 0.875rem; /* bara metadata, aldrig brödtext */
+  --text-small--line-height: 1.5;
+  --text-ui: 0.9375rem; /* knappar, tabeller, fältetiketter, menyn */
+  --text-ui--line-height: 1.5;
+  --text-body: 1rem; /* brödtext för MB-personal (16 px) */
+  --text-body--line-height: 1.5;
+  --text-h3: 1.0625rem;
+  --text-h3--line-height: 1.25;
+  --text-h2: 1.1875rem;
+  --text-h2--line-height: 1.25;
+  --text-h1: 1.625rem;
+  --text-h1--line-height: 1.25;
+  --text-portal: 1.125rem; /* kommunportalens brödtext (18 px) */
+  --text-portal--line-height: 1.5;
+
+  --radius-mb: 6px;
+  --radius-card: 10px;
+  --shadow-card: 0 1px 2px rgb(30 37 43 / 0.08), 0 4px 14px rgb(30 37 43 / 0.06);
+  --shadow-pop: 0 10px 40px rgb(30 37 43 / 0.22);
+
+  --animate-toast-in: toast-in 0.18s ease-out;
+  --animate-blink: blink 1s steps(2) infinite;
+
+  @keyframes toast-in {
+    from {
+      transform: translateY(8px);
+      opacity: 0.4;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.2;
+    }
+  }
 }
 
-:root {
-  color-scheme: light;
+/* portal: gäller allt inuti kommunens portal (layouten sätter data-area="portal" på portalens yta; dialoger och toasts får samma attribut). */
+@custom-variant portal (&:where([data-area="portal"], [data-area="portal"] *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    background: var(--color-vit);
+    color: var(--color-antracit);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    /* Layouten fyller hela höjden även när prototypfältet ligger ovanför. */
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+  #root {
+    display: flex;
+    flex-direction: column;
+    flex: 1 0 auto;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    line-height: 1.25;
+    text-wrap: balance;
+    font-weight: 700;
+  }
+  a {
+    color: inherit;
+    text-decoration-line: underline;
+    text-underline-offset: 2px;
+  }
+  /* Fokusmarkering: antracit på ljus yta. Mörka ytor (sidopanelen) sätter --mm-focus till vitt. */
+  :focus-visible {
+    outline: 3px solid var(--mm-focus, var(--color-antracit));
+    outline-offset: 2px;
+  }
+  #main:focus,
+  #main:focus-visible {
+    outline: none;
+  }
+  [id] {
+    scroll-margin-top: 140px;
+  }
+  @media (max-width: 900px) {
+    [id] {
+      scroll-margin-top: 16px;
+    }
+  }
+
+  /* Formulärfält – samma utseende i hela appen, även för fält som inte går via src/ui. */
+  input:where([type="text"], [type="email"], [type="tel"], [type="date"], [type="time"], [type="number"], [type="search"], [type="datetime-local"], [type="password"], [type="url"], [type="month"], [type="week"]),
+  select,
+  textarea {
+    font: inherit;
+    color: var(--color-antracit);
+    background: var(--color-vit);
+    border: 1.5px solid var(--color-line-strong);
+    border-radius: var(--radius-mb);
+    min-height: 44px;
+    padding: 9px 12px;
+    width: 100%;
+    max-width: 100%;
+  }
+  textarea {
+    min-height: 96px;
+    resize: vertical;
+    line-height: 1.45;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 3px solid var(--mm-focus, var(--color-antracit));
+    outline-offset: 1px;
+    border-color: var(--color-antracit);
+  }
+  input[aria-invalid="true"],
+  select[aria-invalid="true"],
+  textarea[aria-invalid="true"] {
+    border-color: var(--color-rod);
+    border-width: 2px;
+  }
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+    background: var(--color-ljusgra-ton);
+  }
+  [data-area="portal"] :where(input, select, textarea) {
+    font-size: 1.125rem;
+    min-height: 52px;
+  }
+  [data-area="portal"] textarea {
+    min-height: 96px;
+  }
 }
-html,
-body {
-  height: 100%;
-}
-body {
-  background: var(--color-vit);
-  color: var(--color-antracit);
-  font-family: var(--font-sans);
-  font-size: 1rem;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
-:focus-visible {
-  outline: 3px solid var(--color-antracit);
-  outline-offset: 2px;
-}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* Utskrift: bara innehållet. Menyer, verktygsfält, knappar och notiser skrivs inte ut.
+   PDF-förhandsvisningen (Paper) skrivs ut som ett rent dokument. */
+@media print {
+  [data-print="hide"],
+  .skip-link,
+  button {
+    display: none !important;
+  }
+  body {
+    display: block;
+    font-size: 11pt;
+  }
+  #main {
+    display: block;
+  }
+  [data-print="paper-wrap"] {
+    background: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  [data-print="paper"] {
+    box-shadow: none !important;
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  a {
+    text-decoration: none;
   }
 }
