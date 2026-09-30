@@ -3,7 +3,8 @@ import { expect, type Page, type TestInfo } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 
-const DEMO_HTML = path.resolve("dist-demo/index.html");
+// Agenter som bygger parallellt pekar ut sitt eget prototypbygge med MM_DEMO_HTML.
+const DEMO_HTML = path.resolve(process.env.MM_DEMO_HTML ?? "dist-demo/index.html");
 
 export const isDemo = (info: TestInfo) => info.project.name === "demo";
 

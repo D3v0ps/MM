@@ -22,7 +22,8 @@ export default defineConfig({
     { name: "demo", use: { baseURL: "http://proto.test" }, metadata: { kind: "demo" } },
     { name: "app", use: { baseURL: "http://localhost:3100" }, metadata: { kind: "app" } },
   ],
-  webServer: {
+  // Next-servern behövs bara för projektet "app" (kör t.ex. `npx playwright test --project=demo` utan den).
+  webServer: process.argv.some((a) => a === "--project=demo" || a === "demo") ? undefined : {
     command: "npx next start -p 3100",
     url: "http://localhost:3100/api/dev-session",
     reuseExistingServer: true,
