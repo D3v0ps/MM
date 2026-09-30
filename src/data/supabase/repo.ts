@@ -140,23 +140,31 @@ function chunks<T>(xs: T[], n: number): T[][] {
 export const PAGE_SIZE = 1000;
 
 // ---------------------------------------------------------------- Repo
+export type SupabaseRepoOpts = {
+  /**
+   * Läs vissa tabeller via en vy (skrivningar går till tabellen). Användarens repo läser contracts via contracts_public,
+   * som döljer avtalets interna mål för kommunen (supabase/migrations/0002). Service role läser tabellerna direkt.
+   */
+  readFrom?: Readonly<Record<string, string>>;
+};
+
 export class SupabaseRepo<TT extends Record<string, Row>> implements Repo<TT> {
-  constructor(private readonly db: PgClient) {}
+  constructor(private readonly db: PgClient, private readonly opts: SupabaseRepoOpts = {}) {}
 
   table<N extends keyof TT & string>(name: N): Table<TT[N]> {
-    return new SupabaseTable<TT[N]>(this.db, name);
+    return new SupabaseTable<TT[N]>(this.db, name, this.opts.readFrom?.[name] ?? name);
   }
 }
 
 class SupabaseTable<T extends Row> implements Table<T> {
-  constructor(private readonly db: PgClient, private readonly name: string) {}
+  constructor(private readonly db: PgClient, private readonly name: string, private readonly readName: string) {}
 
   private fail(error: PgError): never {
     throw toRepoError(this.name, error);
   }
 
   async get(id: string): Promise<T | null> {
-    const { data, error } = await this.db.from(this.name).select("*").eq("id", id).maybeSingle();
+    const { data, error } = await this.db.from(this.readName).select("*").eq("id", id).maybeSingle();
     if (error) this.fail(error);
     return data ? fromDbRow<T>(data as Record<string, unknown>) : null;
   }
@@ -179,7 +187,7 @@ class SupabaseTable<T extends Row> implements Table<T> {
     const out: T[] = [];
     for (let from = 0; out.length < want; from += PAGE_SIZE) {
       const size = Math.min(PAGE_SIZE, want - out.length);
-      let q = applyWhere(this.db.from(this.name).select("*"), where);
+      let q = applyWhere(this.db.from(this.readName).select("*"), where);
       if (opts?.orderBy) q = q.order(toColumn(opts.orderBy), { ascending: !opts.desc, nullsFirst: false });
       if (opts?.orderBy !== "id") q = q.order("id", { ascending: true, nullsFirst: false });
       const { data, error } = await q.range(from, from + size - 1);
@@ -208,7 +216,7 @@ class SupabaseTable<T extends Row> implements Table<T> {
   }
 
   private async countOnce(where: Record<string, unknown> | undefined): Promise<number> {
-    const { count, error } = await applyWhere(this.db.from(this.name).select("*", { count: "exact", head: true }), where);
+    const { count, error } = await applyWhere(this.db.from(this.readName).select("*", { count: "exact", head: true }), where);
     if (error) this.fail(error);
     return count ?? 0;
   }
