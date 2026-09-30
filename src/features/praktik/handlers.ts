@@ -29,13 +29,15 @@ type Scope = {
 
 /**
  * Praktikplatserna och vem aktören får se namn för.
- * ctx.system: registret visar alla praktikplatser hos arbetsgivaren (antal, period, arbetsuppgifter och de fyra rätten),
- * även i ärenden som aktören inte har åtkomst till – men då utan namn och utan ärendenummer. Åtkomsten räknas med samma
- * regler som behörigheten (caseAccess), och namn läses bara via ctx.repo för ärenden där aktören får se personen.
+ * ctx.system: registret visar praktikplatserna hos arbetsgivaren (antal, period och de fyra rätten) även i andra team
+ * i aktörens avtal – men då utan namn, ärendenummer och arbetsuppgifter (fritext). Åtkomsten räknas med samma regler
+ * som behörigheten (caseAccess), och namn läses bara via ctx.repo för ärenden där aktören får se personen.
+ * Aldrig med: praktikplatser i andra avtal, och praktikplatser för personer med skyddade personuppgifter – de syns bara
+ * för den som får se personen (namngiven huvudcoach och avtalsansvarig), aldrig ens som antal (CLAUDE.md punkt 8).
  */
 async function scopeFor(ctx: Ctx): Promise<Scope> {
   const main = await mainContract(ctx);
-  const [placements, cases, persons, team, profiles, contracts, areas] = await Promise.all([
+  const [allPlacements, cases, persons, team, profiles, contracts, areas] = await Promise.all([
     ctx.system.table("placements").list(),
     ctx.system.table("cases").list(),
     ctx.system.table("persons").list(),
@@ -56,6 +58,13 @@ async function scopeFor(ctx: Ctx): Promise<Scope> {
     }
     return a;
   };
+  const protectedPerson = new Set(persons.filter((p) => p.protectedIdentity).map((p) => p.id));
+  const inScope = (caseId: string): boolean => {
+    const c = byCase.get(caseId);
+    if (!c || !ctx.actor.contractIds.includes(c.contractId)) return false;
+    return canSee(access(caseId)) || !protectedPerson.has(c.personId);
+  };
+  const placements = allPlacements.filter((p) => inScope(p.caseId));
   // Namn bara för ärenden där aktören får se personen – läses med aktörens egen behörighet.
   const visibleIds = uniq(placements.map((p) => p.caseId).filter((id) => canSee(access(id))));
   const visibleCases = await ctx.repo.table("cases").list({ id: { in: visibleIds } });
@@ -127,7 +136,8 @@ handleQuery(praktikEmployer, { roles: WORKERS }, async (ctx, p) => {
         followUpDates: x.followUpDates, rightsDone: rightsDone(x),
       };
     });
-    const otherRows: OtherPlacementRow[] = others.map((x) => ({ id: x.id, who: s.who(x.caseId), startsOn: x.startsOn, endsOn: x.endsOn, tasks: x.tasks, rightsDone: rightsDone(x) }));
+    // Andra team: inga namn, inget ärendenummer och ingen fritext (arbetsuppgifterna skrivs av coachen i ärendet).
+    const otherRows: OtherPlacementRow[] = others.map((x) => ({ id: x.id, who: s.who(x.caseId), startsOn: x.startsOn, endsOn: x.endsOn, rightsDone: rightsDone(x) }));
     return { mine, others: otherRows };
   };
   const on = ps.filter((x) => x.status === "ongoing");

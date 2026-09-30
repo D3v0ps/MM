@@ -7,7 +7,10 @@ export const SESSION_MAX_HOURS = 12;
 const IDLE_MS = SESSION_IDLE_MINUTES * 60_000;
 const MAX_MS = SESSION_MAX_HOURS * 3_600_000;
 
-/** Kakor som proxy.ts läser och skriver (httpOnly). Värdet är millisekunder sedan 1970 (riktig tid, inte testtid). */
+/**
+ * Kakor som proxy.ts läser och skriver (httpOnly). Värdet är millisekunder sedan 1970 (riktig tid, inte testtid);
+ * mm_last_seen är dessutom signerad (signLastSeen nedan).
+ */
 export const LAST_SEEN_COOKIE = "mm_last_seen";
 export const LOGIN_AT_COOKIE = "mm_login_at";
 export const MM_SESSION_COOKIES = [LAST_SEEN_COOKIE, LOGIN_AT_COOKIE] as const;
@@ -29,6 +32,42 @@ export function parseMs(v: string | undefined | null): number | null {
   if (!v || !/^\d{10,16}$/.test(v)) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+// ---------------------------------------------------------------- Senaste aktivitet (signerad kaka)
+// mm_last_seen är signerad: "<ms>.<hmac>", där hmac = HMAC-SHA256(serverns nyckel, "mm_last_seen:<session_id>:<ms>").
+// Utan signatur kunde den som kommer åt webbläsarens kakor sätta tiden själv och hålla en övergiven session vid liv efter
+// 60 minuter. Signaturen är knuten till Supabase-sessionen (session_id i tokenet), så värdet går inte heller att flytta
+// till en annan session. Ett osignerat eller ändrat värde räknas som saknat (= inaktiv). Web Crypto: fungerar både i
+// proxyn och i API-rutterna.
+
+/** Supabase-sessionens id ur tokenets claims (session_id), annars användarens id. */
+export function sessionIdFromClaims(claims: unknown): string {
+  const c = claims as { session_id?: unknown; sub?: unknown } | null;
+  return typeof c?.session_id === "string" ? c.session_id : typeof c?.sub === "string" ? c.sub : "";
+}
+
+async function lastSeenMac(secret: string, sessionId: string, ms: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(`mm_last_seen:${sessionId}:${ms}`)));
+  return Array.from(sig, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** Kakans värde för tidpunkten ms i sessionen. */
+export async function signLastSeen(secret: string, sessionId: string, ms: number): Promise<string> {
+  const v = String(Math.trunc(ms));
+  return `${v}.${await lastSeenMac(secret, sessionId, v)}`;
+}
+
+/** Tidpunkten ur en signerad kaka (millisekunder), eller null om den saknas, är trasig eller inte signerad för sessionen. */
+export async function lastSeenFromCookie(secret: string, sessionId: string, value: string | undefined | null): Promise<number | null> {
+  const m = /^(\d{10,16})\.([0-9a-f]{64})$/.exec(value ?? "");
+  if (!m) return null;
+  const expected = await lastSeenMac(secret, sessionId, m[1]);
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ m[2].charCodeAt(i);
+  return diff === 0 ? parseMs(m[1]) : null;
 }
 
 /**
@@ -69,9 +108,5 @@ export function isPublicPagePath(path: string): boolean {
 /** Inloggningssida för en sökväg (samma regel som loginPathFor i src/shell/routes.ts). */
 export const loginPathFor = (path: string): string => (path.startsWith("/portal") ? "/portal/logga-in" : "/logga-in");
 
-/** Säker återhoppsadress efter inloggning: bara egna sökvägar (inga andra domäner, inga "//"). */
-export function safeReturnPath(v: string | null | undefined): string | null {
-  if (!v || !v.startsWith("/") || v.startsWith("//") || v.startsWith("/\\")) return null;
-  if (v.startsWith("/api/") || v === "/logga-in" || v === "/portal/logga-in") return null;
-  return v;
-}
+/** Säker återhoppsadress efter inloggning: bara egna sökvägar (samma funktion som klienten använder). */
+export { safeReturnPath } from "@/core/return-path";

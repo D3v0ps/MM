@@ -232,6 +232,13 @@ const MeetingMinimumSchema = z.strictObject({
   minMeetingsPerMonth: PosInt.optional(),
 });
 const ExportSchema = z.strictObject({ key: z.string().min(1), format: z.string().min(1), fieldsPerCustomer: PosInt.optional() });
+/** Avtalstexter i klarspråk som visas under Avtalsfakta i administrationen (prototypens CONTRACT_NOTES). */
+const ContractTextsSchema = z.strictObject({
+  /** Omfattning, t.ex. antal årsplatser, avtalsområden och rangordning. */
+  scope: z.string().min(1).optional(),
+  /** Uppsägning av avtalet (tidigaste tidpunkt och uppsägningstid). */
+  termination: z.string().min(1).optional(),
+});
 
 // ---------------------------------------------------------------- Hela konfigurationen
 const ContractConfigBase = z.strictObject({
@@ -264,6 +271,7 @@ const ContractConfigBase = z.strictObject({
   priceItems: z.array(ConfigPriceItemSchema).optional(),
   meetingMinimums: z.array(MeetingMinimumSchema).optional(),
   exports: z.array(ExportSchema).optional(),
+  texts: ContractTextsSchema.optional(),
 });
 
 type ConfigShape = z.infer<typeof ContractConfigBase>;
@@ -407,6 +415,7 @@ const deepFreeze = <T>(o: T): T => {
 };
 
 // ---------------------------------------------------------------- Botkyrka (SPEC §6.2) – exakt prototypens CONFIG_BOT
+// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js, som var hårdkodade per avtal – CLAUDE.md punkt 4).
 export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
   OperationalConfigSchema.parse({
     casePrefix: "BOT",
@@ -507,11 +516,16 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
     economicDeviation: "Kostnader avviker från anbud, timmar stämmer inte med utfört uppdrag, fel pris eller fel/saknad information på fakturan.",
     keyPersonnelChangeRequiresApproval: true,
     ai: { provider: "ATT_FASTSTÄLLA (Berget AI eller Gemini via Vertex AI EU – väljs genom test)", recordingApprovedByCustomer: "2026-09-29" },
+    texts: {
+      termination: "Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.",
+      scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
+    },
   }),
 );
 
 // ---------------------------------------------------------------- Kammarkollegiet (SPEC §6.3, skiss) – prototypens CONFIG_KK
 // Avvikelse från prototypen: priserna är i öre (priceOre: 412000) i stället för kronor (price: 4120).
+// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js).
 export const KK_CONFIG: ContractConfig = deepFreeze(
   ContractConfigSchema.parse({
     casePrefix: "KK",
@@ -538,6 +552,10 @@ export const KK_CONFIG: ContractConfig = deepFreeze(
       { service: "forlangt_stod", minMeetingsPerMonth: 1 },
     ],
     exports: [{ key: "kk_manadsstatistik", format: "xlsx", fieldsPerCustomer: 8 }],
+    texts: {
+      termination: "Enligt KK-avtalet – kontrolleras före start.",
+      scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör.",
+    },
   }),
 );
 

@@ -87,8 +87,8 @@ function ProtoBar({ onReset }: { onReset: () => void }) {
         options={PERSPECTIVES.map((p) => ({ value: p.key, label: p.label, icon: p.icon }))}
       />
       {pDef.roles.length > 1 && (
-        <div className="flex min-w-0 items-center gap-2">
-          <label htmlFor="role-select" className="font-bold">
+        <div className="flex max-w-full min-w-0 items-center gap-2">
+          <label htmlFor="role-select" className="shrink-0 font-bold">
             Roll
           </label>
           <select
@@ -98,7 +98,9 @@ function ProtoBar({ onReset }: { onReset: () => void }) {
               const r = e.target.value as Role;
               goAs(r, START_PATH[r]);
             }}
-            className="w-auto max-w-full text-[0.9375rem] font-semibold"
+            // min-w-0: rollnamnen är långa ("Kommunens handläggare – Maria Ekdahl") – vid 400 px krymper väljaren i stället
+            // för att ge sidledsscroll.
+            className="w-auto max-w-full min-w-0 text-[0.9375rem] font-semibold"
           >
             {pDef.roles.map((r) => {
               const def = demoRole(r);

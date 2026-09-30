@@ -51,14 +51,31 @@ function protoOrgConfig(): unknown {
   throw new Error("S.orgConfig hittades inte");
 }
 
+/** Prototypens avtalstexter (CONTRACT_NOTES i prototyp/src/views/admin.js), per avtals-id. */
+function protoContractNotes(): Record<"c-bot" | "c-kk", { termination: string; scope: string }> {
+  const src = readFileSync(new URL("../../prototyp/src/views/admin.js", import.meta.url), "utf8");
+  const start = src.indexOf("{", src.indexOf("const CONTRACT_NOTES = "));
+  let depth = 0;
+  for (let i = start; i < src.length; i++) {
+    if (src[i] === "{") depth++;
+    if (src[i] === "}" && --depth === 0) return new Function(`return (${src.slice(start, i + 1)});`)();
+  }
+  throw new Error("CONTRACT_NOTES hittades inte");
+}
+
 describe("avtalskonfigurationen – samma värden som den gamla prototypen", () => {
-  it("Botkyrka är exakt prototypens CONFIG_BOT", () => {
-    expect(BOTKYRKA_CONFIG).toStrictEqual(proto.seedConstants.CONFIG_BOT);
+  const notes = protoContractNotes();
+  it("Botkyrka är exakt prototypens CONFIG_BOT, plus avtalstexterna (CONTRACT_NOTES) som flyttats in i konfigurationen", () => {
+    const { texts, ...rest } = BOTKYRKA_CONFIG;
+    expect(rest).toStrictEqual(proto.seedConstants.CONFIG_BOT);
+    expect(texts).toStrictEqual(notes["c-bot"]);
+    expect(texts?.scope).toBe("Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.");
   });
-  it("Kammarkollegiet är prototypens CONFIG_KK med priserna i öre", () => {
+  it("Kammarkollegiet är prototypens CONFIG_KK med priserna i öre, plus avtalstexterna", () => {
     const kk = proto.seedConstants.CONFIG_KK;
-    const expected = { ...kk, priceItems: kk.priceItems.map(({ price, ...rest }) => ({ ...rest, priceOre: price * 100 })) };
+    const expected = { ...kk, priceItems: kk.priceItems.map(({ price, ...rest }) => ({ ...rest, priceOre: price * 100 })), texts: notes["c-kk"] };
     expect(KK_CONFIG).toStrictEqual(expected);
+    expect(KK_CONFIG.texts?.termination).toBe("Enligt KK-avtalet – kontrolleras före start.");
     expect(KK_CONFIG.priceItems?.map((p) => p.priceOre)).toEqual([412000, 120000, 135000, 408000, 69900]);
   });
   it("interna regler är exakt prototypens S.orgConfig", () => {
@@ -95,11 +112,18 @@ describe("zod-scheman", () => {
       { ...BOTKYRKA_CONFIG, progression: { ...BOTKYRKA_CONFIG.progression, areas: [...BOTKYRKA_CONFIG.progression.areas, "nytt_omrade"] } },
       { ...BOTKYRKA_CONFIG, progression: { ...BOTKYRKA_CONFIG.progression, scale: { 0: "a", 1: "b", 2: "c" } } },
       { ...BOTKYRKA_CONFIG, customerVisibility: { ...BOTKYRKA_CONFIG.customerVisibility, scope: "alla" } },
+      { ...BOTKYRKA_CONFIG, texts: { scope: "" } },
+      { ...BOTKYRKA_CONFIG, texts: { ...BOTKYRKA_CONFIG.texts, uppsagning: "Tre månader" } },
     ];
     for (const b of bad) expect(ContractConfigSchema.safeParse(b).success, JSON.stringify(b).slice(0, 80)).toBe(false);
     // ATT_FASTSTÄLLA är tillåtet där värdet inte är fastställt.
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, customerVisibility: { ...BOTKYRKA_CONFIG.customerVisibility, scope: "unit" } }).success).toBe(true);
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, kpis: [{ key: "a", internalTarget: UNSET }] }).success).toBe(true);
+    // Avtalstexterna är valfria – ett nytt avtal utan texter parsar (administrationen visar "–").
+    const noTexts: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
+    delete noTexts.texts;
+    expect(OperationalConfigSchema.safeParse(noTexts).success).toBe(true);
+    expect(ContractConfigSchema.safeParse({ ...KK_CONFIG, texts: { termination: "Enligt avtalet." } }).success).toBe(true);
   });
 
   it("interna regler: eskalering efter påminnelse, e-post utan personuppgifter", () => {

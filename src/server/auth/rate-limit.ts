@@ -4,7 +4,25 @@ import { createHmac } from "node:crypto";
 
 export type AttemptKind = "code" | "verify_failed" | "verify_ok";
 export type Hashes = { emailHash: string; ipHash: string };
+export type GateVerdict = "ok" | "rate_limited" | "too_many_attempts";
 
+/**
+ * Spärren som servern använder (supabase/migrations/0012, mm.login_attempt_gate): kontrollen och registreringen görs i
+ * samma transaktion, med lås per adress och per IP. Ett kodförsök registreras som verify_failed innan koden prövas hos
+ * Supabase Auth och ändras till verify_ok när den stämde. Samtidiga anrop kan därför aldrig passera fler gånger än
+ * gränserna tillåter (förut räknades försöken först efter svaret, och anrop i klump slapp igenom).
+ */
+export type LoginGate = {
+  /** kind "code": en ny kod; "verify": ett försök att logga in med koden. id = det registrerade försöket (vid "ok"). */
+  gate(a: { kind: "code" | "verify"; at: string } & Hashes): Promise<{ verdict: GateVerdict; id: number | null }>;
+  /** Koden stämde: försöket räknas inte längre som misslyckat. */
+  markVerified(id: number): Promise<void>;
+};
+
+/**
+ * Referensreglerna i TypeScript (samma som mm.login_attempt_gate i databasen – testet i login-gate.test.ts jämför dem).
+ * Räknar försöken i login_attempts; registreringen görs av anroparen.
+ */
 export type AttemptStore = {
   /** Antal försök av ett slag sedan en tidpunkt (ISO), för en adress eller en IP. */
   count(q: { kind: AttemptKind; since: string; emailHash?: string; ipHash?: string }): Promise<number>;

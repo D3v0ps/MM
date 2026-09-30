@@ -144,8 +144,35 @@ function reportRead(r: Report, a: Actor, raw: Raw): boolean {
   }
   return false;
 }
+/** Fält som skiljer den nya raden från den befintliga (id räknas inte). */
+function changedFields<T extends object>(cur: T, next: T): string[] {
+  const keys = new Set([...Object.keys(cur), ...Object.keys(next)]);
+  keys.delete("id");
+  const c = cur as Record<string, unknown>;
+  const n = next as Record<string, unknown>;
+  return [...keys].filter((k) => JSON.stringify(c[k] ?? null) !== JSON.stringify(n[k] ?? null));
+}
+/** Kommunens kvittens: bara openedAt/openedBy, en gång och i eget namn (samma som triggern reports_protect_columns, 0014). */
+function customerReceiptOnly(cur: Report, next: Report, a: Actor): boolean {
+  const changed = changedFields(cur, next);
+  if (changed.some((k) => k !== "openedAt" && k !== "openedBy")) return false;
+  return !changed.length || (!cur.openedAt && !!next.openedAt && next.openedBy === a.userId);
+}
+/** Läskvitto: bara readBy/readAt, bara sig själv i readBy och readAt en gång (triggern messages_protect_columns, 0014). */
+function readReceiptOnly(cur: Tables["messages"], next: Tables["messages"], a: Actor): boolean {
+  const changed = changedFields(cur, next);
+  if (changed.some((k) => k !== "readBy" && k !== "readAt")) return false;
+  if (changed.includes("readBy") && (!cur.readBy.every((id) => next.readBy.includes(id)) || next.readBy.some((id) => !cur.readBy.includes(id) && id !== a.userId))) return false;
+  if (changed.includes("readAt") && (cur.readAt != null || next.readAt == null)) return false;
+  return true;
+}
+
 function reportWrite(r: Report, a: Actor, raw: Raw): boolean {
-  if (isKom(a)) return exists(raw, "reports", r.id) && reportRead(r, a, raw); // kvittens (openedAt)
+  if (isKom(a)) {
+    // Kommunen kvitterar bara (openedAt) – inga andra kolumner i en levererad rapport.
+    const cur = raw.get("reports", r.id);
+    return !!cur && reportRead(r, a, raw) && customerReceiptOnly(cur, r, a);
+  }
   if (!isMB(a) || !member(a, r.contractId)) return false;
   if (r.kind === "weekly_attendance") return has(CASE_WORKERS, a);
   if (r.kind === "customer_summary" || r.kind === "statistics") return a.role === "samordnare" || a.role === "avtalsansvarig";
@@ -322,7 +349,9 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   messages: {
     read: messageRead,
     write: (m, a, raw) => {
-      if (exists(raw, "messages", m.id)) return messageRead(m, a, raw) && (isKom(a) || has(CASE_WORKERS, a)); // läskvitto
+      const cur = raw.get("messages", m.id);
+      // Läskvitto: den som arbetar i ärendet eller beställande handläggare (kommunens chef läser utan kvitto).
+      if (cur) return messageRead(m, a, raw) && (a.role === "kommun_handlaggare" || has(CASE_WORKERS, a)) && readReceiptOnly(cur, m, a);
       if (!self(a, m.senderId)) return false;
       const acc = accessTo(raw, a, m.caseId);
       if (isMB(a)) return has(CASE_WORKERS, a) && (acc === "full" || acc === "team");

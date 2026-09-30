@@ -5,6 +5,7 @@
 // Svaret på "skicka kod" avslöjar aldrig om adressen finns. Microsoft-inloggning (Entra) kommer senare.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ROLE_LABEL } from "@/api/roles";
+import { safeReturnPath } from "@/core/return-path";
 import { Link, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { isAuthenticated, useAuth, useSession } from "@/shell/session";
@@ -98,8 +99,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
     setPending(false);
     if (r.ok) {
       // Riktiga appen laddar om sidan själv. Prototypen: till återhoppsadressen eller rollens startsida.
-      const till = query.get("till");
-      nav.replace(till && till.startsWith("/") && !till.startsWith("//") ? till : "/");
+      nav.replace(safeReturnPath(query.get("till")) ?? "/");
       return;
     }
     if (r.error === "invalid_code" || r.error === "expired") setCodeErr(r.message);

@@ -65,7 +65,7 @@ Knappen **Läs in testdata på nytt** kan användas när som helst för att bör
 
 Projektet finns redan (se `docs/MILJOER.md`): ref `blxupsebzzhmjitaywev`, region **eu-north-1 (Stockholm)**. Kontrollera regionen under *Project Settings → General*.
 
-1. **Migrationerna** ligger i `supabase/migrations/` (0001–0010). Kör dem i ordning: MCP `apply_migration`, eller
+1. **Migrationerna** ligger i `supabase/migrations/` (0001–0014). Kör dem i ordning: MCP `apply_migration`, eller
    ```
    npx supabase login
    npx supabase link --project-ref blxupsebzzhmjitaywev
@@ -191,6 +191,7 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `SUPABASE_PUBLISHABLE_KEY` | | Publik nyckel, används bara på servern (`SUPABASE_ANON_KEY` fungerar också) | `sb_publishable_…` | Supabase → *Project Settings → API Keys* · `docs/MILJOER.md` |
 | `SUPABASE_SECRET_KEY` | **ja** | Service role – bara systemsteg på servern: revisionslogg, inloggningens uppslag, utskick, bakgrundsjobb, inläsning av testdata (`SUPABASE_SERVICE_ROLE_KEY` fungerar också) | `sb_secret_…` | Supabase → *Project Settings → API Keys* |
 | `MM_LOGIN_HASH_SECRET` | **ja** | Nyckel för att hasha e-post och IP i `login_attempts` | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
+| `MM_SESSION_SECRET` | **ja** | Valfri. Nyckel för att signera sessionskakan `mm_last_seen` (60 minuters inaktivitet). Tom = samma nyckel som `MM_LOGIN_HASH_SECRET`. Byts nyckeln loggas alla ut en gång | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_KEY` | **ja** | Kryptering av personnummer, AES-256-GCM: exakt 32 byte som base64 | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_HMAC_KEY` | **ja** | Sökhash för personnummer (dubblettkontrollen), HMAC-SHA256: minst 32 byte som base64, **en annan nyckel** än `MM_PNR_KEY` | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |

@@ -4,11 +4,14 @@ import {
   canImpersonate,
   effectiveLoginAt,
   isPublicPagePath,
+  lastSeenFromCookie,
   loginPathFor,
   loginTimeFromClaims,
   parseMs,
   safeReturnPath,
+  sessionIdFromClaims,
   sessionVerdict,
+  signLastSeen,
   toEnvironment,
 } from "./session-policy";
 
@@ -95,5 +98,48 @@ describe("sökvägar", () => {
     expect(safeReturnPath("/api/rpc")).toBeNull();
     expect(safeReturnPath("/logga-in")).toBeNull();
     expect(safeReturnPath(null)).toBeNull();
+  });
+
+  it("återhopp: tabb, radbrytning, vagnretur och bakstreck leder aldrig till en annan domän", () => {
+    // Webbläsaren tar bort \t \n \r och läser \ som / – "/\t/evil.example" blir annars "//evil.example".
+    for (const v of ["/\t/evil.example/logga-in", "/\n/evil.example/x", "/\r/evil.example/y", "/\\/evil.example", "/\t\\evil.example", "\t//evil.example"]) {
+      expect(new URL(v, "https://test.miljonmatch.se/").origin === "https://test.miljonmatch.se", v).toBe(false); // utan kontrollen: annan domän
+      expect(safeReturnPath(v), v).toBeNull();
+    }
+    // Ett kodat %09 som inte avkodats är bara en konstig men egen sökväg.
+    expect(new URL(safeReturnPath("/%09/evil.example")!, "https://test.miljonmatch.se/").origin).toBe("https://test.miljonmatch.se");
+    const decoded = new URLSearchParams("till=/%09/evil.example/logga-in&b=/%0A/evil.example&c=/%0D/evil.example&d=/%5C/evil.example");
+    for (const k of ["till", "b", "c", "d"]) expect(safeReturnPath(decoded.get(k)), k).toBeNull();
+    // Sökvägen tolkas som webbläsaren gör: /./api/ är fortfarande API:t.
+    expect(safeReturnPath("/./api/rpc")).toBeNull();
+    expect(safeReturnPath("/arenden/../logga-in")).toBeNull();
+    expect(safeReturnPath("/portal/rapporter?manad=2027-01#r1")).toBe("/portal/rapporter?manad=2027-01#r1");
+  });
+});
+
+describe("mm_last_seen är signerad", () => {
+  const SECRET = "hemlig-nyckel";
+  it("ett värde som servern signerat för sessionen godtas", async () => {
+    const v = await signLastSeen(SECRET, "sess-1", T0);
+    expect(v).toMatch(/^\d+\.[0-9a-f]{64}$/);
+    expect(await lastSeenFromCookie(SECRET, "sess-1", v)).toBe(T0);
+  });
+
+  it("en tid som satts i webbläsaren, ett ändrat värde eller en annan session godtas inte (= inaktiv)", async () => {
+    const v = await signLastSeen(SECRET, "sess-1", T0);
+    const forged = `${T0 + 2 * hour}.${v.split(".")[1]}`;
+    expect(await lastSeenFromCookie(SECRET, "sess-1", String(T0 + 2 * hour))).toBeNull();
+    expect(await lastSeenFromCookie(SECRET, "sess-1", forged)).toBeNull();
+    expect(await lastSeenFromCookie(SECRET, "sess-2", v)).toBeNull();
+    expect(await lastSeenFromCookie("annan-nyckel", "sess-1", v)).toBeNull();
+    expect(await lastSeenFromCookie(SECRET, "sess-1", undefined)).toBeNull();
+    // Utan giltig senaste aktivitet loggas sessionen ut som inaktiv.
+    expect(sessionVerdict({ now: T0 + 2 * hour, loginAt: T0, lastSeen: await lastSeenFromCookie(SECRET, "sess-1", forged) })).toBe("idle");
+  });
+
+  it("sessionens id tas ur tokenets claims", () => {
+    expect(sessionIdFromClaims({ sub: "u1", session_id: "sess-1" })).toBe("sess-1");
+    expect(sessionIdFromClaims({ sub: "u1" })).toBe("u1");
+    expect(sessionIdFromClaims(null)).toBe("");
   });
 });

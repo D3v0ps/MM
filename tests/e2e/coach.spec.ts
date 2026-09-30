@@ -460,10 +460,9 @@ test("Vyer utan ärende visar coachens deltagarlista", async ({ page }, info) =>
 // ================================================================ Meddelande från kommunen
 test("Meddelande från kommunen syns i Min vecka och räknas som läst efteråt", async ({ page }, info) => {
   const errors = await open(page, info, `/portal/deltagare/${SC.nadia}?flik=meddelanden`, MARIA);
-  // Meddelandet skrivs i kommunportalen (området kommun). Tills den är byggd hoppas testet över.
+  // Meddelandet skrivs i kommunportalen (området kommun).
   const field = page.getByLabel("Nytt meddelande");
-  const ready = await field.waitFor({ timeout: 8000 }).then(() => true, () => false);
-  test.skip(!ready, "Kommunportalens meddelanden (/portal/deltagare/:id?flik=meddelanden) är inte byggda ännu.");
+  await expect(field).toBeVisible({ timeout: 8000 });
   await field.fill("Tiden passar bra. Vi ses på torsdag.");
   await page.getByRole("button", { name: "Skicka meddelandet" }).click();
   await expect(page.getByText("Tiden passar bra. Vi ses på torsdag.").first()).toBeVisible();

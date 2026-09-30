@@ -542,9 +542,32 @@ describe("notiser, ledning och session", () => {
 
   it("audit.view loggar visningen med ärendets avtal och flyttar inte klockan", async () => {
     const t = rt.clock.now();
-    expect(await run(auditView, { action: "pnr.revealed", entity: "person", entityId: "p-5143", details: { caseId: "case-260143" } }, amira())).toMatchObject({ ok: true });
-    expect(rows("audit_log").pop()).toMatchObject({ action: "pnr.revealed", entity: "person", entityId: "p-5143", actorId: "u-amira", contractId: "c-bot", details: { caseId: "case-260143" } });
+    expect(await run(auditView, { action: "case.view", entity: "case", entityId: "case-260143" }, amira())).toMatchObject({ ok: true });
+    expect(rows("audit_log").pop()).toMatchObject({ action: "case.view", entity: "case", entityId: "case-260143", actorId: "u-amira", contractId: "c-bot", details: {} });
     expect(rt.clock.now()).toBe(t);
+  });
+
+  it("audit.view: bara visningshändelser, bara för objekt man får se, och ingen fri text", async () => {
+    const n = rows("audit_log").length;
+    const nadia = "case-260143"; // Marias beställning, Amiras ärende
+    const other = rows("cases").find((c) => c.contractId === "c-bot" && c.referrerId !== "k-maria" && c.leadCoachId !== "u-amira" && !rows("case_team").some((x) => x.caseId === c.id && x.userId === "u-amira"))!;
+    // Händelser som bara hanterarna själva skriver går inte att förfalska.
+    for (const action of ["pnr.revealed", "event.added", "report.approved", "case.coach_changed", "auth.login_failed"]) {
+      await expect(rt.run("command", auditView.key, { action, entity: "case", entityId: nadia }, maria())).rejects.toThrow();
+    }
+    // Fri text i details stoppas av schemat.
+    await expect(rt.run("command", auditView.key, { action: "case.view", entity: "case", entityId: nadia, details: { reason: "Deltagaren Anna Andersson 19850101-1234" } }, maria())).rejects.toThrow();
+    // Fel slags objekt och objekt som man inte får se loggas inte.
+    expect(await run(auditView, { action: "case.view", entity: "person", entityId: "p-5143" }, maria())).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "case.view", entity: "case", entityId: other.id }, maria())).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "report.view", entity: "report", entityId: "rep-finns-inte" }, amira())).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "export.audit_log", entity: "audit_log", entityId: "c-bot", details: { rows: 3, filter: "inget" } }, maria())).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: other.id }, as("u-johan", "avtalsansvarig"))).toMatchObject({ ok: true });
+    expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: rows("cases").find((c) => c.contractId === "c-kk")?.id ?? "case-saknas" }, eva())).toMatchObject({ ok: false });
+    expect(rows("audit_log").length).toBe(n + 1);
+    // Export: bara kända detaljer följer med.
+    expect(await run(auditView, { action: "export.contract_deviations", entity: "contract_deviation", entityId: null, details: { month: "2027-01" } }, sara())).toMatchObject({ ok: true });
+    expect(rows("audit_log").pop()).toMatchObject({ action: "export.contract_deviations", details: { month: "2027-01" }, contractId: "c-bot" });
   });
 });
 

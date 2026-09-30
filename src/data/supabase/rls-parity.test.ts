@@ -116,8 +116,8 @@ function asPersona<T>(p: Persona, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return asUser(db, authOf(p.actor.userId), fn);
 }
 
-/** Tabellen som RLS-läsningen görs mot: avtal läses via vyn contracts_public (se supabase/README.md). */
-const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t);
+/** Tabellen som RLS-läsningen görs mot: avtal och ärenden läses via vyerna contracts_public och cases_public (se supabase/README.md). */
+const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t);
 const COUNT_SQL = TABLE_NAMES.map((t) => `select '${t}' as t, count(*)::int as n from public.${readSource(t)}`).join(" union all ");
 
 async function pgCounts(tx: Tx): Promise<Record<string, number>> {
@@ -185,6 +185,28 @@ describe("schema och seed", () => {
     expect(anon.rows).toEqual([]);
     const res = await asUser(db, null, (tx) => attempt(tx, "select count(*) from public.cases"));
     expect(res.ok).toBe(false);
+  });
+
+  it("härdning (0011): alla funktioner i mm och public har fast search_path, alla främmande nycklar har ett index", async () => {
+    const fns = await db.query<{ fn: string }>(
+      `select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as fn
+       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname in ('mm', 'public') and p.prokind = 'f'
+         and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')`,
+    );
+    expect(fns.rows.map((x) => x.fn)).toEqual([]);
+    const fks = await db.query<{ fk: string }>(
+      `select c.conrelid::regclass::text || '.' || a.attname as fk
+       from pg_constraint c join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+       where c.contype = 'f' and c.connamespace = 'public'::regnamespace and array_length(c.conkey, 1) = 1
+         and not exists (select 1 from pg_index i where i.indrelid = c.conrelid and i.indkey[0] = c.conkey[1])`,
+    );
+    expect(fks.rows.map((x) => x.fk)).toEqual([]);
+    // Stickprov: funktionerna som rådgivaren pekade ut ger samma svar som förut.
+    const r = await db.query<{ a: string; b: boolean; c: string }>(
+      "select mm.case_access_level('kommun_chef', 'k-eva', array['c-bot'], 'Arbetsmarknadsenheten', 'c-bot', 'u-amira', 'k-maria', false, false, 'Arbetsmarknadsenheten Norra', 'own') as a, mm.unit_covers('', 'x') as b, mm.customer_scope('{\"customerVisibility\":{\"scope\":\"ATT_FASTSTÄLLA\",\"prototypeScope\":\"own\"}}'::jsonb) as c",
+    );
+    expect(r.rows[0]).toEqual({ a: "customer", b: true, c: "own" });
   });
 
   it("tider läses tillbaka som samma Stockholmstid (vintertid och sommartid)", async () => {
@@ -256,6 +278,137 @@ describe("avtal: kommunen läser aldrig de interna målen", () => {
     const view = await asPersona(findPersona("u-karin"), async (tx) => (await tx.query<{ id: string; config: unknown }>("select id, config from public.contracts_public order by id")).rows);
     expect(view.map((c) => c.id)).toEqual(["c-bot"]);
     expect(view[0].config).toEqual(JSON.parse(JSON.stringify(data.contracts.find((c) => c.id === "c-bot")!.config)));
+  });
+});
+
+// ================================================================ Ärenden: detaljerna i skyddade ärenden (0013)
+describe("ärenden: cases_public döljer plats, mötestider och bakgrund i skyddade ärenden och för ekonomen", () => {
+  const protectedIds = new Set(data.persons.filter((p) => p.protectedIdentity).map((p) => p.id));
+  const prot = () => data.cases.find((c) => protectedIds.has(c.personId) && c.location && c.meetingDay != null && c.meetingTime && c.firstMeetingAt && c.backgroundInfo)!;
+  const DETAIL_SQL = `select case_number, status, background_info, location, meeting_day, meeting_time, pause_reason,
+    to_char(first_meeting_at at time zone 'Europe/Stockholm', 'YYYY-MM-DD"T"HH24:MI') as first_meeting, buyer_reference,
+    to_char(start_date, 'YYYY-MM-DD') as start_date from public.cases_public where id = $1`;
+  type Detail = { case_number: string; status: string; background_info: string; location: string; meeting_day: number | null; meeting_time: string | null; pause_reason: string | null; first_meeting: string | null; buyer_reference: string | null; start_date: string | null };
+  const detail = (userId: string, caseId: string) => asPersona(findPersona(userId), async (tx) => (await tx.query<Detail>(DETAIL_SQL, [caseId])).rows[0]);
+
+  it("samordnare, chef, admin, ekonom och kommunens chef ser nummer och status – inte var eller när personen träffas", async () => {
+    const c = prot();
+    for (const userId of ["u-sara", "u-karin", "u-robin", "u-lars", "k-eva"]) {
+      const row = await detail(userId, c.id);
+      expect(row, userId).toEqual({
+        case_number: c.caseNumber, status: c.status, background_info: "", location: "", meeting_day: null, meeting_time: null, pause_reason: null,
+        // Klockslaget döljs; datumet finns kvar så att "första mötet är bokat" fungerar i flaggor och listor.
+        first_meeting: `${c.firstMeetingAt!.slice(0, 10)}T00:00`, buyer_reference: c.buyerReference, start_date: c.startDate,
+      });
+    }
+  });
+
+  it("namngiven huvudcoach och avtalsansvarig ser hela det skyddade ärendet", async () => {
+    const c = prot();
+    for (const userId of [c.leadCoachId!, "u-johan"]) {
+      const row = await detail(userId, c.id);
+      expect(row, userId).toMatchObject({ background_info: c.backgroundInfo, location: c.location, meeting_day: c.meetingDay, meeting_time: c.meetingTime, first_meeting: c.firstMeetingAt });
+    }
+  });
+
+  it("ekonomen ser perioder och referenser men inte bakgrund, plats eller mötestider i vanliga ärenden", async () => {
+    const c = data.cases.find((x) => !protectedIds.has(x.personId) && x.backgroundInfo && x.location && x.meetingDay != null && x.buyerReference && x.startDate)!;
+    expect(await detail("u-lars", c.id)).toMatchObject({ background_info: "", location: "", meeting_day: null, meeting_time: null, buyer_reference: c.buyerReference, start_date: c.startDate });
+    // Samordnaren (full åtkomst) ser allt i samma ärende.
+    expect(await detail("u-sara", c.id)).toMatchObject({ background_info: c.backgroundInfo, location: c.location, meeting_day: c.meetingDay });
+  });
+
+  it("tabellen: bara id går att läsa direkt, och en ändring kan inte lämna ut kolumnerna", async () => {
+    const c = prot();
+    const lars = await asPersona(findPersona("u-lars"), async (tx) => ({
+      id: (await tx.query("select id from public.cases where id = $1", [c.id])).rows.length,
+      location: await attempt(tx, "select location from public.cases where id = $1", [c.id]),
+      star: await attempt(tx, "select * from public.cases where id = $1", [c.id]),
+      returningAll: await attempt(tx, "update public.cases set buyer_reference = '1234567890' where id = $1 returning *", [c.id]),
+      returningId: await attempt(tx, "update public.cases set buyer_reference = '1234567890' where id = $1 returning id", [c.id]),
+    }));
+    expect(lars.id).toBe(1);
+    expect(lars.location.ok).toBe(false);
+    expect(lars.star.ok).toBe(false);
+    expect(lars.returningAll.ok).toBe(false);
+    // Ekonomen får fortfarande ändra beställarreferensen (policyn cases_update), men får bara tillbaka id.
+    expect(lars.returningId).toMatchObject({ ok: true, rows: 1 });
+    const sara = await asPersona(findPersona("u-sara"), (tx) => attempt(tx, "select background_info, meeting_day from public.cases where id = $1", [c.id]));
+    expect(sara.ok).toBe(false);
+  });
+});
+
+// ================================================================ Kvittenser (0014)
+describe("kvittenser ändrar bara sina egna kolumner", () => {
+  const maria = () => findPersona("k-maria");
+  const unopened = () => data.reports.find((r) => r.deliveredTo.includes("k-maria") && r.deliveredAt && !r.openedAt && r.status === "delivered")!;
+  const opened = () => data.reports.find((r) => r.deliveredTo.includes("k-maria") && r.deliveredAt && r.openedAt && r.status === "delivered")!;
+  const memWrite = <N extends "reports" | "messages">(t: N, row: Tables[N], userId: string) => canReadRow(t, raw.get(t, row.id)!, findPersona(userId).actor, raw) && canWriteRow(t, row, findPersona(userId).actor, raw);
+
+  it("kommunen kan inte skriva om en levererad rapport – bara kvittera den en gång, i eget namn", async () => {
+    const r = unopened();
+    const o = opened();
+    const at = "2027-02-01T09:30";
+    const res = await asPersona(maria(), async (tx) => ({
+      forged: await attempt(tx, "update public.reports set status = 'draft', approved_by = 'k-maria' where id = $1", [r.id]),
+      snapshot: await attempt(tx, `update public.reports set snapshot = '{"model":{"forfalskad":true}}'::jsonb where id = $1`, [r.id]),
+      summary: await attempt(tx, "update public.reports set summary = 'Ändrad av kommunen' where id = $1", [r.id]),
+      otherName: await attempt(tx, "update public.reports set opened_at = $2, opened_by = 'k-ahmed' where id = $1", [r.id, at]),
+      again: await attempt(tx, "update public.reports set opened_at = $2, opened_by = 'k-maria' where id = $1", [o.id, at]),
+      receipt: await attempt(tx, "update public.reports set opened_at = $2, opened_by = 'k-maria' where id = $1", [r.id, at]),
+    }));
+    expect(res.forged.ok).toBe(false);
+    expect(res.snapshot.ok).toBe(false);
+    expect(res.summary.ok).toBe(false);
+    expect(res.otherName.ok).toBe(false);
+    expect(res.again.ok).toBe(false);
+    expect(res.receipt).toMatchObject({ ok: true, rows: 1 });
+    // Samma svar i minnesläget (policy.ts).
+    expect(memWrite("reports", { ...r, status: "draft", approvedBy: "k-maria" }, "k-maria")).toBe(false);
+    expect(memWrite("reports", { ...r, summary: "Ändrad av kommunen" }, "k-maria")).toBe(false);
+    expect(memWrite("reports", { ...r, openedAt: at, openedBy: "k-ahmed" }, "k-maria")).toBe(false);
+    expect(memWrite("reports", { ...o, openedAt: at, openedBy: "k-maria" }, "k-maria")).toBe(false);
+    expect(memWrite("reports", { ...r, openedAt: at, openedBy: "k-maria" }, "k-maria")).toBe(true);
+  });
+
+  it("meddelanden: bara läskvittot ändras – aldrig text eller avsändare – och kommunens chef ändrar inget", async () => {
+    const own = new Set(data.cases.filter((c) => c.referrerId === "k-maria").map((c) => c.id));
+    const fromMb = data.messages.find((m) => own.has(m.caseId) && m.senderId.startsWith("u-") && !m.readBy.includes("k-maria"))
+      ?? data.messages.find((m) => own.has(m.caseId) && m.senderId.startsWith("u-"))!;
+    // Utgångsläge (som postgres): läst av Sara men inte av Maria.
+    const before = { ...fromMb, readBy: ["u-sara"], readAt: "2027-01-27T13:40" };
+    const res = await asUser(db, authOf("k-maria"), async (tx) => ({
+      body: await attempt(tx, "update public.messages set body = 'Ändrad av kommunen', sender_id = 'u-sara' where id = $1", [fromMb.id]),
+      other: await attempt(tx, "update public.messages set read_by = array_append(read_by, 'u-johan') where id = $1", [fromMb.id]),
+      clear: await attempt(tx, "update public.messages set read_by = '{}' where id = $1", [fromMb.id]),
+      readAt: await attempt(tx, "update public.messages set read_at = '2027-02-01T10:00' where id = $1", [fromMb.id]),
+      self: await attempt(tx, "update public.messages set read_by = array_append(read_by, 'k-maria') where id = $1", [fromMb.id]),
+    }), { before: async (tx) => { await tx.query("update public.messages set read_by = '{u-sara}', read_at = '2027-01-27T13:40' where id = $1", [fromMb.id]); } });
+    expect(res.body.ok).toBe(false);
+    expect(res.other.ok).toBe(false);
+    expect(res.clear.ok).toBe(false);
+    expect(res.readAt.ok).toBe(false);
+    expect(res.self).toMatchObject({ ok: true, rows: 1 });
+    const eva = await asPersona(findPersona("k-eva"), async (tx) => ({
+      body: await attempt(tx, "update public.messages set body = 'Chefen ändrade' where id = $1", [fromMb.id]),
+      read: await attempt(tx, "update public.messages set read_by = array_append(read_by, 'k-eva') where id = $1", [fromMb.id]),
+    }));
+    expect(eva.body.ok).toBe(false);
+    expect(eva.read.ok).toBe(false);
+    const coach = await asPersona(findPersona("u-amira"), (tx) => attempt(tx, "update public.messages set body = 'Ändrad' where id = $1", [fromMb.id]));
+    expect(coach.ok).toBe(false);
+    // Samma svar i minnesläget (policy.ts).
+    expect(memWrite("messages", { ...fromMb, body: "Ändrad av kommunen", senderId: "u-sara" }, "k-maria")).toBe(false);
+    expect(memWrite("messages", { ...fromMb, readBy: [...fromMb.readBy, "u-sara"] }, "k-maria")).toBe(false);
+    expect(memWrite("messages", { ...fromMb, body: "Chefen ändrade" }, "k-eva")).toBe(false);
+    expect(memWrite("messages", { ...fromMb, body: "Ändrad" }, "u-amira")).toBe(false);
+    // Minnesläget med samma utgångsläge som i databasen.
+    const rawBefore: RawAccess<Tables> = { ...raw, get: ((t: TableName, id: string) => (t === "messages" && id === before.id ? before : raw.get(t as never, id))) as RawAccess<Tables>["get"] };
+    const memMaria = (row: Tables["messages"]) => canWriteRow("messages", row, maria().actor, rawBefore);
+    expect(memMaria({ ...before, readBy: ["u-sara", "u-johan"] })).toBe(false);
+    expect(memMaria({ ...before, readBy: [] })).toBe(false);
+    expect(memMaria({ ...before, readAt: "2027-02-01T10:00" })).toBe(false);
+    expect(memMaria({ ...before, readBy: ["u-sara", "k-maria"] })).toBe(true);
   });
 });
 

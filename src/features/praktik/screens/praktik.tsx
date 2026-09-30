@@ -298,7 +298,6 @@ function DetailContent({ d }: { d: Found }) {
               columns={[
                 { key: "who", label: "Deltagare", render: (p) => (<span className="flex flex-nowrap items-start gap-1.5"><Icon name="lock" className="mt-0.5" /><span>{p.who}</span></span>) },
                 { key: "period", label: "Period", nowrap: true, render: (p) => `${fmtDateShort(p.startsOn)} – ${fmtDate(p.endsOn)}` },
-                { key: "tasks", label: "Arbetsuppgifter", render: (p) => p.tasks },
                 { key: "fr", label: "Fyra rätt", render: (p) => <RightsBadge n={p.rightsDone} /> },
               ]}
             />

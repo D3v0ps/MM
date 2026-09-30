@@ -12,9 +12,6 @@ import { Page, Card, Button, Table, Field, Input, Notice, QueryView, toast } fro
 dataåtkomst (inga `useQuery`, inga imports från `src/data` eller `src/server`) – skärmen skickar in värden och callbacks.
 Färger bara från temat i `src/app/globals.css`. Inget grönt.
 
-Granskningssida med alla komponenter: **`/ui`** (MB-layout), **`/ui/portal`** (kommunportalen), **`/ui/puls`** (deltagarens mobilvy) –
-källa `src/ui/__showcase.tsx`. Tillfällig; tas bort när skärmarna är klara.
-
 ---
 
 ## 1. Tema och Tailwind-klasser
@@ -89,7 +86,7 @@ Formulärfält (`input`, `select`, `textarea`) har grundutseendet i `@layer base
 ```
 Props: `title` (versaler, röd punkt, `h1`), `eyebrow?`, `lead?`, `actions?`, `crumbs?: { label; to? }[]` (sista utan `to` = aktuell sida), `className?`.
 Max 1240 px bred, 32 px sidmarginal (16 px under 900 px). Kommunportalen använder inte `Page` – portallayouten har redan sidbredd 860 px; skriv
-rubriken själv (`<Eyebrow>` + `<h1>` med `<Dot>`) som i `/ui/portal`.
+rubriken själv (`<Eyebrow>` + `<h1>` med `<Dot>`) som `KomHead` i `src/features/kommun/screens/parts.tsx`.
 
 ### `Card`
 ```tsx

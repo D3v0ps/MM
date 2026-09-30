@@ -230,13 +230,14 @@ test("ledningsvyn: per coach, per avtalsområde och deltagarnas röst", async ({
 
 // ============================================================ Behörighet
 test("ledningsvyn: coachen och kommunens chef har ingen åtkomst", async ({ page }, info) => {
+  // Appen har också Next.js ruttannonsör (role="alert") – läs sidans egen ruta i #main.
   await open(page, info, "/ledning", COACH);
-  await expect(page.getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
+  await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
   expect(await text(page.locator("body"))).not.toMatch(/eskaler/i);
   await open(page, info, "/ledning", KOMMUN_CHEF);
-  await expect(page.getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
+  await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
   await open(page, info, "/avtalsavvikelser", COACH);
-  await expect(page.getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
+  await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
 });
 
 // ============================================================ Avtalsavvikelser
@@ -388,8 +389,9 @@ test("ledningsvyn: perspektivbyte till kommunens chef visar samma månad och res
   await openLedning(page, info);
   await card(page, "Så ser kommunens chef resultatet").getByRole("button", { name: /som kommunens chef/ }).click();
   await expect(page).toHaveURL(/#\/portal\/bestallarrapport/);
+  await expect(page.getByRole("heading", { level: 1, name: "Beställarrapport" })).toBeVisible();
   const kt = await text(page.locator("body"));
-  test.skip(/Sidan finns inte/.test(kt), "Beställarrapporten i kommunportalen är inte byggd ännu");
+  expect(kt).not.toMatch(/Sidan finns inte/);
   expect(kt.toLowerCase()).toContain("december 2026");
   expect(kt).toContain("31,2 %");
   expect(kt).toMatch(/Under avtalsmålet/);
@@ -404,8 +406,7 @@ test("ledningsvyn: när nästa beställarrapport levereras följer kundkortet me
   await switchUser(page, info, reportPath, AVTALSANSVARIG);
   // Avtalsansvarig skriver sammanfattningen, godkänner och levererar (rapportområdets flöde)
   const approve = main(page).getByRole("button", { name: "Godkänn beställarrapporten" });
-  await approve.waitFor({ timeout: 5000 }).catch(() => undefined);
-  test.skip((await approve.count()) === 0, "Rapportvyn (godkänn och leverera beställarrapporten) är inte byggd ännu");
+  await expect(approve).toBeVisible({ timeout: 5000 });
   await page.fill("#rap-summary", "Resultatet för januari redovisas mot avtalsmålet.");
   await approve.click();
   await main(page).getByRole("button", { name: "Leverera till kommunen" }).click();

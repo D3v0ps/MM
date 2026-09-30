@@ -285,3 +285,30 @@ test("delad feedback i claude.ai: samma samlingar och fält som den gamla protot
     .toEqual({ "s2:0": true });
   expect(errors).toEqual([]);
 });
+
+// ---------------------------------------------------------------- 400 px: prototypfältet ger ingen sidledsscroll
+test("400 px: ingen sidledsscroll med prototypfältet – varje roll, portalen och sidan utan behörighet", async ({ page }, info) => {
+  const pages: [string, string, string][] = [
+    ["u-sara", "samordnare", "/start"],
+    ["u-amira", "coach", "/min-vecka"],
+    ["u-karin", "chef", "/ledning"],
+    ["u-robin", "admin", "/admin/avtal"],
+    ["k-maria", "kommun_handlaggare", "/portal"],
+    ["k-maria", "kommun_handlaggare", "/portal/deltagare/case-260143?flik=meddelanden"],
+    ["k-eva", "kommun_chef", "/portal/bestallarrapport"],
+    // Kommunens chef har inte behörighet till handläggarens startsida: knappen "Visa som kommunens handläggare" ska radbrytas.
+    ["k-eva", "kommun_chef", "/portal"],
+    ["deltagare", "deltagare", "/puls"],
+  ];
+  await page.setViewportSize({ width: 400, height: 860 });
+  const errors = await open(page, info, "/om");
+  for (const [userId, role, to] of pages) {
+    await page.evaluate((a) => localStorage.setItem("miljonmatch-prototyp-v2-persona", JSON.stringify(a)), { userId, role });
+    await page.goto(`http://proto.test/index.html#${to}`);
+    await page.reload();
+    await expect(page.getByRole("banner", { name: "Prototypens verktyg" })).toBeVisible();
+    const over = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(over, `${role} ${to}: ingen sidledsscroll på 400 px`).toBeLessThanOrEqual(0);
+  }
+  expect(errors).toEqual([]);
+});

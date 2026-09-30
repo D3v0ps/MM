@@ -6,17 +6,19 @@
 // Minnesläget (prototypen, utveckling, e2e) påverkas inte.
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { backend, secureCookies, supabaseEnv } from "@/server/config";
+import { backend, secureCookies, sessionCookieSecret, supabaseEnv } from "@/server/config";
 import {
   effectiveLoginAt,
   isPublicPagePath,
   LAST_SEEN_COOKIE,
+  lastSeenFromCookie,
   LOGIN_AT_COOKIE,
   loginPathFor,
   MM_SESSION_COOKIES,
-  parseMs,
   SESSION_MAX_HOURS,
+  sessionIdFromClaims,
   sessionVerdict,
+  signLastSeen,
   type SessionVerdict,
 } from "@/server/session-policy";
 
@@ -72,9 +74,13 @@ export async function proxy(request: NextRequest) {
 
   if (claims) {
     const loginAt = effectiveLoginAt(claims, request.cookies.get(LOGIN_AT_COOKIE)?.value);
-    const verdict = sessionVerdict({ now, loginAt, lastSeen: parseMs(request.cookies.get(LAST_SEEN_COOKIE)?.value) });
+    // Senaste aktivitet: bara ett värde som servern själv signerat för den här sessionen räknas (annars "inaktiv").
+    const secret = sessionCookieSecret();
+    const sessionId = sessionIdFromClaims(claims);
+    const lastSeen = await lastSeenFromCookie(secret, sessionId, request.cookies.get(LAST_SEEN_COOKIE)?.value);
+    const verdict = sessionVerdict({ now, loginAt, lastSeen });
     if (verdict === "ok") {
-      response.cookies.set(LAST_SEEN_COOKIE, String(now), mmCookie);
+      response.cookies.set(LAST_SEEN_COOKIE, await signLastSeen(secret, sessionId, now), mmCookie);
       if (!request.cookies.get(LOGIN_AT_COOKIE) && loginAt) response.cookies.set(LOGIN_AT_COOKIE, String(loginAt), mmCookie);
       return response;
     }

@@ -36,6 +36,7 @@ describe("avtal och konfiguration", () => {
       id: "c-bot", customerOrgNr: "212000-2882", supplierName: "Miljonbemanning AB", supplierOrgNr: "556959-9318", dnr: "AVN/2026:00048", endsOn: "2030-09-10",
       casePrefix: "BOT", emailDomains: ["botkyrka.se"], managerName: "Johan Berg",
       termination: "Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.",
+      scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
     });
     expect(d.yearShort).toBe("27");
     // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag"
@@ -54,6 +55,13 @@ describe("avtal och konfiguration", () => {
   it("Kammarkollegiet: skiss utan driftavsnitt, priser i konfigurationen (öre)", async () => {
     const d = await rt.query(adminContract, { contractId: "c-kk" }, robin());
     expect(d.contract).toMatchObject({ id: "c-kk", status: "draft", startsOn: "2027-03-13", operational: false, dataRole: "controller", emailDomains: [] });
+    // Avtalstexterna läses från konfigurationen (CLAUDE.md punkt 4), inte per avtalsnummer i koden.
+    expect(d.contract).toMatchObject({ termination: "Enligt KK-avtalet – kontrolleras före start.", scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör." });
+    // Ett avtal utan texter i konfigurationen visar "–" (null), oavsett avtalsnummer.
+    const noTexts = structuredClone(rt.rows("contracts").find((c) => c.id === "c-kk")!.config);
+    delete noTexts.texts;
+    rt.store.updateRow("contracts", "c-kk", { config: noTexts });
+    expect((await rt.query(adminContract, { contractId: "c-kk" }, robin())).contract).toMatchObject({ termination: null, scope: null });
     expect(d.stuckCount).toBeNull();
     expect(findUnset(d.config)).toHaveLength(0);
     expect(d.config.priceItems?.map((p) => p.priceOre)).toEqual([412000, 120000, 135000, 408000, 69900]);

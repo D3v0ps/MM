@@ -17,22 +17,6 @@ import {
 } from "./api";
 import { isDemoCreated, mainContract, orgRow, userNames } from "./shared";
 
-/**
- * Avtalstext som ännu inte finns i avtalskonfigurationen (prototypens CONTRACT_NOTES, per avtal).
- * CLAUDE.md punkt 4: avtalsvärden ska läsas från contracts.config. Texterna bör flyttas in i konfigurationen
- * (t.ex. config.terms.termination och config.terms.scope) – se slutrapporten. Tills dess visas de härifrån, per avtalsnummer.
- */
-const CONTRACT_TEXTS: Record<string, { termination: string; scope: string }> = {
-  "332026110": {
-    termination: "Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.",
-    scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
-  },
-  "2.7.5-4201-2026": {
-    termination: "Enligt KK-avtalet – kontrolleras före start.",
-    scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör.",
-  },
-};
-
 const summaryOf = (c: Contract, customerName: string): ContractSummary => ({
   id: c.id, customerName, name: c.name, contractNumber: c.contractNumber, status: c.status, startsOn: c.startsOn, operational: isOperational(c.config),
 });
@@ -40,7 +24,8 @@ const summaryOf = (c: Contract, customerName: string): ContractSummary => ({
 async function factsOf(ctx: Ctx, c: Contract): Promise<ContractFacts> {
   const [customer, supplier] = await Promise.all([ctx.repo.table("organizations").get(c.customerId), ctx.repo.table("organizations").get(c.supplierId)]);
   const name = await userNames(ctx);
-  const texts = CONTRACT_TEXTS[c.contractNumber] ?? null;
+  // Avtalstexterna (uppsägning, omfattning) läses från avtalskonfigurationen – CLAUDE.md punkt 4.
+  const texts = c.config.texts;
   return {
     ...summaryOf(c, customer?.name ?? ""),
     customerOrgNr: customer?.orgNr ?? "",

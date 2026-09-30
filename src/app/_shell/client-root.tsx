@@ -7,6 +7,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
+import { safeReturnPath } from "@/core/return-path";
 import { fmtDateFull, WEEKDAYS, weekday } from "@/core/time";
 import type { SessionView } from "@/server/session-view";
 import { App } from "@/shell/app";
@@ -28,10 +29,9 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; j
 const asResult = (json: Record<string, unknown>): AuthResult =>
   json.ok === true ? { ok: true } : json.ok === false && typeof json.error === "string" ? (json as unknown as AuthResult) : FAILED;
 
-/** Återhopp efter inloggning: ?till= på inloggningssidan (bara egna sökvägar), annars startsidan för rollen. */
+/** Återhopp efter inloggning: ?till= på inloggningssidan (bara egna sökvägar, safeReturnPath), annars startsidan för rollen. */
 function returnPath(): string {
-  const v = new URLSearchParams(window.location.search).get("till");
-  return v && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") && !v.startsWith("/api/") ? v : "/";
+  return safeReturnPath(new URLSearchParams(window.location.search).get("till")) ?? "/";
 }
 
 /** Efter inloggning, utloggning och byte av testperson laddas sidan om – inga data från förra användaren ligger kvar. */

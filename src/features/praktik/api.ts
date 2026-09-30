@@ -65,7 +65,8 @@ export type PlacementCardView = {
   followUpDates: string[];
   rightsDone: number;
 };
-export type OtherPlacementRow = { id: string; who: string; startsOn: string; endsOn: string | null; tasks: string; rightsDone: number };
+/** Praktikplats i ett annat team (samma avtal, inte skyddade personuppgifter): utan namn, ärendenummer och fritext. */
+export type OtherPlacementRow = { id: string; who: string; startsOn: string; endsOn: string | null; rightsDone: number };
 export type PlacementGroup = { mine: PlacementCardView[]; others: OtherPlacementRow[] };
 export type EmployerDetailView =
   | { found: false }

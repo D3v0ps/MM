@@ -143,7 +143,8 @@ export const PAGE_SIZE = 1000;
 export type SupabaseRepoOpts = {
   /**
    * Läs vissa tabeller via en vy (skrivningar går till tabellen). Användarens repo läser contracts via contracts_public,
-   * som döljer avtalets interna mål för kommunen (supabase/migrations/0002). Service role läser tabellerna direkt.
+   * som döljer avtalets interna mål för kommunen (supabase/migrations/0002), och cases via cases_public, som döljer
+   * detaljerna i skyddade ärenden och för ekonomen (0013). Service role läser tabellerna direkt.
    */
   readFrom?: Readonly<Record<string, string>>;
 };
@@ -237,11 +238,19 @@ class SupabaseTable<T extends Row> implements Table<T> {
       if (!cur) throw new PolicyError(this.name);
       return cur;
     }
-    const { data, error } = await this.db.from(this.name).update(values).eq("id", id).select("*");
+    // Tabeller som läses via en vy (t.ex. cases via cases_public): användaren får inte läsa alla kolumner i tabellen,
+    // så ändringen returnerar bara id och raden läses sedan via vyn – samma kolumner som en vanlig läsning ger.
+    const viaView = this.readName !== this.name;
+    const { data, error } = await this.db.from(this.name).update(values).eq("id", id).select(viaView ? "id" : "*");
     if (error) this.fail(error);
     const rows = (data as Record<string, unknown>[] | null) ?? [];
     // Ingen rad ändrad: raden finns inte eller får inte ändras av användaren (samma som MemoryRepo).
     if (!rows.length) throw new PolicyError(this.name);
+    if (viaView) {
+      const row = await this.get(id);
+      if (!row) throw new PolicyError(this.name);
+      return row;
+    }
     return fromDbRow<T>(rows[0]);
   }
 

@@ -4,6 +4,8 @@
 //      MM_EMAIL_ALLOWLIST. Supabase Auth skickar mejlet via egen SMTP (Resend).
 //   2. verifyCode: högst 5 försök per kod, hastighetsbegränsning per adress och IP, kopplar profiles.auth_user_id,
 //      revisionslogg auth.login / auth.login_failed (bara id:n).
+// Gränserna kontrolleras och försöket registreras i samma transaktion i databasen (loginGate, migration 0012) – innan
+// koden skickas eller prövas – så att anrop i klump inte kan passera spärren.
 // Inga adresser, koder eller IP-adresser i loggar – bara felkoder.
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -12,13 +14,24 @@ import type { LocalDateTime } from "@/core/time";
 import { appRepo, toTimestamptz, type PgClient } from "@/data/supabase";
 import { clockNow } from "../clock";
 import { emailAllowlist, loginHashSecret, staffEmailDomains } from "../config";
-import { attemptStore, profileByEmail } from "../live";
+import { loginGate, profileByEmail } from "../live";
 import { loadAppSettings, type AppSettings } from "../settings";
 import { anonClient, serviceClient } from "../supabase";
 import { allowedByList, AUTH_TEXT, domainAllowed, isValidEmail, normalizeEmail } from "./email";
-import { checkCodeRequest, checkVerify, hashesFor } from "./rate-limit";
+import { sessionIdFromClaims } from "../session-policy";
+import { hashesFor } from "./rate-limit";
 
 export type AuthResponse = { status: number; body: AuthResult & { message?: string } };
+
+/** Supabase-sessionens id ur åtkomsttokenet (samma värde som proxyn läser ur claims) – för den signerade kakan mm_last_seen. */
+export function sessionIdOfToken(accessToken: string | null | undefined): string {
+  try {
+    const payload = accessToken?.split(".")[1];
+    return payload ? sessionIdFromClaims(JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))) : "";
+  } catch {
+    return "";
+  }
+}
 
 const fail = (status: number, error: Extract<AuthResult, { ok: false }>["error"], message: string): AuthResponse => ({ status, body: { ok: false, error, message } });
 
@@ -69,11 +82,10 @@ export async function requestCode(rawEmail: unknown, ip: string, later: (fn: () 
   const email = normalizeEmail(rawEmail);
   if (!isValidEmail(email)) return fail(400, "invalid_email", AUTH_TEXT.invalidEmail);
   const service = serviceClient();
-  const attempts = attemptStore(service);
   const h = hashesFor(loginHashSecret(), email, ip);
-  const nowMs = Date.now();
-  if ((await checkCodeRequest(attempts, h, nowMs)) !== "ok") return fail(429, "rate_limited", AUTH_TEXT.rateLimited);
-  await attempts.record({ kind: "code", at: new Date(nowMs).toISOString(), ...h });
+  // Kontroll och registrering i samma transaktion (samtidiga anrop räknas alla).
+  const { verdict } = await loginGate(service).gate({ kind: "code", at: new Date(Date.now()).toISOString(), ...h });
+  if (verdict !== "ok") return fail(429, "rate_limited", AUTH_TEXT.rateLimited);
   later(async () => {
     try {
       await sendCode(email);
@@ -85,25 +97,25 @@ export async function requestCode(rawEmail: unknown, ip: string, later: (fn: () 
 }
 
 /** POST /api/auth/verify – `user` är SSR-klienten som sätter sessionens kakor. */
-export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCode: unknown, ip: string, later: (fn: () => Promise<void>) => void): Promise<AuthResponse & { profileId?: string }> {
+export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCode: unknown, ip: string, later: (fn: () => Promise<void>) => void): Promise<AuthResponse & { profileId?: string; sessionId?: string }> {
   const email = normalizeEmail(rawEmail);
   const code = String(rawCode ?? "").replace(/\s/g, "");
   if (!isValidEmail(email)) return fail(400, "invalid_email", AUTH_TEXT.invalidEmail);
   if (!/^\d{6}$/.test(code)) return fail(400, "invalid_code", AUTH_TEXT.invalidCode);
 
   const service = serviceClient();
-  const attempts = attemptStore(service);
+  const gate = loginGate(service);
   const h = hashesFor(loginHashSecret(), email, ip);
   const nowMs = Date.now();
-  const gate = await checkVerify(attempts, h, nowMs);
-  if (gate === "too_many_attempts") return fail(429, "too_many_attempts", AUTH_TEXT.tooManyAttempts);
-  if (gate === "rate_limited") return fail(429, "rate_limited", AUTH_TEXT.rateLimited);
+  // Försöket registreras som misslyckat redan här (i samma transaktion som kontrollen) och ändras om koden stämmer.
+  const attempt = await gate.gate({ kind: "verify", at: new Date(nowMs).toISOString(), ...h });
+  if (attempt.verdict === "too_many_attempts") return fail(429, "too_many_attempts", AUTH_TEXT.tooManyAttempts);
+  if (attempt.verdict !== "ok") return fail(429, "rate_limited", AUTH_TEXT.rateLimited);
 
   const settings = await loadAppSettings(service as unknown as PgClient, nowMs);
   const now = clockNow(settings.clock, nowMs);
   const { data, error } = await user.auth.verifyOtp({ email, token: code, type: "email" });
   if (error || !data.user) {
-    await attempts.record({ kind: "verify_failed", at: new Date(nowMs).toISOString(), ...h });
     // Revisionsloggen skrivs efter svaret, så att svarstiden inte avslöjar om adressen har en profil.
     later(async () => {
       const hit = await profileByEmail(service, email).catch(() => null);
@@ -111,6 +123,7 @@ export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCod
     });
     return fail(401, error?.code === "otp_expired" ? "expired" : "invalid_code", AUTH_TEXT.wrongCode);
   }
+  if (attempt.id != null) await gate.markVerified(attempt.id);
 
   const hit = await profileByEmail(service, email);
   if (!hit || !hit.profile.active || !hit.memberships.length) {
@@ -126,7 +139,6 @@ export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCod
   if (upd.error) logCode("koppla-konto", upd.error.code);
   // Ny inloggning = testaren är sig själv igen.
   await service.from("tester_sessions").delete().eq("auth_user_id", data.user.id);
-  await attempts.record({ kind: "verify_ok", at: new Date(nowMs).toISOString(), ...h });
   await audit(service, now, { action: "auth.login", actorId: profile.id, entityId: profile.id, contractId: memberships[0]?.contractId ?? null, details: { method: "email_otp" } });
-  return { status: 200, body: { ok: true }, profileId: profile.id };
+  return { status: 200, body: { ok: true }, profileId: profile.id, sessionId: sessionIdOfToken(data.session?.access_token) };
 }

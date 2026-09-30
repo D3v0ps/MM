@@ -9,6 +9,7 @@
 // Sidan är publik och hämtar inga data: texterna gäller alla beställare, inte ett visst avtal.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ROLE_LABEL, isCustomerRole } from "@/api/roles";
+import { safeReturnPath } from "@/core/return-path";
 import { useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
@@ -108,8 +109,7 @@ export function PortalLoginScreen({ query }: ScreenProps) {
     setPending(false);
     if (r.ok) {
       // Riktiga appen laddar om sidan själv. Prototypen: till återhoppsadressen eller rollens startsida ("/" leder dit).
-      const till = query.get("till");
-      nav.replace(till && till.startsWith("/") && !till.startsWith("//") ? till : "/");
+      nav.replace(safeReturnPath(query.get("till")) ?? "/");
       toast("Du är inloggad.");
       return;
     }

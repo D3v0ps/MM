@@ -51,5 +51,11 @@ export const staffEmailDomains = (): string[] => {
  */
 export const loginHashSecret = (): string => first("MM_LOGIN_HASH_SECRET") ?? first("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY") ?? "mm-login";
 
+/**
+ * Nyckel för att signera sessionskakan mm_last_seen (HMAC-SHA256, src/server/session-policy.ts). Utan egen nyckel används
+ * samma nyckel som för login_attempts – meddelandet har ett eget prefix ("mm_last_seen:"), så värdena kan inte blandas ihop.
+ */
+export const sessionCookieSecret = (): string => first("MM_SESSION_SECRET") ?? loginHashSecret();
+
 /** Säkra kakor (bara https) utom vid lokal utveckling (webbläsarna godtar dem ändå på http://localhost). */
 export const secureCookies = (): boolean => process.env.NODE_ENV === "production";

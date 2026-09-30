@@ -281,7 +281,7 @@ describe("skrivningar och fel", () => {
 });
 
 describe("läsning via vy", () => {
-  it("användarens repo läser contracts via contracts_public men skriver till tabellen; service role läser tabellen", async () => {
+  it("användarens repo läser contracts och cases via vyerna men skriver till tabellen; service role läser tabellen", async () => {
     const { client, calls } = fake((c) => (c.op === "update" ? { data: [{ id: "c-bot" }], error: null } : { data: [], error: null }));
     const user = userRepo(client);
     await user.table("contracts").list();
@@ -289,15 +289,26 @@ describe("läsning via vy", () => {
     await user.table("contracts").count();
     await user.table("contracts").update("c-bot", { name: "x" });
     await user.table("cases").list();
+    await user.table("cases").update("case-1", { status: "active" });
+    await user.table("persons").update("p-1", { city: "Alby" });
     await appRepo(client).table("contracts").list();
+    await appRepo(client).table("cases").update("case-1", { status: "active" });
     expect(calls.map((c) => `${c.op}:${c.table}`)).toEqual([
       "select:contracts_public",
       "select:contracts_public",
       "select:contracts_public",
       "update:contracts",
-      "select:cases",
+      "select:contracts_public",
+      "select:cases_public",
+      "update:cases",
+      "select:cases_public",
+      "update:persons",
       "select:contracts",
+      "update:cases",
     ]);
+    // Ändringar i tabeller som läses via en vy returnerar bara id (användaren får inte läsa alla kolumner i tabellen).
+    const returning = calls.filter((c) => c.op === "update").map((c) => `${c.table}:${c.chain.find((x) => x[0] === "select")?.[1]}`);
+    expect(returning).toEqual(["contracts:id", "cases:id", "persons:*", "cases:*"]);
   });
 });
 

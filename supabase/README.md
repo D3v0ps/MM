@@ -17,6 +17,10 @@ Supabase-projekten (staging och produktion, båda i **eu-north-1 Stockholm**) sk
 | `migrations/0008_fakturering.sql` | `billing_runs`, `invoice_drafts`, `invoice_lines`, `billing_week_approvals`, `invoice_credits`, `fortnox_runs`, `integrations` |
 | `migrations/0009_drift.sql` | `jobs` + `mm.claim_jobs()`, `ai_runs`, `ai_field_decisions`, `audit_log` (append-only), `org_settings`, `template_versions`, `log_checks`, `demo_tags` |
 | `migrations/0010_testdata.sql` | `mm.reset_test_data(p_demo_epoch)` (och `public.reset_test_data` för `.rpc`): tömmer appens tabeller inför "Läs in testdata på nytt". Bara testmiljön, bara service role |
+| `migrations/0011_hardning.sql` | Härdning enligt Supabases rådgivare: fast `search_path` på `mm`-funktionerna som saknade det, index på främmande nycklar utan index |
+| `migrations/0012_inloggningsgrans.sql` | `mm.login_attempt_gate()` (och `public.login_attempt_gate` för `.rpc`): inloggningens gränser kontrolleras och försöket registreras i samma transaktion, med lås per adress och IP. Bara service role |
+| `migrations/0013_arenden_vy.sql` | Vyn `cases_public`: detaljerna (plats, mötestider, bakgrund) döljs i skyddade ärenden (`restricted`) och för ekonomen (`billing`). Direkt läsning av `cases` bara kolumnen `id` |
+| `migrations/0014_kvittenser.sql` | Triggrar på `reports` och `messages`: kommunens kvittens ändrar bara `opened_at`/`opened_by`, läskvittot bara `read_by`/`read_at` |
 | `seed.sql` | **Genererad** testdata (samma som prototypen) + testarna + testmiljöns inställningar. Ändra aldrig för hand. För lokal Postgres och RLS-testerna (2,9 MB – för stor för MCP) |
 | `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 16 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, testarna och `app_settings`. Idempotent |
 | `../scripts/db/columns.ts` | Facit för kolumnerna (kontrolleras mot `src/data/schema.ts` vid kompilering och mot databasen i testet) |
@@ -39,7 +43,7 @@ npx vitest run src/data/supabase/rls-parity.test.ts src/server/staging/load.test
 Kör filerna i nummerordning, en i taget. Tre sätt – välj ett:
 
 - **Supabase CLI:** `supabase link --project-ref <ref>` och sedan `supabase db push`. CLI:t läser `supabase/migrations/` och sparar vilka som körts.
-- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0010.
+- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0014.
 - **SQL-editorn:** klistra in och kör varje fil i ordning.
 
 Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Stockholm`. (Inställningen gäller nya anslutningar – starta om projektet eller vänta tills anslutningspoolen förnyats innan appen skriver tider.)
@@ -160,13 +164,22 @@ RLS döljer rader, inte kolumner. `contracts.config` innehåller interna mål (`
 
 Varför inte neka kommunen och läsa via `ctx.system`: då skulle hanterare som `contractOf()` och beställningen i `src/features/*` behöva ändras.
 
+### Beslut: ärendets detaljer (`cases_public`, 0013)
+
+- RLS döljer rader, inte kolumner. `cases_select` släpper igenom skyddade ärenden som `restricted` (samordnare, chef, admin, kommunens chef) och alla ärenden som `billing` (ekonomen). Vyn **`cases_public`** ger samma rader, men för `restricted` och `billing` är `background_info` och `location` tomma, `meeting_day`, `meeting_time` och `pause_reason` null och `first_meeting_at` bara datumet (klockslaget döljs; "första mötet är bokat" behövs för flaggor och listor).
+- **SupabaseRepo läser `cases` via `cases_public`**; skrivningar går till tabellen. Inloggade får bara läsa kolumnen `id` direkt i tabellen, så en ändring returnerar bara `id` och raden läses sedan via vyn.
+- Minnesläget döljer inga kolumner – hanterarna visar bara ärendenummer och status i skyddade ärenden.
+
+### Beslut: kvittenser (0014)
+
+- Triggern `reports_protect_columns`: kommunens roller får bara kvittera en levererad rapport (`opened_at`, `opened_by`), en gång och i eget namn.
+- Triggern `messages_protect_columns`: bara läskvittot (`read_by`, `read_at`) – bara sig själv i `read_by`, ingen tas bort, `read_at` en gång. Kommunens chef ändrar inga meddelanden. Samma regler i `src/data/policy.ts`.
+
 ### Kända kolumnfrågor (att lösa med vyer senare)
 
-Samma sak som ovan gäller andra kolumner, men där är beteendet redan identiskt med prototypen och inget internt mål exponeras. De bör ses över innan riktiga personuppgifter läggs in:
-
-- Ekonomen (`billing`) läser hela ärenderaden, t.ex. `cases.background_info` och beställarens kontaktuppgifter.
+- Ekonomen läser beställarens kontaktuppgifter i ärendet (`referrer_*` – kommunens handläggare, inte deltagaren).
 - Kommunen och ekonomen läser `activities.note` (tom i testdatat).
-- Den som får ändra en rad får ändra alla kolumner i den (t.ex. kommunen som kvitterar en rapport, `opened_at`). Hanterarna ändrar bara rätt kolumner; ett direktanrop mot API:t skulle kunna ändra fler. Lösning: triggers som begränsar kolumnerna per roll.
+- MB-roller som får ändra en rapport får ändra alla dess kolumner (de godkänner och rättar rapporter i ärenden de har full åtkomst till).
 
 ### Övriga beslut
 

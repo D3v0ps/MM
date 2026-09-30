@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ApiError } from "@/api/server";
 import { testRuntime } from "../admin/test-runtime";
 import "./handlers";
-import { praktikAddFollowUp, praktikEmployer, praktikEmployerAdd, praktikList, praktikSetRight } from "./api";
+import { praktikAddFollowUp, praktikEmployer, praktikEmployerAdd, praktikList, praktikSetRight, type EmployerDetailView } from "./api";
 
 let rt: ReturnType<typeof testRuntime>;
 beforeEach(() => {
@@ -17,10 +17,12 @@ const petra = () => rt.as("u-petra", "handledare");
 const nadiaPlacement = () => rt.rows("placements").find((p) => p.caseId === "case-260143" && p.status === "ongoing")!;
 
 describe("registret", () => {
-  it("samordnaren: 12 arbetsgivare, 32 pågående av 158, 27 uppföljningar, 31 av 32 med alla fyra rätt", async () => {
+  it("samordnaren: 12 arbetsgivare, 31 pågående av 157, 27 uppföljningar, 30 av 31 med alla fyra rätt", async () => {
     const d = await rt.query(praktikList, {}, sara());
     expect(d.mineOnly).toBe(false);
-    expect(d.kpis).toEqual({ employers: 12, ongoing: 32, total: 158, upcoming: 27, full: 31 });
+    // Den gamla prototypen räknade 32 av 158 (31 av 32): praktikplatsen för personen med skyddade personuppgifter
+    // räknas inte längre för samordnaren (CLAUDE.md punkt 8).
+    expect(d.kpis).toEqual({ employers: 12, ongoing: 31, total: 157, upcoming: 27, full: 30 });
     expect(d.upcoming.map((u) => [u.date, u.employerName, u.who, u.rightsDone])).toEqual([
       ["2027-02-01", "Hallunda Lagerservice AB", "Nadia Warsame · BOT-26-0143", 3],
       ["2027-02-02", "Fittja Handel AB", "Idris Mohamed · BOT-26-0146", 4],
@@ -31,7 +33,7 @@ describe("registret", () => {
     ]);
     expect(d.employers.slice(0, 3).map((e) => [e.name, e.ongoing, e.total, e.next])).toEqual([
       ["Hallunda Lagerservice AB", 13, 56, "2027-02-01"],
-      ["Tumba Städ & Fastighet AB", 6, 34, "2027-02-05"],
+      ["Tumba Städ & Fastighet AB", 5, 33, "2027-02-05"], // prototypen: 6 och 34 (med den skyddade personens praktikplats)
       ["Fittja Handel AB", 4, 17, "2027-02-02"],
     ]);
     expect(d.employers[0].areas).toEqual([{ code: "G", name: "Lager och logistik" }, { code: "J", name: "Parti- och detaljhandel" }]);
@@ -71,6 +73,39 @@ describe("en arbetsgivare", () => {
     for (const n of names) expect(json).not.toContain(n);
     for (const c of cases) expect(json).not.toContain(c.caseNumber);
     expect(d.employer).toMatchObject({ name: "Hallunda Lagerservice AB", orgNr: "556000-1000", contactName: "Peter Lund", email: "kontakt@example.com" });
+  });
+
+  it("skyddade personuppgifter: praktikplatsen syns bara för den som får se personen – inte ens utan namn", async () => {
+    const prot = new Set(rt.rows("persons").filter((p) => p.protectedIdentity).map((p) => p.id));
+    const protCase = rt.rows("cases").find((c) => prot.has(c.personId) && rt.rows("placements").some((p) => p.caseId === c.id))!;
+    const pl = rt.rows("placements").find((p) => p.caseId === protCase.id)!;
+    const ids = (d: EmployerDetailView) =>
+      d.found ? [...d.ongoing.mine, ...d.ongoing.others, ...d.done.mine, ...d.done.others].map((x) => x.id) : [];
+    for (const actor of [amira(), petra(), sara()]) {
+      const d = await rt.query(praktikEmployer, { employerId: pl.employerId }, actor);
+      expect(ids(d)).not.toContain(pl.id);
+      expect(JSON.stringify(d)).not.toContain("Skyddade personuppgifter");
+    }
+    // Namngiven huvudcoach och avtalsansvarig ser den som sin egen.
+    for (const actor of [rt.as(protCase.leadCoachId!, "coach"), rt.as("u-johan", "avtalsansvarig")]) {
+      const d = await rt.query(praktikEmployer, { employerId: pl.employerId }, actor);
+      if (!d.found) throw new Error("saknas");
+      expect([...d.ongoing.mine, ...d.done.mine].map((x) => x.id)).toContain(pl.id);
+    }
+  });
+
+  it("andra team: bara period och de fyra rätten – inga arbetsuppgifter (fritext), bara det egna avtalet", async () => {
+    const d = await rt.query(praktikEmployer, { employerId: "emp-1" }, amira());
+    if (!d.found) throw new Error("saknas");
+    const others = [...d.ongoing.others, ...d.done.others];
+    expect(others.length).toBeGreaterThan(0);
+    for (const o of others) expect(Object.keys(o).sort()).toEqual(["endsOn", "id", "rightsDone", "startsOn", "who"]);
+    const tasks = rt.rows("placements").filter((p) => others.some((o) => o.id === p.id)).map((p) => p.tasks).filter(Boolean);
+    expect(tasks.length).toBeGreaterThan(0);
+    for (const t of tasks) expect(JSON.stringify(others)).not.toContain(t);
+    // En aktör utan avtalet ser inga praktikplatser alls.
+    const outside = await rt.query(praktikList, {}, { ...amira(), contractIds: ["c-kk"] });
+    expect(outside.kpis.total).toBe(0);
   });
 
   it("samordnaren ser alla praktikplatser hos arbetsgivaren", async () => {

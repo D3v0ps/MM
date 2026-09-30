@@ -7,8 +7,8 @@ import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import { PARTICIPANT_USER_ID } from "@/data/actors";
 import type { AppRepo, Membership, Organization } from "@/data/schema";
-import { appRepo, fromDbRow, normalizeTimestamptz, userRepo, type PgClient } from "@/data/supabase";
-import type { AttemptStore } from "./auth/rate-limit";
+import { appRepo, fromDbRow, userRepo, type PgClient } from "@/data/supabase";
+import { LIMITS, type GateVerdict, type LoginGate } from "./auth/rate-limit";
 import { clockNow } from "./clock";
 import { lazyServerCrypto } from "./crypto";
 import { liveCtx } from "./ctx";
@@ -44,31 +44,20 @@ export function identityStore(service: SupabaseClient, user: SupabaseClient): Id
   };
 }
 
-export function attemptStore(service: SupabaseClient): AttemptStore {
+/** Inloggningens spärr i databasen (mm.login_attempt_gate, supabase/migrations/0012). Bara service role. */
+export function loginGate(service: SupabaseClient): LoginGate {
   return {
-    async count(q) {
-      let f = service.from("login_attempts").select("*", { count: "exact", head: true }).eq("kind", q.kind).gte("attempted_at", q.since);
-      if (q.emailHash) f = f.eq("email_hash", q.emailHash);
-      if (q.ipHash) f = f.eq("ip_hash", q.ipHash);
-      const { count, error } = await f;
-      if (error) throw new Error(`login_attempts kunde inte läsas (${error.code})`);
-      return count ?? 0;
+    async gate(a) {
+      const { data, error } = await service.rpc("login_attempt_gate", {
+        p_kind: a.kind, p_email_hash: a.emailHash, p_ip_hash: a.ipHash, p_at: a.at, p_limits: LIMITS,
+      });
+      if (error) throw new Error(`login_attempt_gate kunde inte köras (${error.code})`);
+      const r = (data ?? {}) as { verdict?: unknown; id?: unknown };
+      const verdict: GateVerdict = r.verdict === "ok" || r.verdict === "too_many_attempts" ? r.verdict : "rate_limited";
+      return { verdict, id: typeof r.id === "number" ? r.id : r.id != null ? Number(r.id) : null };
     },
-    async lastAt(q) {
-      const { data, error } = await service
-        .from("login_attempts")
-        .select("attempted_at")
-        .eq("kind", q.kind)
-        .eq("email_hash", q.emailHash)
-        .order("attempted_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw new Error(`login_attempts kunde inte läsas (${error.code})`);
-      const v = data?.attempted_at as string | undefined;
-      return v ? Date.parse(normalizeTimestamptz(v)) : null;
-    },
-    async record(a) {
-      const { error } = await service.from("login_attempts").insert({ kind: a.kind, email_hash: a.emailHash, ip_hash: a.ipHash, attempted_at: a.at });
+    async markVerified(id) {
+      const { error } = await service.from("login_attempts").update({ kind: "verify_ok" }).eq("id", id);
       if (error) throw new Error(`login_attempts kunde inte skrivas (${error.code})`);
     },
   };

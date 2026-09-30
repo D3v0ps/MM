@@ -43,7 +43,8 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
       <LayoutFor match={match}>
         <Problem title="Du har inte behörighet till den här sidan" text={`Din roll (${ROLE_LABEL[actor.role]}) har inte tillgång till sidan.`} start={start}>
           <DemoOnly>
-            <div className="mt-6 flex flex-wrap gap-3">
+            {/* Knapparna får radbrytas: "Visa som kommunens handläggare" ryms inte på en rad vid 400 px. */}
+            <div className="mt-6 flex flex-wrap gap-3 [&_button]:whitespace-normal">
               {match.route.roles.map((r) => (
                 <PerspectiveLink key={r} role={r} to={nav.path + (nav.query.toString() ? `?${nav.query}` : "")} label={`Visa som ${ROLE_LABEL[r].toLowerCase()}`} />
               ))}

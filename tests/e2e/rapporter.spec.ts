@@ -373,8 +373,8 @@ test("8. slutrapport efter avslut: coachens text, sedan godkänn", async ({ page
   await page.fill("#rap-q", AMIRA_ACTIVE.number);
   await main(page).locator("table tbody tr").first().click();
   await expect(page).toHaveURL(/\/rapporter\/rep-/);
-  let t = await mainText(page);
-  expect(t).toMatch(/Coachen skriver rekommenderad fortsättning/);
+  // Vänta tills rapporten har laddats (appen hämtar den över HTTP).
+  await expect(main(page)).toContainText("Coachen skriver rekommenderad fortsättning");
   await expect(btn(page, "Godkänn")).toHaveCount(0);
   await btn(page, "Spara texten").click();
   await expect(main(page)).toContainText("Skriv en rekommenderad fortsättning");
@@ -383,8 +383,7 @@ test("8. slutrapport efter avslut: coachens text, sedan godkänn", async ({ page
   await expect(main(page)).toContainText("Granskad av coach");
   await btn(page, "Godkänn").click();
   await expect(main(page)).toContainText("av Amira Haddad");
-  t = await mainText(page);
-  expect(t).toMatch(/Rekommenderad fortsättning:\s*Ingen fortsatt insats/);
+  expect(await mainText(page)).toMatch(/Rekommenderad fortsättning:\s*Ingen fortsatt insats/);
   expect(errors).toEqual([]);
 });
 
