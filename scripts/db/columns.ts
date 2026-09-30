@@ -66,14 +66,14 @@ export const COLUMNS = {
   invoice_credits: { id: "text", contractId: "text", month: "text", caseId: "text", creditedAt: "timestamptz", creditedBy: "text", buyerReference: "text | null" },
   fortnox_runs: { id: "text", contractId: "text", month: "text", kind: "text", ranAt: "timestamptz", ranBy: "text", created: "integer", skipped: "integer", notReady: "integer", blocked: "integer", changed: "integer" },
   integrations: { id: "text", kind: "text", name: "text", status: "text", config: "jsonb", secretsEnc: "text | null", tokenExpiresAt: "timestamptz | null" },
-  jobs: { id: "text", kind: "text", payload: "jsonb", status: "text", attempts: "integer", runAfter: "timestamptz", lastError: "text | null", createdAt: "timestamptz", createdBy: "text | null", finishedAt: "timestamptz | null" },
+  jobs: { id: "text", kind: "text", payload: "jsonb", status: "text", attempts: "integer", runAfter: "timestamptz", lastError: "text | null", createdAt: "timestamptz", createdBy: "text | null", finishedAt: "timestamptz | null", startedAt: "timestamptz | null" },
   ai_runs: { id: "text", caseId: "text | null", kind: "text", provider: "text", model: "text", inputRef: "text | null", status: "text", createdAt: "timestamptz", audioSeconds: "integer | null", tokensIn: "integer | null", tokensOut: "integer | null", costOre: "bigint", latencyMs: "integer | null", output: "jsonb | null", evidence: "jsonb | null", inputDeletedAt: "timestamptz | null" },
   ai_field_decisions: { id: "text", aiRunId: "text | null", field: "text", suggested: "jsonb | null", final: "jsonb | null", decision: "text", changed: "boolean", decidedBy: "text", decidedAt: "timestamptz" },
   consents: { id: "text", personId: "text", caseId: "text", kind: "text", textVersion: "text", givenAt: "timestamptz | null", declinedAt: "timestamptz | null", informedBy: "text", language: "text | null", revokedAt: "timestamptz | null" },
   messages: { id: "text", caseId: "text", senderId: "text", body: "text", createdAt: "timestamptz", readBy: "text[]", readAt: "timestamptz | null", kind: "text | null" },
   audit_log: { id: "text", occurredAt: "timestamptz", actorId: "text | null", action: "text", entity: "text", entityId: "text | null", contractId: "text | null", details: "jsonb" },
   holidays: { id: "text", date: "date", name: "text" },
-  outbound_messages: { id: "text", createdAt: "timestamptz", channel: "text", to: "text", template: "text", subject: "text | null", body: "text", caseId: "text | null", status: "text", sentAt: "timestamptz | null" },
+  outbound_messages: { id: "text", createdAt: "timestamptz", channel: "text", to: "text", template: "text", subject: "text | null", body: "text", caseId: "text | null", status: "text", sentAt: "timestamptz | null", statusReason: "text | null", providerMessageId: "text | null" },
   user_notifications: { id: "text", recipientId: "text", kind: "text", caseId: "text | null", createdAt: "timestamptz", channels: "text[]", title: "text", body: "text", emailBody: "text" },
   notification_reads: { id: "text", userId: "text", notificationKey: "text", readAt: "timestamptz" },
   tasks: { id: "text", toRole: "text", toId: "text | null", fromId: "text", createdAt: "timestamptz", status: "text", kind: "text | null", caseIds: "text[]", text: "text", deviationId: "text | null", emailId: "text | null", responseId: "text | null", month: "text | null", doneAt: "timestamptz | null", doneBy: "text | null", doneNote: "text | null" },
@@ -88,10 +88,6 @@ export const COLUMNS = {
 export const EXTRA_COLUMNS: Partial<Record<TableName, Record<string, SqlType>>> = {
   // Inloggning (Supabase Auth) och testare i testmiljön – skrivs bara med service role (triggern mm.protect_profile_columns).
   profiles: { authUserId: "uuid | null", isTester: "boolean" },
-  // Orsak när utskicket stoppats (t.ex. spärren i testmiljön) och leverantörens id för utskicket.
-  outbound_messages: { statusReason: "text | null", providerMessageId: "text | null" },
-  // När jobbet senast hämtades av mm.claim_jobs (för att hitta jobb som fastnat i status running).
-  jobs: { startedAt: "timestamptz | null" },
 };
 
 /** camelCase -> snake_case (samma regel som SupabaseRepo): caseNumber -> case_number, q1 -> q1. */

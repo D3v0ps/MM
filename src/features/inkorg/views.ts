@@ -1,7 +1,7 @@
 // Vy-modellerna för skärmarna i området inkorg (startsidan, avropsinkorgen, förfaller) – port av prototypens
 // views/inkorg.js. Bara för hanterare. Läsning via ctx.repo; ctx.system bara där det står en kommentar om varför.
 import type { Role } from "@/api/roles";
-import type { Ctx } from "@/api/server";
+import type { Ctx, PnrCrypto } from "@/api/server";
 import { buyerRefLengthText, isUnset, phaseLabel } from "@/core/config";
 import { coaches as coachesOf, duplicateActive, previewNextCaseNumber, priceFor } from "@/core/cases";
 import { kr, pct } from "@/core/format";
@@ -171,7 +171,7 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
   return { title, method: c.source === "phone" ? "phone" : "portal", groups };
 }
 
-function ackView(it: Item, d: InboxData, out: OutboundMessage[]): AckView {
+function ackView(it: Item, d: InboxData, out: OutboundMessage[], crypto: PnrCrypto): AckView {
   const m = it.email;
   let n: OutboundMessage | null = null;
   if (m && m.classification === "order_protected") n = out.find((x) => x.template === "generisk_mottagningsbekraftelse" && x.to === m.fromAddress && x.createdAt >= m.receivedAt) ?? null;
@@ -185,7 +185,7 @@ function ackView(it: Item, d: InboxData, out: OutboundMessage[]): AckView {
   const mins = Math.max(0, diffMinutes(it.receivedAt, n.createdAt));
   const limit = ackMinutes(d.e.cfg);
   const p = it.person;
-  const leak = !!p && [p.firstName, p.lastName, plainPnr(p)].some((x) => x && n.body.includes(x));
+  const leak = !!p && [p.firstName, p.lastName, plainPnr(crypto, p)].some((x) => x && n.body.includes(x));
   return { kind: "sent", generic: n.template === "generisk_mottagningsbekraftelse", ok: mins <= limit, mins, limit, when: whenText(n.createdAt, d.e.now), to: n.to, body: n.body, leak };
 }
 
@@ -317,7 +317,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
           { icon: "lock", filled: !!c, title: `${handles ? "Registrera" : "Avtalsansvarig registrerar"} minimala uppgifter`, sub: "Namn, personnummer och handläggare. Ingen adress, inga kontaktuppgifter till deltagaren." },
           { icon: "user", filled: !!c && !isOpen(c), title: "Acceptera och tilldela en namngiven coach", sub: "Bara coachen och avtalsansvarig får se namn och personnummer." },
         ],
-        ack: ackView(it, d, out), caseFields: c ? caseFieldsView(d, c, areas, "Registrerat efter samtalet") : null,
+        ack: ackView(it, d, out, ctx.crypto), caseFields: c ? caseFieldsView(d, c, areas, "Registrerat efter samtalet") : null,
       },
     };
   }
@@ -391,7 +391,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
   // Beställning (mejl, portal eller telefon)
   const pendingDecision = isOpen(c);
   const missingKeys = m ? m.missingFields.filter((k) => { const v = (m.extracted as Record<string, unknown>)[k]; return v == null || v === ""; }) : [];
-  const ack = ackView(it, d, out);
+  const ack = ackView(it, d, out, ctx.crypto);
   let missing = null;
   if (pendingDecision && missingKeys.length) {
     const critical = missingKeys.includes("buyerReference");

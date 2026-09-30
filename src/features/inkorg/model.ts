@@ -1,6 +1,6 @@
 // Byggstenar för områdets vy-modeller: inkorgens poster (prototypens buildItems och sel.inboxToHandle), flaggor och
 // förfallotider. Bara för hanterare – importeras av ./handlers.ts och src/features/session/nav-handlers.ts, aldrig av skärmar.
-import { ApiError, type Ctx } from "@/api/server";
+import { ApiError, type Ctx, type PnrCrypto } from "@/api/server";
 import type { Role } from "@/api/roles";
 import { loadDb } from "@/api/load";
 import { alerts as computeAlerts, type AlertItem } from "@/core/alerts";
@@ -13,8 +13,8 @@ import { scopeToContract } from "@/core/scope";
 import { avropDue, slaStatus } from "@/core/sla";
 import { addWorkingDays, dayOf, diffMinutes, fmtDateTimeLong, monday } from "@/core/time";
 import type { Case, Contract, Db, InboundEmail, InboundEmailStatus, Person, Profile, TableName } from "@/data/schema";
-import { decodeTestPnr } from "@/data/seed/pnr";
 import { orgSettingsFor } from "../_shared/context";
+import { revealPnr } from "../_shared/pnr";
 import type { InboxRow, SlaInfo } from "./api";
 import { CHAIN, DL_KIND, FIELD_LABEL, whenText, type ChainKey, type DeadlineKindKey, type DeadlineRow, type InboxMethod } from "./texts";
 
@@ -82,15 +82,10 @@ export const hasPnrText = (text: string): boolean => /\b((?:19|20)\d{6}|\d{6})[-
 export const maskedPnr = (p: Pick<Person, "personnummerLast4"> | null | undefined): string | null => (p?.personnummerLast4 ? `••••••••-${p.personnummerLast4}` : null);
 /**
  * Personnumret i klartext – bara för "Visa" (loggas) och kontrollen att utskick saknar personnummer.
- * MINNESLÄGET: testdatats ersättning för kryptering (src/data/seed/pnr.ts, samma som src/features/_shared/pnr.ts).
- * PRODUKTION: dekryptering via adaptern för personnummer (AES-256-GCM, CLAUDE.md punkt 2) när den finns i ctx.
+ * Dekrypteras via ctx.crypto: minnesläget testdatats ersättning, servern AES-256-GCM (CLAUDE.md punkt 2).
  */
-export function plainPnr(p: Pick<Person, "personnummerEnc"> | null | undefined): string {
-  try {
-    return p?.personnummerEnc ? decodeTestPnr(p.personnummerEnc) : "";
-  } catch {
-    return "";
-  }
+export function plainPnr(crypto: PnrCrypto, p: Pick<Person, "personnummerEnc"> | null | undefined): string {
+  return revealPnr(crypto, p);
 }
 
 // ---------------------------------------------------------------- Inkorgens poster

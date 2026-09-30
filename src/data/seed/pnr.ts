@@ -5,6 +5,8 @@
 //   personnummerEnc  = "test:" + numret som det skrevs
 //   personnummerHash = "test-fnv1a:" + FNV-1a (64 bitar, hex) av de tio sista siffrorna
 // Samma funktioner måste användas av hanterare som skapar personer i minnesläget, så att dubblettkontrollen fungerar.
+// Hanterarna når dem via ctx.crypto (TEST_PNR_CRYPTO nedan i minnesläget, src/server/crypto.ts i supabase-läget).
+import type { PnrCrypto } from "@/api/server";
 
 /** Luhn-kontroll (samma som prototypens MM.valid.luhn). */
 export function luhn(digits: string): boolean {
@@ -58,4 +60,11 @@ export function fnv1a64(s: string): string {
 export const testPnrHash = (pnr: string): string => {
   const n = normalizePnr(pnr);
   return n ? `test-fnv1a:${fnv1a64(n)}` : "";
+};
+
+/** Minneslägets ctx.crypto (prototypen, utvecklingsläget, e2e): testdatats ersättning – aldrig i supabase-läget. */
+export const TEST_PNR_CRYPTO: PnrCrypto = {
+  encryptPnr: (pnr) => encodeTestPnr(String(pnr ?? "").trim()),
+  decryptPnr: (enc) => decodeTestPnr(enc),
+  hashPnr: (pnr) => testPnrHash(String(pnr ?? "")),
 };

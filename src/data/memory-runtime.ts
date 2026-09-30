@@ -6,6 +6,7 @@ import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
+import { TEST_PNR_CRYPTO } from "./seed/pnr";
 import type { AppRepo, Tables } from "./schema";
 
 export type DemoClock = { now(): LocalDateTime; tick(): void; set(t: LocalDateTime): void };
@@ -39,6 +40,8 @@ export function createMemoryRuntime(opts: { data: MemoryData<Tables>; clock: Dem
         const t = (system as unknown as { table(n: string): { insert(r: unknown): Promise<unknown> } }).table("outbound_messages");
         await t.insert({ id: newId("out"), createdAt: opts.clock.now(), channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: m.body, caseId: m.caseId ?? null, status: "sent", sentAt: opts.clock.now() });
       },
+      // Påhittade personnummer: testdatats ersättning för kryptering och sökhash (src/data/seed/pnr.ts).
+      crypto: TEST_PNR_CRYPTO,
     };
   }
 

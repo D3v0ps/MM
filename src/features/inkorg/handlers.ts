@@ -70,7 +70,7 @@ handleQuery(inboxDeadlines, { roles: DEADLINE_ROLES }, (ctx) => buildDeadlines(c
 
 // ---------------------------------------------------------------- Dubblettkontroll i registreringen
 handleQuery(inboxDuplicateCheck, { roles: INBOX_ROLES }, async (ctx, p) => {
-  const hash = pnrSearchHash(p.pnr);
+  const hash = pnrSearchHash(ctx.crypto, p.pnr);
   if (!hash) return { duplicate: false };
   // ctx.system: dubblettkontrollen ska se alla pågående ärenden i användarens avtal, även sådana användaren inte får se
   // (samma kontroll som när beställningen sparas). Bara sökhashen jämförs och svaret är ja eller nej.
@@ -171,5 +171,5 @@ handleCommand(inboxRevealPnr, { roles: INBOX_ROLES, silent: true }, async (ctx, 
   const person = await ctx.repo.table("persons").get(c.personId);
   if (!person) return fail("forbidden", "Personnumret visas inte för din roll.");
   await ctx.audit({ action: "pnr.revealed", entity: "person", entityId: person.id, contractId: c.contractId, details: { caseId: c.id } });
-  return ok({ text: plainPnr(person) });
+  return ok({ text: plainPnr(ctx.crypto, person) });
 });

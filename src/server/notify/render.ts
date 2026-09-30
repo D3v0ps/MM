@@ -13,6 +13,8 @@ export type RenderConfig = {
   staffDomains: readonly string[];
   /** Testmiljön märks i ämnesraden och överst i mejlet. */
   testEnvironment: boolean;
+  /** Testmiljön: mejlet har skickats om till testaren – raden överst säger vem det skulle ha gått till (redirect.ts). */
+  redirectNote?: string | null;
 };
 
 export type RenderedEmail = { subject: string; html: string; text: string };
@@ -63,7 +65,9 @@ export function renderEmail(row: Pick<OutboundRow, "template" | "to" | "subject"
   const parts = paragraphs(row.body);
 
   // ---------------------------------------------------------------- Ren text
+  const note = cfg.testEnvironment && cfg.redirectNote ? cfg.redirectNote : null;
   const text = [
+    ...(note ? [note, ""] : []),
     ...(cfg.testEnvironment ? [TEST_BANNER, ""] : []),
     parts.join("\n\n"),
     ...(link ? ["", `${link.label}: ${link.url}`] : []),
@@ -82,9 +86,13 @@ export function renderEmail(row: Pick<OutboundRow, "template" | "to" | "subject"
       `</td></tr></table>` +
       `<p style="margin:0 0 16px 0;font-size:14px;">Fungerar inte knappen? Skriv in adressen i webbläsaren: <a href="${escapeHtml(link.url)}" style="color:${ANTRACIT};text-decoration:underline;">${escapeHtml(link.url)}</a></p>`
     : "";
-  const banner = cfg.testEnvironment
-    ? `<tr><td style="background:${BLA};padding:10px 32px;font-family:${FONT};font-size:14px;font-weight:700;line-height:20px;color:${ANTRACIT};">${escapeHtml(TEST_BANNER)}</td></tr>`
-    : "";
+  const banner =
+    (note
+      ? `<tr><td style="background:${VIT};border-bottom:3px dashed ${ANTRACIT};padding:12px 32px;font-family:${FONT};font-size:16px;font-weight:700;line-height:24px;color:${ANTRACIT};">${escapeHtml(note)}</td></tr>\n`
+      : "") +
+    (cfg.testEnvironment
+      ? `<tr><td style="background:${BLA};padding:10px 32px;font-family:${FONT};font-size:14px;font-weight:700;line-height:20px;color:${ANTRACIT};">${escapeHtml(TEST_BANNER)}</td></tr>`
+      : "");
 
   const html = `<!doctype html>
 <html lang="sv">

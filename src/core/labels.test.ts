@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { BOTKYRKA_CONFIG } from "./config";
 import { activitiesOf, attendanceFor, checkInsOf } from "./db-index";
 import {
-  ABSENCE_REASONS, END_REASONS, EVENT_KINDS, areaName, attLabel, contactLabel, endReasonLabel, eventLabel, invoiceStatusLabel, personName, phaseLabel, phaseName,
-  reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
+  ABSENCE_REASONS, END_REASONS, EVENT_KINDS, areaName, attLabel, contactLabel, endReasonLabel, eventLabel, invoiceStatusLabel, outboundReasonLabel, outboundStatusLabel,
+  personName, phaseLabel, phaseName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
 } from "./labels";
+import { OUTBOUND_STATUSES } from "@/data/schema";
 import { linkHref } from "./links";
 import { scopeToContract } from "./scope";
 import { mkActivity, mkAttendance, mkCase, mkCheckIn, mkProfile, testDb } from "./test-data";
@@ -87,5 +88,18 @@ describe("avgränsning till ett avtal", () => {
     expect(s.cases.map((c) => c.id)).toEqual(["c1"]);
     expect(s.activities.map((a) => a.id)).toEqual(["a1"]);
     expect(db.cases).toHaveLength(2);
+  });
+});
+
+describe("utskickens statusar (utskicksloggen)", () => {
+  it("har en svensk etikett för varje status som utskicken använder", () => {
+    expect([...OUTBOUND_STATUSES]).toEqual(["queued", "sent", "failed", "suppressed", "manual"]);
+    expect(OUTBOUND_STATUSES.map(outboundStatusLabel)).toEqual(["Väntar på att skickas", "Skickat", "Kunde inte skickas", "Stoppat", "Skickas manuellt (brev)"]);
+    expect(outboundStatusLabel("okänd")).toBe("okänd");
+  });
+  it("orsaken redirected förklaras, övriga orsaker är redan text", () => {
+    expect(outboundReasonLabel("redirected")).toBe("Testmiljön: skickat till testarens adress i stället för till mottagaren");
+    expect(outboundReasonLabel("SMS-leverantör inte vald")).toBe("SMS-leverantör inte vald");
+    expect(outboundReasonLabel(null)).toBeNull();
   });
 });

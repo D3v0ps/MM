@@ -10,7 +10,7 @@ import { listPersonas } from "@/data/actors";
 import { MemoryRepo, MemoryStore, type MemoryData } from "@/data/memory";
 import { POLICIES } from "@/data/policy";
 import type { AppRepo, TableName, Tables } from "@/data/schema";
-import { createSeed, DEMO_START } from "@/data/seed";
+import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
 
 let SEED: MemoryData<Tables> | null = null;
 
@@ -33,6 +33,7 @@ export function testRuntime(start: LocalDateTime = DEMO_START) {
     notify: async (m) => {
       store.insertRow("outbound_messages", { id: newId("out"), createdAt: now, channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: m.body, caseId: m.caseId ?? null, status: "sent", sentAt: now } as Tables["outbound_messages"]);
     },
+    crypto: TEST_PNR_CRYPTO,
   });
   async function run(kind: "query" | "command", key: string, input: unknown, actor: Actor): Promise<unknown> {
     const ticks = kind === "command" && !isSilentCommand(key);

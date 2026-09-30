@@ -105,7 +105,7 @@ describe("spärrlistan (MM_EMAIL_ALLOWLIST)", () => {
 
   it("MM_EMAIL_ALLOWLIST och övriga variabler läses som i docs/UTSKICK.md", () => {
     const env = notifyEnv({ RESEND_API_KEY: " re_x ", MM_EMAIL_FROM: "Miljonmatch <notis@miljonbemanning.se>", MM_APP_URL: "https://test.miljonmatch.se/", MM_EMAIL_ALLOWLIST: `${KARIM}, ${ALI.toUpperCase()};@exempel.se` });
-    expect(env).toEqual({ resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonbemanning.se>" }, appUrl: APP, allowlist: [KARIM, ALI, "@exempel.se"], staffDomains: ["miljonbemanning.se"] });
+    expect(env).toEqual({ resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonbemanning.se>", replyTo: null }, appUrl: APP, allowlist: [KARIM, ALI, "@exempel.se"], staffDomains: ["miljonbemanning.se"], redirectTo: null });
     expect(notifyEnv({ RESEND_API_KEY: "re_x" }).resend).toBeNull();
     expect(notifyEnv({}).allowlist).toEqual([]);
   });

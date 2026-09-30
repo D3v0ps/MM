@@ -8,6 +8,7 @@ import {
   type ContractArea,
   type EndReason,
   type InvoiceDisplayStatus,
+  type OutboundStatus,
   type OutcomeEventKind,
   type PreferredContact,
   type Profile,
@@ -74,6 +75,18 @@ export const INVOICE_STATUS_LABEL: Record<InvoiceDisplayStatus, string> = {
   returned: "Returnerad av kommunen", manual: "Manuellt fakturerad", blocked: "Stoppad",
 };
 export const invoiceStatusLabel = (s: string): string => lookup(INVOICE_STATUS_LABEL, s) ?? s;
+
+/** Utskickets status (outbound_messages.status) i utskicksloggen. Visas alltid med text + ikon. */
+export const OUTBOUND_STATUS_LABEL: Record<OutboundStatus, string> = {
+  queued: "Väntar på att skickas", sent: "Skickat", failed: "Kunde inte skickas", suppressed: "Stoppat", manual: "Skickas manuellt (brev)",
+};
+export const outboundStatusLabel = (s: string): string => lookup(OUTBOUND_STATUS_LABEL, s) ?? s;
+/**
+ * Orsaken (outbound_messages.statusReason) som text. De flesta orsaker sparas redan som svensk text (src/server/notify/decision.ts);
+ * "redirected" = testmiljön skickade mejlet till testaren i stället för till testpersonen (MM_EMAIL_REDIRECT_TO).
+ */
+export const OUTBOUND_REASON_LABEL: Readonly<Record<string, string>> = { redirected: "Testmiljön: skickat till testarens adress i stället för till mottagaren" };
+export const outboundReasonLabel = (r: string | null | undefined): string | null => (r ? (OUTBOUND_REASON_LABEL[r] ?? r) : null);
 
 /** "G Lager och logistik" – områdeskod och namn. "–" om koden saknas. */
 export function areaName(areas: readonly Pick<ContractArea, "code" | "name">[], code: string | null | undefined): string {

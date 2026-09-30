@@ -1,39 +1,34 @@
-// Typer för utskicken i supabase-läget. Tabellerna har fler kolumner och statusar än appens schema (src/data/schema.ts):
-//   outbound_messages.status_reason, outbound_messages.provider_message_id (supabase/migrations/0006)
-//   jobs.started_at (supabase/migrations/0009)
-// och statusarna "suppressed" (spärrat, t.ex. testmiljöns spärrlista) och "manual" (brev som skickas för hand).
+// Typer för utskicken i supabase-läget. Statusarna, orsaken (statusReason) och leverantörens id (providerMessageId) finns i
+// appens schema (src/data/schema.ts: OUTBOUND_STATUSES, OutboundMessage, Job.startedAt) och i migrationerna 0006/0009.
 import type { OutgoingMessage } from "@/api/server";
-import type { LocalDateTime } from "@/core/time";
 import type { Repo } from "@/data/repo";
-import type { Case, Job, OutboundChannel, OutboundMessage } from "@/data/schema";
+import type { Case, Job, Membership, Organization, OutboundChannel, OutboundMessage, OutboundStatus, Profile } from "@/data/schema";
 
 /**
  * Utskickets status.
  *   queued      väntar på att skickas (jobbet send_message)
- *   sent        lämnat till e-postleverantören (Resend)
+ *   sent        lämnat till e-postleverantören (Resend) – i testmiljön ibland till testarens adress (statusReason "redirected")
  *   failed      gick inte att skicka efter alla försök, eller leverantören avvisade det
  *   suppressed  stoppat med avsikt: spärrlistan i testmiljön, saknad adress, SMS utan leverantör, personnummer i texten
  *   manual      skickas för hand (brev)
  */
-export type DeliveryStatus = "queued" | "sent" | "failed" | "suppressed" | "manual";
+export type DeliveryStatus = OutboundStatus;
 
-/** Raden i outbound_messages som utskicken läser och skriver. */
-export type OutboundRow = Omit<OutboundMessage, "status"> & {
-  status: DeliveryStatus;
-  /** Varför utskicket stoppades eller misslyckades. Aldrig adresser eller andra personuppgifter. */
-  statusReason: string | null;
-  /** E-postleverantörens id för utskicket (Resend). */
-  providerMessageId: string | null;
-};
+/** Raden i outbound_messages som utskicken läser och skriver. statusReason: aldrig adresser eller andra personuppgifter. */
+export type OutboundRow = OutboundMessage;
 
-/** Jobbraden som den finns i databasen (startedAt sätts av mm.claim_jobs). */
-export type JobRow = Job & { startedAt?: LocalDateTime | null };
+/** Jobbraden (startedAt sätts av mm.claim_jobs). */
+export type JobRow = Job;
 
 /** De tabeller utskicken och jobben använder. Samma Repo som hanterarnas ctx.system (service role). */
 export type NotifyTables = {
   outbound_messages: OutboundRow;
   jobs: JobRow;
   cases: Case;
+  // Bara för testmiljöns omdirigering (MM_EMAIL_REDIRECT_TO): mottagarens roll och organisation i mejlets första rad.
+  profiles: Profile;
+  memberships: Membership;
+  organizations: Organization;
 };
 export type NotifyRepo = Repo<NotifyTables>;
 

@@ -223,7 +223,11 @@ export type UserNotificationKind = (typeof USER_NOTIFICATION_KINDS)[number];
 /** Kanal för utskick. brev = kallelse per post (deltagarens föredragna kontaktväg letter). */
 export const OUTBOUND_CHANNELS = ["email", "sms", "brev"] as const;
 export type OutboundChannel = (typeof OUTBOUND_CHANNELS)[number];
-export const OUTBOUND_STATUSES = ["queued", "sent", "failed"] as const;
+/**
+ * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till e-postleverantören ·
+ * failed gick inte att skicka · suppressed stoppat med avsikt (t.ex. testmiljöns spärr, SMS utan leverantör) · manual skickas för hand (brev).
+ */
+export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual"] as const;
 export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
 
 export const ALERT_KINDS = [
@@ -1060,6 +1064,8 @@ export type Job = {
   createdAt: LocalDateTime;
   createdBy: UserId | null;
   finishedAt: LocalDateTime | null;
+  /** När mm.claim_jobs senast hämtade jobbet (för att hitta jobb som fastnat i running). */
+  startedAt?: LocalDateTime | null;
 };
 
 /** Varje AI-anrop. Aldrig för skyddade ärenden och aldrig utan samtycke. */
@@ -1160,6 +1166,10 @@ export type OutboundMessage = {
   caseId: string | null;
   status: OutboundStatus;
   sentAt: LocalDateTime | null;
+  /** Varför utskicket stoppades, misslyckades eller skickades om (t.ex. "redirected" i testmiljön). Aldrig adresser eller personuppgifter. */
+  statusReason?: string | null;
+  /** E-postleverantörens id för utskicket (Resend). */
+  providerMessageId?: string | null;
 };
 
 /** Personlig notis i appen. Exakt en mottagare – ingen ser andras notiser. */

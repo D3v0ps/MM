@@ -49,5 +49,5 @@ export function createSeed(): MemoryData<Tables> {
 }
 
 export { NOW as SEED_NOW, TODAY as SEED_TODAY } from "./constants";
-export { decodeTestPnr, encodeTestPnr, normalizePnr, testPnrHash } from "./pnr";
+export { decodeTestPnr, encodeTestPnr, normalizePnr, testPnrHash, TEST_PNR_CRYPTO } from "./pnr";
 export { ORG_BOTKYRKA, ORG_KK, ORG_MB } from "./map";

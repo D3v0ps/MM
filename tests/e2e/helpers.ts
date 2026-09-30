@@ -8,7 +8,10 @@ const DEMO_HTML = path.resolve(process.env.MM_DEMO_HTML ?? "dist-demo/index.html
 
 export const isDemo = (info: TestInfo) => info.project.name === "demo";
 
-/** Öppna en sökväg som en viss användare/roll. Prototypen: hash-URL och rollväljare. Appen: testperson-cookie. */
+/**
+ * Öppna en sökväg som en viss användare/roll. Prototypen: hash-URL och rollväljare. Appen: nytt testdata
+ * (POST /api/dev-session/reset) och testperson-cookie. Projektet "app" kör ett test i taget (playwright.config.ts).
+ */
 export async function open(page: Page, info: TestInfo, to: string, as?: { userId: string; role: string }) {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
@@ -31,6 +34,9 @@ export async function open(page: Page, info: TestInfo, to: string, as?: { userId
     await page.goto(`http://proto.test/index.html#${to}`);
     await page.reload();
   } else {
+    // Minnesläget behåller data mellan anropen: börja om från samma testdata och demoklocka som prototypen.
+    const reset = await page.request.post("/api/dev-session/reset");
+    expect(reset.ok()).toBeTruthy();
     if (as) {
       const res = await page.request.post("/api/dev-session", { data: as });
       expect(res.ok()).toBeTruthy();

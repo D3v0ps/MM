@@ -24,6 +24,19 @@ export type AuditEntry = {
   details?: Record<string, unknown>;
 };
 
+/**
+ * Personnummer (CLAUDE.md punkt 2): kryptering, dekryptering och sökhash. Hanterarna når dem bara via ctx.crypto.
+ *   Minnesläget (prototypen, utveckling, e2e): testdatats tydligt märkta ersättning (src/data/seed/pnr.ts, TEST_PNR_CRYPTO).
+ *   Supabase-läget: AES-256-GCM (MM_PNR_KEY) och HMAC-SHA256 (MM_PNR_HMAC_KEY) på servern (src/server/crypto.ts).
+ * Tom sträng in ger tom sträng ut. hashPnr normaliserar först (de tio sista siffrorna), så olika skrivsätt ger samma hash.
+ */
+export type PnrCrypto = {
+  encryptPnr(pnr: string): string;
+  /** Kastar om värdet inte går att dekryptera (fel format eller fel nyckel). */
+  decryptPnr(enc: string): string;
+  hashPnr(pnr: string): string;
+};
+
 export type Ctx = {
   actor: Actor;
   /** Stockholms lokala tid. Prototypen har en egen demoklocka. */
@@ -34,6 +47,8 @@ export type Ctx = {
   newId(prefix: string): string;
   audit(entry: AuditEntry): Promise<void>;
   notify(msg: OutgoingMessage): Promise<void>;
+  /** Personnummer: kryptera, dekryptera ("Visa", loggas av hanteraren) och sökhash (dubblettkontrollen). */
+  crypto: PnrCrypto;
 };
 
 type Handler = (ctx: Ctx, input: unknown) => Promise<unknown>;

@@ -14,7 +14,8 @@ export type FetchLike = (url: string, init: { method: string; headers: Record<st
   json(): Promise<unknown>;
 }>;
 
-export type ResendConfig = { apiKey: string; from: string };
+/** replyTo: svarsadress (MM_EMAIL_REPLY_TO), t.ex. avrop@miljonbemanning.se i produktion. */
+export type ResendConfig = { apiKey: string; from: string; replyTo?: string | null };
 
 /** Resends felnamn (t.ex. "validation_error") – bara bokstäver och understreck, annars "okänt". */
 function errorName(body: unknown): string {
@@ -47,6 +48,7 @@ export async function sendViaResend(
         subject: mail.subject,
         html: mail.html,
         text: mail.text,
+        ...(cfg.replyTo ? { reply_to: cfg.replyTo } : {}),
         tags: [{ name: "template", value: tagValue(mail.template) }],
       }),
       signal: AbortSignal.timeout(timeoutMs),

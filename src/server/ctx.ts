@@ -3,7 +3,8 @@
 //   now     frusen per förfrågan (testtid i testmiljön, riktig tid i produktion)
 //   newId   `${prefix}-${uuid}`                 audit   insert i audit_log via system
 //   notify  enqueueMessage() i src/server/notify (skickas in, så att modulen går att testa utan servern)
-import type { AuditEntry, Ctx, OutgoingMessage } from "@/api/server";
+//   crypto  personnummer: AES-256-GCM och HMAC-SHA256 (src/server/crypto.ts, skickas in av live.ts)
+import type { AuditEntry, Ctx, OutgoingMessage, PnrCrypto } from "@/api/server";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import type { AppRepo } from "@/data/schema";
@@ -11,6 +12,19 @@ import type { AppRepo } from "@/data/schema";
 export type Enqueue = (system: AppRepo, msg: OutgoingMessage, now: LocalDateTime) => Promise<unknown>;
 
 export const randomId = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
+
+/** Utan nycklar: allt som rör personnummer stoppas (hellre fel än testdatats ersättning i drift). */
+const NO_PNR_CRYPTO: PnrCrypto = {
+  encryptPnr: () => {
+    throw new Error("Kryptering av personnummer är inte konfigurerad");
+  },
+  decryptPnr: () => {
+    throw new Error("Kryptering av personnummer är inte konfigurerad");
+  },
+  hashPnr: () => {
+    throw new Error("Kryptering av personnummer är inte konfigurerad");
+  },
+};
 
 export function liveCtx(o: {
   actor: Actor;
@@ -21,6 +35,8 @@ export function liveCtx(o: {
   /** Testarens egen profil när testaren agerar som en testperson – sparas i revisionsloggen (bara id). */
   testerId?: string | null;
   newId?: (prefix: string) => string;
+  /** Personnummer (src/server/crypto.ts). Utelämnas bara i tester – då stoppas allt som rör personnummer. */
+  crypto?: PnrCrypto;
 }): Ctx {
   const newId = o.newId ?? randomId;
   return {
@@ -45,5 +61,6 @@ export function liveCtx(o: {
     notify: async (m: OutgoingMessage) => {
       await o.enqueue(o.system, m, o.now);
     },
+    crypto: o.crypto ?? NO_PNR_CRYPTO,
   };
 }

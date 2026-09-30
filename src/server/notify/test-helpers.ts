@@ -5,13 +5,19 @@
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import { MemoryRepo, MemoryStore } from "@/data/memory";
-import type { Case } from "@/data/schema";
+import type { Case, Membership, Organization, Profile } from "@/data/schema";
 import type { JobPatch, JobStore } from "../jobs/runner";
 import type { FetchLike } from "./resend";
 import type { JobRow, NotifyRepo, NotifyTables } from "./types";
 
-export function memoryNotifyRepo(cases: Case[] = []): { repo: NotifyRepo; store: MemoryStore<NotifyTables> } {
-  const store = new MemoryStore<NotifyTables>({ outbound_messages: [], jobs: [], cases: structuredClone(cases) });
+export function memoryNotifyRepo(
+  cases: Case[] = [],
+  dir: { profiles?: Profile[]; memberships?: Membership[]; organizations?: Organization[] } = {},
+): { repo: NotifyRepo; store: MemoryStore<NotifyTables> } {
+  const store = new MemoryStore<NotifyTables>({
+    outbound_messages: [], jobs: [], cases: structuredClone(cases),
+    profiles: structuredClone(dir.profiles ?? []), memberships: structuredClone(dir.memberships ?? []), organizations: structuredClone(dir.organizations ?? []),
+  });
   return { repo: new MemoryRepo<NotifyTables>(store, SYSTEM_ACTOR, {}, { bypass: true }), store };
 }
 

@@ -5,7 +5,8 @@
 // Spärrarna (decision.ts) kontrolleras igen precis innan mejlet skickas. Inget loggas med adress eller text.
 import type { LocalDateTime } from "@/core/time";
 import { JobError } from "../jobs/errors";
-import { deliveryDecision, type RecipientGate } from "./decision";
+import { deliveryDecision, REASON, type RecipientGate } from "./decision";
+import { intendedRecipient, redirectNote } from "./redirect";
 import { renderEmail, type RenderConfig } from "./render";
 import { sendViaResend, type FetchLike, type ResendConfig } from "./resend";
 import type { DeliveryStatus, JobRow, NotifyRepo } from "./types";
@@ -31,15 +32,19 @@ export async function deliverMessage(deps: SenderDeps, messageId: string): Promi
   if (row.status !== "queued") return "skipped";
 
   const decision = deliveryDecision(row, deps.gate);
-  if (decision.action !== "send") {
+  if (decision.action === "suppressed" || decision.action === "manual") {
     await t.update(row.id, { status: decision.action, statusReason: decision.reason });
     return decision.action;
   }
   if (!deps.resend) throw new JobError("E-post är inte konfigurerad (RESEND_API_KEY eller MM_EMAIL_FROM saknas)", { retryable: true });
 
-  const mail = renderEmail(row, { ...deps.render, testEnvironment: deps.gate.environment !== "production" });
-  const res = await sendViaResend(deps.fetch, deps.resend, { ...mail, to: row.to.trim(), idempotencyKey: row.id, template: row.template });
-  await t.update(row.id, { status: "sent", sentAt: deps.now, statusReason: null, providerMessageId: res.id || null });
+  // Testmiljön: mejl till en testperson går till testarens adress, med en rad om vem det skulle ha gått till (roll och organisation).
+  const redirected = decision.action === "redirect";
+  const note = redirected ? redirectNote(await intendedRecipient(deps.repo, row)) : null;
+  const mail = renderEmail(row, { ...deps.render, testEnvironment: deps.gate.environment !== "production", redirectNote: note });
+  const to = redirected ? decision.to : row.to.trim();
+  const res = await sendViaResend(deps.fetch, deps.resend, { ...mail, to, idempotencyKey: row.id, template: row.template });
+  await t.update(row.id, { status: "sent", sentAt: deps.now, statusReason: redirected ? REASON.redirected : null, providerMessageId: res.id || null });
   return "sent";
 }
 

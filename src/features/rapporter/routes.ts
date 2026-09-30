@@ -9,11 +9,3 @@ export const routes: RouteDef[] = [
   // Titeln är "Rapport" – rubriken med period (t.ex. "Månadsrapport januari 2027") står på sidan (URL:en innehåller bara id:t).
   { path: "/rapporter/:reportId", title: "Rapport", roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"], area: "mb", screen: RapportVisaScreen },
 ];
-
-// TILLFÄLLIG (bara för att testa PortalReport innan området kommun bygger /portal/rapporter) – tas bort.
-import { PortalReport } from "./components/portal-report";
-import type { ScreenProps } from "@/shell/routes";
-function TmpPortalReport({ params, query }: ScreenProps) {
-  return <PortalReport reportId={params.reportId} from={query.get("fran")} />;
-}
-routes.push({ path: "/portal/rapporter/:reportId", title: "Rapport", roles: ["kommun_handlaggare", "kommun_chef"], area: "portal", screen: TmpPortalReport });

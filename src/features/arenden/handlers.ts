@@ -2,7 +2,7 @@
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { isCustomerRole, type Role } from "@/api/roles";
-import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { handleCommand, handleQuery, type Ctx, type PnrCrypto } from "@/api/server";
 import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
 import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
@@ -26,14 +26,13 @@ import {
 import { by, groupBy } from "@/core/util";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
-import { decodeTestPnr } from "@/data/seed/pnr";
 import type {
   Activity, AlertKind, AlertSeverity, Case, CaseStatus, CaseStatusHistory, Contract, Db, FourRights, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation, userEmail,
 } from "../_shared/context";
-import { protectPnr } from "../_shared/pnr";
+import { protectPnr, revealPnr } from "../_shared/pnr";
 import { newReport } from "../_shared/rows";
 import {
   caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseSetBuyerRef, caseUpdate, consentSet, messageRead, messageSend,
@@ -106,7 +105,7 @@ handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_hand
     return fail("referrer", "Välj en handläggare hos beställaren.");
   }
 
-  const pnr = protectPnr(p.pnr);
+  const pnr = protectPnr(ctx.crypto, p.pnr);
   if (pnr.personnummerHash) {
     // ctx.system: dubblettkontrollen ska se alla pågående ärenden i avtalet, även sådana användaren inte får se.
     // Bara sökhashen jämförs och svaret är ja eller nej – inga uppgifter om det andra ärendet lämnas ut.
@@ -539,18 +538,14 @@ function unreadCount(msgs: readonly Message[], role: Role, me: string, fromCusto
   return msgs.filter((m) => fromCustomer.has(m.senderId) && !m.readBy.includes(me)).length;
 }
 
-/** Deltagarens personnummer som det skrevs (minnesläget). Produktion: dekryptering via adaptern (AES-256-GCM). */
-function decodePnr(p: Pick<Person, "personnummerEnc">): string {
-  try {
-    return decodeTestPnr(p.personnummerEnc);
-  } catch {
-    return "";
-  }
+/** Deltagarens personnummer som det skrevs, via ctx.crypto (minnesläget: testdatats ersättning, servern: AES-256-GCM). */
+function decodePnr(crypto: PnrCrypto, p: Pick<Person, "personnummerEnc">): string {
+  return revealPnr(crypto, p);
 }
 /** Maskerat personnummer som prototypens MaskedPnr: "••••••••-9545" (bara de fyra sista siffrorna syns). */
-function maskedPnr(p: Pick<Person, "personnummerEnc" | "personnummerLast4">): string | null {
+function maskedPnr(crypto: PnrCrypto, p: Pick<Person, "personnummerEnc" | "personnummerLast4">): string | null {
   if (!p.personnummerEnc && !p.personnummerLast4) return null;
-  const pnr = decodePnr(p);
+  const pnr = decodePnr(crypto, p);
   if (!pnr) return `••••••••-${p.personnummerLast4}`;
   return `${pnr.slice(0, pnr.length - 4).replace(/\d/g, "•")}${p.personnummerLast4}`;
 }
@@ -752,7 +747,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     endReasonLabel: c.endReason ? endReasonLabel(c.endReason) : null,
     resultPrelim: c.resultClass === "result" && !c.resultVerifiedAt,
     order: team ? null : { weeks: c.orderValueWeeks || c.plannedWeeks, priceOre: price },
-    pnr: person ? { masked: maskedPnr(person), canReveal: access === "full", hidden: false } : { masked: null, canReveal: false, hidden: true },
+    pnr: person ? { masked: maskedPnr(ctx.crypto, person), canReveal: access === "full", hidden: false } : { masked: null, canReveal: false, hidden: true },
     contactText: prot ? "Telefon enligt den säkra rutinen. Inga SMS eller mejl." : contactLabel(person?.preferredContact ?? ""),
     contactLabel: prot || !person ? null : contactLabel(person.preferredContact),
     languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
@@ -1176,7 +1171,7 @@ handleCommand(caseRevealPnr, { roles: CASE_ROLES, silent: true }, async (ctx, p)
   const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
   if (access !== "full") return fail("forbidden", "Din roll kan inte visa personnumret.");
   const person = await ctx.repo.table("persons").get(c.personId);
-  const pnr = person ? decodePnr(person) : "";
+  const pnr = person ? decodePnr(ctx.crypto, person) : "";
   if (!person || !pnr) return fail("missing", "Personnummer saknas.");
   await ctx.audit({ action: "pnr.revealed", entity: "person", entityId: person.id, contractId: c.contractId, details: { caseId: c.id } });
   return ok({ pnr });

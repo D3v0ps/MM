@@ -10,6 +10,7 @@ import type { AppRepo, Membership, Organization } from "@/data/schema";
 import { appRepo, fromDbRow, normalizeTimestamptz, userRepo, type PgClient } from "@/data/supabase";
 import type { AttemptStore } from "./auth/rate-limit";
 import { clockNow } from "./clock";
+import { lazyServerCrypto } from "./crypto";
 import { liveCtx } from "./ctx";
 import { resolveIdentity, type DbActor, type Identity, type IdentityStore, type ProfileRow } from "./identity";
 import { enqueueMessage } from "./notify";
@@ -121,6 +122,7 @@ export function ctxFor(s: LiveSession): Ctx {
     system,
     enqueue: enqueueMessage,
     testerId: s.identity?.impersonating ? s.identity.self.id : null,
+    crypto: lazyServerCrypto,
   });
 }
 

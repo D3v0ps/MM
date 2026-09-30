@@ -32,7 +32,7 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
   const deps: JobDeps = {
     notify: {
       repo: new SupabaseRepo<NotifyTables>(client),
-      gate: recipientGate(env, cfg.allowlist),
+      gate: recipientGate(env, cfg.allowlist, cfg.redirectTo),
       render: { appUrl: cfg.appUrl, staffDomains: cfg.staffDomains },
       resend: cfg.resend,
       fetch: globalThis.fetch as unknown as FetchLike,

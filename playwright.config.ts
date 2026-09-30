@@ -20,7 +20,8 @@ export default defineConfig({
   },
   projects: [
     { name: "demo", use: { baseURL: "http://proto.test" }, metadata: { kind: "demo" } },
-    { name: "app", use: { baseURL: "http://localhost:3100" }, metadata: { kind: "app" } },
+    // En arbetare: varje test börjar med att nollställa serverns testdata (tests/e2e/helpers.ts), så två tester får inte köra samtidigt.
+    { name: "app", use: { baseURL: "http://localhost:3100" }, metadata: { kind: "app" }, workers: 1 },
   ],
   // Next-servern behövs bara för projektet "app" (kör t.ex. `npx playwright test --project=demo` utan den).
   webServer: process.argv.some((a) => a === "--project=demo" || a === "demo") ? undefined : {
