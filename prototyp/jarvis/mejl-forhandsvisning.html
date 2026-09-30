@@ -1,0 +1,78 @@
+<!DOCTYPE html><html lang="sv"><head><meta charset="utf-8"><title>Miljonmatch – en tidig prototyp att klicka runt i</title></head>
+<body style="font-family:Montserrat,'Segoe UI',Arial,sans-serif;font-size:15px;line-height:1.5;color:#1E252B;">
+<p>Hej Karim och Ali,</p>
+<p>Jag heter <strong>JARVIS</strong> och är Karims smarta AI-assistent. Karim har bett mig bygga en tidig, klickbar prototyp av <strong>Miljonmatch</strong> – vår plattform för arbetsmarknadsinsatser – utifrån kravspecifikationen (v0.2) och upphandlingsunderlaget. Nu är den redo att klicka runt i, och jag skulle uppskatta er feedback.</p>
+
+<h3>Länk till prototypen</h3>
+<p><a href="https://claude.ai/artifact/UhNKK6XKFk1XuG71dWJ3yV">Öppna Miljonmatch-prototypen</a><br>
+Ali: du är inbjuden via e-post. Logga in på claude.ai med den adress inbjudan gick till.</p>
+
+<h3>Vad det är – och vad det inte är</h3>
+<ul>
+<li>En tidig prototyp för att testa flöden och vyer – inte det riktiga systemet. Allt är påhittade testdata. Det finns inga riktiga personer eller personnummer i den.</li>
+<li>Demodatum är måndag 1 februari 2027 kl. 09.12, alltså fem månader in i piloten, så att det finns rapporter, fakturor och nyckeltal att titta på.</li>
+<li>Det ni klickar på sparas bara i er egen webbläsare och kan återställas med knappen Återställ. Feedbacken sparas däremot gemensamt, så att vi alla ser den.</li>
+</ul>
+
+<h3>Så testar ni</h3>
+<ol>
+<li>Välj perspektiv i fältet högst upp: <strong>Leverantör</strong> (vi), <strong>Kund</strong> (kommunen) eller <strong>Deltagare</strong>. Välj sedan roll, till exempel samordnare, coach, chef, ekonom eller kommunens handläggare.</li>
+<li>Kör gärna testscenarierna under "Start och scenarier". De guidar steg för steg, byter roll åt er och följer ofta samma ärende från oss till kommunen och tillbaka.</li>
+<li>Klicka på <strong>Feedback</strong> nere till höger. Vy, roll och perspektiv fylls i automatiskt. All feedback samlas under "Genomgång", så att vi kan gå igenom den tillsammans och sätta status på varje punkt.</li>
+</ol>
+
+<h3>Det här finns i prototypen nu</h3>
+<ul>
+<li><strong>Avropsinkorg:</strong> mejlavrop (Word-mall och fritext) blir ärenden med ärendenummer, automatiskt ordererkännande utan personuppgifter, SLA-klocka på en arbetsdag samt acceptera eller avböj.</li>
+<li><strong>Kommunens portal:</strong> inloggning med e-postkod, beställning i tre steg, deltagare, rapporter och säkra meddelanden – skriven för ovana användare.</li>
+<li><strong>Coachens vardag:</strong> Min vecka, närvaro med ett klick, veckoavstämning, kartläggning, månadsbedömning, händelser och avslut.</li>
+<li><strong>Rapporter:</strong> veckorapport närvaro, månadsrapport individ enligt mall 02, slutrapport, orderbekräftelse och beställarrapport – byggda bara av godkända uppgifter, med kvittens när kommunen läst dem.</li>
+<li><strong>Ledning:</strong> resultatgrad mot avtalsmålet 32 % och vårt interna mål 35 %, prognos, flaggor, tidig uppmärksamhet och avtalsavvikelser med eskaleringstrappan.</li>
+<li><strong>Ekonomi:</strong> en faktura per ärende och månad, kontroll av beställarreferens, torsdagsregeln för veckor, veckor utan närvaro och Fortnox (simulerat).</li>
+<li><strong>Notiser:</strong> coachen får notis när ett ärende tilldelas och påminnelse när progression uteblir. Två veckor i rad utan progression eskaleras till chef/controller – utan att coachen ser eskaleringen.</li>
+<li><strong>Dataskydd:</strong> behörighet per roll, skyddade personuppgifter, maskerat personnummer, revisionslogg och AI-stöd (fas 2) som bara föreslår – människan bedömer.</li>
+</ul>
+
+<h3>Det här gör jag härnäst</h3>
+<ul>
+<li>Går igenom er feedback och justerar prototypen.</li>
+<li>Bygger bonusflödet när jag har incitamentsmodellen.</li>
+<li>Tar fram planen för det riktiga bygget i fas 1 enligt specifikationen: databas och behörigheter i Stockholm, mejlavropet via avrop@, ärendenummer, närvaro och veckorapport först.</li>
+</ul>
+
+<h3>Frågor till er</h3>
+<ol>
+<li>Kan ni skicka incitamentsmodellen, alltså bilagan till vårt anbud? Den finns inte i upphandlingsunderlaget jag har fått. <strong>@Karim</strong></li>
+<li>Stämmer reglerna för progression: påminnelse till coachen efter en vecka utan progression och eskalering efter två veckor i rad? Ska eskaleringen gå till chef, controller eller båda? <strong>@Ali</strong></li>
+<li>Vad ska räknas som progression en vecka? I prototypen gäller det att veckomålet är uppnått helt eller delvis i en godkänd avstämning. <strong>@Ali</strong></li>
+<li>Vem blir avtalsansvarig mot kommunen och vem blir operativ samordnare? <strong>@Ali</strong></li>
+<li>Ingår Fortnox Integration och e-faktura i vårt paket, och vem godkänner API-kopplingen? <strong>@Ali</strong></li>
+<li>Vem blir systemägare för Miljonmatch? <strong>@Ali</strong></li>
+<li>Vem administrerar DNS hos one.com, så att vi kan lägga upp portal.miljonbemanning.se? <strong>@Karim</strong></li>
+<li>Kan ni skicka den ifyllda prisbilagan samt Word-mallarna 01 (avrop) och 02 (månadsrapport)? Prototypen använder exempelpriser och exempel på aktivitetstyper. <strong>@Karim</strong></li>
+<li>Har ni önskemål om leverantör för SMS och e-postnotiser? Helst svensk respektive EU-baserad. <strong>@Karim</strong></li>
+<li>Ska kommunen kunna se vår SLA-statistik (svarstider och rapporter i tid)? <strong>@Ali</strong></li>
+</ol>
+
+<p>Hör gärna av er om något är oklart – eller skriv det direkt i feedbacken i prototypen.</p>
+<p>Vänliga hälsningar</p>
+
+<br>
+<table cellpadding="0" cellspacing="0" border="0" style="font-family:Montserrat,'Segoe UI',Arial,sans-serif;color:#1E252B;border-collapse:collapse;">
+  <tr>
+    <td style="padding:0 16px 0 0;border-right:3px solid #FF0C01;vertical-align:top;">
+      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        <tr><td style="width:56px;height:56px;background:#1E252B;color:#FFFFFF;text-align:center;vertical-align:middle;font-size:22px;font-weight:800;letter-spacing:1px;">J<span style="color:#FF0C01;">&#9679;</span></td></tr>
+      </table>
+    </td>
+    <td style="padding:0 0 0 16px;vertical-align:top;">
+      <div style="font-size:16px;font-weight:800;letter-spacing:2px;text-transform:uppercase;">JARVIS<span style="color:#FF0C01;">&#9679;</span></div>
+      <div style="font-size:13px;font-weight:600;margin-top:2px;">Smart AI-assistent åt Karim Khalil</div>
+      <div style="font-size:12px;color:#4a5157;margin-top:2px;">Miljonbemanning AB &middot; Projekt Miljonmatch</div>
+      <div style="font-size:12px;color:#4a5157;margin-top:8px;">Jag automatiserar dokumentation och påminnelser &ndash; människorna coachar och bedömer.</div>
+      <div style="font-size:11px;color:#6b7176;margin-top:8px;border-top:1px solid #D1D3D3;padding-top:6px;">Det här mejlet är skrivet av en AI på uppdrag av Karim Khalil. Svara på mejlet så når svaret Karim.</div>
+    </td>
+  </tr>
+</table>
+
+</body></html>
