@@ -622,7 +622,7 @@ Fasta driftkostnader för piloten, ungefärligt: Supabase Pro ca 25 USD/månad i
 ## 11. Hosting, domän, repo och miljöer
 
 - **Repo:** `miljonmatch`, privat, under Miljonbemannings organisation på GitHub (inte ett personligt konto).
-- **Domän:** `portal.miljonbemanning.se` – underdomän till den domän kommunen redan känner igen från avrop@, vilket också gör det lättare för kommunens e-postfilter. DNS ligger kvar hos one.com; lägg till en CNAME för `portal` mot det värde Vercel visar. Flytta inte hela domänens DNS – e-posten i M365 hänger på den. En egen Miljonmatch-domän kan läggas till som alias när produkten ska säljas vidare. Använd inte miljon.io för kommunvända tjänster.
+- **Domän:** en underdomän till miljonbemanning.se – den domän kommunen redan känner igen från avrop@, vilket också gör det lättare för kommunens e-postfilter. **Obs (2026-09-30):** `portal.miljonbemanning.se` används redan (CNAME till portal.office365.com) – välj ett annat namn för Miljonmatch (förslag: `miljonmatch.miljonbemanning.se`) eller flytta Office 365-genvägen före produktion. DNS för miljonbemanning.se ligger i **Google Cloud DNS och styrs av Terraform** (inte one.com som tidigare antogs): nya poster ska in i Terraform-koden, annars kan de tas bort vid nästa körning. Lägg till en CNAME för underdomänen mot det värde Vercel visar. Flytta inte hela domänens DNS – e-posten i M365 hänger på den. Testmiljön körs först på Vercels egen adress. En egen Miljonmatch-domän kan läggas till som alias när produkten ska säljas vidare. Använd inte miljon.io för kommunvända tjänster.
 - **Konton** (GitHub, Vercel, Supabase, AI-leverantör, SMS, e-post, Fortnox-utvecklarkonto) ägs av Miljonbemanning AB via funktionsadress, minst två administratörer, MFA överallt och fakturering på bolaget – PUB- och underbiträdesavtal tecknas av bolaget.
 - **Miljöer:** produktion + staging (separata Supabase-projekt, båda i Stockholm). Staging har bara testdata. Preview-deployer pekar aldrig mot produktionsdatabasen.
 - **Övervakning:** drifttidskontroll och felrapportering utan personuppgifter. Används ett externt verktyg (t.ex. Sentry i EU-region) läggs det till i underbiträdesförteckningen.
@@ -706,7 +706,7 @@ Auth och roller, avtalskonfiguration, mejlbeställning och portal, ärendenummer
 | 13 | Incitamentsmodell: vilken modell gäller och när kan bonus begäras? | Botkyrka + MB | Öppen |
 | 14 | Beställarrapportens innehåll och frekvens | Botkyrka | Öppen |
 | 15 | Ingår Fortnox Integration och e-faktura i ert paket? Vem godkänner API-kopplingen? | MB ekonomi | Öppen |
-| 16 | Vem är systemägare och vem administrerar DNS hos one.com? | MB | Öppen |
+| 16 | Vem är systemägare, och vem sköter Terraform-koden för DNS (Google Cloud DNS)? | MB | Öppen – Resend-posterna är inlagda 2026-09-30 och behöver in i Terraform |
 | 17 | Ska SLA-statistik visas för kommunen? | MB ledning | Öppen |
 | 18 | Val av SMS- och e-postleverantör | MB | Öppen |
 
