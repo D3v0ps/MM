@@ -70,8 +70,8 @@ const devAuth: AuthPort = {
   sendCode: async (email) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? { ok: true } : { ok: false, error: "invalid_email", message: "Skriv en giltig e-postadress." }),
   verifyCode: async (email, code) => {
     if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: "invalid_code", message: "Koden har sex siffror." };
-    const { status } = await postJson("/api/dev-session", { email }).catch(() => ({ status: 500 }));
-    if (status !== 200) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
+    const { status, json } = await postJson("/api/dev-session", { email }).catch(() => ({ status: 500, json: {} as Record<string, unknown> }));
+    if (status !== 200 || json.ok !== true) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
     return hardNavigate(returnPath());
   },
   signOut: async () => undefined,
@@ -138,6 +138,7 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
     return {
       actor: persona.actor,
       user: persona.user,
+      environment: "memory",
       personas: view.personas,
       // Utvecklingsläget: byt testperson. I testmiljön och i drift loggar man in med e-postkod.
       switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId),
@@ -152,10 +153,26 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
     user,
     auth: liveAuth,
     isTester: view.isTester,
+    environment: view.environment,
+    // Testmiljön: testaren läser in testdatat på nytt i adminvyn (POST /api/staging/seed). Sidan laddas om när det är klart.
+    reloadTestData: view.isTester && view.environment === "staging" ? reloadTestData : undefined,
     signOut: () => {
       void liveAuth.signOut().then(() => hardNavigate(isCustomerRole(actor.role) ? "/portal/logga-in" : "/logga-in"));
     },
   };
+}
+
+const RELOAD_FAILED = "Testdatat kunde inte läsas in. Försök igen.";
+
+/** Testmiljön: läs in testdatat på nytt. Lyckas det laddas sidan om (inga gamla data ligger kvar i webbläsaren). */
+async function reloadTestData(): Promise<{ ok: true } | { ok: false; message: string }> {
+  try {
+    const { status, json } = await postJson("/api/staging/seed", { confirm: true });
+    if (status === 200 && json.ok === true) return hardNavigate(window.location.pathname + window.location.search);
+    return { ok: false, message: typeof json.message === "string" && json.message ? json.message : RELOAD_FAILED };
+  } catch {
+    return { ok: false, message: RELOAD_FAILED };
+  }
 }
 
 /** Testmiljön: tydlig rad överst. Testaren väljer vilken testperson hen agerar som (bara i testmiljön). */

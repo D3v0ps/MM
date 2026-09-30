@@ -123,7 +123,7 @@ export function Val({ v, children }: { v: unknown; children?: ReactNode }) {
 /** Liten dämpad text. */
 export const Small = ({ children, className }: { children?: ReactNode; className?: string }) => <p className={cn("text-small text-text-muted", className)}>{children}</p>;
 
-export type StackColumn = { label: string; width?: string; /** Radrubrik (th scope=row) i stället för cell. */ rowHeader?: boolean; /** Etiketten visas ovanför värdet på mobil. */ mobileLabel?: boolean };
+export type StackColumn = { label: string; width?: string; /** Radrubrik (th scope=row) i stället för cell. */ rowHeader?: boolean; /** Etiketten visas ovanför värdet på mobil. */ mobileLabel?: boolean; nowrap?: boolean };
 export type StackRow = { key: string; cells: ReactNode[]; selected?: boolean };
 
 const TH = "border-b-2 border-antracit bg-vit px-3 py-2.5 text-left text-label font-extrabold tracking-[0.08em] whitespace-nowrap text-text-muted uppercase";
@@ -166,7 +166,7 @@ export function StackTable({ caption, columns, rows, empty }: { caption: string;
                   );
                 }
                 return (
-                  <td key={i} data-label={c.mobileLabel ? c.label : undefined} className={cn(TD, "max-[720px]:block", c.mobileLabel && MOBILE_LABEL)}>
+                  <td key={i} data-label={c.mobileLabel ? c.label : undefined} className={cn(TD, "max-[720px]:block", c.nowrap && "whitespace-nowrap", c.mobileLabel && MOBILE_LABEL)}>
                     {cell}
                   </td>
                 );

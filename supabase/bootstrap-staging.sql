@@ -97,11 +97,11 @@ insert into public.price_items (id, contract_id, area_code, code, unit, package_
   ('pi-L', 'c-bot', 'L', 'vecka-L', 'participant_week', null, 145000, 25, '2026-09-10', '2027-09-09', 'BOT-L', true)
 on conflict (id) do update set contract_id = excluded.contract_id, area_code = excluded.area_code, code = excluded.code, unit = excluded.unit, package_months = excluded.package_months, price_ore = excluded.price_ore, vat_rate = excluded.vat_rate, valid_from = excluded.valid_from, valid_to = excluded.valid_to, fortnox_article_no = excluded.fortnox_article_no, example_only = excluded.example_only;
 
--- Testarna (2): admin i båda avtalen, is_tester. Inloggningskopplingen (auth_user_id) behålls.
+-- Testarna (2): admin i båda avtalen, is_tester. Inloggningskopplingen (auth_user_id) och senaste inloggning behålls.
 insert into public.profiles (id, organization_id, full_name, email, phone, title, active, last_login_at, customer_unit, buyer_reference_id, team_role, invited_at, invited_by, auth_user_id, is_tester) values
   ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
   ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true)
-on conflict (id) do update set organization_id = excluded.organization_id, full_name = excluded.full_name, email = excluded.email, phone = excluded.phone, title = excluded.title, active = excluded.active, last_login_at = excluded.last_login_at, customer_unit = excluded.customer_unit, buyer_reference_id = excluded.buyer_reference_id, team_role = excluded.team_role, invited_at = excluded.invited_at, invited_by = excluded.invited_by, is_tester = excluded.is_tester;
+on conflict (id) do update set organization_id = excluded.organization_id, full_name = excluded.full_name, email = excluded.email, phone = excluded.phone, title = excluded.title, active = excluded.active, customer_unit = excluded.customer_unit, buyer_reference_id = excluded.buyer_reference_id, team_role = excluded.team_role, invited_at = excluded.invited_at, invited_by = excluded.invited_by, is_tester = excluded.is_tester;
 insert into public.memberships (id, user_id, contract_id, role, customer_unit) values
   ('tester-karim:c-bot', 'tester-karim', 'c-bot', 'admin', null),
   ('tester-karim:c-kk', 'tester-karim', 'c-kk', 'admin', null),

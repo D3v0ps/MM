@@ -14,7 +14,7 @@ import { progressionWatch } from "@/core/progression";
 import { addDays, dayOf, fmtDateTime, fmtWeekKey, isoWeek, monday } from "@/core/time";
 import { JOB_NAME, type JobKey } from "./audit-text";
 import { adminIntegrations, adminRunJob, type JobRow, type JobStatusView } from "./api";
-import { mainContract, orgRow } from "./shared";
+import { mainContract, orgRow, userNames } from "./shared";
 
 /** Botkyrkas besked om underbiträden och inspelning (SPEC §3.1). */
 const APPROVED_ON = "2026-09-29";
@@ -46,11 +46,13 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
   const rr = resultRate(all, { window: "rolling_6m" }, env);
   const retentionUnset = isUnset(env.cfg.retention);
   const pub = slaRule(env.cfg, "veckorapport_publicering")?.time?.replace(":", ".") ?? null;
+  const name = await userNames(ctx);
   const runOf = (key: JobKey) => manual.filter((j) => j.kind === key && (j.payload as { manual?: unknown }).manual === true).slice(-1)[0] ?? null;
 
   const J = (key: JobKey, schedule: string, last: string | null, status: JobStatusView, result: string, extra: { phase?: number; disabled?: boolean } = {}): JobRow => {
     const run = runOf(key);
-    return { key, name: JOB_NAME[key], schedule, last: run ? run.createdAt : last, manual: !!run, status, result, phase: extra.phase ?? null, disabled: !!extra.disabled };
+    const manualBy = run ? (run.createdBy === ctx.actor.userId ? "dig" : name(run.createdBy)) : null;
+    return { key, name: JOB_NAME[key], schedule, last: run ? run.createdAt : last, manual: !!run, manualBy, status, result, phase: extra.phase ?? null, disabled: !!extra.disabled };
   };
   const jobs: JobRow[] = [
     J("inbox", "Var 2–5 minut", `${today}T09:10`, "ok", latestMail ? `Senaste mejl kom ${fmtDateTime(latestMail)}` : "Inga mejl"),

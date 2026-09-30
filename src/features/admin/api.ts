@@ -164,6 +164,8 @@ export type JobRow = {
   last: string | null;
   /** Senaste körningen gjordes manuellt ("Kör nu"). */
   manual: boolean;
+  /** Vem som körde jobbet manuellt: "dig" när det var den inloggade, annars namnet. */
+  manualBy: string | null;
   status: JobStatusView;
   result: string;
   phase: number | null;
@@ -260,6 +262,8 @@ export type LogCheckView = {
 };
 export type AuditLogView = {
   isChef: boolean;
+  /** Dagens datum (filnamnet på exporten). */
+  today: string;
   contractId: string | null;
   rows: AuditRow[];
   actors: { value: string; label: string }[];

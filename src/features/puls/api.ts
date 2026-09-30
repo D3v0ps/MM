@@ -18,8 +18,11 @@ export type PulseLinkView = {
   language: PulseLang;
   /** Antal dagar länken gäller. */
   days: number;
+  /** Var insatsen hålls (kontoret, t.ex. "Alby") – visas i sidhuvudet. */
+  location: string;
 };
-const TokenSchema = z.string().min(8).max(200).regex(/^[A-Za-z0-9_-]+$/);
+/** Token ur länken. Ett felaktigt format visas som "Länken fungerar inte" (inte som ett tekniskt fel). */
+const TokenSchema = z.string().max(300);
 export const pulseLink = query("puls.link", z.object({ token: TokenSchema.optional() })).returns<PulseLinkView>();
 
 const Score = z.number().int().nullable();

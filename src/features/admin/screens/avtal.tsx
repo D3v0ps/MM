@@ -120,6 +120,7 @@ function ContractPicker({ contracts, value, onChange }: { contracts: ContractSum
 
 // ================================================================ Avtal och regler
 function UnsetWarnings({ config }: { config: ContractConfig }) {
+  const nav = useNav();
   const list = findUnset(config);
   if (!list.length) return null;
   return (
@@ -140,7 +141,7 @@ function UnsetWarnings({ config }: { config: ContractConfig }) {
         </ul>
         <DemoOnly>
           <div>
-            <Button kind="secondary" icon="help" to="/om/fragor">
+            <Button kind="secondary" icon="help" onClick={() => nav.push("/om/fragor")}>
               Öppna frågor till Botkyrka
             </Button>
           </div>
@@ -205,11 +206,11 @@ const CARDS: Record<string, CardDef> = {
           <KV
             items={[
               "scope" in v && ["Ärenden kommunens användare ser", <><Val v={v.scope} />{v.prototypeScope && <Sub>I prototypen: {scopeWord[v.prototypeScope]}</Sub>}</>],
-              ["Individrapporter", <YesNo v={!!v.seesIndividualReports} />],
-              ["Coachanteckningar", <YesNo v={!!v.seesCoachNotes} />],
+              ["Individrapporter", <YesNo key="v" v={!!v.seesIndividualReports} />],
+              ["Coachanteckningar", <YesNo key="v" v={!!v.seesCoachNotes} />],
               "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Öppen fråga 17 till ledningen.</div></>],
               c.reportDelivery && ["Rapporter levereras", c.reportDelivery.channel === "portal" ? "I portalen – mottagaren får en notis utan personuppgifter" : c.reportDelivery.channel],
-              c.reportDelivery && ["Rapport som bilaga i e-post", <YesNo v={!!c.reportDelivery.emailAttachmentAllowed} />],
+              c.reportDelivery && ["Rapport som bilaga i e-post", <YesNo key="v" v={!!c.reportDelivery.emailAttachmentAllowed} />],
               c.orderChannels && ["Beställningskanaler", cap(c.orderChannels.map((o) => channelWord[o] ?? o).join(", "))],
               c.thirdCountryProcessing && ["Behandling utanför EU/EES", c.thirdCountryProcessing === "forbidden_without_written_approval" ? "Förbjuden utan kommunens skriftliga förhandsgodkännande" : c.thirdCountryProcessing],
             ]}
@@ -300,7 +301,7 @@ const CARDS: Record<string, CardDef> = {
     body: (c) => (
       <KV
         items={[
-          ["Frånvaronotis samma dag", <Val v={c.attendance!.sameDayNoticeOnInvalidAbsence} />],
+          ["Frånvaronotis samma dag", <Val key="v" v={c.attendance!.sameDayNoticeOnInvalidAbsence} />],
           ["Upprepad ogiltig frånvaro", `${c.attendance!.repeatedAbsenceRule.absentInvalid} tillfällen inom ${c.attendance!.repeatedAbsenceRule.withinDays} dagar ger flagga och förslag på uppföljningsmöte`],
           ["Veckorapport", "Närvaro på deltagarnivå varje vecka, en rapport per handläggare"],
         ]}
@@ -405,7 +406,7 @@ const CARDS: Record<string, CardDef> = {
       <KV
         items={[
           ["På begäran", `Högst ${c.statistics!.onRequestMaxPerYear} gånger per år, även ett år efter avtalsslut`],
-          ["Kostnadsfritt", <YesNo v={!!c.statistics!.free} />],
+          ["Kostnadsfritt", <YesNo key="v" v={!!c.statistics!.free} />],
         ]}
       />
     ),
@@ -423,11 +424,11 @@ const CARDS: Record<string, CardDef> = {
             ["Veckans månad", b.weekToMonthRule === "iso_thursday" ? "Den månad där veckans torsdag infaller" : b.weekToMonthRule],
             ["Veckor utan närvaro", b.flagZeroAttendanceWeeks ? "Flaggas för kontroll före fakturering" : "Flaggas inte"],
             ["Fakturor", b.invoicePer === "case_and_month" ? "En faktura per ärende och månad" : b.invoicePer],
-            ["Samlingsfaktura", <YesNo v={!!b.collectiveInvoiceAllowed} yes="Tillåten" no="Inte tillåten" />],
+            ["Samlingsfaktura", <YesNo key="v" v={!!b.collectiveInvoiceAllowed} yes="Tillåten" no="Inte tillåten" />],
             ["Beställarreferens", `${b.buyerReference.required ? "Krävs" : "Frivillig"} – ${humanPattern(b.buyerReference.pattern)}`],
             ["Inköpsordernummer", `${b.purchaseOrderNumber.required ? "Krävs" : "Bara om kommunen lämnat ett"} – ${humanPattern(b.purchaseOrderNumber.pattern)}`],
             ["Faktureringsobjekt", b.invoicedObject === "case_number" ? "Ärendenumret" : b.invoicedObject],
-            ["Upparbetat och återstående", <YesNo v={!!b.showAccruedAndRemaining} yes="Anges på fakturan" no="Anges inte" />],
+            ["Upparbetat och återstående", <YesNo key="v" v={!!b.showAccruedAndRemaining} yes="Anges på fakturan" no="Anges inte" />],
             ["Betalningsvillkor", `${b.paymentTermsDays} dagar`],
             ["Ofakturerat", `Varning efter ${b.unbilledWarningDays} dagar`],
             ["Format", b.format === "peppol_bis_3_via_fortnox" ? "Peppol BIS Billing 3 via Fortnox" : b.format],
@@ -442,9 +443,9 @@ const CARDS: Record<string, CardDef> = {
     body: (c, d) => (
       <KV
         items={[
-          ["Status", <Row gap="sm">{c.bonus!.enabled ? "Aktiv" : "Avstängd – modellen ej fastställd"}<BuildPhase fas={3} /></Row>],
-          ["Modell", <Val v={c.bonus!.model} />],
-          ["Egen faktura", <YesNo v={!!c.bonus!.separateInvoice} />],
+          ["Status", <Row key="v" gap="sm">{c.bonus!.enabled ? "Aktiv" : "Avstängd – modellen ej fastställd"}<BuildPhase fas={3} /></Row>],
+          ["Modell", <Val key="v" v={c.bonus!.model} />],
+          ["Egen faktura", <YesNo key="v" v={!!c.bonus!.separateInvoice} />],
           ["Underlag samlas in", `${plural(d.bonusCandidates, "händelse", "händelser")} markerade som möjligt bonusunderlag`],
         ]}
       />
@@ -457,7 +458,7 @@ const CARDS: Record<string, CardDef> = {
         items={[
           ["Vite vid avvikelse", `${kr(c.penalties!.deviationOre)} per tillfälle`],
           ["Vite vid bristfällig information", `${kr(c.penalties!.insufficientInformationOre)} per tillfälle`],
-          c.economicDeviation && ["Ekonomisk avvikelse", c.economicDeviation],
+          !!c.economicDeviation && ["Ekonomisk avvikelse", c.economicDeviation],
           c.keyPersonnelChangeRequiresApproval !== undefined && ["Byte av nyckelpersonal", c.keyPersonnelChangeRequiresApproval ? "Kräver kommunens godkännande" : "Kräver inte godkännande"],
         ]}
       />
@@ -492,8 +493,8 @@ const CARDS: Record<string, CardDef> = {
       <KV
         items={[
           ["Återlämning av data", `Inom ${c.termination!.returnDataWithinDays} dagar efter avtalsslut`],
-          ["Radering efter återlämning", <YesNo v={!!c.termination!.deleteAfterReturn} />],
-          "retention" in c && ["Gallring under avtalstiden", <Val v={c.retention} />],
+          ["Radering efter återlämning", <YesNo key="v" v={!!c.termination!.deleteAfterReturn} />],
+          "retention" in c && ["Gallring under avtalstiden", <Val key="v" v={c.retention} />],
         ]}
       />
     ),
@@ -503,8 +504,8 @@ const CARDS: Record<string, CardDef> = {
     body: (c) => (
       <KV
         items={[
-          ["Status", <Row gap="sm">Test pågår<BuildPhase fas={2} /></Row>],
-          ["AI-leverantör", <Val v={c.ai!.provider} />],
+          ["Status", <Row key="v" gap="sm">Test pågår<BuildPhase fas={2} /></Row>],
+          ["AI-leverantör", <Val key="v" v={c.ai!.provider} />],
           ["Inspelning", c.ai!.recordingApprovedByCustomer ? `Godkänd av kommunen ${fmtDate(c.ai!.recordingApprovedByCustomer)} – kräver deltagarens samtycke` : "–"],
         ]}
       />

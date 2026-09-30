@@ -42,6 +42,11 @@ export async function open(page: Page, info: TestInfo, to: string, as?: { userId
       expect(res.ok()).toBeTruthy();
     }
     await page.goto(to);
+    // Appen hämtar sessionen och frågorna över HTTP (prototypen svarar direkt i webbläsaren): vänta tills sidan har laddat klart.
+    await page.waitForLoadState("networkidle").catch(() => undefined);
+    await page
+      .waitForFunction(() => !(document.querySelector("#main")?.textContent ?? "").includes("Hämtar…"), null, { timeout: 15_000 })
+      .catch(() => undefined);
   }
   return errors;
 }

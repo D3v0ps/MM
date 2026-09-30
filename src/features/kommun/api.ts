@@ -133,6 +133,7 @@ export const kommunStart = query("kommun.start", z.object({})).returns<KomStart>
 
 // ================================================================ Beställning (/portal/bestall)
 export type KomOrderForm = {
+  customerName: string;
   today: string;
   /** Förval: måndag om två veckor. */
   defaultStart: string;
@@ -328,6 +329,14 @@ export type KomChef = {
   statisticsPerYear: number;
 };
 export const kommunChef = query("kommun.chef", z.object({ month: MonthKeySchema.nullable().optional() })).returns<KomChef>();
+
+// ================================================================ Inloggningen (bara prototypens snabbval)
+/**
+ * E-postadresserna till testpersonerna som prototypens inloggning kan fylla i ("Fyll i Maria Ekdahl (handläggare)").
+ * Används bara i prototypen (knapparna ligger i DemoNote). Läser via ctx.repo – bara användare som läsaren redan får se.
+ * Kan tas bort när testpersonerna i sessionen (PersonaOption) har e-postadress.
+ */
+export const kommunTestPersonas = query("kommun.testpersoner", z.object({ userIds: z.array(IdSchema).max(5) })).returns<{ userId: string; email: string }[]>();
 
 // ================================================================ Kommandon (prototypens kom.*)
 /** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa på startsidan (tyst). */

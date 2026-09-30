@@ -105,6 +105,7 @@ Regler för hanterare:
 6. **Avtalsvärden från konfigurationen** (`contracts.config`, zod-validerad i `src/core/config.ts`). Hårdkoda aldrig 32 %, 35 %, BOT, priser eller deadlines. Värden `ATT_FASTSTÄLLA` visas som "Ej fastställt".
 7. **AI föreslår – människan bedömer.** Bedömningsfält är tomma tills coachen valt. Aldrig AI för skyddade ärenden.
 8. **Skyddade personuppgifter:** ingen adress, inga SMS/mejl till deltagaren, ingen AI, bara namngiven coach och avtalsansvarig.
+8b. **Personnummer bara via `ctx.crypto`** (`encryptPnr`, `decryptPnr`, `hashPnr`) – hjälparna i `src/features/_shared/pnr.ts` (`protectPnr(ctx.crypto, pnr)`, `pnrSearchHash(ctx.crypto, pnr)`, `revealPnr(ctx.crypto, person)`). Minnesläget: testdatats ersättning (`TEST_PNR_CRYPTO`); servern: AES-256-GCM + HMAC-SHA256 (`src/server/crypto.ts`). Importera aldrig `encodeTestPnr`/`decodeTestPnr`/`testPnrHash` i en hanterare.
 9. Beräkningar hör hemma i `src/core` (rena funktioner med tester). Hanteraren hämtar data och anropar dem.
 
 ### 3. Skärmar – `src/features/<område>/screens/*.tsx`

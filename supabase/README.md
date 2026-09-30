@@ -16,15 +16,20 @@ Supabase-projekten (staging och produktion, båda i **eu-north-1 Stockholm**) sk
 | `migrations/0007_uppfoljning.sql` | `contract_deviations`, `alerts`, `alert_acks`, `deadlines`, `kpi_snapshots`, `pulse_invites`, `pulse_responses`, `bonus_claims` |
 | `migrations/0008_fakturering.sql` | `billing_runs`, `invoice_drafts`, `invoice_lines`, `billing_week_approvals`, `invoice_credits`, `fortnox_runs`, `integrations` |
 | `migrations/0009_drift.sql` | `jobs` + `mm.claim_jobs()`, `ai_runs`, `ai_field_decisions`, `audit_log` (append-only), `org_settings`, `template_versions`, `log_checks`, `demo_tags` |
-| `seed.sql` | **Genererad** testdata (samma som prototypen) + testarna + testmiljöns inställningar. Ändra aldrig för hand. |
+| `migrations/0010_testdata.sql` | `mm.reset_test_data(p_demo_epoch)` (och `public.reset_test_data` för `.rpc`): tömmer appens tabeller inför "Läs in testdata på nytt". Bara testmiljön, bara service role |
+| `seed.sql` | **Genererad** testdata (samma som prototypen) + testarna + testmiljöns inställningar. Ändra aldrig för hand. För lokal Postgres och RLS-testerna (2,9 MB – för stor för MCP) |
+| `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 16 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, testarna och `app_settings`. Idempotent |
 | `../scripts/db/columns.ts` | Facit för kolumnerna (kontrolleras mot `src/data/schema.ts` vid kompilering och mot databasen i testet) |
-| `../scripts/db/seed-sql.ts`, `generate-seed.ts` | Bygger `seed.sql` |
+| `../scripts/db/seed-sql.ts`, `generate-seed.ts`, `generate-bootstrap.ts` | Bygger `seed.sql` och `bootstrap-staging.sql` |
+| `../src/data/supabase/seed-rows.ts` | Testarna, deterministiska `auth_user_id`, tabellordningen – gemensamt för SQL-filerna och inläsningen i appen |
+| `../src/server/staging/load.ts` | "Läs in testdata på nytt": `reset_test_data` + hela testdatat i batchar via PostgREST (service role) |
 
 Generera seeden efter ändringar i testdatat eller i `schema.ts`:
 
 ```bash
 npx tsx scripts/db/generate-seed.ts
-npx vitest run src/data/supabase/rls-parity.test.ts
+npx tsx scripts/db/generate-bootstrap.ts
+npx vitest run src/data/supabase/rls-parity.test.ts src/server/staging/load.test.ts
 ```
 
 ## Så läggs databasen upp i ett Supabase-projekt
@@ -34,14 +39,29 @@ npx vitest run src/data/supabase/rls-parity.test.ts
 Kör filerna i nummerordning, en i taget. Tre sätt – välj ett:
 
 - **Supabase CLI:** `supabase link --project-ref <ref>` och sedan `supabase db push`. CLI:t läser `supabase/migrations/` och sparar vilka som körts.
-- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0009.
+- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0010.
 - **SQL-editorn:** klistra in och kör varje fil i ordning.
 
 Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Stockholm`. (Inställningen gäller nya anslutningar – starta om projektet eller vänta tills anslutningspoolen förnyats innan appen skriver tider.)
 
-### 2. Testmiljön (staging): seeden
+### 2. Testmiljön (staging): startdata och testdata
 
-Seeden är 2,8 MB – kör den med `psql` mot projektets **session pooler** (fungerar med IPv4), inte i SQL-editorn. Kopiera anslutningssträngen under Connect → Session pooler i Supabase:
+**Rekommenderat (fungerar via MCP):**
+
+1. Kör `bootstrap-staging.sql` (16 kB) – med MCP `execute_sql`, i SQL-editorn eller med `psql`. Den lägger in organisationer, avtal,
+   avtalsområden, prislistor, helgdagar, testarna Karim och Ali (admin i båda avtalen, `is_tester`) och `app_settings`
+   (`environment = staging`, testklockan). Den tömmer ingenting och kan köras igen. Den stoppar sig själv om
+   `app_settings.environment` är något annat än `staging`, eller om databasen har ärenden men saknar miljörad.
+2. Testaren loggar in i appen och väljer **Underbiträden och integrationer (`/admin/integrationer`) → Läs in testdata på nytt** (`POST /api/staging/seed`). Servern anropar
+   `mm.reset_test_data()` och läser in hela prototypens testdata med service role (ca 13 000 rader i ett 60-tal anrop, 10–30 sekunder).
+   Personnumren krypteras med testmiljöns nycklar (`MM_PNR_KEY`, `MM_PNR_HMAC_KEY`), så att "Visa" och dubblettkontrollen fungerar.
+   Samma knapp nollställer allt som testats, när som helst.
+
+`mm.reset_test_data()` tömmer allt i `public` utom `audit_log` (append-only), `app_settings`, `tester_sessions`, `login_attempts`,
+testarnas profiler och medlemskap och de avtal och organisationer de pekar på (de skrivs över av inläsningen). Testklockan sätts om
+till testtiden. Utanför testmiljön gör funktionen ingenting och kastar fel (42501).
+
+**Alternativ: hela seeden med psql.** Seeden är 2,9 MB – kör den med `psql` mot projektets **session pooler** (fungerar med IPv4), inte i SQL-editorn. Kopiera anslutningssträngen under Connect → Session pooler i Supabase:
 
 ```bash
 psql "postgresql://postgres.<ref>:<lösenord>@aws-0-eu-north-1.pooler.supabase.com:5432/postgres" -v ON_ERROR_STOP=1 -f supabase/seed.sql
@@ -52,14 +72,15 @@ psql "postgresql://postgres.<ref>:<lösenord>@aws-0-eu-north-1.pooler.supabase.c
 Seeden:
 - tömmer först alla appens tabeller (`truncate … cascade`, aldrig `auth.*`) – den kan köras om,
 - stoppar sig själv om `app_settings.environment` finns och inte är `staging`, eller om databasen redan har ärenden utan inställningen,
+- har testdatats ersättning för personnummer (`test:…`) – "Visa" och dubblettkontrollen fungerar då bara i minnesläget; använd "Läs in testdata på nytt" i testmiljön,
 - lägger in testarna **Karim Khalil** (`karim.khalil@miljonbemanning.se`) och **Ali Khalil** (`ali.khalil@miljonbemanning.se`) som admin i båda avtalen med `is_tester = true`,
 - sätter `app_settings`: `environment = staging`, `clock_demo_epoch = 2027-02-01T09:12`, `clock_real_epoch = now()` – **testklockan startar om på 1 februari 2027 kl. 09.12 varje gång seeden körs**,
 - kopplar testarnas profiler till deras konton i `auth.users` via e-postadressen om kontona redan finns (så att inloggningen överlever en omseedning).
 
 ### 3. Produktion
 
-- Kör bara migrationerna. **Kör aldrig `seed.sql`.**
-- Lägg in miljön en gång: `insert into public.app_settings (key, value) values ('environment', 'production');` Då är testarfunktionen avstängd och seeden vägrar köra. Inga klockepoker = riktig tid.
+- Kör bara migrationerna. **Kör aldrig `seed.sql` eller `bootstrap-staging.sql`.**
+- Lägg in miljön en gång: `insert into public.app_settings (key, value) values ('environment', 'production');` Då är testarfunktionen avstängd, `mm.reset_test_data()` gör ingenting och seeden och startdatat vägrar köra. Inga klockepoker = riktig tid.
 
 ### 4. Inställningar i Supabase
 
@@ -91,8 +112,10 @@ Extra kolumner som bara finns i databasen (`EXTRA_COLUMNS` i `scripts/db/columns
 |---|---|
 | `profiles.auth_user_id uuid unique` | Kopplingen till `auth.users`. Seedens påhittade profiler får deterministiska värden (uuid v5 av profil-id, `authUserIdFor()`), utan konto i `auth.users` – ingen kan logga in som dem. Ingen främmande nyckel mot `auth.users` av det skälet. |
 | `profiles.is_tester boolean` | Testare i testmiljön. |
-| `outbound_messages.status_reason`, `provider_message_id` | Orsak när ett utskick stoppats (`suppressed`, t.ex. spärren i testmiljön) och leverantörens id. `status` är fri text: `queued`, `sent`, `failed`, `suppressed`, `manual`. |
-| `jobs.started_at` | När `claim_jobs` senast hämtade jobbet – för att hitta jobb som fastnat. |
+
+`outbound_messages.status_reason`, `outbound_messages.provider_message_id` och `jobs.started_at` finns sedan 2026-09-30 i `schema.ts`
+(`OutboundMessage.statusReason`/`providerMessageId`, `Job.startedAt`, valfria fält) och i `COLUMNS`. `OUTBOUND_STATUSES` är
+`queued`, `sent`, `failed`, `suppressed`, `manual`.
 
 `profiles.email` lagras alltid med gemener (triggern `profiles_protect_columns` gör om) och är unik när den inte är tom.
 

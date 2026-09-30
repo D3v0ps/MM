@@ -3,7 +3,7 @@
 // eller personnummer på deltagare. Deltagare visas bara som ärendenummer; användare (personal och kommun) med namn.
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery } from "@/api/server";
-import { addMonths, fmtWeekKey, monthKey, monthName } from "@/core/time";
+import { addMonths, dayOf, fmtWeekKey, monthKey, monthName } from "@/core/time";
 import { reportKindLabel } from "@/core/labels";
 import { uniq } from "@/core/util";
 import type { AuditLogEntry } from "@/data/schema";
@@ -100,6 +100,7 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
   }));
   return {
     isChef: ctx.actor.role === "chef",
+    today: dayOf(ctx.now()),
     contractId: main.id,
     rows,
     actors,

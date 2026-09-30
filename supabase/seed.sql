@@ -12961,21 +12961,21 @@ insert into public.tasks (id, to_role, to_id, from_id, created_at, status, kind,
   ('task-2', 'avtalsansvarig', null, 'system', '2027-02-01T07:55', 'open', null, '{}'::text[], 'Avrop med skyddade personuppgifter från Omar Farah. Ring handläggaren enligt den säkra rutinen.', null, 'em-104', null, null, null, null, null);
 
 -- outbound_messages (8)
-insert into public.outbound_messages (id, created_at, channel, "to", template, subject, body, case_id, status, sent_at) values
-  ('ntf-17304', '2027-01-29T10:07', 'email', 'linda.karlsson@botkyrka.se', 'ordererkannande', null, 'Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0048. Ni får besked om startdatum och ansvarig coach senast måndag 1 februari 2027 klockan 10.05. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', 'case-270048', 'sent', '2027-01-29T10:07'),
+insert into public.outbound_messages (id, created_at, channel, "to", template, subject, body, case_id, status, sent_at, status_reason, provider_message_id) values
+  ('ntf-17304', '2027-01-29T10:07', 'email', 'linda.karlsson@botkyrka.se', 'ordererkannande', null, 'Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0048. Ni får besked om startdatum och ansvarig coach senast måndag 1 februari 2027 klockan 10.05. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', 'case-270048', 'sent', '2027-01-29T10:07', null, null),
   ('ntf-17305', '2027-01-29T15:23', 'email', 'ahmed.yusuf@botkyrka.se', 'ordererkannande', null, 'Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0049. Ni får besked om startdatum och ansvarig coach senast måndag 1 februari 2027 klockan 15.20.
 
 Vi saknar följande uppgifter. Svara på det här mejlet med:
 • Beställarreferens (8–10 siffror)
 • Planerat slutdatum
 
-Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', 'case-270049', 'sent', '2027-01-29T15:23'),
-  ('ntf-17306', '2027-02-01T07:57', 'email', 'omar.farah@botkyrka.se', 'generisk_mottagningsbekraftelse', null, 'Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag.', null, 'sent', '2027-02-01T07:57'),
-  ('ntf-17307', '2027-02-01T08:43', 'email', 'maria.ekdahl@botkyrka.se', 'ordererkannande', null, 'Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0050. Ni får besked om startdatum och ansvarig coach senast tisdag 2 februari 2027 klockan 08.41. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', 'case-270050', 'sent', '2027-02-01T08:43'),
-  ('ntf-17308', '2027-01-31T18:00', 'sms', '070-*** ** 12', 'motespaminnelse', null, 'Påminnelse: möte i morgon klockan 10.00 hos Miljonbemanning i Alby. Frågor? Ring 08-000 00 00.', 'case-260143', 'sent', '2027-01-31T18:00'),
-  ('ntf-17309', '2027-02-01T08:00', 'sms', '070-*** ** 12', 'pulslank', null, 'Hej! Hur går det hos oss? Svara på fem korta frågor: portal.miljonbemanning.se/p/••••• Länken gäller i 7 dagar. Det är frivilligt att svara.', 'case-260143', 'sent', '2027-02-01T08:00'),
-  ('ntf-17310', '2027-01-29T14:00', 'email', 'maria.ekdahl@botkyrka.se', 'nytt_meddelande', null, 'Du har ett nytt meddelande om ärende BOT-26-0148 – logga in för att läsa.', 'case-260148', 'sent', '2027-01-29T14:00'),
-  ('ntf-17311', '2027-02-01T07:00', 'email', 'ahmed.yusuf@botkyrka.se', 'ny_rapport', null, 'Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.', null, 'sent', '2027-02-01T07:00');
+Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', 'case-270049', 'sent', '2027-01-29T15:23', null, null),
+  ('ntf-17306', '2027-02-01T07:57', 'email', 'omar.farah@botkyrka.se', 'generisk_mottagningsbekraftelse', null, 'Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag.', null, 'sent', '2027-02-01T07:57', null, null),
+  ('ntf-17307', '2027-02-01T08:43', 'email', 'maria.ekdahl@botkyrka.se', 'ordererkannande', null, 'Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0050. Ni får besked om startdatum och ansvarig coach senast tisdag 2 februari 2027 klockan 08.41. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.', 'case-270050', 'sent', '2027-02-01T08:43', null, null),
+  ('ntf-17308', '2027-01-31T18:00', 'sms', '070-*** ** 12', 'motespaminnelse', null, 'Påminnelse: möte i morgon klockan 10.00 hos Miljonbemanning i Alby. Frågor? Ring 08-000 00 00.', 'case-260143', 'sent', '2027-01-31T18:00', null, null),
+  ('ntf-17309', '2027-02-01T08:00', 'sms', '070-*** ** 12', 'pulslank', null, 'Hej! Hur går det hos oss? Svara på fem korta frågor: portal.miljonbemanning.se/p/••••• Länken gäller i 7 dagar. Det är frivilligt att svara.', 'case-260143', 'sent', '2027-02-01T08:00', null, null),
+  ('ntf-17310', '2027-01-29T14:00', 'email', 'maria.ekdahl@botkyrka.se', 'nytt_meddelande', null, 'Du har ett nytt meddelande om ärende BOT-26-0148 – logga in för att läsa.', 'case-260148', 'sent', '2027-01-29T14:00', null, null),
+  ('ntf-17311', '2027-02-01T07:00', 'email', 'ahmed.yusuf@botkyrka.se', 'ny_rapport', null, 'Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.', null, 'sent', '2027-02-01T07:00', null, null);
 
 -- case_seen (0)
 

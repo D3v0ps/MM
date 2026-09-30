@@ -40,6 +40,13 @@ export type Session = {
   auth?: AuthPort;
   /** Staging: den inloggade testaren får agera som testpersoner (aldrig i produktion). */
   isTester?: boolean;
+  /** Var appen körs: "memory" = prototypen och utvecklingsläget, "staging" = testmiljön, "production" = drift. */
+  environment?: "memory" | "staging" | "production";
+  /**
+   * Bara testare i testmiljön: läs in testdatat på nytt (allt som testats nollställs, sidan laddas om när det är klart).
+   * Löses bara vid fel – annars laddas sidan om.
+   */
+  reloadTestData?: () => Promise<{ ok: true } | { ok: false; message: string }>;
   /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
   personas?: PersonaOption[];
   /** Bara prototypen: byt roll/persona. */

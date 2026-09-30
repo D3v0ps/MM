@@ -8,7 +8,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Avatar, Badge, Button, Card, CellSub, DemoNote, Field, FormGrid, Grid, Icon, Input, Kpi, Modal, Notice, Page, PerspectiveLink, QueryView, Select, Stack, TabPanel, Table, Tabs, toast,
+  Avatar, Badge, Button, Card, CellSub, Field, FormGrid, Grid, Icon, Input, Kpi, Modal, Notice, Page, PerspectiveLink, QueryView, Select, Stack, TabPanel, Table, Tabs, toast,
   type IconName, type TabDef,
 } from "@/ui";
 import { emailValid } from "@/core/validation";
@@ -157,7 +157,7 @@ function UsersContent({ d }: { d: UsersView }) {
                 {
                   key: "act", label: "Åtgärd",
                   render: (u) => (
-                    <Button kind="ghost" icon={u.active ? "lock" : "refresh"} onClick={() => void toggleActive(u)} ariaLabel={`${u.active ? "Spärra" : "Aktivera"} ${u.name}`}>
+                    <Button kind="ghost" icon={u.active ? "lock" : "refresh"} onClick={() => void toggleActive(u)}>
                       {u.active ? "Spärra" : "Aktivera"}
                     </Button>
                   ),
@@ -261,9 +261,12 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
             <Select value={f.unit} onValueChange={set("unit")} placeholder="Välj enhet" options={d.units.map((u) => ({ value: u.unit, label: u.unit }))} />
           </Field>
         </FormGrid>
-        <DemoNote>
-          <b>Mejlet till den inbjudna (inga personuppgifter):</b> {INVITE_TEXT}
-        </DemoNote>
+        <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
+          <Icon name="mail" className="mt-px" />
+          <div>
+            <b className="font-bold text-antracit">Mejlet till den inbjudna (inga personuppgifter):</b> {INVITE_TEXT}
+          </div>
+        </div>
       </Stack>
     </Modal>
   );

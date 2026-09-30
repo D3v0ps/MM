@@ -26,7 +26,7 @@ src/server/jobs    runJobs()  ◄── POST /api/jobs/run  ◄── pg_cron i 
 | Status | Betyder | `status_reason` (exempel) |
 |---|---|---|
 | `queued` | Väntar på att skickas | – |
-| `sent` | Lämnat till Resend. `sent_at` och `provider_message_id` (Resends id) sätts | – |
+| `sent` | Lämnat till Resend. `sent_at` och `provider_message_id` (Resends id) sätts | – · `redirected` = testmiljön skickade mejlet till testaren i stället (`MM_EMAIL_REDIRECT_TO`) |
 | `suppressed` | Stoppat med avsikt | `Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST` · `Mottagaren saknar giltig e-postadress` · `SMS-leverantör inte vald` · `Stoppat: texten ser ut att innehålla ett personnummer` |
 | `manual` | Brev – skickas för hand | `Brev skickas manuellt` |
 | `failed` | Gick inte att skicka efter alla försök, eller Resend avvisade det | `Resend svarade 422 (validation_error)` |
@@ -44,7 +44,24 @@ Kanaler:
 - Spärren kontrolleras precis innan mejlet skickas. Samma lista styr inloggningskoderna (`src/server/auth`).
 - I testmiljön börjar ämnesraden med `[Testmiljö]` och mejlet har en blå rad överst: "TESTMILJÖ – påhittade testdata".
 
-Obs: i testmiljön går de flesta utskick till testpersoner (t.ex. handläggare på botkyrka.se) och stoppas därför. De syns i `outbound_messages`. Testarna får bara mejl som går till deras egna adresser.
+Obs: i testmiljön går de flesta utskick till testpersoner (t.ex. handläggare på botkyrka.se) och stoppas därför. De syns i `outbound_messages`. Testarna får bara mejl som går till deras egna adresser – om inte `MM_EMAIL_REDIRECT_TO` är satt (nästa avsnitt).
+
+Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts` (`OUTBOUND_STATUS_LABEL`, `outboundStatusLabel`, `outboundReasonLabel`).
+
+## Testarna ser appens mejl (`MM_EMAIL_REDIRECT_TO`, bara testmiljön)
+
+- Sätt `MM_EMAIL_REDIRECT_TO` till en testares adress (t.ex. `karim.khalil@miljonbemanning.se`). Adressen måste också finnas i `MM_EMAIL_ALLOWLIST`.
+- Mejl som spärrlistan annars skulle ha stoppat (till testpersoner) skickas i stället till den adressen. Status `sent`, orsak `redirected`. `to` i `outbound_messages` är fortfarande testpersonens adress.
+- Överst i mejlet står en tydlig rad: "Testmiljö – det här mejlet skulle ha gått till kommunens handläggare på Botkyrka kommun." Raden visar roll och organisation (eller "deltagaren i ärende BOT-27-0049") – aldrig testpersonens adress eller namn. Knappen i mejlet är den mottagaren skulle ha fått (portalen för kommunen, appen för personalen).
+- Kontrollen av personnummer och adressformat gäller som vanligt – sådana utskick stoppas, de skickas inte om.
+- **Aldrig i produktion:** omdirigeringen gäller bara när `app_settings.environment = 'staging'`. I produktion, och i en databas utan miljörad, ignoreras variabeln. Lämna den tom i produktion.
+- Inloggningskoderna påverkas inte (de skickas av Supabase Auth och bara till adresserna i `MM_EMAIL_ALLOWLIST`).
+
+## Svarsadress (`MM_EMAIL_REPLY_TO`)
+
+- Produktion: `avrop@miljonbemanning.se`. Då hamnar svar på ordererkännandet (och andra mejl) i avropsflödet – mejl är kommunens formella beställningskanal (CLAUDE.md punkt 10).
+- Testmiljön: tom. Svar går då till avsändaren `notis@miljonbemanning.se`.
+- Skickas till Resend som `reply_to`.
 
 ## Kontroller före varje mejl
 
@@ -101,6 +118,8 @@ Supabase Auth skickar koden själv via Resend (SMTP, se `docs/DRIFT.md` steg 1.2
 | `MM_EMAIL_FROM` | | Avsändare, t.ex. `Miljonmatch <notis@miljonbemanning.se>`. Domänen måste vara verifierad i Resend |
 | `MM_APP_URL` | | Appens adress utan `/` på slutet – knappen i mejlen |
 | `MM_EMAIL_ALLOWLIST` | | Testmiljön: adresser eller `@domäner` som får mejl. Tom i produktion |
+| `MM_EMAIL_REDIRECT_TO` | | Bara testmiljön: testarens adress som får mejlen till testpersoner (måste finnas i `MM_EMAIL_ALLOWLIST`). Ignoreras i produktion |
+| `MM_EMAIL_REPLY_TO` | | Svarsadress. Produktion: `avrop@miljonbemanning.se`. Tom i testmiljön |
 | `MM_STAFF_EMAIL_DOMAINS` | | Personalens domäner (länk till appen i stället för portalen). Standard `miljonbemanning.se` |
 | `MM_JOBS_SECRET` | **ja** | Nyckeln för `/api/jobs/run`, minst 16 tecken. Skapa med `openssl rand -base64 32`. Samma värde läggs i Supabase Vault (nedan) |
 

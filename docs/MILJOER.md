@@ -11,6 +11,7 @@
 - API-adress: `https://blxupsebzzhmjitaywev.supabase.co`
 - Publik nyckel (får finnas i webbläsaren, skyddas av RLS): `sb_publishable_6gWujM1P_blTRgFvPTMiGQ_cYDPcmGO`
 - Hemliga nycklar (service role, Resend, krypteringsnycklar) läggs **bara** i Vercels miljövariabler – aldrig i repot eller i chatten. Se `docs/DRIFT.md`.
+- Databasen: migrationerna `supabase/migrations/0001–0010`, startdatat `supabase/bootstrap-staging.sql` (samordnaren kör det), testdatat läser testaren in i appen (`/admin/integrationer` → "Läs in testdata på nytt"). Ordningen steg för steg: `docs/DRIFT.md`, "Så startar du testmiljön".
 - Projektet ska flyttas till Miljonbemanning AB:s organisation när den finns (SPEC §11: konton ägs av bolaget via funktionsadress, minst två administratörer, MFA).
 
 ## Domäner och e-post

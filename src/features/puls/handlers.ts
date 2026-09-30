@@ -24,9 +24,10 @@ async function tokenHash(token: string): Promise<string | null> {
  * Utan token: prototypens exempellänk (demo_tags "pi-demo", bara testdata). Länkar till ärenden med skyddade
  * personuppgifter räknas som saknade – de ska aldrig finnas (CLAUDE.md punkt 8).
  */
-async function inviteFor(ctx: Ctx, token: string | undefined): Promise<PulseInvite | null> {
+async function inviteFor(ctx: Ctx, token: string | undefined): Promise<(PulseInvite & { location: string }) | null> {
   let inv: PulseInvite | null = null;
-  if (token) {
+  if (token !== undefined) {
+    if (!/^[A-Za-z0-9_-]{8,200}$/.test(token)) return null;
     const hash = await tokenHash(token);
     inv = hash ? await ctx.system.table("pulse_invites").first({ tokenHash: hash }) : null;
   } else {
@@ -38,7 +39,7 @@ async function inviteFor(ctx: Ctx, token: string | undefined): Promise<PulseInvi
   const c = await ctx.system.table("cases").get(inv.caseId);
   const person = c ? await ctx.system.table("persons").get(c.personId) : null;
   if (!c || !person || person.protectedIdentity) return null;
-  return inv;
+  return { ...inv, location: c.location };
 }
 
 const stateOf = (inv: PulseInvite | null, now: string): PulseLinkState => (!inv ? "missing" : inv.usedAt ? "used" : now > inv.expiresAt ? "expired" : "open");
@@ -46,7 +47,7 @@ const langOf = (l: string | null | undefined): PulseLang => ((PULSE_LANGS as rea
 
 handleQuery(pulseLink, { roles: ["deltagare"] }, async (ctx, p) => {
   const inv = await inviteFor(ctx, p.token);
-  return { state: stateOf(inv, ctx.now()), language: langOf(inv?.language), days: inv ? diffDays(inv.sentAt, inv.expiresAt) : 7 };
+  return { state: stateOf(inv, ctx.now()), language: langOf(inv?.language), days: inv ? diffDays(inv.sentAt, inv.expiresAt) : 7, location: inv?.location || "Alby" };
 });
 
 const isScore = (v: unknown): v is PulseScore => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 5;
@@ -65,13 +66,14 @@ handleCommand(pulseSubmit, { roles: ["deltagare"] }, async (ctx, p) => {
   // ctx.system: ärendets coach och nummer behövs för svaret och uppgiften – inget av det visas för deltagaren.
   const c = await ctx.system.table("cases").get(inv.caseId);
   const contact = a.q5 === "ja";
-  // ctx.system: länken förbrukas (systemsteg – deltagaren får inte ändra utskicket).
-  await ctx.system.table("pulse_invites").update(inv.id, { usedAt: now, language: p.language });
   const id = ctx.newId("pr");
   await ctx.repo.table("pulse_responses").insert({
     id, inviteId: inv.id, caseId: inv.caseId, coachId: c?.leadCoachId ?? null, occasion: inv.occasion, language: p.language,
     answers: { q1: a.q1, q2: a.q2, q3: a.q3, q4: a.q4 as PulsePriority, q5: a.q5 }, text: String(p.text || "").trim().slice(0, 500), contactRequested: contact, submittedAt: now,
   });
+  // ctx.system: länken förbrukas (systemsteg – deltagaren får inte ändra utskicket). Efter svaret: policyn tillåter
+  // bara ett svar på en oanvänd länk.
+  await ctx.system.table("pulse_invites").update(inv.id, { usedAt: now, language: p.language });
   if (contact) {
     // ctx.system: uppgiften går till samordnaren (en annan roll) – bara ärendenumret, inga svar och inga namn.
     await ctx.system.table("tasks").insert({
