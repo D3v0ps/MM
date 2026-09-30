@@ -24,6 +24,75 @@ const KARIM = TESTER_AUTH["tester-karim"];
 const authOf = (userId: string) => TESTER_AUTH[userId] ?? authUserIdFor(userId);
 
 const data = seedData();
+
+/**
+ * Extra rader för tabeller som testdatat lämnar tomma eller bara täcker delvis (flaggor, deadlines, bonus, fakturarader,
+ * AI-beslut, skyddade ärenden …), så att deras policyer också prövas. Läggs in både i minnet och i databasen.
+ */
+function extraRows(): { [N in TableName]?: Tables[N][] } {
+  const prot = new Set(data.persons.filter((p) => p.protectedIdentity).map((p) => p.id));
+  const protectedCase = data.cases.find((c) => prot.has(c.personId))!;
+  const mariaCase = data.cases.find((c) => c.referrerId === "k-maria")!;
+  const amiraCase = data.cases.find((c) => c.leadCoachId === "u-amira")!;
+  const petraCase = data.cases.find((c) => data.case_team.some((t) => t.caseId === c.id && t.userId === "u-petra"))!;
+  const runWithCase = data.ai_runs.find((r) => r.caseId)!;
+  const at = "2027-02-01T06:00";
+  const alert = (id: string, contractId: string, caseId: string | null, recipientRoles: Tables["alerts"]["recipientRoles"]): Tables["alerts"] => ({
+    id, key: `${id}-key`, contractId, caseId, kind: "stuck", severity: "warning", title: "Flagga", message: "Text", recipientRoles, createdAt: at,
+    acknowledgedBy: null, acknowledgedAt: null, actionPlan: null,
+  });
+  const deadline = (id: string, contractId: string, caseId: string | null): Tables["deadlines"] => ({ id, contractId, caseId, reportId: null, kind: "forsta_mote", dueAt: at, metAt: null, status: "open" });
+  const bonus = (id: string, caseId: string): Tables["bonus_claims"] => ({
+    id, caseId, kind: "work", basis: "Anställningsbevis", evidencePaths: [], submittedAt: at, customerDecision: null, decidedBy: null, decidedAt: null, amountOre: null, invoiceDraftId: null,
+  });
+  const cdev = (id: string, caseId: string | null): Tables["contract_deviations"] => ({
+    ...data.contract_deviations[0], id, caseId,
+  });
+  const draft = data.invoice_drafts[0];
+  const decision = (id: string, aiRunId: string | null, decidedBy: string): Tables["ai_field_decisions"] => ({
+    id, aiRunId, field: "nextGoal", suggested: "a", final: "a", decision: "accepted", changed: false, decidedBy, decidedAt: at,
+  });
+  return {
+    alerts: [
+      alert("al-1", "c-bot", amiraCase.id, ["coach", "samordnare"]), alert("al-2", "c-bot", null, ["chef"]),
+      alert("al-3", "c-bot", protectedCase.id, ["avtalsansvarig", "samordnare"]), alert("al-4", "c-kk", null, ["avtalsansvarig"]),
+      alert("al-5", "c-bot", petraCase.id, ["handledare", "ekonom"]),
+    ],
+    alert_acks: [{ id: "al-1-key", alertKey: "al-1-key", acknowledgedBy: "u-amira", acknowledgedAt: at, actionPlan: "Plan" }],
+    deadlines: [deadline("dl-1", "c-bot", amiraCase.id), deadline("dl-2", "c-bot", null), deadline("dl-3", "c-bot", protectedCase.id), deadline("dl-4", "c-kk", null)],
+    kpi_snapshots: [
+      { id: "kpi-1", contractId: "c-bot", kpiKey: "resultatgrad", window: "rolling_6m", value: 0.34, numerator: 17, denominator: 50, computedAt: at },
+      { id: "kpi-2", contractId: "c-kk", kpiKey: "placeringsgrad", window: "month", value: null, numerator: 0, denominator: 0, computedAt: at },
+    ],
+    bonus_claims: [bonus("bc-1", mariaCase.id), bonus("bc-2", amiraCase.id), bonus("bc-3", protectedCase.id), bonus("bc-4", petraCase.id)],
+    contract_deviations: [cdev("cd-x1", mariaCase.id), cdev("cd-x2", protectedCase.id)],
+    invoice_lines: [{
+      id: "il-1", invoiceDraftId: draft.id, caseId: draft.caseId!, priceItemId: "pi-G", quantity: 4, unitPriceOre: 350000, vatRate: 25, description: "Deltagarvecka",
+      isoWeeks: ["2026-W45"], zeroAttendanceWeeks: [],
+    }],
+    billing_week_approvals: [{ id: `${draft.caseId}:2026-W45`, contractId: "c-bot", month: "2026-11", caseId: draft.caseId!, weekKey: "2026-W45", approvedBy: "u-lars", approvedAt: at, note: "" }],
+    invoice_credits: [{ id: "ic-1", contractId: "c-bot", month: "2026-12", caseId: draft.caseId!, creditedAt: at, creditedBy: "u-lars", buyerReference: null }],
+    fortnox_runs: [
+      { id: "fr-1", contractId: "c-bot", month: "2027-01", kind: "create", ranAt: at, ranBy: "u-lars", created: 1, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
+      { id: "fr-2", contractId: "c-kk", month: "2027-01", kind: "sync", ranAt: at, ranBy: "u-lars", created: 0, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
+    ],
+    jobs: [{ id: "job-seed", kind: "send_message", payload: {}, status: "done", attempts: 1, runAfter: at, lastError: null, createdAt: at, createdBy: null, finishedAt: at }],
+    ai_runs: [{ ...runWithCase, id: "ai-run-utan-arende", caseId: null }],
+    ai_field_decisions: [
+      decision("afd-1", runWithCase.id, "u-amira"), decision("afd-2", "ai-run-utan-arende", "u-sara"), decision("afd-3", null, "u-amira"), decision("afd-4", "saknas", "u-sara"),
+    ],
+    case_seen: [{ id: `k-maria:${mariaCase.id}`, userId: "k-maria", caseId: mariaCase.id, seenAt: at }],
+    template_versions: [{ id: "tv-1", templateKey: "ordererkannande", version: 1, subject: "Ärende", body: "Text", savedAt: at, savedBy: "u-robin", note: "" }],
+    log_checks: [{ id: "lc-1", month: "2027-01", items: [{ logId: "log-17284", verdict: "ok" }], note: "", signedBy: "u-karin", signedAt: at }],
+    tasks: [
+      { ...data.tasks[0], id: "task-x1", toRole: "kommun_handlaggare", toId: "k-maria", fromId: "u-sara", caseIds: [mariaCase.id] },
+      { ...data.tasks[0], id: "task-x2", toRole: "coach", toId: null, fromId: "u-sara", caseIds: [amiraCase.id] },
+    ],
+    inbound_emails: [{ ...data.inbound_emails[0], id: "em-x1", caseId: protectedCase.id, classification: "order" }],
+  };
+}
+const EXTRA = extraRows();
+for (const [t, rows] of Object.entries(EXTRA)) (data[t as TableName] as unknown as object[]).push(...(rows as object[]));
 const store = new MemoryStore<Tables>(data);
 const raw: RawAccess<Tables> = store.raw();
 const personas = listPersonas(raw);
@@ -71,6 +140,9 @@ beforeAll(async () => {
     await db.query("insert into auth.users (id, email) values ($1, $2)", [auth, TESTERS.find((t) => t.id === id)!.email]);
   }
   await loadSeed(db);
+  for (const [t, rows] of Object.entries(EXTRA)) {
+    for (const row of rows as Record<string, unknown>[]) await db.exec(insertSql(t as TableName, row));
+  }
 }, 120_000);
 
 // ================================================================ Schema och seed

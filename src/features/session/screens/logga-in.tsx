@@ -52,7 +52,8 @@ export function LoggaInScreen({ query }: ScreenProps) {
     if (step === 1) codeRef.current?.querySelector("input")?.focus();
   }, [step]);
 
-  if (isAuthenticated(session)) {
+  // Redan inloggad (riktiga appen). I prototypen och utvecklingsläget är man alltid någon testperson – där visas formuläret ändå.
+  if (isAuthenticated(session) && auth?.kind !== "demo") {
     return (
       <Stack gap="lg">
         <Heading />
