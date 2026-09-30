@@ -44,6 +44,8 @@ export const CheckInDataSchema = z.object({
   overallStatus: z.enum(TRAFFIC_LIGHTS).nullable().optional(),
   obstacles: z.array(ShortText).max(20).optional(),
   note: LongText.optional(),
+  /** Coachens kommentar om veckans närvaro (valfri, prototypens attendanceComment). */
+  attendanceComment: z.string().max(300).optional(),
   /** Dokumentationstid i minuter (SPEC §8.5). */
   docMinutes: z.number().int().min(0).max(1000).nullable().optional(),
   /** AI-körningen (coach.aiRun) vars förslag coachen har granskat. */

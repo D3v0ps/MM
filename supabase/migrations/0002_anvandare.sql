@@ -275,12 +275,12 @@ create policy holidays_update on public.holidays for update to authenticated usi
 -- policy.ts organizations: read admin || ((isMB || isKom) && orgsOf(a).has(o.id)), write admin
 create policy organizations_select on public.organizations for select to authenticated using (
   (select mm.current_role()) = 'admin'
-  or (((select mm.is_mb()) or (select mm.is_kom())) and id = any ((select mm.my_org_ids())))
+  or (((select mm.is_mb()) or (select mm.is_kom())) and id = any ((select mm.my_org_ids())::text[]))
 );
 create policy organizations_insert on public.organizations for insert to authenticated with check ((select mm.current_role()) = 'admin');
 create policy organizations_update on public.organizations for update to authenticated using (
   (select mm.current_role()) = 'admin'
-  or (((select mm.is_mb()) or (select mm.is_kom())) and id = any ((select mm.my_org_ids())))
+  or (((select mm.is_mb()) or (select mm.is_kom())) and id = any ((select mm.my_org_ids())::text[]))
 ) with check ((select mm.current_role()) = 'admin');
 
 -- policy.ts contracts: read (isMB || isKom) && member – här bara MB (kommunen läser via contracts_public), write admin
@@ -317,20 +317,20 @@ grant insert, update on public.holidays, public.organizations, public.contracts,
 create policy profiles_select on public.profiles for select to authenticated using (
   id = (select mm.current_profile_id())
   or (select mm.current_role()) = 'admin'
-  or (((select mm.is_mb()) or (select mm.is_kom())) and organization_id = any ((select mm.my_org_ids())))
+  or (((select mm.is_mb()) or (select mm.is_kom())) and organization_id = any ((select mm.my_org_ids())::text[]))
 );
 -- policy.ts profiles.write: admin || (avtalsansvarig && customersOf(a).has(p.organizationId)) || (self && exists)
 create policy profiles_insert on public.profiles for insert to authenticated with check (
   (select mm.current_role()) = 'admin'
-  or ((select mm.current_role()) = 'avtalsansvarig' and organization_id = any ((select mm.my_customer_ids())))
+  or ((select mm.current_role()) = 'avtalsansvarig' and organization_id = any ((select mm.my_customer_ids())::text[]))
 );
 create policy profiles_update on public.profiles for update to authenticated using (
   id = (select mm.current_profile_id())
   or (select mm.current_role()) = 'admin'
-  or (((select mm.is_mb()) or (select mm.is_kom())) and organization_id = any ((select mm.my_org_ids())))
+  or (((select mm.is_mb()) or (select mm.is_kom())) and organization_id = any ((select mm.my_org_ids())::text[]))
 ) with check (
   (select mm.current_role()) = 'admin'
-  or ((select mm.current_role()) = 'avtalsansvarig' and organization_id = any ((select mm.my_customer_ids())))
+  or ((select mm.current_role()) = 'avtalsansvarig' and organization_id = any ((select mm.my_customer_ids())::text[]))
   or id = (select mm.current_profile_id())
 );
 

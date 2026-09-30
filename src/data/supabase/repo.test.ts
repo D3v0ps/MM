@@ -6,6 +6,7 @@ import { matches, type Where } from "../repo";
 import { createSeed } from "../seed";
 import { TABLE_NAMES } from "../schema";
 import { fromTimestamptz, toColumn, toDbRow, toField, toTimestamptz } from "./columns";
+import { appRepo, userRepo } from "./index";
 import { DataError, IN_CHUNK, PAGE_SIZE, SupabaseRepo, type PgClient, type PgResult } from "./repo";
 
 type Rows = Record<string, unknown>[];
@@ -276,6 +277,27 @@ describe("skrivningar och fel", () => {
     expect(err).toBeInstanceOf(DataError);
     expect((err as Error).message).toBe("Databasfel i cases (23505)");
     expect((err as Error).message).not.toContain("@");
+  });
+});
+
+describe("läsning via vy", () => {
+  it("användarens repo läser contracts via contracts_public men skriver till tabellen; service role läser tabellen", async () => {
+    const { client, calls } = fake((c) => (c.op === "update" ? { data: [{ id: "c-bot" }], error: null } : { data: [], error: null }));
+    const user = userRepo(client);
+    await user.table("contracts").list();
+    await user.table("contracts").get("c-bot");
+    await user.table("contracts").count();
+    await user.table("contracts").update("c-bot", { name: "x" });
+    await user.table("cases").list();
+    await appRepo(client).table("contracts").list();
+    expect(calls.map((c) => `${c.op}:${c.table}`)).toEqual([
+      "select:contracts_public",
+      "select:contracts_public",
+      "select:contracts_public",
+      "update:contracts",
+      "select:cases",
+      "select:contracts",
+    ]);
   });
 });
 

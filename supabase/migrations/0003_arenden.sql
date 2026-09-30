@@ -350,19 +350,19 @@ grant execute on function mm.next_case_number(text, integer) to service_role;
 -- policy.ts buyer_references.read: admin || ((isMB || isKom) && customersOf(a).has(b.customerId))
 create policy buyer_references_select on public.buyer_references for select to authenticated using (
   (select mm.current_role()) = 'admin'
-  or (((select mm.is_mb()) or (select mm.is_kom())) and customer_id = any ((select mm.my_customer_ids())))
+  or (((select mm.is_mb()) or (select mm.is_kom())) and customer_id = any ((select mm.my_customer_ids())::text[]))
 );
 -- policy.ts buyer_references.write: admin || ((avtalsansvarig || ekonom) && customersOf(a).has(b.customerId))
 create policy buyer_references_insert on public.buyer_references for insert to authenticated with check (
   (select mm.current_role()) = 'admin'
-  or ((select mm.role_in('{avtalsansvarig,ekonom}')) and customer_id = any ((select mm.my_customer_ids())))
+  or ((select mm.role_in('{avtalsansvarig,ekonom}')) and customer_id = any ((select mm.my_customer_ids())::text[]))
 );
 create policy buyer_references_update on public.buyer_references for update to authenticated using (
   (select mm.current_role()) = 'admin'
-  or (((select mm.is_mb()) or (select mm.is_kom())) and customer_id = any ((select mm.my_customer_ids())))
+  or (((select mm.is_mb()) or (select mm.is_kom())) and customer_id = any ((select mm.my_customer_ids())::text[]))
 ) with check (
   (select mm.current_role()) = 'admin'
-  or ((select mm.role_in('{avtalsansvarig,ekonom}')) and customer_id = any ((select mm.my_customer_ids())))
+  or ((select mm.role_in('{avtalsansvarig,ekonom}')) and customer_id = any ((select mm.my_customer_ids())::text[]))
 );
 
 -- policy.ts persons.read / persons.write

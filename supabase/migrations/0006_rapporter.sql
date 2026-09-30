@@ -168,7 +168,7 @@ create policy reports_select on public.reports for select to authenticated using
       when nullif(case_id, '') is null then coalesce((select mm.current_profile_id()) = any (delivered_to) or recipient_user_id = (select mm.current_profile_id()), false)
       when case_id not in (select mm.case_ids('{customer}')) then false
       when coalesce((select mm.current_profile_id()) = any (delivered_to) or recipient_user_id = (select mm.current_profile_id()), false) then true
-      else (select mm.current_role()) = 'kommun_chef' and contract_id = any ((select mm.individual_report_contract_ids()))
+      else (select mm.current_role()) = 'kommun_chef' and contract_id = any ((select mm.individual_report_contract_ids())::text[])
     end
     else false
   end
@@ -202,7 +202,7 @@ create policy reports_update on public.reports for update to authenticated using
       when nullif(case_id, '') is null then coalesce((select mm.current_profile_id()) = any (delivered_to) or recipient_user_id = (select mm.current_profile_id()), false)
       when case_id not in (select mm.case_ids('{customer}')) then false
       when coalesce((select mm.current_profile_id()) = any (delivered_to) or recipient_user_id = (select mm.current_profile_id()), false) then true
-      else (select mm.current_role()) = 'kommun_chef' and contract_id = any ((select mm.individual_report_contract_ids()))
+      else (select mm.current_role()) = 'kommun_chef' and contract_id = any ((select mm.individual_report_contract_ids())::text[])
     end
     else false
   end
@@ -215,7 +215,7 @@ create policy reports_update on public.reports for update to authenticated using
         when nullif(case_id, '') is null then coalesce((select mm.current_profile_id()) = any (delivered_to) or recipient_user_id = (select mm.current_profile_id()), false)
         when case_id not in (select mm.case_ids('{customer}')) then false
         when coalesce((select mm.current_profile_id()) = any (delivered_to) or recipient_user_id = (select mm.current_profile_id()), false) then true
-        else (select mm.current_role()) = 'kommun_chef' and contract_id = any ((select mm.individual_report_contract_ids()))
+        else (select mm.current_role()) = 'kommun_chef' and contract_id = any ((select mm.individual_report_contract_ids())::text[])
       end
     when (select mm.is_mb()) then
       mm.member_in(contract_id, (select mm.current_role()), (select mm.my_contract_ids()))

@@ -5,7 +5,6 @@ import "server-only";
 import { cookies } from "next/headers";
 import { ApiError } from "@/api/server";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
-import { PolicyError } from "@/data/memory";
 import { createSeed, DEMO_START } from "@/data/seed";
 import { listPersonas, personaFor, type Persona } from "@/data/actors";
 import { backend } from "./config";
@@ -37,10 +36,5 @@ export async function runRpc(kind: "query" | "command", key: string, input: unkn
   if (BACKEND === "supabase") return runLive(kind, key, input);
   const persona = await currentPersona();
   if (!persona) throw new ApiError(403, "unauthenticated", "Du är inte inloggad.");
-  try {
-    return await memoryRuntime().run(kind, key, input, persona.actor);
-  } catch (e) {
-    if (e instanceof PolicyError) throw new ApiError(403, "forbidden", "Din roll har inte behörighet till det här.");
-    throw e;
-  }
+  return memoryRuntime().run(kind, key, input, persona.actor);
 }

@@ -30,8 +30,8 @@ export function LayoutFor({ match, children }: { match: RouteMatch; children: Re
   if (area === "portal") body = <PortalLayout match={match}>{children}</PortalLayout>;
   else if (area === "puls") body = <PulsLayout>{children}</PulsLayout>;
   else if (area === "om") body = <OmLayout>{children}</OmLayout>;
-  // Inloggningssidor: centrerad vy utan navigering (egen layout kan ersätta den här).
-  else if (area === "auth") body = <PulsLayout>{children}</PulsLayout>;
+  // Inloggningssidor: centrerad vy med ordmärket, utan menyer.
+  else if (area === "auth") body = <AuthLayout>{children}</AuthLayout>;
   else body = <MbLayout>{children}</MbLayout>;
   return (
     <AreaProvider area={area}>
@@ -288,6 +288,22 @@ function PulsLayout({ children }: { children: ReactNode }) {
     <main id="main" tabIndex={-1} className="flex flex-1 justify-center bg-ljusgra-ton2 px-4 pt-6 pb-12">
       {children}
     </main>
+  );
+}
+
+// ---------------------------------------------------------------- Inloggningssidor (area "auth", t.ex. /logga-in)
+/** Centrerad kolumn med ordmärket överst. Inga menyer – den som loggar in har ingen roll ännu. */
+function AuthLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex flex-1 flex-col items-center bg-ljusgra-ton2 px-4 pt-10 pb-16 max-[620px]:pt-6">
+      <header className="mb-7 flex flex-col items-center gap-1" data-print="hide">
+        <Brand name="Miljonmatch" size="lg" />
+        <span className="text-label font-semibold tracking-[0.12em] text-text-muted uppercase">Miljonbemanning</span>
+      </header>
+      <main id="main" tabIndex={-1} className="w-full max-w-[520px]">
+        {children}
+      </main>
+    </div>
   );
 }
 
