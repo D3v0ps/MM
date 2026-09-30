@@ -46,7 +46,7 @@ RLS på varje tabell. Reglerna är desamma som i `src/data/policy.ts` i dag:
 | Kommunens handläggare | Ärenden hon beställt (eller enhetens, om avtalet säger det), levererade rapporter, meddelanden i sina ärenden |
 | Kommunens chef | Enhetens ärenden (inte skyddade) och beställarrapporten |
 
-Särskilt: coachen läser inga enskilda pulssvar (aggregat från 5 svar via en `security definer`-funktion), personliga notiser läses bara av mottagaren, revisionsloggen bara av admin och chef.
+Särskilt: RLS döljer rader, inte kolumner. Kommunen får därför inte läsa avtalsraden direkt (den innehåller det interna målet 35 %) – interna mål flyttas till `org_settings` eller exponeras via en vy utan interna delar, och kolumner som `activities.note` exponeras för kommunen bara via vyer. Coachen läser inga enskilda pulssvar (aggregat från 5 svar via en `security definer`-funktion), personliga notiser läses bara av mottagaren, revisionsloggen bara av admin och chef.
 
 **Tester:** samma fall som `src/data/policy.test.ts` körs mot en lokal Supabase (`supabase db reset` + tester) i CI – kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare bara tilldelade, skyddade bara namngivna.
 

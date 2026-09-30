@@ -7,7 +7,8 @@ import type { Actor, Role } from "./roles";
 
 /** Utskick (e-post/SMS/notis i appen). Innehåller aldrig personuppgifter – bara ärendenummer och länk. */
 export type OutgoingMessage = {
-  channel: "email" | "sms";
+  /** Brev används för kallelser när deltagaren vill ha post (fullständig adress lagras bara då). */
+  channel: "email" | "sms" | "letter";
   to: string;
   template: string;
   subject?: string;
