@@ -1,17 +1,81 @@
 "use client";
-// Klientroten i riktiga appen: navigering, API via /api/rpc och inloggad användare.
-import { Suspense, useEffect, useState } from "react";
+// Klientroten i riktiga appen: navigering, API via /api/rpc och inloggad användare (GET /api/session).
+//   Minnesläget (utveckling, e2e): vald testperson, byt i verktygsfältet (/api/dev-session). Inloggningssidorna simulerar
+//   koden som i prototypen – adressen väljer testpersonen.
+//   Supabase-läget: inloggning med e-post och kod (/api/auth/*). Inte inloggad = anonym session med bara publika sidor.
+//   Testmiljön: rad överst "Testmiljö – påhittade testdata" och testarens val av testperson.
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
+import { fmtDateFull, WEEKDAYS, weekday } from "@/core/time";
+import type { SessionView } from "@/server/session-view";
 import { App } from "@/shell/app";
-import { BackendProvider, httpBackend } from "@/shell/backend";
+import { BackendError, BackendProvider, httpBackend, type Backend } from "@/shell/backend";
 import { RuntimeProvider } from "@/shell/runtime";
-import { SessionProvider, type Session } from "@/shell/session";
+import { ANONYMOUS, SessionProvider, type AuthPort, type AuthResult, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
-import type { Persona } from "@/data/actors";
-import type { Role } from "@/api/roles";
 import { NextNavProvider } from "./next-nav";
 
-type Loaded = { persona: Persona | null; personas: Persona[] } | { error: true };
+type Loaded = { view: SessionView } | { error: true };
+
+const FAILED: AuthResult = { ok: false, error: "error", message: "Något gick fel. Försök igen om en stund." };
+
+async function postJson(url: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
+  const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), credentials: "same-origin" });
+  return { status: res.status, json: (await res.json().catch(() => ({}))) as Record<string, unknown> };
+}
+
+const asResult = (json: Record<string, unknown>): AuthResult =>
+  json.ok === true ? { ok: true } : json.ok === false && typeof json.error === "string" ? (json as unknown as AuthResult) : FAILED;
+
+/** Återhopp efter inloggning: ?till= på inloggningssidan (bara egna sökvägar), annars startsidan för rollen. */
+function returnPath(): string {
+  const v = new URLSearchParams(window.location.search).get("till");
+  return v && v.startsWith("/") && !v.startsWith("//") && !v.startsWith("/\\") && !v.startsWith("/api/") ? v : "/";
+}
+
+/** Efter inloggning, utloggning och byte av testperson laddas sidan om – inga data från förra användaren ligger kvar. */
+const hardNavigate = (to: string) => {
+  window.location.assign(to);
+  return new Promise<never>(() => undefined);
+};
+
+/** Inloggning i supabase-läget. Lyckad kod = sidan laddas om på återhoppsadressen (löftet löses inte). */
+const liveAuth: AuthPort = {
+  kind: "supabase",
+  sendCode: async (email) => {
+    try {
+      return asResult((await postJson("/api/auth/code", { email })).json);
+    } catch {
+      return FAILED;
+    }
+  },
+  verifyCode: async (email, code) => {
+    let r: AuthResult;
+    try {
+      r = asResult((await postJson("/api/auth/verify", { email, code })).json);
+    } catch {
+      return FAILED;
+    }
+    return r.ok ? hardNavigate(returnPath()) : r;
+  },
+  signOut: async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+  },
+};
+
+/** Utvecklingsläget: simulerad inloggning som i prototypen – vilken sexsiffrig kod som helst, adressen väljer testperson. */
+const devAuth: AuthPort = {
+  kind: "demo",
+  sendCode: async (email) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ? { ok: true } : { ok: false, error: "invalid_email", message: "Skriv en giltig e-postadress." }),
+  verifyCode: async (email, code) => {
+    if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: "invalid_code", message: "Koden har sex siffror." };
+    const { status } = await postJson("/api/dev-session", { email }).catch(() => ({ status: 500 }));
+    if (status !== 200) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
+    return hardNavigate(returnPath());
+  },
+  signOut: async () => undefined,
+};
 
 export function ClientRoot() {
   const router = useRouter();
@@ -20,36 +84,41 @@ export function ClientRoot() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/dev-session", { credentials: "same-origin" })
-      .then((res) => (res.ok ? res.json() : Promise.reject(new Error("session"))))
-      .then((body: { persona: Persona | null; personas: Persona[] }) => !cancelled && setLoaded({ persona: body.persona, personas: body.personas ?? [] }))
+    fetch("/api/session", { credentials: "same-origin", cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<SessionView>) : Promise.reject(new Error("session"))))
+      .then((view) => !cancelled && setLoaded({ view }))
       .catch(() => !cancelled && setLoaded({ error: true }));
     return () => {
       cancelled = true;
     };
   }, [version]);
 
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
+  // Utloggad under tiden (t.ex. efter 60 minuters inaktivitet): hämta sessionen igen, så leder appen till inloggningen.
+  const backend = useMemo<Backend>(() => {
+    const on401 = (e: unknown): never => {
+      if (e instanceof BackendError && e.status === 401) reload();
+      throw e;
+    };
+    return { mode: "app", query: (k, p) => httpBackend.query(k, p).catch(on401), command: (k, p) => httpBackend.command(k, p).catch(on401) };
+  }, [reload]);
+
   if (!loaded) return null;
-  if ("error" in loaded || !loaded.persona) return <p className="p-8">Inloggningen kunde inte hämtas.</p>;
-  const persona = loaded.persona;
-  const session: Session = {
-    actor: persona.actor,
-    user: persona.user,
-    personas: loaded.personas.map((p) => ({ userId: p.actor.userId, role: p.actor.role, name: p.user.name, title: p.user.title })),
-    // Utvecklingsläget: byt testperson. I produktion loggar man in med Microsoft eller e-postkod.
-    switchRole: async (role: Role, userId?: string) => {
-      await fetch("/api/dev-session", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ role, userId: userId ?? persona.actor.userId }),
-      });
+  if ("error" in loaded) return <p className="p-8">Inloggningen kunde inte hämtas. Ladda om sidan.</p>;
+  const { view } = loaded;
+  const session = buildSession(view, {
+    switchDev: async (role, userId) => {
+      await postJson("/api/dev-session", { role, userId });
       router.replace("/");
-      setVersion((v) => v + 1);
+      reload();
     },
-  };
+  });
+  if (!session) return <p className="p-8">Inloggningen kunde inte hämtas. Ladda om sidan.</p>;
+  const actor = session.actor;
   return (
     <RuntimeProvider mode="app">
-      <BackendProvider key={`${persona.actor.userId}|${persona.actor.role}`} backend={httpBackend}>
+      {view.backend === "supabase" && view.environment === "staging" && <StagingBar view={view} />}
+      <BackendProvider key={`${actor.userId}|${actor.role}`} backend={backend}>
         <SessionProvider session={session}>
           <Suspense>
             <NextNavProvider>
@@ -59,5 +128,85 @@ export function ClientRoot() {
         </SessionProvider>
       </BackendProvider>
     </RuntimeProvider>
+  );
+}
+
+function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: string) => Promise<void> }): Session | null {
+  if (view.backend === "memory") {
+    const persona = view.persona;
+    if (!persona) return null;
+    return {
+      actor: persona.actor,
+      user: persona.user,
+      personas: view.personas,
+      // Utvecklingsläget: byt testperson. I testmiljön och i drift loggar man in med e-postkod.
+      switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId),
+      auth: devAuth,
+    };
+  }
+  if (!view.authenticated || !view.persona) return { ...ANONYMOUS, auth: liveAuth };
+  const { actor, user } = view.persona;
+  return {
+    authenticated: true,
+    actor,
+    user,
+    auth: liveAuth,
+    isTester: view.isTester,
+    signOut: () => {
+      void liveAuth.signOut().then(() => hardNavigate(isCustomerRole(actor.role) ? "/portal/logga-in" : "/logga-in"));
+    },
+  };
+}
+
+/** Testmiljön: tydlig rad överst. Testaren väljer vilken testperson hen agerar som (bara i testmiljön). */
+function StagingBar({ view }: { view: SessionView }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const actor = view.persona?.actor;
+  const value = actor ? `${actor.userId}|${actor.role}` : "";
+  const date = view.testNow ? `${WEEKDAYS[weekday(view.testNow)]} ${fmtDateFull(view.testNow)}` : null;
+
+  const pick = async (v: string) => {
+    const [userId, role] = v.split("|");
+    setBusy(true);
+    setFailed(false);
+    const { status } = await postJson("/api/session/impersonate", { userId, role }).catch(() => ({ status: 500 }));
+    if (status === 200) return hardNavigate("/");
+    setBusy(false);
+    setFailed(true);
+  };
+
+  return (
+    <div
+      data-print="hide"
+      role="region"
+      aria-label="Testmiljö"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b-2 border-dashed border-antracit bg-ljusgra-ton2 px-4 py-1.5 text-small"
+    >
+      <span className="font-extrabold tracking-[0.06em] uppercase">Testmiljö</span>
+      <span>
+        Påhittade testdata{date ? ` · testdatum ${date}` : ""}
+      </span>
+      {view.isTester && view.personas.length > 0 && (
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <label htmlFor="test-persona" className="font-bold">
+            Agera som:
+          </label>
+          <select id="test-persona" className="w-auto max-w-full py-1.5 text-small font-semibold" value={value} disabled={busy} aria-busy={busy} onChange={(e) => void pick(e.target.value)}>
+            {view.personas.map((p) => (
+              <option key={`${p.userId}|${p.role}`} value={`${p.userId}|${p.role}`}>
+                {p.name} – {ROLE_LABEL[p.role]}
+              </option>
+            ))}
+          </select>
+          {view.impersonating && view.selfName && <span className="text-text-muted">Inloggad som {view.selfName} (testare)</span>}
+          {failed && (
+            <span role="alert" className="font-bold">
+              Testpersonen kunde inte väljas. Försök igen.
+            </span>
+          )}
+        </span>
+      )}
+    </div>
   );
 }
