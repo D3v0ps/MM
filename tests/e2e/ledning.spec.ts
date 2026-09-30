@@ -425,9 +425,10 @@ test("avtalsavvikelser: kommunens godkännande av åtgärdsplanen syns i detaljv
   await open(page, info, "/avtalsavvikelser/cd-3", CHEF);
   await expect(card(page, "Åtgärdsplan")).toContainText("Väntar på kommunens chef");
   await switchUser(page, info, "/portal/bestallarrapport", KOMMUN_CHEF);
-  const approve = page.getByRole("button", { name: /Godkänn/ });
-  test.skip((await approve.count().catch(() => 0)) === 0, "Kommunens godkännande av åtgärdsplaner (kommunportalen) är inte byggt ännu");
-  await approve.first().click();
+  // Kommunportalen frågar först (som prototypen): "Godkänn åtgärdsplanen?"
+  await main(page).getByRole("button", { name: "Godkänn åtgärdsplanen" }).first().click();
+  await page.getByRole("dialog").getByRole("button", { name: "Godkänn åtgärdsplanen" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await switchUser(page, info, "/avtalsavvikelser/cd-3", CHEF);
   await expect(main(page)).toContainText("Åtgärdsplan godkänd – pågår");
   await expect(main(page)).toContainText("Godkänd av kommunen (Eva Bergström)");

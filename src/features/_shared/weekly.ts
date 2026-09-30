@@ -8,6 +8,7 @@ import type { Ctx } from "@/api/server";
 import { addDays, fmtWeekKey, weekMonday, type WeekKey } from "@/core/time";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Report } from "@/data/schema";
+import { freezeReport } from "../rapporter/freeze";
 import { userEmail, userName } from "./context";
 
 export type WeeklyPublished = {
@@ -30,12 +31,15 @@ export async function weeklyComplete(ctx: Ctx, contractId: string, recipientId: 
   return weeklyReport({ cases, activities, attendance, deviations: [] }, recipientId, weekKey, { now: ctx.now() }).complete;
 }
 
-/** Leverera en väntande veckorapport till handläggaren automatiskt: status, revisionslogg och mejl utan personuppgifter. */
+/** Leverera en väntande veckorapport till handläggaren automatiskt: status, revisionslogg, ögonblicksbild och mejl utan
+ *  personuppgifter. Ögonblicksbilden (prototypens rap.snapshot efter automatisk publicering) fryser innehållet som
+ *  levererades – en senare ändring av närvaron ändrar inte den publicerade rapporten. */
 async function publishWeekly(ctx: Ctx, rep: Report, recipientId: string): Promise<WeeklyPublished> {
   const now = ctx.now();
   const weekKey = rep.week as WeekKey;
   await ctx.system.table("reports").update(rep.id, { status: "delivered", deliveredAt: now, approvedAt: now, deliveredTo: [recipientId] });
   await ctx.audit({ action: "report.published", entity: "report", entityId: rep.id, contractId: rep.contractId, details: { kind: "weekly_attendance", week: weekKey, automatic: true } });
+  await freezeReport(ctx, rep.id);
   await ctx.notify({ channel: "email", to: await userEmail(ctx, recipientId), template: "ny_rapport", body: `Veckorapporten för ${fmtWeekKey(weekKey)} finns i portalen – logga in för att läsa.`, caseId: null });
   const recipientName = await userName(ctx, recipientId);
   return { reportId: rep.id, weekKey, recipientId, recipientName, text: `Veckorapporten för ${fmtWeekKey(weekKey)} till ${recipientName} publicerades automatiskt.` };

@@ -16,7 +16,7 @@ import { assessmentSave, attendanceSet } from "@/features/coach/api";
 import { caseClose } from "@/features/arenden/api";
 import {
   reportApprove, reportCorrect, reportCorrectionNote, reportDeliver, reportDocument, reportList, reportOpen, reportQualityReview, reportSaveFinal, reportSaveSummary,
-  reportSnapshot, reportView, type ReportDocResult, type ReportView,
+  reportSnapshot, reportView, type ReportDocResult, type ReportView, type WeeklyModel,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -323,11 +323,28 @@ describe("7. veckorapport som väntar på närvaro", () => {
       const c = cases.find((x) => x.id === a.caseId)!;
       await run(attendanceSet, { activityId: a.id, status: "present" }, as(c.leadCoachId!, "coach"));
     }
-    expect(row("reports", WEEKLY_WAIT)!.status).toBe("delivered");
+    const pub = row("reports", WEEKLY_WAIT)!;
+    expect(pub.status).toBe("delivered");
+    // Publiceringen fryser rapporten direkt (prototypens rap.snapshot efter automatisk publicering) – ingen lat frysning behövs.
+    const snap = pub.snapshot as { reportId: string; takenAt: string; deliveredAt: string; model: WeeklyModel };
+    expect(snap).toMatchObject({ reportId: WEEKLY_WAIT, takenAt: pub.deliveredAt, deliveredAt: pub.deliveredAt, model: { kind: "weekly_attendance", week: r.week, recipientUserId: r.recipientUserId } });
+    expect(snap.model.sections.length).toBeGreaterThan(0);
+    expect(snap.model.sections.every((x) => cases.some((c) => c.id === x.caseId))).toBe(true);
+    // Alla passerade tillfällen i veckan är registrerade i den frysta versionen
+    const frozenRows = snap.model.sections.flatMap((x) => x.rows);
+    expect(frozenRows.length).toBe(acts.filter((a) => snap.model.sections.some((x) => x.caseId === a.caseId)).length);
     const sd = await okDoc(WEEKLY_WAIT, sara());
-    expect(sd.needsSnapshot).toBe(true);
-    await run(reportSnapshot, { reportIds: [WEEKLY_WAIT] }, sara());
-    expect((row("reports", WEEKLY_WAIT)!.snapshot as { reportId: string }).reportId).toBe(WEEKLY_WAIT);
+    expect(sd.needsSnapshot).toBe(false);
+    if (sd.doc.kind !== "weekly_attendance") throw new Error("fel typ");
+    expect(sd.doc.sections.length).toBe(sd.doc.total);
+    expect(sd.doc.sections.map((x) => x.caseId)).toEqual(snap.model.sections.map((x) => x.caseId));
+    expect(await run(reportSnapshot, { reportIds: [WEEKLY_WAIT] }, sara())).toMatchObject({ ok: true, reportIds: [] });
+    // En senare ändring av närvaron ändrar inte den publicerade veckorapporten
+    const md = await okDoc(WEEKLY_WAIT, as(r.recipientUserId!, "kommun_handlaggare"));
+    const changed = acts.find((a) => rows("attendance").some((y) => y.activityId === a.id && y.status === "present"))!;
+    const cc = cases.find((x) => x.id === changed.caseId)!;
+    expect(await run(attendanceSet, { activityId: changed.id, status: "absent_invalid", reason: "" }, as(cc.leadCoachId!, "coach"))).toMatchObject({ ok: true });
+    expect(text((await okDoc(WEEKLY_WAIT, as(r.recipientUserId!, "kommun_handlaggare"))).doc)).toBe(text(md.doc));
     // Handledaren kan läsa veckorapporten (närvaro)
     expect(await doc(WEEKLY_WAIT, petra())).toMatchObject({ ok: true, doc: { kind: "weekly_attendance" } });
   });
