@@ -95,7 +95,10 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 | `eskalering_chef` | Eskalering i Miljonmatch |
 | `inbjudan_kommun` | Inbjudan till Miljonbemannings portal |
 | `kallelse` | Kallelse till första möte |
+| `rostlank` | Spela in ett meddelande till din coach |
 | okänd mall eller saknat ärende | Meddelande från Miljonmatch |
+
+**Deltagarens inspelningslänk (`rostlank`):** skickas via deltagarens föredragna kontaktväg och aldrig vid skyddade personuppgifter (hanteraren `rost.linkSend`). Texten innehåller bara länken – inget namn och inget ärendenummer. Hanteraren skriver sökvägen `/rost/<token>`; `queueMessage` gör den till en fullständig adress med `MM_APP_URL` (`https://www.miljonmatch.se/rost/<token>`). Token är behörigheten och sparas **aldrig** i `outbound_messages.body` – där står `…/rost/•••••` (`src/core/link-tokens.ts`, samma i minnesläget). Ett mejl som ska skickas har hela texten i jobbets `payload.body` tills utskicket är avgjort (skickat, stoppat eller misslyckat); då tas den bort. Utskick till deltagare har i dag platshållaren `deltagare (SMS)`/`deltagare (e-post)` som mottagare och stoppas därför (`suppressed`) – SMS-leverantör och uppslag av deltagarens adress återstår.
 
 Foten: "Det här mejlet skickades automatiskt från Miljonmatch, Miljonbemanning AB. Skriv inte personnummer eller andra personuppgifter i e-post. Använd ärendenumret."
 
@@ -134,7 +137,7 @@ Konto, domän och DNS: se `docs/DRIFT.md` avsnitt 2. Dessutom:
 
 ## Bakgrundsjobb
 
-- Tabellen `jobs` (supabase/migrations/0009). `mm.claim_jobs(n)` hämtar jobb med `FOR UPDATE SKIP LOCKED`, sätter status `running`, ökar `attempts` och sätter `started_at`. Två körningar tar aldrig samma jobb. Ett jobb som fastnat i `running` i mer än tio minuter (avbruten körning) hämtas igen.
+- Tabellen `jobs` (supabase/migrations/0009). `mm.claim_jobs(n)` hämtar jobb med `FOR UPDATE SKIP LOCKED`, sätter status `running`, ökar `attempts` och sätter `started_at`. Två körningar tar aldrig samma jobb. Ett jobb som fastnat i `running` i mer än fem minuter (avbruten körning, t.ex. vid funktionens tidsgräns `maxDuration` 60 s) hämtas igen och tar upp arbetet på nytt. Avbröts även sista försöket ges jobbet upp (`failed`, "Jobbet avbröts innan det blev klart (serverns tidsgräns) – inga fler försök") – inget jobb blir kvar i `running`.
 - Lyckat jobb → `done`. Fel som är värda att försöka igen (nätverk, 429, 5xx, saknad konfiguration) → `queued` igen efter 1, 5, 15 och 60 minuter. Efter fem försök, eller vid fel som inte hjälper att försöka igen (t.ex. 422), → `failed`. Felorsaken sparas i `last_error` (och för utskick i `outbound_messages.status_reason`) – bara fasta texter, aldrig Resends feltext eller adresser.
 - Jobben är idempotenta: `send_message` skickar bara utskick med status `queued`.
 - `POST /api/jobs/run` (skyddad med `Authorization: Bearer <MM_JOBS_SECRET>`) kör högst 20 jobb (`?limit=` 1–50) och slutar hämta nya efter cirka 20 sekunder. Svaret innehåller bara antal:

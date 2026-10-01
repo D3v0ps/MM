@@ -1,6 +1,6 @@
 # Drift – så sätter du upp testmiljön (och senare produktion)
 
-*Version 2026-09-30. Testmiljön har bara påhittade testdata. Produktion byggs på samma sätt, men i ett eget Supabase-projekt och ett eget Vercel-projekt (se avsnitt 7).*
+*Version 2026-10-01. Testmiljön har bara påhittade testdata. Produktion byggs på samma sätt, men i ett eget Supabase-projekt och ett eget Vercel-projekt (se avsnitt 7).*
 
 ## Översikt
 
@@ -9,8 +9,9 @@ Webbläsaren ──► Vercel (Next.js, funktioner i Stockholm, arn1) ──► 
                         │                                                  │
                         └──► Resend (e-post, EU) ◄── Supabase Auth skickar inloggningskoden via Resend (SMTP)
 
-Appens adress:  test.miljonmatch.se (testmiljön, först Vercels egen adress *.vercel.app) · app.miljonmatch.se (produktion)
-                DNS för miljonmatch.se hos one.com – en CNAME per underdomän. www.miljonmatch.se rörs inte.
+Appens adress:  https://www.miljonmatch.se (testmiljön just nu – miljonmatch.se skickas vidare dit). När produktionen
+                startar: produktionen på miljonmatch.se, testmiljön på test.miljonmatch.se (SPEC §11, beslut 2026-10-01).
+                DNS för miljonmatch.se hos one.com (A-post och www-CNAME mot Vercel).
 E-post från:    notis@miljonbemanning.se via Resend (EU). DNS för miljonbemanning.se i Google Cloud DNS (Terraform).
 ```
 
@@ -20,17 +21,17 @@ E-post från:    notis@miljonbemanning.se via Resend (EU). DNS för miljonbemann
 - I testmiljön får **bara** adresserna i `MM_EMAIL_ALLOWLIST` (testarna) mejl – även inloggningskoder. Testdatat innehåller adresser på riktiga domäner (t.ex. botkyrka.se) som aldrig får få mejl. Med `MM_EMAIL_REDIRECT_TO` går testpersonernas mejl i stället till en testare, märkta med vem de skulle ha gått till.
 - Testarna (Karim och Ali) loggar in som sig själva och väljer sedan vilken testperson de agerar som i raden överst ("Agera som"). Det fungerar bara i testmiljön.
 
-## Läget 2026-09-30
+## Läget 2026-10-01
 
 | Del | Status |
 |---|---|
 | Supabase-projekt för testmiljön | Klart: `miljonmatch`, ref **`blxupsebzzhmjitaywev`**, eu-north-1 (Stockholm), `https://blxupsebzzhmjitaywev.supabase.co` |
-| Migrationer 0001–0014 | Applicerade i testprojektet av samordnaren (steg 1 nedan). **0013 går live samtidigt som koden** |
+| Migrationer 0001–0016 | 0001–0014 applicerade i testprojektet av samordnaren. **0015 (röstinspelning, bucketen `ljud`) och 0016 (ett svar per pulslänk) appliceras av samordnaren samtidigt som koden med röstinspelningen går live** (steg 1 nedan) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
-| Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter, egen SMTP via Resend. Kontrollera URL:erna (avsnitt 2.2) |
+| Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter, egen SMTP via Resend. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
 | Resend | Domänen `miljonbemanning.se` verifierad i EU. DNS-posterna ligger i Google Cloud DNS-zonen för miljonbemanning.se – de ska också in i Terraform-koden |
-| Vercel | Inte uppsatt (avsnitt 3) |
-| Domän `test.miljonmatch.se` | Inte uppsatt (avsnitt 3.4) |
+| Vercel | Projektet `miljonmatch` (avsnitt 3). Bolaget behöver **Pro** (Hobby får inte användas kommersiellt) – koden driftsätts ändå på båda nivåerna (`maxDuration` högst 60 sekunder) |
+| Domän `miljonmatch.se` | Pekar mot Vercel. `miljonmatch.se` skickas vidare till `www.miljonmatch.se`, som är appens adress (`MM_APP_URL`, avsnitt 3.4) |
 | AI (Gemini via Vertex AI, EU) | Inte uppsatt – testmiljön kör den simulerade leverantören tills kontot finns (avsnitt 10). Bucketen `ljud` skapas av migration 0015 |
 
 ## Vem gör vad
@@ -48,17 +49,17 @@ E-post från:    notis@miljonbemanning.se via Resend (EU). DNS för miljonbemann
 
 ## Så startar du testmiljön – exakt ordning
 
-1. **Migrationerna 0001–0014** – samordnaren: redan applicerade i testprojektet (MCP `apply_migration` med namnet utan `.sql`, t.ex. `0014_kvittenser`, i nummerordning – eller `npx supabase db push`, eller SQL-editorn). Kontroll: MCP `list_migrations` visar 0001–0014.
+1. **Migrationerna 0001–0016** – samordnaren: 0001–0014 är redan applicerade i testprojektet; **0015_rost och 0016_puls_unik** appliceras i samma veva som koden med röstinspelningen går live (MCP `apply_migration` med namnet utan `.sql`, t.ex. `0016_puls_unik`, i nummerordning – eller `npx supabase db push`, eller SQL-editorn). Före 0016: `select invite_id, count(*) from public.pulse_responses group by invite_id having count(*) > 1;` ska ge noll rader. Kontroll: MCP `list_migrations` visar 0001–0016 och *Storage* visar den privata bucketen `ljud`.
    **0013 måste gå live samtidigt som koden.** Efter 0013 läser appen ärenden via vyn `cases_public`, och inloggade kan bara läsa kolumnen `id` direkt i `cases`. En version av appen från före 0013 kan då inte läsa ärenden, och den här versionen fungerar inte utan 0013. Driftsätt därför koden (steg 4) i samma veva som 0013 – aldrig en äldre version mot databasen.
 2. **Vercel-import** – du: *Add New → Project → Import* GitHub-repot `miljonmatch` i bolagets team (Pro). Avsnitt 3.1.
 3. **Miljövariabler** – du: lägg in alla variabler i tabellen i avsnitt 5 (för *Production* och *Preview*). Skapa de hemliga nycklarna enligt tabellen.
-4. **Deploy** – du: *Deployments → Redeploy* (eller första driftsättningen efter importen). Kontrollera att funktionerna körs i **arn1**. Notera adressen, t.ex. `https://miljonmatch-test.vercel.app`.
-5. **URL:erna i Supabase Auth** – du: *Site URL* och *Redirect URLs* för Vercel-adressen (avsnitt 2.2). Sätt `MM_APP_URL` till samma adress och driftsätt igen om du ändrade den.
+4. **Deploy** – du: *Deployments → Redeploy* (eller första driftsättningen efter importen). Kontrollera att funktionerna körs i **arn1**.
+5. **URL:erna i Supabase Auth** – du: *Site URL* = `https://www.miljonmatch.se` (adressen som inte skickas vidare) och *Redirect URLs* enligt avsnitt 2.2. Sätt `MM_APP_URL` till samma adress (`https://www.miljonmatch.se`) och driftsätt igen om du ändrade den.
 6. **Startdata** – samordnaren: kör `supabase/bootstrap-staging.sql` (ca 16 kB) med MCP `execute_sql` (eller SQL-editorn). Den lägger in organisationer, avtal, avtalsområden, prislistor, helgdagar, testarna Karim och Ali (admin, testare) och `app_settings` (`environment = staging`, testklockan). Den kan köras igen och stoppar sig själv utanför testmiljön.
 7. **Kontroll** – samordnaren: `select * from app_settings;` ska visa `environment = staging` och två rader `clock_…`; `show timezone;` ska ge `Europe/Stockholm`; `select id, email, is_tester from profiles;` ska visa de två testarna.
 8. **Första inloggningen** – testaren: öppna `https://<adressen>/logga-in`, skriv `karim.khalil@miljonbemanning.se` → *Skicka kod* → skriv koden från mejlet → *Logga in*.
 9. **Testdatat** – testaren (som sig själv, rollen admin): gå till **Underbiträden och integrationer** (`/admin/integrationer`) → **Läs in testdata på nytt** → bekräfta. Det tar 10–30 sekunder. Sidan laddas om, testklockan står på måndag 1 februari 2027 kl. 09.12 och alla testpersoner finns i "Agera som".
-10. **Egen domän** – du, när ni vill: `test.miljonmatch.se` (avsnitt 3.4).
+10. **Domänen** – du: `miljonmatch.se` och `www.miljonmatch.se` i Vercel (avsnitt 3.4). Ändras vilken adress som skickas vidare: ändra `MM_APP_URL` och *Site URL* till den som inte skickas vidare.
 
 Knappen **Läs in testdata på nytt** kan användas när som helst för att börja om. Allt som testats nollställs för alla testare; revisionsloggen och testarnas inloggning finns kvar. Knappen syns bara för testare i testmiljön.
 
@@ -68,7 +69,7 @@ Knappen **Läs in testdata på nytt** kan användas när som helst för att bör
 
 Projektet finns redan (se `docs/MILJOER.md`): ref `blxupsebzzhmjitaywev`, region **eu-north-1 (Stockholm)**. Kontrollera regionen under *Project Settings → General*.
 
-1. **Migrationerna** ligger i `supabase/migrations/` (0001–0014). I testprojektet är de redan applicerade av samordnaren. **0013 måste gå live samtidigt som koden** (se steg 1 i "exakt ordning" ovan). Kör dem i ordning: MCP `apply_migration`, eller
+1. **Migrationerna** ligger i `supabase/migrations/` (0001–0016). I testprojektet har samordnaren applicerat 0001–0014; 0015 och 0016 appliceras när koden med röstinspelningen går live. **0013 måste gå live samtidigt som koden** (se steg 1 i "exakt ordning" ovan). Kör dem i ordning: MCP `apply_migration`, eller
    ```
    npx supabase login
    npx supabase link --project-ref blxupsebzzhmjitaywev
@@ -129,8 +130,8 @@ content_path = "./supabase/templates/otp.html"
 
 | Inställning | Testmiljön | Produktion (senare) |
 |---|---|---|
-| Site URL | Först Vercels adress, t.ex. `https://miljonmatch-test.vercel.app`. När domänen finns: `https://test.miljonmatch.se` | `https://app.miljonmatch.se` |
-| Redirect URLs | `https://*.vercel.app/**` (eller den exakta Vercel-adressen med `/**`), `https://test.miljonmatch.se/**`, `http://localhost:3000/**` | `https://app.miljonmatch.se/**` |
+| Site URL | `https://www.miljonmatch.se` – den adress som **inte** skickas vidare (just nu skickas `miljonmatch.se` till `www`). Samma som `MM_APP_URL` | Produktionens adress som inte skickas vidare (SPEC §11: `miljonmatch.se` när produktionen startar) |
+| Redirect URLs | `https://www.miljonmatch.se/**`, `https://miljonmatch.se/**`, förhandsadresserna `https://*-ai-projekts-projects.vercel.app/**`, `http://localhost:3000/**` | Produktionens båda adresser (med och utan `www`) med `/**` – inga förhandsadresser |
 
 Inloggningen använder kod, inte länk, så URL:erna används bara av Supabase för säkerhetskontroller – men de ska ändå stämma.
 
@@ -139,7 +140,7 @@ Inloggningen använder kod, inte länk, så URL:erna används bara av Supabase f
 ## 3. Vercel (appen)
 
 ### 3.1 Projektet
-1. Bolagets team i Vercel. **Vercels gratisnivå (Hobby) får inte användas kommersiellt** – bolaget behöver **Pro**.
+1. Bolagets team i Vercel. **Vercels gratisnivå (Hobby) får inte användas kommersiellt** – bolaget behöver **Pro**. Koden fungerar ändå på båda nivåerna: alla rutter har `maxDuration` högst 60 sekunder (en högre gräns stoppar hela driftsättningen på Hobby). Långa inspelningar (över cirka 10 minuter) kan behöva Pro med `maxDuration` 300 för `/api/rpc` och `/api/jobs/run` – se avsnitt 10, "Tidsgränser".
 2. *Add New → Project → Import* GitHub-repot `miljonmatch`. Ramverket känns igen som Next.js; bygg- och startkommandon ändras inte. Bygget kräver inga hemligheter.
 3. Region: `vercel.json` innehåller `"regions": ["arn1"]`. Kontrollera efter första driftsättningen under *Settings → Functions* att regionen är **Stockholm (arn1)** – aldrig iad1 (USA).
 4. Slå **inte** på Vercel Analytics eller Speed Insights (inga analysverktyg med personuppgifter, CLAUDE.md).
@@ -154,14 +155,14 @@ Inloggningen använder kod, inte länk, så URL:erna används bara av Supabase f
 4. Välj testperson i "Agera som" (t.ex. Sara Lindqvist – samordnare, Maria Ekdahl – kommunens handläggare). Sidan laddas om som den personen.
 5. Kommunens portal: `/portal/logga-in`. I testmiljön loggar testarna in som sig själva och väljer en kommunperson i "Agera som".
 
-### 3.4 Egen domän: `test.miljonmatch.se`
-DNS för **miljonmatch.se** ligger hos **one.com**. Rör inte `www.miljonmatch.se` (befintlig webbplats) eller domänens namnservrar.
-1. Vercel: *Settings → Domains → Add* `test.miljonmatch.se`. Vercel visar ett CNAME-värde (t.ex. `cname.vercel-dns.com` eller ett projektunikt värde).
-2. one.com: *DNS-inställningar* för miljonmatch.se → lägg till en **CNAME**-post med namnet `test` och **exakt** värdet Vercel visar.
-3. Vänta tills Vercel visar *Valid Configuration* (certifikatet skapas automatiskt).
-4. Ändra `MM_APP_URL` i Vercel till `https://test.miljonmatch.se` och *Site URL* i Supabase Auth (avsnitt 2.2). Driftsätt igen.
+### 3.4 Domänen: `miljonmatch.se` (beslut 2026-10-01, SPEC §11)
+DNS för **miljonmatch.se** ligger hos **one.com** (A-post och `www`-CNAME mot Vercel). Den gamla webbsidan ersätts av appen. Rör inte domänens namnservrar.
+1. Vercel: *Settings → Domains*: `miljonmatch.se` och `www.miljonmatch.se`. Just nu skickas `miljonmatch.se` vidare till **`www.miljonmatch.se`** – det är appens adress.
+2. Vänta tills Vercel visar *Valid Configuration* för båda (certifikaten skapas automatiskt).
+3. `MM_APP_URL` i Vercel = `https://www.miljonmatch.se` och *Site URL* i Supabase Auth = samma adress – alltid den adress som **inte** skickas vidare. Båda adresserna och förhandsadresserna (`https://*-ai-projekts-projects.vercel.app/**`) finns bland *Redirect URLs* (avsnitt 2.2). Driftsätt igen efter ändrade variabler.
+4. Kontroll: länken i ett testmejl (t.ex. "Logga in i portalen") ska gå till `https://www.miljonmatch.se/portal`, och deltagarens inspelningslänk till `https://www.miljonmatch.se/rost/…`.
 
-Produktion får på samma sätt `app.miljonmatch.se` (CNAME `app` hos one.com) i sitt eget Vercel-projekt.
+När produktionen startar tar den över `miljonmatch.se` i sitt eget Vercel-projekt, och testmiljön flyttar till `test.miljonmatch.se` (CNAME `test` hos one.com) – då ändras `MM_APP_URL` och *Site URL* i båda miljöerna.
 
 ---
 
@@ -193,7 +194,7 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 |---|---|---|---|---|
 | `MM_BACKEND` | | Körläge: `memory` (påhittade testdata i minnet – lokalt och e2e) eller `supabase` (testmiljön och produktion) | `supabase` | Fast värde |
 | `MM_CLOCK` | | Tomt = testtid när `app_settings` har testklockans epoker. `real` = riktig tid | *(tomt)* · produktion `real` | Fast värde |
-| `MM_APP_URL` | | Appens adress utan `/` på slutet – länkarna i mejlen | `https://test.miljonmatch.se` (först `https://miljonmatch-test.vercel.app`) | Vercel → *Domains* |
+| `MM_APP_URL` | | Appens adress utan `/` på slutet – den som **inte** skickas vidare. Länkarna i mejlen och deltagarens inspelningslänk (`/rost/…`) | `https://www.miljonmatch.se` | Vercel → *Domains* |
 | `SUPABASE_URL` | | Supabase-projektets adress (`NEXT_PUBLIC_SUPABASE_URL` från Vercels Supabase-integration fungerar också) | `https://blxupsebzzhmjitaywev.supabase.co` | Supabase → *Project Settings → API* · `docs/MILJOER.md` |
 | `SUPABASE_PUBLISHABLE_KEY` | | Publik nyckel, används bara på servern (`SUPABASE_ANON_KEY` fungerar också) | `sb_publishable_…` | Supabase → *Project Settings → API Keys* · `docs/MILJOER.md` |
 | `SUPABASE_SECRET_KEY` | **ja** | Service role – bara systemsteg på servern: revisionslogg, inloggningens uppslag, utskick, bakgrundsjobb, inläsning av testdata (`SUPABASE_SERVICE_ROLE_KEY` fungerar också) | `sb_secret_…` | Supabase → *Project Settings → API Keys* |
@@ -253,9 +254,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 ## 7. Produktion (senare)
 
 - Nytt Supabase-projekt i **eu-north-1** och ett **eget Vercel-projekt**, så att förhandsversioner (Preview) aldrig kan peka mot produktionsdatabasen.
-- Samma migrationer (0001–0014, i nummerordning), **ingen seed och inget startdata**. Kör dem precis före den första driftsättningen – 0013 och koden hör ihop (steg 1 i "exakt ordning"). `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knappen för testdata syns inte.
+- Samma migrationer (0001–0016, i nummerordning), **ingen seed och inget startdata**. Kör dem precis före den första driftsättningen – 0013 och koden hör ihop (steg 1 i "exakt ordning"). `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knappen för testdata syns inte.
 - `MM_CLOCK=real`, `MM_EMAIL_ALLOWLIST` tom, `MM_EMAIL_REDIRECT_TO` tom, `MM_EMAIL_REPLY_TO=avrop@miljonbemanning.se`, egna nycklar för personnummer, jobb och inloggning.
-- Domän `app.miljonmatch.se` (CNAME `app` hos one.com), Site URL och `MM_APP_URL` därefter.
+- Domän `miljonmatch.se` (SPEC §11 – testmiljön flyttar då till `test.miljonmatch.se`). *Site URL* och `MM_APP_URL` = den adress som inte skickas vidare; båda adresserna bland *Redirect URLs*, inga förhandsadresser.
 - DPA med Resend (och övriga underbiträden) innan riktiga personuppgifter.
 - AI: ett **eget Google Cloud-projekt** för produktion med eget tjänstekonto och egen nyckel (avsnitt 10). `MM_AI_PROVIDER=vertex` – utan den är AI avstängd i produktion (den simulerade körs aldrig där).
 
@@ -264,7 +265,7 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 - [ ] Hemliga nycklar finns bara i Vercel (och SMTP-lösenordet i Supabase, jobbnyckeln i Supabase Vault) – aldrig i repot, chatten eller loggar.
 - [ ] Inga variabler med hemligheter har prefixet `NEXT_PUBLIC_`.
 - [ ] Funktionerna körs i arn1 (Stockholm), databasen i eu-north-1.
-- [ ] Vercel Pro (inte Hobby).
+- [ ] Vercel Pro (inte Hobby) – kommersiell användning kräver Pro. `maxDuration` högst 60 sekunder tills ni bestämt annat (avsnitt 10, "Tidsgränser").
 - [ ] Självregistrering är avstängd i Supabase Auth, e-postmallen visar bara koden.
 - [ ] Testmiljön har bara påhittade testdata och `MM_EMAIL_ALLOWLIST` är satt.
 - [ ] Click och open tracking är avstängda i Resend.
@@ -287,7 +288,7 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Fel tid i appen | `show timezone;` och raderna `clock_…` i `app_settings`. `MM_CLOCK=real` ger riktig tid |
 | Utloggad oväntat | 60 minuter utan aktivitet eller 12 timmar sedan inloggningen – så ska det vara |
 | "AI-stödet är inte tillgängligt just nu" / inspelning går inte att starta | `MM_AI_PROVIDER` och övriga AI-variabler (avsnitt 10). Vercels logg visar `ai: AI-stödet är avstängt – …` med orsaken (utan hemligheter). I produktion är AI av tills `MM_AI_PROVIDER=vertex` |
-| Transkriberingen blir aldrig klar | `jobs` (`select kind, status, attempts, last_error from jobs order by created_at desc limit 20;`). 403/404 från Vertex AI: fel projekt, modell eller roll. "AI-tjänsten svarar inte": tillfälligt – jobbet försöks igen upp till fem gånger |
+| Transkriberingen blir aldrig klar | `jobs` (`select kind, status, attempts, started_at, last_error from jobs order by created_at desc limit 20;`). 403/404 från Vertex AI: fel projekt, modell eller roll. "AI-tjänsten svarar inte": tillfälligt – jobbet försöks igen upp till fem gånger. Ett jobb som står i `running` tas upp igen efter fem minuter. "Jobbet avbröts innan det blev klart (serverns tidsgräns)": inspelningen hann inte transkriberas inom 60 sekunder fem gånger – se "Tidsgränser" i avsnitt 10 |
 
 ---
 
@@ -313,5 +314,5 @@ Beslut 2026-09-30 (`docs/PLAN-ROST.md`): **Gemini Flash via Vertex AI, EU multi-
 9. **Vercel** – sätt `MM_AI_PROVIDER=vertex`, `MM_AI_MODEL`, `GOOGLE_VERTEX_PROJECT`, `GOOGLE_SERVICE_ACCOUNT_KEY` och `MM_AI_PRICES` (avsnitt 5) och driftsätt igen.
 10. **Kontroll** – spela in en kort testavstämning i testmiljön (agera som coachen Amira, ärendet BOT-26-0143 som har samtycke). Efter en stund: `select provider, model, status, audio_seconds, cost_ore, input_deleted_at from ai_runs order by created_at desc limit 1;` ska visa `vertex_eu`, status `succeeded` och en tid i `input_deleted_at` (ljudet raderat). `select status from audio_uploads order by created_at desc limit 1;` ska visa `deleted`. Vercels logg ska inte visa `ai: AI-stödet är avstängt`.
 
-**Tidsgränser:** en transkribering av en timmes ljud kan ta någon minut. Jobbet körs direkt efter svaret (after()) och annars av `/api/jobs/run`; funktionerna behöver få köra upp till 300 sekunder (Vercel Pro). Längsta inspelning styrs av avtalet (`ai.maxMinutes`, Botkyrka: coachen 60, kommunen och deltagaren 5 minuter). Ljud över cirka 15 MB (ungefär en timme i 32 kbit/s) transkriberas inte.
+**Tidsgränser:** alla rutter har `maxDuration` **högst 60 sekunder** (`/api/rpc`, `/api/jobs/run`, `/api/staging/seed`) – teamet kan vara på Vercels Hobby-nivå, där en högre gräns stoppar hela driftsättningen. Transkriberingen körs direkt efter svaret (after(), inom `/api/rpc`:s 60 sekunder) och annars av `/api/jobs/run` (cron varje minut). Avbryts ett jobb vid tidsgränsen står det kvar i `running` och tas upp igen efter **fem minuter** (`STALE_MINUTES` i `src/server/jobs/runner.ts`); avbryts även femte försöket ges jobbet upp (`failed`, "Jobbet avbröts innan det blev klart …", coachen ser "Inspelningen är för lång för att transkriberas" och fyller i själv) – inget jobb blir hängande. Korta inspelningar (kommunen och deltagaren, högst 5 minuter) och de flesta avstämningar klarar sig inom 60 sekunder. **Långa inspelningar (över cirka 10 minuter) kan behöva Vercel Pro med `maxDuration` 300** för `/api/rpc` och `/api/jobs/run` – höj då också `STALE_MINUTES` till minst 10. Längsta inspelning styrs av avtalet (`ai.maxMinutes`, Botkyrka: coachen 60, kommunen och deltagaren 5 minuter). Ljud över cirka 15 MB (ungefär en timme i 32 kbit/s) transkriberas inte.
 

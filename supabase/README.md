@@ -21,6 +21,8 @@ Supabase-projekten (staging och produktion, båda i **eu-north-1 Stockholm**) sk
 | `migrations/0012_inloggningsgrans.sql` | `mm.login_attempt_gate()` (och `public.login_attempt_gate` för `.rpc`): inloggningens gränser kontrolleras och försöket registreras i samma transaktion, med lås per adress och IP. Bara service role |
 | `migrations/0013_arenden_vy.sql` | Vyn `cases_public`: detaljerna (plats, mötestider, bakgrund) döljs i skyddade ärenden (`restricted`) och för ekonomen (`billing`). Direkt läsning av `cases` bara kolumnen `id` |
 | `migrations/0014_kvittenser.sql` | Triggrar på `reports` och `messages`: kommunens kvittens ändrar bara `opened_at`/`opened_by`, läskvittot bara `read_by`/`read_at` |
+| `migrations/0015_rost.sql` | Röstinspelning (SPEC §8, `docs/PLAN-ROST.md`): `voice_links` (deltagarens länk `/rost/:token`, bara tokenhash), `participant_voice_notes`, `audio_uploads` (spåret – aldrig ljudet) + privat bucket **`ljud`** (högst 25 MB, bara ljud, inga policyer på `storage.objects`) |
+| `migrations/0016_puls_unik.sql` | Unik nyckel på `pulse_responses.invite_id` – ett svar per pulslänk, även när två svar kommer samtidigt (ersätter indexet från 0007) |
 | `seed.sql` | **Genererad** testdata (samma som prototypen) + testarna + testmiljöns inställningar. Ändra aldrig för hand. För lokal Postgres och RLS-testerna (2,9 MB – för stor för MCP) |
 | `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 16 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, testarna och `app_settings`. Idempotent |
 | `../scripts/db/columns.ts` | Facit för kolumnerna (kontrolleras mot `src/data/schema.ts` vid kompilering och mot databasen i testet) |
@@ -40,14 +42,14 @@ npx vitest run src/data/supabase/rls-parity.test.ts src/server/staging/load.test
 
 ### 1. Migrationerna (staging och produktion)
 
-Migrationerna är 0001–0014. I testprojektet (`blxupsebzzhmjitaywev`) är de redan applicerade av samordnaren.
+Migrationerna är 0001–0016. I testprojektet (`blxupsebzzhmjitaywev`) har samordnaren applicerat 0001–0014; **0015 och 0016 appliceras av samordnaren** i samma veva som koden med röstinspelningen går live (före 0016: kontrollera att `select invite_id, count(*) from public.pulse_responses group by invite_id having count(*) > 1;` ger noll rader).
 
 **0013 måste gå live samtidigt som koden.** Efter 0013 läser SupabaseRepo `cases` via vyn `cases_public`, och inloggade får bara läsa kolumnen `id` direkt i tabellen. En äldre version av appen kan då inte läsa ärenden, och den här versionen fungerar inte utan 0013. Driftsätt koden i samma veva som 0013 (ordningen: `docs/DRIFT.md`, "Så startar du testmiljön"). I produktion körs alla migrationer precis före den första driftsättningen.
 
 Kör filerna i nummerordning, en i taget. Tre sätt – välj ett:
 
 - **Supabase CLI:** `supabase link --project-ref <ref>` och sedan `supabase db push`. CLI:t läser `supabase/migrations/` och sparar vilka som körts.
-- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0014.
+- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0016.
 - **SQL-editorn:** klistra in och kör varje fil i ordning.
 
 Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Stockholm`. (Inställningen gäller nya anslutningar – starta om projektet eller vänta tills anslutningspoolen förnyats innan appen skriver tider.)
@@ -94,7 +96,7 @@ Seeden:
 
 - **Data API:** exponera bara schemat `public` (standard). Schemat `mm` ska inte exponeras – policyerna anropar funktionerna där direkt.
 - **Auth:** stäng självregistrering. Servern skapar kontot (service role) när en inbjuden profil loggar in första gången och sätter `profiles.auth_user_id` (se `docs/DRIFT.md`).
-- **Storage:** bucketarna `inbound-emails` och `reports` skapas privata av migrationerna. Inga policyer på `storage.objects` – bara servern (service role) läser och skriver.
+- **Storage:** bucketarna `inbound-emails`, `reports` och `ljud` (0015) skapas privata av migrationerna. Inga policyer på `storage.objects` – bara servern (service role) läser och skriver; ljudet laddas upp av webbläsaren med en signerad adress som servern skapar.
 - Advisors kan varna för att några rena hjälpfunktioner saknar fast `search_path` (`mm.member_in`, `mm.case_access_level`, `mm.unit_covers`, `mm.customer_scope`, `mm.customer_safe_config`, rollistorna). Det är avsiktligt: de läser inga tabeller och måste kunna bakas in i frågan av planeraren (en `set search_path` stoppar det och gör RLS långsamt). Alla funktioner som läser tabeller är `security definer` med `set search_path = public, mm` och schemakvalificerade tabellnamn. "RLS enabled, no policy" för `app_settings` och `login_attempts` är också avsiktligt (bara service role).
 
 ## Namn och typer
@@ -188,11 +190,11 @@ Varför inte neka kommunen och läsa via `ctx.system`: då skulle hanterare som 
 ### Övriga beslut
 
 - **Främmande nycklar** bara där värdet alltid är en befintlig rad: ärende, avtal, person, organisation, fakturautkast, aktivitet, pulslänk, arbetsgivare, samt `memberships.user_id`, `case_team.user_id`, `cases.lead_coach_id`, `cases.referrer_id`, `case_seen`. Inga nycklar på användar-id som kan vara `system` (`changed_by`, `created_by`, `from_id`, `actor_id` …) eller på valfria korslänkar (`ai_run_id`, `source_email_id`, `check_in_id` …).
-- **Unika:** `cases.case_number`, `contract_areas (contract_id, code)`, `case_counters (contract_id, year)`, `memberships (user_id, contract_id, role)`, `profiles.email` (icke tom), `profiles.auth_user_id`, `pulse_invites.token_hash`, `invoice_drafts.fortnox_idempotency_key`, `holidays.date`.
+- **Unika:** `cases.case_number`, `contract_areas (contract_id, code)`, `case_counters (contract_id, year)`, `memberships (user_id, contract_id, role)`, `profiles.email` (icke tom), `profiles.auth_user_id`, `pulse_invites.token_hash`, `pulse_responses.invite_id` (0016 – ett svar per länk; `puls.submit` svarar "Länken är redan använd" när databasen stoppar ett andra svar), `invoice_drafts.fortnox_idempotency_key`, `holidays.date`.
 - **Inga avtalsvärden i databasen** (CLAUDE.md punkt 4): format på beställarreferens och inköpsordernummer valideras i appen mot `contracts.config`.
 - **Pulslänken:** deltagaren har ingen inloggning (rollen `anon`, inga rättigheter). Hanteraren `puls.submit` kontrollerar först token (hash, giltighet, oanvänd, inte skyddat ärende) och skriver sedan svaret, att länken är använd, uppgiften till samordnaren och revisionsloggen med service role (`ctx.system` – systemsteg, motsvarar en `security definer`-funktion). Policyn `pulse_responses_insert` används bara när en testare agerar som deltagaren. Lågt betyg till chefen räknas fram ur `pulse_responses` med chefens egen behörighet.
 - **Revisionsloggen** är append-only: triggern `audit_log_append_only` stoppar `update` och `delete` för alla roller, även service role. `insert` bara för service role. Bara seeden tömmer den (`truncate`, som `postgres`).
-- **Bakgrundsjobb:** `mm.claim_jobs(n, p_now, p_max_attempts = 5, p_stale_after = '10 minutes')` – och samma funktion som `public.claim_jobs` för `.rpc("claim_jobs", { n })` – hämtar köade jobb vars `run_after` passerats (och jobb som fastnat i `running`), med `FOR UPDATE SKIP LOCKED`, sätter `running`, ökar `attempts` och sätter `started_at`. Tiden är `p_now` eller `mm.app_now()` (testtid i testmiljön, riktig tid i produktion) – jobb får `run_after` från `ctx.now()`, som är testtid i testmiljön. Bara service role får anropa.
+- **Bakgrundsjobb:** `mm.claim_jobs(n, p_now, p_max_attempts = 5, p_stale_after = '10 minutes')` – och samma funktion som `public.claim_jobs` för `.rpc("claim_jobs", { n })` – hämtar köade jobb vars `run_after` passerats (och jobb som fastnat i `running`), med `FOR UPDATE SKIP LOCKED`, sätter `running`, ökar `attempts` och sätter `started_at`. Tiden är `p_now` eller `mm.app_now()` (testtid i testmiljön, riktig tid i produktion) – jobb får `run_after` från `ctx.now()`, som är testtid i testmiljön. Bara service role får anropa. Appen skickar `p_stale_after = '5 minutes'` (rutterna har `maxDuration` 60 s) och `p_max_attempts` = 6: ett jobb vars **sista** försök avbröts mitt i hämtas då också, och appen ger upp det (`failed`) i stället för att köra det igen – inget jobb blir kvar i `running` (`src/server/jobs/runner.ts`).
 - **Löpnummer:** `public.next_case_number(contract_id, year)` (service role) räknar upp `case_counters` med radlås. Hanterarna använder i dag `ctx.system` + `case_counters`; `cases.case_number` är unik så att en krock ger fel i stället för dubbletter.
 - **Tidszon:** `alter database … set timezone to 'Europe/Stockholm'` i 0001 och `set timezone` överst i `seed.sql`. Seeden skriver tider som `'2027-02-01T09:12'` (Stockholmstid). Testet visar att alla tider läses tillbaka som samma lokala tid, både vintertid (+01) och sommartid (+02).
 - `holidays` fylls av seeden (2026–2027). Hanterarna räknar helgdagar i `src/core/holidays.ts` och läser inte tabellen.
@@ -212,6 +214,6 @@ PGlite med en minimal Supabase-stubbe (`src/data/supabase/pglite.ts`: rollerna, 
 - `seed.sql` är genererad från nuvarande testdata; kolumnerna (namn, typ, nullbarhet) är exakt `scripts/db/columns.ts`; varje tabell har RLS; `anon` har inga rättigheter.
 - **Läsning:** för varje testperson i `listPersonas()` (alla roller, alla användare, deltagaren och testarna) och varje tabell är antalet synliga rader lika med `MemoryRepo` + `POLICIES`. Id-mängderna för `cases`, `reports`, `messages` och `check_ins` är lika, och `current_actor()` är samma aktör som `actorFor()`. `mm.case_access` är lika med `caseAccess` för varje ärende.
 - **Skrivning:** för varje testperson och tabell, ändring av rader den får och inte får läsa, och en ny rad: databasen tillåter exakt det som policy.ts tillåter.
-- Särskilda fall: kommunen kan inte ändra ärenden den inte beställt (chefen inga alls). Kommunen kan skapa meddelanden bara i egna ärenden och i eget namn. Ingen kan ändra revisionsloggen, inte ens service role. Testaren kan agera som testperson bara i testmiljön. Inloggningskolumnerna skyddas. `claim_jobs`, `next_case_number` och testklockan fungerar.
+- Särskilda fall: kommunen kan inte ändra ärenden den inte beställt (chefen inga alls). Kommunen kan skapa meddelanden bara i egna ärenden och i eget namn. Ingen kan ändra revisionsloggen, inte ens service role. Testaren kan agera som testperson bara i testmiljön. Inloggningskolumnerna skyddas. `claim_jobs`, `next_case_number` och testklockan fungerar. Röstinspelningens tabeller (0015) och ett svar per pulslänk (0016).
 
 Testet tar ca 45 sekunder.
