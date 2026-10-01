@@ -257,7 +257,8 @@ handleCommand(linkSend, { roles: VOICE_WORKERS }, async (ctx, p) => {
   // utskicksadaptern slår upp numret eller adressen via ärendet.
   await ctx.notify({ channel: check.channel, to: CHANNEL_TO[check.channel], template: "rostlank", body: `${linkMessageText(days)} ${path}`, caseId: c.id });
   await ctx.audit({ action: "voice.link_sent", entity: "voice_link", entityId: link.id, contractId: c.contractId, details: { caseId: c.id, channel: check.channel, language: p.language } });
-  return ok({ linkId: link.id, path, expiresAt: link.expiresAt, channel: check.channel });
+  // Sökvägen (med token) lämnas bara ut i minnesläget/prototypen – aldrig från servern i supabase-läget.
+  return ok({ linkId: link.id, path: ctx.exposeLinkPaths ? path : null, expiresAt: link.expiresAt, channel: check.channel });
 });
 
 handleCommand(noteReview, { roles: VOICE_WORKERS }, async (ctx, p) => {

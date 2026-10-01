@@ -35,5 +35,11 @@ export type Actor = {
   contractIds: string[];
   /** Kommunens enhet (för behörighet "unit" i avtalskonfigurationen). */
   customerUnit?: string | null;
+  /**
+   * Bara testmiljön: den inloggade testarens egen profil (profiles.id) – även när testaren agerar som en testperson.
+   * Sätts av servern när databasen säger mm.auth_is_tester() (testare OCH app_settings.environment = 'staging').
+   * Saknas alltid i produktion, i minnesläget och i prototypen. Styr bara testarnas egna funktioner (synpunkter).
+   */
+  testerId?: string;
 };
 export const SYSTEM_ACTOR: Actor = { userId: "system", role: "admin", contractIds: [] };

@@ -60,7 +60,7 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 ## Svarsadress (`MM_EMAIL_REPLY_TO`)
 
 - Produktion: `avrop@miljonbemanning.se`. Då hamnar svar på ordererkännandet (och andra mejl) i avropsflödet – mejl är kommunens formella beställningskanal (CLAUDE.md punkt 10).
-- Testmiljön: tom. Svar går då till avsändaren `notis@miljonbemanning.se`.
+- Testmiljön: tom. Svar går då till avsändaren `notis@miljonmatch.se`, som inte tar emot e-post (miljonmatch.se har null-MX) – sätt en testares adress om ni vill se svaren.
 - Skickas till Resend som `reply_to`.
 
 ## Kontroller före varje mejl
@@ -118,7 +118,7 @@ Supabase Auth skickar koden själv via Resend (SMTP, se `docs/DRIFT.md` steg 1.2
 | Namn | Hemlig | Förklaring |
 |---|---|---|
 | `RESEND_API_KEY` | **ja** | Resends API-nyckel med bara sändrätt för domänen. Saknas den (eller `MM_EMAIL_FROM`) står mejlen kvar i kön och jobbet försöker igen |
-| `MM_EMAIL_FROM` | | Avsändare, t.ex. `Miljonmatch <notis@miljonbemanning.se>`. Domänen måste vara verifierad i Resend |
+| `MM_EMAIL_FROM` | | Avsändare: `Miljonmatch <notis@miljonmatch.se>` (beslut 2026-10-01). Domänen måste vara verifierad i Resend |
 | `MM_APP_URL` | | Appens adress utan `/` på slutet – knappen i mejlen |
 | `MM_EMAIL_ALLOWLIST` | | Testmiljön: adresser eller `@domäner` som får mejl. Tom i produktion |
 | `MM_EMAIL_REDIRECT_TO` | | Bara testmiljön: testarens adress som får mejlen till testpersoner (måste finnas i `MM_EMAIL_ALLOWLIST`). Ignoreras i produktion |
@@ -129,8 +129,8 @@ Supabase Auth skickar koden själv via Resend (SMTP, se `docs/DRIFT.md` steg 1.2
 ## Resend
 
 Konto, domän och DNS: se `docs/DRIFT.md` avsnitt 2. Dessutom:
-- *Domains → miljonbemanning.se → Configuration*: stäng av **Click tracking** och **Open tracking**. Spårning skriver om länkarna och lägger in en pixel – det är ett analysverktyg och ska inte användas (CLAUDE.md).
-- API-nyckeln för appen: *Sending access*, bara domänen `miljonbemanning.se`.
+- *Domains → miljonmatch.se → Configuration*: stäng av **Click tracking** och **Open tracking**. Spårning skriver om länkarna och lägger in en pixel – det är ett analysverktyg och ska inte användas (CLAUDE.md).
+- API-nyckeln för appen: *Sending access*, bara domänen `miljonmatch.se`.
 - Resend hanterar mottagarnas e-postadresser (personuppgifter om kommunens och Miljonbemannings personal). Teckna Resends personuppgiftsbiträdesavtal (DPA) innan produktion.
 - Varje mejl skickas med huvudet `Idempotency-Key` = utskickets id. Ett nytt försök med samma utskick inom 24 timmar blir aldrig ett andra mejl.
 - Appen pausar 0,5 sekunder mellan mejlen för att hålla sig under Resends gräns för anrop per sekund. Svar 429 (för många anrop eller kvoten slut) försöks igen senare.
@@ -254,7 +254,7 @@ I Resend: *Emails* visar varje mejl som skickats och om det levererats.
 | `failed` med "Resend svarade 401 …" | Fel eller spärrad API-nyckel |
 | `net._http_response` visar 401 | Nyckeln i Vault och `MM_JOBS_SECRET` i Vercel är olika – eller adressen pekar på en skyddad förhandsversion |
 | `net._http_response` visar 503 | `MM_JOBS_SECRET` saknas i Vercel eller är kortare än 16 tecken |
-| Mejlet hamnar i skräpposten | SPF, DKIM och DMARC för `send.miljonbemanning.se` (Resend → *Domains* ska visa *Verified*) |
+| Mejlet hamnar i skräpposten | SPF och DKIM för `send.miljonmatch.se` (Resend → *Domains* ska visa *Verified*) och DMARC-posten `_dmarc.miljonmatch.se` hos one.com |
 
 ## Kod
 

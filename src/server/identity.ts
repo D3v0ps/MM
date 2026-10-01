@@ -76,7 +76,11 @@ export async function resolveIdentity(store: IdentityStore, environment: Environ
   if (!self || !self.active) return null;
 
   // Aktören exakt som databasen ser den. Namn och titel från profilen (samma som testpersonerna i prototypen).
-  const actor: Actor = { userId: a.userId, role: a.role, contractIds: [...(a.contractIds ?? [])], customerUnit: a.customerUnit ?? null };
+  // testerId = mm.auth_is_tester(): den inloggade testaren i testmiljön (RLS för synpunkterna ser testaren, inte testpersonen).
+  const actor: Actor = {
+    userId: a.userId, role: a.role, contractIds: [...(a.contractIds ?? [])], customerUnit: a.customerUnit ?? null,
+    ...(tester ? { testerId: a.authProfileId } : {}),
+  };
   const known = personaFor(dir, a.userId, a.role);
   const persona: Persona = known
     ? { ...known, actor }

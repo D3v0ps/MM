@@ -60,6 +60,8 @@ export function createMemoryRuntime(opts: {
       crypto: TEST_PNR_CRYPTO,
       ai,
       audio,
+      // Prototypen visar länken som deltagaren fick (rost.linkSend). Servern i supabase-läget lämnar aldrig ut den.
+      exposeLinkPaths: true,
     };
   }
 

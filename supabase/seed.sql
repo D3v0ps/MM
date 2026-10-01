@@ -16,6 +16,7 @@ end
 $$;
 
 -- Töm appens tabeller (aldrig auth.*). Revisionsloggen töms bara här: triggern stoppar update och delete, inte truncate.
+-- Testarnas synpunkter (feedback, feedback_replies) hör inte till testdatat och töms aldrig.
 truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.intake_assessments, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
 
 -- holidays (32)
@@ -101,7 +102,7 @@ insert into public.buyer_references (id, customer_id, reference, unit, active, n
   ('br-hallunda', 'org-botkyrka', '7730045120', 'Arbetsmarknadsenheten Hallunda–Fittja', true, null),
   ('br-tumba-fel', 'org-botkyrka', '55102983', 'Arbetsmarknadsenheten Tumba', false, 'Finns inte hos kommunen. Decemberfakturorna returnerades 2027-01-12.');
 
--- profiles (20)
+-- profiles (24)
 insert into public.profiles (id, organization_id, full_name, email, phone, title, active, last_login_at, customer_unit, buyer_reference_id, team_role, invited_at, invited_by, auth_user_id, is_tester) values
   ('u-sara', 'org-mb', 'Sara Lindqvist', 'sara.lindqvist@miljonbemanning.se', '08-000 00 11', 'Operativ samordnare', true, null, null, null, null, null, null, '5b3f9850-b4b8-5c20-8b45-10ad5c06dcf2', false),
   ('u-johan', 'org-mb', 'Johan Berg', 'johan.berg@miljonbemanning.se', '08-000 00 12', 'Avtalsansvarig (kundansvarig Botkyrka)', true, null, null, null, null, null, null, '92f5886b-7e64-5963-84ed-1f45e139ffb6', false),
@@ -122,9 +123,13 @@ insert into public.profiles (id, organization_id, full_name, email, phone, title
   ('k-omar', 'org-botkyrka', 'Omar Farah', 'omar.farah@botkyrka.se', '08-530 000 14', 'Arbetsmarknadscoach', true, null, 'Arbetsmarknadsenheten Alby', 'br-alby', null, null, null, '07f9980b-579e-57d1-ac01-689f7dacfb97', false),
   ('k-eva', 'org-botkyrka', 'Eva Bergström', 'eva.bergstrom@botkyrka.se', '08-530 000 15', 'Enhetschef', true, null, 'Arbetsmarknadsenheten', null, null, null, null, '853e34c5-e355-5e8a-a845-efdde48fe00f', false),
   ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true);
+  ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
+  ('tester-sara', 'org-mb', 'Sara Salah', 'sara.salah@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
+  ('tester-adam', 'org-mb', 'Adam Abdalla', 'adam.abdalla@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
+  ('tester-shafik', 'org-mb', 'Shafik Muwanga', 'shafik.muwanga@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
+  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true);
 
--- memberships (24)
+-- memberships (32)
 insert into public.memberships (id, user_id, contract_id, role, customer_unit) values
   ('u-sara:c-bot', 'u-sara', 'c-bot', 'samordnare', null),
   ('u-johan:c-bot', 'u-johan', 'c-bot', 'avtalsansvarig', null),
@@ -149,7 +154,15 @@ insert into public.memberships (id, user_id, contract_id, role, customer_unit) v
   ('tester-karim:c-bot', 'tester-karim', 'c-bot', 'admin', null),
   ('tester-karim:c-kk', 'tester-karim', 'c-kk', 'admin', null),
   ('tester-ali:c-bot', 'tester-ali', 'c-bot', 'admin', null),
-  ('tester-ali:c-kk', 'tester-ali', 'c-kk', 'admin', null);
+  ('tester-ali:c-kk', 'tester-ali', 'c-kk', 'admin', null),
+  ('tester-sara:c-bot', 'tester-sara', 'c-bot', 'admin', null),
+  ('tester-sara:c-kk', 'tester-sara', 'c-kk', 'admin', null),
+  ('tester-adam:c-bot', 'tester-adam', 'c-bot', 'admin', null),
+  ('tester-adam:c-kk', 'tester-adam', 'c-kk', 'admin', null),
+  ('tester-shafik:c-bot', 'tester-shafik', 'c-bot', 'admin', null),
+  ('tester-shafik:c-kk', 'tester-shafik', 'c-kk', 'admin', null),
+  ('tester-moda:c-bot', 'tester-moda', 'c-bot', 'admin', null),
+  ('tester-moda:c-kk', 'tester-moda', 'c-kk', 'admin', null);
 
 -- persons (230)
 insert into public.persons (id, personnummer_enc, personnummer_hash, personnummer_last4, birth_year, first_name, last_name, phone, email, city, address, preferred_contact, protected_identity, accessibility_needs, language, needs_interpreter) values

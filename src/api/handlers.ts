@@ -12,4 +12,5 @@ import "@/features/praktik/handlers";
 import "@/features/puls/handlers";
 import "@/features/rost/handlers";
 import "@/features/notiser/handlers";
+import "@/features/synpunkter/handlers";
 export { execute, isSilentCommand, registeredKeys } from "./server";

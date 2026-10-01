@@ -1,13 +1,14 @@
 // Tester för pulsmätningen via engångslänk (prototypens puls.svar och pulse.submit, prototyp/tools/test-admin.mjs):
 // svaret sparas med coachen, länken förbrukas, "Ja" på fråga 5 blir en uppgift till samordnaren och lågt betyg på
 // fråga 3 går till chefen – aldrig till coachen.
-import { beforeEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/server";
 import { alerts } from "@/core/alerts";
 import { domainEnv } from "@/core/env";
 import { TABLE_NAMES, type Db } from "@/data/schema";
 import { testRuntime } from "../admin/test-runtime";
-import "./handlers";
+import { pulseTokenHash } from "./handlers";
 import { pulseLink, pulseSubmit } from "./api";
 
 let rt: ReturnType<typeof testRuntime>;
@@ -17,6 +18,22 @@ beforeEach(() => {
 const deltagare = () => rt.as("deltagare", "deltagare");
 const answers = { q1: 4, q2: 3, q3: 2, q4: "praktik", q5: "ja" };
 const dbNow = () => Object.fromEntries(TABLE_NAMES.map((n) => [n, rt.rows(n)])) as unknown as Db;
+
+describe("pulslänkens token utan Web Crypto", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("samma hash med och utan Web Crypto – länken fungerar även på en sida utan https (som röstlänken)", async () => {
+    const token = "pulstoken-abc12345";
+    const hash = createHash("sha256").update(token, "utf8").digest("hex");
+    expect(await pulseTokenHash(token)).toBe(hash);
+    const inv = rt.rows("pulse_invites").find((x) => x.id === "pi-demo")!;
+    rt.store.insertRow("pulse_invites", { ...inv, id: "pi-token", tokenHash: hash, usedAt: null });
+    vi.stubGlobal("crypto", {});
+    expect(globalThis.crypto?.subtle).toBeUndefined();
+    expect(await pulseTokenHash(token)).toBe(hash);
+    expect(await rt.query(pulseLink, { token }, deltagare())).toEqual({ state: "open", language: "sv", days: 7, location: "Alby" });
+    expect((await rt.query(pulseLink, { token: "pulstoken-fel12345" }, deltagare())).state).toBe("missing");
+  });
+});
 
 describe("pulsmätningen", () => {
   it("exempellänken är öppen, gäller i 7 dagar och har svenska som språk", async () => {

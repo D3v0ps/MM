@@ -12,6 +12,7 @@ import {
 } from "./api";
 import { findUnset } from "./contract-text";
 import { fillExample, templateCheck } from "./templates";
+import { linkMessageText } from "@/features/rost/texts";
 import { testRuntime } from "./test-runtime";
 
 let rt: ReturnType<typeof testRuntime>;
@@ -212,8 +213,12 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(18);
+    expect(d.templates).toHaveLength(19);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
+    // Deltagarens inspelningslänk: samma text som rost.linkSend skickar, och mallen klarar kontrollen av personuppgifter.
+    expect(t("rostlank")).toMatchObject({ name: "Inspelningslänk till deltagaren", channel: "sms", alsoVia: ["email"], subject: "Spela in ett meddelande till din coach" });
+    expect(t("rostlank").body.replace("{antal_dagar}", "7").replace("{lank}", "/rost/x")).toBe(`${linkMessageText(7)} /rost/x`);
+    expect(templateCheck(t("rostlank").body)).toMatchObject({ ok: true, unknown: [] });
     expect(t("ordererkannande")).toMatchObject({ when: "Automatiskt inom 5 minuter när ett avrop kommit in", version: 3, updatedByName: "Robin Åberg", updatedAt: "2026-12-02T10:14" });
     expect(t("pulslank").when).toBe("Vecka 2, vid avslut och var 30:e dag vid långa insatser");
     expect(t("paminnelse_progression").when).toBe("Enligt interna regler: måndag 08.00 för föregående vecka");

@@ -9,8 +9,11 @@ import type { KomCase } from "./api";
 export const SAFE_PHONE = "08-000 00 00";
 /** Kommunens formella beställningskanal (CLAUDE.md punkt 10). */
 export const ORDER_MAILBOX = "avrop@miljonbemanning.se";
-/** Avsändaren av notiser och ordererkännanden. */
-export const NOTIFY_FROM = "notis@miljonbemanning.se";
+/**
+ * Avsändaren av notiserna (beslut 2026-10-01, SPEC §11): notis@miljonmatch.se – domänen är verifierad i Resend med DNS hos
+ * one.com. Svar går till avrop@miljonbemanning.se i produktion (MM_EMAIL_REPLY_TO).
+ */
+export const NOTIFY_FROM = "notis@miljonmatch.se";
 /** Plattformens inloggningsregler (SPEC §4) – samma för alla beställare, inte ett avtalsvärde. */
 export const AUTH = { codeDigits: 6, codeMinutes: 10, maxAttempts: 5, idleMinutes: 60, maxHours: 12 } as const;
 

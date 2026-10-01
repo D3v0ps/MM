@@ -86,7 +86,7 @@ describe("utskick mot migrationerna (PGlite)", () => {
 
       const resend = fakeResend();
       const deps: JobDeps = {
-        notify: { repo, gate: recipientGate("staging", [KARIM]), render: { appUrl: "https://test.miljonmatch.se", staffDomains: ["miljonbemanning.se"] }, resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonbemanning.se>" }, fetch: resend.fetch, now: "2027-02-01T09:13" },
+        notify: { repo, gate: recipientGate("staging", [KARIM]), render: { appUrl: "https://test.miljonmatch.se", staffDomains: ["miljonbemanning.se"] }, resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonmatch.se>" }, fetch: resend.fetch, now: "2027-02-01T09:13" },
       };
       // Före run_after: inget hämtas
       expect(await runJobs({ store: sqlJobStore(tx), handlers: JOB_HANDLERS, ctx: deps, now: "2027-02-01T09:11" })).toMatchObject({ claimed: 0 });

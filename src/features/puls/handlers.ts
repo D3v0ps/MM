@@ -12,13 +12,18 @@ import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { diffDays, fmtDate } from "@/core/time";
 import { PULSE_PRIORITIES, type PulseInvite, type PulsePriority, type PulseScore } from "@/data/schema";
+import { sha256Hex } from "@/features/rost/sha256";
 import { pulseLink, pulseSubmit, type PulseLinkState } from "./api";
 import { PULSE_LANGS, type PulseLang } from "./texts";
 
-/** SHA-256 av token (hex) – samma som pulse_invites.tokenHash. Null om Web Crypto saknas (osäker sida i webbläsaren). */
-async function tokenHash(token: string): Promise<string | null> {
+/**
+ * SHA-256 av token (hex) – samma som pulse_invites.tokenHash. Web Crypto när det finns, annars samma beräkning i ren
+ * TypeScript (sha256Hex, som röstlänken i voiceTokenHash) – prototypen kan öppnas från en sida utan https, där Web Crypto
+ * saknas, och länken ska ändå fungera.
+ */
+export async function pulseTokenHash(token: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return null;
+  if (!subtle) return sha256Hex(token);
   const buf = await subtle.digest("SHA-256", new TextEncoder().encode(token));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -32,8 +37,7 @@ async function inviteFor(ctx: Ctx, token: string | undefined): Promise<(PulseInv
   let inv: PulseInvite | null = null;
   if (token !== undefined) {
     if (!/^[A-Za-z0-9_-]{8,200}$/.test(token)) return null;
-    const hash = await tokenHash(token);
-    inv = hash ? await ctx.system.table("pulse_invites").first({ tokenHash: hash }) : null;
+    inv = await ctx.system.table("pulse_invites").first({ tokenHash: await pulseTokenHash(token) });
   } else {
     const tag = await ctx.system.table("demo_tags").get("pi-demo");
     const id = tag?.entity === "pulse_invites" ? tag.entityIds[0] : null;

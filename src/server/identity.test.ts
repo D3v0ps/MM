@@ -57,7 +57,8 @@ describe("resolveIdentity", () => {
     expect(id?.isTester).toBe(true);
     expect(id?.impersonating).toBe(true);
     expect(id?.self.id).toBe(KARIM.id);
-    expect(id?.persona.actor).toEqual({ userId: "u-amira", role: "coach", contractIds: ["c-bot"], customerUnit: null });
+    // testerId: testarens egen profil (synpunkterna, RLS mm.auth_is_tester) – även när testaren agerar som en testperson.
+    expect(id?.persona.actor).toEqual({ userId: "u-amira", role: "coach", contractIds: ["c-bot"], customerUnit: null, testerId: KARIM.id });
     expect(id?.persona.user.name).toBe("Amira Haddad");
     // Samma testpersoner som prototypens rollväljare (plus testarna själva).
     const expected = listPersonas(rawOf(all)).map((p) => `${p.actor.userId}|${p.actor.role}`);
@@ -73,9 +74,11 @@ describe("resolveIdentity", () => {
     expect(id?.isTester).toBe(false);
     expect(id?.impersonating).toBe(false);
     expect(id?.personas).toEqual([]);
+    expect(id?.persona.actor.testerId).toBeUndefined();
     const notTester = await resolveIdentity(store(self("u-robin", "admin")), "staging");
     expect(notTester?.isTester).toBe(false);
     expect(notTester?.personas).toEqual([]);
+    expect(notTester?.persona.actor.testerId).toBeUndefined();
   });
 });
 

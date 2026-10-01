@@ -70,6 +70,11 @@ export type Ctx = {
   audio?: AudioPort;
   /** Jobbkön (src/server/jobs, röstjobben i src/features/_shared/voice-jobs.ts). Saknas i minnesläget och prototypen. */
   jobs?: JobKick;
+  /**
+   * Bara minnesläget (prototypen, utvecklingsläget, e2e): engångslänkarnas sökväg (med token) får lämnas ut i svaret, så att
+   * prototypen kan visa länken som deltagaren fick. Saknas på servern i supabase-läget – där finns token bara i utskicket.
+   */
+  exposeLinkPaths?: boolean;
 };
 
 type Handler = (ctx: Ctx, input: unknown) => Promise<unknown>;

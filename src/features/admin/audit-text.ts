@@ -27,6 +27,8 @@ export const ACTION_LABEL: Record<string, string> = {
   "task.created": "Skapade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
   "contract_deviation.action_plan_approved": "Godkände åtgärdsplan", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
+  // Synpunkter i testmiljön (src/features/synpunkter) – finns inte i prototypen.
+  "feedback.created": "Lämnade synpunkt", "feedback.replied": "Svarade på synpunkt", "feedback.status_changed": "Ändrade status på synpunkt",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -35,7 +37,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   customer_user: "Kommunanvändare", contract_deviation: "Avtalsavvikelse", task: "Uppgift", case: "Ärende", person: "Person", report: "Rapport", inbound_email: "Mejl", ai_run: "AI-körning",
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
-  pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats",
+  pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -50,7 +52,7 @@ const DETAIL_KEY: Record<string, string> = {
   idempotencyKeys: "Idempotensnycklar", by: "Av", previous: "Tidigare version", at: "Tidpunkt", created: "Skapade", skippedAlreadyCreated: "Redan skapade",
   skippedDuplicates: "Dubbletter som hoppades över", blocked: "Stoppade", notApproved: "Inte godkända", changed: "Ändrade", buyerReference: "Beställarreferens", toRole: "Till roll",
   caseIds: "Ärenden", emailId: "Mejl", method: "Inloggning", hadCustomerApproval: "Godkänd av kommunen", type: "Typ", level: "Nivå", step: "Steg", sentToCustomer: "Skickad till kommunen",
-  acknowledged: "Kvitterad", parse: "Tolkning",
+  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {

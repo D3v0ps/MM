@@ -190,7 +190,7 @@ function VoiceNote({ n, canWork, canUse }: { n: VoiceNoteView; canWork: boolean;
   );
 }
 
-function SendLinkModal({ v, onClose, onSent }: { v: CaseVoiceView; onClose: () => void; onSent: (path: string) => void }) {
+function SendLinkModal({ v, onClose, onSent }: { v: CaseVoiceView; onClose: () => void; onSent: (path: string | null) => void }) {
   const send = useCommand(linkSend);
   const [lang, setLang] = useState(v.send.defaultLanguage);
   const [err, setErr] = useState<string | null>(null);

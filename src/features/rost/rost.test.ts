@@ -189,7 +189,7 @@ describe("coachen och röstmeddelandena", () => {
     const res = await cmd(linkSend, { caseId: SC.nadia, language: "so" }, amira());
     if (!res.ok) throw new Error(res.error);
     expect(res.path).toMatch(/^\/rost\/[A-Za-z0-9_-]{8,}$/);
-    const token = res.path.slice("/rost/".length);
+    const token = (res.path ?? "").slice("/rost/".length);
     const row = raw().voice_links.find((l) => l.id === res.linkId);
     expect(row).toMatchObject({ caseId: SC.nadia, channel: "sms", language: "so", tokenHash: sha256Hex(token), usedAt: null, createdBy: "u-amira" });
     expect(row?.expiresAt).toBe("2027-02-08T09:13");

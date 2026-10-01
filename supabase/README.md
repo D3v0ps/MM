@@ -23,8 +23,9 @@ Supabase-projekten (staging och produktion, båda i **eu-north-1 Stockholm**) sk
 | `migrations/0014_kvittenser.sql` | Triggrar på `reports` och `messages`: kommunens kvittens ändrar bara `opened_at`/`opened_by`, läskvittot bara `read_by`/`read_at` |
 | `migrations/0015_rost.sql` | Röstinspelning (SPEC §8, `docs/PLAN-ROST.md`): `voice_links` (deltagarens länk `/rost/:token`, bara tokenhash), `participant_voice_notes`, `audio_uploads` (spåret – aldrig ljudet) + privat bucket **`ljud`** (högst 25 MB, bara ljud, inga policyer på `storage.objects`) |
 | `migrations/0016_puls_unik.sql` | Unik nyckel på `pulse_responses.invite_id` – ett svar per pulslänk, även när två svar kommer samtidigt (ersätter indexet från 0007) |
+| `migrations/0017_synpunkter.sql` | Synpunkter i testmiljön ("Lämna synpunkt", beslut 2026-10-01): `feedback` och `feedback_replies`. Bara inloggade testare i testmiljön läser och skriver (`mm.auth_is_tester()`), nya rader i eget namn, i en synpunkt ändras bara status (triggern `feedback_protect_columns`), ingen tar bort. `mm.reset_test_data()` ersätts så att synpunkterna inte töms |
 | `seed.sql` | **Genererad** testdata (samma som prototypen) + testarna + testmiljöns inställningar. Ändra aldrig för hand. För lokal Postgres och RLS-testerna (2,9 MB – för stor för MCP) |
-| `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 16 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, testarna och `app_settings`. Idempotent |
+| `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 18 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, de sex testarna och `app_settings`. Idempotent |
 | `../scripts/db/columns.ts` | Facit för kolumnerna (kontrolleras mot `src/data/schema.ts` vid kompilering och mot databasen i testet) |
 | `../scripts/db/seed-sql.ts`, `generate-seed.ts`, `generate-bootstrap.ts` | Bygger `seed.sql` och `bootstrap-staging.sql` |
 | `../src/data/supabase/seed-rows.ts` | Testarna, deterministiska `auth_user_id`, tabellordningen – gemensamt för SQL-filerna och inläsningen i appen |
@@ -42,14 +43,14 @@ npx vitest run src/data/supabase/rls-parity.test.ts src/server/staging/load.test
 
 ### 1. Migrationerna (staging och produktion)
 
-Migrationerna är 0001–0016. I testprojektet (`blxupsebzzhmjitaywev`) har samordnaren applicerat 0001–0014; **0015 och 0016 appliceras av samordnaren** i samma veva som koden med röstinspelningen går live (före 0016: kontrollera att `select invite_id, count(*) from public.pulse_responses group by invite_id having count(*) > 1;` ger noll rader).
+Migrationerna är 0001–0017. I testprojektet (`blxupsebzzhmjitaywev`) har samordnaren applicerat 0001–0016 (i 0016 görs `drop index` för hand); **0017 appliceras av samordnaren** i samma veva som koden med "Lämna synpunkt" går live. (Ny databas: före 0016, kontrollera att `select invite_id, count(*) from public.pulse_responses group by invite_id having count(*) > 1;` ger noll rader.)
 
 **0013 måste gå live samtidigt som koden.** Efter 0013 läser SupabaseRepo `cases` via vyn `cases_public`, och inloggade får bara läsa kolumnen `id` direkt i tabellen. En äldre version av appen kan då inte läsa ärenden, och den här versionen fungerar inte utan 0013. Driftsätt koden i samma veva som 0013 (ordningen: `docs/DRIFT.md`, "Så startar du testmiljön"). I produktion körs alla migrationer precis före den första driftsättningen.
 
 Kör filerna i nummerordning, en i taget. Tre sätt – välj ett:
 
 - **Supabase CLI:** `supabase link --project-ref <ref>` och sedan `supabase db push`. CLI:t läser `supabase/migrations/` och sparar vilka som körts.
-- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0016.
+- **MCP (Supabase-kopplingen):** `apply_migration` med namnet utan `.sql` (t.ex. `0001_grund`) och filens innehåll, i ordning 0001 → 0017.
 - **SQL-editorn:** klistra in och kör varje fil i ordning.
 
 Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Stockholm`. (Inställningen gäller nya anslutningar – starta om projektet eller vänta tills anslutningspoolen förnyats innan appen skriver tider.)
@@ -58,8 +59,8 @@ Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Sto
 
 **Rekommenderat (fungerar via MCP):**
 
-1. Kör `bootstrap-staging.sql` (16 kB) – med MCP `execute_sql`, i SQL-editorn eller med `psql`. Den lägger in organisationer, avtal,
-   avtalsområden, prislistor, helgdagar, testarna Karim och Ali (admin i båda avtalen, `is_tester`) och `app_settings`
+1. Kör `bootstrap-staging.sql` (18 kB) – med MCP `execute_sql`, i SQL-editorn eller med `psql`. Den lägger in organisationer, avtal,
+   avtalsområden, prislistor, helgdagar, de sex testarna (admin i båda avtalen, `is_tester` – se "Testarna" nedan) och `app_settings`
    (`environment = staging`, testklockan). Den tömmer ingenting och kan köras igen. Den stoppar sig själv om
    `app_settings.environment` är något annat än `staging`, eller om databasen har ärenden men saknar miljörad.
 2. Testaren loggar in i appen och väljer **Underbiträden och integrationer (`/admin/integrationer`) → Läs in testdata på nytt** (`POST /api/staging/seed`). Servern anropar
@@ -68,8 +69,9 @@ Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Sto
    Samma knapp nollställer allt som testats, när som helst.
 
 `mm.reset_test_data()` tömmer allt i `public` utom `audit_log` (append-only), `app_settings`, `tester_sessions`, `login_attempts`,
-testarnas profiler och medlemskap och de avtal och organisationer de pekar på (de skrivs över av inläsningen). Testklockan sätts om
-till testtiden. Utanför testmiljön gör funktionen ingenting och kastar fel (42501).
+testarnas synpunkter (`feedback`, `feedback_replies` – sedan 0017), testarnas profiler och medlemskap och de avtal och organisationer
+de pekar på (de skrivs över av inläsningen). Testklockan sätts om till testtiden. Utanför testmiljön gör funktionen ingenting och
+kastar fel (42501).
 
 **Alternativ: hela seeden med psql.** Seeden är 2,9 MB – kör den med `psql` mot projektets **session pooler** (fungerar med IPv4), inte i SQL-editorn. Kopiera anslutningssträngen under Connect → Session pooler i Supabase:
 
@@ -80,17 +82,36 @@ psql "postgresql://postgres.<ref>:<lösenord>@aws-0-eu-north-1.pooler.supabase.c
 (Med CLI går även `supabase db push --include-seed`.)
 
 Seeden:
-- tömmer först alla appens tabeller (`truncate … cascade`, aldrig `auth.*`) – den kan köras om,
+- tömmer först alla appens tabeller (`truncate … cascade`, aldrig `auth.*` och aldrig testarnas synpunkter) – den kan köras om,
 - stoppar sig själv om `app_settings.environment` finns och inte är `staging`, eller om databasen redan har ärenden utan inställningen,
 - har testdatats ersättning för personnummer (`test:…`) – "Visa" och dubblettkontrollen fungerar då bara i minnesläget; använd "Läs in testdata på nytt" i testmiljön,
-- lägger in testarna **Karim Khalil** (`karim.khalil@miljonbemanning.se`) och **Ali Khalil** (`ali.khalil@miljonbemanning.se`) som admin i båda avtalen med `is_tester = true`,
+- lägger in de sex testarna (se "Testarna" nedan) som admin i båda avtalen med `is_tester = true`,
 - sätter `app_settings`: `environment = staging`, `clock_demo_epoch = 2027-02-01T09:12`, `clock_real_epoch = now()` – **testklockan startar om på 1 februari 2027 kl. 09.12 varje gång seeden körs**,
 - kopplar testarnas profiler till deras konton i `auth.users` via e-postadressen om kontona redan finns (så att inloggningen överlever en omseedning).
+
+### Testarna (beslut 2026-10-01)
+
+| Namn | Adress | Profil |
+|---|---|---|
+| Karim Khalil | `karim.khalil@miljonbemanning.se` | `tester-karim` |
+| Ali Khalil | `ali.khalil@miljonbemanning.se` | `tester-ali` |
+| Sara Salah | `sara.salah@miljonbemanning.se` | `tester-sara` |
+| Adam Abdalla | `adam.abdalla@miljonbemanning.se` | `tester-adam` |
+| Shafik Muwanga | `shafik.muwanga@miljonbemanning.se` | `tester-shafik` |
+| Moda Habib | `moda.habib@miljonbemanning.se` | `tester-moda` |
+
+Listan finns i `TESTERS` (`src/data/supabase/seed-rows.ts`). En ny testare kommer in när `bootstrap-staging.sql` körs igen (eller
+när testdatat läses in på nytt) **och** adressen finns i `MM_EMAIL_ALLOWLIST` i Vercel. Värdet för alla sex (hela adresser – aldrig
+`@miljonbemanning.se`, testdatat har påhittade adresser på den domänen):
+
+`karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se`
+
+Inloggningskoden skickas bara till en adress i listan som också har en aktiv profil med roll (`docs/DRIFT.md` avsnitt 11).
 
 ### 3. Produktion
 
 - Kör bara migrationerna. **Kör aldrig `seed.sql` eller `bootstrap-staging.sql`.**
-- Lägg in miljön en gång: `insert into public.app_settings (key, value) values ('environment', 'production');` Då är testarfunktionen avstängd, `mm.reset_test_data()` gör ingenting och seeden och startdatat vägrar köra. Inga klockepoker = riktig tid.
+- Lägg in miljön en gång: `insert into public.app_settings (key, value) values ('environment', 'production');` Då är testarfunktionen avstängd (även synpunkterna – ingen kan läsa eller skriva i `feedback`), `mm.reset_test_data()` gör ingenting och seeden och startdatat vägrar köra. Inga klockepoker = riktig tid.
 
 ### 4. Inställningar i Supabase
 
@@ -214,6 +235,7 @@ PGlite med en minimal Supabase-stubbe (`src/data/supabase/pglite.ts`: rollerna, 
 - `seed.sql` är genererad från nuvarande testdata; kolumnerna (namn, typ, nullbarhet) är exakt `scripts/db/columns.ts`; varje tabell har RLS; `anon` har inga rättigheter.
 - **Läsning:** för varje testperson i `listPersonas()` (alla roller, alla användare, deltagaren och testarna) och varje tabell är antalet synliga rader lika med `MemoryRepo` + `POLICIES`. Id-mängderna för `cases`, `reports`, `messages` och `check_ins` är lika, och `current_actor()` är samma aktör som `actorFor()`. `mm.case_access` är lika med `caseAccess` för varje ärende.
 - **Skrivning:** för varje testperson och tabell, ändring av rader den får och inte får läsa, och en ny rad: databasen tillåter exakt det som policy.ts tillåter.
-- Särskilda fall: kommunen kan inte ändra ärenden den inte beställt (chefen inga alls). Kommunen kan skapa meddelanden bara i egna ärenden och i eget namn. Ingen kan ändra revisionsloggen, inte ens service role. Testaren kan agera som testperson bara i testmiljön. Inloggningskolumnerna skyddas. `claim_jobs`, `next_case_number` och testklockan fungerar. Röstinspelningens tabeller (0015) och ett svar per pulslänk (0016).
+- Särskilda fall: kommunen kan inte ändra ärenden den inte beställt (chefen inga alls). Kommunen kan skapa meddelanden bara i egna ärenden och i eget namn. Ingen kan ändra revisionsloggen, inte ens service role. Testaren kan agera som testperson bara i testmiljön. Inloggningskolumnerna skyddas. `claim_jobs`, `next_case_number` och testklockan fungerar. Röstinspelningens tabeller (0015) och ett svar per pulslänk (0016). Synpunkterna (0017): bara testare i testmiljön, oavsett testperson (policy.ts ser testaren som `Actor.testerId`), i eget namn, bara status ändras, inget tas bort, ingenting i produktion.
+- `src/server/staging/load.test.ts`: synpunkterna, testarnas profiler och val av testperson finns kvar när testdatat läses in på nytt.
 
 Testet tar ca 45 sekunder.

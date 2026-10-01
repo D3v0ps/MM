@@ -3,6 +3,7 @@
 // Prototypen: från rollväljaren. Skärmarna läser bara useSession().
 import { createContext, useContext, type ReactNode } from "react";
 import type { Actor, Role } from "@/api/roles";
+import type { FeedbackPort } from "@/features/synpunkter/api";
 
 export type SessionUser = {
   id: string;
@@ -47,6 +48,11 @@ export type Session = {
    * Löses bara vid fel – annars laddas sidan om.
    */
   reloadTestData?: () => Promise<{ ok: true } | { ok: false; message: string }>;
+  /**
+   * Bara testare i testmiljön: "Lämna synpunkt" och listan "Alla synpunkter" (src/features/synpunkter). Saknas för alla
+   * andra, i produktion och i prototypen (prototypen har sin egen feedback i claude.ai).
+   */
+  feedback?: FeedbackPort;
   /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
   personas?: PersonaOption[];
   /** Bara prototypen: byt roll/persona. */

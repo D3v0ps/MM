@@ -1,18 +1,18 @@
 "use client";
 // Feedbacklådan, feedbackknappen nere till höger och en feedbackpunkt – port av den gamla prototypens
-// FeedbackDrawer och FeedbackItem (prototyp/src/90-feedback.js). Bara i prototypen.
+// FeedbackDrawer och FeedbackItem (prototyp/src/90-feedback.js). Bara i prototypen. Fälten och kortet delas med
+// testmiljöns "Lämna synpunkt" (src/features/synpunkter/components.tsx), så att de ser likadana ut.
 import { useEffect, useState, type FormEvent } from "react";
 import { perspectiveOf, ROLES, type Role } from "@/api/roles";
+import { FeedbackCard, FeedbackFields, SMALL_BTN } from "@/features/synpunkter/components";
 import { useNav } from "@/shell/nav";
 import { resolveRoute, titleOf, type RouteDef } from "@/shell/routes";
 import { useSession } from "@/shell/session";
-import { Badge } from "@/ui/badge";
 import { Button } from "@/ui/button";
-import { cn } from "@/ui/cn";
 import { Drawer } from "@/ui/dialog";
 import { useCopy } from "@/ui/download";
 import { Empty, Notice } from "@/ui/feedback";
-import { Field, Seg, TextArea } from "@/ui/form";
+import { Field, Seg } from "@/ui/form";
 import { Divider } from "@/ui/layout";
 import { Tabs, TabPanel } from "@/ui/tabs";
 import { toast } from "@/ui/toast";
@@ -21,9 +21,6 @@ import {
   addFeedback,
   asMarkdown,
   closeFeedback,
-  FB_PRIOS,
-  FB_STATUSES,
-  FB_TYPES,
   fmtWhen,
   nameOf,
   openFeedback,
@@ -32,7 +29,6 @@ import {
   replyFeedback,
   setDrawerTab,
   setFeedbackStatus,
-  typeIcon,
   typeLabel,
   useDrawer,
   useFeedback,
@@ -44,8 +40,6 @@ import { DEMO_VERSION, demoRole, perspectiveDef } from "./roles";
 import { scenarioById } from "./scenarios";
 import { useScenarioState } from "./scenario-store";
 import { getCapability } from "./claude-runtime";
-
-const SMALL_BTN = "min-h-11 px-2.5 py-1.5 text-small";
 
 /** Sidan som visas just nu: vy-id (den gamla prototypens, för filtret "Den här vyn"), titel, parametrar och sökväg. */
 export function useCurrentView(routes: readonly RouteDef[]) {
@@ -69,100 +63,57 @@ export function FeedbackItemCard({ it }: { it: FeedbackItem }) {
   const session = useSession();
   const goAs = useGoAs();
   const [open, setOpen] = useState(false);
-  const [reply, setReply] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
   useEffect(() => (open ? watchReplies(it.id) : undefined), [open, it.id]);
   const replies = f.mode === "shared" ? (f.replies[it.id] ?? []) : (it.localReplies ?? []);
   const target = targetOf(it);
   const replyCount = it.replyCount || (it.localReplies ?? []).length;
   const role: Role = it.role && (ROLES as readonly string[]).includes(it.role) ? it.role : session.actor.role;
-  const sendReply = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!reply.trim()) return;
-    if (await replyFeedback(it.id, reply.trim())) setReply("");
-  };
   return (
-    <article className={cn("flex flex-col gap-2 rounded-card border border-ljusgra px-3.5 py-3", it.status === "ny" && "border-l-4 border-l-rod")}>
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-meta text-text-muted portal:text-body">
-        <Badge tone={it.type === "fel" ? "red" : it.type === "bra" ? "blue" : "grey"} icon={typeIcon(it.type)}>
-          {typeLabel(it.type)}
-        </Badge>
-        <span className="font-bold text-antracit">{prioLabel(it.priority)}</span>
-        {it.perspectiveLabel && <Badge tone={it.perspective === "kund" ? "bluetone" : "outline"}>{it.perspectiveLabel}</Badge>}
-        <span>
-          {nameOf(f, it.authorId)} · {fmtWhen(it.createdAt)}
-        </span>
-      </div>
-      <div className="text-small text-text-muted">
-        {it.roleLabel ? `${it.roleLabel} · ` : ""}
-        {it.viewTitle || "Hela prototypen"}
-        {it.scenarioTitle ? ` · Scenario: ${it.scenarioTitle}` : ""}
-      </div>
-      <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{it.text}</div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <label className="sr-only" htmlFor={`st-${it.id}`}>
-          Status
-        </label>
-        <select id={`st-${it.id}`} value={it.status} onChange={(e) => void setFeedbackStatus(it.id, e.target.value)} className="w-auto px-2.5 py-1.5 text-small">
-          {FB_STATUSES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        {target && (
-          <Button
-            kind="ghost"
-            icon="arrow-right"
-            className={SMALL_BTN}
-            onClick={() => {
-              closeFeedback();
-              goAs(role, target);
-            }}
-          >
-            Gå till vyn
-          </Button>
-        )}
-        <Button kind="ghost" icon="reply" className={SMALL_BTN} aria-expanded={open} onClick={() => setOpen(!open)}>
-          Svar{replyCount ? ` (${replyCount})` : ""}
-        </Button>
-        {(it.authorId === f.myId || f.mode !== "shared") &&
-          (confirmDel ? (
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span className="text-small">Ta bort?</span>
-              <Button kind="danger" className={SMALL_BTN} onClick={() => void removeFeedback(it.id)}>
-                Ja, ta bort
-              </Button>
-              <Button kind="ghost" className={SMALL_BTN} onClick={() => setConfirmDel(false)}>
-                Avbryt
-              </Button>
-            </span>
-          ) : (
-            <Button kind="ghost" icon="trash" className={SMALL_BTN} ariaLabel="Ta bort" onClick={() => setConfirmDel(true)} />
-          ))}
-      </div>
-      {open && (
-        <div className="flex flex-col gap-2">
-          {replies.map((r) => (
-            <div key={r.id} className="border-l-[3px] border-ljusgra pl-2.5 text-[0.9375rem]">
-              <div className="text-small text-text-muted">
-                {nameOf(f, r.authorId)} · {fmtWhen(r.createdAt)}
-              </div>
-              <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{r.text}</div>
-            </div>
-          ))}
-          <form className="flex flex-wrap items-center gap-1.5" onSubmit={(e) => void sendReply(e)}>
-            <label className="sr-only" htmlFor={`rep-${it.id}`}>
-              Svara
-            </label>
-            <input id={`rep-${it.id}`} type="text" value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Skriv ett svar" className="min-w-0 flex-1" />
-            <Button kind="primary" type="submit" icon="send">
-              Svara
+    <FeedbackCard
+      id={it.id}
+      type={it.type}
+      priority={it.priority}
+      status={it.status}
+      text={it.text}
+      perspective={it.perspective}
+      perspectiveLabel={it.perspectiveLabel}
+      byline={`${nameOf(f, it.authorId)} · ${fmtWhen(it.createdAt)}`}
+      context={`${it.roleLabel ? `${it.roleLabel} · ` : ""}${it.viewTitle || "Hela prototypen"}${it.scenarioTitle ? ` · Scenario: ${it.scenarioTitle}` : ""}`}
+      onStatusChange={(v) => void setFeedbackStatus(it.id, v)}
+      goTo={
+        target
+          ? {
+              label: "Gå till vyn",
+              onClick: () => {
+                closeFeedback();
+                goAs(role, target);
+              },
+            }
+          : null
+      }
+      replies={replies.map((r) => ({ id: r.id, byline: `${nameOf(f, r.authorId)} · ${fmtWhen(r.createdAt)}`, text: r.text }))}
+      replyCount={replyCount}
+      onReply={(text) => replyFeedback(it.id, text)}
+      repliesOpen={open}
+      onRepliesOpenChange={setOpen}
+      extraActions={
+        (it.authorId === f.myId || f.mode !== "shared") &&
+        (confirmDel ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-small">Ta bort?</span>
+            <Button kind="danger" className={SMALL_BTN} onClick={() => void removeFeedback(it.id)}>
+              Ja, ta bort
             </Button>
-          </form>
-        </div>
-      )}
-    </article>
+            <Button kind="ghost" className={SMALL_BTN} onClick={() => setConfirmDel(false)}>
+              Avbryt
+            </Button>
+          </span>
+        ) : (
+          <Button kind="ghost" icon="trash" className={SMALL_BTN} ariaLabel="Ta bort" onClick={() => setConfirmDel(true)} />
+        ))
+      }
+    />
   );
 }
 
@@ -335,21 +286,7 @@ export function FeedbackDrawer({ routes }: { routes: readonly RouteDef[] }) {
                   ]}
                 />
               </Field>
-              <Field label="Typ" id="fb-type">
-                <Seg id="fb-type" value={type} onValueChange={setType} options={FB_TYPES} />
-              </Field>
-              <Field label="Hur viktigt?" id="fb-prio">
-                <Seg id="fb-prio" value={prio} onValueChange={setPrio} options={FB_PRIOS} />
-              </Field>
-              <Field label="Vad tycker du?" id="fb-text" required help="Skriv fritt. Beskriv gärna vad du förväntade dig och vad som hände." error={err ?? undefined}>
-                <TextArea
-                  value={text}
-                  onValueChange={setText}
-                  rows={5}
-                  maxLength={4000}
-                  placeholder="Till exempel: Samordnaren behöver se handläggarens telefonnummer direkt i inkorgen."
-                />
-              </Field>
+              <FeedbackFields idPrefix="fb" type={type} onTypeChange={setType} priority={prio} onPriorityChange={setPrio} text={text} onTextChange={setText} error={err} />
               <div className="flex flex-wrap items-center gap-3">
                 <Button kind="primary" type="submit" icon="send">
                   Spara feedback

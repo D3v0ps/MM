@@ -56,6 +56,7 @@ describe("TestDataReset", () => {
     fireEvent.click(screen.getByRole("button", BUTTON));
     const dialog = await screen.findByRole("dialog", { name: "Läsa in testdatat på nytt?" });
     expect(dialog.textContent).toContain("måndag 1 februari 2027 kl. 09.12");
+    expect(dialog.textContent).toContain("Alla som testar just nu får också om testdatat. Synpunkterna finns kvar.");
     const confirmButtons = screen.getAllByRole("button", BUTTON);
     fireEvent.click(confirmButtons[confirmButtons.length - 1]);
     expect(await screen.findByText("Läser in testdatat. Sidan laddas om när det är klart.")).toBeTruthy();

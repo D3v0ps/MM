@@ -15,6 +15,9 @@
 //   Röst           inspelningslänkar och deltagarens röstmeddelanden: den som arbetar i ärendet (aldrig ekonom), aldrig skyddade
 //                  ärenden · kommunen läser granskade röstmeddelanden bara om avtalet säger det · ljudfilernas rader skrivs
 //                  bara av systemet (ctx.audio) och läses av den som spelade in och av den som arbetar i ärendet
+//   Synpunkter     bara den inloggade testaren i testmiljön (Actor.testerId = mm.auth_is_tester()), oavsett vilken testperson
+//                  hen agerar som · ny synpunkt och nytt svar bara i eget namn · i en synpunkt ändras bara status · minnesläget
+//                  och prototypen har inga testare (prototypens feedback ligger i claude.ai, src/demo/feedback-store.ts)
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -217,6 +220,16 @@ function messageRead(m: Tables["messages"], a: Actor, raw: Raw): boolean {
   if (isMB(a)) return a.role !== "ekonom" && (acc === "full" || acc === "team");
   if (isKom(a)) return acc === "customer";
   return false;
+}
+
+// ---------------------------------------------------------------- Synpunkter i testmiljön (0017)
+/** Den inloggade är testare i testmiljön (mm.auth_is_tester()). Bara servern sätter testerId – aldrig i produktion eller minnet. */
+const stagingTester = (a: Actor): a is Actor & { testerId: string } => typeof a.testerId === "string" && a.testerId !== "";
+/** I en synpunkt ändras bara status, statusChangedAt och statusChangedBy – i eget namn (triggern feedback_protect_columns, 0017). */
+function feedbackStatusOnly(cur: Tables["feedback"], next: Tables["feedback"], a: Actor & { testerId: string }): boolean {
+  const changed = changedFields(cur, next);
+  if (changed.some((k) => k !== "status" && k !== "statusChangedAt" && k !== "statusChangedBy")) return false;
+  return !changed.includes("statusChangedBy") || next.statusChangedBy === null || next.statusChangedBy === a.testerId;
 }
 
 // ---------------------------------------------------------------- Tabellerna
@@ -431,6 +444,21 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     // Den som spelade in (inte deltagarens gemensamma id) och den som arbetar i ärendet – kommunens "Tala in" bara den själv.
     read: (x, a, raw) => (a.role !== "deltagare" && self(a, x.ownerId)) || (!!x.caseId && x.purpose !== "dictation" && notesRead(x.caseId, a, raw)),
     write: never, // bara ctx.audio (systemsteg): läget (uppladdad, transkriberad, raderad) sätts aldrig av användaren
+  },
+
+  // ---- Synpunkter i testmiljön (0017): testarna läser alla synpunkter; nya bara i eget namn, ändringar bara av status.
+  feedback: {
+    read: (_x, a) => stagingTester(a),
+    write: (x, a, raw) => {
+      if (!stagingTester(a)) return false;
+      const cur = raw.get("feedback", x.id);
+      return cur ? feedbackStatusOnly(cur, x, a) : x.authorId === a.testerId;
+    },
+  },
+  feedback_replies: {
+    read: (_x, a) => stagingTester(a),
+    // Svar ändras aldrig. Nytt svar i eget namn på en synpunkt som finns (främmande nyckel i databasen).
+    write: (x, a, raw) => stagingTester(a) && !exists(raw, "feedback_replies", x.id) && x.authorId === a.testerId && exists(raw, "feedback", x.feedbackId),
   },
 };
 
