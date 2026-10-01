@@ -47,8 +47,8 @@ export const trunc = (s: string | null | undefined, n: number): string => {
   return t.length > n ? `${t.slice(0, n - 1).trimEnd()} …` : t;
 };
 export const firstName = (name: string | null | undefined): string => String(name || "").split(" ")[0];
-/** Personnummer i fri text (meddelanden ska aldrig innehålla personnummer). */
-export const looksLikePnr = (s: string | null | undefined): boolean => /\b(19|20)?\d{6}[-+ ]?\d{4}\b/.test(String(s || ""));
+/** Personnummer i fri text (meddelanden ska aldrig innehålla personnummer). Delas med anteckningarna i deltagarkortet. */
+export { looksLikePnr } from "@/core/validation";
 /** Maskerat personnummer i granskningen: "••••••••-3456". */
 export const maskPnr = (p: string | null | undefined): string => {
   const s = String(p || "").trim();

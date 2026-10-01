@@ -11,7 +11,7 @@ import {
   AiBox, AiTag, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
-import { assessmentPage, assessmentSave, monthlyDraft, type AssessmentPage } from "../api";
+import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
 import { breakable, CaseHeadView, CasePicker, Chips, customerPerspective, GateView, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
 
 type Ok = Extract<AssessmentPage, { kind: "ok" }>;
@@ -19,6 +19,8 @@ type Rag = "green" | "yellow" | "red";
 type Level = 0 | 1 | 2 | 3;
 const STATUS_OPTIONS: SegOption<Rag>[] = (["green", "yellow", "red"] as const).map((v) => ({ value: v, label: STATUS_TEXT[v], icon: STATUS_ICON[v], tone: v }));
 const monShort = (mk: string) => MONTHS[Number(mk.slice(5, 7)) - 1];
+/** "Minst ett område …" -> "minst ett område …" (texterna från avtalet i en mening). */
+const lcfirst = (s: string) => (s ? s.charAt(0).toLowerCase() + s.slice(1) : s);
 
 export function ManadsbedomningScreen({ params, query }: ScreenProps) {
   const month = query.get("manad") || undefined;
@@ -74,6 +76,11 @@ function ManadForm({ v }: { v: Ok }) {
   }));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [approvedNow, setApprovedNow] = useState(false);
+  // Anteckningar som lagts in i sammanfattningen: added = visas som "Tillagd" tills sidan laddas om; used = skickas med
+  // nästa sparning (servern loggar dem) och töms när sparningen lyckats.
+  const [added, setAdded] = useState<string[]>([]);
+  const [used, setUsed] = useState<string[]>([]);
+  const summaryTooLong = summary.length > ASSESSMENT_SUMMARY_MAX;
   const setArea = (k: string, patch: Partial<AreaState>) => {
     setAreas((x) => ({ ...x, [k]: { ...x[k], ...patch } }));
     if (errors[k]) setErrors((e) => {
@@ -84,13 +91,21 @@ function ManadForm({ v }: { v: Ok }) {
   };
   const setP = (k: keyof Plan, val: string) => setPlan((p) => ({ ...p, [k]: val }));
   const levels = Object.values(areas).map((a) => a.level).filter((x): x is Level => x != null);
-  const clear = levels.some((x) => x >= 2);
-  const any = levels.some((x) => x >= 1);
+  // Avtalets gränser (assessmentPage.progressionRule) – bara de obligatoriska områdena finns i formuläret.
+  const rule = v.progressionRule;
+  const clear = levels.some((x) => x >= rule.clearFromLevel);
+  const any = levels.some((x) => x >= rule.anyFromLevel);
   const nextMonth = addMonths(month, 1);
   const approved = ma0?.status === "approved";
   const persp = customerPerspective(v.referrer);
 
   const doSave = async (approve: boolean) => {
+    // Sammanfattningen stoppas på skärmen innan anropet – coachen ska aldrig få det allmänna felet "Ogiltiga uppgifter.".
+    if (summary.trim().length > ASSESSMENT_SUMMARY_MAX) {
+      toast(SUMMARY_TOO_LONG, "error");
+      document.getElementById("cm-summary")?.focus();
+      return;
+    }
     const res = await save
       .run({
         caseId: c.caseId,
@@ -100,6 +115,7 @@ function ManadForm({ v }: { v: Ok }) {
         overallStatus: overall,
         approve,
         plan: { ...plan, status: approve ? "approved" : "draft" },
+        usedNoteIds: used.length ? used : undefined,
       })
       .catch(() => null);
     if (!res) {
@@ -128,6 +144,7 @@ function ManadForm({ v }: { v: Ok }) {
       return;
     }
     setErrors({});
+    setUsed([]);
     if (approve) {
       setApprovedNow(true);
       toast("Månadsbedömningen är godkänd. Månadsrapporten är granskad och kan godkännas och levereras.");
@@ -174,9 +191,10 @@ function ManadForm({ v }: { v: Ok }) {
         <Card title="Samlad status och sammanfattning" icon="clipboard">
           <Stack gap="sm">
             <Status value={ma0.overallStatus} />
-            <p>{ma0.summary || "–"}</p>
+            <p className="whitespace-pre-line">{ma0.summary || "–"}</p>
           </Stack>
         </Card>
+        <NotesPanel v={v} />
       </Page>
     );
   }
@@ -216,7 +234,7 @@ function ManadForm({ v }: { v: Ok }) {
             <Kv items={([0, 1, 2, 3] as const).map((n) => [`Nivå ${n}`, v.scale[n]] as const)} />
             <Divider />
             <p className="text-small">
-              <b>Tydlig progression</b> = minst ett område på nivå 2 eller högre. <b>Någon progression</b> = minst ett område på nivå 1 eller högre. Definitionen är konfigurerbar.
+              <b>Tydlig progression</b> = {lcfirst(rule.clear)}. <b>Någon progression</b> = {lcfirst(rule.any)}. Bara de obligatoriska områdena räknas. Gränserna står i avtalet.
             </p>
             <Row gap="sm">
               <Badge tone={clear ? "blue" : "outline"} icon={clear ? "check" : "minus"}>
@@ -375,6 +393,19 @@ function ManadForm({ v }: { v: Ok }) {
         </div>
       </Card>
 
+      <NotesPanel
+        v={v}
+        summary={summary}
+        added={added}
+        onAdd={(id, text) => {
+          setSummary((s0) => appendToSummary(s0, text));
+          setAdded((a) => [...a, id]);
+          setUsed((u) => (u.includes(id) ? u : [...u, id]));
+          // Fältet ligger längre ned i ett annat kort – kvittensen läses upp (role=status) och knappen behåller fokus.
+          toast("Anteckningen är tillagd i sammanfattningen. Skriv om texten så att den passar kommunen.");
+        }}
+      />
+
       <Split>
         <Card title="Samlad status och sammanfattning" icon="clipboard">
           <Stack>
@@ -394,8 +425,17 @@ function ManadForm({ v }: { v: Ok }) {
                 options={STATUS_OPTIONS}
               />
             </Field>
-            <Field label="Kort sammanfattning" id="cm-summary" help="Två till fyra meningar om månaden. Sakligt och funktionellt.">
-              <TextArea rows={4} value={summary} onValueChange={setSummary} maxLength={800} />
+            <Field
+              label="Kort sammanfattning"
+              id="cm-summary"
+              help="Två till fyra meningar om månaden. Sakligt och funktionellt."
+              error={summaryTooLong ? SUMMARY_TOO_LONG : undefined}
+            >
+              <TextArea rows={4} value={summary} onValueChange={setSummary} aria-describedby="cm-summary-count" />
+              {/* Räknaren läses som beskrivning av fältet – inte vid varje tangenttryckning. Över gränsen läses felet upp (role=alert i Field). */}
+              <div id="cm-summary-count" className={cn("text-small", summaryTooLong ? "font-bold" : "text-text-muted")}>
+                {summary.length} av {ASSESSMENT_SUMMARY_MAX} tecken
+              </div>
             </Field>
             {ma0?.aiSummaryDraft && (
               <AiBox>
@@ -463,6 +503,71 @@ function ManadForm({ v }: { v: Ok }) {
         </Button>
       </Row>
     </Page>
+  );
+}
+
+const SUMMARY_TOO_LONG = `Sammanfattningen får vara högst ${ASSESSMENT_SUMMARY_MAX} tecken. Korta texten innan du lägger till fler anteckningar.`;
+
+/**
+ * ANTECKNINGAR FRÅN MÅNADEN (rapporter steg 2): de fria anteckningarna kommer inte med i rapporten av sig själva. Coachen
+ * lägger in det som behövs i sammanfattningen, skriver om texten för kommunen och godkänner. Utan onAdd (godkänd
+ * bedömning) visas panelen utan knappar. Anteckningarna skickas aldrig till AI.
+ */
+function NotesPanel({ v, summary = "", added = [], onAdd }: { v: Ok; summary?: string; added?: string[]; onAdd?: (id: string, text: string) => void }) {
+  const word = MONTHS[Number(v.month.slice(5, 7)) - 1];
+  return (
+    <Card title="Anteckningar från månaden" icon="edit">
+      <Stack gap="sm">
+        {onAdd ? (
+          <p className="m-0">
+            Anteckningar från {word}. De kommer inte med i rapporten av sig själva. Lägg till det som behövs i sammanfattningen och skriv om texten så att den passar
+            kommunen. Det du godkänner kommer med i månadsrapporten.
+          </p>
+        ) : (
+          <p className="m-0">Anteckningar från {word}. Bedömningen är godkänd. Det som står i sammanfattningen kommer med i månadsrapporten.</p>
+        )}
+        {v.notes.length === 0 ? (
+          <p className="m-0 text-text-muted">Inga anteckningar från {word}.</p>
+        ) : (
+          <ul className="m-0 flex list-none flex-col gap-3 p-0" aria-label={`Anteckningar från ${word}`}>
+            {v.notes.map((n) => {
+              // Tillagd nu, eller texten finns redan i sammanfattningen (till exempel efter omladdning).
+              const done = added.includes(n.id) || noteInSummary(summary, n.body);
+              const fits = canAppendToSummary(summary, n.body);
+              const tooLongId = `note-${n.id}-too-long`;
+              return (
+                <li key={n.id} className="flex flex-col gap-1.5 rounded-mb border border-ljusgra px-3.5 py-3">
+                  <div className="text-small text-text-muted">
+                    <b className="text-antracit">{fmtDateShort(n.occurredOn)}</b> · {n.kindLabel} · {n.authorName}
+                  </div>
+                  <p className="m-0 whitespace-pre-line [overflow-wrap:anywhere]">{n.body}</p>
+                  {onAdd && (
+                    <div className="flex flex-col items-start gap-1">
+                      {/* aria-disabled i stället för disabled: knappen behåller fokus när den byter till "Tillagd", och skärmläsaren hör varför den inte går att använda. */}
+                      {done ? (
+                        <Button icon="check" aria-disabled="true">Tillagd i sammanfattningen</Button>
+                      ) : (
+                        <Button
+                          icon="plus"
+                          aria-disabled={fits ? undefined : "true"}
+                          aria-describedby={fits ? undefined : tooLongId}
+                          onClick={() => {
+                            if (fits) onAdd(n.id, n.body);
+                          }}
+                        >
+                          Lägg till i sammanfattningen
+                        </Button>
+                      )}
+                      {!done && !fits && <span id={tooLongId} className="text-small font-bold">{SUMMARY_TOO_LONG}</span>}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Stack>
+    </Card>
   );
 }
 

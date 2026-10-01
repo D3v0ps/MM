@@ -104,34 +104,63 @@ export function Kv({ items, className }: { items: readonly (readonly [ReactNode,
   );
 }
 
-export type TimelineItem = { icon?: IconName; title: ReactNode; sub?: ReactNode; body?: ReactNode; tone?: "red"; filled?: boolean; key?: string };
+export type TimelineItem = {
+  icon?: IconName;
+  title: ReactNode;
+  sub?: ReactNode;
+  body?: ReactNode;
+  /** red = röd ring. alert = röd ring och röd ikon (varning – alltid tillsammans med text). */
+  tone?: "red" | "alert";
+  filled?: boolean;
+  key?: string;
+  /** Datum (eller "Vecka 39") i en egen kolumn före rubriken – ovanför rubriken på smala skärmar. */
+  date?: ReactNode;
+  /** Knappar till höger om posten (under den på smala skärmar). */
+  actions?: ReactNode;
+};
 
-/** Tidslinje (historik, händelser). */
-export function Timeline({ items }: { items: TimelineItem[] }) {
+/** Tidslinje (historik, händelser, deltagarkortets tidslinje). as="ol" = en lista för skärmläsare. */
+export function Timeline({ items, as = "div", ariaLabel }: { items: TimelineItem[]; as?: "div" | "ol"; ariaLabel?: string }) {
+  const List = as;
+  const Item = as === "ol" ? "li" : "div";
   return (
-    <div className="flex flex-col">
+    <List aria-label={ariaLabel} className={cn("flex flex-col", as === "ol" && "m-0 list-none p-0")}>
       {items.map((it, i) => (
-        <div
+        <Item
           key={it.key ?? i}
           className="relative grid grid-cols-[22px_minmax(0,1fr)] gap-3 pb-4 before:absolute before:top-[22px] before:bottom-0 before:left-2.5 before:w-0.5 before:bg-ljusgra last:before:hidden"
         >
           <span
+            aria-hidden={it.date != null || it.actions != null ? true : undefined}
             className={cn(
               "grid size-[22px] place-items-center rounded-full border-2 border-antracit bg-vit [&_svg]:size-3",
               it.filled && "bg-antracit text-vit",
               it.tone === "red" && "border-rod",
+              it.tone === "alert" && "border-rod [&_svg]:text-rod",
             )}
           >
             {it.icon && <Icon name={it.icon} />}
           </span>
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <div className="font-bold">{it.title}</div>
-            {it.sub && <div className="text-small text-text-muted portal:text-body">{it.sub}</div>}
-            {it.body}
-          </div>
-        </div>
+          {it.date != null || it.actions != null ? (
+            <div className="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-1.5">
+              {it.date != null && <div className="w-[92px] flex-none pt-px text-small font-bold text-text-muted max-[620px]:w-full portal:text-body">{it.date}</div>}
+              <div className="flex min-w-0 flex-1 basis-[240px] flex-col gap-0.5">
+                <div className="font-bold">{it.title}</div>
+                {it.sub && <div className="text-small text-text-muted portal:text-body">{it.sub}</div>}
+                {it.body}
+              </div>
+              {it.actions != null && <div className="flex flex-none flex-wrap items-center gap-1.5 max-[620px]:w-full">{it.actions}</div>}
+            </div>
+          ) : (
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="font-bold">{it.title}</div>
+              {it.sub && <div className="text-small text-text-muted portal:text-body">{it.sub}</div>}
+              {it.body}
+            </div>
+          )}
+        </Item>
       ))}
-    </div>
+    </List>
   );
 }
 

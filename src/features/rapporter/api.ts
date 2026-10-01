@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import type { ReportKind, ReportStatus } from "@/data/schema";
+import type { ProgressionRuleText } from "@/core/config";
 import type { SlaView } from "@/ui/badge";
 import { IdSchema } from "../_shared/schemas";
 import type { FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection } from "./model";
@@ -102,7 +103,7 @@ export type ReportList = {
 export const reportList = query("rapporter.lista", z.object({})).returns<ReportList>();
 
 // ---------------------------------------------------------------- Rapportdokumentet
-type DocBase = {
+export type DocBase = {
   id: string;
   status: ReportStatus;
   version: number;
@@ -131,7 +132,18 @@ export type ReportDocView =
       /** Veckodagen då veckorapporten senast publiceras, veckan efter ("måndag") – sla[veckorapport_publicering].weekday. */
       pubDay: string;
     })
-  | (DocBase & { kind: "customer_summary"; m: SummaryModel; approver: string; resultNote: string });
+  | (DocBase & {
+      kind: "customer_summary";
+      m: SummaryModel;
+      approver: string;
+      resultNote: string;
+      /**
+       * Avtalets regler för tydlig och någon progression i klarspråk (progressionRuleText), t.ex. "Minst ett område på nivå 2
+       * eller högre", och vilka områden som inte räknas (excluded). Ligger i vy-modellen – inte i SummaryModel – så att den
+       * frysta modellen och paritetsfacit inte ändras.
+       */
+      progressionRule: ProgressionRuleText;
+    });
 
 /** Rapportsidan i kommunportalen (prototypens PortalReport). */
 export type PortalReportInfo = {

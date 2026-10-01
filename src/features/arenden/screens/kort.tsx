@@ -1,6 +1,6 @@
 "use client";
 // Deltagarkortet (prototypens arende.kort): huvud med insatsen, deltagaren och teamet, samtycke, åtgärder och flikar.
-// Chef och systemadmin läser bara. Handledare (teamet) ser fyra flikar – inga coachanteckningar, bedömningar eller rapporter.
+// Chef och systemadmin läser bara. Handledare (teamet) ser fem flikar – inga coachanteckningar, bedömningar eller rapporter.
 // Visningen loggas i revisionsloggen (case.view), liksom försök utan behörighet (case.view_denied).
 import { useEffect, useState, type ReactNode } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -19,14 +19,16 @@ import {
   caseBookFirstMeeting, caseCard, caseChangeCoach, caseRevealPnr, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
 } from "../api";
 import { canOpen, cap, fd, Facts, Label, MiniList } from "./common";
-import { TabAvstamningar, TabKartlaggning, TabManad, TabNarvaro, TabOversikt } from "./kort-flikar";
+import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kort-flikar";
+import { TabManad } from "./kort-manad";
+import { TabTidslinje } from "./kort-tidslinje";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
 import { VoiceNotesCard } from "@/features/rost/screens/coach-parts";
 
 const TAB_LABEL: Record<CaseTab, string> = {
-  oversikt: "Översikt", kartlaggning: "Kartläggning", avstamningar: "Avstämningar", narvaro: "Närvaro", manad: "Månadsbedömning", handelser: "Händelser och utfall",
-  avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
+  oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Avstämningar", narvaro: "Närvaro", manad: "Månadsunderlag",
+  handelser: "Händelser och utfall", avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
 };
 const CUST_WHO = { kommun_handlaggare: "kommunen", kommun_chef: "kommunens chef" } as const;
 
@@ -68,7 +70,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
     );
   }
   if (d.kind === "denied") return <NoAccess caseId={caseId} restricted={d.restricted} caseNumber={d.caseNumber} status={d.status} crumbs={crumbs} />;
-  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} />;
+  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} />;
 }
 
 function NoAccess({ caseId, restricted, caseNumber, status, crumbs }: { caseId: string; restricted: boolean; caseNumber: string | null; status: string | null; crumbs: { label: string; to: string }[] }) {
@@ -117,7 +119,7 @@ export function CustSwitch({ card, tab, label }: { card: CaseCard; tab?: string 
   return <PerspectiveLink role={r} to={path(`/portal/deltagare/${encodeURIComponent(card.caseId)}`, { flik: tab ?? null })} label={label(CUST_WHO[r])} />;
 }
 
-function CaseView({ card, crumbs, flik }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null }) {
+function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null }) {
   const nav = useNav();
   const role = useSession().actor.role;
   const team = card.access === "team";
@@ -161,7 +163,8 @@ function CaseView({ card, crumbs, flik }: { card: CaseCard; crumbs: { label: str
       )}
       {team && (
         <Notice tone="info" icon="users" title={`Du ingår i teamet som ${(card.myTeamRoleLabel ?? "").toLowerCase()}`}>
-          Du ser moment, närvaro, praktik och arbetsgivarkontakter. Coachens anteckningar och bedömningar, månadsrapporter och slutrapporter visas inte för handledare.
+          Du ser moment, närvaro, praktik, arbetsgivarkontakter och tidslinjen med anteckningar som är skrivna för teamet. Coachens anteckningar och bedömningar,
+          månadsrapporter och slutrapporter visas inte för handledare.
         </Notice>
       )}
 
@@ -191,10 +194,11 @@ function CaseView({ card, crumbs, flik }: { card: CaseCard; crumbs: { label: str
         )}
         <TabPanel tabsId="arende" active={tab}>
           {tab === "oversikt" && <TabOversikt {...props} />}
+          {tab === "tidslinje" && <TabTidslinje {...props} />}
           {tab === "kartlaggning" && <TabKartlaggning {...props} />}
           {tab === "avstamningar" && <TabAvstamningar {...props} />}
           {tab === "narvaro" && <TabNarvaro {...props} />}
-          {tab === "manad" && <TabManad {...props} />}
+          {tab === "manad" && <TabManad {...props} month={manad && /^\d{4}-\d{2}$/.test(manad) ? manad : null} />}
           {tab === "handelser" && <TabHandelser {...props} />}
           {tab === "avvikelser" && <TabAvvikelser {...props} />}
           {tab === "praktik" && <TabPraktik {...props} />}

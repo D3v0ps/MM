@@ -2,7 +2,7 @@
 // Det interna målet visas aldrig för kunden: det tas bort ur resultatet och "under internt mål" blir "ok".
 // Grupper under minsta antal (pulse.minNForAggregate) redovisas som "färre än 5".
 import type { Db } from "@/data/schema";
-import { kpiDef } from "./config";
+import { kpiDef, levelIsClear, progressionFlags } from "./config";
 import { attendanceStats, type AttendanceStats } from "./attendance";
 import type { DomainEnv } from "./env";
 import { resultRate, type ResultRate, type ResultStatus } from "./kpi";
@@ -59,11 +59,12 @@ export function customerSummary(db: CustomerSummaryDb, month: MonthKey, env: Dom
     .map(([track, cs]) => ({ track, active: cs.length }))
     .sort(by("active", -1));
   const mas = db.monthly_assessments.filter((m) => m.month === month && m.status === "approved");
-  const levelAtLeast = (n: number) => (a: { level: number | null } | undefined) => a != null && a.level != null && a.level >= n;
-  const clear = mas.filter((m) => Object.values(m.areas).some(levelAtLeast(2))).length;
-  const any = mas.filter((m) => Object.values(m.areas).some(levelAtLeast(1))).length;
+  // Tydlig/någon progression enligt avtalets gränser, bara på de obligatoriska områdena (beslut 2026-10-01).
+  const flags = mas.map((m) => progressionFlags(env.cfg, m.areas));
+  const clear = flags.filter((f) => f.clear).length;
+  const any = flags.filter((f) => f.any).length;
   const areaDist = env.cfg.progression.areas.map((key) => ({
-    key, label: env.cfg.progression.areaLabels[key] ?? key, clear: mas.filter((m) => levelAtLeast(2)(m.areas[key])).length, n: mas.length,
+    key, label: env.cfg.progression.areaLabels[key] ?? key, clear: mas.filter((m) => levelIsClear(env.cfg, m.areas[key]?.level)).length, n: mas.length,
   }));
   const att = attendanceStats(db, null, start, end, env);
   const pulse = pulseStats(db, { from: `${addMonths(month, -2)}-01`, to: end }, env);

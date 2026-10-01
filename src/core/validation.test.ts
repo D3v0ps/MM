@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BOTKYRKA_CONFIG } from "./config";
 import { cfgWith } from "./test-data";
 import {
-  buyerRefError, buyerRefValid, emailValid, luhn, normalizePnr, pnrFormatValid, pnrLast4, pnrValid, poNumberError, poNumberFormatText, poNumberValid,
+  buyerRefError, buyerRefValid, emailValid, looksLikePnr, luhn, normalizePnr, pnrFormatValid, pnrLast4, pnrValid, poNumberError, poNumberFormatText, poNumberValid,
 } from "./validation";
 
 const cfg = BOTKYRKA_CONFIG;
@@ -76,6 +76,21 @@ describe("personnummer", () => {
     expect(normalizePnr("19811218-9876")).toBe("8112189876");
     expect(normalizePnr("811218-9876")).toBe("8112189876");
     expect(pnrLast4("19811218-9876")).toBe("9876");
+  });
+  // Spärren för fri text (kommunens meddelanden och anteckningar i deltagarkortet).
+  it("looksLikePnr: vanliga skrivsätt stoppas – även tankstreck, andra streck och mellanslag runt strecket", () => {
+    for (const s of [
+      "850101-1234", "19850101-1234", "8501011234", "850101+1234", "850101 1234",
+      "Handläggaren bekräftade 850101\u20131234 i går.", // tankstreck (Word/Outlook)
+      "19850101\u20131234", "850101\u20101234", "850101\u20111234", "850101\u20141234", "850101\u22121234", // ‐ ‑ — −
+      "850101 - 1234", "850101 \u2013 1234", "850101\u00a01234", // mellanslag runt strecket, hårt mellanslag
+      "\uff18\uff15\uff10\uff11\uff10\uff11\uff0d\uff11\uff12\uff13\uff14", // helbreddssiffror och helbreddsstreck
+    ]) expect(looksLikePnr(s), s).toBe(true);
+  });
+  it("looksLikePnr: ärendenummer, datum, telefonnummer och id:n är inte personnummer", () => {
+    for (const s of ["BOT-26-0143", "case-260143", "rep-16008", "Ring 070-123 45 67", "Mötet 2027-02-01 kl. 10", "Ärende 260143, vecka 1234", "", null, undefined]) {
+      expect(looksLikePnr(s), String(s)).toBe(false);
+    }
   });
 });
 

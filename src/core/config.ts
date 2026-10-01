@@ -125,11 +125,25 @@ const ProgressionSchema = z
     areaLabels: z.record(z.string(), z.string().min(1)),
     /** Observation krävs från och med den här nivån. */
     observationRequiredFromLevel: z.int().min(0).max(3),
-    statDefinition: z.strictObject({ clear: z.string().min(1), any: z.string().min(1) }),
+    /**
+     * Tydlig progression (beslut 2026-10-01): ett område på minst den här nivån. Botkyrka: 2. Räknas bara på de
+     * obligatoriska områdena (areas) – de valfria räknas aldrig i statistik (progressionFlags nedan).
+     */
+    clearFromLevel: z.int().min(1).max(3),
+    /** Någon progression: ett område på minst den här nivån. Botkyrka: 1. Högst clearFromLevel. */
+    anyFromLevel: z.int().min(0).max(3),
+    /**
+     * Äldre fritext ("minst ett område på nivå >= 2"). Läses inte längre – talen ovan gäller. Finns kvar som valfritt fält så
+     * att en sparad konfiguration med texten fortfarande validerar.
+     */
+    statDefinition: z.strictObject({ clear: z.string().min(1), any: z.string().min(1) }).optional(),
   })
   .superRefine((p, ctx) => {
     for (const key of [...p.areas, ...p.optionalAreas]) {
       if (!p.areaLabels[key]) ctx.addIssue({ code: "custom", message: `Etikett saknas för progressionsområdet ${key}`, path: ["areaLabels", key] });
+    }
+    if (p.anyFromLevel > p.clearFromLevel) {
+      ctx.addIssue({ code: "custom", message: "Någon progression (anyFromLevel) kan inte kräva en högre nivå än tydlig progression (clearFromLevel)", path: ["anyFromLevel"] });
     }
   });
 
@@ -484,6 +498,76 @@ export function progressionAreas(cfg: Pick<OperationalConfig, "progression">, op
   const main = p.areas.map((key) => ({ key, label: p.areaLabels[key] ?? key, optional: false }));
   return opts.includeOptional ? [...main, ...p.optionalAreas.map((key) => ({ key, label: p.areaLabels[key] ?? key, optional: true }))] : main;
 }
+// ---------------------------------------------------------------- Tydlig och någon progression (beslut 2026-10-01)
+// Gränserna är tal i konfigurationen (clearFromLevel, anyFromLevel). Andelen med tydlig/någon progression räknas bara på de
+// obligatoriska områdena (progressionAreas) – de valfria (hälsa, livskvalitet) räknas aldrig i statistik till kommunen.
+type ProgressionRuleCfg = { progression: Pick<OperationalConfig["progression"], "clearFromLevel" | "anyFromLevel"> };
+
+/** Tydlig progression i ett enskilt område: nivån är satt och minst clearFromLevel. */
+export const levelIsClear = (cfg: ProgressionRuleCfg, level: number | null | undefined): boolean => level != null && level >= cfg.progression.clearFromLevel;
+/** Någon progression i ett enskilt område: nivån är satt och minst anyFromLevel. */
+export const levelIsAny = (cfg: ProgressionRuleCfg, level: number | null | undefined): boolean => level != null && level >= cfg.progression.anyFromLevel;
+
+export type ProgressionFlags = {
+  /** Bedömda obligatoriska områden (nivå satt). */
+  assessed: number;
+  /** Obligatoriska områden med tydlig progression. */
+  clearCount: number;
+  /** Obligatoriska områden med någon progression. */
+  anyCount: number;
+  /** Minst ett obligatoriskt område med tydlig progression. */
+  clear: boolean;
+  /** Minst ett obligatoriskt område med någon progression. */
+  any: boolean;
+};
+/**
+ * Tydlig och någon progression för en bedömning (månadsbedömningens areas). Filtrerar själv på de obligatoriska områdena –
+ * valfria områden (optionalAreas) och okända nycklar räknas aldrig, även när de är bedömda.
+ */
+export function progressionFlags(
+  cfg: { progression: Pick<OperationalConfig["progression"], "areas" | "clearFromLevel" | "anyFromLevel"> },
+  areas: Readonly<Record<string, { level: number | null } | null | undefined>> | null | undefined,
+): ProgressionFlags {
+  let assessed = 0;
+  let clearCount = 0;
+  let anyCount = 0;
+  for (const key of cfg.progression.areas) {
+    const level = areas?.[key]?.level ?? null;
+    if (level == null) continue;
+    assessed++;
+    if (levelIsClear(cfg, level)) clearCount++;
+    if (levelIsAny(cfg, level)) anyCount++;
+  }
+  return { assessed, clearCount, anyCount, clear: clearCount > 0, any: anyCount > 0 };
+}
+export type ProgressionRuleText = {
+  clear: string;
+  any: string;
+  /**
+   * Vilka områden som inte räknas, med namn ur konfigurationen – null när avtalet saknar valfria områden. Botkyrka:
+   * "Hälsa (funktionellt beskrivet) och livskvalitet (deltagarens egen skattning) är valfria områden och räknas inte."
+   */
+  excluded: string | null;
+};
+/**
+ * Texterna för reglerna, byggda av talen och områdena: { clear: "Minst ett område på nivå 2 eller högre", any: "Minst ett
+ * område på nivå 1 eller högre", excluded: "… är valfria områden och räknas inte." }. Kommunen ska kunna förstå vilka
+ * områden som inte räknas utan att känna till begreppet "obligatoriska områden".
+ */
+export function progressionRuleText(cfg: {
+  progression: Pick<OperationalConfig["progression"], "clearFromLevel" | "anyFromLevel" | "optionalAreas" | "areaLabels">;
+}): ProgressionRuleText {
+  const p = cfg.progression;
+  const t = (n: number) => `Minst ett område på nivå ${n} eller högre`;
+  const labels = p.optionalAreas.map((k, i) => {
+    const l = p.areaLabels[k] ?? k;
+    return i === 0 ? l : l.charAt(0).toLowerCase() + l.slice(1);
+  });
+  const names = labels.length <= 1 ? labels.join("") : `${labels.slice(0, -1).join(", ")} och ${labels[labels.length - 1]}`;
+  const excluded = labels.length === 0 ? null : labels.length === 1 ? `${names} är ett valfritt område och räknas inte.` : `${names} är valfria områden och räknas inte.`;
+  return { clear: t(p.clearFromLevel), any: t(p.anyFromLevel), excluded };
+}
+
 /** Skalans text för en nivå, t.ex. 2 -> "Tydlig". */
 export const progressionScaleLabel = (cfg: Pick<OperationalConfig, "progression">, level: ProgressLevel): string =>
   cfg.progression.scale[String(level) as "0" | "1" | "2" | "3"];
@@ -556,6 +640,8 @@ const deepFreeze = <T>(o: T): T => {
 // (rapportutkast som skapas automatiskt, beslut 2026-10-01 – samma regler och sista dagar som testdatats rapporter).
 // Avvikelser från prototypen (beslut 2026-09-30, röstinspelning): ai-avsnittet har fastställd leverantör och inspelningsflödena
 // (recording, maxMinutes, languages, participantLinkValidDays); customerVisibility.seesParticipantVoiceNotes = false.
+// Avvikelse (beslut 2026-10-01, rapporter steg 2): progression.clearFromLevel/anyFromLevel (tal) ersätter fritexten
+// statDefinition, och tydlig/någon progression räknas bara på de obligatoriska områdena.
 export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
   OperationalConfigSchema.parse({
     casePrefix: "BOT",
@@ -592,7 +678,9 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
         livskvalitet_sjalvskattad: "Livskvalitet (deltagarens egen skattning)",
       },
       observationRequiredFromLevel: 1,
-      statDefinition: { clear: "minst ett område på nivå >= 2", any: "minst ett område på nivå >= 1" },
+      // Beslut 2026-10-01: gränserna är tal (ersätter fritexten statDefinition "minst ett område på nivå >= 2" / ">= 1").
+      clearFromLevel: 2,
+      anyFromLevel: 1,
     },
     result: {
       definition: "ATT_FASTSTÄLLA",

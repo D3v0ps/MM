@@ -4,6 +4,8 @@ import {
   END_REASONS as SCHEMA_END_REASONS,
   OUTCOME_EVENT_KINDS,
   type AttendanceStatus,
+  type CaseNoteAudience,
+  type CaseNoteKind,
   type CaseStatus,
   type ContractArea,
   type EndReason,
@@ -61,6 +63,21 @@ export const REPORT_STATUS_LABEL: Record<ReportStatus, string> = {
   draft: "Utkast", reviewed: "Granskad av coach", approved: "Godkänd", delivered: "Levererad", opened: "Kvitterad", waiting: "Väntar på närvaro",
 };
 export const reportStatusLabel = (s: string): string => lookup(REPORT_STATUS_LABEL, s) ?? s;
+
+// Fria anteckningar i deltagarkortet (rapporter steg 2 – finns inte i prototypen).
+export const CASE_NOTE_KIND_LABEL: Record<CaseNoteKind, string> = {
+  conversation: "Samtal med deltagaren", customer_contact: "Kontakt med kommunen", practical: "Praktiskt", other: "Övrigt",
+};
+export const caseNoteKindLabel = (k: string): string => lookup(CASE_NOTE_KIND_LABEL, k) ?? k;
+/**
+ * Vem ser anteckningen (kort etikett i tidslinjen). Systemadministratören har full åtkomst i ärenden utan skyddade
+ * personuppgifter (caseAccess) och läser därför anteckningarna – texterna säger det.
+ */
+export const CASE_NOTE_AUDIENCE_LABEL: Record<CaseNoteAudience, string> = {
+  full: "Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör", team: "Även teamet",
+};
+/** I ärenden med skyddade personuppgifter, oavsett audience. */
+export const CASE_NOTE_PROTECTED_AUDIENCE = "Bara namngiven huvudcoach och avtalsansvarig";
 
 export const CONTACT_LABEL: Record<PreferredContact, string> = { sms: "SMS", phone: "Telefon", email: "E-post", letter: "Brev" };
 export const contactLabel = (k: string): string => lookup(CONTACT_LABEL, k) ?? k;

@@ -20,11 +20,15 @@ import {
   isOperational,
   isUnset,
   kpiDef,
+  levelIsAny,
+  levelIsClear,
   monthlyReportWorkingDay,
   parseContractConfig,
   phaseLabel,
   phaseName,
   progressionAreas,
+  progressionFlags,
+  progressionRuleText,
   progressionScaleLabel,
   purchaseOrderPattern,
   recordingEnabled,
@@ -75,10 +79,17 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
   it("Botkyrka är exakt prototypens CONFIG_BOT, plus avtalstexterna (CONTRACT_NOTES) som flyttats in i konfigurationen", () => {
     // Avvikelser (beslut 2026-09-30, röstinspelning): ai-avsnittet och customerVisibility.seesParticipantVoiceNotes – se nästa test.
     // Tillägg (beslut 2026-10-01): reportSchedule – se testet för rapportutkasten nedan.
-    const { texts, ai, customerVisibility, reportSchedule, ...rest } = BOTKYRKA_CONFIG;
+    // Avvikelse (beslut 2026-10-01, rapporter steg 2): progression.clearFromLevel/anyFromLevel ersätter fritexten statDefinition.
+    const { texts, ai, customerVisibility, reportSchedule, progression, ...rest } = BOTKYRKA_CONFIG;
     void reportSchedule;
-    const { ai: protoAi, customerVisibility: protoVisibility, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
+    const { ai: protoAi, customerVisibility: protoVisibility, progression: protoProgression, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
     expect(rest).toStrictEqual(protoRest);
+    const { clearFromLevel, anyFromLevel, ...prog } = progression;
+    const { statDefinition, ...protoProg } = protoProgression as { statDefinition: { clear: string; any: string } };
+    expect(prog).toStrictEqual(protoProg);
+    // Samma gränser som prototypens text ("minst ett område på nivå >= 2" / ">= 1").
+    expect(statDefinition).toStrictEqual({ clear: "minst ett område på nivå >= 2", any: "minst ett område på nivå >= 1" });
+    expect([clearFromLevel, anyFromLevel]).toEqual([2, 1]);
     const { seesParticipantVoiceNotes, ...visibility } = customerVisibility;
     expect(visibility).toStrictEqual(protoVisibility);
     expect(seesParticipantVoiceNotes).toBe(false);
@@ -309,6 +320,65 @@ describe("hjälpare", () => {
     expect(BOTKYRKA_CONFIG.penalties.deviationOre).toBe(2_500_000);
     expect(BOTKYRKA_CONFIG.warningsBeforeTermination).toBe(3);
     expect(BOTKYRKA_CONFIG.escalationLadder.map((s) => s.level)).toEqual(["mindre", "större", "allvarlig", "allvarlig", "hävning"]);
+  });
+});
+
+describe("tydlig och någon progression (beslut 2026-10-01)", () => {
+  const withProg = (patch: Record<string, unknown>) => ({ ...BOTKYRKA_CONFIG, progression: { ...BOTKYRKA_CONFIG.progression, ...patch } });
+  const lv = (level: number | null) => ({ level });
+  it("levelIsClear och levelIsAny för ett enskilt område: gränsfall och tomma nivåer", () => {
+    expect([0, 1, 2, 3].map((n) => levelIsClear(BOTKYRKA_CONFIG, n))).toEqual([false, false, true, true]);
+    expect([0, 1, 2, 3].map((n) => levelIsAny(BOTKYRKA_CONFIG, n))).toEqual([false, true, true, true]);
+    for (const empty of [null, undefined]) {
+      expect(levelIsClear(BOTKYRKA_CONFIG, empty)).toBe(false);
+      expect(levelIsAny(BOTKYRKA_CONFIG, empty)).toBe(false);
+    }
+    // Nivå 0 är "någon progression" bara om avtalet säger det (anyFromLevel 0) – null är aldrig bedömt.
+    const zero = withProg({ anyFromLevel: 0 });
+    expect(levelIsAny(zero, 0)).toBe(true);
+    expect(levelIsAny(zero, null)).toBe(false);
+  });
+  it("progressionFlags: bara de obligatoriska områdena räknas – valfria och okända nycklar aldrig", () => {
+    expect(progressionFlags(BOTKYRKA_CONFIG, { narvaro_rutiner: lv(2), yrkesfardigheter: lv(1), arbetskapacitet: lv(0), beredskap: lv(null) }))
+      .toEqual({ assessed: 3, clearCount: 1, anyCount: 2, clear: true, any: true });
+    // Hälsa och livskvalitet på nivå 3 ger ingen progression i statistiken.
+    expect(progressionFlags(BOTKYRKA_CONFIG, { halsa_funktionellt: lv(3), livskvalitet_sjalvskattad: lv(3), okant: lv(3), narvaro_rutiner: lv(0) }))
+      .toEqual({ assessed: 1, clearCount: 0, anyCount: 0, clear: false, any: false });
+    expect(progressionFlags(BOTKYRKA_CONFIG, { narvaro_rutiner: lv(1), halsa_funktionellt: lv(2) })).toMatchObject({ clear: false, any: true, clearCount: 0, anyCount: 1 });
+    expect(progressionFlags(BOTKYRKA_CONFIG, {})).toEqual({ assessed: 0, clearCount: 0, anyCount: 0, clear: false, any: false });
+    expect(progressionFlags(BOTKYRKA_CONFIG, null)).toEqual({ assessed: 0, clearCount: 0, anyCount: 0, clear: false, any: false });
+    // Med en högre gräns följer räkningen med.
+    expect(progressionFlags(withProg({ clearFromLevel: 3 }), { narvaro_rutiner: lv(2), yrkesfardigheter: lv(3) })).toMatchObject({ clearCount: 1, anyCount: 2 });
+  });
+  it("texterna byggs av talen och av de valfria områdenas namn i konfigurationen", () => {
+    const excluded = "Hälsa (funktionellt beskrivet) och livskvalitet (deltagarens egen skattning) är valfria områden och räknas inte.";
+    expect(progressionRuleText(BOTKYRKA_CONFIG)).toEqual({ clear: "Minst ett område på nivå 2 eller högre", any: "Minst ett område på nivå 1 eller högre", excluded });
+    expect(progressionRuleText(withProg({ clearFromLevel: 3, anyFromLevel: 2 }))).toEqual({ clear: "Minst ett område på nivå 3 eller högre", any: "Minst ett område på nivå 2 eller högre", excluded });
+    // Kommunen ska se vilka områden som inte räknas – inte begreppet "obligatoriska områden".
+    expect(progressionRuleText(withProg({ optionalAreas: ["halsa_funktionellt"] })).excluded).toBe("Hälsa (funktionellt beskrivet) är ett valfritt område och räknas inte.");
+    expect(progressionRuleText(withProg({ optionalAreas: [] })).excluded).toBeNull();
+  });
+  it("zod: talen är obligatoriska, inom 0–3 och någon får inte kräva mer än tydlig", () => {
+    const parse = (patch: Record<string, unknown>) => OperationalConfigSchema.safeParse(withProg(patch));
+    expect(parse({}).success).toBe(true);
+    expect(parse({ clearFromLevel: 3, anyFromLevel: 3 }).success).toBe(true);
+    expect(parse({ clearFromLevel: 1, anyFromLevel: 0 }).success).toBe(true);
+    const { clearFromLevel, ...noClear } = BOTKYRKA_CONFIG.progression;
+    void clearFromLevel;
+    expect(OperationalConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, progression: noClear }).success).toBe(false);
+    const { anyFromLevel, ...noAny } = BOTKYRKA_CONFIG.progression;
+    void anyFromLevel;
+    expect(OperationalConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, progression: noAny }).success).toBe(false);
+    expect(parse({ clearFromLevel: 0 }).success).toBe(false);
+    expect(parse({ clearFromLevel: 4 }).success).toBe(false);
+    expect(parse({ clearFromLevel: 2.5 }).success).toBe(false);
+    expect(parse({ anyFromLevel: -1 }).success).toBe(false);
+    const inverted = parse({ clearFromLevel: 1, anyFromLevel: 2 });
+    expect(inverted.success).toBe(false);
+    expect(inverted.error?.issues.map((i) => i.path.join("."))).toEqual(["progression.anyFromLevel"]);
+    // Den äldre fritexten (statDefinition) validerar fortfarande men behövs inte.
+    expect(parse({ statDefinition: { clear: "minst ett område på nivå >= 2", any: "minst ett område på nivå >= 1" } }).success).toBe(true);
+    expect("statDefinition" in BOTKYRKA_CONFIG.progression).toBe(false);
   });
 });
 

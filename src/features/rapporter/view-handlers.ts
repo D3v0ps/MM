@@ -4,7 +4,7 @@
 import { fail, ok } from "@/api/contract";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { isOperational, type OperationalConfig } from "@/core/config";
+import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
@@ -15,6 +15,7 @@ import {
   reportCorrectionNote, reportDocument, reportDownload, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
   type PortalReportInfo, type ReportDocResult, type ReportDocView, type ReportList, type ReportListRow, type ReportVersion, type ReportView, type ReportViewDenied, type WeeklyDocSection,
 } from "./api";
+import { docBase, monthlyDocView } from "./doc-view";
 import { freezeReport } from "./freeze";
 import { contractInfo, loadReportDb, pendingCorrection, recipientOf, reportAccess, versionChain, viewerFor, type ContractInfo, type Viewer } from "./load";
 import {
@@ -141,20 +142,19 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
 // ================================================================ Rapportdokumentet
 /** Vy-modellen för dokumentet: modellen plus det läsaren ser (namn, veckorapportens sektioner). */
 async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info: ContractInfo, m: ReportModel, profiles: readonly Profile[]): Promise<ReportDocView> {
-  const base = {
-    id: r.id, status: r.status, version: r.version || 1, approvedAt: r.approvedAt, deliveredAt: r.deliveredAt, superseded: r.superseded,
-    contract: { customerName: info.customerName, contractNumber: info.contract.contractNumber, dnr: info.contract.dnr ?? "" },
-    recipient: personWithUnit({ profiles: [...profiles] }, m.kind === "weekly_attendance" ? m.recipientUserId : r.recipientUserId),
-  };
+  const base = docBase(r, info, profiles, m.kind === "weekly_attendance" ? m.recipientUserId : r.recipientUserId);
   switch (m.kind) {
     case "monthly":
-      return { ...base, kind: "monthly", participant: viewer.name(c), m };
+      return monthlyDocView(base, viewer.name(c), m);
     case "final":
       return { ...base, kind: "final", participant: viewer.name(c), m };
     case "order_confirmation":
       return { ...base, kind: "order_confirmation", participant: viewer.name(c), m };
     case "customer_summary":
-      return { ...base, kind: "customer_summary", m, approver: personName(profiles, r.approvedBy || info.contract.contractManagerId), resultNote: info.cfg.result.prototypeDefinition || "" };
+      return {
+        ...base, kind: "customer_summary", m, approver: personName(profiles, r.approvedBy || info.contract.contractManagerId), resultNote: info.cfg.result.prototypeDefinition || "",
+        progressionRule: progressionRuleText(info.cfg),
+      };
     case "weekly_attendance": {
       const { sections, ...rest } = m;
       // ctx.system: ärendena i rapportens sektioner, för behörigheten per deltagare (namnen läses via ctx.repo i viewerFor).

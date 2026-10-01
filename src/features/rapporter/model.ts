@@ -8,7 +8,7 @@
 //
 // Modellen innehåller inga namn på deltagare och inga personnummer – bara ärendenummer och id:n. Namnet läggs till per
 // läsare i vy-modellen (behörigheten avgör om det är namnet eller "Skyddade personuppgifter").
-import type { OperationalConfig } from "@/core/config";
+import { levelIsClear, progressionFlags, type OperationalConfig } from "@/core/config";
 import { activitiesOf, attendanceFor, byId, groupedBy } from "@/core/db-index";
 import { pct } from "@/core/format";
 import { kpiValue, type KpiDb } from "@/core/kpi";
@@ -456,9 +456,10 @@ function buildSummary(src: Src, env: ReportEnv, r: Report, frozen: boolean): Sum
     .map(([t, cs]) => ({ track: t === "undefined" || t === "null" ? "" : t, active: cs.length }))
     .sort(by("active", -1));
   const mas = src.db.monthly_assessments.filter((m) => m.month === mk && src.approved(m));
-  const clear = mas.filter((m) => Object.values(m.areas).some((a) => a.level != null && a.level >= 2)).length;
+  // Tydlig progression enligt avtalets gräns, bara på de obligatoriska områdena (beslut 2026-10-01).
+  const clear = mas.filter((m) => progressionFlags(cfg, m.areas).clear).length;
   const areaDist = cfg.progression.areas.map((key) => ({
-    key, label: cfg.progression.areaLabels[key], clear: mas.filter((m) => (m.areas[key]?.level ?? -1) >= 2).length, n: mas.length,
+    key, label: cfg.progression.areaLabels[key], clear: mas.filter((m) => levelIsClear(cfg, m.areas[key]?.level)).length, n: mas.length,
   }));
   const att = attStats(src, null, start, end);
   const pFrom = maxS(`${addMonths(mk, -2)}-01`, `${monthKey(env.contract.startsOn)}-01`);
@@ -514,6 +515,62 @@ function build(src: Src, env: ReportEnv, r: Report, frozen: boolean): ReportMode
     default:
       return null;
   }
+}
+
+// ================================================================ Månadsunderlaget i deltagarkortet (rapporter steg 2)
+/** En rapportrad som inte finns än – bara det buildMonthly läser (ärende och månad). */
+function stubReport(caseId: string, month: MonthKey): Report {
+  return {
+    id: `preview:${caseId}:${month}`, contractId: "", caseId, recipientUserId: null, kind: "monthly", week: null, month, periodStart: `${month}-01`, periodEnd: monthEnd(month),
+    status: "draft", version: 1, dueAt: null, approvedBy: null, approvedAt: null, deliveredAt: null, deliveredTo: [], openedAt: null, openedBy: null, provisionalDue: false,
+    pdfPath: null, aiSummaryDraft: null, summary: null, summaryAiUsed: false, finalText: null, previousId: null, correctionPending: null, superseded: false,
+    supersededAt: null, supersededBy: null, correctionReason: null, correctedBy: null, correctedAt: null, qualityReviewedBy: null, qualityReviewedAt: null, snapshot: null,
+  };
+}
+
+/**
+ * Det som kommer i månadsrapporten för ärendet och månaden – samma funktion som rapporten (buildMonthly via build) med
+ * dagens data och bara godkända uppgifter. Behöver ingen rapportrad: fliken Månadsunderlag visar den före månadsskiftet.
+ */
+export function monthlyPreview(db: ReportDb, caseId: string, month: MonthKey, env: ReportEnv): MonthlyModel | null {
+  return build(makeSrc(db, env, null), env, stubReport(caseId, month), false) as MonthlyModel | null;
+}
+
+export type MonthlyGaps = {
+  /** Veckorader i rapportens avsnitt 2 (ISO-veckor helt eller delvis i månaden och under insatsen, uppehållsveckor inräknade). */
+  weeks: number;
+  /** De av veckorna som är uppehåll. Veckor att stämma av = weeks − pausedWeeks. */
+  pausedWeeks: number;
+  checkInsApproved: number;
+  checkInsDraft: number;
+  /** Samma tal som rapportens total.unregistered. */
+  unregistered: number;
+  assessment: "approved" | "draft" | "missing";
+  /** Anteckningar från månaden (inte borttagna) som läsaren ser. */
+  notes: number;
+};
+
+/**
+ * Vad saknas innan månadsrapporten kan godkännas? Bara antal – aldrig text. Samma definitioner som rapporten (veckorna och
+ * oregistrerade tillfällen kommer från monthlyPreview) och som dataexporten i steg 3 (facts.weeks/facts.pausedWeeks).
+ */
+export function monthlyGaps(db: ReportDb & Pick<Db, "case_notes">, caseId: string, month: MonthKey, env: ReportEnv): MonthlyGaps | null {
+  const m = monthlyPreview(db, caseId, month, env);
+  if (!m) return null;
+  const from = `${month}-01`;
+  const to = monthEnd(month);
+  const inMonth = (t: string) => dayOf(t) >= from && dayOf(t) <= to;
+  const cis = db.check_ins.filter((x) => x.caseId === caseId && inMonth(x.heldAt) && x.heldAt <= env.now);
+  const ma = db.monthly_assessments.find((x) => x.caseId === caseId && x.month === month) ?? null;
+  return {
+    weeks: m.weeks.length,
+    pausedWeeks: m.weeks.filter((w) => w.paused).length,
+    checkInsApproved: cis.filter((x) => x.status === "approved").length,
+    checkInsDraft: cis.filter((x) => x.status !== "approved").length,
+    unregistered: m.total.unregistered,
+    assessment: !ma ? "missing" : ma.status === "approved" ? "approved" : "draft",
+    notes: db.case_notes.filter((x) => x.caseId === caseId && !x.removedAt && x.occurredOn >= from && x.occurredOn <= to).length,
+  };
 }
 
 /** Har rapporten en ögonblicksbild av sitt levererade innehåll? */

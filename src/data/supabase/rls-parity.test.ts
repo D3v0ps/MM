@@ -13,7 +13,7 @@ import { listPersonas, type Persona } from "../actors";
 import { MemoryRepo, MemoryStore, type RawAccess } from "../memory";
 import { canReadRow, canWriteRow, POLICIES } from "../policy";
 import { TABLE_NAMES, type TableName, type Tables } from "../schema";
-import { allowed, asUser, attempt, createMigratedDatabase, loadSeed, SEED_FILE, type Tx } from "./pglite";
+import { allowed, asUser, attempt, createMigratedDatabase, loadSeed, MIGRATIONS_DIR, SEED_FILE, type Tx } from "./pglite";
 
 // Testarnas konton i auth.users (skapas av servern vid första inloggningen; seeden kopplar dem via e-postadressen).
 const TESTER_AUTH: Record<string, string> = {
@@ -739,6 +739,181 @@ describe("skrivning: särskilda fall", () => {
   it("testklockan: mm.app_now() startar på testtiden när seeden lästes in", async () => {
     const r = await db.query<{ t: string }>("select to_char(mm.app_now() at time zone 'Europe/Stockholm', 'YYYY-MM-DD\"T\"HH24:MI') as t");
     expect(r.rows[0].t >= "2027-02-01T09:12" && r.rows[0].t <= "2027-02-01T09:20").toBe(true);
+  });
+});
+
+// ================================================================ Fria anteckningar (0019, beslut 2026-10-01)
+describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i RLS, triggern och policy.ts", () => {
+  const NADIA = "case-260143";
+  const SKYDDAD = "case-260120";
+  const note = (id: string) => raw.get("case_notes", id)!;
+  const ids = (xs: { id: string }[]) => xs.map((x) => x.id).sort();
+  const pgNotes = (userId: string, opts?: Parameters<typeof asUser>[3]) =>
+    opts ? asUser(db, authOf(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.case_notes order by id")).rows.map((r) => r.id), opts)
+      : asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.case_notes order by id")).rows.map((r) => r.id));
+  const memNotes = async (userId: string, rawOverride?: RawAccess<Tables>) =>
+    ids(data.case_notes.filter((n) => canReadRow("case_notes", n, actorOf(findPersona(userId)), rawOverride ?? raw)));
+
+  it("testdatat har anteckningar för full och team, en borttagen och en i det skyddade ärendet", () => {
+    expect(data.case_notes.filter((n) => n.caseId === NADIA).map((n) => [n.audience, !!n.removedAt]).sort()).toEqual([["full", false], ["full", false], ["team", false], ["team", true]]);
+    expect(note("note-skyddad")).toMatchObject({ caseId: SKYDDAD, audience: "full", authorId: "u-erik" });
+  });
+
+  it("läsning per roll: handledaren bara team i tilldelade ärenden, ekonom och kommunen inget, skyddat ärende bara namngivna", async () => {
+    const expected: Record<string, string[]> = {
+      // Amira är huvudcoach för både Nadia och Mehmet (Petras teamanteckning).
+      "u-amira": ["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"],
+      "u-petra": ["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-praktiskt"],
+      "u-leila": [], "u-lars": [], "k-maria": [], "k-eva": [], "k-omar": [],
+      "u-erik": ["note-skyddad"],
+      "u-johan": [...data.case_notes.map((n) => n.id)].sort(),
+      "u-sara": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
+      "u-karin": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
+      "u-robin": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
+    };
+    for (const [userId, want] of Object.entries(expected)) {
+      expect(await pgNotes(userId), userId).toEqual(want);
+      expect(await memNotes(userId), userId).toEqual(want);
+    }
+  });
+
+  it("kommunen läser inga anteckningar – inte heller när avtalet har seesCoachNotes: true", async () => {
+    const before = async (tx: Tx) => {
+      await tx.query("update public.contracts set config = jsonb_set(config, '{customerVisibility,seesCoachNotes}', 'true'::jsonb) where id = 'c-bot'");
+    };
+    const bot = raw.get("contracts", "c-bot")!;
+    const open = { ...bot, config: { ...bot.config, customerVisibility: { ...bot.config.customerVisibility!, seesCoachNotes: true } } };
+    const rawOpen: RawAccess<Tables> = { ...raw, get: ((t: TableName, id: string) => (t === "contracts" && id === "c-bot" ? open : raw.get(t as never, id))) as RawAccess<Tables>["get"] };
+    for (const userId of ["k-maria", "k-eva", "k-omar"]) {
+      expect(await pgNotes(userId, { before }), userId).toEqual([]);
+      expect(await memNotes(userId, rawOpen), userId).toEqual([]);
+    }
+  });
+
+  /** Kör satsen som personen i Postgres och samma rad i policy.ts – svaren ska vara lika. */
+  const both = async (userId: string, sql: string, params: unknown[], row: Tables["case_notes"], opts: { team?: boolean } = {}) => {
+    const p = findPersona(userId);
+    const extraTeam = opts.team ? [{ id: "ct-x-leila", caseId: NADIA, userId: "u-leila", role: "employer_matcher" as const }] : [];
+    const st = opts.team ? new MemoryStore<Tables>({ ...data, case_team: [...data.case_team, ...extraTeam] }) : store;
+    const r = st.raw();
+    const cur = r.get("case_notes", row.id);
+    const mem = (cur ? canReadRow("case_notes", cur, actorOf(p), r) : true) && canWriteRow("case_notes", row, actorOf(p), r);
+    // Coach i teamet utan att vara huvudcoach: testdatat har ingen sådan, så en teamrad läggs in i samma transaktion.
+    const pg = opts.team
+      ? await asUser(db, authOf(userId), (tx) => attempt(tx, sql, params), {
+          before: async (tx) => { await tx.query("insert into public.case_team (id, case_id, user_id, role) values ('ct-x-leila', $1, 'u-leila', 'employer_matcher')", [NADIA]); },
+        })
+      : await asPersona(p, (tx) => attempt(tx, sql, params));
+    return { pg: allowed(pg), mem };
+  };
+  const at = "2027-02-01T09:30";
+  const insertNote = (id: string, caseId: string, contractId: string, authorId: string, audience: string, extra = "") =>
+    `insert into public.case_notes (id, contract_id, case_id, author_id, occurred_on, kind, audience, body, created_at, updated_at, removed_at, removed_by)
+     values ('${id}', '${contractId}', '${caseId}', '${authorId}', '2027-01-30', 'other', '${audience}', 'Text', '${at}', ${extra || "null, null, null"})`;
+  const newRow = (id: string, caseId: string, contractId: string, authorId: string, audience: "full" | "team", patch: Partial<Tables["case_notes"]> = {}): Tables["case_notes"] => ({
+    id, contractId, caseId, authorId, occurredOn: "2027-01-30", kind: "other", audience, body: "Text", createdAt: at, updatedAt: null, removedAt: null, removedBy: null, ...patch,
+  });
+
+  it("ny anteckning: tillåten i eget namn – nekas för handledare med 'full', annan författare, fel avtal och borttagen/ändrad vid start", async () => {
+    const cases: [string, string, Tables["case_notes"], boolean][] = [
+      ["u-amira", insertNote("n-t1", NADIA, "c-bot", "u-amira", "full"), newRow("n-t1", NADIA, "c-bot", "u-amira", "full"), true],
+      ["u-petra", insertNote("n-t2", NADIA, "c-bot", "u-petra", "team"), newRow("n-t2", NADIA, "c-bot", "u-petra", "team"), true],
+      ["u-petra", insertNote("n-t3", NADIA, "c-bot", "u-petra", "full"), newRow("n-t3", NADIA, "c-bot", "u-petra", "full"), false],
+      ["u-amira", insertNote("n-t4", NADIA, "c-bot", "u-sara", "full"), newRow("n-t4", NADIA, "c-bot", "u-sara", "full"), false],
+      ["u-amira", insertNote("n-t5", NADIA, "c-kk", "u-amira", "full"), newRow("n-t5", NADIA, "c-kk", "u-amira", "full"), false],
+      ["u-amira", insertNote("n-t6", NADIA, "c-bot", "u-amira", "full", `null, '${at}', 'u-amira'`), newRow("n-t6", NADIA, "c-bot", "u-amira", "full", { removedAt: at, removedBy: "u-amira" }), false],
+      ["u-amira", insertNote("n-t7", NADIA, "c-bot", "u-amira", "full", `'${at}', null, null`), newRow("n-t7", NADIA, "c-bot", "u-amira", "full", { updatedAt: at }), false],
+      ["u-karin", insertNote("n-t8", NADIA, "c-bot", "u-karin", "full"), newRow("n-t8", NADIA, "c-bot", "u-karin", "full"), false],
+      ["u-robin", insertNote("n-t9", NADIA, "c-bot", "u-robin", "full"), newRow("n-t9", NADIA, "c-bot", "u-robin", "full"), false],
+      ["u-lars", insertNote("n-t10", NADIA, "c-bot", "u-lars", "team"), newRow("n-t10", NADIA, "c-bot", "u-lars", "team"), false],
+      ["k-maria", insertNote("n-t11", NADIA, "c-bot", "k-maria", "team"), newRow("n-t11", NADIA, "c-bot", "k-maria", "team"), false],
+      ["u-sara", insertNote("n-t12", SKYDDAD, "c-bot", "u-sara", "full"), newRow("n-t12", SKYDDAD, "c-bot", "u-sara", "full"), false],
+      ["u-erik", insertNote("n-t13", SKYDDAD, "c-bot", "u-erik", "full"), newRow("n-t13", SKYDDAD, "c-bot", "u-erik", "full"), true],
+    ];
+    for (const [userId, sql, row, want] of cases) {
+      const r = await both(userId, sql, [], row);
+      expect(r, `${userId} ${row.id}`).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("ändra: bara författaren; ärende, avtal och författare ändras aldrig; en borttagen anteckning är låst", async () => {
+    const samtal = note("note-nadia-samtal");
+    const gone = note("note-nadia-borttagen");
+    const cases: [string, string, Tables["case_notes"], boolean][] = [
+      ["u-amira", "update public.case_notes set body = 'Ny text' where id = 'note-nadia-samtal'", { ...samtal, body: "Ny text" }, true],
+      ["u-sara", "update public.case_notes set body = 'Ny text' where id = 'note-nadia-samtal'", { ...samtal, body: "Ny text" }, false],
+      ["u-johan", "update public.case_notes set kind = 'practical' where id = 'note-nadia-samtal'", { ...samtal, kind: "practical" }, false],
+      ["u-amira", "update public.case_notes set case_id = 'case-260130' where id = 'note-nadia-samtal'", { ...samtal, caseId: "case-260130" }, false],
+      ["u-amira", "update public.case_notes set contract_id = 'c-kk' where id = 'note-nadia-samtal'", { ...samtal, contractId: "c-kk" }, false],
+      ["u-amira", "update public.case_notes set author_id = 'u-sara' where id = 'note-nadia-samtal'", { ...samtal, authorId: "u-sara" }, false],
+      ["u-amira", "update public.case_notes set body = 'Ny text' where id = 'note-nadia-borttagen'", { ...gone, body: "Ny text" }, false],
+      ["u-amira", "update public.case_notes set removed_at = null, removed_by = null where id = 'note-nadia-borttagen'", { ...gone, removedAt: null, removedBy: null }, false],
+      ["u-sara", "update public.case_notes set removed_at = null, removed_by = null where id = 'note-nadia-borttagen'", { ...gone, removedAt: null, removedBy: null }, false],
+      ["u-amira", "delete from public.case_notes where id = 'note-nadia-samtal'", samtal, false],
+    ];
+    for (const [userId, sql, row, want] of cases) {
+      const r = await both(userId, sql, [], row);
+      expect(r, `${userId}: ${sql}`).toEqual({ pg: want, mem: want });
+    }
+    // Ingen hård radering i minnesläget heller: MemoryRepo.remove() nekas av samma regel (raden ändras inte).
+    expect(canWriteRow("case_notes", samtal, actorOf(findPersona("u-amira")), raw)).toBe(false);
+  });
+
+  it("dölja: författaren och samordnare/avtalsansvarig i eget namn – aldrig handledare, coach i teamet, ekonom, chef, admin eller kommunen", async () => {
+    const praktiskt = note("note-nadia-praktiskt");
+    const skyddad = note("note-skyddad");
+    const hide = (id: string, by: string) => `update public.case_notes set removed_at = '${at}', removed_by = '${by}' where id = '${id}'`;
+    const hidden = (n: Tables["case_notes"], by: string): Tables["case_notes"] => ({ ...n, removedAt: at, removedBy: by });
+    const cases: [string, string, Tables["case_notes"], boolean, { team?: boolean }?][] = [
+      ["u-amira", hide(praktiskt.id, "u-amira"), hidden(praktiskt, "u-amira"), true],
+      ["u-sara", hide(praktiskt.id, "u-sara"), hidden(praktiskt, "u-sara"), true],
+      ["u-johan", hide(praktiskt.id, "u-johan"), hidden(praktiskt, "u-johan"), true],
+      ["u-sara", hide(praktiskt.id, "u-amira"), hidden(praktiskt, "u-amira"), false], // inte i någon annans namn
+      ["u-sara", `update public.case_notes set removed_at = '${at}', removed_by = 'u-sara', body = 'Ändrad' where id = '${praktiskt.id}'`, { ...hidden(praktiskt, "u-sara"), body: "Ändrad" }, false],
+      ["u-sara", `update public.case_notes set removed_by = 'u-sara' where id = '${praktiskt.id}'`, { ...praktiskt, removedBy: "u-sara" }, false],
+      ["u-petra", hide(praktiskt.id, "u-petra"), hidden(praktiskt, "u-petra"), false],
+      ["u-leila", hide(praktiskt.id, "u-leila"), hidden(praktiskt, "u-leila"), false, { team: true }],
+      ["u-lars", hide(praktiskt.id, "u-lars"), hidden(praktiskt, "u-lars"), false],
+      ["u-karin", hide(praktiskt.id, "u-karin"), hidden(praktiskt, "u-karin"), false],
+      ["u-robin", hide(praktiskt.id, "u-robin"), hidden(praktiskt, "u-robin"), false],
+      ["k-maria", hide(praktiskt.id, "k-maria"), hidden(praktiskt, "k-maria"), false],
+      // Skyddat ärende: avtalsansvarig (full) får dölja, samordnaren (bara ärendenumret) får inte.
+      ["u-johan", hide(skyddad.id, "u-johan"), hidden(skyddad, "u-johan"), true],
+      ["u-sara", hide(skyddad.id, "u-sara"), hidden(skyddad, "u-sara"), false],
+      ["u-petra", hide("note-mehmet-handledare", "u-petra"), hidden(note("note-mehmet-handledare"), "u-petra"), true],
+    ];
+    for (const [userId, sql, row, want, opts] of cases) {
+      const r = await both(userId, sql, [], row, opts);
+      expect(r, `${userId}: ${sql}`).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("reset_test_data tömmer anteckningarna (nya tabeller töms automatiskt)", async () => {
+    const n = await asUser(db, null, async (tx) => {
+      await tx.query("select public.reset_test_data('2027-02-01T09:12')");
+      return (await tx.query<{ n: number }>("select count(*)::int as n from public.case_notes")).rows[0].n;
+    }, { role: "service_role" });
+    expect(n).toBe(0);
+  });
+
+  it("0020: talen för tydlig och någon progression läses ur avtalets fritext när de saknas – annars orört", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0020_progressionsgranser.sql`, "utf8");
+    const res = await asUser(db, null, async (tx) => {
+      // Som en äldre konfiguration i testmiljön: fritexten finns, talen saknas.
+      await tx.query(`update public.contracts set config = jsonb_set(config #- '{progression,clearFromLevel}' #- '{progression,anyFromLevel}', '{progression,statDefinition}',
+        '{"clear":"minst ett område på nivå >= 2","any":"minst ett område på nivå >= 1"}'::jsonb) where id = 'c-bot'`);
+      await tx.exec(sql);
+      const after = (await tx.query<{ p: Record<string, unknown> }>("select config -> 'progression' as p from public.contracts where id = 'c-bot'")).rows[0].p;
+      await tx.exec(sql); // idempotent
+      const again = (await tx.query<{ p: Record<string, unknown> }>("select config -> 'progression' as p from public.contracts where id = 'c-bot'")).rows[0].p;
+      const kk = (await tx.query<{ c: unknown }>("select config -> 'progression' as c from public.contracts where id = 'c-kk'")).rows[0].c;
+      return { after, again, kk };
+    }, { role: "service_role" });
+    expect(res.after).toMatchObject({ clearFromLevel: 2, anyFromLevel: 1 });
+    expect(res.again).toEqual(res.after);
+    expect(res.kk).toBeNull();
+    const cfg = { ...data.contracts.find((c) => c.id === "c-bot")!.config, progression: res.after };
+    expect(() => requireOperational(cfg as never)).not.toThrow();
   });
 });
 

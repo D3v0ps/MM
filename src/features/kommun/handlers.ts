@@ -7,7 +7,7 @@ import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { attendanceStats, repeatedAbsence } from "@/core/attendance";
 import { ackTextFor, duplicateActive, orderValueOre, priceFor } from "@/core/cases";
-import { isUnset, kpiDef } from "@/core/config";
+import { isUnset, kpiDef, progressionRuleText } from "@/core/config";
 import { customerSummary } from "@/core/customer-summary";
 import { domainEnv } from "@/core/env";
 import { contactLabel, reportKindLabel, teamLabel } from "@/core/labels";
@@ -427,6 +427,7 @@ handleQuery(kommunChef, { roles: CHEF }, async (ctx, p): Promise<KomChef> => {
     contractTarget: kpiDef(cfg, "resultatgrad")?.contractTarget ?? 0,
     minN, pendingPlans, approvedPlans, warnings: devs.filter((x) => x.warningIssued).length,
     managerName: k.name(contract.contractManagerId), statisticsPerYear: cfg.statistics.onRequestMaxPerYear,
+    progressionRule: progressionRuleText(cfg),
   };
 });
 
