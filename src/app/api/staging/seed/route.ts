@@ -13,8 +13,9 @@ import { clearAppSettingsCache, loadAppSettings } from "@/server/settings";
 import { seedGuard } from "@/server/staging/guard";
 import { loadTestData, SeedLoadError, type SeedClient } from "@/server/staging/load";
 
-/** Inläsningen tar normalt 10–30 sekunder (ca 13 000 rader i ett 60-tal anrop). */
-export const maxDuration = 300;
+/** Inläsningen tar normalt 10–30 sekunder (ca 13 000 rader i ett 60-tal anrop). 60 sekunder är taket på alla
+ *  Vercel-nivåer – en högre gräns stoppar hela driftsättningen på nivåer som inte tillåter den. */
+export const maxDuration = 60;
 
 const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
