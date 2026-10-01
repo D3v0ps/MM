@@ -45,7 +45,8 @@ describe("artifactDownload", () => {
 
   it("utan artefaktens nedladdning visas texten att kopiera", async () => {
     withClaude(null);
-    expect(await artifactDownload({ filename: "logg.csv", content: "rad 1" })).toBe(false);
+    // "shown": innehållet visas att kopiera – inte samma sak som att tittaren sa nej (false).
+    expect(await artifactDownload({ filename: "logg.csv", content: "rad 1" })).toBe("shown");
     expect(showText).toHaveBeenCalledWith({ title: "Innehåll i logg.csv", text: "rad 1", note: "Filen kunde inte sparas direkt här. Kopiera innehållet i stället." });
   });
 
@@ -72,7 +73,7 @@ describe("artifactDownload", () => {
 
   it("andra fel (t.ex. rate_limited) faller tillbaka till dialogen", async () => {
     withClaude(async () => Promise.reject({ code: "rate_limited", message: "vänta" }));
-    expect(await artifactDownload({ filename: "b.csv", content: "y" })).toBe(false);
+    expect(await artifactDownload({ filename: "b.csv", content: "y" })).toBe("shown");
     expect(showText).toHaveBeenCalledTimes(1);
   });
 });

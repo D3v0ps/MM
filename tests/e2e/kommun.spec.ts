@@ -625,3 +625,94 @@ test("6. beställarrapport för kommunens chef: avtalsmålet, små grupper, utka
   }
   expect(errors).toEqual([]);
 });
+
+// ================================================================ 7. Hämta resultat (resultatfilen, rapporter steg 3)
+test("7. hämta resultat: kommunens chef hämtar Excel och CSV, handläggaren når inte sidan, admin ser loggposten", async ({ page }, info) => {
+  const errors = await open(page, info, "/portal/bestallarrapport", EVA);
+  await settle(page);
+  const menu = page.getByRole("navigation", { name: "Portalmeny" });
+  await expect(menu.getByRole("link", { name: "Hämta resultat" })).toBeVisible();
+  await menu.getByRole("link", { name: "Hämta resultat" }).click();
+  await settle(page);
+  // Steg 1: period
+  await expect(main(page)).toContainText("Här hämtar du resultaten från månadsrapporterna som en fil.");
+  await expect(main(page).getByRole("heading", { name: "Vilken period?" })).toBeVisible();
+  await expect(main(page)).toContainText("Du kan välja högst 12 månader.");
+  await page.locator("#kom-res-from").selectOption("2026-10");
+  await settle(page);
+  await page.locator("#kom-res-to").selectOption("2026-12");
+  await settle(page);
+  await expect(main(page)).toContainText(/För perioden finns \d+ månadsrapporter för \d+ deltagare\./);
+  expect(await currentPath(page, info)).toMatch(/^\/portal\/resultat\?steg=1&fran=2026-10&till=2026-12$/);
+  // Ingen personuppgift i adressen
+  await noHScroll(page, "Hämta resultat");
+  await btn(page, "Nästa").click();
+  // Steg 2: filtyp (Excel förvalt)
+  await expect(main(page).getByRole("heading", { name: "Vilken filtyp?" })).toBeVisible();
+  await expect(page.getByLabel("Excel (rekommenderas)", { exact: true })).toBeChecked();
+  await expect(main(page)).toContainText("En fil med flikarna Resultat, Progression, Händelser, Avslut och Om filen.");
+  await btn(page, "Nästa").click();
+  // Steg 3: hämta
+  await expect(main(page).getByRole("heading", { name: "Hämta filen" })).toBeVisible();
+  await expect(main(page)).toContainText("oktober 2026 – december 2026");
+  await expect(main(page)).toContainText("Filen innehåller namn");
+  await expect(main(page)).toContainText("Bara levererade månadsrapporter kommer med. Ärenden med skyddade personuppgifter finns aldrig med.");
+  const [xlsx] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), btn(page, "Hämta filen").click()]);
+  expect(xlsx.suggestedFilename()).toBe("resultat_bot_2026-10_2026-12.xlsx");
+  const fs = await import("node:fs");
+  const file = fs.readFileSync((await xlsx.path())!);
+  expect(file.subarray(0, 2).toString("latin1")).toBe("PK");
+  // Hela kedjan (base64 → bytes → Blob → nedladdning; i prototypen DEFLATE i webbläsaren): filen går att packa upp (storlek och
+  // CRC för varje post) och har flikarna och raderna.
+  const { readZip, entryText } = await import("../../src/core/export/read-zip.test-helper");
+  const entries = await readZip(new Uint8Array(file));
+  const workbook = entryText(entries, "xl/workbook.xml");
+  expect([...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1])).toEqual(["Resultat", "Progression", "Händelser", "Avslut", "Om filen"]);
+  const sheet1 = entryText(entries, "xl/worksheets/sheet1.xml");
+  const header = [...sheet1.slice(0, sheet1.indexOf("</row>")).matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((m) => m[1]);
+  expect(header.slice(0, 3)).toEqual(["arendenummer", "namn", "manad"]);
+  expect(header).toHaveLength(62);
+  expect(sheet1).toMatch(/>BOT-\d{2}-\d{4}</);
+  expect(sheet1, "det skyddade ärendet finns inte").not.toContain("BOT-26-0120");
+  expect([...sheet1.matchAll(/<row /g)].length, "rubrikrad och en rad per månadsrapport").toBeGreaterThan(100);
+  const sheet4 = entryText(entries, "xl/worksheets/sheet4.xml");
+  expect(sheet4).toContain('<t xml:space="preserve">avslut_datum</t>');
+  expect(sheet4).toMatch(/>BOT-\d{2}-\d{4}</);
+  expect(entryText(entries, "xl/worksheets/sheet5.xml")).toContain("Ärenden med skyddade personuppgifter finns aldrig med.");
+  await expect(main(page)).toContainText("Filen är hämtad: resultat_bot_2026-10_2026-12.xlsx");
+  // CSV: tillbaka till filtypen
+  await btn(page, "Tillbaka").click();
+  await page.getByLabel("CSV", { exact: true }).check();
+  await btn(page, "Nästa").click();
+  let csv = "";
+  if (isDemo(info)) {
+    await btn(page, "Hämta resultat (CSV)").click();
+    const area = page.locator("#text-dialog-area");
+    await expect(area).toBeVisible();
+    csv = await area.inputValue();
+    await page.getByRole("dialog").getByRole("button", { name: "Stäng" }).first().click();
+  } else {
+    const [dl] = await Promise.all([page.waitForEvent("download"), btn(page, "Hämta resultat (CSV)").click()]);
+    expect(dl.suggestedFilename()).toBe("resultat_bot_2026-10_2026-12.csv");
+    csv = fs.readFileSync((await dl.path())!, "utf8");
+    expect(csv.charCodeAt(0), "exakt en BOM").toBe(0xfeff);
+    csv = csv.slice(1);
+    expect(csv.charCodeAt(0)).not.toBe(0xfeff);
+  }
+  expect(csv.startsWith("arendenummer;namn;manad;")).toBe(true);
+  expect(csv).toMatch(/\nBOT-\d{2}-\d{4};/);
+  expect(csv, "det skyddade ärendet finns inte").not.toContain("BOT-26-0120");
+  expect(csv, "inget som liknar ett personnummer").not.toMatch(/\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/);
+  await expect(main(page).getByRole("status").filter({ hasText: "Hämtad" })).toHaveCount(1);
+  await expect(main(page)).toContainText("Om en rapport rättas efteråt syns det när du hämtar en ny fil.");
+  // Kommunens handläggare: ingen menyrad och ingen sida
+  await go(page, info, "/portal/rapporter", MARIA);
+  await expect(page.getByRole("navigation", { name: "Portalmeny" }).getByRole("link", { name: "Hämta resultat" })).toHaveCount(0);
+  await go(page, info, "/portal/resultat", MARIA);
+  await expect(main(page)).toContainText("Du har inte behörighet till den här sidan");
+  // Revisionsloggen: Exporterade resultat
+  await go(page, info, "/admin/logg", { userId: "u-robin", role: "admin" });
+  await expect(main(page)).toContainText("Exporterade resultat");
+  await expect(main(page)).toContainText(/Kolumner: \d+ kolumner/);
+  expect(errors).toEqual([]);
+});

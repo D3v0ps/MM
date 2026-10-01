@@ -30,6 +30,8 @@ import { deliveredOk, komCase, komContext, komMessage, protectedFlags, reportRow
 import { fD, NOTIFY_FROM, reportTitle } from "./texts";
 // "Tala in" (röstinspelning): beställningens bakgrund och meddelanden.
 import "./voice-handlers";
+// Hämta resultat (resultatfilen till kommunens chef, rapporter steg 3).
+import "./result-handlers";
 
 const HANDL: readonly Role[] = ["kommun_handlaggare"];
 const BOTH: readonly Role[] = ["kommun_handlaggare", "kommun_chef"];

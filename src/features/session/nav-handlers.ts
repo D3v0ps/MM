@@ -3,6 +3,7 @@
 //   deadlines      förfaller: försenat + i dag (samordnare, avtalsansvarig, chef)
 //   unregistered   coachens oregistrerade närvaro från förra veckans måndag till i dag
 //   notifications  olästa personliga notiser (alla MB-roller)
+//   resultFile     kommunens chef: menyvalet "Hämta resultat" (avtalet tillåter individrapporter)
 // Bara räknarna för rollens menyrader räknas fram (övriga är 0 – de visas inte).
 import type { Ctx } from "@/api/server";
 import { handleQuery } from "@/api/server";
@@ -45,9 +46,20 @@ async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {
   return unreadNotifications({ ...ops, user_notifications: own, notification_reads: reads, profiles }, ctx.actor.userId, ctx.actor.role, e.env);
 }
 
+/**
+ * Kommunens chef: har något av chefens avtal resultatfilen (customerVisibility.seesIndividualReports)? Bara avtalens
+ * konfiguration läses (via ctx.repo) – menyn får inte hämta tunga data.
+ */
+async function resultFileAllowed(ctx: Ctx): Promise<boolean> {
+  if (!ctx.actor.contractIds.length) return false;
+  const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
+  return contracts.some((c) => c.config.customerVisibility?.seesIndividualReports === true);
+}
+
 handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   const role = ctx.actor.role;
   const out: NavCounts = { inbox: 0, deadlines: 0, unregistered: 0, notifications: 0 };
+  if (role === "kommun_chef") return { ...out, resultFile: await resultFileAllowed(ctx) };
   if (!isSupplierRole(role) || !ctx.actor.contractIds.length) return out;
   const e = await inboxEnv(ctx).catch(() => null);
   if (!e) return out;

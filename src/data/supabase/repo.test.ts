@@ -198,6 +198,22 @@ describe("filteröversättning", () => {
     expect(calls[0].chain.at(-1)).toEqual(["range", 0, 0]);
   });
 
+  it("pick läser bara de angivna kolumnerna (och id och sorteringskolumnen) – även när in-listan delas upp", async () => {
+    const { client, calls } = fake(() => ({ data: [{ id: "c1", case_number: "BOT-26-0001", created_at: "2027-02-01T09:12:00+01:00" }], error: null }));
+    const rows = await repoOf(client).pick(["caseNumber"], { status: "active" }, { orderBy: "createdAt" });
+    expect(calls[0].args[0]).toBe("id,case_number,created_at");
+    expect(rows).toEqual([{ id: "c1", caseNumber: "BOT-26-0001", createdAt: "2027-02-01T09:12" }]);
+    calls.length = 0;
+    const ids = Array.from({ length: IN_CHUNK + 1 }, (_, i) => `c${i}`);
+    await repoOf(client).pick(["status", "phase"], { id: { in: ids } } as Where<T>);
+    expect(calls).toHaveLength(2);
+    for (const c of calls) expect(c.args[0]).toBe("id,status,phase");
+    // list läser fortfarande hela raden
+    calls.length = 0;
+    await repoOf(client).list();
+    expect(calls[0].args[0]).toBe("*");
+  });
+
   it("filtren ger samma rader som matches() i minnesläget", async () => {
     const rows: T[] = [
       { id: "a", caseNumber: "BOT-1", status: "active", phase: 2, createdAt: "2027-01-10T08:00", closedAt: null, active: true },

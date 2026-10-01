@@ -18,13 +18,16 @@ const A: LinkImpl = ({ href, children, ...rest }) => (
   </a>
 );
 
-function setup(opts: { role: Role; path: string; routePath?: string; area: RouteDef["area"]; runtime?: RuntimeMode; personas?: boolean; unit?: string }) {
+function setup(opts: { role: Role; path: string; routePath?: string; area: RouteDef["area"]; runtime?: RuntimeMode; personas?: boolean; unit?: string; resultFile?: boolean }) {
   const push = vi.fn();
   const switchRole = vi.fn();
   const nav: Nav = { path: opts.path, query: new URLSearchParams(), push, replace: vi.fn(), back: vi.fn(), href: (to) => `#${to}` };
   const backend: Backend = {
     mode: "demo",
-    query: async (key) => (key === "session.navCounts" ? { inbox: 6, deadlines: 3, unregistered: 2, notifications: 4 } : { now: "2027-02-01T09:12", role: opts.role, userId: "u-x" }),
+    query: async (key) =>
+      key === "session.navCounts"
+        ? { inbox: 6, deadlines: 3, unregistered: 2, notifications: 4, ...(opts.resultFile !== undefined ? { resultFile: opts.resultFile } : {}) }
+        : { now: "2027-02-01T09:12", role: opts.role, userId: "u-x" },
     command: async () => null,
   };
   const session: Session = {
@@ -135,6 +138,13 @@ describe("kommunens portal", () => {
     setup({ role: "kommun_chef", path: "/portal/bestallarrapport", area: "portal" });
     const menu = screen.getByRole("navigation", { name: "Portalmeny" });
     expect(within(menu).getAllByRole("link").map((a) => a.textContent)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
+  });
+  it("chefen får Hämta resultat sist när avtalet har resultatfilen", async () => {
+    setup({ role: "kommun_chef", path: "/portal/resultat", area: "portal", resultFile: true });
+    const menu = screen.getByRole("navigation", { name: "Portalmeny" });
+    expect(await within(menu).findByRole("link", { name: "Hämta resultat" })).toBeTruthy();
+    expect(within(menu).getAllByRole("link").map((a) => a.textContent)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter", "Hämta resultat"]);
+    expect(within(menu).getByRole("link", { name: "Hämta resultat" }).getAttribute("aria-current")).toBe("page");
   });
 });
 

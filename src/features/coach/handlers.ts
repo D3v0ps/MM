@@ -143,11 +143,15 @@ handleCommand(deviationSave, { roles: CASE_EDITORS }, async (ctx, p) => {
   const data = defined(p.data);
   let dv: Deviation;
   if (existing) {
-    dv = await table.update(existing.id, data);
+    // När avvikelsen stängdes (resultatfilens avvikelser_oppna = öppna vid månadens slut). Öppnas den igen nollställs tiden.
+    const closing = data.status === "closed" && existing.status !== "closed";
+    const reopening = data.status === "open" && existing.status === "closed";
+    dv = await table.update(existing.id, { ...data, ...(closing ? { closedAt: ctx.now() } : reopening ? { closedAt: null } : {}) });
   } else {
     dv = {
       id: ctx.newId("dev"), caseId: c.id, createdAt: ctx.now(), description: "", assessment: "", action: "", ownerId: null, followUpOn: null,
       needsCustomerDecision: false, followUpMeetingAt: null, status: "open", checkInId: null, ...data,
+      ...(data.status === "closed" ? { closedAt: ctx.now() } : {}),
     };
     await table.insert(dv);
   }
@@ -273,7 +277,11 @@ handleCommand(resultVerify, { roles: CASE_EDITORS }, async (ctx, p) => {
   const e = await ctx.repo.table("outcome_events").first({ caseId: c.id, kind: { in: ["arbete_paborjat", "studier_paborjade"] } });
   if (e) await ctx.repo.table("outcome_events").update(e.id, { verificationKind: p.verificationKind, verificationPath: p.file || "verifiering.pdf" });
   await ctx.audit({ action: "result.verified", entity: "case", entityId: c.id, contractId: c.contractId, details: { kind: p.verificationKind } });
-  return ok({});
+  // Är slutrapporten redan levererad? Då kommer verifieringen med i rapporten och i kommunens resultatfil först när
+  // slutrapporten har rättats och den nya versionen levererats (beslut sätt a, rapporter steg 3).
+  const finals = await ctx.repo.table("reports").list({ caseId: c.id, kind: "final" });
+  const delivered = finals.find((r) => (r.status === "delivered" || r.status === "opened") && !r.superseded) ?? null;
+  return ok({ finalDelivered: !!delivered, finalReportId: delivered?.id ?? null });
 });
 
 // ---------------------------------------------------------------- ai.run (simulerad)

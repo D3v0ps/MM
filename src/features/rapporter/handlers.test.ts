@@ -4,13 +4,16 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
-import type { Actor, Role } from "@/api/roles";
-import { ApiError } from "@/api/server";
+import { execute } from "@/api/handlers";
+import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
+import { ApiError, type Ctx } from "@/api/server";
 import { listPersonas } from "@/data/actors";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
-import type { MemoryData } from "@/data/memory";
-import { createSeed, DEMO_START } from "@/data/seed";
-import type { TableName, Tables } from "@/data/schema";
+import { MemoryRepo, type MemoryData } from "@/data/memory";
+import { POLICIES } from "@/data/policy";
+import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
+import type { AppRepo, Report, TableName, Tables } from "@/data/schema";
+import { ensureFacts } from "./freeze";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { assessmentSave, attendanceSet } from "@/features/coach/api";
 import { caseClose } from "@/features/arenden/api";
@@ -73,7 +76,8 @@ async function deliverNadiaJan() {
   expect(await approveNadiaJanAssessment()).toMatchObject({ ok: true });
   expect(await run(reportApprove, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
   expect(await run(reportDeliver, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
-  expect(await run(reportSnapshot, { reportIds: [NADIA_JAN] }, amira())).toMatchObject({ ok: true, reportIds: [NADIA_JAN] });
+  // Frusen redan vid leveransen (rapporter steg 3) – rap.snapshot har inget kvar att göra.
+  expect(await run(reportSnapshot, { reportIds: [NADIA_JAN] }, amira())).toMatchObject({ ok: true, reportIds: [] });
 }
 
 // ================================================================ 1. Listan
@@ -165,14 +169,62 @@ describe("2. månadsrapport januari (Nadia) – bara godkända uppgifter", () =>
     expect(mail).toHaveLength(1);
     expect(mail[0].body).toMatch(/BOT-26-0143/);
     expect(mail[0].body).not.toMatch(/Nadia|Warsame/);
-    // Leveransen fryser innehållet (rap.snapshot) – tyst, klockan står still.
+    // Leveransen fryser innehållet direkt (rapporter steg 3): modellen och fakta för kommunens resultatfil, takenAt = leveransen.
+    const delivered = row("reports", NADIA_JAN)!;
+    const snap = delivered.snapshot as { reportId: string; takenAt: string; deliveredAt: string; model: { kind: string }; facts: { kind: string; caseNumber: string } };
+    expect(snap).toMatchObject({ reportId: NADIA_JAN, takenAt: delivered.deliveredAt, deliveredAt: delivered.deliveredAt, model: { kind: "monthly" }, facts: { kind: "monthly", caseNumber: "BOT-26-0143" } });
+    // rap.snapshot (när någon öppnar rapporten) hoppar över den redan frysta rapporten – tyst, klockan står still.
     const t = rt.clock.now();
-    expect(await run(reportSnapshot, { reportIds: [NADIA_JAN] }, amira())).toMatchObject({ ok: true, reportIds: [NADIA_JAN] });
-    expect(rt.clock.now()).toBe(t);
-    const snap = row("reports", NADIA_JAN)!.snapshot as { reportId: string; model: { kind: string } };
-    expect(snap).toMatchObject({ reportId: NADIA_JAN, model: { kind: "monthly" } });
-    // En andra körning hoppar över den frysta rapporten
     expect(await run(reportSnapshot, { reportIds: [NADIA_JAN] }, amira())).toMatchObject({ ok: true, reportIds: [] });
+    expect(rt.clock.now()).toBe(t);
+  });
+
+  it("frysningen misslyckas vid leveransen: rapporten är levererad, report.delivered loggas och notisen skickas – frysningen görs senare", async () => {
+    expect(await approveNadiaJanAssessment()).toMatchObject({ ok: true });
+    expect(await run(reportApprove, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
+    // Samma ctx som minnesläget, men skrivningen av ögonblicksbilden (systemsteg) kastar – som ett tillfälligt databasfel.
+    const actor = amira();
+    const store = rt.store;
+    const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
+    const audits: string[] = [];
+    const notices: string[] = [];
+    let seq = 0;
+    const ctx: Ctx = {
+      actor, now: () => "2027-02-01T10:00", repo: new MemoryRepo<Tables>(store, actor, POLICIES) as unknown as AppRepo,
+      system: {
+        table: ((name: TableName) => {
+          const t = system.table(name as never) as unknown as Record<string, unknown>;
+          if (name !== "reports") return t;
+          return {
+            ...t,
+            update: async (id: string, patch: Partial<Report>) => {
+              if ("snapshot" in patch) throw Object.assign(new Error("tillfälligt fel"), { name: "DataError" });
+              return (t.update as (i: string, p: Partial<Report>) => Promise<Report>)(id, patch);
+            },
+          };
+        }) as unknown as AppRepo["table"],
+      } as AppRepo,
+      newId: (p) => `${p}-f${++seq}`, crypto: TEST_PNR_CRYPTO,
+      audit: async (e) => void audits.push(e.action),
+      notify: async (m) => void notices.push(m.template ?? ""),
+    };
+    const err = console.error;
+    const logged: unknown[][] = [];
+    console.error = (...a: unknown[]) => void logged.push(a);
+    try {
+      expect(await execute("command", reportDeliver.key, { reportId: NADIA_JAN }, ctx)).toMatchObject({ ok: true });
+    } finally {
+      console.error = err;
+    }
+    expect(row("reports", NADIA_JAN)).toMatchObject({ status: "delivered", deliveredAt: "2027-02-01T10:00", snapshot: null });
+    expect(audits).toContain("report.delivered");
+    expect(notices).toEqual(["ny_rapport"]);
+    // Serverloggen har bara rapportens id och feltypen – inga värden.
+    expect(logged).toEqual([["rapport: frysningen vid leveransen misslyckades", NADIA_JAN, "DataError"]]);
+    // Senare (när rapporten öppnas eller vid kommunens export) fryses den med underlaget vid leveransen.
+    const f = await ensureFacts({ ...ctx, system }, NADIA_JAN);
+    expect(f).toMatchObject({ kind: "monthly", caseNumber: "BOT-26-0143", assessmentApproved: true });
+    expect(row("reports", NADIA_JAN)!.snapshot).toMatchObject({ reportId: NADIA_JAN, deliveredAt: "2027-02-01T10:00", model: { kind: "monthly" } });
   });
 });
 

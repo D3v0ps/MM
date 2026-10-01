@@ -5,7 +5,7 @@ import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
 import type { IconName } from "@/ui/icons";
 
-export type NavCountKey = Exclude<keyof NavCounts, "notifications">;
+export type NavCountKey = Exclude<keyof NavCounts, "notifications" | "resultFile">;
 
 export type NavItem = {
   /** Sökväg. Aktiv när sökvägen är samma eller ligger under (längsta träff vinner). */
@@ -99,7 +99,8 @@ export function navFor(role: Role, ctx: NavContext): NavGroup[] {
   }));
 }
 
-export type PortalNavItem = { to: string; label: string };
+/** requires = menyvalet visas bara när navCounts säger att avtalet har funktionen (t.ex. resultFile). */
+export type PortalNavItem = { to: string; label: string; requires?: "resultFile" };
 
 /** Kommunportalens meny (inga förkortningar). */
 export const PORTAL_NAV: Record<CustomerRole, PortalNavItem[]> = {
@@ -113,8 +114,14 @@ export const PORTAL_NAV: Record<CustomerRole, PortalNavItem[]> = {
     { to: "/portal/bestallarrapport", label: "Beställarrapport" },
     { to: "/portal/deltagare", label: "Enhetens deltagare" },
     { to: "/portal/rapporter", label: "Rapporter" },
+    { to: "/portal/resultat", label: "Hämta resultat", requires: "resultFile" },
   ],
 };
+
+/** Portalens meny för rollen: menyval med requires visas bara när avtalet har funktionen (navCounts). */
+export function portalNavFor(role: CustomerRole, counts: Pick<NavCounts, "resultFile"> | null | undefined): PortalNavItem[] {
+  return PORTAL_NAV[role].filter((it) => !it.requires || !!counts?.[it.requires]);
+}
 
 /** Portalens inloggning och handläggarens startsida har ingen meny (SPEC §7.0). */
 export const PORTAL_LOGIN_PATH = "/portal/logga-in";

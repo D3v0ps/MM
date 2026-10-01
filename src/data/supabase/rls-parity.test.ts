@@ -29,6 +29,8 @@ const ALI = TESTER_AUTH["tester-ali"];
 const authOf = (userId: string) => TESTER_AUTH[userId] ?? authUserIdFor(userId);
 
 const data = seedData();
+/** Extra testperson: kommunens chef för underenheten Alby (rapporter steg 3). */
+const CHEF_ALBY = "k-chef-alby";
 
 /**
  * Extra rader för tabeller som testdatat lämnar tomma eller bara täcker delvis (flaggor, deadlines, bonus, fakturarader,
@@ -74,7 +76,12 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     id, type: "fel", priority: "bor", text: "Text", status, role: "coach", path: "/min-vecka", viewTitle: "Min vecka", createdAt: at, authorId,
     statusChangedAt: status === "ny" ? null : at, statusChangedBy: status === "ny" ? null : authorId, submittedAt: null,
   });
+  // Kommunens resultatfil (rapporter steg 3): en chef för en underenhet (Alby) prövar enhetsspärren – testdatat har bara en
+  // kommunchef, för hela Arbetsmarknadsenheten. Profilen får sitt auth_user_id i beforeAll (insertSql skriver inte extrakolumnerna).
+  const eva = data.profiles.find((x) => x.id === "k-eva")!;
   return {
+    profiles: [{ ...eva, id: CHEF_ALBY, fullName: "Testchef Alby", email: "chef.alby@example.invalid", customerUnit: "Arbetsmarknadsenheten Alby", lastLoginAt: null }],
+    memberships: [{ id: "ms-x-chef-alby", userId: CHEF_ALBY, contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" }],
     feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
     feedback_replies: [{ id: "fbr-x-1", feedbackId: "fb-x-karim", text: "Svar", createdAt: at, authorId: "tester-ali", submittedAt: null }],
     alerts: [
@@ -184,6 +191,7 @@ beforeAll(async () => {
   for (const [t, rows] of Object.entries(EXTRA)) {
     for (const row of rows as Record<string, unknown>[]) await db.exec(insertSql(t as TableName, row));
   }
+  await db.query("update public.profiles set auth_user_id = $1 where id = $2", [authUserIdFor(CHEF_ALBY), CHEF_ALBY]);
 }, 120_000);
 
 // ================================================================ Schema och seed
@@ -296,6 +304,34 @@ describe("läsning: samma rader som policy.ts", () => {
     }
     expect([...levels].sort()).toEqual(["billing", "customer", "full", "none", "restricted", "team"]);
   }, 30_000); // nio testpersoner mot databasen – tar längre tid när hela testsviten körs parallellt
+});
+
+// ================================================================ Resultatfilen: enhetsspärren (rapporter steg 3)
+describe("resultatfilen: kommunens chef för en underenhet", () => {
+  it("läser samma ärenden och rapporter i RLS och policy.ts – bara ärenden som beställts i Alby, inga skyddade", async () => {
+    const p = findPersona(CHEF_ALBY);
+    expect(p.actor).toMatchObject({ role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" });
+    const mem = { cases: await memIds(p, "cases"), reports: await memIds(p, "reports") };
+    const pg = await asPersona(p, async (tx) => ({ cases: await pgIds(tx, "cases"), reports: await pgIds(tx, "reports") }));
+    expect(pg).toEqual(mem);
+    const unit = (caseId: string) => {
+      const c = data.cases.find((x) => x.id === caseId)!;
+      return (c.referrerId ? data.profiles.find((x) => x.id === c.referrerId)?.customerUnit : null) ?? c.referrerUnit;
+    };
+    expect(mem.cases.length).toBeGreaterThan(0);
+    for (const id of mem.cases) expect(unit(id)).toBe("Arbetsmarknadsenheten Alby");
+    const evaCases = await memIds(findPersona("k-eva"), "cases");
+    expect(mem.cases.length).toBeLessThan(evaCases.length);
+    // Rapporterna: bara levererade individrapporter i Alby-ärenden – aldrig det skyddade ärendets.
+    const prot = new Set(data.persons.filter((x) => x.protectedIdentity).map((x) => x.id));
+    const reports = data.reports.filter((r) => mem.reports.includes(r.id));
+    expect(reports.filter((r) => r.caseId).length).toBeGreaterThan(0);
+    for (const r of reports.filter((x) => x.caseId)) {
+      expect(unit(r.caseId!)).toBe("Arbetsmarknadsenheten Alby");
+      expect(r.deliveredAt).toBeTruthy();
+      expect(prot.has(data.cases.find((c) => c.id === r.caseId)!.personId)).toBe(false);
+    }
+  });
 });
 
 // ================================================================ Avtalets interna mål

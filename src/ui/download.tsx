@@ -7,8 +7,12 @@ import { createContext, useCallback, useContext, type ReactNode } from "react";
 import { toast } from "./toast";
 
 export type DownloadFile = { filename: string; content: string | Blob | Uint8Array; mime?: string };
-/** Sparar filen. Returnerar true om den sparades (eller lämnades till webbläsaren). */
-export type DownloadImpl = (file: DownloadFile) => Promise<boolean>;
+/**
+ * Sparar filen. Returnerar true om den sparades (eller lämnades till webbläsaren), "shown" om innehållet i stället visas som
+ * text att kopiera (prototypen utan claude.ai:s nedladdning) och false om filen inte sparades (avbruten eller fel).
+ */
+export type DownloadResult = boolean | "shown";
+export type DownloadImpl = (file: DownloadFile) => Promise<DownloadResult>;
 
 /** Innehållet som Blob. Textfiler får BOM så att Excel läser å, ä och ö rätt; binärt innehåll lämnas orört. */
 export function toBlob(content: DownloadFile["content"], mime: string): Blob {

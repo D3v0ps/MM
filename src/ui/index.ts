@@ -33,7 +33,7 @@ export { Tabs, TabPanel, type TabDef } from "./tabs";
 export { Modal, Drawer, ConfirmHost, TextDialogHost, useConfirm, confirmDialog, useTextDialog, showText, type ModalProps, type ConfirmOptions } from "./dialog";
 export { Notice, DemoNote, Empty, Loading, ErrorNotice, QueryView, type NoticeTone, type QueryLike } from "./feedback";
 export { Toaster, toast, useToast, type ToastTone } from "./toast";
-export { DownloadProvider, useDownload, useCopy, blobDownload, type DownloadImpl, type DownloadFile } from "./download";
+export { DownloadProvider, useDownload, useCopy, blobDownload, type DownloadImpl, type DownloadFile, type DownloadResult } from "./download";
 export { Kpi, Meter, Kv, Timeline, Stepper, Avatar, UserName, Chart, type MeterMarker, type TimelineItem } from "./data";
 export { Paper, PaperFixedText, XBox, type PaperProps } from "./paper";
 export { BigButtons, BigButton, PulsePhone, Smileys, Smiley, type BigButtonProps } from "./portal";

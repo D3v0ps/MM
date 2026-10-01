@@ -336,6 +336,47 @@ export type KomChef = {
 };
 export const kommunChef = query("kommun.chef", z.object({ month: MonthKeySchema.nullable().optional() })).returns<KomChef>();
 
+// ================================================================ Hämta resultat (/portal/resultat, kommunens chef – rapporter steg 3)
+// Resultaten från de levererade månadsrapporterna som en fil (Excel eller CSV) för kommunens egna sammanställningar.
+// Bara kommunens chef, bara ärenden i chefens enhet och bara om avtalet tillåter individrapporter. Ärenden med skyddade
+// personuppgifter kommer aldrig med. Fältbeskrivningen: docs/RESULTATFIL.md.
+
+/** Förhandsvisning: antal rapporter och deltagare för perioden (inga namn, ingen loggning). */
+export type ResultPreview = {
+  /** Avtalet har resultatfilen (customerVisibility.seesIndividualReports). Annars är resten tomt. */
+  allowed: boolean;
+  contractId: string | null;
+  /** Månaderna som kan väljas, senaste först: från avtalets start till innevarande månad. */
+  months: { value: string; label: string }[];
+  from: string;
+  to: string;
+  /** "oktober 2026 – december 2026" */
+  periodLabel: string;
+  /** Felet för perioden (samma regler som exporten), eller null. */
+  periodError: string | null;
+  /** Högst så här många månader i en fil. */
+  maxMonths: number;
+  participants: number;
+  reports: number;
+  /** Filnamnet för Excel (bara avtal och period). */
+  xlsxFilename: string;
+};
+export const resultExportPreview = query("kommun.resultatForhandsvisning", z.object({ from: MonthKeySchema.optional(), to: MonthKeySchema.optional() })).returns<ResultPreview>();
+
+export const RESULT_TABLES = ["resultat", "progression", "handelser", "avslut", "faltbeskrivning"] as const;
+export type ResultTable = (typeof RESULT_TABLES)[number];
+/**
+ * Hämta resultatfilen. Ett kommando (inte en fråga) eftersom samma hanterare bygger filen och skriver revisionsloggen –
+ * misslyckas loggningen lämnas ingen fil ut. Excel kommer som base64, CSV som text (en tabell per hämtning).
+ */
+export const resultExport = command("kommun.resultatExport", z.object({
+  contractId: IdSchema,
+  from: MonthKeySchema,
+  to: MonthKeySchema,
+  format: z.enum(["xlsx", "csv"]),
+  table: z.enum(RESULT_TABLES).optional(),
+})).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty" | "schema">>();
+
 // ================================================================ Inloggningen (bara prototypens snabbval)
 /**
  * E-postadresserna till testpersonerna som prototypens inloggning kan fylla i ("Fyll i Maria Ekdahl (handläggare)").

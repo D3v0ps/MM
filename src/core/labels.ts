@@ -16,7 +16,9 @@ import {
   type Profile,
   type ReportKind,
   type ReportStatus,
+  type ResultClass,
   type TeamRole,
+  type TrafficLight,
 } from "@/data/schema";
 import { byId } from "./db-index";
 
@@ -36,6 +38,15 @@ export const END_REASON_LABEL: Record<EndReason, string> = {
   avbrott_deltagarens_val: "Avbrott: deltagarens val", avbrott_ovriga_skal: "Avbrott: övriga skäl", planerat_utan_resultat: "Planerat avslut utan resultat",
 };
 export const endReasonLabel = (r: string | null | undefined): string => lookup(END_REASON_LABEL, r) ?? "–";
+
+/**
+ * Hur ett avslut räknas i resultatgraden (cases.result_class). En ordlista för deltagarkortet och kommunens resultatfil
+ * (rapporter steg 3): "Inget resultat" och "Räknas inte i resultatgraden" – inte "Ej resultat"/"Räknas inte i nämnaren".
+ */
+export const RESULT_CLASS_LABEL: Record<ResultClass, string> = { result: "Resultat", no_result: "Inget resultat", excluded: "Räknas inte i resultatgraden" };
+
+/** Samlad status (mallarnas Grön/Gul/Röd) – samma ord som märkena (STATUS_SHORT i src/ui/badge.tsx använder den här). */
+export const TRAFFIC_LIGHT_LABEL: Record<TrafficLight, string> = { green: "Grön", yellow: "Gul", red: "Röd" };
 
 export const EVENT_KINDS = OUTCOME_EVENT_KINDS;
 export const EVENT_LABEL: Record<OutcomeEventKind, string> = {

@@ -19,7 +19,7 @@ import { Brand } from "@/ui/layout";
 import { Toaster } from "@/ui/toast";
 import { useQuery } from "./backend";
 import { Link, useNav } from "./nav";
-import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_NAV, PORTAL_START_PATH, type NavItem } from "./nav-config";
+import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_START_PATH, portalNavFor, type NavItem } from "./nav-config";
 import type { RouteMatch } from "./routes";
 import { useRuntime } from "./runtime";
 import { useSession } from "./session";
@@ -227,6 +227,8 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   const session = useSession();
   const { actor, user } = session;
   const path = match.route.path;
+  // Kommunens chef: menyval som beror på avtalet ("Hämta resultat") – en liten fråga, inga tunga data.
+  const counts = useQuery(navCounts, actor.role === "kommun_chef" && path !== PORTAL_LOGIN_PATH ? {} : null).data;
   const who = [user.name, user.unit].filter(Boolean).join(", ");
   const header = "flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-ljusgra px-6 py-3.5 max-[620px]:px-4 max-[620px]:py-3";
   const signOut = () => (session.signOut ? session.signOut() : nav.push(PORTAL_LOGIN_PATH));
@@ -256,7 +258,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
       </header>
     );
   }
-  const items = PORTAL_NAV[actor.role];
+  const items = portalNavFor(actor.role, counts);
   const active = activePath(nav.path, items.map((i) => i.to));
   return (
     <header className={header} data-print="hide">

@@ -12,7 +12,7 @@ import {
   Badge, Button, Card, CaseLink, Check, DemoNote, Field, Grid, Icon, Input, Kpi, Notice, Page, PerspectiveLink, QueryView, Row, Seg, Select, Stack, TextArea, toast, useDownload,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
-import { adminAuditLog, adminLogCheck, type AuditLogView, type AuditRow, type LogCheckView } from "../api";
+import { adminAuditDetail, adminAuditLog, adminLogCheck, type AuditLogView, type AuditRow, type LogCheckView } from "../api";
 import { StackTable } from "./parts";
 
 export function LoggScreen() {
@@ -153,13 +153,30 @@ function LogContent({ d, f, set, limit, setLimit }: { d: AuditLogView; f: Filter
                 <span>{a.entityLabel}</span>
                 <div className="text-small text-text-muted">{a.caseId ? <CaseLink caseId={a.caseId} caseNumber={a.caseNumber} /> : a.entityText}</div>
               </span>,
-              <span key="d" className="text-small">{a.detailText || "–"}</span>,
+              <span key="d" className="text-small">
+                {a.detailText || "–"}
+                {a.hasFull && <FullDetail id={a.id} />}
+              </span>,
             ],
           }))}
         />
       </Card>
       <DemoNote>Loggen innehåller ett urval från demodatat plus allt du gör i prototypen. Exporten loggas som en egen post innan filen skapas.</DemoNote>
     </>
+  );
+}
+
+/** Hela listan (t.ex. alla kolumner och rapporter i en export) – hämtas först när den öppnas. */
+function FullDetail({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const q = useQuery(adminAuditDetail, open ? { id } : null);
+  return (
+    <details className="mt-1" onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="inline-flex min-h-11 cursor-pointer items-center font-bold underline">Visa hela listan</summary>
+      <span className="block [overflow-wrap:anywhere]" aria-live="polite">
+        {q.data ? (q.data.text ?? "–") : q.error ? "Listan kunde inte hämtas. Försök igen." : open ? "Hämtar listan …" : null}
+      </span>
+    </details>
   );
 }
 

@@ -1,6 +1,6 @@
 // Märken och statusar. Status visas alltid med text + ikon, aldrig bara färg (Grön → blå, Gul → ljusgrå, Röd → röd).
 import type { ReactNode } from "react";
-import { CASE_STATUS_LABEL } from "@/core/labels";
+import { CASE_STATUS_LABEL, TRAFFIC_LIGHT_LABEL } from "@/core/labels";
 import type { SlaStatus, SlaTone as CoreSlaTone } from "@/core/sla";
 import { fmtDateTimeLong } from "@/core/time";
 import { cn } from "./cn";
@@ -42,7 +42,7 @@ export const STATUS_TEXT: Record<RagStatus, string> = {
   yellow: "Gul – risk eller extra åtgärd",
   red: "Röd – kräver omplanering eller dialog",
 };
-export const STATUS_SHORT: Record<RagStatus, string> = { green: "Grön", yellow: "Gul", red: "Röd" };
+export const STATUS_SHORT: Record<RagStatus, string> = TRAFFIC_LIGHT_LABEL;
 export const STATUS_ICON: Record<RagStatus, IconName> = { green: "check-circle", yellow: "alert-circle", red: "alert" };
 const STATUS_TONE: Record<RagStatus | "none", string> = {
   green: "bg-bla text-antracit",

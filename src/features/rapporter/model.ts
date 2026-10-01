@@ -18,6 +18,7 @@ import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd,
 import { by, groupBy, sum, uniq } from "@/core/util";
 import type { AttendanceStatus, Case, Db, MonthlyAssessment, MonthlyPlan, Report, ReportKind, TrafficLight } from "@/data/schema";
 import { dayMonth, dFull, dtFull, isDelivered, joinSv, lcfirst, plain, smallN, ucfirst, wdFull } from "./report-helpers";
+import { FACTS_VERSION, parseFacts, type FinalFacts, type MonthlyFacts, type ReportFacts } from "./facts";
 export { smallN };
 
 // ================================================================ Indata
@@ -267,6 +268,29 @@ const planModel = (plan: MonthlyPlan | null): Kv[] | null =>
     : null;
 
 // ================================================================ Månadsrapport individ (mall 02, avsnitt 1–8)
+/**
+ * Veckoraderna i avsnitt 2: ISO-veckor som helt eller delvis ligger i månaden och under insatsen (uppehållsveckorna
+ * inräknade). Samma rader i modellen, i fakta (weeks, pausedWeeks) och i månadsunderlaget (monthlyGaps).
+ */
+function monthWeeks(src: Src, c: Case, mk: MonthKey, end: LocalDate | null): AttRow[] {
+  const from = `${mk}-01`;
+  const to = monthEnd(mk);
+  const weeks: AttRow[] = [];
+  for (let mon = monday(from); mon <= to; mon = addDays(mon, 7)) {
+    const wFrom = maxS(mon, from);
+    const wTo = minS(addDays(mon, 6), to);
+    if (c.startDate && wTo < c.startDate) continue;
+    if (end && wFrom > end) continue;
+    const wk = isoWeek(mon);
+    weeks.push({ key: wk.key, label: `Vecka ${wk.week}`, sub: wFrom === wTo ? dayMonth(wFrom) : `${dayMonth(wFrom)} – ${dayMonth(wTo)}`, st: attStats(src, c.id, wFrom, wTo), paused: c.pausedWeeks.includes(wk.key) });
+  }
+  return weeks;
+}
+
+/** Avvikelserna i avsnitt 6: skapade senast vid månadens slut och antingen skapade i månaden eller fortfarande öppna. */
+const monthDeviations = (src: Src, caseId: string, from: LocalDate, to: LocalDate) =>
+  src.deviations(caseId).filter((x) => dayOf(x.createdAt) <= to && (dayOf(x.createdAt) >= from || x.status === "open"));
+
 function buildMonthly(src: Src, env: ReportEnv, r: Report): MonthlyModel | null {
   const c = src.caseById(r.caseId);
   if (!c || !r.month) return null;
@@ -278,20 +302,12 @@ function buildMonthly(src: Src, env: ReportEnv, r: Report): MonthlyModel | null 
   const maRaw = src.assessment(c.id, mk);
   const ok = src.approved(maRaw);
   const cis = src.checkIns(c.id, from, to);
-  const weeks: AttRow[] = [];
-  for (let mon = monday(from); mon <= to; mon = addDays(mon, 7)) {
-    const wFrom = maxS(mon, from);
-    const wTo = minS(addDays(mon, 6), to);
-    if (c.startDate && wTo < c.startDate) continue;
-    if (end && wFrom > end) continue;
-    const wk = isoWeek(mon);
-    weeks.push({ key: wk.key, label: `Vecka ${wk.week}`, sub: wFrom === wTo ? dayMonth(wFrom) : `${dayMonth(wFrom)} – ${dayMonth(wTo)}`, st: attStats(src, c.id, wFrom, wTo), paused: c.pausedWeeks.includes(wk.key) });
-  }
+  const weeks = monthWeeks(src, c, mk, end);
   const total = attStats(src, c.id, from, to);
   const rep = repeatedIn(src, cfg, c.id, from, to);
   const lastCi = cis[cis.length - 1];
   const phase = lastCi && lastCi.phase ? Number(lastCi.phase) : c.phase;
-  const devs = src.deviations(c.id).filter((x) => dayOf(x.createdAt) <= to && (dayOf(x.createdAt) >= from || x.status === "open"));
+  const devs = monthDeviations(src, c.id, from, to);
   return {
     kind: "monthly", caseId: c.id, caseNumber: c.caseNumber, month: mk, approved: ok,
     basics: [
@@ -378,6 +394,104 @@ function buildFinal(src: Src, env: ReportEnv, r: Report, frozen: boolean): Final
     obstacles, recommendation,
     assessment: last ? { overallStatus: last.overallStatus, summary: last.summary || "Framgår inte.", coach: profileName(src.db, c.leadCoachId), date: dFull(r.approvedAt || last.decidedAt) } : null,
   };
+}
+
+// ================================================================ Frysta fakta för kommunens resultatfil (rapporter steg 3)
+// Samma datakälla och samma regler som modellerna ovan (bara godkända uppgifter, asOf = leveransen), men bara koder, tal,
+// sanningsvärden och ISO-datum – inga namn och ingen fritext (facts.ts).
+
+/** Beställarens enhet: profilens enhet, annars ärendets (samma uppslag som behörigheten i src/core/access.ts). */
+const referrerUnitOf = (src: Src, c: Case): string | null => (c.referrerId ? byId(src.db.profiles).get(c.referrerId)?.customerUnit : null) ?? c.referrerUnit ?? null;
+
+function buildMonthlyFacts(src: Src, env: ReportEnv, r: Report): MonthlyFacts | null {
+  const c = src.caseById(r.caseId);
+  if (!c || !r.month) return null;
+  const { cfg } = env;
+  const mk = r.month;
+  const from = `${mk}-01`;
+  const to = monthEnd(mk);
+  const end = src.endOf(c);
+  const ma = src.assessment(c.id, mk);
+  const ok = src.approved(ma);
+  const cis = src.checkIns(c.id, from, to);
+  const weeks = monthWeeks(src, c, mk, end);
+  const t = attStats(src, c.id, from, to);
+  const lastCi = cis[cis.length - 1];
+  const phase = lastCi && lastCi.phase ? Number(lastCi.phase) : c.phase;
+  const goals = { yes: 0, partly: 0, no: 0 };
+  for (const x of cis) if (typeof x.goalStatus === "string" && x.goalStatus in goals) goals[x.goalStatus as keyof typeof goals]++;
+  // Tydlig/någon progression bara på de obligatoriska områdena (progressionFlags filtrerar själv, beslut 2026-10-01).
+  const flags = ok ? progressionFlags(cfg, ma.areas) : null;
+  const allDevs = src.deviations(c.id);
+  return {
+    factsVersion: FACTS_VERSION, kind: "monthly", caseNumber: c.caseNumber, month: mk,
+    referrerUnit: referrerUnitOf(src, c), primaryAreaCode: c.primaryAreaCode || null, secondaryAreaCode: c.secondaryAreaCode || null,
+    vocationalTrack: c.vocationalTrack || null, startDate: c.startDate || null, plannedEnd: c.plannedEnd || null, endDate: end || null,
+    phase: Number.isInteger(phase) && phase >= 1 ? phase : null,
+    weeks: weeks.length, pausedWeeks: weeks.filter((w) => w.paused).length,
+    attendance: { planned: t.planned, present: t.present, late: t.late, absentValid: t.absentValid, absentInvalid: t.absentInvalid, unregistered: t.unregistered, rate: t.rate },
+    repeatedAbsence: repeatedIn(src, cfg, c.id, from, to).hit,
+    checkInsApproved: cis.length,
+    employerContacts: sum(cis, (x) => parseInt(String(x.employerContacts?.count ?? ""), 10) || 0),
+    goals,
+    assessmentApproved: ok,
+    levels: ok ? Object.fromEntries(cfg.progression.areas.map((k) => [k, ma.areas[k]?.level ?? null])) : {},
+    areasAssessed: flags ? flags.assessed : null,
+    progressionClear: flags ? flags.clear : null,
+    progressionAny: flags ? flags.any : null,
+    overallStatus: ok ? ma.overallStatus : null,
+    assessmentDate: ok && ma.decidedAt ? dayOf(ma.decidedAt) : null,
+    events: src.events(c.id, from, to).map((e) => ({ kind: e.kind, date: e.occurredOn, verified: !!e.verificationKind })),
+    deviationsNew: allDevs.filter((x) => dayOf(x.createdAt) >= from && dayOf(x.createdAt) <= to).length,
+    // Öppen vid månadens slut: skapad senast då och inte stängd då (utan stängningstid: statusen, som avsnitt 6).
+    deviationsOpen: allDevs.filter((x) => dayOf(x.createdAt) <= to && (x.closedAt ? dayOf(x.closedAt) > to : x.status === "open")).length,
+    needsCustomerDecision: monthDeviations(src, c.id, from, to).some((x) => x.needsCustomerDecision),
+  };
+}
+
+function buildFinalFacts(src: Src, r: Report): FinalFacts | null {
+  const c = src.caseById(r.caseId);
+  if (!c) return null;
+  // Samma regler som slutrapportens resultattext (buildFinal): verifierad bara om verifieringen fanns vid leveransen.
+  const verified = !!c.resultVerifiedAt && src.ok(c.resultVerifiedAt);
+  return {
+    factsVersion: FACTS_VERSION, kind: "final", caseNumber: c.caseNumber, endDate: src.endOf(c), endReason: c.endReason ?? null, resultClass: c.resultClass ?? null,
+    resultVerified: verified, resultVerifiedAt: verified ? dayOf(c.resultVerifiedAt as string) : null,
+  };
+}
+
+function buildFacts(src: Src, env: ReportEnv, r: Report): ReportFacts | null {
+  if (r.kind === "monthly") return buildMonthlyFacts(src, env, r);
+  if (r.kind === "final") return buildFinalFacts(src, r);
+  return null;
+}
+
+/** Rapporttyper som har fakta i resultatfilen. */
+export const hasFacts = (kind: ReportKind): boolean => kind === "monthly" || kind === "final";
+
+/**
+ * Rapportens fakta. Utkast: dagens data. Levererad: ögonblicksbildens fakta om de finns och är giltiga, annars de uppgifter
+ * som fanns vid leveransen (ärendefälten är då dagens värden – se ensureFacts i freeze.ts).
+ */
+export function reportFacts(db: ReportDb, r: Report, env: ReportEnv): ReportFacts | null {
+  if (!hasFacts(r.kind)) return null;
+  if (!isDelivered(r)) return buildFacts(makeSrc(db, env, null), env, r);
+  const frozen = r.snapshot && r.snapshot.reportId === r.id ? parseFacts(r.snapshot.facts) : null;
+  if (frozen && frozen.kind === r.kind) return frozen;
+  return buildFacts(makeSrc(db, env, r.deliveredAt), env, r);
+}
+
+/** Fakta som fryses i ögonblicksbilden: det som gällde vid leveransen. */
+export function frozenFacts(db: ReportDb, r: Report, env: ReportEnv): ReportFacts | null {
+  if (!hasFacts(r.kind) || !isDelivered(r)) return null;
+  return buildFacts(makeSrc(db, env, r.deliveredAt), env, r);
+}
+
+/** Modellen och fakta i samma pass och med samma datakälla (frysningen vid leveransen). */
+export function frozenModelAndFacts(db: ReportDb, r: Report, env: ReportEnv): { model: ReportModel | null; facts: ReportFacts | null } {
+  if (!hasDocument(r.kind) || !isDelivered(r)) return { model: null, facts: null };
+  const src = makeSrc(db, env, r.deliveredAt);
+  return { model: build(src, env, r, true), facts: hasFacts(r.kind) ? buildFacts(src, env, r) : null };
 }
 
 // ================================================================ Veckorapport närvaro (en per handläggare och vecka)

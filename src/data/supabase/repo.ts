@@ -6,7 +6,7 @@
 //   - fel blir PolicyError (behörighet) eller DataError – aldrig med värden eller personuppgifter i meddelandet
 // Klienten skickas in utifrån: användarens klient (RLS) för ctx.repo, service role för ctx.system (src/server/runtime.ts).
 import { PolicyError } from "../memory";
-import { applyOpts, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
+import { applyOpts, pickFields, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
 import { fromDbRow, toColumn, toDbRow, toDbValue } from "./columns";
 
 // ---------------------------------------------------------------- Den del av supabase-js som används (gör det lätt att fejka i tester)
@@ -171,24 +171,32 @@ class SupabaseTable<T extends Row> implements Table<T> {
   }
 
   async list(where?: Where<T>, opts?: ListOpts<T>): Promise<T[]> {
+    return this.listColumns(where, opts, "*");
+  }
+
+  async pick<K extends keyof T & string>(fields: readonly K[], where?: Where<T>, opts?: ListOpts<T>): Promise<Pick<T, K | "id">[]> {
+    return this.listColumns(where, opts, pickFields(fields, opts).map(toColumn).join(","));
+  }
+
+  private async listColumns(where: Where<T> | undefined, opts: ListOpts<T> | undefined, columns: string): Promise<T[]> {
     const w = where as Record<string, unknown> | undefined;
     if (matchesNothing(w)) return [];
     const big = oversizedIn(w);
     if (big) {
       // Dela upp den långa in-listan. Delarna är disjunkta, så resultaten kan läggas ihop och sorteras här.
-      const parts = await Promise.all(chunks(big.values, IN_CHUNK).map((vs) => this.fetch({ ...w, [big.field]: { in: vs } }, { ...opts, limit: undefined })));
+      const parts = await Promise.all(chunks(big.values, IN_CHUNK).map((vs) => this.fetch({ ...w, [big.field]: { in: vs } }, { ...opts, limit: undefined }, columns)));
       return applyOpts(parts.flat(), opts);
     }
-    return this.fetch(w, opts);
+    return this.fetch(w, opts, columns);
   }
 
-  /** Hämta alla rader som matchar, sida för sida, sorterade (orderBy, sedan id för stabil ordning). */
-  private async fetch(where: Record<string, unknown> | undefined, opts?: ListOpts<T>): Promise<T[]> {
+  /** Hämta alla rader som matchar, sida för sida, sorterade (orderBy, sedan id för stabil ordning). columns = select-listan. */
+  private async fetch(where: Record<string, unknown> | undefined, opts?: ListOpts<T>, columns = "*"): Promise<T[]> {
     const want = opts?.limit ?? Number.POSITIVE_INFINITY;
     const out: T[] = [];
     for (let from = 0; out.length < want; from += PAGE_SIZE) {
       const size = Math.min(PAGE_SIZE, want - out.length);
-      let q = applyWhere(this.db.from(this.readName).select("*"), where);
+      let q = applyWhere(this.db.from(this.readName).select(columns), where);
       if (opts?.orderBy) q = q.order(toColumn(opts.orderBy), { ascending: !opts.desc, nullsFirst: false });
       if (opts?.orderBy !== "id") q = q.order("id", { ascending: true, nullsFirst: false });
       const { data, error } = await q.range(from, from + size - 1);
