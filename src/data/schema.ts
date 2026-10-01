@@ -1398,6 +1398,12 @@ export type Feedback = {
   authorId: UserId;
   statusChangedAt: LocalDateTime | null;
   statusChangedBy: UserId | null;
+  /**
+   * Riktig tid när synpunkten sparades. Sätts alltid av databasen (triggern i 0017) – hanteraren skickar null. Testklockan
+   * (createdAt) börjar om när testdatat läses in på nytt, men synpunkterna finns kvar; listan sorteras därför på den här
+   * tiden. Null i minnesläget.
+   */
+  submittedAt: LocalDateTime | null;
 };
 
 /** Svar på en synpunkt. */
@@ -1408,6 +1414,8 @@ export type FeedbackReply = {
   createdAt: LocalDateTime;
   /** Testarens egen profil. */
   authorId: UserId;
+  /** Riktig tid när svaret sparades – sätts av databasen (som Feedback.submittedAt). Null i minnesläget. */
+  submittedAt: LocalDateTime | null;
 };
 
 // ================================================================ Tabellerna

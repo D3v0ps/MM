@@ -3,6 +3,7 @@
 // Texterna är exakt den gamla prototypens (prototyp/src/views/admin.js, ACTION_LABEL m.fl.).
 import { attLabel, endReasonLabel, eventLabel, reportKindLabel } from "@/core/labels";
 import { fmtDate, fmtDateTime, fmtWeekKey, monthName } from "@/core/time";
+import { prioLabel, statusLabel, typeLabel } from "@/features/synpunkter/model";
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -115,6 +116,12 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (Array.isArray(v)) return v.map((x) => fmtDetail(k, x, a, l)).join(", ");
   if (v && typeof v === "object") return Object.entries(v).map(([kk, vv]) => `${(DETAIL_KEY[kk] ?? FIELD_WORD[kk] ?? kk).toLowerCase()} ${fmtDetail(kk, vv, a, l)}`).join(", ");
   const s = String(v);
+  // Synpunkter i testmiljön: typ, hur viktigt och status med samma etiketter som dialogen (src/features/synpunkter/model.ts).
+  if (a.entity === "feedback") {
+    if (k === "type") return typeLabel(s);
+    if (k === "priority") return prioLabel(s);
+    if (k === "from" || k === "to") return statusLabel(s);
+  }
   if (k === "template") return l.templateLabel(s);
   if (["fields", "checked", "missing"].includes(k)) return FIELD_WORD[s] ?? s;
   if (k === "kind") return kindWord(a, s);

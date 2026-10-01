@@ -38,7 +38,9 @@ Kanaler:
 
 ## Spärren för mottagare (testmiljön)
 
-- Bara adresser i `MM_EMAIL_ALLOWLIST` får mejl. Posterna är hela adresser (`karim.khalil@miljonbemanning.se`) eller domäner (`@miljonbemanning.se`), med kommatecken emellan.
+- Bara adresser i `MM_EMAIL_ALLOWLIST` får mejl. I testmiljön står **bara testarnas hela adresser** i listan, med kommatecken emellan och inga mellanslag (`docs/DRIFT.md` avsnitt 11.1):
+  `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se`
+  Skriv **aldrig** `@miljonbemanning.se` i listan: testdatat har påhittade adresser på den domänen (t.ex. `sara.lindqvist@miljonbemanning.se`), och de skulle då få appens mejl och inloggningskoder. Koden klarar även en domänpost (`@domän`), men använd den bara för en domän som inte har några adresser i testdatat.
 - Spärren gäller **alltid** utom när databasen uttryckligen är produktion (`app_settings.environment = 'production'`) **och** listan är tom. En saknad miljörad räknas alltså som testmiljö – hellre inga mejl än mejl till testdatats adresser på riktiga domäner (t.ex. botkyrka.se).
 - Allt som stoppas sparas ändå i `outbound_messages` med status `suppressed` och orsak, så att flödet går att följa.
 - Spärren kontrolleras precis innan mejlet skickas. Samma lista styr inloggningskoderna (`src/server/auth`).
@@ -120,7 +122,7 @@ Supabase Auth skickar koden själv via Resend (SMTP, se `docs/DRIFT.md` steg 1.2
 | `RESEND_API_KEY` | **ja** | Resends API-nyckel med bara sändrätt för domänen. Saknas den (eller `MM_EMAIL_FROM`) står mejlen kvar i kön och jobbet försöker igen |
 | `MM_EMAIL_FROM` | | Avsändare: `Miljonmatch <notis@miljonmatch.se>` (beslut 2026-10-01). Domänen måste vara verifierad i Resend |
 | `MM_APP_URL` | | Appens adress utan `/` på slutet – knappen i mejlen |
-| `MM_EMAIL_ALLOWLIST` | | Testmiljön: adresser eller `@domäner` som får mejl. Tom i produktion |
+| `MM_EMAIL_ALLOWLIST` | | Testmiljön: testarnas hela adresser som får mejl och inloggningskoder, kommatecken emellan – aldrig `@miljonbemanning.se` (avsnittet Spärren för mottagare och `docs/DRIFT.md` avsnitt 11.1). Tom i produktion |
 | `MM_EMAIL_REDIRECT_TO` | | Bara testmiljön: testarens adress som får mejlen till testpersoner (måste finnas i `MM_EMAIL_ALLOWLIST`). Ignoreras i produktion |
 | `MM_EMAIL_REPLY_TO` | | Svarsadress. Produktion: `avrop@miljonbemanning.se`. Tom i testmiljön |
 | `MM_STAFF_EMAIL_DOMAINS` | | Personalens domäner (länk till appen i stället för portalen). Standard `miljonbemanning.se` |
@@ -254,7 +256,7 @@ I Resend: *Emails* visar varje mejl som skickats och om det levererats.
 | `failed` med "Resend svarade 401 …" | Fel eller spärrad API-nyckel |
 | `net._http_response` visar 401 | Nyckeln i Vault och `MM_JOBS_SECRET` i Vercel är olika – eller adressen pekar på en skyddad förhandsversion |
 | `net._http_response` visar 503 | `MM_JOBS_SECRET` saknas i Vercel eller är kortare än 16 tecken |
-| Mejlet hamnar i skräpposten | SPF och DKIM för `send.miljonmatch.se` (Resend → *Domains* ska visa *Verified*) och DMARC-posten `_dmarc.miljonmatch.se` hos one.com |
+| Mejlet hamnar i skräpposten | SPF (CNAME `send` → Resend) och DKIM (`resend._domainkey`) för miljonmatch.se – Resend → *Domains* ska visa *Verified* (`docs/DRIFT.md` avsnitt 4.2) – och DMARC-posten `_dmarc.miljonmatch.se` hos one.com |
 
 ## Kod
 

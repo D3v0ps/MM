@@ -5,6 +5,7 @@
 // kort – components.tsx). Synpunkten sparas med rollen testaren agerar som och sidan (bara sökväg och id:n).
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ROLE_LABEL } from "@/api/roles";
+import { safeReturnPath } from "@/core/return-path";
 import { fmtDateTime } from "@/core/time";
 import { useNav } from "@/shell/nav";
 import { resolveRoute, titleOf, type RouteDef } from "@/shell/routes";
@@ -36,7 +37,7 @@ export function FeedbackToolbar({ routes }: { routes: readonly RouteDef[] }) {
         Alla synpunkter
       </Button>
       {open === "ny" && <SubmitDialog port={port} routes={routes} onClose={() => setOpen(null)} onShowList={() => setOpen("lista")} />}
-      {open === "lista" && <ListDialog port={port} onClose={() => setOpen(null)} onNew={() => setOpen("ny")} />}
+      {open === "lista" && <ListDialog port={port} routes={routes} onClose={() => setOpen(null)} onNew={() => setOpen("ny")} />}
     </span>
   );
 }
@@ -140,8 +141,23 @@ function SubmitDialog({ port, routes, onClose, onShowList }: { port: FeedbackPor
 type StatusFilter = "oppna" | "alla" | FeedbackStatus;
 type TypeFilter = "alla" | FeedbackType;
 
-function ListDialog({ port, onClose, onNew }: { port: FeedbackPort; onClose: () => void; onNew: () => void }) {
+/**
+ * "Gå till sidan": bara en egen sökväg (safeReturnPath – aldrig en annan webbplats) utan maskerade avsnitt, till en sida som
+ * finns. Får testpersonen som testaren agerar som inte öppna sidan visas i stället vilken roll synpunkten lämnades som
+ * (testaren byter testperson under "Agera som" – bytet laddar om sidan, så appen byter inte åt hen).
+ */
+function feedbackTarget(routes: readonly RouteDef[], path: string | null, role: FeedbackView["role"]): { to: string } | { needsRole: true } | null {
+  if (!path || path.includes(PATH_MASK)) return null;
+  const to = safeReturnPath(path);
+  if (!to) return null;
+  const match = resolveRoute(routes, to.split(/[?#]/)[0]);
+  if (!match) return null;
+  return match.route.public || match.route.roles.includes(role) ? { to } : { needsRole: true };
+}
+
+function ListDialog({ port, routes, onClose, onNew }: { port: FeedbackPort; routes: readonly RouteDef[]; onClose: () => void; onNew: () => void }) {
   const nav = useNav();
+  const { actor } = useSession();
   const download = useDownload();
   const [items, setItems] = useState<FeedbackView[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -242,35 +258,45 @@ function ListDialog({ port, onClose, onNew }: { port: FeedbackPort; onClose: () 
         </Empty>
       )}
       <div className="flex flex-col gap-3">
-        {shown.map((it) => (
-          <FeedbackCard
-            key={it.id}
-            id={it.id}
-            type={it.type}
-            priority={it.priority}
-            status={it.status}
-            text={it.text}
-            perspective={it.perspective}
-            perspectiveLabel={it.perspectiveLabel}
-            byline={`${it.authorName} · ${fmtDateTime(it.createdAt)}`}
-            context={`${it.roleLabel} · ${it.viewTitle ?? "Hela Miljonmatch"}`}
-            onStatusChange={(v) => void changeStatus(it.id, v)}
-            goTo={
-              it.path && !it.path.includes(PATH_MASK)
-                ? {
-                    label: "Gå till sidan",
-                    onClick: () => {
-                      onClose();
-                      nav.push(it.path!);
-                    },
-                  }
-                : null
-            }
-            replies={it.replies.map((r) => ({ id: r.id, byline: `${r.authorName} · ${fmtDateTime(r.createdAt)}`, text: r.text }))}
-            replyCount={it.replies.length}
-            onReply={(text) => reply(it.id, text)}
-          />
-        ))}
+        {shown.map((it) => {
+          const target = feedbackTarget(routes, it.path, actor.role);
+          return (
+            <FeedbackCard
+              key={it.id}
+              id={it.id}
+              type={it.type}
+              priority={it.priority}
+              status={it.status}
+              text={it.text}
+              perspective={it.perspective}
+              perspectiveLabel={it.perspectiveLabel}
+              byline={`${it.mine ? "Du" : it.authorName} · ${fmtDateTime(it.submittedAt ?? it.createdAt)}`}
+              context={`${it.roleLabel} · ${it.viewTitle ?? "Hela Miljonmatch"}`}
+              onStatusChange={(v) => void changeStatus(it.id, v)}
+              goTo={
+                target && "to" in target
+                  ? {
+                      label: "Gå till sidan",
+                      onClick: () => {
+                        onClose();
+                        nav.push(target.to);
+                      },
+                    }
+                  : null
+              }
+              extraActions={
+                target && "needsRole" in target ? (
+                  <span>
+                    Synpunkten lämnades som {ROLE_LABEL[it.role].toLowerCase()}. Välj en sådan testperson under Agera som för att öppna sidan.
+                  </span>
+                ) : null
+              }
+              replies={it.replies.map((r) => ({ id: r.id, byline: `${r.mine ? "Du" : r.authorName} · ${fmtDateTime(r.submittedAt ?? r.createdAt)}`, text: r.text }))}
+              replyCount={it.replies.length}
+              onReply={(text) => reply(it.id, text)}
+            />
+          );
+        })}
       </div>
     </Modal>
   );

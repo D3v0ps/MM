@@ -69,6 +69,7 @@ export type FeedbackCardProps = {
   byline: string;
   /** "Huvudcoach · Deltagarkort" */
   context: string;
+  /** Spara en ny status. Anropas först när användaren väljer "Spara status" (inte när valet i listan ändras). */
   onStatusChange: (status: string) => void;
   /** "Gå till vyn" (prototypen) eller "Gå till sidan" (testmiljön). */
   goTo?: { label: string; onClick: () => void } | null;
@@ -89,6 +90,14 @@ export function FeedbackCard(p: FeedbackCardProps) {
   const setOpen = p.onRepliesOpenChange ?? setOwnOpen;
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  // Statusen sparas först med knappen "Spara status": piltangenterna i en stängd lista ger ett change-event per steg
+  // (Chrome och Edge på Windows), och varje mellanstatus skulle annars sparas. Valet följer den sparade statusen.
+  const [statusDraft, setStatusDraft] = useState(p.status);
+  const [savedStatus, setSavedStatus] = useState(p.status);
+  if (savedStatus !== p.status) {
+    setSavedStatus(p.status);
+    setStatusDraft(p.status);
+  }
   const sendReply = async (e: FormEvent) => {
     e.preventDefault();
     const t = reply.trim();
@@ -114,13 +123,18 @@ export function FeedbackCard(p: FeedbackCardProps) {
         <label className="sr-only" htmlFor={`st-${p.id}`}>
           Status
         </label>
-        <select id={`st-${p.id}`} value={p.status} onChange={(e) => p.onStatusChange(e.target.value)} className="w-auto px-2.5 py-1.5 text-small">
+        <select id={`st-${p.id}`} value={statusDraft} onChange={(e) => setStatusDraft(e.target.value)} className="w-auto px-2.5 py-1.5 text-small">
           {FB_STATUSES.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
             </option>
           ))}
         </select>
+        {statusDraft !== p.status && (
+          <Button kind="primary" icon="check" className={SMALL_BTN} onClick={() => p.onStatusChange(statusDraft)}>
+            Spara status
+          </Button>
+        )}
         {p.goTo && (
           <Button kind="ghost" icon="arrow-right" className={SMALL_BTN} onClick={p.goTo.onClick}>
             {p.goTo.label}
@@ -134,7 +148,7 @@ export function FeedbackCard(p: FeedbackCardProps) {
       {open && (
         <div className="flex flex-col gap-2">
           {p.replies.map((r) => (
-            <div key={r.id} className="border-l-[3px] border-ljusgra pl-2.5 text-[0.9375rem]">
+            <div key={r.id} className="border-l-[3px] border-ljusgra pl-2.5">
               <div className="text-small text-text-muted">{r.byline}</div>
               <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{r.text}</div>
             </div>

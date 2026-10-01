@@ -57,6 +57,12 @@ const QUERY_VALUE = /^[A-Za-z0-9_-]{1,64}$/;
 const PNR_LIKE = /\d{6}(\d{2})?[-+]?\d{4}/;
 /** Det som står i stället för en token eller ett avsnitt som inte är ett id. */
 export const PATH_MASK = "•••••";
+/**
+ * Mönstret som databasen kräver av feedback.path (0017_synpunkter.sql, exakt samma text): en egen sökväg med id:n och
+ * frågeparametrar – aldrig "//värd/…" (en adress till en annan webbplats) och inga mellanslag. sanitizeFeedbackPath ger
+ * alltid en sökväg som passar.
+ */
+export const FEEDBACK_PATH_PATTERN = "^/([A-Za-z0-9_.•-][A-Za-z0-9/_.•-]*)?(\\?[A-Za-z0-9_=&-]*)?$";
 
 /**
  * Sidan som synpunkten gäller: bara sökvägen med id:n och de tillåtna frågeparametrarna – aldrig namn, personnummer eller
@@ -101,9 +107,15 @@ export function csvCell(v: unknown): string {
   return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** Det CSV-exporten behöver av en synpunkt (FeedbackView i api.ts har mer). */
+/**
+ * Det CSV-exporten behöver av en synpunkt (FeedbackView i api.ts har mer). authorName är alltid hela namnet – aldrig "Du",
+ * filen delas med andra.
+ */
 export type FeedbackCsvRow = {
+  /** Testtiden (ctx.now()). */
   createdAt: string;
+  /** Riktig tid (sätts av databasen). Saknas i minnesläget – då gäller testtiden. */
+  submittedAt?: string | null;
   type: string;
   priority: string;
   status: string;
@@ -112,16 +124,18 @@ export type FeedbackCsvRow = {
   path: string | null;
   text: string;
   authorName: string;
-  replies: { createdAt: string; authorName: string; text: string }[];
+  replies: { createdAt: string; submittedAt?: string | null; authorName: string; text: string }[];
 };
 
-/** '2027-02-01T09:40' -> '2027-02-01 09:40' (Stockholms tid, testtid i testmiljön). */
+/** '2027-02-01T09:40' -> '2027-02-01 09:40' (Stockholms tid). */
 const csvTime = (t: string) => t.replace("T", " ");
 
 /** Synpunkterna som CSV: semikolon, CRLF, svenska rubriker. UTF-8 med BOM läggs till av nedladdningen (useDownload). */
 export function feedbackCsv(items: readonly FeedbackCsvRow[]): string {
-  const head = ["Tid", "Typ", "Hur viktigt", "Status", "Roll", "Sida", "Sökväg", "Synpunkt", "Lämnad av", "Antal svar", "Svar"];
+  // Tid = när synpunkten sparades (riktig tid). Testdatum = testklockan i testmiljön, det datum testdatat visade.
+  const head = ["Tid", "Testdatum", "Typ", "Hur viktigt", "Status", "Roll", "Sida", "Sökväg", "Synpunkt", "Lämnad av", "Antal svar", "Svar"];
   const rows = items.map((x) => [
+    csvTime(x.submittedAt ?? x.createdAt),
     csvTime(x.createdAt),
     typeLabel(x.type),
     prioLabel(x.priority),
@@ -132,7 +146,7 @@ export function feedbackCsv(items: readonly FeedbackCsvRow[]): string {
     x.text,
     x.authorName,
     x.replies.length,
-    x.replies.map((r) => `${r.authorName} (${csvTime(r.createdAt)}): ${r.text}`).join("\n"),
+    x.replies.map((r) => `${r.authorName} (${csvTime(r.submittedAt ?? r.createdAt)}): ${r.text}`).join("\n"),
   ]);
   return [head, ...rows].map((r) => r.map(csvCell).join(";")).join("\r\n");
 }

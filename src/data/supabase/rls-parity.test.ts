@@ -72,11 +72,11 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   // Synpunkter (0017): Karims och Alis synpunkter, ett svar och en synpunkt med ändrad status.
   const fb = (id: string, authorId: string, status: Tables["feedback"]["status"]): Tables["feedback"] => ({
     id, type: "fel", priority: "bor", text: "Text", status, role: "coach", path: "/min-vecka", viewTitle: "Min vecka", createdAt: at, authorId,
-    statusChangedAt: status === "ny" ? null : at, statusChangedBy: status === "ny" ? null : authorId,
+    statusChangedAt: status === "ny" ? null : at, statusChangedBy: status === "ny" ? null : authorId, submittedAt: null,
   });
   return {
     feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
-    feedback_replies: [{ id: "fbr-x-1", feedbackId: "fb-x-karim", text: "Svar", createdAt: at, authorId: "tester-ali" }],
+    feedback_replies: [{ id: "fbr-x-1", feedbackId: "fb-x-karim", text: "Svar", createdAt: at, authorId: "tester-ali", submittedAt: null }],
     alerts: [
       alert("al-1", "c-bot", amiraCase.id, ["coach", "samordnare"]), alert("al-2", "c-bot", null, ["chef"]),
       alert("al-3", "c-bot", protectedCase.id, ["avtalsansvarig", "samordnare"]), alert("al-4", "c-kk", null, ["avtalsansvarig"]),
@@ -637,6 +637,13 @@ describe("skrivning: särskilda fall", () => {
       delReply: await attempt(tx, "delete from public.feedback_replies where id = 'fbr-x-1'"),
       // Sidan får inte innehålla fritext (kontrollen i tabellen, samma tecken som sanitizeFeedbackPath).
       freeText: await attempt(tx, "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id) values ('fb-t4', 'fraga', 'kan', 'Hej', 'ny', 'coach', '/arenden/Anna Svensson', 'Min vecka', '2027-02-01T09:30', 'tester-karim')"),
+      // Aldrig en adress till en annan webbplats: '//värd/…' blir https://värd/… i webbläsaren ("Gå till sidan").
+      otherSite: await attempt(tx, "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id) values ('fb-t5', 'fraga', 'kan', 'Hej', 'ny', 'coach', '//evil.example/logga-in', 'Min vecka', '2027-02-01T09:30', 'tester-karim')"),
+      // Den riktiga tiden sätter databasen – det som skickas in ersätts, och den ändras aldrig efteråt.
+      forgedTime: await attempt(tx, "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id, submitted_at) values ('fb-t6', 'fraga', 'kan', 'Hej', 'ny', 'coach', '/min-vecka', 'Min vecka', '2027-02-01T09:30', 'tester-karim', '2020-01-01T00:00')", [], { keep: true }),
+      forgedReplyTime: await attempt(tx, "insert into public.feedback_replies (id, feedback_id, text, created_at, author_id, submitted_at) values ('fbr-t6', 'fb-t6', 'Svar', '2027-02-01T09:31', 'tester-karim', '2020-01-01T00:00')", [], { keep: true }),
+      times: (await tx.query<{ ok: boolean }>("select submitted_at = now() as ok from public.feedback where id = 'fb-t6' union all select submitted_at = now() from public.feedback_replies where id = 'fbr-t6'")).rows,
+      changeTime: await attempt(tx, "update public.feedback set submitted_at = '2020-01-01T00:00' where id = 'fb-t6'"),
     }), { before: chooseTestPerson("k-maria", "kommun_handlaggare") });
     expect([karim.feedback, karim.replies]).toEqual([2, 1]);
     expect(karim.own).toMatchObject({ ok: true, rows: 1 });
@@ -645,6 +652,10 @@ describe("skrivning: särskilda fall", () => {
     expect([karim.statusOther.ok, karim.text.ok, karim.author.ok]).toEqual([false, false, false]);
     expect(karim.reply).toMatchObject({ ok: true, rows: 1 });
     expect([karim.replyForged.ok, allowed(karim.replyEdit), allowed(karim.del), allowed(karim.delReply), karim.freeText.ok]).toEqual([false, false, false, false, false]);
+    expect(karim.otherSite.ok).toBe(false);
+    expect([karim.forgedTime, karim.forgedReplyTime]).toMatchObject([{ ok: true, rows: 1 }, { ok: true, rows: 1 }]);
+    expect(karim.times).toEqual([{ ok: true }, { ok: true }]);
+    expect(karim.changeTime.ok).toBe(false);
     // Samma svar i minnesläget (policy.ts) för Karim som kommunens handläggare.
     const mem = { ...findPersona("k-maria").actor, testerId: "tester-karim" };
     const ali = raw.get("feedback", "fb-x-ali")!;
@@ -654,8 +665,8 @@ describe("skrivning: särskilda fall", () => {
     expect(canWriteRow("feedback", { ...ali, status: "andras", statusChangedBy: "tester-karim" }, mem, raw)).toBe(true);
     expect(canWriteRow("feedback", { ...karimFb, status: "klar", statusChangedBy: "tester-ali" }, mem, raw)).toBe(false);
     expect(canWriteRow("feedback", { ...ali, text: "Ändrad" }, mem, raw)).toBe(false);
-    expect(canWriteRow("feedback_replies", { id: "fbr-t1", feedbackId: "fb-x-ali", text: "Svar", createdAt: "2027-02-01T09:31", authorId: "tester-karim" }, mem, raw)).toBe(true);
-    expect(canWriteRow("feedback_replies", { id: "fbr-t2", feedbackId: "fb-x-ali", text: "Svar", createdAt: "2027-02-01T09:31", authorId: "tester-ali" }, mem, raw)).toBe(false);
+    expect(canWriteRow("feedback_replies", { id: "fbr-t1", feedbackId: "fb-x-ali", text: "Svar", createdAt: "2027-02-01T09:31", authorId: "tester-karim", submittedAt: null }, mem, raw)).toBe(true);
+    expect(canWriteRow("feedback_replies", { id: "fbr-t2", feedbackId: "fb-x-ali", text: "Svar", createdAt: "2027-02-01T09:31", authorId: "tester-ali", submittedAt: null }, mem, raw)).toBe(false);
 
     // Vanliga användare – även systemadministratören – ser inga synpunkter och kan inte skriva.
     for (const userId of ["u-robin", "u-sara", "k-maria"]) {

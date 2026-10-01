@@ -4,8 +4,8 @@
 // mm.auth_is_tester()) – oavsett vilken testperson testaren agerar som. Alla andra får 404: i produktion, i minnesläget och i
 // prototypen finns funktionen inte. RLS (0017_synpunkter.sql) och policy.ts kontrollerar samma sak en gång till.
 // Synpunkten sparas med rollen testaren agerar som och sidan (bara sökväg och id:n – sanitizeFeedbackPath igen här, servern
-// litar aldrig på webbläsaren). Tid via ctx.now() (testtid i testmiljön), id via ctx.newId. Inga utskick. Revisionslogg
-// utan text.
+// litar aldrig på webbläsaren – och rensas igen när listan läses). Tid via ctx.now() (testtid i testmiljön), id via
+// ctx.newId. Den riktiga tiden (submittedAt) sätter databasen. Inga utskick. Revisionslogg utan text.
 import { fail, ok } from "@/api/contract";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { perspectiveOf } from "@/api/roles";
@@ -24,8 +24,13 @@ function testerOf(ctx: Ctx): string {
   return id;
 }
 
-const newestFirst = (a: { createdAt: string; id: string }, b: { createdAt: string; id: string }) =>
-  a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+type Timed = { submittedAt: string | null; createdAt: string; id: string };
+const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/**
+ * Äldst först: riktig tid (submittedAt, sätts av databasen), sedan testtid och id. Testklockan börjar om när testdatat
+ * läses in på nytt – därför går den riktiga tiden före. I minnesläget saknas den och testtiden avgör.
+ */
+const oldestFirst = (a: Timed, b: Timed) => cmp(a.submittedAt ?? "", b.submittedAt ?? "") || cmp(a.createdAt, b.createdAt) || cmp(a.id, b.id);
 
 handleQuery(feedbackList, {}, async (ctx): Promise<FeedbackView[]> => {
   const me = testerOf(ctx);
@@ -34,11 +39,12 @@ handleQuery(feedbackList, {}, async (ctx): Promise<FeedbackView[]> => {
   // alltid läsa testarnas profiler (t.ex. deltagaren), men synpunkterna är testarnas egna.
   const authorIds = uniq([...items.map((x) => x.authorId), ...replies.map((r) => r.authorId)]);
   const profiles = authorIds.length ? await ctx.system.table("profiles").list({ id: { in: authorIds } }) : [];
+  // Hela namnet även för den inloggade (CSV-filen delas) – dialogen visar "Du" för det egna (mine).
   const names = new Map(profiles.map((p) => [p.id, p.fullName]));
-  const nameOf = (id: string) => (id === me ? "Du" : names.get(id) || "En testare");
+  const nameOf = (id: string) => names.get(id) || "En testare";
   const byFeedback = new Map<string, FeedbackReply[]>();
   for (const r of replies) byFeedback.set(r.feedbackId, [...(byFeedback.get(r.feedbackId) ?? []), r]);
-  return [...items].sort(newestFirst).map((x) => ({
+  return [...items].sort((a, b) => oldestFirst(b, a)).map((x) => ({
     id: x.id,
     type: x.type,
     priority: x.priority,
@@ -48,14 +54,16 @@ handleQuery(feedbackList, {}, async (ctx): Promise<FeedbackView[]> => {
     roleLabel: roleLabelOf(x.role),
     perspective: perspectiveOf(x.role),
     perspectiveLabel: perspectiveLabelOf(x.role),
-    path: x.path,
+    // Rensas igen vid läsning: bara en egen sökväg med id:n når webbläsaren ("Gå till sidan").
+    path: sanitizeFeedbackPath(x.path),
     viewTitle: x.viewTitle,
     createdAt: x.createdAt,
+    submittedAt: x.submittedAt,
     authorName: nameOf(x.authorId),
     mine: x.authorId === me,
     replies: (byFeedback.get(x.id) ?? [])
-      .sort((a, b) => -newestFirst(a, b))
-      .map((r) => ({ id: r.id, text: r.text, createdAt: r.createdAt, authorName: nameOf(r.authorId), mine: r.authorId === me })),
+      .sort(oldestFirst)
+      .map((r) => ({ id: r.id, text: r.text, createdAt: r.createdAt, submittedAt: r.submittedAt, authorName: nameOf(r.authorId), mine: r.authorId === me })),
   }));
 });
 
@@ -75,6 +83,8 @@ handleCommand(feedbackSubmit, {}, async (ctx, p) => {
     authorId: me,
     statusChangedAt: null,
     statusChangedBy: null,
+    // Riktig tid – sätts av databasen (0017).
+    submittedAt: null,
   };
   await ctx.repo.table("feedback").insert(row);
   await ctx.audit({ action: "feedback.created", entity: "feedback", entityId: row.id, contractId: null, details: { type: row.type, priority: row.priority } });
@@ -85,7 +95,7 @@ handleCommand(feedbackReply, {}, async (ctx, p) => {
   const me = testerOf(ctx);
   const fb = await ctx.repo.table("feedback").get(p.feedbackId);
   if (!fb) return fail("not_found", NOT_FOUND);
-  const reply: FeedbackReply = { id: ctx.newId("fbr"), feedbackId: fb.id, text: p.text, createdAt: ctx.now(), authorId: me };
+  const reply: FeedbackReply = { id: ctx.newId("fbr"), feedbackId: fb.id, text: p.text, createdAt: ctx.now(), authorId: me, submittedAt: null };
   await ctx.repo.table("feedback_replies").insert(reply);
   await ctx.audit({ action: "feedback.replied", entity: "feedback", entityId: fb.id, contractId: null, details: { replyId: reply.id } });
   return ok({ id: reply.id });

@@ -11,6 +11,8 @@
 --   * ingen tar bort något (statusen "avfardad" i stället)
 -- Synpunkterna hör inte till testdatat: mm.reset_test_data() ("Läs in testdata på nytt") tömmer dem inte längre (nedan), och
 -- seed.sql rör dem inte. created_at sätts av hanteraren med ctx.now() (testtid i testmiljön) – ingen default now().
+-- submitted_at är den riktiga tiden och sätts alltid av databasen (triggern nedan, now()): testklockan börjar om på
+-- 2027-02-01 09:12 när testdatat läses in på nytt, men synpunkterna finns kvar – listan sorteras därför på submitted_at.
 -- Inga utskick om synpunkter. Revisionsloggen får feedback.created, feedback.replied och feedback.status_changed (bara id:n).
 
 -- ---------------------------------------------------------------- Tabellerna
@@ -23,14 +25,17 @@ create table public.feedback (
   -- Rollen testaren agerade som (testpersonens roll).
   role                       text not null check (role = any (mm.all_roles())),
   -- Bara sökväg och id:n, t.ex. '/arenden/case-260143?flik=narvaro'. Engångslänkarnas token är maskerad ('/rost/•••••').
-  -- Inga mellanslag (fritext). Null = hela Miljonmatch.
-  path                       text check (path is null or (length(path) <= 300 and path ~ '^/[A-Za-z0-9/_.?=&•-]*$')),
+  -- Inga mellanslag (fritext). Null = hela Miljonmatch. Samma mönster som FEEDBACK_PATH_PATTERN (src/features/synpunkter/
+  -- model.ts): alltid en egen sökväg – aldrig '//värd/…' (en adress till en annan webbplats), inget '?' i själva sökvägen.
+  path                       text check (path is null or (length(path) <= 300 and path ~ '^/([A-Za-z0-9_.•-][A-Za-z0-9/_.•-]*)?(\?[A-Za-z0-9_=&-]*)?$')),
   view_title                 text check (view_title is null or length(view_title) <= 120),
   created_at                 timestamptz not null,
   -- Testarens egen profil (profiles.id). Ingen främmande nyckel: profilerna läses om när testdatat läses in på nytt.
   author_id                  text not null,
   status_changed_at          timestamptz,
-  status_changed_by          text
+  status_changed_by          text,
+  -- Riktig tid när synpunkten sparades – sätts alltid av databasen (triggern feedback_submitted_at).
+  submitted_at               timestamptz
 );
 create index feedback_created_at_idx on public.feedback (created_at);
 
@@ -40,7 +45,9 @@ create table public.feedback_replies (
   text                       text not null check (length(text) between 1 and 2000),
   created_at                 timestamptz not null,
   -- Testarens egen profil (profiles.id).
-  author_id                  text not null
+  author_id                  text not null,
+  -- Riktig tid när svaret sparades – sätts alltid av databasen (triggern feedback_replies_submitted_at).
+  submitted_at               timestamptz
 );
 create index feedback_replies_feedback_id_idx on public.feedback_replies (feedback_id);
 
@@ -89,6 +96,21 @@ end
 $$;
 create trigger feedback_protect_columns before update on public.feedback
 for each row execute function mm.protect_feedback_columns();
+
+-- Riktig tid (inte testtid) när synpunkten eller svaret sparas. Databasen sätter den alltid – det som skickas in ersätts,
+-- så tiden går inte att välja själv. Ändras aldrig efteråt (triggern ovan; svar ändras inte alls).
+create function mm.feedback_submitted_at() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+begin
+  new.submitted_at := now();
+  return new;
+end
+$$;
+create trigger feedback_submitted_at before insert on public.feedback
+for each row execute function mm.feedback_submitted_at();
+create trigger feedback_replies_submitted_at before insert on public.feedback_replies
+for each row execute function mm.feedback_submitted_at();
 
 -- ---------------------------------------------------------------- "Läs in testdata på nytt" behåller synpunkterna
 -- Samma funktion som i 0010, med feedback och feedback_replies i listan över tabeller som inte töms.

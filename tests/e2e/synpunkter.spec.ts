@@ -13,12 +13,15 @@ test("vanliga användare ser aldrig Lämna synpunkt, och synpunkterna finns inte
   await expect(page.getByRole("button", { name: "Alla synpunkter" })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Testmiljö" })).toHaveCount(0);
   if (!isDemo(info)) {
+    // 404 från hanterarens spärr för testare (code not_found) – inte unknown_key, som betyder att feedback.* inte är registrerat.
     const list = await page.request.post("/api/rpc", { data: { kind: "query", key: "feedback.list", input: {} } });
     expect(list.status()).toBe(404);
+    expect(await list.json()).toMatchObject({ code: "not_found" });
     const submit = await page.request.post("/api/rpc", {
       data: { kind: "command", key: "feedback.submit", input: { type: "fel", priority: "bor", text: "Test", path: "/admin/integrationer", viewTitle: "Underbiträden" } },
     });
     expect(submit.status()).toBe(404);
+    expect(await submit.json()).toMatchObject({ code: "not_found" });
   }
   expect(errors).toEqual([]);
 });

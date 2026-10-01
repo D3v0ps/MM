@@ -10,6 +10,7 @@ import {
   adminAuditLog, adminCompare, adminContract, adminIntegrations, adminInviteCustomer, adminLogCheck, adminOrgRules, adminRunJob, adminSaveTemplate,
   adminSetCustomerActive, adminSetOrgRule, adminTemplates, adminUsers,
 } from "./api";
+import { detailText, type AuditLookups } from "./audit-text";
 import { findUnset } from "./contract-text";
 import { fillExample, templateCheck } from "./templates";
 import { linkMessageText } from "@/features/rost/texts";
@@ -272,6 +273,19 @@ describe("revisionslogg och loggkontroll", () => {
     expect(d.actors.map((a) => a.label)).toEqual(["Karin Wallin", "Lars Nyström", "Maria Ekdahl", "Miljonmatch (automatiskt)", "Sara Lindqvist"]);
     expect(d.logCheck).toMatchObject({ month: "2027-01", canSign: false, done: null });
     await forbidden(rt.query(adminAuditLog, {}, sara()));
+  });
+
+  it("synpunkter i testmiljön: typ, hur viktigt och status med samma svenska etiketter som dialogen", () => {
+    const l: AuditLookups = { userName: () => null, caseNumber: () => null, kpiLabel: () => null, templateLabel: (k) => k };
+    expect(detailText({ action: "feedback.created", entity: "feedback", entityId: "fb-1", details: { type: "forbattring", priority: "maste" } }, l)).toBe(
+      "Typ: Förbättring · Hur viktigt: Måste ändras",
+    );
+    expect(detailText({ action: "feedback.created", entity: "feedback", entityId: "fb-2", details: { type: "bra", priority: "kan" } }, l)).toBe("Typ: Bra som det är · Hur viktigt: Kan vänta");
+    expect(detailText({ action: "feedback.status_changed", entity: "feedback", entityId: "fb-1", details: { from: "ny", to: "avfardad" } }, l)).toBe("Från: Ny · Till: Avfärdad");
+    expect(detailText({ action: "feedback.status_changed", entity: "feedback", entityId: "fb-1", details: { from: "diskutera", to: "andras" } }, l)).toBe(
+      "Från: Att diskutera · Till: Ska ändras",
+    );
+    expect(detailText({ action: "feedback.replied", entity: "feedback", entityId: "fb-1", details: { replyId: "fbr-1" } }, l)).toBe("Svar: fbr-1");
   });
 
   it("chefens stickprov är samma poster som i den gamla prototypen och kräver anteckning vid avvikelse", async () => {

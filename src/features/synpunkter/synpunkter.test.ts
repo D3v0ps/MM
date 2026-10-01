@@ -13,7 +13,8 @@ import { DEMO_START } from "@/data/seed";
 import { seedData } from "@/data/supabase/seed-rows";
 import "@/api/handlers";
 import { feedbackList, feedbackReply, feedbackSetStatus, feedbackSubmit } from "./api";
-import { csvCell, feedbackCsv, PATH_MASK, sanitizeFeedbackPath, sanitizeViewTitle } from "./model";
+import { readFileSync } from "node:fs";
+import { csvCell, FEEDBACK_PATH_PATTERN, feedbackCsv, PATH_MASK, sanitizeFeedbackPath, sanitizeViewTitle } from "./model";
 
 const SEED = seedData();
 let rt: MemoryRuntime;
@@ -59,7 +60,7 @@ describe("bara testare i testmiljön", () => {
     const raw = rt.raw();
     const row: Feedback = {
       id: "fb-1", type: "fel", priority: "bor", text: "Text", status: "ny", role: "coach", path: "/min-vecka", viewTitle: "Min vecka", createdAt: DEMO_START,
-      authorId: "tester-karim", statusChangedAt: null, statusChangedBy: null,
+      authorId: "tester-karim", statusChangedAt: null, statusChangedBy: null, submittedAt: null,
     };
     rt.store.insertRow("feedback", row);
     const karim = KARIM_AS_COACH();
@@ -73,7 +74,7 @@ describe("bara testare i testmiljön", () => {
     expect(canWriteRow("feedback", { ...row, status: "klar", statusChangedBy: "tester-karim" }, ali, raw)).toBe(false);
     expect(canWriteRow("feedback", { ...row, text: "Ändrad" }, karim, raw)).toBe(false);
     expect(canWriteRow("feedback", { ...row, role: "admin" }, karim, raw)).toBe(false);
-    const reply = { id: "fbr-1", feedbackId: "fb-1", text: "Svar", createdAt: DEMO_START, authorId: "tester-ali" };
+    const reply = { id: "fbr-1", feedbackId: "fb-1", text: "Svar", createdAt: DEMO_START, authorId: "tester-ali", submittedAt: null };
     expect(canWriteRow("feedback_replies", reply, ali, raw)).toBe(true);
     expect(canWriteRow("feedback_replies", reply, karim, raw)).toBe(false);
     expect(canWriteRow("feedback_replies", { ...reply, feedbackId: "fb-finns-inte" }, ali, raw)).toBe(false);
@@ -89,7 +90,7 @@ describe("lämna synpunkt, lista, svara och ändra status", () => {
     expect(row).toEqual({
       id: res.ok ? res.id : "", type: "fel", priority: "maste", text: "Knappen Spara syns inte på mobilen.", status: "ny", role: "coach",
       path: "/arenden/case-260143?flik=narvaro", viewTitle: "Deltagarkort", createdAt: "2027-02-01T09:13", authorId: "tester-karim",
-      statusChangedAt: null, statusChangedBy: null,
+      statusChangedAt: null, statusChangedBy: null, submittedAt: null,
     });
     const log = rows("audit_log").filter((x) => x.action === "feedback.created");
     expect(log).toHaveLength(1);
@@ -110,7 +111,7 @@ describe("lämna synpunkt, lista, svara och ändra status", () => {
     expect(rows("feedback")).toHaveLength(1);
   });
 
-  it("alla testare ser alla synpunkter, nyast först, med namn, roll, perspektiv och svar", async () => {
+  it("alla testare ser alla synpunkter, nyast först, med hela namnet, roll, perspektiv och svar", async () => {
     const a = await cmd(feedbackSubmit, NEW, KARIM_AS_COACH());
     const b = await cmd(feedbackSubmit, { type: "fraga", priority: "kan", text: "Var ser jag beställningen?", path: "/portal", viewTitle: "Start" }, ALI_AS_KOMMUN());
     if (!a.ok || !b.ok) throw new Error("sparades inte");
@@ -119,11 +120,12 @@ describe("lämna synpunkt, lista, svara och ändra status", () => {
     const list = await q(feedbackList, {}, KARIM_AS_COACH());
     expect(list.map((x) => x.id)).toEqual([b.id, a.id]);
     expect(list[0]).toMatchObject({ type: "fraga", role: "kommun_handlaggare", roleLabel: "Kommunens handläggare", perspective: "kund", perspectiveLabel: "Kund", authorName: "Ali Khalil", mine: false, replies: [] });
-    expect(list[1]).toMatchObject({ role: "coach", roleLabel: "Huvudcoach", perspectiveLabel: "Leverantör", authorName: "Du", mine: true });
-    expect(list[1].replies.map((r) => [r.authorName, r.text])).toEqual([["Ali Khalil", "Vi tittar på det."], ["Du", "Tack!"]]);
-    // Samma lista för Ali (som agerar som en annan testperson) – med hans "Du".
+    // Hela namnet även för den inloggade (CSV-filen delas) – "Du" visar dialogen med hjälp av mine.
+    expect(list[1]).toMatchObject({ role: "coach", roleLabel: "Huvudcoach", perspectiveLabel: "Leverantör", authorName: "Karim Khalil", mine: true });
+    expect(list[1].replies.map((r) => [r.authorName, r.mine, r.text])).toEqual([["Ali Khalil", false, "Vi tittar på det."], ["Karim Khalil", true, "Tack!"]]);
+    // Samma lista för Ali (som agerar som en annan testperson) – samma namn, bara mine skiljer.
     const ali = await q(feedbackList, {}, asTester("tester-ali", "deltagare"));
-    expect(ali.map((x) => [x.id, x.authorName])).toEqual([[b.id, "Du"], [a.id, "Karim Khalil"]]);
+    expect(ali.map((x) => [x.id, x.authorName, x.mine])).toEqual([[b.id, "Ali Khalil", true], [a.id, "Karim Khalil", false]]);
     expect(rows("audit_log").filter((x) => x.action === "feedback.replied").map((x) => x.entityId)).toEqual([a.id, a.id]);
   });
 
@@ -141,6 +143,34 @@ describe("lämna synpunkt, lista, svara och ändra status", () => {
   });
 });
 
+describe("läsningen: riktig tid och rensad sökväg", () => {
+  const stored = (id: string, createdAt: string, submittedAt: string | null, path: string | null, authorId = "tester-karim"): Feedback => ({
+    id, type: "fel", priority: "bor", text: `Text ${id}`, status: "ny", role: "coach", path, viewTitle: "Min vecka", createdAt, authorId,
+    statusChangedAt: null, statusChangedBy: null, submittedAt,
+  });
+
+  it("nyast först efter riktig tid (databasen) – testklockan börjar om när testdatat läses in på nytt", async () => {
+    // fb-gammal lämnades på testdag 4 (2027-02-04); efter omladdningen står testklockan på 2027-02-01 igen.
+    rt.store.insertRow("feedback", stored("fb-gammal", "2027-02-04T15:00", "2026-10-01T10:00", "/min-vecka"));
+    rt.store.insertRow("feedback", stored("fb-ny", "2027-02-01T09:15", "2026-10-02T08:30", "/min-vecka"));
+    rt.store.insertRow("feedback_replies", { id: "fbr-b", feedbackId: "fb-gammal", text: "Efter omladdningen", createdAt: "2027-02-01T09:20", authorId: "tester-ali", submittedAt: "2026-10-02T08:40" });
+    rt.store.insertRow("feedback_replies", { id: "fbr-a", feedbackId: "fb-gammal", text: "Före omladdningen", createdAt: "2027-02-04T15:10", authorId: "tester-ali", submittedAt: "2026-10-01T10:10" });
+    const list = await q(feedbackList, {}, KARIM_AS_COACH());
+    expect(list.map((x) => [x.id, x.submittedAt])).toEqual([["fb-ny", "2026-10-02T08:30"], ["fb-gammal", "2026-10-01T10:00"]]);
+    expect(list[1].replies.map((r) => r.text)).toEqual(["Före omladdningen", "Efter omladdningen"]);
+    // CSV: Tid = riktig tid, Testdatum = testklockan.
+    expect(feedbackCsv(list).split("\r\n")[1]).toMatch(/^2026-10-02 08:30;2027-02-01 09:15;Fel;/);
+  });
+
+  it("sökvägen rensas igen när listan läses – en rad som skrivits förbi hanteraren når aldrig webbläsaren som en annan webbplats", async () => {
+    rt.store.insertRow("feedback", stored("fb-1", "2027-02-01T09:15", null, "//evil.example/logga-in"));
+    rt.store.insertRow("feedback", stored("fb-2", "2027-02-01T09:16", null, "/arenden/Anna Svensson?q=Anna"));
+    rt.store.insertRow("feedback", stored("fb-3", "2027-02-01T09:17", null, "/arenden/case-260143?flik=narvaro"));
+    const list = await q(feedbackList, {}, KARIM_AS_COACH());
+    expect(list.map((x) => [x.id, x.path])).toEqual([["fb-3", "/arenden/case-260143?flik=narvaro"], ["fb-2", `/arenden/${PATH_MASK}`], ["fb-1", null]]);
+  });
+});
+
 describe("sidan och CSV", () => {
   it("sidan: bara sökväg och id:n – fritext, återhoppsadresser, token och långa sifferföljder tas bort", () => {
     expect(sanitizeFeedbackPath("/arenden/case-260143?flik=narvaro&q=Anna%20Svensson#topp")).toBe("/arenden/case-260143?flik=narvaro");
@@ -155,8 +185,15 @@ describe("sidan och CSV", () => {
     expect(sanitizeFeedbackPath("https://example.com/x")).toBeNull();
     expect(sanitizeFeedbackPath("//example.com/x")).toBeNull();
     expect(sanitizeFeedbackPath(null)).toBeNull();
-    // Samma tecken som databasens kontroll (0017_synpunkter.sql).
-    for (const p of ["/arenden/case-260143?flik=narvaro", `/rost/${PATH_MASK}`, "/a/b/c/d/e/f/g/h/i/j"]) expect(sanitizeFeedbackPath(p)).toMatch(/^\/[A-Za-z0-9/_.?=&•-]*$/);
+    // Samma mönster som databasens kontroll (0017_synpunkter.sql har exakt FEEDBACK_PATH_PATTERN).
+    const sql = readFileSync(new URL("../../../supabase/migrations/0017_synpunkter.sql", import.meta.url), "utf8");
+    expect(sql).toContain(`path ~ '${FEEDBACK_PATH_PATTERN}'`);
+    const db = new RegExp(FEEDBACK_PATH_PATTERN);
+    for (const p of ["/arenden/case-260143?flik=narvaro", `/rost/${PATH_MASK}`, "/a/b/c/d/e/f/g/h/i/j", "/", "/?flik=narvaro", `/x/${"a".repeat(80)}/${"b".repeat(80)}/${"c".repeat(80)}/${"d".repeat(80)}`]) {
+      expect(sanitizeFeedbackPath(p), p).toMatch(db);
+    }
+    // Aldrig en adress till en annan webbplats ('//värd/…' tolkas av webbläsaren som https://värd/…), inga mellanslag.
+    for (const bad of ["//evil.example/logga-in", "///evil.example", "/arenden/Anna Svensson", "https://evil.example", "/\\evil.example", "arenden"]) expect(db.test(bad), bad).toBe(false);
     expect(sanitizeViewTitle(" Deltagarkort\n– Närvaro ")).toBe("Deltagarkort – Närvaro");
     expect(sanitizeViewTitle("   ")).toBeNull();
     expect(sanitizeViewTitle("x".repeat(500))).toHaveLength(120);
@@ -166,15 +203,18 @@ describe("sidan och CSV", () => {
     expect([csvCell("=SUMMA(A1)"), csvCell("+46"), csvCell("-1"), csvCell("@x"), csvCell("vanlig"), csvCell('a;"b"')]).toEqual(["'=SUMMA(A1)", "'+46", "'-1", "'@x", "vanlig", '"a;""b"""']);
     const csv = feedbackCsv([
       {
-        createdAt: "2027-02-01T09:13", type: "fel", priority: "maste", status: "ny", role: "coach", viewTitle: "Deltagarkort", path: "/arenden/case-260143",
-        text: "=HYPERLINK(\"x\")", authorName: "Karim Khalil", replies: [{ createdAt: "2027-02-01T09:20", authorName: "Ali Khalil", text: "Ok; vi fixar" }],
+        createdAt: "2027-02-01T09:13", submittedAt: "2026-10-01T14:03", type: "fel", priority: "maste", status: "ny", role: "coach", viewTitle: "Deltagarkort", path: "/arenden/case-260143",
+        text: "=HYPERLINK(\"x\")", authorName: "Karim Khalil", replies: [{ createdAt: "2027-02-01T09:20", submittedAt: "2026-10-01T14:10", authorName: "Ali Khalil", text: "Ok; vi fixar" }],
       },
-      { createdAt: "2027-02-01T10:00", type: "bra", priority: "kan", status: "klar", role: "kommun_chef", viewTitle: null, path: null, text: "Bra", authorName: "Du", replies: [] },
+      { createdAt: "2027-02-01T10:00", type: "bra", priority: "kan", status: "klar", role: "kommun_chef", viewTitle: null, path: null, text: "Bra", authorName: "Sara Salah", replies: [] },
     ]);
     const lines = csv.split("\r\n");
-    expect(lines[0]).toBe("Tid;Typ;Hur viktigt;Status;Roll;Sida;Sökväg;Synpunkt;Lämnad av;Antal svar;Svar");
-    expect(lines[1]).toBe(`2027-02-01 09:13;Fel;Måste ändras;Ny;Huvudcoach;Deltagarkort;/arenden/case-260143;"'=HYPERLINK(""x"")";Karim Khalil;1;"Ali Khalil (2027-02-01 09:20): Ok; vi fixar"`);
-    expect(lines[2]).toBe("2027-02-01 10:00;Bra som det är;Kan vänta;Klar;Kommunens chef;Hela Miljonmatch;;Bra;Du;0;");
+    expect(lines[0]).toBe("Tid;Testdatum;Typ;Hur viktigt;Status;Roll;Sida;Sökväg;Synpunkt;Lämnad av;Antal svar;Svar");
+    expect(lines[1]).toBe(
+      `2026-10-01 14:03;2027-02-01 09:13;Fel;Måste ändras;Ny;Huvudcoach;Deltagarkort;/arenden/case-260143;"'=HYPERLINK(""x"")";Karim Khalil;1;"Ali Khalil (2026-10-01 14:10): Ok; vi fixar"`,
+    );
+    // Utan riktig tid (minnesläget): testtiden i båda kolumnerna.
+    expect(lines[2]).toBe("2027-02-01 10:00;2027-02-01 10:00;Bra som det är;Kan vänta;Klar;Kommunens chef;Hela Miljonmatch;;Bra;Sara Salah;0;");
     expect(lines).toHaveLength(3);
   });
 });

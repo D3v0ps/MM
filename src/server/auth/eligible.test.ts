@@ -58,11 +58,18 @@ describe("inloggningskoden i testmiljön", () => {
     expect(await eligible(fakeMb, "@miljonbemanning.se")).toBe("u-sara");
   });
 
-  it("docs/DRIFT.md och supabase/README.md visar exakt värdet för Vercel", () => {
-    for (const file of ["../../../docs/DRIFT.md", "../../../supabase/README.md"]) {
+  it("docs/DRIFT.md, supabase/README.md och docs/UTSKICK.md visar exakt värdet för Vercel – aldrig @miljonbemanning.se som post", () => {
+    for (const file of ["../../../docs/DRIFT.md", "../../../supabase/README.md", "../../../docs/UTSKICK.md", "../../../.env.example"]) {
       const text = readFileSync(new URL(file, import.meta.url), "utf8");
-      expect(text, file).toContain(`\`${TESTER_ALLOWLIST}\``);
+      if (!file.endsWith(".env.example")) expect(text, file).toContain(`\`${TESTER_ALLOWLIST}\``);
+      else expect(text, file).toContain(`# ${TESTER_ALLOWLIST}\n`);
       for (const t of TESTERS) expect(text, `${file} ${t.email}`).toContain(t.email);
+      // Varje ställe som nämner domänposten @miljonbemanning.se säger att den inte ska användas (raden eller raden före,
+      // texten kan vara radbruten).
+      const lines = text.split("\n");
+      lines.forEach((line, i) => {
+        if (/(^|[\s`(])@miljonbemanning\.se/.test(line)) expect(`${lines[i - 1] ?? ""} ${line}`, `${file}: ${line}`).toMatch(/aldrig|inte/i);
+      });
     }
   });
 });

@@ -173,11 +173,17 @@ När produktionen startar tar den över `miljonmatch.se` i sitt eget Vercel-proj
 Bolagets funktionsadress, MFA och en andra administratör (*Settings → Team*). **Teckna Resends personuppgiftsbiträdesavtal (DPA) före produktion** – Resend hanterar mottagarnas e-postadresser.
 
 ### 4.2 Domän och DNS (beslut 2026-10-01)
-- Domänen i Resend är **`miljonmatch.se`**, region **EU (Ireland, eu-west-1)**. Regionen går inte att ändra i efterhand. Avsändaren är **`notis@miljonmatch.se`** med visningsnamnet **Miljonmatch** (`MM_EMAIL_FROM=Miljonmatch <notis@miljonmatch.se>`).
-- DNS för miljonmatch.se ligger hos **one.com** (samma ställe som posterna för Vercel). Resends poster ligger på underdomänen `send` och en egen DKIM-nyckel: `MX send` (`feedback-smtp.eu-west-1.amazonses.com`, prioritet 10), `TXT send` (`v=spf1 include:amazonses.com ~all`) och `TXT resend._domainkey` (DKIM). Ändra inte domänens övriga poster (A och `www` mot Vercel).
+- Domänen i Resend är **`miljonmatch.se`**. Avsändaren är **`notis@miljonmatch.se`** med visningsnamnet **Miljonmatch** (`MM_EMAIL_FROM=Miljonmatch <notis@miljonmatch.se>`).
+- **Regionen ska vara EU** (beslutet 2026-10-01). Den syns inte i DNS-posterna och går inte att ändra i efterhand. **Karim kontrollerar** i Resend under *Domains → miljonmatch.se* vilken region domänen har och för in den här och i SPEC §11. Obs: SPF-posten som CNAME:n pekar på godkänner 2026-10-01 sändservrarna `mta1.forge.rmta.net` och `mta2.forge.rmta.net`, som ligger i AWS-regionen us-east-1 (USA). Står domänen inte på en EU-region: säg till innan fler utskick görs.
+- DNS för miljonmatch.se ligger hos **one.com** (samma ställe som posterna för Vercel). Resends poster, så som de ser ut i DNS (kontrollerat 2026-10-01):
+  - **CNAME `send` → `send.forge.rmta.net`**. SPF (`v=spf1 … ~all`) och MX för studsar (`feedback.forge.rmta.net`) följer med CNAME:n – de ligger hos Resend och uppdateras där.
+  - **TXT `resend._domainkey`** – DKIM-nyckeln (`p=MIGf…`).
+  - Null-MX på huvuddomänen (`MX 0 .`) – miljonmatch.se tar inte emot e-post.
+  - **Lägg aldrig till MX- eller TXT-poster på `send`.** Ett namn med en CNAME får inte ha andra poster: one.com avvisar ändringen, eller så ersätts CNAME:n – då slutar domänen vara verifierad i Resend och inga inloggningskoder kommer fram.
+  - Ändra inte domänens övriga poster (A och `www` mot Vercel).
 - Varför miljonmatch.se: DNS för miljonbemanning.se styrs av Terraform (Google Cloud DNS), och Resends poster där skulle försvinna vid nästa `terraform apply` om de inte fanns i Terraform-koden. Med miljonmatch.se finns den risken inte. Resends poster i miljonbemanning.se-zonen behövs inte längre av appen (de kan tas bort, eller läggas in i Terraform om domänen ska användas för annat).
 - *Domains → miljonmatch.se → Configuration*: stäng av **Click tracking** och **Open tracking** (spårning skriver om länkar och lägger in en pixel – ett analysverktyg, CLAUDE.md).
-- **Nästa steg – DMARC:** lägg in en DMARC-post hos one.com, `_dmarc.miljonmatch.se` TXT `v=DMARC1; p=none; rua=mailto:<adress som du väljer>` (t.ex. en funktionsadress på Miljonbemanning). Börja med `p=none` (bara rapporter) och skärp till `quarantine` när rapporterna visar att bara Resend skickar i domänens namn.
+- **Nästa steg – DMARC** (saknas 2026-10-01): lägg in en DMARC-post hos one.com, `_dmarc.miljonmatch.se` TXT `v=DMARC1; p=none; rua=mailto:<adress som du väljer>` (t.ex. en funktionsadress på Miljonbemanning). Börja med `p=none` (bara rapporter) och skärp till `quarantine` när rapporterna visar att bara Resend skickar i domänens namn.
 - miljonmatch.se tar inte emot e-post (null-MX på huvuddomänen). Svar till `notis@miljonmatch.se` kommer alltså inte fram – därför sätts `MM_EMAIL_REPLY_TO=avrop@miljonbemanning.se` i produktion. I testmiljön kan den också sättas till en testares adress om ni vill se svar.
 
 ### 4.3 API-nycklar
@@ -355,7 +361,7 @@ Alla är systemadministratörer i båda avtalen och testare (`is_tester = true`,
 ### 11.2 Lämna synpunkt
 
 - I raden **Testmiljö** överst: **Lämna synpunkt** öppnar en dialog (Gäller: den här sidan eller hela Miljonmatch · Typ · Hur viktigt? · Vad tycker du?). Synpunkten sparas med rollen testaren agerar som och sidan (bara sökväg och id:n – aldrig namn, personnummer eller fritext; engångslänkarnas token maskeras). Bekräftelse: "Tack! Synpunkten är sparad."
-- **Alla synpunkter** visar allas synpunkter (filtrera på status och typ, svara, ändra status) och **Ladda ner (CSV)** (semikolon, UTF-8, skydd mot formler – öppnas i Excel).
+- **Alla synpunkter** visar allas synpunkter, nyast först (filtrera på status och typ, svara, ändra status med **Spara status**) och **Ladda ner (CSV)** (semikolon, UTF-8, skydd mot formler – öppnas i Excel). I filen står hela namnet på den som skrev, **Tid** (riktig tid, sätts av databasen) och **Testdatum** (testklockan). **Gå till sidan** syns när testpersonen du agerar som får öppna sidan – annars står det vilken roll synpunkten lämnades som (byt i "Agera som").
 - Bara testare i testmiljön: servern (`ctx.actor.testerId`, samma regel som "Agera som") och RLS (`mm.auth_is_tester()`) kontrollerar det. I produktion finns funktionen inte. Inga mejl om synpunkter. Revisionsloggen får `feedback.created`, `feedback.replied` och `feedback.status_changed` (bara id:n).
 - **Synpunkterna finns kvar** när testdatat läses in på nytt (0017 ändrar `mm.reset_test_data()`), och seeden rör dem inte.
 - Tiden på en synpunkt är testklockans (testtid, t.ex. 1 februari 2027), som allt annat i testmiljön.

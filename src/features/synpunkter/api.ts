@@ -3,7 +3,7 @@
 // prototypen finns funktionen inte: hanterarna svarar 404 och RLS släpper inte igenom något. Prototypen har kvar sin egen
 // feedback i claude.ai (src/demo/feedback-store.ts) med samma modell och samma texter (model.ts).
 //
-//   feedback.list       alla synpunkter med svar (nyast först) – för listan "Alla synpunkter" och CSV-exporten
+//   feedback.list       alla synpunkter med svar (nyast först, efter riktig tid) – för listan "Alla synpunkter" och CSV-exporten
 //   feedback.submit     ny synpunkt: typ, prioritet, text och sidan (bara sökväg och id:n). Rollen tas från aktören.
 //   feedback.reply      svar på en synpunkt
 //   feedback.setStatus  ändra status (Ny, Att diskutera, Ska ändras, Klar, Avfärdad)
@@ -19,9 +19,13 @@ import { FEEDBACK_PRIORITIES, FEEDBACK_REPLY_MAX, FEEDBACK_STATUSES, FEEDBACK_TE
 export type FeedbackReplyView = {
   id: string;
   text: string;
+  /** Testtiden. */
   createdAt: LocalDateTime;
+  /** Riktig tid (sätts av databasen). Null i minnesläget. */
+  submittedAt: LocalDateTime | null;
+  /** Hela namnet (även för den inloggade – CSV-filen delas med andra). */
   authorName: string;
-  /** Skrivet av den inloggade testaren ("Du"). */
+  /** Skrivet av den inloggade testaren (dialogen visar "Du"). */
   mine: boolean;
 };
 
@@ -40,8 +44,13 @@ export type FeedbackView = {
   /** Sidan (bara sökväg och id:n), null = hela Miljonmatch. */
   path: string | null;
   viewTitle: string | null;
+  /** Testtiden (testklockan i testmiljön). */
   createdAt: LocalDateTime;
+  /** Riktig tid när synpunkten sparades (sätts av databasen). Null i minnesläget. */
+  submittedAt: LocalDateTime | null;
+  /** Hela namnet (även för den inloggade – CSV-filen delas med andra). */
   authorName: string;
+  /** Lämnad av den inloggade testaren (dialogen visar "Du"). */
   mine: boolean;
   replies: FeedbackReplyView[];
 };
