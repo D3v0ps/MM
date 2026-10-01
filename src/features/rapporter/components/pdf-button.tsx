@@ -5,6 +5,8 @@
 // PDF:en byggs i webbläsaren av samma dokument (dynamisk import av react-pdf, så att vanliga sidor inte blir större) →
 // filen sparas med useDownload (appen: webbläsarens nedladdning, prototypen: claude.ai:s nedladdning). Filnamnet kommer
 // från servern och innehåller inga personuppgifter.
+// Medan PDF:en skapas (några sekunder) står det "Skapar PDF …" på knappen och en skärmläsare får höra det. Knappen är
+// aria-disabled i stället för disabled, så att fokus stannar kvar på den (en knapp som blir disabled tappar fokus).
 import { useState } from "react";
 import { useCommand } from "@/shell/backend";
 import { Button, useDownload, useToast, type ButtonKind } from "@/ui";
@@ -34,8 +36,13 @@ export function PdfDownloadButton({ doc, kind = "secondary" }: { doc: ReportDocV
     }
   };
   return (
-    <Button kind={kind} icon="download" pending={busy} disabled={!doc} onClick={() => void onClick()}>
-      Ladda ner PDF
-    </Button>
+    <>
+      <Button kind={kind} icon="download" disabled={!doc} aria-disabled={busy || undefined} aria-busy={busy || undefined} onClick={() => void onClick()}>
+        {busy ? "Skapar PDF …" : "Ladda ner PDF"}
+      </Button>
+      <span role="status" className="sr-only">
+        {busy ? "Skapar PDF-filen. Det kan ta några sekunder." : ""}
+      </span>
+    </>
   );
 }

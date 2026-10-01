@@ -128,6 +128,8 @@ export type ReportDocView =
       customer: boolean;
       /** Klockslaget då veckorapporten senast publiceras ("16:00"). */
       pubTime: string;
+      /** Veckodagen då veckorapporten senast publiceras, veckan efter ("måndag") – sla[veckorapport_publicering].weekday. */
+      pubDay: string;
     })
   | (DocBase & { kind: "customer_summary"; m: SummaryModel; approver: string; resultNote: string });
 
@@ -210,7 +212,8 @@ export type ReportView = {
   /** Underlaget har ändrats efter leveransen. canCorrect = rollen kan rätta. */
   drift: { canCorrect: boolean } | null;
   /** Veckorapport som väntar på närvaroregistrering. */
-  waiting: { regTime: string; pubTime: string; byCoach: { coach: string; items: string[] }[]; canRegister: boolean } | null;
+  /** Veckodagarna (regDay, pubDay: "måndag") och klockslagen kommer från avtalets sla-regler. */
+  waiting: { regDay: string; regTime: string; pubDay: string; pubTime: string; byCoach: { coach: string; items: string[] }[]; canRegister: boolean } | null;
   /** Coachens text till slutrapporten. null = visas inte. */
   finalText: { canEdit: boolean; obstacles: string; recommendation: string } | null;
   /** Beställarrapportens sammanfattning. null = visas inte. */

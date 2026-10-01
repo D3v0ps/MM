@@ -127,7 +127,7 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
       )}
       <div className="flex flex-wrap items-center gap-3">
         <PdfDownloadButton doc={res.doc} />
-        <span className="text-small text-text-muted">Filen innehåller samma rapport som visas nedan.</span>
+        <span className="text-small text-text-muted portal:text-portal">Filen innehåller samma rapport som visas nedan.</span>
       </div>
       <ReportDocument doc={res.doc} />
       <Card title="Har du frågor om rapporten?" icon="message">

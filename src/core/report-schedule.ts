@@ -2,26 +2,29 @@
 // rapportrader ska finnas när en period är slut, och vilka av dem saknas. Hanteraren (src/features/rapporter/ensure.ts)
 // läser data, anropar funktionerna här och skriver raderna med ctx.system.
 //
-// Reglerna (avtalskonfigurationen, reportSchedule.automatic – CLAUDE.md punkt 4):
+// Reglerna (avtalskonfigurationen, reportSchedule – CLAUDE.md punkt 4):
 //   weekly_attendance  en per avtal, handläggare och ISO-vecka med minst ett inskrivet ärende hos handläggaren, när veckan
 //                      är slut. Status waiting – publiceras av publishWeeklyIfComplete när all närvaro är registrerad.
 //                      Sista dag: sla[veckorapport_publicering] (Botkyrka: måndag 16.00 veckan efter).
-//   monthly            en per ärende och månad där ärendet är inskrivet minst en dag, när månaden är slut. Status draft
-//                      (granskad om coachen redan godkänt månadsbedömningen – samma regel som coach/handlers.ts).
+//   monthly            en per ärende och månad där ärendet är inskrivet minst reportSchedule.monthly.minEnrolledDays
+//                      kalenderdagar (Botkyrka: 11), när månaden är slut. Status draft (granskad om coachen redan godkänt
+//                      månadsbedömningen – samma regel som coach/handlers.ts).
 //                      Sista dag: sla[manadsrapport] (förslaget: 5:e arbetsdagen efter månadsskiftet kl. 23.59).
 //   customer_summary   en per avtal, kommunens chef och månad, när månaden är slut. Status draft.
 //                      Sista dag: reportSchedule.customerSummaryDue (förslaget: 8:e arbetsdagen kl. 16.00).
 // Fälten blir exakt som testdatats rader (src/data/seed/gen-reports.ts): perioder, dueAt, provisionalDue och mottagare.
+// Mottagarna (handläggare och chefer) är de med aktivt konto i avtalet – hanteraren filtrerar bort spärrade konton.
 //
 // Inskriven en dag = startdatum passerat och slutdatum inte passerat (samma regel som veckorapporten och faktureringen).
 // Uppehåll (pausade veckor) räknas som inskriven tid: rapporten skapas och visar "Uppehåll". Ett avslutat ärende får
 // inga rapporter efter slutdatumet.
 //
 // Perioden räknas när den är slut: veckan vid måndag 00.00 veckan efter, månaden vid den 1:a 00.00 nästa månad. Bara
-// perioder som slutar efter `since` (per rapporttyp) räknas – raderna skapas framåt och historiken fylls aldrig i i efterhand.
+// perioder som slutar efter `since` (per rapporttyp eller samma för alla) räknas. Vilka perioder en körning prövar
+// räknas ut av scheduleFrom() nedan.
 import { AUTO_REPORT_KINDS, slaRule, type AutoReportKind, type ContractConfig } from "./config";
 import { isProvisionalDue, monthlyReportDueAt } from "./sla";
-import { addDays, addMonths, dayOf, isoWeek, monday, monthEnd, monthKey, nthWorkingDay, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "./time";
+import { addDays, addMinutes, addMonths, dayOf, diffDays, isoWeek, monday, monthEnd, monthKey, nthWorkingDay, type LocalDate, type LocalDateTime, type MonthKey } from "./time";
 import type { Case, Report } from "@/data/schema";
 
 // ---------------------------------------------------------------- Indata
@@ -71,12 +74,16 @@ export function nextScheduleBoundary(t: LocalDateTime): LocalDateTime {
   return w < m ? w : m;
 }
 
-/** Är ärendet inskrivet någon dag mellan from och to (inklusive)? */
-export function enrolledBetween(c: ScheduleCase, from: LocalDate, to: LocalDate): boolean {
-  if (!c.startDate || c.status === "declined" || c.status === "received" || c.status === "acknowledged") return false;
+/** Antal kalenderdagar mellan from och to (inklusive) då ärendet är inskrivet – startdatum och slutdatum räknas med. */
+export function enrolledDays(c: ScheduleCase, from: LocalDate, to: LocalDate): number {
+  if (!c.startDate || c.status === "declined" || c.status === "received" || c.status === "acknowledged") return 0;
   const end = c.endDate ?? (c.status === "closed" && c.closedAt ? dayOf(c.closedAt) : null);
-  return c.startDate <= to && (!end || end >= from);
+  const a = c.startDate > from ? c.startDate : from;
+  const b = end && end < to ? end : to;
+  return a > b ? 0 : diffDays(a, b) + 1;
 }
+/** Är ärendet inskrivet någon dag mellan from och to (inklusive)? */
+export const enrolledBetween = (c: ScheduleCase, from: LocalDate, to: LocalDate): boolean => enrolledDays(c, from, to) > 0;
 
 /** Nyckeln som de unika indexen i databasen speglar (supabase/migrations/0018_rapportutkast.sql). */
 export function reportKey(r: ScheduleReport): string | null {
@@ -128,8 +135,9 @@ export function plannedReports(input: ScheduleInput): PlannedReport[] {
     }
   }
 
-  // ---- Månadsrapport individ: per ärende och månad
-  if (kinds.includes("monthly") && monthlyReportDueAt(slaCfg, startMonth)) {
+  // ---- Månadsrapport individ: per ärende och månad med minst minEnrolledDays inskrivna dagar
+  const minDays = cfg.reportSchedule?.monthly?.minEnrolledDays;
+  if (kinds.includes("monthly") && minDays && monthlyReportDueAt(slaCfg, startMonth)) {
     const since = sinceFor(input.since, "monthly");
     const provisionalDue = isProvisionalDue(slaCfg, "monthly");
     const cases = [...input.cases].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -138,7 +146,8 @@ export function plannedReports(input: ScheduleInput): PlannedReport[] {
       const from = `${mk}-01`;
       const to = monthEnd(mk);
       for (const c of cases) {
-        if (!enrolledBetween(c, from, to)) continue;
+        // Färre dagar ger ingen rapport för månaden (Botkyrka: minst 11).
+        if (enrolledDays(c, from, to) < minDays) continue;
         out.push({
           ...BLANK, contractId: contract.id, kind: "monthly", caseId: c.id, month: mk, periodStart: from, periodEnd: to, version: 1,
           status: input.approvedAssessments?.has(`${c.id}:${mk}`) ? "reviewed" : "draft", dueAt: monthlyReportDueAt(slaCfg, mk), provisionalDue,
@@ -172,22 +181,26 @@ export function missingReports(input: ScheduleInput): PlannedReport[] {
   return plannedReports(input).filter((r) => !have.has(reportKey(r) as string));
 }
 
+// ---------------------------------------------------------------- Vilka perioder en körning prövar
 /**
- * Var de automatiska raderna slutar i dag: per rapporttyp tidpunkten då den senaste perioden med en rad tog slut, eller
- * null om typen saknar rader. Används som since när det inte finns någon tidigare körning – då fylls historiken (t.ex.
- * testdatats rapporter) aldrig i, men allt som slutar efter den senaste raden skapas.
+ * Så långt bakåt (dagar) varje körning prövar perioderna även när allt redan är genomgånget: ett ärende som fått ett
+ * startdatum i efterhand får sina rapporter. Inte ett avtalsvärde – en driftgräns som håller körningen liten.
  */
-export function reportFrontier(existing: readonly ScheduleReport[]): Record<AutoReportKind, LocalDateTime | null> {
-  const out: Record<AutoReportKind, LocalDateTime | null> = { weekly_attendance: null, monthly: null, customer_summary: null };
-  for (const r of existing) {
-    let end: LocalDateTime | null = null;
-    if (r.kind === "weekly_attendance" && r.week) end = weekEndsAt(weekMonday(r.week));
-    else if ((r.kind === "monthly" || r.kind === "customer_summary") && r.month) end = monthEndsAt(r.month);
-    if (!end) continue;
-    const k = r.kind as AutoReportKind;
-    if (!out[k] || end > (out[k] as string)) out[k] = end;
-  }
-  return out;
+export const LOOKBACK_DAYS = 62;
+
+/**
+ * Perioder som slutar efter den här tidpunkten prövas (null = från avtalets start):
+ *   checkedThrough  avtalets högvattenmärke – ctx.now() vid den senaste körningen där hela avtalet gicks igenom. Saknas
+ *                   det (första körningen, eller automatiken slogs på i efterhand) prövas allt från avtalets start. Är det
+ *                   äldre än fönstret (jobbet har stått still) prövas allt från märket – inget hoppas över.
+ *   floor           testdatat är komplett hit (testklockans start): perioder som slutar senast då skapas aldrig. null i
+ *                   produktionen.
+ * Annars prövas de senaste LOOKBACK_DAYS dagarna. De unika indexen gör att en period som redan har sin rad inte skapas igen.
+ */
+export function scheduleFrom(o: { now: LocalDateTime; checkedThrough: LocalDateTime | null; floor: LocalDateTime | null }): LocalDateTime | null {
+  const recent = addMinutes(o.now, -LOOKBACK_DAYS * 24 * 60);
+  const lower = o.checkedThrough == null ? null : o.checkedThrough < recent ? o.checkedThrough : recent;
+  return o.floor && (lower == null || lower < o.floor) ? o.floor : lower;
 }
 
 const maxS = <T extends string>(a: T, b: T): T => (a > b ? a : b);

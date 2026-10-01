@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { BOTKYRKA_CONFIG, KK_CONFIG, type ContractConfig } from "./config";
 import {
-  enrolledBetween, missingReports, nextScheduleBoundary, plannedReports, reportFrontier, reportKey, type ScheduleCase, type ScheduleInput,
+  enrolledBetween, enrolledDays, LOOKBACK_DAYS, missingReports, nextScheduleBoundary, plannedReports, reportKey, scheduleFrom, type ScheduleCase, type ScheduleInput,
 } from "./report-schedule";
 
 const C = (id: string, startDate: string | null, endDate: string | null = null, extra: Partial<ScheduleCase> = {}): ScheduleCase => ({
@@ -40,9 +40,41 @@ describe("vilka perioder ett ärende är inskrivet", () => {
 });
 
 describe("månadsrapport per ärende och månad", () => {
-  it("ärende som börjar och slutar mitt i månaden: en rapport per månad med minst en inskriven dag", () => {
-    const rs = plannedReports(input({ cases: [C("a", "2026-11-27", "2027-01-05")] }));
-    expect(keys(rs.filter((r) => r.kind === "monthly"))).toEqual(["monthly:a:2026-11", "monthly:a:2026-12", "monthly:a:2027-01"]);
+  const monthly = (cases: ScheduleCase[], now = "2027-02-01T09:12") => keys(plannedReports(input({ cases, now })).filter((r) => r.kind === "monthly"));
+  it("minst 11 inskrivna dagar i månaden (reportSchedule.monthly.minEnrolledDays) – start- och slutdatum räknas med", () => {
+    expect(BOTKYRKA_CONFIG.reportSchedule?.monthly?.minEnrolledDays).toBe(11);
+    expect(enrolledDays(C("a", "2027-01-21"), "2027-01-01", "2027-01-31")).toBe(11);
+    expect(enrolledDays(C("a", "2027-01-22"), "2027-01-01", "2027-01-31")).toBe(10);
+    expect(enrolledDays(C("a", "2026-12-01", "2027-01-11"), "2027-01-01", "2027-01-31")).toBe(11);
+    expect(enrolledDays(C("a", "2026-12-01", "2027-01-10"), "2027-01-01", "2027-01-31")).toBe(10);
+    expect(enrolledDays(C("a", "2027-01-10", "2027-01-20"), "2027-01-01", "2027-01-31")).toBe(11);
+    expect(enrolledDays(C("a", "2027-02-02"), "2027-01-01", "2027-01-31")).toBe(0);
+  });
+  it("start mitt i månaden: 11 dagar ger en rapport, 10 dagar ingen", () => {
+    expect(monthly([C("a", "2027-01-21")])).toEqual(["monthly:a:2027-01"]);
+    expect(monthly([C("a", "2027-01-22")])).toEqual([]);
+  });
+  it("avslut mitt i månaden: 11 dagar ger en rapport, 10 dagar ingen", () => {
+    expect(monthly([C("a", "2026-12-01", "2027-01-11")])).toEqual(["monthly:a:2026-12", "monthly:a:2027-01"]);
+    expect(monthly([C("a", "2026-12-01", "2027-01-10")])).toEqual(["monthly:a:2026-12"]);
+  });
+  it("start och avslut i samma månad: dagarna däremellan räknas", () => {
+    expect(monthly([C("a", "2027-01-10", "2027-01-20")])).toEqual(["monthly:a:2027-01"]);
+    expect(monthly([C("a", "2027-01-10", "2027-01-19")])).toEqual([]);
+  });
+  it("ärende som börjar och slutar mitt i månaden över flera månader: bara månaderna med minst 11 dagar", () => {
+    // November 4 dagar, december hela, januari 5 dagar.
+    expect(monthly([C("a", "2026-11-27", "2027-01-05")])).toEqual(["monthly:a:2026-12"]);
+    // Med minEnrolledDays 1 räcker en dag (avtalet styr).
+    const oneDay = { ...BOTKYRKA_CONFIG, reportSchedule: { ...BOTKYRKA_CONFIG.reportSchedule!, monthly: { minEnrolledDays: 1 } } };
+    expect(keys(plannedReports(input({ cases: [C("a", "2026-11-27", "2027-01-05")] }, oneDay)).filter((r) => r.kind === "monthly"))).toEqual([
+      "monthly:a:2026-11", "monthly:a:2026-12", "monthly:a:2027-01",
+    ]);
+  });
+  it("avslutat ärende utan slutdatum: avslutsdagen räknas som slutdatum", () => {
+    const c = C("a", "2026-12-01", null, { status: "closed", closedAt: "2027-01-08T15:00" });
+    expect(enrolledDays(c, "2027-01-01", "2027-01-31")).toBe(8);
+    expect(monthly([c])).toEqual(["monthly:a:2026-12"]);
   });
   it("fälten är exakt som testdatats: period, sista dag (5:e arbetsdagen kl. 23.59), preliminär, utkast, inga mottagare", () => {
     const [jan] = plannedReports(input({ cases: [C("a", "2027-01-04")], since: "2027-01-31T00:00" })).filter((r) => r.kind === "monthly");
@@ -87,8 +119,10 @@ describe("veckorapport per handläggare och ISO-vecka", () => {
       ["2026-W53", "2026-12-28", "2027-01-03", "2027-01-04T16:00"],
       ["2027-W01", "2027-01-04", "2027-01-10", "2027-01-11T16:00"],
     ]);
-    // Månaderna: december och januari (en dag räcker).
-    expect(keys(plannedReports(input({ cases: [C("a", "2026-12-30", "2027-01-05")], now: "2027-02-01T00:00" })).filter((r) => r.kind === "monthly"))).toEqual([
+    // Månaderna: december 2 dagar och januari 5 dagar – färre än 11, ingen månadsrapport. Med minEnrolledDays 1: båda.
+    expect(plannedReports(input({ cases: [C("a", "2026-12-30", "2027-01-05")], now: "2027-02-01T00:00" })).filter((r) => r.kind === "monthly")).toEqual([]);
+    const oneDay = { ...BOTKYRKA_CONFIG, reportSchedule: { ...BOTKYRKA_CONFIG.reportSchedule!, monthly: { minEnrolledDays: 1 } } };
+    expect(keys(plannedReports(input({ cases: [C("a", "2026-12-30", "2027-01-05")], now: "2027-02-01T00:00" }, oneDay)).filter((r) => r.kind === "monthly"))).toEqual([
       "monthly:a:2026-12", "monthly:a:2027-01",
     ]);
   });
@@ -161,13 +195,22 @@ describe("fönstret och idempotensen", () => {
     expect(reportKey({ kind: "customer_summary", contractId: "c", caseId: null, recipientUserId: "k", week: null, month: "2027-01" })).toBe("customer_summary|c|k|2027-01");
     expect(reportKey({ kind: "final", contractId: "c", caseId: "a", recipientUserId: null, week: null, month: null })).toBeNull();
   });
-  it("frontlinjen: där de befintliga raderna slutar, per rapporttyp", () => {
-    expect(reportFrontier([
-      { kind: "weekly_attendance", contractId: "c", caseId: null, recipientUserId: "k", week: "2027-W04", month: null },
-      { kind: "weekly_attendance", contractId: "c", caseId: null, recipientUserId: "k", week: "2026-W53", month: null },
-      { kind: "monthly", contractId: "c", caseId: "a", recipientUserId: null, week: null, month: "2026-12" },
-      { kind: "final", contractId: "c", caseId: "a", recipientUserId: null, week: null, month: null },
-    ])).toEqual({ weekly_attendance: "2027-02-01T00:00", monthly: "2027-01-01T00:00", customer_summary: null });
+  it("vilka perioder en körning prövar: högvattenmärket, golvet och fönstret", () => {
+    const now = "2027-06-01T08:00";
+    const recent = "2027-03-31T08:00";
+    expect(LOOKBACK_DAYS).toBe(62);
+    // Aldrig genomgånget och inget golv (produktionen, första körningen): från avtalets start.
+    expect(scheduleFrom({ now, checkedThrough: null, floor: null })).toBeNull();
+    // Färskt märke: de senaste 62 dagarna prövas ändå (startdatum i efterhand).
+    expect(scheduleFrom({ now, checkedThrough: "2027-06-01T07:50", floor: null })).toBe(recent);
+    // Gammalt märke (jobbet har stått still): från märket – inget hoppas över.
+    expect(scheduleFrom({ now, checkedThrough: "2027-01-15T10:00", floor: null })).toBe("2027-01-15T10:00");
+    // Golvet (testdatat är komplett till testklockans start) går aldrig att passera nedåt.
+    expect(scheduleFrom({ now, checkedThrough: null, floor: "2027-02-01T09:12" })).toBe("2027-02-01T09:12");
+    expect(scheduleFrom({ now: "2027-02-01T09:13", checkedThrough: null, floor: "2027-02-01T09:12" })).toBe("2027-02-01T09:12");
+    expect(scheduleFrom({ now, checkedThrough: "2027-01-15T10:00", floor: "2027-02-01T09:12" })).toBe("2027-02-01T09:12");
+    // Ett märke från en tidigare testomgång (efter klockan) gör ingen skada: fönstret eller golvet gäller.
+    expect(scheduleFrom({ now: "2027-02-08T00:05", checkedThrough: "2027-04-01T10:00", floor: "2027-02-01T09:12" })).toBe("2027-02-01T09:12");
   });
   it("nästa gräns: måndag 00.00 eller den 1:a 00.00", () => {
     expect(nextScheduleBoundary("2027-02-01T09:12")).toBe("2027-02-08T00:00");

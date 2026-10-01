@@ -1,6 +1,7 @@
 // Rapportutkasten i jobbkörningen (reports.ts + runner.ts) mot testdatat i minnet: jobbet läggs en gång per
 // tiominutersperiod, körs med appens klocka och ctx.system, skapar veckans rapporter när veckan är slut och inget när allt
-// redan finns. Plus de unika indexen i databasen (PGlite med alla migrationer och seed.sql).
+// redan finns. Läget i app_settings (golvet från testklockan, högvattenmärkena). Plus de unika indexen i databasen (PGlite
+// med alla migrationer och seed.sql).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { SYSTEM_ACTOR } from "@/api/roles";
@@ -13,7 +14,8 @@ import { TEST_PNR_CRYPTO } from "@/data/seed/pnr";
 import type { AppRepo, Tables } from "@/data/schema";
 import { asUser, attempt, createMigratedDatabase, loadSeed } from "@/data/supabase/pglite";
 import { JOB_HANDLERS, type JobDeps } from "./registry";
-import { ensureReportScheduleJob, REPORT_SCHEDULE_JOB, reportScheduleJobId } from "./reports";
+import { REAL_CLOCK } from "../clock";
+import { ensureReportScheduleJob, REPORT_SCHEDULE_JOB, reportMarkKey, reportScheduleJobId, reportScheduleState, type AppSettingsClient } from "./reports";
 import { runJobs, type JobStore } from "./runner";
 
 function setup() {
@@ -41,14 +43,27 @@ function setup() {
       store.updateRow("jobs", id, patch);
     },
   };
-  const deps = { system: () => ctx } as unknown as JobDeps;
+  // app_settings i minnet (som i testmiljön: testklockan startade på DEMO_START).
+  const settings = new Map<string, string>([["clock_demo_epoch", DEMO_START], ["clock_real_epoch", "2026-10-01T08:00:00.000Z"]]);
+  const settingsClient: AppSettingsClient = {
+    from: () => ({
+      upsert: async (v) => {
+        settings.set(v.key, v.value);
+        return { error: null };
+      },
+    }),
+  };
+  const testClock = { mode: "test" as const, realEpochMs: Date.parse("2026-10-01T08:00:00.000Z"), demoEpoch: DEMO_START };
+  const deps = {
+    reportSchedule: async () => ({ ctx, state: reportScheduleState(settingsClient, [...settings].map(([key, value]) => ({ key, value })), testClock) }),
+  } as unknown as JobDeps;
   /** Som runDueJobs: lägg periodens jobb och kör det som är köat. */
   const run = async (at: LocalDateTime, d: JobDeps = deps) => {
     clock = at;
     await ensureReportScheduleJob(system, at);
     return runJobs({ store: jobStore, handlers: JOB_HANDLERS, ctx: d, now: at, sleep: async () => undefined });
   };
-  return { store, system, run };
+  return { store, system, run, settings };
 }
 
 describe("rapportutkasten i jobbkörningen", () => {
@@ -81,6 +96,51 @@ describe("rapportutkasten i jobbkörningen", () => {
 
     expect(await t.run("2027-02-08T00:13")).toMatchObject({ claimed: 1, done: 1, outcomes: { "report_schedule:none": 1 } });
     expect(t.store.rows("reports").filter((r) => r.week === "2027-W05")).toHaveLength(4);
+  });
+
+  it("högvattenmärket sparas i app_settings när avtalet gåtts igenom; ett längre uppehåll fylls i från märket", async () => {
+    const t = setup();
+    await t.run(DEMO_START);
+    expect(t.settings.get(reportMarkKey("c-bot"))).toBe(DEMO_START);
+    // KK skapar inga rapporter automatiskt – inget märke.
+    expect(t.settings.has(reportMarkKey("c-kk"))).toBe(false);
+    // Cron har stått still i fyra månader (t.ex. fel hemlighet): allt från februari skapas, inte bara de senaste 62 dagarna.
+    expect(await t.run("2027-06-01T08:00")).toMatchObject({ done: 1, outcomes: { "report_schedule:created": 1 } });
+    expect(t.settings.get(reportMarkKey("c-bot"))).toBe("2027-06-01T08:00");
+    const months = [...new Set(t.store.rows("reports").filter((r) => r.kind === "monthly" && r.month! > "2027-01").map((r) => r.month))].sort();
+    expect(months).toEqual(["2027-02", "2027-03", "2027-04", "2027-05"]);
+  });
+
+  it("medan testdatat läses in på nytt skapas inget (ärendena är inlästa, rapporterna inte än)", async () => {
+    const t = setup();
+    // mm.reset_test_data() har tömt tabellerna och satt testklockan till DEMO_START; ett märke från förra testomgången finns kvar.
+    for (const r of [...t.store.rows("reports")]) t.store.removeRow("reports", r.id);
+    expect(t.store.rows("reports")).toEqual([]);
+    t.settings.set(reportMarkKey("c-bot"), "2027-03-15T10:00");
+    expect(await t.run("2027-02-01T09:13")).toMatchObject({ done: 1, outcomes: { "report_schedule:none": 1 } });
+    expect(t.store.rows("reports")).toEqual([]);
+  });
+
+  it("läget: golvet är testklockans start i testmiljön och saknas med riktig tid; märkena läses per avtal", async () => {
+    const writes: { key: string; value: string }[] = [];
+    const db: AppSettingsClient = { from: () => ({ upsert: async (v) => (writes.push(v), { error: null }) }) };
+    const rows = [
+      { key: "environment", value: "staging" }, { key: reportMarkKey("c-bot"), value: "2027-02-08T00:05" }, { key: reportMarkKey("c-x"), value: "inte en tid" },
+    ];
+    const staging = reportScheduleState(db, rows, { mode: "test", realEpochMs: 0, demoEpoch: DEMO_START });
+    expect(staging.floor).toBe(DEMO_START);
+    expect(await staging.checkedThrough("c-bot")).toBe("2027-02-08T00:05");
+    expect(await staging.checkedThrough("c-x")).toBeNull();
+    expect(await staging.checkedThrough("c-kk")).toBeNull();
+    await staging.markChecked("c-bot", "2027-02-08T00:15");
+    expect(writes).toEqual([{ key: "report_schedule_checked:c-bot", value: "2027-02-08T00:15" }]);
+    expect(await staging.checkedThrough("c-bot")).toBe("2027-02-08T00:15");
+    expect(reportScheduleState(db, [], REAL_CLOCK).floor).toBeNull();
+    // Ett skrivfel stoppar körningen med tabell och felkod (aldrig värden) – märket flyttas inte.
+    const failing: AppSettingsClient = { from: () => ({ upsert: async () => ({ error: { code: "57014", message: "canceling statement" } }) }) };
+    const st = reportScheduleState(failing, [], REAL_CLOCK);
+    await expect(st.markChecked("c-bot", "2027-02-08T00:15")).rejects.toThrow("Databasfel i app_settings (57014)");
+    expect(await st.checkedThrough("c-bot")).toBeNull();
   });
 
   it("utan systemets Ctx stoppas jobbet utan nya försök", async () => {
@@ -127,6 +187,6 @@ describe("unika index för rapportraderna i databasen", () => {
 
   it("indexen finns och testdatat bryter inte mot dem", async () => {
     const r = await db.query<{ indexname: string }>("select indexname from pg_indexes where schemaname = 'public' and tablename in ('reports', 'audit_log') and indexname in ('reports_weekly_key', 'reports_monthly_key', 'reports_customer_summary_key', 'audit_log_report_created_idx') order by 1");
-    expect(r.rows.map((x) => x.indexname)).toEqual(["audit_log_report_created_idx", "reports_customer_summary_key", "reports_monthly_key", "reports_weekly_key"]);
+    expect(r.rows.map((x) => x.indexname)).toEqual(["reports_customer_summary_key", "reports_monthly_key", "reports_weekly_key"]);
   });
 });

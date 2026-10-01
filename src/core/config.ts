@@ -301,16 +301,25 @@ const ReportScheduleSchema = z
      * Rapporterna som skapas automatiskt (tom lista = inga):
      *   weekly_attendance  en per handläggare och ISO-vecka med minst ett inskrivet ärende hos handläggaren, när veckan är
      *                      slut (status waiting). Sista dag: sla[veckorapport_publicering] (veckodag och klockslag veckan efter).
-     *   monthly            en per ärende och månad där ärendet är inskrivet minst en dag, när månaden är slut (status draft).
-     *                      Sista dag: sla[manadsrapport] (förslaget: n:e arbetsdagen efter månadsskiftet).
-     *   customer_summary   en per kommunens chef och månad, när månaden är slut (status draft). Sista dag: customerSummaryDue.
+     *   monthly            en per ärende och månad där ärendet är inskrivet minst monthly.minEnrolledDays dagar, när månaden
+     *                      är slut (status draft). Sista dag: sla[manadsrapport] (n:e arbetsdagen efter månadsskiftet).
+     *   customer_summary   en per aktiv chef hos kommunen och månad, när månaden är slut (status draft). Sista dag: customerSummaryDue.
+     * Veckorapporten och månadsrapporten kräver att sla-regeln finns (kontrolleras i crossCheck nedan).
      */
     automatic: z.array(z.enum(AUTO_REPORT_KINDS)),
+    /**
+     * Månadsrapporten (beslut 2026-10-01): skapas bara för en månad där ärendet varit inskrivet minst så här många
+     * kalenderdagar (startdatum och slutdatum räknas med). Botkyrka: 11 – färre dagar ger ingen rapport för månaden.
+     */
+    monthly: z.strictObject({ minEnrolledDays: PosInt }).optional(),
     /** Beställarrapportens sista dag: n:e arbetsdagen efter månadsskiftet och klockslaget. Ett förslag – inte fastställt med kommunen. */
     customerSummaryDue: z.strictObject({ nthWorkingDay: PosInt, time: TimeSchema }).optional(),
   })
   .superRefine((s, ctx) => {
     if (new Set(s.automatic).size !== s.automatic.length) ctx.addIssue({ code: "custom", message: "Rapporttyperna måste vara unika", path: ["automatic"] });
+    if (s.automatic.includes("monthly") && !s.monthly) {
+      ctx.addIssue({ code: "custom", message: "Månadsrapporten behöver ett minsta antal inskrivna dagar (monthly.minEnrolledDays)", path: ["monthly"] });
+    }
     if (s.automatic.includes("customer_summary") && !s.customerSummaryDue) {
       ctx.addIssue({ code: "custom", message: "Beställarrapporten behöver en sista dag (customerSummaryDue)", path: ["customerSummaryDue"] });
     }
@@ -368,6 +377,16 @@ function crossCheck(cfg: ConfigShape, ctx: z.RefinementCtx) {
   unique(cfg.sla, "sla");
   if (cfg.escalationLadder && new Set(cfg.escalationLadder.map((s) => s.step)).size !== cfg.escalationLadder.length) {
     ctx.addIssue({ code: "custom", message: "Stegen i eskaleringstrappan måste vara unika", path: ["escalationLadder"] });
+  }
+  // Rapportutkasten: varje rapporttyp som skapas automatiskt måste ha en sista dag i sla – annars skulle inga rader skapas
+  // utan att någon märker det (src/core/report-schedule.ts).
+  const auto = cfg.reportSchedule?.automatic ?? [];
+  const slaCfg = { sla: cfg.sla ?? [] };
+  if (auto.includes("weekly_attendance") && !slaRule(slaCfg, "veckorapport_publicering")?.time) {
+    ctx.addIssue({ code: "custom", message: "Veckorapporten behöver en sista dag: sla-regeln veckorapport_publicering med klockslag (time)", path: ["reportSchedule", "automatic"] });
+  }
+  if (auto.includes("monthly") && monthlyReportWorkingDay(slaCfg) == null) {
+    ctx.addIssue({ code: "custom", message: "Månadsrapporten behöver en sista dag: sla-regeln manadsrapport med within.workingDays eller proposal.nthWorkingDay", path: ["reportSchedule", "automatic"] });
   }
 }
 
@@ -475,6 +494,13 @@ export const slaRule = (cfg: Pick<ContractConfig, "sla">, key: string): SlaRule 
 export function slaWithin(cfg: Pick<ContractConfig, "sla">, key: string): Within | null {
   const w = slaRule(cfg, key)?.within;
   return w && !isUnset(w) ? w : null;
+}
+/**
+ * Månadsrapportens sista dag som n:e arbetsdagen efter månadsskiftet: den fastställda regeln (within.workingDays från
+ * månadsskiftet), annars förslaget (proposal.nthWorkingDay – Botkyrka: 5). null om ingen av dem finns.
+ */
+export function monthlyReportWorkingDay(cfg: Pick<ContractConfig, "sla">): number | null {
+  return slaWithin(cfg, "manadsrapport")?.workingDays ?? slaRule(cfg, "manadsrapport")?.proposal?.nthWorkingDay ?? null;
 }
 /** KPI-definition per nyckel (t.ex. "resultatgrad"). */
 export const kpiDef = (cfg: Pick<ContractConfig, "kpis">, key: string): KpiDef | null => cfg.kpis?.find((x) => x.key === key) ?? null;
@@ -645,8 +671,13 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
       scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
     },
     // Veckorapport (AFK: närvaro på deltagarnivå varje vecka), månadsrapport (mall 02) och beställarrapport (SPEC §7.11 e).
+    // Månadsrapport bara för en månad med minst 11 inskrivna dagar (beslut 2026-10-01, samma regel som testdatat).
     // Beställarrapportens sista dag är inte fastställd med Botkyrka – förslaget är 8:e arbetsdagen kl. 16.00 (som testdatat).
-    reportSchedule: { automatic: ["weekly_attendance", "monthly", "customer_summary"], customerSummaryDue: { nthWorkingDay: 8, time: "16:00" } },
+    reportSchedule: {
+      automatic: ["weekly_attendance", "monthly", "customer_summary"],
+      monthly: { minEnrolledDays: 11 },
+      customerSummaryDue: { nthWorkingDay: 8, time: "16:00" },
+    },
   }),
 );
 

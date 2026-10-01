@@ -498,7 +498,7 @@ function WeeklyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "weekly_attend
         )}
       </Sec>
       <PaperFixedText>
-        Veckorapporten skapas automatiskt från coachernas närvaroregistrering. Den publiceras när alla deltagare är registrerade, senast måndag klockan{" "}
+        Veckorapporten skapas automatiskt från coachernas närvaroregistrering. Den publiceras när alla deltagare är registrerade, senast {doc.pubDay} klockan{" "}
         {doc.pubTime.replace(":", ".")} för föregående vecka.
       </PaperFixedText>
     </Paper>

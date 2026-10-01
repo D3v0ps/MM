@@ -10,23 +10,31 @@ import { serverAi } from "../ai";
 import { serverAudio } from "../audio";
 import { clockNow } from "../clock";
 import { lazyServerCrypto } from "../crypto";
-import { liveCtx, randomId } from "../ctx";
+import { liveCtx, randomId, type Enqueue } from "../ctx";
 import { recipientGate } from "../notify/decision";
 import { notifyEnv } from "../notify/config";
 import { queueMessage } from "../notify/queue";
 import type { FetchLike } from "../notify/resend";
 import type { NotifyRepo, NotifyTables } from "../notify/types";
-import { loadAppSettings } from "../settings";
+import { clockMode } from "../config";
+import { loadAppSettings, settingsFromRows } from "../settings";
 import { serviceClient } from "../supabase";
 import { JOB_HANDLERS, type JobDeps } from "./registry";
 import { safeErrorText } from "./errors";
-import { ensureReportScheduleJob } from "./reports";
+import { ensureReportScheduleJob, reportScheduleState, type AppSettingsClient } from "./reports";
 import { runJobs, type RunSummary } from "./runner";
 import { supabaseJobStore, type RpcClient } from "./store";
 import { ensureRetentionJobs } from "./voice";
 
 /** Paus mellan jobben – håller oss under Resends gräns för anrop per sekund. */
 const PAUSE_MS = 500;
+
+/** Alla rader i app_settings, utan cache (rapportutkasten: testklockan och högvattenmärkena precis när jobbet körs). */
+async function freshSettingsRows(db: PgClient): Promise<{ key: string; value: unknown }[]> {
+  const { data, error } = await db.from("app_settings").select("key,value");
+  if (error) throw new DataError("app_settings", String(error.code ?? ""));
+  return (data as { key: string; value: unknown }[] | null) ?? [];
+}
 
 /** app_settings.environment som den står i databasen (null om raden saknas). Spärren för mottagare bygger på den. */
 async function environmentSetting(db: PgClient): Promise<string | null> {
@@ -45,6 +53,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
   const system = appRepo(client);
   // Röstjobbens Ctx (systemsteg: service role, AI-leverantören, ljudlagringen) byggs först när ett röstjobb körs.
   let voice: Ctx | null = null;
+  // Utskick från systemstegen läggs i kön och skickas av cron.
+  const enqueue: Enqueue = (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl });
   const voiceCtx = (): Ctx =>
     (voice ??= liveCtx({
       actor: SYSTEM_ACTOR,
@@ -52,11 +62,28 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       repo: system,
       system,
       // Röstjobben skickar inga utskick själva; om det behövs läggs de i kön och cron skickar dem.
-      enqueue: (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl }),
+      enqueue,
       crypto: lazyServerCrypto,
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),
     }));
+  // Rapportutkasten: klockan och läget läses om utan cache när jobbet körs. Inställningarna ovan kan vara upp till 30 sekunder
+  // gamla – direkt efter "Läs in testdata på nytt" skulle klockan då stå på den förra testtiden (src/server/jobs/reports.ts).
+  const reportSchedule = async () => {
+    const rows = await freshSettingsRows(client);
+    const fresh = settingsFromRows(rows, clockMode());
+    const at = clockNow(fresh.clock, Date.now());
+    const ctx = liveCtx({
+      actor: SYSTEM_ACTOR,
+      now: at,
+      repo: system,
+      system,
+      // Veckorapporter som publiceras direkt lägger "ny rapport" i utskickskön.
+      enqueue,
+      crypto: lazyServerCrypto,
+    });
+    return { ctx, state: reportScheduleState(client as unknown as AppSettingsClient, rows, fresh.clock) };
+  };
   try {
     await ensureRetentionJobs(system, now);
   } catch (e) {
@@ -79,8 +106,7 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       now,
     },
     voice: voiceCtx,
-    // Rapportutkasten: samma systemsteg (service role, appens klocka, utskick via kön). Ingen AI och inget ljud används.
-    system: voiceCtx,
+    reportSchedule,
   };
   return runJobs({
     store: supabaseJobStore(client),

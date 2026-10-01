@@ -9,10 +9,19 @@ const COACH = { userId: "u-amira", role: "coach" };
 const HANDLAGGARE = { userId: "k-maria", role: "kommun_handlaggare" };
 const NADIA_DEC = "rep-16008"; // Nadia Warsames månadsrapport för december 2026, levererad till Maria Ekdahl
 
-async function downloadPdf(page: Page) {
+async function downloadPdf(page: Page, opts: { keyboard?: boolean } = {}) {
   const button = page.locator("#main").getByRole("button", { name: "Ladda ner PDF", exact: true });
   await expect(button).toBeEnabled({ timeout: 15_000 });
-  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), button.click()]);
+  const start = async () => {
+    if (!opts.keyboard) return button.click();
+    await button.focus();
+    await page.keyboard.press("Enter");
+  };
+  const [download] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), start()]);
+  if (opts.keyboard) {
+    // Fokus stannar på knappen medan PDF:en skapas och efteråt (knappen är aria-disabled, inte disabled).
+    await expect(page.locator("#main").getByRole("button", { name: "Ladda ner PDF", exact: true })).toBeFocused();
+  }
   const file = await download.path();
   const bytes = fs.readFileSync(file);
   return { name: download.suggestedFilename(), head: bytes.subarray(0, 5).toString("latin1"), size: bytes.length };
@@ -34,7 +43,8 @@ test("kommunens handläggare laddar ned samma rapport från portalen", async ({ 
   const errors = await open(page, info, `/portal/rapporter/${NADIA_DEC}`, HANDLAGGARE);
   await expect(page.locator("#main")).toContainText("Månadsrapport december 2026");
   await expect(page.locator("#main")).not.toContainText("I prototypen visas bara förhandsvisningen");
-  const pdf = await downloadPdf(page);
+  // Med tangentbordet, som en skärmläsaranvändare.
+  const pdf = await downloadPdf(page, { keyboard: true });
   expect(pdf.name).toBe("Manadsrapport_BOT-26-0143_2026-12_v1.pdf");
   expect(pdf.head).toBe("%PDF-");
   expect(errors).toEqual([]);

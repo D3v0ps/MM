@@ -11,7 +11,7 @@ import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time"
 import type { ReportDocView } from "../api";
 import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
 import { dayMonth, dFull, dtFull, isDelivered, isDraftDoc, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
-import { B, Check, CheckGrid, FixedText, H3, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type Col, type KvItem, type Rag } from "./primitives";
+import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type Col, type KvItem, type Rag } from "./primitives";
 import { PDF_COLOR } from "./theme";
 
 type Doc<K extends ReportDocView["kind"]> = Extract<ReportDocView, { kind: K }>;
@@ -79,7 +79,13 @@ function DeviationsBlock({ dv }: { dv: DeviationModel }) {
         <P>Inga avvikelser under perioden.</P>
       ) : (
         dv.items.map((x) => (
-          <View key={x.id} wrap={false} style={{ flexDirection: "column", gap: 3, borderLeftWidth: 2.5, borderLeftColor: PDF_COLOR.antracit, paddingLeft: 7, paddingVertical: 1 }}>
+          // Ett kort block hålls ihop på en sida; ett långt (beskrivning, bedömning och åtgärd upp till 2000 tecken var) bryts.
+          <View
+            key={x.id}
+            wrap={`${x.description}${x.assessment ?? ""}${x.action}${x.follow}`.length > KEEP_TOGETHER_CHARS}
+            minPresenceAhead={40}
+            style={{ flexDirection: "column", gap: 3, borderLeftWidth: 2.5, borderLeftColor: PDF_COLOR.antracit, paddingLeft: 7, paddingVertical: 1 }}
+          >
             <P>
               <B>{x.description}</B>{" "}
               <Text style={{ fontSize: 8.5, color: PDF_COLOR.muted }}>
@@ -356,7 +362,7 @@ function WeeklyPdf({ doc }: { doc: Doc<"weekly_attendance"> }) {
         )}
       </Sec>
       <FixedText>
-        Veckorapporten skapas automatiskt från coachernas närvaroregistrering. Den publiceras när alla deltagare är registrerade, senast måndag klockan {doc.pubTime.replace(":", ".")} för föregående vecka.
+        Veckorapporten skapas automatiskt från coachernas närvaroregistrering. Den publiceras när alla deltagare är registrerade, senast {doc.pubDay} klockan {doc.pubTime.replace(":", ".")} för föregående vecka.
       </FixedText>
     </PdfDocument>
   );

@@ -9,6 +9,9 @@
 --   beställarrapport  avtal + kommunens chef + månad
 -- Bara den första versionen räknas (previous_id is null): en rättelse är en ny rad med samma nyckel och previous_id satt.
 -- Inga nya tabeller och inga ändrade policyer – RLS är oförändrad (raderna skrivs med service role).
+--
+-- Var körningarna har kommit (högvattenmärket per avtal) sparas i app_settings med nyckeln report_schedule_checked:<avtal>
+-- (bara service role läser och skriver tabellen, 0002). Ingen ändring i schemat behövs för det.
 
 create unique index reports_weekly_key on public.reports (contract_id, recipient_user_id, week)
   where kind = 'weekly_attendance' and previous_id is null;
@@ -16,8 +19,3 @@ create unique index reports_monthly_key on public.reports (contract_id, case_id,
   where kind = 'monthly' and previous_id is null;
 create unique index reports_customer_summary_key on public.reports (contract_id, recipient_user_id, month)
   where kind = 'customer_summary' and previous_id is null;
-
--- Raderna som körningen själv skapat (report.created i revisionsloggen) flyttar inte frontlinjen – uppslaget görs vid
--- varje körning, så det får ett eget litet index.
-create index audit_log_report_created_idx on public.audit_log (contract_id, entity_id)
-  where action = 'report.created';

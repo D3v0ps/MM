@@ -1,6 +1,8 @@
 // PDF:erna (react-pdf) byggs av samma vy-modell som HTML-pappret: varje rapporttyp renderas till en buffer i Node från
 // testdatat (börjar med %PDF, minst en sida, metadata), innehåller samma rubriker och texter som pappret, och aldrig något
-// som liknar ett personnummer.
+// som liknar ett personnummer. Den renderade PDF:en kontrolleras också (pdf-text.ts – det som faktiskt ritas): kryssen,
+// långa texter som bryts mellan sidor, kolumnrubriker på varje sida, etiketten för en rapport som inte är levererad och
+// veckodagen från avtalet.
 import { Fragment, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { renderToBuffer } from "@react-pdf/renderer";
@@ -13,6 +15,7 @@ import { decodeTestPnr } from "@/data/seed/pnr";
 import { reportDocument, type ReportDocResult, type ReportDocView } from "../api";
 import { ReportDocument } from "../components/report-document";
 import { metaTitle, ReportPdf } from "./documents";
+import { pdfPages, pdfText as renderedText, type PdfPage } from "./pdf-text";
 import { DRAFT_WATERMARK } from "./primitives";
 import { registerPdfFonts } from "./theme";
 
@@ -143,5 +146,92 @@ describe("PDF för varje rapporttyp", () => {
     expect(buf.subarray(0, 4).toString("latin1")).toBe("%PDF");
     // Två typsnitt (latin och latin-ext) är inbäddade.
     expect((buf.toString("latin1").match(/\/FontFile2/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------- Den renderade PDF:en
+const render = async (doc: ReportDocView): Promise<Uint8Array> => new Uint8Array(await renderToBuffer(<ReportPdf doc={doc} />));
+const isFooter = (t: string) => /^(Miljonbemanning AB · Miljonmatch|Sida \d+ av \d+)$/.test(t.trim());
+const WATERMARK_TEXT = DRAFT_WATERMARK.toUpperCase();
+/** Raderna i själva innehållet (inte sidfoten eller vattenstämpeln), med sidnummer. */
+const bodyLines = (pages: PdfPage[]) =>
+  pages.flatMap((p, i) => p.lines.filter((l) => !isFooter(l.text) && l.text.trim() !== WATERMARK_TEXT).map((l) => ({ ...l, page: i + 1 })));
+
+describe("den renderade PDF:en", () => {
+  it("kryssen i avsnitt 3 ritas – ett X per genomförd aktivitetstyp (månadsrapport och slutrapport)", async () => {
+    for (const [id, actor] of [["rep-16008", as("k-maria", "kommun_handlaggare")], ["rep-16258", as("u-sara", "samordnare")]] as const) {
+      const doc = await docOf(id, actor);
+      if (doc.kind !== "monthly" && doc.kind !== "final") throw new Error(id);
+      const done = doc.m.activities.types.filter((t) => doc.m.activities.done.includes(t)).length;
+      expect(done, id).toBeGreaterThan(0);
+      const pages = pdfPages(await render(doc));
+      expect(bodyLines(pages).filter((l) => l.text === "X").length, id).toBe(done);
+    }
+  }, 30_000);
+
+  it("lång sammanfattning (4000 tecken) och avvikelse (3 × 2000 tecken): all text kommer med och inget rinner ut över sidfoten", async () => {
+    const doc = await docOf("rep-16008", as("k-maria", "kommun_handlaggare"));
+    if (doc.kind !== "monthly" || !doc.m.assessment) throw new Error("rep-16008");
+    // Ord som går att känna igen ("S000xxxxx S001xxxxx …"), så att det syns exakt vad som saknas.
+    const long = (p: string, n: number) => Array.from({ length: n / 10 }, (_, i) => `${p}${String(i).padStart(3, "0")}xxxxx`).join(" ");
+    const dv = doc.m.deviations;
+    const item = { id: "dv-lang", date: "4 januari", status: "Öppen", follow: "Följs upp 1 februari", description: long("D", 2000), assessment: long("A", 2000), action: long("T", 2000) };
+    const big = { ...doc, m: { ...doc.m, assessment: { ...doc.m.assessment, summary: long("S", 4000) }, deviations: { ...dv, items: [item, ...dv.items] } } } as ReportDocView;
+    const pages = pdfPages(await render(big));
+    const flat = squash(pages.flatMap((p) => p.lines.map((l) => l.text)).join(""));
+    for (const p of ["S", "D", "A", "T"]) {
+      const n = p === "S" ? 400 : 200;
+      const missing = Array.from({ length: n }, (_, i) => `${p}${String(i).padStart(3, "0")}xxxxx`).filter((w) => !flat.includes(w));
+      expect(missing, p).toEqual([]);
+    }
+    // Inget ritas i sidfotens område eller utanför sidan (sidfoten: 26 pt från nederkanten, innehållet slutar 58 pt upp).
+    const low = bodyLines(pages).filter((l) => l.y < 50 || l.y > 842);
+    expect(low).toEqual([]);
+    pages.forEach((p, i) => expect(p.lines.map((l) => l.text)).toContain(`Sida ${i + 1} av ${pages.length}`));
+    // Ett avsnitts rubrik hamnar aldrig ensam sist på en sida.
+    for (const [i, p] of pages.entries()) {
+      if (i === pages.length - 1) continue;
+      const lines = bodyLines([p]);
+      const last = lines.reduce((a, b) => (b.y < a.y ? b : a));
+      expect(last.text, `sida ${i + 1}`).not.toMatch(/^\d\. [A-ZÅÄÖ ]+/);
+    }
+  }, 30_000);
+
+  it("tabellens kolumnrubriker upprepas överst på nästa sida (veckorapporten med 28 deltagare)", async () => {
+    const doc = await docOf("rep-16692", as("u-sara", "samordnare"));
+    const pages = pdfPages(await render(doc));
+    expect(pages.length).toBeGreaterThan(2);
+    const top = (p: PdfPage) => bodyLines([p]).reduce((a, b) => (b.y > a.y ? b : a)).text;
+    // Sida 2 börjar med sammanfattningstabellens rubrikrad, inte mitt i en deltagarrad.
+    expect(top(pages[1])).toBe("Deltagare");
+    expect(bodyLines([pages[1]]).filter((l) => l.y > bodyLines([pages[1]]).reduce((a, b) => (b.y > a.y ? b : a)).y - 30).map((l) => l.text)).toEqual(
+      expect.arrayContaining(["Deltagare", "Närvaro", "Risk"]),
+    );
+  }, 30_000);
+
+  it("godkänd men inte levererad: etiketten \"Utkast – inte levererad\" står i antracit överst, inte bara i vattenstämpeln", async () => {
+    const approved = rt.store.rows("reports").find((r) => r.kind === "monthly" && r.status === "approved")!;
+    const doc = await docOf(approved.id, as("u-sara", "samordnare"));
+    const first = pdfPages(await render(doc))[0].lines.filter((l) => l.text.trim() === WATERMARK_TEXT);
+    // Etiketten (vågrät, överst) och vattenstämpeln.
+    expect(first).toHaveLength(2);
+    const delivered = renderedText(await render(await docOf("rep-16008", as("k-maria", "kommun_handlaggare"))));
+    expect(delivered).not.toContain(WATERMARK_TEXT);
+  }, 30_000);
+
+  it("veckorapportens fasta text: veckodagen och klockslaget kommer från avtalet (sla veckorapport_publicering)", async () => {
+    const original = structuredClone(rt.store.getRow("contracts", "c-bot")!.config);
+    const sla = original.sla!.map((r) => (r.key === "veckorapport_publicering" ? { ...r, weekday: 1, time: "12:00" } : r));
+    rt.store.updateRow("contracts", "c-bot", { config: { ...original, sla } });
+    try {
+      const doc = await docOf(weeklyMaria(), as("k-maria", "kommun_handlaggare"));
+      const want = "senast tisdag klockan 12.00 för föregående vecka";
+      expect(squash(renderedText(await render(doc)))).toContain(squash(want));
+      expect(squash(htmlBlocks(doc).join(" "))).toContain(squash(want));
+    } finally {
+      rt.store.updateRow("contracts", "c-bot", { config: original });
+    }
+    const doc = await docOf(weeklyMaria(), as("k-maria", "kommun_handlaggare"));
+    expect(squash(renderedText(await render(doc)))).toContain(squash("senast måndag klockan 16.00 för föregående vecka"));
   }, 30_000);
 });

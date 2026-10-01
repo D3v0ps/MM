@@ -4,7 +4,8 @@
 //   ctx.ai      simulerad AI (createSimulatedAi, src/features/_shared/ai-sim.ts) – deterministisk, inga anrop utanför
 //   ctx.audio   ljud i minnet (createMemoryAudio, src/features/_shared/audio-port.ts) – raderna i audio_uploads via system
 // Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
-// anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön.
+// anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön. Golvet är
+// klockan när datat lästes in (testdatat är komplett dit) och högvattenmärkena sparas i minnet.
 import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
@@ -14,7 +15,7 @@ import { addMinutes, type LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
-import { ensureReports } from "@/features/rapporter/ensure";
+import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
 import { TEST_PNR_CRYPTO } from "./seed/pnr";
@@ -35,6 +36,11 @@ export function createMemoryRuntime(opts: {
   clock: DemoClock;
   /** AI-porten. Standard: simulerad AI. Tester kan skicka in en egen (t.ex. en som misslyckas). */
   ai?: AiPort;
+  /**
+   * Rapportutkasten: datat är komplett hit – perioder som slutar senast då skapas aldrig automatiskt. Standard: klockan när
+   * runtime skapas (testdatat vid DEMO_START har redan sina rapporter). null = från avtalets start.
+   */
+  reportFloor?: LocalDateTime | null;
 }) {
   const store = new MemoryStore<Tables>(opts.data);
   let seq = 0;
@@ -71,6 +77,14 @@ export function createMemoryRuntime(opts: {
 
   // ---- Rapportutkasten: körs vid inläsningen och sedan när klockan passerat nästa vecko- eller månadsgräns.
   // Ett lås gör att två anrop samtidigt (utvecklingsservern) inte skapar samma rad två gånger.
+  const marks = new Map<string, LocalDateTime>();
+  const reportState: ReportScheduleState = {
+    floor: opts.reportFloor === undefined ? opts.clock.now() : opts.reportFloor,
+    checkedThrough: async (contractId) => marks.get(contractId) ?? null,
+    markChecked: async (contractId, at) => {
+      marks.set(contractId, at);
+    },
+  };
   let checkedAt: LocalDateTime | null = null;
   let ensuring: Promise<void> | null = null;
   async function ensureScheduledReports(): Promise<void> {
@@ -78,9 +92,9 @@ export function createMemoryRuntime(opts: {
     const now = opts.clock.now();
     if (checkedAt && nextScheduleBoundary(checkedAt) > now) return;
     ensuring = (async () => {
-      // Från där de befintliga raderna slutar: på nyinläst testdata skapas inget (testdatat har raderna redan).
+      // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
       try {
-        await ensureReports(ctxFor(SYSTEM_ACTOR));
+        await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
       } catch (e) {
         // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
         console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);

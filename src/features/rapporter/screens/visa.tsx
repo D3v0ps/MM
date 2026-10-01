@@ -299,8 +299,8 @@ function WaitingCard({ w }: { w: NonNullable<ReportView["waiting"]> }) {
     <Card title="Väntar på närvaroregistrering" icon="clock" tone="red">
       <Stack>
         <p>
-          Rapporten publiceras automatiskt när alla deltagare är registrerade. Närvaron ska vara registrerad senast måndag kl. {w.regTime}. Rapporten ska vara publicerad senast måndag kl.{" "}
-          {w.pubTime}.
+          Rapporten publiceras automatiskt när alla deltagare är registrerade. Närvaron ska vara registrerad senast {w.regDay} kl. {w.regTime}. Rapporten ska vara publicerad
+          senast {w.pubDay} kl. {w.pubTime}.
         </p>
         {w.byCoach.length === 0 ? (
           <p>Alla tillfällen är registrerade.</p>

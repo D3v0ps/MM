@@ -1,7 +1,11 @@
 // Byggstenarna i PDF:erna – samma utseende som HTML-pappret (src/ui/paper.tsx) i react-pdf: logotyp överst, avtals- och
 // ärendeinformation i högerställt block, rubriker i versaler med linje under, antracit text på vitt, tabeller med ljusgrå
-// linjer. Sidfot på varje sida ("Miljonbemanning AB · Miljonmatch", "Sida X av Y"). Rapporter som inte är levererade får
-// vattenstämpeln "Utkast – inte levererad" på varje sida.
+// linjer och kolumnrubriker som upprepas på varje sida. Sidfot på varje sida ("Miljonbemanning AB · Miljonmatch", "Sida X av
+// Y"). Rapporter som inte är levererade får vattenstämpeln "Utkast – inte levererad" på varje sida och samma text som
+// etikett överst (i antracit – vattenstämpeln är bara dekor och för ljus för att bära informationen).
+//
+// Sidbrytningar: text bryts mellan sidor (en lång sammanfattning eller avvikelse får aldrig klippas). Bara korta block hålls
+// ihop på en sida (wrap={false}) – ett block som är högre än en sida skulle annars rinna ut över sidfoten.
 import type { ReactNode } from "react";
 import { Circle, Document, Line, Page, Path, Svg, Text, View } from "@react-pdf/renderer";
 import type { Style } from "@react-pdf/types";
@@ -17,6 +21,13 @@ const BODY: Style = { fontSize: PDF_SIZE.body, lineHeight: 1.35 };
 const SMALL: Style = { fontSize: PDF_SIZE.small, lineHeight: 1.35 };
 /** Vattenstämpeln på rapporter som inte är levererade (samma text som pappret i appen). */
 export const DRAFT_WATERMARK = "Utkast – inte levererad";
+/**
+ * Vattenstämpelns färg: ljusgrå till 60 % på vitt (#E3E4E4). Ljusare än ljusgrå, så att dämpad småtext ovanpå den har
+ * kontrast minst 4,5:1 (#595E62 på #E3E4E4 ca 5,2:1; på ren ljusgrå bara ca 4,4:1).
+ */
+const WATERMARK_OPACITY = 0.6;
+/** Ett block med högst så här många tecken hålls ihop på en sida – längre text får brytas. */
+export const KEEP_TOGETHER_CHARS = 400;
 
 // ---------------------------------------------------------------- Dokumentet och sidan
 export type PdfDocumentProps = {
@@ -28,18 +39,20 @@ export type PdfDocumentProps = {
   info: readonly (readonly [string, string])[];
   /** Etiketten överst som i pappret ("Utkast", "Väntar på närvaro"). */
   label?: string | null;
-  /** Vattenstämpel på varje sida (rapporten är inte levererad). */
+  /** Vattenstämpel på varje sida (rapporten är inte levererad). Utan annan etikett blir vattenstämpelns text etiketten. */
   watermark?: boolean;
   children?: ReactNode;
 };
 
 export function PdfDocument({ metaTitle, title, info, label, watermark, children }: PdfDocumentProps) {
+  // En godkänd men inte levererad rapport har ingen egen etikett – då säger etiketten (antracit) att den inte är levererad.
+  const shownLabel = label ?? (watermark ? DRAFT_WATERMARK : null);
   return (
     <Document title={metaTitle} author="Miljonbemanning AB" creator="Miljonmatch" producer="Miljonmatch" language="sv">
       <Page size="A4" style={{ fontFamily: PDF_FONT, fontSize: PDF_SIZE.body, color: C.antracit, backgroundColor: C.vit, paddingTop: 40, paddingBottom: 58, paddingHorizontal: 44 }}>
         {watermark && (
           <View fixed style={{ position: "absolute", top: 380, left: -80, right: -80, alignItems: "center", transform: "rotate(-32deg)" }}>
-            <Text style={{ fontSize: 34, fontWeight: 800, color: C.ljusgra, letterSpacing: 1.5, textTransform: "uppercase" }}>{DRAFT_WATERMARK}</Text>
+            <Text style={{ fontSize: 34, fontWeight: 800, color: C.ljusgra, opacity: WATERMARK_OPACITY, letterSpacing: 1.5, textTransform: "uppercase" }}>{DRAFT_WATERMARK}</Text>
           </View>
         )}
         {/* Sidfoten först bland sidans barn: react-pdf upprepar fasta element på varje sida bara om de står före innehåll som bryts. */}
@@ -59,7 +72,7 @@ export function PdfDocument({ metaTitle, title, info, label, watermark, children
             </View>
           )}
         </View>
-        {label && <Label>{label}</Label>}
+        {shownLabel && <Label>{shownLabel}</Label>}
         <Text style={{ fontSize: PDF_SIZE.h1, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", marginBottom: 12 }}>{title}</Text>
         <View style={{ flexDirection: "column", gap: 12 }}>{children}</View>
       </Page>
@@ -83,12 +96,16 @@ export function Label({ children }: { children: ReactNode }) {
  */
 const Before = ({ h }: { h: number }) => <View style={{ height: h }} />;
 
-/** Avsnitt med rubrik i versaler och linje under ("1. Grunduppgifter"). Rubriken hamnar aldrig ensam sist på en sida. */
+/**
+ * Avsnitt med rubrik i versaler och linje under ("1. Grunduppgifter"). Rubriken hamnar aldrig ensam sist på en sida:
+ * minPresenceAhead flyttar den när det som följer inte får plats, och wrap={false} när rubriken själv bara nästan får plats
+ * (en rad som delas räknas annars inte som en brytning, och minPresenceAhead används inte).
+ */
 export function Sec({ n, title, children }: { n?: string; title: string; children?: ReactNode }) {
   return (
     <View style={{ flexDirection: "column", gap: 6 }}>
       <Before h={0} />
-      <Text minPresenceAhead={70} style={{ fontSize: PDF_SIZE.h2, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", borderBottomWidth: 1.5, borderBottomColor: C.antracit, paddingBottom: 3, marginTop: -2 }}>
+      <Text wrap={false} minPresenceAhead={70} style={{ fontSize: PDF_SIZE.h2, fontWeight: 800, letterSpacing: 0.7, textTransform: "uppercase", borderBottomWidth: 1.5, borderBottomColor: C.antracit, paddingBottom: 3, marginTop: -2 }}>
         {n ? `${n}. ` : ""}
         {title}
       </Text>
@@ -100,7 +117,7 @@ export function Sec({ n, title, children }: { n?: string; title: string; childre
 export const H3 = ({ children }: { children: ReactNode }) => (
   <>
     <Before h={0} />
-    <Text minPresenceAhead={60} style={{ fontSize: PDF_SIZE.h3, fontWeight: 800 }}>
+    <Text wrap={false} minPresenceAhead={60} style={{ fontSize: PDF_SIZE.h3, fontWeight: 800 }}>
       {children}
     </Text>
   </>
@@ -120,14 +137,17 @@ export const FixedText = ({ children }: { children: ReactNode }) => (
 
 // ---------------------------------------------------------------- Nyckel–värde och tabeller
 export type KvItem = readonly [string, ReactNode] | null | false | undefined;
-/** Nyckel–värde-lista (pappret: Kv). */
+/**
+ * Nyckel–värde-lista (pappret: Kv). En rad med kort värde hålls ihop på en sida; ett långt värde (t.ex. coachens
+ * sammanfattning, upp till 4000 tecken) bryts mellan sidor – react-pdf låter minst två rader av värdet följa med nyckeln.
+ */
 export function Kv({ items }: { items: readonly KvItem[] }) {
   return (
     <View style={{ flexDirection: "column", gap: 3 }}>
       {items
         .filter((x): x is readonly [string, ReactNode] => !!x)
         .map(([k, v], i) => (
-          <View key={i} wrap={false} style={{ flexDirection: "row", gap: 10 }}>
+          <View key={i} wrap={typeof v === "string" && v.length > KEEP_TOGETHER_CHARS} style={{ flexDirection: "row", gap: 10 }}>
             <Text style={{ ...BODY, width: "32%", fontWeight: 700, color: C.muted }}>{k}</Text>
             <View style={{ flex: 1 }}>{typeof v === "string" || typeof v === "number" ? <Text style={BODY}>{v === "" ? "–" : v}</Text> : (v ?? <Text>–</Text>)}</View>
           </View>
@@ -143,12 +163,16 @@ const cellStyle = (c: Col, head = false): Style => ({
   ...(head ? { fontWeight: 700, backgroundColor: C.ljusgraTon } : {}), ...(c.num ? { textAlign: "right" as const } : {}),
 });
 const cell = (v: Cell) => (typeof v === "string" || typeof v === "number" ? <Text style={{ ...SMALL, lineHeight: 1.3 }}>{v}</Text> : v);
-/** Tabell med ljusgrå linjer och huvud (pappret: table). Bredderna i procent. En rad delas aldrig mellan sidor. */
+/**
+ * Tabell med ljusgrå linjer och huvud (pappret: table). Bredderna i procent. En rad delas aldrig mellan sidor, och
+ * kolumnrubrikerna upprepas överst på varje sida som tabellen fortsätter på (fixed). wrap={false} behövs på cellerna också –
+ * annars delar react-pdf en rad med två textrader (Stack2) när rubriken upprepas.
+ */
 export function Table({ cols, rows, foot }: { cols: readonly Col[]; rows: readonly { key: string; cells: readonly Cell[] }[]; foot?: readonly Cell[] }) {
   const row = (cells: readonly Cell[], key: string, opts: { head?: boolean; bold?: boolean } = {}) => (
-    <View key={key} wrap={false} style={{ flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: C.ljusgra, ...(opts.bold ? { fontWeight: 700 } : {}) }}>
+    <View key={key} wrap={false} fixed={opts.head} style={{ flexDirection: "row", borderBottomWidth: 0.75, borderBottomColor: C.ljusgra, ...(opts.bold ? { fontWeight: 700 } : {}) }}>
       {cols.map((c, i) => (
-        <View key={i} style={cellStyle(c, opts.head)}>
+        <View key={i} wrap={false} style={cellStyle(c, opts.head)}>
           {cell(cells[i] ?? "")}
         </View>
       ))}
@@ -172,11 +196,14 @@ export const Stack2 = ({ main, sub, extra }: { main: ReactNode; sub?: ReactNode;
 );
 
 // ---------------------------------------------------------------- Kryssruta, status och mätare
-/** Kryssruta (pappret: XBox) med texten bredvid – "Genomförd"/"Inte genomförd" syns som kryss + text. */
+/**
+ * Kryssruta (pappret: XBox) med texten bredvid – "Genomförd"/"Inte genomförd" syns som kryss + text. Rutan är 10 pt med
+ * 1,2 pt ram: 7,6 pt inuti räcker för krysset (7 pt, radhöjd 1). En textrad som inte får plats ritas inte alls av react-pdf.
+ */
 export function Check({ checked, children }: { checked: boolean; children: ReactNode }) {
   return (
     <View wrap={false} style={{ flexDirection: "row", alignItems: "flex-start", gap: 5, width: "48%" }}>
-      <View style={{ width: 9, height: 9, borderWidth: 1.2, borderColor: C.antracit, alignItems: "center", justifyContent: "center", marginTop: 2 }}>
+      <View style={{ width: 10, height: 10, borderWidth: 1.2, borderColor: C.antracit, alignItems: "center", justifyContent: "center", marginTop: 1.5 }}>
         {checked ? <Text style={{ fontSize: 7, fontWeight: 800, lineHeight: 1 }}>X</Text> : null}
       </View>
       <Text style={{ ...BODY, flex: 1 }}>{children}</Text>

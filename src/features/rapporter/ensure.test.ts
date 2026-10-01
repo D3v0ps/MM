@@ -1,6 +1,7 @@
-// Rapportutkast som skapas automatiskt (ensure.ts) mot testdatat i minnet: inget skapas på nyinläst testdata vid DEMO_START,
-// skillnaderna mot testdatats regler (redovisade), nya veckor och månader när klockan passerar gränsen, revisionsloggen,
-// idempotensen och krockar mellan två körningar.
+// Rapportutkast som skapas automatiskt (ensure.ts) mot testdatat i minnet: inget skapas på nyinläst testdata vid DEMO_START
+// (inte heller medan testdatat läses in), skillnaden mot testdatats regler (redovisad), nya veckor och månader när klockan
+// passerar gränsen, högvattenmärket (avbruten körning, längre uppehåll), spärrade konton, revisionsloggen, idempotensen och
+// krockar mellan två körningar.
 import { beforeEach, describe, expect, it } from "vitest";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { BOTKYRKA_CONFIG } from "@/core/config";
@@ -13,7 +14,7 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import type { Report, Tables } from "@/data/schema";
 import type { Ctx } from "@/api/server";
 import { reportList } from "./api";
-import { ensureReports } from "./ensure";
+import { ensureReports, FULL_HISTORY, type ReportScheduleState } from "./ensure";
 
 const SEED: MemoryData<Tables> = createSeed();
 const AUTO = ["weekly_attendance", "monthly", "customer_summary"];
@@ -41,11 +42,11 @@ describe("på nyinläst testdata vid DEMO_START", () => {
     expect(created()).toEqual([]);
   });
 
-  it("samma regler över hela avtalstiden: veckorapporterna stämmer exakt, skillnaderna mot testdatat redovisas", () => {
-    // Reglerna körda från avtalets start (since = null) jämförda med testdatats rader. Testdatat skapar inga månadsrapporter
-    // för månader med färre än 11 inskrivna dagar och ingen beställarrapport för september 2026 (avtalet startade den 10:e).
-    // Briefens regel är minst en inskriven dag och varje avslutad månad. Testdatat ändras inte (se slutrapporten) – därför
-    // skapas raderna framåt från där testdatat slutar.
+  it("samma regler över hela avtalstiden: vecko- och månadsrapporterna stämmer exakt, skillnaden mot testdatat redovisas", () => {
+    // Reglerna körda från avtalets start (since = null) jämförda med testdatats rader. Månadsrapporterna: minst 11 inskrivna
+    // dagar (reportSchedule.monthly.minEnrolledDays, samma regel som testdatat). Testdatat har ingen beställarrapport för
+    // september 2026 (avtalet startade den 10:e) – den enda skillnaden. Testdatat ändras inte; golvet (testklockans start)
+    // gör att raderna bara skapas för perioder efter den.
     const db = SEED;
     const contract = db.contracts.find((c) => c.id === "c-bot")!;
     const members = db.memberships.filter((m) => m.contractId === "c-bot");
@@ -73,17 +74,37 @@ describe("på nyinläst testdata vid DEMO_START", () => {
     const extra = planned.filter((p) => !seededKeys.has(reportKey(p)));
     expect(extra.filter((p) => p.kind === "weekly_attendance")).toEqual([]);
     expect(extra.filter((p) => p.kind === "customer_summary").map((p) => p.month)).toEqual(["2026-09"]);
-    const monthly = extra.filter((p) => p.kind === "monthly");
+    expect(extra.filter((p) => p.kind === "monthly")).toEqual([]);
+    expect(planned.filter((p) => p.kind === "monthly").length).toBe(seeded.filter((r) => r.kind === "monthly").length);
+    // Testdatats månadsrapporter har alla minst 11 inskrivna dagar – och reglerna hoppar över de månader som har färre.
     const casesById = new Map(db.cases.map((c) => [c.id, c]));
-    const enrolledDays = (p: (typeof monthly)[number]) => {
-      const c = casesById.get(p.caseId!)!;
-      const from = c.startDate! > `${p.month}-01` ? c.startDate! : `${p.month}-01`;
-      const to = c.endDate && c.endDate < monthEnd(p.month!) ? c.endDate : monthEnd(p.month!);
+    const days = (caseId: string, mk: string) => {
+      const c = casesById.get(caseId)!;
+      const from = c.startDate! > `${mk}-01` ? c.startDate! : `${mk}-01`;
+      const to = c.endDate && c.endDate < monthEnd(mk) ? c.endDate : monthEnd(mk);
       return diffDays(from, to) + 1;
     };
-    expect(monthly.length).toBe(108);
-    expect(Math.max(...monthly.map(enrolledDays))).toBeLessThanOrEqual(10);
-    expect(seeded.filter((r) => r.kind === "monthly").every((r) => enrolledDays({ ...r, caseId: r.caseId, month: r.month } as never) >= 11)).toBe(true);
+    expect(Math.min(...seeded.filter((r) => r.kind === "monthly").map((r) => days(r.caseId!, r.month!)))).toBe(11);
+    const short = db.cases.filter((c) => c.contractId === "c-bot" && c.startDate && c.startDate >= "2026-09-01" && c.startDate <= "2027-01-31" && days(c.id, c.startDate.slice(0, 7)) < 11);
+    expect(short.length).toBeGreaterThan(50);
+    for (const c of short) expect(planned.some((p) => p.kind === "monthly" && p.caseId === c.id && p.month === c.startDate!.slice(0, 7))).toBe(false);
+  });
+
+  it("utan golvet (hela avtalstiden) skulle bara beställarrapporten för september 2026 skapas", async () => {
+    const ctx = await systemCtx();
+    const res = await ensureReports(ctx, FULL_HISTORY);
+    expect(res.created.map((x) => `${x.kind}:${x.period}`)).toEqual(["customer_summary:2026-09"]);
+  });
+
+  it("medan testdatat läses in (ärenden finns men inga rapporter än) skapas inget – golvet är testklockans start", async () => {
+    // Som i testmiljön: mm.reset_test_data() har satt klockan till DEMO_START och tömt rapporterna; ärendena är inlästa.
+    const data = structuredClone(SEED);
+    data.reports = [];
+    const loading = createMemoryRuntime({ data, clock: demoClock(DEMO_START) });
+    loading.clock.set("2027-02-01T09:13");
+    await loading.run("query", reportList.key, {}, listPersonas(loading.raw()).find((p) => p.actor.userId === "u-sara")!.actor);
+    expect(loading.store.rows("reports")).toEqual([]);
+    expect(loading.store.rows("audit_log").filter((l) => l.action === "report.created")).toEqual([]);
   });
 });
 
@@ -130,14 +151,17 @@ describe("när klockan passerar en vecko- eller månadsgräns", () => {
     expect(list.rows.some((x) => x.id === cs[0].id)).toBe(true);
   });
 
-  it("fönstret: efter ett längre uppehåll prövas bara de senaste 62 dagarna – äldre perioder fylls inte i", async () => {
+  it("längre uppehåll än fönstret (62 dagar): allt från högvattenmärket fylls i – inget hoppas över", async () => {
+    await touch(); // märket sätts vid DEMO_START
     await at("2027-06-01T08:00");
     const months = [...new Set(reports().filter((r) => r.kind === "monthly" && r.month! > "2027-01").map((r) => r.month))].sort();
-    // Fönstret börjar 31 mars 08.00: februari (slut 1 mars) fylls inte i; mars, april och maj slutade i fönstret.
-    expect(months).toEqual(["2027-03", "2027-04", "2027-05"]);
-    const weeks = reports().filter((r) => r.kind === "weekly_attendance" && r.week! > "2027-W04").map((r) => r.week!);
-    expect(weeks.length).toBeGreaterThan(0);
-    expect(weeks.every((w) => w >= "2027-W13")).toBe(true);
+    // Fönstret skulle börja 31 mars – februari fylls ändå i, eftersom märket står kvar på 1 februari.
+    expect(months).toEqual(["2027-02", "2027-03", "2027-04", "2027-05"]);
+    const weeks = [...new Set(reports().filter((r) => r.kind === "weekly_attendance" && r.week! > "2027-W04").map((r) => r.week!))].sort();
+    expect(weeks[0]).toBe("2027-W05");
+    expect(weeks[weeks.length - 1]).toBe("2027-W21");
+    expect(weeks.length).toBe(17);
+    expect([...new Set(reports().filter((r) => r.kind === "customer_summary" && r.month! > "2027-01").map((r) => r.month))].sort()).toEqual(["2027-02", "2027-03", "2027-04", "2027-05"]);
   });
 
   it("två körningar samtidigt skapar inte samma rad två gånger", async () => {
@@ -185,22 +209,85 @@ describe("krockar med en annan körning (unika index i databasen)", () => {
             : ctx.system.table(name as never)) as Ctx["system"]["table"],
       },
     };
-    const res = await ensureReports(dupCtx);
+    const res = await ensureReports(dupCtx, seedState());
     expect(res.duplicates).toBe(2);
     expect(res.created).toHaveLength(2);
     // Nästa körning ser raderna som finns och skapar bara de som fattas.
-    const again = await ensureReports(ctx);
+    const again = await ensureReports(ctx, seedState());
     expect(again.created).toHaveLength(2);
-    expect(await ensureReports(ctx)).toMatchObject({ created: [], duplicates: 0 });
+    expect(await ensureReports(ctx, seedState())).toMatchObject({ created: [], duplicates: 0 });
   });
 
   it("andra fel stoppar körningen (jobbet försöker igen)", async () => {
     rt.clock.set("2027-02-08T00:05");
     const ctx = await systemCtx();
     const broken: Ctx = { ...ctx, system: { table: ((name: string) => (name === "reports" ? { ...ctx.system.table("reports"), insert: async () => Promise.reject(new Error("nätverksfel")) } : ctx.system.table(name as never))) as Ctx["system"]["table"] } };
-    await expect(ensureReports(broken)).rejects.toThrow("nätverksfel");
+    const state = seedState();
+    await expect(ensureReports(broken, state)).rejects.toThrow("nätverksfel");
+    // Märket flyttas inte – nästa körning prövar samma perioder.
+    expect(await state.checkedThrough("c-bot")).toBeNull();
   });
 });
+
+describe("en körning som avbryts halvvägs", () => {
+  it("revisionsloggen misslyckas efter rad 20 av februari: nästa körning skapar resten – inga rapporter går förlorade", async () => {
+    rt.clock.set("2027-03-01T00:05");
+    const ctx = await systemCtx();
+    const state = seedState();
+    let n = 0;
+    const flaky: Ctx = {
+      ...ctx,
+      audit: async (e) => {
+        if (e.action === "report.created" && ++n === 20) throw Object.assign(new Error("tillfälligt fel"), { code: "503" });
+        return ctx.audit(e);
+      },
+    };
+    await expect(ensureReports(flaky, state)).rejects.toThrow("tillfälligt fel");
+    expect(await state.checkedThrough("c-bot")).toBeNull();
+    const partial = reports().filter((r) => r.kind === "monthly" && r.month === "2027-02").length;
+    expect(partial).toBeLessThan(20);
+    // Nästa körning (tio minuter senare) och en körning dagen efter: alla rader för februari finns.
+    rt.clock.set("2027-03-01T00:15");
+    await ensureReports(ctx, state);
+    expect(await state.checkedThrough("c-bot")).toBe("2027-03-01T00:15");
+    rt.clock.set("2027-03-02T08:00");
+    expect((await ensureReports(ctx, state)).created).toEqual([]);
+    const full = await fullRun();
+    expect(reports().filter((r) => r.kind === "monthly" && r.month === "2027-02").length).toBe(full.monthlyFeb);
+    expect(reports().filter((r) => r.kind === "customer_summary" && r.month === "2027-02")).toHaveLength(1);
+    expect(full.monthlyFeb).toBeGreaterThan(50);
+  });
+});
+
+describe("mottagarna är konton som är aktiva", () => {
+  it("en spärrad chef får ingen beställarrapport, en ny aktiv chef får sin", async () => {
+    rt.store.updateRow("profiles", "k-eva", { active: false });
+    const eva = rt.store.getRow("profiles", "k-eva")!;
+    rt.store.insertRow("profiles", { ...eva, id: "k-ny-chef", email: "ny.chef@example.test", active: true } as never);
+    rt.store.insertRow("memberships", { id: "k-ny-chef:c-bot", userId: "k-ny-chef", contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten" } as never);
+    await at("2027-03-01T00:05");
+    expect(reports().filter((r) => r.kind === "customer_summary" && r.month === "2027-02").map((r) => r.recipientUserId)).toEqual(["k-ny-chef"]);
+  });
+  it("en spärrad handläggare får ingen veckorapport", async () => {
+    rt.store.updateRow("profiles", "k-omar", { active: false });
+    await at("2027-02-08T00:05");
+    expect(reports().filter((r) => r.kind === "weekly_attendance" && r.week === "2027-W05").map((r) => r.recipientUserId).sort()).toEqual(["k-ahmed", "k-linda", "k-maria"]);
+  });
+});
+
+/** Läget som minnesläget använder: golvet vid DEMO_START (testdatat är komplett dit) och märkena i minnet. */
+function seedState(): ReportScheduleState {
+  const marks = new Map<string, LocalDateTime>();
+  return { floor: DEMO_START, checkedThrough: async (id) => marks.get(id) ?? null, markChecked: async (id, at) => void marks.set(id, at) };
+}
+
+/** Samma körning i en ny runtime utan fel – facit för hur många månadsrapporter februari ska ha. */
+async function fullRun(): Promise<{ monthlyFeb: number }> {
+  const other = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
+  other.clock.set("2027-03-01T00:05");
+  await other.ensureScheduledReports();
+  return { monthlyFeb: other.store.rows("reports").filter((r) => r.kind === "monthly" && r.month === "2027-02").length };
+}
 
 /** Systemets Ctx i minnesläget (samma som körningen använder) – via ett kommando som inte finns behövs inte: bygg den direkt. */
 async function systemCtx(): Promise<Ctx> {

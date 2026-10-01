@@ -7,7 +7,7 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { isOperational, type OperationalConfig } from "@/core/config";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
-import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, type LocalDateTime } from "@/core/time";
+import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Case, MonthlyAssessment, Profile, Report } from "@/data/schema";
 import { weeklyComplete } from "../_shared/weekly";
@@ -169,8 +169,11 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
         if (a === "none") continue;
         visible.push(a === "restricted" ? { restricted: true, caseId: s.caseId, caseNumber: s.caseNumber } : { ...s, restricted: false, name: v.name(cs) });
       }
-      const pubTime = info.cfg.sla.find((x) => x.key === "veckorapport_publicering")?.time || "16:00";
-      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerRole(ctx.actor.role), pubTime };
+      // Veckodag och klockslag från avtalet (sla[veckorapport_publicering]) – samma regel som rapportens sista dag (dueAt).
+      const pub = info.cfg.sla.find((x) => x.key === "veckorapport_publicering");
+      const pubTime = pub?.time || "16:00";
+      const pubDay = WEEKDAYS[pub?.weekday ?? 0];
+      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerRole(ctx.actor.role), pubTime, pubDay };
     }
   }
 }
@@ -317,8 +320,9 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
         byCoach.set(key, [...(byCoach.get(key) ?? []), text]);
       }
     const t = (key: string, fallback: string) => (info.cfg.sla.find((x) => x.key === key)?.time || fallback).replace(":", ".");
+    const d = (key: string) => WEEKDAYS[info.cfg.sla.find((x) => x.key === key)?.weekday ?? 0];
     waiting = {
-      regTime: t("veckorapport_registrering", "10:00"), pubTime: t("veckorapport_publicering", "16:00"),
+      regDay: d("veckorapport_registrering"), regTime: t("veckorapport_registrering", "10:00"), pubDay: d("veckorapport_publicering"), pubTime: t("veckorapport_publicering", "16:00"),
       byCoach: [...byCoach.entries()].map(([coachId, items]) => ({ coach: `${pname(coachId)}: ${items.length} ${items.length === 1 ? "tillfälle" : "tillfällen"} saknas`, items })),
       canRegister: role === "coach",
     };
