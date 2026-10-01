@@ -25,12 +25,13 @@ E-post från:    notis@miljonbemanning.se via Resend (EU). DNS för miljonbemann
 | Del | Status |
 |---|---|
 | Supabase-projekt för testmiljön | Klart: `miljonmatch`, ref **`blxupsebzzhmjitaywev`**, eu-north-1 (Stockholm), `https://blxupsebzzhmjitaywev.supabase.co` |
-| Migrationer 0001–0009 | Applicerade. **0010** (`0010_testdata.sql`) ska appliceras (steg 1 nedan) |
+| Migrationer 0001–0014 | Applicerade i testprojektet av samordnaren (steg 1 nedan). **0013 går live samtidigt som koden** |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter, egen SMTP via Resend. Kontrollera URL:erna (avsnitt 2.2) |
 | Resend | Domänen `miljonbemanning.se` verifierad i EU. DNS-posterna ligger i Google Cloud DNS-zonen för miljonbemanning.se – de ska också in i Terraform-koden |
 | Vercel | Inte uppsatt (avsnitt 3) |
 | Domän `test.miljonmatch.se` | Inte uppsatt (avsnitt 3.4) |
+| AI (Gemini via Vertex AI, EU) | Inte uppsatt – testmiljön kör den simulerade leverantören tills kontot finns (avsnitt 10). Bucketen `ljud` skapas av migration 0015 |
 
 ## Vem gör vad
 
@@ -41,12 +42,14 @@ E-post från:    notis@miljonbemanning.se via Resend (EU). DNS för miljonbemann
 | Nycklar (Supabase secret key, Resend-nyckel, nycklar för personnummer och jobb) in i Vercel | Du | Hemliga nycklar ska aldrig skrivas i chatten eller i repot |
 | Migrationer och startdata i databasen | Samordnaren (Claude via Supabase-kopplingen) eller du | Kan göras med MCP, Supabase CLI eller SQL-editorn |
 | Testdatat | Testaren i appen (`/admin/integrationer` → "Läs in testdata på nytt") | Filen med hela testdatat är för stor för MCP och SQL-editorn |
+| Google Cloud-projekt, tjänstekonto och nyckel för AI (Vertex AI) | Du | Kontot ska ägas av Miljonbemanning AB; nyckeln är hemlig (avsnitt 10) |
 
 ---
 
 ## Så startar du testmiljön – exakt ordning
 
-1. **Migration 0010** – samordnaren: MCP `apply_migration` med namnet `0010_testdata` och innehållet i `supabase/migrations/0010_testdata.sql` (eller `npx supabase db push`, eller SQL-editorn).
+1. **Migrationerna 0001–0014** – samordnaren: redan applicerade i testprojektet (MCP `apply_migration` med namnet utan `.sql`, t.ex. `0014_kvittenser`, i nummerordning – eller `npx supabase db push`, eller SQL-editorn). Kontroll: MCP `list_migrations` visar 0001–0014.
+   **0013 måste gå live samtidigt som koden.** Efter 0013 läser appen ärenden via vyn `cases_public`, och inloggade kan bara läsa kolumnen `id` direkt i `cases`. En version av appen från före 0013 kan då inte läsa ärenden, och den här versionen fungerar inte utan 0013. Driftsätt därför koden (steg 4) i samma veva som 0013 – aldrig en äldre version mot databasen.
 2. **Vercel-import** – du: *Add New → Project → Import* GitHub-repot `miljonmatch` i bolagets team (Pro). Avsnitt 3.1.
 3. **Miljövariabler** – du: lägg in alla variabler i tabellen i avsnitt 5 (för *Production* och *Preview*). Skapa de hemliga nycklarna enligt tabellen.
 4. **Deploy** – du: *Deployments → Redeploy* (eller första driftsättningen efter importen). Kontrollera att funktionerna körs i **arn1**. Notera adressen, t.ex. `https://miljonmatch-test.vercel.app`.
@@ -65,7 +68,7 @@ Knappen **Läs in testdata på nytt** kan användas när som helst för att bör
 
 Projektet finns redan (se `docs/MILJOER.md`): ref `blxupsebzzhmjitaywev`, region **eu-north-1 (Stockholm)**. Kontrollera regionen under *Project Settings → General*.
 
-1. **Migrationerna** ligger i `supabase/migrations/` (0001–0014). Kör dem i ordning: MCP `apply_migration`, eller
+1. **Migrationerna** ligger i `supabase/migrations/` (0001–0014). I testprojektet är de redan applicerade av samordnaren. **0013 måste gå live samtidigt som koden** (se steg 1 i "exakt ordning" ovan). Kör dem i ordning: MCP `apply_migration`, eller
    ```
    npx supabase login
    npx supabase link --project-ref blxupsebzzhmjitaywev
@@ -85,6 +88,10 @@ Projektet finns redan (se `docs/MILJOER.md`): ref `blxupsebzzhmjitaywev`, region
 
 ### 1.2 Bakgrundsjobb
 Schemaläggningen av `/api/jobs/run` (pg_cron + pg_net i Supabase, varje minut) beskrivs i `docs/UTSKICK.md`. Nyckeln `MM_JOBS_SECRET` (minst 16 tecken) läggs både i Vercel och i Supabase Vault.
+Samma körning tar röstinspelningens jobb (transkribering, översättning, månadens AI-utkast) och lägger själv gallringen av ljud och råtranskript en gång i timmen (`docs/AI.md`).
+
+### 1.3 Ljudfilerna (Storage)
+Migration 0015 skapar bucketen **`ljud`**: privat, högst 25 MB per fil, bara ljud. Kontrollera under *Storage* att den finns och **inte** är publik. Inga policyer på `storage.objects` – bara servern (service role) läser och raderar, och webbläsaren laddar upp med en signerad adress som gäller en gång. Ljudet raderas direkt efter transkriberingen, senast efter 24 timmar.
 
 ---
 
@@ -201,8 +208,15 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MM_EMAIL_FROM` | | Avsändare. Domänen måste vara verifierad i Resend | `Miljonmatch <notis@miljonbemanning.se>` | Fast värde |
 | `MM_EMAIL_REPLY_TO` | | Svarsadress. Produktion: `avrop@miljonbemanning.se` (svar på ordererkännandet hamnar i avropsflödet). Tom i testmiljön | *(tomt)* · produktion `avrop@miljonbemanning.se` | Fast värde |
 | `MM_JOBS_SECRET` | **ja** | Nyckel för `/api/jobs/run` (`Authorization: Bearer …`), **minst 16 tecken**. Samma värde i Supabase Vault (`docs/UTSKICK.md`) | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
+| `MM_AI_PROVIDER` | | AI-stödet (avsnitt 10): `vertex` (Gemini via Vertex AI, EU), `simulated` (påhittade svar – bara testmiljön) eller `off`. Tomt = `simulated` i testmiljön och `off` i produktion. Produktion kör aldrig `simulated` | *(tomt)* · när kontot finns `vertex` | Fast värde |
+| `MM_AI_MODEL` | | Gemini-modellen i Vertex AI (en Flash-modell). Kontrolleras inte mot nätet – stavas exakt som i Vertex AI | *(modellens id)* | Google Cloud → *Vertex AI → Model Garden* |
+| `GOOGLE_VERTEX_PROJECT` | | Google Cloud-projektets id (annars `project_id` ur nyckeln) | `miljonmatch-ai-test` | Google Cloud → projektväljaren |
+| `GOOGLE_VERTEX_LOCATION` | | Valfri. Får bara vara `eu` (EU multi-region). Allt annat stoppas | `eu` | Fast värde |
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | **ja** | Tjänstekontots JSON-nyckel som base64 (rollen *Vertex AI User*) | *(base64)* | Avsnitt 10, steg 4 |
+| `MM_AI_PRICES` | | Prislista för kostnaden i `ai_runs`, i öre per miljon token: `{"audioIn":…,"textIn":…,"output":…}`. Tom = kostnad 0 | *(från Googles prislista)* | Avsnitt 10, steg 6 |
+| `MM_AI_THINKING` | | Valfri resonemangsnivå: `minimal`, `low`, `medium`, `high`. Tom = lägsta rimliga (`docs/AI.md`) | *(tomt)* | Fast värde |
 
-Kommer senare: Microsoft Entra, SMS-leverantör, AI-leverantör och Fortnox.
+Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
 
 ### 5.1 Nycklarna för personnummer (`MM_PNR_KEY`, `MM_PNR_HMAC_KEY`)
 - Personnummer krypteras i appen (AES-256-GCM) innan de sparas och söks via en HMAC-hash av de tio sista siffrorna (CLAUDE.md punkt 2). Nycklarna finns bara på servern (`src/server/crypto.ts`, `import "server-only"`) och når aldrig webbläsaren.
@@ -225,6 +239,7 @@ Kommer senare: Microsoft Entra, SMS-leverantör, AI-leverantör och Fortnox.
 | Session, testarens val | `src/app/api/session`, `src/app/api/session/impersonate`, `src/app/_shell/client-root.tsx` |
 | Läs in testdata på nytt | `src/app/api/staging/seed/route.ts`, `src/server/staging/load.ts`, `supabase/migrations/0010_testdata.sql`, knappen `src/features/session/screens/test-data-reset.tsx` |
 | Utskick och jobb | `src/server/notify/*`, `src/server/jobs/*`, `docs/UTSKICK.md` |
+| AI och röstinspelning | `src/server/ai/*` (Vertex AI EU eller simulerad), `src/server/audio/*` (bucketen `ljud`), `src/features/_shared/voice-upload.ts` och `voice-jobs.ts`, `POST /api/audio/upload-url` – `docs/AI.md` |
 | Inaktivitet och maxtid, förnyelse av sessionen | `src/proxy.ts` (kakorna `mm_last_seen`, `mm_login_at`) |
 | E2E i minnesläget | `POST /api/dev-session/reset` (bara minnesläget) nollställer testdatat före varje test |
 
@@ -238,10 +253,11 @@ Kommer senare: Microsoft Entra, SMS-leverantör, AI-leverantör och Fortnox.
 ## 7. Produktion (senare)
 
 - Nytt Supabase-projekt i **eu-north-1** och ett **eget Vercel-projekt**, så att förhandsversioner (Preview) aldrig kan peka mot produktionsdatabasen.
-- Samma migrationer, **ingen seed och inget startdata**. `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knappen för testdata syns inte.
+- Samma migrationer (0001–0014, i nummerordning), **ingen seed och inget startdata**. Kör dem precis före den första driftsättningen – 0013 och koden hör ihop (steg 1 i "exakt ordning"). `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knappen för testdata syns inte.
 - `MM_CLOCK=real`, `MM_EMAIL_ALLOWLIST` tom, `MM_EMAIL_REDIRECT_TO` tom, `MM_EMAIL_REPLY_TO=avrop@miljonbemanning.se`, egna nycklar för personnummer, jobb och inloggning.
 - Domän `app.miljonmatch.se` (CNAME `app` hos one.com), Site URL och `MM_APP_URL` därefter.
 - DPA med Resend (och övriga underbiträden) innan riktiga personuppgifter.
+- AI: ett **eget Google Cloud-projekt** för produktion med eget tjänstekonto och egen nyckel (avsnitt 10). `MM_AI_PROVIDER=vertex` – utan den är AI avstängd i produktion (den simulerade körs aldrig där).
 
 ## 8. Säkerhetskontroll
 
@@ -254,6 +270,8 @@ Kommer senare: Microsoft Entra, SMS-leverantör, AI-leverantör och Fortnox.
 - [ ] Click och open tracking är avstängda i Resend.
 - [ ] Resends DNS-poster finns i Terraform-koden för miljonbemanning.se.
 - [ ] MFA och minst två administratörer i Vercel, Supabase och Resend.
+- [ ] AI: bara `MM_AI_PROVIDER=vertex` med `aiplatform.eu.rep.googleapis.com` (location `eu`) – ingen Gemini API-nyckel (AI Studio) någonstans. Tjänstekontot har bara rollen *Vertex AI User*. Googles personuppgiftsbiträdesvillkor (CDPA) är godkända och Vertex AI:s cachning av indata avstängd (avsnitt 10).
+- [ ] Bucketen `ljud` är privat.
 
 ## 9. Felsökning
 
@@ -268,3 +286,32 @@ Kommer senare: Microsoft Entra, SMS-leverantör, AI-leverantör och Fortnox.
 | Inläsningen avbröts | Kör den igen – den börjar alltid med att tömma. Vercels loggar visar tabell och felkod (`testdata-fel`) |
 | Fel tid i appen | `show timezone;` och raderna `clock_…` i `app_settings`. `MM_CLOCK=real` ger riktig tid |
 | Utloggad oväntat | 60 minuter utan aktivitet eller 12 timmar sedan inloggningen – så ska det vara |
+| "AI-stödet är inte tillgängligt just nu" / inspelning går inte att starta | `MM_AI_PROVIDER` och övriga AI-variabler (avsnitt 10). Vercels logg visar `ai: AI-stödet är avstängt – …` med orsaken (utan hemligheter). I produktion är AI av tills `MM_AI_PROVIDER=vertex` |
+| Transkriberingen blir aldrig klar | `jobs` (`select kind, status, attempts, last_error from jobs order by created_at desc limit 20;`). 403/404 från Vertex AI: fel projekt, modell eller roll. "AI-tjänsten svarar inte": tillfälligt – jobbet försöks igen upp till fem gånger |
+
+---
+
+## 10. AI och röstinspelning – Google Cloud Vertex AI
+
+Beslut 2026-09-30 (`docs/PLAN-ROST.md`): **Gemini Flash via Vertex AI, EU multi-region-endpoint** (`aiplatform.eu.rep.googleapis.com`, location `eu`). Tills kontot finns kör testmiljön den simulerade leverantören – hela flödet (inspelning, uppladdning, samtycke, radering) går att testa, men transkripten är påhittade. Hur flödena, raderingen och loggningen fungerar: `docs/AI.md`.
+
+**Använd aldrig AI Studio eller en Gemini API-nyckel** (nycklar som börjar med `AIza`, adressen `generativelanguage.googleapis.com`) och aldrig den globala endpointen – de saknar garanti för var datan behandlas. Appen vägrar andra adresser än EU-endpointen.
+
+1. **Google Cloud-projekt** – [console.cloud.google.com](https://console.cloud.google.com): *Välj projekt → Nytt projekt* i bolagets organisation, t.ex. `miljonmatch-ai-test` (produktion får ett eget, t.ex. `miljonmatch-ai`). Koppla bolagets faktureringskonto. Projektets **id** → `GOOGLE_VERTEX_PROJECT`.
+2. **Aktivera Vertex AI API** – *APIs & Services → Library* → sök "Vertex AI API" → *Enable*.
+3. **Tjänstekonto** – *IAM & Admin → Service Accounts → Create service account*, t.ex. `miljonmatch-ai`. Ge det **bara** rollen **Vertex AI User** (`roles/aiplatform.user`). Inga andra roller.
+4. **Nyckel** – tjänstekontot → *Keys → Add key → Create new key → JSON*. Filen laddas ner. Gör om den till base64 på en rad:
+   ```
+   base64 -w0 nyckel.json      # Linux
+   base64 -i nyckel.json       # macOS
+   ```
+   Lägg in resultatet i Vercel som **`GOOGLE_SERVICE_ACCOUNT_KEY`** (hemlig). **Radera filen** från datorn efteråt. Nyckeln skrivs aldrig i chatten eller i repot. (Stoppar organisationens policy `iam.disableServiceAccountKeyCreation` nycklar: gör ett undantag för projektet.)
+5. **Personuppgiftsbiträdesvillkor** – Googles *Cloud Data Processing Addendum* (CDPA): granska och godkänn under *IAM & Admin → Privacy & Security* och fyll i kontaktuppgifterna (dataskyddsombud). Google och dess underbiträden ska in i underbiträdeslistan i PUB-avtalet med Botkyrka innan riktiga personuppgifter. Vertex AI tränar inte på kunddata.
+6. **Modell och prislista** – välj Gemini Flash-modellens id i *Vertex AI → Model Garden* (samma stavning som där) → **`MM_AI_MODEL`**. Kostnaden i `ai_runs` räknas från **`MM_AI_PRICES`** i öre per miljon token enligt Googles prislista för EU-endpointen (inklusive EU-påslaget), till exempel `{"audioIn":1100,"textIn":330,"output":2750}` – kontrollera de aktuella priserna.
+7. **Ingen lagring hos Google** – stäng av Vertex AI:s cachning av indata för projektet (Googles dokumentation "Vertex AI and zero data retention": `cacheConfig` med `disableCache: true`, görs av en administratör med `gcloud`/API) och kontrollera villkoren för missbruksövervakning i samma dokumentation.
+8. **Budget** – *Billing → Budgets & alerts*: en månadsbudget (t.ex. 1 000 kr) med larm till bolagets funktionsadress. SPEC §8.6: cirka 1,70 kr per 30-minuterssamtal.
+9. **Vercel** – sätt `MM_AI_PROVIDER=vertex`, `MM_AI_MODEL`, `GOOGLE_VERTEX_PROJECT`, `GOOGLE_SERVICE_ACCOUNT_KEY` och `MM_AI_PRICES` (avsnitt 5) och driftsätt igen.
+10. **Kontroll** – spela in en kort testavstämning i testmiljön (agera som coachen Amira, ärendet BOT-26-0143 som har samtycke). Efter en stund: `select provider, model, status, audio_seconds, cost_ore, input_deleted_at from ai_runs order by created_at desc limit 1;` ska visa `vertex_eu`, status `succeeded` och en tid i `input_deleted_at` (ljudet raderat). `select status from audio_uploads order by created_at desc limit 1;` ska visa `deleted`. Vercels logg ska inte visa `ai: AI-stödet är avstängt`.
+
+**Tidsgränser:** en transkribering av en timmes ljud kan ta någon minut. Jobbet körs direkt efter svaret (after()) och annars av `/api/jobs/run`; funktionerna behöver få köra upp till 300 sekunder (Vercel Pro). Längsta inspelning styrs av avtalet (`ai.maxMinutes`, Botkyrka: coachen 60, kommunen och deltagaren 5 minuter). Ljud över cirka 15 MB (ungefär en timme i 32 kbit/s) transkriberas inte.
+

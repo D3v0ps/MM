@@ -1,14 +1,18 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  AI_PROVIDER_LABEL,
   BOTKYRKA_CONFIG,
   ContractConfigSchema,
   DEFAULT_ORG_SETTINGS,
   KK_CONFIG,
   OperationalConfigSchema,
   OrgSettingsSchema,
+  RECORDING_KINDS,
   UNSET,
   UNSET_LABEL,
+  aiLanguages,
+  aiProviderText,
   buyerRefLengthText,
   buyerRefPattern,
   configValueText,
@@ -22,6 +26,8 @@ import {
   progressionAreas,
   progressionScaleLabel,
   purchaseOrderPattern,
+  recordingEnabled,
+  recordingMaxMinutes,
   requireOperational,
   slaRule,
   slaWithin,
@@ -66,10 +72,28 @@ function protoContractNotes(): Record<"c-bot" | "c-kk", { termination: string; s
 describe("avtalskonfigurationen – samma värden som den gamla prototypen", () => {
   const notes = protoContractNotes();
   it("Botkyrka är exakt prototypens CONFIG_BOT, plus avtalstexterna (CONTRACT_NOTES) som flyttats in i konfigurationen", () => {
-    const { texts, ...rest } = BOTKYRKA_CONFIG;
-    expect(rest).toStrictEqual(proto.seedConstants.CONFIG_BOT);
+    // Avvikelser (beslut 2026-09-30, röstinspelning): ai-avsnittet och customerVisibility.seesParticipantVoiceNotes – se nästa test.
+    const { texts, ai, customerVisibility, ...rest } = BOTKYRKA_CONFIG;
+    const { ai: protoAi, customerVisibility: protoVisibility, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
+    expect(rest).toStrictEqual(protoRest);
+    const { seesParticipantVoiceNotes, ...visibility } = customerVisibility;
+    expect(visibility).toStrictEqual(protoVisibility);
+    expect(seesParticipantVoiceNotes).toBe(false);
+    expect(ai.recordingApprovedByCustomer).toBe((protoAi as { recordingApprovedByCustomer: string }).recordingApprovedByCustomer);
     expect(texts).toStrictEqual(notes["c-bot"]);
     expect(texts?.scope).toBe("Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.");
+  });
+  it("Botkyrka: AI via Vertex AI EU och alla tre inspelningsflödena påslagna (beslut 2026-09-30)", () => {
+    expect(BOTKYRKA_CONFIG.ai).toStrictEqual({
+      provider: "vertex_eu",
+      recordingApprovedByCustomer: "2026-09-29",
+      recording: { coach: true, customer: true, participant: true, approvedByCustomerOn: "2026-09-30" },
+      maxMinutes: { coach: 60, customer: 5, participant: 5 },
+      languages: ["sv", "en", "ar", "so"],
+      participantLinkValidDays: 7,
+    });
+    // Samma språk som pulsmätningen.
+    expect(BOTKYRKA_CONFIG.ai.languages).toEqual(BOTKYRKA_CONFIG.pulse.languages);
   });
   it("Kammarkollegiet är prototypens CONFIG_KK med priserna i öre, plus avtalstexterna", () => {
     const kk = proto.seedConstants.CONFIG_KK;
@@ -169,7 +193,8 @@ describe("ATT_FASTSTÄLLA", () => {
     expect(unsetHint(BOTKYRKA_CONFIG.customerVisibility.scope)).toBe("Alternativ: egna ärenden, enhetens ärenden eller alla");
     expect(unsetHint(BOTKYRKA_CONFIG.retention)).toBe("Fastställs enligt PUB-avtalet");
     expect(unsetHint(BOTKYRKA_CONFIG.bonus.model)).toBe("Fastställs enligt incitamentsmodellen");
-    expect(unsetHint(BOTKYRKA_CONFIG.ai.provider)).toBe("Berget AI eller Gemini via Vertex AI EU");
+    expect(unsetHint("ATT_FASTSTÄLLA (Berget AI eller Gemini via Vertex AI EU – väljs genom test)")).toBe("Berget AI eller Gemini via Vertex AI EU");
+    expect(unsetHint(BOTKYRKA_CONFIG.ai.provider)).toBeNull(); // fastställd 2026-09-30
     expect(unsetHint(BOTKYRKA_CONFIG.result.definition)).toBeNull();
     expect(unsetHint("Fastställt")).toBeNull();
   });
@@ -185,7 +210,6 @@ describe("ATT_FASTSTÄLLA", () => {
       "attendance.sameDayNoticeOnInvalidAbsence",
       "bonus.model",
       "retention",
-      "ai.provider",
     ]);
     expect(unsetPaths(KK_CONFIG)).toEqual([]);
   });
@@ -243,6 +267,66 @@ describe("hjälpare", () => {
     expect(BOTKYRKA_CONFIG.penalties.deviationOre).toBe(2_500_000);
     expect(BOTKYRKA_CONFIG.warningsBeforeTermination).toBe(3);
     expect(BOTKYRKA_CONFIG.escalationLadder.map((s) => s.level)).toEqual(["mindre", "större", "allvarlig", "allvarlig", "hävning"]);
+  });
+});
+
+describe("AI och röstinspelning (ai)", () => {
+  const withAi = (patch: Record<string, unknown>) => ({ ...BOTKYRKA_CONFIG, ai: { ...BOTKYRKA_CONFIG.ai, ...patch } });
+  const recording = (patch: Record<string, unknown>) => withAi({ recording: { ...BOTKYRKA_CONFIG.ai.recording, ...patch } });
+
+  it("Botkyrka: alla tre flödena påslagna, med maxlängd per flöde", () => {
+    for (const kind of RECORDING_KINDS) expect(recordingEnabled(BOTKYRKA_CONFIG, kind), kind).toBe(true);
+    expect(RECORDING_KINDS.map((k) => recordingMaxMinutes(BOTKYRKA_CONFIG, k))).toEqual([60, 5, 5]);
+    expect(aiLanguages(BOTKYRKA_CONFIG)).toEqual(["sv", "en", "ar", "so"]);
+    expect(aiProviderText(BOTKYRKA_CONFIG)).toBe(AI_PROVIDER_LABEL.vertex_eu);
+    expect(aiProviderText(BOTKYRKA_CONFIG)).toBe("Gemini Flash via Google Cloud Vertex AI (EU)");
+  });
+
+  it("Kammarkollegiet: allt avstängt (inget ai-avsnitt)", () => {
+    expect(KK_CONFIG.ai).toBeUndefined();
+    for (const kind of RECORDING_KINDS) {
+      expect(recordingEnabled(KK_CONFIG, kind), kind).toBe(false);
+      expect(recordingMaxMinutes(KK_CONFIG, kind), kind).toBeNull();
+    }
+    expect(aiLanguages(KK_CONFIG)).toEqual(["sv"]);
+    expect(aiProviderText(KK_CONFIG)).toBe("–");
+    expect(recordingEnabled(null, "coach")).toBe(false);
+  });
+
+  it("varje flöde kan slås av för sig, och inget flöde är på utan fastställd leverantör", () => {
+    const noParticipant = ContractConfigSchema.parse(recording({ participant: false }));
+    expect(RECORDING_KINDS.map((k) => recordingEnabled(noParticipant, k))).toEqual([true, true, false]);
+    const unsetProvider = ContractConfigSchema.parse(withAi({ provider: "ATT_FASTSTÄLLA (väljs genom test)" }));
+    expect(RECORDING_KINDS.map((k) => recordingEnabled(unsetProvider, k))).toEqual([false, false, false]);
+    expect(aiProviderText(unsetProvider)).toBe("Ej fastställt");
+    expect(unsetPaths(unsetProvider)).toContain("ai.provider");
+  });
+
+  it("tål en äldre sparad konfiguration (före röstinspelningen) – då är inspelning avstängd", () => {
+    const old = { ai: { provider: "ATT_FASTSTÄLLA (Berget AI eller Gemini via Vertex AI EU – väljs genom test)", recordingApprovedByCustomer: "2026-09-29" } } as never;
+    for (const kind of RECORDING_KINDS) expect(recordingEnabled(old, kind)).toBe(false);
+    expect(aiLanguages(old)).toEqual(["sv"]);
+    // Men den gamla formen godkänns inte längre av schemat (flödena, maxlängden och språken krävs).
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, ...(old as object) }).success).toBe(false);
+  });
+
+  it("stoppar felaktiga AI-avsnitt", () => {
+    const bad: unknown[] = [
+      withAi({ provider: "ai_studio" }), // aldrig AI Studio eller global endpoint
+      withAi({ provider: "gemini_global" }),
+      recording({ approvedByCustomerOn: null }), // inspelning kräver kommunens skriftliga godkännande
+      withAi({ languages: ["en", "ar"] }), // svenska måste finnas
+      withAi({ languages: ["sv", "sv"] }),
+      withAi({ languages: ["svenska"] }),
+      withAi({ maxMinutes: { coach: 0, customer: 5, participant: 5 } }),
+      withAi({ maxMinutes: { coach: 60, customer: 5 } }),
+      withAi({ participantLinkValidDays: 0 }),
+      withAi({ extra: true }),
+      recording({ teams: true }),
+    ];
+    for (const b of bad) expect(ContractConfigSchema.safeParse(b).success, JSON.stringify((b as { ai: unknown }).ai).slice(0, 120)).toBe(false);
+    // Allt avstängt behöver inget godkännande.
+    expect(ContractConfigSchema.safeParse(recording({ coach: false, customer: false, participant: false, approvedByCustomerOn: null })).success).toBe(true);
   });
 });
 

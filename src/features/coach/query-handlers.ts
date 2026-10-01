@@ -7,7 +7,7 @@ import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
 import { phaseSince, stuck } from "@/core/cases";
-import { isOperational, isUnset, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
+import { isOperational, isUnset, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
@@ -23,6 +23,8 @@ import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
+import { RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
+import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
   type CaseHead, type CasePickerRow, type CheckInView, type CoachGate, type CoachSla, type MinVeckaView, type NarvaroReport, type NarvaroRow,
@@ -446,6 +448,11 @@ handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
     phaseSince: phaseSince(c, db),
     seesCoachNotes: !!env.cfg.customerVisibility.seesCoachNotes,
     options: { activityTypes: [...ACTIVITY_TYPES], obstacles: [...OBSTACLES], goalsByPhase: Object.fromEntries(Object.entries(GOALS).map(([k, v]) => [Number(k), [...v]])) },
+    // Röstinspelning: avtalet (ai.recording.coach), skyddade personuppgifter och samtycket – samma regel som rost.uploadStart.
+    recording: (() => {
+      const block = recordingBlock({ cfg: env.cfg, kind: "coach", person, consent: c.aiConsentStatus });
+      return { allowed: !block, block, blockText: block ? RECORDING_BLOCK_TEXT[block] : null, maxMinutes: recordingMaxMinutes(env.cfg, "coach") ?? 0 };
+    })(),
   };
 });
 
@@ -549,8 +556,21 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     dueAt: due,
     dueNote: monthDueNote(env.cfg),
     goals: [...(GOALS[Math.min(5, c.phase)] ?? [])],
+    aiDraft: aiOk ? await latestMonthlyDraft(ctx, c.id, month) : null,
   };
 });
+
+/** Senaste AI-utkastet för månaden (coach.monthlyDraft) – körningen i ai_runs (inputRef = månaden). */
+async function latestMonthlyDraft(ctx: Ctx, caseId: string, month: MonthKey) {
+  const runs = (await ctx.repo.table("ai_runs").list({ caseId, kind: "monthly_draft" })).filter((r) => r.inputRef === month);
+  const run = runs.sort(by("createdAt")).pop();
+  if (!run) return null;
+  const out = run.status === "succeeded" ? (run.output as MonthlyDraftOutput | null) : null;
+  const draft = (d: MonthlyDraftOutput["plan"] | undefined) => (d ? { text: d.text, sources: [...d.sources], noEvidence: d.noEvidence } : null);
+  return {
+    aiRunId: run.id, status: run.status, error: aiRunError(run)?.text ?? null, createdAt: run.createdAt, plan: draft(out?.plan), summary: draft(out?.summary),
+  };
+}
 
 // ================================================================ Kartläggning
 handleQuery(intakePage, { roles: ["coach"] }, async (ctx, p) => {

@@ -2,7 +2,7 @@
 // Port av den gamla prototypens prototyp/tools/test-ledning.mjs – samma steg, men data läses via skärmen (det finns ingen MM).
 // Varje test öppnar en ny sida med nollställd prototyp. Siffrorna är den gamla prototypens för testdatat (1 feb 2027 kl. 09.12).
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, open, switchPersona } from "./helpers";
 
 const CHEF = { userId: "u-karin", role: "chef" };
 const COACH = { userId: "u-amira", role: "coach" };
@@ -26,7 +26,7 @@ async function switchUser(page: Page, info: TestInfo, to: string, as: { userId: 
     await page.goto(`http://proto.test/index.html#${to}`);
     await page.reload();
   } else {
-    await page.request.post("/api/dev-session", { data: as });
+    await switchPersona(page, as);
     await page.goto(to);
   }
 }

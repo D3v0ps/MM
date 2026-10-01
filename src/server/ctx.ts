@@ -4,10 +4,16 @@
 //   newId   `${prefix}-${uuid}`                 audit   insert i audit_log via system
 //   notify  enqueueMessage() i src/server/notify (skickas in, så att modulen går att testa utan servern)
 //   crypto  personnummer: AES-256-GCM och HMAC-SHA256 (src/server/crypto.ts, skickas in av live.ts)
-import type { AuditEntry, Ctx, OutgoingMessage, PnrCrypto } from "@/api/server";
+//   ai      AI-leverantören (src/server/ai: Vertex AI EU eller simulerad) – saknas när AI är avstängd
+//   audio   ljudfilerna i Supabase Storage (src/server/audio) – byggs med förfrågans system, klocka och id
+//   jobs    kön för bakgrundsjobb: schedule() kör jobben med after() när svaret skickats (röstjobben, voice-jobs.ts)
+import type { AuditEntry, OutgoingMessage, PnrCrypto } from "@/api/server";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import type { AppRepo } from "@/data/schema";
+import type { AiPort } from "@/features/_shared/ai-port";
+import type { AudioPort } from "@/features/_shared/audio-port";
+import type { CtxWithJobs, JobKick } from "@/features/_shared/voice-jobs";
 
 export type Enqueue = (system: AppRepo, msg: OutgoingMessage, now: LocalDateTime) => Promise<unknown>;
 
@@ -37,11 +43,28 @@ export function liveCtx(o: {
   newId?: (prefix: string) => string;
   /** Personnummer (src/server/crypto.ts). Utelämnas bara i tester – då stoppas allt som rör personnummer. */
   crypto?: PnrCrypto;
-}): Ctx {
+  /** AI-leverantören. Utelämnas när AI är avstängd (requireAi ger då ett begripligt fel och den manuella vägen gäller). */
+  ai?: AiPort;
+  /** Ljudlagringen, byggd med förfrågans system, klocka och id (src/server/audio). */
+  audio?: (d: { system: AppRepo; now: () => LocalDateTime; newId: (prefix: string) => string }) => AudioPort;
+  /** Kör köade bakgrundsjobb snart (after()). Anropas högst en gång per förfrågan även om flera jobb läggs. */
+  scheduleJobs?: () => void;
+}): CtxWithJobs {
   const newId = o.newId ?? randomId;
+  const now = () => o.now;
+  let scheduled = false;
+  const jobs: JobKick | undefined = o.scheduleJobs
+    ? {
+        schedule: () => {
+          if (scheduled) return;
+          scheduled = true;
+          o.scheduleJobs?.();
+        },
+      }
+    : undefined;
   return {
     actor: o.actor,
-    now: () => o.now,
+    now,
     repo: o.repo,
     system: o.system,
     newId,
@@ -62,5 +85,8 @@ export function liveCtx(o: {
       await o.enqueue(o.system, m, o.now);
     },
     crypto: o.crypto ?? NO_PNR_CRYPTO,
+    ...(o.ai ? { ai: o.ai } : {}),
+    ...(o.audio ? { audio: o.audio({ system: o.system, now, newId }) } : {}),
+    ...(jobs ? { jobs } : {}),
   };
 }

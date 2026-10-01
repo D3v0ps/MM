@@ -7,6 +7,8 @@ import { KartlaggningScreen } from "./screens/kartlaggning";
 import { ManadsbedomningScreen } from "./screens/manadsbedomning";
 import { MinVeckaScreen } from "./screens/min-vecka";
 import { NarvaroScreen } from "./screens/narvaro";
+// Området röst (deltagarens länk /rost/:token). TILLFÄLLIGT här – hör hemma i src/shell/route-table.ts (...rost), som ägs av samordnaren.
+import { routes as rost } from "@/features/rost/routes";
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
@@ -26,4 +28,5 @@ export const routes: RouteDef[] = [
   },
   { path: "/kartlaggning/:caseId?", title: "Kartläggning", roles: ["coach"], area: "mb", screen: KartlaggningScreen },
   { path: "/handelse/:caseId?", title: (_p, q) => (q.get("lage") === "avslut" ? "Avsluta insatsen" : "Registrera händelse"), roles: ["coach"], area: "mb", screen: HandelseScreen },
+  ...rost,
 ];

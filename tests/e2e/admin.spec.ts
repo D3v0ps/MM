@@ -3,7 +3,7 @@
 // finns i puls.spec.ts och praktik.spec.ts. Varje test börjar med nollställda testdata; data läses via skärmen.
 // Det som prototypen kontrollerade i sitt interna tillstånd (MM.store) kontrolleras här i vyerna (t.ex. revisionsloggen).
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, loaded, open, switchPersona } from "./helpers";
 
 type Who = { userId: string; role: string };
 const ROBIN: Who = { userId: "u-robin", role: "admin" };
@@ -33,9 +33,9 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
     await page.evaluate((a) => localStorage.setItem("miljonmatch-prototyp-v2-persona", JSON.stringify(a)), who);
     await page.goto(`http://proto.test/index.html#${to}`);
   } else {
-    const res = await page.request.post("/api/dev-session", { data: who });
-    expect(res.ok()).toBeTruthy();
+    await switchPersona(page, who);
     await page.goto(to);
+    await loaded(page);
   }
   await expect(main(page)).toBeVisible();
 }
@@ -57,7 +57,7 @@ async function runAs(page: Page, info: TestInfo, who: Who, key: string, input: u
       { key, input, actor: ACTOR[who.userId] },
     );
   } else {
-    expect((await page.request.post("/api/dev-session", { data: who })).ok()).toBeTruthy();
+    await switchPersona(page, who);
     const res = await page.request.post("/api/rpc", { data: { kind: "command", key, input } });
     expect(res.ok()).toBeTruthy();
     expect((await res.json()).result.ok).toBe(true);

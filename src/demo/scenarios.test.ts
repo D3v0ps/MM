@@ -46,10 +46,11 @@ describe("demo.refs – uppslag av taggade ärenden", () => {
 });
 
 describe("scenariernas steg -> sökvägar", () => {
-  it("13 scenarier med 47 steg i den gamla prototypens ordning (s13 före s12)", () => {
-    expect(SCENARIOS.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s13", "s12"]);
-    expect(TOTAL_STEPS).toBe(47);
+  it("den gamla prototypens 13 scenarier (47 steg, s13 före s12) och röstinspelningen (s14, 6 steg) sist", () => {
+    expect(SCENARIOS.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s13", "s12", "s14"]);
+    expect(TOTAL_STEPS).toBe(53);
     expect(scenarioNumber("s12")).toBe(13);
+    expect(scenarioNumber("s14")).toBe(14);
   });
 
   it("varje steg har rätt roll och sökväg", async () => {
@@ -75,6 +76,10 @@ describe("scenariernas steg -> sökvägar", () => {
       s11: ["deltagare /puls", "chef /ledning?flik=puls"],
       s13: ["samordnare /inkorg/em-106", "coach /notiser", "chef /notiser", "chef /ledning", "admin /admin/avtal?flik=interna"],
       s12: ["admin /admin/avtal", "admin /admin/avtal?avtal=c-kk&flik=jamfor", "admin /om/fragor"],
+      s14: [
+        "coach /avstamning/case-260143", "coach /arenden/case-260143", "deltagare /rost", "coach /min-vecka", "kommun_handlaggare /portal/bestall",
+        "coach /manadsbedomning/case-260143?manad=2027-01",
+      ],
     });
   });
 });

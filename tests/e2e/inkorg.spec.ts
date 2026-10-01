@@ -3,7 +3,7 @@
 // Varje test börjar med nollställda testdata; steg som byggde på varandra i det gamla testet gör förarbetet själva
 // (samma åtgärder i gränssnittet), och flödet i sin helhet körs i testet "hela flödet".
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, open, switchPersona } from "./helpers";
 
 type Who = { userId: string; role: string };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
@@ -26,8 +26,7 @@ async function goAs(page: Page, info: TestInfo, who: Who, to: string) {
     await page.goto(`http://proto.test/index.html#${to}`);
     await page.reload();
   } else {
-    const res = await page.request.post("/api/dev-session", { data: who });
-    expect(res.ok()).toBeTruthy();
+    await switchPersona(page, who);
     await page.goto(to);
   }
 }
@@ -41,7 +40,7 @@ async function commandAs(page: Page, info: TestInfo, actor: typeof MARIA, key: s
       localStorage.setItem(k, JSON.stringify(log));
     }, [LOG_KEY, JSON.stringify({ key, input, actor })] as const);
   } else {
-    await page.request.post("/api/dev-session", { data: { userId: actor.userId, role: actor.role } });
+    await switchPersona(page, { userId: actor.userId, role: actor.role });
     const res = await page.request.post("/api/rpc", { data: { kind: "command", key, input } });
     expect(res.ok()).toBeTruthy();
   }

@@ -28,6 +28,8 @@ import {
 } from "./api";
 import { deliveredOk, komCase, komContext, komMessage, protectedFlags, reportRow, senderLabel, viewerFor, visibleCases } from "./load";
 import { fD, NOTIFY_FROM, reportTitle } from "./texts";
+// "Tala in" (röstinspelning): beställningens bakgrund och meddelanden.
+import "./voice-handlers";
 
 const HANDL: readonly Role[] = ["kommun_handlaggare"];
 const BOTH: readonly Role[] = ["kommun_handlaggare", "kommun_chef"];

@@ -163,7 +163,7 @@ export function bootstrapSql(data: MemoryData<Tables> = seedData()): string {
   const parts: string[] = [
     "-- Startdata för testmiljön (staging): bara påhittade uppgifter och testarna Karim och Ali.",
     "-- GENERERAD av scripts/db/generate-bootstrap.ts (npx tsx scripts/db/generate-bootstrap.ts) – ändra inte för hand.",
-    "-- Kör efter migrationerna 0001–0010. Idempotent. Kör ALDRIG mot produktion (spärren nedan stoppar det).",
+    "-- Kör efter migrationerna 0001–0014. Idempotent. Kör ALDRIG mot produktion (spärren nedan stoppar det).",
     "-- Sedan: testaren loggar in och väljer \"Läs in testdata på nytt\" i adminvyn (resten av testdatat).",
     "",
     "set timezone to 'Europe/Stockholm';",

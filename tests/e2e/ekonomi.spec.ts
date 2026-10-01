@@ -3,8 +3,8 @@
 // Varje test börjar från nollställt testdata och gör själv de steg det bygger på.
 // Id:n och namn är testdatats (påhittade): case-260117/0121 har spärrad referens, case-260157 en vecka utan närvaro,
 // case-260131 överlappar BOT-27-0004, case-260132 har en pausad vecka, case-260143 är "Nadia Warsame".
-import { expect, test, type Locator, type Page } from "@playwright/test";
-import { open } from "./helpers";
+import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { isDemo, loaded, open } from "./helpers";
 
 const EKONOM = { userId: "u-lars", role: "ekonom" };
 const CHEF = { userId: "u-karin", role: "chef" };
@@ -55,6 +55,19 @@ async function fixRef1(page: Page) {
   await page.locator("#eko-search").fill("");
 }
 
+/**
+ * Gå till en annan sida utan att nollställa det testet gjort. Prototypen: hash-adressen (kommandologgen finns kvar i
+ * webbläsaren). Appen: riktig adress (testdatat finns kvar på servern) och vänta tills sidan laddat klart.
+ */
+async function go(page: Page, info: TestInfo, to: string) {
+  if (isDemo(info)) {
+    await page.goto(page.url().replace(/#.*$/, `#${to}`));
+    return;
+  }
+  await page.goto(to);
+  await loaded(page);
+}
+
 const count = async (tab: Locator) => Number((await tab.innerText()).replace(/\D/g, "") || "0");
 
 test("1. startsidan som ekonom", async ({ page }, info) => {
@@ -92,7 +105,9 @@ test("2. körningen januari: regler och rätta stoppad faktura i radens detalj",
   expect(t).toMatch(/december 2026/);
   expect(t).toContain("Samlingsfakturor är inte tillåtna");
   expect(t).toContain("(8–10 siffror)");
-  expect(t).toContain("prislistans spann (1 323–1 668 kr per vecka)");
+  // Prototypens förklaring (DemoNote) att priserna är exempel – visas inte i appen.
+  if (isDemo(info)) expect(t).toContain("prislistans spann (1 323–1 668 kr per vecka)");
+  else expect(t).not.toContain("prislistans spann");
   expect(await kpiOverflow(page)).toBe(0);
 
   await page.getByRole("tab", { name: /Stoppade/ }).click();
@@ -209,15 +224,25 @@ test("5. masshandlingar: godkänn alla, skapa i Fortnox, idempotens och statussy
 
 test("6 och 8. reservväg: CSV-export och manuellt fakturerad, ekonomens ärendevy", async ({ page }, info) => {
   const errors = await openEko(page, info, "/ekonomi/2027-01", EKONOM, "Fakturor januari 2027");
-  await page.getByRole("button", { name: "Exportera underlag (CSV)" }).click();
-  const area = page.locator("#text-dialog-area");
-  await expect(area).toBeVisible();
-  const csv = await area.inputValue();
+  // Prototypen visar filens innehåll i en textruta; appen laddar ner filen.
+  let csv = "";
+  if (isDemo(info)) {
+    await page.getByRole("button", { name: "Exportera underlag (CSV)" }).click();
+    const area = page.locator("#text-dialog-area");
+    await expect(area).toBeVisible();
+    csv = await area.inputValue();
+    await closeDialog(page);
+  } else {
+    const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Exportera underlag (CSV)" }).click()]);
+    expect(dl.suggestedFilename()).toMatch(/\.csv$/);
+    expect(dl.suggestedFilename()).not.toMatch(/Nadia|Warsame/);
+    const fs = await import("node:fs");
+    csv = fs.readFileSync((await dl.path())!, "utf8").replace(/^\uFEFF/, "");
+  }
   expect(csv.startsWith("Ärendenummer (faktureringsobjekt);")).toBe(true);
   expect(csv).toContain("BOT-26-0143");
   expect(csv).not.toContain("Nadia");
   expect(csv).not.toContain("Warsame");
-  await closeDialog(page);
 
   await page.getByRole("button", { name: "Markera som manuellt fakturerad" }).click();
   const d = dialog(page);
@@ -233,7 +258,7 @@ test("6 och 8. reservväg: CSV-export och manuellt fakturerad, ekonomens ärende
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // 8. Ekonomens ärendevy
-  await page.goto(page.url().replace(/#.*$/, `#/ekonomi/arende/${NADIA}`));
+  await go(page, info, `/ekonomi/arende/${NADIA}`);
   await expect(main(page)).toContainText("Debiterbara veckor per månad");
   const t = await mainText(page);
   expect(t).not.toContain("Nadia");
@@ -243,7 +268,7 @@ test("6 och 8. reservväg: CSV-export och manuellt fakturerad, ekonomens ärende
   await expect(jan).toContainText("Manuellt fakturerad");
   await expect(jan).toContainText("20417");
 
-  await page.goto(page.url().replace(/#.*$/, "#/ekonomi/arende"));
+  await go(page, info, "/ekonomi/arende");
   await expect(main(page)).toContainText("Sök ärendenummer");
   await page.locator("#eko-case-search").fill("0143");
   await expect(page.getByRole("table", { name: "Ärenden" }).locator("tbody tr")).toHaveCount(1);
@@ -284,7 +309,7 @@ test("7b. returnerad decemberfaktura: veckorna räknas och benämns lika i faktu
   expect(t).toContain("Faktureras om");
   expect(t.toLowerCase()).toContain("upparbetat och återstående");
 
-  await page.goto(page.url().replace(/#.*$/, `#/ekonomi/arende/${REFFEL2}`));
+  await go(page, info, `/ekonomi/arende/${REFFEL2}`);
   await expect(main(page)).toContainText("Debiterbara veckor per månad");
   t = await mainText(page);
   expect(t).toMatch(/Fakturerat\s*0\s*kr/i);
@@ -297,7 +322,7 @@ test("7b. returnerad decemberfaktura: veckorna räknas och benämns lika i faktu
 test("9. startsidan: uppgift, rätta i båda ärendena, kreditera returnerade", async ({ page }, info) => {
   const errors = await openEko(page, info, "/ekonomi/2027-01", EKONOM, "Fakturor januari 2027");
   await fixRef1(page);
-  await page.goto(page.url().replace(/#.*$/, "#/ekonomi"));
+  await go(page, info, "/ekonomi");
   await expect(main(page)).toContainText("Uppgifter till dig");
   const tasks = card(page, "Uppgifter till dig");
   await tasks.getByRole("button", { name: "Rätta referensen" }).click();
@@ -325,14 +350,14 @@ test("9. startsidan: uppgift, rätta i båda ärendena, kreditera returnerade", 
   await expect(tasks).toContainText("Klar 1 feb");
 
   // 9b. Efter omfakturering räknas decemberveckorna som fakturerade
-  await page.goto(page.url().replace(/#.*$/, `#/ekonomi/2027-01/faktura/${REFFEL2}`));
+  await go(page, info, `/ekonomi/2027-01/faktura/${REFFEL2}`);
   await expect(main(page)).toContainText("Fältmappning");
   const ftext = ((await mainText(page)).match(/Beställning BOT-26-0121:[^\n]*/) ?? [""])[0];
   expect(ftext).toContain("Tidigare fakturerat: 5 veckor");
   expect(ftext).not.toContain("Returnerad faktura");
 
   // 11. Tillståndet spelas upp igen efter omladdning
-  await page.goto(page.url().replace(/#.*$/, "#/ekonomi"));
+  await go(page, info, "/ekonomi");
   await page.reload();
   await expect(card(page, "Uppgifter till dig")).toContainText("Klar 1 feb");
   await expect(card(page, "Returnerade fakturor")).toContainText("räknas nu som fakturerade");

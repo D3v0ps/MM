@@ -3,6 +3,8 @@
 import type { AppRepo } from "@/data/schema";
 import { PolicyError } from "@/data/repo";
 import type { LocalDateTime } from "@/core/time";
+import type { AiPort } from "@/features/_shared/ai-port";
+import type { AudioPort } from "@/features/_shared/audio-port";
 import type { CommandDef, QueryDef } from "./contract";
 import type { Actor, Role } from "./roles";
 
@@ -49,6 +51,17 @@ export type Ctx = {
   notify(msg: OutgoingMessage): Promise<void>;
   /** Personnummer: kryptera, dekryptera ("Visa", loggas av hanteraren) och sökhash (dubblettkontrollen). */
   crypto: PnrCrypto;
+  /**
+   * AI-stödet (SPEC §8.3, src/features/_shared/ai-port.ts): transcribe, extract, draft, translate. Minnesläget: simulerad AI.
+   * Supabase-läget: leverantören i MM_AI_PROVIDER (src/server/ai). Hämtas med requireAi(ctx) – saknas den blir det ett
+   * begripligt fel och den manuella vägen gäller. Aldrig för skyddade personuppgifter eller utan samtycke (recordingBlock).
+   */
+  ai?: AiPort;
+  /**
+   * Ljudlagringen för röstinspelning (src/features/_shared/audio-port.ts): createUpload, confirm, read, mark, remove.
+   * Minnesläget: ljud i minnet. Supabase-läget: privat bucket "ljud" i Stockholm (src/server/audio). Hämtas med requireAudio(ctx).
+   */
+  audio?: AudioPort;
 };
 
 type Handler = (ctx: Ctx, input: unknown) => Promise<unknown>;

@@ -199,6 +199,42 @@ export type AiRunResult = {
   rawTranscriptDeleteBy: string | null;
 };
 
+// ---- Röstinspelning (docs/PLAN-ROST.md): coachen spelar in avstämningen eller laddar upp en ljudfil
+// Flödet: rost.uploadStart (behörighet, avtal, samtycke) -> webbläsaren laddar upp ljudet (appen) -> coach.recordingFinish
+// (transkribering -> ljudet raderas -> förslag med belägg) -> coach.recordingState tills förslagen är klara (appen).
+// Förslagen granskas i samma formulär som coach.aiRun och sparas med checkinSave (aiRunId).
+
+/** Läget för coachens inspelning. result = förslagen (samma form som coach.aiRun) när transkriberingen är klar. */
+export type RecordingState = {
+  aiRunId: string;
+  status: "running" | "succeeded" | "failed";
+  /** Fast text utan personuppgifter när körningen misslyckades. */
+  error: string | null;
+  audioDeletedAt: string | null;
+  result: AiRunResult | null;
+};
+/**
+ * Inspelningen (eller ljudfilen) är uppladdad: bekräfta den och starta transkriberingen (jobbet transcribe_recording).
+ * Kräver registrerat samtycke och aldrig skyddade personuppgifter – kontrolleras här och igen när jobbet körs.
+ * checkInId: ett sparat avstämningsutkast som förslagen också ska in i (om coachen lämnar sidan innan de är klara).
+ */
+export const recordingFinish = command("coach.recordingFinish", z.object({
+  caseId: IdSchema,
+  uploadId: IdSchema,
+  source: z.enum(["recording", "upload"]),
+  checkInId: IdSchema.nullish(),
+  durationSec: z.number().min(0).max(86_400).nullish(),
+})).returns<Result<RecordingState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
+export const recordingState = query("coach.recordingState", z.object({ aiRunId: IdSchema })).returns<RecordingState | null>();
+
+/**
+ * AI-utkast till månadsbedömningen: observation per progressionsområde, sammanfattning och plan – BARA från månadens
+ * godkända avstämningar och registrerad närvaro (jobbet draft_monthly). Nivåer och samlad status sätts aldrig.
+ */
+export const monthlyDraft = command("coach.monthlyDraft", z.object({ caseId: IdSchema, month: MonthKeySchema })).returns<
+  Result<{ aiRunId: string; status: "running" | "succeeded" | "failed"; error: string | null }, "not_found" | "forbidden" | "ai_not_allowed" | "approved">
+>();
+
 // ================================================================ Frågor för coachens skärmar
 // En fråga per skärm (och några små för delar som ändras med formuläret). Resultatet är en vy-modell med bara det skärmen
 // visar. Ärendevyerna returnerar { kind: "gate" } när rollen inte får arbeta i ärendet (prototypens gate()).
@@ -397,6 +433,11 @@ export type CheckInPage = Gated<{
   phaseSince: LocalDate | null;
   seesCoachNotes: boolean;
   options: { activityTypes: string[]; obstacles: string[]; goalsByPhase: Record<number, string[]> };
+  /**
+   * Coachens inspelning i avtalet (ai.recording.coach): får inspelning göras i ärendet, längsta tid och varför inte
+   * (avtalet, skyddade personuppgifter, samtycke saknas). Den manuella vägen fungerar alltid.
+   */
+  recording: { allowed: boolean; block: "disabled" | "protected" | "no_consent" | null; blockText: string | null; maxMinutes: number };
 }>;
 export const checkInPage = query("coach.checkInPage", z.object({ caseId: IdSchema, checkInId: IdSchema.optional() })).returns<CheckInPage>();
 
@@ -463,6 +504,18 @@ export type AssessmentPage = Gated<{
   dueAt: LocalDateTime;
   dueNote: string;
   goals: string[];
+  /**
+   * Senaste AI-utkastet för månaden (coach.monthlyDraft): läget, när det skapades och utkastet till planen med källor.
+   * Utkasten per område och sammanfattningen visas i areas (aiObservationDraft) och assessment.aiSummaryDraft.
+   */
+  aiDraft: {
+    aiRunId: string;
+    status: "running" | "succeeded" | "failed";
+    error: string | null;
+    createdAt: LocalDateTime;
+    plan: { text: string; sources: string[]; noEvidence: boolean } | null;
+    summary: { text: string; sources: string[]; noEvidence: boolean } | null;
+  } | null;
 }>;
 export const assessmentPage = query("coach.assessmentPage", z.object({ caseId: IdSchema, month: MonthKeySchema.optional() })).returns<AssessmentPage>();
 

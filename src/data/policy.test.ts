@@ -346,6 +346,85 @@ describe("skrivregler", () => {
   });
 });
 
+describe("röstinspelning: länkar, deltagarens röstmeddelanden och ljudfiler", () => {
+  const fresh = () => new MemoryStore<Tables>(createSeed());
+  const ids = async (actor: Actor, name: "voice_links" | "participant_voice_notes" | "audio_uploads", s = store) =>
+    (await repoFor(actor, s).table(name).list()).map((r) => r.id).sort();
+  const protectedCase = all("cases").find((c) => all("persons").find((p) => p.id === c.personId)?.protectedIdentity)!;
+  const link = (id: string, caseId: string, createdBy: string): Tables["voice_links"] => ({
+    id, caseId, tokenHash: `hash-${id}`, channel: "sms", language: "sv", sentAt: "2027-02-01T09:13", expiresAt: "2027-02-08T09:13", usedAt: null, createdBy,
+  });
+
+  it("coachen och teamet läser röstmeddelandena i sina ärenden – aldrig ekonomen, andra coacher eller kommunen", async () => {
+    expect(await ids(AMIRA, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
+    expect(await ids(AMIRA, "voice_links")).toEqual(["vl-demo", "vl-nadia", "vl-yusuf"]);
+    // Petra är handledare i Nadias team men inte i Yusufs
+    expect(await ids(PETRA, "participant_voice_notes")).toEqual(["pvn-nadia"]);
+    for (const a of [LARS, ERIK, MARIA, EVA, DELTAGARE]) {
+      expect([a.userId, await ids(a, "participant_voice_notes")]).toEqual([a.userId, []]);
+      expect([a.userId, await ids(a, "voice_links")]).toEqual([a.userId, []]);
+    }
+    // Samordnare och avtalsansvarig ser allt i avtalet (full åtkomst), chefen i läsläge
+    expect(await ids(SARA, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
+    expect(await ids(KARIN, "voice_links")).toEqual(["vl-demo", "vl-nadia", "vl-yusuf"]);
+  });
+
+  it("kommunen läser granskade röstmeddelanden bara om avtalet säger det", async () => {
+    const s = fresh();
+    const bot = s.getRow("contracts", "c-bot")!;
+    s.updateRow("contracts", "c-bot", { config: { ...bot.config, customerVisibility: { ...bot.config.customerVisibility!, seesParticipantVoiceNotes: true } } });
+    // Yusufs röstmeddelande är granskat, Nadias väntar – båda i Marias ärenden
+    expect(await ids(MARIA, "participant_voice_notes", s)).toEqual(["pvn-yusuf"]);
+    expect(await ids(EVA, "participant_voice_notes", s)).toEqual(["pvn-yusuf"]);
+    expect(await ids(who("k-ahmed"), "participant_voice_notes", s)).toEqual([]);
+    expect(await ids(LARS, "participant_voice_notes", s)).toEqual([]);
+    // Länkar och ljudfiler ser kommunen fortfarande inte
+    expect(await ids(MARIA, "voice_links", s)).toEqual([]);
+    expect(await ids(MARIA, "audio_uploads", s)).toEqual([]);
+  });
+
+  it("röstlänkar skapas av den som arbetar i ärendet – aldrig i skyddade ärenden, inte ens av namngiven coach", async () => {
+    const s = fresh();
+    const nadia = tagged("nadia");
+    await expect(repoFor(AMIRA, s).table("voice_links").insert(link("vl-a", nadia, "u-amira"))).resolves.toBeTruthy();
+    await expect(repoFor(SARA, s).table("voice_links").insert(link("vl-b", nadia, "u-sara"))).resolves.toBeTruthy();
+    expect(protectedCase.leadCoachId).toBe("u-erik");
+    await expect(repoFor(ERIK, s).table("voice_links").insert(link("vl-c", protectedCase.id, "u-erik"))).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(JOHAN, s).table("voice_links").insert(link("vl-d", protectedCase.id, "u-johan"))).rejects.toBeInstanceOf(PolicyError);
+    for (const a of [LARS, MARIA, KARIN, ROBIN, DELTAGARE]) {
+      await expect(repoFor(a, s).table("voice_links").insert(link(`vl-${a.userId}`, nadia, a.userId))).rejects.toBeInstanceOf(PolicyError);
+    }
+  });
+
+  it("granskningen ändrar bara status och görs i eget namn; nya röstmeddelanden sparas bara av systemet", async () => {
+    const s = fresh();
+    const t = () => repoFor(AMIRA, s).table("participant_voice_notes");
+    await expect(t().update("pvn-nadia", { textSv: "Ändrad" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t().update("pvn-nadia", { status: "reviewed", reviewedBy: "u-sara", reviewedAt: "2027-02-01T09:13" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t().update("pvn-nadia", { status: "reviewed", reviewedBy: "u-amira", reviewedAt: "2027-02-01T09:13" })).resolves.toMatchObject({ status: "reviewed" });
+    await expect(t().update("pvn-yusuf", { status: "archived" })).resolves.toMatchObject({ status: "archived" });
+    await expect(repoFor(LARS, s).table("participant_voice_notes").update("pvn-nadia", { status: "archived" })).rejects.toBeInstanceOf(PolicyError);
+    const note = { ...all("participant_voice_notes")[0], id: "pvn-ny" };
+    for (const a of [AMIRA, SARA, DELTAGARE]) await expect(repoFor(a, s).table("participant_voice_notes").insert(note)).rejects.toBeInstanceOf(PolicyError);
+  });
+
+  it("ljudfilernas rader: bara systemet skriver; den som spelat in och den som arbetar i ärendet läser läget", async () => {
+    const s = fresh();
+    expect(await ids(AMIRA, "audio_uploads")).toEqual(["aud-mehmet", "aud-pvn-nadia", "aud-pvn-yusuf"]);
+    expect(await ids(PETRA, "audio_uploads")).toEqual(["aud-mehmet", "aud-pvn-nadia"]);
+    for (const a of [LARS, MARIA, ERIK, DELTAGARE]) expect([a.userId, await ids(a, "audio_uploads")]).toEqual([a.userId, []]);
+    const u = all("audio_uploads").find((x) => x.id === "aud-mehmet")!;
+    for (const a of [AMIRA, ROBIN, MARIA]) {
+      await expect(repoFor(a, s).table("audio_uploads").update(u.id, { status: "uploaded", deletedAt: null })).rejects.toBeInstanceOf(PolicyError);
+      await expect(repoFor(a, s).table("audio_uploads").insert({ ...u, id: `aud-${a.userId}`, ownerId: a.userId })).rejects.toBeInstanceOf(PolicyError);
+    }
+    // Kommunens "Tala in": bara den som talade in läser raden
+    s.insertRow("audio_uploads", { ...u, id: "aud-diktat", caseId: tagged("nadia"), ownerId: "k-maria", purpose: "dictation", storagePath: "dictation/aud-diktat.webm" });
+    expect(await ids(MARIA, "audio_uploads", s)).toEqual(["aud-diktat"]);
+    expect(await ids(AMIRA, "audio_uploads", s)).not.toContain("aud-diktat");
+  });
+});
+
 describe("prestanda", () => {
   it("en coach listar alla aktiviteter och närvaro snabbt", async () => {
     const t0 = performance.now();

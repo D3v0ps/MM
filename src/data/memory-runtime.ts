@@ -1,9 +1,15 @@
 // Kör API:t mot data i minnet. Används av prototypen (i webbläsaren) och av utvecklingsläget i Next.js (MM_BACKEND=memory).
-// Samma hanterare som i produktion – bara datalagret skiljer.
+// Samma hanterare som i produktion – bara datalagret skiljer. Portarna i minnesläget:
+//   ctx.crypto  testdatats ersättning för personnummer (TEST_PNR_CRYPTO)
+//   ctx.ai      simulerad AI (createSimulatedAi, src/features/_shared/ai-sim.ts) – deterministisk, inga anrop utanför
+//   ctx.audio   ljud i minnet (createMemoryAudio, src/features/_shared/audio-port.ts) – raderna i audio_uploads via system
 import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import { addMinutes, type LocalDateTime } from "@/core/time";
+import type { AiPort } from "@/features/_shared/ai-port";
+import { createSimulatedAi } from "@/features/_shared/ai-sim";
+import { createMemoryAudio } from "@/features/_shared/audio-port";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
 import { TEST_PNR_CRYPTO } from "./seed/pnr";
@@ -19,11 +25,19 @@ export function demoClock(start: LocalDateTime): DemoClock {
 
 export type MemoryRuntime = ReturnType<typeof createMemoryRuntime>;
 
-export function createMemoryRuntime(opts: { data: MemoryData<Tables>; clock: DemoClock }) {
+export function createMemoryRuntime(opts: {
+  data: MemoryData<Tables>;
+  clock: DemoClock;
+  /** AI-porten. Standard: simulerad AI. Tester kan skicka in en egen (t.ex. en som misslyckas). */
+  ai?: AiPort;
+}) {
   const store = new MemoryStore<Tables>(opts.data);
   let seq = 0;
   const newId = (prefix: string) => `${prefix}-n${String(++seq).padStart(5, "0")}`;
   const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
+  const ai = opts.ai ?? createSimulatedAi();
+  // Ljudfilernas rader skrivs av porten (systemsteg) med samma id-följd och klocka som hanterarna – deterministiskt vid uppspelning.
+  const audio = createMemoryAudio({ system, now: opts.clock.now, newId });
 
   function ctxFor(actor: Actor): Ctx {
     return {
@@ -42,6 +56,8 @@ export function createMemoryRuntime(opts: { data: MemoryData<Tables>; clock: Dem
       },
       // Påhittade personnummer: testdatats ersättning för kryptering och sökhash (src/data/seed/pnr.ts).
       crypto: TEST_PNR_CRYPTO,
+      ai,
+      audio,
     };
   }
 
@@ -64,5 +80,5 @@ export function createMemoryRuntime(opts: { data: MemoryData<Tables>; clock: Dem
     return res === undefined ? null : JSON.parse(JSON.stringify(res));
   }
 
-  return { store, run, clock: opts.clock, raw: () => store.raw() };
+  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio };
 }

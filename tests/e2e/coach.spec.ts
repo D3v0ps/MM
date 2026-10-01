@@ -3,7 +3,17 @@
 // men allt läses från skärmen. Varje test öppnar en nollställd prototyp (projektet "demo"); mot appen körs samma steg.
 // Id:n är testdatats (prototyp/tools/data-samples.json -> script_tags).
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import fs from "node:fs";
+import { isDemo, open, switchPersona } from "./helpers";
+
+// Falsk mikrofon för inspelningen i appen (Chromium på localhost). Påverkar inga andra tester.
+test.use({
+  launchOptions: {
+    executablePath: fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined,
+    args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
+  },
+  permissions: ["microphone"],
+});
 
 const COACH = { userId: "u-amira", role: "coach" };
 const HANDLEDARE = { userId: "u-petra", role: "handledare" };
@@ -50,8 +60,7 @@ async function switchUser(page: Page, info: TestInfo, as: { userId: string; role
     await page.evaluate((p) => { window.location.hash = p; }, to);
     await page.reload();
   } else {
-    const res = await page.request.post("/api/dev-session", { data: as });
-    expect(res.ok()).toBeTruthy();
+    await switchPersona(page, as);
     await page.goto(to);
   }
 }
@@ -297,7 +306,10 @@ test("Veckoavstämning: AI-förslag från inklistrade anteckningar (Hodan)", asy
   expect(errors).toEqual([]);
 });
 
-test("Veckoavstämning: samtycke och simulerad inspelning (Elif)", async ({ page }, info) => {
+// Röstinspelningen (docs/PLAN-ROST.md): prototypen simulerar inspelningen (sidan saknar mikrofon), appen spelar in med
+// Chromiums falska mikrofon (test.use överst i filen). Transkriberingen går via ctx.ai (simulerad AI) – fasen nämns inte i
+// samtalet ("Framgår inte").
+test("Veckoavstämning: samtycke och inspelning (Elif)", async ({ page }, info) => {
   const errors = await open(page, info, `/avstamning/${SC.elif}`, COACH);
   await btn(page, "Med AI-stöd").click();
   await expect(page.getByText("Samtycke saknas")).toBeVisible();
@@ -306,23 +318,25 @@ test("Veckoavstämning: samtycke och simulerad inspelning (Elif)", async ({ page
   await btn(page, "Deltagaren säger ja").click();
   await expect(page.getByText("Samtycke registrerat 1 feb 2027")).toBeVisible();
   await expect(page.getByText(/^Version v1\.0 \(2026-10-01\), informerad av Amira Haddad på [a-zåäö ]+\.$/)).toBeVisible();
-  await btn(page, "Starta inspelning").click();
-  await expect(page.getByRole("status").filter({ hasText: /^Spelar in \d\d:\d\d$/ })).toBeVisible();
+  await btn(page, isDemo(info) ? "Simulera en inspelning" : "Starta inspelning").click();
+  await expect(page.getByRole("timer").filter({ hasText: /^Spelar in \d\d:\d\d$/ })).toBeVisible();
   await btn(page, "Pausa").click();
-  await expect(page.getByText(/Inspelningen är pausad/)).toBeVisible();
+  await expect(page.getByText(/^Inspelningen är pausad · \d\d:\d\d$/)).toBeVisible();
   await btn(page, "Fortsätt").click();
+  await page.waitForTimeout(1200);
   await btn(page, "Stoppa och tolka").click();
   await expect(page.getByText("Transkriberar …")).toBeVisible();
-  await page.getByText("Ljudet är raderat").waitFor({ timeout: 8000 });
+  await page.getByText("Ljudet är raderat").waitFor({ timeout: 15_000 });
   await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(7);
-  // AI-körningen är loggad och ljudet raderat direkt
-  await expect(page.getByText("Berget AI (test) · KB-Whisper + öppen språkmodell")).toBeVisible();
+  // AI-körningen är loggad och ljudet raderat direkt. Fasen framgår inte av samtalet – inget förslag att acceptera.
+  await expect(page.getByText("Simulerad AI (testdata)")).toBeVisible();
   await expect(page.getByText(/^måndag 1 feb 2027 kl\. \d\d\.\d\d – direkt efter transkriberingen$/)).toBeVisible();
-  for (const f of ["veckomål uppnått", "nytt veckomål", "fas", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
+  await expect(aiGroup(page, "fas")).toContainText("Framgår inte");
+  for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await group(page, "Samlad status").getByRole("button", { name: /Gul/ }).click();
   await btn(page, "Godkänn avstämningen").click();
   await expect(page.getByRole("heading", { level: 1, name: "Avstämningen är godkänd" })).toBeVisible();
-  await expect(main(page)).toContainText(/AI-förslag\s*7 \/ 0 \/ 0/i);
+  await expect(main(page)).toContainText(/AI-förslag\s*6 \/ 0 \/ 0/i);
   await expect(main(page)).toContainText(/Samlad status\s*Gul/i);
   await expect(page.getByText("Ljudet raderades direkt efter transkriberingen", { exact: true })).toBeVisible();
   await expect(page.getByText("Råtranskriptet raderades vid godkännandet", { exact: true })).toBeVisible();

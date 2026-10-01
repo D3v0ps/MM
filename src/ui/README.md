@@ -289,6 +289,31 @@ Värdarna (`Toaster`, `ConfirmHost`, `TextDialogHost`) ligger redan i layouten �
 Logotyp överst, informationsblocket högerställt, rubriker i versaler. Vanliga `h2`, `table`, `th`, `td` får rätt utseende. `XBox({ checked })` = kryssruta i dokumentet
 (lägg en `sr-only`-text bredvid: "Genomförd: "). Vid utskrift (Ctrl+P) skrivs bara papperet ut – ingen `window.print()` i koden.
 
+## 13b. Inspelning (`Recorder`, röstinspelningen)
+
+```tsx
+<Recorder
+  maxSeconds={v.recording.maxMinutes * 60}          // avtalets längsta tid – inspelningen stoppas där
+  texts={{ stop: "Stoppa och tolka", hint: "Pausa när samtalet går in på sådant som inte behövs för uppdraget." }}
+  onRecorded={(audio) => void send(audio)}           // RecordedAudio: blob, mimeType, durationSec, bytes, simulated, source, fileName
+/>
+<Recorder record={false} upload maxSeconds={3600} texts={{ fileButton: "Ladda upp och tolka" }} onRecorded={…} />
+```
+
+- Spelar in med MediaRecorder: webm/opus (Chrome, Edge, Firefox) eller mp4 (Safari), ca 32 kbit/s. Indikatorn är röd yta med vit
+  blinkande punkt och texten "Spelar in 03:12" (`role="timer"` – tiden läses inte upp varje sekund); pausat läge är en grå bricka
+  "Inspelningen är pausad · 03:12". Lägena (startad, pausad, fortsätter, stoppad) läses upp i en egen `aria-live`-region.
+  Fokus flyttas till Pausa/Fortsätt. Varnar innan sidan lämnas mitt i en inspelning. Mikrofonen stängs när komponenten tas bort.
+- Fel på svenska (eller deltagarens språk via `texts`): webbläsaren saknar inspelning, mikrofonen nekad, ingen mikrofon, annat fel.
+- `upload` – filväljare för m4a, mp3, wav och webm (högst `maxBytes`, standard 25 MB), med etikett och hjälptext.
+- **Prototypen:** `DemoNote` med "Simulera en inspelning" (tid utan ljud, `simulated: true`, `blob: null`) – artefakten saknar ofta
+  mikrofon. `allowSimulate={false}` stänger av den. Visas aldrig i appen.
+- `size="lg"` (deltagarens mobilvy), `lang`/`dir` (arabiska höger till vänster), `idPrefix`, `disabled`, `onActiveChange` (lås andra val
+  medan inspelningen pågår), `children` (t.ex. Stäng).
+- Komponenten laddar inte upp något. Skärmen skickar ljudet med `runVoiceFlow` (`src/features/rost/client.ts`): `rost.uploadStart` →
+  uppladdning till signerad adress (appen) → områdets kommando (`coach.recordingFinish`, `kommun.dictationFinish`, `rost.send`).
+- `audioFileType(file)` ger filtypen för en vald fil (från filändelsen när webbläsaren inte anger den). `RECORDER_ACCEPT` = accept-attributet.
+
 ## 13. Ikoner
 
 `<Icon name="inbox" />` – prototypens 89 egna ikoner (24×24, streck), typat `IconName`, lista i `ICON_NAMES`. `size?: "sm" | "md" | "lg" | "xl"`

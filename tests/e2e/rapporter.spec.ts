@@ -4,7 +4,7 @@
 // kommandon – i prototypen via kommandologgen som spelas upp vid omladdning, i appen via /api/rpc.
 // Det som inte syns på skärmen (utskickets text, revisionsloggen, ögonblicksbilden) testas i src/features/rapporter/handlers.test.ts.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, open, switchPersona } from "./helpers";
 
 type As = { userId: string; role: string };
 const SAMORDNARE: As = { userId: "u-sara", role: "samordnare" };
@@ -53,7 +53,7 @@ async function go(page: Page, info: TestInfo, to: string, as: As) {
     }, { key: PERSONA_KEY, as, to });
     await page.reload();
   } else {
-    await page.request.post("/api/dev-session", { data: as });
+    await switchPersona(page, as);
     await page.goto(to);
   }
   await expect(main(page)).not.toContainText("Hämtar…", { timeout: 15_000 });
@@ -73,7 +73,7 @@ async function commands(page: Page, info: TestInfo, cmds: Cmd[]) {
     return;
   }
   for (const c of cmds) {
-    await page.request.post("/api/dev-session", { data: c.as });
+    await switchPersona(page, c.as);
     const res = await page.request.post("/api/rpc", { data: { kind: "command", key: c.key, input: c.input } });
     expect(res.ok()).toBeTruthy();
   }

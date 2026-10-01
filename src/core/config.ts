@@ -95,6 +95,11 @@ const CustomerVisibilitySchema = z.strictObject({
   seesIndividualReports: z.boolean(),
   seesCoachNotes: z.boolean(),
   seesSlaStats: z.boolean().optional(),
+  /**
+   * Kommunen läser deltagarens röstmeddelanden (participant_voice_notes) när coachen granskat dem. Standard: nej –
+   * röstmeddelandena är underlag för coachen (docs/PLAN-ROST.md).
+   */
+  seesParticipantVoiceNotes: z.boolean().optional(),
 });
 
 const ReportDeliverySchema = z.strictObject({
@@ -219,7 +224,53 @@ const PenaltiesSchema = z.strictObject({
   /** Vite vid bristfällig löpande information, i öre. */
   insufficientInformationOre: z.int().min(0),
 });
-const AiSchema = z.strictObject({ provider: z.string().min(1), recordingApprovedByCustomer: LocalDateSchema.nullable() });
+// ---- AI-stöd och röstinspelning (SPEC §8, docs/PLAN-ROST.md, beslut 2026-09-30)
+/**
+ * AI-leverantörer som ett avtal kan godkänna. vertex_eu = Gemini via Google Cloud Vertex AI, EU multi-region-endpoint
+ * (aiplatform.eu.rep.googleapis.com, location eu) – aldrig AI Studio-nyckel eller global endpoint (CLAUDE.md).
+ * Modellen är en miljövariabel (MM_AI_MODEL). Vilken adapter servern kör (vertex eller simulerad) styrs av MM_AI_PROVIDER.
+ */
+export const AI_PROVIDERS = ["vertex_eu"] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+export const AI_PROVIDER_LABEL: Record<AiProvider, string> = { vertex_eu: "Gemini Flash via Google Cloud Vertex AI (EU)" };
+/** De tre inspelningsflödena: coachens avstämning, kommunens handläggare ("Tala in") och deltagarens egen inspelning via länk. */
+export const RECORDING_KINDS = ["coach", "customer", "participant"] as const;
+export type RecordingKind = (typeof RECORDING_KINDS)[number];
+/** Språk för transkribering och deltagarens inspelning (ISO 639-1). */
+const LanguageCodeSchema = z.string().regex(/^[a-z]{2}$/, "Språkkod: två små bokstäver, t.ex. sv");
+const RecordingFlagsSchema = z.strictObject({
+  /** Coachen spelar in avstämningen live eller laddar upp en ljudfil (kräver deltagarens samtycke, consents). */
+  coach: z.boolean(),
+  /** Kommunens handläggare talar in text (beställningens bakgrund, meddelanden). Inget ljud sparas. */
+  customer: z.boolean(),
+  /** Deltagaren spelar in via en länk utan inloggning (samtycke i länken). Inget ljud sparas. */
+  participant: z.boolean(),
+  /** När kommunen skriftligen godkände inspelningen för de påslagna delarna. Krävs om någon del är påslagen. */
+  approvedByCustomerOn: LocalDateSchema.nullable(),
+});
+const AiSchema = z
+  .strictObject({
+    /** Godkänd AI-leverantör för avtalet, eller ATT_FASTSTÄLLA (då körs ingen AI – bara den simulerade i test). */
+    provider: unsetOr(z.enum(AI_PROVIDERS)),
+    /** Kommunens godkännande av inspelade avstämningar (SPEC §3.1). Visas i administrationen. */
+    recordingApprovedByCustomer: LocalDateSchema.nullable(),
+    /** Vilka inspelningsflöden som är påslagna i avtalet. Utan avsnittet är allt avstängt. */
+    recording: RecordingFlagsSchema,
+    /** Längsta inspelning i minuter per flöde. */
+    maxMinutes: z.strictObject({ coach: PosInt, customer: PosInt, participant: PosInt }),
+    /** Språk som deltagaren kan spela in på och som transkriberas (översätts till svenska). Svenska måste finnas med. */
+    languages: z.array(LanguageCodeSchema).min(1),
+    /** Så många dagar gäller deltagarens inspelningslänk. */
+    participantLinkValidDays: PosInt,
+  })
+  .superRefine((ai, ctx) => {
+    if (!ai.languages.includes("sv")) ctx.addIssue({ code: "custom", message: "Svenska (sv) måste finnas bland språken", path: ["languages"] });
+    if (new Set(ai.languages).size !== ai.languages.length) ctx.addIssue({ code: "custom", message: "Språken måste vara unika", path: ["languages"] });
+    const on = RECORDING_KINDS.some((k) => ai.recording[k]);
+    if (on && !ai.recording.approvedByCustomerOn) {
+      ctx.addIssue({ code: "custom", message: "Inspelning kräver kommunens skriftliga godkännande (datum)", path: ["recording", "approvedByCustomerOn"] });
+    }
+  });
 const OrderWeeksSchema = z.strictObject({ min: PosInt, max: PosInt, note: z.string() }).refine((w) => w.max >= w.min, "max måste vara minst min");
 
 /** Prislista i konfigurationen (KK-skissen). Belopp i öre, exkl. moms. */
@@ -323,6 +374,8 @@ export type AttendanceConfig = OperationalConfig["attendance"];
 export type BillingConfig = OperationalConfig["billing"];
 export type PulseConfig = OperationalConfig["pulse"];
 export type EscalationStep = OperationalConfig["escalationLadder"][number];
+/** AI-avsnittet (leverantör, inspelningsflöden, maxlängd, språk, länkens giltighet). */
+export type AiConfig = OperationalConfig["ai"];
 export type ConfigPriceItem = NonNullable<ContractConfig["priceItems"]>[number];
 export type MeetingMinimum = NonNullable<ContractConfig["meetingMinimums"]>[number];
 
@@ -406,6 +459,35 @@ export function effectiveVisibilityScope(cfg: Pick<OperationalConfig, "customerV
   return v.prototypeScope ?? "own";
 }
 
+// ---------------------------------------------------------------- AI och röstinspelning
+/**
+ * Är inspelningsflödet påslaget i avtalet? Kräver ai-avsnittet, flödet påslaget, kommunens godkännande (datum) och en
+ * fastställd leverantör. Tål en äldre sparad konfiguration utan recording (ger false). Hanteraren kontrollerar dessutom
+ * samtycke (coachen), att ärendet inte har skyddade personuppgifter och rollen.
+ */
+export function recordingEnabled(cfg: Pick<ContractConfig, "ai"> | null | undefined, kind: RecordingKind): boolean {
+  const ai = cfg?.ai;
+  const rec = ai?.recording as Partial<z.infer<typeof RecordingFlagsSchema>> | undefined;
+  return !!ai && !!rec && rec[kind] === true && !!rec.approvedByCustomerOn && !isUnset(ai.provider);
+}
+/** Längsta inspelning i minuter för flödet, eller null om flödet inte är påslaget. */
+export function recordingMaxMinutes(cfg: Pick<ContractConfig, "ai"> | null | undefined, kind: RecordingKind): number | null {
+  if (!recordingEnabled(cfg, kind)) return null;
+  return (cfg?.ai?.maxMinutes as Partial<Record<RecordingKind, number>> | undefined)?.[kind] ?? null;
+}
+/** Språken deltagaren kan spela in på (svenska först). Bara svenska om avtalet inte anger fler. */
+export function aiLanguages(cfg: Pick<ContractConfig, "ai"> | null | undefined): string[] {
+  const langs = (cfg?.ai?.languages as string[] | undefined) ?? [];
+  return ["sv", ...langs.filter((l) => l !== "sv")];
+}
+/** Leverantören i klarspråk, "Ej fastställt" eller "–". */
+export function aiProviderText(cfg: Pick<ContractConfig, "ai"> | null | undefined): string {
+  const p = cfg?.ai?.provider;
+  if (p == null) return "–";
+  if (isUnset(p)) return UNSET_LABEL;
+  return AI_PROVIDER_LABEL[p] ?? p;
+}
+
 const deepFreeze = <T>(o: T): T => {
   if (o && typeof o === "object" && !Object.isFrozen(o)) {
     Object.freeze(o);
@@ -416,6 +498,8 @@ const deepFreeze = <T>(o: T): T => {
 
 // ---------------------------------------------------------------- Botkyrka (SPEC §6.2) – exakt prototypens CONFIG_BOT
 // Tillägg: texts (prototypens CONTRACT_NOTES i admin.js, som var hårdkodade per avtal – CLAUDE.md punkt 4).
+// Avvikelser från prototypen (beslut 2026-09-30, röstinspelning): ai-avsnittet har fastställd leverantör och inspelningsflödena
+// (recording, maxMinutes, languages, participantLinkValidDays); customerVisibility.seesParticipantVoiceNotes = false.
 export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
   OperationalConfigSchema.parse({
     casePrefix: "BOT",
@@ -423,7 +507,7 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
     thirdCountryProcessing: "forbidden_without_written_approval",
     orderChannels: ["email", "portal", "phone"],
     orderWeeks: { min: 4, max: 10, note: "Insatser på typiskt 4–10 veckor (utvärderingspriset byggde på 4 och 10 veckor)" },
-    customerVisibility: { scope: "ATT_FASTSTÄLLA (own | unit | all)", prototypeScope: "own", seesIndividualReports: true, seesCoachNotes: false, seesSlaStats: false },
+    customerVisibility: { scope: "ATT_FASTSTÄLLA (own | unit | all)", prototypeScope: "own", seesIndividualReports: true, seesCoachNotes: false, seesSlaStats: false, seesParticipantVoiceNotes: false },
     reportDelivery: { channel: "portal", emailAttachmentAllowed: false },
     phases: [
       { no: 1, name: "Kartläggning" },
@@ -515,7 +599,17 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
     penalties: { deviationOre: 2500000, insufficientInformationOre: 2500000 },
     economicDeviation: "Kostnader avviker från anbud, timmar stämmer inte med utfört uppdrag, fel pris eller fel/saknad information på fakturan.",
     keyPersonnelChangeRequiresApproval: true,
-    ai: { provider: "ATT_FASTSTÄLLA (Berget AI eller Gemini via Vertex AI EU – väljs genom test)", recordingApprovedByCustomer: "2026-09-29" },
+    // Beslut 2026-09-30 (SPEC §8.4, docs/PLAN-ROST.md): Gemini Flash via Vertex AI EU. Botkyrka har skriftligen godkänt inspelning
+    // för coacher (2026-09-29) och för kommunens handläggare och deltagare (2026-09-30). Tills kontot i Google Cloud finns kör
+    // testmiljön den simulerade leverantören (MM_AI_PROVIDER=simulated).
+    ai: {
+      provider: "vertex_eu",
+      recordingApprovedByCustomer: "2026-09-29",
+      recording: { coach: true, customer: true, participant: true, approvedByCustomerOn: "2026-09-30" },
+      maxMinutes: { coach: 60, customer: 5, participant: 5 },
+      languages: ["sv", "en", "ar", "so"],
+      participantLinkValidDays: 7,
+    },
     texts: {
       termination: "Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.",
       scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
@@ -526,6 +620,7 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
 // ---------------------------------------------------------------- Kammarkollegiet (SPEC §6.3, skiss) – prototypens CONFIG_KK
 // Avvikelse från prototypen: priserna är i öre (priceOre: 412000) i stället för kronor (price: 4120).
 // Tillägg: texts (prototypens CONTRACT_NOTES i admin.js).
+// AI och röstinspelning är avstängda: avtalet saknar ai-avsnittet (recordingEnabled ger false för alla flöden).
 export const KK_CONFIG: ContractConfig = deepFreeze(
   ContractConfigSchema.parse({
     casePrefix: "KK",

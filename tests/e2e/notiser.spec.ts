@@ -88,6 +88,7 @@ test("notiser: handledaren får inga eskaleringar och kommunen har ingen åtkoms
   const t = await main(page).innerText();
   expect(t).not.toMatch(/eskaler/i);
   await open(page, info, "/notiser", { userId: "k-eva", role: "kommun_chef" });
-  await expect(page.getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
+  // Inom sidans innehåll: Next.js har en egen role="alert" för att läsa upp sidbyten (__next-route-announcer__).
+  await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
   expect(relevant(errors)).toEqual([]);
 });

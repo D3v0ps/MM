@@ -38,3 +38,4 @@ export { Kpi, Meter, Kv, Timeline, Stepper, Avatar, UserName, Chart, type MeterM
 export { Paper, PaperFixedText, XBox, type PaperProps } from "./paper";
 export { BigButtons, BigButton, PulsePhone, Smileys, Smiley, type BigButtonProps } from "./portal";
 export { CaseLink, casePathFor, MaskedPnr, PerspectiveLink, useAuditView } from "./case";
+export { Recorder, RECORDER_TEXTS_SV, RECORDER_ACCEPT, audioFileType, type RecorderProps, type RecorderTexts, type RecordedAudio } from "./recorder";

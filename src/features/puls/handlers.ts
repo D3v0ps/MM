@@ -2,8 +2,12 @@
 // Källa: prototyp/src/views/admin.js (puls.svar och pulse.submit).
 //
 // Deltagaren har ingen användare – engångslänken är behörigheten. Länken slås upp med ctx.system (systemsteg: pulslänkens
-// token, se src/data/policy.ts), och bara länkens läge lämnas ut. Svaret skrivs via ctx.repo (policyn tillåter deltagaren att
-// svara en gång på en oanvänd länk). Coachen ser aldrig enskilda svar (bara aggregat från avtalets minsta antal).
+// token, se src/data/policy.ts), och bara länkens läge lämnas ut. I supabase-läget är deltagaren databasrollen anon, som
+// inte har några rättigheter alls. Därför skriver hanteraren allt som svaret ger upphov till (svaret, att länken är använd,
+// uppgiften till samordnaren och revisionsloggen) via ctx.system – ett systemsteg som motsvarar en security definer-funktion
+// och som bara körs efter att token kontrollerats (hash, giltighet, oanvänd, inte skyddat ärende). Lågt betyg till chefen är
+// en härledd flagga (src/core/alerts.ts) som chefen läser ur pulse_responses med sin egen behörighet.
+// Coachen ser aldrig enskilda svar (bara aggregat från avtalets minsta antal).
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { diffDays, fmtDate } from "@/core/time";
@@ -67,12 +71,16 @@ handleCommand(pulseSubmit, { roles: ["deltagare"] }, async (ctx, p) => {
   const c = await ctx.system.table("cases").get(inv.caseId);
   const contact = a.q5 === "ja";
   const id = ctx.newId("pr");
-  await ctx.repo.table("pulse_responses").insert({
+  // ctx.system: systemsteg, motsvarar en security definer-funktion. Deltagaren har ingen inloggning (databasrollen anon
+  // har inga rättigheter alls) – behörigheten är engångslänken, och den är kontrollerad ovan: tokenhashen finns, länken
+  // är oanvänd och har inte gått ut, och ärendet har inte skyddade personuppgifter (inviteFor). Svaret skrivs bara på
+  // den länkens ärende, med värden som kontrollerats här – deltagaren kan inte välja ärende, coach eller tidpunkt.
+  await ctx.system.table("pulse_responses").insert({
     id, inviteId: inv.id, caseId: inv.caseId, coachId: c?.leadCoachId ?? null, occasion: inv.occasion, language: p.language,
     answers: { q1: a.q1, q2: a.q2, q3: a.q3, q4: a.q4 as PulsePriority, q5: a.q5 }, text: String(p.text || "").trim().slice(0, 500), contactRequested: contact, submittedAt: now,
   });
-  // ctx.system: länken förbrukas (systemsteg – deltagaren får inte ändra utskicket). Efter svaret: policyn tillåter
-  // bara ett svar på en oanvänd länk.
+  // ctx.system: länken förbrukas (systemsteg – deltagaren får inte ändra utskicket). Därefter svarar puls.link "used"
+  // och ett nytt svar stoppas av kontrollen ovan.
   await ctx.system.table("pulse_invites").update(inv.id, { usedAt: now, language: p.language });
   if (contact) {
     // ctx.system: uppgiften går till samordnaren (en annan roll) – bara ärendenumret, inga svar och inga namn.

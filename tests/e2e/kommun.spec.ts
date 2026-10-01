@@ -5,7 +5,7 @@
 // kommandologgen som spelas upp vid omladdning, i appen via /api/rpc. Det som inte syns på skärmen (revisionslogg,
 // senaste inloggning, rollkontroller) testas i src/features/kommun/handlers.test.ts.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, open, switchPersona } from "./helpers";
 
 type As = { userId: string; role: string };
 const MARIA: As = { userId: "k-maria", role: "kommun_handlaggare" };
@@ -42,7 +42,7 @@ async function go(page: Page, info: TestInfo, to: string, as: As) {
     }, { key: PERSONA_KEY, as, to });
     await page.reload();
   } else {
-    await page.request.post("/api/dev-session", { data: as });
+    await switchPersona(page, as);
     await page.goto(to);
   }
   await settle(page);
@@ -69,7 +69,7 @@ async function commands(page: Page, info: TestInfo, cmds: Cmd[]) {
     return;
   }
   for (const c of cmds) {
-    await page.request.post("/api/dev-session", { data: c.as });
+    await switchPersona(page, c.as);
     const res = await page.request.post("/api/rpc", { data: { kind: "command", key: c.key, input: c.input } });
     expect(res.ok()).toBeTruthy();
   }
@@ -549,6 +549,7 @@ test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad 
   await page.fill("#rap-correct-reason", "Fel datum för praktikstart.");
   await btn(page, "Skapa ny version").click();
   await expect(page).not.toHaveURL(new RegExp(`/rapporter/${NADIA_DEC}$`));
+  await expect(main(page), "den nya versionen öppnas").toContainText("Version 2 (visas nu)");
   const newRep = decodeURIComponent(page.url().split("/rapporter/")[1]);
   await go(page, info, `/portal/deltagare/${SC.nadia}?flik=rapporter`, MARIA);
   await expect(main(page), "rapporten som rättas finns kvar med märket").toContainText("Rättas – en ny version kommer");

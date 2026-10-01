@@ -352,3 +352,21 @@ export const kommunApproveActionPlan = command("kommun.approveActionPlan", z.obj
 
 /** Visa hela personnumret (tyst). Bara beställande handläggare (kommunens åtkomst till ärendet). Visningen loggas (pnr.revealed). */
 export const kommunRevealPnr = command("kommun.visaPersonnummer", z.object({ caseId: IdSchema })).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
+
+// ================================================================ "Tala in" (röstinspelning, docs/PLAN-ROST.md, flöde 2)
+// Handläggaren talar in i stället för att skriva – vid beställningens bakgrund (/portal/bestall) och i meddelanden.
+// Flödet: rost.uploadStart (purpose dictation) -> webbläsaren laddar upp ljudet (appen) -> kommun.dictationFinish
+// (transkribering, ljudet raderas direkt) -> texten tillbaka till fältet. Handläggaren läser, rättar och skickar själv.
+// Inget ljud sparas. Aldrig för skyddade personuppgifter.
+
+/** Får handläggaren tala in här? caseId: ett ärende (meddelanden). Utan caseId: en ny beställning. */
+export type DictationOptions = { enabled: boolean; maxMinutes: number; reason: string | null };
+export const dictationOptions = query("kommun.dictationOptions", z.object({ caseId: IdSchema.optional(), protectedOrder: z.boolean().optional() })).returns<DictationOptions>();
+
+/** Läget för en inspelning. text = den inlästa texten när transkriberingen är klar (bara till den som talade in). */
+export type DictationState = { aiRunId: string; status: "running" | "succeeded" | "failed"; error: string | null; audioDeletedAt: string | null; text: string | null };
+export const dictationFinish = command("kommun.dictationFinish", z.object({
+  uploadId: IdSchema,
+  durationSec: z.number().min(0).max(86_400).nullish(),
+})).returns<Result<DictationState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
+export const dictationState = query("kommun.dictationState", z.object({ aiRunId: IdSchema })).returns<DictationState | null>();

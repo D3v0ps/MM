@@ -5,18 +5,22 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { pct, plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtWeekday, fmtWeekKey, monday, timeOf } from "@/core/time";
-import { useCommand, useQuery } from "@/shell/backend";
+import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
   AiBox, AiTag, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, Evidence, Field, FormGrid, Grid, Icon, Input, Kpi, Kv, List, Notice, Page,
-  RecIndicator, Row, Seg, Select, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type SegOption,
+  Recorder, Row, Seg, Select, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
+import { Link } from "@/shell/nav";
+import { uploadStart } from "@/features/rost/api";
+import { runVoiceFlow } from "@/features/rost/client";
+import { VoiceNotesForCheckIn } from "@/features/rost/screens/coach-parts";
 import { consentSet } from "@/features/arenden/api";
 import { auditView } from "@/features/session/api";
 import {
-  AI_FIELDS, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, type AiField, type AiFieldSuggestion,
-  type AiSource, type CheckInPage, type CheckInReceipt, type CheckInSuggestions, type CheckInView,
+  AI_FIELDS, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, recordingFinish, recordingState, type AiField,
+  type AiFieldSuggestion, type AiSource, type CheckInPage, type CheckInReceipt, type CheckInSuggestions, type CheckInView, type RecordingState,
 } from "../api";
 import { cap, CaseHeadView, CasePicker, ChipButton, Chips, customerPerspective, GateView, lc, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
 
@@ -36,11 +40,19 @@ const FIELD_LABEL: Record<AiField, string> = {
 };
 /** Loggat utfall per AI-förslag: accepted (värdet oförändrat), edited (coachen ändrade värdet), rejected (avvisat). */
 const OUTCOME_LABEL: Record<Outcome, string> = { accepted: "Accepterat", edited: "Ändrat", rejected: "Avvisat" };
-const SOURCE: Record<AiSource, { label: string; icon: IconName; method: "ai_recording" | "ai_upload" | "teams" | "notes"; audio: boolean }> = {
-  recording: { label: "Inspelning i rummet", icon: "mic", method: "ai_recording", audio: true },
-  upload: { label: "Uppladdad ljudfil", icon: "upload", method: "ai_upload", audio: true },
-  teams: { label: "Teams-transkript", icon: "video", method: "teams", audio: false },
-  notes: { label: "Inklistrade anteckningar", icon: "clipboard", method: "notes", audio: false },
+/** label = underlaget i sammanfattningen, choose = valet av källa. */
+const SOURCE: Record<AiSource, { label: string; choose: string; icon: IconName; method: "ai_recording" | "ai_upload" | "teams" | "notes"; audio: boolean }> = {
+  recording: { label: "Inspelning i rummet", choose: "Spela in samtalet", icon: "mic", method: "ai_recording", audio: true },
+  upload: { label: "Uppladdad ljudfil", choose: "Ladda upp ljudfil", icon: "upload", method: "ai_upload", audio: true },
+  teams: { label: "Teams-transkript", choose: "Teams-transkript", icon: "video", method: "teams", audio: false },
+  notes: { label: "Inklistrade anteckningar", choose: "Inklistrade anteckningar", icon: "clipboard", method: "notes", audio: false },
+};
+/** AI-leverantören i klarspråk (ai_runs.provider). */
+const PROVIDER_LABEL: Record<string, string> = { simulated: "Simulerad AI (testdata)", vertex_eu: "Gemini Flash via Vertex AI (EU)" };
+const providerText = (provider: string, model: string) => {
+  const label = PROVIDER_LABEL[provider];
+  if (!label) return `${provider} · ${model}`;
+  return provider === "simulated" ? label : `${label} · ${model}`;
 };
 const GOAL_TEXT: Record<Goal, string> = { yes: "Ja", partly: "Delvis", no: "Nej" };
 const GOAL_OPTIONS: SegOption<Goal>[] = [{ value: "yes", label: "Ja", icon: "check" }, { value: "partly", label: "Delvis", icon: "minus" }, { value: "no", label: "Nej", icon: "x" }];
@@ -63,22 +75,22 @@ export function AvstamningScreen({ params, query }: ScreenProps) {
       <CasePicker kind="avstamning" title={TITLE} lead="Välj den deltagare du har träffat. Dokumentationen tar under fem minuter." basePath="/avstamning" actionLabel="Gör avstämning" />
     );
   }
-  return <Avstamning caseId={params.caseId} checkInId={query.get("avstamning")} />;
+  return <Avstamning caseId={params.caseId} checkInId={query.get("avstamning")} rostId={query.get("rost")} />;
 }
 
-function Avstamning({ caseId, checkInId }: { caseId: string; checkInId: string | null }) {
+function Avstamning({ caseId, checkInId, rostId }: { caseId: string; checkInId: string | null; rostId: string | null }) {
   const q = useQuery(checkInPage, { caseId, checkInId: checkInId ?? undefined });
   const v = q.data;
   if (!v) return <PageState title={TITLE} error={q.error} onRetry={() => void q.refetch()} />;
   if (v.kind === "gate") return <GateView gate={v.gate} title={TITLE} listPath="/avstamning" />;
-  return <Loaded key={`${caseId}|${checkInId ?? ""}`} v={v} />;
+  return <Loaded key={`${caseId}|${checkInId ?? ""}`} v={v} rostId={rostId} />;
 }
 
 /** Om avstämningen redan var godkänd när vyn öppnades visas den skrivskyddat. Godkänns den här behålls kvittot. */
-function Loaded({ v }: { v: Ok }) {
+function Loaded({ v, rostId }: { v: Ok; rostId: string | null }) {
   const [wasApproved] = useState(() => v.checkIn?.status === "approved");
   if (v.checkIn && wasApproved) return <CheckInReadOnly v={v} ci={v.checkIn} />;
-  return <CheckInForm v={v} />;
+  return <CheckInForm v={v} rostId={rostId} />;
 }
 
 // ================================================================ Skrivskyddad (redan godkänd)
@@ -167,7 +179,6 @@ type FormState = {
 type Dev = { description: string; action: string; ownerId: string; followUpOn: string; needsCustomerDecision: "yes" | "no" | null };
 type AiMeta = { runId: string | null; audioDeletedAt: string | null; deleteBy: string | null; transcript: { t: number | null; who: string; text: string }[]; fromSeed?: boolean };
 type Proc = { steps: string[]; i: number };
-type Rec = { status: "idle" | "recording" | "paused" | "stopped"; seconds: number };
 export type LoggedDecision = { field: AiField; decision: Outcome; clicked: Clicked; suggested: unknown; final: unknown };
 type Done = { checkInId: string; deviationId: string | null; decisions: LoggedDecision[]; docSecs: number; stopped: number };
 
@@ -189,10 +200,13 @@ function suggestionsOf(ci: CheckInView | null): CheckInSuggestions | null {
   return s;
 }
 
-function CheckInForm({ v }: { v: Ok }) {
+function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const { user } = useSession();
   const save = useCommand(checkinSave);
   const run = useCommand(aiRun);
+  const recStart = useCommand(uploadStart);
+  const recFinish = useCommand(recordingFinish);
+  const runQuery = useQueryRunner();
   const consent = useCommand(consentSet);
   useCaseView(v.head.caseId);
   const c = v.head;
@@ -226,10 +240,9 @@ function CheckInForm({ v }: { v: Ok }) {
     ci0?.ai ? { runId: ci0.aiRunId, audioDeletedAt: ci0.ai.audioDeletedAt, deleteBy: ci0.ai.rawTranscriptDeleteBy, transcript: ci0.ai.transcript ?? [], fromSeed: true } : null,
   );
   const [decisions, setDecisions] = useState<Partial<Record<AiField, Clicked>>>({});
-  const [rec, setRec] = useState<Rec>({ status: "idle", seconds: 0 });
+  const [recActive, setRecActive] = useState(false);
   const [proc, setProc] = useState<Proc | null>(null);
   const [notesText, setNotesText] = useState("");
-  const [fileName, setFileName] = useState("");
   const [showTranscript, setShowTranscript] = useState(false);
   const [consentInformed, setConsentInformed] = useState(false);
   const [consentLang, setConsentLang] = useState(v.consentLanguage);
@@ -239,11 +252,6 @@ function CheckInForm({ v }: { v: Ok }) {
   const [done, setDone] = useState<Done | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach((t) => clearTimeout(t)), []);
-  useEffect(() => {
-    if (rec.status !== "recording") return undefined;
-    const id = setInterval(() => setRec((r) => ({ ...r, seconds: r.seconds + 1 })), 1000);
-    return () => clearInterval(id);
-  }, [rec.status]);
 
   // Avvikelsen fylls aldrig i automatiskt: kravet ska synas som ett stopp. Förslaget från flaggan kan coachen själv välja att använda.
   const repeated = v.repeatedAbsence;
@@ -341,6 +349,48 @@ function CheckInForm({ v }: { v: Ok }) {
       timers.current.push(setTimeout(step, 650));
     };
     timers.current.push(setTimeout(step, 650));
+  };
+  /**
+   * Inspelning eller ljudfil: laddas upp (appen: direkt till lagringen), transkriberas och tolkas till formuläret. Ljudet
+   * raderas direkt efter transkriberingen. Samtycket och skyddet kontrolleras av servern (och igen när jobbet körs).
+   * En simulerad inspelning (prototypen) räknas som ett samtal på den valda längden.
+   */
+  const captureAudio = async (audio: RecordedAudio, src: "recording" | "upload") => {
+    if (!aiAllowed || !v.recording.allowed) {
+      toast(v.recording.blockText ?? AI_BLOCKED, "error");
+      return;
+    }
+    const steps = [src === "recording" ? "Laddar upp inspelningen …" : "Laddar upp ljudfilen …", "Transkriberar …", "Tolkar till formuläret …", "Raderar ljudet …"];
+    setProc({ steps, i: 0 });
+    const maxSec = v.recording.maxMinutes * 60;
+    const durationSec = audio.simulated ? Math.min(maxSec, Math.max(60, Number(form.durationMin) * 60)) : audio.durationSec;
+    const res = await runVoiceFlow<RecordingState>({
+      audio,
+      durationSec,
+      minPhaseMs: 650,
+      errorText: "Inspelningen kunde inte tolkas. Dokumentera manuellt eller försök igen.",
+      onPhase: (ph) => setProc({ steps, i: ph === "uploading" ? 0 : 1 }),
+      start: (meta) => recStart.run({ purpose: "checkin", caseId: c.caseId, ...meta }),
+      finish: (ticket) => recFinish.run({ caseId: c.caseId, uploadId: ticket.uploadId, source: src, checkInId: ciId, durationSec }),
+      poll: (st) => runQuery(recordingState, { aiRunId: st.aiRunId }),
+    });
+    const result = res.ok && res.state.status === "succeeded" ? res.state.result : null;
+    if (!result || !result.suggestions) {
+      setProc(null);
+      toast(res.ok ? res.state.error || "Inspelningen kunde inte tolkas. Dokumentera manuellt eller försök igen." : res.message, "error");
+      return;
+    }
+    // Stegen efter transkriberingen är redan gjorda på servern – visas som klara innan förslagen öppnas.
+    setProc({ steps, i: steps.length });
+    await new Promise((r) => timers.current.push(setTimeout(r, 450)));
+    setProc(null);
+    const s = result.suggestions;
+    setSource(src);
+    setSugg(s);
+    setDecisions({});
+    setAiMeta({ runId: result.runId, audioDeletedAt: result.audioDeletedAt, deleteBy: result.rawTranscriptDeleteBy, transcript: result.transcript });
+    const missing = AI_FIELDS.filter((f) => s[f]?.noEvidence).length;
+    toast(`Förslagen är klara. Ljudet raderades direkt efter transkriberingen.${missing ? ` ${plural(missing, "fält framgår", "fält framgår")} inte av samtalet – fyll i dem själv.` : ""}`);
   };
   const aiActive = method === "ai" && !!sugg;
   const sOf = (f: AiField) => (sugg ? (sugg[f] as AiFieldSuggestion<unknown> | undefined) : undefined);
@@ -592,14 +642,14 @@ function CheckInForm({ v }: { v: Ok }) {
                 <AiCapture
                   source={source}
                   setSource={setSource}
-                  rec={rec}
-                  setRec={setRec}
+                  locked={recActive}
+                  setLocked={setRecActive}
                   proc={proc}
                   start={startProcessing}
+                  onAudio={(a, src) => void captureAudio(a, src)}
+                  recording={v.recording}
                   notesText={notesText}
                   setNotesText={setNotesText}
-                  fileName={fileName}
-                  setFileName={setFileName}
                   durationMin={Number(form.durationMin)}
                   today={today}
                 />
@@ -812,6 +862,16 @@ function CheckInForm({ v }: { v: Ok }) {
               </Field>,
             )}
             <div className="text-right text-small text-text-muted">{form.note.length} av 500 tecken</div>
+            {!prot && (
+              <VoiceNotesForCheckIn
+                caseId={c.caseId}
+                highlightId={rostId}
+                onUse={(text) => {
+                  setForm((f) => ({ ...f, note: (f.note.trim() ? `${f.note.trim()}\n${text}` : text).slice(0, 500) }));
+                  toast("Texten är tillagd i anteckningen. Läs och korta den vid behov.");
+                }}
+              />
+            )}
           </Section>
         </div>
       </Card>
@@ -1011,7 +1071,12 @@ function ConsentPanel({
           ? `Deltagaren sa nej ${v.consent?.declinedAt ? fmtDate(v.consent.declinedAt) : ""}. Ett nej får inga konsekvenser. Fråga bara igen om deltagaren själv tar upp det.`
           : status === "revoked"
             ? "Deltagaren har återkallat sitt samtycke. Dokumentera manuellt eller informera på nytt om deltagaren själv vill."
-            : "Deltagaren har inte fått frågan ännu. Inget får spelas in innan samtycket är registrerat."}
+            : "Deltagaren har inte fått frågan ännu. Inget får spelas in innan samtycket är registrerat."}{" "}
+        Samtycket registreras här nedan eller i{" "}
+        <Link to={`/arenden/${encodeURIComponent(v.head.caseId)}`} className="font-bold underline">
+          deltagarkortet
+        </Link>
+        .
       </Notice>
       <div className="flex flex-col gap-1.5 border-l-4 border-bla bg-vit px-3.5 py-2.5">
         <span className="text-label font-bold tracking-[0.09em] text-text-muted uppercase">Information till deltagaren (läs upp eller ge i skrift)</span>
@@ -1038,22 +1103,24 @@ function ConsentPanel({
 }
 
 // ---------------------------------------------------------------- Inspelning och bearbetning
-const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-
-/** Val av ljudkälla, simulerad inspelning och bearbetning. */
+/**
+ * Val av underlag och bearbetning. Spela in samtalet (webbläsarens mikrofon, i prototypen går det också att simulera) eller
+ * ladda upp en ljudfil – ljudet transkriberas och raderas direkt. Teams-transkript och inklistrade anteckningar som förut.
+ */
 function AiCapture({
-  source, setSource, rec, setRec, proc, start, notesText, setNotesText, fileName, setFileName, durationMin, today,
+  source, setSource, locked, setLocked, proc, start, onAudio, recording, notesText, setNotesText, durationMin, today,
 }: {
   source: AiSource;
   setSource: (s: AiSource) => void;
-  rec: Rec;
-  setRec: (r: Rec) => void;
+  /** En inspelning pågår – källan kan inte bytas. */
+  locked: boolean;
+  setLocked: (x: boolean) => void;
   proc: Proc | null;
   start: (s: AiSource) => void;
+  onAudio: (audio: RecordedAudio, src: "recording" | "upload") => void;
+  recording: Ok["recording"];
   notesText: string;
   setNotesText: (x: string) => void;
-  fileName: string;
-  setFileName: (x: string) => void;
   durationMin: number;
   today: string;
 }) {
@@ -1070,6 +1137,13 @@ function AiCapture({
       </div>
     );
   }
+  const maxSeconds = Math.max(60, recording.maxMinutes * 60);
+  const blocked =
+    !recording.allowed && (source === "recording" || source === "upload") ? (
+      <Notice tone="warn" title="Inspelning används inte">
+        {recording.blockText ?? "Inspelning kan inte göras i det här ärendet."} Välj Teams-transkript eller inklistrade anteckningar, eller dokumentera manuellt.
+      </Notice>
+    ) : null;
   return (
     <Stack>
       <Field label="Källa" id="ai-src" help="AI fyller samma formulär som den manuella vägen.">
@@ -1078,87 +1152,61 @@ function AiCapture({
           ariaLabel="Källa"
           value={source}
           onValueChange={(x) => {
-            if (rec.status === "idle" || rec.status === "stopped") setSource(x);
+            if (!locked) setSource(x);
           }}
-          options={(Object.entries(SOURCE) as [AiSource, (typeof SOURCE)[AiSource]][]).map(([k, x]) => ({ value: k, label: x.label, icon: x.icon }))}
+          options={(Object.entries(SOURCE) as [AiSource, (typeof SOURCE)[AiSource]][]).map(([k, x]) => ({ value: k, label: x.choose, icon: x.icon, disabled: locked && k !== source }))}
         />
       </Field>
-      {source === "recording" && (
-        <Stack gap="sm">
-          <DemoNote>
-            Mikrofonen används inte i prototypen. Inspelningen simuleras och förslagen bygger på ett påhittat samtal på {durationMin} minuter. I tjänsten spelas det in i
-            webbläsaren och laddas upp i bitar till en privat lagring i Sverige.
-          </DemoNote>
-          {rec.status === "idle" && (
-            <div>
-              <Button kind="primary" icon="mic" onClick={() => setRec({ status: "recording", seconds: 0 })}>
-                Starta inspelning
-              </Button>
-            </div>
-          )}
-          {(rec.status === "recording" || rec.status === "paused") && (
-            <>
-              <Row>
-                {rec.status === "recording" ? (
-                  <RecIndicator>Spelar in {mmss(rec.seconds)}</RecIndicator>
-                ) : (
-                  <Badge tone="grey" icon="pause">
-                    Inspelningen är pausad · {mmss(rec.seconds)}
-                  </Badge>
-                )}
-                {rec.status === "recording" ? (
-                  <Button kind="secondary" icon="pause" onClick={() => setRec({ ...rec, status: "paused" })}>
-                    Pausa
-                  </Button>
-                ) : (
-                  <Button kind="secondary" icon="play" onClick={() => setRec({ ...rec, status: "recording" })}>
-                    Fortsätt
-                  </Button>
-                )}
-                <Button
-                  kind="danger"
-                  icon="stop"
-                  onClick={() => {
-                    setRec({ ...rec, status: "stopped" });
-                    start("recording");
-                  }}
-                >
-                  Stoppa och tolka
-                </Button>
-              </Row>
-              <p className="text-small text-text-muted">Pausa när samtalet går in på sådant som inte behövs för uppdraget.</p>
-            </>
-          )}
-        </Stack>
-      )}
-      {source === "upload" && (
-        <Stack gap="sm">
-          <Field label="Ljudfil" id="ai-file" help="Filformat: m4a, mp3, wav eller webm.">
-            <input
-              id="ai-file"
-              type="file"
-              accept=".m4a,.mp3,.wav,.webm,audio/*"
-              onChange={(e) => setFileName(e.target.files && e.target.files[0] ? e.target.files[0].name : "")}
+      {source === "recording" &&
+        (blocked ?? (
+          <Stack gap="sm">
+            <p className="text-small">
+              Spela in samtalet i rummet. Pausa när samtalet går in på sådant som inte behövs för uppdraget. Ljudet laddas upp till en privat lagring i Sverige och
+              raderas direkt efter transkriberingen.
+            </p>
+            <Recorder
+              idPrefix="ci-rec"
+              maxSeconds={maxSeconds}
+              onActiveChange={setLocked}
+              texts={{
+                stop: "Stoppa och tolka",
+                hint: "Pausa när samtalet går in på sådant som inte behövs för uppdraget.",
+                simulateNote: `Webbläsaren i prototypen har ofta ingen mikrofon. Simulera en inspelning: tiden går men inget ljud spelas in, och förslagen bygger på ett påhittat samtal på ${durationMin} minuter. I tjänsten spelas samtalet in i webbläsaren.`,
+              }}
+              onRecorded={(a) => onAudio(a, "recording")}
             />
-          </Field>
-          <Row gap="sm">
-            <Button kind="ghost" icon="paperclip" onClick={() => setFileName(`avstamning_${today}.m4a`)}>
-              Använd exempelfil
-            </Button>
-            {fileName && (
-              <Badge tone="outline" icon="file">
-                {fileName}
-              </Badge>
-            )}
-          </Row>
-          <DemoNote>Filen laddas inte upp i prototypen – bara namnet används.</DemoNote>
-          <div>
-            <Button kind="primary" icon="upload" disabled={!fileName} onClick={() => start("upload")}>
-              Ladda upp och tolka
-            </Button>
-          </div>
-        </Stack>
-      )}
+          </Stack>
+        ))}
+      {source === "upload" &&
+        (blocked ?? (
+          <Stack gap="sm">
+            <Recorder
+              idPrefix="ci-up"
+              record={false}
+              upload
+              maxSeconds={maxSeconds}
+              texts={{ fileLabel: "Ljudfil", fileButton: "Ladda upp och tolka" }}
+              onRecorded={(a) => onAudio(a, "upload")}
+            />
+            <DemoNote>
+              <span className="flex flex-col items-start gap-2">
+                <span>Filen laddas inte upp i prototypen – den tolkas som ett påhittat samtal på {durationMin} minuter.</span>
+                <Button
+                  kind="secondary"
+                  icon="paperclip"
+                  onClick={() =>
+                    onAudio(
+                      { blob: null, mimeType: "audio/mp4", durationSec: null, bytes: durationMin * 60 * 4000, simulated: true, source: "file", fileName: `avstamning_${today}.m4a` },
+                      "upload",
+                    )
+                  }
+                >
+                  Använd exempelfil
+                </Button>
+              </span>
+            </DemoNote>
+          </Stack>
+        ))}
       {source === "teams" && (
         <Stack gap="sm">
           <p>Transkriptet (.vtt) hämtas från Teams-mötet. Ingen ljudbehandling behövs.</p>
@@ -1209,11 +1257,7 @@ function AiSourceSummary({
           {src.label}
           {heldAt ? ` · ${fmtDateTimeLong(heldAt)}` : ""}
         </span>
-        {info.data && (
-          <span className="text-small text-text-muted">
-            {info.data.provider} · {info.data.model}
-          </span>
-        )}
+        {info.data && <span className="text-small text-text-muted">{providerText(info.data.provider, info.data.model)}</span>}
       </Row>
       <Timeline
         items={[
@@ -1238,6 +1282,8 @@ function AiSourceSummary({
     </Stack>
   );
 }
+
+const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
 /** Råtranskriptet. Visningen loggas i revisionsloggen (CLAUDE.md punkt 3). */
 function TranscriptPanel({ ciId, transcript }: { ciId: string | null; transcript: AiMeta["transcript"] }) {

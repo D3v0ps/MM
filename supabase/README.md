@@ -40,6 +40,10 @@ npx vitest run src/data/supabase/rls-parity.test.ts src/server/staging/load.test
 
 ### 1. Migrationerna (staging och produktion)
 
+Migrationerna är 0001–0014. I testprojektet (`blxupsebzzhmjitaywev`) är de redan applicerade av samordnaren.
+
+**0013 måste gå live samtidigt som koden.** Efter 0013 läser SupabaseRepo `cases` via vyn `cases_public`, och inloggade får bara läsa kolumnen `id` direkt i tabellen. En äldre version av appen kan då inte läsa ärenden, och den här versionen fungerar inte utan 0013. Driftsätt koden i samma veva som 0013 (ordningen: `docs/DRIFT.md`, "Så startar du testmiljön"). I produktion körs alla migrationer precis före den första driftsättningen.
+
 Kör filerna i nummerordning, en i taget. Tre sätt – välj ett:
 
 - **Supabase CLI:** `supabase link --project-ref <ref>` och sedan `supabase db push`. CLI:t läser `supabase/migrations/` och sparar vilka som körts.
@@ -186,6 +190,7 @@ Varför inte neka kommunen och läsa via `ctx.system`: då skulle hanterare som 
 - **Främmande nycklar** bara där värdet alltid är en befintlig rad: ärende, avtal, person, organisation, fakturautkast, aktivitet, pulslänk, arbetsgivare, samt `memberships.user_id`, `case_team.user_id`, `cases.lead_coach_id`, `cases.referrer_id`, `case_seen`. Inga nycklar på användar-id som kan vara `system` (`changed_by`, `created_by`, `from_id`, `actor_id` …) eller på valfria korslänkar (`ai_run_id`, `source_email_id`, `check_in_id` …).
 - **Unika:** `cases.case_number`, `contract_areas (contract_id, code)`, `case_counters (contract_id, year)`, `memberships (user_id, contract_id, role)`, `profiles.email` (icke tom), `profiles.auth_user_id`, `pulse_invites.token_hash`, `invoice_drafts.fortnox_idempotency_key`, `holidays.date`.
 - **Inga avtalsvärden i databasen** (CLAUDE.md punkt 4): format på beställarreferens och inköpsordernummer valideras i appen mot `contracts.config`.
+- **Pulslänken:** deltagaren har ingen inloggning (rollen `anon`, inga rättigheter). Hanteraren `puls.submit` kontrollerar först token (hash, giltighet, oanvänd, inte skyddat ärende) och skriver sedan svaret, att länken är använd, uppgiften till samordnaren och revisionsloggen med service role (`ctx.system` – systemsteg, motsvarar en `security definer`-funktion). Policyn `pulse_responses_insert` används bara när en testare agerar som deltagaren. Lågt betyg till chefen räknas fram ur `pulse_responses` med chefens egen behörighet.
 - **Revisionsloggen** är append-only: triggern `audit_log_append_only` stoppar `update` och `delete` för alla roller, även service role. `insert` bara för service role. Bara seeden tömmer den (`truncate`, som `postgres`).
 - **Bakgrundsjobb:** `mm.claim_jobs(n, p_now, p_max_attempts = 5, p_stale_after = '10 minutes')` – och samma funktion som `public.claim_jobs` för `.rpc("claim_jobs", { n })` – hämtar köade jobb vars `run_after` passerats (och jobb som fastnat i `running`), med `FOR UPDATE SKIP LOCKED`, sätter `running`, ökar `attempts` och sätter `started_at`. Tiden är `p_now` eller `mm.app_now()` (testtid i testmiljön, riktig tid i produktion) – jobb får `run_after` från `ctx.now()`, som är testtid i testmiljön. Bara service role får anropa.
 - **Löpnummer:** `public.next_case_number(contract_id, year)` (service role) räknar upp `case_counters` med radlås. Hanterarna använder i dag `ctx.system` + `case_counters`; `cases.case_number` är unik så att en krock ger fel i stället för dubbletter.

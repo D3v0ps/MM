@@ -1,4 +1,5 @@
-// Testscenarierna – exakt port av den gamla prototypens MM.scenarios() (prototyp/src/90-feedback.js).
+// Testscenarierna – exakt port av den gamla prototypens MM.scenarios() (prototyp/src/90-feedback.js), plus scenario s14
+// "Röstinspelning" (nytt, beslut 2026-09-30) sist i listan.
 // Varje steg byter roll och öppnar en vy. Vyn anges som i den gamla prototypen (vy-id + parametrar) och översätts
 // till sökväg med pathForView (src/demo/paths.ts). Ärenden refereras med taggar i testdatat (demo_tags),
 // som slås upp med frågan demo.refs när steget öppnas – så att t.ex. Nadias januarirapport hittas även om den
@@ -100,6 +101,16 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "admin", view: "admin.avtal", params: { contract: "c-kk", tab: "jamfor" }, text: "Jämför med skissen för Kammarkollegiet: paketpriser, andra KPI:er och SLA." },
     { role: "admin", view: "om.fragor", params: {}, text: "Gå igenom de öppna frågorna till Botkyrka." },
   ] },
+  // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns
+  // inte i den gamla prototypen och har därför sökvägen som vy ("/rost").
+  { id: "s14", title: "Röstinspelning", lead: "Coachen spelar in avstämningen, kommunen talar in och deltagaren spelar in på sitt språk. AI föreslår – människan bedömer. Inget ljud sparas.", steps: [
+    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Välj Med AI-stöd och Spela in samtalet (i prototypen: Simulera en inspelning). Pausa, fortsätt och stoppa. Ljudet laddas upp, transkriberas och raderas direkt. Förslagen har belägg – samlad status väljer du själv." },
+    { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Nadia har spelat in ett röstmeddelande på somaliska. Läs den svenska översättningen, visa originaltexten och markera det som granskat. Skicka en ny inspelningslänk – utskicket innehåller inga personuppgifter." },
+    { role: "deltagare", view: "/rost", params: {}, text: "Byt till deltagarens perspektiv: länken utan inloggning (arabiska som förval). Byt språk, ge samtycke, spela in och skicka." },
+    { role: "coach", view: "coach.minvecka", params: {}, text: "Tillbaka som coach: det nya röstmeddelandet väntar på granskning på Min vecka. Använd texten som underlag i nästa avstämning." },
+    { role: "kommun_handlaggare", view: "kom.bestall", params: {}, text: "Som handläggare: beställ en insats och tala in bakgrunden i stället för att skriva (steg 3). Texten hamnar i fältet och inget ljud sparas." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa AI-utkast från godkända avstämningar. Utkasten har källor och bygger aldrig på råtranskript – nivåerna väljer du själv." },
+  ] },
 ];
 
 export const scenarioById = (id: string | null | undefined): Scenario | undefined => SCENARIOS.find((s) => s.id === id);
@@ -107,7 +118,7 @@ export const scenarioById = (id: string | null | undefined): Scenario | undefine
 export const scenarioNumber = (id: string): number => SCENARIOS.findIndex((s) => s.id === id) + 1;
 export const needsRefs = (step: ScenarioStep): boolean => typeof step.params === "function";
 export const stepParams = (step: ScenarioStep, refs: DemoRefs): ViewParams => (typeof step.params === "function" ? step.params(refs) : step.params);
-/** Sökvägen för ett steg. */
-export const stepPath = (step: ScenarioStep, refs: DemoRefs): string => pathForView(step.view, stepParams(step, refs)) ?? "/om";
+/** Sökvägen för ett steg. Vyer som inte fanns i den gamla prototypen anges med sin sökväg (t.ex. "/rost"). */
+export const stepPath = (step: ScenarioStep, refs: DemoRefs): string => pathForView(step.view, stepParams(step, refs)) ?? (step.view.startsWith("/") ? step.view : "/om");
 export const scenarioPerspectives = (s: Scenario): Perspective[] => uniq(s.steps.map((st) => perspectiveOf(st.role)));
 export const TOTAL_STEPS = SCENARIOS.reduce((n, s) => n + s.steps.length, 0);

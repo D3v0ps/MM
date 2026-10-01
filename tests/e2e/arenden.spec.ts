@@ -3,7 +3,7 @@
 // prototypen (projekt "demo") och riktiga appen (projekt "app"). Allt läses via skärmen – inte via internt tillstånd.
 // Id:n och antal är testdatats (samma som den gamla prototypen: prototyp/tools/data-samples.json).
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, open, switchPersona } from "./helpers";
 
 const SC = {
   nadia: "case-260143", // BOT-26-0143, Amira, praktik, olästa meddelandet msg-3 från Maria
@@ -44,8 +44,7 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
     await page.evaluate((a) => localStorage.setItem("miljonmatch-prototyp-v2-persona", JSON.stringify(a)), who);
     await page.goto(`http://proto.test/index.html#${to}`);
   } else {
-    const res = await page.request.post("/api/dev-session", { data: who });
-    expect(res.ok()).toBeTruthy();
+    await switchPersona(page, who);
     await page.goto(to);
   }
   await expect(main(page)).toBeVisible();

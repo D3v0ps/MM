@@ -14,6 +14,7 @@ import {
 import { alertAck } from "@/features/ledning/api";
 import { notifRead } from "@/features/notiser/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
+import { VoiceNotesInbox } from "@/features/rost/screens/coach-parts";
 import { ATT, AttBadge, cap, dayLabel, kindOf, lc, PageState, Persp } from "./shared";
 
 /** KPI:erna på smal skärm (prototypens co-kpis): mindre utfyllnad och siffror så att "4 av 15" får plats. */
@@ -218,6 +219,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
               </List>
             )}
           </Card>
+
+          <VoiceNotesInbox />
 
           <Card
             title={`Månadsbedömningar – ${monthName(pm)}`}

@@ -24,7 +24,7 @@ async function startScenario(page: Page, n: number) {
 }
 const next = (page: Page) => bar(page).getByRole("button", { name: "Nästa steg" }).click();
 
-test("startsidan: prototypfält, demodatum, roller och 13 scenarier", async ({ page }, info) => {
+test("startsidan: prototypfält, demodatum, roller och 14 scenarier", async ({ page }, info) => {
   const errors = await open(page, info, "/om");
   await expect(page.getByRole("heading", { level: 1, name: "Miljonmatch" })).toBeVisible();
   await expect(page.getByRole("banner", { name: "Prototypens verktyg" })).toContainText("Demodatum måndag 1 februari 2027 kl. 09.12 · v. 5");
@@ -38,8 +38,8 @@ test("startsidan: prototypfält, demodatum, roller och 13 scenarier", async ({ p
     "Ekonom – Lars Nyström",
     "Systemadmin – Robin Åberg",
   ]);
-  await expect(page.getByRole("button", { name: /^Starta scenario \d+:/ })).toHaveCount(13);
-  await expect(page.getByText("Testscenarier (0 av 47 steg testade)")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Starta scenario \d+:/ })).toHaveCount(14);
+  await expect(page.getByText("Testscenarier (0 av 53 steg testade)")).toBeVisible();
   await expect(page).toHaveTitle("Om prototypen – Miljonmatch");
   expect(errors).toEqual([]);
 });
@@ -120,7 +120,7 @@ test("steg markeras som testade, scenariot sparas vid omladdning och kan avsluta
   await bar(page).getByRole("button", { name: "Avsluta scenariot" }).click();
   await expect(bar(page)).toHaveCount(0);
   await page.getByRole("button", { name: "Start och scenarier" }).click();
-  await expect(page.getByText("Testscenarier (1 av 47 steg testade)")).toBeVisible();
+  await expect(page.getByText("Testscenarier (1 av 53 steg testade)")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Starta scenario 8:/ }).locator("xpath=ancestor::section[1]")).toContainText("1/4 testade");
   expect(errors).toEqual([]);
 });

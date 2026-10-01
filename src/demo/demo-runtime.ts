@@ -1,9 +1,13 @@
 // Prototypens backend: kör samma hanterare som riktiga appen, direkt i webbläsaren, mot påhittade testdata.
 // Det man gör sparas som en logg över kommandon i webbläsaren och spelas upp igen vid omladdning (deterministiskt).
+// AI och röstinspelning är simulerade (ctx.ai: createSimulatedAi, ctx.audio: ljud i minnet): inga anrop utanför webbläsaren
+// och ingen mikrofon krävs – en inspelning kan simuleras. Riktigt ljud som läggs i minnet (rt.audio.put) sparas inte i
+// loggen; vid omladdning spelas kommandona upp utan ljudet, och den simulerade AI:n ger samma svar ändå.
 import type { Actor } from "@/api/roles";
 import type { Backend } from "@/shell/backend";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
+import { createSimulatedAi } from "@/features/_shared/ai-sim";
 
 const LOG_KEY = "miljonmatch-prototyp-v2-logg";
 type LogEntry = { key: string; input: unknown; actor: Actor };
@@ -30,7 +34,7 @@ export type DemoRuntime = {
 };
 
 export async function bootDemo(): Promise<DemoRuntime> {
-  const rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START) });
+  const rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START), ai: createSimulatedAi() });
   const log = readLog();
   const kept: LogEntry[] = [];
   for (const e of log) {

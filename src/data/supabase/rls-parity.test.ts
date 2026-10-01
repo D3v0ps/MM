@@ -52,6 +52,18 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const decision = (id: string, aiRunId: string | null, decidedBy: string): Tables["ai_field_decisions"] => ({
     id, aiRunId, field: "nextGoal", suggested: "a", final: "a", decision: "accepted", changed: false, decidedBy, decidedAt: at,
   });
+  // Röstinspelning (0015): en länk och ett röstmeddelande i det skyddade ärendet (får aldrig skapas – prövar att ingen kan
+  // ändra dem), ett granskat röstmeddelande i ett ärende som kommunens handläggare beställt, och ljudfiler för alla syften.
+  const link = (id: string, caseId: string, tokenHash: string | null): Tables["voice_links"] => ({
+    id, caseId, tokenHash, channel: "sms", language: "sv", sentAt: at, expiresAt: "2027-02-08T06:00", usedAt: null, createdBy: "u-amira",
+  });
+  const note = (id: string, caseId: string, linkId: string, status: Tables["participant_voice_notes"]["status"]): Tables["participant_voice_notes"] => ({
+    id, caseId, linkId, language: "sv", textSv: "Text", textOriginal: null, consentTextVersion: "röst-v1.0 (2026-09-30)", consentGivenAt: at, status,
+    createdAt: at, reviewedBy: status === "new" ? null : "u-amira", reviewedAt: status === "new" ? null : at, aiRunId: null,
+  });
+  const audio = (id: string, caseId: string | null, ownerId: string, purpose: Tables["audio_uploads"]["purpose"]): Tables["audio_uploads"] => ({
+    id, caseId, ownerId, purpose, storagePath: `${purpose}/${id}.webm`, mimeType: "audio/webm", bytes: 4000, durationSec: 1, status: "uploaded", createdAt: at, deletedAt: null,
+  });
   return {
     alerts: [
       alert("al-1", "c-bot", amiraCase.id, ["coach", "samordnare"]), alert("al-2", "c-bot", null, ["chef"]),
@@ -89,6 +101,13 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       { ...data.tasks[0], id: "task-x2", toRole: "coach", toId: null, fromId: "u-sara", caseIds: [amiraCase.id] },
     ],
     inbound_emails: [{ ...data.inbound_emails[0], id: "em-x1", caseId: protectedCase.id, classification: "order" }],
+    voice_links: [link("vl-x-skyddad", protectedCase.id, "x-skyddad"), link("vl-x-maria", mariaCase.id, null), link("vl-x-petra", petraCase.id, "x-petra")],
+    participant_voice_notes: [note("pvn-x-skyddad", protectedCase.id, "vl-x-skyddad", "new"), note("pvn-x-maria", mariaCase.id, "vl-x-maria", "reviewed"), note("pvn-x-arkiv", petraCase.id, "vl-x-petra", "archived")],
+    audio_uploads: [
+      audio("aud-x-diktat", null, "k-maria", "dictation"), audio("aud-x-diktat-arende", mariaCase.id, "k-maria", "dictation"),
+      audio("aud-x-petra", petraCase.id, "u-petra", "checkin"), audio("aud-x-skyddad", protectedCase.id, protectedCase.leadCoachId!, "checkin"),
+      audio("aud-x-deltagare", amiraCase.id, "deltagare", "participant"),
+    ],
   };
 }
 const EXTRA = extraRows();
@@ -254,7 +273,7 @@ describe("läsning: samma rader som policy.ts", () => {
       for (const v of Object.values(expected)) levels.add(v);
     }
     expect([...levels].sort()).toEqual(["billing", "customer", "full", "none", "restricted", "team"]);
-  });
+  }, 30_000); // nio testpersoner mot databasen – tar längre tid när hela testsviten körs parallellt
 });
 
 // ================================================================ Avtalets interna mål
@@ -425,6 +444,7 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
   if (t === "holidays") Object.assign(c, { id: "2099-12-31", date: "2099-12-31" });
   if (t === "profiles") c.email = `ny-${row.id}@example.invalid`;
   if (t === "cases") c.caseNumber = `${row.caseNumber}-NY`;
+  if (t === "voice_links" && row.tokenHash) c.tokenHash = `${row.tokenHash}-ny`;
   if (t === "contract_areas") c.code = `${row.code}NY`;
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
@@ -620,4 +640,149 @@ describe("skrivning: särskilda fall", () => {
     const r = await db.query<{ t: string }>("select to_char(mm.app_now() at time zone 'Europe/Stockholm', 'YYYY-MM-DD\"T\"HH24:MI') as t");
     expect(r.rows[0].t >= "2027-02-01T09:12" && r.rows[0].t <= "2027-02-01T09:20").toBe(true);
   });
+});
+
+// ================================================================ Röstinspelning (0015)
+describe("röstinspelning: länkar, röstmeddelanden och ljudfiler (0015)", () => {
+  /** Flera testpersoner mot databasen per test – längre tidsgräns när hela testsviten körs parallellt. */
+  const SLOW = 30_000;
+  const protectedIds = new Set(data.persons.filter((p) => p.protectedIdentity).map((p) => p.id));
+  const prot = () => data.cases.find((c) => protectedIds.has(c.personId) && c.leadCoachId)!;
+  const caseOfTag = (tag: string) => data.cases.find((c) => c.id === data.demo_tags.find((t) => t.tag === tag)!.entityIds[0])!;
+  const at = "2027-02-01T09:30";
+  const linkRow = (id: string, caseId: string, createdBy: string): Tables["voice_links"] => ({
+    id, caseId, tokenHash: `hash-${id}`, channel: "sms", language: "sv", sentAt: at, expiresAt: "2027-02-08T09:30", usedAt: null, createdBy,
+  });
+  const memWrite = <N extends TableName>(t: N, row: Tables[N], userId: string, r: RawAccess<Tables> = raw) => {
+    const a = findPersona(userId).actor;
+    const cur = r.get(t, row.id);
+    return (!cur || canReadRow(t, cur, a, r)) && canWriteRow(t, row, a, r);
+  };
+
+  it("testdatat: Nadias och Yusufs röstmeddelanden, en oanvänd länk och inga länkar i skyddade ärenden", () => {
+    const seed = seedData();
+    expect(seed.participant_voice_notes.map((n) => [n.id, n.language, n.status, n.textOriginal !== null])).toEqual([["pvn-yusuf", "sv", "reviewed", false], ["pvn-nadia", "so", "new", true]]);
+    expect(seed.voice_links.filter((l) => !l.usedAt).map((l) => l.id)).toEqual(["vl-demo"]);
+    const protCases = new Set(seed.cases.filter((c) => protectedIds.has(c.personId)).map((c) => c.id));
+    expect(seed.voice_links.some((l) => protCases.has(l.caseId)) || seed.participant_voice_notes.some((n) => protCases.has(n.caseId))).toBe(false);
+    expect(seed.audio_uploads.every((u) => u.status === "deleted" && u.deletedAt)).toBe(true);
+  }, SLOW);
+
+  it("inga röstlänkar i skyddade ärenden – inte ens för namngiven huvudcoach eller avtalsansvarig", async () => {
+    const c = prot();
+    const insert = (row: Tables["voice_links"]) => insertSql("voice_links", row as unknown as Record<string, unknown>);
+    for (const userId of [c.leadCoachId!, "u-johan"]) {
+      const row = linkRow(`vl-t-${userId}`, c.id, userId);
+      const res = await asPersona(findPersona(userId), (tx) => attempt(tx, insert(row)));
+      expect(allowed(res), userId).toBe(false);
+      expect(memWrite("voice_links", row, userId), userId).toBe(false);
+    }
+    // Samma coach i ett vanligt ärende: tillåtet i båda.
+    const nadia = caseOfTag("nadia");
+    const ok = linkRow("vl-t-nadia", nadia.id, "u-amira");
+    expect(allowed(await asPersona(findPersona("u-amira"), (tx) => attempt(tx, insert(ok))))).toBe(true);
+    expect(memWrite("voice_links", ok, "u-amira")).toBe(true);
+  }, SLOW);
+
+  it("kommunen läser granskade röstmeddelanden bara när avtalet säger det (customerVisibility.seesParticipantVoiceNotes)", async () => {
+    const withFlag = (v: boolean): RawAccess<Tables> => ({
+      ...raw,
+      get: ((t: TableName, id: string) => {
+        const row = raw.get(t as never, id) as unknown;
+        if (t !== "contracts" || !row) return row;
+        const k = row as Tables["contracts"];
+        return { ...k, config: { ...k.config, customerVisibility: { ...k.config.customerVisibility!, seesParticipantVoiceNotes: v } } };
+      }) as RawAccess<Tables>["get"],
+    });
+    const flagOn = async (tx: Tx) => {
+      await tx.query(`update public.contracts set config = jsonb_set(config, '{customerVisibility,seesParticipantVoiceNotes}', 'true'::jsonb) where id = 'c-bot'`);
+    };
+    const pgNotes = (userId: string) =>
+      asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.participant_voice_notes order by id")).rows.map((r) => r.id));
+    const pgNotesOn = (userId: string) =>
+      asUser(db, authOf(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.participant_voice_notes order by id")).rows.map((r) => r.id), { before: flagOn });
+    const memNotes = (userId: string, r: RawAccess<Tables>) =>
+      data.participant_voice_notes.filter((n) => canReadRow("participant_voice_notes", n, findPersona(userId).actor, r)).map((n) => n.id).sort();
+    for (const userId of ["k-maria", "k-eva", "k-ahmed", "u-lars"]) {
+      expect(await pgNotes(userId), userId).toEqual([]);
+      expect(memNotes(userId, withFlag(false)), userId).toEqual([]);
+      const on = await pgNotesOn(userId);
+      expect(on, userId).toEqual(memNotes(userId, withFlag(true)));
+      // Bara granskade röstmeddelanden, bara i ärenden där kommunen har åtkomst – aldrig ekonomen.
+      for (const id of on) expect(data.participant_voice_notes.find((n) => n.id === id)!.status).toBe("reviewed");
+      if (userId === "u-lars") expect(on).toEqual([]);
+    }
+    expect(await pgNotesOn("k-maria")).toEqual(["pvn-x-maria", "pvn-yusuf"]);
+  }, SLOW);
+
+  it("granskningen ändrar bara status – aldrig deltagarens text eller samtycke – och görs i eget namn", async () => {
+    const n = data.participant_voice_notes.find((x) => x.id === "pvn-nadia")!;
+    const upd = (set: string) => `update public.participant_voice_notes set ${set} where id = 'pvn-nadia'`;
+    const res = await asPersona(findPersona("u-amira"), async (tx) => ({
+      review: await attempt(tx, upd(`status = 'reviewed', reviewed_by = 'u-amira', reviewed_at = '${at}'`)),
+      text: await attempt(tx, upd("text_sv = 'Ändrad text'")),
+      consent: await attempt(tx, upd("consent_text_version = 'annan'")),
+      otherName: await attempt(tx, upd(`status = 'reviewed', reviewed_by = 'u-sara', reviewed_at = '${at}'`)),
+      archive: await attempt(tx, upd("status = 'archived'")),
+    }));
+    expect(res.review).toMatchObject({ ok: true, rows: 1 });
+    expect(res.archive).toMatchObject({ ok: true, rows: 1 });
+    expect(res.text.ok).toBe(false);
+    expect(res.consent.ok).toBe(false);
+    expect(res.otherName.ok).toBe(false);
+    expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: "u-amira", reviewedAt: at }, "u-amira")).toBe(true);
+    expect(memWrite("participant_voice_notes", { ...n, status: "archived" }, "u-amira")).toBe(true);
+    expect(memWrite("participant_voice_notes", { ...n, textSv: "Ändrad text" }, "u-amira")).toBe(false);
+    expect(memWrite("participant_voice_notes", { ...n, consentTextVersion: "annan" }, "u-amira")).toBe(false);
+    expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: "u-sara", reviewedAt: at }, "u-amira")).toBe(false);
+    // Handledaren i teamet granskar också; ekonomen och kommunen aldrig.
+    const petra = await asPersona(findPersona("u-petra"), (tx) => attempt(tx, upd(`status = 'reviewed', reviewed_by = 'u-petra', reviewed_at = '${at}'`)));
+    expect(petra).toMatchObject({ ok: true, rows: 1 });
+    expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: "u-petra", reviewedAt: at }, "u-petra")).toBe(true);
+    for (const userId of ["u-lars", "k-maria"]) {
+      const r = await asPersona(findPersona(userId), (tx) => attempt(tx, upd(`status = 'reviewed', reviewed_by = '${userId}', reviewed_at = '${at}'`)));
+      expect(allowed(r), userId).toBe(false);
+      expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: userId, reviewedAt: at }, userId), userId).toBe(false);
+    }
+    // Deltagaren skriver aldrig själv – hanteraren sparar via ctx.system efter tokenkontrollen.
+    const newNote = { ...n, id: "pvn-t-ny" };
+    const del = await asPersona(findPersona("deltagare"), (tx) => attempt(tx, insertSql("participant_voice_notes", newNote as unknown as Record<string, unknown>)));
+    expect(allowed(del)).toBe(false);
+    expect(memWrite("participant_voice_notes", newNote, "deltagare")).toBe(false);
+  }, SLOW);
+
+  it("ljudfilernas rader skrivs bara av systemet (ctx.audio) – läses av den som spelade in och den som arbetar i ärendet", async () => {
+    const mehmet = data.audio_uploads.find((u) => u.id === "aud-mehmet")!;
+    const fresh: Tables["audio_uploads"] = { ...mehmet, id: "aud-t-ny", status: "pending", deletedAt: null };
+    for (const userId of ["u-amira", "k-maria", "u-robin"]) {
+      const res = await asPersona(findPersona(userId), async (tx) => ({
+        ins: await attempt(tx, insertSql("audio_uploads", { ...fresh, ownerId: userId } as unknown as Record<string, unknown>)),
+        upd: await attempt(tx, "update public.audio_uploads set status = 'uploaded', deleted_at = null where id = 'aud-mehmet'"),
+      }));
+      expect(allowed(res.ins) || allowed(res.upd), userId).toBe(false);
+      expect(memWrite("audio_uploads", { ...fresh, ownerId: userId }, userId), userId).toBe(false);
+      expect(memWrite("audio_uploads", { ...mehmet, status: "uploaded", deletedAt: null }, userId), userId).toBe(false);
+    }
+    const service = await asUser(db, null, async (tx) => ({
+      ins: await attempt(tx, insertSql("audio_uploads", fresh as unknown as Record<string, unknown>)),
+      upd: await attempt(tx, "update public.audio_uploads set status = 'deleted', deleted_at = '2027-02-01T09:31' where id = 'aud-x-petra'"),
+    }), { role: "service_role" });
+    expect(service.ins).toMatchObject({ ok: true, rows: 1 });
+    expect(service.upd).toMatchObject({ ok: true, rows: 1 });
+    // Läsning: kommunens "Tala in" bara den själv; deltagarens gemensamma id ger ingen läsrätt.
+    const ids = async (userId: string) => ({
+      pg: await asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.audio_uploads order by id")).rows.map((r) => r.id)),
+      mem: await memIds(findPersona(userId), "audio_uploads"),
+    });
+    const maria = await ids("k-maria");
+    expect(maria.pg).toEqual(["aud-x-diktat", "aud-x-diktat-arende"]);
+    expect(maria.mem).toEqual(maria.pg);
+    const amira = await ids("u-amira");
+    expect(amira.pg).toEqual(amira.mem);
+    expect(amira.pg).toEqual(expect.arrayContaining(["aud-mehmet", "aud-pvn-nadia", "aud-pvn-yusuf", "aud-x-deltagare"]));
+    expect(amira.pg).not.toContain("aud-x-diktat-arende");
+    const del = await ids("deltagare");
+    expect(del.pg).toEqual([]);
+    expect(del.mem).toEqual([]);
+  }, SLOW);
 });

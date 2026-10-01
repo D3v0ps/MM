@@ -2,7 +2,7 @@
 // Månadsbedömning (/manadsbedomning/:caseId?manad=2027-01) – nivå 0–3 per progressionsområde, konkret observation från
 // avtalets nivå, samlad status och plan för nästa månad. Nivån är tom tills coachen väljer; AI-förslag visas men fylls aldrig i.
 // Port av prototypens coach.manad.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { pct, plural } from "@/core/format";
 import { addMonths, fmtDateShort, fmtDateTime, fmtWeekday, MONTHS, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -11,7 +11,7 @@ import {
   AiBox, AiTag, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
-import { assessmentPage, assessmentSave, type AssessmentPage } from "../api";
+import { assessmentPage, assessmentSave, monthlyDraft, type AssessmentPage } from "../api";
 import { breakable, CaseHeadView, CasePicker, Chips, customerPerspective, GateView, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
 
 type Ok = Extract<AssessmentPage, { kind: "ok" }>;
@@ -40,6 +40,13 @@ export function ManadsbedomningScreen({ params, query }: ScreenProps) {
 function Manad({ caseId, month }: { caseId: string; month?: string }) {
   const q = useQuery(assessmentPage, { caseId, month });
   const v = q.data;
+  // Appen: AI-utkastet skrivs i bakgrunden – hämta om vyn tills det är klart.
+  const running = v?.kind === "ok" && v.aiDraft?.status === "running";
+  useEffect(() => {
+    if (!running) return undefined;
+    const t = setTimeout(() => void q.refetch(), 2000);
+    return () => clearTimeout(t);
+  }, [running, q]);
   const title = month ? `Månadsbedömning ${monthName(month)}` : "Månadsbedömning";
   if (!v) return <PageState title={title} error={q.error} onRetry={() => void q.refetch()} />;
   if (v.kind === "gate") return <GateView gate={v.gate} title="Månadsbedömning" listPath="/manadsbedomning" />;
@@ -225,10 +232,13 @@ function ManadForm({ v }: { v: Ok }) {
       </Split>
 
       {v.aiOk ? (
-        <Notice tone="info" title="AI-stöd">
-          AI har skrivit utkast till observationer utifrån månadens godkända avstämningar och närvaron, med källor. Där underlaget inte räcker står det <b>Framgår inte</b> och inget
-          nivåförslag ges. Nivåförslaget visas under rullgardinen men fylls aldrig i. <BuildPhase fas={2} />
-        </Notice>
+        <>
+          <Notice tone="info" title="AI-stöd">
+            AI har skrivit utkast till observationer utifrån månadens godkända avstämningar och närvaron, med källor. Där underlaget inte räcker står det <b>Framgår inte</b> och inget
+            nivåförslag ges. Nivåförslaget visas under rullgardinen men fylls aldrig i. <BuildPhase fas={2} />
+          </Notice>
+          <AiDraftCard v={v} />
+        </>
       ) : (
         <p className="text-small text-text-muted">
           AI-stöd används inte i det här ärendet{c.protected ? " (skyddade personuppgifter)" : " eftersom deltagaren inte har samtyckt"}. Dokumentera manuellt.
@@ -412,6 +422,16 @@ function ManadForm({ v }: { v: Ok }) {
               <Input value={plan.goal2} onValueChange={(x) => setP("goal2", x)} maxLength={140} />
             </Field>
             {v.goals.length > 0 && <Chips label="Förslag på mål" items={v.goals} onPick={(g) => setP(plan.goal1 ? "goal2" : "goal1", g)} />}
+            {v.aiDraft?.plan && !v.aiDraft.plan.noEvidence && (
+              <AiBox>
+                <Row gap="sm">
+                  <AiTag>AI-utkast</AiTag>
+                  <span className="text-small text-text-muted">Källa: {v.aiDraft.plan.sources.join(", ") || "godkända avstämningar"}</span>
+                </Row>
+                <div>{v.aiDraft.plan.text}</div>
+                <span className="text-small text-text-muted">Underlag för planen – skriv målen och aktiviteterna själv.</span>
+              </AiBox>
+            )}
             <Field label="Planerade aktiviteter" id="pl-act" help="Vad deltagaren ska göra och hur ofta.">
               <Input value={plan.plannedActivities} onValueChange={(x) => setP("plannedActivities", x)} maxLength={200} />
             </Field>
@@ -443,5 +463,56 @@ function ManadForm({ v }: { v: Ok }) {
         </Button>
       </Row>
     </Page>
+  );
+}
+
+/**
+ * "Skapa AI-utkast från godkända avstämningar" (coach.monthlyDraft): utkast till observation per område, sammanfattning och
+ * plan – bara från månadens godkända avstämningar och registrerad närvaro. Nivåerna och samlad status väljer coachen själv.
+ */
+function AiDraftCard({ v }: { v: Ok }) {
+  const draft = useCommand(monthlyDraft);
+  const d = v.aiDraft;
+  const n = v.basis.checkIns.length;
+  const create = async () => {
+    const res = await draft.run({ caseId: v.head.caseId, month: v.month }).catch(() => null);
+    if (!res || !res.ok) {
+      toast(res && !res.ok && res.message ? res.message : "AI-utkastet kunde inte skapas. Skriv observationerna själv.", "error");
+      return;
+    }
+    if (res.status === "failed") toast(res.error ?? "AI-utkastet kunde inte skapas. Skriv observationerna själv.", "error");
+    else if (res.status === "succeeded") toast("AI-utkasten är klara. Granska dem och välj nivåerna själv.");
+    else toast("AI skriver utkasten. De visas här när de är klara.");
+  };
+  return (
+    <Card title="AI-utkast från godkända avstämningar" icon="sparkles">
+      <Stack gap="sm">
+        <p>
+          AI skriver ett utkast till observation för varje område, en sammanfattning och ett underlag för planen. Underlaget är bara månadens{" "}
+          {n === 1 ? "godkända avstämning" : `${n} godkända avstämningar`} och den registrerade närvaron – aldrig råtranskript. Du väljer nivåerna och den samlade
+          statusen själv.
+        </p>
+        <Row gap="sm">
+          <Button kind="secondary" icon="sparkles" pending={draft.pending || d?.status === "running"} onClick={() => void create()}>
+            {d?.status === "succeeded" ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända avstämningar"}
+          </Button>
+          {d?.status === "running" && (
+            <span role="status" className="text-small font-bold">
+              AI skriver utkasten …
+            </span>
+          )}
+          {d?.status === "succeeded" && (
+            <span className="text-small text-text-muted">
+              <AiTag>AI-utkast</AiTag> Skapade {fmtDateTime(d.createdAt)}
+            </span>
+          )}
+        </Row>
+        {d?.status === "failed" && (
+          <Notice tone="warn" title="AI-utkastet kunde inte skapas">
+            {d.error ?? "Skriv observationerna själv."}
+          </Notice>
+        )}
+      </Stack>
+    </Card>
   );
 }

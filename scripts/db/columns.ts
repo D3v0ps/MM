@@ -82,6 +82,16 @@ export const COLUMNS = {
   template_versions: { id: "text", templateKey: "text", version: "integer", subject: "text", body: "text", savedAt: "timestamptz", savedBy: "text", note: "text" },
   log_checks: { id: "text", month: "text", items: "jsonb", note: "text", signedBy: "text", signedAt: "timestamptz" },
   demo_tags: { id: "text", tag: "text", entity: "text", entityIds: "text[]" },
+  // Röstinspelning (0015_rost.sql)
+  voice_links: { id: "text", caseId: "text", tokenHash: "text | null", channel: "text", language: "text", sentAt: "timestamptz", expiresAt: "timestamptz", usedAt: "timestamptz | null", createdBy: "text" },
+  participant_voice_notes: {
+    id: "text", caseId: "text", linkId: "text", language: "text", textSv: "text", textOriginal: "text | null", consentTextVersion: "text", consentGivenAt: "timestamptz",
+    status: "text", createdAt: "timestamptz", reviewedBy: "text | null", reviewedAt: "timestamptz | null", aiRunId: "text | null",
+  },
+  audio_uploads: {
+    id: "text", caseId: "text | null", ownerId: "text", purpose: "text", storagePath: "text", mimeType: "text", bytes: "integer | null", durationSec: "integer | null",
+    status: "text", createdAt: "timestamptz", deletedAt: "timestamptz | null",
+  },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

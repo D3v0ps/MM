@@ -42,11 +42,37 @@ export async function open(page: Page, info: TestInfo, to: string, as?: { userId
       expect(res.ok()).toBeTruthy();
     }
     await page.goto(to);
-    // Appen hämtar sessionen och frågorna över HTTP (prototypen svarar direkt i webbläsaren): vänta tills sidan har laddat klart.
-    await page.waitForLoadState("networkidle").catch(() => undefined);
-    await page
-      .waitForFunction(() => !(document.querySelector("#main")?.textContent ?? "").includes("Hämtar…"), null, { timeout: 15_000 })
-      .catch(() => undefined);
+    await loaded(page);
   }
   return errors;
+}
+
+/**
+ * Appen: byt testperson utan att nollställa testdatat. Lämnar först sidan – annars kan den gamla sidan hinna hämta något
+ * (t.ex. frågorna som räknas om efter ett kommando) med den nya testpersonens kaka och få 403 i konsolen för något den
+ * nya personen inte får se. Anroparen öppnar sedan sidan som ska visas.
+ */
+export async function switchPersona(page: Page, as: { userId: string; role: string }) {
+  await page.goto("about:blank");
+  const res = await page.request.post("/api/dev-session", { data: as });
+  expect(res.ok()).toBeTruthy();
+}
+
+/**
+ * Appen hämtar sessionen och frågorna över HTTP (prototypen svarar direkt i webbläsaren): vänta tills sidan har laddat
+ * klart – sidans innehåll (#main) finns och visar inte längre "Hämtar…". Används efter varje page.goto/reload i appen,
+ * innan testet läser sidans text. Tidsgränsen stoppar inte testet – då får testets egna kontroller visa felet.
+ */
+export async function loaded(page: Page) {
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+  await page
+    .waitForFunction(
+      () => {
+        const main = document.querySelector("#main");
+        return !!main && !(main.textContent ?? "").includes("Hämtar…");
+      },
+      null,
+      { timeout: 15_000 },
+    )
+    .catch(() => undefined);
 }

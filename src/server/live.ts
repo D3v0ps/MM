@@ -1,18 +1,22 @@
 // Supabase-läget (MM_BACKEND=supabase): session, identitet, Ctx och körning av API:t. Bara på servern.
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ApiError, type Ctx } from "@/api/server";
+import { ApiError } from "@/api/server";
 import { execute } from "@/api/handlers";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import { PARTICIPANT_USER_ID } from "@/data/actors";
 import type { AppRepo, Membership, Organization } from "@/data/schema";
+import type { CtxWithJobs } from "@/features/_shared/voice-jobs";
 import { appRepo, fromDbRow, userRepo, type PgClient } from "@/data/supabase";
+import { serverAi } from "./ai";
+import { serverAudio } from "./audio";
 import { LIMITS, type GateVerdict, type LoginGate } from "./auth/rate-limit";
 import { clockNow } from "./clock";
 import { lazyServerCrypto } from "./crypto";
 import { liveCtx } from "./ctx";
 import { resolveIdentity, type DbActor, type Identity, type IdentityStore, type ProfileRow } from "./identity";
+import { scheduleJobsAfterResponse } from "./jobs/schedule";
 import { enqueueMessage } from "./notify";
 import { loadAppSettings, type AppSettings } from "./settings";
 import { serviceClient, userClient } from "./supabase";
@@ -102,7 +106,7 @@ export async function liveSession(): Promise<LiveSession> {
 /** Deltagaren via pulslänk – ingen inloggning, inga avtal. Databasen ser rollen anon (bara hanterarnas systemsteg). */
 const PARTICIPANT: Actor = { userId: PARTICIPANT_USER_ID, role: "deltagare", contractIds: [], customerUnit: null };
 
-export function ctxFor(s: LiveSession): Ctx {
+export function ctxFor(s: LiveSession): CtxWithJobs {
   const system: AppRepo = appRepo(s.service);
   return liveCtx({
     actor: s.identity?.persona.actor ?? PARTICIPANT,
@@ -112,6 +116,10 @@ export function ctxFor(s: LiveSession): Ctx {
     enqueue: enqueueMessage,
     testerId: s.identity?.impersonating ? s.identity.self.id : null,
     crypto: lazyServerCrypto,
+    // Röstinspelningen: AI-leverantören (MM_AI_PROVIDER), ljudlagringen (bucketen "ljud") och jobbkön (after()).
+    ai: serverAi(s.settings.environment),
+    audio: (d) => serverAudio(d),
+    scheduleJobs: scheduleJobsAfterResponse,
   });
 }
 

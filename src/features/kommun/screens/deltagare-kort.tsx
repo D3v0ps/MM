@@ -16,6 +16,7 @@ import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomAttTile, type KomC
 import { fD, fDT, fDTL, fullText, looksLikePnr, phaseText, statusText } from "../texts";
 import { KOM_TABS, KStatus, KomHead, KomPage, ReportRowItem, reportPath } from "./parts";
 import { taskTitle, useTaskDone } from "./start";
+import { joinText, TalaIn } from "./tala-in";
 
 type Tab = "oversikt" | "rapporter" | "meddelanden";
 const TABS: readonly Tab[] = ["oversikt", "rapporter", "meddelanden"];
@@ -558,6 +559,7 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
                   }}
                 />
               </Field>
+              <TalaIn fieldId="kom-msg" caseId={c.id} onText={(t) => setText((x) => joinText(x, t, 2000))} />
               <span>
                 <Button kind="primary" size="lg" icon="send" pending={send.pending} onClick={() => void submit()}>
                   Skicka meddelandet

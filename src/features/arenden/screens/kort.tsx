@@ -22,6 +22,7 @@ import { canOpen, cap, fd, Facts, Label, MiniList } from "./common";
 import { TabAvstamningar, TabKartlaggning, TabManad, TabNarvaro, TabOversikt } from "./kort-flikar";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
+import { VoiceNotesCard } from "@/features/rost/screens/coach-parts";
 
 const TAB_LABEL: Record<CaseTab, string> = {
   oversikt: "Översikt", kartlaggning: "Kartläggning", avstamningar: "Avstämningar", narvaro: "Närvaro", manad: "Månadsbedömning", handelser: "Händelser och utfall",
@@ -169,6 +170,8 @@ function CaseView({ card, crumbs, flik }: { card: CaseCard; crumbs: { label: str
         <Stack>
           {!team && <ConsentCard card={card} onRegister={() => setModal("consent")} />}
           <ActionsCard card={card} openModal={setModal} />
+          {/* Röstinspelning: deltagarens röstmeddelanden och inspelningslänken (inte för teamet – underlag för coachen). */}
+          {!team && <VoiceNotesCard caseId={card.caseId} />}
         </Stack>
       </Split>
 

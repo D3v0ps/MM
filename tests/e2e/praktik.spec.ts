@@ -1,7 +1,7 @@
 // Interaktionstest för arbetsgivarregistret och praktikplatserna (/praktik – prototypens praktik.arbetsgivare).
 // Port av stegen "praktik.arbetsgivare – register, fyra rätt och behörighet" i prototyp/tools/test-admin.mjs.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, loaded, open, switchPersona } from "./helpers";
 
 type Who = { userId: string; role: string };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
@@ -19,9 +19,9 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
     await page.evaluate((a) => localStorage.setItem("miljonmatch-prototyp-v2-persona", JSON.stringify(a)), who);
     await page.goto(`http://proto.test/index.html#${to}`);
   } else {
-    const res = await page.request.post("/api/dev-session", { data: who });
-    expect(res.ok()).toBeTruthy();
+    await switchPersona(page, who);
     await page.goto(to);
+    await loaded(page);
   }
   await expect(main(page)).toBeVisible();
 }
@@ -89,7 +89,10 @@ test("praktik: coachen ser namn bara i egna ärenden och bockar i de fyra rätte
   const nadia = main(page).locator("section", { has: page.getByRole("heading", { name: "Nadia Warsame" }) }).last();
   await expect(nadia).toContainText("3 av 4 rätt");
   const upp = nadia.locator('input[id$="-uppfoljning"]');
-  await upp.check();
+  // Rutan visar det sparade värdet: i appen blir den ikryssad först när svaret från servern kommit (inte check(), som
+  // kräver att den ändras direkt vid klicket).
+  await upp.click();
+  await expect(upp).toBeChecked();
   await expect(nadia).toContainText("De fyra rätten – 4 av 4 uppfyllda");
   const fu = nadia.locator('input[type="date"]');
   await fu.fill("2027-02-10");

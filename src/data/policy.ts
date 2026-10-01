@@ -12,10 +12,13 @@
 //   Skyddade       bara namngiven huvudcoach, avtalsansvarig och beställande handläggare ser personen och detaljerna
 //   Övrigt         pulssvar: aldrig coachen (aggregat via ctx.system) · notiser: bara mottagaren · revisionslogg: admin och chef
 //                  · utskick: admin och samordnare · interna regler (org_settings): MB läser, admin skriver
+//   Röst           inspelningslänkar och deltagarens röstmeddelanden: den som arbetar i ärendet (aldrig ekonom), aldrig skyddade
+//                  ärenden · kommunen läser granskade röstmeddelanden bara om avtalet säger det · ljudfilernas rader skrivs
+//                  bara av systemet (ctx.audio) och läses av den som spelade in och av den som arbetar i ärendet
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
-// Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token) körs via
-// ctx.system (service role) och passerar inte policyn.
+// Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
+// ljudfilernas rader via ctx.audio) körs via ctx.system (service role) och passerar inte policyn.
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
@@ -119,6 +122,12 @@ const customersOf = (a: Actor, raw: Raw) => {
   for (const id of a.contractIds) { const c = raw.get("contracts", id); if (c) out.add(c.customerId); }
   return out;
 };
+/** Ärendets person har skyddade personuppgifter (uppslag utan filter). Ett ärende eller en person som saknas räknas som skyddat. */
+const protectedCase = (raw: Raw, caseId: string | null | undefined): boolean => {
+  const c = caseId ? raw.get("cases", caseId) : undefined;
+  const p = c ? raw.get("persons", c.personId) : undefined;
+  return !p || p.protectedIdentity;
+};
 const adminOnly = <N extends TableName>(): RowPolicy<Tables, Tables[N]> => ({ read: (_r, a) => a.role === "admin", write: (_r, a) => a.role === "admin" });
 const never = () => false;
 
@@ -178,6 +187,28 @@ function reportWrite(r: Report, a: Actor, raw: Raw): boolean {
   if (r.kind === "customer_summary" || r.kind === "statistics") return a.role === "samordnare" || a.role === "avtalsansvarig";
   if (r.caseId) return has(CASE_EDITORS, a) && accessTo(raw, a, r.caseId) === "full";
   return false;
+}
+
+// ---------------------------------------------------------------- Röstinspelning
+type VoiceNote = Tables["participant_voice_notes"];
+/**
+ * Deltagarens röstmeddelanden: den som arbetar i ärendet (full/team, aldrig ekonom). Kommunen (åtkomst "customer") bara
+ * granskade meddelanden och bara om avtalet säger det (customerVisibility.seesParticipantVoiceNotes).
+ */
+function voiceNoteRead(x: VoiceNote, a: Actor, raw: Raw): boolean {
+  if (isMB(a)) return notesRead(x.caseId, a, raw);
+  if (!isKom(a) || x.status !== "reviewed" || accessTo(raw, a, x.caseId) !== "customer") return false;
+  const c = raw.get("cases", x.caseId);
+  return !!c && raw.get("contracts", c.contractId)?.config.customerVisibility?.seesParticipantVoiceNotes === true;
+}
+/**
+ * Coachens granskning ändrar bara status, reviewedBy och reviewedAt – aldrig deltagarens text, språk eller samtycke – och
+ * granskaren är den som ändrar (samma som triggern participant_voice_notes_protect_columns, 0015).
+ */
+function reviewOnly(cur: VoiceNote, next: VoiceNote, a: Actor): boolean {
+  const changed = changedFields(cur, next);
+  if (changed.some((k) => k !== "status" && k !== "reviewedBy" && k !== "reviewedAt")) return false;
+  return !changed.includes("reviewedBy") || next.reviewedBy === null || next.reviewedBy === a.userId;
 }
 
 // ---------------------------------------------------------------- Meddelanden
@@ -380,6 +411,27 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   log_checks: { read: (_x, a) => a.role === "admin" || a.role === "chef", write: (x, a) => (a.role === "admin" || a.role === "chef") && self(a, x.signedBy) },
   // Bara testdata (scenarier och demoförklaringar) – inga personuppgifter
   demo_tags: { read: () => true, write: never },
+
+  // ---- Röstinspelning (docs/PLAN-ROST.md). Deltagaren (länk utan inloggning) skriver aldrig själv: hanteraren kontrollerar
+  //      länkens token och sparar via ctx.system.
+  voice_links: {
+    read: (x, a, raw) => notesRead(x.caseId, a, raw),
+    // Aldrig inspelningslänkar i skyddade ärenden (CLAUDE.md punkt 8: inga SMS eller mejl till deltagaren, ingen AI).
+    write: (x, a, raw) => workOn(x.caseId, a, raw) && !protectedCase(raw, x.caseId),
+  },
+  participant_voice_notes: {
+    read: voiceNoteRead,
+    // Bara granskning (status) av den som arbetar i ärendet. Nya röstmeddelanden sparas av systemet efter tokenkontrollen.
+    write: (x, a, raw) => {
+      const cur = raw.get("participant_voice_notes", x.id);
+      return !!cur && workOn(x.caseId, a, raw) && !protectedCase(raw, x.caseId) && reviewOnly(cur, x, a);
+    },
+  },
+  audio_uploads: {
+    // Den som spelade in (inte deltagarens gemensamma id) och den som arbetar i ärendet – kommunens "Tala in" bara den själv.
+    read: (x, a, raw) => (a.role !== "deltagare" && self(a, x.ownerId)) || (!!x.caseId && x.purpose !== "dictation" && notesRead(x.caseId, a, raw)),
+    write: never, // bara ctx.audio (systemsteg): läget (uppladdad, transkriberad, raderad) sätts aldrig av användaren
+  },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

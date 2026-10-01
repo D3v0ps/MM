@@ -2,7 +2,7 @@
 // Port av stegen "puls.svar – deltagaren svarar via engångslänk" i prototyp/tools/test-admin.mjs. Det som prototypen
 // kontrollerade i sitt tillstånd (svaret, länken, uppgiften, flaggorna) kontrolleras här i vyerna.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open } from "./helpers";
+import { isDemo, open, switchPersona } from "./helpers";
 
 type Who = { userId: string; role: string };
 const DELTAGARE: Who = { userId: "deltagare", role: "deltagare" };
@@ -19,8 +19,7 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
     await page.evaluate((a) => localStorage.setItem("miljonmatch-prototyp-v2-persona", JSON.stringify(a)), who);
     await page.goto(`http://proto.test/index.html#${to}`);
   } else {
-    const res = await page.request.post("/api/dev-session", { data: who });
-    expect(res.ok()).toBeTruthy();
+    await switchPersona(page, who);
     await page.goto(to);
   }
   await expect(main(page)).toBeVisible();

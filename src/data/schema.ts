@@ -54,6 +54,8 @@
 //   S.script {tagg: caseId}, S.meta.w4MissingActivityIds, c.tags, ci.tags, pi-demo
 //                                    -> demo_tags (bara testdata)
 //   S.deadlineOverrides              -> används inte (deadlines räknas fram; tabellen deadlines finns för produktionen)
+//   (finns inte i prototypen)        -> voice_links, participant_voice_notes, audio_uploads (röstinspelning, beslut 2026-09-30,
+//                                       docs/PLAN-ROST.md). Testdatat: src/data/seed/gen-voice.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -246,7 +248,13 @@ export type DeadlineKind = (typeof DEADLINE_KINDS)[number];
 export const DEADLINE_STATUSES = ["open", "met", "missed"] as const;
 export type DeadlineStatus = (typeof DEADLINE_STATUSES)[number];
 
-export const AI_RUN_KINDS = ["parse_email", "transcribe_extract", "extract_notes", "extract_teams", "report_summary", "monthly_draft"] as const;
+/**
+ * transcribe_extract = coachens inspelning/ljudfil -> transkript -> förslag till avstämningen · transcribe_dictation = kommunens
+ * "Tala in" (bara text tillbaka) · transcribe_participant = deltagarens inspelning -> transkript -> översättning till svenska.
+ */
+export const AI_RUN_KINDS = [
+  "parse_email", "transcribe_extract", "extract_notes", "extract_teams", "report_summary", "monthly_draft", "transcribe_dictation", "transcribe_participant",
+] as const;
 export type AiRunKind = (typeof AI_RUN_KINDS)[number];
 export const AI_RUN_STATUSES = ["running", "succeeded", "failed"] as const;
 export type AiRunStatus = (typeof AI_RUN_STATUSES)[number];
@@ -255,6 +263,23 @@ export type AiDecision = (typeof AI_DECISIONS)[number];
 
 export const CONSENT_KINDS = ["recording_and_ai"] as const;
 export type ConsentKind = (typeof CONSENT_KINDS)[number];
+
+/** Kanal för deltagarens inspelningslänk (samma som pulslänken). Aldrig vid skyddade personuppgifter. */
+export const VOICE_LINK_CHANNELS = ["sms", "email"] as const;
+export type VoiceLinkChannel = (typeof VOICE_LINK_CHANNELS)[number];
+/** Deltagarens röstmeddelande: new = väntar på coachens granskning, reviewed = granskat (underlag), archived = arkiverat. */
+export const VOICE_NOTE_STATUSES = ["new", "reviewed", "archived"] as const;
+export type VoiceNoteStatus = (typeof VOICE_NOTE_STATUSES)[number];
+/** Vad ljudet är till: coachens avstämning, kommunens "Tala in" eller deltagarens inspelning via länk. */
+export const AUDIO_PURPOSES = ["checkin", "dictation", "participant"] as const;
+export type AudioPurpose = (typeof AUDIO_PURPOSES)[number];
+/**
+ * Ljudfilens läge: pending = uppladdningsadressen är skapad men filen inte bekräftad · uploaded = filen finns ·
+ * transcribed = transkriberad (raderas direkt) · failed = transkriberingen misslyckades (raderas senast efter 24 h) ·
+ * deleted = ljudet är raderat (raden finns kvar som spår, utan innehåll).
+ */
+export const AUDIO_UPLOAD_STATUSES = ["pending", "uploaded", "transcribed", "failed", "deleted"] as const;
+export type AudioUploadStatus = (typeof AUDIO_UPLOAD_STATUSES)[number];
 
 export const INTEGRATION_KINDS = ["graph", "entra", "fortnox", "sms", "email", "ai"] as const;
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number];
@@ -1119,6 +1144,77 @@ export type Consent = {
   revokedAt: LocalDateTime | null;
 };
 
+// ================================================================ Röstinspelning (SPEC §8, docs/PLAN-ROST.md)
+// Ljud raderas direkt efter lyckad transkribering (senast efter 24 h vid fel) – CLAUDE.md punkt 7. Aldrig för skyddade
+// personuppgifter (punkt 8). Deltagarens inspelning och kommunens "Tala in" sparar bara text.
+
+/** Deltagarens inspelningslänk (/rost/:token, publik, som pulslänken). Aldrig för skyddade ärenden. */
+export type VoiceLink = {
+  id: string;
+  caseId: string;
+  /** SHA-256 (hex) av länkens token – token lagras aldrig i klartext. Null i testdatats exempellänk (demo_tags "vl-demo"). */
+  tokenHash: string | null;
+  channel: VoiceLinkChannel;
+  /** Förvalt språk på sidan (ISO 639-1, ett av avtalets ai.languages). Deltagaren kan byta. */
+  language: string;
+  sentAt: LocalDateTime;
+  /** sentAt + avtalets ai.participantLinkValidDays. */
+  expiresAt: LocalDateTime;
+  /** När deltagaren skickade in sin inspelning (länken gäller en gång). */
+  usedAt: LocalDateTime | null;
+  /** Coachen som skickade länken. */
+  createdBy: UserId;
+};
+
+/**
+ * Deltagarens röstmeddelande som text: underlag för coachen (inte en rapport, inte en bedömning). Inget ljud sparas.
+ * Kommunen läser dem bara om avtalet säger det (customerVisibility.seesParticipantVoiceNotes) och coachen granskat dem.
+ */
+export type ParticipantVoiceNote = {
+  id: string;
+  caseId: string;
+  linkId: string;
+  /** Språket deltagaren talade (ISO 639-1). */
+  language: string;
+  /** Texten på svenska (transkriptet, eller översättningen när deltagaren talade ett annat språk). Märks "AI-översättning". */
+  textSv: string;
+  /** Transkriptet på originalspråket. Null när deltagaren talade svenska (då är textSv originalet). */
+  textOriginal: string | null;
+  /** Samtyckestextens version som deltagaren godkände i länken, t.ex. "röst-v1.0 (2026-09-30)". */
+  consentTextVersion: string;
+  consentGivenAt: LocalDateTime;
+  status: VoiceNoteStatus;
+  createdAt: LocalDateTime;
+  reviewedBy: UserId | null;
+  reviewedAt: LocalDateTime | null;
+  /** AI-körningen (transkribering + översättning). Null i testdatat. */
+  aiRunId: string | null;
+};
+
+/**
+ * Ljudfil i privat lagring (Supabase Storage, bucket "ljud", Stockholm). Skapas och ändras bara av systemet via ctx.audio
+ * (service role) – användare läser bara läget. Sökvägen innehåller bara id:n, aldrig personuppgifter.
+ */
+export type AudioUpload = {
+  id: string;
+  /** Ärendet (coachens avstämning, deltagarens inspelning, kommunens meddelande). Null för "Tala in" i en ny beställning. */
+  caseId: string | null;
+  /** Den som spelade in: profiles.id, eller "deltagare" för deltagarens länk. */
+  ownerId: UserId;
+  purpose: AudioPurpose;
+  /** Sökväg i bucketen, t.ex. "checkin/aud-….webm". */
+  storagePath: string;
+  /** Grundtypen utan parametrar, t.ex. "audio/webm". */
+  mimeType: string;
+  bytes: number | null;
+  /** Längd i hela sekunder. */
+  durationSec: number | null;
+  status: AudioUploadStatus;
+  createdAt: LocalDateTime;
+  /** När ljudet raderades ur lagringen. */
+  deletedAt: LocalDateTime | null;
+};
+
 // ================================================================ Kommunikation och logg
 /** Säkra meddelanden per ärende. */
 export type Message = {
@@ -1259,7 +1355,8 @@ export type LogCheck = {
 /**
  * BARA TESTDATA. Namngivna rader i testdatat som scenarier och demoförklaringar pekar på:
  * prototypens S.script (tagg -> ärende-id, t.ex. "nadia"), c.tags (t.ex. "prelim2", "ny-i-demo"), ci.tags ("ai-draft"),
- * S.meta.w4MissingActivityIds och pulslänken pi-demo. Finns inte i produktionsdatabasen.
+ * S.meta.w4MissingActivityIds, pulslänken pi-demo och röstinspelningens exempel (vl-demo, pvn-nadia, pvn-yusuf).
+ * Finns inte i produktionsdatabasen.
  */
 export type DemoTag = {
   /** = tag */
@@ -1327,6 +1424,9 @@ export type Tables = {
   template_versions: TemplateVersion;
   log_checks: LogCheck;
   demo_tags: DemoTag;
+  voice_links: VoiceLink;
+  participant_voice_notes: ParticipantVoiceNote;
+  audio_uploads: AudioUpload;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1345,6 +1445,7 @@ export const TABLE_NAMES = [
   "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals", "invoice_credits", "fortnox_runs", "integrations",
   "jobs", "ai_runs", "ai_field_decisions", "audit_log", "org_settings", "template_versions", "log_checks",
   "demo_tags",
+  "voice_links", "participant_voice_notes", "audio_uploads",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;

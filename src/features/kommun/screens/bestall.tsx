@@ -18,6 +18,7 @@ import {
 import { kommunDuplicate, kommunOrderForm, kommunReceipt, type KomDuplicate, type KomOrderForm } from "../api";
 import { fD, fDT, fDTL, fullText, maskPnr, SAFE_PHONE, statusName } from "../texts";
 import { KomHead, KomPage, OkLine } from "./parts";
+import { joinText, TalaIn } from "./tala-in";
 
 const STEPS = ["Beställning och kontakt", "Deltagare", "Avtalsområde", "Granska och skicka"] as const;
 const DATA_STEPS = 3;
@@ -443,6 +444,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
         <Field id="kom-o-bg" label="Bakgrund" help="Några meningar om erfarenhet, utbildning och mål. Skriv inga diagnoser eller andra känsliga uppgifter.">
           <TextArea rows={4} maxLength={1000} value={f.background} onValueChange={set("background")} />
         </Field>
+        <TalaIn fieldId="kom-o-bg" protectedOrder={f.protectedIdentity === true} onText={(t) => setF((x) => ({ ...x, background: joinText(x.background, t, 1000) }))} />
       </Stack>
     );
   }
