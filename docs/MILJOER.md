@@ -2,8 +2,8 @@
 
 | Miljö | Supabase-projekt | Region | Data | App |
 |---|---|---|---|---|
-| Testmiljö (staging) | `miljonmatch` (ref `blxupsebzzhmjitaywev`), org "D3v0ps's Org" | eu-north-1 (Stockholm) | Bara påhittade testdata | Vercel, `test.miljonmatch.se` (först Vercels egen adress `*.vercel.app`) |
-| Produktion | Skapas senare, eget projekt i Stockholm | eu-north-1 | Riktiga personuppgifter | `app.miljonmatch.se` (SPEC §11) |
+| Testmiljö (staging) | `miljonmatch` (ref `blxupsebzzhmjitaywev`), org "D3v0ps's Org" | eu-north-1 (Stockholm) | Bara påhittade testdata | Vercel-projektet `miljonmatch`: **`miljonmatch.se`** (och `www.` som skickas vidare) tills produktionen startar – sedan `test.miljonmatch.se` |
+| Produktion | Skapas senare, eget projekt i Stockholm | eu-north-1 | Riktiga personuppgifter | `miljonmatch.se` i eget Vercel-projekt (SPEC §11) |
 | Prototyp | – (data i webbläsaren) | – | Påhittade testdata | Artefakten på claude.ai, byggd med `npm run demo:build` |
 
 ## Testmiljön
@@ -16,5 +16,5 @@
 
 ## Domäner och e-post
 
-- Appen: `test.miljonmatch.se` (testmiljön) och `app.miljonmatch.se` (produktion). DNS för miljonmatch.se ligger hos one.com – lägg en CNAME per underdomän mot värdet Vercel visar. `www.miljonmatch.se` är en befintlig webbplats och ska inte röras.
+- Appen: `miljonmatch.se` (beslut 2026-10-01 – den gamla webbsidan ersätts; `www.` skickas vidare). Testmiljön ligger där tills produktionen startar och flyttar då till `test.miljonmatch.se`. DNS för miljonmatch.se ligger hos one.com och pekar redan mot Vercel (A-post och www-CNAME).
 - E-post: från `notis@miljonbemanning.se` via Resend (region EU, Irland). Resends DNS-poster ligger i Google Cloud DNS-zonen för miljonbemanning.se, som styrs av Terraform – posterna ska också in i Terraform-koden.
