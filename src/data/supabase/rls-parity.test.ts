@@ -19,8 +19,13 @@ import { allowed, asUser, attempt, createMigratedDatabase, loadSeed, SEED_FILE, 
 const TESTER_AUTH: Record<string, string> = {
   "tester-karim": "aaaaaaaa-0000-4000-8000-000000000001",
   "tester-ali": "aaaaaaaa-0000-4000-8000-000000000002",
+  "tester-sara": "aaaaaaaa-0000-4000-8000-000000000003",
+  "tester-adam": "aaaaaaaa-0000-4000-8000-000000000004",
+  "tester-shafik": "aaaaaaaa-0000-4000-8000-000000000005",
+  "tester-moda": "aaaaaaaa-0000-4000-8000-000000000006",
 };
 const KARIM = TESTER_AUTH["tester-karim"];
+const ALI = TESTER_AUTH["tester-ali"];
 const authOf = (userId: string) => TESTER_AUTH[userId] ?? authUserIdFor(userId);
 
 const data = seedData();
@@ -64,7 +69,14 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const audio = (id: string, caseId: string | null, ownerId: string, purpose: Tables["audio_uploads"]["purpose"]): Tables["audio_uploads"] => ({
     id, caseId, ownerId, purpose, storagePath: `${purpose}/${id}.webm`, mimeType: "audio/webm", bytes: 4000, durationSec: 1, status: "uploaded", createdAt: at, deletedAt: null,
   });
+  // Synpunkter (0017): Karims och Alis synpunkter, ett svar och en synpunkt med ändrad status.
+  const fb = (id: string, authorId: string, status: Tables["feedback"]["status"]): Tables["feedback"] => ({
+    id, type: "fel", priority: "bor", text: "Text", status, role: "coach", path: "/min-vecka", viewTitle: "Min vecka", createdAt: at, authorId,
+    statusChangedAt: status === "ny" ? null : at, statusChangedBy: status === "ny" ? null : authorId, submittedAt: null,
+  });
   return {
+    feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
+    feedback_replies: [{ id: "fbr-x-1", feedbackId: "fb-x-karim", text: "Svar", createdAt: at, authorId: "tester-ali", submittedAt: null }],
     alerts: [
       alert("al-1", "c-bot", amiraCase.id, ["coach", "samordnare"]), alert("al-2", "c-bot", null, ["chef"]),
       alert("al-3", "c-bot", protectedCase.id, ["avtalsansvarig", "samordnare"]), alert("al-4", "c-kk", null, ["avtalsansvarig"]),
@@ -129,6 +141,16 @@ const chooseTestPerson = (profileId: string, role: string) => async (tx: Tx) => 
   await tx.query("insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, $2, $3)", [KARIM, profileId, role]);
 };
 
+/**
+ * Aktören som policy.ts ska se för testpersonen – samma som databasen: testarna (och deltagaren, som testaren Karim agerar
+ * som) har testerId, eftersom den inloggade (auth.uid()) är en testare i testmiljön (mm.auth_is_tester()). Bara
+ * synpunkterna (0017) läser testerId.
+ */
+function actorOf(p: Persona): Persona["actor"] {
+  if (p.actor.role === "deltagare") return { ...p.actor, testerId: "tester-karim" };
+  return TESTER_AUTH[p.actor.userId] ? { ...p.actor, testerId: p.actor.userId } : p.actor;
+}
+
 /** Kör fn som testpersonen: vanliga personer med sitt auth-id, deltagaren (ingen profil) via testarens val. */
 function asPersona<T>(p: Persona, fn: (tx: Tx) => Promise<T>): Promise<T> {
   if (p.actor.role === "deltagare") return asUser(db, KARIM, fn, { before: chooseTestPerson(p.actor.userId, "deltagare") });
@@ -144,14 +166,14 @@ async function pgCounts(tx: Tx): Promise<Record<string, number>> {
   return Object.fromEntries(r.rows.map((x) => [x.t, x.n]));
 }
 async function memCounts(p: Persona): Promise<Record<string, number>> {
-  const repo = new MemoryRepo<Tables>(store, p.actor, POLICIES);
+  const repo = new MemoryRepo<Tables>(store, actorOf(p), POLICIES);
   const out: Record<string, number> = {};
   for (const t of TABLE_NAMES) out[t] = await repo.table(t).count();
   return out;
 }
 const pgIds = async (tx: Tx, t: TableName) => (await tx.query<{ id: string }>(`select id from public.${readSource(t)} order by id`)).rows.map((r) => r.id);
 const memIds = async (p: Persona, t: TableName) =>
-  (await new MemoryRepo<Tables>(store, p.actor, POLICIES).table(t).list()).map((r) => r.id).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  (await new MemoryRepo<Tables>(store, actorOf(p), POLICIES).table(t).list()).map((r) => r.id).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
 beforeAll(async () => {
   db = await createMigratedDatabase();
@@ -459,8 +481,8 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
 /** Några rader per tabell som testpersonen får läsa och några den inte får läsa enligt policy.ts (deterministiskt). */
 function sampleRows(t: TableName, p: Persona, n = 2): Record<string, unknown>[] {
   const rows = data[t] as unknown as Record<string, unknown>[];
-  const readable = rows.filter((r) => canReadRow(t, r as never, p.actor, raw));
-  const hidden = rows.filter((r) => !canReadRow(t, r as never, p.actor, raw));
+  const readable = rows.filter((r) => canReadRow(t, r as never, actorOf(p), raw));
+  const hidden = rows.filter((r) => !canReadRow(t, r as never, actorOf(p), raw));
   const pick = (xs: Record<string, unknown>[]) => (xs.length <= n ? xs : Array.from({ length: n }, (_, i) => xs[Math.floor((i * (xs.length - 1)) / Math.max(n - 1, 1))]));
   return [...pick(readable), ...pick(hidden)];
 }
@@ -473,13 +495,13 @@ describe("skrivning: samma regler som policy.ts", () => {
       for (const t of TABLE_NAMES) {
         for (const row of sampleRows(t, p, 1)) {
           // Ändring: policy.ts kräver läsrätt på raden och skrivrätt på den nya raden (här oförändrad).
-          const upd = canReadRow(t, row as never, p.actor, raw) && canWriteRow(t, row as never, p.actor, raw);
+          const upd = canReadRow(t, row as never, actorOf(p), raw) && canWriteRow(t, row as never, actorOf(p), raw);
           expected.push(`update ${t} ${row.id}: ${upd}`);
           plan.push({ label: `update ${t} ${row.id}`, sql: `update public.${t} set id = id where id = $1`, params: [row.id] });
         }
         for (const row of sampleRows(t, p, 1)) {
           const copy = copyOf(t, row);
-          const ins = canWriteRow(t, copy as never, p.actor, raw);
+          const ins = canWriteRow(t, copy as never, actorOf(p), raw);
           expected.push(`insert ${t} ${copy.id}: ${ins}`);
           plan.push({ label: `insert ${t} ${copy.id}`, sql: insertSql(t, copy), params: [] });
         }
@@ -594,6 +616,81 @@ describe("skrivning: särskilda fall", () => {
     expect(allowed(sara)).toBe(false);
   });
 
+  it("synpunkter (0017): bara testare i testmiljön, oavsett testperson – i eget namn, bara status ändras, ingen tar bort", async () => {
+    const insertFb = (id: string, authorId: string) =>
+      [
+        "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id) values ($1, 'fraga', 'kan', 'Hej', 'ny', 'coach', '/min-vecka', 'Min vecka', '2027-02-01T09:30', $2)",
+        [id, authorId],
+      ] as const;
+    // Karim agerar som kommunens handläggare: läser alla synpunkter och skriver i sitt eget namn.
+    const karim = await asUser(db, KARIM, async (tx) => ({
+      feedback: (await tx.query("select id from public.feedback")).rows.length,
+      replies: (await tx.query("select id from public.feedback_replies")).rows.length,
+      own: await attempt(tx, ...insertFb("fb-t1", "tester-karim")),
+      forged: await attempt(tx, ...insertFb("fb-t2", "tester-ali")),
+      persona: await attempt(tx, ...insertFb("fb-t3", "k-maria")),
+      status: await attempt(tx, "update public.feedback set status = 'andras', status_changed_at = '2027-02-01T09:40', status_changed_by = 'tester-karim' where id = 'fb-x-ali'"),
+      statusOther: await attempt(tx, "update public.feedback set status = 'klar', status_changed_by = 'tester-ali' where id = 'fb-x-karim'"),
+      text: await attempt(tx, "update public.feedback set text = 'Ändrad' where id = 'fb-x-ali'"),
+      author: await attempt(tx, "update public.feedback set author_id = 'tester-karim' where id = 'fb-x-ali'"),
+      reply: await attempt(tx, "insert into public.feedback_replies (id, feedback_id, text, created_at, author_id) values ('fbr-t1', 'fb-x-ali', 'Svar', '2027-02-01T09:31', 'tester-karim')"),
+      replyForged: await attempt(tx, "insert into public.feedback_replies (id, feedback_id, text, created_at, author_id) values ('fbr-t2', 'fb-x-ali', 'Svar', '2027-02-01T09:31', 'tester-ali')"),
+      replyEdit: await attempt(tx, "update public.feedback_replies set text = 'Ändrat' where id = 'fbr-x-1'"),
+      del: await attempt(tx, "delete from public.feedback where id = 'fb-x-karim'"),
+      delReply: await attempt(tx, "delete from public.feedback_replies where id = 'fbr-x-1'"),
+      // Sidan får inte innehålla fritext (kontrollen i tabellen, samma tecken som sanitizeFeedbackPath).
+      freeText: await attempt(tx, "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id) values ('fb-t4', 'fraga', 'kan', 'Hej', 'ny', 'coach', '/arenden/Anna Svensson', 'Min vecka', '2027-02-01T09:30', 'tester-karim')"),
+      // Aldrig en adress till en annan webbplats: '//värd/…' blir https://värd/… i webbläsaren ("Gå till sidan").
+      otherSite: await attempt(tx, "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id) values ('fb-t5', 'fraga', 'kan', 'Hej', 'ny', 'coach', '//evil.example/logga-in', 'Min vecka', '2027-02-01T09:30', 'tester-karim')"),
+      // Den riktiga tiden sätter databasen – det som skickas in ersätts, och den ändras aldrig efteråt.
+      forgedTime: await attempt(tx, "insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id, submitted_at) values ('fb-t6', 'fraga', 'kan', 'Hej', 'ny', 'coach', '/min-vecka', 'Min vecka', '2027-02-01T09:30', 'tester-karim', '2020-01-01T00:00')", [], { keep: true }),
+      forgedReplyTime: await attempt(tx, "insert into public.feedback_replies (id, feedback_id, text, created_at, author_id, submitted_at) values ('fbr-t6', 'fb-t6', 'Svar', '2027-02-01T09:31', 'tester-karim', '2020-01-01T00:00')", [], { keep: true }),
+      times: (await tx.query<{ ok: boolean }>("select submitted_at = now() as ok from public.feedback where id = 'fb-t6' union all select submitted_at = now() from public.feedback_replies where id = 'fbr-t6'")).rows,
+      changeTime: await attempt(tx, "update public.feedback set submitted_at = '2020-01-01T00:00' where id = 'fb-t6'"),
+    }), { before: chooseTestPerson("k-maria", "kommun_handlaggare") });
+    expect([karim.feedback, karim.replies]).toEqual([2, 1]);
+    expect(karim.own).toMatchObject({ ok: true, rows: 1 });
+    expect([karim.forged.ok, karim.persona.ok]).toEqual([false, false]);
+    expect(karim.status).toMatchObject({ ok: true, rows: 1 });
+    expect([karim.statusOther.ok, karim.text.ok, karim.author.ok]).toEqual([false, false, false]);
+    expect(karim.reply).toMatchObject({ ok: true, rows: 1 });
+    expect([karim.replyForged.ok, allowed(karim.replyEdit), allowed(karim.del), allowed(karim.delReply), karim.freeText.ok]).toEqual([false, false, false, false, false]);
+    expect(karim.otherSite.ok).toBe(false);
+    expect([karim.forgedTime, karim.forgedReplyTime]).toMatchObject([{ ok: true, rows: 1 }, { ok: true, rows: 1 }]);
+    expect(karim.times).toEqual([{ ok: true }, { ok: true }]);
+    expect(karim.changeTime.ok).toBe(false);
+    // Samma svar i minnesläget (policy.ts) för Karim som kommunens handläggare.
+    const mem = { ...findPersona("k-maria").actor, testerId: "tester-karim" };
+    const ali = raw.get("feedback", "fb-x-ali")!;
+    const karimFb = raw.get("feedback", "fb-x-karim")!;
+    expect(canWriteRow("feedback", { ...karimFb, id: "fb-t1" }, mem, raw)).toBe(true);
+    expect(canWriteRow("feedback", { ...karimFb, id: "fb-t2", authorId: "tester-ali" }, mem, raw)).toBe(false);
+    expect(canWriteRow("feedback", { ...ali, status: "andras", statusChangedBy: "tester-karim" }, mem, raw)).toBe(true);
+    expect(canWriteRow("feedback", { ...karimFb, status: "klar", statusChangedBy: "tester-ali" }, mem, raw)).toBe(false);
+    expect(canWriteRow("feedback", { ...ali, text: "Ändrad" }, mem, raw)).toBe(false);
+    expect(canWriteRow("feedback_replies", { id: "fbr-t1", feedbackId: "fb-x-ali", text: "Svar", createdAt: "2027-02-01T09:31", authorId: "tester-karim", submittedAt: null }, mem, raw)).toBe(true);
+    expect(canWriteRow("feedback_replies", { id: "fbr-t2", feedbackId: "fb-x-ali", text: "Svar", createdAt: "2027-02-01T09:31", authorId: "tester-ali", submittedAt: null }, mem, raw)).toBe(false);
+
+    // Vanliga användare – även systemadministratören – ser inga synpunkter och kan inte skriva.
+    for (const userId of ["u-robin", "u-sara", "k-maria"]) {
+      const res = await asPersona(findPersona(userId), async (tx) => ({
+        n: (await tx.query("select id from public.feedback")).rows.length + (await tx.query("select id from public.feedback_replies")).rows.length,
+        ins: await attempt(tx, ...insertFb(`fb-${userId}`, userId)),
+      }));
+      expect(res.n, userId).toBe(0);
+      expect(res.ins.ok, userId).toBe(false);
+    }
+    // Produktion: inte ens testarna.
+    const prod = await asUser(db, ALI, async (tx) => ({
+      n: (await tx.query("select id from public.feedback")).rows.length,
+      ins: await attempt(tx, ...insertFb("fb-prod", "tester-ali")),
+      upd: await attempt(tx, "update public.feedback set status = 'klar' where id = 'fb-x-ali'"),
+    }), { before: async (tx) => { await tx.query("update public.app_settings set value = 'production' where key = 'environment'"); } });
+    expect(prod.n).toBe(0);
+    expect(prod.ins.ok).toBe(false);
+    expect(allowed(prod.upd)).toBe(false);
+  });
+
   it("inloggningskolumnerna (auth_user_id, is_tester) ändras bara av servern", async () => {
     const res = await asPersona(findPersona("u-sara"), async (tx) => ({
       tester: await attempt(tx, "update public.profiles set is_tester = true where id = 'u-sara'"),
@@ -642,6 +739,45 @@ describe("skrivning: särskilda fall", () => {
   it("testklockan: mm.app_now() startar på testtiden när seeden lästes in", async () => {
     const r = await db.query<{ t: string }>("select to_char(mm.app_now() at time zone 'Europe/Stockholm', 'YYYY-MM-DD\"T\"HH24:MI') as t");
     expect(r.rows[0].t >= "2027-02-01T09:12" && r.rows[0].t <= "2027-02-01T09:20").toBe(true);
+  });
+});
+
+// ================================================================ Pulslänken (0016)
+describe("pulslänken: ett svar per länk (0016)", () => {
+  const answered = data.pulse_responses[0];
+  const open = data.pulse_invites.find((i) => i.id === "pi-demo")!;
+  const insert = (id: string, inviteId: string, caseId: string) =>
+    `insert into public.pulse_responses (id, invite_id, case_id, coach_id, occasion, language, answers, text, contact_requested, submitted_at)
+     values ('${id}', '${inviteId}', '${caseId}', null, 'periodic', 'sv', '{"q1":5,"q2":5,"q3":5,"q4":"jobb","q5":"nej"}', '', false, '2027-02-01T09:30')`;
+
+  it("unik nyckel på invite_id – testdatat har ett svar per länk, och det gamla indexet är borta", async () => {
+    expect(new Set(data.pulse_responses.map((r) => r.inviteId)).size).toBe(data.pulse_responses.length);
+    const r = await db.query<{ name: string; type: string; def: string }>(
+      "select conname as name, contype as type, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.pulse_responses'::regclass and contype = 'u'",
+    );
+    expect(r.rows).toEqual([{ name: "pulse_responses_invite_id_key", type: "u", def: "UNIQUE (invite_id)" }]);
+    const idx = await db.query<{ n: string }>("select indexname as n from pg_indexes where schemaname = 'public' and tablename = 'pulse_responses' order by 1");
+    expect(idx.rows.map((x) => x.n)).not.toContain("pulse_responses_invite_id_idx");
+  });
+
+  it("två svar på samma länk: det andra stoppas (23505) – även för service role (hanterarens systemsteg)", async () => {
+    const res = await asUser(db, null, async (tx) => ({
+      again: await attempt(tx, insert("pr-dubblett", answered.inviteId, answered.caseId)),
+      first: await attempt(tx, insert("pr-ett", open.id, open.caseId), [], { keep: true }),
+      second: await attempt(tx, insert("pr-tva", open.id, open.caseId)),
+    }), { role: "service_role" });
+    expect(res.again).toMatchObject({ ok: false, code: "23505" });
+    expect(allowed(res.first)).toBe(true);
+    expect(res.second).toMatchObject({ ok: false, code: "23505" });
+  });
+
+  it("testaren som deltagaren (RLS): första svaret på en oanvänd länk går igenom, det andra stoppas", async () => {
+    const res = await asPersona(findPersona("deltagare"), async (tx) => ({
+      first: await attempt(tx, insert("pr-d1", open.id, open.caseId), [], { keep: true }),
+      second: await attempt(tx, insert("pr-d2", open.id, open.caseId)),
+    }));
+    expect(allowed(res.first)).toBe(true);
+    expect(res.second).toMatchObject({ ok: false, code: "23505" });
   });
 });
 

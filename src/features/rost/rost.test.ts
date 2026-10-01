@@ -189,14 +189,16 @@ describe("coachen och röstmeddelandena", () => {
     const res = await cmd(linkSend, { caseId: SC.nadia, language: "so" }, amira());
     if (!res.ok) throw new Error(res.error);
     expect(res.path).toMatch(/^\/rost\/[A-Za-z0-9_-]{8,}$/);
-    const token = res.path.slice("/rost/".length);
+    const token = (res.path ?? "").slice("/rost/".length);
     const row = raw().voice_links.find((l) => l.id === res.linkId);
     expect(row).toMatchObject({ caseId: SC.nadia, channel: "sms", language: "so", tokenHash: sha256Hex(token), usedAt: null, createdBy: "u-amira" });
     expect(row?.expiresAt).toBe("2027-02-08T09:13");
     const msg = raw().outbound_messages.filter((m) => m.template === "rostlank");
     expect(msg).toHaveLength(1);
     expect(msg[0]).toMatchObject({ channel: "sms", to: "deltagare (SMS)", caseId: SC.nadia });
-    expect(msg[0].body).toContain(res.path);
+    // Utskicksloggen sparar aldrig token – bara "/rost/•••••" (src/core/link-tokens.ts). Deltagaren får hela länken.
+    expect(msg[0].body).toContain("/rost/•••••");
+    expect(msg[0].body).not.toContain(token);
     expect(msg[0].body).not.toMatch(/Nadia|Warsame|BOT-/);
     const link = await q(rostLink, { token }, DELTAGARE);
     expect(link).toMatchObject({ state: "open", language: "so", days: 7 });

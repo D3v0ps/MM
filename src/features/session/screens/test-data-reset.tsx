@@ -24,6 +24,7 @@ export function TestDataReset() {
             fakturaunderlag blir som i början av testet.
           </p>
           <p className="mt-2">Testklockan börjar om på måndag 1 februari 2027 kl. 09.12. Revisionsloggen och er inloggning finns kvar. Det tar ungefär en halv minut.</p>
+          <p className="mt-2">Alla som testar just nu får också om testdatat. Synpunkterna finns kvar.</p>
         </>
       ),
       confirmLabel: "Läs in testdata på nytt",

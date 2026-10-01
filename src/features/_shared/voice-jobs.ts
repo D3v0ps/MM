@@ -132,10 +132,10 @@ export function aiRunError(run: Pick<AiRun, "status" | "output"> | null | undefi
 }
 
 // ---------------------------------------------------------------- Kön
-/** Serverns kö (supabase-läget): kör jobben snart (after()). Finns inte i minnesläget – där körs jobbet direkt. */
-export type JobKick = { schedule(): void };
-/** Ctx med serverns kö. Fältet saknas i minnesläget och prototypen. */
-export type CtxWithJobs = Ctx & { jobs?: JobKick };
+/** Serverns kö (supabase-läget): kör jobben snart (after()). Finns inte i minnesläget – där körs jobbet direkt. Fältet ctx.jobs. */
+export type { JobKick } from "@/api/server";
+/** Ctx med serverns kö – samma som Ctx (fältet jobs finns i Ctx sedan 2026-10-01). Kvar som namn för befintlig kod. */
+export type CtxWithJobs = Ctx;
 
 /** Det som sparas i ai_runs.output för en avstämning (samma form som coach/handlers.ts läser vid checkinSave). */
 export type CheckInAiOutput = { source: AiSource; suggestions: CheckInSuggestions; transcript: ReturnType<typeof transcriptLines> };
@@ -252,6 +252,7 @@ export async function runVoiceJob(ctx: Ctx, kind: VoiceJobKind, payload: unknown
 /**
  * Jobbet gav upp: körningen markeras som misslyckad (felkoden, aldrig AI-svaret), ett råtranskript som sparats för nya
  * försök töms, och ljudet markeras failed (gallras senast efter 24 timmar – eller raderas direkt om det inte fick användas).
+ * Deltagarens länk (transcribe_participant) går att använda igen (usedAt = null), så att deltagaren kan försöka på nytt.
  */
 export async function failVoiceJob(ctx: Ctx, kind: VoiceJobKind, payload: unknown, error: unknown): Promise<void> {
   const err = error instanceof VoiceJobError ? error : toVoiceJobError(error);
@@ -270,6 +271,14 @@ export async function failVoiceJob(ctx: Ctx, kind: VoiceJobKind, payload: unknow
       ...(m ? { tokensIn: m.tokensIn, tokensOut: m.tokensOut, costOre: m.costOre, latencyMs: m.latencyMs, audioSeconds: m.audioSeconds ?? run.audioSeconds } : {}),
     });
     await ctx.audit({ action: "ai.run_failed", entity: "ai_run", entityId: run.id, contractId: await contractIdOf(ctx, run.caseId), details: { kind: run.kind, code: err.code } });
+    // Deltagarens länk: rost.send förbrukade den när jobbet lades (supabase-läget). Transkriberingen gick inte – länken
+    // öppnas igen så att deltagaren kan försöka på nytt (den gäller fortfarande bara till expiresAt). Bara en gång per körning.
+    const linkId = kind === "transcribe_participant" && typeof (p as { linkId?: unknown }).linkId === "string" ? (p as { linkId: string }).linkId : null;
+    const link = linkId ? await ctx.system.table("voice_links").get(linkId) : null;
+    if (link?.usedAt) {
+      await ctx.system.table("voice_links").update(link.id, { usedAt: null });
+      await ctx.audit({ action: "voice.link_reopened", entity: "voice_link", entityId: link.id, contractId: await contractIdOf(ctx, link.caseId), details: { caseId: link.caseId, aiRunId: run.id, code: err.code } });
+    }
   }
   const uploadId = typeof p.uploadId === "string" ? p.uploadId : null;
   if (uploadId && ctx.audio) {
@@ -279,7 +288,6 @@ export async function failVoiceJob(ctx: Ctx, kind: VoiceJobKind, payload: unknow
       else await ctx.audio.mark(u.id, "failed");
     }
   }
-  void kind;
 }
 
 // ---------------------------------------------------------------- Hjälpare

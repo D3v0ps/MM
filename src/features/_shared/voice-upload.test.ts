@@ -1,6 +1,6 @@
 // Vem får spela in vad (voice-upload.ts) – samma kontroller i kommandona och i POST /api/audio/upload-url.
 // Mot testdatat i minnet med policyn (samma regler som RLS), den simulerade AI:n och ljudet i minnet.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import { addDays, type LocalDateTime } from "@/core/time";
@@ -117,6 +117,19 @@ describe("voiceLinkByToken", () => {
     // En länk i det skyddade ärendet (får aldrig finnas) behandlas som saknad
     t.store.insertRow("voice_links", { id: "vl-x", caseId: SKYDDAD, tokenHash: (await voiceTokenHash("hemlig-token-123"))!, channel: "sms", language: "sv", sentAt: DEMO_START, expiresAt: addDays(DEMO_START, 7), usedAt: null, createdBy: "u-erik" });
     expect((await voiceLinkByToken(t.ctxAs(PARTICIPANT), "hemlig-token-123")).state).toBe("missing");
+  });
+
+  it("utan Web Crypto (sida utan https i prototypen): samma hash i ren TypeScript, och länken hittas", async () => {
+    const t = setup();
+    vi.stubGlobal("crypto", undefined);
+    try {
+      expect(globalThis.crypto).toBeUndefined();
+      expect(await voiceTokenHash("testdata-vl-nadia")).toBe("3cb860bc33b1dce96d11e26e2a095e5e549a0f23e56340fd7261a53e59f42cb7");
+      expect(await voiceLinkByToken(t.ctxAs(PARTICIPANT), "testdata-vl-nadia")).toMatchObject({ state: "used", link: { id: "vl-nadia" } });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(globalThis.crypto?.subtle).toBeDefined();
   });
 });
 

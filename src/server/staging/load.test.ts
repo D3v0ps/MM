@@ -97,11 +97,19 @@ describe("bootstrap-staging.sql", () => {
       expect(n.cases).toBe(0);
       const s = await tx.query<{ key: string; value: string }>("select key, value from public.app_settings order by key");
       expect(Object.fromEntries(s.rows.map((r) => [r.key, r.value]))).toMatchObject({ environment: "staging", clock_demo_epoch: DEMO_START });
-      const p = await tx.query<{ id: string; auth_user_id: string | null; is_tester: boolean }>("select id, auth_user_id, is_tester from public.profiles order by id");
+      const p = await tx.query<{ id: string; email: string; auth_user_id: string | null; is_tester: boolean }>("select id, email, auth_user_id, is_tester from public.profiles order by id");
+      // Alla sex testarna (Karim, Ali och kollegorna som bjöds in 2026-10-01). Bara Karim har loggat in.
       expect(p.rows).toEqual([
-        { id: "tester-ali", auth_user_id: null, is_tester: true },
-        { id: "tester-karim", auth_user_id: KARIM_AUTH, is_tester: true },
+        { id: "tester-adam", email: "adam.abdalla@miljonbemanning.se", auth_user_id: null, is_tester: true },
+        { id: "tester-ali", email: "ali.khalil@miljonbemanning.se", auth_user_id: null, is_tester: true },
+        { id: "tester-karim", email: "karim.khalil@miljonbemanning.se", auth_user_id: KARIM_AUTH, is_tester: true },
+        { id: "tester-moda", email: "moda.habib@miljonbemanning.se", auth_user_id: null, is_tester: true },
+        { id: "tester-sara", email: "sara.salah@miljonbemanning.se", auth_user_id: null, is_tester: true },
+        { id: "tester-shafik", email: "shafik.muwanga@miljonbemanning.se", auth_user_id: null, is_tester: true },
       ]);
+      const m = await tx.query<{ user_id: string; contract_id: string; role: string }>("select user_id, contract_id, role from public.memberships order by user_id, contract_id");
+      expect(m.rows.filter((x) => x.role !== "admin")).toEqual([]);
+      expect(m.rows.map((x) => `${x.user_id}:${x.contract_id}`)).toEqual(TESTERS.map((t) => t.id).sort().flatMap((id) => [`${id}:c-bot`, `${id}:c-kk`]));
     });
   });
 
@@ -176,7 +184,7 @@ describe("inläsningen (mm.reset_test_data + upsert i batchar)", () => {
       const p = await tx.query<{ id: string; auth_user_id: string | null; is_tester: boolean }>("select id, auth_user_id, is_tester from public.profiles");
       for (const row of p.rows) {
         if (row.id === "tester-karim") expect(row).toMatchObject({ auth_user_id: KARIM_AUTH, is_tester: true });
-        else if (row.id === "tester-ali") expect(row).toMatchObject({ auth_user_id: null, is_tester: true });
+        else if (TESTERS.some((t) => t.id === row.id)) expect(row).toMatchObject({ auth_user_id: null, is_tester: true });
         else expect(row).toMatchObject({ auth_user_id: authUserIdFor(row.id), is_tester: false });
       }
 
@@ -188,7 +196,7 @@ describe("inläsningen (mm.reset_test_data + upsert i batchar)", () => {
     });
   }, 120_000);
 
-  it("kan köras igen: allt som testats nollställs, revisionsloggen och testarna finns kvar", async () => {
+  it("kan köras igen: allt som testats nollställs, revisionsloggen, testarna och synpunkterna finns kvar", async () => {
     await asService(async (tx) => {
       const client = pgClient(tx);
       await loadTestData(client, { crypto: CRYPTO, demoStart: DEMO_START });
@@ -205,11 +213,24 @@ describe("inläsningen (mm.reset_test_data + upsert i batchar)", () => {
         update public.app_settings set value = '2027-03-01T08:00' where key = 'clock_demo_epoch';
       `);
       await tx.query("insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, 'u-sara', 'samordnare')", [KARIM_AUTH]);
+      // Testarna har lämnat synpunkter (0017) – de hör inte till testdatat och ska finnas kvar.
+      await tx.exec(`
+        insert into public.feedback (id, type, priority, text, status, role, path, view_title, created_at, author_id, status_changed_at, status_changed_by)
+          values ('fb-1', 'fel', 'maste', 'Närvaron sparas inte', 'andras', 'coach', '/narvaro', 'Närvaro', '2027-02-01T10:05', 'tester-karim', '2027-02-01T10:20', 'tester-ali');
+        insert into public.feedback_replies (id, feedback_id, text, created_at, author_id)
+          values ('fbr-1', 'fb-1', 'Vi tittar på det', '2027-02-01T10:10', 'tester-ali');
+      `);
 
       await loadTestData(client, { crypto: CRYPTO, demoStart: DEMO_START });
       const want = expected();
       const n = await counts(tx);
-      expect({ ...n, audit_log: 0 }).toEqual({ ...want, audit_log: 0 });
+      expect({ ...n, audit_log: 0, feedback: 0, feedback_replies: 0 }).toEqual({ ...want, audit_log: 0, feedback: 0, feedback_replies: 0 });
+      // Synpunkterna och svaren finns kvar, oförändrade.
+      expect([n.feedback, n.feedback_replies]).toEqual([1, 1]);
+      expect((await tx.query("select id, status, author_id, status_changed_by from public.feedback")).rows).toEqual([{ id: "fb-1", status: "andras", author_id: "tester-karim", status_changed_by: "tester-ali" }]);
+      expect((await tx.query("select id, feedback_id, text from public.feedback_replies")).rows).toEqual([{ id: "fbr-1", feedback_id: "fb-1", text: "Vi tittar på det" }]);
+      // Testarnas profiler och medlemskap finns kvar (alla sex).
+      expect((await tx.query("select id from public.profiles where is_tester order by id")).rows.map((r) => (r as { id: string }).id)).toEqual(TESTERS.map((t) => t.id).sort());
       // Revisionsloggen töms aldrig: testdatats rader + testarens rad.
       expect(n.audit_log).toBe(want.audit_log + 1);
       expect((await tx.query("select 1 from public.cases where id = 'case-ny'")).rows).toHaveLength(0);

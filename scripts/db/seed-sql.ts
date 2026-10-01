@@ -1,5 +1,6 @@
 // Seeden för testmiljön och lokal utveckling: samma påhittade testdata som prototypen (createSeed()) som SQL,
-// plus testarna (Karim och Ali), app_settings (miljö och testklocka) och deterministiska auth_user_id för seedens profiler.
+// plus testarna (TESTERS), app_settings (miljö och testklocka) och deterministiska auth_user_id för seedens profiler.
+// Testarnas synpunkter (TESTER_TABLES) hör inte till testdatat och töms aldrig.
 // Används av scripts/db/generate-seed.ts (skriver supabase/seed.sql) och av RLS-testerna (src/data/supabase/rls-parity.test.ts).
 import type { MemoryData } from "../../src/data/memory";
 import { DEMO_START } from "../../src/data/seed";
@@ -124,6 +125,7 @@ export function seedSql(data: MemoryData<Tables> = seedData()): string {
     "$$;",
     "",
     "-- Töm appens tabeller (aldrig auth.*). Revisionsloggen töms bara här: triggern stoppar update och delete, inte truncate.",
+    "-- Testarnas synpunkter (feedback, feedback_replies) hör inte till testdatat och töms aldrig.",
     `truncate table ${all.join(", ")} restart identity cascade;`,
     "",
   ];
@@ -161,9 +163,9 @@ export function seedSql(data: MemoryData<Tables> = seedData()): string {
 export function bootstrapSql(data: MemoryData<Tables> = seedData()): string {
   const testers = new Set(TESTERS.map((t) => t.id));
   const parts: string[] = [
-    "-- Startdata för testmiljön (staging): bara påhittade uppgifter och testarna Karim och Ali.",
+    `-- Startdata för testmiljön (staging): bara påhittade uppgifter och testarna (${TESTERS.map((t) => t.fullName.split(" ")[0]).join(", ")}).`,
     "-- GENERERAD av scripts/db/generate-bootstrap.ts (npx tsx scripts/db/generate-bootstrap.ts) – ändra inte för hand.",
-    "-- Kör efter migrationerna 0001–0014. Idempotent. Kör ALDRIG mot produktion (spärren nedan stoppar det).",
+    "-- Kör efter migrationerna 0001–0017. Idempotent. Kör ALDRIG mot produktion (spärren nedan stoppar det).",
     "-- Sedan: testaren loggar in och väljer \"Läs in testdata på nytt\" i adminvyn (resten av testdatat).",
     "",
     "set timezone to 'Europe/Stockholm';",

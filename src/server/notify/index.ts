@@ -13,6 +13,7 @@ import type { AppRepo } from "@/data/schema";
 import { randomId } from "../ctx";
 import { safeErrorText } from "../jobs/errors";
 import { runDueJobs } from "../jobs/live";
+import { notifyEnv } from "./config";
 import { queueMessage } from "./queue";
 import type { NotifyRepo } from "./types";
 
@@ -22,7 +23,8 @@ const RUN_AFTER_REQUEST = 5;
 /** Lägg ett utskick i kön. Returnerar utskickets id. */
 export async function enqueueMessage(system: AppRepo, msg: OutgoingMessage, now: LocalDateTime): Promise<string> {
   // ctx.system (service role): utskicksloggen och jobben skrivs bara av systemet.
-  const r = await queueMessage(system as unknown as NotifyRepo, msg, now, randomId);
+  // MM_APP_URL: engångslänkar (deltagarens inspelningslänk) blir fullständiga adresser.
+  const r = await queueMessage(system as unknown as NotifyRepo, msg, now, randomId, { appUrl: notifyEnv().appUrl });
   if (r.jobId) sendSoon();
   return r.messageId;
 }

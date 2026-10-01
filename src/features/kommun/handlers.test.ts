@@ -136,7 +136,7 @@ describe("beställning", () => {
     expect(c.caseNumber).toBe("BOT-27-0051");
     const r = await ask(kommunReceipt, { caseId: c.caseId }, maria());
     expect(r?.ackText).toMatch(/^Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0051\./);
-    expect(r?.mail).toMatchObject({ from: "notis@miljonbemanning.se", to: "maria.ekdahl@botkyrka.se" });
+    expect(r?.mail).toMatchObject({ from: "notis@miljonmatch.se", to: "maria.ekdahl@botkyrka.se" });
     expect(r?.mail?.body).toContain("BOT-27-0051");
     expect(r?.mail?.body).not.toMatch(/Samira|Testsson|3456|Tumba/);
     expect(r?.contactLabel).toBe("Brev");

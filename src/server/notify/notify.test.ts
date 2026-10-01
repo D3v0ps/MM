@@ -31,7 +31,7 @@ const MARIA = "maria.ekdahl@botkyrka.se";
 const ALLOW = [KARIM, ALI];
 const STAGING = recipientGate("staging", ALLOW);
 const PRODUCTION = recipientGate("production", []);
-const RESEND = { apiKey: "re_test_nyckel", from: "Miljonmatch <notis@miljonbemanning.se>" };
+const RESEND = { apiKey: "re_test_nyckel", from: "Miljonmatch <notis@miljonmatch.se>" };
 const APP = "https://test.miljonmatch.se";
 
 const SEED = createSeed();
@@ -104,8 +104,8 @@ describe("spärrlistan (MM_EMAIL_ALLOWLIST)", () => {
   });
 
   it("MM_EMAIL_ALLOWLIST och övriga variabler läses som i docs/UTSKICK.md", () => {
-    const env = notifyEnv({ RESEND_API_KEY: " re_x ", MM_EMAIL_FROM: "Miljonmatch <notis@miljonbemanning.se>", MM_APP_URL: "https://test.miljonmatch.se/", MM_EMAIL_ALLOWLIST: `${KARIM}, ${ALI.toUpperCase()};@exempel.se` });
-    expect(env).toEqual({ resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonbemanning.se>", replyTo: null }, appUrl: APP, allowlist: [KARIM, ALI, "@exempel.se"], staffDomains: ["miljonbemanning.se"], redirectTo: null });
+    const env = notifyEnv({ RESEND_API_KEY: " re_x ", MM_EMAIL_FROM: "Miljonmatch <notis@miljonmatch.se>", MM_APP_URL: "https://test.miljonmatch.se/", MM_EMAIL_ALLOWLIST: `${KARIM}, ${ALI.toUpperCase()};@exempel.se` });
+    expect(env).toEqual({ resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonmatch.se>", replyTo: null }, appUrl: APP, allowlist: [KARIM, ALI, "@exempel.se"], staffDomains: ["miljonbemanning.se"], redirectTo: null });
     expect(notifyEnv({ RESEND_API_KEY: "re_x" }).resend).toBeNull();
     expect(notifyEnv({}).allowlist).toEqual([]);
   });
@@ -313,6 +313,65 @@ describe("send_message: idempotens", () => {
     expect(await deliverMessage(deps, q.messageId)).toBe("skipped");
     expect(await deliverMessage(deps, "out-finns-inte")).toBe("missing");
     expect(resend.calls).toHaveLength(0);
+  });
+});
+
+// ================================================================ Deltagarens inspelningslänk (rostlank)
+describe("deltagarens inspelningslänk (rostlank)", () => {
+  const TOKEN = "rost-0f3c2a9e-7b1d-4c55-9a2e-5d6f7a8b9c0d";
+  const BODY = `Hej! Din coach på Miljonbemanning vill gärna höra hur det går. Spela in ett kort meddelande på ditt språk. Det är frivilligt. Länken gäller i 7 dagar och kan bara användas en gång: /rost/${TOKEN}`;
+  const WWW = "https://www.miljonmatch.se";
+  const rost = (channel: "sms" | "email", to: string) => ({ channel, to, template: "rostlank", body: BODY, caseId: CASE.id });
+  const noToken = (store: ReturnType<typeof setup>["store"]) => {
+    for (const r of store.rows("outbound_messages")) expect(JSON.stringify(r)).not.toContain(TOKEN);
+  };
+
+  it("SMS: fullständig adress med MM_APP_URL, token maskerad i utskicksloggen, stoppas (ingen SMS-leverantör) – inget jobb", async () => {
+    const { repo, store } = setup();
+    const q = await queueMessage(repo, rost("sms", "deltagare (SMS)"), NOW, newId, { appUrl: `${WWW}/` });
+    expect(q).toMatchObject({ status: "suppressed", jobId: null });
+    expect(store.getRow("outbound_messages", q.messageId)).toMatchObject({ template: "rostlank", body: BODY.replace(`/rost/${TOKEN}`, `${WWW}/rost/•••••`), status: "suppressed" });
+    expect(store.rows("jobs")).toHaveLength(0);
+    noToken(store);
+  });
+
+  it("e-post: mejlet har hela länken och ingen inloggningsknapp – loggen aldrig token, och token tas bort ur jobbet när mejlet skickats", async () => {
+    const { repo, store, resend, run } = setup();
+    // Mottagaren är en testare (spärrlistan) – i drift slår utskicksadaptern upp deltagarens adress.
+    const q = await queueMessage(repo, rost("email", KARIM), NOW, newId, { appUrl: WWW });
+    expect(store.getRow("outbound_messages", q.messageId)).toMatchObject({ subject: "Spela in ett meddelande till din coach", status: "queued" });
+    expect(store.getRow("jobs", q.jobId!)!.payload).toEqual({ messageId: q.messageId, body: BODY.replace(`/rost/${TOKEN}`, `${WWW}/rost/${TOKEN}`) });
+    noToken(store);
+    expect(await run()).toMatchObject({ done: 1, outcomes: { "send_message:sent": 1 } });
+    expect(resend.calls).toHaveLength(1);
+    const c = resend.calls[0].body;
+    expect(c.subject).toBe(`${TEST_SUBJECT_PREFIX}Spela in ett meddelande till din coach`);
+    expect(c.text).toContain(`${WWW}/rost/${TOKEN}`);
+    expect(c.html).toContain(`${WWW}/rost/${TOKEN}`);
+    expect(c.text).not.toContain("Logga in");
+    expect(c.text).not.toMatch(new RegExp(CASE.caseNumber));
+    expect(store.getRow("jobs", q.jobId!)).toMatchObject({ status: "done", payload: { messageId: q.messageId } });
+    expect(JSON.stringify(store.rows("jobs"))).not.toContain(TOKEN);
+    noToken(store);
+  });
+
+  it("deltagarens platshållare som mottagare stoppas – och token tas ändå bort ur jobbet", async () => {
+    const { repo, store, resend, run } = setup({ gate: PRODUCTION });
+    const q = await queueMessage(repo, rost("email", "deltagare (e-post)"), NOW, newId, { appUrl: WWW });
+    await run();
+    expect(resend.calls).toHaveLength(0);
+    expect(store.getRow("outbound_messages", q.messageId)).toMatchObject({ status: "suppressed", statusReason: REASON.noAddress });
+    expect(JSON.stringify(store.rows("jobs"))).not.toContain(TOKEN);
+  });
+
+  it("avvisat av Resend (failed): token tas bort ur jobbet; utan MM_APP_URL står sökvägen kvar (maskerad i loggen)", async () => {
+    const { repo, store, run } = setup({ fail: [{ status: 422, name: "validation_error" }] });
+    const q = await queueMessage(repo, rost("email", KARIM), NOW, newId, { appUrl: WWW });
+    expect(await run()).toMatchObject({ failed: 1 });
+    expect(store.getRow("outbound_messages", q.messageId)!.status).toBe("failed");
+    expect(JSON.stringify(store.rows("jobs"))).not.toContain(TOKEN);
+    const r = await queueMessage(repo, rost("sms", "deltagare (SMS)"), NOW, newId);
+    expect(store.getRow("outbound_messages", r.messageId)!.body).toBe(BODY.replace(TOKEN, "•••••"));
   });
 });
 

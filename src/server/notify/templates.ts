@@ -13,7 +13,7 @@ export type TemplateInfo = {
 
 const T = (name: string, subject: string, audience: TemplateInfo["audience"]): TemplateInfo => ({ name, subject, audience });
 
-/** Mallarna som skickas som e-post. SMS-mallarna (mötespåminnelse, pulslänk) har ingen ämnesrad. */
+/** Mallarna som skickas som e-post. SMS-mallarna (mötespåminnelse, pulslänk) har ingen ämnesrad. Inspelningslänken kan gå båda vägarna. */
 export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   ordererkannande: T("Ordererkännande", "Vi har tagit emot er beställning – {arendenummer}", "kommun"),
   generisk_mottagningsbekraftelse: T("Generisk mottagningsbekräftelse", "Vi har tagit emot ditt mejl", "kommun"),
@@ -30,6 +30,10 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   atgardsplan_godkannande: T("Åtgärdsplan att godkänna", "Åtgärdsplan väntar på ert godkännande", "kommun"),
   atgardsplan_godkand: T("Åtgärdsplan godkänd", "Åtgärdsplan godkänd", "mb"),
   inbjudan_kommun: T("Inbjudan till portalen", "Inbjudan till Miljonbemannings portal", "kommun"),
+  // Deltagarens inspelningslänk (src/features/rost/handlers.ts): via föredragen kontaktväg, aldrig vid skyddade personuppgifter.
+  // Texten innehåller bara länken – inget namn, inget ärendenummer. Länken blir en fullständig adress med MM_APP_URL (queue.ts),
+  // och token sparas aldrig i utskicksloggen (src/core/link-tokens.ts).
+  rostlank: T("Inspelningslänk till deltagaren", "Spela in ett meddelande till din coach", "deltagare"),
 };
 
 /** Portalvarianten av den generiska mottagningsbekräftelsen (samma mallnyckel, egen text och ämnesrad – som i prototypen). */

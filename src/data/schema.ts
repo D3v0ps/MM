@@ -1367,6 +1367,57 @@ export type DemoTag = {
   entityIds: string[];
 };
 
+// ================================================================ Synpunkter i testmiljön (0017, beslut 2026-10-01)
+// "Lämna synpunkt" i testmiljöns verktygsfält. Samma modell som prototypens feedback (src/demo/feedback-store.ts).
+// Bara inloggade testare i testmiljön läser och skriver (RLS: mm.auth_is_tester(); policy.ts: Actor.testerId).
+// Synpunkterna hör inte till testdatat: "Läs in testdata på nytt" och seeden tömmer dem aldrig.
+export const FEEDBACK_TYPES = ["fel", "forbattring", "fraga", "bra"] as const;
+export type FeedbackType = (typeof FEEDBACK_TYPES)[number];
+export const FEEDBACK_PRIORITIES = ["maste", "bor", "kan"] as const;
+export type FeedbackPriority = (typeof FEEDBACK_PRIORITIES)[number];
+export const FEEDBACK_STATUSES = ["ny", "diskutera", "andras", "klar", "avfardad"] as const;
+export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
+
+/** En synpunkt från en testare. */
+export type Feedback = {
+  id: string;
+  type: FeedbackType;
+  priority: FeedbackPriority;
+  /** Testarens text (högst 4 000 tecken). Loggas aldrig. */
+  text: string;
+  status: FeedbackStatus;
+  /** Rollen testaren agerade som när synpunkten lämnades (testpersonens roll). */
+  role: Role;
+  /** Sidan: bara sökväg och id:n – aldrig namn, personnummer eller fritext (sanitizeFeedbackPath). Null = hela Miljonmatch. */
+  path: string | null;
+  /** Skärmens titel ur rutt-tabellen, t.ex. "Deltagarkort". Null = hela Miljonmatch. */
+  viewTitle: string | null;
+  /** ctx.now() – testtid i testmiljön. */
+  createdAt: LocalDateTime;
+  /** Testarens egen profil (inte testpersonen). */
+  authorId: UserId;
+  statusChangedAt: LocalDateTime | null;
+  statusChangedBy: UserId | null;
+  /**
+   * Riktig tid när synpunkten sparades. Sätts alltid av databasen (triggern i 0017) – hanteraren skickar null. Testklockan
+   * (createdAt) börjar om när testdatat läses in på nytt, men synpunkterna finns kvar; listan sorteras därför på den här
+   * tiden. Null i minnesläget.
+   */
+  submittedAt: LocalDateTime | null;
+};
+
+/** Svar på en synpunkt. */
+export type FeedbackReply = {
+  id: string;
+  feedbackId: string;
+  text: string;
+  createdAt: LocalDateTime;
+  /** Testarens egen profil. */
+  authorId: UserId;
+  /** Riktig tid när svaret sparades – sätts av databasen (som Feedback.submittedAt). Null i minnesläget. */
+  submittedAt: LocalDateTime | null;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1427,6 +1478,8 @@ export type Tables = {
   voice_links: VoiceLink;
   participant_voice_notes: ParticipantVoiceNote;
   audio_uploads: AudioUpload;
+  feedback: Feedback;
+  feedback_replies: FeedbackReply;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1446,6 +1499,7 @@ export const TABLE_NAMES = [
   "jobs", "ai_runs", "ai_field_decisions", "audit_log", "org_settings", "template_versions", "log_checks",
   "demo_tags",
   "voice_links", "participant_voice_notes", "audio_uploads",
+  "feedback", "feedback_replies",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;

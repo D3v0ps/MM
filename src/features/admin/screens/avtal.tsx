@@ -3,7 +3,7 @@
 // inte är fastställda, prislistan, jämförelsen Botkyrka–Kammarkollegiet och Miljonbemannings interna regler.
 // Alla värden kommer från contracts.config via frågorna – inget avtalsvärde är hårdkodat här.
 import type { ReactNode } from "react";
-import { isUnset, unsetHint, type ContractConfig } from "@/core/config";
+import { aiProviderText, isUnset, unsetHint, type ContractConfig } from "@/core/config";
 import { kr, pct, plural } from "@/core/format";
 import { endReasonLabel } from "@/core/labels";
 import { fmtDate } from "@/core/time";
@@ -505,7 +505,8 @@ const CARDS: Record<string, CardDef> = {
       <KV
         items={[
           ["Status", <Row key="v" gap="sm">Test pågår<BuildPhase fas={2} /></Row>],
-          ["AI-leverantör", <Val key="v" v={c.ai!.provider} />],
+          // Leverantören i klarspråk ("Gemini Flash via Google Cloud Vertex AI (EU)"), inte konfigurationens nyckel.
+          ["AI-leverantör", <Val key="v" v={c.ai!.provider}>{aiProviderText(c)}</Val>],
           ["Inspelning", c.ai!.recordingApprovedByCustomer ? `Godkänd av kommunen ${fmtDate(c.ai!.recordingApprovedByCustomer)} – kräver deltagarens samtycke` : "–"],
         ]}
       />

@@ -14,7 +14,8 @@ type SubStatus = "approved" | "approved_test" | "not_chosen";
 const SUBPROCESSORS: { id: string; name: string; what: string; where: string; status: SubStatus; us: boolean }[] = [
   { id: "supabase", name: "Supabase", what: "Databas, inloggning och fillagring", where: "Stockholm (eu-north-1)", status: "approved", us: true },
   { id: "vercel", name: "Vercel", what: "Applikation och serverfunktioner", where: "Funktioner i Stockholm (arn1)", status: "approved", us: true },
-  { id: "ai", name: "AI-leverantör (en av två)", what: "Transkribering och textutkast", where: "Berget AI: Sverige · Google: EU multi-region", status: "approved_test", us: false },
+  // Beslut 2026-09-30 (docs/PLAN-ROST.md): Gemini Flash via Google Cloud Vertex AI, EU multi-region. Simulerad tills kontot finns.
+  { id: "ai", name: "Google Cloud (Vertex AI)", what: "Transkribering och textutkast (Gemini Flash)", where: "EU multi-region (location eu)", status: "approved_test", us: true },
   { id: "sms", name: "SMS-leverantör", what: "Påminnelser och pulslänkar", where: "Väljs – helst svensk", status: "not_chosen", us: false },
   { id: "epost", name: "E-postleverantör", what: "Notiser och inloggningskoder", where: "Väljs – helst inom EU", status: "not_chosen", us: false },
   { id: "microsoft", name: "Microsoft", what: "Inloggning (Entra ID) och avrop@-brevlådan (Graph)", where: "Befintligt Microsoft 365", status: "approved", us: true },
@@ -64,7 +65,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
     { id: "email", name: "E-postleverantör", sub: "Notiser och inloggningskoder", icon: "mail", status: "notchosen",
       items: [["Krav", "EU-baserad, med SMTP för inloggningskoder, SPF, DKIM och DMARC"], ["SPF", "En domän får bara ha en SPF-post – leverantörens include läggs i den befintliga posten för Microsoft 365"], ["Alternativ", "Graph sendMail från en egen brevlåda i Microsoft 365"]] },
     { id: "ai", name: "AI-leverantör", sub: "Transkribering och textutkast", icon: "sparkles", status: "test", phase: 2,
-      items: [["I test", "Berget AI (Sverige)"], ["Alternativ", "Gemini via Vertex AI med EU-endpoint"], ["Aldrig", "AI Studio-nyckel eller global endpoint"], ["Anrop", `Bara via adaptern lib/ai/ – ${plural(d.aiRunCount, "körning", "körningar")} i prototypen`]] },
+      items: [["Vald", "Gemini Flash via Google Cloud Vertex AI, EU multi-region"], ["I test", "Simulerad leverantör tills kontot i Google Cloud finns"], ["Aldrig", "AI Studio-nyckel eller global endpoint"], ["Anrop", `Bara via AI-adaptern – ${plural(d.aiRunCount, "körning", "körningar")} i prototypen`]] },
   ];
   const active = INT.filter((x) => x.status === "active").length;
   const approved = SUBPROCESSORS.filter((s) => s.status !== "not_chosen").length;
@@ -80,7 +81,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
         <CellSub>{fmtDate(d.approvedOn)}</CellSub>
       </>
     ) : s === "approved_test" ? (
-      <Badge tone="bluetone" icon="check">Godkänd – väljs genom test</Badge>
+      <Badge tone="bluetone" icon="check">Vald – simulerad tills kontot finns</Badge>
     ) : (
       <Badge tone="outline" icon="alert-circle">Ej vald – fråga 18</Badge>
     );

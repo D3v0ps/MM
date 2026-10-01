@@ -9,6 +9,7 @@ import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import { nextScheduleBoundary } from "@/core/report-schedule";
+import { maskLinkTokens } from "@/core/link-tokens";
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
@@ -56,12 +57,15 @@ export function createMemoryRuntime(opts: {
       },
       notify: async (m) => {
         const t = (system as unknown as { table(n: string): { insert(r: unknown): Promise<unknown> } }).table("outbound_messages");
-        await t.insert({ id: newId("out"), createdAt: opts.clock.now(), channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: m.body, caseId: m.caseId ?? null, status: "sent", sentAt: opts.clock.now() });
+        // Som servern: engångslänkarnas token sparas aldrig i utskicksloggen (src/core/link-tokens.ts).
+        await t.insert({ id: newId("out"), createdAt: opts.clock.now(), channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: maskLinkTokens(m.body), caseId: m.caseId ?? null, status: "sent", sentAt: opts.clock.now() });
       },
       // Påhittade personnummer: testdatats ersättning för kryptering och sökhash (src/data/seed/pnr.ts).
       crypto: TEST_PNR_CRYPTO,
       ai,
       audio,
+      // Prototypen visar länken som deltagaren fick (rost.linkSend). Servern i supabase-läget lämnar aldrig ut den.
+      exposeLinkPaths: true,
     };
   }
 

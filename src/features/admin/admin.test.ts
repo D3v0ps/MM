@@ -10,8 +10,10 @@ import {
   adminAuditLog, adminCompare, adminContract, adminIntegrations, adminInviteCustomer, adminLogCheck, adminOrgRules, adminRunJob, adminSaveTemplate,
   adminSetCustomerActive, adminSetOrgRule, adminTemplates, adminUsers,
 } from "./api";
+import { detailText, type AuditLookups } from "./audit-text";
 import { findUnset } from "./contract-text";
 import { fillExample, templateCheck } from "./templates";
+import { linkMessageText } from "@/features/rost/texts";
 import { testRuntime } from "./test-runtime";
 
 let rt: ReturnType<typeof testRuntime>;
@@ -39,10 +41,11 @@ describe("avtal och konfiguration", () => {
       scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
     });
     expect(d.yearShort).toBe("27");
-    // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag"
+    // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag".
+    // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – nu 10 värden.
     expect(findUnset(d.config).map((u) => u.path)).toEqual([
       "customerVisibility.scope", "result.definition", "result.excludedFromDenominator", "kpis.narvarograd.internalTarget", "kpis.nojdhet.internalTarget",
-      "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention", "ai.provider",
+      "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention",
     ]);
     expect(d.stuckCount).toBe(2);
     expect(d.bonusCandidates).toBe(31);
@@ -211,8 +214,12 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(18);
+    expect(d.templates).toHaveLength(19);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
+    // Deltagarens inspelningslänk: samma text som rost.linkSend skickar, och mallen klarar kontrollen av personuppgifter.
+    expect(t("rostlank")).toMatchObject({ name: "Inspelningslänk till deltagaren", channel: "sms", alsoVia: ["email"], subject: "Spela in ett meddelande till din coach" });
+    expect(t("rostlank").body.replace("{antal_dagar}", "7").replace("{lank}", "/rost/x")).toBe(`${linkMessageText(7)} /rost/x`);
+    expect(templateCheck(t("rostlank").body)).toMatchObject({ ok: true, unknown: [] });
     expect(t("ordererkannande")).toMatchObject({ when: "Automatiskt inom 5 minuter när ett avrop kommit in", version: 3, updatedByName: "Robin Åberg", updatedAt: "2026-12-02T10:14" });
     expect(t("pulslank").when).toBe("Vecka 2, vid avslut och var 30:e dag vid långa insatser");
     expect(t("paminnelse_progression").when).toBe("Enligt interna regler: måndag 08.00 för föregående vecka");
@@ -266,6 +273,19 @@ describe("revisionslogg och loggkontroll", () => {
     expect(d.actors.map((a) => a.label)).toEqual(["Karin Wallin", "Lars Nyström", "Maria Ekdahl", "Miljonmatch (automatiskt)", "Sara Lindqvist"]);
     expect(d.logCheck).toMatchObject({ month: "2027-01", canSign: false, done: null });
     await forbidden(rt.query(adminAuditLog, {}, sara()));
+  });
+
+  it("synpunkter i testmiljön: typ, hur viktigt och status med samma svenska etiketter som dialogen", () => {
+    const l: AuditLookups = { userName: () => null, caseNumber: () => null, kpiLabel: () => null, templateLabel: (k) => k };
+    expect(detailText({ action: "feedback.created", entity: "feedback", entityId: "fb-1", details: { type: "forbattring", priority: "maste" } }, l)).toBe(
+      "Typ: Förbättring · Hur viktigt: Måste ändras",
+    );
+    expect(detailText({ action: "feedback.created", entity: "feedback", entityId: "fb-2", details: { type: "bra", priority: "kan" } }, l)).toBe("Typ: Bra som det är · Hur viktigt: Kan vänta");
+    expect(detailText({ action: "feedback.status_changed", entity: "feedback", entityId: "fb-1", details: { from: "ny", to: "avfardad" } }, l)).toBe("Från: Ny · Till: Avfärdad");
+    expect(detailText({ action: "feedback.status_changed", entity: "feedback", entityId: "fb-1", details: { from: "diskutera", to: "andras" } }, l)).toBe(
+      "Från: Att diskutera · Till: Ska ändras",
+    );
+    expect(detailText({ action: "feedback.replied", entity: "feedback", entityId: "fb-1", details: { replyId: "fbr-1" } }, l)).toBe("Svar: fbr-1");
   });
 
   it("chefens stickprov är samma poster som i den gamla prototypen och kräver anteckning vid avvikelse", async () => {

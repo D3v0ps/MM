@@ -92,6 +92,12 @@ export const COLUMNS = {
     id: "text", caseId: "text | null", ownerId: "text", purpose: "text", storagePath: "text", mimeType: "text", bytes: "integer | null", durationSec: "integer | null",
     status: "text", createdAt: "timestamptz", deletedAt: "timestamptz | null",
   },
+  // Synpunkter i testmiljön (0017_synpunkter.sql)
+  feedback: {
+    id: "text", type: "text", priority: "text", text: "text", status: "text", role: "text", path: "text | null", viewTitle: "text | null", createdAt: "timestamptz",
+    authorId: "text", statusChangedAt: "timestamptz | null", statusChangedBy: "text | null", submittedAt: "timestamptz | null",
+  },
+  feedback_replies: { id: "text", feedbackId: "text", text: "text", createdAt: "timestamptz", authorId: "text", submittedAt: "timestamptz | null" },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

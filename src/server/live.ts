@@ -1,13 +1,12 @@
 // Supabase-läget (MM_BACKEND=supabase): session, identitet, Ctx och körning av API:t. Bara på servern.
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ApiError } from "@/api/server";
+import { ApiError, type Ctx } from "@/api/server";
 import { execute } from "@/api/handlers";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import { PARTICIPANT_USER_ID } from "@/data/actors";
 import type { AppRepo, Membership, Organization } from "@/data/schema";
-import type { CtxWithJobs } from "@/features/_shared/voice-jobs";
 import { appRepo, fromDbRow, userRepo, type PgClient } from "@/data/supabase";
 import { serverAi } from "./ai";
 import { serverAudio } from "./audio";
@@ -106,7 +105,7 @@ export async function liveSession(): Promise<LiveSession> {
 /** Deltagaren via pulslänk – ingen inloggning, inga avtal. Databasen ser rollen anon (bara hanterarnas systemsteg). */
 const PARTICIPANT: Actor = { userId: PARTICIPANT_USER_ID, role: "deltagare", contractIds: [], customerUnit: null };
 
-export function ctxFor(s: LiveSession): CtxWithJobs {
+export function ctxFor(s: LiveSession): Ctx {
   const system: AppRepo = appRepo(s.service);
   return liveCtx({
     actor: s.identity?.persona.actor ?? PARTICIPANT,

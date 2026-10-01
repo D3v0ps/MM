@@ -101,7 +101,10 @@ export function isPublicPagePath(path: string): boolean {
     path === "/portal/logga-in" ||
     path === "/puls" ||
     path.startsWith("/puls/") ||
-    path.startsWith("/p/")
+    path.startsWith("/p/") ||
+    // Deltagarens inspelningslänk (src/features/rost/routes.ts) – länken är behörigheten, ingen inloggning.
+    path === "/rost" ||
+    path.startsWith("/rost/")
   );
 }
 

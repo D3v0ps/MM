@@ -118,6 +118,33 @@ describe("röstjobben i jobbkörningen", () => {
     expect(t.store.getRow("audio_uploads", id)!.status).toBe("deleted");
   });
 
+  it("deltagarens inspelning: när jobbet ger upp går länken att använda igen (usedAt = null, loggas en gång)", async () => {
+    const sim = createSimulatedAi();
+    const broken: AiPort = {
+      ...sim, provider: sim.provider, model: sim.model,
+      transcribe: async () => {
+        throw Object.assign(new Error("x"), { code: "invalid_response", retryable: false });
+      },
+    };
+    const t = setup(broken);
+    const AMAL = "case-270012";
+    const deltagare = { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null } as Actor;
+    const audio = createMemoryAudio({ system: t.system, now: () => DEMO_START, newId: (p) => `${p}-d1` });
+    const up = await audio.createUpload({ caseId: AMAL, ownerId: "deltagare", purpose: "participant", mimeType: "audio/webm", durationSec: 40 });
+    await audio.confirm(up.uploadId);
+    const ctx: CtxWithJobs = { ...t.amira, actor: deltagare };
+    const r = await enqueueVoiceJob(ctx, { kind: "transcribe_participant", uploadId: up.uploadId, linkId: "vl-demo", language: "ar", consentTextVersion: "röst-v1.0 (2026-09-30)", consentGivenAt: DEMO_START });
+    // rost.send förbrukar länken när jobbet läggs (supabase-läget)
+    t.store.updateRow("voice_links", "vl-demo", { usedAt: DEMO_START });
+    expect(await t.run(DEMO_START)).toMatchObject({ failed: 1, retried: 0 });
+    expect(t.store.getRow("ai_runs", r.aiRunId)).toMatchObject({ status: "failed", output: { error: "invalid_response" } });
+    expect(t.store.getRow("voice_links", "vl-demo")!.usedAt).toBeNull();
+    expect(t.store.rows("participant_voice_notes").filter((n) => n.linkId === "vl-demo")).toHaveLength(0);
+    const reopened = t.store.rows("audit_log").filter((x) => x.action === "voice.link_reopened");
+    expect(reopened).toHaveLength(1);
+    expect(reopened[0]).toMatchObject({ entity: "voice_link", entityId: "vl-demo", contractId: "c-bot", details: { caseId: AMAL, aiRunId: r.aiRunId, code: "invalid_response" } });
+  });
+
   it("utan röstjobbens Ctx stoppas jobbet utan nya försök", async () => {
     const t = setup();
     const id = await t.recording();

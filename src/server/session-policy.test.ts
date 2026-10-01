@@ -80,9 +80,9 @@ describe("testarens rättigheter", () => {
 });
 
 describe("sökvägar", () => {
-  it("publika sidor: inloggningen och pulslänken", () => {
-    for (const p of ["/logga-in", "/portal/logga-in", "/puls", "/puls/abc123"]) expect(isPublicPagePath(p), p).toBe(true);
-    for (const p of ["/", "/start", "/portal", "/portal/deltagare/case-1", "/arenden", "/logga-in-x", "/pulsx"]) expect(isPublicPagePath(p), p).toBe(false);
+  it("publika sidor: inloggningen, pulslänken och deltagarens inspelningslänk", () => {
+    for (const p of ["/logga-in", "/portal/logga-in", "/puls", "/puls/abc123", "/rost", "/rost/rost-abc123"]) expect(isPublicPagePath(p), p).toBe(true);
+    for (const p of ["/", "/start", "/portal", "/portal/deltagare/case-1", "/arenden", "/logga-in-x", "/pulsx", "/rostx", "/rostlank"]) expect(isPublicPagePath(p), p).toBe(false);
   });
 
   it("rätt inloggningssida", () => {

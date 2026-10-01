@@ -179,7 +179,10 @@ test("feedback: lådan fyller i roll och vy, sparas lokalt och syns i genomgång
   await page.getByRole("button", { name: "Genomgång (1 nya)" }).click();
   await expect.poll(() => hashOf(page)).toBe("/om/genomgang");
   await expect(page.getByRole("heading", { name: "Leverantör · Öppna frågor (1)" })).toBeVisible();
+  // Statusen sparas först med "Spara status" (piltangenterna i listan sparar inte varje steg).
   await page.getByLabel("Status", { exact: true }).last().selectOption("klar");
+  await expect(page.locator("article")).toContainText("Fråga 3 borde stå överst.");
+  await page.getByRole("button", { name: "Spara status" }).click();
   await expect(page.getByText("Ingen feedback att visa")).toBeVisible();
   // Feedbacken finns kvar efter omladdning (lokalt läge).
   await page.reload();

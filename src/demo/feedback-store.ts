@@ -5,11 +5,14 @@
 //   progress/{användar-id}        testade scenariosteg ({ done: { "s1:0": true }, updatedAt })
 // Utan window.claude (t.ex. öppnad som fil) sparas feedbacken bara i webbläsaren.
 // Ny feedback får också fältet `path` (sökvägen i den nya prototypen); vy-id i `viewId` är den gamla prototypens.
+// Typer, prioriteter, statusar och etiketter delas med testmiljöns "Lämna synpunkt" (src/features/synpunkter/model.ts).
 import { useSyncExternalStore } from "react";
 import type { Role } from "@/api/roles";
+import { FB_PRIOS, FB_STATUSES, FB_TYPES, prioLabel, statusLabel, typeIcon, typeLabel } from "@/features/synpunkter/model";
 import { toast } from "@/ui/toast";
-import type { IconName } from "@/ui/icons";
 import { getCapability, type ClaudeDb, type ClaudeUser, type Unsubscribe } from "./claude-runtime";
+
+export { FB_PRIOS, FB_STATUSES, FB_TYPES, prioLabel, statusLabel, typeIcon, typeLabel };
 
 const LS_FB = "miljonmatch-prototyp-feedback-lokal";
 const LS_PROG = "miljonmatch-prototyp-scenarier";
@@ -41,29 +44,6 @@ export type FeedbackItem = {
   localReplies?: FeedbackReply[];
 };
 export type NewFeedback = Omit<FeedbackItem, "id" | "status" | "createdAt" | "authorId" | "replyCount">;
-
-export const FB_TYPES: { value: string; label: string; icon: IconName }[] = [
-  { value: "fel", label: "Fel", icon: "alert" },
-  { value: "forbattring", label: "Förbättring", icon: "edit" },
-  { value: "fraga", label: "Fråga", icon: "help" },
-  { value: "bra", label: "Bra som det är", icon: "check-circle" },
-];
-export const FB_PRIOS = [
-  { value: "maste", label: "Måste ändras" },
-  { value: "bor", label: "Bör ändras" },
-  { value: "kan", label: "Kan vänta" },
-];
-export const FB_STATUSES = [
-  { value: "ny", label: "Ny" },
-  { value: "diskutera", label: "Att diskutera" },
-  { value: "andras", label: "Ska ändras" },
-  { value: "klar", label: "Klar" },
-  { value: "avfardad", label: "Avfärdad" },
-];
-export const typeLabel = (v: string) => FB_TYPES.find((t) => t.value === v)?.label ?? v;
-export const prioLabel = (v: string) => FB_PRIOS.find((t) => t.value === v)?.label ?? v;
-export const statusLabel = (v: string) => FB_STATUSES.find((t) => t.value === v)?.label ?? v;
-export const typeIcon = (v: string): IconName | undefined => FB_TYPES.find((t) => t.value === v)?.icon;
 
 export type FeedbackState = {
   mode: "loading" | "local" | "shared";

@@ -16,7 +16,7 @@ const KARIM = "karim.khalil@miljonbemanning.se";
 const ALI = "ali.khalil@miljonbemanning.se";
 const MARIA = "maria.ekdahl@botkyrka.se";
 const ALLOW = [KARIM, ALI];
-const RESEND = { apiKey: "re_test_nyckel", from: "Miljonmatch <notis@miljonbemanning.se>" };
+const RESEND = { apiKey: "re_test_nyckel", from: "Miljonmatch <notis@miljonmatch.se>" };
 
 const SEED = createSeed();
 const CASE = SEED.cases.find((c) => c.id === "case-270048")! as Case;
@@ -113,8 +113,8 @@ describe("MM_EMAIL_REDIRECT_TO (bara testmiljön)", () => {
 
 describe("MM_EMAIL_REPLY_TO", () => {
   it("läses från miljön och skickas som reply_to till Resend", async () => {
-    const env = notifyEnv({ RESEND_API_KEY: "re_x", MM_EMAIL_FROM: "Miljonmatch <notis@miljonbemanning.se>", MM_EMAIL_REPLY_TO: " avrop@miljonbemanning.se ", MM_EMAIL_REDIRECT_TO: " Karim.Khalil@Miljonbemanning.se" });
-    expect(env.resend).toEqual({ apiKey: "re_x", from: "Miljonmatch <notis@miljonbemanning.se>", replyTo: "avrop@miljonbemanning.se" });
+    const env = notifyEnv({ RESEND_API_KEY: "re_x", MM_EMAIL_FROM: "Miljonmatch <notis@miljonmatch.se>", MM_EMAIL_REPLY_TO: " avrop@miljonbemanning.se ", MM_EMAIL_REDIRECT_TO: " Karim.Khalil@Miljonbemanning.se" });
+    expect(env.resend).toEqual({ apiKey: "re_x", from: "Miljonmatch <notis@miljonmatch.se>", replyTo: "avrop@miljonbemanning.se" });
     expect(env.redirectTo).toBe(KARIM);
     const { send, fake } = setup(recipientGate("production", []), env.resend);
     await send(MARIA);

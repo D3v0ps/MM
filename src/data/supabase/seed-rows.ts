@@ -1,4 +1,4 @@
-// Testmiljöns data i databasen: prototypens påhittade testdata (createSeed()) plus testarna (Karim och Ali), i samma
+// Testmiljöns data i databasen: prototypens påhittade testdata (createSeed()) plus testarna (TESTERS nedan), i samma
 // ordning och med samma extra kolumner som supabase/seed.sql. Används av
 //   scripts/db/seed-sql.ts          seed.sql (lokal Postgres, RLS-testerna) och bootstrap-staging.sql (startdata)
 //   src/server/staging/load.ts      "Läs in testdata på nytt" i testmiljön (via PostgREST, service role)
@@ -30,11 +30,24 @@ export function uuidV5(name: string, namespace: string = AUTH_UUID_NAMESPACE): s
 export const authUserIdFor = (profileId: string): string => uuidV5(`profile:${profileId}`);
 
 // ---------------------------------------------------------------- Testarna i testmiljön
-/** Riktiga användare som testar i testmiljön: admin i båda avtalen och testare (kan agera som testpersoner). */
+/**
+ * Riktiga användare som testar i testmiljön: admin i båda avtalen och testare (kan agera som testpersoner och lämna
+ * synpunkter). Kollegorna på Miljonbemanning bjöds in 2026-10-01 för att ge synpunkter på processen och plattformen.
+ * Varje adress ska också finnas i MM_EMAIL_ALLOWLIST i Vercel – annars får testaren ingen inloggningskod (TESTER_ALLOWLIST).
+ */
 export const TESTERS: readonly { id: string; fullName: string; email: string }[] = [
   { id: "tester-karim", fullName: "Karim Khalil", email: "karim.khalil@miljonbemanning.se" },
   { id: "tester-ali", fullName: "Ali Khalil", email: "ali.khalil@miljonbemanning.se" },
+  { id: "tester-sara", fullName: "Sara Salah", email: "sara.salah@miljonbemanning.se" },
+  { id: "tester-adam", fullName: "Adam Abdalla", email: "adam.abdalla@miljonbemanning.se" },
+  { id: "tester-shafik", fullName: "Shafik Muwanga", email: "shafik.muwanga@miljonbemanning.se" },
+  { id: "tester-moda", fullName: "Moda Habib", email: "moda.habib@miljonbemanning.se" },
 ];
+/**
+ * Värdet för MM_EMAIL_ALLOWLIST i testmiljön: testarnas hela adresser, kommatecken emellan. Aldrig "@miljonbemanning.se" –
+ * testdatat har påhittade adresser på den domänen (t.ex. sara.lindqvist@) som aldrig får få mejl.
+ */
+export const TESTER_ALLOWLIST = TESTERS.map((t) => t.email).join(",");
 export const TESTER_CONTRACTS = ["c-bot", "c-kk"] as const;
 export const TESTER_ORG = "org-mb";
 export const TESTER_IDS: ReadonlySet<string> = new Set(TESTERS.map((t) => t.id));
@@ -57,9 +70,15 @@ export function seedData(): MemoryData<Tables> {
   return data;
 }
 
-/** Tabellerna i den ordning raderna läses in (främmande nycklar: beställarreferenser före profiler). */
+/**
+ * Tabeller som inte hör till testdatat: testarnas synpunkter (0017). Seeden (seed.sql) och "Läs in testdata på nytt"
+ * (mm.reset_test_data) tömmer dem aldrig – synpunkterna finns kvar när testdatat läses in på nytt.
+ */
+export const TESTER_TABLES: readonly TableName[] = ["feedback", "feedback_replies"];
+
+/** Tabellerna i den ordning raderna läses in (främmande nycklar: beställarreferenser före profiler). Utan TESTER_TABLES. */
 export const SEED_TABLE_ORDER: readonly TableName[] = (() => {
-  const order: TableName[] = TABLE_NAMES.filter((t) => t !== "buyer_references");
+  const order: TableName[] = TABLE_NAMES.filter((t) => t !== "buyer_references" && !TESTER_TABLES.includes(t));
   order.splice(order.indexOf("profiles"), 0, "buyer_references");
   return order;
 })();

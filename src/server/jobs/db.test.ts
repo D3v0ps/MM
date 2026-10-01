@@ -12,7 +12,7 @@ import { queueMessage } from "../notify/queue";
 import { fakeResend } from "../notify/test-helpers";
 import type { JobRow, NotifyRepo, NotifyTables, OutboundRow } from "../notify/types";
 import { JOB_HANDLERS, type JobDeps } from "./registry";
-import { runJobs, type JobPatch, type JobStore } from "./runner";
+import { INTERRUPTED_REASON, MAX_ATTEMPTS, runJobs, STALE_MINUTES, type JobPatch, type JobStore } from "./runner";
 
 const NOW = "2027-02-01T09:12";
 const KARIM = "karim.khalil@miljonbemanning.se";
@@ -54,7 +54,8 @@ const sqlRepo = (tx: Tx): NotifyRepo => ({ table: <N extends keyof NotifyTables 
 function sqlJobStore(tx: Tx): JobStore {
   return {
     async claim(n: number, now: LocalDateTime, maxAttempts: number) {
-      const r = await tx.query<{ j: Record<string, unknown> }>(`select to_json(j) as j from public.claim_jobs($1, $2::timestamptz, $3) j`, [n, toDbValue(now), maxAttempts]);
+      // Som store.ts (PostgREST gör om texten till interval)
+      const r = await tx.query<{ j: Record<string, unknown> }>(`select to_json(j) as j from public.claim_jobs($1, $2::timestamptz, $3, $4::interval) j`, [n, toDbValue(now), maxAttempts, `${STALE_MINUTES} minutes`]);
       return r.rows.map((x) => fromDbRow<JobRow>(x.j));
     },
     async finish(id: string, patch: JobPatch) {
@@ -85,7 +86,7 @@ describe("utskick mot migrationerna (PGlite)", () => {
 
       const resend = fakeResend();
       const deps: JobDeps = {
-        notify: { repo, gate: recipientGate("staging", [KARIM]), render: { appUrl: "https://test.miljonmatch.se", staffDomains: ["miljonbemanning.se"] }, resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonbemanning.se>" }, fetch: resend.fetch, now: "2027-02-01T09:13" },
+        notify: { repo, gate: recipientGate("staging", [KARIM]), render: { appUrl: "https://test.miljonmatch.se", staffDomains: ["miljonbemanning.se"] }, resend: { apiKey: "re_x", from: "Miljonmatch <notis@miljonmatch.se>" }, fetch: resend.fetch, now: "2027-02-01T09:13" },
       };
       // Före run_after: inget hämtas
       expect(await runJobs({ store: sqlJobStore(tx), handlers: JOB_HANDLERS, ctx: deps, now: "2027-02-01T09:11" })).toMatchObject({ claimed: 0 });
@@ -129,6 +130,30 @@ describe("utskick mot migrationerna (PGlite)", () => {
       expect(await repo.table("outbound_messages").get(q.messageId)).toMatchObject({ status: "failed", statusReason: "Resend svarade 503 (service_unavailable)" });
       const again = await tx.query(`select id from public.claim_jobs(10, $1::timestamptz)`, [toDbValue("2027-02-02T12:00")]);
       expect(again.rows).toHaveLength(0);
+    });
+  });
+
+  it("avbrutet jobb (tidsgränsen): hämtas igen efter fem minuter; avbröts även sista försöket ges det upp – aldrig kvar i running", async () => {
+    await asService(async (tx) => {
+      let n = 0;
+      const repo = sqlRepo(tx);
+      const a = await queueMessage(repo, { channel: "email", to: KARIM, template: "ny_rapport", body: "Ny rapport – logga in för att läsa.", caseId: null }, NOW, (p) => `${p}-s${++n}`);
+      const b = await queueMessage(repo, { channel: "email", to: KARIM, template: "ny_rapport", body: "Ny rapport – logga in för att läsa.", caseId: null }, NOW, (p) => `${p}-s${++n}`);
+      // a avbröts i första försöket, b i sista – båda står i running sedan 09:12
+      await tx.query(`update public.jobs set status = 'running', attempts = 1, started_at = $2::timestamptz where id = $1`, [a.jobId, toDbValue(NOW)]);
+      await tx.query(`update public.jobs set status = 'running', attempts = $3, started_at = $2::timestamptz where id = $1`, [b.jobId, toDbValue(NOW), MAX_ATTEMPTS]);
+      const resend = fakeResend();
+      const deps = (now: LocalDateTime): JobDeps => ({
+        notify: { repo, gate: recipientGate("staging", [KARIM]), render: { appUrl: null, staffDomains: [] }, resend: { apiKey: "re_x", from: "a@b.se" }, fetch: resend.fetch, now },
+      });
+      expect(await runJobs({ store: sqlJobStore(tx), handlers: JOB_HANDLERS, ctx: deps("2027-02-01T09:16"), now: "2027-02-01T09:16" })).toMatchObject({ claimed: 0 });
+      expect(await runJobs({ store: sqlJobStore(tx), handlers: JOB_HANDLERS, ctx: deps("2027-02-01T09:18"), now: "2027-02-01T09:18" })).toMatchObject({ claimed: 2, done: 1, failed: 1 });
+      expect(await repo.table("jobs").get(a.jobId!)).toMatchObject({ status: "done", attempts: 2 });
+      expect(await repo.table("jobs").get(b.jobId!)).toMatchObject({ status: "failed", lastError: INTERRUPTED_REASON, finishedAt: "2027-02-01T09:18" });
+      expect(await repo.table("outbound_messages").get(b.messageId)).toMatchObject({ status: "failed", statusReason: INTERRUPTED_REASON });
+      expect(resend.calls).toHaveLength(1);
+      const running = await tx.query(`select id from public.jobs where status = 'running'`);
+      expect(running.rows).toEqual([]);
     });
   });
 

@@ -221,7 +221,8 @@ function spread(sentences: readonly { text: string; who?: string | null }[], tot
   let at = 0;
   return sentences.map((x) => {
     const len = Math.max(1, Math.round((total * x.text.length) / chars));
-    const seg: TranscriptSegment = { start: at, end: Math.min(total, at + len), text: x.text, speaker: x.who ?? null };
+    // Kort ljud (1–2 sekunder) och många meningar: start kan passera total – segmentet slutar aldrig före det börjar.
+    const seg: TranscriptSegment = { start: at, end: Math.max(at, Math.min(total, at + len)), text: x.text, speaker: x.who ?? null };
     at += len;
     return seg;
   });

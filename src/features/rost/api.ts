@@ -149,9 +149,12 @@ export type CaseVoiceView = {
 export const caseVoice = query("rost.caseVoice", z.object({ caseId: IdSchema })).returns<CaseVoiceView | null>();
 
 export type LinkSendError = "not_found" | "forbidden" | "protected" | "disabled" | "no_channel" | "closed" | "language";
-/** path: länkens sökväg ("/rost/<token>"). Visas bara i prototypen (förhandsvisning) – deltagaren får den i utskicket. */
+/**
+ * path: länkens sökväg ("/rost/<token>") – bara i minnesläget och prototypen (ctx.exposeLinkPaths), där den visas som
+ * förhandsvisning. Servern i supabase-läget svarar null: token finns bara i utskicket till deltagaren.
+ */
 export const linkSend = command("rost.linkSend", z.object({ caseId: IdSchema, language: z.enum(ROST_LANGS) })).returns<
-  Result<{ linkId: string; path: string; expiresAt: LocalDateTime; channel: VoiceLinkChannel }, LinkSendError>
+  Result<{ linkId: string; path: string | null; expiresAt: LocalDateTime; channel: VoiceLinkChannel }, LinkSendError>
 >();
 
 /** Deltagarens röstmeddelanden visades (loggas i revisionsloggen – transkript, CLAUDE.md punkt 3). Tyst. */

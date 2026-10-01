@@ -58,6 +58,17 @@ describe("transcribe (simulerad)", () => {
     expect(d.value.text.length).toBeGreaterThan(20);
     expect(d.value.segments.every((s) => s.speaker == null && s.end <= 18)).toBe(true);
   });
+  it("kort ljud (1–2 sekunder): inget segment slutar före det börjar – transkriptet klarar schemat för alla syften och ljud", async () => {
+    for (const sec of [1, 2]) {
+      for (const purpose of ["checkin", "dictation", "participant"] as const) {
+        for (let i = 0; i < 8; i++) {
+          const t = await ai.transcribe(ref(`aud-kort-${i}`, purpose, sec), { language: purpose === "participant" ? "so" : "sv" });
+          expect(TranscriptSchema.safeParse(t.value).success, `${purpose} ${sec} s`).toBe(true);
+          for (const s of t.value.segments) expect(s.end).toBeGreaterThanOrEqual(s.start);
+        }
+      }
+    }
+  });
 });
 
 describe("extract (simulerad): förslag med belägg ur transkriptet", () => {

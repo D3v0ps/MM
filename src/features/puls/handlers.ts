@@ -12,13 +12,18 @@ import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { diffDays, fmtDate } from "@/core/time";
 import { PULSE_PRIORITIES, type PulseInvite, type PulsePriority, type PulseScore } from "@/data/schema";
+import { sha256Hex } from "@/features/rost/sha256";
 import { pulseLink, pulseSubmit, type PulseLinkState } from "./api";
 import { PULSE_LANGS, type PulseLang } from "./texts";
 
-/** SHA-256 av token (hex) – samma som pulse_invites.tokenHash. Null om Web Crypto saknas (osäker sida i webbläsaren). */
-async function tokenHash(token: string): Promise<string | null> {
+/**
+ * SHA-256 av token (hex) – samma som pulse_invites.tokenHash. Web Crypto när det finns, annars samma beräkning i ren
+ * TypeScript (sha256Hex, som röstlänken i voiceTokenHash) – prototypen kan öppnas från en sida utan https, där Web Crypto
+ * saknas, och länken ska ändå fungera.
+ */
+export async function pulseTokenHash(token: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return null;
+  if (!subtle) return sha256Hex(token);
   const buf = await subtle.digest("SHA-256", new TextEncoder().encode(token));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -32,8 +37,7 @@ async function inviteFor(ctx: Ctx, token: string | undefined): Promise<(PulseInv
   let inv: PulseInvite | null = null;
   if (token !== undefined) {
     if (!/^[A-Za-z0-9_-]{8,200}$/.test(token)) return null;
-    const hash = await tokenHash(token);
-    inv = hash ? await ctx.system.table("pulse_invites").first({ tokenHash: hash }) : null;
+    inv = await ctx.system.table("pulse_invites").first({ tokenHash: await pulseTokenHash(token) });
   } else {
     const tag = await ctx.system.table("demo_tags").get("pi-demo");
     const id = tag?.entity === "pulse_invites" ? tag.entityIds[0] : null;
@@ -75,10 +79,17 @@ handleCommand(pulseSubmit, { roles: ["deltagare"] }, async (ctx, p) => {
   // har inga rättigheter alls) – behörigheten är engångslänken, och den är kontrollerad ovan: tokenhashen finns, länken
   // är oanvänd och har inte gått ut, och ärendet har inte skyddade personuppgifter (inviteFor). Svaret skrivs bara på
   // den länkens ärende, med värden som kontrollerats här – deltagaren kan inte välja ärende, coach eller tidpunkt.
-  await ctx.system.table("pulse_responses").insert({
-    id, inviteId: inv.id, caseId: inv.caseId, coachId: c?.leadCoachId ?? null, occasion: inv.occasion, language: p.language,
-    answers: { q1: a.q1, q2: a.q2, q3: a.q3, q4: a.q4 as PulsePriority, q5: a.q5 }, text: String(p.text || "").trim().slice(0, 500), contactRequested: contact, submittedAt: now,
-  });
+  try {
+    await ctx.system.table("pulse_responses").insert({
+      id, inviteId: inv.id, caseId: inv.caseId, coachId: c?.leadCoachId ?? null, occasion: inv.occasion, language: p.language,
+      answers: { q1: a.q1, q2: a.q2, q3: a.q3, q4: a.q4 as PulsePriority, q5: a.q5 }, text: String(p.text || "").trim().slice(0, 500), contactRequested: contact, submittedAt: now,
+    });
+  } catch (e) {
+    // Ett svar per länk (unik nyckel på invite_id, migration 0016): två samtidiga svar på samma länk – det andra stoppas
+    // av databasen (23505) och inget mer skrivs.
+    if ((e as { code?: unknown } | null)?.code === "23505") return fail("used", "Länken är redan använd.");
+    throw e;
+  }
   // ctx.system: länken förbrukas (systemsteg – deltagaren får inte ändra utskicket). Därefter svarar puls.link "used"
   // och ett nytt svar stoppas av kontrollen ovan.
   await ctx.system.table("pulse_invites").update(inv.id, { usedAt: now, language: p.language });

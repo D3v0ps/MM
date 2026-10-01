@@ -3,12 +3,15 @@
 //   Minnesläget (utveckling, e2e): vald testperson, byt i verktygsfältet (/api/dev-session). Inloggningssidorna simulerar
 //   koden som i prototypen – adressen väljer testpersonen.
 //   Supabase-läget: inloggning med e-post och kod (/api/auth/*). Inte inloggad = anonym session med bara publika sidor.
-//   Testmiljön: rad överst "Testmiljö – påhittade testdata" och testarens val av testperson.
+//   Testmiljön: rad överst "Testmiljö – påhittade testdata", testarens val av testperson och "Lämna synpunkt"
+//   (src/features/synpunkter/panel.tsx – bara testare i testmiljön, session.feedback).
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { fmtDateFull, WEEKDAYS, weekday } from "@/core/time";
+import { feedbackPortOf } from "@/features/synpunkter/api";
+import { FeedbackToolbar } from "@/features/synpunkter/panel";
 import type { SessionView } from "@/server/session-view";
 import { App } from "@/shell/app";
 import { BackendError, BackendProvider, httpBackend, type Backend } from "@/shell/backend";
@@ -112,16 +115,18 @@ export function ClientRoot() {
       router.replace("/");
       reload();
     },
+    backend,
   });
   if (!session) return <p className="p-8">Inloggningen kunde inte hämtas. Ladda om sidan.</p>;
   const actor = session.actor;
   return (
     <RuntimeProvider mode="app">
-      {view.backend === "supabase" && view.environment === "staging" && <StagingBar view={view} />}
       <BackendProvider key={`${actor.userId}|${actor.role}`} backend={backend}>
         <SessionProvider session={session}>
           <Suspense>
             <NextNavProvider>
+              {/* Raden ligger innanför sessionen och navigeringen: "Lämna synpunkt" sparar sidan och rollen. */}
+              {view.backend === "supabase" && view.environment === "staging" && <StagingBar view={view} />}
               <App routes={APP_ROUTES} />
             </NextNavProvider>
           </Suspense>
@@ -131,7 +136,7 @@ export function ClientRoot() {
   );
 }
 
-function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: string) => Promise<void> }): Session | null {
+function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: string) => Promise<void>; backend: Backend }): Session | null {
   if (view.backend === "memory") {
     const persona = view.persona;
     if (!persona) return null;
@@ -156,6 +161,8 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
     environment: view.environment,
     // Testmiljön: testaren läser in testdatat på nytt i adminvyn (POST /api/staging/seed). Sidan laddas om när det är klart.
     reloadTestData: view.isTester && view.environment === "staging" ? reloadTestData : undefined,
+    // Testmiljön: synpunkterna (feedback.* via /api/rpc). Servern och RLS släpper bara igenom testare i testmiljön.
+    feedback: view.isTester && view.environment === "staging" ? feedbackPortOf(o.backend) : undefined,
     signOut: () => {
       void liveAuth.signOut().then(() => hardNavigate(isCustomerRole(actor.role) ? "/portal/logga-in" : "/logga-in"));
     },
@@ -224,6 +231,9 @@ function StagingBar({ view }: { view: SessionView }) {
           )}
         </span>
       )}
+      <span className="ml-auto">
+        <FeedbackToolbar routes={APP_ROUTES} />
+      </span>
     </div>
   );
 }
