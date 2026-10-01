@@ -27,6 +27,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "task.created": "Skapade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
   "contract_deviation.action_plan_approved": "Godkände åtgärdsplan", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
+  "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));

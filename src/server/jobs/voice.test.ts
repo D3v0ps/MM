@@ -65,7 +65,7 @@ function setup(ai: AiPort = createSimulatedAi()) {
 
 describe("röstjobben i jobbkörningen", () => {
   it("alla röstjobb är registrerade bredvid send_message", () => {
-    expect(Object.keys(JOB_HANDLERS).sort()).toEqual(["send_message", ...VOICE_JOB_KINDS].sort());
+    expect(Object.keys(JOB_HANDLERS).sort()).toEqual(["send_message", "report_schedule", ...VOICE_JOB_KINDS].sort());
   });
 
   it("ett köat transkriberingsjobb körs och blir klart", async () => {

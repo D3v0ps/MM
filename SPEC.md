@@ -247,7 +247,8 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
   "pulse": { "occasions": ["week2", "exit"], "periodicEveryDays": 30, "languages": ["sv", "en", "ar", "so"], "minNForAggregate": 5 },
   "statistics": { "onRequestMaxPerYear": 2, "free": true },
   "termination": { "returnDataWithinDays": 31, "deleteAfterReturn": true },
-  "retention": "ATT_FASTSTÄLLA enligt PUB-avtalet"
+  "retention": "ATT_FASTSTÄLLA enligt PUB-avtalet",
+  "reportSchedule": { "automatic": ["weekly_attendance", "monthly", "customer_summary"], "customerSummaryDue": { "nthWorkingDay": 8, "time": "16:00" } }
 }
 ```
 
@@ -412,6 +413,10 @@ Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "n
 ### 7.11 Rapporter och intyg
 
 **Gemensamma regler:** byggs bara av godkända uppgifter. Livscykel: utkast → granskad av coach → (valfri kvalitetsgranskning av samordnare) → godkänd → levererad (tid, mottagare, kanal) → kvitterad (när mottagaren öppnat). Rättelse skapar ny version, den gamla sparas. PDF i MB:s grafiska profil. Leverans i portalen; mottagaren får en notis utan personuppgifter. Rapporter skickas bara som bilaga i vanlig e-post om kommunen skriftligt instruerat det (`reportDelivery`).
+
+**PDF** (beslut 2026-10-01): varje rapport med ett dokument (orderbekräftelse, vecko-, månads-, slut- och beställarrapport) kan laddas ned som PDF i MB:s grafiska profil (react-pdf, Montserrat inbäddat). PDF:en byggs av samma vy-modell som rapporten på skärmen – för en levererad rapport av den frysta ögonblicksbilden (`reports.snapshot`), så att en levererad rapport alltid ger samma innehåll. Den byggs när någon laddar ned den och sparas inte (`reports.pdf_path` används inte). Servern kontrollerar behörigheten med samma regler som för att visa rapporten och loggar nedladdningen (`report.downloaded`: id, typ, version, period – inga namn). Filnamnet innehåller bara rapporttyp, ärendenummer eller avtalsnummer, period och version. Rapporter som inte är levererade får vattenstämpeln "Utkast – inte levererad".
+
+**Rapportutkast skapas automatiskt** (beslut 2026-10-01, `contracts.config.reportSchedule`): veckorapport per handläggare och ISO-vecka med minst ett inskrivet ärende (när veckan är slut, väntar på närvaron och publiceras som i dag), månadsrapport per ärende och månad med minst en inskriven dag (när månaden är slut, utkast) och beställarrapport per kommunens chef och månad (när månaden är slut, utkast). Sista dagarna kommer från konfigurationen (`sla` och `reportSchedule.customerSummaryDue`). Raderna skapas framåt från där de befintliga rapporterna slutar – historiken fylls inte i efterhand – av ett bakgrundsjobb högst var tionde minut, som prövar perioderna de senaste 62 dagarna. Varje skapad rad loggas (`report.created`). Unika index i databasen hindrar dubbletter.
 
 **a) Ordererkännande och orderbekräftelse** – §7.1 och §7.4.
 

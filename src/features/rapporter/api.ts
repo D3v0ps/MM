@@ -235,6 +235,17 @@ export const reportSnapshot = command("rapporter.snapshot", z.object({
   reportIds: z.array(IdSchema).min(1).max(50),
 })).returns<Result<{ reportIds: string[] }>>();
 
+/**
+ * Ladda ner rapporten som PDF (tyst). Servern kontrollerar behörigheten med samma regler som för att visa rapporten
+ * (reportAccess och policyn/RLS) och loggar report.downloaded (rapportens id, typ, version och period – inga namn).
+ * Svaret är filnamnet (utan personuppgifter). Själva PDF:en byggs sedan i webbläsaren av samma dokument som visas
+ * (reportDocument – för levererade rapporter den frysta ögonblicksbilden): components/pdf-button.tsx gör det åt er.
+ * reportId = id:t på dokumentet som visas (kommunen ser den senast levererade versionen).
+ */
+export const reportDownload = command("rapporter.download", z.object({
+  reportId: IdSchema,
+})).returns<Result<{ filename: string }, DeniedReason>>();
+
 /** Samordnarens valfria kvalitetsgranskning (prototypens rap.qualityReview). */
 export const reportQualityReview = command("rapporter.qualityReview", z.object({
   reportId: IdSchema,

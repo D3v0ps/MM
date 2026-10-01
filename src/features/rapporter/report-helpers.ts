@@ -30,6 +30,8 @@ export type QuickFilter = keyof typeof QUICK_FILTERS;
 export const LIFECYCLE = ["Utkast", "Granskad", "Godkänd", "Levererad", "Kvitterad"] as const;
 /** Visas i stället för en förfallotid som inte är fastställd med kommunen. */
 export const NO_DUE = "Sista dag ej fastställd";
+/** Under grunduppgifterna i månads- och slutrapporten. */
+export const NO_PNR = "Personnummer skrivs inte ut. Ärendenumret identifierar deltagaren.";
 /** Fast text i månads- och slutrapporten (mall 02). */
 export const PRINCIPLE =
   'Rapporteringsprincip: Rapporten beskriver vad deltagaren har gjort och vad coachen har observerat under perioden. Den bygger bara på godkända uppgifter – registrerad närvaro, godkända veckoavstämningar och coachens godkända månadsbedömning. Bedömningarna är coachens egna. Rapporten innehåller inga diagnoser, inga spekulationer och inga omdömen om personlighet. Det som inte är känt skrivs "Framgår inte". Personnummer skrivs inte ut – ärendenumret identifierar deltagaren.';
@@ -118,6 +120,31 @@ export function periodText(r: Pick<Report, "kind" | "month" | "week" | "periodSt
   if (r.month) return monthName(r.month);
   if (r.kind === "order_confirmation") return dFull(r.periodStart);
   return `${dFull(r.periodStart)} – ${dFull(r.periodEnd)}`;
+}
+
+// ---------------------------------------------------------------- Filnamn
+const PDF_NAME: Partial<Record<ReportKind, string>> = {
+  monthly: "Manadsrapport", final: "Slutrapport", weekly_attendance: "Veckorapport", order_confirmation: "Orderbekraftelse", customer_summary: "Bestallarrapport",
+};
+/**
+ * Filnamnet för rapportens PDF – aldrig personuppgifter, bara ärendenummer, avtalsnummer, period och version:
+ *   Manadsrapport_BOT-26-0143_2027-01_v1.pdf · Slutrapport_BOT-26-0143_v1.pdf · Orderbekraftelse_BOT-26-0143_v1.pdf
+ *   Veckorapport_2027-W04.pdf · Bestallarrapport_332026110_2027-01.pdf (rättade versioner får _v2 …)
+ */
+export function reportFilename(r: { kind: ReportKind; version: number; week: string | null; month: string | null; caseNumber: string | null; contractNumber: string }): string {
+  const v = r.version || 1;
+  const parts: string[] = [PDF_NAME[r.kind] ?? "Rapport"];
+  if (r.kind === "monthly" || r.kind === "final" || r.kind === "order_confirmation") {
+    if (r.caseNumber) parts.push(r.caseNumber);
+    if (r.kind === "monthly" && r.month) parts.push(r.month);
+    parts.push(`v${v}`);
+  } else {
+    if (r.kind === "customer_summary") parts.push(r.contractNumber);
+    const period = r.kind === "weekly_attendance" ? r.week : r.month;
+    if (period) parts.push(period);
+    if (v > 1) parts.push(`v${v}`);
+  }
+  return `${parts.map((x) => x.replace(/[^A-Za-z0-9.-]+/g, "-")).join("_")}.pdf`;
 }
 
 // ---------------------------------------------------------------- När rapporten inte får visas

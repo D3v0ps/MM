@@ -12,7 +12,7 @@ import { weeklyReport } from "@/core/weekly-report";
 import type { Case, MonthlyAssessment, Profile, Report } from "@/data/schema";
 import { weeklyComplete } from "../_shared/weekly";
 import {
-  reportCorrectionNote, reportDocument, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
+  reportCorrectionNote, reportDocument, reportDownload, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
   type PortalReportInfo, type ReportDocResult, type ReportDocView, type ReportList, type ReportListRow, type ReportVersion, type ReportView, type ReportViewDenied, type WeeklyDocSection,
 } from "./api";
 import { freezeReport } from "./freeze";
@@ -21,7 +21,7 @@ import {
   driftedSinceDelivery, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel, summaryFromNumbers,
   type ReportModel, type SummaryModel,
 } from "./model";
-import { effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
+import { DENIED, effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportFilename, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
 
 const LIST_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "chef"];
 const MB_VIEW_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"];
@@ -217,6 +217,31 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
     };
   }
   return { ok: true, doc, portal, needsSnapshot: isDelivered(r) && !hasSnapshot(r) && hasDocument(r.kind) };
+});
+
+// ================================================================ Ladda ner PDF (tyst)
+// Samma behörighet som reportDocument för exakt den rapport som laddas ned (ingen omdirigering till en annan version –
+// skärmen skickar id:t på dokumentet den visar). Loggen innehåller bara id, typ, version och period.
+handleCommand(reportDownload, { roles: VIEW_ROLES, silent: true }, async (ctx, p) => {
+  const customer = isCustomerRole(ctx.actor.role);
+  const found = await reportAndCase(ctx, p.reportId);
+  if (!found || !hasDocument(found.r.kind)) return fail("not_found", DENIED.not_found[0]);
+  const { r, c } = found;
+  const info = await contractInfo(ctx, r.contractId);
+  const viewer = await viewerFor(ctx, c ? [c] : []);
+  const acc = reportAccess(r, c, viewer, info.cfg);
+  if (!acc.ok) return fail(acc.reason, DENIED[acc.reason][0]);
+  if (!(await policyAllows(ctx, r.id))) {
+    const reason = customer ? "not_yours" : "not_assigned";
+    return fail(reason, DENIED[reason][0]);
+  }
+  const version = r.version || 1;
+  const filename = reportFilename({ kind: r.kind, version, week: r.week, month: r.month, caseNumber: c?.caseNumber ?? null, contractNumber: info.contract.contractNumber });
+  await ctx.audit({
+    action: "report.downloaded", entity: "report", entityId: r.id, contractId: r.contractId,
+    details: { kind: r.kind, version, ...(r.week ? { week: r.week } : {}), ...(r.month ? { month: r.month } : {}), format: "pdf" },
+  });
+  return ok({ filename });
 });
 
 // ================================================================ Rapportsidan (Miljonbemanning)

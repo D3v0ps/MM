@@ -3,13 +3,17 @@
 //   ctx.crypto  testdatats ersättning för personnummer (TEST_PNR_CRYPTO)
 //   ctx.ai      simulerad AI (createSimulatedAi, src/features/_shared/ai-sim.ts) – deterministisk, inga anrop utanför
 //   ctx.audio   ljud i minnet (createMemoryAudio, src/features/_shared/audio-port.ts) – raderna i audio_uploads via system
+// Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
+// anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön.
 import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
+import { nextScheduleBoundary } from "@/core/report-schedule";
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
+import { ensureReports } from "@/features/rapporter/ensure";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
 import { TEST_PNR_CRYPTO } from "./seed/pnr";
@@ -61,6 +65,31 @@ export function createMemoryRuntime(opts: {
     };
   }
 
+  // ---- Rapportutkasten: körs vid inläsningen och sedan när klockan passerat nästa vecko- eller månadsgräns.
+  // Ett lås gör att två anrop samtidigt (utvecklingsservern) inte skapar samma rad två gånger.
+  let checkedAt: LocalDateTime | null = null;
+  let ensuring: Promise<void> | null = null;
+  async function ensureScheduledReports(): Promise<void> {
+    while (ensuring) await ensuring;
+    const now = opts.clock.now();
+    if (checkedAt && nextScheduleBoundary(checkedAt) > now) return;
+    ensuring = (async () => {
+      // Från där de befintliga raderna slutar: på nyinläst testdata skapas inget (testdatat har raderna redan).
+      try {
+        await ensureReports(ctxFor(SYSTEM_ACTOR));
+      } catch (e) {
+        // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
+        console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+      }
+      checkedAt = now;
+    })();
+    try {
+      await ensuring;
+    } finally {
+      ensuring = null;
+    }
+  }
+
   /** Kör en fråga eller ett kommando. Resultatet serialiseras så att det beter sig exakt som över HTTP. */
   async function run(kind: "query" | "command", key: string, input: unknown, actor: Actor): Promise<unknown> {
     // Klockan flyttas en minut före varje kommando som inte är tyst – samma ordning som den gamla prototypen,
@@ -68,6 +97,7 @@ export function createMemoryRuntime(opts: {
     const ticks = kind === "command" && !isSilentCommand(key);
     const before = opts.clock.now();
     if (ticks) opts.clock.tick();
+    await ensureScheduledReports();
     let res: unknown;
     try {
       res = await execute(kind, key, input, ctxFor(actor));
@@ -80,5 +110,5 @@ export function createMemoryRuntime(opts: {
     return res === undefined ? null : JSON.parse(JSON.stringify(res));
   }
 
-  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio };
+  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio, ensureScheduledReports };
 }

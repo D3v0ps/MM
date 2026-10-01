@@ -291,6 +291,31 @@ const ContractTextsSchema = z.strictObject({
   termination: z.string().min(1).optional(),
 });
 
+// ---- Rapportutkast som skapas automatiskt (beslut 2026-10-01, rapportarbetet steg 1)
+/** Rapporttyper som kan skapas automatiskt som utkast när perioden är slut (src/core/report-schedule.ts). */
+export const AUTO_REPORT_KINDS = ["weekly_attendance", "monthly", "customer_summary"] as const;
+export type AutoReportKind = (typeof AUTO_REPORT_KINDS)[number];
+const ReportScheduleSchema = z
+  .strictObject({
+    /**
+     * Rapporterna som skapas automatiskt (tom lista = inga):
+     *   weekly_attendance  en per handläggare och ISO-vecka med minst ett inskrivet ärende hos handläggaren, när veckan är
+     *                      slut (status waiting). Sista dag: sla[veckorapport_publicering] (veckodag och klockslag veckan efter).
+     *   monthly            en per ärende och månad där ärendet är inskrivet minst en dag, när månaden är slut (status draft).
+     *                      Sista dag: sla[manadsrapport] (förslaget: n:e arbetsdagen efter månadsskiftet).
+     *   customer_summary   en per kommunens chef och månad, när månaden är slut (status draft). Sista dag: customerSummaryDue.
+     */
+    automatic: z.array(z.enum(AUTO_REPORT_KINDS)),
+    /** Beställarrapportens sista dag: n:e arbetsdagen efter månadsskiftet och klockslaget. Ett förslag – inte fastställt med kommunen. */
+    customerSummaryDue: z.strictObject({ nthWorkingDay: PosInt, time: TimeSchema }).optional(),
+  })
+  .superRefine((s, ctx) => {
+    if (new Set(s.automatic).size !== s.automatic.length) ctx.addIssue({ code: "custom", message: "Rapporttyperna måste vara unika", path: ["automatic"] });
+    if (s.automatic.includes("customer_summary") && !s.customerSummaryDue) {
+      ctx.addIssue({ code: "custom", message: "Beställarrapporten behöver en sista dag (customerSummaryDue)", path: ["customerSummaryDue"] });
+    }
+  });
+
 // ---------------------------------------------------------------- Hela konfigurationen
 const ContractConfigBase = z.strictObject({
   casePrefix: z.string().regex(/^[A-Z]{2,5}$/, "Prefix: 2–5 versaler"),
@@ -323,6 +348,8 @@ const ContractConfigBase = z.strictObject({
   meetingMinimums: z.array(MeetingMinimumSchema).optional(),
   exports: z.array(ExportSchema).optional(),
   texts: ContractTextsSchema.optional(),
+  /** Rapportutkast som skapas automatiskt. Utan avsnittet skapas inga rapporter automatiskt. */
+  reportSchedule: ReportScheduleSchema.optional(),
 });
 
 type ConfigShape = z.infer<typeof ContractConfigBase>;
@@ -378,6 +405,8 @@ export type EscalationStep = OperationalConfig["escalationLadder"][number];
 export type AiConfig = OperationalConfig["ai"];
 export type ConfigPriceItem = NonNullable<ContractConfig["priceItems"]>[number];
 export type MeetingMinimum = NonNullable<ContractConfig["meetingMinimums"]>[number];
+/** Rapportutkast som skapas automatiskt (reportSchedule). */
+export type ReportSchedule = NonNullable<ContractConfig["reportSchedule"]>;
 
 /** Validera rå konfiguration (t.ex. contracts.config från databasen). Kastar ZodError vid fel. */
 export const parseContractConfig = (raw: unknown): ContractConfig => ContractConfigSchema.parse(raw);
@@ -497,7 +526,8 @@ const deepFreeze = <T>(o: T): T => {
 };
 
 // ---------------------------------------------------------------- Botkyrka (SPEC §6.2) – exakt prototypens CONFIG_BOT
-// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js, som var hårdkodade per avtal – CLAUDE.md punkt 4).
+// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js, som var hårdkodade per avtal – CLAUDE.md punkt 4) och reportSchedule
+// (rapportutkast som skapas automatiskt, beslut 2026-10-01 – samma regler och sista dagar som testdatats rapporter).
 // Avvikelser från prototypen (beslut 2026-09-30, röstinspelning): ai-avsnittet har fastställd leverantör och inspelningsflödena
 // (recording, maxMinutes, languages, participantLinkValidDays); customerVisibility.seesParticipantVoiceNotes = false.
 export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
@@ -614,6 +644,9 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
       termination: "Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.",
       scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
     },
+    // Veckorapport (AFK: närvaro på deltagarnivå varje vecka), månadsrapport (mall 02) och beställarrapport (SPEC §7.11 e).
+    // Beställarrapportens sista dag är inte fastställd med Botkyrka – förslaget är 8:e arbetsdagen kl. 16.00 (som testdatat).
+    reportSchedule: { automatic: ["weekly_attendance", "monthly", "customer_summary"], customerSummaryDue: { nthWorkingDay: 8, time: "16:00" } },
   }),
 );
 
@@ -621,6 +654,8 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
 // Avvikelse från prototypen: priserna är i öre (priceOre: 412000) i stället för kronor (price: 4120).
 // Tillägg: texts (prototypens CONTRACT_NOTES i admin.js).
 // AI och röstinspelning är avstängda: avtalet saknar ai-avsnittet (recordingEnabled ger false för alla flöden).
+// Tillägg: reportSchedule utan automatiska rapporter – kommunen ser inga individrapporter och KK:s månadsstatistik är en
+// export (exports), inte en rapport per deltagare.
 export const KK_CONFIG: ContractConfig = deepFreeze(
   ContractConfigSchema.parse({
     casePrefix: "KK",
@@ -651,6 +686,7 @@ export const KK_CONFIG: ContractConfig = deepFreeze(
       termination: "Enligt KK-avtalet – kontrolleras före start.",
       scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör.",
     },
+    reportSchedule: { automatic: [] },
   }),
 );
 

@@ -1,5 +1,6 @@
 // Kör bakgrundsjobben mot Supabase (service role). Används av POST /api/jobs/run och av after() efter ett utskick eller
-// ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript) om de saknas.
+// ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript) och tiominutersperiodens
+// jobb för rapportutkasten (reports.ts) om de saknas.
 import "server-only";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
@@ -19,6 +20,7 @@ import { loadAppSettings } from "../settings";
 import { serviceClient } from "../supabase";
 import { JOB_HANDLERS, type JobDeps } from "./registry";
 import { safeErrorText } from "./errors";
+import { ensureReportScheduleJob } from "./reports";
 import { runJobs, type RunSummary } from "./runner";
 import { supabaseJobStore, type RpcClient } from "./store";
 import { ensureRetentionJobs } from "./voice";
@@ -61,6 +63,12 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     // Gallringen läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
     console.error("jobb: gallringen kunde inte läggas", safeErrorText(e));
   }
+  try {
+    await ensureReportScheduleJob(system, now);
+  } catch (e) {
+    // Rapportutkasten läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
+    console.error("jobb: rapportutkasten kunde inte läggas", safeErrorText(e));
+  }
   const deps: JobDeps = {
     notify: {
       repo: new SupabaseRepo<NotifyTables>(client),
@@ -71,6 +79,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       now,
     },
     voice: voiceCtx,
+    // Rapportutkasten: samma systemsteg (service role, appens klocka, utskick via kön). Ingen AI och inget ljud används.
+    system: voiceCtx,
   };
   return runJobs({
     store: supabaseJobStore(client),
