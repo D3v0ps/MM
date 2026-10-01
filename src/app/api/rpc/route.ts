@@ -4,6 +4,13 @@ import { ApiError } from "@/api/server";
 import { DataError } from "@/data/supabase";
 import { runRpc } from "@/server/runtime";
 
+/**
+ * Röstjobben (transkribering) och utskicken körs med after() när svaret skickats – inom rutens tidsgräns. 60 sekunder
+ * fungerar på alla Vercel-nivåer (en högre gräns stoppar driftsättningen på Hobby). Hinner jobbet inte klart tar
+ * /api/jobs/run (cron varje minut) upp det igen efter fem minuter (src/server/jobs/runner.ts, STALE_MINUTES).
+ */
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   let body: { kind?: string; key?: string; input?: unknown };
   try {

@@ -6,7 +6,10 @@ import { safeErrorText } from "@/server/jobs/errors";
 import { bearerMatches, jobsSecret } from "@/server/jobs/auth";
 import { runDueJobs } from "@/server/jobs/live";
 
-/** Körningen slutar hämta nya jobb efter ca 20 sekunder (runner.ts). */
+/**
+ * Körningen slutar hämta nya jobb efter ca 20 sekunder (runner.ts). Högst 60 sekunder – en högre gräns stoppar hela
+ * driftsättningen på Vercels Hobby-nivå. Ett jobb som avbryts vid gränsen hämtas igen efter fem minuter (STALE_MINUTES).
+ */
 export const maxDuration = 60;
 
 const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });

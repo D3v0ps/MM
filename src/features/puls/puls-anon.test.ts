@@ -142,6 +142,36 @@ describe("pulslänken när deltagaren saknar alla rättigheter (anon i supabase-
   });
 });
 
+describe("två samtidiga svar på samma länk (unik nyckel på pulse_responses.invite_id, migration 0016)", () => {
+  it("det andra svaret stoppas av databasen (23505): \"Länken är redan använd\" och inget mer skrivs", async () => {
+    // Båda svaren har passerat kontrollen av länken (oanvänd) – databasen stoppar det andra när svaret skrivs.
+    const before = { responses: rows("pulse_responses").length, tasks: rows("tasks").length, audit: rows("audit_log").length };
+    const inv = store.rows("pulse_invites").find((x) => x.id === "pi-demo")!;
+    store.insertRow("pulse_responses", { ...rows("pulse_responses")[0], id: "pr-forst", inviteId: inv.id, caseId: inv.caseId });
+    const unique = Object.assign(new Error("Databasfel i pulse_responses (23505)"), { code: "23505" });
+    const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
+    const ctx: Ctx = {
+      actor: PARTICIPANT, now: () => addMinutes(DEMO_START, 1), repo: denyAllRepo().repo,
+      system: {
+        table: (n: TableName) => {
+          const t = system.table(n);
+          if (n !== "pulse_responses") return t;
+          return { ...t, insert: async () => { throw unique; } };
+        },
+      } as unknown as AppRepo,
+      newId: (prefix) => `${prefix}-n${String(++seq).padStart(5, "0")}`,
+      audit: async () => { throw new Error("Inget ska loggas"); },
+      notify: async () => { throw new Error("Inget ska skickas"); },
+      crypto: TEST_PNR_CRYPTO,
+    };
+    expect(await execute("command", "puls.submit", { language: "sv", answers, text: "" }, ctx)).toMatchObject({ ok: false, error: "used", message: "Länken är redan använd." });
+    expect(rows("pulse_responses")).toHaveLength(before.responses + 1);
+    expect(rows("pulse_invites").find((x) => x.id === "pi-demo")!.usedAt).toBeNull();
+    expect(rows("tasks")).toHaveLength(before.tasks);
+    expect(rows("audit_log")).toHaveLength(before.audit);
+  });
+});
+
 // ---------------------------------------------------------------- 2. Databasen: anon har fortfarande inga rättigheter
 describe("migrationerna: anon har inga rättigheter på pulstabellerna (PGlite)", () => {
   let db: PGlite;

@@ -5,7 +5,7 @@ import { memoryJobStore, memoryNotifyRepo } from "../notify/test-helpers";
 import type { JobRow } from "../notify/types";
 import { bearerMatches, jobsSecret, MIN_SECRET_LENGTH } from "./auth";
 import { JobError, safeErrorText } from "./errors";
-import { MAX_ATTEMPTS, retryDelayMinutes, runJobs, type JobHandler } from "./runner";
+import { INTERRUPTED_REASON, MAX_ATTEMPTS, retryDelayMinutes, runJobs, STALE_MINUTES, type JobHandler } from "./runner";
 import { supabaseJobStore } from "./store";
 
 const NOW = "2027-02-01T09:12";
@@ -77,15 +77,33 @@ describe("runJobs", () => {
     expect(store.getRow("jobs", "job-01")).toMatchObject({ status: "failed", attempts: 1, lastError: "Resend svarade 422 (validation_error)" });
   });
 
-  it("ett jobb som fastnat i running hämtas igen efter tio minuter (avbruten körning)", async () => {
+  it("ett jobb som fastnat i running hämtas igen efter fem minuter (avbruten körning) och tar upp arbetet igen", async () => {
+    expect(STALE_MINUTES).toBe(5);
     const ran: string[] = [];
     const { store, jobs, handlers } = setup(0, { run: async (j) => void ran.push(j.id) });
-    store.insertRow("jobs", job("job-a", { status: "running", attempts: 1, startedAt: "2027-02-01T09:05" }));
-    store.insertRow("jobs", job("job-b", { status: "running", attempts: 1, startedAt: "2027-02-01T09:01" }));
+    store.insertRow("jobs", job("job-a", { status: "running", attempts: 1, startedAt: "2027-02-01T09:08" }));
+    store.insertRow("jobs", job("job-b", { status: "running", attempts: 1, startedAt: "2027-02-01T09:06" }));
     await runJobs({ store: jobs, handlers, ctx: null, now: NOW });
     expect(ran).toEqual(["job-b"]);
     expect(store.getRow("jobs", "job-b")).toMatchObject({ status: "done", attempts: 2 });
     expect(store.getRow("jobs", "job-a")!.status).toBe("running");
+  });
+
+  it("även sista försöket avbröts: jobbet ges upp (failed, onGiveUp) i stället för att bli hängande i running för evigt", async () => {
+    const ran: string[] = [];
+    const gaveUp: string[] = [];
+    const { store, jobs, handlers } = setup(0, { run: async (j) => void ran.push(j.id), onGiveUp: async (j, reason) => void gaveUp.push(`${j.id}:${reason}`) });
+    store.insertRow("jobs", job("job-sist", { status: "running", attempts: MAX_ATTEMPTS, startedAt: "2027-02-01T09:00" }));
+    store.insertRow("jobs", job("job-nyss", { status: "running", attempts: MAX_ATTEMPTS, startedAt: "2027-02-01T09:10" }));
+    expect(await runJobs({ store: jobs, handlers, ctx: null, now: NOW })).toMatchObject({ claimed: 1, failed: 1, done: 0 });
+    expect(ran).toEqual([]);
+    expect(gaveUp).toEqual([`job-sist:${INTERRUPTED_REASON}`]);
+    expect(store.getRow("jobs", "job-sist")).toMatchObject({ status: "failed", lastError: INTERRUPTED_REASON, finishedAt: NOW });
+    // Det som nyss startade får köra klart; därefter hämtas inget igen
+    expect(store.getRow("jobs", "job-nyss")!.status).toBe("running");
+    expect(await runJobs({ store: jobs, handlers, ctx: null, now: "2027-02-01T09:20" })).toMatchObject({ claimed: 1, failed: 1 });
+    expect(await runJobs({ store: jobs, handlers, ctx: null, now: "2027-02-01T10:00" })).toMatchObject({ claimed: 0 });
+    expect(store.rows("jobs").filter((j) => j.status === "running")).toEqual([]);
   });
 
   it("när statusen inte kan sparas räknas det som fel och körningen fortsätter", async () => {
@@ -156,7 +174,7 @@ describe("supabaseJobStore", () => {
     } as unknown as PgClient & { rpc: (fn: string, args: Record<string, unknown>) => Promise<PgResult<unknown>> };
     const s = supabaseJobStore(client);
     const got = await s.claim(5, "2027-02-01T09:13", 5);
-    expect(rpcCalls).toEqual([{ fn: "claim_jobs", args: { n: 5, p_now: "2027-02-01T09:13:00+01:00", p_max_attempts: 5 } }]);
+    expect(rpcCalls).toEqual([{ fn: "claim_jobs", args: { n: 5, p_now: "2027-02-01T09:13:00+01:00", p_max_attempts: 5, p_stale_after: "5 minutes" } }]);
     expect(got).toEqual([{ id: "job-1", kind: "send_message", payload: { messageId: "out-1" }, status: "running", attempts: 1, runAfter: "2027-02-01T09:12",
       lastError: null, createdAt: "2027-02-01T09:12", createdBy: null, finishedAt: null, startedAt: "2027-02-01T09:13" }]);
     await s.finish("job-1", { status: "queued", lastError: "Resend svarade 503 (service_unavailable)", runAfter: "2027-06-01T10:00" });

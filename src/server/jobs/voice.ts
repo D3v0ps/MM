@@ -11,7 +11,7 @@ import {
   failVoiceJob, runVoiceJob, toVoiceJobError, VOICE_JOB_KINDS, voiceErrorCodeFromText, VoiceJobError, type VoiceJobKind,
 } from "@/features/_shared/voice-jobs";
 import { JobError } from "./errors";
-import { MAX_ATTEMPTS, type JobHandler } from "./runner";
+import { INTERRUPTED_REASON, MAX_ATTEMPTS, type JobHandler } from "./runner";
 
 /**
  * Det röstjobben behöver: en Ctx för systemsteg (service role, AI, ljudlagring, klocka) – byggs först när den behövs.
@@ -42,8 +42,10 @@ export function voiceJobHandlers<D extends VoiceDeps>(): Record<VoiceJobKind, Jo
         }
       },
       async onGiveUp(job, reason, d) {
+        // Avbrutet vid tidsgränsen även i sista försöket: för transkribering är inspelningen för lång för serverns tidsgräns.
+        const code = reason === INTERRUPTED_REASON ? (kind.startsWith("transcribe_") ? "audio_too_large" : "provider_unavailable") : voiceErrorCodeFromText(reason);
         // Idempotent: failVoiceJob rör bara körningar som fortfarande pågår.
-        if (d.voice) await failVoiceJob(d.voice(), kind, job.payload, new VoiceJobError(voiceErrorCodeFromText(reason)));
+        if (d.voice) await failVoiceJob(d.voice(), kind, job.payload, new VoiceJobError(code));
       },
     };
   }

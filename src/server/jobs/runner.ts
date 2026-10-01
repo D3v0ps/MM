@@ -2,6 +2,9 @@
 // ett utskick (after() i src/server/notify). Rena regler, databasen skickas in (JobStore) så att allt går att testa.
 //   - mm.claim_jobs(n) hämtar jobb med FOR UPDATE SKIP LOCKED: två körningar tar aldrig samma jobb
 //   - lyckat jobb -> done · fel som är värda att försöka igen -> queued med väntetid · annars (eller sista försöket) -> failed
+//   - ett jobb som avbröts mitt i (serverfunktionens tidsgräns, maxDuration 60 s) står kvar i running; efter STALE_MINUTES
+//     hämtas det igen och tar upp arbetet på nytt. Avbröts även sista försöket ger jobbet upp (failed, INTERRUPTED_REASON)
+//     – inget jobb blir hängande i running för evigt
 //   - felorsaken sparas i last_error, utan personuppgifter (errors.ts)
 //   - jobben ska själva vara idempotenta (send_message hoppar över utskick som redan är skickade)
 import { addMinutes, type LocalDateTime } from "@/core/time";
@@ -25,6 +28,13 @@ export interface JobStore {
 
 /** Högst så många försök per jobb (samma som standardvärdet i mm.claim_jobs). */
 export const MAX_ATTEMPTS = 5;
+/**
+ * Ett jobb som stått i running längre än så har avbrutits (funktionen stoppades vid maxDuration, 60 s) och hämtas igen.
+ * Ska vara längre än rutternas maxDuration – höjs den (Vercel Pro, 300 s) ska det här höjas till minst 10 minuter.
+ */
+export const STALE_MINUTES = 5;
+/** Felorsaken när även sista försöket avbröts mitt i (tidsgränsen). Inga personuppgifter. */
+export const INTERRUPTED_REASON = "Jobbet avbröts innan det blev klart (serverns tidsgräns) – inga fler försök";
 /** Väntetid i minuter före försök 2, 3, 4 och 5. */
 export const RETRY_MINUTES = [1, 5, 15, 60] as const;
 export const retryDelayMinutes = (attempt: number): number => RETRY_MINUTES[Math.min(Math.max(attempt, 1), RETRY_MINUTES.length) - 1];
@@ -72,7 +82,9 @@ export async function runJobs<C>(o: RunOpts<C>): Promise<RunSummary> {
   let first = true;
 
   while (sum.claimed < limit && elapsed() < budgetMs) {
-    const batch = await o.store.claim(Math.min(batchSize, limit - sum.claimed), o.now, maxAttempts);
+    // maxAttempts + 1: köade jobb har alltid färre än maxAttempts försök (runOne lägger bara tillbaka dem då), så det enda
+    // som tillkommer är jobb vars sista försök avbröts mitt i och som fastnat i running – de ges upp i runOne.
+    const batch = await o.store.claim(Math.min(batchSize, limit - sum.claimed), o.now, maxAttempts + 1);
     if (!batch.length) break;
     sum.claimed += batch.length;
     for (const job of batch) {
@@ -91,6 +103,17 @@ export async function runJobs<C>(o: RunOpts<C>): Promise<RunSummary> {
 
 async function runOne<C>(o: RunOpts<C>, job: JobRow, sum: RunSummary, maxAttempts: number): Promise<void> {
   const handler = o.handlers[job.kind];
+  if (job.attempts > maxAttempts) {
+    // Sista försöket avbröts (t.ex. tidsgränsen) och jobbet hämtades igen som fastnat: ge upp i stället för att köra en gång till.
+    try {
+      await handler?.onGiveUp?.(job, INTERRUPTED_REASON, o.ctx);
+    } catch {
+      // Jobbet markeras som misslyckat ändå.
+    }
+    await o.store.finish(job.id, { status: "failed", lastError: INTERRUPTED_REASON, finishedAt: o.now });
+    sum.failed++;
+    return;
+  }
   if (!handler) {
     await o.store.finish(job.id, { status: "failed", lastError: "Okänd jobbtyp", finishedAt: o.now });
     sum.failed++;

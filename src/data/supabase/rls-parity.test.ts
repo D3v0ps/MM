@@ -642,6 +642,45 @@ describe("skrivning: särskilda fall", () => {
   });
 });
 
+// ================================================================ Pulslänken (0016)
+describe("pulslänken: ett svar per länk (0016)", () => {
+  const answered = data.pulse_responses[0];
+  const open = data.pulse_invites.find((i) => i.id === "pi-demo")!;
+  const insert = (id: string, inviteId: string, caseId: string) =>
+    `insert into public.pulse_responses (id, invite_id, case_id, coach_id, occasion, language, answers, text, contact_requested, submitted_at)
+     values ('${id}', '${inviteId}', '${caseId}', null, 'periodic', 'sv', '{"q1":5,"q2":5,"q3":5,"q4":"jobb","q5":"nej"}', '', false, '2027-02-01T09:30')`;
+
+  it("unik nyckel på invite_id – testdatat har ett svar per länk, och det gamla indexet är borta", async () => {
+    expect(new Set(data.pulse_responses.map((r) => r.inviteId)).size).toBe(data.pulse_responses.length);
+    const r = await db.query<{ name: string; type: string; def: string }>(
+      "select conname as name, contype as type, pg_get_constraintdef(oid) as def from pg_constraint where conrelid = 'public.pulse_responses'::regclass and contype = 'u'",
+    );
+    expect(r.rows).toEqual([{ name: "pulse_responses_invite_id_key", type: "u", def: "UNIQUE (invite_id)" }]);
+    const idx = await db.query<{ n: string }>("select indexname as n from pg_indexes where schemaname = 'public' and tablename = 'pulse_responses' order by 1");
+    expect(idx.rows.map((x) => x.n)).not.toContain("pulse_responses_invite_id_idx");
+  });
+
+  it("två svar på samma länk: det andra stoppas (23505) – även för service role (hanterarens systemsteg)", async () => {
+    const res = await asUser(db, null, async (tx) => ({
+      again: await attempt(tx, insert("pr-dubblett", answered.inviteId, answered.caseId)),
+      first: await attempt(tx, insert("pr-ett", open.id, open.caseId), [], { keep: true }),
+      second: await attempt(tx, insert("pr-tva", open.id, open.caseId)),
+    }), { role: "service_role" });
+    expect(res.again).toMatchObject({ ok: false, code: "23505" });
+    expect(allowed(res.first)).toBe(true);
+    expect(res.second).toMatchObject({ ok: false, code: "23505" });
+  });
+
+  it("testaren som deltagaren (RLS): första svaret på en oanvänd länk går igenom, det andra stoppas", async () => {
+    const res = await asPersona(findPersona("deltagare"), async (tx) => ({
+      first: await attempt(tx, insert("pr-d1", open.id, open.caseId), [], { keep: true }),
+      second: await attempt(tx, insert("pr-d2", open.id, open.caseId)),
+    }));
+    expect(allowed(res.first)).toBe(true);
+    expect(res.second).toMatchObject({ ok: false, code: "23505" });
+  });
+});
+
 // ================================================================ Röstinspelning (0015)
 describe("röstinspelning: länkar, röstmeddelanden och ljudfiler (0015)", () => {
   /** Flera testpersoner mot databasen per test – längre tidsgräns när hela testsviten körs parallellt. */

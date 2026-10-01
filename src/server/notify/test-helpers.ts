@@ -6,7 +6,7 @@ import { SYSTEM_ACTOR } from "@/api/roles";
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import { MemoryRepo, MemoryStore } from "@/data/memory";
 import type { Case, Membership, Organization, Profile } from "@/data/schema";
-import type { JobPatch, JobStore } from "../jobs/runner";
+import { STALE_MINUTES, type JobPatch, type JobStore } from "../jobs/runner";
 import type { FetchLike } from "./resend";
 import type { JobRow, NotifyRepo, NotifyTables } from "./types";
 
@@ -21,7 +21,7 @@ export function memoryNotifyRepo(
   return { repo: new MemoryRepo<NotifyTables>(store, SYSTEM_ACTOR, {}, { bypass: true }), store };
 }
 
-export function memoryJobStore(store: MemoryStore<NotifyTables>, staleMinutes = 10): JobStore & { finished: { id: string; patch: JobPatch }[] } {
+export function memoryJobStore(store: MemoryStore<NotifyTables>, staleMinutes = STALE_MINUTES): JobStore & { finished: { id: string; patch: JobPatch }[] } {
   const finished: { id: string; patch: JobPatch }[] = [];
   return {
     finished,
