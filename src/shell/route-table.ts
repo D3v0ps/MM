@@ -10,6 +10,7 @@ import { routes as kommun } from "@/features/kommun/routes";
 import { routes as admin } from "@/features/admin/routes";
 import { routes as praktik } from "@/features/praktik/routes";
 import { routes as puls } from "@/features/puls/routes";
+import { routes as rost } from "@/features/rost/routes";
 import { routes as notiser } from "@/features/notiser/routes";
 import { routes as session } from "@/features/session/routes";
 
@@ -25,5 +26,6 @@ export const APP_ROUTES: readonly RouteDef[] = [
   ...admin,
   ...praktik,
   ...puls,
+  ...rost,
   ...notiser,
 ];

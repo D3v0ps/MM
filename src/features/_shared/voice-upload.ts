@@ -18,6 +18,7 @@ import { PARTICIPANT_USER_ID } from "@/data/actors";
 import { AUDIO_PURPOSES, type AudioUpload, type Case, type Person, type VoiceLink } from "@/data/schema";
 import { RECORDING_BLOCK_TEXT, recordingBlock, requireAi, type RecordingBlock } from "./ai-port";
 import { requireAudio, validateAudioMeta, type AudioRef, type AudioUploadTicket } from "./audio-port";
+import { sha256Hex } from "@/features/rost/sha256";
 
 // ---------------------------------------------------------------- Deltagarens länk
 /** Token i länken /rost/<token>: bara bokstäver, siffror, - och _ (samma regel som pulslänken). */
@@ -25,10 +26,13 @@ export const VOICE_TOKEN_RE = /^[A-Za-z0-9_-]{8,200}$/;
 /** Högst så många uppladdningar per länk (nya försök efter fel räknas). */
 export const MAX_UPLOADS_PER_LINK = 10;
 
-/** SHA-256 av token (hex) – samma som voice_links.tokenHash. Null om Web Crypto saknas. */
-export async function voiceTokenHash(token: string): Promise<string | null> {
+/**
+ * SHA-256 av token (hex) – samma som voice_links.tokenHash. Web Crypto när det finns, annars samma beräkning i ren
+ * TypeScript (sha256Hex – prototypen kan öppnas från en sida utan https, där Web Crypto saknas, och länken skapas med den).
+ */
+export async function voiceTokenHash(token: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return null;
+  if (!subtle) return sha256Hex(token);
   const buf = await subtle.digest("SHA-256", new TextEncoder().encode(token));
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
@@ -55,8 +59,7 @@ export async function voiceLinkByToken(ctx: Ctx, token: string | null | undefine
   let link: VoiceLink | null = null;
   if (token != null) {
     if (!VOICE_TOKEN_RE.test(token)) return none;
-    const hash = await voiceTokenHash(token);
-    link = hash ? await ctx.system.table("voice_links").first({ tokenHash: hash }) : null;
+    link = await ctx.system.table("voice_links").first({ tokenHash: await voiceTokenHash(token) });
   } else {
     const tag = await ctx.system.table("demo_tags").get("vl-demo");
     const id = tag?.entity === "voice_links" ? tag.entityIds[0] : null;

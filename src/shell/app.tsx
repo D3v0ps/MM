@@ -71,8 +71,10 @@ function Screen({ match }: { match: RouteMatch }) {
 }
 
 /** Layout för en adress som inte finns: välj efter sökvägens början så att rätt navigering syns. */
-function notFoundMatch(p: string): RouteMatch {
-  const area: RouteDef["area"] = p.startsWith("/portal") ? "portal" : p.startsWith("/puls") ? "puls" : p.startsWith("/om") ? "om" : "mb";
+/** "Sidan finns inte" i rätt layout: portalen, de publika länkarna (puls och deltagarens inspelningslänk /rost), prototypens sidor eller MB. */
+export function notFoundMatch(p: string): RouteMatch {
+  const publicLink = p.startsWith("/puls") || p === "/rost" || p.startsWith("/rost/");
+  const area: RouteDef["area"] = p.startsWith("/portal") ? "portal" : publicLink ? "puls" : p.startsWith("/om") ? "om" : "mb";
   return { route: { path: p, title: "Sidan finns inte", roles: ROLES, area, screen: () => null }, params: {} };
 }
 

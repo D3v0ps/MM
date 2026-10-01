@@ -196,7 +196,9 @@ describe("coachen och röstmeddelandena", () => {
     const msg = raw().outbound_messages.filter((m) => m.template === "rostlank");
     expect(msg).toHaveLength(1);
     expect(msg[0]).toMatchObject({ channel: "sms", to: "deltagare (SMS)", caseId: SC.nadia });
-    expect(msg[0].body).toContain(res.path);
+    // Utskicksloggen sparar aldrig token – bara "/rost/•••••" (src/core/link-tokens.ts). Deltagaren får hela länken.
+    expect(msg[0].body).toContain("/rost/•••••");
+    expect(msg[0].body).not.toContain(token);
     expect(msg[0].body).not.toMatch(/Nadia|Warsame|BOT-/);
     const link = await q(rostLink, { token }, DELTAGARE);
     expect(link).toMatchObject({ state: "open", language: "so", days: 7 });

@@ -39,10 +39,11 @@ describe("avtal och konfiguration", () => {
       scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
     });
     expect(d.yearShort).toBe("27");
-    // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag"
+    // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag".
+    // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – nu 10 värden.
     expect(findUnset(d.config).map((u) => u.path)).toEqual([
       "customerVisibility.scope", "result.definition", "result.excludedFromDenominator", "kpis.narvarograd.internalTarget", "kpis.nojdhet.internalTarget",
-      "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention", "ai.provider",
+      "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention",
     ]);
     expect(d.stuckCount).toBe(2);
     expect(d.bonusCandidates).toBe(31);

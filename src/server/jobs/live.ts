@@ -50,7 +50,7 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       repo: system,
       system,
       // Röstjobben skickar inga utskick själva; om det behövs läggs de i kön och cron skickar dem.
-      enqueue: (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId),
+      enqueue: (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl }),
       crypto: lazyServerCrypto,
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),

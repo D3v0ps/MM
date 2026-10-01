@@ -18,9 +18,6 @@ import { publishWeeklyIfComplete } from "../_shared/weekly";
 import "./query-handlers";
 // Röstinspelning: inspelad avstämning och AI-utkast till månadsbedömningen.
 import "./voice-handlers";
-// Området röst (deltagarens länk och röstmeddelanden). TILLFÄLLIGT registrerat här – hör hemma i src/api/handlers.ts
-// (import "@/features/rost/handlers"), som ägs av samordnaren.
-import "@/features/rost/handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

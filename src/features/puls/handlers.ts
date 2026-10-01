@@ -75,10 +75,17 @@ handleCommand(pulseSubmit, { roles: ["deltagare"] }, async (ctx, p) => {
   // har inga rättigheter alls) – behörigheten är engångslänken, och den är kontrollerad ovan: tokenhashen finns, länken
   // är oanvänd och har inte gått ut, och ärendet har inte skyddade personuppgifter (inviteFor). Svaret skrivs bara på
   // den länkens ärende, med värden som kontrollerats här – deltagaren kan inte välja ärende, coach eller tidpunkt.
-  await ctx.system.table("pulse_responses").insert({
-    id, inviteId: inv.id, caseId: inv.caseId, coachId: c?.leadCoachId ?? null, occasion: inv.occasion, language: p.language,
-    answers: { q1: a.q1, q2: a.q2, q3: a.q3, q4: a.q4 as PulsePriority, q5: a.q5 }, text: String(p.text || "").trim().slice(0, 500), contactRequested: contact, submittedAt: now,
-  });
+  try {
+    await ctx.system.table("pulse_responses").insert({
+      id, inviteId: inv.id, caseId: inv.caseId, coachId: c?.leadCoachId ?? null, occasion: inv.occasion, language: p.language,
+      answers: { q1: a.q1, q2: a.q2, q3: a.q3, q4: a.q4 as PulsePriority, q5: a.q5 }, text: String(p.text || "").trim().slice(0, 500), contactRequested: contact, submittedAt: now,
+    });
+  } catch (e) {
+    // Ett svar per länk (unik nyckel på invite_id, migration 0016): två samtidiga svar på samma länk – det andra stoppas
+    // av databasen (23505) och inget mer skrivs.
+    if ((e as { code?: unknown } | null)?.code === "23505") return fail("used", "Länken är redan använd.");
+    throw e;
+  }
   // ctx.system: länken förbrukas (systemsteg – deltagaren får inte ändra utskicket). Därefter svarar puls.link "used"
   // och ett nytt svar stoppas av kontrollen ovan.
   await ctx.system.table("pulse_invites").update(inv.id, { usedAt: now, language: p.language });

@@ -10,5 +10,6 @@ import "@/features/kommun/handlers";
 import "@/features/admin/handlers";
 import "@/features/praktik/handlers";
 import "@/features/puls/handlers";
+import "@/features/rost/handlers";
 import "@/features/notiser/handlers";
 export { execute, isSilentCommand, registeredKeys } from "./server";

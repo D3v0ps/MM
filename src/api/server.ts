@@ -39,6 +39,12 @@ export type PnrCrypto = {
   hashPnr(pnr: string): string;
 };
 
+/**
+ * Serverns kö för bakgrundsjobb (supabase-läget): schedule() kör köade jobb snart, med after() när svaret skickats –
+ * annars tar cron (/api/jobs/run varje minut) dem. Finns inte i minnesläget och prototypen – där körs jobbet direkt.
+ */
+export type JobKick = { schedule(): void };
+
 export type Ctx = {
   actor: Actor;
   /** Stockholms lokala tid. Prototypen har en egen demoklocka. */
@@ -62,6 +68,8 @@ export type Ctx = {
    * Minnesläget: ljud i minnet. Supabase-läget: privat bucket "ljud" i Stockholm (src/server/audio). Hämtas med requireAudio(ctx).
    */
   audio?: AudioPort;
+  /** Jobbkön (src/server/jobs, röstjobben i src/features/_shared/voice-jobs.ts). Saknas i minnesläget och prototypen. */
+  jobs?: JobKick;
 };
 
 type Handler = (ctx: Ctx, input: unknown) => Promise<unknown>;

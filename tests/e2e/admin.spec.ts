@@ -74,9 +74,10 @@ async function rendersOk(page: Page) {
 test("avtal: konfiguration, ej fastställda värden, Kammarkollegiet och jämförelse", async ({ page }, info) => {
   const errors = await open(page, info, "/admin/avtal", ROBIN);
   await rendersOk(page);
-  await expect(main(page)).toContainText("11 värden är inte fastställda – reglerna aktiveras inte");
+  // AI-leverantören är fastställd sedan 2026-09-30 (Gemini Flash via Vertex AI EU) – därför 10 och inte prototypens 11.
+  await expect(main(page)).toContainText("10 värden är inte fastställda – reglerna aktiveras inte");
   let t = await text(page);
-  expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(11);
+  expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(10);
   expect(!/\b35 %/.test(t) || t.includes("Internt mål")).toBe(true);
   expect(t).not.toMatch(/deadline/i);
   await page.locator("summary", { hasText: "Visa JSON (contracts.config)" }).click();
@@ -257,7 +258,8 @@ test("integrationer: underbiträden, regioner och bakgrundsjobb", async ({ page 
   const errors = await open(page, info, "/admin/integrationer", ROBIN);
   await rendersOk(page);
   const t = await text(page);
-  for (const s of ["eu-north-1", "arn1", "Berget AI", "Fortnox"]) expect(t).toContain(s);
+  for (const s of ["eu-north-1", "arn1", "Vertex AI", "Fortnox"]) expect(t).toContain(s);
+  expect(t).not.toContain("Berget AI");
   expect(t).toContain("Regeln är inte fastställd (fråga 11)");
   // Veckorapportjobbets tid läses från avtalet (veckorapport_publicering 16:00)
   expect(t).toContain("senast 16.00 enligt avtalet");

@@ -7,13 +7,12 @@
 //   ai      AI-leverantören (src/server/ai: Vertex AI EU eller simulerad) – saknas när AI är avstängd
 //   audio   ljudfilerna i Supabase Storage (src/server/audio) – byggs med förfrågans system, klocka och id
 //   jobs    kön för bakgrundsjobb: schedule() kör jobben med after() när svaret skickats (röstjobben, voice-jobs.ts)
-import type { AuditEntry, OutgoingMessage, PnrCrypto } from "@/api/server";
+import type { AuditEntry, Ctx, JobKick, OutgoingMessage, PnrCrypto } from "@/api/server";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import type { AppRepo } from "@/data/schema";
 import type { AiPort } from "@/features/_shared/ai-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
-import type { CtxWithJobs, JobKick } from "@/features/_shared/voice-jobs";
 
 export type Enqueue = (system: AppRepo, msg: OutgoingMessage, now: LocalDateTime) => Promise<unknown>;
 
@@ -49,7 +48,7 @@ export function liveCtx(o: {
   audio?: (d: { system: AppRepo; now: () => LocalDateTime; newId: (prefix: string) => string }) => AudioPort;
   /** Kör köade bakgrundsjobb snart (after()). Anropas högst en gång per förfrågan även om flera jobb läggs. */
   scheduleJobs?: () => void;
-}): CtxWithJobs {
+}): Ctx {
   const newId = o.newId ?? randomId;
   const now = () => o.now;
   let scheduled = false;
