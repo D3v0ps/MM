@@ -1,0 +1,451 @@
+<title>Processkarta Miljonmatch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap">
+<style>
+/* Layout: en karta i tre lager – helheten (filer = roller, kolumner = faser), en persons väg station för station, och klockan.
+   MB:s grafiska profil (CLAUDE.md): antracit, röd punkt som accent, ljusgrå, blå som yta, vitt. Inget grönt. */
+:root {
+  --ink: #1E252B;            /* antracit – text och linjer */
+  --ink-soft: rgba(30,37,43,.74);
+  --ink-faint: rgba(30,37,43,.6);
+  --paper: #FFFFFF;          /* kort */
+  --bg: #F4F5F5;             /* sidans grund, ljusgrå med antracit-ton */
+  --line: #D1D3D3;           /* ljusgrå */
+  --line-strong: rgba(30,37,43,.28);
+  --red: #FF0C01;            /* bara punkter, ränder, ikoner – aldrig brödtext */
+  --blue: #6BA2B9;           /* bara ytor */
+  --blue-tint: rgba(107,162,185,.18);
+  --blue-tint2: rgba(107,162,185,.34);
+  --grey-tint: rgba(209,211,211,.45);
+  --red-tint: rgba(255,12,1,.08);
+  --kund: rgba(107,162,185,.22);
+  --lev: rgba(30,37,43,.06);
+  --delt: rgba(255,12,1,.07);
+  --sys: rgba(209,211,211,.5);
+  --font: "Montserrat", "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --radius: 8px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: #EEF0F0; --ink-soft: rgba(238,240,240,.78); --ink-faint: rgba(238,240,240,.62);
+    --paper: #232A31; --bg: #171C21; --line: #3A434C; --line-strong: rgba(238,240,240,.3);
+    --red: #FF3B30; --blue: #6BA2B9; --blue-tint: rgba(107,162,185,.2); --blue-tint2: rgba(107,162,185,.36);
+    --grey-tint: rgba(209,211,211,.12); --red-tint: rgba(255,59,48,.12);
+    --kund: rgba(107,162,185,.2); --lev: rgba(238,240,240,.05); --delt: rgba(255,59,48,.1); --sys: rgba(209,211,211,.1);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: #EEF0F0; --ink-soft: rgba(238,240,240,.78); --ink-faint: rgba(238,240,240,.62);
+  --paper: #232A31; --bg: #171C21; --line: #3A434C; --line-strong: rgba(238,240,240,.3);
+  --red: #FF3B30; --blue: #6BA2B9; --blue-tint: rgba(107,162,185,.2); --blue-tint2: rgba(107,162,185,.36);
+  --grey-tint: rgba(209,211,211,.12); --red-tint: rgba(255,59,48,.12);
+  --kund: rgba(107,162,185,.2); --lev: rgba(238,240,240,.05); --delt: rgba(255,59,48,.1); --sys: rgba(209,211,211,.1);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; }
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; }
+p { margin: 0; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.dot { display: inline-block; width: .5em; height: .5em; border-radius: 50%; background: var(--red); flex: none; }
+.eyebrow { font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); display: flex; align-items: center; gap: .5em; }
+.muted { color: var(--ink-soft); }
+.small { font-size: .875rem; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- Huvud ---------- */
+header.top { display: grid; gap: 14px; padding-block: 8px 26px; }
+header.top h1 { font-size: clamp(1.6rem, 3.4vw, 2.5rem); font-weight: 800; letter-spacing: -.01em; max-width: 26ch; }
+header.top .lead { max-width: 70ch; color: var(--ink-soft); font-size: 1.05rem; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; font-size: .875rem; }
+.legend > span { display: inline-flex; align-items: center; gap: 6px; }
+
+/* ---------- Navigering mellan lager ---------- */
+nav.layers { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bg); border-bottom: 1px solid var(--line); margin-inline: -20px; padding: 10px 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+nav.layers a { text-decoration: none; font-weight: 700; font-size: .875rem; padding: 10px 14px; border-radius: 999px; border: 1px solid var(--line-strong); min-height: 44px; display: inline-flex; align-items: center; }
+nav.layers a:hover { background: var(--grey-tint); }
+section.layer { padding-top: 36px; scroll-margin-top: 70px; }
+section.layer > .head { display: grid; gap: 6px; margin-bottom: 18px; }
+section.layer h2 { font-size: 1.45rem; font-weight: 800; text-transform: uppercase; letter-spacing: .02em; display: flex; align-items: center; gap: .45em; }
+section.layer .head p { max-width: 75ch; color: var(--ink-soft); }
+
+/* ---------- Statusmärken (text + ikon, aldrig bara färg) ---------- */
+.status { display: inline-flex; align-items: center; gap: 5px; font-size: .75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.status svg { width: 12px; height: 12px; }
+.st-finns { background: var(--blue-tint2); color: var(--ink); }
+.st-byggs { background: var(--red-tint); color: var(--ink); border: 1px dashed var(--red); }
+.st-senare { background: var(--grey-tint); color: var(--ink-soft); }
+.voice { display: inline-flex; align-items: center; gap: 4px; font-size: .75rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line-strong); }
+
+/* ---------- Lager 1: helheten ---------- */
+.mapscroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+.map { display: grid; min-width: 1120px; }
+.map .corner, .map .ph, .map .lane, .map .cell { border-bottom: 1px solid var(--line); }
+.map .ph { padding: 12px 10px; border-left: 1px solid var(--line); background: var(--paper); position: sticky; top: 0; }
+.map .ph b { display: block; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+.map .ph span { font-size: .75rem; color: var(--ink-soft); }
+.map .lane { padding: 10px 12px; position: sticky; left: 0; z-index: 2; background: var(--paper); border-right: 1px solid var(--line); display: grid; gap: 2px; align-content: start; }
+.map .lane b { font-size: .85rem; }
+.map .lane span { font-size: .72rem; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.map .lane[data-side="kund"] { box-shadow: inset 4px 0 0 var(--blue); }
+.map .lane[data-side="deltagare"] { box-shadow: inset 4px 0 0 var(--red); }
+.map .lane[data-side="leverantor"] { box-shadow: inset 4px 0 0 var(--ink); }
+.map .lane[data-side="system"] { box-shadow: inset 4px 0 0 var(--line-strong); }
+.map .cell { border-left: 1px solid var(--line); padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.map .row-kund .cell { background: var(--kund); }
+.map .row-deltagare .cell { background: var(--delt); }
+.map .row-system .cell { background: var(--sys); }
+.chip { text-align: left; font: inherit; font-size: .78rem; line-height: 1.3; font-weight: 600; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; cursor: pointer; display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: start; min-height: 44px; }
+.chip:hover { border-color: var(--line-strong); }
+.chip .n { font-variant-numeric: tabular-nums; font-size: .7rem; font-weight: 800; min-width: 1.6em; height: 1.6em; border-radius: 50%; display: inline-grid; place-items: center; background: var(--ink); color: var(--paper); }
+.chip .n.empty { background: transparent; border: 1.5px solid var(--line-strong); color: transparent; }
+.chip.is-byggs { border-style: dashed; border-color: var(--red); }
+.chip.is-senare { opacity: .72; }
+.chip.on { outline: 3px solid var(--red); outline-offset: 1px; }
+.hand { font-size: .7rem; color: var(--ink-soft); font-weight: 600; grid-column: 2; }
+
+/* Följ ett ärende */
+.journey { margin-top: 18px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+.jcard { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 10px; }
+.jtop { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.jcount { font-weight: 800; font-variant-numeric: tabular-nums; }
+.jcard h3 { font-size: 1.15rem; }
+.jmeta { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line-strong); }
+.btn { font: inherit; font-weight: 700; font-size: .9rem; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--paper); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+.btn:hover { background: var(--grey-tint); }
+.btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn:disabled { opacity: .45; cursor: default; }
+.jtrack { display: flex; gap: 4px; flex-wrap: wrap; }
+.jtrack button { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--line-strong); background: var(--paper); color: var(--ink); font: inherit; font-size: .72rem; font-weight: 800; cursor: pointer; font-variant-numeric: tabular-nums; }
+.jtrack button.done { background: var(--blue-tint2); }
+.jtrack button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* ---------- Lager 2: en persons väg ---------- */
+.rolepick { display: grid; gap: 10px; margin-bottom: 20px; }
+.rolegroup { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rolegroup > .eyebrow { min-width: 9.5em; }
+.rbtn { font: inherit; font-size: .9rem; font-weight: 700; min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--paper); color: var(--ink); cursor: pointer; }
+.rbtn[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.persona { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 18px; align-items: start; }
+@media (max-width: 880px) { .persona { grid-template-columns: minmax(0, 1fr); } }
+.pcard { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; display: grid; gap: 14px; }
+.pcard h3 { font-size: 1.35rem; font-weight: 800; }
+.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px 14px; font-size: .92rem; }
+.kv dt { font-weight: 700; color: var(--ink-soft); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; padding-top: 2px; }
+.kv dd { margin: 0; min-width: 0; }
+.side { display: grid; gap: 14px; position: sticky; top: 76px; }
+@media (max-width: 880px) { .side { position: static; } }
+.box { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; display: grid; gap: 8px; }
+.box h4 { margin: 0; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; display: flex; gap: .45em; align-items: center; }
+.box ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; font-size: .9rem; }
+.rhythm { display: grid; gap: 6px; }
+.rhythm div { display: grid; grid-template-columns: 8.5em minmax(0, 1fr); gap: 10px; font-size: .9rem; }
+.rhythm b { font-size: .8rem; }
+
+/* Rutten: faser som stationer längs en linje */
+.route { position: relative; display: grid; gap: 0; margin-top: 8px; }
+.station { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; position: relative; padding-bottom: 22px; }
+.station::before { content: ""; position: absolute; left: 16px; top: 34px; bottom: 0; width: 2px; background: var(--line-strong); }
+.station:last-child::before { display: none; }
+.stop { width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--ink); background: var(--paper); display: grid; place-items: center; font-weight: 800; font-size: .8rem; position: relative; z-index: 1; }
+.stop.has { background: var(--ink); color: var(--paper); }
+.station h4 { margin: 4px 0 2px; font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; }
+.station .when { font-size: .8rem; color: var(--ink-soft); margin-bottom: 10px; }
+.steps { display: grid; gap: 10px; }
+details.step { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); }
+details.step[open] { border-color: var(--line-strong); }
+details.step.is-byggs { border-style: dashed; border-color: var(--red); }
+details.step summary { list-style: none; cursor: pointer; padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; min-height: 44px; }
+details.step summary::-webkit-details-marker { display: none; }
+details.step summary .t { font-weight: 700; }
+details.step summary .w { grid-column: 1 / -1; font-size: .85rem; color: var(--ink-soft); }
+details.step summary .badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+details.step summary .chev { transition: transform .15s; }
+details.step[open] summary .chev { transform: rotate(180deg); }
+.sbody { padding: 0 14px 14px; display: grid; gap: 12px; }
+.sbody ol { margin: 0; padding-left: 1.3em; display: grid; gap: 4px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 8px; }
+.fact { background: var(--bg); border-radius: 6px; padding: 8px 10px; min-width: 0; }
+.fact b { display: block; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); margin-bottom: 2px; }
+.fact span { font-size: .88rem; overflow-wrap: anywhere; }
+.rules { display: grid; gap: 4px; font-size: .85rem; }
+.rules div { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 6px; }
+.tag { font-size: .78rem; font-weight: 700; padding: 3px 9px; border-radius: 6px; background: var(--grey-tint); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag.to { background: var(--blue-tint2); cursor: pointer; border: 0; font: inherit; font-size: .78rem; font-weight: 700; color: var(--ink); min-height: 32px; }
+.empty { color: var(--ink-faint); font-size: .9rem; font-style: italic; }
+
+/* ---------- Lager 3: klockan ---------- */
+.clock { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 16px; }
+.week { display: grid; gap: 0; }
+.wrow { display: grid; grid-template-columns: 6.5em 4em minmax(0, 1fr); gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
+.wrow:last-child { border-bottom: 0; }
+.wrow .d { font-weight: 800; text-transform: uppercase; font-size: .78rem; letter-spacing: .06em; padding-top: 2px; }
+.wrow .tm { font-variant-numeric: tabular-nums; font-weight: 700; }
+.wrow .who { font-size: .75rem; font-weight: 700; color: var(--ink-soft); display: block; }
+.rulesall { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 10px; }
+.rulesall div { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; font-size: .92rem; }
+footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: .82rem; color: var(--ink-soft); display: grid; gap: 4px; }
+.ic { width: 16px; height: 16px; flex: none; vertical-align: -3px; }
+.chip .ic { width: 13px; height: 13px; margin-left: 4px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+@media (max-width: 520px) {
+  .wrap { padding-inline: 16px; }
+  nav.layers { margin-inline: -16px; padding-inline: 16px; }
+  .wrow { grid-template-columns: 5em 3.6em minmax(0, 1fr); }
+  .rhythm div { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .rolegroup > .eyebrow { min-width: 100%; }
+}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow"><span class="dot" aria-hidden="true"></span>Miljonmatch · processkarta</div>
+    <h1>Vem gör vad – från beställning till faktura</h1>
+    <p class="lead" id="lead">En karta över hela flödet i Botkyrka-avtalet: vad varje person gör, när, var i systemet och vem som tar vid efteråt. Börja med helheten, följ ett ärende steg för steg eller välj en person och se hela hennes eller hans väg.</p>
+    <div class="legend" aria-label="Förklaring">
+      <span><span class="status st-finns">✓ Finns</span> byggt i appen och prototypen</span>
+      <span><span class="status st-byggs">● Byggs nu</span> röstinspelning</span>
+      <span><span class="status st-senare">… Senare</span> väntar på beslut eller konto</span>
+      <span><span class="voice"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg> Röst</span> inspelning eller tala in</span>
+    </div>
+  </header>
+
+  <nav class="layers" aria-label="Kartans delar">
+    <a href="#helheten">Helheten</a>
+    <a href="#arende">Följ ett ärende</a>
+    <a href="#person">Varje person</a>
+    <a href="#klockan">Veckan och månaden</a>
+    <a href="#regler">Regler för alla</a>
+  </nav>
+
+  <section class="layer" id="helheten">
+    <div class="head">
+      <h2><span class="dot" aria-hidden="true"></span>Helheten</h2>
+      <p>Varje rad är en person, varje kolumn en fas. Siffrorna visar ordningen när ett ärende går genom kedjan. Klicka på ett steg för att se det i personens väg.</p>
+    </div>
+    <div class="mapscroll" role="region" aria-label="Karta över roller och faser" tabindex="0">
+      <div class="map" id="map"></div>
+    </div>
+  </section>
+
+  <section class="layer" id="arende">
+    <div class="head">
+      <h2><span class="dot" aria-hidden="true"></span>Följ ett ärende</h2>
+      <p>Ett ärende från kommunens beställning till avslut och faktura. Gå framåt steg för steg – steget markeras också i kartan ovan.</p>
+    </div>
+    <div class="journey">
+      <div class="jcard" aria-live="polite">
+        <div class="jtop">
+          <span class="jcount" id="jcount"></span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="jprev" type="button">← Föregående</button>
+            <button class="btn primary" id="jnext" type="button">Nästa steg →</button>
+          </div>
+        </div>
+        <div class="jmeta" id="jmeta"></div>
+        <h3 id="jtitle"></h3>
+        <p id="jdetail"></p>
+        <p class="small muted" id="jhand"></p>
+        <div class="jtrack" id="jtrack" aria-label="Alla steg"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="layer" id="person">
+    <div class="head">
+      <h2><span class="dot" aria-hidden="true"></span>Varje person</h2>
+      <p>Välj en person. Varje station är en fas; öppna ett steg för att se exakt hur det går till, var i systemet, tidsgränsen och vem som tar vid.</p>
+    </div>
+    <div class="rolepick" id="rolepick"></div>
+    <div class="persona" id="persona"></div>
+  </section>
+
+  <section class="layer" id="klockan">
+    <div class="head">
+      <h2><span class="dot" aria-hidden="true"></span>Veckan och månaden</h2>
+      <p>Det som händer på bestämda tider. Tider från avtalskonfigurationen; värden som Botkyrka ännu inte fastställt är märkta "förslag".</p>
+    </div>
+    <div class="clock">
+      <div class="box"><h4><span class="dot" aria-hidden="true"></span>Varje vecka</h4><div class="week" id="week"></div></div>
+      <div class="box"><h4><span class="dot" aria-hidden="true"></span>Varje månad</h4><div class="week" id="month"></div></div>
+    </div>
+  </section>
+
+  <section class="layer" id="regler">
+    <div class="head">
+      <h2><span class="dot" aria-hidden="true"></span>Regler för alla</h2>
+      <p>Regler som gäller i varje steg, för alla roller.</p>
+    </div>
+    <div class="rulesall" id="rulesall"></div>
+  </section>
+
+  <footer>
+    <span>Bygger på kravspecifikationen (SPEC v0.2), projektets regler (CLAUDE.md) och det som är byggt i Miljonmatch. Bara påhittade exempel – inga personuppgifter.</span>
+    <span id="stamp"></span>
+  </footer>
+</div>
+
+<script>
+const DATA = /*DATA*/null/*END*/;
+(function () {
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null || v === false) continue;
+      if (k === "class") n.className = v; else if (k === "text") n.textContent = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const k of kids.flat()) if (k != null && k !== false) n.append(k.nodeType ? k : document.createTextNode(String(k)));
+    return n;
+  };
+  const SVG = (p) => { const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"); s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("class", "ic"); s.setAttribute("aria-hidden", "true"); s.innerHTML = p; s.setAttribute("fill", "none"); s.setAttribute("stroke", "currentColor"); s.setAttribute("stroke-width", "2"); s.setAttribute("stroke-linecap", "round"); s.setAttribute("stroke-linejoin", "round"); return s; };
+  const ICON = { check: '<polyline points="20 6 9 17 4 12"/>', clock: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>', shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>', arrow: '<line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>', chev: '<polyline points="6 9 12 15 18 9"/>', mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/>' };
+  if (!DATA) { $("#map").append(el("p", { class: "empty", style: "padding:16px" }, "Kartans innehåll saknas.")); return; }
+
+  const roles = DATA.roles;
+  const roleById = Object.fromEntries(roles.map((r) => [r.id, r]));
+  const phases = DATA.flow.phases;
+  const phaseById = Object.fromEntries(phases.map((p) => [p.id, p]));
+  const LANE_ORDER = ["kommun_handlaggare", "kommun_chef", "samordnare", "avtalsansvarig", "coach", "handledare", "deltagare", "chef", "ekonom", "admin", "system"];
+  const SYSTEM = { id: "system", name: "Systemet", org: "Automatik i Miljonmatch", side: "system" };
+  const lanes = LANE_ORDER.map((id) => roleById[id] || (id === "system" ? SYSTEM : null)).filter(Boolean);
+  const nameOf = (id) => (roleById[id] || (id === "system" ? SYSTEM : { name: id })).name;
+  const statusEl = (s) => el("span", { class: `status st-${s}` }, s === "finns" ? "✓ Finns" : s === "byggs" ? "● Byggs nu" : "… Senare");
+
+  // Huvudspårets nummer per roll+fas+titel (kartans siffror).
+  const journey = DATA.flow.journey;
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-zåäö0-9]+/g, " ").trim();
+
+  // ---------------- Lager 1: kartan ----------------
+  const map = $("#map");
+  map.style.gridTemplateColumns = `200px repeat(${phases.length}, minmax(140px, 1fr))`;
+  map.append(el("div", { class: "corner ph", style: "left:0;z-index:3;border-left:0" }, el("b", {}, "Person"), el("span", {}, "Faser →")));
+  phases.forEach((p) => map.append(el("div", { class: "ph" }, el("b", {}, p.name), el("span", {}, p.when))));
+  const chipsByJourney = [];
+  lanes.forEach((r) => {
+    const row = `row-${r.side}`;
+    map.append(el("div", { class: `lane ${row}`, "data-side": r.side }, el("span", {}, r.side === "kund" ? "Kommunen" : r.side === "deltagare" ? "Deltagaren" : r.side === "system" ? "Automatik" : "Miljonbemanning"), el("b", {}, r.name)));
+    phases.forEach((p) => {
+      const cell = el("div", { class: `cell ${row}` });
+      // Systemets rad: stegen i huvudspåret med roll system.
+      const items = r.id === "system"
+        ? journey.map((j, i) => ({ j, i })).filter(({ j }) => j.role === "system" && j.phase === p.id).map(({ j, i }) => ({ title: j.title, status: "finns", jIndex: i, handoffTo: [] }))
+        : (r.steps || []).filter((s) => s.phase === p.id).map((s) => ({ ...s, jIndex: journey.findIndex((j) => j.role === r.id && j.phase === p.id && (norm(j.title) === norm(s.title) || norm(s.title).includes(norm(j.title)) || norm(j.title).includes(norm(s.title)))) }));
+      // Huvudspårets steg för rollen som inte matchar ett eget steg läggs till.
+      if (r.id !== "system") journey.forEach((j, i) => { if (j.role === r.id && j.phase === p.id && !items.some((x) => x.jIndex === i)) items.push({ title: j.title, status: "finns", jIndex: i, handoffTo: [], journeyOnly: true }); });
+      items.sort((a, b) => (a.jIndex < 0 ? 999 : a.jIndex) - (b.jIndex < 0 ? 999 : b.jIndex));
+      items.forEach((s) => {
+        const chip = el("button", { type: "button", class: `chip is-${s.status}`, onclick: () => (s.jIndex >= 0 ? showJourney(s.jIndex, false) : null, r.id !== "system" && !s.journeyOnly ? openStep(r.id, s.title) : null) },
+          el("span", { class: `n ${s.jIndex >= 0 ? "" : "empty"}` }, s.jIndex >= 0 ? String(s.jIndex + 1) : "·"),
+          el("span", {}, s.title, s.voice ? el("span", { class: "sr" }, " (röst)") : null, s.voice ? SVG(ICON.mic) : null),
+          s.handoffTo && s.handoffTo.length ? el("span", { class: "hand" }, "→ " + s.handoffTo.map(nameOf).join(", ")) : null);
+        if (s.jIndex >= 0) chipsByJourney[s.jIndex] = (chipsByJourney[s.jIndex] || []).concat(chip);
+        cell.append(chip);
+      });
+      map.append(cell);
+    });
+  });
+
+  // ---------------- Följ ett ärende ----------------
+  let jpos = 0;
+  const track = $("#jtrack");
+  journey.forEach((j, i) => track.append(el("button", { type: "button", "aria-label": `Steg ${i + 1}: ${j.title}`, onclick: () => showJourney(i, false) }, String(i + 1))));
+  function showJourney(i, scroll) {
+    jpos = Math.max(0, Math.min(journey.length - 1, i));
+    const j = journey[jpos];
+    $("#jcount").textContent = `Steg ${jpos + 1} av ${journey.length}`;
+    const meta = $("#jmeta"); meta.replaceChildren(el("span", { class: "pill" }, nameOf(j.role)), el("span", { class: "pill" }, phaseById[j.phase] ? phaseById[j.phase].name : j.phase));
+    $("#jtitle").textContent = j.title;
+    $("#jdetail").textContent = j.detail;
+    $("#jhand").textContent = j.handoff ? `Lämnar över: ${j.handoff}` : "";
+    [...track.children].forEach((b, k) => { b.classList.toggle("on", k === jpos); b.classList.toggle("done", k < jpos); });
+    document.querySelectorAll(".chip.on").forEach((c) => c.classList.remove("on"));
+    (chipsByJourney[jpos] || []).forEach((c) => { c.classList.add("on"); if (scroll) c.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" }); });
+    $("#jprev").disabled = jpos === 0; $("#jnext").disabled = jpos === journey.length - 1;
+  }
+  $("#jprev").addEventListener("click", () => showJourney(jpos - 1, true));
+  $("#jnext").addEventListener("click", () => showJourney(jpos + 1, true));
+
+  // ---------------- Lager 2: varje person ----------------
+  const pick = $("#rolepick");
+  const groups = [["kund", "Kommunen"], ["leverantor", "Miljonbemanning"], ["deltagare", "Deltagaren"]];
+  groups.forEach(([side, label]) => {
+    const rs = LANE_ORDER.map((id) => roleById[id]).filter((r) => r && r.side === side);
+    if (!rs.length) return;
+    pick.append(el("div", { class: "rolegroup", role: "group", "aria-label": label }, el("span", { class: "eyebrow" }, label), ...rs.map((r) => el("button", { type: "button", class: "rbtn", "data-role": r.id, "aria-pressed": "false", onclick: () => showRole(r.id, true) }, r.name))));
+  });
+
+  function stepEl(r, s) {
+    const d = el("details", { class: `step is-${s.status}`, "data-title": norm(s.title) },
+      el("summary", {},
+        el("span", { class: "t" }, s.title),
+        el("span", { class: "badges" }, s.voice ? el("span", { class: "voice" }, SVG(ICON.mic), "Röst") : null, statusEl(s.status), SVG(ICON.chev)),
+        el("span", { class: "w" }, s.why)),
+      el("div", { class: "sbody" },
+        s.how && s.how.length ? el("div", {}, el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Så gör du"), el("ol", {}, s.how.map((h) => el("li", {}, h)))) : null,
+        el("div", { class: "facts" },
+          fact("Var i systemet", s.where), fact("Startas av", s.trigger), fact("Tidsgräns", s.deadline || "Ingen fast"), fact("Resultat", s.result)),
+        s.handoffTo && s.handoffTo.length ? el("div", {}, el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Lämnar över till"), el("div", { class: "tags" }, s.handoffTo.map((id) => roleById[id] ? el("button", { type: "button", class: "tag to", onclick: () => showRole(id, true) }, nameOf(id) + " →") : el("span", { class: "tag" }, nameOf(id))))) : null,
+        s.notified && s.notified.length ? el("div", {}, el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Notiser och utskick"), el("div", { class: "tags" }, s.notified.map((n) => el("span", { class: "tag" }, n)))) : null,
+        s.rules && s.rules.length ? el("div", {}, el("div", { class: "eyebrow", style: "margin-bottom:6px" }, "Regler här"), el("div", { class: "rules" }, s.rules.map((x) => el("div", {}, SVG(ICON.shield), el("span", {}, x))))) : null));
+    return d;
+  }
+  function fact(label, v) { return v ? el("div", { class: "fact" }, el("b", {}, label), el("span", {}, v)) : null; }
+
+  let current = null;
+  function showRole(id, scroll) {
+    const r = roleById[id]; if (!r) return;
+    current = id;
+    try { localStorage.setItem("mm-karta-roll", id); } catch (e) { /* ingen lagring */ }
+    pick.querySelectorAll(".rbtn").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.role === id)));
+    const route = el("div", { class: "route" });
+    phases.forEach((p, i) => {
+      const steps = r.steps.filter((s) => s.phase === p.id);
+      route.append(el("div", { class: "station" },
+        el("div", { class: `stop ${steps.length ? "has" : ""}`, "aria-hidden": "true" }, String(i + 1)),
+        el("div", {}, el("h4", {}, p.name), el("div", { class: "when" }, p.when + (steps.length ? "" : " · inget för den här rollen")),
+          steps.length ? el("div", { class: "steps" }, steps.map((s) => stepEl(r, s))) : null)));
+    });
+    const main = el("div", { class: "pcard" },
+      el("div", { class: "eyebrow" }, el("span", { class: "dot", "aria-hidden": "true" }), r.org),
+      el("h3", {}, r.name),
+      el("p", {}, r.oneLiner),
+      el("dl", { class: "kv" }, el("dt", {}, "Loggar in"), el("dd", {}, r.login), el("dt", {}, "Startsida"), el("dd", {}, r.startPage), el("dt", {}, "Antal steg"), el("dd", { class: "num" }, String(r.steps.length))),
+      route);
+    const side = el("div", { class: "side" },
+      el("div", { class: "box" }, el("h4", {}, SVG(ICON.clock), "Rytm"), el("div", { class: "rhythm" }, r.rhythm.map((x) => el("div", {}, el("b", {}, x.when), el("span", {}, x.what))))),
+      el("div", { class: "box" }, el("h4", {}, SVG(ICON.check), "Ser"), el("ul", {}, r.sees.map((x) => el("li", {}, x)))),
+      el("div", { class: "box" }, el("h4", {}, SVG(ICON.shield), "Ser inte"), el("ul", {}, r.doesNotSee.map((x) => el("li", {}, x)))),
+      r.tips && r.tips.length ? el("div", { class: "box" }, el("h4", {}, el("span", { class: "dot", "aria-hidden": "true" }), "Tips"), el("ul", {}, r.tips.map((x) => el("li", {}, x)))) : null);
+    $("#persona").replaceChildren(main, side);
+    if (scroll) $("#person").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function openStep(roleId, title) {
+    showRole(roleId, true);
+    const d = document.querySelector(`#persona details[data-title="${CSS.escape(norm(title))}"]`);
+    if (d) { d.open = true; setTimeout(() => d.scrollIntoView({ behavior: "smooth", block: "center" }), 250); }
+  }
+
+  // ---------------- Lager 3: klockan och reglerna ----------------
+  $("#week").append(...DATA.flow.weekClock.map((w) => el("div", { class: "wrow" }, el("span", { class: "d" }, w.day), el("span", { class: "tm" }, w.time), el("span", {}, el("span", { class: "who" }, w.who), w.what))));
+  $("#month").append(...DATA.flow.monthClock.map((w) => el("div", { class: "wrow", style: "grid-template-columns:9em minmax(0,1fr)" }, el("span", { class: "d" }, w.when), el("span", {}, el("span", { class: "who" }, w.who), w.what))));
+  $("#rulesall").append(...DATA.flow.rulesForAll.map((x) => el("div", {}, SVG(ICON.shield), el("span", {}, x))));
+  if (DATA.stamp) $("#stamp").textContent = DATA.stamp;
+
+  // Start: ankare (#roll-coach) eller senast vald roll.
+  let start = "coach";
+  try { start = localStorage.getItem("mm-karta-roll") || start; } catch (e) { /* ingen lagring */ }
+  const h = (location.hash || "").replace("#", "");
+  if (h.startsWith("roll-") && roleById[h.slice(5)]) start = h.slice(5);
+  showRole(roleById[start] ? start : roles[0].id, h.startsWith("roll-"));
+  showJourney(0, false);
+})();
+</script>
