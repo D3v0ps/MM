@@ -33,6 +33,8 @@ src/
                routes.ts · route-table.ts · layouts.tsx · runtime.tsx (DemoOnly)
   ui/          MB:s komponentbibliotek (se src/ui/README.md)
   app/         Next.js: layout, catch-all-sidan som renderar src/shell/app.tsx, /api/rpc, /api/dev-session
+               (/api/dev-session bara i minnesläget: välj testperson; med testerId simuleras en testare i testmiljön för
+               e2e – då sätts Actor.testerId, synpunkterna fungerar och src/api/tester-access.ts gäller)
   server/      Serverns datalager och session (import "server-only")
   demo/        Prototypens startpunkt, backend i webbläsaren, prototypfält, scenarier och feedback
 tests/e2e/     Playwright – varje test körs mot både prototypen (projekt "demo") och appen (projekt "app")

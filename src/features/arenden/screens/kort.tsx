@@ -8,6 +8,7 @@ import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import { DemoOnly } from "@/shell/runtime";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
 import { addWorkingDays, dayOf, fmtDate, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
 import {
@@ -240,7 +241,11 @@ function CaseHeader({ card: c }: { card: CaseCard }) {
     c.order
       ? [
           "Beställning",
-          c.order.weeks ? (
+          c.order.weeks && c.order.priceOre === undefined ? (
+            <>
+              {c.order.weeks} {c.order.weeks === 1 ? "vecka" : "veckor"} · <span className="text-text-muted">{TESTER_HIDDEN_TEXT}</span>
+            </>
+          ) : c.order.weeks && c.order.priceOre !== undefined ? (
             <>
               {c.order.weeks} {c.order.weeks === 1 ? "vecka" : "veckor"} · <span className="font-bold">{kr(c.order.weeks * c.order.priceOre)}</span>
               <div className="text-small text-text-muted">

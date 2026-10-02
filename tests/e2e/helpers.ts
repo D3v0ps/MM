@@ -16,7 +16,14 @@ export async function open(page: Page, info: TestInfo, to: string, as?: { userId
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
-    if (m.type() === "error") errors.push(`console: ${m.text()}`);
+    if (m.type() !== "error") return;
+    // Chromium hämtar ibland om faviconen mitt i ett sidbyte och tillskriver då anropet ursprunget "null" – då stoppas det
+    // av Private Network Access ("blocked by CORS policy … not a secure context … loopback"), följt av "Failed to load
+    // resource: net::ERR_FAILED" för samma adress. Det är en kapplöpning inne i webbläsaren (sågs med Chromium 141, både
+    // med den gamla och den nya ikonfilen), inte ett fel i appen – ikonen visas ändå. Räknas därför inte som fel.
+    const url = m.location()?.url ?? "";
+    if (/favicon\.ico|\/icon\.svg|\/apple-icon\.png/.test(url) || /favicon\.ico/.test(m.text())) return;
+    errors.push(`console: ${m.text()}`);
   });
   if (isDemo(info)) {
     const html = fs.readFileSync(DEMO_HTML, "utf8");

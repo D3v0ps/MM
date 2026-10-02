@@ -3,6 +3,7 @@
 // src/core och datat läses via ctx.repo (behörigheten gäller). Registreras via handlers.ts – importeras aldrig av skärmar.
 import { isCustomerRole } from "@/api/roles";
 import { handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
@@ -183,7 +184,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const latestCustomerMsg = (caseId: string) => db.messages.filter((m) => m.caseId === caseId && customerIds.has(m.senderId)).sort(by("createdAt")).pop() ?? null;
   const reminders = progressionWatch(all, { coachId: me }, main);
   const flagList = envs
-    .flatMap((env) => alerts(scopeToContract(all, env.contractId), { role: "coach", personaId: me }, env))
+    .flatMap((env) => alerts(scopeToContract(all, env.contractId), { role: "coach", personaId: me, hideCommercial: hidesCommercial(ctx.actor) }, env))
     .filter((a) => !["no_progress", "ai_draft"].includes(a.kind) && !/escalat/i.test(a.kind));
   const due = envs
     .flatMap((env) => deadlines(scopeToContract(all, env.contractId), { days: 7, coachId: me }, env))
@@ -634,6 +635,8 @@ handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
   const finalRep = db.reports.sort(by<Report>((x) => x.version, -1))[0] ?? null;
   const pulse = db.pulse_invites.sort(by("sentAt", -1))[0] ?? null;
   const days = finalReportWorkingDays(env.cfg);
+  // Begränsade testare (testmiljön): bonus är ett ekonomiskt villkor och visas inte (src/api/tester-access.ts).
+  const hideBonus = hidesCommercial(ctx.actor);
   return {
     kind: "ok" as const,
     now: env.now,
@@ -641,7 +644,7 @@ handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
     referrer,
     closed: c.status === "closed" ? { endReason: c.endReason, endDate: c.endDate, resultClass: c.resultClass, resultVerifiedAt: c.resultVerifiedAt } : null,
     events: eventsOf(db, c.id).map((e) => ({
-      id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, verificationKind: e.verificationKind, note: e.note, possibleBonus: e.possibleBonus,
+      id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, verificationKind: e.verificationKind, note: e.note, possibleBonus: !hideBonus && e.possibleBonus,
     })),
     employers: db.employers.filter((e) => e.areas.some((a) => areas.includes(a))).map((e) => ({ id: e.id, name: e.name })),
     eventKinds: EVENT_KINDS.map((k) => ({ value: k, label: EVENT_LABEL[k] })),
@@ -656,6 +659,6 @@ handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
     exitPulse: pulse ? { sentAt: pulse.sentAt, channel: pulse.channel, expiresAt: pulse.expiresAt } : null,
     finalDays: days ?? 0,
     finalProvisional: isUnset(slaRule(env.cfg, "slutrapport")?.within) || slaRule(env.cfg, "slutrapport")?.within == null,
-    bonusOn: env.cfg.bonus?.enabled === true,
+    ...(hideBonus ? {} : { bonusOn: env.cfg.bonus?.enabled === true }),
   };
 });

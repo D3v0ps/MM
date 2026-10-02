@@ -172,15 +172,38 @@ export type JobRow = {
   phase: number | null;
   disabled: boolean;
 };
-export type IntegrationsView = {
+/** approved = godkänd av Botkyrka, approved_test = vald och godkänd men simulerad, chosen = vald och väntar på kommunens godkännande. */
+export type SubprocessorStatus = "approved" | "approved_test" | "chosen" | "not_chosen";
+export type SubprocessorView = { id: string; name: string; what: string; where: string; status: SubprocessorStatus; us: boolean };
+/** Underbiträdena, Botkyrkas besked, regionlåsningen och "Så ser kommunen det" (SPEC §3.1 och §10). */
+export type DataProtectionView = {
   /** Botkyrkas besked om underbiträden (SPEC §3.1). */
   approvedOn: string;
+  subprocessors: SubprocessorView[];
+  /** Regionlåsningens punkter (leverantörer och regioner). */
+  regions: string[];
+  thirdCountryForbidden: boolean;
+  returnDataWithinDays: number | null;
+};
+/** active = ansluten, test = simulerad, chosen = vald och väntar på kommunens godkännande, off = ej ansluten, notchosen = ej vald. */
+export type IntegrationStatus = "active" | "test" | "chosen" | "off" | "notchosen";
+export type IntegrationIcon = "inbox" | "key" | "card" | "message" | "mail" | "sparkles";
+/** Ett kort under "Integrationer": rubrik, ikon, status och rader (etikett, text). */
+export type IntegrationView = { id: string; name: string; sub: string; icon: IntegrationIcon; status: IntegrationStatus; phase: number | null; items: [string, string][] };
+export type IntegrationsView = {
+  /** Saknas för begränsade testare i testmiljön (src/api/tester-access.ts) – korten Underbiträden, Regionlåsning och Så ser kommunen det visas inte. */
+  dataProtection?: DataProtectionView;
+  /**
+   * Integrationerna. Begränsade testare: utan raderna som pekar ut underbiträdena (vald leverantör, region, DNS och
+   * godkännande) – de finns i underbiträdeslistan, som de inte ser.
+   */
+  integrations: IntegrationView[];
+  /** Nyckeltalet "Data lagras i". detail (leverantörer och regioner) saknas för begränsade testare. */
+  storage: { place: string; detail?: string };
   latestMail: string | null;
   /** "I dag kl. 09.10" – simulerad läsning av avrop@. */
   inboxReadAt: string;
   aiRunCount: number;
-  thirdCountryForbidden: boolean;
-  returnDataWithinDays: number | null;
   jobs: JobRow[];
 };
 export const adminIntegrations = query("admin.integrations", z.object({})).returns<IntegrationsView>();

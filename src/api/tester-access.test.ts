@@ -1,0 +1,79 @@
+// Regeln för testarna i testmiljön (beslut 2026-10-02): bara Karim och Ali ser priser, belopp och villkor. Alla andra testare –
+// också framtida – är begränsade. Ingen testare (riktiga användare, produktion, prototypen, minnesläget) = ingen ändring.
+import { describe, expect, it } from "vitest";
+import { TESTERS } from "@/data/supabase/seed-rows";
+import { navFor } from "@/shell/nav-config";
+import { startPathFor, START_PATH } from "@/shell/routes";
+import type { Actor } from "./roles";
+import {
+  FULL_ACCESS_TESTERS, hidesCommercial, isTesterHiddenPath, roleHiddenFromTesters, testerRoleBlocks, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT,
+} from "./tester-access";
+
+const actor = (extra: Partial<Actor> = {}): Actor => ({ userId: "u-robin", role: "admin", contractIds: ["c-bot"], ...extra });
+
+describe("hidesCommercial", () => {
+  it("fullständig åtkomst: Karim och Ali (även när de agerar som en testperson)", () => {
+    expect([...FULL_ACCESS_TESTERS]).toEqual(["tester-karim", "tester-ali"]);
+    expect(hidesCommercial(actor({ testerId: "tester-karim" }))).toBe(false);
+    expect(hidesCommercial(actor({ testerId: "tester-ali", userId: "u-karin", role: "chef" }))).toBe(false);
+  });
+
+  it("begränsade: alla andra testare i TESTERS och framtida testare (neka som standard)", () => {
+    const limited = TESTERS.map((t) => t.id).filter((id) => !FULL_ACCESS_TESTERS.includes(id));
+    expect(limited).toEqual(expect.arrayContaining(["tester-sara", "tester-adam", "tester-shafik", "tester-moda"]));
+    for (const id of [...limited, "tester-yacine", "tester-ny-kollega", ""]) expect(hidesCommercial(actor({ testerId: id })), id).toBe(true);
+    // Agerar som vilken testperson som helst – regeln följer testaren, inte testpersonen.
+    expect(hidesCommercial(actor({ testerId: "tester-sara", userId: "k-maria", role: "kommun_handlaggare" }))).toBe(true);
+  });
+
+  it("ingen testare: riktiga användare, produktion, prototypen och minnesläget – ingen ändring", () => {
+    expect(hidesCommercial(actor())).toBe(false);
+    expect(hidesCommercial({})).toBe(false);
+    expect(hidesCommercial(null)).toBe(false);
+    expect(hidesCommercial(undefined)).toBe(false);
+  });
+
+  it("rollen ekonom är stängd för begränsade testare – utom sessionens egna frågor", () => {
+    expect(roleHiddenFromTesters("ekonom")).toBe(true);
+    expect(roleHiddenFromTesters("chef")).toBe(false);
+    const ekonom = actor({ role: "ekonom", userId: "u-lars", testerId: "tester-sara" });
+    expect(testerRoleBlocks(ekonom, "notiser.list")).toBe(true);
+    expect(testerRoleBlocks(ekonom, "session.navCounts")).toBe(false);
+    expect(testerRoleBlocks({ ...ekonom, testerId: "tester-karim" }, "notiser.list")).toBe(false);
+    expect(testerRoleBlocks({ ...ekonom, testerId: undefined }, "notiser.list")).toBe(false);
+    expect(testerRoleBlocks(actor({ role: "chef", testerId: "tester-sara" }), "ledning.overview")).toBe(false);
+  });
+
+  it("texterna", () => {
+    expect(TESTER_HIDDEN_TEXT).toBe("Visas inte för testare");
+    expect(TESTER_HIDDEN_PAGE).toBe("Den här sidan visas inte för testare.");
+  });
+});
+
+describe("stängda sidor, menyn och startsidan", () => {
+  it("avtalssidan (alla flikar) och Ekonomi är stängda – inga andra sidor", () => {
+    for (const p of ["/admin/avtal", "/ekonomi", "/ekonomi/2027-01", "/ekonomi/arende/case-260117", "/ekonomi/2027-01/faktura/case-260117"]) expect(isTesterHiddenPath(p), p).toBe(true);
+    for (const p of ["/admin/avtalx", "/admin/anvandare", "/admin/integrationer", "/ekonomix", "/arenden", "/ledning", "/portal/bestall"]) expect(isTesterHiddenPath(p), p).toBe(false);
+  });
+
+  it("menyn: Avtal och konfiguration och Ekonomi döljs bara för begränsade testare", () => {
+    const now = "2027-02-01T09:12";
+    const links = (role: Parameters<typeof navFor>[0], hidesCommercial?: boolean) => navFor(role, { now, hidesCommercial }).flatMap((g) => g.items.map((i) => i.to));
+    expect(links("admin")).toContain("/admin/avtal");
+    expect(links("admin", true)).toEqual(["/admin/anvandare", "/admin/integrationer", "/admin/mallar", "/admin/logg"]);
+    expect(links("ekonom")).toEqual(["/ekonomi", "/ekonomi/2027-01"]);
+    expect(navFor("ekonom", { now, hidesCommercial: true })).toEqual([]);
+    // Övriga roller har samma meny som förut.
+    for (const role of ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"] as const) expect(links(role, true)).toEqual(links(role));
+  });
+
+  it("startsidan: begränsad systemadministratör börjar på Användare och roller", () => {
+    expect(startPathFor("admin")).toBe(START_PATH.admin);
+    expect(startPathFor("admin", false)).toBe("/admin/avtal");
+    expect(startPathFor("admin", true)).toBe("/admin/anvandare");
+    expect(isTesterHiddenPath(startPathFor("ekonom", true))).toBe(false);
+    for (const role of ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"] as const) {
+      expect(startPathFor(role, true)).toBe(START_PATH[role]);
+    }
+  });
+});

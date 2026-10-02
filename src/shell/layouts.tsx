@@ -20,7 +20,7 @@ import { Toaster } from "@/ui/toast";
 import { useQuery } from "./backend";
 import { Link, useNav } from "./nav";
 import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_START_PATH, portalNavFor, type NavItem } from "./nav-config";
-import { START_PATH, type RouteMatch } from "./routes";
+import { startPathFor, type RouteMatch } from "./routes";
 import { useRuntime } from "./runtime";
 import { useSession } from "./session";
 
@@ -116,7 +116,7 @@ function Sidebar() {
   const counts = useQuery(navCounts, {}).data;
   // Klockan behövs bara för ekonomens "Fakturakörning <förra månaden>".
   const ping = useQuery(sessionPing, actor.role === "ekonom" ? {} : null).data;
-  const groups = navFor(actor.role, { now: ping?.now ?? null });
+  const groups = navFor(actor.role, { now: ping?.now ?? null, hidesCommercial: session.hidesCommercial });
   const active = activePath(nav.path, [NOTIFICATIONS_ITEM.to, ...groups.flatMap((g) => g.items.map((i) => i.to))]);
   const testData = runtime === "demo" || !!session.personas?.length;
   const unread = counts?.notifications ?? 0;
@@ -131,7 +131,7 @@ function Sidebar() {
       )}
     >
       <Link
-        to={START_PATH[actor.role]}
+        to={startPathFor(actor.role, session.hidesCommercial)}
         onClick={() => setOpen(false)}
         className="flex min-h-11 flex-col justify-center gap-0.5 self-start rounded-mb px-2 py-1 text-vit no-underline hover:bg-vit/8"
       >
@@ -238,7 +238,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   const header = "flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-ljusgra px-6 py-3.5 max-[620px]:px-4 max-[620px]:py-3";
   const signOut = () => (session.signOut ? session.signOut() : nav.push(PORTAL_LOGIN_PATH));
   const home = (
-    <Link to={START_PATH[actor.role]} className="inline-flex min-h-11 items-center rounded-mb px-1 text-antracit no-underline hover:bg-ljusgra-ton2">
+    <Link to={startPathFor(actor.role, session.hidesCommercial)} className="inline-flex min-h-11 items-center rounded-mb px-1 text-antracit no-underline hover:bg-ljusgra-ton2">
       <Brand name="Miljonbemanning" />
       <span className="sr-only"> – till startsidan</span>
     </Link>

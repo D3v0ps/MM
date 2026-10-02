@@ -3,6 +3,7 @@ import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx, type PnrCrypto } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
 import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
@@ -521,7 +522,8 @@ async function accessSourceFor(ctx: Ctx, cases: readonly Pick<Case, "id" | "pers
 /** Flaggor för rollen (prototypens alertsFor): coach och handledare ser aldrig eskaleringar till chef. */
 function flagsFor(db: AlertDb, ctx: Ctx, env: DomainEnv): AlertItem[] {
   const role = ctx.actor.role;
-  const xs = alerts(db, { role, personaId: ctx.actor.userId }, env);
+  // Begränsade testare: inga flaggor om ofakturerat (belopp) eller interna mål (src/api/tester-access.ts).
+  const xs = alerts(db, { role, personaId: ctx.actor.userId, hideCommercial: hidesCommercial(ctx.actor) }, env);
   return role === "coach" || role === "handledare" ? xs.filter((a) => !HIDE_FOR_TEAM.includes(a.kind)) : xs;
 }
 function flagView(a: AlertItem, caseId: string | null): CaseFlag {
@@ -750,7 +752,8 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     endDate: c.endDate,
     endReasonLabel: c.endReason ? endReasonLabel(c.endReason) : null,
     resultPrelim: c.resultClass === "result" && !c.resultVerifiedAt,
-    order: team ? null : { weeks: c.orderValueWeeks || c.plannedWeeks, priceOre: price },
+    // Begränsade testare (testmiljön): priset lämnas inte ut.
+    order: team ? null : { weeks: c.orderValueWeeks || c.plannedWeeks, ...(hidesCommercial(ctx.actor) ? {} : { priceOre: price }) },
     pnr: person ? { masked: maskedPnr(ctx.crypto, person), canReveal: access === "full", hidden: false } : { masked: null, canReveal: false, hidden: true },
     contactText: prot ? "Telefon enligt den säkra rutinen. Inga SMS eller mejl." : contactLabel(person?.preferredContact ?? ""),
     contactLabel: prot || !person ? null : contactLabel(person.preferredContact),
@@ -1066,10 +1069,12 @@ handleQuery(caseEvents, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseEvent
   const db = await loadDb(ctx.repo, ["outcome_events", "check_ins"], { outcome_events: q, check_ins: q });
   const ev = eventsOf(db, c.id);
   const shown = team ? ev.filter((e) => CONTACT_KINDS.includes(e.kind) || e.kind === "praktik_startad") : ev;
+  // Bonusunderlaget är ett ekonomiskt villkor: inte för teamet och inte för begränsade testare (src/api/tester-access.ts).
+  const bonus = !team && !hidesCommercial(ctx.actor);
   return {
     events: shown.map((e) => ({
       id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, note: e.note, verificationKind: e.verificationKind,
-      needsVerification: (e.kind === "arbete_paborjat" || e.kind === "studier_paborjade") && !e.verificationKind, possibleBonus: !team && e.possibleBonus,
+      needsVerification: (e.kind === "arbete_paborjat" || e.kind === "studier_paborjade") && !e.verificationKind, possibleBonus: bonus && e.possibleBonus,
     })),
     checkInContacts: checkInContacts(db, c.id),
     result: team ? null : c.status === "closed" ? { endDate: c.endDate, endReasonLabel: endReasonLabel(c.endReason), resultClass: c.resultClass, verifiedAt: c.resultVerifiedAt } : null,

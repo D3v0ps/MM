@@ -6,6 +6,7 @@
 // Inga personnummer: modellen innehåller bara ärendenummer och id:n, och namnet är det läsaren får se (behörigheten).
 import { Text, View } from "@react-pdf/renderer";
 import { attLabel } from "@/core/labels";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import type { ReportDocView } from "../api";
@@ -386,7 +387,15 @@ function OrderPdf({ doc }: { doc: Doc<"order_confirmation"> }) {
         />
       </Sec>
       <Sec title="Beställningens värde">
-        {m.weeks ? (
+        {m.weeks && m.price === undefined ? (
+          <Kv
+            items={[
+              ["Planerad omfattning", `${m.weeks} veckor`],
+              ["Veckopris exklusive moms", TESTER_HIDDEN_TEXT],
+              ["Beställningens värde exklusive moms", TESTER_HIDDEN_TEXT],
+            ]}
+          />
+        ) : m.weeks && m.price !== undefined ? (
           <Kv
             items={[
               ["Planerad omfattning", `${m.weeks} veckor`],

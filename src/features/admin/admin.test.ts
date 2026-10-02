@@ -186,7 +186,7 @@ describe("användare och roller", () => {
 describe("underbiträden, integrationer och bakgrundsjobb", () => {
   it("jobbens resultat är den gamla prototypens", async () => {
     const d = await rt.query(adminIntegrations, {}, robin());
-    expect(d).toMatchObject({ latestMail: "2027-02-01T08:41", aiRunCount: 2, thirdCountryForbidden: true, returnDataWithinDays: 31, approvedOn: "2026-09-29" });
+    expect(d).toMatchObject({ latestMail: "2027-02-01T08:41", aiRunCount: 2, dataProtection: { thirdCountryForbidden: true, returnDataWithinDays: 31, approvedOn: "2026-09-29" } });
     expect(d.jobs.map((j) => [j.key, j.last, j.status, j.result])).toEqual([
       ["inbox", "2027-02-01T09:10", "ok", "Senaste mejl kom 1 feb kl. 08.41"],
       ["weekly", "2027-02-01T07:00", "waiting", "2 publicerade, 2 väntar på närvaro (v. 4 2027)"],

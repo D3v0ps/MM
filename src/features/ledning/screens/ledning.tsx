@@ -3,6 +3,7 @@
 // kvittens, tidig uppmärksamhet, SLA, ofakturerat, avtalsavvikelser, per coach, per avtalsområde och deltagarnas röst.
 // Mål, minsta antal och övriga avtalsvärden kommer från avtalskonfigurationen via frågorna – aldrig hårdkodade här.
 import { useState, type ReactNode } from "react";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, pct, plural } from "@/core/format";
 import { fmtDate, fmtDateTime, monthName } from "@/core/time";
 import { useQuery } from "@/shell/backend";
@@ -97,7 +98,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
           statusText={tone ? RR_STATUS[rolling.status]?.label : undefined}
           sub={`${rolling.num} av ${rolling.den} avslut · minst ${rolling.minN} krävs för flagga`}
         >
-          {!tone && <RrBadge status={rolling.status} />}
+          {!tone && <RrBadge status={rolling.status} noInternal={t.internal == null} />}
         </Kpi>
         <Kpi label="Sedan avtalsstart" value={sinceStart.value == null ? "–" : pct(sinceStart.value)} sub={`${sinceStart.num} av ${sinceStart.den} avslut sedan ${fmtDate(d.contractStart)}`} />
         <Kpi label="Prognos" value={pct(forecast.value)} sub={`Om ${forecast.candidates} deltagare med arbetserbjudande eller i fas 5 når resultat`} />
@@ -128,7 +129,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
               </Stack>
               <Stack gap="sm" className="gap-1.5">
                 <div>
-                  <RrBadge status={rolling.status} />
+                  <RrBadge status={rolling.status} noInternal={t.internal == null} />
                 </div>
                 {d.rrAlert && (
                   <div>
@@ -148,12 +149,19 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
               value={rolling.value || 0}
               max={meterMax}
               markers={markers}
-              label={`Resultatgrad ${pct(rolling.value)}. Avtalsmål ${pct0(t.contract)}, internt mål ${pct0(t.internal)}. Skala 0 till ${pct0(meterMax)}.`}
+              label={`Resultatgrad ${pct(rolling.value)}. Avtalsmål ${pct0(t.contract)}${t.internal != null ? `, internt mål ${pct0(t.internal)}` : ""}. Skala 0 till ${pct0(meterMax)}.`}
             />
-            <div className="text-small text-text-muted">
-              Skala 0–{pct0(meterMax)}. Under {pct0(t.internal)} blir flaggan <b>Bevaka</b> (till chef och controller). Under {pct0(t.contract)} blir den <b>Åtgärd krävs</b> (även till
-              avtalsansvarig). Ingen flagga förrän minst {t.minN} avslut finns i fönstret.
-            </div>
+            {t.internal != null ? (
+              <div className="text-small text-text-muted">
+                Skala 0–{pct0(meterMax)}. Under {pct0(t.internal)} blir flaggan <b>Bevaka</b> (till chef och controller). Under {pct0(t.contract)} blir den <b>Åtgärd krävs</b> (även till
+                avtalsansvarig). Ingen flagga förrän minst {t.minN} avslut finns i fönstret.
+              </div>
+            ) : (
+              <div className="text-small text-text-muted">
+                Skala 0–{pct0(meterMax)}. Under avtalsmålet {pct0(t.contract)} blir flaggan <b>Åtgärd krävs</b> (till chef, controller och avtalsansvarig). Ingen flagga förrän minst {t.minN}{" "}
+                avslut finns i fönstret.
+              </div>
+            )}
             {d.resultDefinitionUnset && (
               <Notice tone="warn" title="Resultatdefinitionen är inte fastställd (öppen fråga 6)">
                 <Stack gap="sm">
@@ -298,7 +306,9 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
                 key: "target",
                 label: "Mål",
                 render: (x) =>
-                  x.key === "resultatgrad" ? `Internt ${pct0(x.target)} · avtal ${pct0(x.contractTarget)}` : x.targetUnset ? <Badge tone="plan">Ej fastställt</Badge> : pct0(x.target),
+                  x.key === "resultatgrad"
+                    ? x.target != null ? `Internt ${pct0(x.target)} · avtal ${pct0(x.contractTarget)}` : `Avtal ${pct0(x.contractTarget)}`
+                    : x.status === "target_hidden" ? <span className="text-text-muted">{TESTER_HIDDEN_TEXT}</span> : x.targetUnset ? <Badge tone="plan">Ej fastställt</Badge> : pct0(x.target),
               },
               { key: "status", label: "Status", render: (x) => <KpiStatusBadge status={x.status} /> },
             ]}
@@ -474,7 +484,8 @@ function SlaCard({ d }: { d: LedningOverview }) {
     <Card title="SLA-uppfyllnad" icon="clock">
       <Stack>
         <div className="text-small text-text-muted">
-          {monthName(d.lastMonth)} · {s.targetText}
+          {monthName(d.lastMonth)}
+          {s.targetText ? ` · ${s.targetText}` : ""}
         </div>
         {s.rows.map((x) => {
           const st = KPI_STATUS[x.status] ?? KPI_STATUS.no_data;
@@ -524,6 +535,14 @@ function SlaCard({ d }: { d: LedningOverview }) {
 
 function UnbilledCard({ d }: { d: LedningOverview }) {
   const u = d.unbilled;
+  // Begränsade testare i testmiljön: fakturaunderlaget lämnas inte ut av servern.
+  if (!u) {
+    return (
+      <Card title="Ofakturerat" icon="card">
+        <p className="text-text-muted">{TESTER_HIDDEN_TEXT}</p>
+      </Card>
+    );
+  }
   return (
     <Card
       title="Ofakturerat"
@@ -593,7 +612,9 @@ function CoachTab() {
       {(d) => {
         const t = d.targets;
         const markers = goalMarkers(t);
-        const docOver = d.allDoc != null && d.allDoc > d.docGoalMinutes;
+        // Begränsade testare: inget internt mål (docGoalMinutes saknas) – då ingen Bevaka-flagga.
+        const docGoal = d.docGoalMinutes;
+        const docOver = docGoal != null && d.allDoc != null && d.allDoc > docGoal;
         const all = d.all;
         const allTone = all.status === "below_contract" ? "alert" : all.status === "below_internal" ? "watch" : undefined;
         const tot = d.total;
@@ -614,7 +635,7 @@ function CoachTab() {
                 value={fmtMin(d.allDoc)}
                 tone={docOver ? "watch" : undefined}
                 statusText={docOver ? "Bevaka – över internt mål" : undefined}
-                sub={`median utan AI, ${lm} · internt mål högst ${d.docGoalMinutes} min`}
+                sub={`median utan AI, ${lm} · ${docGoal != null ? `internt mål högst ${docGoal} min` : `internt mål ${TESTER_HIDDEN_TEXT.toLowerCase()}`}`}
               />
               <Kpi label="Påminnelser denna vecka" value={String(tot.reminders)} sub={`${tot.escalated} ärenden eskalerade till dig`} />
             </Tiles>
@@ -639,7 +660,7 @@ function CoachTab() {
                           </Row>
                           <MiniBar value={r.rr.value || 0} max={0.6} markers={markers} tone={r.rr.status === "ok" ? "blue" : undefined} label={`Resultatgrad ${pct(r.rr.value)}`} />
                           <div>
-                            <RrBadge status={r.rr.status} short />
+                            <RrBadge status={r.rr.status} short noInternal={t.internal == null} />
                           </div>
                         </div>
                       ),
@@ -677,7 +698,7 @@ function CoachTab() {
                 eller sen delat med registrerade tillfällen. Godkända avstämningar: andel veckor med en godkänd veckoavstämning (startveckor och pausade veckor räknas inte).
               </Notice>
               <Notice tone="info" title="Dokumentationstid – baslinje">
-                Median minuter från avstämningens slut till godkänd dokumentation, för avstämningar gjorda <b>utan AI</b>. Baslinjen mäts i fas 1. Internt mål: högst {d.docGoalMinutes} minuter.
+                Median minuter från avstämningens slut till godkänd dokumentation, för avstämningar gjorda <b>utan AI</b>. Baslinjen mäts i fas 1.{docGoal != null && ` Internt mål: högst ${docGoal} minuter.`}
                 Tidsvinsten med AI-stöd jämförs mot baslinjen i fas 2.
               </Notice>
               <Notice tone="warn" title="Påminnelser och eskaleringar">
@@ -854,7 +875,9 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
     <QueryView query={q}>
       {(d) => {
         const st = d.stats;
-        const rateOk = !!st && st.responseRate != null && st.responseRate >= d.responseGoal;
+        // Begränsade testare: inget internt mål (responseGoal saknas) – då varken "Når målet" eller "Under målet".
+        const goal = d.responseGoal;
+        const rateOk = goal == null || (!!st && st.responseRate != null && st.responseRate >= goal);
         const prioTotal = st ? st.priorities.reduce((a, [, n]) => a + n, 0) : 0;
         return (
           <Stack gap="lg">
@@ -881,9 +904,9 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
                     value={pct(st.responseRate)}
                     tone={rateOk ? undefined : "watch"}
                     statusText={rateOk ? undefined : "Under målet"}
-                    sub={`${st.responses} svar på ${st.invites} utskick · internt mål ${pct0(d.responseGoal)}`}
+                    sub={`${st.responses} svar på ${st.invites} utskick · ${goal != null ? `internt mål ${pct0(goal)}` : `internt mål ${TESTER_HIDDEN_TEXT.toLowerCase()}`}`}
                   >
-                    {rateOk && (
+                    {goal != null && rateOk && (
                       <div>
                         <Badge tone="blue" icon="check-circle">
                           Når målet

@@ -110,8 +110,8 @@ export function ClientRoot() {
   if ("error" in loaded) return <p className="p-8">Inloggningen kunde inte hämtas. Ladda om sidan.</p>;
   const { view } = loaded;
   const session = buildSession(view, {
-    switchDev: async (role, userId) => {
-      await postJson("/api/dev-session", { role, userId });
+    switchDev: async (role, userId, testerId) => {
+      await postJson("/api/dev-session", { role, userId, ...(testerId ? { testerId } : {}) });
       router.replace("/");
       reload();
     },
@@ -136,7 +136,7 @@ export function ClientRoot() {
   );
 }
 
-function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: string) => Promise<void>; backend: Backend }): Session | null {
+function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: string, testerId?: string) => Promise<void>; backend: Backend }): Session | null {
   if (view.backend === "memory") {
     const persona = view.persona;
     if (!persona) return null;
@@ -144,9 +144,11 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
       actor: persona.actor,
       user: persona.user,
       environment: "memory",
+      hidesCommercial: view.hidesCommercial,
       personas: view.personas,
       // Utvecklingsläget: byt testperson. I testmiljön och i drift loggar man in med e-postkod.
-      switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId),
+      // En simulerad testare (e2e) förblir testare när testpersonen byts.
+      switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId, persona.actor.testerId),
       auth: devAuth,
     };
   }
@@ -159,6 +161,7 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
     auth: liveAuth,
     isTester: view.isTester,
     environment: view.environment,
+    hidesCommercial: view.hidesCommercial,
     // Testmiljön: testaren läser in testdatat på nytt i adminvyn (POST /api/staging/seed). Sidan laddas om när det är klart.
     reloadTestData: view.isTester && view.environment === "staging" ? reloadTestData : undefined,
     // Testmiljön: synpunkterna (feedback.* via /api/rpc). Servern och RLS släpper bara igenom testare i testmiljön.
@@ -188,6 +191,9 @@ function StagingBar({ view }: { view: SessionView }) {
   const [failed, setFailed] = useState(false);
   const actor = view.persona?.actor;
   const value = actor ? `${actor.userId}|${actor.role}` : "";
+  // Den valda testpersonen finns inte i listan (t.ex. en ekonom som valdes innan rollen stängdes för testaren): visa den ändå,
+  // så att valet syns och testaren kan byta.
+  const current = actor && !view.personas.some((p) => `${p.userId}|${p.role}` === value) ? { value, label: `${view.persona?.user.name ?? ""} – ${ROLE_LABEL[actor.role]}` } : null;
   const date = view.testNow ? `${WEEKDAYS[weekday(view.testNow)]} ${fmtDateFull(view.testNow)}` : null;
 
   const pick = async (v: string) => {
@@ -217,6 +223,11 @@ function StagingBar({ view }: { view: SessionView }) {
             Agera som:
           </label>
           <select id="test-persona" className="w-auto max-w-full py-1.5 text-small font-semibold" value={value} disabled={busy} aria-busy={busy} onChange={(e) => void pick(e.target.value)}>
+            {current && (
+              <option value={current.value} disabled>
+                {current.label}
+              </option>
+            )}
             {view.personas.map((p) => (
               <option key={`${p.userId}|${p.role}`} value={`${p.userId}|${p.role}`}>
                 {p.name} – {ROLE_LABEL[p.role]}

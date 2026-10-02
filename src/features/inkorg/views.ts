@@ -446,7 +446,8 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
     team: team.length ? team.map((t) => `${name(t.userId)} (${lc(teamLabel(t.role))})`).join(", ") : "Bara huvudcoach",
     firstMeeting: c.firstMeetingAt ? fmtDateTimeLong(c.firstMeetingAt) : "Inte bokat ännu",
     planned: weeks ? `${weeks} veckor${c.plannedEnd ? `, till och med ${fmtDate(c.plannedEnd)}` : ""}` : "–",
-    value: weeks && price ? `${kr(weeks * price)} (${weeks} veckor × ${kr(price)})` : "–",
+    // Begränsade testare (testmiljön): beställningens värde lämnas inte ut.
+    ...(e.hideCommercial ? {} : { value: weeks && price ? `${kr(weeks * price)} (${weeks} veckor × ${kr(price)})` : "–" }),
     buyerReference: c.buyerReference || "–",
     leadNotif: leadNotif ? { title: `${name(c.leadCoachId)} har fått en notis om tilldelningen`, emailBody: leadNotif.emailBody, others: others.length ? ` Även ${listJoin(others)} har fått en notis.` : "" } : null,
     custMail: custMail?.body ?? null,
@@ -472,7 +473,8 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
   const due = firstMeetingDue(c, e.cfg);
   const avrop = avropDue(c, e.cfg);
   const sup = pendingSups(d, c)[0] ?? null;
-  const priceItems = await ctx.repo.table("price_items").list({ contractId: e.contract.id, areaCode: c.primaryAreaCode });
+  // Begränsade testare (testmiljön): prisartiklarna läses inte och lämnas inte ut.
+  const priceItems = e.hideCommercial ? null : await ctx.repo.table("price_items").list({ contractId: e.contract.id, areaCode: c.primaryAreaCode });
   return {
     caseId: c.id, caseNumber: c.caseNumber, from: c.referrerId ? personName(d.profiles, c.referrerId) : c.referrerName ?? "–", areaName: areaName(areas, c.primaryAreaCode),
     displayName: person ? `${person.firstName} ${person.lastName}` : "Skyddade personuppgifter", avropSla: avrop ? sla(avrop, null, e.now) : null,
@@ -481,7 +483,7 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
     helpers: helpers.map((u) => ({ id: u.id, name: u.fullName, teamRole: u.teamRole as "vocational_supervisor" | "employer_matcher" | "guidance_counselor", label: lc(teamLabel(u.teamRole as string)) })),
     firstMeetingDue: due, desiredStart: c.desiredStart, plannedWeeks: c.plannedWeeks, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
-    prices: priceItems.map((p) => ({ validFrom: p.validFrom, validTo: p.validTo, priceOre: p.priceOre, exampleOnly: p.exampleOnly })),
+    ...(priceItems ? { prices: priceItems.map((p) => ({ validFrom: p.validFrom, validTo: p.validTo, priceOre: p.priceOre, exampleOnly: p.exampleOnly })) } : {}),
     pendingSup: sup, declined: d.cases.filter((x) => x.status === "declined").length, total: d.cases.length,
   };
 }
@@ -562,10 +564,16 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   for (const key of ["avrop_besvarade_i_tid", "forsta_mote_inom_en_vecka"]) {
     const v = kpiValue(ops, key, {}, e.env);
     if (!v) continue;
+    // Begränsade testare: utfallet visas, men inte Miljonbemannings interna mål eller om utfallet når det.
+    const hide = e.hideCommercial;
     kpis.push({
-      key, label: v.label, value: v.value == null ? "–" : pct(v.value), below: v.status === "below_internal",
-      sub: `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset ? " · mål ej fastställt" : ""}`,
-      meter: v.value != null ? { value: v.value, valueText: `${pct(v.value)} av målet`, target: v.target, targetText: v.target != null ? `Internt mål ${pct(v.target, 0)}` : "" } : null,
+      key, label: v.label, value: v.value == null ? "–" : pct(v.value), below: !hide && v.status === "below_internal",
+      sub: `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
+      meter: v.value != null
+        ? hide
+          ? { value: v.value, valueText: pct(v.value), target: null, targetText: "" }
+          : { value: v.value, valueText: `${pct(v.value)} av målet`, target: v.target, targetText: v.target != null ? `Internt mål ${pct(v.target, 0)}` : "" }
+        : null,
       late: (v.late ?? []).filter((c) => visible.has(c.id)).map((c) => ({ caseId: c.id, caseNumber: c.caseNumber })),
     });
   }
@@ -627,7 +635,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     summaryReport: summaryReport
       ? { id: summaryReport.id, title: `Beställarrapport ${summaryReport.month ? monthName(summaryReport.month) : ""} att godkänna`, due: summaryReport.dueAt ? sla(summaryReport.dueAt, null, now) : null, href: hrefFor({ view: "rapport.visa", params: { reportId: summaryReport.id } }, role) }
       : null,
-    warnings: { issued: warnings, max, text: `${max} varningar kan leda till uppsägning. Vite ${kr(e.cfg.penalties.deviationOre)} per tillfälle vid avvikelse.` },
+    // Begränsade testare: vitets belopp lämnas inte ut (antalet varningar finns kvar).
+    warnings: { issued: warnings, max, text: e.hideCommercial ? `${max} varningar kan leda till uppsägning.` : `${max} varningar kan leda till uppsägning. Vite ${kr(e.cfg.penalties.deviationOre)} per tillfälle vid avvikelse.` },
     meetingText: meetingDaysText(meetingDays(e.cfg)),
     flagDaysText: flagText,
     today: e.today,

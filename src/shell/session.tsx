@@ -53,6 +53,12 @@ export type Session = {
    * andra, i produktion och i prototypen (prototypen har sin egen feedback i claude.ai).
    */
   feedback?: FeedbackPort;
+  /**
+   * Begränsad testare i testmiljön (src/api/tester-access.ts – räknas på servern): inga priser, belopp, fakturaunderlag,
+   * interna mål eller avtalssidan. Menyn döljer Avtal och Ekonomi, startsidan byts och skärmarna visar "Visas inte för testare".
+   * Saknas (false) för alla andra, i produktion och i prototypen.
+   */
+  hidesCommercial?: boolean;
   /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
   personas?: PersonaOption[];
   /** Bara prototypen: byt roll/persona. */

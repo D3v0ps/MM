@@ -28,15 +28,24 @@ export function resetMemoryRuntime(): MemoryRuntime {
   return (g.__mmRuntime = freshRuntime());
 }
 
-/** Minnesläget: vald testperson i en kaka (utvecklingsläget). Null i supabase-läget – där gäller inloggningen. */
+/** Testarens id i minneslägets kaka: bara bokstäver, siffror och bindestreck (som profilernas id). */
+export const DEV_TESTER_ID = /^[a-z0-9-]{1,60}$/;
+
+/**
+ * Minnesläget: vald testperson i en kaka (utvecklingsläget). Null i supabase-läget – där gäller inloggningen.
+ * Kakan är "userId|role" eller "userId|role|testerId": med testerId simuleras en testare i testmiljön (e2e för
+ * src/api/tester-access.ts). Utan testerId är minnesläget oförändrat.
+ */
 export async function currentPersona(): Promise<Persona | null> {
   if (BACKEND !== "memory") return null;
   const rt = memoryRuntime();
   const jar = await cookies();
   const v = jar.get(PERSONA_COOKIE)?.value;
-  const [userId, role] = (v ?? "").split("|");
+  const [userId, role, testerId] = (v ?? "").split("|");
   const all = listPersonas(rt.raw());
-  return (userId ? personaFor(rt.raw(), userId, role as never) : null) ?? all[0] ?? null;
+  const persona = (userId ? personaFor(rt.raw(), userId, role as never) : null) ?? all[0] ?? null;
+  if (!persona || !testerId || !DEV_TESTER_ID.test(testerId)) return persona;
+  return { ...persona, actor: { ...persona.actor, testerId } };
 }
 
 /** Kör en fråga eller ett kommando i rätt körläge. Kastar ApiError (status + text till användaren) vid fel. */

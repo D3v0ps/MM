@@ -2,6 +2,7 @@
 // Samma tabell används av Next.js (catch-all-rutt) och av prototypen (hash-navigering) – därför speglar prototypen appen exakt.
 import type { ComponentType } from "react";
 import type { Role } from "@/api/roles";
+import { isTesterHiddenPath } from "@/api/tester-access";
 import { matchPath } from "./nav";
 
 export type ScreenProps = { params: Record<string, string>; query: URLSearchParams };
@@ -32,6 +33,16 @@ export const START_PATH: Record<Role, string> = {
   kommun_chef: "/portal/bestallarrapport",
   deltagare: "/puls",
 };
+
+/**
+ * Startsidan för den inloggade. En begränsad testare (Session.hidesCommercial, src/api/tester-access.ts) landar aldrig på en
+ * stängd sida: systemadministratören börjar på Användare och roller i stället för avtalssidan.
+ */
+export function startPathFor(role: Role, hidesCommercial?: boolean): string {
+  const p = START_PATH[role];
+  if (!hidesCommercial || !isTesterHiddenPath(p)) return p;
+  return role === "admin" ? "/admin/anvandare" : "/notiser";
+}
 
 /** Inloggningssida för en sökväg när besökaren inte är inloggad. */
 export const loginPathFor = (p: string): string => (p.startsWith("/portal") ? "/portal/logga-in" : "/logga-in");

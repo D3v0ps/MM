@@ -4,6 +4,7 @@
 // ärendenummer och skickar ordererkännandet (eller en generisk bekräftelse vid skyddade personuppgifter).
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { OperationalConfig } from "@/core/config";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
 import { addDays, monday } from "@/core/time";
 import { buyerRefError, buyerRefLengthText, emailValid, pnrFormatValid } from "@/core/validation";
@@ -188,7 +189,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const price = (() => {
     if (!f.primaryArea) return 0;
     const date = f.desiredStart || m.today;
-    return m.prices.find((p) => p.areaCode === f.primaryArea && p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
+    return m.prices?.find((p) => p.areaCode === f.primaryArea && p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
   })();
   const areaLabel = (code: string) => {
     const a = m.areas.find((x) => x.code === code);
@@ -509,10 +510,19 @@ function OrderForm({ m }: { m: KomOrderForm }) {
         </Card>
         <Card title="Beställningens värde" icon="card">
           <Stack gap="sm">
-            <div className="text-[2rem] leading-[1.1] font-extrabold tabular-nums">{kr(price * (f.plannedWeeks || 0))}</div>
-            <div className="text-text-muted">
-              {f.plannedWeeks} veckor × {kr(price)} per vecka, exklusive moms. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.
-            </div>
+            {m.prices ? (
+              <>
+                <div className="text-[2rem] leading-[1.1] font-extrabold tabular-nums">{kr(price * (f.plannedWeeks || 0))}</div>
+                <div className="text-text-muted">
+                  {f.plannedWeeks} veckor × {kr(price)} per vecka, exklusive moms. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-bold">{TESTER_HIDDEN_TEXT}</div>
+                <div className="text-text-muted">{f.plannedWeeks} veckor. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.</div>
+              </>
+            )}
           </Stack>
         </Card>
         <Notice tone="info" title="Det här händer när du skickar">

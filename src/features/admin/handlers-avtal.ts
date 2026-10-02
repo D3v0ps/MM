@@ -56,7 +56,7 @@ async function priceRows(ctx: Ctx, c: Contract): Promise<PriceRow[]> {
 }
 
 // ---------------------------------------------------------------- admin.contract
-handleQuery(adminContract, { roles: ["admin"] }, async (ctx, p) => {
+handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p) => {
   const all = await contractList(ctx);
   const main = await mainContract(ctx);
   const c = (p.contractId && all.find((x) => x.id === p.contractId)) || main;
@@ -88,7 +88,7 @@ handleQuery(adminContract, { roles: ["admin"] }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- admin.compare
-handleQuery(adminCompare, { roles: ["admin"] }, async (ctx) => {
+handleQuery(adminCompare, { roles: ["admin"], commercial: true }, async (ctx) => {
   const all = await contractList(ctx);
   const main = await mainContract(ctx);
   // Avtalet där ärenden hanteras först (Botkyrka), sedan övriga (Kammarkollegiet).
@@ -113,7 +113,7 @@ export const ruleSnapshot = (n: OrgSettings["notifications"]): RuleSnapshot => (
   assign: [...n.onAssignment.channels],
 });
 
-handleQuery(adminOrgRules, { roles: ["admin"] }, async (ctx) => {
+handleQuery(adminOrgRules, { roles: ["admin"], commercial: true }, async (ctx) => {
   const main = await mainContract(ctx);
   const { settings } = await orgRow(ctx, main.supplierId);
   const n = settings.notifications;
@@ -140,7 +140,7 @@ handleQuery(adminOrgRules, { roles: ["admin"] }, async (ctx) => {
   return { saved: ruleSnapshot(n), reminderSchedule: n.progressionWatch.reminderSchedule, recipients, streaks, history, notifications: n };
 });
 
-handleCommand(adminSetOrgRule, { roles: ["admin"] }, async (ctx, p) => {
+handleCommand(adminSetOrgRule, { roles: ["admin"], commercial: true }, async (ctx, p) => {
   const main = await mainContract(ctx);
   const { row, settings } = await orgRow(ctx, main.supplierId);
   const n = settings.notifications;

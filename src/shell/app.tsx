@@ -7,7 +7,8 @@ import { PerspectiveLink } from "@/ui";
 import { useNav, Link } from "./nav";
 import { isAuthenticated, useSession } from "./session";
 import { DemoOnly } from "./runtime";
-import { loginPathFor, resolveRoute, START_PATH, titleOf, type RouteDef, type RouteMatch } from "./routes";
+import { isTesterHiddenPath, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
+import { loginPathFor, resolveRoute, startPathFor, titleOf, type RouteDef, type RouteMatch } from "./routes";
 import { LayoutFor } from "./layouts";
 
 export function App({ routes }: { routes: readonly RouteDef[] }) {
@@ -15,7 +16,7 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
   const session = useSession();
   const { actor } = session;
   const signedIn = isAuthenticated(session);
-  const start = signedIn ? START_PATH[actor.role] : loginPathFor(nav.path);
+  const start = signedIn ? startPathFor(actor.role, session.hidesCommercial) : loginPathFor(nav.path);
   const match = resolveRoute(routes, nav.path);
   // Inte inloggad: bara publika sidor. Allt annat leder till rätt inloggning (portalen eller MB).
   const mustLogin = !signedIn && !(match && match.route.public);
@@ -25,7 +26,8 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
     else if (mustLogin) nav.replace(`${loginPathFor(nav.path)}?till=${encodeURIComponent(nav.path)}`);
   }, [nav, start, mustLogin]);
 
-  const title = match ? titleOf(match, nav.query) : "Sidan finns inte";
+  const hiddenForTester = signedIn && !!session.hidesCommercial && isTesterHiddenPath(nav.path);
+  const title = hiddenForTester ? TESTER_HIDDEN_TEXT : match ? titleOf(match, nav.query) : "Sidan finns inte";
   useEffect(() => {
     document.title = `${title} – Miljonmatch`;
   }, [title]);
@@ -51,6 +53,14 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
             </div>
           </DemoOnly>
         </Problem>
+      </LayoutFor>
+    );
+  }
+  // Begränsad testare (testmiljön): avtalssidan och Ekonomi är stängda. Servern nekar dessutom frågorna bakom sidorna.
+  if (hiddenForTester) {
+    return (
+      <LayoutFor match={match}>
+        <Problem title={TESTER_HIDDEN_PAGE.replace(/\.$/, "")} text="Sidan visar priser, belopp eller avtalets villkor. De uppgifterna visas inte för testare." start={start} />
       </LayoutFor>
     );
   }

@@ -3,6 +3,7 @@
 // (prototypens AcceptModal, DeclineModal, CorrectModal och PhoneModal).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
 import { addWorkingDays, dayOf, diffDays, fmtDate, fmtWeekday, holidayName, isWorkingDay } from "@/core/time";
 import { pnrFormatValid } from "@/core/validation";
@@ -41,8 +42,8 @@ export function AcceptModal({ caseId, caseNumber, onClose, onShowEmail }: { case
   return <AcceptForm f={q.data} onClose={onClose} onShowEmail={onShowEmail} />;
 }
 
-const priceOn = (f: DecisionForm, date: string): number => f.prices.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
-const exampleOn = (f: DecisionForm, date: string): boolean => !!f.prices.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.exampleOnly;
+const priceOn = (f: DecisionForm, date: string): number => f.prices?.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
+const exampleOn = (f: DecisionForm, date: string): boolean => !!f.prices?.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.exampleOnly;
 
 function AcceptForm({ f, onClose, onShowEmail }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void }) {
   const accept = useCommand(caseAccept);
@@ -227,9 +228,11 @@ function AcceptForm({ f, onClose, onShowEmail }: { f: DecisionForm; onClose: () 
         )}
         <Field
           id="ink-weeks" label="Planerad omfattning (veckor)" required error={tried ? errs.weeks : null}
-          help={price && w > 0
-            ? `Beställningens värde: ${w} veckor × ${kr(price)} = ${kr(w * price)}${example ? " (exempelpris i prototypen)" : ""}.`
-            : "Används för orderns värde och för upparbetat och återstående belopp på fakturan."}
+          help={!f.prices
+            ? `Används för orderns värde. Beställningens värde: ${TESTER_HIDDEN_TEXT.toLowerCase()}.`
+            : price && w > 0
+              ? `Beställningens värde: ${w} veckor × ${kr(price)} = ${kr(w * price)}${example ? " (exempelpris i prototypen)" : ""}.`
+              : "Används för orderns värde och för upparbetat och återstående belopp på fakturan."}
         >
           <Input type="number" inputMode="numeric" value={weeks} onValueChange={setWeeks} />
         </Field>
