@@ -12,7 +12,7 @@
 - Publik nyckel (får finnas i webbläsaren, skyddas av RLS): `sb_publishable_6gWujM1P_blTRgFvPTMiGQ_cYDPcmGO`
 - Hemliga nycklar (service role, Resend, krypteringsnycklar) läggs **bara** i Vercels miljövariabler – aldrig i repot eller i chatten. Se `docs/DRIFT.md`.
 - Databasen: migrationerna `supabase/migrations/0001–0017` (0001–0016 redan applicerade i testprojektet av samordnaren; **0017 (synpunkter i testmiljön) appliceras av samordnaren** när koden med "Lämna synpunkt" går live – se `docs/DRIFT.md`), startdatat `supabase/bootstrap-staging.sql` (samordnaren kör det – också för att lägga till nya testare), testdatat läser testaren in i appen (`/admin/integrationer` → "Läs in testdata på nytt"). Ordningen steg för steg: `docs/DRIFT.md`, "Så startar du testmiljön".
-- Testarna (sex personer på Miljonbemanning, beslut 2026-10-01) och "Lämna synpunkt": `docs/DRIFT.md` avsnitt 11. `MM_EMAIL_ALLOWLIST` innehåller deras sex hela adresser.
+- Testarna (sju personer på Miljonbemanning, beslut 2026-10-01) och "Lämna synpunkt": `docs/DRIFT.md` avsnitt 11. `MM_EMAIL_ALLOWLIST` innehåller deras sju hela adresser.
 - Projektet ska flyttas till Miljonbemanning AB:s organisation när den finns (SPEC §11: konton ägs av bolaget via funktionsadress, minst två administratörer, MFA).
 
 ## Domäner och e-post

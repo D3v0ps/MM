@@ -47,3 +47,6 @@ next-env.d.ts
 
 # Mallen för miljövariabler ska finnas i repot (utan värden)
 !.env.example
+
+# Kopian som `npx skills add` lägger för andra agentverktyg – bara .claude/skills/ versionshanteras
+.agents/

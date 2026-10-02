@@ -46,7 +46,7 @@
      "how": [
       "Öppna inbjudan från Miljonbemanning och gå till /portal/logga-in.",
       "Skriv din e-postadress på jobbet och klicka Skicka kod.",
-      "Hämta koden med sex siffror i mejlet från notis@miljonmatch.se. Titta i skräpposten om mejlet inte har kommit.",
+      "Hämta koden med sex siffror i mejlet Din inloggningskod till Miljonmatch från notis@miljonmatch.se. Titta i skräpposten om mejlet inte har kommit.",
       "Skriv koden och klicka Logga in. Fel adress? Klicka Byt e-postadress. Gammal kod? Klicka Skicka en ny kod."
      ],
      "where": "/portal/logga-in – Logga in",
@@ -57,11 +57,12 @@
       "system"
      ],
      "notified": [
-      "Mejl till dig med inloggningskoden (bara koden, ingen länk)"
+      "Mejl till dig från notis@miljonmatch.se: Din inloggningskod till Miljonmatch (bara koden, ingen länk)"
      ],
      "rules": [
       "Ingen kan skapa ett konto själv. Avtalsansvarig eller systemadministratören bjuder in, och bara kommunens e-postdomäner är tillåtna.",
       "Svaret efter Skicka kod avslöjar aldrig om adressen finns hos Miljonbemanning.",
+      "Mejlet med koden har ingen länk. Koden kan användas en gång. Miljonbemanning frågar aldrig efter koden – lämna aldrig ut den.",
       "Du kan alltid beställa med mejl utan att logga in."
      ],
      "voice": false,
@@ -515,7 +516,8 @@
      "rules": [
       "Rapporter byggs bara av uppgifter som coachen har godkänt, aldrig direkt från inspelningar.",
       "Nivåer och samlad status sätts alltid av coachen, aldrig av AI.",
-      "Personnummer skrivs inte ut. Deltagaren anges med namn och ärendenummer."
+      "Personnummer skrivs inte ut. Deltagaren anges med namn och ärendenummer.",
+      "Behöver du rapporten som fil: klicka Ladda ner PDF. Nedladdningen sparas i Miljonbemannings logg."
      ],
      "voice": false,
      "status": "finns"
@@ -526,13 +528,13 @@
      "why": "Ibland behöver du en rapport som fil, till exempel till ett möte. PDF-filen har samma innehåll som rapporten i portalen.",
      "how": [
       "Öppna rapporten under Rapporter och meddelanden, eller i fliken Rapporter hos deltagaren.",
-      "Klicka Ladda ner PDF.",
+      "Klicka Ladda ner PDF. Det tar några sekunder. Under tiden står det Skapar PDF … på knappen.",
       "Spara filen där kommunen får spara personuppgifter. Skicka den inte med vanlig e-post."
      ],
      "where": "/portal/rapporter/:reportId – rapportsidan",
      "trigger": "Du behöver en rapport som fil.",
      "deadline": "",
-     "result": "En PDF-fil i Miljonbemannings grafiska profil: logotyp överst, avtals- och ärendeuppgifter till höger och rubriker i versaler. Filnamnet har bara rapporttyp, ärendenummer och period, till exempel Manadsrapport_BOT-26-0143_2027-01_v1.pdf.",
+     "result": "En PDF-fil i Miljonbemannings grafiska profil: logotyp överst, avtals- och ärendeuppgifter till höger och rubriker i versaler. Filnamnet har bara rapporttyp, ärendenummer, period och version, till exempel Manadsrapport_BOT-26-0143_2027-01_v1.pdf.",
      "handoffTo": [
       "system"
      ],
@@ -541,12 +543,12 @@
      ],
      "rules": [
       "Gäller orderbekräftelsen, veckorapporten, månadsrapporten och slutrapporten som har levererats till dig.",
+      "Filen gäller den version av rapporten som du har öppen. En levererad rapport ger alltid samma fil.",
       "Varje nedladdning sparas i Miljonbemannings logg med rapportens nummer, typ och version – aldrig namn.",
-      "Filnamnet innehåller aldrig namn eller personnummer.",
-      "Klart, men inte ute i appen än."
+      "Filnamnet innehåller aldrig namn eller personnummer."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "avslut",
@@ -639,7 +641,7 @@
     "Levererade rapporter till dig: ordererkännande, orderbekräftelse, veckorapport om närvaro, månadsrapport och slutrapport, även rättade versioner",
     "Säkra meddelanden, mötesförfrågningar och uppgifter i dina ärenden",
     "Deltagare med skyddade personuppgifter som du själv har beställt",
-    "Levererade rapporter som PDF-fil med knappen Ladda ner PDF (byggs)"
+    "Levererade rapporter som PDF-fil med knappen Ladda ner PDF"
    ],
    "doesNotSee": [
     "Coachens egna anteckningar: avstämningar, kartläggning, underlaget till månadsbedömningen, avvikelser och de fria anteckningarna i deltagarkortet (bara det som står i levererade rapporter)",
@@ -655,7 +657,7 @@
    "tips": [
     "Använd ärendenumret (till exempel BOT-26-0042) i stället för personnummer i mejl och telefon.",
     "Mejl till avrop@miljonbemanning.se fungerar alltid, även om du aldrig loggar in i portalen.",
-    "Kommer koden inte? Titta i skräpposten efter mejl från notis@miljonmatch.se och klicka Skicka en ny kod. Den gamla koden slutar då att gälla."
+    "Kommer koden inte? Titta i skräpposten efter mejlet Din inloggningskod till Miljonmatch från notis@miljonmatch.se och klicka Skicka en ny kod. Den gamla koden slutar då att gälla."
    ]
   },
   {
@@ -663,9 +665,9 @@
    "name": "Kommunens chef",
    "org": "Botkyrka kommun (beställare)",
    "side": "kund",
-   "oneLiner": "Följer hur insatserna går för hela enheten i den månatliga beställarrapporten och godkänner Miljonbemannings åtgärdsplaner.",
+   "oneLiner": "Följer hur insatserna går för hela enheten i den månatliga beställarrapporten, hämtar resultaten som en fil och godkänner Miljonbemannings åtgärdsplaner.",
    "login": "E-postadress och en kod med sex siffror som kommer i ett mejl (/portal/logga-in). Inget lösenord. Miljonbemanning bjuder in dig.",
-   "startPage": "/portal/bestallarrapport – Beställarrapport (menyn: Beställarrapport, Enhetens deltagare, Rapporter och, när den är byggd, Hämta resultat)",
+   "startPage": "/portal/bestallarrapport – Beställarrapport (menyn: Beställarrapport, Enhetens deltagare, Rapporter och Hämta resultat)",
    "rhythm": [
     {
      "when": "Varje månad (datum ej fastställt)",
@@ -681,7 +683,7 @@
     },
     {
      "when": "Vid behov",
-     "what": "Hämta resultaten som en Excel- eller CSV-fil under Hämta resultat (planerat)."
+     "what": "Hämta resultaten som en Excel- eller CSV-fil under Hämta resultat. Där finns också rapporter som Miljonbemanning har delat med dig."
     }
    ],
    "steps": [
@@ -692,7 +694,7 @@
      "how": [
       "Öppna inbjudan från Miljonbemanning och gå till /portal/logga-in.",
       "Skriv din e-postadress på jobbet och klicka Skicka kod.",
-      "Skriv koden med sex siffror från mejlet (avsändare notis@miljonmatch.se) och klicka Logga in.",
+      "Skriv koden med sex siffror från mejlet Din inloggningskod till Miljonmatch (avsändare notis@miljonmatch.se) och klicka Logga in.",
       "Du kommer direkt till Beställarrapport."
      ],
      "where": "/portal/logga-in – Logga in",
@@ -703,11 +705,12 @@
       "system"
      ],
      "notified": [
-      "Mejl till dig med inloggningskoden (bara koden, ingen länk)"
+      "Mejl till dig från notis@miljonmatch.se: Din inloggningskod till Miljonmatch (bara koden, ingen länk)"
      ],
      "rules": [
       "Ingen kan skapa ett konto själv. Avtalsansvarig eller systemadministratören bjuder in, och bara kommunens e-postdomäner är tillåtna.",
-      "Om e-postkod räcker för kommunens personal är en öppen fråga till kommunens IT-avdelning."
+      "Om e-postkod räcker för kommunens personal är en öppen fråga till kommunens IT-avdelning.",
+      "Mejlet med koden har ingen länk. Koden kan användas en gång. Miljonbemanning frågar aldrig efter koden – lämna aldrig ut den."
      ],
      "voice": false,
      "status": "finns"
@@ -819,7 +822,7 @@
       "Progressionen bygger bara på månadsbedömningar som coachen har godkänt.",
       "Nöjdhet visas först när minst 5 deltagare har svarat. Kommunen ser bara sammanställningar, aldrig enskilda svar.",
       "Tre skriftliga varningar kan leda till uppsägning av avtalet.",
-      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller all statistik till kommunen. Beslutat 1 oktober 2026 men inte byggt än."
+      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller allt som når kommunen: beställarrapporten, månadsrapporterna, resultatfilen och rapporter som Miljonbemanning delar. Under fliken Progression står vilka områden som inte räknas."
      ],
      "voice": false,
      "status": "finns"
@@ -856,7 +859,7 @@
      "why": "Kommunens chef ska kunna spara beställarrapporten som en fil, till exempel inför ett möte.",
      "how": [
       "Öppna rapporten som dokument (knappen Öppna rapporten som dokument, eller Rapporter i menyn).",
-      "Klicka Ladda ner PDF.",
+      "Klicka Ladda ner PDF. Det tar några sekunder. Under tiden står det Skapar PDF … på knappen.",
       "Spara filen där kommunen får spara den. Skicka den inte med vanlig e-post."
      ],
      "where": "/portal/rapporter/:reportId – rapportsidan (Beställarrapport)",
@@ -872,11 +875,10 @@
      "rules": [
       "Varje nedladdning sparas i Miljonbemannings logg med rapportens nummer, typ och version – aldrig namn.",
       "En levererad rapport ger alltid samma PDF, eftersom den byggs av innehållet som det var vid leveransen.",
-      "Rapporter skickas inte som bilaga i mejl.",
-      "Klart, men inte ute i appen än."
+      "Rapporter skickas inte som bilaga i mejl."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "uppfoljning",
@@ -1022,12 +1024,12 @@
       "Klicka Hämta resultat i menyn.",
       "Steg 1 Period: välj Från månad och Till månad (högst 12 månader). Du ser hur många månadsrapporter och deltagare som finns. Klicka Nästa.",
       "Steg 2 Filtyp: välj Excel (rekommenderas) eller CSV. Klicka Nästa.",
-      "Steg 3 Hämta: läs rutan Filen innehåller namn och klicka Hämta filen. Med CSV hämtar du resultat, progression, händelser och fältbeskrivning en i taget."
+      "Steg 3 Hämta: kontrollera period, antal deltagare och antal rader. Läs rutan Filen innehåller namn och klicka Hämta filen. Med CSV hämtar du resultat, progression, händelser, avslut och fältbeskrivning, en fil i taget."
      ],
      "where": "/portal/resultat – Hämta resultat",
      "trigger": "Du behöver resultaten för en period som en fil.",
      "deadline": "Högst 12 månader per fil.",
-     "result": "En fil med en rad per deltagare och levererad månad: närvaro, progression, händelser och resultat. Excel-filen har flikarna Resultat, Progression, Händelser och Om filen.",
+     "result": "En fil med resultaten från de levererade rapporterna. Excel-filen har fem flikar: Resultat (en rad per deltagare och levererad månad), Progression (nivån per område), Händelser, Avslut (en rad per levererad slutrapport för insatser som avslutades under perioden) och Om filen, som beskriver varje kolumn. Med CSV blir varje flik en egen fil.",
      "handoffTo": [
       "system"
      ],
@@ -1038,16 +1040,48 @@
       "Bara levererade månadsrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.",
       "Deltagaren anges med ärendenummer och namn, aldrig med personnummer. Ärenden med skyddade personuppgifter kommer aldrig med.",
       "Ingen fritext i filen: inga observationer, sammanfattningar eller frånvaroorsaker. Observationer och sammanfattning finns i månadsrapporten (PDF-filen). Coachens anteckningar visas aldrig för kommunen.",
-      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte.",
+      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller allt som når kommunen: beställarrapporten, månadsrapporterna, resultatfilen och rapporter som Miljonbemanning delar.",
       "Rättas en rapport syns den nya versionen när du hämtar en ny fil. Kolumnen rattelse_pagar visar att en rättelse är på väg.",
       "Varje hämtning sparas i Miljonbemannings logg, utan namn och ärendenummer. Spara filen bara där kommunen får spara personuppgifter, och skicka den inte med vanlig e-post.",
       "Bara kommunens chef, bara enhetens deltagare och bara om avtalet tillåter individrapporter.",
       "Om filen räknas som statistik på begäran (högst två gånger per år) är inte bestämt än.",
-      "Senare: Miljonbemanning kan också dela en sparad rapport med dig.",
-      "Planerat. Finns inte i appen än."
+      "Har Miljonbemanning delat en rapport med dig finns rutan Rapporter från Miljonbemanning överst på sidan Hämta resultat."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
+    },
+    {
+     "phase": "uppfoljning",
+     "title": "Läs en rapport som Miljonbemanning har delat med dig",
+     "why": "Miljonbemanning kan göra en egen rapport åt dig, till exempel närvaro per månad eller resultat per avtalsområde, och dela den med dig i portalen.",
+     "how": [
+      "Klicka Hämta resultat i menyn. Har Miljonbemanning delat rapporter med dig står rutan Rapporter från Miljonbemanning överst.",
+      "Klicka Visa rapporterna och sedan Öppna rapporten vid den rapport du vill läsa.",
+      "Läs tabellen, och diagrammet om rapporten har ett. Är rapporten en lista med en rad per deltagare finns raderna bara i filen.",
+      "Under Hämta rapporten som: välj Excel (rekommenderas), CSV eller PDF och klicka Hämta."
+     ],
+     "where": "/portal/resultat/rapporter – Rapporter från Miljonbemanning (under Hämta resultat)",
+     "trigger": "Miljonbemanning har delat en rapport med dig. Inget mejl skickas – avtalsansvarig berättar att rapporten finns.",
+     "deadline": "",
+     "result": "Du har läst rapporten eller sparat den som fil.",
+     "handoffTo": [
+      "avtalsansvarig"
+     ],
+     "notified": [
+      "Inga utskick"
+     ],
+     "rules": [
+      "Rapporten visar bara deltagare i din enhet. Siffrorna kommer från levererade rapporter.",
+      "Grupper med färre än 5 deltagare visas som färre än 5. Miljonbemannings interna mål visas aldrig.",
+      "Ärenden med skyddade personuppgifter finns aldrig med.",
+      "Du kan inte ändra rapporten, urvalet eller perioden. Behöver du något annat: kontakta avtalsansvarig.",
+      "PDF finns bara för sammanställningar, inte för listor med en rad per deltagare.",
+      "Innehåller filen namn: spara den bara där kommunen får spara personuppgifter och skicka den inte med vanlig e-post.",
+      "Varje visning och hämtning sparas i Miljonbemannings logg.",
+      "Sidan finns bara när avtalet tillåter individrapporter till kommunen."
+     ],
+     "voice": false,
+     "status": "finns"
     }
    ],
    "sees": [
@@ -1057,8 +1091,9 @@
     "Enhetens månadsrapporter, slutrapporter och orderbekräftelser, eftersom avtalet tillåter det",
     "Meddelanden i enhetens ärenden, bara läsning",
     "Personnummer maskerat, hela numret med knappen Visa (visningen loggas)",
-    "Resultatfilen med en rad per deltagare och levererad månad – ärendenummer och namn, aldrig personnummer, inga skyddade ärenden och ingen fritext. Planerat. Finns inte i appen än.",
-    "Levererade rapporter som PDF-fil med knappen Ladda ner PDF (byggs)"
+    "Resultatfilen under Hämta resultat, med en rad per deltagare och levererad månad – ärendenummer och namn, aldrig personnummer, inga skyddade ärenden och ingen fritext",
+    "Levererade rapporter som PDF-fil med knappen Ladda ner PDF",
+    "Rapporter som Miljonbemanning har delat med dig (Rapporter från Miljonbemanning under Hämta resultat), med siffror bara för din enhet"
    ],
    "doesNotSee": [
     "Miljonbemannings interna mål, nyckeltal per coach, prognos och flaggor",
@@ -1070,6 +1105,7 @@
     "Veckorapporterna om närvaro (de går till handläggaren)",
     "Fakturor, avropsinkorgen och revisionsloggen",
     "Deltagare från andra enheter",
+    "Rapporter som Miljonbemanning inte har delat med dig. Du bygger inga egna rapporter och kan inte ändra en delad rapport.",
     "Kan inte beställa insatser eller skriva meddelanden – det gör handläggaren"
    ],
    "tips": [
@@ -1114,7 +1150,7 @@
     },
     {
      "when": "Vid behov",
-     "what": "Byta huvudcoach, registrera en avtalsavvikelse, kontrollera utskicksloggen och hjälpa till med slutrapporter."
+     "what": "Byta huvudcoach, registrera en avtalsavvikelse, kontrollera utskicksloggen, hjälpa till med slutrapporter och bygga egna rapporter i Bygg rapport."
     }
    ],
    "steps": [
@@ -1350,7 +1386,7 @@
      "rules": [
       "Rapporten byggs bara av registrerad närvaro.",
       "Rapporter skickas aldrig som bilaga i vanlig e-post.",
-      "Byggs (rapporter steg 1): veckorapporten skapas automatiskt när veckan är slut, en per handläggare som har minst en inskriven deltagare. Den väntar på närvaron och publiceras som i dag. Sista tiden läses från avtalskonfigurationen."
+      "Veckorapporten skapas automatiskt när veckan är slut (måndag strax efter midnatt), en per handläggare som har minst en inskriven deltagare. Den väntar på närvaron och publiceras automatiskt så fort all närvaro är registrerad – är allt redan registrerat publiceras den direkt. Sista tiden läses från avtalskonfigurationen."
      ],
      "voice": false,
      "status": "finns"
@@ -1499,8 +1535,8 @@
       "Rapporten byggs bara av godkända uppgifter, aldrig direkt från ett transkript.",
       "Rapporten kan inte godkännas innan månadsbedömningen är godkänd.",
       "En levererad rapport ändras aldrig. En rättelse blir en ny version och den gamla sparas.",
-      "Byggs (rapporter steg 1): utkasten till månadsrapporter skapas automatiskt när månaden är slut, ett per deltagare som var inskriven minst 11 dagar under månaden (gränsen är en avtalsinställning och ska bekräftas med Botkyrka). Varje skapat utkast loggas.",
-      "Planerat (rapporter steg 2): fliken Månadsunderlag i deltagarkortet visar vad som kommer med i rapporten och vad som saknas."
+      "Utkasten till månadsrapporter skapas automatiskt när månaden är slut, ett per deltagare som var inskriven minst 11 dagar under månaden (gränsen är en avtalsinställning och ska bekräftas med Botkyrka). Är månadsbedömningen redan godkänd får utkastet status Granskad av coach. Varje skapat utkast loggas.",
+      "Fliken Månadsunderlag i deltagarkortet visar vad som kommer med i rapporten och vad som saknas innan den kan godkännas."
      ],
      "voice": false,
      "status": "finns"
@@ -1511,7 +1547,7 @@
      "why": "Alla rapporter kan sparas som PDF i Miljonbemannings grafiska profil, till exempel inför ett uppföljningsmöte med kommunen.",
      "how": [
       "Öppna rapporten under Rapporter.",
-      "Klicka Ladda ner PDF.",
+      "Klicka Ladda ner PDF under Status och nästa steg. Det tar några sekunder.",
       "Är rapporten inte levererad har varje sida vattenstämpeln Utkast – inte levererad."
      ],
      "where": "/rapporter/:reportId – Rapport",
@@ -1528,11 +1564,10 @@
       "Gäller orderbekräftelse, veckorapport, månadsrapport, slutrapport och beställarrapport.",
       "Behörigheten kontrolleras på servern med samma regler som för att läsa rapporten. Ekonomen kan inte ladda ner rapporter, och handledaren inte månadsrapporter.",
       "Varje nedladdning loggas, utan namn. Filnamnet innehåller aldrig namn eller personnummer.",
-      "Rapporter skickas aldrig som bilaga i vanlig e-post.",
-      "Klart, men inte ute i appen än."
+      "Rapporter skickas aldrig som bilaga i vanlig e-post."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "manad",
@@ -1645,7 +1680,7 @@
      ],
      "rules": [
       "Nivåer: mindre, större, allvarlig.",
-      "Vite är 25 000 kronor per tillfälle enligt avtalet."
+      "Vitets storlek står i avtalet."
      ],
      "voice": false,
      "status": "finns"
@@ -1700,16 +1735,51 @@
       "Inget raderas på riktigt. Anteckningen döljs och sparas tills den gallras.",
       "Borttagningen loggas med vem som tog bort den – aldrig texten.",
       "Avtalsansvarig kan också ta bort anteckningar. Bara den som skrev anteckningen kan ändra texten.",
-      "Ärenden med skyddade personuppgifter ser du inte. Där kan avtalsansvarig ta bort en anteckning.",
-      "Planerat i rapporter steg 2. Finns inte i appen än."
+      "Ärenden med skyddade personuppgifter ser du inte. Där kan avtalsansvarig ta bort en anteckning."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
+    },
+    {
+     "phase": "uppfoljning",
+     "title": "Bygg en egen rapport i rapportbyggaren",
+     "why": "Ibland behövs en sammanställning som inte finns som färdig rapport, till exempel närvaro per månad eller progression per avtalsområde inför ett möte.",
+     "how": [
+      "Klicka Bygg rapport i menyn och sedan Ny rapport.",
+      "Steg 1 Börja med: välj en färdig mall, till exempel Närvaro per månad eller Resultatgrad per avtalsområde, eller börja från början med Deltagarmånader, Avslut, Händelser eller Progression. Klicka Nästa.",
+      "Steg 2 Urval: välj period – De senaste hela månaderna eller Välj månader, högst 12 – och vid behov vilka avtalsområden, yrkesspår eller enheter som ska vara med.",
+      "Steg 3 Visa: välj Sammanställning (rekommenderas) eller Lista med en rad per deltagare. För en sammanställning väljer du Dela upp efter, Dela upp per tid, ett till fyra mått och om du vill ha ett stapeldiagram. Förhandsvisningen visar tabellen.",
+      "Steg 4 Spara: skriv Namn på rapporten och välj vem som ska se den: Bara jag eller Alla på Miljonbemanning i avtalet. Klicka Spara rapporten, eller Hämta som Excel, CSV eller PDF."
+     ],
+     "where": "/rapportbyggare – Rapportbyggare (menyn Bygg rapport) och /rapportbyggare/ny – Ny rapport",
+     "trigger": "Du eller ledningen behöver en sammanställning, till exempel inför ett möte med kommunen eller ett kvalitetsmöte.",
+     "deadline": "",
+     "result": "Rapporten finns under Mina rapporter. Delar du den inom Miljonbemanning ser de andra den under Delade inom Miljonbemanning. Väljer du De senaste hela månaderna räknas perioden om varje gång rapporten öppnas.",
+     "handoffTo": [
+      "avtalsansvarig",
+      "chef"
+     ],
+     "notified": [
+      "Inga utskick"
+     ],
+     "rules": [
+      "Rapporten bygger bara på levererade månads- och slutrapporter – aldrig på utkast, anteckningar eller inspelningar.",
+      "Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem.",
+      "Ärendenummer och namn kan aldrig väljas som urval eller uppdelning. En lista med en rad per deltagare visas bara som antal på skärmen – raderna finns bara i filen.",
+      "Skriv inga namn, personnummer eller ärendenummer i rapportens namn. Filnamnet har aldrig rapportens namn.",
+      "Bara den som skapade rapporten kan ändra den. Andra kan klicka Gör en kopia.",
+      "Bara avtalsansvarig kan dela en rapport med kommunens chef. Vill du ändra din rapport medan den är delad med kommunen: be avtalsansvarig sluta dela den först.",
+      "Du kan arkivera dina egna rapporter, men inte medan rapporten är delad med kommunen. Be då avtalsansvarig sluta dela den först.",
+      "Under Färdiga rapporter finns Resultatfil för hela avtalet: samma kolumner som filen kommunens chef hämtar, men för alla ärenden i avtalet utom de skyddade. Varje hämtning loggas.",
+      "Varje visning av en sparad rapport och varje hämtad fil sparas i revisionsloggen, utan namn och utan rapportens namn. Rapporter raderas aldrig – de arkiveras."
+     ],
+     "voice": false,
+     "status": "finns"
     }
    ],
    "sees": [
     "Avropsinkorgen: originalmejlet, det tolkade formuläret, ordererkännandet och dubblettkontrollen. Personnummer maskerat – Visa loggas.",
-    "Alla ärenden i avtalet i Ärenden och Deltagarkortet, med flikarna Översikt, Kartläggning, Avstämningar, Närvaro, Månadsbedömning, Händelser och utfall, Avvikelser, Praktik, Rapporter, Meddelanden och Historik.",
+    "Alla ärenden i avtalet i Ärenden och Deltagarkortet, med flikarna Översikt, Tidslinje, Kartläggning, Avstämningar, Närvaro, Månadsunderlag, Händelser och utfall, Avvikelser, Praktik, Rapporter, Meddelanden och Historik.",
     "Förfaller i dag och denna vecka, med eskaleringsväg.",
     "Flaggor till samordnaren: fastnat i fas, upprepad frånvaro, första möte inte bokat, försenade rapporter, nyckeltal under internt mål och deltagare som vill bli kontaktade.",
     "Nyckeltalen Avrop besvarade inom en arbetsdag och Första möte inom en vecka.",
@@ -1719,7 +1789,8 @@
     "Mallar och utskick samt utskicksloggen.",
     "Arbetsgivare och praktik.",
     "Deltagarens röstmeddelanden som text, översatt till svenska.",
-    "Planerat (rapporter steg 2): flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar som du kan skriva och ta bort."
+    "Flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar som du kan skriva och ta bort.",
+    "Bygg rapport: dina egna rapporter, rapporter som delats inom Miljonbemanning eller med kommunen, och Resultatfil för hela avtalet."
    ],
    "doesNotSee": [
     "Namn, personnummer och anteckningar i ärenden med skyddade personuppgifter – bara ärendenumret och texten Skyddade personuppgifter.",
@@ -1763,7 +1834,7 @@
     },
     {
      "when": "Vid behov",
-     "what": "Bjuda in eller spärra kommunanvändare, ta in beställarreferenser som saknas, registrera varning, vite och avropsstopp."
+     "what": "Bjuda in eller spärra kommunanvändare, ta in beställarreferenser som saknas, registrera varning, vite och avropsstopp, och bygga och dela rapporter med kommunens chef i Bygg rapport."
     },
     {
      "when": "Högst två gånger per år (senare)",
@@ -1954,7 +2025,7 @@
       "Klicka Godkänn beställarrapporten."
      ],
      "where": "/rapporter/:reportId – Rapport",
-     "trigger": "Beställarrapporten för förra månaden är skapad. Utkastet skapas automatiskt när månaden är slut, ett per chef på kommunen (byggs).",
+     "trigger": "Beställarrapporten för förra månaden är skapad. Utkastet skapas automatiskt när månaden är slut, ett per aktiv chef på kommunen.",
      "deadline": "förslag: varje månad efter månadsskiftet – frekvens och innehåll ska fastställas med Botkyrka (öppen fråga 14)",
      "result": "Rapporten är godkänd och redo att levereras.",
      "handoffTo": [
@@ -1968,7 +2039,7 @@
       "Grupper med färre än 5 personer redovisas som färre än 5.",
       "Sammanfattningen är tom tills du väljer. AI föreslår – du bedömer.",
       "AI-utkastet är simulerat tills Vertex AI är inkopplat.",
-      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller all statistik till kommunen. Beslutat 1 oktober 2026 men inte byggt än."
+      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller allt som når kommunen: beställarrapporten, månadsrapporterna, resultatfilen och rapporter som Miljonbemanning delar."
      ],
      "voice": false,
      "status": "finns"
@@ -1997,7 +2068,7 @@
       "Rapporter skickas aldrig som bilaga i vanlig e-post. Botkyrkas avtal tillåter det inte.",
       "En levererad rapport ändras aldrig. Den gamla versionen sparas.",
       "Samordnaren kan också leverera rapporten när du har godkänt den.",
-      "Kommunens chef kan ladda ner rapporten som PDF i portalen (byggs). Varje nedladdning loggas."
+      "Kommunens chef kan ladda ner rapporten som PDF i portalen. Varje nedladdning loggas."
      ],
      "voice": false,
      "status": "finns"
@@ -2115,7 +2186,7 @@
     {
      "phase": "uppfoljning",
      "title": "Registrera en avtalsavvikelse, ett klagomål eller en varning från kommunen",
-     "why": "Avvikelser hanteras i en eskaleringstrappa. Vite är 25 000 kronor per tillfälle.",
+     "why": "Avvikelser hanteras i en eskaleringstrappa och kan ge vite enligt avtalet.",
      "how": [
       "Öppna Avtalsavvikelser och klicka Registrera avvikelse eller klagomål.",
       "Fyll i Typ, Källa, Datum, Nivå, Steg i eskaleringstrappan och Beskrivning.",
@@ -2241,7 +2312,7 @@
       "kommun_chef"
      ],
      "notified": [
-      "Den nya användaren: mejl Inbjudan till Miljonbemannings portal. Inloggningskoden kommer i ett separat mejl och gäller i 10 minuter."
+      "Den nya användaren: mejl Inbjudan till Miljonbemannings portal. Inloggningskoden kommer i ett eget mejl från notis@miljonmatch.se när personen klickar Skicka kod. Koden gäller i 10 minuter och mejlet har ingen länk."
      ],
      "rules": [
       "Ingen självregistrering.",
@@ -2261,7 +2332,7 @@
       "Ta fram exporten för den period kommunen vill ha.",
       "Leverera i portalen."
      ],
-     "where": "Byggs senare – kortet Statistik på begäran med den avstängda knappen Beställ statistik finns i kommunens chefsvy (/portal/bestallarrapport)",
+     "where": "Kommer senare – kortet Statistik på begäran med den avstängda knappen Beställ statistik finns i kommunens chefsvy (/portal/bestallarrapport)",
      "trigger": "Kommunen begär statistik",
      "deadline": "",
      "result": "Kommunen har fått statistiken.",
@@ -2274,7 +2345,7 @@
      "rules": [
       "Allt material ska vara på svenska.",
       "Grupper med färre än 5 personer redovisas som färre än 5.",
-      "Resultatfilen som kommunens chef hämtar själv i portalen (planerat, rapporter steg 3) är något annat. Om den räknas som statistik på begäran är inte bestämt än."
+      "Resultatfilen som kommunens chef hämtar själv under Hämta resultat, och rapporter som du delar med chefen i Bygg rapport, är något annat. Om de räknas som statistik på begäran är inte bestämt än."
      ],
      "voice": false,
      "status": "senare"
@@ -2282,26 +2353,71 @@
     {
      "phase": "uppfoljning",
      "title": "Bygg en egen rapport och dela den med kommunen",
-     "why": "Miljonbemanning ska kunna ta fram alla rapporter som behövs, bygga egna rapporter och dela en sparad rapport med kommunen.",
+     "why": "Kommunen bygger inga rapporter själv. Behöver kommunens chef en sammanställning som inte finns i beställarrapporten eller resultatfilen, bygger Miljonbemanning den och delar den i portalen.",
      "how": [
-      "Bygg en egen rapport i rapportbyggaren och spara den.",
-      "Dela den sparade rapporten med kommunens chef.",
-      "Kommunens chef hämtar den delade rapporten i portalen. Kommunen bygger inga rapporter själv."
+      "Klicka Bygg rapport i menyn och sedan Ny rapport.",
+      "Steg 1 Börja med: välj en färdig mall, till exempel Närvaro per månad eller Resultatgrad per avtalsområde, eller börja från början med Deltagarmånader, Avslut, Händelser eller Progression. Klicka Nästa.",
+      "Steg 2 Urval: välj period – De senaste hela månaderna eller Välj månader, högst 12 – och vid behov vilka avtalsområden, yrkesspår eller enheter som ska vara med.",
+      "Steg 3 Visa: välj Sammanställning (rekommenderas) eller Lista med en rad per deltagare. För en sammanställning väljer du Dela upp efter, Dela upp per tid, ett till fyra mått och om du vill ha ett stapeldiagram. Förhandsvisningen visar tabellen.",
+      "Steg 4 Spara: skriv Namn på rapporten och välj Kommunens chef under Vem ska se rapporten? Klicka Spara rapporten.",
+      "Läs rutan Dela med kommunens chef? Den visar reglerna och hur chefen kommer att se rapporten. Klicka Dela med kommunen.",
+      "En sparad rapport delar du med knappen Dela med kommunen på rapportens sida. Berätta för kommunens chef att rapporten finns under Hämta resultat – inget mejl skickas."
      ],
-     "where": "Kommer senare (rapportbyggaren)",
-     "trigger": "Kommunen eller ledningen behöver en rapport som inte finns som standard.",
+     "where": "/rapportbyggare – Rapportbyggare (menyn Bygg rapport), /rapportbyggare/ny – Ny rapport och /rapportbyggare/:id – Sparad rapport",
+     "trigger": "Kommunen eller ledningen behöver en rapport som inte finns som färdig rapport.",
      "deadline": "",
-     "result": "En sparad rapport som kan delas med kommunen.",
+     "result": "Rapporten är sparad och delad. Kommunens chef ser den under Hämta resultat, i rutan Rapporter från Miljonbemanning, och kan hämta den som Excel, CSV eller PDF.",
      "handoffTo": [
       "kommun_chef"
      ],
-     "notified": [],
+     "notified": [
+      "Inga utskick. Rapporten syns för kommunens chef under Hämta resultat."
+     ],
      "rules": [
-      "Planerat i rapporter steg 4. Hur rapportbyggaren ska se ut och vilka roller som får använda den är inte bestämt.",
-      "Samma regler som för all export: bara godkända uppgifter, inga personnummer, och varje export loggas."
+      "Rapporten bygger bara på levererade månads- och slutrapporter – aldrig på utkast, anteckningar eller inspelningar.",
+      "Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem.",
+      "Ärendenummer och namn kan aldrig väljas som urval eller uppdelning. En lista med en rad per deltagare visas bara som antal på skärmen – raderna finns bara i filen.",
+      "Skriv inga namn, personnummer eller ärendenummer i rapportens namn. Filnamnet har aldrig rapportens namn.",
+      "Bara du som avtalsansvarig delar med kommunen, och bara när avtalet tillåter individrapporter till kommunen. Samordnare och chef delar bara inom Miljonbemanning.",
+      "Kommunens chef ser bara ärenden i sin egen enhet. Grupper med färre än 5 deltagare visas som färre än 5, och det interna målet visas aldrig.",
+      "Kryssa i Visa som kommunens chef ser den på rapportens sida för att se chefens version.",
+      "Bara den som skapade rapporten ändrar innehållet. En rapport som är delad med kommunen kan bara du ändra, och innehållet bara om du själv skapade den.",
+      "Varje visning, varje hämtad fil och varje ändring av delningen sparas i revisionsloggen, utan namn och utan rapportens namn.",
+      "Under Färdiga rapporter finns Resultatfil för hela avtalet: samma kolumner som filen kommunens chef hämtar, men för alla ärenden i avtalet utom de skyddade. Varje hämtning loggas.",
+      "Om delade rapporter räknas som statistik på begäran är inte bestämt än."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
+    },
+    {
+     "phase": "uppfoljning",
+     "title": "Sluta dela eller arkivera en sparad rapport",
+     "why": "En rapport som är fel eller inte behövs längre ska inte ligga kvar hos kommunens chef eller i listorna.",
+     "how": [
+      "Klicka Bygg rapport i menyn och öppna rapporten under Mina rapporter, Delade inom Miljonbemanning eller Delade med kommunen.",
+      "Klicka Sluta dela med kommunen och bekräfta. Kommunens chef ser inte rapporten längre. Den finns kvar för alla på Miljonbemanning i avtalet.",
+      "Ska innehållet ändras: be den som skapade rapporten att ändra den med Ändra rapporten. Dela den sedan igen med Dela med kommunen.",
+      "Behövs rapporten inte alls: klicka Arkivera rapporten och sedan Arkivera."
+     ],
+     "where": "/rapportbyggare/:id – Sparad rapport",
+     "trigger": "En delad rapport är fel, ska ändras eller behövs inte längre.",
+     "deadline": "",
+     "result": "Rapporten är inte längre delad med kommunen, eller den är arkiverad och visas inte i listorna.",
+     "handoffTo": [
+      "samordnare",
+      "chef"
+     ],
+     "notified": [
+      "Inga utskick"
+     ],
+     "rules": [
+      "Du kan sluta dela och arkivera andras rapporter som är delade, men aldrig göra dem privata eller ändra deras innehåll.",
+      "Samordnare och chef kan arkivera sina egna rapporter, men inte medan de är delade med kommunen. De kan inte heller sluta dela en rapport med kommunen.",
+      "Tillåter avtalet inte längre individrapporter till kommunen ser chefen inte de delade rapporterna. Sluta dela dem först – sedan kan de ändras och arkiveras.",
+      "Rapporter raderas aldrig. Varje ändring av delningen och varje arkivering sparas i revisionsloggen."
+     ],
+     "voice": false,
+     "status": "finns"
     },
     {
      "phase": "uppfoljning",
@@ -2329,11 +2445,10 @@
       "Borttagningen loggas med vem som tog bort den – aldrig texten.",
       "Samordnaren kan också ta bort anteckningar. Bara den som skrev anteckningen kan ändra texten.",
       "I ärenden med skyddade personuppgifter är det bara du som kan ta bort en anteckning som någon annan har skrivit. Bara du och den namngivna huvudcoachen ser anteckningarna där.",
-      "Du kan också skriva en egen anteckning med Skriv anteckning. Kommunen ser aldrig anteckningarna.",
-      "Planerat i rapporter steg 2. Finns inte i appen än."
+      "Du kan också skriva en egen anteckning med Skriv anteckning. Kommunen ser aldrig anteckningarna."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     }
    ],
    "sees": [
@@ -2347,7 +2462,8 @@
     "Kommunens användare: namn, e-postadress, roll, enhet och status.",
     "Förfaller i dag och denna vecka.",
     "Säkra meddelanden och deltagarens röstmeddelanden som text.",
-    "Planerat (rapporter steg 2): flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar som du kan skriva och ta bort."
+    "Flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar som du kan skriva och ta bort.",
+    "Bygg rapport: egna rapporter, rapporter som delats inom Miljonbemanning eller med kommunen, och Resultatfil för hela avtalet. Du är den enda som delar rapporter med kommunens chef."
    ],
    "doesNotSee": [
     "Ledningsvyn med nyckeltal per coach och prognos (bara chef och controller).",
@@ -2395,7 +2511,7 @@
     },
     {
      "when": "Varje vecka, måndag senast 10.00",
-     "what": "All närvaro för förra veckan ska vara registrerad. Veckorapporten till handläggaren publiceras automatiskt, senast 16.00."
+     "what": "All närvaro för förra veckan ska vara registrerad. Veckorapporten till handläggaren publiceras automatiskt när all närvaro är registrerad. Avtalets sista tid är 16.00 – saknas närvaro då väntar rapporten, och samordnaren följer upp."
     },
     {
      "when": "Varje månad, direkt efter månadsskiftet",
@@ -2537,7 +2653,7 @@
      "where": "/narvaro – Närvaro",
      "trigger": "Efter varje tillfälle. Om något saknas får du en påminnelse fredag 14.00 och måndag 08.00.",
      "deadline": "Måndag 10.00 för förra veckan",
-     "result": "När alla deltagare hos en handläggare är registrerade publiceras veckorapporten automatiskt, senast måndag 16.00.",
+     "result": "När närvaron för alla deltagare hos en handläggare är registrerad publiceras veckorapporten automatiskt. Avtalets sista tid är måndag 16.00. Saknas närvaro då publiceras rapporten inte av sig själv – den väntar tills närvaron är registrerad.",
      "handoffTo": [
       "system",
       "kommun_handlaggare"
@@ -2792,11 +2908,10 @@
      "rules": [
       "Tidslinjen upprepar ingen text från avstämningar, avvikelser eller meddelanden. Klicka Öppna för att läsa.",
       "Inspelningar, transkript, AI-utkast och pulssvar visas aldrig i tidslinjen.",
-      "Handledare och andra i teamet ser bara aktiviteter, närvaro, praktik, arbetsgivarkontakter, statusbyten och anteckningar som är skrivna för teamet.",
-      "Planerat i rapporter steg 2. Finns inte i appen än."
+      "Handledare och andra i teamet ser bara aktiviteter, närvaro, praktik, arbetsgivarkontakter, statusbyten och anteckningar som är skrivna för teamet."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "vecka",
@@ -2804,7 +2919,7 @@
      "why": "Allt passar inte i ett formulär. En fri anteckning sparar det som har hänt mellan mötena, till exempel ett samtal, ett telefonsamtal, ett mejl eller ett möte.",
      "how": [
       "Öppna fliken Tidslinje i deltagarkortet och klicka Skriv anteckning.",
-      "Välj vad anteckningen gäller och vilken dag det hände.",
+      "Välj vad anteckningen gäller – Samtal med deltagaren, Kontakt med kommunen, Praktiskt eller Övrigt – och vilken dag det hände.",
       "Skriv sakligt och kort. Inga diagnoser, inga omdömen om personen och inga personnummer.",
       "Välj vem som ser anteckningen: Miljonbemannings ansvariga (huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör) eller även teamet. Klicka Spara anteckningen."
      ],
@@ -2825,11 +2940,10 @@
       "Arbetsgivarkontakter och resultat registreras som händelser. Då kommer de med i månadsrapporten automatiskt.",
       "Bara den som skrev anteckningen kan ändra texten. Den som skrev den, samordnaren och avtalsansvarig kan ta bort den. Inget raderas – anteckningen döljs, och det loggas.",
       "Anteckningar används aldrig av AI. Text som liknar ett personnummer stoppas. Högst 2000 tecken.",
-      "Vid skyddade personuppgifter ser bara namngiven huvudcoach och avtalsansvarig anteckningen.",
-      "Planerat i rapporter steg 2. Finns inte i appen än."
+      "Vid skyddade personuppgifter ser bara namngiven huvudcoach och avtalsansvarig anteckningen."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "manad",
@@ -2869,6 +2983,7 @@
       "Välj nivå 0–3 för varje progressionsområde. Skriv Konkret observation och Nästa steg.",
       "Välj Samlad status och skriv en Kort sammanfattning",
       "Fyll i planen för nästa månad: Mål 1, Mål 2, Planerade aktiviteter, Planerad arbetsgivarkontakt, Planerad anpassning och Nästa möte med kommunen",
+      "Läs Anteckningar från månaden. Klicka Lägg till i sammanfattningen vid det som behövs och skriv om texten så att den passar kommunen.",
       "Klicka Godkänn bedömningen"
      ],
      "where": "/manadsbedomning/:caseId?manad=ÅÅÅÅ-MM – Månadsbedömning",
@@ -2885,8 +3000,8 @@
       "Nivån är tom tills du väljer. AI väljer aldrig nivå eller samlad status.",
       "Det finns tio områden, bland annat Språk och kommunikation.",
       "En godkänd bedömning ändras bara genom en rättad rapportversion.",
-      "Planerat (rapporter steg 2): panelen Anteckningar från månaden. Klicka Lägg till i sammanfattningen och skriv om texten så att den passar kommunen. Inget kommer med av sig självt.",
-      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller all statistik till kommunen. Beslutat 1 oktober 2026 men inte byggt än. Månadsrapporten visar ändå de valfria områdena när de är bedömda."
+      "Panelen Anteckningar från månaden visar månadens fria anteckningar. Inget kommer med av sig självt – bara det du lägger till i sammanfattningen och godkänner. Vilka anteckningar du har använt loggas, aldrig texten. Anteckningarna skickas aldrig till AI.",
+      "Tydlig och någon progression räknas bara på de obligatoriska områdena. Hälsa och livskvalitet räknas inte. Det gäller allt som når kommunen: beställarrapporten, månadsrapporterna, resultatfilen och rapporter som Miljonbemanning delar. Månadsrapporten visar ändå de valfria områdena när de är bedömda."
      ],
      "voice": false,
      "status": "finns"
@@ -2896,7 +3011,7 @@
      "title": "Kontrollera Månadsunderlaget innan rapporten godkänns",
      "why": "Fliken Månadsunderlag visar exakt det som kommer med i månadsrapporten, och vad som saknas innan rapporten kan godkännas.",
      "how": [
-      "Öppna deltagarkortet och klicka fliken Månadsunderlag (i dag heter den Månadsbedömning).",
+      "Öppna deltagarkortet och klicka fliken Månadsunderlag.",
       "Välj månad. Läs tabellen Progression över tid.",
       "Läs listan Innan rapporten kan godkännas: avstämningar som är utkast, närvaro som inte är registrerad och om månadsbedömningen är godkänd. Klicka Öppna avstämningarna, Öppna närvaron eller Gör månadsbedömningen.",
       "Läs underlaget. Det har samma åtta avsnitt och samma innehåll som rapporten till kommunen. Klicka Öppna rapportutkastet när det finns."
@@ -2915,11 +3030,10 @@
       "Bara godkända uppgifter kommer med. En avstämning som är utkast kommer inte med förrän den är godkänd.",
       "Underlaget byggs med samma funktion som månadsrapporten.",
       "Finns inget rapportutkast står det att det skapas automatiskt när månaden är slut.",
-      "När månaden är levererad visas ingen förhandsvisning här, bara en länk till rapporten.",
-      "Planerat i rapporter steg 2. Finns inte i appen än."
+      "När månaden är levererad visas ingen förhandsvisning här, bara en länk till rapporten."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "manad",
@@ -2932,7 +3046,7 @@
       "Klicka Leverera till kommunen"
      ],
      "where": "/rapporter/:reportId – Rapport och /rapporter – Rapporter",
-     "trigger": "Månadsbedömningen är godkänd. Utkastet till månadsrapporten skapas automatiskt när månaden är slut (byggs).",
+     "trigger": "Månadsbedömningen är godkänd. Utkastet till månadsrapporten skapas automatiskt när månaden är slut, för deltagare som var inskrivna minst 11 dagar under månaden.",
      "deadline": "förslag: 5:e arbetsdagen efter månadsskiftet (ej fastställt)",
      "result": "Rapporten finns i portalen. Status visar Levererad och sedan Kvitterad när handläggaren har öppnat den.",
      "handoffTo": [
@@ -2947,8 +3061,8 @@
       "Samordnaren kan markera rapporten som kvalitetsgranskad innan den levereras.",
       "Rapporten skickas aldrig som bilaga i e-post, bara i portalen.",
       "Personnummer skrivs inte ut. Deltagaren anges med namn och ärendenummer.",
-      "Kravspecen säger att du ska påminnas 3 arbetsdagar före förfallodagen, samordnaren 1 dag före och chefen på förfallodagen. De påminnelserna är inte byggda än. I dag syns rapporten under Rapporter som förfaller på Min vecka.",
-      "Knappen Ladda ner PDF är inte aktiv i testmiljön än. Den byggs (rapporter steg 1): PDF:en byggs av samma innehåll som rapporten, och varje nedladdning loggas."
+      "Enligt kravspecifikationen ska du påminnas 3 arbetsdagar före förfallodagen, samordnaren 1 dag före och chefen på förfallodagen. De påminnelserna kommer senare. I dag syns rapporten under Rapporter som förfaller på Min vecka.",
+      "Behöver du rapporten som fil: klicka Ladda ner PDF. PDF:en byggs av samma innehåll som rapporten, och varje nedladdning loggas."
      ],
      "voice": false,
      "status": "finns"
@@ -3096,7 +3210,7 @@
       "En rättelse ger alltid en ny version. Den gamla sparas.",
       "Bara godkända eller levererade rapporter kan rättas.",
       "Samordnare och avtalsansvarig kan också rätta.",
-      "Kommer verifieringen av arbete eller studier efter att slutrapporten har levererats: rätta slutrapporten, så att verifieringen kommer med i rapporten och i kommunens resultatfil (planerat, rapporter steg 3)."
+      "Kommer verifieringen av arbete eller studier efter att slutrapporten har levererats: rätta slutrapporten, så att verifieringen kommer med i rapporten och i kommunens resultatfil."
      ],
      "voice": false,
      "status": "finns"
@@ -3108,13 +3222,13 @@
     "Ärenden med skyddade personuppgifter, men bara om du är namngiven huvudcoach",
     "Personnumret maskerat. Väljer du Visa loggas det.",
     "Närvaron i dina ärenden och dina deltagares avsnitt i veckorapporterna",
-    "Månadsrapporter och slutrapporter i dina ärenden, med status och kvittens",
+    "Månadsrapporter och slutrapporter i dina ärenden, med status och kvittens. Alla kan laddas ner som PDF.",
     "Säkra meddelanden med kommunens handläggare i dina ärenden",
     "AI-utkast och råtranskript tills du godkänner avstämningen",
     "Deltagarens röstmeddelanden i dina ärenden, som text översatt till svenska",
     "Egna flaggor, påminnelser och tidsgränser för dina ärenden",
     "Arbetsgivarregistret och praktikplatserna",
-    "Planerat (rapporter steg 2): flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar"
+    "Flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar"
    ],
    "doesNotSee": [
     "Andra coachers ärenden där du inte ingår i teamet",
@@ -3127,6 +3241,7 @@
     "Avvikelser, varningar och viten på avtalsnivå",
     "Beställarrapporten till kommunens chef",
     "Revisionsloggen, administrationen och avtalets inställningar",
+    "Bygg rapport (rapportbyggaren) – den är för samordnare, avtalsansvarig och chef",
     "Ljudfiler, som raderas direkt efter transkriberingen, och ljudet när kommunens handläggare talar in"
    ],
    "tips": [
@@ -3158,7 +3273,7 @@
     },
     {
      "when": "Varje måndag senast klockan 10.00",
-     "what": "Förra veckans närvaro ska vara registrerad. Annars eskaleras det till samordnaren. Veckorapporten publiceras senast klockan 16.00."
+     "what": "Förra veckans närvaro ska vara registrerad. Annars eskaleras det till samordnaren. Veckorapporten publiceras automatiskt när all närvaro är registrerad. Avtalets sista tid är klockan 16.00."
     },
     {
      "when": "Varje vecka",
@@ -3232,7 +3347,7 @@
      "how": [
       "Kom överens med huvudcoachen om vilka moment och praktikdagar deltagaren ska ha.",
       "Tillfällen som redan finns syns under Kommande sju dagar och på ärendets kort.",
-      "Det går inte att lägga in nya tillfällen direkt i Miljonmatch ännu. Den vyn är inte byggd."
+      "Det går inte att lägga in nya tillfällen direkt i Miljonmatch ännu. Den vyn kommer senare."
      ],
      "where": "/handledare – Mina tilldelade ärenden",
      "trigger": "Kartläggningen är klar och yrkesspåret är valt (vecka 1)",
@@ -3313,7 +3428,7 @@
      "where": "/narvaro – Närvaro",
      "trigger": "Tillfället har startat. Tillfällen som inte har börjat än kan inte registreras.",
      "deadline": "Förra veckans närvaro senast måndag klockan 10.00",
-     "result": "Närvaron sparas. När alla deltagare hos en handläggare är registrerade publiceras veckorapporten automatiskt, senast måndag klockan 16.00.",
+     "result": "Närvaron sparas. När alla deltagare hos en handläggare är registrerade publiceras veckorapporten automatiskt. Avtalets sista tid är måndag klockan 16.00 – saknas närvaro då väntar rapporten.",
      "handoffTo": [
       "system",
       "kommun_handlaggare"
@@ -3380,7 +3495,7 @@
      "rules": [
       "Rätt tidpunkt betyder att huvudcoachen har bedömt att deltagaren är redo.",
       "Bara teamet i ärendet kan ändra. Varje ändring loggas.",
-      "Registret och praktikplatserna hör till utvecklingsfas 3 och är märkta så i appen."
+      "Registret och praktikplatserna kommer senare. I appen är de märkta Byggs i fas 3."
      ],
      "voice": false,
      "status": "finns"
@@ -3444,7 +3559,7 @@
      "how": [
       "Kom överens med huvudcoachen om att deltagaren är redo.",
       "Kontakta arbetsgivaren. Bestäm period, arbetsuppgifter, handledare och mål.",
-      "Det går inte att lägga till en ny praktikplats från ärendet ännu. Den delen byggs i en senare fas."
+      "Det går inte att lägga till en ny praktikplats från ärendet ännu. Den delen kommer senare."
      ],
      "where": "/arenden/:caseId – Deltagarkort (fliken Praktik)",
      "trigger": "Huvudcoachen bedömer att deltagaren är redo (rätt tidpunkt)",
@@ -3491,7 +3606,7 @@
      "how": [
       "Öppna ärendet och klicka fliken Tidslinje.",
       "Läs aktiviteter och närvaro per vecka, praktik, arbetsgivarkontakter och anteckningar som är skrivna för teamet.",
-      "Klicka Skriv anteckning. Välj vad den gäller och datum, och skriv kort och sakligt.",
+      "Klicka Skriv anteckning. Välj vad den gäller – Samtal med deltagaren, Kontakt med kommunen, Praktiskt eller Övrigt – och datum. Skriv kort och sakligt.",
       "Klicka Spara anteckningen. Hela teamet och Miljonbemannings ansvariga ser den."
      ],
      "where": "/arenden/:caseId?flik=tidslinje – Deltagarkort (fliken Tidslinje)",
@@ -3508,11 +3623,10 @@
       "Du ser inte coachens avstämningar, bedömningar, rapporter eller meddelanden, och inte anteckningar som bara är för Miljonbemannings ansvariga.",
       "Dina anteckningar syns alltid för hela teamet. Kommunen ser aldrig anteckningar.",
       "Arbetsgivarkontakter och resultat registreras som händelser av huvudcoachen. Säg till coachen.",
-      "Bara du kan ändra din anteckning.",
-      "Planerat i rapporter steg 2. Finns inte i appen än."
+      "Bara du kan ändra din anteckning. Du kan ta bort den, och samordnaren och avtalsansvarig kan också ta bort den."
      ],
      "voice": false,
-     "status": "byggs"
+     "status": "finns"
     },
     {
      "phase": "vecka",
@@ -3582,7 +3696,7 @@
      ],
      "notified": [],
      "rules": [
-      "Byggs i utvecklingsfas 3."
+      "Kommer senare."
      ],
      "voice": false,
      "status": "senare"
@@ -3638,13 +3752,13 @@
    ],
    "sees": [
     "Bara ärenden där hen ingår i teamet, sorterade som Pågående, Väntar på start och Avslutade",
-    "Fyra flikar på deltagarkortet: Översikt, Närvaro, Praktik och Arbetsgivarkontakter och händelser",
+    "Fem flikar på deltagarkortet: Översikt, Tidslinje, Närvaro, Praktik och Arbetsgivarkontakter och händelser",
     "Deltagarens namn, kontaktväg, språk och anpassningsbehov. Personnumret visas bara maskerat.",
     "Kommande moment och praktikdagar sju dagar framåt",
     "Närvaro i teamärendena och om veckorapporten är publicerad eller väntar på närvaro",
     "Hela arbetsgivarregistret. I egna ärenden syns praktikplatserna med namn, i andra team bara som låsta rader utan namn.",
     "Sina egna notiser och flaggor för ärendet, utom eskaleringar till chefen och låga betyg i pulsmätningen",
-    "Planerat (rapporter steg 2): fliken Tidslinje med anteckningar som är skrivna för teamet"
+    "Fliken Tidslinje med aktiviteter, närvaro, praktik, arbetsgivarkontakter, statusbyten och anteckningar som är skrivna för teamet"
    ],
    "doesNotSee": [
     "Coachens anteckningar och bedömningar: kartläggning, veckoavstämningar, månadsbedömningar och avvikelser",
@@ -3654,7 +3768,8 @@
     "Samtycke, inspelningar och deltagarens röstmeddelanden",
     "Pulssvar, nyckeltal, fakturering, avropsinkorgen och revisionsloggen",
     "Ärenden där hen inte ingår i teamet",
-    "Planerat (rapporter steg 2): anteckningar som bara är för Miljonbemannings ansvariga"
+    "Anteckningar som bara är för Miljonbemannings ansvariga",
+    "Bygg rapport (rapportbyggaren)"
    ],
    "tips": [
     "Registrera närvaron direkt efter tillfället. Då kan veckorapporten publiceras tidigt och huvudcoachen slipper påminnelser.",
@@ -3668,7 +3783,7 @@
    "org": "Ingen organisation – anvisad av Botkyrka kommun",
    "side": "deltagare",
    "oneLiner": "Personen som kommunen anvisar. Deltagaren går på möten, yrkesmoment och praktik, sätter veckomål tillsammans med sin coach och kan säga vad hen tycker via pulsmätning och röstmeddelanden, utan att logga in.",
-   "login": "Ingen inloggning. Deltagaren använder engångslänkar i SMS eller mejl för pulsmätning och röstmeddelande. Utskicken av länkarna är inte inkopplade ännu. Inloggning med BankID kommer senare (fas 4).",
+   "login": "Ingen inloggning. Deltagaren använder engångslänkar i SMS eller mejl för pulsmätning och röstmeddelande. Utskicken av länkarna är inte inkopplade ännu. Inloggning med BankID kommer senare.",
    "startPage": "/puls/:token – Pulsmätning (länk utan inloggning)",
    "rhythm": [
     {
@@ -4130,7 +4245,7 @@
      ],
      "notified": [],
      "rules": [
-      "Byggs i utvecklingsfas 3."
+      "Kommer senare."
      ],
      "voice": false,
      "status": "senare"
@@ -4192,8 +4307,8 @@
       "Se din plan och de tider du har bokat.",
       "Boka tider och svara på pulsmätningar direkt i deltagarvyn."
      ],
-     "where": "Deltagarvyn (byggs i fas 4)",
-     "trigger": "När deltagarinloggningen är byggd",
+     "where": "Deltagarvyn (kommer senare)",
+     "trigger": "När inloggningen för deltagare finns",
      "deadline": "",
      "result": "Du ser din egen plan utan att behöva fråga coachen.",
      "handoffTo": [
@@ -4261,7 +4376,7 @@
     },
     {
      "when": "Vid behov",
-     "what": "Avtalsavvikelser, varningar, viten och avropsstopp. Resultatflaggor. Lågt betyg på stödet från coachen."
+     "what": "Avtalsavvikelser, varningar, viten och avropsstopp. Resultatflaggor. Lågt betyg på stödet från coachen. Egna sammanställningar i Bygg rapport."
     }
    ],
    "steps": [
@@ -4375,7 +4490,7 @@
      ],
      "rules": [
       "Huvudcoachen påminns fredag 14.00 och måndag 08.00.",
-      "Rapporten publiceras när handläggarens alla deltagare är registrerade, senast klockan 16.00.",
+      "Rapporten publiceras automatiskt när närvaron för handläggarens alla deltagare är registrerad. Saknas närvaro klockan 16.00 publiceras den inte av sig själv – den väntar tills närvaron är registrerad.",
       "Tiderna kommer från avtalskonfigurationen – de är aldrig inskrivna i koden."
      ],
      "voice": false,
@@ -4431,7 +4546,7 @@
      "rules": [
       "Rapporter byggs bara av godkända uppgifter – aldrig direkt från råtranskript.",
       "Sista dag är ett förslag tills Botkyrka bekräftat den (öppen fråga 8).",
-      "Kravspecen säger att coachen ska påminnas 3 arbetsdagar före, samordnaren 1 dag före och chefen på förfallodagen. De påminnelserna är inte byggda än."
+      "Enligt kravspecifikationen ska coachen påminnas 3 arbetsdagar före, samordnaren 1 dag före och chefen på förfallodagen. De påminnelserna kommer senare. I dag syns rapporten i Förfaller."
      ],
      "voice": false,
      "status": "finns"
@@ -4475,7 +4590,7 @@
       "Lämna synpunkter till avtalsansvarig, som godkänner och levererar rapporten."
      ],
      "where": "/ledning – Ledningsvy, kortet Så ser kommunens chef resultatet · /rapporter – Rapporter (läsläge)",
-     "trigger": "Efter månadsskiftet, när utkastet till beställarrapport finns.",
+     "trigger": "Efter månadsskiftet. Utkastet till beställarrapport skapas automatiskt när månaden är slut, ett per aktiv chef på kommunen.",
      "deadline": "",
      "result": "Avtalsansvarig godkänner och levererar rapporten till kommunens chef i portalen.",
      "handoffTo": [
@@ -4485,7 +4600,7 @@
       "Kommunens chef får ”Ny rapport i portalen” utan personuppgifter när rapporten levererats."
      ],
      "rules": [
-      "Det interna målet 35 procent, prognosen, jämförelsen per coach och flaggorna visas aldrig för kommunen.",
+      "Det interna målet, prognosen, jämförelsen per coach och flaggorna visas aldrig för kommunen.",
       "Grupper med färre än 5 personer redovisas som färre än 5.",
       "Statistik om svarstider visas inte för kommunen (öppen fråga 17).",
       "Beställarrapportens innehåll och hur ofta den kommer ska bestämmas med Botkyrka (öppen fråga 14)."
@@ -4548,7 +4663,7 @@
     {
      "phase": "avslut",
      "title": "Följ resultatgraden och kvittera resultatflaggor",
-     "why": "Avtalsmålet är att minst 32 procent går vidare till arbete eller studier, och Miljonbemannings interna mål är 35 procent.",
+     "why": "Avtalsmålet är att minst 32 procent går vidare till arbete eller studier, och Miljonbemanning har ett högre internt mål.",
      "how": [
       "Öppna Ledningsvy, fliken Resultat och KPI:er.",
       "Läs Resultatgrad, rullande 6 mån och Sedan avtalsstart, med antal avslut bredvid procenten.",
@@ -4556,7 +4671,7 @@
       "Vid flagga: klicka Kvittera flaggan, skriv en Kort åtgärdsplan och klicka Kvittera med åtgärdsplan."
      ],
      "where": "/ledning – Ledningsvy, kortet Resultatgrad mot mål",
-     "trigger": "Coachen har registrerat ett avslut med verifierat resultat. Flaggan ”Bevaka” under 35 procent och ”Åtgärd krävs” under 32 procent.",
+     "trigger": "Coachen har registrerat ett avslut med verifierat resultat. Flaggan ”Bevaka” under det interna målet och ”Åtgärd krävs” under 32 procent.",
      "deadline": "",
      "result": "Flaggan är kvitterad med en åtgärdsplan. Vid ”Åtgärd krävs” har även avtalsansvarig fått flaggan.",
      "handoffTo": [
@@ -4693,7 +4808,7 @@
     {
      "phase": "uppfoljning",
      "title": "Registrera varning, vite och avropsstopp",
-     "why": "Tre skriftliga varningar kan leda till uppsägning av avtalet och vitet är 25 000 kronor per tillfälle, så ledningen måste ha full kontroll.",
+     "why": "Tre skriftliga varningar kan leda till uppsägning av avtalet och kommunen kan ta ut vite, så ledningen måste ha full kontroll.",
      "how": [
       "Öppna avvikelsen och kortet Varning, vite och avropsstopp.",
       "Klicka Ändra.",
@@ -4751,7 +4866,7 @@
       "Klicka på ett ärendenummer för att öppna deltagarkortet. Överst står Läsläge.",
       "Personnumret visas maskerat. Visa det bara om det behövs – visningen loggas.",
       "Rapporter öppnas i läsläge.",
-      "Planerat (rapporter steg 2): i deltagarkortet finns också flikarna Tidslinje och Månadsunderlag. Du läser anteckningarna men skriver inga."
+      "I deltagarkortet finns också flikarna Tidslinje och Månadsunderlag. Du läser anteckningarna men skriver inga."
      ],
      "where": "/arenden – Ärenden · /arenden/:caseId – Deltagarkort · /rapporter – Rapporter",
      "trigger": "Vid behov, till exempel inför ett samtal med en coach eller med kommunen.",
@@ -4766,14 +4881,50 @@
       "Visning av deltagarkort, rapporter och transkript loggas.",
       "Deltagare med skyddade personuppgifter visas bara som ärendenummer och ”Skyddade personuppgifter”.",
       "Läs bara det du behöver för uppdraget.",
-      "Rapporter kan laddas ner som PDF med Ladda ner PDF (byggs). Nedladdningen loggas."
+      "Rapporter kan laddas ner som PDF med Ladda ner PDF. Nedladdningen loggas."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "uppfoljning",
+     "title": "Bygg en egen rapport i rapportbyggaren",
+     "why": "Ledningen behöver ibland en egen sammanställning av resultat, närvaro eller progression, till exempel inför ett kvalitetsmöte eller ett möte med kommunen.",
+     "how": [
+      "Klicka Bygg rapport i menyn och sedan Ny rapport.",
+      "Steg 1 Börja med: välj en färdig mall, till exempel Närvaro per månad eller Resultatgrad per avtalsområde, eller börja från början med Deltagarmånader, Avslut, Händelser eller Progression. Klicka Nästa.",
+      "Steg 2 Urval: välj period – De senaste hela månaderna eller Välj månader, högst 12 – och vid behov vilka avtalsområden, yrkesspår eller enheter som ska vara med.",
+      "Steg 3 Visa: välj Sammanställning (rekommenderas) eller Lista med en rad per deltagare. För en sammanställning väljer du Dela upp efter, Dela upp per tid, ett till fyra mått och om du vill ha ett stapeldiagram. Förhandsvisningen visar tabellen.",
+      "Steg 4 Spara: skriv Namn på rapporten och välj Bara jag eller Alla på Miljonbemanning i avtalet. Klicka Spara rapporten, eller Hämta som Excel, CSV eller PDF."
+     ],
+     "where": "/rapportbyggare – Rapportbyggare (menyn Bygg rapport, gruppen Insyn) och /rapportbyggare/ny – Ny rapport",
+     "trigger": "Du behöver en sammanställning som inte finns i Ledningsvyn eller som färdig rapport.",
+     "deadline": "",
+     "result": "Rapporten finns under Mina rapporter. Delar du den inom Miljonbemanning ser de andra den under Delade inom Miljonbemanning.",
+     "handoffTo": [
+      "avtalsansvarig",
+      "samordnare"
+     ],
+     "notified": [
+      "Inga utskick"
+     ],
+     "rules": [
+      "Rapporten bygger bara på levererade månads- och slutrapporter – aldrig på utkast, anteckningar eller inspelningar.",
+      "Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem.",
+      "Ärendenummer och namn kan aldrig väljas som urval eller uppdelning. En lista med en rad per deltagare visas bara som antal på skärmen – raderna finns bara i filen.",
+      "Skriv inga namn, personnummer eller ärendenummer i rapportens namn. Filnamnet har aldrig rapportens namn.",
+      "Bara den som skapade rapporten kan ändra den. Andra kan klicka Gör en kopia.",
+      "Du kan spara egna rapporter, dela dem inom Miljonbemanning och arkivera dem. Du kan inte dela med kommunen – det gör avtalsansvarig. Är din rapport delad med kommunen kan du varken ändra eller arkivera den. Be då avtalsansvarig sluta dela den först.",
+      "I Miljonbemannings läge visar rapporten både avtalsmålet och det interna målet. Kommunens chef ser aldrig det interna målet.",
+      "Under Färdiga rapporter finns Resultatfil för hela avtalet: samma kolumner som filen kommunens chef hämtar, men för alla ärenden i avtalet utom de skyddade. Varje hämtning loggas.",
+      "Varje visning av en sparad rapport och varje hämtad fil sparas i revisionsloggen, utan namn och utan rapportens namn. Rapporter raderas aldrig – de arkiveras."
      ],
      "voice": false,
      "status": "finns"
     }
    ],
    "sees": [
-    "Ledningsvyn: resultatgrad mot avtalsmålet 32 procent och internt mål 35 procent, prognos, trend per månad och alla nyckeltal",
+    "Ledningsvyn: resultatgrad mot avtalsmålet 32 procent och det interna målet, prognos, trend per månad och alla nyckeltal",
     "Flaggor för chef och controller, eskaleringar under Tidig uppmärksamhet och lågt betyg på stödet från coachen",
     "Jämförelse per coach och per avtalsområde",
     "Förfaller i dag och denna vecka – alla tidsgränser i avtalet med eskaleringsväg",
@@ -4783,14 +4934,15 @@
     "Fakturering i läsläge och ofakturerade belopp",
     "Revisionsloggen och den månatliga loggkontrollen",
     "Pulsmätningens sammanställning (från 5 svar)",
-    "Planerat (rapporter steg 2): Tidslinjen, Månadsunderlaget och de fria anteckningarna i deltagarkortet, i läsläge"
+    "Tidslinjen, Månadsunderlaget och de fria anteckningarna i deltagarkortet, i läsläge",
+    "Bygg rapport: egna rapporter, rapporter som delats inom Miljonbemanning eller med kommunen, och Resultatfil för hela avtalet"
    ],
    "doesNotSee": [
     "Namn och detaljer för deltagare med skyddade personuppgifter – bara ärendenummer och status",
     "Vem som har svarat i pulsmätningen – bara datum och betyg",
     "Avropsinkorgen och mejlen till avrop@ (samordnare och avtalsansvarig)",
     "Avtalskonfiguration, användare, mallar, utskickslogg och integrationer (systemadministratör)",
-    "Knappar för att ändra ärenden, godkänna rapporter eller fakturera – allt är läsläge"
+    "Knappar för att ändra ärenden, godkänna eller leverera rapporter och fakturera. Det du själv gör: kvitterar flaggor, signerar loggkontrollen, hanterar avtalsavvikelser och bygger egna rapporter i Bygg rapport (som du inte kan dela med kommunen)."
    ],
    "tips": [
     "Kvittera alltid med en konkret åtgärdsplan: vad görs, av vem och när. Den sparas med ditt namn och syns under Kvitterade flaggor.",
@@ -5258,8 +5410,8 @@
    ],
    "doesNotSee": [
     "Deltagarens namn (visas som ”–”), personnummer och kontaktuppgifter",
-    "Coachens anteckningar: kartläggning, avstämningar, bedömningar och avvikelser",
-    "Rapporter: veckorapport, månadsrapport, slutrapport och beställarrapport",
+    "Coachens anteckningar: kartläggning, avstämningar, bedömningar, avvikelser och de fria anteckningarna i deltagarkortet",
+    "Rapporter: veckorapport, månadsrapport, slutrapport och beställarrapport, och Bygg rapport (rapportbyggaren)",
     "Meddelanden mellan kommunen och Miljonbemanning",
     "Orsak till frånvaro eller paus",
     "Andra flaggor än ofakturerade veckor, nyckeltal, Förfaller och revisionsloggen",
@@ -5282,11 +5434,11 @@
    "rhythm": [
     {
      "when": "Dagligen, på morgonen",
-     "what": "Underbiträden och integrationer: bakgrundsjobb, fel senaste dygnet och att avrop@ läses."
+     "what": "Underbiträden och integrationer: bakgrundsjobb, fel senaste dygnet och att avrop@ läses (när inläsningen är inkopplad)."
     },
     {
      "when": "Varje vecka, måndag efter klockan 08.00 och 16.00",
-     "what": "Kontrollera att närvaropåminnelser, progressionspåminnelser och publiceringen av veckorapporter har gått."
+     "what": "Kontrollera läget för närvaropåminnelser, progressionspåminnelser och veckorapporter. Påminnelserna visas i appen – mejl om dem kommer senare."
     },
     {
      "when": "Varje vecka",
@@ -5354,7 +5506,8 @@
       "Utskick innehåller bara ärendenummer och en länk till portalen – aldrig namn eller personnummer.",
       "En mall som innehåller något som liknar ett personnummer går inte att spara.",
       "Bara systemadministratören sparar nya versioner. Samordnaren kan pröva texten.",
-      "Rapporter skickas aldrig som bilaga i e-post – avtalet tillåter det inte."
+      "Rapporter skickas aldrig som bilaga i e-post – avtalet tillåter det inte.",
+      "Mallen Inloggningskod har fast text och kan inte ändras här. Miljonmatch tar fram koden och skickar mejlet själv från notis@miljonmatch.se – Supabase skickar inga mejl. Mejlet har ingen länk, och koden sparas aldrig."
      ],
      "voice": false,
      "status": "finns"
@@ -5391,29 +5544,30 @@
     {
      "phase": "vecka",
      "title": "Kontrollera måndagens automatiska jobb",
-     "why": "Påminnelser, eskaleringar och veckorapporter måste gå ut i tid, annars missas avtalskrav.",
+     "why": "Coacherna behöver påminnelser och veckorapporterna ska nå kommunen i tid, annars missas avtalskrav.",
      "how": [
       "Öppna Underbiträden och integrationer och tabellen Bakgrundsjobb.",
       "Påminnelser om närvaroregistrering: fredag 14.00 och måndag 08.00.",
       "Progressionspåminnelser: måndag 08.00. Resultatet visar påminnelser till coacher och eskaleringar till chef.",
-      "Publicera veckorapporter: måndag när närvaron är komplett, senast 16.00. Resultatet visar hur många som väntar på närvaro.",
-      "Har ett jobb fel: klicka Kör nu och läs felorsaken."
+      "Publicera veckorapporter: måndag när närvaron är komplett – senast 16.00 enligt avtalet. Resultatet visar hur många som väntar på närvaro.",
+      "Kör nu sparar bara en rad i revisionsloggen. Knappen skickar inga påminnelser och publicerar inga rapporter."
      ],
      "where": "/admin/integrationer – Underbiträden och integrationer, tabellen Bakgrundsjobb",
      "trigger": "Måndag efter klockan 08.00 och efter klockan 16.00.",
      "deadline": "Veckorapporten publicerad senast måndag klockan 16.00",
-     "result": "Veckans automatiska utskick har gått, eller felet är åtgärdat.",
+     "result": "Du ser läget för påminnelser och veckorapporter. Rapportutkasten syns i revisionsloggen som Skapade rapportutkast.",
      "handoffTo": [
       "samordnare"
      ],
      "notified": [
-      "Huvudcoacher: påminnelse om närvaro och progression. Chef: eskalering efter två veckor utan progression. Kommunens handläggare: ”Ny rapport i portalen”. Inga personuppgifter i något utskick."
+      "Kommunens handläggare: Ny rapport i portalen när en veckorapport publiceras. Inga personuppgifter i utskicket.",
+      "Påminnelser till coacher och eskaleringar till chef visas i dag bara i appen. Mejl om dem kommer senare."
      ],
      "rules": [
       "Jobben körs av en skyddad adress som anropas varje minut. De hämtas ett i taget, kan köras om utan dubbletter, har ett begränsat antal försök och sparar felorsaken.",
       "”Kör nu” loggas i revisionsloggen.",
-      "I dag räknas påminnelser och eskaleringar fram direkt i appen. De schemalagda utskicken kopplas in senare.",
-      "Byggs (rapporter steg 1): ett eget jobb skapar rapportutkasten högst var tionde minut – veckorapporter när veckan är slut, månads- och beställarrapporter när månaden är slut. Varje skapat utkast syns i revisionsloggen som Skapade rapportutkast."
+      "Raderna för påminnelser och veckorapporter räknas fram när sidan visas. Påminnelser och eskaleringar visas bara i appen – mejl om dem kommer senare.",
+      "Ett eget jobb skapar rapportutkasten högst var tionde minut: veckorapporter när veckan är slut, och månadsrapporter och beställarrapporter när månaden är slut. Varje skapat utkast syns i revisionsloggen som Skapade rapportutkast."
      ],
      "voice": false,
      "status": "finns"
@@ -5514,7 +5668,7 @@
       "kommun_chef"
      ],
      "notified": [
-      "Mejl ”Inbjudan till Miljonbemannings portal” – utan personuppgifter. Koden kommer i ett separat mejl."
+      "Mejl ”Inbjudan till Miljonbemannings portal” – utan personuppgifter. Koden kommer i ett eget mejl från notis@miljonmatch.se (Din inloggningskod till Miljonmatch) när personen klickar Skicka kod, utan länk."
      ],
      "rules": [
       "Avtalsansvarig kan också bjuda in kommunanvändare.",
@@ -5672,6 +5826,7 @@
      "notified": [],
      "rules": [
       "SMS-mottagare visas maskerade. Utskick loggas med mottagarens id-nummer.",
+      "Inloggningskoder syns som Inloggningskod skickad (••••••). Koden finns aldrig i loggen eller i databasen.",
       "En incident meddelas kommunen enligt personuppgiftsbiträdesavtalet."
      ],
      "voice": false,
@@ -5725,7 +5880,7 @@
      "rules": [
       "Loggen kan inte ändras eller raderas.",
       "Systemadministratören läser loggen men signerar inte loggkontrollen – det gör chef.",
-      "Byggs: nedladdade rapporter syns som Laddade ner rapport. Planerat (rapporter steg 3): kommunens hämtningar av resultatfilen syns som Exporterade resultat."
+      "Rapporter och filer syns i loggen: Laddade ner rapport (PDF), Exporterade resultat (kommunens resultatfil), Exporterade resultat för hela avtalet, Visade sparad rapport och Exporterade rapport (rapportbyggaren), Skrev anteckning och Tog bort anteckning. Loggen har bara id-nummer – aldrig namn, rapportnamn eller anteckningarnas text."
      ],
      "voice": false,
      "status": "finns"
@@ -5789,14 +5944,14 @@
     "Mallar och utskicksloggen",
     "Revisionsloggen (läsa, filtrera, exportera)",
     "Ärenden och deltagarkort i läsläge (visningen loggas)",
-    "Planerat: flikarna Tidslinje och Månadsunderlag (innehållet i den kommande månadsrapporten) och de fria anteckningarna, i läsläge och bara i ärenden utan skyddade personuppgifter."
+    "Flikarna Tidslinje och Månadsunderlag (innehållet i den kommande månadsrapporten) och de fria anteckningarna, i läsläge och bara i ärenden utan skyddade personuppgifter."
    ],
    "doesNotSee": [
     "Namn och detaljer för deltagare med skyddade personuppgifter – bara ärendet",
-    "Ledningsvyn, Förfaller, sidan Rapporter, Avtalsavvikelser och Fakturering (chef, ekonom och avtalsansvarig)",
+    "Ledningsvyn, Förfaller, sidan Rapporter, Bygg rapport, Avtalsavvikelser och Fakturering (chef, ekonom, samordnare och avtalsansvarig)",
     "Knappar för att arbeta i ärenden, bedömningar eller rapporter – systemadministratören arbetar inte i ärendena",
     "Loggkontrollen att signera – det gör chef",
-    "Lösenord – Microsoft hanterar inloggning och tvåstegsverifiering"
+    "Lösenord – det finns inga. Personalen loggar in med e-post och kod. Med Microsoft-inloggningen (senare) sköter Microsoft lösenord och tvåstegsverifiering."
    ],
    "tips": [
     "Ett nytt verktyg som behandlar personuppgifter, till exempel felrapportering, läggs in som underbiträde och godkänns av kommunen innan det används.",
@@ -5839,7 +5994,7 @@
     "id": "manad",
     "name": "Varje månad",
     "when": "Efter månadsskiftet",
-    "summary": "Coachen bedömer deltagarens progression per område och levererar månadsrapporten. Systemet räknar fram fakturaunderlaget och ekonomen gör fakturakörningen. Avtalsansvarig godkänner beställarrapporten till kommunens chef. Utkasten till månadsrapporterna och beställarrapporten skapas automatiskt när månaden är slut (byggs).",
+    "summary": "Coachen bedömer deltagarens progression per område och levererar månadsrapporten. Systemet räknar fram fakturaunderlaget och ekonomen gör fakturakörningen. Avtalsansvarig godkänner beställarrapporten till kommunens chef. Utkasten till månadsrapporterna och beställarrapporten skapas automatiskt när månaden är slut.",
     "contractRule": "Progressionsrapport per deltagare varje månad (punkt 7.8). Förslag på sista dag: 5:e arbetsdagen efter månadsskiftet (ej fastställt). Fakturering månadsvis i efterskott som e-faktura, en faktura per ärende och månad. Samlingsfaktura är inte tillåten. En vecka faktureras i den månad där torsdagen infaller. Betalning 30 dagar efter godkänd leverans och korrekt faktura."
    },
    {
@@ -5853,8 +6008,8 @@
     "id": "uppfoljning",
     "name": "Löpande uppföljning och kvalitet",
     "when": "Hela tiden",
-    "summary": "Ledningen följer resultat, nyckeltal, flaggor och pulsmätningen. Samordnaren ordnar kontakt när en deltagare vill bli kontaktad. Avtalsansvarig hanterar avtalsavvikelser och åtgärdsplaner som kommunen godkänner. Systemadministratören sköter avtalskonfiguration, användare, mallar och bakgrundsjobb. Chefen kontrollerar revisionsloggen varje månad.",
-    "contractRule": "Avvikelser finns på tre nivåer (mindre, större, allvarlig) och hanteras i en eskaleringstrappa. Kommunen godkänner åtgärdsplaner. Tre skriftliga varningar kan leda till uppsägning. Vite 25 000 kronor per tillfälle vid avvikelse eller bristfällig information. Statistik lämnas kostnadsfritt högst två gånger per år."
+    "summary": "Ledningen följer resultat, nyckeltal, flaggor och pulsmätningen. Samordnaren ordnar kontakt när en deltagare vill bli kontaktad. Avtalsansvarig hanterar avtalsavvikelser och åtgärdsplaner som kommunen godkänner. Systemadministratören sköter avtalskonfiguration, användare, mallar och bakgrundsjobb. Chefen kontrollerar revisionsloggen varje månad. Samordnare, avtalsansvarig och chef bygger egna rapporter i Bygg rapport, och avtalsansvarig kan dela dem med kommunens chef.",
+    "contractRule": "Avvikelser finns på tre nivåer (mindre, större, allvarlig) och hanteras i en eskaleringstrappa. Kommunen godkänner åtgärdsplaner. Tre skriftliga varningar kan leda till uppsägning. Vite enligt avtalet vid avvikelse eller bristfällig information. Statistik lämnas kostnadsfritt högst två gånger per år."
    }
   ],
   "journey": [
@@ -5869,7 +6024,7 @@
     "role": "system",
     "phase": "bestallning",
     "title": "Ger ärendenummer och skickar ordererkännande",
-    "detail": "Ärendet får ett ärendenummer i samma ögonblick som det skapas, till exempel BOT-26-0042. Numret används aldrig igen och innehåller inga personuppgifter. Det är beställningens nummer på alla rapporter och fakturor. Ordererkännandet säger bara att beställningen är mottagen och när besked kommer. Saknas beställarreferens eller avtalsområde står det i svaret. Portalen: kvittot Tack! Beställningen är skickad visas direkt och samma text kommer i ett mejl (finns). Mejl till avrop@: läses var 2–5 minut och besvaras inom 5 minuter när kopplingen via Microsoft Graph är klar (senare). Klockan för svar, en arbetsdag, startar när beställningen kommer in. Skyddade personuppgifter: ingen automatik, bara en kort bekräftelse och en uppgift till avtalsansvarig.",
+    "detail": "Ärendet får ett ärendenummer i samma ögonblick som det skapas, till exempel BOT-26-0042. Numret används aldrig igen och innehåller inga personuppgifter. Det är beställningens nummer på alla rapporter och fakturor. Ordererkännandet säger bara att beställningen är mottagen och när besked kommer. Saknas beställarreferens eller avtalsområde står det i svaret. Portalen: kvittot Tack! Beställningen är skickad visas direkt och samma text kommer i ett mejl. Mejl till avrop@: läses var 2–5 minut och besvaras inom 5 minuter när kopplingen via Microsoft Graph är klar (senare). Klockan för svar, en arbetsdag, startar när beställningen kommer in. Skyddade personuppgifter: ingen automatik, bara en kort bekräftelse och en uppgift till avtalsansvarig.",
     "handoff": "Ärendet hamnar i Avropsinkorgen hos samordnaren."
    },
    {
@@ -5960,14 +6115,14 @@
     "role": "system",
     "phase": "vecka",
     "title": "Påminner och eskalerar",
-    "detail": "Närvaro: huvudcoacher som saknar registrering i sina ärenden får en påminnelse fredag 14.00 och måndag 08.00. Måndag 10.00 är sista tid. Det som saknas blir Försenat i Förfaller i dag och denna vecka och går vidare till samordnaren och sedan chefen. Progression: måndag 08.00 får coachen en påminnelse om ärenden utan dokumenterad progression förra veckan, det vill säga veckomålet nåddes inte eller det finns ingen godkänd avstämning. Efter två veckor i rad eskaleras ärendet till chefen. Coachen ser inte eskaleringen. Påminnelser och eskaleringar visas i appen (finns). Schemalagda mejl i drift kommer senare.",
+    "detail": "Närvaro: huvudcoacher som saknar registrering i sina ärenden får en påminnelse fredag 14.00 och måndag 08.00. Måndag 10.00 är sista tid. Det som saknas blir Försenat i Förfaller i dag och denna vecka och går vidare till samordnaren och sedan chefen. Progression: måndag 08.00 får coachen en påminnelse om ärenden utan dokumenterad progression förra veckan, det vill säga veckomålet nåddes inte eller det finns ingen godkänd avstämning. Efter två veckor i rad eskaleras ärendet till chefen. Coachen ser inte eskaleringen. Påminnelser och eskaleringar visas i appen. Mejl om dem kommer senare.",
     "handoff": "Försenad registrering går till samordnaren. Eskaleringen går till chefen."
    },
    {
     "role": "system",
     "phase": "vecka",
     "title": "Publicerar veckorapporten",
-    "detail": "Varje handläggare får en veckorapport med en del per deltagare: planerade tillfällen, närvaro, frånvaro med orsak, åtgärd vid ogiltig frånvaro och risk. Rapporten publiceras automatiskt så fort alla handläggarens deltagare har registrerad närvaro (finns). Byggs: rapporten skapas också automatiskt när veckan är slut, en per handläggare. Avtalets sista tid är måndag 16.00 för förra veckan. Innehållet låses vid leveransen. Handläggaren får mejlet Ny rapport i portalen, utan personuppgifter. Den tidsstyrda körningen 16.00 i drift kommer senare.",
+    "detail": "Varje handläggare får en veckorapport med en del per deltagare: planerade tillfällen, närvaro, frånvaro med orsak, åtgärd vid ogiltig frånvaro och risk. Rapporten skapas automatiskt när veckan är slut, en per handläggare som har minst en inskriven deltagare. Den publiceras automatiskt så fort alla handläggarens deltagare har registrerad närvaro – är allt redan registrerat publiceras den direkt. Avtalets sista tid är måndag 16.00 för förra veckan. Saknas närvaro då publiceras rapporten inte av sig själv – den väntar tills närvaron är registrerad, och samordnaren följer upp. Innehållet låses vid leveransen. Handläggaren får mejlet Ny rapport i portalen, utan personuppgifter, och kan ladda ner rapporten som PDF.",
     "handoff": "Veckorapporten går till kommunens handläggare."
    },
    {
@@ -5981,14 +6136,14 @@
     "role": "coach",
     "phase": "manad",
     "title": "Gör månadsbedömningen",
-    "detail": "Efter månadsskiftet visar Min vecka Månadsbedömningar för förra månaden. Klicka Bedöm. Bedöm förändringen jämfört med förra månaden i tio progressionsområden, till exempel närvaro och rutiner, yrkesfärdigheter, självständighet samt språk och kommunikation. Nivåerna är 0 Ingen eller för tidigt att bedöma, 1 Liten, 2 Tydlig och 3 Uppnått delmål. Nivån är tom tills du väljer. Från nivå 1 krävs en konkret observation. Fyll i samlad status, en kort sammanfattning och plan för nästa månad. Knappen Skapa AI-utkast från godkända avstämningar ger textförslag med källor (simulerad AI i testmiljön). Nivåerna väljer du alltid själv. Klicka Godkänn bedömningen. Planerat (rapporter steg 2): panelen Anteckningar från månaden, där du själv lägger till det som behövs i sammanfattningen. Tydlig progression räknas då bara på de obligatoriska områdena i statistiken till kommunen.",
+    "detail": "Efter månadsskiftet visar Min vecka Månadsbedömningar för förra månaden. Klicka Bedöm. Bedöm förändringen jämfört med förra månaden i tio progressionsområden, till exempel närvaro och rutiner, yrkesfärdigheter, självständighet samt språk och kommunikation. Nivåerna är 0 Ingen eller för tidigt att bedöma, 1 Liten, 2 Tydlig och 3 Uppnått delmål. Nivån är tom tills du väljer. Från nivå 1 krävs en konkret observation. Fyll i samlad status, en kort sammanfattning och plan för nästa månad. Knappen Skapa AI-utkast från godkända avstämningar ger textförslag med källor (simulerad AI i testmiljön). Nivåerna väljer du alltid själv. Klicka Godkänn bedömningen. Panelen Anteckningar från månaden visar månadens fria anteckningar. Klicka Lägg till i sammanfattningen vid det som behövs och skriv om texten för kommunen – inget kommer med av sig självt. Tydlig och någon progression räknas bara på de obligatoriska områdena i allt som når kommunen.",
     "handoff": "Den godkända bedömningen blir avsnittet om progression i månadsrapporten."
    },
    {
     "role": "coach",
     "phase": "manad",
     "title": "Godkänner och levererar månadsrapporten",
-    "detail": "Klicka Förhandsgranska månadsrapporten. Rapporten följer kommunens mall i åtta avsnitt: grunduppgifter, närvaro, aktiviteter, progression, resultat, avvikelser, plan och coachens sammanfattande bedömning. Den byggs bara av godkända uppgifter. Klicka Godkänn och sedan Leverera till kommunen. Samordnaren kan klicka Markera som kvalitetsgranskad. Föreslagen sista dag är 5:e arbetsdagen efter månadsskiftet (ej fastställt med Botkyrka). En försenad rapport ger flaggan Månadsrapport individ försenad till coach, samordnare och chef. Ett fel rättas med Rätta och Skapa ny version. Den gamla versionen sparas. Byggs (rapporter steg 1): utkastet till månadsrapporten skapas automatiskt när månaden är slut, och Ladda ner PDF sparar rapporten som fil i Miljonbemannings profil. Planerat (steg 2): fliken Månadsunderlag i deltagarkortet visar exakt vad som kommer med och vad som saknas.",
+    "detail": "Klicka Förhandsgranska månadsrapporten. Rapporten följer kommunens mall i åtta avsnitt: grunduppgifter, närvaro, aktiviteter, progression, resultat, avvikelser, plan och coachens sammanfattande bedömning. Den byggs bara av godkända uppgifter. Klicka Godkänn och sedan Leverera till kommunen. Samordnaren kan klicka Markera som kvalitetsgranskad. Föreslagen sista dag är 5:e arbetsdagen efter månadsskiftet (ej fastställt med Botkyrka). En försenad rapport ger flaggan Månadsrapport individ försenad till coach, samordnare och chef. Ett fel rättas med Rätta och Skapa ny version. Den gamla versionen sparas. Utkastet till månadsrapporten skapas automatiskt när månaden är slut, för deltagare som var inskrivna minst 11 dagar (avtalsinställning, ska bekräftas med Botkyrka). Fliken Månadsunderlag i deltagarkortet visar exakt vad som kommer med och vad som saknas. Ladda ner PDF ger rapporten som PDF-fil med Miljonbemannings logotyp och grafiska profil. Varje nedladdning loggas.",
     "handoff": "Månadsrapporten går till kommunens handläggare. Mejlet säger bara Ny rapport i portalen."
    },
    {
@@ -6009,14 +6164,14 @@
     "role": "avtalsansvarig",
     "phase": "manad",
     "title": "Godkänner och levererar beställarrapporten",
-    "detail": "Startsidan visar beställarrapporten med knappen Granska. Rapporten visar antal deltagare (aktiva, nya och avslutade) per avtalsområde och yrkesspår, resultat mot avtalsmålet 32 procent, progression, närvarograd, avvikelser och nöjdhet. Skriv sammanfattningen, eller klicka Använd förslaget och kontrollera texten. Klicka Godkänn beställarrapporten och sedan Leverera till kommunen. Det interna målet 35 procent visas aldrig för kommunen. Grupper med färre än 5 personer redovisas som färre än 5. Förfallodag och innehåll är inte fastställda med Botkyrka. Byggs: utkastet skapas automatiskt när månaden är slut.",
+    "detail": "Startsidan visar beställarrapporten med knappen Granska. Rapporten visar antal deltagare (aktiva, nya och avslutade) per avtalsområde och yrkesspår, resultat mot avtalsmålet 32 procent, progression, närvarograd, avvikelser och nöjdhet. Skriv sammanfattningen, eller klicka Använd förslaget och kontrollera texten. Klicka Godkänn beställarrapporten och sedan Leverera till kommunen. Det interna målet visas aldrig för kommunen. Grupper med färre än 5 personer redovisas som färre än 5. Förfallodag och innehåll är inte fastställda med Botkyrka. Utkastet skapas automatiskt när månaden är slut, ett per aktiv chef på kommunen.",
     "handoff": "Beställarrapporten går till kommunens chef."
    },
    {
     "role": "kommun_chef",
     "phase": "manad",
     "title": "Läser beställarrapporten",
-    "detail": "Logga in med e-post och en kod med sex siffror. Startsidan är Beställarrapport. Den visar resultat de senaste 6 månaderna mot avtalsmålet, aktiva, nya och avslutade deltagare, närvarograd, nöjdhet, progression per område och avvikelser. Under Väntar på ditt godkännande står åtgärdsplaner från Miljonbemanning. Klicka Godkänn åtgärdsplanen. Enhetens deltagare visar ärendena. Rapporten kan laddas ner som PDF (byggs). Under Hämta resultat (planerat, finns inte i appen än) hämtar chefen resultaten som en Excel- eller CSV-fil, med en rad per deltagare och levererad månad.",
+    "detail": "Logga in med e-post och en kod med sex siffror. Startsidan är Beställarrapport. Den visar resultat de senaste 6 månaderna mot avtalsmålet, aktiva, nya och avslutade deltagare, närvarograd, nöjdhet, progression per område och avvikelser. Under Väntar på ditt godkännande står åtgärdsplaner från Miljonbemanning. Klicka Godkänn åtgärdsplanen. Enhetens deltagare visar ärendena. Rapporten kan laddas ner som PDF. Under Hämta resultat hämtar chefen resultaten som en Excel- eller CSV-fil, med en rad per deltagare och levererad månad, och läser rapporter som Miljonbemanning har delat. Progressionen räknas bara på de obligatoriska områdena.",
     "handoff": "Godkännandet av en åtgärdsplan går direkt till Miljonbemanning."
    },
    {
@@ -6051,21 +6206,21 @@
     "role": "chef",
     "phase": "uppfoljning",
     "title": "Följer resultatet och kvitterar flaggor",
-    "detail": "Ledningsvyn visar allt i läsläge. Där finns resultatgraden för de senaste 6 månaderna och sedan avtalsstart, jämförd med avtalsmålet 32 procent och det interna målet 35 procent. Där finns också prognos, övriga nyckeltal, tidig uppmärksamhet, siffror per coach och per avtalsområde, pulsmätningen och ofakturerat. Under 35 procent kommer flaggan Bevaka. Under 32 procent kommer flaggan Åtgärd krävs, som också går till avtalsansvarig. Ingen flagga visas förrän det finns minst 10 avslut. Klicka Kvittera och skriv en kort åtgärdsplan. Varje månad: gör stickprov i Revisionslogg och klicka Signera loggkontrollen.",
+    "detail": "Ledningsvyn visar allt i läsläge. Där finns resultatgraden för de senaste 6 månaderna och sedan avtalsstart, jämförd med avtalsmålet 32 procent och det interna målet. Där finns också prognos, övriga nyckeltal, tidig uppmärksamhet, siffror per coach och per avtalsområde, pulsmätningen och ofakturerat. Under det interna målet kommer flaggan Bevaka. Under 32 procent kommer flaggan Åtgärd krävs, som också går till avtalsansvarig. Ingen flagga visas förrän det finns minst 10 avslut. Klicka Kvittera och skriv en kort åtgärdsplan. Varje månad: gör stickprov i Revisionslogg och klicka Signera loggkontrollen. I Bygg rapport kan ledningen göra egna sammanställningar av de levererade rapporterna.",
     "handoff": "Åtgärdsplanen går till samordnare och coacher."
    },
    {
     "role": "avtalsansvarig",
     "phase": "uppfoljning",
     "title": "Hanterar avtalsavvikelser och åtgärdsplaner",
-    "detail": "Öppna Avtalsavvikelser. Klicka Registrera avvikelse eller klagomål. Välj typ (kvalitet, process, avtal, ekonomi eller klagomål) och nivå (mindre, större eller allvarlig). Skriv en beskrivning utan namn. Klicka Skriv åtgärdsplan och sedan Spara och skicka till kommunen. Registret visar varningar, där tre skriftliga varningar kan leda till uppsägning, och vite på 25 000 kronor per tillfälle. Klicka Markera som klar och skriv lärdomar när åtgärden är gjord. Månadssammanställningen används på kvalitetsmötet.",
+    "detail": "Öppna Avtalsavvikelser. Klicka Registrera avvikelse eller klagomål. Välj typ (kvalitet, process, avtal, ekonomi eller klagomål) och nivå (mindre, större eller allvarlig). Skriv en beskrivning utan namn. Klicka Skriv åtgärdsplan och sedan Spara och skicka till kommunen. Registret visar varningar, där tre skriftliga varningar kan leda till uppsägning, och vite enligt avtalet. Klicka Markera som klar och skriv lärdomar när åtgärden är gjord. Månadssammanställningen används på kvalitetsmötet. Behöver kommunens chef en egen sammanställning bygger avtalsansvarig den i Bygg rapport och delar den med chefen.",
     "handoff": "Åtgärdsplanen går till kommunens chef, som godkänner den i portalen."
    },
    {
     "role": "admin",
     "phase": "uppfoljning",
     "title": "Håller avtal, användare och utskick i ordning",
-    "detail": "Avtal och konfiguration: tidsgränser, mål och priser. Värden som inte är fastställda märks Ej fastställt och används inte. Interna regler: påminnelser och eskalering (Spara reglerna). Användare och roller: Bjud in kommunanvändare, något som även avtalsansvarig gör, och Spärra. Mallar och utskick: Spara som version och Utskickslogg. Underbiträden och integrationer: bakgrundsjobben, med knappen Kör nu. Revisionslogg: Exportera (CSV). Personalen loggar in med e-post och kod tills vidare. Inloggning med Microsoft kommer senare.",
+    "detail": "Avtal och konfiguration: tidsgränser, mål och priser. Värden som inte är fastställda märks Ej fastställt och används inte. Interna regler: påminnelser och eskalering (Spara reglerna). Användare och roller: Bjud in kommunanvändare, något som även avtalsansvarig gör, och Spärra. Mallar och utskick: Spara som version och Utskickslogg. Underbiträden och integrationer: bakgrundsjobben, med knappen Kör nu. Revisionslogg: Exportera (CSV). Alla loggar in med e-post och en kod som Miljonmatch själv mejlar från notis@miljonmatch.se, utan länk. Inloggning med Microsoft för personalen kommer senare.",
     "handoff": ""
    }
   ],
@@ -6074,13 +6229,13 @@
     "day": "Måndag",
     "time": "Strax efter 00.00",
     "who": "Systemet",
-    "what": "Skapar veckorapporten om närvaro för förra veckan, en per handläggare som har minst en inskriven deltagare (byggs). Rapporten väntar på närvaron. Är all närvaro redan registrerad publiceras den direkt."
+    "what": "Skapar veckorapporten om närvaro för förra veckan, en per handläggare som har minst en inskriven deltagare. Rapporten väntar på närvaron. Är all närvaro redan registrerad publiceras den direkt."
    },
    {
     "day": "Måndag",
     "time": "08.00",
     "who": "Systemet",
-    "what": "Påminner huvudcoacher som har oregistrerad närvaro för förra veckan i sina ärenden. Coachen får också en påminnelse om ärenden utan progression förra veckan. Efter två veckor i rad eskaleras ärendet till chefen, utan att coachen ser det. Detta visas i appen. Schemalagda mejl kommer senare."
+    "what": "Påminner huvudcoacher som har oregistrerad närvaro för förra veckan i sina ärenden. Coachen får också en påminnelse om ärenden utan progression förra veckan. Efter två veckor i rad eskaleras ärendet till chefen, utan att coachen ser det. Detta visas i appen. Mejl om det kommer senare."
    },
    {
     "day": "Måndag",
@@ -6102,9 +6257,9 @@
    },
    {
     "day": "Måndag",
-    "time": "Senast 16.00",
+    "time": "Sista tid 16.00",
     "who": "Systemet",
-    "what": "Publicerar veckorapporten till varje handläggare så fort alla deltagare har registrerad närvaro. Handläggaren får mejlet Ny rapport i portalen. Den tidsstyrda körningen i drift kommer senare."
+    "what": "Publicerar veckorapporten till varje handläggare så fort alla deltagare har registrerad närvaro. Handläggaren får mejlet Ny rapport i portalen. Avtalets sista tid är måndag 16.00. Saknas närvaro då publiceras rapporten inte av sig själv – den väntar tills närvaron är registrerad, och samordnaren följer upp."
    },
    {
     "day": "Måndag–tisdag",
@@ -6189,7 +6344,7 @@
    {
     "when": "Den 1:a, strax efter midnatt",
     "who": "Systemet",
-    "what": "Skapar utkast till månadsrapport för varje deltagare som var inskriven minst 11 dagar under förra månaden (avtalsinställning, ska bekräftas med Botkyrka), och ett utkast till beställarrapport för varje chef på kommunen (byggs). Sista dagarna läses från avtalskonfigurationen. Varje skapat utkast loggas."
+    "what": "Skapar utkast till månadsrapport för varje deltagare som var inskriven minst 11 dagar under förra månaden (avtalsinställning, ska bekräftas med Botkyrka), och ett utkast till beställarrapport för varje aktiv chef på kommunen. Sista dagarna läses från avtalskonfigurationen. Varje skapat utkast loggas."
    },
    {
     "when": "Månadsskiftet",
@@ -6199,7 +6354,7 @@
    {
     "when": "Första arbetsdagarna efter månadsskiftet",
     "who": "Coach",
-    "what": "Gör månadsbedömningen för varje deltagare: nivå 0–3 per område, observation från nivå 1, samlad status, sammanfattning och plan för nästa månad. Den ska vara klar i så god tid att rapporten kan levereras senast 5:e arbetsdagen (förslag). Knappen Skapa AI-utkast från godkända avstämningar ger textförslag – nivåerna väljer coachen själv. Planerat (rapporter steg 2): fliken Månadsunderlag visar vad som saknas innan rapporten kan godkännas."
+    "what": "Gör månadsbedömningen för varje deltagare: nivå 0–3 per område, observation från nivå 1, samlad status, sammanfattning och plan för nästa månad. Den ska vara klar i så god tid att rapporten kan levereras senast 5:e arbetsdagen (förslag). Knappen Skapa AI-utkast från godkända avstämningar ger textförslag – nivåerna väljer coachen själv. Fliken Månadsunderlag i deltagarkortet visar vad som saknas innan rapporten kan godkännas, och panelen Anteckningar från månaden hjälper med sammanfattningen."
    },
    {
     "when": "Arbetsdag 1–3",
@@ -6224,7 +6379,7 @@
    {
     "when": "Varje månad (förfallodag ej fastställd)",
     "who": "Avtalsansvarig",
-    "what": "Granskar beställarrapporten, skriver eller godkänner sammanfattningen, klickar Godkänn beställarrapporten och levererar den till kommunens chef. Utkastet skapas automatiskt när månaden är slut (byggs)."
+    "what": "Granskar beställarrapporten, skriver eller godkänner sammanfattningen, klickar Godkänn beställarrapporten och levererar den till kommunens chef. Utkastet skapas automatiskt när månaden är slut."
    },
    {
     "when": "Efter leverans",
@@ -6249,7 +6404,7 @@
    {
     "when": "Varje dag, för de senaste 6 månaderna",
     "who": "Systemet till chef",
-    "what": "Resultatgrad under 35 procent ger flaggan Bevaka till chef och controller. Under 32 procent ges flaggan Åtgärd krävs, som också går till avtalsansvarig. Ingen flagga förrän det finns minst 10 avslut."
+    "what": "Resultatgrad under det interna målet ger flaggan Bevaka till chef och controller. Under 32 procent ges flaggan Åtgärd krävs, som också går till avtalsansvarig. Ingen flagga förrän det finns minst 10 avslut."
    },
    {
     "when": "Efter godkänd leverans",
@@ -6258,23 +6413,30 @@
    },
    {
     "when": "Vid behov",
+    "who": "Samordnare, avtalsansvarig och chef",
+    "what": "Bygger egna rapporter i Bygg rapport av de levererade månads- och slutrapporterna. Avtalsansvarig kan dela en rapport med kommunens chef, som ser den under Hämta resultat."
+   },
+   {
+    "when": "Vid behov",
     "who": "Kommunens chef",
-    "what": "Hämtar resultatfilen (Excel eller CSV) med en rad per deltagare och levererad månad (planerat, finns inte i appen än). Om filen räknas som statistik på begäran, högst två gånger per år, är inte bestämt."
+    "what": "Hämtar resultatfilen (Excel eller CSV) under Hämta resultat, med en rad per deltagare och levererad månad. Varje hämtning loggas. Om filen räknas som statistik på begäran, högst två gånger per år, är inte bestämt."
    }
   ],
   "rulesForAll": [
    "Du ser bara det du behöver. Behörigheten styrs av avtal, roll och vilka ärenden du är tilldelad. Ekonomen ser inga anteckningar, och handledaren ser bara sina egna ärenden.",
    "Skriv aldrig personuppgifter i e-post, SMS, länkar eller felmeddelanden. Använd ärendenumret, till exempel BOT-26-0042.",
    "Personnummer visas maskerat. Väljer du att visa det sparas det i revisionsloggen.",
-   "Allt loggas: när någon öppnar ett deltagarkort, en rapport eller ett transkript, alla ändringar, exporter och AI-körningar. Loggen kan inte ändras i efterhand.",
+   "Allt loggas: när någon öppnar ett deltagarkort, en rapport eller ett transkript, laddar ner en rapport eller hämtar en fil, alla ändringar och AI-körningar. Loggen kan inte ändras i efterhand.",
    "AI föreslår och människan bedömer. AI väljer aldrig nivå, samlad status, avslutsorsak eller resultat. Fälten är tomma tills du själv väljer.",
    "Allt som AI skrivit är märkt AI-utkast tills en människa har godkänt det. Texten ska vara saklig, utan diagnoser och utan omdömen om personen. Det som inte framgår skrivs som Framgår inte.",
    "Rapporter byggs bara av godkända uppgifter, aldrig direkt från en inspelning eller ett transkript.",
+   "Fria anteckningar i deltagarkortet stannar hos Miljonbemanning. Kommunen ser dem aldrig och AI läser dem aldrig. De kommer med i en rapport bara om huvudcoachen själv skriver in dem i sammanfattningen och godkänner.",
+   "Tydlig och någon progression räknas bara på de obligatoriska områdena i allt som når kommunen. Hälsa och livskvalitet räknas inte.",
    "Inspelning kräver deltagarens samtycke. Det är frivilligt, och ett nej påverkar inte stödet. Ljudet raderas direkt när det har blivit text. Råtranskriptet raderas när avstämningen är godkänd, och alltid efter 30 dagar.",
    "Skyddade personuppgifter: ingen adress sparas, inga SMS eller mejl går till deltagaren och ingen AI används. Bara den namngivna coachen, avtalsansvarig och handläggaren som beställde ser uppgifterna.",
    "Mejl till avrop@miljonbemanning.se är kommunens formella sätt att beställa. Det ska alltid fungera, även för den som aldrig loggar in i portalen.",
    "Rapporter levereras i portalen. Mejlet säger bara att något nytt finns. Botkyrkas avtal tillåter inte rapporter som bilaga i e-post.",
-   "All e-post som appen skickar i dag kommer från notis@miljonmatch.se. Svaren på mejlbeställningar kommer senare från avrop@miljonbemanning.se i samma mejltråd. Ingen e-post innehåller personuppgifter.",
+   "All e-post som appen skickar i dag kommer från notis@miljonmatch.se, även inloggningskoden. Mejlet med koden har ingen länk. Svaren på mejlbeställningar kommer senare från avrop@miljonbemanning.se i samma mejltråd. Ingen e-post innehåller personuppgifter.",
    "Ingen faktura utan kommunens beställarreferens (8–10 siffror). Fältet för inköpsordernummer används bara för kommunens egna nummer (nio siffror som börjar med 99). Fakturor har aldrig namn eller personnummer.",
    "Avvikelse betyder åtgärd. Röd status kräver en åtgärd, en ansvarig och ett datum för uppföljning.",
    "Samma coach genom hela insatsen. Ett byte kräver en orsak, loggas och ger handläggaren en notis.",
@@ -6284,5 +6446,5 @@
    "Testmiljön har bara påhittade uppgifter. Riktiga personuppgifter finns bara i produktion."
   ]
  },
- "stamp": "Version 1 oktober 2026 (uppdaterad) · 186 steg för 10 personer, granskade mot SPEC och appen."
+ "stamp": "Version 2 oktober 2026 · 190 steg för 10 personer, granskade mot SPEC och appen."
 }

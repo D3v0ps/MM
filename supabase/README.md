@@ -29,7 +29,7 @@ Supabase-projekten (staging och produktion, båda i **eu-north-1 Stockholm**) sk
 | `migrations/0020_progressionsgranser.sql` | Datamigration (rapporter steg 2): `progression.clearFromLevel` och `anyFromLevel` läggs in i befintliga avtal, utlästa ur avtalets egen `progression.statDefinition` (">= N"). Idempotent, ofarlig för en äldre version av appen |
 | `migrations/0021_sparade_rapporter.sql` | Rapportbyggarens sparade rapporter (rapporter steg 4, SPEC §7.11 k): `saved_reports`. Läses av samordnare, avtalsansvarig och chef i avtalet (egna och delade – också arkiverade, eftersom `update … select` läser tillbaka raden; hanterarna visar bara `archived_at is null`) och av kommunens chef (bara `visibility = 'customer'`, inte arkiverade, avtalet i `mm.individual_report_contract_ids()`). Ny rad i eget namn (`owner_id = mm.current_profile_id()`); `customer` bara av avtalsansvarig. Ändras av ägaren eller (när raden inte är privat) avtalsansvarig; en rad delad med kommunen bara av avtalsansvarig; avtalsansvarig gör aldrig någon annans rapport privat. Triggern `saved_reports_protect_columns`: en ändring måste ändra något; avtal, ägare och skapad-tid ändras aldrig; `updated_*`/`archived_*` parvis i eget namn; ändras `visibility` sätts `shared_*` i eget namn (värdena får vara desamma – minutprecision); `shared_*` bara med `visibility`; bara ägaren ändrar titel och definition (tillägg 2026-10-02). Ingen delete-policy och ingen delete-rättighet |
 | `seed.sql` | **Genererad** testdata (samma som prototypen) + testarna + testmiljöns inställningar. Ändra aldrig för hand. För lokal Postgres och RLS-testerna (2,9 MB – för stor för MCP) |
-| `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 18 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, de sex testarna och `app_settings`. Idempotent |
+| `bootstrap-staging.sql` | **Genererad** startdata för en ny testmiljö (ca 18 kB): organisationer, avtal, avtalsområden, prislistor, helgdagar, de sju testarna och `app_settings`. Idempotent |
 | `../scripts/db/columns.ts` | Facit för kolumnerna (kontrolleras mot `src/data/schema.ts` vid kompilering och mot databasen i testet) |
 | `../scripts/db/seed-sql.ts`, `generate-seed.ts`, `generate-bootstrap.ts` | Bygger `seed.sql` och `bootstrap-staging.sql` |
 | `../src/data/supabase/seed-rows.ts` | Testarna, deterministiska `auth_user_id`, tabellordningen – gemensamt för SQL-filerna och inläsningen i appen |
@@ -64,7 +64,7 @@ Kontrollera efteråt i en **ny** anslutning: `show timezone;` ska ge `Europe/Sto
 **Rekommenderat (fungerar via MCP):**
 
 1. Kör `bootstrap-staging.sql` (18 kB) – med MCP `execute_sql`, i SQL-editorn eller med `psql`. Den lägger in organisationer, avtal,
-   avtalsområden, prislistor, helgdagar, de sex testarna (admin i båda avtalen, `is_tester` – se "Testarna" nedan) och `app_settings`
+   avtalsområden, prislistor, helgdagar, de sju testarna (admin i båda avtalen, `is_tester` – se "Testarna" nedan) och `app_settings`
    (`environment = staging`, testklockan). Den tömmer ingenting och kan köras igen. Den stoppar sig själv om
    `app_settings.environment` är något annat än `staging`, eller om databasen har ärenden men saknar miljörad.
 2. Testaren loggar in i appen och väljer **Underbiträden och integrationer (`/admin/integrationer`) → Läs in testdata på nytt** (`POST /api/staging/seed`). Servern anropar
@@ -89,7 +89,7 @@ Seeden:
 - tömmer först alla appens tabeller (`truncate … cascade`, aldrig `auth.*` och aldrig testarnas synpunkter) – den kan köras om,
 - stoppar sig själv om `app_settings.environment` finns och inte är `staging`, eller om databasen redan har ärenden utan inställningen,
 - har testdatats ersättning för personnummer (`test:…`) – "Visa" och dubblettkontrollen fungerar då bara i minnesläget; använd "Läs in testdata på nytt" i testmiljön,
-- lägger in de sex testarna (se "Testarna" nedan) som admin i båda avtalen med `is_tester = true`,
+- lägger in de sju testarna (se "Testarna" nedan) som admin i båda avtalen med `is_tester = true`,
 - sätter `app_settings`: `environment = staging`, `clock_demo_epoch = 2027-02-01T09:12`, `clock_real_epoch = now()` – **testklockan startar om på 1 februari 2027 kl. 09.12 varje gång seeden körs**,
 - kopplar testarnas profiler till deras konton i `auth.users` via e-postadressen om kontona redan finns (så att inloggningen överlever en omseedning).
 
@@ -103,12 +103,13 @@ Seeden:
 | Adam Abdalla | `adam.abdalla@miljonbemanning.se` | `tester-adam` |
 | Shafik Muwanga | `shafik.muwanga@miljonbemanning.se` | `tester-shafik` |
 | Moda Habib | `moda.habib@miljonbemanning.se` | `tester-moda` |
+| Yacine Laghmari | `yacine.laghmari@miljonbemanning.se` | `tester-yacine` |
 
 Listan finns i `TESTERS` (`src/data/supabase/seed-rows.ts`). En ny testare kommer in när `bootstrap-staging.sql` körs igen (eller
-när testdatat läses in på nytt) **och** adressen finns i `MM_EMAIL_ALLOWLIST` i Vercel. Värdet för alla sex (hela adresser – aldrig
+när testdatat läses in på nytt) **och** adressen finns i `MM_EMAIL_ALLOWLIST` i Vercel. Värdet för alla sju (hela adresser – aldrig
 `@miljonbemanning.se`, testdatat har påhittade adresser på den domänen):
 
-`karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se`
+`karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se`
 
 Inloggningskoden skickas bara till en adress i listan som också har en aktiv profil med roll (`docs/DRIFT.md` avsnitt 11).
 

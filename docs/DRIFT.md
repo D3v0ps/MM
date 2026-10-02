@@ -21,7 +21,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 - Inloggning: e-post + sexsiffrig kod (SPEC §4). Koden gäller 10 minuter och får prövas 5 gånger. Man loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar. Microsoft-inloggning för personalen kommer senare.
 - Testmiljön kör på **testtid**: klockan börjar på måndag 1 februari 2027 kl. 09.12 när testdatat läses in och går sedan i vanlig takt.
 - I testmiljön får **bara** adresserna i `MM_EMAIL_ALLOWLIST` (testarna) mejl – även inloggningskoder. Testdatat innehåller adresser på riktiga domäner (t.ex. botkyrka.se) som aldrig får få mejl. Med `MM_EMAIL_REDIRECT_TO` går testpersonernas mejl i stället till en testare, märkta med vem de skulle ha gått till.
-- Testarna (sex personer på Miljonbemanning, avsnitt 11) loggar in som sig själva och väljer sedan vilken testperson de agerar som i raden överst ("Agera som"). Där finns också **Lämna synpunkt** och **Alla synpunkter**. Det fungerar bara i testmiljön.
+- Testarna (sju personer på Miljonbemanning, avsnitt 11) loggar in som sig själva och väljer sedan vilken testperson de agerar som i raden överst ("Agera som"). Där finns också **Lämna synpunkt** och **Alla synpunkter**. Det fungerar bara i testmiljön.
 
 ## Läget 2026-10-01
 
@@ -57,8 +57,8 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 3. **Miljövariabler** – du: lägg in alla variabler i tabellen i avsnitt 5 (för *Production* och *Preview*). Skapa de hemliga nycklarna enligt tabellen.
 4. **Deploy** – du: *Deployments → Redeploy* (eller första driftsättningen efter importen). Kontrollera att funktionerna körs i **arn1**.
 5. **URL:erna i Supabase Auth** – du: *Site URL* = `https://www.miljonmatch.se` (adressen som inte skickas vidare) och *Redirect URLs* enligt avsnitt 2.2. Sätt `MM_APP_URL` till samma adress (`https://www.miljonmatch.se`) och driftsätt igen om du ändrade den.
-6. **Startdata** – samordnaren: kör `supabase/bootstrap-staging.sql` (ca 18 kB) med MCP `execute_sql` (eller SQL-editorn). Den lägger in organisationer, avtal, avtalsområden, prislistor, helgdagar, de sex testarna (admin, testare – avsnitt 11) och `app_settings` (`environment = staging`, testklockan). Den kan köras igen (även i en testmiljö som redan används – den tömmer ingenting och behåller inloggningarna) och stoppar sig själv utanför testmiljön.
-7. **Kontroll** – samordnaren: `select * from app_settings;` ska visa `environment = staging` och två rader `clock_…`; `show timezone;` ska ge `Europe/Stockholm`; `select id, email, is_tester from profiles where is_tester;` ska visa de sex testarna.
+6. **Startdata** – samordnaren: kör `supabase/bootstrap-staging.sql` (ca 18 kB) med MCP `execute_sql` (eller SQL-editorn). Den lägger in organisationer, avtal, avtalsområden, prislistor, helgdagar, de sju testarna (admin, testare – avsnitt 11) och `app_settings` (`environment = staging`, testklockan). Den kan köras igen (även i en testmiljö som redan används – den tömmer ingenting och behåller inloggningarna) och stoppar sig själv utanför testmiljön.
+7. **Kontroll** – samordnaren: `select * from app_settings;` ska visa `environment = staging` och två rader `clock_…`; `show timezone;` ska ge `Europe/Stockholm`; `select id, email, is_tester from profiles where is_tester;` ska visa de sju testarna.
 8. **Första inloggningen** – testaren: öppna `https://<adressen>/logga-in`, skriv `karim.khalil@miljonbemanning.se` → *Skicka kod* → skriv koden från mejlet → *Logga in*.
 9. **Testdatat** – testaren (som sig själv, rollen admin): gå till **Underbiträden och integrationer** (`/admin/integrationer`) → **Läs in testdata på nytt** → bekräfta. Det tar 10–30 sekunder. Sidan laddas om, testklockan står på måndag 1 februari 2027 kl. 09.12 och alla testpersoner finns i "Agera som".
 10. **Domänen** – du: `miljonmatch.se` och `www.miljonmatch.se` i Vercel (avsnitt 3.4). Ändras vilken adress som skickas vidare: ändra `MM_APP_URL` och *Site URL* till den som inte skickas vidare.
@@ -222,7 +222,7 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MM_PNR_KEY` | **ja** | Kryptering av personnummer, AES-256-GCM: exakt 32 byte som base64 | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_HMAC_KEY` | **ja** | Sökhash för personnummer (dubblettkontrollen), HMAC-SHA256: minst 32 byte som base64, **en annan nyckel** än `MM_PNR_KEY` | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |
-| `MM_EMAIL_ALLOWLIST` | | **Testmiljön:** de adresser som får mejl och inloggningskoder, kommatecken emellan. **Hela adresser, aldrig `@miljonbemanning.se`** – testdatat har påhittade adresser på den domänen. Tom i testmiljön = ingen får mejl. **Tom i produktion** | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
+| `MM_EMAIL_ALLOWLIST` | | **Testmiljön:** de adresser som får mejl och inloggningskoder, kommatecken emellan. **Hela adresser, aldrig `@miljonbemanning.se`** – testdatat har påhittade adresser på den domänen. Tom i testmiljön = ingen får mejl. **Tom i produktion** | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
 | `MM_EMAIL_REDIRECT_TO` | | **Bara testmiljön:** testarens adress som får mejlen till testpersoner, med raden "Testmiljö – det här mejlet skulle ha gått till …" (roll och organisation). Måste finnas i `MM_EMAIL_ALLOWLIST`. Gäller aldrig inloggningskoder – koden går bara till den som loggar in. Ignoreras i produktion – lämna tom där | `karim.khalil@miljonbemanning.se` | En testares adress |
 | `RESEND_API_KEY` | **ja** | Resends API-nyckel (bara sändrätt) för appens mejl **och inloggningskoderna** (appen skickar koden själv, avsnitt 2.1). Saknas den kan ingen logga in | `re_…` | Resend → *API Keys* (`miljonmatch-app`) |
 | `MM_EMAIL_FROM` | | Avsändare för notiserna och inloggningskoderna. Domänen måste vara verifierad i Resend | `Miljonmatch <notis@miljonmatch.se>` | Fast värde (beslut 2026-10-01) |
@@ -354,6 +354,7 @@ Karim bjuder in kollegor på Miljonbemanning att testa testmiljön och ge synpun
 | Adam Abdalla | `adam.abdalla@miljonbemanning.se` | `tester-adam` |
 | Shafik Muwanga | `shafik.muwanga@miljonbemanning.se` | `tester-shafik` |
 | Moda Habib | `moda.habib@miljonbemanning.se` | `tester-moda` |
+| Yacine Laghmari | `yacine.laghmari@miljonbemanning.se` | `tester-yacine` |
 
 Alla är systemadministratörer i båda avtalen och testare (`is_tester = true`, `TESTERS` i `src/data/supabase/seed-rows.ts`). De loggar in som sig själva och väljer testperson i "Agera som".
 
@@ -361,12 +362,12 @@ Alla är systemadministratörer i båda avtalen och testare (`is_tester = true`,
 
 **Så här kommer de in (du och samordnaren):**
 1. **Vercel → Settings → Environment Variables → `MM_EMAIL_ALLOWLIST`** (Production och Preview) – byt värdet till exakt (hela adresser, kommatecken emellan, inga mellanslag):
-   `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se`
+   `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se`
    Använd **inte** `@miljonbemanning.se`: testdatat har påhittade adresser på den domänen (t.ex. `sara.lindqvist@miljonbemanning.se`), och de skulle då kunna få mejl och inloggningskoder.
 2. **Vercel → `MM_EMAIL_FROM`** = `Miljonmatch <notis@miljonmatch.se>` och **`RESEND_API_KEY`** med sändrätt för miljonmatch.se (avsnitt 4) – appen skickar både notiserna och inloggningskoderna med dem (beslut 2026-10-02). SMTP-inställningen i Supabase används inte längre (reserv, avsnitt 2.1).
 3. **Driftsätt igen** (*Deployments → Redeploy*) – variablerna läses när appen startar.
 4. **Profilerna:** samordnaren kör `supabase/bootstrap-staging.sql` igen (idempotent – tömmer ingenting, behåller inloggningarna) – eller en testare väljer **Läs in testdata på nytt** (lägger också till testare som saknas, men nollställer allt som testats).
-5. Kontroll: `select id, email, is_tester from public.profiles where is_tester order by id;` ska visa sex rader. Be en av kollegorna logga in på `https://www.miljonmatch.se/logga-in`.
+5. Kontroll: `select id, email, is_tester from public.profiles where is_tester order by id;` ska visa sju rader. Be en av kollegorna logga in på `https://www.miljonmatch.se/logga-in`.
 
 **Så kontrolleras det i koden** (`src/server/auth/service.ts`, `eligibleForCode`, testat i `src/server/auth/eligible.test.ts`): en inloggningskod skickas bara när (1) adressen finns i `MM_EMAIL_ALLOWLIST` – i testmiljön får ingen kod om listan är tom – och (2) det finns en **aktiv profil** med den adressen, (3) med minst en roll och (4) på en tillåten domän (personalens `MM_STAFF_EMAIL_DOMAINS`, kommunens i databasen). Svaret på "Skicka kod" är alltid detsamma. Appens egna mejl går i testmiljön också bara till adresserna i listan (`src/server/notify`).
 
