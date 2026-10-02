@@ -5,10 +5,11 @@
 import { useState } from "react";
 import { fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
-import { Badge, Button, Card, DemoNote, Empty, Icon, List, ListItem, Notice, Page, PerspectiveLink, QueryView, Row, Seg, type BadgeTone, type IconName } from "@/ui";
+import {
+  Badge, Button, Card, DemoNote, Empty, focusPageHeading, focusSoon, Icon, List, ListItem, Notice, Page, PerspectiveLink, QueryView, Row, Seg, type BadgeTone, type IconName,
+} from "@/ui";
 import { notifList, notifRead, type NotifList, type NotifView } from "../api";
 
 const KIND: Record<NotifView["kind"], { label: string; icon: IconName; tone: BadgeTone }> = {
@@ -31,7 +32,15 @@ export function NotiserScreen() {
       lead="Dina personliga notiser. De skickas i appen och som e-post utan personuppgifter. Ingen annan ser dina notiser."
       actions={
         unread.length > 0 ? (
-          <Button icon="check" pending={read.pending} onClick={() => void read.run({ ids: unread.map((n) => n.id) })}>
+          <Button
+            icon="check"
+            pending={read.pending}
+            onClick={async () => {
+              await read.run({ ids: unread.map((n) => n.id) }).catch(() => null);
+              // Knappen försvinner: fokus till sidans rubrik.
+              requestAnimationFrame(() => focusPageHeading());
+            }}
+          >
             Markera alla som lästa
           </Button>
         ) : undefined
@@ -42,14 +51,24 @@ export function NotiserScreen() {
   );
 }
 
+const notifDomId = (id: string) => `notis-${id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+
 function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) => Promise<unknown> }) {
-  const nav = useNav();
   const [filter, setFilter] = useState<Filter>("alla");
   const [open, setOpen] = useState<string | null>(null);
   const all = d.items;
   const unread = all.filter((n) => !n.readAt);
   const list = all.filter((n) => filter === "alla" || (filter === "olasta" && !n.readAt) || n.kind === filter);
   const kinds = (Object.keys(KIND) as NotifView["kind"][]).filter((k) => all.some((n) => n.kind === k));
+  // Läst: knappen försvinner – fokus till nästa notis (annars föregående, annars sidans rubrik).
+  const markRead = async (n: NotifView) => {
+    const i = list.findIndex((x) => x.id === n.id);
+    const next = list[i + 1] ?? (filter === "olasta" ? list[i - 1] : undefined);
+    await onRead([n.id]);
+    if (next) focusSoon(notifDomId(next.id));
+    else if (filter === "olasta") requestAnimationFrame(() => focusPageHeading());
+    else focusSoon(notifDomId(n.id));
+  };
   const target = (n: NotifView) => {
     if (!n.caseId) return null;
     const id = encodeURIComponent(n.caseId);
@@ -102,24 +121,21 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
               return (
                 <ListItem
                   key={n.id}
+                  id={notifDomId(n.id)}
+                  tabIndex={-1}
                   marked={!n.readAt}
                   lead={<Icon name={k.icon} size="lg" className={n.kind === "progress_escalation" ? "text-rod" : undefined} />}
                   side={
                     go || !n.readAt ? (
                       <>
                         {go && (
-                          <Button
-                            iconRight="arrow-right"
-                            onClick={() => {
-                              void onRead([n.id]);
-                              nav.push(go.to);
-                            }}
-                          >
+                          // En riktig länk (ny flik med ctrl/cmd-klick). Notisen markeras som läst när den öppnas.
+                          <Button iconRight="arrow-right" to={go.to} onClick={() => void onRead([n.id])}>
                             {go.label}
                           </Button>
                         )}
                         {!n.readAt && (
-                          <Button kind="ghost" icon="check" onClick={() => void onRead([n.id])}>
+                          <Button kind="ghost" icon="check" onClick={() => void markRead(n)}>
                             Läst
                           </Button>
                         )}

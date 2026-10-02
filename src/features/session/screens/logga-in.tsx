@@ -206,7 +206,10 @@ export function LoggaInScreen({ query }: ScreenProps) {
         </li>
         <li>
           <IconText icon="building">
-            Arbetar du på en kommun? <Link to="/portal/logga-in" className="underline">Logga in i portalen för beställare</Link>.
+            Arbetar du på en kommun?{" "}
+            <Link to="/portal/logga-in" className="inline-flex min-h-11 items-center underline">
+              Logga in i portalen för beställare
+            </Link>
           </IconText>
         </li>
       </Stack>
@@ -219,7 +222,7 @@ function Heading() {
   return (
     <div className="flex flex-col gap-1.5">
       <Eyebrow>Inloggning för personal</Eyebrow>
-      <h1 className="flex items-center gap-2.5 text-h1 font-extrabold tracking-[0.03em] uppercase">
+      <h1 tabIndex={-1} data-page-title="" className="flex items-center gap-2.5 text-h1 font-extrabold tracking-[0.03em] uppercase">
         Logga in
         <Dot />
       </h1>

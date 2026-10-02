@@ -10,7 +10,7 @@
 | Datalager | Supabase + RLS (efter godkänd plan). Tills dess `MemoryRepo` med testdata (`MM_BACKEND=memory`) | `MemoryRepo` med testdata |
 | Behörighet | RLS i Postgres + rollkontroll i `execute()` | `src/data/policy.ts` (speglar RLS) + samma rollkontroll |
 | Inloggning | Microsoft (MB) och e-postkod (kommunen). Utvecklingsläget: välj testperson | Rollväljaren i prototypfältet |
-| Navigering | Riktiga URL:er (`/arenden/case-1`) | Hash-URL:er (`#/arenden/case-1`) |
+| Navigering | Riktiga URL:er (`/arenden/case-1`), grunda byten med `history.pushState/replaceState` – inget serveranrop per sida | Hash-URL:er (`#/arenden/case-1`) |
 | Klocka | Stockholms tid. Minnesläget: demoklockan | Demoklockan: 1 februari 2027 kl. 09.12, +1 minut per kommando |
 | Bara i prototypen | – | Prototypfältet (perspektiv, roll, scenarier, feedback, återställ) och `<DemoOnly>`-förklaringar |
 
@@ -51,7 +51,8 @@ Skärm ── useQuery(inboxList, params) ──► Backend ──► execute("q
 ```
 
 - `execute()` validerar indata med zod och kontrollerar rollen innan hanteraren körs.
-- Efter ett lyckat kommando räknas alla frågor om (`useCommand`). Enkelt och korrekt i pilotens volym.
+- Efter ett lyckat kommando räknas alla frågor om (`useCommand`). Enkelt och korrekt i pilotens volym. Undantag anges i kontraktet: `command(key, schema, { invalidates })` – `"none"` för kommandon som bara loggar eller lämnar ut (`session.auditView`, visa personnummer, nedladdningar, förhandsvisningar), annars prefix på frågornas nycklar (`["notiser.", "session.navCounts"]`). Tysta kommandon (`silent` på servern) måste ange det (`src/api/invalidates.test.ts`). En skärm som själv visar loggen kan välja: `useCommand(auditView, { invalidate: ["admin."] })`.
+- `useQuery(def, params, { keepPrevious: true })` visar föregående svar medan nästa hämtas (filter och månad på samma ärende – aldrig vid byte av ärende). `usePrefetch()` förhämtar med samma nyckel som `useQuery` (flikar vid pekning/fokus, mejl i inkorgen).
 - Resultat serialiseras som JSON i båda körlägena, så prototypen beter sig exakt som över HTTP.
 
 ## Så bygger du ett område
@@ -136,6 +137,25 @@ Regler för skärmar:
 - Svenska i klarspråk. Kommunportalen: korta meningar, inga förkortningar, hjälptext vid varje fält, en sak per skärm, 18 px text.
 - Tillgänglighet: varje fält har `id` + `label`, klickytor minst 44 × 44 px, allt fungerar med tangentbord, status alltid text + ikon.
 - Färger bara via temat (`antracit`, `rod`, `ljusgra`, `bla`, `vit` och `-ton`-varianterna). Inget grönt.
+
+### Navigering och sidbyten (samma i appen och prototypen)
+
+- **Grunda byten.** `nav.push`/`nav.replace` byter adress utan att ladda om och utan serveranrop: appen med `history.pushState/replaceState` (Next synkar `usePathname`/`useSearchParams`, se `node_modules/next/dist/docs/01-app/02-guides/single-page-applications.md`), prototypen med hashen. Skalet (`ClientRoot`) ligger i `src/app/(app)/layout.tsx` och ligger kvar mellan sidbyten; sidan själv är tom. Ingen `next/link` och ingen `useRouter` (de hämtar sidan från servern). `<Link to>` fångar vanliga klick; ctrl/cmd-klick och mittenklick lämnas till webbläsaren (ny flik).
+- **Historikposter.** Varje post har en nyckel (`nav.entry`: `load`, `push`, `replace` eller `pop`). Flikbyte och filter = `replace` (samma post, Tillbaka lämnar sidan). Att öppna något annat = `push`. Vakter före navigering: `onBeforeNavigate` i `src/shell/nav.tsx`. Tillbaka/framåt mellan poster från samma dokument görs utan serveranrop. Poster från ett tidigare dokument (före en omladdning, eller efter ett besök på en annan webbplats som inte låg kvar i webbläsarens sidcache) bär det dokumentets interna Next-tillstånd, som Next inte kan visa rätt – appen laddar då om sidan på postens adress, och skrollen återställs efter omladdningen. Kontrollen ligger i ett skript som körs före hydreringen (`src/app/_shell/pop-guard.ts`, `next/script` `beforeInteractive` i `src/app/layout.tsx`): lyssnare på `window` körs i den ordning de lades till, och Next lägger sin vid hydreringen. `next-nav.tsx` för listan över det egna dokumentets nycklar. Prototypen (hash) behöver inte det.
+- **Skalet gör det Next annars gör** (`src/shell/page-effects.tsx`, körs i `App`): ny sida → skroll till toppen, fokus på sidans rubrik (`h1[data-page-title]`) och sidans titel uppläst i `#mm-route-status`; bara query ändrad → ingenting; tillbaka/framåt och omladdning → skrollen som sparats för posten (sessionStorage, bara siffror); vid tillbaka/framåt till en annan sida dessutom fokus på sidans rubrik (utan att skrolla) och titeln uppläst. Titeln: ruttens titel eller skärmens egen via `usePageTitle("Deltagarkort BOT-26-0143")` – skriv aldrig `document.title` direkt.
+- **Flikar** (`src/ui/tabs.tsx`): byter utan att sidan hoppar – flikraden står kvar där den var på skärmen (också när webbläsarens skrollförankring annars skulle flytta sidan); ligger flikraden ovanför skärmen läggs den överst. `onIntent` anropas också för grannflikarna när en flik får fokus (piltangenterna byter flik direkt). `sticky` (deltagarkortet) och `onIntent` (förhämtning). `--mm-sticky-top` = höjden på fasta element överst.
+- **Listornas val i adressen** (`src/shell/url-state.tsx`): `useQueryPatch`, `pick`, `pickInt`. Söktext kan vara ett namn och ligger bara i minnet (`useMemoryState`) – aldrig i adressen eller webblagring.
+- `RouteDef.keepMounted`: skärmen ligger kvar när parametrarna byts (samma sida för skalet – ingen skroll till toppen, inget fokusbyte). Används av inkorgen (`/inkorg/<id>`).
+- **Smal skärm (≤ 900 px):** toppraden (ordmärket och Meny) och portalens huvud ligger fast överst; `globals.css` sätter `--mm-sticky-top` till deras höjd i px (efter layoutens `data-shell`). `html` har `scroll-padding-top` = de fasta radernas höjd (toppraden och, på deltagarkortet, den fasta flikraden – `--mm-tabs-sticky-h`, som `Tabs sticky` sätter), så att det som får fokus med tangentbordet aldrig hamnar bakom dem. Menyn är ett lager under toppraden: Esc stänger och ger fokus till Meny, klick utanför stänger, menyn stängs vid sidbyte.
+
+### Osparad inmatning, fokus och fel (samma i appen och prototypen)
+
+- **Vakten** (`src/shell/guard.ts`): `useUnsavedGuard(dirty, text?)` frågar ("Du har inte sparat" – Stanna kvar / Lämna sidan) innan appen byter till en annan sida, och låter webbläsaren varna vid omladdning. Byte av bara query frågar inte. Webbläsarens Tillbaka kan inte stoppas – därför `useDraft(nyckel, startvärde)`: utkastminne per användare och nyckel (skärm + ärende), bara i minnet, rensas med `clear()` när det sparats. `leaveWithoutAsking(() => nav.push(…))` när skärmen redan har frågat (t.ex. Avbryt beställningen). När appen själv laddar om sidan (byte av testperson, utloggning) frågar den först med `confirmLeaveDocument()` och byter sedan – stannar man kvar är ingenting bytt. Efter bytet visas samma sida bara om det är en lista eller översikt som den nya rollen får se (`stayOrStart`); sidor för en enskild post (deltagarkortet, avstämningen, rapporten …) och sidor som är stängda för testaren leder till startsidan. Används i avstämningen (också under inspelning – den pausas medan frågan visas), månadsbedömningen, meddelandefälten, lärdomarna, mallarna, beställningen i portalen och rapportbyggaren (där sparas definitionen – bara koder och siffror – också i sessionStorage, titeln bara i minnet).
+- **Dialoger** (`src/ui/dialog.tsx`): `Modal dirty` frågar "Vill du slänga det du skrivit?" vid Esc, klick utanför, krysset och `ModalCancelButton`; `useModalDirty(flagga)` för ett fält längre ned i dialogen. Fokus efter stängning: `returnFocusTo` (om den anger ett element), annars elementet som öppnade dialogen, annars senaste fokus utanför dialoger, annars sidans rubrik.
+- **Knappar som arbetar** (`Button pending`): `aria-disabled` och `aria-busy`, inte `disabled` – fokus stannar på knappen. Försvinner knappen efter åtgärden flyttar skärmen fokus (`focusSoon(id)`, `focusSectionOf(el)`, `focusSection(id)` i `src/ui/page.tsx`): nästa rad, avsnittets rubrik eller sidans rubrik.
+- **Formulärfel** (`src/ui/form.tsx`): `ErrorSummary` (role=alert, länkar som flyttar fokus till fälten) och `focusFirstError(container)`.
+- **Tabellrader som leder till en sida**: `Table rowHref` – en cell (`linkKey`) blir en riktig länk (tabbstopp, länkmeny, ny flik med ctrl/cmd eller mittenklick); klick i resten av raden gör samma sak (`rowNavigate`).
+- **Utvecklingsfas** (`BuildPhase`): "Byggs i fas N" bara i prototypen. I appen märks bara det som verkligen är avstängt (`off`: bonus, Fortnox, kapacitetstak) med "Kommer senare". Text ur konfigurationen som nämner prototypen visas med `ProtoText`/`withoutPrototypeWords`.
 
 ### 4. Rutter – `src/features/<område>/routes.ts`
 

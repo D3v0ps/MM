@@ -4,14 +4,14 @@
 // Kommunen ser aldrig anteckningar. Data: arenden.kortTidslinje (domänfunktionen timeline.ts).
 import { useState, type MouseEvent } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
-import { path, useNav } from "@/shell/nav";
+import { useNav } from "@/shell/nav";
 import { useSession } from "@/shell/session";
 import { CASE_NOTE_AUDIENCE_LABEL, CASE_NOTE_KIND_LABEL } from "@/core/labels";
 import { dayOf, MONTHS } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
 import { CASE_NOTE_KINDS, CASE_NOTE_MAX, type CaseNoteAudience, type CaseNoteKind } from "@/data/schema";
 import {
-  Button, cn, DateInput, ErrorNotice, Field, Icon, Loading, Modal, Notice, Section, Seg, Select, Stack, STATUS_ICON, TextArea, Timeline, toast, useConfirm, type TimelineItem,
+  Button, cn, DateInput, ErrorNotice, Field, Icon, Loading, Modal, Notice, Refreshing, Section, Seg, Select, Stack, STATUS_ICON, TextArea, Timeline, toast, confirmDiscard, ModalCancelButton, useConfirm, type TimelineItem,
 } from "@/ui";
 import {
   caseNoteRemove, caseNoteSave, caseTimeline, TIMELINE_CAT_LABEL, TIMELINE_CATS, type CaseTimeline, type CaseTimelineMonth, type TimelineCat, type TimelineEntry,
@@ -24,23 +24,24 @@ const EMPTY_CARD = "Här samlas allt som händer i insatsen: aktiviteter, närva
 const EMPTY_FILTER = "Inget i den här kategorin för perioden.";
 const monthTitle = (mk: string) => `${MONTHS[Number(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`;
 
-export function TabTidslinje({ card, setTab }: TabProps) {
+export function TabTidslinje({ card, openTab }: TabProps) {
   const [visa, setVisa] = useState<TimelineCat>("alla");
   const [older, setOlder] = useState<string[]>([]);
   const [dialog, setDialog] = useState<{ note: TimelineNote | null } | null>(null);
-  const q = useQuery(caseTimeline, { caseId: card.caseId, visa });
+  // Filterbyte: listan står kvar (dämpad) tills den nya har hämtats – inget "Hämtar…" i stället för listan.
+  const q = useQuery(caseTimeline, { caseId: card.caseId, visa }, { keepPrevious: true });
   const changeFilter = (v: TimelineCat) => {
     setVisa(v);
     setOlder([]);
   };
   const t = q.data;
-  const pageProps = { card, setTab, onEdit: (note: TimelineNote) => setDialog({ note }) };
+  const pageProps = { card, openTab, onEdit: (note: TimelineNote) => setDialog({ note }) };
   return (
     <Section
       title="Tidslinje"
       actions={t?.canWrite ? <Button kind="primary" icon="plus" onClick={() => setDialog({ note: null })}>Skriv anteckning</Button> : undefined}
     >
-      <p>Allt som hänt i insatsen, med det senaste först. Öppna en rad för att läsa mer.</p>
+      <p>Allt som hänt i insatsen, med det senaste först. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
       <Seg<TimelineCat> ariaLabel="Visa" value={visa} onValueChange={changeFilter} options={TIMELINE_CATS.map((c) => ({ value: c, label: TIMELINE_CAT_LABEL[c] }))} />
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
@@ -51,19 +52,21 @@ export function TabTidslinje({ card, setTab }: TabProps) {
       ) : t.empty ? (
         <p className="text-text-muted">{EMPTY_CARD}</p>
       ) : (
-        <Stack>
-          <TimelinePage t={t} last={older.length === 0} onMore={(m) => setOlder([m])} {...pageProps} />
-          {older.map((fore, i) => (
-            <OlderPage key={fore} caseId={card.caseId} visa={visa} fore={fore} last={i === older.length - 1} onMore={(m) => setOlder([...older, m])} {...pageProps} />
-          ))}
-        </Stack>
+        <Refreshing busy={q.isPlaceholderData}>
+          <Stack>
+            <TimelinePage t={t} last={older.length === 0} onMore={(m) => setOlder([m])} {...pageProps} />
+            {older.map((fore, i) => (
+              <OlderPage key={fore} caseId={card.caseId} visa={visa} fore={fore} last={i === older.length - 1} onMore={(m) => setOlder([...older, m])} {...pageProps} />
+            ))}
+          </Stack>
+        </Refreshing>
       )}
       {dialog && <NoteDialog card={card} note={dialog.note} onClose={() => setDialog(null)} />}
     </Section>
   );
 }
 
-type PageProps = Pick<TabProps, "card" | "setTab"> & { last: boolean; onMore: (fore: string) => void; onEdit: (note: TimelineNote) => void };
+type PageProps = Pick<TabProps, "card" | "openTab"> & { last: boolean; onMore: (fore: string) => void; onEdit: (note: TimelineNote) => void };
 
 /** Tre äldre månader (fore = månaden efter den äldsta som visas). */
 function OlderPage({ caseId, visa, fore, ...rest }: PageProps & { caseId: string; visa: TimelineCat; fore: string }) {
@@ -93,7 +96,7 @@ function TimelinePage({ t, last, onMore, ...rest }: PageProps & { t: CaseTimelin
   );
 }
 
-function MonthBlock({ m, card, setTab, onEdit }: Omit<PageProps, "last" | "onMore"> & { m: CaseTimelineMonth }) {
+function MonthBlock({ m, card, openTab, onEdit }: Omit<PageProps, "last" | "onMore"> & { m: CaseTimelineMonth }) {
   const today = dayOf(card.now);
   const id = `tl-${m.month}`;
   return (
@@ -112,19 +115,19 @@ function MonthBlock({ m, card, setTab, onEdit }: Omit<PageProps, "last" | "onMor
         )}
         <span className="flex-1" />
         {m.report && (
-          <Button kind="ghost" iconRight="arrow-right" to={path(`/arenden/${encodeURIComponent(card.caseId)}`, { flik: "manad", manad: m.month })}>
+          <Button kind="ghost" iconRight="arrow-right" onClick={() => openTab("manad", { manad: m.month })}>
             Visa månadsunderlaget
           </Button>
         )}
       </div>
-      <Timeline as="ol" ariaLabel={`Händelser ${monthTitle(m.month)}`} items={m.entries.map((e) => entryItem(e, { card, setTab, onEdit, today, headingId: id }))} />
+      <Timeline as="ol" ariaLabel={`Händelser ${monthTitle(m.month)}`} items={m.entries.map((e) => entryItem(e, { card, openTab, onEdit, today, headingId: id }))} />
     </section>
   );
 }
 
 function entryItem(
   e: TimelineEntry,
-  o: { card: TabProps["card"]; setTab: TabProps["setTab"]; onEdit: (n: TimelineNote) => void; today: string; headingId: string },
+  o: { card: TabProps["card"]; openTab: TabProps["openTab"]; onEdit: (n: TimelineNote) => void; today: string; headingId: string },
 ): TimelineItem {
   const actions =
     e.note ? (
@@ -136,8 +139,8 @@ function entryItem(
         kind="ghost"
         iconRight="arrow-right"
         ariaLabel={`Öppna: ${e.title}`}
-        to={e.tab === "manad" && e.month ? path(`/arenden/${encodeURIComponent(o.card.caseId)}`, { flik: "manad", manad: e.month }) : undefined}
-        onClick={e.tab === "manad" && e.month ? undefined : () => o.setTab(e.tab!)}
+        // Ny historikpost med målet (postens id): fliken visar raden, och Tillbaka leder hit igen.
+        onClick={() => o.openTab(e.tab!, { mal: e.id, manad: e.tab === "manad" ? (e.month ?? null) : null })}
       >
         Öppna
       </Button>
@@ -258,28 +261,23 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
     onClose();
   };
   const eventLink = role === "coach" && card.edit;
-  const confirm = useConfirm();
   const nav = useNav();
   const eventPath = caseLink("/handelse", card.caseId);
-  // Länken lämnar deltagarkortet: fråga först om det finns skriven text, så att anteckningen inte försvinner utan varning.
+  // Osparad text: Esc, klick utanför, krysset, Avbryt och länken Registrera händelse frågar samma sak först.
+  const dirty = body.trim() !== (note?.body ?? "").trim();
   const toEvent = async (e: MouseEvent) => {
-    if (!body.trim()) return;
+    if (!dirty) return;
     e.preventDefault();
-    const go = await confirm({
-      title: "Gå till Registrera händelse?",
-      body: <p>Anteckningen sparas inte. Det du har skrivit försvinner.</p>,
-      confirmLabel: "Gå till Registrera händelse",
-      cancelLabel: "Stanna kvar",
-    });
-    if (go) nav.push(eventPath);
+    if (await confirmDiscard()) nav.push(eventPath);
   };
   return (
     <Modal
       title={note ? "Ändra anteckning" : "Skriv anteckning"}
       onClose={onClose}
+      dirty={dirty}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>Avbryt</Button>
+          <ModalCancelButton />
           <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
             {note ? "Spara ändringen" : "Spara anteckningen"}
           </Button>

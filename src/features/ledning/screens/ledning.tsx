@@ -6,10 +6,10 @@ import { useState, type ReactNode } from "react";
 import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, pct, plural } from "@/core/format";
 import { fmtDate, fmtDateTime, monthName } from "@/core/time";
-import { useQuery } from "@/shell/backend";
+import { usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
-import { DemoOnly } from "@/shell/runtime";
+import { DemoOnly, ProtoText, useRuntime } from "@/shell/runtime";
 import {
   Badge, BuildPhase, Button, Card, CaseLink, CellSub, DemoNote, Empty, Grid, Icon, Kpi, Meter, Notice, Page, PerspectiveLink, QueryView, Row, SlaBadge, Split,
   Stack, TabPanel, Table, Tabs, UserName, cn, type MeterMarker, type TabDef,
@@ -42,6 +42,8 @@ export function LedningScreen({ query }: ScreenProps) {
   const flik = query.get("flik");
   const tab: LedningTab = isTab(flik) ? flik : "kpi";
   const head = useQuery(ledningHead, {});
+  // Pekar man på en flik hämtas dess data i förväg, så att den visas direkt vid klick.
+  const prefetch = usePrefetch();
   const [ackAlert, setAckAlert] = useState<AckTarget | null>(null);
   const h = head.data;
   return (
@@ -62,6 +64,7 @@ export function LedningScreen({ query }: ScreenProps) {
         ariaLabel="Ledningsvyns flikar"
         active={tab}
         onChange={(id) => nav.replace(path("/ledning", { flik: id === "kpi" ? null : id }))}
+        onIntent={(id) => (id === "kpi" ? prefetch(ledningOverview, {}) : id === "coacher" ? prefetch(ledningCoaches, {}) : id === "omraden" ? prefetch(ledningAreas, {}) : prefetch(ledningPulse, {}))}
         tabs={TABS.map((t) => (t.id === "kpi" ? { ...t, count: h?.alertCount ?? null } : t))}
       />
       <TabPanel tabsId="ldg" active={tab}>
@@ -82,6 +85,7 @@ function KpiTab({ onAck }: { onAck: (a: AckTarget) => void }) {
 }
 
 function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) => void }) {
+  const demo = useRuntime() === "demo";
   const { targets: t, rolling, sinceStart, forecast } = d;
   const meterMax = Math.max(0.6, Math.ceil((Math.max(rolling.value || 0, forecast.value || 0) + 0.05) * 10) / 10);
   const markers = goalMarkers(t);
@@ -165,10 +169,21 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
             {d.resultDefinitionUnset && (
               <Notice tone="warn" title="Resultatdefinitionen är inte fastställd (öppen fråga 6)">
                 <Stack gap="sm">
-                  {d.prototypeDefinition && <span>{d.prototypeDefinition}</span>}
-                  <span>
-                    I skarp drift är flaggorna Bevaka och Åtgärd krävs <b>vilande</b> tills definitionen är fastställd tillsammans med Botkyrka.
-                  </span>
+                  {d.prototypeDefinition && (
+                    <span>
+                      <ProtoText>{d.prototypeDefinition}</ProtoText>
+                    </span>
+                  )}
+                  {demo ? (
+                    <span>
+                      I skarp drift är flaggorna Bevaka och Åtgärd krävs <b>vilande</b> tills definitionen är fastställd tillsammans med Botkyrka.
+                    </span>
+                  ) : (
+                    <span>
+                      Flaggorna Bevaka och Åtgärd krävs är <b>vilande</b> tills definitionen är fastställd tillsammans med Botkyrka. Följ prognosen och antalet
+                      avslut så länge.
+                    </span>
+                  )}
                   <DemoOnly>
                     <span>
                       <Button kind="ghost" iconRight="arrow-right" to="/om/fragor">

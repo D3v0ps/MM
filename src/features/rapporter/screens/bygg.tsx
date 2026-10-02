@@ -5,6 +5,7 @@
 // (rapporter.byggForhandsvisning) med den osparade definitionen – ett osparat utkast loggas inte.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
+import { leaveWithoutAsking, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { Button, Card, Check, ErrorNotice, Eyebrow, Field, Icon, Input, Loading, Notice, Page, Select, Stack, Stepper } from "@/ui";
@@ -34,6 +35,35 @@ function draftDef(cat: BuilderCatalog, raw: Record<string, unknown>): ReportDefi
   const ds = (cat.datasets.some((d) => d.key === raw.dataset) ? raw.dataset : "deltagarmanader") as Dataset;
   return { ...defaultDef(cat, ds), ...(raw as Partial<ReportDefinition>), v: 1, dataset: ds };
 }
+// ---------------------------------------------------------------- Utkastet överlever omladdning och Tillbaka
+// Definitionen (bara koder, siffror och valda värden – inga personuppgifter) sparas i sessionStorage per utkast, så att
+// omladdning och Tillbaka visar samma val. Titeln kan vara fritext och ligger bara i minnet. Rensas när rapporten sparas.
+const BYGG_PREFIX = "mm:bygg:";
+const titleMemory = new Map<string, string>();
+type StoredDraft = Omit<Draft, "title">;
+function readStoredDraft(key: string, cat: BuilderCatalog): StoredDraft | null {
+  try {
+    const raw = window.sessionStorage.getItem(BYGG_PREFIX + key);
+    if (!raw) return null;
+    const x = JSON.parse(raw) as Partial<StoredDraft> & { def?: Record<string, unknown> };
+    if (!x.def || x.def.v !== 1 || !cat.datasets.some((d) => d.key === x.def?.dataset)) return null;
+    const vis: Visibility = x.visibility === "mb" || x.visibility === "customer" ? x.visibility : "private";
+    return { def: draftDef(cat, x.def), visibility: vis, templateKey: isTemplateKey(x.templateKey) ? x.templateKey : null };
+  } catch {
+    return null;
+  }
+}
+function storeDraft(key: string, d: Draft | null): void {
+  if (d) titleMemory.set(key, d.title);
+  else titleMemory.delete(key);
+  try {
+    if (d) window.sessionStorage.setItem(BYGG_PREFIX + key, JSON.stringify({ def: d.def, templateKey: d.templateKey, visibility: d.visibility }));
+    else window.sessionStorage.removeItem(BYGG_PREFIX + key);
+  } catch {
+    /* webblagring spärrad (t.ex. i artefaktens ram) – minnet räcker */
+  }
+}
+
 /** "Kopia av …" kortas till 80 tecken (kodpunkter, som char_length i databasen – en emoji delas aldrig). */
 const cut80 = (s: string) => (charCount(s) > 80 ? firstChars(s, 80).trimEnd() : s);
 
@@ -63,13 +93,26 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
   const mall = query.get("mall");
   const editing = !!saved;
   const contractId = saved?.contractId ?? cat.contractId!;
-  const [draft, setDraft] = useState<Draft | null>(() => {
-    if (saved) return { def: draftDef(cat, saved.definition), title: saved.title, visibility: saved.visibility, templateKey: isTemplateKey(saved.templateKey) ? saved.templateKey : null };
-    if (copy) return { def: draftDef(cat, copy.definition), title: cut80(`Kopia av ${copy.title}`), visibility: "private", templateKey: isTemplateKey(copy.templateKey) ? copy.templateKey : null };
+  const draftKey = saved ? `sparad:${saved.id}` : copy ? `kopia:${copy.id}` : `ny:${contractId}`;
+  const [draft, setDraftState] = useState<Draft | null>(() => {
     const t = cat.templates.find((x) => x.key === mall);
-    if (t && isTemplateKey(t.key)) return { def: draftDef(cat, t.definition), title: t.name, visibility: "private", templateKey: t.key };
-    return null;
+    const fresh = (): Draft | null => {
+      if (saved) return { def: draftDef(cat, saved.definition), title: saved.title, visibility: saved.visibility, templateKey: isTemplateKey(saved.templateKey) ? saved.templateKey : null };
+      if (copy) return { def: draftDef(cat, copy.definition), title: cut80(`Kopia av ${copy.title}`), visibility: "private", templateKey: isTemplateKey(copy.templateKey) ? copy.templateKey : null };
+      if (t && isTemplateKey(t.key)) return { def: draftDef(cat, t.definition), title: t.name, visibility: "private", templateKey: t.key };
+      return null;
+    };
+    // Ett sparat utkast (omladdning, Tillbaka) går före – om det gäller samma mall som adressen.
+    const stored = readStoredDraft(draftKey, cat);
+    if (stored && (!mall || stored.templateKey === mall)) return { ...stored, title: titleMemory.get(draftKey) ?? fresh()?.title ?? "" };
+    return fresh();
   });
+  const setDraft = (u: Draft | null | ((d: Draft | null) => Draft | null)) =>
+    setDraftState((prev) => {
+      const next = typeof u === "function" ? u(prev) : u;
+      storeDraft(draftKey, next);
+      return next;
+    });
   const [choice, setChoice] = useState<string>(mall ? `mall:${mall}` : "");
   const requested = Number(query.get("steg"));
   // En sparad rapport och en kopia börjar i steg 2: definitionen finns redan (steg 1 skulle ersätta den).
@@ -85,11 +128,17 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
     headRef.current?.focus();
   }, [step]);
 
+  // Nästa och Tillbaka mellan stegen är nya historikposter: webbläsarens Tillbaka går till föregående steg.
   const go = (s: number, extra: Record<string, string | undefined> = {}) => {
     const q = { steg: String(s + 1), ...extra };
-    if (editing) nav.replace(path(`/rapportbyggare/${saved!.id}`, q));
-    else nav.replace(path("/rapportbyggare/ny", { mall: draft?.templateKey ?? undefined, kopia: copy?.id, avtal: cat.contracts.length > 1 ? contractId : undefined, ...q }));
+    if (editing) nav.push(path(`/rapportbyggare/${saved!.id}`, q));
+    else nav.push(path("/rapportbyggare/ny", { mall: draft?.templateKey ?? undefined, kopia: copy?.id, avtal: cat.contracts.length > 1 ? contractId : undefined, ...q }));
   };
+  // Osparade val: fråga innan sidan lämnas (byte av steg är samma sida och frågar inte).
+  const dirty =
+    !!draft &&
+    (editing ? canonicalJson(draft.def) !== canonicalJson(saved!.definition) || draft.title !== saved!.title || draft.visibility !== saved!.visibility : step > 0);
+  useUnsavedGuard(dirty, "Rapporten är inte sparad. Valen finns kvar om du kommer tillbaka.");
   const setDef = (f: (d: ReportDefinition) => ReportDefinition) => setDraft((x) => (x ? { ...x, def: f(x.def) } : x));
 
   // ---- Förhandsvisningen (tyst kommando, på knapp)
@@ -110,6 +159,8 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
     try {
       const r = await previewCmd.run({ contractId, definition: draft.def as unknown as Record<string, unknown>, ...(draft.templateKey ? { templateKey: draft.templateKey } : {}), audience });
       setPv({ key: pvKey, view: r.ok ? (r as unknown as BuilderView) : null, error: r.ok ? null : (r.message ?? "Förhandsvisningen kunde inte visas.") });
+      // Smal skärm: förhandsvisningen ligger under formuläret – visa den.
+      if (window.matchMedia("(max-width: 980px)").matches) requestAnimationFrame(() => document.getElementById("bygg-forhandsvisning")?.scrollIntoView({ block: "start" }));
     } catch {
       setPv({ key: pvKey, view: null, error: "Förhandsvisningen kunde inte visas. Försök igen om en stund." });
     }
@@ -145,7 +196,9 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
         }
       }
       setSharing(false);
-      nav.push(path(`/rapportbyggare/${r.savedReportId}`, { sparad: "1" }));
+      storeDraft(draftKey, null);
+      // replace: Tillbaka efter Spara leder inte till ett ifyllt steg 4 (utkastet är sparat och borttaget).
+      leaveWithoutAsking(() => nav.replace(path(`/rapportbyggare/${r.savedReportId}`, { sparad: "1" })));
     } catch {
       setSaveError("Rapporten kunde inte sparas. Försök igen om en stund.");
     }
@@ -360,7 +413,7 @@ function PreviewCard({ view, error, stale, pending, hasPreview, onRun, audience,
   setAudience: (a: "mb" | "kommun") => void; customerAllowed: boolean; minN: number; title: string;
 }) {
   return (
-    <Card>
+    <Card id="bygg-forhandsvisning">
       <Stack>
         <h2 className="text-h2 font-extrabold tracking-[0.03em] uppercase">Förhandsvisning</h2>
         {customerAllowed && (
@@ -383,7 +436,7 @@ function PreviewCard({ view, error, stale, pending, hasPreview, onRun, audience,
         {!pending && error && <Notice tone="critical" title={error} />}
         {/* Alltid på sidan (levande region): skärmläsaren hör antalet när förhandsvisningen är klar. */}
         <p role="status" className="m-0 font-bold empty:sr-only">
-          {!pending && view ? `${view.counts.casesText} deltagare, ${view.periodLabel}` : ""}
+          {!pending && view ? `Förhandsvisningen visar ${view.counts.casesText} deltagare, ${view.periodLabel}` : ""}
         </p>
         {!pending && view && <BuilderViewPanel view={view} title={title} headingLevel={3} />}
       </Stack>

@@ -10,7 +10,9 @@
 // bara mottagaren kvitterar), fryser en levererad rapport som saknar ögonblicksbild och visar dokumentet.
 // Ett utkast till rättelse visas som den senast levererade versionen. Kommunen ser aldrig interna knappar.
 // "Ladda ner PDF" laddar ned den version som visas (components/pdf-button.tsx – behörigheten kontrolleras och loggas på servern).
-import { useEffect } from "react";
+import type { ReactNode } from "react";
+import { path } from "@/shell/nav";
+import { usePageTitle } from "@/shell/page-effects";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Button, Card, Dot, Empty, ErrorNotice, Loading, Notice, PerspectiveLink, Stack, useAuditView } from "@/ui";
 import { reportDocument, reportOpen, type PortalReportInfo, type ReportDocResult } from "../api";
@@ -20,16 +22,32 @@ import { PdfDownloadButton } from "./pdf-button";
 import { ReportDocument } from "./report-document";
 import { useLazySnapshot } from "./use-snapshot";
 
-const BACK: Record<string, { label: string; to: (caseId: string | null) => string | null }> = {
-  rapporter: { label: "Tillbaka till rapporterna", to: () => "/portal/rapporter" },
-  deltagare: { label: "Tillbaka till deltagaren", to: (id) => (id ? `/portal/deltagare/${encodeURIComponent(id)}` : null) },
-  bestallarrapport: { label: "Tillbaka till beställarrapporten", to: () => "/portal/bestallarrapport" },
+/** Listans val som följde med länken (?lista=filter=monthly&visa=30) – bara kända nycklar och koder. */
+function listQuery(q: URLSearchParams | undefined): Record<string, string> {
+  const raw = new URLSearchParams(q?.get("lista") ?? "");
+  const out: Record<string, string> = {};
+  for (const k of ["flik", "filter", "visa"]) {
+    const v = raw.get(k);
+    if (v && /^[a-z0-9_-]{1,30}$/i.test(v)) out[k] = v;
+  }
+  return out;
+}
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
+// Tillbaka leder till sidan man kom från – med samma val (filter, antal visade, månad, fliken Rapporter).
+const BACK: Record<string, { label: string; to: (caseId: string | null, q: URLSearchParams | undefined) => string | null }> = {
+  rapporter: { label: "Tillbaka till rapporterna", to: (_id, q) => path("/portal/rapporter", listQuery(q)) },
+  deltagare: { label: "Tillbaka till deltagaren", to: (id) => (id ? `/portal/deltagare/${encodeURIComponent(id)}?flik=rapporter` : null) },
+  bestallarrapport: {
+    label: "Tillbaka till beställarrapporten",
+    to: (_id, q) => path("/portal/bestallarrapport", { manad: MONTH_RE.test(q?.get("manad") ?? "") ? q?.get("manad") : null }),
+  },
   start: { label: "Tillbaka till start", to: () => "/portal" },
 };
 
-function BackButton({ from, caseId }: { from?: string | null; caseId: string | null }) {
+function BackButton({ from, caseId, query }: { from?: string | null; caseId: string | null; query?: URLSearchParams }) {
   const b = from ? BACK[from] : undefined;
-  const to = b?.to(caseId) ?? null;
+  const to = b?.to(caseId, query) ?? null;
   return (
     <div>
       <Button kind="ghost" icon="arrow-left" to={to ?? "/portal/rapporter"}>
@@ -46,7 +64,11 @@ function SupplierPerspective({ reportId, leadCoachId }: { reportId: string; lead
   return <PerspectiveLink role={role} to={`/rapporter/${encodeURIComponent(reportId)}`} label="Se från leverantörens håll" />;
 }
 
-export function PortalReport({ reportId, from }: { reportId: string; from?: string | null }) {
+/**
+ * query = adressens query (listans val och månaden till tillbakalänken). next = t.ex. "Nästa olästa rapport" (visas längst
+ * ned, efter rapporten).
+ */
+export function PortalReport({ reportId, from, query, next }: { reportId: string; from?: string | null; query?: URLSearchParams; next?: ReactNode }) {
   const q = useQuery(reportDocument, { reportId });
   const res: ReportDocResult | undefined = q.data;
   const shownId = res && res.ok ? res.doc.id : null;
@@ -54,9 +76,7 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
   // Visningen loggas alltid och kvitterar när mottagaren själv öppnar rapporten (report.open) – en gång per sidvisning.
   useAuditView(shownId ? `report.open:${shownId}` : null, () => open.run({ reportId: shownId as string }));
   useLazySnapshot(shownId, !!res && res.ok && res.needsSnapshot);
-  useEffect(() => {
-    if (res && res.ok && res.portal) document.title = `${res.portal.title} – Miljonmatch`;
-  }, [res]);
+  usePageTitle(res && res.ok && res.portal ? res.portal.title : null);
 
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (q.isLoading || !res) return <Loading />;
@@ -64,7 +84,7 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
     const [t, b] = DENIED[res.ok ? "not_yours" : res.reason] ?? DENIED.not_yours;
     return (
       <Stack gap="lg">
-        <BackButton from={from} caseId={null} />
+        <BackButton from={from} caseId={null} query={query} />
         <Empty icon="file" title={t}>
           {b}
         </Empty>
@@ -77,9 +97,9 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
   const p: PortalReportInfo = res.portal;
   return (
     <Stack gap="lg">
-      <BackButton from={from} caseId={p.caseId} />
+      <BackButton from={from} caseId={p.caseId} query={query} />
       <Stack gap="sm">
-        <h1 className="flex items-center gap-2.5 text-[1.75rem] font-extrabold tracking-[0.03em] uppercase">
+        <h1 tabIndex={-1} data-page-title="" className="flex items-center gap-2.5 text-[1.75rem] font-extrabold tracking-[0.03em] uppercase">
           <Dot className="size-2.5" />
           {p.title}
         </h1>
@@ -130,6 +150,8 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
         <span className="text-small text-text-muted portal:text-portal">Filen innehåller samma rapport som visas nedan.</span>
       </div>
       <ReportDocument doc={res.doc} />
+      {/* Efter rapporten: vidare utan att leta i listan. */}
+      {next && <div className="flex flex-wrap items-center gap-3">{next}</div>}
       <Card title="Har du frågor om rapporten?" icon="message">
         <Stack>
           <p>Skicka ett meddelande till coachen i portalen. Skriv inte personnummer i e-post.</p>

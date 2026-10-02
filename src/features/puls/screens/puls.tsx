@@ -2,7 +2,7 @@
 // Pulsmätning (/puls/:token?, prototypens puls.svar): deltagarens mobilvy utan inloggning. Engångslänk, fem frågor,
 // smileys 1–5, språkval (svenska, engelska, arabiska, somaliska) och frivillighetstext – exakt den gamla prototypens texter.
 // Coachen ser aldrig enskilda svar. Länken skickas aldrig till skyddade ärenden.
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
@@ -48,6 +48,15 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
   const state =
     link.state === "missing" ? "missing" : preview === "used" ? "used" : preview === "expired" ? "expired" : step === 6 ? "thanks" : link.state === "open" ? "open" : link.state;
   const qKey = `q${step}` as "q1" | "q2" | "q3" | "q4" | "q5";
+  // Vid varje stegbyte (Börja, Nästa, Tillbaka, tack): fokus till rubriken, så att skärmläsaren läser den nya frågan.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    document.querySelector<HTMLElement>("[data-step-heading]")?.focus();
+  }, [step, state]);
   const answered = step >= 1 && step <= 5 && ans[qKey] != null;
   const set = <K extends keyof Answers>(k: K, v: Answers[K]) => setAns((x) => ({ ...x, [k]: v }));
   const submit = async () => {
@@ -116,7 +125,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
   const screen = (icon: IconName, title: string, children: ReactNode) => (
     <div className="flex flex-col items-center gap-4 py-3 text-center">
       <Icon name={icon} size="xl" />
-      <h1 className="text-[1.375rem] font-extrabold">{title}</h1>
+      <h1 data-step-heading="" tabIndex={-1} className="text-[1.375rem] font-extrabold outline-none">{title}</h1>
       {children}
     </div>
   );
@@ -129,7 +138,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
   else if (step === 0) {
     content = (
       <Stack>
-        <h1 className="text-[1.5rem] font-extrabold">{t.title}</h1>
+        <h1 data-step-heading="" tabIndex={-1} className="text-[1.5rem] font-extrabold outline-none">{t.title}</h1>
         <p>{t.intro}</p>
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {t.bullets.map((b, i) => (
@@ -155,7 +164,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
             ))}
           </div>
         </Stack>
-        <h1 className="text-[1.3125rem] font-extrabold">{t[qKey]}</h1>
+        <h1 data-step-heading="" tabIndex={-1} className="text-[1.3125rem] font-extrabold outline-none">{t[qKey]}</h1>
         {question()}
         <Row between>
           <Button kind="ghost" onClick={() => setStep(step - 1)}>

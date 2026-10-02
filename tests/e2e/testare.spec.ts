@@ -32,6 +32,12 @@ async function asTester(page: Page, to: string, who: Who, testerId = LIMITED) {
   return errors;
 }
 
+/** Deltagarkortets huvud är kompakt: beställningen (omfattning och värde) ligger under "Visa alla uppgifter". */
+async function showFacts(page: Page) {
+  await main(page).getByRole("button", { name: "Visa alla uppgifter" }).click();
+  await expect(main(page).getByRole("button", { name: "Dölj uppgifterna" })).toHaveAttribute("aria-expanded", "true");
+}
+
 /** Byt sida utan att nollställa testdatat. */
 async function go(page: Page, to: string) {
   await page.goto(to);
@@ -68,7 +74,7 @@ test.describe("begränsad testare (appen)", () => {
     }
 
     await go(page, "/admin/integrationer");
-    await expect(page.getByRole("heading", { name: "Bakgrundsjobb (tabellen jobs)" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Bakgrundsjobb", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /Kör nu/ }).first()).toBeVisible();
     for (const name of ["Underbiträden", "Regionlåsning", "Så ser kommunen det"]) await expect(page.getByRole("heading", { name, exact: true }), name).toHaveCount(0);
     await expect(page.getByText(/Botkyrka godkände underbiträdena/)).toHaveCount(0);
@@ -85,6 +91,7 @@ test.describe("begränsad testare (appen)", () => {
 
   test("deltagarkortet: Visas inte för testare i stället för beställningens värde", async ({ page }) => {
     const errors = await asTester(page, "/arenden/case-260117", SARA);
+    await showFacts(page);
     await expect(main(page).getByText("Visas inte för testare").first()).toBeVisible();
     expect(await pageText(page)).not.toMatch(AMOUNT);
     expect(relevant(errors)).toEqual([]);
@@ -143,6 +150,7 @@ test.describe("begränsad testare (appen)", () => {
 
   test("Karim (fullständig åtkomst) ser avtalssidan och beloppen som förut", async ({ page }) => {
     await asTester(page, "/arenden/case-260117", SARA, "tester-karim");
+    await showFacts(page);
     expect(await pageText(page)).toMatch(AMOUNT);
     await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
     await asTester(page, "/admin/avtal", ROBIN, "tester-karim");
@@ -168,6 +176,7 @@ test.describe("begränsad testare (appen)", () => {
 test("prototypen och utvecklingsläget utan testare: priserna och avtalssidan som förut", async ({ page }, info) => {
   const errors = await open(page, info, "/arenden/case-260117", SARA);
   await expect(main(page)).toBeVisible();
+  await showFacts(page);
   expect(await pageText(page)).toMatch(AMOUNT);
   await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
   expect(relevant(errors)).toEqual([]);

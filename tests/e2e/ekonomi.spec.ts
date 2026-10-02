@@ -80,7 +80,13 @@ test("1. startsidan som ekonom", async ({ page }, info) => {
   expect(t).toContain("BOT-26-0117");
   expect(t.toLowerCase()).toContain("uppgifter till dig");
   expect(t).toContain("55102938");
-  expect(t).toContain("Byggs i fas 2");
+  // Utvecklingsfasen visas bara i prototypen. I appen märks det som verkligen är avstängt (Fortnox) med "Kommer senare".
+  if (isDemo(info)) expect(t).toContain("Byggs i fas 2");
+  else {
+    expect(t).toContain("Kommer senare");
+    expect(t).not.toContain("Byggs i fas");
+    expect(t).not.toMatch(/prototyp/i);
+  }
   expect(t.toLowerCase()).toContain("fortnox-synk");
   expect(t).not.toMatch(/authorization code flow/i);
   expect(t).toContain("Fortnox godkänner kopplingen");
@@ -187,7 +193,11 @@ test("5. masshandlingar: godkänn alla, skapa i Fortnox, idempotens och statussy
 
   await page.getByRole("button", { name: new RegExp(`Skapa i Fortnox \\(${klara}\\)`) }).click();
   await dialog(page).getByRole("button", { name: `Skapa ${klara} fakturor` }).click();
-  await expect(toasts(page)).toContainText(`${klara} fakturor skapades i Fortnox som ej bokförda utkast (simulerat). Inga dubbletter.`);
+  // Prototypen säger "simulerat"; appen säger vilken status fakturorna fick (ingen utvecklartext).
+  await expect(toasts(page)).toContainText(
+    isDemo(info) ? `${klara} fakturor skapades i Fortnox som ej bokförda utkast (simulerat). Inga dubbletter.` : `${klara} fakturor har fått status ”Skapad i Fortnox (ej bokförd)”. Inga dubbletter.`,
+  );
+  if (!isDemo(info)) await expect(toasts(page)).not.toContainText("simulerat");
   await page.getByRole("tab", { name: /Stoppade/ }).click();
   await expect(invoices(page).getByRole("row").filter({ hasText: "BOT-26-0121" })).toContainText("Stoppad"); // skapades aldrig
   await page.getByRole("tab", { name: /^Klara/ }).click();
@@ -339,7 +349,9 @@ test("9. startsidan: uppgift, rätta i båda ärendena, kreditera returnerade", 
   const unbilled = card(page, /Ofakturerade veckor äldre än 45 dagar/);
   await expect(unbilled).toContainText("BOT-26-0121");
   await returned.getByRole("button", { name: "Kreditera och skapa ny" }).first().click();
-  await expect(toasts(page)).toContainText("är krediterad och en ny är skapad (simulerat).");
+  await expect(toasts(page)).toContainText(isDemo(info) ? "är krediterad och en ny är skapad (simulerat)." : "är krediterad och en ny är skapad.");
+  // Knappen fungerar – i appen står ingen "Kommer senare" bredvid den (bara prototypen visar utvecklingsfasen).
+  if (!isDemo(info)) await expect(returned).not.toContainText("Kommer senare");
   await expect(returned.getByRole("button", { name: "Kreditera och skapa ny" })).toHaveCount(1);
   await returned.getByRole("button", { name: "Kreditera och skapa ny" }).click();
   await expect(returned.getByRole("button", { name: "Kreditera och skapa ny" })).toHaveCount(0);

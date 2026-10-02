@@ -1,15 +1,17 @@
 "use client";
 // Mallar och utskick (/admin/mallar, ?flik=logg för utskicksloggen – prototypens admin.mallar).
 // Alla utskick byggs från versionerade mallar och innehåller aldrig personuppgifter – bara ärendenummer och en länk till portalen.
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { plural } from "@/core/format";
 import { fmtDate, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, useRuntime } from "@/shell/runtime";
 import {
   Badge, Button, Card, Check, DemoNote, Empty, Field, Grid, Icon, Input, Kpi, List, Notice, Page, PerspectiveLink, QueryView, Row, Seg, Split, Stack, TabPanel, Tabs, TextArea, cn, toast,
+  useConfirm,
 } from "@/ui";
 import { adminSaveTemplate, adminTemplates, type SendLogItem, type TemplateView, type TemplatesView } from "../api";
 import { ALLOWED_PLACEHOLDERS, CHANNEL_LABEL, GENERIC_PORTAL, fillExample, templateCheck, type TemplateCheck } from "../templates";
@@ -66,9 +68,22 @@ export function MallarScreen({ query }: ScreenProps) {
 function TemplatesTab({ d }: { d: TemplatesView }) {
   const [selKey, setSelKey] = useState(d.templates[0]?.key ?? "");
   const editorRef = useRef<HTMLDivElement>(null);
+  const confirm = useConfirm();
+  // Mallen som redigeras har ändringar som inte är sparade (rapporteras av TemplateEditor).
+  const [editorDirty, setEditorDirty] = useState(false);
   const failing = d.templates.filter((t) => !checkOf(t).ok);
   const cur = d.templates.find((t) => t.key === selKey) ?? d.templates[0];
-  const select = (key: string) => {
+  const select = async (key: string) => {
+    if (key === cur?.key) return;
+    if (editorDirty) {
+      const ok = await confirm({
+        title: "Byta mall?",
+        body: `Ändringarna i ${cur?.name ?? "mallen"} är inte sparade. De finns kvar om du går tillbaka till mallen, men försvinner om du laddar om sidan.`,
+        confirmLabel: "Byt mall",
+        cancelLabel: "Stanna kvar",
+      });
+      if (!ok) return;
+    }
     setSelKey(key);
     // På smal skärm hamnar redigeringen under listan – visa den.
     setTimeout(() => {
@@ -99,7 +114,7 @@ function TemplatesTab({ d }: { d: TemplatesView }) {
                   type="button"
                   key={t.key}
                   aria-current={on ? "true" : undefined}
-                  onClick={() => select(t.key)}
+                  onClick={() => void select(t.key)}
                   className={cn(
                     "flex w-full min-w-0 cursor-pointer items-start gap-3 border-x-0 border-t-0 border-b border-ljusgra bg-transparent px-[18px] py-3 text-left text-inherit [font:inherit] last:border-b-0 hover:bg-ljusgra-ton",
                     on && "bg-bla-ton shadow-[inset_4px_0_0_var(--color-rod)] hover:bg-bla-ton",
@@ -122,7 +137,7 @@ function TemplatesTab({ d }: { d: TemplatesView }) {
           </List>
         </Card>
         <div ref={editorRef} id="tpl-editor" className="min-w-0 scroll-mt-[140px]">
-          {cur && <TemplateEditor key={`${cur.key}:${cur.version}`} tpl={cur} all={d.templates} canEdit={d.canEdit} />}
+          {cur && <TemplateEditor key={`${cur.key}:${cur.version}`} tpl={cur} all={d.templates} canEdit={d.canEdit} onDirty={setEditorDirty} />}
         </div>
       </Split>
       <DemoNote>
@@ -132,18 +147,30 @@ function TemplatesTab({ d }: { d: TemplatesView }) {
   );
 }
 
-function TemplateEditor({ tpl, all, canEdit }: { tpl: TemplateView; all: TemplateView[]; canEdit: boolean }) {
+function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all: TemplateView[]; canEdit: boolean; onDirty: (dirty: boolean) => void }) {
   const save = useCommand(adminSaveTemplate);
-  const [subject, setSubject] = useState(tpl.subject);
-  const [body, setBody] = useState(tpl.body);
+  // Utkastminne per mall och version (bara i minnet): ändringarna finns kvar om man byter mall eller sida och kommer tillbaka.
+  const subjectDraft = useDraft(`mall|${tpl.key}|${tpl.version}|amne`, tpl.subject);
+  const bodyDraft = useDraft(`mall|${tpl.key}|${tpl.version}|text`, tpl.body);
+  const [subject, setSubject] = [subjectDraft.value, subjectDraft.set];
+  const [body, setBody] = [bodyDraft.value, bodyDraft.set];
   const chk = templateCheck(`${subject}\n${body}`);
   const dirty = subject !== tpl.subject || body !== tpl.body;
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard(canEdit && dirty && !save.pending, "Ändringarna i mallen är inte sparade.");
+  useEffect(() => {
+    onDirty(canEdit && dirty);
+    return () => onDirty(false);
+  }, [canEdit, dirty, onDirty]);
   const toCustomer = /Kommunens|Ny kommunanvändare|Avsändaren/.test(tpl.to);
   const variants = tpl.variantOf ? all.filter((t) => t.variantOf === tpl.variantOf && t.key !== tpl.key) : [];
   const onSave = async () => {
     const r = await save.run({ key: tpl.key, subject: tpl.channel === "email" ? subject : "", body }).catch(() => null);
     if (r && !r.ok && r.error === "personal_data") return toast("Mallen sparades inte: den innehåller personuppgifter.", "error");
     if (!r || !r.ok) return toast("Mallen kunde inte sparas. Texten får inte vara tom.", "error");
+    subjectDraft.clear();
+    bodyDraft.clear();
     toast(`${tpl.name} är sparad som version ${r.version}.`);
   };
   return (
@@ -165,7 +192,7 @@ function TemplateEditor({ tpl, all, canEdit }: { tpl: TemplateView; all: Templat
               Spara som version {tpl.version + 1}
             </Button>
             {dirty && (
-              <Button kind="ghost" icon="reset" onClick={() => { setSubject(tpl.subject); setBody(tpl.body); }}>
+              <Button kind="ghost" icon="reset" onClick={() => { setSubject(tpl.subject); setBody(tpl.body); subjectDraft.clear(); bodyDraft.clear(); }}>
                 Ångra ändringarna
               </Button>
             )}

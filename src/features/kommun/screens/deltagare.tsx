@@ -2,10 +2,12 @@
 // Deltagarna i portalen (/portal/deltagare/:caseId?) – prototypens kom.deltagare. Utan caseId: listan (handläggaren: sina
 // deltagare, kommunens chef: enhetens). Med caseId: deltagarens sida (deltagare-kort.tsx).
 // Begrepp: deltagare = personen, insats = det kommunen beställt, ärendenummer = beställningens nummer.
-import { useEffect, useState } from "react";
+import { usePageTitle } from "@/shell/page-effects";
 import { useQuery } from "@/shell/backend";
+import { useNav } from "@/shell/nav";
+import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
-import { Badge, Card, DemoNote, Empty, ErrorNotice, Field, FormGrid, Input, List, ListItem, Loading, PerspectiveLink, Seg, Select, Stack } from "@/ui";
+import { Badge, Button, Card, DemoNote, Empty, ErrorNotice, Field, FormGrid, Icon, Input, List, ListItem, Loading, PerspectiveLink, Seg, Select, Stack } from "@/ui";
 import { kommunCaseList, type KomCaseList, type KomCaseRow } from "../api";
 import { shortStatus } from "../texts";
 import { KStatus, KomHead, KomPage, MoreButton, SubLine } from "./parts";
@@ -33,9 +35,7 @@ export function PortalDeltagareScreen({ params, query }: ScreenProps) {
 
 function CaseListScreen() {
   const q = useQuery(kommunCaseList, {});
-  useEffect(() => {
-    if (q.data?.chef) document.title = "Enhetens deltagare – Miljonmatch";
-  }, [q.data?.chef]);
+  usePageTitle(q.data?.chef ? "Enhetens deltagare" : null);
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (q.isLoading || !q.data) return <Loading />;
   return <CaseList d={q.data} />;
@@ -43,14 +43,28 @@ function CaseListScreen() {
 
 function CaseList({ d }: { d: KomCaseList }) {
   const chef = d.chef;
-  const [filter, setFilter] = useState<Filter>("aktuella");
-  const [q, setQ] = useState("");
-  const [who, setWho] = useState("");
-  const [limit, setLimit] = useState(20);
+  const nav = useNav();
+  const patch = useQueryPatch();
+  // Valen i adressen (Tillbaka från en deltagare visar samma lista). Söktexten kan vara ett namn: bara i minnet.
+  const filter = pick(nav.query, "filter", LIST_FILTERS.map((o) => o.value), "aktuella");
+  const setFilter = (v: Filter) => patch({ filter: v === "aktuella" ? null : v });
+  const [q, setQ] = useMemoryState("q", "");
+  const who = chef && d.rows.some((c) => c.referrerId === nav.query.get("handlaggare")) ? (nav.query.get("handlaggare") as string) : "";
+  const setWho = (v: string) => patch({ handlaggare: v || null });
+  const limit = pickInt(nav.query, "visa", 20);
+  const setLimit = (n: number) => patch({ visa: n > 20 ? n : null });
   const all = d.rows;
   const counts = Object.fromEntries(LIST_FILTERS.map((o) => [o.value, all.filter(MATCH[o.value]).length])) as Record<Filter, number>;
   const term = q.trim().toLowerCase();
-  const rows = all.filter((c) => MATCH[filter](c) && (!who || c.referrerId === who) && (!term || c.caseNumber.toLowerCase().includes(term) || c.name.toLowerCase().includes(term)));
+  const hit = (c: KomCaseRow) => (!who || c.referrerId === who) && (!term || c.caseNumber.toLowerCase().includes(term) || c.name.toLowerCase().includes(term));
+  const rows = all.filter((c) => MATCH[filter](c) && hit(c));
+  // Sökningen hittar deltagare i andra urval: "1 träff bland Avslutade – Visa" (så att ingen tror att deltagaren saknas).
+  const shownIds = new Set(rows.map((c) => c.id));
+  const elsewhere = term
+    ? LIST_FILTERS.filter((o) => o.value !== filter && o.value !== "alla")
+        .map((o) => ({ ...o, n: all.filter((c) => MATCH[o.value](c) && hit(c) && !shownIds.has(c.id)).length }))
+        .filter((o) => o.n > 0)
+    : [];
   const referrers = [...new Map(all.filter((c) => c.referrerId).map((c) => [c.referrerId as string, c.referrerName])).entries()]
     .map(([value, label]) => ({ value, label }))
     .sort((a, b) => a.label.localeCompare(b.label, "sv"));
@@ -102,6 +116,29 @@ function CaseList({ d }: { d: KomCaseList }) {
             </Field>
           )}
         </FormGrid>
+        {(term || elsewhere.length > 0) && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {elsewhere.map((o) => (
+              <span key={o.value} className="inline-flex flex-wrap items-center gap-2">
+                <Icon name="info" />
+                {o.n === 1 ? "1 träff" : `${o.n} träffar`} bland {o.label.toLowerCase()}
+                <Button
+                  onClick={() => {
+                    setFilter(o.value);
+                    more();
+                  }}
+                >
+                  Visa
+                </Button>
+              </span>
+            ))}
+            {term && (
+              <Button kind="ghost" icon="x" onClick={() => setQ("")}>
+                Rensa sökningen
+              </Button>
+            )}
+          </div>
+        )}
       </Stack>
       <Card flush title={`${rows.length} deltagare`} icon="users">
         {rows.length === 0 ? (

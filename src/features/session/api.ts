@@ -33,6 +33,6 @@ export const auditView = command("session.auditView", z.object({
     filter: z.string().max(200).optional(),
     month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   }).strict().optional(),
-})).returns<Result<object>>();
+}), { invalidates: "none" }).returns<Result<object>>();
 
 export const sessionPing = query("session.ping", z.object({})).returns<{ now: string; role: string; userId: string }>();

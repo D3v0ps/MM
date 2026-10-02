@@ -5,9 +5,9 @@
 import { useEffect, useRef, useState } from "react";
 import { fmtDateFull } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { path } from "@/shell/nav";
+import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
-import { Button, Card, Check, ErrorNotice, Kv, Loading, Modal, Notice, Page, Stack, useConfirm } from "@/ui";
+import { Button, Card, Check, ErrorNotice, Kv, Loading, Modal, Notice, Page, Stack, toast, useConfirm } from "@/ui";
 import { builderExport, builderPreview, savedReport, savedReportArchive, savedReportShare, VISIBILITY_LABEL, type BuilderView, type SavedReportDetail } from "../api";
 import { BuilderViewPanel, DownloadStatus, useBuilderDownload } from "../components/builder-view";
 import { RadioCards } from "../components/radio-cards";
@@ -37,6 +37,14 @@ export function SparadScreen({ params, query }: ScreenProps) {
 
 function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; lockedStep: boolean }) {
   const confirm = useConfirm();
+  const nav = useNav();
+  // ?sparad=1: kvittensen visas (toast och rutan) och tas bort ur adressen – Tillbaka och omladdning visar den inte igen.
+  const [savedNow] = useState(justSaved);
+  useEffect(() => {
+    if (!justSaved) return;
+    toast("Rapporten är sparad.");
+    nav.replace(path(`/rapportbyggare/${s.id}`));
+  }, [justSaved, nav, s.id]);
   const preview = useCommand(builderPreview);
   const exportCmd = useCommand(builderExport);
   const shareCmd = useCommand(savedReportShare);
@@ -69,6 +77,17 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
     try {
       const r = await shareCmd.run({ savedReportId: s.id, visibility });
       if (!r.ok) setActionError(r.message ?? "Delningen kunde inte ändras.");
+      else if (visibility !== s.visibility) {
+        toast(
+          visibility === "customer"
+            ? "Rapporten är delad med kommunen."
+            : s.visibility === "customer"
+              ? "Kommunen ser inte rapporten längre."
+              : visibility === "mb"
+                ? "Rapporten är delad med alla på Miljonbemanning i avtalet."
+                : "Rapporten syns bara för dig.",
+        );
+      }
       setSharing(null);
     } catch {
       setActionError("Delningen kunde inte ändras. Försök igen om en stund.");
@@ -93,7 +112,7 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
 
   return (
     <Page title={s.title} crumbs={[{ label: "Rapportbyggare", to: "/rapportbyggare" }, { label: s.title }]}>
-      {justSaved && <Notice tone="ok" title="Rapporten är sparad." />}
+      {savedNow && <Notice tone="ok" title="Rapporten är sparad." />}
       {s.archived && <Notice tone="info" title="Rapporten är arkiverad." />}
       {(lockedStep || (!s.archived && s.lockedText && s.visibility === "customer")) && s.lockedText && <Notice tone="info" title={s.lockedText} />}
       {!s.archived && !s.isOwner && s.lockedText && s.visibility !== "customer" && <p className="text-text-muted">{s.lockedText}</p>}
@@ -142,6 +161,23 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
           )}
         </div>
       )}
+      {/* Hämta överst – man ska inte behöva skrolla förbi tabellen för att få filen. */}
+      {valid && (
+        <div className="flex flex-wrap items-center gap-3">
+          <Button icon="download" pending={dl.busy === "xlsx"} onClick={() => fetchFile("xlsx")}>
+            Hämta som Excel
+          </Button>
+          <Button icon="download" pending={dl.busy === "csv"} onClick={() => fetchFile("csv")}>
+            Hämta som CSV
+          </Button>
+          {!isList && (
+            <Button icon="download" pending={dl.busy === "pdf"} onClick={() => fetchFile("pdf")}>
+              Hämta som PDF
+            </Button>
+          )}
+          <DownloadStatus done={dl.done} error={dl.error} />
+        </div>
+      )}
       {s.definitionError && !s.archived ? (
         <Notice tone="warn" title={`Rapporten behöver ändras innan den kan visas. ${s.definitionError}`}>
           {s.canEdit && (
@@ -166,20 +202,6 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
                 {cur && "view" in cur ? `${cur.view.counts.casesText} deltagare, ${cur.view.periodLabel}` : ""}
               </p>
               {cur && "view" in cur && <BuilderViewPanel view={cur.view} title={s.title} headingLevel={3} />}
-              <div className="flex flex-wrap gap-3">
-                <Button icon="download" pending={dl.busy === "xlsx"} onClick={() => fetchFile("xlsx")}>
-                  Hämta som Excel
-                </Button>
-                <Button icon="download" pending={dl.busy === "csv"} onClick={() => fetchFile("csv")}>
-                  Hämta som CSV
-                </Button>
-                {!isList && (
-                  <Button icon="download" pending={dl.busy === "pdf"} onClick={() => fetchFile("pdf")}>
-                    Hämta som PDF
-                  </Button>
-                )}
-              </div>
-              <DownloadStatus done={dl.done} error={dl.error} />
             </Stack>
           </Card>
         )

@@ -5,7 +5,10 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import { DemoOnly } from "@/shell/runtime";
 import { fmtDateTime } from "@/core/time";
-import { Badge, Button, Card, Empty, Field, Icon, Spacer, Split, Stack, SlaBadge, Table, TextArea, Timeline, toast, cn, type BadgeTone, type Column, type IconName } from "@/ui";
+import {
+  Badge, Button, Card, Empty, Field, focusSoon, Icon, Spacer, Split, Stack, SlaBadge, Table, TextArea, Timeline, toast, cn, type BadgeTone, type Column, type IconName,
+} from "@/ui";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { caseHistory, caseMessages, caseReports, messageSend, type CaseReportRow } from "../api";
 import { canOpen, fd, Label, LiMain, NavTable, PNR_ERROR, PNR_RE, TabQuery } from "./common";
 import { CustSwitch, type TabProps } from "./kort";
@@ -82,6 +85,7 @@ export function TabRapporter({ card }: TabProps) {
             <NavTable
               columns={cols}
               rows={reports}
+              rowAttrs={(r) => ({ "data-mal": `rep:${r.id}` })}
               caption="Rapporter"
               empty="Inga rapporter ännu."
               to={can ? (r) => `/rapporter/${encodeURIComponent(r.id)}` : null}
@@ -112,7 +116,13 @@ export function TabRapporter({ card }: TabProps) {
 export function TabMeddelanden({ card }: TabProps) {
   const q = useQuery(caseMessages, { caseId: card.caseId });
   const send = useCommand(messageSend);
-  const [body, setBody] = useState("");
+  // Utkastet ligger kvar per ärende (bara i minnet) – också vid byte av flik och när man lämnar kortet.
+  const draft = useDraft(`meddelande|${card.caseId}`, "");
+  const body = draft.value;
+  const setBody = draft.set;
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard(!!body.trim() && !send.pending, "Meddelandet du har skrivit är inte skickat. Det finns kvar som utkast om du kommer tillbaka.");
   const [err, setErr] = useState<string | null>(null);
   const k = card.referrer;
   const submit = async (e?: FormEvent) => {
@@ -133,7 +143,10 @@ export function TabMeddelanden({ card }: TabProps) {
       return;
     }
     setBody("");
+    draft.clear();
     toast(`Meddelandet är skickat. ${k ? k.name : "Handläggaren"} får ett mejl utan personuppgifter.`);
+    // Fältet töms: fokus till det nya meddelandet i tråden.
+    focusSoon(`meddelande-${res.messageId}`);
   };
   return (
     <TabQuery q={q}>
@@ -148,6 +161,9 @@ export function TabMeddelanden({ card }: TabProps) {
                   {messages.map((m) => (
                     <div
                       key={m.id}
+                      id={`meddelande-${m.id}`}
+                      tabIndex={-1}
+                      data-mal={`msg:${m.id}`}
                       className={cn(
                         "flex max-w-[min(620px,94%)] min-w-0 flex-col gap-1 rounded-card border border-ljusgra px-3.5 py-2.5",
                         m.mine ? "self-end bg-ljusgra-ton" : "self-start border-bla bg-bla-ton",
@@ -183,6 +199,7 @@ export function TabMeddelanden({ card }: TabProps) {
                       rows={4}
                     />
                   </Field>
+                  {draft.restored && body.trim() && <p className="text-small font-bold">Ditt osparade utkast är återställt. Det är inte skickat ännu.</p>}
                   <div className="flex flex-wrap gap-3">
                     <Button kind="primary" type="submit" icon="send" pending={send.pending}>Skicka säkert meddelande</Button>
                   </div>

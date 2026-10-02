@@ -1,12 +1,13 @@
 "use client";
 // Rapportlistan (prototypens rapporter.lista): alla rapporter till kommunen med snabbfilter, filter, sökning och status.
 // Coachen ser sina ärenden och veckorapporter där hon har deltagare. Mest brådskande först.
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { num } from "@/core/format";
 import { fmtDateShort, monthEnd, monthName } from "@/core/time";
 import { reportKindLabel, reportStatusLabel } from "@/core/labels";
 import { useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { Link } from "@/shell/nav";
+import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import {
   Badge, Button, Card, DemoNote, ErrorNotice, Field, Grid, Icon, Input, Kpi, List, ListItem, Loading, Page, PerspectiveLink, Select, SlaBadge, Stack, Stepper, Table,
@@ -90,17 +91,33 @@ export function RapporterListaScreen({ query }: ScreenProps) {
   const q = useQuery(reportList, {});
   if (q.error) return <Page title="Rapporter"><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (q.isLoading || !q.data) return <Page title="Rapporter"><Loading /></Page>;
-  return <ListView data={q.data} initial={parseFilter(query.get("filter"))} />;
+  return <ListView data={q.data} query={query} />;
 }
 
-function ListView({ data, initial }: { data: ReportList; initial: Filter }) {
-  const nav = useNav();
-  const [kind, setKind] = useState(initial.kind || "all");
-  const [status, setStatus] = useState(initial.status || "all");
-  const [period, setPeriod] = useState(initial.period || "all");
-  const [quick, setQuick] = useState<QuickFilter | null>(initial.quick || null);
-  const [text, setText] = useState("");
-  const [limit, setLimit] = useState(PAGE_SIZE);
+const QUICK_KEYS = Object.keys(QUICK_FILTERS) as QuickFilter[];
+
+function ListView({ data, query }: { data: ReportList; query: URLSearchParams }) {
+  const patch = useQueryPatch();
+  // ?filter= (scenarier och länkar) är en ingång: den översätts till listans parametrar med replace.
+  const filter = query.get("filter");
+  useEffect(() => {
+    if (filter === null) return;
+    const f = parseFilter(filter);
+    patch({ filter: null, typ: f.kind ?? null, status: f.status ?? null, period: f.period ?? null, snabb: f.quick ?? null, visa: null });
+  }, [filter, patch]);
+  const initial = filter !== null ? parseFilter(filter) : null;
+  // Valen ligger i adressen (Tillbaka och omladdning visar samma lista). Söktexten kan vara ett namn: bara i minnet.
+  const kind = initial ? (initial.kind ?? "all") : pick(query, "typ", ["all", ...REPORT_LIST_KINDS], "all");
+  const status = initial ? (initial.status ?? "all") : pick(query, "status", ["all", ...REPORT_LIST_STATUSES], "all");
+  const period = initial ? (initial.period ?? "all") : data.months.includes(query.get("period") ?? "") ? (query.get("period") as string) : "all";
+  const quick: QuickFilter | null = initial ? (initial.quick ?? null) : (QUICK_KEYS as readonly string[]).includes(query.get("snabb") ?? "") ? (query.get("snabb") as QuickFilter) : null;
+  const [text, setText] = useMemoryState("q", "");
+  const limit = pickInt(query, "visa", PAGE_SIZE);
+  const setKind = (v: string) => patch({ typ: v === "all" ? null : v });
+  const setStatus = (v: string) => patch({ status: v === "all" ? null : v });
+  const setPeriod = (v: string) => patch({ period: v === "all" ? null : v });
+  const setQuick = (v: QuickFilter | null) => patch({ snabb: v });
+  const setLimit = (n: number) => patch({ visa: n > PAGE_SIZE ? n : null });
   const narrow = useNarrow();
   const all = data.rows;
   const counts = useMemo(
@@ -138,13 +155,16 @@ function ListView({ data, initial }: { data: ReportList; initial: Filter }) {
     setQuick(quick === k ? null : k);
     setLimit(PAGE_SIZE);
   };
-  const open = (x: ReportListRow) => nav.push(`/rapporter/${encodeURIComponent(x.id)}`);
+  const hrefOf = (x: ReportListRow) => `/rapporter/${encodeURIComponent(x.id)}`;
   const columns: Column<ReportListRow>[] = [
     {
       key: "title", label: "Rapport",
+      // Rubriken är en riktig länk (ny flik med ctrl/cmd eller mittenklick); klick i resten av raden öppnar också rapporten.
       render: (x) => (
         <div className="flex min-w-[200px] flex-col gap-0.5">
-          <span className="font-bold">{x.title}</span>
+          <Link to={hrefOf(x)} className="inline-flex min-h-11 items-center font-bold underline underline-offset-3">
+            {x.title}
+          </Link>
           <span className="text-small text-text-muted">{x.sub}</span>
         </div>
       ),
@@ -230,7 +250,7 @@ function ListView({ data, initial }: { data: ReportList; initial: Filter }) {
               <div className="px-[18px] py-3 text-text-muted">Inga rapporter matchar filtret.</div>
             ) : (
               shown.map((x) => (
-                <ListItem key={x.id} onClick={() => open(x)} marked={x.overdue} chevron title={x.title} sub={x.sub}>
+                <ListItem key={x.id} to={hrefOf(x)} marked={x.overdue} chevron title={x.title} sub={x.sub}>
                   <span className="mt-1 flex flex-wrap items-center gap-2">
                     <ReportStatusBadge eff={x.eff} label={x.statusLabel} />
                     {x.sla && <SlaBadge sla={x.sla} dueAt={x.dueAt} />}
@@ -245,7 +265,7 @@ function ListView({ data, initial }: { data: ReportList; initial: Filter }) {
             )}
           </List>
         ) : (
-          <Table columns={columns} rows={shown} caption="Rapporter" empty="Inga rapporter matchar filtret." rowTone={(x) => (x.overdue ? "alert" : null)} onRowClick={open} />
+          <Table columns={columns} rows={shown} caption="Rapporter" empty="Inga rapporter matchar filtret." rowTone={(x) => (x.overdue ? "alert" : null)} rowHref={hrefOf} linkKey={false} />
         )}
       </Card>
       <Card title="Så fungerar rapporterna" icon="info">

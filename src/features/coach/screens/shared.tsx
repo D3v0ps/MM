@@ -8,7 +8,7 @@ import { fmtDateShort, weekday, WEEKDAYS_SHORT, type LocalDateTime } from "@/cor
 import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import {
-  Avatar, Badge, Button, Card, CaseStatusBadge, Empty, ErrorNotice, List, ListItem, Loading, Notice, Page, PerspectiveLink, PhaseTag, Row, useAuditView,
+  Avatar, Badge, Button, Card, CaseLink, CaseStatusBadge, Empty, ErrorNotice, List, ListItem, Loading, Notice, Page, PerspectiveLink, PhaseTag, Row, useAuditView,
   type BadgeTone, type IconName, type SegOption,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
@@ -58,15 +58,17 @@ export function AttBadge({ at }: { at: AttMark }) {
 }
 
 // ---------------------------------------------------------------- Ärendehuvud, spärr och perspektiv
-/** Deltagarhuvudet i ärendevyerna (prototypens CaseHead). */
+/** Deltagarhuvudet i ärendevyerna (prototypens CaseHead). Namnet och ärendenumret leder till deltagarkortet. */
 export function CaseHeadView({ head }: { head: CaseHead }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <Avatar name={head.name} />
       <div className="flex min-w-0 flex-col gap-1">
         <Row gap="sm">
-          <span className="font-bold">{head.name}</span>
-          <span className="text-small whitespace-nowrap text-text-muted tabular-nums tracking-[0.01em]">{head.caseNumber}</span>
+          <CaseLink caseId={head.caseId} caseNumber={head.caseNumber} className="-ml-1.5 gap-2">
+            <span>{head.name}</span>
+            <span className="text-small font-semibold whitespace-nowrap text-text-muted tabular-nums tracking-[0.01em]">{head.caseNumber}</span>
+          </CaseLink>
           {head.protected && <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>}
         </Row>
         <Row gap="sm">
@@ -96,6 +98,20 @@ export function Persp({ role, userId, to, label }: { role: Role; userId?: string
 }
 
 export const MIN_VECKA_CRUMB = { label: "Min vecka", to: "/min-vecka" };
+
+/** Brödsmulor för coachens sidor om ett ärende: Mina ärenden / BOT-26-0174 (deltagarkortet) / sidan. */
+export function caseCrumbs(head: { caseId: string; caseNumber: string }, label: string): { label: string; to?: string }[] {
+  return [{ label: "Mina ärenden", to: "/arenden" }, { label: head.caseNumber, to: `/arenden/${encodeURIComponent(head.caseId)}` }, { label }];
+}
+
+/** Knapp till deltagarkortet (t.ex. efter en godkänd avstämning). */
+export function ToCaseButton({ caseId, kind = "secondary" }: { caseId: string; kind?: "primary" | "secondary" | "ghost" }) {
+  return (
+    <Button kind={kind} icon="user" to={`/arenden/${encodeURIComponent(caseId)}`}>
+      Till deltagarkortet
+    </Button>
+  );
+}
 
 /** Vyn kan inte visa ärendet (prototypens GateView). */
 export function GateView({ gate, title, listPath }: { gate: CoachGate; title: string; listPath: string }) {

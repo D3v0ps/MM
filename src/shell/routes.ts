@@ -18,6 +18,11 @@ export type RouteDef = {
   screen: ComponentType<ScreenProps>;
   /** Utan inloggning (t.ex. portalens inloggning och pulslänken). */
   public?: boolean;
+  /**
+   * Skärmen ligger kvar när parametrarna byts (t.ex. inkorgens valda mejl): samma sida för skalet – ingen skroll till toppen,
+   * inget fokusbyte och skärmens tillstånd behålls.
+   */
+  keepMounted?: boolean;
 };
 
 /** Startsida per roll. */

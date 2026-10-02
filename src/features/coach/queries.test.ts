@@ -12,7 +12,7 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import {
   assessmentPage, casePicker, checkInAttendance, checkInPage, checkinSave, eventsPage, intakePage, minVecka, narvaroView,
 } from "./api";
-import { messageSend } from "@/features/arenden/api";
+import { messageRead, messageSend } from "@/features/arenden/api";
 import { notifRead } from "@/features/notiser/api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -48,17 +48,28 @@ describe("Min vecka", () => {
     expect(v.flags.every((f) => !/escalat|no_progress|ai_draft/.test(f.kind))).toBe(true);
     expect(v.reminders.map((r) => [r.caseNumber, r.streak])).toEqual([["BOT-26-0148", 3], ["BOT-26-0126", 1], ["BOT-26-0130", 1], ["BOT-27-0003", 1]]);
     expect(v.unread.count).toBe(4);
-    expect(v.messages).toEqual([]);
+    // Marias meddelande 1 februari 08.15 är oläst för Amira – det syns på Min vecka (samma räkning som kortets olästa).
+    expect(v.messages).toEqual([
+      {
+        notificationId: null, caseId: SC.nadia, caseNumber: "BOT-26-0143", name: "Nadia Warsame", createdAt: "2027-02-01T08:15", from: "Maria Ekdahl",
+        excerpt: "Tack! Kan vi ses på ett uppföljningsmöte vecka 6? Jag kan tisdag eller torsdag förmiddag.", count: 1,
+      },
+    ]);
     expect(v.due.monthly).toMatchObject({ count: 14, byStatus: { draft: 11, approved: 3 }, dueAt: "2027-02-05T23:59" });
     expect(v.calendar.mon).toBe("2027-02-01");
   });
 
-  it("visar olästa meddelanden från kommunen tills coachen öppnat dem", async () => {
+  it("visar olästa meddelanden från kommunen tills coachen läst dem i ärendet", async () => {
     const sent = await rt.run("command", messageSend.key, { caseId: SC.nadia, body: "Tiden passar bra. Vi ses på torsdag." }, as("k-maria", "kommun_handlaggare"));
     expect(sent).toMatchObject({ ok: true });
     const v = await q(minVecka, {}, amira());
-    expect(v.messages).toEqual([expect.objectContaining({ caseId: SC.nadia, caseNumber: "BOT-26-0143", from: "Maria Ekdahl", excerpt: "Tiden passar bra. Vi ses på torsdag." })]);
-    await rt.run("command", notifRead.key, { ids: [v.messages[0].notificationId] }, amira());
+    expect(v.messages).toEqual([expect.objectContaining({ caseId: SC.nadia, caseNumber: "BOT-26-0143", from: "Maria Ekdahl", excerpt: "Tiden passar bra. Vi ses på torsdag.", count: 2 })]);
+    expect(v.messages[0].notificationId).toEqual(expect.any(String));
+    // Notisen läst: meddelandena är fortfarande olästa i ärendet.
+    await rt.run("command", notifRead.key, { ids: [v.messages[0].notificationId as string] }, amira());
+    expect((await q(minVecka, {}, amira())).messages).toEqual([expect.objectContaining({ caseId: SC.nadia, notificationId: null, count: 2 })]);
+    // Coachen öppnar meddelandena i deltagarkortet (läskvitto): borta från Min vecka.
+    await rt.run("command", messageRead.key, { caseId: SC.nadia }, amira());
     expect((await q(minVecka, {}, amira())).messages).toEqual([]);
   });
 

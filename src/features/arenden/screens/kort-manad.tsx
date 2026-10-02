@@ -8,7 +8,7 @@ import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import { useSession } from "@/shell/session";
 import { fmtDateFull, MONTHS } from "@/core/time";
-import { Button, Card, cn, ErrorNotice, Field, Icon, Loading, Notice, Section, Select, Stack, type IconName } from "@/ui";
+import { Button, Card, cn, ErrorNotice, Field, Icon, Loading, Notice, Refreshing, Section, Select, Stack, type IconName } from "@/ui";
 import { ReportDocument } from "@/features/rapporter/components/report-document";
 import { caseMonthBasis, checkInsApprovedGap, type CaseMonthBasis, type MonthlyGaps } from "../api";
 import { canOpen, cap, caseLink } from "./common";
@@ -18,13 +18,18 @@ const monthWord = (mk: string) => MONTHS[Number(mk.slice(5, 7)) - 1];
 const monthText = (mk: string) => `${monthWord(mk)} ${mk.slice(0, 4)}`;
 
 export function TabManad({ card, setTab, month }: TabProps & { month: string | null }) {
-  const q = useQuery(caseMonthBasis, { caseId: card.caseId, manad: month ?? undefined });
+  // Månadsbyte: underlaget står kvar (dämpat) tills nästa månad har hämtats – väljaren och fokus ligger kvar.
+  const q = useQuery(caseMonthBasis, { caseId: card.caseId, manad: month ?? undefined }, { keepPrevious: true });
   const nav = useNav();
   const pick = (mk: string) => nav.replace(path(`/arenden/${encodeURIComponent(card.caseId)}`, { flik: "manad", manad: mk }));
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (q.data === undefined) return <Loading />;
   if (q.data === null) return <Notice tone="info" title="Den delen visas inte för din roll" />;
-  return <MonthBasis b={q.data} card={card} setTab={setTab} onMonth={pick} />;
+  return (
+    <Refreshing busy={q.isPlaceholderData}>
+      <MonthBasis b={q.data} card={card} setTab={setTab} onMonth={pick} />
+    </Refreshing>
+  );
 }
 
 function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTab"> & { b: CaseMonthBasis; onMonth: (mk: string) => void }) {

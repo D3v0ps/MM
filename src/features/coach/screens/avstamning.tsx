@@ -6,10 +6,12 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { pct, plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtWeekday, fmtWeekKey, monday, timeOf } from "@/core/time";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
-  AiBox, AiTag, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, Evidence, Field, FormGrid, Grid, Icon, Input, Kpi, Kv, List, Notice, Page,
+  AiBox, AiTag, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
+  List, Notice, Page,
   Recorder, Row, Seg, Select, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
 import { Link } from "@/shell/nav";
@@ -22,7 +24,7 @@ import {
   AI_FIELDS, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, recordingFinish, recordingState, type AiField,
   type AiFieldSuggestion, type AiSource, type CheckInPage, type CheckInReceipt, type CheckInSuggestions, type CheckInView, type RecordingState,
 } from "../api";
-import { cap, CaseHeadView, CasePicker, ChipButton, Chips, customerPerspective, GateView, lc, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
+import { cap, CaseHeadView, caseCrumbs, CasePicker, ChipButton, Chips, customerPerspective, GateView, lc, PageState, Persp, useCaseView } from "./shared";
 
 type Ok = Extract<CheckInPage, { kind: "ok" }>;
 type Goal = "yes" | "partly" | "no";
@@ -97,7 +99,7 @@ function Loaded({ v, rostId }: { v: Ok; rostId: string | null }) {
 function CheckInReadOnly({ v, ci }: { v: Ok; ci: CheckInView }) {
   const phaseText = (n: number | null) => (n ? `Fas ${n} · ${v.phases.find((p) => p.no === n)?.name ?? ""}` : "–");
   return (
-    <Page title={TITLE} eyebrow={`${v.head.name} · ${v.head.caseNumber}`} crumbs={[MIN_VECKA_CRUMB, { label: TITLE }]}>
+    <Page title={TITLE} eyebrow={`${v.head.name} · ${v.head.caseNumber}`} crumbs={caseCrumbs(v.head, TITLE)}>
       <Notice tone="ok" title={`Godkänd ${fmtDateTime(ci.approvedAt)} av ${ci.approvedByName ?? "–"}`}>
         En godkänd avstämning ändras inte. Behöver något rättas gör du en ny avstämning.
       </Notice>
@@ -183,6 +185,13 @@ export type LoggedDecision = { field: AiField; decision: Outcome; clicked: Click
 type Done = { checkInId: string; deviationId: string | null; decisions: LoggedDecision[]; docSecs: number; stopped: number };
 
 const DEV_ERR: Record<keyof Dev, string> = { description: "devDescription", action: "devAction", ownerId: "devOwner", followUpOn: "devFollow", needsCustomerDecision: "devCust" };
+const EMPTY_DEV: Dev = { description: "", action: "", ownerId: "", followUpOn: "", needsCustomerDecision: null };
+/** Fältet som felet gäller (länkarna i felsammanfattningen). ai pekar på första förslaget som väntar. */
+const ERROR_FIELD: Record<string, string> = {
+  goalStatus: "ci-goal", nextGoal: "ci-nextgoal", ec: "ci-ec", overallStatus: "ci-status",
+  devDescription: "dev-desc", devAction: "dev-action", devOwner: "dev-owner", devFollow: "dev-follow", devCust: "dev-cust",
+};
+const REC_LEAVE = "Inspelningen stoppas och försvinner. Lämna ändå?";
 const DEV_MISSING: Record<string, string> = { devDescription: "beskrivning", devAction: "åtgärd", devOwner: "ansvarig", devFollow: "uppföljningsdatum", devCust: "om kommunen behöver fatta beslut" };
 
 function sourceOf(ci: CheckInView | null): AiSource {
@@ -225,12 +234,20 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   };
 
   const [start] = useState(() => Date.now());
-  const [form, setForm] = useState<FormState>(() => ({
+  const initialForm = (): FormState => ({
     date: dayOf(held0), time: timeOf(held0), durationMin: String(ci0?.durationMin || last?.durationMin || 45), mode: ci0?.mode || last?.mode || "fysiskt",
     attendanceComment: ci0?.attendanceComment || "", goalStatus: ci0?.goalStatus || null, nextGoal: ci0?.nextGoal || "", phase: String(ci0?.phase || c.phase || 1),
     activitiesDone: ci0?.activitiesDone ?? [], ecCount: (ci0?.employerContacts?.count ?? null) as Ec | null, ecTypes: ci0?.employerContacts?.types ?? [],
     overallStatus: ci0?.overallStatus || null, obstacles: ci0?.obstacles ?? [], note: ci0?.note || "",
-  }));
+  });
+  // Utkastminne (bara i minnet): det coachen har fyllt i finns kvar om sidan lämnas utan att sparas (2.A).
+  const draftKey = `avstamning|${c.caseId}|${ci0?.id ?? "ny"}`;
+  const formDraft = useDraft<FormState>(draftKey, initialForm);
+  const devDraft = useDraft<Dev>(`${draftKey}|avvikelse`, EMPTY_DEV);
+  const form = formDraft.value;
+  const setForm = formDraft.set;
+  // Det som senast fanns sparat (formuläret som det öppnades, eller efter Spara utkast).
+  const [baseline, setBaseline] = useState(() => JSON.stringify([initialForm(), EMPTY_DEV]));
   const setF = <K extends keyof FormState>(k: K, val: FormState[K]) => setForm((f) => ({ ...f, [k]: val }));
   const prot = c.protected;
   const [method, setMethod] = useState<Method>(ci0?.ai ? "ai" : "manual");
@@ -246,8 +263,12 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [consentInformed, setConsentInformed] = useState(false);
   const [consentLang, setConsentLang] = useState(v.consentLanguage);
+  // Fel från servern. Valideringsfelen räknas om medan coachen rättar (attempt = senaste försöket: godkänn eller utkast).
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [dev, setDevRaw] = useState<Dev>({ description: "", action: "", ownerId: "", followUpOn: "", needsCustomerDecision: null });
+  const [attempt, setAttempt] = useState<boolean | null>(null);
+  const dev = devDraft.value;
+  const setDevRaw = devDraft.set;
+  const [holdRec, setHoldRec] = useState(false);
   const [ciId, setCiId] = useState<string | null>(ci0 ? ci0.id : null);
   const [done, setDone] = useState<Done | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -463,7 +484,25 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
     }
     return e;
   };
-  const devMissing = Object.keys(DEV_MISSING).filter((k) => errors[k]).map((k) => DEV_MISSING[k]);
+  const shown: Record<string, string> = attempt === null ? errors : { ...validate(attempt), ...errors };
+  const devMissing = Object.keys(DEV_MISSING).filter((k) => shown[k]).map((k) => DEV_MISSING[k]);
+  const summary = Object.entries(shown).map(([k, text]) => ({ id: k === "ai" ? (pendingAi[0] ? FIELD_ID[pendingAi[0]] : "ci-goal") : (ERROR_FIELD[k] ?? "ci-goal"), text }));
+  const dirty = JSON.stringify([form, dev]) !== baseline;
+  // Fråga innan sidan lämnas med osparade val eller mitt i en inspelning (inspelningen pausas medan frågan visas).
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard((dirty && !done && !save.pending) || recActive, recActive ? REC_LEAVE : undefined, recActive ? { onAsk: () => setHoldRec(true), onStay: () => setHoldRec(false) } : undefined);
+  const forgetDraft = () => {
+    formDraft.clear();
+    devDraft.clear();
+  };
+  const restartDraft = () => {
+    setForm(initialForm());
+    setDevRaw(EMPTY_DEV);
+    setAttempt(null);
+    setErrors({});
+    forgetDraft();
+  };
   const goToDev = () => {
     const el = document.getElementById("dev-card");
     try {
@@ -474,17 +513,11 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   };
   const doSave = async (approve: boolean) => {
     const e = validate(approve);
-    setErrors(e);
+    setErrors({});
+    setAttempt(approve);
     if (Object.keys(e).length) {
-      const devStop = Object.keys(DEV_MISSING).some((k) => e[k]);
-      toast(devStop ? "Röd status kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum." : approve ? "Avstämningen kan inte godkännas ännu. Se markerade fält." : "Fyll i avvikelsen innan du sparar.", "error");
-      if (devStop) {
-        setTimeout(() => {
-          goToDev();
-          const first = ["dev-desc", "dev-action", "dev-owner", "dev-follow"].map((id) => document.getElementById(id) as HTMLInputElement | null).find((x) => x && !x.value);
-          first?.focus();
-        }, 40);
-      }
+      // Felsammanfattningen vid knapparna läses upp; fokus till första fältet med fel.
+      focusFirstError(document.getElementById("main"));
       return;
     }
     if (aiActive && !aiAllowed) {
@@ -518,7 +551,10 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       return;
     }
     setCiId(res.checkInId);
+    forgetDraft();
     if (!approve) {
+      setBaseline(JSON.stringify([form, dev]));
+      setAttempt(null);
       toast("Utkastet är sparat. Du kan fortsätta senare.");
       return;
     }
@@ -551,12 +587,22 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       title={TITLE}
       eyebrow={`${c.name} · ${c.caseNumber}`}
       lead="Allt utom anteckningen är knappar. Förifyllt från kalendern och närvaron. Mål: under 5 minuters dokumentation."
-      crumbs={[MIN_VECKA_CRUMB, { label: TITLE }]}
+      crumbs={caseCrumbs(c, TITLE)}
       actions={<DocTimer start={start} />}
     >
       <Card>
         <CaseHeadView head={c} />
       </Card>
+      {(formDraft.restored || devDraft.restored) && dirty && (
+        <Notice tone="info" icon="edit" title="Ditt osparade utkast är återställt">
+          <Row gap="sm">
+            <span>Det du fyllde i senast finns kvar. Det är inte sparat ännu.</span>
+            <Button kind="ghost" icon="reset" onClick={restartDraft}>
+              Börja om
+            </Button>
+          </Row>
+        </Notice>
+      )}
 
       {v.watch && (
         <Notice tone="info" icon="bell" title={`Påminnelse: ingen dokumenterad progression ${v.watch.streak === 1 ? "förra veckan" : `${v.watch.streak} veckor i rad`}`}>
@@ -644,6 +690,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                   setSource={setSource}
                   locked={recActive}
                   setLocked={setRecActive}
+                  hold={holdRec}
                   proc={proc}
                   start={startProcessing}
                   onAudio={(a, src) => void captureAudio(a, src)}
@@ -700,14 +747,14 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
           <Section n="3" title="Veckomål" ok={!!form.goalStatus && !!form.nextGoal.trim()}>
             {pair(
               "goalStatus",
-              <Field label="Veckomål uppnått" id="ci-goal" required error={errors.goalStatus} help={prevGoal ? `Förra veckans mål: ”${prevGoal}”` : "Stäm av målet från förra veckan."}>
+              <Field label="Veckomål uppnått" id="ci-goal" required error={shown.goalStatus} help={prevGoal ? `Förra veckans mål: ”${prevGoal}”` : "Stäm av målet från förra veckan."}>
                 <Seg id="ci-goal" ariaLabel="Veckomål uppnått" value={form.goalStatus} onValueChange={(x) => setF("goalStatus", x)} options={GOAL_OPTIONS} />
               </Field>,
             )}
             {pair(
               "nextGoal",
               <>
-                <Field label="Nytt veckomål" id="ci-nextgoal" required error={errors.nextGoal} help="Kort och konkret. Välj ett förslag för fasen eller skriv eget.">
+                <Field label="Nytt veckomål" id="ci-nextgoal" required error={shown.nextGoal} help="Kort och konkret. Välj ett förslag för fasen eller skriv eget.">
                   <Input value={form.nextGoal} onValueChange={(x) => setF("nextGoal", x)} maxLength={140} />
                 </Field>
                 {goalSuggestions.length > 0 && (
@@ -748,7 +795,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
             {pair(
               "employerContacts",
               <Stack>
-                <Field label="Antal" id="ci-ec" required error={errors.ec} help="Konkreta kontakter under veckan.">
+                <Field label="Antal" id="ci-ec" required error={shown.ec} help="Konkreta kontakter under veckan.">
                   <Seg<Ec> id="ci-ec" ariaLabel="Antal arbetsgivarkontakter" value={form.ecCount} onValueChange={(x) => setF("ecCount", x)} options={["0", "1", "2+"]} />
                 </Field>
                 {ecOn && (
@@ -765,7 +812,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
               label="Samlad status"
               id="ci-status"
               required
-              error={errors.overallStatus}
+              error={shown.overallStatus}
               help="Grön = enligt plan. Gul = risk eller extra åtgärd. Röd = kräver omplanering eller dialog med kommunen."
             >
               <Seg<Rag> id="ci-status" ariaLabel="Samlad status" value={form.overallStatus} onValueChange={(x) => setF("overallStatus", x)} options={STATUS_OPTIONS} />
@@ -801,17 +848,17 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                       </div>
                     </AiBox>
                   )}
-                  <Field label="Beskrivning" id="dev-desc" required error={errors.devDescription} help="Sakligt och funktionellt. Inga diagnoser.">
+                  <Field label="Beskrivning" id="dev-desc" required error={shown.devDescription} help="Sakligt och funktionellt. Inga diagnoser.">
                     <TextArea rows={2} value={dev.description} onValueChange={(x) => setDev({ ...dev, description: x })} maxLength={300} />
                   </Field>
-                  <Field label="Åtgärd" id="dev-action" required error={errors.devAction} help="Vad görs för att planen ska hålla?">
+                  <Field label="Åtgärd" id="dev-action" required error={shown.devAction} help="Vad görs för att planen ska hålla?">
                     <TextArea rows={2} value={dev.action} onValueChange={(x) => setDev({ ...dev, action: x })} maxLength={300} />
                   </Field>
                   <FormGrid>
-                    <Field label="Ansvarig" id="dev-owner" required error={errors.devOwner} help="Den som ser till att åtgärden blir gjord.">
+                    <Field label="Ansvarig" id="dev-owner" required error={shown.devOwner} help="Den som ser till att åtgärden blir gjord.">
                       <Select value={dev.ownerId} placeholder="Välj ansvarig" onValueChange={(x) => setDev({ ...dev, ownerId: x })} options={v.owners.map((o) => ({ value: o.id, label: o.name }))} />
                     </Field>
-                    <Field label="Uppföljningsdatum" id="dev-follow" required error={errors.devFollow} help="Förslag: om en vecka.">
+                    <Field label="Uppföljningsdatum" id="dev-follow" required error={shown.devFollow} help="Förslag: om en vecka.">
                       <DateInput value={dev.followUpOn} onValueChange={(x) => setDev({ ...dev, followUpOn: x })} />
                       {dev.followUpOn !== in7 && (
                         <div className="flex flex-wrap gap-1.5">
@@ -824,7 +871,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                     label="Behöver beslut från kommunen"
                     id="dev-cust"
                     required
-                    error={errors.devCust}
+                    error={shown.devCust}
                     help="Till exempel om planen, omfattningen eller ett avbrott. Vid Ja får handläggaren en uppgift i portalen."
                   >
                     <Seg<"yes" | "no">
@@ -876,11 +923,6 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
         </div>
       </Card>
 
-      {errors.ai && (
-        <Notice tone="critical" title="AI-förslag väntar på ditt beslut">
-          {errors.ai}
-        </Notice>
-      )}
       {devMissing.length > 0 && (
         <Notice tone="critical" title="Stopp: röd status kräver en avvikelse">
           Avstämningen godkänns inte förrän avvikelsen är ifylld. Det saknas: {devMissing.join(", ")}.
@@ -891,17 +933,21 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
           </div>
         </Notice>
       )}
-      <Row between>
-        <Row>
-          <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
-            Godkänn avstämningen
-          </Button>
-          <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
-            Spara utkast
-          </Button>
+      <ErrorSummary items={summary} title={attempt ? "Avstämningen kan inte godkännas ännu" : "Rätta det här innan du sparar"} />
+      {/* Knapparna ligger kvar längst ned på skärmen medan man fyller i formuläret. */}
+      <div data-print="hide" className="sticky bottom-0 z-10 -mx-1 border-t border-ljusgra bg-vit px-1 py-3 shadow-[0_-6px_12px_-8px_rgb(30_37_43/0.25)]">
+        <Row between>
+          <Row>
+            <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
+              Godkänn avstämningen
+            </Button>
+            <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
+              Spara utkast
+            </Button>
+          </Row>
+          <DocTimer start={start} />
         </Row>
-        <DocTimer start={start} />
-      </Row>
+      </div>
       <DemoNote>Dokumentationstiden mäts från att formuläret öppnas till godkännandet. Måttet används för att jämföra manuell dokumentation med AI-stöd (SPEC §8.5).</DemoNote>
     </Page>
   );
@@ -1108,13 +1154,15 @@ function ConsentPanel({
  * ladda upp en ljudfil – ljudet transkriberas och raderas direkt. Teams-transkript och inklistrade anteckningar som förut.
  */
 function AiCapture({
-  source, setSource, locked, setLocked, proc, start, onAudio, recording, notesText, setNotesText, durationMin, today,
+  source, setSource, locked, setLocked, hold, proc, start, onAudio, recording, notesText, setNotesText, durationMin, today,
 }: {
   source: AiSource;
   setSource: (s: AiSource) => void;
   /** En inspelning pågår – källan kan inte bytas. */
   locked: boolean;
   setLocked: (x: boolean) => void;
+  /** Pausa inspelningen (frågan om att lämna sidan visas). */
+  hold: boolean;
   proc: Proc | null;
   start: (s: AiSource) => void;
   onAudio: (audio: RecordedAudio, src: "recording" | "upload") => void;
@@ -1168,6 +1216,7 @@ function AiCapture({
               idPrefix="ci-rec"
               maxSeconds={maxSeconds}
               onActiveChange={setLocked}
+              hold={hold}
               texts={{
                 stop: "Stoppa och tolka",
                 hint: "Pausa när samtalet går in på sådant som inte behövs för uppdraget.",
@@ -1348,7 +1397,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
     toast("Mötesförfrågan är skickad till kommunen.");
   };
   return (
-    <Page title="Avstämningen är godkänd" eyebrow={`${r.name} · ${r.caseNumber}`} crumbs={[MIN_VECKA_CRUMB, { label: TITLE }]}>
+    <Page title="Avstämningen är godkänd" eyebrow={`${r.name} · ${r.caseNumber}`} crumbs={caseCrumbs({ caseId: v.head.caseId, caseNumber: r.caseNumber }, TITLE)}>
       <Grid cols={3}>
         <Kpi label="Dokumentationstid" value={`${m} min ${String(s).padStart(2, "0")} s`} sub={m < 5 ? "Under målet 5 min" : "Över målet 5 min"} tone={m < 5 ? undefined : "watch"} />
         <Kpi label="Samlad status" value={<Status value={ci?.overallStatus ?? null} short />} sub={ci?.phaseLabel ?? ""} />

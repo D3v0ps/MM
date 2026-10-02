@@ -4,7 +4,7 @@
 // kryssruta innan inspelningen, inspelning (högst avtalets minuter), lyssna, skicka och kvitto. Inget ljud sparas: det
 // raderas direkt efter transkriberingen, och coachen får texten (översatt till svenska) som underlag att granska.
 // Länken skickas aldrig till skyddade ärenden och fungerar bara en gång.
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
@@ -44,6 +44,16 @@ function Rost({ link, token }: { link: RostLinkView; token: string | undefined }
   const days = link.days;
   const state = preview !== "live" && link.state === "open" && step !== "thanks" ? preview : link.state;
   const tokenArg = token ? { token } : {};
+  // Vid varje stegbyte (inspelad, skickas, tack, spela in igen): fokus till rubriken, så att skärmläsaren läser det nya läget.
+  // Medan meddelandet skickas finns ingen rubrik – stegen läses upp av statusrutan.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    document.querySelector<HTMLElement>("[data-step-heading]")?.focus();
+  }, [step, state]);
 
   const doSend = async () => {
     if (!audio) return;
@@ -74,7 +84,7 @@ function Rost({ link, token }: { link: RostLinkView; token: string | undefined }
   const screen = (icon: IconName, title: string, children: ReactNode) => (
     <div className="flex flex-col items-center gap-4 py-3 text-center">
       <Icon name={icon} size="xl" />
-      <h1 className="text-[1.375rem] font-extrabold">{title}</h1>
+      <h1 data-step-heading="" tabIndex={-1} className="text-[1.375rem] font-extrabold outline-none">{title}</h1>
       {children}
     </div>
   );
@@ -118,7 +128,7 @@ function Rost({ link, token }: { link: RostLinkView; token: string | undefined }
   } else {
     content = (
       <Stack>
-        <h1 className="text-[1.5rem] font-extrabold">{t.title}</h1>
+        <h1 data-step-heading="" tabIndex={-1} className="text-[1.5rem] font-extrabold outline-none">{t.title}</h1>
         <p>{t.intro}</p>
         <ul className="m-0 flex list-none flex-col gap-2 p-0">
           {t.bullets.map((b, i) => (
@@ -243,7 +253,7 @@ function Review({
   );
   return (
     <Stack>
-      <h1 className="text-[1.375rem] font-extrabold">{t.doneTitle}</h1>
+      <h1 data-step-heading="" tabIndex={-1} className="text-[1.375rem] font-extrabold outline-none">{t.doneTitle}</h1>
       <p className="font-bold tabular-nums">{tr(t.length, { time: mmss(audio.durationSec ?? 0) })}</p>
       {url && (
         <div className="flex flex-col gap-1.5">

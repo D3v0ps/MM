@@ -6,7 +6,7 @@ import { createRoot } from "react-dom/client";
 import "@/app/globals.css";
 import { App } from "@/shell/app";
 import { BackendProvider } from "@/shell/backend";
-import { NavProvider, parseHash, type LinkImpl, type Nav } from "@/shell/nav";
+import { guardedNavigate, NavProvider, newNavKey, parseHash, type LinkImpl, type Nav, type NavEntry } from "@/shell/nav";
 import { RuntimeProvider } from "@/shell/runtime";
 import { SessionProvider, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
@@ -52,12 +52,56 @@ const lsSet = (k: string, v: string) => {
 /** Räknas upp vid varje navigering – så att ett rollbyte vet om anroparen själv navigerade i samma steg. */
 let navSeq = 0;
 
+// Historikposter: samma modell som appen (src/app/_shell/next-nav.tsx). Varje post får en nyckel i history.state, så att
+// skalet kan spara och återställa skrollen vid tillbaka/framåt (src/shell/page-effects.tsx).
+const stateKey = (): string | undefined => {
+  try {
+    const s = window.history.state as { mmKey?: unknown } | null;
+    return typeof s?.mmKey === "string" ? s.mmKey : undefined;
+  } catch {
+    return undefined;
+  }
+};
+const stamp = (key: string, hash: string) => {
+  try {
+    window.history.replaceState({ mmKey: key }, "", hash);
+  } catch {
+    /* historiken kan vara spärrad i artefaktens ram */
+  }
+};
+let entry: NavEntry = { key: "", kind: "load" };
+/** Hash som en egen push just satte – dess hashchange är inte tillbaka/framåt. */
+let ownHash: string | null = null;
+
 function useHashNav(): Nav {
-  const [hash, setHash] = useState(() => window.location.hash);
+  const [hash, setHash] = useState(() => {
+    const key = stateKey() ?? newNavKey();
+    if (!stateKey()) stamp(key, window.location.hash || "#/");
+    entry = { key, kind: "load" };
+    return window.location.hash;
+  });
   useEffect(() => {
+    // Skrollen sköts av skalet (page-effects), inte av webbläsaren.
+    try {
+      window.history.scrollRestoration = "manual";
+    } catch {
+      /* ignoreras */
+    }
     const on = () => {
-      setHash(window.location.hash);
-      window.scrollTo(0, 0);
+      const h = window.location.hash;
+      if (ownHash !== null && h === ownHash) {
+        ownHash = null;
+      } else {
+        ownHash = null;
+        // Tillbaka/framåt har postens nyckel. En vanlig hash-länk som inte fångades (ny post utan nyckel) räknas som push.
+        const key = stateKey();
+        if (key) entry = { key, kind: "pop" };
+        else {
+          entry = { key: newNavKey(), kind: "push" };
+          stamp(entry.key, h);
+        }
+      }
+      setHash(h);
     };
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
@@ -75,16 +119,30 @@ function useHashNav(): Nav {
       // i samma klick blir en enda rendering – skärmen visas aldrig med fel roll.
       push: (to) => {
         navSeq++;
-        if (window.location.hash !== `#${to}`) window.location.hash = to;
-        setHash(`#${to}`);
+        guardedNavigate(to, () => {
+          const h = `#${to}`;
+          if (window.location.hash === h) {
+            entry = { key: entry.key, kind: "replace" };
+          } else {
+            entry = { key: newNavKey(), kind: "push" };
+            ownHash = h;
+            window.location.hash = to;
+            stamp(entry.key, h);
+          }
+          setHash(h);
+        });
       },
       replace: (to) => {
         navSeq++;
-        window.history.replaceState(null, "", `#${to}`);
-        setHash(`#${to}`);
+        guardedNavigate(to, () => {
+          entry = { key: entry.key || newNavKey(), kind: "replace" };
+          stamp(entry.key, `#${to}`);
+          setHash(`#${to}`);
+        });
       },
       back: () => window.history.back(),
       href: (to) => `#${to}`,
+      entry,
     };
   }, [hash]);
 }

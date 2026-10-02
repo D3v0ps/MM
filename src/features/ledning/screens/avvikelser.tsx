@@ -6,11 +6,14 @@ import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, plural } from "@/core/format";
 import { fmtDate, fmtDateShort, fmtDateTime, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
+import { Link, useNav } from "@/shell/nav";
+import { pick, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, FormGrid, Icon, Input, Kpi, Kv, Loading, Modal, Notice,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, focusFirstError, FormGrid, Icon, Input, Kpi, Kv, Loading, Modal,
+  ModalCancelButton, Notice,
   Page, PerspectiveLink, QueryView, Row, Seg, Select, SlaBadge, Split, Stack, TabPanel, Table, Tabs, TextArea, Timeline, useCopy, useDownload, useToast,
   type TimelineItem,
 } from "@/ui";
@@ -67,8 +70,13 @@ function Register() {
 
 function RegisterContent({ d }: { d: CdevRegister }) {
   const nav = useNav();
-  const [filter, setFilter] = useState<"open" | "all" | "klagomal">("open");
-  const [tab, setTab] = useState<"register" | "apt">("register");
+  // Filter och flik i adressen (?visa=alla|klagomal, ?flik=apt), så att Tillbaka från en avvikelse visar samma lista.
+  const patch = useQueryPatch();
+  const visa = nav.query.get("visa");
+  const filter = visa === "alla" ? "all" : visa === "klagomal" ? "klagomal" : "open";
+  const setFilter = (v: "open" | "all" | "klagomal") => patch({ visa: v === "open" ? null : v === "all" ? "alla" : v });
+  const tab = pick(nav.query, "flik", ["register", "apt"] as const, "register");
+  const setTab = (v: "register" | "apt") => patch({ flik: v === "register" ? null : v });
   const f = d.form;
   const open = d.rows.filter((x) => x.statusKey !== "closed");
   const rows = filter === "open" ? open : filter === "klagomal" ? d.rows.filter((x) => x.type === "klagomål") : d.rows;
@@ -134,7 +142,8 @@ function RegisterContent({ d }: { d: CdevRegister }) {
                 caption="Register över avtalsavvikelser"
                 rows={rows}
                 empty="Inga avvikelser i det här urvalet."
-                onRowClick={(x) => nav.push(`/avtalsavvikelser/${encodeURIComponent(x.id)}`)}
+                rowHref={(x) => `/avtalsavvikelser/${encodeURIComponent(x.id)}`}
+                linkKey={false}
                 rowTone={(x) => (x.statusKey === "no_plan" ? "alert" : x.statusKey === "closed" ? "muted" : null)}
                 columns={registerColumns}
               />
@@ -159,7 +168,10 @@ const registerColumns = [
     label: "Typ och nivå",
     render: (x: CdevRow) => (
       <div className="flex flex-col gap-1">
-        <span className="font-bold">{cdTypeLabel(x.type)}</span>
+        {/* Riktig länk: ny flik med ctrl/cmd eller mittenklick. Klick i resten av raden öppnar också avvikelsen. */}
+        <Link to={`/avtalsavvikelser/${encodeURIComponent(x.id)}`} className="inline-flex min-h-11 items-center font-bold underline underline-offset-3">
+          {cdTypeLabel(x.type)}
+        </Link>
         <CellSub>
           {cdLevelLabel(x.level)} · steg {x.escalationStep}
         </CellSub>
@@ -261,6 +273,7 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
     if (f.actionPlan.trim() && !f.actionPlanDue) e.actionPlanDue = "Ange när åtgärderna ska vara klara.";
     if (Object.keys(e).length) {
       setErr(e);
+      focusFirstError(document.querySelector<HTMLElement>("[role=dialog]"));
       return;
     }
     const res = await save.run({
@@ -290,11 +303,10 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
       wide
       title="Registrera avvikelse eller klagomål"
       onClose={onClose}
+      dirty={!!(f.description.trim() || f.actionPlan.trim() || f.caseNumber.trim())}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>
-            Avbryt
-          </Button>
+          <ModalCancelButton />
           <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
             Registrera
           </Button>
@@ -497,8 +509,15 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
   const [editPlan, setEditPlan] = useState(false);
   const [plan, setPlan] = useState({ actionPlan: cd.actionPlan, actionPlanDue: cd.actionPlanDue ?? "", ownerId: cd.ownerId ?? form.defaultOwnerId });
   const [planErr, setPlanErr] = useState<{ actionPlan?: string | null; actionPlanDue?: string | null }>({});
-  const [lessons, setLessons] = useState(cd.lessons);
+  // Lärdomarna: utkastminne i minnet och fråga innan sidan lämnas med osparad text.
+  const lessonsDraft = useDraft(`avtalsavvikelse-lardomar|${cd.id}`, cd.lessons);
+  const lessons = lessonsDraft.value;
+  const setLessons = lessonsDraft.set;
   const [lessonsErr, setLessonsErr] = useState<string | null>(null);
+  const planDirty = editPlan && plan.actionPlan.trim() !== (cd.actionPlan ?? "").trim();
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard(((cd.statusKey !== "closed" && lessons.trim() !== (cd.lessons ?? "").trim()) || planDirty) && !save.pending && !closeCmd.pending);
   const [editSanction, setEditSanction] = useState(false);
   const [sanc, setSanc] = useState({
     escalationStep: String(cd.escalationStep ?? 0), warningIssued: cd.warningIssued, penaltyKind: (cd.penaltyKind ?? "") as Penalty, penaltyOffsetMonth: cd.penaltyOffsetMonth ?? "",
@@ -550,6 +569,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
       toast(res.message ?? "Avvikelsen kunde inte markeras som klar.", "error");
       return;
     }
+    lessonsDraft.clear();
     toast("Avvikelsen är markerad som klar. Lärdomen finns med i månadssammanställningen.");
   };
 

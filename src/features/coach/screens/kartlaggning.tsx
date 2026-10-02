@@ -7,7 +7,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { Badge, Button, Card, DemoNote, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
 import { intakePage, intakeSave, type IntakePage } from "../api";
-import { CaseHeadView, CasePicker, Chips, customerPerspective, GateView, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
+import { CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, useCaseView } from "./shared";
 
 type Ok = Extract<IntakePage, { kind: "ok" }>;
 const DIGITAL = ["Van vid mobil, ovan vid dator", "Använder e-post och BankID själv", "Behöver stöd med digitala tjänster", "Van datoranvändare"];
@@ -96,7 +96,7 @@ function IntakeForm({ v }: { v: Ok }) {
       title="Kartläggning vecka 1"
       eyebrow={`${c.name} · ${c.caseNumber}`}
       lead="Dokumentera deltagarens reella kompetens. Underlaget används för validering, matchning och CV."
-      crumbs={[MIN_VECKA_CRUMB, { label: "Kartläggning" }]}
+      crumbs={caseCrumbs(c, "Kartläggning")}
       actions={
         approved ? (
           <Badge tone="blue" icon="check">

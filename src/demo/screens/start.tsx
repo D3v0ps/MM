@@ -103,7 +103,7 @@ export function OmStartScreen() {
     <div className={PAGE}>
       <section className="flex flex-col gap-3.5 rounded-card bg-antracit p-7 text-vit [--mm-focus:var(--color-vit)] max-[620px]:p-5">
         <Eyebrow className="text-vit/80">Klickbar prototyp · påhittade testdata</Eyebrow>
-        <h1 className="flex items-center gap-2.5 text-[2rem] leading-[1.25] font-extrabold tracking-[0.04em] uppercase">
+        <h1 tabIndex={-1} data-page-title="" className="flex items-center gap-2.5 text-[2rem] leading-[1.25] font-extrabold tracking-[0.04em] uppercase">
           <span aria-hidden="true" className="inline-block size-[0.5em] shrink-0 rounded-full bg-rod-logo" />
           Miljonmatch
         </h1>

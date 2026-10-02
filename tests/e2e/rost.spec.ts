@@ -4,7 +4,7 @@
 //   app   appen i minnesläge – riktig inspelning med Chromiums falska mikrofon, simulerad AI och ljud i minnet
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import fs from "node:fs";
-import { isDemo, open, switchPersona } from "./helpers";
+import { allowLeaveWarnings, isDemo, open, switchPersona } from "./helpers";
 
 const chromium = fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined;
 // Falsk mikrofon (ljudton) och automatiskt ja till mikrofonen – gäller appen på localhost.
@@ -25,6 +25,11 @@ const btn = (scope: Page | Locator, name: string | RegExp) => scope.getByRole("b
 const card = (page: Page, title: string | RegExp) => page.locator("section").filter({ has: page.locator("h2", { hasText: title }) });
 const aiGroup = (page: Page, field: string) => page.getByRole("group", { name: `AI-förslag för ${field}`, exact: true });
 const relevant = (errors: string[]) => errors.filter((e) => !/Failed to load resource/.test(e));
+
+/** Deltagarkortet: röstmeddelandena ligger på en rad i kortets huvud – fäll ut rutan ("Läs" eller "Visa"). */
+async function openVoice(page: Page) {
+  await page.getByRole("group", { name: "Röstmeddelanden:" }).getByRole("button", { name: /^(Läs|Visa)$/ }).click();
+}
 
 async function go(page: Page, info: TestInfo, to: string) {
   if (isDemo(info)) await page.evaluate((p) => { window.location.hash = p; }, to);
@@ -136,6 +141,7 @@ test("deltagaren spelar in via länken: språk, samtycke, inspelning och kvitto 
   await expect(inbox).toContainText("Nadia Warsame");
   await expect(inbox).toContainText("talat på somaliska, AI-översättning");
   await go(page, info, `/arenden/${SC.amal}`);
+  await openVoice(page);
   const voice = card(page, "Deltagarens röstmeddelanden");
   await expect(voice).toContainText("Nytt – att granska");
   await expect(voice).toContainText("AI-transkribering");
@@ -147,6 +153,7 @@ test("deltagaren spelar in via länken: språk, samtycke, inspelning och kvitto 
 
 test("coachen skickar inspelningslänk utan personuppgifter och granskar Nadias meddelande på somaliska", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, COACH);
+  await openVoice(page);
   const voice = card(page, "Deltagarens röstmeddelanden");
   await expect(voice).toContainText("Praktiken har börjat bra");
   await expect(voice).toContainText("AI-översättning");
@@ -169,8 +176,11 @@ test("coachen skickar inspelningslänk utan personuppgifter och granskar Nadias 
   await btn(page, "Lägg till i anteckningen").click();
   await expect(page.locator("#ci-note")).toHaveValue(/^Deltagarens röstmeddelande 28 jan: Hej, det är jag\./);
 
-  // Skyddade personuppgifter: ingen länk
+  // Skyddade personuppgifter: ingen länk. Avstämningen sparas inte – sidan lämnas med text i anteckningen, och webbläsaren
+  // varnar (som den ska).
+  allowLeaveWarnings(page);
   await switchUser(page, info, JOHAN, `/arenden/${SC.skyddad}`);
+  await openVoice(page);
   const prot = card(page, "Deltagarens röstmeddelanden");
   await expect(prot).toContainText("Deltagaren har skyddade personuppgifter. Inga länkar, SMS eller mejl skickas");
   await expect(btn(prot, "Skicka inspelningslänk till deltagaren")).toHaveCount(0);

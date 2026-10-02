@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { CASE_STATUS_LABEL, TRAFFIC_LIGHT_LABEL } from "@/core/labels";
 import type { SlaStatus, SlaTone as CoreSlaTone } from "@/core/sla";
 import { fmtDateTimeLong } from "@/core/time";
+import { useRuntime } from "@/shell/runtime";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
 
@@ -144,11 +145,24 @@ export function PhaseTag({ phase, name }: { phase: number; name: string }) {
   );
 }
 
-/** Markerar funktion som byggs i en senare utvecklingsfas enligt SPEC §12. */
-export function BuildPhase({ fas }: { fas: number }) {
+/**
+ * Utvecklingsfas enligt SPEC §12. Prototypen: "Byggs i fas N" (förklarar för den som provar). Appen: ingen märkning – det
+ * som visas fungerar i testmiljön. off = funktionen är verkligen avstängd (bonus, Fortnox, kapacitetstak): "Kommer senare"
+ * också i appen, så att ingen tror att något är trasigt.
+ */
+export function BuildPhase({ fas, off }: { fas: number; off?: boolean }) {
+  const runtime = useRuntime();
+  if (runtime === "demo") {
+    return (
+      <Badge tone="plan" icon="layers" title={`Byggs i utvecklingsfas ${fas} enligt SPEC §12`}>
+        Byggs i fas {fas}
+      </Badge>
+    );
+  }
+  if (!off) return null;
   return (
-    <Badge tone="plan" icon="layers" title={`Byggs i utvecklingsfas ${fas} enligt SPEC §12`}>
-      Byggs i fas {fas}
+    <Badge tone="plan" icon="clock">
+      Kommer senare
     </Badge>
   );
 }

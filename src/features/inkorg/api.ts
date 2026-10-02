@@ -371,4 +371,4 @@ export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSch
 export const inboxRevealPnr = command("inkorg.revealPnr", z.object({
   emailId: IdSchema.optional(),
   caseId: IdSchema.optional(),
-})).returns<Result<{ text: string }, "not_found" | "forbidden">>();
+}), { invalidates: "none" }).returns<Result<{ text: string }, "not_found" | "forbidden">>();

@@ -151,7 +151,7 @@ export const messageSend = command("arenden.messageSend", z.object({
 /** Läskvitto: markera andras meddelanden i ärendet som lästa (prototypens message.read, tyst). Gör inget för läsroller. */
 export const messageRead = command("arenden.messageRead", z.object({
   caseId: IdSchema,
-})).returns<Result<{ marked: number }, "not_found">>();
+}), { invalidates: ["arenden.", "kommun.", "coach.", "notiser.", "session.navCounts"] }).returns<Result<{ marked: number }, "not_found">>();
 
 /** Samtycke till inspelning och AI (prototypens consent.set). Kan inte registreras vid skyddade personuppgifter. */
 export const consentSet = command("arenden.consentSet", z.object({
@@ -585,11 +585,14 @@ export const caseHistory = query("arenden.kortHistorik", CaseParams).returns<Cas
  * Visa hela personnumret (maskerat i vy-modellen). Bara roller med full åtkomst till ärendet. Visningen loggas i
  * revisionsloggen (pnr.revealed) – numret skickas aldrig i loggen.
  */
-export const caseRevealPnr = command("arenden.visaPersonnummer", CaseParams).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
+export const caseRevealPnr = command("arenden.visaPersonnummer", CaseParams, { invalidates: "none" }).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
 
 // ---------------------------------------------------------------- Handledarens startsida (/handledare)
 export type SupervisorCase = {
   id: string; caseNumber: string; status: CaseStatus; displayName: string; myRoleLabel: string; phase: number; phaseName: string; vocationalTrack: string;
+  /** Avtalsområdet (filtret i listan). */
+  areaCode: string | null;
+  areaName: string;
   /** Kommande moment och praktikdagar (högst tre). */
   upcoming: CaseActivity[];
   /** Nästa moment eller praktikdag (sortering). */

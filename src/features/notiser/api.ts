@@ -13,7 +13,7 @@ import type { UserNotificationKind } from "@/data/schema";
  */
 export const notifRead = command("notiser.notifRead", z.object({
   ids: z.array(z.string().min(1).max(200)).max(500),
-})).returns<Result<{ marked: number }>>();
+}), { invalidates: ["notiser.", "coach.", "session.navCounts"] }).returns<Result<{ marked: number }>>();
 
 // ================================================================ Notiser (/notiser)
 //

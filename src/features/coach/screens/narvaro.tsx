@@ -6,7 +6,9 @@ import { useState } from "react";
 import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
+import { Link } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
+import { useQueryPatch } from "@/shell/url-state";
 import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast } from "@/ui";
@@ -20,16 +22,28 @@ type AttStatus = "present" | "late" | "absent_valid" | "absent_invalid";
 export function NarvaroScreen({ query }: ScreenProps) {
   const q = useQuery(narvaroView, {});
   if (!q.data) return <PageState title="Närvaro" error={q.error} onRetry={() => void q.refetch()} />;
-  const v = q.data;
+  // ?arende=<id>: bara den deltagarens tillfällen (från deltagarkortet, Min vecka och handledarens lista). Veckorapporterna visas som vanligt.
+  const caseId = query.get("arende");
+  const v = caseId ? onlyCase(q.data, caseId) : q.data;
   const param = query.get("vecka");
   const initial: Week = param === "forra" ? "last" : param === "denna" ? "this" : openOf(v, "last").length ? "last" : "this";
-  return <Narvaro v={v} initial={initial} />;
+  return <Narvaro v={v} initial={initial} caseId={caseId} />;
 }
+
+const onlyCase = (v: NarvaroView, caseId: string): NarvaroView => ({
+  ...v,
+  weeks: { last: { ...v.weeks.last, rows: v.weeks.last.rows.filter((r) => r.caseId === caseId) }, this: { ...v.weeks.this, rows: v.weeks.this.rows.filter((r) => r.caseId === caseId) } },
+});
+
+/** "BOT-26-0174" för filtret (ärendenumret från raderna – inget namn i adressen). */
+const filteredLabel = (v: NarvaroView, caseId: string): string =>
+  [...v.weeks.last.rows, ...v.weeks.this.rows].find((r) => r.caseId === caseId)?.caseNumber ?? "en deltagare";
 
 const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.startsAt < v.now && !a.attendance);
 
-function Narvaro({ v, initial }: { v: NarvaroView; initial: Week }) {
+function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId: string | null }) {
   const { actor } = useSession();
+  const patch = useQueryPatch();
   const runtime = useRuntime();
   const role = actor.role;
   const set = useCommand(attendanceSet);
@@ -42,6 +56,8 @@ function Narvaro({ v, initial }: { v: NarvaroView; initial: Week }) {
   const [pending, setPending] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, true>>({});
   const setWeek = (w: Week) => {
+    // Veckan i adressen (replace): Tillbaka och omladdning visar samma vecka.
+    patch({ vecka: w === "last" ? "forra" : "denna" });
     setWeekRaw(w);
     setDay(defaultDay(w));
     setPending(null);
@@ -137,6 +153,7 @@ function Narvaro({ v, initial }: { v: NarvaroView; initial: Week }) {
                 value={isPending ? "absent_valid" : (at?.status ?? null)}
                 onValueChange={(s) => pick(a, s)}
                 options={ATT_OPTIONS}
+                className="max-[560px]:grid max-[560px]:grid-cols-2"
               />
               {isPending && (
                 <div role="group" aria-label="Orsak till giltig frånvaro" className="flex flex-col gap-1.5 rounded-mb border-[1.5px] border-antracit px-3 py-2.5">
@@ -168,6 +185,13 @@ function Narvaro({ v, initial }: { v: NarvaroView; initial: Week }) {
       lead={`Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}. När alla tillfällen för en handläggares deltagare är registrerade publiceras veckorapporten automatiskt.`}
       crumbs={role === "coach" ? [MIN_VECKA_CRUMB, { label: "Närvaro" }] : undefined}
     >
+      {caseId && (
+        <Notice tone="info" icon="filter" title={`Visar bara ${filteredLabel(v, caseId)}`}>
+          <Link to={`/narvaro?vecka=${week === "last" ? "forra" : "denna"}`} className="inline-flex min-h-11 items-center font-bold">
+            Visa alla deltagare
+          </Link>
+        </Notice>
+      )}
       <Row between>
         <Seg<Week>
           ariaLabel="Vecka"

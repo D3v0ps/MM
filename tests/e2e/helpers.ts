@@ -12,8 +12,45 @@ export const isDemo = (info: TestInfo) => info.project.name === "demo";
  * Öppna en sökväg som en viss användare/roll. Prototypen: hash-URL och rollväljare. Appen: nytt testdata
  * (POST /api/dev-session/reset) och testperson-cookie. Projektet "app" kör ett test i taget (playwright.config.ts).
  */
+/**
+ * Sidor med osparad text varnar när de lämnas (beforeunload, src/shell/guard.ts). Varningen godkänns (som en användare som
+ * väljer "Lämna sidan"), så att testet kan fortsätta – men den räknas: en varning när allt är sparat är ett fel (sidan står
+ * kvar som osparad), och open() lägger den i fellistan som testerna kontrollerar. Ett test som med flit lämnar sidan mitt i
+ * inmatningen säger det med allowLeaveWarnings(page). Appen använder aldrig alert/confirm/prompt, så övriga dialoger avvisas
+ * som Playwright annars gör.
+ */
+const leaveCount = new WeakMap<Page, number>();
+/** Varningar som testet väntar sig (det lämnar sidan med flit mitt i inmatningen). */
+const leaveExpected = new WeakMap<Page, number>();
+/** Varningar som inte var väntade – open() lägger dem i fellistan. */
+const leaveListeners = new WeakMap<Page, ((msg: string) => void)[]>();
+export function acceptLeaveWarnings(page: Page) {
+  if (leaveCount.has(page)) return;
+  leaveCount.set(page, 0);
+  page.on("dialog", (d) => {
+    if (d.type() === "beforeunload") {
+      leaveCount.set(page, (leaveCount.get(page) ?? 0) + 1);
+      const expected = leaveExpected.get(page) ?? 0;
+      if (expected > 0) leaveExpected.set(page, expected - 1);
+      else for (const l of leaveListeners.get(page) ?? []) l(`beforeunload-varning: ${d.message() || "sidan står som osparad"}`);
+    }
+    void (d.type() === "beforeunload" ? d.accept() : d.dismiss()).catch(() => undefined);
+  });
+}
+/** Antalet beforeunload-varningar på sidan hittills (väntade och oväntade). */
+export const leaveWarnings = (page: Page): number => leaveCount.get(page) ?? 0;
+/**
+ * Testet lämnar sidan med flit mitt i inmatningen (count gånger): webbläsarens varning är rätt och räknas inte som fel.
+ * Anropa precis före navigeringen.
+ */
+export function allowLeaveWarnings(page: Page, count = 1) {
+  leaveExpected.set(page, (leaveExpected.get(page) ?? 0) + count);
+}
+
 export async function open(page: Page, info: TestInfo, to: string, as?: { userId: string; role: string }) {
+  acceptLeaveWarnings(page);
   const errors: string[] = [];
+  leaveListeners.set(page, [...(leaveListeners.get(page) ?? []), (msg) => errors.push(msg)]);
   page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
   page.on("console", (m) => {
     if (m.type() !== "error") return;
@@ -60,6 +97,7 @@ export async function open(page: Page, info: TestInfo, to: string, as?: { userId
  * nya personen inte får se. Anroparen öppnar sedan sidan som ska visas.
  */
 export async function switchPersona(page: Page, as: { userId: string; role: string }) {
+  acceptLeaveWarnings(page);
   await page.goto("about:blank");
   const res = await page.request.post("/api/dev-session", { data: as });
   expect(res.ok()).toBeTruthy();

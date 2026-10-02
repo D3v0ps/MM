@@ -73,7 +73,7 @@ function integrationCards(o: { inboxReadAt: string; latestMail: string | null; a
         ...v("Vald", "Gemini Flash via Google Cloud Vertex AI, EU multi-region"),
         ...v("I test", "Simulerad leverantör tills kontot i Google Cloud finns"),
         ["Aldrig", "AI Studio-nyckel eller global endpoint"],
-        ["Anrop", `Bara via AI-adaptern – ${plural(o.aiRunCount, "körning", "körningar")} i prototypen`],
+        ["Anrop", `Bara via AI-adaptern – ${plural(o.aiRunCount, "körning", "körningar")} hittills`],
       ] },
   ];
 }

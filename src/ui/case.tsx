@@ -1,7 +1,7 @@
 "use client";
 // Ärendelänk, maskerat personnummer, perspektivbyte (bara prototypen) och visningslogg.
 // Ingen dataåtkomst här – skärmen skickar in värden och callbacks.
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { isCustomerRole, perspectiveOf, type Role } from "@/api/roles";
 import { Link, useNav } from "@/shell/nav";
 import { useRuntime } from "@/shell/runtime";
@@ -46,15 +46,20 @@ export function CaseLink({ caseId, caseNumber, children, canOpen = true, classNa
 export function MaskedPnr({ masked, onReveal, hidden }: { masked: string | null | undefined; onReveal?: () => Promise<string | null | undefined>; hidden?: boolean }) {
   const [shown, setShown] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const id = `pnr${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   if (hidden) return <span className="text-text-muted">Visas inte för din roll</span>;
   if (!masked) return <span className="text-text-muted">–</span>;
+  // Fokus följer med: till numret när det visas (knappen Visa försvinner), tillbaka till Visa när det döljs.
+  const focusLater = (elId: string) => requestAnimationFrame(() => document.getElementById(elId)?.focus());
   const reveal = async () => {
     if (!onReveal) return;
     setBusy(true);
     try {
       const v = await onReveal();
-      if (v) setShown(v);
-      else toast("Personnumret kunde inte visas.", "error");
+      if (v) {
+        setShown(v);
+        focusLater(`${id}-nr`);
+      } else toast("Personnumret kunde inte visas.", "error");
     } catch {
       toast("Personnumret kunde inte visas.", "error");
     } finally {
@@ -63,12 +68,27 @@ export function MaskedPnr({ masked, onReveal, hidden }: { masked: string | null 
   };
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5">
-      <span className="tabular-nums tracking-[0.01em]">{shown ?? masked}</span>
+      <span id={`${id}-nr`} tabIndex={shown ? -1 : undefined} className="rounded-[3px] tabular-nums tracking-[0.01em]">
+        {shown ?? masked}
+      </span>
       {shown ? (
-        <span className="text-small text-text-muted">(visning loggad)</span>
+        <>
+          <span className="text-small text-text-muted">(visning loggad)</span>
+          <Button
+            kind="ghost"
+            icon="eye-off"
+            className="min-h-11 px-2 py-1"
+            onClick={() => {
+              setShown(null);
+              focusLater(`${id}-visa`);
+            }}
+          >
+            Dölj
+          </Button>
+        </>
       ) : (
         onReveal && (
-          <Button kind="ghost" icon="eye" className="min-h-11 px-2 py-1" pending={busy} onClick={() => void reveal()}>
+          <Button id={`${id}-visa`} kind="ghost" icon="eye" className="min-h-11 px-2 py-1" pending={busy} onClick={() => void reveal()}>
             Visa
           </Button>
         )

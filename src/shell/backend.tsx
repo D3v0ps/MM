@@ -2,8 +2,8 @@
 // Klientsidans väg in i API:t. Riktiga appen skickar anropen till /api/rpc, prototypen kör hanterarna direkt i webbläsaren.
 // Skärmarna använder bara useQuery/useCommand och vet inte vilken backend som körs.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { QueryClient, QueryClientProvider, useQuery as useTanstackQuery, useQueryClient } from "@tanstack/react-query";
-import type { CommandDef, QueryDef } from "@/api/contract";
+import { keepPreviousData, QueryClient, QueryClientProvider, useQuery as useTanstackQuery, useQueryClient } from "@tanstack/react-query";
+import type { CommandDef, Invalidates, QueryDef } from "@/api/contract";
 
 export type Backend = {
   mode: "demo" | "app";
@@ -64,32 +64,58 @@ export function useBackend(): Backend {
   return b;
 }
 
-/** Läs data. `params` null = hämta inte ännu. */
-export function useQuery<P, R>(def: QueryDef<P, R>, params: P | null, opts?: { enabled?: boolean }) {
+/**
+ * Läs data. `params` null = hämta inte ännu.
+ * keepPrevious: visa föregående svar medan nästa hämtas (isPlaceholderData) – bara när samma ärende eller post visas och en
+ * parameter ändras (filter, månad). Aldrig när man byter till ett annat ärende eller mejl.
+ */
+export function useQuery<P, R>(def: QueryDef<P, R>, params: P | null, opts?: { enabled?: boolean; keepPrevious?: boolean }) {
   const backend = useBackend();
   return useTanstackQuery({
     queryKey: [def.key, params],
     queryFn: () => backend.query(def.key, params) as Promise<R>,
     enabled: params !== null && opts?.enabled !== false,
+    placeholderData: opts?.keepPrevious ? keepPreviousData : undefined,
   });
 }
 
+/** Förhämta en fråga (samma nyckel som useQuery). Hämtar inte om svaret redan finns och är färskt. */
+export function usePrefetch() {
+  const backend = useBackend();
+  const qc = useQueryClient();
+  return useCallback(
+    <P, R>(def: QueryDef<P, R>, params: P) => {
+      void qc.prefetchQuery({ queryKey: [def.key, params], queryFn: () => backend.query(def.key, params) as Promise<R> });
+    },
+    [backend, qc],
+  );
+}
+
+/** Räkna om frågorna efter ett kommando: alla, inga eller de vars nyckel börjar med något av prefixen. */
+async function invalidate(qc: ReturnType<typeof useQueryClient>, inv: Invalidates) {
+  if (inv === "none") return;
+  if (inv === "all") return qc.invalidateQueries();
+  return qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && inv.some((p) => (q.queryKey[0] as string).startsWith(p)) });
+}
+
 /**
- * Kör ett kommando. Efter ett lyckat anrop räknas alla frågor om (enkelt och korrekt i pilotens volym).
+ * Kör ett kommando. Efter ett lyckat anrop räknas frågorna om – alla (enkelt och korrekt i pilotens volym) om inte kommandot
+ * anger något annat (CommandDef.invalidates, t.ex. "none" för loggkommandon) eller anroparen väljer (opts.invalidate).
  * Returnerar hanterarens resultat – affärsfel kommer som { ok: false, error }.
  */
-export function useCommand<P, R>(def: CommandDef<P, R>) {
+export function useCommand<P, R>(def: CommandDef<P, R>, opts?: { invalidate?: Invalidates }) {
   const backend = useBackend();
   const qc = useQueryClient();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const invalidates = opts?.invalidate ?? def.invalidates ?? "all";
   const run = useCallback(
     async (payload: P): Promise<R> => {
       setPending(true);
       setError(null);
       try {
         const res = (await backend.command(def.key, payload)) as R;
-        await qc.invalidateQueries();
+        await invalidate(qc, invalidates);
         return res;
       } catch (e) {
         setError(e as Error);
@@ -98,7 +124,9 @@ export function useCommand<P, R>(def: CommandDef<P, R>) {
         setPending(false);
       }
     },
-    [backend, def.key, qc],
+    // invalidates är ett värde ur kontraktet (eller en konstant hos anroparen).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [backend, def.key, qc, typeof invalidates === "string" ? invalidates : invalidates.join("|")],
   );
   return useMemo(() => ({ run, pending, error }), [run, pending, error]);
 }

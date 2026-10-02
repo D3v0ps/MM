@@ -11,10 +11,10 @@ import { uniq } from "@/core/util";
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
-import { DemoOnly } from "@/shell/runtime";
+import { DemoOnly, ProtoText } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Badge, BuildPhase, Button, Card, Icon, Notice, Page, PerspectiveLink, QueryView, Row, Section, Stack, TabPanel, Table, Tabs, cn, type IconName, type TabDef,
+  Badge, BuildPhase, Button, Card, Icon, Notice, Page, PerspectiveLink, QueryView, Refreshing, Row, Section, Stack, TabPanel, Table, Tabs, cn, type IconName, type TabDef,
 } from "@/ui";
 import { adminCompare, adminContract, type CompareContract, type ContractFacts, type ContractSummary, type ContractView } from "../api";
 import {
@@ -38,7 +38,8 @@ export function AvtalScreen({ query }: ScreenProps) {
   const { user } = useSession();
   const avtal = query.get("avtal");
   const tab = tabOf(query.get("flik"));
-  const q = useQuery(adminContract, avtal ? { contractId: avtal } : {});
+  // Byte av avtal: det visade avtalet står kvar (dämpat) tills nästa har hämtats – väljaren och fokus ligger kvar.
+  const q = useQuery(adminContract, avtal ? { contractId: avtal } : {}, { keepPrevious: true });
   const go = (next: { avtal?: string | null; flik?: AvtalTab }) =>
     nav.replace(path("/admin/avtal", { avtal: next.avtal !== undefined ? next.avtal : avtal, flik: (next.flik ?? tab) === "avtal" ? null : (next.flik ?? tab) }));
   const unsetN = q.data ? findUnset(q.data.config).length : null;
@@ -59,10 +60,12 @@ export function AvtalScreen({ query }: ScreenProps) {
         {(tab === "avtal" || tab === "priser") && (
           <QueryView query={q}>
             {(d) => (
-              <>
-                <ContractPicker contracts={d.contracts} value={d.contract.id} onChange={(id) => go({ avtal: id })} />
-                {tab === "avtal" ? <ConfigTab d={d} /> : <PriceTab d={d} />}
-              </>
+              <Refreshing busy={q.isPlaceholderData}>
+                <div className="flex flex-col gap-6">
+                  <ContractPicker contracts={d.contracts} value={d.contract.id} onChange={(id) => go({ avtal: id })} />
+                  {tab === "avtal" ? <ConfigTab d={d} /> : <PriceTab d={d} />}
+                </div>
+              </Refreshing>
             )}
           </QueryView>
         )}
@@ -205,7 +208,7 @@ const CARDS: Record<string, CardDef> = {
         <Stack>
           <KV
             items={[
-              "scope" in v && ["Ärenden kommunens användare ser", <><Val v={v.scope} />{v.prototypeScope && <Sub>I prototypen: {scopeWord[v.prototypeScope]}</Sub>}</>],
+              "scope" in v && ["Ärenden kommunens användare ser", <><Val v={v.scope} />{v.prototypeScope && <Sub><ProtoText>{`I prototypen: ${scopeWord[v.prototypeScope]}`}</ProtoText></Sub>}</>],
               ["Individrapporter", <YesNo key="v" v={!!v.seesIndividualReports} />],
               ["Coachanteckningar", <YesNo key="v" v={!!v.seesCoachNotes} />],
               "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Öppen fråga 17 till ledningen.</div></>],
@@ -327,9 +330,9 @@ const CARDS: Record<string, CardDef> = {
       return (
         <KV
           items={[
-            ["Definition", <><Val v={r.definition} />{r.prototypeDefinition && <Sub>{r.prototypeDefinition}</Sub>}</>],
+            ["Definition", <><Val v={r.definition} />{r.prototypeDefinition && <Sub><ProtoText>{r.prototypeDefinition}</ProtoText></Sub>}</>],
             ["Räknas som resultat", r.countsAsResult.map((x) => endReasonLabel(x)).join(", ")],
-            ["Räknas inte i nämnaren", <><Val v={r.excludedFromDenominator} />{r.prototypeExcluded && <Sub>I prototypen: {r.prototypeExcluded.map((x) => endReasonLabel(x).toLowerCase()).join(", ")}.</Sub>}</>],
+            ["Räknas inte i nämnaren", <><Val v={r.excludedFromDenominator} />{r.prototypeExcluded && <Sub><ProtoText>{`I prototypen: ${r.prototypeExcluded.map((x) => endReasonLabel(x).toLowerCase()).join(", ")}.`}</ProtoText></Sub>}</>],
             ["Kräver verifiering", <><YesNo v={!!r.requiresVerification} /><div className="text-small text-text-muted">Utan verifiering visas resultatet som preliminärt.</div></>],
           ]}
         />
@@ -445,7 +448,7 @@ const CARDS: Record<string, CardDef> = {
     body: (c, d) => (
       <KV
         items={[
-          ["Status", <Row key="v" gap="sm">{c.bonus!.enabled ? "Aktiv" : "Avstängd – modellen ej fastställd"}<BuildPhase fas={3} /></Row>],
+          ["Status", <Row key="v" gap="sm">{c.bonus!.enabled ? "Aktiv" : "Avstängd – modellen ej fastställd"}<BuildPhase fas={3} off={!c.bonus!.enabled} /></Row>],
           ["Modell", <Val key="v" v={c.bonus!.model} />],
           ["Egen faktura", <YesNo key="v" v={!!c.bonus!.separateInvoice} />],
           ["Underlag samlas in", `${plural(d.bonusCandidates, "händelse", "händelser")} markerade som möjligt bonusunderlag`],

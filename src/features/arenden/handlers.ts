@@ -1305,7 +1305,7 @@ handleQuery(supervisorStart, { roles: ["handledare"] }, async (ctx): Promise<Sup
   const me = ctx.actor.userId;
   const now = ctx.now();
   const today = dayOf(now);
-  const db = await loadDb(ctx.repo, ["cases", "case_team", "persons", "activities", "placements", "employers", "outcome_events"]);
+  const db = await loadDb(ctx.repo, ["cases", "case_team", "persons", "activities", "placements", "employers", "outcome_events", "contract_areas"]);
   const src = await accessSourceFor(ctx, db.cases);
   const persons = byId(db.persons);
   const emp = byId(db.employers);
@@ -1327,6 +1327,7 @@ handleQuery(supervisorStart, { roles: ["handledare"] }, async (ctx): Promise<Sup
     const cfg = envs.get(c.contractId);
     return {
       id: c.id, caseNumber: c.caseNumber, status: c.status, displayName: name(c), myRoleLabel: teamLabel(myRole), phase: c.phase, phaseName: cfg ? phaseName(cfg, c.phase) : "",
+      areaCode: c.primaryAreaCode ?? null, areaName: areaName(db.contract_areas.filter((a) => a.contractId === c.contractId), c.primaryAreaCode),
       vocationalTrack: c.vocationalTrack, upcoming: acts.slice(0, 3).map(activityView), nextAt: acts[0]?.startsAt ?? null,
       placement: pl ? { employerName: e?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, fourRights: pl.fourRights ?? null, contactName: e?.contactName ?? null, phone: e?.phone ?? null } : null,
       contacts: contacts.length,

@@ -4,7 +4,7 @@
 // RLS, frysningen) testas i src/features/rapporter/builder-handlers.test.ts och rls-parity.test.ts.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import fs from "node:fs";
-import { isDemo, open, switchPersona } from "./helpers";
+import { allowLeaveWarnings, isDemo, open, switchPersona } from "./helpers";
 
 type As = { userId: string; role: string };
 const SARA: As = { userId: "u-sara", role: "samordnare" };
@@ -122,8 +122,9 @@ test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbema
   await expect(main(page)).toContainText("Rapporten är sparad.");
   await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Närvaro hösten");
   await expect(main(page)).toContainText("Alla på Miljonbemanning i avtalet");
-  // Adressen har bara id:n – inga namn
-  expect(await currentPath(page, info)).toMatch(/^\/rapportbyggare\/[a-z0-9-]+\?sparad=1$/);
+  // Adressen har bara id:n – inga namn. Kvittensen (?sparad=1) tas bort ur adressen när den visats (toast och ruta).
+  await expect(page.getByRole("status").filter({ hasText: "Rapporten är sparad." }).first()).toBeAttached();
+  await expect.poll(() => currentPath(page, info)).toMatch(/^\/rapportbyggare\/[a-z0-9-]+$/);
   await expect(main(page).getByRole("table")).toContainText("Totalt");
   const [xlsx] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), btn(page, "Hämta som Excel").click()]);
   expect(xlsx.suggestedFilename()).toBe("rapport_bot_narvaro-per-manad_2026-10_2026-12.xlsx");
@@ -150,6 +151,8 @@ test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbema
   await page.locator("#bygg-fran").selectOption("2026-10");
   await expect(btn(page, "Nästa")).toBeEnabled();
   // Avtalsansvarig (inte ägaren) ser inga redigeringsknappar på samordnarens rapport men kan dela och arkivera (Tillägg 2026-10-02).
+  // Kopian sparas inte: sidan lämnas med ett osparat utkast, och webbläsaren varnar (som den ska).
+  allowLeaveWarnings(page);
   await go(page, info, saved, JOHAN);
   await expect(main(page)).toContainText("Bara den som skapade rapporten kan ändra innehållet. Du kan dela, sluta dela eller arkivera den.");
   await expect(action(page, "Ändra rapporten")).toHaveCount(0);

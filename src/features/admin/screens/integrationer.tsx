@@ -70,7 +70,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
       <Section title="Integrationer">
         <Masonry
           items={INT.map((x) => (
-            <Card key={x.id} title={x.name} icon={x.icon} actions={<>{x.phase && <BuildPhase fas={x.phase} />}{INT_STATUS[x.status]}</>}>
+            <Card key={x.id} title={x.name} icon={x.icon} actions={<>{x.phase && <BuildPhase fas={x.phase} off={x.status === "off"} />}{INT_STATUS[x.status]}</>}>
               <Stack gap="sm">
                 <p className="text-text-muted">{x.sub}</p>
                 <KV items={x.items} />
@@ -81,10 +81,15 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
       </Section>
 
       <Card
-        title="Bakgrundsjobb (tabellen jobs)"
+        title="Bakgrundsjobb"
         icon="refresh"
         flush
-        foot={<span className="text-small text-text-muted">En skyddad route körs av cron varje minut. Jobben hämtas med FOR UPDATE SKIP LOCKED, är idempotenta, har ett begränsat antal försök och sparar felorsaken.</span>}
+        foot={
+          <span className="text-small text-text-muted">
+            Jobben startas automatiskt varje minut. Ett jobb som körs om gör aldrig samma sak två gånger, försöker ett begränsat antal gånger och sparar
+            orsaken när något går fel.
+          </span>
+        }
       >
         <Table
           caption="Bakgrundsjobb"

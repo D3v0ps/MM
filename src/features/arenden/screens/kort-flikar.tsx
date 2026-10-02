@@ -281,6 +281,7 @@ export function TabAvstamningar({ card }: TabProps) {
               <NavTable
                 columns={cols}
                 rows={list.slice(0, n)}
+                rowAttrs={(x) => ({ "data-mal": `ci:${x.id}` })}
                 caption="Veckoavstämningar"
                 empty="Inga avstämningar ännu."
                 to={open}
@@ -384,6 +385,7 @@ export function TabNarvaro({ card, setTab }: TabProps) {
                 columns={cols}
                 rows={a.weeks}
                 rowKey="key"
+                rowAttrs={(w) => ({ "data-mal": `att:${w.key}` })}
                 caption="Närvaro per vecka"
                 empty="Inga veckor ännu."
                 rowTone={(w) => (w.paused ? "muted" : w.stats.absentInvalid > 0 ? "alert" : null)}

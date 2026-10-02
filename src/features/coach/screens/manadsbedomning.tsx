@@ -6,13 +6,14 @@ import { useEffect, useState } from "react";
 import { pct, plural } from "@/core/format";
 import { addMonths, fmtDateShort, fmtDateTime, fmtWeekday, MONTHS, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import {
   AiBox, AiTag, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
-import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
-import { breakable, CaseHeadView, CasePicker, Chips, customerPerspective, GateView, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
+import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
+import { breakable, CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, ToCaseButton, useCaseView } from "./shared";
 
 type Ok = Extract<AssessmentPage, { kind: "ok" }>;
 type Rag = "green" | "yellow" | "red";
@@ -55,6 +56,26 @@ function Manad({ caseId, month }: { caseId: string; month?: string }) {
   return <ManadForm key={`${caseId}|${v.month}`} v={v} />;
 }
 
+/** Efter godkännandet: nästa deltagare att bedöma, i samma ordning som Min vecka (coach.minVecka finns oftast redan i cachen). */
+function NextToAssess({ caseId }: { caseId: string }) {
+  const q = useQuery(minVecka, {});
+  const next = q.data?.monthly.open.find((x) => x.caseId !== caseId);
+  if (!q.data) return null;
+  if (!next) {
+    return (
+      <span className="inline-flex min-h-11 items-center gap-1.5 font-bold">
+        <Icon name="check-circle" />
+        Alla månadsbedömningar för {monthName(q.data.monthly.month)} är klara.
+      </span>
+    );
+  }
+  return (
+    <Button kind="primary" iconRight="arrow-right" to={`/manadsbedomning/${encodeURIComponent(next.caseId)}?manad=${q.data.monthly.month}`}>
+      Nästa att bedöma: {next.name} ({next.caseNumber})
+    </Button>
+  );
+}
+
 type AreaState = { level: Level | null; observation: string; nextStep: string };
 type Plan = { goal1: string; goal2: string; plannedActivities: string; plannedEmployerContact: string; plannedAdaptation: string; nextCustomerMeeting: string };
 
@@ -65,15 +86,24 @@ function ManadForm({ v }: { v: Ok }) {
   const month = v.month;
   const reqFrom = v.requiredFrom;
   const ma0 = v.assessment;
-  const [areas, setAreas] = useState<Record<string, AreaState>>(() =>
-    Object.fromEntries(v.areas.map((a) => [a.key, { level: a.level, observation: a.observation || "", nextStep: a.nextStep || "" }])),
-  );
-  const [overall, setOverall] = useState<Rag | null>(ma0?.overallStatus ?? null);
-  const [summary, setSummary] = useState(ma0?.summary ?? "");
-  const [plan, setPlan] = useState<Plan>(() => ({
+  // Utkastminne (bara i minnet): nivåer, observationer, status, sammanfattning och plan finns kvar om sidan lämnas osparad.
+  const initialAreas = (): Record<string, AreaState> => Object.fromEntries(v.areas.map((a) => [a.key, { level: a.level, observation: a.observation || "", nextStep: a.nextStep || "" }]));
+  const initialPlan = (): Plan => ({
     goal1: v.plan?.goal1 ?? "", goal2: v.plan?.goal2 ?? "", plannedActivities: v.plan?.plannedActivities ?? "", plannedEmployerContact: v.plan?.plannedEmployerContact ?? "",
     plannedAdaptation: v.plan?.plannedAdaptation ?? "", nextCustomerMeeting: v.plan?.nextCustomerMeeting ?? "",
-  }));
+  });
+  const draftKey = `manadsbedomning|${c.caseId}|${month}`;
+  const areasDraft = useDraft<Record<string, AreaState>>(`${draftKey}|omraden`, initialAreas);
+  const overallDraft = useDraft<Rag | null>(`${draftKey}|status`, ma0?.overallStatus ?? null);
+  const summaryDraft = useDraft<string>(`${draftKey}|sammanfattning`, ma0?.summary ?? "");
+  const planDraft = useDraft<Plan>(`${draftKey}|plan`, initialPlan);
+  const [areas, setAreas] = [areasDraft.value, areasDraft.set];
+  const [overall, setOverall] = [overallDraft.value, overallDraft.set];
+  const [summary, setSummary] = [summaryDraft.value, summaryDraft.set];
+  const [plan, setPlan] = [planDraft.value, planDraft.set];
+  const [baseline, setBaseline] = useState(() => JSON.stringify([initialAreas(), ma0?.overallStatus ?? null, ma0?.summary ?? "", initialPlan()]));
+  const restored = areasDraft.restored || overallDraft.restored || summaryDraft.restored || planDraft.restored;
+  const forgetDraft = () => [areasDraft, overallDraft, summaryDraft, planDraft].forEach((d) => d.clear());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [approvedNow, setApprovedNow] = useState(false);
   // Anteckningar som lagts in i sammanfattningen: added = visas som "Tillagd" tills sidan laddas om; used = skickas med
@@ -98,6 +128,18 @@ function ManadForm({ v }: { v: Ok }) {
   const nextMonth = addMonths(month, 1);
   const approved = ma0?.status === "approved";
   const persp = customerPerspective(v.referrer);
+  const dirty = !approved && JSON.stringify([areas, overall, summary, plan]) !== baseline;
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard(dirty && !save.pending);
+  const restartDraft = () => {
+    setAreas(initialAreas());
+    setOverall(ma0?.overallStatus ?? null);
+    setSummary(ma0?.summary ?? "");
+    setPlan(initialPlan());
+    setErrors({});
+    forgetDraft();
+  };
 
   const doSave = async (approve: boolean) => {
     // Sammanfattningen stoppas på skärmen innan anropet – coachen ska aldrig få det allmänna felet "Ogiltiga uppgifter.".
@@ -145,6 +187,8 @@ function ManadForm({ v }: { v: Ok }) {
     }
     setErrors({});
     setUsed([]);
+    forgetDraft();
+    setBaseline(JSON.stringify([areas, overall, summary, plan]));
     if (approve) {
       setApprovedNow(true);
       toast("Månadsbedömningen är godkänd. Månadsrapporten är granskad och kan godkännas och levereras.");
@@ -156,7 +200,7 @@ function ManadForm({ v }: { v: Ok }) {
     } else toast("Utkastet är sparat.");
   };
 
-  const crumbs = [MIN_VECKA_CRUMB, { label: `Månadsbedömning ${monShort(month)}` }];
+  const crumbs = caseCrumbs(c, `Månadsbedömning ${monShort(month)}`);
   if (approved && ma0) {
     return (
       <Page title={`Månadsbedömning ${monthName(month)}`} eyebrow={`${c.name} · ${c.caseNumber}`} crumbs={crumbs}>
@@ -170,6 +214,8 @@ function ManadForm({ v }: { v: Ok }) {
               Förhandsgranska månadsrapporten
             </Button>
           )}
+          {approvedNow && <NextToAssess caseId={c.caseId} />}
+          <ToCaseButton caseId={c.caseId} />
           <Button kind="secondary" to="/min-vecka">
             Till Min vecka
           </Button>
@@ -213,6 +259,16 @@ function ManadForm({ v }: { v: Ok }) {
         </Badge>
       }
     >
+      {restored && dirty && (
+        <Notice tone="info" icon="edit" title="Ditt osparade utkast är återställt">
+          <Row gap="sm">
+            <span>Det du fyllde i senast finns kvar. Det är inte sparat ännu.</span>
+            <Button kind="ghost" icon="reset" onClick={restartDraft}>
+              Börja om
+            </Button>
+          </Row>
+        </Notice>
+      )}
       <Split wide>
         <Card title="Underlag för månaden" icon="book">
           <Stack>

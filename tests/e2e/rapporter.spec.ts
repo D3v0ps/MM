@@ -135,7 +135,8 @@ test("1c. smal skärm: listan visas som kort", async ({ page }, info) => {
   const errors = await open(page, info, "/rapporter", SAMORDNARE);
   await expect(main(page)).toContainText("794 rapporter");
   await expect(main(page).locator("table")).toHaveCount(0);
-  await main(page).getByRole("button", { name: /^Slutrapport/ }).first().click();
+  // Korten är riktiga länkar (öppna i ny flik, högerklick): omgång 2 av UI/UX-arbetet.
+  await main(page).getByRole("link", { name: /^Slutrapport/ }).first().click();
   await expect(page).toHaveURL(/\/rapporter\/rep-/);
   expect(errors).toEqual([]);
 });

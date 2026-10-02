@@ -16,6 +16,8 @@ export function Kpi({
   statusText,
   children,
   className,
+  onClick,
+  actionHint,
 }: {
   label: ReactNode;
   value: ReactNode;
@@ -24,11 +26,18 @@ export function Kpi({
   statusText?: ReactNode;
   children?: ReactNode;
   className?: string;
+  /** Rutan blir en knapp (t.ex. "gå till avsnittet"). */
+  onClick?: () => void;
+  /** Text längst ned i en klickbar ruta, t.ex. "Visa". */
+  actionHint?: ReactNode;
 }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div
+    <Tag
+      {...(onClick ? { type: "button" as const, onClick } : {})}
       className={cn(
         "flex min-w-0 flex-col gap-1.5 rounded-card border border-ljusgra bg-vit px-[18px] py-4",
+        onClick && "cursor-pointer text-left text-antracit [font-family:inherit] hover:bg-ljusgra-ton",
         tone === "alert" && "border-2 border-rod",
         tone === "watch" && "border-2 border-antracit",
         className,
@@ -44,7 +53,13 @@ export function Kpi({
       )}
       {sub && <div className="text-small text-text-muted portal:text-portal">{sub}</div>}
       {children}
-    </div>
+      {onClick && actionHint && (
+        <span className="mt-auto inline-flex items-center gap-1 pt-1 text-small font-bold underline underline-offset-3">
+          {actionHint}
+          <Icon name="arrow-right" className="size-3.5" />
+        </span>
+      )}
+    </Tag>
   );
 }
 

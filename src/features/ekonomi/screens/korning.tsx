@@ -1,15 +1,17 @@
 "use client";
 // Fakturakörningen för en månad (prototypens eko.korning): regler, stegen i körningen, fakturalistan med filter och sök,
 // detaljen per faktura (kontroller och åtgärder), reservvägen (export och manuellt fakturerad) och Fortnox-körningarna.
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
+import { useRuntime } from "@/shell/runtime";
+import { useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import { fmtDate, fmtDateShort, fmtDateTime, fmtWeekKey, fmtWeekRange, monthName } from "@/core/time";
 import { kr, krExact, num } from "@/core/format";
 import {
-  Badge, BuildPhase, Button, Card, Check, cn, DemoNote, Empty, ErrorNotice, Field, Icon, Input, Kv, Loading, Modal, Notice, Page, Select, SlaBadge, Table, Tabs, TextArea,
-  useConfirm, useDownload, toast, type Column,
+  Badge, BuildPhase, Button, Card, Check, cn, DemoNote, Empty, ErrorNotice, Field, focusSection, Icon, Input, Kv, Loading, Modal, Notice, Page, Select, SlaBadge, Table, Tabs, TextArea,
+  ModalCancelButton, useConfirm, useDownload, useModalDirty, toast, type Column,
 } from "@/ui";
 import {
   billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCloseRun, ekoCsv, ekoFortnoxLog, ekoFortnoxSync,
@@ -44,18 +46,27 @@ export function KorningScreen({ params, query }: ScreenProps) {
       key={v.month}
       v={v as RunView & { month: string }}
       crumbs={crumbs}
-      initialFilter={FILTERS.includes(f as Filter) ? (f as Filter) : "alla"}
+      filter={FILTERS.includes(f as Filter) ? (f as Filter) : "alla"}
       initialOpen={query.get("arende")}
     />
   );
 }
 
-function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { month: string }; crumbs: { label: string; to?: string }[]; initialFilter: Filter; initialOpen: string | null }) {
+function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: string }; crumbs: { label: string; to?: string }[]; filter: Filter; initialOpen: string | null }) {
   const nav = useNav();
+  const patch = useQueryPatch();
   const confirm = useConfirm();
   const download = useDownload();
   const runQuery = useQueryRunner();
-  const [filter, setFilter] = useState<Filter>(initialFilter);
+  // Fortnox är inte anslutet ännu: knapparna sätter statusen i Miljonmatch. Prototypen säger "simulerat"; appen säger vad som
+  // hände (statusen), utan utvecklartext.
+  const demo = useRuntime() === "demo";
+  // Fliken ligger i adressen (?filter=, replace): Tillbaka och omladdning visar samma urval.
+  // Kommer man hit med ?filter= (genvägarna på /ekonomi) visas fakturatabellen direkt – rubriken får fokus.
+  const [arrivedWithFilter] = useState(() => filter !== "alla" && nav.entry?.kind === "push");
+  useEffect(() => {
+    if (arrivedWithFilter) focusSection("fakturor");
+  }, [arrivedWithFilter]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [openId, setOpenId] = useState<string | null>(initialOpen);
@@ -96,8 +107,25 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
   const pg = Math.min(page, pages - 1);
   const shown = list.slice(pg * PAGE_SIZE, (pg + 1) * PAGE_SIZE);
   const setF = (x: Filter) => {
-    setFilter(x);
+    patch({ filter: x === "alla" ? null : x });
     setPage(0);
+  };
+  /** Genvägarna i stegen ("Visa stoppade", "Visa de som kräver godkännande"): byt flik och visa tabellen. */
+  const showFilter = (x: Filter) => {
+    setF(x);
+    requestAnimationFrame(() => focusSection("fakturor"));
+  };
+  // Granskningskön i fakturadialogen: fakturorna som kräver godkännande, i tabellens ordning. Fryses när dialogen öppnas,
+  // så att "3 av 8" och Nästa fungerar också när en faktura har godkänts och lämnat kön.
+  const reviewIds = () =>
+    rows
+      .filter((r) => r.bucket === "review")
+      .sort((a, x) => (x.remarks ? 1 : 0) - (a.remarks ? 1 : 0) || (a.caseNumber < x.caseNumber ? -1 : 1))
+      .map((r) => r.caseId);
+  const [queue, setQueue] = useState<string[]>(() => (initialOpen ? reviewIds() : []));
+  const openInvoice = (id: string) => {
+    setQueue(reviewIds());
+    setOpenId(id);
   };
 
   const approveAll = async () => {
@@ -139,7 +167,8 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
             <li>{plural(notReady, "faktura som inte är godkänd", "fakturor som inte är godkända")} tas inte med.</li>
           </ul>
           <p className="text-small text-text-muted">
-            I den riktiga tjänsten skickas anropen i takt med Fortnox gräns (25 anrop per 5 sekunder) och varje faktura får idempotensnyckeln månad + ärendenummer.
+            {demo ? "I den riktiga tjänsten skickas anropen" : "Anropen skickas"} i takt med Fortnox gräns (25 anrop per 5 sekunder) och varje faktura får
+            idempotensnyckeln månad + ärendenummer.
           </p>
         </div>
       ),
@@ -149,13 +178,16 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
     await fortnoxLog.run({ month: mk, created: fresh.map((r) => r.caseId), skipped: already.length, notReady, blocked: counts.stoppade });
     toast(
       fresh.length
-        ? `${plural(fresh.length, "faktura", "fakturor")} skapades i Fortnox som ${pl(fresh.length, "ej bokfört utkast", "ej bokförda utkast")} (simulerat). Inga dubbletter.`
+        ? demo
+          ? `${plural(fresh.length, "faktura", "fakturor")} skapades i Fortnox som ${pl(fresh.length, "ej bokfört utkast", "ej bokförda utkast")} (simulerat). Inga dubbletter.`
+          : `${plural(fresh.length, "faktura", "fakturor")} har fått status ”Skapad i Fortnox (ej bokförd)”. Inga dubbletter.`
         : `Inga nya fakturor. ${plural(already.length, "faktura", "fakturor")} fanns redan – inga dubbletter skapades.`,
     );
   };
   const sync = async () => {
     const r = await fortnoxSync.run({ month: mk, caseIds: toSync.map((x) => x.caseId) });
-    toast(`Status hämtad från Fortnox (simulerat): ${plural(r.ok ? r.changed : 0, "faktura", "fakturor")} gick vidare ett steg.`);
+    const moved = plural(r.ok ? r.changed : 0, "faktura", "fakturor");
+    toast(demo ? `Status hämtad från Fortnox (simulerat): ${moved} gick vidare ett steg.` : `Status hämtad: ${moved} gick vidare ett steg.`);
   };
   const exportCsv = async () => {
     await exportCmd.run({ month: mk, format: "csv" });
@@ -279,7 +311,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
             </StepText>
             {counts.stoppade > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <Button kind="secondary" icon="filter" className="text-left whitespace-normal" onClick={() => setF("stoppade")}>
+                <Button kind="secondary" icon="filter" className="text-left whitespace-normal" onClick={() => showFilter("stoppade")}>
                   Visa stoppade ({counts.stoppade})
                 </Button>
               </div>
@@ -297,7 +329,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
                 </Button>
               )}
               {withRemarks > 0 && (
-                <Button kind="secondary" icon="filter" className="text-left whitespace-normal" onClick={() => setF("godkannande")}>
+                <Button kind="secondary" icon="filter" className="text-left whitespace-normal" onClick={() => showFilter("godkannande")}>
                   Visa de som kräver godkännande
                 </Button>
               )}
@@ -308,6 +340,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
               title={
                 <span className="flex flex-wrap items-center gap-1.5">
                   <span className="font-bold">Skapa i Fortnox</span>
+                  {/* Knappen fungerar (sätter statusen) – bara prototypen visar utvecklingsfasen. */}
                   <BuildPhase fas={2} />
                 </span>
               }
@@ -354,7 +387,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
           </Step>
         </div>
       </Card>
-      <Card title={`Fakturor ${monthName(mk)}`} icon="file" flush foot={<Pager page={pg} total={list.length} onPage={setPage} />}>
+      <Card id="fakturor" title={`Fakturor ${monthName(mk)}`} icon="file" flush foot={<Pager page={pg} total={list.length} onPage={setPage} />}>
         <div className="flex flex-col gap-4 px-[18px] pt-3.5 pb-1">
           <Tabs<Filter>
             ariaLabel="Filter för fakturor"
@@ -386,7 +419,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
             columns={columns}
             rows={shown}
             rowKey="caseId"
-            onRowClick={(r) => setOpenId(r.caseId)}
+            onRowClick={(r) => openInvoice(r.caseId)}
             rowTone={(r) => (r.bucket === "blocked" ? "alert" : openId === r.caseId ? "selected" : null)}
             empty={
               filter === "stoppade"
@@ -417,7 +450,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
             <button
               type="button"
               key={r.id}
-              onClick={() => setOpenId(r.caseId)}
+              onClick={() => openInvoice(r.caseId)}
               className={cn(
                 "flex w-full cursor-pointer items-start gap-3 border-0 border-b border-ljusgra bg-transparent px-[18px] py-3 text-left hover:bg-ljusgra-ton",
                 r.bucket === "blocked" && "shadow-[inset_4px_0_0_var(--color-rod)]",
@@ -485,6 +518,7 @@ function Korning({ v, crumbs, initialFilter, initialOpen }: { v: RunView & { mon
         <InvoiceDetail
           month={mk}
           caseId={openInv.caseId}
+          queue={queue}
           onClose={() => setOpenId(null)}
           onOpen={(id) => setOpenId(id)}
           onManual={(id) => {
@@ -561,7 +595,9 @@ function MonthRulesCard({ v }: { v: RunView & { month: string } }) {
 }
 
 // ================================================================ Detalj: en faktura i körningen
-function InvoiceDetail({ month, caseId, onClose, onOpen, onManual }: { month: string; caseId: string; onClose: () => void; onOpen: (id: string) => void; onManual: (id: string) => void }) {
+function InvoiceDetail({
+  month, caseId, queue, onClose, onOpen, onManual,
+}: { month: string; caseId: string; queue: string[]; onClose: () => void; onOpen: (id: string) => void; onManual: (id: string) => void }) {
   const q = useQuery(ekoInvoice, { month, caseId });
   const d = q.data;
   const title = d ? `Faktura ${d.inv.caseNumber}` : "Faktura";
@@ -586,11 +622,14 @@ function InvoiceDetail({ month, caseId, onClose, onOpen, onManual }: { month: st
       </Modal>
     );
   }
-  return <InvoiceDetailBody d={d} onClose={onClose} onOpen={onOpen} onManual={onManual} />;
+  return <InvoiceDetailBody d={d} queue={queue} onClose={onClose} onOpen={onOpen} onManual={onManual} />;
 }
 
-function InvoiceDetailBody({ d, onClose, onOpen, onManual }: { d: InvoiceDetailView; onClose: () => void; onOpen: (id: string) => void; onManual: (id: string) => void }) {
+function InvoiceDetailBody({
+  d, queue, onClose, onOpen, onManual,
+}: { d: InvoiceDetailView; queue: string[]; onClose: () => void; onOpen: (id: string) => void; onManual: (id: string) => void }) {
   const nav = useNav();
+  const demo = useRuntime() === "demo";
   const approveCmd = useCommand(billingApproveInvoice);
   const reissueCmd = useCommand(ekoReissue);
   const [checked, setChecked] = useState(false);
@@ -607,7 +646,7 @@ function InvoiceDetailBody({ d, onClose, onOpen, onManual }: { d: InvoiceDetailV
   const reissue = async () => {
     const r = await reissueCmd.run({ month, caseId: inv.caseId });
     if (!r.ok) toast("Rätta beställarreferensen innan du skapar en ny faktura.", "error");
-    else toast(`Den returnerade fakturan för ${inv.caseNumber} är krediterad och en ny faktura är skapad i Fortnox (simulerat).`);
+    else toast(`Den returnerade fakturan för ${inv.caseNumber} är krediterad och en ny faktura är skapad${demo ? " i Fortnox (simulerat)" : ""}.`);
   };
   const why = inv.blocked
     ? "Fakturan är stoppad. Rätta beställarreferensen först."
@@ -617,8 +656,31 @@ function InvoiceDetailBody({ d, onClose, onOpen, onManual }: { d: InvoiceDetailV
         ? "Bekräfta att du har kontrollerat anmärkningarna."
         : "";
   const [pStart, pEnd] = periodOf(inv.weeks);
+  // Bläddra i granskningskön utan att stänga dialogen.
+  const pos = queue.indexOf(inv.caseId);
+  const prevId = pos > 0 ? queue[pos - 1] : null;
+  const nextId = pos >= 0 ? (queue[pos + 1] ?? null) : (queue[0] ?? null);
   const footer = (
     <>
+      {queue.length > 0 && (
+        <span className="mr-auto flex flex-wrap items-center gap-1.5">
+          {prevId && (
+            <Button kind="ghost" icon="arrow-left" onClick={() => onOpen(prevId)}>
+              Föregående
+            </Button>
+          )}
+          {pos >= 0 && (
+            <span className="text-small font-bold tabular-nums">
+              {pos + 1} av {queue.length}
+            </span>
+          )}
+          {nextId && (
+            <Button kind="secondary" iconRight="arrow-right" onClick={() => onOpen(nextId)}>
+              Nästa som kräver godkännande
+            </Button>
+          )}
+        </span>
+      )}
       <Button kind="ghost" icon="file" onClick={() => nav.push(`/ekonomi/${month}/faktura/${encodeURIComponent(inv.caseId)}`)}>
         Förhandsgranska faktura
       </Button>
@@ -740,6 +802,8 @@ function ZeroWeek({ d, ch }: { d: InvoiceDetailView; ch: InvoiceCheckView }) {
   const approveZero = useCommand(billingApproveZeroWeek);
   const [note, setNote] = useState("");
   const [tried, setTried] = useState(false);
+  // Kommentaren är inte sparad: fakturadialogen frågar innan den stängs.
+  useModalDirty(!!note.trim() && ch.severity !== "approved");
   const inv = d.inv;
   const w = inv.weeks.find((x) => x.key === ch.weekKey);
   const id = `eko-zero-${inv.caseId}-${ch.weekKey}`;
@@ -849,11 +913,10 @@ function ManualModal({ month, invoices, presetId, onClose }: { month: string; in
     <Modal className={WRAP}
       title="Markera som manuellt fakturerad"
       onClose={onClose}
+      dirty={!!no.trim()}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>
-            Avbryt
-          </Button>
+          <ModalCancelButton />
           <Button kind="primary" icon="check" pending={markManual.pending} onClick={() => void save()}>
             Spara
           </Button>

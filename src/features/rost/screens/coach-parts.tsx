@@ -1,18 +1,19 @@
 "use client";
 // Deltagarens röstmeddelanden för coachen (docs/PLAN-ROST.md, flöde 3):
-//   VoiceNotesCard     i deltagarkortet (/arenden/:caseId): skicka inspelningslänk via deltagarens kontaktväg, länkens läge och
-//                      röstmeddelandena – markera som granskat eller använd texten som underlag i avstämningen
+//   VoiceNotesRow      i deltagarkortets huvud (/arenden/:caseId): en rad som fäller ut rutan med inspelningslänken (skicka via
+//                      deltagarens kontaktväg, länkens läge) och röstmeddelandena – markera som granskat eller använd texten
+//                      som underlag i avstämningen
 //   VoiceNotesInbox    på Min vecka: nya röstmeddelanden att granska i coachens ärenden
 //   VoiceNotesForCheckIn  i veckoavstämningen: texten som underlag (coachen väljer själv om den ska in i anteckningen)
 // Texten är AI-transkriberad (och AI-översatt till svenska när deltagaren talade ett annat språk) och märks så. Visningen
 // loggas i revisionsloggen. Aldrig länkar eller inspelning för skyddade personuppgifter – då förklaras varför.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fmtDate, fmtDateShort, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, Empty, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, Stack, toast, useAuditView,
+  AiTag, Badge, BuildPhase, Button, Card, cn, Empty, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, Stack, toast, useAuditView,
 } from "@/ui";
 import { caseVoice, linkSend, noteReview, notesSeen, pendingNotes, type CaseVoiceView, type RostLang, type VoiceNoteView } from "../api";
 
@@ -39,20 +40,78 @@ function NoteTags({ n }: { n: Pick<VoiceNoteView, "translated" | "languageName">
 }
 
 // ================================================================ Deltagarkortet
-export function VoiceNotesCard({ caseId }: { caseId: string }) {
+/**
+ * Röstmeddelandena som en rad i deltagarkortets huvud: "Röstmeddelanden: 1 nytt" och knappen "Läs", som fäller ut hela rutan
+ * under raden. Utan meddelanden: "Inga röstmeddelanden" och "Skicka inspelningslänk". autoOpen (?visa=rost, länken
+ * "Läs röstmeddelandet" på Min vecka): utfälld och i bild. Visningen loggas som tidigare när kortet visas.
+ */
+export function VoiceNotesRow({ caseId, autoOpen, className }: { caseId: string; autoOpen?: boolean; className?: string }) {
   const q = useQuery(caseVoice, { caseId });
   const seen = useCommand(notesSeen);
   const v = q.data;
   const count = v?.notes.length ?? 0;
   // Röstmeddelandena är transkript: visningen loggas en gång per sidvisning (CLAUDE.md punkt 3).
   useAuditView(count > 0 ? `voice_note.view:${caseId}` : null, () => seen.run({ caseId }).catch(() => undefined));
+  const [open, setOpen] = useState(!!autoOpen);
+  const [send, setSend] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const loaded = !!v;
+  // Utfälld från början (useState ovan); när innehållet har kommit: skrolla raden i bild.
+  useEffect(() => {
+    if (!autoOpen || !loaded) return;
+    const t = window.setTimeout(() => ref.current?.scrollIntoView({ block: "start" }), 0);
+    return () => window.clearTimeout(t);
+  }, [autoOpen, loaded]);
   if (!v) return null;
-  return <VoiceCardBody v={v} />;
+  const fresh = v.notes.filter((n) => n.status === "new").length;
+  const canSend = v.canWork && v.send.allowed;
+  return (
+    <div ref={ref} id="rost" role="group" aria-labelledby="rost-rubrik" className={cn("flex flex-col gap-3", className)}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 id="rost-rubrik" className="flex items-center gap-1.5 text-body font-bold">
+          <Icon name="mic" />
+          Röstmeddelanden:
+        </h2>
+        {count === 0 ? (
+          <span>Inga röstmeddelanden</span>
+        ) : fresh > 0 ? (
+          <Badge tone="red" icon="bell">
+            {fresh === 1 ? "1 nytt" : `${fresh} nya`}
+          </Badge>
+        ) : (
+          <span>{count === 1 ? "1 granskat" : `${count} granskade`}</span>
+        )}
+        <Button kind="ghost" icon={open ? "chevron-up" : "chevron-down"} aria-expanded={open} aria-controls="rost-kropp" onClick={() => setOpen(!open)}>
+          {open ? "Dölj" : count > 0 ? "Läs" : "Visa"}
+        </Button>
+        {count === 0 && canSend && !open && (
+          <Button
+            icon="send"
+            onClick={() => {
+              setOpen(true);
+              setSend(true);
+            }}
+          >
+            Skicka inspelningslänk
+          </Button>
+        )}
+      </div>
+      {open && (
+        <div id="rost-kropp">
+          <VoiceCardBody v={v} startSend={send} onSendClosed={() => setSend(false)} />
+        </div>
+      )}
+    </div>
+  );
 }
 
-function VoiceCardBody({ v }: { v: CaseVoiceView }) {
+function VoiceCardBody({ v, startSend, onSendClosed }: { v: CaseVoiceView; startSend?: boolean; onSendClosed?: () => void }) {
   const role = useSession().actor.role;
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(!!startSend);
+  const setOpen = (o: boolean) => {
+    setOpenState(o);
+    if (!o) onSendClosed?.();
+  };
   const [sentPath, setSentPath] = useState<string | null>(null);
   const fresh = v.notes.filter((n) => n.status === "new").length;
   const l = v.lastLink;
@@ -278,7 +337,7 @@ export function VoiceNotesInbox() {
               }
               sub={`${fmtDateTime(r.createdAt)} · ${r.translated ? `talat på ${r.languageName}, AI-översättning` : "AI-transkribering"}`}
               side={
-                <Button kind="primary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(r.caseId)}`}>
+                <Button kind="primary" iconRight="arrow-right" to={`/arenden/${encodeURIComponent(r.caseId)}?visa=rost`}>
                   Läs röstmeddelandet
                 </Button>
               }

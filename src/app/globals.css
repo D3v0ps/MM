@@ -78,6 +78,29 @@
 @layer base {
   :root {
     color-scheme: light;
+    /* Höjden som fasta element överst tar (fast flikrad på deltagarkortet hamnar under dem). 0 på skrivbordet; på smal
+       skärm den fasta topprades höjd (nedan, efter layouten: data-shell i src/shell/layouts.tsx). */
+    --mm-sticky-top: 0px;
+    /* Den fasta flikradens höjd med marginal medan en sådan visas (Tabs sticky, src/ui/tabs.tsx sätter den). */
+    --mm-tabs-sticky-h: 0px;
+  }
+  @media (max-width: 900px) {
+    /* Toppraden (MB) och portalens huvud ligger fast överst på smal skärm. */
+    :root:has([data-shell="mb"]) {
+      --mm-sticky-top: 64px;
+    }
+    :root:has([data-shell="portal"]) {
+      --mm-sticky-top: 68px;
+    }
+  }
+  /* Det som får fokus med tangentbordet (och skrollmål) hamnar under de fasta raderna, inte bakom dem. */
+  html {
+    scroll-padding-top: var(--mm-tabs-sticky-h);
+  }
+  @media (max-width: 900px) {
+    html {
+      scroll-padding-top: calc(var(--mm-sticky-top) + var(--mm-tabs-sticky-h) + 8px);
+    }
   }
   html,
   body {
@@ -126,8 +149,9 @@
     scroll-margin-top: 140px;
   }
   @media (max-width: 900px) {
+    /* Den fasta toppraden räknas redan in i html:s scroll-padding-top. */
     [id] {
-      scroll-margin-top: 16px;
+      scroll-margin-top: 8px;
     }
   }
 
@@ -215,4 +239,27 @@
   a {
     text-decoration: none;
   }
+}
+
+/* Kommunens portal: ingen text under 18 px (CLAUDE.md) – också där delade komponenter använder mindre textstorlekar
+   (hjälptexter, märken, etiketter, tabellrubriker, stora knappar och h3 på 17 px). Utanför lagren så att det går före
+   komponenternas egna storlekar. */
+[data-area="portal"] :is(.text-small, .text-meta, .text-label, .text-ui, .text-body, .text-h3) {
+  font-size: var(--text-portal);
+}
+
+/* Målet när man öppnar en rad från deltagarkortets tidslinje (?mal=): tonad yta och en mörk kant till vänster i två
+   sekunder – inte bara färg. Utanför lagren så att det går före komponenternas egna bakgrunder. */
+[data-mal-active] {
+  background-color: var(--color-bla-ton) !important;
+  box-shadow: inset 5px 0 0 var(--color-antracit);
+}
+tr[data-mal-active] {
+  box-shadow: none;
+}
+tr[data-mal-active] > td {
+  background-color: var(--color-bla-ton);
+}
+tr[data-mal-active] > td:first-child {
+  box-shadow: inset 5px 0 0 var(--color-antracit);
 }

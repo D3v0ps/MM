@@ -4,7 +4,8 @@
 // skyddade avrop enligt den säkra rutinen och mejl som klassats som Övrigt.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { messageSend } from "@/features/arenden/api";
-import { useCommand, useQuery } from "@/shell/backend";
+import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
+import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import {
   Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, DemoNote, Empty, ErrorNotice, Field, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
@@ -34,7 +35,7 @@ export function InkorgScreen({ params, query }: ScreenProps) {
       actions={<PerspectiveLink role="kommun_handlaggare" to="/portal/bestall" label="Se hur kommunen beställer" />}
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : (
-        <Inbox data={q.data} emailId={params.emailId ?? null} caseId={query.get("arende")} latest={query.get("senaste") === "1"} />
+        <Inbox data={q.data} emailId={params.emailId ?? null} caseId={query.get("arende")} latest={query.get("senaste") === "1"} visa={query.get("visa")} />
       )}
       <DemoNote>
         Inläsningen är simulerad. I tjänsten hämtas mejlen från avrop@ via Microsoft Graph var 2–5 minut och flyttas till mappen Inläst, där de ligger kvar som reserv.
@@ -63,25 +64,48 @@ function initialPick(d: InboxList, emailId: string | null, caseId: string | null
 
 type Tab = "att" | "hanterade" | "alla";
 const LIMIT = 12;
+const DECIDE = new Set<InboxRow["cls"]>(["order", "order_protected", "supplement"]);
 
-function Inbox({ data, emailId, caseId, latest }: { data: InboxList; emailId: string | null; caseId: string | null; latest: boolean }) {
-  const [selId, setSelId] = useState<string | null>(() => initialPick(data, emailId, caseId, latest));
-  const [tab, setTab] = useState<Tab>(() => {
+function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; emailId: string | null; caseId: string | null; latest: boolean; visa: string | null }) {
+  const nav = useNav();
+  // Valt mejl i adressen (/inkorg/<id>, replace – rutten ligger kvar): omladdning och länkar visar samma mejl. Utan id i
+  // adressen väljs det mest brådskande (eller ärendets avrop / det senaste, ?arende= och ?senaste=1).
+  const [auto] = useState<string | null>(() => initialPick(data, emailId, caseId, latest));
+  const selId = emailId && data.rows.some((x) => x.id === emailId) ? emailId : auto;
+  // Fliken i adressen (?visa=hanterade|alla).
+  const [initialTab] = useState<Tab>(() => {
     const init = data.rows.find((x) => x.id === selId);
     return init && !init.pending && (emailId || caseId) ? "alla" : "att";
   });
+  const tab: Tab = visa === "hanterade" || visa === "alla" ? visa : visa === "att" ? "att" : initialTab;
+  const setTab = (t: Tab) => nav.replace(path(nav.path, { visa: t === "att" ? (initialTab === "att" ? null : "att") : t }));
   const [showAll, setShowAll] = useState(false);
   const detailRef = useRef<HTMLDivElement>(null);
   const userPick = useRef(false);
+  // Räknas upp vid varje val – också när samma mejl väljs igen (då ändras inte adressen, men detaljen ska visas).
+  const [pickSeq, setPickSeq] = useState(0);
   useEffect(() => {
     if (!userPick.current) return;
     userPick.current = false;
-    // Smal skärm: detaljen ligger under listan – visa den direkt.
-    if (window.matchMedia("(max-width: 1099px)").matches) detailRef.current?.scrollIntoView({ block: "start" });
-  }, [selId]);
+    const el = detailRef.current;
+    if (!el) return;
+    if (window.matchMedia("(max-width: 1099px)").matches) {
+      // Smal skärm: detaljen ligger under listan – visa den direkt. Detaljen har minst skärmens höjd (nedan), så att den kan
+      // läggas överst också medan den laddar och när den är sist på sidan.
+      el.scrollIntoView({ block: "start" });
+    } else {
+      // Bred skärm: detaljen ligger fast bredvid listan och skrollar för sig – börja överst och se till att rubriken syns.
+      // Nära sidans slut trycks den fasta kolumnen uppåt av listans slut: skrolla då upp så mycket som behövs.
+      el.scrollTop = 0;
+      const want = parseFloat(getComputedStyle(el).top) || 16;
+      const top = el.getBoundingClientRect().top;
+      if (top < want) window.scrollBy({ top: top - want });
+    }
+  }, [selId, pickSeq]);
   const pick: Pick_ = (id) => {
     userPick.current = true;
-    setSelId(id);
+    setPickSeq((n) => n + 1);
+    nav.replace(path(`/inkorg/${encodeURIComponent(id)}`, { visa }));
   };
   const byId = useMemo(() => new Map(data.rows.map((r) => [r.id, r])), [data]);
   const pending = data.pending.map((id) => byId.get(id)).filter((x): x is InboxRow => !!x);
@@ -89,6 +113,8 @@ function Inbox({ data, emailId, caseId, latest }: { data: InboxList; emailId: st
   const list = tab === "att" ? pending : tab === "hanterade" ? handled : data.rows;
   const shown = showAll ? list : list.slice(0, LIMIT);
   const item = selId ? byId.get(selId) ?? null : null;
+  // Nästa avrop att hantera (det mest brådskande som väntar – samma ordning som "Att hantera"), utom det som visas.
+  const nextAfter = (cur: InboxRow): InboxRow | null => pending.find((x) => x.id !== cur.id && DECIDE.has(x.cls) && (!cur.caseId || x.caseId !== cur.caseId)) ?? null;
 
   return (
     <>
@@ -118,9 +144,20 @@ function Inbox({ data, emailId, caseId, latest }: { data: InboxList; emailId: st
             )}
           </Card>
         </div>
-        <div ref={detailRef} className="@container min-w-0 scroll-mt-[140px] max-[900px]:scroll-mt-4" data-inkorg-detail="">
+        <div
+          ref={detailRef}
+          className={cn(
+            // Skrollmålet på smal skärm: 16 px marginal (den fasta toppraden räknas redan in i html:s scroll-padding-top).
+            "@container min-w-0 scroll-mt-4",
+            item && "max-[1099px]:min-h-[calc(100dvh-var(--mm-sticky-top))]",
+            // Bred skärm: detaljen följer med när listan skrollas och skrollar själv inuti. Höjden ryms ovanför sidans
+            // nedre marginal (pb-24), så att kolumnen inte trycks upp – och rubriken ut ur bild – längst ned på sidan.
+            "min-[1100px]:sticky min-[1100px]:top-[calc(var(--mm-sticky-top)+16px)] min-[1100px]:max-h-[calc(100dvh-128px)] min-[1100px]:overflow-y-auto min-[1100px]:overscroll-contain",
+          )}
+          data-inkorg-detail=""
+        >
           {item ? (
-            <Detail key={item.id} id={item.id} onPick={pick} />
+            <Detail key={item.id} id={item.id} onPick={pick} next={nextAfter(item)} />
           ) : (
             <Card>
               <Empty icon="inbox" title={pending.length ? "Välj ett mejl" : "Inget väntar på svar"}>
@@ -174,11 +211,16 @@ function Summary({ pending, onPick }: { pending: InboxRow[]; onPick: Pick_ }) {
 function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pick_ }) {
   const m = METHOD[it.method] ?? METHOD.manual;
   const [stLabel, stTone, stIcon] = statusLook(it.status);
+  // Pekar man på (eller fokuserar) ett mejl hämtas det i förväg, så att det visas direkt vid klick.
+  const prefetch = usePrefetch();
+  const warm = () => prefetch(inboxItem, { id: it.id });
   return (
     <button
       type="button"
       aria-current={active ? "true" : undefined}
       onClick={() => onPick(it.id)}
+      onPointerEnter={warm}
+      onFocus={warm}
       data-inkorg-row=""
       className={cn(
         "flex w-full min-w-0 cursor-pointer items-start gap-2.5 border-x-0 border-t-0 border-b border-ljusgra bg-transparent px-[18px] py-3 text-left text-antracit [font:inherit] last:border-b-0 hover:bg-ljusgra-ton",
@@ -206,7 +248,15 @@ function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pi
 // ---------------------------------------------------------------- Detaljvyn
 type ModalKind = "accept" | "decline" | "correct" | "phone" | null;
 
-function Detail({ id, onPick }: { id: string; onPick: Pick_ }) {
+/** Smal skärm: tillbaka upp till listan – raden som visas får fokus. */
+function toList() {
+  const row = document.querySelector<HTMLElement>('[data-inkorg-row][aria-current="true"]') ?? document.querySelector<HTMLElement>("[data-inkorg-row]");
+  if (!row) return;
+  row.scrollIntoView({ block: "center" });
+  row.focus({ preventScroll: true });
+}
+
+function Detail({ id, onPick, next }: { id: string; onPick: Pick_; next: InboxRow | null }) {
   const q = useQuery(inboxItem, { id });
   const [modal, setModal] = useState<ModalKind>(null);
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
@@ -220,14 +270,34 @@ function Detail({ id, onPick }: { id: string; onPick: Pick_ }) {
     onPick(x);
   };
   const b = it.body;
+  // Nästa avrop – efter att det här är besvarat (kvittensen) eller när det redan är hanterat.
+  const nextBtn = next && !it.decision && (
+    <Button kind="primary" iconRight="arrow-right" onClick={() => onPick(next.id)}>
+      Nästa avrop: {next.caseNumber ?? next.subject}
+    </Button>
+  );
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3 min-[1100px]:hidden">
+        <Button kind="ghost" icon="arrow-left" onClick={toList}>
+          Till listan
+        </Button>
+      </div>
       <DetailHead it={it} onAccept={() => setModal("accept")} onDecline={() => setModal("decline")} onCorrect={it.correct ? () => setModal("correct") : null} onPhone={() => setModal("phone")} />
+      {nextBtn && <div className="flex flex-wrap items-center gap-3">{nextBtn}</div>}
       {b.kind === "protected" && <ProtectedBody it={it} b={b} />}
       {b.kind === "supplement" && <SupplementBody b={b} onPick={onPick} onAccept={() => setModal("accept")} />}
       {b.kind === "other" && <OtherBody it={it} b={b} />}
       {b.kind === "order" && <OrderBody it={it} b={b} onPick={onPick} />}
-      {modal === "accept" && c && <AcceptModal caseId={c.id} caseNumber={c.number} onClose={close} onShowEmail={showEmail} />}
+      {modal === "accept" && c && (
+        <AcceptModal
+          caseId={c.id}
+          caseNumber={c.number}
+          onClose={close}
+          onShowEmail={showEmail}
+          next={next ? { label: `Nästa avrop: ${next.caseNumber ?? next.subject}`, open: () => showEmail(next.id) } : null}
+        />
+      )}
       {modal === "decline" && c && <DeclineModal caseId={c.id} caseNumber={c.number} onClose={close} />}
       {modal === "correct" && it.correct && <CorrectModal f={it.correct} onClose={close} />}
       {modal === "phone" && it.canPhone && <PhoneModal emailId={it.id} onClose={close} />}
