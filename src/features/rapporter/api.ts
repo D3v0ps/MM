@@ -128,6 +128,8 @@ export type ReportDocView =
       customer: boolean;
       /** Klockslaget då veckorapporten senast publiceras ("16:00"). */
       pubTime: string;
+      /** Veckodagen då veckorapporten senast publiceras, veckan efter ("måndag") – sla[veckorapport_publicering].weekday. */
+      pubDay: string;
     })
   | (DocBase & { kind: "customer_summary"; m: SummaryModel; approver: string; resultNote: string });
 
@@ -210,7 +212,8 @@ export type ReportView = {
   /** Underlaget har ändrats efter leveransen. canCorrect = rollen kan rätta. */
   drift: { canCorrect: boolean } | null;
   /** Veckorapport som väntar på närvaroregistrering. */
-  waiting: { regTime: string; pubTime: string; byCoach: { coach: string; items: string[] }[]; canRegister: boolean } | null;
+  /** Veckodagarna (regDay, pubDay: "måndag") och klockslagen kommer från avtalets sla-regler. */
+  waiting: { regDay: string; regTime: string; pubDay: string; pubTime: string; byCoach: { coach: string; items: string[] }[]; canRegister: boolean } | null;
   /** Coachens text till slutrapporten. null = visas inte. */
   finalText: { canEdit: boolean; obstacles: string; recommendation: string } | null;
   /** Beställarrapportens sammanfattning. null = visas inte. */
@@ -234,6 +237,17 @@ export const reportView = query("rapporter.visa", z.object({ reportId: IdSchema 
 export const reportSnapshot = command("rapporter.snapshot", z.object({
   reportIds: z.array(IdSchema).min(1).max(50),
 })).returns<Result<{ reportIds: string[] }>>();
+
+/**
+ * Ladda ner rapporten som PDF (tyst). Servern kontrollerar behörigheten med samma regler som för att visa rapporten
+ * (reportAccess och policyn/RLS) och loggar report.downloaded (rapportens id, typ, version och period – inga namn).
+ * Svaret är filnamnet (utan personuppgifter). Själva PDF:en byggs sedan i webbläsaren av samma dokument som visas
+ * (reportDocument – för levererade rapporter den frysta ögonblicksbilden): components/pdf-button.tsx gör det åt er.
+ * reportId = id:t på dokumentet som visas (kommunen ser den senast levererade versionen).
+ */
+export const reportDownload = command("rapporter.download", z.object({
+  reportId: IdSchema,
+})).returns<Result<{ filename: string }, DeniedReason>>();
 
 /** Samordnarens valfria kvalitetsgranskning (prototypens rap.qualityReview). */
 export const reportQualityReview = command("rapporter.qualityReview", z.object({

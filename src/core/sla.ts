@@ -1,7 +1,7 @@
 // SLA-regler och förfallotider (SPEC §7.13). Tidsgränserna läses från avtalskonfigurationen (config.sla).
 // En regel som är ATT_FASTSTÄLLA aktiveras inte – då används regelns förslag (proposal) och tiden visas som preliminär.
 import type { Case, ReportKind } from "@/data/schema";
-import { isUnset, slaRule, slaWithin, type OperationalConfig, type Within } from "./config";
+import { isUnset, monthlyReportWorkingDay, slaRule, slaWithin, type OperationalConfig, type Within } from "./config";
 import type { DomainEnv } from "./env";
 import { addDays, addMinutes, addMonths, addWorkingDays, diffMinutes, fmtDateTime, nthWorkingDay, relative, type LocalDate, type LocalDateTime, type MonthKey } from "./time";
 
@@ -42,9 +42,9 @@ export function finalReportDueAt(cfg: SlaCfg, endDate: LocalDate): LocalDateTime
   return n == null ? null : addWorkingDays(`${endDate}T23:59`, n);
 }
 
-/** Månadsrapportens förfallotid: n:e arbetsdagen efter månadsskiftet kl. 23.59 (Botkyrka: förslag den 5:e). */
+/** Månadsrapportens förfallotid: n:e arbetsdagen efter månadsskiftet kl. 23.59 – fastställd regel (within.workingDays) eller förslaget (Botkyrka: den 5:e). */
 export function monthlyReportDueAt(cfg: SlaCfg, month: MonthKey): LocalDateTime | null {
-  const n = slaRule(cfg, "manadsrapport")?.proposal?.nthWorkingDay;
+  const n = monthlyReportWorkingDay(cfg);
   return n == null ? null : `${nthWorkingDay(addMonths(month, 1), n)}T23:59`;
 }
 

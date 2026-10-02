@@ -20,6 +20,7 @@ import {
   isOperational,
   isUnset,
   kpiDef,
+  monthlyReportWorkingDay,
   parseContractConfig,
   phaseLabel,
   phaseName,
@@ -73,7 +74,9 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
   const notes = protoContractNotes();
   it("Botkyrka är exakt prototypens CONFIG_BOT, plus avtalstexterna (CONTRACT_NOTES) som flyttats in i konfigurationen", () => {
     // Avvikelser (beslut 2026-09-30, röstinspelning): ai-avsnittet och customerVisibility.seesParticipantVoiceNotes – se nästa test.
-    const { texts, ai, customerVisibility, ...rest } = BOTKYRKA_CONFIG;
+    // Tillägg (beslut 2026-10-01): reportSchedule – se testet för rapportutkasten nedan.
+    const { texts, ai, customerVisibility, reportSchedule, ...rest } = BOTKYRKA_CONFIG;
+    void reportSchedule;
     const { ai: protoAi, customerVisibility: protoVisibility, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
     expect(rest).toStrictEqual(protoRest);
     const { seesParticipantVoiceNotes, ...visibility } = customerVisibility;
@@ -97,10 +100,21 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
   });
   it("Kammarkollegiet är prototypens CONFIG_KK med priserna i öre, plus avtalstexterna", () => {
     const kk = proto.seedConstants.CONFIG_KK;
-    const expected = { ...kk, priceItems: kk.priceItems.map(({ price, ...rest }) => ({ ...rest, priceOre: price * 100 })), texts: notes["c-kk"] };
+    const expected = { ...kk, priceItems: kk.priceItems.map(({ price, ...rest }) => ({ ...rest, priceOre: price * 100 })), texts: notes["c-kk"], reportSchedule: { automatic: [] } };
     expect(KK_CONFIG).toStrictEqual(expected);
     expect(KK_CONFIG.texts?.termination).toBe("Enligt KK-avtalet – kontrolleras före start.");
     expect(KK_CONFIG.priceItems?.map((p) => p.priceOre)).toEqual([412000, 120000, 135000, 408000, 69900]);
+  });
+  it("rapportutkast: Botkyrka skapar vecko-, månads- och beställarrapporter automatiskt med testdatats sista dagar, KK inga", () => {
+    expect(BOTKYRKA_CONFIG.reportSchedule).toStrictEqual({
+      automatic: ["weekly_attendance", "monthly", "customer_summary"], monthly: { minEnrolledDays: 11 }, customerSummaryDue: { nthWorkingDay: 8, time: "16:00" },
+    });
+    // Veckorapporten och månadsrapporten förfaller enligt SLA-reglerna som redan finns.
+    expect(slaRule(BOTKYRKA_CONFIG, "veckorapport_publicering")).toMatchObject({ weekday: 0, time: "16:00" });
+    expect(slaRule(BOTKYRKA_CONFIG, "manadsrapport")?.proposal).toEqual({ nthWorkingDay: 5 });
+    expect(KK_CONFIG.reportSchedule).toStrictEqual({ automatic: [] });
+    // Värdena är förslag (inte ATT_FASTSTÄLLA-texter) – listan över värden som ska bekräftas ändras inte.
+    expect(unsetPaths(KK_CONFIG)).toEqual([]);
   });
   it("interna regler är exakt prototypens S.orgConfig", () => {
     expect(DEFAULT_ORG_SETTINGS).toStrictEqual(protoOrgConfig());
@@ -138,6 +152,21 @@ describe("zod-scheman", () => {
       { ...BOTKYRKA_CONFIG, customerVisibility: { ...BOTKYRKA_CONFIG.customerVisibility, scope: "alla" } },
       { ...BOTKYRKA_CONFIG, texts: { scope: "" } },
       { ...BOTKYRKA_CONFIG, texts: { ...BOTKYRKA_CONFIG.texts, uppsagning: "Tre månader" } },
+      // Rapportutkast: okänd rapporttyp, dubblett, beställarrapport utan sista dag, ogiltigt klockslag.
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["final"] } },
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["monthly", "monthly"] } },
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["customer_summary"] } },
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["customer_summary"], customerSummaryDue: { nthWorkingDay: 8, time: "16.00" } } },
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: [], customerSummaryDue: { nthWorkingDay: 0, time: "16:00" } } },
+      // Månadsrapport utan minsta antal inskrivna dagar, eller med 0 eller decimaler.
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["monthly"] } },
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["monthly"], monthly: { minEnrolledDays: 0 } } },
+      { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["monthly"], monthly: { minEnrolledDays: 10.5 } } },
+      // En rapporttyp som skapas automatiskt utan sista dag i sla (då skulle inga rader skapas utan att någon märker det).
+      { ...KK_CONFIG, reportSchedule: { automatic: ["weekly_attendance", "monthly"], monthly: { minEnrolledDays: 11 } } },
+      { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.map((r) => (r.key === "veckorapport_publicering" ? { key: r.key, weekday: 0 } : r)) },
+      { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.map((r) => (r.key === "manadsrapport" ? { key: "manadsrapport", from: "manadsskifte", within: { days: 5 } } : r)) },
+      { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.filter((r) => r.key !== "manadsrapport") },
     ];
     for (const b of bad) expect(ContractConfigSchema.safeParse(b).success, JSON.stringify(b).slice(0, 80)).toBe(false);
     // ATT_FASTSTÄLLA är tillåtet där värdet inte är fastställt.
@@ -148,6 +177,19 @@ describe("zod-scheman", () => {
     delete noTexts.texts;
     expect(OperationalConfigSchema.safeParse(noTexts).success).toBe(true);
     expect(ContractConfigSchema.safeParse({ ...KK_CONFIG, texts: { termination: "Enligt avtalet." } }).success).toBe(true);
+    // Rapportutkasten är valfria – utan avsnittet skapas inga rapporter automatiskt.
+    const noSchedule: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
+    delete noSchedule.reportSchedule;
+    expect(OperationalConfigSchema.safeParse(noSchedule).success).toBe(true);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["weekly_attendance", "monthly"], monthly: { minEnrolledDays: 1 } } }).success).toBe(true);
+    // KK med bara beställarrapporten behöver ingen sla-regel för vecka eller månad.
+    expect(ContractConfigSchema.safeParse({ ...KK_CONFIG, reportSchedule: { automatic: ["customer_summary"], customerSummaryDue: { nthWorkingDay: 8, time: "16:00" } } }).success).toBe(true);
+    // Månadsregeln i fastställd form (inom 5 arbetsdagar från månadsskiftet) räcker också – sista dagen blir densamma.
+    const fixed = { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.map((r) => (r.key === "manadsrapport" ? { key: "manadsrapport", from: "manadsskifte", within: { workingDays: 5 } } : r)) };
+    expect(ContractConfigSchema.safeParse(fixed).success).toBe(true);
+    expect(monthlyReportWorkingDay(fixed)).toBe(5);
+    expect(monthlyReportWorkingDay(BOTKYRKA_CONFIG)).toBe(5);
+    expect(monthlyReportWorkingDay(KK_CONFIG)).toBeNull();
   });
 
   it("interna regler: eskalering efter påminnelse, e-post utan personuppgifter", () => {

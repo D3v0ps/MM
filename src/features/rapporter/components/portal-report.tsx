@@ -9,12 +9,14 @@
 // Komponenten hämtar rapporten (reportDocument), kvitterar och loggar visningen (reportOpen – en gång per sidvisning;
 // bara mottagaren kvitterar), fryser en levererad rapport som saknar ögonblicksbild och visar dokumentet.
 // Ett utkast till rättelse visas som den senast levererade versionen. Kommunen ser aldrig interna knappar.
+// "Ladda ner PDF" laddar ned den version som visas (components/pdf-button.tsx – behörigheten kontrolleras och loggas på servern).
 import { useEffect } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
-import { Button, Card, DemoNote, Dot, Empty, ErrorNotice, Loading, Notice, PerspectiveLink, Stack, useAuditView } from "@/ui";
+import { Button, Card, Dot, Empty, ErrorNotice, Loading, Notice, PerspectiveLink, Stack, useAuditView } from "@/ui";
 import { reportDocument, reportOpen, type PortalReportInfo, type ReportDocResult } from "../api";
 import { DENIED, dtFull } from "../report-helpers";
 import { useDefaultPersona } from "./parts";
+import { PdfDownloadButton } from "./pdf-button";
 import { ReportDocument } from "./report-document";
 import { useLazySnapshot } from "./use-snapshot";
 
@@ -123,6 +125,10 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
           )}
         </Notice>
       )}
+      <div className="flex flex-wrap items-center gap-3">
+        <PdfDownloadButton doc={res.doc} />
+        <span className="text-small text-text-muted portal:text-portal">Filen innehåller samma rapport som visas nedan.</span>
+      </div>
       <ReportDocument doc={res.doc} />
       <Card title="Har du frågor om rapporten?" icon="message">
         <Stack>
@@ -136,7 +142,6 @@ export function PortalReport({ reportId, from }: { reportId: string; from?: stri
           )}
         </Stack>
       </Card>
-      <DemoNote>Här finns en knapp för att ladda ner rapporten som PDF i den riktiga tjänsten. PDF:en skapas med react-pdf. I prototypen visas bara förhandsvisningen.</DemoNote>
       <div className="flex flex-wrap gap-3">
         <SupplierPerspective reportId={p.requestedId} leadCoachId={p.leadCoachId} />
       </div>

@@ -468,6 +468,9 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
   if (t === "cases") c.caseNumber = `${row.caseNumber}-NY`;
   if (t === "voice_links" && row.tokenHash) c.tokenHash = `${row.tokenHash}-ny`;
   if (t === "contract_areas") c.code = `${row.code}NY`;
+  // Rapportutkastens unika nycklar (0018): samma typ, mottagare/ärende och period får bara finnas en gång.
+  if (t === "reports" && row.week) c.week = "2099-W01";
+  if (t === "reports" && row.month) c.month = "2099-12";
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
     c.userId = data.profiles.map((p) => p.id).find((u) => !taken.has(`${u}|${row.contractId}|${row.role}`));

@@ -235,6 +235,8 @@ export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
 export const ALERT_KINDS = [
   "kpi", "stuck", "absence", "first_meeting", "no_progress_escalated", "no_progress", "report_overdue",
   "unbilled", "pulse_contact", "pulse_low", "protected_order", "ai_draft",
+  // Rapportarbetet steg 1: inskrivet ärende utan handläggare med aktivt konto – ingen veckorapport tar med deltagaren.
+  "no_report_recipient",
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 export const ALERT_SEVERITIES = ["critical", "warning", "info"] as const;

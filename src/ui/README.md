@@ -226,7 +226,8 @@ Piltangenter, Home och End byter flik. `count` 0 eller null visas inte. Flikval 
 - **`toast(text, tone?)`** / **`useToast()`** – `tone`: `"ok"` (blå kant, standard) eller `"error"` (röd kant). Prototypens `MM.toast(x, 'blue')` → `toast(x)`, `'red'` → `toast(x, "error")`.
   Visas 5,2 s, läses upp (`role=status`). Texten får aldrig innehålla personuppgifter som inte redan syns på skärmen.
 - **`useDownload()`** – `await download("fakturaunderlag-2027-01.csv", csv, mime?)`. Riktiga appen: Blob + tillfällig länk (textfiler får BOM för Excel).
-  Prototypen byter implementation med `<DownloadProvider impl={…}>` (artefaktens nedladdning, annars `showText`). Skärmar använder aldrig `<a download>`.
+  Binärt går också: `await download("Manadsrapport_BOT-26-0143_2027-01_v1.pdf", blob, "application/pdf")` (Blob eller Uint8Array, orört).
+  Prototypen byter implementation med `<DownloadProvider impl={…}>` (artefaktens nedladdning – tar binärt direkt – annars `showText` för text). Skärmar använder aldrig `<a download>`.
 - **`useCopy()`** – `await copy(text)` → toast "Kopierat." eller felet.
 - **`useTextDialog()`** / `showText({ title, text, note? })` – text att kopiera i en dialog (`note` visas bara i prototypen).
 

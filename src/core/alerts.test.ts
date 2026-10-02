@@ -81,6 +81,37 @@ describe("flaggor", () => {
   });
 });
 
+describe("flaggan för veckorapporten utan mottagare (rapportutkasten)", () => {
+  const base = testDb({
+    profiles: [...profiles, mkProfile({ id: "k-spärrad", fullName: "Spärrad Handläggare", active: false })],
+    memberships,
+    cases: [
+      mkCase({ id: "n1", caseNumber: "BOT-27-0101", startDate: "2027-01-11", referrerId: null, leadCoachId: "u-amira" }),
+      mkCase({ id: "n2", caseNumber: "BOT-27-0102", startDate: "2027-01-11", referrerId: "k-spärrad", leadCoachId: "u-amira" }),
+      // Inte flaggade: handläggare med aktivt konto, inte startat än, avslutat.
+      mkCase({ id: "n3", caseNumber: "BOT-27-0103", startDate: "2027-01-11", leadCoachId: "u-amira" }),
+      mkCase({ id: "n4", caseNumber: "BOT-27-0104", status: "confirmed", startDate: "2027-02-08", referrerId: null, leadCoachId: "u-amira" }),
+      mkCase({ id: "n5", caseNumber: "BOT-27-0105", status: "closed", startDate: "2026-11-02", endDate: "2027-01-15", referrerId: null, leadCoachId: "u-amira" }),
+    ],
+  });
+  const keys = (role: "samordnare" | "avtalsansvarig" | "coach" | "chef", e = env) => alerts(base, { role, personaId: "u-amira" }, e).filter((a) => a.kind === "no_report_recipient");
+  it("inskrivet ärende utan handläggare eller med spärrat konto flaggas för samordnaren och avtalsansvarig", () => {
+    const xs = keys("samordnare").sort((a, b) => (a.key < b.key ? -1 : 1));
+    expect(xs.map((a) => a.key)).toEqual(["noreportrecipient:n1", "noreportrecipient:n2"]);
+    expect(xs[0]).toMatchObject({
+      severity: "warning", title: "Ingen mottagare för veckorapporten", createdAt: "2027-01-11T08:00", href: "/arenden/n1",
+      text: "BOT-27-0101 har ingen handläggare med aktivt konto i portalen. Deltagarens närvaro kommer därför inte med i någon veckorapport. Kontakta kommunen om hur närvaron ska rapporteras.",
+    });
+    expect(keys("avtalsansvarig")).toHaveLength(2);
+    expect(keys("coach")).toEqual([]);
+    expect(keys("chef")).toEqual([]);
+  });
+  it("bara när avtalet skapar veckorapporter automatiskt", () => {
+    const cfg = { ...env.cfg, reportSchedule: { automatic: ["monthly" as const], monthly: { minEnrolledDays: 11 } } };
+    expect(keys("samordnare", { ...env, cfg })).toEqual([]);
+  });
+});
+
 describe("deadlines", () => {
   it("allt inom sju dagar och det som är försenat, sorterat på förfallotid", () => {
     const d = deadlines(db, {}, env);

@@ -5,6 +5,8 @@ import { defineConfig } from "@playwright/test";
 import fs from "node:fs";
 
 const chromium = fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined;
+// Porten för appens Next-server. Agenter som kör parallellt väljer egen port (MM_E2E_PORT=3200) så att de inte delar server.
+const port = Number(process.env.MM_E2E_PORT) || 3100;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -21,12 +23,12 @@ export default defineConfig({
   projects: [
     { name: "demo", use: { baseURL: "http://proto.test" }, metadata: { kind: "demo" } },
     // En arbetare: varje test börjar med att nollställa serverns testdata (tests/e2e/helpers.ts), så två tester får inte köra samtidigt.
-    { name: "app", use: { baseURL: "http://localhost:3100" }, metadata: { kind: "app" }, workers: 1 },
+    { name: "app", use: { baseURL: `http://localhost:${port}` }, metadata: { kind: "app" }, workers: 1 },
   ],
   // Next-servern behövs bara för projektet "app" (kör t.ex. `npx playwright test --project=demo` utan den).
   webServer: process.argv.some((a) => a === "--project=demo" || a === "demo") ? undefined : {
-    command: "npx next start -p 3100",
-    url: "http://localhost:3100/api/dev-session",
+    command: `npx next start -p ${port}`,
+    url: `http://localhost:${port}/api/dev-session`,
     reuseExistingServer: true,
     timeout: 120_000,
     env: { MM_BACKEND: "memory" },

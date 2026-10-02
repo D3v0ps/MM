@@ -247,7 +247,8 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
   "pulse": { "occasions": ["week2", "exit"], "periodicEveryDays": 30, "languages": ["sv", "en", "ar", "so"], "minNForAggregate": 5 },
   "statistics": { "onRequestMaxPerYear": 2, "free": true },
   "termination": { "returnDataWithinDays": 31, "deleteAfterReturn": true },
-  "retention": "ATT_FASTSTÄLLA enligt PUB-avtalet"
+  "retention": "ATT_FASTSTÄLLA enligt PUB-avtalet",
+  "reportSchedule": { "automatic": ["weekly_attendance", "monthly", "customer_summary"], "monthly": { "minEnrolledDays": 11 }, "customerSummaryDue": { "nthWorkingDay": 8, "time": "16:00" } }
 }
 ```
 
@@ -412,6 +413,10 @@ Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "n
 ### 7.11 Rapporter och intyg
 
 **Gemensamma regler:** byggs bara av godkända uppgifter. Livscykel: utkast → granskad av coach → (valfri kvalitetsgranskning av samordnare) → godkänd → levererad (tid, mottagare, kanal) → kvitterad (när mottagaren öppnat). Rättelse skapar ny version, den gamla sparas. PDF i MB:s grafiska profil. Leverans i portalen; mottagaren får en notis utan personuppgifter. Rapporter skickas bara som bilaga i vanlig e-post om kommunen skriftligt instruerat det (`reportDelivery`).
+
+**PDF** (beslut 2026-10-01): varje rapport med ett dokument (orderbekräftelse, vecko-, månads-, slut- och beställarrapport) kan laddas ned som PDF i MB:s grafiska profil (react-pdf, Montserrat inbäddat). PDF:en byggs av samma vy-modell som rapporten på skärmen – för en levererad rapport av den frysta ögonblicksbilden (`reports.snapshot`), så att en levererad rapport alltid ger samma innehåll. Den byggs när någon laddar ned den och sparas inte (`reports.pdf_path` används inte). Servern kontrollerar behörigheten med samma regler som för att visa rapporten och loggar nedladdningen (`report.downloaded`: id, typ, version, period – inga namn). Filnamnet innehåller bara rapporttyp, ärendenummer eller avtalsnummer, period och version. Rapporter som inte är levererade får vattenstämpeln "Utkast – inte levererad".
+
+**Rapportutkast skapas automatiskt** (beslut 2026-10-01, `contracts.config.reportSchedule`): veckorapport per handläggare och ISO-vecka med minst ett inskrivet ärende (när veckan är slut, väntar på närvaron och publiceras som i dag), månadsrapport per ärende och månad där ärendet varit inskrivet minst `reportSchedule.monthly.minEnrolledDays` kalenderdagar – Botkyrka 11, start- och slutdatum räknas med (när månaden är slut, utkast; se §13 fråga 19) – och beställarrapport per kommunens chef och månad (när månaden är slut, utkast). Mottagarna är handläggare och chefer med aktivt konto. Sista dagarna kommer från konfigurationen (`sla` och `reportSchedule.customerSummaryDue`); zod-schemat stoppar en konfiguration där en rapporttyp skapas automatiskt men sista dagen saknas. Ett bakgrundsjobb högst var tionde minut prövar perioderna från avtalets högvattenmärke (`app_settings`: tiden för den senaste körningen där hela avtalet gicks igenom) och alltid minst de senaste 62 dagarna; utan märke prövas allt från avtalets start, så inget hoppas över efter ett driftstopp. I testmiljön skapas inget för perioder som slutade före testklockans start (testdatat har de raderna). Varje skapad rad loggas (`report.created`). Unika index i databasen hindrar dubbletter. Ett inskrivet ärende utan handläggare med aktivt konto kommer inte med i någon veckorapport – samordnaren och avtalsansvarig får en flagga om det.
 
 **a) Ordererkännande och orderbekräftelse** – §7.1 och §7.4.
 
@@ -713,6 +718,8 @@ Auth och roller, avtalskonfiguration, mejlbeställning och portal, ärendenummer
 | 16 | Vem är systemägare, och vem sköter Terraform-koden för DNS (Google Cloud DNS)? | MB | Öppen – appens e-post använder inte längre miljonbemanning.se (avsändaren är `notis@miljonmatch.se` sedan 2026-10-01, DNS hos one.com), så Resend-posterna i Terraform-zonen behövs inte för appen |
 | 17 | Ska SLA-statistik visas för kommunen? | MB ledning | Öppen |
 | 18 | Val av SMS- och e-postleverantör | MB | Öppen |
+| 19 | Ska månadsrapport lämnas för en månad med färre än 11 inskrivna dagar? | Botkyrka | Öppen – förslag: nej. Gäller tills vidare (`reportSchedule.monthly.minEnrolledDays` = 11, beslut 2026-10-01, samma regel som testdatat). Månadsrapporten täcker i dag bara sin kalendermånad, så dagarna i en kort månad kommer **inte** med i nästa månads rapport. De syns i veckorapporterna och i slutrapporten, som täcker hela perioden. Ska de räknas in i nästa månads rapport krävs en ändring i månadsrapporten |
+| 20 | Vem tar emot veckorapporten för ett ärende där handläggaren saknar konto i portalen (avrop per mejl eller telefon)? Ska beställarrapporten vara en per chef, per enhet eller en för hela avtalet? | Botkyrka | Öppen – i dag får ärendet ingen veckorapport (samordnaren får en flagga), och varje aktiv chef får en egen beställarrapport med samma innehåll (hela avtalet) |
 
 ---
 

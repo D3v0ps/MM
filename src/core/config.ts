@@ -291,6 +291,40 @@ const ContractTextsSchema = z.strictObject({
   termination: z.string().min(1).optional(),
 });
 
+// ---- Rapportutkast som skapas automatiskt (beslut 2026-10-01, rapportarbetet steg 1)
+/** Rapporttyper som kan skapas automatiskt som utkast när perioden är slut (src/core/report-schedule.ts). */
+export const AUTO_REPORT_KINDS = ["weekly_attendance", "monthly", "customer_summary"] as const;
+export type AutoReportKind = (typeof AUTO_REPORT_KINDS)[number];
+const ReportScheduleSchema = z
+  .strictObject({
+    /**
+     * Rapporterna som skapas automatiskt (tom lista = inga):
+     *   weekly_attendance  en per handläggare och ISO-vecka med minst ett inskrivet ärende hos handläggaren, när veckan är
+     *                      slut (status waiting). Sista dag: sla[veckorapport_publicering] (veckodag och klockslag veckan efter).
+     *   monthly            en per ärende och månad där ärendet är inskrivet minst monthly.minEnrolledDays dagar, när månaden
+     *                      är slut (status draft). Sista dag: sla[manadsrapport] (n:e arbetsdagen efter månadsskiftet).
+     *   customer_summary   en per aktiv chef hos kommunen och månad, när månaden är slut (status draft). Sista dag: customerSummaryDue.
+     * Veckorapporten och månadsrapporten kräver att sla-regeln finns (kontrolleras i crossCheck nedan).
+     */
+    automatic: z.array(z.enum(AUTO_REPORT_KINDS)),
+    /**
+     * Månadsrapporten (beslut 2026-10-01): skapas bara för en månad där ärendet varit inskrivet minst så här många
+     * kalenderdagar (startdatum och slutdatum räknas med). Botkyrka: 11 – färre dagar ger ingen rapport för månaden.
+     */
+    monthly: z.strictObject({ minEnrolledDays: PosInt }).optional(),
+    /** Beställarrapportens sista dag: n:e arbetsdagen efter månadsskiftet och klockslaget. Ett förslag – inte fastställt med kommunen. */
+    customerSummaryDue: z.strictObject({ nthWorkingDay: PosInt, time: TimeSchema }).optional(),
+  })
+  .superRefine((s, ctx) => {
+    if (new Set(s.automatic).size !== s.automatic.length) ctx.addIssue({ code: "custom", message: "Rapporttyperna måste vara unika", path: ["automatic"] });
+    if (s.automatic.includes("monthly") && !s.monthly) {
+      ctx.addIssue({ code: "custom", message: "Månadsrapporten behöver ett minsta antal inskrivna dagar (monthly.minEnrolledDays)", path: ["monthly"] });
+    }
+    if (s.automatic.includes("customer_summary") && !s.customerSummaryDue) {
+      ctx.addIssue({ code: "custom", message: "Beställarrapporten behöver en sista dag (customerSummaryDue)", path: ["customerSummaryDue"] });
+    }
+  });
+
 // ---------------------------------------------------------------- Hela konfigurationen
 const ContractConfigBase = z.strictObject({
   casePrefix: z.string().regex(/^[A-Z]{2,5}$/, "Prefix: 2–5 versaler"),
@@ -323,6 +357,8 @@ const ContractConfigBase = z.strictObject({
   meetingMinimums: z.array(MeetingMinimumSchema).optional(),
   exports: z.array(ExportSchema).optional(),
   texts: ContractTextsSchema.optional(),
+  /** Rapportutkast som skapas automatiskt. Utan avsnittet skapas inga rapporter automatiskt. */
+  reportSchedule: ReportScheduleSchema.optional(),
 });
 
 type ConfigShape = z.infer<typeof ContractConfigBase>;
@@ -341,6 +377,16 @@ function crossCheck(cfg: ConfigShape, ctx: z.RefinementCtx) {
   unique(cfg.sla, "sla");
   if (cfg.escalationLadder && new Set(cfg.escalationLadder.map((s) => s.step)).size !== cfg.escalationLadder.length) {
     ctx.addIssue({ code: "custom", message: "Stegen i eskaleringstrappan måste vara unika", path: ["escalationLadder"] });
+  }
+  // Rapportutkasten: varje rapporttyp som skapas automatiskt måste ha en sista dag i sla – annars skulle inga rader skapas
+  // utan att någon märker det (src/core/report-schedule.ts).
+  const auto = cfg.reportSchedule?.automatic ?? [];
+  const slaCfg = { sla: cfg.sla ?? [] };
+  if (auto.includes("weekly_attendance") && !slaRule(slaCfg, "veckorapport_publicering")?.time) {
+    ctx.addIssue({ code: "custom", message: "Veckorapporten behöver en sista dag: sla-regeln veckorapport_publicering med klockslag (time)", path: ["reportSchedule", "automatic"] });
+  }
+  if (auto.includes("monthly") && monthlyReportWorkingDay(slaCfg) == null) {
+    ctx.addIssue({ code: "custom", message: "Månadsrapporten behöver en sista dag: sla-regeln manadsrapport med within.workingDays eller proposal.nthWorkingDay", path: ["reportSchedule", "automatic"] });
   }
 }
 
@@ -378,6 +424,8 @@ export type EscalationStep = OperationalConfig["escalationLadder"][number];
 export type AiConfig = OperationalConfig["ai"];
 export type ConfigPriceItem = NonNullable<ContractConfig["priceItems"]>[number];
 export type MeetingMinimum = NonNullable<ContractConfig["meetingMinimums"]>[number];
+/** Rapportutkast som skapas automatiskt (reportSchedule). */
+export type ReportSchedule = NonNullable<ContractConfig["reportSchedule"]>;
 
 /** Validera rå konfiguration (t.ex. contracts.config från databasen). Kastar ZodError vid fel. */
 export const parseContractConfig = (raw: unknown): ContractConfig => ContractConfigSchema.parse(raw);
@@ -447,6 +495,13 @@ export function slaWithin(cfg: Pick<ContractConfig, "sla">, key: string): Within
   const w = slaRule(cfg, key)?.within;
   return w && !isUnset(w) ? w : null;
 }
+/**
+ * Månadsrapportens sista dag som n:e arbetsdagen efter månadsskiftet: den fastställda regeln (within.workingDays från
+ * månadsskiftet), annars förslaget (proposal.nthWorkingDay – Botkyrka: 5). null om ingen av dem finns.
+ */
+export function monthlyReportWorkingDay(cfg: Pick<ContractConfig, "sla">): number | null {
+  return slaWithin(cfg, "manadsrapport")?.workingDays ?? slaRule(cfg, "manadsrapport")?.proposal?.nthWorkingDay ?? null;
+}
 /** KPI-definition per nyckel (t.ex. "resultatgrad"). */
 export const kpiDef = (cfg: Pick<ContractConfig, "kpis">, key: string): KpiDef | null => cfg.kpis?.find((x) => x.key === key) ?? null;
 /** "Fastnat"-regel för en fas, om det finns någon. */
@@ -497,7 +552,8 @@ const deepFreeze = <T>(o: T): T => {
 };
 
 // ---------------------------------------------------------------- Botkyrka (SPEC §6.2) – exakt prototypens CONFIG_BOT
-// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js, som var hårdkodade per avtal – CLAUDE.md punkt 4).
+// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js, som var hårdkodade per avtal – CLAUDE.md punkt 4) och reportSchedule
+// (rapportutkast som skapas automatiskt, beslut 2026-10-01 – samma regler och sista dagar som testdatats rapporter).
 // Avvikelser från prototypen (beslut 2026-09-30, röstinspelning): ai-avsnittet har fastställd leverantör och inspelningsflödena
 // (recording, maxMinutes, languages, participantLinkValidDays); customerVisibility.seesParticipantVoiceNotes = false.
 export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
@@ -614,6 +670,14 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
       termination: "Uppsägning utan skäl tidigast två år efter start. Tre månaders uppsägningstid.",
       scope: "Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.",
     },
+    // Veckorapport (AFK: närvaro på deltagarnivå varje vecka), månadsrapport (mall 02) och beställarrapport (SPEC §7.11 e).
+    // Månadsrapport bara för en månad med minst 11 inskrivna dagar (beslut 2026-10-01, samma regel som testdatat).
+    // Beställarrapportens sista dag är inte fastställd med Botkyrka – förslaget är 8:e arbetsdagen kl. 16.00 (som testdatat).
+    reportSchedule: {
+      automatic: ["weekly_attendance", "monthly", "customer_summary"],
+      monthly: { minEnrolledDays: 11 },
+      customerSummaryDue: { nthWorkingDay: 8, time: "16:00" },
+    },
   }),
 );
 
@@ -621,6 +685,8 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
 // Avvikelse från prototypen: priserna är i öre (priceOre: 412000) i stället för kronor (price: 4120).
 // Tillägg: texts (prototypens CONTRACT_NOTES i admin.js).
 // AI och röstinspelning är avstängda: avtalet saknar ai-avsnittet (recordingEnabled ger false för alla flöden).
+// Tillägg: reportSchedule utan automatiska rapporter – kommunen ser inga individrapporter och KK:s månadsstatistik är en
+// export (exports), inte en rapport per deltagare.
 export const KK_CONFIG: ContractConfig = deepFreeze(
   ContractConfigSchema.parse({
     casePrefix: "KK",
@@ -651,6 +717,7 @@ export const KK_CONFIG: ContractConfig = deepFreeze(
       termination: "Enligt KK-avtalet – kontrolleras före start.",
       scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör.",
     },
+    reportSchedule: { automatic: [] },
   }),
 );
 

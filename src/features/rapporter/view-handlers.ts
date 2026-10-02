@@ -7,12 +7,12 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { isOperational, type OperationalConfig } from "@/core/config";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
-import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, type LocalDateTime } from "@/core/time";
+import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Case, MonthlyAssessment, Profile, Report } from "@/data/schema";
 import { weeklyComplete } from "../_shared/weekly";
 import {
-  reportCorrectionNote, reportDocument, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
+  reportCorrectionNote, reportDocument, reportDownload, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
   type PortalReportInfo, type ReportDocResult, type ReportDocView, type ReportList, type ReportListRow, type ReportVersion, type ReportView, type ReportViewDenied, type WeeklyDocSection,
 } from "./api";
 import { freezeReport } from "./freeze";
@@ -21,7 +21,7 @@ import {
   driftedSinceDelivery, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel, summaryFromNumbers,
   type ReportModel, type SummaryModel,
 } from "./model";
-import { effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
+import { DENIED, effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportFilename, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
 
 const LIST_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "chef"];
 const MB_VIEW_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"];
@@ -169,8 +169,11 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
         if (a === "none") continue;
         visible.push(a === "restricted" ? { restricted: true, caseId: s.caseId, caseNumber: s.caseNumber } : { ...s, restricted: false, name: v.name(cs) });
       }
-      const pubTime = info.cfg.sla.find((x) => x.key === "veckorapport_publicering")?.time || "16:00";
-      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerRole(ctx.actor.role), pubTime };
+      // Veckodag och klockslag från avtalet (sla[veckorapport_publicering]) – samma regel som rapportens sista dag (dueAt).
+      const pub = info.cfg.sla.find((x) => x.key === "veckorapport_publicering");
+      const pubTime = pub?.time || "16:00";
+      const pubDay = WEEKDAYS[pub?.weekday ?? 0];
+      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerRole(ctx.actor.role), pubTime, pubDay };
     }
   }
 }
@@ -217,6 +220,31 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
     };
   }
   return { ok: true, doc, portal, needsSnapshot: isDelivered(r) && !hasSnapshot(r) && hasDocument(r.kind) };
+});
+
+// ================================================================ Ladda ner PDF (tyst)
+// Samma behörighet som reportDocument för exakt den rapport som laddas ned (ingen omdirigering till en annan version –
+// skärmen skickar id:t på dokumentet den visar). Loggen innehåller bara id, typ, version och period.
+handleCommand(reportDownload, { roles: VIEW_ROLES, silent: true }, async (ctx, p) => {
+  const customer = isCustomerRole(ctx.actor.role);
+  const found = await reportAndCase(ctx, p.reportId);
+  if (!found || !hasDocument(found.r.kind)) return fail("not_found", DENIED.not_found[0]);
+  const { r, c } = found;
+  const info = await contractInfo(ctx, r.contractId);
+  const viewer = await viewerFor(ctx, c ? [c] : []);
+  const acc = reportAccess(r, c, viewer, info.cfg);
+  if (!acc.ok) return fail(acc.reason, DENIED[acc.reason][0]);
+  if (!(await policyAllows(ctx, r.id))) {
+    const reason = customer ? "not_yours" : "not_assigned";
+    return fail(reason, DENIED[reason][0]);
+  }
+  const version = r.version || 1;
+  const filename = reportFilename({ kind: r.kind, version, week: r.week, month: r.month, caseNumber: c?.caseNumber ?? null, contractNumber: info.contract.contractNumber });
+  await ctx.audit({
+    action: "report.downloaded", entity: "report", entityId: r.id, contractId: r.contractId,
+    details: { kind: r.kind, version, ...(r.week ? { week: r.week } : {}), ...(r.month ? { month: r.month } : {}), format: "pdf" },
+  });
+  return ok({ filename });
 });
 
 // ================================================================ Rapportsidan (Miljonbemanning)
@@ -292,8 +320,9 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
         byCoach.set(key, [...(byCoach.get(key) ?? []), text]);
       }
     const t = (key: string, fallback: string) => (info.cfg.sla.find((x) => x.key === key)?.time || fallback).replace(":", ".");
+    const d = (key: string) => WEEKDAYS[info.cfg.sla.find((x) => x.key === key)?.weekday ?? 0];
     waiting = {
-      regTime: t("veckorapport_registrering", "10:00"), pubTime: t("veckorapport_publicering", "16:00"),
+      regDay: d("veckorapport_registrering"), regTime: t("veckorapport_registrering", "10:00"), pubDay: d("veckorapport_publicering"), pubTime: t("veckorapport_publicering", "16:00"),
       byCoach: [...byCoach.entries()].map(([coachId, items]) => ({ coach: `${pname(coachId)}: ${items.length} ${items.length === 1 ? "tillfälle" : "tillfällen"} saknas`, items })),
       canRegister: role === "coach",
     };

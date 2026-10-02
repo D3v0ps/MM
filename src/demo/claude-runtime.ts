@@ -27,7 +27,8 @@ export type ClaudeUser = {
   can(capability: string): Promise<boolean | null>;
   profiles(ids: readonly string[]): Promise<Record<string, { name: string }>>;
 };
-export type ClaudeDownloads = { save(req: { filename: string; data: string | Blob }): Promise<unknown> };
+/** Text eller binärt (Blob, ArrayBuffer, Uint8Array …). MIME-typen tas från filändelsen. */
+export type ClaudeDownloads = { save(req: { filename: string; data: string | Blob | ArrayBuffer | ArrayBufferView }): Promise<unknown> };
 export type ClaudeComments = { openComposer(target: { element: Element }): Promise<{ opened: boolean }> };
 
 type CapabilityMap = { db: ClaudeDb; user: ClaudeUser; downloads: ClaudeDownloads; comments: ClaudeComments };

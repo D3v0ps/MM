@@ -121,6 +121,23 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
     }
   }
 
+  // Inskrivna ärenden utan mottagare för veckorapporten (rapportarbetet steg 1): veckorapporten går till handläggaren som
+  // beställde insatsen och har ett aktivt konto i portalen. Saknas det (avrop per mejl eller telefon från en handläggare utan
+  // konto, eller ett spärrat konto) kommer deltagarens närvaro inte med i någon veckorapport – samordnaren får veta det.
+  if (env.cfg.reportSchedule?.automatic.includes("weekly_attendance")) {
+    const profiles = byId(db.profiles);
+    for (const c of db.cases) {
+      if (!c.startDate || c.startDate > today || !["confirmed", "active", "paused"].includes(c.status)) continue;
+      const referrer = c.referrerId ? profiles.get(c.referrerId) : undefined;
+      if (referrer?.active) continue;
+      add({
+        key: `noreportrecipient:${c.id}`, kind: "no_report_recipient", severity: "warning", title: "Ingen mottagare för veckorapporten",
+        text: `${c.caseNumber} har ingen handläggare med aktivt konto i portalen. Deltagarens närvaro kommer därför inte med i någon veckorapport. Kontakta kommunen om hur närvaron ska rapporteras.`,
+        caseId: c.id, roles: ["samordnare", "avtalsansvarig"], coachId: c.leadCoachId, createdAt: `${c.startDate}T08:00`, link: viewLink("arende.kort", { caseId: c.id }),
+      });
+    }
+  }
+
   // Ingen progression: påminnelse till coachen, eskalering till chef/controller (syns aldrig för coachen)
   const monday8 = `${monday(today)}T08:00`;
   const watchRule = env.org.notifications.progressionWatch;

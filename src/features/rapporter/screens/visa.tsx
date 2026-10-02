@@ -7,15 +7,16 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  AiBox, AiTag, Badge, BuildPhase, Button, Card, DemoNote, Dot, Empty, ErrorNotice, Field, Grid, Kv, List, ListItem, Loading, Modal, Notice, Page, Row, SlaBadge, Split, Stack,
+  AiBox, AiTag, Badge, BuildPhase, Button, Card, Dot, Empty, ErrorNotice, Field, Grid, Kv, List, ListItem, Loading, Modal, Notice, Page, Row, SlaBadge, Split, Stack,
   Stepper, TextArea, useAuditView, useConfirm, useToast, type Crumb,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import {
   reportApprove, reportCorrect, reportCorrectionNote, reportDeliver, reportDocument, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
-  type ReportDocResult, type ReportView,
+  type ReportDocResult, type ReportDocView, type ReportView,
 } from "../api";
 import { useLazySnapshot } from "../components/use-snapshot";
+import { PdfDownloadButton } from "../components/pdf-button";
 import { ReportDocument } from "../components/report-document";
 import { CustomerPerspective, MailNote, ProvisionalBadge, ReportStatusBadge } from "../components/parts";
 import { DENIED, effStatus, LIFECYCLE } from "../report-helpers";
@@ -113,7 +114,7 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
 
   return (
     <Page title={v.title} eyebrow={v.eyebrow} crumbs={crumbs} actions={persp} lead={v.lead}>
-      <StatusCard v={v} onDeliver={() => void onDeliver()} onCorrect={() => setCorrecting(true)} />
+      <StatusCard v={v} doc={doc.data && doc.data.ok ? doc.data.doc : null} onDeliver={() => void onDeliver()} onCorrect={() => setCorrecting(true)} />
       {v.drift && (
         <Notice tone="warn" title="Underlaget har ändrats efter leveransen">
           Uppgifter som rapporten bygger på har ändrats sedan rapporten levererades{v.deliveredAt ? ` ${fmtDateTime(v.deliveredAt)}` : ""}. Kommunen ser fortfarande den levererade versionen – den
@@ -150,17 +151,13 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
         <DeliveryCard v={v} />
         <VersionsCard v={v} />
       </Grid>
-      <DemoNote>
-        PDF-nedladdning finns inte i prototypen. I den riktiga tjänsten skapas PDF:en med react-pdf (@react-pdf/renderer) i Miljonbemannings grafiska profil och sparas i portalen när rapporten
-        levereras. Varje visning av rapporten loggas i revisionsloggen.
-      </DemoNote>
       {correcting && <CorrectModal v={v} onClose={() => setCorrecting(false)} onCreated={(id) => nav.push(`/rapporter/${encodeURIComponent(id)}`)} />}
     </Page>
   );
 }
 
 // ---------------------------------------------------------------- Status och nästa steg
-function StatusCard({ v, onDeliver, onCorrect }: { v: ReportView; onDeliver: () => void; onCorrect: () => void }) {
+function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: ReportDocView | null; onDeliver: () => void; onCorrect: () => void }) {
   const toast = useToast();
   const approve = useCommand(reportApprove);
   const quality = useCommand(reportQualityReview);
@@ -184,6 +181,8 @@ function StatusCard({ v, onDeliver, onCorrect }: { v: ReportView; onDeliver: () 
       ]
     : null;
   const any = a.approve || a.deliver || a.correct || a.quality;
+  // PDF:en av det dokument som visas – alla som får läsa rapporten kan ladda ner den (nedladdningen loggas).
+  const pdf = <PdfDownloadButton doc={doc} kind={any ? "ghost" : "secondary"} />;
   return (
     <Card title="Status och nästa steg" icon="activity" tone={v.overdue ? "red" : undefined}>
       <Stack>
@@ -281,12 +280,13 @@ function StatusCard({ v, onDeliver, onCorrect }: { v: ReportView; onDeliver: () 
                 Rätta
               </Button>
             )}
-            <Button kind="ghost" icon="download" disabled title="PDF skapas med react-pdf i den riktiga tjänsten">
-              Ladda ner PDF
-            </Button>
+            {pdf}
           </Row>
         ) : (
-          v.idleText && <p className="text-small text-text-muted">{v.idleText}</p>
+          <>
+            {v.idleText && <p className="text-small text-text-muted">{v.idleText}</p>}
+            <Row>{pdf}</Row>
+          </>
         )}
       </Stack>
     </Card>
@@ -299,8 +299,8 @@ function WaitingCard({ w }: { w: NonNullable<ReportView["waiting"]> }) {
     <Card title="Väntar på närvaroregistrering" icon="clock" tone="red">
       <Stack>
         <p>
-          Rapporten publiceras automatiskt när alla deltagare är registrerade. Närvaron ska vara registrerad senast måndag kl. {w.regTime}. Rapporten ska vara publicerad senast måndag kl.{" "}
-          {w.pubTime}.
+          Rapporten publiceras automatiskt när alla deltagare är registrerade. Närvaron ska vara registrerad senast {w.regDay} kl. {w.regTime}. Rapporten ska vara publicerad
+          senast {w.pubDay} kl. {w.pubTime}.
         </p>
         {w.byCoach.length === 0 ? (
           <p>Alla tillfällen är registrerade.</p>

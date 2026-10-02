@@ -15,7 +15,7 @@ import { useQuery } from "@/shell/backend";
 import { Empty, ErrorNotice, Kv, Loading, Meter, Paper, PaperFixedText, Status, XBox } from "@/ui";
 import { reportDocument, type ReportDocView } from "../api";
 import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
-import { dayMonth, DENIED, dFull, dtFull, isDraftDoc, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
+import { dayMonth, DENIED, dFull, dtFull, isDraftDoc, NO_PNR, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
 
 // ---------------------------------------------------------------- Byggstenar
 function Sec({ n, title, children }: { n?: string; title: ReactNode; children?: ReactNode }) {
@@ -224,7 +224,6 @@ const assessmentKv = (a: { overallStatus: Parameters<typeof Status>[0]["value"];
   ["Ansvarig coach", a.coach],
   ["Datum", a.date],
 ];
-const NO_PNR = "Personnummer skrivs inte ut. Ärendenumret identifierar deltagaren.";
 
 // ---------------------------------------------------------------- Månadsrapport individ (mall 02, avsnitt 1–8)
 function MonthlyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "monthly" }> }) {
@@ -499,7 +498,7 @@ function WeeklyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "weekly_attend
         )}
       </Sec>
       <PaperFixedText>
-        Veckorapporten skapas automatiskt från coachernas närvaroregistrering. Den publiceras när alla deltagare är registrerade, senast måndag klockan{" "}
+        Veckorapporten skapas automatiskt från coachernas närvaroregistrering. Den publiceras när alla deltagare är registrerade, senast {doc.pubDay} klockan{" "}
         {doc.pubTime.replace(":", ".")} för föregående vecka.
       </PaperFixedText>
     </Paper>
