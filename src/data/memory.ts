@@ -2,7 +2,7 @@
 // Behörigheten speglar Row Level Security: varje läsning filtreras genom policyn för tabellen,
 // så att prototypen visar exakt det rollen skulle få se i den riktiga databasen.
 import type { Actor } from "@/api/roles";
-import { applyOpts, matches, PolicyError, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
+import { applyOpts, matches, pickFields, pickRow, PolicyError, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
@@ -98,6 +98,11 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         return r && canRead(r) ? clone(r) : null;
       },
       list: async (where, o?: ListOpts<TT[N]>) => applyOpts(visible(where), o).map(clone),
+      // Samma fält som SupabaseRepo läser – så att en hanterare som använder ett fält den inte bett om upptäcks i minnesläget.
+      pick: async <K extends keyof TT[N] & string>(fields: readonly K[], where?: Where<TT[N]>, o?: ListOpts<TT[N]>) => {
+        const cols = pickFields(fields, o);
+        return applyOpts(visible(where), o).map((r) => clone(pickRow(r, cols)) as Pick<TT[N], K | "id">);
+      },
       first: async (where, o) => clone(applyOpts(visible(where), { ...o, limit: 1 })[0] ?? null),
       count: async (where) => visible(where).length,
       insert: async (row) => {

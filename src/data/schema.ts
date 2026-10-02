@@ -818,8 +818,11 @@ export type Placement = {
 
 // ================================================================ Rapporter
 export type FinalReportText = { obstacles: string; recommendation: string };
-/** Frusen kopia av en levererad rapport (vy-modellen som JSON). */
-export type ReportSnapshot = { reportId: string; takenAt: LocalDateTime; deliveredAt: LocalDateTime | null; model: unknown };
+/**
+ * Frusen kopia av en levererad rapport (vy-modellen som JSON). facts = rapportens fakta för kommunens resultatfil (bara koder,
+ * tal, sanningsvärden och datum – src/features/rapporter/facts.ts), frysta i samma pass som modellen. jsonb – ingen migration.
+ */
+export type ReportSnapshot = { reportId: string; takenAt: LocalDateTime; deliveredAt: LocalDateTime | null; model: unknown; facts?: unknown };
 
 export type Report = {
   id: string;

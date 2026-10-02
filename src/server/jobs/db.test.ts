@@ -29,6 +29,7 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
   return {
     get,
     list: unsupported,
+    pick: unsupported,
     first: unsupported,
     count: unsupported,
     async insert(row: T) {

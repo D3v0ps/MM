@@ -5,13 +5,14 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import { DemoOnly } from "@/shell/runtime";
 import { dayOf, fmtDate, fmtDateTime, fmtDateTimeLong } from "@/core/time";
+import { RESULT_CLASS_LABEL } from "@/core/labels";
 import {
   Badge, BuildPhase, Button, Card, Check, DateInput, DateTimeInput, DemoNote, Empty, Field, FormGrid, Icon, Kv, List, ListItem, Modal, Notice, Select, SlaBadge, Split, Stack,
   TextArea, cn, toast, useConfirm, type IconName,
 } from "@/ui";
 import { deviationCallCustomer, deviationSave } from "@/features/coach/api";
 import { caseDeviations, caseEvents, casePlacements, type CaseDeviationRow, type CaseDeviations } from "../api";
-import { canOpen, caseLink, clip, fd, FOUR, Label, MiniList, PLACEMENT, PNR_ERROR, PNR_RE, RESULT, TabQuery, withDot } from "./common";
+import { canOpen, caseLink, clip, fd, FOUR, Label, MiniList, PLACEMENT, PNR_ERROR, PNR_RE, TabQuery, withDot } from "./common";
 import { CustSwitch, type TabProps } from "./kort";
 
 // ---------------------------------------------------------------- Händelser och utfall
@@ -51,11 +52,11 @@ export function TabHandelser({ card }: TabProps) {
                           "Resultatklass",
                           <span key="rc" className="flex flex-wrap items-center gap-1.5">
                             {e.result.resultClass === "result" ? (
-                              <Badge tone="blue" icon="award">{RESULT.result}</Badge>
+                              <Badge tone="blue" icon="award">{RESULT_CLASS_LABEL.result}</Badge>
                             ) : e.result.resultClass === "excluded" ? (
-                              <Badge tone="grey" icon="minus-circle">{RESULT.excluded}</Badge>
+                              <Badge tone="grey" icon="minus-circle">{RESULT_CLASS_LABEL.excluded}</Badge>
                             ) : (
-                              <Badge tone="outline" icon="circle">{e.result.resultClass ? RESULT[e.result.resultClass] : "Ej klassad"}</Badge>
+                              <Badge tone="outline" icon="circle">{e.result.resultClass ? RESULT_CLASS_LABEL[e.result.resultClass] : "Ej klassad"}</Badge>
                             )}
                             {prelim && <Badge tone="red" icon="alert-circle">Preliminärt</Badge>}
                           </span>,

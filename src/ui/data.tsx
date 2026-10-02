@@ -165,9 +165,9 @@ export function Timeline({ items, as = "div", ariaLabel }: { items: TimelineItem
 }
 
 /** Stegvisare: klara steg (blå med bock), aktuellt steg (antracit) och kommande. current = index (0-baserat). */
-export function Stepper({ steps, current }: { steps: readonly ReactNode[]; current: number }) {
+export function Stepper({ steps, current, ariaLabel }: { steps: readonly ReactNode[]; current: number; ariaLabel?: string }) {
   return (
-    <ol className="m-0 flex list-none flex-wrap gap-2 p-0">
+    <ol aria-label={ariaLabel} className="m-0 flex list-none flex-wrap gap-2 p-0">
       {steps.map((s, i) => {
         const done = i < current;
         const now = i === current;

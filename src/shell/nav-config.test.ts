@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activePath, navFor, PORTAL_NAV } from "./nav-config";
+import { activePath, navFor, PORTAL_NAV, portalNavFor } from "./nav-config";
 
 const labels = (role: Parameters<typeof navFor>[0], now: string | null = "2027-02-01T09:12") =>
   navFor(role, { now }).map((g) => [g.label, g.items.map((i) => `${i.label} ${i.to}${i.count ? ` #${i.count}` : ""}`)]);
@@ -49,7 +49,17 @@ describe("navFor – samma meny som prototypens NAV", () => {
 describe("portalens meny (KOM_NAV)", () => {
   it("handläggare och chef", () => {
     expect(PORTAL_NAV.kommun_handlaggare.map((i) => i.label)).toEqual(["Start", "Beställ ny insats", "Mina deltagare", "Rapporter och meddelanden"]);
-    expect(PORTAL_NAV.kommun_chef.map((i) => `${i.label} ${i.to}`)).toEqual(["Beställarrapport /portal/bestallarrapport", "Enhetens deltagare /portal/deltagare", "Rapporter /portal/rapporter"]);
+    expect(PORTAL_NAV.kommun_chef.map((i) => `${i.label} ${i.to}`)).toEqual([
+      "Beställarrapport /portal/bestallarrapport", "Enhetens deltagare /portal/deltagare", "Rapporter /portal/rapporter", "Hämta resultat /portal/resultat",
+    ]);
+  });
+  it("Hämta resultat visas bara när avtalet har resultatfilen (navCounts.resultFile)", () => {
+    const chef = (counts: { resultFile?: boolean } | null) => portalNavFor("kommun_chef", counts).map((i) => i.label);
+    expect(chef({ resultFile: true })).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter", "Hämta resultat"]);
+    expect(chef({ resultFile: false })).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
+    expect(chef(null)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
+    // Handläggaren har aldrig menyvalet
+    expect(portalNavFor("kommun_handlaggare", { resultFile: true }).map((i) => i.to)).not.toContain("/portal/resultat");
   });
 });
 

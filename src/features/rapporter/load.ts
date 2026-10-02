@@ -106,14 +106,14 @@ export type ReportAccess =
   | { ok: false; reason: "role" | "handledare" | "handledare_order" | "missing" | "not_assigned" | "protected" | "not_yours" | "not_delivered" | "protected_customer" };
 
 /** Mottagaren: rapportens mottagare, annars beställaren, annars den första den levererades till. */
-export const recipientOf = (r: Report, c: Case | null): string | null => r.recipientUserId || c?.referrerId || r.deliveredTo[0] || null;
+export const recipientOf = (r: Pick<Report, "recipientUserId" | "deliveredTo">, c: Case | null): string | null => r.recipientUserId || c?.referrerId || r.deliveredTo[0] || null;
 
 /**
  * Samma regler som prototypens reportAccess och policyn för rapporter (src/data/policy.ts):
  * kommunen ser bara levererade rapporter till sig (kommunens chef även enhetens individrapporter om avtalet säger det),
  * handledaren bara veckorapporten, beställarrapporten bara avtalsansvarig, samordnare och chef.
  */
-export function reportAccess(r: Report, c: Case | null, viewer: Viewer, cfg: OperationalConfig): ReportAccess {
+export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" | "recipientUserId">, c: Case | null, viewer: Viewer, cfg: OperationalConfig): ReportAccess {
   const { role, userId } = viewer.actor;
   if (isCustomerRole(role)) {
     const recipient = r.deliveredTo.includes(userId);
@@ -222,6 +222,17 @@ export async function loadReportDb(ctx: Ctx, r: Report, info: ContractInfo): Pro
     default:
       return base;
   }
+}
+
+/**
+ * Underlaget för månads- och slutrapporterna i flera ärenden på en gång (frysningen när kommunens resultatfil byggs).
+ * ctx.system: se överst i filen – anropas bara för rapporter som läsaren redan får se (kontrollerat via ctx.repo).
+ */
+export async function loadCasesReportDb(ctx: Ctx, contractId: string, caseIds: readonly string[]): Promise<ReportDb> {
+  const s = ctx.system;
+  const ids = [...new Set(caseIds)];
+  const [contract_areas, profiles] = await Promise.all([s.table("contract_areas").list({ contractId }), s.table("profiles").list()]);
+  return { ...EMPTY, contract_areas, profiles, ...(ids.length ? await caseData(ctx, ids) : {}) };
 }
 
 /** Rapportens versionskedja (äldst först). ctx.system: bara id, version och status (kommunen ser inte utkasten). */

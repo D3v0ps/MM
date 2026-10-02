@@ -28,5 +28,5 @@ export const artifactDownload: DownloadImpl = async ({ filename, content, mime =
   }
   if (typeof content !== "string") return blobDownload({ filename, content, mime });
   showText({ title: `Innehåll i ${filename}`, text: content, note: "Filen kunde inte sparas direkt här. Kopiera innehållet i stället." });
-  return false;
+  return "shown";
 };

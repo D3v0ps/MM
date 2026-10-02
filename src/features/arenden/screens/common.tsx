@@ -22,7 +22,6 @@ export const plural = (n: number, one: string, many: string) => `${n} ${n === 1 
 
 export const GOAL: Record<string, string> = { yes: "Ja", partly: "Delvis", no: "Nej" };
 export const MODE: Record<string, string> = { fysiskt: "Fysiskt möte", telefon: "Telefon", video: "Video" };
-export const RESULT = { result: "Resultat", no_result: "Ej resultat", excluded: "Räknas inte i nämnaren" } as const;
 export const PLACEMENT: Record<string, string> = { ongoing: "Pågår", completed: "Avslutad", planned: "Planerad" };
 const KIND: Record<string, [IconName, string]> = {
   möte: ["users", "Coachmöte"], yrkesmoment: ["tool", "Yrkesmoment"], praktikdag: ["briefcase", "Praktikdag"], arbetsgivarbesök: ["building", "Arbetsgivarbesök"], annat: ["circle", "Annat"],

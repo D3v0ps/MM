@@ -186,12 +186,19 @@ export const eventAdd = command("coach.eventAdd", z.object({
   note: z.string().max(4000).optional(),
 })).returns<Result<{ eventId: string }, "not_found" | "forbidden">>();
 
-/** Verifiera resultatet (arbete/studier) med underlag (prototypens result.verify). */
+/**
+ * Verifiera resultatet (arbete/studier) med underlag (prototypens result.verify). finalDelivered = ärendets slutrapport är
+ * redan levererad och inte ersatt (finalReportId). Kommunens resultatfil visar verifieringen som den stod i den levererade
+ * slutrapporten (rapporter steg 3, beslut sätt a) – skärmen ska då säga FINAL_DELIVERED_VERIFY_TEXT.
+ */
 export const resultVerify = command("coach.resultVerify", z.object({
   caseId: IdSchema,
   verificationKind: ShortText,
   file: ShortText.nullable().optional(),
-})).returns<Result<object, "not_found" | "forbidden">>();
+})).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
+/** Visas när verifieringen registreras efter att slutrapporten levererats (se resultVerify). */
+export const FINAL_DELIVERED_VERIFY_TEXT =
+  "Slutrapporten är redan levererad till kommunen. Rätta slutrapporten så att verifieringen kommer med i rapporten och i kommunens resultatfil.";
 
 /**
  * AI-körning (prototypens ai.run) – SIMULERAD tills AI-adaptern är godkänd. Spärras utan samtycke och vid skyddade

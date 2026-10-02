@@ -24,6 +24,11 @@ export type ListOpts<T> = { orderBy?: keyof T & string; desc?: boolean; limit?: 
 export interface Table<T extends Row> {
   get(id: string): Promise<T | null>;
   list(where?: Where<T>, opts?: ListOpts<T>): Promise<T[]>;
+  /**
+   * Som list, men bara de angivna fälten (och id). För listor som inte behöver hela raden – t.ex. rapporter utan
+   * ögonblicksbildens jsonb. Fältet i orderBy läses också (det behövs för sorteringen).
+   */
+  pick<K extends keyof T & string>(fields: readonly K[], where?: Where<T>, opts?: ListOpts<T>): Promise<Pick<T, K | "id">[]>;
   first(where?: Where<T>, opts?: ListOpts<T>): Promise<T | null>;
   count(where?: Where<T>): Promise<number>;
   insert(row: T): Promise<T>;
@@ -58,6 +63,18 @@ export function matches<T extends object>(row: T, where?: Where<T>): boolean {
     if (v !== cond) return false;
   }
   return true;
+}
+
+/** Fälten som pick() läser: id, de angivna och fältet i orderBy (utan dubbletter). */
+export function pickFields<T>(fields: readonly string[], opts?: ListOpts<T>): string[] {
+  return [...new Set(["id", ...fields, ...(opts?.orderBy ? [opts.orderBy] : [])])];
+}
+
+/** Raden med bara de angivna fälten. */
+export function pickRow<T extends object>(row: T, fields: readonly string[]): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const f of fields) if (f in row) out[f] = (row as Record<string, unknown>)[f];
+  return out as Partial<T>;
 }
 
 export function applyOpts<T>(rows: T[], opts?: ListOpts<T>): T[] {

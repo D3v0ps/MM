@@ -110,7 +110,7 @@ export function komMessage(k: KomContext, m: Message): KomMessage {
 
 // ---------------------------------------------------------------- Rapporter
 /** Levererad och inte ersatt (prototypens deliveredOk). */
-export const deliveredOk = (r: Report): boolean => !!r.deliveredAt && (r.status === "delivered" || r.status === "opened") && !r.superseded;
+export const deliveredOk = (r: Pick<Report, "deliveredAt" | "status" | "superseded">): boolean => !!r.deliveredAt && (r.status === "delivered" || r.status === "opened") && !r.superseded;
 
 /** Rapporten som rad i portalen. sub: veckorapport = veckan, beställarrapport = avtalet, övriga = ärendenummer och namn. */
 export async function reportRow(ctx: Ctx, r: Report, k: KomContext, caseOf: (id: string | null) => { caseNumber: string; name: string } | null): Promise<KomReportRow> {

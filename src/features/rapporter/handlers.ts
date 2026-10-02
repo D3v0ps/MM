@@ -7,6 +7,7 @@ import type { Case, Report, WeekKey } from "@/data/schema";
 import { userEmail } from "../_shared/context";
 import { weeklyComplete } from "../_shared/weekly";
 import { reportApprove, reportCorrect, reportDeliver, reportOpen } from "./api";
+import { freezeReport } from "./freeze";
 // Frågorna och områdets egna kommandon (prototypens rapporter.lista, rapport.visa och rap.*).
 import "./view-handlers";
 
@@ -71,11 +72,27 @@ handleCommand(reportDeliver, { roles: REPORT_ROLES }, async (ctx, p) => {
     patch.approvedBy = ctx.actor.userId;
   }
   await ctx.repo.table("reports").update(r.id, patch);
-  if (r.previousId) {
-    const prev = await ctx.repo.table("reports").get(r.previousId);
-    if (prev) await ctx.repo.table("reports").update(prev.id, { superseded: true, supersededAt: now, supersededBy: r.id });
+  // Alla tidigare versioner i kedjan som inte redan är ersatta ersätts av den här. Inte bara den närmast föregående: en
+  // rättelse av en rättelse som aldrig levererades (v1 levererad → v2 godkänd → v3) lämnar annars version 1 levererad.
+  const seen = new Set<string>([r.id]);
+  for (let prevId = r.previousId; prevId && !seen.has(prevId); ) {
+    seen.add(prevId);
+    const prev = await ctx.repo.table("reports").get(prevId);
+    if (!prev) break;
+    if (!prev.superseded) await ctx.repo.table("reports").update(prev.id, { superseded: true, supersededAt: now, supersededBy: r.id });
+    prevId = prev.previousId;
   }
+  // Loggen skrivs innan rapporten fryses: leveransen är gjord, och en frysning som misslyckas får inte lämna den ologgad.
   await ctx.audit({ action: "report.delivered", entity: "report", entityId: r.id, contractId: r.contractId, details: { kind: r.kind, channel: "portal", version: r.version } });
+  // Frys innehållet direkt vid leveransen (modellen och, för månads- och slutrapporter, fakta för kommunens resultatfil).
+  // Systemsteg (freeze.ts): samma innehåll som kommunen ser, oavsett när någon öppnar rapporten. Misslyckas frysningen
+  // (tillfälligt fel) fryses rapporten i stället när den öppnas första gången eller vid kommunens export – med samma
+  // underlag (det som fanns vid leveransen).
+  try {
+    await freezeReport(ctx, r.id);
+  } catch (e) {
+    console.error("rapport: frysningen vid leveransen misslyckades", r.id, e instanceof Error ? e.name : typeof e);
+  }
   // Mejlet innehåller bara en notis – aldrig rapporten eller personuppgifter (CLAUDE.md punkt 9).
   await ctx.notify({
     channel: "email", to: (await userEmail(ctx, to)) || c?.referrerEmail || "", template: "ny_rapport",

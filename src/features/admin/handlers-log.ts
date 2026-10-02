@@ -2,13 +2,13 @@
 // Källa: prototyp/src/views/admin.js (admin.logg, admin.logCheck). Loggen är append-only och innehåller id:n – aldrig namn
 // eller personnummer på deltagare. Deltagare visas bara som ärendenummer; användare (personal och kommun) med namn.
 import { fail, ok } from "@/api/contract";
-import { handleCommand, handleQuery } from "@/api/server";
+import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { addMonths, dayOf, fmtWeekKey, monthKey, monthName } from "@/core/time";
 import { reportKindLabel } from "@/core/labels";
 import { uniq } from "@/core/util";
 import type { AuditLogEntry } from "@/data/schema";
-import { actionLabel, detailText, entityLabel, ENTITY_LABEL, JOB_NAME, VIEW_ACTIONS, type AuditLookups } from "./audit-text";
-import { adminAuditLog, adminLogCheck, type AuditRow, type LogCheckSampleItem } from "./api";
+import { actionLabel, detailFullText, detailText, entityLabel, ENTITY_LABEL, hasFullDetail, JOB_NAME, VIEW_ACTIONS, type AuditLookups } from "./audit-text";
+import { adminAuditDetail, adminAuditLog, adminLogCheck, type AuditRow, type LogCheckSampleItem } from "./api";
 import { cap, isDemoCreated, isParticipantActor, mainContract, userNames } from "./shared";
 import { templateLabel } from "./templates";
 
@@ -28,6 +28,22 @@ export function pickSample(log: readonly AuditLogEntry[], month: string): AuditL
   const rest = inMonth.filter((a) => !views.includes(a));
   const step = Math.max(1, Math.floor(rest.length / 5));
   return [...views, ...rest.filter((_, i) => i % step === 0)].slice(0, 5);
+}
+
+/** Uppslagen för loggens texter: användarnas namn, ärendenummer, nyckeltal och mallar. */
+async function auditLookups(ctx: Ctx, cases: readonly { id: string; caseNumber: string }[]): Promise<AuditLookups> {
+  const main = await mainContract(ctx);
+  const name = await userNames(ctx);
+  // ctx.system: finns id:t som användare? Bara namnet på användare visas (prototypens MM.personById).
+  const profileIds = new Set((await ctx.system.table("profiles").list()).map((p) => p.id));
+  const caseNo = new Map(cases.map((c) => [c.id, c.caseNumber]));
+  const kpis = main.config.kpis ?? [];
+  return {
+    userName: (id) => (profileIds.has(id) ? name(id) : null),
+    caseNumber: (id) => caseNo.get(id) ?? null,
+    kpiLabel: (key) => kpis.find((k) => k.key === key)?.label ?? null,
+    templateLabel,
+  };
 }
 
 const caseIdOf = (a: AuditLogEntry): string | null =>
@@ -85,7 +101,8 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     return {
       id: a.id, at: a.occurredAt, actorKey: isParticipantActor(a.actorId) ? NULL_ACTOR : String(a.actorId), actorName: actorName(a.actorId),
       action: a.action, actionLabel: actionLabel(a.action), entity: ENTITY_LABEL[a.entity] ?? a.entity, entityLabel: entityLabel(a.entity), entityId: a.entityId,
-      caseId: number ? cid : null, caseNumber: number, entityText: entityText(a), detailText: detailText(a, lookups), byTester: isDemoCreated(a.id),
+      caseId: number ? cid : null, caseNumber: number, entityText: entityText(a), detailText: detailText(a, lookups), hasFull: hasFullDetail(a),
+      byTester: isDemoCreated(a.id),
     };
   });
   const actors = uniq(rows.map((r) => r.actorKey)).map((k) => ({ value: k, label: k === NULL_ACTOR ? PARTICIPANT : name(k) })).sort((a, b) => a.label.localeCompare(b.label, "sv"));
@@ -117,6 +134,16 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
       sample,
     },
   };
+});
+
+/** Hela detaljtexten för en loggrad – bara när den visas (långa listor skickas inte med i loggen). */
+handleQuery(adminAuditDetail, { roles: ["admin", "chef"] }, async (ctx, p) => {
+  const a = await ctx.repo.table("audit_log").get(p.id);
+  if (!a || !hasFullDetail(a)) return { text: null };
+  // Bara ärendena som raden pekar på behövs för texten.
+  const ids = Object.values(a.details ?? {}).flatMap((v) => (Array.isArray(v) ? v : [v])).filter((v): v is string => typeof v === "string");
+  const cases = ids.length ? await ctx.repo.table("cases").list({ id: { in: [...new Set(ids)] } }) : [];
+  return { text: detailFullText(a, await auditLookups(ctx, cases)) };
 });
 
 /** Månatlig loggkontroll (stickprov) av chef/controller, SPEC §10. */

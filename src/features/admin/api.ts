@@ -10,6 +10,7 @@
 //   admin.integrations   -> IntegrationsView underbiträden, integrationer och bakgrundsjobb (admin)
 //   admin.templates      -> TemplatesView    mallar med versioner och utskicksloggen (admin, samordnare)
 //   admin.auditLog       -> AuditLogView     revisionsloggen i klarspråk och månadens loggkontroll (admin, chef)
+//   admin.auditDetail    -> AuditDetail      hela detaljtexten för en loggrad (långa listor), hämtas när den visas
 // Kommandon (prototypens admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob, admin.logCheck):
 //   admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob, admin.logCheck
 import { z } from "zod";
@@ -250,6 +251,11 @@ export type AuditRow = {
   caseNumber: string;
   entityText: string;
   detailText: string;
+  /**
+   * Tabellen visar långa listor som antal (t.ex. kolumner och rapporter i en export). Hela texten hämtas med
+   * admin.auditDetail när den visas – den skickas inte med i loggen (svaret får inte växa med varje export).
+   */
+  hasFull: boolean;
   byTester: boolean;
 };
 export type LogCheckSampleItem = { id: string; actionLabel: string; at: string; actorName: string; entityLabel: string; caseNumber: string };
@@ -274,6 +280,9 @@ export type AuditLogView = {
   logCheck: LogCheckView;
 };
 export const adminAuditLog = query("admin.auditLog", z.object({})).returns<AuditLogView>();
+/** Hela detaljtexten för en loggrad (null = raden finns inte eller har inga långa listor). */
+export type AuditDetail = { text: string | null };
+export const adminAuditDetail = query("admin.auditDetail", z.object({ id: IdSchema })).returns<AuditDetail>();
 export const adminLogCheck = command("admin.logCheck", z.object({
   month: MonthKeySchema,
   items: z.array(z.object({ logId: IdSchema, verdict: z.string().max(20) })).max(50),

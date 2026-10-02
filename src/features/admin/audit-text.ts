@@ -34,6 +34,8 @@ export const ACTION_LABEL: Record<string, string> = {
   // Fria anteckningar i deltagarkortet (rapporter steg 2) – finns inte i prototypen. Loggen har bara id:n, aldrig texten.
   "case_note.created": "Skrev anteckning", "case_note.updated": "Ändrade anteckning", "case_note.removed": "Tog bort anteckning",
   "case_note.used_in_summary": "Använde anteckning i sammanfattningen",
+  // Kommunens resultatfil (rapporter steg 3). Loggen har id:n, period, antal och kolumnnamn – aldrig namn eller ärendenummer.
+  "export.results": "Exporterade resultat", "export.results_blocked": "Stoppade resultatfilen", "report.facts_drift": "Rapportens fakta kunde inte föras tillbaka helt",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -58,6 +60,7 @@ const DETAIL_KEY: Record<string, string> = {
   skippedDuplicates: "Dubbletter som hoppades över", blocked: "Stoppade", notApproved: "Inte godkända", changed: "Ändrade", buyerReference: "Beställarreferens", toRole: "Till roll",
   caseIds: "Ärenden", emailId: "Mejl", method: "Inloggning", hadCustomerApproval: "Godkänd av kommunen", type: "Typ", level: "Nivå", step: "Steg", sentToCustomer: "Skickad till kommunen",
   acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av",
+  table: "Tabell", cases: "Antal deltagare", schema: "Schemaversion", columns: "Kolumner", reportIds: "Rapporter",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -66,6 +69,8 @@ const FIELD_WORD: Record<string, string> = {
   backgroundInfo: "bakgrund", aiConsent: "AI-samtycke", meetingDay: "mötesdag", meetingTime: "mötestid", location: "plats", ordererContact: "beställarens kontaktuppgifter",
   referrerId: "handläggare", leadCoachId: "huvudcoach", phase: "fas", tags: "taggar", pausedWeeks: "pausade veckor", firstMeetingAt: "första möte", team: "team", status: "status",
   area: "avtalsområde", unit: "enhet", contactName: "kontaktperson", contactPhone: "telefon", contactEmail: "e-post", person: "deltagare",
+  primaryAreaCode: "avtalsområde", secondaryAreaCode: "andra avtalsområde", referrerUnit: "beställarens enhet", events: "händelser", weeks: "veckor",
+  endReason: "avslutsorsak", resultClass: "resultatklass", resultVerified: "verifiering", resultVerifiedAt: "verifieringsdatum", caseNumber: "ärendenummer",
 };
 const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", since_start: "sedan avtalsstart", month: "per månad", rolling_3m: "rullande 3 månader" };
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
@@ -80,6 +85,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   language: { sv: "svenska", en: "engelska", ar: "arabiska", so: "somaliska" },
   right: { uppgift: "rätt arbetsuppgift", handledning: "rätt handledning", timing: "rätt tidpunkt", uppfoljning: "rätt uppföljning" },
   format: { csv: "CSV", xlsx: "Excel", pdf: "PDF", sie: "SIE", peppol: "Peppol" },
+  table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
+  reason: { columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas" },
 };
 const AI_KIND: Record<string, string> = {
   parse_email: "tolka mejl", transcribe_extract: "transkribering och utkast", extract_notes: "utkast från anteckningar", extract_teams: "utkast från Teams-transkript",
@@ -139,18 +146,40 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return fmtDateTime(s);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
   if (/^\d{4}-W\d{2}$/.test(s)) return fmtWeekKey(s);
-  if (/^\d{4}-\d{2}$/.test(s) && k === "month") return monthName(s);
+  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
   return s;
 }
 
-/** Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". */
-export function detailText(a: AuditEntryLike, l: AuditLookups): string {
+/** Långa listor som visas som antal i loggtabellen ("74 rapporter") och i sin helhet i detaljvyn. */
+const COUNTED: Record<string, [string, string]> = { columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"] };
+
+/**
+ * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället
+ * för antal (tabellen).
+ */
+export function detailText(a: AuditEntryLike, l: AuditLookups, opts: { full?: boolean } = {}): string {
   const x = a.details ?? {};
   if (a.action === "org_rule.updated" && isSnapshot(x.from) && isSnapshot(x.to)) return ruleDiffText(x.from, x.to);
   return Object.entries(x)
     .filter(([k, v]) => v != null && v !== "" && k !== "caseId" && !(Array.isArray(v) && !v.length))
-    .map(([k, v]) => `${DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k)}: ${fmtDetail(k, v, a, l)}`)
+    .map(([k, v]) => {
+      const counted = COUNTED[k];
+      const text = counted && Array.isArray(v) && !opts.full ? `${v.length} ${v.length === 1 ? counted[0] : counted[1]}` : fmtDetail(k, v, a, l);
+      return `${DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k)}: ${text}`;
+    })
     .join(" · ");
+}
+
+/** Har loggraden listor som tabellen visar som antal (och som detaljvyn visar i sin helhet)? */
+export const hasFullDetail = (a: Pick<AuditEntryLike, "details">): boolean => {
+  const x = a.details ?? {};
+  return Object.keys(COUNTED).some((k) => Array.isArray(x[k]) && (x[k] as unknown[]).length > 0);
+};
+
+/** Hela detaljtexten när den skiljer sig från tabellens (listor som visas som antal), annars null. */
+export function detailFullText(a: AuditEntryLike, l: AuditLookups): string | null {
+  if (!hasFullDetail(a)) return null;
+  return detailText(a, l, { full: true });
 }
 
 // ---------------------------------------------------------------- Interna regler (ändringshistorik)

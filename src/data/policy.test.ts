@@ -107,6 +107,11 @@ describe("kommunens handläggare ser bara sina ärenden", () => {
     // Veckorapporten som väntar på närvaro och beställarrapportens utkast syns inte
     expect(reps.some((r) => r.status === "waiting" || r.status === "draft")).toBe(false);
     expect(reps.some((r) => r.kind === "customer_summary")).toBe(false);
+    // pick: samma rader som list (samma regel), men bara de angivna fälten och id
+    const light = await repoFor(MARIA).table("reports").pick(["kind", "status"], undefined, { orderBy: "deliveredAt" });
+    expect(light.map((r) => r.id).sort()).toEqual(reps.map((r) => r.id).sort());
+    expect(Object.keys(light[0]).sort()).toEqual(["deliveredAt", "id", "kind", "status"]);
+    expect(light.some((r) => "snapshot" in r || "caseId" in r)).toBe(false);
   });
   it("meddelanden bara i hennes ärenden", async () => {
     const msgs = await repoFor(MARIA).table("messages").list();

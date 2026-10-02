@@ -7,6 +7,7 @@ import { PortalChefScreen } from "./screens/chef";
 import { PortalDeltagareScreen } from "./screens/deltagare";
 import { PortalLoginScreen } from "./screens/logga-in";
 import { PortalRapporterScreen } from "./screens/rapporter";
+import { PortalResultatScreen } from "./screens/resultat";
 import { PortalStartScreen } from "./screens/start";
 
 export const routes: RouteDef[] = [
@@ -17,5 +18,7 @@ export const routes: RouteDef[] = [
   // Med reportId: rapportsidan (PortalReport sätter rubriken med period som titel).
   { path: "/portal/rapporter/:reportId?", title: "Rapporter och meddelanden", roles: CUSTOMER_ROLES, area: "portal", screen: PortalRapporterScreen },
   { path: "/portal/bestallarrapport", title: "Beställarrapport", roles: ["kommun_chef"], area: "portal", screen: PortalChefScreen },
+  // Resultatfilen (rapporter steg 3): bara kommunens chef, och bara när avtalet tillåter individrapporter (skärmen säger annars ifrån).
+  { path: "/portal/resultat", title: "Hämta resultat", roles: ["kommun_chef"], area: "portal", screen: PortalResultatScreen },
   { path: "/portal", title: "Start", roles: ["kommun_handlaggare"], area: "portal", screen: PortalStartScreen },
 ];

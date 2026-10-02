@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
-import type { Repo, Row, Table, Where, ListOpts } from "@/data/repo";
+import { pickFields, pickRow, type Repo, type Row, type Table, type Where, type ListOpts } from "@/data/repo";
 import type { AppRepo, Job } from "@/data/schema";
 import { asUser, createMigratedDatabase, loadSeed, type Tx } from "@/data/supabase/pglite";
 import { fromDbRow, toColumn, toDbRow, toDbValue } from "@/data/supabase/columns";
@@ -66,6 +66,10 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
   return {
     get,
     list,
+    pick: async (fields, where, opts) => {
+      const cols = pickFields(fields, opts);
+      return (await list(where, opts)).map((r) => pickRow(r, cols) as never);
+    },
     first: async (where, opts) => (await list(where, { ...opts, limit: 1 }))[0] ?? null,
     async count(where) {
       const params: unknown[] = [];
