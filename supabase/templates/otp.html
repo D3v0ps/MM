@@ -1,35 +1,69 @@
 <!doctype html>
 <!--
-  Supabase Auth: mallen för inloggningskoden (Authentication -> Emails -> Templates -> "Magic link", och samma innehåll i
-  "Confirm signup"). Ämne: Din inloggningskod till Miljonmatch
-  Mallen visar BARA koden ({{ .Token }}) – ingen länk. E-postskydd som Safe Links öppnar länkar och förbrukar dem.
-  Inga personuppgifter. MB:s färger: antracit #1E252B, röd #FF0C01 (punkten), ljusgrå #D1D3D3, vitt.
+  Supabase Auth: mallen för inloggningskoden. Klistras in i Supabase under Authentication -> Emails -> Templates i BÅDE
+  "Magic link" och "Confirm signup". Ämne i båda: Din inloggningskod till Miljonmatch
+  Mallen visar BARA koden ({{ .Token }}) – ingen länk. E-postskydd som Microsoft Safe Links öppnar länkar och förbrukar dem.
+  Inga personuppgifter, inga bilder, inga spårningspixlar, inga externa typsnitt (bilder blockeras ofta och typsnitt laddas
+  inte i Outlook – Montserrat används om det finns, annars Arial).
+  MB:s färger: antracit #1E252B, röd #FF0C01 (bara punkten och den tunna linjen), ljusgrå #D1D3D3, blå #6BA2B9 (bara som yta
+  med antracit text), vitt. Brödtext antracit på vitt.
   Lokalt (Supabase CLI) pekar supabase/config.toml hit: [auth.email.template.magic_link] content_path = "./supabase/templates/otp.html"
 -->
-<html lang="sv">
+<html lang="sv" xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="x-apple-disable-message-reformatting">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
 <title>Din inloggningskod till Miljonmatch</title>
 </head>
-<body style="margin:0;padding:0;background:#D1D3D3;">
-<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Din kod är {{ .Token }}. Den gäller i 10 minuter.</div>
+<body style="margin:0;padding:0;background:#D1D3D3;-webkit-text-size-adjust:100%;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Din kod är {{ .Token }}. Den gäller i 10 minuter.&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;&#8199;&#847;</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#D1D3D3;">
-<tr><td align="center" style="padding:24px 12px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#FFFFFF;">
-<tr><td style="background:#1E252B;padding:20px 32px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:20px;font-weight:700;letter-spacing:3px;line-height:24px;color:#FFFFFF;">MILJONMATCH<span style="color:#FF0C01;">&#9679;</span></td></tr>
-<tr><td style="padding:32px 32px 16px 32px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:16px;line-height:24px;color:#1E252B;">
-<p style="margin:0 0 16px 0;font-size:13px;font-weight:700;letter-spacing:2px;line-height:18px;"><span style="color:#FF0C01;">&#9679;</span>&nbsp;INLOGGNINGSKOD</p>
-<p style="margin:0 0 16px 0;">Här är din kod för att logga in i Miljonmatch:</p>
-<p style="margin:0 0 16px 0;"><span style="display:inline-block;padding:12px 20px;background:#D1D3D3;border-radius:4px;font-family:'Courier New', Courier, monospace;font-size:32px;font-weight:700;letter-spacing:8px;line-height:40px;color:#1E252B;">{{ .Token }}</span></p>
-<p style="margin:0 0 16px 0;">Skriv in koden på inloggningssidan. Koden gäller i 10 minuter och kan bara användas en gång.</p>
-<p style="margin:0 0 16px 0;">Har du inte bett om en kod? Då kan du strunta i det här mejlet. Ingen kan logga in utan koden.</p>
-<p style="margin:0 0 16px 0;">Lämna aldrig ut koden till någon annan. Miljonbemanning frågar aldrig efter den.</p>
+<tr><td align="center" style="padding:32px 12px;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;background:#FFFFFF;border-radius:6px;">
+<!-- Tunn röd linje överst -->
+<tr><td style="height:4px;line-height:4px;font-size:4px;background:#FF0C01;border-radius:6px 6px 0 0;">&nbsp;</td></tr>
+
+<!-- Ordmärket -->
+<tr><td style="padding:28px 40px 0 40px;font-family:Montserrat, Arial, Helvetica, sans-serif;color:#1E252B;">
+<div style="font-size:22px;line-height:28px;font-weight:800;letter-spacing:0.5px;">Miljonbemanning<span style="color:#FF0C01;">.</span></div>
+<div style="font-size:12px;line-height:18px;font-weight:700;letter-spacing:3px;">MILJONMATCH</div>
 </td></tr>
-<tr><td style="background:#D1D3D3;padding:16px 32px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:14px;line-height:20px;color:#1E252B;">Det här mejlet skickades automatiskt från Miljonmatch, Miljonbemanning AB.</td></tr>
+
+<!-- Innehållet -->
+<tr><td style="padding:28px 40px 8px 40px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:16px;line-height:26px;color:#1E252B;">
+<h1 style="margin:0 0 12px 0;font-size:24px;line-height:32px;font-weight:800;color:#1E252B;">Här är din inloggningskod</h1>
+<p style="margin:0 0 24px 0;">Skriv in koden på inloggningssidan i Miljonmatch för att logga in.</p>
+</td></tr>
+
+<!-- Koden -->
+<tr><td align="center" style="padding:0 40px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#D1D3D3;border-radius:6px;">
+<tr><td align="center" style="padding:24px 12px 8px 12px;font-family:'Courier New', Courier, monospace;font-size:40px;line-height:48px;font-weight:700;letter-spacing:12px;color:#1E252B;">{{ .Token }}</td></tr>
+<tr><td align="center" style="padding:0 12px 20px 12px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:14px;line-height:20px;color:#1E252B;">Gäller i 10 minuter och kan användas en gång.</td></tr>
 </table>
+</td></tr>
+
+<!-- Trygghet -->
+<tr><td style="padding:28px 40px 8px 40px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:16px;line-height:26px;color:#1E252B;">
+<p style="margin:0 0 16px 0;"><b>Har du inte bett om en kod?</b> Då kan du strunta i det här mejlet. Ingen kan logga in utan koden.</p>
+</td></tr>
+<tr><td style="padding:0 40px 32px 40px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr><td style="border-left:4px solid #6BA2B9;padding:4px 0 4px 16px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:15px;line-height:24px;color:#1E252B;">Lämna aldrig ut koden till någon annan – inte heller till någon som säger att de ringer från Miljonbemanning. Vi frågar aldrig efter den.</td></tr>
+</table>
+</td></tr>
+
+<!-- Foten -->
+<tr><td style="background:#1E252B;padding:20px 40px;border-radius:0 0 6px 6px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:13px;line-height:20px;color:#FFFFFF;">
+<div style="font-weight:700;">Miljonbemanning AB<span style="color:#FF0C01;">.</span></div>
+<div>Det här mejlet skickades automatiskt från Miljonmatch. Det går inte att svara på det.</div>
+</td></tr>
+</table>
+
 </td></tr>
 </table>
 </body>
