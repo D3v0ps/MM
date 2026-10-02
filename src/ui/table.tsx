@@ -1,5 +1,8 @@
 // Tabell (prototypens Table). Klickbara rader går att nå med tangentbordet (Tab + Enter/mellanslag).
-import type { KeyboardEvent, ReactNode } from "react";
+// rowHref: raden leder till en sida. En cell (linkKey, standard första kolumnen) blir en riktig länk – den är tabbstoppet,
+// högerklick ger länkmenyn och ctrl/cmd-klick eller mittenklick öppnar en ny flik. Klick på resten av raden gör samma sak.
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { Link, useNavOptional, type Nav } from "@/shell/nav";
 import { cn } from "./cn";
 
 export type Column<R> = {
@@ -30,8 +33,32 @@ export type TableProps<R> = {
   footer?: ReactNode;
   /** Tabellens namn för skärmläsare (visas inte). */
   caption?: string;
+  /** Extra attribut per rad, t.ex. { "data-mal": "att:2027-W04" } (målet när man öppnar raden från tidslinjen). */
+  rowAttrs?: (row: R) => Record<string, string>;
+  /** Raden leder till en sida (null = raden är inte klickbar). Går före onRowClick. */
+  rowHref?: (row: R) => string | null;
+  /**
+   * Kolumnen vars innehåll blir länken (standard: första kolumnen). Välj en kolumn utan egna länkar eller knappar.
+   * false = skärmen ritar själv en länk i raden (t.ex. bara rubriken i en cell med rubrik och underrad).
+   */
+  linkKey?: string | false;
   className?: string;
 };
+
+/** Klick någonstans i en rad som leder till en sida (inte på länkar, knappar eller fält i raden). */
+export function rowNavigate(nav: Nav, to: string, e: MouseEvent<HTMLElement>): void {
+  if (e.defaultPrevented) return;
+  const t = e.target as Element | null;
+  if (t?.closest("a, button, input, select, textarea, label, summary")) return;
+  // Markerad text: användaren kopierar – ingen navigering.
+  if (typeof window !== "undefined" && (window.getSelection()?.toString() ?? "") !== "") return;
+  if (e.button === 1 || e.ctrlKey || e.metaKey || e.shiftKey) {
+    e.preventDefault();
+    window.open(nav.href(to), "_blank", "noopener");
+    return;
+  }
+  if (e.button === 0) nav.push(to);
+}
 
 const TONE: Record<RowTone, string> = {
   alert: "[&>td:first-child]:shadow-[inset_4px_0_0_var(--color-rod)]",
@@ -39,7 +66,9 @@ const TONE: Record<RowTone, string> = {
   selected: "[&>td]:bg-bla-ton",
 };
 
-export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, rowTone, empty = "Inget att visa.", footer, caption, className }: TableProps<R>) {
+export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, rowTone, empty = "Inget att visa.", footer, caption, rowAttrs, rowHref, linkKey, className }: TableProps<R>) {
+  const nav = useNavOptional();
+  const linkCol = linkKey === false ? null : (linkKey ?? columns[0]?.key);
   const keyOf = (r: R, i: number): string => {
     if (typeof rowKey === "function") return rowKey(r);
     const v = (r as Record<string, unknown>)[rowKey as string];
@@ -83,19 +112,33 @@ export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, 
           )}
           {rows.map((r, i) => {
             const tone = rowTone?.(r);
+            const href = nav ? (rowHref?.(r) ?? null) : null;
+            const clickable = !!href || !!onRowClick;
             return (
               <tr
+                {...rowAttrs?.(r)}
                 key={keyOf(r, i)}
-                className={cn(onRowClick && "cursor-pointer hover:[&>td]:bg-ljusgra-ton", tone && TONE[tone])}
-                onClick={onRowClick ? () => onRowClick(r) : undefined}
-                tabIndex={onRowClick ? 0 : undefined}
-                onKeyDown={onRowClick ? (e) => onKey(e, r) : undefined}
+                className={cn(clickable && "cursor-pointer hover:[&>td]:bg-ljusgra-ton", tone && TONE[tone])}
+                onClick={href && nav ? (e) => rowNavigate(nav, href, e) : onRowClick ? () => onRowClick(r) : undefined}
+                onAuxClick={href && nav ? (e) => rowNavigate(nav, href, e) : undefined}
+                // Med rowHref är länken i raden tabbstoppet – raden behöver inget eget.
+                tabIndex={!href && onRowClick ? 0 : undefined}
+                onKeyDown={!href && onRowClick ? (e) => onKey(e, r) : undefined}
               >
-                {columns.map((c) => (
-                  <td key={c.key} className={cn("border-b border-ljusgra px-3 py-2.5 align-top", c.num && "text-right tabular-nums", c.nowrap && "whitespace-nowrap")}>
-                    {c.render ? c.render(r) : ((r as Record<string, unknown>)[c.key] as ReactNode)}
-                  </td>
-                ))}
+                {columns.map((c) => {
+                  const content = c.render ? c.render(r) : ((r as Record<string, unknown>)[c.key] as ReactNode);
+                  return (
+                    <td key={c.key} className={cn("border-b border-ljusgra px-3 py-2.5 align-top", c.num && "text-right tabular-nums", c.nowrap && "whitespace-nowrap")}>
+                      {href && c.key === linkCol ? (
+                        <Link to={href} className="inline-flex min-h-11 flex-col justify-center font-bold text-antracit underline underline-offset-3">
+                          {content}
+                        </Link>
+                      ) : (
+                        content
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}

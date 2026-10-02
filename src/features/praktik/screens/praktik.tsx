@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { fmtDate, fmtDateShort, fmtWeekday } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { Link, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
 import {
@@ -115,9 +115,20 @@ function ListContent({ d }: { d: EmployerListView }) {
           caption="Arbetsgivarregister"
           rows={rows}
           empty="Inga arbetsgivare matchar sökningen."
-          onRowClick={(r) => nav.push(`/praktik/${r.id}`)}
+          rowHref={(r) => `/praktik/${encodeURIComponent(r.id)}`}
+          linkKey={false}
           columns={[
-            { key: "name", label: "Företag", render: (r) => (<><span className="font-bold">{r.name}</span><CellSub>{r.orgNr || "Organisationsnummer saknas"}</CellSub></>) },
+            {
+              key: "name", label: "Företag",
+              render: (r) => (
+                <>
+                  <Link to={`/praktik/${encodeURIComponent(r.id)}`} className="inline-flex min-h-11 items-center font-bold underline underline-offset-3">
+                    {r.name}
+                  </Link>
+                  <CellSub>{r.orgNr || "Organisationsnummer saknas"}</CellSub>
+                </>
+              ),
+            },
             { key: "contact", label: "Kontaktperson", render: (r) => (<>{r.contactName || "–"}{r.phone && <CellSub>{r.phone}</CellSub>}</>) },
             {
               key: "areas", label: "Avtalsområden",

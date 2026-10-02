@@ -96,7 +96,7 @@ export function TabHandelser({ card }: TabProps) {
               ) : (
                 <List>
                   {shown.map((ev) => (
-                    <ListItem key={ev.id} lead={<Icon name={eventIcon(ev.kind)} size="lg" />} title={ev.label} sub={`${fmtDate(ev.occurredOn)}${ev.actor ? ` · ${ev.actor}` : ""}`}>
+                    <ListItem key={ev.id} data-mal={`ev:${ev.id}`} lead={<Icon name={eventIcon(ev.kind)} size="lg" />} title={ev.label} sub={`${fmtDate(ev.occurredOn)}${ev.actor ? ` · ${ev.actor}` : ""}`}>
                       {ev.note && <span className="text-small">{ev.note}</span>}
                       <span className="flex flex-wrap items-center gap-1.5">
                         {ev.verificationKind ? <Badge tone="bluetone" icon="paperclip">Verifierad: {ev.verificationKind}</Badge> : <Badge tone="outline" icon="help">Ingen verifiering</Badge>}
@@ -104,7 +104,7 @@ export function TabHandelser({ card }: TabProps) {
                         {ev.possibleBonus && (
                           <>
                             <Badge tone="outline" icon="star">Möjligt bonusunderlag</Badge>
-                            <BuildPhase fas={3} />
+                            <BuildPhase fas={3} off />
                           </>
                         )}
                       </span>
@@ -224,6 +224,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
       {devs.map((dv) => (
         <Card
           key={dv.id}
+          data-mal={`dev:${dv.id}`}
           tone={dv.open ? "red" : undefined}
           title={dv.open ? "Öppen avvikelse" : "Åtgärdad avvikelse"}
           icon={dv.open ? "alert-circle" : "check-circle"}
@@ -508,6 +509,7 @@ export function TabPraktik({ card }: TabProps) {
             return (
               <Card
                 key={pl.id}
+                data-mal={`pl:${pl.id}`}
                 title={pl.employerName ?? "Praktikplats"}
                 icon="building"
                 tone={missing.length && ongoing ? "red" : undefined}

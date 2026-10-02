@@ -8,7 +8,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Avatar, Badge, Button, Card, CellSub, Field, FormGrid, Grid, Icon, Input, Kpi, Modal, Notice, Page, PerspectiveLink, QueryView, Select, Stack, TabPanel, Table, Tabs, toast,
+  Avatar, Badge, Button, Card, CellSub, ErrorSummary, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Modal, ModalCancelButton, Notice, Page, PerspectiveLink, QueryView, Select, Stack, TabPanel, Table, Tabs, toast,
   type IconName, type TabDef,
 } from "@/ui";
 import { emailValid } from "@/core/validation";
@@ -74,7 +74,7 @@ function UsersContent({ d }: { d: UsersView }) {
             actions={<Badge tone="outline" icon="key">Microsoft Entra ID · MFA via M365</Badge>}
             foot={
               <span className="text-small text-text-muted">
-                Rollen gäller per avtal (tabellen memberships). En person kan ha olika roller i Botkyrka- och KK-avtalet. Lösenord och MFA hanteras av Microsoft – Miljonmatch lagrar inga lösenord.
+                Rollen gäller per avtal. En person kan ha olika roller i Botkyrka- och KK-avtalet. Lösenord och MFA hanteras av Microsoft – Miljonmatch lagrar inga lösenord.
               </span>
             }
           >
@@ -224,7 +224,11 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
   const show = (key: keyof typeof errs) => (tried ? errs[key] : undefined);
   const submit = async () => {
     setTried(true);
-    if (Object.keys(errs).length) return;
+    if (Object.keys(errs).length) {
+      // Felsammanfattningen överst läses upp; fokus till första fältet med fel.
+      focusFirstError(document.querySelector<HTMLElement>("[role=dialog]"));
+      return;
+    }
     const r = await invite.run({ contractId: d.contractId, name: f.name, email, role: f.role, unit: f.unit }).catch(() => null);
     if (!r || !r.ok) {
       setServerErr(r && !r.ok && r.error === "exists" ? "Det finns redan en användare med den adressen." : r && !r.ok && r.error === "domain" ? "Adressen har inte en tillåten domän." : "Inbjudan kunde inte skickas. Kontrollera fälten.");
@@ -237,9 +241,10 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
     <Modal
       title="Bjud in kommunanvändare"
       onClose={onClose}
+      dirty={!!(f.name.trim() || f.email.trim() || f.unit)}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>Avbryt</Button>
+          <ModalCancelButton />
           <Button kind="primary" icon="send" pending={invite.pending} onClick={() => void submit()}>Skicka inbjudan</Button>
         </>
       }
@@ -247,6 +252,12 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
       <Stack>
         <p className="text-text-muted">Kommunanvändare kan inte registrera sig själva. De loggar in med sin e-postadress och en sexsiffrig engångskod.</p>
         {serverErr && <Notice tone="critical">{serverErr}</Notice>}
+        {tried && (
+          <ErrorSummary
+            items={(["name", "email", "unit"] as const).filter((k) => errs[k]).map((k) => ({ id: `inv-${k}`, text: errs[k] as string }))}
+            title="Rätta det här innan du skickar inbjudan"
+          />
+        )}
         <FormGrid>
           <Field id="inv-name" label="Namn" required help="För- och efternamn." error={show("name")}>
             <Input value={f.name} onValueChange={set("name")} />

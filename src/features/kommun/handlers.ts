@@ -5,6 +5,7 @@ import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { attendanceStats, repeatedAbsence } from "@/core/attendance";
 import { ackTextFor, duplicateActive, orderValueOre, priceFor } from "@/core/cases";
 import { isUnset, kpiDef, progressionRuleText } from "@/core/config";
@@ -139,10 +140,12 @@ handleQuery(kommunOrderForm, { roles: HANDL }, async (ctx) => {
   const contract = k.active;
   if (!contract) throw new Error("Det finns inget aktivt avtal att beställa i");
   const cfg = k.cfg(contract.id);
+  // Begränsade testare (testmiljön): prisartiklarna läses inte och lämnas inte ut.
+  const hide = hidesCommercial(ctx.actor);
   const [cases, refs, prices] = await Promise.all([
     visibleCases(ctx),
     ctx.repo.table("buyer_references").list({ customerId: contract.customerId }),
-    ctx.repo.table("price_items").list({ contractId: contract.id }),
+    hide ? Promise.resolve(null) : ctx.repo.table("price_items").list({ contractId: contract.id }),
   ]);
   // Senast använda beställarreferens, annars handläggarens sparade (prototypens sel.komLastBuyerRef).
   const last = cases.filter((c) => c.referrerId === me && c.buyerReference).sort(by("referredAt", -1))[0];
@@ -160,7 +163,7 @@ handleQuery(kommunOrderForm, { roles: HANDL }, async (ctx) => {
     areas: areas.map((a) => ({ code: a.code, name: a.name })),
     // Förslagen på yrkesspår är exempel ur testdatat (prototypens seedConstants.TRACKS).
     tracks: Object.fromEntries(areas.map((a) => [a.code, [...(TRACKS[a.code] ?? [])]])),
-    prices: prices.map((p) => ({ areaCode: p.areaCode, validFrom: p.validFrom, validTo: p.validTo, priceOre: p.priceOre })),
+    ...(prices ? { prices: prices.map((p) => ({ areaCode: p.areaCode, validFrom: p.validFrom, validTo: p.validTo, priceOre: p.priceOre })) } : {}),
     answerDue: avropDue({ referredAt: now }, cfg),
   };
 });
@@ -279,6 +282,7 @@ handleQuery(kommunCase, { roles: BOTH }, async (ctx, p) => {
   }
 
   // Orderbekräftelsen
+  const hideMoney = hidesCommercial(ctx.actor);
   const weeks = c.orderValueWeeks || c.plannedWeeks;
   const priceOre = c.primaryAreaCode ? priceFor(db.price_items, c.primaryAreaCode, c.startDate || c.plannedStart || today, c.contractId) : 0;
   const oc = reps.find((r) => r.kind === "order_confirmation");
@@ -325,12 +329,15 @@ handleQuery(kommunCase, { roles: BOTH }, async (ctx, p) => {
     canWrite: ctx.actor.role === "kommun_handlaggare" && c.referrerId === me,
     coachChanges,
     order: {
-      coachName: c.leadCoachId ? k.name(c.leadCoachId) : null, weeks, priceOre, valueOre: orderValueOre(c, db.price_items, { now }), buyerReference: c.buyerReference,
+      coachName: c.leadCoachId ? k.name(c.leadCoachId) : null, weeks,
+      // Begränsade testare (testmiljön): pris och värde lämnas inte ut.
+      ...(hideMoney ? {} : { priceOre, valueOre: orderValueOre(c, db.price_items, { now }) }),
+      buyerReference: c.buyerReference,
       team: db.case_team.filter((t) => t.role !== "lead_coach").map((t) => ({ name: k.name(t.userId), roleLabel: teamLabel(t.role) })),
       ocReportId: oc?.id ?? null, ackText: c.acknowledgedAt ? ackTextFor(c, cfg) : null,
     },
     attendance, participant,
-    bonus: db.outcome_events.some((e) => e.possibleBonus),
+    bonus: !hideMoney && db.outcome_events.some((e) => e.possibleBonus),
     seesCoachNotes: cfg.customerVisibility.seesCoachNotes,
     reports: reportRows,
   } satisfies KomCaseDetail;

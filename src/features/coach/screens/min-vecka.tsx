@@ -1,15 +1,15 @@
 "use client";
 // Min vecka (/min-vecka) – coachens startsida: närvaro att registrera, dagens aktiviteter, AI-utkast, månadsbedömningar,
 // meddelanden, påminnelser, flaggor, notiser, rapporter som förfaller och veckokalendern. Port av prototypens coach.minvecka.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekKey, holidayName, isoWeek, monthName, MONTHS, relative, WEEKDAYS } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { Link, useNav } from "@/shell/nav";
 import { useSession } from "@/shell/session";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, cn, DemoNote, Empty, Field, Grid, Icon, Input, Kpi, List, ListItem, Meter, Notice, Page, Row, SlaBadge, Split, Stack, toast,
-  type IconName,
+  AiTag, Badge, BuildPhase, Button, Card, CaseLink, cn, DemoNote, Empty, Field, focusSection, Grid, Icon, Input, Kpi, List, ListItem, Meter, Notice, Page, Row, SlaBadge, Split,
+  Stack, toast, focusSoon, type IconName, type SlaView,
 } from "@/ui";
 import { alertAck } from "@/features/ledning/api";
 import { notifRead } from "@/features/notiser/api";
@@ -41,9 +41,43 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   const pm = v.monthly.month;
   const maRows = showAllMa ? v.monthly.open : v.monthly.open.slice(0, 5);
   const openMessage = async (n: MinVeckaView["messages"][number]) => {
-    await read.run({ ids: [n.notificationId] }).catch(() => undefined);
+    if (n.notificationId) await read.run({ ids: [n.notificationId] }).catch(() => undefined);
     nav.push(`/arenden/${encodeURIComponent(n.caseId)}?flik=meddelanden`);
   };
+
+  // Meddelanden från kommunen: överst när det finns olästa, annars en rad i högerkolumnen.
+  const messagesCard =
+    v.messages.length === 0 ? (
+      <DoneLine id="mv-meddelanden" title="Meddelanden från kommunen" icon="message">
+        Inga olästa meddelanden
+      </DoneLine>
+    ) : (
+      <Card
+        id="mv-meddelanden"
+        title="Meddelanden från kommunen"
+        icon="message"
+        flush
+        tone="blue"
+        actions={<Badge tone="dark" icon="message">{plural(v.messages.reduce((n, m) => n + m.count, 0), "oläst", "olästa")}</Badge>}
+      >
+        <List>
+          {v.messages.map((n) => (
+            <ListItem key={n.caseId} icon="message" title={<CaseName caseId={n.caseId} name={n.name} caseNumber={n.caseNumber} />}>
+              <span className="text-small">
+                Från {n.from ?? "handläggaren"} · {fmtDateTime(n.createdAt)}
+                {n.count > 1 ? ` · ${n.count} olästa` : ""}
+              </span>
+              {n.excerpt && <span className="text-small text-text-muted [overflow-wrap:break-word]">”{n.excerpt}”</span>}
+              <div>
+                <Button kind="primary" iconRight="arrow-right" pending={read.pending} onClick={() => void openMessage(n)}>
+                  Läs och svara
+                </Button>
+              </div>
+            </ListItem>
+          ))}
+        </List>
+      </Card>
+    );
 
   return (
     <Page
@@ -59,6 +93,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
       <Grid cols={4} className="max-[620px]:grid-cols-2 max-[620px]:gap-2.5">
         <Kpi
           className={KPI_SM}
+          onClick={() => focusSection("mv-narvaro")}
+          actionHint="Visa"
           label="Närvaro att registrera"
           value={String(unreg)}
           tone={unreg > 0 && (regTone === "urgent" || regTone === "over") ? "alert" : undefined}
@@ -66,28 +102,46 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         />
         <Kpi
           className={KPI_SM}
+          onClick={() => focusSection("mv-idag")}
+          actionHint="Visa"
           label="Aktiviteter i dag"
           value={String(v.today.length)}
           sub={next && v.next ? `Nästa ${fmtTime(next.startsAt)}: ${kindOf(next.kind).label.toLowerCase()} med ${v.next.shortName}` : "Inga fler aktiviteter i dag"}
         />
-        <Kpi className={KPI_SM} label="AI-utkast att granska" value={String(v.drafts.length)} sub={v.drafts.length > 0 ? "Råtranskript raderas när du godkänner" : "Inget väntar"} />
         <Kpi
           className={KPI_SM}
+          onClick={() => focusSection("mv-ai")}
+          actionHint="Visa"
+          label="AI-utkast att granska"
+          value={String(v.drafts.length)}
+          sub={v.drafts.length > 0 ? "Råtranskript raderas när du godkänner" : "Inget väntar"}
+        />
+        <Kpi
+          className={KPI_SM}
+          onClick={() => focusSection("mv-manad")}
+          actionHint="Visa"
           label={<span className="[overflow-wrap:break-word] [hyphens:manual]">{`Månads­bedömningar ${MONTHS[Number(pm.slice(5, 7)) - 1]}`}</span>}
           value={`${v.monthly.done} av ${v.monthly.total}`}
           sub={`klara · förslag senast ${fmtDateShort(v.monthly.dueAt)}`}
         />
       </Grid>
 
+      {v.messages.length > 0 && messagesCard}
+
       <Split wide>
         <Stack>
+          {unreg === 0 ? (
+            <DoneLine id="mv-narvaro" title={`Närvaro – vecka ${wLast}`} icon="check-square">
+              Allt är registrerat för vecka {wLast}. Veckorapporterna till handläggarna publiceras automatiskt.
+            </DoneLine>
+          ) : (
           <Card
+            id="mv-narvaro"
             title={`Närvaro att registrera – vecka ${wLast}`}
             icon="check-square"
-            tone={unreg > 0 ? "red" : undefined}
-            actions={unreg > 0 ? <SlaBadge sla={v.reg.sla} dueAt={v.reg.dueAt} prefix="Registrera" /> : <Badge tone="blue" icon="check">Klart</Badge>}
+            tone="red"
+            actions={<SlaText sla={v.reg.sla} dueAt={v.reg.dueAt} dueText={v.reg.dueText} />}
           >
-            {unreg > 0 ? (
               <Stack>
                 <p>
                   <b>{plural(unreg, "tillfälle", "tillfällen")}</b> från förra veckan saknar närvaro. Registrera senast <b>{v.reg.dueText}</b>. Veckorapporten till varje
@@ -97,11 +151,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   {v.unregistered.byCase.map((r) => (
                     <ListItem
                       key={r.caseId}
-                      title={
-                        <>
-                          {r.name} <CaseNo n={r.caseNumber} />
-                        </>
-                      }
+                      title={<CaseName caseId={r.caseId} name={r.name} caseNumber={r.caseNumber} />}
                       sub={r.items.map((x) => `${dayLabel(x.startsAt)} ${lc(kindOf(x.kind).label)}`).join(" · ")}
                       side={<Badge tone="outline">{r.items.length} kvar</Badge>}
                     />
@@ -120,14 +170,10 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   <Persp role="kommun_handlaggare" to="/portal/rapporter" label="Se vad handläggaren får" />
                 </Row>
               </Stack>
-            ) : (
-              <Notice tone="ok" title={`Allt är registrerat för vecka ${wLast}`}>
-                Veckorapporterna till handläggarna publiceras automatiskt.
-              </Notice>
-            )}
           </Card>
+          )}
 
-          <Card title={`I dag – ${fmtWeekday(today)}`} icon="calendar" flush>
+          <Card id="mv-idag" title={`I dag – ${fmtWeekday(today)}`} icon="calendar" flush>
             {v.today.length === 0 ? (
               <Empty icon="calendar" title="Inga aktiviteter i dag" />
             ) : (
@@ -151,7 +197,11 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                         <span className="text-small text-text-muted">{a.durationMin} min</span>
                       </div>
                       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                        <div className="font-bold">{a.name}</div>
+                        <div className="font-bold">
+                          <CaseLink caseId={a.caseId} caseNumber={a.caseNumber} className="-ml-1.5">
+                            {a.name}
+                          </CaseLink>
+                        </div>
                         <div className="text-small text-text-muted">
                           {k.label} · {a.location} · <span className="whitespace-nowrap">{a.caseNumber}</span>
                         </div>
@@ -176,7 +226,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                           </Button>
                         )}
                         {past && !a.attendance && (
-                          <Button kind="ghost" to="/narvaro?vecka=denna">
+                          <Button kind="ghost" to={`/narvaro?vecka=denna&arende=${encodeURIComponent(a.caseId)}`}>
                             Registrera
                           </Button>
                         )}
@@ -188,22 +238,18 @@ function MinVecka({ v }: { v: MinVeckaView }) {
             )}
           </Card>
 
-          <Card title="AI-utkast att granska" icon="sparkles" actions={<BuildPhase fas={2} />} flush>
-            {v.drafts.length === 0 ? (
-              <Empty icon="sparkles" title="Inga AI-utkast väntar">
-                När du spelar in en avstämning med samtycke hamnar utkastet här.
-              </Empty>
-            ) : (
+          {v.drafts.length === 0 ? (
+            <DoneLine id="mv-ai" title="AI-utkast att granska" icon="sparkles">
+              Inga AI-utkast väntar. När du spelar in en avstämning med samtycke hamnar utkastet här.
+            </DoneLine>
+          ) : (
+          <Card id="mv-ai" title="AI-utkast att granska" icon="sparkles" actions={<BuildPhase fas={2} />} flush>
               <List>
                 {v.drafts.map((ci) => (
                   <ListItem
                     key={ci.checkInId}
                     lead={<AiTag>AI-utkast</AiTag>}
-                    title={
-                      <>
-                        {ci.name} <CaseNo n={ci.caseNumber} />
-                      </>
-                    }
+                    title={<CaseName caseId={ci.caseId} name={ci.name} caseNumber={ci.caseNumber} />}
                     sub={`Avstämning ${fmtDateTimeLong(ci.heldAt)} · ${ci.inputMethod === "teams" ? "Teams-transkript" : ci.inputMethod === "notes" ? "inklistrade anteckningar" : "inspelning"}`}
                     side={
                       <Button kind="primary" iconRight="arrow-right" to={`/avstamning/${encodeURIComponent(ci.caseId)}?avstamning=${encodeURIComponent(ci.checkInId)}`}>
@@ -217,12 +263,13 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   </ListItem>
                 ))}
               </List>
-            )}
           </Card>
+          )}
 
           <VoiceNotesInbox />
 
           <Card
+            id="mv-manad"
             title={`Månadsbedömningar – ${monthName(pm)}`}
             icon="clipboard"
             actions={
@@ -254,11 +301,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                     {maRows.map((r) => (
                       <div role="listitem" key={r.caseId}>
                         <ListItem
-                          title={
-                            <>
-                              {r.name} <CaseNo n={r.caseNumber} />
-                            </>
-                          }
+                          title={<CaseName caseId={r.caseId} name={r.name} caseNumber={r.caseNumber} />}
                           side={
                             <Button kind="secondary" iconRight="arrow-right" to={`/manadsbedomning/${encodeURIComponent(r.caseId)}?manad=${pm}`}>
                               Bedöm
@@ -289,60 +332,20 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         </Stack>
 
         <Stack>
-          <Card
-            title="Meddelanden från kommunen"
-            icon="message"
-            flush
-            tone={v.messages.length > 0 ? "blue" : undefined}
-            actions={v.messages.length > 0 ? <Badge tone="dark" icon="message">{plural(v.messages.length, "oläst", "olästa")}</Badge> : undefined}
-          >
-            {v.messages.length === 0 ? (
-              <Empty icon="message" title="Inga olästa meddelanden">
-                När en handläggare skriver till dig i portalen syns det här och under Notiser.
-              </Empty>
-            ) : (
-              <List>
-                {v.messages.map((n) => (
-                  <ListItem
-                    key={n.notificationId}
-                    icon="message"
-                    title={
-                      <>
-                        {n.name} <CaseNo n={n.caseNumber} />
-                      </>
-                    }
-                  >
-                    <span className="text-small">
-                      Från {n.from ?? "handläggaren"} · {fmtDateTime(n.createdAt)}
-                    </span>
-                    {n.excerpt && <span className="text-small text-text-muted [overflow-wrap:break-word]">”{n.excerpt}”</span>}
-                    <div>
-                      <Button kind="primary" iconRight="arrow-right" pending={read.pending} onClick={() => void openMessage(n)}>
-                        Läs och svara
-                      </Button>
-                    </div>
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Card>
+          {v.messages.length === 0 && messagesCard}
 
+          {v.reminders.length === 0 ? (
+            <DoneLine title="Påminnelser" icon="bell">
+              Inga påminnelser. Alla dina ärenden har dokumenterad progression.
+            </DoneLine>
+          ) : (
           <Card title="Påminnelser" icon="bell" flush>
-            {v.reminders.length === 0 ? (
-              <Empty icon="bell" title="Inga påminnelser">
-                Alla dina ärenden har dokumenterad progression.
-              </Empty>
-            ) : (
               <List>
                 {v.reminders.map((w) => (
                   <ListItem
                     key={w.caseId}
                     icon="bell"
-                    title={
-                      <>
-                        {w.name} <CaseNo n={w.caseNumber} />
-                      </>
-                    }
+                    title={<CaseName caseId={w.caseId} name={w.name} caseNumber={w.caseNumber} />}
                   >
                     <span className="text-small">
                       Ingen progression {w.streak === 1 ? "förra veckan" : `${w.streak} veckor i rad`}: {lc(w.reason)} ({fmtWeekKey(w.weekKey)}).
@@ -355,23 +358,21 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   </ListItem>
                 ))}
               </List>
-            )}
             <div className="border-t border-ljusgra px-[18px] py-3 text-small text-text-muted">
               Påminnelsen kommer när veckomålet inte nåtts eller när en godkänd avstämning saknas. Planera nästa steg tillsammans med deltagaren.
             </div>
           </Card>
+          )}
 
-          <Card title="Egna flaggor" icon="flag" flush>
-            {v.flags.length === 0 ? (
-              <Empty icon="flag" title="Inga flaggor" />
-            ) : (
-              <List>
-                {v.flags.map((a) => (
-                  <FlagItem key={a.key} a={a} />
-                ))}
-              </List>
-            )}
-          </Card>
+          {v.flags.length === 0 ? (
+            <DoneLine id="mv-flaggor" title="Egna flaggor" icon="flag">
+              Inga flaggor
+            </DoneLine>
+          ) : (
+            <Card id="mv-flaggor" title="Egna flaggor" icon="flag" flush>
+              <FlagList flags={v.flags} />
+            </Card>
+          )}
 
           <Card
             title="Olästa notiser"
@@ -406,10 +407,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
             )}
           </Card>
 
+          {!v.due.monthly && v.due.other.length === 0 ? (
+            <DoneLine title="Rapporter som förfaller" icon="file">
+              Inga rapporter förfaller inom 7 dagar
+            </DoneLine>
+          ) : (
           <Card title="Rapporter som förfaller" icon="file" flush>
-            {!v.due.monthly && v.due.other.length === 0 ? (
-              <Empty icon="file" title="Inga rapporter förfaller inom 7 dagar" />
-            ) : (
               <List>
                 {v.due.monthly && (
                   <ListItem
@@ -451,8 +454,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   </ListItem>
                 ))}
               </List>
-            )}
           </Card>
+          )}
         </Stack>
       </Split>
 
@@ -472,8 +475,62 @@ function CaseNo({ n }: { n: string }) {
   return <span className="text-small font-normal whitespace-nowrap text-text-muted tabular-nums tracking-[0.01em]">{n}</span>;
 }
 
+/** Namnet och ärendenumret som länk till deltagarkortet. */
+function CaseName({ caseId, name, caseNumber }: { caseId: string; name: string; caseNumber: string }) {
+  return (
+    <CaseLink caseId={caseId} caseNumber={caseNumber} className="-ml-1.5 gap-1.5 [&_span]:no-underline">
+      {name} <CaseNo n={caseNumber} />
+    </CaseLink>
+  );
+}
+
+/** Ett avsnitt utan något att göra: en rad i stället för ett helt kort (rubriken finns kvar och kan ta emot fokus). */
+function DoneLine({ id, title, icon, children }: { id?: string; title: string; icon: IconName; children: ReactNode }) {
+  return (
+    <section id={id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-ljusgra bg-vit px-[18px] py-3">
+      <h2 id={id ? `${id}-rubrik` : undefined} tabIndex={-1} className="flex items-center gap-2 text-label font-extrabold tracking-[0.1em] uppercase">
+        <Icon name={icon} />
+        {title}
+      </h2>
+      <span className="inline-flex min-w-0 items-start gap-1.5 text-small text-text-muted">
+        <Icon name="check-circle" className="mt-0.5 flex-none" />
+        <span>{children}</span>
+      </span>
+    </section>
+  );
+}
+
+/** Förfallotiden som text (ser inte ut som en knapp): "Senast måndag 10.00 · 48 min kvar". */
+function SlaText({ sla, dueAt, dueText }: { sla: SlaView; dueAt: string; dueText: string }) {
+  const late = sla.tone === "over";
+  return (
+    <span title={`Förfaller ${fmtDateTimeLong(dueAt)}`} className="inline-flex items-center gap-1.5 text-small font-bold">
+      <Icon name={late ? "alert" : "clock"} className={sla.tone === "urgent" || late ? "text-rod" : undefined} />
+      Senast {dueText} · {sla.label.toLowerCase()}
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------- Egna flaggor
-function FlagItem({ a }: { a: MinVeckaView["flags"][number] }) {
+const flagDomId = (key: string) => `flagga-${key.replace(/[^a-z0-9]/gi, "-")}`;
+
+/** Flaggorna. Efter en kvittering hamnar fokus på nästa flagga (annars föregående, annars avsnittets rubrik). */
+function FlagList({ flags }: { flags: MinVeckaView["flags"] }) {
+  const after = (key: string) => {
+    const i = flags.findIndex((f) => f.key === key);
+    const next = flags[i + 1] ?? flags[i - 1];
+    focusSoon(next ? flagDomId(next.key) : "mv-flaggor-rubrik");
+  };
+  return (
+    <List>
+      {flags.map((a) => (
+        <FlagItem key={a.key} a={a} onAcked={() => after(a.key)} />
+      ))}
+    </List>
+  );
+}
+
+function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: () => void }) {
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState("");
   const ack = useCommand(alertAck);
@@ -489,11 +546,22 @@ function FlagItem({ a }: { a: MinVeckaView["flags"][number] }) {
   const id = `ack-${a.key.replace(/[^a-z0-9]/gi, "-")}`;
   const save = async () => {
     const res = await ack.run({ key: a.key, plan: plan.trim() }).catch(() => null);
-    if (res && res.ok) toast("Flaggan är kvitterad.");
-    else toast("Flaggan kunde inte kvitteras.", "error");
+    if (res && res.ok) {
+      toast("Flaggan är kvitterad.");
+      onAcked();
+    } else toast("Flaggan kunde inte kvitteras.", "error");
+  };
+  // Kvittera visar fältet "Kort åtgärd" och knappen försvinner: fokus till fältet. Avbryt: fokus tillbaka till Kvittera.
+  const openAck = () => {
+    setOpen(true);
+    requestAnimationFrame(() => document.getElementById(id)?.focus());
+  };
+  const cancelAck = () => {
+    setOpen(false);
+    requestAnimationFrame(() => document.getElementById(`${id}-kvittera`)?.focus());
   };
   return (
-    <div className="flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0">
+    <div id={flagDomId(a.key)} tabIndex={-1} className="flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0">
       <Icon name={critical ? "alert" : "flag"} size="lg" className={critical ? "text-rod" : undefined} />
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <Row gap="sm">
@@ -510,7 +578,7 @@ function FlagItem({ a }: { a: MinVeckaView["flags"][number] }) {
             </Button>
           )}
           {!open && (
-            <Button kind="ghost" icon="check" onClick={() => setOpen(true)}>
+            <Button id={`${id}-kvittera`} kind="ghost" icon="check" onClick={openAck}>
               Kvittera
             </Button>
           )}
@@ -524,7 +592,7 @@ function FlagItem({ a }: { a: MinVeckaView["flags"][number] }) {
               <Button kind="primary" icon="check" disabled={!plan.trim()} pending={ack.pending} onClick={() => void save()}>
                 Spara kvittering
               </Button>
-              <Button kind="ghost" onClick={() => setOpen(false)}>
+              <Button kind="ghost" onClick={cancelAck}>
                 Avbryt
               </Button>
             </Row>
@@ -587,26 +655,42 @@ function WeekCalendar({ mon, acts, now }: { mon: string; acts: CalendarActivity[
                   const open = past ? grp.length - regd : 0;
                   const names = grp.map((x) => x.shortName);
                   const single = grp.length === 1;
-                  const target = single && a.kind === "möte" ? `/avstamning/${encodeURIComponent(a.caseId)}` : "/narvaro?vecka=denna";
+                  const target = single && a.kind === "möte" ? `/avstamning/${encodeURIComponent(a.caseId)}` : `/narvaro?vecka=denna${single ? `&arende=${encodeURIComponent(a.caseId)}` : ""}`;
                   const icon: IconName | null = single ? (a.attendance ? ATT[a.attendance].icon : past ? "circle" : null) : past ? (open ? "circle" : "check-circle") : null;
+                  const label = `${fmtTime(a.startsAt)} ${k.label} med ${names.join(", ")}${past ? (open ? `, ${open} ej registrerade` : ", närvaro registrerad") : ""}`;
+                  const tile = cn(
+                    "flex min-h-11 w-full min-w-0 flex-col gap-px rounded-[4px] border border-l-4 border-ljusgra bg-vit text-left text-meta leading-[1.35] text-antracit [font-family:inherit]",
+                    "max-[1100px]:w-auto max-[1100px]:flex-[1_1_170px]",
+                    EV_BORDER[k.cls],
+                  );
+                  const when = (
+                    <span className="flex items-center gap-1 font-bold">
+                      {fmtTime(a.startsAt)} · {k.label}
+                      {!single ? ` (${grp.length})` : ""}
+                      {icon && <Icon name={icon} className="ml-auto size-3.5" />}
+                    </span>
+                  );
+                  if (single) {
+                    // En deltagare: två mål – tiden och typen leder till avstämningen (eller närvaron), namnet till deltagarkortet.
+                    return (
+                      <div key={a.id} className={tile}>
+                        <Link to={target} aria-label={label} className="flex min-h-11 flex-col justify-center rounded-t-[3px] px-2 pt-1.5 no-underline hover:bg-ljusgra-ton">
+                          {when}
+                        </Link>
+                        <Link
+                          to={`/arenden/${encodeURIComponent(a.caseId)}`}
+                          className="inline-flex min-h-11 items-center rounded-b-[3px] px-2 pb-1 text-text-muted underline underline-offset-2 [overflow-wrap:anywhere] hover:bg-ljusgra-ton"
+                        >
+                          {names[0]}
+                          <span className="sr-only"> – deltagarkortet</span>
+                        </Link>
+                      </div>
+                    );
+                  }
                   return (
-                    <button
-                      type="button"
-                      key={a.id}
-                      onClick={() => nav.push(target)}
-                      aria-label={`${fmtTime(a.startsAt)} ${k.label} med ${names.join(", ")}${past ? (open ? `, ${open} ej registrerade` : ", närvaro registrerad") : ""}`}
-                      className={cn(
-                        "flex min-h-11 w-full min-w-0 cursor-pointer flex-col gap-px rounded-[4px] border border-l-4 border-ljusgra bg-vit px-2 py-1.5 text-left text-meta leading-[1.35] text-antracit [font-family:inherit] hover:bg-ljusgra-ton",
-                        "max-[1100px]:w-auto max-[1100px]:flex-[1_1_170px]",
-                        EV_BORDER[k.cls],
-                      )}
-                    >
-                      <span className="flex items-center gap-1 font-bold">
-                        {fmtTime(a.startsAt)} · {k.label}
-                        {!single ? ` (${grp.length})` : ""}
-                        {icon && <Icon name={icon} className="ml-auto size-3.5" />}
-                      </span>
-                      <span className="text-text-muted [overflow-wrap:anywhere]">{single ? names[0] : names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ")}</span>
+                    <button type="button" key={a.id} onClick={() => nav.push(target)} aria-label={label} className={cn(tile, "cursor-pointer px-2 py-1.5 hover:bg-ljusgra-ton")}>
+                      {when}
+                      <span className="text-text-muted [overflow-wrap:anywhere]">{names.length > 3 ? `${names.slice(0, 3).join(", ")} +${names.length - 3}` : names.join(", ")}</span>
                     </button>
                   );
                 })}

@@ -51,7 +51,10 @@ export type ButtonProps = {
   iconRight?: IconName;
   /** Gör knappen till en intern länk (navigering). */
   to?: string;
-  /** Kommandot pågår: knappen är inaktiv och markerad som upptagen. */
+  /**
+   * Kommandot pågår: knappen markeras som upptagen och inaktiv (aria-disabled) och klick ignoreras. Attributet disabled
+   * används inte – då tar webbläsaren bort fokus från knappen och tangentbordsanvändaren hamnar på sidans början.
+   */
   pending?: boolean;
   /** Tillgängligt namn – krävs för knappar med bara ikon. */
   ariaLabel?: string;
@@ -106,12 +109,20 @@ export function Button({
     <button
       type={type}
       className={cls}
-      disabled={disabled || pending}
+      disabled={disabled}
+      aria-disabled={(pending && !disabled) || undefined}
       aria-busy={pending || undefined}
       title={title}
       aria-label={label}
       aria-pressed={ariaPressed}
-      onClick={onClick}
+      onClick={
+        pending
+          ? (e: MouseEvent<HTMLButtonElement>) => {
+              // Upptagen: inget nytt klick och inget formulär skickas.
+              e.preventDefault();
+            }
+          : onClick
+      }
       {...rest}
     >
       {content}

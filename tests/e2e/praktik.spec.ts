@@ -28,8 +28,11 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
 
 test("praktik: registret och en ny arbetsgivare", async ({ page }, info) => {
   const errors = await open(page, info, "/praktik", SARA);
-  await expect(main(page)).toContainText("Byggs i fas 3");
+  // Utvecklingsfasen visas bara i prototypen – praktikregistret fungerar i appen och märks inte.
+  if (isDemo(info)) await expect(main(page)).toContainText("Byggs i fas 3");
+  else await expect(main(page)).toContainText("Arbetsgivare");
   const t = await text(page);
+  if (!isDemo(info)) expect(t).not.toContain("Byggs i fas");
   expect(t).toMatch(/Arbetsgivare\s*12\s*i registret/);
   // Praktikplatsen för personen med skyddade personuppgifter räknas inte för samordnaren (den gamla prototypen: 32 av 158).
   expect(t).toMatch(/Pågående praktik\s*31\s*157 praktikplatser totalt/);

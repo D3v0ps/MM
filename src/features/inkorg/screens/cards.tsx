@@ -3,6 +3,7 @@
 // orderbekräftelsen och avslaget (prototypens OriginalCard, ParsedCard, CaseFieldsCard, AckCard, DuplicateCard,
 // ConfirmationCard och DeclinedCard).
 import { useState } from "react";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { pct } from "@/core/format";
 import { useCommand, useQuery } from "@/shell/backend";
 import { AiTag, Badge, Button, Card, CaseLink, CaseStatusBadge, ErrorNotice, Icon, Kv, Loading, Notice, PerspectiveLink } from "@/ui";
@@ -192,7 +193,7 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
             ["Team", v.team],
             ["Första möte", v.firstMeeting],
             ["Planerad omfattning", v.planned],
-            ["Beställningens värde", v.value],
+            ["Beställningens värde", v.value ?? TESTER_HIDDEN_TEXT],
             ["Beställarreferens", v.buyerReference],
           ]}
         />

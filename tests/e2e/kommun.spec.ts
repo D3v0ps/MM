@@ -5,7 +5,7 @@
 // kommandologgen som spelas upp vid omladdning, i appen via /api/rpc. Det som inte syns på skärmen (revisionslogg,
 // senaste inloggning, rollkontroller) testas i src/features/kommun/handlers.test.ts.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { isDemo, open, switchPersona } from "./helpers";
+import { allowLeaveWarnings, isDemo, open, switchPersona } from "./helpers";
 
 type As = { userId: string; role: string };
 const MARIA: As = { userId: "k-maria", role: "kommun_handlaggare" };
@@ -314,6 +314,8 @@ test("3. beställning i tre steg och en granskning, kvittot och en beställning 
   expect(t).toMatch(/Kontaktväg\s+Brev/);
   // … och hos Miljonbemanning: beställarreferens och omfattning sparade
   await go(page, info, `/arenden/${newId}`, SARA);
+  // Kortets huvud är kompakt: beställarreferens och omfattning ligger under "Visa alla uppgifter".
+  await page.getByRole("button", { name: "Visa alla uppgifter" }).click();
   t = await mainText(page);
   expect(t).toContain("4410023817");
   expect(t).toMatch(/8 veckor/);
@@ -420,6 +422,8 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden, mötesförf
   await expect(main(page).getByRole("log", { name: "Meddelanden" })).toContainText("Nytt");
   await btn(page, "Tiden passar").click();
   await expect(page.locator("#kom-msg"), "snabbsvar fyller i meddelandet").toHaveValue(/^Tack! Tiden passar/);
+  // Svaret skickas inte här: sidan lämnas med text i fältet, och webbläsaren varnar (som den ska).
+  allowLeaveWarnings(page);
   await go(page, info, `/portal/deltagare/${SC.yusuf}`, MARIA);
   await expect(main(page), "meddelandet är markerat som läst").not.toContainText("Du har ett nytt meddelande");
   await expect(card(page, "Mötesförfrågan från coachen"), "obesvarad mötesförfrågan finns kvar i översikten").toHaveCount(1);
@@ -472,9 +476,15 @@ test("5. rapporter och meddelanden: olästa först, väntande veckorapport, filt
   const repId = (href.match(/\/portal\/rapporter\/([^?#/]+)/) ?? [])[1];
   expect(repId).toBeTruthy();
   await items.first().click();
-  await expect.poll(() => currentPath(page, info), { message: "rapporten öppnas i portalens rapportsida" }).toBe(`/portal/rapporter/${repId}?fran=rapporter`);
+  // Listans val följer med (bara koder), så att tillbakaknappen visar samma lista.
+  await expect
+    .poll(() => currentPath(page, info), { message: "rapporten öppnas i portalens rapportsida" })
+    .toMatch(new RegExp(`^/portal/rapporter/${repId}\\?fran=rapporter&lista=filter(=|%3D)weekly_attendance$`));
   await settle(page);
   await expect(main(page)).toContainText(/Veckorapport närvaro/i);
+  await main(page).getByRole("link", { name: "Tillbaka till rapporterna" }).first().click();
+  await expect.poll(() => currentPath(page, info), { message: "tillbaka till samma filter" }).toBe("/portal/rapporter?filter=weekly_attendance");
+  await expect(page.getByRole("group", { name: "Visa rapporter" }).getByRole("button", { name: /^Veckorapporter/ })).toHaveAttribute("aria-pressed", "true");
   await go(page, info, "/portal/rapporter", MARIA);
   await page.getByRole("tab", { name: /Meddelanden/ }).click();
   await expect.poll(() => currentPath(page, info)).toBe("/portal/rapporter?flik=meddelanden");

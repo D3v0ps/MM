@@ -83,6 +83,19 @@ describe("MB-layout", () => {
     expect(btn.getAttribute("aria-expanded")).toBe("true");
   });
 
+  it("mobilmenyn: Esc stänger och ger fokus till Meny, klick utanför stänger", () => {
+    setup({ role: "coach", path: "/min-vecka", area: "mb" });
+    const btn = screen.getByRole("button", { name: "Meny" });
+    fireEvent.click(btn);
+    expect(btn.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(btn);
+    fireEvent.click(btn);
+    fireEvent.pointerDown(screen.getByText("Innehåll"));
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("ekonomen får förra månadens fakturakörning", async () => {
     setup({ role: "ekonom", path: "/ekonomi", area: "mb" });
     expect(await screen.findByRole("link", { name: "Fakturakörning januari" })).toBeTruthy();
@@ -134,6 +147,17 @@ describe("kommunens portal", () => {
     expect(screen.queryByRole("button", { name: "Logga ut" })).toBeNull();
     expect(screen.getByText("Portal för beställare")).toBeTruthy();
   });
+  it("smal skärm: portalen har samma Meny-knapp, och namnet finns kvar för skärmläsare på skrivbordet", () => {
+    setup({ role: "kommun_handlaggare", path: "/portal/deltagare", routePath: "/portal/deltagare/:caseId?", area: "portal", unit: "Arbetsmarknadsenheten Alby" });
+    const btn = screen.getByRole("button", { name: "Meny" });
+    expect(btn.getAttribute("aria-controls")).toBe("portalmeny-lager");
+    fireEvent.click(btn);
+    expect(btn.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(btn.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getAllByText("Test Person, Arbetsmarknadsenheten Alby")).toHaveLength(1);
+  });
+
   it("chefen har sin egen meny", () => {
     setup({ role: "kommun_chef", path: "/portal/bestallarrapport", area: "portal" });
     const menu = screen.getByRole("navigation", { name: "Portalmeny" });

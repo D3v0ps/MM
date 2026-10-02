@@ -70,9 +70,27 @@ export function Loading({ label = "Hämtar…", className }: { label?: string; c
     return () => clearTimeout(t);
   }, []);
   return (
-    <div role="status" aria-live="polite" className={cn("flex items-center gap-2.5 px-1 py-6 text-text-muted", !visible && "opacity-0", className)}>
+    <div role="status" aria-live="polite" data-loading="" className={cn("flex items-center gap-2.5 px-1 py-6 text-text-muted", !visible && "opacity-0", className)}>
       <span aria-hidden="true" className="size-[18px] animate-spin rounded-full border-2 border-ljusgra border-t-antracit" />
       <span>{label}</span>
+    </div>
+  );
+}
+
+/**
+ * Föregående innehåll medan nytt hämtas (useQuery med keepPrevious): innehållet står kvar, dämpat och markerat som upptaget,
+ * med en rad "Hämtar…" ovanför. Väljare och fokus ligger kvar – listan töms aldrig.
+ */
+export function Refreshing({ busy, children, className }: { busy: boolean; children?: ReactNode; className?: string }) {
+  return (
+    <div aria-busy={busy || undefined} className={cn("flex flex-col gap-2", className)}>
+      {busy && (
+        <div role="status" data-loading="" className="flex items-center gap-2 text-small text-text-muted">
+          <span aria-hidden="true" className="size-3.5 animate-spin rounded-full border-2 border-ljusgra border-t-antracit" />
+          Hämtar…
+        </div>
+      )}
+      <div className={cn("min-w-0", busy && "opacity-70")}>{children}</div>
     </div>
   );
 }

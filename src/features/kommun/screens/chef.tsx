@@ -7,10 +7,12 @@ import { pct } from "@/core/format";
 import { monthName } from "@/core/time";
 import { reportOpen } from "@/features/rapporter/api";
 import { useCommand, useQuery } from "@/shell/backend";
+import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
+import { useQueryPatch } from "@/shell/url-state";
 import {
-  Badge, BuildPhase, Button, Card, DemoNote, ErrorNotice, Grid, Kpi, Kv, Loading, Meter, Notice, PerspectiveLink, Seg, Stack, TabPanel, Table, Tabs, useAuditView, useConfirm,
-  useToast,
+  Badge, BuildPhase, Button, Card, DemoNote, ErrorNotice, focusSoon, Grid, Kpi, Kv, Loading, Meter, Notice, PerspectiveLink, Seg, Stack, TabPanel, Table, Tabs, useAuditView,
+  useConfirm, useToast,
 } from "@/ui";
 import { kommunApproveActionPlan, kommunChef, type KomActionPlan, type KomChef, type KomRate } from "../api";
 import { fD, fDT, fDTL, monthCap, small as smallN, ucfirst } from "../texts";
@@ -19,8 +21,14 @@ import { KOM_TABS, KomHead, KomPage, reportPath } from "./parts";
 type Tab = "resultat" | "deltagare" | "progression" | "narvaro";
 const SATISFACTION = "Andel som svarat 4 eller 5 på en skala 1–5";
 
-export function PortalChefScreen() {
-  const [month, setMonth] = useState<string | null>(null);
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
+export function PortalChefScreen({ query }: ScreenProps) {
+  // Månaden i adressen (?manad=2026-10, replace): Tillbaka från ett dokument och omladdning visar samma månad.
+  const m0 = query.get("manad");
+  const month = m0 && MONTH_RE.test(m0) ? m0 : null;
+  const patch = useQueryPatch();
+  const setMonth = (m: string) => patch({ manad: m });
   const q = useQuery(kommunChef, { month });
   // Vid byte av månad visas föregående siffror tills de nya är hämtade (ingen tom sida emellan).
   const [last, setLast] = useState<KomChef | undefined>(q.data);
@@ -91,9 +99,14 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
       ),
     });
     if (!yes) return;
+    // Knappen försvinner med planen: fokus till nästa plan som väntar, annars till månadsvalet.
+    const i = d.pendingPlans.findIndex((x) => x.id === cd.id);
+    const next = d.pendingPlans[i + 1] ?? d.pendingPlans[i - 1];
     const res = await approve.run({ id: cd.id }).catch(() => null);
-    if (res && res.ok) toast("Åtgärdsplanen är godkänd. Miljonbemanning har fått besked.");
-    else toast("Åtgärdsplanen kunde inte godkännas.", "error");
+    if (res && res.ok) {
+      toast("Åtgärdsplanen är godkänd. Miljonbemanning har fått besked.");
+      focusSoon(next ? `plan-${next.id}` : "kom-month-label");
+    } else toast("Åtgärdsplanen kunde inte godkännas.", "error");
   };
 
   return (
@@ -109,7 +122,7 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
         <Card title={`Väntar på ditt godkännande (${d.pendingPlans.length})`} icon="flag" tone="red" actions={<BuildPhase fas={2} />}>
           <Stack>
             {d.pendingPlans.map((cd) => (
-              <Stack gap="sm" key={cd.id}>
+              <div id={`plan-${cd.id}`} tabIndex={-1} className="flex flex-col gap-2.5" key={cd.id}>
                 <div className="flex flex-wrap items-center gap-2.5">
                   <Badge tone="outline">{ucfirst(cd.type)}</Badge>
                   <Badge tone="grey">{cd.stepText}</Badge>
@@ -130,7 +143,7 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
                   </Button>
                 </div>
                 <p className="text-body text-text-muted">Har du synpunkter på planen? Kontakta avtalsansvarig {d.managerName} på Miljonbemanning.</p>
-              </Stack>
+              </div>
             ))}
           </Stack>
         </Card>
@@ -364,7 +377,7 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
             )}
           </TabPanel>
           <div className="flex flex-wrap items-center gap-3">
-            <Button icon="file" to={reportPath(rep.id, "bestallarrapport")}>
+            <Button icon="file" to={reportPath(rep.id, "bestallarrapport", { manad: d.month })}>
               Öppna rapporten som dokument
             </Button>
             <Button icon="users" to="/portal/deltagare">

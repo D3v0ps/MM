@@ -57,9 +57,10 @@ export function FormGrid({ className, ...rest }: DivProps) {
 
 export const Divider = ({ className }: { className?: string }) => <hr className={cn("my-1 h-px border-0 bg-ljusgra", className)} />;
 
-/** Versal etikett med spärrning (prototypens eyebrow / label-caps). */
+/** Versal etikett med spärrning (prototypens eyebrow / label-caps). Långa ord (t.ex. enhetens namn i portalens 18 px) bryts
+ * hellre än att sidan blir bredare än en smal skärm. */
 export function Eyebrow({ as: As = "div", className, ...rest }: ComponentPropsWithoutRef<"div"> & { as?: ElementType }) {
-  return <As className={cn("text-label font-bold uppercase tracking-[0.09em] text-text-muted portal:text-body", className)} {...rest} />;
+  return <As className={cn("text-label font-bold uppercase tracking-[0.09em] [overflow-wrap:anywhere] text-text-muted portal:text-body", className)} {...rest} />;
 }
 
 /** Röd punkt – profilens accent. */
@@ -108,6 +109,11 @@ export type ListItemProps = {
   className?: string;
   children?: ReactNode;
   "aria-label"?: string;
+  /** Mål när raden öppnas från deltagarkortets tidslinje (?mal=). */
+  "data-mal"?: string;
+  /** Radens id – t.ex. för att flytta fokus hit när knappen man tryckte på försvinner (tabIndex -1). */
+  id?: string;
+  tabIndex?: number;
 };
 
 const LI = "flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0 portal:px-5 portal:py-3.5";

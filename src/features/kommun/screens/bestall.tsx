@@ -4,16 +4,18 @@
 // ärendenummer och skickar ordererkännandet (eller en generisk bekräftelse vid skyddade personuppgifter).
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { OperationalConfig } from "@/core/config";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
 import { addDays, monday } from "@/core/time";
 import { buyerRefError, buyerRefLengthText, emailValid, pnrFormatValid } from "@/core/validation";
 import type { PreferredContact } from "@/data/schema";
 import { caseCreate, caseUpdate } from "@/features/arenden/api";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { leaveWithoutAsking, useDraft, useUnsavedGuard } from "@/shell/guard";
+import { path, useNav } from "@/shell/nav";
 import {
-  Button, Card, DemoNote, ErrorNotice, Eyebrow, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TextArea, Timeline, cn, useToast,
-  Field, type IconName,
+  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TextArea, Timeline,
+  cn, useConfirm, useToast, Field, type IconName,
 } from "@/ui";
 import { kommunDuplicate, kommunOrderForm, kommunReceipt, type KomDuplicate, type KomOrderForm } from "../api";
 import { fD, fDT, fDTL, fullText, maskPnr, SAFE_PHONE, statusName } from "../texts";
@@ -79,6 +81,13 @@ function refError(m: KomOrderForm, v: string): string | null {
   if (m.blockedRefs.includes(ref)) return `Referensen ${ref} är spärrad. Kommunens ekonomi känner inte igen den. Kontrollera att inga siffror har blivit omkastade.`;
   return null;
 }
+
+/** Fältet som ett fel gäller (länkarna i felsammanfattningen). */
+const ERROR_FIELD: Record<string, string> = {
+  contactName: "kom-o-name", contactPhone: "kom-o-phone", contactEmail: "kom-o-email", buyerReference: "kom-o-ref", desiredStart: "kom-o-start", plannedWeeks: "kom-o-weeks",
+  plannedEnd: "kom-o-end", protectedIdentity: "kom-o-prot", firstName: "kom-o-fn", lastName: "kom-o-ln", pnr: "kom-o-pnr", phone: "kom-o-dphone", email: "kom-o-demail",
+  city: "kom-o-city", address: "kom-o-addr", primaryArea: "kom-o-area", secondaryArea: "kom-o-area2",
+};
 
 function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly KomDuplicate[]): Record<string, string> {
   const e: Record<string, string> = {};
@@ -150,17 +159,47 @@ function KomStepper({ current, skipped }: { current: number; skipped: number | n
   );
 }
 
+/** Adressen för ett steg: ?steg=1–4 (granskningen är 4). fran=granskning när man ändrar från granskningen. */
+const stepPath = (step: number, fromReview = false) => path("/portal/bestall", { steg: step > 0 ? step + 1 : null, fran: fromReview ? "granskning" : null });
+
+/** Första steget som inte är klart (granskningen = 3 när allt är ifyllt). Steg 3 hoppas över vid skyddade personuppgifter. */
+function firstOpenStep(f: Order, m: KomOrderForm, dups: readonly KomDuplicate[]): number {
+  for (const s of f.protectedIdentity ? [0, 1] : [0, 1, 2]) if (Object.keys(validateStep(s, f, m, dups)).length) return s;
+  return DATA_STEPS;
+}
+
 function OrderForm({ m }: { m: KomOrderForm }) {
   const nav = useNav();
   const toast = useToast();
+  const confirm = useConfirm();
   const create = useCommand(caseCreate);
   const update = useCommand(caseUpdate);
-  const [f, setF] = useState<Order>(() => initialOrder(m));
-  const [step, setStep] = useState(0);
-  const [showErr, setShowErr] = useState(false);
+  // Utkastminne (bara i minnet – personnumret sparas aldrig i webblagring): det ifyllda finns kvar om man lämnar sidan.
+  const draft = useDraft<Order>("portal-bestall", () => initialOrder(m));
+  const f = draft.value;
+  const setF = draft.set;
+  const [baseline, setBaseline] = useState(() => JSON.stringify(initialOrder(m)));
+  // Steget ligger i adressen (?steg=, push): webbläsarens Tillbaka går till föregående steg.
+  const urlStep = Math.min(DATA_STEPS, Math.max(0, (Number(nav.query.get("steg")) || 1) - 1));
+  const fromReview = nav.query.get("fran") === "granskning";
+  // Felen visas för steget där användaren tryckte Nästa (eller Skicka).
+  const [errStep, setErrStep] = useState<number | null>(null);
   const [refTouched, setRefTouched] = useState(false);
   const [done, setDone] = useState<{ caseId: string; caseNumber: string } | null>(null);
   const headRef = useRef<HTMLHeadingElement | HTMLDivElement | null>(null);
+
+  const pnrOk = pnrFormatValid(f.pnr);
+  const dupQ = useQuery(kommunDuplicate, pnrOk ? { pnr: f.pnr.trim() } : null);
+  const dups = pnrOk ? (dupQ.data ?? []) : [];
+  // Ett steg längre fram än det som är ifyllt (t.ex. efter omladdning, när utkastet inte finns kvar): visa första ofärdiga steget.
+  const open = firstOpenStep(f, m, dups);
+  const step = Math.min(urlStep, open);
+  const showErr = errStep === step;
+  const goStep = (to: number, opts?: { fromReview?: boolean }) => nav.push(stepPath(to, opts?.fromReview));
+  useEffect(() => {
+    if (!done && urlStep > step) nav.replace(stepPath(step));
+  }, [done, urlStep, step, nav]);
+  // Nytt steg (eller kvittot): överst på sidan och fokus på stegets rubrik.
   useEffect(() => {
     try {
       window.scrollTo({ top: 0 });
@@ -169,10 +208,23 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       /* fokus är valfritt */
     }
   }, [step, done]);
-
-  const pnrOk = pnrFormatValid(f.pnr);
-  const dupQ = useQuery(kommunDuplicate, pnrOk ? { pnr: f.pnr.trim() } : null);
-  const dups = pnrOk ? (dupQ.data ?? []) : [];
+  const dirty = !done && JSON.stringify(f) !== baseline;
+  useUnsavedGuard(dirty, "Beställningen är inte skickad. Det du har fyllt i finns kvar om du kommer tillbaka, men försvinner om du laddar om sidan.");
+  const cancel = async () => {
+    if (dirty) {
+      const ok = await confirm({
+        title: "Avbryta beställningen?",
+        body: "Beställningen skickas inte och det du har fyllt i försvinner.",
+        confirmLabel: "Avbryt beställningen",
+        cancelLabel: "Fortsätt fylla i",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    setF(initialOrder(m));
+    draft.clear();
+    leaveWithoutAsking(() => nav.push("/portal"));
+  };
 
   const set = <K extends keyof Order>(k: K) => (v: Order[K]) =>
     setF((x) => {
@@ -188,7 +240,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const price = (() => {
     if (!f.primaryArea) return 0;
     const date = f.desiredStart || m.today;
-    return m.prices.find((p) => p.areaCode === f.primaryArea && p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
+    return m.prices?.find((p) => p.areaCode === f.primaryArea && p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
   })();
   const areaLabel = (code: string) => {
     const a = m.areas.find((x) => x.code === code);
@@ -197,22 +249,23 @@ function OrderForm({ m }: { m: KomOrderForm }) {
 
   const next = () => {
     if (Object.keys(errs).length) {
-      setShowErr(true);
-      toast("Några uppgifter saknas eller behöver rättas. Se markeringarna.", "error");
+      // Felsammanfattningen överst i steget läses upp; fokus till första fältet med fel.
+      setErrStep(step);
+      focusFirstError(document.getElementById("main"));
       return;
     }
-    setShowErr(false);
-    setStep(step === 1 && f.protectedIdentity ? 3 : step + 1);
+    setErrStep(null);
+    goStep(fromReview ? DATA_STEPS : step === 1 && f.protectedIdentity ? 3 : step + 1);
   };
   const back = () => {
-    setShowErr(false);
-    setStep(step === 3 && f.protectedIdentity ? 1 : Math.max(0, step - 1));
+    setErrStep(null);
+    goStep(step === 3 && f.protectedIdentity ? 1 : Math.max(0, step - 1));
   };
   const submit = async () => {
     for (const s of f.protectedIdentity ? [0, 1] : [0, 1, 2]) {
       if (Object.keys(validateStep(s, f, m, dups)).length) {
-        setStep(s);
-        setShowErr(true);
+        goStep(s);
+        setErrStep(s);
         toast("Några uppgifter behöver rättas innan du kan skicka.", "error");
         return;
       }
@@ -234,8 +287,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
     }
     if (!res.ok) {
       if (res.error === "buyer_ref") {
-        setStep(0);
-        setShowErr(true);
+        goStep(0);
+        setErrStep(0);
         setRefTouched(true);
         toast("Beställarreferensen behöver rättas.", "error");
       } else toast(res.message ?? "Beställningen kunde inte skickas.", "error");
@@ -247,14 +300,18 @@ function OrderForm({ m }: { m: KomOrderForm }) {
         .run({ caseId: res.caseId, patch: { referrerName: f.contactName.trim(), referrerUnit: f.unit, referrerPhone: f.contactPhone.trim(), referrerEmail: f.contactEmail.trim() } })
         .catch(() => null);
     }
+    draft.clear();
     setDone({ caseId: res.caseId, caseNumber: res.caseNumber });
     toast(`Beställningen är skickad. Ärendenummer ${res.caseNumber}.`);
   };
   const again = () => {
+    const fresh = initialOrder(m, { contactName: f.contactName, unit: f.unit, contactPhone: f.contactPhone, contactEmail: f.contactEmail, buyerReference: f.buyerReference, desiredStart: f.desiredStart, plannedWeeks: null, plannedEnd: "", endTouched: false });
     setDone(null);
-    setF(initialOrder(m, { contactName: f.contactName, unit: f.unit, contactPhone: f.contactPhone, contactEmail: f.contactEmail, buyerReference: f.buyerReference, desiredStart: f.desiredStart, plannedWeeks: null, plannedEnd: "", endTouched: false }));
-    setStep(0);
-    setShowErr(false);
+    setF(fresh);
+    draft.clear();
+    setBaseline(JSON.stringify(fresh));
+    setErrStep(null);
+    nav.replace(stepPath(0));
   };
 
   if (done) return <OrderDone caseId={done.caseId} customerName={m.customerName} onAgain={again} headRef={headRef as RefObject<HTMLDivElement | null>} />;
@@ -459,8 +516,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       ["Omfattning", `${f.plannedWeeks} veckor`],
     ];
     const edit = (to: number) => {
-      setShowErr(false);
-      setStep(to);
+      setErrStep(null);
+      goStep(to, { fromReview: true });
     };
     body = f.protectedIdentity ? (
       <Stack>
@@ -509,10 +566,19 @@ function OrderForm({ m }: { m: KomOrderForm }) {
         </Card>
         <Card title="Beställningens värde" icon="card">
           <Stack gap="sm">
-            <div className="text-[2rem] leading-[1.1] font-extrabold tabular-nums">{kr(price * (f.plannedWeeks || 0))}</div>
-            <div className="text-text-muted">
-              {f.plannedWeeks} veckor × {kr(price)} per vecka, exklusive moms. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.
-            </div>
+            {m.prices ? (
+              <>
+                <div className="text-[2rem] leading-[1.1] font-extrabold tabular-nums">{kr(price * (f.plannedWeeks || 0))}</div>
+                <div className="text-text-muted">
+                  {f.plannedWeeks} veckor × {kr(price)} per vecka, exklusive moms. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="font-bold">{TESTER_HIDDEN_TEXT}</div>
+                <div className="text-text-muted">{f.plannedWeeks} veckor. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.</div>
+              </>
+            )}
           </Stack>
         </Card>
         <Notice tone="info" title="Det här händer när du skickar">
@@ -539,20 +605,32 @@ function OrderForm({ m }: { m: KomOrderForm }) {
               {STEPS[step]}
             </h2>
           </Stack>
+          {showErr && step < DATA_STEPS && (
+            <ErrorSummary
+              title="Rätta det här innan du går vidare"
+              items={Object.entries(errs).map(([k, text]) => ({ id: ERROR_FIELD[k] ?? "kom-o-name", text }))}
+            />
+          )}
           {body}
         </Stack>
       </Card>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        {step > 0 ? (
-          <Button icon="arrow-left" onClick={back}>
-            Tillbaka
-          </Button>
-        ) : (
-          <Button kind="ghost" icon="x" to="/portal">
+        <span className="flex flex-wrap items-center gap-3">
+          {step > 0 && !fromReview && (
+            <Button icon="arrow-left" onClick={back}>
+              Tillbaka
+            </Button>
+          )}
+          {/* Avbryt finns på alla steg – frågar först om något är ifyllt. */}
+          <Button kind="ghost" icon="x" onClick={() => void cancel()}>
             Avbryt
           </Button>
-        )}
-        {step < 3 ? (
+        </span>
+        {step < 3 && fromReview ? (
+          <Button kind="primary" size="lg" icon="check" onClick={next}>
+            Spara och tillbaka till granskningen
+          </Button>
+        ) : step < 3 ? (
           <Button kind="primary" size="lg" iconRight="arrow-right" onClick={next}>
             {step === 1 && f.protectedIdentity ? "Nästa: granska" : `Nästa: ${STEPS[step + 1].toLowerCase()}`}
           </Button>
@@ -576,7 +654,7 @@ function ReviewSection({ title, onEdit, items }: { title: string; onEdit: () => 
     <div className="flex flex-col gap-2.5 [&+&]:border-t [&+&]:border-ljusgra [&+&]:pt-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">{title}</div>
-        <Button kind="ghost" icon="edit" onClick={onEdit}>
+        <Button kind="ghost" icon="edit" onClick={onEdit} ariaLabel={`Ändra ${title.toLowerCase()}`}>
           Ändra
         </Button>
       </div>

@@ -3,6 +3,7 @@
 // (prototypens AcceptModal, DeclineModal, CorrectModal och PhoneModal).
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
 import { addWorkingDays, dayOf, diffDays, fmtDate, fmtWeekday, holidayName, isWorkingDay } from "@/core/time";
 import { pnrFormatValid } from "@/core/validation";
@@ -35,16 +36,21 @@ function Loader({ title, onClose, error, children }: { title: string; onClose: (
 }
 
 // ---------------------------------------------------------------- Acceptera
-export function AcceptModal({ caseId, caseNumber, onClose, onShowEmail }: { caseId: string; caseNumber: string; onClose: () => void; onShowEmail?: (id: string) => void }) {
+/** next = nästa avrop att hantera (knappen i kvittensen). */
+export type NextAction = { label: string; open: () => void } | null;
+
+export function AcceptModal({
+  caseId, caseNumber, onClose, onShowEmail, next = null,
+}: { caseId: string; caseNumber: string; onClose: () => void; onShowEmail?: (id: string) => void; next?: NextAction }) {
   const q = useQuery(inboxDecisionForm, { caseId });
   if (q.error || !q.data) return <Loader title={`Acceptera ${caseNumber}`} onClose={onClose} error={q.error ?? (q.data === null ? new Error() : undefined)} />;
-  return <AcceptForm f={q.data} onClose={onClose} onShowEmail={onShowEmail} />;
+  return <AcceptForm f={q.data} onClose={onClose} onShowEmail={onShowEmail} next={next} />;
 }
 
-const priceOn = (f: DecisionForm, date: string): number => f.prices.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
-const exampleOn = (f: DecisionForm, date: string): boolean => !!f.prices.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.exampleOnly;
+const priceOn = (f: DecisionForm, date: string): number => f.prices?.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
+const exampleOn = (f: DecisionForm, date: string): boolean => !!f.prices?.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.exampleOnly;
 
-function AcceptForm({ f, onClose, onShowEmail }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void }) {
+function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void; next: NextAction }) {
   const accept = useCommand(caseAccept);
   const [coach, setCoach] = useState("");
   const [team, setTeam] = useState<string[]>([]);
@@ -111,7 +117,23 @@ function AcceptForm({ f, onClose, onShowEmail }: { f: DecisionForm; onClose: () 
 
   if (done) {
     return (
-      <Modal title="Avropet är accepterat" onClose={onClose} wide footer={<Button kind="primary" onClick={onClose}>Klart</Button>}>
+      <Modal
+        title="Avropet är accepterat"
+        onClose={onClose}
+        wide
+        footer={
+          <>
+            <Button kind={next ? "secondary" : "primary"} onClick={onClose}>
+              Klart
+            </Button>
+            {next && (
+              <Button kind="primary" iconRight="arrow-right" onClick={next.open}>
+                {next.label}
+              </Button>
+            )}
+          </>
+        }
+      >
         <div ref={doneRef} className="flex flex-col gap-4">
           <Notice tone="ok" title={`Orderbekräftelsen för ${f.caseNumber} är publicerad i portalen`}>Kommunen har fått ett mejl utan personuppgifter om att bekräftelsen finns att läsa.</Notice>
           <ConfirmationCard caseId={f.caseId} />
@@ -190,7 +212,7 @@ function AcceptForm({ f, onClose, onShowEmail }: { f: DecisionForm; onClose: () 
             {errs.coach}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-1.5 text-small text-text-muted"><BuildPhase fas={4} /><span>Kapacitetstak per coach (aktiva ärenden mot tak).</span></div>
+        <div className="flex flex-wrap items-center gap-1.5 text-small text-text-muted"><BuildPhase fas={4} off /><span>Kapacitetstak per coach (aktiva ärenden mot tak).</span></div>
       </fieldset>
 
       <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
@@ -227,9 +249,11 @@ function AcceptForm({ f, onClose, onShowEmail }: { f: DecisionForm; onClose: () 
         )}
         <Field
           id="ink-weeks" label="Planerad omfattning (veckor)" required error={tried ? errs.weeks : null}
-          help={price && w > 0
-            ? `Beställningens värde: ${w} veckor × ${kr(price)} = ${kr(w * price)}${example ? " (exempelpris i prototypen)" : ""}.`
-            : "Används för orderns värde och för upparbetat och återstående belopp på fakturan."}
+          help={!f.prices
+            ? `Används för orderns värde. Beställningens värde: ${TESTER_HIDDEN_TEXT.toLowerCase()}.`
+            : price && w > 0
+              ? `Beställningens värde: ${w} veckor × ${kr(price)} = ${kr(w * price)}${example ? " (exempelpris i prototypen)" : ""}.`
+              : "Används för orderns värde och för upparbetat och återstående belopp på fakturan."}
         >
           <Input type="number" inputMode="numeric" value={weeks} onValueChange={setWeeks} />
         </Field>

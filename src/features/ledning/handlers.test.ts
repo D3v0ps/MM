@@ -55,7 +55,7 @@ describe("ledningsvyn", () => {
     ]);
     expect([d.sla.targetText, d.sla.overdueCount, d.sla.seesSlaStats]).toEqual(["internt mål 100\u00a0%", 1, false]);
     expect(d.unbilled).toMatchObject({ totalOre: 557400, weeks: 4, oldestDays: 57, warningDays: 45 });
-    expect(d.unbilled.cases.map((c) => c.caseNumber)).toEqual(["BOT-26-0117", "BOT-26-0121"]);
+    expect(d.unbilled?.cases.map((c) => c.caseNumber)).toEqual(["BOT-26-0117", "BOT-26-0121"]);
     expect(d.cds.open).toBe(2);
     expect(d.cds.warnings).toBe(0);
     expect(d.cds.warningsBeforeTermination).toBe(3);

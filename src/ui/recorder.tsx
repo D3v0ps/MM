@@ -11,6 +11,7 @@
 // stoppad). Ingen dataåtkomst här – samma regler som resten av src/ui.
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useRuntime } from "@/shell/runtime";
+import { isLeavingDocument } from "@/shell/nav";
 import { Badge } from "./badge";
 import { Button } from "./button";
 import { cn } from "./cn";
@@ -170,6 +171,11 @@ export type RecorderProps = {
   dir?: "ltr" | "rtl";
   /** Anropas när inspelningen startar, pausas och stoppas (t.ex. för att låsa andra val medan den pågår). */
   onActiveChange?: (active: boolean) => void;
+  /**
+   * Pausa en pågående inspelning så länge hold är sant (t.ex. medan frågan "Lämna sidan?" visas). Inspelningen fortsätter
+   * när hold blir falskt igen – bara om det var hold som pausade den.
+   */
+  hold?: boolean;
 };
 
 /**
@@ -178,7 +184,7 @@ export type RecorderProps = {
  */
 export function Recorder({
   maxSeconds, onRecorded, record = true, upload = false, disabled, texts, idPrefix, size, allowSimulate = true, maxBytes = DEFAULT_MAX_BYTES, children, className, lang, dir,
-  onActiveChange,
+  onActiveChange, hold,
 }: RecorderProps) {
   const t: RecorderTexts = { ...RECORDER_TEXTS_SV, ...texts };
   const demo = useRuntime() === "demo";
@@ -279,6 +285,8 @@ export function Recorder({
   useEffect(() => {
     if (phase !== "recording" && phase !== "paused") return undefined;
     const warn = (e: BeforeUnloadEvent) => {
+      // Appen laddar om efter att användaren redan har svarat på frågan (src/shell/nav.tsx).
+      if (isLeavingDocument()) return undefined;
       e.preventDefault();
       e.returnValue = t.leaveWarning;
       return t.leaveWarning;
@@ -346,7 +354,7 @@ export function Recorder({
     begin({ recorder: null, stream: null, chunks: [], mimeType: "audio/webm", simulated: true });
   };
 
-  const pause = () => {
+  const pause = (focus = true) => {
     const s = session.current;
     if (!s) return;
     try {
@@ -359,9 +367,9 @@ export function Recorder({
     setSeconds(Math.floor(clock.current.doneMs / 1000));
     setPhase("paused");
     setAnnounce(t.pausedSr);
-    setTimeout(() => document.getElementById(`${id}-resume`)?.focus(), 30);
+    if (focus) setTimeout(() => document.getElementById(`${id}-resume`)?.focus(), 30);
   };
-  const resume = () => {
+  const resume = (focus = true) => {
     const s = session.current;
     if (!s) return;
     try {
@@ -372,8 +380,23 @@ export function Recorder({
     clock.current = { ...clock.current, startMs: Date.now() };
     setPhase("recording");
     setAnnounce(t.resumedSr);
-    focusControl("pause");
+    if (focus) focusControl("pause");
   };
+  // hold: pausa utan att flytta fokus (en dialog har fokus) och fortsätt när hold släpps.
+  const heldByHold = useRef(false);
+  const holdActions = useRef({ pause, resume });
+  useEffect(() => {
+    holdActions.current = { pause, resume };
+  });
+  useEffect(() => {
+    if (hold && phase === "recording") {
+      heldByHold.current = true;
+      holdActions.current.pause(false);
+    } else if (!hold && heldByHold.current) {
+      heldByHold.current = false;
+      if (phase === "paused") holdActions.current.resume(false);
+    }
+  }, [hold, phase]);
 
   const chooseFile = (f: File | null) => {
     setFileError(null);
@@ -434,11 +457,11 @@ export function Recorder({
               </div>
               <div className="flex flex-wrap items-center gap-2.5">
                 {phase === "recording" ? (
-                  <Button id={`${id}-pause`} kind="secondary" size={big} icon="pause" onClick={pause}>
+                  <Button id={`${id}-pause`} kind="secondary" size={big} icon="pause" onClick={() => pause()}>
                     {t.pause}
                   </Button>
                 ) : (
-                  <Button id={`${id}-resume`} kind="secondary" size={big} icon="play" onClick={resume}>
+                  <Button id={`${id}-resume`} kind="secondary" size={big} icon="play" onClick={() => resume()}>
                     {t.resume}
                   </Button>
                 )}

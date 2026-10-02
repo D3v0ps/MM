@@ -7,15 +7,21 @@ import { PerspectiveLink } from "@/ui";
 import { useNav, Link } from "./nav";
 import { isAuthenticated, useSession } from "./session";
 import { DemoOnly } from "./runtime";
-import { loginPathFor, resolveRoute, START_PATH, titleOf, type RouteDef, type RouteMatch } from "./routes";
+import { isTesterHiddenPath, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
+import { loginPathFor, resolveRoute, startPathFor, titleOf, type RouteDef, type RouteMatch } from "./routes";
 import { LayoutFor } from "./layouts";
+import { usePageEffects, usePageTitleOverride } from "./page-effects";
+import { useRuntime } from "./runtime";
+
+/** Vilken sida som visas: rutt + parametrar (keepMounted: bara rutten). Samma nyckel = samma skärm, bara query ändras. */
+export const pageKeyOf = (m: RouteMatch): string => m.route.path + (m.route.keepMounted ? "" : JSON.stringify(m.params));
 
 export function App({ routes }: { routes: readonly RouteDef[] }) {
   const nav = useNav();
   const session = useSession();
   const { actor } = session;
   const signedIn = isAuthenticated(session);
-  const start = signedIn ? START_PATH[actor.role] : loginPathFor(nav.path);
+  const start = signedIn ? startPathFor(actor.role, session.hidesCommercial) : loginPathFor(nav.path);
   const match = resolveRoute(routes, nav.path);
   // Inte inloggad: bara publika sidor. Allt annat leder till rätt inloggning (portalen eller MB).
   const mustLogin = !signedIn && !(match && match.route.public);
@@ -25,12 +31,21 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
     else if (mustLogin) nav.replace(`${loginPathFor(nav.path)}?till=${encodeURIComponent(nav.path)}`);
   }, [nav, start, mustLogin]);
 
-  const title = match ? titleOf(match, nav.query) : "Sidan finns inte";
+  const hiddenForTester = signedIn && !!session.hidesCommercial && isTesterHiddenPath(nav.path);
+  const title = hiddenForTester ? TESTER_HIDDEN_TEXT : match ? titleOf(match, nav.query) : "Sidan finns inte";
+  const override = usePageTitleOverride();
+  const query = nav.query.toString();
   useEffect(() => {
-    document.title = `${title} – Miljonmatch`;
-  }, [title]);
+    document.title = `${override ?? title} – Miljonmatch`;
+  }, [override, title, nav.path, query]);
 
-  if (nav.path === "/" || nav.path === "" || mustLogin) return null;
+  // Skroll, fokus och uppläsning vid sidbyte (och återställd skroll vid tillbaka/framåt).
+  const runtime = useRuntime();
+  const redirecting = nav.path === "/" || nav.path === "" || mustLogin;
+  const pageKey = redirecting ? "" : match ? pageKeyOf(match) : `notfound:${nav.path}`;
+  usePageEffects(nav, pageKey, title, runtime === "app");
+
+  if (redirecting) return null;
   if (!match) {
     return (
       <LayoutFor match={notFoundMatch(nav.path)}>
@@ -54,16 +69,23 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
       </LayoutFor>
     );
   }
+  // Begränsad testare (testmiljön): avtalssidan och Ekonomi är stängda. Servern nekar dessutom frågorna bakom sidorna.
+  if (hiddenForTester) {
+    return (
+      <LayoutFor match={match}>
+        <Problem title={TESTER_HIDDEN_PAGE.replace(/\.$/, "")} text="Sidan visar priser, belopp eller avtalets villkor. De uppgifterna visas inte för testare." start={start} />
+      </LayoutFor>
+    );
+  }
   return <Screen match={match} />;
 }
 
 function Screen({ match }: { match: RouteMatch }) {
   const nav = useNav();
   const S = match.route.screen;
-  const key = `${match.route.path}|${JSON.stringify(match.params)}`;
   return (
     <LayoutFor match={match}>
-      <ErrorBoundary key={key}>
+      <ErrorBoundary key={pageKeyOf(match)}>
         <S params={match.params} query={nav.query} />
       </ErrorBoundary>
     </LayoutFor>

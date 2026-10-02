@@ -6,13 +6,14 @@ import { useState } from "react";
 import { fmtDate, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
+import { ProtoText, useRuntime } from "@/shell/runtime";
 import {
   Badge, BuildPhase, Button, Card, CellSub, DateInput, Field, FormGrid, Icon, Input, Notice, Page, Row, Seg, SlaBadge, Split, Stack, Table, TextArea, toast, useConfirm,
   type BadgeTone, type IconName,
 } from "@/ui";
 import { caseClose } from "@/features/arenden/api";
 import { eventAdd, eventsPage, type EventsPage } from "../api";
-import { cap, CaseHeadView, CasePicker, Chips, customerPerspective, GateView, lc, MIN_VECKA_CRUMB, PageState, Persp, useCaseView } from "./shared";
+import { cap, CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, lc, PageState, Persp, useCaseView } from "./shared";
 
 type Ok = Extract<EventsPage, { kind: "ok" }>;
 type Mode = "event" | "close";
@@ -63,6 +64,7 @@ type Ev = { kind: string | null; occurredOn: string; actor: string; verification
 type Cl = { endDate: string; endReason: string | null; verified: "yes" | "no"; verificationKind: string | null; file: string };
 
 function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
+  const demo = useRuntime() === "demo";
   const add = useCommand(eventAdd);
   const close = useCommand(caseClose);
   const confirm = useConfirm();
@@ -92,7 +94,9 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
       return n;
     });
   };
-  const possibleBonus = ev.kind === "arbete_paborjat";
+  // bonusOn saknas för begränsade testare (servern lämnar inte ut bonus) – då visas ingen bonusmarkering.
+  const showBonus = v.bonusOn !== undefined;
+  const possibleBonus = showBonus && ev.kind === "arbete_paborjat";
   const events = v.events;
   const eventLabelOf = (k: string | null) => v.eventKinds.find((x) => x.value === k)?.label ?? k ?? "";
   const endReasonLabel = (r: string | null) => v.endReasons.find((x) => x.value === r)?.label ?? "–";
@@ -170,8 +174,8 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
 
   const persp = customerPerspective(v.referrer);
   const nBonus = events.filter((x) => x.possibleBonus).length;
-  const bonusCard = (
-    <Card title="Bonus" icon="award" actions={<BuildPhase fas={3} />}>
+  const bonusCard = showBonus && (
+    <Card title="Bonus" icon="award" actions={<BuildPhase fas={3} off />}>
       <Stack gap="sm">
         <Row gap="sm">
           <Badge tone="grey" icon="minus-circle">
@@ -195,7 +199,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
     <Page
       title={mode === "close" ? "Avsluta insatsen" : "Händelser och utfall"}
       eyebrow={`${c.name} · ${c.caseNumber}`}
-      crumbs={[MIN_VECKA_CRUMB, { label: mode === "close" ? "Avsluta insatsen" : "Händelser" }]}
+      crumbs={caseCrumbs(c, mode === "close" ? "Avsluta insatsen" : "Händelser")}
       lead={
         mode === "close"
           ? "Avslutsorsak och resultat väljer du själv. Arbete och studier räknas som resultat först när verifiering finns."
@@ -247,18 +251,22 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                     </Badge>
                   ),
               },
-              {
-                key: "bonus",
-                label: "Bonusunderlag",
-                render: (e) =>
-                  e.possibleBonus ? (
-                    <Badge tone="plan" icon="award">
-                      Möjligt
-                    </Badge>
-                  ) : (
-                    "–"
-                  ),
-              },
+              ...(showBonus
+                ? [
+                    {
+                      key: "bonus",
+                      label: "Bonusunderlag",
+                      render: (e: Ok["events"][number]) =>
+                        e.possibleBonus ? (
+                          <Badge tone="plan" icon="award">
+                            Möjligt
+                          </Badge>
+                        ) : (
+                          "–"
+                        ),
+                    },
+                  ]
+                : []),
             ]}
           />
         </Card>
@@ -351,7 +359,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                       {ev.file}
                     </Badge>
                   )}
-                  <span className="text-small text-text-muted">Simulerad – ingen fil laddas upp i prototypen.</span>
+                  <span className="text-small text-text-muted">{demo ? "Simulerad – ingen fil laddas upp i prototypen." : "Uppladdning av filer kommer senare. Här sparas att underlaget finns."}</span>
                 </Row>
               )}
               <Field label="Kommentar" id="ev-note" help="Kort och saklig. Till exempel omfattning eller startdatum.">
@@ -359,7 +367,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               </Field>
               {possibleBonus && (
                 <Notice tone="info" icon="award" title="Möjligt bonusunderlag">
-                  Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Bonus är avstängd tills incitamentsmodellen är fastställd. <BuildPhase fas={3} />
+                  Arbete som påbörjas i anslutning till insatsen markeras automatiskt. Bonus är avstängd tills incitamentsmodellen är fastställd. <BuildPhase fas={3} off />
                 </Notice>
               )}
               <Row>
@@ -402,7 +410,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                       <Badge tone="outline" icon="paperclip">
                         {cl.file}
                       </Badge>
-                      <span className="text-small text-text-muted">Simulerad fil.</span>
+                      <span className="text-small text-text-muted">{demo ? "Simulerad fil." : "Filen laddas inte upp ännu."}</span>
                     </Row>
                   )}
                 </Stack>
@@ -428,7 +436,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               ) : (
                 <p className="text-text-muted">Välj avslutsorsak för att se hur avslutet räknas.</p>
               )}
-              <p className="mt-2.5 text-small text-text-muted">{v.result.definitionText}</p>
+              <p className="mt-2.5 text-small text-text-muted"><ProtoText>{v.result.definitionText}</ProtoText></p>
             </Card>
             <Card title="Det här händer vid avslut" icon="info">
               <ul className="m-0 flex list-disc flex-col gap-2 pl-5">

@@ -1,8 +1,8 @@
 // Frågor för coachens skärmar (Min vecka, närvaro, avstämning, månadsbedömning, kartläggning, händelser och avslut).
 // Port av vyerna i prototyp/src/views/coach.js: samma urval, regler och siffror. Beräkningarna görs med funktionerna i
 // src/core och datat läses via ctx.repo (behörigheten gäller). Registreras via handlers.ts – importeras aldrig av skärmar.
-import { isCustomerRole } from "@/api/roles";
 import { handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
@@ -179,11 +179,18 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
 
   // Meddelanden, påminnelser, flaggor, notiser
   const notifs = notificationsFor(all, me, "coach", main).filter((n) => !n.readAt && n.kind !== "progress_escalation");
-  const customerIds = new Set(db.memberships.filter((m) => isCustomerRole(m.role)).map((m) => m.userId));
-  const latestCustomerMsg = (caseId: string) => db.messages.filter((m) => m.caseId === caseId && customerIds.has(m.senderId)).sort(by("createdAt")).pop() ?? null;
+  // Meddelanden från kommunen som coachen inte har läst – samma räkning som deltagarkortets olästa (kommunens användare =
+  // profiler i kundorganisationer). Ett per ärende, det senaste överst. Bara läsning via ctx.repo.
+  const customerOrgs = new Set((await ctx.repo.table("organizations").list({ kind: "customer" })).map((o) => o.id));
+  const fromCustomer = new Set(db.profiles.filter((p) => customerOrgs.has(p.organizationId)).map((p) => p.id));
+  const unreadByCase = new Map<string, typeof db.messages>();
+  for (const m of db.messages) {
+    if (!caseById.has(m.caseId) || !fromCustomer.has(m.senderId) || m.readBy.includes(me)) continue;
+    unreadByCase.set(m.caseId, [...(unreadByCase.get(m.caseId) ?? []), m]);
+  }
   const reminders = progressionWatch(all, { coachId: me }, main);
   const flagList = envs
-    .flatMap((env) => alerts(scopeToContract(all, env.contractId), { role: "coach", personaId: me }, env))
+    .flatMap((env) => alerts(scopeToContract(all, env.contractId), { role: "coach", personaId: me, hideCommercial: hidesCommercial(ctx.actor) }, env))
     .filter((a) => !["no_progress", "ai_draft"].includes(a.kind) && !/escalat/i.test(a.kind));
   const due = envs
     .flatMap((env) => deadlines(scopeToContract(all, env.contractId), { days: 7, coachId: me }, env))
@@ -231,15 +238,16 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
         hasAi: !!ma?.aiSummaryDraft || Object.values(ma?.areas ?? {}).some((x) => !!x?.aiObservationDraft && !x.aiObservationDraft.noEvidence),
       })),
     },
-    messages: notifs
-      .filter((n) => n.kind === "message" && n.caseId && caseById.has(n.caseId))
-      .map((n) => {
-        const m = latestCustomerMsg(n.caseId as string);
+    messages: [...unreadByCase.entries()]
+      .map(([caseId, ms]) => {
+        const m = [...ms].sort(by("createdAt")).pop() as (typeof ms)[number];
+        const n = notifs.find((x) => x.kind === "message" && x.caseId === caseId);
         return {
-          notificationId: n.id, ...row(caseById.get(n.caseId as string) as Case), createdAt: n.createdAt, from: m ? personName(db.profiles, m.senderId) : null,
-          excerpt: m ? (m.body.length > 90 ? `${m.body.slice(0, 90)} …` : m.body) : null,
+          notificationId: n?.id ?? null, ...row(caseById.get(caseId) as Case), createdAt: m.createdAt, from: personName(db.profiles, m.senderId),
+          excerpt: m.body.length > 90 ? `${m.body.slice(0, 90)} …` : m.body, count: ms.length,
         };
-      }),
+      })
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0)),
     reminders: reminders.map((w) => ({ ...row(w.case), streak: w.streak, reason: w.weeks[w.weeks.length - 1].reason, weekKey: w.weeks[w.weeks.length - 1].key })),
     flags: flagList.map((a) => ({ key: a.key, kind: a.kind, severity: a.severity, title: a.title, text: a.text, caseId: a.caseId ?? null, href: coachHref(a) })),
     unread: {
@@ -634,6 +642,8 @@ handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
   const finalRep = db.reports.sort(by<Report>((x) => x.version, -1))[0] ?? null;
   const pulse = db.pulse_invites.sort(by("sentAt", -1))[0] ?? null;
   const days = finalReportWorkingDays(env.cfg);
+  // Begränsade testare (testmiljön): bonus är ett ekonomiskt villkor och visas inte (src/api/tester-access.ts).
+  const hideBonus = hidesCommercial(ctx.actor);
   return {
     kind: "ok" as const,
     now: env.now,
@@ -641,7 +651,7 @@ handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
     referrer,
     closed: c.status === "closed" ? { endReason: c.endReason, endDate: c.endDate, resultClass: c.resultClass, resultVerifiedAt: c.resultVerifiedAt } : null,
     events: eventsOf(db, c.id).map((e) => ({
-      id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, verificationKind: e.verificationKind, note: e.note, possibleBonus: e.possibleBonus,
+      id: e.id, kind: e.kind, label: eventLabel(e.kind), occurredOn: e.occurredOn, actor: e.actor, verificationKind: e.verificationKind, note: e.note, possibleBonus: !hideBonus && e.possibleBonus,
     })),
     employers: db.employers.filter((e) => e.areas.some((a) => areas.includes(a))).map((e) => ({ id: e.id, name: e.name })),
     eventKinds: EVENT_KINDS.map((k) => ({ value: k, label: EVENT_LABEL[k] })),
@@ -656,6 +666,6 @@ handleQuery(eventsPage, { roles: ["coach"] }, async (ctx, p) => {
     exitPulse: pulse ? { sentAt: pulse.sentAt, channel: pulse.channel, expiresAt: pulse.expiresAt } : null,
     finalDays: days ?? 0,
     finalProvisional: isUnset(slaRule(env.cfg, "slutrapport")?.within) || slaRule(env.cfg, "slutrapport")?.within == null,
-    bonusOn: env.cfg.bonus?.enabled === true,
+    ...(hideBonus ? {} : { bonusOn: env.cfg.bonus?.enabled === true }),
   };
 });

@@ -1,14 +1,16 @@
 "use client";
 // Ärendelistan (prototypens arenden.lista): sök, filter, sortering och sidor om 50. Skyddade ärenden visas bara med
 // nummer för roller som inte är namngivna. Coach och handledare ser aldrig eskaleringar till chef.
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Role } from "@/api/roles";
 import { useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { Link, useNav } from "@/shell/nav";
+import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
-  Badge, Button, Card, CaseStatusBadge, Check, DemoNote, Empty, ErrorNotice, Field, Icon, Input, Kpi, Loading, Notice, Page, PerspectiveLink, PhaseBar, Select, Spacer, Stack, Status,
+  Badge, Button, Card, CaseStatusBadge, Check, DemoNote, Empty, ErrorNotice, Field, Icon, Input, Kpi, Loading, Notice, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Stack,
+  Status, cn,
 } from "@/ui";
 import { caseList, type CaseListModel, type CaseListRow } from "../api";
 import { AttCell, fd, FlagBadges, pct0 } from "./common";
@@ -28,35 +30,66 @@ const SORTS = [
   { value: "nummer", label: "Ärendenummer" },
 ];
 
+/** Den äldre ingången ?filter= (scenarier, länkar) översätts till listans parametrar. */
+const FROM_FILTER: Record<string, Record<string, string>> = {
+  aktiva: { status: "active" },
+  oppna: { status: "open" },
+  flaggor: { flaggor: "1", sort: "flaggor" },
+  skyddade: { skyddade: "1" },
+};
+
 export function ArendenListaScreen({ query }: ScreenProps) {
-  const filter = query.get("filter") ?? "";
+  const filter = query.get("filter");
+  const patch = useQueryPatch();
   const q = useQuery(caseList, {});
+  // ?filter=skyddade → ?skyddade=1 (replace, ingen ny historikpost). Övriga val nollställs, som när listan öppnas med filtret.
+  useEffect(() => {
+    if (filter === null) return;
+    patch({ filter: null, status: null, coach: null, omrade: null, fas: null, flaggor: null, skyddade: null, olasta: null, sort: null, visa: null, ...(FROM_FILTER[filter] ?? {}) });
+  }, [filter, patch]);
   if (q.error) return <Page title="Ärenden"><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (!q.data) return <Page title="Ärenden"><Loading /></Page>;
-  // Ny instans när filtret i adressen ändras (t.ex. perspektivbyte till ?filter=skyddade).
-  return <List key={filter} model={q.data} filter={filter} />;
+  // Medan ?filter= översätts visas redan listan som den blir.
+  const effective = filter !== null ? new URLSearchParams(FROM_FILTER[filter] ?? {}) : query;
+  return <List model={q.data} query={effective} />;
 }
+
+const STATUS_VALUES = ["alla", "open", ...STATUS_KEYS.map(([v]) => v)] as const;
+const SORT_VALUES = ["nyast", "flaggor", "slut", "nummer"] as const;
 
 const norm = (s: string) => String(s || "").toLowerCase().replace(/[\s-]/g, "");
 const newest = (a: CaseListRow, b: CaseListRow) => (a.referredAt < b.referredAt ? 1 : a.referredAt > b.referredAt ? -1 : 0);
 
-function List({ model, filter }: { model: CaseListModel; filter: string }) {
+function List({ model, query }: { model: CaseListModel; query: URLSearchParams }) {
   const { actor } = useSession();
   const role = actor.role;
-  const nav = useNav();
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState(filter === "aktiva" ? "active" : filter === "oppna" ? "open" : "alla");
-  const [coach, setCoach] = useState("");
-  const [area, setArea] = useState("");
-  const [phase, setPhase] = useState("");
-  const [onlyFlags, setOnlyFlags] = useState(filter === "flaggor");
-  const [onlyProt, setOnlyProt] = useState(filter === "skyddade");
-  const [onlyUnread, setOnlyUnread] = useState(false);
-  const [sort, setSort] = useState(filter === "flaggor" ? "flaggor" : "nyast");
-  const [limit, setLimit] = useState(PAGE);
-  const upd = <T,>(fn: (v: T) => void) => (v: T) => {
-    fn(v);
-    setLimit(PAGE);
+  const patch = useQueryPatch();
+  // Smal skärm: filtren ligger under knappen "Filter (n)" – sökfältet först.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  // Valen ligger i adressen (Tillbaka och omladdning visar samma lista). Söktexten kan vara ett namn: bara i minnet.
+  const [q, setQ] = useMemoryState("q", "");
+  const status = pick(query, "status", STATUS_VALUES, "alla");
+  const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
+  const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
+  const phase = model.phases.some((p) => String(p.no) === query.get("fas")) ? (query.get("fas") as string) : "";
+  const onlyFlags = query.get("flaggor") === "1";
+  const onlyProt = query.get("skyddade") === "1";
+  const onlyUnread = query.get("olasta") === "1";
+  const sort = pick(query, "sort", SORT_VALUES, "nyast");
+  const limit = pickInt(query, "visa", PAGE);
+  const setLimit = (n: number) => patch({ visa: n > PAGE ? n : null });
+  // Ett ändrat filter visar de första 50 igen.
+  const setStatus = (v: string) => patch({ status: v === "alla" ? null : v, visa: null });
+  const setCoach = (v: string) => patch({ coach: v || null, visa: null });
+  const setArea = (v: string) => patch({ omrade: v || null, visa: null });
+  const setPhase = (v: string) => patch({ fas: v || null, visa: null });
+  const setOnlyFlags = (v: boolean) => patch({ flaggor: v, visa: null });
+  const setOnlyProt = (v: boolean) => patch({ skyddade: v, visa: null });
+  const setOnlyUnread = (v: boolean) => patch({ olasta: v, visa: null });
+  const setSort = (v: string) => patch({ sort: v === "nyast" ? null : v });
+  const search = (v: string) => {
+    setQ(v);
+    if (limit !== PAGE) setLimit(PAGE);
   };
   const all = model.rows;
   const readOnly = READ_ONLY.includes(role);
@@ -88,16 +121,10 @@ function List({ model, filter }: { model: CaseListModel; filter: string }) {
   }, [all, status, onlyProt, onlyFlags, onlyUnread, coach, area, phase, needle, sort]);
   const shown = rows.slice(0, limit);
   const anyFilter = !!(q || status !== "alla" || coach || area || phase || onlyFlags || onlyProt || onlyUnread);
+  const nFilters = [status !== "alla", coach, area, phase, onlyFlags, onlyProt, onlyUnread].filter(Boolean).length;
   const clear = () => {
     setQ("");
-    setStatus("alla");
-    setCoach("");
-    setArea("");
-    setPhase("");
-    setOnlyFlags(false);
-    setOnlyProt(false);
-    setOnlyUnread(false);
-    setLimit(PAGE);
+    patch({ status: null, coach: null, omrade: null, fas: null, flaggor: null, skyddade: null, olasta: null, visa: null });
   };
   const nUnread = all.filter((c) => (c.detail?.unread ?? 0) > 0).length;
   const nActive = all.filter((c) => c.status === "active").length;
@@ -114,7 +141,7 @@ function List({ model, filter }: { model: CaseListModel; filter: string }) {
         : readOnly
           ? `Alla ärenden i avtalet med ${customer}. Du ser dem i läsläge.`
           : `Alla ärenden i avtalet med ${customer}. Klicka på en rad för att öppna deltagarkortet.`;
-  const open = (c: CaseListRow) => nav.push(`/arenden/${encodeURIComponent(c.id)}`);
+  const hrefOf = (c: CaseListRow) => `/arenden/${encodeURIComponent(c.id)}`;
   const w4 = model.weeks;
   const today = model.today;
 
@@ -157,6 +184,65 @@ function List({ model, filter }: { model: CaseListModel; filter: string }) {
         </Notice>
       )}
 
+      <Card title="Sök och filtrera" icon="filter">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-end gap-x-4 gap-y-3">
+          <div className="col-span-full">
+            <Field label="Sök" id="arn-q" help="Ärendenummer eller namn. Det räcker med en del av numret, till exempel 0143.">
+              <Input type="search" value={q} onValueChange={search} placeholder="BOT-26-0143 eller namn" />
+            </Field>
+          </div>
+          <div className="col-span-full hidden max-[620px]:flex max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:gap-2">
+            <Button icon="filter" aria-expanded={filtersOpen} aria-controls="arn-filter" onClick={() => setFiltersOpen(!filtersOpen)}>
+              Filter ({nFilters})
+            </Button>
+            {anyFilter && (
+              <Button kind="ghost" icon="x" onClick={clear}>
+                Rensa filter
+              </Button>
+            )}
+          </div>
+        </div>
+        <div id="arn-filter" className={cn("mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-end gap-x-4 gap-y-3", !filtersOpen && "max-[620px]:hidden")}>
+          <Field label="Status" id="arn-status">
+            <Select value={status} onValueChange={setStatus} options={[{ value: "alla", label: "Alla statusar" }, { value: "open", label: "Öppna (inte avslutade)" }, ...STATUS_KEYS.map(([value, label]) => ({ value, label }))]} />
+          </Field>
+          {showCoach && (
+            <Field label="Huvudcoach" id="arn-coach">
+              <Select value={coach} onValueChange={setCoach} placeholder="Alla coacher" options={model.coaches.map((u) => ({ value: u.id, label: u.name }))} />
+            </Field>
+          )}
+          <Field label="Avtalsområde" id="arn-area">
+            <Select value={area} onValueChange={setArea} placeholder="Alla områden" options={model.areas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }))} />
+          </Field>
+          <Field label="Fas" id="arn-phase">
+            <Select value={phase} onValueChange={setPhase} placeholder="Alla faser" options={model.phases.map((p) => ({ value: String(p.no), label: `Fas ${p.no} · ${p.name}` }))} />
+          </Field>
+        </div>
+        <div className={cn("mt-2 flex flex-wrap items-center gap-x-6 gap-y-1", !filtersOpen && "max-[620px]:hidden")}>
+          <Check id="arn-onlyflags" checked={onlyFlags} onCheckedChange={setOnlyFlags}>
+            Bara ärenden med flaggor ({nFlag})
+          </Check>
+          {(nUnread > 0 || onlyUnread) && (
+            <Check id="arn-onlyunread" checked={onlyUnread} onCheckedChange={setOnlyUnread}>
+              Bara olästa meddelanden från kommunen ({nUnread})
+            </Check>
+          )}
+          {(protCount > 0 || onlyProt) && (
+            <Check id="arn-onlyprot" checked={onlyProt} onCheckedChange={setOnlyProt}>
+              Bara skyddade personuppgifter ({protCount})
+            </Check>
+          )}
+          <Spacer />
+          {anyFilter && (
+            <Button kind="ghost" icon="x" onClick={clear} className="max-[620px]:hidden">
+              Rensa filter
+            </Button>
+          )}
+        </div>
+      </Card>
+
+      {/* Nyckeltalen efter sökningen (också i koden – samma ordning för skärmläsare och tangentbord), så att sökfältet syns
+          direkt under rubriken på smal skärm. */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-3 max-[620px]:grid-cols-2 max-[620px]:[&>div]:p-3 max-[620px]:[&>div>div:nth-child(2)]:text-[1.5rem]">
         <Kpi label="Ärenden du ser" value={all.length} sub={protCount > 0 ? `varav ${protCount} med skyddade personuppgifter` : "enligt din behörighet"} />
         <Kpi label="Pågår" value={nActive} sub="aktiva insatser" />
@@ -164,50 +250,6 @@ function List({ model, filter }: { model: CaseListModel; filter: string }) {
         <Kpi label="Med flaggor" value={nFlag} sub={nFlag > 0 ? "behöver uppmärksamhet" : "inga flaggor för din roll"} tone={nFlag > 0 ? "watch" : undefined} />
       </div>
 
-      <Card title="Sök och filtrera" icon="filter">
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-end gap-x-4 gap-y-3">
-          <div className="col-span-full">
-            <Field label="Sök" id="arn-q" help="Ärendenummer eller namn. Det räcker med en del av numret, till exempel 0143.">
-              <Input type="search" value={q} onValueChange={upd(setQ)} placeholder="BOT-26-0143 eller namn" />
-            </Field>
-          </div>
-          <Field label="Status" id="arn-status">
-            <Select value={status} onValueChange={upd(setStatus)} options={[{ value: "alla", label: "Alla statusar" }, { value: "open", label: "Öppna (inte avslutade)" }, ...STATUS_KEYS.map(([value, label]) => ({ value, label }))]} />
-          </Field>
-          {showCoach && (
-            <Field label="Huvudcoach" id="arn-coach">
-              <Select value={coach} onValueChange={upd(setCoach)} placeholder="Alla coacher" options={model.coaches.map((u) => ({ value: u.id, label: u.name }))} />
-            </Field>
-          )}
-          <Field label="Avtalsområde" id="arn-area">
-            <Select value={area} onValueChange={upd(setArea)} placeholder="Alla områden" options={model.areas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }))} />
-          </Field>
-          <Field label="Fas" id="arn-phase">
-            <Select value={phase} onValueChange={upd(setPhase)} placeholder="Alla faser" options={model.phases.map((p) => ({ value: String(p.no), label: `Fas ${p.no} · ${p.name}` }))} />
-          </Field>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1">
-          <Check id="arn-onlyflags" checked={onlyFlags} onCheckedChange={upd(setOnlyFlags)}>
-            Bara ärenden med flaggor ({nFlag})
-          </Check>
-          {(nUnread > 0 || onlyUnread) && (
-            <Check id="arn-onlyunread" checked={onlyUnread} onCheckedChange={upd(setOnlyUnread)}>
-              Bara olästa meddelanden från kommunen ({nUnread})
-            </Check>
-          )}
-          {(protCount > 0 || onlyProt) && (
-            <Check id="arn-onlyprot" checked={onlyProt} onCheckedChange={upd(setOnlyProt)}>
-              Bara skyddade personuppgifter ({protCount})
-            </Check>
-          )}
-          <Spacer />
-          {anyFilter && (
-            <Button kind="ghost" icon="x" onClick={clear}>
-              Rensa filter
-            </Button>
-          )}
-        </div>
-      </Card>
 
       <Card
         flush
@@ -261,10 +303,10 @@ function List({ model, filter }: { model: CaseListModel; filter: string }) {
         ) : (
           <>
             <div className="max-[1240px]:hidden">
-              <WideTable rows={shown} today={today} weeks={w4} open={open} />
+              <WideTable rows={shown} today={today} weeks={w4} hrefOf={hrefOf} />
             </div>
             <div className="hidden max-[1240px]:block">
-              <div className="flex flex-col">{shown.map((c) => <NarrowItem key={c.id} c={c} weeksLabel={w4.label} open={open} />)}</div>
+              <div className="flex flex-col">{shown.map((c) => <NarrowItem key={c.id} c={c} weeksLabel={w4.label} href={hrefOf(c)} />)}</div>
             </div>
           </>
         )}
@@ -293,14 +335,12 @@ const TH = "border-b-2 border-antracit bg-vit px-1.5 py-[9px] text-left align-bo
 const TD = "border-b border-ljusgra px-1.5 py-[9px] align-top first:pl-4";
 const sub = "text-small text-text-muted";
 
-function WideTable({ rows, today, weeks, open }: { rows: CaseListRow[]; today: string; weeks: CaseListModel["weeks"]; open: (c: CaseListRow) => void }) {
-  const onKey = (e: KeyboardEvent<HTMLTableRowElement>, c: CaseListRow) => {
-    if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      open(c);
-    }
-  };
+/**
+ * Bred tabell. Ärendenumret är en riktig länk (tabbstopp, länkmeny vid högerklick, ny flik med ctrl/cmd eller mittenklick);
+ * klick någonstans i raden gör samma sak.
+ */
+function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today: string; weeks: CaseListModel["weeks"]; hrefOf: (c: CaseListRow) => string }) {
+  const nav = useNav();
   return (
     <div className="overflow-x-auto rounded-card">
       <table className="w-full border-collapse text-ui">
@@ -337,9 +377,12 @@ function WideTable({ rows, today, weeks, open }: { rows: CaseListRow[]; today: s
             }
             const d = c.detail;
             return (
-              <tr key={c.id} tabIndex={0} className="cursor-pointer hover:[&>td]:bg-ljusgra-ton" onClick={() => open(c)} onKeyDown={(e) => onKey(e, c)}>
+              <tr key={c.id} className="cursor-pointer hover:[&>td]:bg-ljusgra-ton" onClick={(e) => rowNavigate(nav, hrefOf(c), e)} onAuxClick={(e) => rowNavigate(nav, hrefOf(c), e)}>
                 <td className={`${TD} whitespace-nowrap`}>
-                  <span className="font-bold tabular-nums tracking-[0.01em]">{c.caseNumber}</span>
+                  <Link to={hrefOf(c)} className="inline-flex min-h-11 items-center font-bold tabular-nums tracking-[0.01em] underline underline-offset-3">
+                    {c.caseNumber}
+                    <span className="sr-only"> – {c.displayName}</span>
+                  </Link>
                 </td>
                 <td className={`${TD} min-w-[150px]`}>
                   <div className="font-bold">{c.displayName}</div>
@@ -403,7 +446,7 @@ function WideTable({ rows, today, weeks, open }: { rows: CaseListRow[]; today: s
   );
 }
 
-function NarrowItem({ c, weeksLabel, open }: { c: CaseListRow; weeksLabel: string; open: (c: CaseListRow) => void }) {
+function NarrowItem({ c, weeksLabel, href }: { c: CaseListRow; weeksLabel: string; href: string }) {
   const cls = "flex w-full min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 text-left last:border-b-0 max-[620px]:flex-wrap";
   if (c.restricted || !c.detail) {
     return (
@@ -420,7 +463,7 @@ function NarrowItem({ c, weeksLabel, open }: { c: CaseListRow; weeksLabel: strin
   const d = c.detail;
   const ast = d.attendance;
   return (
-    <button type="button" className={`${cls} cursor-pointer bg-transparent text-inherit [font:inherit] hover:bg-ljusgra-ton`} onClick={() => open(c)}>
+    <Link to={href} className={`${cls} cursor-pointer bg-transparent text-inherit no-underline [font:inherit] hover:bg-ljusgra-ton`}>
       <span className="flex min-w-0 flex-1 flex-col gap-[3px] max-[620px]:basis-[calc(100%-44px)]">
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="font-bold tabular-nums">{c.caseNumber}</span>
@@ -444,6 +487,6 @@ function NarrowItem({ c, weeksLabel, open }: { c: CaseListRow; weeksLabel: strin
       <span className="flex flex-none flex-col items-end gap-1 max-[620px]:w-full max-[620px]:flex-row max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:justify-start">
         {d.latest ? <Status value={d.latest.overallStatus} short /> : <span className="text-small text-text-muted">Ej bedömd</span>}
       </span>
-    </button>
+    </Link>
   );
 }

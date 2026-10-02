@@ -3,13 +3,15 @@
 // Flikarna Översikt, Rapporter och Meddelanden. Kommunens chef läser i tredje person ("Handläggaren (namn)") och ser deltagare
 // med skyddade personuppgifter bara som ärendenummer och status. Visningen loggas (case.view).
 import { useEffect, useState, type ReactNode } from "react";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, pct } from "@/core/format";
 import { messageRead, messageSend } from "@/features/arenden/api";
 import { auditView } from "@/features/session/api";
 import { useCommand, useQuery } from "@/shell/backend";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Badge, BuildPhase, Button, Card, Empty, ErrorNotice, Field, Grid, Icon, Kpi, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, PhaseBar, Stack, TabPanel, Tabs,
+  Badge, BuildPhase, Button, Card, Empty, ErrorNotice, Field, focusSoon, Grid, Icon, Kpi, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, PhaseBar, Stack, TabPanel, Tabs,
   TextArea, Timeline, cn, useAuditView, useToast, type TimelineItem,
 } from "@/ui";
 import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomAttTile, type KomCaseDetail, type KomMessage } from "../api";
@@ -275,7 +277,9 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
                 ["Planerad omfattning", `${o.weeks || "–"} veckor${c.plannedEnd ? `, till ${fD(c.plannedEnd)}` : ""}`],
                 [
                   "Beställningens värde",
-                  o.weeks ? (
+                  o.weeks && (o.valueOre === undefined || o.priceOre === undefined) ? (
+                    TESTER_HIDDEN_TEXT
+                  ) : o.weeks ? (
                     <>
                       <span>{kr(o.valueOre)}</span>
                       <span className="block text-body text-text-muted">
@@ -393,7 +397,7 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
         )}
       </Card>
       {d.bonus && (
-        <Card title="Bonusanspråk" icon="award" actions={<BuildPhase fas={3} />}>
+        <Card title="Bonusanspråk" icon="award" actions={<BuildPhase fas={3} off />}>
           <p>
             Deltagaren har påbörjat arbete. Enligt avtalet kan det bli aktuellt med ett bonusanspråk som {chef ? "kommunen" : "du"} beslutar om här. Modellen för bonus är inte
             bestämd än, så funktionen är avstängd.
@@ -454,7 +458,13 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
   const unread = messages.filter((m) => m.unread);
   // Meddelanden som var olästa när fliken öppnades markeras "Nytt" även efter läskvittot.
   const [newIds] = useState(() => new Set(unread.map((m) => m.id)));
-  const [text, setText] = useState("");
+  // Utkastet ligger kvar per ärende (bara i minnet) – också när man byter flik eller lämnar sidan och kommer tillbaka.
+  const draft = useDraft(`portal-meddelande|${c.id}`, "");
+  const text = draft.value;
+  const setText = draft.set;
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard(!!text.trim() && !send.pending, "Meddelandet du har skrivit är inte skickat. Det finns kvar om du kommer tillbaka.");
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     if (d.canWrite && unread.length > 0) void read.run({ caseId: c.id }).catch(() => undefined);
@@ -470,8 +480,11 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
     const res = await send.run({ caseId: c.id, body }).catch(() => null);
     if (res && res.ok) {
       setText("");
+      draft.clear();
       setErr(null);
       toast("Meddelandet är skickat. Miljonbemanning får en notis utan personuppgifter.");
+      // Fältet töms: fokus till det nya meddelandet.
+      focusSoon(`kom-meddelande-${res.messageId}`);
     } else toast(res && !res.ok && res.message ? res.message : "Meddelandet kunde inte skickas.", "error");
   };
 
@@ -490,6 +503,8 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
               {messages.map((m) => (
                 <div
                   key={m.id}
+                  id={`kom-meddelande-${m.id}`}
+                  tabIndex={-1}
                   className={cn(
                     "flex max-w-[90%] flex-col gap-1.5 self-start rounded-card bg-bla-ton px-3.5 py-3 [overflow-wrap:anywhere]",
                     m.mine && "self-end bg-antracit-ton",
@@ -559,6 +574,7 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
                   }}
                 />
               </Field>
+              {draft.restored && text.trim() && <p className="font-bold">Det du skrev senast finns kvar. Meddelandet är inte skickat ännu.</p>}
               <TalaIn fieldId="kom-msg" caseId={c.id} onText={(t) => setText((x) => joinText(x, t, 2000))} />
               <span>
                 <Button kind="primary" size="lg" icon="send" pending={send.pending} onClick={() => void submit()}>

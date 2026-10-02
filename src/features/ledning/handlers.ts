@@ -3,6 +3,7 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { accessIndex, caseAccessIn, displayName } from "@/core/access";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats as attendanceStatsFor } from "@/core/attendance";
@@ -133,11 +134,19 @@ async function ledningData(ctx: Ctx) {
   return { ...scope, db };
 }
 
-const rateView = (r: ResultRate): RateView => ({ value: r.value, num: r.num, den: r.den, prelim: r.prelim, excluded: r.excluded, status: r.status, minN: r.minN });
+/**
+ * Resultatgraden för vyn. hide = begränsad testare i testmiljön (src/api/tester-access.ts): Miljonbemannings interna mål
+ * lämnas inte ut, så "under internt mål" blir "ok" (samma regel som för kunden, src/core/customer-summary.ts).
+ * Avtalsmålet och "under avtalsmålet" finns kvar.
+ */
+const rateView = (r: ResultRate, hide = false): RateView => ({
+  value: r.value, num: r.num, den: r.den, prelim: r.prelim, excluded: r.excluded, status: hide && r.status === "below_internal" ? "ok" : r.status, minN: r.minN,
+});
 
-function targetsOf(env: DomainEnv): ResultTargets {
+/** Resultatgradens mål. Begränsade testare: utan internt mål (internal = null). */
+function targetsOf(env: DomainEnv, hide = false): ResultTargets {
   const k = kpiDef(env.cfg, "resultatgrad");
-  return { contract: k?.contractTarget ?? null, internal: typeof k?.internalTarget === "number" ? k.internalTarget : null, minN: k?.minN ?? 0 };
+  return { contract: k?.contractTarget ?? null, internal: !hide && typeof k?.internalTarget === "number" ? k.internalTarget : null, minN: k?.minN ?? 0 };
 }
 
 const ackView = (db: Pick<Db, "profiles">, ack: { by: string; at: string; plan: string } | null) =>
@@ -148,14 +157,26 @@ function alertView(a: AlertItem, db: Pick<Db, "profiles">, role: Role): AlertVie
   return { key: a.key, kind: a.kind, severity: a.severity, title: a.title, text: a.text, createdAt: a.createdAt, ack: ackView(db, a.ack), link };
 }
 
-function kpiRow(v: KpiValue): KpiRow {
+/**
+ * En KPI-rad. target är Miljonbemannings interna mål. hide = begränsad testare: målet lämnas inte ut. Resultatgraden behåller
+ * avtalsmålet ("under internt mål" blir "ok"); övriga KPI:er har bara internt mål och får statusen "target_hidden" (utfall
+ * utan mål) – utom när underlag saknas.
+ */
+function kpiRow(v: KpiValue, hide = false): KpiRow {
+  const status: KpiRow["status"] = !hide
+    ? v.status
+    : v.key === "resultatgrad"
+      ? v.status === "below_internal" ? "ok" : v.status
+      : v.status === "no_data" ? "no_data" : "target_hidden";
   return {
-    key: v.key, label: v.label, value: v.value, num: v.num, den: v.den, target: v.target, targetUnset: !!v.targetUnset, contractTarget: v.contractTarget ?? null,
-    status: v.status, provisional: !!v.provisional,
+    key: v.key, label: v.label, value: v.value, num: v.num, den: v.den, target: hide ? null : v.target, targetUnset: !hide && !!v.targetUnset,
+    contractTarget: v.contractTarget ?? null, status, provisional: !!v.provisional,
   };
 }
 
-const chefAlerts = (db: Db, ctx: Ctx, env: DomainEnv, includeAcked = false) => alerts(db, { role: "chef", personaId: ctx.actor.userId, includeAcked }, env);
+/** Chefens flaggor. Begränsade testare: utan flaggorna om internt mål och ofakturerat (src/core/alerts.ts, hideCommercial). */
+const chefAlerts = (db: Db, ctx: Ctx, env: DomainEnv, includeAcked = false) =>
+  alerts(db, { role: "chef", personaId: ctx.actor.userId, includeAcked, hideCommercial: hidesCommercial(ctx.actor) }, env);
 const lastMonthOf = (env: DomainEnv): MonthKey => addMonths(monthKey(dayOf(env.now)), -1);
 const median = (xs: number[]): number | null => {
   if (!xs.length) return null;
@@ -182,7 +203,9 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
   const { contract, env, db } = await ledningData(ctx);
   const role = ctx.actor.role;
   const cfg = env.cfg;
-  const targets = targetsOf(env);
+  // Begränsade testare (testmiljön): inga interna mål och inget fakturaunderlag (ofakturerat) eller länk till Ekonomi.
+  const hide = hidesCommercial(ctx.actor);
+  const targets = targetsOf(env, hide);
   const rolling = resultRate(db, { window: "rolling_6m" }, env);
   const sinceStart = resultRate(db, { from: contract.startsOn }, env);
   const open = chefAlerts(db, ctx, env);
@@ -244,8 +267,8 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
     contractStart: contract.startsOn,
     lastMonth: lastMonthOf(env),
     targets,
-    rolling: rateView(rolling),
-    sinceStart: rateView(sinceStart),
+    rolling: rateView(rolling, hide),
+    sinceStart: rateView(sinceStart, hide),
     forecast: resultForecast(db, env),
     trend: resultTrend(db, env).map((r) => ({ month: r.month, value: r.value, num: r.num, den: r.den, excluded: r.excluded, cumulative: r.cumulative, cumulativeN: r.cumulativeN })),
     resultDefinitionUnset: isUnset(cfg.result.definition),
@@ -260,20 +283,25 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
     escalatedCount: escalated.length,
     early,
     sla: {
-      rows: sla.map(kpiRow),
-      targetText: slaTargets.length === 1 ? `internt mål ${pct(slaTargets[0], 0)}` : "internt mål per rad",
+      rows: sla.map((v) => kpiRow(v, hide)),
+      targetText: hide ? "" : slaTargets.length === 1 ? `internt mål ${pct(slaTargets[0], 0)}` : "internt mål per rad",
       overdueCount: deadlines(db, { days: 0 }, env).filter((x) => x.bucket === "overdue").length,
       canOpenDeadlines: canOpen("sam.deadlines", role),
       seesSlaStats: !!cfg.customerVisibility.seesSlaStats,
     },
-    unbilled: {
-      totalOre: sum(unbilled, (x) => x.amountOre),
-      weeks: unbilled.length,
-      cases: unbilledCases,
-      oldestDays: unbilled.length ? Math.max(...unbilled.map((x) => x.age)) : null,
-      warningDays: cfg.billing.unbilledWarningDays,
-      canOpenBilling: canOpen("eko.start", role),
-    },
+    // Begränsade testare: fakturaunderlaget (ofakturerade veckor, ärenden och belopp) lämnas inte ut och Ekonomi är stängd.
+    ...(hide
+      ? {}
+      : {
+          unbilled: {
+            totalOre: sum(unbilled, (x) => x.amountOre),
+            weeks: unbilled.length,
+            cases: unbilledCases,
+            oldestDays: unbilled.length ? Math.max(...unbilled.map((x) => x.age)) : null,
+            warningDays: cfg.billing.unbilledWarningDays,
+            canOpenBilling: canOpen("eko.start", role),
+          },
+        }),
     cds: {
       open: openCds.length,
       warnings: cds.filter((x) => x.warningIssued).length,
@@ -284,7 +312,7 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
         return { id: x.id, description: x.description, actionPlanDue: x.actionPlanDue, dueAt, sla: s ? { label: s.label, tone: s.tone } : null };
       }),
     },
-    kpis: kpiList.map(kpiRow),
+    kpis: kpiList.map((v) => kpiRow(v, hide)),
     customer: {
       latest: latest && latest.month && latest.deliveredAt ? { id: latest.id, month: latest.month, deliveredAt: latest.deliveredAt } : null,
       rolling: latest?.month ? customerRolling(latest.month) : null,
@@ -301,6 +329,7 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
 // ---------------------------------------------------------------- ledning.coaches (flik Per coach)
 handleQuery(ledningCoaches, { roles: CHEF }, async (ctx) => {
   const { contract, env, db } = await ledningData(ctx);
+  const hide = hidesCommercial(ctx.actor);
   const mk = lastMonthOf(env);
   const from = `${mk}-01`;
   const to = monthEnd(mk);
@@ -335,7 +364,7 @@ handleQuery(ledningCoaches, { roles: CHEF }, async (ctx) => {
       .map((x) => x.docMinutes as number);
     const watch = progressionWatch(db, { coachId: u.id }, env);
     return {
-      id: u.id, name: u.fullName, active: cases.filter((c) => c.status === "active").length, rr: rateView(rr),
+      id: u.id, name: u.fullName, active: cases.filter((c) => c.status === "active").length, rr: rateView(rr, hide),
       att, reg, attRate: reg ? att / reg : null, wk, wkOk, ciRate: wk ? wkOk / wk : null,
       docMedian: median(manual), docN: manual.length, reminders: watch.length, escalated: watch.filter((w) => w.level === "escalated").length,
     };
@@ -346,21 +375,25 @@ handleQuery(ledningCoaches, { roles: CHEF }, async (ctx) => {
   };
   const allDoc = median(db.check_ins.filter((x) => x.status === "approved" && monthKey(x.heldAt) === mk && x.docMinutes != null && isManual(x)).map((x) => x.docMinutes as number));
   return {
-    lastMonth: mk, targets: targetsOf(env), docGoalMinutes: INTERNAL_GOALS.docMinutes, escalateAfterWeeks: env.org.notifications.progressionWatch.escalateAfterConsecutiveWeeks,
-    rows, total, allDoc, all: rateView(resultRate(db, { window: "rolling_6m" }, env)),
+    lastMonth: mk, targets: targetsOf(env, hide),
+    // Begränsade testare (testmiljön): Miljonbemannings interna mål för dokumentationstiden lämnas inte ut.
+    ...(hide ? {} : { docGoalMinutes: INTERNAL_GOALS.docMinutes }),
+    escalateAfterWeeks: env.org.notifications.progressionWatch.escalateAfterConsecutiveWeeks,
+    rows, total, allDoc, all: rateView(resultRate(db, { window: "rolling_6m" }, env), hide),
   };
 });
 
 // ---------------------------------------------------------------- ledning.areas (flik Per avtalsområde)
 handleQuery(ledningAreas, { roles: CHEF }, async (ctx) => {
   const { contract, env, db } = await ledningData(ctx);
-  const t = targetsOf(env);
+  const hide = hidesCommercial(ctx.actor);
+  const t = targetsOf(env, hide);
   const lm = lastMonthOf(env);
   const rows = db.contract_areas.map((a) => {
     const cs = db.cases.filter((c) => c.primaryAreaCode === a.code);
     return {
       code: a.code, name: a.name, active: cs.filter((c) => c.status === "active").length, closed: cs.filter((c) => c.status === "closed").length,
-      rr: rateView(resultRate(db, { area: a.code, from: contract.startsOn }, env)),
+      rr: rateView(resultRate(db, { area: a.code, from: contract.startsOn }, env), hide),
     };
   });
   return {
@@ -369,7 +402,7 @@ handleQuery(ledningAreas, { roles: CHEF }, async (ctx) => {
     smallGroupN: env.cfg.pulse.minNForAggregate,
     rows,
     total: { active: sum(rows, (r) => r.active), closed: sum(rows, (r) => r.closed) },
-    all: rateView(resultRate(db, { from: contract.startsOn }, env)),
+    all: rateView(resultRate(db, { from: contract.startsOn }, env), hide),
     monthActive: customerSummary(db, lm, env).active,
   };
 });
@@ -384,7 +417,8 @@ handleQuery(ledningPulse, { roles: CHEF }, async (ctx) => {
     minN: st.minN,
     enough: st.enough,
     periodicEveryDays: env.cfg.pulse.periodicEveryDays,
-    responseGoal: INTERNAL_GOALS.pulseResponseRate,
+    // Begränsade testare (testmiljön): Miljonbemannings interna mål för svarsfrekvensen lämnas inte ut.
+    ...(hidesCommercial(ctx.actor) ? {} : { responseGoal: INTERNAL_GOALS.pulseResponseRate }),
     // Aggregaten lämnas bara ut från minsta antal svar – annars kan deltagare identifieras.
     stats: st.enough
       ? { invites: st.invites, responses: st.responses, responseRate: st.responseRate, satisfaction: st.satisfaction, closer: st.closer, support: st.support, q1: st.q1, q2: st.q2, q3: st.q3, priorities: prio }
@@ -407,11 +441,12 @@ handleQuery(ledningPulse, { roles: CHEF }, async (ctx) => {
 /** När avvikelsen stängdes. Äldre (förifyllda) poster saknar closedAt – då används planens slutdatum (bara datum). */
 const closedOn = (cd: ContractDeviation): string | null => (cd.status === "closed" ? cd.closedAt || cd.actionPlanDue || cd.raisedAt : null);
 
-function cdevRow(cd: ContractDeviation): CdevRow {
+/** En rad i registret. hide = begränsad testare: vitets belopp lämnas inte ut. */
+function cdevRow(cd: ContractDeviation, hide = false): CdevRow {
   return {
     id: cd.id, raisedAt: cd.raisedAt, type: cd.type, level: cd.level, source: cd.source, escalationStep: cd.escalationStep, description: cd.description,
     hasPlan: !!String(cd.actionPlan || "").trim(), actionPlanDue: cd.actionPlanDue, customerApprovedAt: cd.customerApprovedAt, statusKey: cdStatusKey(cd),
-    warningIssued: cd.warningIssued, penaltyOre: cd.penaltyOre || 0, orderStop: cd.orderStop,
+    warningIssued: cd.warningIssued, ...(hide ? {} : { penaltyOre: cd.penaltyOre || 0 }), orderStop: cd.orderStop,
   };
 }
 
@@ -428,7 +463,8 @@ async function formFor(ctx: Ctx, contract: Contract, env: DomainEnv): Promise<Cd
     defaultOwnerId: ctx.actor.userId,
     today,
     offsetMonths,
-    penalties: { deviationOre: cfg.penalties.deviationOre, insufficientInformationOre: cfg.penalties.insufficientInformationOre },
+    // Begränsade testare (testmiljön): avtalets viten lämnas inte ut.
+    ...(hidesCommercial(ctx.actor) ? {} : { penalties: { deviationOre: cfg.penalties.deviationOre, insufficientInformationOre: cfg.penalties.insufficientInformationOre } }),
     warningsBeforeTermination: cfg.warningsBeforeTermination,
     ladder: cfg.escalationLadder.map((s) => ({ step: s.step, level: s.level, text: s.text })),
     canManage: MANAGE_ROLES.includes(ctx.actor.role),
@@ -443,6 +479,7 @@ const registerOrder = (a: ContractDeviation, b: ContractDeviation) => Number(a.s
 // ---------------------------------------------------------------- ledning.cdevRegister
 handleQuery(cdevRegister, { roles: CDEV_ROLES }, async (ctx) => {
   const { contract, env, customerName } = await scopeFor(ctx);
+  const hide = hidesCommercial(ctx.actor);
   const all = (await ctx.repo.table("contract_deviations").list({ contractId: contract.id })).sort(registerOrder);
   const open = all.filter((x) => x.status !== "closed");
   const stepCounts: Record<number, number> = {};
@@ -451,13 +488,13 @@ handleQuery(cdevRegister, { roles: CDEV_ROLES }, async (ctx) => {
   for (let m = monthKey(contract.startsOn); m <= monthKey(dayOf(env.now)); m = addMonths(m, 1)) aptMonths.push(m);
   return {
     customerName,
-    rows: all.map(cdevRow),
+    rows: all.map((x) => cdevRow(x, hide)),
     counts: {
       open: open.length,
       openComplaints: open.filter((x) => x.type === "klagomål").length,
       waiting: open.filter((x) => x.actionPlan && !x.customerApprovedAt).length,
       warnings: all.filter((x) => x.warningIssued).length,
-      penaltiesOre: sum(all, (x) => x.penaltyOre || 0),
+      ...(hide ? {} : { penaltiesOre: sum(all, (x) => x.penaltyOre || 0) }),
     },
     stepCounts,
     maxStep: open.length ? Math.max(...open.map((x) => x.escalationStep || 0)) : null,
@@ -480,10 +517,11 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
   const closed = cd.status === "closed";
   const dueAt = !closed && cd.actionPlanDue ? `${cd.actionPlanDue}T${env.org.alerts.followUpDueTime}` : null;
   const s = dueAt ? slaStatus(dueAt, null, env) : null;
+  const hide = hidesCommercial(ctx.actor);
   return {
     found: true as const,
     cd: {
-      ...cdevRow(cd),
+      ...cdevRow(cd, hide),
       actionPlan: cd.actionPlan || "",
       ownerId: cd.ownerId,
       ownerName: cd.ownerId ? await userName(ctx, cd.ownerId) : null,
@@ -493,8 +531,8 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
       planSubmittedAt: cd.planSubmittedAt,
       approvedByName: cd.customerApprovedAt ? (cd.customerApprovedBy ? await userName(ctx, cd.customerApprovedBy) : chefName) : null,
       warningIssuedAt: cd.warningIssuedAt,
-      penaltyKind: cd.penaltyKind ?? (cd.penaltyOre ? "deviation" : null),
-      penaltyOffsetMonth: cd.penaltyOffsetMonth,
+      // Begränsade testare: vitet och fakturan det avräknas på lämnas inte ut.
+      ...(hide ? {} : { penaltyKind: cd.penaltyKind ?? (cd.penaltyOre ? "deviation" : null), penaltyOffsetMonth: cd.penaltyOffsetMonth }),
       lessons: cd.lessons || "",
       closedOn: closedOn(cd),
     },
@@ -508,6 +546,7 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
 // ---------------------------------------------------------------- ledning.cdevMonth (månadssammanställning för APT)
 handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
   const { contract, env, customerName } = await scopeFor(ctx);
+  const hide = hidesCommercial(ctx.actor);
   const cfg = env.cfg;
   const mk = p.month;
   const start = `${mk}-01`;
@@ -555,7 +594,8 @@ handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
     "",
     `Avvikelser på deltagarnivå (från veckoavstämningar): ${participantDevs}`,
     `Skriftliga varningar hittills: ${warnings} av ${cfg.warningsBeforeTermination}`,
-    `Viten hittills: ${kr(penaltiesOre)}`,
+    // Begränsade testare: summan av viten står inte i texten (Kopiera text och Exportera).
+    ...(hide ? [] : [`Viten hittills: ${kr(penaltiesOre)}`]),
   ].join("\n");
   return {
     month: mk,
@@ -569,7 +609,7 @@ handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
     lessons: lessons.map((x) => ({ id: x.id, lessons: x.lessons, type: x.type, raisedAt: x.raisedAt })),
     warnings,
     warningsBeforeTermination: cfg.warningsBeforeTermination,
-    penaltiesOre,
+    ...(hide ? {} : { penaltiesOre }),
     text,
   };
 });
@@ -579,7 +619,9 @@ const NO_SANCTIONS = "Varningar, viten och avropsstopp registreras av avtalsansv
 const APPROVAL_MAIL = "En åtgärdsplan inom avtalet med Miljonbemanning väntar på ert godkännande. Logga in i portalen för att läsa den.";
 
 handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
-  const data = p.data;
+  // Begränsade testare (testmiljön) ser inte vitet – deras formulär saknar vitesvalet. Vitet och avräkningen ändras därför
+  // aldrig av dem (ett tomt val får inte ta bort ett registrerat vite).
+  const data = hidesCommercial(ctx.actor) ? { ...p.data, penaltyKind: undefined, penaltyOffsetMonth: undefined } : p.data;
   const now = ctx.now();
   const existing = p.id ? await ctx.repo.table("contract_deviations").get(p.id) : null;
   if (p.id && !existing) return fail("not_found", "Avvikelsen finns inte.");

@@ -6,6 +6,7 @@ import { StartScreen } from "./screens/start";
 
 export const routes: RouteDef[] = [
   { path: "/start", title: "Startsida", roles: ["samordnare", "avtalsansvarig"], area: "mb", screen: StartScreen },
-  { path: "/inkorg/:emailId?", title: "Avropsinkorg", roles: ["samordnare", "avtalsansvarig"], area: "mb", screen: InkorgScreen },
+  // keepMounted: valt mejl i adressen (/inkorg/<id>) byter inte sida – listan och skrollen står kvar.
+  { path: "/inkorg/:emailId?", title: "Avropsinkorg", roles: ["samordnare", "avtalsansvarig"], area: "mb", screen: InkorgScreen, keepMounted: true },
   { path: "/forfaller", title: "Förfaller i dag och denna vecka", roles: ["samordnare", "avtalsansvarig", "chef"], area: "mb", screen: ForfallerScreen },
 ];

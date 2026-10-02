@@ -53,15 +53,20 @@ function LogPage({ isChef }: { isChef: boolean }) {
 }
 
 function ExportButton({ d, f }: { d: AuditLogView; f: Filter }) {
-  const log = useCommand(auditView);
+  // Kolumnen "Gjort i prototypen" finns bara i prototypen.
+  const demo = useRuntime() === "demo";
+  // Loggkommandet räknar normalt inte om något – här visar sidan själva loggen, så den hämtas på nytt efter exporten.
+  const log = useCommand(auditView, { invalidate: ["admin."] });
   const download = useDownload();
   const exportCsv = async () => {
     const rows = applyFilter(d.rows, f);
     // Exporten loggas i revisionsloggen innan filen skapas (CLAUDE.md punkt 3).
     await log.run({ action: "export.audit_log", entity: "audit_log", entityId: d.contractId, details: { rows: rows.length, filter: filterDesc(d, f) || "inget" } }).catch(() => null);
     const esc = (s: unknown) => `"${String(s == null ? "" : s).replace(/"/g, '""')}"`;
-    const head = ["Tidpunkt", "Aktör", "Åtgärd", "Åtgärdskod", "Objekt", "Objekt-id", "Ärendenummer", "Detaljer", "Gjort i prototypen"];
-    const lines = rows.map((a) => [a.at.replace("T", " "), a.actorName, a.actionLabel, a.action, a.entity, a.entityId, a.caseNumber, a.detailText, a.byTester ? "Ja" : "Nej"].map(esc).join(";"));
+    const head = ["Tidpunkt", "Aktör", "Åtgärd", "Åtgärdskod", "Objekt", "Objekt-id", "Ärendenummer", "Detaljer", ...(demo ? ["Gjort i prototypen"] : [])];
+    const lines = rows.map((a) =>
+      [a.at.replace("T", " "), a.actorName, a.actionLabel, a.action, a.entity, a.entityId, a.caseNumber, a.detailText, ...(demo ? [a.byTester ? "Ja" : "Nej"] : [])].map(esc).join(";"),
+    );
     await download(`revisionslogg-${d.today}.csv`, [head.map(esc).join(";"), ...lines].join("\n"), "text/csv");
   };
   return (
@@ -78,7 +83,7 @@ function LogContent({ d, f, set, limit, setLimit }: { d: AuditLogView; f: Filter
   return (
     <>
       <Grid cols={4}>
-        <Kpi label="Poster i loggen" value={num(d.rows.length)} sub="urval från demodatat" />
+        <Kpi label="Poster i loggen" value={num(d.rows.length)} sub={demo ? "urval från demodatat" : "nyast först"} />
         <Kpi label="Visningar" value={d.views} sub="deltagarkort, personnummer och rapporter" />
         <Kpi label="Exporter" value={d.exports} sub="loggas alltid" />
         <DemoOnly>

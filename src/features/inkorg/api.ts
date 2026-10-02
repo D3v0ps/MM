@@ -215,7 +215,8 @@ export type ConfirmationView = {
   team: string;
   firstMeeting: string;
   planned: string;
-  value: string;
+  /** "13 980 kr (10 veckor × 1 398 kr)". Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+  value?: string;
   buyerReference: string;
   leadNotif: { title: string; emailBody: string; others: string } | null;
   custMail: string | null;
@@ -245,7 +246,8 @@ export type DecisionForm = {
   meetingText: string;
   refPattern: string;
   refLen: string;
-  prices: { validFrom: string; validTo: string | null; priceOre: number; exampleOnly: boolean }[];
+  /** Prisartiklar för området. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+  prices?: { validFrom: string; validTo: string | null; priceOre: number; exampleOnly: boolean }[];
   pendingSup: PendingSupplement | null;
   declined: number;
   total: number;
@@ -277,8 +279,10 @@ export type KpiCardView = {
   key: string;
   label: string;
   value: string;
+  /** Under Miljonbemannings interna mål. Alltid false för begränsade testare (det interna målet visas inte). */
   below: boolean;
   sub: string;
+  /** target = internt mål (null för begränsade testare och när målet inte är fastställt). */
   meter: { value: number; valueText: string; target: number | null; targetText: string } | null;
   late: { caseId: string; caseNumber: string }[];
 };
@@ -367,4 +371,4 @@ export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSch
 export const inboxRevealPnr = command("inkorg.revealPnr", z.object({
   emailId: IdSchema.optional(),
   caseId: IdSchema.optional(),
-})).returns<Result<{ text: string }, "not_found" | "forbidden">>();
+}), { invalidates: "none" }).returns<Result<{ text: string }, "not_found" | "forbidden">>();

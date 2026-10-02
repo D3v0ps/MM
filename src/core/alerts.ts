@@ -39,7 +39,12 @@ export type AlertItem = {
 export type AlertDb = BillingDb &
   KpiDb &
   Pick<Db, "check_ins" | "placements" | "pulse_responses" | "inbound_emails" | "alert_acks" | "profiles">;
-export type AlertOpts = { role: Role; personaId?: string | null; includeAcked?: boolean };
+/**
+ * hideCommercial = begränsad testare i testmiljön (src/api/tester-access.ts): inga flaggor som bygger på Miljonbemannings
+ * interna mål (Bevaka: resultatgrad och månads-KPI:er under internt mål) och inga flaggor om ofakturerade veckor (belopp i
+ * kronor, länk till Ekonomi). Flaggan om resultatgrad under avtalsmålet finns kvar.
+ */
+export type AlertOpts = { role: Role; personaId?: string | null; includeAcked?: boolean; hideCommercial?: boolean };
 
 type Draft = Omit<AlertItem, "ack" | "href">;
 const SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
@@ -48,7 +53,7 @@ const toRoles = (xs: readonly string[]): Role[] => xs.map((x) => (x === "control
 
 /** Flaggor för en roll (och persona för coachen), allvarligast och senast först. Kvitterade flaggor bara med includeAcked. */
 export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[] {
-  const { role, personaId = null, includeAcked = false } = opts;
+  const { role, personaId = null, includeAcked = false, hideCommercial = false } = opts;
   const today = dayOf(env.now);
   const at6 = `${today}T06:00`;
   const acks = byId(db.alert_acks);
@@ -69,7 +74,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
       key: "kpi:resultatgrad:contract", kind: "kpi", severity: "critical", title: "Åtgärd krävs: resultatgrad under avtalsmålet",
       text: `${lead} Avtalsmålet är ${pct(k.contractTarget, 0)}.`, roles: toRoles(k.notify?.belowContract ?? []), createdAt: at6, link: viewLink("chef.oversikt"),
     });
-  } else if (k && rr.status === "below_internal") {
+  } else if (k && rr.status === "below_internal" && !hideCommercial) {
     add({
       key: "kpi:resultatgrad:internal", kind: "kpi", severity: "warning", title: "Bevaka: resultatgrad under internt mål",
       text: `${lead} Internt mål ${pct(rr.internalTarget, 0)}, avtalsmål ${pct(k.contractTarget, 0)}.`, roles: toRoles(k.notify?.belowInternal ?? []), createdAt: at6, link: viewLink("chef.oversikt"),
@@ -80,7 +85,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
   const lastMonth = addMonths(monthKey(today), -1);
   for (const key of ["avrop_besvarade_i_tid", "forsta_mote_inom_en_vecka", "veckorapporter_i_tid", "manadsrapporter_i_tid"]) {
     const v = kpiValue(db, key, { month: lastMonth }, env);
-    if (v && v.status === "below_internal") {
+    if (v && v.status === "below_internal" && !hideCommercial) {
       add({
         key: `kpi:${key}:${lastMonth}`, kind: "kpi", severity: "warning", title: `Bevaka: ${v.label.toLowerCase()} ${monthName(lastMonth)}`,
         text: `${pct(v.value)} (${v.num} av ${v.den}). Internt mål ${pct(v.target, 0)}.`, roles: ["chef", "samordnare", "avtalsansvarig"], createdAt: at6, link: viewLink("chef.oversikt"),
@@ -171,7 +176,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
 
   // Ofakturerade veckor äldre än varningsgränsen
   const limit = env.cfg.billing.unbilledWarningDays;
-  for (const [caseId, rows] of Object.entries(groupBy(unbilledOld(db, env), (x) => x.case.id))) {
+  for (const [caseId, rows] of Object.entries(groupBy(hideCommercial ? [] : unbilledOld(db, env), (x) => x.case.id))) {
     const c = rows[0].case;
     add({
       key: `unbilled:${caseId}`, kind: "unbilled", severity: "critical", title: `Ofakturerade veckor äldre än ${limit} dagar`,

@@ -2,14 +2,18 @@
 // Register över avtalsavvikelser, varningar och klagomål (/avtalsavvikelser/:id?, prototypens chef.avvikelser). SPEC §7.16 och §3.
 // Eskaleringstrappa, viten och antal varningar före uppsägning kommer från avtalskonfigurationen via frågorna.
 import { useState } from "react";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, plural } from "@/core/format";
 import { fmtDate, fmtDateShort, fmtDateTime, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { useDraft, useUnsavedGuard } from "@/shell/guard";
+import { Link, useNav } from "@/shell/nav";
+import { pick, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, FormGrid, Icon, Input, Kpi, Kv, Loading, Modal, Notice,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, focusFirstError, FormGrid, Icon, Input, Kpi, Kv, Loading, Modal,
+  ModalCancelButton, Notice,
   Page, PerspectiveLink, QueryView, Row, Seg, Select, SlaBadge, Split, Stack, TabPanel, Table, Tabs, TextArea, Timeline, useCopy, useDownload, useToast,
   type TimelineItem,
 } from "@/ui";
@@ -21,10 +25,10 @@ import {
 import { CdStatusBadge, Ladder, Tiles, WrapBtn } from "./parts";
 
 type Penalty = "" | "deviation" | "information";
-const penaltyOptions = (f: CdevForm) => [
+const penaltyOptions = (p: NonNullable<CdevForm["penalties"]>) => [
   { value: "", label: "Inget vite" },
-  { value: "deviation", label: `Vite för avvikelse – ${kr(f.penalties.deviationOre)}` },
-  { value: "information", label: `Vite för bristfällig information – ${kr(f.penalties.insufficientInformationOre)}` },
+  { value: "deviation", label: `Vite för avvikelse – ${kr(p.deviationOre)}` },
+  { value: "information", label: `Vite för bristfällig information – ${kr(p.insufficientInformationOre)}` },
 ];
 const monthOptions = (ms: string[]) => ms.map((mk) => ({ value: mk, label: monthName(mk) }));
 const typeHelpOf = (f: CdevForm, type: string) => (type === "ekonomi" ? f.economicHelp : CD_TYPES.find((x) => x.value === type)?.help);
@@ -66,8 +70,13 @@ function Register() {
 
 function RegisterContent({ d }: { d: CdevRegister }) {
   const nav = useNav();
-  const [filter, setFilter] = useState<"open" | "all" | "klagomal">("open");
-  const [tab, setTab] = useState<"register" | "apt">("register");
+  // Filter och flik i adressen (?visa=alla|klagomal, ?flik=apt), så att Tillbaka från en avvikelse visar samma lista.
+  const patch = useQueryPatch();
+  const visa = nav.query.get("visa");
+  const filter = visa === "alla" ? "all" : visa === "klagomal" ? "klagomal" : "open";
+  const setFilter = (v: "open" | "all" | "klagomal") => patch({ visa: v === "open" ? null : v === "all" ? "alla" : v });
+  const tab = pick(nav.query, "flik", ["register", "apt"] as const, "register");
+  const setTab = (v: "register" | "apt") => patch({ flik: v === "register" ? null : v });
   const f = d.form;
   const open = d.rows.filter((x) => x.statusKey !== "closed");
   const rows = filter === "open" ? open : filter === "klagomal" ? d.rows.filter((x) => x.type === "klagomål") : d.rows;
@@ -90,7 +99,11 @@ function RegisterContent({ d }: { d: CdevRegister }) {
           statusText={c.warnings > 0 ? `${plural(c.warnings, "varning", "varningar")} från kommunen` : undefined}
           sub={`${f.warningsBeforeTermination} varningar kan leda till uppsägning`}
         />
-        <Kpi label="Viten" value={kr(c.penaltiesOre)} sub={`${kr(f.penalties.deviationOre)} per tillfälle enligt avtalet`} />
+        {c.penaltiesOre !== undefined && f.penalties ? (
+          <Kpi label="Viten" value={kr(c.penaltiesOre)} sub={`${kr(f.penalties.deviationOre)} per tillfälle enligt avtalet`} />
+        ) : (
+          <Kpi label="Viten" value={TESTER_HIDDEN_TEXT} />
+        )}
       </Tiles>
       <Card title="Eskaleringstrappan" icon="layers" actions={<BuildPhase fas={2} />}>
         <Stack>
@@ -129,7 +142,8 @@ function RegisterContent({ d }: { d: CdevRegister }) {
                 caption="Register över avtalsavvikelser"
                 rows={rows}
                 empty="Inga avvikelser i det här urvalet."
-                onRowClick={(x) => nav.push(`/avtalsavvikelser/${encodeURIComponent(x.id)}`)}
+                rowHref={(x) => `/avtalsavvikelser/${encodeURIComponent(x.id)}`}
+                linkKey={false}
                 rowTone={(x) => (x.statusKey === "no_plan" ? "alert" : x.statusKey === "closed" ? "muted" : null)}
                 columns={registerColumns}
               />
@@ -154,7 +168,10 @@ const registerColumns = [
     label: "Typ och nivå",
     render: (x: CdevRow) => (
       <div className="flex flex-col gap-1">
-        <span className="font-bold">{cdTypeLabel(x.type)}</span>
+        {/* Riktig länk: ny flik med ctrl/cmd eller mittenklick. Klick i resten av raden öppnar också avvikelsen. */}
+        <Link to={`/avtalsavvikelser/${encodeURIComponent(x.id)}`} className="inline-flex min-h-11 items-center font-bold underline underline-offset-3">
+          {cdTypeLabel(x.type)}
+        </Link>
         <CellSub>
           {cdLevelLabel(x.level)} · steg {x.escalationStep}
         </CellSub>
@@ -193,7 +210,7 @@ const registerColumns = [
           <CdStatusBadge status={x.statusKey} />
         </span>
         <CellSub>
-          {x.warningIssued ? "Skriftlig varning" : "Ingen varning"} · {x.penaltyOre ? `vite ${kr(x.penaltyOre)}` : "inget vite"}
+          {x.warningIssued ? "Skriftlig varning" : "Ingen varning"} · {x.penaltyOre === undefined ? `vite: ${TESTER_HIDDEN_TEXT.toLowerCase()}` : x.penaltyOre ? `vite ${kr(x.penaltyOre)}` : "inget vite"}
           {x.orderStop ? " · avropsstopp" : ""}
         </CellSub>
       </div>
@@ -256,6 +273,7 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
     if (f.actionPlan.trim() && !f.actionPlanDue) e.actionPlanDue = "Ange när åtgärderna ska vara klara.";
     if (Object.keys(e).length) {
       setErr(e);
+      focusFirstError(document.querySelector<HTMLElement>("[role=dialog]"));
       return;
     }
     const res = await save.run({
@@ -285,11 +303,10 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
       wide
       title="Registrera avvikelse eller klagomål"
       onClose={onClose}
+      dirty={!!(f.description.trim() || f.actionPlan.trim() || f.caseNumber.trim())}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>
-            Avbryt
-          </Button>
+          <ModalCancelButton />
           <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
             Registrera
           </Button>
@@ -332,14 +349,17 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
           <Check id="cd-warning" checked={f.warningIssued} disabled={!(step != null && isWarnStep(step)) || !can} onCheckedChange={set("warningIssued")}>
             Kommunen har gett en skriftlig varning (räknas mot {form.warningsBeforeTermination}). Kan bara ges på steg {ws.min}–{ws.max}.
           </Check>
-          <Field
-            label="Vite"
-            id="cd-penalty"
-            help={`Enligt avtalet ${kr(form.penalties.deviationOre)} per tillfälle vid avvikelse och ${kr(form.penalties.insufficientInformationOre)} vid bristfällig löpande information.`}
-          >
-            <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={penaltyOptions(form)} />
-          </Field>
-          {f.penaltyKind && (
+          {/* Vitesvalet saknas för begränsade testare (servern lämnar inte ut avtalets viten). */}
+          {form.penalties && (
+            <Field
+              label="Vite"
+              id="cd-penalty"
+              help={`Enligt avtalet ${kr(form.penalties.deviationOre)} per tillfälle vid avvikelse och ${kr(form.penalties.insufficientInformationOre)} vid bristfällig löpande information.`}
+            >
+              <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={penaltyOptions(form.penalties)} />
+            </Field>
+          )}
+          {form.penalties && f.penaltyKind && (
             <Field label="Avräknas på faktura för" id="cd-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
               <Select value={f.penaltyOffsetMonth} onValueChange={set("penaltyOffsetMonth")} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
             </Field>
@@ -443,7 +463,8 @@ function MonthSummary({ months, initial }: { months: string[]; initial: string }
               </ul>
             )}
             <p className="text-small text-text-muted">
-              Skriftliga varningar hittills: {s.warnings} av {s.warningsBeforeTermination}. Viten hittills: {kr(s.penaltiesOre)}.
+              Skriftliga varningar hittills: {s.warnings} av {s.warningsBeforeTermination}. Viten hittills:{" "}
+              {s.penaltiesOre === undefined ? TESTER_HIDDEN_TEXT.toLowerCase() : kr(s.penaltiesOre)}.
             </p>
           </>
         )}
@@ -488,8 +509,15 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
   const [editPlan, setEditPlan] = useState(false);
   const [plan, setPlan] = useState({ actionPlan: cd.actionPlan, actionPlanDue: cd.actionPlanDue ?? "", ownerId: cd.ownerId ?? form.defaultOwnerId });
   const [planErr, setPlanErr] = useState<{ actionPlan?: string | null; actionPlanDue?: string | null }>({});
-  const [lessons, setLessons] = useState(cd.lessons);
+  // Lärdomarna: utkastminne i minnet och fråga innan sidan lämnas med osparad text.
+  const lessonsDraft = useDraft(`avtalsavvikelse-lardomar|${cd.id}`, cd.lessons);
+  const lessons = lessonsDraft.value;
+  const setLessons = lessonsDraft.set;
   const [lessonsErr, setLessonsErr] = useState<string | null>(null);
+  const planDirty = editPlan && plan.actionPlan.trim() !== (cd.actionPlan ?? "").trim();
+  // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
+  // har skickats, innan fältet hunnit tömmas.
+  useUnsavedGuard(((cd.statusKey !== "closed" && lessons.trim() !== (cd.lessons ?? "").trim()) || planDirty) && !save.pending && !closeCmd.pending);
   const [editSanction, setEditSanction] = useState(false);
   const [sanc, setSanc] = useState({
     escalationStep: String(cd.escalationStep ?? 0), warningIssued: cd.warningIssued, penaltyKind: (cd.penaltyKind ?? "") as Penalty, penaltyOffsetMonth: cd.penaltyOffsetMonth ?? "",
@@ -541,6 +569,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
       toast(res.message ?? "Avvikelsen kunde inte markeras som klar.", "error");
       return;
     }
+    lessonsDraft.clear();
     toast("Avvikelsen är markerad som klar. Lärdomen finns med i månadssammanställningen.");
   };
 
@@ -771,10 +800,12 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                 <Check id="cd-s-warning" checked={sanc.warningIssued} disabled={!isWarnStep(Number(sanc.escalationStep))} onCheckedChange={(v) => setSanc({ ...sanc, warningIssued: v })}>
                   Skriftlig varning från kommunen (räknas mot {wbt})
                 </Check>
-                <Field label="Vite" id="cd-s-penalty" help={`${kr(form.penalties.deviationOre)} per tillfälle enligt avtalet.`}>
-                  <Select value={sanc.penaltyKind} onValueChange={(v) => setSanc({ ...sanc, penaltyKind: v as Penalty })} options={penaltyOptions(form)} />
-                </Field>
-                {sanc.penaltyKind && (
+                {form.penalties && (
+                  <Field label="Vite" id="cd-s-penalty" help={`${kr(form.penalties.deviationOre)} per tillfälle enligt avtalet.`}>
+                    <Select value={sanc.penaltyKind} onValueChange={(v) => setSanc({ ...sanc, penaltyKind: v as Penalty })} options={penaltyOptions(form.penalties)} />
+                  </Field>
+                )}
+                {form.penalties && sanc.penaltyKind && (
                   <Field label="Avräknas på faktura för" id="cd-s-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
                     <Select value={sanc.penaltyOffsetMonth} onValueChange={(v) => setSanc({ ...sanc, penaltyOffsetMonth: v })} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
                   </Field>
@@ -805,8 +836,8 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                     ),
                   ],
                   ["Varningar totalt", `${d.totalWarnings} av ${wbt}`],
-                  ["Vite", cd.penaltyOre ? kr(cd.penaltyOre) : "Inget"],
-                  cd.penaltyOre > 0 ? ["Avräkning", cd.penaltyOffsetMonth ? `Faktura för ${monthName(cd.penaltyOffsetMonth)}` : "Inte bestämt"] : null,
+                  ["Vite", cd.penaltyOre === undefined ? TESTER_HIDDEN_TEXT : cd.penaltyOre ? kr(cd.penaltyOre) : "Inget"],
+                  cd.penaltyOre !== undefined && cd.penaltyOre > 0 ? ["Avräkning", cd.penaltyOffsetMonth ? `Faktura för ${monthName(cd.penaltyOffsetMonth)}` : "Inte bestämt"] : null,
                   ["Avropsstopp", cd.orderStop ? "Ja" : "Nej"],
                 ]}
               />

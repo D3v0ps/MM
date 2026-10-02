@@ -158,7 +158,7 @@ export const linkSend = command("rost.linkSend", z.object({ caseId: IdSchema, la
 >();
 
 /** Deltagarens röstmeddelanden visades (loggas i revisionsloggen – transkript, CLAUDE.md punkt 3). Tyst. */
-export const notesSeen = command("rost.notesSeen", z.object({ caseId: IdSchema })).returns<Result<object, "not_found">>();
+export const notesSeen = command("rost.notesSeen", z.object({ caseId: IdSchema }), { invalidates: "none" }).returns<Result<object, "not_found">>();
 
 export const noteReview = command("rost.noteReview", z.object({ noteId: IdSchema, status: z.enum(["new", "reviewed", "archived"]) })).returns<Result<object, "not_found" | "forbidden">>();
 

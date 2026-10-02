@@ -233,7 +233,10 @@ function messageRead(m: Tables["messages"], a: Actor, raw: Raw): boolean {
 }
 
 // ---------------------------------------------------------------- Synpunkter i testmiljön (0017)
-/** Den inloggade är testare i testmiljön (mm.auth_is_tester()). Bara servern sätter testerId – aldrig i produktion eller minnet. */
+/**
+ * Den inloggade är testare i testmiljön (mm.auth_is_tester()). Bara servern sätter testerId – aldrig i produktion. I minnesläget
+ * bara när en testare simuleras för e2e (POST /api/dev-session med testerId, src/server/runtime.ts).
+ */
 const stagingTester = (a: Actor): a is Actor & { testerId: string } => typeof a.testerId === "string" && a.testerId !== "";
 /** I en synpunkt ändras bara status, statusChangedAt och statusChangedBy – i eget namn (triggern feedback_protect_columns, 0017). */
 function feedbackStatusOnly(cur: Tables["feedback"], next: Tables["feedback"], a: Actor & { testerId: string }): boolean {

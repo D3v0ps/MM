@@ -342,7 +342,11 @@ export type MinVeckaView = {
     total: number;
     open: { caseId: string; caseNumber: string; name: string; hasAi: boolean }[];
   };
-  messages: { notificationId: string; caseId: string; caseNumber: string; name: string; createdAt: LocalDateTime; from: string | null; excerpt: string | null }[];
+  /**
+   * Olästa meddelanden från kommunen, ett per ärende (det senaste) – samma räkning som deltagarkortets olästa (unread):
+   * meddelanden från kommunens användare som coachen inte har läst. notificationId = notisen om meddelandet, om det finns en.
+   */
+  messages: { notificationId: string | null; caseId: string; caseNumber: string; name: string; createdAt: LocalDateTime; from: string | null; excerpt: string | null; count: number }[];
   reminders: { caseId: string; caseNumber: string; name: string; streak: number; reason: string; weekKey: WeekKey }[];
   flags: { key: string; kind: string; severity: "critical" | "warning" | "info"; title: string; text: string; caseId: string | null; href: string | null }[];
   unread: { count: number; latest: { id: string; title: string; caseNumber: string | null }[] };
@@ -591,6 +595,10 @@ export type EventsPage = Gated<{
   exitPulse: { sentAt: LocalDateTime; channel: "sms" | "email"; expiresAt: LocalDateTime } | null;
   finalDays: number;
   finalProvisional: boolean;
-  bonusOn: boolean;
+  /**
+   * Bonusmodellen är aktiv. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts): bonus är ett ekonomiskt
+   * villkor – kortet Bonus, kolumnen Bonusunderlag och markeringen visas då inte (events[].possibleBonus är alltid false).
+   */
+  bonusOn?: boolean;
 }>;
 export const eventsPage = query("coach.eventsPage", z.object({ caseId: IdSchema })).returns<EventsPage>();

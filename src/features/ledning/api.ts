@@ -37,7 +37,7 @@ export type LedningTab = (typeof LEDNING_TABS)[number];
 /** Resultatgrad utan interna detaljer som skärmen inte behöver. */
 export type RateView = { value: number | null; num: number; den: number; prelim: number; excluded: number; status: ResultStatus; minN: number };
 
-/** Resultatgradens mål från avtalskonfigurationen (kpis[resultatgrad]). Aldrig hårdkodat. */
+/** Resultatgradens mål från avtalskonfigurationen (kpis[resultatgrad]). Aldrig hårdkodat. internal = null för begränsade testare. */
 export type ResultTargets = { contract: number | null; internal: number | null; minN: number };
 
 /** En flagga som ledningen ser. link = bara om rollen kan öppna sidan (och det inte är ledningsvyn själv). */
@@ -63,10 +63,12 @@ export type KpiRow = {
   value: number | null;
   num: number;
   den: number;
+  /** Miljonbemannings interna mål. null när det inte är fastställt – och alltid för begränsade testare (src/api/tester-access.ts). */
   target: number | null;
   targetUnset: boolean;
   contractTarget: number | null;
-  status: KpiStatus;
+  /** target_hidden = begränsad testare: KPI:n har bara ett internt mål, som inte visas. */
+  status: KpiStatus | "target_hidden";
   provisional: boolean;
 };
 
@@ -121,7 +123,11 @@ export type LedningOverview = {
   escalatedCount: number;
   early: EarlyCoach[];
   sla: { rows: KpiRow[]; targetText: string; overdueCount: number; canOpenDeadlines: boolean; seesSlaStats: boolean };
-  unbilled: { totalOre: number; weeks: number; cases: { caseId: string; caseNumber: string }[]; oldestDays: number | null; warningDays: number; canOpenBilling: boolean };
+  /**
+   * Ofakturerade veckor ur fakturaunderlaget. Saknas helt för begränsade testare i testmiljön (src/api/tester-access.ts) –
+   * skärmen visar "Visas inte för testare".
+   */
+  unbilled?: { totalOre: number; weeks: number; cases: { caseId: string; caseNumber: string }[]; oldestDays: number | null; warningDays: number; canOpenBilling: boolean };
   cds: {
     open: number;
     warnings: number;
@@ -152,8 +158,11 @@ export type CoachRow = {
 export type LedningCoaches = {
   lastMonth: string;
   targets: ResultTargets;
-  /** Internt mål för dokumentationstid (SPEC §2 – Miljonbemannings eget mål, inte avtalsvärde). */
-  docGoalMinutes: number;
+  /**
+   * Internt mål för dokumentationstid (SPEC §2 – Miljonbemannings eget mål, inte avtalsvärde). Saknas för begränsade testare
+   * i testmiljön (src/api/tester-access.ts) – skärmen visar "Visas inte för testare" och ingen Bevaka-flagga.
+   */
+  docGoalMinutes?: number;
   escalateAfterWeeks: number;
   rows: CoachRow[];
   total: { active: number; reminders: number; escalated: number; att: number; reg: number; wk: number; wkOk: number };
@@ -193,8 +202,11 @@ export type LedningPulse = {
   minN: number;
   enough: boolean;
   periodicEveryDays: number;
-  /** Internt mål för svarsfrekvens (SPEC §2 – Miljonbemannings eget mål). */
-  responseGoal: number;
+  /**
+   * Internt mål för svarsfrekvens (SPEC §2 – Miljonbemannings eget mål). Saknas för begränsade testare i testmiljön
+   * (src/api/tester-access.ts) – skärmen visar "Visas inte för testare" och inget "Når målet"/"Under målet".
+   */
+  responseGoal?: number;
   stats: PulseAggregate | null;
   lowAlerts: AlertView[];
   lowOpen: number;
@@ -272,7 +284,8 @@ export type CdevRow = {
   customerApprovedAt: string | null;
   statusKey: CdStatusKey;
   warningIssued: boolean;
-  penaltyOre: number;
+  /** Vitets belopp. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+  penaltyOre?: number;
   orderStop: boolean;
 };
 
@@ -284,7 +297,8 @@ export type CdevForm = {
   today: string;
   /** Innevarande och två följande månader (avräkning av vite). */
   offsetMonths: string[];
-  penalties: { deviationOre: number; insufficientInformationOre: number };
+  /** Avtalets viten. Saknas för begränsade testare – vitesvalet visas då inte i formulären. */
+  penalties?: { deviationOre: number; insufficientInformationOre: number };
   warningsBeforeTermination: number;
   ladder: LadderStep[];
   /** Chef och avtalsansvarig registrerar varningar, viten och avropsstopp. */
@@ -298,7 +312,8 @@ export type CdevForm = {
 export type CdevRegister = {
   customerName: string;
   rows: CdevRow[];
-  counts: { open: number; openComplaints: number; waiting: number; warnings: number; penaltiesOre: number };
+  /** penaltiesOre saknas för begränsade testare i testmiljön. */
+  counts: { open: number; openComplaints: number; waiting: number; warnings: number; penaltiesOre?: number };
   stepCounts: Record<number, number>;
   maxStep: number | null;
   /** Månader för sammanställningen: avtalets start till innevarande månad. */
@@ -322,8 +337,9 @@ export type CdevDetail =
         planSubmittedAt: string | null;
         approvedByName: string | null;
         warningIssuedAt: string | null;
-        penaltyKind: PenaltyKind | null;
-        penaltyOffsetMonth: string | null;
+        /** Vitet och fakturan det avräknas på. Saknas för begränsade testare i testmiljön. */
+        penaltyKind?: PenaltyKind | null;
+        penaltyOffsetMonth?: string | null;
         lessons: string;
         closedOn: string | null;
       };
@@ -349,7 +365,8 @@ export type CdevMonth = {
   lessons: { id: string; lessons: string; type: ContractDeviationType; raisedAt: string }[];
   warnings: number;
   warningsBeforeTermination: number;
-  penaltiesOre: number;
+  /** Summan av viten. Saknas för begränsade testare (även raden i text). */
+  penaltiesOre?: number;
   /** Texten för Kopiera text och Exportera (inga personuppgifter – beskrivningar skrivs med ärendenummer). */
   text: string;
 };

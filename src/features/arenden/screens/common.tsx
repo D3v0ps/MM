@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { path, useNav } from "@/shell/nav";
 import type { Role } from "@/api/roles";
 import { fmtDate, fmtDateShort, fmtTime, fmtWeekday, weekday, WEEKDAYS_SHORT } from "@/core/time";
-import { Badge, cn, ErrorNotice, Icon, Loading, Notice, Table, type BadgeTone, type IconName, type TableProps } from "@/ui";
+import { Badge, cn, ErrorNotice, Icon, Loading, Notice, Refreshing, Table, type BadgeTone, type IconName, type TableProps } from "@/ui";
 import type { AttendanceSummary, CaseFlag } from "../api";
 
 // ---------------------------------------------------------------- Texter
@@ -207,7 +207,7 @@ export function RespTable<R>({
         ) : (
           <div role="list" aria-label={props.caption || "Lista"} className="flex flex-col [&>[role=listitem]+[role=listitem]]:border-t [&>[role=listitem]+[role=listitem]]:border-ljusgra">
             {props.rows.map((r, i) => (
-              <div role="listitem" key={keyOf(r, i)}>
+              <div role="listitem" key={keyOf(r, i)} {...props.rowAttrs?.(r)}>
                 {mobile(r, props.onRowClick ? () => props.onRowClick?.(r) : null)}
               </div>
             ))}
@@ -220,11 +220,17 @@ export function RespTable<R>({
 
 // ---------------------------------------------------------------- Flikar
 /** Laddning och fel för en flik. */
-export function TabQuery<T>({ q, children }: { q: { data: T | undefined; error: unknown; isLoading: boolean; refetch: () => unknown }; children: (d: NonNullable<T>) => ReactNode }) {
+export function TabQuery<T>({
+  q,
+  children,
+}: {
+  q: { data: T | undefined; error: unknown; isLoading: boolean; isPlaceholderData?: boolean; refetch: () => unknown };
+  children: (d: NonNullable<T>) => ReactNode;
+}) {
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (q.data === undefined) return <Loading />;
   if (q.data === null) return <Notice tone="info" title="Den delen visas inte för din roll" />;
-  return <>{children(q.data as NonNullable<T>)}</>;
+  return <Refreshing busy={!!q.isPlaceholderData}>{children(q.data as NonNullable<T>)}</Refreshing>;
 }
 
 

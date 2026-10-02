@@ -7,7 +7,7 @@ import { useCommand } from "@/shell/backend";
 import { caseSetBuyerRef } from "@/features/arenden/api";
 import { invoiceStatusLabel } from "@/core/labels";
 import { fmtDateTime, monthName } from "@/core/time";
-import { Badge, Button, cn, DemoNote, Dot, Field, Icon, Input, Kpi, Modal, Notice, toast, type BadgeTone, type IconName } from "@/ui";
+import { Badge, Button, cn, DemoNote, Dot, Field, focusFirstError, focusSectionOf, Icon, Input, Kpi, Modal, Notice, toast, type BadgeTone, type IconName } from "@/ui";
 import type { InvoiceCheckView, InvoiceRow, RefFormCase, TaskRef } from "../api";
 import { pl, plural, qtyKr, refError, refFromTask, refInfo, refLenText, weekText, type InvoiceSummary, type RefInfo, type RefRules } from "../model";
 
@@ -207,8 +207,13 @@ export function RefForm({
   const len = refLenText(rules.billing);
   const save = async () => {
     setTried(true);
-    if (err) return;
+    if (err) {
+      focusFirstError(document.getElementById(id)?.parentElement);
+      return;
+    }
     const ref = val.trim();
+    // Formuläret försvinner när referensen är rättad: fokus till avsnittets rubrik (i en dialog: dit fokus var innan).
+    const field = document.getElementById(id);
     for (const c of cases) {
       const res = await setRef.run({ caseId: c.caseId, reference: ref, source: task ? task.id : "ekonom" }).catch(() => null);
       if (!res || !res.ok) {
@@ -224,6 +229,7 @@ export function RefForm({
     setVal("");
     setTried(false);
     onDone?.(ref);
+    if (!field?.closest("[role=dialog]")) focusSectionOf(field);
   };
   return (
     <FixBox>

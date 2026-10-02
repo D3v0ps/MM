@@ -3,20 +3,23 @@
 // Chef och systemadmin läser bara. Handledare (teamet) ser fem flikar – inga coachanteckningar, bedömningar eller rapporter.
 // Visningen loggas i revisionsloggen (case.view), liksom försök utan behörighet (case.view_denied).
 import { useEffect, useState, type ReactNode } from "react";
-import { useCommand, useQuery } from "@/shell/backend";
+import { usePageTitle } from "@/shell/page-effects";
+import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import { DemoOnly } from "@/shell/runtime";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
 import { addWorkingDays, dayOf, fmtDate, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
-  PhaseBar, PhaseTag, Select, SlaBadge, Split, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
+  anchorTabs, PhaseBar, PhaseTag, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import {
-  caseBookFirstMeeting, caseCard, caseChangeCoach, caseRevealPnr, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
+  caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
 } from "../api";
 import { canOpen, cap, fd, Facts, Label, MiniList } from "./common";
 import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kort-flikar";
@@ -24,7 +27,7 @@ import { TabManad } from "./kort-manad";
 import { TabTidslinje } from "./kort-tidslinje";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
-import { VoiceNotesCard } from "@/features/rost/screens/coach-parts";
+import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 
 const TAB_LABEL: Record<CaseTab, string> = {
   oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Avstämningar", narvaro: "Närvaro", manad: "Månadsunderlag",
@@ -33,7 +36,14 @@ const TAB_LABEL: Record<CaseTab, string> = {
 const CUST_WHO = { kommun_handlaggare: "kommunen", kommun_chef: "kommunens chef" } as const;
 
 /** Vad varje flik får från kortet. */
-export type TabProps = { card: CaseCard; setTab: (t: CaseTab) => void; openModal: (m: ModalKind) => void };
+export type TabProps = {
+  card: CaseCard;
+  /** Byt flik (samma historikpost, ingen hoppning). */
+  setTab: (t: CaseTab) => void;
+  /** Öppna en post i en annan flik (ny historikpost, så att Tillbaka leder tillbaka). mal = postens id (timeline.ts). */
+  openTab: (t: CaseTab, o?: { mal?: string | null; manad?: string | null }) => void;
+  openModal: (m: ModalKind) => void;
+};
 type ModalKind = "coach" | "meeting" | "consent";
 
 function useCrumbs() {
@@ -51,9 +61,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
     logView.run({ action: kind === "ok" ? "case.view" : "case.view_denied", entity: "case", entityId: caseId }).catch(() => undefined),
   );
   const caseNumber = q.data?.kind === "ok" ? q.data.caseNumber : null;
-  useEffect(() => {
-    if (caseNumber) document.title = `Deltagarkort ${caseNumber} – Miljonmatch`;
-  }, [caseNumber]);
+  usePageTitle(caseNumber ? `Deltagarkort ${caseNumber}` : null);
 
   if (q.error) return <Page title="Deltagarkort" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (!q.data) return <Page title="Deltagarkort" crumbs={crumbs}><Loading /></Page>;
@@ -70,7 +78,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
     );
   }
   if (d.kind === "denied") return <NoAccess caseId={caseId} restricted={d.restricted} caseNumber={d.caseNumber} status={d.status} crumbs={crumbs} />;
-  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} />;
+  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} />;
 }
 
 function NoAccess({ caseId, restricted, caseNumber, status, crumbs }: { caseId: string; restricted: boolean; caseNumber: string | null; status: string | null; crumbs: { label: string; to: string }[] }) {
@@ -119,7 +127,74 @@ export function CustSwitch({ card, tab, label }: { card: CaseCard; tab?: string 
   return <PerspectiveLink role={r} to={path(`/portal/deltagare/${encodeURIComponent(card.caseId)}`, { flik: tab ?? null })} label={label(CUST_WHO[r])} />;
 }
 
-function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null }) {
+/** Förhämta en fliks data – exakt samma fråga och parametrar som fliken själv använder (samma nyckel i cachen). */
+function prefetchCaseTab(prefetch: ReturnType<typeof usePrefetch>, t: CaseTab, caseId: string) {
+  const p = { caseId };
+  switch (t) {
+    case "oversikt": return prefetch(caseOverview, p);
+    case "tidslinje": return prefetch(caseTimeline, { caseId, visa: "alla" });
+    case "kartlaggning": return prefetch(caseIntake, p);
+    case "avstamningar": return prefetch(caseCheckIns, p);
+    case "narvaro": return prefetch(caseAttendance, p);
+    case "manad": return prefetch(caseMonthBasis, p);
+    case "handelser": return prefetch(caseEvents, p);
+    case "avvikelser": return prefetch(caseDeviations, p);
+    case "praktik": return prefetch(casePlacements, p);
+    case "rapporter": return prefetch(caseReports, p);
+    case "meddelanden": return prefetch(caseMessages, p);
+    case "historik": return prefetch(caseHistory, p);
+  }
+}
+
+/** Tidslinjens id (timeline.ts) → postens mål i fliken (data-mal). Flera tidslinjeposter pekar på samma rad. */
+export const malOf = (id: string): string =>
+  id.replace(/^act:/, "att:").replace(/^dev-end:/, "dev:").replace(/^pl-(start|end):/, "pl:");
+
+/**
+ * "Öppna" i tidslinjen: visa posten (?mal=) i sin flik – skrolla dit, fokusera och markera den en stund. Finns den inte
+ * (t.ex. kartläggningen) visas flikens början. Bara id:n i adressen.
+ */
+function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
+  useEffect(() => {
+    if (!mal) return;
+    const want = malOf(mal);
+    let stop = false;
+    let clear = 0;
+    const t0 = performance.now();
+    const tick = () => {
+      if (stop) return;
+      const panel = document.getElementById(panelId);
+      // Flera träffar (tabell och lista för smal skärm): den som syns.
+      const el = [...(panel?.querySelectorAll<HTMLElement>(`[data-mal="${CSS.escape(want)}"]`) ?? [])].find((x) => x.getClientRects().length > 0);
+      const waited = performance.now() - t0;
+      if (el) {
+        // Direkt, utan mjuk skroll: Tillbaka direkt efteråt ska inte krocka med en pågående skrollanimation.
+        if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+        el.scrollIntoView({ block: "center" });
+        el.focus({ preventScroll: true });
+        el.setAttribute("data-mal-active", "");
+        clear = window.setTimeout(() => el.removeAttribute("data-mal-active"), 2000);
+        return;
+      }
+      if (panel && ((waited > 400 && !panel.querySelector("[data-loading]")) || waited > 3000)) {
+        anchorTabs(panel.parentElement?.querySelector<HTMLElement>("[role=tablist]")?.parentElement ?? null, panelId, true);
+        panel.focus({ preventScroll: true });
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    return () => {
+      stop = true;
+      window.clearTimeout(clear);
+    };
+  }, [mal, tab, panelId]);
+}
+
+/** "Visa alla uppgifter" kommer ihåg läget under sessionen (bara i minnet, aldrig i adressen). */
+let showAllFacts = false;
+
+function CaseView({ card, crumbs, flik, manad, mal, visa }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null }) {
   const nav = useNav();
   const role = useSession().actor.role;
   const team = card.access === "team";
@@ -127,7 +202,32 @@ function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { lab
   const tab: CaseTab = tabIds.includes(flik as CaseTab) ? (flik as CaseTab) : "oversikt";
   const blocked = !!flik && !tabIds.includes(flik as CaseTab) && (CASE_TABS as readonly string[]).includes(flik);
   const [modal, setModal] = useState<ModalKind | null>(null);
-  const setTab = (t: CaseTab) => nav.replace(path(`/arenden/${encodeURIComponent(card.caseId)}`, { flik: t === "oversikt" ? null : t }));
+  const base = `/arenden/${encodeURIComponent(card.caseId)}`;
+  // Flikbyte: samma historikpost (replace) och ingen hoppning – Tillbaka lämnar kortet. Länkar i kortet byter flik likadant.
+  const setTab = (t: CaseTab) => nav.replace(path(base, { flik: t === "oversikt" ? null : t }));
+  // "Öppna" från tidslinjen: en ny historikpost med målet, så att Tillbaka leder tillbaka till tidslinjen.
+  const openTab = (t: CaseTab, o: { mal?: string | null; manad?: string | null } = {}) =>
+    nav.push(path(base, { flik: t === "oversikt" ? null : t, manad: o.manad ?? null, mal: o.mal ?? null }));
+  const prefetch = usePrefetch();
+  const prefetchTab = (t: CaseTab) => {
+    if (tabIds.includes(t)) prefetchCaseTab(prefetch, t, card.caseId);
+  };
+  // När kortet har laddats och webbläsaren är ledig: förhämta de flikar som öppnas oftast.
+  useEffect(() => {
+    const run = () => {
+      for (const t of ["tidslinje", "narvaro"] as const) if (tabIds.includes(t)) prefetchCaseTab(prefetch, t, card.caseId);
+    };
+    const w = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(run, { timeout: 2000 });
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(run, 500);
+    return () => window.clearTimeout(t);
+    // tabIds följer team.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [card.caseId, team, prefetch]);
+  useScrollToTarget(mal, tab, "arende-panel");
   const read = useCommand(messageRead);
   const unread = card.unread;
   useEffect(() => {
@@ -139,7 +239,7 @@ function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { lab
     label: team && id === "handelser" ? "Arbetsgivarkontakter och händelser" : TAB_LABEL[id],
     count: id === "meddelanden" ? unread : id === "avvikelser" ? card.openDeviations : id === "oversikt" ? card.flags.length : null,
   }));
-  const props: TabProps = { card, setTab, openModal: setModal };
+  const props: TabProps = { card, setTab, openTab, openModal: setModal };
 
   return (
     <Page
@@ -168,15 +268,7 @@ function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { lab
         </Notice>
       )}
 
-      <Split wide>
-        <CaseHeader card={card} />
-        <Stack>
-          {!team && <ConsentCard card={card} onRegister={() => setModal("consent")} />}
-          <ActionsCard card={card} openModal={setModal} />
-          {/* Röstinspelning: deltagarens röstmeddelanden och inspelningslänken (inte för teamet – underlag för coachen). */}
-          {!team && <VoiceNotesCard caseId={card.caseId} />}
-        </Stack>
-      </Split>
+      <CaseSummary card={card} openModal={setModal} voiceOpen={visa === "rost"} />
 
       <Stack>
         <Tabs
@@ -184,15 +276,27 @@ function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { lab
           tabs={tabs}
           active={tab}
           onChange={setTab}
+          onIntent={prefetchTab}
+          sticky
           ariaLabel="Delar av deltagarkortet"
-          className="relative min-[621px]:flex-wrap min-[621px]:overflow-x-visible [&_[role=tab]]:px-3"
+          className="relative min-[621px]:flex-wrap min-[621px]:overflow-x-visible [&_[role=tab]]:px-2.5"
         />
         {blocked && (
           <Notice tone="info" title="Den delen visas inte för din roll">
             {TAB_LABEL[flik as CaseTab]} innehåller coachens anteckningar och bedömningar. Du ser översikten i stället.
           </Notice>
         )}
-        <TabPanel tabsId="arende" active={tab}>
+        {mal && tab !== "tidslinje" && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-mb bg-bla-ton px-3 py-1.5 text-small">
+            <Icon name="info" />
+            <span>Du kom hit från tidslinjen. Raden är markerad.</span>
+            <Button kind="ghost" icon="arrow-left" onClick={() => nav.back()}>
+              Tillbaka till tidslinjen
+            </Button>
+          </div>
+        )}
+        {/* Minsta höjd: flikraden kan alltid ligga överst efter ett flikbyte, även när fliken är kort eller laddar. */}
+        <TabPanel tabsId="arende" active={tab} className="min-h-[calc(100dvh-var(--mm-sticky-top,0px)-9rem)]">
           {tab === "oversikt" && <TabOversikt {...props} />}
           {tab === "tidslinje" && <TabTidslinje {...props} />}
           {tab === "kartlaggning" && <TabKartlaggning {...props} />}
@@ -215,9 +319,88 @@ function CaseView({ card, crumbs, flik, manad }: { card: CaseCard; crumbs: { lab
   );
 }
 
-// ---------------------------------------------------------------- Huvud
-function CaseHeader({ card: c }: { card: CaseCard }) {
+// ---------------------------------------------------------------- Huvud (kompakt)
+// Det viktigaste på några rader så att flikarna syns utan att skrolla: status och fas, huvudcoach, start, slut och
+// handläggare, varningar, åtgärder, samtycke och röstmeddelanden. Allt annat under "Visa alla uppgifter" – inget har tagits bort.
+function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openModal: (m: ModalKind) => void; voiceOpen: boolean }) {
+  const team = c.access === "team";
+  const [all, setAll] = useState(showAllFacts);
+  const toggle = () => {
+    showAllFacts = !all;
+    setAll(!all);
+  };
+  const k = c.referrer;
+  const fact = (label: string, value: ReactNode) => (
+    <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
+      <span className="text-text-muted">{label}:</span>
+      <span className="font-semibold">{value}</span>
+    </span>
+  );
+  const warn: ReactNode[] = [];
+  if (c.buyer && !c.buyer.reference) warn.push(<Badge key="ref" tone="red" icon="alert-circle">Beställarreferens saknas – krävs för bekräftelse och faktura</Badge>);
+  if (c.buyer?.reference && c.buyer.problem) warn.push(<Badge key="refp" tone="red" icon="alert-circle">Beställarreferensen: {c.buyer.problem}</Badge>);
+  if (c.endDate && c.resultPrelim) warn.push(<Badge key="prel" tone="red" icon="alert-circle">Preliminärt – verifiering saknas</Badge>);
+  const row = "flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-ljusgra pt-3";
+  // En ruta med kortets utseende men utan egen rubrik (div, inte section): flikarnas och rutornas rubriker står för sig.
+  return (
+    <div role="group" aria-label="Ärendet i korthet" className="flex min-w-0 flex-col gap-3 rounded-card border border-ljusgra bg-vit px-[18px] py-4">
+      {/* Rad A: status, fas och markeringar */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <CaseStatusBadge status={c.status} />
+          <PhaseTag phase={c.phase} name={c.phaseName} />
+          {c.protectedIdentity && <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>}
+          {c.readOnly && <Badge tone="outline" icon="eye">Läsläge</Badge>}
+          {c.stuck && (
+            <Badge tone="grey" icon="clock">
+              Fastnat: {c.stuck.days} dagar i fas {c.stuck.phase} (gräns {c.stuck.maxDays})
+            </Badge>
+          )}
+        </span>
+        <span className="flex min-w-[min(100%,260px)] flex-1 items-center gap-2.5">
+          <span className="w-24 flex-none [&_[role=img]>div]:h-2">
+            <PhaseBar phase={c.phase} total={c.phaseCount} />
+          </span>
+          <span className="text-small text-text-muted">
+            Fas {c.phase} av {c.phaseCount} · {c.phaseName}
+            {c.phaseSince ? ` · sedan ${fd(c.phaseSince, dayOf(c.now))}` : ""}
+            {c.status === "paused" ? " · pausad" : ""}
+          </span>
+        </span>
+      </div>
+      {/* Rad B: de viktigaste uppgifterna */}
+      <div className="flex flex-wrap gap-x-5 gap-y-1">
+        {fact("Huvudcoach", c.leadCoach ? c.leadCoach.name : "Inte tilldelad")}
+        {fact("Start", c.startDate ? fmtDate(c.startDate) : c.firstMeetingAt ? `Planerad ${fmtDate(c.firstMeetingAt)}` : "Inte bestämd")}
+        {c.endDate
+          ? fact("Avslutad", `${fmtDate(c.endDate)} · ${c.endReasonLabel ?? "–"}`)
+          : fact("Planerat slut", c.plannedEnd ? fmtDate(c.plannedEnd) : "Inte angivet")}
+        {fact("Handläggare", k ? k.name : "–")}
+      </div>
+      {warn.length > 0 && <div className="flex flex-wrap gap-1.5">{warn}</div>}
+      {/* Rad C: åtgärder */}
+      <CaseActions card={c} openModal={openModal} />
+      {/* Rad D och E: samtycke och röstmeddelanden (inte för teamet) */}
+      {!team && <ConsentRow card={c} onRegister={() => openModal("consent")} className={row} />}
+      {!team && <VoiceNotesRow caseId={c.caseId} autoOpen={voiceOpen} className="border-t border-ljusgra pt-3" />}
+      {/* Rad F: alla uppgifter */}
+      <div className={row}>
+        <Button kind="ghost" icon={all ? "chevron-up" : "chevron-down"} aria-expanded={all} aria-controls="arende-uppgifter" onClick={toggle}>
+          {all ? "Dölj uppgifterna" : "Visa alla uppgifter"}
+        </Button>
+        {!all && <span className="text-small text-text-muted max-[620px]:hidden">Insatsen, deltagaren, kommunen och teamet</span>}
+      </div>
+      <div id="arende-uppgifter" hidden={!all}>
+        <CaseFacts card={c} />
+      </div>
+    </div>
+  );
+}
+
+/** Alla uppgifter i huvudet: insatsen, deltagaren, kommunen och teamet – och vad kommunen ser. */
+function CaseFacts({ card: c }: { card: CaseCard }) {
   const reveal = useCommand(caseRevealPnr);
+  const team = c.access === "team";
   const insats: ([string, ReactNode] | null)[] = [
     ["Avtalsområde", `${c.areaName}${c.secondaryAreaName ? ` (även ${c.secondaryAreaName})` : ""}`],
     ["Yrkesspår", c.vocationalTrack || "Väljs i kartläggningen"],
@@ -240,7 +423,11 @@ function CaseHeader({ card: c }: { card: CaseCard }) {
     c.order
       ? [
           "Beställning",
-          c.order.weeks ? (
+          c.order.weeks && c.order.priceOre === undefined ? (
+            <>
+              {c.order.weeks} {c.order.weeks === 1 ? "vecka" : "veckor"} · <span className="text-text-muted">{TESTER_HIDDEN_TEXT}</span>
+            </>
+          ) : c.order.weeks && c.order.priceOre !== undefined ? (
             <>
               {c.order.weeks} {c.order.weeks === 1 ? "vecka" : "veckor"} · <span className="font-bold">{kr(c.order.weeks * c.order.priceOre)}</span>
               <div className="text-small text-text-muted">
@@ -324,46 +511,50 @@ function CaseHeader({ card: c }: { card: CaseCard }) {
       ),
     ],
   ];
-  const section = "border-t border-ljusgra pt-4";
   return (
-    <Card>
-      <Stack>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <CaseStatusBadge status={c.status} />
-          <PhaseTag phase={c.phase} name={c.phaseName} />
-          {c.protectedIdentity && <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>}
-          {c.readOnly && <Badge tone="outline" icon="eye">Läsläge</Badge>}
-          {c.stuck && (
-            <Badge tone="grey" icon="clock">
-              Fastnat: {c.stuck.days} dagar i fas {c.stuck.phase} (gräns {c.stuck.maxDays})
-            </Badge>
-          )}
-        </div>
-        <div className="flex flex-col gap-1.5 [&_[role=img]>div]:h-2.5">
-          <PhaseBar phase={c.phase} total={c.phaseCount} />
-          <div className="text-small text-text-muted">
-            Fas {c.phase} av {c.phaseCount} · {c.phaseName}
-            {c.phaseSince ? ` · sedan ${fd(c.phaseSince, dayOf(c.now))}` : ""}
-            {c.status === "paused" ? " · pausad" : ""}
-          </div>
-        </div>
+    <Stack>
+      <div className="grid grid-cols-3 gap-5 max-[1100px]:grid-cols-1 [&>*]:min-w-0">
         <div>
           <Label>Insatsen</Label>
           <Facts items={insats} />
         </div>
-        <div className={section}>
+        <div className="max-[1100px]:border-t max-[1100px]:border-ljusgra max-[1100px]:pt-4">
           <Label>Deltagaren</Label>
           <Facts items={deltagare} />
         </div>
-        <div className={section}>
+        <div className="max-[1100px]:border-t max-[1100px]:border-ljusgra max-[1100px]:pt-4">
           <Label>Kommunen och teamet</Label>
           <Facts items={kommun} />
         </div>
-      </Stack>
-    </Card>
+      </div>
+      {c.manage && c.status !== "closed" && c.status !== "declined" && c.leadCoach && (
+        <p className="text-small text-text-muted">
+          Byte av huvudcoach kräver orsak. {k ? k.name : "Handläggaren"} och nya coachen får notis.
+          {c.keyPersonnelChangeRequiresApproval ? " Avtalet kräver kommunens godkännande vid byte av nyckelpersonal." : ""}
+        </p>
+      )}
+      {!team && c.consent && (
+        <p className="m-0 min-[621px]:hidden">
+          <span className="font-bold">Samtycke till inspelning och AI:</span> <ConsentText card={c} />
+        </p>
+      )}
+      {!team && (
+        <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
+          <Icon name="building" className="mt-px" />
+          <div>
+            <b className="font-bold text-antracit">Det här ser kommunen:</b> status, fas, huvudcoach, närvaro, levererade rapporter och meddelanden.
+            {!c.customerSeesCoachNotes ? " Inte coachens anteckningar." : ""}
+            {c.protectedIdentity && !c.customerRole && (
+              <DemoOnly>
+                {` Skyddade personuppgifter: i portalen ser bara beställande handläggare (${k ? k.name : "handläggaren"}) ärendet. Den rollen finns inte i prototypen, så du kan inte byta till kommunens vy här.`}
+              </DemoOnly>
+            )}
+          </div>
+        </div>
+      )}
+    </Stack>
   );
 }
-
 
 // ---------------------------------------------------------------- Samtycke (inspelning och AI, fas 2)
 const CONSENT_STATE = {
@@ -374,7 +565,8 @@ const CONSENT_STATE = {
   not_applicable: ["dark", "lock", "Ej tillämpligt"],
 } as const;
 
-function ConsentCard({ card, onRegister }: { card: CaseCard; onRegister: () => void }) {
+/** Samtycket på en rad: läge, kort förklaring och knapparna. */
+function ConsentRow({ card, onRegister, className }: { card: CaseCard; onRegister: () => void; className?: string }) {
   const confirm = useConfirm();
   const set = useCommand(consentSet);
   const cons = card.consent;
@@ -402,42 +594,56 @@ function ConsentCard({ card, onRegister }: { card: CaseCard; onRegister: () => v
     toast("Registrerat att deltagaren avböjer. Avstämningar dokumenteras manuellt.");
   };
   return (
-    <Card title="Samtycke till inspelning och AI" icon="mic" actions={<BuildPhase fas={2} />}>
-      <Stack gap="sm">
-        <div>
-          <Badge tone={state[0]} icon={state[1]}>{state[2]}</Badge>
-        </div>
-        {v === "not_applicable" && <p className="text-small">Skyddade personuppgifter: ingen inspelning och ingen AI. Samtycke kan inte registreras.</p>}
-        {v === "given" && cons.givenAt && (
-          <p className="text-small text-text-muted">
-            Lämnat {fd(cons.givenAt, dayOf(card.now))} · informerad av {cons.informedByName ?? "–"} · text {cons.textVersion}
-            {cons.language ? ` på ${cons.language}` : ""}.
-          </p>
-        )}
-        {v === "revoked" && cons.revokedAt && <p className="text-small text-text-muted">Återkallat {fmtDateTime(cons.revokedAt)}. Inspelning och AI är avstängt.</p>}
-        {v === "declined" && <p className="text-small text-text-muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</p>}
-        {v === "not_asked" && <p className="text-small text-text-muted">Inspelning kan bara startas när samtycke är registrerat.</p>}
-        {card.edit && v !== "not_applicable" && active && (
-          <div className="flex flex-wrap items-center gap-1.5">
-            {v === "given" ? (
-              <Button kind="danger" icon="x-circle" onClick={() => void revoke()} className="whitespace-normal">
-                Återkalla samtycke
-              </Button>
-            ) : (
-              <Button icon="check" onClick={onRegister} className="whitespace-normal">
-                {v === "revoked" ? "Registrera nytt samtycke" : "Registrera samtycke"}
-              </Button>
-            )}
-            {v === "not_asked" && (
-              <Button kind="ghost" onClick={() => void decline()}>
-                Deltagaren avböjer
-              </Button>
-            )}
-          </div>
-        )}
-      </Stack>
-    </Card>
+    <div role="group" aria-labelledby="arende-samtycke" className={className}>
+      <h2 id="arende-samtycke" className="flex items-center gap-1.5 text-body font-bold">
+        <Icon name="mic" />
+        Samtycke till inspelning och AI:
+      </h2>
+      <Badge tone={state[0]} icon={state[1]}>{state[2]}</Badge>
+      <BuildPhase fas={2} />
+      {/* Förklaringen: här på bredare skärm, under "Visa alla uppgifter" på mobilen. */}
+      <span className="max-[620px]:hidden">
+        <ConsentText card={card} />
+      </span>
+      {card.edit && v !== "not_applicable" && active && (
+        <span className="flex flex-wrap items-center gap-1.5">
+          {v === "given" ? (
+            <Button kind="danger" icon="x-circle" onClick={() => void revoke()} className="whitespace-normal">
+              Återkalla samtycke
+            </Button>
+          ) : (
+            <Button icon="check" onClick={onRegister} className="whitespace-normal">
+              {v === "revoked" ? "Registrera nytt samtycke" : "Registrera samtycke"}
+            </Button>
+          )}
+          {v === "not_asked" && (
+            <Button kind="ghost" onClick={() => void decline()}>
+              Deltagaren avböjer
+            </Button>
+          )}
+        </span>
+      )}
+    </div>
   );
+}
+
+/** Vad samtyckets läge betyder (datum, vem som informerade, textversion). */
+function ConsentText({ card }: { card: CaseCard }) {
+  const cons = card.consent;
+  if (!cons) return null;
+  const v = cons.value;
+  if (v === "not_applicable") return <span className="text-small">Skyddade personuppgifter: ingen inspelning och ingen AI. Samtycke kan inte registreras.</span>;
+  if (v === "given" && cons.givenAt)
+    return (
+      <span className="text-small text-text-muted">
+        Lämnat {fd(cons.givenAt, dayOf(card.now))} · informerad av {cons.informedByName ?? "–"} · text {cons.textVersion}
+        {cons.language ? ` på ${cons.language}` : ""}.
+      </span>
+    );
+  if (v === "revoked" && cons.revokedAt) return <span className="text-small text-text-muted">Återkallat {fmtDateTime(cons.revokedAt)}. Inspelning och AI är avstängt.</span>;
+  if (v === "declined") return <span className="text-small text-text-muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</span>;
+  if (v === "not_asked") return <span className="text-small text-text-muted">Inspelning kan bara startas när samtycke är registrerat.</span>;
+  return null;
 }
 
 function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }) {
@@ -492,52 +698,30 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
 }
 
 // ---------------------------------------------------------------- Åtgärder
-function ActionsCard({ card: c, openModal }: { card: CaseCard; openModal: (m: ModalKind) => void }) {
+/** Åtgärderna som knappar på en rad (samma villkor som tidigare åtgärdskortet). */
+function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: ModalKind) => void }) {
   const role = useSession().actor.role;
   const team = c.access === "team";
   const active = c.status !== "closed" && c.status !== "declined";
   const id = encodeURIComponent(c.caseId);
   const btns: ReactNode[] = [];
   const btn = "whitespace-normal";
-  if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" block className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
-  if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" block className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
-  if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" block className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
-  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) btns.push(<Button key="ci" icon="check-square" block className={btn} to={`/avstamning/${id}`}>Ny veckoavstämning</Button>);
-  if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" block className={btn} to="/narvaro">Registrera närvaro</Button>);
-  if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" block className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
-  const k = c.referrer;
+  if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
+  if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
+  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) btns.push(<Button key="ci" icon="check-square" className={btn} to={`/avstamning/${id}`}>Ny veckoavstämning</Button>);
+  if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
+  if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
+  if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
   return (
-    <Card title="Åtgärder" icon="tool">
-      <Stack gap="sm">
-        {btns.length > 0 ? (
-          btns
-        ) : (
-          <p className="text-small text-text-muted">
-            {c.readOnly ? "Läsläge – du kan inte ändra i ärendet." : team ? "Du registrerar närvaro och praktik via Närvaro och Arbetsgivare och praktik." : "Inga åtgärder för din roll just nu."}
-          </p>
-        )}
-        {c.manage && active && c.leadCoach && (
-          <p className="text-small text-text-muted">
-            Byte av huvudcoach kräver orsak. {k ? k.name : "Handläggaren"} och nya coachen får notis.
-            {c.keyPersonnelChangeRequiresApproval ? " Avtalet kräver kommunens godkännande vid byte av nyckelpersonal." : ""}
-          </p>
-        )}
-        {!team && (
-          <div className="mt-1 flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
-            <Icon name="building" className="mt-px" />
-            <div>
-              <b className="font-bold text-antracit">Det här ser kommunen:</b> status, fas, huvudcoach, närvaro, levererade rapporter och meddelanden.
-              {!c.customerSeesCoachNotes ? " Inte coachens anteckningar." : ""}
-              {c.protectedIdentity && !c.customerRole && (
-                <DemoOnly>
-                  {` Skyddade personuppgifter: i portalen ser bara beställande handläggare (${k ? k.name : "handläggaren"}) ärendet. Den rollen finns inte i prototypen, så du kan inte byta till kommunens vy här.`}
-                </DemoOnly>
-              )}
-            </div>
-          </div>
-        )}
-      </Stack>
-    </Card>
+    <div role="group" aria-label="Åtgärder" className="flex flex-wrap items-center gap-2">
+      {btns.length > 0 ? (
+        btns
+      ) : (
+        <p className="text-small text-text-muted">
+          {c.readOnly ? "Läsläge – du kan inte ändra i ärendet." : team ? "Du registrerar närvaro och praktik via Närvaro och Arbetsgivare och praktik." : "Inga åtgärder för din roll just nu."}
+        </p>
+      )}
+    </div>
   );
 }
 

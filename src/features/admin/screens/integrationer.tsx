@@ -2,31 +2,19 @@
 // Underbiträden och integrationer (/admin/integrationer, prototypens admin.integrationer): var personuppgifterna behandlas,
 // vilka tjänster Miljonmatch är kopplad till och hur bakgrundsjobben går. Integrationerna och jobben är simulerade i prototypen.
 import type { ReactNode } from "react";
-import { plural } from "@/core/format";
-import { fmtDate, fmtDateTime, fmtTime } from "@/core/time";
+import { fmtDate, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { Badge, BuildPhase, Button, Card, CellSub, DemoNote, Grid, Icon, Kpi, Notice, Page, QueryView, Section, Split, Stack, Table, toast, type IconName } from "@/ui";
+import { Badge, BuildPhase, Button, Card, CellSub, DemoNote, Grid, Icon, Kpi, Notice, Page, QueryView, Section, Split, Stack, Table, toast } from "@/ui";
 import { TestDataReset } from "@/features/session/screens/test-data-reset";
-import { adminIntegrations, adminRunJob, type IntegrationsView, type JobRow, type JobStatusView } from "../api";
+import {
+  adminIntegrations, adminRunJob, type DataProtectionView, type IntegrationStatus, type IntegrationsView, type JobRow, type JobStatusView, type SubprocessorStatus,
+} from "../api";
 import { KV, Masonry } from "./parts";
 
-type SubStatus = "approved" | "approved_test" | "not_chosen";
-const SUBPROCESSORS: { id: string; name: string; what: string; where: string; status: SubStatus; us: boolean }[] = [
-  { id: "supabase", name: "Supabase", what: "Databas, inloggning och fillagring", where: "Stockholm (eu-north-1)", status: "approved", us: true },
-  { id: "vercel", name: "Vercel", what: "Applikation och serverfunktioner", where: "Funktioner i Stockholm (arn1)", status: "approved", us: true },
-  // Beslut 2026-09-30 (docs/PLAN-ROST.md): Gemini Flash via Google Cloud Vertex AI, EU multi-region. Simulerad tills kontot finns.
-  { id: "ai", name: "Google Cloud (Vertex AI)", what: "Transkribering och textutkast (Gemini Flash)", where: "EU multi-region (location eu)", status: "approved_test", us: true },
-  { id: "sms", name: "SMS-leverantör", what: "Påminnelser och pulslänkar", where: "Väljs – helst svensk", status: "not_chosen", us: false },
-  { id: "epost", name: "E-postleverantör", what: "Notiser och inloggningskoder", where: "Väljs – helst inom EU", status: "not_chosen", us: false },
-  { id: "microsoft", name: "Microsoft", what: "Inloggning (Entra ID) och avrop@-brevlådan (Graph)", where: "Befintligt Microsoft 365", status: "approved", us: true },
-];
-
-type IntStatus = "active" | "test" | "off" | "notchosen";
-type Integration = { id: string; name: string; sub: string; icon: IconName; status: IntStatus; phase?: number; items: [string, string][] };
-
-const INT_STATUS: Record<IntStatus, ReactNode> = {
+const INT_STATUS: Record<IntegrationStatus, ReactNode> = {
   active: <Badge tone="blue" icon="check-circle">Aktiv</Badge>,
   test: <Badge tone="bluetone" icon="sparkles">Test</Badge>,
+  chosen: <Badge tone="bluetone" icon="clock">Vald – väntar på kommunens godkännande</Badge>,
   off: <Badge tone="grey" icon="minus-circle">Ej ansluten</Badge>,
   notchosen: <Badge tone="outline" icon="alert-circle">Ej vald</Badge>,
 };
@@ -54,100 +42,35 @@ export function IntegrationerScreen() {
 
 function IntegrationsContent({ d }: { d: IntegrationsView }) {
   const run = useCommand(adminRunJob);
-  const INT: Integration[] = [
-    { id: "graph", name: "avrop@-brevlådan", sub: "Microsoft Graph", icon: "inbox", status: "active",
-      items: [["Läses", "Var 2–5 minut"], ["Senast läst", `I dag kl. ${fmtTime(d.inboxReadAt)}`], ["Senaste mejl", d.latestMail ? fmtDateTime(d.latestMail) : "–"], ["Svar skickas", "Från avrop@ i samma tråd, så att kommunen ser hela konversationen"]] },
-    { id: "entra", name: "Microsoft Entra ID", sub: "Inloggning för Miljonbemanning", icon: "key", status: "active", items: [["MFA", "Styrs av Microsoft 365"], ["Konton", "Bara inbjudna – ingen självregistrering"]] },
-    { id: "fortnox", name: "Fortnox", sub: "Fakturor som Peppol BIS Billing 3", icon: "card", status: "off", phase: 2,
-      items: [["Reserv i dag", "Export till Excel och PDF, eller Botkyrkas fakturaportal"], ["Öppen fråga", "Fråga 15: ingår Fortnox Integration och e-faktura i Miljonbemannings paket?"], ["Krav", "Omkörning får inte skapa dubbletter. Status synkas tillbaka."]] },
-    { id: "sms", name: "SMS-leverantör", sub: "Påminnelser och pulslänkar", icon: "message", status: "notchosen",
-      items: [["Öppen fråga", "Fråga 18: val av SMS- och e-postleverantör"], ["Önskemål", "Svensk leverantör med API"], ["Innehåll", "Bara tid, plats och telefonnummer – aldrig personuppgifter"]] },
-    { id: "email", name: "E-postleverantör", sub: "Notiser och inloggningskoder", icon: "mail", status: "notchosen",
-      items: [["Krav", "EU-baserad, med SMTP för inloggningskoder, SPF, DKIM och DMARC"], ["SPF", "En domän får bara ha en SPF-post – leverantörens include läggs i den befintliga posten för Microsoft 365"], ["Alternativ", "Graph sendMail från en egen brevlåda i Microsoft 365"]] },
-    { id: "ai", name: "AI-leverantör", sub: "Transkribering och textutkast", icon: "sparkles", status: "test", phase: 2,
-      items: [["Vald", "Gemini Flash via Google Cloud Vertex AI, EU multi-region"], ["I test", "Simulerad leverantör tills kontot i Google Cloud finns"], ["Aldrig", "AI Studio-nyckel eller global endpoint"], ["Anrop", `Bara via AI-adaptern – ${plural(d.aiRunCount, "körning", "körningar")} i prototypen`]] },
-  ];
+  // Korten byggs på servern (admin.integrations), så att leverantörerna och regionerna inte ligger i webbläsarens kod.
+  const INT = d.integrations;
   const active = INT.filter((x) => x.status === "active").length;
-  const approved = SUBPROCESSORS.filter((s) => s.status !== "not_chosen").length;
   const runJob = async (j: JobRow) => {
     const r = await run.run({ key: j.key as never }).catch(() => null);
     if (!r || !r.ok) toast(r && !r.ok && r.message ? r.message : "Jobbet kunde inte köras.", "error");
     else toast(`${j.name} kördes (simulerat).`);
   };
-  const subStatus = (s: SubStatus) =>
-    s === "approved" ? (
-      <>
-        <Badge tone="blue" icon="check">Godkänd</Badge>
-        <CellSub>{fmtDate(d.approvedOn)}</CellSub>
-      </>
-    ) : s === "approved_test" ? (
-      <Badge tone="bluetone" icon="check">Vald – simulerad tills kontot finns</Badge>
-    ) : (
-      <Badge tone="outline" icon="alert-circle">Ej vald – fråga 18</Badge>
-    );
-  const regions = [
-    "Supabase-projekten (produktion och staging) ligger i eu-north-1, Stockholm.",
-    'Vercel-funktioner körs i arn1, Stockholm. vercel.json innehåller "regions": ["arn1"] – standardregionen iad1 (USA) används inte.',
-    "Persondata behandlas bara i serverfunktionerna i arn1 – inte i Supabase Edge Functions, som körs närmast anroparen.",
-    "Inga Vercel-specifika lagringstjänster (Blob, Edge Config) för persondata. Appen kan flyttas till annan drift.",
-    d.thirdCountryForbidden ? "Behandling utanför EU/EES är förbjuden utan kommunens skriftliga förhandsgodkännande (avtalskonfigurationen)." : "Behandling utanför EU/EES enligt avtalet.",
-  ];
+  const dp = d.dataProtection;
   return (
     <>
-      <Grid cols={4}>
-        <Kpi label="Underbiträden" value={SUBPROCESSORS.length} sub={`${approved} godkända, ${SUBPROCESSORS.length - approved} ej valda`} />
+      <Grid cols={dp ? 4 : 3}>
+        {dp && <SubprocessorKpi dp={dp} />}
         <Kpi label="Integrationer" value={`${active} av ${INT.length}`} sub="aktiva" />
         <Kpi label="Bakgrundsjobb" value={d.jobs.length} sub={`${d.jobs.filter((j) => j.status === "failed").length} fel senaste dygnet`} />
-        <Kpi label="Data lagras i" value="Stockholm" sub="Supabase eu-north-1 · Vercel arn1" />
+        <Kpi label="Data lagras i" value={d.storage.place} sub={d.storage.detail} />
       </Grid>
 
-      <Notice tone="warn" title={`Botkyrka godkände underbiträdena ${fmtDate(d.approvedOn)}`}>
-        Beskedet ska in skriftligt i PUB-avtalets bilaga (förteckning över underbiträden), tillsammans med ett uttryckligt godkännande av eventuell åtkomst från tredje land – till exempel leverantörernas support. Det är ett förberedande steg (fas 0) som inte är klart ännu.
-      </Notice>
-
-      <Card
-        title="Underbiträden"
-        icon="shield"
-        flush
-        foot={<span className="text-small text-text-muted">Listan hålls kort. Ett nytt verktyg som behandlar personuppgifter – till exempel felrapportering – läggs till här och godkänns av kommunen först.</span>}
-      >
-        <Table
-          caption="Underbiträden"
-          rows={SUBPROCESSORS}
-          columns={[
-            { key: "name", label: "Leverantör", render: (s) => <span className="font-bold">{s.name}</span> },
-            { key: "what", label: "Behandling" },
-            { key: "where", label: "Plats", render: (s) => (<>{s.where}{s.us && <CellSub>Amerikanskt bolag – åtkomst från tredje land ska godkännas skriftligt</CellSub>}</>) },
-            { key: "status", label: "Status", render: (s) => subStatus(s.status) },
-          ]}
-        />
-      </Card>
-
-      <Split>
-        <Card title="Regionlåsning" icon="map-pin">
-          <ul className="m-0 flex list-none flex-col gap-2 p-0">
-            {regions.map((t, i) => (
-              <li key={i} className="flex flex-nowrap items-start gap-1.5">
-                <Icon name="check-circle" className="mt-0.5 flex-none" />
-                <span>{t}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-        <Card title="Så ser kommunen det" icon="building">
-          <Stack gap="sm">
-            <p>Underbiträdesförteckningen och instruktionerna ingår i PUB-avtalet med Botkyrka. Kommunen är personuppgiftsansvarig och Miljonbemanning är personuppgiftsbiträde.</p>
-            <p className="text-small text-text-muted">
-              Vid avtalsslut lämnas data tillbaka inom {d.returnDataWithinDays ?? "–"} dagar och raderas sedan. Incidenter rapporteras till kommunen enligt PUB-avtalet.
-            </p>
-          </Stack>
-        </Card>
-      </Split>
+      {/* Saknas för begränsade testare (servern lämnar inte ut uppgifterna). */}
+      {dp ? (
+        <DataProtection dp={dp} />
+      ) : (
+        <Notice tone="info">Underbiträdena, regionlåsningen och kommunens villkor visas inte för testare.</Notice>
+      )}
 
       <Section title="Integrationer">
         <Masonry
           items={INT.map((x) => (
-            <Card key={x.id} title={x.name} icon={x.icon} actions={<>{x.phase && <BuildPhase fas={x.phase} />}{INT_STATUS[x.status]}</>}>
+            <Card key={x.id} title={x.name} icon={x.icon} actions={<>{x.phase && <BuildPhase fas={x.phase} off={x.status === "off"} />}{INT_STATUS[x.status]}</>}>
               <Stack gap="sm">
                 <p className="text-text-muted">{x.sub}</p>
                 <KV items={x.items} />
@@ -158,10 +81,15 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
       </Section>
 
       <Card
-        title="Bakgrundsjobb (tabellen jobs)"
+        title="Bakgrundsjobb"
         icon="refresh"
         flush
-        foot={<span className="text-small text-text-muted">En skyddad route körs av cron varje minut. Jobben hämtas med FOR UPDATE SKIP LOCKED, är idempotenta, har ett begränsat antal försök och sparar felorsaken.</span>}
+        foot={
+          <span className="text-small text-text-muted">
+            Jobben startas automatiskt varje minut. Ett jobb som körs om gör aldrig samma sak två gånger, försöker ett begränsat antal gånger och sparar
+            orsaken när något går fel.
+          </span>
+        }
       >
         <Table
           caption="Bakgrundsjobb"
@@ -193,6 +121,90 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
         />
       </Card>
       <DemoNote>Integrationerna och jobben är simulerade. &quot;Kör nu&quot; loggas i revisionsloggen men läser inga riktiga mejl och raderar ingenting.</DemoNote>
+    </>
+  );
+}
+
+function SubprocessorKpi({ dp }: { dp: DataProtectionView }) {
+  const n = (st: SubprocessorStatus[]) => dp.subprocessors.filter((s) => st.includes(s.status)).length;
+  const approved = n(["approved", "approved_test"]);
+  const pending = n(["chosen"]);
+  const notChosen = n(["not_chosen"]);
+  const parts = [
+    `${approved} ${approved === 1 ? "godkänd" : "godkända"}`,
+    pending ? `${pending} väntar på godkännande` : null,
+    notChosen ? `${notChosen} ej ${notChosen === 1 ? "vald" : "valda"}` : null,
+  ];
+  return <Kpi label="Underbiträden" value={dp.subprocessors.length} sub={parts.filter(Boolean).join(", ")} />;
+}
+
+/** Underbiträdena, Botkyrkas besked, regionlåsningen och "Så ser kommunen det" (bara för den som får se dem). */
+function DataProtection({ dp }: { dp: DataProtectionView }) {
+  const subStatus = (s: SubprocessorStatus) =>
+    s === "approved" ? (
+      <>
+        <Badge tone="blue" icon="check">Godkänd</Badge>
+        <CellSub>{fmtDate(dp.approvedOn)}</CellSub>
+      </>
+    ) : s === "approved_test" ? (
+      <>
+        <Badge tone="blue" icon="check">Godkänd</Badge>
+        <CellSub>{fmtDate(dp.approvedOn)} · simulerad tills kontot i Google Cloud finns</CellSub>
+      </>
+    ) : s === "chosen" ? (
+      <Badge tone="bluetone" icon="clock">Vald – väntar på kommunens godkännande</Badge>
+    ) : (
+      <Badge tone="outline" icon="alert-circle">Ej vald – fråga 18</Badge>
+    );
+  // Regionlåsningens punkter kommer från servern (leverantörer och regioner ligger inte i webbläsarens kod).
+  const regions = dp.regions;
+  // Botkyrkas besked gäller underbiträdena som fanns då – en leverantör som valts senare väntar på godkännande.
+  const pending = dp.subprocessors.filter((s) => s.status === "chosen").map((s) => s.name);
+  const title = `Botkyrka godkände underbiträdena ${fmtDate(dp.approvedOn)}${pending.length ? ` – ${pending.join(", ")} väntar på godkännande` : ""}`;
+  return (
+    <>
+      <Notice tone="warn" title={title}>
+        Beskedet ska in skriftligt i PUB-avtalets bilaga (förteckning över underbiträden), tillsammans med ett uttryckligt godkännande av eventuell åtkomst från tredje land – till exempel leverantörernas support. Det är ett förberedande steg (fas 0) som inte är klart ännu.
+      </Notice>
+
+      <Card
+        title="Underbiträden"
+        icon="shield"
+        flush
+        foot={<span className="text-small text-text-muted">Listan hålls kort. Ett nytt verktyg som behandlar personuppgifter – till exempel felrapportering – läggs till här och godkänns av kommunen först.</span>}
+      >
+        <Table
+          caption="Underbiträden"
+          rows={dp.subprocessors}
+          columns={[
+            { key: "name", label: "Leverantör", render: (s) => <span className="font-bold">{s.name}</span> },
+            { key: "what", label: "Behandling" },
+            { key: "where", label: "Plats", render: (s) => (<>{s.where}{s.us && <CellSub>Amerikanskt bolag – åtkomst från tredje land ska godkännas skriftligt</CellSub>}</>) },
+            { key: "status", label: "Status", render: (s) => subStatus(s.status) },
+          ]}
+        />
+      </Card>
+
+      <Split>
+        <Card title="Regionlåsning" icon="map-pin">
+          <ul className="m-0 flex list-none flex-col gap-2 p-0">
+            {regions.map((t, i) => (
+              <li key={i} className="flex flex-nowrap items-start gap-1.5">
+                <Icon name="check-circle" className="mt-0.5 flex-none" />
+                <span>{t}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+        <Card title="Så ser kommunen det" icon="building">
+          <Stack gap="sm">
+            <p>Underbiträdesförteckningen och instruktionerna ingår i PUB-avtalet med Botkyrka. Kommunen är personuppgiftsansvarig och Miljonbemanning är personuppgiftsbiträde.</p>
+            <p className="text-small text-text-muted">
+              Vid avtalsslut lämnas data tillbaka inom {dp.returnDataWithinDays ?? "–"} dagar och raderas sedan. Incidenter rapporteras till kommunen enligt PUB-avtalet.
+            </p>
+          </Stack>
+        </Card>
+      </Split>
     </>
   );
 }

@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import { ROLE_LABEL } from "@/api/roles";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
+import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { fmtDate, fmtDateShort, fmtDateTime, fmtTime, fmtWeekKey, fmtWeekRange, monthName } from "@/core/time";
 import { kr, num } from "@/core/format";
@@ -34,6 +35,7 @@ type RefModalState = { cases: RefFormCase[]; task: TaskRef | null } | null;
 
 function Start({ v }: { v: BillingStartView }) {
   const nav = useNav();
+  const demo = useRuntime() === "demo";
   const confirm = useConfirm();
   const reissueCmd = useCommand(ekoReissue);
   const taskDoneCmd = useCommand(ekoTaskDone);
@@ -48,7 +50,7 @@ function Start({ v }: { v: BillingStartView }) {
   const reissue = async (inv: ReturnedRow) => {
     const r = await reissueCmd.run({ month: inv.month, caseId: inv.caseId });
     if (!r.ok) toast("Rätta beställarreferensen innan du skapar en ny faktura.", "error");
-    else toast(`Den returnerade fakturan för ${inv.caseNumber} är krediterad och en ny är skapad (simulerat).`);
+    else toast(`Den returnerade fakturan för ${inv.caseNumber} är krediterad och en ny är skapad${demo ? " (simulerat)" : ""}.`);
   };
   const taskDone = async (t: TaskView) => {
     if (t.cases.some((c) => c.problem)) {
@@ -275,6 +277,7 @@ function Start({ v }: { v: BillingStartView }) {
                               <Button kind="primary" icon="refresh" pending={reissueCmd.pending} onClick={() => void reissue(inv)}>
                                 Kreditera och skapa ny
                               </Button>
+                              {/* Knappen fungerar – bara prototypen visar utvecklingsfasen. */}
                               <BuildPhase fas={2} />
                             </>
                           ) : (
@@ -432,14 +435,14 @@ function Start({ v }: { v: BillingStartView }) {
           ]}
         />
       </Card>
-      <Card title="Fortnox-synk" icon="refresh" actions={<BuildPhase fas={2} />}>
+      <Card title="Fortnox-synk" icon="refresh" actions={<BuildPhase fas={2} off />}>
         <TwoCols>
           <Kv
             items={[
-              ["Koppling", "Simulerad i prototypen. I fas 1 används export och manuell registrering i Fortnox."],
-              ["Inloggning", "Via OAuth 2.0 – Fortnox godkänner kopplingen. Nycklarna sparas krypterade."],
+              ["Koppling", demo ? "Simulerad i prototypen. I fas 1 används export och manuell registrering i Fortnox." : "Inte ansluten ännu. Under tiden används export och manuell registrering i Fortnox."],
+              ["Inloggning", "Fortnox godkänner kopplingen. Nycklarna sparas krypterade."],
               ["Hastighetsgräns", "25 anrop per 5 sekunder. Körningen köar anropen."],
-              ["Dubbletter", "Idempotensnyckel månad + ärendenummer. En omkörning skapar inga dubbletter."],
+              ["Dubbletter", "Varje faktura känns igen på månad och ärendenummer. En omkörning skapar inga dubbletter."],
             ]}
           />
           <Kv
@@ -449,7 +452,9 @@ function Start({ v }: { v: BillingStartView }) {
                 "Senaste körning",
                 v.fortnox.lastRun
                   ? `${fmtDateTime(v.fortnox.lastRun.at)}: ${plural(v.fortnox.lastRun.created, "faktura skapad", "fakturor skapade")}, ${plural(v.fortnox.lastRun.skipped, "dubblett", "dubbletter")} hoppades över`
-                  : "Ingen körning i prototypen ännu",
+                  : demo
+                    ? "Ingen körning i prototypen ännu"
+                    : "Ingen körning ännu",
               ],
               [
                 "Senaste statushämtning",

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { pct } from "@/core/format";
 import { MONTHS_SHORT, fmtDateTime, monthName } from "@/core/time";
 import { useCommand } from "@/shell/backend";
-import { Badge, Button, Chart, Field, Icon, Modal, Stack, Table, TextArea, cn, useToast, type BadgeTone, type IconName } from "@/ui";
+import { Badge, Button, Chart, Field, Icon, Modal, ModalCancelButton, Stack, Table, TextArea, cn, useToast, type BadgeTone, type IconName } from "@/ui";
 import { alertAck, CD_STATUS_LABEL, type AlertView, type CdStatusKey, type LadderStep, type TrendRow } from "../api";
 
 export const pct0 = (v: number | null | undefined) => pct(v, 0);
@@ -18,11 +18,15 @@ export const RR_STATUS: Record<string, { tone: BadgeTone; icon: IconName; label:
   insufficient: { tone: "outline", icon: "minus-circle", label: "För litet underlag" },
 };
 const RR_SHORT: Record<string, string> = { ok: "Över internt mål", below_internal: "Bevaka", below_contract: "Åtgärd krävs", insufficient: "Litet underlag" };
-export function RrBadge({ status, short }: { status: string; short?: boolean }) {
+/** "ok" utan internt mål (begränsade testare ser inte det interna målet): resultatgraden når avtalsmålet. */
+const RR_OK_NO_INTERNAL = "Når avtalsmålet";
+export function RrBadge({ status, short, noInternal }: { status: string; short?: boolean; noInternal?: boolean }) {
   const s = RR_STATUS[status] ?? RR_STATUS.insufficient;
+  const label = noInternal && status === "ok" ? RR_OK_NO_INTERNAL : s.label;
+  const shortLabel = noInternal && status === "ok" ? RR_OK_NO_INTERNAL : RR_SHORT[status] ?? s.label;
   return (
-    <Badge tone={s.tone} icon={s.icon} title={short ? s.label : undefined}>
-      {short ? RR_SHORT[status] ?? s.label : s.label}
+    <Badge tone={s.tone} icon={s.icon} title={short ? label : undefined}>
+      {short ? shortLabel : label}
     </Badge>
   );
 }
@@ -32,6 +36,8 @@ export const KPI_STATUS: Record<string, { tone: BadgeTone; icon: IconName; label
   below_contract: { tone: "red", icon: "alert", label: "Under avtalsmålet" },
   no_target: { tone: "outline", icon: "minus-circle", label: "Mål ej fastställt" },
   no_data: { tone: "outline", icon: "minus-circle", label: "Inget underlag" },
+  // Begränsade testare: KPI:n har bara Miljonbemannings interna mål, som inte visas.
+  target_hidden: { tone: "outline", icon: "minus-circle", label: "Mål visas inte för testare" },
   insufficient: { tone: "outline", icon: "minus-circle", label: "För litet underlag" },
 };
 export function KpiStatusBadge({ status }: { status: string }) {
@@ -132,6 +138,8 @@ export function AckModal({ alert, onClose }: { alert: AckTarget; onClose: () => 
   const ack = useCommand(alertAck);
   const toast = useToast();
   const suggestion = ACK_SUGGESTIONS[alert.kind] ?? ACK_SUGGESTIONS.default;
+  // Efter kvitteringen försvinner knappen Kvittera: fokus till nästa flagga i listan (annars föregående, annars sidans rubrik).
+  const after = useRef<HTMLElement | null>(null);
   const save = async () => {
     if (plan.trim().length < 5) {
       setErr("Skriv en kort åtgärdsplan: vad görs, av vem och när.");
@@ -143,17 +151,24 @@ export function AckModal({ alert, onClose }: { alert: AckTarget; onClose: () => 
       return;
     }
     toast("Flaggan är kvitterad. Åtgärdsplanen är sparad i revisionsloggen.");
+    const row = document.querySelector<HTMLElement>(`[data-alert="${CSS.escape(alert.key)}"]`);
+    const sib = (el: Element | null | undefined, dir: "next" | "prev"): HTMLElement | null => {
+      let x = dir === "next" ? el?.nextElementSibling : el?.previousElementSibling;
+      while (x && !x.hasAttribute("data-alert")) x = dir === "next" ? x.nextElementSibling : x.previousElementSibling;
+      return (x as HTMLElement | null) ?? null;
+    };
+    after.current = sib(row, "next") ?? sib(row, "prev") ?? document.querySelector<HTMLElement>("#main h1[data-page-title]");
     onClose();
   };
   return (
     <Modal
       title="Kvittera flagga"
       onClose={onClose}
+      dirty={!!plan.trim()}
+      returnFocusTo={() => after.current}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>
-            Avbryt
-          </Button>
+          <ModalCancelButton />
           <Button kind="primary" icon="check" pending={ack.pending} onClick={() => void save()}>
             Kvittera med åtgärdsplan
           </Button>
@@ -202,7 +217,7 @@ export function AlertRow({ a, onAck }: { a: AlertView; onAck?: (a: AlertView) =>
   const sv = SEVERITY[a.severity] ?? SEVERITY.info;
   const canAck = !a.ack && !!onAck;
   return (
-    <div className="grid grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 border-t border-ljusgra py-3 first:border-t-0 first:pt-0" data-alert={a.key}>
+    <div tabIndex={-1} className="grid grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 border-t border-ljusgra py-3 first:border-t-0 first:pt-0" data-alert={a.key}>
       <Icon name={sv.icon} size="lg" className={a.severity === "critical" ? "text-rod" : undefined} />
       <div className="flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -293,7 +308,7 @@ export function TrendChart({ rows, contract, internal, minN }: { rows: TrendRow[
     return `${MONTHS_SHORT[Number(mm) - 1]}${i === 0 || mm === "01" ? ` ${yy}` : ""}`;
   };
   const last = rows.filter((r) => r.cumulative != null).slice(-1)[0];
-  const aria = `Resultatgrad per månad sedan avtalsstart. ${rows.map((r) => `${monthName(r.month)}: ${r.value == null ? "inga avslut" : `${pct0(r.value)} av ${r.den} avslut`}`).join(". ")}. Kumulativt sedan start ${last ? pct(last.cumulative) : "–"}. Avtalsmål ${pct0(contract)}, internt mål ${pct0(internal)}.`;
+  const aria = `Resultatgrad per månad sedan avtalsstart. ${rows.map((r) => `${monthName(r.month)}: ${r.value == null ? "inga avslut" : `${pct0(r.value)} av ${r.den} avslut`}`).join(". ")}. Kumulativt sedan start ${last ? pct(last.cumulative) : "–"}. Avtalsmål ${pct0(contract)}${internal != null ? `, internt mål ${pct0(internal)}` : ""}.`;
   return (
     <Stack gap="sm" className="gap-2.5">
       <div ref={ref} className="w-full">
@@ -380,10 +395,12 @@ export function TrendChart({ rows, contract, internal, minN }: { rows: TrendRow[
           <Swatch kind="contract" />
           Avtalsmål {pct0(contract)}
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Swatch kind="internal" />
-          Internt mål {pct0(internal)}
-        </span>
+        {internal != null && (
+          <span className="inline-flex items-center gap-1.5">
+            <Swatch kind="internal" />
+            Internt mål {pct0(internal)}
+          </span>
+        )}
       </div>
       <Details summary="Visa siffrorna som tabell">
         <Table

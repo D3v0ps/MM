@@ -9,6 +9,7 @@
 // Levererade rapporter visas frysta: det är hanteraren som väljer ögonblicksbilden.
 import type { ReactNode } from "react";
 import { attLabel } from "@/core/labels";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import { useQuery } from "@/shell/backend";
@@ -524,7 +525,15 @@ function OrderDoc({ doc }: { doc: Extract<ReportDocView, { kind: "order_confirma
         />
       </Sec>
       <Sec title="Beställningens värde">
-        {m.weeks ? (
+        {m.weeks && m.price === undefined ? (
+          <Kv
+            items={[
+              ["Planerad omfattning", `${m.weeks} veckor`],
+              ["Veckopris exklusive moms", TESTER_HIDDEN_TEXT],
+              ["Beställningens värde exklusive moms", TESTER_HIDDEN_TEXT],
+            ]}
+          />
+        ) : m.weeks && m.price !== undefined ? (
           <Kv
             items={[
               ["Planerad omfattning", `${m.weeks} veckor`],

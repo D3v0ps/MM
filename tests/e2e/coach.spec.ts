@@ -92,7 +92,11 @@ test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvar
   expect(text).not.toMatch(/\b1 (godkända|granskade|tillfällen|olästa)\b/);
   await expect(main(page)).toContainText(/Månads\u00adbedömningar januari\s*4 av 15/i);
   await expect(page.getByRole("link", { name: "Bedöm", exact: true })).toHaveCount(5);
-  await expect(card(page, "Meddelanden från kommunen").getByText("Inga olästa meddelanden")).toBeVisible();
+  // Marias olästa meddelande från 1 februari 08.15 syns (samma räkning som deltagarkortets olästa) – överst på sidan.
+  const msgs = card(page, "Meddelanden från kommunen");
+  await expect(msgs).toContainText("Kan vi ses på ett uppföljningsmöte vecka 6?");
+  await expect(msgs).toContainText("Från Maria Ekdahl");
+  await expect(msgs.getByRole("link", { name: /Nadia Warsame/ })).toHaveAttribute("href", isDemo(info) ? `#/arenden/${SC.nadia}` : `/arenden/${SC.nadia}`);
 
   await page.setViewportSize({ width: 400, height: 860 });
   const bb = await page.getByRole("link", { name: "Bedöm", exact: true }).first().boundingBox();
@@ -193,7 +197,13 @@ test("Veckoavstämning manuellt: röd status kräver avvikelse (Yusuf)", async (
   await page.locator("#ci-note").fill("Uteblev två onsdagar. Vi har gått igenom schemat och bokat uppföljning med handläggaren.");
   await btn(page, "Godkänn avstämningen").click();
   await expect(page.getByText("Stopp: röd status kräver en avvikelse")).toBeVisible();
-  for (const t of ["Beskriv avvikelsen.", "Skriv vilken åtgärd som ska göras.", "Välj ansvarig.", "Välj datum för uppföljning."]) await expect(page.getByText(t)).toBeVisible();
+  // Varje fel står vid fältet och som länk i felsammanfattningen överst (länken flyttar fokus till fältet).
+  const summary = page.getByRole("alert").filter({ hasText: "Avstämningen kan inte godkännas ännu" });
+  for (const t of ["Beskriv avvikelsen.", "Skriv vilken åtgärd som ska göras.", "Välj ansvarig.", "Välj datum för uppföljning."]) {
+    await expect(page.locator("[id$='-error']").getByText(t)).toBeVisible();
+    await expect(summary.getByRole("link", { name: t })).toBeVisible();
+  }
+  await expect(page.locator("#dev-desc"), "fokus på första fältet med fel").toBeFocused();
   // Ingen avstämning sparades: formuläret står kvar
   await expect(page.getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
   await btn(page, "Använd förslaget från flaggan").click();

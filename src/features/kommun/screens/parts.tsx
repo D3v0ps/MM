@@ -41,7 +41,7 @@ export function KomHead({ eyebrow, title, lead, back, actions }: { eyebrow?: Rea
         </div>
       )}
       {eyebrow && <Eyebrow className="portal:text-body">{eyebrow}</Eyebrow>}
-      <h1 className="flex items-center gap-2.5 text-[clamp(1.375rem,4.8vw,1.75rem)] font-extrabold tracking-[0.03em] uppercase [overflow-wrap:anywhere]">
+      <h1 tabIndex={-1} data-page-title="" className="flex items-center gap-2.5 text-[clamp(1.375rem,4.8vw,1.75rem)] font-extrabold tracking-[0.03em] uppercase [overflow-wrap:anywhere]">
         <Dot className="size-2.5 flex-none" />
         {title}
       </h1>
@@ -104,14 +104,18 @@ export const KIND_ICON: Partial<Record<ReportKind, IconName>> = {
   customer_summary: "chart",
 };
 
-/** Rapportsidan i portalen. fran = sidan som länkade hit (tillbakaknappen). */
-export const reportPath = (id: string, fran: "start" | "rapporter" | "deltagare" | "bestallarrapport") => path(`/portal/rapporter/${encodeURIComponent(id)}`, { fran });
+/**
+ * Rapportsidan i portalen. fran = sidan som länkade hit (tillbakaknappen). extra = listans val eller månaden, som
+ * tillbakaknappen tar med sig (lista=filter=monthly&visa=30, manad=2026-10) – bara koder och siffror.
+ */
+export const reportPath = (id: string, fran: "start" | "rapporter" | "deltagare" | "bestallarrapport", extra?: { lista?: string | null; manad?: string | null }) =>
+  path(`/portal/rapporter/${encodeURIComponent(id)}`, { fran, lista: extra?.lista || null, manad: extra?.manad || null });
 
-/** En levererad rapport i en lista. Olästa har röd kant och märket "Ny". */
-export function ReportRowItem({ r, from, showSub = true }: { r: KomReportRow; from: "start" | "rapporter" | "deltagare"; showSub?: boolean }) {
+/** En levererad rapport i en lista. Olästa har röd kant och märket "Ny". lista = listans val (för tillbakaknappen). */
+export function ReportRowItem({ r, from, showSub = true, lista }: { r: KomReportRow; from: "start" | "rapporter" | "deltagare"; showSub?: boolean; lista?: string }) {
   return (
     <ListItem
-      to={reportPath(r.id, from)}
+      to={reportPath(r.id, from, { lista })}
       marked={r.unread}
       lead={<LeadIcon name={KIND_ICON[r.kind] ?? "file"} />}
       chevron

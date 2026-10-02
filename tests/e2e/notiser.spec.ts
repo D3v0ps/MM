@@ -54,7 +54,7 @@ test("notiser: coachen ser tilldelningar och påminnelser men inga eskaleringar"
   await expect(main(page).getByRole("button", { name: "Olästa (0)" })).toBeVisible();
 
   // Gör avstämning leder till avstämningen för ärendet
-  await items(page).first().getByRole("button", { name: "Gör avstämning" }).click();
+  await items(page).first().getByRole("link", { name: "Gör avstämning" }).click();
   await expect(page).toHaveURL(/\/avstamning\/case-260148/);
   expect(relevant(errors)).toEqual([]);
 });
@@ -76,7 +76,7 @@ test("notiser: chefen ser eskaleringarna med coach och orsak per vecka", async (
   await expect(main(page)).toContainText("Eskalering: 2 veckor i rad utan progression");
   await expect(main(page)).toContainText("coach Leila Nouri");
   await expect(main(page)).toContainText("coach Mats Holm");
-  await first.getByRole("button", { name: "Öppna ärendet" }).click();
+  await first.getByRole("link", { name: "Öppna ärendet" }).click();
   await expect(page).toHaveURL(/\/arenden\/case-260148/);
   expect(relevant(errors)).toEqual([]);
 });

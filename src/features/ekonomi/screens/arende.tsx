@@ -30,7 +30,6 @@ function ArendeLoader({ caseId }: { caseId: string }) {
 
 // ---------------------------------------------------------------- Sök ärende
 function CasePicker() {
-  const nav = useNav();
   const q = useQuery(ekoCaseList, {});
   const [search, setSearch] = useState("");
   const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: "Ärende" }];
@@ -55,7 +54,7 @@ function CasePicker() {
               caption="Ärenden"
               rows={list.slice(0, 25)}
               rowKey="caseId"
-              onRowClick={(c) => nav.push(`/ekonomi/arende/${encodeURIComponent(c.caseId)}`)}
+              rowHref={(c) => `/ekonomi/arende/${encodeURIComponent(c.caseId)}`}
               empty="Inget ärende matchar sökningen."
               columns={[
                 { key: "number", label: "Ärende", nowrap: true, render: (c) => <span className="font-bold tabular-nums">{c.caseNumber}</span> },

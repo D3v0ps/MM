@@ -152,8 +152,8 @@ export type KomOrderForm = {
   areas: { code: string; name: string }[];
   /** Förslag på yrkesspår per avtalsområde. */
   tracks: Record<string, string[]>;
-  /** Pris per deltagarvecka i öre, exklusive moms. */
-  prices: { areaCode: string; validFrom: string; validTo: string | null; priceOre: number }[];
+  /** Pris per deltagarvecka i öre, exklusive moms. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+  prices?: { areaCode: string; validFrom: string; validTo: string | null; priceOre: number }[];
   /** Besked om startdatum och coach senast, om beställningen skickas nu. */
   answerDue: string | null;
 };
@@ -232,8 +232,9 @@ export type KomCaseDetail = {
   order: {
     coachName: string | null;
     weeks: number | null;
-    priceOre: number;
-    valueOre: number;
+    /** Pris per vecka och beställningens värde. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+    priceOre?: number;
+    valueOre?: number;
     buyerReference: string | null;
     team: { name: string; roleLabel: string }[];
     /** Levererad orderbekräftelse (öppnas som rapport). */
@@ -245,7 +246,7 @@ export type KomCaseDetail = {
   attendance: { restricted: true } | { restricted: false; month: KomAttTile; prev: KomAttTile; repeated: { count: number; withinDays: number } | null } | null;
   /** null = skyddade personuppgifter (kommunens chef). */
   participant: { pnrMasked: string | null; canReveal: boolean; contactLabel: string | null; city: string; accessibilityNeeds: string } | null;
-  /** Ett möjligt bonusanspråk (arbete påbörjat). Funktionen är avstängd tills modellen är bestämd. */
+  /** Ett möjligt bonusanspråk (arbete påbörjat). Funktionen är avstängd tills modellen är bestämd. Alltid false för begränsade testare. */
   bonus: boolean;
   seesCoachNotes: boolean;
   reports: KomReportRow[];
@@ -376,7 +377,7 @@ export const resultExport = command("kommun.resultatExport", z.object({
   to: MonthKeySchema,
   format: z.enum(["xlsx", "csv"]),
   table: z.enum(RESULT_TABLES).optional(),
-})).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty" | "schema">>();
+}), { invalidates: "none" }).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty" | "schema">>();
 
 // ================================================================ Rapporter från Miljonbemanning (/portal/resultat/rapporter – rapporter steg 4)
 // Rapporter som Miljonbemanning har byggt i rapportbyggaren och delat med kommunens chef. Chefen kan inte ändra något (inte
@@ -393,13 +394,13 @@ export const sharedReports = query("kommun.delade", z.object({})).returns<{ allo
  * kör det en gång per sidvisning. error är en klarspråkstext när rapporten inte kan visas (found: false = finns inte längre).
  */
 export type SharedReportView = { allowed: boolean; found: boolean; title: string; view: BuilderView | null; error: string | null };
-export const sharedReport = command("kommun.delad", z.object({ savedReportId: IdSchema })).returns<SharedReportView>();
+export const sharedReport = command("kommun.delad", z.object({ savedReportId: IdSchema }), { invalidates: "none" }).returns<SharedReportView>();
 
 /** Hämta den delade rapporten (Excel, CSV eller PDF – PDF bara för sammanställningar). Loggas export.saved_report innan svaret. */
 export const sharedReportExport = command("kommun.deladExport", z.object({
   savedReportId: IdSchema,
   format: z.enum(["xlsx", "csv", "pdf"]),
-})).returns<Result<BuilderFileResult, "forbidden" | "not_found" | "period" | "empty" | "column_missing" | "too_many_groups" | "too_large" | "definition">>();
+}), { invalidates: "none" }).returns<Result<BuilderFileResult, "forbidden" | "not_found" | "period" | "empty" | "column_missing" | "too_many_groups" | "too_large" | "definition">>();
 
 // ================================================================ Inloggningen (bara prototypens snabbval)
 /**
@@ -411,7 +412,7 @@ export const kommunTestPersonas = query("kommun.testpersoner", z.object({ userId
 
 // ================================================================ Kommandon (prototypens kom.*)
 /** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa på startsidan (tyst). */
-export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema })).returns<Result<object, "not_found">>();
+export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: ["kommun.", "session.navCounts"] }).returns<Result<object, "not_found">>();
 
 /** Handläggaren markerar en uppgift från Miljonbemanning som klar. */
 export const kommunTaskDone = command("kommun.taskDone", z.object({ taskId: IdSchema })).returns<Result<object, "not_found" | "forbidden">>();
@@ -422,7 +423,7 @@ export const kommunApproveActionPlan = command("kommun.approveActionPlan", z.obj
 >();
 
 /** Visa hela personnumret (tyst). Bara beställande handläggare (kommunens åtkomst till ärendet). Visningen loggas (pnr.revealed). */
-export const kommunRevealPnr = command("kommun.visaPersonnummer", z.object({ caseId: IdSchema })).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
+export const kommunRevealPnr = command("kommun.visaPersonnummer", z.object({ caseId: IdSchema }), { invalidates: "none" }).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
 
 // ================================================================ "Tala in" (röstinspelning, docs/PLAN-ROST.md, flöde 2)
 // Handläggaren talar in i stället för att skriva – vid beställningens bakgrund (/portal/bestall) och i meddelanden.

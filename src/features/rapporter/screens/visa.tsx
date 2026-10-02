@@ -1,18 +1,19 @@
 "use client";
 // Rapportsidan för Miljonbemanning (prototypens rapport.visa, MbReport): status och nästa steg, godkänn, kvalitetsgranska,
 // leverera och rätta, förhandsvisningen av dokumentet, leveransen och versionerna. Kommunen ser samma dokument i portalen.
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { usePageTitle } from "@/shell/page-effects";
 import { fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  AiBox, AiTag, Badge, BuildPhase, Button, Card, Dot, Empty, ErrorNotice, Field, Grid, Kv, List, ListItem, Loading, Modal, Notice, Page, Row, SlaBadge, Split, Stack,
-  Stepper, TextArea, useAuditView, useConfirm, useToast, type Crumb,
+  AiBox, AiTag, Badge, BuildPhase, Button, Card, CaseLink, Dot, Empty, ErrorNotice, Field, focusSoon, Grid, Kv, List, ListItem, Loading, Modal, Notice, Page, Row, SlaBadge,
+  Split, Stack, Stepper, TextArea, useAuditView, useConfirm, useToast, type Crumb,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import {
-  reportApprove, reportCorrect, reportCorrectionNote, reportDeliver, reportDocument, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
+  reportApprove, reportCorrect, reportCorrectionNote, reportDeliver, reportDocument, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
   type ReportDocResult, type ReportDocView, type ReportView,
 } from "../api";
 import { useLazySnapshot } from "../components/use-snapshot";
@@ -22,6 +23,42 @@ import { CustomerPerspective, MailNote, ProvisionalBadge, ReportStatusBadge } fr
 import { DENIED, effStatus, LIFECYCLE } from "../report-helpers";
 
 const LIST_CRUMB: Crumb = { label: "Rapporter", to: "/rapporter" };
+
+/** Överraden med ärendenumret som länk till deltagarkortet (eller ekonomens ärendevy – CaseLink väljer efter roll). */
+function eyebrowWithCase(text: ReactNode, caseId: string | null | undefined, caseNumber: string | null | undefined): ReactNode {
+  if (typeof text !== "string" || !caseId || !caseNumber || !text.includes(caseNumber)) return text;
+  const [before, ...rest] = text.split(caseNumber);
+  return (
+    <>
+      {before}
+      <CaseLink caseId={caseId} caseNumber={caseNumber} className="-my-2 px-0.5 tracking-[inherit]" />
+      {rest.join(caseNumber)}
+    </>
+  );
+}
+
+/** Efter en leverans: nästa rapport som väntar på leverans (samma ordning som listan – förfaller först) och listan. */
+function AfterDelivery({ currentId }: { currentId: string }) {
+  const q = useQuery(reportList, {});
+  const next = (q.data?.rows ?? [])
+    .filter((x) => x.next.key === "deliver" && x.id !== currentId)
+    .sort((a, b) => ((a.dueAt || "9999") < (b.dueAt || "9999") ? -1 : 1))[0];
+  return (
+    <section id="efter-leverans" tabIndex={-1} aria-label="Vad vill du göra nu?" className="flex flex-wrap items-center gap-3 rounded-card border border-ljusgra bg-vit px-[18px] py-3.5">
+      <span className="inline-flex items-center gap-1.5 font-bold">Rapporten är levererad.</span>
+      {next ? (
+        <Button kind="primary" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(next.id)}`}>
+          Nästa rapport som väntar på leverans: {next.title}
+        </Button>
+      ) : (
+        q.data && <span className="text-text-muted">Inga fler rapporter väntar på leverans.</span>
+      )}
+      <Button kind="ghost" icon="arrow-left" to="/rapporter?snabb=deliver">
+        Tillbaka till listan
+      </Button>
+    </section>
+  );
+}
 
 export function RapportVisaScreen({ params }: ScreenProps) {
   const reportId = params.reportId;
@@ -34,9 +71,7 @@ export function RapportVisaScreen({ params }: ScreenProps) {
   useLazySnapshot(ok ? reportId : null, ok && (v as ReportView).needsSnapshot);
   // Fliken får rapportens rubrik (rutten har bara id:t).
   const title = v?.title;
-  useEffect(() => {
-    if (title && title !== "Rapport") document.title = `${title} – Miljonmatch`;
-  }, [title]);
+  usePageTitle(title && title !== "Rapport" ? title : null);
 
   if (q.error) return <Page title="Rapport"><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (q.isLoading || !v) return <Page title="Rapport"><Loading /></Page>;
@@ -74,6 +109,7 @@ type DocQuery = { data?: ReportDocResult; error: unknown };
 
 function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
   const [correcting, setCorrecting] = useState(false);
+  const [justDelivered, setJustDelivered] = useState(false);
   const nav = useNav();
   const confirm = useConfirm();
   const toast = useToast();
@@ -110,10 +146,14 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
     // Frys innehållet direkt efter leveransen.
     await snapshot.run({ reportIds: [v.id] });
     toast(`Levererad i portalen till ${name || "kommunen"}. Mejlet innehåller bara en notis utan personuppgifter.`);
+    // Knappen Leverera försvinner: vägen vidare (nästa rapport att leverera, listan) får fokus.
+    setJustDelivered(true);
+    focusSoon("efter-leverans");
   };
 
   return (
-    <Page title={v.title} eyebrow={v.eyebrow} crumbs={crumbs} actions={persp} lead={v.lead}>
+    <Page title={v.title} eyebrow={eyebrowWithCase(v.eyebrow, v.caseId, v.caseNumber)} crumbs={crumbs} actions={persp} lead={v.lead}>
+      {justDelivered && <AfterDelivery currentId={v.id} />}
       <StatusCard v={v} doc={doc.data && doc.data.ok ? doc.data.doc : null} onDeliver={() => void onDeliver()} onCorrect={() => setCorrecting(true)} />
       {v.drift && (
         <Notice tone="warn" title="Underlaget har ändrats efter leveransen">

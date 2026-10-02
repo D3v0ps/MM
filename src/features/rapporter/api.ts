@@ -42,7 +42,7 @@ export const reportCorrect = command("rapporter.reportCorrect", z.object({
  */
 export const reportOpen = command("rapporter.reportOpen", z.object({
   reportId: IdSchema,
-})).returns<Result<{ acknowledged: boolean }, "not_found">>();
+}), { invalidates: ["kommun.", "rapporter.dokument", "rapporter.lista", "session.navCounts"] }).returns<Result<{ acknowledged: boolean }, "not_found">>();
 
 // ================================================================ Rapporter: frågor och egna kommandon
 // Frågorna returnerar vy-modeller: bara det skärmen visar och rollen får se. Rapportens innehåll (modellen) byggs av
@@ -119,10 +119,15 @@ export type DocBase = {
 };
 /** En sektion i veckorapporten som läsaren ser. Skyddade (restricted) har bara ärendenumret. */
 export type WeeklyDocSection = (WeeklySection & { restricted: false; name: string }) | { restricted: true; caseId: string; caseNumber: string };
+/**
+ * Orderbekräftelsen som läsaren ser. price (veckopriset) saknas för begränsade testare i testmiljön (src/api/tester-access.ts) –
+ * rapportsidan, portalen och PDF:en visar då "Visas inte för testare". Gäller också frysta rapporter (reports.snapshot).
+ */
+export type OrderDocModel = Omit<OrderModel, "price"> & { price?: number };
 export type ReportDocView =
   | (DocBase & { kind: "monthly"; participant: string; m: MonthlyModel })
   | (DocBase & { kind: "final"; participant: string; m: FinalModel })
-  | (DocBase & { kind: "order_confirmation"; participant: string; m: OrderModel })
+  | (DocBase & { kind: "order_confirmation"; participant: string; m: OrderDocModel })
   | (DocBase & {
       kind: "weekly_attendance";
       m: Omit<WeeklyModel, "sections">;
@@ -251,7 +256,7 @@ export const reportView = query("rapporter.visa", z.object({ reportId: IdSchema 
  */
 export const reportSnapshot = command("rapporter.snapshot", z.object({
   reportIds: z.array(IdSchema).min(1).max(50),
-})).returns<Result<{ reportIds: string[] }>>();
+}), { invalidates: "none" }).returns<Result<{ reportIds: string[] }>>();
 
 /**
  * Ladda ner rapporten som PDF (tyst). Servern kontrollerar behörigheten med samma regler som för att visa rapporten
@@ -262,7 +267,7 @@ export const reportSnapshot = command("rapporter.snapshot", z.object({
  */
 export const reportDownload = command("rapporter.download", z.object({
   reportId: IdSchema,
-})).returns<Result<{ filename: string }, DeniedReason>>();
+}), { invalidates: "none" }).returns<Result<{ filename: string }, DeniedReason>>();
 
 /** Samordnarens valfria kvalitetsgranskning (prototypens rap.qualityReview). */
 export const reportQualityReview = command("rapporter.qualityReview", z.object({
@@ -354,7 +359,7 @@ export const builderPreview = command("rapporter.byggForhandsvisning", z.object(
   definition: DefinitionInput.optional(),
   templateKey: z.enum(TEMPLATE_KEYS).optional(),
   audience: z.enum(["mb", "kommun"]),
-}).refine(exactlyOne)).returns<Result<BuilderView, BuilderError>>();
+}).refine(exactlyOne), { invalidates: "none" }).returns<Result<BuilderView, BuilderError>>();
 
 export type BuilderFileResult =
   | { filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number | null }
@@ -366,7 +371,7 @@ export const builderExport = command("rapporter.byggExport", z.object({
   definition: DefinitionInput.optional(),
   templateKey: z.enum(TEMPLATE_KEYS).optional(),
   format: z.enum(["xlsx", "csv", "pdf"]),
-}).refine(exactlyOne)).returns<Result<BuilderFileResult, "forbidden" | BuilderError | "too_large">>();
+}).refine(exactlyOne), { invalidates: "none" }).returns<Result<BuilderFileResult, "forbidden" | BuilderError | "too_large">>();
 
 export type SavedReportRow = {
   id: string;
@@ -471,7 +476,7 @@ export const contractResultExport = command("rapporter.resultatfilExport", z.obj
   to: MonthKeySchema,
   format: z.enum(["xlsx", "csv"]),
   table: z.enum(["resultat", "progression", "handelser", "avslut", "faltbeskrivning"]).optional(),
-})).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty">>();
+}), { invalidates: "none" }).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty">>();
 
 /** Läget för förhandsvisningen (skärmens växel). */
 export type { BuilderAudience as PreviewAudience };

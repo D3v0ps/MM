@@ -106,7 +106,8 @@ test("1. ärendelistan: sidor om 50, sök, filter och skyddade ärenden utan nam
   expect(protText).toContain("Skyddade personuppgifter – ingen åtkomst");
   expect(protText).not.toContain("Sanna");
   await rows(page).first().click();
-  await expect(page, "Skyddad rad går inte att öppna för samordnaren").toHaveURL(/\/arenden$/);
+  // Filtren ligger i adressen (?skyddade=1) – men raden öppnar inget kort.
+  await expect(page, "Skyddad rad går inte att öppna för samordnaren").toHaveURL(/\/arenden(\?[^/]*)?$/);
   await page.check("#arn-onlyflags");
   expect(errors).toEqual([]);
 });
@@ -511,7 +512,7 @@ async function writeNote(page: Page, body: string, opts: { team?: boolean } = {}
 test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven av'", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
   await tab(page, /^Tidslinje/).click();
-  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Öppna en rad för att läsa mer.");
+  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.");
   await expect(page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Allt" })).toHaveAttribute("aria-pressed", "true");
   await expect(main(page)).toContainText("Månadsrapport: Levererad 8 januari 2027");
   await writeNote(page, NOTE_FULL);
@@ -657,20 +658,26 @@ test("24. ta bort en anteckning: samordnaren döljer coachens anteckning, Esc be
   expect(errors).toEqual([]);
 });
 
-test("25. 'Registrera händelse' i dialogen: skriven text försvinner inte utan att coachen får frågan", async ({ page }, info) => {
+test("25. Anteckningsdialogen: skriven text försvinner inte utan att coachen får frågan (Esc och Registrera händelse)", async ({ page }, info) => {
   const TEXT = "Arbetsgivaren på lagret vill träffa Nadia nästa vecka.";
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
   await btn(page, "Skriv anteckning").click();
   const note = page.getByRole("dialog", { name: "Skriv anteckning" });
   await note.locator("#note-body").fill(TEXT);
-  await note.getByRole("link", { name: "Registrera händelse" }).click();
-  const ask = page.getByRole("dialog", { name: "Gå till Registrera händelse?" });
-  await expect(ask).toContainText("Anteckningen sparas inte. Det du har skrivit försvinner.");
-  await btn(ask, "Stanna kvar").click();
+  // Samma fråga överallt när det finns skriven text: Esc, Avbryt och länken Registrera händelse.
+  const ask = page.getByRole("dialog", { name: "Vill du slänga det du skrivit?" });
+  await page.keyboard.press("Escape");
+  await expect(ask).toContainText("Det du har skrivit i rutan sparas inte.");
+  await btn(ask, "Fortsätt skriva").click();
   await expect(ask).toHaveCount(0);
   await expect(note.locator("#note-body")).toHaveValue(TEXT);
   await note.getByRole("link", { name: "Registrera händelse" }).click();
-  await btn(ask, "Gå till Registrera händelse").click();
+  await expect(ask).toBeVisible();
+  await btn(ask, "Fortsätt skriva").click();
+  await expect(ask).toHaveCount(0);
+  await expect(note.locator("#note-body")).toHaveValue(TEXT);
+  await note.getByRole("link", { name: "Registrera händelse" }).click();
+  await btn(ask, "Släng").click();
   await expect(page).toHaveURL(new RegExp(`/handelse/${SC.nadia}`));
   expect(errors).toEqual([]);
 });
