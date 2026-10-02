@@ -56,6 +56,8 @@
 //   S.deadlineOverrides              -> används inte (deadlines räknas fram; tabellen deadlines finns för produktionen)
 //   (finns inte i prototypen)        -> voice_links, participant_voice_notes, audio_uploads (röstinspelning, beslut 2026-09-30,
 //                                       docs/PLAN-ROST.md). Testdatat: src/data/seed/gen-voice.ts
+//   (finns inte i prototypen)        -> case_notes (fria anteckningar i deltagarkortet, rapporter steg 2, 0019).
+//                                       Testdatat: src/data/seed/gen-notes.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -1217,6 +1219,39 @@ export type AudioUpload = {
   deletedAt: LocalDateTime | null;
 };
 
+// ================================================================ Fria anteckningar i deltagarkortet (0019, rapporter steg 2)
+// Anteckningar som MB skriver i ärendet (SPEC §7.18). De kommer bara in i månadsrapporten genom att coachen lägger in dem i
+// månadsbedömningens sammanfattning och godkänner den – aldrig av sig själva. Aldrig i loggar, AI, utskick eller export.
+// Kommunen läser dem aldrig (inte heller när avtalet har customerVisibility.seesCoachNotes). Ingen hård radering: en
+// borttagen anteckning får removedAt och removedBy och visas inte längre (bara för författaren, när någon annan tog bort den).
+export const CASE_NOTE_KINDS = ["conversation", "customer_contact", "practical", "other"] as const;
+export type CaseNoteKind = (typeof CASE_NOTE_KINDS)[number];
+/** full = de med full åtkomst till ärendet (huvudcoach, samordnare, avtalsansvarig, chef, systemadministratör) · team = även teamet. */
+export const CASE_NOTE_AUDIENCES = ["full", "team"] as const;
+export type CaseNoteAudience = (typeof CASE_NOTE_AUDIENCES)[number];
+/** Högsta längd på en anteckning (tecken). Samma gräns som kontrollen i 0019. */
+export const CASE_NOTE_MAX = 2000;
+
+export type CaseNote = {
+  id: string;
+  contractId: string;
+  caseId: string;
+  authorId: UserId;
+  /** Dagen anteckningen gäller (förval i dag). */
+  occurredOn: LocalDate;
+  kind: CaseNoteKind;
+  audience: CaseNoteAudience;
+  /** 1–2000 tecken. Aldrig i loggar, AI, utskick eller export. */
+  body: string;
+  createdAt: LocalDateTime;
+  /** Senaste ändringen av texten (bara författaren ändrar). */
+  updatedAt: LocalDateTime | null;
+  /** Borttagen (dold) – raden finns kvar tills den gallras. */
+  removedAt: LocalDateTime | null;
+  /** Vem som tog bort den: författaren, eller samordnare/avtalsansvarig i avtalet (beslut 2026-10-01). */
+  removedBy: UserId | null;
+};
+
 // ================================================================ Kommunikation och logg
 /** Säkra meddelanden per ärende. */
 export type Message = {
@@ -1482,6 +1517,7 @@ export type Tables = {
   audio_uploads: AudioUpload;
   feedback: Feedback;
   feedback_replies: FeedbackReply;
+  case_notes: CaseNote;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1502,6 +1538,7 @@ export const TABLE_NAMES = [
   "demo_tags",
   "voice_links", "participant_voice_notes", "audio_uploads",
   "feedback", "feedback_replies",
+  "case_notes",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;

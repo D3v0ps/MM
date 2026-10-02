@@ -36,6 +36,15 @@ describe.skipIf(!db)("paritet med den gamla prototypen (createSeed mot facit)", 
     expect(contract?.casePrefix).toBe("BOT");
   });
 
+  // Beslut 2026-10-01: tydlig/någon progression räknas bara på de obligatoriska områdena (progressionFlags). Prototypen räknade
+  // alla bedömda områden. Testdatat har inga bedömda valfria områden, så facit gäller oförändrat – det här testet stoppar
+  // om testdatat ändras så att facit (generate-facit.mjs) inte längre räknar som appen.
+  it("testdatat har inga bedömda valfria progressionsområden (facit räknas som appen)", () => {
+    const optional = new Set(env?.cfg.progression.optionalAreas ?? []);
+    expect(optional.size).toBeGreaterThan(0);
+    expect(data.monthly_assessments.filter((m) => Object.entries(m.areas).some(([k, a]) => optional.has(k) && a.level != null)).map((m) => m.id)).toEqual([]);
+  });
+
   for (const s of env ? paritySections(data, env, facit) : []) {
     it(s.name, () => {
       expect(JSON.parse(JSON.stringify(s.actual() ?? null))).toEqual(s.expected ?? null);

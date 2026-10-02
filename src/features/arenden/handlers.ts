@@ -11,7 +11,7 @@ import { ackTextFor, caseCounterId, coaches, duplicateActive, nextCaseNumber, ph
 import { isOperational, isUnset, phaseName, requireOperational, slaRule, type OperationalConfig } from "@/core/config";
 import {
   activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
-  messagesOf, placementsOf, planOf, reportsOf,
+  messagesOf, placementsOf, reportsOf,
 } from "@/core/db-index";
 import { domainEnv, type DomainEnv } from "@/core/env";
 import { plural } from "@/core/format";
@@ -24,8 +24,9 @@ import {
   addDays, addMonths, addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, isoWeek, monday, monthEnd, monthKey, monthName, WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
-import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
+import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
+import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
   Activity, AlertKind, AlertSeverity, Case, CaseStatus, CaseStatusHistory, Contract, Db, FourRights, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
@@ -34,12 +35,15 @@ import {
 } from "../_shared/context";
 import { protectPnr, revealPnr } from "../_shared/pnr";
 import { newReport } from "../_shared/rows";
+import { docBase, monthlyDocView } from "../rapporter/doc-view";
+import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
+import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import {
   caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseSetBuyerRef, caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
-  caseAssessments, caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseOverview, casePlacements,
-  caseReports, caseRevealPnr, supervisorStart, TEAM_TABS,
-  type AttendanceSummary, type CaseAssessments, type CaseAttendance, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
+  caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, supervisorStart, TEAM_TABS,
+  type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
   type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseOverview, type CasePlacements, type CaseReportRow,
   type CaseTab, type SupervisorCase, type SupervisorStart,
 } from "./api";
@@ -906,41 +910,150 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
   };
 });
 
-// ---------------------------------------------------------------- Flik: Månadsbedömning
-handleQuery(caseAssessments, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseAssessments | null> => {
+// ---------------------------------------------------------------- Flik: Tidslinje (rapporter steg 2)
+// Läser bara via ctx.repo och bara de tabeller som rollens åtkomst ska visa: teamet läser inte avstämningar, bedömningar,
+// avvikelser, rapporter, samtycken eller meddelanden alls. Ingen ctx.system. Domänfunktionen: timeline.ts.
+handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTimeline | null> => {
+  const L = await loadCase(ctx, p.caseId, "tidslinje");
+  if (!L) return null;
+  const { c, cfg, env, team, role, me, access } = L;
+  const q = { caseId: c.id };
+  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles"], {
+    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q,
+  });
+  const fullDb = team
+    ? { check_ins: [], intake_assessments: [], monthly_assessments: [], deviations: [], consents: [], reports: [], messages: [], organizations: [] }
+    : await loadDb(ctx.repo, ["check_ins", "intake_assessments", "monthly_assessments", "deviations", "consents", "reports", "messages", "organizations"], {
+        check_ins: q, intake_assessments: q, monthly_assessments: q, deviations: q, consents: q, reports: q, messages: q, organizations: { kind: "customer" },
+      });
+  return buildTimeline({ cases: [c], ...base, ...fullDb }, { caseId: c.id, viewer: { access, role, userId: me }, cfg, now: env.now, visa: p.visa, fore: p.fore });
+});
+
+// ---------------------------------------------------------------- Fria anteckningar (case_notes)
+const NOTE_NOT_FOUND = "Anteckningen finns inte, eller så har du inte behörighet att se den.";
+/** Skriver anteckningar: den som arbetar i ärendet. Chef och systemadministratör läser bara. */
+const NOTE_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
+
+handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
+  const L = await loadCase(ctx, p.caseId, "tidslinje");
+  if (!L) return fail("not_found", NOT_FOUND);
+  const { c, team, today, me } = L;
+  // Skyddade personuppgifter: teamet har ingen åtkomst – anteckningen sparas alltid för full åtkomst
+  // (bara namngiven huvudcoach och avtalsansvarig).
+  const person = await ctx.repo.table("persons").get(c.personId);
+  const audience = person?.protectedIdentity ? "full" : p.audience;
+  if (team && audience === "full") return fail("forbidden", "Du kan bara skriva anteckningar som hela teamet ser.");
+  if (p.occurredOn > today) return fail("date", "Datumet kan inte vara senare än i dag.");
+  if (p.occurredOn < dayOf(c.referredAt)) return fail("date", "Datumet kan inte vara före beställningen.");
+  if (looksLikePnr(p.body)) return fail("pnr", "Det ser ut som ett personnummer i texten. Ta bort det – ärendenumret räcker.");
+  const table = ctx.repo.table("case_notes");
+  if (p.noteId) {
+    const cur = await table.get(p.noteId);
+    if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
+    if (cur.authorId !== me) return fail("not_author", "Bara den som skrev anteckningen kan ändra den.");
+    await table.update(cur.id, { occurredOn: p.occurredOn, kind: p.kind, audience, body: p.body, updatedAt: ctx.now() });
+    // Revisionsloggen: bara id:n – aldrig texten eller typen.
+    await ctx.audit({ action: "case_note.updated", entity: "case_note", entityId: cur.id, contractId: c.contractId, details: { caseId: c.id } });
+    return ok({ noteId: cur.id });
+  }
+  const id = ctx.newId("note");
+  await table.insert({
+    id, contractId: c.contractId, caseId: c.id, authorId: me, occurredOn: p.occurredOn, kind: p.kind, audience, body: p.body, createdAt: ctx.now(),
+    updatedAt: null, removedAt: null, removedBy: null,
+  });
+  await ctx.audit({ action: "case_note.created", entity: "case_note", entityId: id, contractId: c.contractId, details: { caseId: c.id } });
+  return ok({ noteId: id });
+});
+
+handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
+  const L = await loadCase(ctx, p.caseId, "tidslinje");
+  if (!L) return fail("not_found", NOT_FOUND);
+  const { c, me, role, access } = L;
+  const table = ctx.repo.table("case_notes");
+  const cur = await table.get(p.noteId);
+  if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
+  // Författaren, och samordnare och avtalsansvarig med full åtkomst i ärendet (beslut 2026-10-01). Inget raderas på riktigt.
+  if (cur.authorId !== me && !(isManager(role) && access === "full")) {
+    return fail("not_author", "Bara den som skrev anteckningen, samordnaren och avtalsansvarig kan ta bort den.");
+  }
+  await table.update(cur.id, { removedAt: ctx.now(), removedBy: me });
+  // Vem som dolde är loggens aktör. Bara id:n – aldrig texten.
+  await ctx.audit({ action: "case_note.removed", entity: "case_note", entityId: cur.id, contractId: c.contractId, details: { caseId: c.id, authorId: cur.authorId } });
+  return ok({});
+});
+
+// ---------------------------------------------------------------- Flik: Månadsunderlag (rapporter steg 2)
+// Samma innehåll som månadsrapporten, byggt med samma funktion (monthlyPreview → buildMonthly) och samma dokument
+// (ReportDocView). Underlaget läses via ctx.repo efter loadCase – fliken är bara för full åtkomst, och med dagens data
+// (asOf = null) behövs inte revisionsloggen. Ingen ctx.system.
+handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseMonthBasis | null> => {
   const L = await loadCase(ctx, p.caseId, "manad");
   if (!L) return null;
-  const { c, cfg, today } = L;
+  const { c, cfg, contract, today, role, me } = L;
+  const now = ctx.now();
+  const current = monthKey(today);
   const q = { caseId: c.id };
-  const db = await loadDb(ctx.repo, ["monthly_assessments", "monthly_plans", "reports"], { monthly_assessments: q, monthly_plans: q, reports: q });
+  const db = await loadDb(ctx.repo, [
+    "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "tasks", "reports", "case_notes", "contract_areas",
+    "profiles", "persons", "organizations",
+  ], {
+    activities: q, attendance: q, check_ins: q, monthly_assessments: q, monthly_plans: q, outcome_events: q, deviations: q, reports: q, case_notes: q,
+    contract_areas: { contractId: c.contractId }, persons: { id: c.personId }, organizations: { id: { in: [contract.customerId, contract.supplierId] } },
+  });
   const prog = cfg.progression;
-  const lastMonth = addMonths(monthKey(today), -1);
-  const lv = Object.keys(prog.scale || {}).map(Number).filter((x) => !Number.isNaN(x)).sort((a, b) => a - b);
-  const minL = lv.length ? lv[0] : 0;
-  const maxL = lv.length ? lv[lv.length - 1] : 3;
-  const m = String(prog.statDefinition?.clear ?? "").match(/>=\s*(\d+)/);
-  const clearFrom = Number(m?.[1] || Math.min(2, maxL));
-  const scale = prog.scale as Record<string, string>;
-  const lower = (x: number) => String(scale[String(x)] || "").toLowerCase();
-  const reps = reportsOf(db, c.id).filter((r) => r.kind === "monthly" && !r.superseded);
+  // Månaderna: från startmånaden till innevarande månad (eller slutmånaden), senaste först.
+  const startM = c.startDate ? monthKey(c.startDate) : null;
+  const topM = c.endDate && monthKey(c.endDate) < current ? monthKey(c.endDate) : current;
+  const monthly = db.reports.filter((r) => r.kind === "monthly" && r.caseId === c.id);
+  // Samma läge som tidslinjens månadsrubrik (monthReportState): under en rättelse är den levererade versionen kvar.
+  const deliveredOf = (mk: string) => monthReportState(monthly, c.id, mk).delivered;
+  const months: CaseMonthOption[] = [];
+  if (startM) for (let mk = topM; mk >= startM; mk = addMonths(mk, -1)) months.push({ month: mk, current: mk === current && c.status !== "closed", delivered: !!deliveredOf(mk) });
+  const lastMonth = addMonths(current, -1);
+  const fallback = enrolledIn(c, lastMonth) ? lastMonth : startM && current > topM ? topM : current;
+  const month = p.manad && (months.some((m) => m.month === p.manad) || (startM != null && p.manad < startM) || !startM) ? p.manad : fallback;
+  const beforeStart = !startM || month < startM;
+
+  // Progression över tid: bara godkända bedömningar. Rader = de obligatoriska områdena och de valfria som någon gång bedömts.
+  const approved = db.monthly_assessments.filter((m) => m.status === "approved").sort(by("month"));
+  const optional = prog.optionalAreas.filter((k) => approved.some((m) => m.areas[k]?.level != null));
+  const matrix = {
+    months: approved.map((m) => m.month),
+    rows: [...prog.areas.map((key) => ({ key, optional: false })), ...optional.map((key) => ({ key, optional: true }))].map((r) => ({
+      ...r, label: prog.areaLabels[r.key] ?? r.key, levels: approved.map((m) => m.areas[r.key]?.level ?? null),
+    })),
+    scale: { ...prog.scale } as Record<string, string>,
+  };
+
+  const st = monthReportState(monthly, c.id, month);
+  const del = beforeStart ? null : st.delivered;
+  const pending = del ? st.correction : null;
+  const row = st.latest;
+  let gaps: CaseMonthBasis["gaps"] = null;
+  let doc: CaseMonthBasis["doc"] = null;
+  if (!beforeStart && !del) {
+    const [customer, supplier] = [db.organizations.find((o) => o.id === contract.customerId), db.organizations.find((o) => o.id === contract.supplierId)];
+    const renv: ReportEnv = { cfg, contract: { id: contract.id, startsOn: contract.startsOn, supplierName: supplier?.name ?? "" }, now, activityTypes: ACTIVITY_TYPES };
+    const rdb: ReportDb & Pick<Db, "case_notes"> = {
+      cases: [c], activities: db.activities, attendance: db.attendance, check_ins: db.check_ins, monthly_assessments: db.monthly_assessments, monthly_plans: db.monthly_plans,
+      outcome_events: db.outcome_events, deviations: db.deviations, tasks: db.tasks, audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: db.contract_areas,
+      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes,
+    };
+    const m = monthlyPreview(rdb, c.id, month, renv);
+    gaps = monthlyGaps(rdb, c.id, month, renv);
+    if (m) {
+      const stub = { id: row?.id ?? `preview:${c.id}:${month}`, status: row?.status ?? "draft", version: row?.version ?? 1, approvedAt: row?.approvedAt ?? null, deliveredAt: null, superseded: false } as const;
+      const participant = displayName(c, db.persons[0] ?? null, "full");
+      doc = monthlyDocView(docBase(stub, { customerName: customer?.name ?? "", contract }, db.profiles, row?.recipientUserId ?? c.referrerId), participant, m);
+    }
+  }
   return {
-    list: assessmentsOf(db, c.id).map((ma) => {
-      const approved = ma.status === "approved";
-      const plan = planOf(db, c.id, ma.month);
-      const rep = reps.filter((r) => r.month === ma.month).sort((a, b) => (b.version || 1) - (a.version || 1))[0];
-      return {
-        id: ma.id, month: ma.month, approved, overallStatus: approved ? ma.overallStatus : null,
-        clear: Object.values(ma.areas || {}).filter((a) => a.level != null && a.level >= clearFrom).length, summary: ma.summary,
-        planGoals: approved && plan ? [plan.goal1, plan.goal2].filter(Boolean) : [],
-        report: rep ? { id: rep.id, statusLabel: reportStatusLabel(rep.status), opened: !!rep.openedAt } : null,
-      };
-    }),
+    months, month, beforeStart, matrix,
     missingMonth: c.status === "active" && c.startDate && c.startDate <= monthEnd(lastMonth) && !assessmentFor(db, c.id, lastMonth) ? lastMonth : null,
-    nAreas: prog.areas.length,
-    scale: { min: minL, max: maxL },
-    observationFromLevel: prog.observationRequiredFromLevel,
-    clearLabel: clearFrom >= maxL ? lower(maxL) : `${lower(clearFrom)} eller ${lower(maxL)}`,
-    clearRange: clearFrom >= maxL ? `nivå ${maxL}` : `nivå ${clearFrom}–${maxL}`,
+    gaps, doc,
+    delivered: del ? { reportId: del.id, deliveredAt: del.deliveredAt as string, version: del.version || 1, correctionDraft: pending ? pending.version : null } : null,
+    reportId: row?.id ?? null,
+    canAssess: role === "coach" && c.leadCoachId === me,
   };
 });
 
@@ -1085,6 +1198,8 @@ const AUDIT_TEXT: Record<string, string> = {
   "intake.saved": "Kartläggning sparades", "intake.approved": "Kartläggning godkändes", "event.added": "Händelse registrerades", "result.verified": "Resultat verifierades",
   "attendance.registered": "Närvaro registrerades", "report.approved": "Rapport godkändes", "report.delivered": "Rapport levererades", "report.corrected": "Rapport rättades", "report.view": "Rapport öppnades", "report.published": "Rapport publicerades",
   "transcript.deleted": "Råtranskript raderades", "ai.run": "AI-körning", "audio.deleted": "Ljudfil raderades", "notify.email": "E-post skickades",
+  "case_note.created": "Skrev anteckning", "case_note.updated": "Ändrade anteckning", "case_note.removed": "Tog bort anteckning",
+  "case_note.used_in_summary": "Använde anteckning i sammanfattningen", "report.downloaded": "Rapport laddades ner som PDF", "report.created": "Rapportutkast skapades",
 };
 
 type LogEntry = { id: string; occurredAt: string; actorId: string | null; action: string; entity: string; entityId: string | null; details: Record<string, unknown>; text?: string };
@@ -1112,6 +1227,9 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     const dt = x.details ?? {};
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     if (x.action === "case.coach_changed") return `${name(s(dt.from))} → ${name(s(dt.to))}. Orsak: ${s(dt.reason) || "–"}`;
+    // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
+    if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";
+    if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
     if (dt.reason) return String(dt.reason);
     if (dt.status && x.entity === "attendance") return attLabel(s(dt.status));
     if (dt.at) return fmtDateTimeLong(s(dt.at));

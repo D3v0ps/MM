@@ -15,7 +15,7 @@ import { useQuery } from "@/shell/backend";
 import { Empty, ErrorNotice, Kv, Loading, Meter, Paper, PaperFixedText, Status, XBox } from "@/ui";
 import { reportDocument, type ReportDocView } from "../api";
 import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
-import { dayMonth, DENIED, dFull, dtFull, isDraftDoc, NO_PNR, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
+import { dayMonth, DENIED, dFull, dtFull, isDraftDoc, lcfirst, NO_PNR, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
 
 // ---------------------------------------------------------------- Byggstenar
 function Sec({ n, title, children }: { n?: string; title: ReactNode; children?: ReactNode }) {
@@ -664,7 +664,7 @@ function CustomerSummaryDoc({ doc }: { doc: Extract<ReportDocView, { kind: "cust
         <p>
           {m.progression.assessed >= m.minN ? (
             <>
-              <b>{pct(m.progression.clear / m.progression.assessed, 0)}</b> av deltagarna med godkänd månadsbedömning visade tydlig progression (nivå 2 eller högre i minst ett område). Underlag:{" "}
+              <b>{pct(m.progression.clear / m.progression.assessed, 0)}</b> av deltagarna med godkänd månadsbedömning visade tydlig progression ({lcfirst(doc.progressionRule.clear)}).{doc.progressionRule.excluded ? ` ${doc.progressionRule.excluded}` : ""} Underlag:{" "}
               {m.progression.assessed} bedömningar.
             </>
           ) : (

@@ -170,6 +170,7 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 | ai_field_decisions | Coachens beslut per förslag | ai_run_id, field, suggested, final, decision (accepted/edited/rejected), decided_by, decided_at |
 | consents | Samtycke till inspelning/AI | person_id, case_id, kind, text_version, given_at, informed_by, revoked_at |
 | messages | Säkra meddelanden per ärende | case_id, sender_id, body, created_at, read_by, read_at |
+| case_notes | Fria anteckningar i deltagarkortet (§7.18) | contract_id, case_id, author_id, occurred_on, kind (conversation/customer_contact/practical/other), audience (full/team), body (1–2000 tecken), created_at, updated_at, removed_at, removed_by – raderas aldrig av användare |
 | audit_log | Revisionslogg, append-only | occurred_at, actor_id, action, entity, entity_id, contract_id, details (jsonb) |
 | holidays | Svenska helgdagar | date, name |
 
@@ -198,7 +199,8 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
     "areas": ["narvaro_rutiner", "yrkesfardigheter", "arbetskapacitet", "sjalvstandighet", "digital_sjalvstandighet", "instruktioner", "arbetsgivarkontakter", "beredskap", "sprak_kommunikation", "ovrigt"],
     "optionalAreas": ["halsa_funktionellt", "livskvalitet_sjalvskattad"],
     "observationRequiredFromLevel": 1,
-    "statDefinition": { "clear": "minst ett område på nivå >= 2", "any": "minst ett område på nivå >= 1" }
+    "clearFromLevel": 2,
+    "anyFromLevel": 1
   },
   "result": {
     "definition": "ATT_FASTSTÄLLA",
@@ -251,6 +253,8 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
   "reportSchedule": { "automatic": ["weekly_attendance", "monthly", "customer_summary"], "monthly": { "minEnrolledDays": 11 }, "customerSummaryDue": { "nthWorkingDay": 8, "time": "16:00" } }
 }
 ```
+
+`progression.clearFromLevel` och `progression.anyFromLevel` (beslut 2026-10-01): tydlig progression = minst ett område på nivå `clearFromLevel` eller högre, någon progression = minst ett område på nivå `anyFromLevel` eller högre (heltal 0–3, `anyFromLevel` ≤ `clearFromLevel`, Botkyrka 2 och 1). Texterna i appen och rapporterna byggs av talen. Den äldre fritexten `statDefinition` läses inte längre (fältet får finnas kvar).
 
 ### 6.3 Avtalskonfiguration – skiss Kammarkollegiet (visar att modellen räcker)
 
@@ -381,7 +385,7 @@ Per område: nivå (rullgardin), **konkret observation (obligatorisk från nivå
 
 AI (fas 2) skriver utkast till den konkreta observationen per område utifrån månadens godkända avstämningar, med hänvisning till källorna. AI får visa ett nivåförslag bredvid rullgardinen, men rullgardinen är tom tills coachen själv väljer.
 
-Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "någon progression" = minst ett område på nivå 1 eller högre (konfigurerbart).
+Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "någon progression" = minst ett område på nivå 1 eller högre (konfigurerbart: `progression.clearFromLevel` och `anyFromLevel`, §6.2). Bara de obligatoriska områdena räknas – de valfria (hälsa, livskvalitet) räknas aldrig i statistiken (beslut 2026-10-01).
 
 ### 7.8 Händelser, utfall och avslut
 
@@ -437,9 +441,11 @@ Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "n
 
 Påminnelser: coach 3 arbetsdagar före förfall, samordnare 1 dag före, chef vid förfall (vitesrisk).
 
+Fliken Månadsunderlag visar samma innehåll som rapporten, byggt med samma funktion (§7.18).
+
 **d) Slutrapport** – vid avslut. Samma struktur plus hela perioden: resultat, kvarstående hinder och rekommenderad fortsättning. Rapportstatus "Slutrapport".
 
-**e) Beställarrapport till kommunens chef (månadsvis)** – antal deltagare (aktiva, nya, avslutade) per avtalsområde och yrkesspår · resultat (antal och andel arbete/studier, rullande och sedan start, mot 32 %) · progression (andel med tydlig progression, fördelning per område) · närvarograd · antal avvikelser · nöjdhet (antal svar, andel 4–5) · kort sammanfattning (AI-utkast, godkänns av avtalsansvarig). **Det interna målet 35 % visas aldrig här.** SLA-statistik visas bara om ledningen beslutat det (`seesSlaStats`). Grupper med färre än 5 personer redovisas som "färre än 5".
+**e) Beställarrapport till kommunens chef (månadsvis)** – antal deltagare (aktiva, nya, avslutade) per avtalsområde och yrkesspår · resultat (antal och andel arbete/studier, rullande och sedan start, mot 32 %) · progression (andel med tydlig progression, fördelning per område) · närvarograd · antal avvikelser · nöjdhet (antal svar, andel 4–5) · kort sammanfattning (AI-utkast, godkänns av avtalsansvarig). **Det interna målet 35 % visas aldrig här.** SLA-statistik visas bara om ledningen beslutat det (`seesSlaStats`). Grupper med färre än 5 personer redovisas som "färre än 5". Andelen med tydlig/någon progression och fördelningen per område räknas bara på de obligatoriska områdena; de valfria (hälsa, livskvalitet) räknas aldrig i statistik till kommunen (beslut 2026-10-01). Texten till kommunen säger vilka områden som inte räknas, med namnen ur konfigurationen ("Hälsa (funktionellt beskrivet) och livskvalitet (deltagarens egen skattning) är valfria områden och räknas inte.").
 
 **f) Intern ledningsvy** – allt i e) plus 35 %-målet, per coach och per bolag, prognos, SLA-uppfyllnad, ofakturerat, avtalsavvikelser och flaggor.
 
@@ -520,6 +526,15 @@ Licenser att kontrollera: Fortnox Integration (om den inte ingår i ert paket) o
 - Anspråket skickas till kommunen i portalen, som godkänner eller avslår – kommunen avgör om en anställning är sammanhållen.
 - Godkänt anspråk ger en separat bonusfaktura, åtskild från periodfakturorna.
 - Reglerna läggs i `contracts.config.bonus` när incitamentsmodellen är fastställd (§13). Tills dess är funktionen avstängd, men underlaget samlas in från dag 1.
+
+### 7.18 Deltagarkortet: tidslinje, anteckningar och månadsunderlag
+
+Beslut 2026-10-01 (rapportarbetet steg 2). Deltagarkortet är MB:s löpande underlag till månadsrapporten.
+
+- **Tidslinje** (flik 2): allt som hänt i ärendet per månad, med det senaste först – aktiviteter och närvaro (en post per ISO-vecka, siffrorna som närvarostatistiken), avstämningar (godkända och utkast, utan text), kartläggning och godkända månadsbedömningar (samlad status och antal områden med tydlig progression), händelser och avslut, anteckningar, status- och coachbyten, avvikelser, samtycken, levererade rapporter och meddelanden. **Tidslinjen upprepar ingen fritext** – varje post har datum, typ, rubrik och status och en knapp till rätt flik. Undantaget är de fria anteckningarna, där texten är innehållet. Visas aldrig: råtranskript, AI-utkast, pulsmätningar, revisionsloggen, röstmeddelanden, meddelandetexter, avstämningarnas anteckningar och hinder, aktiviteternas och händelsernas anteckningar, avvikelsetexter och orsaker i statushistoriken. Teamet (handledare) ser bara aktiviteter, närvaro, praktik, arbetsgivarkontakter, statusbyten och anteckningar skrivna för teamet. Månadsrubriken visar månadsrapportens status vid full åtkomst – under en rättelse den levererade versionen och att rättelsen är ett utkast, samma läge som i Månadsunderlaget.
+- **Fria anteckningar** (`case_notes`): skrivs av den som arbetar i ärendet (samordnare, avtalsansvarig, coach, handledare) och gäller en dag. Vem ser: "Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör" eller "Även teamet"; i ärenden med skyddade personuppgifter bara namngiven huvudcoach och avtalsansvarig. **Kommunen läser aldrig anteckningar** – inte heller när avtalet har `seesCoachNotes`. Text som liknar ett personnummer stoppas – även med tankstreck eller mellanslag runt strecket (inklistrat från Word eller Outlook). Bara författaren ändrar texten. Ta bort = dölja (`removed_at`, `removed_by`), aldrig radera: författaren, och samordnare och avtalsansvarig inom sin åtkomst; författaren ser "Borttagen av {namn} {datum}" när någon annan tagit bort anteckningen. Revisionsloggen får bara id:n (`case_note.created`, `updated`, `removed`, `used_in_summary`) – aldrig texten. Anteckningar skickas aldrig till AI, utskick eller export.
+- **Vägen in i månadsrapporten:** en anteckning kommer aldrig med av sig själv. I månadsbedömningen visas månadens anteckningar; huvudcoachen lägger till det som behövs i sammanfattningen, skriver om texten för kommunen och godkänner bedömningen. Bara det godkända kommer med (§7.11, regel 6).
+- **Månadsunderlag** (fliken som tidigare hette Månadsbedömning): progression över tid (bara godkända bedömningar), vad som saknas innan rapporten kan godkännas (godkända veckoavstämningar under månaden och utkast, oregistrerad närvaro, månadsbedömningen, antal anteckningar – bara antal; antalet avstämningar jämförs inte med antalet veckor, eftersom en vecka över månadsskiftet hör till båda månaderna men avstämningen bara till den månad den hölls) och exakt det som kommer i månadsrapporten, byggt med samma funktion och samma dokument som rapporten. En levererad månad visas på rapportsidan.
 
 ---
 

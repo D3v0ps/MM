@@ -23,6 +23,7 @@ const AMIRA: Who = { userId: "u-amira", role: "coach" };
 const LEILA: Who = { userId: "u-leila", role: "coach" };
 const PETRA: Who = { userId: "u-petra", role: "handledare" };
 const KARIN: Who = { userId: "u-karin", role: "chef" };
+const ROBIN: Who = { userId: "u-robin", role: "admin" };
 
 const main = (page: Page) => page.locator("#main");
 const btn = (page: Page | Locator, name: string | RegExp) => page.getByRole("button", { name, exact: typeof name === "string" });
@@ -318,7 +319,7 @@ test("9. första mötet: tidsgränsen från avtalet, helgdag stoppas, mötet bok
 });
 
 // ------------------------------------------------------------ 10. Handledaren
-test("10. handledaren ser bara tilldelade ärenden och fyra flikar utan coachens anteckningar", async ({ page }, info) => {
+test("10. handledaren ser bara tilldelade ärenden och fem flikar utan coachens anteckningar", async ({ page }, info) => {
   const errors = await open(page, info, "/handledare", PETRA);
   await expect(main(page)).toContainText("Du ser bara ärenden du är tilldelad");
   await expect(main(page)).toContainText("Pågående (26)");
@@ -327,7 +328,7 @@ test("10. handledaren ser bara tilldelade ärenden och fyra flikar utan coachens
   await btn(page, "Visa fler").click();
   await expect(cards).toHaveCount(24);
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=avstamningar`, PETRA);
-  await expect(page.getByRole("tab")).toHaveCount(4);
+  await expect(page.getByRole("tab")).toHaveCount(5);
   await expect(main(page)).toContainText("Den delen visas inte för din roll");
   await expect(main(page)).not.toContainText(/eskaler/i);
   await expect(main(page)).not.toContainText("Följde planen");
@@ -489,5 +490,187 @@ test("17. 400 px: knappar och text inom korten, klickytor minst 44 px, tabeller 
     expect(scroll, `400 px fliken ${t}: tabellerna visas som listor utan sidledsscroll`).toBe(0);
     expect(r, `400 px fliken ${t}: ${r.slice(0, 2).join("; ")}`).toEqual([]);
   }
+  expect(errors).toEqual([]);
+});
+
+// ------------------------------------------------------------ 18–22. Deltagarkortet som underlag (rapporter steg 2)
+const NOTE_FULL = "Samtal om praktiken. Deltagaren vill öva mer på plockning.";
+const NOTE_TEAM = "Praktikplatsen har ny starttid från måndag.";
+
+/** Skriv en anteckning i tidslinjen (dialogen "Skriv anteckning"). */
+async function writeNote(page: Page, body: string, opts: { team?: boolean } = {}) {
+  await btn(page, "Skriv anteckning").click();
+  const d = dialog(page);
+  await expect(d.getByRole("heading", { name: "Skriv anteckning" })).toBeVisible();
+  await d.locator("#note-kind").selectOption("conversation");
+  await d.locator("#note-body").fill(body);
+  if (opts.team) await d.getByRole("radio", { name: "Även teamet (till exempel handledare)" }).check();
+  await btn(d, "Spara anteckningen").click();
+}
+
+test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven av'", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
+  await tab(page, /^Tidslinje/).click();
+  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Öppna en rad för att läsa mer.");
+  await expect(page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Allt" })).toHaveAttribute("aria-pressed", "true");
+  await expect(main(page)).toContainText("Månadsrapport: Levererad 8 januari 2027");
+  await writeNote(page, NOTE_FULL);
+  await expect(page.getByText("Anteckningen är sparad.")).toBeVisible();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(main(page)).toContainText(NOTE_FULL);
+  await expect(main(page)).toContainText("Skriven av Amira Haddad · Huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör");
+  // Filtret Anteckningar visar bara anteckningar.
+  await page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Anteckningar" }).click();
+  await expect(main(page)).toContainText(NOTE_FULL);
+  await expect(main(page)).not.toContainText("Veckoavstämning vecka");
+  expect(errors).toEqual([]);
+});
+
+test("19. anteckningen stoppas om texten liknar ett personnummer", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
+  await btn(page, "Skriv anteckning").click();
+  const d = dialog(page);
+  await d.locator("#note-kind").selectOption("practical");
+  await d.locator("#note-body").fill("Ring deltagaren, 850101-1234, om tiden.");
+  await btn(d, "Spara anteckningen").click();
+  await expect(d).toContainText("Det ser ut som ett personnummer i texten. Ta bort det – ärendenumret räcker.");
+  await expect(d).toContainText("Kommunen ser aldrig anteckningar.");
+  expect(errors).toEqual([]);
+});
+
+test("20. handledaren ser tidslinjen med teamets anteckning – inte den andra och inga avstämningar", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
+  await writeNote(page, NOTE_FULL);
+  await expect(main(page)).toContainText(NOTE_FULL);
+  await writeNote(page, NOTE_TEAM, { team: true });
+  await expect(main(page)).toContainText(NOTE_TEAM);
+  await expect(main(page)).toContainText("Skriven av Amira Haddad · Även teamet");
+  await switchTo(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, PETRA);
+  await expect(tab(page, /^Tidslinje/)).toHaveAttribute("aria-selected", "true");
+  await expect(main(page)).toContainText(NOTE_TEAM);
+  await expect(main(page)).not.toContainText(NOTE_FULL);
+  await expect(main(page)).not.toContainText("Veckoavstämning");
+  await expect(main(page)).not.toContainText("Månadsrapport:");
+  await expect(main(page)).toContainText("tidslinjen med anteckningar som är skrivna för teamet");
+  expect(errors).toEqual([]);
+});
+
+test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas innan rapporten kan godkännas", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=manad`, AMIRA);
+  await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
+  await expect(main(page)).toContainText("Det här är samma innehåll som kommer i månadsrapporten till kommunen. Bara godkända uppgifter kommer med.");
+  await expect(main(page)).toContainText("Innan rapporten kan godkännas");
+  // Antalet godkända avstämningar under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
+  await expect(main(page)).toContainText("4 veckoavstämningar är godkända.");
+  await expect(main(page)).not.toContainText(/\d+ av \d+ veckoavstämning/);
+  await expect(main(page)).toContainText("2 närvarotillfällen är inte registrerade.");
+  await expect(main(page)).toContainText("Månadsbedömningen är inte godkänd. Avsnitt 4, 7 och 8 blir tomma.");
+  await expect(main(page)).toContainText("3 anteckningar från januari kan användas i sammanfattningen.");
+  await expect(page.getByRole("link", { name: "Gör månadsbedömningen" })).toBeVisible();
+  for (const h of ["1. Grunduppgifter", "2. Närvaro och frånvaro", "3. Genomförda aktiviteter", "4. Progression", "5. Resultat och utfall", "6. Avvikelse, risk och åtgärd", "7. Plan för nästa månad", "8. Coachens sammanfattande bedömning"]) {
+    await expect(main(page).getByRole("heading", { name: h })).toBeVisible();
+  }
+  await expect(main(page)).toContainText("Progression över tid");
+  // Levererad månad: länk till rapporten i stället för förhandsvisningen.
+  await page.locator("#manad-val").selectOption("2026-12");
+  await expect(main(page)).toContainText("Månadsrapporten för december är levererad till kommunen 8 januari 2027 (version 1).");
+  await expect(page.getByRole("link", { name: "Öppna rapporten" })).toBeVisible();
+  await expect(main(page)).not.toContainText("Innan rapporten kan godkännas");
+  expect(errors).toEqual([]);
+});
+
+test("23. 400 px: tidslinjen, dialogen och månadsunderlaget – inget utanför korten, klickytor minst 44 px, ingen sidledsscroll", async ({ page }, info) => {
+  await page.setViewportSize({ width: 400, height: 860 });
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
+  const check = async (name: string) => {
+    await page.waitForTimeout(150);
+    const r = await probe(page);
+    expect(r, `400 px ${name}: ${r.slice(0, 3).join("; ")}`).toEqual([]);
+    expect(await horizontalOverflow(page), `400 px ${name}: sidledsscroll`).toBeLessThanOrEqual(1);
+  };
+  await expect(main(page)).toContainText("Samtal med deltagaren");
+  await check("tidslinjen");
+  await btn(page, "Skriv anteckning").click();
+  await expect(dialog(page)).toBeVisible();
+  await check("skriv anteckning");
+  await btn(dialog(page), "Avbryt").click();
+  // Månadsunderlaget: matrisen och rapportens tabeller får rulla i sidled i sin egen ruta – sidan får inte.
+  await switchTo(page, info, `/arenden/${SC.nadia}?flik=manad`, AMIRA);
+  await expect(main(page)).toContainText("Innan rapporten kan godkännas");
+  await check("månadsunderlaget");
+  expect(errors).toEqual([]);
+});
+
+test("22. chefen ser tidslinjen och månadsunderlaget utan knappar som ändrar något", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, KARIN);
+  await expect(tab(page, /^Tidslinje/)).toHaveAttribute("aria-selected", "true");
+  await expect(main(page)).toContainText("Samtal med deltagaren");
+  await expect(btn(page, "Skriv anteckning")).toHaveCount(0);
+  await expect(main(page).getByRole("button", { name: /^Ändra|^Ta bort/ })).toHaveCount(0);
+  await switchTo(page, info, `/arenden/${SC.nadia}?flik=manad`, KARIN);
+  await expect(main(page)).toContainText("Huvudcoachen gör månadsbedömningen.");
+  await expect(page.getByRole("link", { name: "Gör månadsbedömningen" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("24. ta bort en anteckning: samordnaren döljer coachens anteckning, Esc behåller den, författaren ser vem som tog bort den; admin läser bara", async ({ page }, info) => {
+  const SAMTAL = "Samtal om praktiken på lagret.";
+  const EGEN = "Praktikplatsen flyttar starttiden till 07.30";
+  const note = (text: string) => main(page).getByRole("listitem").filter({ hasText: text });
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, SARA);
+  // Samordnaren: "Ta bort" på huvudcoachens anteckning, men inte "Ändra".
+  await expect(note(SAMTAL)).toHaveCount(1);
+  await expect(note(SAMTAL).getByRole("button", { name: /^Ändra/ })).toHaveCount(0);
+  await note(SAMTAL).getByRole("button", { name: /^Ta bort/ }).click();
+  const d = dialog(page);
+  await expect(d.getByRole("heading", { name: "Ta bort anteckningen?" })).toBeVisible();
+  await expect(d).toContainText("Anteckningen visas inte längre i deltagarkortet. Amira Haddad ser att du har tagit bort den.");
+  // Esc avbryter – anteckningen finns kvar.
+  await page.keyboard.press("Escape");
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(note(SAMTAL)).toHaveCount(1);
+  await note(SAMTAL).getByRole("button", { name: /^Ta bort/ }).click();
+  await btn(dialog(page), "Ta bort").click();
+  await expect(page.getByText("Anteckningen är borttagen.")).toBeVisible();
+  await expect(main(page)).not.toContainText(SAMTAL);
+  // Knappen finns inte längre: fokus hamnar på månadens rubrik, inte högst upp på sidan.
+  await expect(page.locator("#tl-2027-01")).toBeFocused();
+
+  // Författaren ser att samordnaren tog bort den – utan knappar.
+  await switchTo(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
+  await expect(note(SAMTAL)).toContainText(/Borttagen av Sara Lindqvist 1 feb/);
+  await expect(note(SAMTAL).getByRole("button")).toHaveCount(0);
+  // Sin egen anteckning: standardtexten. Avbryt behåller den.
+  await note(EGEN).getByRole("button", { name: /^Ta bort/ }).click();
+  await expect(dialog(page)).toContainText("Anteckningen visas inte längre i deltagarkortet. Den sparas till dess att den gallras och kan inte tas tillbaka här.");
+  await expect(dialog(page)).not.toContainText("ser att du har tagit bort den");
+  await btn(dialog(page), "Avbryt").click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(note(EGEN)).toHaveCount(1);
+
+  // Systemadministratören läser anteckningarna men skriver, ändrar och tar inte bort.
+  await switchTo(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, ROBIN);
+  await expect(note(EGEN)).toHaveCount(1);
+  await expect(main(page)).not.toContainText(SAMTAL);
+  await expect(btn(page, "Skriv anteckning")).toHaveCount(0);
+  await expect(main(page).getByRole("button", { name: /^Ändra|^Ta bort/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("25. 'Registrera händelse' i dialogen: skriven text försvinner inte utan att coachen får frågan", async ({ page }, info) => {
+  const TEXT = "Arbetsgivaren på lagret vill träffa Nadia nästa vecka.";
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
+  await btn(page, "Skriv anteckning").click();
+  const note = page.getByRole("dialog", { name: "Skriv anteckning" });
+  await note.locator("#note-body").fill(TEXT);
+  await note.getByRole("link", { name: "Registrera händelse" }).click();
+  const ask = page.getByRole("dialog", { name: "Gå till Registrera händelse?" });
+  await expect(ask).toContainText("Anteckningen sparas inte. Det du har skrivit försvinner.");
+  await btn(ask, "Stanna kvar").click();
+  await expect(ask).toHaveCount(0);
+  await expect(note.locator("#note-body")).toHaveValue(TEXT);
+  await note.getByRole("link", { name: "Registrera händelse" }).click();
+  await btn(ask, "Gå till Registrera händelse").click();
+  await expect(page).toHaveURL(new RegExp(`/handelse/${SC.nadia}`));
   expect(errors).toEqual([]);
 });

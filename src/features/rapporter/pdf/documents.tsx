@@ -10,7 +10,7 @@ import { kr, num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import type { ReportDocView } from "../api";
 import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
-import { dayMonth, dFull, dtFull, isDelivered, isDraftDoc, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
+import { dayMonth, dFull, dtFull, isDelivered, isDraftDoc, lcfirst, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
 import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type Col, type KvItem, type Rag } from "./primitives";
 import { PDF_COLOR } from "./theme";
 
@@ -474,7 +474,7 @@ function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
       <Sec n="3" title="Progression">
         {m.progression.assessed >= m.minN ? (
           <P>
-            <B>{pct(m.progression.clear / m.progression.assessed, 0)}</B> av deltagarna med godkänd månadsbedömning visade tydlig progression (nivå 2 eller högre i minst ett område). Underlag:{" "}
+            <B>{pct(m.progression.clear / m.progression.assessed, 0)}</B> av deltagarna med godkänd månadsbedömning visade tydlig progression ({lcfirst(doc.progressionRule.clear)}).{doc.progressionRule.excluded ? ` ${doc.progressionRule.excluded}` : ""} Underlag:{" "}
             {m.progression.assessed} bedömningar.
           </P>
         ) : (

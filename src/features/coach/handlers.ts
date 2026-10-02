@@ -5,7 +5,7 @@ import { handleCommand } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
-import { addDays, isoWeek } from "@/core/time";
+import { addDays, isoWeek, monthKey } from "@/core/time";
 import type { AiRun, AiRunKind, CheckIn, CheckInAiDraft, Deviation, IntakeAssessment, MonthlyAssessment, TranscriptLine } from "@/data/schema";
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
@@ -180,6 +180,14 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (!c) return fail("not_found", NOT_FOUND);
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
+  // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
+  const usedNotes = [...new Set(p.usedNoteIds ?? [])];
+  for (const id of usedNotes) {
+    const n = await ctx.repo.table("case_notes").get(id);
+    if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month) {
+      return fail("bad_note", "En av anteckningarna hör inte till den här månaden eller finns inte längre. Ladda om sidan och försök igen.");
+    }
+  }
   const table = ctx.repo.table("monthly_assessments");
   const existing = await table.first({ caseId: c.id, month: p.month });
   const ma: MonthlyAssessment = existing ?? newAssessment({ id: ctx.newId("ma"), caseId: c.id, month: p.month });
@@ -216,6 +224,10 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
     await upsert(plans, { ...cur, ...defined(rest), ...(nextCustomerMeeting !== undefined ? { nextCustomerMeeting: nextCustomerMeeting || null } : {}) });
   }
   await ctx.audit({ action: p.approve ? "assessment.approved" : "assessment.saved", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details: { caseId: c.id, month: p.month } });
+  // En loggrad per anteckning: bara id:n och månaden – aldrig texten.
+  for (const id of usedNotes) {
+    await ctx.audit({ action: "case_note.used_in_summary", entity: "case_note", entityId: id, contractId: c.contractId, details: { caseId: c.id, month: p.month } });
+  }
   return ok({ assessmentId: ma.id });
 });
 

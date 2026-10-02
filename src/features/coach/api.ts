@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { command, query, type Fail, type Result } from "@/api/contract";
 import type { SlaTone } from "@/core/sla";
+import type { ProgressionRuleText } from "@/core/config";
 import {
   AI_DECISIONS, AI_RUN_KINDS, ATTENDANCE_STATUSES, CHECK_IN_MODES, DEVIATION_STATUSES, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES, INPUT_METHODS, OUTCOME_EVENT_KINDS,
   TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
@@ -112,16 +113,36 @@ export const AreaInputSchema = z.object({
   nextStep: z.string().max(1000).optional(),
 });
 
+/** Högsta längd på månadsbedömningens sammanfattning (tecken). Skärmen räknar och stoppar innan anropet. */
+export const ASSESSMENT_SUMMARY_MAX = 4000;
+/** En anteckning lagd sist i sammanfattningen, med en tom rad emellan (tom sammanfattning: bara anteckningen). */
+export function appendToSummary(summary: string, text: string): string {
+  const base = summary.replace(/\s+$/, "");
+  return base ? `${base}\n\n${text}` : text;
+}
+/** Får anteckningen plats i sammanfattningen (texten + den tomma raden högst ASSESSMENT_SUMMARY_MAX tecken)? */
+export const canAppendToSummary = (summary: string, text: string, max: number = ASSESSMENT_SUMMARY_MAX): boolean => appendToSummary(summary, text).length <= max;
+/**
+ * Finns anteckningens text redan i sammanfattningen? Då visas "Tillagd i sammanfattningen" även efter omladdning, så att
+ * samma text inte läggs in två gånger. Har coachen skrivit om texten går den att lägga till igen.
+ */
+export const noteInSummary = (summary: string, text: string): boolean => {
+  const t = text.trim();
+  return t.length > 0 && summary.includes(t);
+};
+
 /**
  * Spara eller godkänn månadsbedömningen (prototypens assessment.save). Godkännande kräver nivå i varje område, observation
  * från avtalets nivå (observationRequiredFromLevel) och samlad status – annars incomplete med missing (områdesnycklarna).
  * Vid godkännande blir månadsrapporten "Granskad av coach". plan = planen för nästa månad.
+ * usedNoteIds = fria anteckningar som coachen lagt in i sammanfattningen (rapporter steg 2): kontrolleras och loggas
+ * (case_note.used_in_summary, bara id:n och månad). Inget annat sparas – texten finns bara i sammanfattningen.
  */
 export const assessmentSave = command("coach.assessmentSave", z.object({
   caseId: IdSchema,
   month: MonthKeySchema,
   areas: z.record(z.string().max(60), AreaInputSchema).optional(),
-  summary: z.string().max(4000).nullable().optional(),
+  summary: z.string().max(ASSESSMENT_SUMMARY_MAX).nullable().optional(),
   overallStatus: z.enum(TRAFFIC_LIGHTS).nullable().optional(),
   approve: z.boolean().optional(),
   plan: z.object({
@@ -133,7 +154,8 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
     nextCustomerMeeting: z.union([LocalDateSchema, z.literal("")]).nullable().optional(),
     status: z.enum(["draft", "approved"]).optional(),
   }).optional(),
-})).returns<Result<{ assessmentId: string }, "not_found" | "forbidden"> | (Fail<"incomplete"> & { missing: string[] })>();
+  usedNoteIds: z.array(IdSchema).max(50).optional(),
+})).returns<Result<{ assessmentId: string }, "not_found" | "forbidden" | "bad_note"> | (Fail<"incomplete"> & { missing: string[] })>();
 
 /** Spara eller godkänn kartläggningen (prototypens intake.save). Vid godkännande blir valt yrkesspår ärendets yrkesspår. */
 export const intakeSave = command("coach.intakeSave", z.object({
@@ -492,6 +514,11 @@ export type AssessmentPage = Gated<{
   aiOk: boolean;
   scale: Record<ProgressLevel, string>;
   requiredFrom: number;
+  /**
+   * Avtalets gränser för tydlig och någon progression (clearFromLevel, anyFromLevel) och texterna (progressionRuleText).
+   * Räknas bara på de obligatoriska områdena – areas nedan är just de.
+   */
+  progressionRule: { clearFromLevel: number; anyFromLevel: number } & ProgressionRuleText;
   areas: AssessmentArea[];
   assessment: { status: "draft" | "approved"; decidedAt: LocalDateTime | null; summary: string; aiSummaryDraft: string | null; overallStatus: TrafficLight | null } | null;
   plan: { goal1: string; goal2: string; plannedActivities: string; plannedEmployerContact: string; plannedAdaptation: string; nextCustomerMeeting: LocalDate | null } | null;
@@ -504,6 +531,11 @@ export type AssessmentPage = Gated<{
   dueAt: LocalDateTime;
   dueNote: string;
   goals: string[];
+  /**
+   * Fria anteckningar från månaden (inte borttagna) som coachen får läsa. De kommer inte med i rapporten av sig själva –
+   * coachen lägger in det som behövs i sammanfattningen och godkänner den.
+   */
+  notes: { id: string; occurredOn: LocalDate; kindLabel: string; authorName: string; body: string }[];
   /**
    * Senaste AI-utkastet för månaden (coach.monthlyDraft): läget, när det skapades och utkastet till planen med källor.
    * Utkasten per område och sammanfattningen visas i areas (aiObservationDraft) och assessment.aiSummaryDraft.

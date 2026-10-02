@@ -300,9 +300,9 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
                   <Kpi
                     label="Tydlig progression"
                     value={pctOrHidden(s.progression.clear, s.progression.assessed)}
-                    sub={`Minst ett område på nivå 2 eller högre · ${small(s.progression.assessed)} bedömda`}
+                    sub={`${d.progressionRule.clear} · ${small(s.progression.assessed)} bedömda`}
                   />
-                  <Kpi label="Någon progression" value={pctOrHidden(s.progression.any, s.progression.assessed)} sub="Minst ett område på nivå 1 eller högre" />
+                  <Kpi label="Någon progression" value={pctOrHidden(s.progression.any, s.progression.assessed)} sub={d.progressionRule.any} />
                 </Grid>
                 <Card title="Tydlig progression per område" flush>
                   <Table
@@ -316,7 +316,10 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
                     ]}
                   />
                 </Card>
-                <p className="text-text-muted">Bygger bara på månadsbedömningar som coachen har godkänt. Andelar redovisas inte när antalet är färre än {N}.</p>
+                <p className="text-text-muted">
+                  Bygger bara på månadsbedömningar som coachen har godkänt.{d.progressionRule.excluded ? ` ${d.progressionRule.excluded}` : ""} Andelar redovisas inte när antalet är
+                  färre än {N}.
+                </p>
               </Stack>
             )}
             {tab === "narvaro" && (

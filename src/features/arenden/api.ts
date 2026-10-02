@@ -2,12 +2,14 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import {
-  CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, TEAM_ROLES,
-  type ActivityKind, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
+  CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, TEAM_ROLES,
+  type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
 import type { SlaTone } from "@/core/sla";
-import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, ShortText, WeekKeySchema } from "../_shared/schemas";
+import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText, WeekKeySchema } from "../_shared/schemas";
+import type { ReportDocView } from "../rapporter/api";
+import type { MonthlyGaps } from "../rapporter/model";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 // Samma beteende, valideringar, felkoder och texter som prototypens MM.defineAction. Nyckeln är "arenden.<prototypens namn>".
@@ -245,10 +247,13 @@ export type CaseListModel = {
 export const caseList = query("arenden.lista", z.object({})).returns<CaseListModel>();
 
 // ---------------------------------------------------------------- Deltagarkortet (/arenden/:caseId)
-export type CaseTab = "oversikt" | "kartlaggning" | "avstamningar" | "narvaro" | "manad" | "handelser" | "avvikelser" | "praktik" | "rapporter" | "meddelanden" | "historik";
-export const CASE_TABS = ["oversikt", "kartlaggning", "avstamningar", "narvaro", "manad", "handelser", "avvikelser", "praktik", "rapporter", "meddelanden", "historik"] as const satisfies readonly CaseTab[];
-/** Flikarna som teamet (handledare) ser – inga coachanteckningar, bedömningar eller rapporter. */
-export const TEAM_TABS = ["oversikt", "narvaro", "praktik", "handelser"] as const satisfies readonly CaseTab[];
+export type CaseTab =
+  | "oversikt" | "tidslinje" | "kartlaggning" | "avstamningar" | "narvaro" | "manad" | "handelser" | "avvikelser" | "praktik" | "rapporter" | "meddelanden" | "historik";
+export const CASE_TABS = [
+  "oversikt", "tidslinje", "kartlaggning", "avstamningar", "narvaro", "manad", "handelser", "avvikelser", "praktik", "rapporter", "meddelanden", "historik",
+] as const satisfies readonly CaseTab[];
+/** Flikarna som teamet (handledare) ser – inga coachanteckningar, bedömningar eller rapporter. Tidslinjen visar bara teamets delar. */
+export const TEAM_TABS = ["oversikt", "tidslinje", "narvaro", "praktik", "handelser"] as const satisfies readonly CaseTab[];
 
 export type CaseCard = {
   kind: "ok";
@@ -384,22 +389,124 @@ export type CaseAttendance = {
 };
 export const caseAttendance = query("arenden.kortNarvaro", CaseParams).returns<CaseAttendance | null>();
 
-export type CaseAssessmentRow = {
-  id: string; month: string; approved: boolean; overallStatus: TrafficLight | null; clear: number; summary: string; planGoals: string[];
-  report: { id: string; statusLabel: string; opened: boolean } | null;
+// ---------------------------------------------------------------- Flik: Tidslinje (rapporter steg 2, SPEC §7.18)
+/** Filterknapparna (visa=). */
+export const TIMELINE_CATS = ["alla", "insatser", "narvaro", "progression", "resultat", "anteckningar", "ovrigt"] as const;
+export type TimelineCat = (typeof TIMELINE_CATS)[number];
+export type TimelineEntryCat = Exclude<TimelineCat, "alla">;
+export const TIMELINE_CAT_LABEL: Record<TimelineCat, string> = {
+  alla: "Allt", insatser: "Insatser och aktiviteter", narvaro: "Närvaro", progression: "Progression", resultat: "Resultat", anteckningar: "Anteckningar", ovrigt: "Övrigt",
 };
-export type CaseAssessments = {
-  list: CaseAssessmentRow[];
+/** Ikon för en post (namn i src/ui/icons). */
+export type TimelineIcon =
+  | "calendar" | "check-square" | "edit" | "briefcase" | "activity" | "pause" | "alert" | "clipboard" | "chart" | "award" | "users" | "flag" | "mic" | "file"
+  | "message" | "check-circle" | "x-circle" | "minus-circle" | "info";
+/** En fri anteckning i tidslinjen. Texten är innehållet (hela anteckningen, radbrytningar bevaras). */
+export type TimelineNote = {
+  id: string;
+  kind: CaseNoteKind;
+  audience: CaseNoteAudience;
+  occurredOn: LocalDate;
+  body: string;
+  /** Författaren kan ändra (och ta bort) – bara den som skrev anteckningen och fortfarande arbetar i ärendet. */
+  canEdit: boolean;
+  /** Får ta bort: författaren, eller samordnare/avtalsansvarig med full åtkomst (beslut 2026-10-01). */
+  canRemove: boolean;
+  /** Författarens namn (bekräftelsetexten när någon annan tar bort anteckningen). */
+  authorName: string;
+  /** Borttagen av någon annan: visas bara för författaren ("Borttagen av Sara Lindqvist 29 jan"). */
+  removed: { byName: string; at: LocalDateTime } | null;
+};
+export type TimelineEntry = {
+  id: string;
+  /** Datum (eller datum och tid) som posten sorteras och visas på. */
+  at: string;
+  /** Veckoposter visar veckan i stället för datumet ("Vecka 39"). */
+  weekLabel?: string;
+  cat: TimelineEntryCat;
+  icon: TimelineIcon;
+  title: string;
+  sub?: string;
+  /** Samlad status (månadsbedömning) – visas med ikon och text. */
+  light?: TrafficLight | null;
+  state?: "utkast" | "ej_verifierad" | "varning";
+  /** Fliken som "Öppna" går till. */
+  tab?: CaseTab;
+  /** Månaden som fliken Månadsunderlag ska öppnas på (?manad=). */
+  month?: MonthKey;
+  note?: TimelineNote;
+};
+export type CaseTimelineMonth = {
+  month: MonthKey;
+  /** Månadsrapportens status – bara vid full åtkomst. id null = ingen rapportrad än. */
+  report: { id: string | null; statusLabel: string } | null;
+  entries: TimelineEntry[];
+};
+export type CaseTimeline = {
+  months: CaseTimelineMonth[];
+  /** Det finns äldre månader med poster (för "Visa tidigare månader" – fore = den äldsta månaden här). */
+  more: boolean;
+  /** Får skriva anteckningar (den som arbetar i ärendet). */
+  canWrite: boolean;
+  /** Ärendet har inga poster alls (oavsett filter) – "Här samlas allt som händer i insatsen …". */
+  empty: boolean;
+};
+export const caseTimeline = query("arenden.kortTidslinje", CaseParams.extend({ visa: z.enum(TIMELINE_CATS).optional(), fore: MonthKeySchema.optional() })).returns<CaseTimeline | null>();
+
+// ---------------------------------------------------------------- Fria anteckningar (case_notes)
+/** Spara en ny anteckning eller ändra en egen. Personnummer och framtida datum nekas. Kommunen ser aldrig anteckningar. */
+export const caseNoteSave = command("arenden.noteSave", z.object({
+  caseId: IdSchema,
+  noteId: IdSchema.optional(),
+  occurredOn: LocalDateSchema,
+  kind: z.enum(CASE_NOTE_KINDS),
+  audience: z.enum(CASE_NOTE_AUDIENCES),
+  body: z.string().trim().min(1).max(2000),
+})).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "pnr" | "date">>();
+
+/** Ta bort (dölja) en anteckning: författaren, eller samordnare och avtalsansvarig i avtalet. Inget raderas på riktigt. */
+export const caseNoteRemove = command("arenden.noteRemove", z.object({
+  caseId: IdSchema,
+  noteId: IdSchema,
+})).returns<Result<object, "not_found" | "forbidden" | "not_author">>();
+
+// ---------------------------------------------------------------- Flik: Månadsunderlag (?flik=manad)
+/** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */
+export type { MonthlyGaps };
+/**
+ * Raden om godkända veckoavstämningar i "Innan rapporten kan godkännas": antalet godkända avstämningar under månaden (som
+ * rapporten och dataexporten räknar dem). Jämförs aldrig med antalet veckor – en vecka över månadsskiftet hör till båda
+ * månadernas veckorader, men avstämningen räknas bara i den månad den hölls. Det som saknas är utkasten (egen rad).
+ */
+export function checkInsApprovedGap(g: Pick<MonthlyGaps, "checkInsApproved">): { kind: "ok" | "info"; text: string } {
+  const n = g.checkInsApproved;
+  if (n === 0) return { kind: "info", text: "Ingen veckoavstämning är godkänd än." };
+  return { kind: "ok", text: n === 1 ? "1 veckoavstämning är godkänd." : `${n} veckoavstämningar är godkända.` };
+}
+export type CaseMonthOption = { month: MonthKey; current: boolean; delivered: boolean };
+export type CaseMonthBasis = {
+  /** Månaderna från startmånaden till innevarande månad (eller slutmånaden), senaste först. */
+  months: CaseMonthOption[];
+  /** Vald månad. */
+  month: MonthKey;
+  /** Insatsen hade inte startat i den valda månaden. */
+  beforeStart: boolean;
+  /** Progression över tid: områdena (obligatoriska + valfria som någon gång bedömts) × månader med godkänd bedömning. */
+  matrix: { months: MonthKey[]; rows: { key: string; label: string; optional: boolean; levels: (number | null)[] }[]; scale: Record<string, string> };
   /** Förra månaden saknar bedömning (pågående ärende som startade före månadens slut). */
-  missingMonth: string | null;
-  nAreas: number;
-  scale: { min: number; max: number };
-  observationFromLevel: number;
-  /** "tydlig eller uppnått delmål" och "nivå 2–3". */
-  clearLabel: string;
-  clearRange: string;
+  missingMonth: MonthKey | null;
+  /** Det som saknas (null när månaden är levererad eller före start). */
+  gaps: MonthlyGaps | null;
+  /** Samma dokument som månadsrapporten (monthlyPreview) – null när månaden är levererad eller före start. */
+  doc: Extract<ReportDocView, { kind: "monthly" }> | null;
+  /** Den levererade versionen, och en rättelse som är ett utkast. */
+  delivered: { reportId: string; deliveredAt: LocalDateTime; version: number; correctionDraft: number | null } | null;
+  /** Rapportraden för månaden om den finns (senaste version som inte är ersatt). */
+  reportId: string | null;
+  /** Huvudcoachen gör månadsbedömningen (räknat på servern). */
+  canAssess: boolean;
 };
-export const caseAssessments = query("arenden.kortManad", CaseParams).returns<CaseAssessments | null>();
+export const caseMonthBasis = query("arenden.kortManad", CaseParams.extend({ manad: MonthKeySchema.optional() })).returns<CaseMonthBasis | null>();
 
 export type CaseEventRow = {
   id: string; kind: OutcomeEventKind; label: string; occurredOn: string; actor: string; note: string; verificationKind: string | null;

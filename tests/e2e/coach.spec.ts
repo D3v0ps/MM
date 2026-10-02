@@ -4,7 +4,7 @@
 // Id:n är testdatats (prototyp/tools/data-samples.json -> script_tags).
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import fs from "node:fs";
-import { isDemo, open, switchPersona } from "./helpers";
+import { isDemo, loaded, open, switchPersona } from "./helpers";
 
 // Falsk mikrofon för inspelningen i appen (Chromium på localhost). Påverkar inga andra tester.
 test.use({
@@ -394,6 +394,31 @@ test("Månadsbedömning januari: nivåer är tomma tills coachen väljer (Nadia)
   await expect(main(page)).toContainText(/Närvaro, punktlighet och rutiner\s*2 – Tydlig\s*Närvarande vid 9 av 9/);
   await expect(main(page)).toContainText("Grön – enligt plan");
   await expect(page.getByRole("link", { name: "Förhandsgranska månadsrapporten" })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// ================================================================ Månadsbedömning: anteckningar från månaden (rapporter steg 2)
+test("Månadsbedömning januari: 'Lägg till i sammanfattningen' lägger in anteckningen, och den finns kvar efter sparning (Nadia)", async ({ page }, info) => {
+  const errors = await open(page, info, `/manadsbedomning/${SC.nadia}?manad=2027-01`, COACH);
+  await expect(page.getByRole("heading", { level: 1, name: "Månadsbedömning januari 2027" })).toBeVisible();
+  await expect(main(page)).toContainText("Anteckningar från januari. De kommer inte med i rapporten av sig själva.");
+  const note = "Handläggaren ringde och frågade om det planerade slutdatumet.";
+  await expect(main(page)).toContainText(note);
+  await expect(main(page)).toContainText("0 av 4000 tecken");
+  await btn(page, "Lägg till i sammanfattningen").first().click();
+  // Knappen byter till "Tillagd" utan att tappa fokus, och kvittensen läses upp.
+  await expect(btn(page, "Tillagd i sammanfattningen")).toHaveAttribute("aria-disabled", "true");
+  await expect(btn(page, "Tillagd i sammanfattningen")).toBeFocused();
+  await expect(page.getByText("Anteckningen är tillagd i sammanfattningen.", { exact: false })).toBeVisible();
+  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`^${note}`));
+  await btn(page, "Spara utkast").click();
+  await expect(page.getByText("Utkastet är sparat.")).toBeVisible();
+  await page.reload();
+  if (!isDemo(info)) await loaded(page);
+  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`^${note}`));
+  // Efter omladdning: texten finns i sammanfattningen – samma anteckning kan inte läggas in en gång till.
+  await expect(btn(page, "Tillagd i sammanfattningen")).toHaveCount(1);
+  await expect(btn(page, "Lägg till i sammanfattningen")).toHaveCount(2);
   expect(errors).toEqual([]);
 });
 

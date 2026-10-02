@@ -31,6 +31,9 @@ export const ACTION_LABEL: Record<string, string> = {
   "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",
   // Synpunkter i testmiljön (src/features/synpunkter) – finns inte i prototypen.
   "feedback.created": "Lämnade synpunkt", "feedback.replied": "Svarade på synpunkt", "feedback.status_changed": "Ändrade status på synpunkt",
+  // Fria anteckningar i deltagarkortet (rapporter steg 2) – finns inte i prototypen. Loggen har bara id:n, aldrig texten.
+  "case_note.created": "Skrev anteckning", "case_note.updated": "Ändrade anteckning", "case_note.removed": "Tog bort anteckning",
+  "case_note.used_in_summary": "Använde anteckning i sammanfattningen",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -39,7 +42,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   customer_user: "Kommunanvändare", contract_deviation: "Avtalsavvikelse", task: "Uppgift", case: "Ärende", person: "Person", report: "Rapport", inbound_email: "Mejl", ai_run: "AI-körning",
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
-  pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt",
+  pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -54,7 +57,7 @@ const DETAIL_KEY: Record<string, string> = {
   idempotencyKeys: "Idempotensnycklar", by: "Av", previous: "Tidigare version", at: "Tidpunkt", created: "Skapade", skippedAlreadyCreated: "Redan skapade",
   skippedDuplicates: "Dubbletter som hoppades över", blocked: "Stoppade", notApproved: "Inte godkända", changed: "Ändrade", buyerReference: "Beställarreferens", toRole: "Till roll",
   caseIds: "Ärenden", emailId: "Mejl", method: "Inloggning", hadCustomerApproval: "Godkänd av kommunen", type: "Typ", level: "Nivå", step: "Steg", sentToCustomer: "Skickad till kommunen",
-  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar",
+  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {

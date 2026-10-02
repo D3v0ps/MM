@@ -4,6 +4,9 @@
 // Hela modellen sparas för ett urval rapporter, och en kontrollsumma (SHA-256 av JSON med sorterade nycklar) för alla.
 //
 // Kör: node src/features/rapporter/parity/generate-facit.mjs   (skriver src/features/rapporter/parity/facit.json)
+// Beslut 2026-10-01 (rapporter steg 2): appen räknar tydlig/någon progression bara på de obligatoriska områdena. Prototypen
+// räknade alla bedömda områden – facit blir ändå detsamma eftersom testdatat inte har några bedömda valfria områden
+// (kontrolleras i src/core/parity.test.ts). Får testdatat valfria områden måste facit räknas om enligt beslutet.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";

@@ -1,14 +1,13 @@
 "use client";
-// Deltagarkortets flikar Översikt, Kartläggning, Avstämningar, Närvaro och Månadsbedömning (prototypens views/arenden.js).
+// Deltagarkortets flikar Översikt, Kartläggning, Avstämningar och Närvaro (prototypens views/arenden.js).
+// Tidslinjen och Månadsunderlaget (rapporter steg 2) ligger i kort-tidslinje.tsx och kort-manad.tsx.
 import { useState } from "react";
 import { useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import { useSession } from "@/shell/session";
-import { dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, fmtWeekKey, fmtWeekRange, monthName, relative } from "@/core/time";
+import { dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, fmtWeekKey, fmtWeekRange, relative } from "@/core/time";
 import { AiTag, Badge, Button, Card, DemoNote, Empty, Grid, Icon, Kpi, Kv, List, ListItem, Meter, Notice, SlaBadge, Spacer, Stack, Status, type Column } from "@/ui";
-import {
-  caseAssessments, caseAttendance, caseCheckIns, caseIntake, caseOverview, type CaseAttendance, type CaseAttendanceWeek, type CaseCheckInRow,
-} from "../api";
+import { caseAttendance, caseCheckIns, caseIntake, caseOverview, type CaseAttendance, type CaseAttendanceWeek, type CaseCheckInRow } from "../api";
 import {
   ActList, AttBadge, actIcon, actLabel, canOpen, cap, caseLink, clip, fd, FourBadges, GOAL, KpiRow, LiMain, LiSide, LiSub, LiTitle, MItem, MODE, NavTable, pct0, plural, RespTable, SEV,
   TabQuery,
@@ -457,97 +456,3 @@ export function TabNarvaro({ card, setTab }: TabProps) {
     </TabQuery>
   );
 }
-
-// ---------------------------------------------------------------- Månadsbedömning
-export function TabManad({ card }: TabProps) {
-  const q = useQuery(caseAssessments, { caseId: card.caseId });
-  const role = useSession().actor.role;
-  const can = canOpen("coach.manad", role);
-  const canRep = canOpen("rapport.visa", role);
-  return (
-    <TabQuery q={q}>
-      {(m) => (
-        <Stack>
-          <p className="text-text-muted">
-            Progression bedöms per område och månad på skalan {m.scale.min}–{m.scale.max}. Coachen väljer nivå. AI kan föreslå, men sätter aldrig nivån. Från nivå {m.observationFromLevel} krävs en konkret
-            observation.
-          </p>
-          {m.missingMonth && (
-            <Notice tone="warn" title={`${cap(monthName(m.missingMonth))} är inte påbörjad`}>
-              <Stack gap="sm">
-                <div>Månadsbedömningen är underlag för månadsrapporten till kommunen.</div>
-                {card.edit && can && (
-                  <div>
-                    <Button kind="primary" icon="edit" to={caseLink("/manadsbedomning", card.caseId, { manad: m.missingMonth })}>Påbörja bedömningen</Button>
-                  </div>
-                )}
-              </Stack>
-            </Notice>
-          )}
-          {m.list.length === 0 && !m.missingMonth && (
-            <Card>
-              <Empty icon="chart" title="Inga månadsbedömningar ännu">Den första görs efter insatsens första hela månad.</Empty>
-            </Card>
-          )}
-          {m.list.map((ma) => (
-            <Card
-              key={ma.id}
-              title={cap(monthName(ma.month))}
-              icon="chart"
-              actions={ma.approved ? <Badge tone="blue" icon="check">Godkänd</Badge> : <Badge tone="outline" icon="edit">Utkast</Badge>}
-              foot={
-                <>
-                  {ma.report ? (
-                    <span className="inline-flex flex-wrap items-center gap-1.5 text-small">
-                      <Icon name="file" />
-                      Månadsrapport: <b>{ma.report.statusLabel}</b>
-                      {ma.report.opened ? " · kvitterad av kommunen" : ""}
-                    </span>
-                  ) : (
-                    <span className="text-small text-text-muted">Ingen månadsrapport</span>
-                  )}
-                  <Spacer />
-                  {ma.report && canRep && (
-                    <Button kind="ghost" icon="file" to={`/rapporter/${encodeURIComponent(ma.report.id)}`}>Visa rapporten</Button>
-                  )}
-                  {can && (
-                    <Button kind={!ma.approved && card.edit ? "primary" : "secondary"} iconRight="arrow-right" to={caseLink("/manadsbedomning", card.caseId, { manad: ma.month })}>
-                      {!ma.approved && card.edit ? "Fortsätt bedömningen" : "Öppna bedömningen"}
-                    </Button>
-                  )}
-                </>
-              }
-            >
-              <Stack gap="sm">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-small text-text-muted">Samlad status:</span>
-                  <Status value={ma.overallStatus} />
-                </div>
-                {ma.approved ? (
-                  <>
-                    <div>
-                      Progression {m.clearLabel} ({m.clearRange}) i{" "}
-                      <b>
-                        {ma.clear} av {m.nAreas}
-                      </b>{" "}
-                      områden.
-                    </div>
-                    {ma.summary && <div className="text-small">{ma.summary}</div>}
-                  </>
-                ) : (
-                  <div className="text-small text-text-muted">Nivåerna är tomma tills coachen har valt. AI-förslag visas bara i bedömningsvyn.</div>
-                )}
-                {ma.planGoals.length > 0 && (
-                  <div className="text-small">
-                    <span className="font-bold">Plan för nästa månad:</span> {ma.planGoals.join(" · ")}
-                  </div>
-                )}
-              </Stack>
-            </Card>
-          ))}
-        </Stack>
-      )}
-    </TabQuery>
-  );
-}
-

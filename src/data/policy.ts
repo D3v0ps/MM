@@ -15,6 +15,9 @@
 //   Röst           inspelningslänkar och deltagarens röstmeddelanden: den som arbetar i ärendet (aldrig ekonom), aldrig skyddade
 //                  ärenden · kommunen läser granskade röstmeddelanden bara om avtalet säger det · ljudfilernas rader skrivs
 //                  bara av systemet (ctx.audio) och läses av den som spelade in och av den som arbetar i ärendet
+//   Anteckningar   fria anteckningar (case_notes): som coachanteckningar (full eller team, aldrig ekonom eller kommunen),
+//                  "full"-anteckningar bara med full åtkomst · skrivs av den som arbetar i ärendet i eget namn · ändras av
+//                  författaren · döljs av författaren eller samordnare/avtalsansvarig · raderas aldrig
 //   Synpunkter     bara den inloggade testaren i testmiljön (Actor.testerId = mm.auth_is_tester()), oavsett vilken testperson
 //                  hen agerar som · ny synpunkt och nytt svar bara i eget namn · i en synpunkt ändras bara status · minnesläget
 //                  och prototypen har inga testare (prototypens feedback ligger i claude.ai, src/demo/feedback-store.ts)
@@ -230,6 +233,35 @@ function feedbackStatusOnly(cur: Tables["feedback"], next: Tables["feedback"], a
   const changed = changedFields(cur, next);
   if (changed.some((k) => k !== "status" && k !== "statusChangedAt" && k !== "statusChangedBy")) return false;
   return !changed.includes("statusChangedBy") || next.statusChangedBy === null || next.statusChangedBy === a.testerId;
+}
+
+// ---------------------------------------------------------------- Fria anteckningar i deltagarkortet (0019)
+type CaseNoteRow = Tables["case_notes"];
+/** Fält som aldrig ändras efter att anteckningen skapats (triggern case_notes_protect_columns, 0019). */
+const NOTE_FIXED = ["caseId", "contractId", "authorId", "createdAt"];
+/** Döljer andras anteckningar i avtalet (beslut 2026-10-01) – inom sin åtkomst, bara removedAt och removedBy. */
+const NOTE_REMOVERS: readonly Role[] = ["samordnare", "avtalsansvarig"];
+/** Läsare: notesRead (full eller team, aldrig ekonom eller kommunen) – och anteckningar för "full" bara med full åtkomst. */
+const noteAudienceOk = (x: Pick<CaseNoteRow, "caseId" | "audience">, a: Actor, raw: Raw) => x.audience === "team" || accessTo(raw, a, x.caseId) === "full";
+/**
+ * Ny anteckning: den som arbetar i ärendet (workOn), i eget namn, i ärendets avtal, varken ändrad eller borttagen – och med
+ * teamåtkomst bara audience "team". Ändring: författaren (texten och övriga fält, eller dölja sin egen) eller samordnare och
+ * avtalsansvarig med full åtkomst (bara dölja). En borttagen anteckning ändras och återställs aldrig, fasta fält ändras aldrig
+ * och något måste ändras – det stoppar MemoryRepo.remove(), som anropar regeln med den befintliga raden (ingen hård
+ * radering; Postgres har varken delete-policy eller delete-rättighet). Samma regler som policyerna och triggern i 0019.
+ */
+function caseNoteWrite(x: CaseNoteRow, a: Actor, raw: Raw): boolean {
+  const cur = raw.get("case_notes", x.id);
+  if (!cur) {
+    return workOn(x.caseId, a, raw) && self(a, x.authorId) && noteAudienceOk(x, a, raw)
+      && raw.get("cases", x.caseId)?.contractId === x.contractId && x.updatedAt == null && x.removedAt == null && x.removedBy == null;
+  }
+  const changed = changedFields(cur, x);
+  if (cur.removedAt != null || !changed.length || changed.some((k) => NOTE_FIXED.includes(k))) return false;
+  // Dölja: removedAt och removedBy sätts tillsammans, i eget namn.
+  if ((changed.includes("removedAt") || changed.includes("removedBy")) && (x.removedAt == null || !self(a, x.removedBy))) return false;
+  if (self(a, cur.authorId)) return workOn(x.caseId, a, raw) && noteAudienceOk(x, a, raw);
+  return has(NOTE_REMOVERS, a) && accessTo(raw, a, x.caseId) === "full" && changed.every((k) => k === "removedAt" || k === "removedBy");
 }
 
 // ---------------------------------------------------------------- Tabellerna
@@ -460,6 +492,9 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     // Svar ändras aldrig. Nytt svar i eget namn på en synpunkt som finns (främmande nyckel i databasen).
     write: (x, a, raw) => stagingTester(a) && !exists(raw, "feedback_replies", x.id) && x.authorId === a.testerId && exists(raw, "feedback", x.feedbackId),
   },
+
+  // ---- Fria anteckningar i deltagarkortet (0019). Kommunen läser dem aldrig – inte heller när avtalet har seesCoachNotes.
+  case_notes: { read: (x, a, raw) => notesRead(x.caseId, a, raw) && noteAudienceOk(x, a, raw), write: caseNoteWrite },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

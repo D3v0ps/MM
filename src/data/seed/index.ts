@@ -9,6 +9,7 @@
 //   gen-other.ts     avtalsavvikelser, puls, inkorgen, meddelanden, fakturering, logg, utskick, notiser, uppgifter
 //   map.ts           prototypens struktur -> tabellerna i schema.ts (+ demo_tags)
 //   gen-voice.ts     röstinspelningen (finns inte i prototypen): länkar, röstmeddelanden och ljudfilernas spår
+//   gen-notes.ts     fria anteckningar i deltagarkortet (finns inte i prototypen, rapporter steg 2)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -17,6 +18,7 @@ import { genCases, genUsers } from "./gen-cases";
 import { genActivities, genIntakeConsentsPlacements } from "./gen-coaching";
 import { genContractDeviations, genInbox, genPulse, genRest } from "./gen-other";
 import { genMonthly, genOtherReports } from "./gen-reports";
+import { addCaseNotes } from "./gen-notes";
 import { addVoiceData } from "./gen-voice";
 import { toTables } from "./map";
 
@@ -49,6 +51,7 @@ export function createSeed(): MemoryData<Tables> {
   const pulseDemoIds = S.pulseInvites.filter((i) => i.demo).map((i) => i.id);
   const db = toTables(S, { checkInTags, pulseDemoIds });
   addVoiceData(db);
+  addCaseNotes(db);
   return db;
 }
 

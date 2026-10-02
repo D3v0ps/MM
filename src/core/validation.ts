@@ -70,4 +70,15 @@ export const pnrValid = (s: string | null | undefined): boolean => pnrFormatVali
 /** De fyra sista siffrorna, för maskerad visning. */
 export const pnrLast4 = (s: string | null | undefined): string => String(s ?? "").replace(/\D/g, "").slice(-4);
 
+/**
+ * Ser texten ut att innehålla ett personnummer (ÅÅMMDD-NNNN, ÅÅÅÅMMDDNNNN …)? Fri text – meddelanden från kommunen och
+ * anteckningar i deltagarkortet – får aldrig innehålla personnummer (CLAUDE.md punkt 2). Ärendenumret räcker.
+ * Texten normaliseras först: Word och Outlook gör om bindestrecket till tankstreck (–), och text kan innehålla andra
+ * streck (‐ ‑ ‒ — ― −), helbreddssiffror eller hårda mellanslag. Mellanslag runt skiljetecknet godtas ("850101 - 1234").
+ */
+export const looksLikePnr = (s: string | null | undefined): boolean => {
+  const t = String(s || "").normalize("NFKC").replace(/[‐-―−﹘﹣－]/g, "-");
+  return /\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/.test(t);
+};
+
 export const emailValid = (s: string | null | undefined): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str(s));

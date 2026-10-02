@@ -7,11 +7,13 @@ import { loadDb } from "@/api/load";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, unregistered } from "@/core/attendance";
 import { phaseSince, stuck } from "@/core/cases";
-import { isOperational, isUnset, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
+import { isOperational, isUnset, progressionRuleText, recordingMaxMinutes, slaRule, type OperationalConfig, type ProgressLevel } from "@/core/config";
 import { assessmentFor, attendanceFor, checkInsOf, consentOf, eventsOf, intakeOf, latestCheckIn, planOf } from "@/core/db-index";
 import { deadlines, type DeadlineItem } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
-import { ABSENCE_REASONS, areaName, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel } from "@/core/labels";
+import {
+  ABSENCE_REASONS, areaName, caseNoteKindLabel, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel,
+} from "@/core/labels";
 import { notificationsFor, progressionWatch } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
@@ -533,6 +535,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     aiOk,
     scale: { 0: prog.scale["0"], 1: prog.scale["1"], 2: prog.scale["2"], 3: prog.scale["3"] },
     requiredFrom: prog.observationRequiredFromLevel,
+    progressionRule: { clearFromLevel: prog.clearFromLevel, anyFromLevel: prog.anyFromLevel, ...progressionRuleText(env.cfg) },
     areas: prog.areas.map((key) => {
       const a = ma?.areas[key];
       const obs = aiOk && a?.aiObservationDraft ? { text: a.aiObservationDraft.text, sources: [...(a.aiObservationDraft.sources ?? [])], noEvidence: !!a.aiObservationDraft.noEvidence } : null;
@@ -557,8 +560,19 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     dueNote: monthDueNote(env.cfg),
     goals: [...(GOALS[Math.min(5, c.phase)] ?? [])],
     aiDraft: aiOk ? await latestMonthlyDraft(ctx, c.id, month) : null,
+    notes: await monthNotes(ctx, c.id, month),
   };
 });
+
+/** Fria anteckningar från månaden (inte borttagna), lästa via ctx.repo – coachen ser bara det RLS släpper igenom. */
+async function monthNotes(ctx: Ctx, caseId: string, month: MonthKey): Promise<{ id: string; occurredOn: LocalDate; kindLabel: string; authorName: string; body: string }[]> {
+  const notes = (await ctx.repo.table("case_notes").list({ caseId, occurredOn: { gte: `${month}-01`, lte: monthEnd(month) } })).filter((n) => !n.removedAt);
+  if (!notes.length) return [];
+  const profiles = await ctx.repo.table("profiles").list({ id: { in: uniq(notes.map((n) => n.authorId)) } });
+  return notes
+    .sort((a, b) => (a.occurredOn === b.occurredOn ? (a.createdAt < b.createdAt ? -1 : 1) : a.occurredOn < b.occurredOn ? -1 : 1))
+    .map((n) => ({ id: n.id, occurredOn: n.occurredOn, kindLabel: caseNoteKindLabel(n.kind), authorName: personName(profiles, n.authorId), body: n.body }));
+}
 
 /** Senaste AI-utkastet för månaden (coach.monthlyDraft) – körningen i ai_runs (inputRef = månaden). */
 async function latestMonthlyDraft(ctx: Ctx, caseId: string, month: MonthKey) {

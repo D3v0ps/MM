@@ -3,7 +3,7 @@
 // inte är fastställda, prislistan, jämförelsen Botkyrka–Kammarkollegiet och Miljonbemannings interna regler.
 // Alla värden kommer från contracts.config via frågorna – inget avtalsvärde är hårdkodat här.
 import type { ReactNode } from "react";
-import { aiProviderText, isUnset, unsetHint, type ContractConfig } from "@/core/config";
+import { aiProviderText, isUnset, progressionRuleText, unsetHint, type ContractConfig } from "@/core/config";
 import { kr, pct, plural } from "@/core/format";
 import { endReasonLabel } from "@/core/labels";
 import { fmtDate } from "@/core/time";
@@ -264,6 +264,7 @@ const CARDS: Record<string, CardDef> = {
     body: (c) => {
       const p = c.progression!;
       const lab = (k: string) => p.areaLabels[k] ?? k;
+      const rule = progressionRuleText({ progression: p });
       return (
         <Stack>
           <Stack gap="sm">
@@ -288,10 +289,11 @@ const CARDS: Record<string, CardDef> = {
           <KV
             items={[
               ["Observation krävs", `Från nivå ${p.observationRequiredFromLevel}`],
-              ["Tydlig progression", cap(p.statDefinition.clear.replace(">=", "≥"))],
-              ["Någon progression", cap(p.statDefinition.any.replace(">=", "≥"))],
+              ["Tydlig progression", rule.clear],
+              ["Någon progression", rule.any],
             ]}
           />
+          <Small>Tydlig och någon progression räknas bara på de obligatoriska områdena. De valfria räknas aldrig i statistiken till kommunen.</Small>
         </Stack>
       );
     },

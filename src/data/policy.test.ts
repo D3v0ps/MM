@@ -425,6 +425,52 @@ describe("röstinspelning: länkar, deltagarens röstmeddelanden och ljudfiler",
   });
 });
 
+describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
+  const NADIA = tagged("nadia");
+  const SKYDDAD = tagged("skyddad");
+  const ids = async (a: Actor) => (await repoFor(a).table("case_notes").list()).map((n) => n.id).sort();
+  const fresh = () => new MemoryStore<Tables>(createSeed());
+  const base = (patch: Partial<Tables["case_notes"]> = {}): Tables["case_notes"] => ({
+    id: "note-x", contractId: "c-bot", caseId: NADIA, authorId: "u-amira", occurredOn: "2027-01-30", kind: "other", audience: "full", body: "Text",
+    createdAt: "2027-02-01T09:30", updatedAt: null, removedAt: null, removedBy: null, ...patch,
+  });
+
+  it("läsning: full eller team (team bara 'team'), aldrig ekonom eller kommunen; skyddat ärende bara namngivna", async () => {
+    expect(await ids(AMIRA)).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
+    expect(await ids(PETRA)).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-praktiskt"]);
+    for (const a of [LARS, MARIA, EVA, OMAR, who("u-leila")]) expect(await ids(a), a.userId).toEqual([]);
+    expect(await ids(ERIK)).toEqual(["note-skyddad"]);
+    expect(await ids(JOHAN)).toContain("note-skyddad");
+    for (const a of [SARA, KARIN, ROBIN]) expect(await ids(a), a.userId).not.toContain("note-skyddad");
+    expect(raw.get("case_notes", "note-skyddad")?.caseId).toBe(SKYDDAD);
+  });
+
+  it("skriva: den som arbetar i ärendet i eget namn – teamet bara 'team', chef, admin och ekonom aldrig", async () => {
+    const s = fresh();
+    await expect(repoFor(AMIRA, s).table("case_notes").insert(base())).resolves.toBeTruthy();
+    await expect(repoFor(PETRA, s).table("case_notes").insert(base({ id: "note-y", authorId: "u-petra", audience: "team" }))).resolves.toBeTruthy();
+    await expect(repoFor(PETRA, s).table("case_notes").insert(base({ id: "note-z", authorId: "u-petra", audience: "full" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(AMIRA, s).table("case_notes").insert(base({ id: "note-w", authorId: "u-sara" }))).rejects.toBeInstanceOf(PolicyError);
+    for (const a of [KARIN, ROBIN, LARS, MARIA]) {
+      await expect(repoFor(a, s).table("case_notes").insert(base({ id: `note-${a.userId}`, authorId: a.userId, audience: "team" })), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+  });
+
+  it("ändra bara författaren, dölja även samordnare och avtalsansvarig – en borttagen anteckning är låst och ingen raderar", async () => {
+    const s = fresh();
+    const t = (a: Actor) => repoFor(a, s).table("case_notes");
+    await expect(t(SARA).update("note-nadia-samtal", { body: "Ändrad" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).update("note-nadia-samtal", { body: "Ändrad", updatedAt: "2027-02-01T09:40" })).resolves.toBeTruthy();
+    await expect(t(PETRA).update("note-nadia-praktiskt", { removedAt: "2027-02-01T09:40", removedBy: "u-petra" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(SARA).update("note-nadia-praktiskt", { removedAt: "2027-02-01T09:40", removedBy: "u-sara", body: "x" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(SARA).update("note-nadia-praktiskt", { removedAt: "2027-02-01T09:40", removedBy: "u-sara" })).resolves.toBeTruthy();
+    await expect(t(AMIRA).update("note-nadia-praktiskt", { removedAt: null, removedBy: null })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).update("note-nadia-borttagen", { body: "Ny" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).remove("note-nadia-samtal")).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN).update("note-skyddad", { removedAt: "2027-02-01T09:40", removedBy: "u-johan" })).resolves.toBeTruthy();
+  });
+});
+
 describe("prestanda", () => {
   it("en coach listar alla aktiviteter och närvaro snabbt", async () => {
     const t0 = performance.now();

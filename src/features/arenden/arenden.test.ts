@@ -11,8 +11,8 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { auditView } from "@/features/session/api";
 import {
-  caseAssessments, caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseOverview, casePlacements,
-  caseReports, caseRevealPnr, messageRead, supervisorStart, type CaseCard,
+  caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseOverview, casePlacements,
+  caseMonthBasis, caseReports, caseRevealPnr, caseTimeline, messageRead, supervisorStart, type CaseCard,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -136,10 +136,10 @@ describe("arenden.kort (arende.kort)", () => {
   it("handledaren (teamet): inga beställnings- eller samtyckesuppgifter och bara teamets flikar", async () => {
     const c = await card(NADIA, petra());
     expect(c).toMatchObject({ access: "team", edit: false, order: null, buyer: null, consent: null, myTeamRoleLabel: "Yrkesspecifik handledare", unread: 0 });
-    for (const def of [caseIntake, caseCheckIns, caseAssessments, caseDeviations, caseReports, caseMessages, caseHistory]) {
+    for (const def of [caseIntake, caseCheckIns, caseMonthBasis, caseDeviations, caseReports, caseMessages, caseHistory]) {
       expect(await q(def, { caseId: NADIA }, petra()), def.key).toBeNull();
     }
-    for (const def of [caseOverview, caseAttendance, casePlacements, caseEvents]) expect(await q(def, { caseId: NADIA }, petra()), def.key).not.toBeNull();
+    for (const def of [caseOverview, caseTimeline, caseAttendance, casePlacements, caseEvents]) expect(await q(def, { caseId: NADIA }, petra()), def.key).not.toBeNull();
     const ov = (await q(caseOverview, { caseId: NADIA }, petra()))!;
     expect(ov.latest).toBeNull();
     expect(ov.upcoming.some((a) => a.kind === "möte")).toBe(false);
@@ -185,10 +185,12 @@ describe("deltagarkortets flikar", () => {
     expect((await card(NADIA, amira())).unread).toBe(0);
   });
 
-  it("månadsbedömning och rapporter för Nadia", async () => {
-    const a = (await q(caseAssessments, { caseId: NADIA }, amira()))!;
-    expect(a).toMatchObject({ nAreas: 10, scale: { min: 0, max: 3 }, observationFromLevel: 1, clearLabel: "tydlig eller uppnått delmål", clearRange: "nivå 2–3", missingMonth: null });
-    expect(a.list.map((x) => [x.month, x.approved])).toEqual([["2027-01", false], ["2026-12", true]]);
+  it("månadsunderlag och rapporter för Nadia", async () => {
+    // Fliken Månadsbedömning blev Månadsunderlag (rapporter steg 2) – se monthbasis.test.ts för hela innehållet.
+    const a = (await q(caseMonthBasis, { caseId: NADIA }, amira()))!;
+    expect(a).toMatchObject({ month: "2027-01", missingMonth: null, beforeStart: false, delivered: null, canAssess: true });
+    expect(a.months.map((x) => [x.month, x.current, x.delivered])).toEqual([["2027-02", true, false], ["2027-01", false, false], ["2026-12", false, true]]);
+    expect(a.matrix.months).toEqual(["2026-12"]);
     const r = (await q(caseReports, { caseId: NADIA }, sara()))!;
     expect(r.reports.find((x) => x.id === "rep-16008")).toMatchObject({ kindLabel: "Månadsrapport individ", periodText: "December 2026", statusLabel: "Levererad", correctionVersion: null });
   });

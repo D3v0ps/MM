@@ -98,6 +98,11 @@ export const COLUMNS = {
     authorId: "text", statusChangedAt: "timestamptz | null", statusChangedBy: "text | null", submittedAt: "timestamptz | null",
   },
   feedback_replies: { id: "text", feedbackId: "text", text: "text", createdAt: "timestamptz", authorId: "text", submittedAt: "timestamptz | null" },
+  // Fria anteckningar i deltagarkortet (0019_anteckningar.sql)
+  case_notes: {
+    id: "text", contractId: "text", caseId: "text", authorId: "text", occurredOn: "date", kind: "text", audience: "text", body: "text", createdAt: "timestamptz",
+    updatedAt: "timestamptz | null", removedAt: "timestamptz | null", removedBy: "text | null",
+  },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

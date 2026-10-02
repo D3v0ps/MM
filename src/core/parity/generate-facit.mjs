@@ -5,6 +5,9 @@
 // Kör: node src/core/parity/generate-facit.mjs   (skriver src/core/parity/facit.json)
 // Obs: prototyp/tools/data-samples.json är äldre än prototypens nuvarande seed och stämmer inte längre helt –
 // därför tas facit fram direkt ur prototypens kod.
+// Beslut 2026-10-01 (rapporter steg 2): appen räknar tydlig/någon progression bara på de obligatoriska områdena. Prototypen
+// räknade alla bedömda områden – facit blir ändå detsamma eftersom testdatat inte har några bedömda valfria områden
+// (kontrolleras i src/core/parity.test.ts). Får testdatat valfria områden måste facit räknas om enligt beslutet.
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";

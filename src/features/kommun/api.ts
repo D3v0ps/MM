@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import type { CaseSource, CaseStatus, ContractDeviationSource, ContractDeviationType, ReportKind, TaskKind } from "@/data/schema";
+import type { ProgressionRuleText } from "@/core/config";
 import { IdSchema, MonthKeySchema } from "../_shared/schemas";
 
 // ================================================================ Gemensamma delar
@@ -327,6 +328,11 @@ export type KomChef = {
   warnings: number;
   managerName: string;
   statisticsPerYear: number;
+  /**
+   * Avtalets regler för tydlig och någon progression i klarspråk (progressionRuleText), t.ex. "Minst ett område på nivå 2
+   * eller högre". Räknas bara på de obligatoriska områdena; excluded säger vilka områden som inte räknas.
+   */
+  progressionRule: ProgressionRuleText;
 };
 export const kommunChef = query("kommun.chef", z.object({ month: MonthKeySchema.nullable().optional() })).returns<KomChef>();
 
