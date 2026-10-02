@@ -1,10 +1,13 @@
 // Kontrakt för området rapporter (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import type { ReportKind, ReportStatus } from "@/data/schema";
+import type { ReportKind, ReportStatus, SavedReportVisibility } from "@/data/schema";
 import type { ProgressionRuleText } from "@/core/config";
 import type { SlaView } from "@/ui/badge";
-import { IdSchema } from "../_shared/schemas";
+import { IdSchema, MonthKeySchema } from "../_shared/schemas";
+import type { Dataset, Dimension, MeasureKey } from "./builder/definition";
+import type { BuilderAudience, BuilderView } from "./builder/run";
+import { TEMPLATE_KEYS } from "./builder/templates";
 import type { FinalModel, MonthlyModel, OrderModel, SummaryModel, WeeklyModel, WeeklySection } from "./model";
 import type { DeniedReason } from "./report-helpers";
 
@@ -291,3 +294,184 @@ export const reportCorrectionNote = command("rapporter.correctionNote", z.object
   reportId: IdSchema,
   reason: z.string().max(300),
 })).returns<Result<object, "not_found" | "reason">>();
+
+// ================================================================ Rapportbyggaren (rapporter steg 4, SPEC §7.11 k)
+// Miljonbemanning (samordnare, avtalsansvarig och chef) bygger rapporter av de levererade rapporternas frysta fakta – samma
+// urval och register som kommunens resultatfil (steg 3). Skyddade ärenden kommer aldrig med (inte heller för avtalsansvarig).
+// En sparad rapport kan delas inom Miljonbemanning eller med kommunens chef (bara avtalsansvarig). Listor med en rad per
+// deltagare visar bara antal och kolumnnamn – raderna finns bara i filen. Varje fil och varje visning av en sparad rapport
+// loggas på servern (bara id:n – aldrig namn, ärendenummer, titlar eller urvalets värden).
+export type { BuilderAudience, BuilderChart, BuilderColumn, BuilderRow, BuilderView } from "./builder/run";
+export {
+  canonicalJson, charCount, DATASET_HELP, DATASET_LABEL, DATASETS, datasetDimensions, definitionError, definitionIssue, DIMENSION_LABEL, firstChars, MAX_COLUMNS, MAX_MEASURES, MEASURE_LABEL, MEASURES_BY_DATASET,
+  MULTI_COLUMN_MEASURES, OUTPUT_LABEL, periodDefText, SPLIT_LABEL, SPLITS, TITLE_HELP, titleError,
+  type Dataset, type DefinitionStep, type Dimension, type Filters, type MeasureKey, type Output, type PeriodDef, type ReportDefinition, type Split,
+} from "./builder/definition";
+export { STANDARD_COLUMNS, TEMPLATE_KEYS, TEMPLATES, type Template, type TemplateKey } from "./builder/templates";
+
+/** Delningen i klarspråk (listorna, sidan och delningsdialogen). */
+export const VISIBILITY_LABEL: Record<SavedReportVisibility, string> = { private: "Bara jag", mb: "Alla på Miljonbemanning i avtalet", customer: "Delad med kommunens chef" };
+
+export type BuilderCatalog = {
+  /** Avtalen att välja (bara de i drift). Valet visas bara när det finns fler än ett. */
+  contracts: { id: string; label: string }[];
+  contractId: string | null;
+  templates: { key: string; name: string; sentence: string; definition: Record<string, unknown> }[];
+  datasets: {
+    key: Dataset;
+    label: string;
+    help: string;
+    dimensions: { key: Dimension; label: string; joined: boolean; choices: { value: string; label: string }[] | null }[];
+    measures: { key: MeasureKey; label: string; help: string; columns: { key: string; label: string; unit: "antal" | "andel" }[]; chartable: boolean }[];
+    /** Kolumnerna i datamängdens egen tabell (bara listor): "resultat.namn", beskrivning ur registret, avsnitt och klass. */
+    columns: { qualified: string; key: string; description: string; section: string; cls: string }[];
+  }[];
+  /** Månaderna som kan väljas (från avtalets start till innevarande månad), senaste först. */
+  months: { value: string; label: string }[];
+  maxMonths: number;
+  /** "färre än N" i kommunens läge (cfg.pulse.minNForAggregate). */
+  minN: number;
+  /** Avtalsansvarig och avtalet har seesIndividualReports. */
+  canShareWithCustomer: boolean;
+  /** Avtalet låter kommunens chef se individrapporter (växeln "Visa som kommunens chef ser den" och delningen). */
+  customerSharingAllowed: boolean;
+  role: string;
+};
+export const builderCatalog = query("rapporter.byggKatalog", z.object({ contractId: IdSchema.optional() })).returns<BuilderCatalog>();
+
+const DefinitionInput = z.record(z.string(), z.unknown());
+const exactlyOne = (p: { savedReportId?: string; definition?: unknown; contractId?: string }) => (p.savedReportId ? !p.definition : !!p.definition && !!p.contractId);
+
+export type BuilderError = "not_found" | "definition" | "period" | "empty" | "column_missing" | "too_many_groups";
+/**
+ * Förhandsvisningen – ett tyst kommando (inte en fråga): den kan behöva frysa rapporter som saknar fakta, och den körs bara när
+ * användaren klickar "Visa förhandsvisning" (och en gång när en sparad rapport öppnas). Med savedReportId loggas
+ * saved_report.viewed; ett osparat utkast loggas inte. audience "kommun" = "Visa som kommunens chef ser den".
+ */
+export const builderPreview = command("rapporter.byggForhandsvisning", z.object({
+  contractId: IdSchema.optional(),
+  savedReportId: IdSchema.optional(),
+  definition: DefinitionInput.optional(),
+  templateKey: z.enum(TEMPLATE_KEYS).optional(),
+  audience: z.enum(["mb", "kommun"]),
+}).refine(exactlyOne)).returns<Result<BuilderView, BuilderError>>();
+
+export type BuilderFileResult =
+  | { filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number | null }
+  | { filename: string; pdf: BuilderView & { title: string; contractNumber: string; customerName: string; fetchedAt: string } };
+/** Hämta filen (Excel, CSV eller PDF – PDF bara för sammanställningar). Loggas export.saved_report innan svaret. */
+export const builderExport = command("rapporter.byggExport", z.object({
+  contractId: IdSchema.optional(),
+  savedReportId: IdSchema.optional(),
+  definition: DefinitionInput.optional(),
+  templateKey: z.enum(TEMPLATE_KEYS).optional(),
+  format: z.enum(["xlsx", "csv", "pdf"]),
+}).refine(exactlyOne)).returns<Result<BuilderFileResult, "forbidden" | BuilderError | "too_large">>();
+
+export type SavedReportRow = {
+  id: string;
+  title: string;
+  outputLabel: string;
+  datasetLabel: string;
+  periodText: string;
+  visibility: SavedReportVisibility;
+  /** "Skapad av {namn}" – null för mina egna. */
+  createdBy: string | null;
+  /** "Ändrad 3 februari 2027" eller "Delad 25 januari 2027" (eller "Skapad …"). */
+  dateText: string;
+};
+export type SavedReportLists = { contractId: string | null; mine: SavedReportRow[]; sharedMb: SavedReportRow[]; sharedCustomer: SavedReportRow[] };
+export const savedReportList = query("rapporter.sparadeLista", z.object({ contractId: IdSchema.optional() })).returns<SavedReportLists>();
+
+export type SavedReportDetail =
+  | { found: false }
+  | {
+      found: true;
+      id: string;
+      contractId: string;
+      title: string;
+      templateKey: string | null;
+      templateName: string | null;
+      /** Den sparade definitionen (kan vara ogiltig – se definitionError). */
+      definition: Record<string, unknown>;
+      definitionError: string | null;
+      datasetLabel: string;
+      outputLabel: string;
+      periodText: string;
+      visibility: SavedReportVisibility;
+      createdBy: string;
+      createdAt: string;
+      updatedAt: string | null;
+      sharedAt: string | null;
+      archived: boolean;
+      isOwner: boolean;
+      /** Delad med kommunen, men avtalet tillåter det inte längre: bara "Sluta dela med kommunen" går (sedan ändra och arkivera). */
+      sharingEnded: boolean;
+      /** Ändra titel och definition (bara ägaren – och en rapport delad med kommunen bara när ägaren är avtalsansvarig). */
+      canEdit: boolean;
+      /** Ägarens dialog "Ändra delning". */
+      canChangeSharing: boolean;
+      /** Avtalsansvarig: "Dela med kommunen" (när avtalet tillåter det) / "Sluta dela med kommunen" (alltid). */
+      canShareCustomer: boolean;
+      canArchive: boolean;
+      /** Avtalsansvarig och avtalet tillåter delning med kommunen. */
+      canChooseCustomer: boolean;
+      customerSharingAllowed: boolean;
+      /** "färre än N" i kommunens läge (avtalets cfg.pulse.minNForAggregate). */
+      minN: number;
+      /** Varför stegen är låsta, eller null. */
+      lockedText: string | null;
+    };
+export const savedReport = query("rapporter.sparad", z.object({ savedReportId: IdSchema })).returns<SavedReportDetail>();
+
+/** Spara en ny rapport eller ändra titel och definition (bara ägaren). Oförändrat = ok utan skrivning och utan loggrad. */
+export const savedReportSave = command("rapporter.sparadSpara", z.object({
+  contractId: IdSchema,
+  savedReportId: IdSchema.optional(),
+  title: z.string().max(200),
+  definition: DefinitionInput,
+  visibility: z.enum(["private", "mb", "customer"]).optional(),
+  templateKey: z.enum(TEMPLATE_KEYS).optional(),
+})).returns<Result<{ savedReportId: string }, "forbidden" | "title" | "definition" | "customer_shared">>();
+
+/** Ändra delningen. Samma delning som förut = ok utan skrivning och utan loggrad. */
+export const savedReportShare = command("rapporter.sparadDela", z.object({
+  savedReportId: IdSchema,
+  visibility: z.enum(["private", "mb", "customer"]),
+})).returns<Result<object, "forbidden" | "not_allowed">>();
+
+/** Arkivera rapporten – den visas inte längre i listorna (och inte för kommunens chef). */
+export const savedReportArchive = command("rapporter.sparadArkivera", z.object({ savedReportId: IdSchema })).returns<Result<object, "forbidden">>();
+
+// ---------------------------------------------------------------- Resultatfil för hela avtalet (färdigrapporten)
+/** Som kommunens förhandsvisning (kommun.resultatForhandsvisning) men för alla ärenden i avtalet utom skyddade. */
+export type ContractResultPreview = {
+  allowed: boolean;
+  contractId: string | null;
+  contracts: { id: string; label: string }[];
+  months: { value: string; label: string }[];
+  from: string;
+  to: string;
+  periodLabel: string;
+  periodError: string | null;
+  maxMonths: number;
+  participants: number;
+  reports: number;
+};
+export const contractResultPreview = query("rapporter.resultatfilForhandsvisning", z.object({
+  contractId: IdSchema.optional(),
+  from: MonthKeySchema.optional(),
+  to: MonthKeySchema.optional(),
+})).returns<ContractResultPreview>();
+
+/** Resultatfilen för hela avtalet (samma kolumner och filer som kommunens). Loggas export.results_mb – ingen kolumnspärr. */
+export const contractResultExport = command("rapporter.resultatfilExport", z.object({
+  contractId: IdSchema,
+  from: MonthKeySchema,
+  to: MonthKeySchema,
+  format: z.enum(["xlsx", "csv"]),
+  table: z.enum(["resultat", "progression", "handelser", "avslut", "faltbeskrivning"]).optional(),
+})).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty">>();
+
+/** Läget för förhandsvisningen (skärmens växel). */
+export type { BuilderAudience as PreviewAudience };

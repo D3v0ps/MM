@@ -35,6 +35,7 @@ export { Notice, DemoNote, Empty, Loading, ErrorNotice, QueryView, type NoticeTo
 export { Toaster, toast, useToast, type ToastTone } from "./toast";
 export { DownloadProvider, useDownload, useCopy, blobDownload, type DownloadImpl, type DownloadFile, type DownloadResult } from "./download";
 export { Kpi, Meter, Kv, Timeline, Stepper, Avatar, UserName, Chart, type MeterMarker, type TimelineItem } from "./data";
+export { BarChart, barValueText, type BarChartBar, type BarChartProps } from "./bar-chart";
 export { Paper, PaperFixedText, XBox, type PaperProps } from "./paper";
 export { BigButtons, BigButton, PulsePhone, Smileys, Smiley, type BigButtonProps } from "./portal";
 export { CaseLink, casePathFor, MaskedPnr, PerspectiveLink, useAuditView } from "./case";

@@ -58,6 +58,8 @@
 //                                       docs/PLAN-ROST.md). Testdatat: src/data/seed/gen-voice.ts
 //   (finns inte i prototypen)        -> case_notes (fria anteckningar i deltagarkortet, rapporter steg 2, 0019).
 //                                       Testdatat: src/data/seed/gen-notes.ts
+//   (finns inte i prototypen)        -> saved_reports (rapportbyggaren, rapporter steg 4, 0021).
+//                                       Testdatat: src/data/seed/gen-saved-reports.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -1255,6 +1257,42 @@ export type CaseNote = {
   removedBy: UserId | null;
 };
 
+// ================================================================ Sparade rapporter i rapportbyggaren (0021, rapporter steg 4)
+// Miljonbemanning bygger rapporter av de levererade rapporternas frysta fakta och sparar definitionen (SPEC §7.11 k). En sparad
+// rapport visas för ägaren (private), för samordnare, avtalsansvarig och chef i avtalet (mb) eller dessutom för kommunens chef
+// (customer – bara avtalsansvarig delar med kommunen). Bara ägaren ändrar titel och definition; avtalsansvarig ändrar
+// delningen och arkiverar. Rader raderas aldrig – de arkiveras. Definitionen innehåller aldrig personuppgifter, och titeln
+// står aldrig i filnamn eller logg.
+export const SAVED_REPORT_VISIBILITIES = ["private", "mb", "customer"] as const;
+export type SavedReportVisibility = (typeof SAVED_REPORT_VISIBILITIES)[number];
+
+export type SavedReport = {
+  id: string;
+  contractId: string;
+  /** Den som skapade raden (profiles.id). Ändras aldrig. */
+  ownerId: UserId;
+  /** 3–80 tecken. Inga personnummer eller ärendenummer (kontrolleras av hanteraren). */
+  title: string;
+  /** Mallen rapporten började i (en nyckel i koden, TEMPLATES) – sätts när raden skapas. */
+  templateKey: string | null;
+  /**
+   * Definitionen – ett jsonb-objekt med v = 1 (kontrollen i 0021). Innehållet valideras med zod i hanteraren
+   * (ReportDefinitionSchema i src/features/rapporter/builder/definition.ts) – en äldre definition kan vara ogiltig.
+   */
+  definition: Record<string, unknown>;
+  visibility: SavedReportVisibility;
+  createdAt: LocalDateTime;
+  /** Senaste ändringen av titel eller definition (bara ägaren). */
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  /** Senaste ändringen av delningen. Satt när rapporten inte är privat. */
+  sharedAt: LocalDateTime | null;
+  sharedBy: UserId | null;
+  /** Arkiverad – visas inte i listorna, och kommunen ser den inte. */
+  archivedAt: LocalDateTime | null;
+  archivedBy: UserId | null;
+};
+
 // ================================================================ Kommunikation och logg
 /** Säkra meddelanden per ärende. */
 export type Message = {
@@ -1521,6 +1559,7 @@ export type Tables = {
   feedback: Feedback;
   feedback_replies: FeedbackReply;
   case_notes: CaseNote;
+  saved_reports: SavedReport;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1542,6 +1581,7 @@ export const TABLE_NAMES = [
   "voice_links", "participant_voice_notes", "audio_uploads",
   "feedback", "feedback_replies",
   "case_notes",
+  "saved_reports",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;

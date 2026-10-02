@@ -10,6 +10,8 @@ import { reportApprove, reportCorrect, reportDeliver, reportOpen } from "./api";
 import { freezeReport } from "./freeze";
 // Frågorna och områdets egna kommandon (prototypens rapporter.lista, rapport.visa och rap.*).
 import "./view-handlers";
+// Rapportbyggaren (rapporter steg 4): sparade och delade rapporter och resultatfilen för hela avtalet.
+import "./builder-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

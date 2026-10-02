@@ -32,6 +32,8 @@ import { fD, NOTIFY_FROM, reportTitle } from "./texts";
 import "./voice-handlers";
 // Hämta resultat (resultatfilen till kommunens chef, rapporter steg 3).
 import "./result-handlers";
+// Rapporter från Miljonbemanning (delade sparade rapporter, rapporter steg 4).
+import "./shared-report-handlers";
 
 const HANDL: readonly Role[] = ["kommun_handlaggare"];
 const BOTH: readonly Role[] = ["kommun_handlaggare", "kommun_chef"];

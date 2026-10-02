@@ -6,7 +6,7 @@
 //   - fel blir PolicyError (behörighet) eller DataError – aldrig med värden eller personuppgifter i meddelandet
 // Klienten skickas in utifrån: användarens klient (RLS) för ctx.repo, service role för ctx.system (src/server/runtime.ts).
 import { PolicyError } from "../memory";
-import { applyOpts, pickFields, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
+import { applyOpts, checkJsonPaths, pickFields, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
 import { fromDbRow, toColumn, toDbRow, toDbValue } from "./columns";
 
 // ---------------------------------------------------------------- Den del av supabase-js som används (gör det lätt att fejka i tester)
@@ -176,6 +176,15 @@ class SupabaseTable<T extends Row> implements Table<T> {
 
   async pick<K extends keyof T & string>(fields: readonly K[], where?: Where<T>, opts?: ListOpts<T>): Promise<Pick<T, K | "id">[]> {
     return this.listColumns(where, opts, pickFields(fields, opts).map(toColumn).join(","));
+  }
+
+  async pickJson<K extends keyof T & string, J extends JsonPaths<T>>(fields: readonly K[], json: J, where?: Where<T>, opts?: ListOpts<T>): Promise<(Pick<T, K | "id"> & { [A in keyof J]: unknown })[]> {
+    checkJsonPaths(json);
+    // facts:snapshot->facts – PostgREST lämnar jsonb-värdet som det är (objekt, text, tal eller null). Aliaset blir snake_case
+    // i frågan och camelCase i raden (fromDbRow), precis som kolumnerna.
+    const paths = Object.entries(json).map(([alias, [field, ...keys]]) => `${toColumn(alias)}:${toColumn(field)}${keys.map((k) => `->${k}`).join("")}`);
+    const rows = await this.listColumns(where, opts, [...pickFields(fields, opts).map(toColumn), ...paths].join(","));
+    return rows as unknown as (Pick<T, K | "id"> & { [A in keyof J]: unknown })[];
   }
 
   private async listColumns(where: Where<T> | undefined, opts: ListOpts<T> | undefined, columns: string): Promise<T[]> {

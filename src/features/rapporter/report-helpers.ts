@@ -8,6 +8,7 @@
 //   statusLabel(r)       "Utkast", "Granskad av coach"/"Granskad", "Godkänd", "Väntar på närvaro", "Levererad", "Kvitterad"
 //   statusLook(r)        [märkets ton, ikon] för statusen (text + ikon, aldrig bara färg)
 //   isDelivered(r)       levererad eller kvitterad
+//   deliveredOk(r)       levererad (eller kvitterad) och inte ersatt av en rättelse
 //   DENIED[reason]       rubrik och text när rapporten inte får visas
 // Datum skrivs utan förkortningar ("1 februari 2027") eftersom dokumenten också visas i kommunportalen.
 import { reportKindLabel, reportStatusLabel } from "@/core/labels";
@@ -76,6 +77,8 @@ export const weekRange = (key: WeekKey): string => {
 
 // ---------------------------------------------------------------- Rapporten
 export const isDelivered = (r: Pick<Report, "status">): boolean => r.status === "delivered" || r.status === "opened";
+/** Levererad och inte ersatt (prototypens deliveredOk) – det enda som kommunen, resultatfilen och rapportbyggaren läser. */
+export const deliveredOk = (r: Pick<Report, "deliveredAt" | "status" | "superseded">): boolean => !!r.deliveredAt && (r.status === "delivered" || r.status === "opened") && !r.superseded;
 /** Status där en levererad rapport som mottagaren öppnat räknas som kvitterad. */
 export const effStatus = (r: Pick<Report, "status"> & { openedAt?: string | null }): ReportStatus => (r.status === "delivered" && r.openedAt ? "opened" : r.status);
 /** Statusen som text. "Granskad" utan "av coach" för rapporter som coachen inte granskar. */

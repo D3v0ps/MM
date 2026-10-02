@@ -4,6 +4,8 @@
 import { attLabel, endReasonLabel, eventLabel, reportKindLabel } from "@/core/labels";
 import { fmtDate, fmtDateTime, fmtWeekKey, monthName } from "@/core/time";
 import { prioLabel, statusLabel, typeLabel } from "@/features/synpunkter/model";
+import { DATASET_LABEL, DIMENSION_LABEL, MEASURE_LABEL, OUTPUT_LABEL, SPLIT_LABEL } from "@/features/rapporter/builder/definition";
+import { templateFor } from "@/features/rapporter/builder/templates";
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -36,6 +38,11 @@ export const ACTION_LABEL: Record<string, string> = {
   "case_note.used_in_summary": "Använde anteckning i sammanfattningen",
   // Kommunens resultatfil (rapporter steg 3). Loggen har id:n, period, antal och kolumnnamn – aldrig namn eller ärendenummer.
   "export.results": "Exporterade resultat", "export.results_blocked": "Stoppade resultatfilen", "report.facts_drift": "Rapportens fakta kunde inte föras tillbaka helt",
+  // Rapportbyggaren (rapporter steg 4). Loggen har id:n, period, antal och vad rapporten räknar – aldrig titlar, namn,
+  // ärendenummer eller urvalets värden.
+  "saved_report.created": "Sparade rapport", "saved_report.updated": "Ändrade sparad rapport", "saved_report.shared": "Ändrade delning av rapport",
+  "saved_report.archived": "Arkiverade rapport", "saved_report.viewed": "Visade sparad rapport", "export.saved_report": "Exporterade rapport",
+  "saved_report.export_blocked": "Stoppade rapportfil", "export.results_mb": "Exporterade resultat för hela avtalet",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -45,6 +52,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
+  saved_report: "Sparad rapport",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -61,6 +69,8 @@ const DETAIL_KEY: Record<string, string> = {
   caseIds: "Ärenden", emailId: "Mejl", method: "Inloggning", hadCustomerApproval: "Godkänd av kommunen", type: "Typ", level: "Nivå", step: "Steg", sentToCustomer: "Skickad till kommunen",
   acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av",
   table: "Tabell", cases: "Antal deltagare", schema: "Schemaversion", columns: "Kolumner", reportIds: "Rapporter",
+  savedReportId: "Sparad rapport", dataset: "Uppgifter", audience: "Visning", output: "Visas som", measures: "Mått", groupBy: "Dela upp efter",
+  split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -86,7 +96,16 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   right: { uppgift: "rätt arbetsuppgift", handledning: "rätt handledning", timing: "rätt tidpunkt", uppfoljning: "rätt uppföljning" },
   format: { csv: "CSV", xlsx: "Excel", pdf: "PDF", sie: "SIE", peppol: "Peppol" },
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
-  reason: { columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas" },
+  reason: { columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor" },
+  sharingFrom: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef", __new: "Ny rapport" },
+  sharingTo: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef" },
+  visibility: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef" },
+  audience: { mb: "Miljonbemanning", kommun: "Kommunens chef" },
+  output: OUTPUT_LABEL,
+  dataset: DATASET_LABEL,
+  split: SPLIT_LABEL,
+  groupBy: DIMENSION_LABEL,
+  measures: MEASURE_LABEL,
 };
 const AI_KIND: Record<string, string> = {
   parse_email: "tolka mejl", transcribe_extract: "transkribering och utkast", extract_notes: "utkast från anteckningar", extract_teams: "utkast från Teams-transkript",
@@ -133,6 +152,8 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
     if (k === "priority") return prioLabel(s);
     if (k === "from" || k === "to") return statusLabel(s);
   }
+  // Rapportbyggarens mallar (nycklar i koden) – inte utskickens mallar.
+  if (k === "template" && (a.entity === "saved_report" || a.action === "export.saved_report")) return templateFor(s)?.name ?? s;
   if (k === "template") return l.templateLabel(s);
   if (["fields", "checked", "missing"].includes(k)) return FIELD_WORD[s] ?? s;
   if (k === "kind") return kindWord(a, s);
@@ -151,14 +172,15 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
 }
 
 /** Långa listor som visas som antal i loggtabellen ("74 rapporter") och i sin helhet i detaljvyn. */
-const COUNTED: Record<string, [string, string]> = { columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"] };
+const COUNTED: Record<string, [string, string]> = { columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"], measures: ["mått", "mått"] };
 
 /**
  * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället
  * för antal (tabellen).
  */
 export function detailText(a: AuditEntryLike, l: AuditLookups, opts: { full?: boolean } = {}): string {
-  const x = a.details ?? {};
+  // En ny sparad rapport som delas direkt: "Delning före: Ny rapport" (värdet null visas annars inte).
+  const x = a.action === "saved_report.shared" && a.details?.sharingFrom === null ? { ...a.details, sharingFrom: "__new" } : (a.details ?? {});
   if (a.action === "org_rule.updated" && isSnapshot(x.from) && isSnapshot(x.to)) return ruleDiffText(x.from, x.to);
   return Object.entries(x)
     .filter(([k, v]) => v != null && v !== "" && k !== "caseId" && !(Array.isArray(v) && !v.length))
@@ -212,4 +234,4 @@ export const JOB_KEYS = ["inbox", "weekly", "att_remind", "progress", "audio", "
 export type JobKey = (typeof JOB_KEYS)[number];
 
 /** Visningar och exporter som chef/controller stickprovar i första hand (SPEC §10). */
-export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view"] as const;
+export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed"] as const;

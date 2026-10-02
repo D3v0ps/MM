@@ -21,6 +21,9 @@ export type Cmp<V> =
 export type Where<T> = { [K in keyof T]?: Cmp<T[K]> };
 export type ListOpts<T> = { orderBy?: keyof T & string; desc?: boolean; limit?: number };
 
+/** jsonb-sökvägar för pickJson: alias -> [fält, nyckel, …]. Aliaset får inte vara ett fältnamn i tabellen. */
+export type JsonPaths<T> = Record<string, readonly [keyof T & string, ...string[]]>;
+
 export interface Table<T extends Row> {
   get(id: string): Promise<T | null>;
   list(where?: Where<T>, opts?: ListOpts<T>): Promise<T[]>;
@@ -29,6 +32,13 @@ export interface Table<T extends Row> {
    * ögonblicksbildens jsonb. Fältet i orderBy läses också (det behövs för sorteringen).
    */
   pick<K extends keyof T & string>(fields: readonly K[], where?: Where<T>, opts?: ListOpts<T>): Promise<Pick<T, K | "id">[]>;
+  /**
+   * Som pick, plus utvalda värden i jsonb-kolumner med alias – t.ex. rapporternas frysta fakta utan resten av
+   * ögonblicksbilden: pickJson(LIGHT, { facts: ["snapshot", "facts"], snapshotReportId: ["snapshot", "reportId"] }, where).
+   * Supabase: select=id,…,facts:snapshot->facts,snapshot_report_id:snapshot->reportId (samma RLS som tabellen). Saknas
+   * sökvägen blir värdet null.
+   */
+  pickJson<K extends keyof T & string, J extends JsonPaths<T>>(fields: readonly K[], json: J, where?: Where<T>, opts?: ListOpts<T>): Promise<(Pick<T, K | "id"> & { [A in keyof J]: unknown })[]>;
   first(where?: Where<T>, opts?: ListOpts<T>): Promise<T | null>;
   count(where?: Where<T>): Promise<number>;
   insert(row: T): Promise<T>;
@@ -75,6 +85,25 @@ export function pickRow<T extends object>(row: T, fields: readonly string[]): Pa
   const out: Record<string, unknown> = {};
   for (const f of fields) if (f in row) out[f] = (row as Record<string, unknown>)[f];
   return out as Partial<T>;
+}
+
+/** Alias och nycklar i pickJson: bara bokstäver, siffror och understreck (de hamnar i PostgREST-frågan). */
+const JSON_ALIAS = /^[a-z][A-Za-z0-9]*$/;
+const JSON_KEY = /^[A-Za-z0-9_]+$/;
+export function checkJsonPaths(json: Record<string, readonly string[]>): void {
+  for (const [alias, path] of Object.entries(json)) {
+    if (!JSON_ALIAS.test(alias) || path.length < 2 || !path.every((k) => JSON_KEY.test(k))) throw new Error(`Ogiltig jsonb-sökväg i pickJson: ${alias}`);
+  }
+}
+
+/** Värdet på sökvägen [fält, nyckel, …] i raden – null när någon del saknas (som Postgres operator ->). */
+export function jsonAt(row: object, path: readonly string[]): unknown {
+  let v: unknown = (row as Record<string, unknown>)[path[0]];
+  for (const k of path.slice(1)) {
+    if (v == null || typeof v !== "object" || Array.isArray(v)) return null;
+    v = (v as Record<string, unknown>)[k];
+  }
+  return v === undefined ? null : v;
 }
 
 export function applyOpts<T>(rows: T[], opts?: ListOpts<T>): T[] {

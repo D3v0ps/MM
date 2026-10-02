@@ -4,6 +4,7 @@
 //   unregistered   coachens oregistrerade närvaro från förra veckans måndag till i dag
 //   notifications  olästa personliga notiser (alla MB-roller)
 //   resultFile     kommunens chef: menyvalet "Hämta resultat" (avtalet tillåter individrapporter)
+//   sharedReports  kommunens chef: antal rapporter som Miljonbemanning har delat (samma filter som kommun.delade)
 // Bara räknarna för rollens menyrader räknas fram (övriga är 0 – de visas inte).
 import type { Ctx } from "@/api/server";
 import { handleQuery } from "@/api/server";
@@ -14,6 +15,7 @@ import { unreadNotifications } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
 import { deadlineItems, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
+import { chefContract, seesResults } from "@/features/kommun/load";
 import { navCounts, type NavCounts } from "./nav-api";
 
 const INBOX_ROLES = ["samordnare", "avtalsansvarig"];
@@ -47,19 +49,20 @@ async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {
 }
 
 /**
- * Kommunens chef: har något av chefens avtal resultatfilen (customerVisibility.seesIndividualReports)? Bara avtalens
- * konfiguration läses (via ctx.repo) – menyn får inte hämta tunga data.
+ * Kommunens chef: avtalet för resultatfilen och de delade rapporterna (chefContract – samma funktion som sidorna). Bara avtalets
+ * konfiguration och antalet delade rapporter läses (via ctx.repo) – menyn får inte hämta tunga data.
  */
-async function resultFileAllowed(ctx: Ctx): Promise<boolean> {
-  if (!ctx.actor.contractIds.length) return false;
-  const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
-  return contracts.some((c) => c.config.customerVisibility?.seesIndividualReports === true);
+async function chefCounts(ctx: Ctx): Promise<{ resultFile: boolean; sharedReports: number }> {
+  const c = await chefContract(ctx);
+  if (!c || !seesResults(c.cfg)) return { resultFile: false, sharedReports: 0 };
+  const sharedReports = await ctx.repo.table("saved_reports").count({ contractId: c.contract.id, visibility: "customer", archivedAt: null });
+  return { resultFile: true, sharedReports };
 }
 
 handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   const role = ctx.actor.role;
   const out: NavCounts = { inbox: 0, deadlines: 0, unregistered: 0, notifications: 0 };
-  if (role === "kommun_chef") return { ...out, resultFile: await resultFileAllowed(ctx) };
+  if (role === "kommun_chef") return { ...out, ...(await chefCounts(ctx)) };
   if (!isSupplierRole(role) || !ctx.actor.contractIds.length) return out;
   const e = await inboxEnv(ctx).catch(() => null);
   if (!e) return out;

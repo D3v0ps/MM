@@ -16,6 +16,7 @@ import { command, query, type Result } from "@/api/contract";
 import type { CaseSource, CaseStatus, ContractDeviationSource, ContractDeviationType, ReportKind, TaskKind } from "@/data/schema";
 import type { ProgressionRuleText } from "@/core/config";
 import { IdSchema, MonthKeySchema } from "../_shared/schemas";
+import type { BuilderFileResult, BuilderView } from "../rapporter/api";
 
 // ================================================================ Gemensamma delar
 /** Ärendet så som kommunen ser det (lista och deltagarens sida). Texterna byggs av skärmen (texts.ts). */
@@ -376,6 +377,29 @@ export const resultExport = command("kommun.resultatExport", z.object({
   format: z.enum(["xlsx", "csv"]),
   table: z.enum(RESULT_TABLES).optional(),
 })).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty" | "schema">>();
+
+// ================================================================ Rapporter från Miljonbemanning (/portal/resultat/rapporter – rapporter steg 4)
+// Rapporter som Miljonbemanning har byggt i rapportbyggaren och delat med kommunens chef. Chefen kan inte ändra något (inte
+// urval, uppdelning eller period). Siffrorna räknas med chefens egen behörighet: bara ärenden i chefens enhet, aldrig skyddade
+// personuppgifter, grupper med färre än N deltagare visas som "färre än N" och Miljonbemannings interna mål visas aldrig.
+// Bara ett avtal i taget (samma som resultatfilen). Varje visning och varje hämtning loggas.
+export type { BuilderView };
+
+export type SharedReportRow = { id: string; title: string; outputLabel: string; datasetLabel: string; periodLabel: string; sharedAt: string | null };
+export const sharedReports = query("kommun.delade", z.object({})).returns<{ allowed: boolean; reports: SharedReportRow[] }>();
+
+/**
+ * En delad rapport (tyst kommando – det fryser rapporter som saknar fakta och loggar visningen, saved_report.viewed). Skärmen
+ * kör det en gång per sidvisning. error är en klarspråkstext när rapporten inte kan visas (found: false = finns inte längre).
+ */
+export type SharedReportView = { allowed: boolean; found: boolean; title: string; view: BuilderView | null; error: string | null };
+export const sharedReport = command("kommun.delad", z.object({ savedReportId: IdSchema })).returns<SharedReportView>();
+
+/** Hämta den delade rapporten (Excel, CSV eller PDF – PDF bara för sammanställningar). Loggas export.saved_report innan svaret. */
+export const sharedReportExport = command("kommun.deladExport", z.object({
+  savedReportId: IdSchema,
+  format: z.enum(["xlsx", "csv", "pdf"]),
+})).returns<Result<BuilderFileResult, "forbidden" | "not_found" | "period" | "empty" | "column_missing" | "too_many_groups" | "too_large" | "definition">>();
 
 // ================================================================ Inloggningen (bara prototypens snabbval)
 /**

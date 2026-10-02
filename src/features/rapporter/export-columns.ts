@@ -13,6 +13,7 @@ import type { OperationalConfig } from "@/core/config";
 import type { CellType, CsvColumn } from "@/core/export/csv";
 import { END_REASON_LABEL, END_REASONS, RESULT_CLASS_LABEL, TRAFFIC_LIGHT_LABEL } from "@/core/labels";
 import { OUTCOME_EVENT_KINDS, RESULT_CLASSES, TRAFFIC_LIGHTS, type ContractArea } from "@/data/schema";
+import { monthName, type MonthKey } from "@/core/time";
 import { plain } from "./report-helpers";
 
 export const EXPORT_SCHEMA_VERSION = 1;
@@ -227,4 +228,23 @@ export function fieldDescriptionRows(cols: readonly ExportColumn[]): Record<stri
  */
 export function columnsStillCompatible(prev: readonly string[], next: readonly string[]): boolean {
   return prev.length <= next.length && prev.every((k, i) => next[i] === k);
+}
+
+// ================================================================ Perioden (resultatfilen och rapportbyggaren)
+/** Antal månader från och med from till och med to. */
+export const monthsInPeriod = (from: MonthKey, to: MonthKey): number => {
+  const [y1, m1] = from.split("-").map(Number);
+  const [y2, m2] = to.split("-").map(Number);
+  return (y2 * 12 + m2) - (y1 * 12 + m1) + 1;
+};
+
+/**
+ * Felet för perioden, eller null. Regler: till-månaden inte före från-månaden, högst MAX_EXPORT_MONTHS månader, inte efter
+ * innevarande månad och inte före avtalets start.
+ */
+export function periodError(from: MonthKey, to: MonthKey, opts: { current: MonthKey; start: MonthKey; maxMonths: number }): string | null {
+  if (to < from) return "Till-månaden kan inte vara före från-månaden.";
+  if (monthsInPeriod(from, to) > opts.maxMonths) return `Välj högst ${opts.maxMonths} månader.`;
+  if (from < opts.start || to > opts.current) return `Välj månader från ${monthName(opts.start)} till ${monthName(opts.current)}.`;
+  return null;
 }

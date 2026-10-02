@@ -5,7 +5,7 @@ import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
 import type { IconName } from "@/ui/icons";
 
-export type NavCountKey = Exclude<keyof NavCounts, "notifications" | "resultFile">;
+export type NavCountKey = Exclude<keyof NavCounts, "notifications" | "resultFile" | "sharedReports">;
 
 export type NavItem = {
   /** Sökväg. Aktiv när sökvägen är samma eller ligger under (längsta träff vinner). */
@@ -27,6 +27,8 @@ const INKORG: NavItem = { to: "/inkorg", label: "Avropsinkorg", icon: "inbox", c
 const FORFALLER: NavItem = { to: "/forfaller", label: "Förfaller", icon: "clock", count: "deadlines" };
 const ARENDEN: NavItem = { to: "/arenden", label: "Ärenden", icon: "list" };
 const RAPPORTER: NavItem = { to: "/rapporter", label: "Rapporter", icon: "file" };
+/** Rapportbyggaren (rapporter steg 4) – samordnare, avtalsansvarig och chef, direkt efter Rapporter. */
+const BYGG: NavItem = { to: "/rapportbyggare", label: "Bygg rapport", icon: "chart" };
 const PRAKTIK: NavItem = { to: "/praktik", label: "Arbetsgivare och praktik", icon: "briefcase" };
 const AVVIKELSER: NavItem = { to: "/avtalsavvikelser", label: "Avtalsavvikelser", icon: "flag" };
 const LOGG: NavItem = { to: "/admin/logg", label: "Revisionslogg", icon: "book" };
@@ -41,11 +43,11 @@ const fakturakorning = ({ now }: NavContext): NavItem | null => {
 const NAV_DEF: Record<SupplierRole, NavGroupDef[]> = {
   samordnare: [
     { label: "Arbete", items: [START, INKORG, FORFALLER, ARENDEN] },
-    { label: "Uppföljning", items: [RAPPORTER, PRAKTIK] },
+    { label: "Uppföljning", items: [RAPPORTER, BYGG, PRAKTIK] },
   ],
   avtalsansvarig: [
     { label: "Arbete", items: [START, INKORG, FORFALLER, ARENDEN] },
-    { label: "Avtalet", items: [RAPPORTER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }] },
+    { label: "Avtalet", items: [RAPPORTER, BYGG, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }] },
   ],
   coach: [
     {
@@ -70,7 +72,7 @@ const NAV_DEF: Record<SupplierRole, NavGroupDef[]> = {
   ],
   chef: [
     { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER] },
-    { label: "Insyn", items: [ARENDEN, RAPPORTER, LOGG] },
+    { label: "Insyn", items: [ARENDEN, RAPPORTER, BYGG, LOGG] },
   ],
   ekonom: [{ label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning] }],
   admin: [

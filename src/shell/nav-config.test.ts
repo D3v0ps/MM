@@ -8,11 +8,11 @@ describe("navFor – samma meny som prototypens NAV", () => {
   it("samordnare", () => {
     expect(labels("samordnare")).toEqual([
       ["Arbete", ["Startsida /start", "Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Ärenden /arenden"]],
-      ["Uppföljning", ["Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Uppföljning", ["Rapporter /rapporter", "Bygg rapport /rapportbyggare", "Arbetsgivare och praktik /praktik"]],
     ]);
   });
   it("avtalsansvarig", () => {
-    expect(labels("avtalsansvarig")[1]).toEqual(["Avtalet", ["Rapporter /rapporter", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare"]]);
+    expect(labels("avtalsansvarig")[1]).toEqual(["Avtalet", ["Rapporter /rapporter", "Bygg rapport /rapportbyggare", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare"]]);
   });
   it("coach och handledare", () => {
     expect(labels("coach")).toEqual([
@@ -24,7 +24,7 @@ describe("navFor – samma meny som prototypens NAV", () => {
   it("chef och admin", () => {
     expect(labels("chef")).toEqual([
       ["Ledning", ["Ledningsvy /ledning", "Avtalsavvikelser /avtalsavvikelser", "Förfaller /forfaller #deadlines"]],
-      ["Insyn", ["Ärenden /arenden", "Rapporter /rapporter", "Revisionslogg /admin/logg"]],
+      ["Insyn", ["Ärenden /arenden", "Rapporter /rapporter", "Bygg rapport /rapportbyggare", "Revisionslogg /admin/logg"]],
     ]);
     expect(labels("admin")[0][1]).toEqual([
       "Avtal och konfiguration /admin/avtal",
@@ -60,6 +60,19 @@ describe("portalens meny (KOM_NAV)", () => {
     expect(chef(null)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
     // Handläggaren har aldrig menyvalet
     expect(portalNavFor("kommun_handlaggare", { resultFile: true }).map((i) => i.to)).not.toContain("/portal/resultat");
+  });
+});
+
+describe("rapportbyggaren (rapporter steg 4)", () => {
+  it("Bygg rapport direkt efter Rapporter – bara samordnare, avtalsansvarig och chef", () => {
+    const has = (role: Parameters<typeof navFor>[0]) => navFor(role, { now: "2027-02-01T09:12" }).flatMap((g) => g.items.map((i) => i.to)).includes("/rapportbyggare");
+    expect(["samordnare", "avtalsansvarig", "chef"].map((r) => has(r as never))).toEqual([true, true, true]);
+    expect(["coach", "handledare", "ekonom", "admin"].map((r) => has(r as never))).toEqual([false, false, false, false]);
+    // Rapportbyggaren och rapportlistan är olika menyval.
+    expect(activePath("/rapportbyggare/sr-1", ["/rapporter", "/rapportbyggare"])).toBe("/rapportbyggare");
+    expect(activePath("/rapporter/rep-1", ["/rapporter", "/rapportbyggare"])).toBe("/rapporter");
+    // Kommunens delade rapporter ligger under Hämta resultat (ingen ny menyrad).
+    expect(activePath("/portal/resultat/rapporter/sr-1", PORTAL_NAV.kommun_chef.map((i) => i.to))).toBe("/portal/resultat");
   });
 });
 
