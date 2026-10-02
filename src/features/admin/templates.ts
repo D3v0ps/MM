@@ -31,6 +31,8 @@ export type TemplateDef = {
   updatedAt: string;
   /** Portalvarianten av den generiska bekräftelsen skickas med samma mallnyckel men har egen text. */
   variantOf?: string;
+  /** Texten är fast i koden och kan inte ändras i adminvyn (inloggningskoden – mejlet byggs av servern). */
+  fixed?: boolean;
 };
 
 const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
@@ -76,6 +78,10 @@ export const TEMPLATES: readonly TemplateDef[] = [
   // src/features/rost/texts.ts) – bara länken, inget namn och inget ärendenummer. Länkens giltighet kommer från avtalet.
   { key: "rostlank", name: "Inspelningslänk till deltagaren", channel: "sms", alsoVia: ["email"], from: "Miljonbemanning (SMS) eller notis@miljonmatch.se (e-post)", to: "Deltagaren – via föredragen kontaktväg (SMS eller e-post). Aldrig vid skyddade personuppgifter.", when: "När coachen skickar en inspelningslänk från deltagarkortet", subject: "Spela in ett meddelande till din coach", body: "Hej! Din coach på Miljonbemanning vill gärna höra hur det går. Spela in ett kort meddelande på ditt språk. Det är frivilligt. Länken gäller i {antal_dagar} dagar och kan bara användas en gång: {lank}", version: 1, updatedAt: "2026-09-30T12:00" },
   { key: "inbjudan_kommun", name: "Inbjudan till portalen", channel: "email", from: "notis@miljonmatch.se", to: "Ny kommunanvändare", when: "När avtalsansvarig bjuder in en kommunanvändare", subject: "Inbjudan till Miljonbemannings portal", body: "Du har bjudits in till Miljonbemannings portal för beställare. Logga in på {lank} med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.", version: 1, updatedAt: "2026-09-08T11:00" },
+  // Inloggningskoden (beslut 2026-10-02): appen tar fram koden och skickar mejlet direkt (src/server/auth/code-mail.ts) – inte via
+  // kön, eftersom koden aldrig får sparas. Ingen länk (Safe Links förbrukar länkar). Texten är fast: samma som mejlet
+  // (src/server/notify/render.ts, renderLoginCodeEmail). Utskicksloggen visar "Inloggningskod skickad (••••••)" – aldrig koden.
+  { key: "inloggningskod", name: "Inloggningskod", channel: "email", from: "notis@miljonmatch.se", to: "Den som loggar in med e-post – Miljonbemannings personal och kommunens användare", when: "När någon ber om en kod på inloggningssidan. Skickas direkt – inte via kön – och koden sparas aldrig", subject: "Din inloggningskod till Miljonmatch", body: "Här är din inloggningskod:\n\n{kod}\n\nSkriv in koden på inloggningssidan i Miljonmatch för att logga in. Gäller i 10 minuter och kan användas en gång.\n\nHar du inte bett om en kod? Då kan du strunta i det här mejlet. Ingen kan logga in utan koden.\n\nLämna aldrig ut koden till någon annan – inte heller till någon som säger att de ringer från Miljonbemanning. Vi frågar aldrig efter den.", version: 1, updatedAt: "2026-10-02T12:00", fixed: true },
 ];
 
 export const templateDef = (key: string): TemplateDef | null => TEMPLATES.find((t) => t.key === key) ?? null;
@@ -97,6 +103,8 @@ export const templateLabel = (key: string | null | undefined): string => TPL_NAM
 // ---------------------------------------------------------------- Kontroll "Innehåller inga personuppgifter"
 export const ALLOWED_PLACEHOLDERS = ["arendenummer", "lank", "svar_senast", "datum", "tid", "plats", "telefon", "rapporttyp", "antal_veckor", "antal_dagar", "vecka"] as const;
 const EXAMPLE: Record<string, string> = {
+  // {kod} finns bara i den fasta mallen för inloggningskoden (den är inte en tillåten platshållare i andra mallar).
+  kod: "418302",
   arendenummer: "BOT-27-0049", lank: "https://portal.miljonbemanning.se", svar_senast: fmtDateTimeLong("2027-02-02T08:41"), datum: "onsdag 3 februari",
   tid: "10.00", plats: "Alby", telefon: "08-000 00 00", rapporttyp: "Månadsrapport individ", antal_veckor: "2", antal_dagar: "7", vecka: "vecka 4",
 };

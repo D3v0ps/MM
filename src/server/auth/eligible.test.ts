@@ -17,7 +17,7 @@ vi.mock("../live", () => ({
   },
   loginGate: () => null,
 }));
-vi.mock("../supabase", () => ({ serviceClient: () => ({}), anonClient: () => ({}) }));
+vi.mock("../supabase", () => ({ serviceClient: () => ({}) }));
 const { eligibleForCode } = await import("./service");
 
 const STAGING: AppSettings = { environment: "staging", clock: { mode: "real", realEpochMs: null, demoEpoch: null } } as unknown as AppSettings;

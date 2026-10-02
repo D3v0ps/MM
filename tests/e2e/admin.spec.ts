@@ -331,6 +331,13 @@ test("mallar: personuppgiftskontroll, ny version och utskickslogg", async ({ pag
   await expect(main(page)).toContainText("Version 3");
   await expect(main(page)).toContainText("Tidigare versioner");
   await expect(main(page)).toContainText("Version 3 · 1 feb kl. 09.13 · Robin Åberg");
+  // Inloggningskoden (beslut 2026-10-02): fast text som servern bygger – visas, men kan inte ändras här.
+  await btn(page, /Inloggningskod/).click();
+  await expect(main(page)).toContainText("Fast text – mejlet byggs av servern");
+  await expect(main(page)).toContainText("Din inloggningskod till Miljonmatch");
+  await expect(main(page)).toContainText("418302");
+  await expect(page.locator("#tpl-body")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Spara som version/ })).toHaveCount(0);
   await page.getByRole("tab", { name: /Utskickslogg/ }).click();
   await expect(main(page)).toContainText("Kontroll: inga utskick innehåller namn eller personnummer");
   await switchTo(page, info, "/admin/mallar?flik=logg", ROBIN);

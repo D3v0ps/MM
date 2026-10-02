@@ -1,6 +1,7 @@
 // Hastighetsbegränsning för inloggningen (SPEC §4): per adress och per IP, med hashade värden i login_attempts
 // (email_hash, ip_hash, attempted_at, kind). Adressen och IP-adressen sparas eller loggas aldrig i klartext.
 import { createHmac } from "node:crypto";
+import { CODE_VALID_MINUTES } from "./email";
 
 export type AttemptKind = "code" | "verify_failed" | "verify_ok";
 export type Hashes = { emailHash: string; ipHash: string };
@@ -31,7 +32,12 @@ export type AttemptStore = {
   record(a: { kind: AttemptKind; at: string } & Hashes): Promise<void>;
 };
 
-/** Gränserna. Koden gäller 10 minuter och får prövas högst 5 gånger (Supabase Auth begränsar dessutom själv). */
+/**
+ * Gränserna per adress och IP (mm.login_attempt_gate får dem som p_limits). Koden gäller 10 minuter och får prövas högst
+ * 5 gånger. Supabase Auth begränsar själv bara prövningen av koden (/verify) – inte utskicken: appen tar fram koden med
+ * auth.admin.generateLink, som saknar egen spärr, och Supabase skickar inget mejl (så dess gräns för e-post gäller inte).
+ * Spärrarna här och taket för hela appen (CODE_MAILS_PER_HOUR) är därför de enda för kodmejlen.
+ */
 export const LIMITS = {
   windowMinutes: 15,
   codesPerEmail: 5,
@@ -39,6 +45,14 @@ export const LIMITS = {
   attemptsPerCode: 5,
   failedPerIp: 30,
 } as const;
+
+/**
+ * Taket för hela appen: högst så här många kodmejl per timme, oavsett adress och IP (src/server/auth/code-mail.ts räknar
+ * utskicksloggens rader). Samma som Supabase Auths gräns för e-post (30 per timme) när Supabase skickade koden. Över taket
+ * blir svaret detsamma, men ingen kod tas fram och inget mejl skickas – så att ingen kan tömma Resend-kontots kvot (som
+ * notiserna delar) eller hålla många giltiga koder i omlopp samtidigt.
+ */
+export const CODE_MAILS_PER_HOUR = 30;
 
 export const hmac = (secret: string, kind: "email" | "ip", value: string): string => createHmac("sha256", secret).update(`${kind}:${value}`).digest("hex");
 
@@ -67,8 +81,8 @@ export async function checkCodeRequest(store: AttemptStore, h: Hashes, nowMs: nu
 export async function checkVerify(store: AttemptStore, h: Hashes, nowMs: number): Promise<"ok" | "too_many_attempts" | "rate_limited"> {
   const window = iso(nowMs - LIMITS.windowMinutes * 60_000);
   const lastCode = await store.lastAt({ kind: "code", emailHash: h.emailHash });
-  // Försöken räknas sedan den senaste koden skickades – högst 10 minuter bakåt (äldre koder har gått ut).
-  const codeSince = iso(Math.max(lastCode ?? 0, nowMs - 10 * 60_000));
+  // Försöken räknas sedan den senaste koden skickades – högst kodens giltighetstid (10 minuter) bakåt (äldre koder har gått ut).
+  const codeSince = iso(Math.max(lastCode ?? 0, nowMs - CODE_VALID_MINUTES * 60_000));
   const [failedForCode, failedByIp] = await Promise.all([
     store.count({ kind: "verify_failed", since: codeSince, emailHash: h.emailHash }),
     store.count({ kind: "verify_failed", since: window, ipHash: h.ipHash }),

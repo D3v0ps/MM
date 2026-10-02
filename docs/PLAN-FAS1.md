@@ -53,7 +53,7 @@ Särskilt: RLS döljer rader, inte kolumner. Kommunen får därför inte läsa a
 ## 4. Inloggning
 
 - **Miljonbemanning:** Microsoft Entra ID via Supabase Auth (Azure-leverantören). Bara inbjudna konton, MFA styrs av M365.
-- **Kommunen:** e-post + sexsiffrig kod (inte länk – Safe Links förbrukar länkar). Koden gäller 10 minuter, max 5 försök, hastighetsbegränsning per adress och IP, tillåtna domäner per beställare. Utloggning efter 60 minuters inaktivitet, max 12 timmar. Kräver egen SMTP i Supabase Auth.
+- **Kommunen:** e-post + sexsiffrig kod (inte länk – Safe Links förbrukar länkar). Koden gäller 10 minuter, max 5 försök, hastighetsbegränsning per adress och IP, tillåtna domäner per beställare. Utloggning efter 60 minuters inaktivitet, max 12 timmar. (Beslut 2026-10-02: appen tar fram koden med Supabase Auth och skickar mejlet själv via Resend – ingen SMTP i Supabase Auth behövs, `docs/UTSKICK.md`.)
 - Next.js `proxy.ts` kräver inloggning för allt utom portalens inloggning och pulslänken. Utvecklingslägets testpersonväljare stängs av i produktion.
 
 ## 5. Personnummer

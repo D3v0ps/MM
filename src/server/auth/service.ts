@@ -1,7 +1,8 @@
 // Inloggning med e-post och sexsiffrig kod (SPEC §4) i supabase-läget. Används av /api/auth/*.
 //   1. requestCode: svarar alltid likadant. Utskicket görs efter svaret (after), så att svarstiden inte avslöjar om
 //      adressen finns. Koden skickas bara till en aktiv profil med roll, tillåten domän och – i testmiljön – adress i
-//      MM_EMAIL_ALLOWLIST. Supabase Auth skickar mejlet via egen SMTP (Resend).
+//      MM_EMAIL_ALLOWLIST. Servern tar fram koden (generateLink, service role) och skickar mejlet själv via Resend
+//      (code-mail.ts, beslut 2026-10-02) – Supabase Auth skickar inga mejl.
 //   2. verifyCode: högst 5 försök per kod, hastighetsbegränsning per adress och IP, kopplar profiles.auth_user_id,
 //      revisionslogg auth.login / auth.login_failed (bara id:n).
 // Gränserna kontrolleras och försöket registreras i samma transaktion i databasen (loginGate, migration 0012) – innan
@@ -16,8 +17,11 @@ import { clockNow } from "../clock";
 import { emailAllowlist, loginHashSecret, staffEmailDomains } from "../config";
 import { loginGate, profileByEmail } from "../live";
 import { loadAppSettings, type AppSettings } from "../settings";
-import { anonClient, serviceClient } from "../supabase";
-import { allowedByList, AUTH_TEXT, domainAllowed, isValidEmail, normalizeEmail } from "./email";
+import { notifyEnv } from "../notify/config";
+import type { FetchLike } from "../notify/resend";
+import { serviceClient } from "../supabase";
+import { logCode, sendLoginCode } from "./code-mail";
+import { allowedByList, AUTH_TEXT, CODE_VALID_MINUTES, domainAllowed, isValidEmail, normalizeEmail } from "./email";
 import { sessionIdFromClaims } from "../session-policy";
 import { hashesFor } from "./rate-limit";
 
@@ -34,9 +38,6 @@ export function sessionIdOfToken(accessToken: string | null | undefined): string
 }
 
 const fail = (status: number, error: Extract<AuthResult, { ok: false }>["error"], message: string): AuthResponse => ({ status, body: { ok: false, error, message } });
-
-/** Loggrad utan personuppgifter. */
-const logCode = (step: string, code: unknown) => console.error("inloggning", step, typeof code === "string" ? code : "okänt");
 
 async function audit(service: SupabaseClient, now: LocalDateTime, e: { action: string; actorId: string | null; entityId: string | null; contractId: string | null; details?: Record<string, unknown> }) {
   await appRepo(service)
@@ -68,13 +69,31 @@ async function sendCode(email: string) {
   const created = await service.auth.admin.createUser({ email, email_confirm: true, ...(profile.authUserId ? { id: profile.authUserId } : {}) });
   if (created.error) {
     const code = created.error.code ?? "";
-    if (code !== "email_exists" && code !== "user_already_exists") logCode("skapa-konto", code || created.error.status?.toString());
+    if (code !== "email_exists" && code !== "user_already_exists") {
+      // Kontot kunde inte skapas: ingen kod. (generateLink skulle annars skapa ett eget konto – ingen självregistrering.)
+      logCode("skapa-konto", code || created.error.status?.toString());
+      return;
+    }
   } else if (created.data.user && profile.authUserId !== created.data.user.id) {
     const { error } = await service.from("profiles").update({ auth_user_id: created.data.user.id }).eq("id", profile.id);
     if (error) logCode("koppla-konto", error.code);
   }
-  const { error } = await anonClient().auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-  if (error) logCode("skicka-kod", error.code ?? String(error.status ?? ""));
+  // Koden tas fram av Supabase Auth (utan mejl) och skickas av appen – aldrig omdirigerad, aldrig sparad (code-mail.ts).
+  const env = notifyEnv();
+  await sendLoginCode(
+    {
+      admin: service.auth.admin,
+      // service role: utskicksloggen skrivs bara av systemet.
+      log: appRepo(service),
+      resend: env.resend,
+      fetch: globalThis.fetch as unknown as FetchLike,
+      now: clockNow(settings.clock, Date.now()),
+      newId: (prefix) => `${prefix}-${crypto.randomUUID()}`,
+      testEnvironment: settings.environment !== "production",
+      validMinutes: CODE_VALID_MINUTES,
+    },
+    email,
+  );
 }
 
 /** POST /api/auth/code */

@@ -29,6 +29,7 @@ handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
       subject: last ? last.subject : (t.subject ?? ""), body: last ? last.body : t.body, version: last ? last.version : t.version,
       updatedAt: last ? last.savedAt : t.updatedAt, updatedByName: last ? name(last.savedBy) : baseAuthor === "–" ? "" : baseAuthor,
       variantOf: t.variantOf ?? null,
+      fixed: !!t.fixed,
       history: hist.slice().reverse().map((h) => ({ version: h.version, savedAt: h.savedAt, savedByName: name(h.savedBy) })),
       baseVersion: t.version, baseUpdatedAt: t.updatedAt,
     };
@@ -58,6 +59,8 @@ handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
 handleCommand(adminSaveTemplate, { roles: TEMPLATE_EDITORS }, async (ctx, p) => {
   const base = templateDef(p.key);
   if (!base) return fail("not_found", "Mallen finns inte.");
+  // Inloggningskoden byggs av servern (src/server/notify/render.ts) – en ny version här skulle inte ändra mejlet.
+  if (base.fixed) return fail("fixed", "Mallen har en fast text och kan inte ändras här.");
   const subject = String(p.subject || "");
   const body = String(p.body || "");
   if (!body.trim()) return fail("empty", "Texten får inte vara tom.");

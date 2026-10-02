@@ -214,8 +214,15 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(19);
+    expect(d.templates).toHaveLength(20);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
+    // Inloggningskoden (beslut 2026-10-02): e-post från appen, fast text, ingen länk – bara {kod} (fylls i av servern).
+    expect(t("inloggningskod")).toMatchObject({ name: "Inloggningskod", channel: "email", alsoVia: [], from: "notis@miljonmatch.se", subject: "Din inloggningskod till Miljonmatch", fixed: true, version: 1 });
+    expect(t("inloggningskod").to).toMatch(/personal.*kommunens användare/);
+    expect(t("inloggningskod").body).not.toMatch(/\{lank\}|https?:/);
+    expect(templateCheck(t("inloggningskod").body)).toMatchObject({ ok: true, unknown: ["{kod}"] });
+    expect(fillExample(t("inloggningskod").body)).toContain("\n418302\n");
+    expect(d.templates.filter((x) => x.fixed).map((x) => x.key)).toEqual(["inloggningskod"]);
     // Deltagarens inspelningslänk: samma text som rost.linkSend skickar, och mallen klarar kontrollen av personuppgifter.
     expect(t("rostlank")).toMatchObject({ name: "Inspelningslänk till deltagaren", channel: "sms", alsoVia: ["email"], subject: "Spela in ett meddelande till din coach" });
     expect(t("rostlank").body.replace("{antal_dagar}", "7").replace("{lank}", "/rost/x")).toBe(`${linkMessageText(7)} /rost/x`);
@@ -235,6 +242,20 @@ describe("mallar och utskick", () => {
     expect(d.sendLog[1]).toMatchObject({ channel: "sms", to: "070-*** ** 12", caseNumber: "BOT-26-0143" });
   });
 
+  it("utskicksloggen visar inloggningskoden rimligt: mallens namn, mottagaren och texten utan koden", async () => {
+    // Samma rad som src/server/auth/code-mail.ts skriver i supabase-läget (minnesläget skickar inga koder).
+    rt.store.insertRow("outbound_messages", {
+      id: "out-kod-1", createdAt: "2027-02-01T09:20", channel: "email", to: "karim.khalil@miljonbemanning.se", template: "inloggningskod",
+      subject: "Din inloggningskod till Miljonmatch", body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", caseId: null, status: "sent", sentAt: "2027-02-01T09:20",
+      statusReason: null, providerMessageId: "re-1",
+    });
+    const d = await rt.query(adminTemplates, {}, robin());
+    expect(d.sendLog[0]).toEqual({
+      id: "out-kod-1", at: "2027-02-01T09:20", channel: "email", to: "karim.khalil@miljonbemanning.se", templateLabel: "Inloggningskod", caseNumber: null,
+      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false,
+    });
+  });
+
   it("personuppgiftskontrollen stoppar mallar med namn, personnummer eller adress", async () => {
     expect(templateCheck("Hej {namn}! Svara: {lank}")).toMatchObject({ ok: false, pii: ["{namn}"], unknown: [] });
     expect(templateCheck("Ditt personnummer 19900101-1234")).toMatchObject({ ok: false, pnr: true });
@@ -243,6 +264,9 @@ describe("mallar och utskick", () => {
     expect(await rt.command(adminSaveTemplate, { key: "pulslank", subject: "", body: "Hej {personnummer}" }, robin())).toMatchObject({ ok: false, error: "personal_data" });
     expect(await rt.command(adminSaveTemplate, { key: "pulslank", subject: "", body: "  " }, robin())).toMatchObject({ ok: false, error: "empty" });
     expect(await rt.command(adminSaveTemplate, { key: "finns_inte", subject: "", body: "x" }, robin())).toMatchObject({ ok: false, error: "not_found" });
+    // Inloggningskodens text är fast (mejlet byggs av servern) – en ny version sparas inte.
+    expect(await rt.command(adminSaveTemplate, { key: "inloggningskod", subject: "Din kod", body: "Koden: {kod}" }, robin())).toMatchObject({ ok: false, error: "fixed" });
+    expect(rt.rows("template_versions")).toEqual([]);
   });
 
   it("ny version sparas (version 3) och syns i vyn; samordnaren läser men sparar inte", async () => {

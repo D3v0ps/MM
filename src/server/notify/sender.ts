@@ -47,7 +47,10 @@ export async function deliverMessage(deps: SenderDeps, messageId: string, body?:
   // Testmiljön: mejl till en testperson går till testarens adress, med en rad om vem det skulle ha gått till (roll och organisation).
   const redirected = decision.action === "redirect";
   const note = redirected ? redirectNote(await intendedRecipient(deps.repo, row)) : null;
-  const mail = renderEmail(body ? { ...row, body } : row, { ...deps.render, testEnvironment: deps.gate.environment !== "production", redirectNote: note });
+  // Foten nämner svarsadressen (MM_EMAIL_REPLY_TO) när den finns – samma som Resend får som reply_to.
+  const mail = renderEmail(body ? { ...row, body } : row, {
+    ...deps.render, testEnvironment: deps.gate.environment !== "production", redirectNote: note, replyTo: deps.resend.replyTo ?? null,
+  });
   const to = redirected ? decision.to : row.to.trim();
   const res = await sendViaResend(deps.fetch, deps.resend, { ...mail, to, idempotencyKey: row.id, template: row.template });
   await t.update(row.id, { status: "sent", sentAt: deps.now, statusReason: redirected ? REASON.redirected : null, providerMessageId: res.id || null });
