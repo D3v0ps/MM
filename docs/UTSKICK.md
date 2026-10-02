@@ -1,6 +1,6 @@
 # Utskick och bakgrundsjobb
 
-*Version 2026-09-30. Gäller supabase-läget (testmiljön och senare produktion). Prototypen och minnesläget sparar utskicken direkt i minnet och skickar inget.*
+*Version 2026-10-02. Gäller supabase-läget (testmiljön och senare produktion). Prototypen och minnesläget sparar utskicken direkt i minnet och skickar inget.*
 
 ## Översikt
 
@@ -18,6 +18,7 @@ src/server/jobs    runJobs()  ◄── POST /api/jobs/run  ◄── pg_cron i 
 ```
 
 - Texten i ett utskick kommer alltid från hanteraren och innehåller bara ärendenummer och "logga in" (CLAUDE.md punkt 9). Mallen ramar bara in texten och lägger till en knapp till portalen.
+- **Undantag: inloggningskoden** går inte via kön. Appen tar fram koden hos Supabase Auth och skickar mejlet direkt med Resend, eftersom koden aldrig får sparas – inte heller i jobbets payload (avsnittet "Inloggningskoden" nedan).
 - All logik körs i Next.js på Vercel (arn1). Supabase anropar bara `/api/jobs/run` – utan personuppgifter.
 - Loggarna innehåller aldrig adresser, texter eller personnummer – bara feltyper och antal.
 
@@ -57,7 +58,7 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 - Överst i mejlet står en tydlig rad: "Testmiljö – det här mejlet skulle ha gått till kommunens handläggare på Botkyrka kommun." Raden visar roll och organisation (eller "deltagaren i ärende BOT-27-0049") – aldrig testpersonens adress eller namn. Knappen i mejlet är den mottagaren skulle ha fått (portalen för kommunen, appen för personalen).
 - Kontrollen av personnummer och adressformat gäller som vanligt – sådana utskick stoppas, de skickas inte om.
 - **Aldrig i produktion:** omdirigeringen gäller bara när `app_settings.environment = 'staging'`. I produktion, och i en databas utan miljörad, ignoreras variabeln. Lämna den tom i produktion.
-- Inloggningskoderna påverkas inte (de skickas av Supabase Auth och bara till adresserna i `MM_EMAIL_ALLOWLIST`).
+- Inloggningskoderna omdirigeras **aldrig**: koden går bara till den som loggar in, och i testmiljön bara till adresserna i `MM_EMAIL_ALLOWLIST` (`src/server/auth/code-mail.ts`).
 
 ## Svarsadress (`MM_EMAIL_REPLY_TO`)
 
@@ -74,9 +75,21 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 
 ## Mallar
 
-### Appens mejl (`src/server/notify/render.ts`, `templates.ts`)
-- Enkel HTML (tabeller, inbäddade stilar) och ren text. Inga bilder, inga spårningspixlar, inga externa typsnitt.
-- MB:s profil: antracit sidhuvud med ordmärket MILJONMATCH och röd punkt, rubrik i versaler (ämnesraden), texten i antracit på vitt (16 px), knapp i antracit med vit text, fot på ljusgrått.
+### Layouten – samma för alla mejl (`src/server/notify/render.ts`, beslut 2026-10-02)
+Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna och inloggningskoden har samma ram:
+- Ljusgrå bakgrund (`#D1D3D3`) och ett vitt kort (högst 560 px brett) med en 4 px röd linje överst (`#FF0C01`).
+- Ordmärket "Miljonbemanning" med röd punkt och "MILJONMATCH" under.
+- Rubrik i 24 px (notiserna: ämnesraden, kodmejlet: "Här är din inloggningskod"), brödtext 16 px antracit på vitt.
+- Knappen till portalen eller appen: antracit med vit text, 48 px hög, och länken som text under ("Fungerar inte knappen? Skriv in adressen i webbläsaren:"). Kodmejlet har ingen knapp och ingen länk.
+- Antracit fot: "Miljonbemanning AB." och "Det här mejlet skickades automatiskt från Miljonmatch." följt av "Det går inte att svara på det." – eller, när `MM_EMAIL_REPLY_TO` är satt, "Svar går till avrop@miljonbemanning.se.". Notiserna har dessutom raden "Skriv inte personnummer eller andra personuppgifter i e-post. Använd ärendenumret."
+- Testmiljön: överst i kortet raden om omdirigeringen (om `MM_EMAIL_REDIRECT_TO` används) och den blå banderollen "TESTMILJÖ – påhittade testdata. Mejlet går bara till testarna."; ämnesraden börjar med `[Testmiljö]`.
+- Alltid HTML **och** ren text (multipart), förtext (preheader), `lang="sv"`, `role="presentation"` på layouttabellerna. Inga bilder, inga externa typsnitt (Montserrat om det finns, annars Arial), inga spårningspixlar. Bara MB:s färger – blå bara som yta eller kantlinje, aldrig som text.
+- Förtexten för notiserna är första stycket, högst 110 tecken: längre text klipps efter sista hela meningen (om den räcker till minst halva längden), annars efter sista hela ordet med " …" – aldrig mitt i ett ord eller en adress (`preheaderOf`).
+- Ärendenummer (BOT-27-0049) bryts aldrig över två rader.
+- Får plats utan vågrät rullning från 320 px bredd (kodens ruta: 40 px kod med 8 px spärrning). `tests/e2e/mejl.spec.ts` kontrollerar 320, 360, 380 och 700 px och att knappen är minst 44 px hög.
+- Outlook för Windows (Word-motorn) stöder inte `max-width` eller utfyllnad på länkar: kortet ligger i en villkorad tabell med fast bredd 560 px (`<!--[if mso]>`), och knappens cell får samma utfyllnad med `mso-padding-alt` – så knappen blir 48 px hög även där (där är bara texten klickbar). Inte provat i Outlook – byggt efter hur Word-motorn är dokumenterad.
+
+### Notiserna (`templates.ts`)
 - Knappen: Miljonbemannings personal (domänerna i `MM_STAFF_EMAIL_DOMAINS`) → `MM_APP_URL/`, alla andra → `MM_APP_URL/portal`. Deltagaren får ingen länk. Utan `MM_APP_URL` blir det ingen knapp.
 - Ämnesraderna kommer från prototypens mallkatalog och innehåller högst ärendenumret:
 
@@ -98,33 +111,35 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 | `inbjudan_kommun` | Inbjudan till Miljonbemannings portal |
 | `kallelse` | Kallelse till första möte |
 | `rostlank` | Spela in ett meddelande till din coach |
+| `inloggningskod` | Din inloggningskod till Miljonmatch (skickas direkt, inte via kön – nästa avsnitt) |
 | okänd mall eller saknat ärende | Meddelande från Miljonmatch |
 
 **Deltagarens inspelningslänk (`rostlank`):** skickas via deltagarens föredragna kontaktväg och aldrig vid skyddade personuppgifter (hanteraren `rost.linkSend`). Texten innehåller bara länken – inget namn och inget ärendenummer. Hanteraren skriver sökvägen `/rost/<token>`; `queueMessage` gör den till en fullständig adress med `MM_APP_URL` (`https://www.miljonmatch.se/rost/<token>`). Token är behörigheten och sparas **aldrig** i `outbound_messages.body` – där står `…/rost/•••••` (`src/core/link-tokens.ts`, samma i minnesläget). Ett mejl som ska skickas har hela texten i jobbets `payload.body` tills utskicket är avgjort (skickat, stoppat eller misslyckat); då tas den bort. Utskick till deltagare har i dag platshållaren `deltagare (SMS)`/`deltagare (e-post)` som mottagare och stoppas därför (`suppressed`) – SMS-leverantör och uppslag av deltagarens adress återstår.
 
-Foten: "Det här mejlet skickades automatiskt från Miljonmatch, Miljonbemanning AB. Skriv inte personnummer eller andra personuppgifter i e-post. Använd ärendenumret."
+### Inloggningskoden – appen skickar den själv (`src/server/auth/code-mail.ts`, beslut 2026-10-02)
+Tidigare bad servern Supabase Auth skicka koden (`signInWithOtp`). Supabase använde då sin egen mall, som måste klistras in för hand – i testmiljön kom Supabases engelska standardmall med en länk i stället för koden, länken pekade på localhost och Microsofts länkskanner förbrukade den. Nu:
+1. `POST /api/auth/code` svarar alltid likadant. Efter svaret (`after()`) prövas spärrarna (`eligibleForCode`: aktiv profil med roll, tillåten domän och – i testmiljön – adressen i `MM_EMAIL_ALLOWLIST`). Hastighetsbegränsningen (5 koder per adress och 20 per IP på 15 minuter) är oförändrad. Dessutom finns ett **tak för hela appen: högst 30 kodmejl per timme**, oavsett adress och IP (`CODE_MAILS_PER_HOUR` i `src/server/auth/rate-limit.ts`). Supabase Auth har ingen spärr på `generateLink` och skickar inget mejl, så Supabases gräns för e-post (30 per timme) gäller inte längre – appens spärrar är de enda. Taket hindrar att någon som känner till många behöriga adresser tömmer Resend-kontots kvot (som notiserna delar) eller håller många giltiga koder i omlopp.
+2. Servern ber Supabase Auth ta fram koden: `auth.admin.generateLink({ type: "magiclink", email })` med service role. Supabase skickar då **inget** mejl. Koden står i `properties.email_otp`; länken (`action_link`, `hashed_token`) används aldrig och skickas aldrig.
+3. Mejlet skickas **direkt** med Resend (`RESEND_API_KEY`, avsändare `MM_EMAIL_FROM`, Idempotency-Key = radens id, ingen svarsadress – ett svar skulle citera koden). Det går bara till den som loggar in – aldrig omdirigerat med `MM_EMAIL_REDIRECT_TO`.
+4. **Varför inte via kön:** kön sparar texten i `outbound_messages` och jobbets payload tills mejlet skickats. Koden sparas aldrig i appens databas, i jobbkön, i loggar eller i revisionsloggen – inte heller en kort stund. Den finns bara i mottagarens brevlåda och i Resends sändlogg: Resend sparar varje skickat mejl och visar det under *Emails*, så den som har åtkomst till Resends instrumentpanel kan se giltiga koder. Bara administratörer får ha åtkomst till Resend-kontot (`docs/DRIFT.md` avsnitt 4.1).
+5. Spårbarhet och taket: raden i `outbound_messages` (mallen `inloggningskod`, mottagaren, ämnet) skrivs **innan** koden tas fram, med status `queued` och texten "Inloggningskod skickas (••••••) …". Sedan räknas raderna den senaste timmen (`queued`, `sent` och `failed`). Är de fler än taket blir raden `suppressed` ("Ingen inloggningskod skickades – taket för hela appen är nått.", orsaken "Taket är nått: högst 30 inloggningskoder per timme för hela appen") och ingen kod tas fram. Samtidiga anrop ser varandras rader, så taket kan aldrig passeras (vid många samtidiga anrop precis vid taket kan något stoppas fast taket inte är helt fullt). Annars blir raden `sent` – "Inloggningskod skickad (••••••). Koden sparas aldrig." – eller `failed` ("Inloggningskoden kunde inte skickas (••••••) …"). Går raden inte att skriva skickas ingen kod (taket kan då inte kontrolleras). Adminvyns utskickslogg visar den som "Inloggningskod". Ingen rad skrivs när spärren stoppar adressen eller kontot i Supabase Auth inte kunde skapas (då skickas ingen kod, och det som skrevs i fältet sparas inte).
+6. Fel: `failed` med orsak – "Supabase Auth gav ingen kod (felkod)", "Supabase Auth gav en kod med fel format (Email OTP Length ska vara 6)", "E-post är inte konfigurerad (…)", "Resend svarade 422 (validation_error)" eller "Resend kunde inte nås …". Vercels logg har bara steg och felkoder (`inloggning skapa-konto …`, `inloggning skapa-kod …`, `inloggning skicka-kod resend`, `inloggning skicka-kod tak`, `inloggning utskickslogg …`). Inga nya försök – användaren ber om en ny kod.
+7. Koden prövas som tidigare med `verifyOtp({ email, token, type: "email" })` (högst 5 försök per kod). Supabase Auth godtar koden från `generateLink` med typen `email`: den kontrollerar både bekräftelse- och återställningstoken (magic link) för adressen.
 
-### Inloggningskoden (`supabase/templates/otp.html`)
-Supabase Auth skickar koden själv via Resend (SMTP, se `docs/DRIFT.md` steg 1.2).
-- *Authentication → Emails → Templates → Magic link* (och *Confirm signup*): ämne `Din inloggningskod till Miljonmatch`, innehåll = hela filen `supabase/templates/otp.html`.
-- Mallen visar bara koden (`{{ .Token }}`), att den gäller i 10 minuter och att man kan strunta i mejlet om man inte bett om en kod. Ingen länk (Safe Links förbrukar länkar).
-- Lokalt med Supabase CLI: i `supabase/config.toml`
-  ```toml
-  [auth.email.template.magic_link]
-  subject = "Din inloggningskod till Miljonmatch"
-  content_path = "./supabase/templates/otp.html"
-  ```
+Mejlet: rubriken "Här är din inloggningskod", koden stort (40 px, monospace, bred spärrning) i en ljusgrå ruta, "Gäller i 10 minuter och kan användas en gång." (`CODE_VALID_MINUTES` i `src/server/auth/email.ts` – samma som *Email OTP Expiration* i Supabase Auth), "Har du inte bett om en kod? Då kan du strunta i det här mejlet. Ingen kan logga in utan koden." och en trygghetsruta med blå kantlinje: "Lämna aldrig ut koden till någon annan …". Ingen länk. Förtexten är "Din kod är … Den gäller i 10 minuter."
+
+**Reserv:** `supabase/templates/otp.html` är samma mejl som Supabase-mall (`{{ .Token }}` i stället för koden). Den genereras från appens kodmejl (`npx tsx scripts/email/generate-otp-template.ts`, testet kontrollerar att de är lika) och används bara om någon återgår till att låta Supabase Auth skicka koden (*Authentication → Emails → Templates → Magic link* och *Confirm signup*, ämne `Din inloggningskod till Miljonmatch`, `docs/DRIFT.md` avsnitt 2.1).
 
 ## Miljövariabler
 
 | Namn | Hemlig | Förklaring |
 |---|---|---|
-| `RESEND_API_KEY` | **ja** | Resends API-nyckel med bara sändrätt för domänen. Saknas den (eller `MM_EMAIL_FROM`) står mejlen kvar i kön och jobbet försöker igen |
+| `RESEND_API_KEY` | **ja** | Resends API-nyckel med bara sändrätt för domänen – för notiserna **och inloggningskoderna**. Saknas den (eller `MM_EMAIL_FROM`) står notiserna kvar i kön och jobbet försöker igen, och inga inloggningskoder skickas (`failed`, "E-post är inte konfigurerad") |
 | `MM_EMAIL_FROM` | | Avsändare: `Miljonmatch <notis@miljonmatch.se>` (beslut 2026-10-01). Domänen måste vara verifierad i Resend |
 | `MM_APP_URL` | | Appens adress utan `/` på slutet – knappen i mejlen |
 | `MM_EMAIL_ALLOWLIST` | | Testmiljön: testarnas hela adresser som får mejl och inloggningskoder, kommatecken emellan – aldrig `@miljonbemanning.se` (avsnittet Spärren för mottagare och `docs/DRIFT.md` avsnitt 11.1). Tom i produktion |
 | `MM_EMAIL_REDIRECT_TO` | | Bara testmiljön: testarens adress som får mejlen till testpersoner (måste finnas i `MM_EMAIL_ALLOWLIST`). Ignoreras i produktion |
-| `MM_EMAIL_REPLY_TO` | | Svarsadress. Produktion: `avrop@miljonbemanning.se`. Tom i testmiljön |
+| `MM_EMAIL_REPLY_TO` | | Svarsadress för notiserna (foten säger då vart svar går). Produktion: `avrop@miljonbemanning.se`. Tom i testmiljön. Kodmejlet har aldrig någon svarsadress |
 | `MM_STAFF_EMAIL_DOMAINS` | | Personalens domäner (länk till appen i stället för portalen). Standard `miljonbemanning.se` |
 | `MM_JOBS_SECRET` | **ja** | Nyckeln för `/api/jobs/run`, minst 16 tecken. Skapa med `openssl rand -base64 32`. Samma värde läggs i Supabase Vault (nedan) |
 
@@ -134,6 +149,7 @@ Konto, domän och DNS: se `docs/DRIFT.md` avsnitt 2. Dessutom:
 - *Domains → miljonmatch.se → Configuration*: stäng av **Click tracking** och **Open tracking**. Spårning skriver om länkarna och lägger in en pixel – det är ett analysverktyg och ska inte användas (CLAUDE.md).
 - API-nyckeln för appen: *Sending access*, bara domänen `miljonmatch.se`.
 - Resend hanterar mottagarnas e-postadresser (personuppgifter om kommunens och Miljonbemannings personal). Teckna Resends personuppgiftsbiträdesavtal (DPA) innan produktion.
+- Resend sparar varje skickat mejl och visar det under *Emails* – även inloggningskoderna i klartext. Bara administratörer (med MFA) får ha åtkomst till Resend-kontot (`docs/DRIFT.md` avsnitt 4.1).
 - Varje mejl skickas med huvudet `Idempotency-Key` = utskickets id. Ett nytt försök med samma utskick inom 24 timmar blir aldrig ett andra mejl.
 - Appen pausar 0,5 sekunder mellan mejlen för att hålla sig under Resends gräns för anrop per sekund. Svar 429 (för många anrop eller kvoten slut) försöks igen senare.
 
@@ -151,7 +167,7 @@ Konto, domän och DNS: se `docs/DRIFT.md` avsnitt 2. Dessutom:
 
 Kör jobben för hand (t.ex. för att testa):
 ```
-curl -X POST -H "Authorization: Bearer $MM_JOBS_SECRET" https://test.miljonmatch.se/api/jobs/run
+curl -X POST -H "Authorization: Bearer $MM_JOBS_SECRET" https://www.miljonmatch.se/api/jobs/run
 ```
 
 ## Schemaläggning: pg_cron + pg_net i Supabase
@@ -168,7 +184,7 @@ create extension if not exists pg_net;
 
 **2. Spara adressen och nyckeln i Vault** (byt ut värdena):
 ```sql
-select vault.create_secret('https://test.miljonmatch.se', 'mm_app_url', 'Appens adress för /api/jobs/run');
+select vault.create_secret('https://www.miljonmatch.se', 'mm_app_url', 'Appens adress för /api/jobs/run');
 select vault.create_secret('<samma värde som MM_JOBS_SECRET i Vercel>', 'mm_jobs_secret', 'Nyckel för /api/jobs/run');
 ```
 
@@ -209,7 +225,7 @@ where jobid = (select jobid from cron.job where jobname = 'mm-jobs-run') order b
 select status_code, timed_out, error_msg, created from net._http_response order by created desc limit 5;
 ```
 
-**Byta adress** (t.ex. när den egna domänen är på plats):
+**Byta adress** (t.ex. när produktionen tar över `miljonmatch.se` och testmiljön flyttar till `test.miljonmatch.se`, SPEC §11):
 ```sql
 select vault.update_secret((select id from vault.secrets where name = 'mm_app_url'), 'https://test.miljonmatch.se');
 ```
@@ -244,7 +260,7 @@ select created_at, channel, template, status, status_reason, sent_at from outbou
 -- Jobben
 select kind, status, attempts, run_after, last_error from jobs order by created_at desc limit 20;
 ```
-I Resend: *Emails* visar varje mejl som skickats och om det levererats.
+I Resend: *Emails* visar varje mejl som skickats och om det levererats – även inloggningskoderna i klartext (bara administratörer, öppna inte kodmejlen i onödan).
 
 ## Felsökning
 
@@ -264,9 +280,10 @@ I Resend: *Emails* visar varje mejl som skickats och om det levererats.
 |---|---|
 | Lägga i kön (`ctx.notify`) och köra direkt med `after()` | `src/server/notify/index.ts`, `queue.ts` |
 | Spärrar och personnummerkontroll | `src/server/notify/decision.ts`, `personnummer.ts` |
-| Mallen och ämnesraderna | `src/server/notify/render.ts`, `templates.ts` |
+| Mallen (layouten för alla mejl) och ämnesraderna | `src/server/notify/render.ts`, `templates.ts` |
+| Inloggningskoden (generateLink + Resend, utan kön) | `src/server/auth/code-mail.ts`, `service.ts` · reservmallen `supabase/templates/otp.html` (`scripts/email/generate-otp-template.ts`) |
 | Resend | `src/server/notify/resend.ts` |
 | Sändningen (jobbet `send_message`) | `src/server/notify/sender.ts` |
 | Jobbkörningen, försök och väntetider | `src/server/jobs/runner.ts`, `registry.ts`, `store.ts`, `live.ts` |
 | `POST /api/jobs/run` | `src/app/api/jobs/run/route.ts`, `src/server/jobs/auth.ts` |
-| Tester | `src/server/notify/notify.test.ts`, `src/server/jobs/jobs.test.ts`, `src/server/jobs/db.test.ts` (mot migrationerna i PGlite) |
+| Tester | `src/server/notify/notify.test.ts`, `src/server/auth/code-mail.test.ts`, `src/server/jobs/jobs.test.ts`, `src/server/jobs/db.test.ts` (mot migrationerna i PGlite) |

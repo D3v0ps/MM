@@ -143,7 +143,7 @@ describe("mm.login_attempt_gate (databasen)", () => {
 const shared = vi.hoisted(() => ({ gate: null as LoginGate | null }));
 vi.mock("server-only", () => ({}));
 vi.mock("../live", () => ({ loginGate: () => shared.gate, profileByEmail: async () => null }));
-vi.mock("../supabase", () => ({ serviceClient: () => ({}), anonClient: () => ({ auth: { signInWithOtp: async () => ({ error: null }) } }) }));
+vi.mock("../supabase", () => ({ serviceClient: () => ({}) }));
 vi.mock("../settings", () => ({ loadAppSettings: async () => ({ environment: "staging", clock: { mode: "real", realEpochMs: null, demoEpoch: null } }) }));
 const { requestCode, sessionIdOfToken, verifyCode } = await import("./service");
 

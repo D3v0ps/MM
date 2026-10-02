@@ -27,9 +27,16 @@ export function domainAllowed(email: string, org: { kind: string; emailDomains: 
   return allowed.includes(domainOf(normalizeEmail(email)));
 }
 
+/**
+ * Hur länge koden gäller. Själva gränsen sätts i Supabase Auth (Email OTP Expiration 600 sekunder, docs/DRIFT.md 2.1) – det
+ * här värdet ska vara detsamma. Det finns ingen egen inställning i appen; texterna (svaret, kodmejlet) och räkningen av
+ * felaktiga försök (rate-limit.ts) läser värdet härifrån.
+ */
+export const CODE_VALID_MINUTES = 10;
+
 /** Texter till användaren. Svaret på "skicka kod" är alltid detsamma, så att ingen kan pröva fram vilka adresser som finns. */
 export const AUTH_TEXT = {
-  codeSent: "Om adressen finns hos oss har vi skickat en kod. Den gäller i 10 minuter.",
+  codeSent: `Om adressen finns hos oss har vi skickat en kod. Den gäller i ${CODE_VALID_MINUTES} minuter.`,
   invalidEmail: "Skriv en giltig e-postadress, till exempel fornamn.efternamn@kommun.se.",
   invalidCode: "Koden har sex siffror.",
   wrongCode: "Koden stämmer inte eller har gått ut. Kontrollera koden eller begär en ny kod.",

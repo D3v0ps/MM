@@ -8,10 +8,12 @@ export type TemplateInfo = {
   /** Ämnesrad. {arendenummer} ersätts med ärendenumret. Saknas ärendet används FALLBACK_SUBJECT. */
   subject: string;
   /** Vem mejlet är skrivet för. Deltagaren får ingen länk; för övriga avgör mottagarens domän länken (render.ts). */
-  audience: "kommun" | "mb" | "deltagare";
+  audience: "kommun" | "mb" | "mb_och_kommun" | "deltagare";
+  /** false = ingen knapp och ingen länk i mejlet (inloggningskoden). */
+  link?: false;
 };
 
-const T = (name: string, subject: string, audience: TemplateInfo["audience"]): TemplateInfo => ({ name, subject, audience });
+const T = (name: string, subject: string, audience: TemplateInfo["audience"], opts: { link?: false } = {}): TemplateInfo => ({ name, subject, audience, ...opts });
 
 /** Mallarna som skickas som e-post. SMS-mallarna (mötespåminnelse, pulslänk) har ingen ämnesrad. Inspelningslänken kan gå båda vägarna. */
 export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
@@ -34,7 +36,13 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   // Texten innehåller bara länken – inget namn, inget ärendenummer. Länken blir en fullständig adress med MM_APP_URL (queue.ts),
   // och token sparas aldrig i utskicksloggen (src/core/link-tokens.ts).
   rostlank: T("Inspelningslänk till deltagaren", "Spela in ett meddelande till din coach", "deltagare"),
+  // Inloggningskoden (src/server/auth/code-mail.ts): personalen och kommunens användare. Skickas direkt med Resend – inte via
+  // kön – eftersom koden aldrig får sparas. Ingen länk (Safe Links förbrukar länkar). Utskicksloggen har texten utan koden.
+  inloggningskod: T("Inloggningskod", "Din inloggningskod till Miljonmatch", "mb_och_kommun", { link: false }),
 };
+
+/** Mallnyckeln för inloggningskoden. */
+export const LOGIN_CODE_TEMPLATE = "inloggningskod";
 
 /** Portalvarianten av den generiska mottagningsbekräftelsen (samma mallnyckel, egen text och ämnesrad – som i prototypen). */
 export const GENERIC_PORTAL_BODY = "Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.";

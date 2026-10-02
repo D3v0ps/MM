@@ -16,7 +16,10 @@ import { notifyEnv } from "./config";
 import { channelDecision, deliveryDecision, emailDecision, REASON, recipientGate, type RecipientGate } from "./decision";
 import { containsPersonnummer } from "./personnummer";
 import { queueMessage } from "./queue";
-import { escapeHtml, FOOTER_LINES, loginLink, renderEmail, TEST_SUBJECT_PREFIX } from "./render";
+import {
+  escapeHtml, FOOTER_AUTOMATIC, FOOTER_COMPANY, FOOTER_NO_PII, FOOTER_NO_REPLY, footerLines, LOGIN_CODE_SUBJECT, loginLink, renderEmail, renderLoginCodeEmail,
+  PREHEADER_MAX, preheaderOf, renderLoginCodeHtml, TEST_BANNER, TEST_SUBJECT_PREFIX,
+} from "./render";
 import { RESEND_ENDPOINT, sendViaResend } from "./resend";
 import { deliverMessage, sendMessageJob, type SenderDeps } from "./sender";
 import { FALLBACK_SUBJECT, GENERIC_PORTAL_BODY, subjectFor } from "./templates";
@@ -456,55 +459,209 @@ describe("personnummer i utskick", () => {
 });
 
 // ================================================================ Mallen
+/** Bara MB:s färger (CLAUDE.md): antracit, röd, ljusgrå, blå och vitt. */
+const MB_COLORS = ["#1E252B", "#FF0C01", "#D1D3D3", "#6BA2B9", "#FFFFFF"];
+const colorsOf = (html: string) => new Set([...html.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((x) => x[0].toUpperCase()));
+/** Layoutens gemensamma delar: lang, layouttabeller med role="presentation", förtext, ordmärke, röd linje, fot – inga bilder eller skript. */
+function expectLayout(html: string) {
+  expect(html).toMatch(/^<!doctype html>\n<html lang="sv"/);
+  expect(html.match(/<table(?![^>]*role="presentation")/g)).toBeNull();
+  expect(html).toContain('<div style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">');
+  expect(html).toContain('Miljonbemanning<span style="color:#FF0C01;">.</span></div>');
+  expect(html).toContain("MILJONMATCH</div>");
+  expect(html).toContain("height:4px;line-height:4px;font-size:4px;background:#FF0C01;");
+  expect(html).toContain('Miljonbemanning AB<span style="color:#FF0C01;">.</span></div>');
+  expect(html).toContain("font-size:24px;line-height:32px;font-weight:800;");
+  for (const c of colorsOf(html)) expect(MB_COLORS).toContain(c);
+  expect(html).not.toMatch(/<img|<script|<link|@import|url\(|tracking|pixel/i);
+  // Outlook för Windows stöder inte max-width: en villkorad tabell med fast bredd (560 px) runt kortet, bara för Outlook.
+  expect(html).toContain('<!--[if mso]><table role="presentation" width="560" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->\n<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;');
+  expect(html).toContain("</table>\n<!--[if mso]></td></tr></table><![endif]-->\n");
+  // Brödtexten är minst 16 px; bara finstilt (fot, kodens giltighet, testbanderollen, länken under knappen) är 14 px.
+  // Undantag: ordmärkets "MILJONMATCH" (12 px, versaler och fet – en del av logotypen, som i den granskade mallen).
+  expect(html).toContain('<div style="font-size:12px;line-height:18px;font-weight:700;letter-spacing:3px;">MILJONMATCH</div>');
+  const sizes = [...html.replace(/<div style="font-size:12px;[^"]*">MILJONMATCH<\/div>/, "").matchAll(/font-size:(\d+)px/g)].map((m) => Number(m[1]));
+  expect(Math.min(...sizes.filter((n) => n > 4))).toBe(14);
+}
+
 describe("mallen (render.ts)", () => {
   const row = { template: "ny_rapport", to: MARIA, subject: "Ny rapport i portalen", body: "Veckorapporten för vecka 4 finns i portalen – logga in för att läsa." };
 
-  it("ram i MB:s profil: ordmärke, rubrik i versaler, texten, knapp till portalen och fot – bara MB:s färger", () => {
+  it("notis i MB:s profil: ordmärke, rubrik 24 px, texten, knapp till portalen med länken som text, fot – bara MB:s färger", () => {
     const m = renderEmail(row, { appUrl: APP, staffDomains: ["miljonbemanning.se"], testEnvironment: false });
     expect(m.subject).toBe("Ny rapport i portalen");
-    expect(m.html).toContain("MILJONMATCH");
-    expect(m.html).toContain("NY RAPPORT I PORTALEN</h1>");
-    expect(m.html).toContain("Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.");
-    expect(m.html).toContain(`href="${APP}/portal"`);
-    expect(m.html).toContain("Logga in i portalen");
-    for (const l of FOOTER_LINES) expect(m.html).toContain(escapeHtml(l));
-    expect(m.html).toContain('lang="sv"');
-    const colors = new Set([...m.html.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((x) => x[0].toUpperCase()));
-    for (const c of colors) expect(["#1E252B", "#FF0C01", "#D1D3D3", "#6BA2B9", "#FFFFFF"]).toContain(c);
-    expect(m.html).not.toMatch(/<img|<script|https?:\/\/(?!test\.miljonmatch\.se)/);
+    expectLayout(m.html);
+    expect(m.html).toContain(">Ny rapport i portalen</h1>");
+    expect(m.html).toContain("<title>Ny rapport i portalen</title>");
+    expect(m.html).toContain("Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.</p>");
+    // Förtexten är första stycket.
+    expect(m.html).toContain("mso-hide:all;\">Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.&#8199;");
+    // Knappen: antracit med vit text, 14 + 20 + 14 = 48 px hög (minst 44), och samma länk som text under. Outlook för
+    // Windows ignorerar utfyllnad på <a> – där ger mso-padding-alt cellen samma utfyllnad.
+    expect(m.html).toContain(`<td bgcolor="#1E252B" style="background:#1E252B;border-radius:6px;mso-padding-alt:14px 28px;"><a href="${APP}/portal" style="display:inline-block;padding:14px 28px;`);
+    expect(m.html).toContain("line-height:20px;color:#FFFFFF;text-decoration:none;border-radius:6px;\">Logga in i portalen</a>");
+    expect(m.html).toContain(`Fungerar inte knappen? Skriv in adressen i webbläsaren:<br><a href="${APP}/portal" style="color:#1E252B;text-decoration:underline;word-break:break-all;">${APP}/portal</a>`);
+    expect(m.html.match(/<a href=/g)).toHaveLength(2);
+    // Foten: utan svarsadress går det inte att svara, och raden om personuppgifter finns kvar.
+    expect(m.html).toContain(`<div>${escapeHtml(`${FOOTER_AUTOMATIC} ${FOOTER_NO_REPLY}`)}</div>\n<div style="margin-top:8px;">${escapeHtml(FOOTER_NO_PII)}</div>`);
+    expect(m.html).not.toContain("TESTMILJÖ");
+    expect(m.html.replace('xmlns="http://www.w3.org/1999/xhtml"', "")).not.toMatch(/https?:\/\/(?!test\.miljonmatch\.se)/);
     expect(m.text).toBe(
-      ["Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.", "", `Logga in i portalen: ${APP}/portal`, "", "--", ...FOOTER_LINES].join("\n"),
+      [
+        "Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.", "", `Logga in i portalen: ${APP}/portal`, "", "--",
+        "Miljonbemanning AB.", "Det här mejlet skickades automatiskt från Miljonmatch. Det går inte att svara på det.",
+        "Skriv inte personnummer eller andra personuppgifter i e-post. Använd ärendenumret.",
+      ].join("\n"),
     );
+  });
+
+  it("förtexten: hela meningar eller hela ord med ' …' – aldrig mitt i ett ord eller en adress", () => {
+    const pre = (body: string) => renderEmail({ ...row, body }, { appUrl: APP, staffDomains: [], testEnvironment: false }).html.match(/mso-hide:all;">([^&]*)&#8199;/)![1];
+    // Hanterarnas riktiga texter (ordererkännandet, inbjudan, påminnelsen): klipps efter sista hela meningen.
+    expect(pre("Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0049. Ni får besked om startdatum och ansvarig coach senast tisdag 2 februari 2027 kl. 08.41. Använd gärna ärendenumret."))
+      .toBe("Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0049.");
+    expect(pre("Du har bjudits in till Miljonbemannings portal för beställare. Logga in på https://www.miljonmatch.se/portal med din e-postadress. Du får en sexsiffrig kod i ett separat mejl."))
+      .toBe("Du har bjudits in till Miljonbemannings portal för beställare.");
+    expect(pre("Påminnelse från Miljonmatch: ett av dina ärenden (BOT-27-0049) saknar dokumenterad progression. Logga in för att se vilket steg som behövs."))
+      .toBe("Påminnelse från Miljonmatch: ett av dina ärenden (BOT-27-0049) saknar dokumenterad progression.");
+    // "kl. 08.41" är inget meningsslut.
+    expect(preheaderOf("Ni får besked om startdatum och ansvarig coach senast tisdag 2 februari 2027 kl. 08.41 i portalen, där ni också ser vem som är coach.", 80))
+      .toBe("Ni får besked om startdatum och ansvarig coach senast tisdag 2 februari 2027 …");
+    // Ingen mening räcker: sista hela ordet och " …". Adressen klipps aldrig mitt i.
+    const url = "Logga in på https://www.miljonmatch.se/portal/arenden/BOT-27-0049/rapporter med din e-postadress och koden.";
+    expect(preheaderOf(url, 60)).toBe("Logga in på …");
+    expect(preheaderOf(url, 90)).toBe("Logga in på https://www.miljonmatch.se/portal/arenden/BOT-27-0049/rapporter med din …");
+    // Kommatecken och tankstreck före klippet tas bort.
+    expect(preheaderOf("Ett, två, tre – fyra fem sex sju åtta nio tio", 18)).toBe("Ett, två, tre …");
+    // Kort text och radbrytningar: hela texten på en rad.
+    expect(preheaderOf("Rad ett\nrad två")).toBe("Rad ett rad två");
+    for (const n of [20, 40, 60, 110]) {
+      for (const body of [url, "Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0049. Ni får besked om startdatum."]) {
+        const p = preheaderOf(body, n);
+        expect(p.length, `${n}: ${p}`).toBeLessThanOrEqual(n);
+        expect(body.startsWith(p.replace(/ …$/, "")), `${n}: ${p}`).toBe(true);
+      }
+    }
+    expect(PREHEADER_MAX).toBe(110);
+  });
+
+  it("svarsadressen (MM_EMAIL_REPLY_TO): foten säger vart svar går – inte att det inte går att svara", () => {
+    expect(footerLines("avrop@miljonbemanning.se", { pii: true })).toEqual([`${FOOTER_AUTOMATIC} Svar går till avrop@miljonbemanning.se.`, FOOTER_NO_PII]);
+    expect(footerLines("Avrop <avrop@miljonbemanning.se>", { pii: false })).toEqual([`${FOOTER_AUTOMATIC} Svar går till avrop@miljonbemanning.se.`]);
+    expect(footerLines("  ", { pii: false })).toEqual([`${FOOTER_AUTOMATIC} ${FOOTER_NO_REPLY}`]);
+    const m = renderEmail(row, { appUrl: APP, staffDomains: [], testEnvironment: false, replyTo: "avrop@miljonbemanning.se" });
+    for (const part of [m.html, m.text]) {
+      expect(part).toContain("Svar går till avrop@miljonbemanning.se.");
+      expect(part).not.toContain(FOOTER_NO_REPLY);
+      expect(part).toContain(FOOTER_NO_PII);
+    }
+  });
+
+  it("utan MM_APP_URL och till deltagaren: ingen knapp och ingen länk", () => {
+    for (const m of [
+      renderEmail(row, { appUrl: null, staffDomains: [], testEnvironment: false }),
+      renderEmail({ ...row, template: "kallelse", to: "testa@exempel.se" }, { appUrl: APP, staffDomains: [], testEnvironment: false }),
+    ]) {
+      expectLayout(m.html);
+      expect(m.html).not.toContain("<a ");
+      expect(m.text).not.toContain("Logga in i");
+    }
   });
 
   it("testmiljön märks i ämnesraden, överst i HTML och i texten", () => {
     const m = renderEmail(row, { appUrl: APP, staffDomains: [], testEnvironment: true });
     expect(m.subject).toBe("[Testmiljö] Ny rapport i portalen");
-    expect(m.html).toContain("TESTMILJÖ – påhittade testdata");
+    expect(m.html).toContain(`background:#6BA2B9;padding:10px 40px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:14px;font-weight:700;line-height:20px;color:#1E252B;">${TEST_BANNER}</td>`);
+    // Banderollen ligger överst i kortet – före ordmärket och rubriken.
+    expect(m.html.indexOf(TEST_BANNER)).toBeLessThan(m.html.indexOf("MILJONMATCH</div>"));
     expect(m.text.startsWith("TESTMILJÖ – påhittade testdata")).toBe(true);
   });
 
-  it("ärendenumret bryts inte över två rader", () => {
-    const m = renderEmail({ ...row, body: "Ärende BOT-27-0049 har fått ny huvudcoach." }, { appUrl: APP, staffDomains: [], testEnvironment: false });
+  it("testmiljöns omdirigeringsrad står allra överst (före banderollen) – och bara i testmiljön", () => {
+    const note = "Testmiljö – det här mejlet skulle ha gått till kommunens handläggare på Botkyrka kommun.";
+    const m = renderEmail(row, { appUrl: APP, staffDomains: [], testEnvironment: true, redirectNote: note });
+    expect(m.html.indexOf(note)).toBeGreaterThan(0);
+    expect(m.html.indexOf(note)).toBeLessThan(m.html.indexOf(TEST_BANNER));
+    expect(m.text.split("\n").slice(0, 3)).toEqual([note, "", TEST_BANNER]);
+    expect(renderEmail(row, { appUrl: APP, staffDomains: [], testEnvironment: false, redirectNote: note }).html).not.toContain(note);
+  });
+
+  it("ärendenumret bryts inte över två rader – inte heller i rubriken", () => {
+    const m = renderEmail({ ...row, subject: "Ny huvudcoach för BOT-27-0049", body: "Ärende BOT-27-0049 har fått ny huvudcoach." }, { appUrl: APP, staffDomains: [], testEnvironment: false });
     expect(m.html).toContain('Ärende <span style="white-space:nowrap;">BOT-27-0049</span> har fått ny huvudcoach.');
+    expect(m.html).toContain('>Ny huvudcoach för <span style="white-space:nowrap;">BOT-27-0049</span></h1>');
     expect(m.text).toContain("Ärende BOT-27-0049 har fått ny huvudcoach.");
   });
 
   it("texten escapas och styckena behålls", () => {
-    const m = renderEmail({ ...row, body: 'Rad 1 <b>&"\nRad 2\n\nNytt stycke' }, { appUrl: APP, staffDomains: [], testEnvironment: false });
+    const m = renderEmail({ ...row, subject: "<i>Ämne</i>", body: 'Rad 1 <b>&"\nRad 2\n\nNytt stycke' }, { appUrl: APP, staffDomains: [], testEnvironment: false });
     expect(m.html).toContain("<p style=\"margin:0 0 16px 0;\">Rad 1 &lt;b&gt;&amp;&quot;<br>Rad 2</p>");
     expect(m.html).toContain(">Nytt stycke</p>");
+    expect(m.html).toContain(">&lt;i&gt;Ämne&lt;/i&gt;</h1>");
     expect(m.html).not.toContain("<b>");
+    expect(m.html).not.toContain("<i>");
   });
 
-  it("länken: personalen till appen, kommunen till portalen, deltagaren ingen länk, utan MM_APP_URL ingen länk", () => {
+  it("länken: personalen till appen, kommunen till portalen, deltagaren och inloggningskoden ingen länk, utan MM_APP_URL ingen länk", () => {
     const cfg = { appUrl: `${APP}/`, staffDomains: ["miljonbemanning.se"] };
     expect(loginLink({ template: "tilldelning_coach", to: "amira.haddad@miljonbemanning.se" }, cfg)).toEqual({ url: `${APP}/`, label: "Logga in i Miljonmatch" });
     expect(loginLink({ template: "nytt_meddelande", to: "amira.haddad@miljonbemanning.se" }, cfg)).toEqual({ url: `${APP}/`, label: "Logga in i Miljonmatch" });
     expect(loginLink({ template: "nytt_meddelande", to: MARIA }, cfg)).toEqual({ url: `${APP}/portal`, label: "Logga in i portalen" });
     expect(loginLink({ template: "kallelse", to: "testa@exempel.se" }, cfg)).toBeNull();
+    expect(loginLink({ template: "inloggningskod", to: KARIM }, cfg)).toBeNull();
+    expect(loginLink({ template: "inloggningskod", to: MARIA }, cfg)).toBeNull();
     expect(loginLink({ template: "ny_rapport", to: MARIA }, { appUrl: null, staffDomains: [] })).toBeNull();
     expect(loginLink({ template: "ny_rapport", to: MARIA }, { appUrl: "javascript:alert(1)", staffDomains: [] })).toBeNull();
+  });
+});
+
+describe("kodmejlet (renderLoginCodeEmail)", () => {
+  const CODE = "418302";
+
+  it("stor kod i ljusgrå ruta, giltighetstiden, trygghetsrutan med blå kantlinje – ingen länk och ingen knapp", () => {
+    const m = renderLoginCodeEmail(CODE, { testEnvironment: false });
+    expect(m.subject).toBe("Din inloggningskod till Miljonmatch");
+    expect(m.subject).toBe(LOGIN_CODE_SUBJECT);
+    expectLayout(m.html);
+    expect(m.html).toContain(">Här är din inloggningskod</h1>");
+    expect(m.html).toContain("Skriv in koden på inloggningssidan i Miljonmatch för att logga in.");
+    // 6 × (24 + 8) + 12 + 4 = 208 px – ryms i 320 px breda skärmar (kortets textbredd är då 216 px, tests/e2e/mejl.spec.ts).
+    expect(m.html).toContain(`<td align="center" style="padding:24px 4px 8px 12px;font-family:'Courier New', Courier, monospace;font-size:40px;line-height:48px;font-weight:700;letter-spacing:8px;color:#1E252B;">${CODE}</td>`);
+    expect(m.html).toContain('style="background:#D1D3D3;border-radius:6px;"');
+    expect(m.html).toContain(">Gäller i 10 minuter och kan användas en gång.</td>");
+    expect(m.html).toContain("<b>Har du inte bett om en kod?</b> Då kan du strunta i det här mejlet. Ingen kan logga in utan koden.");
+    expect(m.html).toContain('border-left:4px solid #6BA2B9;padding:4px 0 4px 16px;');
+    expect(m.html).toContain("Lämna aldrig ut koden till någon annan – inte heller till någon som säger att de ringer från Miljonbemanning. Vi frågar aldrig efter den.");
+    // Förtexten har koden (som i den granskade mallen) – men ingen länk någonstans.
+    expect(m.html).toContain(`mso-hide:all;">Din kod är ${CODE}. Den gäller i 10 minuter.&#8199;`);
+    expect(m.html.replace('xmlns="http://www.w3.org/1999/xhtml"', "")).not.toMatch(/<a |href=|https?:\/\//);
+    expect(m.text).not.toMatch(/https?:\/\/|www\./);
+    // Foten: inget svar, ingen rad om ärendenummer (mejlet har inga ärenden).
+    expect(m.html).toContain(`<div>${FOOTER_AUTOMATIC} ${FOOTER_NO_REPLY}</div>`);
+    expect(m.html).not.toContain(FOOTER_NO_PII);
+    expect(m.text).toBe(
+      [
+        "Här är din inloggningskod:", "", CODE, "",
+        "Skriv in koden på inloggningssidan i Miljonmatch för att logga in. Gäller i 10 minuter och kan användas en gång.", "",
+        "Har du inte bett om en kod? Då kan du strunta i det här mejlet. Ingen kan logga in utan koden.", "",
+        "Lämna aldrig ut koden till någon annan – inte heller till någon som säger att de ringer från Miljonbemanning. Vi frågar aldrig efter den.",
+        "", "--", FOOTER_COMPANY, "Det här mejlet skickades automatiskt från Miljonmatch. Det går inte att svara på det.",
+      ].join("\n"),
+    );
+  });
+
+  it("giltighetstiden kan anges, testmiljön märks – men ingen omdirigeringsrad", () => {
+    const m = renderLoginCodeEmail(CODE, { testEnvironment: true, validMinutes: 15 });
+    expect(m.subject).toBe(`${TEST_SUBJECT_PREFIX}Din inloggningskod till Miljonmatch`);
+    expect(m.html).toContain(">Gäller i 15 minuter och kan användas en gång.</td>");
+    expect(m.html).toContain(TEST_BANNER);
+    expect(m.text.split("\n")[0]).toBe(TEST_BANNER);
+    expect(m.html).not.toContain("skulle ha gått till");
+  });
+
+  it("bara siffror tas emot som kod", () => {
+    expect(() => renderLoginCodeEmail("<b>1</b>", { testEnvironment: false })).toThrow();
+    expect(() => renderLoginCodeEmail("", { testEnvironment: false })).toThrow();
   });
 });
 
@@ -537,7 +694,7 @@ describe("sendViaResend – felhantering", () => {
   });
 });
 
-// ================================================================ Supabase Auths mall för inloggningskoden
+// ================================================================ Supabase Auths mall för inloggningskoden (reserv)
 describe("supabase/templates/otp.html", () => {
   const html = readFileSync(new URL("../../../supabase/templates/otp.html", import.meta.url), "utf8");
   it("visar koden, att den gäller 10 minuter och att man kan strunta i mejlet – utan länkar", () => {
@@ -546,7 +703,12 @@ describe("supabase/templates/otp.html", () => {
     expect(html).toMatch(/strunta i (det här )?mejlet/);
     expect(html).not.toMatch(/ConfirmationURL|TokenHash|RedirectTo|SiteURL|href=/);
     expect(html).toContain('lang="sv"');
-    const colors = new Set([...html.matchAll(/#[0-9A-Fa-f]{6}\b/g)].map((x) => x[0].toUpperCase()));
-    for (const c of colors) expect(["#1E252B", "#FF0C01", "#D1D3D3", "#6BA2B9", "#FFFFFF"]).toContain(c);
+    for (const c of colorsOf(html)) expect(MB_COLORS).toContain(c);
+  });
+
+  it("ser exakt ut som appens kodmejl (genereras med scripts/email/generate-otp-template.ts)", () => {
+    const withoutHeader = html.replace(/^<!doctype html>\n<!--[\s\S]*?-->\n/, "<!doctype html>\n");
+    expect(withoutHeader).not.toBe(html);
+    expect(withoutHeader).toBe(renderLoginCodeHtml("{{ .Token }}", { testEnvironment: false }));
   });
 });

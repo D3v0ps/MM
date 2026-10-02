@@ -202,6 +202,8 @@ export type TemplateView = {
   updatedAt: string;
   updatedByName: string;
   variantOf: string | null;
+  /** Fast text som inte kan ändras här (inloggningskoden – mejlet byggs av servern). */
+  fixed: boolean;
   /** Sparade versioner, nyast först. */
   history: TemplateVersionView[];
   baseVersion: number;
@@ -232,7 +234,7 @@ export const adminSaveTemplate = command("admin.saveTemplate", z.object({
   subject: ShortText,
   body: LongText,
   note: ShortText.optional(),
-})).returns<Result<{ version: number }, "not_found" | "empty" | "personal_data">>();
+})).returns<Result<{ version: number }, "not_found" | "fixed" | "empty" | "personal_data">>();
 
 // ================================================================ Revisionslogg (/admin/logg)
 export type AuditRow = {

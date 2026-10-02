@@ -1,13 +1,14 @@
 # Drift – så sätter du upp testmiljön (och senare produktion)
 
-*Version 2026-10-01. Testmiljön har bara påhittade testdata. Produktion byggs på samma sätt, men i ett eget Supabase-projekt och ett eget Vercel-projekt (se avsnitt 7).*
+*Version 2026-10-02. Testmiljön har bara påhittade testdata. Produktion byggs på samma sätt, men i ett eget Supabase-projekt och ett eget Vercel-projekt (se avsnitt 7).*
 
 ## Översikt
 
 ```
 Webbläsaren ──► Vercel (Next.js, funktioner i Stockholm, arn1) ──► Supabase (Postgres + inloggning, Stockholm, eu-north-1)
-                        │                                                  │
-                        └──► Resend (e-post, EU) ◄── Supabase Auth skickar inloggningskoden via Resend (SMTP)
+                        │
+                        └──► Resend (e-post, EU): appens notiser OCH inloggningskoden. Appen tar fram koden hos Supabase Auth
+                             (generateLink) och skickar mejlet själv – Supabase Auth skickar inga mejl (beslut 2026-10-02)
 
 Appens adress:  https://www.miljonmatch.se (testmiljön just nu – miljonmatch.se skickas vidare dit). När produktionen
                 startar: produktionen på miljonmatch.se, testmiljön på test.miljonmatch.se (SPEC §11, beslut 2026-10-01).
@@ -29,7 +30,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Supabase-projekt för testmiljön | Klart: `miljonmatch`, ref **`blxupsebzzhmjitaywev`**, eu-north-1 (Stockholm), `https://blxupsebzzhmjitaywev.supabase.co` |
 | Migrationer 0001–0017 | 0001–0016 applicerade i testprojektet av samordnaren (i 0016 görs `drop index` för hand). **0017 (synpunkter i testmiljön) appliceras av samordnaren samtidigt som koden med "Lämna synpunkt" går live** (steg 1 nedan) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
-| Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter, egen SMTP via Resend. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
+| Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
 | Resend | Domänen **`miljonmatch.se`** verifierad i EU (beslut 2026-10-01), DNS-posterna hos one.com. Avsändare `notis@miljonmatch.se`. Resend skickar inte längre från `miljonbemanning.se` (avsnitt 4.2) |
 | Vercel | Projektet `miljonmatch` (avsnitt 3). Bolaget behöver **Pro** (Hobby får inte användas kommersiellt) – koden driftsätts ändå på båda nivåerna (`maxDuration` högst 60 sekunder) |
 | Domän `miljonmatch.se` | Pekar mot Vercel. `miljonmatch.se` skickas vidare till `www.miljonmatch.se`, som är appens adress (`MM_APP_URL`, avsnitt 3.4) |
@@ -103,24 +104,29 @@ Redan inställt i testmiljön 2026-09-30. Tabellen är facit – kontrollera den
 
 ### 2.1 Inställningar
 
+**Appen skickar inloggningskoden själv (beslut 2026-10-02).** Servern ber Supabase Auth ta fram koden med
+`auth.admin.generateLink({ type: "magiclink", email })` (service role). Då skickar Supabase **inget** mejl – svaret innehåller
+den sexsiffriga koden (`properties.email_otp`), som appen skickar direkt via Resend (`RESEND_API_KEY`, avsändare
+`MM_EMAIL_FROM`) i MB:s profil, utan länk. Koden prövas som tidigare med `verifyOtp({ email, token, type: "email" })`.
+Länken i svaret (`action_link`) används aldrig. Koden sparas aldrig i appens databas, jobbkö, loggar eller revisionslogg – utskicksloggen
+(`outbound_messages`) får en rad med mallen `inloggningskod` och texten "Inloggningskod skickad (••••••)" (`docs/UTSKICK.md`). Koden
+finns bara i mottagarens brevlåda och i Resends sändlogg (avsnitt 4.1). Därför behövs **inga e-postmallar i Supabase**,
+och mejlet kan inte längre komma med Supabases engelska standardmall eller en länk som e-postskydd förbrukar.
+
 | Var | Inställning | Värde |
 |---|---|---|
 | *Sign In / Providers → User Signups* | Allow new users to sign up | **Av** (ingen självregistrering – servern skapar konton för inbjudna profiler) |
 | *Sign In / Providers → Email* | Enable Email provider | På |
 | | Confirm email | På (kontona skapas redan bekräftade) |
-| | Email OTP Length | **6** |
-| | Email OTP Expiration | **600** sekunder (10 minuter) |
-| *Emails → Templates → Magic link* (och *Confirm signup*) | Ämne | `Din inloggningskod till Miljonmatch` |
-| | Innehåll | Hela filen `supabase/templates/otp.html`. Mallen visar bara koden (`{{ .Token }}`), att den gäller 10 minuter och att man kan strunta i mejlet – **ingen** länk (e-postskydd som Safe Links förbrukar länkar) |
-| *Emails → SMTP Settings* | Enable custom SMTP | På |
-| | Sender email / name | `notis@miljonmatch.se` / `Miljonmatch` (beslut 2026-10-01 – ändra här om den gamla avsändaren på miljonbemanning.se står kvar) |
-| | Host / Port | `smtp.resend.com` / `465` |
-| | Username / Password | `resend` / Resends API-nyckel för SMTP med sändrätt för `miljonmatch.se` (avsnitt 4.3) |
-| *Rate Limits* | Rate limit for sending emails | Standard (30 per timme) räcker för test |
+| | Email OTP Length | **6** (appen tar bara emot sex siffror – med en annan längd skickas ingen kod, och utskicksloggen visar orsaken) |
+| | Email OTP Expiration | **600** sekunder (10 minuter – samma som `CODE_VALID_MINUTES` i `src/server/auth/email.ts`, som texterna läser) |
+| *Emails → Templates* | Magic link, Confirm signup | **Behövs inte längre** – Supabase skickar inga mejl. Reserv om någon återgår till Supabases utskick: hela filen `supabase/templates/otp.html` (genererad från appens kodmejl, ser likadan ut) i både *Magic link* och *Confirm signup*, ämne `Din inloggningskod till Miljonmatch` |
+| *Emails → SMTP Settings* | Enable custom SMTP | Får ligga kvar **som reserv** (`smtp.resend.com` / `465`, användare `resend`, avsändare `notis@miljonmatch.se` / `Miljonmatch`). Används inte av appen |
+| *Rate Limits* | Rate limit for sending emails | Påverkar inte inloggningen längre: Supabase skickar inga mejl, och `generateLink` har ingen egen spärr (Supabase begränsar bara prövningen av koden). **Appens spärrar är de enda för kodmejlen:** 5 koder per adress och 20 per IP på 15 minuter (`LIMITS`) och ett tak för hela appen på 30 kodmejl per timme (`CODE_MAILS_PER_HOUR` i `src/server/auth/rate-limit.ts` – samma som Supabase-standarden förut). Över taket skickas ingen kod, och utskicksloggen får en rad `suppressed` |
 
 Supabase Auths egna gränser för sessioner behövs inte – appen loggar ut efter 60 minuters inaktivitet och 12 timmar (`src/proxy.ts`).
 
-Med Supabase CLI (lokalt) läggs mallen in i `supabase/config.toml`:
+Med Supabase CLI (lokalt) kan reservmallen läggas in i `supabase/config.toml`:
 ```toml
 [auth.email.template.magic_link]
 subject = "Din inloggningskod till Miljonmatch"
@@ -134,7 +140,7 @@ content_path = "./supabase/templates/otp.html"
 | Site URL | `https://www.miljonmatch.se` – den adress som **inte** skickas vidare (just nu skickas `miljonmatch.se` till `www`). Samma som `MM_APP_URL` | Produktionens adress som inte skickas vidare (SPEC §11: `miljonmatch.se` när produktionen startar) |
 | Redirect URLs | `https://www.miljonmatch.se/**`, `https://miljonmatch.se/**`, förhandsadresserna `https://*-ai-projekts-projects.vercel.app/**`, `http://localhost:3000/**` | Produktionens båda adresser (med och utan `www`) med `/**` – inga förhandsadresser |
 
-Inloggningen använder kod, inte länk, så URL:erna används bara av Supabase för säkerhetskontroller – men de ska ändå stämma.
+Inloggningen använder kod, inte länk, och appen skickar koden själv – så URL:erna används bara av Supabase för säkerhetskontroller (och i länken som `generateLink` också skapar men som appen aldrig använder). De ska ändå stämma.
 
 ---
 
@@ -172,6 +178,8 @@ När produktionen startar tar den över `miljonmatch.se` i sitt eget Vercel-proj
 ### 4.1 Konto
 Bolagets funktionsadress, MFA och en andra administratör (*Settings → Team*). **Teckna Resends personuppgiftsbiträdesavtal (DPA) före produktion** – Resend hanterar mottagarnas e-postadresser.
 
+**Bara administratörer i Resend.** Resend sparar varje skickat mejl (HTML och ren text) och visar det under *Emails* – även inloggningskoderna, i klartext, så länge Resend sparar mejlen. Den som kan öppna Resends instrumentpanel kan alltså se en giltig kod (den gäller 10 minuter) till någon annans konto. Ge därför bara administratörer åtkomst till Resend-kontot (*Settings → Team*), med MFA, och öppna inte de senaste kodmejlen i onödan vid felsökning – utskicksloggen i appen (avsnitt 9) räcker oftast.
+
 ### 4.2 Domän och DNS (beslut 2026-10-01)
 - Domänen i Resend är **`miljonmatch.se`**. Avsändaren är **`notis@miljonmatch.se`** med visningsnamnet **Miljonmatch** (`MM_EMAIL_FROM=Miljonmatch <notis@miljonmatch.se>`).
 - **Regionen ska vara EU** (beslutet 2026-10-01). Den syns inte i DNS-posterna och går inte att ändra i efterhand. **Karim kontrollerar** i Resend under *Domains → miljonmatch.se* vilken region domänen har och för in den här och i SPEC §11. Obs: SPF-posten som CNAME:n pekar på godkänner 2026-10-01 sändservrarna `mta1.forge.rmta.net` och `mta2.forge.rmta.net`, som ligger i AWS-regionen us-east-1 (USA). Står domänen inte på en EU-region: säg till innan fler utskick görs.
@@ -188,8 +196,8 @@ Bolagets funktionsadress, MFA och en andra administratör (*Settings → Team*).
 
 ### 4.3 API-nycklar
 *API Keys → Create API key*, två nycklar med **Sending access** och bara domänen **`miljonmatch.se`**:
-1. `supabase-smtp` → lösenordet under *SMTP Settings* i Supabase (avsnitt 2.1). Inloggningskoderna skickas med den – saknar nyckeln sändrätt för miljonmatch.se kommer inga koder fram.
-2. `miljonmatch-app` → `RESEND_API_KEY` i Vercel.
+1. `miljonmatch-app` → `RESEND_API_KEY` i Vercel. **Både appens notiser och inloggningskoderna skickas med den** (beslut 2026-10-02) – saknas den, eller saknar den sändrätt för miljonmatch.se, kommer inga koder fram och ingen kan logga in.
+2. `supabase-smtp` → lösenordet under *SMTP Settings* i Supabase (avsnitt 2.1). Behövs bara som reserv om någon återgår till att låta Supabase Auth skicka koden – den används inte av appen.
 
 Har ni nycklar som bara har sändrätt för miljonbemanning.se: skapa nya för miljonmatch.se, byt dem i Supabase och Vercel och ta sedan bort de gamla.
 
@@ -215,10 +223,10 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MM_PNR_HMAC_KEY` | **ja** | Sökhash för personnummer (dubblettkontrollen), HMAC-SHA256: minst 32 byte som base64, **en annan nyckel** än `MM_PNR_KEY` | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |
 | `MM_EMAIL_ALLOWLIST` | | **Testmiljön:** de adresser som får mejl och inloggningskoder, kommatecken emellan. **Hela adresser, aldrig `@miljonbemanning.se`** – testdatat har påhittade adresser på den domänen. Tom i testmiljön = ingen får mejl. **Tom i produktion** | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
-| `MM_EMAIL_REDIRECT_TO` | | **Bara testmiljön:** testarens adress som får mejlen till testpersoner, med raden "Testmiljö – det här mejlet skulle ha gått till …" (roll och organisation). Måste finnas i `MM_EMAIL_ALLOWLIST`. Ignoreras i produktion – lämna tom där | `karim.khalil@miljonbemanning.se` | En testares adress |
-| `RESEND_API_KEY` | **ja** | Resends API-nyckel (bara sändrätt) för appens mejl | `re_…` | Resend → *API Keys* (`miljonmatch-app`) |
-| `MM_EMAIL_FROM` | | Avsändare. Domänen måste vara verifierad i Resend | `Miljonmatch <notis@miljonmatch.se>` | Fast värde (beslut 2026-10-01) |
-| `MM_EMAIL_REPLY_TO` | | Svarsadress. Produktion: `avrop@miljonbemanning.se` (svar på ordererkännandet hamnar i avropsflödet). Tom i testmiljön | *(tomt)* · produktion `avrop@miljonbemanning.se` | Fast värde |
+| `MM_EMAIL_REDIRECT_TO` | | **Bara testmiljön:** testarens adress som får mejlen till testpersoner, med raden "Testmiljö – det här mejlet skulle ha gått till …" (roll och organisation). Måste finnas i `MM_EMAIL_ALLOWLIST`. Gäller aldrig inloggningskoder – koden går bara till den som loggar in. Ignoreras i produktion – lämna tom där | `karim.khalil@miljonbemanning.se` | En testares adress |
+| `RESEND_API_KEY` | **ja** | Resends API-nyckel (bara sändrätt) för appens mejl **och inloggningskoderna** (appen skickar koden själv, avsnitt 2.1). Saknas den kan ingen logga in | `re_…` | Resend → *API Keys* (`miljonmatch-app`) |
+| `MM_EMAIL_FROM` | | Avsändare för notiserna och inloggningskoderna. Domänen måste vara verifierad i Resend | `Miljonmatch <notis@miljonmatch.se>` | Fast värde (beslut 2026-10-01) |
+| `MM_EMAIL_REPLY_TO` | | Svarsadress för notiserna – foten säger då vart svar går. Produktion: `avrop@miljonbemanning.se` (svar på ordererkännandet hamnar i avropsflödet). Tom i testmiljön. Kodmejlet har aldrig någon svarsadress | *(tomt)* · produktion `avrop@miljonbemanning.se` | Fast värde |
 | `MM_JOBS_SECRET` | **ja** | Nyckel för `/api/jobs/run` (`Authorization: Bearer …`), **minst 16 tecken**. Samma värde i Supabase Vault (`docs/UTSKICK.md`) | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_AI_PROVIDER` | | AI-stödet (avsnitt 10): `vertex` (Gemini via Vertex AI, EU), `simulated` (påhittade svar – bara testmiljön) eller `off`. Tomt = `simulated` i testmiljön och `off` i produktion. Produktion kör aldrig `simulated` | *(tomt)* · när kontot finns `vertex` | Fast värde |
 | `MM_AI_MODEL` | | Gemini-modellen i Vertex AI (en Flash-modell). Kontrolleras inte mot nätet – stavas exakt som i Vertex AI | *(modellens id)* | Google Cloud → *Vertex AI → Model Garden* |
@@ -247,7 +255,7 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Datalagret mot Postgres (RLS) | `src/data/supabase/repo.ts` – samma `Repo` som minnesläget; hanterarna ändras inte |
 | Aktören (roll, avtal) | databasens `public.current_actor()` – samma funktioner som RLS använder |
 | Personnummer (`ctx.crypto`) | `src/server/crypto.ts` (servern) · `src/data/seed/pnr.ts` (`TEST_PNR_CRYPTO`, minnesläget) |
-| Inloggning med kod | `src/app/api/auth/{code,verify,logout}`, `src/server/auth/*` |
+| Inloggning med kod | `src/app/api/auth/{code,verify,logout}`, `src/server/auth/*` – kodmejlet: `src/server/auth/code-mail.ts` (generateLink + Resend), layouten `src/server/notify/render.ts` |
 | Session, testarens val | `src/app/api/session`, `src/app/api/session/impersonate`, `src/app/_shell/client-root.tsx` |
 | Läs in testdata på nytt | `src/app/api/staging/seed/route.ts`, `src/server/staging/load.ts`, `supabase/migrations/0010_testdata.sql` (och 0017, som behåller synpunkterna), knappen `src/features/session/screens/test-data-reset.tsx` |
 | Synpunkter (bara testmiljön) | `src/features/synpunkter/*` (kommandona `feedback.*`, knapparna i `panel.tsx`), `supabase/migrations/0017_synpunkter.sql` |
@@ -269,7 +277,8 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 - Samma migrationer (0001–0017, i nummerordning), **ingen seed och inget startdata**. Kör dem precis före den första driftsättningen – 0013 och koden hör ihop (steg 1 i "exakt ordning"). `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knapparna för testdata och synpunkter syns inte (tabellerna för synpunkter finns men ingen kan läsa eller skriva i dem).
 - `MM_CLOCK=real`, `MM_EMAIL_ALLOWLIST` tom, `MM_EMAIL_REDIRECT_TO` tom, `MM_EMAIL_REPLY_TO=avrop@miljonbemanning.se`, egna nycklar för personnummer, jobb och inloggning.
 - Domän `miljonmatch.se` (SPEC §11 – testmiljön flyttar då till `test.miljonmatch.se`). *Site URL* och `MM_APP_URL` = den adress som inte skickas vidare; båda adresserna bland *Redirect URLs*, inga förhandsadresser.
-- DPA med Resend (och övriga underbiträden) innan riktiga personuppgifter.
+- DPA med Resend (och övriga underbiträden) innan riktiga personuppgifter. Bara administratörer i Resend-kontot (kodmejlen syns där, avsnitt 4.1).
+- Taket för kodmejl är 30 per timme för hela appen (`CODE_MAILS_PER_HOUR`, avsnitt 2.1). Räcker det inte när fler användare loggar in samtidigt (t.ex. på måndagsmorgonen): höj värdet i koden och driftsätt igen.
 - AI: ett **eget Google Cloud-projekt** för produktion med eget tjänstekonto och egen nyckel (avsnitt 10). `MM_AI_PROVIDER=vertex` – utan den är AI avstängd i produktion (den simulerade körs aldrig där).
 
 ## 8. Säkerhetskontroll
@@ -278,9 +287,10 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 - [ ] Inga variabler med hemligheter har prefixet `NEXT_PUBLIC_`.
 - [ ] Funktionerna körs i arn1 (Stockholm), databasen i eu-north-1.
 - [ ] Vercel Pro (inte Hobby) – kommersiell användning kräver Pro. `maxDuration` högst 60 sekunder tills ni bestämt annat (avsnitt 10, "Tidsgränser").
-- [ ] Självregistrering är avstängd i Supabase Auth, e-postmallen visar bara koden.
+- [ ] Självregistrering är avstängd i Supabase Auth. Kodmejlet kommer från appen (`notis@miljonmatch.se`, svensk text i MB:s profil) och visar bara koden – ingen länk.
 - [ ] Testmiljön har bara påhittade testdata och `MM_EMAIL_ALLOWLIST` är satt.
 - [ ] Click och open tracking är avstängda i Resend.
+- [ ] Bara administratörer (med MFA) har åtkomst till Resend-kontot – kodmejlen syns i klartext under *Emails* (avsnitt 4.1).
 - [ ] Resends DNS-poster för miljonmatch.se finns hos one.com, nycklarna har bara sändrätt för miljonmatch.se och DMARC-posten är inlagd (avsnitt 4.2).
 - [ ] MFA och minst två administratörer i Vercel, Supabase och Resend.
 - [ ] AI: bara `MM_AI_PROVIDER=vertex` med `aiplatform.eu.rep.googleapis.com` (location `eu`) – ingen Gemini API-nyckel (AI Studio) någonstans. Tjänstekontot har bara rollen *Vertex AI User*. Googles personuppgiftsbiträdesvillkor (CDPA) är godkända och Vertex AI:s cachning av indata avstängd (avsnitt 10).
@@ -291,10 +301,10 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Problem | Kontrollera |
 |---|---|
 | "Inloggningen kunde inte hämtas" | Miljövariablerna i Vercel, att migrationerna är körda (`select public.current_actor();`) och Vercels loggar (bara felkoder, inga personuppgifter) |
-| Ingen kod kommer | Att adressen finns i `MM_EMAIL_ALLOWLIST` (testmiljön) och som aktiv profil med roll (`bootstrap-staging.sql` körd? avsnitt 11); *Logs → Auth* i Supabase; *Emails* i Resend; SMTP-inställningarna (avsändaren `notis@miljonmatch.se`, nyckeln med sändrätt för miljonmatch.se); skräpposten |
+| Ingen kod kommer | Att adressen finns i `MM_EMAIL_ALLOWLIST` (testmiljön) och som aktiv profil med roll (`bootstrap-staging.sql` körd? avsnitt 11). Utskicksloggen: `select created_at, status, status_reason from outbound_messages where template = 'inloggningskod' order by created_at desc limit 5;` – `failed` visar orsaken (t.ex. "E-post är inte konfigurerad", "Resend svarade 403 (validation_error)", "Supabase Auth gav ingen kod (…)"), `suppressed` att taket för hela appen var nått (30 kodmejl per timme, avsnitt 2.1), `queued` att utskicket avbröts innan det var klart. **Ingen rad** betyder något av detta: spärren stoppade adressen (inte i `MM_EMAIL_ALLOWLIST`, ingen aktiv profil med roll, fel domän), kontot i Supabase Auth kunde inte skapas, utskicksloggen gick inte att skriva, något annat fel före utskicket – eller hastighetsspärren ("Du har försökt för många gånger" på inloggningssidan, raden nedan), som inte heller ger någon rad. Vercels logg (bara steg och felkod): `inloggning skapa-konto …` (kontot kunde inte skapas), `inloggning utskickslogg …`, `inloggning skicka-kod …` (`tak` = taket, `resend` = Resend avvisade, `resend-saknas`), `inloggning skapa-kod …` (Supabase Auth gav ingen kod). `RESEND_API_KEY` och `MM_EMAIL_FROM` i Vercel; *Emails* i Resend (bara administratörer – mejlen där visar koden, avsnitt 4.1); skräpposten |
 | "Lämna synpunkt" syns inte | Bara testare (`profiles.is_tester`) i testmiljön ser knappen, i raden "Testmiljö" överst. Migration 0017 körd? (`select count(*) from public.feedback;`) |
-| Mejlet innehåller en länk i stället för en kod | Mallen *Magic link* ska använda `{{ .Token }}` (avsnitt 2.1) |
-| "Du har försökt för många gånger" | Vänta 15 minuter (5 koder per adress, 20 per IP) eller be om en ny kod efter 5 felaktiga försök |
+| Mejlet innehåller en länk eller är på engelska | Det kommer från Supabase Auth, inte från appen – den driftsatta versionen är äldre än 2026-10-02 (då skickade Supabase koden). Appens kodmejl är på svenska, i MB:s profil och utan länk. Driftsätt den nya versionen (avsnitt 2.1) |
+| "Du har försökt för många gånger" | Vänta 15 minuter (5 koder per adress, 20 per IP) eller be om en ny kod efter 5 felaktiga försök. Spärren skriver ingen rad i utskicksloggen |
 | "Läs in testdata på nytt" syns inte | Knappen finns på `/admin/integrationer`, som bara rollen admin når – välj dig själv i "Agera som". Bara testare (`profiles.is_tester`) i testmiljön (`app_settings.environment = staging`) ser den |
 | "Nycklarna för personnummer saknas" | `MM_PNR_KEY` och `MM_PNR_HMAC_KEY` i Vercel (avsnitt 5.1), driftsätt igen |
 | Inläsningen avbröts | Kör den igen – den börjar alltid med att tömma. Vercels loggar visar tabell och felkod (`testdata-fel`) |
@@ -351,7 +361,7 @@ Alla är systemadministratörer i båda avtalen och testare (`is_tester = true`,
 1. **Vercel → Settings → Environment Variables → `MM_EMAIL_ALLOWLIST`** (Production och Preview) – byt värdet till exakt (hela adresser, kommatecken emellan, inga mellanslag):
    `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se`
    Använd **inte** `@miljonbemanning.se`: testdatat har påhittade adresser på den domänen (t.ex. `sara.lindqvist@miljonbemanning.se`), och de skulle då kunna få mejl och inloggningskoder.
-2. **Vercel → `MM_EMAIL_FROM`** = `Miljonmatch <notis@miljonmatch.se>` (avsnitt 4). **Supabase → Authentication → Emails → SMTP Settings → Sender email** = `notis@miljonmatch.se` (avsnitt 2.1), med en Resend-nyckel som har sändrätt för miljonmatch.se.
+2. **Vercel → `MM_EMAIL_FROM`** = `Miljonmatch <notis@miljonmatch.se>` och **`RESEND_API_KEY`** med sändrätt för miljonmatch.se (avsnitt 4) – appen skickar både notiserna och inloggningskoderna med dem (beslut 2026-10-02). SMTP-inställningen i Supabase används inte längre (reserv, avsnitt 2.1).
 3. **Driftsätt igen** (*Deployments → Redeploy*) – variablerna läses när appen startar.
 4. **Profilerna:** samordnaren kör `supabase/bootstrap-staging.sql` igen (idempotent – tömmer ingenting, behåller inloggningarna) – eller en testare väljer **Läs in testdata på nytt** (lägger också till testare som saknas, men nollställer allt som testats).
 5. Kontroll: `select id, email, is_tester from public.profiles where is_tester order by id;` ska visa sex rader. Be en av kollegorna logga in på `https://www.miljonmatch.se/logga-in`.

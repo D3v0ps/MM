@@ -157,7 +157,9 @@ function TemplateEditor({ tpl, all, canEdit }: { tpl: TemplateView; all: Templat
         </>
       }
       foot={
-        canEdit ? (
+        tpl.fixed ? (
+          <span className="text-small text-text-muted">Texten är fast och kan inte ändras här.</span>
+        ) : canEdit ? (
           <>
             <Button kind="primary" icon="check" disabled={!dirty || !chk.ok || !body.trim()} pending={save.pending} onClick={() => void onSave()}>
               Spara som version {tpl.version + 1}
@@ -202,29 +204,36 @@ function TemplateEditor({ tpl, all, canEdit }: { tpl: TemplateView; all: Templat
             </Stack>
           </Notice>
         )}
-        {tpl.channel === "email" && (
+        {tpl.fixed && (
+          <Notice tone="info" title="Fast text – mejlet byggs av servern">
+            Servern tar fram koden och skickar mejlet direkt till den som loggar in – inte via kön. Koden sparas aldrig: utskicksloggen visar bara att en kod har skickats ({"••••••"}). Mejlet har ingen länk.
+          </Notice>
+        )}
+        {tpl.channel === "email" && !tpl.fixed && (
           <Field id="tpl-subject" label="Ämnesrad" help="Visas i mottagarens inkorg. Bara ärendenummer – aldrig namn.">
             <Input value={subject} onValueChange={setSubject} invalid={!chk.ok} />
           </Field>
         )}
-        <Field
-          id="tpl-body"
-          label="Text"
-          help={
-            <>
-              Tillåtna platshållare: {ALLOWED_PLACEHOLDERS.map((p) => `{${p}}`).join(", ")}.
-              {tpl.channel === "sms" && (
-                <>
-                  {" "}
-                  <b>{body.length} tecken</b> – ett SMS rymmer 160.
-                </>
-              )}
-            </>
-          }
-        >
-          <TextArea rows={tpl.channel === "sms" ? 4 : 7} value={body} onValueChange={setBody} invalid={!chk.ok} />
-        </Field>
-        {chk.ok ? (
+        {!tpl.fixed && (
+          <Field
+            id="tpl-body"
+            label="Text"
+            help={
+              <>
+                Tillåtna platshållare: {ALLOWED_PLACEHOLDERS.map((p) => `{${p}}`).join(", ")}.
+                {tpl.channel === "sms" && (
+                  <>
+                    {" "}
+                    <b>{body.length} tecken</b> – ett SMS rymmer 160.
+                  </>
+                )}
+              </>
+            }
+          >
+            <TextArea rows={tpl.channel === "sms" ? 4 : 7} value={body} onValueChange={setBody} invalid={!chk.ok} />
+          </Field>
+        )}
+        {tpl.fixed ? null : chk.ok ? (
           <Notice tone="ok" title="Innehåller inga personuppgifter">
             Texten innehåller inga platshållare för namn, personnummer eller adress. Utskicket får bara innehålla ärendenummer och länk till portalen.
           </Notice>
@@ -235,7 +244,7 @@ function TemplateEditor({ tpl, all, canEdit }: { tpl: TemplateView; all: Templat
             E-post och SMS får aldrig innehålla personuppgifter – bara ärendenummer och en uppmaning att logga in.
           </Notice>
         )}
-        {chk.unknown.length > 0 && (
+        {chk.unknown.length > 0 && !tpl.fixed && (
           <Notice tone="warn" title="Okänd platshållare">
             {chk.unknown.join(", ")} fylls inte i automatiskt. Använd bara de tillåtna platshållarna.
           </Notice>
