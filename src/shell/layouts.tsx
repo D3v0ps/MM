@@ -20,7 +20,7 @@ import { Toaster } from "@/ui/toast";
 import { useQuery } from "./backend";
 import { Link, useNav } from "./nav";
 import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_START_PATH, portalNavFor, type NavItem } from "./nav-config";
-import type { RouteMatch } from "./routes";
+import { START_PATH, type RouteMatch } from "./routes";
 import { useRuntime } from "./runtime";
 import { useSession } from "./session";
 
@@ -130,10 +130,15 @@ function Sidebar() {
         "max-[900px]:flex-row max-[900px]:flex-wrap max-[900px]:items-center max-[900px]:gap-2.5 max-[900px]:px-4 max-[900px]:py-2.5",
       )}
     >
-      <div className="px-2 py-1">
+      <Link
+        to={START_PATH[actor.role]}
+        onClick={() => setOpen(false)}
+        className="flex min-h-11 flex-col justify-center gap-0.5 self-start rounded-mb px-2 py-1 text-vit no-underline hover:bg-vit/8"
+      >
         <Brand name="Miljonmatch" />
-      </div>
-      <div className="-mt-3.5 px-2 text-[0.6875rem] font-semibold tracking-[0.12em] text-vit/78 uppercase max-[900px]:hidden">Miljonbemanning</div>
+        <span className="text-[0.6875rem] font-semibold tracking-[0.12em] text-vit/78 uppercase max-[900px]:hidden">Miljonbemanning</span>
+        <span className="sr-only"> – till startsidan</span>
+      </Link>
       <button
         type="button"
         aria-expanded={open}
@@ -232,6 +237,12 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   const who = [user.name, user.unit].filter(Boolean).join(", ");
   const header = "flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-ljusgra px-6 py-3.5 max-[620px]:px-4 max-[620px]:py-3";
   const signOut = () => (session.signOut ? session.signOut() : nav.push(PORTAL_LOGIN_PATH));
+  const home = (
+    <Link to={START_PATH[actor.role]} className="inline-flex min-h-11 items-center rounded-mb px-1 text-antracit no-underline hover:bg-ljusgra-ton2">
+      <Brand name="Miljonbemanning" />
+      <span className="sr-only"> – till startsidan</span>
+    </Link>
+  );
   const logout = (
     <button type="button" onClick={signOut} className={cn(buttonVariants({ kind: "ghost" }), "text-body portal:text-body")}>
       <Icon name="logout" />
@@ -251,7 +262,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   if (path === PORTAL_START_PATH) {
     return (
       <header className={header} data-print="hide">
-        <Brand name="Miljonbemanning" />
+        {home}
         <span className="flex-1" />
         <span className="text-body text-text-muted">{who}</span>
         {logout}
@@ -262,7 +273,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   const active = activePath(nav.path, items.map((i) => i.to));
   return (
     <header className={header} data-print="hide">
-      <Brand name="Miljonbemanning" />
+      {home}
       <nav aria-label="Portalmeny" className="flex flex-1 flex-wrap items-center gap-1">
         {items.map((it) => (
           <Link
