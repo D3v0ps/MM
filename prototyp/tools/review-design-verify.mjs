@@ -1,0 +1,38 @@
+// Granskning (design): slutkontroll av de viktigaste fynden mot aktuell kod.
+import { openProto, visit } from './lib.mjs';
+const { page, close } = await openProto();
+const out = {};
+await page.setViewportSize({ width: 400, height: 860 });
+await visit(page, 'coach', 'notiser', {});
+out.notiserMainWidth = await page.evaluate(() => [...document.querySelectorAll('#main .list-item .li-main')].slice(0, 3).map((e) => Math.round(e.getBoundingClientRect().width)));
+out.topbarMobil = await page.evaluate(() => Math.round(document.querySelector('.topbars').getBoundingClientRect().height));
+await page.evaluate(() => MM.startScenario('s4', 1)); await page.waitForTimeout(150);
+out.topbarMobilScenario = await page.evaluate(() => Math.round(document.querySelector('.topbars').getBoundingClientRect().height));
+await page.evaluate(() => MM.stopScenario());
+await page.setViewportSize({ width: 1280, height: 900 });
+await visit(page, 'coach', 'coach.narvaro', { week: 'last' });
+out.slaUrgent = await page.evaluate(() => { const e = document.querySelector('.sla-urgent'); const s = getComputedStyle(e); return `${s.fontSize} ${s.fontWeight} ${s.color} på ${s.backgroundColor}`; });
+out.redfill = await page.evaluate(() => { const e = document.querySelector('.badge-redfill'); const s = e && getComputedStyle(e); return s ? `${s.fontSize} ${s.fontWeight} ${s.color} på ${s.backgroundColor}` : null; });
+out.navHot = await page.evaluate(() => { const e = document.querySelector('.nav-item .count.hot'); const s = getComputedStyle(e); return `${s.fontSize} ${s.fontWeight} ${s.color} på ${s.backgroundColor}`; });
+await visit(page, 'samordnare', 'sam.inkorg', { emailId: 'em-101' });
+await page.getByRole('button', { name: /^Acceptera$/ }).first().click(); await page.waitForTimeout(150);
+out.modalStartfokus = await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.innerText);
+let left = 0; for (let i = 0; i < 30; i++) { await page.keyboard.press('Tab'); if (!(await page.evaluate(() => !!document.activeElement.closest('.modal')))) left++; }
+out.modalTabUtanfor = `${left}/30`;
+await page.keyboard.press('Escape');
+await page.evaluate(() => MM.openFeedback()); await page.waitForTimeout(100); await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+out.lådaEfterEscape = await page.locator('.drawer').count(); await page.evaluate(() => MM.closeFeedback());
+await page.reload(); await page.waitForFunction(() => window.MM && document.querySelector('.protobar')); await page.keyboard.press('Tab');
+out.skipLink = await page.evaluate(() => { const b = document.activeElement.getBoundingClientRect(); return `${document.activeElement.innerText} ${Math.round(b.width)}x${Math.round(b.height)}`; });
+await visit(page, 'samordnare', 'sam.start', {});
+out.samStartKnapp = await page.evaluate(() => { const b = [...document.querySelectorAll('#main button')].find((x) => /Se coachens notiser/.test(x.innerText)); const c = b.closest('.card'); return `knapp högerkant ${Math.round(b.getBoundingClientRect().right)} / kort ${Math.round(c.getBoundingClientRect().right)}`; });
+await visit(page, 'chef', 'chef.oversikt', {});
+out.chefGhost = await page.evaluate(() => { const b = [...document.querySelectorAll('#main button')].find((x) => /Förfaller i dag och denna vecka/.test(x.innerText)); const c = b.closest('.card'); return `knapp ${Math.round(b.getBoundingClientRect().right)} / kort ${Math.round(c.getBoundingClientRect().right)}`; });
+await visit(page, 'kommun_handlaggare', 'kom.bestall', {});
+out.bestall = await page.evaluate(() => `${document.querySelector('.page-lead, #main p')?.innerText} | ${[...document.querySelectorAll('#main .eyebrow')].map((e) => e.innerText).join(' / ')}`);
+await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: await page.evaluate(() => MM.store.state.script.yusuf) });
+out.portalSmå = await page.evaluate(() => { const r = {}; for (const e of document.querySelectorAll('#main *')) { if (!e.childNodes.length || ![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue; const f = parseFloat(getComputedStyle(e).fontSize); if (f < 17.5) { const k = f + 'px'; (r[k] = r[k] || []).length < 4 && r[k].push(e.innerText.trim().slice(0, 40)); } } return r; });
+await visit(page, 'samordnare', 'sam.inkorg', {});
+out.inkorgTal = await page.evaluate(() => ({ meny: document.querySelector('.nav-item.active .count')?.innerText, kpi: document.querySelector('.ink-sum')?.innerText.replace(/\n/g, ' '), flik: document.querySelector('[role=tab][aria-selected=true]')?.innerText.replace(/\n/g, ' ') }));
+console.log(JSON.stringify(out, null, 1));
+await close();

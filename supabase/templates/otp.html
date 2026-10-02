@@ -1,0 +1,36 @@
+<!doctype html>
+<!--
+  Supabase Auth: mallen för inloggningskoden (Authentication -> Emails -> Templates -> "Magic link", och samma innehåll i
+  "Confirm signup"). Ämne: Din inloggningskod till Miljonmatch
+  Mallen visar BARA koden ({{ .Token }}) – ingen länk. E-postskydd som Safe Links öppnar länkar och förbrukar dem.
+  Inga personuppgifter. MB:s färger: antracit #1E252B, röd #FF0C01 (punkten), ljusgrå #D1D3D3, vitt.
+  Lokalt (Supabase CLI) pekar supabase/config.toml hit: [auth.email.template.magic_link] content_path = "./supabase/templates/otp.html"
+-->
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="supported-color-schemes" content="light">
+<title>Din inloggningskod till Miljonmatch</title>
+</head>
+<body style="margin:0;padding:0;background:#D1D3D3;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">Din kod är {{ .Token }}. Den gäller i 10 minuter.</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#D1D3D3;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#FFFFFF;">
+<tr><td style="background:#1E252B;padding:20px 32px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:20px;font-weight:700;letter-spacing:3px;line-height:24px;color:#FFFFFF;">MILJONMATCH<span style="color:#FF0C01;">&#9679;</span></td></tr>
+<tr><td style="padding:32px 32px 16px 32px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:16px;line-height:24px;color:#1E252B;">
+<p style="margin:0 0 16px 0;font-size:13px;font-weight:700;letter-spacing:2px;line-height:18px;"><span style="color:#FF0C01;">&#9679;</span>&nbsp;INLOGGNINGSKOD</p>
+<p style="margin:0 0 16px 0;">Här är din kod för att logga in i Miljonmatch:</p>
+<p style="margin:0 0 16px 0;"><span style="display:inline-block;padding:12px 20px;background:#D1D3D3;border-radius:4px;font-family:'Courier New', Courier, monospace;font-size:32px;font-weight:700;letter-spacing:8px;line-height:40px;color:#1E252B;">{{ .Token }}</span></p>
+<p style="margin:0 0 16px 0;">Skriv in koden på inloggningssidan. Koden gäller i 10 minuter och kan bara användas en gång.</p>
+<p style="margin:0 0 16px 0;">Har du inte bett om en kod? Då kan du strunta i det här mejlet. Ingen kan logga in utan koden.</p>
+<p style="margin:0 0 16px 0;">Lämna aldrig ut koden till någon annan. Miljonbemanning frågar aldrig efter den.</p>
+</td></tr>
+<tr><td style="background:#D1D3D3;padding:16px 32px;font-family:Montserrat, Arial, Helvetica, sans-serif;font-size:14px;line-height:20px;color:#1E252B;">Det här mejlet skickades automatiskt från Miljonmatch, Miljonbemanning AB.</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

@@ -1,0 +1,275 @@
+{
+ "reviewer": "design",
+ "findings": [
+  {
+   "id": "mobil-topplist-tar-skarmen",
+   "file": "src/99-shell.js, src/90-feedback.js, src/styles.css",
+   "view": "-",
+   "severity": "major",
+   "title": "Mobil: den klistrade prototyplisten tar en fjärdedel av skärmen, med scenario över halva",
+   "detail": "På 400 px bryts prototypfältet (.protobar) till fyra rader och hela .topbars är position: sticky. Uppmätt höjd 239 px av 860 px (28 %) i alla MB-vyer och i portalen. När ett testscenario körs läggs scenariofältet till och den klistrade ytan blir 496 px (58 %) – kvar för innehållet är bara ca 360 px, t.ex. syns bara en närvarorad i taget i scenario 4. Den klistrade listen döljer också innehåll som vyerna scrollar fram: klick på ett mejl i inkorgen på mobil scrollar detaljen till y=149 px, dvs. rubriken hamnar under listen. Vid Shift+Tab hamnade fokus 11 gånger helt eller delvis under topplisten (WCAG 2.4.11). Chefen kommer att testa på mobil och ser då mest prototypverktyg.",
+   "repro": "Mobil 400 px, valfri roll, scrolla ned. Starta scenario 4 steg 2 (coach.narvaro) och scrolla. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/k/k11-mobil-coach.minvecka.png, k/k11b-mobil-scenario.png, k/k12-mobil-inkorg-klick.png, coach.minvecka__coach__m.png",
+   "fix": "Gör .topbars sticky bara från 900 px (@media (min-width: 900px)). På mobil: lägg perspektiv/roll/genomgång/återställ i en hopfällbar rad ('Prototyp ▾'), och gör scenariofältet till en rad (titel + steg + knappar) där instruktionstexten kan fällas ut. Lägg html { scroll-padding-top: <höjd på topplisten> } så att scrollIntoView och fokus inte hamnar under listen."
+  },
+  {
+   "id": "notiser-mobil-kolumn-70px",
+   "file": "src/05-notiser.js",
+   "view": "notiser",
+   "severity": "major",
+   "title": "Notiser på mobil: texten pressas till en 70 px smal kolumn och märken klipps",
+   "detail": "Varje notis är en .list-item med .li-side (flex: none) som innehåller knappen 'Gör avstämning'/'Öppna ärendet' (ca 200 px, nowrap). På 400 px blir .li-main bara 70 px bred (uppmätt). Rubriker och brödtext bryts med ett ord per rad ('Påminnelse: / ingen / progression / 3 / veckor / i rad'), märket 'Påminnelse' klipps under knappen, 'I appen'/'E-post' bryts ('I / appen') och 'Visa e-postens text' går utanför sin knapp. Vyn ingår i scenario 13 steg 2 och 3 (coach och chef).",
+   "repro": "Mobil 400 px, roll Huvudcoach (och Chef och controller), vy Notiser. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s13-notiser-coach__m1.png, notiser__coach__m.png, notiser__chef__m.png, notiser__handledare__m.png",
+   "fix": "Ge notisraderna en egen klass och bryt layouten på smal skärm, som coach.js gör med .co-wrap: @media (max-width: 620px) { .notis-item { flex-wrap: wrap } .notis-item .li-side { flex-basis: 100%; flex-direction: row; align-items: center; padding-left: 36px } }."
+  },
+  {
+   "id": "vit-text-pa-rod-liten",
+   "file": "src/styles.css",
+   "view": "coach.minvecka, coach.narvaro, sam.inkorg, sam.start, sam.deadlines (+ sidomenyn i alla MB-vyer)",
+   "severity": "major",
+   "title": "Liten vit text på röd yta (3,96:1) i SLA-klockan, 'Ej registrerad' och räknarna i sidomenyn",
+   "detail": "CLAUDE-projekt.md: röd mot vitt är ca 4,0:1 och får bara användas för stor/fet text, ikoner och knappytor (.btn-red har därför 19 px). Uppmätt kontrast vit på #FF0C01 = 3,96:1. Ändå används: .sla-urgent (14 px/800, t.ex. '53 min kvar', 'Registrera 48 min kvar' i inkorgen, startsidan, Min vecka, Närvaro, Förfaller), .badge-redfill (13 px/800, 'Ej registrerad' på varje närvarorad) och .nav-item .count.hot (12 px/700, räknarna vid Notiser, Närvaro och Förfaller i sidomenyn). Det är de mest framträdande statusmarkeringarna i scenario 1, 4 och 13.",
+   "repro": "Samordnare → Avropsinkorg (53 min kvar), Huvudcoach → Min vecka och Närvaro förra veckan (Ej registrerad), sidomenyn i alla MB-roller. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s4-narvaro-last__d1.png, c/s4-minvecka__d1.png, c/s1-inkorg-em101__d1.png, coach.narvaro__coach.png",
+   "fix": "Använd samma mönster som .badge-red/.status-red: vit yta, 2 px röd ram, antracit text och röd ikon (.sla-urgent, .badge-redfill). För räknarna i sidomenyn: vit bricka med antracit text och röd punkt/ram, eller höj till minst 18,66 px fet text om röd yta ska behållas."
+  },
+  {
+   "id": "portal-text-under-18px",
+   "file": "src/styles.css, src/views/kommun.js",
+   "view": "kom.start, kom.deltagare, kom.rapporter, kom.chef, kom.bestall, kom.login",
+   "severity": "major",
+   "title": "Kommunportalen: mycket av texten är 12–16 px trots kravet 18 px",
+   "detail": "Regeln är 18 px i kommunportalen. .portal sätter 18 px på body men komponenterna behåller sina egna storlekar: hjälptexten vid fälten är uttryckligen 16 px (.portal .help { font-size: 1rem }), status- och 'Ny'-märken 14 px, närvaroraderna 'Närvarande 7 av 11 tillfällen' och 'Inga tillfällen ännu' 14 px, KPI-texten i beställarrapporten ('24 av 77 avslut · avtalsmål 32 %', '53 nya · 39 avslutade') 14 px, KPI-etiketter och 'Välj månad' 13 px, mätarlegenden 'Avtalsmål 32 %' 13 px, underrader i listorna ('BOT-26-0124 · Daniel Yilmaz', 'Besked senast 2 feb kl. 08.41'), tidslinjens datum och flikarna 'Översikt/Rapporter/Meddelanden' 15 px, ögonbrynsrubriker 12 px (uppmätt med getComputedStyle).",
+   "repro": "Kund → Kommunens handläggare: Start, Mina deltagare → Yusuf Abdi, Rapporter; Kommunens chef: Beställarrapport. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s5-kom-deltagare-yusuf__d1.png, c/s5-kom-deltagare-yusuf__d2.png, c/s9-kom-chef__d2.png, c/x-kom-start__d1.png",
+   "fix": "Skala upp i portalens scope: .portal .help, .portal .li-sub, .portal .kpi-sub, .portal .small, .portal .tab { font-size: 1.125rem }; .portal .badge, .portal .status, .portal .kpi-label, .portal .meter-legend, .portal .eyebrow { font-size: 1rem }. Kontrollera sedan radbrytningarna på 400 px."
+  },
+  {
+   "id": "startsida-slamarke-overlappar-rubrik",
+   "file": "src/views/inkorg.js",
+   "view": "sam.start",
+   "severity": "major",
+   "title": "Samordnarens startsida: SLA-märket överlappar rubriken i Avropsinkorg-kortet",
+   "detail": "MiniRow (.ink-mini-row) får tre kolumner med fast bredd 170 px för märket när kortet är minst 560 px brett (@container). Märken som 'Senast 2 feb kl. 07.55' och 'Senast 2 feb kl. 08.41' är bredare än 170 px och har white-space: nowrap, så de ritas 29 px in över rubriken ('Avrop – skyddade personuppgifter', 'BOT-27-0050 · Avrop – yrkesinriktad insats, handel'). Texten blir oläslig på första skärmen samordnaren och avtalsansvarig ser.",
+   "repro": "Samordnare (eller Avtalsansvarig) → Startsida, 1280 px, kortet Avropsinkorg rad 4 och 5. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/x-sam-start__d1.png, sam.start__samordnare.png",
+   "fix": "Byt 170px mot minmax(170px, max-content) (eller auto) i @container-regeln, eller låt märket ligga ovanför rubriken även i bred layout."
+  },
+  {
+   "id": "modal-fokusfalla",
+   "file": "src/04-ui.js",
+   "view": "sam.inkorg (alla modaler)",
+   "severity": "minor",
+   "title": "Modaler: fokus kan tabbas ut bakom dialogen och startfokus hamnar på Stäng",
+   "detail": "ui.Modal har aria-modal=\"true\" men ingen fokusfälla: i Acceptera-dialogen lämnade fokus modalen 14 av 30 Tab-tryck och hamnade på knappar bakom den mörka bakgrunden. Startfokus ska enligt koden hoppa över stängknappen (button:not(.modal-x)), men stängknappen saknar klassen modal-x, så fokus hamnar alltid på 'Stäng' i stället för första fältet. Escape stänger och fokus återgår korrekt – det fungerar.",
+   "repro": "Samordnare → Avropsinkorg → mejlet från Maria Ekdahl → Acceptera. Tryck Tab upprepade gånger. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/k/k4-acceptera-modal.png",
+   "fix": "Ge stängknappen klassen modal-x (Btn saknar cls-prop – lägg till den eller rendera knappen direkt) och fånga Tab/Shift+Tab inom .modal (första/sista fokuserbara elementet), eller sätt inert på #app-innehållet medan modalen är öppen."
+  },
+  {
+   "id": "feedbacklada-escape-fokus",
+   "file": "src/90-feedback.js",
+   "view": "- (feedbacklådan)",
+   "severity": "minor",
+   "title": "Feedbacklådan går inte att stänga med Escape och fokus flyttas inte in i den",
+   "detail": "MM.FeedbackDrawer renderar role=\"dialog\" aria-modal=\"true\" men har ingen Escape-hantering och flyttar inte fokus: efter Enter på Feedback-knappen stod fokus kvar på knappen bakom lådan, och efter Escape var lådan fortfarande öppen. Tangentbordsanvändare måste tabba genom hela sidan bakom lådan för att nå formuläret. Det är chefens huvudverktyg för att lämna synpunkter.",
+   "repro": "Valfri vy, fokusera Feedback (nere till höger), tryck Enter, sedan Escape. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/k/k6-feedback-escape.png",
+   "fix": "Återanvänd logiken från ui.Modal: fokusera första fältet (eller rubriken) när lådan öppnas, stäng på Escape och återställ fokus till Feedback-knappen."
+  },
+  {
+   "id": "hoppa-lank-osynlig",
+   "file": "src/99-shell.js, src/styles.css",
+   "view": "-",
+   "severity": "minor",
+   "title": "'Hoppa till innehållet' syns aldrig, inte ens med fokus",
+   "detail": "Första Tab-stoppet på varje sida är länken 'Hoppa till innehållet', men den har klassen sr-only utan :focus-regel. Uppmätt storlek med fokus: 1 × 1 px. Den som använder tangentbord ser inget hända vid första Tab (WCAG 2.4.7).",
+   "repro": "Ladda om sidan och tryck Tab en gång. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/k/k1-forsta-tab.png",
+   "fix": "Lägg till en synlig fokusvariant, t.ex. .skip-link:focus { position: fixed; left: 16px; top: 8px; width: auto; height: auto; clip: auto; padding: 10px 16px; background: var(--antracit); color: var(--vit); z-index: 100 }."
+  },
+  {
+   "id": "klickytor-under-44",
+   "file": "src/04-ui.js, src/05-notiser.js, src/90-feedback.js, src/views/arenden.js, src/views/kommun.js, src/views/coach.js, src/styles.css",
+   "view": "flera",
+   "severity": "minor",
+   "title": "Flera klickytor är mindre än 44 × 44 px",
+   "detail": "Uppmätt: ui.CaseLink (ärendenummer som länk i tabeller, revisionsloggen, Förfaller, Ledningsvyn) 32 px hög; brödsmulorna (.crumbs button) 32 px; 'Visa' personnummer (ui.MaskedPnr) 36 px; 'Visa e-postens text' i Notiser 32 px; deltagarnamnen i handledarens kort (.arn-caselink) 32 px; veckoknapparna 4–9 i kommunens beställning 42 px breda; Antal 0/1 i veckoavstämningen 40 px breda; 'Feedback på fråga n' i Öppna frågor 42 px höga; knapparna i scenariofältet och prototypfältet 40 px.",
+   "repro": "T.ex. Admin → Revisionslogg (ärendelänkar), Huvudcoach → Veckoavstämning (Antal), Kommunens handläggare → Beställ ny insats (veckor), valfri vy med brödsmulor. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s10-admin-logg__d2.png, c/s3-kom-bestall__d1.png, c/s6-avst-mehmet-ai__d4.png",
+   "fix": "Sätt min-height: var(--tap) på CaseLink, .crumbs button, MaskedPnr och 'Visa e-postens text' (behåll den visuella storleken med negativ marginal om raden ska vara kompakt), min-width: var(--tap) på .seg button, och 44 px i scenariofältet/prototypfältet."
+  },
+  {
+   "id": "text-utanfor-knappar-och-kort",
+   "file": "src/styles.css, src/04-ui.js, src/views/ledning.js, src/views/inkorg.js",
+   "view": "sam.start, chef.oversikt, coach.narvaro, coach.kartlaggning, admin.anvandare",
+   "severity": "minor",
+   "title": "Knapptext går utanför knappen eller kortet",
+   "detail": ".btn har white-space: nowrap, så långa etiketter kan inte brytas. Verifierat: 'Se coachens notiser (Amira Haddad)' på samordnarens startsida – texten går ut över knappramen och kortkanten på 1280 px; 'Förfaller i dag och denna vecka →' i Ledningsvyns SLA-kort slutar 43 px utanför kortet på 1280 px; på 400 px går 'Se veckorapporten från kundens håll' (Närvaro), 'Se deltagaren från kommunens håll' (Kartläggning) och 'Se inloggningen från kundens håll' (Kommunanvändare, 19 px utanför kortet) ut över sina ramar.",
+   "repro": "Samordnare → Startsida (1280); Chef → Ledningsvy, kortet SLA-uppfyllnad (1280); Huvudcoach → Närvaro förra veckan (400); Avtalsansvarig → Kommunanvändare (400). Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/x-sam-start__d2.png, c/s9-chef-oversikt__d4.png, k/o-narvaro-persp.png, k/o-admin-anv-persp.png",
+   "fix": "Tillåt radbrytning i knappar som kan bli långa: .btn { white-space: normal; text-align: center } (eller en modifierare för PerspectiveSwitch och ghost-länkknappar) och max-width: 100%."
+  },
+  {
+   "id": "kpi-text-utanfor-ruta",
+   "file": "src/styles.css, src/views/ekonomi.js, src/views/coach.js",
+   "view": "eko.korning, eko.start, coach.minvecka",
+   "severity": "minor",
+   "title": "KPI-värden och etiketter går ut ur sina rutor",
+   "detail": "'511 332 kr' i Fakturakörning januari (1280 px) är bredare än rutan och slår i kanten; på 400 px går etiketterna 'PRESKRIPTIONSRISK' (Fakturering) och 'MÅNADSBEDÖMNINGAR JANUARI' (Min vecka) ut över rutans ram.",
+   "repro": "Ekonom → Fakturakörning januari (1280) och Fakturering (400); Huvudcoach → Min vecka (400). Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s8-korning__d1.png, k/o-eko-start-kpi.png, c/s4-minvecka__m1.png",
+   "fix": ".kpi .kpi-label { overflow-wrap: anywhere; hyphens: auto } och .kpi .kpi-value { font-size: clamp(1.5rem, 4cqi, 2rem) } (container query) eller minska till 1.75rem när värdet innehåller 'kr'."
+  },
+  {
+   "id": "status-bara-farg",
+   "file": "src/views/ledning.js, src/views/inkorg.js, src/views/ekonomi.js, src/views/kommun.js",
+   "view": "chef.oversikt, sam.start, eko.start, kom.chef",
+   "severity": "minor",
+   "title": "Status visas med bara färg i SLA-staplar och KPI-rutor",
+   "detail": "I Ledningsvyns kort SLA-uppfyllnad är stapeln blå när målet nås och antracit annars (MiniBar tone), utan text eller ikon – 'Veckorapporter i tid' är blå, övriga svarta, och chefen får gissa varför. KPI-rutor med röd ram (tone alert) signalerar 'kräver åtgärd' utan text i rutan: 'Resultat, 6 månader' hos kommunens chef, 'Avrop att besvara' och 'Förfaller i dag' på startsidan, 'Stoppade fakturor' och 'Preskriptionsrisk' hos ekonomen. Regeln: status alltid text + ikon.",
+   "repro": "Chef → Ledningsvy, kort SLA-uppfyllnad; Kommunens chef → Beställarrapport; Ekonom → Fakturering. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s9-chef-oversikt__d4.png, c/s9-kom-chef__d2.png, c/s10-eko-start__d1.png",
+   "fix": "Lägg ui.Badge med ikon ('Når målet'/'Under målet') på varje SLA-rad, som i KPI-tabellen längre ned, och en kort statusrad med ikon i KPI-rutor med tone alert (t.ex. '⚠ Under avtalsmålet', '⚠ Kräver åtgärd')."
+  },
+  {
+   "id": "portal-forkortningar",
+   "file": "src/views/kommun.js, src/views/rapporter.js",
+   "view": "kom.deltagare, kom.chef, rapport.visa (kund)",
+   "severity": "minor",
+   "title": "Kommunportalen: förkortningar och facktermer",
+   "detail": "Portalen ska inte ha förkortningar. Förekommer: 'Praktik/APL' ('Deltagaren är i fas 4 av 5 (Praktik/APL)'), 'exkl. moms' ('Veckopris exkl. moms', 'Beställningens värde exkl. moms' i orderbekräftelsen), 'dnr' och 'v.' ('Avtal: 332026110 (dnr AVN/2026:00048)', 'v. 53' i månadsrapporten), 'Svar 4–5 av 5 · 214 svar' under Nöjdhet (oklart för en ovan läsare).",
+   "repro": "Kommunens handläggare → Mina deltagare → Nadia Warsame (Översikt, Öppna orderbekräftelsen); Kommunens chef → Beställarrapport. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/x-rapport-order-kom__d2.png, c/s9-kom-chef__d2.png",
+   "fix": "Skriv ut: 'Praktik (arbetsplatsförlagt lärande)', 'exklusive moms', 'diarienummer', 'vecka'. Nöjdhet: 'Andel som svarat 4 eller 5 på en skala 1–5 (214 svar)'."
+  },
+  {
+   "id": "portal-deltagare-insats-arende",
+   "file": "src/views/kommun.js",
+   "view": "kom.deltagare",
+   "severity": "minor",
+   "title": "Tre begrepp för samma sak på samma skärm: deltagare, insatser och ärenden",
+   "detail": "I kommunens lista heter sidan 'Mina deltagare', ingressen säger 'De insatser du har beställt' och listans rubrik är '29 ÄRENDEN'. Kommunens chef ser 'Enhetens ärenden' i menyn men 'Alla insatser som enheten har beställt' i ingressen. För ovana användare blir det oklart om det är tre olika saker.",
+   "repro": "Kommunens handläggare → Mina deltagare; Kommunens chef → Enhetens ärenden. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/x-kom-deltagare__d1.png, c/x-kom-deltagare-chef__d1.png",
+   "fix": "Välj ett begrepp per skärm, t.ex. 'Mina deltagare' + '29 deltagare' + 'De deltagare du har beställt en insats för', och använd 'ärende' bara i samband med ärendenumret."
+  },
+  {
+   "id": "bestall-tre-steg-fyra-steg",
+   "file": "src/views/kommun.js",
+   "view": "kom.bestall, kom.start",
+   "severity": "minor",
+   "title": "'Tre korta steg' men stegvisaren säger 'Steg 1 av 4'",
+   "detail": "Ingressen i Beställ ny insats säger 'i tre korta steg' och startsidans knapp 'Tre korta steg. Det tar ungefär fem minuter.', men stegvisaren visar fyra steg och rubriken 'STEG 1 AV 4'.",
+   "repro": "Kommunens handläggare → Start → Beställ ny insats. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/p/p-bestall1-fel-d.png, c/x-kom-start__d1.png",
+   "fix": "Skriv 'i fyra steg: tre steg med uppgifter och ett där du granskar och skickar', eller räkna granskningen som en del av steg 3 så att visaren säger 'Steg 1 av 3'."
+  },
+  {
+   "id": "engelska-ord-deadline",
+   "file": "src/views/coach.js, src/views/ledning.js, src/views/rapporter.js, src/views/inkorg.js, src/views/arenden.js, src/views/ekonomi.js",
+   "view": "coach.minvecka, coach.manad, chef.oversikt, rapport.visa, sam.start, sam.deadlines, arende.kort, hand.start, eko.start",
+   "severity": "minor",
+   "title": "Engelska ord i UI: 'deadline', 'Timing' och 'authorization code flow'",
+   "detail": "'Deadline' används i många texter och märken ('Ej fastställd deadline', '1 deadline', '79 deadlines', 'deadline ej fastställd med Botkyrka', 'Ej fastställd deadline – förslag 5:e arbetsdagen', skärmläsarbeskrivningen 'Deadlines' på tabellerna) medan menyn och sidan heter 'Förfaller'. Praktikens fyra rätt visas som 'Timing' (arende.kort, hand.start). Fortnox-kortet hos ekonomen säger 'OAuth 2.0 (authorization code flow)'.",
+   "repro": "Huvudcoach → Min vecka / Månadsbedömning; Chef → Ledningsvy (SLA-uppfyllnad); Handledare → Mina tilldelade ärenden; Ekonom → Fakturering (Fortnox-synk). Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s7-manad-nadia__d1.png, c/s9-chef-oversikt__d4.png, c/s10-hand-start__d3.png, c/s10-eko-start__d3.png",
+   "fix": "Byt till 'sista dag'/'förfallotid' ('Sista dag ej fastställd', '1 försenad', '79 som förfaller'), 'Rätt tidpunkt' och 'Inloggning via OAuth 2.0 (Fortnox godkänner kopplingen)'."
+  },
+  {
+   "id": "revisionslogg-kodvarden",
+   "file": "src/views/admin.js",
+   "view": "admin.logg",
+   "severity": "minor",
+   "title": "Revisionsloggen visar råa kodvärden på engelska",
+   "detail": "detailText/fmtDetail översätter nycklarna men inte värdena: 'Tolkning: template', 'Tolkning: ai', 'Kanal: email', 'Typ: parse_email', 'Typ: transcribe_extract', 'Period: rolling_6m'. Under varje åtgärd visas dessutom koden ('report.view', 'case.view', 'notify.email'). Loggen ingår i scenario 10 steg 4.",
+   "repro": "Admin (eller Chef) → Revisionslogg, kolumnerna Åtgärd och Detaljer. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s10-admin-logg__d2.png",
+   "fix": "Lägg en värdeöversättning i fmtDetail (template → 'Word-mall', ai → 'AI', email → 'e-post', portal → 'portalen', parse_email → 'Tolka mejl', transcribe_extract → 'Transkribering och utkast', rolling_6m → 'rullande 6 månader') och visa åtgärdskoden bara i CSV-exporten eller i en title."
+  },
+  {
+   "id": "inkorg-tre-olika-tal",
+   "file": "src/99-shell.js, src/views/inkorg.js",
+   "view": "sam.inkorg",
+   "severity": "minor",
+   "title": "Inkorgen visar tre olika antal: 5 i menyn, 4 avrop och 6 att hantera",
+   "detail": "Samtidigt på samma skärm: sidomenyns räknare vid Avropsinkorg = 5 (navCount räknar ärenden som väntar + mejl utom kompletteringar), rutan 'Avrop att besvara' = 4 och fliken 'Att hantera' = 6. Chefen som testar kan inte avgöra vilket tal som stämmer.",
+   "repro": "Samordnare → Avropsinkorg. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s2-inkorg-em102__d1.png",
+   "fix": "Låt menyns räknare visa samma som fliken 'Att hantera' (samma selektor), eller skriv vad talet avser (title/aria-label 'att hantera')."
+  },
+  {
+   "id": "details-utan-markor",
+   "file": "src/views/kommun.js, src/views/ledning.js",
+   "view": "kom.deltagare, chef.oversikt",
+   "severity": "minor",
+   "title": "Utfällbara avsnitt ser ut som vanlig text",
+   "detail": "<summary> har display: flex, vilket tar bort webbläsarens triangel. 'Visa ordererkännandet' (kommun.js:748) syns därför som en fet textrad utan pil eller understrykning, och 'Visa siffrorna som tabell' i Ledningsvyn ser ut som en rubrik. Det är svårt att förstå att de går att klicka på, särskilt i kommunportalen.",
+   "repro": "Kommunens handläggare → Mina deltagare → Yusuf Abdi, kortet Orderbekräftelse; Chef → Ledningsvy under diagrammet. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s5-kom-deltagare-yusuf__d2.png, c/s9-chef-oversikt__d2.png",
+   "fix": "Lägg till en chevron-ikon som roterar vid [open] (som i admin.js:194) och understruken text eller knappstil."
+  },
+  {
+   "id": "ikon-bar-chart-saknas",
+   "file": "src/90-feedback.js",
+   "view": "om.start",
+   "severity": "minor",
+   "title": "Rollkortet 'Kommunens chef' på startsidan visar en tom ring i stället för ikon",
+   "detail": "RoleCard använder ikonnamnet 'bar-chart' som inte finns i MM.iconNames, så MM.iconSvg faller tillbaka på en ring. Uppmätt: det är det enda okända ikonnamnet i hela prototypen.",
+   "repro": "Start och scenarier → Kundens perspektiv → kortet Kommunens chef. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/om.start__d1.png",
+   "fix": "Byt till 'chart' (som Chef och controller) eller en befintlig ikon som 'building'."
+  },
+  {
+   "id": "hemknapp-utan-namn-mobil",
+   "file": "src/99-shell.js",
+   "view": "-",
+   "severity": "minor",
+   "title": "Hem-knappen i prototypfältet saknar tillgängligt namn på mobil",
+   "detail": "'Start och scenarier' ligger i <span class=\"hide-narrow\">, som får display: none under 720 px. Knappen har ingen title eller aria-label, så på mobil blir den en namnlös ikonknapp för skärmläsare (Återställ-knappen har title och klarar sig).",
+   "repro": "Mobil 400 px, prototypfältet högst upp (husikonen). Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/om.start__m1.png",
+   "fix": "Ge knappen ariaLabel=\"Start och scenarier\" (eller dölj texten med sr-only i stället för display: none)."
+  },
+  {
+   "id": "manad-aitagg-ordbrytning",
+   "file": "src/views/coach.js",
+   "view": "coach.manad",
+   "severity": "minor",
+   "title": "Månadsbedömningen: AI-förslaget blir fyra rader versaler och områdesnamn bryts mitt i ordet",
+   "detail": "I kolumnen Nivå 0–3 (21 %) blir AiTag med 'FÖRSLAG: 0 – INGEN / FÖR TIDIGT ATT BEDÖMA' fyra rader 12 px versaler – svårläst just där coachen ska jämföra förslaget med sitt val. I kolumnen Område bryts 'Arbetsgivarkontakter/nätverk' till 'Arbetsgivarkonta' / 'kter/nätverk'. Vyn är scenario 7 steg 1.",
+   "repro": "Huvudcoach → Månadsbedömning januari för Nadia Warsame, 1280 px. Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s7-manad-nadia__d3.png, c/s7-manad-nadia__d4.png",
+   "fix": "Visa förslaget som vanlig text under rullgardinen ('AI föreslår: 0 – Ingen / för tidigt att bedöma') med AiTag bara som liten etikett, och lägg till hyphens: auto + lang=\"sv\" (eller mjuka bindestreck i 'Arbetsgivar\\u00ADkontakter/nätverk')."
+  },
+  {
+   "id": "minvecka-mobil-bedom-dold",
+   "file": "src/views/coach.js",
+   "view": "coach.minvecka",
+   "severity": "minor",
+   "title": "Min vecka på mobil: Status och Bedöm-knappen ligger utanför skärmen",
+   "detail": "Tabellen Månadsbedömningar – januari 2027 scrollar i sidled på 400 px; bara kolumnerna Deltagare och Underlag syns och deltagarnamn och ärendenummer bryts ('BOT-26-' / '0119'). Den viktigaste knappen, Bedöm, syns inte och inget visar att tabellen går att scrolla.",
+   "repro": "Huvudcoach → Min vecka, 400 px, kortet Månadsbedömningar. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s4-minvecka__m1.png (del 3)",
+   "fix": "Visa listan som kort på smal skärm (som Fakturakörningen gör) med namnet, underlaget och Bedöm-knappen i full bredd."
+  },
+  {
+   "id": "feedbackknapp-tacker-innehall",
+   "file": "src/99-shell.js, src/styles.css",
+   "view": "-",
+   "severity": "minor",
+   "title": "Den fasta Feedback-knappen täcker innehåll",
+   "detail": ".fb-fab ligger fast nere till höger (142 × 44 px) och täcker text och knappar medan man scrollar, t.ex. 'Internt mål 35 %' i prognosrutan, texten under Så slår reglerna igenom, 'Se samma ärende hos Miljonbemanning' och 'Byggs i fas 2' i kommunportalen på mobil, samt 'MÅNADSBEDÖMNINGAR JANUARI' på Min vecka mobil.",
+   "repro": "Chef → Ledningsvy (1280), Kommunens handläggare → Diego Morales (400). Skärmdumpar: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/c/s9-chef-oversikt__d1.png, c/s1-kom-deltagare-mall__m1.png, c/s9-kom-chef__m1.png",
+   "fix": "Gör knappen mindre på mobil (bara ikon med aria-label, 48 × 48 px) och lägg padding-bottom motsvarande knappens höjd på .page/.portal-main, eller flytta Feedback till prototypfältet på smal skärm."
+  },
+  {
+   "id": "plural-1-godkanda",
+   "file": "src/views/coach.js",
+   "view": "coach.minvecka",
+   "severity": "minor",
+   "title": "'1 godkända, ska levereras' – ingen singularform",
+   "detail": "Kortet Rapporter som förfaller bygger texten med `${n} ${t}` och fasta pluralformer ('granskade, ska godkännas', 'godkända, ska levereras'). Med ett ärende blir det '1 godkända' (sågs i textgenomgången).",
+   "repro": "Huvudcoach → Min vecka, kortet Rapporter som förfaller när exakt en månadsrapport är godkänd.",
+   "fix": "Använd fmt.plural eller skriv om: 'Godkända, ska levereras: 1'."
+  },
+  {
+   "id": "flikar-utan-piltangenter",
+   "file": "src/04-ui.js",
+   "view": "flera (ui.Tabs)",
+   "severity": "minor",
+   "title": "Flikarna har role=\"tab\" men beter sig inte som flikar för skärmläsare",
+   "detail": "ui.Tabs sätter role=\"tablist\"/\"tab\" men saknar aria-controls, tabpanel och piltangentstyrning (högerpil flyttade inte fokus). Alla flikar ligger dessutom i Tab-ordningen. Skärmläsaren annonserar flikar men de fungerar som vanliga knappar.",
+   "repro": "Chef → Ledningsvy, fokusera fliken 'Resultat och KPI:er' och tryck högerpil – inget händer.",
+   "fix": "Antingen ta bort role=tab/tablist och använd aria-pressed/aria-current på knapparna, eller implementera mönstret fullt ut (roving tabindex, piltangenter, aria-controls + role=\"tabpanel\")."
+  },
+  {
+   "id": "login-epost-utanfor-ruta-mobil",
+   "file": "src/views/kommun.js",
+   "view": "kom.login",
+   "severity": "minor",
+   "title": "Inloggning på mobil: e-postadressen går ut ur notisrutan",
+   "detail": "I steg 2 ('Kolla din e-post') bryts inte 'maria.ekdahl@botkyrka.se.' och sticker ut över rutans högra kant på 400 px.",
+   "repro": "Mobil 400 px, Kommunens handläggare → Logga in, skriv e-post och Skicka kod. Skärmdump: /tmp/claude-0/-home-user-MM/e5c80eff-c572-50a4-9906-30cf010bab8b/scratchpad/review-design/p/p-login2-m.png",
+   "fix": "overflow-wrap: anywhere på e-postadressen (eller på .notice-texten generellt)."
+  }
+ ]
+}

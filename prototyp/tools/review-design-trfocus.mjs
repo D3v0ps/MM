@@ -1,0 +1,10 @@
+import { openProto, visit } from './lib.mjs';
+const dir = process.argv[2];
+const { page, close } = await openProto();
+await visit(page, 'chef', 'arenden.lista', {});
+const tr = page.locator('tr.clickable').nth(3);
+await tr.focus(); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+const b = await tr.boundingBox();
+console.log(await page.evaluate(() => { const e = document.activeElement; const s = getComputedStyle(e); return e.tagName + ' ' + s.outline + ' ' + e.innerText.slice(0,40); }));
+await page.screenshot({ path: dir + '/f-arendelista-rad.png', clip: { x: b.x - 20, y: b.y - 60, width: b.width + 40, height: b.height + 120 } });
+await close();

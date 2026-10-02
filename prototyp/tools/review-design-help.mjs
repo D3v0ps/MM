@@ -1,0 +1,17 @@
+import { openProto, visit } from './lib.mjs';
+const { page, close } = await openProto();
+const check = async (label) => console.log(label, JSON.stringify(await page.evaluate(() => [...document.querySelectorAll('#main input, #main select, #main textarea, #main .seg')].filter((e) => e.offsetParent).map((e) => { const f = e.closest('.field'); const lab = f ? (f.querySelector('label, .flabel') || {}).innerText : (document.querySelector(`label[for="${e.id}"]`) || {}).innerText || e.getAttribute('aria-label'); return `${(lab || '?').replace(/\n/g, ' ').slice(0, 40)} | help=${!!(f && f.querySelector('.help'))}`; }))));
+await visit(page, 'kommun_handlaggare', 'kom.login', {}); await check('login1');
+await page.fill('#main input[type=email]', 'maria.ekdahl@botkyrka.se'); await page.getByRole('button', { name: 'Skicka kod' }).click(); await page.waitForTimeout(100); await check('login2');
+await visit(page, 'kommun_handlaggare', 'kom.bestall', {}); await check('best1');
+await page.getByRole('button', { name: '8', exact: true }).click(); await page.getByRole('button', { name: /Nästa/ }).click(); await page.waitForTimeout(100);
+await page.getByRole('button', { name: 'Nej', exact: true }).click(); await page.waitForTimeout(100); await check('best2');
+await page.fill('#kom-o-fn', 'Test'); await page.fill('#kom-o-ln', 'Person'); await page.fill('#kom-o-pnr', '19900101-1234');
+const inputs = await page.evaluate(() => [...document.querySelectorAll('#main input, #main select, #main textarea')].map((e) => e.id));
+console.log(inputs.join(','));
+await page.getByRole('button', { name: /Nästa/ }).click(); await page.waitForTimeout(150); await check('best2b');
+await page.getByRole('button', { name: /Nästa/ }).click(); await page.waitForTimeout(150); await check('best3');
+await visit(page, 'kommun_handlaggare', 'kom.deltagare', { caseId: await page.evaluate(() => MM.store.state.script.nadia), tab: 'meddelanden' }); await check('medd');
+await visit(page, 'kommun_handlaggare', 'kom.deltagare', {}); await check('lista');
+await visit(page, 'kommun_chef', 'kom.deltagare', {}); await check('lista-chef');
+await close();

@@ -1,0 +1,165 @@
+{
+  "reviewer": "regler",
+  "findings": [
+    {
+      "id": "skyddad-namn-kommunchef-rapport",
+      "file": "src/views/rapporter.js",
+      "view": "rapport.visa",
+      "severity": "blocker",
+      "title": "Kommunens chef ser namnet på deltagare med skyddade personuppgifter i rapporterna",
+      "detail": "I kom.deltagare maskeras det skyddade ärendet BOT-26-0120 som \"Skyddade personuppgifter\" för kommunens chef, med texten \"Bara handläggaren som beställde ser namn och personnummer\". När chefen öppnar ärendets månadsrapport från fliken Rapporter står det \"Gäller Sanna Lindgren, ärende BOT-26-0120\" och \"Deltagare: Sanna Lindgren\". Veckorapporten till Omar Farah visar också namnet för chefen. Orsak: sel.access (03-domain.js rad 39–53) ger kommun_chef åtkomsten 'customer' för alla ärenden, även skyddade. sel.displayName ger då fullt namn, och rapporter.js använder sel.displayName(c, role) på raderna 219, 284, 347, 356, 382 och 919. Bara kommun.js har en egen spärr (nameFor). Det bryter mot regel 8 (åtkomst bara för namngiven coach och avtalsansvarig) och mot portalens eget löfte. Verifierat i körning med tools/review-regler-probe.mjs.",
+      "repro": "Kund → Kommunens chef → Enhetens ärenden → BOT-26-0120 (Skyddade personuppgifter) → Rapporter → Månadsrapport december 2026. Rubriken och avsnitt 1 visar deltagarens namn. Samma sak i rapport.visa för veckorapporten till Omar Farah.",
+      "fix": "Lägg regeln på ett ställe: i sel.access eller sel.displayName ska en kundroll få 'restricted' eller namnet \"Skyddade personuppgifter\" när protectedIdentity är sant och c.referrerId !== pid. Använd sedan den selektorn i alla rapportdokument och i PortalReport. WeeklyDoc ska visa en skyddad sektion på samma sätt som för MB-rollerna. Låt också reportAccess följa cfg.customerVisibility.seesIndividualReports för kommun_chef."
+    },
+    {
+      "id": "coach-ser-chefens-visning",
+      "file": "src/views/arenden.js",
+      "view": "arende.kort",
+      "severity": "major",
+      "title": "Coachen ser i ärendets historik att chefen har öppnat ärendet (indirekt signal om eskalering)",
+      "detail": "Fliken Historik (TabHistorik, rad 1120–1149) visar ärendets hela revisionslogg för coachen, även andras visningar. När chefen öppnar det eskalerade ärendet (Yusuf Abdi, BOT-26-0148) från Tidig uppmärksamhet eller från notisen, får coachen raden \"1 feb kl. 09.12 · Karin Wallin · Öppnade deltagarkortet\". Det avslöjar att chefen tittar på just de ärenden som coachen fått påminnelser om. Användaren har uttryckligen krävt att coachen aldrig ska kunna se att något eskalerats. Verifierat i körning (skärmdump coach-historik-efter-chef.png).",
+      "repro": "Chef → Ledningsvy → Tidig uppmärksamhet → BOT-26-0148 (öppna ärendet). Byt till Huvudcoach → Mina ärenden → BOT-26-0148 → Historik. Revisionsloggen visar \"Karin Wallin – Öppnade deltagarkortet\".",
+      "fix": "Visa inte andras visningsposter (case.view, report.view, pnr.revealed, transcript.view) för coach och handledare. Alternativt: visa kortets revisionslogg bara för chef, avtalsansvarig och admin, och ge coachen bara status- och ändringshistorik."
+    },
+    {
+      "id": "handledare-ser-bedomningar-i-rapport",
+      "file": "src/views/rapporter.js",
+      "view": "rapport.visa",
+      "severity": "major",
+      "title": "Handledaren kan läsa månadsrapporter med coachens bedömning, trots att appen säger motsatsen",
+      "detail": "Appen säger på två ställen till handledaren att \"coachens anteckningar, bedömningar och rapporter visas inte för handledare\" (arenden.js rad 382 och 1203). Men VIEW_ROLES i rapporter.js (rad 11) innehåller handledare, och reportAccess (rad 96–100) ger åtkomst till månads- och slutrapporter för teamärenden. Som handledare (Petra Ek) visar rapport.visa för BOT-26-0008 hela avsnitt 4 (nivåer och observationer) och avsnitt 8 (samlad status och coachens sammanfattning). Det finns ingen länk dit i handledarens menyer, men en direktlänk fungerar. Behörigheten är alltså inkonsekvent.",
+      "repro": "Handledare → rapport.visa {reportId: 'rep-15244'} (månadsrapport oktober 2026 för BOT-26-0008, ett teamärende). Avsnitt 4 och 8 visas.",
+      "fix": "Bestäm regeln och följ den överallt. Om handledare inte ska se bedömningar och rapporter: ge bara veckorapporten (närvaro) åtkomsten 'team' i reportAccess och neka monthly och final. Om de ska se dem: ändra texterna i arenden.js."
+    },
+    {
+      "id": "skyddad-samordnare-registrerar",
+      "file": "src/views/inkorg.js",
+      "view": "sam.inkorg",
+      "severity": "major",
+      "title": "Samordnaren tar emot och registrerar namn och personnummer för skyddade avrop",
+      "detail": "Avropet med skyddade personuppgifter (em-104) visar knappen \"Registrera efter telefonsamtal\" för samordnaren (rad 664). ProtectedBody säger \"Du kan ta samtalet\" (rad 817), och uppgiften task-2 går till rollen samordnare (01-seed.js rad 917). Samordnaren skriver alltså in namn och personnummer, och först därefter spärras uppgifterna. Enligt regel 8 får bara namngiven coach och avtalsansvarig ha åtkomst. SPEC §7.1 säger att avropet ska flaggas direkt till avtalsansvarig.",
+      "repro": "Samordnare → Avropsinkorg → \"Avrop – skyddade personuppgifter\" (Omar Farah) → Registrera efter telefonsamtal. Formuläret tar namn och personnummer.",
+      "fix": "Visa knappen och PhoneModal bara för avtalsansvarig. Skicka uppgiften till avtalsansvarig. För samordnaren: visa bara att ett skyddat avrop finns och att avtalsansvarig hanterar det."
+    },
+    {
+      "id": "levererad-rapport-andras",
+      "file": "src/views/rapporter.js",
+      "view": "rapport.visa",
+      "severity": "major",
+      "title": "Levererade rapporter ändras i efterhand utan ny version",
+      "detail": "Rapportdokumenten (MonthlyDoc, WeeklyDoc, FinalDoc, CustomerSummaryDoc) räknas fram ur aktuell data varje gång de visas. Ändras underlaget efter leveransen, ändras också den levererade rapporten hos kommunen, utan rättelse och utan ny version. Test: Nadias månadsrapport för december (levererad) visade närvaro \"6 av 7, 86 %\". Efter att en närvaroregistrering i december ändrats visar samma levererade rapport \"5 av 7, 71 %\". Status är fortfarande Levererad, version 1. Dessutom skapas texter vid visningen som ingen har godkänt: 'Rekommenderad fortsättning' i slutrapporten (defaultRecommendation, rad 252–257) och beställarrapportens sammanfattning (summaryFromNumbers, rad 399–402 och 416). Det strider mot SPEC §7.11 (\"Rättelse skapar ny version, den gamla sparas\") och mot regeln att rapporter byggs av godkända uppgifter. attendance.set (03-domain.js rad 661) tillåter också ändringar i perioder som redan är rapporterade.",
+      "repro": "Kund → Kommunens handläggare → Rapporter → Månadsrapport december 2026 (Nadia Warsame): notera Totalt i avsnitt 2. Ändra en närvaroregistrering i december, till exempel via MM.dispatch('attendance.set', …). Öppna rapporten igen: siffrorna har ändrats.",
+      "fix": "Spara rapportens innehåll som en ögonblicksbild när rapporten godkänns eller levereras (siffror, texter, bedömningar) och visa ögonblicksbilden för levererade versioner. Ändringar i en rapporterad period ska kräva report.correct (ny version) eller åtminstone en varning. Visa inte automatiskt skapad rekommendation eller sammanfattning som godkänd."
+    },
+    {
+      "id": "ai-manad-falska-belagg",
+      "file": "src/01-seed.js",
+      "view": "coach.manad",
+      "severity": "major",
+      "title": "AI-utkasten i månadsbedömningen hänvisar till avstämningar som inte finns och innehåller fel fakta",
+      "detail": "I Nadias månadsbedömning för januari står \"Godkända avstämningar 4: 4 jan, 11 jan, 18 jan, 25 jan\" och \"Närvarograd 100 % (9 av 9)\". AI-utkasten per område anger källorna \"Avstämning 15 jan, 23 jan, 17 jan, 21 jan, 19 jan, 13 jan\", alltså dagar utan avstämning (6 av 8 källor finns inte; för Hodan 7 av 10, för Mehmet 6 av 7). Seeden slumpar källdatumen (rad 677). Utkastet \"Har själv meddelat frånvaro i förväg vid två tillfällen\" motsäger 100 % närvaro. Sammanfattningsutkastet (rad 681) är samma fasta text för alla: \"deltagit i 11 av 12 planerade tillfällen … (Källa: fyra godkända avstämningar)\". Hos Nadia var det 9 av 9, och Mehmet har bara 3 godkända avstämningar. Rutan säger ändå \"Bygger bara på godkända avstämningar\" (coach.js rad 1322). Det strider mot principen att AI-förslag ska ha belägg, och en chef som testar ser att AI hittar på.",
+      "repro": "Huvudcoach → Min vecka → Månadsbedömningar januari → Nadia Warsame. Jämför källorna i AI-utkasten och sammanfattningsutkastet med underlaget överst på sidan.",
+      "fix": "Skapa utkasten ur ärendets faktiska godkända avstämningar: källa = verkliga heldAt-datum, sammanfattning från attendanceStats och antalet godkända avstämningar. Välj observationer som inte motsäger data (inte frånvarotext vid 100 % närvaro)."
+    },
+    {
+      "id": "ai-anteckningar-motsager-belagg",
+      "file": "src/views/coach.js",
+      "view": "coach.avstamning",
+      "severity": "major",
+      "title": "AI-förslag från inklistrade anteckningar motsäger sina egna belägg",
+      "detail": "makeSuggestions (rad 639–661) ger samma standardvärden oavsett vad som står i anteckningarna och hämtar citaten från anteckningarna i tur och ordning. Med anteckningen \"Deltagaren var sjuk hela veckan och deltog inte i något. Ingen arbetsgivarkontakt.\" föreslår AI: Veckomål uppnått = Delvis, Arbetsgivarkontakter = 1 (intervju), Aktiviteter = CV och ansökningar, intervjuträning …, Hinder = Digital vana med citatet \"Ingen arbetsgivarkontakt.\". Beläggen stöder alltså inte förslagen. Det strider mot SPEC §8.3 (varje fält ska ha belägg, annars \"Framgår inte\") och ser trasigt ut för en chef som provar funktionen.",
+      "repro": "Huvudcoach → Veckoavstämning för Hodan Farah → Med AI-stöd → Inklistrade anteckningar → skriv texten ovan → Tolka anteckningarna.",
+      "fix": "För källan notes: sätt värdet till null och texten \"Framgår inte\" när texten inte innehåller något som stöder fältet, eller gör en enkel nyckelordsmatchning, till exempel \"sjuk\" → Veckomål Nej och \"ingen arbetsgivarkontakt\" → 0. Alternativt: visa ett fast exempel med anteckningar som matchar förslagen."
+    },
+    {
+      "id": "avtalsvarden-hardkodade-karnan",
+      "file": "src/03-domain.js",
+      "view": "-",
+      "severity": "major",
+      "title": "Avtalsvärden är hårdkodade i kärnans logik i stället för att läsas från MM.cfg()",
+      "detail": "Svarstiden på avrop är hårdkodad till 1 arbetsdag i sel.avropDue (rad 320), sel.ackTextFor (rad 569, texten som skickas till kommunen) och KPI:n avrop_besvarade_i_tid (rad 287). Inkorgen läser samtidigt cfg.sla.avrop_svar.within.workingDays (inkorg.js rad 75), så SLA och deadlines kan börja skilja sig åt. Slutrapportens deadline är hårdkodad till 5 arbetsdagar i case.close (rad 639), trots att cfg.sla.slutrapport.proposal finns. Flaggan för ej bokat första möte är hårdkodad till 3 dagar (rad 386). Flaggtexten säger \"Ofakturerade veckor äldre än 45 dagar\" (rad 400) fast gränsen läses från unbilledWarningDays. Det bryter mot icke förhandlingsbar regel 4 (avtalet är konfiguration), även om värdena i dag råkar stämma med konfigurationen.",
+      "repro": "Läs koden på raderna ovan. Ändra till exempel cfg.sla avrop_svar.within.workingDays till 2 i konsolen: inkorgens SLA-klocka ändras, men ordererkännandet och Förfaller-listan gör det inte.",
+      "fix": "Läs värdena från MM.cfg(): sla avrop_svar.within.workingDays, slutrapport.proposal.workingDays och billing.unbilledWarningDays. Lägg regeln för första mötet (3 dagar) i konfigurationen."
+    },
+    {
+      "id": "revisionslogg-rollbyte",
+      "file": "src/04-ui.js",
+      "view": "arende.kort",
+      "severity": "minor",
+      "title": "Visning av deltagarkort loggas inte efter rollbyte",
+      "detail": "ui.useAuditView (rad 202–209) använder en global mängd seen med nyckeln action:entityId per sidladdning, utan hänsyn till vem som visar. När chefen har öppnat ett kort loggas inte coachens visning av samma kort, och tvärtom. I testet fanns bara Karin Wallins visning i loggen efter att både chef och coach öppnat Yusufs kort. Revisionsloggen (regel 3) blir därmed ofullständig just i den prototyp där testaren byter roll hela tiden.",
+      "repro": "Öppna BOT-26-0148 som chef och sedan som coach → Revisionslogg (admin.logg som chef): bara en visning finns.",
+      "fix": "Ta med aktör eller roll i nyckeln: `${MM.currentPersonaId()}:${action}:${entityId}`."
+    },
+    {
+      "id": "coach-texter-om-eskalering",
+      "file": "src/05-notiser.js",
+      "view": "notiser",
+      "severity": "minor",
+      "title": "Coachens egna vyer berättar att eskaleringar finns",
+      "detail": "Coachen ser inga eskaleringar, men texter som coachen får se nämner dem. I Notiser (05-notiser.js rad 52) står \"Påminnelser och eskaleringar räknas fram av reglerna …\". Samma sida har en knapp \"Se vad chefen får\" (rad 30). I ärendelistan (arenden.js rad 299) står \"coacher och handledare ser aldrig eskaleringar till chef\". Tillsammans med påminnelsen \"ingen progression 3 veckor i rad\" kan coachen räkna ut att ärendet eskalerats. Texterna är prototypförklaringar, men de visas i coachens vy.",
+      "repro": "Huvudcoach → Notiser, och Huvudcoach → Mina ärenden (längst ned).",
+      "fix": "Formulera DemoNote-texterna utifrån rollen: för coach och handledare, nämn bara påminnelser. Visa knappen \"Se vad chefen får\" bara i chefens vy eller i scenariotexten."
+    },
+    {
+      "id": "kundsammanstallning-innehaller-internt-mal",
+      "file": "src/03-domain.js",
+      "view": "kom.chef",
+      "severity": "minor",
+      "title": "Datat till kundens beställarrapport innehåller det interna målet",
+      "detail": "sel.customerSummary (rad 444) lägger resultRate-objekten i result.rolling, sinceStart och month. De objekten innehåller internalTarget (0,35) och status 'below_internal'. Inget av det visas i dag – kontrollerat i kom.chef, alla flikar, och i rapport.visa som kommunroll. I den riktiga tjänsten skulle samma struktur skickas till kommunens webbläsare och avslöja det interna målet i datat.",
+      "repro": "Som kommun_chef i konsolen: MM.sel.customerSummary('2026-12').result.rolling.internalTarget → 0.35.",
+      "fix": "Returnera bara num, den, value, prelim, excluded och contractTarget från customerSummary. Räkna status mot avtalsmålet och inte mot internt mål."
+    },
+    {
+      "id": "ai-sparr-bara-i-vyn",
+      "file": "src/03-domain.js",
+      "view": "coach.avstamning",
+      "severity": "minor",
+      "title": "Spärren mot AI för skyddade ärenden och utan samtycke finns bara i vyn",
+      "detail": "Vyerna spärrar AI korrekt: utan samtycke visas samtyckespanelen, och för skyddade ärenden visas ett meddelande. Men åtgärderna ai.run (rad 791) och checkin.save med ai-data (rad 680) kontrollerar varken protectedIdentity eller aiConsent. consent.set gör det. Prototypen används som förlaga till bygget, där spärren måste ligga i adaptern eller servern (regel 5 och 8, SPEC §8.1).",
+      "repro": "I konsolen: MM.dispatch('ai.run', { caseId: MM.store.state.script.skyddad, kind: 'transcribe_extract', audioSeconds: 60 }) → AI-körningen registreras för det skyddade ärendet.",
+      "fix": "Returnera { error: 'protected' } eller { error: 'no_consent' } från ai.run och från checkin.save med ai när personen är skyddad eller samtycke saknas."
+    },
+    {
+      "id": "avtalsvarden-hardkodade-texter",
+      "file": "src/views/kommun.js",
+      "view": "-",
+      "severity": "minor",
+      "title": "Avtalsvärden är hårdkodade i hjälptexter och etiketter",
+      "detail": "Valideringen läser mönstren från konfigurationen, men texterna har värdena inskrivna. \"8–10 siffror\": kommun.js 458; inkorg.js 449, 498, 561, 615; ekonomi.js 225, 390, 766; 00-core.js buyerRefError. \"99 + 7 siffror\": ekonomi.js 767. \"registrera senast måndag 10.00\": arenden.js 742. \"senast 16.00\": admin.js 779. \"inom 5 minuter\": admin.js 16. \"Insatsen pågår mellan 4 och 10 veckor\" och WEEKS = [4..10]: kommun.js 14 och 467, inte i konfigurationen. \"färre än 5\": kommun.js 966 och 1027, rapporter.js 410 och 413, ledning.js 314, 03-domain.js 449, fast minN läses från pulse.minNForAggregate. \"fas X av 5\": kommun.js 154, 162 och 726. Priserna \"1 323–1 668 kr\": ekonomi.js 561. \"mål 100 %\": ledning.js 362. Tiden 16:00 för åtgärdsplaner och avvikelseuppföljning: inkorg.js 1254, ledning.js 392, 648 och 937, arenden.js 973, 03-domain.js 354.",
+      "repro": "Sök efter strängarna i src/views.",
+      "fix": "Skapa texterna från MM.cfg(), till exempel med humanPattern från admin.js för referensmönstren, cfg.pulse.minNForAggregate, cfg.phases.length och sla.time. Lägg omfattningen 4–10 veckor i avtalskonfigurationen."
+    },
+    {
+      "id": "kommunportal-forkortningar",
+      "file": "src/views/kommun.js",
+      "view": "kom.deltagare",
+      "severity": "minor",
+      "title": "Kommunportalen använder förkortningar",
+      "detail": "Portalen ska skrivas utan förkortningar, men datum och tider visas med d.fmtDate och d.fmtDateTime (cirka 40 ställen i kommun.js och i PortalReport). Det ger \"Levererad 8 jan kl. 15.46 · läst 10 jan\", \"14 dec 2026\" och liknande. Fasnamnet \"Praktik/APL\" visas i kom.deltagare (\"Fas 4 av 5 · Praktik/APL\"). I beställningssteg 2 står \"använder ingen AI i ärendet\".",
+      "repro": "Kommunens handläggare → Mina deltagare → Nadia Warsame (Översikt och Rapporter), och Rapporter och meddelanden.",
+      "fix": "Ge portalen en egen datumformatering med hela månadsnamn och \"klockan\" (till exempel \"8 januari 2027 klockan 15.46\"). Visa fasnamnet utan APL (\"Praktik på en arbetsplats\") och skriv ut AI i klartext."
+    },
+    {
+      "id": "mall-generisk-bekraftelse-avviker",
+      "file": "src/views/admin.js",
+      "view": "admin.mallar",
+      "severity": "minor",
+      "title": "Mallen för generisk mottagningsbekräftelse stämmer inte med utskicket",
+      "detail": "Mallen (rad 17) säger \"Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag.\". Utskicket som case.create faktiskt skickar (03-domain.js rad 566) säger \"Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 …\". Enligt DemoNote använder demot \"de ursprungliga texterna\", men den ursprungliga mallversionen och utskicket skiljer sig. Varken personuppgifter eller regelbrott, men chefen ser två olika löften (vi ringer eller ring oss).",
+      "repro": "Admin → Mallar och utskick → Generisk mottagningsbekräftelse. Jämför med Utskickslogg efter en portalbeställning med skyddade personuppgifter.",
+      "fix": "Använd samma text i mallen och i case.create, helst genom att case.create läser mallen."
+    },
+    {
+      "id": "farger-utanfor-profil",
+      "file": "src/styles.css",
+      "view": "-",
+      "severity": "minor",
+      "title": "Hoverfärger utanför MB:s profil",
+      "detail": "Vyerna är rena (bara var(--…) och vitt). Kärnans stilmall har däremot tre färger utanför profilen: .btn-primary:hover #000 (rad 193), .btn-red:hover #d80a00 (rad 202) och .btn-blue:hover #5b95ad (rad 204).",
+      "repro": "Hovra över en primär, röd eller blå knapp.",
+      "fix": "Använd profilfärger för hover, till exempel antracit med --antracit-ton-ram, eller en opacitet i stället för en egen nyans."
+    }
+  ]
+}

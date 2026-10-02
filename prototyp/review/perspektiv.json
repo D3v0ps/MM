@@ -1,0 +1,215 @@
+{
+  "reviewer": "perspektiv",
+  "findings": [
+    {
+      "id": "kvittens-av-fel-person",
+      "file": "src/views/rapporter.js",
+      "view": "rapport.visa",
+      "severity": "major",
+      "title": "Rapporten blir kvitterad när kommunens chef, som inte är mottagare, öppnar den",
+      "detail": "reportAccess() ger kommun_chef åtkomst till alla levererade rapporter (rad 88). ReportView dispatchar sedan report.open för varje kundroll som öppnar rapporten (rad 943), och report.open i 03-domain.js (rad 761) sätter openedAt oavsett vem som öppnar. Därför blir en månadsrapport till Ahmed Yusuf 'Kvitterad – mottagaren har öppnat rapporten' på MB-sidan, och kommunens chef får texten 'Du öppnade rapporten första gången …', fast mottagaren aldrig har öppnat den. Samma sak händer när MB-testaren klickar 'Se som kommunen' eller 'Öppna kommunens vy' på en rapport till Linda, Ahmed eller Omar. customerRoleFor() väljer då kommun_chef, så bytet i sig kvitterar rapporten. Kvittensen är MB:s bevis på leverans om kommunen hävdar bristfällig information (vitesrisk). Därför är det allvarligt att den kan bli fel.",
+      "repro": "Kommunens chef → Enhetens ärenden → BOT-26-0022 (Ahmed) → Rapporter → Månadsrapport oktober 2026. Byt till samordnare och öppna samma rapport: status 'Kvitterad'. Eller: samordnare → rapport.visa för valfri levererad rapport till Linda → 'Se som kommunen' → rapporten är kvitterad (verifierat med tools/review-perspektiv-03.mjs, del D och D2).",
+      "fix": "Sätt openedAt bara när den som öppnar finns i r.deliveredTo (eller är r.recipientUserId). Kontrollera det både i report.open och i ReportView-effekten. Logga chefens visning som 'report.view' i revisionsloggen utan att kvittera."
+    },
+    {
+      "id": "chef-kund-resultat-olika",
+      "file": "src/views/ledning.js",
+      "view": "chef.oversikt",
+      "severity": "major",
+      "title": "'Så ser kommunens chef resultatet' visar 33,9 % men kundens vy visar 31,2 % 'Under avtalsmålet'",
+      "detail": "Kortet 'Så ser kommunens chef resultatet' i chef.oversikt (rad 311–316) visar den rullande resultatgraden fram till i dag: 33,9 %, 43 av 127, som ligger över avtalsmålet. När man klickar på perspektivbytet öppnas kom.chef. Den visar som standard senaste levererade beställarrapport, december (kommun.js rad 933): 31,2 %, 24 av 77, med röd tile och märket 'Under avtalsmålet'. Januarirapporten, som har samma siffror som ledningsvyn, är ett utkast och syns inte för kunden. En chef som testar 'samma siffror från båda håll' ser alltså olika resultat och olika bedömning direkt efter bytet, utan förklaring på MB-sidan.",
+      "repro": "Chef → Ledningsvy → kortet 'Så ser kommunens chef resultatet' (33,9 %) → 'Så ser kommunens chef resultatet – utan internt mål' → kom.chef visar december med 31,2 % och 'Under avtalsmålet'.",
+      "fix": "Visa i kortet siffran från den senast levererade beställarrapporten, med månad: 'I decemberrapporten: 31,2 % (24 av 77)'. Skriv också att januarirapporten väntar på godkännande och då visar 33,9 %. Alternativt kan perspektivbytet öppna kom.chef på samma månad, men då måste kund-vyn förklara att månaden är ett utkast."
+    },
+    {
+      "id": "nojdhet-utan-slutdatum",
+      "file": "src/03-domain.js",
+      "view": "kom.chef",
+      "severity": "major",
+      "title": "Nöjdheten i beställarrapporten räknar med svar efter rapportmånaden",
+      "detail": "customerSummary(mk) anropar pulseStats({ from: mk-2 }) utan slutdatum (rad 440). pulseStats filtrerar bara submittedAt >= from (rad 301). Därför innehåller alla levererade beställarrapporter svar fram till i dag. Oktoberrapporten visar '217 svar under de senaste tre månaderna', trots att avtalet startade 10 sep. Novemberrapporten visar också 217. Decemberrapporten visar 214 svar och 79 %, men okt–dec innehåller bara 153 svar med 79,7 %. Levererade rapporter ändrar alltså innehåll i efterhand och stämmer inte med sin egen text 'senaste tre månaderna'.",
+      "repro": "Kommunens chef → Beställarrapport → Oktober 2026 → Nöjdhet '79 % · 217 svar'. Eller rapport.visa för beställarrapporten oktober, avsnitt 6. Jämför med MM.store.state.pulseResponses filtrerat på 2026-10-01 – 2026-12-31: 153 svar (tools/review-perspektiv-04.mjs).",
+      "fix": "Ge pulseStats en parameter to och anropa den med to = monthEnd(mk) i customerSummary. Frys helst siffrorna i rapporten när den godkänns eller levereras, så att en levererad rapport inte räknas om."
+    },
+    {
+      "id": "kom-chef-sma-grupper",
+      "file": "src/views/kommun.js",
+      "view": "kom.chef",
+      "severity": "major",
+      "title": "Kundens beställarrapport i portalen visar grupper under 5 som dokumentet döljer",
+      "detail": "PDF-dokumentet (rapporter.js rad 408–413) skriver 'färre än 5' och 'Redovisas inte' när antalet resultat är 1–4. kom.chef skriver i stället ut exakta tal och andelar: tile-sub `${rr.num} av ${rr.den} avslut` (rad 997), korten under Resultat ('4 av 6 avslut gick till arbete eller studier', rad 1016) och progression per område via pctOrSmall, som bara prövar nämnaren (rad 966, 1035). I oktober visar portalen '66,7 % · 4 av 6 avslut', medan samma rapport som dokument visar 'färre än 5 / 6 / Redovisas inte'. Samma sida säger själv att grupper under 5 visas som 'färre än 5' så att ingen deltagare kan pekas ut (SPEC §7.11 e).",
+      "repro": "Kommunens chef → Beställarrapport → Oktober 2026: tile 'Resultat, 6 månader 66,7 % · 4 av 6 avslut' och fliken Resultat '4 av 6'. Jämför med 'Öppna rapporten som dokument', avsnitt 2.",
+      "fix": "Använd samma regel som dokumentet i kom.chef. Maska täljaren med small() och visa 'Redovisas inte' för andelar när täljaren är 1–4. Det gäller också progression per område (r.clear < minN). Lägg gärna regeln i en gemensam hjälpfunktion i sel.customerSummary."
+    },
+    {
+      "id": "kommunens-meddelanden-syns-inte-hos-mb",
+      "file": "src/03-domain.js",
+      "view": "coach.minvecka",
+      "severity": "major",
+      "title": "Svar och meddelanden från kommunen syns inte någonstans hos coachen utanför ärendekortet",
+      "detail": "När handläggaren skriver (message.send från k-…) skickas e-postnotisen till platshållaren 'coach (e-post)' (rad 769), inte till huvudcoachens adress. Ingen notis skapas i appen: notificationsFor ger bara tilldelning, påminnelse och eskalering. Coach.minvecka, Notiser och arenden.lista visar inga olästa meddelanden. Det enda tecknet är en siffra på fliken Meddelanden inne i arende.kort. Coachen får alltså inte veta att Maria har svarat på en kallelse till uppföljning ('Tiden passar'). Flödet 'meddelande från kommunen → syns hos MB' fungerar därför bara om coachen råkar öppna rätt ärende.",
+      "repro": "Kommunens handläggare → Mina deltagare → Nadia (BOT-26-0143) → Meddelanden → skriv och skicka. Byt till coach: Min vecka, Notiser (fortfarande 4 olästa, bara påminnelser) och Mina ärenden visar inget nytt. Bara fliken 'Meddelanden 1' i ärendekortet (tools/review-perspektiv-03.mjs, del A).",
+      "fix": "Skicka notisen till huvudcoachens e-post, och till teamet om ni vill. Skapa en userNotification av typen 'message' till huvudcoachen, så att den syns under Notiser med länk till arende.kort {tab: 'meddelanden'}. Visa olästa meddelanden från kommunen i Min vecka och som markering i ärendelistan."
+    },
+    {
+      "id": "beslut-fran-kommunen-uppgift-saknas",
+      "file": "src/views/rapporter.js",
+      "view": "rapport.visa",
+      "severity": "major",
+      "title": "Månadsrapporten lovar kommunen 'en notis och en uppgift i portalen', men ingen sådan finns",
+      "detail": "DeviationsBlock (rad 172) skriver 'Behöver beslut eller stöd från kommunen? Ja – handläggaren har fått en notis och en uppgift i portalen' när en avvikelse har needsCustomerDecision. Ingen kod skapar en sådan notis eller uppgift till kommunens handläggare. kom.start visar bara olästa meddelanden och rapporter, och kommun.js läser aldrig needsCustomerDecision. SPEC §7.11 c, avsnitt 6, kräver notis och uppgift hos handläggaren. Kunden läser alltså i rapporten om en uppgift som inte finns.",
+      "repro": "Kommunens handläggare → rapport.visa för BOT-26-0102, månadsrapport november 2026: avsnitt 6 säger 'Ja – handläggaren har fått en notis och en uppgift i portalen'. kom.start och kom.deltagare för ärendet visar ingen uppgift.",
+      "fix": "När en avvikelse sparas med needsCustomerDecision: skapa en post med notis och uppgift till c.referrerId, och ett mejl utan personuppgifter. Visa den överst i 'Nytt för dig' på kom.start och i ärendets översikt ('Miljonbemanning behöver ditt beslut om …'). Tills det finns ska rapporttexten inte lova något: skriv 'Ja – Miljonbemanning kontaktar handläggaren'."
+    },
+    {
+      "id": "avbojt-och-coachbyte-syns-inte-pa-start",
+      "file": "src/views/kommun.js",
+      "view": "kom.start",
+      "severity": "major",
+      "title": "Avböjd beställning och byte av coach syns inte på kundens startsida, fast mejlet säger 'logga in för att läsa'",
+      "detail": "case.decline mejlar 'Vi kan tyvärr inte ta emot beställning X. Logga in i portalen för att läsa orsaken.' och case.changeCoach mejlar 'Ärende X har fått ny huvudcoach. Logga in i portalen för att se vem.' (03-domain.js rad 600 och 628). kom.start 'Nytt för dig' bygger bara på olästa meddelanden och rapporter (rad 297–299), så inget av detta syns efter inloggningen. Det avböjda ärendet döljs dessutom av standardfiltret 'Pågår och på väg' i Mina deltagare, eftersom avböjda räknas som 'Avslutade'. En ovan användare hittar inte orsaken.",
+      "repro": "Samordnare → Avropsinkorg → em-101 (BOT-27-0050, Maria) → Avböj. Byt till kommunens handläggare → Start: inget om avböjningen. Mina deltagare → ärendet syns inte under 'Pågår och på väg' (tools: scratchpad q11).",
+      "fix": "Lägg till händelser för kunden (avböjd, orderbekräftelse, ny coach, första möte bokat) i 'Nytt för dig' tills de är lästa. Alternativt: en olästmarkering per ärende som återställs när ärendet öppnas. Visa avböjda ärenden i standardfiltret de första dagarna, eller i ett eget filter 'Avböjda'."
+    },
+    {
+      "id": "rattelse-doljer-levererad-rapport",
+      "file": "src/views/kommun.js",
+      "view": "kom.deltagare",
+      "severity": "major",
+      "title": "En levererad rapport försvinner ur kundens portal så fort MB börjar rätta den",
+      "detail": "report.correct markerar den levererade versionen som superseded direkt, när den nya versionen bara är ett utkast (03-domain.js rad 760). kommun.js deliveredOk() filtrerar bort superseded (rad 91). Därför försvinner version 1 ur Rapporter-fliken, kom.rapporter och kom.start tills version 2 har levererats, vilket kan dröja. PortalReport har logik för att visa 'Rapporten har rättats …' för ersatta versioner (rapporter.js rad 922), men den går inte att nå från listorna. SPEC §7.11 säger att den gamla versionen sparas. Rättelsedialogen på MB-sidan säger dessutom att kommunen får den nya versionen när den är levererad, vilket förutsätter att den gamla finns kvar under tiden.",
+      "repro": "Coach → rapport.visa för en levererad månadsrapport till Maria (till exempel rep-15244, BOT-26-0008) → Rätta → Skapa ny version. Byt till kommunens handläggare → Mina deltagare → ärendet → Rapporter: månadsrapporten för oktober är borta (scratchpad q13).",
+      "fix": "Sätt superseded på den gamla versionen först när den nya levereras (i report.deliver), eller låt deliveredOk() behålla superseded-versioner så länge ingen nyare version är levererad. Visa märket 'Rättas – ny version kommer'."
+    },
+    {
+      "id": "byte-till-kommunens-chef-visar-inte-saken",
+      "file": "src/views/arenden.js",
+      "view": "arende.kort",
+      "severity": "major",
+      "title": "Perspektivbyten till kommunens chef landar där det som ska visas inte syns",
+      "detail": "För ärenden som inte beställts av Maria går bytena till kommun_chef (custRole i arenden.js rad 104, customerRoleFor i coach.js rad 138). Det gäller dessa tre byten. 'Se kallelsen som kommunen' (arenden.js rad 959, coach.js rad 1146): kom.deltagare som chef visar varken notis eller kortet 'Mötesförfrågan från coachen', eftersom unreadMsgs är [] och kortet kräver !chef (kommun.js rad 718–723). Kallelsen syns bara om man själv öppnar fliken Meddelanden. 'Se kommunens rapportlista' från en godkänd månadsbedömning (coach.js rad 1226): kom.rapporter för chefen listar bara beställarrapporter, så månadsrapporten syns aldrig där. Dessutom är rapporten inte levererad än när bedömningen just godkänts, inte heller för Maria. Testaren får alltså en sida utan det som knappen lovade.",
+      "repro": "Coach → Elif (BOT-27-0003, Linda) → Avvikelser → Kalla kommunen → Skicka → 'Se kallelsen som kommunen': översikten nämner ingen kallelse (tools/review-perspektiv-03.mjs, B2). Coach → coach.manad {caseId case-260149, month 2027-01} → 'Se kommunens rapportlista' → chefens lista med tre beställarrapporter.",
+      "fix": "Skicka med tab: 'meddelanden' för kallelsen. Låt kom.deltagare visa kortet 'Mötesförfrågan' även för chefen, i läsläge ('Skickad till Linda Karlsson'). För månadsbedömningen: byt till kom.deltagare {caseId, tab: 'rapporter'} och skriv att rapporten syns där när den har levererats. Välj annars en handläggarroll som faktiskt är mottagare."
+    },
+    {
+      "id": "byte-utan-flik",
+      "file": "src/views/arenden.js",
+      "view": "arende.kort",
+      "severity": "minor",
+      "title": "Perspektivbyten öppnar fel flik ('Så ser kommunen rapporterna', 'Se tråden som kommunen')",
+      "detail": "arenden.js rad 1041 och 1093 byter till kom.deltagare {caseId} utan tab. Kundens ärendesida öppnas därför på Översikt i stället för Rapporter eller Meddelanden, fast CaseDetail stöder tab-parametern. Omvänt byter kommun.js rad 676 till arende.kort utan tab, även från kundens meddelandeflik.",
+      "repro": "Samordnare → Nadia → fliken Rapporter → 'Så ser kommunen rapporterna' → kundens Översikt. Samma sak med 'Se tråden som kommunen'.",
+      "fix": "Skicka med params { caseId, tab: 'rapporter' } eller { caseId, tab: 'meddelanden' }. I kommun.js: skicka med tab till arende.kort ('meddelanden' eller 'rapporter') utifrån aktiv flik."
+    },
+    {
+      "id": "byte-till-roll-utan-atkomst",
+      "file": "src/views/kommun.js",
+      "view": "kom.deltagare",
+      "severity": "minor",
+      "title": "'Se samma ärende hos Miljonbemanning' för skyddat ärende landar i 'Du saknar åtkomst'. Rapportlistan byter till coach",
+      "detail": "Rad 676 byter alltid till samordnare. För ärenden med skyddade personuppgifter har samordnaren bara restricted-åtkomst, så bytet landar på 'SKYDDADE PERSONUPPGIFTER · Du saknar åtkomst …'. Rad 922 byter från handläggarens rapportsida till coach → rapporter.lista. Den visar bara Amiras ärenden, medan Maria har rapporter från fem coacher.",
+      "repro": "Kommunens chef → Enhetens ärenden → BOT-26-0120 (skyddad) → 'Se samma ärende hos Miljonbemanning'. Kommunens handläggare → Rapporter och meddelanden → 'Se rapporterna hos Miljonbemanning' → coachens lista 'Dina ärenden'.",
+      "fix": "Välj avtalsansvarig när ärendet är skyddat (sel.person(c).protectedIdentity). Byt till samordnare eller avtalsansvarig för rapportlistan, gärna med filter på mottagare."
+    },
+    {
+      "id": "saknade-perspektivbyten",
+      "file": "src/views/kommun.js",
+      "view": "kom.start",
+      "severity": "minor",
+      "title": "Viktiga vyer saknar perspektivbyte fast en motsvarighet finns",
+      "detail": "Tre ställen saknar perspektivbyte. kom.start (motsvarighet sam.start eller coach.minvecka). kom.bestall under stegen: bytet finns först på kvittot efter skicka, medan sam.inkorg har 'Se hur kommunen beställer'. I sam.inkorg visas 'Se vad kommunen fick' bara när handläggaren är Maria (inkorg.js rad 321, 374, 785), så beställningar från Linda, Ahmed och Omar saknar byte. Där hade kommun_chef fungerat, som i eko-vyerna.",
+      "repro": "Kommunens handläggare → Start eller Beställ ny insats: inget perspektivbyte (tools/review-perspektiv-06.mjs). Samordnare → Avropsinkorg → em-106 eller em-102: bara 'Se hur kommunen beställer'.",
+      "fix": "Lägg till PerspectiveSwitch på kom.start (till exempel samordnare → sam.start) och i kom.bestall (samordnare → sam.inkorg). Använd kommun_chef som reserv i inkorgen när handläggaren inte är Maria."
+    },
+    {
+      "id": "coachvy-namner-eskalering",
+      "file": "src/05-notiser.js",
+      "view": "notiser",
+      "severity": "minor",
+      "title": "Coachens egna vyer nämner eskaleringar till chefen i prototyptexter",
+      "detail": "Behörigheten fungerar: coachen och handledaren ser inga eskaleringar, flaggor eller eskalerade ärenden. Det är verifierat i notiser, coach.minvecka, arenden.lista, alla flikar i arende.kort för BOT-26-0148, coach.avstamning, hand.start och rapporter.lista. Men tre texter i coachens egna vyer talar om eskalering. Coachens Notiser har knappen 'Se vad chefen får' (rad 30) och DemoNote 'Påminnelser och eskaleringar räknas fram …' (rad 52). arenden.lista har DemoNote '… coacher och handledare ser aldrig eskaleringar till chef' (arenden.js rad 299). När MB:s chef testar som coach blir det otydligt vad coachen faktiskt får se.",
+      "repro": "Roll Huvudcoach → Notiser (knapp och prototypnot längst ned) och Mina ärenden (not längst ned).",
+      "fix": "Dölj knappen och de två noterna för rollerna coach och handledare, eller skriv neutralt ('Se chefens notiser'). Förklara eskaleringen bara i chefens och administratörens vyer och i scenariotexten."
+    },
+    {
+      "id": "paminnelse-direkt-saknas",
+      "file": "src/03-domain.js",
+      "view": "notiser",
+      "severity": "minor",
+      "title": "Regeltexten lovar påminnelse 'direkt när en avstämning godkänns med veckomålet Nej', men ingen skickas",
+      "detail": "orgConfig.notifications.progressionWatch.reminderSchedule (01-seed.js rad 247) visas för coachen i Notiser och i admin. noProgressStreak() räknar bara från förra veckan (rad 484), så en godkänd avstämning denna vecka med veckomålet Nej ger ingen påminnelse. Antalet påminnelser var 4 både före och efter.",
+      "repro": "Som coach: godkänn en avstämning i dag med veckomålet Nej för ett ärende utan påminnelse (till exempel BOT-26-0119). Notiser visar ingen ny påminnelse (scratchpad q9).",
+      "fix": "Ta bort '(samt direkt …)' ur regeltexten, eller låt weekProgress för innevarande vecka ge en påminnelse när en godkänd avstämning har goalStatus 'no'."
+    },
+    {
+      "id": "skyddad-portalbestallning",
+      "file": "src/views/kommun.js",
+      "view": "kom.bestall",
+      "severity": "minor",
+      "title": "Skyddad portalbeställning: obligatoriska uppgifter i steg 1 kastas och MB ser 'Beställarreferens saknas'",
+      "detail": "Steg 1 kräver beställarreferens, startdatum och antal veckor även när deltagaren har skyddade personuppgifter. Payloaden för skyddade tar sedan bara med namn och personnummer (rad 415). Referensen är inte en personuppgift om deltagaren. I sam.inkorg visas ärendet som en vanlig portalbeställning med rött 'Beställarreferens saknas … Den får ni av kommunens ekonomi eller er chef' (texten är skriven till kommunen, inte till MB). Ingen flagga går till avtalsansvarig, till skillnad från mejlflödet med em-104. Kvittot säger dessutom 'Mejlet innehåller bara ärendenumret', fast den generiska bekräftelsen inte innehåller något ärendenummer (rad 591). Tidslinjen säger 'Deltagaren får en kallelse på det sätt du valde', fast inget val gjordes och ingen kallelse skickas (rad 597).",
+      "repro": "Kommunens handläggare → Beställ ny insats → fyll i steg 1 → Skyddade personuppgifter: Ja → Skicka → 'Se hur beställningen landar hos Miljonbemanning' (scratchpad q10).",
+      "fix": "Hoppa över eller gör fälten i steg 1 frivilliga vid skyddad identitet, eller spara beställarreferensen, efter beslut mot SPEC §7.2. Lägg till en flagga protected_order till avtalsansvarig även för portalbeställningar. Anpassa kvittots texter för skyddade beställningar."
+    },
+    {
+      "id": "kundtexter-for-chef",
+      "file": "src/views/kommun.js",
+      "view": "kom.deltagare",
+      "severity": "minor",
+      "title": "Kommunens chef får texter skrivna till beställaren ('Du fick ärendenummer …')",
+      "detail": "CaseOverview och statusText använder samma du-form för kommun_chef som för handläggaren. Exempel: 'Du fick ärendenummer BOT-27-0003' (rad 709), 'Du får orderbekräftelsen senast …' (rad 746) och 'Du får besked om startdatum och coach senast …' (rad 152). Men chefen har inte beställt, och mejlen går till handläggaren.",
+      "repro": "Kommunens chef → Enhetens ärenden → Elif (BOT-27-0003) → Översikt → tidslinjen.",
+      "fix": "Använd tredje person för chefen, till exempel 'Handläggaren (Linda Karlsson) fick ärendenummer …'."
+    },
+    {
+      "id": "okand-adress-loggas-in-som-maria",
+      "file": "src/views/kommun.js",
+      "view": "kom.login",
+      "severity": "minor",
+      "title": "Okänd @botkyrka.se-adress loggas in som Maria Ekdahl",
+      "detail": "roleForEmail() ger null för okända adresser. login() faller då tillbaka på aktuell roll (rad 243), och kom.login-åtgärden loggar Marias inloggning (rad 187). Toasten säger 'Du är inloggad som Maria Ekdahl'. Sidan säger samtidigt 'Ingen kan skapa ett konto själv. Miljonbemanning bjuder in dig.' En chef som provar sin egen adress blir förvirrad, och flödet visar inte att bara inbjudna konton kommer in.",
+      "repro": "Kund → Logga in → okand.person@botkyrka.se → Skicka kod → 123456 → Logga in.",
+      "fix": "Visa i steg 1 (eller efter koden) 'Adressen har inget konto i portalen. Kontakta Johan Berg, avtalsansvarig.' och peka på snabbknapparna för Maria och Eva."
+    },
+    {
+      "id": "portal-navigering-och-smatext",
+      "file": "src/99-shell.js",
+      "view": "kom.start",
+      "severity": "minor",
+      "title": "Portalens meny bryts på tre rader och startsidans småtexter stämmer inte",
+      "detail": "Portalens meny bryts på tre rader vid 1280 px (Start och Beställ ny insats / Mina deltagare / Rapporter och meddelanden, se skärmdump p01-kom-start.png). Menyn dubblerar dessutom startsidans tre stora knappar, fast SPEC §7.0 säger 'Ingen annan navigation på startsidan'. Tre småfel på startsidan: 'Visa alla olästa (25)' öppnar kom.rapporter med filtret 'Alla', inte 'Olästa' (kommun.js rad 307, 865). Knappen och ingressen säger 'Tre korta steg', men stegindikatorn visar 'Steg 1 av 4'. 'Tillbaka till rapporter' i rapport.visa går alltid till kom.rapporter, även när rapporten öppnades från ett ärende eller från kom.chef (rapporter.js rad 907).",
+      "repro": "Kund → Start (1280 px). Klicka 'Visa alla olästa'. Beställ ny insats. Öppna en rapport från Mina deltagare → Tillbaka.",
+      "fix": "Gör portalmenyn till en rad (flex-wrap: nowrap med mindre padding) och dölj den på kom.start. Skicka med filter 'olasta' via params och läs det i RapporterView. Skriv 'tre korta steg och en granskning'. Använd MM.back() när historiken finns."
+    },
+    {
+      "id": "aktiva-och-avrundning",
+      "file": "src/views/ledning.js",
+      "view": "chef.oversikt",
+      "severity": "minor",
+      "title": "'Aktiva deltagare' och närvarograd visas olika i ledningsvyn, kundvyn och dokumentet",
+      "detail": "chef.oversikt (Per avtalsområde och Per coach) visar 'Aktiva deltagare 91', det vill säga status aktiv i dag. kom.chef visar 'Aktiva deltagare 129' (december) och 134 (januari), det vill säga aktiva någon gång under månaden. Etiketten är densamma och det finns ingen förklaring. Närvarograden avrundas olika: kom.chef visar 87,7 % och dokumentet för samma månad visar 88 % (rapporter.js rad 450, fmt.pct(…, 0)). Resultatgrad, nöjdhet och närvarograd för samma period stämmer annars, efter nöjdhetsfelet ovan.",
+      "repro": "Chef → Ledningsvy → Per avtalsområde (91). Kommunens chef → Beställarrapport, december (129, 87,7 %) → Öppna rapporten som dokument (88 %).",
+      "fix": "Skriv 'Aktiva nu' respektive 'Aktiva under månaden' i alla vyer. Använd samma antal decimaler för närvarograd i kom.chef och i dokumentet."
+    },
+    {
+      "id": "fakturatext-fakturerat",
+      "file": "src/03-domain.js",
+      "view": "eko.faktura",
+      "severity": "minor",
+      "title": "Fakturatexten räknar returnerade veckor som fakturerade och skriver '1 veckor'",
+      "detail": "Beloppen stämmer mellan eko.korning, eko.faktura och eko.arende (5 592 kr, 4 194 kr med mera, kontrollerat för Nadia, pausat ärende, överlapp och fel referens). Men invoiceText (rad 221) använder accruedWeeks. För BOT-26-0117, där decemberfakturan är returnerad, står det därför 'Fakturerat inklusive denna faktura: 9 veckor, 12 582 kr' medan eko.arende visar 'Fakturerat 0 kr – 0 veckor'. Texten skrivs också ut som 'Återstår: 1 veckor' på fakturan till kommunen.",
+      "repro": "Ekonom → eko.faktura {month 2027-01, caseId BOT-26-0117}: Fakturatext. Jämför med eko.arende för samma ärende (tools/review-perspektiv-05.mjs).",
+      "fix": "Skriv 'Upparbetat inklusive denna faktura' i stället för 'Fakturerat', eller räkna bara veckor i fakturor med status i BILLED plus den aktuella. Böj 'vecka' eller 'veckor' efter antal."
+    },
+    {
+      "id": "godkand-efter-leverans",
+      "file": "src/01-seed.js",
+      "view": "rapport.visa",
+      "severity": "minor",
+      "title": "15 månadsrapporter för januari är 'godkända 1 feb kl. 14.00', efter demoklockan 09.12",
+      "detail": "decidedAt och approvedAt sätts till nthWorkingDay(feb, 1–4) kl. 14.00. Spärren på rad 683 jämför bara datumet, så 2027-02-01T14:00 slinker igenom. Om man levererar en sådan rapport blir den 'Levererad 09.13' men 'Godkänd 14.00 av Amira Haddad'. Samma tid syns som 'Godkänd 1 feb kl. 14.00' i månadsbedömningen.",
+      "repro": "Coach → rapport.visa rep-15994 (BOT-26-0140) → Leverera → rutan Status visar godkänd 14.00 och levererad 09.13.",
+      "fix": "Jämför hela tidsstämpeln mot NOW på rad 683 (if (ma.decidedAt > NOW) ma.decidedAt = `${TODAY}T08:00`)."
+    }
+  ]
+}
