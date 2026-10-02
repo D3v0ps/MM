@@ -142,7 +142,10 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
         <CellSub>{fmtDate(dp.approvedOn)}</CellSub>
       </>
     ) : s === "approved_test" ? (
-      <Badge tone="bluetone" icon="check">Vald – simulerad tills kontot finns</Badge>
+      <>
+        <Badge tone="blue" icon="check">Godkänd</Badge>
+        <CellSub>{fmtDate(dp.approvedOn)} · simulerad tills kontot i Google Cloud finns</CellSub>
+      </>
     ) : s === "chosen" ? (
       <Badge tone="bluetone" icon="clock">Vald – väntar på kommunens godkännande</Badge>
     ) : (
