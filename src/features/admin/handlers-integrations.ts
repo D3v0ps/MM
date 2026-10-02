@@ -24,7 +24,8 @@ const APPROVED_ON = "2026-09-29";
 const SUBPROCESSORS: SubprocessorView[] = [
   { id: "supabase", name: "Supabase", what: "Databas, inloggning och fillagring", where: "Stockholm (eu-north-1)", status: "approved", us: true },
   { id: "vercel", name: "Vercel", what: "Applikation och serverfunktioner", where: "Funktioner i Stockholm (arn1)", status: "approved", us: true },
-  // Beslut 2026-09-30 (docs/PLAN-ROST.md): Gemini Flash via Google Cloud Vertex AI, EU multi-region. Simulerad tills kontot finns.
+  // Beslut 2026-09-30 (docs/PLAN-ROST.md): Gemini Flash via Google Cloud Vertex AI, EU multi-region. Godkänd av Botkyrka
+  // 2026-09-29 (bekräftat av Karim 2026-10-02) – simulerad tills kontot i Google Cloud finns.
   { id: "ai", name: "Google Cloud (Vertex AI)", what: "Transkribering och textutkast (Gemini Flash)", where: "EU multi-region (location eu)", status: "approved_test", us: true },
   { id: "sms", name: "SMS-leverantör", what: "Påminnelser och pulslänkar", where: "Väljs – helst svensk", status: "not_chosen", us: false },
   // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se. Ska in i
