@@ -23,6 +23,7 @@ const TESTER_AUTH: Record<string, string> = {
   "tester-adam": "aaaaaaaa-0000-4000-8000-000000000004",
   "tester-shafik": "aaaaaaaa-0000-4000-8000-000000000005",
   "tester-moda": "aaaaaaaa-0000-4000-8000-000000000006",
+  "tester-yacine": "aaaaaaaa-0000-4000-8000-000000000007",
 };
 const KARIM = TESTER_AUTH["tester-karim"];
 const ALI = TESTER_AUTH["tester-ali"];

@@ -30,16 +30,16 @@ const eligible = async (email: string, allowlist: string, settings = STAGING) =>
 afterEach(() => vi.unstubAllEnvs());
 
 describe("inloggningskoden i testmiljön", () => {
-  it("MM_EMAIL_ALLOWLIST = testarnas sex hela adresser", () => {
+  it("MM_EMAIL_ALLOWLIST = testarnas sju hela adresser", () => {
     expect(TESTERS.map((t) => t.email)).toEqual([
       "karim.khalil@miljonbemanning.se", "ali.khalil@miljonbemanning.se", "sara.salah@miljonbemanning.se", "adam.abdalla@miljonbemanning.se",
-      "shafik.muwanga@miljonbemanning.se", "moda.habib@miljonbemanning.se",
+      "shafik.muwanga@miljonbemanning.se", "moda.habib@miljonbemanning.se", "yacine.laghmari@miljonbemanning.se",
     ]);
     expect(TESTER_ALLOWLIST).toBe(TESTERS.map((t) => t.email).join(","));
     expect(TESTER_ALLOWLIST.split(",").every((x) => /^[a-z.]+@miljonbemanning\.se$/.test(x))).toBe(true);
   });
 
-  it("alla sex testarna får en kod – testpersonernas påhittade adresser aldrig, inte heller okända adresser i listan", async () => {
+  it("alla sju testarna får en kod – testpersonernas påhittade adresser aldrig, inte heller okända adresser i listan", async () => {
     for (const t of TESTERS) expect(await eligible(t.email, TESTER_ALLOWLIST), t.email).toBe(t.id);
     const fakeMb = SEED.profiles.find((p) => p.id === "u-sara")!.email;
     const fakeKommun = SEED.profiles.find((p) => p.id === "k-maria")!.email;
