@@ -642,8 +642,10 @@ const deepFreeze = <T>(o: T): T => {
 // (recording, maxMinutes, languages, participantLinkValidDays); customerVisibility.seesParticipantVoiceNotes = false.
 // Avvikelse (beslut 2026-10-01, rapporter steg 2): progression.clearFromLevel/anyFromLevel (tal) ersätter fritexten
 // statDefinition, och tydlig/någon progression räknas bara på de obligatoriska områdena.
-export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
-  OperationalConfigSchema.parse({
+// /*#__PURE__*/: konstanterna används bara av testdatat och servern. Utan markeringen följer de med i webbläsarens JS-paket
+// (anropen kan ha sidoeffekter, så de får annars inte tas bort) – med priserna och de interna målen (beslut 2026-10-02).
+export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
+  /*#__PURE__*/ OperationalConfigSchema.parse({
     casePrefix: "BOT",
     dataRole: "processor",
     thirdCountryProcessing: "forbidden_without_written_approval",
@@ -775,8 +777,8 @@ export const BOTKYRKA_CONFIG: OperationalConfig = deepFreeze(
 // AI och röstinspelning är avstängda: avtalet saknar ai-avsnittet (recordingEnabled ger false för alla flöden).
 // Tillägg: reportSchedule utan automatiska rapporter – kommunen ser inga individrapporter och KK:s månadsstatistik är en
 // export (exports), inte en rapport per deltagare.
-export const KK_CONFIG: ContractConfig = deepFreeze(
-  ContractConfigSchema.parse({
+export const KK_CONFIG: ContractConfig = /*#__PURE__*/ deepFreeze(
+  /*#__PURE__*/ ContractConfigSchema.parse({
     casePrefix: "KK",
     dataRole: "controller",
     customerVisibility: { seesIndividualReports: false, seesCoachNotes: false },

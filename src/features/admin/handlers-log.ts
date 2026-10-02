@@ -3,6 +3,7 @@
 // eller personnummer på deltagare. Deltagare visas bara som ärendenummer; användare (personal och kommun) med namn.
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { addMonths, dayOf, fmtWeekKey, monthKey, monthName } from "@/core/time";
 import { reportKindLabel } from "@/core/labels";
 import { uniq } from "@/core/util";
@@ -46,6 +47,12 @@ async function auditLookups(ctx: Ctx, cases: readonly { id: string; caseNumber: 
   };
 }
 
+/**
+ * Faktureringens rader (fakturaunderlag, fakturanummer, antal fakturor, beställarreferens). Begränsade testare i testmiljön
+ * (src/api/tester-access.ts) ser att åtgärden gjorts, men inte detaljerna – fakturaunderlaget visas inte för dem.
+ */
+const isBillingAction = (action: string): boolean => action.startsWith("billing.") || action === "export.billing";
+
 const caseIdOf = (a: AuditLogEntry): string | null =>
   ["case", "consent"].includes(a.entity) ? a.entityId : typeof a.details?.caseId === "string" ? (a.details.caseId as string) : null;
 
@@ -71,6 +78,7 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     templateLabel,
   };
   const actorName = (id: string | null) => (isParticipantActor(id) ? PARTICIPANT : name(id));
+  const hideBilling = hidesCommercial(ctx.actor);
 
   const entityText = (a: AuditLogEntry): string => {
     const id = String(a.entityId ?? "");
@@ -101,7 +109,8 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     return {
       id: a.id, at: a.occurredAt, actorKey: isParticipantActor(a.actorId) ? NULL_ACTOR : String(a.actorId), actorName: actorName(a.actorId),
       action: a.action, actionLabel: actionLabel(a.action), entity: ENTITY_LABEL[a.entity] ?? a.entity, entityLabel: entityLabel(a.entity), entityId: a.entityId,
-      caseId: number ? cid : null, caseNumber: number, entityText: entityText(a), detailText: detailText(a, lookups), hasFull: hasFullDetail(a),
+      caseId: number ? cid : null, caseNumber: number, entityText: entityText(a),
+      ...(hideBilling && isBillingAction(a.action) ? { detailText: TESTER_HIDDEN_TEXT, hasFull: false } : { detailText: detailText(a, lookups), hasFull: hasFullDetail(a) }),
       byTester: isDemoCreated(a.id),
     };
   });
@@ -141,6 +150,7 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
 handleQuery(adminAuditDetail, { roles: ["admin", "chef"] }, async (ctx, p) => {
   const a = await ctx.repo.table("audit_log").get(p.id);
   if (!a || !hasFullDetail(a)) return { text: null };
+  if (hidesCommercial(ctx.actor) && isBillingAction(a.action)) return { text: null };
   // Bara ärendena som raden pekar på behövs för texten.
   const ids = Object.values(a.details ?? {}).flatMap((v) => (Array.isArray(v) ? v : [v])).filter((v): v is string => typeof v === "string");
   const cases = ids.length ? await ctx.repo.table("cases").list({ id: { in: [...new Set(ids)] } }) : [];

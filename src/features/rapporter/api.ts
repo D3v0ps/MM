@@ -119,10 +119,15 @@ export type DocBase = {
 };
 /** En sektion i veckorapporten som läsaren ser. Skyddade (restricted) har bara ärendenumret. */
 export type WeeklyDocSection = (WeeklySection & { restricted: false; name: string }) | { restricted: true; caseId: string; caseNumber: string };
+/**
+ * Orderbekräftelsen som läsaren ser. price (veckopriset) saknas för begränsade testare i testmiljön (src/api/tester-access.ts) –
+ * rapportsidan, portalen och PDF:en visar då "Visas inte för testare". Gäller också frysta rapporter (reports.snapshot).
+ */
+export type OrderDocModel = Omit<OrderModel, "price"> & { price?: number };
 export type ReportDocView =
   | (DocBase & { kind: "monthly"; participant: string; m: MonthlyModel })
   | (DocBase & { kind: "final"; participant: string; m: FinalModel })
-  | (DocBase & { kind: "order_confirmation"; participant: string; m: OrderModel })
+  | (DocBase & { kind: "order_confirmation"; participant: string; m: OrderDocModel })
   | (DocBase & {
       kind: "weekly_attendance";
       m: Omit<WeeklyModel, "sections">;

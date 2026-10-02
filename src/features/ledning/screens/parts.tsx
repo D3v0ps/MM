@@ -18,11 +18,15 @@ export const RR_STATUS: Record<string, { tone: BadgeTone; icon: IconName; label:
   insufficient: { tone: "outline", icon: "minus-circle", label: "För litet underlag" },
 };
 const RR_SHORT: Record<string, string> = { ok: "Över internt mål", below_internal: "Bevaka", below_contract: "Åtgärd krävs", insufficient: "Litet underlag" };
-export function RrBadge({ status, short }: { status: string; short?: boolean }) {
+/** "ok" utan internt mål (begränsade testare ser inte det interna målet): resultatgraden når avtalsmålet. */
+const RR_OK_NO_INTERNAL = "Når avtalsmålet";
+export function RrBadge({ status, short, noInternal }: { status: string; short?: boolean; noInternal?: boolean }) {
   const s = RR_STATUS[status] ?? RR_STATUS.insufficient;
+  const label = noInternal && status === "ok" ? RR_OK_NO_INTERNAL : s.label;
+  const shortLabel = noInternal && status === "ok" ? RR_OK_NO_INTERNAL : RR_SHORT[status] ?? s.label;
   return (
-    <Badge tone={s.tone} icon={s.icon} title={short ? s.label : undefined}>
-      {short ? RR_SHORT[status] ?? s.label : s.label}
+    <Badge tone={s.tone} icon={s.icon} title={short ? label : undefined}>
+      {short ? shortLabel : label}
     </Badge>
   );
 }
@@ -32,6 +36,8 @@ export const KPI_STATUS: Record<string, { tone: BadgeTone; icon: IconName; label
   below_contract: { tone: "red", icon: "alert", label: "Under avtalsmålet" },
   no_target: { tone: "outline", icon: "minus-circle", label: "Mål ej fastställt" },
   no_data: { tone: "outline", icon: "minus-circle", label: "Inget underlag" },
+  // Begränsade testare: KPI:n har bara Miljonbemannings interna mål, som inte visas.
+  target_hidden: { tone: "outline", icon: "minus-circle", label: "Mål visas inte för testare" },
   insufficient: { tone: "outline", icon: "minus-circle", label: "För litet underlag" },
 };
 export function KpiStatusBadge({ status }: { status: string }) {
@@ -293,7 +299,7 @@ export function TrendChart({ rows, contract, internal, minN }: { rows: TrendRow[
     return `${MONTHS_SHORT[Number(mm) - 1]}${i === 0 || mm === "01" ? ` ${yy}` : ""}`;
   };
   const last = rows.filter((r) => r.cumulative != null).slice(-1)[0];
-  const aria = `Resultatgrad per månad sedan avtalsstart. ${rows.map((r) => `${monthName(r.month)}: ${r.value == null ? "inga avslut" : `${pct0(r.value)} av ${r.den} avslut`}`).join(". ")}. Kumulativt sedan start ${last ? pct(last.cumulative) : "–"}. Avtalsmål ${pct0(contract)}, internt mål ${pct0(internal)}.`;
+  const aria = `Resultatgrad per månad sedan avtalsstart. ${rows.map((r) => `${monthName(r.month)}: ${r.value == null ? "inga avslut" : `${pct0(r.value)} av ${r.den} avslut`}`).join(". ")}. Kumulativt sedan start ${last ? pct(last.cumulative) : "–"}. Avtalsmål ${pct0(contract)}${internal != null ? `, internt mål ${pct0(internal)}` : ""}.`;
   return (
     <Stack gap="sm" className="gap-2.5">
       <div ref={ref} className="w-full">
@@ -380,10 +386,12 @@ export function TrendChart({ rows, contract, internal, minN }: { rows: TrendRow[
           <Swatch kind="contract" />
           Avtalsmål {pct0(contract)}
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <Swatch kind="internal" />
-          Internt mål {pct0(internal)}
-        </span>
+        {internal != null && (
+          <span className="inline-flex items-center gap-1.5">
+            <Swatch kind="internal" />
+            Internt mål {pct0(internal)}
+          </span>
+        )}
       </div>
       <Details summary="Visa siffrorna som tabell">
         <Table

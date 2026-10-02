@@ -92,7 +92,9 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
       return n;
     });
   };
-  const possibleBonus = ev.kind === "arbete_paborjat";
+  // bonusOn saknas för begränsade testare (servern lämnar inte ut bonus) – då visas ingen bonusmarkering.
+  const showBonus = v.bonusOn !== undefined;
+  const possibleBonus = showBonus && ev.kind === "arbete_paborjat";
   const events = v.events;
   const eventLabelOf = (k: string | null) => v.eventKinds.find((x) => x.value === k)?.label ?? k ?? "";
   const endReasonLabel = (r: string | null) => v.endReasons.find((x) => x.value === r)?.label ?? "–";
@@ -170,7 +172,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
 
   const persp = customerPerspective(v.referrer);
   const nBonus = events.filter((x) => x.possibleBonus).length;
-  const bonusCard = (
+  const bonusCard = showBonus && (
     <Card title="Bonus" icon="award" actions={<BuildPhase fas={3} />}>
       <Stack gap="sm">
         <Row gap="sm">
@@ -247,18 +249,22 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                     </Badge>
                   ),
               },
-              {
-                key: "bonus",
-                label: "Bonusunderlag",
-                render: (e) =>
-                  e.possibleBonus ? (
-                    <Badge tone="plan" icon="award">
-                      Möjligt
-                    </Badge>
-                  ) : (
-                    "–"
-                  ),
-              },
+              ...(showBonus
+                ? [
+                    {
+                      key: "bonus",
+                      label: "Bonusunderlag",
+                      render: (e: Ok["events"][number]) =>
+                        e.possibleBonus ? (
+                          <Badge tone="plan" icon="award">
+                            Möjligt
+                          </Badge>
+                        ) : (
+                          "–"
+                        ),
+                    },
+                  ]
+                : []),
             ]}
           />
         </Card>

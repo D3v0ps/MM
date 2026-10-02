@@ -5,6 +5,7 @@
 // → buildResultExport → motorn (urval, uppdelning; datamängdens tabell utan rader = empty) → kolumnkontrollen mot registret
 // (column_missing) → gränsen för antal rader → filen och storleken. Loggningen gör hanteraren innan svaret.
 import type { Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import type { OperationalConfig } from "@/core/config";
 import { bytesToBase64 } from "@/core/export/base64";
 import type { LocalDateTime, MonthKey } from "@/core/time";
@@ -85,7 +86,8 @@ export async function runPipeline(ctx: Ctx, p: PipelineInput): Promise<PipelineO
     const f = facts.get(r.id);
     if (f && f.kind === "monthly") joinFacts.set(f.caseNumber, f);
   }
-  const res = runDefinition({ exp, joinFacts, def, period, audience: p.audience, cfg, areas, title: p.title, maxGroups: LIMITS.groups });
+  // Begränsade testare (testmiljön): inget internt mål i förhandsvisningen eller filerna (src/api/tester-access.ts).
+  const res = runDefinition({ exp, joinFacts, def, period, audience: p.audience, cfg, areas, title: p.title, maxGroups: LIMITS.groups, hideInternal: hidesCommercial(ctx.actor) });
   if (!res.ok && res.error === "empty") return { ok: false, error: "empty", message: res.message };
   const missing = missingColumn(def, exp.allColumns);
   if (missing) return { ok: false, error: "column_missing", message: columnMissingText(missing), column: missing };

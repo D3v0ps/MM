@@ -2,6 +2,7 @@
 // förfallotider. Bara för hanterare – importeras av ./handlers.ts och src/features/session/nav-handlers.ts, aldrig av skärmar.
 import { ApiError, type Ctx, type PnrCrypto } from "@/api/server";
 import type { Role } from "@/api/roles";
+import { hidesCommercial } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { alerts as computeAlerts, type AlertItem } from "@/core/alerts";
 import { isOperational, requireOperational, slaWithin, type OperationalConfig, type OrgSettings } from "@/core/config";
@@ -19,7 +20,11 @@ import type { InboxRow, SlaInfo } from "./api";
 import { CHAIN, DL_KIND, FIELD_LABEL, whenText, type ChainKey, type DeadlineKindKey, type DeadlineRow, type InboxMethod } from "./texts";
 
 // ---------------------------------------------------------------- Avtalet och klockan
-export type InboxEnv = { contract: Contract; cfg: OperationalConfig; org: OrgSettings; env: DomainEnv; now: string; today: string };
+/**
+ * hideCommercial = begränsad testare i testmiljön (src/api/tester-access.ts): inga priser, belopp, viten i kronor,
+ * fakturering eller interna mål i inkorgens, startsidans och förfallolistans vy-modeller.
+ */
+export type InboxEnv = { contract: Contract; cfg: OperationalConfig; org: OrgSettings; env: DomainEnv; now: string; today: string; hideCommercial: boolean };
 
 /** Användarens första aktiva avtal med driftkonfiguration (Botkyrka i piloten). */
 export async function inboxEnv(ctx: Ctx): Promise<InboxEnv> {
@@ -28,7 +33,7 @@ export async function inboxEnv(ctx: Ctx): Promise<InboxEnv> {
   if (!contract) throw new ApiError(404, "no_contract", "Det finns inget aktivt avtal.");
   const org = await orgSettingsFor(ctx, contract);
   const now = ctx.now();
-  return { contract, cfg: requireOperational(contract.config), org, env: domainEnv(contract, org, now), now, today: dayOf(now) };
+  return { contract, cfg: requireOperational(contract.config), org, env: domainEnv(contract, org, now), now, today: dayOf(now), hideCommercial: hidesCommercial(ctx.actor) };
 }
 
 /** Svar på avrop inom så här många arbetsdagar (avtalskonfigurationen; prototypens standard 1). */
@@ -225,11 +230,12 @@ export async function visibleCaseIds(ctx: Ctx, e: InboxEnv): Promise<Set<string>
 }
 
 export function alertItems(ops: OpsDb, e: InboxEnv, actor: { role: Role; userId: string }, visible: Set<string>, includeAcked = false): AlertItem[] {
-  return computeAlerts(ops, { role: actor.role, personaId: actor.userId, includeAcked }, e.env).filter((a) => !a.caseId || visible.has(a.caseId));
+  return computeAlerts(ops, { role: actor.role, personaId: actor.userId, includeAcked, hideCommercial: e.hideCommercial }, e.env).filter((a) => !a.caseId || visible.has(a.caseId));
 }
 
+/** Förfallotider som användaren ser. Begränsade testare: utan fakturakörningen (ekonomens interna mål, länk till Ekonomi). */
 export function deadlineItems(ops: OpsDb, e: InboxEnv, visible: Set<string>, days = 7): DeadlineItem[] {
-  return computeDeadlines(ops, { days }, e.env).filter((x) => !x.caseId || visible.has(x.caseId));
+  return computeDeadlines(ops, { days }, e.env).filter((x) => (!x.caseId || visible.has(x.caseId)) && !(e.hideCommercial && x.kind === "fakturering"));
 }
 
 // ---------------------------------------------------------------- Förfallorader (ansvarig och eskalering)

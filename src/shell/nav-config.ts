@@ -1,6 +1,7 @@
 // Navigering per roll – port av prototypens NAV (sidopanelen) och KOM_NAV (kommunportalen), med sökvägar i stället för vy-id.
 // Sökvägarna följer rutt-tabellen i docs/ARKITEKTUR.md. Räknarna kommer från frågan navCounts (src/features/session/nav-api.ts).
 import type { CustomerRole, Role, SupplierRole } from "@/api/roles";
+import { isTesterHiddenPath } from "@/api/tester-access";
 import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
 import type { IconName } from "@/ui/icons";
@@ -17,8 +18,11 @@ export type NavItem = {
 };
 export type NavGroup = { label: string; items: NavItem[] };
 
-/** Rader som beror på tid (t.ex. förra månadens fakturakörning). now = serverns/demoklockans tid. */
-export type NavContext = { now: LocalDateTime | null };
+/**
+ * Rader som beror på tid (t.ex. förra månadens fakturakörning). now = serverns/demoklockans tid.
+ * hidesCommercial = begränsad testare: avtalssidan och Ekonomi visas inte (src/api/tester-access.ts).
+ */
+export type NavContext = { now: LocalDateTime | null; hidesCommercial?: boolean };
 type NavItemDef = NavItem | ((ctx: NavContext) => NavItem | null);
 type NavGroupDef = { label: string; items: NavItemDef[] };
 
@@ -95,10 +99,14 @@ export const NOTIFICATIONS_ITEM: NavItem = { to: "/notiser", label: "Notiser", i
 /** Sidopanelens grupper för en roll (tom lista för kommun och deltagare). */
 export function navFor(role: Role, ctx: NavContext): NavGroup[] {
   const groups = (NAV_DEF as Partial<Record<Role, NavGroupDef[]>>)[role] ?? [];
-  return groups.map((g) => ({
-    label: g.label,
-    items: g.items.map((it) => (typeof it === "function" ? it(ctx) : it)).filter((it): it is NavItem => it !== null),
-  }));
+  return groups
+    .map((g) => ({
+      label: g.label,
+      items: g.items
+        .map((it) => (typeof it === "function" ? it(ctx) : it))
+        .filter((it): it is NavItem => it !== null && !(ctx.hidesCommercial && isTesterHiddenPath(it.to))),
+    }))
+    .filter((g) => g.items.length > 0);
 }
 
 /** requires = menyvalet visas bara när navCounts säger att avtalet har funktionen (t.ex. resultFile). */

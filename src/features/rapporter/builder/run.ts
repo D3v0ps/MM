@@ -92,6 +92,11 @@ export type RunInput = {
   title: string;
   /** Högsta antal rader i tabellen (standard MAX_GROUPS). */
   maxGroups?: number;
+  /**
+   * Begränsad testare i testmiljön (src/api/tester-access.ts): inget internt mål, inte heller i Miljonbemannings läge
+   * (förhandsvisningen, Excel-fliken "Om rapporten" och PDF:en). Avtalets mål finns kvar.
+   */
+  hideInternal?: boolean;
 };
 export type RunError = "empty" | "too_many_groups";
 export type RunResult = { ok: true; view: BuilderView; rows: ExportRow[] } | { ok: false; error: RunError; message: string };
@@ -119,11 +124,14 @@ export function builderRules(audience: BuilderAudience): string[] {
   ];
 }
 
-/** Målen för läget: avtalets mål alltid, det interna målet bara för Miljonbemanning (aldrig en nyckel i kommunens vy-modell). */
-export function targetsFor(audience: BuilderAudience, cfg: OperationalConfig, kpiKey: string | undefined): { contractTarget: number | null; internalTarget?: number | null } {
+/**
+ * Målen för läget: avtalets mål alltid, det interna målet bara för Miljonbemanning (aldrig en nyckel i kommunens vy-modell)
+ * och aldrig för begränsade testare (hideInternal).
+ */
+export function targetsFor(audience: BuilderAudience, cfg: OperationalConfig, kpiKey: string | undefined, hideInternal = false): { contractTarget: number | null; internalTarget?: number | null } {
   const k = kpiKey ? kpiDef(cfg, kpiKey) : null;
   const contractTarget = typeof k?.contractTarget === "number" ? k.contractTarget : null;
-  if (audience !== "mb") return { contractTarget };
+  if (audience !== "mb" || hideInternal) return { contractTarget };
   return { contractTarget, internalTarget: typeof k?.internalTarget === "number" ? k.internalTarget : null };
 }
 
@@ -307,7 +315,7 @@ export function runDefinition(input: RunInput): RunResult {
       chart = {
         measure: m.key, label: MEASURE_LABEL[m.key], unit: m.columns(cfg)[0].unit,
         bars: tableRows.map((r) => ({ label: [r.group, r.period].filter(Boolean).join(" · ") || "Alla", value: r.small ? null : (r.cells[idx] ?? null), small: r.small })),
-        ...targetsFor(audience, cfg, m.kpiKey),
+        ...targetsFor(audience, cfg, m.kpiKey, input.hideInternal),
       };
     }
   }
@@ -319,7 +327,7 @@ export function runDefinition(input: RunInput): RunResult {
       counts: total.small ? { rows: null, cases: null, casesText: total.casesText } : { rows: items.length, cases: totalCases, casesText: total.casesText },
       table: { groupLabel: def.groupBy ? DIMENSION_LABEL[def.groupBy] : null, splitLabel: def.split === "inget" ? null : SPLIT_LABEL[def.split], columns, rows: tableRows, total },
       chart,
-      targets: measures.filter((m) => m.kpiKey).map((m) => ({ measure: m.key, label: m.label, ...targetsFor(audience, cfg, m.kpiKey) }))
+      targets: measures.filter((m) => m.kpiKey).map((m) => ({ measure: m.key, label: m.label, ...targetsFor(audience, cfg, m.kpiKey, input.hideInternal) }))
         .filter((t) => t.contractTarget != null || (t.internalTarget ?? null) != null),
       explain: [{ label: "Deltagare", text: PARTICIPANTS_HELP }, ...measures.map((m) => ({ label: m.label, text: m.help(cfg) }))],
       notes: [...new Set(notes)],

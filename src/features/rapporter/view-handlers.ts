@@ -4,6 +4,7 @@
 import { fail, ok } from "@/api/contract";
 import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
@@ -148,8 +149,14 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
       return monthlyDocView(base, viewer.name(c), m);
     case "final":
       return { ...base, kind: "final", participant: viewer.name(c), m };
-    case "order_confirmation":
-      return { ...base, kind: "order_confirmation", participant: viewer.name(c), m };
+    case "order_confirmation": {
+      // Begränsade testare (testmiljön): veckopriset tas bort ur vy-modellen – efter reportModel(), så att det gäller både
+      // levande och frysta rapporter (reports.snapshot).
+      if (!hidesCommercial(ctx.actor)) return { ...base, kind: "order_confirmation", participant: viewer.name(c), m };
+      const { price, ...rest } = m;
+      void price;
+      return { ...base, kind: "order_confirmation", participant: viewer.name(c), m: rest };
+    }
     case "customer_summary":
       return {
         ...base, kind: "customer_summary", m, approver: personName(profiles, r.approvedBy || info.contract.contractManagerId), resultNote: info.cfg.result.prototypeDefinition || "",
@@ -433,11 +440,15 @@ handleCommand(reportSaveFinal, { roles: ["coach", "samordnare"] }, async (ctx, p
 });
 
 // ---------------------------------------------------------------- rap.saveSummary
-/** Nämner texten Miljonbemannings interna mål? ("internt mål", "35 %", "35 procent") */
-function mentionsInternal(text: string, cfg: OperationalConfig): boolean {
+/**
+ * Nämner texten Miljonbemannings interna mål? ("internt mål", "35 %", "35 procent")
+ * byNumber = false för begränsade testare i testmiljön (src/api/tester-access.ts): de känner inte till målet, och en spärr
+ * på just det talet skulle avslöja det ("35 %" stoppas, "34 %" går igenom). Orden "internt mål" stoppas för alla.
+ */
+function mentionsInternal(text: string, cfg: OperationalConfig, byNumber = true): boolean {
   const t = cfg.kpis.find((x) => x.key === "resultatgrad")?.internalTarget;
   const internalPct = Math.round((typeof t === "number" ? t : 0) * 100);
-  return /internt? mål/i.test(text) || (internalPct > 0 && new RegExp(`(^|\\D)${internalPct}\\s?(%|procent)`, "i").test(text));
+  return /internt? mål/i.test(text) || (byNumber && internalPct > 0 && new RegExp(`(^|\\D)${internalPct}\\s?(%|procent)`, "i").test(text));
 }
 handleCommand(reportSaveSummary, { roles: ["avtalsansvarig"] }, async (ctx, p) => {
   const r = await ctx.repo.table("reports").get(p.reportId);
@@ -446,7 +457,7 @@ handleCommand(reportSaveSummary, { roles: ["avtalsansvarig"] }, async (ctx, p) =
   const text = p.summary.trim();
   if (!text) return fail("summary", "Skriv en sammanfattning eller använd förslaget. Den behövs innan rapporten kan godkännas.");
   const { cfg } = await contractInfo(ctx, r.contractId);
-  if (mentionsInternal(text, cfg)) return fail("internal_target", "Texten nämner Miljonbemannings interna mål. Det får aldrig stå i beställarrapporten. Ta bort det.");
+  if (mentionsInternal(text, cfg, !hidesCommercial(ctx.actor))) return fail("internal_target", "Texten nämner Miljonbemannings interna mål. Det får aldrig stå i beställarrapporten. Ta bort det.");
   await ctx.repo.table("reports").update(r.id, { summary: text, summaryAiUsed: p.aiUsed });
   // Innehållet loggas inte – bara att det sparats och om AI-förslaget användes.
   await ctx.audit({ action: "report.summary_saved", entity: "report", entityId: r.id, contractId: r.contractId, details: { aiUsed: p.aiUsed } });

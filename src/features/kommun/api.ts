@@ -152,8 +152,8 @@ export type KomOrderForm = {
   areas: { code: string; name: string }[];
   /** Förslag på yrkesspår per avtalsområde. */
   tracks: Record<string, string[]>;
-  /** Pris per deltagarvecka i öre, exklusive moms. */
-  prices: { areaCode: string; validFrom: string; validTo: string | null; priceOre: number }[];
+  /** Pris per deltagarvecka i öre, exklusive moms. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+  prices?: { areaCode: string; validFrom: string; validTo: string | null; priceOre: number }[];
   /** Besked om startdatum och coach senast, om beställningen skickas nu. */
   answerDue: string | null;
 };
@@ -232,8 +232,9 @@ export type KomCaseDetail = {
   order: {
     coachName: string | null;
     weeks: number | null;
-    priceOre: number;
-    valueOre: number;
+    /** Pris per vecka och beställningens värde. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
+    priceOre?: number;
+    valueOre?: number;
     buyerReference: string | null;
     team: { name: string; roleLabel: string }[];
     /** Levererad orderbekräftelse (öppnas som rapport). */
@@ -245,7 +246,7 @@ export type KomCaseDetail = {
   attendance: { restricted: true } | { restricted: false; month: KomAttTile; prev: KomAttTile; repeated: { count: number; withinDays: number } | null } | null;
   /** null = skyddade personuppgifter (kommunens chef). */
   participant: { pnrMasked: string | null; canReveal: boolean; contactLabel: string | null; city: string; accessibilityNeeds: string } | null;
-  /** Ett möjligt bonusanspråk (arbete påbörjat). Funktionen är avstängd tills modellen är bestämd. */
+  /** Ett möjligt bonusanspråk (arbete påbörjat). Funktionen är avstängd tills modellen är bestämd. Alltid false för begränsade testare. */
   bonus: boolean;
   seesCoachNotes: boolean;
   reports: KomReportRow[];

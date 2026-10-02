@@ -3,6 +3,7 @@
 // RLS alltid ser samma aktör. Testare (profiles.is_tester) kan i testmiljön agera som en testperson (tester_sessions).
 // I produktion finns ingen testarfunktion (databasen svarar då alltid med den egna profilen).
 import { ROLES, type Actor, type Role } from "@/api/roles";
+import { hidesCommercial, roleHiddenFromTesters } from "@/api/tester-access";
 import { listPersonas, personaFor, type Persona } from "@/data/actors";
 import type { RawAccess } from "@/data/memory";
 import type { Membership, Organization, Profile, Tables } from "@/data/schema";
@@ -64,6 +65,14 @@ export function rawOf(tables: Partial<{ [N in keyof Tables]: Tables[N][] }>): Ra
 
 export const toOption = (p: Persona): PersonaOption => ({ userId: p.actor.userId, role: p.actor.role, name: p.user.name, title: p.user.title, isDefaultForRole: p.isDefaultForRole });
 
+/**
+ * Testpersonerna som testaren får välja ("Agera som"). En begränsad testare (src/api/tester-access.ts) får inte välja
+ * rollen ekonom – hela rollen handlar om fakturering och belopp. Alla andra får hela listan.
+ */
+export function personaOptionsFor(options: PersonaOption[], actor: Pick<Actor, "testerId"> | null | undefined): PersonaOption[] {
+  return hidesCommercial(actor) ? options.filter((p) => !roleHiddenFromTesters(p.role)) : options;
+}
+
 const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);
 
 /** Identiteten för den inloggade, eller null om profilen saknas, är spärrad eller saknar roll. */
@@ -86,11 +95,13 @@ export async function resolveIdentity(store: IdentityStore, environment: Environ
     ? { ...known, actor }
     : { actor, user: { id: self.id, name: self.fullName, title: self.title, email: self.email, orgName: dir.get("organizations", self.organizationId)?.name ?? "", unit: self.customerUnit }, isDefaultForRole: false, roleDescription: "" };
   const impersonating = tester && a.impersonating === true;
-  return { self, persona, isTester: tester, impersonating, personas: tester ? listPersonas(dir).map(toOption) : [] };
+  return { self, persona, isTester: tester, impersonating, personas: tester ? personaOptionsFor(listPersonas(dir).map(toOption), actor) : [] };
 }
 
 /** Får testaren välja den här testpersonen? (Kontrolleras innan tester_sessions skrivs.) */
 export function mayImpersonate(identity: Identity | null, target: { userId: string; role: string }): boolean {
   if (!identity?.isTester) return false;
+  // Begränsade testare: aldrig rollen ekonom (uttrycklig kontroll utöver den filtrerade listan).
+  if (hidesCommercial(identity.persona.actor) && roleHiddenFromTesters(target.role)) return false;
   return identity.personas.some((p) => p.userId === target.userId && p.role === target.role);
 }

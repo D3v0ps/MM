@@ -54,7 +54,7 @@ async function draftFor(ctx: Ctx, month: string, c: Case): Promise<InvoiceDraft>
 }
 
 // ---------------------------------------------------------------- billing.approveZeroWeek
-handleCommand(billingApproveZeroWeek, { roles: BILLING }, async (ctx, p) => {
+handleCommand(billingApproveZeroWeek, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   await upsert(ctx.repo.table("billing_week_approvals"), {
@@ -65,7 +65,7 @@ handleCommand(billingApproveZeroWeek, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- billing.approveInvoice
-handleCommand(billingApproveInvoice, { roles: BILLING }, async (ctx, p) => {
+handleCommand(billingApproveInvoice, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const cases = await loadCases(ctx, p.caseIds);
   if (!cases) return fail("not_found", NOT_FOUND);
   const now = ctx.now();
@@ -75,7 +75,7 @@ handleCommand(billingApproveInvoice, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- billing.sendFortnox (idempotent)
-handleCommand(billingSendFortnox, { roles: BILLING }, async (ctx, p) => {
+handleCommand(billingSendFortnox, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const cases = await loadCases(ctx, p.caseIds);
   if (!cases) return fail("not_found", NOT_FOUND);
   const now = ctx.now();
@@ -112,7 +112,7 @@ handleCommand(billingSendFortnox, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- billing.markManual
-handleCommand(billingMarkManual, { roles: BILLING }, async (ctx, p) => {
+handleCommand(billingMarkManual, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   await upsert(ctx.repo.table("invoice_drafts"), { ...(await draftFor(ctx, p.month, c)), status: "manual", manualInvoiceNo: p.invoiceNo });
@@ -121,7 +121,7 @@ handleCommand(billingMarkManual, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- billing.export
-handleCommand(billingExport, { roles: BILLING }, async (ctx, p) => {
+handleCommand(billingExport, { roles: BILLING, commercial: true }, async (ctx, p) => {
   await ctx.audit({ action: "export.billing", entity: "billing_run", entityId: p.month, contractId: ctx.actor.contractIds[0] ?? null, details: { format: p.format } });
   return ok({});
 });
@@ -221,7 +221,7 @@ const taskRef = (b: Base, t: Task): TaskRef => ({ id: t.id, fromName: personName
 const taskFor = (tasks: readonly Task[], caseId: string) => tasks.find((t) => t.status === "open" && t.caseIds.includes(caseId)) ?? null;
 
 // ---------------------------------------------------------------- ekonomi.run (eko.korning)
-handleQuery(ekoRun, { roles: READERS }, async (ctx, p) => {
+handleQuery(ekoRun, { roles: READERS, commercial: true }, async (ctx, p) => {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const runs = runsSorted(db);
@@ -251,7 +251,7 @@ handleQuery(ekoRun, { roles: READERS }, async (ctx, p) => {
 const pickSla = (s: SlaStatus): SlaView => ({ label: s.label, tone: s.tone });
 
 // ---------------------------------------------------------------- ekonomi.invoice (detaljen i körningen)
-handleQuery(ekoInvoice, { roles: READERS }, async (ctx, p) => {
+handleQuery(ekoInvoice, { roles: READERS, commercial: true }, async (ctx, p) => {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const c = db.cases.find((x) => x.id === p.caseId);
@@ -279,7 +279,7 @@ handleQuery(ekoInvoice, { roles: READERS }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- ekonomi.csv (reservvägen: export av underlaget)
-handleQuery(ekoCsv, { roles: READERS }, async (ctx, p) => {
+handleQuery(ekoCsv, { roles: READERS, commercial: true }, async (ctx, p) => {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const bm = billingForMonth(db, p.month, b.env);
@@ -295,7 +295,7 @@ handleQuery(ekoCsv, { roles: READERS }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- ekonomi.preview (eko.faktura)
-handleQuery(ekoPreview, { roles: READERS }, async (ctx, p) => {
+handleQuery(ekoPreview, { roles: READERS, commercial: true }, async (ctx, p) => {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const c = db.cases.find((x) => x.id === p.caseId) ?? null;
@@ -335,7 +335,7 @@ async function nameFor(ctx: Ctx, c: Case): Promise<string> {
   return person ? `${person.firstName} ${person.lastName}` : "Skyddade personuppgifter";
 }
 
-handleQuery(ekoCase, { roles: READERS }, async (ctx, p) => {
+handleQuery(ekoCase, { roles: READERS, commercial: true }, async (ctx, p) => {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const c = db.cases.find((x) => x.id === p.caseId);
@@ -371,7 +371,7 @@ handleQuery(ekoCase, { roles: READERS }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- ekonomi.caseList (sök ärende)
-handleQuery(ekoCaseList, { roles: READERS }, async (ctx) => {
+handleQuery(ekoCaseList, { roles: READERS, commercial: true }, async (ctx) => {
   const b = await base(ctx);
   const cases = await ctx.repo.table("cases").list({ contractId: b.contract.id });
   return {
@@ -387,7 +387,7 @@ handleQuery(ekoCaseList, { roles: READERS }, async (ctx) => {
 });
 
 // ---------------------------------------------------------------- ekonomi.start (eko.start)
-handleQuery(ekoStart, { roles: READERS }, async (ctx) => {
+handleQuery(ekoStart, { roles: READERS, commercial: true }, async (ctx) => {
   const b = await base(ctx);
   const db = await loadBilling(ctx, b.contract);
   const today = dayOf(ctx.now());
@@ -482,7 +482,7 @@ handleQuery(ekoStart, { roles: READERS }, async (ctx) => {
 });
 
 // ---------------------------------------------------------------- eko.fortnoxLog
-handleCommand(ekoFortnoxLog, { roles: BILLING }, async (ctx, p) => {
+handleCommand(ekoFortnoxLog, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const contractId = (await currentContractId(ctx, p.month));
   const id = ctx.newId("fxrun");
   await ctx.repo.table("fortnox_runs").insert({
@@ -504,7 +504,7 @@ async function currentContractId(ctx: Ctx, month: MonthKey): Promise<string> {
 
 // ---------------------------------------------------------------- eko.fortnoxSync (simulerad statushämtning)
 const NEXT: Partial<Record<InvoiceStatus, InvoiceStatus>> = { fortnox_created: "booked", booked: "sent", sent: "paid" };
-handleCommand(ekoFortnoxSync, { roles: BILLING }, async (ctx, p) => {
+handleCommand(ekoFortnoxSync, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const cases = await loadCases(ctx, p.caseIds);
   if (!cases) return fail("not_found", NOT_FOUND);
   const now = ctx.now();
@@ -527,7 +527,7 @@ handleCommand(ekoFortnoxSync, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- eko.reissue (kreditera och skapa ny faktura)
-handleCommand(ekoReissue, { roles: BILLING }, async (ctx, p) => {
+handleCommand(ekoReissue, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   const { cfg } = await contractOf(ctx, c.contractId);
@@ -548,7 +548,7 @@ handleCommand(ekoReissue, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- eko.taskDone
-handleCommand(ekoTaskDone, { roles: BILLING }, async (ctx, p) => {
+handleCommand(ekoTaskDone, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const t = await ctx.repo.table("tasks").get(p.taskId);
   if (!t) return fail("not_found", "Uppgiften finns inte.");
   await ctx.repo.table("tasks").update(t.id, { status: "done", doneAt: ctx.now(), doneBy: ctx.actor.userId, doneNote: p.note ?? "" });
@@ -557,7 +557,7 @@ handleCommand(ekoTaskDone, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- eko.askCoordinator (bara ärendenummer – inga namn)
-handleCommand(ekoAskCoordinator, { roles: BILLING }, async (ctx, p) => {
+handleCommand(ekoAskCoordinator, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const [c, other] = await Promise.all([ctx.repo.table("cases").get(p.caseId), ctx.repo.table("cases").get(p.otherCaseId)]);
   if (!c || !other) return fail("not_found", NOT_FOUND);
   const { contract } = await contractOf(ctx, c.contractId);
@@ -578,7 +578,7 @@ handleCommand(ekoAskCoordinator, { roles: BILLING }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- eko.closeRun
-handleCommand(ekoCloseRun, { roles: BILLING }, async (ctx, p) => {
+handleCommand(ekoCloseRun, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const r = await ctx.repo.table("billing_runs").first({ month: p.month });
   if (!r) return fail("not_found", "Det finns ingen fakturakörning för månaden.");
   await ctx.repo.table("billing_runs").update(r.id, { status: "closed", closedAt: ctx.now(), closedBy: ctx.actor.userId });

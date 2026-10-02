@@ -1,6 +1,7 @@
 // Kontrakt för synpunkter i testmiljön ("Lämna synpunkt", beslut 2026-10-01). Bara inloggade testare i testmiljön
 // (Actor.testerId – servern sätter det bara när databasen säger mm.auth_is_tester()). I produktion, i minnesläget och i
-// prototypen finns funktionen inte: hanterarna svarar 404 och RLS släpper inte igenom något. Prototypen har kvar sin egen
+// prototypen finns funktionen inte: hanterarna svarar 404 och RLS släpper inte igenom något. Undantag: minnesläget när en
+// testare simuleras för e2e (POST /api/dev-session med testerId) – då finns testerId och synpunkterna fungerar i minnet. Prototypen har kvar sin egen
 // feedback i claude.ai (src/demo/feedback-store.ts) med samma modell och samma texter (model.ts).
 //
 //   feedback.list       alla synpunkter med svar (nyast först, efter riktig tid) – för listan "Alla synpunkter" och CSV-exporten

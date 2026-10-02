@@ -16,4 +16,9 @@ export type SessionView = {
   personas: PersonaOption[];
   /** Testmiljöns klocka (testtid), t.ex. "2027-02-01T09:40". */
   testNow?: string | null;
+  /**
+   * Begränsad testare (src/api/tester-access.ts, räknas på servern): inga priser, belopp, fakturaunderlag, interna mål eller
+   * avtalssidan. Styr menyn, startsidan och texten "Visas inte för testare" i skärmarna. Servern lämnar ändå inte ut uppgifterna.
+   */
+  hidesCommercial: boolean;
 };

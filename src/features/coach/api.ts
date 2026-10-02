@@ -591,6 +591,10 @@ export type EventsPage = Gated<{
   exitPulse: { sentAt: LocalDateTime; channel: "sms" | "email"; expiresAt: LocalDateTime } | null;
   finalDays: number;
   finalProvisional: boolean;
-  bonusOn: boolean;
+  /**
+   * Bonusmodellen är aktiv. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts): bonus är ett ekonomiskt
+   * villkor – kortet Bonus, kolumnen Bonusunderlag och markeringen visas då inte (events[].possibleBonus är alltid false).
+   */
+  bonusOn?: boolean;
 }>;
 export const eventsPage = query("coach.eventsPage", z.object({ caseId: IdSchema })).returns<EventsPage>();

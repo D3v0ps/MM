@@ -8,13 +8,16 @@ import { mayImpersonate, rawOf, resolveIdentity, type DbActor, type Directory, t
 
 const seed = createSeed();
 const KARIM: Profile & { isTester: boolean } = {
-  id: "u-test-karim", organizationId: ORG_MB, fullName: "Karim Khalil", email: "karim.khalil@miljonbemanning.se", phone: "", title: "Testare",
+  id: "tester-karim", organizationId: ORG_MB, fullName: "Karim Khalil", email: "karim.khalil@miljonbemanning.se", phone: "", title: "Testare",
   active: true, lastLoginAt: null, customerUnit: null, buyerReferenceId: null, teamRole: null, invitedAt: null, invitedBy: null, isTester: true,
 };
 const KARIM_ADMIN: Membership = { id: "m-test-karim", userId: KARIM.id, contractId: "c-bot", role: "admin", customerUnit: null };
+/** En begränsad testare (src/api/tester-access.ts): alla testare utom Karim och Ali. */
+const SARA_T: Profile & { isTester: boolean } = { ...KARIM, id: "tester-sara", fullName: "Sara Salah", email: "sara.salah@miljonbemanning.se" };
+const SARA_T_ADMIN: Membership = { id: "m-test-sara", userId: SARA_T.id, contractId: "c-bot", role: "admin", customerUnit: null };
 const BLOCKED: Profile = { ...KARIM, id: "u-test-blocked", fullName: "Spärrad Testperson", email: "sparrad@miljonbemanning.se", active: false };
 const BLOCKED_COACH: Membership = { id: "m-test-blocked", userId: BLOCKED.id, contractId: "c-bot", role: "coach", customerUnit: null };
-const all: Directory = { profiles: [...seed.profiles, KARIM, BLOCKED], memberships: [...seed.memberships, KARIM_ADMIN, BLOCKED_COACH], organizations: seed.organizations };
+const all: Directory = { profiles: [...seed.profiles, KARIM, SARA_T, BLOCKED], memberships: [...seed.memberships, KARIM_ADMIN, SARA_T_ADMIN, BLOCKED_COACH], organizations: seed.organizations };
 
 function store(actor: DbActor | null, calls: string[] = []): IdentityStore {
   return {
@@ -79,6 +82,43 @@ describe("resolveIdentity", () => {
     expect(notTester?.isTester).toBe(false);
     expect(notTester?.personas).toEqual([]);
     expect(notTester?.persona.actor.testerId).toBeUndefined();
+  });
+});
+
+describe("begränsade testare (alla utom Karim och Ali)", () => {
+  it("Agera som: alla testpersoner utom rollen ekonom – Karim får fortfarande välja ekonom", async () => {
+    const sara = await resolveIdentity(store(self(SARA_T.id, "admin", { isTester: true })), "staging");
+    const karim = await resolveIdentity(store(self(KARIM.id, "admin", { isTester: true })), "staging");
+    expect(sara?.persona.actor.testerId).toBe("tester-sara");
+    expect(karim?.personas.some((p) => p.role === "ekonom")).toBe(true);
+    expect(sara?.personas.some((p) => p.role === "ekonom")).toBe(false);
+    expect(sara?.personas.map((p) => `${p.userId}|${p.role}`)).toEqual(karim?.personas.filter((p) => p.role !== "ekonom").map((p) => `${p.userId}|${p.role}`));
+    // Systemadministratör, chef, coach, kommunens roller m.fl. finns kvar.
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"]) {
+      expect(sara?.personas.some((p) => p.role === role), role).toBe(true);
+    }
+  });
+
+  it("mayImpersonate nekar ekonomen på servern, också om listan skulle innehålla den", async () => {
+    const sara = await resolveIdentity(store(self(SARA_T.id, "admin", { isTester: true })), "staging");
+    const karim = await resolveIdentity(store(self(KARIM.id, "admin", { isTester: true })), "staging");
+    expect(mayImpersonate(karim, { userId: "u-lars", role: "ekonom" })).toBe(true);
+    expect(mayImpersonate(sara, { userId: "u-lars", role: "ekonom" })).toBe(false);
+    expect(mayImpersonate(sara && { ...sara, personas: karim?.personas ?? [] }, { userId: "u-lars", role: "ekonom" })).toBe(false);
+    expect(mayImpersonate(sara, { userId: "u-karin", role: "chef" })).toBe(true);
+    expect(mayImpersonate(sara, { userId: "k-maria", role: "kommun_handlaggare" })).toBe(true);
+  });
+
+  it("begränsad testare som agerar som en testperson: testerId är fortfarande den egna profilen (regeln följer testaren)", async () => {
+    const actor = self(SARA_T.id, "admin", { isTester: true, impersonating: true, userId: "u-karin", role: "chef" });
+    const id = await resolveIdentity(store(actor), "staging");
+    expect(id?.persona.actor).toMatchObject({ userId: "u-karin", role: "chef", testerId: "tester-sara" });
+  });
+
+  it("produktion: ingen testerId – ingen ändring för någon", async () => {
+    const id = await resolveIdentity(store(self(SARA_T.id, "admin", { isTester: true, environment: "production" })), "production");
+    expect(id?.persona.actor.testerId).toBeUndefined();
+    expect(id?.personas).toEqual([]);
   });
 });
 

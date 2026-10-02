@@ -2,13 +2,15 @@
 //
 // Bara den inloggade testaren i testmiljön (ctx.actor.testerId, som servern sätter när databasen säger
 // mm.auth_is_tester()) – oavsett vilken testperson testaren agerar som. Alla andra får 404: i produktion, i minnesläget och i
-// prototypen finns funktionen inte. RLS (0017_synpunkter.sql) och policy.ts kontrollerar samma sak en gång till.
+// prototypen finns funktionen inte (utom i minnesläget när en testare simuleras för e2e: POST /api/dev-session med testerId).
+// RLS (0017_synpunkter.sql) och policy.ts kontrollerar samma sak en gång till.
 // Synpunkten sparas med rollen testaren agerar som och sidan (bara sökväg och id:n – sanitizeFeedbackPath igen här, servern
 // litar aldrig på webbläsaren – och rensas igen när listan läses). Tid via ctx.now() (testtid i testmiljön), id via
 // ctx.newId. Den riktiga tiden (submittedAt) sätter databasen. Inga utskick. Revisionslogg utan text.
 import { fail, ok } from "@/api/contract";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { perspectiveOf } from "@/api/roles";
+import { hidesCommercial, isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
 import { uniq } from "@/core/util";
 import type { Feedback, FeedbackReply } from "@/data/schema";
 import { feedbackList, feedbackReply, feedbackSetStatus, feedbackSubmit, type FeedbackView } from "./api";
@@ -32,9 +34,19 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
  */
 const oldestFirst = (a: Timed, b: Timed) => cmp(a.submittedAt ?? "", b.submittedAt ?? "") || cmp(a.createdAt, b.createdAt) || cmp(a.id, b.id);
 
+/**
+ * Begränsade testare (src/api/tester-access.ts) ser inte synpunkter som skrevs på avtalssidan eller i Ekonomi, eller i rollen
+ * ekonom – texten kan handla om priser och belopp. Övrig fritext kan inte skyddas på det här sättet.
+ */
+const aboutCommercial = (x: Pick<Feedback, "path" | "role">): boolean =>
+  roleHiddenFromTesters(x.role) || (!!x.path && isTesterHiddenPath(x.path.split(/[?#]/)[0]));
+
 handleQuery(feedbackList, {}, async (ctx): Promise<FeedbackView[]> => {
   const me = testerOf(ctx);
-  const [items, replies] = await Promise.all([ctx.repo.table("feedback").list(), ctx.repo.table("feedback_replies").list()]);
+  const [all, allReplies] = await Promise.all([ctx.repo.table("feedback").list(), ctx.repo.table("feedback_replies").list()]);
+  const items = hidesCommercial(ctx.actor) ? all.filter((x) => !aboutCommercial(x)) : all;
+  const shown = new Set(items.map((x) => x.id));
+  const replies = allReplies.filter((r) => shown.has(r.feedbackId));
   // ctx.system: namnen på testarna som skrivit (bara författarnas profiler). Testpersonen som testaren agerar som får inte
   // alltid läsa testarnas profiler (t.ex. deltagaren), men synpunkterna är testarnas egna.
   const authorIds = uniq([...items.map((x) => x.authorId), ...replies.map((r) => r.authorId)]);

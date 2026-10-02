@@ -3,6 +3,7 @@
 // Flikarna Översikt, Rapporter och Meddelanden. Kommunens chef läser i tredje person ("Handläggaren (namn)") och ser deltagare
 // med skyddade personuppgifter bara som ärendenummer och status. Visningen loggas (case.view).
 import { useEffect, useState, type ReactNode } from "react";
+import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr, pct } from "@/core/format";
 import { messageRead, messageSend } from "@/features/arenden/api";
 import { auditView } from "@/features/session/api";
@@ -275,7 +276,9 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
                 ["Planerad omfattning", `${o.weeks || "–"} veckor${c.plannedEnd ? `, till ${fD(c.plannedEnd)}` : ""}`],
                 [
                   "Beställningens värde",
-                  o.weeks ? (
+                  o.weeks && (o.valueOre === undefined || o.priceOre === undefined) ? (
+                    TESTER_HIDDEN_TEXT
+                  ) : o.weeks ? (
                     <>
                       <span>{kr(o.valueOre)}</span>
                       <span className="block text-body text-text-muted">

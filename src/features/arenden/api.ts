@@ -290,8 +290,11 @@ export type CaseCard = {
   endReasonLabel: string | null;
   /** Avslut till arbete eller studier som inte är verifierat. */
   resultPrelim: boolean;
-  /** Beställningens omfattning och pris per deltagarvecka (inte för teamet). */
-  order: { weeks: number | null; priceOre: number } | null;
+  /**
+   * Beställningens omfattning och pris per deltagarvecka (inte för teamet). priceOre saknas för begränsade testare i
+   * testmiljön (src/api/tester-access.ts) – skärmen visar då "Visas inte för testare".
+   */
+  order: { weeks: number | null; priceOre?: number } | null;
   pnr: { masked: string | null; canReveal: boolean; hidden: boolean };
   contactText: string;
   /** Deltagarens föredragna kontaktväg ("SMS", "E-post" …), null vid skyddade personuppgifter. */
@@ -510,6 +513,7 @@ export const caseMonthBasis = query("arenden.kortManad", CaseParams.extend({ man
 
 export type CaseEventRow = {
   id: string; kind: OutcomeEventKind; label: string; occurredOn: string; actor: string; note: string; verificationKind: string | null;
+  /** Möjligt bonusunderlag. Alltid false för teamet och för begränsade testare (bonus är ett ekonomiskt villkor). */
   needsVerification: boolean; possibleBonus: boolean;
 };
 export type CaseEvents = {
