@@ -71,6 +71,12 @@ export type Viewer = {
   access(c: Case | null | undefined): CaseAccess;
   /** Namnet att visa för läsaren ("Skyddade personuppgifter", "–" eller namnet). */
   name(c: Case | null | undefined): string;
+  /**
+   * Ärendets person har skyddade personuppgifter (samma uppslag som access – accessSourceFor). Ett ärende eller en person
+   * som saknas räknas som skyddat (som protectedCase i policy.ts). Rapportbyggaren utesluter dem även för avtalsansvarig,
+   * som har full åtkomst i skyddade ärenden.
+   */
+  isProtected(c: Case | null | undefined): boolean;
 };
 
 /** Åtkomst och namn för ärendena. Namnen läses via ctx.repo (policyn/RLS avgör vilka personer läsaren ser). */
@@ -96,7 +102,11 @@ export async function viewerFor(ctx: Ctx, cases: readonly Case[]): Promise<Viewe
     if (access(c) === "restricted") return "Skyddade personuppgifter";
     return displayName(c, byPerson.get(c.personId), access(c));
   };
-  return { actor: ctx.actor, access, name };
+  const isProtected = (c: Case | null | undefined): boolean => {
+    const p = c ? src.person(c.personId) : null;
+    return !p || p.protectedIdentity;
+  };
+  return { actor: ctx.actor, access, name, isProtected };
 }
 
 // ---------------------------------------------------------------- Får läsaren se rapporten? (prototypens reportAccess)

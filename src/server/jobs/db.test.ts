@@ -30,6 +30,7 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
     get,
     list: unsupported,
     pick: unsupported,
+    pickJson: unsupported,
     first: unsupported,
     count: unsupported,
     async insert(row: T) {

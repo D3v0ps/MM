@@ -259,16 +259,19 @@ export function resultFilename(casePrefix: string, from: MonthKey, to: MonthKey,
 export const periodLabel = (from: MonthKey, to: MonthKey): string => (from === to ? monthName(from) : `${monthName(from)} – ${monthName(to)}`);
 
 /** Reglerna på fliken "Om filen" (exakta texter). Texten om resultatdefinitionen bara när den inte är fastställd. */
+/** Regeln för verifierade resultat i filerna (resultatfilen och rapportbyggarens listor). */
+export const VERIFIED_RESULT_RULE = "Ett resultat räknas först när resultat_verifierat = 1. Kommer underlaget efter att slutrapporten lämnats rättar vi slutrapporten – hämta då en ny fil.";
+/** Tomma celler i filerna. */
+export const EMPTY_CELL_RULE = "Tom cell betyder att uppgiften saknas eller inte är bedömd. 0 betyder noll.";
+
 export function aboutRules(cfg: Pick<OperationalConfig, "result">): string[] {
   return [
     "Bara levererade månadsrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.",
     "Ärenden med skyddade personuppgifter finns aldrig med.",
     "Avslut och resultat för alla insatser som avslutades under perioden finns på fliken Avslut. Räkna resultatgraden där.",
     isUnset(cfg.result.definition) ? "Resultatdefinitionen är inte fastställd. Resultatet är preliminärt." : null,
-    cfg.result.requiresVerification
-      ? "Ett resultat räknas först när resultat_verifierat = 1. Kommer underlaget efter att slutrapporten lämnats rättar vi slutrapporten – hämta då en ny fil."
-      : null,
-    "Tom cell betyder att uppgiften saknas eller inte är bedömd. 0 betyder noll.",
+    cfg.result.requiresVerification ? VERIFIED_RESULT_RULE : null,
+    EMPTY_CELL_RULE,
     "Rättade rapporter: filen har den senast levererade versionen. rattelse_pagar = 1 betyder att en rättelse är på väg.",
   ].filter((x): x is string => x !== null);
 }
@@ -328,20 +331,5 @@ export async function resultXlsx(exp: ResultExport, cfg: OperationalConfig, abou
 export { XLSX_MIME };
 
 // ================================================================ Perioden
-/** Antal månader från och med from till och med to. */
-export const monthsInPeriod = (from: MonthKey, to: MonthKey): number => {
-  const [y1, m1] = from.split("-").map(Number);
-  const [y2, m2] = to.split("-").map(Number);
-  return (y2 * 12 + m2) - (y1 * 12 + m1) + 1;
-};
-
-/**
- * Felet för perioden, eller null. Regler: till-månaden inte före från-månaden, högst MAX_EXPORT_MONTHS månader, inte efter
- * innevarande månad och inte före avtalets start.
- */
-export function periodError(from: MonthKey, to: MonthKey, opts: { current: MonthKey; start: MonthKey; maxMonths: number }): string | null {
-  if (to < from) return "Till-månaden kan inte vara före från-månaden.";
-  if (monthsInPeriod(from, to) > opts.maxMonths) return `Välj högst ${opts.maxMonths} månader.`;
-  if (from < opts.start || to > opts.current) return `Välj månader från ${monthName(opts.start)} till ${monthName(opts.current)}.`;
-  return null;
-}
+// Reglerna ligger i export-columns.ts (lätt modul utan filformat – rapportbyggarens definition använder samma regler).
+export { monthsInPeriod, periodError } from "./export-columns";

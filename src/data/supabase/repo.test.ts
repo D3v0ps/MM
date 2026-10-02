@@ -1,7 +1,7 @@
 // SupabaseRepo mot en fejkad query builder: filteröversättning, namnbyten, tidsomvandling, sidor, fel.
 // Dessutom: filtren ger samma rader som matches() i MemoryRepo (en liten tolk kör de inspelade PostgREST-filtren).
 import { describe, expect, it } from "vitest";
-import { PolicyError } from "../memory";
+import { MemoryRepo, MemoryStore, PolicyError } from "../memory";
 import { matches, type Where } from "../repo";
 import { createSeed } from "../seed";
 import { TABLE_NAMES } from "../schema";
@@ -212,6 +212,36 @@ describe("filteröversättning", () => {
     calls.length = 0;
     await repoOf(client).list();
     expect(calls[0].args[0]).toBe("*");
+  });
+
+  it("pickJson läser kolumnerna och jsonb-sökvägarna med alias (facts:snapshot->facts) – samma form som MemoryRepo", async () => {
+    type R = { id: string; kind: string; status: string; deliveredAt: string | null; snapshot: Record<string, unknown> | null };
+    const json = { facts: ["snapshot", "facts"], snapshotReportId: ["snapshot", "reportId"] } as const;
+    const db = [
+      { id: "r1", kind: "monthly", status: "delivered", delivered_at: "2027-01-05T10:00:00+01:00", snapshot: { reportId: "r1", model: { stor: true }, facts: { kind: "monthly", n: 1 } } },
+      { id: "r2", kind: "monthly", status: "delivered", delivered_at: null, snapshot: null },
+    ];
+    const { client, calls } = fake(() => ({
+      // PostgREST svarar med aliasen (snake_case) och jsonb-värdet som det är; saknad sökväg = null.
+      data: db.map((r) => ({ id: r.id, kind: r.kind, delivered_at: r.delivered_at, facts: r.snapshot?.facts ?? null, snapshot_report_id: r.snapshot?.reportId ?? null })),
+      error: null,
+    }));
+    const pg = await new SupabaseRepo<{ reports: R }>(client).table("reports").pickJson(["kind", "deliveredAt"], json, { status: "delivered" });
+    expect(calls[0].args[0]).toBe("id,kind,delivered_at,facts:snapshot->facts,snapshot_report_id:snapshot->reportId");
+    expect(pg).toEqual([
+      { id: "r1", kind: "monthly", deliveredAt: "2027-01-05T10:00", facts: { kind: "monthly", n: 1 }, snapshotReportId: "r1" },
+      { id: "r2", kind: "monthly", deliveredAt: null, facts: null, snapshotReportId: null },
+    ]);
+    // Minnesläget: samma värden ur raderna (modellen läses aldrig ut).
+    const store = new MemoryStore<{ reports: R }>({
+      reports: db.map((r) => ({ id: r.id, kind: r.kind, status: r.status, deliveredAt: r.delivered_at ? "2027-01-05T10:00" : null, snapshot: r.snapshot })),
+    });
+    const mem = await new MemoryRepo<{ reports: R }>(store, { userId: "x", role: "admin", contractIds: [] }, {}).table("reports").pickJson(["kind", "deliveredAt"], json, { status: "delivered" });
+    expect(mem).toEqual(pg);
+    expect(JSON.stringify(mem)).not.toContain("stor");
+    // Alias och nycklar hamnar i frågan – bara bokstäver, siffror och understreck.
+    await expect(new SupabaseRepo<{ reports: R }>(client).table("reports").pickJson(["kind"], { "x,y": ["snapshot", "facts"] } as never)).rejects.toThrow(/Ogiltig/);
+    await expect(new SupabaseRepo<{ reports: R }>(client).table("reports").pickJson(["kind"], { facts: ["snapshot", "a->b"] } as never)).rejects.toThrow(/Ogiltig/);
   });
 
   it("filtren ger samma rader som matches() i minnesläget", async () => {

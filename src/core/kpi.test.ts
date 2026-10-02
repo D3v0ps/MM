@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Case, ResultClass } from "@/data/schema";
 import { windowStart } from "./env";
-import { kpiValue, kpis, resultForecast, resultRate, resultTrend } from "./kpi";
+import { kpiValue, kpis, resultForecast, resultRate, resultTally, resultTrend } from "./kpi";
 import { cfgWith, mkActivity, mkAttendance, mkCase, mkEvent, mkPulseResponse, mkReport, testDb, testEnv } from "./test-data";
 
 const env = testEnv();
@@ -69,6 +69,14 @@ describe("resultatgrad = verifierade resultat / avslut som räknas", () => {
   });
   it("inga avslut -> inget värde", () => {
     expect(resultRate(testDb(), {}, env)).toMatchObject({ value: null, den: 0, status: "insufficient" });
+  });
+  it("ett avslutat ärende utan resultatklass räknas i nämnaren men inte i täljaren (resultTally – samma siffror som förut)", () => {
+    const noClass = mkCase({ id: "k-utan", status: "closed", startDate: "2026-09-14", endDate: "2027-01-30", resultClass: null, resultVerifiedAt: null });
+    const r = resultRate(testDb({ cases: [...january(), noClass] }), {}, env);
+    expect(r).toMatchObject({ num: 4, den: 12, prelim: 1, excluded: 1, closed: 13, value: 4 / 12 });
+    expect(resultTally([{ resultClass: "result", verified: true }, { resultClass: "no_result", verified: false }, { resultClass: null, verified: false }, { resultClass: "excluded", verified: false }]))
+      .toEqual({ num: 1, den: 3, prelim: 0, excluded: 1, closed: 4, missing: 1, value: 1 / 3 });
+    expect(resultTally([])).toMatchObject({ den: 0, value: null, missing: 0 });
   });
 });
 

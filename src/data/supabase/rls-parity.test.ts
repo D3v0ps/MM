@@ -79,7 +79,18 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   // Kommunens resultatfil (rapporter steg 3): en chef för en underenhet (Alby) prövar enhetsspärren – testdatat har bara en
   // kommunchef, för hela Arbetsmarknadsenheten. Profilen får sitt auth_user_id i beforeAll (insertSql skriver inte extrakolumnerna).
   const eva = data.profiles.find((x) => x.id === "k-eva")!;
+  // Rapportbyggaren (0021): en arkiverad mb-rad, en rad i c-kk och en rad delad med kommunen som ägs av samordnaren (delad av
+  // avtalsansvarig – samordnaren får sedan inte ändra den).
+  const saved = (id: string, contractId: string, ownerId: string, visibility: Tables["saved_reports"]["visibility"], sharedBy: string | null, archivedBy: string | null = null): Tables["saved_reports"] => ({
+    id, contractId, ownerId, title: "Testrapport", templateKey: null, definition: { v: 1, dataset: "deltagarmanader" }, visibility, createdAt: at, updatedAt: null, updatedBy: null,
+    sharedAt: sharedBy ? at : null, sharedBy, archivedAt: archivedBy ? at : null, archivedBy,
+  });
   return {
+    saved_reports: [
+      saved("sr-x-arkiv", "c-bot", "u-karin", "mb", "u-karin", "u-karin"),
+      saved("sr-x-kk", "c-kk", "u-johan", "mb", "u-johan"),
+      saved("sr-x-sara-kommun", "c-bot", "u-sara", "customer", "u-johan"),
+    ],
     profiles: [{ ...eva, id: CHEF_ALBY, fullName: "Testchef Alby", email: "chef.alby@example.invalid", customerUnit: "Arbetsmarknadsenheten Alby", lastLoginAt: null }],
     memberships: [{ id: "ms-x-chef-alby", userId: CHEF_ALBY, contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" }],
     feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
@@ -950,6 +961,140 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
     expect(res.kk).toBeNull();
     const cfg = { ...data.contracts.find((c) => c.id === "c-bot")!.config, progression: res.after };
     expect(() => requireOperational(cfg as never)).not.toThrow();
+  });
+});
+
+// ================================================================ Sparade rapporter (0021)
+describe("sparade rapporter (0021): läsning, skrivning och delning – samma regler i RLS, triggern och policy.ts", () => {
+  const sr = (id: string) => raw.get("saved_reports", id)!;
+  const pgSaved = (userId: string) => asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.saved_reports order by id")).rows.map((r) => r.id));
+  const memSaved = (userId: string) => data.saved_reports.filter((x) => canReadRow("saved_reports", x, actorOf(findPersona(userId)), raw)).map((x) => x.id).sort();
+  const at = "2027-02-01T09:30";
+
+  it("läsning per testperson: byggrollerna egna och delade (också arkiverade), kommunens chef bara delade med kommunen i c-bot", async () => {
+    const bot = (ids: string[]) => ids.sort();
+    const expected: Record<string, string[]> = {
+      "u-sara": bot(["sr-seed-privat", "sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun"]),
+      "u-karin": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun"]),
+      "u-johan": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun", "sr-x-kk"]),
+      "u-robin": [], "u-amira": [], "u-petra": [], "u-lars": [], "k-maria": [], "tester-karim": [],
+      "k-eva": bot(["sr-seed-kommun", "sr-x-sara-kommun"]),
+      "k-chef-alby": bot(["sr-seed-kommun", "sr-x-sara-kommun"]),
+    };
+    for (const [userId, want] of Object.entries(expected)) {
+      expect(await pgSaved(userId), userId).toEqual(want);
+      expect(memSaved(userId), userId).toEqual(want);
+    }
+  });
+
+  /** Kör satsen som personen i Postgres och samma rad i policy.ts – svaren ska vara lika. */
+  const both = async (userId: string, sql: string, row: Tables["saved_reports"]) => {
+    const p = findPersona(userId);
+    const cur = raw.get("saved_reports", row.id);
+    const mem = (cur ? canReadRow("saved_reports", cur, actorOf(p), raw) : true) && canWriteRow("saved_reports", row, actorOf(p), raw);
+    const pg = await asPersona(p, (tx) => attempt(tx, sql));
+    return { pg: allowed(pg), mem };
+  };
+  const insert = (r: Tables["saved_reports"]) => insertSql("saved_reports", r as unknown as Record<string, unknown>);
+  const row = (id: string, ownerId: string, visibility: Tables["saved_reports"]["visibility"], sharedBy: string | null, patch: Partial<Tables["saved_reports"]> = {}): Tables["saved_reports"] => ({
+    id, contractId: "c-bot", ownerId, title: "Ny rapport", templateKey: null, definition: { v: 1, dataset: "avslut" }, visibility, createdAt: at, updatedAt: null, updatedBy: null,
+    sharedAt: sharedBy ? at : null, sharedBy, archivedAt: null, archivedBy: null, ...patch,
+  });
+
+  it("ny rad: i eget namn – samordnaren och chefen delar aldrig med kommunen, delningen i eget namn, ingen ändrad eller arkiverad", async () => {
+    const cases: [string, Tables["saved_reports"], boolean][] = [
+      ["u-sara", row("n-1", "u-sara", "private", null), true],
+      ["u-karin", row("n-2", "u-karin", "mb", "u-karin"), true],
+      ["u-johan", row("n-3", "u-johan", "customer", "u-johan"), true],
+      ["u-sara", row("n-4", "u-sara", "customer", "u-sara"), false],
+      ["u-karin", row("n-5", "u-karin", "customer", "u-karin"), false],
+      ["u-sara", row("n-6", "u-karin", "private", null), false],
+      ["u-sara", row("n-7", "u-sara", "mb", "u-karin"), false],
+      ["u-sara", row("n-8", "u-sara", "private", "u-sara"), false],
+      ["u-sara", row("n-9", "u-sara", "private", null, { archivedAt: at, archivedBy: "u-sara" }), false],
+      ["u-sara", row("n-10", "u-sara", "private", null, { updatedAt: at, updatedBy: "u-sara" }), false],
+      ["u-sara", row("n-11", "u-sara", "private", null, { templateKey: "Anna Andersson" }), false],
+      ["u-johan", row("n-12", "u-johan", "customer", "u-johan", { contractId: "c-kk" }), false],
+      ["u-robin", row("n-13", "u-robin", "private", null), false],
+      ["u-amira", row("n-14", "u-amira", "private", null), false],
+      ["u-lars", row("n-15", "u-lars", "private", null), false],
+      ["k-eva", row("n-16", "k-eva", "private", null), false],
+      // Titelns längd räknas i tecken som char_length (kodpunkter): "a📊" och "📊📊" är 2 tecken i Postgres (3 och 4 i JavaScript).
+      ["u-sara", row("n-17", "u-sara", "private", null, { title: "a📊" }), false],
+      ["u-sara", row("n-18", "u-sara", "private", null, { title: "📊📊" }), false],
+      ["u-sara", row("n-19", "u-sara", "private", null, { title: "ab📊" }), true],
+      ["u-sara", row("n-20", "u-sara", "private", null, { title: "📊".repeat(80) }), true],
+      ["u-sara", row("n-21", "u-sara", "private", null, { title: "📊".repeat(81) }), false],
+    ];
+    for (const [userId, r, want] of cases) expect(await both(userId, insert(r), r), `${userId} ${r.id}`).toEqual({ pg: want, mem: want });
+  });
+
+  it("ändringar som nekas: fasta fält, delning i någon annans namn, tom ändring, mallnyckel, innehåll av någon annan än ägaren, privat av avtalsansvarig, arkiverad rad, delete", async () => {
+    const privat = sr("sr-seed-privat");
+    const mb = sr("sr-seed-mb");
+    const kommun = sr("sr-x-sara-kommun");
+    const arkiv = sr("sr-x-arkiv");
+    const upd = (id: string, set: string) => `update public.saved_reports set ${set} where id = '${id}'`;
+    const cases: [string, string, Tables["saved_reports"], boolean][] = [
+      ["u-sara", upd(privat.id, "owner_id = 'u-karin'"), { ...privat, ownerId: "u-karin" }, false],
+      ["u-sara", upd(privat.id, "contract_id = 'c-kk'"), { ...privat, contractId: "c-kk" }, false],
+      ["u-sara", upd(privat.id, `created_at = '${at}'`), { ...privat, createdAt: at }, false],
+      ["u-sara", upd(privat.id, `visibility = 'mb', shared_at = '${at}', shared_by = 'u-karin'`), { ...privat, visibility: "mb", sharedAt: at, sharedBy: "u-karin" }, false],
+      ["u-sara", upd(privat.id, "visibility = 'mb'"), { ...privat, visibility: "mb" }, false],
+      ["u-johan", upd(mb.id, "visibility = 'customer'"), { ...mb, visibility: "customer" }, false],
+      ["u-karin", upd(mb.id, `shared_at = '${at}'`), { ...mb, sharedAt: at }, false],
+      ["u-sara", upd(privat.id, "title = title"), privat, false],
+      ["u-sara", upd(privat.id, "template_key = 'Anna Andersson'"), { ...privat, templateKey: "Anna Andersson" }, false],
+      ["u-sara", upd(kommun.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-sara'`), { ...kommun, title: "Ändrad", updatedAt: at, updatedBy: "u-sara" }, false],
+      ["u-johan", upd(kommun.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-johan'`), { ...kommun, title: "Ändrad", updatedAt: at, updatedBy: "u-johan" }, false],
+      ["u-johan", upd(mb.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-johan'`), { ...mb, title: "Ändrad", updatedAt: at, updatedBy: "u-johan" }, false],
+      ["u-johan", upd(mb.id, `visibility = 'private', shared_at = '${at}', shared_by = 'u-johan'`), { ...mb, visibility: "private", sharedAt: at, sharedBy: "u-johan" }, false],
+      ["u-karin", upd(arkiv.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-karin'`), { ...arkiv, title: "Ändrad", updatedAt: at, updatedBy: "u-karin" }, false],
+      ["u-karin", upd(mb.id, `updated_at = '${at}', updated_by = 'u-sara', title = 'X ändrad'`), { ...mb, updatedAt: at, updatedBy: "u-sara", title: "X ändrad" }, false],
+      ["u-karin", `delete from public.saved_reports where id = '${mb.id}'`, mb, false],
+      // Tillåtna: avtalsansvarig delar Karins rapport med kommunen i eget namn, ägaren ändrar sin egen, avtalsansvarig arkiverar.
+      ["u-johan", upd(mb.id, `visibility = 'customer', shared_at = '${at}', shared_by = 'u-johan'`), { ...mb, visibility: "customer", sharedAt: at, sharedBy: "u-johan" }, true],
+      ["u-sara", upd(privat.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-sara'`), { ...privat, title: "Ändrad", updatedAt: at, updatedBy: "u-sara" }, true],
+      ["u-johan", upd(mb.id, `archived_at = '${at}', archived_by = 'u-johan'`), { ...mb, archivedAt: at, archivedBy: "u-johan" }, true],
+      ["u-johan", upd(kommun.id, `visibility = 'mb', shared_at = '${at}', shared_by = 'u-johan'`), { ...kommun, visibility: "mb", sharedAt: at, sharedBy: "u-johan" }, true],
+    ];
+    for (const [userId, sql, r, want] of cases) expect(await both(userId, sql, r), `${userId}: ${sql}`).toEqual({ pg: want, mem: want });
+    // Ingen hård radering i minnesläget heller: MemoryRepo.remove() nekas av samma regel (raden ändras inte).
+    expect(canWriteRow("saved_reports", mb, actorOf(findPersona("u-karin")), raw)).toBe(false);
+  });
+
+  it("samma person ändrar delningen två gånger inom samma minut och ägaren arkiverar sin rad – och läser tillbaka den (update … select)", async () => {
+    const mb = sr("sr-seed-mb");
+    const shareTo = (v: string) => `update public.saved_reports set visibility = '${v}', shared_at = '${at}', shared_by = 'u-karin' where id = '${mb.id}' returning id`;
+    const pg = await asPersona(findPersona("u-karin"), async (tx) => ({
+      first: await attempt(tx, shareTo("private"), [], { keep: true }),
+      second: await attempt(tx, shareTo("mb"), [], { keep: true }),
+      archive: await attempt(tx, `update public.saved_reports set archived_at = '${at}', archived_by = 'u-karin' where id = '${mb.id}' returning *`, [], { keep: true }),
+      readBack: (await tx.query<{ id: string }>("select id from public.saved_reports where id = $1", [mb.id])).rows.length,
+    }));
+    expect(pg.first).toMatchObject({ ok: true, rows: 1 });
+    expect(pg.second).toMatchObject({ ok: true, rows: 1 });
+    expect(pg.archive).toMatchObject({ ok: true, rows: 1 });
+    expect(pg.readBack).toBe(1);
+    // policy.ts med samma steg.
+    const step1 = { ...mb, visibility: "private" as const, sharedAt: at, sharedBy: "u-karin" };
+    const karin = actorOf(findPersona("u-karin"));
+    expect(canWriteRow("saved_reports", step1, karin, raw)).toBe(true);
+    const after1: RawAccess<Tables> = { ...raw, get: ((t: TableName, id: string) => (t === "saved_reports" && id === mb.id ? step1 : raw.get(t as never, id))) as RawAccess<Tables>["get"] };
+    const step2 = { ...step1, visibility: "mb" as const };
+    expect(canWriteRow("saved_reports", step2, karin, after1)).toBe(true);
+    const after2: RawAccess<Tables> = { ...raw, get: ((t: TableName, id: string) => (t === "saved_reports" && id === mb.id ? step2 : raw.get(t as never, id))) as RawAccess<Tables>["get"] };
+    const archived = { ...step2, archivedAt: at, archivedBy: "u-karin" };
+    expect(canWriteRow("saved_reports", archived, karin, after2)).toBe(true);
+    expect(canReadRow("saved_reports", archived, karin, after2)).toBe(true);
+  });
+
+  it("reset_test_data tömmer de sparade rapporterna (nya tabeller töms automatiskt)", async () => {
+    const n = await asUser(db, null, async (tx) => {
+      await tx.query("select public.reset_test_data('2027-02-01T09:12')");
+      return (await tx.query<{ n: number }>("select count(*)::int as n from public.saved_reports")).rows[0].n;
+    }, { role: "service_role" });
+    expect(n).toBe(0);
   });
 });
 

@@ -31,6 +31,20 @@ describe("rutt-tabellen", () => {
     for (const r of APP_ROUTES.filter((x) => !x.public)) expect(isPublicPagePath(sample(r.path)), r.path).toBe(false);
   });
 
+  it("rapportbyggaren: ny och resultatfil före :savedReportId; kommunens delade rapporter under /portal/resultat", () => {
+    expect(resolveRoute(APP_ROUTES, "/rapportbyggare")?.route.title).toBe("Rapportbyggare");
+    expect(resolveRoute(APP_ROUTES, "/rapportbyggare/ny")?.route.path).toBe("/rapportbyggare/ny");
+    expect(resolveRoute(APP_ROUTES, "/rapportbyggare/resultatfil")?.route.path).toBe("/rapportbyggare/resultatfil");
+    expect(resolveRoute(APP_ROUTES, "/rapportbyggare/sr-seed-mb")?.route).toMatchObject({ path: "/rapportbyggare/:savedReportId", roles: ["samordnare", "avtalsansvarig", "chef"], area: "mb" });
+    expect(resolveRoute(APP_ROUTES, "/portal/resultat")?.route.path).toBe("/portal/resultat");
+    expect(resolveRoute(APP_ROUTES, "/portal/resultat/rapporter")?.route).toMatchObject({ path: "/portal/resultat/rapporter/:savedReportId?", roles: ["kommun_chef"], area: "portal" });
+    expect(resolveRoute(APP_ROUTES, "/portal/resultat/rapporter/sr-seed-kommun")?.route.path).toBe("/portal/resultat/rapporter/:savedReportId?");
+    const keys = registeredKeys();
+    for (const k of ["rapporter.byggKatalog", "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.sparadeLista", "rapporter.sparad", "rapporter.sparadSpara", "rapporter.sparadDela", "rapporter.sparadArkivera", "rapporter.resultatfilForhandsvisning", "rapporter.resultatfilExport", "kommun.delade", "kommun.delad", "kommun.deladExport"]) {
+      expect(keys, k).toContain(k);
+    }
+  });
+
   it("röstområdets hanterare är registrerade via src/api/handlers.ts", () => {
     const keys = registeredKeys();
     for (const k of ["rost.link", "rost.send", "rost.sendStatus", "rost.uploadStart", "rost.caseVoice", "rost.linkSend", "rost.noteReview", "rost.notesSeen", "rost.pendingNotes"]) {

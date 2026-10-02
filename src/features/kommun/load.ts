@@ -7,6 +7,7 @@ import { areaName, endReasonLabel, reportKindLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue } from "@/core/sla";
 import type { Case, Contract, ContractArea, Message, Profile, Report } from "@/data/schema";
 import { pendingCorrection, viewerFor, type Viewer } from "../rapporter/load";
+import { deliveredOk } from "../rapporter/report-helpers";
 import type { KomCase, KomMessage, KomReportRow } from "./api";
 import { reportTitle, weekRangeText } from "./texts";
 
@@ -109,8 +110,25 @@ export function komMessage(k: KomContext, m: Message): KomMessage {
 }
 
 // ---------------------------------------------------------------- Rapporter
-/** Levererad och inte ersatt (prototypens deliveredOk). */
-export const deliveredOk = (r: Pick<Report, "deliveredAt" | "status" | "superseded">): boolean => !!r.deliveredAt && (r.status === "delivered" || r.status === "opened") && !r.superseded;
+/** Levererad och inte ersatt (prototypens deliveredOk) – regeln ligger i rapporternas hjälpare (samma för resultatfilen och rapportbyggaren). */
+export { deliveredOk };
+
+// ---------------------------------------------------------------- Kommunens chef: avtalet för resultatfilen och delade rapporter
+/**
+ * Avtalet där kommunens chef hämtar resultat och delade rapporter: det första av chefens avtal med driftkonfiguration
+ * (via ctx.repo). Ett avtal i taget – resultatfilen, de delade rapporterna och menyns räknare (session.navCounts) använder
+ * samma funktion.
+ */
+export async function chefContract(ctx: Ctx, contractId?: string): Promise<{ contract: Contract; cfg: OperationalConfig } | null> {
+  const ids = contractId ? (ctx.actor.contractIds.includes(contractId) ? [contractId] : []) : ctx.actor.contractIds;
+  if (!ids.length) return null;
+  const contracts = await ctx.repo.table("contracts").list({ id: { in: ids } });
+  const contract = ids.map((id) => contracts.find((c) => c.id === id)).find((c): c is Contract => !!c && isOperational(c.config)) ?? null;
+  return contract ? { contract, cfg: requireOperational(contract.config) } : null;
+}
+
+/** Avtalet låter kommunens chef se enhetens individrapporter – resultatfilen och rapporter som Miljonbemanning delar. */
+export const seesResults = (cfg: OperationalConfig): boolean => cfg.customerVisibility.seesIndividualReports === true;
 
 /** Rapporten som rad i portalen. sub: veckorapport = veckan, beställarrapport = avtalet, övriga = ärendenummer och namn. */
 export async function reportRow(ctx: Ctx, r: Report, k: KomContext, caseOf: (id: string | null) => { caseNumber: string; name: string } | null): Promise<KomReportRow> {

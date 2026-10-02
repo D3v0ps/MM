@@ -2,7 +2,7 @@
 // Behörigheten speglar Row Level Security: varje läsning filtreras genom policyn för tabellen,
 // så att prototypen visar exakt det rollen skulle få se i den riktiga databasen.
 import type { Actor } from "@/api/roles";
-import { applyOpts, matches, pickFields, pickRow, PolicyError, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
+import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
@@ -102,6 +102,12 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
       pick: async <K extends keyof TT[N] & string>(fields: readonly K[], where?: Where<TT[N]>, o?: ListOpts<TT[N]>) => {
         const cols = pickFields(fields, o);
         return applyOpts(visible(where), o).map((r) => clone(pickRow(r, cols)) as Pick<TT[N], K | "id">);
+      },
+      // Samma värden som SupabaseRepo läser med kolumn->nyckel – och samma policy som pick.
+      pickJson: async <K extends keyof TT[N] & string, J extends JsonPaths<TT[N]>>(fields: readonly K[], json: J, where?: Where<TT[N]>, o?: ListOpts<TT[N]>) => {
+        checkJsonPaths(json);
+        const cols = pickFields(fields, o);
+        return applyOpts(visible(where), o).map((r) => clone({ ...pickRow(r, cols), ...Object.fromEntries(Object.entries(json).map(([alias, path]) => [alias, jsonAt(r, path)])) }) as Pick<TT[N], K | "id"> & { [A in keyof J]: unknown });
       },
       first: async (where, o) => clone(applyOpts(visible(where), { ...o, limit: 1 })[0] ?? null),
       count: async (where) => visible(where).length,

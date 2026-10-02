@@ -123,7 +123,8 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     actors,
     actions,
     views: rows.filter((a) => (VIEW_ACTIONS as readonly string[]).includes(a.action)).length,
-    exports: rows.filter((a) => a.action.startsWith("export.")).length,
+    // Stopp (t.ex. export.results_blocked) är ingen export – inget lämnades ut.
+    exports: rows.filter((a) => a.action.startsWith("export.") && !a.action.endsWith("_blocked")).length,
     byTester: rows.filter((a) => a.byTester).length,
     logCheck: {
       month,

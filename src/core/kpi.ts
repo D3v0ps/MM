@@ -1,6 +1,6 @@
 // KPI:er (SPEC §7.12): resultatgrad med fönster och minsta antal, prognos, trend och månads-KPI:er.
 // Mål, fönster och minN läses från avtalskonfigurationen (kpis). Internt mål som är ATT_FASTSTÄLLA ger status "no_target".
-import type { Case, Db } from "@/data/schema";
+import type { Case, Db, ResultClass } from "@/data/schema";
 import { isUnset, kpiDef, slaWithin, type KpiWindow } from "./config";
 import { attendanceStats } from "./attendance";
 import { groupedBy } from "./db-index";
@@ -29,6 +29,30 @@ export type ResultRate = {
   internalTarget: number | null;
 };
 
+/** Räkningen bakom resultatgraden för en lista av avslut (samma för KPI:n på ärendena och rapportbyggaren på frysta fakta). */
+export type ResultTally = {
+  /** Verifierade resultat (resultClass "result" och verifierat). */
+  num: number;
+  /** Avslut som räknas: alla utom "excluded" – ett avslut utan resultatklass (null) räknas med. */
+  den: number;
+  /** Resultat som inte är verifierade ännu. */
+  prelim: number;
+  excluded: number;
+  closed: number;
+  /** Avslut utan resultatklass (räknas i nämnaren men aldrig i täljaren). */
+  missing: number;
+  value: number | null;
+};
+export function resultTally(xs: readonly { resultClass: ResultClass | null; verified: boolean }[]): ResultTally {
+  const counted = xs.filter((x) => x.resultClass !== "excluded");
+  const num = counted.filter((x) => x.resultClass === "result" && x.verified).length;
+  const prelim = counted.filter((x) => x.resultClass === "result" && !x.verified).length;
+  return {
+    num, den: counted.length, prelim, excluded: xs.length - counted.length, closed: xs.length, missing: xs.filter((x) => x.resultClass === null).length,
+    value: counted.length ? num / counted.length : null,
+  };
+}
+
 export type ResultRateOpts = { window?: KpiWindow; coachId?: string | null; area?: string | null; from?: LocalDate | null; to?: LocalDate | null };
 
 /** Resultatgrad = avslut med verifierat resultat / avslut som räknas, i fönstret (standard rullande 6 månader). */
@@ -39,19 +63,17 @@ export function resultRate(db: Pick<Db, "cases">, opts: ResultRateOpts, env: Kpi
   const closed = db.cases.filter(
     (c) => c.status === "closed" && c.endDate != null && c.endDate >= start && c.endDate <= end && (!coachId || c.leadCoachId === coachId) && (!area || c.primaryAreaCode === area),
   );
-  const counted = closed.filter((c) => c.resultClass !== "excluded");
-  const verified = counted.filter((c) => c.resultClass === "result" && c.resultVerifiedAt);
-  const prelim = counted.filter((c) => c.resultClass === "result" && !c.resultVerifiedAt);
+  const t = resultTally(closed.map((c) => ({ resultClass: c.resultClass ?? null, verified: !!c.resultVerifiedAt })));
   const k = kpiDef(env.cfg, RESULT_KEY);
   const minN = k?.minN ?? 0;
   const contractTarget = k?.contractTarget ?? null;
   const internalTarget = typeof k?.internalTarget === "number" ? k.internalTarget : null;
-  const value = counted.length ? verified.length / counted.length : null;
+  const value = t.value;
   let status: ResultStatus = "ok";
-  if (counted.length < minN) status = "insufficient";
+  if (t.den < minN) status = "insufficient";
   else if (value != null && contractTarget != null && value < contractTarget) status = "below_contract";
   else if (value != null && internalTarget != null && value < internalTarget) status = "below_internal";
-  return { value, num: verified.length, den: counted.length, prelim: prelim.length, excluded: closed.length - counted.length, closed: closed.length, status, minN, contractTarget, internalTarget };
+  return { value, num: t.num, den: t.den, prelim: t.prelim, excluded: t.excluded, closed: t.closed, status, minN, contractTarget, internalTarget };
 }
 
 export type ResultForecast = {

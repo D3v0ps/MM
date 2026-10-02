@@ -4,7 +4,8 @@
 //
 // Sammanfattning:
 //   MB-roller      coach: egna ärenden (huvudcoach) och team · handledare: tilldelade · samordnare, avtalsansvarig, chef:
-//                  alla i sina avtal (chef och admin i läsläge) · ekonom: det som behövs för fakturering, inga anteckningar,
+//                  alla i sina avtal (chef och admin i läsläge – chefen får ändå spara, dela inom Miljonbemanning och
+//                  arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs för fakturering, inga anteckningar,
 //                  rapporter eller namn · admin: allt inklusive konfiguration och logg (skyddade personer bara som ärende)
 //   Kommunen       handläggaren: sina beställningar (eller enhetens/alla enligt avtalet) · chefen: enhetens ärenden men inte
 //                  skyddade personer · bara levererade rapporter till dem · bara meddelanden i sina ärenden · aldrig
@@ -21,6 +22,12 @@
 //   Synpunkter     bara den inloggade testaren i testmiljön (Actor.testerId = mm.auth_is_tester()), oavsett vilken testperson
 //                  hen agerar som · ny synpunkt och nytt svar bara i eget namn · i en synpunkt ändras bara status · minnesläget
 //                  och prototypen har inga testare (prototypens feedback ligger i claude.ai, src/demo/feedback-store.ts)
+//   Sparade       rapportbyggarens sparade rapporter (saved_reports, 0021): samordnare, avtalsansvarig och chef i avtalet läser
+//   rapporter     egna och delade (mb, customer – också arkiverade, hanterarna visar dem inte) · kommunens chef bara delade med
+//                 kommunen (customer), inte arkiverade, och bara när avtalet har seesIndividualReports · skrivs i eget namn ·
+//                 bara ägaren ändrar titel och definition · avtalsansvarig delar med kommunen, ändrar delningen och arkiverar
+//                 andras delade rapporter (aldrig till privat) · en rapport delad med kommunen ändras bara av avtalsansvarig ·
+//                 raderas aldrig
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -264,6 +271,70 @@ function caseNoteWrite(x: CaseNoteRow, a: Actor, raw: Raw): boolean {
   return has(NOTE_REMOVERS, a) && accessTo(raw, a, x.caseId) === "full" && changed.every((k) => k === "removedAt" || k === "removedBy");
 }
 
+// ---------------------------------------------------------------- Sparade rapporter i rapportbyggaren (0021)
+type SavedReportRow = Tables["saved_reports"];
+/** Bygger och sparar rapporter (rapporter steg 4, beslut 10) – inte admin, coach, handledare eller ekonom. */
+export const REPORT_BUILDERS: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
+/** Avtalet låter kommunens chef se enhetens individrapporter (mm.individual_report_contract_ids()). */
+const customerReportsAllowed = (raw: Raw, contractId: string) => raw.get("contracts", contractId)?.config.customerVisibility?.seesIndividualReports === true;
+/** Fält som aldrig ändras efter att rapporten skapats (triggern saved_reports_protect_columns, 0021). */
+const SAVED_FIXED = ["contractId", "ownerId", "createdAt"];
+/** Det enda som den som inte är ägaren får ändra (tillägg 2026-10-02): delningen och arkiveringen. */
+const SAVED_SHARING = ["visibility", "sharedAt", "sharedBy", "archivedAt", "archivedBy"];
+const TEMPLATE_KEY = /^[a-z0-9-]{1,60}$/;
+
+function savedReportRead(x: SavedReportRow, a: Actor, raw: Raw): boolean {
+  if (has(REPORT_BUILDERS, a)) return member(a, x.contractId) && (self(a, x.ownerId) || x.visibility !== "private");
+  if (a.role === "kommun_chef") return member(a, x.contractId) && customerReportsAllowed(raw, x.contractId) && x.visibility === "customer" && x.archivedAt == null;
+  return false;
+}
+/** Tabellens kontroller (check i 0021): titelns längd, mallnyckeln, definitionen, delningen och paren. */
+function savedReportShape(x: SavedReportRow): boolean {
+  const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
+  const def = x.definition as unknown;
+  // Titelns längd som char_length i Postgres (kodpunkter, inte UTF-16-enheter).
+  const titleChars = [...x.title].length;
+  return titleChars >= 3 && titleChars <= 80 && (x.templateKey == null || TEMPLATE_KEY.test(x.templateKey))
+    && !!def && typeof def === "object" && !Array.isArray(def) && String((def as { v?: unknown }).v) === "1"
+    && ["private", "mb", "customer"].includes(x.visibility) && (x.visibility === "private" || x.sharedAt != null)
+    && pair(x.updatedAt, x.updatedBy) && pair(x.sharedAt, x.sharedBy) && pair(x.archivedAt, x.archivedBy);
+}
+/**
+ * Ny rad: byggroll, medlem, i eget namn; 'customer' bara för avtalsansvarig när avtalet tillåter det; varken ändrad eller
+ * arkiverad; privat = inte delad, annars delad i eget namn. Ändring: den befintliga raden är inte arkiverad och ägs av en själv
+ * (eller är inte privat och man är avtalsansvarig); en rad delad med kommunen ändras bara av avtalsansvarig; den nya raden
+ * ägs av en själv eller är inte privat (avtalsansvarig); något ändras; avtal, ägare och skapad-tid ändras aldrig; ändrad- och
+ * arkiveringstid i eget namn; ändras delningen sätts shared_* i eget namn (värdena får vara desamma – minutprecisionen);
+ * shared_* ändras bara med delningen; den som inte är ägaren ändrar bara delningen och arkiveringen. Samma regler som
+ * policyerna och triggern i 0021. Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen hård radering).
+ */
+function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
+  if (!has(REPORT_BUILDERS, a) || !member(a, x.contractId) || !savedReportShape(x)) return false;
+  const customerOk = x.visibility !== "customer" || (a.role === "avtalsansvarig" && customerReportsAllowed(raw, x.contractId));
+  const cur = raw.get("saved_reports", x.id);
+  if (!cur) {
+    if (!self(a, x.ownerId) || !customerOk) return false;
+    if (x.updatedAt != null || x.updatedBy != null || x.archivedAt != null || x.archivedBy != null) return false;
+    return x.visibility === "private" ? x.sharedAt == null && x.sharedBy == null : x.sharedAt != null && self(a, x.sharedBy);
+  }
+  // Den befintliga raden (using).
+  if (cur.archivedAt != null || !member(a, cur.contractId)) return false;
+  if (!self(a, cur.ownerId) && !(a.role === "avtalsansvarig" && cur.visibility !== "private")) return false;
+  if (cur.visibility === "customer" && a.role !== "avtalsansvarig") return false;
+  // Den nya raden (with check).
+  if (!self(a, x.ownerId) && !(a.role === "avtalsansvarig" && x.visibility !== "private")) return false;
+  if (!customerOk) return false;
+  // Kolumnskyddet (triggern).
+  const changed = changedFields(cur, x);
+  if (!changed.length || changed.some((k) => SAVED_FIXED.includes(k))) return false;
+  if ((changed.includes("updatedAt") || changed.includes("updatedBy")) && (x.updatedAt == null || !self(a, x.updatedBy))) return false;
+  if ((changed.includes("archivedAt") || changed.includes("archivedBy")) && (x.archivedAt == null || !self(a, x.archivedBy))) return false;
+  if (changed.includes("visibility")) {
+    if (x.sharedAt == null || !self(a, x.sharedBy)) return false;
+  } else if (changed.includes("sharedAt") || changed.includes("sharedBy")) return false;
+  return self(a, cur.ownerId) || changed.every((k) => SAVED_SHARING.includes(k));
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -495,6 +566,9 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
 
   // ---- Fria anteckningar i deltagarkortet (0019). Kommunen läser dem aldrig – inte heller när avtalet har seesCoachNotes.
   case_notes: { read: (x, a, raw) => notesRead(x.caseId, a, raw) && noteAudienceOk(x, a, raw), write: caseNoteWrite },
+
+  // ---- Rapportbyggarens sparade rapporter (0021). Ingen raderar – de arkiveras.
+  saved_reports: { read: savedReportRead, write: savedReportWrite },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

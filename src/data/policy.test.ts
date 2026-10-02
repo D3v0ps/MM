@@ -476,6 +476,82 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
   });
 });
 
+describe("sparade rapporter (saved_reports, rapporter steg 4)", () => {
+  const fresh = () => new MemoryStore<Tables>(createSeed());
+  const at = "2027-02-01T09:30";
+  const t = (a: Actor, s: MemoryStore<Tables>) => repoFor(a, s).table("saved_reports");
+  const ids = async (a: Actor, s = store) => (await t(a, s).list()).map((r) => r.id).sort();
+  const def = { v: 1, dataset: "deltagarmanader" };
+  const base = (patch: Partial<Tables["saved_reports"]> = {}): Tables["saved_reports"] => ({
+    id: "sr-x", contractId: "c-bot", ownerId: "u-sara", title: "Ny rapport", templateKey: null, definition: def, visibility: "private", createdAt: at,
+    updatedAt: null, updatedBy: null, sharedAt: null, sharedBy: null, archivedAt: null, archivedBy: null, ...patch,
+  });
+
+  it("läsning: MB-byggrollerna egna och delade; kommunens chef bara delade med kommunen; övriga inget", async () => {
+    expect(await ids(SARA)).toEqual(["sr-seed-kommun", "sr-seed-mb", "sr-seed-privat"]);
+    expect(await ids(KARIN)).toEqual(["sr-seed-kommun", "sr-seed-mb"]);
+    expect(await ids(JOHAN)).toEqual(["sr-seed-kommun", "sr-seed-mb"]);
+    expect(await ids(EVA)).toEqual(["sr-seed-kommun"]);
+    for (const a of [ROBIN, AMIRA, PETRA, LARS, MARIA, OMAR, DELTAGARE]) expect(await ids(a), a.userId).toEqual([]);
+    // Avtalet utan individrapporter: kommunens chef ser inget.
+    const s = fresh();
+    const bot = s.getRow("contracts", "c-bot")!;
+    s.updateRow("contracts", "c-bot", { config: { ...bot.config, customerVisibility: { ...bot.config.customerVisibility!, seesIndividualReports: false } } });
+    expect(await ids(EVA, s)).toEqual([]);
+  });
+
+  it("ny rad: byggroll i eget namn; bara avtalsansvarig delar med kommunen; delning i eget namn", async () => {
+    const s = fresh();
+    await expect(t(SARA, s).insert(base())).resolves.toBeTruthy();
+    await expect(t(KARIN, s).insert(base({ id: "sr-k", ownerId: "u-karin", visibility: "mb", sharedAt: at, sharedBy: "u-karin" }))).resolves.toBeTruthy();
+    await expect(t(SARA, s).insert(base({ id: "sr-c", visibility: "customer", sharedAt: at, sharedBy: "u-sara" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).insert(base({ id: "sr-c2", ownerId: "u-karin", visibility: "customer", sharedAt: at, sharedBy: "u-karin" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN, s).insert(base({ id: "sr-c3", ownerId: "u-johan", visibility: "customer", sharedAt: at, sharedBy: "u-johan" }))).resolves.toBeTruthy();
+    await expect(t(SARA, s).insert(base({ id: "sr-o", ownerId: "u-karin" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(SARA, s).insert(base({ id: "sr-s", visibility: "mb", sharedAt: at, sharedBy: "u-karin" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(SARA, s).insert(base({ id: "sr-a", archivedAt: at, archivedBy: "u-sara" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(SARA, s).insert(base({ id: "sr-t", templateKey: "Anna Andersson" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN, s).insert(base({ id: "sr-kk", contractId: "c-kk", ownerId: "u-johan", visibility: "customer", sharedAt: at, sharedBy: "u-johan" }))).rejects.toBeInstanceOf(PolicyError);
+    for (const a of [ROBIN, AMIRA, LARS, EVA]) await expect(t(a, s).insert(base({ id: `sr-${a.userId}`, ownerId: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+  });
+
+  it("bara ägaren ändrar innehållet; avtalsansvarig delar, slutar dela och arkiverar – aldrig till privat (tillägg 2026-10-02)", async () => {
+    const s = fresh();
+    // Ägaren (chef) ändrar sin delade rapport; avtalsansvarig får inte ändra titeln på den.
+    await expect(t(JOHAN, s).update("sr-seed-mb", { title: "Ändrad", updatedAt: at, updatedBy: "u-johan" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { title: "Ändrad", updatedAt: at, updatedBy: "u-karin" })).resolves.toBeTruthy();
+    // Avtalsansvarig gör inte någon annans rapport privat, men delar den med kommunen i eget namn.
+    await expect(t(JOHAN, s).update("sr-seed-mb", { visibility: "private", sharedAt: at, sharedBy: "u-johan" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN, s).update("sr-seed-mb", { visibility: "customer" })).rejects.toBeInstanceOf(PolicyError); // shared_by kvar i Karins namn
+    await expect(t(JOHAN, s).update("sr-seed-mb", { visibility: "customer", sharedAt: at, sharedBy: "u-johan" })).resolves.toBeTruthy();
+    // Delad med kommunen: ägaren (chef) kan inte längre ändra den – inte heller arkivera.
+    await expect(t(KARIN, s).update("sr-seed-mb", { title: "Igen", updatedAt: at, updatedBy: "u-karin" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { archivedAt: at, archivedBy: "u-karin" })).rejects.toBeInstanceOf(PolicyError);
+    // Avtalsansvarig slutar dela (→ mb) och arkiverar.
+    await expect(t(JOHAN, s).update("sr-seed-mb", { visibility: "mb", sharedAt: at, sharedBy: "u-johan" })).resolves.toBeTruthy();
+    await expect(t(JOHAN, s).update("sr-seed-mb", { archivedAt: at, archivedBy: "u-johan" })).resolves.toBeTruthy();
+    // En arkiverad rad ändras aldrig – men går att läsa tillbaka.
+    await expect(t(KARIN, s).update("sr-seed-mb", { title: "Ny", updatedAt: at, updatedBy: "u-karin" })).rejects.toBeInstanceOf(PolicyError);
+    expect(await ids(KARIN, s)).toContain("sr-seed-mb");
+    expect(await ids(EVA, s)).toEqual(["sr-seed-kommun"]);
+  });
+
+  it("samma person ändrar delningen två gånger inom samma minut (samma shared_at och shared_by) – båda godkänns", async () => {
+    const s = fresh();
+    await expect(t(KARIN, s).update("sr-seed-mb", { visibility: "private", sharedAt: at, sharedBy: "u-karin" })).resolves.toBeTruthy();
+    await expect(t(KARIN, s).update("sr-seed-mb", { visibility: "mb", sharedAt: at, sharedBy: "u-karin" })).resolves.toBeTruthy();
+    // shared_* ändras bara tillsammans med delningen; en tom ändring och ändrade fasta fält nekas; ingen raderar.
+    await expect(t(KARIN, s).update("sr-seed-mb", { sharedAt: "2027-02-01T10:00" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { title: "Progression per avtalsområde" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { ownerId: "u-sara" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { contractId: "c-kk" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { createdAt: at })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).remove("sr-seed-mb")).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(SARA, s).update("sr-seed-privat", { archivedAt: at, archivedBy: "u-sara" })).resolves.toBeTruthy();
+    expect(await ids(SARA, s)).toContain("sr-seed-privat");
+  });
+});
+
 describe("prestanda", () => {
   it("en coach listar alla aktiviteter och närvaro snabbt", async () => {
     const t0 = performance.now();

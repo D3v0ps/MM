@@ -12,6 +12,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { Button, Card, ErrorNotice, Eyebrow, Field, Icon, Kv, Loading, Notice, Select, Stack, Stepper, cn, useDownload } from "@/ui";
+import { navCounts } from "@/features/session/nav-api";
 import { resultExport, resultExportPreview, type ResultPreview, type ResultTable } from "../api";
 import { KomHead, KomPage } from "./parts";
 
@@ -260,6 +261,7 @@ function Resultat({ d, current, urlFrom, urlTo, step: requested }: ResultatProps
         title="Hämta resultat"
         lead="Här hämtar du resultaten från månadsrapporterna som en fil. Du kan öppna filen i Excel och göra egna sammanställningar."
       />
+      <SharedReportsCard />
       <Stepper steps={STEPS} current={step} ariaLabel="Steg för att hämta resultat" />
       <Card>
         <Stack>
@@ -300,5 +302,25 @@ function Resultat({ d, current, urlFrom, urlTo, step: requested }: ResultatProps
         )}
       </div>
     </KomPage>
+  );
+}
+
+/** Rapporter som Miljonbemanning har delat med chefen (rapporter steg 4) – antalet från menyns räknare (navCounts.sharedReports). */
+function SharedReportsCard() {
+  const q = useQuery(navCounts, {});
+  const n = q.data?.sharedReports ?? 0;
+  if (n <= 0) return null;
+  return (
+    <Card>
+      <Stack gap="sm">
+        <h2 className="m-0 text-h2 font-extrabold tracking-[0.03em] uppercase portal:text-[1.25rem]">Rapporter från Miljonbemanning</h2>
+        <p className="m-0">{n === 1 ? `Miljonbemanning har gjort ${n} rapport åt dig.` : `Miljonbemanning har gjort ${n} rapporter åt dig.`}</p>
+        <span>
+          <Button iconRight="arrow-right" to="/portal/resultat/rapporter">
+            {n === 1 ? "Visa rapporten" : "Visa rapporterna"}
+          </Button>
+        </span>
+      </Stack>
+    </Card>
   );
 }

@@ -103,6 +103,11 @@ export const COLUMNS = {
     id: "text", contractId: "text", caseId: "text", authorId: "text", occurredOn: "date", kind: "text", audience: "text", body: "text", createdAt: "timestamptz",
     updatedAt: "timestamptz | null", removedAt: "timestamptz | null", removedBy: "text | null",
   },
+  // Sparade rapporter i rapportbyggaren (0021_sparade_rapporter.sql)
+  saved_reports: {
+    id: "text", contractId: "text", ownerId: "text", title: "text", templateKey: "text | null", definition: "jsonb", visibility: "text", createdAt: "timestamptz",
+    updatedAt: "timestamptz | null", updatedBy: "text | null", sharedAt: "timestamptz | null", sharedBy: "text | null", archivedAt: "timestamptz | null", archivedBy: "text | null",
+  },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

@@ -23,6 +23,19 @@ export function snapshotFacts(r: Pick<Report, "id" | "kind" | "snapshot">): Repo
   return f && f.kind === r.kind ? f : null;
 }
 
+/** Sökvägarna som Table.pickJson läser för att få fakta utan resten av ögonblicksbilden (rapportbyggaren, steg 4). */
+export const FACTS_JSON = { facts: ["snapshot", "facts"], snapshotReportId: ["snapshot", "reportId"] } as const satisfies Record<string, readonly ["snapshot", string]>;
+
+/**
+ * Fakta ur en rad som lästs med pickJson(…, FACTS_JSON): samma kontroller som snapshotFacts – ögonblicksbilden gäller
+ * rapporten (reportId), fakta är giltiga (parseFacts) och av rapportens typ. Annars null (rapporten fryses då i ett systemsteg).
+ */
+export function factsFromPick(r: Pick<Report, "id" | "kind"> & { facts: unknown; snapshotReportId: unknown }): ReportFacts | null {
+  if (r.snapshotReportId !== r.id) return null;
+  const f = parseFacts(r.facts);
+  return f && f.kind === r.kind ? f : null;
+}
+
 type Frozen = { frozen: boolean; facts: ReportFacts | null };
 
 /**
