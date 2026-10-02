@@ -40,7 +40,7 @@ Kanaler:
 ## Spärren för mottagare (testmiljön)
 
 - Bara adresser i `MM_EMAIL_ALLOWLIST` får mejl. I testmiljön står **bara testarnas hela adresser** i listan, med kommatecken emellan och inga mellanslag (`docs/DRIFT.md` avsnitt 11.1):
-  `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se`
+  `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se`
   Skriv **aldrig** `@miljonbemanning.se` i listan: testdatat har påhittade adresser på den domänen (t.ex. `sara.lindqvist@miljonbemanning.se`), och de skulle då få appens mejl och inloggningskoder. Koden klarar även en domänpost (`@domän`), men använd den bara för en domän som inte har några adresser i testdatat.
 - Spärren gäller **alltid** utom när databasen uttryckligen är produktion (`app_settings.environment = 'production'`) **och** listan är tom. En saknad miljörad räknas alltså som testmiljö – hellre inga mejl än mejl till testdatats adresser på riktiga domäner (t.ex. botkyrka.se).
 - Allt som stoppas sparas ändå i `outbound_messages` med status `suppressed` och orsak, så att flödet går att följa.

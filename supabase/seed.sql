@@ -102,7 +102,7 @@ insert into public.buyer_references (id, customer_id, reference, unit, active, n
   ('br-hallunda', 'org-botkyrka', '7730045120', 'Arbetsmarknadsenheten Hallunda–Fittja', true, null),
   ('br-tumba-fel', 'org-botkyrka', '55102983', 'Arbetsmarknadsenheten Tumba', false, 'Finns inte hos kommunen. Decemberfakturorna returnerades 2027-01-12.');
 
--- profiles (24)
+-- profiles (25)
 insert into public.profiles (id, organization_id, full_name, email, phone, title, active, last_login_at, customer_unit, buyer_reference_id, team_role, invited_at, invited_by, auth_user_id, is_tester) values
   ('u-sara', 'org-mb', 'Sara Lindqvist', 'sara.lindqvist@miljonbemanning.se', '08-000 00 11', 'Operativ samordnare', true, null, null, null, null, null, null, '5b3f9850-b4b8-5c20-8b45-10ad5c06dcf2', false),
   ('u-johan', 'org-mb', 'Johan Berg', 'johan.berg@miljonbemanning.se', '08-000 00 12', 'Avtalsansvarig (kundansvarig Botkyrka)', true, null, null, null, null, null, null, '92f5886b-7e64-5963-84ed-1f45e139ffb6', false),
@@ -127,9 +127,10 @@ insert into public.profiles (id, organization_id, full_name, email, phone, title
   ('tester-sara', 'org-mb', 'Sara Salah', 'sara.salah@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
   ('tester-adam', 'org-mb', 'Adam Abdalla', 'adam.abdalla@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
   ('tester-shafik', 'org-mb', 'Shafik Muwanga', 'shafik.muwanga@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true);
+  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
+  ('tester-yacine', 'org-mb', 'Yacine Laghmari', 'yacine.laghmari@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true);
 
--- memberships (32)
+-- memberships (34)
 insert into public.memberships (id, user_id, contract_id, role, customer_unit) values
   ('u-sara:c-bot', 'u-sara', 'c-bot', 'samordnare', null),
   ('u-johan:c-bot', 'u-johan', 'c-bot', 'avtalsansvarig', null),
@@ -162,7 +163,9 @@ insert into public.memberships (id, user_id, contract_id, role, customer_unit) v
   ('tester-shafik:c-bot', 'tester-shafik', 'c-bot', 'admin', null),
   ('tester-shafik:c-kk', 'tester-shafik', 'c-kk', 'admin', null),
   ('tester-moda:c-bot', 'tester-moda', 'c-bot', 'admin', null),
-  ('tester-moda:c-kk', 'tester-moda', 'c-kk', 'admin', null);
+  ('tester-moda:c-kk', 'tester-moda', 'c-kk', 'admin', null),
+  ('tester-yacine:c-bot', 'tester-yacine', 'c-bot', 'admin', null),
+  ('tester-yacine:c-kk', 'tester-yacine', 'c-kk', 'admin', null);
 
 -- persons (230)
 insert into public.persons (id, personnummer_enc, personnummer_hash, personnummer_last4, birth_year, first_name, last_name, phone, email, city, address, preferred_contact, protected_identity, accessibility_needs, language, needs_interpreter) values

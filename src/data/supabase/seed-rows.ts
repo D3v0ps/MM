@@ -32,7 +32,8 @@ export const authUserIdFor = (profileId: string): string => uuidV5(`profile:${pr
 // ---------------------------------------------------------------- Testarna i testmiljön
 /**
  * Riktiga användare som testar i testmiljön: admin i båda avtalen och testare (kan agera som testpersoner och lämna
- * synpunkter). Kollegorna på Miljonbemanning bjöds in 2026-10-01 för att ge synpunkter på processen och plattformen.
+ * synpunkter). Kollegorna på Miljonbemanning bjöds in 2026-10-01 (Yacine Laghmari 2026-10-02) för att ge synpunkter på processen och
+ * plattformen.
  * Varje adress ska också finnas i MM_EMAIL_ALLOWLIST i Vercel – annars får testaren ingen inloggningskod (TESTER_ALLOWLIST).
  */
 export const TESTERS: readonly { id: string; fullName: string; email: string }[] = [
@@ -42,6 +43,7 @@ export const TESTERS: readonly { id: string; fullName: string; email: string }[]
   { id: "tester-adam", fullName: "Adam Abdalla", email: "adam.abdalla@miljonbemanning.se" },
   { id: "tester-shafik", fullName: "Shafik Muwanga", email: "shafik.muwanga@miljonbemanning.se" },
   { id: "tester-moda", fullName: "Moda Habib", email: "moda.habib@miljonbemanning.se" },
+  { id: "tester-yacine", fullName: "Yacine Laghmari", email: "yacine.laghmari@miljonbemanning.se" },
 ];
 /**
  * Värdet för MM_EMAIL_ALLOWLIST i testmiljön: testarnas hela adresser, kommatecken emellan. Aldrig "@miljonbemanning.se" –

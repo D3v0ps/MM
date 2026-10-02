@@ -98,7 +98,7 @@ describe("bootstrap-staging.sql", () => {
       const s = await tx.query<{ key: string; value: string }>("select key, value from public.app_settings order by key");
       expect(Object.fromEntries(s.rows.map((r) => [r.key, r.value]))).toMatchObject({ environment: "staging", clock_demo_epoch: DEMO_START });
       const p = await tx.query<{ id: string; email: string; auth_user_id: string | null; is_tester: boolean }>("select id, email, auth_user_id, is_tester from public.profiles order by id");
-      // Alla sex testarna (Karim, Ali och kollegorna som bjöds in 2026-10-01). Bara Karim har loggat in.
+      // Alla sju testarna (Karim, Ali och kollegorna som bjöds in 2026-10-01 och 2026-10-02). Bara Karim har loggat in.
       expect(p.rows).toEqual([
         { id: "tester-adam", email: "adam.abdalla@miljonbemanning.se", auth_user_id: null, is_tester: true },
         { id: "tester-ali", email: "ali.khalil@miljonbemanning.se", auth_user_id: null, is_tester: true },
@@ -106,6 +106,7 @@ describe("bootstrap-staging.sql", () => {
         { id: "tester-moda", email: "moda.habib@miljonbemanning.se", auth_user_id: null, is_tester: true },
         { id: "tester-sara", email: "sara.salah@miljonbemanning.se", auth_user_id: null, is_tester: true },
         { id: "tester-shafik", email: "shafik.muwanga@miljonbemanning.se", auth_user_id: null, is_tester: true },
+        { id: "tester-yacine", email: "yacine.laghmari@miljonbemanning.se", auth_user_id: null, is_tester: true },
       ]);
       const m = await tx.query<{ user_id: string; contract_id: string; role: string }>("select user_id, contract_id, role from public.memberships order by user_id, contract_id");
       expect(m.rows.filter((x) => x.role !== "admin")).toEqual([]);
@@ -229,7 +230,7 @@ describe("inläsningen (mm.reset_test_data + upsert i batchar)", () => {
       expect([n.feedback, n.feedback_replies]).toEqual([1, 1]);
       expect((await tx.query("select id, status, author_id, status_changed_by from public.feedback")).rows).toEqual([{ id: "fb-1", status: "andras", author_id: "tester-karim", status_changed_by: "tester-ali" }]);
       expect((await tx.query("select id, feedback_id, text from public.feedback_replies")).rows).toEqual([{ id: "fbr-1", feedback_id: "fb-1", text: "Vi tittar på det" }]);
-      // Testarnas profiler och medlemskap finns kvar (alla sex).
+      // Testarnas profiler och medlemskap finns kvar (alla sju).
       expect((await tx.query("select id from public.profiles where is_tester order by id")).rows.map((r) => (r as { id: string }).id)).toEqual(TESTERS.map((t) => t.id).sort());
       // Revisionsloggen töms aldrig: testdatats rader + testarens rad.
       expect(n.audit_log).toBe(want.audit_log + 1);
