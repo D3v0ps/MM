@@ -19,7 +19,7 @@ import { ensureReports, type ReportScheduleState } from "@/features/rapporter/en
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
 import { TEST_PNR_CRYPTO } from "./seed/pnr";
-import type { AppRepo, Tables } from "./schema";
+import { UNIQUE_KEYS, type AppRepo, type Tables } from "./schema";
 
 export type DemoClock = { now(): LocalDateTime; tick(): void; set(t: LocalDateTime): void };
 
@@ -30,6 +30,9 @@ export function demoClock(start: LocalDateTime): DemoClock {
 }
 
 export type MemoryRuntime = ReturnType<typeof createMemoryRuntime>;
+
+/** Kommandot är en automatisk utkastsparning (coach.checkinSave m.fl. med autosave: true). */
+const isAutosave = (input: unknown): boolean => !!input && typeof input === "object" && (input as { autosave?: unknown }).autosave === true;
 
 export function createMemoryRuntime(opts: {
   data: MemoryData<Tables>;
@@ -42,7 +45,8 @@ export function createMemoryRuntime(opts: {
    */
   reportFloor?: LocalDateTime | null;
 }) {
-  const store = new MemoryStore<Tables>(opts.data);
+  // Samma unika nycklar som databasen (UNIQUE_KEYS): en dubblett stoppas med UniqueError, som i Postgres.
+  const store = new MemoryStore<Tables>(opts.data, UNIQUE_KEYS);
   let seq = 0;
   const newId = (prefix: string) => `${prefix}-n${String(++seq).padStart(5, "0")}`;
   const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
@@ -112,7 +116,9 @@ export function createMemoryRuntime(opts: {
   async function run(kind: "query" | "command", key: string, input: unknown, actor: Actor): Promise<unknown> {
     // Klockan flyttas en minut före varje kommando som inte är tyst – samma ordning som den gamla prototypen,
     // så att tidsstämplarna blir identiska. Kastar kommandot ett fel eller avvisas det återställs klockan.
-    const ticks = kind === "command" && !isSilentCommand(key);
+    // Automatisk utkastsparning (autosave: true) flyttar inte klockan: annars blir dagens kommande möten "passerade"
+    // medan coachen skriver (varje paus på 2 s skulle annars vara en minut).
+    const ticks = kind === "command" && !isSilentCommand(key) && !isAutosave(input);
     const before = opts.clock.now();
     if (ticks) opts.clock.tick();
     await ensureScheduledReports();

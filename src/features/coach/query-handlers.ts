@@ -433,7 +433,7 @@ handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
     id: ci.id, caseId: ci.caseId, status: ci.status, heldAt: ci.heldAt, durationMin: ci.durationMin, mode: ci.mode, inputMethod: ci.inputMethod, goalStatus: ci.goalStatus,
     nextGoal: ci.nextGoal, phase: ci.phase, activitiesDone: ci.activitiesDone, employerContacts: ci.employerContacts, overallStatus: ci.overallStatus, obstacles: ci.obstacles,
     note: ci.note, attendanceComment: ci.attendanceComment ?? "", docMinutes: ci.docMinutes, approvedAt: ci.approvedAt,
-    approvedByName: ci.approvedBy ? personName(db.profiles, ci.approvedBy) : null, aiRunId: ci.aiRunId,
+    approvedByName: ci.approvedBy ? personName(db.profiles, ci.approvedBy) : null, aiRunId: ci.aiRunId, version: ci.version,
     // AI-utkastet visas aldrig för skyddade personuppgifter (CLAUDE.md punkt 8).
     ai: ci.ai && !prot ? ({ ...ci.ai, transcript: ci.ai.transcript ?? [], rawTranscriptDeletedAt: ci.ai.rawTranscriptDeletedAt ?? null } as CheckInView["ai"]) : null,
   });
@@ -553,7 +553,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
       };
     }),
     assessment: ma
-      ? { status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus }
+      ? { status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus, version: ma.version }
       : null,
     plan: plan
       ? { goal1: plan.goal1, goal2: plan.goal2, plannedActivities: plan.plannedActivities, plannedEmployerContact: plan.plannedEmployerContact, plannedAdaptation: plan.plannedAdaptation, nextCustomerMeeting: plan.nextCustomerMeeting }
@@ -613,7 +613,7 @@ handleQuery(intakePage, { roles: ["coach"] }, async (ctx, p) => {
     intake: ia
       ? {
         workExperience: ia.workExperience, education: ia.education, languageNotes: ia.languageNotes, digitalSkills: ia.digitalSkills, drivingLicence: ia.drivingLicence,
-        workGoals: ia.workGoals, chosenTrack: ia.chosenTrack, adaptations: ia.adaptations, firstWeekGoal: ia.firstWeekGoal, status: ia.status, approvedAt: ia.approvedAt,
+        workGoals: ia.workGoals, chosenTrack: ia.chosenTrack, adaptations: ia.adaptations, firstWeekGoal: ia.firstWeekGoal, status: ia.status, approvedAt: ia.approvedAt, version: ia.version,
       }
       : null,
     stuck: s ? { phase: s.phase, phaseName: phaseName(env.cfg, s.phase), days: s.days, maxDays: s.maxDays } : null,

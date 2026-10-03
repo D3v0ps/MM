@@ -1,6 +1,7 @@
 // Kontrakt för området coach (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Fail, type Result } from "@/api/contract";
+import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, START, INBOX, CASE_STATS, CASE_FACTS } from "@/api/invalidation";
 import type { SlaTone } from "@/core/sla";
 import type { ProgressionRuleText } from "@/core/config";
 import {
@@ -26,12 +27,47 @@ export type { WeeklyPublished } from "../_shared/weekly";
  * automatiskt när all närvaro för hennes deltagare är registrerad – kontrollen görs mot färska data i samma kommando.
  * published = rapporten som publicerades (för meddelandet "Veckorapporten för v. 4 2027 till … publicerades automatiskt.").
  */
+// Omräkning CASE_FACTS (brett med flit): närvaron styr veckorapporter, fakturaunderlag, flaggor, sidopanelens räknare och KPI:er.
 export const attendanceSet = command("coach.attendanceSet", z.object({
   activityId: IdSchema,
   status: z.enum(ATTENDANCE_STATUSES),
   /** Frånvaroorsak (giltig frånvaro). */
   reason: ShortText.optional(),
-})).returns<Result<{ attendanceId: string; published: WeeklyPublished | null }, "not_found">>();
+}), { invalidates: CASE_FACTS }).returns<Result<{ attendanceId: string; published: WeeklyPublished | null }, "not_found">>();
+
+/**
+ * Markera alla oregistrerade tillfällen en dag som närvarande (beslut 2026-10-02, kommun-och-mobil-18). Samma regler som
+ * attendanceSet: coach (egna ärenden), handledare (teamärenden), skyddade ärenden bara för namngiven coach. Tillfällen som
+ * redan har närvaro eller frånvaro ändras aldrig (skipped). Raderna skrivs exakt som vid enskild registrering, så
+ * fakturaunderlaget och veckorapporterna blir desamma; veckorapporterna publiceras som vid enskild registrering (published).
+ * En loggrad med antal och id:n (attendance.registered_all). Finns något id inte, eller får du inte registrera det, skrivs
+ * ingenting (not_found). Alla tillfällen måste ligga på dagen (wrong_day) och ha startat (not_started).
+ */
+// Omräkning CASE_FACTS (brett med flit) – samma följder som attendanceSet.
+export const attendanceSetAll = command("coach.attendanceSetAll", z.object({
+  day: LocalDateSchema,
+  /** Tillfällena som visades i bekräftelsen – servern kontrollerar varje. */
+  activityIds: z.array(IdSchema).min(1).max(200),
+}), { invalidates: CASE_FACTS }).returns<
+  Result<{ marked: string[]; skipped: string[]; published: WeeklyPublished[]; registeredAt: LocalDateTime }, "not_found" | "wrong_day" | "not_started">
+>();
+
+/**
+ * Automatisk utkastsparning (D2 punkt 2, src/shell/autosave.ts) – bara med approve false (annars "invalid"):
+ *   autosave: sparningen gjordes automatiskt av skärmen (loggas med details.autosave).
+ *   editSession: skärmens besöksnyckel (slumpad när formuläret öppnas, bara små bokstäver och siffror) – revisionsloggen
+ *   får en rad per besök på sidan, inte en per sparning. Saknas den loggas varje autosparning.
+ *   expectedVersion (manuell och automatisk sparning): radens version som skärmen senast såg eller sparade. Stämmer den
+ *   inte med radens (samma utkast öppet i en annan flik eller på en annan enhet) avvisas sparningen med "conflict" – inget
+ *   skrivs över. Svaret ger den nya versionen (version). Utan expectedVersion sparas utan kontroll (äldre anropare).
+ */
+const AutosaveFields = {
+  autosave: z.boolean().optional(),
+  editSession: z.string().regex(/^[a-z0-9]{12,32}$/).optional(),
+  expectedVersion: z.number().int().min(1).optional(),
+};
+/** Svaret från en sparning: serverns tid ("Utkast sparat 09.41") och radens nya version (nästa expectedVersion). */
+export type SavedInfo = { savedAt: LocalDateTime; version: number };
 
 /** Fälten i en avstämning som coachen fyller i. AI-utkastet (ai) hämtas av hanteraren från AI-körningen (aiRunId) – skicka det inte. */
 export const CheckInDataSchema = z.object({
@@ -69,10 +105,15 @@ export const DeviationInputSchema = z.object({
 
 /**
  * Spara eller godkänn en veckoavstämning (prototypens checkin.save).
- * Röd samlad status kräver en avvikelse (deviation_required) – den skapas i samma kommando. AI-baserad inmatning kräver
- * samtycke och är aldrig tillåten vid skyddade personuppgifter (ai_not_allowed). Vid godkännande raderas råtranskriptet.
+ * Röd samlad status kräver en avvikelse (deviation_required) – den skapas i samma kommando och hör till avstämningen
+ * (deviations.checkInId): en senare sparning av samma avstämning uppdaterar samma avvikelse, aldrig en ny. Uppgiften till
+ * kommunen och mejlet skapas bara vid manuell sparning eller godkännande (aldrig av en automatisk utkastsparning medan
+ * coachen skriver) och bara en gång per avvikelse. AI-baserad inmatning kräver samtycke och är aldrig tillåten vid skyddade
+ * personuppgifter (ai_not_allowed). Vid godkännande raderas råtranskriptet. En godkänd avstämning ändras inte (approved).
  * aiDecisions: coachens beslut per AI-förslag (accepted/edited/rejected) – loggas.
  */
+// Omräkning brett med flit: en avstämning kan ändra fas, skapa avvikelse och uppgift till kommunen och påverkar rapporter, flaggor
+// och KPI:er. Inte coach.checkInAttendance, coach.aiRunInfo, rost.* eller ekonomi.* – de rör inte avstämningens innehåll.
 export const checkinSave = command("coach.checkinSave", z.object({
   caseId: IdSchema,
   checkInId: IdSchema.optional(),
@@ -86,9 +127,13 @@ export const checkinSave = command("coach.checkinSave", z.object({
     final: z.unknown(),
     changed: z.boolean().optional(),
   })).max(20).optional(),
-})).returns<Result<{ checkInId: string; deviationId: string | null; rawTranscriptDeletedAt: string | null }, "not_found" | "forbidden" | "deviation_required" | "ai_not_allowed">>();
+  ...AutosaveFields,
+}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ checkInId: string; deviationId: string | null; rawTranscriptDeletedAt: string | null } & SavedInfo, "not_found" | "forbidden" | "deviation_required" | "ai_not_allowed" | "invalid" | "approved" | "conflict">
+>();
 
 /** Spara (eller stäng) en avvikelse (prototypens deviation.save). Kräver den beslut av kommunen skapas en uppgift till handläggaren. */
+// Omräkning brett med flit: avvikelsen kan skapa en uppgift till kommunen – deadlines och räknare kan läsa den.
 export const deviationSave = command("coach.deviationSave", z.object({
   id: IdSchema.optional(),
   caseId: IdSchema,
@@ -96,7 +141,7 @@ export const deviationSave = command("coach.deviationSave", z.object({
     followUpMeetingAt: LocalDateTimeSchema.nullable().optional(),
     status: z.enum(DEVIATION_STATUSES).optional(),
   }),
-})).returns<Result<{ deviationId: string }, "not_found" | "forbidden">>();
+}), { invalidates: [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, NAV, ...LOG] }).returns<Result<{ deviationId: string }, "not_found" | "forbidden">>();
 
 /** Kalla kommunen till uppföljning (AFK 7.8): säkert meddelande + mejl utan personuppgifter (prototypens deviation.callCustomer). */
 export const deviationCallCustomer = command("coach.deviationCallCustomer", z.object({
@@ -104,7 +149,7 @@ export const deviationCallCustomer = command("coach.deviationCallCustomer", z.ob
   deviationId: IdSchema.nullable().optional(),
   body: LongText,
   proposedAt: LocalDateTimeSchema.nullable().optional(),
-})).returns<Result<{ messageId: string }, "not_found" | "forbidden" | "empty">>();
+}), { invalidates: [CASES, "coach.minVecka", "coach.checkInReceipt", PORTAL, INBOX, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ messageId: string }, "not_found" | "forbidden" | "empty">>();
 
 /** Ett progressionsområde som coachen bedömt. Nivån sätts bara av coachen – aldrig av AI. */
 export const AreaInputSchema = z.object({
@@ -155,7 +200,10 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
     status: z.enum(["draft", "approved"]).optional(),
   }).optional(),
   usedNoteIds: z.array(IdSchema).max(50).optional(),
-})).returns<Result<{ assessmentId: string }, "not_found" | "forbidden" | "bad_note"> | (Fail<"incomplete"> & { missing: string[] })>();
+  ...AutosaveFields,
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, ...START, "admin.contract", NAV, ...LOG] }).returns<
+  Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict"> | (Fail<"incomplete"> & { missing: string[] })
+>();
 
 /** Spara eller godkänn kartläggningen (prototypens intake.save). Vid godkännande blir valt yrkesspår ärendets yrkesspår. */
 export const intakeSave = command("coach.intakeSave", z.object({
@@ -172,7 +220,8 @@ export const intakeSave = command("coach.intakeSave", z.object({
     firstWeekGoal: z.string().max(1000),
   }).partial().optional(),
   approve: z.boolean().optional(),
-})).returns<Result<{ intakeId: string }, "not_found" | "forbidden">>();
+  ...AutosaveFields,
+}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict">>();
 
 /** Registrera en händelse/ett utfall (prototypens event.add). Arbete påbörjat markeras som möjligt bonusunderlag. */
 export const eventAdd = command("coach.eventAdd", z.object({
@@ -184,7 +233,7 @@ export const eventAdd = command("coach.eventAdd", z.object({
   /** Filnamn/sökväg till underlaget i privat lagring. */
   verificationFile: ShortText.nullable().optional(),
   note: z.string().max(4000).optional(),
-})).returns<Result<{ eventId: string }, "not_found" | "forbidden">>();
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, "praktik.", "admin.contract", ...LOG] }).returns<Result<{ eventId: string }, "not_found" | "forbidden">>();
 
 /**
  * Verifiera resultatet (arbete/studier) med underlag (prototypens result.verify). finalDelivered = ärendets slutrapport är
@@ -195,7 +244,7 @@ export const resultVerify = command("coach.resultVerify", z.object({
   caseId: IdSchema,
   verificationKind: ShortText,
   file: ShortText.nullable().optional(),
-})).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
 /** Visas när verifieringen registreras efter att slutrapporten levererats (se resultVerify). */
 export const FINAL_DELIVERED_VERIFY_TEXT =
   "Slutrapporten är redan levererad till kommunen. Rätta slutrapporten så att verifieringen kommer med i rapporten och i kommunens resultatfil.";
@@ -216,7 +265,7 @@ export const aiRun = command("coach.aiRun", z.object({
   audioSeconds: z.number().int().min(0).max(4 * 3600).optional(),
   costOre: z.number().int().min(0).max(100000).optional(),
   model: ShortText.optional(),
-})).returns<Result<AiRunResult, "not_found" | "ai_not_allowed">>();
+}), { invalidates: ["coach.checkInPage", "coach.aiRunInfo", "coach.recordingState", "coach.assessmentPage", "arenden.kortHistorik", "admin.integrations", ...LOG] }).returns<Result<AiRunResult, "not_found" | "ai_not_allowed">>();
 
 export type AiRunResult = {
   runId: string;
@@ -253,14 +302,14 @@ export const recordingFinish = command("coach.recordingFinish", z.object({
   source: z.enum(["recording", "upload"]),
   checkInId: IdSchema.nullish(),
   durationSec: z.number().min(0).max(86_400).nullish(),
-})).returns<Result<RecordingState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
+}), { invalidates: [COACH, CASES, "admin.integrations", "rost.", ...LOG] }).returns<Result<RecordingState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
 export const recordingState = query("coach.recordingState", z.object({ aiRunId: IdSchema })).returns<RecordingState | null>();
 
 /**
  * AI-utkast till månadsbedömningen: observation per progressionsområde, sammanfattning och plan – BARA från månadens
  * godkända avstämningar och registrerad närvaro (jobbet draft_monthly). Nivåer och samlad status sätts aldrig.
  */
-export const monthlyDraft = command("coach.monthlyDraft", z.object({ caseId: IdSchema, month: MonthKeySchema })).returns<
+export const monthlyDraft = command("coach.monthlyDraft", z.object({ caseId: IdSchema, month: MonthKeySchema }), { invalidates: ["coach.assessmentPage", "coach.minVecka", "arenden.kortHistorik", "admin.integrations", ...LOG] }).returns<
   Result<{ aiRunId: string; status: "running" | "succeeded" | "failed"; error: string | null }, "not_found" | "forbidden" | "ai_not_allowed" | "approved">
 >();
 
@@ -443,6 +492,8 @@ export type CheckInView = {
   aiRunId: string | null;
   /** AI-utkastet (förslag med belägg). Aldrig för skyddade ärenden eller utan samtycke. */
   ai: CheckInAi | null;
+  /** Radens version – skickas som expectedVersion vid nästa sparning. */
+  version: number;
 };
 export type CheckInPage = Gated<{
   now: LocalDateTime;
@@ -531,7 +582,7 @@ export type AssessmentPage = Gated<{
    */
   progressionRule: { clearFromLevel: number; anyFromLevel: number } & ProgressionRuleText;
   areas: AssessmentArea[];
-  assessment: { status: "draft" | "approved"; decidedAt: LocalDateTime | null; summary: string; aiSummaryDraft: string | null; overallStatus: TrafficLight | null } | null;
+  assessment: { status: "draft" | "approved"; decidedAt: LocalDateTime | null; summary: string; aiSummaryDraft: string | null; overallStatus: TrafficLight | null; /** Radens version – expectedVersion vid nästa sparning. */ version: number } | null;
   plan: { goal1: string; goal2: string; plannedActivities: string; plannedEmployerContact: string; plannedAdaptation: string; nextCustomerMeeting: LocalDate | null } | null;
   basis: {
     checkIns: LocalDateTime[];
@@ -569,6 +620,8 @@ export type IntakePage = Gated<{
   intake: {
     workExperience: string; education: string; languageNotes: string; digitalSkills: string; drivingLicence: string; workGoals: string;
     chosenTrack: string; adaptations: string; firstWeekGoal: string; status: "draft" | "approved"; approvedAt: LocalDateTime | null;
+    /** Radens version – expectedVersion vid nästa sparning. */
+    version: number;
   } | null;
   stuck: { phase: number; phaseName: string; days: number; maxDays: number } | null;
   backgroundInfo: string;

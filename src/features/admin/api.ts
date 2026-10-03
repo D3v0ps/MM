@@ -15,6 +15,7 @@
 //   admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob, admin.logCheck
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CARD, CASES, PORTAL, MGMT, INBOX } from "@/api/invalidation";
 import type { ContractConfig, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
 import { IdSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
 import type { RuleSnapshot } from "./audit-text";
@@ -103,7 +104,7 @@ export const adminSetOrgRule = command("admin.setOrgRule", z.object({
   escalateTo: z.array(EscRoleSchema).max(3),
   channels: z.array(ChannelSchema).max(2),
   assignmentChannels: z.array(ChannelSchema).max(2),
-})).returns<Result<object, "weeks" | "recipients" | "channels">>();
+}), { invalidates: ["admin.orgRules", "admin.contract", "notiser.", "coach.minVecka", "inkorg.start", MGMT, NAV, ...LOG] }).returns<Result<object, "weeks" | "recipients" | "channels">>();
 
 // ================================================================ Användare och roller (/admin/anvandare)
 export type MbUserRow = {
@@ -152,9 +153,9 @@ export const adminInviteCustomer = command("admin.inviteCustomer", z.object({
   email: ShortText,
   role: z.string().max(20),
   unit: ShortText,
-})).returns<Result<{ userId: string }, "name" | "email" | "domain" | "exists" | "role" | "unit">>();
+}), { invalidates: ["admin.users", CASES, PORTAL, INBOX, ...LOG] }).returns<Result<{ userId: string }, "name" | "email" | "domain" | "exists" | "role" | "unit">>();
 
-export const adminSetCustomerActive = command("admin.setCustomerActive", z.object({ userId: IdSchema, active: z.boolean() })).returns<Result<object, "not_found">>();
+export const adminSetCustomerActive = command("admin.setCustomerActive", z.object({ userId: IdSchema, active: z.boolean() }), { invalidates: ["admin.users", CARD, PORTAL, INBOX] }).returns<Result<object, "not_found">>();
 
 // ================================================================ Underbiträden och integrationer (/admin/integrationer)
 export type JobStatusView = "ok" | "waiting" | "disabled" | "failed";
@@ -207,7 +208,9 @@ export type IntegrationsView = {
   jobs: JobRow[];
 };
 export const adminIntegrations = query("admin.integrations", z.object({})).returns<IntegrationsView>();
-export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) })).returns<Result<object, "disabled">>();
+// invalidates "all" med motivering: ett bakgrundsjobb kan skapa rapporter, notiser, röstresultat eller gallra – följderna är
+// inte kända i förväg, så allt räknas om (bara den här knappen på integrationssidan).
+export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<object, "disabled">>();
 
 // ================================================================ Mallar och utskick (/admin/mallar)
 export type TemplateVersionView = { version: number; savedAt: string; savedByName: string };
@@ -257,7 +260,7 @@ export const adminSaveTemplate = command("admin.saveTemplate", z.object({
   subject: ShortText,
   body: LongText,
   note: ShortText.optional(),
-})).returns<Result<{ version: number }, "not_found" | "fixed" | "empty" | "personal_data">>();
+}), { invalidates: ["admin.templates", "kommun.kvitto", ...LOG] }).returns<Result<{ version: number }, "not_found" | "fixed" | "empty" | "personal_data">>();
 
 // ================================================================ Revisionslogg (/admin/logg)
 export type AuditRow = {
@@ -312,4 +315,4 @@ export const adminLogCheck = command("admin.logCheck", z.object({
   month: MonthKeySchema,
   items: z.array(z.object({ logId: IdSchema, verdict: z.string().max(20) })).max(50),
   note: LongText,
-})).returns<Result<{ id: string }, "empty" | "note">>();
+}), { invalidates: [...LOG] }).returns<Result<{ id: string }, "empty" | "note">>();

@@ -1,6 +1,7 @@
 // Kontrakt för området rapporter (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX } from "@/api/invalidation";
 import type { ReportKind, ReportStatus, SavedReportVisibility } from "@/data/schema";
 import type { ProgressionRuleText } from "@/core/config";
 import type { SlaView } from "@/ui/badge";
@@ -20,7 +21,7 @@ import type { DeniedReason } from "./report-helpers";
 /** Godkänn en rapport (prototypens report.approve). Bara utkast eller granskad rapport som inte är ersatt. */
 export const reportApprove = command("rapporter.reportApprove", z.object({
   reportId: IdSchema,
-})).returns<Result<object, "not_found" | "forbidden" | "wrong_status">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "wrong_status">>();
 
 /**
  * Leverera i portalen (prototypens report.deliver): mottagaren får ett mejl utan personuppgifter ("… finns i portalen –
@@ -29,12 +30,12 @@ export const reportApprove = command("rapporter.reportApprove", z.object({
  */
 export const reportDeliver = command("rapporter.reportDeliver", z.object({
   reportId: IdSchema,
-})).returns<Result<object, "not_found" | "forbidden" | "not_approved" | "incomplete" | "final_text" | "wrong_status">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, "admin.integrations", NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_approved" | "incomplete" | "final_text" | "wrong_status">>();
 
 /** Rätta en rapport (prototypens report.correct): ny version som utkast. Den gamla sparas och syns tills rättelsen levererats. */
 export const reportCorrect = command("rapporter.reportCorrect", z.object({
   reportId: IdSchema,
-})).returns<Result<{ reportId: string; version: number }, "not_found" | "forbidden" | "wrong_status">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, NAV, ...LOG] }).returns<Result<{ reportId: string; version: number }, "not_found" | "forbidden" | "wrong_status">>();
 
 /**
  * Kvittens när kommunen öppnar en rapport (prototypens report.open, tyst). Bara mottagaren kvitterar – andra
@@ -42,7 +43,7 @@ export const reportCorrect = command("rapporter.reportCorrect", z.object({
  */
 export const reportOpen = command("rapporter.reportOpen", z.object({
   reportId: IdSchema,
-}), { invalidates: ["kommun.", "rapporter.dokument", "rapporter.lista", "session.navCounts"] }).returns<Result<{ acknowledged: boolean }, "not_found">>();
+}), { invalidates: [PORTAL, "rapporter.dokument", "rapporter.lista", "arenden.kortRapporter", "arenden.kortHistorik", NAV] }).returns<Result<{ acknowledged: boolean }, "not_found">>();
 
 // ================================================================ Rapporter: frågor och egna kommandon
 // Frågorna returnerar vy-modeller: bara det skärmen visar och rollen får se. Rapportens innehåll (modellen) byggs av
@@ -272,7 +273,7 @@ export const reportDownload = command("rapporter.download", z.object({
 /** Samordnarens valfria kvalitetsgranskning (prototypens rap.qualityReview). */
 export const reportQualityReview = command("rapporter.qualityReview", z.object({
   reportId: IdSchema,
-})).returns<Result<object, "not_found">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Slutrapportens kvarstående hinder och rekommenderade fortsättning – huvudcoachens text (prototypens rap.saveFinal).
@@ -282,7 +283,7 @@ export const reportSaveFinal = command("rapporter.saveFinal", z.object({
   reportId: IdSchema,
   obstacles: z.string().max(400),
   recommendation: z.string().max(600),
-})).returns<Result<object, "not_found" | "forbidden" | "delivered" | "recommendation">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "delivered" | "recommendation">>();
 
 /**
  * Beställarrapportens sammanfattning – avtalsansvarigs text (prototypens rap.saveSummary). aiUsed = förslaget användes.
@@ -292,13 +293,13 @@ export const reportSaveSummary = command("rapporter.saveSummary", z.object({
   reportId: IdSchema,
   summary: z.string().max(900),
   aiUsed: z.boolean(),
-})).returns<Result<object, "not_found" | "delivered" | "summary" | "internal_target">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found" | "delivered" | "summary" | "internal_target">>();
 
 /** Orsak till rättelsen på den nya versionen (prototypens rap.correctionNote). Nollställer kvalitetsgranskningen. */
 export const reportCorrectionNote = command("rapporter.correctionNote", z.object({
   reportId: IdSchema,
   reason: z.string().max(300),
-})).returns<Result<object, "not_found" | "reason">>();
+}), { invalidates: [REPORTS, CASES, PORTAL, INBOX, COACH, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found" | "reason">>();
 
 // ================================================================ Rapportbyggaren (rapporter steg 4, SPEC §7.11 k)
 // Miljonbemanning (samordnare, avtalsansvarig och chef) bygger rapporter av de levererade rapporternas frysta fakta – samma
@@ -437,16 +438,16 @@ export const savedReportSave = command("rapporter.sparadSpara", z.object({
   definition: DefinitionInput,
   visibility: z.enum(["private", "mb", "customer"]).optional(),
   templateKey: z.enum(TEMPLATE_KEYS).optional(),
-})).returns<Result<{ savedReportId: string }, "forbidden" | "title" | "definition" | "customer_shared">>();
+}), { invalidates: ["rapporter.sparadeLista", "rapporter.sparad", "kommun.delade", NAV, ...LOG] }).returns<Result<{ savedReportId: string }, "forbidden" | "title" | "definition" | "customer_shared">>();
 
 /** Ändra delningen. Samma delning som förut = ok utan skrivning och utan loggrad. */
 export const savedReportShare = command("rapporter.sparadDela", z.object({
   savedReportId: IdSchema,
   visibility: z.enum(["private", "mb", "customer"]),
-})).returns<Result<object, "forbidden" | "not_allowed">>();
+}), { invalidates: ["rapporter.sparadeLista", "rapporter.sparad", "kommun.delade", NAV, ...LOG] }).returns<Result<object, "forbidden" | "not_allowed">>();
 
 /** Arkivera rapporten – den visas inte längre i listorna (och inte för kommunens chef). */
-export const savedReportArchive = command("rapporter.sparadArkivera", z.object({ savedReportId: IdSchema })).returns<Result<object, "forbidden">>();
+export const savedReportArchive = command("rapporter.sparadArkivera", z.object({ savedReportId: IdSchema }), { invalidates: ["rapporter.sparadeLista", "rapporter.sparad", "kommun.delade", NAV, ...LOG] }).returns<Result<object, "forbidden">>();
 
 // ---------------------------------------------------------------- Resultatfil för hela avtalet (färdigrapporten)
 /** Som kommunens förhandsvisning (kommun.resultatForhandsvisning) men för alla ärenden i avtalet utom skyddade. */

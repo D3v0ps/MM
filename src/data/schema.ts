@@ -599,6 +599,8 @@ export type IntakeAssessment = {
   status: ApprovalStatus;
   approvedBy: UserId | null;
   approvedAt: LocalDateTime | null;
+  /** Radens version (0022): ökas vid varje sparning – en sparning med fel expectedVersion avvisas (två flikar). */
+  version: number;
 };
 
 export type Activity = {
@@ -673,6 +675,8 @@ export type CheckIn = {
   /** Dokumentationstid i minuter (mätning för KK-kalkylen, SPEC §8.5). */
   docMinutes: number | null;
   ai: CheckInAiDraft | null;
+  /** Radens version (0022): ökas vid varje sparning – en sparning med fel expectedVersion avvisas (två flikar). */
+  version: number;
 };
 
 /** AI-utkast till en observation, med källor ("Avstämning 15 jan"). noEvidence = "Framgår inte". */
@@ -703,6 +707,8 @@ export type MonthlyAssessment = {
   summary: string;
   aiSummaryDraft: string | null;
   overallStatus: TrafficLight | null;
+  /** Radens version (0022): ökas vid varje sparning – en sparning med fel expectedVersion avvisas (två flikar). */
+  version: number;
 };
 
 /** Plan för nästa månad (mall 02 avsnitt 7). */
@@ -1592,3 +1598,12 @@ void allTablesListed;
 export function emptyDb(): Db {
   return Object.fromEntries(TABLE_NAMES.map((n) => [n, []])) as unknown as Db;
 }
+
+/**
+ * Unika nycklar utöver id – samma som databasens unika index, så att minnesläget stoppar samma dubbletter (UniqueError,
+ * src/data/memory.ts): en närvarorad per tillfälle (0022, två samtidiga registreringar), ett pulssvar per länk (0016).
+ */
+export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
+  attendance: ["activityId"],
+  pulse_responses: ["inviteId"],
+};

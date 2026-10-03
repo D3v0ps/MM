@@ -8,6 +8,7 @@
 // Skrollen sparas per historikpost (nav.entry.key) i sessionStorage – bara siffror – med reserv i minnet (artefaktens ram
 // kan sakna webblagring). Titeln: ruttens titel, eller skärmens egen via usePageTitle (t.ex. "Deltagarkort BOT-26-0143").
 import { useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
+import { resetAuditViews } from "./audit-views";
 import type { Nav } from "./nav";
 
 // ---------------------------------------------------------------- Sparad skroll per historikpost
@@ -209,6 +210,9 @@ export function usePageEffects(nav: Nav, pageKey: string, title: string, hashTar
     for (const c of cancel.current) c();
     cancel.current = [];
     const newPage = !p || p.pageKey !== pageKey;
+    // Nytt sidbesök (push, replace, tillbaka/framåt till en annan sida): visningsloggen börjar om – kortet, rapporten
+    // eller transkriptet loggas igen när det visas. Bara query ändrad (flik, filter) = samma besök.
+    if (newPage) resetAuditViews();
 
     if (entry.kind === "pop" || (entry.kind === "load" && !p)) {
       const y = readScroll(entry.key);

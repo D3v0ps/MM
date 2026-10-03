@@ -1,9 +1,11 @@
 "use client";
 // "Lämna synpunkt" och "Alla synpunkter" i testmiljöns verktygsfält (src/app/_shell/client-root.tsx, raden "Testmiljö").
-// Bara för testare i testmiljön: session.feedback finns bara då (servern kontrollerar samma sak, och RLS en gång till).
-// Ingenting renderas för andra, i produktion eller i prototypen (prototypen har sin egen feedbacklåda med samma fält och
-// kort – components.tsx). Synpunkten sparas med rollen testaren agerar som och sidan (bara sökväg och id:n).
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+// Bara för testare: session.feedback finns bara i testmiljön och i minnesläget med en simulerad testare (e2e, utveckling –
+// servern kontrollerar samma sak, och RLS en gång till). Ingenting renderas för andra, i produktion eller i prototypen
+// (prototypen har sin egen feedbacklåda med samma fält och kort – components.tsx). Synpunkten sparas med rollen testaren
+// agerar som och sidan man står på (bara sökväg och id:n) – nav följer de grunda sidbytena, så det är sidan som visas,
+// inte den som laddades in.
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ROLE_LABEL } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { fmtDateTime } from "@/core/time";
@@ -27,7 +29,8 @@ export function FeedbackToolbar({ routes }: { routes: readonly RouteDef[] }) {
   const session = useSession();
   const [open, setOpen] = useState<Open>(null);
   const port = session.feedback;
-  if (!port || !session.isTester || session.environment !== "staging") return null;
+  // Porten finns bara när miljön tillåter (testmiljön eller minnesläget med simulerad testare) – aldrig i produktion.
+  if (!port || !session.isTester || session.environment === "production") return null;
   return (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
       <Button kind="primary" icon="message-circle" className={SMALL_BTN} onClick={() => setOpen("ny")}>
@@ -155,10 +158,25 @@ function feedbackTarget(routes: readonly RouteDef[], path: string | null, role: 
   return match.route.public || match.route.roles.includes(role) ? { to } : { needsRole: true };
 }
 
+/** Sidans rubrik (den som visas när dialogen stängs – skalet flyttar fokus dit igen om sidan byts ut strax efter). */
+function pageHeading(): HTMLElement | null {
+  const h1 = document.querySelector<HTMLElement>("#main h1[data-page-title]") ?? document.querySelector<HTMLElement>("#main h1");
+  if (h1 && !h1.hasAttribute("tabindex")) h1.setAttribute("tabindex", "-1");
+  return h1;
+}
+
 function ListDialog({ port, routes, onClose, onNew }: { port: FeedbackPort; routes: readonly RouteDef[]; onClose: () => void; onNew: () => void }) {
   const nav = useNav();
   const { actor } = useSession();
   const download = useDownload();
+  // "Gå till sidan": fokus på sidans rubrik (som vid ett sidbyte), inte tillbaka på knappen "Alla synpunkter" som öppnade
+  // dialogen. Sätts i klicket, läses när dialogen stängs (useReturnFocus läser funktionen då).
+  const goingToPage = useRef(false);
+  const goTo = (to: string) => {
+    goingToPage.current = true;
+    onClose();
+    nav.push(to);
+  };
   const [items, setItems] = useState<FeedbackView[] | null>(null);
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("oppna");
@@ -213,6 +231,7 @@ function ListDialog({ port, routes, onClose, onNew }: { port: FeedbackPort; rout
       wide
       title="Alla synpunkter"
       onClose={onClose}
+      returnFocusTo={() => (goingToPage.current ? pageHeading() : null)}
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>
@@ -277,10 +296,7 @@ function ListDialog({ port, routes, onClose, onNew }: { port: FeedbackPort; rout
                 target && "to" in target
                   ? {
                       label: "Gå till sidan",
-                      onClick: () => {
-                        onClose();
-                        nav.push(target.to);
-                      },
+                      onClick: () => goTo(target.to),
                     }
                   : null
               }

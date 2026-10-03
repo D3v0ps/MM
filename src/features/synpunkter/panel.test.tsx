@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 // "Lämna synpunkt" och "Alla synpunkter" i testmiljöns verktygsfält – hela vägen genom samma hanterare som appen
-// (feedback.* via porten, minnesläget med testmiljöns data). Minnesläget har inga testare, så e2e-testerna (Playwright)
-// kan inte logga in som testare; därför prövas flödet här: lämna en synpunkt, se den i listan, ändra status, svara och
-// ladda ner CSV. Knapparna syns bara för testare i testmiljön.
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+// (feedback.* via porten, minnesläget med testmiljöns data). Flödet prövas här mot hanterarna: lämna en synpunkt, se den i
+// listan, ändra status, svara och ladda ner CSV. Knapparna syns bara för testare (testmiljön, och minnesläget med en
+// simulerad testare – där prövar tests/e2e/synpunkter.spec.ts dialogerna med den grunda navigeringen).
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor } from "@/api/roles";
@@ -72,11 +72,19 @@ describe("FeedbackToolbar", () => {
       { isTester: true, environment: "production" as const, feedback: port },
       { isTester: false, environment: "staging" as const, feedback: port },
       { environment: "memory" as const, feedback: port },
+      { isTester: false, environment: "memory" as const, feedback: port },
     ]) {
       const { container, unmount } = setup(s);
       expect(container.textContent).toBe("");
       unmount();
     }
+  });
+
+  it("minnesläget med en simulerad testare (e2e, utveckling): samma knappar som i testmiljön", () => {
+    const { unmount } = setup({ isTester: true, environment: "memory", feedback: port });
+    expect(screen.getByRole("button", { name: "Lämna synpunkt" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Alla synpunkter" })).toBeTruthy();
+    unmount();
   });
 
   it("lämna en synpunkt och se den i listan: status, svar och nedladdning (CSV)", async () => {
@@ -185,6 +193,39 @@ describe("FeedbackToolbar", () => {
     expect(within(list).getAllByRole("button", { name: "Gå till sidan" })).toHaveLength(1);
     fireEvent.click(within(list).getByRole("button", { name: "Gå till sidan" }));
     expect(push).toHaveBeenCalledWith("/arenden/case-1");
+  });
+
+  it("Gå till sidan: fokus hamnar på sidans rubrik, inte tillbaka på knappen Alla synpunkter", async () => {
+    const stub: FeedbackPort = {
+      ...port,
+      list: async () => [
+        { id: "fb-c", type: "fel", priority: "bor", text: "Text fb-c", status: "ny", role: "coach", roleLabel: "Huvudcoach", perspective: "leverantor", perspectiveLabel: "Leverantör", path: "/arenden/case-1", viewTitle: "Deltagarkort", createdAt: "2027-02-01T09:30", submittedAt: null, authorName: "Ali Khalil", mine: false, replies: [] },
+      ],
+    };
+    const main = document.createElement("main");
+    main.id = "main";
+    main.innerHTML = '<h1 data-page-title="" tabindex="-1">Ärenden</h1>';
+    document.body.appendChild(main);
+    try {
+      const { push } = setup({ isTester: true, environment: "staging", feedback: stub });
+      const opener = screen.getByRole("button", { name: "Alla synpunkter" });
+      opener.focus();
+      fireEvent.click(opener);
+      const list = await screen.findByRole("dialog", { name: "Alla synpunkter" });
+      fireEvent.click(await within(list).findByRole("button", { name: "Gå till sidan" }));
+      expect(push).toHaveBeenCalledWith("/arenden/case-1");
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Alla synpunkter" })).toBeNull());
+      await waitFor(() => expect(document.activeElement?.textContent).toBe("Ärenden"));
+      // Stäng (Esc) utan "Gå till sidan": fokus tillbaka på knappen som öppnade dialogen.
+      opener.focus();
+      fireEvent.click(opener);
+      const again = await screen.findByRole("dialog", { name: "Alla synpunkter" });
+      fireEvent.keyDown(again, { key: "Escape" });
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "Alla synpunkter" })).toBeNull());
+      await waitFor(() => expect(document.activeElement).toBe(opener));
+    } finally {
+      main.remove();
+    }
   });
 
   it("hela Miljonmatch: ingen sida sparas", async () => {

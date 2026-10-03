@@ -36,6 +36,11 @@ export type AuthPort = {
 export type Session = {
   /** false = inte inloggad. Då finns bara publika sidor (inloggning och pulslänk); actor är en tom platshållare. */
   authenticated?: boolean;
+  /**
+   * Bara när authenticated är false: sessionen gick ut under besöket (401 från API:t). "idle" = 60 minuters inaktivitet,
+   * "max" = längsta inloggningstid, "session" = okänt. App leder till inloggningen med ?utloggad=… så att sidan förklarar.
+   */
+  loggedOut?: "idle" | "max" | "session";
   actor: Actor;
   user: SessionUser;
   auth?: AuthPort;

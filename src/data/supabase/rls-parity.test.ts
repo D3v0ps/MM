@@ -519,6 +519,11 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
   // Rapportutkastens unika nycklar (0018): samma typ, mottagare/ärende och period får bara finnas en gång.
   if (t === "reports" && row.week) c.week = "2099-W01";
   if (t === "reports" && row.month) c.month = "2099-12";
+  // En närvarorad per tillfälle (0022): kopian får ett tillfälle i samma ärende som ännu saknar närvaro.
+  if (t === "attendance") {
+    const taken = new Set(data.attendance.map((a) => a.activityId));
+    c.activityId = (data.activities.find((a) => a.caseId === row.caseId && !taken.has(a.id)) ?? data.activities.find((a) => !taken.has(a.id)))?.id;
+  }
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
     c.userId = data.profiles.map((p) => p.id).find((u) => !taken.has(`${u}|${row.contractId}|${row.role}`));

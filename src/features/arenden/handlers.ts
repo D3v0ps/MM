@@ -43,10 +43,10 @@ import {
   caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseSetBuyerRef, caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
-  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, supervisorStart, TEAM_TABS,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, supervisorStart, TEAM_TABS,
   type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
-  type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseOverview, type CasePlacements, type CaseReportRow,
-  type CaseTab, type SupervisorCase, type SupervisorStart,
+  type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseMessageRow, type CaseOverview, type CasePlacements, type CaseReportRow,
+  type CaseTab, type SupervisorCase, type SupervisorStart, type TimelineText,
 } from "./api";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -409,7 +409,8 @@ handleCommand(
     if (!marks) return ok({ marked: 0 });
     const now = ctx.now();
     let marked = 0;
-    for (const m of await ctx.repo.table("messages").list({ caseId: c.id })) {
+    // Ett meddelande (texten fälldes ut i tidslinjen) eller alla i ärendet (fliken Meddelanden).
+    for (const m of await ctx.repo.table("messages").list({ caseId: c.id, ...(p.messageId ? { id: p.messageId } : {}) })) {
       if (m.senderId === me || m.readBy.includes(me)) continue;
       await ctx.repo.table("messages").update(m.id, { readBy: [...m.readBy, me], readAt: m.readAt ?? now });
       marked++;
@@ -464,7 +465,7 @@ const SEV_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info:
 const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
 const FOUR_LABEL: [keyof FourRights, string][] = [["uppgift", "Arbetsuppgifter"], ["handledning", "Handledning"], ["timing", "Tidpunkt"], ["uppfoljning", "Uppföljning"]];
 /** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
-const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view"];
+const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view"];
 
 const isManager = (role: Role) => role === "samordnare" || role === "avtalsansvarig";
 const cap = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
@@ -525,6 +526,16 @@ function flagsFor(db: AlertDb, ctx: Ctx, env: DomainEnv): AlertItem[] {
   // Begränsade testare: inga flaggor om ofakturerat (belopp) eller interna mål (src/api/tester-access.ts).
   const xs = alerts(db, { role, personaId: ctx.actor.userId, hideCommercial: hidesCommercial(ctx.actor) }, env);
   return role === "coach" || role === "handledare" ? xs.filter((a) => !HIDE_FOR_TEAM.includes(a.kind)) : xs;
+}
+/**
+ * "Fastnat i fas n" i kortets huvud, med kvitteringen från Min vecka eller listan (alert_acks, samma nyckel som flaggan:
+ * stuck:<ärende>:<fas>). Utan kvitteringen såg det ut som att kvitteringen inte tog: flaggraden försvann men taggen stod kvar.
+ */
+function stuckWithAck(c: Case, db: Pick<Db, "check_ins" | "placements" | "alert_acks" | "profiles">, env: DomainEnv): CaseCard["stuck"] {
+  const s = stuck(c, db, env);
+  if (!s) return null;
+  const ack = db.alert_acks.find((a) => a.alertKey === `stuck:${c.id}:${c.phase}`) ?? null;
+  return { ...s, acked: ack ? { byName: personName(db.profiles, ack.acknowledgedBy), at: ack.acknowledgedAt } : null };
 }
 function flagView(a: AlertItem, caseId: string | null): CaseFlag {
   const same = caseId && a.link.view === "arende.kort" && a.link.params.caseId === caseId ? { tab: a.link.params.tab ?? null } : null;
@@ -740,7 +751,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     phaseName: phaseName(cfg, c.phase),
     phaseCount: cfg.phases.length,
     phaseSince: c.startDate && c.status === "active" ? phaseSince(c, db) : null,
-    stuck: stuck(c, db, env),
+    stuck: stuckWithAck(c, db, env),
     areaName: areaName(areas, c.primaryAreaCode),
     secondaryAreaName: c.secondaryAreaCode ? areaName(areas, c.secondaryAreaCode) : null,
     vocationalTrack: c.vocationalTrack,
@@ -1168,27 +1179,55 @@ handleQuery(caseReports, { roles: CASE_ROLES }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- Flik: Meddelanden
+/** Uppslagen som meddelanderaderna behöver – fliken och tidslinjens utfällda text bygger raden med samma funktion. */
+async function messageContext(ctx: Ctx, L: Loaded) {
+  const [profiles, fromCustomer, supplier, customer] = await Promise.all([
+    ctx.repo.table("profiles").list(), customerUserIds(ctx), ctx.repo.table("organizations").get(L.contract.supplierId), ctx.repo.table("organizations").get(L.contract.customerId),
+  ]);
+  return { profiles, fromCustomer, supplier, customer };
+}
+type MessageContext = Awaited<ReturnType<typeof messageContext>>;
+function messageRowOf(m: Message, x: MessageContext): CaseMessageRow {
+  const mine = !x.fromCustomer.has(m.senderId);
+  const by = m.readBy.filter((id) => (mine ? x.fromCustomer.has(id) : !x.fromCustomer.has(id)));
+  const readText = mine
+    ? by.length ? `Läst av kommunen ${m.readAt ? fmtDateTime(m.readAt) : ""}`.trim() : "Inte läst av kommunen än"
+    : by.length ? `Läst av ${by.map((id) => personName(x.profiles, id)).join(", ")}` : "Oläst";
+  return {
+    id: m.id, senderName: personName(x.profiles, m.senderId), mine, orgName: (mine ? x.supplier?.name : x.customer?.name) ?? "", createdAt: m.createdAt,
+    meetingRequest: m.kind === "meeting_request", body: m.body, readText,
+  };
+}
+
 handleQuery(caseMessages, { roles: CASE_ROLES }, async (ctx, p) => {
   const L = await loadCase(ctx, p.caseId, "meddelanden");
   if (!L) return null;
-  const { c, contract } = L;
-  const [msgs, profiles, fromCustomer, supplier, customer] = await Promise.all([
-    ctx.repo.table("messages").list({ caseId: c.id }), ctx.repo.table("profiles").list(), customerUserIds(ctx),
-    ctx.repo.table("organizations").get(contract.supplierId), ctx.repo.table("organizations").get(contract.customerId),
-  ]);
-  return {
-    messages: messagesOf({ messages: msgs }, c.id).map((m) => {
-      const mine = !fromCustomer.has(m.senderId);
-      const by = m.readBy.filter((id) => (mine ? fromCustomer.has(id) : !fromCustomer.has(id)));
-      const readText = mine
-        ? by.length ? `Läst av kommunen ${m.readAt ? fmtDateTime(m.readAt) : ""}`.trim() : "Inte läst av kommunen än"
-        : by.length ? `Läst av ${by.map((id) => personName(profiles, id)).join(", ")}` : "Oläst";
-      return {
-        id: m.id, senderName: personName(profiles, m.senderId), mine, orgName: (mine ? supplier?.name : customer?.name) ?? "", createdAt: m.createdAt,
-        meetingRequest: m.kind === "meeting_request", body: m.body, readText,
-      };
-    }),
-  };
+  const [msgs, x] = await Promise.all([ctx.repo.table("messages").list({ caseId: L.c.id }), messageContext(ctx, L)]);
+  return { messages: messagesOf({ messages: msgs }, L.c.id).map((m) => messageRowOf(m, x)) };
+});
+
+// ---------------------------------------------------------------- Tidslinjens utfällda text (beslut 2026-10-02)
+// Meddelandets text eller avstämningens anteckning, hinder och närvarokommentar – hämtas först när posten fälls ut i
+// tidslinjen. Samma spärr som fliken (loadCase med flikens namn: teamet får null, kommunen har inte rutten) och samma
+// rader som fliken visar (messageRowOf; utkastets anteckning visas inte förrän avstämningen är godkänd). Ingen ctx.audit:
+// flikarna loggar inte heller visning av texten – kortets öppning loggas en gång (case.view).
+handleQuery(caseTimelineText, { roles: CASE_ROLES }, async (ctx, p): Promise<TimelineText | null> => {
+  const [kind, rawId] = p.id.split(":") as ["msg" | "ci", string];
+  const L = await loadCase(ctx, p.caseId, kind === "msg" ? "meddelanden" : "avstamningar");
+  if (!L) return null;
+  if (kind === "msg") {
+    const m = await ctx.repo.table("messages").get(rawId);
+    if (!m || m.caseId !== L.c.id) return null;
+    const x = await messageContext(ctx, L);
+    const row = messageRowOf(m, x);
+    // Oläst av den som tittar: bara kommunens meddelanden och bara för den som arbetar i ärendet (chef och admin läser utan kvitto).
+    const unreadByMe = !row.mine && CASE_WORKERS.includes(L.role) && !m.readBy.includes(L.me);
+    return { kind: "message", senderName: row.senderName, orgName: row.orgName, createdAt: row.createdAt, meetingRequest: row.meetingRequest, body: row.body, readText: row.readText, unreadByMe };
+  }
+  const ci = await ctx.repo.table("check_ins").get(rawId);
+  if (!ci || ci.caseId !== L.c.id) return null;
+  const approved = ci.status === "approved";
+  return { kind: "check_in", heldAt: ci.heldAt, approved, note: approved ? ci.note : "", obstacles: ci.obstacles, attendanceComment: approved ? (ci.attendanceComment ?? "") : "" };
 });
 
 // ---------------------------------------------------------------- Flik: Historik
@@ -1201,8 +1240,9 @@ const AUDIT_TEXT: Record<string, string> = {
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
   "intake.saved": "Kartläggning sparades", "intake.approved": "Kartläggning godkändes", "event.added": "Händelse registrerades", "result.verified": "Resultat verifierades",
-  "attendance.registered": "Närvaro registrerades", "report.approved": "Rapport godkändes", "report.delivered": "Rapport levererades", "report.corrected": "Rapport rättades", "report.view": "Rapport öppnades", "report.published": "Rapport publicerades",
+  "attendance.registered": "Närvaro registrerades", "attendance.registered_all": "Närvaro registrerades för flera tillfällen samma dag", "report.approved": "Rapport godkändes", "report.delivered": "Rapport levererades", "report.corrected": "Rapport rättades", "report.view": "Rapport öppnades", "report.published": "Rapport publicerades",
   "transcript.deleted": "Råtranskript raderades", "ai.run": "AI-körning", "audio.deleted": "Ljudfil raderades", "notify.email": "E-post skickades",
+  "voice_note.view": "Visade röstmeddelanden",
   "case_note.created": "Skrev anteckning", "case_note.updated": "Ändrade anteckning", "case_note.removed": "Tog bort anteckning",
   "case_note.used_in_summary": "Använde anteckning i sammanfattningen", "report.downloaded": "Rapport laddades ner som PDF", "report.created": "Rapportutkast skapades",
 };
@@ -1223,7 +1263,9 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
   const repIds = new Set(db.reports.map((r) => r.id));
   // Revisionsloggen läses via ctx.repo: behörigheten (policyn/RLS) avgör vilka poster rollen ser.
   const audit = (await ctx.repo.table("audit_log").list({ contractId: c.contractId })).filter(
-    (x) => x.entityId === c.id || x.details?.caseId === c.id || (x.entity === "report" && !!x.entityId && repIds.has(x.entityId)) || (x.entity === "person" && x.entityId === c.personId),
+    (x) =>
+      x.entityId === c.id || x.details?.caseId === c.id || (Array.isArray(x.details?.caseIds) && x.details.caseIds.includes(c.id)) ||
+      (x.entity === "report" && !!x.entityId && repIds.has(x.entityId)) || (x.entity === "person" && x.entityId === c.personId),
   );
   const auditOwn: LogEntry[] = ownOnly ? audit.filter((x) => x.actorId === me && !VIEW_ACTIONS.includes(x.action)) : audit;
   const log = (ownOnly ? [...auditOwn, ...ownActions(db, c, me, auditOwn, today)] : auditOwn).slice().sort(by<LogEntry>("occurredAt", -1));
@@ -1235,6 +1277,10 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
     if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";
     if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
+    // "Markera alla som närvarande": antalet tillfällen den dagen (alla deltagare) – raden hör till flera ärenden.
+    if (x.action === "attendance.registered_all") return plural(Number(dt.count ?? 0), "tillfälle", "tillfällen");
+    // Automatisk utkastsparning loggas en gång per besök på sidan.
+    if (dt.autosave === true) return "Sparades automatiskt";
     if (dt.reason) return String(dt.reason);
     if (dt.status && x.entity === "attendance") return attLabel(s(dt.status));
     if (dt.at) return fmtDateTimeLong(s(dt.at));

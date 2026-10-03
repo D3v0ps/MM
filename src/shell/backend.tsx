@@ -5,14 +5,17 @@ import { createContext, useCallback, useContext, useMemo, useState, type ReactNo
 import { keepPreviousData, QueryClient, QueryClientProvider, useQuery as useTanstackQuery, useQueryClient } from "@tanstack/react-query";
 import type { CommandDef, Invalidates, QueryDef } from "@/api/contract";
 
+/** Val per anrop. keepalive: anropet får slutföras även om sidan stängs (automatisk utkastsparning vid pagehide). */
+export type CommandOpts = { keepalive?: boolean };
 export type Backend = {
   mode: "demo" | "app";
   query(key: string, params: unknown): Promise<unknown>;
-  command(key: string, payload: unknown): Promise<unknown>;
+  command(key: string, payload: unknown, opts?: CommandOpts): Promise<unknown>;
 };
 
 export class BackendError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message: string) {
+  /** reason: vid 401 varför sessionen gick ut ("idle" = inaktiv, "max" = längsta tid) – från src/proxy.ts, visas på inloggningssidan. */
+  constructor(public readonly status: number, public readonly code: string, message: string, public readonly reason: string | null = null) {
     super(message);
   }
 }
@@ -21,17 +24,18 @@ export class BackendError extends Error {
 export const httpBackend: Backend = {
   mode: "app",
   query: (key, params) => rpc("query", key, params),
-  command: (key, payload) => rpc("command", key, payload),
+  command: (key, payload, opts) => rpc("command", key, payload, opts),
 };
-async function rpc(kind: "query" | "command", key: string, input: unknown) {
+async function rpc(kind: "query" | "command", key: string, input: unknown, opts?: CommandOpts) {
   const res = await fetch("/api/rpc", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ kind, key, input }),
     credentials: "same-origin",
+    ...(opts?.keepalive ? { keepalive: true } : {}),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new BackendError(res.status, body.code ?? "error", body.message ?? "Något gick fel. Försök igen.");
+  if (!res.ok) throw new BackendError(res.status, body.code ?? "error", body.message ?? "Något gick fel. Försök igen.", typeof body.reason === "string" ? body.reason : null);
   return body.result;
 }
 
@@ -45,7 +49,9 @@ export function BackendProvider({ backend, children }: { backend: Backend; child
           queries: {
             // Prototypen har all data lokalt; riktiga appen hämtar om efter 20 sekunder.
             staleTime: backend.mode === "demo" ? Infinity : 20_000,
-            retry: backend.mode === "demo" ? false : 1,
+            // Riktiga appen försöker en gång till vid nätverksfel – aldrig vid 401 (utloggad: sessionen hämtas om och appen
+            // leder till inloggningen) eller 403 (nekat: samma svar igen).
+            retry: (n, e) => backend.mode === "app" && n < 1 && !(e instanceof BackendError && (e.status === 401 || e.status === 403)),
             refetchOnWindowFocus: backend.mode === "app",
           },
         },
@@ -99,22 +105,23 @@ async function invalidate(qc: ReturnType<typeof useQueryClient>, inv: Invalidate
 }
 
 /**
- * Kör ett kommando. Efter ett lyckat anrop räknas frågorna om – alla (enkelt och korrekt i pilotens volym) om inte kommandot
- * anger något annat (CommandDef.invalidates, t.ex. "none" för loggkommandon) eller anroparen väljer (opts.invalidate).
- * Returnerar hanterarens resultat – affärsfel kommer som { ok: false, error }.
+ * Kör ett kommando. Efter ett lyckat anrop räknas exakt de frågor om som kontraktet anger (CommandDef.invalidates –
+ * grupperna i src/api/invalidation.ts, "none" för loggkommandon, "all" bara med motivering), om inte anroparen väljer en
+ * egen mängd (opts.invalidate, t.ex. en smalare vid automatisk utkastsparning). Returnerar hanterarens resultat – affärsfel
+ * kommer som { ok: false, error }.
  */
 export function useCommand<P, R>(def: CommandDef<P, R>, opts?: { invalidate?: Invalidates }) {
   const backend = useBackend();
   const qc = useQueryClient();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const invalidates = opts?.invalidate ?? def.invalidates ?? "all";
+  const invalidates = opts?.invalidate ?? def.invalidates;
   const run = useCallback(
-    async (payload: P): Promise<R> => {
+    async (payload: P, opts?: CommandOpts): Promise<R> => {
       setPending(true);
       setError(null);
       try {
-        const res = (await backend.command(def.key, payload)) as R;
+        const res = (await backend.command(def.key, payload, opts)) as R;
         await invalidate(qc, invalidates);
         return res;
       } catch (e) {

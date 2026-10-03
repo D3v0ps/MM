@@ -1,7 +1,7 @@
 // SupabaseRepo mot en fejkad query builder: filteröversättning, namnbyten, tidsomvandling, sidor, fel.
 // Dessutom: filtren ger samma rader som matches() i MemoryRepo (en liten tolk kör de inspelade PostgREST-filtren).
 import { describe, expect, it } from "vitest";
-import { MemoryRepo, MemoryStore, PolicyError } from "../memory";
+import { MemoryRepo, MemoryStore, PolicyError, UniqueError } from "../memory";
 import { matches, type Where } from "../repo";
 import { createSeed } from "../seed";
 import { TABLE_NAMES } from "../schema";
@@ -318,11 +318,17 @@ describe("skrivningar och fel", () => {
   it("RLS-fel blir PolicyError, andra fel DataError utan värden i meddelandet", async () => {
     const rls = fake(() => ({ data: null, error: { code: "42501", message: 'new row violates row-level security policy for table "cases"' } }));
     await expect(repoOf(rls.client).insert({ id: "x" } as T)).rejects.toBeInstanceOf(PolicyError);
+    // Unik nyckel (23505) blir UniqueError – samma fel som MemoryStore ger – med bara nyckelns namn, aldrig värdet.
     const dup = fake(() => ({ data: null, error: { code: "23505", message: "duplicate key value violates unique constraint", details: "Key (email)=(anna.andersson@botkyrka.se) already exists." } }));
     const err = await repoOf(dup.client).insert({ id: "x" } as T).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(DataError);
-    expect((err as Error).message).toBe("Databasfel i cases (23505)");
+    expect(err).toBeInstanceOf(UniqueError);
+    expect((err as UniqueError).code).toBe("23505");
+    expect((err as Error).message).toBe("Dubblett i cases (email)");
     expect((err as Error).message).not.toContain("@");
+    const other = fake(() => ({ data: null, error: { code: "23503", message: 'insert or update on table "cases" violates foreign key constraint', details: "Key (person_id)=(p-1) is not present." } }));
+    const err2 = await repoOf(other.client).insert({ id: "x" } as T).catch((e: unknown) => e);
+    expect(err2).toBeInstanceOf(DataError);
+    expect((err2 as Error).message).toBe("Databasfel i cases (23503)");
   });
 });
 
@@ -406,3 +412,15 @@ function evalOrPart(row: Record<string, unknown>, part: string): boolean {
   if (op === "in") return row[col] != null && splitOr(val.slice(1, -1)).map(unquote).includes(row[col]);
   throw new Error(`okänt or-filter ${part}`);
 }
+
+describe("updateIf (villkorad uppdatering)", () => {
+  it("filtret har id och villkoret; noll rader = null, annars raden", async () => {
+    const hit = fake((c) => (c.op === "update" ? { data: [{ id: "c1", status: "delivered" }], error: null } : { data: [], error: null }));
+    expect(await repoOf(hit.client).updateIf("c1", { status: "waiting" }, { status: "delivered" })).toEqual({ id: "c1", status: "delivered" });
+    expect(hit.calls[0].op).toBe("update");
+    expect(hit.calls[0].args).toEqual([{ status: "delivered" }]);
+    expect(filters(hit.calls[0])).toEqual([["eq", "id", "c1"], ["eq", "status", "waiting"]]);
+    const miss = fake(() => ({ data: [], error: null }));
+    expect(await repoOf(miss.client).updateIf("c1", { status: "waiting" }, { status: "delivered" })).toBeNull();
+  });
+});

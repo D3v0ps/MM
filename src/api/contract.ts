@@ -5,15 +5,18 @@ import type { z } from "zod";
 
 export type QueryDef<P, R> = { readonly kind: "query"; readonly key: string; readonly schema: z.ZodType<P>; readonly _result?: R };
 /**
- * Vilka frågor som räknas om efter ett lyckat kommando (useCommand): "all" (standard), "none" (kommandot ändrar inget som
- * visas – t.ex. bara loggning eller utlämning) eller prefix på frågornas nycklar ("rost.", "session.navCounts").
+ * Vilka frågor som räknas om efter ett lyckat kommando (useCommand): prefix på frågornas nycklar ("rost.",
+ * "session.navCounts" – de namngivna grupperna finns i src/api/invalidation.ts), "none" (kommandot ändrar inget som visas –
+ * bara loggning eller utlämning) eller "all" (bara med motivering i en kommentar: bakgrundsjobb vars följder inte är kända
+ * i förväg). Mängden bestäms av vilka tabeller kommandot skriver – inte av vad som råkar vara aktivt på skärmen – eftersom
+ * prototypen (staleTime oändlig) aldrig hämtar om en fråga som inte räknas om. Kontroll: src/api/invalidation.test.ts.
  */
 export type Invalidates = "all" | "none" | readonly string[];
 export type CommandDef<P, R> = {
   readonly kind: "command";
   readonly key: string;
   readonly schema: z.ZodType<P>;
-  readonly invalidates?: Invalidates;
+  readonly invalidates: Invalidates;
   readonly _result?: R;
 };
 export type AnyDef = QueryDef<unknown, unknown> | CommandDef<unknown, unknown>;
@@ -31,16 +34,17 @@ export function query<S extends z.ZodType>(key: string, schema: S) {
 }
 /**
  * Definiera ett kommando. Resultatet är ett värde – affärsfel returneras som { ok: false, error }, inte som undantag.
- * meta.invalidates: vilka frågor som räknas om efter kommandot (standard alla). Tysta kommandon (silent på servern) ska ange
- * det (src/api/invalidates.test.ts) – ett loggkommando som räknar om allt ger dubbla hämtningar på varje sida.
+ * meta.invalidates är obligatoriskt: exakt de frågor kommandot påverkar (prefix, se src/api/invalidation.ts), "none" för
+ * kommandon som bara loggar eller lämnar ut, "all" bara med motivering. Ett kommando som räknar om allt hämtar om varje
+ * aktiv fråga på sidan i onödan; ett som räknar om för lite lämnar prototypen med inaktuella uppgifter.
  */
-export function command<S extends z.ZodType>(key: string, schema: S, meta?: { invalidates?: Invalidates }) {
+export function command<S extends z.ZodType>(key: string, schema: S, meta: { invalidates: Invalidates }) {
   return {
     returns: <R>(): CommandDef<z.output<S>, R> => ({
       kind: "command",
       key,
       schema: schema as unknown as z.ZodType<z.output<S>>,
-      ...(meta?.invalidates ? { invalidates: meta.invalidates } : {}),
+      invalidates: meta.invalidates,
     }),
   };
 }

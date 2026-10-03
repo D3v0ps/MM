@@ -20,7 +20,9 @@ import { emptyDb, type Db, type Tables } from "@/data/schema";
 import { appendToSummary, assessmentPage, assessmentSave, canAppendToSummary, ASSESSMENT_SUMMARY_MAX, noteInSummary } from "@/features/coach/api";
 import { canonicalJson, reportModel, type ReportEnv } from "@/features/rapporter/model";
 import { isDelivered } from "@/features/rapporter/report-helpers";
-import { caseCard, caseMonthBasis, caseNoteRemove, caseNoteSave, caseTimeline, checkInsApprovedGap, type CaseCard, type CaseTimeline, type TimelineCat, type TimelineEntry } from "./api";
+import {
+  caseCard, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave, caseTimeline, caseTimelineText, checkInsApprovedGap, type CaseCard, type CaseTimeline, type TimelineCat, type TimelineEntry,
+} from "./api";
 import { monthReportState, monthReportStateLabel, monthReportStatusLabel } from "./timeline";
 import { reportCorrect } from "@/features/rapporter/api";
 
@@ -233,6 +235,57 @@ describe("tidslinjen (arenden.kortTidslinje)", () => {
 });
 
 // ================================================================ Anteckningar
+describe("tidslinjens utfällda text (arenden.kortTidslinjeText – beslut 2026-10-02)", () => {
+  const entries = async (caseId: string, actor: Actor) => (await allPages(caseId, actor)).flatMap((p) => p.months.flatMap((m) => m.entries));
+  const draftCheckIn = () => rt.store.rows("check_ins").find((x) => x.caseId === MEHMET && x.status === "draft")!;
+
+  it("grundfrågan märker posterna (text) men bär aldrig texten; teamet får inga sådana poster", async () => {
+    const all = await entries(NADIA, amira());
+    const msgs = all.filter((e) => e.id.startsWith("msg:"));
+    expect(msgs.length).toBeGreaterThan(0);
+    expect(msgs.every((e) => e.text === "message")).toBe(true);
+    const cis = all.filter((e) => e.id.startsWith("ci:"));
+    expect(cis.length).toBeGreaterThan(0);
+    for (const e of cis) {
+      const ci = rt.store.getRow("check_ins", e.id.slice(3))!;
+      const expected = ci.status === "approved" ? !!(ci.note.trim() || ci.obstacles.length || (ci.attendanceComment ?? "").trim()) : ci.obstacles.length > 0;
+      expect(e.text, e.id).toBe(expected ? "check_in" : undefined);
+    }
+    // Ingen post har själva texten – inte som body, note eller message.
+    const json = JSON.stringify(all.filter((e) => e.text));
+    expect(json).not.toMatch(/"body"|"obstacles"|Tack! Kan vi ses/);
+    // Handledaren (teamåtkomst): inga meddelande- eller avstämningsposter alls.
+    const team = await entries("case-260167", petra());
+    expect(team.filter((e) => e.text || e.id.startsWith("msg:") || e.id.startsWith("ci:"))).toEqual([]);
+  });
+
+  it("meddelandet: samma rad som fliken Meddelanden; avstämningen: anteckningen bara när den är godkänd; fel ärende och teamet får null; ingen loggrad", async () => {
+    const before = rt.store.rows("audit_log").length;
+    const tab = (await q(caseMessages, { caseId: NADIA }, amira()))!.messages.find((m) => m.id === "msg-3")!;
+    const t = await q(caseTimelineText, { caseId: NADIA, id: "msg:msg-3" }, amira());
+    // unreadByMe: Marias meddelande är oläst av Amira (skärmen markerar det som läst när texten fälls ut).
+    expect(t).toEqual({ kind: "message", senderName: tab.senderName, orgName: tab.orgName, createdAt: tab.createdAt, meetingRequest: tab.meetingRequest, body: tab.body, readText: tab.readText, unreadByMe: true });
+    expect(t && t.kind === "message" && t.body).toMatch(/^Tack! Kan vi ses/);
+    // Godkänd avstämning: anteckning, hinder och närvarokommentar som raden i fliken.
+    const approved = rt.store.rows("check_ins").find((x) => x.caseId === NADIA && x.status === "approved" && x.note.trim())!;
+    expect(await q(caseTimelineText, { caseId: NADIA, id: `ci:${approved.id}` }, amira())).toEqual({
+      kind: "check_in", heldAt: approved.heldAt, approved: true, note: approved.note, obstacles: approved.obstacles, attendanceComment: approved.attendanceComment ?? "",
+    });
+    // Utkast: "Granskas av coachen" – anteckningen lämnas inte ut, hindren visas.
+    const draft = draftCheckIn();
+    expect(await q(caseTimelineText, { caseId: MEHMET, id: `ci:${draft.id}` }, amira())).toEqual({ kind: "check_in", heldAt: draft.heldAt, approved: false, note: "", obstacles: draft.obstacles, attendanceComment: "" });
+    // Fel ärende i id, okänt id: null. Handledaren i ett teamärende: null (samma spärr som fliken). Chefen läser.
+    expect(await q(caseTimelineText, { caseId: NADIA, id: `ci:${draft.id}` }, amira())).toBeNull();
+    expect(await q(caseTimelineText, { caseId: NADIA, id: "msg:finns-inte" }, amira())).toBeNull();
+    const teamMsg = rt.store.rows("messages").find((m) => m.caseId === "case-260167");
+    expect(await q(caseTimelineText, { caseId: "case-260167", id: `msg:${teamMsg ? teamMsg.id : "msg-3"}` }, petra())).toBeNull();
+    expect(await q(caseTimelineText, { caseId: NADIA, id: "msg:msg-3" }, karin())).toMatchObject({ kind: "message", body: tab.body });
+    // Ekonomen nekas av rollkontrollen. Inga rader i revisionsloggen av någon av visningarna (som fliken).
+    await expect(q(caseTimelineText, { caseId: NADIA, id: "msg:msg-3" }, lars())).rejects.toBeInstanceOf(ApiError);
+    expect(rt.store.rows("audit_log").length).toBe(before);
+  });
+});
+
 describe("fria anteckningar (arenden.noteSave, arenden.noteRemove)", () => {
   const input = (p: Partial<{ caseId: string; noteId: string; occurredOn: string; kind: string; audience: string; body: string }> = {}) => ({
     caseId: NADIA, occurredOn: "2027-01-29", kind: "conversation", audience: "full", body: "Samtal om nästa vecka. Deltagaren kommer till yrkesmomentet på tisdag.", ...p,

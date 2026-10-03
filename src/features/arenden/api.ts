@@ -1,6 +1,7 @@
 // Kontrakt för området ärenden (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import {
   CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, TEAM_ROLES,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
@@ -22,6 +23,7 @@ import type { MonthlyGaps } from "../rapporter/model";
  * skyddade personuppgifter, plus en uppgift till avtalsansvarig). Kommunens handläggare beställer alltid i eget namn.
  * contractId: utelämnas = användarens aktiva avtal. Personnummer krypteras innan det sparas och skickas aldrig tillbaka.
  */
+// Omräkning brett med flit: ett nytt ärende syns i listor, inkorg, portal, KPI:er och fakturering, och skapar en uppgift.
 export const caseCreate = command("arenden.caseCreate", z.object({
   contractId: IdSchema.optional(),
   protectedIdentity: z.boolean().optional(),
@@ -49,7 +51,7 @@ export const caseCreate = command("arenden.caseCreate", z.object({
   plannedWeeks: z.number().int().min(1).max(52).nullable().optional(),
   plannedEnd: LocalDateSchema.nullable().optional(),
   background: z.string().max(4000).optional(),
-})).returns<Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract">>();
+}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract">>();
 
 /**
  * Acceptera avrop → orderbekräftelse (prototypens case.accept). Beställarreferensen valideras mot avtalets mönster
@@ -59,6 +61,7 @@ export const caseCreate = command("arenden.caseCreate", z.object({
  * (notify.suppressed). Samordnaren får forbidden – skyddade avrop hanteras av avtalsansvarig.
  * buyerReference: utelämnas = ärendets nuvarande referens.
  */
+// Omräkning brett med flit: skapar orderbekräftelsen (reports), ändrar inkorgen och deadlines, och ger coachen ärendet.
 export const caseAccept = command("arenden.caseAccept", z.object({
   caseId: IdSchema,
   leadCoachId: IdSchema,
@@ -67,13 +70,14 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   plannedWeeks: z.number().int().min(1).max(52).optional(),
   buyerReference: z.string().max(40).nullable().optional(),
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
-})).returns<Result<{ reportId: string; caseNumber: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<{ reportId: string; caseNumber: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team">>();
 
 /** Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. */
+// Omräkning som caseAccept (samma listor, inkorg och deadlines berörs).
 export const caseDecline = command("arenden.caseDecline", z.object({
   caseId: IdSchema,
   reason: z.string().max(2000),
-})).returns<Result<object, "not_found" | "reason" | "wrong_status" | "forbidden">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<object, "not_found" | "reason" | "wrong_status" | "forbidden">>();
 
 /** Fält som kan ändras med arenden.caseUpdate. Kommunens handläggare får bara ändra beställarens kontaktuppgifter. */
 export const CasePatchSchema = z.strictObject({
@@ -106,38 +110,39 @@ export const CUSTOMER_PATCH_FIELDS = ["referrerName", "referrerUnit", "referrerP
 export const caseUpdate = command("arenden.caseUpdate", z.object({
   caseId: IdSchema,
   patch: CasePatchSchema,
-})).returns<Result<{ changed: string[] }, "not_found" | "forbidden" | "po_number">>();
+}), { invalidates: [CASES, PORTAL, INBOX, BILLING, COACH, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "forbidden" | "po_number">>();
 
 /** Ändra beställarreferens (prototypens case.setBuyerRef). source = t.ex. uppgiftens id eller "ekonom". */
 export const caseSetBuyerRef = command("arenden.caseSetBuyerRef", z.object({
   caseId: IdSchema,
   reference: z.string().max(40),
   source: ShortText.optional(),
-})).returns<Result<object, "not_found" | "buyer_ref" | "forbidden">>();
+}), { invalidates: [CASES, BILLING, INBOX, PORTAL, REPORTS, MGMT, "coach.minVecka", "admin.users", NAV, ...LOG] }).returns<Result<object, "not_found" | "buyer_ref" | "forbidden">>();
 
 /** Boka första mötet (prototypens case.bookFirstMeeting). Kallelse via föredragen kontaktväg – aldrig vid skyddade personuppgifter. */
 export const caseBookFirstMeeting = command("arenden.caseBookFirstMeeting", z.object({
   caseId: IdSchema,
   at: LocalDateTimeSchema,
-})).returns<Result<object, "not_found" | "forbidden">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, MGMT, REPORTS, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
 
 /** Byt huvudcoach med orsak (prototypens case.changeCoach). Nya coachen och kommunen får notis utan personuppgifter. */
 export const caseChangeCoach = command("arenden.caseChangeCoach", z.object({
   caseId: IdSchema,
   toCoachId: IdSchema,
   reason: z.string().max(2000),
-})).returns<Result<object, "not_found" | "reason" | "coach" | "forbidden">>();
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<Result<object, "not_found" | "reason" | "coach" | "forbidden">>();
 
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
  * och exit-pulsmätning (inte vid skyddade personuppgifter). verified = arbete/studier är verifierat.
  */
+// Omräkning brett med flit: avslutet skapar slutrapporten och pulsinbjudan och påverkar fakturering, KPI:er och portalen.
 export const caseClose = command("arenden.caseClose", z.object({
   caseId: IdSchema,
   endDate: z.union([LocalDateSchema, z.literal("")]).nullable().optional(),
   endReason: z.union([z.enum(END_REASONS), z.literal("")]).nullable().optional(),
   verified: z.boolean().optional(),
-})).returns<Result<{ reportId: string; resultClass: ResultClass }, "not_found" | "missing" | "forbidden" | "wrong_status">>();
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "rost.", "puls.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<{ reportId: string; resultClass: ResultClass }, "not_found" | "missing" | "forbidden" | "wrong_status">>();
 
 /**
  * Säkert meddelande i ärendet (prototypens message.send). Från Miljonbemanning: kommunen får ett mejl utan innehåll.
@@ -146,12 +151,14 @@ export const caseClose = command("arenden.caseClose", z.object({
 export const messageSend = command("arenden.messageSend", z.object({
   caseId: IdSchema,
   body: LongText,
-})).returns<Result<{ messageId: string }, "not_found" | "forbidden" | "empty">>();
+}), { invalidates: [CARD, "arenden.lista", PORTAL, INBOX, "coach.minVecka", "notiser.", ...LOG] }).returns<Result<{ messageId: string }, "not_found" | "forbidden" | "empty">>();
 
 /** Läskvitto: markera andras meddelanden i ärendet som lästa (prototypens message.read, tyst). Gör inget för läsroller. */
 export const messageRead = command("arenden.messageRead", z.object({
   caseId: IdSchema,
-}), { invalidates: ["arenden.", "kommun.", "coach.", "notiser.", "session.navCounts"] }).returns<Result<{ marked: number }, "not_found">>();
+  /** Bara det här meddelandet (texten fälldes ut i tidslinjen). Utan: alla olästa i ärendet (fliken Meddelanden). */
+  messageId: IdSchema.optional(),
+}), { invalidates: [CARD, "arenden.lista", PORTAL, "inkorg.item", "coach.minVecka", "notiser."] }).returns<Result<{ marked: number }, "not_found">>();
 
 /** Samtycke till inspelning och AI (prototypens consent.set). Kan inte registreras vid skyddade personuppgifter. */
 export const consentSet = command("arenden.consentSet", z.object({
@@ -159,7 +166,7 @@ export const consentSet = command("arenden.consentSet", z.object({
   value: z.enum(["given", "declined", "revoked"]),
   /** Språket informationen gavs på (standard "lättläst svenska"). */
   language: z.string().max(60).optional(),
-})).returns<Result<object, "not_found" | "protected" | "forbidden">>();
+}), { invalidates: [CARD, "arenden.lista", "coach.checkInPage", "coach.assessmentPage", "coach.minVecka", "rost.", ...LOG] }).returns<Result<object, "not_found" | "protected" | "forbidden">>();
 
 // ---- Skärmarna i området ärenden (prototypens views/arenden.js: arenden.lista, arende.kort, hand.start)
 // Varje fråga returnerar en vy-modell med bara det skärmen visar och rollen får se. Personnummer skickas bara maskerat.
@@ -276,7 +283,8 @@ export type CaseCard = {
   phaseCount: number;
   /** Sedan när ärendet är i nuvarande fas (bara pågående). */
   phaseSince: string | null;
-  stuck: { days: number; phase: number; maxDays: number } | null;
+  /** Fastnat i fasen (gränsen i avtalet). acked = flaggan är kvitterad med åtgärdsplan (samma källa som Min vecka och listan). */
+  stuck: { days: number; phase: number; maxDays: number; acked: { byName: string; at: string } | null } | null;
   areaName: string;
   secondaryAreaName: string | null;
   vocationalTrack: string;
@@ -438,6 +446,11 @@ export type TimelineEntry = {
   /** Månaden som fliken Månadsunderlag ska öppnas på (?manad=). */
   month?: MonthKey;
   note?: TimelineNote;
+  /**
+   * Posten har text som kan fällas ut i tidslinjen ("Visa text"): meddelandets text eller avstämningens anteckning och
+   * hinder (arenden.kortTidslinjeText, hämtas först vid utfällning). Bara vid full åtkomst – teamet får aldrig sådana poster.
+   */
+  text?: "message" | "check_in";
 };
 export type CaseTimelineMonth = {
   month: MonthKey;
@@ -456,6 +469,20 @@ export type CaseTimeline = {
 };
 export const caseTimeline = query("arenden.kortTidslinje", CaseParams.extend({ visa: z.enum(TIMELINE_CATS).optional(), fore: MonthKeySchema.optional() })).returns<CaseTimeline | null>();
 
+/** Tidslinjepostens id för text som kan fällas ut: "msg:<meddelande>" eller "ci:<avstämning>". */
+export const TIMELINE_TEXT_ID = /^(msg|ci):[A-Za-z0-9_-]{1,64}$/;
+/** Texten bakom en tidslinjepost – samma uppgifter som fliken Meddelanden respektive Avstämningar visar. */
+export type TimelineText =
+  /** unreadByMe: meddelandet från kommunen är oläst av den som tittar – skärmen kör arenden.messageRead när texten fälls ut. */
+  | { kind: "message"; senderName: string; orgName: string; createdAt: LocalDateTime; meetingRequest: boolean; body: string; readText: string; unreadByMe: boolean }
+  /** note och attendanceComment bara när avstämningen är godkänd (utkast: tomma, som fliken – "Granskas av coachen"); hindren alltid. */
+  | { kind: "check_in"; heldAt: LocalDateTime; approved: boolean; note: string; obstacles: string[]; attendanceComment: string };
+/**
+ * Texten som fälls ut i tidslinjen (beslut 2026-10-02, Karim): hämtas först när posten fälls ut – aldrig i grundfrågan.
+ * Samma åtkomst som fliken (teamet och kommunen: null). Ingen extra loggning – flikarna loggar inte heller visning.
+ */
+export const caseTimelineText = query("arenden.kortTidslinjeText", CaseParams.extend({ id: z.string().regex(TIMELINE_TEXT_ID) })).returns<TimelineText | null>();
+
 // ---------------------------------------------------------------- Fria anteckningar (case_notes)
 /** Spara en ny anteckning eller ändra en egen. Personnummer och framtida datum nekas. Kommunen ser aldrig anteckningar. */
 export const caseNoteSave = command("arenden.noteSave", z.object({
@@ -465,13 +492,13 @@ export const caseNoteSave = command("arenden.noteSave", z.object({
   kind: z.enum(CASE_NOTE_KINDS),
   audience: z.enum(CASE_NOTE_AUDIENCES),
   body: z.string().trim().min(1).max(2000),
-})).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "pnr" | "date">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "pnr" | "date">>();
 
 /** Ta bort (dölja) en anteckning: författaren, eller samordnare och avtalsansvarig i avtalet. Inget raderas på riktigt. */
 export const caseNoteRemove = command("arenden.noteRemove", z.object({
   caseId: IdSchema,
   noteId: IdSchema,
-})).returns<Result<object, "not_found" | "forbidden" | "not_author">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author">>();
 
 // ---------------------------------------------------------------- Flik: Månadsunderlag (?flik=manad)
 /** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */

@@ -4,6 +4,7 @@ import { hidesCommercial } from "@/api/tester-access";
 import { listPersonas } from "@/data/actors";
 import { personaOptionsFor, toOption } from "@/server/identity";
 import { liveSession } from "@/server/live";
+import { memorySessionView } from "@/server/memory-session-view";
 import { BACKEND, currentPersona, memoryRuntime } from "@/server/runtime";
 import type { SessionView } from "@/server/session-view";
 
@@ -12,16 +13,9 @@ const noStore = { "cache-control": "no-store" };
 export async function GET() {
   if (BACKEND !== "supabase") {
     const persona = await currentPersona();
-    // Minnesläget: en simulerad testare (e2e, /api/dev-session med testerId) får samma lista som i testmiljön.
-    const view: SessionView = {
-      backend: "memory",
-      environment: "memory",
-      authenticated: !!persona,
-      persona: persona ? { actor: persona.actor, user: persona.user } : undefined,
-      isTester: false,
-      personas: personaOptionsFor(listPersonas(memoryRuntime().raw()).map(toOption), persona?.actor),
-      hidesCommercial: hidesCommercial(persona?.actor),
-    };
+    // Minnesläget: en simulerad testare (e2e, /api/dev-session med testerId) får samma lista som i testmiljön och räknas
+    // som testare (synpunkterna och raden Testmiljö visas) – src/server/memory-session-view.ts.
+    const view = memorySessionView(persona, personaOptionsFor(listPersonas(memoryRuntime().raw()).map(toOption), persona?.actor));
     return Response.json(view, { headers: noStore });
   }
   try {

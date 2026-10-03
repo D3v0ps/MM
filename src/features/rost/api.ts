@@ -18,6 +18,7 @@
 // src/features/kommun/api.ts (kommun.dictationFinish).
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { LOG, CARD } from "@/api/invalidation";
 import type { LocalDateTime } from "@/core/time";
 import { AUDIO_PURPOSES, type AiRunStatus, type VoiceLinkChannel, type VoiceNoteStatus } from "@/data/schema";
 import { IdSchema } from "../_shared/schemas";
@@ -54,7 +55,7 @@ export type UploadTicket = { uploadId: string; uploadUrl: string | null; expires
 export type UploadStartError =
   | "not_found" | "forbidden" | "link_missing" | "link_used" | "link_expired" | "disabled" | "protected" | "no_consent" | "too_many" | "too_long"
   | "audio_type" | "audio_size" | "ai_unavailable" | "consent";
-export const uploadStart = command("rost.uploadStart", UploadStartSchema).returns<Result<{ ticket: UploadTicket; maxMinutes: number }, UploadStartError>>();
+export const uploadStart = command("rost.uploadStart", UploadStartSchema, { invalidates: "none" }).returns<Result<{ ticket: UploadTicket; maxMinutes: number }, UploadStartError>>();
 
 /** Läget för en AI-körning som skärmen väntar på. error är en fast text utan personuppgifter. */
 export type VoiceState = { aiRunId: string; status: AiRunStatus; error: string | null; audioDeletedAt: LocalDateTime | null };
@@ -91,7 +92,7 @@ export const rostSend = command("rost.send", z.object({
   /** Deltagaren har godkänt samtyckestexten (krävs). Versionen som sparas är den aktuella (VOICE_CONSENT_VERSION). */
   consent: z.literal(true),
   durationSec: z.number().min(0).max(86_400).nullish(),
-})).returns<Result<VoiceState, SendError>>();
+}), { invalidates: ["rost.", "coach.minVecka", CARD, ...LOG] }).returns<Result<VoiceState, SendError>>();
 
 export const rostSendStatus = query("rost.sendStatus", z.object({ token: TokenSchema.optional(), aiRunId: IdSchema })).returns<VoiceState | null>();
 
@@ -153,14 +154,14 @@ export type LinkSendError = "not_found" | "forbidden" | "protected" | "disabled"
  * path: länkens sökväg ("/rost/<token>") – bara i minnesläget och prototypen (ctx.exposeLinkPaths), där den visas som
  * förhandsvisning. Servern i supabase-läget svarar null: token finns bara i utskicket till deltagaren.
  */
-export const linkSend = command("rost.linkSend", z.object({ caseId: IdSchema, language: z.enum(ROST_LANGS) })).returns<
+export const linkSend = command("rost.linkSend", z.object({ caseId: IdSchema, language: z.enum(ROST_LANGS) }), { invalidates: ["rost.", "arenden.kortHistorik", ...LOG] }).returns<
   Result<{ linkId: string; path: string | null; expiresAt: LocalDateTime; channel: VoiceLinkChannel }, LinkSendError>
 >();
 
 /** Deltagarens röstmeddelanden visades (loggas i revisionsloggen – transkript, CLAUDE.md punkt 3). Tyst. */
 export const notesSeen = command("rost.notesSeen", z.object({ caseId: IdSchema }), { invalidates: "none" }).returns<Result<object, "not_found">>();
 
-export const noteReview = command("rost.noteReview", z.object({ noteId: IdSchema, status: z.enum(["new", "reviewed", "archived"]) })).returns<Result<object, "not_found" | "forbidden">>();
+export const noteReview = command("rost.noteReview", z.object({ noteId: IdSchema, status: z.enum(["new", "reviewed", "archived"]) }), { invalidates: ["rost.", "coach.minVecka", "arenden.kortHistorik", ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
 
 export type PendingNoteRow = { id: string; caseId: string; caseNumber: string; name: string; createdAt: LocalDateTime; languageName: string; translated: boolean; excerpt: string };
 export const pendingNotes = query("rost.pendingNotes", z.object({})).returns<PendingNoteRow[]>();

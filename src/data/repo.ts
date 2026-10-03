@@ -12,6 +12,17 @@ export class PolicyError extends Error {
     super(`Behörighet saknas för ${table}`);
   }
 }
+/**
+ * En unik nyckel i tabellen stoppade skrivningen (Postgres 23505, MemoryStore: UNIQUE_KEYS i schema.ts). Samma fel i
+ * båda körlägena, så att en hanterare kan läsa om raden och uppdatera den i stället (t.ex. två samtidiga närvaroregistreringar).
+ */
+export class UniqueError extends Error {
+  readonly code = "23505";
+  constructor(public readonly table: string, public readonly key: string) {
+    super(`Dubblett i ${table} (${key})`);
+    this.name = "UniqueError";
+  }
+}
 export type Cmp<V> =
   | V
   | { in: readonly V[] }
@@ -43,6 +54,12 @@ export interface Table<T extends Row> {
   count(where?: Where<T>): Promise<number>;
   insert(row: T): Promise<T>;
   update(id: string, patch: Partial<T>): Promise<T>;
+  /**
+   * Villkorad uppdatering: raden ändras bara om den fortfarande matchar where (t.ex. { status: "waiting" } eller
+   * { version: 3 }) – kontroll och skrivning i ett steg (Postgres: update … where id = ? and …; minnet: synkront). null = raden
+   * matchade inte längre (någon annan hann före), finns inte eller får inte ändras.
+   */
+  updateIf(id: string, where: Where<T>, patch: Partial<T>): Promise<T | null>;
   remove(id: string): Promise<void>;
 }
 

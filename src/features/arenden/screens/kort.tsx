@@ -11,7 +11,7 @@ import { useSession } from "@/shell/session";
 import { DemoOnly } from "@/shell/runtime";
 import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { kr } from "@/core/format";
-import { addWorkingDays, dayOf, fmtDate, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
+import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
   anchorTabs, PhaseBar, PhaseTag, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
@@ -352,8 +352,10 @@ function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openMo
           {c.protectedIdentity && <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>}
           {c.readOnly && <Badge tone="outline" icon="eye">Läsläge</Badge>}
           {c.stuck && (
-            <Badge tone="grey" icon="clock">
+            // Kvitterad flagga (Min vecka, listan): taggen säger det – annars ser det ut som att kvitteringen inte tog.
+            <Badge tone={c.stuck.acked ? "outline" : "grey"} icon={c.stuck.acked ? "check" : "clock"}>
               Fastnat: {c.stuck.days} dagar i fas {c.stuck.phase} (gräns {c.stuck.maxDays})
+              {c.stuck.acked ? ` · kvitterad av ${c.stuck.acked.byName} ${fmtDateShort(c.stuck.acked.at)}` : ""}
             </Badge>
           )}
         </span>

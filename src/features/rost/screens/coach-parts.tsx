@@ -43,22 +43,38 @@ function NoteTags({ n }: { n: Pick<VoiceNoteView, "translated" | "languageName">
 /**
  * Röstmeddelandena som en rad i deltagarkortets huvud: "Röstmeddelanden: 1 nytt" och knappen "Läs", som fäller ut hela rutan
  * under raden. Utan meddelanden: "Inga röstmeddelanden" och "Skicka inspelningslänk". autoOpen (?visa=rost, länken
- * "Läs röstmeddelandet" på Min vecka): utfälld och i bild. Visningen loggas som tidigare när kortet visas.
+ * "Läs röstmeddelandet" på Min vecka): utfälld och i bild. Visningen loggas när texten fälls ut (beslut 2026-10-02) –
+ * inte när kortet laddas.
  */
 export function VoiceNotesRow({ caseId, autoOpen, className }: { caseId: string; autoOpen?: boolean; className?: string }) {
   const q = useQuery(caseVoice, { caseId });
   const seen = useCommand(notesSeen);
   const v = q.data;
   const count = v?.notes.length ?? 0;
-  // Röstmeddelandena är transkript: visningen loggas en gång per sidvisning (CLAUDE.md punkt 3).
-  useAuditView(count > 0 ? `voice_note.view:${caseId}` : null, () => seen.run({ caseId }).catch(() => undefined));
   const [open, setOpen] = useState(!!autoOpen);
   const [send, setSend] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const loaded = !!v;
-  // Utfälld från början (useState ovan); när innehållet har kommit: skrolla raden i bild.
+  // Röstmeddelandena är transkript (CLAUDE.md punkt 3): visningen loggas vid varje utfällning av texten – en ny visning –
+  // och aldrig när kortet bara laddas eller när raden fälls ihop. "Nytt" räknas bort först när coachen markerar som granskat.
+  const logView = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    logView.current = () => {
+      if (count > 0) void seen.run({ caseId }).catch(() => undefined);
+    };
+  });
+  const show = (o: boolean) => {
+    setOpen(o);
+    if (o) logView.current();
+  };
+  // Utfälld från början (?visa=rost): loggas en gång när innehållet har kommit, och raden skrollas i bild.
+  const autoLogged = useRef(false);
   useEffect(() => {
     if (!autoOpen || !loaded) return;
+    if (!autoLogged.current) {
+      autoLogged.current = true;
+      logView.current();
+    }
     const t = window.setTimeout(() => ref.current?.scrollIntoView({ block: "start" }), 0);
     return () => window.clearTimeout(t);
   }, [autoOpen, loaded]);
@@ -81,14 +97,14 @@ export function VoiceNotesRow({ caseId, autoOpen, className }: { caseId: string;
         ) : (
           <span>{count === 1 ? "1 granskat" : `${count} granskade`}</span>
         )}
-        <Button kind="ghost" icon={open ? "chevron-up" : "chevron-down"} aria-expanded={open} aria-controls="rost-kropp" onClick={() => setOpen(!open)}>
+        <Button kind="ghost" icon={open ? "chevron-up" : "chevron-down"} aria-expanded={open} aria-controls="rost-kropp" onClick={() => show(!open)}>
           {open ? "Dölj" : count > 0 ? "Läs" : "Visa"}
         </Button>
         {count === 0 && canSend && !open && (
           <Button
             icon="send"
             onClick={() => {
-              setOpen(true);
+              show(true);
               setSend(true);
             }}
           >

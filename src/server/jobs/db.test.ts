@@ -33,6 +33,7 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
     pickJson: unsupported,
     first: unsupported,
     count: unsupported,
+    updateIf: unsupported,
     async insert(row: T) {
       await tx.query(`insert into public.${name} select * from json_populate_record(null::public.${name}, $1::json)`, [JSON.stringify(toDbRow(row as Record<string, unknown>))]);
       return row;

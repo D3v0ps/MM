@@ -9,6 +9,7 @@
 // utan ärendenummer (period, arbetsuppgifter och de fyra rätten) – så att registret visar hur arbetsgivaren används.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CASES, START } from "@/api/invalidation";
 import type { FourRights, PlacementStatus } from "@/data/schema";
 import { IdSchema, LocalDateSchema, ShortText } from "../_shared/schemas";
 
@@ -100,8 +101,8 @@ export const praktikEmployerAdd = command("praktik.employerAdd", z.object({
   phone: ShortText,
   email: ShortText,
   areas: z.array(z.string().max(5)).max(20),
-})).returns<Result<{ employerId: string }, "name" | "orgNr" | "email" | "duplicate" | "areas">>();
+}), { invalidates: ["praktik.", "coach.eventsPage", "arenden.kortPraktik", ...LOG] }).returns<Result<{ employerId: string }, "name" | "orgNr" | "email" | "duplicate" | "areas">>();
 
 export const RIGHT_KEYS = ["uppgift", "handledning", "timing", "uppfoljning"] as const;
-export const praktikSetRight = command("praktik.setRight", z.object({ placementId: IdSchema, right: z.enum(RIGHT_KEYS), value: z.boolean() })).returns<Result<object, "not_found">>();
-export const praktikAddFollowUp = command("praktik.addFollowUp", z.object({ placementId: IdSchema, date: LocalDateSchema })).returns<Result<object, "not_found" | "date">>();
+export const praktikSetRight = command("praktik.setRight", z.object({ placementId: IdSchema, right: z.enum(RIGHT_KEYS), value: z.boolean() }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, ...LOG] }).returns<Result<object, "not_found">>();
+export const praktikAddFollowUp = command("praktik.addFollowUp", z.object({ placementId: IdSchema, date: LocalDateSchema }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, ...LOG] }).returns<Result<object, "not_found" | "date">>();

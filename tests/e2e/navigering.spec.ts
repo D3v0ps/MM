@@ -2,7 +2,7 @@
 // Samma test körs mot prototypen (hash-navigering) och appen (grunda history-anrop). Nätverkskontrollerna – inget
 // serveranrop för sidan (RSC) och ingen ny hämtning av sessionen – gäller bara appen.
 import { expect, test, type Page, type Request, type TestInfo } from "@playwright/test";
-import { isDemo, loaded, open } from "./helpers";
+import { isDemo, leaveWarnings, loaded, open } from "./helpers";
 
 type Who = { userId: string; role: string };
 const AMIRA: Who = { userId: "u-amira", role: "coach" };
@@ -334,6 +334,9 @@ test("byte av testperson med osparad text: appen frågar först – Stanna kvar 
   test.skip(isDemo(info), "Utvecklingslägets val av testperson finns bara i appen.");
   const errors = await open(page, info, `/avstamning/${NADIA}`, AMIRA);
   await page.locator("#ci-note").fill("Osparad anteckning");
+  // Utkastet sparas annars automatiskt innan bytet (D2 punkt 2): röd status utan avvikelse kan inte sparas – då frågar appen.
+  await page.getByRole("group", { name: "Samlad status" }).getByRole("button", { name: /Röd/ }).click();
+  await expect(page.locator("[data-autosave]")).toHaveText("Sparas inte automatiskt förrän avvikelsen är ifylld", { timeout: 6000 });
   await page.selectOption("#dev-persona", "u-sara|samordnare");
   const ask = page.getByRole("dialog", { name: "Du har inte sparat" });
   await expect(ask).toBeVisible();
@@ -370,4 +373,147 @@ test("byte av testperson: på ett deltagarkort leder bytet till startsidan, på 
   expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe("/arenden?status=active");
   await expect(page.locator("#arn-status")).toHaveValue("active");
   expect(errors).toEqual([]);
+});
+
+// ------------------------------------------------------------ 12. Utloggad under tiden (bara appen)
+// Minnesläget loggar aldrig ut, så servern simuleras: /api/rpc svarar 401 och /api/session svarar som en utloggad
+// supabase-session (page.route). Appen ska hämta sessionen om EN gång, inte försöka frågan igen, och leda till
+// inloggningen med ?till=<sökväg> – grunt, utan omladdning. Efter inloggningen (mockad /api/auth/*) laddas sidan på till.
+const ANON = { backend: "supabase", environment: "staging", authenticated: false, isTester: false, personas: [], hidesCommercial: false };
+const json = (body: unknown, status = 200) => ({ status, contentType: "application/json", body: JSON.stringify(body) });
+
+/** Servern "loggar ut": varje fråga får 401 (med orsaken, som src/proxy.ts) och sessionen är anonym. */
+async function serverSignsOut(page: Page, reason?: "idle" | "max") {
+  await page.route("**/api/rpc", (route) => route.fulfill(json({ code: "unauthenticated", message: "Du har loggats ut. Logga in igen.", ...(reason ? { reason } : {}) }, 401)));
+  await page.route("**/api/session", (route) => route.fulfill(json(ANON)));
+}
+/** Tillbaka till minneslägets riktiga server (testpersonen i kakan). Inloggningens kodsteg mockas (finns inte i minnet). */
+async function serverSignsInAgain(page: Page) {
+  await page.unroute("**/api/rpc");
+  await page.unroute("**/api/session");
+  await page.route("**/api/auth/code", (route) => route.fulfill(json({ ok: true })));
+  await page.route("**/api/auth/verify", (route) => route.fulfill(json({ ok: true })));
+}
+/** Räknar rpc-anrop per nyckel, sessionshämtningar och dokumentladdningar från och med nu. */
+function watchCalls(page: Page) {
+  const rpc: Record<string, number> = {};
+  const seen = { session: 0, doc: 0 };
+  const on = (r: Request) => {
+    const u = r.url();
+    if (r.resourceType() === "document") seen.doc++;
+    else if (u.includes("/api/session")) seen.session++;
+    else if (u.includes("/api/rpc")) {
+      const key = String((r.postDataJSON() as { key?: string } | null)?.key ?? "?");
+      rpc[key] = (rpc[key] ?? 0) + 1;
+    }
+  };
+  page.on("request", on);
+  return { rpc, seen, stop: () => page.off("request", on) };
+}
+const relevant = (errors: string[]) => errors.filter((e) => !/Failed to load resource/.test(e));
+/** Logga in på den mockade inloggningssidan (vilken adress och kod som helst – /api/auth/* är mockat). */
+async function logIn(page: Page, ids: { email: string; code: string }) {
+  await page.fill(ids.email, "amira.haddad@miljonbemanning.se");
+  await page.getByRole("button", { name: "Skicka kod" }).click();
+  await expect(page.locator(ids.code)).toBeVisible();
+  await page.fill(ids.code, "123456");
+  await page.getByRole("button", { name: "Logga in", exact: true }).click();
+}
+
+test("utloggad under tiden: ett grunt sidbyte leder till inloggningen med till=sökvägen – en sessionshämtning, inget nytt försök, ingen omladdning – och till följs efter inloggningen", async ({ page }, info) => {
+  test.skip(isDemo(info), "Prototypen loggar aldrig ut – servern simuleras bara i appen.");
+  const errors = await open(page, info, "/min-vecka", AMIRA);
+  // Grunt byte till Rapporter medan allt är som vanligt.
+  const quiet = watchServer(page);
+  await page.locator("aside nav").getByRole("link", { name: /^Rapporter/ }).first().click();
+  await expect.poll(() => here(page, info)).toBe("/rapporter");
+  await settle(page, info);
+  quiet.stop();
+  expect(quiet.seen).toEqual({ rsc: 0, doc: 0, session: 0 });
+
+  // Servern loggar ut (inaktiv). Nästa grunta byte (Mina ärenden – inte hämtat ännu) får 401.
+  await serverSignsOut(page, "idle");
+  const calls = watchCalls(page);
+  await page.locator("aside nav").getByRole("link", { name: /^Mina ärenden/ }).first().click();
+  await expect(page).toHaveURL(/\/logga-in\?till=%2Farenden&utloggad=inaktiv$/, { timeout: 10_000 });
+  await expect(main(page).locator("h1")).toHaveText(/Logga in/);
+  await expect(page).toHaveTitle("Logga in – Miljonmatch");
+  // Inloggningssidan säger varför och att man kommer tillbaka (granskning 2026-10-03).
+  await expect(main(page)).toContainText("Du har loggats ut eftersom du inte har gjort något på 60 minuter. Logga in igen. Efter inloggningen kommer du tillbaka till sidan du var på.");
+  await page.waitForTimeout(1500); // ett nytt försök (retry) skulle komma efter 1 s
+  calls.stop();
+  expect(calls.seen.doc, "ingen omladdning").toBe(0);
+  expect(calls.seen.session, "sessionen hämtas om exakt en gång").toBe(1);
+  expect(calls.rpc["arenden.lista"], "frågan görs en gång – inget nytt försök på 401").toBe(1);
+  for (const [key, n] of Object.entries(calls.rpc)) expect(n, `${key} görs högst en gång`).toBeLessThanOrEqual(1);
+  // Bara sökvägen i till – aldrig query eller söktext.
+  expect(new URL(page.url()).searchParams.get("till")).toBe("/arenden");
+
+  // Inloggningen: sidan laddas om på till, som Amira (minneslägets riktiga session).
+  await serverSignsInAgain(page);
+  await logIn(page, { email: "#login-email", code: "#login-code" });
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/arenden");
+  await loaded(page);
+  await expect(main(page).locator("h1")).toContainText("Ärenden", { ignoreCase: true });
+  await expect(page.getByRole("table", { name: "Ärenden" })).toBeVisible();
+  await expect(page.locator("#dev-persona")).toHaveValue("u-amira|coach");
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("utloggad med osparad text: inloggningen nås utan frågan 'Du har inte sparat' (utkastet sparas automatiskt innan dess)", async ({ page }, info) => {
+  test.skip(isDemo(info), "Prototypen loggar aldrig ut – servern simuleras bara i appen.");
+  const errors = await open(page, info, `/avstamning/${NADIA}`, AMIRA);
+  await page.locator("#ci-note").fill("Anteckning som skrivs precis när sessionen går ut");
+  // Servern loggar ut direkt efter – den automatiska utkastsparningen (2 s) får 401 medan texten står som osparad.
+  await serverSignsOut(page);
+  const calls = watchCalls(page);
+  await expect(page).toHaveURL(new RegExp(`/logga-in\\?till=%2Favstamning%2F${NADIA}&utloggad=session$`), { timeout: 15_000 });
+  await expect(page.getByRole("dialog", { name: "Du har inte sparat" })).toHaveCount(0);
+  // Utan orsak från servern: den allmänna texten, och att man kommer tillbaka.
+  await expect(main(page)).toContainText("Du har loggats ut. Logga in igen. Efter inloggningen kommer du tillbaka till sidan du var på.");
+  await expect(main(page).locator("h1")).toHaveText(/Logga in/);
+  calls.stop();
+  expect(calls.seen.doc).toBe(0);
+  expect(calls.seen.session).toBe(1);
+  expect(calls.rpc["coach.checkinSave"]).toBe(1);
+  expect(leaveWarnings(page), "ingen beforeunload-varning").toBe(0);
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("utloggad i portalen: kommunens sökvägar leder till portalens inloggning med till", async ({ page }, info) => {
+  test.skip(isDemo(info), "Prototypen loggar aldrig ut – servern simuleras bara i appen.");
+  const errors = await open(page, info, "/portal", MARIA);
+  await serverSignsOut(page);
+  const calls = watchCalls(page);
+  await page.getByRole("navigation").getByRole("link", { name: /^Mina deltagare/ }).first().click();
+  await expect(page).toHaveURL(/\/portal\/logga-in\?till=%2Fportal%2Fdeltagare&utloggad=session$/, { timeout: 10_000 });
+  await expect(main(page).locator("h1")).toHaveText(/Logga in/);
+  await expect(main(page)).toContainText("Du har loggats ut. Logga in igen. Efter inloggningen kommer du tillbaka till sidan du var på.");
+  calls.stop();
+  expect(calls.seen.doc).toBe(0);
+  expect(calls.seen.session).toBe(1);
+  // Inloggningen leder till deltagarlistan som Maria.
+  await serverSignsInAgain(page);
+  await logIn(page, { email: "#kom-login-email", code: "#kom-login-code" });
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/portal/deltagare");
+  await loaded(page);
+  await expect(main(page).locator("h1")).toContainText("deltagare", { ignoreCase: true });
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("till till en annan webbplats följs aldrig: efter inloggningen hamnar man på startsidan", async ({ page }, info) => {
+  test.skip(isDemo(info), "Inloggningen med till prövas i appen.");
+  const errors = await open(page, info, "/min-vecka", AMIRA);
+  for (const till of ["https://evil.example/", "//evil.example", "/api/rpc", "/logga-in"]) {
+    await page.route("**/api/session", (route) => route.fulfill(json(ANON)));
+    await page.goto(`/logga-in?till=${encodeURIComponent(till)}`);
+    await loaded(page);
+    await expect(main(page).locator("h1")).toHaveText(/Logga in/);
+    await serverSignsInAgain(page);
+    await logIn(page, { email: "#login-email", code: "#login-code" });
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/min-vecka");
+    expect(new URL(page.url()).hostname, till).toBe("localhost");
+    await loaded(page);
+  }
+  expect(relevant(errors)).toEqual([]);
 });

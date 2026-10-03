@@ -2,7 +2,7 @@
 // Behörigheten speglar Row Level Security: varje läsning filtreras genom policyn för tabellen,
 // så att prototypen visar exakt det rollen skulle få se i den riktiga databasen.
 import type { Actor } from "@/api/roles";
-import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
+import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, UniqueError, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
@@ -19,7 +19,10 @@ export type RawAccess<TT extends Record<string, Row>> = {
   all<N extends keyof TT & string>(name: N): readonly TT[N][];
 };
 
-export { PolicyError };
+export { PolicyError, UniqueError };
+
+/** Unika nycklar per tabell (speglar databasens unika index): fält vars värde bara får finnas på en rad. */
+export type UniqueKeys<TT extends Record<string, Row>> = { [N in keyof TT]?: readonly (keyof TT[N] & string)[] };
 
 /** Datat plus index på id. Delas mellan flera repo-instanser (en per aktör och anrop). */
 export class MemoryStore<TT extends Record<string, Row>> {
@@ -27,8 +30,19 @@ export class MemoryStore<TT extends Record<string, Row>> {
   /** Ökas vid varje skrivning – används för att veta när frågor behöver räknas om. */
   version = 0;
 
-  constructor(public data: MemoryData<TT>) {
+  /** unique: samma unika nycklar som databasen (UNIQUE_KEYS i schema.ts) – en dubblett stoppas med UniqueError, som i Postgres. */
+  constructor(public data: MemoryData<TT>, private unique: UniqueKeys<TT> = {}) {
     for (const name of Object.keys(data)) this.reindex(name);
+  }
+  /** Kontroll mot tabellens unika nycklar: finns en annan rad med samma värde stoppas skrivningen. */
+  private checkUnique(name: string, row: Row) {
+    const keys = (this.unique as Record<string, readonly string[] | undefined>)[name];
+    if (!keys) return;
+    const r = row as Record<string, unknown>;
+    for (const k of keys) {
+      if (r[k] == null) continue;
+      if (this.rows(name as keyof TT & string).some((x) => x.id !== row.id && (x as Record<string, unknown>)[k] === r[k])) throw new UniqueError(name, k);
+    }
   }
   private reindex(name: string) {
     const m = new Map<string, Row>();
@@ -48,7 +62,9 @@ export class MemoryStore<TT extends Record<string, Row>> {
     return this.byId.get(name)?.get(id) as TT[N] | undefined;
   }
   insertRow<N extends keyof TT & string>(name: N, row: TT[N]) {
-    if (this.getRow(name, row.id)) throw new Error(`Dubblett-id i ${name}: ${row.id}`);
+    // Samma id igen: samma fel som databasens primärnyckel ger (23505), så att t.ex. jobbkön kan känna igen dubbletten.
+    if (this.getRow(name, row.id)) throw new UniqueError(name, "id");
+    this.checkUnique(name, row);
     this.rows(name).push(row);
     if (!this.byId.has(name)) this.byId.set(name, new Map());
     this.byId.get(name)!.set(row.id, row);
@@ -57,6 +73,7 @@ export class MemoryStore<TT extends Record<string, Row>> {
   updateRow<N extends keyof TT & string>(name: N, id: string, patch: Partial<TT[N]>): TT[N] {
     const cur = this.getRow(name, id);
     if (!cur) throw new Error(`Saknas i ${name}: ${id}`);
+    this.checkUnique(name, { ...cur, ...patch, id });
     Object.assign(cur, patch, { id });
     this.version++;
     return cur;
@@ -121,6 +138,14 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         if (!cur || !canRead(cur)) throw new PolicyError(name);
         const next = { ...cur, ...patch, id } as TT[N];
         if (!canWrite(next)) throw new PolicyError(name);
+        return clone(store.updateRow(name, id, clone(patch)));
+      },
+      // Kontroll och skrivning i samma synkrona steg – två kommandon som körs samtidigt kan inte båda få raden.
+      updateIf: async (id, where, patch) => {
+        const cur = store.getRow(name, id);
+        if (!cur || !canRead(cur) || !matches(cur, where)) return null;
+        const next = { ...cur, ...patch, id } as TT[N];
+        if (!canWrite(next)) return null;
         return clone(store.updateRow(name, id, clone(patch)));
       },
       remove: async (id) => {

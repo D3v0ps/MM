@@ -13,6 +13,7 @@
 // Inloggningen (/portal/logga-in) går via AuthPort (useAuth i src/shell/session.tsx) och har inget eget kommando här.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, PORTAL, MGMT, START } from "@/api/invalidation";
 import type { CaseSource, CaseStatus, ContractDeviationSource, ContractDeviationType, ReportKind, TaskKind } from "@/data/schema";
 import type { ProgressionRuleText } from "@/core/config";
 import { IdSchema, MonthKeySchema } from "../_shared/schemas";
@@ -377,7 +378,7 @@ export const resultExport = command("kommun.resultatExport", z.object({
   to: MonthKeySchema,
   format: z.enum(["xlsx", "csv"]),
   table: z.enum(RESULT_TABLES).optional(),
-}), { invalidates: "none" }).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty" | "schema">>();
+}), { invalidates: ["kommun.resultatForhandsvisning", ...LOG] }).returns<Result<{ filename: string; mime: string; encoding: "text" | "base64"; content: string; rows: number; cases: number }, "forbidden" | "period" | "empty" | "schema">>();
 
 // ================================================================ Rapporter från Miljonbemanning (/portal/resultat/rapporter – rapporter steg 4)
 // Rapporter som Miljonbemanning har byggt i rapportbyggaren och delat med kommunens chef. Chefen kan inte ändra något (inte
@@ -412,13 +413,13 @@ export const kommunTestPersonas = query("kommun.testpersoner", z.object({ userId
 
 // ================================================================ Kommandon (prototypens kom.*)
 /** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa på startsidan (tyst). */
-export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: ["kommun.", "session.navCounts"] }).returns<Result<object, "not_found">>();
+export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: [PORTAL, NAV] }).returns<Result<object, "not_found">>();
 
 /** Handläggaren markerar en uppgift från Miljonbemanning som klar. */
-export const kommunTaskDone = command("kommun.taskDone", z.object({ taskId: IdSchema })).returns<Result<object, "not_found" | "forbidden">>();
+export const kommunTaskDone = command("kommun.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["kommun.start", "kommun.deltagare", "inkorg.start", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
 
 /** Kommunens chef godkänner en åtgärdsplan för en avtalsavvikelse. Avtalsansvarig får ett mejl utan personuppgifter. */
-export const kommunApproveActionPlan = command("kommun.approveActionPlan", z.object({ id: IdSchema })).returns<
+export const kommunApproveActionPlan = command("kommun.approveActionPlan", z.object({ id: IdSchema }), { invalidates: ["kommun.chef", "kommun.start", MGMT, "coach.minVecka", ...START, NAV, ...LOG] }).returns<
   Result<object, "not_found" | "already_approved">
 >();
 
@@ -440,5 +441,5 @@ export type DictationState = { aiRunId: string; status: "running" | "succeeded" 
 export const dictationFinish = command("kommun.dictationFinish", z.object({
   uploadId: IdSchema,
   durationSec: z.number().min(0).max(86_400).nullish(),
-})).returns<Result<DictationState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
+}), { invalidates: ["kommun.dictationState", "admin.integrations", ...LOG] }).returns<Result<DictationState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
 export const dictationState = query("kommun.dictationState", z.object({ aiRunId: IdSchema })).returns<DictationState | null>();

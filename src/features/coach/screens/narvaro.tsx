@@ -1,7 +1,9 @@
 "use client";
 // Närvaro (/narvaro?vecka=forra|denna) – snabbregistrering med ett klick per tillfälle. Veckorapporten till handläggaren
 // publiceras automatiskt när alla hennes deltagare är registrerade. Coach (egna ärenden) och handledare (teamärenden).
-// Port av prototypens coach.narvaro och åtgärden coach.attendanceSet.
+// Port av prototypens coach.narvaro och åtgärden coach.attendanceSet. "Markera alla som närvarande" per dag (beslut
+// 2026-10-02): en bekräftelse med namnen, ett kommando (coach.attendanceSetAll), redan registrerade ändras aldrig och
+// enskilda rättas efteråt med radens knappar.
 import { useState } from "react";
 import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
@@ -11,8 +13,8 @@ import type { ScreenProps } from "@/shell/routes";
 import { useQueryPatch } from "@/shell/url-state";
 import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
-import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast } from "@/ui";
-import { attendanceSet, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
+import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
+import { attendanceSet, attendanceSetAll, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
 import { ATT_OPTIONS, AttBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, Persp } from "./shared";
 
 type Week = "last" | "this";
@@ -47,6 +49,8 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
   const runtime = useRuntime();
   const role = actor.role;
   const set = useCommand(attendanceSet);
+  const setAll = useCommand(attendanceSetAll);
+  const confirm = useConfirm();
   const now = v.now;
   const today = dayOf(now);
   const defaultDay = (w: Week): string => (w === "this" && isWorkingDay(today) ? today : "all");
@@ -55,12 +59,18 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
   const [show, setShow] = useState<Show>(() => (openOf(v, initial).length > 0 ? "open" : "all"));
   const [pending, setPending] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, true>>({});
+  // Tillfällen vars registrering pågår (radens kommando): knapparna ignorerar klick tills svaret kommit – två samtidiga
+  // kommandon för samma tillfälle får annars skriva samma rad (dubbelklick). Medan "Markera alla" pågår gäller alla rader.
+  const [inflight, setInflight] = useState<Record<string, true>>({});
+  // Senaste "Markera alla som närvarande": visas som statusrad (läses upp) tills veckan eller dagen byts.
+  const [bulk, setBulk] = useState<{ day: string; marked: number; total: number } | null>(null);
   const setWeek = (w: Week) => {
     // Veckan i adressen (replace): Tillbaka och omladdning visar samma vecka.
     patch({ vecka: w === "last" ? "forra" : "denna" });
     setWeekRaw(w);
     setDay(defaultDay(w));
     setPending(null);
+    setBulk(null);
     setShow(openOf(v, w).length > 0 ? "open" : "all");
   };
 
@@ -75,9 +85,16 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
   const lastOpen = openOf(v, "last").length;
 
   const register = async (a: NarvaroRow, status: AttStatus, reason = "") => {
+    if (inflight[a.activityId] || setAll.pending) return;
     setTouched((t) => ({ ...t, [a.activityId]: true }));
     setPending(null);
+    setInflight((x) => ({ ...x, [a.activityId]: true }));
     const res = await set.run({ activityId: a.activityId, status, reason }).catch(() => null);
+    setInflight((x) => {
+      const next = { ...x };
+      delete next[a.activityId];
+      return next;
+    });
     if (!res || !res.ok) {
       toast(res && !res.ok && res.message ? res.message : "Närvaron kunde inte sparas.", "error");
       return;
@@ -87,6 +104,57 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
   const pick = (a: NarvaroRow, s: AttStatus) => {
     if (s === "absent_valid") setPending(a.activityId);
     else void register(a, s);
+  };
+  /** Passerade tillfällen en dag som ännu saknar registrering (de som "Markera alla som närvarande" gäller). */
+  const openOn = (d: string) => all.filter((a) => dayOf(a.startsAt) === d && a.startsAt < now && !a.attendance);
+  const markAll = async (d: string) => {
+    const list = openOn(d);
+    if (!list.length) return;
+    const n = list.length;
+    const ok = await confirm({
+      title: `Markera ${n} som närvarande?`,
+      body: (
+        <Stack gap="sm">
+          <p>Närvarande registreras {dayLabel(d)} för:</p>
+          <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
+            {list.map((a) => (
+              <li key={a.activityId}>
+                {a.name} ({a.caseNumber}) · {fmtTime(a.startsAt)} {kindOf(a.kind).label.toLowerCase()}
+              </li>
+            ))}
+          </ul>
+          <p>Tillfällen som redan är registrerade ändras inte. Enskilda rättar du efteråt med knapparna på raden.</p>
+        </Stack>
+      ),
+      confirmLabel: `Markera ${n} som närvarande`,
+      cancelLabel: "Avbryt",
+    });
+    if (!ok) return;
+    // Raderna står kvar i läget "Ej registrerade" med sina knappar, så att enskilda kan rättas direkt.
+    setTouched((t) => {
+      const next = { ...t };
+      for (const a of list) next[a.activityId] = true;
+      return next;
+    });
+    setPending(null);
+    const res = await setAll.run({ day: d, activityIds: list.map((a) => a.activityId) }).catch(() => null);
+    if (!res || !res.ok) {
+      // not_found: listan var inaktuell – sidan räknas om av kommandot, så raderna visar det som gäller.
+      toast(res && !res.ok && res.message ? res.message : "Närvaron kunde inte sparas.", "error");
+      return;
+    }
+    setBulk({ day: d, marked: res.marked.length, total: n });
+    toast(`${plural(res.marked.length, "tillfälle markerat", "tillfällen markerade")} som närvarande.`);
+    for (const pub of res.published) toast(pub.text);
+  };
+  const markAllButton = (d: string) => {
+    const n = openOn(d).length;
+    if (n === 0) return null;
+    return (
+      <Button kind="secondary" icon="check-square" pending={setAll.pending} onClick={() => void markAll(d)}>
+        Markera alla som närvarande ({n})
+      </Button>
+    );
   };
 
   const dayOptions = [
@@ -105,6 +173,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
     const at = a.attendance;
     const future = a.startsAt >= now;
     const isPending = pending === a.activityId;
+    const busy = !!inflight[a.activityId] || setAll.pending;
     return (
       <div
         key={a.activityId}
@@ -153,6 +222,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
                 value={isPending ? "absent_valid" : (at?.status ?? null)}
                 onValueChange={(s) => pick(a, s)}
                 options={ATT_OPTIONS}
+                busy={busy}
                 className="max-[560px]:grid max-[560px]:grid-cols-2"
               />
               {isPending && (
@@ -163,6 +233,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
                     value={at?.status === "absent_valid" ? at.reason : null}
                     onValueChange={(r) => void register(a, "absent_valid", r)}
                     options={v.absenceReasons.map((r) => ({ value: r, label: r }))}
+                    busy={busy}
                   />
                   <div>
                     <Button kind="ghost" onClick={() => setPending(null)}>
@@ -252,9 +323,15 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           onValueChange={(x) => {
             setDay(x);
             setPending(null);
+            setBulk(null);
           }}
           options={dayOptions}
         />
+        {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
+        <p role="status" aria-live="polite" className="text-small font-bold">
+          {bulk ? `${bulk.marked} av ${bulk.total} tillfällen ${dayLabel(bulk.day)} markerade som närvarande. Rätta enskilda med knapparna på raden.` : ""}
+        </p>
+        {day !== "all" && <Row>{markAllButton(day)}</Row>}
       </Stack>
 
       <Card flush title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`} icon="list" actions={<span className="text-small text-text-muted">{visible.length} visas</span>}>
@@ -274,9 +351,12 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           [...byDay.entries()].map(([dayKey, list]) => (
             <div key={dayKey}>
               {day === "all" && (
-                <div className="flex flex-wrap justify-between gap-2 bg-ljusgra-ton2 px-[18px] py-2.5 text-label font-extrabold tracking-[0.08em] uppercase">
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-ljusgra-ton2 px-[18px] py-2.5 text-label font-extrabold tracking-[0.08em] uppercase">
                   <span>{fmtWeekday(dayKey)}</span>
-                  <span>{list.filter((a) => a.startsAt < now && !a.attendance).length} kvar</span>
+                  <Row gap="sm">
+                    <span>{list.filter((a) => a.startsAt < now && !a.attendance).length} kvar</span>
+                    <span className="normal-case tracking-normal">{markAllButton(dayKey)}</span>
+                  </Row>
                 </div>
               )}
               {list.map(renderRow)}

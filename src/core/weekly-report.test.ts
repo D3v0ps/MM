@@ -98,7 +98,7 @@ describe("beställarrapport (kommunens chef)", () => {
         mkCase({ id: "c", startDate: "2026-11-01", primaryAreaCode: "B", vocationalTrack: "Truckförare A+B", status: "closed", endDate: "2026-12-20", resultClass: "no_result" }),
       ],
       monthly_assessments: [{
-        id: "ma1", caseId: "a", month: "2027-01", status: "approved", decidedBy: "u-amira", decidedAt: "2027-02-01T08:00", summary: "", aiSummaryDraft: null, overallStatus: "green",
+        id: "ma1", caseId: "a", month: "2027-01", status: "approved", decidedBy: "u-amira", decidedAt: "2027-02-01T08:00", summary: "", aiSummaryDraft: null, overallStatus: "green", version: 1,
         areas: { narvaro_rutiner: { level: 2, observation: "x", nextStep: "", aiLevelSuggestion: null, aiObservationDraft: null } },
       }],
     });

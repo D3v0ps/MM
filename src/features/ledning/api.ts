@@ -3,6 +3,7 @@
 // prototypens chef.avvikelser). Källa: prototyp/src/views/ledning.js.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CARD, MGMT, START } from "@/api/invalidation";
 import type { KpiStatus, ResultForecast, ResultStatus } from "@/core/kpi";
 import type { SlaStatus } from "@/core/sla";
 import type {
@@ -19,7 +20,7 @@ import { IdSchema, LocalDateSchema, MonthKeySchema } from "../_shared/schemas";
 export const alertAck = command("ledning.alertAck", z.object({
   key: z.string().min(1).max(200),
   plan: z.string().trim().min(1).max(2000),
-})).returns<Result<object>>();
+}), { invalidates: [MGMT, "coach.minVecka", ...START, "arenden.lista", CARD, NAV, ...LOG] }).returns<Result<object>>();
 
 // ================================================================ Ledningsvyn (/ledning)
 //
@@ -392,8 +393,8 @@ export const CdevDataSchema = z.object({
 });
 export type CdevData = z.infer<typeof CdevDataSchema>;
 
-export const cdevSave = command("ledning.cdevSave", z.object({ id: IdSchema.optional(), data: CdevDataSchema }))
+export const cdevSave = command("ledning.cdevSave", z.object({ id: IdSchema.optional(), data: CdevDataSchema }), { invalidates: [MGMT, "kommun.chef", "kommun.start", "coach.minVecka", ...START, NAV, ...LOG] })
   .returns<Result<{ id: string; sentToCustomer: boolean }, "missing" | "warning_step" | "case_not_found" | "forbidden" | "not_found" | "no_contract">>();
 
-export const cdevClose = command("ledning.cdevClose", z.object({ id: IdSchema, lessons: z.string().max(5000) }))
+export const cdevClose = command("ledning.cdevClose", z.object({ id: IdSchema, lessons: z.string().max(5000) }), { invalidates: [MGMT, "kommun.chef", "kommun.start", "coach.minVecka", ...START, NAV, ...LOG] })
   .returns<Result<{ id: string }, "not_found" | "lessons">>();

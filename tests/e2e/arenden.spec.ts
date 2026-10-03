@@ -512,7 +512,7 @@ async function writeNote(page: Page, body: string, opts: { team?: boolean } = {}
 test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven av'", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
   await tab(page, /^Tidslinje/).click();
-  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.");
+  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller avstämningens anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.");
   await expect(page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Allt" })).toHaveAttribute("aria-pressed", "true");
   await expect(main(page)).toContainText("Månadsrapport: Levererad 8 januari 2027");
   await writeNote(page, NOTE_FULL);
@@ -679,5 +679,87 @@ test("25. Anteckningsdialogen: skriven text försvinner inte utan att coachen f�
   await note.getByRole("link", { name: "Registrera händelse" }).click();
   await btn(ask, "Släng").click();
   await expect(page).toHaveURL(new RegExp(`/handelse/${SC.nadia}`));
+  expect(errors).toEqual([]);
+});
+
+test("26. tidslinjen: Visa text fäller ut meddelandet och avstämningens anteckning på plats – ihopfällt som standard, hämtat först då, bara för den som får läsa", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
+  const rpc: string[] = [];
+  page.on("request", (r) => {
+    if (!r.url().includes("/api/rpc")) return;
+    try {
+      rpc.push(String(JSON.parse(r.postData() || "{}").key));
+    } catch {
+      /* ignoreras */
+    }
+  });
+  const textRpc = () => rpc.filter((k) => k === "arenden.kortTidslinjeText").length;
+  const MSG = "Tack! Kan vi ses på ett uppföljningsmöte vecka 6?";
+  const row = main(page).getByRole("listitem").filter({ hasText: "Meddelande från kommunen" }).first();
+  await expect(row).toBeVisible();
+  // Ihopfällt som standard: grundvyn upprepar ingen fritext, knappen säger att texten kan fällas ut.
+  await expect(main(page)).not.toContainText(MSG);
+  const show = row.getByRole("button", { name: "Visa text" });
+  await expect(show).toHaveAttribute("aria-expanded", "false");
+  expect(await show.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+  await expect(tab(page, /^Meddelanden/)).toContainText("1");
+  await show.click();
+  const region = row.getByRole("region", { name: "Meddelande från kommunen" });
+  await expect(region).toContainText(MSG);
+  await expect(region).toContainText("Maria Ekdahl");
+  // Texten visades: meddelandet markeras som läst (bara det), som på fliken Meddelanden (granskning 2026-10-03).
+  await expect(region).toContainText("Läst av Amira Haddad");
+  await expect(tab(page, /^Meddelanden/)).not.toContainText(/\d/);
+  const hide = row.getByRole("button", { name: "Dölj text" });
+  await expect(hide).toHaveAttribute("aria-expanded", "true");
+  expect(await hide.getAttribute("aria-controls")).toBe(await region.getAttribute("id"));
+  if (!isDemo(info)) expect(textRpc(), "texten hämtas med en egen fråga när den fälls ut – och en gång till efter läskvittot").toBe(2);
+  await hide.click();
+  await expect(region).toHaveCount(0);
+  await expect(main(page)).not.toContainText(MSG);
+  await row.getByRole("button", { name: "Visa text" }).click();
+  await expect(row.getByRole("region", { name: "Meddelande från kommunen" })).toContainText(MSG);
+  if (!isDemo(info)) expect(textRpc(), "andra utfällningen hämtar inte igen").toBe(2);
+  // "Öppna" finns kvar som sekundär väg till fliken.
+  await expect(row.getByRole("button", { name: "Öppna: Meddelande från kommunen" })).toBeVisible();
+
+  // En godkänd veckoavstämning: anteckning och hinder – samma text som fliken Avstämningar visar. Raden låses på sin
+  // rubrik (ett filter på knappen "Visa text" skulle lösas om när knappen byter namn till "Dölj text").
+  const firstCi = main(page).getByRole("listitem").filter({ hasText: /Veckoavstämning vecka \d+ godkänd/ }).filter({ has: page.getByRole("button", { name: "Visa text" }) }).first();
+  const ciTitle = (await firstCi.innerText()).match(/Veckoavstämning vecka \d+ godkänd/)?.[0] ?? "";
+  expect(ciTitle).not.toBe("");
+  const ci = main(page).getByRole("listitem").filter({ hasText: ciTitle }).first();
+  await ci.getByRole("button", { name: "Visa text" }).click();
+  const ciRegion = ci.getByRole("region", { name: ciTitle });
+  await expect(ciRegion).toContainText("Anteckning:");
+  await expect(ciRegion).toContainText("Hinder:");
+  const note = (await ciRegion.innerText()).split("Anteckning:")[1]?.split("\n")[0]?.trim() ?? "";
+  expect(note.length).toBeGreaterThan(10);
+  await tab(page, /^Avstämningar/).click();
+  await expect(main(page)).toContainText(note.slice(0, 40));
+  expect(errors).toEqual([]);
+});
+
+test("27. tidslinjens text: handledaren får inga sådana poster, chefen fäller ut utan att något loggas", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}?flik=historik`, KARIN);
+  const logTable = page.getByRole("table", { name: "Revisionslogg" });
+  await expect(logTable).toBeVisible();
+  const rowsBefore = await logTable.locator("tbody tr").count();
+  await tab(page, /^Tidslinje/).click();
+  const row = main(page).getByRole("listitem").filter({ hasText: "Meddelande från kommunen" }).first();
+  await row.getByRole("button", { name: "Visa text" }).click();
+  await expect(row.getByRole("region", { name: "Meddelande från kommunen" })).toContainText("Tack! Kan vi ses");
+  // Samma loggning som på fliken Meddelanden: ingen extra rad för utfällningen (kortets öppning loggades redan).
+  await switchTo(page, info, `/arenden/${SC.nadia}?flik=historik`, KARIN);
+  await expect(page.getByRole("table", { name: "Revisionslogg" })).toBeVisible();
+  // Karins egen nya öppning av kortet ger högst en ny rad – ingen rad om text eller meddelande.
+  const after = page.getByRole("table", { name: "Revisionslogg" }).locator("tbody tr");
+  expect((await after.count()) - rowsBefore).toBeLessThanOrEqual(1);
+  await expect(page.getByRole("table", { name: "Revisionslogg" })).not.toContainText(/Visade meddelande|Visade text|Visade avstämning/);
+  // Handledaren i ett teamärende: inga meddelande- eller avstämningsposter alls, alltså inga "Visa text".
+  await switchTo(page, info, "/arenden/case-260167?flik=tidslinje", PETRA);
+  await expect(main(page)).toContainText("Allt som hänt i insatsen");
+  await expect(main(page).getByRole("button", { name: "Visa text" })).toHaveCount(0);
+  await expect(main(page)).not.toContainText("Meddelande från kommunen");
   expect(errors).toEqual([]);
 });

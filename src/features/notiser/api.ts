@@ -2,6 +2,7 @@
 // Skärm: /notiser (prototypens vy notiser, prototyp/src/05-notiser.js).
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV } from "@/api/invalidation";
 import type { AppNotifyChannel } from "@/core/config";
 import type { UserNotificationKind } from "@/data/schema";
 
@@ -13,7 +14,7 @@ import type { UserNotificationKind } from "@/data/schema";
  */
 export const notifRead = command("notiser.notifRead", z.object({
   ids: z.array(z.string().min(1).max(200)).max(500),
-}), { invalidates: ["notiser.", "coach.", "session.navCounts"] }).returns<Result<{ marked: number }>>();
+}), { invalidates: ["notiser.", "coach.minVecka", NAV] }).returns<Result<{ marked: number }>>();
 
 // ================================================================ Notiser (/notiser)
 //
