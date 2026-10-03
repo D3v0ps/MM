@@ -1,15 +1,19 @@
 "use client";
 // Månadsbedömning (/manadsbedomning/:caseId?manad=2027-01) – nivå 0–3 per progressionsområde, konkret observation från
 // avtalets nivå, samlad status och plan för nästa månad. Nivån är tom tills coachen väljer; AI-förslag visas men fylls aldrig i.
-// Port av prototypens coach.manad.
-import { useEffect, useState } from "react";
+// Port av prototypens coach.manad. Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter
+// senaste ändringen, när sidan lämnas och när den döljs – samma kommando som "Spara utkast" (autosave: true, en loggrad per
+// besök). Godkända bedömningar sparas aldrig automatiskt.
+import { useEffect, useRef, useState } from "react";
+import { AUTOSAVE_ASSESSMENT } from "@/api/invalidation";
 import { pct, plural } from "@/core/format";
 import { addMonths, fmtDateShort, fmtDateTime, fmtWeekday, MONTHS, monthName } from "@/core/time";
+import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  AiBox, AiTag, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
+  AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
 import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
@@ -81,6 +85,9 @@ type Plan = { goal1: string; goal2: string; plannedActivities: string; plannedEm
 
 function ManadForm({ v }: { v: Ok }) {
   const save = useCommand(assessmentSave);
+  // Automatisk utkastsparning räknar bara om utkastlistor och kortet – inte sidan själv och inte sidopanelens räknare.
+  const draftSave = useCommand(assessmentSave, { invalidate: AUTOSAVE_ASSESSMENT });
+  const [editSession] = useState(newEditSession);
   useCaseView(v.head.caseId);
   const c = v.head;
   const month = v.month;
@@ -101,9 +108,22 @@ function ManadForm({ v }: { v: Ok }) {
   const [overall, setOverall] = [overallDraft.value, overallDraft.set];
   const [summary, setSummary] = [summaryDraft.value, summaryDraft.set];
   const [plan, setPlan] = [planDraft.value, planDraft.set];
-  const [baseline, setBaseline] = useState(() => JSON.stringify([initialAreas(), ma0?.overallStatus ?? null, ma0?.summary ?? "", initialPlan()]));
+  // Sparat läge och senaste sparningstid i samma minne som fälten: Tillbaka visar formuläret som sparat, inte "osparat".
+  const baselineDraft = useDraft<string>(`${draftKey}|sparat`, () => JSON.stringify([initialAreas(), ma0?.overallStatus ?? null, ma0?.summary ?? "", initialPlan()]));
+  const [baseline, setBaseline] = [baselineDraft.value, baselineDraft.set];
+  const savedAtDraft = useDraft<string | null>(`${draftKey}|sparadtid`, null);
+  // Radens version (0022): skickas som expectedVersion – samma bedömning sparad i en annan flik ger "conflict", inget skrivs över.
+  const versionDraft = useDraft<number | null>(`${draftKey}|version`, ma0?.version ?? null);
+  const versionRef = useRef<number | null>(versionDraft.value);
+  useEffect(() => {
+    versionRef.current = versionDraft.value;
+  }, [versionDraft.value]);
+  const rememberVersion = (version: number) => {
+    versionRef.current = version;
+    versionDraft.set(version);
+  };
   const restored = areasDraft.restored || overallDraft.restored || summaryDraft.restored || planDraft.restored;
-  const forgetDraft = () => [areasDraft, overallDraft, summaryDraft, planDraft].forEach((d) => d.clear());
+  const forgetDraft = () => [areasDraft, overallDraft, summaryDraft, planDraft, baselineDraft, savedAtDraft, versionDraft].forEach((d) => d.clear());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [approvedNow, setApprovedNow] = useState(false);
   // Anteckningar som lagts in i sammanfattningen: added = visas som "Tillagd" tills sidan laddas om; used = skickas med
@@ -128,10 +148,46 @@ function ManadForm({ v }: { v: Ok }) {
   const nextMonth = addMonths(month, 1);
   const approved = ma0?.status === "approved";
   const persp = customerPerspective(v.referrer);
-  const dirty = !approved && JSON.stringify([areas, overall, summary, plan]) !== baseline;
+  const changeKey = JSON.stringify([areas, overall, summary, plan]);
+  const dirty = !approved && changeKey !== baseline;
+  const areasPayload = () => Object.fromEntries(Object.entries(areas).map(([k, a]) => [k, { level: a.level, observation: a.observation.trim(), nextStep: a.nextStep.trim() }]));
+  // Automatisk utkastsparning: samma kommando som "Spara utkast". För lång sammanfattning → "invalid" tills den kortats.
+  // Anteckningar som lagts in i sammanfattningen skickas med en gång (servern loggar dem) och töms sedan.
+  const autosave = useAutosave({
+    enabled: !approved && !approvedNow && !save.pending,
+    dirty,
+    changeKey,
+    initialSavedAt: savedAtDraft.value,
+    save: async ({ keepalive }): Promise<AutosaveResult> => {
+      const snapshot = JSON.stringify([areas, overall, summary, plan]);
+      if (summary.trim().length > ASSESSMENT_SUMMARY_MAX) return { ok: false, reason: "invalid", text: "Sparas inte automatiskt – sammanfattningen är för lång" };
+      const usedNow = used;
+      const res = await draftSave
+        .run(
+          {
+            caseId: c.caseId, month, areas: areasPayload(), summary: summary.trim(), overallStatus: overall, approve: false, plan: { ...plan, status: "draft" },
+            usedNoteIds: usedNow.length ? usedNow : undefined, autosave: true, editSession, expectedVersion: versionRef.current ?? undefined,
+          },
+          { keepalive },
+        )
+        .catch(() => null);
+      if (!res) return { ok: false, reason: "failed" };
+      if (!res.ok) {
+        // Godkänd i en annan flik, eller sparad där sedan den här fliken öppnades: inget skrivs över.
+        if (res.error === "approved") return { ok: false, reason: "invalid", text: "Bedömningen är redan godkänd – inget sparas. Ladda om sidan." };
+        if (res.error === "conflict") return { ok: false, reason: "invalid", text: "Bedömningen har ändrats i en annan flik eller på en annan enhet – ladda om sidan. Inget skrivs över." };
+        return { ok: false, reason: "failed" };
+      }
+      rememberVersion(res.version);
+      setUsed((u) => u.filter((id) => !usedNow.includes(id)));
+      setBaseline(snapshot);
+      savedAtDraft.set(res.savedAt);
+      return { ok: true, savedAt: res.savedAt };
+    },
+  });
   // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
-  // har skickats, innan fältet hunnit tömmas.
-  useUnsavedGuard(dirty && !save.pending);
+  // har skickats, innan fältet hunnit tömmas. Utkastet sparas först (trySave) – frågan visas bara om det inte gick.
+  useUnsavedGuard(dirty && !save.pending, undefined, { trySave: () => autosave.flush() });
   const restartDraft = () => {
     setAreas(initialAreas());
     setOverall(ma0?.overallStatus ?? null);
@@ -148,16 +204,19 @@ function ManadForm({ v }: { v: Ok }) {
       document.getElementById("cm-summary")?.focus();
       return;
     }
+    // En pågående autosparning får bli klar först (anteckningarna loggas en gång).
+    await autosave.settle();
     const res = await save
       .run({
         caseId: c.caseId,
         month,
-        areas: Object.fromEntries(Object.entries(areas).map(([k, a]) => [k, { level: a.level, observation: a.observation.trim(), nextStep: a.nextStep.trim() }])),
+        areas: areasPayload(),
         summary: summary.trim(),
         overallStatus: overall,
         approve,
         plan: { ...plan, status: approve ? "approved" : "draft" },
         usedNoteIds: used.length ? used : undefined,
+        expectedVersion: versionRef.current ?? undefined,
       })
       .catch(() => null);
     if (!res) {
@@ -187,8 +246,11 @@ function ManadForm({ v }: { v: Ok }) {
     }
     setErrors({});
     setUsed([]);
-    forgetDraft();
+    rememberVersion(res.version);
+    // Sparat läge först, sedan glöms minnet (sidan hämtas om och visar det sparade).
     setBaseline(JSON.stringify([areas, overall, summary, plan]));
+    autosave.markSaved(res.savedAt);
+    forgetDraft();
     if (approve) {
       setApprovedNow(true);
       toast("Månadsbedömningen är godkänd. Månadsrapporten är granskad och kan godkännas och levereras.");
@@ -557,6 +619,7 @@ function ManadForm({ v }: { v: Ok }) {
         <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
           Spara utkast
         </Button>
+        <AutosaveStatus state={autosave.state} savedAt={autosave.savedAt} invalidText={autosave.invalidText} />
       </Row>
     </Page>
   );

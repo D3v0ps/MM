@@ -134,3 +134,5 @@ export const registeredKeys = () => [...registry.keys()];
 /** Nycklar som nekas för begränsade testare (HandlerOpts.commercial) – för testerna. */
 export const commercialKeys = () => [...registry.entries()].filter(([, e]) => e.commercial).map(([k]) => k);
 export const isSilentCommand = (key: string) => registry.get(key)?.silent === true;
+/** Rollerna som får köra nyckeln (undefined = alla roller) – för testerna (src/api/invalidation.test.ts). */
+export const rolesOf = (key: string): readonly Role[] | undefined => registry.get(key)?.roles;

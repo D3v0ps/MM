@@ -5,19 +5,23 @@
 //   Supabase-läget: inloggning med e-post och kod (/api/auth/*). Inte inloggad = anonym session med bara publika sidor.
 //   Testmiljön: rad överst "Testmiljö – påhittade testdata", testarens val av testperson och "Lämna synpunkt"
 //   (src/features/synpunkter/panel.tsx – bara testare i testmiljön, session.feedback).
+//   Minnesläget med en simulerad testare (POST /api/dev-session med testerId – e2e och utveckling): en enklare rad
+//   "Testmiljö · Simulerad testare" med samma "Lämna synpunkt" och "Alla synpunkter", så att synpunkterna kan prövas med
+//   den grunda navigeringen (beslut 2026-10-02, punkt 6). Testpersonen byts i utvecklingsfältet, som behåller testerId.
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { fmtDateFull, WEEKDAYS, weekday } from "@/core/time";
-import { feedbackPortOf } from "@/features/synpunkter/api";
+import { feedbackPortOf, type FeedbackPort } from "@/features/synpunkter/api";
 import { FeedbackToolbar } from "@/features/synpunkter/panel";
 import type { SessionView } from "@/server/session-view";
 import { App } from "@/shell/app";
-import { BackendError, BackendProvider, httpBackend, type Backend } from "@/shell/backend";
+import { BackendProvider, httpBackend } from "@/shell/backend";
 import { RuntimeProvider } from "@/shell/runtime";
 import { ANONYMOUS, SessionProvider, type AuthPort, type AuthResult, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
 import { cancelLeaveDocument, confirmLeaveDocument } from "@/shell/nav";
+import { createSessionRefresh } from "./session-refresh";
 import { stayOrStart } from "./stay-or-start";
 import { NextNavProvider } from "./next-nav";
 
@@ -86,39 +90,42 @@ const devAuth: AuthPort = {
 export function ClientRoot() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [version, setVersion] = useState(0);
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
+  // Utloggad under tiden (t.ex. efter 60 minuters inaktivitet): första 401 från /api/rpc hämtar sessionen igen – en gång,
+  // inte en per misslyckad fråga (session-refresh.ts) – och appen leder till inloggningen med ?till=<sökväg> (app.tsx).
+  const refresh = useMemo(() => createSessionRefresh(httpBackend, reload), [reload]);
+  const backend = refresh.backend;
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/session", { credentials: "same-origin", cache: "no-store" })
       .then((res) => (res.ok ? (res.json() as Promise<SessionView>) : Promise.reject(new Error("session"))))
-      .then((view) => !cancelled && setLoaded({ view }))
+      .then((view) => {
+        if (cancelled) return;
+        refresh.sessionLoaded(view.authenticated);
+        setLoaded({ view });
+      })
       .catch(() => !cancelled && setLoaded({ error: true }));
     return () => {
       cancelled = true;
     };
-  }, [version]);
+  }, [version, refresh]);
 
-  const reload = useCallback(() => setVersion((v) => v + 1), []);
-  // Utloggad under tiden (t.ex. efter 60 minuters inaktivitet): hämta sessionen igen, så leder appen till inloggningen.
-  const backend = useMemo<Backend>(() => {
-    const on401 = (e: unknown): never => {
-      if (e instanceof BackendError && e.status === 401) reload();
-      throw e;
-    };
-    return { mode: "app", query: (k, p) => httpBackend.query(k, p).catch(on401), command: (k, p) => httpBackend.command(k, p).catch(on401) };
-  }, [reload]);
+  // Samma port så länge backend är densamma – annars hämtar "Alla synpunkter" om listan vid varje omrendering av roten.
+  const feedbackPort = useMemo(() => feedbackPortOf(backend), [backend]);
 
   if (!loaded) return null;
   if ("error" in loaded) return <p className="p-8">Inloggningen kunde inte hämtas. Ladda om sidan.</p>;
   const { view } = loaded;
   const session = buildSession(view, {
+    loggedOut: refresh.loggedOut(),
     switchDev: async (role, userId, testerId) => {
       // Fråga först (osparad text) och byt sedan – annars är servern redan bytt till den nya personen om man stannar kvar.
       if (!(await confirmLeaveDocument())) return;
       await postJson("/api/dev-session", { role, userId, ...(testerId ? { testerId } : {}) }).catch(() => null);
       await hardNavigate(stayOrStart(here(), role, view.hidesCommercial));
     },
-    backend,
+    feedbackPort,
   });
   if (!session) return <p className="p-8">Inloggningen kunde inte hämtas. Ladda om sidan.</p>;
   const actor = session.actor;
@@ -129,7 +136,7 @@ export function ClientRoot() {
           <Suspense>
             <NextNavProvider>
               {/* Raden ligger innanför sessionen och navigeringen: "Lämna synpunkt" sparar sidan och rollen. */}
-              {view.backend === "supabase" && view.environment === "staging" && <StagingBar view={view} />}
+              {view.backend === "supabase" && view.environment === "staging" ? <StagingBar view={view} /> : view.backend === "memory" && view.isTester ? <SimulatedTesterBar /> : null}
               <App routes={APP_ROUTES} />
             </NextNavProvider>
           </Suspense>
@@ -139,7 +146,7 @@ export function ClientRoot() {
   );
 }
 
-function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: string, testerId?: string) => Promise<void>; backend: Backend }): Session | null {
+function buildSession(view: SessionView, o: { loggedOut: Session["loggedOut"] | null; switchDev: (role: Role, userId?: string, testerId?: string) => Promise<void>; feedbackPort: FeedbackPort }): Session | null {
   if (view.backend === "memory") {
     const persona = view.persona;
     if (!persona) return null;
@@ -149,13 +156,17 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
       environment: "memory",
       hidesCommercial: view.hidesCommercial,
       personas: view.personas,
+      // Simulerad testare (testerId): synpunkterna som i testmiljön. Servern (feedback.* kräver testerId) avgör ändå.
+      isTester: view.isTester,
+      feedback: view.isTester ? o.feedbackPort : undefined,
       // Utvecklingsläget: byt testperson. I testmiljön och i drift loggar man in med e-postkod.
       // En simulerad testare (e2e) förblir testare när testpersonen byts.
       switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId, persona.actor.testerId),
       auth: devAuth,
     };
   }
-  if (!view.authenticated || !view.persona) return { ...ANONYMOUS, auth: liveAuth };
+  // Utloggad under besöket (401 från /api/rpc): inloggningssidan får veta varför (?utloggad=…) via App.
+  if (!view.authenticated || !view.persona) return { ...ANONYMOUS, auth: liveAuth, ...(o.loggedOut ? { loggedOut: o.loggedOut } : {}) };
   const { actor, user } = view.persona;
   return {
     authenticated: true,
@@ -168,7 +179,7 @@ function buildSession(view: SessionView, o: { switchDev: (role: Role, userId?: s
     // Testmiljön: testaren läser in testdatat på nytt i adminvyn (POST /api/staging/seed). Sidan laddas om när det är klart.
     reloadTestData: view.isTester && view.environment === "staging" ? reloadTestData : undefined,
     // Testmiljön: synpunkterna (feedback.* via /api/rpc). Servern och RLS släpper bara igenom testare i testmiljön.
-    feedback: view.isTester && view.environment === "staging" ? feedbackPortOf(o.backend) : undefined,
+    feedback: view.isTester && view.environment === "staging" ? o.feedbackPort : undefined,
     // Fråga först (osparad text), logga sedan ut och ladda om.
     signOut: () => {
       void confirmLeaveDocument().then((ok) => ok && liveAuth.signOut().then(() => hardNavigate(isCustomerRole(actor.role) ? "/portal/logga-in" : "/logga-in")));
@@ -187,6 +198,27 @@ async function reloadTestData(): Promise<{ ok: true } | { ok: false; message: st
   } catch {
     return { ok: false, message: RELOAD_FAILED };
   }
+}
+
+/**
+ * Minnesläget med en simulerad testare (e2e, utveckling): samma rad som i testmiljön, men bara synpunkterna. Ingen
+ * "Agera som"-lista (den går mot /api/session/impersonate, som inte finns i minnet) – testpersonen byts i utvecklingsfältet.
+ */
+function SimulatedTesterBar() {
+  return (
+    <div
+      data-print="hide"
+      role="region"
+      aria-label="Testmiljö"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b-2 border-dashed border-antracit bg-ljusgra-ton2 px-4 py-1.5 text-small"
+    >
+      <span className="font-extrabold tracking-[0.06em] uppercase">Testmiljö</span>
+      <span>Simulerad testare – påhittade testdata</span>
+      <span className="ml-auto">
+        <FeedbackToolbar routes={APP_ROUTES} />
+      </span>
+    </div>
+  );
 }
 
 /** Testmiljön: tydlig rad överst. Testaren väljer vilken testperson hen agerar som (bara i testmiljön). */

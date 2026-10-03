@@ -1,7 +1,8 @@
 "use client";
 // Osparad inmatning – samma i appen och prototypen:
-//   useUnsavedGuard(dirty) – frågar innan appen byter till en annan sida (menyn, länkar, knappar) och låter webbläsaren
-//     varna vid omladdning eller stängning. Webbläsarens Tillbaka kan inte stoppas – därför finns useDraft.
+//   useUnsavedGuard(dirty, text?, { trySave }) – frågar innan appen byter till en annan sida (menyn, länkar, knappar) och
+//     låter webbläsaren varna vid omladdning eller stängning. Med trySave (automatisk utkastsparning) sparas först, och
+//     frågan visas bara när det inte gick. Webbläsarens Tillbaka kan inte stoppas – därför finns useDraft.
 //   useDraft(key, initial) – utkastminne i minnet (aldrig i webblagring eller adressen): kommer man tillbaka till sidan
 //     visas texten igen. Nyckeln är användare + skärm + ärende. Rensas när det sparats, godkänts eller avbrutits.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -47,12 +48,18 @@ export type GuardOptions = {
   onAsk?: () => void;
   /** Körs när användaren väljer Stanna kvar (t.ex. fortsätt spela in). */
   onStay?: () => void;
+  /**
+   * Försök spara först (automatisk utkastsparning, src/shell/autosave.ts): true = allt är sparat, appen lämnar sidan utan
+   * fråga. false eller fel = frågan visas som vanligt.
+   */
+  trySave?: () => Promise<boolean>;
 };
 
 /**
  * Fråga innan appen lämnar sidan när dirty är sant. Byte av bara query på samma sida (flik, filter) frågar inte – skärmen
  * ligger kvar. Omladdning och stängning ger webbläsarens egen varning. När appen själv laddar om (byte av testperson,
- * utloggning – confirmLeaveDocument i nav.tsx) frågar vakten först, och webbläsaren varnar sedan inte igen.
+ * utloggning – confirmLeaveDocument i nav.tsx) frågar vakten först, och webbläsaren varnar sedan inte igen. Med trySave
+ * sparas utkastet först, och frågan visas bara när det inte gick.
  */
 export function useUnsavedGuard(dirty: boolean, message?: string, opts?: GuardOptions): void {
   const nav = useNav();
@@ -66,6 +73,8 @@ export function useUnsavedGuard(dirty: boolean, message?: string, opts?: GuardOp
     if (!dirty) return;
     const off = onBeforeNavigate(async (to) => {
       if (bypass || (to !== LEAVE_DOCUMENT && pathOf(to) === pathRef.current)) return true;
+      const trySave = optsRef.current?.trySave;
+      if (trySave && (await trySave().catch(() => false))) return true;
       optsRef.current?.onAsk?.();
       const leave = await confirmLeave(message);
       if (!leave) optsRef.current?.onStay?.();

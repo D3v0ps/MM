@@ -3,6 +3,7 @@
 // Ingen dataåtkomst här – skärmen skickar in värden och callbacks.
 import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { isCustomerRole, perspectiveOf, type Role } from "@/api/roles";
+import { auditViewSeen, markAuditView, resetAuditViews } from "@/shell/audit-views";
 import { Link, useNav } from "@/shell/nav";
 import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
@@ -123,10 +124,11 @@ export function PerspectiveLink({ role, userId, to, label }: { role: Role; userI
   );
 }
 
-const seen = new Set<string>();
+export { resetAuditViews };
 
 /**
- * Loggar en visning en gång per sidladdning och användare (deltagarkort, rapport, transkript).
+ * Loggar en visning en gång per sidbesök och användare (deltagarkort, rapport, transkript). Minnet töms av skalet när en
+ * annan sida visas (src/shell/audit-views.ts) – flikbyten på samma sida loggar inte igen.
  * key = t.ex. `case.view:${caseId}` (null = logga inte ännu). log = anropa ett tyst kommando som skriver revisionsloggen.
  */
 export function useAuditView(key: string | null | undefined, log: () => unknown) {
@@ -138,8 +140,8 @@ export function useAuditView(key: string | null | undefined, log: () => unknown)
   useEffect(() => {
     if (!key) return;
     const k = `${actor.userId}|${actor.role}|${key}`;
-    if (seen.has(k)) return;
-    seen.add(k);
+    if (auditViewSeen(k)) return;
+    markAuditView(k);
     void logRef.current();
   }, [key, actor.userId, actor.role]);
 }

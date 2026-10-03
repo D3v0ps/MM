@@ -112,6 +112,52 @@ describe("useUnsavedGuard", () => {
   });
 });
 
+function Saved({ trySave }: { trySave: () => Promise<boolean> }) {
+  useUnsavedGuard(true, undefined, { trySave });
+  return <p>Formulär</p>;
+}
+
+describe("useUnsavedGuard med trySave (automatisk utkastsparning)", () => {
+  it("sparningen lyckas: appen lämnar sidan utan fråga", async () => {
+    const trySave = vi.fn(async () => true);
+    render(wrap(<Saved trySave={trySave} />));
+    await expect(runBeforeNavigate("/min-vecka")).resolves.toBe(true);
+    expect(trySave).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+  it("sparningen misslyckas (eller går inte): frågan visas som vanligt", async () => {
+    const trySave = vi.fn(async () => false);
+    render(wrap(<Saved trySave={trySave} />));
+    let p!: true | Promise<boolean>;
+    act(() => {
+      p = runBeforeNavigate("/min-vecka");
+    });
+    expect(await screen.findByRole("dialog", { name: "Du har inte sparat" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stanna kvar" }));
+    await expect(p).resolves.toBe(false);
+    expect(trySave).toHaveBeenCalledTimes(1);
+  });
+  it("ett fel i sparningen räknas som misslyckad – frågan visas", async () => {
+    const trySave = vi.fn(async () => {
+      throw new Error("nät");
+    });
+    render(wrap(<Saved trySave={trySave} />));
+    let p!: true | Promise<boolean>;
+    act(() => {
+      p = runBeforeNavigate("/min-vecka");
+    });
+    expect(await screen.findByRole("dialog", { name: "Du har inte sparat" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Lämna sidan" }));
+    await expect(p).resolves.toBe(true);
+  });
+  it("byte av bara query sparar inte och frågar inte", async () => {
+    const trySave = vi.fn(async () => true);
+    render(wrap(<Saved trySave={trySave} />));
+    await expect(runBeforeNavigate("/avstamning/case-1?flik=x")).resolves.toBe(true);
+    expect(trySave).not.toHaveBeenCalled();
+  });
+});
+
 function Note({ k }: { k: string }) {
   const d = useDraft(k, "");
   return (

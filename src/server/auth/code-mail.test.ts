@@ -286,7 +286,9 @@ vi.mock("../supabase", () => ({
     }),
   }),
 }));
-vi.mock("../settings", () => ({ loadAppSettings: async () => ({ environment: "staging", clock: { mode: "test", realEpochMs: Date.UTC(2026, 9, 2, 8, 0), demoEpoch: "2027-02-01T09:12" } }) }));
+// Testklockan tickar med riktig tid från realEpochMs: startar den vid "nu" står demotiden kvar på 1 februari 2027 oavsett
+// när testet körs (ett fast datum gav fel när mer än ett dygn gått sedan dess).
+vi.mock("../settings", () => ({ loadAppSettings: async () => ({ environment: "staging", clock: { mode: "test", realEpochMs: Date.now(), demoEpoch: "2027-02-01T09:12" } }) }));
 vi.mock("@/data/supabase", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/data/supabase")>()), appRepo: () => shared.repo }));
 const { requestCode, verifyCode } = await import("./service");
 

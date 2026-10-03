@@ -25,6 +25,7 @@ import {
   Tabs,
   Toaster,
   confirmDialog,
+  resetAuditViews,
   toast,
   useAuditView,
 } from "@/ui";
@@ -207,7 +208,7 @@ describe("ärende och personnummer", () => {
     render(<MaskedPnr masked={null} hidden />);
     expect(screen.getByText("Visas inte för din roll")).toBeTruthy();
   });
-  it("useAuditView loggar en gång per användare och nyckel", () => {
+  it("useAuditView loggar en gång per användare och nyckel – och igen efter ett nytt sidbesök (resetAuditViews)", () => {
     const log = vi.fn();
     function V({ id }: { id: string }) {
       useAuditView(`case.view:${id}`, log);
@@ -218,6 +219,15 @@ describe("ärende och personnummer", () => {
     expect(log).toHaveBeenCalledTimes(1);
     rerender(wrap(<V id="c2" />));
     expect(log).toHaveBeenCalledTimes(2);
+    // Samma kort igen i samma besök: ingen ny rad. Nytt sidbesök (skalet tömmer minnet): en ny rad.
+    rerender(wrap(<V id="c1" />));
+    expect(log).toHaveBeenCalledTimes(2);
+    act(() => resetAuditViews());
+    rerender(wrap(<V id="c1" />));
+    expect(log).toHaveBeenCalledTimes(2);
+    rerender(wrap(<V id="c2" />));
+    rerender(wrap(<V id="c1" />));
+    expect(log).toHaveBeenCalledTimes(4);
   });
 });
 

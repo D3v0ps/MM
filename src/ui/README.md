@@ -241,6 +241,7 @@ Värdarna (`Toaster`, `ConfirmHost`, `TextDialogHost`) ligger redan i layouten �
 - **`DemoNote`** – förklaring som **bara visas i prototypen** ("Prototyp: …", streckad ram). Allt annat är likadant i appen.
 - **`Empty`** – `icon?`, `title`, `children?`, `action?`.
 - **`Loading`** – "Hämtar…" (syns efter 250 ms så att snabba svar inte blinkar). `label?`.
+- **`AutosaveStatus`** – statusrad för automatisk utkastsparning (`useAutosave` i `src/shell/autosave.ts`): `state` (`idle | saving | saved | invalid | failed`), `savedAt` (serverns tid), `invalidText?`. Text + ikon, `role=status aria-live=polite`, finns alltid (tom i viloläge). Aldrig en toast per autosparning.
 - **`ErrorNotice`** – `error`, `title?` ("Uppgifterna kunde inte hämtas"), `onRetry?`. Visar API:ts egen text (fel med `code`, t.ex. "Din roll har inte behörighet till det här.") – tekniska fel får "Något gick fel. Försök igen."
 - **`QueryView`** – laddning och fel för `useQuery` i ett:
   ```tsx

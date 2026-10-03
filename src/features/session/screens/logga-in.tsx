@@ -14,10 +14,14 @@ import { Button, Card, DemoNote, Dot, Eyebrow, Field, IconText, Input, Notice, S
 /** Samma värden som i Supabase Auth (docs/DRIFT.md) och SPEC §4. */
 const CODE = { digits: 6, minutes: 10, attempts: 5, idleMinutes: 60, maxHours: 12 } as const;
 
-const LOGGED_OUT: Record<string, string> = {
+/** ?utloggad= sätts av src/proxy.ts (omladdning) och av App (utloggad under besöket, src/shell/app.tsx). */
+export const LOGGED_OUT: Record<string, string> = {
   inaktiv: `Du har loggats ut eftersom du inte har gjort något på ${CODE.idleMinutes} minuter. Logga in igen.`,
   maxtid: `Du har loggats ut eftersom det har gått ${CODE.maxHours} timmar sedan du loggade in. Logga in igen.`,
+  session: "Du har loggats ut. Logga in igen.",
 };
+/** Visas tillsammans med orsaken när ?till= finns: man kommer tillbaka till sidan man var på. */
+export const BACK_AFTER_LOGIN = "Efter inloggningen kommer du tillbaka till sidan du var på.";
 
 export function checkEmail(v: string): string | null {
   const s = v.trim().toLowerCase();
@@ -48,6 +52,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
   const [pending, setPending] = useState(false);
   const codeRef = useRef<HTMLDivElement>(null);
   const reason = LOGGED_OUT[query.get("utloggad") ?? ""];
+  const backAfter = !!safeReturnPath(query.get("till"));
 
   useEffect(() => {
     if (step === 1) codeRef.current?.querySelector("input")?.focus();
@@ -117,6 +122,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
       {reason && (
         <Notice tone="warn" icon="clock">
           {reason}
+          {backAfter ? ` ${BACK_AFTER_LOGIN}` : ""}
         </Notice>
       )}
       <Stepper steps={["E-postadress", "Kod från mejlet"]} current={step} />

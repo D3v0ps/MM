@@ -5,7 +5,7 @@
 //   - Where -> PostgREST-filter med samma semantik som matches() i src/data/repo.ts (t.ex. neq släpper igenom null)
 //   - fel blir PolicyError (behörighet) eller DataError – aldrig med värden eller personuppgifter i meddelandet
 // Klienten skickas in utifrån: användarens klient (RLS) för ctx.repo, service role för ctx.system (src/server/runtime.ts).
-import { PolicyError } from "../memory";
+import { PolicyError, UniqueError } from "../memory";
 import { applyOpts, checkJsonPaths, pickFields, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "../repo";
 import { fromDbRow, toColumn, toDbRow, toDbValue } from "./columns";
 
@@ -53,6 +53,8 @@ const POLICY_CODES = new Set(["42501", "PGRST301", "PGRST302", "PGRST303"]);
 export function toRepoError(table: string, error: PgError): Error {
   const code = String(error.code ?? "");
   if (POLICY_CODES.has(code)) return new PolicyError(table);
+  // Unik nyckel (23505): samma fel som MemoryStore ger, så att hanteraren kan läsa om raden. Bara nyckelns namn – aldrig värden.
+  if (code === "23505") return new UniqueError(table, String(error.details ?? error.message ?? "").match(/\(([a-z_]+)\)/)?.[1] ?? "");
   return new DataError(table, code);
 }
 
@@ -269,6 +271,20 @@ class SupabaseTable<T extends Row> implements Table<T> {
       return row;
     }
     return fromDbRow<T>(rows[0]);
+  }
+
+  async updateIf(id: string, where: Where<T>, patch: Partial<T>): Promise<T | null> {
+    const rest: Record<string, unknown> = { ...(patch as Record<string, unknown>) };
+    delete rest.id;
+    const values = toDbRow(rest);
+    if (!Object.keys(values).length) throw new DataError(this.name, "empty_patch");
+    // update … where id = ? and <where> returning: noll rader = raden matchar inte längre (eller får inte ändras).
+    const viaView = this.readName !== this.name;
+    const { data, error } = await applyWhere(this.db.from(this.name).update(values).eq("id", id), where as Record<string, unknown>).select(viaView ? "id" : "*");
+    if (error) this.fail(error);
+    const rows = (data as Record<string, unknown>[] | null) ?? [];
+    if (!rows.length) return null;
+    return viaView ? this.get(id) : fromDbRow<T>(rows[0]);
   }
 
   async remove(id: string): Promise<void> {

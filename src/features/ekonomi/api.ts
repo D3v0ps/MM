@@ -1,6 +1,7 @@
 // Kontrakt för området ekonomi (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CARD, CASES, MGMT, START, BILLING } from "@/api/invalidation";
 import type { BillableWeek, BillingCheckKind, BillingCheckSeverity } from "@/core/billing";
 import type { SlaStatus } from "@/core/sla";
 import type { LocalDate, LocalDateTime, MonthKey, WeekKey } from "@/core/time";
@@ -18,13 +19,13 @@ export const billingApproveZeroWeek = command("ekonomi.billingApproveZeroWeek", 
   caseId: IdSchema,
   weekKey: WeekKeySchema,
   note: z.string().max(1000).optional(),
-})).returns<Result<object, "not_found">>();
+}), { invalidates: [BILLING, MGMT, "arenden.lista", CARD, ...START, "coach.minVecka", NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /** Godkänn fakturor (ett eller flera ärenden) för månaden (prototypens billing.approveInvoice). */
 export const billingApproveInvoice = command("ekonomi.billingApproveInvoice", z.object({
   month: MonthKeySchema,
   caseIds: z.array(IdSchema).min(1).max(1000),
-})).returns<Result<{ approved: number }, "not_found">>();
+}), { invalidates: [BILLING, MGMT, "arenden.lista", CARD, ...START, "coach.minVecka", NAV, ...LOG] }).returns<Result<{ approved: number }, "not_found">>();
 
 /**
  * Skapa fakturor i Fortnox (simulerat) – prototypens billing.sendFortnox. Idempotent: en faktura som redan skapats
@@ -34,20 +35,20 @@ export const billingApproveInvoice = command("ekonomi.billingApproveInvoice", z.
 export const billingSendFortnox = command("ekonomi.billingSendFortnox", z.object({
   month: MonthKeySchema,
   caseIds: z.array(IdSchema).min(1).max(1000),
-})).returns<Result<{ created: string[]; skipped: string[]; blocked: string[] }, "not_found">>();
+}), { invalidates: [BILLING, MGMT, "arenden.lista", CARD, ...START, "coach.minVecka", NAV, ...LOG] }).returns<Result<{ created: string[]; skipped: string[]; blocked: string[] }, "not_found">>();
 
 /** Markera fakturan som manuellt fakturerad med fakturanummer (prototypens billing.markManual). */
 export const billingMarkManual = command("ekonomi.billingMarkManual", z.object({
   month: MonthKeySchema,
   caseId: IdSchema,
   invoiceNo: z.string().trim().min(1).max(60),
-})).returns<Result<object, "not_found">>();
+}), { invalidates: [BILLING, MGMT, "arenden.lista", CARD, ...START, "coach.minVecka", NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /** Logga en export av fakturaunderlaget (prototypens billing.export). Själva filen byggs av skärmen med useDownload(). */
 export const billingExport = command("ekonomi.billingExport", z.object({
   month: MonthKeySchema,
   format: z.enum(["csv", "xlsx", "pdf"]),
-})).returns<Result<object>>();
+}), { invalidates: [BILLING, ...LOG] }).returns<Result<object>>();
 
 // ---- Ekonomins skärmar (prototypens eko.start, eko.korning, eko.faktura och eko.arende)
 // Vy-modellerna innehåller bara det ekonomen behöver: ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag.
@@ -305,25 +306,25 @@ export const ekoFortnoxLog = command("ekonomi.fortnoxLog", z.object({
   skipped: z.number().int().min(0),
   notReady: z.number().int().min(0),
   blocked: z.number().int().min(0),
-})).returns<Result<{ runId: string }>>();
+}), { invalidates: [BILLING, ...LOG] }).returns<Result<{ runId: string }>>();
 
 /** Simulerad statushämtning från Fortnox: varje hämtning flyttar fakturan ett steg (skapad → bokförd → skickad → betald). */
 export const ekoFortnoxSync = command("ekonomi.fortnoxSync", z.object({
   month: MonthKeySchema,
   caseIds: z.array(IdSchema).max(1000),
-})).returns<Result<{ changed: number }, "not_found">>();
+}), { invalidates: [BILLING, NAV, ...LOG] }).returns<Result<{ changed: number }, "not_found">>();
 
 /** Returnerad faktura: kreditera och skapa en ny med rätt beställarreferens (simulerat). */
 export const ekoReissue = command("ekonomi.reissue", z.object({
   month: MonthKeySchema,
   caseId: IdSchema,
-})).returns<Result<object, "not_found" | "buyer_ref" | "not_returned">>();
+}), { invalidates: [BILLING, MGMT, CARD, ...LOG] }).returns<Result<object, "not_found" | "buyer_ref" | "not_returned">>();
 
 /** Markera en uppgift till ekonomen som klar. */
 export const ekoTaskDone = command("ekonomi.taskDone", z.object({
   taskId: IdSchema,
   note: z.string().max(1000).optional(),
-})).returns<Result<object, "not_found">>();
+}), { invalidates: [BILLING, "inkorg.start", "kommun.start", "kommun.deltagare", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Fråga samordnaren om två ärenden som överlappar samma vecka (samma deltagare). Texten byggs av hanteraren och
@@ -333,7 +334,7 @@ export const ekoAskCoordinator = command("ekonomi.askCoordinator", z.object({
   month: MonthKeySchema,
   caseId: IdSchema,
   otherCaseId: IdSchema,
-})).returns<Result<{ taskId: string }, "not_found" | "no_overlap">>();
+}), { invalidates: [BILLING, "inkorg.start", ...LOG] }).returns<Result<{ taskId: string }, "not_found" | "no_overlap">>();
 
 /** Stäng månadens fakturakörning (alla fakturor är skapade eller manuellt fakturerade). */
-export const ekoCloseRun = command("ekonomi.closeRun", z.object({ month: MonthKeySchema })).returns<Result<object, "not_found">>();
+export const ekoCloseRun = command("ekonomi.closeRun", z.object({ month: MonthKeySchema }), { invalidates: [BILLING, MGMT, CASES, ...START, "coach.minVecka", NAV, ...LOG] }).returns<Result<object, "not_found">>();

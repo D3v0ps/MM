@@ -26,10 +26,15 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
   // Inte inloggad: bara publika sidor. Allt annat leder till rätt inloggning (portalen eller MB).
   const mustLogin = !signedIn && !(match && match.route.public);
 
+  // Utloggad under besöket: inloggningssidan får orsaken (samma koder som src/proxy.ts sätter vid en omladdning).
+  const loggedOut = signedIn ? undefined : session.loggedOut;
   useEffect(() => {
     if (nav.path === "/" || nav.path === "") nav.replace(start);
-    else if (mustLogin) nav.replace(`${loginPathFor(nav.path)}?till=${encodeURIComponent(nav.path)}`);
-  }, [nav, start, mustLogin]);
+    else if (mustLogin) {
+      const reason = loggedOut === "idle" ? "inaktiv" : loggedOut === "max" ? "maxtid" : loggedOut === "session" ? "session" : null;
+      nav.replace(`${loginPathFor(nav.path)}?till=${encodeURIComponent(nav.path)}${reason ? `&utloggad=${reason}` : ""}`);
+    }
+  }, [nav, start, mustLogin, loggedOut]);
 
   const hiddenForTester = signedIn && !!session.hidesCommercial && isTesterHiddenPath(nav.path);
   const title = hiddenForTester ? TESTER_HIDDEN_TEXT : match ? titleOf(match, nav.query) : "Sidan finns inte";

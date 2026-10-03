@@ -51,7 +51,7 @@ export const mkAttendance = (p: Partial<Attendance> & { activityId: string; case
 
 export const mkCheckIn = (p: Partial<CheckIn> & { id: string; caseId: string; heldAt: LocalDateTime }): CheckIn => ({
   durationMin: 30, mode: "fysiskt", inputMethod: "manual", goalStatus: "yes", nextGoal: "", phase: null, activitiesDone: [], employerContacts: { count: null, types: [] },
-  overallStatus: "green", obstacles: [], note: "", status: "approved", approvedBy: "u-amira", approvedAt: p.heldAt, aiRunId: null, docMinutes: null, ai: null, ...p,
+  overallStatus: "green", obstacles: [], note: "", status: "approved", approvedBy: "u-amira", approvedAt: p.heldAt, aiRunId: null, docMinutes: null, ai: null, version: 1, ...p,
 });
 
 export const mkReport = (p: Partial<Report> & { id: string; kind: Report["kind"] }): Report => ({

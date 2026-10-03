@@ -1,20 +1,22 @@
 "use client";
 // Deltagarkortets flik Tidslinje (rapporter steg 2, SPEC §7.18): allt som hänt i insatsen per månad, med det senaste först,
-// och de fria anteckningarna (skriv, ändra, ta bort). Tidslinjen upprepar ingen fritext – bara anteckningarnas text visas.
-// Kommunen ser aldrig anteckningar. Data: arenden.kortTidslinje (domänfunktionen timeline.ts).
-import { useState, type MouseEvent } from "react";
+// och de fria anteckningarna (skriv, ändra, ta bort). Tidslinjen upprepar ingen fritext i grundvyn – bara anteckningarnas
+// text visas. Meddelandets text och avstämningens anteckning och hinder kan fällas ut på plats ("Visa text", ihopfällt som
+// standard) av den som får läsa dem på fliken; texten hämtas först då (arenden.kortTidslinjeText) – beslut 2026-10-02,
+// Karim. Kommunen ser aldrig tidslinjen. Data: arenden.kortTidslinje (domänfunktionen timeline.ts).
+import { useEffect, useState, type MouseEvent } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { useSession } from "@/shell/session";
 import { CASE_NOTE_AUDIENCE_LABEL, CASE_NOTE_KIND_LABEL } from "@/core/labels";
-import { dayOf, MONTHS } from "@/core/time";
+import { dayOf, fmtDateTime, MONTHS } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
 import { CASE_NOTE_KINDS, CASE_NOTE_MAX, type CaseNoteAudience, type CaseNoteKind } from "@/data/schema";
 import {
-  Button, cn, DateInput, ErrorNotice, Field, Icon, Loading, Modal, Notice, Refreshing, Section, Seg, Select, Stack, STATUS_ICON, TextArea, Timeline, toast, confirmDiscard, ModalCancelButton, useConfirm, type TimelineItem,
+  Badge, Button, cn, DateInput, ErrorNotice, Field, Icon, Loading, Modal, Notice, Refreshing, Section, Seg, Select, Stack, STATUS_ICON, TextArea, Timeline, toast, confirmDiscard, ModalCancelButton, useConfirm, type TimelineItem,
 } from "@/ui";
 import {
-  caseNoteRemove, caseNoteSave, caseTimeline, TIMELINE_CAT_LABEL, TIMELINE_CATS, type CaseTimeline, type CaseTimelineMonth, type TimelineCat, type TimelineEntry,
+  caseNoteRemove, caseNoteSave, caseTimeline, caseTimelineText, messageRead, TIMELINE_CAT_LABEL, TIMELINE_CATS, type CaseTimeline, type CaseTimelineMonth, type TimelineCat, type TimelineEntry,
   type TimelineNote,
 } from "../api";
 import { caseLink, fd } from "./common";
@@ -28,6 +30,15 @@ export function TabTidslinje({ card, openTab }: TabProps) {
   const [visa, setVisa] = useState<TimelineCat>("alla");
   const [older, setOlder] = useState<string[]>([]);
   const [dialog, setDialog] = useState<{ note: TimelineNote | null } | null>(null);
+  // Utfällda texter (postens id). Ihopfällt som standard; bara i minnet medan fliken visas – inget i adressen eller webblagring.
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (id: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   // Filterbyte: listan står kvar (dämpad) tills den nya har hämtats – inget "Hämtar…" i stället för listan.
   const q = useQuery(caseTimeline, { caseId: card.caseId, visa }, { keepPrevious: true });
   const changeFilter = (v: TimelineCat) => {
@@ -35,13 +46,13 @@ export function TabTidslinje({ card, openTab }: TabProps) {
     setOlder([]);
   };
   const t = q.data;
-  const pageProps = { card, openTab, onEdit: (note: TimelineNote) => setDialog({ note }) };
+  const pageProps = { card, openTab, onEdit: (note: TimelineNote) => setDialog({ note }), open, toggle };
   return (
     <Section
       title="Tidslinje"
       actions={t?.canWrite ? <Button kind="primary" icon="plus" onClick={() => setDialog({ note: null })}>Skriv anteckning</Button> : undefined}
     >
-      <p>Allt som hänt i insatsen, med det senaste först. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
+      <p>Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller avstämningens anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
       <Seg<TimelineCat> ariaLabel="Visa" value={visa} onValueChange={changeFilter} options={TIMELINE_CATS.map((c) => ({ value: c, label: TIMELINE_CAT_LABEL[c] }))} />
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
@@ -66,7 +77,14 @@ export function TabTidslinje({ card, openTab }: TabProps) {
   );
 }
 
-type PageProps = Pick<TabProps, "card" | "openTab"> & { last: boolean; onMore: (fore: string) => void; onEdit: (note: TimelineNote) => void };
+type PageProps = Pick<TabProps, "card" | "openTab"> & {
+  last: boolean;
+  onMore: (fore: string) => void;
+  onEdit: (note: TimelineNote) => void;
+  /** Poster vars text är utfälld, och växlingen. */
+  open: ReadonlySet<string>;
+  toggle: (id: string) => void;
+};
 
 /** Tre äldre månader (fore = månaden efter den äldsta som visas). */
 function OlderPage({ caseId, visa, fore, ...rest }: PageProps & { caseId: string; visa: TimelineCat; fore: string }) {
@@ -96,7 +114,7 @@ function TimelinePage({ t, last, onMore, ...rest }: PageProps & { t: CaseTimelin
   );
 }
 
-function MonthBlock({ m, card, openTab, onEdit }: Omit<PageProps, "last" | "onMore"> & { m: CaseTimelineMonth }) {
+function MonthBlock({ m, card, openTab, onEdit, open, toggle }: Omit<PageProps, "last" | "onMore"> & { m: CaseTimelineMonth }) {
   const today = dayOf(card.now);
   const id = `tl-${m.month}`;
   return (
@@ -120,30 +138,42 @@ function MonthBlock({ m, card, openTab, onEdit }: Omit<PageProps, "last" | "onMo
           </Button>
         )}
       </div>
-      <Timeline as="ol" ariaLabel={`Händelser ${monthTitle(m.month)}`} items={m.entries.map((e) => entryItem(e, { card, openTab, onEdit, today, headingId: id }))} />
+      <Timeline as="ol" ariaLabel={`Händelser ${monthTitle(m.month)}`} items={m.entries.map((e) => entryItem(e, { card, openTab, onEdit, today, headingId: id, open, toggle }))} />
     </section>
   );
 }
 
+/** Panelens id i DOM (aria-controls): postens id med bara bokstäver, siffror och bindestreck. */
+const textPanelId = (entryId: string) => `tl-text-${entryId.replace(/[^a-zA-Z0-9-]/g, "-")}`;
+
 function entryItem(
   e: TimelineEntry,
-  o: { card: TabProps["card"]; openTab: TabProps["openTab"]; onEdit: (n: TimelineNote) => void; today: string; headingId: string },
+  o: { card: TabProps["card"]; openTab: TabProps["openTab"]; onEdit: (n: TimelineNote) => void; today: string; headingId: string; open: ReadonlySet<string>; toggle: (id: string) => void },
 ): TimelineItem {
+  const expanded = !!e.text && o.open.has(e.id);
   const actions =
     e.note ? (
       e.note.canEdit || e.note.canRemove ? (
         <NoteActions note={e.note} card={o.card} onEdit={o.onEdit} headingId={o.headingId} />
       ) : undefined
     ) : e.tab ? (
-      <Button
-        kind="ghost"
-        iconRight="arrow-right"
-        ariaLabel={`Öppna: ${e.title}`}
-        // Ny historikpost med målet (postens id): fliken visar raden, och Tillbaka leder hit igen.
-        onClick={() => o.openTab(e.tab!, { mal: e.id, manad: e.tab === "manad" ? (e.month ?? null) : null })}
-      >
-        Öppna
-      </Button>
+      <>
+        {e.text && (
+          // Fäller ut texten på plats (meddelandet, avstämningens anteckning och hinder). Texten hämtas först då.
+          <Button kind="ghost" icon={expanded ? "chevron-up" : "chevron-down"} aria-expanded={expanded} aria-controls={expanded ? textPanelId(e.id) : undefined} onClick={() => o.toggle(e.id)}>
+            {expanded ? "Dölj text" : "Visa text"}
+          </Button>
+        )}
+        <Button
+          kind="ghost"
+          iconRight="arrow-right"
+          ariaLabel={`Öppna: ${e.title}`}
+          // Ny historikpost med målet (postens id): fliken visar raden, och Tillbaka leder hit igen.
+          onClick={() => o.openTab(e.tab!, { mal: e.id, manad: e.tab === "manad" ? (e.month ?? null) : null })}
+        >
+          Öppna
+        </Button>
+      </>
     ) : undefined;
   const subIcon = e.light ? STATUS_ICON[e.light] : e.state === "varning" ? "alert" : e.state === "ej_verifierad" ? "help" : null;
   return {
@@ -158,9 +188,84 @@ function entryItem(
         <span>{e.sub}</span>
       </span>
     ) : undefined,
-    body: e.note ? <p className={cn("m-0 mt-1 whitespace-pre-line [overflow-wrap:anywhere]", e.note.removed && "text-text-muted")}>{e.note.body}</p> : undefined,
+    body: e.note ? (
+      <p className={cn("m-0 mt-1 whitespace-pre-line [overflow-wrap:anywhere]", e.note.removed && "text-text-muted")}>{e.note.body}</p>
+    ) : expanded ? (
+      <TimelineTextPanel id={textPanelId(e.id)} caseId={o.card.caseId} entryId={e.id} title={e.title} />
+    ) : undefined,
     actions,
   };
+}
+
+/**
+ * Texten bakom en post, hämtad först när den fälls ut (egen fråga – inte i tidslinjens grundfråga). Andra utfällningen
+ * hämtar inte igen (frågans cache). null = rollen får inte läsa texten (teamet) – samma regel som fliken. Ett oläst
+ * meddelande från kommunen markeras som läst när texten visas (samma tysta kommando som fliken Meddelanden, bara det
+ * meddelandet) – annars står det som oläst fast coachen läst det.
+ */
+function TimelineTextPanel({ id, caseId, entryId, title }: { id: string; caseId: string; entryId: string; title: string }) {
+  const q = useQuery(caseTimelineText, { caseId, id: entryId });
+  const t = q.data;
+  const read = useCommand(messageRead);
+  const unread = !!t && t.kind === "message" && t.unreadByMe;
+  const messageId = entryId.startsWith("msg:") ? entryId.slice(4) : null;
+  useEffect(() => {
+    if (unread && messageId) void read.run({ caseId, messageId }).catch(() => undefined);
+    // read är stabil per kommando.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unread, messageId, caseId]);
+  return (
+    <div id={id} role="region" aria-label={title} className="mt-1.5 rounded-mb border border-ljusgra bg-vit px-3 py-2.5">
+      {q.error ? (
+        <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
+      ) : t === undefined ? (
+        <Loading className="py-1" />
+      ) : t === null ? (
+        <p className="m-0 text-text-muted">Texten visas inte för din roll.</p>
+      ) : t.kind === "message" ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-1.5 text-small">
+            <span className="font-bold">{t.senderName}</span>
+            <span className="text-text-muted">
+              {t.orgName} · {fmtDateTime(t.createdAt)}
+            </span>
+            {t.meetingRequest && <Badge tone="outline" icon="calendar">Kallelse till uppföljning</Badge>}
+          </div>
+          <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{t.body}</div>
+          <div className="text-small text-text-muted">{t.readText}</div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {t.approved ? (
+            <>
+              <div>
+                <span className="font-bold">Anteckning: </span>
+                {t.note.trim() ? <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{t.note}</span> : "–"}
+              </div>
+              <div>
+                <span className="font-bold">Hinder: </span>
+                {t.obstacles.length ? t.obstacles.join(", ") : "Inga hinder"}
+              </div>
+              {t.attendanceComment.trim() && (
+                <div>
+                  <span className="font-bold">Kommentar till närvaron: </span>
+                  <span className="[overflow-wrap:anywhere]">{t.attendanceComment}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <p className="m-0 text-small text-text-muted">Utkast – granskas av coachen. Anteckningen visas när avstämningen är godkänd.</p>
+              <div>
+                <span className="font-bold">Hinder: </span>
+                {t.obstacles.join(", ")}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Efter borttagningen finns knappen inte längre: fokus till månadens rubrik (eller den första månaden om månaden försvann). */

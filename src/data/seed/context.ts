@@ -52,7 +52,7 @@ export type PPulseInvite = Omit<PulseInvite, "tokenHash"> & { demo?: boolean };
 export type PAiRun = Pick<AiRun, "id" | "caseId" | "kind" | "provider" | "model" | "status" | "createdAt" | "costOre" | "latencyMs"> & Partial<Pick<AiRun, "audioSeconds" | "inputDeletedAt">>;
 export type PTask = Pick<Task, "id" | "toRole" | "fromId" | "createdAt" | "status" | "text"> & Partial<Pick<Task, "caseIds" | "emailId">>;
 export type PConsent = Omit<Consent, "declinedAt"> & { declinedAt?: string | null };
-export type PCheckIn = Omit<CheckIn, "ai"> & { ai?: CheckIn["ai"]; tags?: string[] };
+export type PCheckIn = Omit<CheckIn, "ai" | "version"> & { ai?: CheckIn["ai"]; tags?: string[] };
 export type POutcomeEvent = Omit<OutcomeEvent, "possibleBonus"> & { possibleBonus?: boolean };
 export type PBillingRun = { id: string; month: string; status: "draft" | "closed"; createdBy: string; createdAt: string };
 
@@ -60,8 +60,8 @@ export type ProtoState = {
   seq: number;
   users: PUser[]; customerUsers: PUser[]; buyerReferences: PBuyerRef[]; persons: PPerson[]; cases: PCase[];
   caseCounters: Record<string, number>; caseStatusHistory: (Omit<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt"> & Partial<Pick<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt">>)[];
-  inboundEmails: PEmail[]; intakeAssessments: IntakeAssessment[]; activities: Activity[]; attendance: Attendance[]; checkIns: PCheckIn[];
-  monthlyAssessments: MonthlyAssessment[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
+  inboundEmails: PEmail[]; intakeAssessments: Omit<IntakeAssessment, "version">[]; activities: Activity[]; attendance: Attendance[]; checkIns: PCheckIn[];
+  monthlyAssessments: Omit<MonthlyAssessment, "version">[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
   contractDeviations: PContractDeviation[]; employers: { id: string; name: string; orgNr: string; contactName: string; phone: string; email: string; areas: string[] }[];
   placements: Placement[]; reports: PReport[]; pulseInvites: PPulseInvite[]; pulseResponses: PulseResponse[]; messages: Omit<Message, "kind">[];
   invoiceStatus: Record<string, Record<string, InvoiceStatus>>; billingRuns: PBillingRun[]; consents: PConsent[]; aiRuns: PAiRun[];

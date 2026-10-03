@@ -73,7 +73,7 @@ export function genMonthly(g: Gen) {
         ? `Under ${MONTHS[Number(mk.slice(5)) - 1]} deltog deltagaren i ${attended} av ${monthAtt.length} registrerade tillfällen. ${contacts ? `Arbetsgivarkontakter fanns ${contacts === 1 ? "en vecka" : `${contacts} veckor`}.` : "Inga arbetsgivarkontakter framgår."} (Källa: ${monthCis.length} godkända avstämningar, ${monthCis.map((x) => fmtDateShort(x.heldAt)).join(", ")}.)`
         : null;
       const overallStatus = approved ? r.weighted<TrafficLight>([["green", 70], ["yellow", 25], ["red", 5]]) : null;
-      const ma: MonthlyAssessment = { id, caseId: c.id, month: mk, areas, status: approved ? "approved" : "draft", decidedBy: approved ? c.leadCoachId : null, decidedAt, summary, aiSummaryDraft, overallStatus };
+      const ma: Omit<MonthlyAssessment, "version"> = { id, caseId: c.id, month: mk, areas, status: approved ? "approved" : "draft", decidedBy: approved ? c.leadCoachId : null, decidedAt, summary, aiSummaryDraft, overallStatus };
       // Januaribedömningar godkänns tidigast måndag morgon efter månadsskiftet (före demoklockan). Slumpanropen behålls så att övriga testdata inte ändras.
       if (approved && (ma.decidedAt as string) >= NOW) { r.int(0, 3); r.int(8, 8); r.int(0, 55); ma.decidedAt = `${TODAY}T0${["7:35", "7:50", "8:05", "8:20", "8:40"][parseInt(c.number.slice(-4), 10) % 5]}`; }
       S.monthlyAssessments.push(ma);

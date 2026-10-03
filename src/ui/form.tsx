@@ -244,6 +244,8 @@ type SegBase<V extends string> = {
   ariaLabel?: string;
   id?: string;
   className?: string;
+  /** Ett kommando pågår för gruppen: klick ignoreras (aria-disabled, aria-busy) men fokus stannar kvar – som Button pending. */
+  busy?: boolean;
 };
 type SegSingle<V extends string> = SegBase<V> & { multi?: false; value: V | null | undefined; onValueChange: (value: V) => void };
 type SegMulti<V extends string> = SegBase<V> & { multi: true; value: readonly V[] | null | undefined; onValueChange: (value: V[]) => void };
@@ -257,9 +259,10 @@ const SEG_TONE = {
 /** Knappgrupp för snabba val (ett klick). multi = flerval (value är en lista). Knapparna har aria-pressed. */
 export function Seg<V extends string>(props: SegSingle<V> | SegMulti<V>) {
   const f = useContext(FieldContext);
-  const { options, ariaLabel, id, className } = props;
+  const { options, ariaLabel, id, className, busy } = props;
   const selected = (v: V) => (props.multi ? (props.value ?? []).includes(v) : props.value === v);
   const toggle = (v: V) => {
+    if (busy) return;
     if (props.multi) {
       const cur = [...(props.value ?? [])];
       props.onValueChange(cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]);
@@ -273,6 +276,7 @@ export function Seg<V extends string>(props: SegSingle<V> | SegMulti<V>) {
       aria-labelledby={!ariaLabel && f ? f.labelId : undefined}
       aria-describedby={f?.describedBy}
       data-invalid={f?.invalid ? "" : undefined}
+      aria-busy={busy || undefined}
       className={cn("inline-flex flex-wrap gap-1.5", className)}
     >
       {options.map((raw) => {
@@ -285,11 +289,12 @@ export function Seg<V extends string>(props: SegSingle<V> | SegMulti<V>) {
             lang={o.lang}
             dir={o.dir}
             disabled={o.disabled}
+            aria-disabled={busy || undefined}
             aria-pressed={on}
             onClick={() => toggle(o.value)}
             className={cn(
               "inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-mb border-[1.5px] border-line-strong bg-vit px-3.5 py-2 text-ui font-semibold text-antracit [font-family:inherit]",
-              "hover:border-antracit aria-pressed:border-antracit aria-pressed:bg-antracit aria-pressed:text-vit disabled:cursor-not-allowed disabled:opacity-45",
+              "hover:border-antracit aria-pressed:border-antracit aria-pressed:bg-antracit aria-pressed:text-vit disabled:cursor-not-allowed disabled:opacity-45 aria-disabled:cursor-progress aria-disabled:opacity-60",
               "portal:min-h-12 portal:min-w-12 portal:text-h3 [&_svg]:size-4",
               o.tone && SEG_TONE[o.tone],
             )}

@@ -89,7 +89,8 @@ export async function proxy(request: NextRequest) {
     for (const c of MM_SESSION_COOKIES) request.cookies.delete(c);
     let out: NextResponse;
     if (isApi && !SOFT_API.some((p) => path.startsWith(p))) {
-      out = NextResponse.json({ code: "unauthenticated", message: "Du har loggats ut. Logga in igen." }, { status: 401 });
+      // reason: appen visar varför på inloggningssidan (?utloggad=inaktiv|maxtid) även när sidan inte laddas om.
+      out = NextResponse.json({ code: "unauthenticated", message: "Du har loggats ut. Logga in igen.", reason: verdict }, { status: 401 });
     } else if (isApi || isPublicPagePath(path)) {
       out = NextResponse.next({ request });
     } else {

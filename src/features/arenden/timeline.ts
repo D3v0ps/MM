@@ -2,10 +2,12 @@
 // Ren funktion utan I/O och utan Date.now() – hanteraren (arenden.kortTidslinje) läser datat via ctx.repo och skickar in
 // klockan. Bara för hanterare och tester – importeras aldrig av skärmar.
 //
-// Grundregel: tidslinjen upprepar ingen fritext. Varje post har datum, typ, rubrik och status och leder till rätt flik.
-// Undantaget är fria anteckningar (case_notes), där texten är innehållet. Visas aldrig: råtranskript, AI-utkast,
-// pulsmätningar, revisionsloggen, röstmeddelanden, meddelandetexter, avstämningarnas anteckningar och hinder,
-// aktiviteternas anteckningar, händelsernas anteckningar, avvikelsetexter och orsaker i statushistoriken.
+// Grundregel: tidslinjen upprepar ingen fritext i grundvyn. Varje post har datum, typ, rubrik och status och leder till
+// rätt flik. Undantaget är fria anteckningar (case_notes), där texten är innehållet. Meddelandets text och avstämningens
+// anteckning och hinder kan fällas ut på begäran av den som får läsa dem på fliken (posten märks text: "message" |
+// "check_in"; texten hämtas av arenden.kortTidslinjeText först vid utfällning – beslut 2026-10-02, Karim). Visas aldrig:
+// råtranskript, AI-utkast, pulsmätningar, revisionsloggen, röstmeddelanden, aktiviteternas anteckningar, händelsernas
+// anteckningar, avvikelsetexter och orsaker i statushistoriken.
 //
 // Behörighet: hanteraren läser bara de tabeller rollen ska se (teamet: inga avstämningar, bedömningar, avvikelser,
 // rapporter, samtycken eller meddelanden). Funktionen kontrollerar dessutom själv åtkomsten per kategori.
@@ -228,13 +230,17 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
   }
 
   if (full) {
-    // ---- Veckoavstämningar: godkända och utkast – aldrig texten, hindren eller AI-utkasten
+    // ---- Veckoavstämningar: godkända och utkast – texten, hindren och närvarokommentaren fälls ut på begäran (text:
+    // "check_in" när fliken har något att visa: godkänd med anteckning, hinder eller kommentar; utkast bara hindren).
+    // AI-utkasten visas aldrig.
     for (const ci of db.check_ins.filter((x) => x.caseId === c.id && x.heldAt <= now)) {
       const w = isoWeek(ci.heldAt).week;
       if (ci.status === "approved") {
-        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "check-square", title: `Veckoavstämning vecka ${w} godkänd`, sub: ci.phase ? phaseLabel(cfg, ci.phase) : undefined, tab: "avstamningar" });
+        const text = ci.note.trim() || ci.obstacles.length || (ci.attendanceComment ?? "").trim() ? { text: "check_in" as const } : {};
+        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "check-square", title: `Veckoavstämning vecka ${w} godkänd`, sub: ci.phase ? phaseLabel(cfg, ci.phase) : undefined, tab: "avstamningar", ...text });
       } else {
-        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "edit", title: `Veckoavstämning vecka ${w} · Utkast – granskas av coachen`, state: "utkast", tab: "avstamningar" });
+        const text = ci.obstacles.length ? { text: "check_in" as const } : {};
+        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "edit", title: `Veckoavstämning vecka ${w} · Utkast – granskas av coachen`, state: "utkast", tab: "avstamningar", ...text });
       }
     }
     // ---- Progression: kartläggning och godkända månadsbedömningar
@@ -257,7 +263,7 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
         sub: `Avslutsorsak: ${endReasonLabel(c.endReason)}${result}`, state: c.resultClass === "result" && !c.resultVerifiedAt ? "ej_verifierad" : undefined, tab: "oversikt",
       });
     }
-    // ---- Övrigt: avvikelser (aldrig texten), samtycken, levererade rapporter, meddelanden (aldrig texten)
+    // ---- Övrigt: avvikelser (aldrig texten), samtycken, levererade rapporter, meddelanden (texten fälls ut på begäran)
     for (const d of db.deviations.filter((x) => x.caseId === c.id)) {
       push({ id: `dev:${d.id}`, at: d.createdAt, cat: "ovrigt", icon: "flag", title: "Avvikelse registrerad", tab: "avvikelser" });
       if (d.closedAt) push({ id: `dev-end:${d.id}`, at: d.closedAt, cat: "ovrigt", icon: "check-circle", title: "Avvikelse avslutad", tab: "avvikelser" });
@@ -281,7 +287,7 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
     const customerOrgs = new Set(db.organizations.filter((x) => x.kind === "customer").map((x) => x.id));
     const fromCustomer = new Set(db.profiles.filter((p) => customerOrgs.has(p.organizationId)).map((p) => p.id));
     for (const m of db.messages.filter((x) => x.caseId === c.id)) {
-      push({ id: `msg:${m.id}`, at: m.createdAt, cat: "ovrigt", icon: "message", title: fromCustomer.has(m.senderId) ? "Meddelande från kommunen" : "Meddelande till kommunen", tab: "meddelanden" });
+      push({ id: `msg:${m.id}`, at: m.createdAt, cat: "ovrigt", icon: "message", title: fromCustomer.has(m.senderId) ? "Meddelande från kommunen" : "Meddelande till kommunen", tab: "meddelanden", text: "message" });
     }
   }
 

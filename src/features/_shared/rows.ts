@@ -18,14 +18,14 @@ export function newReport(r: ReportCore & Partial<Report>): Report {
 export function newCheckIn(r: Pick<CheckIn, "id" | "caseId" | "heldAt">): CheckIn {
   return {
     durationMin: null, mode: null, inputMethod: "manual", goalStatus: null, nextGoal: "", phase: null, activitiesDone: [], employerContacts: { count: null, types: [] },
-    overallStatus: null, obstacles: [], note: "", status: "draft", approvedBy: null, approvedAt: null, aiRunId: null, docMinutes: null, ai: null,
+    overallStatus: null, obstacles: [], note: "", status: "draft", approvedBy: null, approvedAt: null, aiRunId: null, docMinutes: null, ai: null, version: 1,
     ...r,
   };
 }
 
 /** En ny månadsbedömning (utkast) utan områden. */
 export function newAssessment(r: Pick<MonthlyAssessment, "id" | "caseId" | "month">): MonthlyAssessment {
-  return { areas: {}, status: "draft", decidedBy: null, decidedAt: null, summary: "", aiSummaryDraft: null, overallStatus: null, ...r };
+  return { areas: {}, status: "draft", decidedBy: null, decidedAt: null, summary: "", aiSummaryDraft: null, overallStatus: null, version: 1, ...r };
 }
 
 /** Ett progressionsområde utan bedömning. Nivån är tom tills coachen valt (CLAUDE.md punkt 5). */
@@ -40,7 +40,7 @@ export function newPlan(r: Pick<MonthlyPlan, "id" | "caseId" | "month">): Monthl
 export function newIntake(r: Pick<IntakeAssessment, "id" | "caseId">): IntakeAssessment {
   return {
     workExperience: "", education: "", languageNotes: "", digitalSkills: "", drivingLicence: "", workGoals: "", chosenTrack: "", adaptations: "", firstWeekGoal: "",
-    status: "draft", approvedBy: null, approvedAt: null, ...r,
+    status: "draft", approvedBy: null, approvedAt: null, version: 1, ...r,
   };
 }
 

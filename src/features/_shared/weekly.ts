@@ -34,10 +34,14 @@ export async function weeklyComplete(ctx: Ctx, contractId: string, recipientId: 
 /** Leverera en väntande veckorapport till handläggaren automatiskt: status, revisionslogg, ögonblicksbild och mejl utan
  *  personuppgifter. Ögonblicksbilden (prototypens rap.snapshot efter automatisk publicering) fryser innehållet som
  *  levererades – en senare ändring av närvaron ändrar inte den publicerade rapporten. */
-async function publishWeekly(ctx: Ctx, rep: Report, recipientId: string): Promise<WeeklyPublished> {
+async function publishWeekly(ctx: Ctx, rep: Report, recipientId: string): Promise<WeeklyPublished | null> {
   const now = ctx.now();
   const weekKey = rep.week as WeekKey;
-  await ctx.system.table("reports").update(rep.id, { status: "delivered", deliveredAt: now, approvedAt: now, deliveredTo: [recipientId] });
+  // Villkorad övergång väntar → levererad: två kommandon som båda ser veckan komplett (sista tillfället registrerat två
+  // gånger samtidigt, eller "Markera alla" tillsammans med en radknapp) publicerar annars rapporten två gånger – två
+  // loggrader, två mejl, två meddelanden. Bara den som faktiskt ändrade raden publicerar.
+  const changed = await ctx.system.table("reports").updateIf(rep.id, { status: "waiting" }, { status: "delivered", deliveredAt: now, approvedAt: now, deliveredTo: [recipientId] });
+  if (!changed) return null;
   await ctx.audit({ action: "report.published", entity: "report", entityId: rep.id, contractId: rep.contractId, details: { kind: "weekly_attendance", week: weekKey, automatic: true } });
   await freezeReport(ctx, rep.id);
   await ctx.notify({ channel: "email", to: await userEmail(ctx, recipientId), template: "ny_rapport", body: `Veckorapporten för ${fmtWeekKey(weekKey)} finns i portalen – logga in för att läsa.`, caseId: null });

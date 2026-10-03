@@ -18,6 +18,7 @@ test.use({
 const COACH = { userId: "u-amira", role: "coach" };
 const HANDLEDARE = { userId: "u-petra", role: "handledare" };
 const MARIA = { userId: "k-maria", role: "kommun_handlaggare" };
+const KARIN = { userId: "u-karin", role: "chef" };
 const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", hodan: "case-260119", mehmet: "case-260130", amal: "case-270012", skyddad: "case-260120" };
 /** Petras teamärenden i testdatat (case_team). Handledaren ser bara dessa. */
 const PETRA_CASES = new Set(
@@ -167,6 +168,82 @@ test("Närvaro: handledaren ser bara sina teamärenden", async ({ page }, info) 
   await expect(page.getByRole("button", { name: /^Den här veckan/ })).toHaveAttribute("aria-pressed", "true");
   await expect(card(page, "Veckorapporter – vecka 5")).toContainText("Veckorapporten för vecka 5 skapas måndag 8 februari");
   await expect(page.getByText("Min vecka")).toHaveCount(0); // ingen brödsmula till coachens startsida
+  expect(errors).toEqual([]);
+});
+
+test("Närvaro: 'Markera alla som närvarande' per dag – bekräftelse med namnen, ett kommando, enskilda rättas efteråt och chefen ser loggraden", async ({ page }, info) => {
+  const errors = await open(page, info, "/narvaro?vecka=forra", COACH);
+  await expect(page.getByTestId("narvaro-raknare")).toContainText("6 tillfällen kvar – senast måndag 10.00");
+  // Smal skärm (390 px): knappen är minst 44 px hög och sidan skrollar inte i sidled.
+  await page.setViewportSize({ width: 390, height: 844 });
+  const wedButton = page.getByRole("button", { name: "Markera alla som närvarande (3)" }).first();
+  await expect(wedButton).toBeVisible();
+  expect((await wedButton.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  // Appen: ett kommando för hela dagen (inte ett per tillfälle).
+  const commands: string[] = [];
+  page.on("request", (r) => {
+    if (!r.url().includes("/api/rpc")) return;
+    try {
+      const b = JSON.parse(r.postData() || "{}") as { kind?: string; key?: string };
+      if (b.kind === "command" && b.key) commands.push(b.key);
+    } catch {
+      /* ignoreras */
+    }
+  });
+  // Onsdag: bekräftelsen räknar upp de tre och vad som inte ändras.
+  await page.getByRole("button", { name: "Markera alla som närvarande (3)" }).first().click();
+  const dialog = page.getByRole("dialog", { name: "Markera 3 som närvarande?" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Närvarande registreras ons 27 jan för:");
+  await expect(dialog).toContainText("Nadia Warsame (BOT-26-0143)");
+  await expect(dialog).toContainText("Elif Yilmaz (BOT-27-0003)");
+  await expect(dialog).toContainText("Amal Hassan (BOT-27-0012)");
+  await expect(dialog).toContainText("Tillfällen som redan är registrerade ändras inte.");
+  await dialog.getByRole("button", { name: "Markera 3 som närvarande" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("3 tillfällen markerade som närvarande.")).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "3 av 3 tillfällen ons 27 jan markerade som närvarande" })).toBeVisible();
+  await expect(page.getByTestId("narvaro-raknare")).toContainText("3 tillfällen kvar – senast måndag 10.00");
+  // De tre raderna står kvar med sina knappar: Närvarande valt – rättas med samma knappar som förut.
+  const rows = page.getByTestId("narvaro-rad");
+  await expect(rows).toHaveCount(6);
+  for (let i = 0; i < 3; i++) await expect(btn(rows.nth(i), "Närvarande")).toHaveAttribute("aria-pressed", "true");
+  if (!isDemo(info)) expect(commands).toEqual(["coach.attendanceSetAll"]);
+  // Torsdag: allt registrerat – veckorapporterna publiceras som vid enskild registrering.
+  await page.getByRole("button", { name: "Markera alla som närvarande (3)" }).click();
+  await page.getByRole("dialog", { name: "Markera 3 som närvarande?" }).getByRole("button", { name: "Markera 3 som närvarande" }).click();
+  await expect(page.getByTestId("narvaro-raknare")).toContainText("Alla passerade tillfällen vecka 4 är registrerade");
+  await expect(page.getByText("Veckorapporten för v. 4 2027 till Linda Karlsson publicerades automatiskt.")).toBeVisible();
+  await expect(page.getByText("Veckorapporten för v. 4 2027 till Maria Ekdahl publicerades automatiskt.")).toBeVisible();
+  const reports = card(page, "Veckorapporter – vecka 4");
+  await expect(reports).toContainText(/Maria Ekdahl[\s\S]*?Publicerad 1 feb/);
+  await expect(reports).toContainText(/Linda Karlsson[\s\S]*?Publicerad 1 feb/);
+  await expect(page.getByRole("button", { name: /^Markera alla som närvarande/ })).toHaveCount(0);
+  // Rätta en enskild: Elif onsdag blir ogiltig frånvaro med radens knappar.
+  const elif = rows.filter({ hasText: "BOT-27-0003" }).first();
+  await registerRow(elif, "Ogiltig frånvaro");
+  await expect(elif).toContainText("Ogiltig frånvaro");
+  await expect(btn(rows.nth(0), "Närvarande")).toHaveAttribute("aria-pressed", "true");
+  // Omladdning: allt kvar (prototypen spelar upp loggen igen).
+  await page.reload();
+  if (!isDemo(info)) await loaded(page);
+  await expect(page.getByTestId("narvaro-raknare")).toContainText("Alla passerade tillfällen vecka 4 är registrerade");
+  await page.getByRole("button", { name: /^Alla \(/ }).click();
+  await expect(page.getByTestId("narvaro-rad").filter({ hasText: "BOT-27-0003" }).filter({ hasText: "ons" })).toContainText("Ogiltig frånvaro");
+  await expect(page.getByTestId("narvaro-rad").filter({ hasText: "BOT-26-0143" }).filter({ hasText: "ons" })).toContainText("Närvarande");
+  await expect(page.getByTestId("narvaro-rad").filter({ hasText: "BOT-27-0012" }).filter({ hasText: "tor" })).toContainText("Närvarande");
+  // Chefen: kortets Historik visar en loggrad per dag med antalet – inga namn i raden.
+  await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
+  const table = page.getByRole("table", { name: "Revisionslogg" });
+  await expect(table).toBeVisible();
+  const more = page.getByRole("button", { name: "Visa alla" });
+  if (await more.count()) await more.click();
+  const bulkRows = table.locator("tbody tr").filter({ hasText: "Närvaro registrerades för flera tillfällen samma dag" });
+  await expect(bulkRows).toHaveCount(2);
+  await expect(bulkRows.first()).toContainText("3 tillfällen");
+  await expect(bulkRows.first()).toContainText("Amira Haddad");
   expect(errors).toEqual([]);
 });
 

@@ -16,6 +16,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { useRuntime } from "@/shell/runtime";
 import { isAuthenticated, useAuth, useSession } from "@/shell/session";
 import { Button, Card, DemoNote, Field, Icon, Input, Notice, Stepper, useToast } from "@/ui";
+import { BACK_AFTER_LOGIN, LOGGED_OUT } from "@/features/session/screens/logga-in";
 import { kommunTestPersonas } from "../api";
 import { AUTH, ORDER_MAILBOX } from "../texts";
 import { KomHead, KomPage } from "./parts";
@@ -62,6 +63,10 @@ export function PortalLoginScreen({ query }: ScreenProps) {
   }, [step]);
 
   const heading = <KomHead eyebrow="Portal för beställare" title="Logga in" lead="För dig som beställer insatser från Miljonbemanning." />;
+  // Utloggad (?utloggad= från src/proxy.ts eller från appen när sessionen gick ut under besöket): säg varför, och att man
+  // kommer tillbaka till sidan man var på.
+  const reason = LOGGED_OUT[query.get("utloggad") ?? ""];
+  const backAfter = !!safeReturnPath(query.get("till"));
 
   // Redan inloggad i riktiga appen. I prototypen och utvecklingsläget är man alltid en testperson – där visas formuläret.
   if (isAuthenticated(session) && !demo) {
@@ -124,6 +129,12 @@ export function PortalLoginScreen({ query }: ScreenProps) {
   return (
     <KomPage narrow>
       {heading}
+      {reason && (
+        <Notice tone="warn" icon="clock">
+          {reason}
+          {backAfter ? ` ${BACK_AFTER_LOGIN}` : ""}
+        </Notice>
+      )}
       <Stepper steps={["E-postadress", "Kod från mejlet"]} current={step} />
       <Card>
         {!auth ? (

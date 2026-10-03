@@ -12,6 +12,7 @@
 // Inga utskick. Revisionslogg: feedback.created, feedback.replied, feedback.status_changed (bara id:n, aldrig text).
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { LOG } from "@/api/invalidation";
 import type { Perspective, Role } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import { IdSchema } from "@/features/_shared/schemas";
@@ -67,13 +68,13 @@ export const FeedbackSubmitSchema = z.object({
   viewTitle: z.string().max(400).nullable(),
 });
 export type FeedbackSubmitInput = z.input<typeof FeedbackSubmitSchema>;
-export const feedbackSubmit = command("feedback.submit", FeedbackSubmitSchema).returns<Result<{ id: string }>>();
+export const feedbackSubmit = command("feedback.submit", FeedbackSubmitSchema, { invalidates: ["feedback.", ...LOG] }).returns<Result<{ id: string }>>();
 
-export const feedbackReply = command("feedback.reply", z.object({ feedbackId: IdSchema, text: z.string().trim().min(1).max(FEEDBACK_REPLY_MAX) })).returns<
+export const feedbackReply = command("feedback.reply", z.object({ feedbackId: IdSchema, text: z.string().trim().min(1).max(FEEDBACK_REPLY_MAX) }), { invalidates: ["feedback.", ...LOG] }).returns<
   Result<{ id: string }, "not_found">
 >();
 
-export const feedbackSetStatus = command("feedback.setStatus", z.object({ feedbackId: IdSchema, status: z.enum(FEEDBACK_STATUSES) })).returns<
+export const feedbackSetStatus = command("feedback.setStatus", z.object({ feedbackId: IdSchema, status: z.enum(FEEDBACK_STATUSES) }), { invalidates: ["feedback.", ...LOG] }).returns<
   Result<object, "not_found">
 >();
 

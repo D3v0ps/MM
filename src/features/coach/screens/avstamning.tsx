@@ -2,15 +2,24 @@
 // Veckoavstämning (/avstamning/:caseId?avstamning=<id>) – manuellt eller med AI-stöd (samma formulär). AI föreslår med belägg,
 // coachen accepterar, ändrar eller avvisar varje förslag. Samlad status föreslås aldrig. Röd status kräver en avvikelse.
 // Port av prototypens coach.avstamning (CheckInForm, ConsentPanel, AiCapture, AiSourceSummary, CheckInDone, CheckInReadOnly).
+// Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter senaste ändringen, när sidan lämnas
+// och när den döljs – samma kommando som "Spara utkast" (autosave: true, en loggrad per besök). Adressen får inte det nya
+// utkastets id (det skulle byta Loaded-nyckeln och nollställa formuläret); efter omladdning visas i stället "Det finns ett
+// sparat utkast – Öppna utkastet". Id, version, sparat läge och senaste sparningstid ligger i utkastminnet, så Tillbaka visar
+// samma sak och fortsatta ändringar sparas i samma utkast – aldrig ett andra utkast: ett sparat utkast som inte är öppnat
+// stoppar autosparningen (coachen öppnar det eller sparar själv som nytt), "Börja om" behåller utkastets id, och "Spara
+// utkast" behåller minnet. Samma utkast i en annan flik: servern svarar conflict (versionen, 0022) och inget skrivs över.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AUTOSAVE_CHECKIN } from "@/api/invalidation";
 import { pct, plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtWeekday, fmtWeekKey, monday, timeOf } from "@/core/time";
+import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
-  AiBox, AiTag, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
+  AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
   List, Notice, Page,
   Recorder, Row, Seg, Select, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
@@ -135,7 +144,7 @@ const ecText = (v: { count: string | null; types?: string[] | null } | null) => 
 
 // ================================================================ Dokumentationstiden
 /** Dokumentationstid (mål under 5 minuter, SPEC §7.5 och §8.5). Egen komponent så att bara klockan ritas om. */
-function DocTimer({ start, stopped }: { start: number; stopped?: number | null }) {
+function DocTimer({ start, stopped, className }: { start: number; stopped?: number | null; className?: string }) {
   const [nowMs, setNowMs] = useState(start);
   useEffect(() => {
     if (stopped != null) return undefined;
@@ -153,6 +162,7 @@ function DocTimer({ start, stopped }: { start: number; stopped?: number | null }
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full bg-bla-ton2 px-3 py-1.5 font-bold text-antracit tabular-nums",
         over && "border-2 border-rod bg-vit",
+        className,
       )}
     >
       <Icon name={over ? "alert-circle" : "clock"} />
@@ -192,6 +202,9 @@ const ERROR_FIELD: Record<string, string> = {
   devDescription: "dev-desc", devAction: "dev-action", devOwner: "dev-owner", devFollow: "dev-follow", devCust: "dev-cust",
 };
 const REC_LEAVE = "Inspelningen stoppas och försvinner. Lämna ändå?";
+const UNOPENED_DRAFT = "Sparas inte automatiskt – det finns redan ett sparat utkast. Öppna utkastet, eller spara det här som ett nytt med Spara utkast.";
+const ALREADY_APPROVED = "Avstämningen är redan godkänd – inget sparas. Ladda om sidan.";
+const CONFLICT_TEXT = "Utkastet har ändrats i en annan flik eller på en annan enhet – ladda om sidan. Inget skrivs över.";
 const DEV_MISSING: Record<string, string> = { devDescription: "beskrivning", devAction: "åtgärd", devOwner: "ansvarig", devFollow: "uppföljningsdatum", devCust: "om kommunen behöver fatta beslut" };
 
 function sourceOf(ci: CheckInView | null): AiSource {
@@ -212,6 +225,9 @@ function suggestionsOf(ci: CheckInView | null): CheckInSuggestions | null {
 function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const { user } = useSession();
   const save = useCommand(checkinSave);
+  // Automatisk utkastsparning räknar bara om utkastlistor och kortet – inte sidan själv och inte sidopanelens räknare.
+  const draftSave = useCommand(checkinSave, { invalidate: AUTOSAVE_CHECKIN });
+  const [editSession] = useState(newEditSession);
   const run = useCommand(aiRun);
   const recStart = useCommand(uploadStart);
   const recFinish = useCommand(recordingFinish);
@@ -246,8 +262,30 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const devDraft = useDraft<Dev>(`${draftKey}|avvikelse`, EMPTY_DEV);
   const form = formDraft.value;
   const setForm = formDraft.set;
-  // Det som senast fanns sparat (formuläret som det öppnades, eller efter Spara utkast).
-  const [baseline, setBaseline] = useState(() => JSON.stringify([initialForm(), EMPTY_DEV]));
+  // Det som senast fanns sparat (formuläret som det öppnades, eller efter Spara utkast/autosparning), utkastets id och
+  // senaste sparningstid – i samma minne som fälten, så att Tillbaka visar formuläret som sparat (inte "osparat").
+  const baselineDraft = useDraft<string>(`${draftKey}|sparat`, () => JSON.stringify([initialForm(), EMPTY_DEV]));
+  const baseline = baselineDraft.value;
+  const setBaseline = baselineDraft.set;
+  const idDraft = useDraft<string | null>(`${draftKey}|id`, ci0 ? ci0.id : null);
+  const ciId = idDraft.value;
+  const setCiId = idDraft.set;
+  const savedAtDraft = useDraft<string | null>(`${draftKey}|sparadtid`, null);
+  // Radens version (0022): skickas som expectedVersion – samma utkast sparat i en annan flik ger "conflict", inget skrivs över.
+  const versionDraft = useDraft<number | null>(`${draftKey}|version`, ci0 ? ci0.version : null);
+  // Senaste kända id och version – också mitt i en autosparning (React-tillståndet hinner inte alltid uppdateras före nästa anrop).
+  const ciIdRef = useRef<string | null>(ciId);
+  const versionRef = useRef<number | null>(versionDraft.value);
+  useEffect(() => {
+    ciIdRef.current = ciId;
+    versionRef.current = versionDraft.value;
+  }, [ciId, versionDraft.value]);
+  const remember = (r: { checkInId: string; version: number }) => {
+    ciIdRef.current = r.checkInId;
+    versionRef.current = r.version;
+    setCiId(r.checkInId);
+    versionDraft.set(r.version);
+  };
   const setF = <K extends keyof FormState>(k: K, val: FormState[K]) => setForm((f) => ({ ...f, [k]: val }));
   const prot = c.protected;
   const [method, setMethod] = useState<Method>(ci0?.ai ? "ai" : "manual");
@@ -269,7 +307,6 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const dev = devDraft.value;
   const setDevRaw = devDraft.set;
   const [holdRec, setHoldRec] = useState(false);
-  const [ciId, setCiId] = useState<string | null>(ci0 ? ci0.id : null);
   const [done, setDone] = useState<Done | null>(null);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => () => timers.current.forEach((t) => clearTimeout(t)), []);
@@ -291,6 +328,9 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const consentOk = v.aiConsent === "given";
   const lastWeekFrom = form.date ? addDays(form.date, -6) : null;
   const draftElsewhere = !ci0 ? v.drafts.find((x) => x.id !== ciId) ?? null : null;
+  // Ett sparat utkast som inte är öppnat (t.ex. efter en omladdning): autosparningen skapar aldrig ett andra utkast –
+  // coachen öppnar utkastet, eller sparar det här som ett nytt med "Spara utkast".
+  const unopenedDraft = !ciId && !!draftElsewhere && !draftElsewhere.ai;
 
   // ---- AI
   const decide = (field: AiField, dec: Clicked) => {
@@ -487,21 +527,72 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   const shown: Record<string, string> = attempt === null ? errors : { ...validate(attempt), ...errors };
   const devMissing = Object.keys(DEV_MISSING).filter((k) => shown[k]).map((k) => DEV_MISSING[k]);
   const summary = Object.entries(shown).map(([k, text]) => ({ id: k === "ai" ? (pendingAi[0] ? FIELD_ID[pendingAi[0]] : "ci-goal") : (ERROR_FIELD[k] ?? "ci-goal"), text }));
-  const dirty = JSON.stringify([form, dev]) !== baseline;
+  const changeKey = JSON.stringify([form, dev]);
+  const dirty = changeKey !== baseline;
+  /** Avvikelsen i anropet (bara vid röd status). */
+  const deviationPayload = () =>
+    form.overallStatus === "red"
+      ? { description: dev.description.trim(), action: dev.action.trim(), ownerId: dev.ownerId, followUpOn: dev.followUpOn, needsCustomerDecision: dev.needsCustomerDecision === "yes" }
+      : undefined;
+  // Automatisk utkastsparning: samma kommando som "Spara utkast". Kan inte sparas (röd status utan avvikelse, AI utan
+  // samtycke) → "invalid" tills nästa ändring. Lyckad sparning sätter baseline – fälten står kvar, inget hämtas om på sidan.
+  const autosave = useAutosave({
+    enabled: !done && !save.pending,
+    dirty,
+    changeKey,
+    initialSavedAt: savedAtDraft.value,
+    save: async ({ keepalive }): Promise<AutosaveResult> => {
+      const snapshot = JSON.stringify([form, dev]);
+      if (unopenedDraft) return { ok: false, reason: "invalid", text: UNOPENED_DRAFT };
+      if (Object.keys(validate(false)).length) return { ok: false, reason: "invalid", text: "Sparas inte automatiskt förrän avvikelsen är ifylld" };
+      if (aiActive && !aiAllowed) return { ok: false, reason: "invalid", text: "Sparas inte automatiskt – AI-stöd kräver samtycke" };
+      const res = await draftSave
+        .run(
+          { caseId: c.caseId, checkInId: ciIdRef.current || undefined, expectedVersion: versionRef.current ?? undefined, data: buildData(), approve: false, deviation: deviationPayload(), autosave: true, editSession },
+          { keepalive },
+        )
+        .catch(() => null);
+      if (!res) return { ok: false, reason: "failed" };
+      if (!res.ok) {
+        if (res.error === "deviation_required") return { ok: false, reason: "invalid", text: "Sparas inte automatiskt förrän avvikelsen är ifylld" };
+        if (res.error === "ai_not_allowed") return { ok: false, reason: "invalid", text: AI_BLOCKED };
+        if (res.error === "approved") return { ok: false, reason: "invalid", text: ALREADY_APPROVED };
+        if (res.error === "conflict") return { ok: false, reason: "invalid", text: CONFLICT_TEXT };
+        return { ok: false, reason: "failed" };
+      }
+      remember(res);
+      setBaseline(snapshot);
+      savedAtDraft.set(res.savedAt);
+      return { ok: true, savedAt: res.savedAt };
+    },
+  });
   // Fråga innan sidan lämnas med osparade val eller mitt i en inspelning (inspelningen pausas medan frågan visas).
   // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
-  // har skickats, innan fältet hunnit tömmas.
-  useUnsavedGuard((dirty && !done && !save.pending) || recActive, recActive ? REC_LEAVE : undefined, recActive ? { onAsk: () => setHoldRec(true), onStay: () => setHoldRec(false) } : undefined);
+  // har skickats, innan fältet hunnit tömmas. Utan inspelning sparas utkastet först (trySave) – frågan visas bara om det inte gick.
+  useUnsavedGuard(
+    (dirty && !done && !save.pending) || recActive,
+    recActive ? REC_LEAVE : undefined,
+    recActive ? { onAsk: () => setHoldRec(true), onStay: () => setHoldRec(false) } : { trySave: () => autosave.flush() },
+  );
   const forgetDraft = () => {
     formDraft.clear();
     devDraft.clear();
+    baselineDraft.clear();
+    idDraft.clear();
+    savedAtDraft.clear();
+    versionDraft.clear();
   };
+  // "Börja om": formuläret nollställs men utkastets id behålls – nästa sparning skriver över samma utkast på servern
+  // (aldrig ett andra utkast). Inget sparas förrän coachen skrivit något nytt: det tomma formuläret räknas som sparat läge.
   const restartDraft = () => {
-    setForm(initialForm());
+    const blank = initialForm();
+    setForm(blank);
     setDevRaw(EMPTY_DEV);
+    setBaseline(JSON.stringify([blank, EMPTY_DEV]));
     setAttempt(null);
     setErrors({});
-    forgetDraft();
+    formDraft.clear();
+    devDraft.clear();
   };
   const goToDev = () => {
     const el = document.getElementById("dev-card");
@@ -524,17 +615,17 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       toast(AI_BLOCKED, "error");
       return;
     }
+    // En pågående autosparning får bli klar först, så att godkännandet gäller samma utkast (aldrig två rader).
+    await autosave.settle();
     const decisionsLogged = approve && aiActive ? aiDecisionList() : [];
     const res = await save
       .run({
         caseId: c.caseId,
-        checkInId: ciId || undefined,
+        checkInId: ciIdRef.current || undefined,
+        expectedVersion: versionRef.current ?? undefined,
         data: buildData(),
         approve,
-        deviation:
-          form.overallStatus === "red"
-            ? { description: dev.description.trim(), action: dev.action.trim(), ownerId: dev.ownerId, followUpOn: dev.followUpOn, needsCustomerDecision: dev.needsCustomerDecision === "yes" }
-            : undefined,
+        deviation: deviationPayload(),
         aiDecisions: approve && aiActive ? decisionsLogged.map((x) => ({ field: x.field, decision: x.decision, suggested: x.suggested, final: x.final, changed: x.decision === "edited" })) : undefined,
       })
       .catch(() => null);
@@ -547,17 +638,22 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
         setErrors({ devDescription: "Röd status kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum." });
         toast("Röd status kräver en avvikelse.", "error");
       } else if (res.error === "ai_not_allowed") toast(AI_BLOCKED, "error");
+      else if (res.error === "approved" || res.error === "conflict") toast(res.message ?? "Avstämningen kunde inte sparas.", "error");
       else toast("Avstämningen kunde inte sparas.", "error");
       return;
     }
-    setCiId(res.checkInId);
-    forgetDraft();
+    remember(res);
     if (!approve) {
+      // Sparat läge: formuläret står kvar som sparat, och fortsatta ändringar sparas i samma utkast (id och version ligger
+      // kvar i utkastminnet) – aldrig ett andra utkast. Efter en omladdning visas "Det finns ett sparat utkast".
       setBaseline(JSON.stringify([form, dev]));
+      savedAtDraft.set(res.savedAt);
+      autosave.markSaved(res.savedAt);
       setAttempt(null);
       toast("Utkastet är sparat. Du kan fortsätta senare.");
       return;
     }
+    forgetDraft();
     const stopped = Date.now();
     setDone({ checkInId: res.checkInId, deviationId: res.deviationId, decisions: decisionsLogged, docSecs: Math.round((stopped - start) / 1000), stopped });
     toast("Avstämningen är godkänd.");
@@ -612,6 +708,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       {draftElsewhere && (
         <Notice tone="warn" title={draftElsewhere.ai ? "Det finns ett AI-utkast att granska" : "Det finns ett sparat utkast"}>
           Avstämning {fmtDateTimeLong(draftElsewhere.heldAt)}.{" "}
+          {!draftElsewhere.ai && "Det du skriver här sparas inte automatiskt förrän du har öppnat utkastet eller sparat det här som ett nytt utkast. "}
           <Button kind="ghost" to={`/avstamning/${encodeURIComponent(c.caseId)}?avstamning=${encodeURIComponent(draftElsewhere.id)}`}>
             Öppna utkastet
           </Button>
@@ -935,18 +1032,22 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       )}
       <ErrorSummary items={summary} title={attempt ? "Avstämningen kan inte godkännas ännu" : "Rätta det här innan du sparar"} />
       {/* Knapparna ligger kvar längst ned på skärmen medan man fyller i formuläret. */}
-      <div data-print="hide" className="sticky bottom-0 z-10 -mx-1 border-t border-ljusgra bg-vit px-1 py-3 shadow-[0_-6px_12px_-8px_rgb(30_37_43/0.25)]">
-        <Row between>
-          <Row>
+      <div data-print="hide" className="sticky bottom-0 z-10 -mx-1 border-t border-ljusgra bg-vit px-1 py-2.5 shadow-[0_-6px_12px_-8px_rgb(30_37_43/0.25)]">
+        {/* Smal skärm: knapparna delar en rad och dokumentationstiden visas bara överst på sidan – raden tar annars en fjärdedel av skärmen. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex flex-wrap gap-2 max-[560px]:w-full max-[560px]:flex-nowrap max-[560px]:[&>button]:flex-1">
             <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
               Godkänn avstämningen
             </Button>
             <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
               Spara utkast
             </Button>
-          </Row>
-          <DocTimer start={start} />
-        </Row>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <AutosaveStatus state={autosave.state} savedAt={autosave.savedAt} invalidText={autosave.invalidText} />
+            <DocTimer start={start} className="max-[560px]:hidden" />
+          </div>
+        </div>
       </div>
       <DemoNote>Dokumentationstiden mäts från att formuläret öppnas till godkännandet. Måttet används för att jämföra manuell dokumentation med AI-stöd (SPEC §8.5).</DemoNote>
     </Page>

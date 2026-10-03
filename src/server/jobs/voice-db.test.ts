@@ -7,11 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
-import { jsonAt, pickFields, pickRow, type Repo, type Row, type Table, type Where, type ListOpts } from "@/data/repo";
+import { jsonAt, matches, pickFields, pickRow, UniqueError, type Repo, type Row, type Table, type Where, type ListOpts } from "@/data/repo";
 import type { AppRepo, Job } from "@/data/schema";
 import { asUser, createMigratedDatabase, loadSeed, type Tx } from "@/data/supabase/pglite";
 import { fromDbRow, toColumn, toDbRow, toDbValue } from "@/data/supabase/columns";
-import { DataError, toRepoError } from "@/data/supabase/repo";
+import { toRepoError } from "@/data/supabase/repo";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { enqueueVoiceJob, type CheckInAiOutput } from "@/features/_shared/voice-jobs";
 import { createStorageAudio, type AudioStorage } from "../audio/storage";
@@ -91,6 +91,11 @@ function sqlTable<T extends Row>(tx: Tx, name: string): Table<T> {
         [JSON.stringify(values), id],
       );
       return (await get(id))!;
+    },
+    async updateIf(id: string, where: Where<T>, patch: Partial<T>) {
+      const cur = await get(id);
+      if (!cur || !matches(cur, where)) return null;
+      return this.update(id, patch);
     },
     async remove() {
       throw new Error("används inte");
@@ -199,7 +204,7 @@ describe("röstjobben mot migrationerna (PGlite)", () => {
     });
   });
 
-  it("gallringens jobb läggs en gång per timme – en dubblett ger felkoden 23505 (DataError)", async () => {
+  it("gallringens jobb läggs en gång per timme – en dubblett ger felkoden 23505 (UniqueError)", async () => {
     await asService(async (tx) => {
       const t = setup(tx);
       const jobs = t.repo as unknown as Repo<{ jobs: Job }>;
@@ -208,8 +213,8 @@ describe("röstjobben mot migrationerna (PGlite)", () => {
       expect(await t.repo.table("jobs").count({ kind: { in: ["retention_audio", "retention_transcripts"] } })).toBe(2);
       expect(await t.run()).toMatchObject({ done: 2, outcomes: { "retention_audio:removed:0": 1, "retention_transcripts:cleared:0": 1 } });
       const e = await t.repo.table("jobs").insert({ id: "job-retention_audio-2027-02-01T09", kind: "retention_audio", payload: {}, status: "queued", attempts: 0, runAfter: NOW, lastError: null, createdAt: NOW, createdBy: null, finishedAt: null }).catch((x: unknown) => x);
-      expect(e).toBeInstanceOf(DataError);
-      expect((e as DataError).code).toBe("23505");
+      expect(e).toBeInstanceOf(UniqueError);
+      expect((e as UniqueError).code).toBe("23505");
     });
   });
 });

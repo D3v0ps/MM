@@ -212,9 +212,16 @@ describe("coachen och röstmeddelandena", () => {
     expect(first.ok).toBe(true);
     expect((await q(rostLink, {}, DELTAGARE)).state).toBe("expired");
   });
-  it("granskar ett röstmeddelande (loggas) och visningen loggas", async () => {
+  it("granskar ett röstmeddelande (loggas) och visningen loggas – exakt en rad per anrop", async () => {
     expect((await q(pendingNotes, {}, amira())).map((p) => p.id)).toEqual(["pvn-nadia"]);
+    const before = raw().audit_log.filter((l) => l.action === "voice_note.view").length;
     expect(await cmd(notesSeen, { caseId: SC.nadia }, amira())).toMatchObject({ ok: true });
+    expect(await cmd(notesSeen, { caseId: SC.nadia }, amira())).toMatchObject({ ok: true });
+    // Två utfällningar = två visningar = två rader (bara id:n och antal – aldrig texten).
+    const views = raw().audit_log.filter((l) => l.action === "voice_note.view").slice(before);
+    expect(views.map((l) => [l.entity, l.entityId, l.actorId, l.details])).toEqual([["case", SC.nadia, "u-amira", { notes: 1 }], ["case", SC.nadia, "u-amira", { notes: 1 }]]);
+    // "Nytt" räknas inte bort av visningen – först när coachen granskar.
+    expect((await q(pendingNotes, {}, amira())).map((p) => p.id)).toEqual(["pvn-nadia"]);
     expect(await cmd(noteReview, { noteId: "pvn-nadia", status: "reviewed" }, amira())).toMatchObject({ ok: true });
     expect(raw().participant_voice_notes.find((n) => n.id === "pvn-nadia")).toMatchObject({ status: "reviewed", reviewedBy: "u-amira", reviewedAt: expect.any(String) });
     expect(await q(pendingNotes, {}, amira())).toEqual([]);

@@ -9,6 +9,7 @@
 // Deltagaren ser aldrig ärendenummer, namn eller coach. Länken skickas aldrig till skyddade ärenden (SPEC §7, CLAUDE.md punkt 8).
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CASES, MGMT, START } from "@/api/invalidation";
 import { PULSE_LANGS, type PulseLang } from "./texts";
 
 export type PulseLinkState = "open" | "used" | "expired" | "missing";
@@ -37,4 +38,4 @@ export const pulseSubmit = command("puls.submit", z.object({
     q5: z.string().max(5).nullable(),
   }),
   text: z.string().max(500),
-})).returns<Result<object, "not_found" | "used" | "expired" | "incomplete">>();
+}), { invalidates: ["puls.", MGMT, "kommun.chef", "coach.eventsPage", ...START, CASES, NAV, ...LOG] }).returns<Result<object, "not_found" | "used" | "expired" | "incomplete">>();

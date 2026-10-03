@@ -16,6 +16,7 @@ test.use({
 const COACH = { userId: "u-amira", role: "coach" };
 const MARIA = { userId: "k-maria", role: "kommun_handlaggare" };
 const JOHAN = { userId: "u-johan", role: "avtalsansvarig" };
+const KARIN = { userId: "u-karin", role: "chef" };
 const DELTAGARE = { userId: "deltagare", role: "deltagare" };
 const SC = { nadia: "case-260143", amal: "case-270012", skyddad: "case-260120" };
 const DICTATION = /Deltagaren har arbetat på lager i två år|Deltagaren har läst svenska för invandrare|Jag vill boka ett uppföljningsmöte/;
@@ -236,5 +237,62 @@ test("månadsbedömningen: AI-utkast från godkända avstämningar – nivåerna
   const selects = page.getByTestId("progressionsomraden").locator("select");
   expect(await selects.evaluateAll((els) => els.every((s) => (s as HTMLSelectElement).value === ""))).toBeTruthy();
   await expect(page.getByTestId("progressionsomraden")).toContainText("Källa: Närvaroregistrering");
+  expect(relevant(errors)).toEqual([]);
+});
+
+/** Rader i kortets revisionslogg (chefens flik Historik) med en viss text av en viss person. */
+async function logRows(page: Page, text: string, who = "Amira Haddad"): Promise<number> {
+  const table = page.getByRole("table", { name: "Revisionslogg" });
+  await expect(table).toBeVisible();
+  const more = page.getByRole("button", { name: "Visa alla" });
+  if (await more.count()) await more.click();
+  return table.locator("tbody tr").filter({ hasText: text }).filter({ hasText: who }).count();
+}
+
+test("visningen av röstmeddelanden loggas när texten fälls ut – inte när kortet laddas – och kortets öppning loggas en gång per besök", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}`, COACH);
+  // Kortet laddat, två flikbyten – texten inte utfälld: ingen visning loggad. Öppningen loggad en gång.
+  await page.getByRole("tab", { name: /^Tidslinje/ }).click();
+  await page.getByRole("tab", { name: /^Närvaro/ }).click();
+  await expect(main(page)).toContainText("Närvaro");
+  await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
+  expect(await logRows(page, "Visade röstmeddelanden")).toBe(0);
+  const opened0 = await logRows(page, "Öppnade deltagarkortet");
+  expect(opened0).toBe(1);
+
+  // Läs → Dölj → Läs: två utfällningar = två visningar.
+  await switchUser(page, info, COACH, `/arenden/${SC.nadia}`);
+  const group = page.getByRole("group", { name: "Röstmeddelanden:" });
+  await btn(group, "Läs").click();
+  await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");
+  await btn(group, "Dölj").click();
+  await expect(card(page, "Deltagarens röstmeddelanden")).toHaveCount(0);
+  await btn(group, "Läs").click();
+  await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");
+  await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
+  expect(await logRows(page, "Visade röstmeddelanden")).toBe(2);
+  expect(await logRows(page, "Öppnade deltagarkortet")).toBe(opened0 + 1);
+
+  // Min vecka → "Läs röstmeddelandet" (?visa=rost): utfälld från början = en visning.
+  await switchUser(page, info, COACH, "/min-vecka");
+  await card(page, "Deltagarnas röstmeddelanden").getByRole("link", { name: "Läs röstmeddelandet" }).first().click();
+  await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");
+  // Nytt sidbesök på kortet: Min vecka och tillbaka → öppningen loggas igen (en gång per besök, inte per session), och
+  // eftersom Tillbaka leder till ?visa=rost fälls texten ut igen = en ny visning av transkriptet (loggas).
+  await page.locator("aside nav").getByRole("link", { name: /^Min vecka/ }).click();
+  await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Min vecka");
+  await page.goBack();
+  await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");
+  await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
+  expect(await logRows(page, "Visade röstmeddelanden")).toBe(4);
+  expect(await logRows(page, "Öppnade deltagarkortet")).toBe(opened0 + 3);
+
+  // Avstämningen visar texten direkt som underlag: en visning per besök, inte en per omrendering.
+  await switchUser(page, info, COACH, `/avstamning/${SC.nadia}`);
+  await expect(main(page)).toContainText("Deltagarens röstmeddelanden – underlag");
+  // Sidan ritas om flera gånger medan frågorna kommer in – fortfarande en visning.
+  await page.waitForTimeout(500);
+  await switchUser(page, info, KARIN, `/arenden/${SC.nadia}?flik=historik`);
+  expect(await logRows(page, "Visade röstmeddelanden")).toBe(5);
   expect(relevant(errors)).toEqual([]);
 });

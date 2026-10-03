@@ -1,6 +1,7 @@
 // Kontrakt för området inkorg (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING } from "@/api/invalidation";
 import type { SlaStatus } from "@/core/sla";
 import { INBOUND_EMAIL_STATUSES, type EmailClassification, type ParseMethod } from "@/data/schema";
 import type { IconName } from "@/ui/icons";
@@ -17,7 +18,7 @@ export const emailSetStatus = command("inkorg.emailSetStatus", z.object({
   emailId: IdSchema,
   status: z.enum(INBOUND_EMAIL_STATUSES),
   caseId: IdSchema.optional(),
-})).returns<Result<object, "not_found">>();
+}), { invalidates: [INBOX, "arenden.lista", CARD, "coach.minVecka", MGMT, NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * För in en komplettering i ärendet (prototypens email.applySupplement): beställarreferens och planerat slut från
@@ -25,7 +26,7 @@ export const emailSetStatus = command("inkorg.emailSetStatus", z.object({
  */
 export const emailApplySupplement = command("inkorg.emailApplySupplement", z.object({
   emailId: IdSchema,
-})).returns<Result<{ fields: string[] }, "not_found">>();
+}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ fields: string[] }, "not_found">>();
 
 // ---- Området inkorg: startsidan (/start), avropsinkorgen (/inkorg/:emailId?) och förfaller (/forfaller)
 // Vy-modellerna har bara de fält skärmarna behöver. Tider som visas relativt klockan ("i dag kl. 08.41") och SLA-status
@@ -350,7 +351,7 @@ export const inboxCorrect = command("inkorg.correct", z.object({
     vocationalTrack: z.string().max(200).nullable(),
   }).partial(),
   checked: z.array(z.enum(ORDER_FIELDS)).max(ORDER_FIELDS.length),
-})).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden">>();
+}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden">>();
 
 /**
  * Koppla mejlet med skyddade personuppgifter till ärendet som registrerats efter telefonsamtal (prototypens ink.linkPhoneOrder).
@@ -359,10 +360,10 @@ export const inboxCorrect = command("inkorg.correct", z.object({
 export const inboxLinkPhoneOrder = command("inkorg.linkPhoneOrder", z.object({
   emailId: IdSchema,
   caseId: IdSchema,
-})).returns<Result<object, "not_found" | "forbidden">>();
+}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
 
 /** Markera en uppgift till rollen som klar (prototypens ink.taskDone). */
-export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema })).returns<Result<object, "not_found">>();
+export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Visa personnummer (tyst, loggas som pnr.revealed i revisionsloggen): i mejltexten (emailId) eller för ärendets person (caseId).

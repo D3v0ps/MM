@@ -11,10 +11,11 @@ const cap = (s: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
 export const ACTION_LABEL: Record<string, string> = {
   "case.view": "Visade deltagarkort", "pnr.revealed": "Visade personnummer", "report.view": "Visade rapport", "transcript.view": "Visade transkript",
+  "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
   "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.closed": "Avslutade ärende",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
-  "attendance.registered": "Registrerade närvaro", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
+  "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
   "check_in.saved": "Sparade avstämning", "check_in.approved": "Godkände avstämning", "deviation.created": "Skapade avvikelse", "deviation.saved": "Sparade avvikelse", "deviation.customer_called": "Kallade kommunen till uppföljning",
   "assessment.saved": "Sparade månadsbedömning", "assessment.approved": "Godkände månadsbedömning", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
   "event.added": "Registrerade händelse", "result.verified": "Verifierade resultat", "message.sent": "Skickade meddelande", "alert.acknowledged": "Kvitterade flagga",
@@ -71,6 +72,7 @@ const DETAIL_KEY: Record<string, string> = {
   table: "Tabell", cases: "Antal deltagare", schema: "Schemaversion", columns: "Kolumner", reportIds: "Rapporter",
   savedReportId: "Sparad rapport", dataset: "Uppgifter", audience: "Visning", output: "Visas som", measures: "Mått", groupBy: "Dela upp efter",
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
+  day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -159,7 +161,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (k === "kind") return kindWord(a, s);
   if (k === "kpi") return l.kpiLabel(s) ?? KPI_LABEL[s] ?? s;
   if (k === "endReason") return endReasonLabel(s);
-  if (k === "status" && a.action === "attendance.registered") return attLabel(s);
+  if (k === "status" && (a.action === "attendance.registered" || a.action === "attendance.registered_all")) return attLabel(s);
   if (k === "status") return STATUS_WORD[s] ?? s;
   if (VALUE_BY_KEY[k]?.[s]) return VALUE_BY_KEY[k][s];
   if (/^(u|k)-[a-z]+$/.test(s)) return l.userName(s) ?? "–";
@@ -172,7 +174,10 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
 }
 
 /** Långa listor som visas som antal i loggtabellen ("74 rapporter") och i sin helhet i detaljvyn. */
-const COUNTED: Record<string, [string, string]> = { columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"], measures: ["mått", "mått"] };
+const COUNTED: Record<string, [string, string]> = {
+  columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"], measures: ["mått", "mått"],
+  activityIds: ["tillfälle", "tillfällen"], attendanceIds: ["närvaropost", "närvaroposter"], skippedActivityIds: ["tillfälle", "tillfällen"], caseIds: ["ärende", "ärenden"],
+};
 
 /**
  * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället
@@ -183,7 +188,7 @@ export function detailText(a: AuditEntryLike, l: AuditLookups, opts: { full?: bo
   const x = a.action === "saved_report.shared" && a.details?.sharingFrom === null ? { ...a.details, sharingFrom: "__new" } : (a.details ?? {});
   if (a.action === "org_rule.updated" && isSnapshot(x.from) && isSnapshot(x.to)) return ruleDiffText(x.from, x.to);
   return Object.entries(x)
-    .filter(([k, v]) => v != null && v !== "" && k !== "caseId" && !(Array.isArray(v) && !v.length))
+    .filter(([k, v]) => v != null && v !== "" && k !== "caseId" && k !== "editSession" && !(Array.isArray(v) && !v.length))
     .map(([k, v]) => {
       const counted = COUNTED[k];
       const text = counted && Array.isArray(v) && !opts.full ? `${v.length} ${v.length === 1 ? counted[0] : counted[1]}` : fmtDetail(k, v, a, l);
