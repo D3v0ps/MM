@@ -103,8 +103,10 @@ describe("en arbetsgivare", () => {
     const tasks = rt.rows("placements").filter((p) => others.some((o) => o.id === p.id)).map((p) => p.tasks).filter(Boolean);
     expect(tasks.length).toBeGreaterThan(0);
     for (const t of tasks) expect(JSON.stringify(others)).not.toContain(t);
-    // En aktör utan avtalet ser inga praktikplatser alls.
-    const outside = await rt.query(praktikList, {}, { ...amira(), contractIds: ["c-kk"] });
+    // En aktör i ett annat kommunavtal (påhittat, c-ny) ser inga praktikplatser alls.
+    const bot = rt.rows("contracts").find((c) => c.id === "c-bot")!;
+    rt.store.insertRow("contracts", { ...structuredClone(bot), id: "c-ny", contractNumber: "000000000", casePrefix: "NYK" });
+    const outside = await rt.query(praktikList, {}, { ...amira(), contractIds: ["c-ny"] });
     expect(outside.kpis.total).toBe(0);
   });
 

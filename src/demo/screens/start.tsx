@@ -83,7 +83,7 @@ const PHASES: [string, string, string][] = [
   ["1", "Leverera avtalet", "Inloggning och roller, mejlavrop och portal, ärendenummer, närvaro och veckorapport, avstämningar, månadsbedömning, rapporter, fakturaunderlag, deadlines, revisionslogg."],
   ["2", "AI och automatisk fakturering", "Inspelning med samtycke, AI-förslag med belägg, Fortnox-API, pulsmätning, resultatflaggor, register för avtalsavvikelser."],
   ["3", "Mervärde", "Bonusanspråk, yrkeskompetensbevis, arbetsgivarregister och praktik med de fyra rätten, statistik och dataexport."],
-  ["4", "KK-redo", "Kammarkollegiets avtal som konfiguration, kapacitetsvy, statistikexport, yttranden, deltagarinloggning."],
+  ["4", "Fler kommunavtal", "Nästa kommunavtal som konfiguration, kapacitetsvy, exportmallar per avtal, deltagarinloggning."],
 ];
 
 export function OmStartScreen() {

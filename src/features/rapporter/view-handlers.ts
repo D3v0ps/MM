@@ -85,7 +85,7 @@ const monthlyAssessmentOf = async (ctx: Ctx, r: Report): Promise<MonthlyAssessme
 handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> => {
   const { role, userId } = ctx.actor;
   const now = ctx.now();
-  // Avtalet där rapporterna hanteras (ett avtal i utkast, t.ex. Kammarkollegiet, har inga rapporter än).
+  // Avtalet där rapporterna hanteras (ett nytt avtal i utkast har inga rapporter än).
   const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
   const contractId = (contracts.find((c) => isOperational(c.config)) ?? contracts[0])?.id ?? ctx.actor.contractIds[0];
   const info = await contractInfo(ctx, contractId);

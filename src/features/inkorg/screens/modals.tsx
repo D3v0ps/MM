@@ -184,7 +184,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
           Huvudcoach<span aria-hidden="true" className="ml-0.5 text-rod">*</span>
           <span className="sr-only">(obligatoriskt)</span>
         </legend>
-        <div className="text-small leading-[1.45] text-text-muted">Samma coach genom hela insatsen. Antal aktiva ärenden visas för att fördela jämnt.</div>
+        <div className="text-text-muted">Samma coach genom hela insatsen. Antal aktiva ärenden visas för att fördela jämnt.</div>
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] gap-2">
           {f.coaches.map((u) => (
             <label
@@ -217,7 +217,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
 
       <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
         <legend className="mb-0.5 p-0 text-ui font-bold">Team (valfritt)</legend>
-        <div className="text-small leading-[1.45] text-text-muted">Handledare, arbetsgivarmatchare och SYV. De får också en notis om tilldelningen.</div>
+        <div className="text-text-muted">Handledare, arbetsgivarmatchare och SYV. De får också en notis om tilldelningen.</div>
         {f.helpers.map((u) => (
           <Check key={u.id} id={`ink-team-${u.id}`} checked={team.includes(u.id)} onCheckedChange={(on) => setTeam(on ? [...team, u.id] : team.filter((x) => x !== u.id))}>
             {u.name} – {u.label}
@@ -321,7 +321,7 @@ export function DeclineModal({ caseId, caseNumber, onClose }: { caseId: string; 
       >
         <TextArea value={text} onValueChange={setText} rows={3} maxLength={400} />
       </Field>
-      <div className="text-small text-text-muted">
+      <div className="text-text-muted">
         Kommunen får ett mejl utan personuppgifter: <q>Vi kan tyvärr inte ta emot beställning {caseNumber}. Logga in i portalen för att läsa orsaken.</q>
       </div>
     </Modal>
@@ -494,7 +494,7 @@ function PhoneFormView({ f, onClose }: { f: PhoneForm; onClose: () => void }) {
           </div>
         )}
       </div>
-      <div className="text-small text-text-muted">
+      <div className="text-text-muted">
         Nästa ärendenummer blir {f.nextCaseNumber}. Efter registreringen ser bara avtalsansvarig och den namngivna coachen namn och personnummer.
       </div>
     </Modal>

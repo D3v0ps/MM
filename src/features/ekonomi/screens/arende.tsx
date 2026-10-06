@@ -132,7 +132,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
           markers={[{ value: billed.qty, label: `Fakturerat: ${plural(billed.qty, "vecka", "veckor")}` }]}
         />
       )}
-      <p className="text-small text-text-muted">
+      <p className="text-text-muted">
         Upparbetat {plural(accrued.qty, "vecka", "veckor")} = fakturerat {billed.qty} + faktureras om efter returnerad faktura {returned.qty} + ännu inte fakturerat {pending.qty}.
         Pausade veckor räknas inte.
       </p>

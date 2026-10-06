@@ -207,7 +207,7 @@ export function ChipButton({ onClick, children }: { onClick: () => void; childre
     <button
       type="button"
       onClick={onClick}
-      className="min-h-11 cursor-pointer rounded-full border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-1.5 text-left text-[0.875rem] text-antracit [font-family:inherit] hover:border-antracit"
+      className="min-h-11 cursor-pointer rounded-full border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-1.5 text-left text-ui text-antracit [font-family:inherit] hover:border-antracit"
     >
       {children}
     </button>

@@ -73,7 +73,7 @@ test("pulsmätning: språk, fem frågor, svaret sparas och länken kan bara anv�
   await expect(main(page)).toContainText("Språk: svenska · Vill bli kontaktad: Ja");
   await switchTo(page, info, "/ledning", { userId: "u-karin", role: "chef" });
   await expect(main(page)).toContainText("Ett svar 1 feb 2027 gav 2 av 5 på frågan om stöd från coachen.");
-  await switchTo(page, info, "/start", { userId: "u-sara", role: "samordnare" });
+  await switchTo(page, info, "/min-vecka", { userId: "u-sara", role: "samordnare" });
   await expect(main(page)).toContainText("En deltagare vill bli kontaktad (pulsmätning 1 feb 2027, ärende BOT-26-0143). Avgör vem som tar kontakten.");
   expect(relevant(errors)).toEqual([]);
 });

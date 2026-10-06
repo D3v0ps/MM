@@ -34,7 +34,7 @@ export function TalaIn({ fieldId, caseId, protectedOrder, onText }: {
   if (!o) return null;
   if (!o.enabled) {
     return o.reason ? (
-      <p className="flex items-start gap-2 text-small text-text-muted portal:text-body">
+      <p className="flex items-start gap-2 text-body text-text-muted portal:text-portal">
         <Icon name="lock" className="mt-1 flex-none" />
         {o.reason}
       </p>

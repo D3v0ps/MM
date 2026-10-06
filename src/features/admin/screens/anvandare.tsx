@@ -1,7 +1,9 @@
 "use client";
 // Användare och roller (/admin/anvandare, prototypens admin.anvandare). Systemadmin ser personalen, kommunens användare och
 // behörighetsmatrisen; avtalsansvarig ser kommunanvändarna (bjuder in och spärrar). Bara inbjudna konton – ingen självregistrering.
+// Avtal och konfiguration ligger inte i menyn (beslut 2026-10-06): systemadministratören når den härifrån och från Min vecka.
 import { useState } from "react";
+import { isTesterHiddenPath } from "@/api/tester-access";
 import type { EscalationRole } from "@/core/config";
 import { fmtDateShort, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -17,15 +19,20 @@ import { adminInviteCustomer, adminSetCustomerActive, adminUsers, type CustomerU
 import { INVITE_TEXT } from "../templates";
 
 type UsersTab = "mb" | "kommun" | "matris";
+/** Avtal och konfiguration – inte i menyn, länkas härifrån. */
+const CONTRACT_PATH = "/admin/avtal";
 
 export function AnvandareScreen() {
-  const { actor } = useSession();
+  const { actor, hidesCommercial } = useSession();
   const q = useQuery(adminUsers, {});
   // Nyckel per roll: flikar och formulär beror på rollen.
-  return <QueryView query={q}>{(d) => <UsersContent key={actor.role} d={d} />}</QueryView>;
+  // Länken till avtalssidan: bara systemadministratören, och inte för begränsade testare (avtalssidan är stängd för dem).
+  return (
+    <QueryView query={q}>{(d) => <UsersContent key={actor.role} d={d} contractLink={d.isAdmin && !(hidesCommercial && isTesterHiddenPath(CONTRACT_PATH))} />}</QueryView>
+  );
 }
 
-function UsersContent({ d }: { d: UsersView }) {
+function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean }) {
   const [tab, setTab] = useState<UsersTab>(d.isAdmin ? "mb" : "kommun");
   const [inviting, setInviting] = useState(false);
   const setActive = useCommand(adminSetCustomerActive);
@@ -53,9 +60,16 @@ function UsersContent({ d }: { d: UsersView }) {
       eyebrow={d.isAdmin ? "Systemadmin" : `Avtalsansvarig · ${d.customerName}`}
       lead="Bara inbjudna konton – ingen självregistrering. Miljonbemanning loggar in med Microsoft Entra ID, kommunen med e-post och engångskod."
       actions={
-        <Button kind="primary" icon="plus" onClick={() => { setTab("kommun"); setInviting(true); }}>
-          Bjud in kommunanvändare
-        </Button>
+        <>
+          {contractLink && (
+            <Button kind="ghost" icon="settings" to={CONTRACT_PATH}>
+              Avtal och konfiguration
+            </Button>
+          )}
+          <Button kind="primary" icon="plus" onClick={() => { setTab("kommun"); setInviting(true); }}>
+            Bjud in kommunanvändare
+          </Button>
+        </>
       }
     >
       <Grid cols={4}>
@@ -73,8 +87,8 @@ function UsersContent({ d }: { d: UsersView }) {
             flush
             actions={<Badge tone="outline" icon="key">Microsoft Entra ID · MFA via M365</Badge>}
             foot={
-              <span className="text-small text-text-muted">
-                Rollen gäller per avtal. En person kan ha olika roller i Botkyrka- och KK-avtalet. Lösenord och MFA hanteras av Microsoft – Miljonmatch lagrar inga lösenord.
+              <span className="text-text-muted">
+                Rollen gäller per avtal. Lösenord och MFA hanteras av Microsoft – Miljonmatch lagrar inga lösenord.
               </span>
             }
           >
@@ -96,7 +110,7 @@ function UsersContent({ d }: { d: UsersView }) {
                 },
                 { key: "title", label: "Titel", render: (u) => u.title },
                 {
-                  key: "bot", label: "Roll i Botkyrka-avtalet",
+                  key: "bot", label: "Roll i avtalet",
                   render: (u) => (
                     <>
                       <Badge tone={u.isAdmin ? "dark" : "bluetone"}>{u.roleLabel}</Badge>
@@ -104,7 +118,6 @@ function UsersContent({ d }: { d: UsersView }) {
                     </>
                   ),
                 },
-                { key: "kk", label: "Roll i KK-avtalet", render: (u) => (u.kkRoleLabel ? u.kkRoleLabel : <span className="text-text-muted">Tilldelas före start</span>) },
                 { key: "st", label: "Status", render: (u) => (u.active ? <Badge tone="blue" icon="check">Aktiv</Badge> : <Badge tone="red" icon="lock">Spärrad</Badge>) },
               ]}
             />
@@ -125,7 +138,7 @@ function UsersContent({ d }: { d: UsersView }) {
             }
             foot={
               <Stack gap="sm" className="w-full">
-                <span className="text-small text-text-muted">
+                <span className="text-text-muted">
                   Engångskoden gäller i 10 minuter och man har högst 5 försök. Ingen magisk länk – e-postskydd som Safe Links förbrukar sådana länkar i förväg. Mejlbeställning via avrop@ fungerar även för den som aldrig loggar in.
                 </span>
                 <DemoOnly>
@@ -173,7 +186,7 @@ function UsersContent({ d }: { d: UsersView }) {
               icon="shield"
               flush
               foot={
-                <span className="text-small text-text-muted">
+                <span className="text-text-muted">
                   Behörighet = avtal + roll + tilldelning. Den upprätthålls i databasen med radnivåsäkerhet (RLS), inte bara i gränssnittet.
                   <DemoOnly> Byt roll i prototypfältet för att testa.</DemoOnly>
                 </span>
@@ -272,7 +285,7 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
             <Select value={f.unit} onValueChange={set("unit")} placeholder="Välj enhet" options={d.units.map((u) => ({ value: u.unit, label: u.unit }))} />
           </Field>
         </FormGrid>
-        <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
+        <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-text-muted">
           <Icon name="mail" className="mt-px" />
           <div>
             <b className="font-bold text-antracit">Mejlet till den inbjudna (inga personuppgifter):</b> {INVITE_TEXT}
@@ -344,7 +357,7 @@ function Matrix({ escalateTo }: { escalateTo: EscalationRole[] }) {
               Behörighet
             </th>
             {MX_ROLES.map(([k, l]) => (
-              <th key={k} scope="col" className="border-b-2 border-antracit bg-vit px-1.5 py-2 text-left align-bottom text-[0.6875rem] font-extrabold tracking-[0.05em] whitespace-normal text-text-muted uppercase [hyphens:manual]">
+              <th key={k} scope="col" className="border-b-2 border-antracit bg-vit px-1.5 py-2 text-left align-bottom text-label font-extrabold tracking-[0.05em] whitespace-normal text-text-muted uppercase [hyphens:manual]">
                 {l}
               </th>
             ))}
@@ -376,7 +389,7 @@ function MatrixGroup({ title, rows }: { title: string; rows: [string, string[]][
           {cells.map((c, i) => {
             const [icon, txt] = MX_CELL[c];
             return (
-              <td key={i} className={`border-b border-ljusgra px-1.5 py-2 align-top text-meta ${c === "nej" ? "text-text-muted" : ""}`}>
+              <td key={i} className={`border-b border-ljusgra px-1.5 py-2 align-top text-small ${c === "nej" ? "text-text-muted" : ""}`}>
                 <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5">
                   <Icon name={icon} size="sm" />
                   <span>{txt}</span>

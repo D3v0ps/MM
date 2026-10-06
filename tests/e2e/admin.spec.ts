@@ -14,7 +14,7 @@ const AMIRA: Who = { userId: "u-amira", role: "coach" };
 const MARIA: Who = { userId: "k-maria", role: "kommun_handlaggare" };
 /** Aktörerna som prototypens kommandologg sparar (avtal och enhet som i testdatat). */
 const ACTOR: Record<string, object> = {
-  "u-robin": { userId: "u-robin", role: "admin", contractIds: ["c-bot", "c-kk"], customerUnit: null },
+  "u-robin": { userId: "u-robin", role: "admin", contractIds: ["c-bot"], customerUnit: null },
   "k-maria": { userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" },
   deltagare: { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null },
 };
@@ -71,7 +71,7 @@ async function rendersOk(page: Page) {
 }
 
 // ------------------------------------------------------------------ admin.avtal
-test("avtal: konfiguration, ej fastställda värden, Kammarkollegiet och jämförelse", async ({ page }, info) => {
+test("avtal: konfiguration, ej fastställda värden och prislistan – ett avtal, ingen väljare och ingen jämförelse", async ({ page }, info) => {
   const errors = await open(page, info, "/admin/avtal", ROBIN);
   await rendersOk(page);
   // AI-leverantören är fastställd sedan 2026-09-30 (Gemini Flash via Vertex AI EU) – därför 10 och inte prototypens 11.
@@ -80,6 +80,11 @@ test("avtal: konfiguration, ej fastställda värden, Kammarkollegiet och jämfö
   expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(10);
   expect(!/\b35 %/.test(t) || t.includes("Internt mål")).toBe(true);
   expect(t).not.toMatch(/deadline/i);
+  // Bara kommunavtal i Miljonmatch (beslut 2026-10-06): ett avtal i testdatat – ingen avtalsväljare, ingen jämförelse.
+  await expect(page.getByRole("group", { name: "Välj avtal" })).toHaveCount(0);
+  await expect(page.getByRole("tab")).toHaveText([/Avtal och regler/, /Prislista/, /Interna regler \(Miljonbemanning\)/]);
+  expect(t).not.toMatch(/Kammarkollegiet|Jämför avtalen|Mötesminimum|Startpaket|Personuppgiftsansvarig –/);
+  expect(t).toContain("Personuppgiftsbiträde – kommunen är personuppgiftsansvarig");
   await page.locator("summary", { hasText: "Visa JSON (contracts.config)" }).click();
   expect(await text(page)).toContain('"casePrefix": "BOT"');
   await expect(page.locator("summary", { hasText: "Dölj JSON (contracts.config)" })).toHaveCount(1);
@@ -91,45 +96,31 @@ test("avtal: konfiguration, ej fastställda värden, Kammarkollegiet och jämfö
     await expect(page.getByRole("button", { name: "Öppna frågor till Botkyrka" })).toHaveCount(0);
   }
 
-  await switchTo(page, info, "/admin/avtal?avtal=c-kk", ROBIN);
-  await expect(main(page)).toContainText("Utkast – avtalet startar 13 mars 2027");
-  t = await text(page);
-  expect(t).toContain("Mötesminimum");
-  expect(t).toContain("Placeringsgrad");
-  expect(t).toContain("60 %");
-  await page.getByRole("button", { name: /Botkyrka kommun/ }).first().click();
-  await expect(main(page)).toContainText("värden är inte fastställda");
+  await switchTo(page, info, "/admin/avtal", ROBIN);
   await page.getByRole("tab", { name: /Prislista/ }).click();
   await expect(main(page)).toContainText("Exempelpriser – de riktiga priserna står i avtalet");
-  await page.getByRole("tab", { name: /Jämför avtalen/ }).click();
-  await expect(main(page)).toContainText("Första kontakt inom 5 dagar");
   t = await text(page);
-  expect(t).toContain("Startpaket");
-  expect(t).toContain("80 %");
-  expect(t).toContain("70 %");
+  expect(t).toContain("Prislista – pris per deltagare och vecka");
+  expect(t).toContain("12 avtalsområden");
   expect(relevant(errors)).toEqual([]);
 });
 
-test("avtal: jämförelsen öppnas direkt (scenario 12 steg 2)", async ({ page }, info) => {
-  const errors = await open(page, info, "/admin/avtal?avtal=c-kk&flik=jamfor", ROBIN);
-  await rendersOk(page);
-  await expect(page.getByRole("tab", { name: /Jämför avtalen/ })).toHaveAttribute("aria-selected", "true");
-  await expect(main(page)).toContainText("Startpaket – 4 120 kr per paket (4 månader)");
-  const t = await text(page);
-  expect(t).toMatch(/Startpaket – 4 120 kr per paket \(4 månader\)/);
-  expect(t).toContain("Förlängt stöd – 1 200 kr per månad");
-  expect(t).toContain("Yttrande till CSN – 699 kr per styck");
-  expect(t).toContain("Placeringsgrad: 60 %");
-  expect(t).toContain("Svarstider (SLA)");
-  expect(t).toContain("Första kontakt inom 5 dagar från beställning");
-  expect(t).toContain("per deltagare och vecka");
-  await expect(page).toHaveTitle(/Jämför avtalen/);
-  await btn(page, "Visa Kammarkollegiets prislista").click();
-  await expect(main(page)).toContainText("Prislista – skiss");
-  await expect(main(page)).toContainText("Arbetstagarstöd – startpaket");
+test("avtal: inte i menyn – nås från Användare och roller; gamla adresser till jämförelsen visar avtalet", async ({ page }, info) => {
+  const errors = await open(page, info, "/admin/anvandare", ROBIN);
+  await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Användare och roller");
+  await expect(page.getByRole("link", { name: "Avtal och konfiguration" })).toHaveCount(1);
+  await main(page).getByRole("link", { name: "Avtal och konfiguration" }).click();
+  await expect(page).toHaveURL(isDemo(info) ? /#\/admin\/avtal$/ : /\/admin\/avtal$/);
+  await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Avtal och konfiguration");
+  // Brödsmulan leder tillbaka.
+  await expect(page.getByRole("navigation", { name: "Brödsmulor" }).getByRole("link", { name: "Användare och roller" })).toBeVisible();
 
-  await switchTo(page, info, "/admin/avtal?flik=jamforelse", ROBIN);
-  await expect(page.getByRole("tab", { name: /Jämför avtalen/ })).toHaveAttribute("aria-selected", "true");
+  for (const to of ["/admin/avtal?avtal=c-finns-inte&flik=jamfor", "/admin/avtal?flik=jamforelse"]) {
+    await switchTo(page, info, to, ROBIN);
+    await expect(page.getByRole("tab", { name: /Avtal och regler/ })).toHaveAttribute("aria-selected", "true");
+    await expect(main(page)).toContainText("Botkyrka kommun (212000-2882)");
+    await expect(page).toHaveTitle(/Avtal och konfiguration/);
+  }
   await switchTo(page, info, "/admin/avtal", ROBIN);
   // Eskaleringstrappans text räknas fram ur konfigurationen (steg med "skriftlig varning")
   await expect(main(page)).toContainText("Skriftliga varningar kan ges på steg 1–3. 3 varningar kan leda till uppsägning.");

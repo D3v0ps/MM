@@ -130,10 +130,10 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
           </p>
           <p>{name || "Mottagaren"} får ett mejl som bara innehåller en notis:</p>
           <MailNote>&quot;{v.delivery.notice}&quot;</MailNote>
-          <p className="text-small">
+          <p>
             {v.delivery.attachmentAllowed ? "Rapporten skickas även som bilaga enligt kommunens skriftliga instruktion." : "Rapporten skickas inte som bilaga i e-post. Det är avstängt i avtalskonfigurationen."}
           </p>
-          <p className="text-small">Innehållet låses vid leveransen. Senare ändringar kräver en rättelse (ny version).</p>
+          <p>Innehållet låses vid leveransen. Senare ändringar kräver en rättelse (ny version).</p>
         </Stack>
       ),
     });
@@ -161,7 +161,7 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
           ändras aldrig i efterhand.{v.drift.canCorrect ? " Rätta rapporten om ändringen ska redovisas för kommunen. Då skapas en ny version." : ""}
         </Notice>
       )}
-      {v.waiting && <WaitingCard w={v.waiting} />}
+      {v.waiting && <WaitingCard w={v.waiting} red={!v.overdue} />}
       {v.finalText && <FinalTextCard key={`${v.id}:${v.finalText.recommendation}`} v={v} f={v.finalText} />}
       {v.summary && <SummaryApprovalCard key={v.id} v={v} s={v.summary} />}
       {v.slaHidden && (
@@ -229,7 +229,8 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
         <Row gap="sm">
           <ReportStatusBadge eff={v.eff} label={v.statusLabel} />
           {v.overdue && (
-            <Badge tone="red" icon="alert">
+            // Kortet är redan rött – märket är kontur med röd ikon (ingen röd ram i den röda rutan).
+            <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
               Försenad
             </Badge>
           )}
@@ -324,7 +325,7 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
           </Row>
         ) : (
           <>
-            {v.idleText && <p className="text-small text-text-muted">{v.idleText}</p>}
+            {v.idleText && <p className="text-text-muted">{v.idleText}</p>}
             <Row>{pdf}</Row>
           </>
         )}
@@ -334,9 +335,10 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
 }
 
 // ---------------------------------------------------------------- Veckorapport som väntar på närvaro
-function WaitingCard({ w }: { w: NonNullable<ReportView["waiting"]> }) {
+/** red = kortet är sidans röda ämne. När rapporten redan är försenad är statuskortet det röda (ett rött kort per sida). */
+function WaitingCard({ w, red }: { w: NonNullable<ReportView["waiting"]>; red: boolean }) {
   return (
-    <Card title="Väntar på närvaroregistrering" icon="clock" tone="red">
+    <Card title="Väntar på närvaroregistrering" icon="clock" tone={red ? "red" : undefined}>
       <Stack>
         <p>
           Rapporten publiceras automatiskt när alla deltagare är registrerade. Närvaron ska vara registrerad senast {w.regDay} kl. {w.regTime}. Rapporten ska vara publicerad
@@ -549,7 +551,7 @@ function VersionsCard({ v }: { v: ReportView }) {
           />
         ))}
       </List>
-      <div className="border-t border-ljusgra px-[18px] py-4 text-small text-text-muted">
+      <div className="border-t border-ljusgra px-[18px] py-4 text-text-muted">
         Rättelse skapar en ny version. Den gamla sparas och syns här. Kommunen ser den senast levererade versionen.
       </div>
     </Card>

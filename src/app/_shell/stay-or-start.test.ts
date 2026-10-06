@@ -30,6 +30,19 @@ describe("stayOrStart", () => {
     expect(stayOrStart("/admin/avtal", "admin", false)).toBe("/admin/avtal");
   });
 
+  it("Min vecka: alla MB-roller stannar; /start stannar för samordnare och avtalsansvarig och leder sedan vidare (beslut 2026-10-06)", () => {
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) expect(stayOrStart("/min-vecka", role), role).toBe("/min-vecka");
+    expect(stayOrStart("/min-vecka", "kommun_handlaggare")).toBe("/");
+    expect(stayOrStart("/start", "samordnare")).toBe("/start");
+    expect(stayOrStart("/start", "avtalsansvarig")).toBe("/start");
+    expect(stayOrStart("/start", "coach")).toBe("/");
+    // De gamla startsidorna finns kvar under rollens flik.
+    expect(stayOrStart("/handledare", "handledare")).toBe("/handledare");
+    expect(stayOrStart("/ledning", "chef")).toBe("/ledning");
+    expect(stayOrStart("/ekonomi", "ekonom")).toBe("/ekonomi");
+    expect(stayOrStart("/admin/anvandare", "admin")).toBe("/admin/anvandare");
+  });
+
   it("okända adresser leder till startsidan", () => {
     expect(stayOrStart("/finns-inte", "coach")).toBe("/");
     expect(stayOrStart("/", "coach")).toBe("/");

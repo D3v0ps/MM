@@ -1,5 +1,5 @@
-// Hanterare: avtal och konfiguration (/admin/avtal) – avtalsfakta, konfigurationen, prislistan, jämförelsen och
-// Miljonbemannings interna regler (org_settings). Källa: prototyp/src/views/admin.js (admin.avtal, admin.setOrgRule).
+// Hanterare: avtal och konfiguration (/admin/avtal) – avtalsfakta, konfigurationen, prislistan och Miljonbemannings
+// interna regler (org_settings). Källa: prototyp/src/views/admin.js (admin.avtal, admin.setOrgRule).
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
@@ -11,10 +11,7 @@ import { dayOf } from "@/core/time";
 import { by } from "@/core/util";
 import type { Contract } from "@/data/schema";
 import { ruleDiffText, type RuleSnapshot } from "./audit-text";
-import {
-  adminCompare, adminContract, adminOrgRules, adminSetOrgRule,
-  type CompareContract, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption,
-} from "./api";
+import { adminContract, adminOrgRules, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption } from "./api";
 import { isDemoCreated, mainContract, orgRow, userNames } from "./shared";
 
 const summaryOf = (c: Contract, customerName: string): ContractSummary => ({
@@ -85,20 +82,6 @@ handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p
     bonusCandidates,
     priceItems: await priceRows(ctx, c),
   };
-});
-
-// ---------------------------------------------------------------- admin.compare
-handleQuery(adminCompare, { roles: ["admin"], commercial: true }, async (ctx) => {
-  const all = await contractList(ctx);
-  const main = await mainContract(ctx);
-  // Avtalet där ärenden hanteras först (Botkyrka), sedan övriga (Kammarkollegiet).
-  const ordered = [main, ...all.filter((c) => c.id !== main.id)].slice(0, 2);
-  const out: CompareContract[] = [];
-  for (const c of ordered) {
-    const items = await ctx.repo.table("price_items").list({ contractId: c.id });
-    out.push({ facts: await factsOf(ctx, c), config: c.config, priceOres: items.map((x) => x.priceOre), priceUnits: items.map((x) => x.unit) });
-  }
-  return { yearShort: dayOf(ctx.now()).slice(2, 4), contracts: out };
 });
 
 // ---------------------------------------------------------------- Interna regler (org_settings)

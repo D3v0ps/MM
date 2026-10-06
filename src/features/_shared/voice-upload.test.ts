@@ -80,7 +80,7 @@ describe("startAudioUpload", () => {
     if (r.ok) expect(t.store.getRow("audio_uploads", r.ticket.uploadId)).toMatchObject({ caseId: null, ownerId: "k-maria", purpose: "dictation" });
     expect(await startAudioUpload(maria, { purpose: "dictation", ...webm, protectedOrder: true })).toMatchObject({ ok: false, error: "protected" });
     expect(await startAudioUpload(maria, { purpose: "dictation", caseId: NADIA, ...webm })).toMatchObject({ ok: true });
-    expect(await startAudioUpload(maria, { purpose: "dictation", contractId: "c-kk", ...webm })).toMatchObject({ ok: false, error: "forbidden" });
+    expect(await startAudioUpload(maria, { purpose: "dictation", contractId: "c-ny", ...webm })).toMatchObject({ ok: false, error: "forbidden" });
     // Omars ärende med skyddade personuppgifter
     expect(await startAudioUpload(t.as("k-omar", "kommun_handlaggare"), { purpose: "dictation", caseId: SKYDDAD, ...webm })).toMatchObject({ ok: false, error: "protected" });
     // Någon annans ärende syns inte

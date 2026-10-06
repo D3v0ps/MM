@@ -78,7 +78,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
           </Smiley>
         ))}
       </Smileys>
-      <Row between className="text-small text-text-muted">
+      <Row between className="text-body text-text-muted">
         <span>1 = {t.scale[0]}</span>
         <span>5 = {t.scale[4]}</span>
       </Row>
@@ -114,7 +114,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
           <label htmlFor="pulse-text" className="font-bold">
             {t.textLabel}
           </label>
-          <div className="text-small text-text-muted" id="pulse-text-help">
+          <div className="text-body text-text-muted" id="pulse-text-help">
             {t.textHelp}
           </div>
           <textarea id="pulse-text" rows={3} maxLength={500} value={text} aria-describedby="pulse-text-help" onChange={(e) => setText(e.target.value)} />
@@ -233,7 +233,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
           </div>
           <Row gap="sm">
             <PerspectiveLink role="chef" to="/ledning?flik=puls" label="Se sammanställningen som chef" />
-            <PerspectiveLink role="samordnare" to="/start" label="Se samordnarens uppgift" />
+            <PerspectiveLink role="samordnare" to="/min-vecka" label="Se samordnarens uppgift" />
           </Row>
         </DemoOnly>
       </div>

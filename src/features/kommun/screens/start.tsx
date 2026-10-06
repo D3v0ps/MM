@@ -6,7 +6,7 @@ import { path } from "@/shell/nav";
 import { Badge, BigButton, BigButtons, Button, Card, ErrorNotice, List, ListItem, Loading, Notice, PerspectiveLink, useToast } from "@/ui";
 import { kommunStart, kommunTaskDone, type KomStart, type KomTask } from "../api";
 import { fDT, fullText, ORDER_MAILBOX, SAFE_PHONE } from "../texts";
-import { KIND_ICON, KomHead, KomPage, LeadIcon, SubLine, TitleRow, reportPath } from "./parts";
+import { KIND_ICON, KomHead, KomPage, LeadIcon, SubLine, TitleRow, UNREAD_EDGE, reportPath } from "./parts";
 
 /** "Miljonbemanning behöver ditt beslut om BOT-26-0148" */
 export const taskTitle = (t: KomTask): string =>
@@ -48,7 +48,6 @@ function StartContent({ d }: { d: KomStart }) {
             {d.tasks.map((t) => (
               <ListItem
                 key={t.id}
-                marked
                 lead={<LeadIcon name="flag" />}
                 title={
                   <TitleRow>
@@ -92,7 +91,7 @@ function StartContent({ d }: { d: KomStart }) {
               <ListItem
                 key={ev.key}
                 to={ev.reportId ? reportPath(ev.reportId, "start") : deltagarePath(ev.caseId)}
-                marked
+                className={UNREAD_EDGE}
                 chevron
                 lead={<LeadIcon name={ev.kind === "declined" ? "x-circle" : ev.kind === "coach" ? "users" : "check-circle"} />}
                 title={
@@ -128,7 +127,7 @@ function StartContent({ d }: { d: KomStart }) {
                 <ListItem
                   key={it.key}
                   to={deltagarePath(it.msg.caseId, "meddelanden")}
-                  marked
+                  className={UNREAD_EDGE}
                   chevron
                   lead={<LeadIcon name={it.msg.meeting ? "calendar" : "message"} />}
                   title={
@@ -145,7 +144,7 @@ function StartContent({ d }: { d: KomStart }) {
                 <ListItem
                   key={it.key}
                   to={reportPath(it.rep.id, "start")}
-                  marked
+                  className={UNREAD_EDGE}
                   chevron
                   lead={<LeadIcon name={KIND_ICON[it.rep.kind] ?? "file"} />}
                   title={
@@ -177,7 +176,7 @@ function StartContent({ d }: { d: KomStart }) {
         Vill du hellre mejla? Skicka beställningen till {ORDER_MAILBOX}. Har du frågor kan du ringa oss på {SAFE_PHONE}.
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <PerspectiveLink role="samordnare" to="/start" label="Se startsidan hos Miljonbemanning" />
+        <PerspectiveLink role="samordnare" to="/min-vecka" label="Se startsidan hos Miljonbemanning" />
       </div>
     </KomPage>
   );

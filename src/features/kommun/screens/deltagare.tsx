@@ -10,7 +10,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { Badge, Button, Card, DemoNote, Empty, ErrorNotice, Field, FormGrid, Icon, Input, List, ListItem, Loading, PerspectiveLink, Seg, Select, Stack } from "@/ui";
 import { kommunCaseList, type KomCaseList, type KomCaseRow } from "../api";
 import { shortStatus } from "../texts";
-import { KStatus, KomHead, KomPage, MoreButton, SubLine } from "./parts";
+import { KStatus, KomHead, KomPage, MoreButton, SubLine, UNREAD_EDGE } from "./parts";
 import { CaseDetail } from "./deltagare-kort";
 
 type Filter = "aktuella" | "avslutade" | "avbojda" | "alla";
@@ -151,7 +151,7 @@ function CaseList({ d }: { d: KomCaseList }) {
               <ListItem
                 key={c.id}
                 to={`/portal/deltagare/${encodeURIComponent(c.id)}`}
-                marked={c.unread > 0 || (c.status === "declined" && c.recentlyDeclined)}
+                className={c.unread > 0 || (c.status === "declined" && c.recentlyDeclined) ? UNREAD_EDGE : undefined}
                 chevron
                 title={c.name}
               >

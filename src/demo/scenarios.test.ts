@@ -75,7 +75,7 @@ describe("scenariernas steg -> sökvägar", () => {
       s10: ["ekonom /ekonomi", "handledare /handledare", "avtalsansvarig /arenden?filter=skyddade", "admin /admin/logg"],
       s11: ["deltagare /puls", "chef /ledning?flik=puls"],
       s13: ["samordnare /inkorg/em-106", "coach /notiser", "chef /notiser", "chef /ledning", "admin /admin/avtal?flik=interna"],
-      s12: ["admin /admin/avtal", "admin /admin/avtal?avtal=c-kk&flik=jamfor", "admin /om/fragor"],
+      s12: ["admin /admin/avtal", "admin /admin/avtal?flik=priser", "admin /om/fragor"],
       s14: [
         "coach /avstamning/case-260143", "coach /arenden/case-260143", "deltagare /rost", "coach /min-vecka", "kommun_handlaggare /portal/bestall",
         "coach /manadsbedomning/case-260143?manad=2027-01",

@@ -46,4 +46,5 @@ export { BarChart, barValueText, type BarChartBar, type BarChartProps } from "./
 export { Paper, PaperFixedText, XBox, type PaperProps } from "./paper";
 export { BigButtons, BigButton, PulsePhone, Smileys, Smiley, type BigButtonProps } from "./portal";
 export { CaseLink, casePathFor, MaskedPnr, PerspectiveLink, resetAuditViews, useAuditView } from "./case";
+export { WeekPage, WeekKpis, WEEK_KPI_SM, weekLead, CaseName, CaseNo, TitleLink, DoneLine, SlaText } from "./vecka";
 export { Recorder, RECORDER_TEXTS_SV, RECORDER_ACCEPT, audioFileType, type RecorderProps, type RecorderTexts, type RecordedAudio } from "./recorder";

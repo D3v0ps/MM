@@ -1,13 +1,13 @@
 "use client";
 // Avtal och konfiguration (/admin/avtal, prototypens admin.avtal): avtalsfakta, konfigurationen i klarspråk med värden som
-// inte är fastställda, prislistan, jämförelsen Botkyrka–Kammarkollegiet och Miljonbemannings interna regler.
+// inte är fastställda, prislistan och Miljonbemannings interna regler. Sidan ligger inte i menyn (beslut 2026-10-06) –
+// systemadministratören når den från Användare och roller. Avtalsväljaren visas bara när det finns fler än ett avtal.
 // Alla värden kommer från contracts.config via frågorna – inget avtalsvärde är hårdkodat här.
 import type { ReactNode } from "react";
 import { aiProviderText, isUnset, progressionRuleText, unsetHint, type ContractConfig } from "@/core/config";
 import { kr, pct, plural } from "@/core/format";
 import { endReasonLabel } from "@/core/labels";
 import { fmtDate } from "@/core/time";
-import { uniq } from "@/core/util";
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
@@ -16,18 +16,15 @@ import { useSession } from "@/shell/session";
 import {
   Badge, BuildPhase, Button, Card, Icon, Notice, Page, PerspectiveLink, QueryView, Refreshing, Row, Section, Stack, TabPanel, Table, Tabs, cn, type IconName, type TabDef,
 } from "@/ui";
-import { adminCompare, adminContract, type CompareContract, type ContractFacts, type ContractSummary, type ContractView } from "../api";
-import {
-  cap, DATA_ROLE, exportText, findUnset, humanPattern, KPI_LABEL, LANGUAGE, meetingText, OCCASION, PRICE_CODE, priceLine, ROLE_WORD, SLA_LABEL, slaRuleText, UNIT,
-  UNSET_INFO, whoDecides, WINDOW,
-} from "../contract-text";
-import { withinText } from "../templates";
+import { adminContract, type ContractFacts, type ContractSummary, type ContractView } from "../api";
+import { cap, DATA_ROLE, findUnset, humanPattern, LANGUAGE, OCCASION, ROLE_WORD, slaRuleText, UNIT, UNSET_INFO, whoDecides, WINDOW } from "../contract-text";
 import { InternalRules } from "./interna";
-import { Details, KV, Lines, Masonry, Pre, Small, StackTable, Unset, Val, YesNo } from "./parts";
+import { Details, KV, Masonry, Pre, Small, Unset, Val, YesNo } from "./parts";
 
-type AvtalTab = "avtal" | "priser" | "jamfor" | "interna";
-const TAB_ALIAS: Record<string, AvtalTab> = { jamforelse: "jamfor", prislista: "priser" };
-const TABS: AvtalTab[] = ["avtal", "priser", "jamfor", "interna"];
+type AvtalTab = "avtal" | "priser" | "interna";
+// Äldre adresser: ?flik=prislista. Jämförelsefliken finns inte längre – ?flik=jamfor visar avtalet (tabOf nedan).
+const TAB_ALIAS: Record<string, AvtalTab> = { prislista: "priser" };
+const TABS: AvtalTab[] = ["avtal", "priser", "interna"];
 const tabOf = (v: string | null): AvtalTab => {
   const w = (v && TAB_ALIAS[v]) || v;
   return TABS.includes(w as AvtalTab) ? (w as AvtalTab) : "avtal";
@@ -46,14 +43,14 @@ export function AvtalScreen({ query }: ScreenProps) {
   const tabs: TabDef<AvtalTab>[] = [
     { id: "avtal", label: "Avtal och regler", icon: "file", count: unsetN },
     { id: "priser", label: "Prislista", icon: "card" },
-    { id: "jamfor", label: "Jämför avtalen", icon: "layers" },
     { id: "interna", label: "Interna regler (Miljonbemanning)", icon: "bell" },
   ];
   return (
     <Page
       title="Avtal och konfiguration"
       eyebrow={`Systemadmin · ${user.name}`}
-      lead="Ett avtal är en konfiguration. Samma kod används för Botkyrka och Kammarkollegiet – mål, svarstider, priser och rapportregler läses härifrån och är aldrig hårdkodade."
+      crumbs={[{ label: "Användare och roller", to: "/admin/anvandare" }, { label: "Avtal och konfiguration" }]}
+      lead="Ett avtal är en konfiguration. Mål, svarstider, priser och rapportregler läses härifrån och är aldrig hårdkodade. Fler kommunavtal kan läggas till utan kodändring."
     >
       <Tabs id="avtal" ariaLabel="Delar av avtalet" active={tab} onChange={(id) => go({ flik: id })} tabs={tabs} />
       <TabPanel tabsId="avtal" active={tab} className="flex flex-col gap-6">
@@ -62,21 +59,20 @@ export function AvtalScreen({ query }: ScreenProps) {
             {(d) => (
               <Refreshing busy={q.isPlaceholderData}>
                 <div className="flex flex-col gap-6">
-                  <ContractPicker contracts={d.contracts} value={d.contract.id} onChange={(id) => go({ avtal: id })} />
+                  {d.contracts.length > 1 && <ContractPicker contracts={d.contracts} value={d.contract.id} onChange={(id) => go({ avtal: id })} />}
                   {tab === "avtal" ? <ConfigTab d={d} /> : <PriceTab d={d} />}
                 </div>
               </Refreshing>
             )}
           </QueryView>
         )}
-        {tab === "jamfor" && <CompareTab onShowPrices={(id) => go({ avtal: id, flik: "priser" })} />}
         {tab === "interna" && <InternalRules />}
       </TabPanel>
     </Page>
   );
 }
 
-// ================================================================ Avtalsväljaren
+// ================================================================ Avtalsväljaren (bara när det finns fler än ett avtal)
 function ContractPicker({ contracts, value, onChange }: { contracts: ContractSummary[]; value: string; onChange: (id: string) => void }) {
   return (
     <div role="group" aria-label="Välj avtal" className="grid grid-cols-2 gap-4 max-[620px]:grid-cols-1">
@@ -313,16 +309,6 @@ const CARDS: Record<string, CardDef> = {
       />
     ),
   },
-  moten: {
-    title: "Mötesminimum", icon: "calendar", has: (c) => !!c.meetingMinimums,
-    body: (c) => (
-      <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
-        {c.meetingMinimums!.map((m, i) => (
-          <li key={i}>{meetingText(m)}</li>
-        ))}
-      </ul>
-    ),
-  },
   resultat: {
     title: "Resultat", icon: "target", has: (c) => !!c.result,
     body: (c) => {
@@ -361,7 +347,7 @@ const CARDS: Record<string, CardDef> = {
               key: "label", label: "Nyckeltal",
               render: (k) => (
                 <>
-                  <div className="font-bold">{k.label ?? KPI_LABEL[k.key] ?? k.key}</div>
+                  <div className="font-bold">{k.label ?? k.key}</div>
                   {k.windows && <div className="text-small text-text-muted">{cap(k.windows.map((w) => WINDOW[w] ?? w).join(", "))}</div>}
                 </>
               ),
@@ -381,7 +367,7 @@ const CARDS: Record<string, CardDef> = {
         caption="SLA"
         rows={c.sla!.map((s) => ({ ...s, id: s.key }))}
         columns={[
-          { key: "label", label: "Vad", render: (s) => <span className="font-bold">{s.label ?? SLA_LABEL[s.key] ?? s.key}</span> },
+          { key: "label", label: "Vad", render: (s) => <span className="font-bold">{s.label ?? s.key}</span> },
           { key: "rule", label: "Regel", render: (s) => slaRuleText(s) ?? <Unset v={isUnset(s.within) ? s.within : s.due} /> },
           { key: "auto", label: "Automatiskt", render: (s) => (s.automatic ? <YesNo v /> : "–") },
         ]}
@@ -517,22 +503,12 @@ const CARDS: Record<string, CardDef> = {
       />
     ),
   },
-  exporter: {
-    title: "Exporter", icon: "download", has: (c) => !!c.exports,
-    body: (c) => (
-      <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
-        {c.exports!.map((x) => (
-          <li key={x.key}>{exportText(x)}</li>
-        ))}
-      </ul>
-    ),
-  },
 };
 
 const SECTIONS: [string, string[]][] = [
-  ["Leverans och insyn", ["synlighet", "faser", "fastnat", "progression", "narvaro", "moten"]],
+  ["Leverans och insyn", ["synlighet", "faser", "fastnat", "progression", "narvaro"]],
   ["Mål och uppföljning", ["resultat", "kpi", "sla", "puls", "statistik"]],
-  ["Ekonomi och avtalsvillkor", ["fakturering", "bonus", "viten", "eskalering", "avslut", "ai", "exporter"]],
+  ["Ekonomi och avtalsvillkor", ["fakturering", "bonus", "viten", "eskalering", "avslut", "ai"]],
 ];
 
 function ConfigTab({ d }: { d: ContractView }) {
@@ -551,7 +527,7 @@ function ConfigTab({ d }: { d: ContractView }) {
         <UnsetWarnings config={cfg} />
       ) : (
         <Notice tone="info" title={`Utkast – avtalet startar ${fmtDate(d.contract.startsOn)}`}>
-          Konfigurationen är en skiss som visar att samma kod räcker. Övriga regler (faser, fakturering, puls med mera) läggs in när KK-avtalet konfigureras i utvecklingsfas 4. Kontrollera i KK-avtalet om dagarna är kalender- eller arbetsdagar och vilka de åtta statistikfälten är.
+          Konfigurationen är inte komplett. Ärenden kan hanteras först när alla regler (faser, fakturering, pulsmätning med mera) är inlagda.
         </Notice>
       )}
       <FactsCard k={d.contract} yearShort={d.yearShort} />
@@ -577,28 +553,6 @@ function ConfigTab({ d }: { d: ContractView }) {
 
 // ================================================================ Prislista
 function PriceTab({ d }: { d: ContractView }) {
-  const cfgItems = d.config.priceItems;
-  if (cfgItems) {
-    return (
-      <Card
-        title="Prislista – skiss"
-        icon="card"
-        flush
-        actions={<Badge tone="plan" icon="alert-circle">Skiss – kontrolleras mot KK-avtalet</Badge>}
-        foot={<span className="text-small text-text-muted">Paket-, månads- och styckpriser hanteras med samma tabell (price_items.unit) som Botkyrkas veckopriser.</span>}
-      >
-        <Table
-          caption="Prislista Kammarkollegiet"
-          rows={cfgItems.map((p) => ({ ...p, id: p.code }))}
-          columns={[
-            { key: "code", label: "Tjänst", render: (p) => <span className="font-bold">{PRICE_CODE[p.code] ?? p.code}</span> },
-            { key: "unit", label: "Enhet", render: (p) => `${UNIT[p.unit] ?? p.unit}${p.packageMonths ? ` (${p.packageMonths} månader)` : ""}` },
-            { key: "price", label: "Pris exkl. moms", num: true, render: (p) => kr(p.priceOre) },
-          ]}
-        />
-      </Card>
-    );
-  }
   const items = d.priceItems;
   const prices = items.map((p) => p.priceOre);
   return (
@@ -642,88 +596,3 @@ function PriceTab({ d }: { d: ContractView }) {
     </Card>
   );
 }
-
-// ================================================================ Jämför avtalen
-function CompareTab({ onShowPrices }: { onShowPrices: (contractId: string) => void }) {
-  const q = useQuery(adminCompare, {});
-  return <QueryView query={q}>{(d) => <CompareContent contracts={d.contracts} yearShort={d.yearShort} onShowPrices={onShowPrices} />}</QueryView>;
-}
-
-function CompareContent({ contracts, yearShort, onShowPrices }: { contracts: CompareContract[]; yearShort: string; onShowPrices: (id: string) => void }) {
-  const model = (k: CompareContract) =>
-    cap(uniq(k.config.priceItems ? k.config.priceItems.map((p) => p.unit) : k.priceUnits).map((u) => (UNIT[u] ?? u).toLowerCase()).join(", "));
-  const prices = (k: CompareContract): ReactNode => {
-    if (k.config.priceItems) return <Lines items={k.config.priceItems.map(priceLine)} />;
-    const ps = k.priceOres;
-    return ps.length ? `${kr(Math.min(...ps))}–${kr(Math.max(...ps))} per deltagare och vecka beroende på avtalsområde (exempelpriser)` : "–";
-  };
-  const kpis = (k: CompareContract) => (
-    <Lines
-      items={(k.config.kpis ?? [])
-        .filter((x) => typeof x.contractTarget === "number")
-        .map((x) => `${x.label ?? KPI_LABEL[x.key] ?? x.key}: ${pct(x.contractTarget, 0)}${typeof x.internalTarget === "number" ? ` (internt mål ${pct(x.internalTarget, 0)})` : ""}`)}
-    />
-  );
-  const FROM: Record<string, string> = { avrop_mottaget: "från att avropet kommit in", avslutsdatum: "från avslutsdatum", bestallning: "från beställning" };
-  const sla = (k: CompareContract) => (
-    <Lines
-      items={(k.config.sla ?? [])
-        .filter((x) => x.within && typeof x.within === "object" && !x.automatic)
-        .map((x) => `${x.label ?? SLA_LABEL[x.key] ?? x.key} inom ${typeof x.within === "object" ? withinText(x.within) : ""} ${FROM[x.from ?? ""] ?? ""}`.trim())}
-    />
-  );
-  const meet = (k: CompareContract) => ((k.config.meetingMinimums ?? []).length ? <Lines items={(k.config.meetingMinimums ?? []).map(meetingText)} /> : "Inget krav");
-  const stats = (k: CompareContract) => (
-    <Lines items={[k.config.statistics && `På begäran, högst ${k.config.statistics.onRequestMaxPerYear} gånger per år`, ...(k.config.exports ?? []).map(exportText)].filter((x): x is string => !!x)} />
-  );
-  const status = (k: CompareContract) => (k.facts.status === "active" ? `Aktivt sedan ${fmtDate(k.facts.startsOn)}` : `Utkast – startar ${fmtDate(k.facts.startsOn)}`);
-  const rules: [string, (k: CompareContract) => ReactNode][] = [
-    ["Status", status],
-    ["Personuppgiftsroll", (k) => (k.facts.dataRole === "processor" ? "Personuppgiftsbiträde" : "Personuppgiftsansvarig")],
-    ["Ärendenummer", (k) => `${k.facts.casePrefix}-${yearShort}-0001`],
-    ["Prismodell", model],
-    ["Priser exkl. moms", prices],
-    ["Nyckeltal med avtalsmål", kpis],
-    ["Svarstider (SLA)", sla],
-    ["Mötesminimum", meet],
-    ["Kunden ser individrapporter", (k) => <YesNo v={!!k.config.customerVisibility?.seesIndividualReports} />],
-    ["Kunden ser coachanteckningar", (k) => <YesNo v={!!k.config.customerVisibility?.seesCoachNotes} />],
-    ["Statistik", stats],
-  ];
-  const [a, b] = contracts;
-  if (!a || !b) return <Notice tone="info">Det finns bara ett avtal att visa.</Notice>;
-  return (
-    <Stack>
-      <Notice tone="info" title="Samma kod – ny konfiguration">
-        Kammarkollegiet blir avtal nr 2. Kärnflödena är desamma – det som skiljer läses från avtalets konfiguration. Acceptanskriterium i utvecklingsfas 4: KK-avtalet ska kunna konfigureras utan kodändring.
-      </Notice>
-      <Card
-        title={`${a.facts.customerName} och ${b.facts.customerName}`}
-        icon="layers"
-        flush
-        actions={<BuildPhase fas={4} />}
-        foot={
-          <>
-            <span className="text-small text-text-muted">
-              Botkyrka betalar per deltagare och vecka, Kammarkollegiet per paket, månad eller styck. Att kontrollera i KK-avtalet: om dagarna i svarstiderna är kalender- eller arbetsdagar, och vilka de åtta statistikfälten är.
-            </span>
-            <Button kind="secondary" icon="card" onClick={() => onShowPrices(b.facts.id)}>
-              Visa {/s$/.test(b.facts.customerName) ? b.facts.customerName : `${b.facts.customerName}s`} prislista
-            </Button>
-          </>
-        }
-      >
-        <StackTable
-          caption="Jämförelse mellan avtalen"
-          columns={[
-            { label: "Regel", width: "22%", rowHeader: true },
-            { label: a.facts.customerName, mobileLabel: true },
-            { label: b.facts.customerName, mobileLabel: true },
-          ]}
-          rows={rules.map(([label, fn]) => ({ key: label, cells: [label, fn(a), fn(b)] }))}
-        />
-      </Card>
-    </Stack>
-  );
-}
-

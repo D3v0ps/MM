@@ -1,8 +1,7 @@
 // Avtalskonfiguration (contracts.config) och Miljonbemannings interna regler (org_settings).
 // CLAUDE.md punkt 4: avtalet är konfiguration – hårdkoda aldrig avtalsvärden. All konfiguration valideras med zod.
-// SPEC §6.2 (Botkyrka) och §6.3 (skiss Kammarkollegiet). Värdena är exakt den gamla prototypens
-// (prototyp/src/01-seed.js, CONFIG_BOT, CONFIG_KK och S.orgConfig) – med ett undantag: KK:s priser är i öre (priceOre)
-// i stället för kronor (price), eftersom alla belopp ska vara öre (CLAUDE.md punkt 12).
+// SPEC §6.2 (Botkyrka). Värdena är exakt den gamla prototypens (prototyp/src/01-seed.js, CONFIG_BOT och S.orgConfig).
+// Miljonmatch är kommunernas plattform: fler kommunavtal kan läggas till som konfiguration utan kodändring.
 //
 // "ATT_FASTSTÄLLA" = värdet ska bekräftas med kunden (SPEC §13). Värdet får ha en förklaring efter, t.ex.
 // "ATT_FASTSTÄLLA (förslag: 5 arbetsdagar)". En regel med det värdet ska inte aktiveras – visa "Ej fastställt".
@@ -62,13 +61,14 @@ const RegexSchema = z.string().min(1).refine((p) => {
 const Share = z.number().min(0).max(1);
 const PosInt = z.int().min(1);
 
-export const DataRoleSchema = z.enum(["processor", "controller"]);
+/** Miljonbemannings personuppgiftsroll i avtalet. I kommunavtalen är kommunen personuppgiftsansvarig och MB biträde. */
+export const DataRoleSchema = z.enum(["processor"]);
 export type DataRole = z.infer<typeof DataRoleSchema>;
 /** Beställningskanaler (samma värden som cases.source). */
 export const OrderChannelSchema = z.enum(["email", "portal", "phone"]);
 export type OrderChannel = z.infer<typeof OrderChannelSchema>;
-/** Prisenhet (price_items.unit, SPEC §6.1). */
-export const PriceUnitSchema = z.enum(["participant_week", "month", "package", "each"]);
+/** Prisenhet (price_items.unit, SPEC §6.1). Kommunavtalen faktureras per deltagare och vecka. */
+export const PriceUnitSchema = z.enum(["participant_week"]);
 export type PriceUnit = z.infer<typeof PriceUnitSchema>;
 /** Vilka ärenden kommunens handläggare ser: egna, enhetens eller alla. */
 export const VisibilityScopeSchema = z.enum(["own", "unit", "all"]);
@@ -287,16 +287,6 @@ const AiSchema = z
   });
 const OrderWeeksSchema = z.strictObject({ min: PosInt, max: PosInt, note: z.string() }).refine((w) => w.max >= w.min, "max måste vara minst min");
 
-/** Prislista i konfigurationen (KK-skissen). Belopp i öre, exkl. moms. */
-const ConfigPriceItemSchema = z.strictObject({ code: z.string().min(1), unit: PriceUnitSchema, packageMonths: PosInt.optional(), priceOre: z.int().min(0) });
-const MeetingMinimumSchema = z.strictObject({
-  service: z.string().min(1),
-  minMeetings: PosInt.optional(),
-  minMinutesEach: PosInt.optional(),
-  periodMonths: PosInt.optional(),
-  minMeetingsPerMonth: PosInt.optional(),
-});
-const ExportSchema = z.strictObject({ key: z.string().min(1), format: z.string().min(1), fieldsPerCustomer: PosInt.optional() });
 /** Avtalstexter i klarspråk som visas under Avtalsfakta i administrationen (prototypens CONTRACT_NOTES). */
 const ContractTextsSchema = z.strictObject({
   /** Omfattning, t.ex. antal årsplatser, avtalsområden och rangordning. */
@@ -367,9 +357,6 @@ const ContractConfigBase = z.strictObject({
   economicDeviation: z.string().min(1).optional(),
   keyPersonnelChangeRequiresApproval: z.boolean().optional(),
   ai: AiSchema.optional(),
-  priceItems: z.array(ConfigPriceItemSchema).optional(),
-  meetingMinimums: z.array(MeetingMinimumSchema).optional(),
-  exports: z.array(ExportSchema).optional(),
   texts: ContractTextsSchema.optional(),
   /** Rapportutkast som skapas automatiskt. Utan avsnittet skapas inga rapporter automatiskt. */
   reportSchedule: ReportScheduleSchema.optional(),
@@ -404,7 +391,7 @@ function crossCheck(cfg: ConfigShape, ctx: z.RefinementCtx) {
   }
 }
 
-/** Avtalskonfiguration. Allt utom casePrefix och dataRole är valfritt – ett avtal i utkast (t.ex. KK) har bara delar. */
+/** Avtalskonfiguration. Allt utom casePrefix och dataRole är valfritt – ett nytt kommunavtal i utkast har bara delar. */
 export const ContractConfigSchema = ContractConfigBase.superRefine(crossCheck);
 export type ContractConfig = z.infer<typeof ContractConfigSchema>;
 
@@ -436,8 +423,6 @@ export type PulseConfig = OperationalConfig["pulse"];
 export type EscalationStep = OperationalConfig["escalationLadder"][number];
 /** AI-avsnittet (leverantör, inspelningsflöden, maxlängd, språk, länkens giltighet). */
 export type AiConfig = OperationalConfig["ai"];
-export type ConfigPriceItem = NonNullable<ContractConfig["priceItems"]>[number];
-export type MeetingMinimum = NonNullable<ContractConfig["meetingMinimums"]>[number];
 /** Rapportutkast som skapas automatiskt (reportSchedule). */
 export type ReportSchedule = NonNullable<ContractConfig["reportSchedule"]>;
 
@@ -768,46 +753,6 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
       monthly: { minEnrolledDays: 11 },
       customerSummaryDue: { nthWorkingDay: 8, time: "16:00" },
     },
-  }),
-);
-
-// ---------------------------------------------------------------- Kammarkollegiet (SPEC §6.3, skiss) – prototypens CONFIG_KK
-// Avvikelse från prototypen: priserna är i öre (priceOre: 412000) i stället för kronor (price: 4120).
-// Tillägg: texts (prototypens CONTRACT_NOTES i admin.js).
-// AI och röstinspelning är avstängda: avtalet saknar ai-avsnittet (recordingEnabled ger false för alla flöden).
-// Tillägg: reportSchedule utan automatiska rapporter – kommunen ser inga individrapporter och KK:s månadsstatistik är en
-// export (exports), inte en rapport per deltagare.
-export const KK_CONFIG: ContractConfig = /*#__PURE__*/ deepFreeze(
-  /*#__PURE__*/ ContractConfigSchema.parse({
-    casePrefix: "KK",
-    dataRole: "controller",
-    customerVisibility: { seesIndividualReports: false, seesCoachNotes: false },
-    priceItems: [
-      { code: "startpaket", unit: "package", packageMonths: 4, priceOre: 412000 },
-      { code: "forlangt_stod", unit: "month", priceOre: 120000 },
-      { code: "forstarkt_stod", unit: "month", priceOre: 135000 },
-      { code: "arbetstagarstod_startpaket", unit: "package", packageMonths: 4, priceOre: 408000 },
-      { code: "csn_yttrande", unit: "each", priceOre: 69900 },
-    ],
-    kpis: [
-      { key: "placeringsgrad", contractTarget: 0.6 },
-      { key: "yttranden_i_tid", contractTarget: 0.8 },
-      { key: "nojdhet", contractTarget: 0.7 },
-    ],
-    sla: [
-      { key: "forsta_kontakt", from: "bestallning", within: { days: 5 } },
-      { key: "forsta_mote", from: "bestallning", within: { days: 10 } },
-    ],
-    meetingMinimums: [
-      { service: "startpaket", minMeetings: 4, minMinutesEach: 60, periodMonths: 4 },
-      { service: "forlangt_stod", minMeetingsPerMonth: 1 },
-    ],
-    exports: [{ key: "kk_manadsstatistik", format: "xlsx", fieldsPerCustomer: 8 }],
-    texts: {
-      termination: "Enligt KK-avtalet – kontrolleras före start.",
-      scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör.",
-    },
-    reportSchedule: { automatic: [] },
   }),
 );
 

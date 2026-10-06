@@ -169,7 +169,7 @@ test("sidbyte i sidopanelen: samma meny, fokus på sidans rubrik, rätt titel oc
 // ------------------------------------------------------------ 5. Ordmärket
 for (const [who, from, start] of [
   [AMIRA, "/rapporter", "/min-vecka"],
-  [SARA, "/rapporter", "/start"],
+  [SARA, "/rapporter", "/min-vecka"],
   [MARIA, "/portal/deltagare", "/portal"],
 ] as const) {
   test(`ordmärket leder till startsidan (${who.role} → ${start})`, async ({ page }, info) => {
@@ -352,7 +352,7 @@ test("byte av testperson med osparad text: appen frågar först – Stanna kvar 
   // ärende, så samordnaren hamnar på sin startsida.
   await page.selectOption("#dev-persona", "u-sara|samordnare");
   await page.getByRole("dialog", { name: "Du har inte sparat" }).getByRole("button", { name: "Lämna sidan" }).click();
-  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/start");
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/min-vecka");
   await loaded(page);
   await expect(page.locator("#dev-persona")).toHaveValue("u-sara|samordnare");
   expect(errors, "ingen beforeunload-varning efter svaret i appen").toEqual([]);
@@ -362,7 +362,7 @@ test("byte av testperson: på ett deltagarkort leder bytet till startsidan, på 
   test.skip(isDemo(info), "Utvecklingslägets val av testperson finns bara i appen.");
   const errors = await open(page, info, "/arenden/case-260145", AMIRA);
   await page.selectOption("#dev-persona", "u-petra|handledare");
-  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/handledare");
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/min-vecka");
   await loaded(page);
   await expect(main(page)).not.toContainText("Åtkomst saknas");
   // En lista som den nya rollen får se: samma sida och samma val.

@@ -40,7 +40,7 @@ const one = (actor: string, params: unknown = {}): Sample[] => [{ actor, params 
  * navCounts) körs som flera personer, så att alla grenars tabeller räknas.
  */
 const SAMPLES: Record<string, Sample[]> = {
-  "admin.contract": one("u-robin"), "admin.compare": one("u-robin"), "admin.orgRules": one("u-robin"), "admin.users": one("u-robin"),
+  "admin.contract": one("u-robin"), "admin.orgRules": one("u-robin"), "admin.users": one("u-robin"),
   "admin.integrations": one("u-robin"), "admin.templates": one("u-robin"), "admin.auditLog": [...one("u-robin"), ...one("u-karin")],
   "admin.auditDetail": one("u-robin", { id: "__first_log__" }),
   "arenden.lista": [...one("u-sara"), ...one("u-amira"), ...one("u-petra")], "arenden.kort": [...one("u-amira", { caseId: NADIA }), ...one("u-sara", { caseId: NADIA })],
@@ -207,7 +207,7 @@ function knownFor(command: string, query: string, tables: string[]): number[] | 
 
 /** Frågor som bara slår upp rader (get) eller bara läser uppslagstabeller – de får ingen automatisk kontroll (men står i planen). */
 const NO_TABLES = [
-  "admin.auditDetail", "admin.compare", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "inkorg.duplicateCheck", "inkorg.phoneForm",
+  "admin.auditDetail", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "inkorg.duplicateCheck", "inkorg.phoneForm",
   "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.testpersoner", "puls.link", "rapporter.byggKatalog", "rapporter.sparad",
   "rost.link", "rost.sendStatus", "session.ping",
 ];

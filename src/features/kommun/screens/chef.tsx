@@ -75,7 +75,8 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
         Når avtalsmålet
       </Badge>
     ) : (
-      <Badge tone="red" icon="alert">
+      // Kontur med röd ikon: statusen står i en förklarande ruta – det röda ämnet på sidan är det som väntar på ditt godkännande.
+      <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
         Under avtalsmålet
       </Badge>
     );
@@ -181,11 +182,12 @@ function Chef({ d, onMonth }: { d: KomChef; onMonth: (m: string) => void }) {
 
       {s && rep && rr && (
         <Stack gap="lg">
-          <div className="grid grid-cols-4 gap-3 max-[760px]:grid-cols-2">
+          <div className="grid grid-cols-4 gap-4 max-[760px]:grid-cols-2 max-[620px]:gap-2.5">
             <Kpi
               label="Resultat, 6 månader"
               value={shareTxt(rr)}
-              tone={below ? "alert" : null}
+              // Ett rött ämne per sida: väntar en åtgärdsplan på godkännande är den det röda, och resultatet "Bevaka".
+              tone={below ? (d.pendingPlans.length > 0 ? "watch" : "alert") : null}
               statusText={below ? "Under avtalsmålet" : undefined}
               sub={`${avslutText(rr)} · avtalsmål ${pct(target, 0)}`}
             />

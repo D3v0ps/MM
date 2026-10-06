@@ -436,12 +436,12 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
         </span>
       </Field>
       {eventLink ? (
-        <p className="text-small">
+        <p>
           Är det en arbetsgivarkontakt eller ett resultat?{" "}
           <Button kind="ghost" icon="award" to={eventPath} onClick={(e) => void toEvent(e)}>Registrera händelse</Button> – då kommer det med i månadsrapporten automatiskt.
         </p>
       ) : (
-        <p className="text-small text-text-muted">Arbetsgivarkontakter och resultat registreras som händelser av huvudcoachen. Då kommer de med i månadsrapporten automatiskt.</p>
+        <p className="text-text-muted">Arbetsgivarkontakter och resultat registreras som händelser av huvudcoachen. Då kommer de med i månadsrapporten automatiskt.</p>
       )}
       {prot ? (
         <Notice tone="info" icon="shield" title="Vem ser anteckningen?">Bara namngiven huvudcoach och avtalsansvarig ser anteckningen.</Notice>

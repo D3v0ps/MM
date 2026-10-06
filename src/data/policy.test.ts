@@ -48,7 +48,7 @@ describe("testpersoner (actors.ts)", () => {
     expect(ps.every((p, i) => p.isDefaultForRole === i < 10)).toBe(true);
   });
   it("aktören får avtal från medlemskapen och kommunens enhet från profilen", () => {
-    expect(JOHAN).toEqual({ userId: "u-johan", role: "avtalsansvarig", contractIds: ["c-bot", "c-kk"], customerUnit: null });
+    expect(JOHAN).toEqual({ userId: "u-johan", role: "avtalsansvarig", contractIds: ["c-bot"], customerUnit: null });
     expect(MARIA).toEqual({ userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" });
     expect(EVA.role).toBe("kommun_chef");
     expect(DELTAGARE).toEqual({ userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null });
@@ -255,8 +255,17 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
   });
   it("avtal: bara avtal man är medlem i", async () => {
     expect((await repoFor(SARA).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot"]);
-    expect((await repoFor(JOHAN).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot", "c-kk"]);
+    expect((await repoFor(JOHAN).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot"]);
     expect((await repoFor(MARIA).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot"]);
+    // Ett andra kommunavtal (påhittat) där bara Johan är medlem: flera avtal i datamodellen är en generell förmåga.
+    const s = new MemoryStore<Tables>(createSeed());
+    s.insertRow("contracts", { ...s.getRow("contracts", "c-bot")!, id: "c-ny", contractNumber: "000000000", casePrefix: "NYK", status: "draft" });
+    s.insertRow("memberships", { id: "u-johan:c-ny", userId: "u-johan", contractId: "c-ny", role: "avtalsansvarig", customerUnit: null });
+    const johan = actorFor(s.raw(), "u-johan")!;
+    expect(johan.contractIds).toEqual(["c-bot", "c-ny"]);
+    expect((await repoFor(johan, s).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot", "c-ny"]);
+    expect((await repoFor(SARA, s).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot"]);
+    expect((await repoFor(MARIA, s).table("contracts").list()).map((c) => c.id)).toEqual(["c-bot"]);
   });
   it("avropsinkorgen: samordnare och avtalsansvarig – inte coach eller kommun", async () => {
     expect(await count(SARA, "inbound_emails")).toBe(27);
@@ -511,7 +520,13 @@ describe("sparade rapporter (saved_reports, rapporter steg 4)", () => {
     await expect(t(SARA, s).insert(base({ id: "sr-s", visibility: "mb", sharedAt: at, sharedBy: "u-karin" }))).rejects.toBeInstanceOf(PolicyError);
     await expect(t(SARA, s).insert(base({ id: "sr-a", archivedAt: at, archivedBy: "u-sara" }))).rejects.toBeInstanceOf(PolicyError);
     await expect(t(SARA, s).insert(base({ id: "sr-t", templateKey: "Anna Andersson" }))).rejects.toBeInstanceOf(PolicyError);
-    await expect(t(JOHAN, s).insert(base({ id: "sr-kk", contractId: "c-kk", ownerId: "u-johan", visibility: "customer", sharedAt: at, sharedBy: "u-johan" }))).rejects.toBeInstanceOf(PolicyError);
+    // Avtalet utan individrapporter: avtalsansvarig kan inte dela med kommunen.
+    const noReports = fresh();
+    const bot = noReports.getRow("contracts", "c-bot")!;
+    noReports.updateRow("contracts", "c-bot", { config: { ...bot.config, customerVisibility: { ...bot.config.customerVisibility!, seesIndividualReports: false } } });
+    await expect(t(JOHAN, noReports).insert(base({ id: "sr-ni", ownerId: "u-johan", visibility: "customer", sharedAt: at, sharedBy: "u-johan" }))).rejects.toBeInstanceOf(PolicyError);
+    // Ett avtal man inte är medlem i.
+    await expect(t(JOHAN, s).insert(base({ id: "sr-ny", contractId: "c-ny", ownerId: "u-johan" }))).rejects.toBeInstanceOf(PolicyError);
     for (const a of [ROBIN, AMIRA, LARS, EVA]) await expect(t(a, s).insert(base({ id: `sr-${a.userId}`, ownerId: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
   });
 
@@ -544,7 +559,7 @@ describe("sparade rapporter (saved_reports, rapporter steg 4)", () => {
     await expect(t(KARIN, s).update("sr-seed-mb", { sharedAt: "2027-02-01T10:00" })).rejects.toBeInstanceOf(PolicyError);
     await expect(t(KARIN, s).update("sr-seed-mb", { title: "Progression per avtalsområde" })).rejects.toBeInstanceOf(PolicyError);
     await expect(t(KARIN, s).update("sr-seed-mb", { ownerId: "u-sara" })).rejects.toBeInstanceOf(PolicyError);
-    await expect(t(KARIN, s).update("sr-seed-mb", { contractId: "c-kk" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(KARIN, s).update("sr-seed-mb", { contractId: "c-ny" })).rejects.toBeInstanceOf(PolicyError);
     await expect(t(KARIN, s).update("sr-seed-mb", { createdAt: at })).rejects.toBeInstanceOf(PolicyError);
     await expect(t(KARIN, s).remove("sr-seed-mb")).rejects.toBeInstanceOf(PolicyError);
     await expect(t(SARA, s).update("sr-seed-privat", { archivedAt: at, archivedBy: "u-sara" })).resolves.toBeTruthy();

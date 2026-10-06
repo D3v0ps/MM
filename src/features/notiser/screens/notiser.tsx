@@ -150,12 +150,14 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
                   </span>
                   <span className="block font-bold">{n.title}</span>
                   <span className="block">{n.body}</span>
-                  <span className="flex flex-wrap items-center gap-1.5 text-small text-text-muted">
+                  {/* Kanalerna är metadata (14 px, ikon + text) – inga märken. */}
+                  <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-small text-text-muted">
                     <span>Kanaler:</span>
                     {n.channels.map((ch) => (
-                      <Badge key={ch} tone="outline" icon={ch === "email" ? "mail" : "bell"}>
+                      <span key={ch} className="inline-flex items-center gap-1">
+                        <Icon name={ch === "email" ? "mail" : "bell"} className="flex-none" />
                         {ch === "email" ? "E-post" : "I appen"}
-                      </Badge>
+                      </span>
                     ))}
                     {hasEmail && (
                       <Button kind="ghost" className="px-1.5 py-0.5" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : n.id)}>
@@ -164,8 +166,8 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
                     )}
                   </span>
                   {isOpen && (
-                    <span className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
-                      <Icon name="mail" className="mt-px" />
+                    <span className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-text-muted">
+                      <Icon name="mail" className="mt-1 flex-none" />
                       <span>
                         <b className="font-bold text-antracit">E-post (utan personuppgifter):</b> {n.emailBody}
                       </span>
@@ -179,7 +181,7 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
       </Card>
       <DemoNote>
         {d.isEscalationRole || d.isAdmin
-          ? "Påminnelser och eskaleringar räknas fram av reglerna i Admin → Avtal och konfiguration → Interna regler."
+          ? "Påminnelser och eskaleringar räknas fram av reglerna i Admin → Användare och roller → Avtal och konfiguration → Interna regler."
           : "Påminnelser räknas fram av reglerna i adminvyn."}{" "}
         I den riktiga tjänsten skickas de av ett schemalagt jobb och lagras i en tabell där varje rad bara kan läsas av sin mottagare (radnivåsäkerhet).
       </DemoNote>

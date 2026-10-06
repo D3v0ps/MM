@@ -1,7 +1,7 @@
 // Rapportutkast som skapas automatiskt: vecko- och månadstillhörighet, årsskiftet, uppehåll, avslutade ärenden,
 // sista dagar från avtalskonfigurationen, fönstret (since) och nycklarna som de unika indexen speglar.
 import { describe, expect, it } from "vitest";
-import { BOTKYRKA_CONFIG, KK_CONFIG, type ContractConfig } from "./config";
+import { BOTKYRKA_CONFIG, parseContractConfig, type ContractConfig } from "./config";
 import {
   enrolledBetween, enrolledDays, LOOKBACK_DAYS, missingReports, nextScheduleBoundary, plannedReports, reportKey, scheduleFrom, type ScheduleCase, type ScheduleInput,
 } from "./report-schedule";
@@ -148,9 +148,9 @@ describe("beställarrapport per chef och månad", () => {
 });
 
 describe("avtalskonfigurationen styr", () => {
-  it("bara rapporttyperna i reportSchedule.automatic – KK och avtal utan avsnittet får inga", () => {
+  it("bara rapporttyperna i reportSchedule.automatic – en tom lista och avtal utan avsnittet får inga", () => {
     const cases = [C("a", "2027-01-04")];
-    expect(plannedReports(input({ cases }, KK_CONFIG))).toEqual([]);
+    expect(plannedReports(input({ cases }, parseContractConfig({ casePrefix: "NYK", dataRole: "processor", reportSchedule: { automatic: [] } })))).toEqual([]);
     const none = { ...BOTKYRKA_CONFIG } as ContractConfig;
     delete (none as { reportSchedule?: unknown }).reportSchedule;
     expect(plannedReports(input({ cases }, none))).toEqual([]);

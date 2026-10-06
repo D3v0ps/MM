@@ -723,7 +723,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
             onValueChange={setMethod}
             options={[{ value: "manual", label: "Manuellt", icon: "edit" }, { value: "ai", label: "Med AI-stöd", icon: "sparkles" }]}
           />
-          {method === "manual" && <p className="text-small text-text-muted">Manuell dokumentation är standard och fullt likvärdig. AI fyller samma formulär – det finns ingen separat AI-väg.</p>}
+          {method === "manual" && <p className="text-body text-text-muted">Manuell dokumentation är standard och fullt likvärdig. AI fyller samma formulär – det finns ingen separat AI-väg.</p>}
           {method === "ai" && prot && (
             <Notice tone="critical" title="AI används inte för det här ärendet">
               Deltagaren har skyddade personuppgifter. Då spelas inget in och ingen AI används. Dokumentera manuellt.
@@ -925,7 +925,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                           Flagga: upprepad ogiltig frånvaro
                         </Badge>
                       </Row>
-                      <div className="text-small">
+                      <div className="text-body">
                         Förslag utifrån flaggan: ”{devSuggestion.description}” – {lc(devSuggestion.action)}
                       </div>
                       <div>
@@ -979,7 +979,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                       options={[{ value: "yes", label: "Ja" }, { value: "no", label: "Nej" }]}
                     />
                   </Field>
-                  <p className="text-small text-text-muted">Efter godkännandet kan du kalla kommunen till ett uppföljningsmöte.</p>
+                  <p className="text-body text-text-muted">Efter godkännandet kan du kalla kommunen till ett uppföljningsmöte.</p>
                 </Stack>
               </Card>
             )}
@@ -1104,7 +1104,8 @@ function AttendanceSection({ caseId, from, to, today, children }: { caseId: stri
             {att.absentInvalid} ogiltig frånvaro
           </Badge>
           {att.unregistered > 0 && (
-            <Badge tone="redfill" icon="alert">
+            // Kontur och ring (som närvarosidan): rött är bara för det som brådskar.
+            <Badge tone="outline" icon="circle">
               {att.unregistered} ej registrerade
             </Badge>
           )}
@@ -1145,7 +1146,7 @@ function AiSuggestion({
             <span className="text-small text-text-muted">Inget förslag</span>
           </Row>
           <div className="font-bold">Framgår inte</div>
-          <div className="text-small text-text-muted">{s.quote || "Framgår inte av underlaget. Fyll i själv."}</div>
+          <div className="text-body text-text-muted">{s.quote || "Framgår inte av underlaget. Fyll i själv."}</div>
         </AiBox>
       </div>
     );
@@ -1180,7 +1181,7 @@ function AiSuggestion({
           {text(field, s.value)}
         </div>
         <Evidence quote={s.quote} t={s.t} />
-        {decision === "edit" && outcome !== "edited" && <div className="text-small">Ändra värdet i fältet. Behåller du förslaget loggas beslutet som accepterat.</div>}
+        {decision === "edit" && outcome !== "edited" && <div className="text-body">Ändra värdet i fältet. Behåller du förslaget loggas beslutet som accepterat.</div>}
         <Row gap="sm">
           <Button kind={decision === "accepted" ? "primary" : "secondary"} icon="check" ariaPressed={decision === "accepted"} onClick={() => onDecide(field, "accepted")}>
             Acceptera
@@ -1282,7 +1283,7 @@ function AiCapture({
             {s}
           </div>
         ))}
-        <span className="text-small text-text-muted">Bearbetas i Sverige/EU. Ingenting används för att träna modellen.</span>
+        <span className="text-body text-text-muted">Bearbetas i Sverige/EU. Ingenting används för att träna modellen.</span>
       </div>
     );
   }
@@ -1309,7 +1310,7 @@ function AiCapture({
       {source === "recording" &&
         (blocked ?? (
           <Stack gap="sm">
-            <p className="text-small">
+            <p className="text-body">
               Spela in samtalet i rummet. Pausa när samtalet går in på sådant som inte behövs för uppdraget. Ljudet laddas upp till en privat lagring i Sverige och
               raderas direkt efter transkriberingen.
             </p>
@@ -1426,7 +1427,7 @@ function AiSourceSummary({
             </Button>
           </div>
           {showTranscript && <TranscriptPanel ciId={ciId} transcript={transcript} />}
-          {showTranscript && <span className="text-small text-text-muted">Visningen loggas i revisionsloggen. Rapporter byggs aldrig från råtranskriptet.</span>}
+          {showTranscript && <span className="text-body text-text-muted">Visningen loggas i revisionsloggen. Rapporter byggs aldrig från råtranskriptet.</span>}
         </Stack>
       )}
     </Stack>
@@ -1440,7 +1441,7 @@ function TranscriptPanel({ ciId, transcript }: { ciId: string | null; transcript
   const log = useCommand(auditView);
   useAuditView(`transcript.view:${ciId ?? "ny"}`, () => log.run({ action: "transcript.view", entity: "check_in", entityId: ciId }).catch(() => undefined));
   return (
-    <div data-testid="ratranskript" tabIndex={0} aria-label="Råtranskript" className="flex max-h-[260px] flex-col gap-1.5 overflow-y-auto rounded-mb border border-ljusgra px-3 py-2.5 text-[0.9375rem]">
+    <div data-testid="ratranskript" tabIndex={0} aria-label="Råtranskript" className="flex max-h-[260px] flex-col gap-1.5 overflow-y-auto rounded-mb border border-ljusgra px-3 py-2.5 text-body">
       {transcript.map((x, i) => (
         <div key={i}>
           {x.t != null && <span className="mr-2 font-bold tabular-nums">{mmss(x.t)}</span>}
@@ -1509,7 +1510,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
         />
       </Grid>
       {done.decisions.length > 0 && (
-        <Card title="Loggade AI-beslut" icon="check-square" flush foot={<span className="text-small text-text-muted">Varje beslut sparas med vem som beslutade och när. Förslag som inte framgick av underlaget räknas inte.</span>}>
+        <Card title="Loggade AI-beslut" icon="check-square" flush foot={<span className="text-body text-text-muted">Varje beslut sparas med vem som beslutade och när. Förslag som inte framgick av underlaget räknas inte.</span>}>
           <List>
             {done.decisions.map((x) => (
               <div key={x.field} className="flex min-w-0 flex-wrap items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0">
@@ -1519,7 +1520,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
                     Förslag: {text(x.field, x.suggested)}
                     {x.decision === "edited" ? ` · Sparat: ${text(x.field, x.final)}` : ""}
                   </div>
-                  {x.clicked === "edit" && x.decision === "accepted" && <div className="text-small">Du valde Ändra men behöll förslaget. Därför loggas beslutet som accepterat.</div>}
+                  {x.clicked === "edit" && x.decision === "accepted" && <div className="text-body">Du valde Ändra men behöll förslaget. Därför loggas beslutet som accepterat.</div>}
                 </div>
                 <div className="flex flex-none">
                   <Badge tone={x.decision === "rejected" ? "outline" : "bluetone"} icon={x.decision === "rejected" ? "x" : x.decision === "edited" ? "edit" : "check"}>
@@ -1557,7 +1558,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
               ]}
             />
             {dv.needsCustomerDecision && dv.taskCreated && (
-              <p className="text-small">Handläggaren {ref.name ?? ""} har fått en uppgift i portalen om att beslutet behövs. Mejlet innehåller bara ärendenumret.</p>
+              <p className="text-body">Handläggaren {ref.name ?? ""} har fått en uppgift i portalen om att beslutet behövs. Mejlet innehåller bara ärendenumret.</p>
             )}
             {!sent ? (
               <Stack>
@@ -1565,7 +1566,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
                   <span aria-hidden="true" className="inline-block size-[0.5em] rounded-full bg-rod" />
                   Kalla kommunen till uppföljning
                 </span>
-                <p className="text-small">
+                <p className="text-body">
                   Mötesförfrågan skickas som ett säkert meddelande i portalen till {ref.name ? `${ref.name}, ${ref.unit ?? ""}` : "handläggaren"}. Mejlet till handläggaren innehåller bara
                   ärendenumret.
                 </p>

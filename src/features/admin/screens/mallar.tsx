@@ -1,7 +1,8 @@
 "use client";
 // Mallar och utskick (/admin/mallar, ?flik=logg för utskicksloggen – prototypens admin.mallar).
 // Alla utskick byggs från versionerade mallar och innehåller aldrig personuppgifter – bara ärendenummer och en länk till portalen.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { outboundStatusLabel } from "@/core/labels";
 import { plural } from "@/core/format";
 import { fmtDate, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -11,7 +12,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, useRuntime } from "@/shell/runtime";
 import {
   Badge, Button, Card, Check, DemoNote, Empty, Field, Grid, Icon, Input, Kpi, List, Notice, Page, PerspectiveLink, QueryView, Row, Seg, Split, Stack, TabPanel, Tabs, TextArea, cn, toast,
-  useConfirm,
+  useConfirm, type IconName,
 } from "@/ui";
 import { adminSaveTemplate, adminTemplates, type SendLogItem, type TemplateView, type TemplatesView } from "../api";
 import { ALLOWED_PLACEHOLDERS, CHANNEL_LABEL, GENERIC_PORTAL, fillExample, templateCheck, type TemplateCheck } from "../templates";
@@ -21,11 +22,14 @@ type MallTab = "mallar" | "logg";
 const CH_ICON: Record<string, "message" | "mail" | "file"> = { sms: "message", email: "mail", brev: "file", letter: "file" };
 const listSv = (xs: readonly string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}` : xs.join(""));
 
-const ChannelBadge = ({ ch }: { ch: string }) => (
-  <Badge tone="outline" icon={CH_ICON[ch] ?? "mail"}>
-    {CHANNEL_LABEL[ch] ?? ch}
-  </Badge>
+/** Metadata med ikon (14 px) – i stället för ett märke (Min veckas stil: märken bara för status som kräver något). */
+const Meta = ({ icon, className, children }: { icon: IconName; className?: string; children?: ReactNode }) => (
+  <span className={cn("inline-flex items-center gap-1 text-small text-text-muted", className)}>
+    <Icon name={icon} className="flex-none" />
+    {children}
+  </span>
 );
+const ChannelBadge = ({ ch }: { ch: string }) => <Meta icon={CH_ICON[ch] ?? "mail"}>{CHANNEL_LABEL[ch] ?? ch}</Meta>;
 const ChannelBadges = ({ t }: { t: TemplateView }) => (
   <>
     {[t.channel, ...t.alsoVia].map((c) => (
@@ -34,7 +38,9 @@ const ChannelBadges = ({ t }: { t: TemplateView }) => (
   </>
 );
 const CheckBadge = ({ c }: { c: TemplateCheck }) =>
-  c.ok ? <Badge tone="outline" icon="check">Inga personuppgifter</Badge> : <Badge tone="red" icon="alert">Innehåller personuppgifter</Badge>;
+  c.ok ? <Meta icon="check">Inga personuppgifter</Meta> : <Badge tone="red" icon="alert">Innehåller personuppgifter</Badge>;
+/** Utskickets läge (text + ikon). Bara "Kunde inte skickas" får röd ikon. */
+const SEND_STATUS_ICON: Record<SendLogItem["status"], IconName> = { queued: "clock", sent: "check", failed: "alert", suppressed: "minus-circle", manual: "file" };
 const checkOf = (t: Pick<TemplateView, "subject" | "body">) => templateCheck(`${t.subject || ""}\n${t.body}`);
 
 export function MallarScreen({ query }: ScreenProps) {
@@ -124,11 +130,11 @@ function TemplatesTab({ d }: { d: TemplatesView }) {
                   <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                     <span className="font-bold">{t.name}</span>
                     <span className="text-small text-text-muted">{t.to}</span>
-                    <Row gap="sm">
+                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                       <ChannelBadges t={t} />
-                      <Badge tone="grey">v{t.version}</Badge>
+                      <span className="text-small text-text-muted">Version {t.version}</span>
                       <CheckBadge c={checkOf(t)} />
-                    </Row>
+                    </span>
                   </span>
                   <Icon name="chevron-right" className="self-center text-text-muted" />
                 </button>
@@ -185,7 +191,7 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
       }
       foot={
         tpl.fixed ? (
-          <span className="text-small text-text-muted">Texten är fast och kan inte ändras här.</span>
+          <span className="text-text-muted">Texten är fast och kan inte ändras här.</span>
         ) : canEdit ? (
           <>
             <Button kind="primary" icon="check" disabled={!dirty || !chk.ok || !body.trim()} pending={save.pending} onClick={() => void onSave()}>
@@ -198,7 +204,7 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
             )}
           </>
         ) : (
-          <span className="text-small text-text-muted">Bara systemadmin kan spara en ny version av mallen. Du kan pröva texten och se förhandsvisningen.</span>
+          <span className="text-text-muted">Bara systemadmin kan spara en ny version av mallen. Du kan pröva texten och se förhandsvisningen.</span>
         )
       }
     >
@@ -225,7 +231,7 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
                   <div>{v.body}</div>
                 </div>
               ))}
-              <p className="text-small text-text-muted">
+              <p className="text-text-muted">
                 Varianterna lovar olika saker: efter ett mejl ringer vi upp handläggaren, efter en portalbeställning ber vi handläggaren ringa oss. Bestäm vilken formulering som ska gälla innan tjänsten byggs.
               </p>
             </Stack>
@@ -363,7 +369,7 @@ function SendLogTab({ items }: { items: SendLogItem[] }) {
               <div key={n.id} data-send-item="" className={cn("flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0", demo && n.byTester && "shadow-[inset_4px_0_0_var(--color-bla)]")}>
                 <Icon name={CH_ICON[n.channel] ?? "mail"} size="lg" />
                 <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <Row gap="sm">
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="font-bold">{n.templateLabel}</span>
                     <ChannelBadge ch={n.channel} />
                     {n.byTester && (
@@ -371,13 +377,18 @@ function SendLogTab({ items }: { items: SendLogItem[] }) {
                         <Badge tone="dark" icon="user">Orsakat av dig i prototypen</Badge>
                       </DemoOnly>
                     )}
-                  </Row>
+                  </span>
                   <div className="text-small text-text-muted">
                     {fmtDateTime(n.at)} · Till {n.to}
                     {n.caseNumber ? ` · ärende ${n.caseNumber}` : ""}
                   </div>
                   <div className="mt-1 border-l-[3px] border-ljusgra px-2.5 py-2 whitespace-pre-wrap [overflow-wrap:anywhere]">{n.body}</div>
-                  <div>{n.leak ? <Badge tone="red" icon="alert">Kan innehålla personuppgifter</Badge> : <Badge tone="blue" icon="check">Inga personuppgifter</Badge>}</div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <Meta icon={SEND_STATUS_ICON[n.status] ?? "info"} className={n.status === "failed" ? "font-bold text-antracit [&_svg]:text-rod" : undefined}>
+                      {outboundStatusLabel(n.status)}
+                    </Meta>
+                    {n.leak ? <Badge tone="red" icon="alert">Kan innehålla personuppgifter</Badge> : <Meta icon="check">Inga personuppgifter</Meta>}
+                  </div>
                 </div>
               </div>
             ))}

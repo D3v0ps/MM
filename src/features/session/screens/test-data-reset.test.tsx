@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 const base: Session = {
   authenticated: true,
-  actor: { userId: "tester-karim", role: "admin", contractIds: ["c-bot", "c-kk"] },
+  actor: { userId: "tester-karim", role: "admin", contractIds: ["c-bot"] },
   user: { id: "tester-karim", name: "Karim Khalil", title: "Testare", email: "", orgName: "Miljonbemanning AB" },
 };
 

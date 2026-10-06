@@ -672,7 +672,7 @@ export type CheckIn = {
   approvedBy: UserId | null;
   approvedAt: LocalDateTime | null;
   aiRunId: string | null;
-  /** Dokumentationstid i minuter (mätning för KK-kalkylen, SPEC §8.5). */
+  /** Dokumentationstid i minuter: från mötets slut till godkänd dokumentation (mätning av AI-stödet, SPEC §8.5). */
   docMinutes: number | null;
   ai: CheckInAiDraft | null;
   /** Radens version (0022): ökas vid varje sparning – en sparning med fel expectedVersion avvisas (två flikar). */

@@ -2,7 +2,7 @@
 // Samma tabell används av Next.js (catch-all-rutt) och av prototypen (hash-navigering) – därför speglar prototypen appen exakt.
 import type { ComponentType } from "react";
 import type { Role } from "@/api/roles";
-import { isTesterHiddenPath } from "@/api/tester-access";
+import { isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
 import { matchPath } from "./nav";
 
 export type ScreenProps = { params: Record<string, string>; query: URLSearchParams };
@@ -25,15 +25,18 @@ export type RouteDef = {
   keepMounted?: boolean;
 };
 
-/** Startsida per roll. */
+/**
+ * Startsida per roll. Alla MB-roller börjar på Min vecka (beslut 2026-10-06) – samma upplägg, egna uppgifter. De gamla
+ * startsidorna finns kvar under rollens flik (/ledning, /ekonomi, /handledare, /admin/anvandare); /start leder till /min-vecka.
+ */
 export const START_PATH: Record<Role, string> = {
-  admin: "/admin/avtal",
-  avtalsansvarig: "/start",
-  samordnare: "/start",
+  admin: "/min-vecka",
+  avtalsansvarig: "/min-vecka",
+  samordnare: "/min-vecka",
   coach: "/min-vecka",
-  handledare: "/handledare",
-  chef: "/ledning",
-  ekonom: "/ekonomi",
+  handledare: "/min-vecka",
+  chef: "/min-vecka",
+  ekonom: "/min-vecka",
   kommun_handlaggare: "/portal",
   kommun_chef: "/portal/bestallarrapport",
   deltagare: "/puls",
@@ -41,12 +44,12 @@ export const START_PATH: Record<Role, string> = {
 
 /**
  * Startsidan för den inloggade. En begränsad testare (Session.hidesCommercial, src/api/tester-access.ts) landar aldrig på en
- * stängd sida: systemadministratören börjar på Användare och roller i stället för avtalssidan.
+ * stängd sida: en roll som är dold för testare (ekonom) eller vars startsida är stängd börjar på Notiser, som förut.
  */
 export function startPathFor(role: Role, hidesCommercial?: boolean): string {
   const p = START_PATH[role];
-  if (!hidesCommercial || !isTesterHiddenPath(p)) return p;
-  return role === "admin" ? "/admin/anvandare" : "/notiser";
+  if (!hidesCommercial || !(isTesterHiddenPath(p) || roleHiddenFromTesters(role))) return p;
+  return "/notiser";
 }
 
 /** Inloggningssida för en sökväg när besökaren inte är inloggad. */

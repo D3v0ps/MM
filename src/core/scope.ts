@@ -1,5 +1,5 @@
-// Avgränsa datat till ett avtal. Domänfunktionerna räknar på det data de får; när flera avtal har ärenden
-// (Botkyrka och Kammarkollegiet) ska hanteraren avgränsa först, så att KPI:er och fakturering inte blandar avtal.
+// Avgränsa datat till ett avtal. Domänfunktionerna räknar på det data de får; när flera kommunavtal har ärenden
+// ska hanteraren avgränsa först, så att KPI:er och fakturering inte blandar avtal.
 import type { Db, TableName } from "@/data/schema";
 
 /** Tabeller som hör till ett ärende via caseId. */

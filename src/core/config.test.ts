@@ -5,7 +5,6 @@ import {
   BOTKYRKA_CONFIG,
   ContractConfigSchema,
   DEFAULT_ORG_SETTINGS,
-  KK_CONFIG,
   OperationalConfigSchema,
   OrgSettingsSchema,
   RECORDING_KINDS,
@@ -42,10 +41,21 @@ import {
 } from "./config";
 import { TABLE_NAMES, emptyDb, type Contract } from "@/data/schema";
 
+/**
+ * Ett nytt kommunavtal i utkast (påhittat): bara prefix, personuppgiftsroll och kommunens synlighet. Visar att schemat tar
+ * emot ett avtal som ännu inte har alla driftavsnitt – flera avtal i datamodellen är en generell förmåga.
+ */
+const DRAFT = parseContractConfig({
+  casePrefix: "NYK",
+  dataRole: "processor",
+  customerVisibility: { seesIndividualReports: false, seesCoachNotes: false },
+  reportSchedule: { automatic: [] },
+});
+
 // ---------------------------------------------------------------- Den gamla prototypens värden (facit)
-// CONFIG_BOT och CONFIG_KK läses ur prototyp/src/01-seed.js (MM.seedConstants), S.orgConfig ur samma fil.
+// CONFIG_BOT läses ur prototyp/src/01-seed.js (MM.seedConstants), S.orgConfig ur samma fil.
 const seedSrc = readFileSync(new URL("../../prototyp/src/01-seed.js", import.meta.url), "utf8");
-type Proto = { seedConstants: { CONFIG_BOT: unknown; CONFIG_KK: { priceItems: { price: number }[] } & Record<string, unknown> } };
+type Proto = { seedConstants: { CONFIG_BOT: unknown } };
 const proto: Proto = (() => {
   const MM = { d: {} } as unknown as Proto;
   new Function("MM", seedSrc)(MM);
@@ -63,7 +73,7 @@ function protoOrgConfig(): unknown {
 }
 
 /** Prototypens avtalstexter (CONTRACT_NOTES i prototyp/src/views/admin.js), per avtals-id. */
-function protoContractNotes(): Record<"c-bot" | "c-kk", { termination: string; scope: string }> {
+function protoContractNotes(): Record<"c-bot", { termination: string; scope: string }> {
   const src = readFileSync(new URL("../../prototyp/src/views/admin.js", import.meta.url), "utf8");
   const start = src.indexOf("{", src.indexOf("const CONTRACT_NOTES = "));
   let depth = 0;
@@ -109,23 +119,16 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     // Samma språk som pulsmätningen.
     expect(BOTKYRKA_CONFIG.ai.languages).toEqual(BOTKYRKA_CONFIG.pulse.languages);
   });
-  it("Kammarkollegiet är prototypens CONFIG_KK med priserna i öre, plus avtalstexterna", () => {
-    const kk = proto.seedConstants.CONFIG_KK;
-    const expected = { ...kk, priceItems: kk.priceItems.map(({ price, ...rest }) => ({ ...rest, priceOre: price * 100 })), texts: notes["c-kk"], reportSchedule: { automatic: [] } };
-    expect(KK_CONFIG).toStrictEqual(expected);
-    expect(KK_CONFIG.texts?.termination).toBe("Enligt KK-avtalet – kontrolleras före start.");
-    expect(KK_CONFIG.priceItems?.map((p) => p.priceOre)).toEqual([412000, 120000, 135000, 408000, 69900]);
-  });
-  it("rapportutkast: Botkyrka skapar vecko-, månads- och beställarrapporter automatiskt med testdatats sista dagar, KK inga", () => {
+  it("rapportutkast: Botkyrka skapar vecko-, månads- och beställarrapporter automatiskt med testdatats sista dagar, ett utkast inga", () => {
     expect(BOTKYRKA_CONFIG.reportSchedule).toStrictEqual({
       automatic: ["weekly_attendance", "monthly", "customer_summary"], monthly: { minEnrolledDays: 11 }, customerSummaryDue: { nthWorkingDay: 8, time: "16:00" },
     });
     // Veckorapporten och månadsrapporten förfaller enligt SLA-reglerna som redan finns.
     expect(slaRule(BOTKYRKA_CONFIG, "veckorapport_publicering")).toMatchObject({ weekday: 0, time: "16:00" });
     expect(slaRule(BOTKYRKA_CONFIG, "manadsrapport")?.proposal).toEqual({ nthWorkingDay: 5 });
-    expect(KK_CONFIG.reportSchedule).toStrictEqual({ automatic: [] });
+    expect(DRAFT.reportSchedule).toStrictEqual({ automatic: [] });
     // Värdena är förslag (inte ATT_FASTSTÄLLA-texter) – listan över värden som ska bekräftas ändras inte.
-    expect(unsetPaths(KK_CONFIG)).toEqual([]);
+    expect(unsetPaths(DRAFT)).toEqual([]);
   });
   it("interna regler är exakt prototypens S.orgConfig", () => {
     expect(DEFAULT_ORG_SETTINGS).toStrictEqual(protoOrgConfig());
@@ -133,15 +136,15 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
 });
 
 describe("zod-scheman", () => {
-  it("båda konfigurationerna parsar, bara Botkyrka är driftklar", () => {
+  it("Botkyrka och ett avtal i utkast parsar, bara Botkyrka är driftklar", () => {
     expect(ContractConfigSchema.safeParse(BOTKYRKA_CONFIG).success).toBe(true);
     expect(OperationalConfigSchema.safeParse(BOTKYRKA_CONFIG).success).toBe(true);
-    expect(ContractConfigSchema.safeParse(KK_CONFIG).success).toBe(true);
-    expect(OperationalConfigSchema.safeParse(KK_CONFIG).success).toBe(false);
+    expect(ContractConfigSchema.safeParse(DRAFT).success).toBe(true);
+    expect(OperationalConfigSchema.safeParse(DRAFT).success).toBe(false);
     expect(isOperational(BOTKYRKA_CONFIG)).toBe(true);
-    expect(isOperational(KK_CONFIG)).toBe(false);
+    expect(isOperational(DRAFT)).toBe(false);
     expect(requireOperational(BOTKYRKA_CONFIG)).toBe(BOTKYRKA_CONFIG);
-    expect(() => requireOperational(KK_CONFIG)).toThrow(/KK.*saknar.*phases/);
+    expect(() => requireOperational(DRAFT)).toThrow(/NYK.*saknar.*phases/);
     // Samma värde från databasen (JSON) parsar till samma objekt.
     expect(parseContractConfig(JSON.parse(JSON.stringify(BOTKYRKA_CONFIG)))).toStrictEqual(BOTKYRKA_CONFIG);
   });
@@ -153,6 +156,14 @@ describe("zod-scheman", () => {
       { ...BOTKYRKA_CONFIG, casePrefx: "BOT" },
       withBilling({ buyerReference: { required: true, pattern: "^[0-9]{8,10$(" } }),
       withBilling({ unit: "hour" }),
+      // Kommunavtalen: MB är alltid personuppgiftsbiträde och priserna gäller per deltagare och vecka. Paket-, månads- och
+      // styckpriser, mötesminimum och statistikexporter finns inte i Miljonmatch (beslut 2026-10-06).
+      { ...BOTKYRKA_CONFIG, dataRole: "controller" },
+      withBilling({ unit: "package" }),
+      withBilling({ unit: "month" }),
+      { ...DRAFT, priceItems: [{ code: "startpaket", unit: "package", packageMonths: 4, priceOre: 412000 }] },
+      { ...DRAFT, meetingMinimums: [{ service: "startpaket", minMeetings: 4 }] },
+      { ...DRAFT, exports: [{ key: "manadsstatistik", format: "xlsx" }] },
       { ...BOTKYRKA_CONFIG, sla: [{ key: "x", within: { days: 1, workingDays: 1 } }] },
       { ...BOTKYRKA_CONFIG, sla: [{ key: "x", within: "7 dagar" }] },
       { ...BOTKYRKA_CONFIG, kpis: [{ key: "a", internalTarget: 1.5 }] },
@@ -174,7 +185,7 @@ describe("zod-scheman", () => {
       { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["monthly"], monthly: { minEnrolledDays: 0 } } },
       { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["monthly"], monthly: { minEnrolledDays: 10.5 } } },
       // En rapporttyp som skapas automatiskt utan sista dag i sla (då skulle inga rader skapas utan att någon märker det).
-      { ...KK_CONFIG, reportSchedule: { automatic: ["weekly_attendance", "monthly"], monthly: { minEnrolledDays: 11 } } },
+      { ...DRAFT, reportSchedule: { automatic: ["weekly_attendance", "monthly"], monthly: { minEnrolledDays: 11 } } },
       { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.map((r) => (r.key === "veckorapport_publicering" ? { key: r.key, weekday: 0 } : r)) },
       { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.map((r) => (r.key === "manadsrapport" ? { key: "manadsrapport", from: "manadsskifte", within: { days: 5 } } : r)) },
       { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.filter((r) => r.key !== "manadsrapport") },
@@ -187,20 +198,20 @@ describe("zod-scheman", () => {
     const noTexts: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
     delete noTexts.texts;
     expect(OperationalConfigSchema.safeParse(noTexts).success).toBe(true);
-    expect(ContractConfigSchema.safeParse({ ...KK_CONFIG, texts: { termination: "Enligt avtalet." } }).success).toBe(true);
+    expect(ContractConfigSchema.safeParse({ ...DRAFT, texts: { termination: "Enligt avtalet." } }).success).toBe(true);
     // Rapportutkasten är valfria – utan avsnittet skapas inga rapporter automatiskt.
     const noSchedule: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
     delete noSchedule.reportSchedule;
     expect(OperationalConfigSchema.safeParse(noSchedule).success).toBe(true);
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["weekly_attendance", "monthly"], monthly: { minEnrolledDays: 1 } } }).success).toBe(true);
-    // KK med bara beställarrapporten behöver ingen sla-regel för vecka eller månad.
-    expect(ContractConfigSchema.safeParse({ ...KK_CONFIG, reportSchedule: { automatic: ["customer_summary"], customerSummaryDue: { nthWorkingDay: 8, time: "16:00" } } }).success).toBe(true);
+    // Ett avtal med bara beställarrapporten behöver ingen sla-regel för vecka eller månad.
+    expect(ContractConfigSchema.safeParse({ ...DRAFT, reportSchedule: { automatic: ["customer_summary"], customerSummaryDue: { nthWorkingDay: 8, time: "16:00" } } }).success).toBe(true);
     // Månadsregeln i fastställd form (inom 5 arbetsdagar från månadsskiftet) räcker också – sista dagen blir densamma.
     const fixed = { ...BOTKYRKA_CONFIG, sla: BOTKYRKA_CONFIG.sla.map((r) => (r.key === "manadsrapport" ? { key: "manadsrapport", from: "manadsskifte", within: { workingDays: 5 } } : r)) };
     expect(ContractConfigSchema.safeParse(fixed).success).toBe(true);
     expect(monthlyReportWorkingDay(fixed)).toBe(5);
     expect(monthlyReportWorkingDay(BOTKYRKA_CONFIG)).toBe(5);
-    expect(monthlyReportWorkingDay(KK_CONFIG)).toBeNull();
+    expect(monthlyReportWorkingDay(DRAFT)).toBeNull();
   });
 
   it("interna regler: eskalering efter påminnelse, e-post utan personuppgifter", () => {
@@ -264,7 +275,7 @@ describe("ATT_FASTSTÄLLA", () => {
       "bonus.model",
       "retention",
     ]);
-    expect(unsetPaths(KK_CONFIG)).toEqual([]);
+    expect(unsetPaths(DRAFT)).toEqual([]);
   });
 });
 
@@ -308,9 +319,9 @@ describe("hjälpare", () => {
     expect(slaWithin(BOTKYRKA_CONFIG, "finns_inte")).toBeNull();
     expect(slaRule(BOTKYRKA_CONFIG, "slutrapport")?.proposal).toEqual({ workingDays: 5 });
     expect(slaRule(BOTKYRKA_CONFIG, "veckorapport_registrering")).toMatchObject({ weekday: 0, time: "10:00" });
-    expect(slaWithin(KK_CONFIG, "forsta_mote")).toEqual({ days: 10 });
+    expect(slaWithin(DRAFT, "forsta_mote")).toBeNull();
     expect(kpiDef(BOTKYRKA_CONFIG, "resultatgrad")).toMatchObject({ contractTarget: 0.32, internalTarget: 0.35, minN: 10 });
-    expect(kpiDef(KK_CONFIG, "placeringsgrad")?.contractTarget).toBe(0.6);
+    expect(kpiDef(DRAFT, "resultatgrad")).toBeNull();
   });
   it("kommunens synlighet: preliminärt egna ärenden tills det är fastställt", () => {
     expect(effectiveVisibilityScope(BOTKYRKA_CONFIG)).toBe("own");
@@ -394,14 +405,14 @@ describe("AI och röstinspelning (ai)", () => {
     expect(aiProviderText(BOTKYRKA_CONFIG)).toBe("Gemini Flash via Google Cloud Vertex AI (EU)");
   });
 
-  it("Kammarkollegiet: allt avstängt (inget ai-avsnitt)", () => {
-    expect(KK_CONFIG.ai).toBeUndefined();
+  it("avtal utan ai-avsnitt: allt avstängt", () => {
+    expect(DRAFT.ai).toBeUndefined();
     for (const kind of RECORDING_KINDS) {
-      expect(recordingEnabled(KK_CONFIG, kind), kind).toBe(false);
-      expect(recordingMaxMinutes(KK_CONFIG, kind), kind).toBeNull();
+      expect(recordingEnabled(DRAFT, kind), kind).toBe(false);
+      expect(recordingMaxMinutes(DRAFT, kind), kind).toBeNull();
     }
-    expect(aiLanguages(KK_CONFIG)).toEqual(["sv"]);
-    expect(aiProviderText(KK_CONFIG)).toBe("–");
+    expect(aiLanguages(DRAFT)).toEqual(["sv"]);
+    expect(aiProviderText(DRAFT)).toBe("–");
     expect(recordingEnabled(null, "coach")).toBe(false);
   });
 
@@ -449,8 +460,8 @@ describe("schema.ts", () => {
     expect(Object.keys(db).sort()).toEqual([...TABLE_NAMES].sort());
     expect(db.cases).toEqual([]);
   });
-  it("contracts.config tar emot båda avtalens konfiguration", () => {
-    const c: Pick<Contract, "config">[] = [{ config: BOTKYRKA_CONFIG }, { config: KK_CONFIG }];
-    expect(c.map((x) => x.config.casePrefix)).toEqual(["BOT", "KK"]);
+  it("contracts.config tar emot ett driftklart avtal och ett avtal i utkast", () => {
+    const c: Pick<Contract, "config">[] = [{ config: BOTKYRKA_CONFIG }, { config: DRAFT }];
+    expect(c.map((x) => x.config.casePrefix)).toEqual(["BOT", "NYK"]);
   });
 });

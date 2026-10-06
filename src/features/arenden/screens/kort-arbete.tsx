@@ -86,7 +86,7 @@ export function TabHandelser({ card }: TabProps) {
             <Card flush title={team ? `Arbetsgivarkontakter och händelser (${shown.length})` : `Händelser (${shown.length})`} icon="award">
               {team && (
                 <div className="px-[18px] pt-4">
-                  <p className="text-small text-text-muted">
+                  <p className="text-text-muted">
                     Arbetsgivarkontakter i godkända avstämningar: <b>{e.checkInContacts}</b>. Coachens anteckningar visas inte.
                   </p>
                 </div>
@@ -151,7 +151,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
       body: (
         <>
           <p>{dv.description}</p>
-          <p className="text-small text-text-muted">Avvikelsen finns kvar i historiken och i rapporterna.</p>
+          <p className="text-text-muted">Avvikelsen finns kvar i historiken och i rapporterna.</p>
         </>
       ),
     });
@@ -269,7 +269,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
           </Stack>
         </Card>
       ))}
-      {card.readOnly && devs.length > 0 && <p className="text-small text-text-muted">Läsläge – avvikelser hanteras av coach och samordnare.</p>}
+      {card.readOnly && devs.length > 0 && <p className="text-text-muted">Läsläge – avvikelser hanteras av coach och samordnare.</p>}
       {call && (
         <CallModal
           card={card}
@@ -561,7 +561,8 @@ export function TabPraktik({ card }: TabProps) {
                     {FOUR.map(([key, label, help]) => {
                       const ok = !!pl.fourRights[key];
                       return (
-                        <div key={key} className={cn("flex min-w-0 items-start gap-2.5 rounded-mb border-[1.5px] border-ljusgra px-3 py-2.5", !ok && "border-2 border-rod")}>
+                        // Kortet är redan rött när något saknas – rutan får tjockare antracit ram och röd ikon, inte en röd ram i den röda rutan.
+                        <div key={key} className={cn("flex min-w-0 items-start gap-2.5 rounded-mb border-[1.5px] border-ljusgra px-3 py-2.5", !ok && "border-2 border-antracit")}>
                           <Icon name={ok ? "check-circle" : "x-circle"} className={ok ? undefined : "text-rod"} />
                           <div>
                             <div className="font-bold">
@@ -579,13 +580,13 @@ export function TabPraktik({ card }: TabProps) {
           })}
           <Card title="Arbetsgivarkontakter" icon="users" flush>
             <div className="px-[18px] pt-4 pb-1">
-              <p className="text-small">
+              <p>
                 I godkända veckoavstämningar: <b>{p.checkInContacts}</b> kontakter. Registrerade händelser: <b>{p.contacts.length}</b>.
               </p>
             </div>
             {p.contacts.length === 0 ? (
               <div className="px-[18px] py-4">
-                <p className="text-small text-text-muted">Inga registrerade arbetsgivarkontakter ännu.</p>
+                <p className="text-text-muted">Inga registrerade arbetsgivarkontakter ännu.</p>
               </div>
             ) : (
               <List>

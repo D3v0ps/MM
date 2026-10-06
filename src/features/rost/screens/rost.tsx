@@ -150,11 +150,11 @@ function Rost({ link, token }: { link: RostLinkView; token: string | undefined }
             Samtyckestext {link.consentVersion}
           </span>
         </section>
-        <p className="flex items-start gap-2 text-small">
-          <Icon name="shield" className="mt-0.5 flex-none" />
+        <p className="flex items-start gap-2 text-body">
+          <Icon name="shield" className="mt-1 flex-none" />
           {t.tip}
         </p>
-        {!consent && <p className="text-small font-bold">{t.consentNeeded}</p>}
+        {!consent && <p className="text-body font-bold">{t.consentNeeded}</p>}
         <Recorder
           idPrefix="rost-rec"
           size="lg"

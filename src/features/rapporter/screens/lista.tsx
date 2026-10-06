@@ -10,7 +10,7 @@ import { Link } from "@/shell/nav";
 import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  Badge, Button, Card, DemoNote, ErrorNotice, Field, Grid, Icon, Input, Kpi, List, ListItem, Loading, Page, PerspectiveLink, Select, SlaBadge, Stack, Stepper, Table,
+  Button, Card, DemoNote, ErrorNotice, Field, Grid, Icon, Input, Kpi, List, ListItem, Loading, Page, PerspectiveLink, Select, SlaBadge, Stack, Stepper, Table,
   type Column,
 } from "@/ui";
 import { reportList, type ReportList, type ReportListRow } from "../api";
@@ -173,13 +173,9 @@ function ListView({ data, query }: { data: ReportList; query: URLSearchParams })
       key: "status", label: "Status",
       render: (x) => (
         <div className="flex min-w-[170px] flex-col items-start gap-1">
+          {/* Försenad syns i kolumnen Förfaller ("Försenad n dagar") och med radens röda kant – inget andra märke här. */}
           <div className="flex flex-wrap items-center gap-2">
             <ReportStatusBadge eff={x.eff} label={x.statusLabel} />
-            {x.overdue && (
-              <Badge tone="red" icon="alert">
-                Försenad
-              </Badge>
-            )}
           </div>
           <span className="text-small text-text-muted">{x.next.label}</span>
         </div>
@@ -200,7 +196,7 @@ function ListView({ data, query }: { data: ReportList; query: URLSearchParams })
       }
       actions={<PerspectiveLink role="kommun_handlaggare" to="/portal/rapporter" label="Se kommunens rapportsida" />}
     >
-      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,165px),1fr))" }}>
+      <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(min(100%,165px),1fr))" }}>
         <Tile label="Försenade" value={counts.overdue} alert={counts.overdue > 0} active={quick === "overdue"} onClick={() => toggleQuick("overdue")}
           sub={counts.overdue > 0 ? "Förfallotiden har passerat. Vitesrisk." : "Inga försenade rapporter."} />
         <Tile label="Förfaller denna vecka" value={counts.week} active={quick === "week"} onClick={() => toggleQuick("week")}

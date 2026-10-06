@@ -115,6 +115,11 @@ test("2. körningen januari: regler och rätta stoppad faktura i radens detalj",
   if (isDemo(info)) expect(t).toContain("prislistans spann (1 323–1 668 kr per vecka)");
   else expect(t).not.toContain("prislistans spann");
   expect(await kpiOverflow(page)).toBe(0);
+  // Fakturatabellen (16 px) får plats utan sidledsrullning vid 1280 px.
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForTimeout(120);
+  expect(await invoices(page).evaluate((t) => t.parentElement!.scrollWidth - t.parentElement!.clientWidth)).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
 
   await page.getByRole("tab", { name: /Stoppade/ }).click();
   await expect(invoices(page).locator("tbody tr")).toHaveCount(2);

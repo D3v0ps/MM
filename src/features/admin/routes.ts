@@ -6,13 +6,9 @@ import { IntegrationerScreen } from "./screens/integrationer";
 import { LoggScreen } from "./screens/logg";
 import { MallarScreen } from "./screens/mallar";
 
-/** Titeln på avtalssidan beror på fliken (prototypens titel för admin.avtal). */
-const avtalTitle = (_p: Record<string, string>, q: URLSearchParams): string => {
-  const flik = q.get("flik");
-  if (flik === "jamfor" || flik === "jamforelse") return "Jämför avtalen";
-  if (flik === "interna") return "Interna regler (Miljonbemanning)";
-  return "Avtal och konfiguration";
-};
+/** Titeln på avtalssidan beror på fliken (prototypens titel för admin.avtal). Sidan ligger inte i menyn (beslut 2026-10-06). */
+const avtalTitle = (_p: Record<string, string>, q: URLSearchParams): string =>
+  q.get("flik") === "interna" ? "Interna regler (Miljonbemanning)" : "Avtal och konfiguration";
 
 export const routes: RouteDef[] = [
   { path: "/admin/avtal", title: avtalTitle, roles: ["admin"], area: "mb", screen: AvtalScreen },

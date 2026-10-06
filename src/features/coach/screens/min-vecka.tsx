@@ -1,24 +1,23 @@
 "use client";
 // Min vecka (/min-vecka) – coachens startsida: närvaro att registrera, dagens aktiviteter, AI-utkast, månadsbedömningar,
 // meddelanden, påminnelser, flaggor, notiser, rapporter som förfaller och veckokalendern. Port av prototypens coach.minvecka.
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekKey, holidayName, isoWeek, monthName, MONTHS, relative, WEEKDAYS } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link, useNav } from "@/shell/nav";
-import { useSession } from "@/shell/session";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, CaseLink, cn, DemoNote, Empty, Field, focusSection, Grid, Icon, Input, Kpi, List, ListItem, Meter, Notice, Page, Row, SlaBadge, Split,
-  Stack, toast, focusSoon, type IconName, type SlaView,
+  AiTag, Badge, BuildPhase, Button, Card, CaseLink, CaseName, CaseNo, cn, DemoNote, DoneLine, Empty, Field, focusSection, Icon, Input, Kpi, List, ListItem, Meter, Notice, Row, SlaBadge,
+  SlaText, Split, Stack, toast, focusSoon, WEEK_KPI_SM, WeekKpis, WeekPage, type IconName,
 } from "@/ui";
 import { alertAck } from "@/features/ledning/api";
 import { notifRead } from "@/features/notiser/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
 import { VoiceNotesInbox } from "@/features/rost/screens/coach-parts";
-import { ATT, AttBadge, cap, dayLabel, kindOf, lc, PageState, Persp } from "./shared";
+import { ATT, AttBadge, dayLabel, kindOf, lc, PageState, Persp } from "./shared";
 
-/** KPI:erna på smal skärm (prototypens co-kpis): mindre utfyllnad och siffror så att "4 av 15" får plats. */
-const KPI_SM = "max-[620px]:p-3 max-[620px]:[&>div:nth-child(2)]:text-[1.625rem]";
+/** KPI:erna på smal skärm (prototypens co-kpis) – delas med de andra rollernas Min vecka (src/ui/vecka.tsx). */
+const KPI_SM = WEEK_KPI_SM;
 const MONTHLY_STATUS: [string, string][] = [["draft", "Väntar på din bedömning"], ["reviewed", "Granskade, ska godkännas"], ["approved", "Godkända, ska levereras"]];
 
 export function MinVeckaScreen() {
@@ -28,7 +27,6 @@ export function MinVeckaScreen() {
 }
 
 function MinVecka({ v }: { v: MinVeckaView }) {
-  const { user } = useSession();
   const nav = useNav();
   const read = useCommand(notifRead);
   const [showAllMa, setShowAllMa] = useState(false);
@@ -80,17 +78,15 @@ function MinVecka({ v }: { v: MinVeckaView }) {
     );
 
   return (
-    <Page
-      title="Min vecka"
-      eyebrow={user.name ? `${user.name} · ${user.title}` : undefined}
-      lead={`${cap(fmtWeekday(today))} · vecka ${isoWeek(today).week}. Det här behöver du göra i dag och under veckan – det mest brådskande överst.`}
+    <WeekPage
+      today={today}
       actions={
         <Button kind="primary" icon="check-square" to={`/narvaro?vecka=${unreg ? "forra" : "denna"}`}>
           Registrera närvaro
         </Button>
       }
     >
-      <Grid cols={4} className="max-[620px]:grid-cols-2 max-[620px]:gap-2.5">
+      <WeekKpis>
         <Kpi
           className={KPI_SM}
           onClick={() => focusSection("mv-narvaro")}
@@ -124,7 +120,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           value={`${v.monthly.done} av ${v.monthly.total}`}
           sub={`klara · förslag senast ${fmtDateShort(v.monthly.dueAt)}`}
         />
-      </Grid>
+      </WeekKpis>
 
       {v.messages.length > 0 && messagesCard}
 
@@ -466,50 +462,11 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         Kalendern visar aktiviteterna i dina aktiva ärenden. I den riktiga tjänsten kan den synkas med Outlook. Påminnelser om progression är interna regler för
         Miljonbemanning och går bara till dig.
       </DemoNote>
-    </Page>
+    </WeekPage>
   );
 }
 
-/** Ärendenumret efter namnet (liten, dämpad, bryts inte). */
-function CaseNo({ n }: { n: string }) {
-  return <span className="text-small font-normal whitespace-nowrap text-text-muted tabular-nums tracking-[0.01em]">{n}</span>;
-}
-
-/** Namnet och ärendenumret som länk till deltagarkortet. */
-function CaseName({ caseId, name, caseNumber }: { caseId: string; name: string; caseNumber: string }) {
-  return (
-    <CaseLink caseId={caseId} caseNumber={caseNumber} className="-ml-1.5 gap-1.5 [&_span]:no-underline">
-      {name} <CaseNo n={caseNumber} />
-    </CaseLink>
-  );
-}
-
-/** Ett avsnitt utan något att göra: en rad i stället för ett helt kort (rubriken finns kvar och kan ta emot fokus). */
-function DoneLine({ id, title, icon, children }: { id?: string; title: string; icon: IconName; children: ReactNode }) {
-  return (
-    <section id={id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-ljusgra bg-vit px-[18px] py-3">
-      <h2 id={id ? `${id}-rubrik` : undefined} tabIndex={-1} className="flex items-center gap-2 text-label font-extrabold tracking-[0.1em] uppercase">
-        <Icon name={icon} />
-        {title}
-      </h2>
-      <span className="inline-flex min-w-0 items-start gap-1.5 text-small text-text-muted">
-        <Icon name="check-circle" className="mt-0.5 flex-none" />
-        <span>{children}</span>
-      </span>
-    </section>
-  );
-}
-
-/** Förfallotiden som text (ser inte ut som en knapp): "Senast måndag 10.00 · 48 min kvar". */
-function SlaText({ sla, dueAt, dueText }: { sla: SlaView; dueAt: string; dueText: string }) {
-  const late = sla.tone === "over";
-  return (
-    <span title={`Förfaller ${fmtDateTimeLong(dueAt)}`} className="inline-flex items-center gap-1.5 text-small font-bold">
-      <Icon name={late ? "alert" : "clock"} className={sla.tone === "urgent" || late ? "text-rod" : undefined} />
-      Senast {dueText} · {sla.label.toLowerCase()}
-    </span>
-  );
-}
+// Hjälpdelarna (CaseNo, CaseName, DoneLine, SlaText) ligger i Min veckas kit, src/ui/vecka.tsx.
 
 // ---------------------------------------------------------------- Egna flaggor
 const flagDomId = (key: string) => `flagga-${key.replace(/[^a-z0-9]/gi, "-")}`;

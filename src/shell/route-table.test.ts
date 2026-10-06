@@ -2,11 +2,13 @@
 // sidorna (ingen inloggning) är exakt de som proxyn och servern släpper igenom (isPublicPagePath).
 import { describe, expect, it } from "vitest";
 import { registeredKeys } from "@/api/handlers";
+import { SUPPLIER_ROLES } from "@/api/roles";
 import { routes as coachRoutes } from "@/features/coach/routes";
 import { isPublicPagePath } from "@/server/session-policy";
 import { notFoundMatch } from "./app";
+import { COMMON_NAV, navFor, NOTIFICATIONS_ITEM } from "./nav-config";
 import { APP_ROUTES } from "./route-table";
-import { resolveRoute } from "./routes";
+import { resolveRoute, START_PATH } from "./routes";
 
 /** Exempelsökväg för ett mönster: "/rost/:token?" -> "/rost/abc12345". */
 const sample = (pattern: string) => pattern.replace(/:[A-Za-z]+\??/g, "abc12345");
@@ -49,6 +51,52 @@ describe("rutt-tabellen", () => {
     const keys = registeredKeys();
     for (const k of ["rost.link", "rost.send", "rost.sendStatus", "rost.uploadStart", "rost.caseVoice", "rost.linkSend", "rost.noteReview", "rost.notesSeen", "rost.pendingNotes"]) {
       expect(keys, k).toContain(k);
+    }
+  });
+});
+
+describe("Min vecka och menyn (beslut 2026-10-06)", () => {
+  const now = "2027-02-01T09:12";
+
+  it("/min-vecka finns för alla MB-roller och är startsidan för dem", () => {
+    const m = resolveRoute(APP_ROUTES, "/min-vecka");
+    expect(m?.route).toMatchObject({ path: "/min-vecka", title: "Min vecka", area: "mb" });
+    expect([...(m?.route.roles ?? [])].sort()).toEqual([...SUPPLIER_ROLES].sort());
+    expect(APP_ROUTES.filter((r) => r.path === "/min-vecka")).toHaveLength(1);
+    for (const role of SUPPLIER_ROLES) expect(START_PATH[role], role).toBe("/min-vecka");
+  });
+
+  it("/start leder vidare till Min vecka – samma roller som förut", () => {
+    const m = resolveRoute(APP_ROUTES, "/start");
+    expect(m?.route).toMatchObject({ path: "/start", title: "Min vecka", roles: ["samordnare", "avtalsansvarig"], area: "mb" });
+  });
+
+  it("de gamla startsidorna finns kvar", () => {
+    for (const [to, role] of [["/handledare", "handledare"], ["/ledning", "chef"], ["/ekonomi", "ekonom"], ["/admin/anvandare", "admin"]] as const) {
+      expect(resolveRoute(APP_ROUTES, to)?.route.roles, to).toContain(role);
+    }
+  });
+
+  it("menyn visar aldrig något som rollen inte når: varje menyval finns i rollens rutter", () => {
+    for (const role of SUPPLIER_ROLES) {
+      const items = [NOTIFICATIONS_ITEM, ...navFor(role, { now }).flatMap((g) => g.items)];
+      for (const it of items) {
+        const m = resolveRoute(APP_ROUTES, it.to);
+        expect(m, `${role}: ${it.to} saknar rutt`).not.toBeNull();
+        expect(m?.route.roles, `${role}: ${it.to}`).toContain(role);
+      }
+    }
+  });
+
+  it("den gemensamma gruppen: ett val visas för exakt de roller som når sidan", () => {
+    for (const c of COMMON_NAV) {
+      for (const role of SUPPLIER_ROLES) {
+        const it = c.item(role);
+        const reaches = !!resolveRoute(APP_ROUTES, it.to)?.route.roles.includes(role);
+        expect(c.roles.includes(role), `${it.to} för ${role}`).toBe(reaches);
+        const shown = navFor(role, { now })[0].items.some((x) => x.to === it.to);
+        expect(shown, `${it.to} i menyn för ${role}`).toBe(reaches);
+      }
     }
   });
 });

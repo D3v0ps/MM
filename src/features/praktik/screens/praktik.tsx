@@ -275,7 +275,7 @@ function DetailContent({ d }: { d: Found }) {
           onValueChange={(v) => { setShow(v); setLimit(6); }}
           options={[{ value: "ongoing", label: `Pågående (${d.ongoingCount})` }, { value: "done", label: `Avslutade (${d.doneCount})` }]}
         />
-        <span className="text-small text-text-muted">Ofullständiga fyra rätt visas först.</span>
+        <span className="text-text-muted">Ofullständiga fyra rätt visas först.</span>
       </Row>
       {count === 0 && (
         <Card>
@@ -302,7 +302,7 @@ function DetailContent({ d }: { d: Found }) {
       )}
       {group.others.length > 0 && (
         <Section title={`Praktikplatser i andra team (${group.others.length})`}>
-          <Card flush foot={<span className="text-small text-text-muted">Deltagarnas namn och ärendenummer visas bara för teamet i ärendet.</span>}>
+          <Card flush foot={<span className="text-text-muted">Deltagarnas namn och ärendenummer visas bara för teamet i ärendet.</span>}>
             <Table
               caption="Praktikplatser i andra team"
               rows={group.others}
@@ -392,8 +392,8 @@ function PlacementCard({ pl, today }: { pl: PlacementCardView; today: string }) 
             )}
           </Row>
           {pl.status === "ongoing" && upcoming.length === 0 && (
-            <p className="inline-flex items-start gap-1.5 text-small font-bold">
-              <Icon name="alert-circle" className="mt-0.5 text-rod" /> Ingen kommande uppföljning är planerad.
+            <p className="inline-flex items-start gap-1.5 font-bold">
+              <Icon name="alert-circle" className="mt-1 text-rod" /> Ingen kommande uppföljning är planerad.
             </p>
           )}
           {pl.canEdit && pl.status === "ongoing" && (

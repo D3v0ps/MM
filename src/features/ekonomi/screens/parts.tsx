@@ -16,7 +16,7 @@ export const WRAP = "[&_button:not([role=tab])]:whitespace-normal";
 
 // ---------------------------------------------------------------- KPI-rutor (värdet krymper så att det ryms, som prototypens .eko-kpis)
 export function EkoKpis({ children }: { children: ReactNode }) {
-  return <div className="eko-kpis grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-3">{children}</div>;
+  return <div className="eko-kpis grid grid-cols-[repeat(auto-fit,minmax(min(100%,150px),1fr))] gap-4">{children}</div>;
 }
 export function EkoKpi(props: Parameters<typeof Kpi>[0]) {
   return (
@@ -33,16 +33,21 @@ export function EkoKpi(props: Parameters<typeof Kpi>[0]) {
 }
 
 // ---------------------------------------------------------------- Fakturastatus
-const STATUS: Record<string, { tone: BadgeTone; icon: IconName }> = {
+/**
+ * Stopp och retur: konturmärke med röd ikon (Min veckas stil, beslut 2026-10-06) – inte röd ram, så att det enda röda på
+ * sidan är det som brådskar (preskriptionsrisken). Status visas fortfarande med text + ikon.
+ */
+const RED_ICON = "[&_svg]:text-rod";
+const STATUS: Record<string, { tone: BadgeTone; icon: IconName; red?: boolean }> = {
   draft: { tone: "grey", icon: "file" },
   approved: { tone: "outline", icon: "check" },
   fortnox_created: { tone: "bluetone", icon: "upload" },
   booked: { tone: "bluetone", icon: "book" },
   sent: { tone: "bluetone", icon: "send" },
   paid: { tone: "blue", icon: "check-circle" },
-  returned: { tone: "red", icon: "reply" },
+  returned: { tone: "outline", icon: "reply", red: true },
   manual: { tone: "dark", icon: "edit" },
-  blocked: { tone: "red", icon: "x-circle" },
+  blocked: { tone: "outline", icon: "x-circle", red: true },
 };
 export const STATUS_ONE: Record<string, string> = {
   draft: "underlag", approved: "godkänd", fortnox_created: "skapad i Fortnox", booked: "bokförd", sent: "skickad", paid: "betald", returned: "returnerad",
@@ -55,15 +60,15 @@ export const STATUS_PLURAL: Record<string, string> = {
 export function InvStatus({ status }: { status: string }) {
   const m = STATUS[status] ?? STATUS.draft;
   return (
-    <Badge tone={m.tone} icon={m.icon}>
+    <Badge tone={m.tone} icon={m.icon} className={m.red ? RED_ICON : undefined}>
       {invoiceStatusLabel(status)}
     </Badge>
   );
 }
 
 // ---------------------------------------------------------------- Kontroller
-export const CHECK: Record<string, { tone: BadgeTone; icon: IconName; word: string }> = {
-  blocking: { tone: "red", icon: "x-circle", word: "Stoppar fakturan" },
+export const CHECK: Record<string, { tone: BadgeTone; icon: IconName; word: string; className?: string }> = {
+  blocking: { tone: "outline", icon: "x-circle", word: "Stoppar fakturan", className: RED_ICON },
   needs_approval: { tone: "grey", icon: "clock", word: "Kräver godkännande" },
   approved: { tone: "bluetone", icon: "check", word: "Godkänd" },
   warning: { tone: "outline", icon: "alert-circle", word: "Kontrollera" },
@@ -87,7 +92,13 @@ export function CheckIcons({ checks, column }: { checks: readonly InvoiceCheckVi
   return (
     <div className={cn("inline-flex flex-wrap items-center gap-x-1.5 gap-y-1", column && "flex-col items-start")}>
       {main.map((c, i) => (
-        <Badge key={`${c.kind}-${i}`} tone={CHECK[c.severity].tone} icon={CHECK[c.severity].icon} title={`${c.label}. ${c.text}`}>
+        <Badge
+          key={`${c.kind}-${i}`}
+          tone={CHECK[c.severity].tone}
+          icon={CHECK[c.severity].icon}
+          className={CHECK[c.severity].className}
+          title={`${c.label}. ${c.text}`}
+        >
           {c.severity === "approved" ? "Vecka godkänd" : (SHORT[c.kind] ?? c.label)}
         </Badge>
       ))}
@@ -115,7 +126,7 @@ export function RefCell({ value, info: r }: { value: string | null; info: RefInf
 }
 export function RefBadge({ value, info: r }: { value: string | null; info: RefInfo }) {
   return (
-    <Badge tone={r.ok ? "bluetone" : "red"} icon={r.ok ? "check" : "x-circle"}>
+    <Badge tone={r.ok ? "bluetone" : "outline"} icon={r.ok ? "check" : "x-circle"} className={r.ok ? undefined : RED_ICON}>
       {value || "Saknas"} · {r.label}
     </Badge>
   );

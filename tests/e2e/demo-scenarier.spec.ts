@@ -96,7 +96,7 @@ test("scenario 11 och 13: deltagaren, ledningen och avtalet som konfiguration", 
   await expect(bar(page)).toContainText("Scenario 13: Avtalet är konfiguration · steg 1 av 3");
   await expectAt(page, "/admin/avtal", "admin", "Leverantör");
   await next(page);
-  await expectAt(page, "/admin/avtal?avtal=c-kk&flik=jamfor", "admin", "Leverantör");
+  await expectAt(page, "/admin/avtal?flik=priser", "admin", "Leverantör");
   await next(page);
   await expectAt(page, "/om/fragor", "admin", "Leverantör");
   await expect(page.getByRole("heading", { level: 1, name: "Öppna frågor" })).toBeVisible();
@@ -132,7 +132,7 @@ test("perspektiv, roll och återställning i prototypfältet", async ({ page }, 
   await page.getByLabel("Roll", { exact: true }).selectOption("kommun_chef");
   await expectAt(page, "/portal/bestallarrapport", "kommun_chef", "Kund");
   await page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Leverantör" }).click();
-  await expectAt(page, "/start", "samordnare", "Leverantör");
+  await expectAt(page, "/min-vecka", "samordnare", "Leverantör");
   await page.getByLabel("Roll", { exact: true }).selectOption("coach");
   await expectAt(page, "/min-vecka", "coach", "Leverantör");
 
@@ -292,9 +292,13 @@ test("delad feedback i claude.ai: samma samlingar och fält som den gamla protot
 // ---------------------------------------------------------------- 400 px: prototypfältet ger ingen sidledsscroll
 test("400 px: ingen sidledsscroll med prototypfältet – varje roll, portalen och sidan utan behörighet", async ({ page }, info) => {
   const pages: [string, string, string][] = [
-    ["u-sara", "samordnare", "/start"],
+    ["u-sara", "samordnare", "/min-vecka"],
     ["u-amira", "coach", "/min-vecka"],
+    ["u-petra", "handledare", "/min-vecka"],
+    ["u-karin", "chef", "/min-vecka"],
     ["u-karin", "chef", "/ledning"],
+    ["u-lars", "ekonom", "/min-vecka"],
+    ["u-robin", "admin", "/min-vecka"],
     ["u-robin", "admin", "/admin/avtal"],
     ["k-maria", "kommun_handlaggare", "/portal"],
     ["k-maria", "kommun_handlaggare", "/portal/deltagare/case-260143?flik=meddelanden"],

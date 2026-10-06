@@ -31,7 +31,7 @@ describe("e-postadresser", () => {
     expect(domainAllowed("maria.ekdahl@sub.botkyrka.se", botkyrka, staff)).toBe(false);
     expect(domainAllowed("sara.lindqvist@miljonbemanning.se", mb, staff)).toBe(true);
     expect(domainAllowed("sara.lindqvist@botkyrka.se", mb, staff)).toBe(false);
-    expect(domainAllowed("x@kammarkollegiet.se", { kind: "customer", emailDomains: [] }, staff)).toBe(false);
+    expect(domainAllowed("x@exempel.se", { kind: "customer", emailDomains: [] }, staff)).toBe(false);
     expect(domainAllowed("x@botkyrka.se", null, staff)).toBe(false);
   });
 

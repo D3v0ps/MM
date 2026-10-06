@@ -59,7 +59,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                     </div>
                   </Stack>
                 ) : (
-                  <p className="text-small text-text-muted">{o.closed ? "Insatsen är avslutad." : "Inget möte bokat."}</p>
+                  <p className="text-text-muted">{o.closed ? "Insatsen är avslutad." : "Inget möte bokat."}</p>
                 )}
               </Card>
               {!team && (
@@ -80,7 +80,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                       {lc.note && <div className="text-small">{clip(lc.note, 140)}</div>}
                     </Stack>
                   ) : (
-                    <p className="text-small text-text-muted">Ingen godkänd avstämning ännu.</p>
+                    <p className="text-text-muted">Ingen godkänd avstämning ännu.</p>
                   )}
                   {o.drafts.count > 0 && (
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -101,7 +101,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                     </div>
                   </Stack>
                 ) : (
-                  <p className="text-small text-text-muted">{ast.unregistered > 0 ? `${ast.unregistered} tillfällen saknar registrering.` : "Inga tillfällen under perioden."}</p>
+                  <p className="text-text-muted">{ast.unregistered > 0 ? `${ast.unregistered} tillfällen saknar registrering.` : "Inga tillfällen under perioden."}</p>
                 )}
                 <div className="mt-2">
                   <Button kind="ghost" iconRight="arrow-right" className="whitespace-normal" onClick={() => setTab("narvaro")}>
@@ -115,7 +115,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 <Card title="Flaggor för ärendet" icon="flag" flush>
                   {alerts.length === 0 ? (
                     <div className="px-[18px] py-4">
-                      <p className="text-small text-text-muted">Inga flaggor för din roll just nu.</p>
+                      <p className="text-text-muted">Inga flaggor för din roll just nu.</p>
                     </div>
                   ) : (
                     <List>
@@ -226,7 +226,7 @@ export function TabKartlaggning({ card }: TabProps) {
                 ]}
               />
             </Card>
-            <p className="text-small text-text-muted">Behov av anpassning beskrivs funktionellt – vad som behövs i vardagen – aldrig som diagnos.</p>
+            <p className="text-text-muted">Behov av anpassning beskrivs funktionellt – vad som behövs i vardagen – aldrig som diagnos.</p>
           </Stack>
         );
       }}
@@ -376,7 +376,7 @@ export function TabNarvaro({ card, setTab }: TabProps) {
               />
             </KpiRow>
             {total.reasons.length > 0 && (
-              <p className="text-small">
+              <p>
                 <span className="font-bold">Skäl till giltig frånvaro:</span> {total.reasons.map(([r, n]) => `${r} (${n})`).join(" · ")}
               </p>
             )}

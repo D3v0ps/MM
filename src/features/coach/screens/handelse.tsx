@@ -182,11 +182,11 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
             {v.bonusOn ? "Aktiv" : "Avstängd – modellen ej fastställd"}
           </Badge>
         </Row>
-        <p className="text-small">
+        <p className="text-body">
           Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag. Underlaget samlas in redan nu, men inget bonusanspråk skapas förrän incitamentsmodellen är
           beslutad.
         </p>
-        <p className="text-small text-text-muted">{nBonus === 1 ? "1 händelse i ärendet är markerad" : `${nBonus} händelser i ärendet är markerade`} som möjligt bonusunderlag.</p>
+        <p className="text-body text-text-muted">{nBonus === 1 ? "1 händelse i ärendet är markerad" : `${nBonus} händelser i ärendet är markerade`} som möjligt bonusunderlag.</p>
       </Stack>
     </Card>
   );
@@ -303,8 +303,8 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                   <p>
                     Skickad {fmtDateTime(pulse.sentAt)} via {pulse.channel === "email" ? "e-post" : "SMS"}. Länken gäller till {fmtDate(pulse.expiresAt)}.
                   </p>
-                  <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
-                    <Icon name="message" className="mt-px" />
+                  <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-body text-text-muted">
+                    <Icon name="message" className="mt-1 flex-none" />
                     <div>
                       <b className="text-antracit">Utskicket (utan personuppgifter):</b> Hej! Din tid hos Miljonbemanning är avslutad. Svara gärna på fem korta frågor:
                       portal.miljonbemanning.se/p/••••• Det är frivilligt.
@@ -359,7 +359,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                       {ev.file}
                     </Badge>
                   )}
-                  <span className="text-small text-text-muted">{demo ? "Simulerad – ingen fil laddas upp i prototypen." : "Uppladdning av filer kommer senare. Här sparas att underlaget finns."}</span>
+                  <span className="text-body text-text-muted">{demo ? "Simulerad – ingen fil laddas upp i prototypen." : "Uppladdning av filer kommer senare. Här sparas att underlaget finns."}</span>
                 </Row>
               )}
               <Field label="Kommentar" id="ev-note" help="Kort och saklig. Till exempel omfattning eller startdatum.">
@@ -436,7 +436,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               ) : (
                 <p className="text-text-muted">Välj avslutsorsak för att se hur avslutet räknas.</p>
               )}
-              <p className="mt-2.5 text-small text-text-muted"><ProtoText>{v.result.definitionText}</ProtoText></p>
+              <p className="mt-2.5 text-body text-text-muted"><ProtoText>{v.result.definitionText}</ProtoText></p>
             </Card>
             <Card title="Det här händer vid avslut" icon="info">
               <ul className="m-0 flex list-disc flex-col gap-2 pl-5">

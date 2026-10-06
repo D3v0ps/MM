@@ -1,6 +1,7 @@
 // Visning av data: KPI, mätare, nyckel–värde, tidslinje, stegvisare, avatar och diagramyta.
 import { Fragment, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { initials } from "@/core/format";
+import { Link } from "@/shell/nav";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
 
@@ -17,7 +18,9 @@ export function Kpi({
   children,
   className,
   onClick,
+  to,
   actionHint,
+  dataAttrs,
 }: {
   label: ReactNode;
   value: ReactNode;
@@ -26,40 +29,64 @@ export function Kpi({
   statusText?: ReactNode;
   children?: ReactNode;
   className?: string;
-  /** Rutan blir en knapp (t.ex. "gå till avsnittet"). */
+  /** Rutan blir en knapp (t.ex. "gå till avsnittet" på samma sida – focusSection). */
   onClick?: () => void;
+  /**
+   * Rutan leder till en annan sida: en riktig länk (samma utseende som knappen), så att ctrl/cmd-klick, mittenklick och
+   * länkmenyn öppnar sidan i en ny flik. Används i stället för onClick med nav.push.
+   */
+  to?: string;
   /** Text längst ned i en klickbar ruta, t.ex. "Visa". */
   actionHint?: ReactNode;
+  /** data-*-attribut på rutan (t.ex. data-inkorg-tile och data-tone, som e2e läser). Ingen synlig skillnad. */
+  dataAttrs?: { [k: `data-${string}`]: string | undefined };
 }) {
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag
-      {...(onClick ? { type: "button" as const, onClick } : {})}
-      className={cn(
-        "flex min-w-0 flex-col gap-1.5 rounded-card border border-ljusgra bg-vit px-[18px] py-4",
-        onClick && "cursor-pointer text-left text-antracit [font-family:inherit] hover:bg-ljusgra-ton",
-        tone === "alert" && "border-2 border-rod",
-        tone === "watch" && "border-2 border-antracit",
-        className,
-      )}
-    >
+  const action = Boolean(onClick || to);
+  const cls = cn(
+    "flex min-w-0 flex-col gap-1.5 rounded-card border border-ljusgra bg-vit px-[18px] py-4",
+    action && "cursor-pointer text-left text-antracit no-underline [font-family:inherit] hover:bg-ljusgra-ton",
+    tone === "alert" && "border-2 border-rod",
+    tone === "watch" && "border-2 border-antracit",
+    className,
+  );
+  const body = (
+    <>
       <div className="text-label font-extrabold tracking-[0.08em] text-text-muted uppercase portal:text-body">{label}</div>
       <div className="text-[2rem] leading-[1.1] font-extrabold tabular-nums">{value}</div>
       {(tone === "alert" || tone === "watch") && (
-        <div className="inline-flex items-center gap-1.5 text-small font-extrabold portal:text-body [&_svg]:size-4">
+        <div data-tile-state="" className="inline-flex items-center gap-1.5 text-small font-extrabold portal:text-body [&_svg]:size-4">
           <Icon name={tone === "alert" ? "alert" : "eye"} className={tone === "alert" ? "text-rod" : undefined} />
           {statusText ?? (tone === "alert" ? "Kräver åtgärd" : "Bevaka")}
         </div>
       )}
       {sub && <div className="text-small text-text-muted portal:text-portal">{sub}</div>}
       {children}
-      {onClick && actionHint && (
+      {action && actionHint && (
         <span className="mt-auto inline-flex items-center gap-1 pt-1 text-small font-bold underline underline-offset-3">
           {actionHint}
           <Icon name="arrow-right" className="size-3.5" />
         </span>
       )}
-    </Tag>
+    </>
+  );
+  if (to) {
+    return (
+      <Link to={to} {...dataAttrs} className={cls}>
+        {body}
+      </Link>
+    );
+  }
+  if (onClick) {
+    return (
+      <button type="button" {...dataAttrs} onClick={onClick} className={cls}>
+        {body}
+      </button>
+    );
+  }
+  return (
+    <div {...dataAttrs} className={cls}>
+      {body}
+    </div>
   );
 }
 
@@ -190,7 +217,7 @@ export function Stepper({ steps, current, ariaLabel }: { steps: readonly ReactNo
           <li
             key={i}
             aria-current={now ? "step" : undefined}
-            className={cn("flex items-center gap-2 pr-2 font-semibold text-text-muted portal:text-body", now && "font-extrabold text-antracit")}
+            className={cn("flex items-center gap-2 pr-2 font-semibold text-text-muted portal:text-portal", now && "font-extrabold text-antracit")}
           >
             <span
               className={cn(

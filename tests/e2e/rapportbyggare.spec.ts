@@ -78,7 +78,7 @@ async function csvFrom(page: Page, info: TestInfo, click: () => Promise<void>, f
 
 // ================================================================ 1. Bygga, spara och hämta
 test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbemanning och hämtar Excel", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", SARA);
+  const errors = await open(page, info, "/min-vecka", SARA);
   await settle(page);
   const menu = page.getByRole("navigation", { name: "Meny" });
   await expect(menu.getByRole("link", { name: "Bygg rapport" })).toBeVisible();

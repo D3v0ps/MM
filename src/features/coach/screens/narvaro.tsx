@@ -200,21 +200,22 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
                 Planerat
               </Badge>
             ) : (
-              <Badge tone="redfill" icon="alert">
+              // Kontur med ring, som AttBadge: räknarkortet ovanför är sidans enda röda ämne (Min veckas stil, beslut 2026-10-06).
+              <Badge tone="outline" icon="circle">
                 Ej registrerad
               </Badge>
             )}
             {at?.status === "absent_invalid" && a.repeated && (
-              <Badge tone="red" icon="flag">
+              <Badge tone="outline" icon="flag" className="[&_svg]:text-rod">
                 Upprepad ogiltig frånvaro – föreslå åtgärdsplan
               </Badge>
             )}
           </Row>
-          {at?.status === "absent_invalid" && <div className="text-small text-text-muted">{v.sameDayText}</div>}
+          {at?.status === "absent_invalid" && <div className="text-body text-text-muted">{v.sameDayText}</div>}
         </div>
         <div className="col-start-2 flex min-w-0 flex-col gap-2 max-[560px]:col-span-full max-[560px]:col-start-1">
           {future ? (
-            <span className="text-small text-text-muted">Registreras när tillfället har startat.</span>
+            <span className="text-body text-text-muted">Registreras när tillfället har startat.</span>
           ) : (
             <>
               <Seg
@@ -227,7 +228,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
               />
               {isPending && (
                 <div role="group" aria-label="Orsak till giltig frånvaro" className="flex flex-col gap-1.5 rounded-mb border-[1.5px] border-antracit px-3 py-2.5">
-                  <span className="text-small font-bold">Välj orsak (inga andra detaljer):</span>
+                  <span className="text-body font-bold">Välj orsak (inga andra detaljer):</span>
                   <Seg
                     ariaLabel="Orsak"
                     value={at?.status === "absent_valid" ? at.reason : null}
@@ -286,14 +287,14 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
 
       <Card tone={open.length > 0 ? "red" : "blue"}>
         <div data-testid="narvaro-raknare" className="flex flex-wrap items-center gap-x-5 gap-y-3">
-          <span className="text-[2.5rem] leading-none font-extrabold tabular-nums" aria-hidden="true">
+          <span className="text-[2rem] leading-none font-extrabold tabular-nums" aria-hidden="true">
             {open.length}
           </span>
           <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-1">
             <div className="text-[1.125rem] font-bold">
               {open.length === 0 ? `Alla passerade tillfällen vecka ${wk.no} är registrerade` : `${plural(open.length, "tillfälle", "tillfällen")} kvar – senast ${v.dueText}`}
             </div>
-            <div className="text-small text-text-muted">
+            <div className="text-body text-text-muted">
               {passed.length - open.length} av {passed.length} passerade tillfällen registrerade
               {all.length > passed.length ? ` · ${all.length - passed.length} planerade senare i veckan` : ""}. Registrera senast {fmtDateTimeLong(wk.dueAt)}.
             </div>
@@ -328,7 +329,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           options={dayOptions}
         />
         {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
-        <p role="status" aria-live="polite" className="text-small font-bold">
+        <p role="status" aria-live="polite" className="text-body font-bold">
           {bulk ? `${bulk.marked} av ${bulk.total} tillfällen ${dayLabel(bulk.day)} markerade som närvarande. Rätta enskilda med knapparna på raden.` : ""}
         </p>
         {day !== "all" && <Row>{markAllButton(day)}</Row>}
@@ -417,7 +418,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
               ))}
             </Stack>
           )}
-          <p className="mt-2.5 text-small text-text-muted">
+          <p className="mt-2.5 text-body text-text-muted">
             Rapporten har en sektion per deltagare: planerade tillfällen, närvaro, frånvaro med orsak och risk. Handläggaren får ett mejl utan personuppgifter: ”Veckorapporten
             finns i portalen – logga in för att läsa.”
           </p>

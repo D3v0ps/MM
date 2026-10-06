@@ -36,10 +36,8 @@ function ReportRows({ rows, empty }: { rows: SavedReportRow[]; empty: string }) 
             </span>
             <Sharing visibility={r.visibility} />
           </div>
+          {/* Rubriken är länken till rapporten (Min veckas rader) – en knapp bara för åtgärden. */}
           <div className="flex flex-wrap gap-2">
-            <Button to={`/rapportbyggare/${r.id}`} ariaLabel={`Öppna ${r.title}`}>
-              Öppna
-            </Button>
             <Button icon="copy" to={path("/rapportbyggare/ny", { kopia: r.id })} ariaLabel={`Gör en kopia av ${r.title}`}>
               Gör en kopia
             </Button>

@@ -167,7 +167,9 @@ test("Närvaro: handledaren ser bara sina teamärenden", async ({ page }, info) 
   await page.getByRole("button", { name: /^Den här veckan/ }).click();
   await expect(page.getByRole("button", { name: /^Den här veckan/ })).toHaveAttribute("aria-pressed", "true");
   await expect(card(page, "Veckorapporter – vecka 5")).toContainText("Veckorapporten för vecka 5 skapas måndag 8 februari");
-  await expect(page.getByText("Min vecka")).toHaveCount(0); // ingen brödsmula till coachens startsida
+  // Ingen brödsmula till coachens startsida på sidan (Min vecka finns i handledarens egen meny sedan 2026-10-06).
+  await expect(main(page).getByText("Min vecka")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Brödsmulor" })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

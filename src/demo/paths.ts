@@ -28,7 +28,8 @@ type ViewDef = { view: string; pattern: string; to: (p: ViewParams) => string };
 
 /** Ordning: mer specifika mönster före generella (samma regel som rutt-tabellen). */
 const VIEWS: readonly ViewDef[] = [
-  { view: "sam.start", pattern: "/start", to: () => "/start" },
+  // /start leder till Min vecka (beslut 2026-10-06); mönstret finns kvar för feedback som redan lämnats på /start.
+  { view: "sam.start", pattern: "/start", to: () => "/min-vecka" },
   { view: "sam.inkorg", pattern: "/inkorg/:emailId?", to: (p) => path(seg("/inkorg", p.emailId), { arende: str(p.caseId), senaste: p.latest === true ? 1 : null }) },
   { view: "sam.deadlines", pattern: "/forfaller", to: () => "/forfaller" },
   { view: "arenden.lista", pattern: "/arenden", to: (p) => path("/arenden", { filter: str(p.filter) }) },

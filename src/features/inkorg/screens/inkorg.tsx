@@ -8,8 +8,8 @@ import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, DemoNote, Empty, ErrorNotice, Field, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
-  Table, Tabs, TextArea, Timeline, toast, type Column,
+  Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
+  Table, Tabs, TextArea, Timeline, toast, type Column, type IconName,
 } from "@/ui";
 import {
   emailApplySupplement, emailSetStatus, inboxItem, inboxList, type InboxItemDetail, type InboxList, type InboxRow, type OrderBodyView, type OtherBodyView, type ProtectedBodyView, type SupplementBodyView,
@@ -20,6 +20,13 @@ import { AcceptModal, CorrectModal, DeclineModal, PhoneModal } from "./modals";
 import { Caps, IconLine, KommunSwitch, Quote, useIsDemo, WrapBtns } from "./parts";
 
 type Pick_ = (id: string) => void;
+/** Metadata med ikon (14 px, dämpad) – i stället för ett konturmärke. */
+const MetaText = ({ icon, children }: { icon: IconName; children?: ReactNode }) => (
+  <span className="inline-flex items-center gap-1 text-small text-text-muted">
+    <Icon name={icon} className="flex-none" />
+    {children}
+  </span>
+);
 const Pair = ({ even, children }: { even?: boolean; children?: ReactNode }) => (
   <div className={cn("grid grid-cols-1 items-start gap-4", even ? "@min-[720px]:grid-cols-2" : "@min-[720px]:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]")}>{children}</div>
 );
@@ -232,12 +239,13 @@ function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pi
           <span className="min-w-0 truncate font-bold">{it.from}</span>
           <span className="text-small whitespace-nowrap text-text-muted">{it.receivedWhen}</span>
         </span>
-        <span className="text-ui [overflow-wrap:anywhere]">{it.subject}</span>
-        <span className="flex flex-wrap items-center gap-1.5">
+        <span data-inkorg-subject="" className="[overflow-wrap:anywhere]">{it.subject}</span>
+        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
           {it.pending && it.sla ? <SlaBadge sla={it.sla.sla} dueAt={it.sla.dueAt} /> : <Badge tone={stTone} icon={stIcon}>{stLabel}</Badge>}
+          {/* Metod och ärendenummer är metadata (14 px, ikon + text) – bara status/SLA är märke. */}
           {it.cls === "order" || it.cls === "order_protected"
-            ? <Badge tone="outline" icon={m.icon}>{m.label}</Badge>
-            : <Badge tone="outline" icon={CLASS_ICON[it.cls] ?? "mail"}>{CLASSIFICATION[it.cls]}</Badge>}
+            ? <MetaText icon={m.icon}>{m.label}</MetaText>
+            : <MetaText icon={CLASS_ICON[it.cls] ?? "mail"}>{CLASSIFICATION[it.cls]}</MetaText>}
           {it.caseNumber && <span className="text-small font-bold tabular-nums tracking-[0.01em]">{it.caseNumber}</span>}
         </span>
       </span>
@@ -329,7 +337,7 @@ function DetailHead({ it, onAccept, onDecline, onCorrect, onPhone }: { it: Inbox
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge tone={stTone} icon={stIcon}>{stLabel}</Badge>
-          <Badge tone="outline" icon={m.icon}>{m.label}</Badge>
+          <MetaText icon={m.icon}>{m.label}</MetaText>
           {c && <span className="inline-flex flex-wrap items-center gap-1.5 text-small">Ärende <CaseLink caseId={c.id} caseNumber={c.number} /></span>}
           {it.handledText && <span className="text-small text-text-muted">{it.handledText}</span>}
         </div>
@@ -353,8 +361,9 @@ function DetailHead({ it, onAccept, onDecline, onCorrect, onPhone }: { it: Inbox
         {it.decision && it.mine && (
           <div className="flex flex-wrap items-center gap-3">
             <Button kind="primary" icon="check" onClick={onAccept}>Acceptera</Button>
-            <Button kind="danger" icon="x-circle" onClick={onDecline}>Avböj</Button>
             {onCorrect && <Button kind="ghost" icon="edit" onClick={onCorrect}>Rätta uppgifter</Button>}
+            {/* Den riskabla åtgärden sist. */}
+            <Button kind="danger" icon="x-circle" onClick={onDecline}>Avböj</Button>
           </div>
         )}
       </div>
@@ -533,7 +542,7 @@ function OtherBody({ it, b }: { it: InboxItemDetail; b: OtherBodyView }) {
             <div className="flex flex-col gap-2">
               <Notice tone="ok" title={`Svar skickat ${b.lastReply.when} som säkert meddelande`}>Svaret ligger i ärendet i portalen. Svara inte med vanligt mejl när det gäller en deltagare.</Notice>
               <Quote>{b.lastReply.body}</Quote>
-              {b.replyMail && <IconLine icon="mail" className="text-small"><b>Kommunen fick ett mejl utan innehåll:</b> {b.replyMail}</IconLine>}
+              {b.replyMail && <IconLine icon="mail"><b>Kommunen fick ett mejl utan innehåll:</b> {b.replyMail}</IconLine>}
             </div>
           ) : (
             <Field

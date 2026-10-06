@@ -48,6 +48,8 @@ describe("länkar enligt rutt-tabellen (bara id:n i URL:en)", () => {
   it("vyer och parametrar", () => {
     expect(linkHref({ view: "arende.kort", params: { caseId: "case-270003", tab: "narvaro" } })).toBe("/arenden/case-270003?flik=narvaro");
     expect(linkHref({ view: "sam.inkorg", params: { emailId: "em-104" } })).toBe("/inkorg/em-104");
+    // Samordnarens startsida har gått upp i Min vecka (beslut 2026-10-06).
+    expect(linkHref({ view: "sam.start", params: {} })).toBe("/min-vecka");
     expect(linkHref({ view: "sam.inkorg", params: { caseId: "case-270048" } })).toBe("/inkorg?arende=case-270048");
     expect(linkHref({ view: "coach.avstamning", params: { caseId: "case-260130", checkInId: "ci-11916" } })).toBe("/avstamning/case-260130?avstamning=ci-11916");
     expect(linkHref({ view: "coach.narvaro", params: { week: "last" } })).toBe("/narvaro?vecka=forra");
@@ -81,7 +83,7 @@ describe("uppslagsindex", () => {
 describe("avgränsning till ett avtal", () => {
   it("tar bara med avtalets ärenden och deras rader", () => {
     const db = testDb({
-      cases: [mkCase({ id: "c1" }), mkCase({ id: "k1", contractId: "c-kk" })],
+      cases: [mkCase({ id: "c1" }), mkCase({ id: "k1", contractId: "c-ny" })],
       activities: [mkActivity({ id: "a1", caseId: "c1", startsAt: "2027-01-25T10:00" }), mkActivity({ id: "a2", caseId: "k1", startsAt: "2027-01-25T10:00" })],
     });
     const s = scopeToContract(db, "c-bot");

@@ -238,16 +238,18 @@ describe("samtidiga närvarokommandon", () => {
 describe("'Markera alla' i två avtal", () => {
   it("en loggrad per avtal, med avtalets egna tillfällen och ärenden", async () => {
     const d = structuredClone(SEED);
-    // Amal (c-bot) flyttas till Kammarkollegiets avtal, och Amira blir medlem där.
-    d.cases.find((c) => c.id === AMAL)!.contractId = "c-kk";
-    d.memberships.push({ id: "ms-x-amira-kk", userId: "u-amira", contractId: "c-kk", role: "coach", customerUnit: null });
+    // Ett andra kommunavtal (påhittat, samma konfiguration som Botkyrka): Amal (c-bot) flyttas dit, och Amira blir medlem där.
+    const bot = d.contracts.find((c) => c.id === "c-bot")!;
+    d.contracts.push({ ...structuredClone(bot), id: "c-ny", contractNumber: "000000000", casePrefix: "NYK" });
+    d.cases.find((c) => c.id === AMAL)!.contractId = "c-ny";
+    d.memberships.push({ id: "ms-x-amira-ny", userId: "u-amira", contractId: "c-ny", role: "coach", customerUnit: null });
     const r = fresh(d);
     const res = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [WED.nadia, WED.elif, WED.amal] }, amira(r), r);
     expect(res).toMatchObject({ ok: true, marked: [WED.nadia, WED.elif, WED.amal] });
     const logs = audit("attendance.registered_all", r).sort((a, b) => (a.contractId! < b.contractId! ? -1 : 1));
     expect(logs).toHaveLength(2);
     expect(logs[0]).toMatchObject({ contractId: "c-bot", details: { count: 2, activityIds: [WED.nadia, WED.elif], caseIds: [NADIA, "case-270003"] } });
-    expect(logs[1]).toMatchObject({ contractId: "c-kk", details: { count: 1, activityIds: [WED.amal], caseIds: [AMAL] } });
+    expect(logs[1]).toMatchObject({ contractId: "c-ny", details: { count: 1, activityIds: [WED.amal], caseIds: [AMAL] } });
     expect(logs.every((l) => !("contractIds" in l.details))).toBe(true);
   });
 });

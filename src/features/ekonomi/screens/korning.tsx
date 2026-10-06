@@ -135,7 +135,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
       body: (
         <div className="flex flex-col gap-2">
           <p>{plural(clean.length, "faktura", "fakturor")} har giltig beställarreferens och inga anmärkningar. De blir klara att skapa i Fortnox.</p>
-          <p className="text-small text-text-muted">
+          <p className="text-text-muted">
             {plural(withRemarks, "faktura", "fakturor")} med anmärkning och {plural(counts.stoppade, "stoppad faktura", "stoppade fakturor")} tas inte med. Dem granskar du var för
             sig.
           </p>
@@ -158,7 +158,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
               ? `${plural(fresh.length, "godkänd faktura", "godkända fakturor")} skapas som ${pl(fresh.length, "ej bokfört utkast", "ej bokförda utkast")} i Fortnox.`
               : "Det finns inga nya godkända fakturor att skapa."}
           </p>
-          <ul className="m-0 list-disc pl-5 text-small">
+          <ul className="m-0 list-disc pl-5">
             <li>
               {plural(already.length, "faktura finns", "fakturor finns")} redan i Fortnox eller är {pl(already.length, "manuellt fakturerad", "manuellt fakturerade")} och hoppas över. En
               omkörning skapar inga dubbletter.
@@ -166,7 +166,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
             <li>{plural(counts.stoppade, "stoppad faktura", "stoppade fakturor")} kan inte skapas.</li>
             <li>{plural(notReady, "faktura som inte är godkänd", "fakturor som inte är godkända")} tas inte med.</li>
           </ul>
-          <p className="text-small text-text-muted">
+          <p className="text-text-muted">
             {demo ? "I den riktiga tjänsten skickas anropen" : "Anropen skickas"} i takt med Fortnox gräns (25 anrop per 5 sekunder) och varje faktura får
             idempotensnyckeln månad + ärendenummer.
           </p>
@@ -298,7 +298,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
                 Markera som manuellt fakturerad
               </Button>
             )}
-            <span className="text-small text-text-muted">Registrera för hand i Fortnox eller i kommunens kostnadsfria fakturaportal.</span>
+            <span className="text-text-muted">Registrera för hand i Fortnox eller i kommunens kostnadsfria fakturaportal.</span>
           </>
         }
       >
@@ -413,7 +413,8 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
             </Field>
           </div>
         </div>
-        <div className="max-[620px]:hidden [&_td]:px-2 [&_td:first-child]:pl-4 [&_th]:px-2 [&_th]:align-bottom [&_th]:whitespace-normal [&_th:first-child]:pl-4">
+        {/* Nio kolumner i 16 px: smalare utfyllnad mellan kolumnerna så att tabellen inte rullar i sidled vid 1280 px. */}
+        <div className="max-[620px]:hidden [&_td]:px-1.5 [&_td:first-child]:pl-4 [&_th]:px-1.5 [&_th]:align-bottom [&_th]:whitespace-normal [&_th:first-child]:pl-4">
           <Table
             caption={`Fakturor ${monthName(mk)}`}
             columns={columns}
@@ -498,7 +499,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
                   {plural(r.skipped, "dubblett hoppades över", "dubbletter hoppades över")}
                 </Badge>
                 {r.blocked > 0 && (
-                  <Badge tone="red" icon="x-circle">
+                  <Badge tone="outline" icon="x-circle" className="[&_svg]:text-rod">
                     {plural(r.blocked, "stoppad", "stoppade")}
                   </Badge>
                 )}
@@ -552,7 +553,7 @@ function StepText({ title, children }: { title: ReactNode; children: ReactNode }
   return (
     <div className="flex min-w-[min(100%,280px)] flex-1 flex-col gap-1">
       <div className="font-bold">{title}</div>
-      <div className="text-small">{children}</div>
+      <div>{children}</div>
     </div>
   );
 }
@@ -572,20 +573,18 @@ function MonthRulesCard({ v }: { v: RunView & { month: string } }) {
             ))}
           </div>
           {v.rules.notes.map((n) => (
-            <div key={n} className="text-small">
-              {n}
-            </div>
+            <div key={n}>{n}</div>
           ))}
-          <div className="text-small text-text-muted">Varje vecka faktureras exakt en gång. Debiterbar vecka är varje vecka deltagaren är inskriven, utom pausade veckor.</div>
+          <div className="text-text-muted">Varje vecka faktureras exakt en gång. Debiterbar vecka är varje vecka deltagaren är inskriven, utom pausade veckor.</div>
         </div>
         <div className="flex min-w-0 flex-col gap-2">
           <div className="font-bold">{coll ? "Samlingsfaktura per beställarreferens är tillåten" : "En faktura per ärende och månad"}</div>
-          <div className="text-small">
+          <div>
             {coll
               ? "Kommunen har skriftligt godkänt samlingsfakturor per beställarreferens."
               : `Samlingsfakturor är inte tillåtna enligt avtalet med ${v.customerName}. Varje ärende får en egen faktura med ärendenumret som faktureringsobjekt.`}
           </div>
-          <div className="text-small">
+          <div>
             Utan giltig beställarreferens ({v.rules.refLen} siffror) kan ingen faktura skapas. Inköpsordernummer används bara om kommunen beställer via sin e-handel.
           </div>
         </div>
@@ -767,7 +766,7 @@ function InvoiceDetailBody({
           Jag har kontrollerat anmärkningarna. Fakturan ska skickas som den är.
         </Check>
       )}
-      {act && why && isDraft && <p className="text-small text-text-muted">{why}</p>}
+      {act && why && isDraft && <p className="text-text-muted">{why}</p>}
       <SectionTitle>Upparbetat och återstående</SectionTitle>
       <SummaryList inv={inv} sm={d.summary} />
     </Modal>
@@ -784,12 +783,12 @@ function CheckRow({ d, ch, onOpen }: { d: InvoiceDetailView; ch: InvoiceCheckVie
           <span className="font-bold">{ch.label}</span>
           <Badge tone={m.tone}>{m.word}</Badge>
         </div>
-        <div className="text-small">{ch.text}</div>
+        <div>{ch.text}</div>
         {ch.kind === "buyer_ref" && <RefForm cases={[d.case]} task={d.task} rules={d.refRules} canAct={d.canAct} idSuffix={`detail-${d.case.caseId}`} />}
         {ch.kind === "zero_week" && <ZeroWeek d={d} ch={ch} />}
         {ch.kind === "overlap" && <OverlapInfo d={d} ch={ch} onOpen={onOpen} />}
         {ch.kind === "paused" && (
-          <div className="text-small text-text-muted">
+          <div className="text-text-muted">
             Orsaken till uppehållet visas inte för ekonom. Fakturan tar bara med de veckor som inte är pausade: {weekText(d.inv.weeks)}.
           </div>
         )}
@@ -870,7 +869,7 @@ function OverlapInfo({ d, ch, onOpen }: { d: InvoiceDetailView; ch: InvoiceCheck
         {o.status && <InvStatus status={o.status} />}
         <span className="text-text-muted">{o.endDate ? `avslutat ${fmtDate(o.endDate)}` : `start ${fmtDate(o.startDate)}`}</span>
       </div>
-      <div className="text-small">Godkänn bara den faktura som ska ta med veckan. Är du osäker – fråga samordnaren, som ser båda ärendena.</div>
+      <div>Godkänn bara den faktura som ska ta med veckan. Är du osäker – fråga samordnaren, som ser båda ärendena.</div>
       <div className="flex flex-wrap items-center gap-1.5">
         {o.status && (
           <Button kind="secondary" icon="arrow-right" onClick={() => onOpen(o.caseId)}>

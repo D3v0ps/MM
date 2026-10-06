@@ -13,7 +13,7 @@ import type { ReportKind } from "@/data/schema";
 import { navCounts } from "@/features/session/nav-api";
 import { kommunReports, type KomReports } from "../api";
 import { fDT, fDTL, trunc } from "../texts";
-import { KOM_TABS, KomHead, KomPage, LeadIcon, MoreButton, ReportRowItem, SubLine, TitleRow } from "./parts";
+import { KOM_TABS, KomHead, KomPage, LeadIcon, MoreButton, ReportRowItem, SubLine, TitleRow, UNREAD_EDGE } from "./parts";
 
 type Filter = "olasta" | "alla" | ReportKind;
 const REP_FILTERS: [Filter, string][] = [
@@ -153,7 +153,7 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
                     <ListItem
                       key={t.caseId}
                       to={path(`/portal/deltagare/${encodeURIComponent(t.caseId)}`, { flik: "meddelanden" })}
-                      marked={t.unread > 0}
+                      className={t.unread > 0 ? UNREAD_EDGE : undefined}
                       chevron
                       lead={<LeadIcon name={t.meeting ? "calendar" : "message"} />}
                       title={

@@ -1122,11 +1122,11 @@
    "side": "leverantor",
    "oneLiner": "Tar emot varje avrop, svarar inom en arbetsdag, väljer huvudcoach och bokar start – och bevakar sedan att närvaro, veckorapporter och månadsrapporter kommer i tid.",
    "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton. Du loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar.",
-   "startPage": "/start – Startsida",
+   "startPage": "/min-vecka – Min vecka (/start leder hit)",
    "rhythm": [
     {
      "when": "Dagligen, när arbetsdagen börjar",
-     "what": "Startsidan: inkorgen, första möten som inte är bokade, det som förfaller i dag, flaggor och öppna uppgifter."
+     "what": "Min vecka: inkorgen, första möten som inte är bokade, det som förfaller i dag, flaggor och öppna uppgifter."
     },
     {
      "when": "Dagligen, på förmiddagen och eftermiddagen",
@@ -1156,16 +1156,16 @@
    "steps": [
     {
      "phase": "bestallning",
-     "title": "Öppna Startsidan och se vad som brådskar",
+     "title": "Öppna Min vecka och se vad som brådskar",
      "why": "Avtalet kräver svar på varje avrop inom en arbetsdag. Missade tidsgränser kan ge vite och flytta ned Miljonbemanning i kommunens rangordning.",
      "how": [
-      "Logga in. Du hamnar på Startsida.",
+      "Logga in. Du hamnar på Min vecka.",
       "Läs de fyra rutorna överst: Att hantera i inkorgen, Första möten ej bokade, Förfaller i dag och Flaggor att kvittera.",
       "Klicka först på en ruta med röd ram. Den visar till exempel Svarstiden har passerat.",
       "Titta på nyckeltalen Avrop besvarade inom en arbetsdag och Första möte inom en vecka. Under Inte i tid står ärendenumren.",
       "Gå igenom listorna Första möten som inte är bokade, Ärenden utan coach och Öppna uppgifter."
      ],
-     "where": "/start – Startsida",
+     "where": "/min-vecka – Min vecka",
      "trigger": "Varje morgon när arbetsdagen börjar, och igen efter lunch",
      "deadline": "",
      "result": "Du vet vad som måste göras i dag och i vilken ordning.",
@@ -1309,13 +1309,13 @@
      "title": "Boka första mötet om det saknas",
      "why": "Första mötet ska vara bokat inom en vecka från avropet. Ärenden utan bokat möte flaggas efter tre dagar.",
      "how": [
-      "På Startsidan: listan Första möten som inte är bokade. Klicka Boka.",
+      "På Min vecka: listan Första möten som inte är bokade. Klicka Boka.",
       "Eller öppna Deltagarkortet och klicka Boka första möte under Åtgärder.",
       "Välj Datum och Tid. Välj en vardag.",
       "Klicka Boka mötet.",
       "Står det Coachen ringer gäller det skyddade personuppgifter. Det sköter coachen och avtalsansvarig."
      ],
-     "where": "/start – Startsida, eller /arenden/:caseId – Deltagarkort",
+     "where": "/min-vecka – Min vecka, eller /arenden/:caseId – Deltagarkort",
      "trigger": "Flaggan Första möte inte bokat, eller ett bekräftat ärende utan möte",
      "deadline": "Mötet ska hållas inom 7 dagar från att avropet kom in. Flagga efter 3 dagar utan bokat möte (intern regel).",
      "result": "Mötet är bokat och kallelsen är skickad.",
@@ -1396,13 +1396,13 @@
      "title": "Kvittera flaggor med en kort åtgärdsplan",
      "why": "Avvikelse betyder åtgärd. Varje flagga ska leda till något som går att visa i efterhand.",
      "how": [
-      "Gå till kortet Flaggor på Startsidan. Kritiska står först.",
+      "Gå till kortet Flaggor på Min vecka. Kritiska står först.",
       "Läs flaggan. Klicka Öppna för att se ärendet.",
       "Klicka Kvittera.",
       "Skriv Kort åtgärdsplan: vad görs, av vem och när.",
       "Klicka Kvittera."
      ],
-     "where": "/start – Startsida (kortet Flaggor)",
+     "where": "/min-vecka – Min vecka (kortet Flaggor)",
      "trigger": "Nya flaggor: Fastnat i fas, Upprepad ogiltig frånvaro, Första möte inte bokat, försenad rapport, eller ett nyckeltal under internt mål förra månaden",
      "deadline": "Flaggorna räknas fram varje dag klockan 06.00",
      "result": "Flaggan är kvitterad. Namn, tid och åtgärdsplan sparas i revisionsloggen.",
@@ -1574,13 +1574,13 @@
      "title": "Svara på ekonomens frågor inför faktureringen",
      "why": "Varje vecka ska faktureras exakt en gång, och ingen faktura får skapas utan kommunens beställarreferens. Fel debitering räknas som ekonomisk avvikelse.",
      "how": [
-      "Uppgiften Faktureringskontroll syns under Öppna uppgifter på Startsidan.",
+      "Uppgiften Faktureringskontroll syns under Öppna uppgifter på Min vecka.",
       "Den nämner två ärendenummer som gäller samma deltagare och överlappar vissa veckor.",
       "Kontrollera i Deltagarkorten vilket ärende som ska faktureras för veckan och om start- eller slutdatum behöver rättas.",
       "Saknas eller är beställarreferensen fel: be handläggaren om rätt referens med ett säkert meddelande.",
       "Svara ekonomen och klicka Markera som klar."
      ],
-     "where": "/start – Startsida (Öppna uppgifter)",
+     "where": "/min-vecka – Min vecka (Öppna uppgifter)",
      "trigger": "Ekonomen hittar överlappande ärenden eller en stoppad faktura i fakturakörningen efter månadsskiftet",
      "deadline": "Snarast. Miljonbemannings interna mål är fakturor i Fortnox senast 3:e arbetsdagen efter månadsskiftet.",
      "result": "Ekonomen kan godkänna fakturaunderlaget.",
@@ -1638,7 +1638,7 @@
       "Bestäm vem som kontaktar deltagaren: coachen eller någon annan.",
       "Klicka Markera som klar när kontakten är ordnad."
      ],
-     "where": "/start – Startsida (Öppna uppgifter)",
+     "where": "/min-vecka – Min vecka (Öppna uppgifter)",
      "trigger": "Ett pulssvar med Ja på fråga 5 (vecka 2, var 30:e dag i insatser längre än åtta veckor, eller vid avslut)",
      "deadline": "",
      "result": "Någon har kontaktat deltagaren.",
@@ -1751,7 +1751,7 @@
       "Steg 3 Visa: välj Sammanställning (rekommenderas) eller Lista med en rad per deltagare. För en sammanställning väljer du Dela upp efter, Dela upp per tid, ett till fyra mått och om du vill ha ett stapeldiagram. Förhandsvisningen visar tabellen.",
       "Steg 4 Spara: skriv Namn på rapporten och välj vem som ska se den: Bara jag eller Alla på Miljonbemanning i avtalet. Klicka Spara rapporten, eller Hämta som Excel, CSV eller PDF."
      ],
-     "where": "/rapportbyggare – Rapportbyggare (menyn Bygg rapport) och /rapportbyggare/ny – Ny rapport",
+     "where": "/rapportbyggare – Rapportbyggare (Bygg rapport under fliken Samordning) och /rapportbyggare/ny – Ny rapport",
      "trigger": "Du eller ledningen behöver en sammanställning, till exempel inför ett möte med kommunen eller ett kvalitetsmöte.",
      "deadline": "",
      "result": "Rapporten finns under Mina rapporter. Delar du den inom Miljonbemanning ser de andra den under Delade inom Miljonbemanning. Väljer du De senaste hela månaderna räknas perioden om varje gång rapporten öppnas.",
@@ -1814,11 +1814,11 @@
    "side": "leverantor",
    "oneLiner": "Kan avtalet och äger kundrelationen: hanterar skyddade avrop, godkänner beställarrapporten, sköter avtalsavvikelser, varningar och åtgärdsplaner och bjuder in kommunens användare.",
    "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton. Du loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar.",
-   "startPage": "/start – Startsida",
+   "startPage": "/min-vecka – Min vecka (/start leder hit)",
    "rhythm": [
     {
      "when": "Dagligen, när arbetsdagen börjar",
-     "what": "Startsidan: skyddade avrop först, sedan flaggor, avtalsavvikelser och beställarrapport att godkänna."
+     "what": "Min vecka: skyddade avrop först, sedan flaggor, avtalsavvikelser och beställarrapport att godkänna."
     },
     {
      "when": "Dagligen, vid behov",
@@ -1844,15 +1844,15 @@
    "steps": [
     {
      "phase": "bestallning",
-     "title": "Öppna Startsidan och börja med skyddade avrop",
+     "title": "Öppna Min vecka och börja med skyddade avrop",
      "why": "Avtalsansvarig ser allt inom avtalet och får avrop med skyddade personuppgifter direkt.",
      "how": [
-      "Logga in. Du hamnar på Startsida – samma som samordnarens, med tre tillägg.",
-      "Kortet Skyddade avrop (röd ram): klicka Öppna.",
+      "Logga in. Du hamnar på Min vecka – samma som samordnarens, med tre tillägg.",
+      "Kortet Skyddade avrop (med låsikonen) står överst: klicka på ämnet för att öppna avropet.",
       "Kortet Avtalet: avvikelser och frågor visar öppna avtalsavvikelser, beställarrapport att godkänna och Skriftliga varningar.",
       "Kortet Flaggor visar både dina och samordnarens flaggor."
      ],
-     "where": "/start – Startsida",
+     "where": "/min-vecka – Min vecka",
      "trigger": "Varje morgon när arbetsdagen börjar",
      "deadline": "",
      "result": "Du vet vilka skyddade avrop, avvikelser och rapporter som väntar på dig.",
@@ -1968,7 +1968,7 @@
       "Behöver coachen bytas: klicka Byt huvudcoach, välj Ny huvudcoach, skriv Orsak till bytet och klicka Byt huvudcoach."
      ],
      "where": "/arenden/:caseId – Deltagarkort",
-     "trigger": "Startsidan visar Coachen ringer i listan Första möten som inte är bokade, eller coachen kan inte fortsätta",
+     "trigger": "Min vecka visar Coachen ringer i listan Första möten som inte är bokade, eller coachen kan inte fortsätta",
      "deadline": "Första mötet inom 7 dagar från avropet",
      "result": "Mötet är bokat, eller ärendet har en ny namngiven coach.",
      "handoffTo": [
@@ -1990,12 +1990,12 @@
      "title": "Kvittera flaggor och bevaka förfallotider",
      "why": "Allt ska gå att visa i efterhand om kommunen hävdar en avvikelse. Försenat eskaleras till chef.",
      "how": [
-      "På Startsidan: kortet Flaggor. Klicka Kvittera, skriv Kort åtgärdsplan och klicka Kvittera.",
+      "På Min vecka: kortet Flaggor. Klicka Kvittera, skriv Kort åtgärdsplan och klicka Kvittera.",
       "Öppna Förfaller i dag och denna vecka.",
       "Dina rader är Beställarrapport och Åtgärdsplan, med eskaleringsvägen avtalsansvarig → chef.",
       "Hjälp samordnaren med det som är försenat."
      ],
-     "where": "/start – Startsida och /forfaller – Förfaller i dag och denna vecka",
+     "where": "/min-vecka – Min vecka och /forfaller – Förfaller i dag och denna vecka",
      "trigger": "Varje vecka, och direkt vid kritiska flaggor",
      "deadline": "Flaggorna räknas fram varje dag klockan 06.00",
      "result": "Flaggor är kvitterade med åtgärdsplan och inget förfaller utan att någon vet om det.",
@@ -2018,7 +2018,7 @@
      "title": "Granska och godkänn beställarrapporten",
      "why": "Kommunens chef ska få en beställarrapport varje månad med en kort sammanfattning som avtalsansvarig godkänner.",
      "how": [
-      "På Startsidan: Beställarrapport {månad} att godkänna. Klicka Granska.",
+      "På Min vecka: Beställarrapport {månad} att godkänna. Klicka Granska.",
       "Läs rapporten: deltagare per avtalsområde och yrkesspår, resultat mot avtalsmålet, progression, närvaro, avvikelser och nöjdhet.",
       "I kortet Sammanfattning – avtalsansvarig godkänner: läs AI-utkastet.",
       "Klicka Använd förslaget, eller skriv själv i Sammanfattning till kommunen.",
@@ -2104,13 +2104,13 @@
      "title": "Följ resultatgraden mot avtalsmålet",
      "why": "Minst 32 procent av deltagarna ska gå vidare till arbete eller studier. Under avtalsmålet går flaggan Åtgärd krävs direkt till avtalsansvarig.",
      "how": [
-      "Flaggan Åtgärd krävs: resultatgrad under avtalsmålet visas på Startsidan.",
+      "Flaggan Åtgärd krävs: resultatgrad under avtalsmålet visas på Min vecka.",
       "Läs procent och antal för de senaste 6 månaderna.",
       "Bestäm åtgärder tillsammans med chef och controller.",
       "Klicka Kvittera och skriv en kort åtgärdsplan.",
       "Behövs en formell åtgärdsplan mot kommunen: registrera en avtalsavvikelse."
      ],
-     "where": "/start – Startsida (kortet Flaggor)",
+     "where": "/min-vecka – Min vecka (kortet Flaggor)",
      "trigger": "Resultatgraden räknas om varje dag klockan 06.00",
      "deadline": "",
      "result": "Det finns en åtgärdsplan för att nå avtalsmålet.",
@@ -2252,7 +2252,7 @@
      "where": "/avtalsavvikelser/:id – Avtalsavvikelse",
      "trigger": "Kommunen meddelar en varning, ett vite eller ett avropsstopp",
      "deadline": "",
-     "result": "Sanktionen är registrerad. Startsidan visar Skriftliga varningar, till exempel 1 av 3.",
+     "result": "Sanktionen är registrerad. Min vecka visar Skriftliga varningar, till exempel 1 av 3.",
      "handoffTo": [
       "chef",
       "ekonom"
@@ -2363,7 +2363,7 @@
       "Läs rutan Dela med kommunens chef? Den visar reglerna och hur chefen kommer att se rapporten. Klicka Dela med kommunen.",
       "En sparad rapport delar du med knappen Dela med kommunen på rapportens sida. Berätta för kommunens chef att rapporten finns under Hämta resultat – inget mejl skickas."
      ],
-     "where": "/rapportbyggare – Rapportbyggare (menyn Bygg rapport), /rapportbyggare/ny – Ny rapport och /rapportbyggare/:id – Sparad rapport",
+     "where": "/rapportbyggare – Rapportbyggare (Bygg rapport under fliken Avtalet), /rapportbyggare/ny – Ny rapport och /rapportbyggare/:id – Sparad rapport",
      "trigger": "Kommunen eller ledningen behöver en rapport som inte finns som färdig rapport.",
      "deadline": "",
      "result": "Rapporten är sparad och delad. Kommunens chef ser den under Hämta resultat, i rutan Rapporter från Miljonbemanning, och kan hämta den som Excel, CSV eller PDF.",
@@ -2453,7 +2453,7 @@
    ],
    "sees": [
     "Allt inom sina avtal, även namn och personnummer i ärenden med skyddade personuppgifter.",
-    "Startsidan med Skyddade avrop, Beställarrapport att godkänna och Skriftliga varningar.",
+    "Min vecka med Skyddade avrop, Beställarrapport att godkänna och Skriftliga varningar.",
     "Avropsinkorgen, med knappen Registrera efter telefonsamtal för skyddade avrop.",
     "Alla ärenden och Deltagarkortet med alla flikar.",
     "Flaggor till både avtalsansvarig och samordnare, och flaggan Åtgärd krävs: resultatgrad under avtalsmålet.",
@@ -2463,7 +2463,8 @@
     "Förfaller i dag och denna vecka.",
     "Säkra meddelanden och deltagarens röstmeddelanden som text.",
     "Flikarna Tidslinje och Månadsunderlag i deltagarkortet, och fria anteckningar som du kan skriva och ta bort.",
-    "Bygg rapport: egna rapporter, rapporter som delats inom Miljonbemanning eller med kommunen, och Resultatfil för hela avtalet. Du är den enda som delar rapporter med kommunens chef."
+    "Bygg rapport: egna rapporter, rapporter som delats inom Miljonbemanning eller med kommunen, och Resultatfil för hela avtalet. Du är den enda som delar rapporter med kommunens chef.",
+    "Arbetsgivare och praktik (i menyn under Min vardag)."
    ],
    "doesNotSee": [
     "Ledningsvyn med nyckeltal per coach och prognos (bara chef och controller).",
@@ -2616,7 +2617,7 @@
     {
      "phase": "vecka",
      "title": "Gå igenom Min vecka",
-     "why": "Startsidan samlar det som är mest bråttom så att inga avtalskrav missas.",
+     "why": "Min vecka samlar det som är mest bråttom så att inga avtalskrav missas.",
      "how": [
       "Logga in. Du hamnar på Min vecka.",
       "Börja överst med Närvaro att registrera och nedräkningen till måndag 10.00",
@@ -3257,11 +3258,11 @@
    "side": "leverantor",
    "oneLiner": "Är med i deltagarens team som yrkesspecifik handledare, arbetsgivarmatchare eller studie- och yrkesvägledare (SYV/metodstöd). Hen leder yrkesmoment, ordnar praktik och arbetsgivarkontakter, registrerar närvaro och stöttar validering, men bara i de ärenden hen är tilldelad.",
    "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Koden gäller i 10 minuter. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton.",
-   "startPage": "/handledare – Mina tilldelade ärenden",
+   "startPage": "/min-vecka – Min vecka (listan Mina tilldelade ärenden finns i menyn)",
    "rhythm": [
     {
      "when": "Dagligen på morgonen",
-     "what": "Öppna Mina tilldelade ärenden. Läs Kommande sju dagar och Praktikplatser att följa upp. Läs Notiser."
+     "what": "Öppna Min vecka: närvaro att registrera, i dag, kommande sju dagar och praktikplatser att följa upp. Läs Olästa notiser."
     },
     {
      "when": "Dagligen, efter varje tillfälle",
@@ -3349,7 +3350,7 @@
       "Tillfällen som redan finns syns under Kommande sju dagar och på ärendets kort.",
       "Det går inte att lägga in nya tillfällen direkt i Miljonmatch ännu. Den vyn kommer senare."
      ],
-     "where": "/handledare – Mina tilldelade ärenden",
+     "where": "/min-vecka – Min vecka (Kommande sju dagar) och /handledare – Mina tilldelade ärenden",
      "trigger": "Kartläggningen är klar och yrkesspåret är valt (vecka 1)",
      "deadline": "Om ingen praktik är planerad flaggas ärendet som fastnat när fas 3 har pågått i 35 dagar.",
      "result": "Deltagaren har planerade tillfällen som syns i appen och kan få närvaro registrerad.",
@@ -3366,15 +3367,16 @@
     },
     {
      "phase": "vecka",
-     "title": "Börja dagen på Mina tilldelade ärenden",
+     "title": "Börja dagen på Min vecka",
      "why": "Här ser du direkt vilka moment och praktikdagar som väntar och vilka praktikplatser som behöver kompletteras.",
      "how": [
-      "Öppna Mina tilldelade ärenden. Det är din startsida.",
+      "Öppna Min vecka. Det är din startsida.",
+      "Läs rutorna överst: Närvaro att registrera, Tillfällen i dag, Yrkesmoment den här veckan och Praktik som saknar något av de fyra rätten.",
+      "Registrera det som saknas i kortet Närvaro att registrera, och se dagens tillfällen under I dag.",
       "Läs Kommande sju dagar och klicka på en rad för att öppna ärendet.",
-      "Titta på rutan Praktik som saknar något av de fyra rätten.",
-      "Byt mellan Pågående, Väntar på start och Avslutade."
+      "Hela listan med Pågående, Väntar på start och Avslutade finns under Mina tilldelade ärenden i menyn."
      ],
-     "where": "/handledare – Mina tilldelade ärenden",
+     "where": "/min-vecka – Min vecka",
      "trigger": "Varje arbetsdag på morgonen",
      "deadline": "",
      "result": "Du vet vilka moment som ska hållas i dag och vad som är bråttom.",
@@ -3399,7 +3401,7 @@
       "Registrera närvaron direkt efteråt i Närvaro.",
       "Berätta för huvudcoachen vad deltagaren klarade. Coachen dokumenterar det i veckoavstämningen."
      ],
-     "where": "På plats, vid yrkesmomentet eller på arbetsplatsen. Tillfället syns i /handledare – Mina tilldelade ärenden",
+     "where": "På plats, vid yrkesmomentet eller på arbetsplatsen. Tillfället syns på /min-vecka – Min vecka och i /handledare – Mina tilldelade ärenden",
      "trigger": "Ett tillfälle under Kommande sju dagar",
      "deadline": "",
      "result": "Deltagaren tränar yrkesfärdigheter. Coachen får underlag till avstämningen och månadsbedömningen.",
@@ -3479,7 +3481,7 @@
      "title": "Kontrollera de fyra rätten på praktikplatsen",
      "why": "Varje praktik ska ha fyra rätt: rätt arbetsuppgift, rätt handledning, rätt tidpunkt och rätt uppföljning.",
      "how": [
-      "Öppna rutan Praktikplatser att följa upp på startsidan, eller Arbetsgivare och praktik i sidomenyn.",
+      "Öppna kortet Praktikplatser att följa upp på Min vecka, eller Arbetsgivare och praktik i sidomenyn.",
       "Klicka på arbetsgivaren.",
       "Bocka i Rätt arbetsuppgift, Rätt handledning, Rätt tidpunkt och Rätt uppföljning under De fyra rätten när kraven är uppfyllda.",
       "Märket visar till exempel 3 av 4 rätt tills allt är klart."
@@ -4301,7 +4303,7 @@
     {
      "phase": "uppfoljning",
      "title": "Logga in och se din plan och dina bokningar",
-     "why": "Inför avtalet med Kammarkollegiet ska deltagaren själv kunna se sin plan och boka tider.",
+     "why": "Senare ska deltagaren själv kunna se sin plan och boka tider.",
      "how": [
       "Logga in med BankID.",
       "Se din plan och de tider du har bokat.",
@@ -4348,11 +4350,11 @@
    "side": "leverantor",
    "oneLiner": "Följer resultat, tidsgränser och kvalitet i hela avtalet i läsläge, kvitterar flaggor med åtgärdsplaner, hanterar avtalsavvikelser och gör den månatliga loggkontrollen.",
    "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Bara inbjudna konton.",
-   "startPage": "/ledning – Ledningsvy",
+   "startPage": "/min-vecka – Min vecka (Ledningsvyn under fliken Ledning)",
    "rhythm": [
     {
      "when": "Dagligen, på morgonen",
-     "what": "Ledningsvy: nya flaggor att kvittera. Förfaller: det som är försenat eller förfaller i dag. Notiser: eskaleringar."
+     "what": "Min vecka: flaggor att kvittera, det som förfaller i dag och rapporter att granska. Ledningsvyn för nyckeltalen. Notiser: eskaleringar."
     },
     {
      "when": "Varje vecka, måndag efter klockan 08.00",
@@ -4385,7 +4387,7 @@
      "title": "Bevaka att varje avrop besvaras inom en arbetsdag",
      "why": "Avtalet kräver svar på varje avropsförfrågan inom en arbetsdag, och obesvarade avrop kan ge vite och flytta ner Miljonbemanning i kommunens rangordning.",
      "how": [
-      "Öppna Förfaller i menyn (gruppen Ledning).",
+      "Öppna Förfaller i menyn (fliken Ledning) eller rutan Förfaller i dag på Min vecka.",
       "Titta på rutan Försenat och raderna av typen Svar på avrop.",
       "Raden visar eskaleringsvägen samordnare → chef och var ärendet ligger just nu.",
       "Klicka Öppna för att se ärendet i läsläge och kontakta samordnaren eller avtalsansvarig.",
@@ -4556,7 +4558,7 @@
      "title": "Signera den månatliga loggkontrollen",
      "why": "Kravspecifikationen kräver en månatlig loggkontroll med stickprov av chef, så att varje visning av personuppgifter är motiverad av arbetet.",
      "how": [
-      "Öppna Revisionslogg i gruppen Insyn.",
+      "Öppna Revisionslogg under fliken Ledning.",
       "Kortet Månatlig loggkontroll visar ett stickprov på högst fem poster från förra månaden, i första hand visningar och exporter.",
       "Välj Motiverad eller Avvikelse för varje post.",
       "Har du markerat en avvikelse: skriv i Anteckning vad som hände och vad som ska göras.",
@@ -4720,16 +4722,16 @@
     },
     {
      "phase": "uppfoljning",
-     "title": "Börja dagen i Ledningsvyn",
+     "title": "Börja dagen på Min vecka",
      "why": "Chef och controller ska se nyckeltal mot mål och nya flaggor varje dag så att inget avtalskrav missas.",
      "how": [
-      "Logga in – du hamnar i Ledningsvy.",
-      "Läs rutorna överst: Resultatgrad, rullande 6 mån, Sedan avtalsstart, Prognos och Flaggor att hantera.",
+      "Logga in – du hamnar på Min vecka.",
+      "Läs rutorna överst: Flaggor att hantera, Förfaller i dag, Resultatgrad, rullande 6 mån och Rapporter försenade.",
       "Gå igenom kortet Flaggor för chef och controller och klicka Kvittera på det du tar hand om.",
-      "Öppna Förfaller för det som är försenat eller förfaller i dag.",
-      "Läs Notiser för nya eskaleringar."
+      "Läs Förfaller snart och Rapporter att granska. Hela listorna finns under Förfaller och Rapporter.",
+      "Klicka Öppna Ledningsvyn för trenden, per coach och per avtalsområde. Läs Notiser för nya eskaleringar."
      ],
-     "where": "/ledning – Ledningsvy",
+     "where": "/min-vecka – Min vecka och /ledning – Ledningsvy",
      "trigger": "Varje arbetsdag på morgonen.",
      "deadline": "",
      "result": "Alla nya flaggor är kvitterade med en kort åtgärdsplan eller lämnade till rätt person.",
@@ -4862,7 +4864,7 @@
      "title": "Titta in i ärenden och rapporter i läsläge",
      "why": "Chef och controller har insyn i allt i avtalet för uppföljning men ändrar ingenting.",
      "how": [
-      "Öppna Ärenden eller Rapporter i gruppen Insyn.",
+      "Öppna Ärenden eller Rapporter i menyn (Min vardag).",
       "Klicka på ett ärendenummer för att öppna deltagarkortet. Överst står Läsläge.",
       "Personnumret visas maskerat. Visa det bara om det behövs – visningen loggas.",
       "Rapporter öppnas i läsläge.",
@@ -4897,7 +4899,7 @@
       "Steg 3 Visa: välj Sammanställning (rekommenderas) eller Lista med en rad per deltagare. För en sammanställning väljer du Dela upp efter, Dela upp per tid, ett till fyra mått och om du vill ha ett stapeldiagram. Förhandsvisningen visar tabellen.",
       "Steg 4 Spara: skriv Namn på rapporten och välj Bara jag eller Alla på Miljonbemanning i avtalet. Klicka Spara rapporten, eller Hämta som Excel, CSV eller PDF."
      ],
-     "where": "/rapportbyggare – Rapportbyggare (menyn Bygg rapport, gruppen Insyn) och /rapportbyggare/ny – Ny rapport",
+     "where": "/rapportbyggare – Rapportbyggare (Bygg rapport under fliken Ledning) och /rapportbyggare/ny – Ny rapport",
      "trigger": "Du behöver en sammanställning som inte finns i Ledningsvyn eller som färdig rapport.",
      "deadline": "",
      "result": "Rapporten finns under Mina rapporter. Delar du den inom Miljonbemanning ser de andra den under Delade inom Miljonbemanning.",
@@ -4957,11 +4959,11 @@
    "side": "leverantor",
    "oneLiner": "Gör månadens fakturakörning – en faktura per ärende och månad med kommunens beställarreferens – utan att se namn, anteckningar eller rapporter.",
    "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Bara inbjudna konton.",
-   "startPage": "/ekonomi – Fakturering",
+   "startPage": "/min-vecka – Min vecka (Fakturering under fliken Ekonomi)",
    "rhythm": [
     {
      "when": "Varje vecka (förslag: måndag förmiddag)",
-     "what": "Startsidan Fakturering: Uppgifter till dig, Preskriptionsrisk, Beställarreferens saknas eller är fel och Veckor utan närvaro att kontrollera."
+     "what": "Min vecka: fakturakörningen, Uppgifter till dig, Preskriptionsrisk, Beställarreferens saknas eller är fel och Veckor utan närvaro att kontrollera."
     },
     {
      "when": "Varje månad, första arbetsdagen efter månadsskiftet",
@@ -5011,15 +5013,15 @@
     },
     {
      "phase": "vecka",
-     "title": "Gå igenom startsidan Fakturering",
+     "title": "Gå igenom Min vecka",
      "why": "Du ser i god tid det som stoppar nästa fakturakörning och veckor som riskerar att preskriberas.",
      "how": [
-      "Öppna Fakturering (din startsida).",
+      "Öppna Min vecka (din startsida).",
       "Läs rutorna överst: {månad} att fakturera, Stoppade fakturor, Preskriptionsrisk och Senast i Fortnox.",
-      "Gå igenom Uppgifter till dig, Ofakturerade veckor äldre än 45 dagar och Veckor utan närvaro att kontrollera.",
-      "Klicka på en rad för att öppna körningen direkt på rätt ärende."
+      "Gå igenom Uppgifter till dig, Beställarreferens saknas eller är fel, Ofakturerade veckor äldre än 45 dagar och Veckor utan närvaro att kontrollera.",
+      "Klicka på en rad för att öppna körningen direkt på rätt ärende. Fakturakörningar per månad och Fortnox-synk finns under Fakturering i fliken Ekonomi."
      ],
-     "where": "/ekonomi – Fakturering",
+     "where": "/min-vecka – Min vecka och /ekonomi – Fakturering",
      "trigger": "Varje vecka.",
      "deadline": "",
      "result": "Du vet vad som behöver rättas före månadsskiftet.",
@@ -5068,7 +5070,7 @@
      "title": "Öppna månadens fakturakörning",
      "why": "Botkyrka faktureras månadsvis i efterskott med en faktura per ärende och månad.",
      "how": [
-      "Efter månadsskiftet: klicka Fakturakörning {förra månaden} i menyn, eller Öppna körningen på startsidan.",
+      "Efter månadsskiftet: klicka Fakturakörning {förra månaden} i menyn, eller Öppna körningen på Min vecka.",
       "Läs rutorna: Fakturor, Belopp exkl. moms, Veckor, Stoppade och Kräver godkännande.",
       "Läs kortet Regler för körningen.",
       "Arbeta igenom kortet Gör körningen, steg 1 till 3."
@@ -5430,11 +5432,11 @@
    "side": "leverantor",
    "oneLiner": "Sköter avtalskonfiguration, användare, mallar, integrationer och bakgrundsjobb så att plattformen följer avtalet och dataskyddet – arbetar aldrig själv i ärendena.",
    "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Bara inbjudna konton.",
-   "startPage": "/admin/avtal – Avtal och konfiguration",
+   "startPage": "/min-vecka – Min vecka (Avtal och konfiguration nås från Användare och roller och Min vecka)",
    "rhythm": [
     {
      "when": "Dagligen, på morgonen",
-     "what": "Underbiträden och integrationer: bakgrundsjobb, fel senaste dygnet och att avrop@ läses (när inläsningen är inkopplad)."
+     "what": "Min vecka: bakgrundsjobb, utskick som inte gick iväg, användare och att avrop@ läses (när inläsningen är inkopplad). Alla jobb och Kör nu finns under Underbiträden och integrationer."
     },
     {
      "when": "Varje vecka, måndag efter klockan 08.00 och 16.00",
@@ -5517,7 +5519,7 @@
      "title": "Kontrollera inställningen för röstinspelning och AI",
      "why": "Botkyrka har skriftligen godkänt inspelning för coacher, kommunens handläggare och deltagare, men varje del ska kunna slås av per avtal.",
      "how": [
-      "Öppna Avtal och konfiguration och kortet AI-stöd. Där står Status, AI-leverantör (Gemini Flash via Google Cloud Vertex AI (EU)) och Inspelning (godkänd av kommunen med datum, kräver deltagarens samtycke).",
+      "Öppna Avtal och konfiguration (länken på Användare och roller) och kortet AI-stöd. Där står Status, AI-leverantör (Gemini Flash via Google Cloud Vertex AI (EU)) och Inspelning (godkänd av kommunen med datum, kräver deltagarens samtycke).",
       "Inspelningen slås på eller av för varje del i avtalskonfigurationen: coachens inspelning, kommunens Tala in och deltagarens länk, med längsta tid för varje (Botkyrka: 60, 5 och 5 minuter). Det går inte att ändra på skärmen än.",
       "Kontrollera i Underbiträden och integrationer att Google Cloud (Vertex AI) finns i förteckningen. Där står också att leverantören är simulerad tills kontot i Google Cloud finns.",
       "Meddela samordnare och coacher när inspelning kan användas. Deltagarens samtycke registreras i ärendet först."
@@ -5733,7 +5735,7 @@
      "title": "Kontrollera värden som inte är fastställda",
      "why": "Systemet vägrar aktivera en regel som saknar beslut, och ledningen behöver veta vad som återstår med Botkyrka.",
      "how": [
-      "Öppna Avtal och konfiguration, fliken Avtal och regler.",
+      "Öppna Avtal och konfiguration (länken på Användare och roller), fliken Avtal och regler.",
       "Läs rutan ”{antal} värden är inte fastställda – reglerna aktiveras inte” och vem som beslutar.",
       "Värdena är märkta Ej fastställt i korten, till exempel resultatdefinition, sista dag för månadsrapport och gallring.",
       "Ta upp dem med avtalsansvarig."
@@ -5784,7 +5786,7 @@
      "title": "Justera interna regler för påminnelser och eskalering",
      "why": "Miljonbemannings egna regler styr när coachen påminns och när chefen får en eskalering – de är inte avtalskrav.",
      "how": [
-      "Öppna Avtal och konfiguration, fliken Interna regler (Miljonbemanning).",
+      "Öppna Avtal och konfiguration (länken på Användare och roller), fliken Interna regler (Miljonbemanning).",
       "Ändra Påminn coachen efter och Eskalera efter (veckor utan progression).",
       "Välj Mottagare av eskaleringen, kanaler för påminnelser och eskaleringar och kanaler för notis vid tilldelning.",
       "Se kortet Så slår reglerna igenom just nu och klicka Spara reglerna."
@@ -5887,17 +5889,17 @@
     },
     {
      "phase": "uppfoljning",
-     "title": "Förbered avtal nummer 2 – Kammarkollegiet",
-     "why": "Kammarkollegiet-avtalet startar 2027-03-13 och ska köras med samma kod och en ny konfiguration.",
+     "title": "Förbered ett nytt kommunavtal",
+     "why": "Miljonmatch är kommunernas plattform. Ett nytt kommunavtal ska kunna köras med samma kod och en ny konfiguration.",
      "how": [
-      "Öppna Avtal och konfiguration, fliken Jämför avtalen.",
-      "Kontrollera skissen: personuppgiftsroll, prismodell, nyckeltal och mötesminimum.",
-      "Öppna prislistan för Kammarkollegiet (skiss – kontrolleras mot avtalet).",
-      "Ge personalen roller i Kammarkollegiet-avtalet före start."
+      "Ta emot avtalets villkor skriftligt från avtalsansvarig: avtalsområden, priser, nyckeltal, svarstider och rapportregler.",
+      "Avtalet läggs in som konfiguration och kontrolleras mot avtalets regler innan det sparas. Det går inte att göra på skärmen än.",
+      "Öppna Avtal och konfiguration (länken på Användare och roller) och välj avtalet. Avtalsväljaren visas när det finns fler än ett avtal.",
+      "Ge personalen roller i det nya avtalet före start."
      ],
-     "where": "/admin/avtal?flik=jamfor – Avtal och konfiguration, fliken Jämför avtalen",
-     "trigger": "Inför avtalsstart.",
-     "deadline": "Före 2027-03-13",
+     "where": "/admin/avtal – Avtal och konfiguration (länken på Användare och roller)",
+     "trigger": "Ett nytt kommunavtal är tecknat.",
+     "deadline": "Före avtalsstart",
      "result": "Konfigurationen är komplett och rollerna är tilldelade.",
      "handoffTo": [
       "avtalsansvarig"
@@ -5905,7 +5907,8 @@
      "notified": [],
      "rules": [
       "Kärnflödena ändras inte – bara konfigurationen.",
-      "I Kammarkollegiet-avtalet är Miljonbemanning personuppgiftsansvarig och behöver en egen konsekvensbedömning."
+      "Kommunen är personuppgiftsansvarig och Miljonbemanning biträde, med ett PUB-avtal per kommun.",
+      "Kammarkollegiet får en egen plattform (beslut 2026-10-06) och läggs aldrig in i Miljonmatch."
      ],
      "voice": false,
      "status": "senare"
@@ -5936,8 +5939,8 @@
     }
    ],
    "sees": [
-    "Avtal och konfiguration för alla avtal, med värden som inte är fastställda",
-    "Prislistor och jämförelse mellan avtalen",
+    "Avtal och konfiguration (länken på Användare och roller och Min vecka), med värden som inte är fastställda",
+    "Prislistan per avtalsområde",
     "Interna regler för påminnelser och eskalering",
     "Alla användare, roller per avtal och behörighetsmatrisen",
     "Underbiträden, integrationer och bakgrundsjobb",
@@ -5954,6 +5957,7 @@
     "Lösenord – det finns inga. Personalen loggar in med e-post och kod. Med Microsoft-inloggningen (senare) sköter Microsoft lösenord och tvåstegsverifiering."
    ],
    "tips": [
+    "Avtal och konfiguration ligger inte i menyn. Öppna den med länken på Användare och roller eller Min vecka, din startsida.",
     "Ett nytt verktyg som behandlar personuppgifter, till exempel felrapportering, läggs in som underbiträde och godkänns av kommunen innan det används.",
     "I testmiljön finns knappen Läs in testdata på nytt på Underbiträden och integrationer. Där finns bara påhittade testdata – aldrig riktiga personuppgifter.",
     "En mall som innehåller något som liknar ett namn eller personnummer går inte att spara. Skriv ärendenummer i stället."
@@ -6038,7 +6042,7 @@
     "role": "samordnare",
     "phase": "svar",
     "title": "Granskar avropet i Avropsinkorgen",
-    "detail": "Startsidan visar Att hantera i inkorgen och tiden kvar till sista svar. Klicka Avropsinkorg. Originalmejlet visas bredvid det tolkade formuläret. Word-mallen läses utan AI. Fritext tolkas med AI, och osäkra fält är märkta Osäker. Saknade uppgifter är markerade. Dubblettkontrollen visar om personen redan har en pågående insats. Klicka Rätta uppgifter vid behov. Ett svar från kommunen kopplas till ärendet via ärendenumret i ämnesraden. Klicka då För in uppgifterna. Mejl som inte är beställningar klassas som Övrigt och besvaras med Svara med säkert meddelande. Mål: under 2 minuter per avrop.",
+    "detail": "Min vecka visar Att hantera i inkorgen och tiden kvar till sista svar. Klicka Avropsinkorg. Originalmejlet visas bredvid det tolkade formuläret. Word-mallen läses utan AI. Fritext tolkas med AI, och osäkra fält är märkta Osäker. Saknade uppgifter är markerade. Dubblettkontrollen visar om personen redan har en pågående insats. Klicka Rätta uppgifter vid behov. Ett svar från kommunen kopplas till ärendet via ärendenumret i ämnesraden. Klicka då För in uppgifterna. Mejl som inte är beställningar klassas som Övrigt och besvaras med Svara med säkert meddelande. Mål: under 2 minuter per avrop.",
     "handoff": ""
    },
    {
@@ -6053,7 +6057,7 @@
     "phase": "svar",
     "title": "Publicerar orderbekräftelse, notiser och kallelse",
     "detail": "Orderbekräftelsen publiceras i portalen. Den visar startdatum, huvudcoach, första mötet, planerad omfattning och beställningens värde (veckor gånger veckopris). Handläggaren får mejlet Orderbekräftelse – BOT-26-0042, utan personuppgifter. Coachen och teamet får en notis i appen och mejlet Nytt ärende i Miljonmatch. Kallelsen till första mötet sparas i utskicksloggen. E-post till deltagaren är inte kopplad än, SMS väntar på en leverantör och brev skickas för hand. Tills dess kontaktar coachen eller samordnaren deltagaren själv. Avböjs avropet får handläggaren mejlet Besked om beställning och läser orsaken i portalen.",
-    "handoff": "Deltagaren får veta tiden för första mötet. Ärendet hamnar på coachens Min vecka och handledarens Mina tilldelade ärenden."
+    "handoff": "Deltagaren får veta tiden för första mötet. Ärendet hamnar på coachens och handledarens Min vecka."
    },
    {
     "role": "kommun_handlaggare",
@@ -6066,7 +6070,7 @@
     "role": "system",
     "phase": "start",
     "title": "Bevakar att första mötet bokas",
-    "detail": "Har ett bekräftat ärende inget bokat första möte efter 3 dagar flaggas det till samordnaren och coachen. På samordnarens startsida står det under Första möten som inte är bokade, med knappen Boka. Första mötet ska hållas inom 7 dagar från avropet. Möten som ligger senare markeras i nyckeltalet Första möte inom en vecka. Det som närmar sig sista dag syns också i Förfaller i dag och denna vecka.",
+    "detail": "Har ett bekräftat ärende inget bokat första möte efter 3 dagar flaggas det till samordnaren och coachen. På samordnarens Min vecka står det under Första möten som inte är bokade, med knappen Boka. Första mötet ska hållas inom 7 dagar från avropet. Möten som ligger senare markeras i nyckeltalet Första möte inom en vecka. Det som närmar sig sista dag syns också i Förfaller i dag och denna vecka.",
     "handoff": "Flaggan går till samordnaren, som bokar mötet."
    },
    {
@@ -6094,7 +6098,7 @@
     "role": "handledare",
     "phase": "vecka",
     "title": "Leder yrkesmoment och följer upp praktiken",
-    "detail": "Startsidan Mina tilldelade ärenden visar de kommande sju dagarna, yrkesmoment, praktikdagar och praktikplatser att följa upp. Registrera närvaro för dina tillfällen under Närvaro. Påminnelserna om närvaro som saknas går till huvudcoachen. I Arbetsgivare och praktik följer du de fyra rätten: rätt arbetsuppgift, rätt handledning, rätt tidpunkt och rätt uppföljning. Klicka Lägg till uppföljning för att planera nästa uppföljning. Du ser bara ärenden du är tilldelad. Du ser inga coachanteckningar, bedömningar eller rapporter.",
+    "detail": "Min vecka visar närvaro att registrera, dagens tillfällen, de kommande sju dagarna, yrkesmoment, praktikdagar och praktikplatser att följa upp. Registrera närvaro för dina tillfällen under Närvaro. Påminnelserna om närvaro som saknas går till huvudcoachen. I Arbetsgivare och praktik följer du de fyra rätten: rätt arbetsuppgift, rätt handledning, rätt tidpunkt och rätt uppföljning. Klicka Lägg till uppföljning för att planera nästa uppföljning. Du ser bara ärenden du är tilldelad. Du ser inga coachanteckningar, bedömningar eller rapporter.",
     "handoff": "Närvaro och återkoppling från praktiken går till huvudcoachen."
    },
    {
@@ -6157,14 +6161,14 @@
     "role": "ekonom",
     "phase": "manad",
     "title": "Gör fakturakörningen",
-    "detail": "Öppna Fakturering och klicka Öppna körningen. Steg 1 Rätta stoppade: klicka Rätta referensen och skriv in kommunens beställarreferens. Saknas den ber du samordnaren eller avtalsansvarig ta in den från kommunen. Steg 2 Granska och godkänn: klicka Godkänn alla utan anmärkning. Veckor utan närvaro godkänner du en och en med Godkänn veckan för fakturering och en kommentar. Förhandsgranska faktura visar upparbetat och återstående belopp. Steg 3 Skapa i Fortnox: den riktiga kopplingen till Fortnox kommer senare. Tills dess: Exportera underlag (CSV), registrera för hand och klicka Markera som manuellt fakturerad. Internt mål: fakturorna i Fortnox senast 3:e arbetsdagen 16.00. Klicka Stäng körningen. Ekonomen ser ärendenummer, perioder och referenser, men inga namn, anteckningar eller rapporter.",
+    "detail": "Öppna Min vecka och klicka Öppna körningen. Steg 1 Rätta stoppade: klicka Rätta referensen och skriv in kommunens beställarreferens. Saknas den ber du samordnaren eller avtalsansvarig ta in den från kommunen. Steg 2 Granska och godkänn: klicka Godkänn alla utan anmärkning. Veckor utan närvaro godkänner du en och en med Godkänn veckan för fakturering och en kommentar. Förhandsgranska faktura visar upparbetat och återstående belopp. Steg 3 Skapa i Fortnox: den riktiga kopplingen till Fortnox kommer senare. Tills dess: Exportera underlag (CSV), registrera för hand och klicka Markera som manuellt fakturerad. Internt mål: fakturorna i Fortnox senast 3:e arbetsdagen 16.00. Klicka Stäng körningen. Ekonomen ser ärendenummer, perioder och referenser, men inga namn, anteckningar eller rapporter.",
     "handoff": "Fakturan går till kommunen som e-faktura via Fortnox. Kommunen betalar 30 dagar efter godkänd leverans och korrekt faktura."
    },
    {
     "role": "avtalsansvarig",
     "phase": "manad",
     "title": "Godkänner och levererar beställarrapporten",
-    "detail": "Startsidan visar beställarrapporten med knappen Granska. Rapporten visar antal deltagare (aktiva, nya och avslutade) per avtalsområde och yrkesspår, resultat mot avtalsmålet 32 procent, progression, närvarograd, avvikelser och nöjdhet. Skriv sammanfattningen, eller klicka Använd förslaget och kontrollera texten. Klicka Godkänn beställarrapporten och sedan Leverera till kommunen. Det interna målet visas aldrig för kommunen. Grupper med färre än 5 personer redovisas som färre än 5. Förfallodag och innehåll är inte fastställda med Botkyrka. Utkastet skapas automatiskt när månaden är slut, ett per aktiv chef på kommunen.",
+    "detail": "Min vecka visar beställarrapporten med knappen Granska. Rapporten visar antal deltagare (aktiva, nya och avslutade) per avtalsområde och yrkesspår, resultat mot avtalsmålet 32 procent, progression, närvarograd, avvikelser och nöjdhet. Skriv sammanfattningen, eller klicka Använd förslaget och kontrollera texten. Klicka Godkänn beställarrapporten och sedan Leverera till kommunen. Det interna målet visas aldrig för kommunen. Grupper med färre än 5 personer redovisas som färre än 5. Förfallodag och innehåll är inte fastställda med Botkyrka. Utkastet skapas automatiskt när månaden är slut, ett per aktiv chef på kommunen.",
     "handoff": "Beställarrapporten går till kommunens chef."
    },
    {
@@ -6271,7 +6275,7 @@
     "day": "Varje arbetsdag",
     "time": "Morgon",
     "who": "Samordnare",
-    "what": "Startsida och Avropsinkorg: nya avrop som ska besvaras inom en arbetsdag, första möten som inte är bokade, ärenden utan coach och flaggor att kvittera."
+    "what": "Min vecka och Avropsinkorg: nya avrop som ska besvaras inom en arbetsdag, första möten som inte är bokade, ärenden utan coach och flaggor att kvittera."
    },
    {
     "day": "Varje arbetsdag",
@@ -6283,7 +6287,7 @@
     "day": "Varje arbetsdag",
     "time": "Hela dagen",
     "who": "Handledare",
-    "what": "Mina tilldelade ärenden: yrkesmoment och praktikdagar de kommande sju dagarna, närvaro för egna tillfällen och uppföljning av praktikplatser."
+    "what": "Min vecka: närvaro att registrera, yrkesmoment och praktikdagar de kommande sju dagarna och uppföljning av praktikplatser."
    },
    {
     "day": "En gång i veckan per deltagare",
@@ -6446,5 +6450,5 @@
    "Testmiljön har bara påhittade uppgifter. Riktiga personuppgifter finns bara i produktion."
   ]
  },
- "stamp": "Version 2 oktober 2026 · 190 steg för 10 personer, granskade mot SPEC och appen."
+ "stamp": "Version 6 oktober 2026 · Min vecka för alla · 190 steg för 10 personer, granskade mot SPEC och appen."
 }

@@ -1,6 +1,6 @@
 # Miljonmatch
 
-Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemanning AB. Avtal nr 1 (pilot): Botkyrka kommun, avtal 332026110 (dnr AVN/2026:00048). Avtal nr 2: Kammarkollegiet, omställningsstöd, start 2027-03-13. Hela kravspecen finns i `SPEC.md` (v0.2) – läs relevant avsnitt innan du bygger något nytt.
+Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemanning AB. Avtal nr 1 (pilot): Botkyrka kommun, avtal 332026110 (dnr AVN/2026:00048). Miljonmatch är kommunernas plattform – fler kommunavtal kan läggas till som konfiguration. Kammarkollegiet får en egen plattform (beslut 2026-10-06) – blandas aldrig ihop med Miljonmatch. Hela kravspecen finns i `SPEC.md` (v0.2) – läs relevant avsnitt innan du bygger något nytt.
 
 ## Arbetssätt
 
@@ -48,6 +48,7 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 - Status visas alltid med text + ikon, aldrig bara färg. Mallarnas ord Grön/Gul/Röd skrivs ut som text; färgkodning: Grön → blå, Gul → ljusgrå, Röd → röd.
 - Brödtext minst 16 px (kommunportalen 18 px). Klickytor minst 44 × 44 px. Allt ska fungera med tangentbord och skärmläsare.
 - PDF-rapporter: logotyp överst, avtals- och ärendeinformation i högerställt block, rubriker i versaler.
+- Förebild: coachens Min vecka (beslut 2026-10-06). Alla MB-roller börjar på en Min vecka i samma stil med sina egna uppgifter (kitet `src/ui/vecka.tsx`, reglerna i `src/ui/README.md`). Menyn: Min vardag för alla och högst en rollflik.
 
 ## Ordlista (UI på svenska → kod på engelska)
 

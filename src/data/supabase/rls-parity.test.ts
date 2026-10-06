@@ -80,32 +80,44 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   // Kommunens resultatfil (rapporter steg 3): en chef för en underenhet (Alby) prövar enhetsspärren – testdatat har bara en
   // kommunchef, för hela Arbetsmarknadsenheten. Profilen får sitt auth_user_id i beforeAll (insertSql skriver inte extrakolumnerna).
   const eva = data.profiles.find((x) => x.id === "k-eva")!;
-  // Rapportbyggaren (0021): en arkiverad mb-rad, en rad i c-kk och en rad delad med kommunen som ägs av samordnaren (delad av
+  // Ett andra kommunavtal i utkast (påhittat, c-ny) där bara avtalsansvarig är medlem: flera avtal i datamodellen prövas,
+  // och kommunen ser inga individrapporter där.
+  const bot = data.contracts.find((c) => c.id === "c-bot")!;
+  const other: Tables["contracts"] = {
+    ...bot, id: "c-ny", name: "Nytt kommunavtal (påhittat)", contractNumber: "000000000", dnr: null, startsOn: "2027-06-01", endsOn: null, casePrefix: "NYK", status: "draft",
+    config: { casePrefix: "NYK", dataRole: "processor", customerVisibility: { seesIndividualReports: false, seesCoachNotes: false }, reportSchedule: { automatic: [] } },
+  };
+  // Rapportbyggaren (0021): en arkiverad mb-rad, en rad i c-ny och en rad delad med kommunen som ägs av samordnaren (delad av
   // avtalsansvarig – samordnaren får sedan inte ändra den).
   const saved = (id: string, contractId: string, ownerId: string, visibility: Tables["saved_reports"]["visibility"], sharedBy: string | null, archivedBy: string | null = null): Tables["saved_reports"] => ({
     id, contractId, ownerId, title: "Testrapport", templateKey: null, definition: { v: 1, dataset: "deltagarmanader" }, visibility, createdAt: at, updatedAt: null, updatedBy: null,
     sharedAt: sharedBy ? at : null, sharedBy, archivedAt: archivedBy ? at : null, archivedBy,
   });
   return {
+    // Först: raderna nedan pekar på avtalet (främmande nycklar).
+    contracts: [other],
     saved_reports: [
       saved("sr-x-arkiv", "c-bot", "u-karin", "mb", "u-karin", "u-karin"),
-      saved("sr-x-kk", "c-kk", "u-johan", "mb", "u-johan"),
+      saved("sr-x-ny", "c-ny", "u-johan", "mb", "u-johan"),
       saved("sr-x-sara-kommun", "c-bot", "u-sara", "customer", "u-johan"),
     ],
     profiles: [{ ...eva, id: CHEF_ALBY, fullName: "Testchef Alby", email: "chef.alby@example.invalid", customerUnit: "Arbetsmarknadsenheten Alby", lastLoginAt: null }],
-    memberships: [{ id: "ms-x-chef-alby", userId: CHEF_ALBY, contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" }],
+    memberships: [
+      { id: "ms-x-chef-alby", userId: CHEF_ALBY, contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" },
+      { id: "u-johan:c-ny", userId: "u-johan", contractId: "c-ny", role: "avtalsansvarig", customerUnit: null },
+    ],
     feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
     feedback_replies: [{ id: "fbr-x-1", feedbackId: "fb-x-karim", text: "Svar", createdAt: at, authorId: "tester-ali", submittedAt: null }],
     alerts: [
       alert("al-1", "c-bot", amiraCase.id, ["coach", "samordnare"]), alert("al-2", "c-bot", null, ["chef"]),
-      alert("al-3", "c-bot", protectedCase.id, ["avtalsansvarig", "samordnare"]), alert("al-4", "c-kk", null, ["avtalsansvarig"]),
+      alert("al-3", "c-bot", protectedCase.id, ["avtalsansvarig", "samordnare"]), alert("al-4", "c-ny", null, ["avtalsansvarig"]),
       alert("al-5", "c-bot", petraCase.id, ["handledare", "ekonom"]),
     ],
     alert_acks: [{ id: "al-1-key", alertKey: "al-1-key", acknowledgedBy: "u-amira", acknowledgedAt: at, actionPlan: "Plan" }],
-    deadlines: [deadline("dl-1", "c-bot", amiraCase.id), deadline("dl-2", "c-bot", null), deadline("dl-3", "c-bot", protectedCase.id), deadline("dl-4", "c-kk", null)],
+    deadlines: [deadline("dl-1", "c-bot", amiraCase.id), deadline("dl-2", "c-bot", null), deadline("dl-3", "c-bot", protectedCase.id), deadline("dl-4", "c-ny", null)],
     kpi_snapshots: [
       { id: "kpi-1", contractId: "c-bot", kpiKey: "resultatgrad", window: "rolling_6m", value: 0.34, numerator: 17, denominator: 50, computedAt: at },
-      { id: "kpi-2", contractId: "c-kk", kpiKey: "placeringsgrad", window: "month", value: null, numerator: 0, denominator: 0, computedAt: at },
+      { id: "kpi-2", contractId: "c-ny", kpiKey: "resultatgrad", window: "month", value: null, numerator: 0, denominator: 0, computedAt: at },
     ],
     bonus_claims: [bonus("bc-1", mariaCase.id), bonus("bc-2", amiraCase.id), bonus("bc-3", protectedCase.id), bonus("bc-4", petraCase.id)],
     contract_deviations: [cdev("cd-x1", mariaCase.id), cdev("cd-x2", protectedCase.id)],
@@ -117,7 +129,7 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     invoice_credits: [{ id: "ic-1", contractId: "c-bot", month: "2026-12", caseId: draft.caseId!, creditedAt: at, creditedBy: "u-lars", buyerReference: null }],
     fortnox_runs: [
       { id: "fr-1", contractId: "c-bot", month: "2027-01", kind: "create", ranAt: at, ranBy: "u-lars", created: 1, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
-      { id: "fr-2", contractId: "c-kk", month: "2027-01", kind: "sync", ranAt: at, ranBy: "u-lars", created: 0, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
+      { id: "fr-2", contractId: "c-ny", month: "2027-01", kind: "sync", ranAt: at, ranBy: "u-lars", created: 0, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
     ],
     jobs: [{ id: "job-seed", kind: "send_message", payload: {}, status: "done", attempts: 1, runAfter: at, lastError: null, createdAt: at, createdBy: null, finishedAt: at }],
     ai_runs: [{ ...runWithCase, id: "ai-run-utan-arende", caseId: null }],
@@ -873,7 +885,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       ["u-petra", insertNote("n-t2", NADIA, "c-bot", "u-petra", "team"), newRow("n-t2", NADIA, "c-bot", "u-petra", "team"), true],
       ["u-petra", insertNote("n-t3", NADIA, "c-bot", "u-petra", "full"), newRow("n-t3", NADIA, "c-bot", "u-petra", "full"), false],
       ["u-amira", insertNote("n-t4", NADIA, "c-bot", "u-sara", "full"), newRow("n-t4", NADIA, "c-bot", "u-sara", "full"), false],
-      ["u-amira", insertNote("n-t5", NADIA, "c-kk", "u-amira", "full"), newRow("n-t5", NADIA, "c-kk", "u-amira", "full"), false],
+      ["u-amira", insertNote("n-t5", NADIA, "c-ny", "u-amira", "full"), newRow("n-t5", NADIA, "c-ny", "u-amira", "full"), false],
       ["u-amira", insertNote("n-t6", NADIA, "c-bot", "u-amira", "full", `null, '${at}', 'u-amira'`), newRow("n-t6", NADIA, "c-bot", "u-amira", "full", { removedAt: at, removedBy: "u-amira" }), false],
       ["u-amira", insertNote("n-t7", NADIA, "c-bot", "u-amira", "full", `'${at}', null, null`), newRow("n-t7", NADIA, "c-bot", "u-amira", "full", { updatedAt: at }), false],
       ["u-karin", insertNote("n-t8", NADIA, "c-bot", "u-karin", "full"), newRow("n-t8", NADIA, "c-bot", "u-karin", "full"), false],
@@ -897,7 +909,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       ["u-sara", "update public.case_notes set body = 'Ny text' where id = 'note-nadia-samtal'", { ...samtal, body: "Ny text" }, false],
       ["u-johan", "update public.case_notes set kind = 'practical' where id = 'note-nadia-samtal'", { ...samtal, kind: "practical" }, false],
       ["u-amira", "update public.case_notes set case_id = 'case-260130' where id = 'note-nadia-samtal'", { ...samtal, caseId: "case-260130" }, false],
-      ["u-amira", "update public.case_notes set contract_id = 'c-kk' where id = 'note-nadia-samtal'", { ...samtal, contractId: "c-kk" }, false],
+      ["u-amira", "update public.case_notes set contract_id = 'c-ny' where id = 'note-nadia-samtal'", { ...samtal, contractId: "c-ny" }, false],
       ["u-amira", "update public.case_notes set author_id = 'u-sara' where id = 'note-nadia-samtal'", { ...samtal, authorId: "u-sara" }, false],
       ["u-amira", "update public.case_notes set body = 'Ny text' where id = 'note-nadia-borttagen'", { ...gone, body: "Ny text" }, false],
       ["u-amira", "update public.case_notes set removed_at = null, removed_by = null where id = 'note-nadia-borttagen'", { ...gone, removedAt: null, removedBy: null }, false],
@@ -959,12 +971,12 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       const after = (await tx.query<{ p: Record<string, unknown> }>("select config -> 'progression' as p from public.contracts where id = 'c-bot'")).rows[0].p;
       await tx.exec(sql); // idempotent
       const again = (await tx.query<{ p: Record<string, unknown> }>("select config -> 'progression' as p from public.contracts where id = 'c-bot'")).rows[0].p;
-      const kk = (await tx.query<{ c: unknown }>("select config -> 'progression' as c from public.contracts where id = 'c-kk'")).rows[0].c;
-      return { after, again, kk };
+      const draft = (await tx.query<{ c: unknown }>("select config -> 'progression' as c from public.contracts where id = 'c-ny'")).rows[0].c;
+      return { after, again, draft };
     }, { role: "service_role" });
     expect(res.after).toMatchObject({ clearFromLevel: 2, anyFromLevel: 1 });
     expect(res.again).toEqual(res.after);
-    expect(res.kk).toBeNull();
+    expect(res.draft).toBeNull();
     const cfg = { ...data.contracts.find((c) => c.id === "c-bot")!.config, progression: res.after };
     expect(() => requireOperational(cfg as never)).not.toThrow();
   });
@@ -982,7 +994,7 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
     const expected: Record<string, string[]> = {
       "u-sara": bot(["sr-seed-privat", "sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun"]),
       "u-karin": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun"]),
-      "u-johan": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun", "sr-x-kk"]),
+      "u-johan": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun", "sr-x-ny"]),
       "u-robin": [], "u-amira": [], "u-petra": [], "u-lars": [], "k-maria": [], "tester-karim": [],
       "k-eva": bot(["sr-seed-kommun", "sr-x-sara-kommun"]),
       "k-chef-alby": bot(["sr-seed-kommun", "sr-x-sara-kommun"]),
@@ -1020,7 +1032,7 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
       ["u-sara", row("n-9", "u-sara", "private", null, { archivedAt: at, archivedBy: "u-sara" }), false],
       ["u-sara", row("n-10", "u-sara", "private", null, { updatedAt: at, updatedBy: "u-sara" }), false],
       ["u-sara", row("n-11", "u-sara", "private", null, { templateKey: "Anna Andersson" }), false],
-      ["u-johan", row("n-12", "u-johan", "customer", "u-johan", { contractId: "c-kk" }), false],
+      ["u-johan", row("n-12", "u-johan", "customer", "u-johan", { contractId: "c-ny" }), false],
       ["u-robin", row("n-13", "u-robin", "private", null), false],
       ["u-amira", row("n-14", "u-amira", "private", null), false],
       ["u-lars", row("n-15", "u-lars", "private", null), false],
@@ -1043,7 +1055,7 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
     const upd = (id: string, set: string) => `update public.saved_reports set ${set} where id = '${id}'`;
     const cases: [string, string, Tables["saved_reports"], boolean][] = [
       ["u-sara", upd(privat.id, "owner_id = 'u-karin'"), { ...privat, ownerId: "u-karin" }, false],
-      ["u-sara", upd(privat.id, "contract_id = 'c-kk'"), { ...privat, contractId: "c-kk" }, false],
+      ["u-sara", upd(privat.id, "contract_id = 'c-ny'"), { ...privat, contractId: "c-ny" }, false],
       ["u-sara", upd(privat.id, `created_at = '${at}'`), { ...privat, createdAt: at }, false],
       ["u-sara", upd(privat.id, `visibility = 'mb', shared_at = '${at}', shared_by = 'u-karin'`), { ...privat, visibility: "mb", sharedAt: at, sharedBy: "u-karin" }, false],
       ["u-sara", upd(privat.id, "visibility = 'mb'"), { ...privat, visibility: "mb" }, false],

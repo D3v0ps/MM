@@ -1,4 +1,5 @@
-// Området inkorg: startsidan (/start), avropsinkorgen (/inkorg/:emailId?) och förfaller (/forfaller).
+// Området inkorg: samordnarens och avtalsansvarigs Min vecka (/min-vecka – /start leder dit), avropsinkorgen (/inkorg/:emailId?)
+// och förfaller (/forfaller).
 // Port av alla steg i den gamla prototypens prototyp/tools/test-inkorg.mjs. Data läses via skärmen.
 // Varje test börjar med nollställda testdata; steg som byggde på varandra i det gamla testet gör förarbetet själva
 // (samma åtgärder i gränssnittet), och flödet i sin helhet körs i testet "hela flödet".
@@ -154,7 +155,7 @@ test("förfaller: grupper, filter per typ och sammanslagna månadsrapporter", as
   expect(errors).toEqual([]);
 });
 
-// ---------------------------------------------------------------- Startsidan
+// ---------------------------------------------------------------- Min vecka (samordnarens och avtalsansvarigs startsida)
 test("inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar samma tal", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg", SARA);
   const m = main(page);
@@ -165,17 +166,17 @@ test("inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar sam
   const parts = await m.locator("[data-summary-part]").allInnerTexts();
   expect(parts.map(Number).reduce((a, b) => a + b, 0)).toBe(Number(n));
   expect(parts).toEqual(["3", "1", "1", "1"]);
-  await goAs(page, info, SARA, "/start");
+  await goAs(page, info, SARA, "/min-vecka");
   await expect(m.locator("[data-inkorg-tile]").first()).toContainText(new RegExp(`Att hantera i inkorgen\\s*${n}(?!\\d)`, "i"));
   expect(errors).toEqual([]);
 });
 
 test("startsidan: SLA-märket överlappar inte rubriken (1280 och 1024 px), status med text i rutor", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", SARA);
+  const errors = await open(page, info, "/min-vecka", SARA);
   for (const [who, w] of [[SARA, 1280], [JOHAN, 1280], [SARA, 1024]] as const) {
     await page.setViewportSize({ width: w, height: 900 });
-    await goAs(page, info, who, "/start");
-    await expect(main(page).getByRole("heading", { name: "Startsida" })).toBeVisible();
+    await goAs(page, info, who, "/min-vecka");
+    await expect(main(page).getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
     await expect(main(page).locator("[data-mini-row]").first()).toBeVisible();
     const over = await page.evaluate(() =>
       [...document.querySelectorAll("[data-mini-row]")].map((r) => {
@@ -204,7 +205,7 @@ test("startsidan: SLA-märket överlappar inte rubriken (1280 och 1024 px), stat
 });
 
 test("startsidan (avtalsansvarig): uppgiften om det skyddade avropet ligger hos avtalsansvarig", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", JOHAN);
+  const errors = await open(page, info, "/min-vecka", JOHAN);
   const m = main(page);
   await expect(m.getByRole("heading", { name: "Öppna uppgifter (1)" })).toBeVisible();
   await expect(m.getByText("Avrop med skyddade personuppgifter från Omar Farah", { exact: false }).first()).toBeVisible();
@@ -216,7 +217,7 @@ test("startsidan (avtalsansvarig): uppgiften om det skyddade avropet ligger hos 
 });
 
 test("startsidan: översikt, kvittera flagga med åtgärdsplan", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", SARA);
+  const errors = await open(page, info, "/min-vecka", SARA);
   const m = main(page);
   for (const t of ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera", "Avrop besvarade inom en arbetsdag", "Första möte inom en vecka", "Tilldelning ger notis", "Öppna uppgifter (0)", "hanteras av avtalsansvarig"]) {
     await expect(m.getByText(t, { exact: false }).first()).toBeVisible();
@@ -236,7 +237,7 @@ test("startsidan: översikt, kvittera flagga med åtgärdsplan", async ({ page }
 });
 
 test("startsidan: boka första möte för ärende utan bokat möte", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", SARA);
+  const errors = await open(page, info, "/min-vecka", SARA);
   const m = main(page);
   await expect(m.getByRole("link", { name: "BOT-27-0039" })).toBeVisible();
   await m.getByRole("button", { name: "Boka", exact: true }).first().click();
@@ -360,7 +361,7 @@ test("em-104: registrera efter telefonsamtal och acceptera – ingen kallelse ti
   await expect(m.getByText("Orderbekräftelse skickad")).toBeVisible();
   await expect(m.getByText("Deltagaren:", { exact: true }).locator("..")).toContainText("ingen kallelse via SMS eller e-post (skyddade personuppgifter)");
   // Uppgiften och flaggan till avtalsansvarig är stängda.
-  await goAs(page, info, JOHAN, "/start");
+  await goAs(page, info, JOHAN, "/min-vecka");
   await expect(m.getByRole("heading", { name: "Öppna uppgifter (0)" })).toBeVisible();
   await expect(m.getByText("Avrop med skyddade personuppgifter", { exact: true })).toHaveCount(0);
   // Samordnaren ser bara ärendenumret och "Skyddade personuppgifter".
@@ -398,7 +399,7 @@ test("em-106: avböj kräver orsak", async ({ page }, info) => {
 
 // ---------------------------------------------------------------- Portalbeställning
 test("portalbeställning från kommunen syns i inkorgen och kan accepteras", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", SARA);
+  const errors = await open(page, info, "/min-vecka", SARA);
   await commandAs(page, info, MARIA, "arenden.caseCreate", {
     source: "portal", referrerId: "k-maria", firstName: "Lina", lastName: "Portaltest", pnr: "19950505-1111", buyerReference: "4410023817", primaryArea: "F",
     plannedWeeks: 6, desiredStart: "2027-02-10", vocationalTrack: "Lokalvårdare med certifiering",
@@ -447,7 +448,7 @@ test("hela flödet: alla avrop hanteras – flikar, ?arende=, tom startsida och 
   await expect(m.getByRole("tab", { name: "Alla" })).toHaveAttribute("aria-selected", "true");
 
   // Startsidan efter flödena: inkorgen tom, uppgiften klar.
-  await goAs(page, info, SARA, "/start");
+  await goAs(page, info, SARA, "/min-vecka");
   await expect(m.getByText("Inkorgen är tom")).toBeVisible();
   await expect(m.getByText("Inga öppna uppgifter")).toBeVisible();
 

@@ -102,8 +102,8 @@ describe("rapportutkasten i jobbkörningen", () => {
     const t = setup();
     await t.run(DEMO_START);
     expect(t.settings.get(reportMarkKey("c-bot"))).toBe(DEMO_START);
-    // KK skapar inga rapporter automatiskt – inget märke.
-    expect(t.settings.has(reportMarkKey("c-kk"))).toBe(false);
+    // Bara avtalet i testdatat har fått ett märke.
+    expect([...t.settings.keys()].filter((k) => k.startsWith("report_schedule_checked:"))).toEqual([reportMarkKey("c-bot")]);
     // Cron har stått still i fyra månader (t.ex. fel hemlighet): allt från februari skapas, inte bara de senaste 62 dagarna.
     expect(await t.run("2027-06-01T08:00")).toMatchObject({ done: 1, outcomes: { "report_schedule:created": 1 } });
     expect(t.settings.get(reportMarkKey("c-bot"))).toBe("2027-06-01T08:00");
@@ -131,7 +131,7 @@ describe("rapportutkasten i jobbkörningen", () => {
     expect(staging.floor).toBe(DEMO_START);
     expect(await staging.checkedThrough("c-bot")).toBe("2027-02-08T00:05");
     expect(await staging.checkedThrough("c-x")).toBeNull();
-    expect(await staging.checkedThrough("c-kk")).toBeNull();
+    expect(await staging.checkedThrough("c-ny")).toBeNull();
     await staging.markChecked("c-bot", "2027-02-08T00:15");
     expect(writes).toEqual([{ key: "report_schedule_checked:c-bot", value: "2027-02-08T00:15" }]);
     expect(await staging.checkedThrough("c-bot")).toBe("2027-02-08T00:15");

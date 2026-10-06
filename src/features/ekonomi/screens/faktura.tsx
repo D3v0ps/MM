@@ -112,7 +112,7 @@ function Faktura({ v, crumbs }: { v: InvoicePreviewView & { month: string }; cru
             </span>
           ) : (
             remarks.map((ch, i) => (
-              <Badge key={`${ch.kind}-${i}`} tone={CHECK[ch.severity].tone} icon={CHECK[ch.severity].icon} title={ch.text}>
+              <Badge key={`${ch.kind}-${i}`} tone={CHECK[ch.severity].tone} icon={CHECK[ch.severity].icon} className={CHECK[ch.severity].className} title={ch.text}>
                 {ch.label}
               </Badge>
             ))
@@ -158,11 +158,11 @@ function Faktura({ v, crumbs }: { v: InvoicePreviewView & { month: string }; cru
         </Card>
         <Card title="Så tar kommunen emot fakturan" icon="building">
           <div className="flex flex-col gap-2">
-            <p className="text-small">
+            <p>
               Fakturan kommer som Peppol-faktura till kommunens e-fakturasystem. Kommunen använder beställarreferensen{" "}
               {inv.buyerReference ? <b className="tabular-nums">{inv.buyerReference}</b> : ""} för att skicka den till rätt enhet{inv.ref.unit ? ` (${inv.ref.unit})` : ""}.
             </p>
-            <p className="text-small">Ärendenumret kopplar fakturan till beställningen. Handläggaren ser samma ärendenummer i portalen – men ingen faktura där.</p>
+            <p>Ärendenumret kopplar fakturan till beställningen. Handläggaren ser samma ärendenummer i portalen – men ingen faktura där.</p>
             <div>
               <PerspectiveLink
                 role={custRole}
