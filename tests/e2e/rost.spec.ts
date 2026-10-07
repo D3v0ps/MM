@@ -146,6 +146,8 @@ test("deltagaren spelar in via länken: språk, samtycke, inspelning och kvitto 
   const voice = card(page, "Deltagarens röstmeddelanden");
   await expect(voice).toContainText("Nytt – att granska");
   await expect(voice).toContainText("AI-transkribering");
+  // Testmiljön: AI:n är simulerad och märks så (synpunkt #8, beslut 2026-10-07).
+  await expect(voice).toContainText("Testmiljö: AI:n är simulerad – texten är påhittad och inte det deltagaren sa.");
   await expect(voice).toContainText(/Samtycke i länken 1 feb kl\. \d\d\.\d\d, textversion röst-v1\.0 \(2026-09-30\)\./);
   await btn(voice, "Markera som granskat").click();
   await expect(voice).toContainText("Granskat 1 feb av Amira Haddad");
@@ -177,14 +179,14 @@ test("coachen skickar inspelningslänk utan personuppgifter och granskar Nadias 
   await btn(page, "Lägg till i anteckningen").click();
   await expect(page.locator("#ci-note")).toHaveValue(/^Deltagarens röstmeddelande 28 jan: Hej, det är jag\./);
 
-  // Skyddade personuppgifter: ingen länk. Avstämningen sparas inte – sidan lämnas med text i anteckningen, och webbläsaren
-  // varnar (som den ska).
+  // Ärendet som var skyddat är ett vanligt ärende sedan 2026-10-07 (skyddet borttaget ur appen, spärren vilande): länken kan
+  // skickas som till alla andra. Avstämningen sparas inte – sidan lämnas med text i anteckningen, och webbläsaren varnar.
   allowLeaveWarnings(page);
   await switchUser(page, info, JOHAN, `/arenden/${SC.skyddad}`);
   await openVoice(page);
   const prot = card(page, "Deltagarens röstmeddelanden");
-  await expect(prot).toContainText("Deltagaren har skyddade personuppgifter. Inga länkar, SMS eller mejl skickas");
-  await expect(btn(prot, "Skicka inspelningslänk till deltagaren")).toHaveCount(0);
+  await expect(prot).not.toContainText("skyddade personuppgifter");
+  await expect(btn(prot, "Skicka inspelningslänk till deltagaren")).toHaveCount(1);
   expect(relevant(errors)).toEqual([]);
 });
 
@@ -200,6 +202,8 @@ test("kommunen talar in ett meddelande och beställningens bakgrund – inget lj
   await btn(tala, "Klar").click();
   await expect(page.locator("#kom-msg")).toHaveValue(DICTATION, { timeout: 20_000 });
   await expect(main(page)).toContainText("Texten står nu i fältet. Läs den och rätta det som blev fel innan du skickar.");
+  // Testmiljön: AI:n är simulerad och märks så (synpunkt #8 "Tal till text fungerar ej", beslut 2026-10-07).
+  await expect(main(page).getByRole("note").first()).toContainText("Testmiljö: AI:n är simulerad – texten är påhittad och inte det du sa.");
   await page.locator("#kom-msg").fill(`${await page.locator("#kom-msg").inputValue()} (rättat)`);
   await btn(page, "Skicka meddelandet").click();
   await expect(page.getByRole("log", { name: "Meddelanden" })).toContainText("(rättat)");
@@ -207,16 +211,15 @@ test("kommunen talar in ett meddelande och beställningens bakgrund – inget lj
   // Ny beställning: Tala in vid bakgrunden (steg 3)
   await go(page, info, "/portal/bestall");
   await page.fill("#kom-o-start", "2027-02-15");
-  await page.getByRole("group", { name: "Planerad omfattning i veckor" }).getByRole("button", { name: "8", exact: true }).click();
+  await page.getByRole("group", { name: "Omfattning" }).getByRole("button", { name: "6 månader" }).click();
   await btn(page, /^Nästa/).click();
-  await page.getByRole("group", { name: "Skyddade personuppgifter" }).getByRole("button", { name: "Nej" }).click();
   await page.fill("#kom-o-fn", "Samira");
   await page.fill("#kom-o-ln", "Testsson");
   await page.fill("#kom-o-pnr", "19880412-3456");
   await page.fill("#kom-o-dphone", "070-000 11 22");
   await page.fill("#kom-o-city", "Tumba");
   await btn(page, /^Nästa/).click();
-  await expect(main(page).getByRole("heading", { level: 2, name: "Avtalsområde" })).toHaveCount(1);
+  await expect(main(page).getByRole("heading", { level: 2, name: "Bakgrundsinformation om deltagaren" })).toHaveCount(1);
   await page.fill("#kom-o-bg", "Har arbetat på lager.");
   await btn(page, "Tala in").click();
   const tala2 = page.getByRole("region", { name: "Tala in" });
@@ -224,6 +227,9 @@ test("kommunen talar in ett meddelande och beställningens bakgrund – inget lj
   await page.waitForTimeout(isDemo(info) ? 1000 : 4000);
   await btn(tala2, "Klar").click();
   await expect(page.locator("#kom-o-bg")).toHaveValue(/^Har arbetat på lager\. \S/, { timeout: 20_000 });
+  await expect(main(page).getByRole("note").first()).toContainText("Testmiljö: AI:n är simulerad – texten är påhittad och inte det du sa.");
+  // Sidan lämnas med ett påbörjat formulär (webbläsaren varnar, som den ska).
+  allowLeaveWarnings(page);
   expect(relevant(errors)).toEqual([]);
 });
 

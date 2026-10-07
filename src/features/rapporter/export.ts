@@ -267,7 +267,6 @@ export const EMPTY_CELL_RULE = "Tom cell betyder att uppgiften saknas eller inte
 export function aboutRules(cfg: Pick<OperationalConfig, "result">): string[] {
   return [
     "Bara levererade månadsrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.",
-    "Ärenden med skyddade personuppgifter finns aldrig med.",
     "Avslut och resultat för alla insatser som avslutades under perioden finns på fliken Avslut. Räkna resultatgraden där.",
     isUnset(cfg.result.definition) ? "Resultatdefinitionen är inte fastställd. Resultatet är preliminärt." : null,
     cfg.result.requiresVerification ? VERIFIED_RESULT_RULE : null,

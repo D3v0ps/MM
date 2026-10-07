@@ -91,3 +91,34 @@ export async function checkVerify(store: AttemptStore, h: Hashes, nowMs: number)
   if (failedForCode >= LIMITS.attemptsPerCode) return "too_many_attempts";
   return "ok";
 }
+
+// ---------------------------------------------------------------- Självregistrering (beslut 2026-10-07)
+/**
+ * Tak för nya konton (självregistrering) – plattformsregler, inte avtalsvärden. Räknas på påbörjade självregistreringar i
+ * login_attempts (kind "self_registration", bara hashade värden) och på unika adresser, inte på begäranden:
+ *   * perApp: högst så här många olika nya adresser per timme i hela appen (skyddar kodmejlens kvot och Auth),
+ *   * perIp:  högst så här många olika nya adresser per timme från samma IP – så att en enda avsändare med påhittade adresser
+ *             inte kan förbruka hela appens tak och stänga självregistreringen för riktiga handläggare (granskningen 2026-10-07).
+ * En ny kod till en adress som redan påbörjat en självregistrering inom fönstret räknas inte igen.
+ */
+export const SELF_REGISTRATION_LIMITS = { windowMinutes: 60, perApp: 20, perIp: 3 } as const;
+
+/** login_attempts för självregistreringen (service role i drift, en fejk i testerna). */
+export type SelfRegistrationStore = {
+  /** Påbörjade självregistreringar sedan en tidpunkt (ISO). */
+  recent(since: string): Promise<Hashes[]>;
+  record(a: { at: string } & Hashes): Promise<void>;
+};
+
+/** "ok" = ny adress, registreras; "repeat" = adressen har redan påbörjat inom fönstret (räknas inte igen); annars taket. */
+export type SelfRegistrationVerdict = "ok" | "repeat" | "app_limit" | "ip_limit";
+
+/** Får en ny adress påbörja en självregistrering (kod och Auth-konto)? Registrerar försöket när svaret är "ok". */
+export async function checkSelfRegistration(store: SelfRegistrationStore, h: Hashes, nowMs: number): Promise<SelfRegistrationVerdict> {
+  const rows = await store.recent(iso(nowMs - SELF_REGISTRATION_LIMITS.windowMinutes * 60_000));
+  if (rows.some((r) => r.emailHash === h.emailHash)) return "repeat";
+  if (new Set(rows.map((r) => r.emailHash)).size >= SELF_REGISTRATION_LIMITS.perApp) return "app_limit";
+  if (new Set(rows.filter((r) => r.ipHash === h.ipHash).map((r) => r.emailHash)).size >= SELF_REGISTRATION_LIMITS.perIp) return "ip_limit";
+  await store.record({ at: iso(nowMs), ...h });
+  return "ok";
+}

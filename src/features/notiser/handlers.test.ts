@@ -49,7 +49,7 @@ describe("notiser", () => {
     expect(petra.items.map((n) => n.kind)).not.toContain("progress_reminder");
     const lars = await rt.query(notifList, {}, rt.as("u-lars", "ekonom"));
     expect(lars.items.filter((n) => n.kind === "progress_escalation" || n.kind === "progress_reminder")).toEqual([]);
-    await expect(rt.query(notifList, {}, rt.as("k-eva", "kommun_chef"))).rejects.toBeInstanceOf(ApiError);
+    await expect(rt.query(notifList, {}, rt.as("k-maria", "kommun_handlaggare"))).rejects.toBeInstanceOf(ApiError);
   });
 
   it("läsmarkeringen gäller bara den inloggade och flyttar inte klockan", async () => {

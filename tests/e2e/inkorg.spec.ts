@@ -76,33 +76,12 @@ async function supplementAndAccept(page: Page) {
   await dialog(page).getByRole("button", { name: "Klart" }).click();
 }
 
-/** em-104 som avtalsansvarig: registrera efter telefonsamtal (skyddade personuppgifter). */
-async function registerByPhone(page: Page) {
+/** em-104 (Övrigt sedan 2026-10-07 – skyddade personuppgifter är borttagna ur appen): markera som hanterat. */
+async function handleEm104(page: Page) {
   const m = main(page);
-  await m.getByRole("button", { name: "Registrera efter telefonsamtal" }).click();
-  await dialog(page).getByRole("button", { name: "Registrera ärendet" }).click();
-  await expect(dialog(page).getByText("Skriv förnamnet.")).toBeVisible();
-  await page.fill("#ink-p-first", "Samir");
-  await page.fill("#ink-p-last", "Lindqvist-Test");
-  await page.fill("#ink-p-pnr", "19880412-1234");
-  await page.selectOption("#ink-p-area", "G");
-  await page.fill("#ink-p-weeks", "8");
-  await page.check("#ink-p-confirm");
-  await dialog(page).getByRole("button", { name: "Registrera ärendet" }).click();
-  await expect(dialog(page)).toHaveCount(0);
-  await expect(toastWith(page, "BOT-27-0051 är registrerat med skyddade personuppgifter. Acceptera och tilldela en namngiven coach.")).toBeVisible();
-}
-
-/** Acceptera det skyddade ärendet med Sofia – ingen kallelse till deltagaren. */
-async function acceptProtected(page: Page) {
-  const m = main(page);
-  await m.getByRole("button", { name: "Acceptera", exact: true }).click();
-  await expect(dialog(page).getByText("Deltagaren får ingen kallelse via SMS eller e-post", { exact: false })).toBeVisible();
-  await page.check("#ink-coach-u-sofia");
-  await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
-  await expect(dialog(page).getByText("Sofia Grahn har fått en notis om tilldelningen")).toBeVisible();
-  await expect(dialog(page).getByText("ingen kallelse via SMS eller e-post (skyddade personuppgifter)", { exact: false })).toBeVisible();
-  await dialog(page).getByRole("button", { name: "Klart" }).click();
+  await expect(m.getByText("Klassat som Övrigt – inte en beställning")).toBeVisible();
+  await m.getByRole("button", { name: "Markera som hanterad" }).click();
+  await expect(m.getByText(/^Hanterad av Sara Lindqvist i dag kl\. \d\d\.\d\d$/)).toBeVisible();
 }
 
 /** em-105 (Övrigt): svara med säkert meddelande och markera som hanterat. */
@@ -165,7 +144,8 @@ test("inkorgens antal: menyn, rutan Att hantera, fliken och startsidan visar sam
   await expect(m.getByRole("tab", { name: /Att hantera/ })).toContainText(n);
   const parts = await m.locator("[data-summary-part]").allInnerTexts();
   expect(parts.map(Number).reduce((a, b) => a + b, 0)).toBe(Number(n));
-  expect(parts).toEqual(["3", "1", "1", "1"]);
+  // Avrop att besvara, kompletteringar och övrigt. em-104 är en vanlig fråga (Övrigt) sedan 2026-10-07 – ingen skyddad grupp.
+  expect(parts).toEqual(["3", "1", "2"]);
   await goAs(page, info, SARA, "/min-vecka");
   await expect(m.locator("[data-inkorg-tile]").first()).toContainText(new RegExp(`Att hantera i inkorgen\\s*${n}(?!\\d)`, "i"));
   expect(errors).toEqual([]);
@@ -204,14 +184,16 @@ test("startsidan: SLA-märket överlappar inte rubriken (1280 och 1024 px), stat
   expect(errors).toEqual([]);
 });
 
-test("startsidan (avtalsansvarig): uppgiften om det skyddade avropet ligger hos avtalsansvarig", async ({ page }, info) => {
+test("startsidan (avtalsansvarig): inga skyddade avrop och beställarrapporten lämnas utanför Miljonmatch (beslut 2026-10-07)", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", JOHAN);
   const m = main(page);
-  await expect(m.getByRole("heading", { name: "Öppna uppgifter (1)" })).toBeVisible();
-  await expect(m.getByText("Avrop med skyddade personuppgifter från Omar Farah", { exact: false }).first()).toBeVisible();
-  await expect(m.getByText("Skapad automatiskt", { exact: false }).first()).toBeVisible();
-  await expect(m.getByRole("heading", { name: "Skyddade avrop" })).toBeVisible();
-  await expect(m.getByText("Omar Farah · i dag kl. 07.55 · väntar på telefonsamtal")).toBeVisible();
+  await expect(m.getByRole("heading", { name: "Öppna uppgifter (0)" })).toBeVisible();
+  await expect(m.getByRole("heading", { name: "Skyddade avrop" })).toHaveCount(0);
+  await expect(m).not.toContainText(/skyddade personuppgifter|väntar på telefonsamtal/i);
+  // Omars mejl (em-104) är en vanlig fråga i inkorgen.
+  await expect(m.getByRole("link", { name: "Fråga om startdatum" })).toBeVisible();
+  await expect(m.getByText("Beställarrapport januari 2027 att godkänna", { exact: false })).toBeVisible();
+  await expect(m.getByText("Lämnas till kommunen utanför Miljonmatch.", { exact: false })).toBeVisible();
   await expect(m.getByText("3 varningar kan leda till uppsägning.", { exact: false })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -219,18 +201,19 @@ test("startsidan (avtalsansvarig): uppgiften om det skyddade avropet ligger hos 
 test("startsidan: översikt, kvittera flagga med åtgärdsplan", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", SARA);
   const m = main(page);
-  for (const t of ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera", "Avrop besvarade inom en arbetsdag", "Första möte inom en vecka", "Tilldelning ger notis", "Öppna uppgifter (0)", "hanteras av avtalsansvarig"]) {
+  for (const t of ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera", "Avrop besvarade inom en arbetsdag", "Första möte inom en vecka", "Tilldelning ger notis", "Öppna uppgifter (0)"]) {
     await expect(m.getByText(t, { exact: false }).first()).toBeVisible();
   }
-  await expect(m.getByRole("heading", { name: "Flaggor (12)" })).toBeVisible();
+  // 11 flaggor: flaggan om skyddade avrop finns inte sedan 2026-10-07.
+  await expect(m.getByRole("heading", { name: "Flaggor (11)" })).toBeVisible();
   await m.getByRole("button", { name: "Kvittera", exact: true }).first().click();
   await dialog(page).getByRole("button", { name: "Kvittera", exact: true }).click();
   await expect(dialog(page).getByText("Skriv en kort åtgärdsplan")).toBeVisible();
-  await page.fill("#ink-ack-plan", "Sara ringer handläggaren i dag före kl. 12 enligt den säkra rutinen.");
+  await page.fill("#ink-ack-plan", "Sara ringer handläggaren i dag före kl. 12.");
   await dialog(page).getByRole("button", { name: "Kvittera", exact: true }).click();
   await expect(dialog(page)).toHaveCount(0);
   await expect(toastWith(page, "Flaggan är kvitterad. Åtgärdsplanen är sparad i revisionsloggen.")).toBeVisible();
-  await expect(m.getByRole("heading", { name: "Flaggor (11)" })).toBeVisible();
+  await expect(m.getByRole("heading", { name: "Flaggor (10)" })).toBeVisible();
   await m.getByRole("button", { name: "Visa kvitterade (1)" }).click();
   await expect(m.getByText(/Kvitterad av Sara Lindqvist i dag kl\. \d\d\.\d\d\. Åtgärd: Sara ringer handläggaren/)).toBeVisible();
   expect(errors).toEqual([]);
@@ -276,42 +259,42 @@ test("em-101: acceptera med coach och team → orderbekräftelse och notis till 
 });
 
 // ---------------------------------------------------------------- Fritext (em-102)
-test("em-102: acceptera stoppas – felet syns direkt (överst, toast, fokus i fältet)", async ({ page }, info) => {
+test("em-102: acceptera stoppas när omfattningen saknas – felet syns direkt (toast och fältet)", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg/em-102", SARA);
   const m = main(page);
   await expect(m.getByText("Tolkat med AI")).toBeVisible();
   await expect(m.getByText(/Osäker \d+/).first()).toBeVisible();
-  if (isDemo(info)) await expect(m.getByRole("button", { name: /Se vad kommunen fick \(kommunens chef\)/ })).toBeVisible();
+  // Ordererkännandet bad om omfattningen (beslut 2026-10-07) – inte om beställarreferens eller avtalsområde.
+  await expect(m.getByText("Saknas: omfattning", { exact: false })).toBeVisible();
+  if (isDemo(info)) await expect(m.getByRole("button", { name: "Se vad kommunen fick" })).toBeVisible();
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   const d = dialog(page);
-  await expect(d.getByText("Beställarreferens saknas – avropet kan inte bekräftas").first()).toBeVisible(); // överst redan när dialogen öppnas
   await page.check("#ink-coach-u-erik");
+  await page.fill("#ink-track", "Kockbiträde");
   await d.getByRole("button", { name: "Acceptera avropet" }).click();
-  await expect(toastWith(page, "Beställarreferens saknas").first()).toBeVisible();
-  await expect(page.locator("#ink-ref")).toHaveAttribute("aria-invalid", "true");
-  await expect(d.getByText(/Beställarreferens saknas\. Kommunen har inte angett någon/).first()).toBeVisible();
-  await expect(page.locator("#ink-ref")).toBeFocused();
-  await expect(page.locator("#ink-ref")).toBeInViewport();
+  await expect(toastWith(page, "Avropet kan inte accepteras ännu. Välj hur länge insatsen ska pågå.").first()).toBeVisible();
+  await expect(d.getByText("Välj hur länge insatsen ska pågå.").first()).toBeVisible();
+  // Beställarreferensen är valfri (beslut 2026-10-07) – den stoppar inte.
+  await expect(d.getByText(/Beställarreferens saknas/)).toHaveCount(0);
   await expect(d.getByText("Det finns en komplettering att föra in först")).toBeVisible();
   await d.getByRole("button", { name: "Avbryt" }).click();
   await expect(m.getByText("Väntar på beslut", { exact: true }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("em-102: rätta planerad omfattning – loggas som rättad, övrigt som kontrollerat", async ({ page }, info) => {
+test("em-102: rätta omfattningen – loggas som rättad, övrigt som kontrollerat", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg/em-102", SARA);
   const m = main(page);
   await m.getByRole("button", { name: "Rätta uppgifter" }).click();
-  await page.fill("#ink-c-weeks", "8");
+  await dialog(page).getByRole("group", { name: "Omfattning" }).getByRole("button", { name: "6 månader" }).click();
   await dialog(page).getByRole("button", { name: /Spara och markera/ }).click();
   await expect(dialog(page)).toHaveCount(0);
-  await expect(toastWith(page, "Rättat: planerad omfattning. Ändringen är loggad.")).toBeVisible();
+  await expect(toastWith(page, /^Rättat: omfattning.*Ändringen är loggad\.$/)).toBeVisible();
   await expect(m.getByText("Rättad", { exact: true }).first()).toBeVisible();
   await expect(m.getByText("Kontrollerad", { exact: true }).first()).toBeVisible();
-  await expect(m.getByText("8 veckor")).toBeVisible();
-  // Planerad omfattning är rättad (ärendet och beställningens värde), avtalsområdet bara kontrollerat.
+  // Omfattningen är rättad i ärendet och förifylld när avropet accepteras.
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
-  await expect(page.locator("#ink-weeks")).toHaveValue("8");
+  await expect(dialog(page).getByRole("group", { name: "Omfattning" }).getByRole("button", { name: "6 månader" })).toHaveAttribute("aria-pressed", "true");
   await dialog(page).getByRole("button", { name: "Avbryt" }).click();
   expect(errors).toEqual([]);
 });
@@ -329,48 +312,21 @@ test("em-103: för in kompletteringen och acceptera", async ({ page }, info) => 
   expect(errors).toEqual([]);
 });
 
-// ---------------------------------------------------------------- Skyddade personuppgifter (em-104)
-test("em-104 som samordnare: ingen registrering – förklaring och perspektivbyte till avtalsansvarig", async ({ page }, info) => {
+// ---------------------------------------------------------------- em-104: en vanlig fråga (beslut 2026-10-07)
+test("em-104: Omars mejl är en vanlig fråga (Övrigt) – ingen säker rutin och ingen registrering efter telefonsamtal", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg/em-104", SARA);
   const m = main(page);
-  await expect(m.getByText("Avtalsansvarig hanterar skyddade avrop enligt den säkra rutinen").first()).toBeVisible();
+  await expect(m.getByRole("heading", { name: "Fråga om startdatum" })).toBeVisible();
+  await expect(m.getByText("Klassat som Övrigt – inte en beställning")).toBeVisible();
   await expect(m.getByRole("button", { name: "Registrera efter telefonsamtal" })).toHaveCount(0);
-  await expect(m.getByRole("button", { name: "Acceptera", exact: true })).toHaveCount(0);
-  if (isDemo(info)) {
-    await m.getByRole("button", { name: "Se avtalsansvarigs vy" }).click();
-    await expect(page.getByLabel("Roll", { exact: true })).toHaveValue("avtalsansvarig");
-    await expect(m.getByRole("button", { name: "Registrera efter telefonsamtal" })).toBeVisible();
-  }
-  expect(errors).toEqual([]);
-});
-
-test("em-104: registrera efter telefonsamtal och acceptera – ingen kallelse till deltagaren", async ({ page }, info) => {
-  const errors = await open(page, info, "/inkorg/em-104", JOHAN);
-  const m = main(page);
-  await expect(m.getByText("Skyddade personuppgifter – ingen automatik")).toBeVisible();
-  await expect(m.getByText("Generisk mottagningsbekräftelse", { exact: true })).toBeVisible();
-  await registerByPhone(page);
-  // Mejlet är kopplat, SLA räknas från mejlets mottagning och den säkra rutinen visar vem som registrerade.
-  await expect(m.getByText("Väntar på beslut", { exact: true }).first()).toBeVisible();
-  await expect(m.getByText(/Klart – registrerat i dag kl\. \d\d\.\d\d av Johan Berg/)).toBeVisible();
-  await expect(m.getByText("Registrerat efter samtalet")).toBeVisible();
-  await expect(m.getByText("Ja – bara namn och personnummer sparas")).toBeVisible();
-  await expect(m.getByText("Svar på avropet", { exact: true })).toBeVisible();
-  await expect(m.getByText("Senast 2 feb kl. 07.55").first()).toBeVisible();
-  await acceptProtected(page);
-  await expect(m.getByText("Orderbekräftelse skickad")).toBeVisible();
-  await expect(m.getByText("Deltagaren:", { exact: true }).locator("..")).toContainText("ingen kallelse via SMS eller e-post (skyddade personuppgifter)");
-  // Uppgiften och flaggan till avtalsansvarig är stängda.
-  await goAs(page, info, JOHAN, "/min-vecka");
-  await expect(m.getByRole("heading", { name: "Öppna uppgifter (0)" })).toBeVisible();
-  await expect(m.getByText("Avrop med skyddade personuppgifter", { exact: true })).toHaveCount(0);
-  // Samordnaren ser bara ärendenumret och "Skyddade personuppgifter".
+  await expect(m).not.toContainText(/skyddade personuppgifter|säkra rutinen|Generisk mottagningsbekräftelse/i);
+  // Samma för avtalsansvarig.
+  await goAs(page, info, JOHAN, "/inkorg/em-104");
+  await expect(m.getByText("Klassat som Övrigt – inte en beställning")).toBeVisible();
+  await expect(m.getByRole("button", { name: "Registrera efter telefonsamtal" })).toHaveCount(0);
+  // Samordnaren markerar frågan som hanterad.
   await goAs(page, info, SARA, "/inkorg/em-104");
-  await expect(m.getByText("Skyddade personuppgifter", { exact: false }).first()).toBeVisible();
-  await expect(m.getByText("Orderbekräftelse skickad")).toBeVisible();
-  const txt = await m.innerText();
-  expect(txt.includes("Lindqvist-Test") || txt.includes("Samir"), "Samordnaren får inte se namnet").toBe(false);
-  await expect(m.getByRole("button", { name: "Registrera efter telefonsamtal" })).toHaveCount(0);
+  await handleEm104(page);
   expect(errors).toEqual([]);
 });
 
@@ -401,8 +357,8 @@ test("em-106: avböj kräver orsak", async ({ page }, info) => {
 test("portalbeställning från kommunen syns i inkorgen och kan accepteras", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", SARA);
   await commandAs(page, info, MARIA, "arenden.caseCreate", {
-    source: "portal", referrerId: "k-maria", firstName: "Lina", lastName: "Portaltest", pnr: "19950505-1111", buyerReference: "4410023817", primaryArea: "F",
-    plannedWeeks: 6, desiredStart: "2027-02-10", vocationalTrack: "Lokalvårdare med certifiering",
+    source: "portal", referrerId: "k-maria", referrerUnit: "Arbetsmarknadsenheten Alby", firstName: "Lina", lastName: "Portaltest", pnr: "19950505-1111",
+    orderPeriodMonths: 6, priorAssessment: "no", desiredStart: "2027-02-10", background: "Vill arbeta med lokalvård.",
   }, SARA, "/inkorg?senaste=1");
   const m = main(page);
   await expect(m.getByRole("heading", { name: "Beställning i portalen" })).toBeVisible(); // ?senaste=1 väljer den senast mottagna (scenario 3 steg 4)
@@ -411,6 +367,11 @@ test("portalbeställning från kommunen syns i inkorgen och kan accepteras", asy
   await expect(m.getByText("Handläggaren fyllde i beställningen själv.", { exact: false })).toBeVisible();
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   await page.check("#ink-coach-u-mats");
+  // Avtalsområde och yrkesspår väljer Miljonbemanning här (kommunens formulär frågar inte efter dem sedan 2026-10-07).
+  await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
+  await expect(dialog(page).getByText("Välj avtalsområde.").first()).toBeVisible();
+  await page.selectOption("#ink-area", "F");
+  await page.fill("#ink-track", "Lokalvårdare med certifiering");
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
   await expect(dialog(page).getByText("Mats Holm har fått en notis om tilldelningen")).toBeVisible();
   await dialog(page).getByRole("button", { name: "Klart" }).click();
@@ -428,13 +389,12 @@ test("hela flödet: alla avrop hanteras – flikar, ?arende=, tom startsida och 
   await dialog(page).getByRole("button", { name: "Klart" }).click();
   await goAs(page, info, SARA, "/inkorg/em-103");
   await supplementAndAccept(page);
-  await goAs(page, info, JOHAN, "/inkorg/em-104");
-  await registerByPhone(page);
-  await acceptProtected(page);
+  await goAs(page, info, SARA, "/inkorg/em-104");
+  await handleEm104(page);
   await goAs(page, info, SARA, "/inkorg/em-105");
   await answerOther(page);
   await goAs(page, info, SARA, "/inkorg/em-106");
-  await declineEm106(page, 232);
+  await declineEm106(page);
 
   // Flikar och ?arende=
   await goAs(page, info, SARA, "/inkorg");

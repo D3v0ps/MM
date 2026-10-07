@@ -110,23 +110,6 @@ function Week({ v }: { v: StartView }) {
         />
       </WeekKpis>
 
-      {/* Neutral ram med låsikonen: rött är inkorgens svarstid (rutan ovan) – aldrig två röda ramar samtidigt. Ett skyddat
-          avrop som brådskar har sitt röda svarstidsmärke i raden. */}
-      {handles && v.protectedItems.length > 0 && (
-        <Card title="Skyddade avrop" icon="lock" flush foot={<span className="text-text-muted">Flaggas direkt till dig som avtalsansvarig. Bara du och den namngivna coachen ser namn och personnummer.</span>}>
-          <MiniList>
-            {v.protectedItems.map((x) => (
-              <MiniRow
-                key={x.id}
-                left={x.sla ? <SlaBadge sla={x.sla.sla} dueAt={x.sla.dueAt} /> : null}
-                main={<TitleLink to={inboxRowPath(x)}>{x.subject}</TitleLink>}
-                sub={`${x.from} · ${x.receivedWhen} · ${x.caseText}`}
-              />
-            ))}
-          </MiniList>
-        </Card>
-      )}
-
       <Split wide>
         <Stack>
           {v.items.length === 0 ? (
@@ -162,7 +145,7 @@ function Week({ v }: { v: StartView }) {
                         {x.subject}
                       </TitleLink>
                     }
-                    sub={`${x.from} · ${CLASSIFICATION[x.cls]} · ${(METHOD[x.method] ?? METHOD.manual).label}${x.missing.length ? ` · saknar ${x.missing.join(" och ")}` : ""}${x.isProtected && !handles ? " · hanteras av avtalsansvarig" : ""}`}
+                    sub={`${x.from} · ${CLASSIFICATION[x.cls]} · ${(METHOD[x.method] ?? METHOD.manual).label}${x.missing.length ? ` · saknar ${x.missing.join(" och ")}` : ""}`}
                   />
                 ))}
               </MiniList>
@@ -253,13 +236,9 @@ function Week({ v }: { v: StartView }) {
                     main={<CaseLink caseId={c.caseId} caseNumber={c.caseNumber} className="-ml-1.5" />}
                     sub={c.sub}
                     right={
-                      c.isProtected ? (
-                        <span className="text-small text-text-muted">Coachen ringer</span>
-                      ) : (
-                        <Button kind="secondary" icon="calendar" onClick={() => setBook(c)}>
-                          Boka
-                        </Button>
-                      )
+                      <Button kind="secondary" icon="calendar" onClick={() => setBook(c)}>
+                        Boka
+                      </Button>
                     }
                   />
                 ))}
@@ -389,7 +368,7 @@ function Week({ v }: { v: StartView }) {
                 <MiniRow
                   left={v.summaryReport.due ? <SlaBadge sla={v.summaryReport.due.sla} dueAt={v.summaryReport.due.dueAt} /> : null}
                   main={v.summaryReport.title}
-                  sub="Till kommunens chef. Byggs bara av godkända uppgifter."
+                  sub="Lämnas till kommunen utanför Miljonmatch. Byggs bara av godkända uppgifter."
                   right={
                     v.summaryReport.href ? (
                       <Button kind="secondary" to={v.summaryReport.href}>

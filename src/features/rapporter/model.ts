@@ -13,7 +13,7 @@ import { activitiesOf, attendanceFor, byId, groupedBy } from "@/core/db-index";
 import { pct } from "@/core/format";
 import { kpiValue, type KpiDb } from "@/core/kpi";
 import { areaName, endReasonLabel, eventLabel, personName } from "@/core/labels";
-import { priceFor } from "@/core/cases";
+import { orderPeriodText } from "@/core/cases";
 import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd, monthKey, monthName, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, groupBy, sum, uniq } from "@/core/util";
 import type { AttendanceStatus, Case, Db, MonthlyAssessment, MonthlyPlan, Report, ReportKind, TrafficLight } from "@/data/schema";
@@ -70,7 +70,8 @@ export type WeeklySection = { caseId: string; caseNumber: string; stats: AttStat
 export type WeeklyModel = { kind: "weekly_attendance"; week: string; recipientUserId: string; now: LocalDateTime; sections: WeeklySection[] };
 export type OrderModel = {
   kind: "order_confirmation"; caseId: string; caseNumber: string; area: string; track: string; start: string; coach: string; firstMeeting: string;
-  weeks: number | null; plannedEnd: string | null; price: number; buyerReference: string | null; purchaseOrderNumber: string | null;
+  /** Omfattningen ("6 månader", "Annan tidsperiod", "8 veckor"). Inget pris och inget ordervärde (beslut 2026-10-07, synpunkt #10). */
+  weeks: number | null; plannedEnd: string | null; period: string; buyerReference: string | null; purchaseOrderNumber: string | null;
 };
 export type RateModel = { value: number | null; num: number; den: number; prelim: number };
 export type SummaryModel = {
@@ -534,12 +535,12 @@ function buildOrder(src: Src, r: Report): OrderModel | null {
     kind: "order_confirmation", caseId: c.id, caseNumber: c.caseNumber, area: areaName(src.db.contract_areas, c.primaryAreaCode), track: c.vocationalTrack || "Bestäms vid kartläggningen",
     start: start ? dFull(start) : "Inte bestämt", coach: coach ? `${coach.fullName}${coach.phone ? `, telefon ${coach.phone}` : ""}` : "Inte utsedd",
     firstMeeting: c.firstMeetingAt ? `${ucfirst(wdFull(c.firstMeetingAt))}, ${c.location || "Alby"}` : "Bokas inom en vecka",
-    weeks, plannedEnd: c.plannedEnd ? dFull(c.plannedEnd) : null, price: priceFor(src.db.price_items, c.primaryAreaCode, start || src.today, c.contractId),
+    weeks, plannedEnd: c.plannedEnd ? dFull(c.plannedEnd) : null, period: orderPeriodText(c),
     buyerReference: c.buyerReference || null, purchaseOrderNumber: c.purchaseOrderNumber || null,
   };
 }
 
-// ================================================================ Beställarrapport (kommunens chef)
+// ================================================================ Beställarrapport (lämnas till kommunen av avtalsansvarig)
 
 /** Förslag till sammanfattning ur rapportens siffror (avsnitt 1–6). Nämner aldrig det interna målet. */
 export function summaryFromNumbers(m: SummaryModel): string {

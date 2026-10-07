@@ -110,7 +110,7 @@ export async function viewerFor(ctx: Ctx, cases: readonly Case[]): Promise<Viewe
 }
 
 // ---------------------------------------------------------------- Får läsaren se rapporten? (prototypens reportAccess)
-const VIEW_ROLES = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"] as const;
+const VIEW_ROLES = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare"] as const;
 export type ReportAccess =
   | { ok: true; access: "full" | "team" | "customer"; partial?: boolean; recipient?: boolean }
   | { ok: false; reason: "role" | "handledare" | "handledare_order" | "missing" | "not_assigned" | "protected" | "not_yours" | "not_delivered" | "protected_customer" };
@@ -120,21 +120,19 @@ export const recipientOf = (r: Pick<Report, "recipientUserId" | "deliveredTo">, 
 
 /**
  * Samma regler som prototypens reportAccess och policyn för rapporter (src/data/policy.ts):
- * kommunen ser bara levererade rapporter till sig (kommunens chef även enhetens individrapporter om avtalet säger det),
- * handledaren bara veckorapporten, beställarrapporten bara avtalsansvarig, samordnare och chef.
+ * kommunens handläggare ser bara levererade rapporter till sig (aldrig beställarrapporten – den lämnas utanför portalen sedan
+ * 2026-10-07), handledaren bara veckorapporten, beställarrapporten bara avtalsansvarig, samordnare och chef.
  */
-export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" | "recipientUserId">, c: Case | null, viewer: Viewer, cfg: OperationalConfig): ReportAccess {
+export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" | "recipientUserId">, c: Case | null, viewer: Viewer): ReportAccess {
   const { role, userId } = viewer.actor;
   if (isCustomerRole(role)) {
     const recipient = r.deliveredTo.includes(userId);
     const mine = recipient || recipientOf(r, c) === userId || (!!c && c.referrerId === userId);
-    const chefOk = role === "kommun_chef" && (r.kind === "customer_summary" || cfg.customerVisibility.seesIndividualReports !== false);
-    if (!mine && !chefOk) return { ok: false, reason: "not_yours" };
+    if (!mine || r.kind === "customer_summary") return { ok: false, reason: "not_yours" };
     if (!isDelivered(r)) return { ok: false, reason: "not_delivered" };
     if (c) {
       const a = viewer.access(c);
-      // Avvikelse från prototypen (CLAUDE.md punkt 8): kommunens chef ser inte rapporter om deltagare med skyddade personuppgifter.
-      if (a === "restricted") return { ok: false, reason: "protected_customer" };
+      // Skyddade personuppgifter (vilande sedan 2026-10-07): åtkomsten "restricted" ger ingen rapport i portalen.
       if (a !== "customer") return { ok: false, reason: "not_yours" };
     }
     return { ok: true, access: "customer", recipient };

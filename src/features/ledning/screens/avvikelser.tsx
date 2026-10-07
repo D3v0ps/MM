@@ -3,33 +3,34 @@
 // Eskaleringstrappa, viten och antal varningar före uppsägning kommer från avtalskonfigurationen via frågorna.
 import { useState } from "react";
 import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr, plural } from "@/core/format";
+import { plural } from "@/core/format";
 import { fmtDate, fmtDateShort, fmtDateTime, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { Link, useNav } from "@/shell/nav";
 import { pick, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
-import { DemoOnly } from "@/shell/runtime";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, focusFirstError, FormGrid, Icon, Input, Kpi, Kv, Loading, Modal,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, focusFirstError, FormGrid, Input, Kpi, Kv, Loading, Modal,
   ModalCancelButton, Notice,
-  Page, PerspectiveLink, QueryView, Row, Seg, Select, SlaBadge, Split, Stack, TabPanel, Table, Tabs, TextArea, Timeline, useCopy, useDownload, useToast,
+  Page, QueryView, Row, Seg, Select, SlaBadge, Split, Stack, TabPanel, Table, Tabs, TextArea, Timeline, useCopy, useDownload, useToast,
   type TimelineItem,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import {
-  CD_LEVELS, CD_SOURCES, CD_TYPES, cdevDetail, cdevClose, cdevMonth, cdevRegister, cdevSave, cdLevelLabel, cdSourceLabel, cdTypeLabel, stepLabel,
-  type CdevDetail, type CdevForm, type CdevRegister, type CdevRow,
+  CD_LEVELS, CD_SOURCES, CD_TYPES, cdevDetail, cdevClose, cdevCustomerApproved, cdevMonth, cdevRegister, cdevSave, cdLevelLabel, cdSourceLabel, cdTypeLabel, CUSTOMER_APPROVAL_HOW,
+  stepLabel, type CdevDetail, type CdevForm, type CdevRegister, type CdevRow, type CustomerApprovalHow,
 } from "../api";
 import { CdStatusBadge, Ladder, Tiles, WrapBtn } from "./parts";
 
 type Penalty = "" | "deviation" | "information";
-const penaltyOptions = (p: NonNullable<CdevForm["penalties"]>) => [
+// Vitesvalet utan belopp – belopp syns bara för ekonomen (beslut 5, 2026-10-07).
+const PENALTY_OPTIONS = [
   { value: "", label: "Inget vite" },
-  { value: "deviation", label: `Vite för avvikelse – ${kr(p.deviationOre)}` },
-  { value: "information", label: `Vite för bristfällig information – ${kr(p.insufficientInformationOre)}` },
+  { value: "deviation", label: "Vite för avvikelse" },
+  { value: "information", label: "Vite för bristfällig information" },
 ];
+const PENALTY_LABEL: Record<string, string> = { deviation: "Vite för avvikelse", information: "Vite för bristfällig information" };
 const monthOptions = (ms: string[]) => ms.map((mk) => ({ value: mk, label: monthName(mk) }));
 const typeHelpOf = (f: CdevForm, type: string) => (type === "ekonomi" ? f.economicHelp : CD_TYPES.find((x) => x.value === type)?.help);
 
@@ -54,11 +55,6 @@ function Register() {
               Registrera avvikelse eller klagomål
             </Button>
           </WrapBtn>
-          <DemoOnly>
-            <WrapBtn>
-              <PerspectiveLink role="kommun_chef" to="/portal/bestallarrapport" label="Här godkänner kommunens chef åtgärdsplaner" />
-            </WrapBtn>
-          </DemoOnly>
         </>
       }
     >
@@ -91,7 +87,7 @@ function RegisterContent({ d }: { d: CdevRegister }) {
           tone={c.open ? "watch" : undefined}
           statusText={c.open ? "Bevaka – öppna avvikelser" : undefined}
         />
-        <Kpi label="Väntar på kommunens godkännande" value={String(c.waiting)} sub="Åtgärdsplaner skickade till kommunens chef" />
+        <Kpi label="Väntar på kommunens godkännande" value={String(c.waiting)} sub="Åtgärdsplaner som kommunen inte har godkänt än" />
         <Kpi
           label="Skriftliga varningar"
           value={`${c.warnings} av ${f.warningsBeforeTermination}`}
@@ -99,8 +95,8 @@ function RegisterContent({ d }: { d: CdevRegister }) {
           statusText={c.warnings > 0 ? `${plural(c.warnings, "varning", "varningar")} från kommunen` : undefined}
           sub={`${f.warningsBeforeTermination} varningar kan leda till uppsägning`}
         />
-        {c.penaltiesOre !== undefined && f.penalties ? (
-          <Kpi label="Viten" value={kr(c.penaltiesOre)} sub={`${kr(f.penalties.deviationOre)} per tillfälle enligt avtalet`} />
+        {c.penalties !== undefined ? (
+          <Kpi label="Viten" value={String(c.penalties)} sub={`${c.penalties === 1 ? "Avvikelse" : "Avvikelser"} där kommunen tagit ut vite. Beloppet står i avtalet.`} />
         ) : (
           <Kpi label="Viten" value={TESTER_HIDDEN_TEXT} />
         )}
@@ -154,8 +150,8 @@ function RegisterContent({ d }: { d: CdevRegister }) {
         )}
       </TabPanel>
       <DemoNote>
-        Registret är förifyllt med påhittade avvikelser. Kommunens chef godkänner åtgärdsplaner i sin portal – byt perspektiv för att prova. Det du registrerar här sparas i din webbläsare och
-        kan återställas med knappen Återställ.
+        Registret är förifyllt med påhittade avvikelser. Kommunen godkänner åtgärdsplaner utanför Miljonmatch – avtalsansvarig registrerar godkännandet på avvikelsens sida. Det du
+        registrerar här sparas i din webbläsare och kan återställas med knappen Återställ.
       </DemoNote>
     </>
   );
@@ -210,7 +206,7 @@ const registerColumns = [
           <CdStatusBadge status={x.statusKey} />
         </span>
         <CellSub>
-          {x.warningIssued ? "Skriftlig varning" : "Ingen varning"} · {x.penaltyOre === undefined ? `vite: ${TESTER_HIDDEN_TEXT.toLowerCase()}` : x.penaltyOre ? `vite ${kr(x.penaltyOre)}` : "inget vite"}
+          {x.warningIssued ? "Skriftlig varning" : "Ingen varning"} · {x.hasPenalty === undefined ? `vite: ${TESTER_HIDDEN_TEXT.toLowerCase()}` : x.hasPenalty ? "vite" : "inget vite"}
           {x.orderStop ? " · avropsstopp" : ""}
         </CellSub>
       </div>
@@ -293,7 +289,7 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
       return;
     }
     toast(
-      `${f.type === "klagomål" ? "Klagomålet" : "Avvikelsen"} är registrerad.${res.sentToCustomer ? " Kommunens chef har fått en notis om att åtgärdsplanen väntar på godkännande." : ""}`,
+      `${f.type === "klagomål" ? "Klagomålet" : "Avvikelsen"} är registrerad.${res.sentToCustomer ? " Lämna åtgärdsplanen till kommunen för godkännande." : ""}`,
     );
     onClose();
     nav.push(`/avtalsavvikelser/${encodeURIComponent(res.id)}`);
@@ -338,7 +334,7 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
         <Field label="Ansvarig hos Miljonbemanning" id="cd-owner" help="Den som driver åtgärderna.">
           <Select value={f.ownerId} onValueChange={set("ownerId")} options={form.owners} />
         </Field>
-        <Field full label="Åtgärdsplan (kan fyllas i senare)" id="cd-plan" help="Vad görs, av vem och när? Planen skickas till kommunens chef för godkännande.">
+        <Field full label="Åtgärdsplan (kan fyllas i senare)" id="cd-plan" help="Vad görs, av vem och när? Kommunen godkänner planen – avtalsansvarig registrerar godkännandet.">
           <TextArea value={f.actionPlan} onValueChange={set("actionPlan")} rows={3} />
         </Field>
         <Field label="Åtgärderna klara senast" id="cd-due" help="Tidsplan för åtgärdsplanen." error={err.actionPlanDue}>
@@ -349,17 +345,13 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
           <Check id="cd-warning" checked={f.warningIssued} disabled={!(step != null && isWarnStep(step)) || !can} onCheckedChange={set("warningIssued")}>
             Kommunen har gett en skriftlig varning (räknas mot {form.warningsBeforeTermination}). Kan bara ges på steg {ws.min}–{ws.max}.
           </Check>
-          {/* Vitesvalet saknas för begränsade testare (servern lämnar inte ut avtalets viten). */}
-          {form.penalties && (
-            <Field
-              label="Vite"
-              id="cd-penalty"
-              help={`Enligt avtalet ${kr(form.penalties.deviationOre)} per tillfälle vid avvikelse och ${kr(form.penalties.insufficientInformationOre)} vid bristfällig löpande information.`}
-            >
-              <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={penaltyOptions(form.penalties)} />
+          {/* Vitesvalet saknas för begränsade testare. Beloppet visas aldrig här (beslut 5) – det står i avtalet. */}
+          {form.penaltyChoice && (
+            <Field label="Vite" id="cd-penalty" help="Välj om kommunen har tagit ut vite. Beloppet står i avtalet och hanteras av ekonomen.">
+              <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={PENALTY_OPTIONS} />
             </Field>
           )}
-          {form.penalties && f.penaltyKind && (
+          {form.penaltyChoice && f.penaltyKind && (
             <Field label="Avräknas på faktura för" id="cd-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
               <Select value={f.penaltyOffsetMonth} onValueChange={set("penaltyOffsetMonth")} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
             </Field>
@@ -464,7 +456,7 @@ function MonthSummary({ months, initial }: { months: string[]; initial: string }
             )}
             <p className="text-text-muted">
               Skriftliga varningar hittills: {s.warnings} av {s.warningsBeforeTermination}. Viten hittills:{" "}
-              {s.penaltiesOre === undefined ? TESTER_HIDDEN_TEXT.toLowerCase() : kr(s.penaltiesOre)}.
+              {s.penalties === undefined ? TESTER_HIDDEN_TEXT.toLowerCase() : s.penalties}.
             </p>
           </>
         )}
@@ -541,7 +533,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
       toast("Åtgärdsplanen kunde inte sparas.", "error");
       return;
     }
-    toast(res.sentToCustomer ? "Åtgärdsplanen är sparad och skickad till kommunens chef för godkännande. Mejlet innehåller inga personuppgifter." : "Åtgärdsplanen är sparad.");
+    toast(res.sentToCustomer ? "Åtgärdsplanen är sparad. Lämna den till kommunen och registrera godkännandet här." : "Åtgärdsplanen är sparad.");
     setEditPlan(false);
   };
   const saveSanctions = async () => {
@@ -579,7 +571,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
       ? [{ key: "plan", icon: "clipboard" as const, title: "Åtgärdsplan skickad till kommunen", sub: cd.planSubmittedAt ? fmtDateTime(cd.planSubmittedAt) : cd.actionPlanDue ? `Klart senast ${fmtDate(cd.actionPlanDue)}` : "" }]
       : []),
     ...(cd.customerApprovedAt
-      ? [{ key: "ok", icon: "check" as const, title: `Godkänd av kommunen${cd.approvedByName ? ` (${cd.approvedByName})` : ""}`, sub: fmtDateTime(cd.customerApprovedAt), filled: true }]
+      ? [{ key: "ok", icon: "check" as const, title: `Godkänd av kommunen${cd.approvedByName ? ` (registrerat av ${cd.approvedByName})` : ""}`, sub: fmtDateTime(cd.customerApprovedAt), filled: true }]
       : []),
     ...(cd.warningIssued ? [{ key: "warn", icon: "alert" as const, title: "Skriftlig varning från kommunen", sub: cd.warningIssuedAt ? fmtDateTime(cd.warningIssuedAt) : "", tone: "red" as const }] : []),
     ...(closed ? [{ key: "closed", icon: "check-circle" as const, title: "Klar", sub: cd.closedOn ? (cd.closedOn.length > 10 ? fmtDateTime(cd.closedOn) : fmtDate(cd.closedOn)) : "–", filled: true }] : []),
@@ -590,17 +582,6 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
       title={cd.type === "klagomål" ? "Klagomål" : "Avtalsavvikelse"}
       eyebrow={`Registrerad ${fmtDate(cd.raisedAt)} · ${cdSourceLabel(cd.source)}`}
       crumbs={[{ label: "Avtalsavvikelser", to: "/avtalsavvikelser" }, { label: `${cdTypeLabel(cd.type)} ${fmtDateShort(cd.raisedAt)}` }]}
-      actions={
-        <DemoOnly>
-          <WrapBtn>
-            <PerspectiveLink
-              role="kommun_chef"
-              to="/portal/bestallarrapport"
-              label={cd.hasPlan && !cd.customerApprovedAt && !closed ? "Godkänn planen som kommunens chef" : "Se kommunens chefsvy"}
-            />
-          </WrapBtn>
-        </DemoOnly>
-      }
     >
       <Row gap="sm">
         <Badge tone="dark">{cdTypeLabel(cd.type)}</Badge>
@@ -671,16 +652,12 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                     <Select value={plan.ownerId} onValueChange={(v) => setPlan({ ...plan, ownerId: v })} options={form.owners} />
                   </Field>
                 </FormGrid>
-                <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-text-muted">
-                  <Icon name="mail" className="mt-px" />
-                  <div>
-                    <b className="font-bold text-antracit">Kommunens chef får:</b> &quot;En åtgärdsplan inom avtalet med Miljonbemanning väntar på ert godkännande. Logga in i portalen för att
-                    läsa den.&quot; Inga personuppgifter i mejlet.
-                  </div>
-                </div>
+                <p className="text-text-muted">
+                  Kommunen godkänner planen utanför Miljonmatch, till exempel på ett möte. Avtalsansvarig registrerar godkännandet här. Ingen får något mejl.
+                </p>
                 <Row>
-                  <Button kind="primary" icon="send" pending={save.pending} onClick={() => void savePlan()}>
-                    Spara och skicka till kommunen
+                  <Button kind="primary" icon="check" pending={save.pending} onClick={() => void savePlan()}>
+                    Spara åtgärdsplanen
                   </Button>
                   <Button
                     kind="ghost"
@@ -717,18 +694,15 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                         </Badge>
                       ) : (
                         <Badge tone="grey" icon="clock">
-                          Väntar på kommunens chef
+                          Väntar på kommunen
                         </Badge>
                       ),
                     ],
                   ]}
                 />
-                {!cd.customerApprovedAt && !closed && (
-                  <div className="text-text-muted">
-                    Kommunens chef{d.customerChefName ? `, ${d.customerChefName},` : ""} godkänner planen i sin portal.
-                    <DemoOnly> Byt perspektiv för att se och godkänna den där.</DemoOnly>
-                  </div>
-                )}
+                {!cd.customerApprovedAt && !closed && (d.canRegisterApproval ? <CustomerApprovalForm id={cd.id} /> : (
+                  <p className="text-text-muted">Kommunen godkänner planen utanför Miljonmatch. Avtalsansvarig registrerar godkännandet här.</p>
+                ))}
               </Stack>
             ) : (
               <Empty icon="clipboard" title="Ingen åtgärdsplan ännu">
@@ -800,12 +774,12 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                 <Check id="cd-s-warning" checked={sanc.warningIssued} disabled={!isWarnStep(Number(sanc.escalationStep))} onCheckedChange={(v) => setSanc({ ...sanc, warningIssued: v })}>
                   Skriftlig varning från kommunen (räknas mot {wbt})
                 </Check>
-                {form.penalties && (
-                  <Field label="Vite" id="cd-s-penalty" help={`${kr(form.penalties.deviationOre)} per tillfälle enligt avtalet.`}>
-                    <Select value={sanc.penaltyKind} onValueChange={(v) => setSanc({ ...sanc, penaltyKind: v as Penalty })} options={penaltyOptions(form.penalties)} />
+                {form.penaltyChoice && (
+                  <Field label="Vite" id="cd-s-penalty" help="Välj om kommunen har tagit ut vite. Beloppet står i avtalet och hanteras av ekonomen.">
+                    <Select value={sanc.penaltyKind} onValueChange={(v) => setSanc({ ...sanc, penaltyKind: v as Penalty })} options={PENALTY_OPTIONS} />
                   </Field>
                 )}
-                {form.penalties && sanc.penaltyKind && (
+                {form.penaltyChoice && sanc.penaltyKind && (
                   <Field label="Avräknas på faktura för" id="cd-s-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
                     <Select value={sanc.penaltyOffsetMonth} onValueChange={(v) => setSanc({ ...sanc, penaltyOffsetMonth: v })} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
                   </Field>
@@ -836,8 +810,8 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                     ),
                   ],
                   ["Varningar totalt", `${d.totalWarnings} av ${wbt}`],
-                  ["Vite", cd.penaltyOre === undefined ? TESTER_HIDDEN_TEXT : cd.penaltyOre ? kr(cd.penaltyOre) : "Inget"],
-                  cd.penaltyOre !== undefined && cd.penaltyOre > 0 ? ["Avräkning", cd.penaltyOffsetMonth ? `Faktura för ${monthName(cd.penaltyOffsetMonth)}` : "Inte bestämt"] : null,
+                  ["Vite", cd.hasPenalty === undefined ? TESTER_HIDDEN_TEXT : cd.hasPenalty ? (PENALTY_LABEL[cd.penaltyKind ?? ""] ?? "Ja") : "Inget"],
+                  cd.hasPenalty ? ["Avräkning", cd.penaltyOffsetMonth ? `Faktura för ${monthName(cd.penaltyOffsetMonth)}` : "Inte bestämt"] : null,
                   ["Avropsstopp", cd.orderStop ? "Ja" : "Nej"],
                 ]}
               />
@@ -849,5 +823,56 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
         </Stack>
       </Split>
     </Page>
+  );
+}
+
+// ---------------------------------------------------------------- Kommunens godkännande (avtalsansvarig registrerar)
+/** Kommunen godkände åtgärdsplanen utanför Miljonmatch: datum och hur. Bara avtalsansvarig (ledning.cdevCustomerApproved). */
+function CustomerApprovalForm({ id }: { id: string }) {
+  const toast = useToast();
+  const cmd = useCommand(cdevCustomerApproved);
+  const [approvedOn, setApprovedOn] = useState("");
+  const [how, setHow] = useState<CustomerApprovalHow | "">("");
+  const [err, setErr] = useState<{ approvedOn?: string; how?: string }>({});
+  const submit = async () => {
+    const e: typeof err = {};
+    if (!approvedOn) e.approvedOn = "Ange dagen då kommunen godkände planen.";
+    if (!how) e.how = "Välj hur kommunen godkände planen.";
+    setErr(e);
+    if (Object.keys(e).length || !how) return;
+    const res = await cmd.run({ id, approvedOn, how }).catch(() => null);
+    if (!res) return toast("Godkännandet kunde inte registreras.", "error");
+    if (!res.ok) {
+      if (res.error === "date") setErr({ approvedOn: res.message ?? "Kontrollera datumet." });
+      else toast(res.message ?? "Godkännandet kunde inte registreras.", "error");
+      return;
+    }
+    toast("Kommunens godkännande är registrerat.");
+  };
+  return (
+    <section aria-labelledby={`cd-approve-${id}`} className="flex flex-col gap-3 rounded-mb border-[1.5px] border-ljusgra px-3.5 py-3">
+      <h3 id={`cd-approve-${id}`} className="m-0 font-extrabold">
+        Registrera kommunens godkännande
+      </h3>
+      <p className="m-0 text-text-muted">Gör det när kommunen har godkänt planen, till exempel på ett möte eller i ett brev.</p>
+      <FormGrid>
+        <Field label="Datum" id={`cd-approve-date-${id}`} required help="Dagen då kommunen godkände planen." error={err.approvedOn}>
+          <DateInput value={approvedOn} onValueChange={(v) => { setApprovedOn(v); setErr((o) => ({ ...o, approvedOn: undefined })); }} />
+        </Field>
+        <Field label="Hur" id={`cd-approve-how-${id}`} required help="Hur kommunen lämnade sitt godkännande." error={err.how}>
+          <Select
+            value={how}
+            placeholder="Välj"
+            options={CUSTOMER_APPROVAL_HOW.map((x) => ({ value: x.value, label: x.label }))}
+            onValueChange={(v) => { setHow(v as CustomerApprovalHow | ""); setErr((o) => ({ ...o, how: undefined })); }}
+          />
+        </Field>
+      </FormGrid>
+      <Row>
+        <Button kind="primary" icon="check-circle" pending={cmd.pending} onClick={() => void submit()}>
+          Registrera godkännandet
+        </Button>
+      </Row>
+    </section>
   );
 }

@@ -9,14 +9,13 @@
 // Levererade rapporter visas frysta: det är hanteraren som väljer ögonblicksbilden.
 import type { ReactNode } from "react";
 import { attLabel } from "@/core/labels";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr, num, pct } from "@/core/format";
+import { num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import { useQuery } from "@/shell/backend";
 import { Empty, ErrorNotice, Kv, Loading, Meter, Paper, PaperFixedText, Status, XBox } from "@/ui";
 import { reportDocument, type ReportDocView } from "../api";
 import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
-import { dayMonth, DENIED, dFull, dtFull, isDraftDoc, lcfirst, NO_PNR, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
+import { ATTENDANCE_RATE_RULE, BUYER_REFERENCE_LATER, dayMonth, DENIED, dFull, dtFull, isDraftDoc, lcfirst, monthRangeText, NO_PNR, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
 
 // ---------------------------------------------------------------- Byggstenar
 function Sec({ n, title, children }: { n?: string; title: ReactNode; children?: ReactNode }) {
@@ -243,14 +242,11 @@ function MonthlyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "monthly" }> 
         <Kv items={[["Deltagare", doc.participant], ...m.basics]} />
         <Small muted>{NO_PNR}</Small>
       </Sec>
-      <Sec n="2" title="Närvaro och frånvaro">
-        <AttendanceTable rows={m.weeks} total={m.total} firstCol="Vecka" />
-        <p>
-          <b>Giltig frånvaro per orsak:</b> {m.reasons}.
-        </p>
-        <p>
-          <b>Upprepad ogiltig frånvaro:</b> {m.repeated.hit ? `Ja – ${m.repeated.count} tillfällen. Åtgärdsplan: se avsnitt 6.` : "Nej."}
-        </p>
+      {/* Bara perioden och närvarograden (beslut 2026-10-07, synpunkt #12). Veckorna, orsakerna och upprepad frånvaro finns internt
+          på deltagarkortets flik Närvaro. Modellen och frysta rapporter är oförändrade – bara visningen. */}
+      <Sec n="2" title="Närvaro">
+        <Kv items={[["Period", monthRangeText(m.month)], ["Närvarograd", pct(m.total.rate, 0)]]} />
+        <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
         <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02. Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.</Small>
@@ -402,7 +398,7 @@ function WeeklyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "weekly_attend
         />
         <Small muted>
           Närvarograd = närvarotillfällen delat med registrerade planerade tillfällen. Giltig frånvaro redovisas separat. Bara orsakskategori anges.
-          {hiddenProt > 0 ? ` Siffrorna räknar inte med ${hiddenProt === 1 ? "deltagaren" : "deltagarna"} med skyddade personuppgifter.` : ""}
+          {hiddenProt > 0 ? ` Siffrorna räknar inte med ${hiddenProt === 1 ? "en deltagare" : `${hiddenProt} deltagare`} vars uppgifter inte visas.` : ""}
         </Small>
         {open.length > 0 && (
           <TWrap min={480}>
@@ -446,7 +442,7 @@ function WeeklyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "weekly_attend
           secs.map((s) =>
             s.restricted ? (
               <div key={s.caseId} className="flex flex-col gap-2 border-t border-ljusgra pt-3">
-                <h3 className="text-body font-extrabold">{s.caseNumber} · Skyddade personuppgifter</h3>
+                <h3 className="text-body font-extrabold">{s.caseNumber} · Uppgifterna visas inte</h3>
                 <Small>{protText}</Small>
               </div>
             ) : (
@@ -507,10 +503,11 @@ function WeeklyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "weekly_attend
 }
 
 // ---------------------------------------------------------------- Orderbekräftelse
+// Inget pris och inget ordervärde (beslut 2026-10-07, synpunkt #10) – bara omfattningen. Beställarreferensen fyller Miljonbemanning i.
 function OrderDoc({ doc }: { doc: Extract<ReportDocView, { kind: "order_confirmation" }> }) {
   const m = doc.m;
   return (
-    <Paper title="Orderbekräftelse" draft={isDraftDoc(doc.status) ? "Utkast" : null} info={baseInfo(doc, m.caseNumber, [["Beställarreferens", m.buyerReference || "Saknas"]])}>
+    <Paper title="Orderbekräftelse" draft={isDraftDoc(doc.status) ? "Utkast" : null} info={baseInfo(doc, m.caseNumber, [["Beställarreferens", m.buyerReference || BUYER_REFERENCE_LATER]])}>
       <Superseded doc={doc} />
       <p>
         Miljonbemanning bekräftar beställningen med ärendenummer <b>{m.caseNumber}</b>. Ärendenumret är också ordernummer och står på fakturorna. Använd det i stället för personnummer när ni
@@ -520,46 +517,14 @@ function OrderDoc({ doc }: { doc: Extract<ReportDocView, { kind: "order_confirma
         <Kv
           items={[
             ["Deltagare", doc.participant], ["Ärendenummer", m.caseNumber], ["Avtalsområde", m.area], ["Yrkesspår", m.track], ["Startdatum", m.start], ["Huvudcoach", m.coach],
-            ["Första mötet", m.firstMeeting], ["Planerad omfattning", m.weeks ? `${m.weeks} veckor${m.plannedEnd ? ` (till och med ${m.plannedEnd})` : ""}` : "Ej angiven"],
+            ["Första mötet", m.firstMeeting], ["Planerad omfattning", `${m.period}${m.plannedEnd ? ` (till och med ${m.plannedEnd})` : ""}`],
           ]}
         />
-      </Sec>
-      <Sec title="Beställningens värde">
-        {m.weeks && m.price === undefined ? (
-          <Kv
-            items={[
-              ["Planerad omfattning", `${m.weeks} veckor`],
-              ["Veckopris exklusive moms", TESTER_HIDDEN_TEXT],
-              ["Beställningens värde exklusive moms", TESTER_HIDDEN_TEXT],
-            ]}
-          />
-        ) : m.weeks && m.price !== undefined ? (
-          <Kv
-            items={[
-              ["Planerad omfattning", `${m.weeks} veckor`],
-              ["Veckopris exklusive moms", `${kr(m.price)} (${m.area})`],
-              [
-                "Beställningens värde exklusive moms",
-                <span key="v">
-                  <b>{kr(m.weeks * m.price)}</b>{" "}
-                  <span className="text-small whitespace-nowrap text-text-muted">
-                    ({m.weeks} × {kr(m.price)})
-                  </span>
-                </span>,
-              ],
-            ]}
-          />
-        ) : (
-          <p>Värdet beräknas när omfattningen är bestämd.</p>
-        )}
-        <Small>
-          Värdet är planerade veckor gånger veckopriset för avtalsområdet. Det används för att visa upparbetat och återstående belopp på varje faktura. Fakturering sker per deltagarvecka.
-        </Small>
       </Sec>
       <Sec title="Fakturering">
         <Kv
           items={[
-            ["Beställarreferens", m.buyerReference || "Saknas – måste kompletteras"],
+            ["Beställarreferens", m.buyerReference || BUYER_REFERENCE_LATER],
             ["Kommunens inköpsordernummer", m.purchaseOrderNumber || "Inget angivet"],
             ["Faktureringsobjekt", `Ärende ${m.caseNumber}`],
           ]}
@@ -570,7 +535,7 @@ function OrderDoc({ doc }: { doc: Extract<ReportDocView, { kind: "order_confirma
   );
 }
 
-// ---------------------------------------------------------------- Beställarrapport (kommunens chef)
+// ---------------------------------------------------------------- Beställarrapport (lämnas till kommunen av avtalsansvarig)
 function CustomerSummaryDoc({ doc }: { doc: Extract<ReportDocView, { kind: "customer_summary" }> }) {
   const m = doc.m;
   const target = m.result.contractTarget;

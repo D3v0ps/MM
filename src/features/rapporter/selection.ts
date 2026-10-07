@@ -1,11 +1,11 @@
-// Urvalet av levererade rapporter för kommunens resultatfil (steg 3) och rapportbyggaren (steg 4). Bara för hanterare.
+// Urvalet av levererade rapporter för resultatfilen (steg 3) och rapportbyggaren (steg 4). Bara för hanterare.
 //
 // Samma urval för förhandsvisning och export, så att antalen stämmer:
 //   - levererade, inte ersatta månadsrapporter i perioden (deliveredOk), och slutrapporter för insatser som avslutades i perioden
 //   - via ctx.repo (policyn/RLS) – sedan regeln för åtkomsten (AccessRule):
-//       customer  kommunens chef: ärenden med åtkomst "customer" (utesluter skyddade och andra enheter) och reportAccess
 //       mb        Miljonbemanning (samordnare, avtalsansvarig, chef): åtkomst "full", INTE skyddade personuppgifter (också
-//                 avtalsansvarig, som har full åtkomst i skyddade ärenden) och reportAccess
+//                 avtalsansvarig, som har full åtkomst i skyddade ärenden – spärren är vilande sedan 2026-10-07) och reportAccess
+//     Regeln "customer" (kommunens chef hämtade resultatfilen själv) är borttagen med rollen (beslut 2026-10-07).
 //   - bara den senaste levererade versionen per ärende och månad (slutrapporten: per ärende)
 //   - joinMonthly (datamängden avslut i byggaren): ärendets senaste levererade månadsrapport (månad <= to) för varje slutrapport
 //
@@ -27,7 +27,7 @@ export const LIGHT = ["contractId", "caseId", "kind", "month", "periodEnd", "sta
 export type LightReport = Pick<Report, (typeof LIGHT)[number] | "id">;
 
 export type Selection<R> = { monthly: R[]; finals: R[]; cases: Map<string, Case>; viewer: Viewer; dropped: string[] };
-export type AccessRule = "customer" | "mb";
+export type AccessRule = "mb";
 
 export type SelectParams = {
   contractId: string;
@@ -42,15 +42,14 @@ export type SelectParams = {
 };
 
 /** Får läsaren se rapporten enligt regeln? */
-export function ruleAllows(rule: AccessRule, r: LightReport, c: Case | undefined, viewer: Viewer, cfg: OperationalConfig): boolean {
-  if (!c) return false;
-  if (rule === "customer") return viewer.access(c) === "customer" && reportAccess(r, c, viewer, cfg).ok;
-  return viewer.access(c) === "full" && !viewer.isProtected(c) && reportAccess(r, c, viewer, cfg).ok;
+export function ruleAllows(rule: AccessRule, r: LightReport, c: Case | undefined, viewer: Viewer): boolean {
+  if (!c || rule !== "mb") return false;
+  return viewer.access(c) === "full" && !viewer.isProtected(c) && reportAccess(r, c, viewer).ok;
 }
 
 /** Urvalet (steg 2 i exporten) – samma för förhandsvisningen och exporten. Läser bara LIGHT-fälten. */
 export async function selectDelivered(ctx: Ctx, p: SelectParams): Promise<Selection<LightReport> & { joinMonthly: LightReport[] }> {
-  const { contractId, cfg, from, to } = p;
+  const { contractId, from, to } = p;
   const reports = ctx.repo.table("reports");
   const [monthlyAll, finalsAll] = await Promise.all([
     reports.pick(LIGHT, { contractId, kind: "monthly", month: { gte: from, lte: to } }),
@@ -67,7 +66,7 @@ export async function selectDelivered(ctx: Ctx, p: SelectParams): Promise<Select
   const cases = caseIds.length ? await ctx.repo.table("cases").list({ id: { in: caseIds } }) : [];
   const byId = new Map(cases.map((c) => [c.id, c]));
   const viewer = await viewerFor(ctx, cases);
-  const visible = (r: LightReport) => ruleAllows(p.rule, r, r.caseId ? byId.get(r.caseId) : undefined, viewer, cfg);
+  const visible = (r: LightReport) => ruleAllows(p.rule, r, r.caseId ? byId.get(r.caseId) : undefined, viewer);
   // Bara den senaste levererade versionen per ärende och månad (slutrapporten: per ärende) – aldrig två rader med samma nyckel.
   const m = latestVersions(delivered.filter(visible));
   const f = latestVersions(deliveredFinals.filter(visible));

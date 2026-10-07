@@ -6,6 +6,7 @@ import type { Db, TableName } from "@/data/schema";
 const BY_CASE = [
   "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "placements",
   "pulse_invites", "pulse_responses", "intake_assessments", "case_status_history", "case_team", "messages", "consents", "bonus_claims",
+  "invoice_lines",
 ] as const satisfies readonly TableName[];
 /** Tabeller med contractId. */
 const BY_CONTRACT = [

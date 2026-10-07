@@ -12,7 +12,7 @@
 //   DENIED[reason]       rubrik och text när rapporten inte får visas
 // Datum skrivs utan förkortningar ("1 februari 2027") eftersom dokumenten också visas i kommunportalen.
 import { reportKindLabel, reportStatusLabel } from "@/core/labels";
-import { addDays, fmtDateFull, fmtDateTimeFull, MONTHS, monthKey, monthName, weekday, weekMonday, WEEKDAYS, type WeekKey } from "@/core/time";
+import { addDays, fmtDateFull, fmtDateTimeFull, MONTHS, monthEnd, monthKey, monthName, weekday, weekMonday, WEEKDAYS, type MonthKey, type WeekKey } from "@/core/time";
 import type { BadgeTone, IconName } from "@/ui";
 import type { Report, ReportKind, ReportStatus } from "@/data/schema";
 
@@ -33,6 +33,12 @@ export const LIFECYCLE = ["Utkast", "Granskad", "Godkänd", "Levererad", "Kvitte
 export const NO_DUE = "Sista dag ej fastställd";
 /** Under grunduppgifterna i månads- och slutrapporten. */
 export const NO_PNR = "Personnummer skrivs inte ut. Ärendenumret identifierar deltagaren.";
+/** Månadsrapportens avsnitt 2 (beslut 2026-10-07, synpunkt #12): bara perioden och närvarograden, med regeln i en rad. */
+export const ATTENDANCE_RATE_RULE = "Närvarograd = tillfällen med närvaro (också sen ankomst) delat med de planerade tillfällen där närvaron är registrerad.";
+/** "1–31 januari 2027". */
+export const monthRangeText = (mk: MonthKey): string => `1–${Number(monthEnd(mk).slice(8, 10))} ${monthName(mk)}`;
+/** Orderbekräftelsen utan beställarreferens: Miljonbemanning fyller i den (beslut 2026-10-07, beslut 3 – en referens per faktura). */
+export const BUYER_REFERENCE_LATER = "Fylls i av Miljonbemanning före faktureringen";
 /** Fast text i månads- och slutrapporten (mall 02). */
 export const PRINCIPLE =
   'Rapporteringsprincip: Rapporten beskriver vad deltagaren har gjort och vad coachen har observerat under perioden. Den bygger bara på godkända uppgifter – registrerad närvaro, godkända veckoavstämningar och coachens godkända månadsbedömning. Bedömningarna är coachens egna. Rapporten innehåller inga diagnoser, inga spekulationer och inga omdömen om personlighet. Det som inte är känt skrivs "Framgår inte". Personnummer skrivs inte ut – ärendenumret identifierar deltagaren.';
@@ -85,6 +91,8 @@ export const effStatus = (r: Pick<Report, "status"> & { openedAt?: string | null
 export function statusLabel(r: Pick<Report, "status" | "kind"> & { openedAt?: string | null }): string {
   const s = effStatus(r);
   if (s === "reviewed" && r.kind !== "monthly" && r.kind !== "final") return "Granskad";
+  // Beställarrapporten lämnas till kommunen utanför Miljonmatch (beslut 2026-10-07) – den levereras inte i portalen.
+  if (s === "delivered" && r.kind === "customer_summary") return "Lämnad till kommunen";
   return reportStatusLabel(s);
 }
 const STATUS_LOOK: Record<ReportStatus, [BadgeTone, IconName]> = {
@@ -163,13 +171,13 @@ export const DENIED: Record<DeniedReason, readonly [string, string]> = {
   ],
   handledare_order: [
     "Orderbekräftelsen visas inte för handledare",
-    "Orderbekräftelsen innehåller beställningens värde och fakturauppgifter. Som handledare ser du närvaron och veckorapporterna för dina tilldelade ärenden.",
+    "Orderbekräftelsen innehåller beställningens fakturauppgifter. Som handledare ser du närvaron och veckorapporterna för dina tilldelade ärenden.",
   ],
-  role: ["Rapporten är inte tillgänglig för din roll", "Beställarrapporten är till för avtalsansvarig, samordnare, ledningen och kommunens chef."],
+  role: ["Rapporten är inte tillgänglig för din roll", "Beställarrapporten är till för avtalsansvarig, samordnare och ledningen."],
   missing: ["Rapporten saknar ärende", "Rapporten kan inte visas."],
   not_yours: ["Rapporten är inte tillgänglig för dig", "Du ser bara rapporter om dina egna deltagare."],
   not_delivered: ["Rapporten är inte klar ännu", "Du ser rapporten här när Miljonbemanning har levererat den. Du får ett mejl när den finns i portalen."],
-  // Kommunens chef och rapporter i ärenden med skyddade personuppgifter (CLAUDE.md punkt 8 – se slutrapporten).
+  // Rapporter i ärenden med skyddade personuppgifter för kommunen (vilande spärr sedan 2026-10-07 – visas bara om den slås på).
   protected_customer: [
     "Skyddade personuppgifter",
     "Rapporten gäller en deltagare med skyddade personuppgifter. Den visas bara för handläggaren som beställde insatsen.",

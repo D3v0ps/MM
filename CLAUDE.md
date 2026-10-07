@@ -1,6 +1,6 @@
 # Miljonmatch
 
-Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemanning AB. Avtal nr 1 (pilot): Botkyrka kommun, avtal 332026110 (dnr AVN/2026:00048). Miljonmatch är kommunernas plattform – fler kommunavtal kan läggas till som konfiguration. Kammarkollegiet får en egen plattform (beslut 2026-10-06) – blandas aldrig ihop med Miljonmatch. Hela kravspecen finns i `SPEC.md` (v0.2) – läs relevant avsnitt innan du bygger något nytt.
+Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemanning AB. Avtal nr 1 (pilot): Botkyrka kommun, avtal 332026110 (dnr AVN/2026:00048). Miljonmatch är kommunernas plattform – fler kommunavtal kan läggas till som konfiguration. Kammarkollegiet får en egen plattform (beslut 2026-10-06) – blandas aldrig ihop med Miljonmatch. Kommunen har bara rollen handläggare: alla med en adress på avtalets kommundomän skapar konto själva och ser bara sina egna beställningar; beställarrapport och resultatfil tas fram och lämnas av MB (beslut 2026-10-07). Hela kravspecen finns i `SPEC.md` (v0.2) – läs relevant avsnitt innan du bygger något nytt.
 
 ## Arbetssätt
 
@@ -28,10 +28,10 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 5. **AI föreslår – människan bedömer.** AI sätter aldrig progressionsnivå (0–3), samlad status, avslutsorsak eller resultat. AI föreslår text med belägg (citat + tidpunkt). Bedömningsfält är tomma tills coachen gjort ett aktivt val.
 6. **Rapporter byggs bara av godkända uppgifter** – aldrig direkt från råtranskript.
 7. **Ljud raderas direkt efter lyckad transkribering** (senast efter 24 h vid fel). Råtranskript raderas när avstämningen godkänts, senast efter 30 dagar.
-8. **Skyddade personuppgifter** (`protected_identity = true`): ingen adress lagras, inga SMS eller mejl till deltagaren, ingen AI, åtkomst bara för namngiven coach och avtalsansvarig.
+8. **Skyddade personuppgifter – borttaget ur appen (Karims beslut 2026-10-07, ska stämmas av med Botkyrka).** Frågan ställs inte och alla deltagare hanteras lika. Spärren i RLS och `src/data/policy.ts` för `protected_identity` ligger kvar vilande (kolumnen är alltid false) så att skyddet kan slås på igen utan ny migration. Ta inte bort spärren och bygg inget nytt som förutsätter att den är borta.
 9. **E-post och SMS innehåller aldrig personuppgifter** – bara ärendenummer och länk till portalen. Inga rapporter som bilaga i vanlig e-post om inte avtalskonfigurationen uttryckligen tillåter det.
 10. **Mejl är kommunens formella beställningskanal.** Mejlavropet via avrop@ ska alltid fungera fullt ut, även för kommunanvändare som aldrig loggar in i portalen.
-11. **Fakturor:** kommunens beställarreferens (8–10 siffror, bara siffror) krävs och valideras innan en faktura får skapas. Våra egna nummer (ärendenummer) läggs aldrig i fältet för kundens inköpsordernummer – det fältet används bara för kommunens egna ordernummer (nio siffror som börjar med 99). Inga namn eller personnummer på fakturor.
+11. **Fakturor:** en faktura per avtal och månad med ett ärende per rad (beslut 2026-10-07; `billing.invoicePer` i avtalskonfigurationen kan växla tillbaka till en per ärende). Beställarreferensen fylls i av MB (en per faktura) – den finns inte i kommunens formulär. Referensen (8–10 siffror, bara siffror) krävs och valideras innan en faktura får skapas. **Belopp i kronor syns bara för rollen ekonom** (beslut 2026-10-07, spärrat på servern) – inga priser, ordervärden, viten eller kostnader för någon annan roll eller för kommunen. Våra egna nummer (ärendenummer) läggs aldrig i fältet för kundens inköpsordernummer – det fältet används bara för kommunens egna ordernummer (nio siffror som börjar med 99). Inga namn eller personnummer på fakturor.
 12. Tid: `Europe/Stockholm`. Veckor enligt ISO 8601. Arbetsdagar räknas med svenska helgdagar (tabellen `holidays`). Belopp i öre (heltal), priser exkl. moms, momssats per artikel.
 
 ## Språk och ton
@@ -80,7 +80,8 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 | praktik/APL | placement |
 | pulsmätning | pulse_survey |
 | månadsrapport individ / slutrapport | monthly_report / final_report |
-| beställarrapport (chef) | customer_summary_report |
+| beställarrapport (lämnas av MB) | customer_summary_report |
+| bilaga (t.ex. kartläggning) | case_attachment |
 | yrkeskompetensbevis | skills_certificate |
 | bonusanspråk | bonus_claim |
 | fakturaunderlag | billing_basis |
@@ -91,7 +92,7 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 ## Tester (krav innan merge)
 
 - Enhetstester: resultatgrad och övriga KPI:er; debiterbara veckor (alla ISO-veckor med minst en inskriven dag, utom uppehåll) och veckans månadstillhörighet (torsdagsregeln); arbetsdagar/SLA-förfall; ärendenummer; validering av beställarreferens och inköpsordernummer.
-- RLS-tester per roll: kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare ser bara tilldelade ärenden, skyddade ärenden syns bara för namngivna.
+- RLS-tester per roll: kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare ser bara tilldelade ärenden, ekonomen är den enda som ser belopp, och den vilande spärren för skyddade ärenden gäller fortfarande när den slås på.
 - E2E: mejlavrop → ordererkännande med ärendenummer → orderbekräftelse → närvaro → veckorapport → månadsbedömning → månadsrapport-PDF → fakturaunderlag.
 
 ## Arkitektur – prototypen speglar riktiga appen

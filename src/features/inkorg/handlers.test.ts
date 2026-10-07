@@ -1,6 +1,8 @@
 // Tester för området inkorg: vy-modellerna (startsidan, inkorgen, förfaller), sidopanelens räknare och områdets kommandon.
 // Förväntade värden är den gamla prototypens (prototyp/src/views/inkorg.js med samma testdata och demoklocka),
 // hämtade med MM.sel.inboxToHandle, MM.sel.deadlines, MM.sel.alerts, sel.unregistered och sel.unreadNotifications.
+// Beslut 2026-10-07: skyddade personuppgifter är borttagna ur appen – em-104 är en vanlig fråga (Övrigt) utan flagga,
+// generisk bekräftelse eller telefonregistrering, och beställningen anger omfattningen i månader (inte veckor).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
@@ -9,11 +11,11 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import type { MemoryData } from "@/data/memory";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
-import { caseAccept, caseCreate } from "@/features/arenden/api";
+import { caseAccept } from "@/features/arenden/api";
 import { navCounts } from "@/features/session/nav-api";
 import {
-  emailApplySupplement, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxLinkPhoneOrder, inboxList,
-  inboxPhoneForm, inboxRevealPnr, inboxStart, inboxTaskDone,
+  emailApplySupplement, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxList, inboxRevealPnr, inboxStart,
+  inboxTaskDone,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -39,10 +41,11 @@ const johan = () => as("u-johan", "avtalsansvarig");
 const karin = () => as("u-karin", "chef");
 const amira = () => as("u-amira", "coach");
 
-// Den gamla prototypens värden vid demostart (måndag 1 februari 2027 kl. 09.12).
-const OLD_PENDING = ["em-106", "em-102", "em-103", "em-104", "em-101", "em-105"];
+// Den gamla prototypens värden vid demostart (måndag 1 februari 2027 kl. 09.12) – med em-104 som en vanlig fråga: den
+// sorteras efter mottagningstiden (inte först som skyddat avrop) och ger ingen flagga till avtalsansvarig.
+const OLD_PENDING = ["em-106", "em-102", "em-103", "em-101", "em-104", "em-105"];
 const OLD_ALERTS_SAM = [
-  "protected:em-104", "overdue:rep-16356", "nomeeting:case-270039", "stuck:case-270012:1", "stuck:case-260128:3", "kpi:manadsrapporter_i_tid:2027-01",
+  "overdue:rep-16356", "nomeeting:case-270039", "stuck:case-270012:1", "stuck:case-260128:3", "kpi:manadsrapporter_i_tid:2027-01",
   "kpi:forsta_mote_inom_en_vecka:2027-01", "kpi:avrop_besvarade_i_tid:2027-01", "absence:case-260148:at-12691", "pulse_contact:pr-17026", "pulse_contact:pr-17000",
   "pulse_contact:pr-16983",
 ];
@@ -67,8 +70,10 @@ describe("avropsinkorgen", () => {
     expect(l.handled).toHaveLength(21);
     const r = l.rows.find((x) => x.id === "em-106");
     expect(r).toMatchObject({ caseNumber: "BOT-27-0048", receivedWhen: "fre 29 jan kl. 10.05", from: "Linda Karlsson", method: "template", sla: { dueAt: "2027-02-01T10:05", sla: { label: "53 min kvar", tone: "urgent" } } });
-    expect(l.rows.find((x) => x.id === "em-102")?.missing).toEqual(["beställarreferens", "planerat slutdatum"]);
-    expect(l.rows.find((x) => x.id === "em-104")).toMatchObject({ isProtected: true, sla: { sla: { label: "Senast 2 feb kl. 07.55" } } });
+    // Beställarreferensen fylls i av Miljonbemanning (beslut 2026-10-07) – mejlet saknar bara omfattningen.
+    expect(l.rows.find((x) => x.id === "em-102")?.missing).toEqual(["omfattning"]);
+    expect(l.rows.find((x) => x.id === "em-104")).toMatchObject({ cls: "other", subject: "Fråga om startdatum", sla: null, missing: [] });
+    expect(l.rows.find((x) => x.id === "em-104")).not.toHaveProperty("isProtected");
   });
 
   it("em-102 (AI – fritext): maskerat personnummer, osäkra fält och saknad beställarreferens", async () => {
@@ -80,25 +85,29 @@ describe("avropsinkorgen", () => {
     expect(d.headSla?.text).toBe("Svar senast i dag kl. 15.20");
     expect(d.body.original?.body).toContain("(••••••••-5223)");
     expect(d.body.original?.body).not.toContain("19750312");
-    expect(d.body.parsed).toMatchObject({ nMissing: 2, nLow: 3, aiRun: "Tolkat av Berget AI (test) på 6 s." });
+    expect(d.body.parsed).toMatchObject({ nMissing: 1, nLow: 2, aiRun: "Tolkat av Berget AI (test) på 6 s." });
     const pnr = d.body.parsed?.groups[1].fields.find((f) => f.key === "pnr");
     expect(pnr?.pnr).toMatchObject({ masked: "••••••••-5223", hidden: false });
-    expect(d.body.missing).toEqual({ title: "Saknas: beställarreferens, planerat slutdatum", critical: true, text: "Ordererkännandet bad kommunen svara med uppgifterna (fre 29 jan kl. 15.23). Ärendet kan inte bekräftas utan giltig beställarreferens." });
+    // Omfattningen saknas men stoppar inte beslutet (den väljs i beslutsdialogen); referensen är valfri vid accept.
+    expect(d.body.missing).toEqual({ title: "Saknas: omfattning", critical: false, text: "Ordererkännandet bad kommunen svara med uppgifterna (fre 29 jan kl. 15.23)." });
+    expect(d.correct).toMatchObject({ periods: { months: [6, 12], allowOther: true }, init: { orderPeriod: "" } });
     expect(d.body.pendingSups).toEqual([{ id: "em-103", fromName: "Ahmed Yusuf", when: "i dag kl. 08.02" }]);
     expect(d.body.ack).toMatchObject({ kind: "sent", mins: 3, ok: true, leak: false });
     expect(JSON.stringify(d)).not.toContain("19750312");
   });
 
-  it("em-104 som samordnare: ingen registrering, ingen AI och inga personuppgifter", async () => {
+  it("em-104 är en vanlig fråga (Övrigt): ingen flagga, ingen generisk bekräftelse och ingen telefonregistrering", async () => {
     const d = await q(inboxItem, { id: "em-104" }, sara());
-    expect(d).toMatchObject({ isProtected: true, mine: false, canPhone: false, steps: ["Mottaget", "Generisk bekräftelse", "Telefonsamtal", "Beslut", "Orderbekräftelse"], current: 2 });
-    expect(d?.body.kind).toBe("protected");
-    if (d?.body.kind !== "protected") return;
-    expect(d.body.timeline[1].title).toBe("Flagga till avtalsansvarig Johan Berg");
-    expect(d.body.timeline[2].title).toBe("Avtalsansvarig ringer Omar Farah på 08-530 000 14");
-    expect(d.body.ack).toMatchObject({ kind: "sent", generic: true, mins: 2, body: "Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag." });
-    const avt = await q(inboxItem, { id: "em-104" }, johan());
-    expect(avt).toMatchObject({ mine: true, canPhone: true });
+    expect(d).toMatchObject({ cls: "other", status: "other", subject: "Fråga om startdatum", steps: null, decision: false, correct: null });
+    for (const key of ["isProtected", "mine", "canPhone"]) expect(d).not.toHaveProperty(key);
+    expect(d?.body.kind).toBe("other");
+    if (d?.body.kind !== "other") return;
+    expect(d.body.original?.body).toContain("När kan ni ta emot nästa deltagare");
+    // Samma vy för avtalsansvarig – ingen särskild väg för skyddade avrop.
+    expect(await q(inboxItem, { id: "em-104" }, johan())).toMatchObject({ cls: "other", body: { kind: "other" } });
+    // Inget utskick (generisk bekräftelse) och ingen uppgift till avtalsansvarig.
+    expect(rows("outbound_messages").some((m) => m.template === "generisk_mottagningsbekraftelse")).toBe(false);
+    expect(rows("tasks").some((t) => t.kind === "protected_order")).toBe(false);
   });
 
   it("ärendet i Förfaller och startsidan: 96 förfallotider, samma ordning som prototypen", async () => {
@@ -133,26 +142,27 @@ describe("avropsinkorgen", () => {
     expect(s.noCoach.map((r) => r.caseNumber)).toEqual(["BOT-27-0048", "BOT-27-0049", "BOT-27-0050"]);
     expect(s.assign.latest.map((n) => `${n.name} · ${n.caseNumber}`)).toEqual(["Leila Nouri · BOT-27-0047", "Mats Holm · BOT-27-0046", "Petra Ek · BOT-27-0046"]);
     const j = await q(inboxStart, {}, johan());
-    expect(j.tasks.map((t) => t.text)).toEqual(["Avrop med skyddade personuppgifter från Omar Farah. Ring handläggaren enligt den säkra rutinen."]);
-    expect(j.protectedItems.map((x) => [x.id, x.caseText])).toEqual([["em-104", "väntar på telefonsamtal"]]);
-    expect(j.warnings.text).toBe("3 varningar kan leda till uppsägning. Vite 25\u00a0000\u00a0kr per tillfälle vid avvikelse.");
+    expect(j.tasks).toEqual([]);
+    expect(j).not.toHaveProperty("protectedItems");
+    // Inga viten i kronor – belopp syns bara för ekonomen (beslut 5, 2026-10-07).
+    expect(j.warnings.text).toBe("3 varningar kan leda till uppsägning.");
   });
 });
 
 describe("områdets kommandon", () => {
-  it("ink.correct: planerad omfattning rättad, övrigt kontrollerat (em-102)", async () => {
+  it("ink.correct: omfattningen rättad till 6 månader, övrigt kontrollerat (em-102)", async () => {
     const c = row("cases", "case-270049");
-    expect(c?.plannedWeeks).toBe(6);
-    const res = await run(inboxCorrect, {
-      caseId: "case-270049", emailId: "em-102", patch: { plannedWeeks: 8 },
-      checked: ["desiredStart", "plannedWeeks", "primaryArea", "vocationalTrack"],
-    }, sara());
-    expect(res).toEqual({ ok: true, changed: ["plannedWeeks"] });
-    expect(row("cases", "case-270049")).toMatchObject({ plannedWeeks: 8, orderValueWeeks: 8 });
+    expect(c?.orderPeriodMonths).toBeNull();
+    const res = await run(inboxCorrect, { caseId: "case-270049", emailId: "em-102", patch: { orderPeriod: "6" }, checked: ["desiredStart", "orderPeriod"] }, sara());
+    expect(res).toEqual({ ok: true, changed: ["orderPeriod"] });
+    expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, orderPeriodReason: null });
     const e = row("inbound_emails", "em-102");
-    expect(e?.corrections.plannedWeeks).toMatchObject({ by: "u-sara", changed: true, from: 6 });
-    expect(e?.corrections.primaryArea).toMatchObject({ changed: false });
-    expect(e?.confidence.plannedWeeks).toBe(1);
+    expect(e?.corrections.orderPeriod).toMatchObject({ by: "u-sara", changed: true, from: "" });
+    expect(e?.corrections.desiredStart).toMatchObject({ changed: false });
+    expect(e?.confidence.orderPeriod).toBe(1);
+    expect(e?.missingFields).toEqual([]);
+    // Bara avtalets omfattningar: 9 månader stoppas.
+    expect(await run(inboxCorrect, { caseId: "case-270049", patch: { orderPeriod: "9" }, checked: [] }, sara())).toMatchObject({ ok: false, error: "order_period" });
     const d = await q(inboxItem, { id: "em-102" }, sara());
     const notes = d?.body.kind === "order" ? d.body.parsed?.groups.flatMap((g) => g.fields).map((f) => f.note?.kind) : [];
     expect(notes).toContain("corrected");
@@ -165,40 +175,27 @@ describe("områdets kommandon", () => {
     const f = await q(inboxDecisionForm, { caseId: "case-270049" }, sara());
     expect(f).toMatchObject({ caseNumber: "BOT-27-0049", buyerReference: "55102938", pendingSup: null, defaultDate: "2027-02-03", meetingText: "en vecka" });
     expect(f?.coaches.map((x) => x.name)).toContain("Leila Nouri");
-    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", plannedWeeks: 6, buyerReference: "55102938" }, sara())).toMatchObject({ ok: true });
+    // Kompletteringen gav omfattningen (6 månader) och referensen – avtalsområde och yrkesspår väljs av Miljonbemanning.
+    expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, buyerReference: "55102938" });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", startDate: "2027-02-03", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, plannedEnd: "2027-08-02", primaryAreaCode: "G" });
     const conf = await q(inboxConfirmation, { caseId: "case-270049" }, sara());
     expect(conf).toMatchObject({ caseNumber: "BOT-27-0049", coachName: "Leila Nouri", team: "Bara huvudcoach", buyerReference: "55102938", leadNotif: { title: "Leila Nouri har fått en notis om tilldelningen" } });
     expect(conf?.confirmed).toMatch(/^i dag kl\. 09\.\d\d av Sara Lindqvist$/);
-    expect((await q(inboxList, {}, sara())).pending).toEqual(["em-106", "em-104", "em-101", "em-105"]);
+    expect((await q(inboxList, {}, sara())).pending).toEqual(["em-106", "em-101", "em-104", "em-105"]);
   });
 
-  it("ink.linkPhoneOrder: skyddat avrop registreras efter telefonsamtal (em-104)", async () => {
-    const form = await q(inboxPhoneForm, { emailId: "em-104" }, johan());
-    expect(form).toMatchObject({ referrerId: "k-omar", referrerName: "Omar Farah", phone: "08-530 000 14", nextCaseNumber: "BOT-27-0051" });
+  it("dubblettkontrollen i registreringen: bara ja eller nej", async () => {
     expect(await q(inboxDuplicateCheck, { pnr: "19880412-1234" }, johan())).toEqual({ duplicate: false });
-    const created = await run(caseCreate, { protectedIdentity: true, source: "phone", referrerId: "k-omar", firstName: "Samir", lastName: "Lindqvist-Test", pnr: "19880412-1234", buyerReference: form?.brReference ?? "", primaryArea: "G", plannedWeeks: 8 }, johan());
-    expect(created.ok).toBe(true);
-    if (!created.ok) return;
-    expect(await run(inboxLinkPhoneOrder, { emailId: "em-104", caseId: created.caseId }, johan())).toEqual({ ok: true });
-    const e = row("inbound_emails", "em-104");
-    const c = row("cases", created.caseId);
-    expect(e).toMatchObject({ status: "received", caseId: created.caseId, registeredBy: "u-johan" });
-    expect(c?.referredAt).toBe(e?.receivedAt);
-    expect(row("tasks", "task-2")?.status).toBe("done");
-    expect(rows("tasks").filter((t) => t.status === "open" && t.kind === "protected_order")).toEqual([]);
-    expect(await q(inboxDuplicateCheck, { pnr: "19880412-1234" }, johan())).toEqual({ duplicate: true });
-    // Samordnaren ser bara ärendenumret och "Skyddade personuppgifter".
-    const d = await q(inboxItem, { id: "em-104" }, sara());
-    expect(JSON.stringify(d)).not.toMatch(/Samir|Lindqvist-Test|1234/);
-    expect(d?.decision).toBe(true);
-    expect(d?.mine).toBe(false);
-    expect(await run(inboxLinkPhoneOrder, { emailId: "em-104", caseId: created.caseId }, sara()).catch((x: Error) => x.message)).toBe("Din roll har inte behörighet till det här.");
+    expect(await q(inboxDuplicateCheck, { pnr: "19750312-5223" }, sara())).toEqual({ duplicate: true });
   });
 
   it("ink.taskDone och Visa personnummer (loggas)", async () => {
-    expect(await run(inboxTaskDone, { taskId: "task-2" }, johan())).toEqual({ ok: true });
-    expect(row("tasks", "task-2")).toMatchObject({ status: "done", doneBy: "u-johan" });
-    expect(await run(inboxTaskDone, { taskId: "task-2" }, sara())).toMatchObject({ ok: false, error: "not_found" });
+    // En uppgift till avtalsansvarig (testdatat har ingen sedan uppgiften om det skyddade avropet togs bort).
+    rt.store.insertRow("tasks", { ...row("tasks", "task-1")!, id: "task-x-johan", toRole: "avtalsansvarig", toId: "u-johan", fromId: "system", caseIds: [], status: "open", doneBy: null, doneAt: null });
+    expect(await run(inboxTaskDone, { taskId: "task-x-johan" }, johan())).toEqual({ ok: true });
+    expect(row("tasks", "task-x-johan")).toMatchObject({ status: "done", doneBy: "u-johan" });
+    expect(await run(inboxTaskDone, { taskId: "task-x-johan" }, sara())).toMatchObject({ ok: false, error: "not_found" });
     const before = rt.clock.now();
     const r = await run(inboxRevealPnr, { emailId: "em-102" }, sara());
     expect(r).toMatchObject({ ok: true });

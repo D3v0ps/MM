@@ -5,7 +5,7 @@
 // notiser.list – inga ekonomi-frågor. Begränsade testare: ledning.overview lämnar inte ut ofakturerat eller interna mål.
 import { useState } from "react";
 import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr, pct, plural } from "@/core/format";
+import { pct, plural } from "@/core/format";
 import { fmtDate } from "@/core/time";
 import { inboxDeadlines, type DeadlinesView } from "@/features/inkorg/api";
 import { dlDesc, groupDeadlines, kindLabel } from "@/features/inkorg/texts";
@@ -228,7 +228,7 @@ function Week({ o, dl, reports }: { o: LedningOverview; dl: DeadlinesView; repor
                     !u
                       ? TESTER_HIDDEN_TEXT
                       : u.weeks
-                        ? `${kr(u.totalOre)} · ${plural(u.weeks, "vecka", "veckor")} äldre än ${u.warningDays} dagar`
+                        ? `${plural(u.weeks, "vecka", "veckor")} i ${plural(u.cases.length, "ärende", "ärenden")} äldre än ${u.warningDays} dagar`
                         : `Inga veckor äldre än ${u.warningDays} dagar`,
                   ],
                 ]}

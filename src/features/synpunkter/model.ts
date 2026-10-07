@@ -34,7 +34,9 @@ export const prioLabel = (v: string) => FB_PRIOS.find((t) => t.value === v)?.lab
 export const statusLabel = (v: string) => FB_STATUSES.find((t) => t.value === v)?.label ?? v;
 export const typeIcon = (v: string): IconName | undefined => FB_TYPES.find((t) => t.value === v)?.icon;
 export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);
-export const roleLabelOf = (role: string | null | undefined): string => (isRole(role) ? ROLE_LABEL[role] : "");
+/** Roller som har tagits bort men kan finnas i äldre synpunkter (kommunens chef, beslut 2026-10-07). */
+const REMOVED_ROLE_LABEL: Record<string, string> = { kommun_chef: "Kommunens chef (borttagen roll)" };
+export const roleLabelOf = (role: string | null | undefined): string => (isRole(role) ? ROLE_LABEL[role] : (role && REMOVED_ROLE_LABEL[role]) || "");
 /** "Leverantör", "Kund" eller "Deltagare" – samma etiketter som prototypens perspektiv. */
 export const perspectiveLabelOf = (role: Role): string => PERSPECTIVES.find((p) => p.key === perspectiveOf(role))?.label ?? "";
 

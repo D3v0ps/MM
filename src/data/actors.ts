@@ -29,7 +29,6 @@ export const PROTOTYPE_ROLES: readonly PrototypeRole[] = [
   { key: "ekonom", label: "Ekonom", org: "mb", personaId: "u-lars", description: "Fakturaunderlag per ärende och månad – inga anteckningar eller rapporter." },
   { key: "admin", label: "Systemadmin", org: "mb", personaId: "u-robin", description: "Avtalskonfiguration, användare, underbiträden och logg." },
   { key: "kommun_handlaggare", label: "Kommunens handläggare", org: "customer", personaId: "k-maria", description: "Beställer, läser rapporter och skickar meddelanden." },
-  { key: "kommun_chef", label: "Kommunens chef", org: "customer", personaId: "k-eva", description: "Beställarrapport och enhetens ärenden." },
   { key: "deltagare", label: "Deltagare (pulslänk)", org: "participant", personaId: null, description: "Svarar på pulsmätningen via engångslänk – ingen inloggning." },
 ];
 
@@ -37,7 +36,7 @@ export type PrototypePerspective = { key: "leverantor" | "kund" | "deltagare"; l
 /** Perspektiven i prototypfältet (prototypens MM.PERSPECTIVES). */
 export const PERSPECTIVES: readonly PrototypePerspective[] = [
   { key: "leverantor", label: "Leverantör", long: "Leverantörens perspektiv – Miljonbemanning", roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "ekonom", "admin"], defaultRole: "samordnare" },
-  { key: "kund", label: "Kund", long: "Kundens perspektiv – Botkyrka kommun", roles: ["kommun_handlaggare", "kommun_chef"], defaultRole: "kommun_handlaggare" },
+  { key: "kund", label: "Kund", long: "Kundens perspektiv – Botkyrka kommun", roles: ["kommun_handlaggare"], defaultRole: "kommun_handlaggare" },
   { key: "deltagare", label: "Deltagare", long: "Deltagarens perspektiv", roles: ["deltagare"], defaultRole: "deltagare" },
 ];
 
@@ -50,7 +49,11 @@ function userOf(raw: RawAccess<Tables>, p: Profile): SessionUser {
   return { id: p.id, name: p.fullName, title: p.title, email: p.email, orgName: raw.get("organizations", p.organizationId)?.name ?? "", unit: p.customerUnit };
 }
 
-/** Aktören för en användare i en roll: avtal = medlemskapen med rollen. Null om användaren saknar rollen. */
+/**
+ * Aktören för en användare i en roll: avtal = medlemskapen med rollen. Null om användaren saknar rollen.
+ * Enheten (synligheten "unit") tas bara från medlemskapet, som Miljonbemanning sätter – aldrig från profilen, som
+ * handläggaren själv skriver i Mina uppgifter (beslut 2026-10-07, självregistrering). Samma regel i mm.current_unit (0026).
+ */
 export function actorFor(raw: RawAccess<Tables>, userId: string, role?: Role): Actor | null {
   if (userId === PARTICIPANT_USER_ID) return { userId, role: "deltagare", contractIds: [], customerUnit: null };
   const profile = raw.get("profiles", userId);
@@ -59,7 +62,7 @@ export function actorFor(raw: RawAccess<Tables>, userId: string, role?: Role): A
   const r = role ?? ms[0]?.role;
   const mine = ms.filter((m) => m.role === r);
   if (!r || !mine.length) return null;
-  return { userId, role: r, contractIds: [...new Set(mine.map((m) => m.contractId))], customerUnit: mine[0].customerUnit ?? profile.customerUnit };
+  return { userId, role: r, contractIds: [...new Set(mine.map((m) => m.contractId))], customerUnit: mine[0].customerUnit ?? null };
 }
 
 function personaOf(raw: RawAccess<Tables>, p: Profile, role: Role, isDefaultForRole: boolean): Persona | null {

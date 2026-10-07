@@ -1,7 +1,7 @@
 "use client";
 // Rapporter och meddelanden i portalen (/portal/rapporter/:reportId?) – prototypens kom.rapporter.
-// Utan reportId: handläggarens rapporter och meddelanden (flikar, ?flik=meddelanden, ?filter=olasta …) eller kommunens chefs
-// beställarrapporter. Med reportId: rapportsidan (PortalReport från området rapporter).
+// Utan reportId: handläggarens rapporter och meddelanden (flikar, ?flik=meddelanden, ?filter=olasta …). Med reportId:
+// rapportsidan (PortalReport från området rapporter). Beställarrapporten visas inte i portalen (beslut 2026-10-07).
 import { PortalReport } from "@/features/rapporter/components/portal-report";
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
@@ -10,7 +10,6 @@ import { useSession } from "@/shell/session";
 import { pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
 import { Badge, Button, Card, Empty, ErrorNotice, Field, Input, List, ListItem, Loading, Notice, PerspectiveLink, Seg, Stack, TabPanel, Tabs } from "@/ui";
 import type { ReportKind } from "@/data/schema";
-import { navCounts } from "@/features/session/nav-api";
 import { kommunReports, type KomReports } from "../api";
 import { fDT, fDTL, trunc } from "../texts";
 import { KOM_TABS, KomHead, KomPage, LeadIcon, MoreButton, ReportRowItem, SubLine, TitleRow, UNREAD_EDGE } from "./parts";
@@ -53,7 +52,7 @@ function ReportsScreen({ query }: { query: URLSearchParams }) {
   const q = useQuery(kommunReports, {});
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (q.isLoading || !q.data) return <Loading />;
-  return q.data.chef ? <ChefReports d={q.data} /> : <Reports d={q.data} query={query} />;
+  return <Reports d={q.data} query={query} />;
 }
 
 function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
@@ -189,49 +188,6 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
       </TabPanel>
       <div className="flex flex-wrap items-center gap-3">
         <PerspectiveLink role="samordnare" to="/rapporter" label="Se rapporterna hos Miljonbemanning" />
-      </div>
-    </KomPage>
-  );
-}
-
-function ChefReports({ d }: { d: KomReports }) {
-  const list = d.reports;
-  // Rapporter som Miljonbemanning har byggt och delat med chefen (rapportbyggaren) – annars svåra att hitta härifrån.
-  const shared = useQuery(navCounts, {}).data?.sharedReports ?? 0;
-  return (
-    <KomPage>
-      <KomHead
-        eyebrow={`${d.customerName} · ${d.unit ?? ""}`}
-        title="Rapporter"
-        back={{ label: "Till beställarrapporten", to: "/portal/bestallarrapport" }}
-        lead="Beställarrapporterna som Miljonbemanning har levererat till dig. De kommer en gång i månaden."
-      />
-      {d.coming.map((r) => (
-        <Notice key={r.id} tone="info" title={`${r.title} är på väg`}>
-          Rapporten är ett utkast hos Miljonbemanning. Den levereras när avtalsansvarig har godkänt den, senast {fDTL(r.dueAt)}.
-        </Notice>
-      ))}
-      <Card flush title="Beställarrapporter" icon="chart">
-        {list.length === 0 ? (
-          <Empty icon="file" title="Inga rapporter än" />
-        ) : (
-          <List>
-            {list.map((r) => (
-              <ReportRowItem key={r.id} r={r} from="rapporter" />
-            ))}
-          </List>
-        )}
-      </Card>
-      {shared > 0 && (
-        <span>
-          <Button iconRight="arrow-right" to="/portal/resultat/rapporter">
-            Rapporter som Miljonbemanning har gjort åt dig ({shared})
-          </Button>
-        </span>
-      )}
-      <p className="text-text-muted">Meddelanden om enskilda deltagare går till handläggaren som beställde insatsen. Du kan läsa dem under Enhetens deltagare.</p>
-      <div className="flex flex-wrap items-center gap-3">
-        <PerspectiveLink role="avtalsansvarig" to="/rapporter" label="Se rapporterna hos Miljonbemanning" />
       </div>
     </KomPage>
   );

@@ -6,14 +6,14 @@
 //   VoiceNotesInbox    på Min vecka: nya röstmeddelanden att granska i coachens ärenden
 //   VoiceNotesForCheckIn  i veckoavstämningen: texten som underlag (coachen väljer själv om den ska in i anteckningen)
 // Texten är AI-transkriberad (och AI-översatt till svenska när deltagaren talade ett annat språk) och märks så. Visningen
-// loggas i revisionsloggen. Aldrig länkar eller inspelning för skyddade personuppgifter – då förklaras varför.
+// loggas i revisionsloggen. I testmiljön (simulerad AI) står det att texten är påhittad (beslut 2026-10-07).
 import { useEffect, useRef, useState } from "react";
 import { fmtDate, fmtDateShort, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, cn, Empty, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, Stack, toast, useAuditView,
+  AiTag, Badge, BuildPhase, Button, Card, cn, Empty, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, SimulatedAiNotice, Stack, toast, useAuditView,
 } from "@/ui";
 import { caseVoice, linkSend, noteReview, notesSeen, pendingNotes, type CaseVoiceView, type RostLang, type VoiceNoteView } from "../api";
 
@@ -226,6 +226,7 @@ function VoiceNote({ n, canWork, canUse }: { n: VoiceNoteView; canWork: boolean;
         <NoteTags n={n} />
       </div>
       <blockquote className="m-0 border-l-[3px] border-antracit bg-vit px-3 py-2 [overflow-wrap:anywhere]">{n.textSv}</blockquote>
+      {n.simulated && <SimulatedAiNotice who="participant" />}
       {n.textOriginal && (
         <div className="flex flex-col gap-1.5">
           <div>
@@ -398,6 +399,7 @@ export function VoiceNotesForCheckIn({ caseId, highlightId, onUse }: { caseId: s
             )}
           </div>
           <blockquote className="m-0 border-l-[3px] border-antracit bg-vit px-3 py-2 text-body [overflow-wrap:anywhere]">{n.textSv}</blockquote>
+          {n.simulated && <SimulatedAiNotice who="participant" />}
           <div>
             <Button kind="secondary" icon="copy" onClick={() => onUse(`Deltagarens röstmeddelande ${fmtDateShort(n.createdAt)}: ${n.textSv}`)}>
               Lägg till i anteckningen

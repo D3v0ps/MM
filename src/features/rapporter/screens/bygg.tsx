@@ -2,7 +2,8 @@
 // Rapportbyggaren: byggaren (/rapportbyggare/ny och /rapportbyggare/:id?steg=). Fyra steg: 1 Börja med · 2 Urval · 3 Visa ·
 // 4 Spara. Adressen innehåller bara steget, mallens nyckel, kopians id och avtalet – den osparade definitionen ligger i
 // skärmens tillstånd. Förhandsvisningen räknas inte om av sig själv: knappen "Visa förhandsvisning" kör ett tyst kommando
-// (rapporter.byggForhandsvisning) med den osparade definitionen – ett osparat utkast loggas inte.
+// (rapporter.byggForhandsvisning) med den osparade definitionen – ett osparat utkast loggas inte. Rapporten delas bara inom
+// Miljonbemanning (beslut 2026-10-07).
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { leaveWithoutAsking, useUnsavedGuard } from "@/shell/guard";
@@ -16,12 +17,11 @@ import {
 } from "../api";
 import { BuilderViewPanel, DownloadStatus, useBuilderDownload } from "../components/builder-view";
 import { RadioCards } from "../components/radio-cards";
-import { ShareDialog } from "./bygg-dela";
 import { VISIBILITY_ICON } from "./bygg-lista";
 
 const STEPS = ["Börja med", "Urval", "Visa", "Spara"] as const;
 const TITLES = ["Vad vill du se?", "Vilken period och vilka deltagare?", "Hur vill du se uppgifterna?", "Spara och hämta"] as const;
-type Visibility = "private" | "mb" | "customer";
+type Visibility = "private" | "mb";
 type Saved = Extract<SavedReportDetail, { found: true }>;
 type Draft = { def: ReportDefinition; title: string; visibility: Visibility; templateKey: TemplateKey | null };
 
@@ -47,7 +47,7 @@ function readStoredDraft(key: string, cat: BuilderCatalog): StoredDraft | null {
     if (!raw) return null;
     const x = JSON.parse(raw) as Partial<StoredDraft> & { def?: Record<string, unknown> };
     if (!x.def || x.def.v !== 1 || !cat.datasets.some((d) => d.key === x.def?.dataset)) return null;
-    const vis: Visibility = x.visibility === "mb" || x.visibility === "customer" ? x.visibility : "private";
+    const vis: Visibility = x.visibility === "mb" ? "mb" : "private";
     return { def: draftDef(cat, x.def), visibility: vis, templateKey: isTemplateKey(x.templateKey) ? x.templateKey : null };
   } catch {
     return null;
@@ -143,12 +143,11 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
 
   // ---- Förhandsvisningen (tyst kommando, på knapp)
   const previewCmd = useCommand(builderPreview);
-  const [audience, setAudience] = useState<"mb" | "kommun">("mb");
   const [pv, setPv] = useState<{ key: string; view: BuilderView | null; error: string | null } | null>(null);
   // Det första felet i definitionen och steget där det rättas (period och urval i steg 2, visningen i steg 3).
   const issue = draft ? definitionIssue(draft.def) : null;
   const defError = issue?.message ?? null;
-  const pvKey = draft ? `${canonicalJson(draft.def)}|${audience}` : "";
+  const pvKey = draft ? canonicalJson(draft.def) : "";
   const stale = !!pv && pv.key !== pvKey;
   const runPreview = async () => {
     if (!draft || previewCmd.pending) return;
@@ -157,7 +156,7 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
       return;
     }
     try {
-      const r = await previewCmd.run({ contractId, definition: draft.def as unknown as Record<string, unknown>, ...(draft.templateKey ? { templateKey: draft.templateKey } : {}), audience });
+      const r = await previewCmd.run({ contractId, definition: draft.def as unknown as Record<string, unknown>, ...(draft.templateKey ? { templateKey: draft.templateKey } : {}) });
       setPv({ key: pvKey, view: r.ok ? (r as unknown as BuilderView) : null, error: r.ok ? null : (r.message ?? "Förhandsvisningen kunde inte visas.") });
       // Smal skärm: förhandsvisningen ligger under formuläret – visa den.
       if (window.matchMedia("(max-width: 980px)").matches) requestAnimationFrame(() => document.getElementById("bygg-forhandsvisning")?.scrollIntoView({ block: "start" }));
@@ -174,7 +173,6 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
   const dl = useBuilderDownload();
   const [tried, setTried] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [sharing, setSharing] = useState(false);
   const titleErr = draft ? titleError(draft.title) : null;
   const doSave = async () => {
     if (!draft) return;
@@ -195,7 +193,6 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
           return;
         }
       }
-      setSharing(false);
       storeDraft(draftKey, null);
       // replace: Tillbaka efter Spara leder inte till ett ifyllt steg 4 (utkastet är sparat och borttaget).
       leaveWithoutAsking(() => nav.replace(path(`/rapportbyggare/${r.savedReportId}`, { sparad: "1" })));
@@ -206,9 +203,7 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
   const onSave = () => {
     setTried(true);
     if (!draft || titleErr || defError) return;
-    const toCustomer = draft.visibility === "customer" && (!editing || saved!.visibility !== "customer");
-    if (toCustomer) setSharing(true);
-    else void doSave();
+    void doSave();
   };
   const fetchFile = (format: "xlsx" | "csv" | "pdf") => {
     if (!draft || defError) return;
@@ -267,12 +262,9 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
     } else if (step === 2) {
       body = <ShowStep ds={ds} def={def} setDef={setDef} tried={tried} issue={issue} onGo={go} />;
     } else {
-      const canCustomer = cat.canShareWithCustomer;
-      const customerReason = !cat.customerSharingAllowed ? "Avtalet tillåter inte att rapporter delas med kommunen." : !canCustomer ? "Bara avtalsansvarig kan dela med kommunen." : null;
       const vis = [
         { value: "private", label: VISIBILITY_LABEL.private, icon: VISIBILITY_ICON.private },
         { value: "mb", label: "Alla på Miljonbemanning i avtalet", help: "Samordnare, avtalsansvarig och chef i avtalet.", icon: VISIBILITY_ICON.mb },
-        { value: "customer", label: "Kommunens chef", help: customerReason ?? "Kommunens chef ser rapporten under Hämta resultat, med siffror bara för sin egen enhet.", icon: VISIBILITY_ICON.customer, disabled: !!customerReason },
       ];
       body = (
         <Stack>
@@ -375,28 +367,10 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
             pending={previewCmd.pending}
             hasPreview={!!pv}
             onRun={() => void runPreview()}
-            audience={audience}
-            setAudience={setAudience}
-            customerAllowed={cat.customerSharingAllowed}
-            minN={cat.minN}
             title={draft.title || "Ny rapport"}
           />
         )}
       </div>
-      {sharing && draft && (
-        <ShareDialog
-          // Oförändrad sparad definition: visningen av den sparade rapporten (loggas). Annars utkastet som sparas och delas.
-          source={editing && canonicalJson(draft.def) === canonicalJson(saved!.definition) ? { savedReportId: saved!.id } : { contractId, definition: draft.def, templateKey: draft.templateKey }}
-          ownerIsMe
-          title={draft.title}
-          minN={cat.minN}
-          isList={draft.def.output === "lista"}
-          hasNames={draft.def.columns.includes("resultat.namn")}
-          pending={saveCmd.pending || shareCmd.pending}
-          onShare={() => void doSave()}
-          onClose={() => setSharing(false)}
-        />
-      )}
     </Page>
   );
 }
@@ -408,24 +382,13 @@ function monthsBetween(from: string, to: string): number {
 }
 
 // ---------------------------------------------------------------- Förhandsvisningen
-function PreviewCard({ view, error, stale, pending, hasPreview, onRun, audience, setAudience, customerAllowed, minN, title }: {
-  view: BuilderView | null; error: string | null; stale: boolean; pending: boolean; hasPreview: boolean; onRun: () => void; audience: "mb" | "kommun";
-  setAudience: (a: "mb" | "kommun") => void; customerAllowed: boolean; minN: number; title: string;
+function PreviewCard({ view, error, stale, pending, hasPreview, onRun, title }: {
+  view: BuilderView | null; error: string | null; stale: boolean; pending: boolean; hasPreview: boolean; onRun: () => void; title: string;
 }) {
   return (
     <Card id="bygg-forhandsvisning">
       <Stack>
         <h2 className="text-h2 font-extrabold tracking-[0.03em] uppercase">Förhandsvisning</h2>
-        {customerAllowed && (
-          <Check id="bygg-som-kommun" checked={audience === "kommun"} onCheckedChange={(c) => setAudience(c ? "kommun" : "mb")} aria-describedby="bygg-som-kommun-help">
-            Visa som kommunens chef ser den
-          </Check>
-        )}
-        {customerAllowed && (
-          <p id="bygg-som-kommun-help" className="-mt-2 text-small text-text-muted">
-            {`Samma regler som när rapporten delas med kommunen: grupper med färre än ${minN} deltagare visas som "färre än ${minN}" och Miljonbemannings interna mål visas inte. Chefen ser bara ärenden i sin egen enhet, så siffrorna kan bli lägre.`}
-          </p>
-        )}
         {stale && <Notice tone="warn" title="Förhandsvisningen gäller inte dina senaste ändringar." />}
         <span>
           <Button kind={hasPreview && !stale ? "secondary" : "primary"} icon="eye" pending={pending} onClick={onRun}>

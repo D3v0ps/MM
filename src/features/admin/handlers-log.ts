@@ -8,6 +8,7 @@ import { addMonths, dayOf, fmtWeekKey, monthKey, monthName } from "@/core/time";
 import { reportKindLabel } from "@/core/labels";
 import { uniq } from "@/core/util";
 import type { AuditLogEntry } from "@/data/schema";
+import { invoiceTitle } from "@/features/ekonomi/model";
 import { actionLabel, detailFullText, detailText, entityLabel, ENTITY_LABEL, hasFullDetail, JOB_NAME, VIEW_ACTIONS, type AuditLookups } from "./audit-text";
 import { adminAuditDetail, adminAuditLog, adminLogCheck, type AuditRow, type LogCheckSampleItem } from "./api";
 import { cap, isDemoCreated, isParticipantActor, mainContract, userNames } from "./shared";
@@ -90,6 +91,9 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     }
     if (a.entity === "org_config" && id === "notifications") return "Påminnelser och eskalering";
     if (["profile", "customer_user"].includes(a.entity) && profileIds.has(id)) return name(id);
+    // Fakturan (en per avtal och månad, beslut 2026-10-07): id inv-<avtal>-<månad>-<grupp> → "Faktura januari 2027".
+    const inv = a.entity === "invoice" ? id.match(/^inv-.+-(\d{4}-\d{2})-(.+)$/) : null;
+    if (inv) return invoiceTitle({ month: inv[1], groupingKey: inv[2] });
     const m = id.match(/(\d{4}-\d{2})$/);
     if (["billing_run", "audit_log"].includes(a.entity) && m) return cap(monthName(m[1]));
     if (a.entity === "report") {

@@ -199,7 +199,8 @@ function Root({ initial }: { initial: DemoRuntime }) {
         });
       },
       // Simulerad inloggning med e-post och kod: vilken sexsiffrig kod som helst godtas och inloggningen byter till
-      // testpersonen med adressen. I riktiga appen skickar Supabase koden med e-post (se src/server/auth).
+      // testpersonen med adressen. En ny adress på avtalets kommundomän skapar ett konto som handläggare
+      // (självregistrering, beslut 2026-10-07). I riktiga appen skickar Supabase koden med e-post (se src/server/auth).
       auth: {
         kind: "demo",
         sendCode: async (email: string) => {
@@ -210,10 +211,16 @@ function Root({ initial }: { initial: DemoRuntime }) {
         verifyCode: async (email: string, code: string) => {
           if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: "invalid_code", message: "Koden har sex siffror." };
           const e = email.trim().toLowerCase();
-          const hit = personas.find((p) => p.user.email.toLowerCase() === e);
-          if (!hit) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
-          pick(hit);
-          return { ok: true };
+          const hit = personas.find((p) => p.user.email.toLowerCase() === e) ?? listPersonas(demo.rt.raw()).find((p) => p.user.email.toLowerCase() === e);
+          if (hit) {
+            pick(hit);
+            return { ok: true };
+          }
+          const created = await demo.selfRegister(e, persona.actor);
+          const fresh = created.ok ? personaFor(demo.rt.raw(), created.profileId, "kommun_handlaggare") : null;
+          if (!fresh) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
+          pick(fresh);
+          return { ok: true, created: true };
         },
         signOut: async () => undefined,
       },

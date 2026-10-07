@@ -3,7 +3,7 @@
 // /admin/mallar (?flik=logg) och /admin/logg.
 //
 // Frågor:
-//   admin.contract       -> ContractView     avtalsväljaren (fler än ett avtal), avtalsfakta, konfigurationen och prislistan (admin)
+//   admin.contract       -> ContractView     avtalsväljaren (fler än ett avtal), avtalsfakta och konfigurationen utan belopp (admin)
 //   admin.orgRules       -> OrgRulesView     interna regler för påminnelser och eskalering, hur de slår igenom och historiken (admin)
 //   admin.users          -> UsersView        personal (bara admin), kommunanvändare, behörighetsmatrisens notisrader (admin, avtalsansvarig)
 //   admin.integrations   -> IntegrationsView underbiträden, integrationer och bakgrundsjobb (admin)
@@ -65,16 +65,21 @@ export type ContractView = {
   /** Avtalen att välja mellan. Väljaren visas bara när det finns fler än ett (fler kommunavtal kan läggas till). */
   contracts: ContractSummary[];
   contract: ContractFacts;
-  /** contracts.config (validerad med zod) – visas i korten och som JSON. */
+  /**
+   * contracts.config (validerad med zod) – visas i korten och som JSON. Utan viten (penalties) för alla utom ekonomen
+   * (beslut 5, 2026-10-07: belopp syns bara för rollen ekonom).
+   */
   config: ContractConfig;
+  /** Avtalet har viten, men beloppen lämnas inte ut (alla utom ekonomen). */
+  penaltiesHidden: boolean;
   /** Årtalet i exemplet på ärendenummer ("27" i BOT-27-0001). */
   yearShort: string;
   /** Pågående ärenden som flaggas som fastnat i en fas just nu (bara avtal där ärenden hanteras). */
   stuckCount: number | null;
   /** Händelser markerade som möjligt bonusunderlag. */
   bonusCandidates: number;
-  /** Prislistan per avtalsområde (price_items). */
-  priceItems: PriceRow[];
+  /** Prislistan per avtalsområde (price_items). Bara för ekonomen – saknas för alla andra (beslut 5). */
+  priceItems?: PriceRow[];
 };
 export const adminContract = query("admin.contract", z.object({ contractId: IdSchema.optional() })).returns<ContractView>();
 
@@ -114,15 +119,16 @@ export type MbUserRow = {
   teamRoleLabel: string | null;
   active: boolean;
 };
+/** Kommunens användare – alla är handläggare (beslut 2026-10-07). Enheten är fritext (tom tills personen fyllt i den). */
 export type CustomerUserRow = {
   id: string;
   name: string;
   email: string;
-  role: "handlaggare" | "chef";
   unit: string;
-  buyerReference: string | null;
   lastLoginAt: string | null;
   invitedAt: string | null;
+  /** Personen skapade kontot själv (självregistrering med en adress på kommunens domän). */
+  selfRegistered: boolean;
   active: boolean;
 };
 export type UnitOption = { unit: string; buyerReference: string | null };
@@ -132,9 +138,12 @@ export type UsersView = {
   customerName: string;
   /** Tillåtna e-postdomäner för inbjudan. */
   domains: string[];
+  /** Domänerna där man kan skapa ett konto själv (avtalets selfRegistration och beställarens domäner). */
+  selfRegistrationDomains: string[];
   /** Personalen – bara för systemadmin. */
   mb: MbUserRow[] | null;
   customers: CustomerUserRow[];
+  /** Enheter som redan finns (förslag i inbjudan – enheten är fritext). */
   units: UnitOption[];
   kpis: { mbActive: number; customerActive: number; unitCount: number; loggedIn30: number; invited: number };
   /** Mottagare av eskaleringar enligt de interna reglerna (behörighetsmatrisens notisrader). */
@@ -142,13 +151,13 @@ export type UsersView = {
 };
 export const adminUsers = query("admin.users", z.object({})).returns<UsersView>();
 
+/** Bjud in kommunens handläggare (den enda rollen hos kommunen). Enheten är fritext. */
 export const adminInviteCustomer = command("admin.inviteCustomer", z.object({
   contractId: IdSchema.optional(),
   name: ShortText,
   email: ShortText,
-  role: z.string().max(20),
   unit: ShortText,
-}), { invalidates: ["admin.users", CASES, PORTAL, INBOX, ...LOG] }).returns<Result<{ userId: string }, "name" | "email" | "domain" | "exists" | "role" | "unit">>();
+}), { invalidates: ["admin.users", CASES, PORTAL, INBOX, ...LOG] }).returns<Result<{ userId: string }, "name" | "email" | "domain" | "exists" | "unit">>();
 
 export const adminSetCustomerActive = command("admin.setCustomerActive", z.object({ userId: IdSchema, active: z.boolean() }), { invalidates: ["admin.users", CARD, PORTAL, INBOX] }).returns<Result<object, "not_found">>();
 

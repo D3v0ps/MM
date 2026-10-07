@@ -1,6 +1,7 @@
 // "Ladda ner PDF" (rapporter.download): behörigheten kontrolleras på servern med samma regler som för att visa rapporten,
 // och varje tillåten nedladdning loggas (report.downloaded – id, typ, version och period, inga namn). Filnamnet saknar
-// personuppgifter.
+// personuppgifter. Beslut 2026-10-07: kommunens chef är borttagen – beställarrapporten laddas ned av Miljonbemanning och lämnas
+// till kommunen utanför portalen.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
@@ -28,11 +29,13 @@ const logs = () => rt.store.rows("audit_log").filter((l) => l.action === "report
 // Testdatat (samma id:n som i den gamla prototypen)
 const NADIA_JAN = "rep-16011"; // månadsrapport, utkast (Amiras ärende, beställd av Maria Ekdahl)
 const NADIA_DEC = "rep-16008"; // månadsrapport, levererad till Maria Ekdahl
-const CS_DEC = "rep-16698"; // beställarrapport december, levererad till Eva Bergström
+const CS_DEC = "rep-16698"; // beställarrapport december, lämnad till kommunen (ingen mottagare i portalen)
 const CS_JAN = "rep-16699"; // beställarrapport januari, utkast
 const WEEKLY_WAIT = "rep-16692"; // veckorapport vecka 4 till Maria Ekdahl, väntar på närvaro
-const PROT_JAN = "rep-15885"; // månadsrapport i ärende med skyddade personuppgifter (utkast)
-const PROT_DEL = "rep-15882"; // månadsrapport i ärende med skyddade personuppgifter (levererad)
+const PROT_JAN = "rep-15885"; // månadsrapport i ärendet som hade skyddade personuppgifter (utkast)
+const PROT_DEL = "rep-15882"; // månadsrapport i samma ärende (levererad)
+/** Den vilande spärren: personen i ärendet får skyddade personuppgifter (testdatat har inga sedan 2026-10-07). */
+const protect = () => rt.store.updateRow("persons", rt.store.getRow("cases", rt.store.getRow("reports", PROT_JAN)!.caseId!)!.personId, { protectedIdentity: true });
 
 describe("rapporter.download – behörighet som för att visa rapporten", () => {
   it("huvudcoachen laddar ned månadsrapporten: loggas med id, typ, version och period – inga namn", async () => {
@@ -50,16 +53,17 @@ describe("rapporter.download – behörighet som för att visa rapporten", () =>
   it("utkast kan laddas ned av Miljonbemanning (vattenstämpel i PDF:en), aldrig av kommunen", async () => {
     expect(await download(NADIA_JAN, as("u-amira", "coach"))).toMatchObject({ ok: true, filename: "Manadsrapport_BOT-26-0143_2027-01_v1.pdf" });
     expect(await download(NADIA_JAN, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: false, error: "not_delivered" });
-    expect(await download(CS_JAN, as("k-eva", "kommun_chef"))).toMatchObject({ ok: false, error: "not_delivered" });
+    expect(await download(CS_JAN, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: false });
     expect(logs().map((l) => l.actorId)).toEqual(["u-amira"]);
   });
 
-  it("kommunen: mottagaren och kommunens chef laddar ned levererade rapporter", async () => {
+  it("kommunen: mottagaren laddar ned levererade rapporter; beställarrapporten laddas ned av avtalsansvarig och lämnas utanför portalen", async () => {
     expect(await download(NADIA_DEC, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
-    expect(await download(CS_DEC, as("k-eva", "kommun_chef"))).toEqual({ ok: true, filename: "Bestallarrapport_332026110_2026-12.pdf" });
+    expect(await download(CS_DEC, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: false });
+    expect(await download(CS_DEC, as("u-johan", "avtalsansvarig"))).toEqual({ ok: true, filename: "Bestallarrapport_332026110_2026-12.pdf" });
     // En annan handläggare får inte rapporter om andras deltagare.
     expect(await download(NADIA_DEC, as("k-omar", "kommun_handlaggare"))).toMatchObject({ ok: false, error: "not_yours" });
-    expect(logs().map((l) => [l.actorId, l.entityId])).toEqual([["k-maria", NADIA_DEC], ["k-eva", CS_DEC]]);
+    expect(logs().map((l) => [l.actorId, l.entityId])).toEqual([["k-maria", NADIA_DEC], ["u-johan", CS_DEC]]);
   });
 
   it("ekonomen nekas (rollen), handledaren nekas månadsrapporter men får veckorapporten", async () => {
@@ -69,13 +73,16 @@ describe("rapporter.download – behörighet som för att visa rapporten", () =>
     expect(logs().map((l) => l.actorId)).toEqual(["u-petra"]);
   });
 
-  it("skyddade personuppgifter: bara namngiven coach och avtalsansvarig; kommunens chef ser dem inte", async () => {
+  it("skyddade personuppgifter (vilande spärr påslagen): bara namngiven coach och avtalsansvarig; en annan handläggare aldrig", async () => {
+    // Utan spärren laddar samordnaren ned rapporten som vanligt.
+    expect(await download(PROT_JAN, as("u-sara", "samordnare"))).toMatchObject({ ok: true });
+    protect();
     const prot = rt.store.getRow("reports", PROT_JAN)!;
     const c = rt.store.getRow("cases", prot.caseId!)!;
     expect(await download(PROT_JAN, as("u-sara", "samordnare"))).toMatchObject({ ok: false, error: "protected" });
     expect(await download(PROT_JAN, as(c.leadCoachId!, "coach"))).toMatchObject({ ok: true });
     expect(await download(PROT_JAN, as("u-johan", "avtalsansvarig"))).toMatchObject({ ok: true });
-    expect(await download(PROT_DEL, as("k-eva", "kommun_chef"))).toMatchObject({ ok: false });
+    expect(await download(PROT_DEL, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: false });
   });
 
   it("finns inte eller saknar dokument: not_found", async () => {

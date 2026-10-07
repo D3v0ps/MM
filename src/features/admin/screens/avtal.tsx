@@ -1,6 +1,7 @@
 "use client";
 // Avtal och konfiguration (/admin/avtal, prototypens admin.avtal): avtalsfakta, konfigurationen i klarspråk med värden som
-// inte är fastställda, prislistan och Miljonbemannings interna regler. Sidan ligger inte i menyn (beslut 2026-10-06) –
+// inte är fastställda och Miljonbemannings interna regler. Prislistan och vitenas belopp visas inte här (beslut 5,
+// 2026-10-07: belopp syns bara för rollen ekonom) – prislistan finns under Ekonomi (/ekonomi/prislista). Sidan ligger inte i menyn (beslut 2026-10-06) –
 // systemadministratören når den från Användare och roller. Avtalsväljaren visas bara när det finns fler än ett avtal.
 // Alla värden kommer från contracts.config via frågorna – inget avtalsvärde är hårdkodat här.
 import type { ReactNode } from "react";
@@ -14,21 +15,18 @@ import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, ProtoText } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Badge, BuildPhase, Button, Card, Icon, Notice, Page, PerspectiveLink, QueryView, Refreshing, Row, Section, Stack, TabPanel, Table, Tabs, cn, type IconName, type TabDef,
+  Badge, BuildPhase, Button, Card, Icon, Notice, Page, QueryView, Refreshing, Row, Section, Stack, TabPanel, Table, Tabs, cn, type IconName, type TabDef,
 } from "@/ui";
 import { adminContract, type ContractFacts, type ContractSummary, type ContractView } from "../api";
 import { cap, DATA_ROLE, findUnset, humanPattern, LANGUAGE, OCCASION, ROLE_WORD, slaRuleText, UNIT, UNSET_INFO, whoDecides, WINDOW } from "../contract-text";
 import { InternalRules } from "./interna";
 import { Details, KV, Masonry, Pre, Small, Unset, Val, YesNo } from "./parts";
 
-type AvtalTab = "avtal" | "priser" | "interna";
-// Äldre adresser: ?flik=prislista. Jämförelsefliken finns inte längre – ?flik=jamfor visar avtalet (tabOf nedan).
-const TAB_ALIAS: Record<string, AvtalTab> = { prislista: "priser" };
-const TABS: AvtalTab[] = ["avtal", "priser", "interna"];
-const tabOf = (v: string | null): AvtalTab => {
-  const w = (v && TAB_ALIAS[v]) || v;
-  return TABS.includes(w as AvtalTab) ? (w as AvtalTab) : "avtal";
-};
+type AvtalTab = "avtal" | "interna";
+// Äldre adresser: ?flik=prislista och ?flik=priser visar avtalet (prislistan finns under Ekonomi, beslut 5). Jämförelsefliken
+// finns inte längre – ?flik=jamfor visar också avtalet.
+const TABS: AvtalTab[] = ["avtal", "interna"];
+const tabOf = (v: string | null): AvtalTab => (TABS.includes(v as AvtalTab) ? (v as AvtalTab) : "avtal");
 
 export function AvtalScreen({ query }: ScreenProps) {
   const nav = useNav();
@@ -42,7 +40,6 @@ export function AvtalScreen({ query }: ScreenProps) {
   const unsetN = q.data ? findUnset(q.data.config).length : null;
   const tabs: TabDef<AvtalTab>[] = [
     { id: "avtal", label: "Avtal och regler", icon: "file", count: unsetN },
-    { id: "priser", label: "Prislista", icon: "card" },
     { id: "interna", label: "Interna regler (Miljonbemanning)", icon: "bell" },
   ];
   return (
@@ -50,17 +47,17 @@ export function AvtalScreen({ query }: ScreenProps) {
       title="Avtal och konfiguration"
       eyebrow={`Systemadmin · ${user.name}`}
       crumbs={[{ label: "Användare och roller", to: "/admin/anvandare" }, { label: "Avtal och konfiguration" }]}
-      lead="Ett avtal är en konfiguration. Mål, svarstider, priser och rapportregler läses härifrån och är aldrig hårdkodade. Fler kommunavtal kan läggas till utan kodändring."
+      lead="Ett avtal är en konfiguration. Mål, svarstider och rapportregler läses härifrån och är aldrig hårdkodade. Fler kommunavtal kan läggas till utan kodändring. Priser och belopp visas bara för ekonomen."
     >
       <Tabs id="avtal" ariaLabel="Delar av avtalet" active={tab} onChange={(id) => go({ flik: id })} tabs={tabs} />
       <TabPanel tabsId="avtal" active={tab} className="flex flex-col gap-6">
-        {(tab === "avtal" || tab === "priser") && (
+        {tab === "avtal" && (
           <QueryView query={q}>
             {(d) => (
               <Refreshing busy={q.isPlaceholderData}>
                 <div className="flex flex-col gap-6">
                   {d.contracts.length > 1 && <ContractPicker contracts={d.contracts} value={d.contract.id} onChange={(id) => go({ avtal: id })} />}
-                  {tab === "avtal" ? <ConfigTab d={d} /> : <PriceTab d={d} />}
+                  <ConfigTab d={d} />
                 </div>
               </Refreshing>
             )}
@@ -185,7 +182,7 @@ type CardDef = {
   icon: IconName;
   flush?: boolean;
   wide?: boolean;
-  has: (c: ContractConfig) => boolean;
+  has: (c: ContractConfig, d: ContractView) => boolean;
   body: (c: ContractConfig, d: ContractView) => ReactNode;
   foot?: (c: ContractConfig) => ReactNode;
 };
@@ -214,16 +211,7 @@ const CARDS: Record<string, CardDef> = {
               c.thirdCountryProcessing && ["Behandling utanför EU/EES", c.thirdCountryProcessing === "forbidden_without_written_approval" ? "Förbjuden utan kommunens skriftliga förhandsgodkännande" : c.thirdCountryProcessing],
             ]}
           />
-          {d.contract.operational && (
-            <Stack gap="sm">
-              <Small>Det interna målet visas aldrig för kommunen – bara avtalsmålet.</Small>
-              <DemoOnly>
-                <div>
-                  <PerspectiveLink role="kommun_chef" to="/portal/bestallarrapport" label="Se kundens beställarrapport" />
-                </div>
-              </DemoOnly>
-            </Stack>
-          )}
+          {d.contract.operational && <Small>Det interna målet visas aldrig för kommunen – bara avtalsmålet.</Small>}
         </Stack>
       );
     },
@@ -414,7 +402,7 @@ const CARDS: Record<string, CardDef> = {
             ["Debiterbar vecka", b.billableWeekRule === "every_iso_week_with_at_least_one_enrolled_day_excluding_paused_weeks" ? "Alla ISO-veckor med minst en inskriven dag, utom pausade veckor" : b.billableWeekRule],
             ["Veckans månad", b.weekToMonthRule === "iso_thursday" ? "Den månad där veckans torsdag infaller" : b.weekToMonthRule],
             ["Veckor utan närvaro", b.flagZeroAttendanceWeeks ? "Flaggas för kontroll före fakturering" : "Flaggas inte"],
-            ["Fakturor", b.invoicePer === "case_and_month" ? "En faktura per ärende och månad" : b.invoicePer],
+            ["Fakturor", b.invoicePer === "case_and_month" ? "En faktura per ärende och månad" : b.invoicePer === "contract_and_month" ? "En faktura per avtal och månad med en rad per ärende" : b.invoicePer],
             ["Samlingsfaktura", <YesNo key="v" v={!!b.collectiveInvoiceAllowed} yes="Tillåten" no="Inte tillåten" />],
             ["Beställarreferens", `${b.buyerReference.required ? "Krävs" : "Frivillig"} – ${humanPattern(b.buyerReference.pattern)}`],
             ["Inköpsordernummer", `${b.purchaseOrderNumber.required ? "Krävs" : "Bara om kommunen lämnat ett"} – ${humanPattern(b.purchaseOrderNumber.pattern)}`],
@@ -443,12 +431,13 @@ const CARDS: Record<string, CardDef> = {
     ),
   },
   viten: {
-    title: "Viten och avvikelser", icon: "alert-circle", has: (c) => !!c.penalties,
+    title: "Viten och avvikelser", icon: "alert-circle", has: (c, d) => !!c.penalties || d.penaltiesHidden,
     body: (c) => (
       <KV
         items={[
-          ["Vite vid avvikelse", `${kr(c.penalties!.deviationOre)} per tillfälle`],
-          ["Vite vid bristfällig information", `${kr(c.penalties!.insufficientInformationOre)} per tillfälle`],
+          // Beloppen syns bara för ekonomen (beslut 5) – servern lämnar inte ut dem här.
+          ["Vite vid avvikelse", c.penalties ? `${kr(c.penalties.deviationOre)} per tillfälle` : "Per tillfälle enligt avtalet. Beloppet visas bara för ekonomen."],
+          ["Vite vid bristfällig information", c.penalties ? `${kr(c.penalties.insufficientInformationOre)} per tillfälle` : "Per tillfälle enligt avtalet. Beloppet visas bara för ekonomen."],
           !!c.economicDeviation && ["Ekonomisk avvikelse", c.economicDeviation],
           c.keyPersonnelChangeRequiresApproval !== undefined && ["Byte av nyckelpersonal", c.keyPersonnelChangeRequiresApproval ? "Kräver kommunens godkännande" : "Kräver inte godkännande"],
         ]}
@@ -486,6 +475,30 @@ const CARDS: Record<string, CardDef> = {
           ["Återlämning av data", `Inom ${c.termination!.returnDataWithinDays} dagar efter avtalsslut`],
           ["Radering efter återlämning", <YesNo key="v" v={!!c.termination!.deleteAfterReturn} />],
           "retention" in c && ["Gallring under avtalstiden", <Val key="v" v={c.retention} />],
+          // Bilagor till beställningen (beslut 2026-10-07): raderas när dagarna efter avslutet har gått. Ej fastställt = inget raderas.
+          c.retentionRules && [
+            "Gallring av bilagor",
+            <Val key="v" v={c.retentionRules.attachmentsAfterCloseDays}>{`${plural(Number(c.retentionRules.attachmentsAfterCloseDays), "dag", "dagar")} efter avslutet`}</Val>,
+          ],
+        ]}
+      />
+    ),
+  },
+  bestallning: {
+    title: "Beställning och konton", icon: "file-plus", has: (c) => !!c.orderPeriods || !!c.selfRegistration,
+    body: (c) => (
+      <KV
+        items={[
+          c.orderPeriods && [
+            "Omfattning att välja",
+            `${c.orderPeriods.months.map((m) => `${m} månader`).join(" eller ")}${c.orderPeriods.allowOther ? ", eller annan tidsperiod med motivering" : ""}`,
+          ],
+          [
+            "Konto utan inbjudan",
+            c.selfRegistration?.emailDomains.length
+              ? `Alla med en adress som slutar på @${c.selfRegistration.emailDomains.join(" eller @")} kan skapa ett konto som handläggare`
+              : "Nej – bara inbjudna",
+          ],
         ]}
       />
     ),
@@ -506,7 +519,7 @@ const CARDS: Record<string, CardDef> = {
 };
 
 const SECTIONS: [string, string[]][] = [
-  ["Leverans och insyn", ["synlighet", "faser", "fastnat", "progression", "narvaro"]],
+  ["Leverans och insyn", ["synlighet", "bestallning", "faser", "fastnat", "progression", "narvaro"]],
   ["Mål och uppföljning", ["resultat", "kpi", "sla", "puls", "statistik"]],
   ["Ekonomi och avtalsvillkor", ["fakturering", "bonus", "viten", "eskalering", "avslut", "ai"]],
 ];
@@ -532,7 +545,7 @@ function ConfigTab({ d }: { d: ContractView }) {
       )}
       <FactsCard k={d.contract} yearShort={d.yearShort} />
       {SECTIONS.map(([title, keys]) => {
-        const ks = keys.filter((k) => CARDS[k].has(cfg));
+        const ks = keys.filter((k) => CARDS[k].has(cfg, d));
         if (!ks.length) return null;
         const wide = ks.filter((k) => CARDS[k].wide);
         const narrow = ks.filter((k) => !CARDS[k].wide);
@@ -544,55 +557,12 @@ function ConfigTab({ d }: { d: ContractView }) {
         );
       })}
       <Details summary="JSON (contracts.config)">
-        <p className="mb-2.5 text-small text-text-muted">Så lagras konfigurationen i databasen. Den valideras med ett zod-schema innan den sparas.</p>
+        <p className="mb-2.5 text-small text-text-muted">
+          Så lagras konfigurationen i databasen. Den valideras med ett zod-schema innan den sparas.{d.penaltiesHidden ? " Vitenas belopp visas bara för ekonomen och är borttagna här." : ""}
+        </p>
         <Pre text={JSON.stringify(cfg, null, 2)} />
       </Details>
     </Stack>
   );
 }
 
-// ================================================================ Prislista
-function PriceTab({ d }: { d: ContractView }) {
-  const items = d.priceItems;
-  const prices = items.map((p) => p.priceOre);
-  return (
-    <Card
-      title="Prislista – pris per deltagare och vecka"
-      icon="card"
-      flush
-      actions={<Badge tone="plan" icon="alert-circle">Exempelpriser – de riktiga priserna står i avtalet</Badge>}
-      foot={
-        <span className="text-small text-text-muted">
-          Priserna är fasta i 12 månader. Därefter får de justeras enligt indexklausulen i avtalet, högst en gång per tolvmånadersperiod och aldrig retroaktivt. Vid justering skapas en ny rad med nytt giltighetsdatum – den gamla sparas.
-        </span>
-      }
-    >
-      <Row className="border-b border-ljusgra px-[18px] py-4">
-        <span>
-          <b>{items.length}</b> avtalsområden
-        </span>
-        {items.length > 0 && (
-          <span>
-            <b>
-              {kr(Math.min(...prices))}–{kr(Math.max(...prices))}
-            </b>{" "}
-            per deltagare och vecka exkl. moms
-          </span>
-        )}
-        <span className="text-text-muted">Artikelnummer matchar artiklarna i Fortnox</span>
-      </Row>
-      <Table
-        caption="Prislista Botkyrka"
-        rows={items}
-        columns={[
-          { key: "area", label: "Avtalsområde", render: (p) => p.areaName },
-          { key: "art", label: "Artikelnummer", render: (p) => <span className="tabular-nums tracking-[0.01em]">{p.fortnoxArticleNo}</span> },
-          { key: "unit", label: "Enhet", render: (p) => UNIT[p.unit] ?? p.unit },
-          { key: "price", label: "Pris exkl. moms", num: true, nowrap: true, render: (p) => kr(p.priceOre) },
-          { key: "vat", label: "Moms", num: true, render: (p) => `${p.vatRate} %` },
-          { key: "valid", label: "Giltig", nowrap: true, render: (p) => `${fmtDate(p.validFrom)} – ${fmtDate(p.validTo)}` },
-        ]}
-      />
-    </Card>
-  );
-}

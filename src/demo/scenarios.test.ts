@@ -71,11 +71,12 @@ describe("scenariernas steg -> sökvägar", () => {
         "kommun_handlaggare /portal/rapporter",
       ],
       s8: Array(4).fill("ekonom /ekonomi/2027-01"),
-      s9: ["chef /ledning", "chef /ledning", "chef /avtalsavvikelser", "kommun_chef /portal/bestallarrapport"],
-      s10: ["ekonom /ekonomi", "handledare /handledare", "avtalsansvarig /arenden?filter=skyddade", "admin /admin/logg"],
+      s9: ["chef /ledning", "chef /ledning", "chef /avtalsavvikelser", "chef /ledning"], // kommunens chef är borttagen (beslut 2026-10-07)
+      // Steget om skyddade personuppgifter är ersatt (beslut 2026-10-07): kommunens handläggare och sina deltagare.
+      s10: ["ekonom /ekonomi", "handledare /handledare", "kommun_handlaggare /portal/deltagare", "admin /admin/logg"],
       s11: ["deltagare /puls", "chef /ledning?flik=puls"],
       s13: ["samordnare /inkorg/em-106", "coach /notiser", "chef /notiser", "chef /ledning", "admin /admin/avtal?flik=interna"],
-      s12: ["admin /admin/avtal", "admin /admin/avtal?flik=priser", "admin /om/fragor"],
+      s12: ["admin /admin/avtal", "ekonom /ekonomi/prislista", "admin /om/fragor"],
       s14: [
         "coach /avstamning/case-260143", "coach /arenden/case-260143", "deltagare /rost", "coach /min-vecka", "kommun_handlaggare /portal/bestall",
         "coach /manadsbedomning/case-260143?manad=2027-01",
@@ -96,6 +97,7 @@ describe("vy-id <-> sökväg (feedback som redan lämnats har den gamla prototyp
   it("känner igen sökvägen som samma vy", () => {
     expect(viewForPath("/ekonomi/arende/case-260117")).toEqual({ view: "eko.arende", params: { caseId: "case-260117" } });
     expect(viewForPath("/ekonomi/2027-01")).toEqual({ view: "eko.korning", params: { month: "2027-01" } });
+    expect(viewForPath("/ekonomi/prislista")).toEqual({ view: "eko.prislista", params: {} });
     expect(viewForPath("/portal")).toEqual({ view: "kom.start", params: {} });
     expect(viewForPath("/inkorg")).toEqual({ view: "sam.inkorg", params: {} });
     expect(viewForPath("/om/genomgang").view).toBe("om.feedback");

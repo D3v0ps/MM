@@ -1,7 +1,7 @@
 "use client";
 // Avropsinkorgen (/inkorg/:emailId?) – port av prototypens vy sam.inkorg (prototyp/src/views/inkorg.js):
-// originalet bredvid det tolkade formuläret, ordererkännande, dubblettkontroll, acceptera/avböj, kompletteringar,
-// skyddade avrop enligt den säkra rutinen och mejl som klassats som Övrigt.
+// originalet bredvid det tolkade formuläret, ordererkännande, dubblettkontroll, acceptera/avböj, kompletteringar och
+// mejl som klassats som Övrigt.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { messageSend } from "@/features/arenden/api";
 import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
@@ -9,14 +9,14 @@ import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import {
   Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
-  Table, Tabs, TextArea, Timeline, toast, type Column, type IconName,
+  Table, Tabs, TextArea, toast, type Column, type IconName,
 } from "@/ui";
 import {
-  emailApplySupplement, emailSetStatus, inboxItem, inboxList, type InboxItemDetail, type InboxList, type InboxRow, type OrderBodyView, type OtherBodyView, type ProtectedBodyView, type SupplementBodyView,
+  emailApplySupplement, emailSetStatus, inboxItem, inboxList, type InboxItemDetail, type InboxList, type InboxRow, type OrderBodyView, type OtherBodyView, type SupplementBodyView,
 } from "../api";
 import { CLASS_ICON, CLASSIFICATION, METHOD, statusLook } from "../texts";
 import { AckCard, CaseFieldsCard, ConfirmationCard, DeclinedCard, DuplicateCard, OriginalCard, ParsedCard } from "./cards";
-import { AcceptModal, CorrectModal, DeclineModal, PhoneModal } from "./modals";
+import { AcceptModal, CorrectModal, DeclineModal } from "./modals";
 import { Caps, IconLine, KommunSwitch, Quote, useIsDemo, WrapBtns } from "./parts";
 
 type Pick_ = (id: string) => void;
@@ -58,12 +58,12 @@ function initialPick(d: InboxList, emailId: string | null, caseId: string | null
   if (emailId && rows.some((x) => x.id === emailId)) return emailId;
   if (caseId) {
     const byCase = rows.filter((x) => x.caseId === caseId);
-    const pick = byCase.find((x) => x.cls === "order" || x.cls === "order_protected") ?? byCase[0];
+    const pick = byCase.find((x) => x.cls === "order") ?? byCase[0];
     if (pick) return pick.id;
   }
   if (latest) {
     const pending = new Set(d.pending);
-    const l = rows.filter((x) => pending.has(x.id) && (x.cls === "order" || x.cls === "order_protected")).sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0))[0];
+    const l = rows.filter((x) => pending.has(x.id) && x.cls === "order").sort((a, b) => (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0))[0];
     if (l) return l.id;
   }
   return d.pending[0] ?? null;
@@ -71,7 +71,7 @@ function initialPick(d: InboxList, emailId: string | null, caseId: string | null
 
 type Tab = "att" | "hanterade" | "alla";
 const LIMIT = 12;
-const DECIDE = new Set<InboxRow["cls"]>(["order", "order_protected", "supplement"]);
+const DECIDE = new Set<InboxRow["cls"]>(["order", "supplement"]);
 
 function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; emailId: string | null; caseId: string | null; latest: boolean; visa: string | null }) {
   const nav = useNav();
@@ -182,7 +182,7 @@ function Inbox({ data, emailId, caseId, latest, visa }: { data: InboxList; email
 function Summary({ pending, onPick }: { pending: InboxRow[]; onPick: Pick_ }) {
   const urgent = pending.find((x) => x.sla && !x.sla.metAt);
   const n = (cls: InboxRow["cls"]) => pending.filter((x) => x.cls === cls).length;
-  const parts: [string, number][] = [["Avrop att besvara", n("order")], ["Skyddade avrop", n("order_protected")], ["Kompletteringar", n("supplement")], ["Övrigt", n("other")]];
+  const parts: [string, number][] = [["Avrop att besvara", n("order")], ["Kompletteringar", n("supplement")], ["Övrigt", n("other")]];
   const cell = "flex min-w-0 flex-col gap-0.5 border-r border-ljusgra px-[18px] py-3 max-[620px]:flex-[1_1_45%] max-[620px]:border-r-0 max-[620px]:border-b";
   const num = "text-[1.5rem] leading-[1.1] font-extrabold tabular-nums";
   return (
@@ -243,7 +243,7 @@ function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pi
         <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
           {it.pending && it.sla ? <SlaBadge sla={it.sla.sla} dueAt={it.sla.dueAt} /> : <Badge tone={stTone} icon={stIcon}>{stLabel}</Badge>}
           {/* Metod och ärendenummer är metadata (14 px, ikon + text) – bara status/SLA är märke. */}
-          {it.cls === "order" || it.cls === "order_protected"
+          {it.cls === "order"
             ? <MetaText icon={m.icon}>{m.label}</MetaText>
             : <MetaText icon={CLASS_ICON[it.cls] ?? "mail"}>{CLASSIFICATION[it.cls]}</MetaText>}
           {it.caseNumber && <span className="text-small font-bold tabular-nums tracking-[0.01em]">{it.caseNumber}</span>}
@@ -254,7 +254,7 @@ function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pi
 }
 
 // ---------------------------------------------------------------- Detaljvyn
-type ModalKind = "accept" | "decline" | "correct" | "phone" | null;
+type ModalKind = "accept" | "decline" | "correct" | null;
 
 /** Smal skärm: tillbaka upp till listan – raden som visas får fokus. */
 function toList() {
@@ -291,9 +291,8 @@ function Detail({ id, onPick, next }: { id: string; onPick: Pick_; next: InboxRo
           Till listan
         </Button>
       </div>
-      <DetailHead it={it} onAccept={() => setModal("accept")} onDecline={() => setModal("decline")} onCorrect={it.correct ? () => setModal("correct") : null} onPhone={() => setModal("phone")} />
+      <DetailHead it={it} onAccept={() => setModal("accept")} onDecline={() => setModal("decline")} onCorrect={it.correct ? () => setModal("correct") : null} />
       {nextBtn && <div className="flex flex-wrap items-center gap-3">{nextBtn}</div>}
-      {b.kind === "protected" && <ProtectedBody it={it} b={b} />}
       {b.kind === "supplement" && <SupplementBody b={b} onPick={onPick} onAccept={() => setModal("accept")} />}
       {b.kind === "other" && <OtherBody it={it} b={b} />}
       {b.kind === "order" && <OrderBody it={it} b={b} onPick={onPick} />}
@@ -308,12 +307,11 @@ function Detail({ id, onPick, next }: { id: string; onPick: Pick_; next: InboxRo
       )}
       {modal === "decline" && c && <DeclineModal caseId={c.id} caseNumber={c.number} onClose={close} />}
       {modal === "correct" && it.correct && <CorrectModal f={it.correct} onClose={close} />}
-      {modal === "phone" && it.canPhone && <PhoneModal emailId={it.id} onClose={close} />}
     </div>
   );
 }
 
-function DetailHead({ it, onAccept, onDecline, onCorrect, onPhone }: { it: InboxItemDetail; onAccept: () => void; onDecline: () => void; onCorrect: (() => void) | null; onPhone: () => void }) {
+function DetailHead({ it, onAccept, onDecline, onCorrect }: { it: InboxItemDetail; onAccept: () => void; onDecline: () => void; onCorrect: (() => void) | null }) {
   const c = it.case;
   const m = METHOD[it.method] ?? METHOD.manual;
   const [stLabel, stTone, stIcon] = statusLook(it.status);
@@ -342,23 +340,7 @@ function DetailHead({ it, onAccept, onDecline, onCorrect, onPhone }: { it: Inbox
           {it.handledText && <span className="text-small text-text-muted">{it.handledText}</span>}
         </div>
         {it.steps && <Stepper steps={it.steps} current={it.current} />}
-        {it.isProtected && !it.mine && ((it.cls === "order_protected" && !c) || it.decision) && (
-          <Notice tone="info" icon="lock" title="Avtalsansvarig hanterar skyddade avrop enligt den säkra rutinen">
-            <div className="flex flex-col gap-2">
-              <span>{it.managerName} har fått en flagga och en uppgift. Avtalsansvarig ringer handläggaren, registrerar minimala uppgifter och tilldelar en namngiven coach. Du behöver inte göra något här.</span>
-              <span>Efter registreringen ser du bara ärendenumret och texten ”Skyddade personuppgifter”.</span>
-              <WrapBtns>
-                <PerspectiveLink role="avtalsansvarig" to={it.kind === "email" ? `/inkorg/${encodeURIComponent(it.id)}` : `/inkorg?arende=${encodeURIComponent(c?.id ?? "")}`} label="Se avtalsansvarigs vy" />
-              </WrapBtns>
-            </div>
-          </Notice>
-        )}
-        {it.canPhone && (
-          <div className="flex flex-wrap items-center gap-3">
-            <Button kind="primary" icon="phone" onClick={onPhone}>Registrera efter telefonsamtal</Button>
-          </div>
-        )}
-        {it.decision && it.mine && (
+        {it.decision && (
           <div className="flex flex-wrap items-center gap-3">
             <Button kind="primary" icon="check" onClick={onAccept}>Acceptera</Button>
             {onCorrect && <Button kind="ghost" icon="edit" onClick={onCorrect}>Rätta uppgifter</Button>}
@@ -524,6 +506,21 @@ function OtherBody({ it, b }: { it: InboxItemDetail; b: OtherBodyView }) {
           <Card title="Ärendet"><p className="text-text-muted">Inget ärende kopplat.</p></Card>
         )}
       </Pair>
+      {/* Ett mejl utan ärende (till exempel en allmän fråga) – inget säkert meddelande att svara med, men det ska kunna
+          markeras som hanterat så att det inte ligger kvar i inkorgen (testdatat: em-104 sedan 2026-10-07). */}
+      {!c && (
+        <Card
+          title="Hantera"
+          icon="check"
+          foot={
+            !b.handled
+              ? <Button kind="primary" icon="check" pending={setStatus.pending} onClick={() => void markHandled()}>Markera som hanterad</Button>
+              : <Badge tone="bluetone" icon="check">{b.handledText}</Badge>
+          }
+        >
+          <p>Mejlet gäller inget ärende. Svara handläggaren till exempel per telefon. Skriv aldrig personuppgifter i vanlig e-post. Markera sedan mejlet som hanterat.</p>
+        </Card>
+      )}
       {c && (
         <Card
           title="Svara"
@@ -554,35 +551,6 @@ function OtherBody({ it, b }: { it: InboxItemDetail; b: OtherBodyView }) {
           )}
         </Card>
       )}
-    </>
-  );
-}
-
-function ProtectedBody({ it, b }: { it: InboxItemDetail; b: ProtectedBodyView }) {
-  const c = it.case;
-  return (
-    <>
-      {b.decided && c && <ConfirmationCard caseId={c.id} />}
-      {b.declined && <DeclinedCard d={b.declined} />}
-      <Notice tone="critical" icon="lock" title="Skyddade personuppgifter – ingen automatik">
-        Mejlet tolkas inte och inget ärende skapas automatiskt. Bara en generisk mottagningsbekräftelse skickas. Ingen adress sparas, inga SMS eller mejl går till deltagaren och ingen AI används.
-      </Notice>
-      <Pair>
-        <OriginalCard o={b.original} />
-        <Card title="Säker rutin" icon="shield">
-          <Timeline items={b.timeline.map((t, i) => ({ ...t, key: String(i) }))} />
-        </Card>
-      </Pair>
-      <Pair even>
-        <AckCard a={b.ack} c={c} />
-        {b.caseFields ? (
-          <CaseFieldsCard v={b.caseFields} />
-        ) : (
-          <Card title="Behörighet" icon="lock">
-            <p>Ärenden med skyddade personuppgifter syns med namn bara för avtalsansvarig och den namngivna coachen. Samordnare och chef ser ärendenumret.</p>
-          </Card>
-        )}
-      </Pair>
     </>
   );
 }

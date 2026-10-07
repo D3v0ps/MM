@@ -1,6 +1,10 @@
 // Roller enligt SPEC §4. Nyckeln används i kod, etiketten visas.
 export const SUPPLIER_ROLES = ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const;
-export const CUSTOMER_ROLES = ["kommun_handlaggare", "kommun_chef"] as const;
+/**
+ * Kommunens roller. Beslut 2026-10-07 (synpunkt #14): kommunen har bara rollen handläggare – rollen kommunens chef är
+ * borttagen. Alla med en adress på avtalets kommundomän kan skapa ett konto själva (contracts.config.selfRegistration).
+ */
+export const CUSTOMER_ROLES = ["kommun_handlaggare"] as const;
 export const PARTICIPANT_ROLES = ["deltagare"] as const;
 export const ROLES = [...SUPPLIER_ROLES, ...CUSTOMER_ROLES, ...PARTICIPANT_ROLES] as const;
 export type SupplierRole = (typeof SUPPLIER_ROLES)[number];
@@ -16,7 +20,6 @@ export const ROLE_LABEL: Record<Role, string> = {
   chef: "Chef/controller",
   ekonom: "Ekonom",
   kommun_handlaggare: "Kommunens handläggare",
-  kommun_chef: "Kommunens chef",
   deltagare: "Deltagare",
 };
 

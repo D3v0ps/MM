@@ -13,6 +13,7 @@ import {
   type OutboundStatus,
   type OutcomeEventKind,
   type PreferredContact,
+  type PriorAssessment,
   type Profile,
   type ReportKind,
   type ReportStatus,
@@ -26,6 +27,9 @@ export { phaseName, phaseLabel } from "./config";
 
 const lookup = <K extends string>(map: Record<K, string>, key: string | null | undefined): string | undefined =>
   key == null ? undefined : (map as Record<string, string>)[key];
+
+/** Har en kartläggning genomförts? (beställningens bakgrundsinformation, beslut 2026-10-07 synpunkt #7). */
+export const PRIOR_ASSESSMENT_LABEL: Record<PriorAssessment, string> = { yes: "Ja", no: "Nej", unknown: "Vet inte" };
 
 export const CASE_STATUS_LABEL: Record<CaseStatus, string> = {
   received: "Mottagen", acknowledged: "Ordererkänd", confirmed: "Bekräftad", active: "Pågår", paused: "Pausad", closed: "Avslutad", declined: "Avböjd",
@@ -100,7 +104,7 @@ export const teamLabel = (role: string): string => lookup(TEAM_ROLE_LABEL, role)
 
 export const INVOICE_STATUS_LABEL: Record<InvoiceDisplayStatus, string> = {
   draft: "Underlag", approved: "Godkänd", fortnox_created: "Skapad i Fortnox (ej bokförd)", booked: "Bokförd", sent: "Skickad (Peppol)", paid: "Betald",
-  returned: "Returnerad av kommunen", manual: "Manuellt fakturerad", blocked: "Stoppad",
+  returned: "Returnerad av kommunen", manual: "Manuellt fakturerad", credited: "Krediterad", blocked: "Stoppad",
 };
 export const invoiceStatusLabel = (s: string): string => lookup(INVOICE_STATUS_LABEL, s) ?? s;
 

@@ -51,13 +51,6 @@ export function LedningScreen({ query }: ScreenProps) {
       title="Ledningsvy"
       eyebrow={h ? `Chef och controller · ${h.customerName}, avtal ${h.contractNumber}` : "Chef och controller"}
       lead="Resultat mot mål, flaggor och tidig uppmärksamhet. Allt är i läsläge – du kvitterar flaggor med en kort åtgärdsplan."
-      actions={
-        <DemoOnly>
-          <WrapBtn>
-            <PerspectiveLink role="kommun_chef" to="/portal/bestallarrapport" label="Så ser kommunens chef resultatet – utan internt mål" />
-          </WrapBtn>
-        </DemoOnly>
-      }
     >
       <Tabs
         id="ldg"
@@ -365,7 +358,7 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
   const r = c.rolling;
   const n = c.smallGroupN;
   return (
-    <Card title="Så ser kommunens chef resultatet" icon="building" tone="sub">
+    <Card title="Så ser kommunen resultatet" icon="building" tone="sub">
       <Stack gap="sm">
         {c.latest && r ? (
           <>
@@ -377,11 +370,12 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
               <CustVerdict r={r} target={c.contractTarget} />
             </div>
             <p>
-              Det är den senast levererade rapporten (levererad {fmtDateTime(c.latest.deliveredAt)}). Den visas när kommunens chef öppnar beställarrapporten.
+              Det är den senast lämnade rapporten (lämnad till kommunen {fmtDateTime(c.latest.deliveredAt)}). Avtalsansvarig lämnar beställarrapporten till kommunen utanför
+              Miljonmatch.
             </p>
           </>
         ) : (
-          <p>Kommunens chef har inte fått någon beställarrapport ännu. Siffrorna syns för kommunen först när avtalsansvarig har godkänt och levererat den första rapporten.</p>
+          <p>Kommunen har inte fått någon beställarrapport ännu. Siffrorna når kommunen först när avtalsansvarig har godkänt och lämnat den första rapporten.</p>
         )}
         {c.next && c.nextRolling && (
           <p>
@@ -390,7 +384,7 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
           </p>
         )}
         {c.correctionPending && (
-          <p>En rättad version av rapporten väntar på leverans. Kommunens chef ser den levererade versionen tills den nya har levererats.</p>
+          <p>En rättad version av rapporten väntar. Kommunen har den lämnade versionen tills den nya har lämnats.</p>
         )}
         {r && r.value != null && liveValue != null && pct(liveValue) !== pct(r.value) && (
           <p className="text-text-muted">Ledningsvyns {pct(liveValue)} räknas fram till i dag och tar med avslut som ännu inte finns i en levererad rapport.</p>
@@ -399,15 +393,13 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
           Kommunen ser inte det interna målet, prognosen, jämförelsen per coach eller flaggorna. Grupper med färre än {n} personer redovisas som &quot;färre än {n}&quot;.
         </p>
         <Row gap="sm">
-          <DemoOnly>
+          {c.latest && c.canOpenReport && (
             <WrapBtn>
-              <PerspectiveLink
-                role="kommun_chef"
-                to="/portal/bestallarrapport"
-                label={c.latest ? `Se ${monthName(c.latest.month)} som kommunens chef` : "Se beställarrapporten som kommunens chef"}
-              />
+              <Button kind="ghost" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(c.latest.id)}`}>
+                {`Öppna rapporten för ${monthName(c.latest.month)}`}
+              </Button>
             </WrapBtn>
-          </DemoOnly>
+          )}
           {c.next && c.canOpenReport && (
             <WrapBtn>
               <Button kind="ghost" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(c.next.id)}`}>
@@ -504,7 +496,7 @@ function UnbilledCard({ d }: { d: LedningOverview }) {
       }
     >
       <Stack>
-        <Big>{kr(u.totalOre)}</Big>
+        <Big>{u.totalOre !== undefined ? kr(u.totalOre) : plural(u.weeks, "vecka", "veckor")}</Big>
         <p>
           {u.weeks === 0 ? (
             `Inga debiterbara veckor äldre än ${u.warningDays} dagar är ofakturerade.`
@@ -531,7 +523,7 @@ function UnbilledCard({ d }: { d: LedningOverview }) {
             </Button>
           </div>
         ) : (
-          <div className="text-text-muted">Ekonomen hanterar fakturorna. Du ser beloppen här.</div>
+          <div className="text-text-muted">Ekonomen hanterar fakturorna. Beloppen visas bara för ekonomen.</div>
         )}
       </Stack>
     </Card>

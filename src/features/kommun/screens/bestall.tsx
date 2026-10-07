@@ -1,28 +1,34 @@
 "use client";
-// Beställ ny insats i portalen (/portal/bestall) – prototypens kom.bestall. Tre steg med uppgifter (som beställningsmallen)
-// och en granskning innan beställningen skickas. Beställningen sparas med arenden.caseCreate (delat kommando), som ger
-// ärendenummer och skickar ordererkännandet (eller en generisk bekräftelse vid skyddade personuppgifter).
+// Beställ ny insats i portalen (/portal/bestall) – prototypens kom.bestall, ändrad efter synpunkterna från genomgången
+// 2026-10-06 (beslut 2026-10-07). Tre steg med uppgifter och en granskning innan beställningen skickas:
+//   1. Beställning och kontakt: namn, enhet (fritext), telefon, e-post, önskat startdatum och omfattningen – 6 eller 12
+//      månader (avtalets alternativ, planerat slut räknas fram) eller annan tidsperiod med slutdatum och motivering.
+//      Ingen beställarreferens och inget planerat slutdatum att fylla i (Miljonbemanning fyller i referensen).
+//   2. Deltagare: namn, personnummer, kontaktuppgifter. Ingen fråga om skydd och ingen anpassning (beslut 2026-10-07).
+//   3. Bakgrundsinformation om deltagaren: har en kartläggning genomförts, bifoga fil och fritext (med "Tala in").
+//      Inget avtalsområde eller yrkesspår – Miljonbemanning väljer dem när beställningen bekräftas.
+//   Granskning: inga belopp – inget ordervärde någonstans (synpunkt #10 och #11).
+// Beställningen sparas med arenden.caseCreate (delat kommando), som ger ärendenummer och skickar ordererkännandet.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import type { OperationalConfig } from "@/core/config";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr } from "@/core/format";
-import { addDays, monday } from "@/core/time";
-import { buyerRefError, buyerRefLengthText, emailValid, pnrFormatValid } from "@/core/validation";
-import type { PreferredContact } from "@/data/schema";
-import { caseCreate, caseUpdate } from "@/features/arenden/api";
+import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
+import { orderPeriodEnd } from "@/core/time";
+import { emailValid, pnrFormatValid } from "@/core/validation";
+import type { PreferredContact, PriorAssessment } from "@/data/schema";
+import { caseCreate, caseUpdate, ORDER_REASON_MAX, ORDER_REASON_MIN, type AttachmentRow } from "@/features/arenden/api";
+import { AttachmentList, AttachmentPicker } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
 import { leaveWithoutAsking, useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TextArea, Timeline,
+  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Stack, TextArea, Timeline,
   cn, useConfirm, useToast, Field, type IconName,
 } from "@/ui";
 import { kommunDuplicate, kommunOrderForm, kommunReceipt, type KomDuplicate, type KomOrderForm } from "../api";
-import { fD, fDT, fDTL, fullText, maskPnr, SAFE_PHONE, statusName } from "../texts";
+import { CONTACT_PHONE, fD, fDT, fDTL, fullText, maskPnr, statusName } from "../texts";
 import { KomHead, KomPage, OkLine } from "./parts";
 import { joinText, TalaIn } from "./tala-in";
 
-const STEPS = ["Beställning och kontakt", "Deltagare", "Avtalsområde", "Granska och skicka"] as const;
+const STEPS = ["Beställning och kontakt", "Deltagare", "Bakgrundsinformation om deltagaren", "Granska och skicka"] as const;
 const DATA_STEPS = 3;
 const CONTACTS: { value: PreferredContact; label: string; icon: IconName }[] = [
   { value: "sms", label: "SMS", icon: "message" },
@@ -31,18 +37,27 @@ const CONTACTS: { value: PreferredContact; label: string; icon: IconName }[] = [
   { value: "letter", label: "Brev", icon: "file" },
 ];
 const CONTACT_LABEL: Record<PreferredContact, string> = { sms: "SMS", phone: "Telefon", email: "E-post", letter: "Brev" };
+/** Kartläggning: ja, nej eller vet inte. */
+const PRIOR: { value: PriorAssessment; label: string }[] = [
+  { value: "yes", label: "Ja" },
+  { value: "no", label: "Nej" },
+  { value: "unknown", label: "Vet inte" },
+];
+/** Valet "Annan tidsperiod" (övriga val är antal månader ur avtalet). */
+const OTHER = "annan";
+/** Längsta bakgrundsinformation (samma som arenden.caseCreate). */
+const BACKGROUND_MAX = 4000;
 
 type Order = {
   contactName: string;
   unit: string;
   contactPhone: string;
   contactEmail: string;
-  buyerReference: string;
   desiredStart: string;
-  plannedWeeks: number | null;
-  plannedEnd: string;
-  endTouched: boolean;
-  protectedIdentity: boolean | null;
+  /** Antal månader som text ("6", "12") eller "annan". */
+  period: string | null;
+  otherEnd: string;
+  periodReason: string;
   firstName: string;
   lastName: string;
   pnr: string;
@@ -51,74 +66,65 @@ type Order = {
   city: string;
   preferredContact: PreferredContact;
   address: string;
-  accessibilityNeeds: string;
-  primaryArea: string;
-  secondaryArea: string;
-  vocationalTrack: string;
+  priorAssessment: PriorAssessment | null;
   background: string;
+  attachments: AttachmentRow[];
 };
-type Base = Pick<Order, "contactName" | "unit" | "contactPhone" | "contactEmail" | "buyerReference" | "desiredStart" | "plannedWeeks" | "plannedEnd" | "endTouched">;
+type Base = Pick<Order, "contactName" | "unit" | "contactPhone" | "contactEmail" | "desiredStart">;
 
 function initialOrder(m: KomOrderForm, keep?: Base): Order {
-  const base: Base = keep ?? {
-    contactName: m.me.name, unit: m.me.unit, contactPhone: m.me.phone, contactEmail: m.me.email, buyerReference: m.lastBuyerRef,
-    desiredStart: m.defaultStart, plannedWeeks: null, plannedEnd: "", endTouched: false,
-  };
+  const base: Base = keep ?? { contactName: m.me.name, unit: m.me.unit, contactPhone: m.me.phone, contactEmail: m.me.email, desiredStart: m.defaultStart };
   return {
-    ...base, protectedIdentity: null, firstName: "", lastName: "", pnr: "", phone: "", email: "", city: "", preferredContact: "sms", address: "",
-    accessibilityNeeds: "", primaryArea: "", secondaryArea: "", vocationalTrack: "", background: "",
+    ...base, period: null, otherEnd: "", periodReason: "", firstName: "", lastName: "", pnr: "", phone: "", email: "", city: "", preferredContact: "sms", address: "",
+    priorAssessment: null, background: "", attachments: [],
   };
 }
-/** Planerat slut: fredagen i den sista veckan. */
-const endFor = (start: string, weeks: number | null): string => (start && weeks ? addDays(monday(start), (weeks - 1) * 7 + 4) : "");
 
-/** Avtalets mönster för beställarreferensen som konfiguration (buyerRefError läser bara mönstret). */
-const refCfg = (m: KomOrderForm) => ({ billing: { buyerReference: m.buyerReference } }) as unknown as Pick<OperationalConfig, "billing">;
-function refError(m: KomOrderForm, v: string): string | null {
-  const e = buyerRefError(v, refCfg(m));
-  if (e) return e;
-  const ref = String(v).trim();
-  if (m.blockedRefs.includes(ref)) return `Referensen ${ref} är spärrad. Kommunens ekonomi känner inte igen den. Kontrollera att inga siffror har blivit omkastade.`;
-  return null;
-}
+/** Planerat slut vid 6 eller 12 månader: räknas fram från startdatumet (samma regel som servern). */
+const periodEnd = (f: Pick<Order, "period" | "desiredStart" | "otherEnd">): string => {
+  if (f.period === OTHER) return f.otherEnd;
+  return f.period && f.desiredStart ? orderPeriodEnd(f.desiredStart, Number(f.period)) : "";
+};
+/** "6 månader" eller "Annan tidsperiod". */
+const periodLabel = (p: string | null): string => (!p ? "Inte vald" : p === OTHER ? "Annan tidsperiod" : `${p} månader`);
 
 /** Fältet som ett fel gäller (länkarna i felsammanfattningen). */
 const ERROR_FIELD: Record<string, string> = {
-  contactName: "kom-o-name", contactPhone: "kom-o-phone", contactEmail: "kom-o-email", buyerReference: "kom-o-ref", desiredStart: "kom-o-start", plannedWeeks: "kom-o-weeks",
-  plannedEnd: "kom-o-end", protectedIdentity: "kom-o-prot", firstName: "kom-o-fn", lastName: "kom-o-ln", pnr: "kom-o-pnr", phone: "kom-o-dphone", email: "kom-o-demail",
-  city: "kom-o-city", address: "kom-o-addr", primaryArea: "kom-o-area", secondaryArea: "kom-o-area2",
+  contactName: "kom-o-name", unit: "kom-o-unit", contactPhone: "kom-o-phone", contactEmail: "kom-o-email", desiredStart: "kom-o-start", period: "kom-o-period",
+  otherEnd: "kom-o-end", periodReason: "kom-o-reason", firstName: "kom-o-fn", lastName: "kom-o-ln", pnr: "kom-o-pnr", phone: "kom-o-dphone", email: "kom-o-demail",
+  city: "kom-o-city", address: "kom-o-addr", priorAssessment: "kom-o-prior", attachments: "kom-o-files",
 };
 
-function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly KomDuplicate[]): Record<string, string> {
+function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly KomDuplicate[], uploading: boolean): Record<string, string> {
   const e: Record<string, string> = {};
   if (step === 0) {
     if (!f.contactName.trim()) e.contactName = "Skriv ditt namn.";
+    if (!f.unit.trim()) e.unit = "Skriv vilken enhet du arbetar på.";
     if (f.contactPhone.replace(/\D/g, "").length < 7) e.contactPhone = "Skriv ett telefonnummer där vi når dig.";
     if (!emailValid(f.contactEmail)) e.contactEmail = "Skriv en hel e-postadress.";
-    const re = refError(m, f.buyerReference);
-    if (re) e.buyerReference = re;
     if (!f.desiredStart) e.desiredStart = "Välj ett önskat startdatum.";
     else if (f.desiredStart < m.today) e.desiredStart = "Datumet har redan passerat. Välj ett senare datum.";
-    if (!f.plannedWeeks) e.plannedWeeks = "Välj hur många veckor insatsen ska pågå.";
-    if (f.plannedEnd && f.desiredStart && f.plannedEnd <= f.desiredStart) e.plannedEnd = "Slutdatumet måste komma efter startdatumet.";
+    if (!f.period) e.period = "Välj hur länge insatsen ska pågå.";
+    if (f.period === OTHER) {
+      if (!f.otherEnd) e.otherEnd = "Välj ett slutdatum.";
+      else if (f.desiredStart && f.otherEnd <= f.desiredStart) e.otherEnd = "Slutdatumet måste komma efter startdatumet.";
+      if (f.periodReason.trim().length < ORDER_REASON_MIN) e.periodReason = "Skriv varför insatsen behöver en annan längd.";
+    }
   }
   if (step === 1) {
-    if (f.protectedIdentity == null) e.protectedIdentity = "Svara ja eller nej.";
     if (!f.firstName.trim()) e.firstName = "Skriv deltagarens förnamn.";
     if (!f.lastName.trim()) e.lastName = "Skriv deltagarens efternamn.";
     if (!pnrFormatValid(f.pnr)) e.pnr = "Skriv tolv siffror så här: ÅÅÅÅMMDD-NNNN.";
     else if (dups.length) e.pnr = "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.";
-    if (f.protectedIdentity === false) {
-      if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < 8) e.phone = "Skriv deltagarens telefonnummer. Vi behöver det för kallelsen.";
-      if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
-      if (f.preferredContact === "email" && !f.email.trim()) e.email = "Skriv deltagarens e-postadress. Du har valt e-post som kontaktväg.";
-      if (!f.city.trim()) e.city = "Skriv deltagarens bostadsort.";
-      if (f.preferredContact === "letter" && f.address.trim().length < 6) e.address = "Skriv hela adressen. Du har valt att kallelsen ska skickas med brev.";
-    }
+    if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < 8) e.phone = "Skriv deltagarens telefonnummer. Vi behöver det för kallelsen.";
+    if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
+    if (f.preferredContact === "email" && !f.email.trim()) e.email = "Skriv deltagarens e-postadress. Du har valt e-post som kontaktväg.";
+    if (!f.city.trim()) e.city = "Skriv deltagarens bostadsort.";
+    if (f.preferredContact === "letter" && f.address.trim().length < 6) e.address = "Skriv hela adressen. Du har valt att kallelsen ska skickas med brev.";
   }
   if (step === 2) {
-    if (!f.primaryArea) e.primaryArea = "Välj ett avtalsområde.";
-    if (f.secondaryArea && f.secondaryArea === f.primaryArea) e.secondaryArea = "Välj ett annat område än det första, eller inget.";
+    if (!f.priorAssessment) e.priorAssessment = "Svara om en kartläggning har genomförts.";
+    if (uploading) e.attachments = "Vänta tills filerna är uppladdade.";
   }
   return e;
 }
@@ -130,14 +136,13 @@ export function PortalOrderScreen() {
   return <OrderForm m={q.data} />;
 }
 
-/** Stegvisare: steg 1–3 numreras, granskningen visas som ett eget, onumrerat moment. Hoppas steg 3 över visas ett streck. */
-function KomStepper({ current, skipped }: { current: number; skipped: number | null }) {
+/** Stegvisare: steg 1–3 numreras, granskningen visas som ett eget, onumrerat moment. */
+function KomStepper({ current }: { current: number }) {
   return (
     <ol aria-label="Steg i beställningen" className="m-0 flex list-none flex-wrap gap-2 p-0">
       {STEPS.map((label, i) => {
         const review = i === DATA_STEPS;
-        const skip = i === skipped;
-        const done = !skip && i < current;
+        const done = i < current;
         const now = i === current;
         return (
           <li key={label} aria-current={now ? "step" : undefined} className={cn("flex items-center gap-2 pr-2 font-semibold text-text-muted portal:text-portal", now && "font-extrabold text-antracit")}>
@@ -148,10 +153,10 @@ function KomStepper({ current, skipped }: { current: number; skipped: number | n
                 now && "border-antracit bg-antracit text-vit",
               )}
             >
-              {skip ? <Icon name="minus" /> : done ? <Icon name="check" /> : review ? <Icon name="eye" /> : i + 1}
+              {done ? <Icon name="check" /> : review ? <Icon name="eye" /> : i + 1}
             </span>
             {done && <span className="sr-only">Klart: </span>}
-            {skip ? `${label} (tas per telefon)` : label}
+            {label}
           </li>
         );
       })}
@@ -162,9 +167,9 @@ function KomStepper({ current, skipped }: { current: number; skipped: number | n
 /** Adressen för ett steg: ?steg=1–4 (granskningen är 4). fran=granskning när man ändrar från granskningen. */
 const stepPath = (step: number, fromReview = false) => path("/portal/bestall", { steg: step > 0 ? step + 1 : null, fran: fromReview ? "granskning" : null });
 
-/** Första steget som inte är klart (granskningen = 3 när allt är ifyllt). Steg 3 hoppas över vid skyddade personuppgifter. */
+/** Första steget som inte är klart (granskningen = 3 när allt är ifyllt). */
 function firstOpenStep(f: Order, m: KomOrderForm, dups: readonly KomDuplicate[]): number {
-  for (const s of f.protectedIdentity ? [0, 1] : [0, 1, 2]) if (Object.keys(validateStep(s, f, m, dups)).length) return s;
+  for (const s of [0, 1, 2]) if (Object.keys(validateStep(s, f, m, dups, false)).length) return s;
   return DATA_STEPS;
 }
 
@@ -184,7 +189,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const fromReview = nav.query.get("fran") === "granskning";
   // Felen visas för steget där användaren tryckte Nästa (eller Skicka).
   const [errStep, setErrStep] = useState<number | null>(null);
-  const [refTouched, setRefTouched] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState<{ caseId: string; caseNumber: string } | null>(null);
   const headRef = useRef<HTMLHeadingElement | HTMLDivElement | null>(null);
 
@@ -226,26 +231,10 @@ function OrderForm({ m }: { m: KomOrderForm }) {
     leaveWithoutAsking(() => nav.push("/portal"));
   };
 
-  const set = <K extends keyof Order>(k: K) => (v: Order[K]) =>
-    setF((x) => {
-      const n: Order = { ...x, [k]: v };
-      if ((k === "desiredStart" || k === "plannedWeeks") && !x.endTouched) n.plannedEnd = endFor(n.desiredStart, n.plannedWeeks);
-      if (k === "plannedEnd") n.endTouched = true;
-      if (k === "primaryArea" && n.secondaryArea === v) n.secondaryArea = "";
-      return n;
-    });
-  const errs = validateStep(step, f, m, dups);
+  const set = <K extends keyof Order>(k: K) => (v: Order[K]) => setF((x) => ({ ...x, [k]: v }));
+  const errs = validateStep(step, f, m, dups, uploading);
   const E = (k: string) => (showErr ? errs[k] : undefined);
-  const refErr = refTouched || showErr ? refError(m, f.buyerReference) : null;
-  const price = (() => {
-    if (!f.primaryArea) return 0;
-    const date = f.desiredStart || m.today;
-    return m.prices?.find((p) => p.areaCode === f.primaryArea && p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
-  })();
-  const areaLabel = (code: string) => {
-    const a = m.areas.find((x) => x.code === code);
-    return a ? `${a.code} ${a.name}` : "–";
-  };
+  const end = periodEnd(f);
 
   const next = () => {
     if (Object.keys(errs).length) {
@@ -255,49 +244,49 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       return;
     }
     setErrStep(null);
-    goStep(fromReview ? DATA_STEPS : step === 1 && f.protectedIdentity ? 3 : step + 1);
+    goStep(fromReview ? DATA_STEPS : step + 1);
   };
   const back = () => {
     setErrStep(null);
-    goStep(step === 3 && f.protectedIdentity ? 1 : Math.max(0, step - 1));
+    goStep(Math.max(0, step - 1));
   };
   const submit = async () => {
-    for (const s of f.protectedIdentity ? [0, 1] : [0, 1, 2]) {
-      if (Object.keys(validateStep(s, f, m, dups)).length) {
+    for (const s of [0, 1, 2]) {
+      if (Object.keys(validateStep(s, f, m, dups, uploading)).length) {
         goStep(s);
         setErrStep(s);
         toast("Några uppgifter behöver rättas innan du kan skicka.", "error");
         return;
       }
     }
-    const common = { firstName: f.firstName.trim(), lastName: f.lastName.trim(), pnr: f.pnr.trim(), source: "portal" as const };
-    // Skyddade personuppgifter: om deltagaren sparas bara namn och personnummer, men beställningens uppgifter från steg 1 följer med.
-    const order = { buyerReference: f.buyerReference.trim(), desiredStart: f.desiredStart, plannedWeeks: f.plannedWeeks, plannedEnd: f.plannedEnd || null };
-    const payload = f.protectedIdentity
-      ? { ...common, ...order, protectedIdentity: true }
-      : {
-          ...common, ...order, protectedIdentity: false, phone: f.phone.trim(), email: f.email.trim(), city: f.city.trim(), preferredContact: f.preferredContact,
-          address: f.preferredContact === "letter" ? f.address.trim() : null, accessibilityNeeds: f.accessibilityNeeds.trim(), primaryArea: f.primaryArea,
-          secondaryArea: f.secondaryArea || null, vocationalTrack: f.vocationalTrack.trim(), background: f.background.trim(),
-        };
+    const period = f.period === OTHER
+      ? { plannedEnd: f.otherEnd, orderPeriodReason: f.periodReason.trim() }
+      : { orderPeriodMonths: Number(f.period) };
+    const payload = {
+      source: "portal" as const, referrerUnit: f.unit.trim(), firstName: f.firstName.trim(), lastName: f.lastName.trim(), pnr: f.pnr.trim(),
+      phone: f.phone.trim(), email: f.email.trim(), city: f.city.trim(), preferredContact: f.preferredContact,
+      address: f.preferredContact === "letter" ? f.address.trim() : null, desiredStart: f.desiredStart, ...period,
+      priorAssessment: f.priorAssessment, background: f.background.trim(), attachmentIds: f.attachments.map((a) => a.id),
+    };
     const res = await create.run(payload).catch(() => null);
     if (!res) {
       toast("Beställningen kunde inte skickas. Försök igen.", "error");
       return;
     }
     if (!res.ok) {
-      if (res.error === "buyer_ref") {
-        goStep(0);
-        setErrStep(0);
-        setRefTouched(true);
-        toast("Beställarreferensen behöver rättas.", "error");
-      } else toast(res.message ?? "Beställningen kunde inte skickas.", "error");
+      const back0 = res.error === "order_period" || res.error === "unit";
+      const back2 = res.error === "prior_assessment" || res.error === "attachments";
+      if (back0 || back2) {
+        goStep(back0 ? 0 : 2);
+        setErrStep(back0 ? 0 : 2);
+      }
+      toast(res.message ?? "Beställningen kunde inte skickas.", "error");
       return;
     }
     // Beställarens kontaktuppgifter för just den här beställningen, om någon annan ska vara kontaktperson.
     if (f.contactName !== m.me.name || f.contactPhone !== m.me.phone || f.contactEmail !== m.me.email) {
       await update
-        .run({ caseId: res.caseId, patch: { referrerName: f.contactName.trim(), referrerUnit: f.unit, referrerPhone: f.contactPhone.trim(), referrerEmail: f.contactEmail.trim() } })
+        .run({ caseId: res.caseId, patch: { referrerName: f.contactName.trim(), referrerPhone: f.contactPhone.trim(), referrerEmail: f.contactEmail.trim() } })
         .catch(() => null);
     }
     draft.clear();
@@ -305,7 +294,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
     toast(`Beställningen är skickad. Ärendenummer ${res.caseNumber}.`);
   };
   const again = () => {
-    const fresh = initialOrder(m, { contactName: f.contactName, unit: f.unit, contactPhone: f.contactPhone, contactEmail: f.contactEmail, buyerReference: f.buyerReference, desiredStart: f.desiredStart, plannedWeeks: null, plannedEnd: "", endTouched: false });
+    const fresh = initialOrder(m, { contactName: f.contactName, unit: f.unit, contactPhone: f.contactPhone, contactEmail: f.contactEmail, desiredStart: f.desiredStart });
     setDone(null);
     setF(fresh);
     draft.clear();
@@ -315,6 +304,11 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   };
 
   if (done) return <OrderDone caseId={done.caseId} customerName={m.customerName} onAgain={again} headRef={headRef as RefObject<HTMLDivElement | null>} />;
+
+  const periodOptions = [
+    ...m.periods.months.map((n) => ({ value: String(n), label: `${n} månader` })),
+    ...(m.periods.allowOther ? [{ value: OTHER, label: "Annan tidsperiod" }] : []),
+  ];
 
   let body: ReactNode = null;
   if (step === 0) {
@@ -327,8 +321,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           <Field id="kom-o-name" label="Ditt namn" required error={E("contactName")} help="Den som beställer och är kontaktperson hos kommunen.">
             <Input value={f.contactName} onValueChange={set("contactName")} autoComplete="name" />
           </Field>
-          <Field id="kom-o-unit" label="Enhet" help="Hämtas från ditt konto.">
-            <Input value={f.unit} onValueChange={set("unit")} />
+          <Field id="kom-o-unit" label="Enhet" required error={E("unit")} help="Skriv vilken enhet du arbetar på, till exempel Arbetsmarknadsenheten Alby.">
+            <Input value={f.unit} onValueChange={set("unit")} maxLength={120} />
           </Field>
           <Field id="kom-o-phone" label="Ditt telefonnummer" required error={E("contactPhone")} help="Hit ringer vi om vi har frågor om beställningen.">
             <Input type="tel" value={f.contactPhone} onValueChange={set("contactPhone")} autoComplete="tel" />
@@ -338,52 +332,42 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           </Field>
         </FormGrid>
         <Field
-          id="kom-o-ref"
-          label="Beställarreferens"
+          id="kom-o-start"
+          label="Önskat startdatum"
           required
-          error={refErr ?? undefined}
-          help={`${buyerRefLengthText(refCfg(m))} siffror, bara siffror. Referensen behövs för att fakturan ska hamna rätt hos kommunen. Den du använde senast är redan ifylld.`}
+          error={E("desiredStart")}
+          help={`Vi bokar första mötet inom ${m.firstMeetingWithin} från beställningen. Startdatumet bekräftas i orderbekräftelsen.`}
         >
-          <Input
-            value={f.buyerReference}
-            inputMode="numeric"
-            maxLength={14}
-            onValueChange={(v) => {
-              set("buyerReference")(v);
-              setRefTouched(true);
-            }}
-          />
+          <Input type="date" value={f.desiredStart} onValueChange={set("desiredStart")} />
         </Field>
-        {!refErr && refTouched && <OkLine>Beställarreferensen har rätt format.</OkLine>}
-        <FormGrid>
-          <Field
-            id="kom-o-start"
-            label="Önskat startdatum"
-            required
-            error={E("desiredStart")}
-            help={`Vi bokar första mötet inom ${m.firstMeetingWithin} från beställningen. Startdatumet bekräftas i orderbekräftelsen.`}
-          >
-            <Input type="date" value={f.desiredStart} onValueChange={set("desiredStart")} />
-          </Field>
-          <Field id="kom-o-end" label="Planerat slutdatum" error={E("plannedEnd")} help="Räknas fram från startdatum och antal veckor. Du kan ändra det.">
-            <Input type="date" value={f.plannedEnd} onValueChange={set("plannedEnd")} />
-          </Field>
-        </FormGrid>
-        <Field
-          id="kom-o-weeks"
-          label="Planerad omfattning i veckor"
-          required
-          error={E("plannedWeeks")}
-          help={`Insatser är oftast mellan ${m.weeks.min} och ${m.weeks.max} veckor. Fakturan räknas per vecka som deltagaren är inskriven.`}
-        >
-          <Seg
-            id="kom-o-weeks"
-            ariaLabel="Planerad omfattning i veckor"
-            value={f.plannedWeeks == null ? null : String(f.plannedWeeks)}
-            onValueChange={(v) => set("plannedWeeks")(Number(v))}
-            options={Array.from({ length: m.weeks.max - m.weeks.min + 1 }, (_, i) => String(m.weeks.min + i))}
-          />
+        <Field id="kom-o-period" label="Omfattning" required error={E("period")} help="Hur länge insatsen ska pågå. Välj en annan tidsperiod bara om insatsen behöver en annan längd.">
+          <Seg id="kom-o-period" ariaLabel="Omfattning" value={f.period} onValueChange={(v) => set("period")(v)} options={periodOptions} />
         </Field>
+        {f.period && f.period !== OTHER && (
+          <p className="flex items-start gap-2">
+            <Icon name="calendar" className="mt-1 flex-none" />
+            <span>
+              Planerat slut: <b>{end ? fD(end) : "–"}</b>. Det räknas från startdatumet. Börjar insatsen ett annat datum räknar vi om
+              slutdatumet från första mötet. Du ser det i orderbekräftelsen.
+            </span>
+          </p>
+        )}
+        {f.period === OTHER && (
+          <Stack>
+            <Field id="kom-o-end" label="Slutdatum" required error={E("otherEnd")} help="Den sista dagen i insatsen.">
+              <Input type="date" value={f.otherEnd} onValueChange={set("otherEnd")} />
+            </Field>
+            <Field
+              id="kom-o-reason"
+              label="Motivering"
+              required
+              error={E("periodReason")}
+              help={`Berätta varför insatsen behöver en annan längd. Skriv inga diagnoser eller uppgifter om hälsa. Högst ${ORDER_REASON_MAX} tecken.`}
+            >
+              <TextArea rows={3} maxLength={ORDER_REASON_MAX} value={f.periodReason} onValueChange={set("periodReason")} />
+            </Field>
+          </Stack>
+        )}
       </Stack>
     );
   }
@@ -391,27 +375,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
     body = (
       <Stack>
         <Notice tone="info" title="Lämna bara de uppgifter som behövs">
-          Vi använder uppgifterna för att kalla deltagaren och planera insatsen. Skriv inga diagnoser, inga uppgifter om hälsa och inga uppgifter om brott. Beskriv i stället
-          vad personen behöver.
+          Vi använder uppgifterna för att kalla deltagaren och planera insatsen. Skriv inga diagnoser, inga uppgifter om hälsa och inga uppgifter om brott.
         </Notice>
-        <Field id="kom-o-prot" label="Har deltagaren skyddade personuppgifter?" required error={E("protectedIdentity")} help="Till exempel sekretessmarkering eller skyddad folkbokföring. Är du osäker, välj Ja.">
-          <Seg
-            id="kom-o-prot"
-            ariaLabel="Skyddade personuppgifter"
-            value={f.protectedIdentity == null ? null : f.protectedIdentity ? "ja" : "nej"}
-            onValueChange={(v) => set("protectedIdentity")(v === "ja")}
-            options={[
-              { value: "nej", label: "Nej" },
-              { value: "ja", label: "Ja", icon: "lock" },
-            ]}
-          />
-        </Field>
-        {f.protectedIdentity === true && (
-          <Notice tone="critical" title={`Ring oss på ${SAFE_PHONE} så tar vi resten enligt den säkra rutinen.`}>
-            Fyll bara i namn och personnummer här. Om deltagaren sparar vi bara namn och personnummer. Uppgifterna om beställningen från steg 1, till exempel
-            beställarreferensen, sparas som vanligt. Vi skickar inga mejl eller SMS till deltagaren och använder ingen artificiell intelligens i ärendet.
-          </Notice>
-        )}
         <FormGrid>
           <Field id="kom-o-fn" label="Förnamn" required error={E("firstName")} help="Som i folkbokföringen.">
             <Input value={f.firstName} onValueChange={set("firstName")} />
@@ -430,113 +395,85 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           <Input value={f.pnr} inputMode="numeric" maxLength={15} onValueChange={set("pnr")} />
         </Field>
         {dups.length > 0 && <DupNotice dups={dups} onOpen={(id) => nav.push(`/portal/deltagare/${encodeURIComponent(id)}`)} />}
-        {f.protectedIdentity === false && (
-          <Stack>
-            <FormGrid>
-              <Field
-                id="kom-o-dphone"
-                label="Deltagarens telefonnummer"
-                required={f.preferredContact === "sms" || f.preferredContact === "phone"}
-                error={E("phone")}
-                help="För kallelse och påminnelser. SMS:en innehåller aldrig personuppgifter."
-              >
-                <Input type="tel" value={f.phone} onValueChange={set("phone")} />
-              </Field>
-              <Field id="kom-o-demail" label="Deltagarens e-postadress" required={f.preferredContact === "email"} error={E("email")} help="Fyll bara i om deltagaren vill ha kallelsen med e-post.">
-                <Input type="email" value={f.email} onValueChange={set("email")} />
-              </Field>
-            </FormGrid>
-            <Field id="kom-o-city" label="Bostadsort" required error={E("city")} help="Bara orten, till exempel Alby, Tumba eller Fittja. Vi behöver den för att planera plats och resor.">
-              <Input value={f.city} onValueChange={set("city")} />
-            </Field>
-            <Field id="kom-o-contact" label="Hur vill deltagaren bli kontaktad?" required help="Vi kallar till första mötet på det sätt du väljer här.">
-              <Seg id="kom-o-contact" ariaLabel="Föredragen kontaktväg" value={f.preferredContact} onValueChange={set("preferredContact")} options={CONTACTS} />
-            </Field>
-            {f.preferredContact === "letter" && (
-              <Field id="kom-o-addr" label="Fullständig adress" required error={E("address")} help="Behövs bara när kallelsen skickas med brev. Annars sparar vi ingen adress.">
-                <TextArea rows={2} value={f.address} onValueChange={set("address")} />
-              </Field>
-            )}
-            <Field
-              id="kom-o-needs"
-              label="Behov av anpassning"
-              help="Beskriv vad som behövs, inte varför. Till exempel: tolk på somaliska, skriftliga instruktioner eller lokal utan trappor. Skriv inga diagnoser."
-            >
-              <TextArea rows={3} maxLength={500} value={f.accessibilityNeeds} onValueChange={set("accessibilityNeeds")} />
-            </Field>
-          </Stack>
+        <FormGrid>
+          <Field
+            id="kom-o-dphone"
+            label="Deltagarens telefonnummer"
+            required={f.preferredContact === "sms" || f.preferredContact === "phone"}
+            error={E("phone")}
+            help="För kallelse och påminnelser. SMS:en innehåller aldrig personuppgifter."
+          >
+            <Input type="tel" value={f.phone} onValueChange={set("phone")} />
+          </Field>
+          <Field id="kom-o-demail" label="Deltagarens e-postadress" required={f.preferredContact === "email"} error={E("email")} help="Fyll bara i om deltagaren vill ha kallelsen med e-post.">
+            <Input type="email" value={f.email} onValueChange={set("email")} />
+          </Field>
+        </FormGrid>
+        <Field id="kom-o-city" label="Bostadsort" required error={E("city")} help="Bara orten, till exempel Alby, Tumba eller Fittja. Vi behöver den för att planera plats och resor.">
+          <Input value={f.city} onValueChange={set("city")} />
+        </Field>
+        <Field id="kom-o-contact" label="Hur vill deltagaren bli kontaktad?" required help="Vi kallar till första mötet på det sätt du väljer här.">
+          <Seg id="kom-o-contact" ariaLabel="Föredragen kontaktväg" value={f.preferredContact} onValueChange={set("preferredContact")} options={CONTACTS} />
+        </Field>
+        {f.preferredContact === "letter" && (
+          <Field id="kom-o-addr" label="Fullständig adress" required error={E("address")} help="Behövs bara när kallelsen skickas med brev. Annars sparar vi ingen adress.">
+            <TextArea rows={2} value={f.address} onValueChange={set("address")} />
+          </Field>
         )}
       </Stack>
     );
   }
   if (step === 2) {
-    const tracks = m.tracks[f.primaryArea] ?? [];
     body = (
       <Stack>
-        <Field id="kom-o-area" label="Avtalsområde" required error={E("primaryArea")} help="Välj det område som passar deltagarens mål bäst. Området styr innehållet i insatsen och veckopriset.">
-          <Select value={f.primaryArea} onValueChange={set("primaryArea")} placeholder="Välj avtalsområde" options={m.areas.map((a) => ({ value: a.code, label: `${a.code} – ${a.name}` }))} />
+        <Field id="kom-o-prior" label="Har en kartläggning genomförts?" required error={E("priorAssessment")} help="Till exempel en kartläggning hos kommunen eller Arbetsförmedlingen. Bifoga den gärna nedan.">
+          <Seg id="kom-o-prior" ariaLabel="Har en kartläggning genomförts?" value={f.priorAssessment} onValueChange={(v) => set("priorAssessment")(v)} options={PRIOR} />
         </Field>
-        <Field id="kom-o-area2" label="Alternativt avtalsområde" error={E("secondaryArea")} help="Om det första området inte passar efter kartläggningen. Du kan lämna det tomt.">
-          <Select
-            value={f.secondaryArea}
-            onValueChange={set("secondaryArea")}
-            placeholder="Inget alternativt område"
-            options={m.areas.filter((a) => a.code !== f.primaryArea).map((a) => ({ value: a.code, label: `${a.code} – ${a.name}` }))}
+        <Field id="kom-o-files" label="Bifoga fil" error={E("attachments")} help="Till exempel kartläggningen. Filerna sparas säkert och syns bara för dig och dem som arbetar med deltagaren hos Miljonbemanning.">
+          <AttachmentPicker
+            id="kom-o-files"
+            caseId={null}
+            rows={f.attachments}
+            onRows={(rows) => setF((x) => ({ ...x, attachments: rows }))}
+            maxFiles={m.attachments.maxFiles}
+            accept={m.attachments.accept}
+            typesText={m.attachments.typesText}
+            onBusy={setUploading}
           />
         </Field>
         <Field
-          id="kom-o-track"
-          label="Önskat yrkesspår"
-          help={
-            tracks.length
-              ? "Välj ett förslag eller skriv ett eget. Coachen stämmer av yrkesspåret under kartläggningen."
-              : "Skriv det yrke deltagaren siktar mot, om du vet. Coachen stämmer av yrkesspåret under kartläggningen."
-          }
+          id="kom-o-bg"
+          label="Bakgrundsinformation"
+          help="Var så detaljerad som möjligt – det är en bra utgångspunkt för oss. Skriv om erfarenhet, utbildning, mål och vad personen behöver. Skriv inga diagnoser eller uppgifter om hälsa."
         >
-          <Stack gap="sm">
-            {tracks.length > 0 && <Seg ariaLabel="Förslag på yrkesspår" value={f.vocationalTrack} onValueChange={set("vocationalTrack")} options={tracks} />}
-            <Input id="kom-o-track" value={f.vocationalTrack} onValueChange={set("vocationalTrack")} placeholder="Eget yrkesspår" />
-          </Stack>
+          <TextArea rows={8} maxLength={BACKGROUND_MAX} value={f.background} onValueChange={set("background")} />
         </Field>
-        <Field id="kom-o-bg" label="Bakgrund" help="Några meningar om erfarenhet, utbildning och mål. Skriv inga diagnoser eller andra känsliga uppgifter.">
-          <TextArea rows={4} maxLength={1000} value={f.background} onValueChange={set("background")} />
-        </Field>
-        <TalaIn fieldId="kom-o-bg" protectedOrder={f.protectedIdentity === true} onText={(t) => setF((x) => ({ ...x, background: joinText(x.background, t, 1000) }))} />
+        <TalaIn fieldId="kom-o-bg" onText={(t) => setF((x) => ({ ...x, background: joinText(x.background, t, BACKGROUND_MAX) }))} />
       </Stack>
     );
   }
   if (step === 3) {
-    const orderItems: [string, string][] = [
-      ["Beställare", `${f.contactName}, ${f.unit}`],
-      ["Telefon", f.contactPhone],
-      ["E-post", f.contactEmail],
-      ["Beställarreferens", f.buyerReference],
-      ["Önskat startdatum", fD(f.desiredStart)],
-      ["Planerat slutdatum", f.plannedEnd ? fD(f.plannedEnd) : "Inte angivet"],
-      ["Omfattning", `${f.plannedWeeks} veckor`],
-    ];
     const edit = (to: number) => {
       setErrStep(null);
       goStep(to, { fromReview: true });
     };
-    body = f.protectedIdentity ? (
-      <Stack>
-        <Notice tone="critical" title={`Ring oss på ${SAFE_PHONE} så tar vi resten enligt den säkra rutinen.`}>
-          Om deltagaren sparar vi bara namn och personnummer. Avtalsområde och övriga uppgifter tar vi i telefon. Mejlet du får är en kort bekräftelse på att vi har tagit emot
-          beställningen – utan ärendenummer och utan personuppgifter.
-        </Notice>
-        <Card>
-          <Stack>
-            <ReviewSection title="Beställning och kontakt" onEdit={() => edit(0)} items={orderItems} />
-            <ReviewSection title="Deltagare" onEdit={() => edit(1)} items={[["Namn", `${f.firstName} ${f.lastName}`], ["Personnummer", maskPnr(f.pnr)], ["Skyddade personuppgifter", "Ja"]]} />
-          </Stack>
-        </Card>
-      </Stack>
-    ) : (
+    body = (
       <Stack>
         <Card>
           <Stack>
-            <ReviewSection title="Beställning och kontakt" onEdit={() => edit(0)} items={orderItems} />
+            <ReviewSection
+              title="Beställning och kontakt"
+              onEdit={() => edit(0)}
+              items={[
+                ["Beställare", `${f.contactName}, ${f.unit}`],
+                ["Telefon", f.contactPhone],
+                ["E-post", f.contactEmail],
+                ["Önskat startdatum", fD(f.desiredStart)],
+                ["Omfattning", periodLabel(f.period)],
+                ["Planerat slut", end ? fD(end) : "–"],
+                f.period === OTHER && ["Motivering", f.periodReason],
+              ]}
+            />
             <ReviewSection
               title="Deltagare"
               onEdit={() => edit(1)}
@@ -548,37 +485,18 @@ function OrderForm({ m }: { m: KomOrderForm }) {
                 ["Bostadsort", f.city],
                 ["Kontaktväg", CONTACT_LABEL[f.preferredContact]],
                 f.preferredContact === "letter" && ["Adress", f.address],
-                ["Anpassning", f.accessibilityNeeds || "Inget angivet"],
-                ["Skyddade personuppgifter", "Nej"],
               ]}
             />
             <ReviewSection
-              title="Avtalsområde"
+              title="Bakgrundsinformation om deltagaren"
               onEdit={() => edit(2)}
               items={[
-                ["Avtalsområde", areaLabel(f.primaryArea)],
-                ["Alternativt område", f.secondaryArea ? areaLabel(f.secondaryArea) : "Inget"],
-                ["Yrkesspår", f.vocationalTrack || "Inte angivet"],
-                ["Bakgrund", f.background || "Inte angivet"],
+                ["Kartläggning genomförd", f.priorAssessment ? PRIOR_ASSESSMENT_LABEL[f.priorAssessment] : "–"],
+                ["Bifogade filer", f.attachments.length ? `${f.attachments.length} ${f.attachments.length === 1 ? "fil" : "filer"}` : "Inga"],
+                ["Bakgrundsinformation", f.background || "Inte angivet"],
               ]}
             />
-          </Stack>
-        </Card>
-        <Card title="Beställningens värde" icon="card">
-          <Stack gap="sm">
-            {m.prices ? (
-              <>
-                <div className="text-[2rem] leading-[1.1] font-extrabold tabular-nums">{kr(price * (f.plannedWeeks || 0))}</div>
-                <div className="text-text-muted">
-                  {f.plannedWeeks} veckor × {kr(price)} per vecka, exklusive moms. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="font-bold">{TESTER_HIDDEN_TEXT}</div>
-                <div className="text-text-muted">{f.plannedWeeks} veckor. Fakturan räknas per vecka som deltagaren är inskriven. Pausade veckor faktureras inte.</div>
-              </>
-            )}
+            {f.attachments.length > 0 && <AttachmentList rows={f.attachments} />}
           </Stack>
         </Card>
         <Notice tone="info" title="Det här händer när du skickar">
@@ -594,9 +512,9 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       <KomHead
         eyebrow={`${m.customerName} · beställning`}
         title="Beställ ny insats"
-        lead={step === 0 ? "Samma uppgifter som i beställningsmallen, i tre korta steg och en granskning. Du kan gå tillbaka och ändra innan du skickar." : undefined}
+        lead={step === 0 ? "Fyll i uppgifterna i tre korta steg och granska innan du skickar. Du kan gå tillbaka och ändra." : undefined}
       />
-      <KomStepper current={step} skipped={f.protectedIdentity && step === 3 ? 2 : null} />
+      <KomStepper current={step} />
       <Card>
         <Stack>
           <Stack gap="sm">
@@ -632,7 +550,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           </Button>
         ) : step < 3 ? (
           <Button kind="primary" size="lg" iconRight="arrow-right" onClick={next}>
-            {step === 1 && f.protectedIdentity ? "Nästa: granska" : `Nästa: ${STEPS[step + 1].toLowerCase()}`}
+            {step === 2 ? "Nästa: granska" : `Nästa: ${STEPS[step + 1].toLowerCase()}`}
           </Button>
         ) : (
           <Button kind="primary" size="lg" icon="send" pending={create.pending} onClick={() => void submit()}>
@@ -640,7 +558,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           </Button>
         )}
       </div>
-      <DemoNote>Beställningen sparas bara i den här webbläsaren. Mejlet skickas inte på riktigt – utskicket syns i utskicksloggen hos Miljonbemanning. Priserna är exempel.</DemoNote>
+      <DemoNote>Beställningen och filerna sparas bara i den här webbläsaren. Mejlet skickas inte på riktigt – utskicket syns i utskicksloggen hos Miljonbemanning.</DemoNote>
       <div className="flex flex-wrap items-center gap-3">
         <PerspectiveLink role="samordnare" to="/inkorg" label="Se hur beställningar tas emot hos Miljonbemanning" />
       </div>
@@ -679,7 +597,7 @@ function DupNotice({ dups, onOpen }: { dups: readonly KomDuplicate[]; onOpen: (c
               </Button>
             </span>
           ) : (
-            <span key={`annan-${i}`}>Insatsen är beställd av en annan handläggare. Ring oss på {SAFE_PHONE} så hjälper vi dig.</span>
+            <span key={`annan-${i}`}>Insatsen är beställd av en annan handläggare. Ring oss på {CONTACT_PHONE} så hjälper vi dig.</span>
           ),
         )}
       </Stack>
@@ -702,7 +620,6 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
       </KomPage>
     );
   }
-  const prot = c.protectedIdentity;
   return (
     <KomPage>
       <KomHead eyebrow={`${customerName} · beställning`} title="Tack! Beställningen är skickad" />
@@ -715,17 +632,10 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
             </div>
             <p>Ärendenumret är beställningens nummer. Använd det i stället för personnummer när du kontaktar oss om deltagaren.</p>
           </Stack>
-          {prot ? (
-            <Notice tone="critical" title={`Ring oss på ${SAFE_PHONE} så tar vi resten enligt den säkra rutinen.`}>
-              Deltagaren har skyddade personuppgifter. Om deltagaren har vi bara sparat namn och personnummer. Beställarreferensen, startdatumet och omfattningen från steg 1 är
-              sparade. Avtalsansvarig på Miljonbemanning har fått en uppgift att ringa dig.
-            </Notice>
-          ) : (
-            <Stack gap="sm">
-              <div className="text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">Ordererkännande</div>
-              <p>{fullText(c.ackText)}</p>
-            </Stack>
-          )}
+          <Stack gap="sm">
+            <div className="text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">Ordererkännande</div>
+            <p>{fullText(c.ackText)}</p>
+          </Stack>
         </Stack>
       </Card>
       {c.mail && (
@@ -739,36 +649,22 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
               </div>
               <div>{fullText(c.mail.body)}</div>
             </div>
-            <OkLine>{prot ? "Mejlet är en kort bekräftelse utan ärendenummer och utan personuppgifter." : "Mejlet innehåller bara ärendenumret – inga personuppgifter."}</OkLine>
+            <OkLine>Mejlet innehåller bara ärendenumret – inga personuppgifter.</OkLine>
           </Stack>
         </Card>
       )}
       <Card title="Så här går det vidare" icon="list">
         <Timeline
-          items={
-            prot
-              ? [
-                  { icon: "check", filled: true, title: "Beställningen är mottagen", sub: fDTL(c.referredAt), body: <span>Den har fått ärendenummer {c.caseNumber}. Ingen automatisk behandling görs.</span> },
-                  { icon: "phone", title: "Samtal med Miljonbemanning", sub: `Ring ${SAFE_PHONE}`, body: <span>Vi går igenom avtalsområde, kontaktväg och övriga uppgifter med dig enligt den säkra rutinen.</span> },
-                  { icon: "calendar", title: "Orderbekräftelse", sub: "Efter telefonsamtalet", body: <span>Du får startdatum och ansvarig coach i portalen.</span> },
-                  {
-                    icon: "users",
-                    title: "Första mötet med deltagaren",
-                    sub: "Bokas efter telefonsamtalet",
-                    body: <span>Miljonbemanning kallar deltagaren på det sätt ni kommer överens om i samtalet. Inga mejl eller SMS går till deltagaren.</span>,
-                  },
-                ]
-              : [
-                  { icon: "check", filled: true, title: "Beställningen är mottagen", sub: fDTL(c.referredAt), body: <span>Den har fått ärendenummer {c.caseNumber}.</span> },
-                  { icon: "calendar", title: "Orderbekräftelse", sub: `Senast ${fDTL(c.avropDue)}`, body: <span>Du får startdatum, ansvarig coach och tid för första mötet i portalen.</span> },
-                  {
-                    icon: "users",
-                    title: "Första mötet med deltagaren",
-                    sub: `Senast ${fD(c.firstMeetingDue)}`,
-                    body: <span>Deltagaren får en kallelse på det sätt du valde ({(c.contactLabel ?? "").toLowerCase()}).</span>,
-                  },
-                ]
-          }
+          items={[
+            { icon: "check", filled: true, title: "Beställningen är mottagen", sub: fDTL(c.referredAt), body: <span>Den har fått ärendenummer {c.caseNumber}.</span> },
+            { icon: "calendar", title: "Orderbekräftelse", sub: `Senast ${fDTL(c.avropDue)}`, body: <span>Du får startdatum, ansvarig coach och tid för första mötet i portalen.</span> },
+            {
+              icon: "users",
+              title: "Första mötet med deltagaren",
+              sub: `Senast ${fD(c.firstMeetingDue)}`,
+              body: <span>Deltagaren får en kallelse på det sätt du valde ({(c.contactLabel ?? "").toLowerCase()}).</span>,
+            },
+          ]}
         />
       </Card>
       <div className="flex flex-wrap items-center gap-3">
@@ -780,7 +676,7 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        <PerspectiveLink role={prot ? "avtalsansvarig" : "samordnare"} to={`/inkorg?arende=${encodeURIComponent(c.caseId)}`} label="Se hur beställningen landar hos Miljonbemanning" />
+        <PerspectiveLink role="samordnare" to={`/inkorg?arende=${encodeURIComponent(c.caseId)}`} label="Se hur beställningen landar hos Miljonbemanning" />
       </div>
     </KomPage>
   );

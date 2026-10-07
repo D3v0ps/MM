@@ -1,6 +1,6 @@
 "use client";
-// Rapportbyggarens vy-modell på skärmen – samma komponenter för Miljonbemanning (förhandsvisningen, den sparade rapporten,
-// delningsdialogen) och kommunens chef (/portal/resultat/rapporter/:id, 18 px via portal:-varianterna).
+// Rapportbyggarens vy-modell på skärmen – Miljonbemannings förhandsvisning och den sparade rapporten. (Kommunens chef och
+// portalens delade rapporter är borttagna, beslut 2026-10-07; portal:-varianterna finns kvar i komponenterna.)
 //   <BuilderViewPanel view={view} />   tabellen (Deltagare först, Totalt sist), stapeldiagrammet och "SÅ RÄKNAS DET"
 //   useBuilderDownload()                hämtar filen: kommandot loggar först, sedan sparas filen (PDF byggs i webbläsaren)
 // Listor med en rad per deltagare visar bara antal och kolumnnamn – raderna finns bara i filen.

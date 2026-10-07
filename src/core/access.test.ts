@@ -3,7 +3,7 @@ import type { Actor } from "@/api/roles";
 import { createSeed } from "@/data/seed";
 import type { Db } from "@/data/schema";
 import {
-  accessIndex, canSeeNotes, canSeePerson, caseAccess, caseAccessIn, displayName, effectiveCustomerScope, lookupsFor, unitCovers, visibleCases,
+  accessIndex, canSeeNotes, canSeePerson, caseAccess, caseAccessIn, displayName, effectiveCustomerScope, lookupsFor, visibleCases,
   type CaseAccessLookups,
 } from "./access";
 import { BOTKYRKA_CONFIG, parseContractConfig } from "./config";
@@ -52,12 +52,10 @@ describe("caseAccess – prototypens regler", () => {
     expect(caseAccess(C, omar, L({ customerScope: "unit", protectedIdentity: true }))).toBe("none");
     expect(caseAccess(C, ahmed, L({ customerScope: "all", protectedIdentity: true }))).toBe("none");
   });
-  it("kommunens chef: enhetens ärenden, skyddade bara som restricted", () => {
-    const eva = A("k-eva", "kommun_chef", { customerUnit: "Arbetsmarknadsenheten" });
-    expect(caseAccess(C, eva, L())).toBe("customer");
-    expect(caseAccess(C, eva, L({ protectedIdentity: true }))).toBe("restricted");
-    expect(caseAccess(C, A("k-x", "kommun_chef", { customerUnit: "Arbetsmarknadsenheten Tumba" }), L())).toBe("none");
-    expect(caseAccess(C, A("k-y", "kommun_chef", { customerUnit: null }), L())).toBe("customer");
+  it("kommunens chef finns inte (beslut 2026-10-07): en kvarglömd roll kommun_chef ger ingen åtkomst", () => {
+    const eva = A("k-eva", "kommun_chef" as Actor["role"], { customerUnit: "Arbetsmarknadsenheten" });
+    expect(caseAccess(C, eva, L())).toBe("none");
+    expect(caseAccess(C, eva, L({ protectedIdentity: true }))).toBe("none");
   });
   it("deltagare och okända ärenden: ingen åtkomst", () => {
     expect(caseAccess(C, A("deltagare", "deltagare"), L())).toBe("none");
@@ -105,13 +103,6 @@ describe("avtalskonfiguration och enheter", () => {
     expect(effectiveCustomerScope({ customerVisibility: { scope: "ATT_FASTSTÄLLA", prototypeScope: "all", seesIndividualReports: true, seesCoachNotes: false } })).toBe("all");
     expect(effectiveCustomerScope(null)).toBe("own");
   });
-  it("chefens enhet omfattar underenheter men inte grannenheter", () => {
-    expect(unitCovers("Arbetsmarknadsenheten", "Arbetsmarknadsenheten Hallunda–Fittja")).toBe(true);
-    expect(unitCovers("Arbetsmarknadsenheten Alby", "Arbetsmarknadsenheten Alby")).toBe(true);
-    expect(unitCovers("Arbetsmarknadsenheten Alby", "Arbetsmarknadsenheten Albyberg")).toBe(false);
-    expect(unitCovers("Arbetsmarknadsenheten Alby", null)).toBe(false);
-    expect(unitCovers(null, null)).toBe(true);
-  });
 });
 
 describe("mot testdatat – samma antal som prototypens sel.access", () => {
@@ -127,33 +118,40 @@ describe("mot testdatat – samma antal som prototypens sel.access", () => {
     for (const c of db.cases) { const a = caseAccessIn(c, actor, src); m[a] = (m[a] ?? 0) + 1; }
     return m;
   };
-  // Facit räknat med prototypens sel.access på prototypens MM.seed() (prototyp/src/03-domain.js).
+  // Facit räknat med prototypens sel.access på prototypens MM.seed() (prototyp/src/03-domain.js) – efter besluten 2026-10-07:
+  // ingen person har skyddade personuppgifter (ärendet "skyddad" är ett vanligt ärende) och kommunens chef finns inte.
   it.each([
-    ["u-sara", "samordnare", { full: 230, restricted: 1 }],
+    ["u-sara", "samordnare", { full: 231 }],
     ["u-johan", "avtalsansvarig", { full: 231 }],
     ["u-amira", "coach", { none: 202, full: 29 }],
     ["u-erik", "coach", { none: 177, full: 54 }],
     ["u-petra", "handledare", { none: 168, team: 63 }],
-    ["u-david", "handledare", { team: 170, none: 61 }],
+    ["u-david", "handledare", { team: 171, none: 60 }],
     ["u-hanna", "handledare", { none: 167, team: 64 }],
-    ["u-karin", "chef", { full: 230, restricted: 1 }],
+    ["u-karin", "chef", { full: 231 }],
     ["u-lars", "ekonom", { billing: 231 }],
-    ["u-robin", "admin", { full: 230, restricted: 1 }],
+    ["u-robin", "admin", { full: 231 }],
     ["k-maria", "kommun_handlaggare", { customer: 71, none: 160 }],
     ["k-ahmed", "kommun_handlaggare", { none: 166, customer: 65 }],
     ["k-omar", "kommun_handlaggare", { none: 192, customer: 39 }],
-    ["k-eva", "kommun_chef", { customer: 230, restricted: 1 }],
   ] as const)("%s (%s)", (userId, role, expected) => {
     expect(count(userId, role)).toEqual(expected);
   });
-  it("skyddade ärendet: bara namngiven coach, avtalsansvarig och beställande handläggare ser personen", () => {
+  it("ingen person i testdatat har skyddade personuppgifter, och ingen har rollen kommunens chef", () => {
+    expect(db.persons.every((p) => !p.protectedIdentity)).toBe(true);
+    expect(db.memberships.some((m) => (m.role as string) === "kommun_chef")).toBe(false);
+  });
+  it("vilande spärr: sätts skyddade personuppgifter på en person ser bara namngiven coach, avtalsansvarig och beställande handläggare personen", () => {
     const skyddad = db.cases.find((c) => c.id === db.demo_tags.find((t) => t.tag === "skyddad")!.entityIds[0])!;
-    expect(lookupsFor(skyddad, src).protectedIdentity).toBe(true);
-    const who = db.profiles.map((p) => p.id).flatMap((id) => db.memberships.filter((m) => m.userId === id && m.contractId === "c-bot").map((m) => ({ id, a: caseAccessIn(skyddad, actorFor(id, m.role), src) })));
+    // Testet sätter spärren själv (testdatat har inga skyddade personer sedan 2026-10-07).
+    const dormant = { ...db, persons: db.persons.map((p) => (p.id === skyddad.personId ? { ...p, protectedIdentity: true } : p)) } as Db;
+    const src2 = accessIndex(dormant);
+    expect(lookupsFor(skyddad, src2).protectedIdentity).toBe(true);
+    const who = dormant.profiles.map((p) => p.id).flatMap((id) => dormant.memberships.filter((m) => m.userId === id && m.contractId === "c-bot").map((m) => ({ id, a: caseAccessIn(skyddad, actorFor(id, m.role), src2) })));
     expect(who.filter((x) => canSeePerson(x.a)).map((x) => x.id).sort()).toEqual([skyddad.leadCoachId, "u-johan", skyddad.referrerId].sort());
-    const person = db.persons.find((p) => p.id === skyddad.personId)!;
-    expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-sara", "samordnare"), src))).toBe("Skyddade personuppgifter");
-    expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-lars", "ekonom"), src))).toBe("–");
+    const person = dormant.persons.find((p) => p.id === skyddad.personId)!;
+    expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-sara", "samordnare"), src2))).toBe("Skyddade personuppgifter");
+    expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-lars", "ekonom"), src2))).toBe("–");
   });
   it("visibleCases = ärenden med annan nivå än none", () => {
     expect(visibleCases(db.cases, actorFor("u-amira", "coach"), src)).toHaveLength(29);

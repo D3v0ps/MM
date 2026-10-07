@@ -43,13 +43,10 @@ describe("PDF för sammanställningar", () => {
     expect(t.foot[0]).toBe("Totalt");
     expect(looksLikePnr(text)).toBe(false);
   });
-  it("kommunens läge: inget internt mål, 'färre än 5' i kolumnen Deltagare", async () => {
-    const m = await model(as("k-eva", "kommun_chef"), "kommun.deladExport", { savedReportId: "sr-seed-kommun", format: "pdf" });
-    expect(JSON.stringify(m)).not.toContain("internalTarget");
-    const text = squash(await render(m));
-    expect(text).not.toContain("Internt mål");
-    expect(text).not.toContain("Ledning");
-    expect(text).toContain("färre än 5");
-    expect(text).toContain("Avtalets mål");
+  it("kommunen hämtar inga sammanställningar (beslut 2026-10-07) – och PDF:en nämner inte skyddade personuppgifter", async () => {
+    await expect(rt.run("command", "rapporter.byggExport", { savedReportId: "sr-seed-kommun", format: "pdf" }, as("k-maria", "kommun_handlaggare"))).rejects.toThrow();
+    await expect(rt.run("command", "kommun.deladExport", { savedReportId: "sr-seed-kommun", format: "pdf" }, as("k-maria", "kommun_handlaggare"))).rejects.toThrow();
+    const m = await model(as("u-sara", "samordnare"), "rapporter.byggExport", { savedReportId: "sr-seed-kommun", format: "pdf" });
+    expect(squash(await render(m))).not.toMatch(/skyddade personuppgifter/i);
   });
 });

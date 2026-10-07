@@ -4,7 +4,7 @@ import { BOTKYRKA_CONFIG, DEFAULT_ORG_SETTINGS } from "@/core/config";
 import { holidaysOf } from "@/core/holidays";
 import type { MemoryData } from "../memory";
 import type { Role } from "@/api/roles";
-import { emptyDb, type Case, type Db, type DemoTag, type InvoiceDraft, type Profile, type Report, type Tables } from "../schema";
+import { emptyDb, type Case, type Db, type DemoTag, type Profile, type Report, type Tables } from "../schema";
 import { AREAS } from "./constants";
 import type { PCase, ProtoState, PUser } from "./context";
 import { encodeTestPnr, testPnrHash } from "./pnr";
@@ -15,9 +15,11 @@ export const ORG_BOTKYRKA = "org-botkyrka";
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
-/** Prototypens roller -> Role (kommunens roller har prefix i koden). */
-const roleOf = (u: PUser): Role =>
-  (u.org === "customer" ? (u.role === "chef" ? "kommun_chef" : "kommun_handlaggare") : u.role) as Role;
+/**
+ * Prototypens roller -> Role (kommunens roller har prefix i koden). Kommunen har bara rollen handläggare (beslut 2026-10-07)
+ * – prototypens kommunchef (k-eva) tas bort i steget decisions-2026-10-07.ts.
+ */
+const roleOf = (u: PUser): Role => (u.org === "customer" ? "kommun_handlaggare" : u.role) as Role;
 
 function profileOf(u: PUser): Profile {
   return {
@@ -38,6 +40,9 @@ function caseOf(c: PCase): Case {
     resultVerifiedAt: c.resultVerifiedAt, phase: c.phase, phaseSince: c.phaseSince ?? null, leadCoachId: c.leadCoachId, backgroundInfo: c.backgroundInfo,
     aiConsentStatus: c.aiConsent, meetingDay: c.meetingDay, meetingTime: c.meetingTime, location: c.location, pausedWeeks: [...c.pausedWeeks],
     pauseReason: c.pauseReason ?? null, sourceEmailId: null,
+    // Beställningsformuläret (beslut 2026-10-07): prototypens ärenden är beställda i veckor – omfattningen i månader och
+    // kartläggningen sätts för de öppna avropen i decisions-2026-10-07.ts.
+    orderPeriodMonths: null, orderPeriodReason: null, priorAssessment: null,
   };
 }
 
@@ -157,24 +162,10 @@ export function toTables(S: ProtoState, meta: { checkInTags: Record<string, stri
   // ---- Kommunikation
   for (const m of S.messages) db.messages.push({ ...m, kind: null });
 
-  // ---- Fakturering: status per månad (default) på körningen, avvikande status per ärende som fakturautkast
-  const caseById = new Map(db.cases.map((c) => [c.id, c]));
+  // ---- Fakturering: körningarna per månad. Fakturorna (en per avtal och månad, beslut 2026-10-07) byggs av prototypens
+  // status per månad och ärende (S.invoiceStatus) i src/data/seed/decisions-2026-10-07.ts.
   for (const b of S.billingRuns) {
-    const st = S.invoiceStatus[b.month] ?? {};
-    db.billing_runs.push({ id: b.id, contractId: "c-bot", month: b.month, status: b.status, createdBy: b.createdBy, createdAt: b.createdAt, closedAt: null, closedBy: null, defaultInvoiceStatus: st.default ?? null });
-  }
-  for (const [month, st] of Object.entries(S.invoiceStatus)) {
-    for (const [caseId, status] of Object.entries(st)) {
-      if (caseId === "default") continue;
-      const c = caseById.get(caseId);
-      const row: InvoiceDraft = {
-        id: `inv-${month}-${caseId}`, billingRunId: `br-${month}`, contractId: "c-bot", month, kind: "periodic", caseId, groupingKey: `${month}:${caseId}`,
-        buyerReference: c?.buyerReference ?? null, purchaseOrderNumber: c?.purchaseOrderNumber ?? null, invoicedObject: c?.caseNumber ?? caseId,
-        accruedOre: null, remainingOre: null, status, approvedBy: null, approvedAt: null, manualInvoiceNo: null, fortnoxDocumentNumber: null,
-        fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null,
-      };
-      db.invoice_drafts.push(row);
-    }
+    db.billing_runs.push({ id: b.id, contractId: "c-bot", month: b.month, status: b.status, createdBy: b.createdBy, createdAt: b.createdAt, closedAt: null, closedBy: null });
   }
 
   // ---- AI, logg, utskick, notiser, uppgifter

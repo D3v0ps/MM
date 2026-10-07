@@ -52,11 +52,10 @@ export function useDefaultPersona(role: Role): string | null {
 }
 
 /**
- * "Se som kommunen" (bara prototypen): som prototypens customerRoleFor – rapporter till den förvalda handläggaren
- * visas som handläggaren, övriga som kommunens chef (som inte kvitterar). to = kommunportalens rapportsida.
+ * "Se som kommunen" (bara prototypen): byter till handläggaren som rapporten går till (mottagaren) och öppnar kommun-
+ * portalens rapportsida. Rapporter utan mottagare i portalen (beställarrapporten) har ingen knapp.
  */
 export function CustomerPerspective({ recipientId, reportId, label }: { recipientId: string | null; reportId: string; label: string }) {
-  const handl = useDefaultPersona("kommun_handlaggare");
-  const role: Role = recipientId && recipientId === handl ? "kommun_handlaggare" : "kommun_chef";
-  return <PerspectiveLink role={role} to={`/portal/rapporter/${encodeURIComponent(reportId)}`} label={label} />;
+  if (!recipientId) return null;
+  return <PerspectiveLink role="kommun_handlaggare" userId={recipientId} to={`/portal/rapporter/${encodeURIComponent(reportId)}`} label={label} />;
 }

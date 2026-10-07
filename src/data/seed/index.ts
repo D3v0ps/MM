@@ -11,6 +11,8 @@
 //   gen-voice.ts     röstinspelningen (finns inte i prototypen): länkar, röstmeddelanden och ljudfilernas spår
 //   gen-notes.ts     fria anteckningar i deltagarkortet (finns inte i prototypen, rapporter steg 2)
 //   gen-saved-reports.ts  sparade rapporter i rapportbyggaren (finns inte i prototypen, rapporter steg 4)
+//   decisions-2026-10-07.ts  besluten 2026-10-07: kommunens chef bort, skyddade personuppgifter bort ur testdatat, omfattning i månader,
+//                    en faktura per avtal och månad
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -19,6 +21,7 @@ import { genCases, genUsers } from "./gen-cases";
 import { genActivities, genIntakeConsentsPlacements } from "./gen-coaching";
 import { genContractDeviations, genInbox, genPulse, genRest } from "./gen-other";
 import { genMonthly, genOtherReports } from "./gen-reports";
+import { applyDecisions20261007 } from "./decisions-2026-10-07";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -55,6 +58,7 @@ export function createSeed(): MemoryData<Tables> {
   addVoiceData(db);
   addCaseNotes(db);
   addSavedReports(db);
+  applyDecisions20261007(db, { invoiceStatus: S.invoiceStatus });
   return db;
 }
 

@@ -7,7 +7,7 @@ import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
 import type { IconName } from "@/ui/icons";
 
-export type NavCountKey = Exclude<keyof NavCounts, "notifications" | "resultFile" | "sharedReports">;
+export type NavCountKey = Exclude<keyof NavCounts, "notifications">;
 
 export type NavItem = {
   /** Sökväg. Aktiv när sökvägen är samma eller ligger under (längsta träff vinner). */
@@ -68,7 +68,8 @@ const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
   samordnare: { label: "Samordning", items: [INKORG, FORFALLER, BYGG] },
   avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG] },
   chef: { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER, BYGG, LOGG] },
-  ekonom: { label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning] },
+  // Ekonomi bara för ekonomen (beslut 5, 2026-10-07: belopp syns bara för rollen ekonom). Prislistan har flyttat hit från avtalssidan.
+  ekonom: { label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning, { to: "/ekonomi/prislista", label: "Prislista", icon: "list" }] },
   // Avtal och konfiguration (/admin/avtal) ligger inte i menyn (beslut 2026-10-06) – sidan nås från Användare och roller och Min vecka.
   admin: {
     label: "Administratör",
@@ -104,33 +105,31 @@ export function navFor(role: Role, ctx: NavContext): NavGroup[] {
     .filter((g) => g.items.length > 0);
 }
 
-/** requires = menyvalet visas bara när navCounts säger att avtalet har funktionen (t.ex. resultFile). */
-export type PortalNavItem = { to: string; label: string; requires?: "resultFile" };
+export type PortalNavItem = { to: string; label: string };
 
-/** Kommunportalens meny (inga förkortningar). */
+/**
+ * Kommunportalens meny (inga förkortningar). Kommunen har bara rollen handläggare (beslut 2026-10-07) – beställarrapporten,
+ * resultatfilen och rapporterna som Miljonbemanning delade med kommunens chef finns inte längre i portalen.
+ */
 export const PORTAL_NAV: Record<CustomerRole, PortalNavItem[]> = {
   kommun_handlaggare: [
     { to: "/portal", label: "Start" },
     { to: "/portal/bestall", label: "Beställ ny insats" },
     { to: "/portal/deltagare", label: "Mina deltagare" },
     { to: "/portal/rapporter", label: "Rapporter och meddelanden" },
-  ],
-  kommun_chef: [
-    { to: "/portal/bestallarrapport", label: "Beställarrapport" },
-    { to: "/portal/deltagare", label: "Enhetens deltagare" },
-    { to: "/portal/rapporter", label: "Rapporter" },
-    { to: "/portal/resultat", label: "Hämta resultat", requires: "resultFile" },
+    { to: "/portal/mina-uppgifter", label: "Mina uppgifter" },
   ],
 };
 
-/** Portalens meny för rollen: menyval med requires visas bara när avtalet har funktionen (navCounts). */
-export function portalNavFor(role: CustomerRole, counts: Pick<NavCounts, "resultFile"> | null | undefined): PortalNavItem[] {
-  return PORTAL_NAV[role].filter((it) => !it.requires || !!counts?.[it.requires]);
-}
+/** Portalens meny för rollen. */
+export const portalNavFor = (role: CustomerRole): PortalNavItem[] => PORTAL_NAV[role];
 
 /** Portalens inloggning och handläggarens startsida har ingen meny (SPEC §7.0). */
 export const PORTAL_LOGIN_PATH = "/portal/logga-in";
 export const PORTAL_START_PATH = "/portal";
+/** Mina uppgifter – dit leder första inloggningen efter självregistreringen (?forsta=1). */
+export const PORTAL_PROFILE_PATH = "/portal/mina-uppgifter";
+export const PORTAL_FIRST_LOGIN_PATH = "/portal/mina-uppgifter?forsta=1";
 
 /** Vilken av sökvägarna som är aktiv: samma sökväg eller en undersida; längsta träff vinner. */
 export function activePath(current: string, candidates: readonly string[]): string | null {

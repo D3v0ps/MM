@@ -33,10 +33,11 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
   await expect(main(page)).toBeVisible();
 }
 
-/** Per roll: rutornas etiketter, ett avsnitt som ska finnas och menyns grupper. */
+/** Per roll: rutornas etiketter, ett avsnitt som ska finnas och menyns grupper. Samordnaren har 11 flaggor och avtalsansvarig
+ * inget avsnitt för skyddade avrop sedan 2026-10-07 (skyddade personuppgifter borttagna ur appen). */
 const ROLES: [Who, string[], string, string[]][] = [
-  [SARA, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Flaggor (12)", ["Min vardag", "Samordning"]],
-  [JOHAN, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Skyddade avrop", ["Min vardag", "Avtalet"]],
+  [SARA, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Flaggor (11)", ["Min vardag", "Samordning"]],
+  [JOHAN, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Avtalet: avvikelser och frågor", ["Min vardag", "Avtalet"]],
   [AMIRA, ["Närvaro att registrera", "Aktiviteter i dag", "AI-utkast att granska", "Månads­bedömningar januari"], "Påminnelser", ["Min vardag"]],
   [PETRA, ["Närvaro att registrera", "Tillfällen i dag", "Yrkesmoment den här veckan", "Praktik som saknar något av de fyra rätten"], "Kommande sju dagar", ["Min vardag"]],
   [KARIN, ["Flaggor att hantera", "Förfaller i dag", "Resultatgrad, rullande 6 mån", "Rapporter försenade"], "Tidig uppmärksamhet", ["Min vardag", "Ledning"]],
@@ -86,7 +87,9 @@ test("/start leder vidare till Min vecka – valen i adressen följer med", asyn
   await expect(page).toHaveTitle("Min vecka – Miljonmatch");
   await switchTo(page, info, "/start?x=1", JOHAN);
   await expect.poll(() => here(page, info)).toBe("/min-vecka?x=1");
-  await expect(main(page).getByRole("heading", { name: "Skyddade avrop" })).toBeVisible();
+  // Avtalsansvarigs tillägg (Skyddade avrop finns inte sedan 2026-10-07).
+  await expect(main(page).getByRole("heading", { name: "Avtalet: avvikelser och frågor" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { name: "Skyddade avrop" })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

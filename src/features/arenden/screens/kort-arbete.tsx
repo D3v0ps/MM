@@ -3,7 +3,6 @@
 import { useState, type FormEvent } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
-import { DemoOnly } from "@/shell/runtime";
 import { dayOf, fmtDate, fmtDateTime, fmtDateTimeLong } from "@/core/time";
 import { RESULT_CLASS_LABEL } from "@/core/labels";
 import {
@@ -184,13 +183,6 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
             <div>
               {k ? k.name : "Kommunen"} har fått ett säkert meddelande med förslag på tid {fmtDateTimeLong(sent)} och ett mejl utan personuppgifter.
             </div>
-            {cr === "kommun_chef" && (
-              <DemoOnly>
-                <div className="text-small">
-                  {k ? k.name : "Handläggaren"} finns inte som roll i prototypen. Kommunens chef kan läsa kallelsen i ärendets meddelanden men svarar inte på den.
-                </div>
-              </DemoOnly>
-            )}
             {cr && (
               <div>
                 <CustSwitch card={card} tab="meddelanden" label={(who) => `Se kallelsen som ${who}`} />

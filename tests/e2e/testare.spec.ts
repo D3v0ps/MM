@@ -1,5 +1,6 @@
 // Testare utan priser (beslut 2026-10-02): kollegorna som testar ser inga priser, belopp i kronor, fakturaunderlag, interna
 // mål eller avtalssidan – vilken testperson de än agerar som. Karim och Ali ser allt.
+// Beslut 5 (2026-10-07): belopp syns bara för rollen ekonom – också för Karim och Ali, och i prototypen och utvecklingsläget.
 //   app  – minnesläget simulerar en begränsad testare (POST /api/dev-session med testerId, bara i minnesläget).
 //   demo – prototypen har inga testare: samma sidor visar priserna som förut (prototypen påverkas inte).
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -10,6 +11,7 @@ const ROBIN: Who = { userId: "u-robin", role: "admin" };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
 const JOHAN: Who = { userId: "u-johan", role: "avtalsansvarig" };
 const KARIN: Who = { userId: "u-karin", role: "chef" };
+const LARS: Who = { userId: "u-lars", role: "ekonom" };
 const MARIA: Who = { userId: "k-maria", role: "kommun_handlaggare" };
 const LIMITED = "tester-sara";
 
@@ -32,7 +34,7 @@ async function asTester(page: Page, to: string, who: Who, testerId = LIMITED) {
   return errors;
 }
 
-/** Deltagarkortets huvud är kompakt: beställningen (omfattning och värde) ligger under "Visa alla uppgifter". */
+/** Deltagarkortets huvud är kompakt: beställningen (omfattningen i veckor) ligger under "Visa alla uppgifter". */
 async function showFacts(page: Page) {
   await main(page).getByRole("button", { name: "Visa alla uppgifter" }).click();
   await expect(main(page).getByRole("button", { name: "Dölj uppgifterna" })).toHaveAttribute("aria-expanded", "true");
@@ -99,10 +101,11 @@ test.describe("begränsad testare (appen)", () => {
     expect(relevant(errors)).toEqual([]);
   });
 
-  test("deltagarkortet: Visas inte för testare i stället för beställningens värde", async ({ page }) => {
+  test("deltagarkortet: beställningen i veckor – inget pris och inget ordervärde (för någon sedan 2026-10-07)", async ({ page }) => {
     const errors = await asTester(page, "/arenden/case-260117", SARA);
     await showFacts(page);
-    await expect(main(page).getByText("Visas inte för testare").first()).toBeVisible();
+    await expect(main(page)).toContainText(/\d+ veckor/);
+    await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
     expect(await pageText(page)).not.toMatch(AMOUNT);
     expect(relevant(errors)).toEqual([]);
   });
@@ -138,9 +141,10 @@ test.describe("begränsad testare (appen)", () => {
       expect(tt, to).not.toMatch(AMOUNT);
     }
     await expect(main(page).getByText(/internt mål visas inte för testare/).first()).toBeVisible();
+    // Ekonomi är bara ekonomens (beslut 5) – chefen nekas redan av rollen.
     for (const to of ["/ekonomi", "/ekonomi/2027-01"]) {
       await go(page, to);
-      await expect(page.getByRole("heading", { name: "Den här sidan visas inte för testare" })).toBeVisible();
+      await expect(main(page)).toContainText("Du har inte behörighet till den här sidan");
       expect(await pageText(page), to).not.toMatch(AMOUNT);
     }
     await go(page, "/avtalsavvikelser");
@@ -159,22 +163,31 @@ test.describe("begränsad testare (appen)", () => {
       expect(await pageText(page), to).not.toMatch(AMOUNT);
       expect(await pageText(page), to).not.toMatch(/Fakturor för .* i Fortnox/);
     }
-    await expect(main(page).getByText("Visas inte för testare").first()).toBeVisible();
+    // Orderbekräftelsen har inget pris för någon sedan 2026-10-07 (synpunkt #10) – inget att dölja för testaren.
+    await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
+    expect(await pageText(page)).not.toMatch(/Beställningens värde|Veckopris/);
     expect(relevant(errors)).toEqual([]);
   });
 
   test("kommunens portal: deltagarsidan utan beställningens värde", async ({ page }) => {
     const errors = await asTester(page, "/portal/deltagare/case-260119", MARIA);
-    await expect(main(page).getByText("Visas inte för testare").first()).toBeVisible();
+    // Portalen har inga belopp för någon sedan 2026-10-07 (synpunkt #10 och #11) – inget att dölja för testaren.
+    await expect(main(page)).toContainText("Orderbekräftelse");
+    await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
+    expect(await pageText(page)).not.toMatch(/Beställningens värde/);
     expect(await pageText(page)).not.toMatch(AMOUNT);
     expect(relevant(errors)).toEqual([]);
   });
 
-  test("Karim (fullständig åtkomst) ser avtalssidan och beloppen som förut", async ({ page }) => {
+  test("Karim (fullständig åtkomst) ser avtalssidan – och beloppen bara som ekonom (beslut 5)", async ({ page }) => {
     await asTester(page, "/arenden/case-260117", SARA, "tester-karim");
     await showFacts(page);
-    expect(await pageText(page)).toMatch(AMOUNT);
+    expect(await pageText(page)).not.toMatch(AMOUNT);
     await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
+    await asTester(page, "/ekonomi", LARS, "tester-karim");
+    await expect(main(page)).toContainText("511 332 kr");
+    await go(page, "/ekonomi/prislista");
+    expect(await pageText(page)).toMatch(AMOUNT);
     // Avtalssidan ligger inte i menyn (beslut 2026-10-06) – Karim når den från Användare och roller.
     await asTester(page, "/admin/anvandare", ROBIN, "tester-karim");
     await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Avtal och konfiguration/ })).toHaveCount(0);
@@ -199,11 +212,14 @@ test.describe("begränsad testare (appen)", () => {
   });
 });
 
-test("prototypen och utvecklingsläget utan testare: priserna och avtalssidan som förut", async ({ page }, info) => {
+test("prototypen och utvecklingsläget utan testare: inga testarspärrar – belopp bara för ekonomen (beslut 5)", async ({ page }, info) => {
   const errors = await open(page, info, "/arenden/case-260117", SARA);
   await expect(main(page)).toBeVisible();
   await showFacts(page);
-  expect(await pageText(page)).toMatch(AMOUNT);
+  expect(await pageText(page)).not.toMatch(AMOUNT);
   await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
-  expect(relevant(errors)).toEqual([]);
+  const e2 = await open(page, info, "/ekonomi", LARS);
+  await expect(main(page)).toContainText("511 332 kr");
+  await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
+  expect(relevant([...errors, ...e2])).toEqual([]);
 });

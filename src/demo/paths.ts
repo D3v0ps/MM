@@ -6,7 +6,7 @@
 // Frågeparametrar (query) som inte står i rutt-tabellen – områdena ska läsa dem så här:
 //   /inkorg?senaste=1            sam.inkorg { latest: true }  (senaste avropet som väntar på svar, scenario 3)
 //   /inkorg?arende=<caseId>      sam.inkorg { caseId }
-//   /arenden?filter=skyddade     arenden.lista { filter }
+//   /arenden?filter=aktiva|oppna|flaggor   arenden.lista { filter }
 //   /narvaro?vecka=forra|denna   coach.narvaro { week: 'last' | 'this' }
 //   /avstamning/<caseId>?avstamning=<checkInId>   coach.avstamning { caseId, checkInId }
 //   /rapporter?filter=…          rapporter.lista { filter }
@@ -47,6 +47,7 @@ const VIEWS: readonly ViewDef[] = [
   { view: "chef.avvikelser", pattern: "/avtalsavvikelser/:id?", to: (p) => seg("/avtalsavvikelser", p.id) },
   { view: "eko.start", pattern: "/ekonomi", to: () => "/ekonomi" },
   { view: "eko.arende", pattern: "/ekonomi/arende/:caseId", to: (p) => (str(p.caseId) ? seg("/ekonomi/arende", p.caseId) : "/ekonomi") },
+  { view: "eko.prislista", pattern: "/ekonomi/prislista", to: () => "/ekonomi/prislista" },
   {
     view: "eko.faktura",
     pattern: "/ekonomi/:month/faktura/:caseId",
@@ -65,6 +66,7 @@ const VIEWS: readonly ViewDef[] = [
   { view: "kom.bestall", pattern: "/portal/bestall", to: () => "/portal/bestall" },
   { view: "kom.deltagare", pattern: "/portal/deltagare/:caseId?", to: (p) => path(seg("/portal/deltagare", p.caseId), { flik: str(p.tab) }) },
   { view: "kom.rapporter", pattern: "/portal/rapporter/:reportId?", to: (p) => seg("/portal/rapporter", p.reportId) },
+  // Kommunens chef finns inte sedan 2026-10-07 – adressen leder till startsidan (gammal feedback har vy-id kom.chef).
   { view: "kom.chef", pattern: "/portal/bestallarrapport", to: () => "/portal/bestallarrapport" },
   { view: "kom.start", pattern: "/portal", to: () => "/portal" },
   { view: "om.feedback", pattern: "/om/genomgang", to: () => "/om/genomgang" },

@@ -315,7 +315,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                   </div>
                 </Stack>
               ) : (
-                <p className="text-text-muted">Ingen pulsmätning skickas – deltagaren har skyddade personuppgifter.</p>
+                <p className="text-text-muted">Ingen pulsmätning skickas i det här ärendet.</p>
               )}
             </Card>
           </Split>

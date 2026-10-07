@@ -1,12 +1,13 @@
 // Kör bakgrundsjobben mot Supabase (service role). Används av POST /api/jobs/run och av after() efter ett utskick eller
-// ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript) och tiominutersperiodens
-// jobb för rapportutkasten (reports.ts) om de saknas.
+// ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript), timmens jobb för
+// bilagorna och kontostädningen (attachments.ts) och tiominutersperiodens jobb för rapportutkasten (reports.ts) om de saknas.
 import "server-only";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { appRepo } from "@/data/supabase";
 import { DataError, SupabaseRepo, type PgClient } from "@/data/supabase/repo";
 import { serverAi } from "../ai";
+import { serverAttachments } from "../attachments";
 import { serverAudio } from "../audio";
 import { clockNow } from "../clock";
 import { lazyServerCrypto } from "../crypto";
@@ -25,6 +26,7 @@ import { ensureReportScheduleJob, reportScheduleState, type AppSettingsClient } 
 import { runJobs, type RunSummary } from "./runner";
 import { supabaseJobStore, type RpcClient } from "./store";
 import { ensureRetentionJobs } from "./voice";
+import { deleteOrphanAuthUsers, ensureHourlyJobs, type AuthAdminLike } from "./attachments";
 
 /** Paus mellan jobben – håller oss under Resends gräns för anrop per sekund. */
 const PAUSE_MS = 500;
@@ -66,7 +68,21 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       crypto: lazyServerCrypto,
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),
+      attachments: (d) => serverAttachments(d),
     }));
+  // Städningen av Auth-användare utan profil (självregistrering som aldrig slutfördes).
+  const authCleanup = async () => {
+    const service = serviceClient();
+    return deleteOrphanAuthUsers(service.auth.admin as unknown as AuthAdminLike, async (u) => {
+      const byId = await service.from("profiles").select("id").eq("auth_user_id", u.id).maybeSingle();
+      if (byId.error) throw new DataError("profiles", String(byId.error.code ?? ""));
+      if (byId.data) return true;
+      if (!u.email) return false;
+      const byEmail = await service.from("profiles").select("id").eq("email", u.email).maybeSingle();
+      if (byEmail.error) throw new DataError("profiles", String(byEmail.error.code ?? ""));
+      return !!byEmail.data;
+    }, Date.now());
+  };
   // Rapportutkasten: klockan och läget läses om utan cache när jobbet körs. Inställningarna ovan kan vara upp till 30 sekunder
   // gamla – direkt efter "Läs in testdata på nytt" skulle klockan då stå på den förra testtiden (src/server/jobs/reports.ts).
   const reportSchedule = async () => {
@@ -91,6 +107,12 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     console.error("jobb: gallringen kunde inte läggas", safeErrorText(e));
   }
   try {
+    await ensureHourlyJobs(system, now);
+  } catch (e) {
+    // Bilagornas gallring och kontostädningen läggs vid nästa körning.
+    console.error("jobb: timjobben kunde inte läggas", safeErrorText(e));
+  }
+  try {
     await ensureReportScheduleJob(system, now);
   } catch (e) {
     // Rapportutkasten läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
@@ -107,6 +129,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     },
     voice: voiceCtx,
     reportSchedule,
+    attachmentsCtx: voiceCtx,
+    authCleanup,
   };
   return runJobs({
     store: supabaseJobStore(client),

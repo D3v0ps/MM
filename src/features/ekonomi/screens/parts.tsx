@@ -1,15 +1,16 @@
 "use client";
 // Delade delar för ekonomins skärmar (prototypens små komponenter i prototyp/src/views/ekonomi.js):
-// fakturastatus, referensmärken, kontroller, bläddring, rollförklaring, formuläret för att rätta beställarreferens,
+// fakturastatus, referensmärken, kontroller, bläddring, rollförklaring, fakturans beställarreferens och inköpsordernummer,
 // upparbetat och återstående.
 import { useState, type ReactNode } from "react";
 import { useCommand } from "@/shell/backend";
-import { caseSetBuyerRef } from "@/features/arenden/api";
+import { CASE_NUMBER_RE } from "@/core/cases";
 import { invoiceStatusLabel } from "@/core/labels";
-import { fmtDateTime, monthName } from "@/core/time";
+import { monthName } from "@/core/time";
+import { poNumberError } from "@/core/validation";
 import { Badge, Button, cn, DemoNote, Dot, Field, focusFirstError, focusSectionOf, Icon, Input, Kpi, Modal, Notice, toast, type BadgeTone, type IconName } from "@/ui";
-import type { InvoiceCheckView, InvoiceRow, RefFormCase, TaskRef } from "../api";
-import { pl, plural, qtyKr, refError, refFromTask, refInfo, refLenText, weekText, type InvoiceSummary, type RefInfo, type RefRules } from "../model";
+import { invoiceSetBuyerRef, invoiceSetPo, type InvoiceCheckView, type LineRow, type RefSuggestion } from "../api";
+import { pl, plural, poText, qtyKr, refError, refInfo, refLenText, weekText, type InvoiceSummary, type RefInfo, type RefRules } from "../model";
 
 /** Knapptexter får brytas i ekonomins vyer och dialoger (prototypens .eko .btn { white-space: normal }). */
 export const WRAP = "[&_button:not([role=tab])]:whitespace-normal";
@@ -75,7 +76,7 @@ export const CHECK: Record<string, { tone: BadgeTone; icon: IconName; word: stri
   info: { tone: "outline", icon: "info", word: "Information" },
 };
 const SHORT: Record<string, string> = {
-  buyer_ref: "Referens", po: "Inköpsordernummer", zero_week: "Ingen närvaro", missing_reg: "Närvaro saknas", too_many: "Fler än 5 veckor", over_order: "Över beställningen",
+  buyer_ref: "Referens", po: "Inköpsordernummer", po_mixed: "Olika inköpsordernummer", zero_week: "Ingen närvaro", missing_reg: "Närvaro saknas", too_many: "Fler än 5 veckor", over_order: "Över beställningen",
   overlap: "Överlapp", paused: "Pausad vecka", partial: "Delvis vecka",
 };
 export function CheckIcons({ checks, column }: { checks: readonly InvoiceCheckView[]; column?: boolean }) {
@@ -127,16 +128,16 @@ export function RefCell({ value, info: r }: { value: string | null; info: RefInf
 export function RefBadge({ value, info: r }: { value: string | null; info: RefInfo }) {
   return (
     <Badge tone={r.ok ? "bluetone" : "outline"} icon={r.ok ? "check" : "x-circle"} className={r.ok ? undefined : RED_ICON}>
-      {value || "Saknas"} · {r.label}
+      {value ? `${value} · ${r.label}` : r.label}
     </Badge>
   );
 }
 
 // ---------------------------------------------------------------- Bläddring
 export const PAGE_SIZE = 20;
-export function Pager({ page, total, onPage }: { page: number; total: number; onPage: (p: number) => void }) {
+export function Pager({ page, total, onPage, one = "rad", many = "rader" }: { page: number; total: number; onPage: (p: number) => void; one?: string; many?: string }) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  if (total <= PAGE_SIZE) return <span className="text-small text-text-muted">Visar {plural(total, "faktura", "fakturor")}</span>;
+  if (total <= PAGE_SIZE) return <span className="text-small text-text-muted">Visar {plural(total, one, many)}</span>;
   return (
     <div className="flex w-full flex-wrap items-center justify-between gap-3">
       <span className="text-small text-text-muted">
@@ -162,7 +163,7 @@ export function RoleNotice({ canAct }: { canAct: boolean }) {
   return canAct ? (
     <Notice tone="info" title="Du ser inga namn">
       Som ekonom ser du ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag. Namn, anteckningar och rapporter visas inte för din roll – deltagaren
-      visas som ”–”. Ärendenumret är faktureringsobjektet.
+      visas som ”–”. Ärendenumret står på varje rad i fakturan.
     </Notice>
   ) : (
     <Notice tone="warn" title="Läsläge">
@@ -190,53 +191,39 @@ export function Quote({ children }: { children: ReactNode }) {
   return <div className="flex flex-col gap-1 border-l-[3px] border-bla py-1 pl-3">{children}</div>;
 }
 
-// ---------------------------------------------------------------- Rätta beställarreferens (ett eller flera ärenden)
-export function RefForm({
-  cases,
-  task,
-  rules,
-  canAct,
-  idSuffix,
-  onDone,
-}: {
-  cases: readonly RefFormCase[];
-  task: TaskRef | null;
-  rules: RefRules;
-  canAct: boolean;
-  idSuffix?: string;
-  onDone?: (ref: string) => void;
-}) {
-  const setRef = useCommand(caseSetBuyerRef);
+// ---------------------------------------------------------------- Fakturans beställarreferens (beslut 2026-10-07: en per faktura)
+/** Det formulären behöver veta om fakturan. */
+export type RefInvoice = { id: string; month: string; title: string; buyerReference: string | null; ref: RefInfo; refSuggestions: RefSuggestion[] };
+
+/**
+ * Fyll i eller rätta fakturans beställarreferens. Miljonbemanning fyller i den (kommunen anger den inte i beställningen) –
+ * förslagen kommer från en uppgift, förra månadens faktura och beställningarna. Ekonomen bekräftar alltid själv.
+ */
+export function InvoiceRefForm({ inv, rules, canAct, idSuffix, onDone }: { inv: RefInvoice; rules: RefRules; canAct: boolean; idSuffix?: string; onDone?: (ref: string) => void }) {
+  const setRef = useCommand(invoiceSetBuyerRef);
   const [val, setVal] = useState("");
   const [tried, setTried] = useState(false);
-  const current = cases.length === 1 ? cases[0].buyerReference : null;
-  const suggestion = refFromTask(task?.text, cases[0]?.buyerReference ?? null, rules);
-  const id = `eko-ref-${idSuffix ?? cases[0]?.caseId}`;
-  const err = refError(val, current, rules);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const id = `eko-ref-${idSuffix ?? inv.id}`;
+  const err = refError(val, inv.buyerReference, rules);
   const info = !err && val ? refInfo(val, rules) : null;
-  if (!canAct) return <div className="text-small text-text-muted">Ekonomen rättar referensen när kommunen har bekräftat den rätta.</div>;
+  if (!canAct) return null;
   const len = refLenText(rules.billing);
   const save = async () => {
     setTried(true);
+    setServerError(null);
     if (err) {
       focusFirstError(document.getElementById(id)?.parentElement);
       return;
     }
     const ref = val.trim();
-    // Formuläret försvinner när referensen är rättad: fokus till avsnittets rubrik (i en dialog: dit fokus var innan).
     const field = document.getElementById(id);
-    for (const c of cases) {
-      const res = await setRef.run({ caseId: c.caseId, reference: ref, source: task ? task.id : "ekonom" }).catch(() => null);
-      if (!res || !res.ok) {
-        toast("Beställarreferensen kunde inte sparas. Kontrollera siffrorna.", "error");
-        return;
-      }
+    const res = await setRef.run({ month: inv.month, invoiceId: inv.id, reference: ref }).catch(() => null);
+    if (!res || !res.ok) {
+      setServerError(res && !res.ok ? (res.message ?? "Referensen kunde inte sparas.") : "Referensen kunde inte sparas. Försök igen.");
+      return;
     }
-    toast(
-      cases.length === 1
-        ? `Beställarreferensen för ${cases[0].caseNumber} är nu ${ref}. Fakturan är inte längre stoppad.`
-        : `Beställarreferensen är nu ${ref} för ${cases.map((c) => c.caseNumber).join(" och ")}.`,
-    );
+    toast(`Beställarreferensen på ${inv.title.charAt(0).toLowerCase()}${inv.title.slice(1)} är nu ${ref}.`);
     setVal("");
     setTried(false);
     onDone?.(ref);
@@ -244,48 +231,79 @@ export function RefForm({
   };
   return (
     <FixBox>
-      {task && (
-        <Quote>
-          <span className="text-small text-text-muted">
-            Uppgift från {task.fromName} ({fmtDateTime(task.createdAt)})
-          </span>
-          <span>{task.text}</span>
-        </Quote>
-      )}
       <Field
         id={id}
-        label="Rätt beställarreferens"
+        label={inv.buyerReference ? "Ny beställarreferens" : "Beställarreferens"}
         required
-        error={tried ? err : undefined}
-        help={info?.unit ? `${len} siffror. Referensen tillhör ${info.unit}.` : `${len} siffror, bara siffror. Referensen kommer från kommunens beställning – hitta aldrig på en egen.`}
+        error={(tried ? err : null) ?? serverError ?? undefined}
+        help={info?.unit ? `${len} siffror. Referensen tillhör ${info.unit}.` : `${len} siffror, bara siffror. Använd referensen som kommunen har lämnat – hitta aldrig på en egen.`}
       >
-        <Input value={val} onValueChange={setVal} inputMode="numeric" maxLength={10} invalid={tried && !!err} />
+        <Input value={val} onValueChange={setVal} inputMode="numeric" maxLength={10} invalid={(tried && !!err) || !!serverError} />
       </Field>
       <div className="flex flex-wrap items-center gap-1.5">
-        {suggestion && val !== suggestion && (
-          <Button kind="secondary" icon="copy" onClick={() => setVal(suggestion)}>
-            Använd {suggestion} från uppgiften
+        {inv.refSuggestions.filter((x) => x.reference !== val).map((x) => (
+          <Button key={x.reference} kind="secondary" icon="copy" onClick={() => setVal(x.reference)}>
+            Använd {x.reference} ({x.source.charAt(0).toLowerCase()}{x.source.slice(1)})
           </Button>
-        )}
+        ))}
         <Button kind="primary" icon="check" pending={setRef.pending} onClick={() => void save()}>
-          {cases.length === 1 ? "Spara referensen" : `Spara för ${cases.length} ärenden`}
+          Spara referensen
         </Button>
       </div>
     </FixBox>
   );
 }
 
-export function RefModal({ cases, task, rules, canAct, onClose }: { cases: readonly RefFormCase[]; task: TaskRef | null; rules: RefRules; canAct: boolean; onClose: () => void }) {
-  const first = cases[0];
+export function InvoiceRefModal({ inv, rules, canAct, onClose }: { inv: RefInvoice; rules: RefRules; canAct: boolean; onClose: () => void }) {
   return (
-    <Modal title="Rätta beställarreferens" onClose={onClose} className={WRAP}>
+    <Modal title="Beställarreferens på fakturan" onClose={onClose} className={WRAP}>
       <p>
-        {cases.length === 1 ? `Ärende ${first.caseNumber}` : `Ärendena ${cases.map((c) => c.caseNumber).join(" och ")}`} har referensen{" "}
-        <b className="tabular-nums">{first.buyerReference || "saknas"}</b>. {refInfo(first.buyerReference, rules).text}
+        {inv.title} har {inv.buyerReference ? <>referensen <b className="tabular-nums">{inv.buyerReference}</b>.</> : "ingen referens."} {inv.ref.text}
       </p>
-      <RefForm cases={cases} task={task} rules={rules} canAct={canAct} idSuffix={`modal-${first.caseId}`} onDone={onClose} />
-      <DemoNote>Ändringen loggas i revisionsloggen med gammal och ny referens. Kommunen får ingen notis – referensen är deras egen.</DemoNote>
+      <InvoiceRefForm inv={inv} rules={rules} canAct={canAct} idSuffix={`modal-${inv.id}`} onDone={onClose} />
+      <DemoNote>Ändringen loggas i revisionsloggen med gammal och ny referens. Kommunen får ingen notis.</DemoNote>
     </Modal>
+  );
+}
+
+/** Fakturans inköpsordernummer: bara kommunens eget ordernummer (99…) – aldrig ärendenumret eller andra egna nummer. */
+export function InvoicePoForm({ inv, rules, idSuffix }: { inv: { id: string; month: string; purchaseOrderNumber: string; poSet: boolean }; rules: RefRules; idSuffix?: string }) {
+  const setPo = useCommand(invoiceSetPo);
+  const [val, setVal] = useState(inv.purchaseOrderNumber);
+  const [tried, setTried] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const id = `eko-po-${idSuffix ?? inv.id}`;
+  const v = val.trim();
+  const err = CASE_NUMBER_RE.test(v) ? "Ärendenumret får aldrig stå som inköpsordernummer. Fältet är bara för kommunens eget ordernummer." : poNumberError(v, { billing: rules.billing });
+  const changed = v !== inv.purchaseOrderNumber || (!inv.poSet && v === "");
+  const save = async () => {
+    setTried(true);
+    setServerError(null);
+    if (err) return;
+    const res = await setPo.run({ month: inv.month, invoiceId: inv.id, purchaseOrderNumber: v }).catch(() => null);
+    if (!res || !res.ok) {
+      setServerError(res && !res.ok ? (res.message ?? "Inköpsordernumret kunde inte sparas.") : "Inköpsordernumret kunde inte sparas. Försök igen.");
+      return;
+    }
+    toast(v ? `Inköpsordernumret är nu ${v}.` : "Fakturan har inget inköpsordernummer.");
+    setTried(false);
+  };
+  return (
+    <div className="flex flex-wrap items-end gap-1.5">
+      <div className="min-w-[min(100%,260px)] flex-1">
+        <Field
+          id={id}
+          label="Inköpsordernummer (valfritt)"
+          error={(tried ? err : null) ?? serverError ?? undefined}
+          help={`Bara kommunens eget ordernummer, ${poText(rules.billing)}, om kommunen har beställt via sin e-handel. Lämna tomt annars.`}
+        >
+          <Input value={val} onValueChange={setVal} inputMode="numeric" maxLength={20} invalid={(tried && !!err) || !!serverError} />
+        </Field>
+      </div>
+      <Button kind="secondary" icon="check" disabled={!changed} pending={setPo.pending} onClick={() => void save()}>
+        Spara inköpsordernummer
+      </Button>
+    </div>
   );
 }
 
@@ -307,8 +325,8 @@ function LedgerRow({ label, sub, value, strong, sum }: { label: ReactNode; sub?:
   );
 }
 
-/** Upparbetat och återstående för en faktura – samma siffror och ord som fakturatexten. */
-export function SummaryList({ inv, sm }: { inv: Pick<InvoiceRow, "weeks">; sm: InvoiceSummary }) {
+/** Upparbetat och återstående för en fakturarad – samma siffror och ord som radens anmärkning på fakturan. */
+export function SummaryList({ inv, sm }: { inv: Pick<LineRow, "weeks">; sm: InvoiceSummary }) {
   const months = (t: InvoiceSummary["returned"]) => t.months.map((r) => monthName(r.mk)).join(", ");
   return (
     <div className="flex w-full flex-col">
@@ -317,16 +335,16 @@ export function SummaryList({ inv, sm }: { inv: Pick<InvoiceRow, "weeks">; sm: I
         <LedgerRow
           strong
           label="Faktureras om"
-          sub={`${pl(sm.returned.months.length, "Returnerad faktura", "Returnerade fakturor")} för ${months(sm.returned)}. Krediteras och faktureras på en ny faktura.`}
+          sub={`${pl(sm.returned.months.length, "Returnerad faktura", "Returnerade fakturor")} för ${months(sm.returned)}. Krediteras och faktureras på nytt.`}
           value={qtyKr(sm.returned)}
         />
       )}
       {sm.pending.qty > 0 && (
-        <LedgerRow label="Ännu inte fakturerat" sub={`Från ${months(sm.pending)} – faktureras på en egen faktura per månad`} value={qtyKr(sm.pending)} />
+        <LedgerRow label="Ännu inte fakturerat" sub={`Från ${months(sm.pending)} – faktureras på fakturan för den månaden`} value={qtyKr(sm.pending)} />
       )}
       <LedgerRow label="Denna faktura" sub={weekText(inv.weeks)} value={qtyKr(sm.current)} />
       <LedgerRow sum label="Upparbetat inklusive denna faktura" value={qtyKr(sm.accrued)} />
-      <LedgerRow label="Beställning" value={qtyKr(sm.order)} />
+      <LedgerRow label="Beställning" value={plural(sm.order.qty, "vecka", "veckor")} />
       <LedgerRow strong label={sm.over ? "Över beställningen" : "Återstår av beställningen"} value={sm.over ? plural(sm.over, "vecka", "veckor") : qtyKr(sm.remaining)} />
     </div>
   );

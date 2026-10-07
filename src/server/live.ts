@@ -9,8 +9,9 @@ import { PARTICIPANT_USER_ID } from "@/data/actors";
 import type { AppRepo, Membership, Organization } from "@/data/schema";
 import { appRepo, fromDbRow, userRepo, type PgClient } from "@/data/supabase";
 import { serverAi } from "./ai";
+import { serverAttachments } from "./attachments";
 import { serverAudio } from "./audio";
-import { LIMITS, type GateVerdict, type LoginGate } from "./auth/rate-limit";
+import { LIMITS, type GateVerdict, type LoginGate, type SelfRegistrationStore } from "./auth/rate-limit";
 import { clockNow } from "./clock";
 import { lazyServerCrypto } from "./crypto";
 import { liveCtx } from "./ctx";
@@ -61,6 +62,24 @@ export function loginGate(service: SupabaseClient): LoginGate {
     },
     async markVerified(id) {
       const { error } = await service.from("login_attempts").update({ kind: "verify_ok" }).eq("id", id);
+      if (error) throw new Error(`login_attempts kunde inte skrivas (${error.code})`);
+    },
+  };
+}
+
+/**
+ * Påbörjade självregistreringar i login_attempts (kind "self_registration", bara hashade värden – samma tabell och nyckel som
+ * inloggningens spärrar). Service role – bara för inloggningen.
+ */
+export function selfRegistrationStore(service: SupabaseClient): SelfRegistrationStore {
+  return {
+    async recent(since) {
+      const { data, error } = await service.from("login_attempts").select("email_hash, ip_hash").eq("kind", "self_registration").gte("attempted_at", since).limit(5000);
+      if (error) throw new Error(`login_attempts kunde inte läsas (${error.code})`);
+      return ((data ?? []) as { email_hash: string; ip_hash: string | null }[]).map((r) => ({ emailHash: r.email_hash, ipHash: r.ip_hash ?? "" }));
+    },
+    async record(a) {
+      const { error } = await service.from("login_attempts").insert({ kind: "self_registration", email_hash: a.emailHash, ip_hash: a.ipHash, attempted_at: a.at });
       if (error) throw new Error(`login_attempts kunde inte skrivas (${error.code})`);
     },
   };
@@ -118,6 +137,8 @@ export function ctxFor(s: LiveSession): Ctx {
     // Röstinspelningen: AI-leverantören (MM_AI_PROVIDER), ljudlagringen (bucketen "ljud") och jobbkön (after()).
     ai: serverAi(s.settings.environment),
     audio: (d) => serverAudio(d),
+    // Bilagorna till beställningen (bucketen "bilagor").
+    attachments: (d) => serverAttachments(d),
     scheduleJobs: scheduleJobsAfterResponse,
   });
 }

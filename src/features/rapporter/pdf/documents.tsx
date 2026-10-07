@@ -6,12 +6,11 @@
 // Inga personnummer: modellen innehåller bara ärendenummer och id:n, och namnet är det läsaren får se (behörigheten).
 import { Text, View } from "@react-pdf/renderer";
 import { attLabel } from "@/core/labels";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr, num, pct } from "@/core/format";
+import { num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import type { ReportDocView } from "../api";
 import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
-import { dayMonth, dFull, dtFull, isDelivered, isDraftDoc, lcfirst, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
+import { ATTENDANCE_RATE_RULE, BUYER_REFERENCE_LATER, dayMonth, dFull, dtFull, isDelivered, isDraftDoc, lcfirst, monthRangeText, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
 import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type Col, type KvItem, type Rag } from "./primitives";
 import { PDF_COLOR } from "./theme";
 
@@ -153,14 +152,10 @@ function MonthlyPdf({ doc }: { doc: Doc<"monthly"> }) {
         <Kv items={[["Deltagare", doc.participant], ...m.basics]} />
         <Small muted>{NO_PNR}</Small>
       </Sec>
-      <Sec n="2" title="Närvaro och frånvaro">
-        <AttendanceTable rows={m.weeks} total={m.total} firstCol="Vecka" />
-        <P>
-          <B>Giltig frånvaro per orsak:</B> {m.reasons}.
-        </P>
-        <P>
-          <B>Upprepad ogiltig frånvaro:</B> {m.repeated.hit ? `Ja – ${m.repeated.count} tillfällen. Åtgärdsplan: se avsnitt 6.` : "Nej."}
-        </P>
+      {/* Bara perioden och närvarograden (beslut 2026-10-07, synpunkt #12) – samma som HTML-dokumentet. */}
+      <Sec n="2" title="Närvaro">
+        <Kv items={[["Period", monthRangeText(m.month)], ["Närvarograd", pct(m.total.rate, 0)]]} />
+        <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
         <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02. Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.</Small>
@@ -298,7 +293,7 @@ function WeeklyPdf({ doc }: { doc: Doc<"weekly_attendance"> }) {
         />
         <Small muted>
           Närvarograd = närvarotillfällen delat med registrerade planerade tillfällen. Giltig frånvaro redovisas separat. Bara orsakskategori anges.
-          {hiddenProt > 0 ? ` Siffrorna räknar inte med ${hiddenProt === 1 ? "deltagaren" : "deltagarna"} med skyddade personuppgifter.` : ""}
+          {hiddenProt > 0 ? ` Siffrorna räknar inte med ${hiddenProt === 1 ? "en deltagare" : `${hiddenProt} deltagare`} vars uppgifter inte visas.` : ""}
         </Small>
         {open.length > 0 && (
           <Table
@@ -321,7 +316,7 @@ function WeeklyPdf({ doc }: { doc: Doc<"weekly_attendance"> }) {
           secs.map((s) =>
             s.restricted ? (
               <View key={s.caseId} wrap={false} style={{ flexDirection: "column", gap: 4, borderTopWidth: 0.75, borderTopColor: PDF_COLOR.ljusgra, paddingTop: 7 }}>
-                <H3>{s.caseNumber} · Skyddade personuppgifter</H3>
+                <H3>{s.caseNumber} · Uppgifterna visas inte</H3>
                 <Small>{protText}</Small>
               </View>
             ) : (
@@ -370,10 +365,11 @@ function WeeklyPdf({ doc }: { doc: Doc<"weekly_attendance"> }) {
 }
 
 // ---------------------------------------------------------------- Orderbekräftelse
+// Inget pris och inget ordervärde (beslut 2026-10-07, synpunkt #10) – bara omfattningen. Beställarreferensen fyller Miljonbemanning i.
 function OrderPdf({ doc }: { doc: Doc<"order_confirmation"> }) {
   const m = doc.m;
   return (
-    <PdfDocument metaTitle={metaTitle(doc)} title="Orderbekräftelse" label={isDraftDoc(doc.status) ? "Utkast" : null} watermark={!isDelivered(doc)} info={baseInfo(doc, m.caseNumber, [["Beställarreferens", m.buyerReference || "Saknas"]])}>
+    <PdfDocument metaTitle={metaTitle(doc)} title="Orderbekräftelse" label={isDraftDoc(doc.status) ? "Utkast" : null} watermark={!isDelivered(doc)} info={baseInfo(doc, m.caseNumber, [["Beställarreferens", m.buyerReference || BUYER_REFERENCE_LATER]])}>
       <Superseded doc={doc} />
       <P>
         Miljonbemanning bekräftar beställningen med ärendenummer <B>{m.caseNumber}</B>. Ärendenumret är också ordernummer och står på fakturorna. Använd det i stället för personnummer när ni kontaktar oss.
@@ -382,46 +378,14 @@ function OrderPdf({ doc }: { doc: Doc<"order_confirmation"> }) {
         <Kv
           items={[
             ["Deltagare", doc.participant], ["Ärendenummer", m.caseNumber], ["Avtalsområde", m.area], ["Yrkesspår", m.track], ["Startdatum", m.start], ["Huvudcoach", m.coach],
-            ["Första mötet", m.firstMeeting], ["Planerad omfattning", m.weeks ? `${m.weeks} veckor${m.plannedEnd ? ` (till och med ${m.plannedEnd})` : ""}` : "Ej angiven"],
+            ["Första mötet", m.firstMeeting], ["Planerad omfattning", `${m.period}${m.plannedEnd ? ` (till och med ${m.plannedEnd})` : ""}`],
           ]}
         />
-      </Sec>
-      <Sec title="Beställningens värde">
-        {m.weeks && m.price === undefined ? (
-          <Kv
-            items={[
-              ["Planerad omfattning", `${m.weeks} veckor`],
-              ["Veckopris exklusive moms", TESTER_HIDDEN_TEXT],
-              ["Beställningens värde exklusive moms", TESTER_HIDDEN_TEXT],
-            ]}
-          />
-        ) : m.weeks && m.price !== undefined ? (
-          <Kv
-            items={[
-              ["Planerad omfattning", `${m.weeks} veckor`],
-              ["Veckopris exklusive moms", `${kr(m.price)} (${m.area})`],
-              [
-                "Beställningens värde exklusive moms",
-                <Text key="v" style={{ fontSize: 10, lineHeight: 1.35 }}>
-                  <B>{kr(m.weeks * m.price)}</B>{" "}
-                  <Text style={{ fontSize: 8.5, color: PDF_COLOR.muted }}>
-                    ({m.weeks} × {kr(m.price)})
-                  </Text>
-                </Text>,
-              ],
-            ]}
-          />
-        ) : (
-          <P>Värdet beräknas när omfattningen är bestämd.</P>
-        )}
-        <Small>
-          Värdet är planerade veckor gånger veckopriset för avtalsområdet. Det används för att visa upparbetat och återstående belopp på varje faktura. Fakturering sker per deltagarvecka.
-        </Small>
       </Sec>
       <Sec title="Fakturering">
         <Kv
           items={[
-            ["Beställarreferens", m.buyerReference || "Saknas – måste kompletteras"],
+            ["Beställarreferens", m.buyerReference || BUYER_REFERENCE_LATER],
             ["Kommunens inköpsordernummer", m.purchaseOrderNumber || "Inget angivet"],
             ["Faktureringsobjekt", `Ärende ${m.caseNumber}`],
           ]}
@@ -432,7 +396,7 @@ function OrderPdf({ doc }: { doc: Doc<"order_confirmation"> }) {
   );
 }
 
-// ---------------------------------------------------------------- Beställarrapport (kommunens chef)
+// ---------------------------------------------------------------- Beställarrapport (lämnas till kommunen av avtalsansvarig)
 function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
   const m = doc.m;
   const target = m.result.contractTarget;

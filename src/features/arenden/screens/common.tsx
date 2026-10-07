@@ -44,7 +44,7 @@ const OPENS: Record<string, readonly Role[]> = {
   "coach.kartlaggning": ["coach"],
   "coach.handelse": ["coach"],
   "coach.narvaro": ["coach", "handledare"],
-  "rapport.visa": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"],
+  "rapport.visa": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare"],
   "praktik.arbetsgivare": ["samordnare", "avtalsansvarig", "coach", "handledare"],
   "arende.kort": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"],
   "chef.oversikt": ["chef"],

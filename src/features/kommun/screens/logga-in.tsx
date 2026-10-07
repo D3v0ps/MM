@@ -6,6 +6,8 @@
 //   prototypen      simulerad: vilken sexsiffrig kod som helst godtas och inloggningen byter till testpersonen med adressen
 // Själva kodkontrollen är simulerad i båda körlägena tills Supabase-inloggningen är godkänd (se DemoNote nedan).
 // Svaret efter "Skicka kod" är alltid neutralt – skärmen avslöjar aldrig om en adress finns, är spärrad eller inte inbjuden.
+// Självregistrering (beslut 2026-10-07, synpunkt #2): en adress på en kommundomän som har avtal med Miljonbemanning får ett
+// konto vid första inloggningen och kommer till Mina uppgifter (r.created). Portalen nämner inte mejlbeställning (synpunkt #1).
 // Sidan är publik och hämtar inga data: texterna gäller alla beställare, inte ett visst avtal.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ROLE_LABEL, isCustomerRole } from "@/api/roles";
@@ -18,7 +20,8 @@ import { isAuthenticated, useAuth, useSession } from "@/shell/session";
 import { Button, Card, DemoNote, Field, Icon, Input, Notice, Stepper, useToast } from "@/ui";
 import { BACK_AFTER_LOGIN, LOGGED_OUT } from "@/features/session/screens/logga-in";
 import { kommunTestPersonas } from "../api";
-import { AUTH, ORDER_MAILBOX } from "../texts";
+import { PORTAL_FIRST_LOGIN_PATH } from "@/shell/nav-config";
+import { AUTH } from "../texts";
 import { KomHead, KomPage } from "./parts";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -113,8 +116,9 @@ export function PortalLoginScreen({ query }: ScreenProps) {
     const r = await auth.verifyCode(email.trim().toLowerCase(), code.replace(/\s/g, ""));
     setPending(false);
     if (r.ok) {
-      // Riktiga appen laddar om sidan själv. Prototypen: till återhoppsadressen eller rollens startsida ("/" leder dit).
-      nav.replace(safeReturnPath(query.get("till")) ?? "/");
+      // Riktiga appen laddar om sidan själv. Prototypen: till återhoppsadressen eller rollens startsida ("/" leder dit) –
+      // ett konto som skapades nu kommer först till Mina uppgifter.
+      nav.replace(r.created ? PORTAL_FIRST_LOGIN_PATH : (safeReturnPath(query.get("till")) ?? "/"));
       toast("Du är inloggad.");
       return;
     }
@@ -205,7 +209,8 @@ export function PortalLoginScreen({ query }: ScreenProps) {
         )}
       </Card>
       <DemoNote>
-        Inget mejl skickas. Alla sex siffror fungerar som kod, och e-postadressen väljer testperson. Själva kodkontrollen är simulerad tills inloggningen med
+        Inget mejl skickas. Alla sex siffror fungerar som kod, och e-postadressen väljer testperson. En ny adress som slutar på @botkyrka.se skapar ett nytt
+        konto som handläggare. Själva kodkontrollen är simulerad tills inloggningen med
         Supabase är godkänd. I den riktiga tjänsten begränsas antalet försök per adress och per nätverksadress. Om e-postkod räcker för kommunens personal är en öppen
         fråga till kommunens IT-avdelning.
         {quick.length > 0 && (
@@ -222,7 +227,7 @@ export function PortalLoginScreen({ query }: ScreenProps) {
                   setStep(0);
                 }}
               >
-                Fyll i {p.name} ({p.role === "kommun_chef" ? "chef" : "handläggare"})
+                Fyll i {p.name} (handläggare)
               </Button>
             ))}
           </span>
@@ -243,11 +248,10 @@ export function PortalLoginScreen({ query }: ScreenProps) {
         </li>
         <li className="flex items-start gap-2.5">
           <Icon name="users" className="mt-1 flex-none" />
-          <span>Ingen kan skapa ett konto själv. Miljonbemanning bjuder in dig. Saknar du konto? Kontakta avtalsansvarig på Miljonbemanning.</span>
-        </li>
-        <li className="flex items-start gap-2.5">
-          <Icon name="mail" className="mt-1 flex-none" />
-          <span>Du kan alltid beställa med mejl till {ORDER_MAILBOX}, även utan att logga in.</span>
+          <span>
+            Första gången du loggar in skapas ditt konto. Det fungerar om du har en e-postadress i en kommun som har avtal med Miljonbemanning. Sedan fyller du i
+            ditt namn, ditt telefonnummer och din enhet.
+          </span>
         </li>
       </ul>
     </KomPage>

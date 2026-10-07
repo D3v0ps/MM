@@ -15,7 +15,8 @@ async function expectAt(page: Page, path: string, role: string | null, perspecti
   await expect.poll(() => hashOf(page)).toBe(path);
   const persp = page.getByRole("group", { name: "Perspektiv" });
   await expect(persp.getByRole("button", { name: perspective })).toHaveAttribute("aria-pressed", "true");
-  if (role) await expect(page.getByLabel("Roll", { exact: true })).toHaveValue(role);
+  // Kunden har bara rollen handläggare (beslut 2026-10-07) – då har prototypfältet ingen rollväljare, precis som för deltagaren.
+  if (role && perspective !== "Kund") await expect(page.getByLabel("Roll", { exact: true })).toHaveValue(role);
   else await expect(page.getByLabel("Roll", { exact: true })).toHaveCount(0);
 }
 
@@ -96,7 +97,8 @@ test("scenario 11 och 13: deltagaren, ledningen och avtalet som konfiguration", 
   await expect(bar(page)).toContainText("Scenario 13: Avtalet är konfiguration · steg 1 av 3");
   await expectAt(page, "/admin/avtal", "admin", "Leverantör");
   await next(page);
-  await expectAt(page, "/admin/avtal?flik=priser", "admin", "Leverantör");
+  // Beslut 5 (2026-10-07): prislistan visas bara för ekonomen, under Ekonomi.
+  await expectAt(page, "/ekonomi/prislista", "ekonom", "Leverantör");
   await next(page);
   await expectAt(page, "/om/fragor", "admin", "Leverantör");
   await expect(page.getByRole("heading", { level: 1, name: "Öppna frågor" })).toBeVisible();
@@ -129,8 +131,7 @@ test("perspektiv, roll och återställning i prototypfältet", async ({ page }, 
   const errors = await open(page, info, "/om");
   await page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Kund" }).click();
   await expectAt(page, "/portal", "kommun_handlaggare", "Kund");
-  await page.getByLabel("Roll", { exact: true }).selectOption("kommun_chef");
-  await expectAt(page, "/portal/bestallarrapport", "kommun_chef", "Kund");
+  // Kommunens chef finns inte längre som roll – inget att välja.
   await page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Leverantör" }).click();
   await expectAt(page, "/min-vecka", "samordnare", "Leverantör");
   await page.getByLabel("Roll", { exact: true }).selectOption("coach");
@@ -302,9 +303,11 @@ test("400 px: ingen sidledsscroll med prototypfältet – varje roll, portalen o
     ["u-robin", "admin", "/admin/avtal"],
     ["k-maria", "kommun_handlaggare", "/portal"],
     ["k-maria", "kommun_handlaggare", "/portal/deltagare/case-260143?flik=meddelanden"],
-    ["k-eva", "kommun_chef", "/portal/bestallarrapport"],
-    // Kommunens chef har inte behörighet till handläggarens startsida: knappen "Visa som kommunens handläggare" ska radbrytas.
-    ["k-eva", "kommun_chef", "/portal"],
+    ["k-maria", "kommun_handlaggare", "/portal/mina-uppgifter"],
+    ["k-maria", "kommun_handlaggare", "/portal/bestall"],
+    // Handläggaren har inte behörighet till ledningsvyn: knapparna på sidan utan behörighet ska radbrytas.
+    // (Kommunens chef finns inte längre som roll – beslut 2026-10-07.)
+    ["k-maria", "kommun_handlaggare", "/ledning"],
     ["deltagare", "deltagare", "/puls"],
   ];
   await page.setViewportSize({ width: 400, height: 860 });

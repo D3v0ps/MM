@@ -33,17 +33,24 @@ describe("rutt-tabellen", () => {
     for (const r of APP_ROUTES.filter((x) => !x.public)) expect(isPublicPagePath(sample(r.path)), r.path).toBe(false);
   });
 
-  it("rapportbyggaren: ny och resultatfil före :savedReportId; kommunens delade rapporter under /portal/resultat", () => {
+  it("rapportbyggaren: ny och resultatfil före :savedReportId; kommunens chefsadresser leder till startsidan (beslut 2026-10-07)", () => {
     expect(resolveRoute(APP_ROUTES, "/rapportbyggare")?.route.title).toBe("Rapportbyggare");
     expect(resolveRoute(APP_ROUTES, "/rapportbyggare/ny")?.route.path).toBe("/rapportbyggare/ny");
     expect(resolveRoute(APP_ROUTES, "/rapportbyggare/resultatfil")?.route.path).toBe("/rapportbyggare/resultatfil");
     expect(resolveRoute(APP_ROUTES, "/rapportbyggare/sr-seed-mb")?.route).toMatchObject({ path: "/rapportbyggare/:savedReportId", roles: ["samordnare", "avtalsansvarig", "chef"], area: "mb" });
-    expect(resolveRoute(APP_ROUTES, "/portal/resultat")?.route.path).toBe("/portal/resultat");
-    expect(resolveRoute(APP_ROUTES, "/portal/resultat/rapporter")?.route).toMatchObject({ path: "/portal/resultat/rapporter/:savedReportId?", roles: ["kommun_chef"], area: "portal" });
-    expect(resolveRoute(APP_ROUTES, "/portal/resultat/rapporter/sr-seed-kommun")?.route.path).toBe("/portal/resultat/rapporter/:savedReportId?");
+    // De gamla adresserna för kommunens chef finns kvar som omdirigeringar till /portal (gamla mejl och bokmärken).
+    for (const old of ["/portal/resultat", "/portal/resultat/rapporter", "/portal/resultat/rapporter/sr-seed-kommun", "/portal/bestallarrapport"]) {
+      const r = resolveRoute(APP_ROUTES, old)?.route;
+      expect(r?.roles, old).toEqual(["kommun_handlaggare"]);
+      expect(String((r?.screen as { displayName?: string } | undefined)?.displayName), old).toBe("Redirect(/portal)");
+    }
+    expect(resolveRoute(APP_ROUTES, "/portal/mina-uppgifter")?.route.title).toBe("Mina uppgifter");
     const keys = registeredKeys();
-    for (const k of ["rapporter.byggKatalog", "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.sparadeLista", "rapporter.sparad", "rapporter.sparadSpara", "rapporter.sparadDela", "rapporter.sparadArkivera", "rapporter.resultatfilForhandsvisning", "rapporter.resultatfilExport", "kommun.delade", "kommun.delad", "kommun.deladExport"]) {
+    for (const k of ["rapporter.byggKatalog", "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.sparadeLista", "rapporter.sparad", "rapporter.sparadSpara", "rapporter.sparadDela", "rapporter.sparadArkivera", "rapporter.resultatfilForhandsvisning", "rapporter.resultatfilExport"]) {
       expect(keys, k).toContain(k);
+    }
+    for (const k of ["kommun.delade", "kommun.delad", "kommun.deladExport", "kommun.chef", "kommun.resultatExport", "kommun.resultatForhandsvisning", "inkorg.phoneForm", "inkorg.linkPhoneOrder"]) {
+      expect(keys, k).not.toContain(k);
     }
   });
 

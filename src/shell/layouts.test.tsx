@@ -126,7 +126,7 @@ describe("kommunens portal", () => {
   it("meny med aktiv sida, namn och enhet, logga ut", () => {
     const { push } = setup({ role: "kommun_handlaggare", path: "/portal/deltagare/case-1", routePath: "/portal/deltagare/:caseId?", area: "portal", unit: "Arbetsmarknadsenheten Alby" });
     const menu = screen.getByRole("navigation", { name: "Portalmeny" });
-    expect(within(menu).getAllByRole("link").map((a) => a.textContent)).toEqual(["Start", "Beställ ny insats", "Mina deltagare", "Rapporter och meddelanden"]);
+    expect(within(menu).getAllByRole("link").map((a) => a.textContent)).toEqual(["Start", "Beställ ny insats", "Mina deltagare", "Rapporter och meddelanden", "Mina uppgifter"]);
     expect(within(menu).getByRole("link", { name: "Mina deltagare" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("Test Person, Arbetsmarknadsenheten Alby")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
@@ -158,17 +158,11 @@ describe("kommunens portal", () => {
     expect(screen.getAllByText("Test Person, Arbetsmarknadsenheten Alby")).toHaveLength(1);
   });
 
-  it("chefen har sin egen meny", () => {
-    setup({ role: "kommun_chef", path: "/portal/bestallarrapport", area: "portal" });
+  it("Mina uppgifter är sist i menyn och aktiv på sin sida – ingen meny för kommunens chef (rollen är borttagen 2026-10-07)", () => {
+    setup({ role: "kommun_handlaggare", path: "/portal/mina-uppgifter", routePath: "/portal/mina-uppgifter", area: "portal", unit: "Arbetsmarknadsenheten Alby" });
     const menu = screen.getByRole("navigation", { name: "Portalmeny" });
-    expect(within(menu).getAllByRole("link").map((a) => a.textContent)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
-  });
-  it("chefen får Hämta resultat sist när avtalet har resultatfilen", async () => {
-    setup({ role: "kommun_chef", path: "/portal/resultat", area: "portal", resultFile: true });
-    const menu = screen.getByRole("navigation", { name: "Portalmeny" });
-    expect(await within(menu).findByRole("link", { name: "Hämta resultat" })).toBeTruthy();
-    expect(within(menu).getAllByRole("link").map((a) => a.textContent)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter", "Hämta resultat"]);
-    expect(within(menu).getByRole("link", { name: "Hämta resultat" }).getAttribute("aria-current")).toBe("page");
+    expect(within(menu).getByRole("link", { name: "Mina uppgifter" }).getAttribute("aria-current")).toBe("page");
+    for (const name of ["Beställarrapport", "Enhetens deltagare", "Hämta resultat"]) expect(within(menu).queryByRole("link", { name })).toBeNull();
   });
 });
 

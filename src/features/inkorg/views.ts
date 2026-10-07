@@ -1,10 +1,12 @@
 // Vy-modellerna för skärmarna i området inkorg (startsidan, avropsinkorgen, förfaller) – port av prototypens
 // views/inkorg.js. Bara för hanterare. Läsning via ctx.repo; ctx.system bara där det står en kommentar om varför.
-import type { Role } from "@/api/roles";
 import type { Ctx, PnrCrypto } from "@/api/server";
 import { buyerRefLengthText, isUnset, phaseLabel } from "@/core/config";
-import { coaches as coachesOf, duplicateActive, previewNextCaseNumber, priceFor } from "@/core/cases";
-import { kr, pct } from "@/core/format";
+import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/core/cases";
+import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
+import { TRACKS } from "@/data/seed/constants";
+import { caseBackground, orderPeriodText } from "@/features/arenden/background";
+import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { areaName, contactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
@@ -13,27 +15,20 @@ import { by, uniq } from "@/core/util";
 import type { Case, CaseStatusHistory, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Report } from "@/data/schema";
 import type {
   AckView, AlertView, CaseFieldsView, ConfirmationView, DeadlinesView, DecisionForm, DeclinedView, DuplicateView, FieldGroup, FieldNote, FormField, InboxItemDetail,
-  InboxList, KpiCardView, MiniDeadline, OriginalView, ParsedView, PendingSupplement, PhoneForm, PnrView, StartView,
+  InboxList, KpiCardView, MiniDeadline, OriginalView, ParsedView, PendingSupplement, PnrView, StartView,
 } from "./api";
 import {
-  ackMinutes, alertItems, answerDays, canOpen, caseProtected, deadlineItems, deadlineRow, hasPnrText, hrefFor, inboxEnv, inboxToHandle, loadInbox, loadOps, maskedPnr,
+  ackMinutes, alertItems, answerDays, canOpen, casePeriodValue, deadlineItems, deadlineRow, hasPnrText, hrefFor, inboxEnv, inboxToHandle, loadInbox, loadOps, maskedPnr,
   maskPnrText, meetingDays, plainPnr, sla, sortPending, toRow, visibleCaseIds, type InboxData, type InboxEnv, type Item,
 } from "./model";
 import {
-  dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, ORDER_FIELDS, refErrorMB,
+  dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, OPTIONAL_FIELDS, ORDER_FIELDS, refErrorMB,
   whenText, workingDaysText, type DeadlineRow, type OrderFieldKey,
 } from "./texts";
 
 const OPEN = ["acknowledged", "received"];
 const DECIDED = ["confirmed", "active", "paused", "closed"];
 const isOpen = (c: Pick<Case, "status"> | null | undefined) => !!c && OPEN.includes(c.status);
-/** Skyddade avrop hanteras av avtalsansvarig enligt den säkra rutinen – inte av samordnaren. */
-export const handlesProtected = (role: Role): boolean => role === "avtalsansvarig";
-const PHONE_RE = /\b0\d{1,3}-\d{2,3}[ \d]{3,8}\d\b/;
-const phoneIn = (text: string | null | undefined): string | null => {
-  const m = String(text || "").match(PHONE_RE);
-  return m ? m[0].trim() : null;
-};
 const refConfig = (e: InboxEnv) => ({ refPattern: e.cfg.billing.buyerReference.pattern, refLen: buyerRefLengthText(e.cfg) });
 const refError = (s: string | null | undefined, e: InboxEnv) => refErrorMB(s, e.cfg.billing.buyerReference.pattern, buyerRefLengthText(e.cfg));
 
@@ -48,9 +43,10 @@ function fmtField(k: string, v: unknown, areas: readonly ContractArea[]): string
   if (v == null || v === "") return null;
   if (k === "desiredStart" || k === "plannedEnd") return fmtDate(String(v));
   if (k === "plannedWeeks") return `${v} veckor`;
+  if (k === "orderPeriod") return v === "annan" ? "Annan tidsperiod" : `${v} månader`;
+  if (k === "priorAssessment") return v === "ja" ? PRIOR_ASSESSMENT_LABEL.yes : v === "nej" ? PRIOR_ASSESSMENT_LABEL.no : v === "vet_inte" ? PRIOR_ASSESSMENT_LABEL.unknown : String(v);
   if (k === "primaryArea" || k === "secondaryArea") return areaName(areas, String(v));
   if (k === "preferredContact") return contactLabel(String(v));
-  if (k === "protectedIdentity") return v ? "Ja" : "Nej";
   return String(v);
 }
 
@@ -112,15 +108,18 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
     return conf[k] != null && ex[k] !== "" && ex[k] != null ? { kind: "pct", pct: pct(conf[k] as number, 0) } : null;
   };
   const person = c ? d.personById.get(c.personId) ?? null : null;
+  // Fälten som inte frågas efter (Miljonbemanning sätter dem, eller bara vid annan tidsperiod) visas bara när mejlet har ett
+  // värde eller när de saknas. En grupp utan fält visas inte.
+  const shown = (k: OrderField) => !OPTIONAL_FIELDS.includes(k) || (ex[k] != null && ex[k] !== "") || stateOf(k) === "missing";
   const groups: FieldGroup[] = FIELD_GROUPS.map(([title, keys]) => ({
     title,
-    fields: keys.map((k): FormField => {
+    fields: keys.filter(shown).map((k): FormField => {
       const base = { key: k, label: FIELD_LABEL[k], state: stateOf(k), note: note(k) };
       const v = ex[k];
       if (k === "pnr" && v != null && v !== "") return c ? { ...base, value: null, pnr: pnrView(c, person) } : { ...base, value: "••••••••-••••" };
       return { ...base, value: k === "pnr" ? null : fmtField(k, v, areas) };
     }),
-  }));
+  })).filter((g) => g.fields.length > 0);
   const all = groups.flatMap((g) => g.fields);
   // Samma körning för tolkningen (AI-körningar läses med ärendets behörighet).
   const run = m.aiRunId ? await ctx.repo.table("ai_runs").get(m.aiRunId) : null;
@@ -130,52 +129,62 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
   };
 }
 
-/** Beställning utan mejl (portal eller telefon) – samma tre steg som mallen, utan konfidens. */
+/**
+ * Beställning utan mejl (portal eller telefon) – samma steg som portalens formulär, utan konfidens. Avtalsområde, yrkesspår
+ * och beställarreferens sätts av Miljonbemanning vid accept (synpunkt #8) och visas bara när de finns.
+ */
 function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "Beställningen"): CaseFieldsView {
   const p = d.personById.get(c.personId) ?? null;
   const k = c.referrerId ? d.profiles.find((u) => u.id === c.referrerId) ?? null : null;
-  const prot = caseProtected(c, p);
-  const full = !!p && !prot;
   const row = (label: string, value: string | null, missing = false, pnr?: PnrView): FormField => ({
     key: label, label, value, pnr, state: missing ? "missing" : "ok", note: missing ? { kind: "missing" } : null,
   });
+  const other = c.orderPeriodMonths == null && !!c.orderPeriodReason;
   const groups: FieldGroup[] = [
     {
       title: "1. Beställning och kontakt",
       fields: [
-        row("Handläggare", k?.fullName || c.referrerName || null), row("Enhet", k?.customerUnit || c.referrerUnit || null),
-        row("Beställarreferens", c.buyerReference || null, !c.buyerReference), row("Önskat startdatum", c.desiredStart ? fmtDate(c.desiredStart) : null),
-        row("Planerat slutdatum", c.plannedEnd ? fmtDate(c.plannedEnd) : null), row("Planerad omfattning", c.plannedWeeks ? `${c.plannedWeeks} veckor` : null),
+        row("Handläggare", k?.fullName || c.referrerName || null), row("Enhet", c.referrerUnit || k?.customerUnit || null),
+        row("Önskat startdatum", c.desiredStart ? fmtDate(c.desiredStart) : null),
+        row("Omfattning", orderPeriodText(c), orderPeriodText(c) === "Inte angiven"),
+        ...(other ? [row("Slutdatum", c.plannedEnd ? fmtDate(c.plannedEnd) : null, !c.plannedEnd), row("Motivering till annan tidsperiod", c.orderPeriodReason)] : []),
       ],
     },
     {
       title: "2. Deltagare",
       fields: [
-        row("Namn", p ? `${p.firstName} ${p.lastName}` : "Skyddade personuppgifter"), row("Personnummer", null, false, pnrView(c, p)),
-        ...(full && p
+        row("Namn", p ? `${p.firstName} ${p.lastName}` : null), row("Personnummer", null, false, pnrView(c, p)),
+        ...(p
           ? [row("Telefon", p.phone || null), row("E-post", p.email || null), row("Bostadsort", p.city || null),
-            row("Föredragen kontaktväg", p.preferredContact ? contactLabel(p.preferredContact) : null), row("Behov av anpassning", p.accessibilityNeeds || null)]
+            row("Föredragen kontaktväg", p.preferredContact ? contactLabel(p.preferredContact) : null)]
           : []),
-        row("Skyddade personuppgifter", prot ? "Ja – bara namn och personnummer sparas" : "Nej"),
       ],
     },
     {
-      title: "3. Avtalsområde och yrkesspår",
+      title: "3. Bakgrundsinformation om deltagaren",
       fields: [
-        row("Avtalsområde (primärt)", c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : null, !c.primaryAreaCode),
-        row("Avtalsområde (alternativt)", c.secondaryAreaCode ? areaName(areas, c.secondaryAreaCode) : null),
-        row("Önskat yrkesspår", c.vocationalTrack || null), ...(full ? [row("Bakgrund", c.backgroundInfo || null)] : []),
+        row("Kartläggning genomförd", c.priorAssessment ? PRIOR_ASSESSMENT_LABEL[c.priorAssessment] : null),
+        row("Bakgrundsinformation", c.backgroundInfo || null),
       ],
     },
+    ...(c.primaryAreaCode || c.vocationalTrack || c.buyerReference
+      ? [{
+          title: "Uppgifter som Miljonbemanning sätter vid accept",
+          fields: [
+            ...(c.primaryAreaCode ? [row("Avtalsområde (primärt)", areaName(areas, c.primaryAreaCode))] : []),
+            ...(c.secondaryAreaCode ? [row("Avtalsområde (alternativt)", areaName(areas, c.secondaryAreaCode))] : []),
+            ...(c.vocationalTrack ? [row("Yrkesspår", c.vocationalTrack)] : []),
+            ...(c.buyerReference ? [row("Beställarreferens", c.buyerReference)] : []),
+          ],
+        }]
+      : []),
   ];
   return { title, method: c.source === "phone" ? "phone" : "portal", groups };
 }
 
 function ackView(it: Item, d: InboxData, out: OutboundMessage[], crypto: PnrCrypto): AckView {
-  const m = it.email;
   let n: OutboundMessage | null = null;
-  if (m && m.classification === "order_protected") n = out.find((x) => x.template === "generisk_mottagningsbekraftelse" && x.to === m.fromAddress && x.createdAt >= m.receivedAt) ?? null;
-  else if (it.case && it.cls === "order") n = out.find((x) => x.caseId === it.case?.id && x.template === "ordererkannande") ?? null;
+  if (it.case && it.cls === "order") n = out.find((x) => x.caseId === it.case?.id && x.template === "ordererkannande") ?? null;
   if (!n) {
     return {
       kind: "none",
@@ -231,14 +240,11 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
   const d = await loadInbox(ctx, e);
   const it = d.items.find((x) => x.id === id);
   if (!it) return null;
-  const role = ctx.actor.role;
   const c = it.case;
   const m = it.email;
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
-  const out = await outboundFor(ctx, c?.id ?? null, m?.classification === "order_protected" ? m.fromAddress : null);
-  const prot = it.isProtected;
-  const mine = !prot || handlesProtected(role);
-  const decision = isOpen(c) && (it.cls === "order" || it.cls === "order_protected");
+  const out = await outboundFor(ctx, c?.id ?? null, null);
+  const decision = isOpen(c) && it.cls === "order";
   // Prototypen: "Visa" bara med full åtkomst till ärendet (eller när mejlet inte hör till något ärende).
   const mayReveal = !c || !!it.person;
 
@@ -253,30 +259,24 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
       current = !c ? 1 : isOpen(c) ? 2 : 4;
     }
   }
-  if (it.cls === "order_protected") {
-    steps = ["Mottaget", "Generisk bekräftelse", "Telefonsamtal", "Beslut", "Orderbekräftelse"];
-    current = !c ? 2 : isOpen(c) ? 3 : 5;
-    if (c && c.status === "declined") {
-      steps = ["Mottaget", "Generisk bekräftelse", "Telefonsamtal", "Avböjt"];
-      current = 4;
-    }
-  }
   const s = it.sla;
   const headSla = s
     ? { ...sla(s.dueAt, s.metAt, e.now), text: s.metAt ? `Besvarat ${whenText(s.metAt, e.now)}` : slaStatus(s.dueAt, null, { now: e.now }).tone === "ok" ? "Svar på avropet" : `Svar senast ${whenText(s.dueAt, e.now)}` }
     : null;
 
-  // Rätta uppgifter: bara när avropet väntar på beslut och personen inte är skyddad.
+  // Rätta uppgifter: bara när avropet väntar på beslut.
   let correct: InboxItemDetail["correct"] = null;
-  if (decision && mine && c && !caseProtected(c, it.person)) {
+  if (decision && c) {
     const ex = it.cls === "order" && m ? (m.extracted as Record<string, unknown>) : {};
     const conf = it.cls === "order" && m ? (m.confidence as Record<string, number | undefined>) : {};
     const str = (v: unknown) => (v == null ? "" : String(v));
     const init: Record<OrderFieldKey, string> = {
-      buyerReference: c.buyerReference || "", desiredStart: c.desiredStart || "", plannedEnd: c.plannedEnd || str(ex.plannedEnd), plannedWeeks: c.plannedWeeks ? String(c.plannedWeeks) : "",
-      primaryArea: c.primaryAreaCode || "", secondaryArea: c.secondaryAreaCode || "", vocationalTrack: c.vocationalTrack || "",
+      desiredStart: c.desiredStart || "", orderPeriod: casePeriodValue(c) || str(ex.orderPeriod), plannedEnd: c.plannedEnd || str(ex.plannedEnd),
+      orderPeriodReason: c.orderPeriodReason || str(ex.orderPeriodReason), buyerReference: c.buyerReference || "",
     };
-    const currentVals: Record<OrderFieldKey, string> = { ...init, plannedEnd: c.plannedEnd || "" };
+    const currentVals: Record<OrderFieldKey, string> = {
+      ...init, orderPeriod: casePeriodValue(c), plannedEnd: c.plannedEnd || "", orderPeriodReason: c.orderPeriodReason || "",
+    };
     const lowNotes: Partial<Record<OrderFieldKey, string>> = {};
     for (const k of ORDER_FIELDS) {
       const v = ex[k];
@@ -284,7 +284,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
     }
     correct = {
       caseId: c.id, emailId: it.cls === "order" && m ? m.id : null, init, current: currentVals, lowNotes,
-      areas: areas.filter((a) => a.active).map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })), ...refConfig(e),
+      periods: { months: [...e.cfg.orderPeriods.months], allowOther: e.cfg.orderPeriods.allowOther }, ...refConfig(e),
     };
   }
 
@@ -293,34 +293,8 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
     receivedWhen: whenText(it.receivedAt, e.now),
     case: c ? { id: c.id, number: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId, status: c.status } : null,
     headSla, handledText: m?.handledBy ? `Hanterat av ${personName(d.profiles, m.handledBy)} ${whenText(m.handledAt, e.now)}` : null,
-    steps, current, isProtected: prot, mine, decision, canPhone: it.cls === "order_protected" && !c && handlesProtected(role),
-    managerName: personName(d.profiles, e.contract.contractManagerId), correct,
+    steps, current, decision, managerName: personName(d.profiles, e.contract.contractManagerId), correct,
   };
-
-  // Skyddade personuppgifter
-  if (it.cls === "order_protected" && m) {
-    const k = d.profiles.find((u) => u.email === m.fromAddress) ?? null;
-    const handles = handlesProtected(role);
-    const phone = phoneIn(m.bodyText) || k?.phone || "–";
-    return {
-      ...base,
-      body: {
-        kind: "protected", decided: !!c && DECIDED.includes(c.status), declined: c && c.status === "declined" ? await declinedView(ctx, d, c, out) : null,
-        original: originalView(m, mayReveal),
-        timeline: [
-          { icon: "mail", filled: true, title: "Generisk mottagningsbekräftelse skickad", sub: m.ackSentAt ? whenText(m.ackSentAt, e.now) : "" },
-          { icon: "flag", filled: true, tone: "red", title: `Flagga till avtalsansvarig ${personName(d.profiles, e.contract.contractManagerId)}`, sub: `${whenText(m.receivedAt, e.now)}${role === "avtalsansvarig" ? " · gäller dig" : ""}` },
-          {
-            icon: "phone", filled: !!c, title: `${handles ? "Ring" : "Avtalsansvarig ringer"} ${k?.fullName || "handläggaren"} på ${phone}`,
-            sub: c ? `Klart – registrerat ${whenText(m.registeredAt, e.now)} av ${personName(d.profiles, m.registeredBy)}` : "Uppgifterna tas muntligt enligt den säkra rutinen",
-          },
-          { icon: "lock", filled: !!c, title: `${handles ? "Registrera" : "Avtalsansvarig registrerar"} minimala uppgifter`, sub: "Namn, personnummer och handläggare. Ingen adress, inga kontaktuppgifter till deltagaren." },
-          { icon: "user", filled: !!c && !isOpen(c), title: "Acceptera och tilldela en namngiven coach", sub: "Bara coachen och avtalsansvarig får se namn och personnummer." },
-        ],
-        ack: ackView(it, d, out, ctx.crypto), caseFields: c ? caseFieldsView(d, c, areas, "Registrerat efter samtalet") : null,
-      },
-    };
-  }
 
   // Komplettering
   if (it.cls === "supplement" && m) {
@@ -344,7 +318,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
         refErr: ex.buyerReference ? refError(String(ex.buyerReference), e) : null,
         original: originalView(m, mayReveal),
         caseCard: {
-          caseId: c.id, caseNumber: c.caseNumber, status: c.status, displayName: person ? `${person.firstName} ${person.lastName}` : "Skyddade personuppgifter",
+          caseId: c.id, caseNumber: c.caseNumber, status: c.status, displayName: person ? `${person.firstName} ${person.lastName}` : "–",
           areaName: areaName(areas, c.primaryAreaCode), buyerReference: c.buyerReference, sla: due ? sla(due, c.confirmedAt || c.declinedAt, e.now) : null,
         },
       },
@@ -375,7 +349,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
       const acts = await ctx.repo.table("activities").list({ caseId: c.id });
       draft = replyDraft(d, c, acts, personName(d.profiles, ctx.actor.userId));
       caseCard = {
-        caseId: c.id, caseNumber: c.caseNumber, displayName: person ? `${person.firstName} ${person.lastName}` : "Skyddade personuppgifter",
+        caseId: c.id, caseNumber: c.caseNumber, displayName: person ? `${person.firstName} ${person.lastName}` : "–",
         coachName: personName(d.profiles, c.leadCoachId), status: c.status, phase: phaseLabel(e.cfg, c.phase),
       };
     }
@@ -394,17 +368,18 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
   const ack = ackView(it, d, out, ctx.crypto);
   let missing = null;
   if (pendingDecision && missingKeys.length) {
-    const critical = missingKeys.includes("buyerReference");
+    // Beställarreferensen är valfri (beslut 2026-10-07) – ingen uppgift i mejlet stoppar ett beslut. Omfattningen väljs i
+    // acceptdialogen om den saknas.
     missing = {
-      title: `Saknas: ${missingKeys.map((k) => FIELD_LABEL[k].toLowerCase()).join(", ")}`, critical,
-      text: `${ack.kind === "sent" && ack.body.includes("saknar") ? `Ordererkännandet bad kommunen svara med uppgifterna (${ack.when}). ` : ""}${critical ? "Ärendet kan inte bekräftas utan giltig beställarreferens." : ""}`,
+      title: `Saknas: ${missingKeys.map((k) => FIELD_LABEL[k].toLowerCase()).join(", ")}`, critical: false,
+      text: ack.kind === "sent" && ack.body.includes("saknar") ? `Ordererkännandet bad kommunen svara med uppgifterna (${ack.when}).` : "",
     };
   }
   return {
     ...base,
     body: {
       kind: "order", decided: !!c && DECIDED.includes(c.status), declined: c && c.status === "declined" ? await declinedView(ctx, d, c, out) : null,
-      pendingSups: pendingSups(d, c), missing, refProblem: c && pendingDecision && !missingKeys.length ? refError(c.buyerReference || "", e) : null,
+      pendingSups: pendingSups(d, c), missing, refProblem: c && pendingDecision && c.buyerReference ? refError(c.buyerReference, e) : null,
       original: m ? originalView(m, mayReveal) : null, parsed: m ? await parsedView(ctx, d, m, c, areas) : null, caseFields: !m && c ? caseFieldsView(d, c, areas) : null,
       ack, dup: c ? await duplicateView(ctx, d, c) : null,
     },
@@ -421,7 +396,6 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const profiles = await ctx.repo.table("profiles").list();
   const name = (id: string | null | undefined) => personName(profiles, id);
   const person = await ctx.repo.table("persons").get(c.personId);
-  const prot = caseProtected(c, person);
   const rep = await ctx.repo.table("reports").first({ caseId: c.id, kind: "order_confirmation" });
   const by = (await ctx.system.table("case_status_history").list({ caseId: c.id, toStatus: "confirmed" })).sort((a, b) => (a.changedAt < b.changedAt ? -1 : a.changedAt > b.changedAt ? 1 : 0)).slice(-1)[0];
   // ctx.system: notisen om tilldelningen är mottagarens (user_notifications läses bara av mottagaren), men samordnaren ska
@@ -433,9 +407,6 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const custMail = out.filter((n) => n.template === "orderbekraftelse").slice(-1)[0];
   const kallelse = out.filter((n) => n.template === "kallelse").slice(-1)[0];
   const team = (await ctx.repo.table("case_team").list({ caseId: c.id })).filter((t) => t.role !== "lead_coach");
-  const weeks = c.orderValueWeeks || c.plannedWeeks;
-  const priceItems = await ctx.repo.table("price_items").list({ contractId: c.contractId });
-  const price = priceFor(priceItems, c.primaryAreaCode, c.startDate || c.plannedStart || e.today);
   const [chLabel, chIcon]: [string, "phone" | "mail"] = kallelse ? CHANNEL[kallelse.channel] ?? [kallelse.channel, "mail"] : ["", "mail"];
   const prefersPhone = person?.preferredContact === "phone";
   return {
@@ -445,14 +416,11 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
     coachName: name(c.leadCoachId),
     team: team.length ? team.map((t) => `${name(t.userId)} (${lc(teamLabel(t.role))})`).join(", ") : "Bara huvudcoach",
     firstMeeting: c.firstMeetingAt ? fmtDateTimeLong(c.firstMeetingAt) : "Inte bokat ännu",
-    planned: weeks ? `${weeks} veckor${c.plannedEnd ? `, till och med ${fmtDate(c.plannedEnd)}` : ""}` : "–",
-    // Begränsade testare (testmiljön): beställningens värde lämnas inte ut.
-    ...(e.hideCommercial ? {} : { value: weeks && price ? `${kr(weeks * price)} (${weeks} veckor × ${kr(price)})` : "–" }),
+    planned: `${orderPeriodText(c)}${c.plannedEnd ? `, till och med ${fmtDate(c.plannedEnd)}` : ""}`,
     buyerReference: c.buyerReference || "–",
     leadNotif: leadNotif ? { title: `${name(c.leadCoachId)} har fått en notis om tilldelningen`, emailBody: leadNotif.emailBody, others: others.length ? ` Även ${listJoin(others)} har fått en notis.` : "" } : null,
     custMail: custMail?.body ?? null,
-    isProtected: prot,
-    kallelse: kallelse && !prot
+    kallelse: kallelse
       ? { title: prefersPhone ? `Deltagaren fick kallelse via ${chLabel} och har valt telefon – coachen ringer också:` : `Deltagaren fick kallelse via ${chLabel}, sin föredragna kontaktväg:`, icon: chIcon, body: kallelse.body }
       : null,
   };
@@ -473,34 +441,22 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
   const due = firstMeetingDue(c, e.cfg);
   const avrop = avropDue(c, e.cfg);
   const sup = pendingSups(d, c)[0] ?? null;
-  // Begränsade testare (testmiljön): prisartiklarna läses inte och lämnas inte ut.
-  const priceItems = e.hideCommercial ? null : await ctx.repo.table("price_items").list({ contractId: e.contract.id, areaCode: c.primaryAreaCode });
+  const activeAreas = areas.filter((a) => a.active);
   return {
-    caseId: c.id, caseNumber: c.caseNumber, from: c.referrerId ? personName(d.profiles, c.referrerId) : c.referrerName ?? "–", areaName: areaName(areas, c.primaryAreaCode),
-    displayName: person ? `${person.firstName} ${person.lastName}` : "Skyddade personuppgifter", avropSla: avrop ? sla(avrop, null, e.now) : null,
-    isProtected: caseProtected(c, person),
+    caseId: c.id, caseNumber: c.caseNumber, from: c.referrerId ? personName(d.profiles, c.referrerId) : c.referrerName ?? "–",
+    areaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : "Avtalsområde inte valt",
+    displayName: person ? `${person.firstName} ${person.lastName}` : "–", avropSla: avrop ? sla(avrop, null, e.now) : null,
     coaches: coachesOf({ profiles: d.profiles, memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
     helpers: helpers.map((u) => ({ id: u.id, name: u.fullName, teamRole: u.teamRole as "vocational_supervisor" | "employer_matcher" | "guidance_counselor", label: lc(teamLabel(u.teamRole as string)) })),
-    firstMeetingDue: due, desiredStart: c.desiredStart, plannedWeeks: c.plannedWeeks, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
+    firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
-    ...(priceItems ? { prices: priceItems.map((p) => ({ validFrom: p.validFrom, validTo: p.validTo, priceOre: p.priceOre, exampleOnly: p.exampleOnly })) } : {}),
+    areas: activeAreas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
+    primaryArea: c.primaryAreaCode, secondaryArea: c.secondaryAreaCode, vocationalTrack: c.vocationalTrack,
+    tracks: Object.fromEntries(activeAreas.map((a) => [a.code, [...(TRACKS[a.code] ?? [])]])),
+    periods: { months: [...e.cfg.orderPeriods.months], allowOther: e.cfg.orderPeriods.allowOther },
+    orderPeriodMonths: c.orderPeriodMonths, orderPeriodReason: c.orderPeriodReason, plannedEnd: c.plannedEnd, plannedWeeks: c.plannedWeeks,
+    background: await caseBackground(ctx, c),
     pendingSup: sup, declined: d.cases.filter((x) => x.status === "declined").length, total: d.cases.length,
-  };
-}
-
-// ---------------------------------------------------------------- Registrering efter telefonsamtal
-export async function buildPhoneForm(ctx: Ctx, emailId: string): Promise<PhoneForm | null> {
-  const m = await ctx.repo.table("inbound_emails").get(emailId);
-  if (!m) return null;
-  const e = await inboxEnv(ctx);
-  const k = await ctx.repo.table("profiles").first({ email: m.fromAddress });
-  const br = k?.buyerReferenceId ? await ctx.repo.table("buyer_references").first({ id: k.buyerReferenceId, active: true }) : null;
-  const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id, active: true });
-  const counters = await ctx.repo.table("case_counters").list({ contractId: e.contract.id });
-  return {
-    emailId: m.id, referrerId: k?.id ?? null, referrerName: k?.fullName ?? null, unit: k?.customerUnit ?? null, brReference: br?.reference ?? null,
-    phone: phoneIn(m.bodyText) || k?.phone || "–", areas: areas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
-    nextCaseNumber: previewNextCaseNumber({ case_counters: counters }, { contractId: e.contract.id, now: e.now, cfg: e.cfg }), ...refConfig(e),
   };
 }
 
@@ -523,15 +479,13 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
 
   const pending = inboxToHandle(d.items);
   const items = pending.map((x) => toRow(x, now));
-  const orders = pending.filter((x) => x.sla && ["order", "order_protected", "supplement"].includes(x.cls) && !x.sla.metAt).sort(sortPending);
+  const orders = pending.filter((x) => x.sla && ["order", "supplement"].includes(x.cls) && !x.sla.metAt).sort(sortPending);
   const urgent = orders[0] ? toRow(orders[0], now) : null;
 
   const alerts = alertItems(ops, e, ctx.actor, visible);
   const acked = alertItems(ops, e, ctx.actor, visible, true).filter((a) => a.ack);
   const fmFlags = new Set(alerts.filter((a) => a.kind === "first_meeting").map((a) => a.caseId));
   const fmCases = d.cases.filter((c) => c.status === "confirmed" && !c.firstMeetingAt).sort(by<Case>("referredAt"));
-  const fmPersonIds = fmCases.map((c) => c.personId);
-  const persons = new Map((fmPersonIds.length ? await ctx.repo.table("persons").list({ id: { in: fmPersonIds } }) : []).map((p) => [p.id, p]));
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
   const noCoach = d.cases.filter((c) => !c.leadCoachId && ["received", "acknowledged", "confirmed", "active", "paused"].includes(c.status)).sort(by<Case>("referredAt"));
   const flagText = flagDaysText(e.org.alerts.firstMeetingNotBookedAfterDays);
@@ -593,7 +547,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       rows: fmCases.map((c) => {
         const due = firstMeetingDue(c, e.cfg);
         return {
-          caseId: c.id, caseNumber: c.caseNumber, due: due ? sla(due, null, now) : null, isProtected: caseProtected(c, persons.get(c.personId)), coachName: name(c.leadCoachId),
+          caseId: c.id, caseNumber: c.caseNumber, due: due ? sla(due, null, now) : null, coachName: name(c.leadCoachId),
           dueText: due ? fmtWeekday(due) : "–",
           sub: `Coach ${name(c.leadCoachId)} · mottaget ${fmtDate(c.referredAt)}${fmFlags.has(c.id) ? ` · flaggat efter ${flagText}` : ""}`,
         };
@@ -605,9 +559,6 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     },
     alerts: alerts.map(alertView),
     acked: acked.map((a) => ({ key: a.key, title: a.title, text: `Kvitterad av ${name(a.ack?.by)} ${whenText(a.ack?.at, now)}. Åtgärd: ${a.ack?.plan ?? ""}` })),
-    protectedItems: role === "avtalsansvarig"
-      ? pending.filter((x) => x.cls === "order_protected" || (x.case && x.isProtected)).map((x) => ({ ...toRow(x, now), caseText: x.case ? `registrerat som ${x.case.caseNumber}` : "väntar på telefonsamtal" }))
-      : [],
     notifyEmail: e.org.notifications.onAssignment.channels.includes("email"),
     kpis,
     assign: {
@@ -620,7 +571,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     }),
     tasks: tasks.map((t) => ({
       id: t.id, text: t.text, sub: `${t.fromId === "system" ? "Skapad automatiskt" : `Från ${name(t.fromId)}`} · ${whenText(t.createdAt, now)}`,
-      emailId: t.emailId, caseId: !t.emailId && t.caseIds.length === 1 && t.kind === "protected_order" ? t.caseIds[0] : null,
+      emailId: t.emailId, caseId: !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null,
     })),
     deviations: cds.map((x) => {
       const step = e.cfg.escalationLadder.find((s) => s.step === x.escalationStep);
@@ -635,8 +586,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     summaryReport: summaryReport
       ? { id: summaryReport.id, title: `Beställarrapport ${summaryReport.month ? monthName(summaryReport.month) : ""} att godkänna`, due: summaryReport.dueAt ? sla(summaryReport.dueAt, null, now) : null, href: hrefFor({ view: "rapport.visa", params: { reportId: summaryReport.id } }, role) }
       : null,
-    // Begränsade testare: vitets belopp lämnas inte ut (antalet varningar finns kvar).
-    warnings: { issued: warnings, max, text: e.hideCommercial ? `${max} varningar kan leda till uppsägning.` : `${max} varningar kan leda till uppsägning. Vite ${kr(e.cfg.penalties.deviationOre)} per tillfälle vid avvikelse.` },
+    // Inga viten i kronor (belopp syns bara för ekonomen, beslut 5) – antalet varningar finns kvar.
+    warnings: { issued: warnings, max, text: `${max} varningar kan leda till uppsägning.` },
     meetingText: meetingDaysText(meetingDays(e.cfg)),
     flagDaysText: flagText,
     today: e.today,

@@ -50,11 +50,12 @@ export type InboxMethod = "template" | "ai" | "manual" | "portal" | "phone";
 export const METHOD: Record<InboxMethod, { label: string; icon: IconName; help: string }> = {
   template: { label: "Word-mall", icon: "file", help: "Word-mallen (01) tolkas utan AI, via de fasta etiketterna i tabellcellerna. Samma resultat varje gång." },
   ai: { label: "AI – fritext", icon: "sparkles", help: "Fritext och avvikande mallar tolkas med AI. AI föreslår – samordnaren kontrollerar mot originalet." },
-  manual: { label: "Ingen tolkning", icon: "lock", help: "Ingen automatisk tolkning. Hanteras enligt den säkra rutinen." },
+  manual: { label: "Ingen tolkning", icon: "lock", help: "Ingen automatisk tolkning. En människa läser mejlet." },
   portal: { label: "Portalen", icon: "globe", help: "Handläggaren fyllde i beställningen själv. Fälten validerades direkt i formuläret." },
-  phone: { label: "Telefon", icon: "phone", help: "Registrerad efter telefonsamtal enligt den säkra rutinen." },
+  phone: { label: "Telefon", icon: "phone", help: "Registrerad efter ett telefonsamtal med handläggaren." },
 };
-export const CLASSIFICATION: Record<EmailClassification, string> = { order: "Beställning", supplement: "Komplettering", order_protected: "Skyddade personuppgifter", other: "Övrigt" };
+// order_protected (skyddade personuppgifter) finns kvar i typen för gamla mejl men visas som Övrigt (beslut 2026-10-07).
+export const CLASSIFICATION: Record<EmailClassification, string> = { order: "Beställning", supplement: "Komplettering", order_protected: "Övrigt", other: "Övrigt" };
 export const CLASS_ICON: Partial<Record<EmailClassification, IconName>> = { supplement: "link", other: "message-circle" };
 export type BadgeToneName = "blue" | "bluetone" | "grey" | "red" | "redfill" | "dark" | "outline" | "plan";
 export const STATUS: Record<string, [string, BadgeToneName, IconName]> = {
@@ -71,20 +72,28 @@ export const STATUS: Record<string, [string, BadgeToneName, IconName]> = {
 export const statusLook = (s: string): [string, BadgeToneName, IconName] => STATUS[s] ?? [s, "grey", "circle"];
 
 // ---------------------------------------------------------------- Fälten i det tolkade formuläret
+// Beställningen följer portalens steg (beslut 2026-10-07, synpunkt #3–#9): kontakt, startdatum och omfattning; deltagaren;
+// bakgrundsinformationen. Beställarreferens, avtalsområde och yrkesspår frågas inte efter – Miljonbemanning sätter dem vid
+// accept. Gamla nycklar (plannedWeeks, protectedIdentity, accessibilityNeeds) finns kvar i typen för gamla mejl men visas inte.
 export const FIELD_LABEL: Record<OrderField, string> = {
   referrerName: "Handläggare", referrerUnit: "Enhet", referrerPhone: "Handläggarens telefon", referrerEmail: "Handläggarens e-post",
-  buyerReference: "Beställarreferens", desiredStart: "Önskat startdatum", plannedEnd: "Planerat slutdatum", plannedWeeks: "Planerad omfattning",
+  buyerReference: "Beställarreferens", desiredStart: "Önskat startdatum", plannedEnd: "Slutdatum", plannedWeeks: "Planerad omfattning",
+  orderPeriod: "Omfattning", orderPeriodReason: "Motivering till annan tidsperiod",
   firstName: "Förnamn", lastName: "Efternamn", pnr: "Personnummer", phone: "Telefon", email: "E-post", city: "Bostadsort",
-  preferredContact: "Föredragen kontaktväg", protectedIdentity: "Skyddade personuppgifter", accessibilityNeeds: "Behov av anpassning",
-  primaryArea: "Avtalsområde (primärt)", secondaryArea: "Avtalsområde (alternativt)", vocationalTrack: "Önskat yrkesspår", background: "Bakgrund",
+  preferredContact: "Föredragen kontaktväg", protectedIdentity: "Skyddat", accessibilityNeeds: "Anpassning",
+  priorAssessment: "Kartläggning genomförd", background: "Bakgrundsinformation",
+  primaryArea: "Avtalsområde (primärt)", secondaryArea: "Avtalsområde (alternativt)", vocationalTrack: "Yrkesspår",
 };
 export const FIELD_GROUPS: readonly (readonly [string, readonly OrderField[]])[] = [
-  ["1. Beställning och kontakt", ["referrerName", "referrerUnit", "referrerPhone", "referrerEmail", "buyerReference", "desiredStart", "plannedEnd", "plannedWeeks"]],
-  ["2. Deltagare", ["firstName", "lastName", "pnr", "phone", "email", "city", "preferredContact", "protectedIdentity", "accessibilityNeeds"]],
-  ["3. Avtalsområde och yrkesspår", ["primaryArea", "secondaryArea", "vocationalTrack", "background"]],
+  ["1. Beställning och kontakt", ["referrerName", "referrerUnit", "referrerPhone", "referrerEmail", "desiredStart", "orderPeriod", "plannedEnd", "orderPeriodReason"]],
+  ["2. Deltagare", ["firstName", "lastName", "pnr", "phone", "email", "city", "preferredContact"]],
+  ["3. Bakgrundsinformation om deltagaren", ["priorAssessment", "background"]],
+  ["Uppgifter som Miljonbemanning sätter vid accept", ["buyerReference", "primaryArea", "secondaryArea", "vocationalTrack"]],
 ];
-/** Beställningsuppgifterna som samordnaren kan rätta (ink.correct). */
-export const ORDER_FIELDS = ["buyerReference", "desiredStart", "plannedEnd", "plannedWeeks", "primaryArea", "secondaryArea", "vocationalTrack"] as const;
+/** Fälten i sista gruppen visas bara när mejlet har ett värde (de frågas inte efter). Slutdatum och motivering bara vid annan tidsperiod. */
+export const OPTIONAL_FIELDS: readonly OrderField[] = ["buyerReference", "primaryArea", "secondaryArea", "vocationalTrack", "plannedEnd", "orderPeriodReason"];
+/** Beställningsuppgifterna som samordnaren kan rätta (ink.correct). Avtalsområde och yrkesspår sätts i acceptdialogen. */
+export const ORDER_FIELDS = ["desiredStart", "orderPeriod", "plannedEnd", "orderPeriodReason", "buyerReference"] as const;
 export type OrderFieldKey = (typeof ORDER_FIELDS)[number];
 
 // ---------------------------------------------------------------- Avslag

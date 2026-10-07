@@ -8,9 +8,6 @@ import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
-import { DemoOnly } from "@/shell/runtime";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr } from "@/core/format";
 import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
@@ -33,7 +30,7 @@ const TAB_LABEL: Record<CaseTab, string> = {
   oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Avstämningar", narvaro: "Närvaro", manad: "Månadsunderlag",
   handelser: "Händelser och utfall", avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
 };
-const CUST_WHO = { kommun_handlaggare: "kommunen", kommun_chef: "kommunens chef" } as const;
+const CUST_WHO = { kommun_handlaggare: "kommunen" } as const;
 
 /** Vad varje flik får från kortet. */
 export type TabProps = {
@@ -77,30 +74,23 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
       </Page>
     );
   }
-  if (d.kind === "denied") return <NoAccess caseId={caseId} restricted={d.restricted} caseNumber={d.caseNumber} status={d.status} crumbs={crumbs} />;
+  if (d.kind === "denied") return <NoAccess crumbs={crumbs} />;
   return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} />;
 }
 
-function NoAccess({ caseId, restricted, caseNumber, status, crumbs }: { caseId: string; restricted: boolean; caseNumber: string | null; status: string | null; crumbs: { label: string; to: string }[] }) {
+function NoAccess({ crumbs }: { crumbs: { label: string; to: string }[] }) {
   const role = useSession().actor.role;
   return (
-    <Page eyebrow={caseNumber ? `Ärende ${caseNumber}` : "Ärende"} title={restricted ? "Skyddade personuppgifter" : "Åtkomst saknas"} crumbs={[...crumbs, { label: caseNumber ?? "Åtkomst saknas" }]}>
+    <Page eyebrow="Ärende" title="Åtkomst saknas" crumbs={[...crumbs, { label: "Åtkomst saknas" }]}>
       <Card tone="sub">
         <div className="flex flex-nowrap items-start gap-4">
-          <Icon name={restricted ? "shield" : "lock"} size="xl" />
+          <Icon name="lock" size="xl" />
           <Stack gap="sm" className="min-w-0">
             <h2 className="text-h2 font-extrabold">Du saknar åtkomst till det här deltagarkortet</h2>
-            {restricted ? (
-              <p>Ärendet har skyddade personuppgifter. Bara namngiven huvudcoach och avtalsansvarig kan öppna det. Du ser att ärendet finns så att det kan planeras och följas upp, men inte vem det gäller.</p>
-            ) : (
-              <p>
-                {role === "handledare" ? "Du ser bara ärenden du är tilldelad." : "Du ser bara ärenden där du är huvudcoach eller ingår i teamet."} Behöver du arbeta i ärendet? Be samordnaren
-                lägga till dig i teamet.
-              </p>
-            )}
-            {restricted && caseNumber && (
-              <Kv items={[["Ärendenummer", <span key="n" className="font-bold tabular-nums">{caseNumber}</span>], ["Status", status ? <CaseStatusBadge key="s" status={status} /> : "–"]]} />
-            )}
+            <p>
+              {role === "handledare" ? "Du ser bara ärenden du är tilldelad." : "Du ser bara ärenden där du är huvudcoach eller ingår i teamet."} Behöver du arbeta i ärendet? Be samordnaren
+              lägga till dig i teamet.
+            </p>
             <p className="text-text-muted">Försöket att öppna kortet är loggat i revisionsloggen.</p>
           </Stack>
         </div>
@@ -108,14 +98,6 @@ function NoAccess({ caseId, restricted, caseNumber, status, crumbs }: { caseId: 
       <div className="flex flex-wrap gap-3">
         <Button kind="primary" icon="arrow-left" to={crumbs[0].to}>Tillbaka till listan</Button>
       </div>
-      {restricted && (
-        <DemoNote>
-          Jämför med en roll som har åtkomst.{" "}
-          <span className="mt-1.5 inline-block">
-            <PerspectiveLink role="avtalsansvarig" to={`/arenden/${encodeURIComponent(caseId)}`} label="Visa som avtalsansvarig" />
-          </span>
-        </DemoNote>
-      )}
     </Page>
   );
 }
@@ -249,12 +231,6 @@ function CaseView({ card, crumbs, flik, manad, mal, visa }: { card: CaseCard; cr
       lead={`${card.areaName}${card.vocationalTrack ? ` · ${card.vocationalTrack}` : ""}`}
       actions={!team && <CustSwitch card={card} tab={tab === "rapporter" || tab === "meddelanden" ? tab : null} label={(who) => `Se ärendet som ${who}`} />}
     >
-      {card.protectedIdentity && (
-        <Notice tone="warn" icon="shield" title="Skyddade personuppgifter">
-          Ingen adress lagras. Inga SMS eller mejl skickas till deltagaren – kontakt sker per telefon enligt den säkra rutinen. AI och inspelning används aldrig. Bara namngiven
-          huvudcoach och avtalsansvarig ser kortet.
-        </Notice>
-      )}
       {card.readOnly && (
         <Notice tone="info" icon="eye" title="Läsläge">
           {role === "chef" ? "Som chef och controller ser du allt i ärendet men kan inte ändra något." : "Som systemadmin ser du ärendet men arbetar inte i det."} Visningen är
@@ -349,7 +325,6 @@ function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openMo
         <span className="flex flex-wrap items-center gap-1.5">
           <CaseStatusBadge status={c.status} />
           <PhaseTag phase={c.phase} name={c.phaseName} />
-          {c.protectedIdentity && <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>}
           {c.readOnly && <Badge tone="outline" icon="eye">Läsläge</Badge>}
           {c.stuck && (
             // Kvitterad flagga (Min vecka, listan): taggen säger det – annars ser det ut som att kvitteringen inte tog.
@@ -425,17 +400,8 @@ function CaseFacts({ card: c }: { card: CaseCard }) {
     c.order
       ? [
           "Beställning",
-          c.order.weeks && c.order.priceOre === undefined ? (
-            <>
-              {c.order.weeks} {c.order.weeks === 1 ? "vecka" : "veckor"} · <span className="text-text-muted">{TESTER_HIDDEN_TEXT}</span>
-            </>
-          ) : c.order.weeks && c.order.priceOre !== undefined ? (
-            <>
-              {c.order.weeks} {c.order.weeks === 1 ? "vecka" : "veckor"} · <span className="font-bold">{kr(c.order.weeks * c.order.priceOre)}</span>
-              <div className="text-small text-text-muted">
-                {c.order.weeks} × {kr(c.order.priceOre)} per deltagarvecka
-              </div>
-            </>
+          c.order.weeks ? (
+            `${c.order.weeks} ${c.order.weeks === 1 ? "vecka" : "veckor"}`
           ) : (
             "Omfattning inte angiven"
           ),
@@ -546,11 +512,6 @@ function CaseFacts({ card: c }: { card: CaseCard }) {
           <div>
             <b className="font-bold text-antracit">Det här ser kommunen:</b> status, fas, huvudcoach, närvaro, levererade rapporter och meddelanden.
             {!c.customerSeesCoachNotes ? " Inte coachens anteckningar." : ""}
-            {c.protectedIdentity && !c.customerRole && (
-              <DemoOnly>
-                {` Skyddade personuppgifter: i portalen ser bara beställande handläggare (${k ? k.name : "handläggaren"}) ärendet. Den rollen finns inte i prototypen, så du kan inte byta till kommunens vy här.`}
-              </DemoOnly>
-            )}
           </div>
         </div>
       )}
@@ -564,7 +525,6 @@ const CONSENT_STATE = {
   declined: ["grey", "minus-circle", "Deltagaren har avböjt"],
   revoked: ["red", "x-circle", "Samtycket är återkallat"],
   not_asked: ["outline", "help", "Inte tillfrågad ännu"],
-  not_applicable: ["dark", "lock", "Ej tillämpligt"],
 } as const;
 
 /** Samtycket på en rad: läge, kort förklaring och knapparna. */
@@ -607,7 +567,7 @@ function ConsentRow({ card, onRegister, className }: { card: CaseCard; onRegiste
       <span className="max-[620px]:hidden">
         <ConsentText card={card} />
       </span>
-      {card.edit && v !== "not_applicable" && active && (
+      {card.edit && active && (
         <span className="flex flex-wrap items-center gap-1.5">
           {v === "given" ? (
             <Button kind="danger" icon="x-circle" onClick={() => void revoke()} className="whitespace-normal">
@@ -634,7 +594,6 @@ function ConsentText({ card }: { card: CaseCard }) {
   const cons = card.consent;
   if (!cons) return null;
   const v = cons.value;
-  if (v === "not_applicable") return <span className="text-small">Skyddade personuppgifter: ingen inspelning och ingen AI. Samtycke kan inte registreras.</span>;
   if (v === "given" && cons.givenAt)
     return (
       <span className="text-small text-text-muted">
@@ -661,7 +620,7 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
     }
     const res = await set.run({ caseId: card.caseId, value: "given", language: lang }).catch(() => null);
     if (!res || !res.ok) {
-      toast("Samtycke kan inte registreras för skyddade personuppgifter.", "error");
+      toast(res && !res.ok && res.message ? res.message : "Samtycket kunde inte registreras. Försök igen.", "error");
       return;
     }
     toast("Samtycket är registrerat. Inspelning och AI-stöd kan nu användas i avstämningarna.");
@@ -810,7 +769,6 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
   const due = c.firstMeeting.dueAt;
   const [at, setAt] = useState(`${addWorkingDays(today, 1)}T10:00`);
   const [err, setErr] = useState<string | null>(null);
-  const prot = c.protectedIdentity;
   const late = !!at && !!due && at > due;
   const save = async () => {
     if (!at || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)) {
@@ -830,7 +788,7 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
       toast("Mötet kunde inte bokas.", "error");
       return;
     }
-    toast(`Första mötet är bokat ${fmtDateTimeLong(at)}.${prot ? " Ring deltagaren enligt den säkra rutinen." : " Kallelsen skickas via föredragen kontaktväg."}`);
+    toast(`Första mötet är bokat ${fmtDateTimeLong(at)}. Kallelsen skickas via föredragen kontaktväg.`);
     onClose();
   };
   return (
@@ -873,9 +831,7 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
         </Notice>
       )}
       <p>
-        {prot
-          ? "Skyddade personuppgifter: inga SMS eller mejl. Coachen ringer deltagaren enligt den säkra rutinen."
-          : `Deltagaren får en kallelse via ${(c.contactLabel ?? "SMS").toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}
+        {`Deltagaren får en kallelse via ${(c.contactLabel ?? "SMS").toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}
       </p>
     </Modal>
   );

@@ -1,5 +1,7 @@
 // Tester för områdets frågor och kommandot "visa personnummer" (ärendelistan, deltagarkortet, handledarens start) mot
 // testdatat i minnet. Förväntade värden är den gamla prototypens (prototyp/src/views/arenden.js och MM.sel på samma testdata).
+// Beslut 2026-10-07: skyddade personuppgifter är borttagna ur appen – ärendet case-260120 (Omars beställning) är ett vanligt
+// ärende. Den vilande spärren prövas genom att slå på den (protect()): ärendet visas då inte alls för den utan full åtkomst.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
@@ -39,6 +41,8 @@ const lars = () => as("u-lars", "ekonom");
 const NADIA = "case-260143";
 const YUSUF = "case-260148";
 const SKYDDAD = "case-260120";
+/** Den vilande spärren: personen i SKYDDAD får skyddade personuppgifter (testdatat har inga sedan 2026-10-07). */
+const protect = () => rt.store.updateRow("persons", rt.raw().get("cases", SKYDDAD)!.personId, { protectedIdentity: true });
 const INGETMOTE = "case-270039";
 
 const card = async (caseId: string, actor: Actor): Promise<CaseCard> => {
@@ -56,13 +60,11 @@ describe("arenden.lista (arenden.lista)", () => {
     expect(counts).toEqual({ samordnare: 231, avtalsansvarig: 231, coach: 29, handledare: 63, chef: 231, admin: 231 });
   });
 
-  it("samordnaren: skyddat ärende bara med nummer, åtta flaggade ärenden, tre med olästa meddelanden", async () => {
+  it("samordnaren: alla ärenden med namn (inga skyddade i testdatat), åtta flaggade ärenden, tre med olästa meddelanden", async () => {
     const m = await q(caseList, {}, sara());
-    const prot = m.rows.filter((r) => r.protectedIdentity);
-    expect(prot).toHaveLength(1);
-    expect(prot[0]).toMatchObject({ id: SKYDDAD, caseNumber: "BOT-26-0120", restricted: true, displayName: "Skyddade personuppgifter", detail: null });
-    expect(JSON.stringify(prot[0])).not.toMatch(/Sanna|Lindgren/);
-    expect(m.rows.filter((r) => r.flagged && !r.restricted)).toHaveLength(8);
+    expect(m.rows.find((r) => r.id === SKYDDAD)).toMatchObject({ caseNumber: "BOT-26-0120", displayName: "Sanna Lindgren" });
+    for (const key of ["protectedIdentity", "restricted"]) expect(m.rows[0]).not.toHaveProperty(key);
+    expect(m.rows.filter((r) => r.flagged)).toHaveLength(8);
     expect(m.rows.filter((r) => (r.detail?.unread ?? 0) > 0)).toHaveLength(3);
     expect(m.rows.filter((r) => r.status === "active")).toHaveLength(91);
     expect(m.customerName).toBe("Botkyrka kommun");
@@ -74,11 +76,12 @@ describe("arenden.lista (arenden.lista)", () => {
     expect(nadia.detail!.attendance).toMatchObject({ planned: 11, present: 8, late: 1, unregistered: 2, rate: 1 });
   });
 
-  it("avtalsansvarig ser namnet i det skyddade ärendet; coachen ser det inte alls", async () => {
+  it("vilande spärr påslagen: avtalsansvarig ser ärendet med namn; samordnare, chef och coach ser det inte alls (fail-closed)", async () => {
+    protect();
     const j = await q(caseList, {}, johan());
-    expect(j.rows.find((r) => r.id === SKYDDAD)).toMatchObject({ restricted: false, displayName: "Sanna Lindgren", protectedIdentity: true });
-    const a = await q(caseList, {}, amira());
-    expect(a.rows.find((r) => r.id === SKYDDAD)).toBeUndefined();
+    expect(j.rows.find((r) => r.id === SKYDDAD)).toMatchObject({ displayName: "Sanna Lindgren" });
+    for (const a of [sara(), karin(), amira()]) expect((await q(caseList, {}, a)).rows.find((r) => r.id === SKYDDAD), a.role).toBeUndefined();
+    expect((await q(caseList, {}, sara())).rows).toHaveLength(230);
   });
 
   it("coach och handledare ser aldrig eskaleringar till chef – chefen gör det", async () => {
@@ -113,7 +116,7 @@ describe("arenden.kort (arende.kort)", () => {
     const c = await card(NADIA, amira());
     expect(c).toMatchObject({
       caseNumber: "BOT-26-0143", displayName: "Nadia Warsame", access: "full", edit: true, manage: false, readOnly: false, phase: 4, phaseName: "Praktik/APL", phaseCount: 5,
-      phaseSince: "2027-01-25", sourceText: "mejl", order: { weeks: 10, priceOre: 139800 }, contactText: "SMS", languageText: "Somaliska", unread: 1, customerRole: "kommun_handlaggare",
+      phaseSince: "2027-01-25", sourceText: "mejl", order: { weeks: 10 }, contactText: "SMS", languageText: "Somaliska", unread: 1, customerRole: "kommun_handlaggare",
       referrer: { name: "Maria Ekdahl", title: "Handläggare", unit: "Arbetsmarknadsenheten Alby" }, buyer: { reference: "4410023817", problem: null },
       firstMeeting: { withinText: "inom en vecka från beställningen" }, keyPersonnelChangeRequiresApproval: true, customerSeesCoachNotes: false,
     });
@@ -123,14 +126,18 @@ describe("arenden.kort (arende.kort)", () => {
     expect(JSON.stringify(c)).not.toContain("19730216");
   });
 
-  it("utan åtkomst: coachen får 'denied' utan ärendenummer, samordnaren ser bara nummer och status i skyddat ärende", async () => {
-    expect(await q(caseCard, { caseId: SKYDDAD }, amira())).toEqual({ kind: "denied", restricted: false, caseNumber: null, status: null });
-    expect(await q(caseCard, { caseId: SKYDDAD }, sara())).toEqual({ kind: "denied", restricted: true, caseNumber: "BOT-26-0120", status: "active" });
-    expect(await q(caseCard, { caseId: SKYDDAD }, karin())).toMatchObject({ kind: "denied", restricted: true });
+  it("utan åtkomst: coachen får 'denied' utan ärendenummer; med den vilande spärren påslagen också samordnare och chef", async () => {
+    expect(await q(caseCard, { caseId: SKYDDAD }, amira())).toEqual({ kind: "denied" });
     expect(await q(caseCard, { caseId: "case-finns-inte" }, sara())).toEqual({ kind: "not_found" });
+    // Ett vanligt ärende för samordnaren i dag.
+    // Omars beställning – prototypens handläggare (Maria) har inte beställt den, så inget perspektivbyte.
+    expect(await card(SKYDDAD, sara())).toMatchObject({ displayName: "Sanna Lindgren", contactText: "Telefon", customerRole: null });
+    protect();
+    expect(await q(caseCard, { caseId: SKYDDAD }, sara())).toEqual({ kind: "denied" });
+    expect(await q(caseCard, { caseId: SKYDDAD }, karin())).toEqual({ kind: "denied" });
     const j = await card(SKYDDAD, johan());
-    expect(j).toMatchObject({ displayName: "Sanna Lindgren", protectedIdentity: true, contactText: "Telefon enligt den säkra rutinen. Inga SMS eller mejl.", customerRole: null });
-    expect(j.consent?.value).toBe("not_applicable");
+    expect(j).toMatchObject({ displayName: "Sanna Lindgren" });
+    expect(j).not.toHaveProperty("protectedIdentity");
   });
 
   it("handledaren (teamet): inga beställnings- eller samtyckesuppgifter och bara teamets flikar", async () => {
@@ -164,6 +171,18 @@ describe("deltagarkortets flikar", () => {
     expect(a.registerBy).toBe("måndag 10.00");
     expect(a.weeks[0].key).toBe("2027-W05");
     expect(a.past).toHaveLength(10);
+  });
+
+  // Beslut 2026-10-07, synpunkt #12: månadsrapporten visar bara närvarograden – internt finns all närvaroinformation kvar.
+  it("närvaro internt (synpunkt #12): veckorna, frånvaroorsakerna, upprepad frånvaro och tillfällena finns kvar på fliken Närvaro", async () => {
+    const a = (await q(caseAttendance, { caseId: YUSUF }, amira()))!;
+    expect(a.weeks.length).toBeGreaterThan(1);
+    expect(a.weeks.every((w) => typeof w.stats.planned === "number")).toBe(true);
+    expect(a.total.reasons.length).toBeGreaterThan(0);
+    expect(a.repeated?.absentInvalid).toBe(2);
+    expect(a.past.some((x) => x.attendance?.status === "absent_invalid")).toBe(true);
+    // Samma flik för samordnaren och handledaren (internt oförändrat).
+    expect((await q(caseAttendance, { caseId: YUSUF }, sara()))?.weeks).toEqual(a.weeks);
   });
 
   it("avvikelser: ansvariga, förval och uppföljningens tidsgräns (interna regler 16.00)", async () => {
@@ -233,8 +252,10 @@ describe("arenden.visaPersonnummer", () => {
 
   it("teamet (handledare) och roller utan åtkomst får inte se numret", async () => {
     expect(await cmd(caseRevealPnr.key, { caseId: NADIA }, petra())).toMatchObject({ ok: false, error: "forbidden" });
-    expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, sara())).toMatchObject({ ok: false, error: "forbidden" });
     expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, amira())).toMatchObject({ ok: false, error: "not_found" });
+    // Den vilande spärren: samordnaren ser inte personen.
+    protect();
+    expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, sara())).toMatchObject({ ok: false, error: "forbidden" });
   });
 });
 

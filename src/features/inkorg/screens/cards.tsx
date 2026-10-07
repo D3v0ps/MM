@@ -3,7 +3,6 @@
 // orderbekräftelsen och avslaget (prototypens OriginalCard, ParsedCard, CaseFieldsCard, AckCard, DuplicateCard,
 // ConfirmationCard och DeclinedCard).
 import { useState } from "react";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { pct } from "@/core/format";
 import { useCommand, useQuery } from "@/shell/backend";
 import { AiTag, Badge, Button, Card, CaseLink, CaseStatusBadge, ErrorNotice, Icon, Kv, Loading, Notice, PerspectiveLink } from "@/ui";
@@ -193,8 +192,7 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
             ["Huvudcoach", v.coachName],
             ["Team", v.team],
             ["Första möte", v.firstMeeting],
-            ["Planerad omfattning", v.planned],
-            ["Beställningens värde", v.value ?? TESTER_HIDDEN_TEXT],
+            ["Omfattning", v.planned],
             ["Beställarreferens", v.buyerReference],
           ]}
         />
@@ -206,11 +204,7 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
         )}
         <div className="flex flex-col gap-2">
           {v.custMail && <IconLine icon="mail"><b>Kommunen fick:</b> {v.custMail}</IconLine>}
-          {v.isProtected ? (
-            <IconLine icon="lock"><b>Deltagaren:</b> ingen kallelse via SMS eller e-post (skyddade personuppgifter). Coachen ringer enligt den säkra rutinen.</IconLine>
-          ) : (
-            v.kallelse && <IconLine icon={v.kallelse.icon}><b>{v.kallelse.title}</b> {v.kallelse.body}</IconLine>
-          )}
+          {v.kallelse && <IconLine icon={v.kallelse.icon}><b>{v.kallelse.title}</b> {v.kallelse.body}</IconLine>}
         </div>
       </div>
     </Card>

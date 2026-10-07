@@ -21,7 +21,7 @@ import { useSession } from "@/shell/session";
 import {
   AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
   List, Notice, Page,
-  Recorder, Row, Seg, Select, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
+  Recorder, Row, Seg, Select, SimulatedAiNotice, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
 import { Link } from "@/shell/nav";
 import { uploadStart } from "@/features/rost/api";
@@ -44,7 +44,7 @@ type Clicked = "accepted" | "edit" | "rejected";
 type Outcome = "accepted" | "edited" | "rejected";
 
 const TITLE = "Veckoavstämning";
-const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.";
+const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas. Dokumentera manuellt.";
 const FIELD_ID: Record<AiField, string> = { goalStatus: "ci-goal", nextGoal: "ci-nextgoal", phase: "ci-phase", activitiesDone: "ci-acts", employerContacts: "ci-ec", obstacles: "ci-obst", note: "ci-note" };
 const FIELD_LABEL: Record<AiField, string> = {
   goalStatus: "Veckomål uppnått", nextGoal: "Nytt veckomål", phase: "Fas", activitiesDone: "Genomförda aktiviteter", employerContacts: "Arbetsgivarkontakter", obstacles: "Hinder", note: "Anteckning",
@@ -726,7 +726,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
           {method === "manual" && <p className="text-body text-text-muted">Manuell dokumentation är standard och fullt likvärdig. AI fyller samma formulär – det finns ingen separat AI-väg.</p>}
           {method === "ai" && prot && (
             <Notice tone="critical" title="AI används inte för det här ärendet">
-              Deltagaren har skyddade personuppgifter. Då spelas inget in och ingen AI används. Dokumentera manuellt.
+              Inget spelas in och ingen AI används i det här ärendet. Dokumentera manuellt.
             </Notice>
           )}
           {method === "ai" && !prot && !consentOk && (
@@ -1410,6 +1410,8 @@ function AiSourceSummary({
         </span>
         {info.data && <span className="text-small text-text-muted">{providerText(info.data.provider, info.data.model)}</span>}
       </Row>
+      {/* Testmiljön: den simulerade AI-leverantören ger påhittad text (beslut 2026-10-07, synpunkt #8). */}
+      {info.data?.provider === "simulated" && <SimulatedAiNotice who="you" />}
       <Timeline
         items={[
           src.audio

@@ -16,6 +16,8 @@ export {
   BuildPhase,
   AiTag,
   AiBox,
+  SimulatedAiNotice,
+  SIMULATED_AI_TEXT,
   Evidence,
   RecIndicator,
   STATUS_TEXT,

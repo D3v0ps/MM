@@ -93,10 +93,11 @@ describe("begränsade testare (alla utom Karim och Ali)", () => {
     expect(karim?.personas.some((p) => p.role === "ekonom")).toBe(true);
     expect(sara?.personas.some((p) => p.role === "ekonom")).toBe(false);
     expect(sara?.personas.map((p) => `${p.userId}|${p.role}`)).toEqual(karim?.personas.filter((p) => p.role !== "ekonom").map((p) => `${p.userId}|${p.role}`));
-    // Systemadministratör, chef, coach, kommunens roller m.fl. finns kvar.
-    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"]) {
+    // Systemadministratör, chef, coach, kommunens handläggare m.fl. finns kvar. Kommunens chef finns inte (beslut 2026-10-07).
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "kommun_handlaggare"]) {
       expect(sara?.personas.some((p) => p.role === role), role).toBe(true);
     }
+    expect(sara?.personas.some((p) => (p.role as string) === "kommun_chef")).toBe(false);
   });
 
   it("mayImpersonate nekar ekonomen på servern, också om listan skulle innehålla den", async () => {

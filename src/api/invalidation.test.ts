@@ -58,15 +58,14 @@ const SAMPLES: Record<string, Sample[]> = {
   "coach.checkInAttendance": one("u-amira", { caseId: NADIA, date: "2027-01-28" }), "coach.aiRunInfo": one("u-amira", { runId: "ai-run-mehmet" }),
   "coach.checkInReceipt": one("u-amira", { caseId: NADIA, checkInId: "ci-12498" }), "coach.assessmentPage": one("u-amira", { caseId: NADIA, month: "2027-01" }),
   "coach.intakePage": one("u-amira", { caseId: NADIA }), "coach.eventsPage": one("u-amira", { caseId: NADIA }),
-  "ekonomi.run": one("u-lars", { month: "2027-01" }), "ekonomi.invoice": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.csv": one("u-lars", { month: "2027-01" }),
-  "ekonomi.preview": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.case": one("u-lars", { caseId: NADIA }), "ekonomi.caseList": one("u-lars"), "ekonomi.start": one("u-lars"),
+  "ekonomi.run": one("u-lars", { month: "2027-01" }), "ekonomi.line": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.csv": one("u-lars", { month: "2027-01" }),
+  "ekonomi.preview": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.case": one("u-lars", { caseId: NADIA }), "ekonomi.caseList": one("u-lars"), "ekonomi.priceList": one("u-lars"), "ekonomi.start": one("u-lars"),
   "inkorg.list": one("u-sara"), "inkorg.item": [...one("u-sara", { id: "em-103" }), ...one("u-sara", { id: "em-101" }), ...one("u-sara", { id: "em-105" }), ...one("u-sara", { id: "em-104" })], "inkorg.confirmation": one("u-sara", { caseId: "case-270049" }),
-  "inkorg.decisionForm": one("u-sara", { caseId: "case-270050" }), "inkorg.phoneForm": one("u-johan", { emailId: "em-103" }), "inkorg.duplicateCheck": one("u-sara", { pnr: "19900101-1234" }),
+  "inkorg.decisionForm": one("u-sara", { caseId: "case-270050" }), "inkorg.duplicateCheck": one("u-sara", { pnr: "19900101-1234" }),
   "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"),
   "kommun.start": one("k-maria"), "kommun.bestallning": one("k-maria"), "kommun.dubblett": one("k-maria", { pnr: "19900101-1234" }),
-  "kommun.kvitto": one("k-maria", { caseId: NADIA }), "kommun.deltagareLista": [...one("k-maria"), ...one("k-eva")], "kommun.deltagare": [...one("k-maria", { caseId: NADIA }), ...one("k-eva", { caseId: NADIA })],
-  "kommun.rapporter": one("k-maria"), "kommun.chef": one("k-eva", { month: "2027-01" }), "kommun.resultatForhandsvisning": one("k-eva", { from: "2026-12", to: "2027-01" }),
-  "kommun.delade": one("k-eva"), "kommun.testpersoner": one("k-maria", { userIds: ["k-maria"] }), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
+  "kommun.kvitto": one("k-maria", { caseId: NADIA }), "kommun.deltagareLista": one("k-maria"), "kommun.deltagare": one("k-maria", { caseId: NADIA }),
+  "kommun.rapporter": one("k-maria"), "kommun.profil": one("k-maria"), "kommun.testpersoner": one("k-maria", { userIds: ["k-maria"] }), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
   "kommun.dictationState": one("k-maria", { aiRunId: "ai-run-mehmet" }),
   "ledning.head": one("u-karin"), "ledning.overview": one("u-karin"), "ledning.coaches": one("u-karin"), "ledning.areas": one("u-karin"), "ledning.pulse": one("u-karin"),
   "ledning.cdevRegister": one("u-karin"), "ledning.cdevDetail": one("u-karin", { id: "cd-2" }), "ledning.cdevMonth": one("u-karin", { month: "2027-01" }),
@@ -76,7 +75,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "rapporter.byggKatalog": one("u-sara"), "rapporter.sparadeLista": one("u-sara"), "rapporter.sparad": one("u-sara", { savedReportId: "sr-seed-privat" }),
   "rapporter.resultatfilForhandsvisning": one("u-johan", { from: "2026-12", to: "2027-01" }),
   "rost.link": one("deltagare", {}), "rost.sendStatus": one("deltagare", { aiRunId: "ai-run-mehmet" }), "rost.caseVoice": one("u-amira", { caseId: NADIA }), "rost.pendingNotes": one("u-amira"),
-  "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-eva"), ...one("k-maria")],
+  "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-maria")],
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
 };
 
@@ -92,7 +91,9 @@ const AUDIT_CASE = "audit_log:case";
 const WRITES: Record<string, string[]> = {
   "admin.setOrgRule": ["org_settings", "audit_log:org_rule", AUDIT], "admin.runJob": ["*"], "admin.logCheck": ["log_checks", AUDIT], "admin.saveTemplate": ["template_versions", AUDIT],
   "admin.inviteCustomer": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setCustomerActive": ["profiles"],
-  "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", AUDIT_CASE, AUDIT],
+  "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", AUDIT_CASE, AUDIT],
+  "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],
+  "arenden.bilagaHamta": [AUDIT],
   "arenden.caseAccept": ["cases", "reports", "inbound_emails", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseDecline": ["cases", "inbound_emails", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
   "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", AUDIT_CASE, AUDIT],
@@ -108,17 +109,18 @@ const WRITES: Record<string, string[]> = {
   "coach.eventAdd": ["outcome_events", "audit_log:event", AUDIT_CASE, AUDIT], "coach.resultVerify": ["cases", "outcome_events", AUDIT_CASE, AUDIT],
   "coach.aiRun": ["ai_runs", "audit_log:audio", AUDIT_CASE, AUDIT], "coach.recordingFinish": ["ai_runs", "jobs", "check_ins", "audio_uploads", "audit_log:audio", AUDIT_CASE, AUDIT],
   "coach.monthlyDraft": ["ai_runs", "jobs", AUDIT_CASE, AUDIT],
-  "ekonomi.billingApproveZeroWeek": ["billing_week_approvals", AUDIT_CASE, AUDIT], "ekonomi.billingApproveInvoice": ["invoice_drafts", AUDIT_CASE, AUDIT],
-  "ekonomi.billingSendFortnox": ["invoice_drafts", AUDIT_CASE, AUDIT], "ekonomi.billingMarkManual": ["invoice_drafts", AUDIT_CASE, AUDIT], "ekonomi.billingExport": [AUDIT],
-  "ekonomi.fortnoxLog": ["fortnox_runs", AUDIT], "ekonomi.fortnoxSync": ["fortnox_runs", "invoice_drafts", AUDIT], "ekonomi.reissue": ["invoice_credits", AUDIT_CASE, AUDIT],
+  "ekonomi.billingApproveZeroWeek": ["billing_week_approvals", AUDIT_CASE, AUDIT], "ekonomi.billingApproveInvoice": ["invoice_drafts", AUDIT],
+  "ekonomi.billingSendFortnox": ["invoice_drafts", "invoice_lines", "fortnox_runs", AUDIT], "ekonomi.billingMarkManual": ["invoice_drafts", "invoice_lines", AUDIT],
+  "ekonomi.billingExport": [AUDIT], "ekonomi.invoiceSetBuyerRef": ["invoice_drafts", AUDIT], "ekonomi.invoiceSetPo": ["invoice_drafts", AUDIT],
+  "ekonomi.fortnoxSync": ["fortnox_runs", "invoice_drafts", AUDIT], "ekonomi.reissue": ["invoice_credits", "invoice_drafts", AUDIT],
   "ekonomi.taskDone": ["tasks", AUDIT], "ekonomi.askCoordinator": ["tasks", AUDIT], "ekonomi.closeRun": ["billing_runs", AUDIT],
   "inkorg.emailSetStatus": ["inbound_emails", AUDIT_CASE, AUDIT], "inkorg.emailApplySupplement": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
-  "inkorg.correct": ["cases", "inbound_emails", AUDIT_CASE, AUDIT], "inkorg.linkPhoneOrder": ["inbound_emails", "cases", "tasks", AUDIT_CASE, AUDIT],
+  "inkorg.correct": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
   "inkorg.taskDone": ["tasks", AUDIT], "inkorg.revealPnr": [AUDIT_CASE, AUDIT],
-  "kommun.resultatExport": ["audit_log:export", AUDIT], "kommun.delad": [AUDIT], "kommun.deladExport": [AUDIT], "kommun.caseSeen": ["case_seen"], "kommun.taskDone": ["tasks", AUDIT],
-  "kommun.approveActionPlan": ["contract_deviations", "user_notifications", "outbound_messages", AUDIT], "kommun.visaPersonnummer": [AUDIT_CASE, AUDIT],
+  "kommun.caseSeen": ["case_seen"], "kommun.taskDone": ["tasks", AUDIT], "kommun.visaPersonnummer": [AUDIT_CASE, AUDIT], "kommun.profilSpara": ["profiles", AUDIT],
   "kommun.dictationFinish": ["ai_runs", "jobs", "audio_uploads", AUDIT],
-  "ledning.alertAck": ["alert_acks", AUDIT_CASE, AUDIT], "ledning.cdevSave": ["contract_deviations", "user_notifications", "outbound_messages", AUDIT], "ledning.cdevClose": ["contract_deviations", AUDIT],
+  "ledning.alertAck": ["alert_acks", AUDIT_CASE, AUDIT], "ledning.cdevSave": ["contract_deviations", AUDIT], "ledning.cdevClose": ["contract_deviations", AUDIT],
+  "ledning.cdevCustomerApproved": ["contract_deviations", AUDIT],
   "notiser.notifRead": ["notification_reads"],
   "praktik.employerAdd": ["employers", AUDIT], "praktik.setRight": ["placements", AUDIT_CASE, AUDIT], "praktik.addFollowUp": ["placements", AUDIT_CASE, AUDIT],
   "puls.submit": ["pulse_responses", "pulse_invites", "tasks", AUDIT_CASE, AUDIT],
@@ -138,7 +140,6 @@ const AUDIT_READS: Record<string, string[]> = {
   "admin.auditLog": [AUDIT, AUDIT_CASE, "audit_log:export", "audit_log:audio", "audit_log:org_rule", "audit_log:event"],
   "admin.auditDetail": [AUDIT, AUDIT_CASE, "audit_log:export", "audit_log:audio", "audit_log:org_rule", "audit_log:event"],
   "arenden.kortHistorik": [AUDIT_CASE],
-  "kommun.resultatForhandsvisning": ["audit_log:export"],
   "admin.integrations": ["audit_log:audio"],
   "admin.orgRules": ["audit_log:org_rule"],
   // Rapportens modell läser när händelser registrerades (event.added) – skrivs bara av coach.eventAdd.
@@ -148,9 +149,9 @@ const AUDIT_READS: Record<string, string[]> = {
 
 /**
  * Tysta loggkommandon som med flit inte räknar om något (beslut D0 1.4): visningen loggas, men skärmen som visar loggen
- * (chefens Historik, revisionsloggen) hämtas om vid nästa sidvisning. Undantag: kommun.resultatExport (kolumnspärren).
+ * (chefens Historik, revisionsloggen) hämtas om vid nästa sidvisning. Hämtningen av en bilaga (arenden.bilagaHamta) likaså.
  */
-const SILENT_NONE = ["arenden.visaPersonnummer", "inkorg.revealPnr", "kommun.visaPersonnummer", "kommun.delad", "kommun.deladExport", "rapporter.snapshot", "rapporter.download",
+const SILENT_NONE = ["arenden.visaPersonnummer", "arenden.bilagaHamta", "inkorg.revealPnr", "kommun.visaPersonnummer", "rapporter.snapshot", "rapporter.download",
   "rapporter.byggForhandsvisning", "rapporter.byggExport", "rapporter.resultatfilExport", "rost.notesSeen", "session.auditView"];
 
 /**
@@ -182,10 +183,10 @@ const KNOWN: Known[] = [
   { command: "*", query: "rost.pendingNotes", table: "cases", reason: "röstinkorgen filtrerar på huvudcoach – coachbytet räknar om rost." },
   { command: "*", query: "rapporter.resultatfilForhandsvisning", table: "cases", reason: "räknar bara levererade rapporter; ärendets fält läses när filen byggs" },
   // Notiser som går till en annan användare: mottagarens lista hämtas i dennes session (appen: 20 s och vid fokus).
-  { command: "*", query: "inkorg.confirmation", table: "user_notifications", reason: "notisen går till coachen" },
   { command: "arenden.caseAccept", query: "notiser.list", table: "user_notifications", reason: "notisen går till coachen" },
   { command: "arenden.messageSend", query: "session.navCounts", table: "user_notifications", reason: "notisen går till mottagaren (coachen när kommunen skriver) – avsändarens räknare berörs inte" },
-  { command: "ledning.cdevSave", query: "notiser.list", table: "user_notifications", reason: "notisen går till avtalsansvarig" },
+  // Bilagor: en påbörjad uppladdning (pending) visas inte förrän den är klar (arenden.bilagaKlar räknar om).
+  { command: "arenden.bilagaStart", query: "*", table: "case_attachments", reason: "raden är pending och visas inte förrän bilagaKlar" },
   { command: "rapporter.reportDeliver", query: "notiser.list", table: "user_notifications", reason: "notisen går till kommunen" },
   // Fält i ärendet som bara några skärmar visar.
   { command: "arenden.consentSet", query: "*", table: "cases", reason: "bara samtyckesfältet – kortet, listan, avstämningen, Min vecka och rösten räknas om" },
@@ -207,9 +208,9 @@ function knownFor(command: string, query: string, tables: string[]): number[] | 
 
 /** Frågor som bara slår upp rader (get) eller bara läser uppslagstabeller – de får ingen automatisk kontroll (men står i planen). */
 const NO_TABLES = [
-  "admin.auditDetail", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "inkorg.duplicateCheck", "inkorg.phoneForm",
-  "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.testpersoner", "puls.link", "rapporter.byggKatalog", "rapporter.sparad",
-  "rost.link", "rost.sendStatus", "session.ping",
+  "admin.auditDetail", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "ekonomi.priceList", "inkorg.duplicateCheck",
+  "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "kommun.testpersoner", "puls.link",
+  "rapporter.byggKatalog", "rapporter.sparad", "rost.link", "rost.sendStatus", "session.ping",
 ];
 
 let rt: MemoryRuntime;
@@ -275,7 +276,7 @@ async function readsOf(q: QueryDef<unknown, unknown>): Promise<Set<string>> {
 }
 
 describe("exakt omräkning per kommando", () => {
-  it("varje kommando har en mängd; 'all' bara för admin.runJob; de tysta loggkommandona 'none' utom kommun.resultatExport", () => {
+  it("varje kommando har en mängd; 'all' bara för admin.runJob; de tysta loggkommandona 'none'", () => {
     const cs = commands();
     expect(cs.filter((c) => c.invalidates === undefined).map((c) => c.key)).toEqual([]);
     expect(cs.filter((c) => c.invalidates === "all").map((c) => c.key)).toEqual(["admin.runJob"]);
@@ -285,7 +286,6 @@ describe("exakt omräkning per kommando", () => {
       if (SILENT_NONE.includes(c.key)) expect(c.invalidates, c.key).toBe("none");
       else expect(c.invalidates, c.key).not.toBe("none");
     }
-    expect(commands().find((c) => c.key === "kommun.resultatExport")?.invalidates).toContain("kommun.resultatForhandsvisning");
     // Alla kommandon har en rad i WRITES och alla rader i WRITES finns som kommandon.
     const keys = cs.map((c) => c.key).sort();
     expect(Object.keys(WRITES).sort()).toEqual(keys);

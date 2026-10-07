@@ -7,10 +7,13 @@
 //                  alla i sina avtal (chef och admin i läsläge – chefen får ändå spara, dela inom Miljonbemanning och
 //                  arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs för fakturering, inga anteckningar,
 //                  rapporter eller namn · admin: allt inklusive konfiguration och logg (skyddade personer bara som ärende)
-//   Kommunen       handläggaren: sina beställningar (eller enhetens/alla enligt avtalet) · chefen: enhetens ärenden men inte
-//                  skyddade personer · bara levererade rapporter till dem · bara meddelanden i sina ärenden · aldrig
-//                  coachanteckningar, flaggor eller KPI:er
-//   Skyddade       bara namngiven huvudcoach, avtalsansvarig och beställande handläggare ser personen och detaljerna
+//   Kommunen       bara rollen handläggare (beslut 2026-10-07 – kommunens chef är borttagen): sina beställningar (eller
+//                  enhetens/alla enligt avtalet) · bara levererade rapporter till dem · bara meddelanden i sina ärenden · aldrig
+//                  coachanteckningar, flaggor, KPI:er eller prislistan (#11)
+//   Skyddade       VILANDE sedan 2026-10-07 (Karims beslut): skyddet är borttaget ur appen och protected_identity är alltid
+//                  false. Reglerna nedan (protectedCase, caseAccess "restricted") ligger kvar som spegel av RLS, så att skyddet
+//                  kan slås på igen utan migration: bara namngiven huvudcoach, avtalsansvarig och beställande handläggare ser
+//                  personen och detaljerna
 //   Övrigt         pulssvar: aldrig coachen (aggregat via ctx.system) · notiser: bara mottagaren · revisionslogg: admin och chef
 //                  · utskick: admin och samordnare · interna regler (org_settings): MB läser, admin skriver
 //   Röst           inspelningslänkar och deltagarens röstmeddelanden: den som arbetar i ärendet (aldrig ekonom), aldrig skyddade
@@ -23,15 +26,17 @@
 //                  hen agerar som · ny synpunkt och nytt svar bara i eget namn · i en synpunkt ändras bara status · minnesläget
 //                  och prototypen har inga testare (prototypens feedback ligger i claude.ai, src/demo/feedback-store.ts)
 //   Sparade       rapportbyggarens sparade rapporter (saved_reports, 0021): samordnare, avtalsansvarig och chef i avtalet läser
-//   rapporter     egna och delade (mb, customer – också arkiverade, hanterarna visar dem inte) · kommunens chef bara delade med
-//                 kommunen (customer), inte arkiverade, och bara när avtalet har seesIndividualReports · skrivs i eget namn ·
-//                 bara ägaren ändrar titel och definition · avtalsansvarig delar med kommunen, ändrar delningen och arkiverar
-//                 andras delade rapporter (aldrig till privat) · en rapport delad med kommunen ändras bara av avtalsansvarig ·
-//                 raderas aldrig
+//   rapporter     egna och delade inom Miljonbemanning (mb – också arkiverade, hanterarna visar dem inte) · skrivs i eget namn ·
+//                 bara ägaren ändrar titel och definition · avtalsansvarig ändrar delningen och arkiverar andras delade rapporter
+//                 (aldrig till privat) · raderas aldrig · delas aldrig med kommunen (beslut 2026-10-07, 0026)
+//   Bilagor       bilagor till beställningen (case_attachments, 0024): den som laddade upp innan beställningen skickats · i
+//                 ärendet samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) och beställande handläggare ·
+//                 aldrig handledare, ekonom, chef, admin eller deltagare · skrivs bara av systemet (ctx.attachments)
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
-// ljudfilernas rader via ctx.audio) körs via ctx.system (service role) och passerar inte policyn.
+// ljudfilernas rader via ctx.audio, bilagornas rader via ctx.attachments, självregistreringens profil och medlemskap) körs via
+// ctx.system (service role) och passerar inte policyn.
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
@@ -135,7 +140,10 @@ const customersOf = (a: Actor, raw: Raw) => {
   for (const id of a.contractIds) { const c = raw.get("contracts", id); if (c) out.add(c.customerId); }
   return out;
 };
-/** Ärendets person har skyddade personuppgifter (uppslag utan filter). Ett ärende eller en person som saknas räknas som skyddat. */
+/**
+ * Ärendets person har skyddade personuppgifter (uppslag utan filter). Ett ärende eller en person som saknas räknas som skyddat.
+ * VILANDE sedan 2026-10-07: protected_identity är alltid false (spegel av mm.case_is_protected i 0015).
+ */
 const protectedCase = (raw: Raw, caseId: string | null | undefined): boolean => {
   const c = caseId ? raw.get("cases", caseId) : undefined;
   const p = c ? raw.get("persons", c.personId) : undefined;
@@ -157,12 +165,12 @@ function reportRead(r: Report, a: Actor, raw: Raw): boolean {
   }
   if (isKom(a)) {
     if (!r.deliveredAt) return false; // bara levererade rapporter
+    // Beställarrapporten och statistiken lämnas av Miljonbemanning utanför Miljonmatch (beslut 2026-10-07) – kommunen läser
+    // dem aldrig, inte heller den tidigare chefen som har kvar sitt id i deliveredTo (0026, reports_select).
+    if (r.kind === "customer_summary" || r.kind === "statistics") return false;
     const toMe = r.deliveredTo.includes(a.userId) || self(a, r.recipientUserId);
     if (!r.caseId) return toMe;
-    if (accessTo(raw, a, r.caseId) !== "customer") return false;
-    if (toMe) return true;
-    // Kommunens chef ser enhetens individrapporter om avtalet säger det
-    return a.role === "kommun_chef" && !!raw.get("contracts", r.contractId)?.config.customerVisibility?.seesIndividualReports;
+    return accessTo(raw, a, r.caseId) === "customer" && toMe;
   }
   return false;
 }
@@ -278,18 +286,14 @@ function caseNoteWrite(x: CaseNoteRow, a: Actor, raw: Raw): boolean {
 type SavedReportRow = Tables["saved_reports"];
 /** Bygger och sparar rapporter (rapporter steg 4, beslut 10) – inte admin, coach, handledare eller ekonom. */
 export const REPORT_BUILDERS: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
-/** Avtalet låter kommunens chef se enhetens individrapporter (mm.individual_report_contract_ids()). */
-const customerReportsAllowed = (raw: Raw, contractId: string) => raw.get("contracts", contractId)?.config.customerVisibility?.seesIndividualReports === true;
 /** Fält som aldrig ändras efter att rapporten skapats (triggern saved_reports_protect_columns, 0021). */
 const SAVED_FIXED = ["contractId", "ownerId", "createdAt"];
 /** Det enda som den som inte är ägaren får ändra (tillägg 2026-10-02): delningen och arkiveringen. */
 const SAVED_SHARING = ["visibility", "sharedAt", "sharedBy", "archivedAt", "archivedBy"];
 const TEMPLATE_KEY = /^[a-z0-9-]{1,60}$/;
 
-function savedReportRead(x: SavedReportRow, a: Actor, raw: Raw): boolean {
-  if (has(REPORT_BUILDERS, a)) return member(a, x.contractId) && (self(a, x.ownerId) || x.visibility !== "private");
-  if (a.role === "kommun_chef") return member(a, x.contractId) && customerReportsAllowed(raw, x.contractId) && x.visibility === "customer" && x.archivedAt == null;
-  return false;
+function savedReportRead(x: SavedReportRow, a: Actor): boolean {
+  return has(REPORT_BUILDERS, a) && member(a, x.contractId) && (self(a, x.ownerId) || x.visibility !== "private");
 }
 /** Tabellens kontroller (check i 0021): titelns längd, mallnyckeln, definitionen, delningen och paren. */
 function savedReportShape(x: SavedReportRow): boolean {
@@ -299,34 +303,30 @@ function savedReportShape(x: SavedReportRow): boolean {
   const titleChars = [...x.title].length;
   return titleChars >= 3 && titleChars <= 80 && (x.templateKey == null || TEMPLATE_KEY.test(x.templateKey))
     && !!def && typeof def === "object" && !Array.isArray(def) && String((def as { v?: unknown }).v) === "1"
-    && ["private", "mb", "customer"].includes(x.visibility) && (x.visibility === "private" || x.sharedAt != null)
+    && ["private", "mb"].includes(x.visibility) && (x.visibility === "private" || x.sharedAt != null)
     && pair(x.updatedAt, x.updatedBy) && pair(x.sharedAt, x.sharedBy) && pair(x.archivedAt, x.archivedBy);
 }
 /**
- * Ny rad: byggroll, medlem, i eget namn; 'customer' bara för avtalsansvarig när avtalet tillåter det; varken ändrad eller
- * arkiverad; privat = inte delad, annars delad i eget namn. Ändring: den befintliga raden är inte arkiverad och ägs av en själv
- * (eller är inte privat och man är avtalsansvarig); en rad delad med kommunen ändras bara av avtalsansvarig; den nya raden
- * ägs av en själv eller är inte privat (avtalsansvarig); något ändras; avtal, ägare och skapad-tid ändras aldrig; ändrad- och
+ * Ny rad: byggroll, medlem, i eget namn; varken ändrad eller arkiverad; privat = inte delad, annars delad i eget namn.
+ * Ändring: den befintliga raden är inte arkiverad och ägs av en själv (eller är inte privat och man är avtalsansvarig); den
+ * nya raden ägs av en själv eller är inte privat (avtalsansvarig); något ändras; avtal, ägare och skapad-tid ändras aldrig; ändrad- och
  * arkiveringstid i eget namn; ändras delningen sätts shared_* i eget namn (värdena får vara desamma – minutprecisionen);
  * shared_* ändras bara med delningen; den som inte är ägaren ändrar bara delningen och arkiveringen. Samma regler som
  * policyerna och triggern i 0021. Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen hård radering).
  */
 function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
   if (!has(REPORT_BUILDERS, a) || !member(a, x.contractId) || !savedReportShape(x)) return false;
-  const customerOk = x.visibility !== "customer" || (a.role === "avtalsansvarig" && customerReportsAllowed(raw, x.contractId));
   const cur = raw.get("saved_reports", x.id);
   if (!cur) {
-    if (!self(a, x.ownerId) || !customerOk) return false;
+    if (!self(a, x.ownerId)) return false;
     if (x.updatedAt != null || x.updatedBy != null || x.archivedAt != null || x.archivedBy != null) return false;
     return x.visibility === "private" ? x.sharedAt == null && x.sharedBy == null : x.sharedAt != null && self(a, x.sharedBy);
   }
   // Den befintliga raden (using).
   if (cur.archivedAt != null || !member(a, cur.contractId)) return false;
   if (!self(a, cur.ownerId) && !(a.role === "avtalsansvarig" && cur.visibility !== "private")) return false;
-  if (cur.visibility === "customer" && a.role !== "avtalsansvarig") return false;
   // Den nya raden (with check).
   if (!self(a, x.ownerId) && !(a.role === "avtalsansvarig" && x.visibility !== "private")) return false;
-  if (!customerOk) return false;
   // Kolumnskyddet (triggern).
   const changed = changedFields(cur, x);
   if (!changed.length || changed.some((k) => SAVED_FIXED.includes(k))) return false;
@@ -348,7 +348,8 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   },
   contracts: { read: (c, a) => (isMB(a) || isKom(a)) && member(a, c.id), write: (_c, a) => a.role === "admin" },
   contract_areas: { read: (x, a) => (isMB(a) || isKom(a)) && member(a, x.contractId), write: (_x, a) => a.role === "admin" },
-  price_items: { read: (x, a) => (isMB(a) || isKom(a)) && member(a, x.contractId), write: (_x, a) => a.role === "admin" },
+  // Prislistan: bara Miljonbemanning (synpunkt #11 – inga belopp för kommunen, 0026).
+  price_items: { read: (x, a) => isMB(a) && member(a, x.contractId), write: (_x, a) => a.role === "admin" },
   profiles: {
     read: (p, a, raw) => self(a, p.id) || a.role === "admin" || ((isMB(a) || isKom(a)) && orgsOf(a, raw).has(p.organizationId)),
     write: (p, a, raw) =>
@@ -419,21 +420,19 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   contract_deviations: {
     read: (d, a, raw) => {
       if (!member(a, d.contractId)) return false;
-      if (has(OVERSIGHT, a)) return !d.caseId || accessTo(raw, a, d.caseId) !== "none";
-      if (a.role === "kommun_chef") return !d.caseId || accessTo(raw, a, d.caseId) === "customer"; // godkänner åtgärdsplaner
-      return false;
+      return has(OVERSIGHT, a) && (!d.caseId || accessTo(raw, a, d.caseId) !== "none");
     },
-    write: (d, a, raw) =>
-      (["samordnare", "avtalsansvarig", "chef"].includes(a.role) && member(a, d.contractId))
-      || (a.role === "kommun_chef" && member(a, d.contractId) && exists(raw, "contract_deviations", d.id)),
+    // Kommunens godkännande av en åtgärdsplan registreras av avtalsansvarig (beslut 2026-10-07 – kommunens chef är borttagen).
+    write: (d, a) => ["samordnare", "avtalsansvarig", "chef"].includes(a.role) && member(a, d.contractId),
   },
+  // Bonusanspråk (fas 3, avstängt): raden har beloppet (amountOre) – kommunen läser och ändrar den inte (beslut 5 2026-10-07:
+  // inga belopp för kommunen, 0026). Kommunens beslut om ett anspråk byggs i fas 3 med en vy utan belopp.
   bonus_claims: {
-    read: (x, a, raw) => ["full", "team", "customer", "billing"].includes(accessTo(raw, a, x.caseId)),
+    read: (x, a, raw) => ["full", "team", "billing"].includes(accessTo(raw, a, x.caseId)),
     write: (x, a, raw) => {
       if (workOn(x.caseId, a, raw)) return true;
       if (!exists(raw, "bonus_claims", x.id)) return false;
-      const acc = accessTo(raw, a, x.caseId);
-      return (a.role === "kommun_handlaggare" && acc === "customer" && self(a, raw.get("cases", x.caseId)?.referrerId)) || (a.role === "ekonom" && acc === "billing");
+      return a.role === "ekonom" && accessTo(raw, a, x.caseId) === "billing";
     },
   },
 
@@ -467,9 +466,20 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Fakturering
   billing_runs: { read: (x, a) => has(BILLING_READERS, a) && member(a, x.contractId), write: (x, a) => a.role === "ekonom" && member(a, x.contractId) },
   invoice_drafts: { read: (x, a) => has(BILLING_READERS, a) && member(a, x.contractId), write: (x, a) => a.role === "ekonom" && member(a, x.contractId) },
+  // Fakturaraderna fryses när fakturan skapas (0023, mm.invoice_editable): bara medan fakturan är underlag eller godkänd – eller
+  // returnerad, när den görs om med raderna frysta på nytt (eko.reissue) – får ekonomen lägga till, ändra eller ta bort en rad.
+  // En skapad faktura (Fortnox, bokförd, skickad, betald, manuell) eller en krediterad ändras aldrig.
   invoice_lines: {
     read: (x, a, raw) => has(BILLING_READERS, a) && member(a, raw.get("invoice_drafts", x.invoiceDraftId)?.contractId),
-    write: (x, a, raw) => a.role === "ekonom" && member(a, raw.get("invoice_drafts", x.invoiceDraftId)?.contractId),
+    write: (x, a, raw) => {
+      const d = raw.get("invoice_drafts", x.invoiceDraftId);
+      const before = raw.get("invoice_lines", x.id);
+      const editable = (id: string | undefined) => {
+        const s = id ? raw.get("invoice_drafts", id)?.status : undefined;
+        return s === "draft" || s === "approved" || s === "returned";
+      };
+      return a.role === "ekonom" && member(a, d?.contractId) && editable(x.invoiceDraftId) && (!before || editable(before.invoiceDraftId));
+    },
   },
   billing_week_approvals: { read: (x, a) => has(BILLING_READERS, a) && member(a, x.contractId), write: (x, a) => a.role === "ekonom" && member(a, x.contractId) },
   invoice_credits: { read: (x, a) => has(BILLING_READERS, a) && member(a, x.contractId), write: (x, a) => a.role === "ekonom" && member(a, x.contractId) },
@@ -500,7 +510,7 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     read: messageRead,
     write: (m, a, raw) => {
       const cur = raw.get("messages", m.id);
-      // Läskvitto: den som arbetar i ärendet eller beställande handläggare (kommunens chef läser utan kvitto).
+      // Läskvitto: den som arbetar i ärendet eller beställande handläggare.
       if (cur) return messageRead(m, a, raw) && (a.role === "kommun_handlaggare" || has(CASE_WORKERS, a)) && readReceiptOnly(cur, m, a);
       if (!self(a, m.senderId)) return false;
       const acc = accessTo(raw, a, m.caseId);
@@ -572,6 +582,22 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
 
   // ---- Rapportbyggarens sparade rapporter (0021). Ingen raderar – de arkiveras.
   saved_reports: { read: savedReportRead, write: savedReportWrite },
+
+  // ---- Bilagor till beställningen (0024). Raderna skrivs bara av systemet (ctx.attachments) efter hanterarens kontroll.
+  case_attachments: {
+    read: (x, a, raw) => {
+      if (x.deletedAt != null) return false;
+      // Den egna uppladdningen innan beställningen skickats.
+      if (!x.caseId) return a.role !== "deltagare" && self(a, x.uploadedBy);
+      const acc = accessTo(raw, a, x.caseId);
+      // Samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) – aldrig handledare, ekonom, chef eller admin.
+      if (a.role === "samordnare" || a.role === "avtalsansvarig" || a.role === "coach") return acc === "full";
+      // Kommunens handläggare som beställde.
+      if (a.role === "kommun_handlaggare") return acc === "customer" && self(a, raw.get("cases", x.caseId)?.referrerId);
+      return false;
+    },
+    write: never,
+  },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

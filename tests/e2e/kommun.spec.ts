@@ -1,5 +1,7 @@
 // Kommunens portal – port av den gamla prototypens tools/test-kommun.mjs (inloggning, startsida, beställning, deltagare,
-// rapporter och meddelanden, händelser och uppgifter, beställarrapporten).
+// rapporter och meddelanden, händelser och uppgifter). Ändrat efter synpunkterna från 2026-10-06 (beslut 2026-10-07): självregistrering,
+// beställningen med omfattning i månader och bakgrundsinformation med bifogad fil, inga belopp, månadsrapportens närvaro och
+// ingen kommunens chef (beställarrapporten och resultatfilen lämnas av Miljonbemanning).
 // Samma test körs mot prototypen (projekt "demo") och appen (projekt "app"). Data läses via skärmen. Steg som görs i andra
 // områden (Miljonbemanning avböjer, accepterar, byter coach, kallar kommunen) körs som kommandon – i prototypen via
 // kommandologgen som spelas upp vid omladdning, i appen via /api/rpc. Det som inte syns på skärmen (revisionslogg,
@@ -9,14 +11,12 @@ import { allowLeaveWarnings, isDemo, open, switchPersona } from "./helpers";
 
 type As = { userId: string; role: string };
 const MARIA: As = { userId: "k-maria", role: "kommun_handlaggare" };
-const EVA: As = { userId: "k-eva", role: "kommun_chef" };
 const SARA: As = { userId: "u-sara", role: "samordnare" };
-const JOHAN: As = { userId: "u-johan", role: "avtalsansvarig" };
 const AMIRA: As = { userId: "u-amira", role: "coach" };
 const SOFIA: As = { userId: "u-sofia", role: "coach" };
 
 // Testdatat (samma id:n som i den gamla prototypen, prototypens S.script)
-const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", skyddad: "case-260120", mall: "case-270050" };
+const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", mall: "case-270050" };
 const NADIA_DEC = "rep-16008"; // månadsrapport december, levererad till Maria Ekdahl
 const ACTOR_EXTRA: Record<string, { contractIds: string[]; customerUnit: string | null }> = {
   "k-maria": { contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" },
@@ -82,6 +82,11 @@ const currentPath = (page: Page, info: TestInfo) => {
 };
 /** Rollen i prototypfältet (bara prototypen). */
 const roleSelect = (page: Page) => page.getByLabel("Roll", { exact: true });
+/** Prototypfältet visar kundens perspektiv. Kommunen har bara en roll (beslut 2026-10-07), så fältet har ingen rollväljare då. */
+async function expectCustomerPerspective(page: Page) {
+  await expect(page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Kund" })).toHaveAttribute("aria-pressed", "true");
+  await expect(roleSelect(page)).toHaveCount(0);
+}
 
 /** Ingen horisontell scroll i sidans innehåll på 400 px (prototypfältet överst räknas inte). */
 async function noHScroll(page: Page, label: string) {
@@ -105,12 +110,15 @@ async function caseIdFromLink(page: Page, name: string | RegExp): Promise<string
 }
 
 // ================================================================ 1. Inloggning
-test("1. inloggning med e-post och engångskod (neutralt svar, kod, chefen, okänd adress, mobil)", async ({ page }, info) => {
+test("1. inloggning med e-post och engångskod (neutralt svar, kod, självregistrering, annan domän, mobil)", async ({ page }, info) => {
   const errors = await open(page, info, "/portal/logga-in", MARIA);
   await expect(page.locator("#kom-login-email")).toHaveValue("maria.ekdahl@botkyrka.se");
   let t = await mainText(page);
   expect(t, "förklarar varför kod i stället för länk").toMatch(/Safe Links/);
   expect(t, "nämner utloggning efter 60 minuters inaktivitet").toMatch(/60 minuter utan aktivitet/);
+  expect(t, "kontot skapas första gången").toMatch(/Första gången du loggar in skapas ditt konto/);
+  // Portalen påminner inte om mejlbeställning (synpunkt #1, rättelse 2026-10-07).
+  expect(t).not.toMatch(/avrop@|beställa med mejl/i);
   // Avvikelse från prototypen: svaret är alltid neutralt – skärmen avslöjar inte vilka domäner eller adresser som finns.
   await page.fill("#kom-login-email", "maria.ekdahl@gmail.com");
   await btn(page, "Skicka kod").click();
@@ -142,29 +150,44 @@ test("1. inloggning med e-post och engångskod (neutralt svar, kod, chefen, okä
   await expect.poll(() => currentPath(page, info), { timeout: 15_000 }).toBe("/portal");
   await settle(page);
   await expect(main(page), "handläggaren hamnar på startsidan").toContainText(/Välkommen, Maria/i);
-  if (isDemo(info)) await expect(roleSelect(page)).toHaveValue("kommun_handlaggare");
+  if (isDemo(info)) await expectCustomerPerspective(page);
 
-  // Chefen loggar in med sin adress och hamnar på beställarrapporten
+  // Självregistrering (beslut 2026-10-07, synpunkt #2): en ny adress på kommunens domän får ett konto som handläggare och
+  // kommer till Mina uppgifter. Namnet är förifyllt ur adressen; telefon och enhet fylls i.
   await go(page, info, "/portal/logga-in", MARIA);
-  if (isDemo(info)) await btn(page, /Fyll i Eva Bergström/).click();
-  else await page.fill("#kom-login-email", "eva.bergstrom@botkyrka.se");
-  await expect(page.locator("#kom-login-email")).toHaveValue("eva.bergstrom@botkyrka.se");
+  await page.fill("#kom-login-email", "kim.testsson@botkyrka.se");
   await btn(page, "Skicka kod").click();
+  await expect(main(page)).toContainText("Om adressen kim.testsson@botkyrka.se finns hos oss har vi skickat en kod dit.");
   await page.fill("#kom-login-code", "000000");
   await btn(page, "Logga in").click();
-  await expect.poll(() => currentPath(page, info), { timeout: 15_000 }).toBe("/portal/bestallarrapport");
+  await expect.poll(() => currentPath(page, info), { timeout: 15_000 }).toBe("/portal/mina-uppgifter?forsta=1");
   await settle(page);
-  await expect(page.getByRole("heading", { level: 1 }), "chefens adress loggar in som kommunens chef").toHaveText(/Beställarrapport/i);
-  if (isDemo(info)) await expect(roleSelect(page)).toHaveValue("kommun_chef");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/Välkommen till Miljonmatch/i);
+  if (isDemo(info)) await expectCustomerPerspective(page);
+  await expect(page.locator("#kom-p-name")).toHaveValue("Kim Testsson");
+  await expect(main(page)).toContainText("Du ser bara de deltagare som du har beställt insatser för.");
+  await btn(page, "Spara").click();
+  await expect(main(page), "telefon och enhet krävs").toContainText("Skriv vilken enhet du arbetar på.");
+  await page.fill("#kom-p-phone", "08-000 12 34");
+  await page.fill("#kom-p-unit", "Arbetsmarknadsenheten Tumba");
+  await btn(page, "Spara").click();
+  await expect.poll(() => currentPath(page, info), { timeout: 15_000 }).toBe("/portal");
+  await settle(page);
+  await expect(main(page)).toContainText(/Välkommen, Kim/i);
+  await expect(main(page)).toContainText("Arbetsmarknadsenheten Tumba");
+  // Det nya kontot har inga deltagare än (bara egna beställningar syns).
+  await linkOrBtn(page, /Mina deltagare/).first().click();
+  await settle(page);
+  await expect(main(page)).not.toContainText("Nadia Warsame");
 
-  // Okänd adress: samma neutrala svar, och koden godtas inte – ingen inloggning
+  // En annan domän: samma neutrala svar, och koden godtas inte – inget konto, ingen inloggning
   await go(page, info, "/portal/logga-in", MARIA);
-  await page.fill("#kom-login-email", "okand.person@botkyrka.se");
+  await page.fill("#kom-login-email", "okand.person@gmail.com");
   await btn(page, "Skicka kod").click();
-  await expect(main(page)).toContainText("Om adressen okand.person@botkyrka.se finns hos oss");
+  await expect(main(page)).toContainText("Om adressen okand.person@gmail.com finns hos oss");
   await page.fill("#kom-login-code", "123456");
   await btn(page, "Logga in").click();
-  await expect(main(page), "okänd adress loggas inte in").toContainText("Koden stämmer inte eller har gått ut.");
+  await expect(main(page), "annan domän loggas inte in").toContainText("Koden stämmer inte eller har gått ut.");
   expect(currentPath(page, info)).toBe("/portal/logga-in");
   expect(errors).toEqual([]);
 });
@@ -206,7 +229,7 @@ test("2. startsidan för handläggaren: olästa överst, tre stora knappar och V
 });
 
 // ================================================================ 3. Beställning
-test("3. beställning i tre steg och en granskning, kvittot och en beställning med skyddade personuppgifter", async ({ page }, info) => {
+test("3. beställning i tre steg och en granskning: omfattning i månader, bakgrundsinformation med bifogad fil, inga belopp", async ({ page }, info) => {
   // Nadias personnummer (för dubblettkontrollen) läses via "Visa" – visningen loggas.
   const errors = await open(page, info, `/portal/deltagare/${SC.nadia}`, MARIA);
   await settle(page);
@@ -218,33 +241,35 @@ test("3. beställning i tre steg och en granskning, kvittot och en beställning 
   await go(page, info, "/portal/bestall", MARIA);
   await expect(page.locator("#kom-o-name")).toHaveValue("Maria Ekdahl");
   await expect(page.locator("#kom-o-email")).toHaveValue("maria.ekdahl@botkyrka.se");
+  await expect(page.locator("#kom-o-unit"), "enheten är fritext och förifylld").toHaveValue("Arbetsmarknadsenheten Alby");
   let t = await mainText(page);
   expect(t).toMatch(/Steg 1 av 3/i);
-  expect(t).toMatch(/tre korta steg och en granskning/);
+  expect(t).toMatch(/tre korta steg och granska innan du skickar/);
   const stepper = main(page).getByRole("list", { name: "Steg i beställningen" });
   await expect(stepper.getByRole("listitem")).toHaveCount(4);
   await expect(stepper.getByRole("listitem").last().locator("svg"), "granskningen visas utan stegnummer").toHaveCount(1);
-  expect(t, "hjälptexten för referensen läses från avtalet").toMatch(/8–10 siffror, bara siffror/);
+  // Borttaget 2026-10-07: beställarreferens, planerat slutdatum, skyddade personuppgifter, anpassning, avtalsområde och värde.
+  for (const id of ["#kom-o-ref", "#kom-o-end", "#kom-o-area", "#kom-o-track", "#kom-o-needs"]) await expect(page.locator(id), id).toHaveCount(0);
+  expect(t).not.toMatch(/Beställarreferens|Skyddade personuppgifter|Önskat yrkes/i);
   if (isDemo(info)) await expect(btn(page, "Se hur beställningar tas emot hos Miljonbemanning")).toHaveCount(1);
-  await expect(page.locator("#kom-o-ref"), "sparad beställarreferens förifylld").toHaveValue("4410023817");
-  await page.fill("#kom-o-ref", "44100");
-  await expect(main(page)).toContainText("ska vara 8–10 siffror. Du har skrivit 5");
-  await page.fill("#kom-o-ref", "4410-0238");
-  await expect(main(page)).toContainText("bara innehålla siffror");
-  await page.fill("#kom-o-ref", "55102983");
-  await expect(main(page), "spärrad referens upptäcks").toContainText("spärrad");
   await btn(page, /^Nästa/).click();
-  await expect(main(page).getByRole("heading", { level: 2, name: "Beställning och kontakt" }), "kan inte gå vidare med fel referens").toHaveCount(1);
-  await expect(main(page), "omfattning i veckor krävs").toContainText("Välj hur många veckor");
-  await page.fill("#kom-o-ref", "4410023817");
-  await expect(main(page)).toContainText("rätt format");
+  await expect(main(page).getByRole("heading", { level: 2, name: "Beställning och kontakt" }), "omfattningen krävs").toHaveCount(1);
+  await expect(main(page)).toContainText("Välj hur länge insatsen ska pågå.");
+  const period = page.getByRole("group", { name: "Omfattning" });
+  await expect(period.getByRole("button"), "6 månader, 12 månader och annan tidsperiod (avtalets alternativ)").toHaveText(["6 månader", "12 månader", "Annan tidsperiod"]);
+  // Annan tidsperiod kräver slutdatum och motivering.
+  await period.getByRole("button", { name: "Annan tidsperiod" }).click();
   await page.fill("#kom-o-start", "2027-02-15");
-  await page.getByRole("group", { name: "Planerad omfattning i veckor" }).getByRole("button", { name: "8", exact: true }).click();
-  await expect(page.locator("#kom-o-end"), "slutdatum räknas fram").toHaveValue("2027-04-09");
+  await btn(page, /^Nästa/).click();
+  await expect(main(page)).toContainText("Välj ett slutdatum.");
+  await expect(main(page)).toContainText("Skriv varför insatsen behöver en annan längd.");
+  // 6 månader: planerat slut räknas fram från startdatumet.
+  await period.getByRole("button", { name: "6 månader", exact: true }).click();
+  await expect(page.locator("#kom-o-end"), "inget slutdatum att fylla i vid 6 månader").toHaveCount(0);
+  await expect(main(page)).toContainText(/Planerat slut: 14 augusti 2027/);
   await btn(page, /^Nästa/).click();
   await expect(main(page).getByRole("heading", { level: 2, name: "Deltagare", exact: true })).toHaveCount(1);
   await expect(main(page), "mallens text om dataminimering").toContainText("Lämna bara de uppgifter som behövs");
-  await page.getByRole("group", { name: "Skyddade personuppgifter" }).getByRole("button", { name: "Nej" }).click();
   await page.fill("#kom-o-fn", "Test");
   await page.fill("#kom-o-ln", "Dubblett");
   await page.fill("#kom-o-pnr", nadiaPnr);
@@ -263,16 +288,18 @@ test("3. beställning i tre steg och en granskning, kvittot och en beställning 
   await btn(page, /^Nästa/).click();
   await expect(main(page), "adress krävs vid brev").toContainText("Skriv hela adressen");
   await page.fill("#kom-o-addr", "Testgatan 1, 147 30 Tumba");
-  await page.fill("#kom-o-needs", "Behöver skriftliga instruktioner.");
   await btn(page, /^Nästa/).click();
-  await expect(main(page).getByRole("heading", { level: 2, name: "Avtalsområde" })).toHaveCount(1);
+  await expect(main(page).getByRole("heading", { level: 2, name: "Bakgrundsinformation om deltagaren" })).toHaveCount(1);
+  await expect(main(page)).toContainText("Var så detaljerad som möjligt – det är en bra utgångspunkt för oss.");
   await btn(page, /^Nästa/).click();
-  await expect(main(page), "avtalsområde krävs").toContainText("Välj ett avtalsområde");
-  await expect(page.locator("#kom-o-area option"), "A–L finns att välja").toHaveCount(13);
-  await page.selectOption("#kom-o-area", "G");
-  await page.selectOption("#kom-o-area2", "J");
-  await page.getByRole("group", { name: "Förslag på yrkesspår" }).getByRole("button", { name: "Truckförare A+B" }).click();
-  await expect(page.locator("#kom-o-track")).toHaveValue("Truckförare A+B");
+  await expect(main(page), "frågan om kartläggning krävs").toContainText("Svara om en kartläggning har genomförts.");
+  await page.getByRole("group", { name: "Har en kartläggning genomförts?" }).getByRole("button", { name: "Ja" }).click();
+  // Bifoga fil: en påhittad PDF. En fil av fel typ tas inte emot.
+  await page.locator("#kom-o-files").setInputFiles({ name: "skript.exe", mimeType: "application/x-msdownload", buffer: Buffer.from("MZ påhittad") });
+  await expect(main(page)).toContainText(/skript\.exe/);
+  await page.locator("#kom-o-files").setInputFiles({ name: "kartlaggning-test.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n% påhittad kartläggning\n") });
+  const files = main(page).getByRole("list", { name: "Bilagor" });
+  await expect(files).toContainText("kartlaggning-test.pdf", { timeout: 15_000 });
   await page.fill("#kom-o-bg", "Har arbetat på lager i två år. Vill ta truckkort.");
   await btn(page, /^Nästa/).click();
   await expect(main(page).getByRole("heading", { level: 2, name: "Granska och skicka" })).toHaveCount(1);
@@ -281,8 +308,10 @@ test("3. beställning i tre steg och en granskning, kvittot och en beställning 
   expect(t).not.toMatch(/Steg 4 av/i);
   expect(t, "personnumret maskerat i granskningen").toMatch(/•+-?3456/);
   expect(t).not.toMatch(/19880412-3456/);
-  expect(t, "beställningens värde").toMatch(/Beställningens värde/i);
-  expect(t).toMatch(/8 veckor ×/);
+  expect(t).toMatch(/Omfattning\s+6 månader/);
+  expect(t).toMatch(/Kartläggning genomförd\s+Ja/);
+  expect(t).toMatch(/Bifogade filer\s+1 fil/);
+  expect(t, "inga belopp i granskningen (synpunkt #10)").not.toMatch(/\d\s?kr\b|kronor|värde|pris/i);
   await btn(page, "Skicka beställningen").click();
   await expect(main(page)).toContainText("Tack! Beställningen är skickad", { timeout: 15_000 });
   t = await mainText(page);
@@ -305,69 +334,26 @@ test("3. beställning i tre steg och en granskning, kvittot och en beställning 
     await expect(main(page)).toContainText("BOT-27-0051");
   }
 
-  // Beställningen hos kommunen: portalen, väntar på bekräftelse, område och kontaktväg
+  // Beställningen hos kommunen: väntar på bekräftelse, avtalsområdet väljs av Miljonbemanning, bakgrunden med filen
   await go(page, info, `/portal/deltagare/${newId}`, MARIA);
   t = await mainText(page);
   expect(t).toMatch(/Väntar på bekräftelse/);
   expect(t).toMatch(/Beställningen kom in via portalen/);
-  expect(t).toMatch(/G Lager och logistik \(alternativt J Parti- och detaljhandel\)/);
+  expect(t).toMatch(/Avtalsområde\s+Väljs av Miljonbemanning/);
   expect(t).toMatch(/Kontaktväg\s+Brev/);
-  // … och hos Miljonbemanning: beställarreferens och omfattning sparade
+  expect(t).toMatch(/Kartläggning genomförd\s+Ja/);
+  await expect(main(page).getByRole("list", { name: "Bilagor" })).toContainText("kartlaggning-test.pdf");
+  // … och hos Miljonbemanning: omfattningen och bakgrunden med filen på deltagarkortet
   await go(page, info, `/arenden/${newId}`, SARA);
-  // Kortets huvud är kompakt: beställarreferens och omfattning ligger under "Visa alla uppgifter".
-  await page.getByRole("button", { name: "Visa alla uppgifter" }).click();
+  await expect(main(page)).toContainText("Bakgrund från beställningen");
   t = await mainText(page);
-  expect(t).toContain("4410023817");
-  expect(t).toMatch(/8 veckor/);
-
-  // Beställ en till: senast använda referensen är förifylld
-  await go(page, info, "/portal/bestall", MARIA);
-  await expect(page.locator("#kom-o-ref")).toHaveValue("4410023817");
-
-  // 3b. Skyddade personuppgifter
-  await page.getByRole("group", { name: "Planerad omfattning i veckor" }).getByRole("button", { name: "6", exact: true }).click();
-  await btn(page, /^Nästa/).click();
-  await page.getByRole("group", { name: "Skyddade personuppgifter" }).getByRole("button", { name: "Ja" }).click();
-  await expect(main(page)).toContainText("Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.");
-  await expect(page.locator("#kom-o-dphone"), "telefon efterfrågas inte").toHaveCount(0);
-  await expect(page.locator("#kom-o-city"), "ort efterfrågas inte").toHaveCount(0);
-  await page.fill("#kom-o-fn", "Skyddad");
-  await page.fill("#kom-o-ln", "Person");
-  await page.fill("#kom-o-pnr", "19790101-1111");
-  await btn(page, /^Nästa/).click();
-  await expect(main(page).getByRole("heading", { level: 2, name: "Granska och skicka" }), "steg 3 hoppas över").toHaveCount(1);
-  await expect(main(page)).toContainText("Avtalsområde (tas per telefon)");
-  await btn(page, "Skicka beställningen").click();
-  await expect(main(page)).toContainText("Tack! Beställningen är skickad", { timeout: 15_000 });
-  t = await mainText(page);
-  expect(t).toMatch(/BOT-27-0052/);
-  expect(t, "kvittot beskriver den generiska bekräftelsen").toMatch(/utan ärendenummer och utan personuppgifter/);
-  expect(t).not.toMatch(/Mejlet innehåller bara ärendenumret/);
-  expect(t, "kvittot lovar ingen kallelse enligt vald kontaktväg").not.toMatch(/på det sätt du valde/);
-  expect(t).toMatch(/säkra rutinen/);
-  const protMail = await card(page, "Mejlet du får").innerText();
-  expect(protMail, "bara generisk mottagningsbekräftelse i mejlet").not.toContain("BOT-27-0052");
-  expect(protMail).toMatch(/Tack\. Vi har tagit emot beställningen\./);
-  const protId = await caseIdFromLink(page, "Se beställningen");
-  if (isDemo(info)) {
-    await btn(page, "Se hur beställningen landar hos Miljonbemanning").click();
-    await expect.poll(() => currentPath(page, info)).toBe(`/inkorg?arende=${protId}`);
-    await expect(roleSelect(page), "skyddad beställning öppnas som avtalsansvarig").toHaveValue("avtalsansvarig");
-  }
-  // Avtalsansvarig har fått beställningen (en uppgift att ringa handläggaren)
-  await go(page, info, `/inkorg?arende=${protId}`, JOHAN);
-  await expect(main(page)).toContainText("BOT-27-0052");
-  // Hos kommunen: bara namn och personnummer – inget avtalsområde, status Mottagen
-  await go(page, info, `/portal/deltagare/${protId}`, MARIA);
-  t = await mainText(page);
-  expect(t).toMatch(/Mottagen/);
-  expect(t).toMatch(/Avtalsområde\s+–/);
-  expect(t).toMatch(/Om deltagaren sparar vi bara namn och personnummer/);
+  expect(t).toMatch(/6 månader/);
+  await expect(main(page).getByRole("list", { name: "Bilagor" })).toContainText("kartlaggning-test.pdf");
   expect(errors).toEqual([]);
 });
 
 // ================================================================ 4. Mina deltagare
-test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden, mötesförfrågan och chefens läsläge", async ({ page }, info) => {
+test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesförfrågan – inga belopp och ingen chefsvy", async ({ page }, info) => {
   const errors = await open(page, info, "/portal/deltagare", MARIA);
   await settle(page);
   let t = await mainText(page);
@@ -384,7 +370,9 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden, mötesförf
   t = await mainText(page);
   expect(t, "tidslinje Mottagen → Avslutad").toMatch(/Ordererkänd[\s\S]*Bekräftad[\s\S]*Pågår[\s\S]*Avslutad/);
   expect(t, "orderbekräftelsens innehåll").toMatch(/Ansvarig coach\s+Amira Haddad/);
-  expect(t).toMatch(/Beställningens värde\s+13\s980\skr/);
+  // Orderbekräftelsen utan belopp och utan beställarreferens (synpunkt #10 och #11) – omfattningen visas.
+  expect(t).toMatch(/Omfattning\s+10 veckor, till 19 februari 2027/);
+  expect(t).not.toMatch(/Beställningens värde|Beställarreferens|\d\s?kr\b/);
   expect(t).toMatch(/Första mötet\s+måndag 14 december 2026 klockan 10\.00, Alby/);
   expect(t, "närvaron sammanfattad").toMatch(/Närvarande 9 av 9 tillfällen · 2 inte registrerade än/);
   expect(t.replace("Coachens egna anteckningar visas inte för beställaren", ""), "inga coachanteckningar").not.toMatch(/anteckning/i);
@@ -432,34 +420,11 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden, mötesförf
   await go(page, info, `/portal/deltagare/${SC.elif}`, MARIA);
   await expect(main(page), "handläggaren ser inte andras ärenden").toContainText(/Du har inte tillgång/i);
 
-  // Chefen ser enhetens deltagare, men skyddade namn döljs
-  await go(page, info, "/portal/deltagare", EVA);
-  await expect(main(page)).toContainText(/Enhetens deltagare/i);
-  await expect(page.locator("#kom-who"), "filter per handläggare").toHaveCount(1);
-  await go(page, info, `/portal/deltagare/${SC.skyddad}`, EVA);
-  t = await mainText(page);
-  await expect(page.getByRole("heading", { level: 1 }), "skyddat namn visas inte för chefen").toHaveText(/Skyddade personuppgifter/i);
-  expect(t).not.toMatch(/Lindgren/);
-  await expect(page.locator("#kom-msg"), "chefen kan inte skriva meddelanden").toHaveCount(0);
-  expect(t).toMatch(/Bara handläggaren som beställde/);
-  await page.getByRole("tab", { name: /Meddelanden/ }).click();
-  await expect(main(page)).toContainText("Meddelandena visas bara för handläggaren");
-  if (isDemo(info)) {
-    await btn(page, "Se samma deltagare hos Miljonbemanning").click();
-    await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${SC.skyddad}?flik=meddelanden`);
-    await expect(roleSelect(page), "skyddat ärende byter till avtalsansvarig på samma flik").toHaveValue("avtalsansvarig");
-    await settle(page);
-    await expect(main(page), "bytet landar i en roll med åtkomst").not.toContainText(/Du saknar åtkomst|Ingen åtkomst|inte behörighet/);
+  // Kommunens chef finns inte längre (beslut 2026-10-07): chefens gamla adresser leder till startsidan.
+  for (const old of ["/portal/bestallarrapport", "/portal/resultat"]) {
+    await go(page, info, old, MARIA);
+    await expect.poll(() => currentPath(page, info), { message: old }).toBe("/portal");
   }
-
-  // Chefen: texter i tredje person, mötesförfrågan i läsläge
-  await commands(page, info, [{ key: "coach.deviationCallCustomer", input: { caseId: SC.elif, body: "Hej Linda! Kan vi ses om Elifs närvaro?", proposedAt: "2027-02-05T10:00" }, as: AMIRA }]);
-  await go(page, info, `/portal/deltagare/${SC.elif}`, EVA);
-  t = await mainText(page);
-  expect(t, "chefen ser mötesförfrågan i läsläge").toMatch(/Mötesförfrågan till handläggaren/i);
-  expect(t).toMatch(/Skickad till Linda Karlsson/);
-  expect(t, "chefen får texter i tredje person").toMatch(/Handläggaren \(Linda Karlsson\) fick ärendenummer/);
-  expect(t).not.toMatch(/Du fick ärendenummer/);
   expect(errors).toEqual([]);
 });
 
@@ -505,8 +470,8 @@ test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad 
     {
       key: "arenden.caseCreate",
       input: {
-        source: "portal", protectedIdentity: false, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", phone: "070-000 11 22", city: "Tumba", preferredContact: "sms",
-        buyerReference: "4410023817", primaryArea: "G", desiredStart: "2027-02-15", plannedWeeks: 8,
+        source: "portal", firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", phone: "070-000 11 22", city: "Tumba", preferredContact: "sms",
+        referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-15", orderPeriodMonths: 6, priorAssessment: "yes",
       },
       as: MARIA,
     },
@@ -516,7 +481,7 @@ test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad 
   const samira = await caseIdFromLink(page, /Samira Testsson/);
   await commands(page, info, [
     { key: "arenden.caseDecline", input: { caseId: SC.mall, reason: "Vi har ingen ledig plats inom avtalsområdet den önskade veckan." }, as: SARA },
-    { key: "arenden.caseAccept", input: { caseId: samira, leadCoachId: "u-amira", firstMeetingAt: "2027-02-08T10:00", plannedWeeks: 8, buyerReference: "4410023817" }, as: SARA },
+    { key: "arenden.caseAccept", input: { caseId: samira, leadCoachId: "u-amira", firstMeetingAt: "2027-02-08T10:00", primaryArea: "G", vocationalTrack: "Truckförare A+B", orderPeriodMonths: 6 }, as: SARA },
     { key: "arenden.caseChangeCoach", input: { caseId: SC.nadia, toCoachId: "u-sofia", reason: "Amira är föräldraledig." }, as: SARA },
     { key: "coach.deviationSave", input: { caseId: SC.yusuf, data: { description: "Upprepad ogiltig frånvaro", action: "Möte med deltagaren", needsCustomerDecision: true } }, as: AMIRA },
   ]);
@@ -576,153 +541,59 @@ test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad 
   expect(errors).toEqual([]);
 });
 
-// ================================================================ 6. Beställarrapporten
-test("6. beställarrapport för kommunens chef: avtalsmålet, små grupper, utkast och åtgärdsplan", async ({ page }, info) => {
-  const errors = await open(page, info, "/portal/bestallarrapport", EVA);
+// ================================================================ 6. Månadsrapporten och orderbekräftelsen (beslut 2026-10-07)
+test("6. månadsrapporten visar bara närvarograden i avsnitt 2 och orderbekräftelsen har inga belopp", async ({ page }, info) => {
+  const errors = await open(page, info, `/portal/rapporter/${NADIA_DEC}`, MARIA);
   await settle(page);
-  let t = await mainText(page);
-  expect(t, "december visas som standard med förklaring").toMatch(/December 2026/);
-  expect(t).toMatch(/senaste rapporten som har levererats/);
-  expect(t, "avtalsmålet visas").toMatch(/Avtalsmålet är 32\s%/);
-  expect(t).toMatch(/avtalsmål 32\s%/i);
-  expect(t).toMatch(/31,2\s%/);
-  expect(t, "internt mål visas aldrig").not.toMatch(/35\s%|internt/i);
-  for (const tabName of ["Deltagare", "Progression", "Närvaro och nöjdhet"]) {
-    await page.getByRole("tab", { name: tabName }).click();
-    t = await mainText(page);
-    expect(t, `fliken ${tabName}: inget internt mål`).not.toMatch(/35\s%|internt/i);
-  }
-  await page.getByRole("tab", { name: "Deltagare" }).click();
-  t = await mainText(page);
-  expect(t, "små grupper redovisas som färre än 5").toMatch(/färre än 5/);
-  expect(t, "etiketter utan förkortningar").toMatch(/Aktiva under månaden/i);
-  expect(t).toMatch(/Andel som svarat 4 eller 5 på en skala 1–5/);
-  await expect(main(page).getByText("Under avtalsmålet").first(), "resultatrutan har statustext").toBeVisible();
-  const kpi = await main(page).getByText(/Resultat, 6 månader/i).locator("..").innerText();
-  expect(kpi, "resultatrutan har statustext och inte bara färg").toMatch(/Under avtalsmålet/);
-  await noHScroll(page, "Beställarrapport");
-  // Oktober: 4 av 6 avslut – täljaren är färre än 5 och andelen redovisas inte (samma regel som dokumentet)
-  await page.getByRole("group", { name: "Välj månad" }).getByRole("button", { name: /Oktober 2026/ }).click();
-  await expect(main(page)).toContainText("Sammanfattning oktober 2026");
-  await page.getByRole("tab", { name: "Resultat" }).click();
-  t = await mainText(page);
-  expect(t, "små resultatgrupper döljs i oktober").toMatch(/färre än 5 av 6 avslut/);
-  expect(t).toMatch(/Redovisas inte/);
-  expect(t).not.toMatch(/66,7\s%/);
-  expect(t).not.toMatch(/\b4 av 6\b/);
-  await page.getByRole("group", { name: "Välj månad" }).getByRole("button", { name: /Januari 2027/ }).click();
-  await expect(main(page)).toContainText("inte klar än");
-  t = await mainText(page);
-  expect(t, "januari är ett utkast utan siffror").toMatch(/Du ser inga siffror förrän rapporten är godkänd/);
-  await expect(main(page).getByText(/Resultat, 6 månader/i), "inga nyckeltal för utkastet").toHaveCount(0);
-  // Åtgärdsplan: godkänn i dialogen
-  await expect(main(page)).toContainText("Väntar på ditt godkännande (1)");
-  await expect(main(page)).toContainText("Visa (2)");
-  await btn(page, "Godkänn åtgärdsplanen").first().click();
-  await page.getByRole("dialog").getByRole("button", { name: "Godkänn åtgärdsplanen" }).click();
-  await expect(main(page), "inget kvar att godkänna").not.toContainText("Väntar på ditt godkännande", { timeout: 10_000 });
-  await expect(main(page), "planen är godkänd").toContainText("Visa (3)");
-  await btn(page, "Visa (3)").click();
-  await expect(main(page)).toContainText("Deltagare upplevde att praktikplatsen inte var förberedd första dagen.");
-  // Miljonbemanning ser godkännandet med namn
-  await go(page, info, "/avtalsavvikelser/cd-3", { userId: "u-karin", role: "chef" });
-  await expect(main(page)).toContainText("Eva Bergström");
-  if (isDemo(info)) {
-    await go(page, info, "/portal/bestallarrapport", EVA);
-    await btn(page, "Se samma resultat i Miljonbemannings ledningsvy").click();
-    await expect.poll(() => currentPath(page, info)).toBe("/ledning");
-    await expect(roleSelect(page)).toHaveValue("chef");
-  }
+  await expect(main(page)).toContainText(/Månadsrapport individ/i);
+  const sec2 = main(page).locator("section").filter({ has: page.getByRole("heading", { name: /^2\. Närvaro$/ }) });
+  await expect(sec2, "avsnitt 2 heter Närvaro").toHaveCount(1);
+  await expect(sec2.locator("dt")).toHaveText(["Period", "Närvarograd"]);
+  await expect(sec2.locator("dd").first()).toHaveText("1–31 december 2026");
+  await expect(sec2.locator("dd").last()).toHaveText(/^86\s%$/);
+  await expect(sec2).toContainText("Närvarograd = ");
+  const t = await mainText(page);
+  expect(t, "veckotabellen, orsakerna och upprepad frånvaro visas inte").not.toMatch(/Giltig frånvaro per orsak|Upprepad ogiltig frånvaro:|Planerade tillfällen|Närvaro och frånvaro/);
+  // Orderbekräftelsen (dokumentet) – omfattningen, inga belopp.
+  await go(page, info, `/portal/deltagare/${SC.nadia}`, MARIA);
+  await linkOrBtn(page, "Öppna orderbekräftelsen").first().click();
+  await settle(page);
+  await expect(main(page)).toContainText(/Orderbekräftelse/);
+  const oc = await mainText(page);
+  expect(oc).toMatch(/Planerad omfattning\s+10 veckor \(till och med 19 februari 2027\)/);
+  expect(oc, "inget pris, inget ordervärde").not.toMatch(/\d\s?kr\b|kronor|värde|pris/i);
+  expect(oc).not.toMatch(/Saknas – måste kompletteras/);
   expect(errors).toEqual([]);
 });
 
-// ================================================================ 7. Hämta resultat (resultatfilen, rapporter steg 3)
-test("7. hämta resultat: kommunens chef hämtar Excel och CSV, handläggaren når inte sidan, admin ser loggposten", async ({ page }, info) => {
-  const errors = await open(page, info, "/portal/bestallarrapport", EVA);
+// ================================================================ 7. Inga belopp någonstans i portalen (synpunkt #10 och #11)
+test("7. inga belopp, priser eller ordervärden på någon sida i portalen", async ({ page }, info) => {
+  const MONEY = /\d\s?kr\b|kronor|värde|pris/i;
+  const errors = await open(page, info, "/portal", MARIA);
   await settle(page);
-  const menu = page.getByRole("navigation", { name: "Portalmeny" });
-  await expect(menu.getByRole("link", { name: "Hämta resultat" })).toBeVisible();
-  await menu.getByRole("link", { name: "Hämta resultat" }).click();
-  await settle(page);
-  // Steg 1: period
-  await expect(main(page)).toContainText("Här hämtar du resultaten från månadsrapporterna som en fil.");
-  await expect(main(page).getByRole("heading", { name: "Vilken period?" })).toBeVisible();
-  await expect(main(page)).toContainText("Du kan välja högst 12 månader.");
-  await page.locator("#kom-res-from").selectOption("2026-10");
-  await settle(page);
-  await page.locator("#kom-res-to").selectOption("2026-12");
-  await settle(page);
-  await expect(main(page)).toContainText(/För perioden finns \d+ månadsrapporter för \d+ deltagare\./);
-  expect(await currentPath(page, info)).toMatch(/^\/portal\/resultat\?steg=1&fran=2026-10&till=2026-12$/);
-  // Ingen personuppgift i adressen
-  await noHScroll(page, "Hämta resultat");
-  await btn(page, "Nästa").click();
-  // Steg 2: filtyp (Excel förvalt)
-  await expect(main(page).getByRole("heading", { name: "Vilken filtyp?" })).toBeVisible();
-  await expect(page.getByLabel("Excel (rekommenderas)", { exact: true })).toBeChecked();
-  await expect(main(page)).toContainText("En fil med flikarna Resultat, Progression, Händelser, Avslut och Om filen.");
-  await btn(page, "Nästa").click();
-  // Steg 3: hämta
-  await expect(main(page).getByRole("heading", { name: "Hämta filen" })).toBeVisible();
-  await expect(main(page)).toContainText("oktober 2026 – december 2026");
-  await expect(main(page)).toContainText("Filen innehåller namn");
-  await expect(main(page)).toContainText("Bara levererade månadsrapporter kommer med. Ärenden med skyddade personuppgifter finns aldrig med.");
-  const [xlsx] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), btn(page, "Hämta filen").click()]);
-  expect(xlsx.suggestedFilename()).toBe("resultat_bot_2026-10_2026-12.xlsx");
-  const fs = await import("node:fs");
-  const file = fs.readFileSync((await xlsx.path())!);
-  expect(file.subarray(0, 2).toString("latin1")).toBe("PK");
-  // Hela kedjan (base64 → bytes → Blob → nedladdning; i prototypen DEFLATE i webbläsaren): filen går att packa upp (storlek och
-  // CRC för varje post) och har flikarna och raderna.
-  const { readZip, entryText } = await import("../../src/core/export/read-zip.test-helper");
-  const entries = await readZip(new Uint8Array(file));
-  const workbook = entryText(entries, "xl/workbook.xml");
-  expect([...workbook.matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1])).toEqual(["Resultat", "Progression", "Händelser", "Avslut", "Om filen"]);
-  const sheet1 = entryText(entries, "xl/worksheets/sheet1.xml");
-  const header = [...sheet1.slice(0, sheet1.indexOf("</row>")).matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((m) => m[1]);
-  expect(header.slice(0, 3)).toEqual(["arendenummer", "namn", "manad"]);
-  expect(header).toHaveLength(62);
-  expect(sheet1).toMatch(/>BOT-\d{2}-\d{4}</);
-  expect(sheet1, "det skyddade ärendet finns inte").not.toContain("BOT-26-0120");
-  expect([...sheet1.matchAll(/<row /g)].length, "rubrikrad och en rad per månadsrapport").toBeGreaterThan(100);
-  const sheet4 = entryText(entries, "xl/worksheets/sheet4.xml");
-  expect(sheet4).toContain('<t xml:space="preserve">avslut_datum</t>');
-  expect(sheet4).toMatch(/>BOT-\d{2}-\d{4}</);
-  expect(entryText(entries, "xl/worksheets/sheet5.xml")).toContain("Ärenden med skyddade personuppgifter finns aldrig med.");
-  await expect(main(page)).toContainText("Filen är hämtad: resultat_bot_2026-10_2026-12.xlsx");
-  // CSV: tillbaka till filtypen
-  await btn(page, "Tillbaka").click();
-  await page.getByLabel("CSV", { exact: true }).check();
-  await btn(page, "Nästa").click();
-  let csv = "";
-  if (isDemo(info)) {
-    await btn(page, "Hämta resultat (CSV)").click();
-    const area = page.locator("#text-dialog-area");
-    await expect(area).toBeVisible();
-    csv = await area.inputValue();
-    await page.getByRole("dialog").getByRole("button", { name: "Stäng" }).first().click();
-  } else {
-    const [dl] = await Promise.all([page.waitForEvent("download"), btn(page, "Hämta resultat (CSV)").click()]);
-    expect(dl.suggestedFilename()).toBe("resultat_bot_2026-10_2026-12.csv");
-    csv = fs.readFileSync((await dl.path())!, "utf8");
-    expect(csv.charCodeAt(0), "exakt en BOM").toBe(0xfeff);
-    csv = csv.slice(1);
-    expect(csv.charCodeAt(0)).not.toBe(0xfeff);
+  const pages = ["/portal", "/portal/deltagare", `/portal/deltagare/${SC.nadia}`, `/portal/deltagare/${SC.nadia}?flik=rapporter`, "/portal/rapporter", `/portal/rapporter/${NADIA_DEC}`, "/portal/mina-uppgifter"];
+  for (const p of pages) {
+    await go(page, info, p, MARIA);
+    expect(await mainText(page), p).not.toMatch(MONEY);
   }
-  expect(csv.startsWith("arendenummer;namn;manad;")).toBe(true);
-  expect(csv).toMatch(/\nBOT-\d{2}-\d{4};/);
-  expect(csv, "det skyddade ärendet finns inte").not.toContain("BOT-26-0120");
-  expect(csv, "inget som liknar ett personnummer").not.toMatch(/\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/);
-  await expect(main(page).getByRole("status").filter({ hasText: "Hämtad" })).toHaveCount(1);
-  await expect(main(page)).toContainText("Om en rapport rättas efteråt syns det när du hämtar en ny fil.");
-  // Kommunens handläggare: ingen menyrad och ingen sida
-  await go(page, info, "/portal/rapporter", MARIA);
-  await expect(page.getByRole("navigation", { name: "Portalmeny" }).getByRole("link", { name: "Hämta resultat" })).toHaveCount(0);
-  await go(page, info, "/portal/resultat", MARIA);
-  await expect(main(page)).toContainText("Du har inte behörighet till den här sidan");
-  // Revisionsloggen: Exporterade resultat
-  await go(page, info, "/admin/logg", { userId: "u-robin", role: "admin" });
-  await expect(main(page)).toContainText("Exporterade resultat");
-  await expect(main(page)).toContainText(/Kolumner: \d+ kolumner/);
+  // Beställningens fyra delar (tre steg och granskningen).
+  await go(page, info, "/portal/bestall", MARIA);
+  expect(await mainText(page), "steg 1").not.toMatch(MONEY);
+  await page.getByRole("group", { name: "Omfattning" }).getByRole("button", { name: "12 månader" }).click();
+  await btn(page, /^Nästa/).click();
+  expect(await mainText(page), "steg 2").not.toMatch(MONEY);
+  await page.fill("#kom-o-fn", "Pengar");
+  await page.fill("#kom-o-ln", "Testsson");
+  await page.fill("#kom-o-pnr", "19900101-1234");
+  await page.fill("#kom-o-dphone", "070-000 22 33");
+  await page.fill("#kom-o-city", "Alby");
+  await btn(page, /^Nästa/).click();
+  expect(await mainText(page), "steg 3").not.toMatch(MONEY);
+  await page.getByRole("group", { name: "Har en kartläggning genomförts?" }).getByRole("button", { name: "Vet inte" }).click();
+  await btn(page, /^Nästa/).click();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Granska och skicka" })).toHaveCount(1);
+  expect(await mainText(page), "granskningen").not.toMatch(MONEY);
+  // Sidan lämnas med ett påbörjat formulär (webbläsaren varnar, som den ska).
+  allowLeaveWarnings(page);
   expect(errors).toEqual([]);
 });

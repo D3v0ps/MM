@@ -3,6 +3,7 @@
 import type { Case, CaseCounter, CaseStatus, Db, InboundEmail, InboundEmailStatus, Person, PriceItem, Profile } from "@/data/schema";
 import { stuckRule, type ContractConfig, type OperationalConfig } from "./config";
 import { checkInsOf, placementsOf } from "./db-index";
+import { plural } from "./format";
 import type { DomainEnv } from "./env";
 import { avropDue } from "./sla";
 import { WEEKDAYS, dayOf, diffDays, fmtDateTimeFull, weekday, type LocalDate } from "./time";
@@ -56,10 +57,8 @@ export function priceItem(priceItems: readonly PriceItem[], areaCode: string | n
 export const priceFor = (priceItems: readonly PriceItem[], areaCode: string | null | undefined, date: LocalDate, contractId?: string): number =>
   priceItem(priceItems, areaCode, date, contractId)?.priceOre ?? 0;
 
-/** Beställningens värde i öre: beställda veckor × veckopriset vid start (eller i dag om starten inte är satt). */
-export function orderValueOre(c: Case, priceItems: readonly PriceItem[], env: Pick<DomainEnv, "now">): number {
-  return (c.orderValueWeeks || c.plannedWeeks || 0) * priceFor(priceItems, c.primaryAreaCode, c.startDate || dayOf(env.now), c.contractId);
-}
+// Beställningens värde i kronor (prototypens orderValue) finns inte längre: inget ordervärde någonstans (beslut 2026-10-07,
+// synpunkt #10/#11). Beställningen anges i veckor (cases.orderValueWeeks); fakturan räknar veckor × pris per rad.
 
 // ---------------------------------------------------------------- Ordererkännande
 /** Texten i ordererkännandet till kommunen. Innehåller bara ärendenumret – inga personuppgifter. */
@@ -133,4 +132,12 @@ export function stuck(c: Case, db: Pick<Db, "check_ins" | "placements">, env: Pi
   if (days <= rule.maxDays) return null;
   if (rule.unlessPlacementPlanned && placementsOf(db, c.id).length) return null;
   return { days, maxDays: rule.maxDays, phase: c.phase };
+}
+
+/** Omfattningen i text: "6 månader", "Annan tidsperiod" eller "8 veckor" (äldre beställning). "Inte angiven" annars. */
+export function orderPeriodText(c: Pick<Case, "orderPeriodMonths" | "orderPeriodReason" | "plannedWeeks" | "orderValueWeeks">): string {
+  if (c.orderPeriodMonths != null) return `${c.orderPeriodMonths} månader`;
+  if (c.orderPeriodReason) return "Annan tidsperiod";
+  const w = c.orderValueWeeks || c.plannedWeeks;
+  return w ? plural(w, "vecka", "veckor") : "Inte angiven";
 }

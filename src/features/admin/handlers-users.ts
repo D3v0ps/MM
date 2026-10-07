@@ -3,10 +3,12 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery } from "@/api/server";
+import { isOperational } from "@/core/config";
 import { teamLabel } from "@/core/labels";
 import { dayOf, diffDays } from "@/core/time";
 import { uniq } from "@/core/util";
 import { emailValid } from "@/core/validation";
+import { SELF_REGISTERED } from "@/core/self-registration";
 import type { Membership, Profile } from "@/data/schema";
 import { adminInviteCustomer, adminSetCustomerActive, adminUsers, type CustomerUserRow, type MbUserRow, type UnitOption } from "./api";
 import { mainContract, orgRow } from "./shared";
@@ -17,7 +19,6 @@ export const ROLE_NAME: Partial<Record<Role, string>> = {
   admin: "Systemadmin", avtalsansvarig: "Avtalsansvarig", samordnare: "Samordnare", coach: "Huvudcoach", handledare: "Handledare", chef: "Chef och controller", ekonom: "Ekonom",
 };
 const ROLE_ORDER: Role[] = ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"];
-const CUSTOMER_ROLE = { handlaggare: "kommun_handlaggare", chef: "kommun_chef" } as const;
 
 handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
   const isAdmin = ctx.actor.role === "admin";
@@ -34,8 +35,8 @@ handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
   const kProfiles = await ctx.repo.table("profiles").list({ organizationId: main.customerId });
   const customers: CustomerUserRow[] = kProfiles
     .map((u): CustomerUserRow => ({
-      id: u.id, name: u.fullName, email: u.email, role: roleIn(u.id, main.id)?.role === "kommun_chef" ? "chef" : "handlaggare", unit: u.customerUnit ?? "",
-      buyerReference: refs.find((b) => b.id === u.buyerReferenceId)?.reference ?? null, lastLoginAt: u.lastLoginAt, invitedAt: u.invitedAt, active: u.active,
+      id: u.id, name: u.fullName, email: u.email, unit: u.customerUnit ?? "", lastLoginAt: u.lastLoginAt, invitedAt: u.invitedAt,
+      selfRegistered: u.invitedBy === SELF_REGISTERED, active: u.active,
     }))
     .sort((a, b) => Number(!a.invitedAt) - Number(!b.invitedAt) || a.name.localeCompare(b.name, "sv"));
 
@@ -64,6 +65,10 @@ handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
     contractId: main.id,
     customerName: customer?.name ?? "",
     domains: customer?.emailDomains ?? [],
+    // Självregistreringen: avtalets domäner som också är beställarens (samma dubbla nyckel som inloggningen).
+    selfRegistrationDomains: isOperational(main.config)
+      ? (main.config.selfRegistration?.emailDomains ?? []).filter((x) => (customer?.emailDomains ?? []).map((y) => y.toLowerCase()).includes(x))
+      : [],
     mb,
     customers,
     units,
@@ -78,7 +83,10 @@ handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
   };
 });
 
-/** Bjud in kommunanvändare. Bara tillåtna e-postdomäner för avtalet, ingen självregistrering. */
+/**
+ * Bjud in kommunens handläggare. Bara tillåtna e-postdomäner för avtalet. Den som har en adress på avtalets kommundomän kan
+ * också skapa ett konto själv (självregistrering, src/features/session/self-register.ts).
+ */
 handleCommand(adminInviteCustomer, { roles: ["admin", "avtalsansvarig"] }, async (ctx, p) => {
   const main = await mainContract(ctx);
   const k = (p.contractId && (await ctx.repo.table("contracts").get(p.contractId))) || main;
@@ -92,19 +100,18 @@ handleCommand(adminInviteCustomer, { roles: ["admin", "avtalsansvarig"] }, async
   if (!domains.includes(domain)) return fail("domain", "Adressen har inte en tillåten domän.");
   // ctx.system: e-postadressen måste vara unik bland alla konton (inloggningen) – bara ja/nej lämnas ut.
   if ((await ctx.system.table("profiles").list()).some((u) => String(u.email).toLowerCase() === email)) return fail("exists", "Det finns redan en användare med den adressen.");
-  if (p.role !== "handlaggare" && p.role !== "chef") return fail("role", "Välj roll.");
-  const unit = String(p.unit || "").trim();
-  if (!unit) return fail("unit", "Välj enhet.");
+  const unit = String(p.unit || "").trim().replace(/\s+/g, " ");
+  if (!unit) return fail("unit", "Skriv vilken enhet personen arbetar på.");
   const br = await ctx.repo.table("buyer_references").first({ customerId: k.customerId, unit, active: true });
   const id = ctx.newId("k");
   await ctx.repo.table("profiles").insert({
-    id, organizationId: k.customerId, fullName: name, email, phone: "", title: p.role === "chef" ? "Chef" : "Handläggare", active: true, lastLoginAt: null,
+    id, organizationId: k.customerId, fullName: name, email, phone: "", title: "Handläggare", active: true, lastLoginAt: null,
     customerUnit: unit, buyerReferenceId: br?.id ?? null, teamRole: null, invitedAt: ctx.now(), invitedBy: ctx.actor.userId,
   });
-  await ctx.repo.table("memberships").insert({ id: `${id}:${k.id}`, userId: id, contractId: k.id, role: CUSTOMER_ROLE[p.role], customerUnit: unit });
+  await ctx.repo.table("memberships").insert({ id: `${id}:${k.id}`, userId: id, contractId: k.id, role: "kommun_handlaggare", customerUnit: unit });
   // Inbjudan innehåller inga personuppgifter – bara adressen till portalen (CLAUDE.md punkt 9).
   await ctx.notify({ channel: "email", to: email, template: "inbjudan_kommun", body: INVITE_TEXT, caseId: null });
-  await ctx.audit({ action: "customer_user.invited", entity: "profile", entityId: id, contractId: k.id, details: { role: p.role, unit, domain } });
+  await ctx.audit({ action: "customer_user.invited", entity: "profile", entityId: id, contractId: k.id, details: { role: "kommun_handlaggare", domain } });
   return ok({ userId: id });
 });
 

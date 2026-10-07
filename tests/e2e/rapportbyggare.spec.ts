@@ -1,5 +1,6 @@
-// Rapportbyggaren (rapporter steg 4): Miljonbemanning bygger, sparar, delar och hämtar rapporter; kommunens chef ser och
-// hämtar de delade rapporterna med sin egen behörighet; roller utan behörighet når inte sidorna; revisionsloggen.
+// Rapportbyggaren (rapporter steg 4): Miljonbemanning bygger, sparar, delar (inom Miljonbemanning) och hämtar rapporter;
+// resultatfilen för hela avtalet som avtalsansvarig lämnar till kommunen; roller utan behörighet når inte sidorna; revisionsloggen.
+// Beslut 2026-10-07: kommunens chef finns inte – ingen delning med kommunen och inga sidor för delade rapporter i portalen.
 // Samma test körs mot prototypen (projekt "demo") och appen (projekt "app"). Det som inte syns på skärmen (loggens detaljer,
 // RLS, frysningen) testas i src/features/rapporter/builder-handlers.test.ts och rls-parity.test.ts.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
@@ -9,12 +10,9 @@ import { allowLeaveWarnings, isDemo, open, switchPersona } from "./helpers";
 type As = { userId: string; role: string };
 const SARA: As = { userId: "u-sara", role: "samordnare" };
 const JOHAN: As = { userId: "u-johan", role: "avtalsansvarig" };
-const EVA: As = { userId: "k-eva", role: "kommun_chef" };
 const MARIA: As = { userId: "k-maria", role: "kommun_handlaggare" };
 const ROBIN: As = { userId: "u-robin", role: "admin" };
 const PERSONA_KEY = "miljonmatch-prototyp-v2-persona";
-const PNR = /\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/;
-const PROTECTED_NO = "BOT-26-0120";
 
 // ---------------------------------------------------------------- Hjälpare (som i kommun.spec.ts)
 const main = (page: Page) => page.locator("#main");
@@ -84,10 +82,12 @@ test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbema
   await expect(menu.getByRole("link", { name: "Bygg rapport" })).toBeVisible();
   await menu.getByRole("link", { name: "Bygg rapport" }).click();
   await settle(page);
-  await expect(main(page)).toContainText("Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem.");
+  // Ingen text om skyddade personuppgifter och ingen delning med kommunen (beslut 2026-10-07).
+  await expect(main(page)).not.toContainText(/skyddade personuppgifter|Delade med kommunen/i);
   await expect(section(page, "Mina rapporter")).toContainText("Närvaro per månad");
   await expect(section(page, "Delade inom Miljonbemanning")).toContainText("Progression per avtalsområde");
-  await expect(section(page, "Delade med kommunen")).toContainText("Resultatgrad per avtalsområde");
+  // Rapporten som var delad med kommunen är delad inom Miljonbemanning (migration 0026).
+  await expect(section(page, "Delade inom Miljonbemanning")).toContainText("Resultatgrad per avtalsområde");
   await expect(section(page, "Färdiga rapporter")).toContainText("Resultatfil för hela avtalet");
   await noHScroll(page, "Rapportbyggaren");
   // Ny rapport från mallen "Närvaro per månad"
@@ -157,7 +157,7 @@ test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbema
   await expect(main(page)).toContainText("Bara den som skapade rapporten kan ändra innehållet. Du kan dela, sluta dela eller arkivera den.");
   await expect(action(page, "Ändra rapporten")).toHaveCount(0);
   await expect(action(page, "Gör en kopia")).toBeVisible();
-  await expect(action(page, "Dela med kommunen")).toBeVisible();
+  await expect(action(page, "Dela med kommunen")).toHaveCount(0);
   await btn(page, "Arkivera rapporten").click();
   await expect(page.getByRole("dialog")).toContainText("Arkivera rapporten?");
   await page.getByRole("dialog").getByRole("button", { name: "Arkivera", exact: true }).click();
@@ -168,62 +168,33 @@ test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbema
   expect(errors).toEqual([]);
 });
 
-// ================================================================ 2. Dela med kommunen och kommunens chef
-test("2. avtalsansvarig delar med kommunen; kommunens chef ser rapporterna med 'färre än 5' och hämtar CSV och PDF", async ({ page }, info) => {
+// ================================================================ 2. Ingen delning med kommunen (beslut 2026-10-07)
+test("2. avtalsansvarig kan inte dela med kommunen – bara inom Miljonbemanning", async ({ page }, info) => {
   const errors = await open(page, info, "/rapportbyggare", JOHAN);
   await settle(page);
-  await link(page, "Progression per avtalsområde").first().click();
+  await link(page, "Resultatgrad per avtalsområde").first().click();
   await settle(page);
   await expect(main(page)).toContainText("Alla på Miljonbemanning i avtalet");
-  // Avtalsansvarig (inte ägaren) ändrar inte innehållet – bara delningen.
-  await expect(action(page, "Ändra rapporten")).toHaveCount(0);
-  await btn(page, "Dela med kommunen").click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("Dela med kommunens chef?");
-  await expect(dialog).toContainText("Chefen ser bara ärenden i sin egen enhet.");
-  await expect(dialog).toContainText("Miljonbemannings interna mål visas inte.");
-  // Tillägg 2026-10-02: avtalsansvarig ändrar inte någon annans rapport – ägaren ändrar den när delningen har slutat.
-  await expect(dialog).toContainText("Rapporten kan inte ändras medan den är delad. Den som skapade den kan ändra den om du slutar dela den.");
-  await expect(dialog.getByRole("table")).toContainText("Totalt");
-  await dialog.getByRole("button", { name: "Dela med kommunen" }).click();
-  await settle(page);
-  await expect(main(page)).toContainText("Delad med kommunens chef");
-  // Kommunens chef
-  await go(page, info, "/portal/resultat", EVA);
-  await expect(main(page)).toContainText("Miljonbemanning har gjort 2 rapporter åt dig.");
-  await link(page, "Visa rapporterna").click();
-  await settle(page);
-  await expect(main(page)).toContainText("Här finns rapporter som Miljonbemanning har gjort åt dig. De visar bara deltagare i din enhet.");
-  await link(page, "Öppna rapporten Resultatgrad per avtalsområde").click();
-  await settle(page);
-  await expect(main(page)).toContainText("Rapporten visar ärenden i din enhet. Siffrorna kommer från levererade rapporter.");
-  const table = main(page).getByRole("table");
-  await expect(table.getByRole("columnheader", { name: "Deltagare" })).toBeVisible();
-  await expect(table).toContainText("färre än 5");
-  const text = await main(page).innerText();
-  expect(text).not.toContain("Internt mål");
-  expect(text).not.toContain("Ledning");
-  expect(text).not.toContain("35,0 %");
-  expect(text).not.toContain(PROTECTED_NO);
-  await noHScroll(page, "Delad rapport i portalen");
-  // CSV
-  await page.getByLabel("CSV", { exact: true }).check();
-  const csv = await csvFrom(page, info, () => btn(page, "Hämta").click(), /^rapport_bot_resultatgrad-per-omrade_\d{4}-\d{2}_\d{4}-\d{2}\.csv$/);
-  expect(csv.startsWith("grupp_kod;grupp;deltagare;")).toBe(true);
-  expect(csv).toContain("färre än 5 deltagare");
-  expect(csv).not.toContain(PROTECTED_NO);
-  expect(csv).not.toMatch(PNR);
-  // PDF
-  await page.getByLabel("PDF", { exact: true }).check();
-  const [pdf] = await Promise.all([page.waitForEvent("download", { timeout: 60_000 }), btn(page, "Hämta").click()]);
-  expect(pdf.suggestedFilename()).toMatch(/^rapport_bot_resultatgrad-per-omrade_\d{4}-\d{2}_\d{4}-\d{2}\.pdf$/);
-  expect(fs.readFileSync((await pdf.path())!).subarray(0, 4).toString("latin1")).toBe("%PDF");
-  await expect(main(page)).toContainText("Varje visning och hämtning sparas i Miljonbemannings logg.");
+  await expect(btn(page, "Dela med kommunen")).toHaveCount(0);
+  await expect(btn(page, "Sluta dela med kommunen")).toHaveCount(0);
+  await expect(main(page)).not.toContainText("kommunens chef");
+  // En ny rapport: bara "Bara jag" och "Alla på Miljonbemanning i avtalet" att välja.
+  await go(page, info, "/rapportbyggare/ny?kopia=sr-seed-kommun", JOHAN);
+  await expect(main(page).getByRole("heading", { name: "Vilken period och vilka deltagare?" })).toBeVisible();
+  await btn(page, "Nästa").click();
+  await expect(main(page).getByRole("heading", { name: "Hur vill du se uppgifterna?" })).toBeVisible();
+  await btn(page, "Nästa").click();
+  await expect(main(page).getByRole("heading", { name: "Spara och hämta" })).toBeVisible();
+  await expect(page.getByLabel("Alla på Miljonbemanning i avtalet", { exact: true })).toBeVisible();
+  await expect(page.getByLabel(/Kommunens chef/)).toHaveCount(0);
+  // Kopian sparas inte: sidan lämnas med ett osparat utkast, och webbläsaren varnar (som den ska).
+  allowLeaveWarnings(page);
+  await go(page, info, "/rapportbyggare", SARA);
   expect(errors).toEqual([]);
 });
 
 // ================================================================ 3. Roller utan rapportbyggare
-test("3. coach, ekonom och admin har ingen rapportbyggare; kommunens handläggare når inte de delade rapporterna", async ({ page }, info) => {
+test("3. coach, ekonom och admin har ingen rapportbyggare; kommunens gamla sidor för delade rapporter leder till startsidan", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", { userId: "u-amira", role: "coach" });
   await settle(page);
   for (const as of [{ userId: "u-amira", role: "coach" }, { userId: "u-lars", role: "ekonom" }, ROBIN]) {
@@ -231,42 +202,20 @@ test("3. coach, ekonom och admin har ingen rapportbyggare; kommunens handläggar
     await expect(main(page), as.role).toContainText("Du har inte behörighet till den här sidan");
     await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: "Bygg rapport" })).toHaveCount(0);
   }
-  await go(page, info, "/portal/resultat/rapporter", MARIA);
-  await expect(main(page)).toContainText("Du har inte behörighet till den här sidan");
-  expect(errors).toEqual([]);
-});
-
-// ================================================================ 4. Sluta dela
-test("4. avtalsansvarig slutar dela – kommunens chef ser inga rapporter, rapporten finns kvar inom Miljonbemanning", async ({ page }, info) => {
-  const errors = await open(page, info, "/portal/resultat", EVA);
-  await settle(page);
-  await expect(main(page)).toContainText("Miljonbemanning har gjort 1 rapport åt dig.");
-  await expect(link(page, "Visa rapporten")).toBeVisible();
-  await go(page, info, "/rapportbyggare", JOHAN);
-  await link(page, "Resultatgrad per avtalsområde").first().click();
-  await settle(page);
-  await btn(page, "Sluta dela med kommunen").click();
-  await expect(page.getByRole("dialog")).toContainText("Kommunens chef ser inte rapporten längre. Den finns kvar för alla på Miljonbemanning i avtalet.");
-  await page.getByRole("dialog").getByRole("button", { name: "Sluta dela med kommunen" }).click();
-  await settle(page);
-  await expect(main(page)).toContainText("Alla på Miljonbemanning i avtalet");
-  await go(page, info, "/portal/resultat", EVA);
-  await expect(main(page)).not.toContainText("Rapporter från Miljonbemanning");
-  await go(page, info, "/portal/resultat/rapporter", EVA);
-  await expect(main(page)).toContainText("Miljonbemanning har inte delat några rapporter med dig.");
-  await go(page, info, "/rapportbyggare", SARA);
-  await expect(section(page, "Delade inom Miljonbemanning")).toContainText("Resultatgrad per avtalsområde");
-  await expect(section(page, "Delade med kommunen")).toContainText("Inga rapporter är delade med kommunen.");
+  for (const old of ["/portal/resultat", "/portal/resultat/rapporter", "/portal/resultat/rapporter/sr-seed-kommun"]) {
+    await go(page, info, old, MARIA);
+    await expect.poll(() => currentPath(page, info), { message: old }).toBe("/portal");
+  }
   expect(errors).toEqual([]);
 });
 
 // ================================================================ 5. Resultatfil för hela avtalet och revisionsloggen
-test("5. resultatfilen för hela avtalet; kommunens resultatfil fungerar efteråt; admin ser loggposterna", async ({ page }, info) => {
+test("5. resultatfilen för hela avtalet (lämnas till kommunen av Miljonbemanning); admin ser loggposterna", async ({ page }, info) => {
   const errors = await open(page, info, "/rapportbyggare", SARA);
   await settle(page);
   await link(page, "Hämta resultatfilen").click();
   await settle(page);
-  await expect(main(page)).toContainText("Samma kolumner som filen kommunens chef hämtar, men för alla ärenden i avtalet.");
+  await expect(main(page)).toContainText("Resultatfilen för alla ärenden i avtalet. Avtalsansvarig lämnar den till kommunen utanför Miljonmatch.");
   await page.locator("#mb-res-from").selectOption("2026-10");
   await settle(page);
   await page.locator("#mb-res-to").selectOption("2026-12");
@@ -280,17 +229,18 @@ test("5. resultatfilen för hela avtalet; kommunens resultatfil fungerar efterå
   await go(page, info, "/rapportbyggare/sr-seed-privat", SARA);
   await expect(main(page).getByRole("table")).toContainText("Totalt");
   await csvFrom(page, info, () => btn(page, "Hämta som CSV").click(), /^rapport_bot_narvaro-per-manad_\d{4}-\d{2}_\d{4}-\d{2}\.csv$/);
-  // Avtalsansvarig ändrar delningen
+  // Avtalsansvarig arkiverar en delad rapport (kan inte göra den privat eller dela med kommunen)
   await go(page, info, "/rapportbyggare/sr-seed-kommun", JOHAN);
-  await btn(page, "Sluta dela med kommunen").click();
-  await page.getByRole("dialog").getByRole("button", { name: "Sluta dela med kommunen" }).click();
+  await btn(page, "Arkivera rapporten").click();
+  await page.getByRole("dialog").getByRole("button", { name: "Arkivera", exact: true }).click();
   await settle(page);
-  // Kommunens resultatfil (steg 3) fungerar efteråt
-  await go(page, info, "/portal/resultat?steg=3&fran=2026-10&till=2026-12", EVA);
-  const [kom] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), btn(page, "Hämta filen").click()]);
-  expect(kom.suggestedFilename()).toBe("resultat_bot_2026-10_2026-12.xlsx");
+  await expect(main(page)).toContainText("Rapporten är arkiverad.");
+  // Samma fil igen efteråt (kolumnspärren släpper igenom samma kolumner)
+  await go(page, info, "/rapportbyggare/resultatfil?fran=2026-10&till=2026-12", JOHAN);
+  const [again] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), btn(page, "Hämta filen").click()]);
+  expect(again.suggestedFilename()).toBe("resultat_bot_hela-avtalet_2026-10_2026-12.xlsx");
   // Revisionsloggen
   await go(page, info, "/admin/logg", ROBIN);
-  for (const t of ["Exporterade rapport", "Exporterade resultat för hela avtalet", "Ändrade delning av rapport", "Visade sparad rapport"]) await expect(main(page), t).toContainText(t);
+  for (const t of ["Exporterade rapport", "Exporterade resultat för hela avtalet", "Arkiverade rapport", "Visade sparad rapport"]) await expect(main(page), t).toContainText(t);
   expect(errors).toEqual([]);
 });

@@ -44,6 +44,8 @@ const amira = () => as("u-amira", "coach");
 const maria = () => as("k-maria", "kommun_handlaggare");
 const DELTAGARE: Actor = { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null };
 const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", amal: "case-270012", skyddad: "case-260120" };
+/** Den vilande spärren (beslut 2026-10-07): personen i SC.skyddad får skyddade personuppgifter – testdatat har inga. */
+const protect = () => rt.store.updateRow("persons", rt.raw().get("cases", SC.skyddad)!.personId, { protectedIdentity: true });
 
 describe("kontrollerna", () => {
   it("SHA-256 i ren TypeScript ger samma värde som node:crypto och testdatats länkar", () => {
@@ -126,9 +128,8 @@ describe("coachen spelar in avstämningen", () => {
 describe("kommunens Tala in", () => {
   it("texten kommer tillbaka till handläggaren – ljudet raderas och ingenting sparas i ärendet", async () => {
     expect(await q(dictationOptions, {}, maria())).toEqual({ enabled: true, maxMinutes: 5, reason: null });
-    expect(await q(dictationOptions, { protectedOrder: true }, maria())).toEqual({
-      enabled: false, maxMinutes: 0, reason: "Inspelning och AI används aldrig för personer med skyddade personuppgifter.",
-    });
+    // Beställningsformuläret frågar inte efter skyddade personuppgifter (beslut 2026-10-07) – ingen sådan spärr på en ny beställning.
+    expect(await q(dictationOptions, { protectedOrder: true } as never, maria())).toEqual({ enabled: true, maxMinutes: 5, reason: null });
     const start = await cmd(uploadStart, { purpose: "dictation", mimeType: "audio/mp4", durationSec: 20 }, maria());
     if (!start.ok) throw new Error(start.error);
     const res = await cmd(dictationFinish, { uploadId: start.ticket.uploadId, durationSec: 20 }, maria());
@@ -203,8 +204,9 @@ describe("coachen och röstmeddelandena", () => {
     const link = await q(rostLink, { token }, DELTAGARE);
     expect(link).toMatchObject({ state: "open", language: "so", days: 7 });
   });
-  it("aldrig länk vid skyddade personuppgifter, och en ny länk ersätter den gamla", async () => {
+  it("aldrig länk vid skyddade personuppgifter (vilande spärr påslagen), och en ny länk ersätter den gamla", async () => {
     const ansv = as("u-johan", "avtalsansvarig");
+    protect();
     const res = await cmd(linkSend, { caseId: SC.skyddad, language: "sv" }, ansv);
     expect(res).toMatchObject({ ok: false, error: "protected" });
     expect(raw().voice_links.filter((l) => l.caseId === SC.skyddad)).toHaveLength(0);

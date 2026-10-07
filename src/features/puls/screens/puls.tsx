@@ -215,7 +215,7 @@ function Pulse({ link, token }: { link: PulseLinkView; token: string | undefined
       </PulsePhone>
       <div lang="sv" className="flex flex-col gap-2">
         <DemoNote>
-          Deltagaren öppnar en engångslänk från SMS eller e-post – ingen inloggning. Länken är signerad, gäller i {days} dagar och fungerar bara en gång. Den skickas aldrig till skyddade ärenden. Coachen ser inte enskilda svar. &quot;Ja&quot; på fråga 5 blir en uppgift till samordnaren, och lågt betyg på fråga 3 går till chefen.
+          Deltagaren öppnar en engångslänk från SMS eller e-post – ingen inloggning. Länken är signerad, gäller i {days} dagar och fungerar bara en gång. Coachen ser inte enskilda svar. &quot;Ja&quot; på fråga 5 blir en uppgift till samordnaren, och lågt betyg på fråga 3 går till chefen.
         </DemoNote>
         <DemoOnly>
           <div className="flex flex-col gap-1">

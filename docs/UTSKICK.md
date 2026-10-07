@@ -91,12 +91,13 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 
 ### Notiserna (`templates.ts`)
 - Knappen: Miljonbemannings personal (domänerna i `MM_STAFF_EMAIL_DOMAINS`) → `MM_APP_URL/`, alla andra → `MM_APP_URL/portal`. Deltagaren får ingen länk. Utan `MM_APP_URL` blir det ingen knapp.
+- **Beslut 2026-10-07:** inga mejl till kommunens chef (rollen finns inte längre), och inget mejl när beställarrapporten lämnas – avtalsansvarig lämnar den till kommunen utanför Miljonmatch och registrerar det. Inget mejl innehåller belopp, priser eller ordervärden (`src/server/notify/notify.test.ts` kontrollerar hanterarnas riktiga utskick). Ett självregistrerat konto får bara inloggningskoden.
 - Ämnesraderna kommer från prototypens mallkatalog och innehåller högst ärendenumret:
 
 | Mall | Ämnesrad |
 |---|---|
 | `ordererkannande` | Vi har tagit emot er beställning – {ärendenummer} |
-| `generisk_mottagningsbekraftelse` | Vi har tagit emot ditt mejl · portalvarianten: Vi har tagit emot er beställning |
+| `generisk_mottagningsbekraftelse` | Vi har tagit emot ditt mejl · portalvarianten: Vi har tagit emot er beställning – **skickas inte sedan 2026-10-07** (skyddade personuppgifter är borttagna ur appen) |
 | `orderbekraftelse` | Orderbekräftelse – {ärendenummer} |
 | `ny_rapport` | Ny rapport i portalen |
 | `nytt_meddelande` | Nytt meddelande om {ärendenummer} |
@@ -104,8 +105,8 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `avbojt` | Besked om beställning {ärendenummer} |
 | `coachbyte` | Ny huvudcoach för {ärendenummer} |
 | `beslut_behovs` | Ärende {ärendenummer} behöver ert beslut |
-| `atgardsplan_godkannande` | Åtgärdsplan väntar på ert godkännande |
-| `atgardsplan_godkand` | Åtgärdsplan godkänd |
+| `atgardsplan_godkannande` | Åtgärdsplan väntar på ert godkännande – **används inte sedan 2026-10-07** (kommunens chef finns inte i portalen; avtalsansvarig registrerar godkännandet) |
+| `atgardsplan_godkand` | Åtgärdsplan godkänd – **används inte sedan 2026-10-07** |
 | `paminnelse_progression` | Påminnelse från Miljonmatch |
 | `eskalering_chef` | Eskalering i Miljonmatch |
 | `inbjudan_kommun` | Inbjudan till Miljonbemannings portal |
@@ -118,7 +119,7 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 
 ### Inloggningskoden – appen skickar den själv (`src/server/auth/code-mail.ts`, beslut 2026-10-02)
 Tidigare bad servern Supabase Auth skicka koden (`signInWithOtp`). Supabase använde då sin egen mall, som måste klistras in för hand – i testmiljön kom Supabases engelska standardmall med en länk i stället för koden, länken pekade på localhost och Microsofts länkskanner förbrukade den. Nu:
-1. `POST /api/auth/code` svarar alltid likadant. Efter svaret (`after()`) prövas spärrarna (`eligibleForCode`: aktiv profil med roll, tillåten domän och – i testmiljön – adressen i `MM_EMAIL_ALLOWLIST`). Hastighetsbegränsningen (5 koder per adress och 20 per IP på 15 minuter) är oförändrad. Dessutom finns ett **tak för hela appen: högst 30 kodmejl per timme**, oavsett adress och IP (`CODE_MAILS_PER_HOUR` i `src/server/auth/rate-limit.ts`). Supabase Auth har ingen spärr på `generateLink` och skickar inget mejl, så Supabases gräns för e-post (30 per timme) gäller inte längre – appens spärrar är de enda. Taket hindrar att någon som känner till många behöriga adresser tömmer Resend-kontots kvot (som notiserna delar) eller håller många giltiga koder i omlopp.
+1. `POST /api/auth/code` svarar alltid likadant. Efter svaret (`after()`) prövas spärrarna (`eligibleForCode`: aktiv profil med roll, tillåten domän och – i testmiljön – adressen i `MM_EMAIL_ALLOWLIST`). En ny adress på avtalets kommundomän utan profil (självregistrering, beslut 2026-10-07 – `codeTarget` i `src/server/auth/service.ts`) får också en kod – högst 20 nya adresser per timme i hela appen och högst 3 per IP (unika adresser, hashade i `login_attempts`; plusadresser får ingen kod); profilen skapas först när koden verifierats. Hastighetsbegränsningen (5 koder per adress och 20 per IP på 15 minuter) är oförändrad. Dessutom finns ett **tak för hela appen: högst 30 kodmejl per timme**, oavsett adress och IP (`CODE_MAILS_PER_HOUR` i `src/server/auth/rate-limit.ts`). Supabase Auth har ingen spärr på `generateLink` och skickar inget mejl, så Supabases gräns för e-post (30 per timme) gäller inte längre – appens spärrar är de enda. Taket hindrar att någon som känner till många behöriga adresser tömmer Resend-kontots kvot (som notiserna delar) eller håller många giltiga koder i omlopp.
 2. Servern ber Supabase Auth ta fram koden: `auth.admin.generateLink({ type: "magiclink", email })` med service role. Supabase skickar då **inget** mejl. Koden står i `properties.email_otp`; länken (`action_link`, `hashed_token`) används aldrig och skickas aldrig.
 3. Mejlet skickas **direkt** med Resend (`RESEND_API_KEY`, avsändare `MM_EMAIL_FROM`, Idempotency-Key = radens id, ingen svarsadress – ett svar skulle citera koden). Det går bara till den som loggar in – aldrig omdirigerat med `MM_EMAIL_REDIRECT_TO`.
 4. **Varför inte via kön:** kön sparar texten i `outbound_messages` och jobbets payload tills mejlet skickats. Koden sparas aldrig i appens databas, i jobbkön, i loggar eller i revisionsloggen – inte heller en kort stund. Den finns bara i mottagarens brevlåda och i Resends sändlogg: Resend sparar varje skickat mejl och visar det under *Emails*, så den som har åtkomst till Resends instrumentpanel kan se giltiga koder. Bara administratörer får ha åtkomst till Resend-kontot (`docs/DRIFT.md` avsnitt 4.1).

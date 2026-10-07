@@ -22,7 +22,7 @@ import {
 } from "./render";
 import { RESEND_ENDPOINT, sendViaResend } from "./resend";
 import { deliverMessage, sendMessageJob, type SenderDeps } from "./sender";
-import { FALLBACK_SUBJECT, GENERIC_PORTAL_BODY, subjectFor } from "./templates";
+import { FALLBACK_SUBJECT, GENERIC_PORTAL_BODY, subjectFor, TEMPLATES } from "./templates";
 import { fakeResend, memoryJobStore, memoryNotifyRepo } from "./test-helpers";
 import { JobError } from "../jobs/errors";
 import type { OutboundRow } from "./types";
@@ -421,10 +421,10 @@ describe("personnummer i utskick", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cmd = <D extends CommandDef<any, any>>(def: D, input: ParamsOf<D>, actor: Actor) => rt.run("command", def.key, input, actor) as Promise<ResultOf<D>>;
     const order = { firstName: "Testa", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00", city: "Tumba", preferredContact: "email" as const,
-      email: "testa@exempel.se", buyerReference: "4410023817", primaryArea: "G", desiredStart: "2027-02-08", plannedWeeks: 6, source: "portal" as const };
+      email: "testa@exempel.se", referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-08", orderPeriodMonths: 6, priorAssessment: "yes" as const, source: "portal" as const };
     expect(await cmd(caseCreate, order, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
-    expect(await cmd(caseCreate, { ...order, pnr: "19900303-3456", protectedIdentity: true }, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
-    expect(await cmd(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", plannedWeeks: 6 }, as("u-sara", "samordnare"))).toMatchObject({ ok: true });
+    expect(await cmd(caseCreate, { ...order, pnr: "19900303-3456" }, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
+    expect(await cmd(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, as("u-sara", "samordnare"))).toMatchObject({ ok: true });
     expect(await cmd(caseDecline, { caseId: "case-270048", reason: "Vi har inte kapacitet under önskad period" }, as("u-sara", "samordnare"))).toMatchObject({ ok: true });
     expect(await cmd(messageSend, { caseId: "case-260143", body: "Hej! Hur går praktiken?" }, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
     expect(await cmd(messageSend, { caseId: "case-260143", body: "Bra, tack!" }, as("u-amira", "coach"))).toMatchObject({ ok: true });
@@ -432,7 +432,9 @@ describe("personnummer i utskick", () => {
 
     const all = rt.store.rows("outbound_messages");
     const templates = new Set(all.filter((m) => m.channel === "email").map((m) => m.template));
-    for (const t of ["ordererkannande", "generisk_mottagningsbekraftelse", "orderbekraftelse", "tilldelning_coach", "avbojt", "coachbyte", "nytt_meddelande", "ny_rapport"]) {
+    // Den generiska mottagningsbekräftelsen skickas inte sedan 2026-10-07 (skyddade personuppgifter borttagna ur appen).
+    expect(templates.has("generisk_mottagningsbekraftelse")).toBe(false);
+    for (const t of ["ordererkannande", "orderbekraftelse", "tilldelning_coach", "avbojt", "coachbyte", "nytt_meddelande", "ny_rapport"]) {
       expect(templates.has(t), t).toBe(true);
     }
 
@@ -454,7 +456,10 @@ describe("personnummer i utskick", () => {
       const digits = `${subject} ${text}`.replace(/\D/g, "");
       for (const d of pnrDigits) expect(digits.includes(d)).toBe(false);
       for (const n of names) expect(new RegExp(`(^|[^\\p{L}])${n}([^\\p{L}]|$)`, "u").test(`${subject}\n${text}`), `namnet ${n} i ${c.body.tags[0].value}`).toBe(false);
+      // Inga belopp, priser eller ordervärden i något mejl (beslut 2026-10-07, synpunkt #10).
+      expect(`${subject}\n${text}`, `belopp i ${c.body.tags[0].value}`).not.toMatch(/\d\s?kr\b|kronor|ordervärde|beställningens värde|veckopris|öre\b/i);
     }
+    for (const t of Object.values(TEMPLATES)) expect(`${t.name} ${t.subject}`).not.toMatch(/\bkr\b|kronor|värde|pris/i);
   });
 });
 

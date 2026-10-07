@@ -6,6 +6,7 @@ import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
+import { plural } from "@/core/format";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
@@ -14,20 +15,20 @@ import type { Case, MonthlyAssessment, Profile, Report } from "@/data/schema";
 import { weeklyComplete } from "../_shared/weekly";
 import {
   reportCorrectionNote, reportDocument, reportDownload, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
-  type PortalReportInfo, type ReportDocResult, type ReportDocView, type ReportList, type ReportListRow, type ReportVersion, type ReportView, type ReportViewDenied, type WeeklyDocSection,
+  type OrderDocModel, type PortalReportInfo, type ReportDocResult, type ReportDocView, type ReportList, type ReportListRow, type ReportVersion, type ReportView, type ReportViewDenied, type WeeklyDocSection,
 } from "./api";
 import { docBase, monthlyDocView } from "./doc-view";
 import { freezeReport } from "./freeze";
 import { contractInfo, loadReportDb, pendingCorrection, recipientOf, reportAccess, versionChain, viewerFor, type ContractInfo, type Viewer } from "./load";
 import {
   driftedSinceDelivery, hasDocument, hasSnapshot, lastApprovedCheckIn, obstaclesText, personWithUnit, reportModel, summaryFromNumbers,
-  type ReportModel, type SummaryModel,
+  type OrderModel, type ReportModel, type SummaryModel,
 } from "./model";
 import { DENIED, effStatus, isDelivered, lifecycleIndex, periodText, REPORT_LIST_KINDS, reportFilename, reportTitle, statusLabel, ucfirst, wdFull } from "./report-helpers";
 
 const LIST_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "chef"];
 const MB_VIEW_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"];
-const VIEW_ROLES: readonly Role[] = [...MB_VIEW_ROLES, "kommun_handlaggare", "kommun_chef"];
+const VIEW_ROLES: readonly Role[] = [...MB_VIEW_ROLES, "kommun_handlaggare"];
 const NOT_FOUND = "Rapporten finns inte, eller så har du inte behörighet att se den.";
 
 // ================================================================ Gemensamt
@@ -54,9 +55,11 @@ function nextStep(r: Report, ma: MonthlyAssessment | null, pend: Report | null):
   const s = effStatus(r);
   if (isDelivered(r) && pend) return { key: "correcting", label: `Rättas – version ${pend.version} är ett utkast` };
   if (s === "opened") return { key: "done", label: "Mottagaren har öppnat rapporten" };
+  // Beställarrapporten lämnas utanför Miljonmatch (beslut 2026-10-07): ingen kvittens att vänta på.
+  if (s === "delivered" && r.kind === "customer_summary") return { key: "done", label: "Lämnad till kommunen utanför Miljonmatch" };
   if (s === "delivered") return { key: "unopened", label: "Levererad – inte öppnad än" };
   if (r.kind === "final" && !hasRecommendation(r)) return { key: "blocked", label: "Coachen skriver rekommenderad fortsättning" };
-  if (s === "approved") return { key: "deliver", label: "Väntar på leverans till kommunen" };
+  if (s === "approved") return { key: "deliver", label: r.kind === "customer_summary" ? "Väntar på att lämnas till kommunen" : "Väntar på leverans till kommunen" };
   if (s === "waiting") return { key: "registration", label: "Väntar på närvaroregistrering" };
   if (r.kind === "monthly") {
     if (!ma || ma.status !== "approved") return { key: "blocked", label: "Månadsbedömningen ska godkännas först" };
@@ -142,6 +145,16 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
 
 // ================================================================ Rapportdokumentet
 /** Vy-modellen för dokumentet: modellen plus det läsaren ser (namn, veckorapportens sektioner). */
+/**
+ * Orderbekräftelsen utan pris och ordervärde för alla läsare (beslut 2026-10-07, synpunkt #10). Efter reportModel(), så att det
+ * gäller också frysta rapporter (reports.snapshot) från före beslutet: veckopriset tas bort och omfattningen räknas fram ur veckorna.
+ */
+function orderDocModel(m: OrderModel & { price?: unknown }): OrderDocModel {
+  const { price, ...rest } = m;
+  void price;
+  return { ...rest, period: rest.period || (rest.weeks ? plural(rest.weeks, "vecka", "veckor") : "Inte angiven") };
+}
+
 async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info: ContractInfo, m: ReportModel, profiles: readonly Profile[]): Promise<ReportDocView> {
   const base = docBase(r, info, profiles, m.kind === "weekly_attendance" ? m.recipientUserId : r.recipientUserId);
   switch (m.kind) {
@@ -149,14 +162,8 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
       return monthlyDocView(base, viewer.name(c), m);
     case "final":
       return { ...base, kind: "final", participant: viewer.name(c), m };
-    case "order_confirmation": {
-      // Begränsade testare (testmiljön): veckopriset tas bort ur vy-modellen – efter reportModel(), så att det gäller både
-      // levande och frysta rapporter (reports.snapshot).
-      if (!hidesCommercial(ctx.actor)) return { ...base, kind: "order_confirmation", participant: viewer.name(c), m };
-      const { price, ...rest } = m;
-      void price;
-      return { ...base, kind: "order_confirmation", participant: viewer.name(c), m: rest };
-    }
+    case "order_confirmation":
+      return { ...base, kind: "order_confirmation", participant: viewer.name(c), m: orderDocModel(m) };
     case "customer_summary":
       return {
         ...base, kind: "customer_summary", m, approver: personName(profiles, r.approvedBy || info.contract.contractManagerId), resultNote: info.cfg.result.prototypeDefinition || "",
@@ -203,7 +210,7 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
   }
   const info = await contractInfo(ctx, r.contractId);
   const viewer = await viewerFor(ctx, c ? [c] : []);
-  const acc = reportAccess(r, c, viewer, info.cfg);
+  const acc = reportAccess(r, c, viewer);
   const denied = (reason: Extract<ReportDocResult, { ok: false }>["reason"]): ReportDocResult =>
     customer ? { ok: false, reason, title: "", caseId: null, caseNumber: null } : { ok: false, reason, title: reportTitle(r), caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null };
   if (!acc.ok) return denied(acc.reason);
@@ -239,7 +246,7 @@ handleCommand(reportDownload, { roles: VIEW_ROLES, silent: true }, async (ctx, p
   const { r, c } = found;
   const info = await contractInfo(ctx, r.contractId);
   const viewer = await viewerFor(ctx, c ? [c] : []);
-  const acc = reportAccess(r, c, viewer, info.cfg);
+  const acc = reportAccess(r, c, viewer);
   if (!acc.ok) return fail(acc.reason, DENIED[acc.reason][0]);
   if (!(await policyAllows(ctx, r.id))) {
     const reason = customer ? "not_yours" : "not_assigned";
@@ -264,12 +271,16 @@ function idleText(r: Report, role: Role, step: Step, coachName: string | null): 
     if (r.kind === "monthly" || r.kind === "final") return `Huvudcoachen${coachName ? ` ${coachName}` : ""} godkänner rapporten.`;
     return "Samordnaren eller avtalsansvarig godkänner rapporten.";
   }
-  if (step.key === "deliver") return "Coach, samordnare eller avtalsansvarig levererar rapporten till kommunen.";
+  if (step.key === "deliver") {
+    if (r.kind === "customer_summary") return "Avtalsansvarig eller samordnaren registrerar när rapporten har lämnats till kommunen.";
+    return "Coach, samordnare eller avtalsansvarig levererar rapporten till kommunen.";
+  }
   return "Inga åtgärder behövs just nu.";
 }
 
 const LEAD: Partial<Record<Report["kind"], string>> = {
-  customer_summary: "Månadsrapport till kommunens chef. Den visar bara avtalets mål – aldrig Miljonbemannings interna mål.",
+  customer_summary:
+    "Månadsrapport om avtalet till kommunen. Avtalsansvarig lämnar den till kommunen utanför Miljonmatch, till exempel på ett möte. Den visar bara avtalets mål – aldrig Miljonbemannings interna mål.",
   weekly_attendance: "En rapport per handläggare och vecka, med en sektion per deltagare. Skapas automatiskt från närvaroregistreringen.",
 };
 
@@ -281,7 +292,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
   const { r, c } = found;
   const info = await contractInfo(ctx, r.contractId);
   const viewer = await viewerFor(ctx, c ? [c] : []);
-  const acc = reportAccess(r, c, viewer, info.cfg);
+  const acc = reportAccess(r, c, viewer);
   const denied = (reason: ReportViewDenied["reason"]): ReportViewDenied => ({ ok: false, reason, title: reportTitle(r), listCrumb, caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null });
   if (!acc.ok) return denied(acc.reason);
   if (!(await policyAllows(ctx, r.id))) return denied("not_assigned");
@@ -295,7 +306,9 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
   const step = nextStep(r, ma, pend);
   const delivered = isDelivered(r);
   const lead = acc.access === "full";
-  const to = recipientOf(r, c);
+  // Beställarrapporten har ingen mottagare i portalen (beslut 2026-10-07) – den lämnas till kommunen utanför Miljonmatch.
+  const outside = r.kind === "customer_summary";
+  const to = outside ? null : recipientOf(r, c);
   const toProfile = to ? profiles.find((x) => x.id === to) ?? null : null;
 
   // Knapparna (prototypens StatusCard)
@@ -366,7 +379,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
 
   return {
     ok: true, id: r.id, kind: r.kind, title: reportTitle(r),
-    eyebrow: c ? `${c.caseNumber} · ${viewer.name(c)}` : `Till ${pname(r.recipientUserId)}`,
+    eyebrow: c ? `${c.caseNumber} · ${viewer.name(c)}` : outside ? `Till ${info.customerName}` : `Till ${pname(r.recipientUserId)}`,
     lead: LEAD[r.kind] ?? "Förhandsvisning av rapporten som kommunen får. Den byggs bara av godkända uppgifter.",
     listCrumb, caseId: c?.id ?? null, caseNumber: c?.caseNumber ?? null,
     status: r.status, eff: effStatus(r), statusLabel: statusLabel(r), overdue: isOverdue(r, now), version: r.version || 1, delivered, deliveredAt: r.deliveredAt,
@@ -376,8 +389,8 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
     approved: r.approvedAt ? `${fmtDateTime(r.approvedAt)} av ${pname(r.approvedBy)}` : null,
     qualityReviewed: r.qualityReviewedAt ? `${fmtDateTime(r.qualityReviewedAt)} av ${pname(r.qualityReviewedBy)}` : null,
     recipient: personWithUnit(db, to), recipientId: to,
-    deliveredText: r.deliveredAt ? `${fmtDateTime(r.deliveredAt)} i portalen` : "Inte levererad",
-    openedText: r.openedAt ? `${fmtDateTime(r.openedAt)} – mottagaren har öppnat rapporten` : delivered ? "Inte öppnad än. Bara mottagaren kan kvittera." : "–",
+    deliveredText: r.deliveredAt ? `${fmtDateTime(r.deliveredAt)}${outside ? " – lämnad till kommunen utanför Miljonmatch" : " i portalen"}` : outside ? "Inte lämnad" : "Inte levererad",
+    openedText: outside ? "–" : r.openedAt ? `${fmtDateTime(r.openedAt)} – mottagaren har öppnat rapporten` : delivered ? "Inte öppnad än. Bara mottagaren kan kvittera." : "–",
     correction: r.correctionReason ? `${r.correctionReason} (${pname(r.correctedBy)}, ${fmtDateTime(r.correctedAt)})` : null,
     blocked: r.kind === "monthly" && step.key === "blocked" && c && r.month
       ? { monthText: monthName(r.month), missing: !ma, canOpen: blockedAccess === "full" || blockedAccess === "team", caseId: c.id, month: r.month }
@@ -389,12 +402,24 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
     drift: driftedSinceDelivery(db, r, env) ? { canCorrect: role === "coach" || role === "samordnare" || role === "avtalsansvarig" } : null,
     waiting, finalText, summary,
     slaHidden: r.kind === "customer_summary" && !info.cfg.customerVisibility.seesSlaStats,
-    delivery: {
-      channel: info.cfg.reportDelivery.channel === "portal" ? "Kommunens portal (inloggning med e-postkod)" : info.cfg.reportDelivery.channel,
-      recipientName: toProfile?.fullName ?? null,
-      attachmentAllowed: info.cfg.reportDelivery.emailAttachmentAllowed,
-      notice: `${reportKindLabel(r.kind)}${c ? ` för ärende ${c.caseNumber}` : ""} finns i portalen – logga in för att läsa.`,
-    },
+    delivery: outside
+      ? {
+          outside: true,
+          channel: "Lämnas till kommunen utanför Miljonmatch",
+          recipientName: null,
+          attachmentAllowed: info.cfg.reportDelivery.emailAttachmentAllowed,
+          // Texten byggs av avtalets reportDelivery.emailAttachmentAllowed (CLAUDE.md punkt 9).
+          notice: info.cfg.reportDelivery.emailAttachmentAllowed
+            ? "Rapporten lämnas till kommunen utanför Miljonmatch, till exempel på ett möte. Avtalet tillåter att den skickas som bilaga i e-post enligt kommunens skriftliga instruktion."
+            : "Rapporten lämnas till kommunen utanför Miljonmatch, till exempel på ett möte. Skicka den inte som bilaga i vanlig e-post – avtalet tillåter inte det.",
+        }
+      : {
+          outside: false,
+          channel: info.cfg.reportDelivery.channel === "portal" ? "Kommunens portal (inloggning med e-postkod)" : info.cfg.reportDelivery.channel,
+          recipientName: toProfile?.fullName ?? null,
+          attachmentAllowed: info.cfg.reportDelivery.emailAttachmentAllowed,
+          notice: `${reportKindLabel(r.kind)}${c ? ` för ärende ${c.caseNumber}` : ""} finns i portalen – logga in för att läsa.`,
+        },
     versions,
     needsSnapshot: delivered && !hasSnapshot(r) && hasDocument(r.kind),
   };

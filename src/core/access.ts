@@ -8,7 +8,10 @@
 // Nivåer:
 //   full        allt i ärendet (anteckningar, bedömningar, personuppgifter)
 //   team        tilldelad i teamet: ärendet och anteckningar, men inte skyddade ärenden
-//   restricted  ärendet finns (nummer och status) men personen och detaljerna döljs – skyddade personuppgifter
+//   restricted  ärendet finns (nummer och status) men personen och detaljerna döljs – skyddade personuppgifter.
+//               VILANDE sedan 2026-10-07 (Karims beslut): skyddet är borttaget ur appen och persons.protected_identity är
+//               alltid false, så nivån uppstår inte. Spärren ligger kvar här, i policy.ts och i RLS så att skyddet kan slås
+//               på igen utan migration om Botkyrka kräver det. Skärmarna behandlar "restricted" som ingen åtkomst.
 //   billing     ekonom: nummer, perioder, område, referenser och närvaro för debitering – inga namn eller anteckningar
 //   customer    kommunen: sina ärenden (inga coachanteckningar, internt mål eller interna flaggor)
 //   none        ingen åtkomst
@@ -28,7 +31,7 @@ export type CaseAccessLookups = {
   protectedIdentity: boolean;
   /** Användare i ärendets team (case_team.userId, inklusive huvudcoachen). */
   teamUserIds: readonly string[];
-  /** Beställande handläggares enhet (profilen, annars ärendets referrerUnit) – för synlighet "unit" och kommunens chef. */
+  /** Beställande handläggares enhet (profilen, annars ärendets referrerUnit) – för synlighet "unit". */
   referrerUnit?: string | null;
   /** Kommunens handläggare: egna ärenden, enhetens eller alla (effectiveCustomerScope). Standard "own". */
   customerScope?: VisibilityScope;
@@ -40,13 +43,6 @@ export function effectiveCustomerScope(cfg: Pick<ContractConfig, "customerVisibi
   if (!v) return "own";
   if (v.scope && !isUnset(v.scope)) return v.scope;
   return v.prototypeScope ?? "own";
-}
-
-/** Chefens enhet omfattar ärendet: samma enhet eller en underenhet ("Arbetsmarknadsenheten" omfattar "Arbetsmarknadsenheten Alby"). Ingen enhet = hela avtalet. */
-export function unitCovers(chefUnit: string | null | undefined, referrerUnit: string | null | undefined): boolean {
-  if (!chefUnit) return true;
-  if (!referrerUnit) return false;
-  return referrerUnit === chefUnit || referrerUnit.startsWith(`${chefUnit} `);
 }
 
 /** Åtkomstnivå för aktören i ärendet. Admin har alla avtal; övriga bara avtal de är medlemmar i. */
@@ -77,9 +73,6 @@ export function caseAccess(c: CaseAccessCase | null | undefined, actor: Actor, l
       if (scope === "unit" && actor.customerUnit && l.referrerUnit === actor.customerUnit) return "customer";
       return "none";
     }
-    case "kommun_chef":
-      if (!unitCovers(actor.customerUnit, l.referrerUnit)) return "none";
-      return prot ? "restricted" : "customer";
     default:
       return "none";
   }

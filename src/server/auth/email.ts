@@ -42,6 +42,6 @@ export const AUTH_TEXT = {
   wrongCode: "Koden stämmer inte eller har gått ut. Kontrollera koden eller begär en ny kod.",
   tooManyAttempts: "Du har skrivit fel kod för många gånger. Begär en ny kod.",
   rateLimited: "Du har försökt för många gånger. Vänta en stund och försök igen.",
-  noAccess: "Adressen har inte tillgång till Miljonmatch. Kontakta den som bjöd in dig.",
+  noAccess: "Adressen har inte tillgång till Miljonmatch. Kontakta Miljonbemanning om du behöver ett konto.",
   error: "Något gick fel. Försök igen om en stund.",
 } as const;

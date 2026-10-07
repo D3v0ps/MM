@@ -1,6 +1,7 @@
 "use client";
 // Användare och roller (/admin/anvandare, prototypens admin.anvandare). Systemadmin ser personalen, kommunens användare och
-// behörighetsmatrisen; avtalsansvarig ser kommunanvändarna (bjuder in och spärrar). Bara inbjudna konton – ingen självregistrering.
+// behörighetsmatrisen; avtalsansvarig ser kommunanvändarna (bjuder in och spärrar). Personalen bjuds in. Kommunens handläggare
+// kan också skapa sina konton själva med en adress på kommunens domän (beslut 2026-10-07) – de märks "Skapade kontot själv".
 // Avtal och konfiguration ligger inte i menyn (beslut 2026-10-06): systemadministratören når den härifrån och från Min vecka.
 import { useState } from "react";
 import { isTesterHiddenPath } from "@/api/tester-access";
@@ -10,7 +11,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Avatar, Badge, Button, Card, CellSub, ErrorSummary, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Modal, ModalCancelButton, Notice, Page, PerspectiveLink, QueryView, Select, Stack, TabPanel, Table, Tabs, toast,
+  Avatar, Badge, Button, Card, CellSub, ErrorSummary, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Modal, ModalCancelButton, Notice, Page, PerspectiveLink, QueryView, Stack, TabPanel, Table, Tabs, toast,
   type IconName, type TabDef,
 } from "@/ui";
 import { emailValid } from "@/core/validation";
@@ -44,6 +45,8 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
   const statusOf = (u: CustomerUserRow) =>
     !u.active ? (
       <Badge tone="red" icon="lock">Spärrad</Badge>
+    ) : u.selfRegistered && !u.lastLoginAt ? (
+      <Badge tone="outline" icon="user">Skapade kontot själv{u.invitedAt ? ` ${fmtDateShort(u.invitedAt)}` : ""}</Badge>
     ) : u.invitedAt && !u.lastLoginAt ? (
       <Badge tone="outline" icon="mail">Inbjuden {fmtDateShort(u.invitedAt)}</Badge>
     ) : (
@@ -58,7 +61,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
     <Page
       title={d.isAdmin ? "Användare och roller" : "Kommunanvändare"}
       eyebrow={d.isAdmin ? "Systemadmin" : `Avtalsansvarig · ${d.customerName}`}
-      lead="Bara inbjudna konton – ingen självregistrering. Miljonbemanning loggar in med Microsoft Entra ID, kommunen med e-post och engångskod."
+      lead="Personalen bjuds in och loggar in med Microsoft Entra ID. Kommunens handläggare loggar in med e-post och engångskod – de kan skapa sitt konto själva med en adress på kommunens domän, eller bjudas in."
       actions={
         <>
           {contractLink && (
@@ -139,6 +142,9 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
             foot={
               <Stack gap="sm" className="w-full">
                 <span className="text-text-muted">
+                  {d.selfRegistrationDomains.length
+                    ? `Alla med en adress som slutar på @${d.selfRegistrationDomains.join(" eller @")} kan skapa ett konto själva när de loggar in första gången. De blir handläggare och fyller i namn, telefon och enhet. `
+                    : "Ingen kan skapa ett konto själv i det här avtalet. "}
                   Engångskoden gäller i 10 minuter och man har högst 5 försök. Ingen magisk länk – e-postskydd som Safe Links förbrukar sådana länkar i förväg. Mejlbeställning via avrop@ fungerar även för den som aldrig loggar in.
                 </span>
                 <DemoOnly>
@@ -159,9 +165,8 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
                   key: "unit", label: "Roll och enhet",
                   render: (u) => (
                     <>
-                      <span className="font-bold">{u.role === "chef" ? "Chef" : "Handläggare"}</span>
-                      <div>{u.unit}</div>
-                      {u.buyerReference && <CellSub>Beställarreferens {u.buyerReference}</CellSub>}
+                      <span className="font-bold">Handläggare</span>
+                      <div>{u.unit || <span className="text-text-muted">Enhet inte ifylld</span>}</div>
                     </>
                   ),
                 },
@@ -217,7 +222,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
 // ================================================================ Bjud in kommunanvändare
 function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
   const invite = useCommand(adminInviteCustomer);
-  const [f, setF] = useState({ name: "", email: "", role: "handlaggare", unit: "" });
+  const [f, setF] = useState({ name: "", email: "", unit: "" });
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<string | null>(null);
   const set = (key: keyof typeof f) => (v: string) => {
@@ -232,8 +237,7 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
   else if (!emailValid(email)) errs.email = "E-postadressen ser inte ut att stämma. Kontrollera stavningen.";
   else if (!domains.includes(email.split("@")[1])) errs.email = `Adressen måste sluta på @${domains.join(" eller @")}. Andra domäner kan inte bjudas in till det här avtalet.`;
   else if (d.customers.some((u) => u.email.toLowerCase() === email)) errs.email = "Det finns redan en användare med den adressen.";
-  if (!f.unit) errs.unit = "Välj enhet.";
-  const br = d.units.find((u) => u.unit === f.unit)?.buyerReference ?? null;
+  if (!f.unit.trim()) errs.unit = "Skriv vilken enhet personen arbetar på.";
   const show = (key: keyof typeof errs) => (tried ? errs[key] : undefined);
   const submit = async () => {
     setTried(true);
@@ -242,7 +246,7 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
       focusFirstError(document.querySelector<HTMLElement>("[role=dialog]"));
       return;
     }
-    const r = await invite.run({ contractId: d.contractId, name: f.name, email, role: f.role, unit: f.unit }).catch(() => null);
+    const r = await invite.run({ contractId: d.contractId, name: f.name, email, unit: f.unit }).catch(() => null);
     if (!r || !r.ok) {
       setServerErr(r && !r.ok && r.error === "exists" ? "Det finns redan en användare med den adressen." : r && !r.ok && r.error === "domain" ? "Adressen har inte en tillåten domän." : "Inbjudan kunde inte skickas. Kontrollera fälten.");
       return;
@@ -252,7 +256,7 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
   };
   return (
     <Modal
-      title="Bjud in kommunanvändare"
+      title="Bjud in kommunens handläggare"
       onClose={onClose}
       dirty={!!(f.name.trim() || f.email.trim() || f.unit)}
       footer={
@@ -263,7 +267,10 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
       }
     >
       <Stack>
-        <p className="text-text-muted">Kommunanvändare kan inte registrera sig själva. De loggar in med sin e-postadress och en sexsiffrig engångskod.</p>
+        <p className="text-text-muted">
+          Kommunens användare är handläggare. De loggar in med sin e-postadress och en sexsiffrig engångskod.
+          {d.selfRegistrationDomains.length ? ` Den som har en adress som slutar på @${d.selfRegistrationDomains.join(" eller @")} kan också skapa ett konto själv.` : ""}
+        </p>
         {serverErr && <Notice tone="critical">{serverErr}</Notice>}
         {tried && (
           <ErrorSummary
@@ -278,12 +285,14 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
           <Field id="inv-email" label="E-postadress" required help={`Bara adresser som slutar på @${domains.join(" eller @")}.`} error={show("email")}>
             <Input type="email" value={f.email} onValueChange={set("email")} />
           </Field>
-          <Field id="inv-role" label="Roll" required help="Handläggare beställer och läser rapporter för sina deltagare. Chef ser beställarrapporten och enhetens ärenden.">
-            <Select value={f.role} onValueChange={set("role")} options={[{ value: "handlaggare", label: "Handläggare" }, { value: "chef", label: "Chef" }]} />
+          <Field id="inv-unit" label="Enhet" required help="Skriv vilken enhet personen arbetar på, till exempel Arbetsmarknadsenheten Alby." error={show("unit")}>
+            <Input value={f.unit} onValueChange={set("unit")} maxLength={120} list="inv-unit-list" />
           </Field>
-          <Field id="inv-unit" label="Enhet" required help={br ? `Beställarreferens som föreslås: ${br}.` : "Enheten styr vilken beställarreferens som föreslås vid beställning."} error={show("unit")}>
-            <Select value={f.unit} onValueChange={set("unit")} placeholder="Välj enhet" options={d.units.map((u) => ({ value: u.unit, label: u.unit }))} />
-          </Field>
+          <datalist id="inv-unit-list">
+            {d.units.map((u) => (
+              <option key={u.unit} value={u.unit} />
+            ))}
+          </datalist>
         </FormGrid>
         <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-text-muted">
           <Icon name="mail" className="mt-px" />
@@ -305,13 +314,12 @@ const ROLE_TABLE: [string, string, string, string, string][] = [
   ["Handledare, arbetsgivarmatchare och SYV", "Miljonbemanning", "Tilldelade ärenden", "Moment, praktik, arbetsgivarkontakter, närvaro, validering", "Microsoft Entra ID"],
   ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "Microsoft Entra ID"],
   ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "Microsoft Entra ID"],
-  ["Kommunens handläggare och coach", "Botkyrka kommun", "Egna anvisade ärenden – eller hela enheten, om avtalskonfigurationen säger det", "Beställer, läser rapporter, skickar meddelanden, kvitterar, beslutar om bonusanspråk", "E-post och engångskod"],
-  ["Kommunens chef", "Botkyrka kommun", "Beställarrapport och enhetens ärenden", "Läser, laddar ner, godkänner åtgärdsplaner", "E-post och engångskod"],
+  ["Kommunens handläggare", "Botkyrka kommun", "Egna beställda ärenden", "Beställer, läser rapporter, skickar meddelanden, kvitterar. Skapar sitt konto själv med en adress på kommunens domän", "E-post och engångskod"],
   ["Deltagare", "Utan inloggning i piloten", "Egen plan och bokningar (utvecklingsfas 4)", "Svarar på pulsmätningen via engångslänk", "Ingen – BankID senare"],
 ];
 const MX_ROLES: [string, string][] = [
   ["admin", "Admin"], ["avtalsansvarig", "Avtals­ansvarig"], ["samordnare", "Sam­ordnare"], ["coach", "Coach"], ["handledare", "Hand­ledare"],
-  ["chef", "Chef och con­troller"], ["ekonom", "Ekonom"], ["kommun_handlaggare", "Kommunens hand­läggare"], ["kommun_chef", "Kommunens chef"],
+  ["chef", "Chef och con­troller"], ["ekonom", "Ekonom"], ["kommun_handlaggare", "Kommunens hand­läggare"],
 ];
 const MX_CELL: Record<string, [IconName, string]> = {
   ja: ["check", "Ja"], alla: ["check", "Alla"], nej: ["minus", "Nej"], las: ["eye", "Läsa"], egna: ["user", "Egna"], tilldelade: ["user", "Tilldelade"], namngiven: ["user", "Om namngiven"],
@@ -322,21 +330,20 @@ function matrixGroups(escalateTo: readonly EscalationRole[]): [string, [string, 
   const esc = escalateTo as readonly string[];
   return [
     ["Ser", [
-      ["Ärenden i avtalet", ["alla", "alla", "alla", "egna", "tilldelade", "las", "nummer", "egna", "enheten"]],
-      ["Skyddade personuppgifter", ["nej", "ja", "nej", "namngiven", "nej", "nej", "nej", "egna", "enheten"]],
-      ["Coachanteckningar", ["ja", "ja", "ja", "egna", "tilldelade", "las", "nej", "nej", "nej"]],
-      ["Rapporter", ["ja", "ja", "ja", "egna", "tilldelade", "las", "nej", "egna", "enheten"]],
-      ["Fakturaunderlag", ["ja", "ja", "nej", "nej", "nej", "las", "ja", "nej", "nej"]],
-      ["Avtalskonfiguration", ["ja", "las", "nej", "nej", "nej", "las", "nej", "nej", "nej"]],
-      ["Revisionslogg", ["ja", "nej", "nej", "nej", "nej", "ja", "nej", "nej", "nej"]],
+      ["Ärenden i avtalet", ["alla", "alla", "alla", "egna", "tilldelade", "las", "nummer", "egna"]],
+      ["Coachanteckningar", ["ja", "ja", "ja", "egna", "tilldelade", "las", "nej", "nej"]],
+      ["Rapporter", ["ja", "ja", "ja", "egna", "tilldelade", "las", "nej", "egna"]],
+      ["Fakturaunderlag", ["ja", "ja", "nej", "nej", "nej", "las", "ja", "nej"]],
+      ["Avtalskonfiguration", ["ja", "las", "nej", "nej", "nej", "las", "nej", "nej"]],
+      ["Revisionslogg", ["ja", "nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
     ]],
     ["Gör", [
-      ["Acceptera och avböja avrop", ["nej", "ja", "ja", "nej", "nej", "nej", "nej", "nej", "nej"]],
-      ["Bjuda in kommunanvändare", ["ja", "ja", "nej", "nej", "nej", "nej", "nej", "nej", "nej"]],
-      ["Ändra avtal, användare och integrationer", ["ja", "nej", "nej", "nej", "nej", "nej", "nej", "nej", "nej"]],
-      ["Kvittera flaggor och godkänna åtgärdsplaner", ["nej", "ja", "nej", "nej", "nej", "ja", "nej", "nej", "ja"]],
-      ["Fakturakörning och Fortnox", ["nej", "nej", "nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
-      ["Månatlig loggkontroll", ["nej", "nej", "nej", "nej", "nej", "ja", "nej", "nej", "nej"]],
+      ["Acceptera och avböja avrop", ["nej", "ja", "ja", "nej", "nej", "nej", "nej", "nej"]],
+      ["Bjuda in kommunanvändare", ["ja", "ja", "nej", "nej", "nej", "nej", "nej", "nej"]],
+      ["Ändra avtal, användare och integrationer", ["ja", "nej", "nej", "nej", "nej", "nej", "nej", "nej"]],
+      ["Kvittera flaggor och godkänna åtgärdsplaner", ["nej", "ja", "nej", "nej", "nej", "ja", "nej", "nej"]],
+      ["Fakturakörning och Fortnox", ["nej", "nej", "nej", "nej", "nej", "nej", "ja", "nej"]],
+      ["Månatlig loggkontroll", ["nej", "nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
     ]],
     ["Notiser", [
       ["Notis vid tilldelning: huvudcoach och team", roles.map((r) => (["coach", "handledare"].includes(r) ? "mottagare" : "nej"))],

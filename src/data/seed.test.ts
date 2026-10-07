@@ -82,17 +82,21 @@ describe("antal rader per tabell", () => {
       ["check_ins", "checkIns", 1145], ["monthly_assessments", "monthlyAssessments", 352], ["monthly_plans", "monthlyPlans", 352],
       ["outcome_events", "outcomeEvents", 228], ["deviations", "deviations", 19], ["contract_deviations", "contractDeviations", 3], ["employers", "employers", 12],
       ["placements", "placements", 158], ["reports", "reports", 794], ["pulse_invites", "pulseInvites", 341], ["pulse_responses", "pulseResponses", 217],
-      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 20],
-      ["outbound_messages", "notifications", 8], ["tasks", "tasks", 2],
+      // Beslut 2026-10-07 (seed/decisions-2026-10-07.ts): em-104 är en vanlig fråga – utskicket av den generiska
+      // mottagningsbekräftelsen, dess loggrad och uppgiften till avtalsansvarig finns inte (prototypen: 20, 8 och 2).
+      ["messages", "messages", 7], ["billing_runs", "billingRuns", 5], ["consents", "consents", 157], ["ai_runs", "aiRuns", 2], ["audit_log", "auditLog", 19],
+      ["outbound_messages", "notifications", 7], ["tasks", "tasks", 1],
     ];
     for (const [table, , count] of rows) expect([table, n(table)]).toEqual([table, count]);
     // data-samples.json är från en äldre seed: avstämningar 1144, händelser 230, avvikelser 18, praktik 159, uppgifter 0.
-    // Den nuvarande prototypen (paritetstestet ovan) har 1145, 228, 19, 158 och 2. Övriga antal stämmer med filen.
-    const STALE = new Set(["checkIns", "outcomeEvents", "deviations", "placements", "tasks", "contracts"]);
+    // Den nuvarande prototypen (paritetstestet ovan) har 1145, 228, 19, 158 och 2. Övriga antal stämmer med filen – utom
+    // revisionsloggen och utskicken (beslut 2026-10-07, se ovan).
+    const STALE = new Set(["checkIns", "outcomeEvents", "deviations", "placements", "tasks", "contracts", "auditLog", "notifications"]);
     if (samples) for (const [table, proto] of rows) if (!STALE.has(proto)) expect([proto, n(table)]).toEqual([proto, samples[proto]]);
-    // users + customerUsers -> profiles; ett medlemskap per användare och avtal
-    expect(n("profiles")).toBe(13 + 5);
-    expect(n("memberships")).toBe(18); // ett medlemskap per användare – alla i Botkyrkaavtalet
+    // users + customerUsers -> profiles; ett medlemskap per användare och avtal. Kommunens chef (k-eva) är borttagen
+    // (beslut 2026-10-07): fyra handläggare hos kommunen.
+    expect(n("profiles")).toBe(13 + 4);
+    expect(n("memberships")).toBe(17); // ett medlemskap per användare – alla i Botkyrkaavtalet
     expect(n("user_notifications")).toBe(63);
     expect(n("notification_reads")).toBe(seed.user_notifications.filter((x) => x.createdAt < "2027-01-29").length);
     expect(n("case_team")).toBe(createProtoState().cases.reduce((sum, c) => sum + c.team.length, 0));
@@ -142,10 +146,13 @@ describe("stickprov mot data-samples.json", () => {
   it("inkorgens ärende (case_inbox), avslutat ärende (case_closed) och mejlen", () => {
     const si = S!.case_inbox;
     const ci = byId("cases", si.id as string)!;
+    // Beslut 2026-10-07: Ahmeds beställning saknar omfattningen – inga planerade veckor (prototypen: 6 veckor).
+    expect(si.plannedWeeks).toBe(6);
     expect({ caseNumber: ci.caseNumber, status: ci.status, referredAt: ci.referredAt, referrerId: ci.referrerId, buyerReference: ci.buyerReference, acknowledgedAt: ci.acknowledgedAt,
       desiredStart: ci.desiredStart, plannedWeeks: ci.plannedWeeks, leadCoachId: ci.leadCoachId, primaryAreaCode: ci.primaryAreaCode })
       .toEqual({ caseNumber: si.number, status: si.status, referredAt: si.referredAt, referrerId: si.referrerId, buyerReference: si.buyerReference, acknowledgedAt: si.acknowledgedAt,
-        desiredStart: si.desiredStart, plannedWeeks: si.plannedWeeks, leadCoachId: si.leadCoachId, primaryAreaCode: si.primaryArea });
+        desiredStart: si.desiredStart, plannedWeeks: null, leadCoachId: si.leadCoachId, primaryAreaCode: si.primaryArea });
+    expect(ci).toMatchObject({ orderPeriodMonths: null, plannedEnd: null, orderValueWeeks: null });
     // data-samples.json har personId p-17260 från en äldre seed; nuvarande prototyp ger p-17259.
     expect(ci.personId).toBe("p-17259");
 
@@ -156,22 +163,28 @@ describe("stickprov mot data-samples.json", () => {
       .toEqual({ caseNumber: sc.number, personId: sc.personId, status: sc.status, startDate: sc.startDate, endDate: sc.endDate, endReason: sc.endReason, resultClass: sc.resultClass,
         resultVerifiedAt: sc.resultVerifiedAt, closedAt: sc.closedAt, leadCoachId: sc.leadCoachId, phase: sc.phase, buyerReference: sc.buyerReference });
 
+    // Beslut 2026-10-07: Ahmeds mejl (AI) saknar omfattningen (inte beställarreferens och slutdatum) – kommunens formulär och
+    // ordererkännandet frågar efter omfattningen, och referensen fylls i av Miljonbemanning.
+    const MISSING_AFTER: Record<string, string[]> = { inboundEmail_ai: ["orderPeriod"] };
     for (const key of ["inboundEmail_template", "inboundEmail_ai", "inboundEmail_supplement"]) {
       const se = S![key];
       const e = byId("inbound_emails", se.id as string)!;
       expect({ key, receivedAt: e.receivedAt, fromAddress: e.fromAddress, subject: e.subject, parseMethod: e.parseMethod, classification: e.classification, status: e.status,
         caseId: e.caseId, missingFields: e.missingFields, attachments: e.attachments.map((a) => a.name) })
         .toEqual({ key, receivedAt: se.receivedAt, fromAddress: se.fromAddress, subject: se.subject, parseMethod: se.parseMethod, classification: se.classification, status: se.status,
-          caseId: se.caseId, missingFields: se.missingFields, attachments: (se.attachments as unknown as { name: string }[]).map((a) => a.name) });
+          caseId: se.caseId, missingFields: MISSING_AFTER[key] ?? se.missingFields, attachments: (se.attachments as unknown as { name: string }[]).map((a) => a.name) });
     }
-    // Kompletteringen är identisk; i mall- och AI-mejlen skiljer bara handläggarens telefon/personnumret (äldre seed i filen).
-    expect(byId("inbound_emails", "em-103")!.extracted).toEqual(S!.inboundEmail_supplement.extracted);
+    expect(S!.inboundEmail_ai.missingFields).toEqual(["buyerReference", "plannedEnd"]);
+    // Kompletteringen anger omfattningen (6 månader) och beställarreferensen (prototypen: referensen och slutdatumet).
+    expect(byId("inbound_emails", "em-103")!.extracted).toEqual({ orderPeriod: "6", buyerReference: (S!.inboundEmail_supplement.extracted as Json).buyerReference });
     expect(byId("inbound_emails", "em-101")!.extracted.referrerPhone).toBe("08-530 000 11");
   });
 
   it("rapporter och fakturakörningar", () => {
     // Rapport-id:n i data-samples.json är förskjutna med ett (äldre seed); jämför på innehåll.
-    const find = (s: Json) => seed.reports.find((r) => r.kind === s.kind && r.caseId === (s.caseId ?? null) && r.month === (s.month ?? null) && r.week === (s.week ?? null) && r.recipientUserId === (s.recipientUserId ?? null))!;
+    // Beställarrapporten har ingen mottagare sedan beslutet 2026-10-07 (en per avtal och månad) – den jämförs utan mottagaren.
+    const find = (s: Json) => seed.reports.find((r) => r.kind === s.kind && r.caseId === (s.caseId ?? null) && r.month === (s.month ?? null) && r.week === (s.week ?? null)
+      && (s.kind === "customer_summary" ? r.recipientUserId === null : r.recipientUserId === (s.recipientUserId ?? null)))!;
     const m = find(S!.report_monthly);
     expect({ id: m.id, periodStart: m.periodStart, periodEnd: m.periodEnd, dueAt: m.dueAt, status: m.status, approvedBy: m.approvedBy, deliveredTo: m.deliveredTo, provisionalDue: m.provisionalDue })
       .toEqual({ id: "rep-15204", periodStart: "2026-09-01", periodEnd: "2026-09-30", dueAt: "2026-10-07T23:59", status: "delivered", approvedBy: "u-leila", deliveredTo: ["k-maria"], provisionalDue: true });
@@ -180,8 +193,10 @@ describe("stickprov mot data-samples.json", () => {
       .toEqual({ id: "rep-16620", periodStart: "2026-09-14", dueAt: "2026-09-21T16:00", status: "delivered", approvedBy: "system", deliveredTo: ["k-maria"] });
     const cs = find(S!.report_customer_summary);
     const scs = S!.report_customer_summary;
+    // Lämnad utanför portalen: ingen mottagare, inte öppnad i portalen (prototypen: levererad till och öppnad av k-eva).
+    expect(scs.recipientUserId).toBe("k-eva");
     expect({ periodStart: cs.periodStart, dueAt: cs.dueAt, approvedAt: cs.approvedAt, deliveredAt: cs.deliveredAt, openedAt: cs.openedAt, deliveredTo: cs.deliveredTo })
-      .toEqual({ periodStart: scs.periodStart, dueAt: scs.dueAt, approvedAt: scs.approvedAt, deliveredAt: scs.deliveredAt, openedAt: scs.openedAt, deliveredTo: scs.deliveredTo });
+      .toEqual({ periodStart: scs.periodStart, dueAt: scs.dueAt, approvedAt: scs.approvedAt, deliveredAt: scs.deliveredAt, openedAt: null, deliveredTo: [] });
     const f = find(S!.report_final);
     expect({ periodStart: f.periodStart, periodEnd: f.periodEnd, dueAt: f.dueAt, status: f.status, approvedBy: f.approvedBy })
       .toEqual({ periodStart: "2026-09-17", periodEnd: "2026-11-20", dueAt: "2026-11-27T23:59", status: "delivered", approvedBy: "u-leila" });
@@ -190,9 +205,24 @@ describe("stickprov mot data-samples.json", () => {
 
     const runs = seed.billing_runs.map((b) => ({ id: b.id, month: b.month, status: b.status, createdBy: b.createdBy, createdAt: b.createdAt }));
     expect(runs).toEqual(S!.billingRuns);
-    expect(seed.billing_runs.map((b) => [b.month, b.defaultInvoiceStatus])).toEqual([["2026-09", "paid"], ["2026-10", "paid"], ["2026-11", "paid"], ["2026-12", "sent"], ["2027-01", "draft"]]);
-    const dec = seed.invoice_drafts.filter((i) => i.month === "2026-12").map((i) => [i.caseId, i.status]);
-    expect(Object.fromEntries(dec)).toEqual(Object.fromEntries(Object.entries((S!.invoiceStatus_example as Json)["2026-12"] as Json).filter(([k]) => k !== "default")));
+    // Beslut 2026-10-07 (synpunkt #13, seed/decisions-2026-10-07.ts): en faktura per avtal och månad med frysta rader. Prototypens
+    // status per månad (default) blir månadens faktura; de ärenden som hade en annan status (december: de två returnerade)
+    // står på en tilläggsfaktura. Januari är underlag och har ingen rad.
+    const inv = seed.invoice_drafts.map((i) => [i.month, i.groupingKey, i.status, i.caseId, i.buyerReference]);
+    expect(inv).toEqual([
+      ["2026-09", "avtal", "paid", null, "55102938"], ["2026-10", "avtal", "paid", null, "55102938"], ["2026-11", "avtal", "paid", null, "55102938"],
+      ["2026-12", "avtal", "sent", null, "55102938"], ["2026-12", "avtal-tillagg-2", "returned", null, "55102983"],
+    ]);
+    const proto = S!.invoiceStatus_example as Json;
+    expect((proto["2026-12"] as Json).default).toBe("sent");
+    const returnedCases = Object.entries(proto["2026-12"] as Json).filter(([k, v]) => k !== "default" && v === "returned").map(([k]) => k).sort();
+    const suppId = seed.invoice_drafts.find((i) => i.groupingKey === "avtal-tillagg-2")!.id;
+    expect(seed.invoice_lines.filter((l) => l.invoiceDraftId === suppId).map((l) => l.caseId).sort()).toEqual(returnedCases);
+    // Varje fryst rad har veckor, ett ärendenummer i radtexten och inga namn.
+    for (const l of seed.invoice_lines) {
+      expect(l.isoWeeks.length, l.id).toBe(l.quantity);
+      expect(l.description, l.id).toMatch(/^BOT-\d{2}-\d{4} · v\. /);
+    }
   });
 
   it("Amira har 14 aktiva ärenden (amiraActive)", () => {
@@ -212,22 +242,28 @@ describe("mappning till tabellerna", () => {
     expect(seed.memberships.every((m) => m.contractId === "c-bot")).toBe(true);
     expect(seed.org_settings[0].settings.notifications.progressionWatch.escalateTo).toEqual(["chef"]);
   });
-  it("användare blir profiler och medlemskap med rätt roll", () => {
-    const eva = byId("profiles", "k-eva")!;
-    expect(eva).toMatchObject({ fullName: "Eva Bergström", organizationId: "org-botkyrka", customerUnit: "Arbetsmarknadsenheten", email: "eva.bergstrom@botkyrka.se", phone: "08-530 000 15" });
-    expect(seed.memberships.find((m) => m.userId === "k-eva")!.role).toBe("kommun_chef");
+  it("användare blir profiler och medlemskap med rätt roll – kommunen bara handläggare (beslut 2026-10-07)", () => {
+    expect(byId("profiles", "k-eva")).toBeUndefined();
+    expect(seed.memberships.some((m) => m.userId === "k-eva")).toBe(false);
+    expect(seed.notification_reads.some((r) => r.userId === "k-eva")).toBe(false);
+    expect(seed.memberships.filter((m) => m.userId.startsWith("k-")).map((m) => m.role)).toEqual(["kommun_handlaggare", "kommun_handlaggare", "kommun_handlaggare", "kommun_handlaggare"]);
+    expect(byId("profiles", "k-omar")).toMatchObject({ fullName: "Omar Farah", organizationId: "org-botkyrka" });
     expect(seed.memberships.find((m) => m.userId === "k-omar")!.role).toBe("kommun_handlaggare");
     expect(byId("profiles", "u-robin")).toMatchObject({ email: "robin.aberg@miljonbemanning.se", phone: "08-000 00 23" });
     expect(byId("profiles", "u-petra")!.teamRole).toBe("vocational_supervisor");
     expect(byId("profiles", "k-maria")!.lastLoginAt).toBe("2027-01-27T13:40");
   });
-  it("skyddade personuppgifter: ingen adress, inga kontaktuppgifter, ingen AI", () => {
+  it("inga skyddade personuppgifter i testdatat (beslut 2026-10-07): ärendet 'skyddad' är en vanlig person", () => {
+    expect(seed.persons.every((x) => !x.protectedIdentity)).toBe(true);
+    expect(seed.cases.some((x) => x.aiConsentStatus === "not_applicable")).toBe(false);
     const c = caseByTag("skyddad");
     const p = byId("persons", c.personId)!;
-    expect(p).toMatchObject({ protectedIdentity: true, address: null, phone: "", email: "", city: "" });
-    expect(c.aiConsentStatus).toBe("not_applicable");
-    expect(seed.pulse_invites.some((i) => i.caseId === c.id)).toBe(false);
-    expect(seed.consents.some((x) => x.caseId === c.id)).toBe(false);
+    expect(p).toMatchObject({ protectedIdentity: false, address: null, city: "Tumba", phone: "070-555 01 47", preferredContact: "phone" });
+    expect(c.aiConsentStatus).toBe("not_asked");
+    // em-104 är en vanlig fråga (Övrigt) utan generisk bekräftelse och utan uppgift till avtalsansvarig.
+    expect(byId("inbound_emails", "em-104")).toMatchObject({ classification: "other", status: "other", subject: "Fråga om startdatum", ackSentAt: null });
+    expect(seed.outbound_messages.some((m) => m.template === "generisk_mottagningsbekraftelse")).toBe(false);
+    expect(seed.tasks.map((t) => t.id)).toEqual(["task-1"]);
     // Adress lagras bara när kontaktvägen är brev
     expect(seed.persons.filter((x) => x.address !== null).every((x) => x.preferredContact === "letter" && !x.protectedIdentity)).toBe(true);
   });

@@ -1,7 +1,8 @@
 "use client";
-// Resultatfil för hela avtalet (/rapportbyggare/resultatfil, ?fran=&till=&avtal=) – Miljonbemannings färdigrapport: samma
-// kolumner och filer som kommunens resultatfil (steg 3), men för alla ärenden i avtalet utom skyddade personuppgifter. Filen
-// byggs och loggas på servern (rapporter.resultatfilExport → export.results_mb) – skärmen sparar bara filen.
+// Resultatfil för hela avtalet (/rapportbyggare/resultatfil, ?fran=&till=&avtal=) – Miljonbemannings färdigrapport för alla
+// ärenden i avtalet. Avtalsansvarig lämnar filen till kommunen utanför Miljonmatch (kommunen hämtar den inte själv sedan
+// 2026-10-07). Filen byggs och loggas på servern (rapporter.resultatfilExport → export.results_mb, med kolumnspärren) –
+// skärmen sparar bara filen.
 import { useState } from "react";
 import { base64ToBytes } from "@/core/export/base64";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -86,10 +87,9 @@ function Resultatfil({ d, current }: { d: ContractResultPreview; current: Contra
   return (
     <Page
       title="Resultatfil för hela avtalet"
-      lead="Samma kolumner som filen kommunens chef hämtar, men för alla ärenden i avtalet."
+      lead="Resultatfilen för alla ärenden i avtalet. Avtalsansvarig lämnar den till kommunen utanför Miljonmatch."
       crumbs={[{ label: "Rapportbyggare", to: "/rapportbyggare" }, { label: "Resultatfil för hela avtalet" }]}
     >
-      <Notice tone="info" title="Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem." />
       <Card>
         <Stack>
           {d.contracts.length > 1 && (

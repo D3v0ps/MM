@@ -44,13 +44,13 @@ export function newIntake(r: Pick<IntakeAssessment, "id" | "caseId">): IntakeAss
   };
 }
 
-/** Fakturans id per ärende och månad (samma som prototypens och fakturaunderlagets, src/core/billing.ts). */
-export const invoiceDraftId = (month: string, caseId: string): string => `inv-${month}-${caseId}`;
-
-/** Ett nytt fakturautkast för ärendet och månaden (status draft = ingen egen status, se invoiceStatus i src/core/billing.ts). */
-export function newInvoiceDraft(r: Pick<InvoiceDraft, "month" | "caseId" | "contractId" | "billingRunId" | "buyerReference" | "purchaseOrderNumber" | "invoicedObject"> & { caseId: string }): InvoiceDraft {
+/**
+ * En ny faktura (beslut 2026-10-07: en per avtal och månad, src/core/billing.ts). id och grupp kommer från underlaget
+ * (MonthInvoice.id och groupingKey). Status draft tills ekonomen godkänner eller skapar den.
+ */
+export function newInvoiceDraft(r: Pick<InvoiceDraft, "id" | "month" | "contractId" | "groupingKey" | "billingRunId" | "invoicedObject"> & Partial<Pick<InvoiceDraft, "caseId">>): InvoiceDraft {
   return {
-    id: invoiceDraftId(r.month, r.caseId), kind: "periodic", groupingKey: `${r.month}:${r.caseId}`, accruedOre: null, remainingOre: null, status: "draft",
+    kind: "periodic", caseId: null, buyerReference: null, purchaseOrderNumber: null, accruedOre: null, remainingOre: null, status: "draft",
     approvedBy: null, approvedAt: null, manualInvoiceNo: null, fortnoxDocumentNumber: null, fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null,
     ...r,
   };

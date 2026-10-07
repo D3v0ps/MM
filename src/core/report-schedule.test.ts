@@ -13,7 +13,6 @@ const input = (patch: Partial<ScheduleInput> = {}, config: ContractConfig = BOTK
   contract: { id: "c-bot", startsOn: "2026-09-10", endsOn: null, config },
   cases: [],
   caseworkerIds: ["k-maria", "k-omar"],
-  managerIds: ["k-eva"],
   existing: [],
   since: null,
   now: "2027-02-01T09:12",
@@ -137,11 +136,12 @@ describe("veckorapport per handläggare och ISO-vecka", () => {
   });
 });
 
-describe("beställarrapport per chef och månad", () => {
-  it("sista dag från konfigurationen (8:e arbetsdagen kl. 16.00), utkast, mottagaren är kommunens chef", () => {
+describe("beställarrapport per avtal och månad (beslut 2026-10-07)", () => {
+  it("sista dag från konfigurationen (8:e arbetsdagen kl. 16.00), utkast, ingen mottagare – en per avtal och månad oavsett antal handläggare", () => {
     const rs = plannedReports(input({ since: "2027-01-31T00:00" })).filter((r) => r.kind === "customer_summary");
     expect(rs).toHaveLength(1);
-    expect(rs[0]).toMatchObject({ recipientUserId: "k-eva", month: "2027-01", periodStart: "2027-01-01", periodEnd: "2027-01-31", status: "draft", dueAt: "2027-02-10T16:00", provisionalDue: false, caseId: null });
+    expect(plannedReports(input({ since: "2027-01-31T00:00", caseworkerIds: ["k-maria", "k-ahmed", "k-omar"] })).filter((r) => r.kind === "customer_summary")).toHaveLength(1);
+    expect(rs[0]).toMatchObject({ recipientUserId: null, month: "2027-01", periodStart: "2027-01-01", periodEnd: "2027-01-31", status: "draft", dueAt: "2027-02-10T16:00", provisionalDue: false, caseId: null });
     const other = { ...BOTKYRKA_CONFIG, reportSchedule: { automatic: ["customer_summary" as const], customerSummaryDue: { nthWorkingDay: 3, time: "12:00" } } };
     expect(plannedReports(input({ since: "2027-01-31T00:00" }, other))[0].dueAt).toBe("2027-02-03T12:00");
   });
@@ -174,7 +174,7 @@ describe("fönstret och idempotensen", () => {
     const cases = [C("a", "2026-12-01")];
     const rs = plannedReports(input({ cases, since: "2027-01-18T00:00", now: "2027-02-01T09:12" }));
     expect(keys(rs)).toEqual([
-      "weekly_attendance:k-maria:2027-W03", "weekly_attendance:k-maria:2027-W04", "monthly:a:2027-01", "customer_summary:k-eva:2027-01",
+      "weekly_attendance:k-maria:2027-W03", "weekly_attendance:k-maria:2027-W04", "monthly:a:2027-01", "customer_summary:null:2027-01",
     ]);
     // Per rapporttyp: veckorna redan klara, månaderna från december.
     const per = plannedReports(input({ cases, since: { weekly_attendance: "2027-02-01T00:00", monthly: "2026-12-01T00:00", customer_summary: "2027-02-01T00:00" } }));
@@ -192,7 +192,9 @@ describe("fönstret och idempotensen", () => {
   it("nycklarna för de unika indexen", () => {
     expect(reportKey({ kind: "weekly_attendance", contractId: "c", caseId: null, recipientUserId: "k", week: "2027-W04", month: null })).toBe("weekly_attendance|c|k|2027-W04");
     expect(reportKey({ kind: "monthly", contractId: "c", caseId: "a", recipientUserId: null, week: null, month: "2027-01" })).toBe("monthly|c|a|2027-01");
-    expect(reportKey({ kind: "customer_summary", contractId: "c", caseId: null, recipientUserId: "k", week: null, month: "2027-01" })).toBe("customer_summary|c|k|2027-01");
+    // Beställarrapporten (0026): avtal och månad – mottagaren ingår inte i nyckeln.
+    expect(reportKey({ kind: "customer_summary", contractId: "c", caseId: null, recipientUserId: null, week: null, month: "2027-01" })).toBe("customer_summary|c|2027-01");
+    expect(reportKey({ kind: "customer_summary", contractId: "c", caseId: null, recipientUserId: "k", week: null, month: "2027-01" })).toBe("customer_summary|c|2027-01");
     expect(reportKey({ kind: "final", contractId: "c", caseId: "a", recipientUserId: null, week: null, month: null })).toBeNull();
   });
   it("vilka perioder en körning prövar: högvattenmärket, golvet och fönstret", () => {

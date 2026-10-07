@@ -1,14 +1,13 @@
 // Texter och datum i kommunens portal (prototypens hjälpare i views/kommun.js). Rena funktioner utan React och utan data –
 // används av både skärmarna och hanterarna i området. Portalen skriver datum utan förkortningar: "1 februari 2027 klockan 09.12".
+import { plural } from "@/core/format";
 import { MONTHS, MONTHS_SHORT, addDays, fmtDateFull, fmtDateTimeFull, fmtTime, fmtWeekday, monthName, weekMonday, type WeekKey } from "@/core/time";
 import type { CaseStatus, ReportKind } from "@/data/schema";
 import type { KomCase } from "./api";
 
 // ---------------------------------------------------------------- Miljonbemannings kontaktuppgifter (inte avtalsvärden)
-/** Telefon för beställningar med skyddade personuppgifter och frågor. */
-export const SAFE_PHONE = "08-000 00 00";
-/** Kommunens formella beställningskanal (CLAUDE.md punkt 10). */
-export const ORDER_MAILBOX = "avrop@miljonbemanning.se";
+/** Telefon för frågor om beställningar och deltagare. */
+export const CONTACT_PHONE = "08-000 00 00";
 /**
  * Avsändaren av notiserna (beslut 2026-10-01, SPEC §11): notis@miljonmatch.se – domänen är verifierad i Resend med DNS hos
  * one.com. Svar går till avrop@miljonbemanning.se i produktion (MM_EMAIL_REPLY_TO).
@@ -87,16 +86,13 @@ export function statusLook(c: Pick<KomCase, "status" | "firstMeetingAt">): Badge
 }
 export const statusName = (s: CaseStatus): string => STATUS[s].label;
 
-/** Status i en mening (ingressen på deltagarens sida). chef = kommunens chef läser (tredje person). */
-export function statusText(c: KomCase, chef: boolean, phaseCount: number): string {
-  const Who = chef ? `Handläggaren (${c.referrerName})` : "Du";
+/** Status i en mening (ingressen på deltagarens sida). */
+export function statusText(c: KomCase, phaseCount: number): string {
   switch (c.status) {
     case "received":
-      return c.protectedIdentity
-        ? `Beställningen är mottagen. Miljonbemanning ringer ${chef ? "handläggaren" : "dig"} och tar resten enligt den säkra rutinen för skyddade personuppgifter.`
-        : "Beställningen är mottagen.";
+      return "Beställningen är mottagen.";
     case "acknowledged":
-      return `Beställningen är mottagen. ${Who} får besked om startdatum och coach senast ${fDTL(c.avropDue)}.`;
+      return `Beställningen är mottagen. Du får besked om startdatum och coach senast ${fDTL(c.avropDue)}.`;
     case "confirmed":
       return c.firstMeetingAt
         ? `Insatsen är bekräftad. Första mötet är ${fDTL(c.firstMeetingAt)} i ${c.location || "Alby"}.`
@@ -104,7 +100,7 @@ export function statusText(c: KomCase, chef: boolean, phaseCount: number): strin
     case "active":
       return `Insatsen pågår. Deltagaren är i fas ${c.phase} av ${phaseCount} (${phaseText(c.phaseName).toLowerCase()}).`;
     case "paused":
-      return "Insatsen är pausad. Pausade veckor faktureras inte.";
+      return "Insatsen är pausad.";
     case "closed":
       return `Insatsen avslutades ${fD(c.endDate)}.${c.endReasonLabel ? ` Orsak: ${c.endReasonLabel.toLowerCase()}.` : ""}`;
     case "declined":
@@ -115,12 +111,22 @@ export function statusText(c: KomCase, chef: boolean, phaseCount: number): strin
 }
 
 /** Status i kort form (listan). */
-export function shortStatus(c: KomCase, chef: boolean, phaseCount: number): string {
+export function shortStatus(c: KomCase, phaseCount: number): string {
   if (c.status === "active") return `Fas ${c.phase} av ${phaseCount} · ${phaseText(c.phaseName)}`;
   if (c.status === "acknowledged") return `Besked senast ${fDT(c.avropDue)}`;
   if (c.status === "confirmed") return c.firstMeetingAt ? `Första mötet ${fDT(c.firstMeetingAt)}` : "Första mötet bokas";
   if (c.status === "closed") return `Avslutad ${fD(c.endDate)}${c.endReasonLabel ? ` · ${c.endReasonLabel}` : ""}`;
   if (c.status === "declined") return `Avböjd ${fD(c.declinedAt)}`;
-  if (c.status === "received") return chef ? "Miljonbemanning ringer handläggaren" : "Vi ringer dig";
+  if (c.status === "received") return "Beställningen är mottagen";
   return statusName(c.status);
+}
+
+/**
+ * Omfattningen i portalen: "6 månader, till 14 augusti 2027", "Annan tidsperiod, till 19 mars 2027" eller – för en äldre
+ * beställning i veckor – "8 veckor, till 26 mars 2027". Inga belopp (synpunkt #10).
+ */
+export function orderPeriodLabel(c: Pick<KomCase, "orderPeriodMonths" | "otherPeriod" | "plannedWeeks" | "plannedEnd">): string {
+  const base = c.orderPeriodMonths != null ? `${c.orderPeriodMonths} månader` : c.otherPeriod ? "Annan tidsperiod" : c.plannedWeeks ? plural(c.plannedWeeks, "vecka", "veckor") : "";
+  if (!base) return c.plannedEnd ? `Till ${fD(c.plannedEnd)}` : "Inte angiven";
+  return c.plannedEnd ? `${base}, till ${fD(c.plannedEnd)}` : base;
 }

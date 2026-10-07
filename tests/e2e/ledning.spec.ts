@@ -7,7 +7,8 @@ import { isDemo, open, switchPersona } from "./helpers";
 const CHEF = { userId: "u-karin", role: "chef" };
 const COACH = { userId: "u-amira", role: "coach" };
 const SAMORDNARE = { userId: "u-sara", role: "samordnare" };
-const KOMMUN_CHEF = { userId: "k-eva", role: "kommun_chef" };
+/** Kommunen har bara rollen handläggare (beslut 2026-10-07). */
+const KOMMUN = { userId: "k-maria", role: "kommun_handlaggare" };
 const AVTALSANSVARIG = { userId: "u-johan", role: "avtalsansvarig" };
 /** Nadias ärende i testdatat (prototypens tagg "nadia"). */
 const NADIA = "BOT-26-0143";
@@ -86,8 +87,9 @@ test("ledningsvyn: resultat, prognos, trend, tidig uppmärksamhet och kundens bi
   expect(t).toMatch(/ser inte att ärendet har eskalerats/i);
   expect(t).toMatch(/0 av 3/);
 
-  // "Så ser kommunens chef resultatet" = det kommunens chef ser som standard: senast levererade beställarrapporten
-  const cust = card(page, "Så ser kommunens chef resultatet");
+  // "Så ser kommunen resultatet" = den senast lämnade beställarrapporten. Avtalsansvarig lämnar den till kommunen utanför
+  // Miljonmatch (beslut 2026-10-07 – kommunens chef finns inte i portalen).
+  const cust = card(page, "Så ser kommunen resultatet");
   const ct = await text(cust);
   expect(ct).toContain("december 2026");
   expect(ct).toContain("31,2 %");
@@ -98,6 +100,7 @@ test("ledningsvyn: resultat, prognos, trend, tidig uppmärksamhet och kundens bi
   expect(ct).toMatch(/utkast/);
   expect(ct).toMatch(/färre än 5/);
   expect(ct).not.toMatch(/35\s?%/);
+  expect(ct).toContain("Avtalsansvarig lämnar beställarrapporten till kommunen utanför Miljonmatch.");
 
   // Status med text och ikon, inte bara färg (SLA-staplar)
   const sla = card(page, "SLA-uppfyllnad");
@@ -229,19 +232,19 @@ test("ledningsvyn: per coach, per avtalsområde och deltagarnas röst", async ({
 });
 
 // ============================================================ Behörighet
-test("ledningsvyn: coachen och kommunens chef har ingen åtkomst", async ({ page }, info) => {
+test("ledningsvyn: coachen och kommunens handläggare har ingen åtkomst", async ({ page }, info) => {
   // Appen har också Next.js ruttannonsör (role="alert") – läs sidans egen ruta i #main.
   await open(page, info, "/ledning", COACH);
   await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
   expect(await text(page.locator("body"))).not.toMatch(/eskaler/i);
-  await open(page, info, "/ledning", KOMMUN_CHEF);
+  await open(page, info, "/ledning", KOMMUN);
   await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
   await open(page, info, "/avtalsavvikelser", COACH);
   await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
 });
 
 // ============================================================ Avtalsavvikelser
-test("avtalsavvikelser: registrera, ändra plan, varning och vite, markera klar, sammanställning och register", async ({ page }, info) => {
+test("avtalsavvikelser: registrera, ändra plan, varning och vite (utan belopp), markera klar, sammanställning och register", async ({ page }, info) => {
   const errors = await openRegister(page, info);
   expect(await problems(page)).toEqual([]);
   await expect(main(page).locator('ol[aria-label="Eskaleringstrappan"] li')).toHaveCount(5);
@@ -267,7 +270,7 @@ test("avtalsavvikelser: registrera, ändra plan, varning och vite, markera klar,
   // Detaljvyn visas; typ, källa, nivå, steg, ärende och plan som väntar på kommunens godkännande
   await expect(dialog(page)).toHaveCount(0);
   await expect(page).toHaveURL(/\/avtalsavvikelser\/cd-(?!2\b)[\w-]+/);
-  await expect(page.getByRole("status").filter({ hasText: "Klagomålet är registrerad. Kommunens chef har fått en notis om att åtgärdsplanen väntar på godkännande." })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Klagomålet är registrerad. Lämna åtgärdsplanen till kommunen för godkännande." })).toBeVisible();
   await expect(main(page).getByRole("heading", { name: /klagomål/i })).toBeVisible();
   const t = await text(main(page));
   expect(await problems(page)).toEqual([]);
@@ -279,20 +282,19 @@ test("avtalsavvikelser: registrera, ändra plan, varning och vite, markera klar,
   await expect(desc.getByRole("link", { name: NADIA })).toBeVisible();
   const planCard = card(page, "Åtgärdsplan");
   await expect(planCard).toContainText("19 feb 2027");
-  await expect(planCard).toContainText("Väntar på kommunens chef");
-  // Mejlet till kommunens chef innehåller inga personuppgifter och inget ärendenummer
+  await expect(planCard).toContainText("Väntar på kommunen");
+  // Kommunen godkänner planen utanför Miljonmatch – inget mejl (beslut 2026-10-07).
   await planCard.getByRole("button", { name: "Ändra åtgärdsplan" }).click();
-  const mailText = await planCard.getByText("Kommunens chef får:").locator("..").innerText();
-  expect(mailText).toContain("Logga in i portalen");
-  expect(mailText).not.toContain(NADIA);
+  await expect(planCard).toContainText("Kommunen godkänner planen utanför Miljonmatch, till exempel på ett möte. Avtalsansvarig registrerar godkännandet här. Ingen får något mejl.");
+  await expect(planCard.getByText("Kommunens chef får:")).toHaveCount(0);
 
   // Uppdatera åtgärdsplanen – skickas för nytt godkännande
   await page.fill("#cd-edit-plan", "Samordnaren informerar arbetsgivaren skriftligt senast dagen innan varje ändring.");
   await page.fill("#cd-edit-due", "2027-02-26");
-  await planCard.getByRole("button", { name: "Spara och skicka till kommunen" }).click();
+  await planCard.getByRole("button", { name: "Spara åtgärdsplanen" }).click();
   await expect(planCard).toContainText("dagen innan");
   await expect(planCard).toContainText("26 feb 2027");
-  await expect(planCard).toContainText("Väntar på kommunens chef");
+  await expect(planCard).toContainText("Väntar på kommunen");
 
   // Skriftlig varning (steg 1) och vite från avtalskonfigurationen
   const sanctions = card(page, "Varning, vite och avropsstopp");
@@ -301,7 +303,9 @@ test("avtalsavvikelser: registrera, ändra plan, varning och vite, markera klar,
   await page.selectOption("#cd-s-penalty", "deviation");
   await sanctions.getByRole("button", { name: "Spara", exact: true }).click();
   await expect(sanctions).toContainText(/Skriftlig varning\s*Ja/);
-  await expect(sanctions).toContainText("25 000 kr");
+  // Valet om vite syns – beloppet inte (beslut 5, 2026-10-07: belopp bara för ekonomen).
+  await expect(sanctions).toContainText("Vite för avvikelse");
+  expect(await sanctions.innerText()).not.toMatch(/\d[\u00a0 ]kr(?![a-zåäö])/i);
   await expect(sanctions).toContainText("1 av 3");
   await expect(card(page, "Händelser")).toContainText("Skriftlig varning från kommunen");
 
@@ -342,17 +346,20 @@ test("avtalsavvikelser: registrera, ändra plan, varning och vite, markera klar,
   await expect(table.locator("tbody tr")).toHaveCount(4);
   await table.locator("tbody tr", { hasText: "Månadsrapport för december" }).click();
   await expect(page).toHaveURL(/\/avtalsavvikelser\/cd-2$/);
-  await expect(main(page)).toContainText("Godkänd av kommunen (Eva Bergström)");
+  // Godkännandet i testdatat är registrerat före 2026-10-07 av kommunens chef, som inte finns längre – inget namn visas.
+  await expect(main(page)).toContainText("Godkänd av kommunen");
+  await expect(main(page)).not.toContainText("Eva Bergström");
 
   // Omladdning: avvikelsen finns kvar (uppspelning)
   await page.reload();
-  await expect(main(page)).toContainText("Godkänd av kommunen (Eva Bergström)");
+  await expect(main(page)).toContainText("Åtgärdsplan godkänd – pågår");
   await main(page).getByRole("navigation", { name: "Brödsmulor" }).getByRole("link", { name: "Avtalsavvikelser" }).click();
   await expect(main(page).locator("div.rounded-card", { hasText: /Skriftliga varningar/i })).toContainText("1 av 3");
   await main(page).getByRole("button", { name: /Alla \(\d+\)/ }).click();
   const mine = main(page).getByRole("table", { name: "Register över avtalsavvikelser" }).locator("tbody tr", { hasText: "Arbetsgivaren fick ingen information" });
   await expect(mine).toContainText("Klar");
-  await expect(mine).toContainText("Skriftlig varning · vite 25 000 kr");
+  await expect(mine).toContainText("Skriftlig varning · vite");
+  expect(await mine.innerText()).not.toMatch(/\d[\u00a0 ]kr(?![a-zåäö])/i);
   await expect(mine).toContainText("Klart 26 feb 2027");
   expect(relevant(errors)).toEqual([]);
 });
@@ -381,56 +388,52 @@ test("avtalsavvikelser: okänt id ger ett tydligt meddelande", async ({ page }, 
 });
 
 // ============================================================ Perspektivbyte (bara prototypen)
-test("ledningsvyn: perspektivbyte till kommunens chef visar samma månad och resultat", async ({ page }, info) => {
+test("ledningsvyn: inget perspektivbyte till kommunens chef – rollen finns inte (beslut 2026-10-07)", async ({ page }, info) => {
   test.skip(!isDemo(info), "Perspektivbyte finns bara i prototypen");
   await openLedning(page, info);
-  await main(page).getByRole("button", { name: /Så ser kommunens chef resultatet/ }).first().click();
-  await expect(page).toHaveURL(/#\/portal\/bestallarrapport/);
-  await openLedning(page, info);
-  await card(page, "Så ser kommunens chef resultatet").getByRole("button", { name: /som kommunens chef/ }).click();
-  await expect(page).toHaveURL(/#\/portal\/bestallarrapport/);
-  await expect(page.getByRole("heading", { level: 1, name: "Beställarrapport" })).toBeVisible();
-  const kt = await text(page.locator("body"));
-  expect(kt).not.toMatch(/Sidan finns inte/);
-  expect(kt.toLowerCase()).toContain("december 2026");
-  expect(kt).toContain("31,2 %");
-  expect(kt).toMatch(/Under avtalsmålet/);
+  const cust = card(page, "Så ser kommunen resultatet");
+  await expect(cust).toContainText("december 2026");
+  await expect(main(page).getByRole("button", { name: /kommunens chef/ })).toHaveCount(0);
 });
 
 test("ledningsvyn: när nästa beställarrapport levereras följer kundkortet med", async ({ page }, info) => {
   await openLedning(page, info);
-  const link = card(page, "Så ser kommunens chef resultatet").getByRole("link", { name: /Öppna utkastet för januari 2027/ });
+  const link = card(page, "Så ser kommunen resultatet").getByRole("link", { name: /Öppna utkastet för januari 2027/ });
   const href = (await link.getAttribute("href")) ?? "";
   const reportPath = href.replace(/^.*#/, "");
   expect(reportPath).toMatch(/^\/rapporter\//);
   await switchUser(page, info, reportPath, AVTALSANSVARIG);
-  // Avtalsansvarig skriver sammanfattningen, godkänner och levererar (rapportområdets flöde)
+  // Avtalsansvarig skriver sammanfattningen, godkänner, lämnar rapporten utanför Miljonmatch och registrerar det
   const approve = main(page).getByRole("button", { name: "Godkänn beställarrapporten" });
   await expect(approve).toBeVisible({ timeout: 5000 });
   await page.fill("#rap-summary", "Resultatet för januari redovisas mot avtalsmålet.");
   await approve.click();
-  await main(page).getByRole("button", { name: "Leverera till kommunen" }).click();
-  await dialog(page).getByRole("button", { name: "Leverera i portalen" }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Levererad i portalen" })).toBeVisible();
+  await main(page).getByRole("button", { name: "Registrera att rapporten är lämnad" }).click();
+  await dialog(page).getByRole("button", { name: "Registrera leveransen" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Leveransen är registrerad. Ladda ned PDF:en och lämna den till kommunen." })).toBeVisible();
   await switchUser(page, info, "/ledning", CHEF);
-  const ct = card(page, "Så ser kommunens chef resultatet");
+  const ct = card(page, "Så ser kommunen resultatet");
   await expect(ct).toContainText("januari 2027");
   await expect(ct).toContainText("33,9 %");
   await expect(ct).not.toContainText("är ett utkast");
 });
 
-// ============================================================ Kommunens chef godkänner åtgärdsplanen (kommunportalen)
-test("avtalsavvikelser: kommunens godkännande av åtgärdsplanen syns i detaljvyn", async ({ page }, info) => {
+// ============================================================ Avtalsansvarig registrerar kommunens godkännande (beslut 2026-10-07)
+test("avtalsavvikelser: avtalsansvarig registrerar kommunens godkännande av åtgärdsplanen", async ({ page }, info) => {
   await openRegister(page, info);
-  // cd-3 har en plan som väntar på kommunens godkännande
+  // cd-3 har en plan som väntar på kommunens godkännande. Chefen ser den men registrerar inget.
   await open(page, info, "/avtalsavvikelser/cd-3", CHEF);
-  await expect(card(page, "Åtgärdsplan")).toContainText("Väntar på kommunens chef");
-  await switchUser(page, info, "/portal/bestallarrapport", KOMMUN_CHEF);
-  // Kommunportalen frågar först (som prototypen): "Godkänn åtgärdsplanen?"
-  await main(page).getByRole("button", { name: "Godkänn åtgärdsplanen" }).first().click();
-  await page.getByRole("dialog").getByRole("button", { name: "Godkänn åtgärdsplanen" }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(card(page, "Åtgärdsplan")).toContainText("Väntar på kommunen");
+  await expect(main(page).getByRole("button", { name: "Registrera godkännandet" })).toHaveCount(0);
+  await switchUser(page, info, "/avtalsavvikelser/cd-3", AVTALSANSVARIG);
+  await main(page).getByRole("button", { name: "Registrera godkännandet" }).click();
+  await expect(main(page)).toContainText("Ange dagen då kommunen godkände planen.");
+  await expect(main(page)).toContainText("Välj hur kommunen godkände planen.");
+  await page.fill("#cd-approve-date-cd-3", "2027-02-01");
+  await page.locator("#cd-approve-how-cd-3").selectOption("möte");
+  await main(page).getByRole("button", { name: "Registrera godkännandet" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Kommunens godkännande är registrerat." })).toBeVisible();
   await switchUser(page, info, "/avtalsavvikelser/cd-3", CHEF);
   await expect(main(page)).toContainText("Åtgärdsplan godkänd – pågår");
-  await expect(main(page)).toContainText("Godkänd av kommunen (Eva Bergström)");
+  await expect(main(page)).toContainText("Godkänd av kommunen (registrerat av Johan Berg)");
 });

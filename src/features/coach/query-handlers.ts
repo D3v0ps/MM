@@ -147,8 +147,11 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     ctx.repo,
     ["activities", "attendance", "check_ins", "monthly_assessments", "reports", "placements", "alert_acks", "profiles", "memberships", "deviations",
       "user_notifications", "notification_reads", "messages", "contract_deviations", "billing_runs", "price_items", "buyer_references", "invoice_drafts",
-      "billing_week_approvals", "pulse_responses", "inbound_emails"],
-    { activities: byCase, attendance: byCase, check_ins: byCase, monthly_assessments: byCase, placements: byCase, deviations: byCase, messages: byCase, user_notifications: { recipientId: me } },
+      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails"],
+    {
+      activities: byCase, attendance: byCase, check_ins: byCase, monthly_assessments: byCase, placements: byCase, deviations: byCase, messages: byCase, invoice_lines: byCase,
+      user_notifications: { recipientId: me },
+    },
   );
   const all = { ...db, cases };
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));

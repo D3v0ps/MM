@@ -1,21 +1,22 @@
 "use client";
 // Deltagarens sida i portalen (/portal/deltagare/:caseId?flik=) – prototypens CaseDetail i views/kommun.js.
-// Flikarna Översikt, Rapporter och Meddelanden. Kommunens chef läser i tredje person ("Handläggaren (namn)") och ser deltagare
-// med skyddade personuppgifter bara som ärendenummer och status. Visningen loggas (case.view).
+// Flikarna Översikt, Rapporter och Meddelanden. Bara handläggaren som beställde ser sidan (beslut 2026-10-07: kommunen har
+// bara rollen handläggare). Inga belopp, inget ordervärde och ingen beställarreferens (synpunkt #10 och #11). Bakgrunds-
+// informationen och bilagorna från beställningen visas under Översikt. Visningen loggas (case.view).
 import { useEffect, useState, type ReactNode } from "react";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr, pct } from "@/core/format";
+import { pct } from "@/core/format";
 import { messageRead, messageSend } from "@/features/arenden/api";
+import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { auditView } from "@/features/session/api";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Badge, BuildPhase, Button, Card, Empty, ErrorNotice, Field, focusSoon, Grid, Icon, Kpi, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, PhaseBar, Stack, TabPanel, Tabs,
+  Badge, Button, Card, Empty, ErrorNotice, Field, focusSoon, Grid, Icon, Kpi, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, PhaseBar, Stack, TabPanel, Tabs,
   TextArea, Timeline, cn, useAuditView, useToast, type TimelineItem,
 } from "@/ui";
 import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomAttTile, type KomCaseDetail, type KomMessage } from "../api";
-import { fD, fDT, fDTL, fullText, looksLikePnr, phaseText, statusText } from "../texts";
+import { fD, fDT, fDTL, fullText, looksLikePnr, orderPeriodLabel, phaseText, statusText } from "../texts";
 import { KOM_TABS, KStatus, KomHead, KomPage, ReportRowItem, reportPath } from "./parts";
 import { taskTitle, useTaskDone } from "./start";
 import { joinText, TalaIn } from "./tala-in";
@@ -41,7 +42,7 @@ export function CaseDetail({ caseId, tab: tab0 }: { caseId: string; tab: string 
 
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
   if (q.isLoading || !d) return <Loading />;
-  const back = { label: ok?.chef ? "Alla enhetens deltagare" : "Alla mina deltagare", to: "/portal/deltagare" };
+  const back = { label: "Alla mina deltagare", to: "/portal/deltagare" };
   if (d.kind === "not_found") {
     return (
       <KomPage>
@@ -68,20 +69,18 @@ function Detail({ d, tab, back }: { d: KomCaseDetail; tab: Tab; back: { label: s
   const c = d.case;
   const base = `/portal/deltagare/${encodeURIComponent(c.id)}`;
   const setTab = (t: Tab) => nav.replace(path(base, { flik: t === "oversikt" ? null : t }));
-  const unreadMsgs = d.chef || !d.messages ? [] : d.messages.filter((m) => m.unread);
-  // Perspektivbyte: skyddade ärenden öppnas som avtalsansvarig (samordnaren har inte full åtkomst). Samma flik som här.
-  const mbRole = c.protectedIdentity ? "avtalsansvarig" : "samordnare";
+  const unreadMsgs = d.messages.filter((m) => m.unread);
   return (
     <KomPage>
       <KomHead
         back={back}
         eyebrow={`Ärendenummer ${c.caseNumber}${c.primaryAreaName ? ` · ${c.primaryAreaName}` : ""}`}
         title={c.name}
-        lead={statusText(c, d.chef, d.phaseCount)}
+        lead={statusText(c, d.phaseCount)}
         actions={
           <>
             <KStatus c={c} />
-            <PerspectiveLink role={mbRole} to={path(`/arenden/${encodeURIComponent(c.id)}`, { flik: tab })} label="Se samma deltagare hos Miljonbemanning" />
+            <PerspectiveLink role="samordnare" to={path(`/arenden/${encodeURIComponent(c.id)}`, { flik: tab })} label="Se samma deltagare hos Miljonbemanning" />
           </>
         }
       />
@@ -100,14 +99,7 @@ function Detail({ d, tab, back }: { d: KomCaseDetail; tab: Tab; back: { label: s
       <TabPanel tabsId="kom-deltagare" active={tab}>
         {tab === "oversikt" && <Overview d={d} unreadMsgs={unreadMsgs} onTab={setTab} />}
         {tab === "rapporter" && <Reports d={d} />}
-        {tab === "meddelanden" &&
-          (d.messages == null ? (
-            <Notice tone="info" icon="lock" title="Meddelandena visas bara för handläggaren">
-              Deltagaren har skyddade personuppgifter. Meddelanden om deltagaren kan bara läsas av handläggaren som beställde insatsen ({c.referrerName}).
-            </Notice>
-          ) : (
-            <Messages d={d} messages={d.messages} />
-          ))}
+        {tab === "meddelanden" && <Messages d={d} messages={d.messages} />}
       </TabPanel>
     </KomPage>
   );
@@ -141,25 +133,22 @@ const Muted = ({ children, className }: { children?: ReactNode; className?: stri
 
 function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomMessage[]; onTab: (t: Tab) => void }) {
   const c = d.case;
-  const chef = d.chef;
   const doneTask = useTaskDone();
   const reveal = useCommand(kommunRevealPnr);
-  const msgs = d.messages ?? [];
+  const msgs = d.messages;
   const lastReq = msgs.filter((m) => m.meeting).pop();
   const answered = !!lastReq && msgs.some((m) => m.createdAt > lastReq.createdAt && m.fromCustomer);
-  const Who = chef ? `Handläggaren (${c.referrerName})` : "Du";
-  const referrer = c.referrerName;
   const o = d.order;
 
   const tl: TimelineItem[] = [
-    { key: "mottagen", icon: "inbox", title: "Mottagen", filled: true, sub: fDT(c.referredAt), body: <span>Beställningen kom in via {SOURCE_TEXT[c.source] ?? "portalen"}{chef ? ` från ${referrer}` : ""}.</span> },
+    { key: "mottagen", icon: "inbox", title: "Mottagen", filled: true, sub: fDT(c.referredAt), body: <span>Beställningen kom in via {SOURCE_TEXT[c.source] ?? "portalen"}.</span> },
     {
       key: "erkand",
       icon: "mail",
       title: "Ordererkänd",
       filled: !!c.acknowledgedAt,
-      sub: c.acknowledgedAt ? fDT(c.acknowledgedAt) : c.protectedIdentity ? "Ingen automatisk bekräftelse vid skyddade personuppgifter" : "Väntar",
-      body: c.acknowledgedAt ? <span>{Who} fick ärendenummer {c.caseNumber}. Det är beställningens nummer.</span> : undefined,
+      sub: c.acknowledgedAt ? fDT(c.acknowledgedAt) : "Väntar",
+      body: c.acknowledgedAt ? <span>Du fick ärendenummer {c.caseNumber}. Det är beställningens nummer.</span> : undefined,
     },
   ];
   if (c.status === "declined") tl.push({ key: "avbojd", icon: "x", title: "Avböjd", filled: true, tone: "red", sub: fDT(c.declinedAt), body: <span>{c.declineReason ?? ""}</span> });
@@ -224,7 +213,7 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
           </Stack>
         </Notice>
       )}
-      {lastReq && !answered && unreadMsgs.length === 0 && !chef && (
+      {lastReq && !answered && unreadMsgs.length === 0 && (
         <Card title="Mötesförfrågan från coachen" icon="calendar" tone="blue">
           <Stack gap="sm">
             <p>{lastReq.body}</p>
@@ -234,21 +223,6 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
             <span>
               <Button kind="primary" icon="reply" onClick={() => onTab("meddelanden")}>
                 Svara
-              </Button>
-            </span>
-          </Stack>
-        </Card>
-      )}
-      {lastReq && !answered && chef && (
-        <Card title="Mötesförfrågan till handläggaren" icon="calendar" tone="blue">
-          <Stack gap="sm">
-            <p>{lastReq.body}</p>
-            <div className="text-body text-text-muted">
-              Skickad till {referrer} av {lastReq.senderLabel}, {fDT(lastReq.createdAt)}. Handläggaren har inte svarat än.
-            </div>
-            <span>
-              <Button icon="message" onClick={() => onTab("meddelanden")}>
-                Läs hela tråden
               </Button>
             </span>
           </Stack>
@@ -275,23 +249,7 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
                 ["Startdatum", fD(c.startDate || c.plannedStart || (c.firstMeetingAt ?? "").slice(0, 10) || c.desiredStart)],
                 ["Ansvarig coach", o.coachName ?? "–"],
                 ["Första mötet", c.firstMeetingAt ? `${fDTL(c.firstMeetingAt)}, ${c.location || "Alby"}` : `Bokas senast ${fD(c.firstMeetingDue)}`],
-                ["Planerad omfattning", `${o.weeks || "–"} veckor${c.plannedEnd ? `, till ${fD(c.plannedEnd)}` : ""}`],
-                [
-                  "Beställningens värde",
-                  o.weeks && (o.valueOre === undefined || o.priceOre === undefined) ? (
-                    TESTER_HIDDEN_TEXT
-                  ) : o.weeks ? (
-                    <>
-                      <span>{kr(o.valueOre)}</span>
-                      <span className="block text-body text-text-muted">
-                        {o.weeks} veckor × {kr(o.priceOre)}, exklusive moms
-                      </span>
-                    </>
-                  ) : (
-                    "–"
-                  ),
-                ],
-                ["Beställarreferens", o.buyerReference || "–"],
+                ["Omfattning", orderPeriodLabel(c)],
                 ["Bekräftad", fDT(c.confirmedAt)],
               ]}
             />
@@ -310,10 +268,10 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
           <Stack gap="sm">
             <p>
               {c.acknowledgedAt
-                ? `${Who} får orderbekräftelsen senast ${fDTL(c.avropDue)}.`
-                : `Miljonbemanning ringer ${chef ? "handläggaren" : "dig"} för att gå igenom beställningen enligt den säkra rutinen.`}
+                ? `Du får orderbekräftelsen senast ${fDTL(c.avropDue)}.`
+                : "Miljonbemanning går igenom beställningen och skickar ett ordererkännande till dig."}
             </p>
-            <Muted>Den innehåller startdatum, ansvarig coach, tid för första mötet, planerad omfattning och beställningens värde.</Muted>
+            <Muted>Den innehåller startdatum, ansvarig coach, tid för första mötet och omfattning.</Muted>
           </Stack>
         )}
         {c.acknowledgedAt && o.ackText && (
@@ -324,7 +282,7 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
             </summary>
             <div className="mt-2 flex flex-col gap-1.5 rounded-mb border-[1.5px] border-line-strong bg-ljusgra-ton px-4 py-3.5 [overflow-wrap:anywhere]">
               <div className="text-body text-text-muted">
-                Skickat till {chef ? referrer : "dig"} {fDT(c.acknowledgedAt)}
+                Skickat till dig {fDT(c.acknowledgedAt)}
               </div>
               <div>{fullText(o.ackText)}</div>
             </div>
@@ -334,8 +292,6 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
       <Card title="Närvaro" icon="check-square">
         {d.attendance == null ? (
           <Muted>Närvaron visas här när insatsen har startat.</Muted>
-        ) : d.attendance.restricted ? (
-          <p>Deltagaren har skyddade personuppgifter. Närvaron visas bara för handläggaren som beställde insatsen ({referrer}).</p>
         ) : (
           <Stack>
             <Grid cols={2} className="gap-3">
@@ -344,67 +300,45 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
             </Grid>
             {d.attendance.repeated && (
               <Notice tone="warn" title="Upprepad ogiltig frånvaro">
-                {d.attendance.repeated.count} gånger de senaste {d.attendance.repeated.withinDays} dagarna. Coachen tar kontakt med {chef ? "handläggaren" : "dig"} om ett
+                {d.attendance.repeated.count} gånger de senaste {d.attendance.repeated.withinDays} dagarna. Coachen tar kontakt med dig om ett
                 uppföljningsmöte.
               </Notice>
             )}
-            <Muted>Närvaron redovisas varje vecka i veckorapporten{chef ? " till handläggaren" : ""}. Frånvaro visas bara som kategori.</Muted>
-            {!chef && (
-              <span>
-                <Button kind="ghost" iconRight="arrow-right" to="/portal/rapporter?filter=weekly_attendance">
-                  Till veckorapporterna
-                </Button>
-              </span>
-            )}
+            <Muted>Närvaron redovisas varje vecka i veckorapporten. Frånvaro visas bara som kategori.</Muted>
+            <span>
+              <Button kind="ghost" iconRight="arrow-right" to="/portal/rapporter?filter=weekly_attendance">
+                Till veckorapporterna
+              </Button>
+            </span>
           </Stack>
         )}
       </Card>
       <Card title="Uppgifter om deltagaren" icon="user">
-        {d.participant == null ? (
-          <p>Deltagaren har skyddade personuppgifter. Bara handläggaren som beställde ({referrer}) ser namn och personnummer.</p>
-        ) : (
-          <Stack>
-            <Kv
-              items={[
-                [
-                  "Personnummer",
-                  <MaskedPnr
-                    key="pnr"
-                    masked={d.participant.pnrMasked}
-                    onReveal={
-                      d.participant.canReveal
-                        ? async () => {
-                            const r = await reveal.run({ caseId: c.id });
-                            return r.ok ? r.pnr : null;
-                          }
-                        : undefined
-                    }
-                  />,
-                ],
-                !c.protectedIdentity && ["Kontaktväg", d.participant.contactLabel ?? "–"],
-                !c.protectedIdentity && ["Bostadsort", d.participant.city || "–"],
-                !c.protectedIdentity && ["Anpassning", d.participant.accessibilityNeeds || "Inget angivet"],
-                ["Avtalsområde", c.primaryAreaName ? `${c.primaryAreaName}${c.secondaryAreaName ? ` (alternativt ${c.secondaryAreaName})` : ""}` : "–"],
-                ["Yrkesspår", c.vocationalTrack || "–"],
-                chef && ["Handläggare", referrer],
-              ]}
-            />
-            {c.protectedIdentity && (
-              <Notice tone="info" icon="lock" title="Skyddade personuppgifter">
-                Om deltagaren sparar vi bara namn och personnummer. Inga mejl eller SMS går till deltagaren.
-              </Notice>
-            )}
-          </Stack>
-        )}
+        <Kv
+          items={[
+            [
+              "Personnummer",
+              <MaskedPnr
+                key="pnr"
+                masked={d.participant.pnrMasked}
+                onReveal={
+                  d.participant.canReveal
+                    ? async () => {
+                        const r = await reveal.run({ caseId: c.id });
+                        return r.ok ? r.pnr : null;
+                      }
+                    : undefined
+                }
+              />,
+            ],
+            ["Kontaktväg", d.participant.contactLabel ?? "–"],
+            ["Bostadsort", d.participant.city || "–"],
+            ["Avtalsområde", c.primaryAreaName ? `${c.primaryAreaName}${c.secondaryAreaName ? ` (alternativt ${c.secondaryAreaName})` : ""}` : "Väljs av Miljonbemanning"],
+            ["Yrkesspår", c.vocationalTrack || "Väljs av Miljonbemanning"],
+          ]}
+        />
       </Card>
-      {d.bonus && (
-        <Card title="Bonusanspråk" icon="award" actions={<BuildPhase fas={3} off />}>
-          <p>
-            Deltagaren har påbörjat arbete. Enligt avtalet kan det bli aktuellt med ett bonusanspråk som {chef ? "kommunen" : "du"} beslutar om här. Modellen för bonus är inte
-            bestämd än, så funktionen är avstängd.
-          </p>
-        </Card>
-      )}
+      <CaseBackgroundCard bg={d.background} title="Bakgrundsinformation från beställningen" />
       {!d.seesCoachNotes && (
         <p className="flex items-center gap-1.5 text-body text-text-muted">
           <Icon name="eye-off" /> Coachens egna anteckningar visas inte för beställaren. Så står det i avtalet.
@@ -416,13 +350,12 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
 
 // ---------------------------------------------------------------- Rapporter
 function Reports({ d }: { d: KomCaseDetail }) {
-  const chef = d.chef;
   return (
     <Stack>
       <Card flush title="Levererade rapporter" icon="file">
         {d.reports.length === 0 ? (
           <Empty icon="file" title="Inga rapporter än">
-            Rapporterna visas här när Miljonbemanning har levererat dem. {chef ? "Handläggaren" : "Du"} får ett mejl utan personuppgifter när en ny rapport finns.
+            Rapporterna visas här när Miljonbemanning har levererat dem. Du får ett mejl utan personuppgifter när en ny rapport finns.
           </Empty>
         ) : (
           <List>
@@ -435,17 +368,13 @@ function Reports({ d }: { d: KomCaseDetail }) {
       {d.reports.some((r) => r.correcting) && <Muted>En rapport som rättas finns kvar här tills Miljonbemanning har levererat den nya versionen.</Muted>}
       <Muted>
         Rapporterna byggs bara av uppgifter som coachen har godkänt.{" "}
-        {chef
-          ? "Veckorapporterna om närvaro går till handläggaren och samlar alla handläggarens deltagare."
-          : "Veckorapporterna om närvaro samlar alla dina deltagare och finns under Rapporter och meddelanden."}
+        Veckorapporterna om närvaro samlar alla dina deltagare och finns under Rapporter och meddelanden.
       </Muted>
-      {!chef && (
-        <span>
-          <Button iconRight="arrow-right" to="/portal/rapporter">
-            Till alla rapporter
-          </Button>
-        </span>
-      )}
+      <span>
+        <Button iconRight="arrow-right" to="/portal/rapporter">
+          Till alla rapporter
+        </Button>
+      </span>
     </Stack>
   );
 }
@@ -495,9 +424,7 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
         <Stack>
           {messages.length === 0 ? (
             <Empty icon="message" title="Inga meddelanden än">
-              {d.chef
-                ? `Här skriver handläggaren och Miljonbemanning till varandra om ärendenummer ${c.caseNumber}.`
-                : `Här skriver du och Miljonbemanning till varandra om ärendenummer ${c.caseNumber}.`}
+              {`Här skriver du och Miljonbemanning till varandra om ärendenummer ${c.caseNumber}.`}
             </Empty>
           ) : (
             <div role="log" aria-label="Meddelanden" className="flex flex-col gap-3">

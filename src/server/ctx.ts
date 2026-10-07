@@ -6,12 +6,14 @@
 //   crypto  personnummer: AES-256-GCM och HMAC-SHA256 (src/server/crypto.ts, skickas in av live.ts)
 //   ai      AI-leverantören (src/server/ai: Vertex AI EU eller simulerad) – saknas när AI är avstängd
 //   audio   ljudfilerna i Supabase Storage (src/server/audio) – byggs med förfrågans system, klocka och id
+//   attachments  bilagorna i Supabase Storage (src/server/attachments) – byggs på samma sätt
 //   jobs    kön för bakgrundsjobb: schedule() kör jobben med after() när svaret skickats (röstjobben, voice-jobs.ts)
 import type { AuditEntry, Ctx, JobKick, OutgoingMessage, PnrCrypto } from "@/api/server";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
 import type { AppRepo } from "@/data/schema";
 import type { AiPort } from "@/features/_shared/ai-port";
+import type { AttachmentPort } from "@/features/_shared/attachment-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
 
 export type Enqueue = (system: AppRepo, msg: OutgoingMessage, now: LocalDateTime) => Promise<unknown>;
@@ -46,6 +48,8 @@ export function liveCtx(o: {
   ai?: AiPort;
   /** Ljudlagringen, byggd med förfrågans system, klocka och id (src/server/audio). */
   audio?: (d: { system: AppRepo; now: () => LocalDateTime; newId: (prefix: string) => string }) => AudioPort;
+  /** Bilagorna, byggda med förfrågans system, klocka och id (src/server/attachments). */
+  attachments?: (d: { system: AppRepo; now: () => LocalDateTime; newId: (prefix: string) => string }) => AttachmentPort;
   /** Kör köade bakgrundsjobb snart (after()). Anropas högst en gång per förfrågan även om flera jobb läggs. */
   scheduleJobs?: () => void;
 }): Ctx {
@@ -86,6 +90,7 @@ export function liveCtx(o: {
     crypto: o.crypto ?? NO_PNR_CRYPTO,
     ...(o.ai ? { ai: o.ai } : {}),
     ...(o.audio ? { audio: o.audio({ system: o.system, now, newId }) } : {}),
+    ...(o.attachments ? { attachments: o.attachments({ system: o.system, now, newId }) } : {}),
     ...(jobs ? { jobs } : {}),
   };
 }

@@ -3,10 +3,10 @@
 import type { Role } from "@/api/roles";
 import type { Db } from "@/data/schema";
 import {
-  ackTextFor, alerts, attendanceStats, avropDue, awaitingAnswer, billableWeeks, billingForMonth, buyerRefProblem, customerSummary, deadlines,
-  firstMeetingDue, inboxEmails, invoiceStatus, kpis, noProgressStreak, notificationsFor, orderValueOre, phaseSince, previewNextCaseNumber,
+  ackTextFor, alerts, attendanceStats, avropDue, awaitingAnswer, billableWeeks, buyerRefProblem, customerSummary, deadlines,
+  firstMeetingDue, inboxEmails, invoiceStatus, kpis, noProgressStreak, notificationsFor, phaseSince, previewNextCaseNumber,
   progressionWatch, pulseStats, repeatedAbsence, resultForecast, resultRate, resultTrend, slaStatus, smallCount, stuck, unbilledOld, unreadNotifications,
-  unregistered, weekProgress, weeklyReport, type BillingMonth, type DomainEnv, type KpiValue, type ProgressionWatchItem, type WeeklyReport,
+  unregistered, weekProgress, weeklyReport, monthInvoices, type DomainEnv, type KpiValue, type ProgressionWatchItem, type WeeklyReport,
 } from "../index";
 import { addDays, dayOf, monday } from "../time";
 
@@ -17,21 +17,42 @@ export type ParitySection = { name: string; actual: () => unknown; expected: unk
 const J = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const PERSONAS: [Role, string][] = [
   ["samordnare", "u-sara"], ["avtalsansvarig", "u-johan"], ["coach", "u-amira"], ["handledare", "u-petra"], ["chef", "u-karin"],
-  ["ekonom", "u-lars"], ["admin", "u-robin"], ["kommun_handlaggare", "k-maria"], ["kommun_chef", "k-eva"],
+  ["ekonom", "u-lars"], ["admin", "u-robin"], ["kommun_handlaggare", "k-maria"],
+  // Beslut 2026-10-07: rollen kommunens chef är borttagen (k-eva finns inte i testdatat) – facits avsnitt med flaggorna för kommunens chef jämförs inte.
 ];
 
 const normKpi = (k: KpiValue) => {
   const { late, ...rest } = k;
   return late ? { ...rest, late: late.map((c) => c.id) } : rest;
 };
-const compactBilling = (b: BillingMonth) => ({
-  ...b,
-  invoices: b.invoices.map((x) => ({
-    id: x.id, caseId: x.caseId, caseNumber: x.caseNumber, weeks: x.weeks.map((w) => w.key), quantity: x.quantity, unitPriceOre: x.unitPriceOre, amountOre: x.amountOre,
-    accruedWeeks: x.accruedWeeks, remainingOre: x.remainingOre, status: x.status, fortnoxNo: x.fortnoxNo, blocked: x.blocked, needsApproval: x.needsApproval,
-    checks: x.checks.map((c) => `${c.kind}:${c.severity}`),
+/**
+ * Fakturaunderlaget per rad (beslut 2026-10-07, synpunkt #13): en faktura per avtal och månad med en rad per ärende. Raderna
+ * jämförs med prototypens fakturor per ärende – veckor, antal, à-pris, belopp, upparbetat och radens kontroller – och summorna
+ * för månaden. Status, beställarreferens, inköpsordernummer och stopp hör nu till fakturan (statusen per ärende jämförs i
+ * avsnittet "fakturastatus"), så de jämförs inte per rad.
+ */
+type FacitInvoice = {
+  caseId: string; caseNumber: string; weeks: (string | { key: string })[]; quantity: number; unitPriceOre: number; amountOre: number; accruedWeeks: number;
+  needsApproval: boolean; checks: (string | { kind: string; severity: string })[];
+};
+type FacitBilling = { month: string; totalOre: number; count: number; weeks: number; needsApproval: number; invoices: FacitInvoice[] };
+const lineCompare = (b: FacitBilling) => ({
+  month: b.month, totalOre: b.totalOre, count: b.count, weeks: b.weeks, needsApproval: b.needsApproval,
+  lines: b.invoices.map((x) => ({
+    caseId: x.caseId, caseNumber: x.caseNumber, weeks: x.weeks.map((w) => (typeof w === "string" ? w : w.key)), quantity: x.quantity, unitPriceOre: x.unitPriceOre,
+    amountOre: x.amountOre, accruedWeeks: x.accruedWeeks, needsApproval: x.needsApproval,
+    checks: x.checks.map((c) => (typeof c === "string" ? c : `${c.kind}:${c.severity}`)).filter((k) => !k.startsWith("buyer_ref:") && !k.startsWith("po:")),
   })),
 });
+const billingLinesFor = (db: Db, mk: string, env: DomainEnv) => {
+  const bm = monthInvoices(db, mk, env);
+  // needsApproval räknas ur radens kontroller (en fryst rad på en skapad faktura väntar inte längre på godkännande, men
+  // prototypen räknade veckan utan närvaro också på historiska fakturor).
+  const lines = bm.lines
+    .map((l) => ({ ...l, needsApproval: l.checks.some((c) => c.severity === "needs_approval") }))
+    .sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : a.caseNumber > b.caseNumber ? 1 : 0));
+  return lineCompare({ month: mk, totalOre: bm.totalOre, count: bm.count, weeks: bm.weeks, needsApproval: lines.filter((l) => l.needsApproval).length, invoices: lines });
+};
 const normWatch = (rows: ProgressionWatchItem[]) => rows.map((w) => ({ caseId: w.case.id, streak: w.streak, weeks: w.weeks, lastWeek: w.lastWeek, level: w.level }));
 const normWeekly = (r: WeeklyReport) => ({
   ...r,
@@ -41,6 +62,34 @@ const normWeekly = (r: WeeklyReport) => ({
   })),
 });
 const withoutHref = <T extends { href: string }>(rows: T[]) => J(rows.map(({ href, ...rest }) => (void href, rest)));
+
+/**
+ * Dokumenterade avvikelser från prototypens facit efter beslutet 2026-10-07 (testdatat ändras i
+ * src/data/seed/decisions-2026-10-07.ts). Allt annat jämförs oförändrat.
+ *   ordervärde   jämförs inte – inget ordervärde någonstans (synpunkt #10/#11).
+ *   flaggor      em-104 är en vanlig fråga sedan skyddade personuppgifter togs bort – flaggan protected:em-104 finns inte.
+ *                Chefens flagga om ofakturerade veckor saknar kronor och länkar till ärendet (beslut 5: belopp bara för ekonomen).
+ *   fakturering  en faktura per avtal och månad med en rad per ärende (synpunkt #13) – raderna och summorna jämförs, inte
+ *                status och referens per ärende (de hör till fakturan, se lineCompare).
+ *   beställarreferens  referensregistrets anteckning för 55102983: decembers returnerade faktura är nu en tilläggsfaktura.
+ */
+function afterDecisions20261007(name: string, expected: unknown): unknown {
+  if (name.startsWith("fakturering ") && expected && typeof expected === "object") return lineCompare(expected as FacitBilling);
+  if (name === "beställarreferens" && expected && typeof expected === "object") {
+    return Object.fromEntries(Object.entries(expected as Record<string, string>).map(([k, v]) => [k, v.replace("Decemberfakturorna returnerades", "Tilläggsfakturan för december returnerades")]));
+  }
+  if (name.startsWith("flaggor ") && Array.isArray(expected)) {
+    // Beslut 5 (2026-10-07): belopp syns bara för ekonomen. Chefens flagga om ofakturerade veckor har antal veckor utan
+    // kronor och länkar till ärendet (chefen kan inte öppna Ekonomi).
+    const chef = name === "flaggor chef";
+    return expected
+      .filter((a: { key?: string }) => a.key !== "protected:em-104")
+      .map((a: { kind?: string; text?: string; caseId?: string }) =>
+        chef && a.kind === "unbilled" ? { ...a, text: String(a.text).replace(/ \([^)]*kr\)/, ""), link: { view: "arende.kort", params: { caseId: a.caseId } } } : a,
+      );
+  }
+  return expected;
+}
 
 /** Alla jämförelser. `db` är hela datat (t.ex. createSeed()), `env` avtalet Botkyrka vid facits klocka. */
 export function paritySections(db: Db, env: DomainEnv, facit: Facit): ParitySection[] {
@@ -55,7 +104,7 @@ export function paritySections(db: Db, env: DomainEnv, facit: Facit): ParitySect
   const lastMon = addDays(monday(today), -7);
   const lastSun = addDays(lastMon, 6);
   const active = db.cases.filter((c) => c.status === "active");
-  const S = (name: string, expected: unknown, actual: () => unknown): ParitySection => ({ name, expected, actual });
+  const S = (name: string, expected: unknown, actual: () => unknown): ParitySection => ({ name, expected: afterDecisions20261007(name, expected), actual });
 
   return [
     S("resultatgrad", f.resultRate, () => ({
@@ -80,10 +129,10 @@ export function paritySections(db: Db, env: DomainEnv, facit: Facit): ParitySect
       januari: pulseStats(db, { from: "2027-01-01", to: "2027-01-31" }, env),
       sedanStart: pulseStats(db, { from: "2026-09-10" }, env),
     })),
-    ...keys("billing").map((mk) => S(`fakturering ${mk}`, f.billing[mk], () => (mk === "2027-01" ? J(billingForMonth(db, mk, env)) : J(compactBilling(billingForMonth(db, mk, env)))))),
+    ...keys("billing").map((mk) => S(`fakturering ${mk}`, f.billing[mk], () => J(billingLinesFor(db, mk, env)))),
     S("ofakturerade veckor", f.unbilledOld, () => J(unbilledOld(db, env).map((x) => ({ caseId: x.case.id, week: x.week, age: x.age, status: x.status, amountOre: x.amountOre })))),
     S("beställarreferens", f.buyerRefProblem, () => byCase(db.cases.map((c) => c.id), (c) => buyerRefProblem(c, db, env.cfg))),
-    S("ordervärde", f.orderValueOre, () => byCase(db.cases.map((c) => c.id), (c) => orderValueOre(c, db.price_items, env))),
+    // Ordervärdet (f.orderValueOre) jämförs inte längre: inget ordervärde någonstans (beslut 2026-10-07, synpunkt #10/#11).
     S("debiterbara veckor", f.billableWeeks, () => byCase(keys("billableWeeks"), (c) => (c.startDate ? billableWeeks(c, db, env) : null))),
     ...PERSONAS.map(([role, pid]) => S(`flaggor ${role}`, f.alerts[role], () => withoutHref(alerts(db, { role, personaId: pid }, env)))),
     S("flaggor övriga coacher", f.alertsOtherCoaches, () => Object.fromEntries(coachIds.map((id) => [id, withoutHref(alerts(db, { role: "coach", personaId: id }, env))]))),
@@ -133,7 +182,7 @@ export function paritySections(db: Db, env: DomainEnv, facit: Facit): ParitySect
     S("nästa ärendenummer", facit.previewNextCaseNumber, () => previewNextCaseNumber(db, env)),
     S("fakturastatus", f.invoiceStatus, () => Object.fromEntries(keys("invoiceStatus").map((k) => {
       const [mk, id] = [k.slice(0, 7), k.slice(8)];
-      return [k, invoiceStatus(db, mk, id)];
+      return [k, invoiceStatus(db, mk, caseById.get(id) ?? { id, contractId: "c-bot" })];
     }))),
   ];
 }
