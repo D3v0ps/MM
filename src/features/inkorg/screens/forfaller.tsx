@@ -2,7 +2,7 @@
 // Förfaller i dag och denna vecka (/forfaller) – port av prototypens vy sam.deadlines (SPEC §7.13).
 import { Fragment, useState } from "react";
 import { useQuery } from "@/shell/backend";
-import { Badge, Button, Card, CaseLink, CellSub, DemoNote, ErrorNotice, Grid, Icon, Kpi, Loading, Notice, Page, PerspectiveLink, Seg, SlaBadge, Table, type Column } from "@/ui";
+import { Badge, Card, CaseLink, CellSub, DemoNote, ErrorNotice, Grid, Icon, Kpi, Loading, Notice, Page, PerspectiveLink, Seg, SlaBadge, Table, TitleLink, type Column } from "@/ui";
 import { inboxDeadlines, type DeadlinesView } from "../api";
 import { DL_KIND, dlDesc, groupDeadlines, kindLabel, type DeadlineGroupRow, type DeadlineKindKey } from "../texts";
 import { Caps, ProvBadge } from "./parts";
@@ -65,7 +65,11 @@ function DeadlineTable({ rows }: { rows: DeadlineGroupRow[] }) {
         const desc = dlDesc(x.kind, x.label);
         return (
           <div className="flex min-w-[190px] flex-col gap-[3px]">
-            <span className="flex flex-nowrap items-start gap-1.5"><Icon name={DL_KIND[x.kind]?.icon ?? "clock"} className="mt-0.5" /><span className="font-bold">{kindLabel(x.kind)}</span></span>
+            {/* Min veckas rader: rubriken är länken (hela raden går också att klicka) – ingen Öppna-knapp per rad. */}
+            <span className="flex flex-nowrap items-center gap-1.5">
+              <Icon name={DL_KIND[x.kind]?.icon ?? "clock"} className="flex-none" />
+              <TitleLink to={x.href}>{kindLabel(x.kind)}</TitleLink>
+            </span>
             {x.aggregate && <span><Badge tone="grey">{x.aggregate.count} ärenden</Badge></span>}
             {desc && <CellSub>{desc}</CellSub>}
             {x.aggregate && <span className="text-small text-text-muted">{x.aggregate.byCoach}</span>}
@@ -86,9 +90,18 @@ function DeadlineTable({ rows }: { rows: DeadlineGroupRow[] }) {
         </div>
       ),
     },
-    { key: "go", label: "Öppna", render: (x) => (x.href ? <Button kind="secondary" iconRight="arrow-right" to={x.href}>Öppna</Button> : <span className="text-small text-text-muted">–</span>) },
   ];
-  return <Table caption="Det som förfaller" rows={rows} columns={columns} empty="Inget förfaller här." rowTone={(x) => (x.bucket === "overdue" ? "alert" : null)} />;
+  return (
+    <Table
+      caption="Det som förfaller"
+      rows={rows}
+      columns={columns}
+      empty="Inget förfaller här."
+      rowTone={(x) => (x.bucket === "overdue" ? "alert" : null)}
+      rowHref={(x) => x.href}
+      linkKey={false}
+    />
+  );
 }
 
 function Deadlines({ v }: { v: DeadlinesView }) {
@@ -119,7 +132,7 @@ function Deadlines({ v }: { v: DeadlinesView }) {
         const inBucket = filtered.filter((x) => x.bucket === b);
         const rows = groupDeadlines(inBucket, v.reportsHref);
         return (
-          <Card key={b} title={`${title} (${inBucket.length})`} icon={icon} tone={rows.length > 0 ? tone : undefined} flush actions={sub && rows.length > 0 ? <span className="text-small text-text-muted">{sub}</span> : null}>
+          <Card key={b} title={`${title} (${inBucket.length})`} icon={icon} tone={rows.length > 0 ? tone : undefined} flush actions={sub && rows.length > 0 ? <span className="text-text-muted">{sub}</span> : null}>
             <DeadlineTable rows={rows} />
           </Card>
         );

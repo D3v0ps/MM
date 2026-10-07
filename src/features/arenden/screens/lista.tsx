@@ -302,10 +302,11 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
           </Empty>
         ) : (
           <>
-            <div className="max-[1240px]:hidden">
+            {/* 16 px i cellerna: tabellen från 1261 px, listan under (annars rullar tabellen i sidled vid 1241–1260 px). */}
+            <div className="max-[1260px]:hidden">
               <WideTable rows={shown} today={today} weeks={w4} hrefOf={hrefOf} />
             </div>
-            <div className="hidden max-[1240px]:block">
+            <div className="hidden max-[1260px]:block">
               <div className="flex flex-col">{shown.map((c) => <NarrowItem key={c.id} c={c} weeksLabel={w4.label} href={hrefOf(c)} />)}</div>
             </div>
           </>
@@ -325,14 +326,14 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
 function UnreadBadge({ n }: { n: number }) {
   if (n <= 0) return null;
   return (
-    <Badge tone="dark" icon="message" title="Olästa meddelanden från kommunen" className="px-[7px] py-0.5 text-[0.75rem]">
+    <Badge tone="dark" icon="message" title="Olästa meddelanden från kommunen" className="px-[7px] py-0.5">
       {n === 1 ? "Nytt meddelande" : `${n} nya meddelanden`}
     </Badge>
   );
 }
 
-const TH = "border-b-2 border-antracit bg-vit px-1.5 py-[9px] text-left align-bottom text-label font-extrabold tracking-[0.08em] text-text-muted uppercase first:pl-4";
-const TD = "border-b border-ljusgra px-1.5 py-[9px] align-top first:pl-4";
+const TH = "border-b-2 border-antracit bg-vit px-2 py-[9px] max-[1300px]:px-1.5 text-left align-bottom text-label font-extrabold tracking-[0.08em] text-text-muted uppercase first:pl-4";
+const TD = "border-b border-ljusgra px-2 py-[9px] align-top first:pl-4 max-[1300px]:px-1.5 max-[1300px]:first:pl-4";
 const sub = "text-small text-text-muted";
 
 /**
@@ -343,7 +344,7 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
   const nav = useNav();
   return (
     <div className="overflow-x-auto rounded-card">
-      <table className="w-full border-collapse text-ui">
+      <table className="w-full border-collapse text-body">
         <caption className="sr-only">Ärenden</caption>
         <thead>
           <tr>

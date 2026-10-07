@@ -51,7 +51,7 @@ function expectClean(json: string, label: string) {
 
 // ================================================================ Hela frågor och kommandon nekas
 const DENIED = [
-  "admin.compare", "admin.contract", "admin.orgRules", "admin.setOrgRule",
+  "admin.contract", "admin.orgRules", "admin.setOrgRule",
   "ekonomi.askCoordinator", "ekonomi.billingApproveInvoice", "ekonomi.billingApproveZeroWeek", "ekonomi.billingExport", "ekonomi.billingMarkManual",
   "ekonomi.billingSendFortnox", "ekonomi.caseList", "ekonomi.case", "ekonomi.closeRun", "ekonomi.csv", "ekonomi.fortnoxLog", "ekonomi.fortnoxSync",
   "ekonomi.invoice", "ekonomi.preview", "ekonomi.reissue", "ekonomi.run", "ekonomi.start", "ekonomi.taskDone",
@@ -80,7 +80,7 @@ describe("spärren i execute(): hela sidor om pengar och villkor", () => {
   it("Karim och vanliga användare: samma svar som förut (inget tester_hidden)", async () => {
     for (const testerId of [KARIM, undefined]) {
       expect((await any("admin.contract", {}, as("u-robin", "admin", testerId))).priceItems.length).toBeGreaterThan(0);
-      expect((await any("admin.compare", {}, as("u-robin", "admin", testerId))).contracts).toHaveLength(2);
+      expect((await any("admin.contract", {}, as("u-robin", "admin", testerId))).contracts).toHaveLength(1);
       expect((await any("ekonomi.start", {}, as("u-karin", "chef", testerId)))).toBeTruthy();
       expect((await any("ekonomi.run", { month: "2027-01" }, as("u-lars", "ekonom", testerId)))).toBeTruthy();
       expect((await cmd("admin.setOrgRule", { remindCoachAfterWeeks: 1, escalateAfterConsecutiveWeeks: 2, escalateTo: ["chef"], channels: ["app"], assignmentChannels: ["app"] }, as("u-robin", "admin", testerId))).ok).toBe(true);
@@ -357,7 +357,7 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
 
   it("synpunkter: begränsade testare ser inte synpunkter från avtalssidan, Ekonomi eller rollen ekonom", async () => {
     const add = (path: string | null, actor: Actor) => cmd("feedback.submit", { type: "fel", priority: "kan", text: "Testtext", path, viewTitle: path ? "Sida" : null }, actor);
-    expect((await add("/admin/avtal?flik=jamfor", as("u-robin", "admin", KARIM))).ok).toBe(true);
+    expect((await add("/admin/avtal?flik=priser", as("u-robin", "admin", KARIM))).ok).toBe(true);
     expect((await add("/ekonomi/2027-01", as("u-karin", "chef", KARIM))).ok).toBe(true);
     expect((await add("/arenden", as("u-karin", "chef", KARIM))).ok).toBe(true);
     expect((await add(null, as("u-lars", "ekonom", KARIM))).ok).toBe(true);

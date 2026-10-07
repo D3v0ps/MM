@@ -93,6 +93,12 @@ export function SubLine({ children }: { children?: ReactNode }) {
   return <span className="block text-small text-text-muted portal:text-portal">{children}</span>;
 }
 
+/**
+ * Blå kant på olästa rader (Min veckas stil: nytt till dig är blått, rött bara för det som brådskar – beslut 2026-10-06).
+ * Märket "Ny" säger detsamma i text.
+ */
+export const UNREAD_EDGE = "shadow-[inset_4px_0_0_var(--color-bla)]";
+
 /** Stor ikon först på en rad i portalens listor. */
 export const LeadIcon = ({ name }: { name: IconName }) => <Icon name={name} size="lg" className="mt-0.5 flex-none" />;
 
@@ -111,12 +117,12 @@ export const KIND_ICON: Partial<Record<ReportKind, IconName>> = {
 export const reportPath = (id: string, fran: "start" | "rapporter" | "deltagare" | "bestallarrapport", extra?: { lista?: string | null; manad?: string | null }) =>
   path(`/portal/rapporter/${encodeURIComponent(id)}`, { fran, lista: extra?.lista || null, manad: extra?.manad || null });
 
-/** En levererad rapport i en lista. Olästa har röd kant och märket "Ny". lista = listans val (för tillbakaknappen). */
+/** En levererad rapport i en lista. Olästa har blå kant och märket "Ny". lista = listans val (för tillbakaknappen). */
 export function ReportRowItem({ r, from, showSub = true, lista }: { r: KomReportRow; from: "start" | "rapporter" | "deltagare"; showSub?: boolean; lista?: string }) {
   return (
     <ListItem
       to={reportPath(r.id, from, { lista })}
-      marked={r.unread}
+      className={r.unread ? UNREAD_EDGE : undefined}
       lead={<LeadIcon name={KIND_ICON[r.kind] ?? "file"} />}
       chevron
       title={

@@ -56,24 +56,33 @@ describe("stängda sidor, menyn och startsidan", () => {
     for (const p of ["/admin/avtalx", "/admin/anvandare", "/admin/integrationer", "/ekonomix", "/arenden", "/ledning", "/portal/bestall"]) expect(isTesterHiddenPath(p), p).toBe(false);
   });
 
-  it("menyn: Avtal och konfiguration och Ekonomi döljs bara för begränsade testare", () => {
+  it("menyn: Ekonomi döljs bara för begränsade testare; Avtal och konfiguration ligger inte i menyn för någon", () => {
     const now = "2027-02-01T09:12";
     const links = (role: Parameters<typeof navFor>[0], hidesCommercial?: boolean) => navFor(role, { now, hidesCommercial }).flatMap((g) => g.items.map((i) => i.to));
-    expect(links("admin")).toContain("/admin/avtal");
-    expect(links("admin", true)).toEqual(["/admin/anvandare", "/admin/integrationer", "/admin/mallar", "/admin/logg"]);
-    expect(links("ekonom")).toEqual(["/ekonomi", "/ekonomi/2027-01"]);
+    expect(links("admin")).toEqual(["/min-vecka", "/arenden", "/admin/anvandare", "/admin/integrationer", "/admin/mallar", "/admin/logg"]);
+    expect(links("admin", true)).toEqual(links("admin"));
+    expect(links("ekonom")).toEqual(["/min-vecka", "/ekonomi", "/ekonomi/2027-01"]);
+    // En begränsad testare får inte agera som ekonom – menyn är tom som förut (också Min vecka).
     expect(navFor("ekonom", { now, hidesCommercial: true })).toEqual([]);
     // Övriga roller har samma meny som förut.
     for (const role of ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"] as const) expect(links(role, true)).toEqual(links(role));
+    for (const role of ["admin", "samordnare", "avtalsansvarig", "coach", "handledare", "chef", "ekonom"] as const) {
+      for (const to of links(role, true)) expect(isTesterHiddenPath(to), `${role} ${to}`).toBe(false);
+    }
   });
 
-  it("startsidan: begränsad systemadministratör börjar på Användare och roller", () => {
+  it("startsidan: alla MB-roller börjar på Min vecka – en begränsad testare som ekonom på Notiser", () => {
     expect(startPathFor("admin")).toBe(START_PATH.admin);
-    expect(startPathFor("admin", false)).toBe("/admin/avtal");
-    expect(startPathFor("admin", true)).toBe("/admin/anvandare");
+    expect(startPathFor("admin", false)).toBe("/min-vecka");
+    expect(startPathFor("admin", true)).toBe("/min-vecka");
+    expect(isTesterHiddenPath(START_PATH.admin)).toBe(false);
+    expect(startPathFor("ekonom")).toBe("/min-vecka");
+    expect(startPathFor("ekonom", true)).toBe("/notiser");
     expect(isTesterHiddenPath(startPathFor("ekonom", true))).toBe(false);
-    for (const role of ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"] as const) {
+    for (const role of ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"] as const) {
+      expect(START_PATH[role], role).toBe("/min-vecka");
       expect(startPathFor(role, true)).toBe(START_PATH[role]);
     }
+    for (const role of ["kommun_handlaggare", "kommun_chef"] as const) expect(startPathFor(role, true)).toBe(START_PATH[role]);
   });
 });

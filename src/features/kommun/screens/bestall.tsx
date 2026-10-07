@@ -140,7 +140,7 @@ function KomStepper({ current, skipped }: { current: number; skipped: number | n
         const done = !skip && i < current;
         const now = i === current;
         return (
-          <li key={label} aria-current={now ? "step" : undefined} className={cn("flex items-center gap-2 pr-2 font-semibold text-text-muted portal:text-body", now && "font-extrabold text-antracit")}>
+          <li key={label} aria-current={now ? "step" : undefined} className={cn("flex items-center gap-2 pr-2 font-semibold text-text-muted portal:text-portal", now && "font-extrabold text-antracit")}>
             <span
               className={cn(
                 "grid size-[30px] place-items-center rounded-full border-2 border-line-strong text-small font-extrabold portal:text-body [&_svg]:size-4",

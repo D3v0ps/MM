@@ -133,8 +133,6 @@ export type AuditLookups = {
   templateLabel(key: string): string;
 };
 
-const KPI_LABEL: Record<string, string> = { placeringsgrad: "Placeringsgrad", yttranden_i_tid: "Yttranden i tid", nojdhet: "Nöjdhet" };
-
 function kindWord(a: AuditEntryLike, s: string): string {
   if (a.action === "ai.run" || a.entity === "ai_run") return AI_KIND[s] ?? s;
   if (a.action === "event.added") return eventLabel(s);
@@ -159,7 +157,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (k === "template") return l.templateLabel(s);
   if (["fields", "checked", "missing"].includes(k)) return FIELD_WORD[s] ?? s;
   if (k === "kind") return kindWord(a, s);
-  if (k === "kpi") return l.kpiLabel(s) ?? KPI_LABEL[s] ?? s;
+  if (k === "kpi") return l.kpiLabel(s) ?? s;
   if (k === "endReason") return endReasonLabel(s);
   if (k === "status" && (a.action === "attendance.registered" || a.action === "attendance.registered_all")) return attLabel(s);
   if (k === "status") return STATUS_WORD[s] ?? s;

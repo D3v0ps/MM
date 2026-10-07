@@ -3,8 +3,7 @@
 // /admin/mallar (?flik=logg) och /admin/logg.
 //
 // Frågor:
-//   admin.contract       -> ContractView     avtalsväljaren, avtalsfakta, konfigurationen och prislistan för ett avtal (admin)
-//   admin.compare        -> CompareView      Botkyrka och Kammarkollegiet sida vid sida (admin)
+//   admin.contract       -> ContractView     avtalsväljaren (fler än ett avtal), avtalsfakta, konfigurationen och prislistan (admin)
 //   admin.orgRules       -> OrgRulesView     interna regler för påminnelser och eskalering, hur de slår igenom och historiken (admin)
 //   admin.users          -> UsersView        personal (bara admin), kommunanvändare, behörighetsmatrisens notisrader (admin, avtalsansvarig)
 //   admin.integrations   -> IntegrationsView underbiträden, integrationer och bakgrundsjobb (admin)
@@ -16,7 +15,8 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, MGMT, INBOX } from "@/api/invalidation";
-import type { ContractConfig, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
+import type { ContractConfig, DataRole, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
+import type { OutboundStatus } from "@/data/schema";
 import { IdSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
 import type { RuleSnapshot } from "./audit-text";
 import type { TemplateChannel } from "./templates";
@@ -41,7 +41,7 @@ export type ContractFacts = ContractSummary & {
   supplierOrgNr: string;
   dnr: string | null;
   endsOn: string | null;
-  dataRole: "processor" | "controller";
+  dataRole: DataRole;
   casePrefix: string;
   emailDomains: string[];
   managerName: string;
@@ -62,6 +62,7 @@ export type PriceRow = {
 };
 
 export type ContractView = {
+  /** Avtalen att välja mellan. Väljaren visas bara när det finns fler än ett (fler kommunavtal kan läggas till). */
   contracts: ContractSummary[];
   contract: ContractFacts;
   /** contracts.config (validerad med zod) – visas i korten och som JSON. */
@@ -72,14 +73,10 @@ export type ContractView = {
   stuckCount: number | null;
   /** Händelser markerade som möjligt bonusunderlag. */
   bonusCandidates: number;
-  /** Prislistan per avtalsområde (price_items). KK-skissen har priserna i konfigurationen i stället. */
+  /** Prislistan per avtalsområde (price_items). */
   priceItems: PriceRow[];
 };
 export const adminContract = query("admin.contract", z.object({ contractId: IdSchema.optional() })).returns<ContractView>();
-
-export type CompareContract = { facts: ContractFacts; config: ContractConfig; priceOres: number[]; priceUnits: PriceUnit[] };
-export type CompareView = { yearShort: string; contracts: CompareContract[] };
-export const adminCompare = query("admin.compare", z.object({})).returns<CompareView>();
 
 // ---- Interna regler (org_settings)
 export type RecipientOption = { role: EscalationRole; label: string; names: string };
@@ -115,8 +112,6 @@ export type MbUserRow = {
   roleLabel: string;
   isAdmin: boolean;
   teamRoleLabel: string | null;
-  /** Rollen i Kammarkollegiets avtal, null = tilldelas före start. */
-  kkRoleLabel: string | null;
   active: boolean;
 };
 export type CustomerUserRow = {
@@ -247,6 +242,11 @@ export type SendLogItem = {
   byTester: boolean;
   /** Texten kan innehålla namn på en deltagare eller något som liknar ett personnummer. */
   leak: boolean;
+  /**
+   * Utskickets läge (outbound_messages.status): queued, sent, failed (gick inte iväg), suppressed eller manual. Ett tekniskt
+   * läge – inga personuppgifter. Systemadministratörens Min vecka visar utskick som inte gick iväg (beslut 2026-10-06).
+   */
+  status: OutboundStatus;
 };
 export type TemplatesView = {
   /** Bara systemadmin sparar nya mallversioner (SPEC §9, policyn för template_versions). */

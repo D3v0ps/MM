@@ -50,16 +50,26 @@ test.describe("begränsad testare (appen)", () => {
     test.skip(isDemo(info), "Prototypen har inga testare – se testet för prototypen nedan.");
   });
 
-  test("systemadministratör: ingen avtalssida i menyn, startsidan är Användare och roller, bakgrundsjobben syns men inte underbiträdena", async ({ page }) => {
+  test("systemadministratör: ingen avtalssida i menyn, startsidan är Min vecka, bakgrundsjobben syns men inte underbiträdena", async ({ page }) => {
     const errors = await asTester(page, "/", ROBIN);
-    await expect(page).toHaveURL(/\/admin\/anvandare$/);
+    await expect(page).toHaveURL(/\/min-vecka$/);
     const menu = page.getByRole("navigation", { name: "Meny" });
+    await expect(menu.getByText("Administratör", { exact: true })).toBeVisible();
     await expect(menu.getByRole("link", { name: "Användare och roller" })).toBeVisible();
     await expect(menu.getByRole("link", { name: /Avtal och konfiguration/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: /Fakturering|Fakturakörning/ })).toHaveCount(0);
+    // Min vecka: bakgrundsjobben men inga underbiträden, och ingen länk till avtalssidan (stängd för testare).
+    await expect(main(page).getByRole("heading", { name: "Bakgrundsjobb", exact: true })).toBeVisible();
+    await expect(main(page).getByRole("heading", { name: "Underbiträden", exact: true })).toHaveCount(0);
+    await expect(main(page).getByRole("link", { name: /Avtal och konfiguration/ })).toHaveCount(0);
+    for (const s of ["Supabase", "Vercel", "Resend", "eu-north-1"]) expect(await pageText(page), s).not.toContain(s);
+    // Inte heller länken från Användare och roller (avtalssidan ligger inte i menyn för någon).
+    await go(page, "/admin/anvandare");
+    await expect(main(page).getByRole("heading", { level: 1, name: "Användare och roller" })).toBeVisible();
+    await expect(main(page).getByRole("link", { name: /Avtal och konfiguration/ })).toHaveCount(0);
 
     // Avtalssidan (alla flikar) är stängd – också via adressen.
-    for (const to of ["/admin/avtal", "/admin/avtal?flik=jamfor", "/admin/avtal?flik=priser", "/admin/avtal?flik=interna"]) {
+    for (const to of ["/admin/avtal", "/admin/avtal?flik=priser", "/admin/avtal?flik=interna"]) {
       await go(page, to);
       await expect(page.getByRole("heading", { name: "Den här sidan visas inte för testare" })).toBeVisible();
       expect(await pageText(page), to).not.toMatch(AMOUNT);
@@ -67,7 +77,7 @@ test.describe("begränsad testare (appen)", () => {
     }
 
     // Servern nekar frågorna bakom avtalssidan.
-    for (const key of ["admin.contract", "admin.compare", "admin.orgRules"]) {
+    for (const key of ["admin.contract", "admin.orgRules"]) {
       const res = await page.request.post("/api/rpc", { data: { kind: "query", key, input: {} } });
       expect(res.status(), key).toBe(403);
       expect(await res.json(), key).toEqual({ code: "tester_hidden", message: "Den här sidan visas inte för testare." });
@@ -94,6 +104,18 @@ test.describe("begränsad testare (appen)", () => {
     await showFacts(page);
     await expect(main(page).getByText("Visas inte för testare").first()).toBeVisible();
     expect(await pageText(page)).not.toMatch(AMOUNT);
+    expect(relevant(errors)).toEqual([]);
+  });
+
+  test("chefens Min vecka: inga belopp och inget internt mål", async ({ page }) => {
+    const errors = await asTester(page, "/", KARIN);
+    await expect(page).toHaveURL(/\/min-vecka$/);
+    await expect(main(page).getByRole("heading", { name: "Nyckeltal i korthet" })).toBeVisible();
+    const t = await pageText(page);
+    expect(t).not.toMatch(AMOUNT);
+    expect(t).not.toMatch(/Internt mål \d|internt mål \d|Internt \d/);
+    await expect(main(page).getByText("Visas inte för testare").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: /Fakturering|Fakturakörning/ })).toHaveCount(0);
     expect(relevant(errors)).toEqual([]);
   });
 
@@ -128,8 +150,8 @@ test.describe("begränsad testare (appen)", () => {
     expect(relevant(errors)).toEqual([]);
   });
 
-  test("avtalsansvarig: startsidan, inkorgen, förfallolistan och orderbekräftelsen utan belopp", async ({ page }) => {
-    const errors = await asTester(page, "/start", JOHAN);
+  test("avtalsansvarig: Min vecka, inkorgen, förfallolistan och orderbekräftelsen utan belopp", async ({ page }) => {
+    const errors = await asTester(page, "/min-vecka", JOHAN);
     expect(await pageText(page)).not.toMatch(AMOUNT);
     expect(await pageText(page)).not.toMatch(/Vite \d|Internt mål \d/);
     for (const to of ["/forfaller", "/inkorg", "/rapporter/rep-16392"]) {
@@ -153,9 +175,13 @@ test.describe("begränsad testare (appen)", () => {
     await showFacts(page);
     expect(await pageText(page)).toMatch(AMOUNT);
     await expect(main(page).getByText("Visas inte för testare")).toHaveCount(0);
-    await asTester(page, "/admin/avtal", ROBIN, "tester-karim");
+    // Avtalssidan ligger inte i menyn (beslut 2026-10-06) – Karim når den från Användare och roller.
+    await asTester(page, "/admin/anvandare", ROBIN, "tester-karim");
+    await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Avtal och konfiguration/ })).toHaveCount(0);
+    await main(page).getByRole("link", { name: "Avtal och konfiguration" }).click();
+    await expect(page).toHaveURL(/\/admin\/avtal$/);
+    await expect(main(page).getByRole("heading", { level: 1, name: "Avtal och konfiguration" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Den här sidan visas inte för testare" })).toHaveCount(0);
-    await expect(page.getByRole("navigation", { name: "Meny" }).getByRole("link", { name: /Avtal och konfiguration/ })).toBeVisible();
   });
 
   test("Agera som: en begränsad testare kan inte välja rollen ekonom", async ({ page }) => {

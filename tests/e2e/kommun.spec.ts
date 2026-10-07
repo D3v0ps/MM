@@ -20,7 +20,7 @@ const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", sk
 const NADIA_DEC = "rep-16008"; // månadsrapport december, levererad till Maria Ekdahl
 const ACTOR_EXTRA: Record<string, { contractIds: string[]; customerUnit: string | null }> = {
   "k-maria": { contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" },
-  "u-johan": { contractIds: ["c-bot", "c-kk"], customerUnit: null },
+  "u-johan": { contractIds: ["c-bot"], customerUnit: null },
 };
 
 // ---------------------------------------------------------------- Hjälpare

@@ -563,7 +563,7 @@ describe("notiser, ledning och session", () => {
     expect(await run(auditView, { action: "report.view", entity: "report", entityId: "rep-finns-inte" }, amira())).toMatchObject({ ok: false });
     expect(await run(auditView, { action: "export.audit_log", entity: "audit_log", entityId: "c-bot", details: { rows: 3, filter: "inget" } }, maria())).toMatchObject({ ok: false });
     expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: other.id }, as("u-johan", "avtalsansvarig"))).toMatchObject({ ok: true });
-    expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: rows("cases").find((c) => c.contractId === "c-kk")?.id ?? "case-saknas" }, eva())).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: "case-saknas" }, eva())).toMatchObject({ ok: false });
     expect(rows("audit_log").length).toBe(n + 1);
     // Export: bara kända detaljer följer med.
     expect(await run(auditView, { action: "export.contract_deviations", entity: "contract_deviation", entityId: null, details: { month: "2027-01" } }, sara())).toMatchObject({ ok: true });

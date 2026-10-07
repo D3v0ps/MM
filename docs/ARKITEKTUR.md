@@ -24,7 +24,7 @@ src/
                policy.ts (läsregler per tabell = RLS-spegel) · actors.ts (användare -> Actor, testpersoner)
                seed/ (påhittade testdata, deterministiska) · memory-runtime.ts (kör API:t mot minnet)
   api/         contract.ts (query/command-kontrakt) · server.ts (register, Ctx, execute) · roles.ts · handlers.ts (registrerar alla)
-  features/<område>/
+  features/<område>/            (vecka = Min vecka för alla MB-roller, väljer rollens skärm i respektive område)
                api.ts        kontrakt: frågor och kommandon med zod-scheman och resultattyper (importeras av skärmar)
                handlers.ts   hanterare (importeras ALDRIG av skärmar – bara av src/api/handlers.ts)
                screens/*.tsx skärmar ("use client")
@@ -175,13 +175,13 @@ URL:er innehåller bara id:n – aldrig namn, personnummer eller andra personupp
 
 | Prototypens vy | Sökväg | Område |
 |---|---|---|
-| sam.start | `/start` | inkorg |
+| sam.start | `/start` – leder vidare till `/min-vecka` (samordnarens och avtalsansvarigs startsida har gått upp i Min vecka, beslut 2026-10-06) | inkorg |
 | sam.inkorg | `/inkorg/:emailId?` | inkorg |
 | sam.deadlines | `/forfaller` | inkorg |
 | arenden.lista | `/arenden` | arenden |
 | arende.kort | `/arenden/:caseId` (`?flik=`) | arenden |
-| hand.start | `/handledare` | arenden |
-| coach.minvecka | `/min-vecka` | coach |
+| hand.start | `/handledare` – listan Mina tilldelade ärenden (översikten ligger på handledarens Min vecka) | arenden |
+| coach.minvecka | `/min-vecka` – Min vecka för alla MB-roller; coachens skärm är förebilden (beslut 2026-10-06) | vecka |
 | coach.narvaro | `/narvaro` | coach |
 | coach.avstamning | `/avstamning/:caseId?` | coach |
 | coach.manad | `/manadsbedomning/:caseId?` (`?manad=2027-01`) | coach |
@@ -196,7 +196,7 @@ URL:er innehåller bara id:n – aldrig namn, personnummer eller andra personupp
 | eko.arende | `/ekonomi/arende/:caseId` | ekonomi |
 | eko.faktura | `/ekonomi/:month/faktura/:caseId` | ekonomi |
 | eko.korning | `/ekonomi/:month` | ekonomi |
-| admin.avtal | `/admin/avtal` (`?avtal=&flik=`) | admin |
+| admin.avtal | `/admin/avtal` (`?avtal=&flik=`) – inte i menyn, länk från Användare och roller (beslut 2026-10-06) | admin |
 | admin.anvandare | `/admin/anvandare` | admin |
 | admin.integrationer | `/admin/integrationer` | admin |
 | admin.mallar | `/admin/mallar` (`?flik=logg`) | admin |
@@ -214,7 +214,11 @@ URL:er innehåller bara id:n – aldrig namn, personnummer eller andra personupp
 | – (rapporter steg 4) | `/portal/resultat/rapporter/:savedReportId?` | kommun |
 | om.start / om.feedback / om.fragor | `/om`, `/om/genomgang`, `/om/fragor` | bara prototypen (`src/demo`) |
 
-Startsida per roll finns i `START_PATH` (`src/shell/routes.ts`).
+Startsida per roll finns i `START_PATH` (`src/shell/routes.ts`). **Alla MB-roller börjar på `/min-vecka`** (beslut 2026-10-06, SPEC §7.0); `startPathFor`: en begränsad testare i en roll som är dold för testare (ekonom) – eller vars startsida är stängd – börjar på `/notiser`. De gamla startsidorna finns kvar under rollens flik (`/ledning`, `/ekonomi`, `/handledare`, `/admin/anvandare`), och `/start` leder vidare med `redirectScreen` (`src/shell/redirect.tsx`, `nav.replace`, query följer med – samma i appen och prototypen).
+
+**Min vecka** (området `vecka`): `src/features/vecka/screens/min-vecka.tsx` väljer rollens skärm – coach `coach/screens/min-vecka.tsx` (förebilden), samordnare och avtalsansvarig `inkorg/screens/min-vecka.tsx`, handledare `arenden/screens/min-vecka-handledare.tsx`, chef `ledning/screens/min-vecka.tsx`, ekonom `ekonomi/screens/min-vecka.tsx`, systemadministratör `admin/screens/min-vecka.tsx`. Varje roll använder bara frågor den redan har (`src/features/vecka/vecka.test.tsx` spårar nycklarna). Kitet (sidhuvud, nyckeltalsrad, avslutad rad, länkad radrubrik) ligger i `src/ui/vecka.tsx`; kortet Olästa notiser i `notiser/screens/olasta.tsx`; ekonomens kort delas med Fakturering (`ekonomi/screens/start-cards.tsx`).
+
+**Menyn** (`src/shell/nav-config.ts`, SPEC §7.0): Notiser överst, den gemensamma gruppen Min vardag (`COMMON_NAV` – ett val visas bara för rollerna som når sidan) och högst en rollflik (`ROLE_TAB`). `src/shell/route-table.test.ts` kontrollerar att varje menyval finns i rollens rutter och att den gemensamma gruppen visar exakt de val rollen når – menyn visar aldrig något rollen inte når.
 
 **Frågeparametrar** som scenarierna och länkar använder (områdena ska läsa dem; hela listan och översättningen från prototypens vy-id finns i `src/demo/paths.ts`):
 `/inkorg?senaste=1` (senaste avropet som väntar på svar) · `/inkorg?arende=<caseId>` · `/arenden?filter=skyddade` · `/arenden/<id>?flik=` · `/narvaro?vecka=forra|denna` · `/avstamning/<caseId>?avstamning=<checkInId>` · `/manadsbedomning/<id>?manad=2027-01` · `/handelse/<id>?lage=avslut` · `/rapporter?filter=` · `/ledning?flik=kpi|puls|coacher|omraden` · `/portal/deltagare/<caseId>?flik=` · `/admin/avtal?avtal=&flik=` · `/admin/mallar?flik=logg`.

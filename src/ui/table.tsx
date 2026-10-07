@@ -83,7 +83,7 @@ export function Table<R>({ columns, rows, rowKey = "id" as keyof R, onRowClick, 
   };
   return (
     <div className={cn("overflow-x-auto rounded-card", className)}>
-      <table className="w-full border-collapse text-ui portal:text-portal [&_tfoot_td]:border-t-2 [&_tfoot_td]:border-b-0 [&_tfoot_td]:border-antracit [&_tfoot_td]:px-3 [&_tfoot_td]:py-2.5 [&_tfoot_td]:font-bold">
+      <table className="w-full border-collapse text-body portal:text-portal [&_tfoot_td]:border-t-2 [&_tfoot_td]:border-b-0 [&_tfoot_td]:border-antracit [&_tfoot_td]:px-3 [&_tfoot_td]:py-2.5 [&_tfoot_td]:font-bold">
         {caption && <caption className="sr-only">{caption}</caption>}
         <thead>
           <tr>

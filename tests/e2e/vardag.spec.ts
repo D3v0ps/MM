@@ -397,7 +397,7 @@ test("portalens mobilmeny (390 px): samma Meny-knapp och Esc stänger", async ({
 
 // ------------------------------------------------------------ 4. Valt mejl i inkorgen står i adressen
 test("inkorgen: valt mejl och flik står i adressen – omladdning visar samma mejl, och Tillbaka går inte mejl för mejl", async ({ page }, info) => {
-  const errors = await open(page, info, "/start", SARA);
+  const errors = await open(page, info, "/min-vecka", SARA);
   await page.locator("aside nav").getByRole("link", { name: /^Avropsinkorg/ }).first().click();
   await expect.poll(() => here(page, info)).toMatch(/^\/inkorg/);
   await settle(page, info);
@@ -405,7 +405,7 @@ test("inkorgen: valt mejl och flik står i adressen – omladdning visar samma m
   await expect(rows.first()).toBeVisible();
   // Välj ett annat mejl än det som visas.
   const other = page.locator("[data-inkorg-row]:not([aria-current])").first();
-  const subject = (await other.locator("span.text-ui").first().innerText()).trim();
+  const subject = (await other.locator("[data-inkorg-subject]").first().innerText()).trim();
   await other.click();
   await expect(main(page).locator("h2").filter({ hasText: subject }).first()).toBeVisible();
   const url = await here(page, info);
@@ -420,11 +420,11 @@ test("inkorgen: valt mejl och flik står i adressen – omladdning visar samma m
   await expect(page.locator('[data-inkorg-row][aria-current="true"]')).toContainText(subject);
   await expect(main(page).locator("h2").filter({ hasText: subject }).first()).toBeVisible();
 
-  // Valet byter inte sida (replace): ett steg tillbaka leder till startsidan. Posten är från före omladdningen – appen
-  // laddar då om sidan på dess adress (src/app/_shell/pop-guard.ts), så adressen läses medan sidan kan laddas om.
+  // Valet byter inte sida (replace): ett steg tillbaka leder till startsidan (Min vecka). Posten är från före omladdningen –
+  // appen laddar då om sidan på dess adress (src/app/_shell/pop-guard.ts), så adressen läses medan sidan kan laddas om.
   await page.goBack();
-  await expect.poll(() => here(page, info).catch(() => "")).toBe("/start");
+  await expect.poll(() => here(page, info).catch(() => "")).toBe("/min-vecka");
   await settle(page, info);
-  await expect(page).toHaveTitle("Startsida – Miljonmatch");
+  await expect(page).toHaveTitle("Min vecka – Miljonmatch");
   expect(errors).toEqual([]);
 });

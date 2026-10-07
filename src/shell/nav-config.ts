@@ -1,7 +1,8 @@
-// Navigering per roll – port av prototypens NAV (sidopanelen) och KOM_NAV (kommunportalen), med sökvägar i stället för vy-id.
-// Sökvägarna följer rutt-tabellen i docs/ARKITEKTUR.md. Räknarna kommer från frågan navCounts (src/features/session/nav-api.ts).
-import type { CustomerRole, Role, SupplierRole } from "@/api/roles";
-import { isTesterHiddenPath } from "@/api/tester-access";
+// Navigering per roll med sökvägar (rutt-tabellen i docs/ARKITEKTUR.md). MB-personalen (beslut 2026-10-06): Notiser överst,
+// den gemensamma gruppen "Min vardag" (COMMON_NAV) och en rollflik (ROLE_TAB). Kommunportalen: KOM_NAV (PORTAL_NAV).
+// Räknarna kommer från frågan navCounts (src/features/session/nav-api.ts).
+import { isSupplierRole, SUPPLIER_ROLES, type CustomerRole, type Role, type SupplierRole } from "@/api/roles";
+import { isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
 import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
 import type { IconName } from "@/ui/icons";
@@ -20,18 +21,17 @@ export type NavGroup = { label: string; items: NavItem[] };
 
 /**
  * Rader som beror på tid (t.ex. förra månadens fakturakörning). now = serverns/demoklockans tid.
- * hidesCommercial = begränsad testare: avtalssidan och Ekonomi visas inte (src/api/tester-access.ts).
+ * hidesCommercial = begränsad testare: stängda sidor (Ekonomi) visas inte (src/api/tester-access.ts).
  */
 export type NavContext = { now: LocalDateTime | null; hidesCommercial?: boolean };
 type NavItemDef = NavItem | ((ctx: NavContext) => NavItem | null);
 type NavGroupDef = { label: string; items: NavItemDef[] };
 
-const START: NavItem = { to: "/start", label: "Startsida", icon: "home" };
 const INKORG: NavItem = { to: "/inkorg", label: "Avropsinkorg", icon: "inbox", count: "inbox" };
 const FORFALLER: NavItem = { to: "/forfaller", label: "Förfaller", icon: "clock", count: "deadlines" };
 const ARENDEN: NavItem = { to: "/arenden", label: "Ärenden", icon: "list" };
 const RAPPORTER: NavItem = { to: "/rapporter", label: "Rapporter", icon: "file" };
-/** Rapportbyggaren (rapporter steg 4) – samordnare, avtalsansvarig och chef, direkt efter Rapporter. */
+/** Rapportbyggaren (rapporter steg 4) – samordnare, avtalsansvarig och chef. */
 const BYGG: NavItem = { to: "/rapportbyggare", label: "Bygg rapport", icon: "chart" };
 const PRAKTIK: NavItem = { to: "/praktik", label: "Arbetsgivare och praktik", icon: "briefcase" };
 const AVVIKELSER: NavItem = { to: "/avtalsavvikelser", label: "Avtalsavvikelser", icon: "flag" };
@@ -44,62 +44,57 @@ const fakturakorning = ({ now }: NavContext): NavItem | null => {
   return { to: `/ekonomi/${month}`, label: `Fakturakörning ${MONTHS[Number(month.slice(5, 7)) - 1]}`, icon: "file" };
 };
 
-const NAV_DEF: Record<SupplierRole, NavGroupDef[]> = {
-  samordnare: [
-    { label: "Arbete", items: [START, INKORG, FORFALLER, ARENDEN] },
-    { label: "Uppföljning", items: [RAPPORTER, BYGG, PRAKTIK] },
-  ],
-  avtalsansvarig: [
-    { label: "Arbete", items: [START, INKORG, FORFALLER, ARENDEN] },
-    { label: "Avtalet", items: [RAPPORTER, BYGG, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }] },
-  ],
-  coach: [
-    {
-      label: "Min vardag",
-      items: [
-        { to: "/min-vecka", label: "Min vecka", icon: "calendar" },
-        { to: "/narvaro", label: "Närvaro", icon: "check-square", count: "unregistered" },
-        { to: "/arenden", label: "Mina ärenden", icon: "list" },
-      ],
-    },
-    { label: "Uppföljning", items: [RAPPORTER, PRAKTIK] },
-  ],
-  handledare: [
-    {
-      label: "Min vardag",
-      items: [
-        { to: "/handledare", label: "Mina tilldelade ärenden", icon: "list" },
-        { to: "/narvaro", label: "Närvaro", icon: "check-square" },
-        PRAKTIK,
-      ],
-    },
-  ],
-  chef: [
-    { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER] },
-    { label: "Insyn", items: [ARENDEN, RAPPORTER, BYGG, LOGG] },
-  ],
-  ekonom: [{ label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning] }],
-  admin: [
-    {
-      label: "Administration",
-      items: [
-        { to: "/admin/avtal", label: "Avtal och konfiguration", icon: "settings" },
-        { to: "/admin/anvandare", label: "Användare och roller", icon: "users" },
-        { to: "/admin/integrationer", label: "Underbiträden och integrationer", icon: "database" },
-        { to: "/admin/mallar", label: "Mallar och utskick", icon: "mail" },
-        LOGG,
-      ],
-    },
-  ],
+/**
+ * Den gemensamma gruppen "Min vardag" (beslut 2026-10-06): samma menyval i samma ordning för alla MB-roller. Ett val visas
+ * bara för rollerna i roles – samma roller som ruttens (testet i src/shell/route-table.test.ts kontrollerar det), så menyn
+ * visar aldrig något som rollen inte når. Behörigheterna ändras inte här.
+ */
+export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: SupplierRole) => NavItem }[] = [
+  { roles: SUPPLIER_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar" }) },
+  // Räknaren (oregistrerade tillfällen) gäller coachens egna ärenden.
+  { roles: ["coach", "handledare"], item: (r) => ({ to: "/narvaro", label: "Närvaro", icon: "check-square", ...(r === "coach" ? { count: "unregistered" as const } : {}) }) },
+  // Coachen: sina ärenden. Handledaren: listan över tilldelade ärenden (/handledare) – inte två ärendelistor i menyn.
+  {
+    roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"],
+    item: (r) => (r === "coach" ? { ...ARENDEN, label: "Mina ärenden" } : r === "handledare" ? { to: "/handledare", label: "Mina tilldelade ärenden", icon: "list" } : ARENDEN),
+  },
+  { roles: ["samordnare", "avtalsansvarig", "coach", "chef"], item: () => RAPPORTER },
+  { roles: ["samordnare", "avtalsansvarig", "coach", "handledare"], item: () => PRAKTIK },
+];
+export const COMMON_GROUP_LABEL = "Min vardag";
+
+/** En rollflik per roll (beslut 2026-10-06). Coach och handledare har ingen. */
+const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
+  samordnare: { label: "Samordning", items: [INKORG, FORFALLER, BYGG] },
+  avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG] },
+  chef: { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER, BYGG, LOGG] },
+  ekonom: { label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning] },
+  // Avtal och konfiguration (/admin/avtal) ligger inte i menyn (beslut 2026-10-06) – sidan nås från Användare och roller och Min vecka.
+  admin: {
+    label: "Administratör",
+    items: [
+      { to: "/admin/anvandare", label: "Användare och roller", icon: "users" },
+      { to: "/admin/integrationer", label: "Underbiträden och integrationer", icon: "database" },
+      { to: "/admin/mallar", label: "Mallar och utskick", icon: "mail" },
+      LOGG,
+    ],
+  },
 };
 
 /** Notiser ligger överst i sidopanelen för alla MB-roller (antal olästa från navCounts.notifications). */
 export const NOTIFICATIONS_ITEM: NavItem = { to: "/notiser", label: "Notiser", icon: "bell" };
 
-/** Sidopanelens grupper för en roll (tom lista för kommun och deltagare). */
+/**
+ * Sidopanelens grupper för en roll: den gemensamma gruppen Min vardag och rollens flik (tom lista för kommun och deltagare).
+ * En begränsad testare ser aldrig en stängd sida i menyn; agerar hen ändå i en roll som är dold för testare (ekonom) är
+ * menyn tom, som förut.
+ */
 export function navFor(role: Role, ctx: NavContext): NavGroup[] {
-  const groups = (NAV_DEF as Partial<Record<Role, NavGroupDef[]>>)[role] ?? [];
-  return groups
+  if (!isSupplierRole(role)) return [];
+  if (ctx.hidesCommercial && roleHiddenFromTesters(role)) return [];
+  const common: NavGroupDef = { label: COMMON_GROUP_LABEL, items: COMMON_NAV.filter((c) => c.roles.includes(role)).map((c) => c.item(role)) };
+  const tab = ROLE_TAB[role];
+  return [common, ...(tab ? [tab] : [])]
     .map((g) => ({
       label: g.label,
       items: g.items

@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
-import { BOTKYRKA_CONFIG, KK_CONFIG } from "@/core/config";
+import { BOTKYRKA_CONFIG, parseContractConfig } from "@/core/config";
 import { demoClock, createMemoryRuntime } from "@/data/memory-runtime";
 import { MemoryRepo, MemoryStore } from "@/data/memory";
 import { POLICIES } from "@/data/policy";
@@ -194,7 +194,8 @@ describe("recordingBlock: när inspelning och AI får användas", () => {
     }
     expect(recordingBlock({ cfg: BOTKYRKA_CONFIG, kind: "coach", person: { protectedIdentity: true }, consent: "given" })).toBe("protected");
     expect(recordingBlock({ cfg: BOTKYRKA_CONFIG, kind: "coach", person: null, consent: "given" })).toBe("protected");
-    expect(recordingBlock({ cfg: KK_CONFIG, kind: "coach", person, consent: "given" })).toBe("disabled");
+    // Ett avtal utan ai-avsnitt (påhittat utkast): inspelning är avstängd.
+    expect(recordingBlock({ cfg: parseContractConfig({ casePrefix: "NYK", dataRole: "processor" }), kind: "coach", person, consent: "given" })).toBe("disabled");
   });
   it("deltagaren: samtycket ges i länken – men aldrig för skyddade personuppgifter", () => {
     expect(recordingBlock({ cfg: BOTKYRKA_CONFIG, kind: "participant", person, consent: "declined" })).toBeNull();

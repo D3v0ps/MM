@@ -28,7 +28,8 @@ export const emailApplySupplement = command("inkorg.emailApplySupplement", z.obj
   emailId: IdSchema,
 }), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ fields: string[] }, "not_found">>();
 
-// ---- Området inkorg: startsidan (/start), avropsinkorgen (/inkorg/:emailId?) och förfaller (/forfaller)
+// ---- Området inkorg: samordnarens och avtalsansvarigs Min vecka (inkorg.start – /min-vecka, /start leder dit),
+// avropsinkorgen (/inkorg/:emailId?) och förfaller (/forfaller)
 // Vy-modellerna har bara de fält skärmarna behöver. Tider som visas relativt klockan ("i dag kl. 08.41") och SLA-status
 // räknas i hanterarna. Personnummer skickas aldrig omaskerat – bara maskerat, och "Visa" går via inkorgRevealPnr (loggas).
 

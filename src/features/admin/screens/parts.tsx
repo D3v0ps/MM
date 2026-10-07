@@ -3,8 +3,17 @@
 import { useId, useState, type ReactNode } from "react";
 import { isUnset, unsetHint } from "@/core/config";
 import { Badge, Icon, cn } from "@/ui";
+import type { JobStatusView } from "../api";
 
 export const UNSET_TEXT = "Ej fastställt – regeln aktiveras inte";
+
+/** Bakgrundsjobbets status som märke med text och ikon (Underbiträden och integrationer och systemadministratörens Min vecka). */
+export const JOB_STATUS: Record<JobStatusView, ReactNode> = {
+  ok: <Badge tone="blue" icon="check">Klar</Badge>,
+  waiting: <Badge tone="grey" icon="clock">Väntar</Badge>,
+  disabled: <Badge tone="outline" icon="minus-circle">Inte aktiverad</Badge>,
+  failed: <Badge tone="red" icon="alert">Fel</Badge>,
+};
 
 /** Etikett och värde på samma rad när det finns plats, annars under varandra (fungerar i smala kort och på 400 px). */
 export function KV({ items, label = 170 }: { items: readonly (readonly [ReactNode, ReactNode] | null | false | undefined)[]; label?: number }) {
@@ -120,8 +129,8 @@ export function Val({ v, children }: { v: unknown; children?: ReactNode }) {
   return <>{v == null || v === "" ? "–" : String(v)}</>;
 }
 
-/** Liten dämpad text. */
-export const Small = ({ children, className }: { children?: ReactNode; className?: string }) => <p className={cn("text-small text-text-muted", className)}>{children}</p>;
+/** Dämpad förklarande mening (16 px – meningar är aldrig mindre än brödtexten, Min veckas stil). */
+export const Small = ({ children, className }: { children?: ReactNode; className?: string }) => <p className={cn("text-text-muted", className)}>{children}</p>;
 
 export type StackColumn = { label: string; width?: string; /** Radrubrik (th scope=row) i stället för cell. */ rowHeader?: boolean; /** Etiketten visas ovanför värdet på mobil. */ mobileLabel?: boolean; nowrap?: boolean };
 export type StackRow = { key: string; cells: ReactNode[]; selected?: boolean };
@@ -176,20 +185,5 @@ export function StackTable({ caption, columns, rows, empty }: { caption: string;
         </tbody>
       </table>
     </div>
-  );
-}
-
-/** En eller flera rader: ingen → "–", en → texten, flera → punktlista. */
-export function Lines({ items }: { items: readonly ReactNode[] }) {
-  if (items.length === 0) return <>–</>;
-  if (items.length === 1) return <>{items[0]}</>;
-  return (
-    <ul className="m-0 flex flex-col gap-0.5 pl-[18px]">
-      {items.map((x, i) => (
-        <li key={i} className="list-disc">
-          {x}
-        </li>
-      ))}
-    </ul>
   );
 }

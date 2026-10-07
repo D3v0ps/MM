@@ -28,7 +28,7 @@ const seg = (v: string | undefined) => (v ? `/${encodeURIComponent(v)}` : "");
 export function linkHref(link: ViewLink): string {
   const p = link.params;
   switch (link.view) {
-    case "sam.start": return "/start";
+    case "sam.start": return "/min-vecka"; // /start har gått upp i Min vecka (beslut 2026-10-06)
     case "sam.inkorg": return `/inkorg${seg(p.emailId)}${q([["arende", p.caseId]])}`;
     case "sam.deadlines": return "/forfaller";
     case "arenden.lista": return `/arenden${q([["filter", p.filter]])}`;

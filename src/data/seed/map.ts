@@ -1,6 +1,6 @@
 // Från prototypens datastruktur till tabellerna i schema.ts (namnbytena beskrivs överst i schema.ts).
 // Fält som prototypen saknar får null/false/[] – inga nya uppgifter hittas på.
-import { BOTKYRKA_CONFIG, DEFAULT_ORG_SETTINGS, KK_CONFIG } from "@/core/config";
+import { BOTKYRKA_CONFIG, DEFAULT_ORG_SETTINGS } from "@/core/config";
 import { holidaysOf } from "@/core/holidays";
 import type { MemoryData } from "../memory";
 import type { Role } from "@/api/roles";
@@ -9,10 +9,9 @@ import { AREAS } from "./constants";
 import type { PCase, ProtoState, PUser } from "./context";
 import { encodeTestPnr, testPnrHash } from "./pnr";
 
-/** Organisationer: leverantören och de två beställarna. */
+/** Organisationer: leverantören och beställaren (Botkyrka). */
 export const ORG_MB = "org-mb";
 export const ORG_BOTKYRKA = "org-botkyrka";
-export const ORG_KK = "org-kk";
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
@@ -53,13 +52,10 @@ function contractTables(db: Db) {
   db.organizations.push(
     { id: ORG_MB, name: "Miljonbemanning AB", orgNr: "556959-9318", kind: "supplier", emailDomains: [] },
     { id: ORG_BOTKYRKA, name: "Botkyrka kommun", orgNr: "212000-2882", kind: "customer", emailDomains: ["botkyrka.se"] },
-    { id: ORG_KK, name: "Kammarkollegiet", orgNr: "202100-0829", kind: "customer", emailDomains: [] },
   );
   db.contracts.push(
     { id: "c-bot", supplierId: ORG_MB, customerId: ORG_BOTKYRKA, name: "Yrkesförberedande och yrkesinriktade insatser", contractNumber: "332026110", dnr: "AVN/2026:00048",
       startsOn: "2026-09-10", endsOn: "2030-09-10", casePrefix: "BOT", dataRole: "processor", config: clone(BOTKYRKA_CONFIG), status: "active", contractManagerId: "u-johan" },
-    { id: "c-kk", supplierId: ORG_MB, customerId: ORG_KK, name: "Grundläggande omställnings- och kompetensstöd och yttrande", contractNumber: "2.7.5-4201-2026", dnr: "2.7.5-4201-2026",
-      startsOn: "2027-03-13", endsOn: null, casePrefix: "KK", dataRole: "controller", config: clone(KK_CONFIG), status: "draft", contractManagerId: "u-johan" },
   );
   for (const [code, name, price] of AREAS) {
     db.contract_areas.push({ id: `c-bot:${code}`, contractId: "c-bot", code, name, active: true });
@@ -85,12 +81,11 @@ export function toTables(S: ProtoState, meta: { checkInTags: Record<string, stri
   const db = emptyDb();
   contractTables(db);
 
-  // ---- Användare och medlemskap. MB-personalen arbetar i Botkyrkaavtalet; avtalsansvarig och admin även i KK-avtalet (utkast).
+  // ---- Användare och medlemskap. Alla arbetar i Botkyrkaavtalet (det enda avtalet i testdatat).
   for (const u of [...S.users, ...S.customerUsers]) {
     db.profiles.push(profileOf(u));
-    const role = roleOf(u);
-    const contracts = u.org === "mb" && (u.id === "u-johan" || u.id === "u-robin") ? ["c-bot", "c-kk"] : ["c-bot"];
-    for (const contractId of contracts) db.memberships.push({ id: `${u.id}:${contractId}`, userId: u.id, contractId, role, customerUnit: u.unit ?? null });
+    const contractId = "c-bot";
+    db.memberships.push({ id: `${u.id}:${contractId}`, userId: u.id, contractId, role: roleOf(u), customerUnit: u.unit ?? null });
   }
   for (const b of S.buyerReferences) db.buyer_references.push({ id: b.id, customerId: ORG_BOTKYRKA, reference: b.reference, unit: b.unit, active: b.active, note: b.note ?? null });
 

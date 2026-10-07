@@ -199,8 +199,8 @@ describe("skyddade ärenden kommer aldrig med – inte heller för avtalsansvari
 // ================================================================ Avtalet följer den sparade rapporten
 describe("avtalet följer den sparade rapporten", () => {
   it("ett annat contractId än rapportens ger not_found; utan contractId används rapportens avtal", async () => {
-    expect(await exportFile(johan(), { savedReportId: "sr-seed-kommun", contractId: "c-kk", format: "csv" })).toMatchObject({ ok: false, error: "not_found" });
-    expect(await preview(johan(), { savedReportId: "sr-seed-kommun", contractId: "c-kk" })).toMatchObject({ ok: false, error: "not_found" });
+    expect(await exportFile(johan(), { savedReportId: "sr-seed-kommun", contractId: "c-ny", format: "csv" })).toMatchObject({ ok: false, error: "not_found" });
+    expect(await preview(johan(), { savedReportId: "sr-seed-kommun", contractId: "c-ny" })).toMatchObject({ ok: false, error: "not_found" });
     const ok = await exportFile(johan(), { savedReportId: "sr-seed-kommun", format: "csv" });
     expect(ok).toMatchObject({ ok: true, filename: "rapport_bot_resultatgrad-per-omrade_2026-09_2027-01.csv" });
   });
@@ -581,15 +581,16 @@ describe("kommunens delade rapporter", () => {
   });
 
   it("en delad rapport i ett annat avtal än chefens syns inte, finns inte och räknas inte", async () => {
-    setConfig("c-kk", (c) => { c.customerVisibility = { ...(c.customerVisibility ?? {}), seesIndividualReports: true } as never; });
-    const kkRow = { ...row("saved_reports", "sr-seed-kommun")!, id: "sr-x-kk", contractId: "c-kk" };
-    rt.store.insertRow("saved_reports", kkRow);
-    const both: Actor = { ...eva(), contractIds: ["c-bot", "c-kk"] };
+    // Ett andra kommunavtal (påhittat, samma konfiguration som Botkyrka – kommunen ser individrapporter).
+    rt.store.insertRow("contracts", { ...row("contracts", "c-bot")!, id: "c-ny", contractNumber: "000000000", casePrefix: "NYK" });
+    const otherRow = { ...row("saved_reports", "sr-seed-kommun")!, id: "sr-x-ny", contractId: "c-ny" };
+    rt.store.insertRow("saved_reports", otherRow);
+    const both: Actor = { ...eva(), contractIds: ["c-bot", "c-ny"] };
     // Policyn (RLS) släpper igenom raden – hanteraren filtrerar på chefens avtal (chefContract).
-    expect((await new MemoryRepo<Tables>(rt.store, both, POLICIES).table("saved_reports").list()).map((r) => r.id).sort()).toEqual(["sr-seed-kommun", "sr-x-kk"]);
+    expect((await new MemoryRepo<Tables>(rt.store, both, POLICIES).table("saved_reports").list()).map((r) => r.id).sort()).toEqual(["sr-seed-kommun", "sr-x-ny"]);
     expect((await ask(sharedReports, {}, both)).reports.map((r) => r.id)).toEqual(["sr-seed-kommun"]);
-    expect(await run(sharedReport, { savedReportId: "sr-x-kk" }, both)).toMatchObject({ found: false });
-    expect(await run(sharedReportExport, { savedReportId: "sr-x-kk", format: "csv" }, both)).toMatchObject({ ok: false, error: "not_found" });
+    expect(await run(sharedReport, { savedReportId: "sr-x-ny" }, both)).toMatchObject({ found: false });
+    expect(await run(sharedReportExport, { savedReportId: "sr-x-ny", format: "csv" }, both)).toMatchObject({ ok: false, error: "not_found" });
     expect((await ask(navCounts, {}, both)).sharedReports).toBe(1);
   });
 });

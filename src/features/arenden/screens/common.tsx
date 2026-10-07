@@ -79,7 +79,7 @@ export function FlagBadges({ list, className }: { list: readonly CaseFlag[] | nu
         const f = FLAG[a.kind] ?? (["flag", a.title] as [IconName, string]);
         const s = SEV[a.severity] ?? SEV.info;
         return (
-          <Badge key={a.key} tone={s.tone} icon={f[0]} title={`${s.label}: ${a.title}`} className="px-[7px] py-0.5 text-[0.75rem]">
+          <Badge key={a.key} tone={s.tone} icon={f[0]} title={`${s.label}: ${a.title}`} className="px-[7px] py-0.5">
             {f[1]}
           </Badge>
         );
@@ -244,7 +244,7 @@ export function FourBadges({ rights, className }: { rights: Record<string, boole
       {FOUR.map(([key, label]) => {
         const ok = !rights || rights[key];
         return (
-          <Badge key={key} tone={ok ? "bluetone" : "red"} icon={ok ? "check" : "x"} className="px-[7px] py-0.5 text-[0.75rem]">
+          <Badge key={key} tone={ok ? "bluetone" : "outline"} icon={ok ? "check" : "x"} className={cn("px-[7px] py-0.5", !ok && "[&_svg]:text-rod")}>
             {label}
             {ok ? "" : " saknas"}
           </Badge>
@@ -273,7 +273,7 @@ export function NavTable<R extends { id: string }>({
 /** Fyra nyckeltal i rad (två kolumner på smal skärm). */
 export function KpiRow({ children }: { children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-3 max-[620px]:grid-cols-2 max-[620px]:[&>div]:p-3 max-[620px]:[&>div>div:nth-child(2)]:text-[1.5rem]">
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-4 max-[620px]:grid-cols-2 max-[620px]:gap-2.5 max-[620px]:[&>div]:p-3 max-[620px]:[&>div>div:nth-child(2)]:text-[1.5rem]">
       {children}
     </div>
   );

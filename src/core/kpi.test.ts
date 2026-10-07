@@ -155,6 +155,6 @@ describe("månads-KPI:er (förra månaden)", () => {
     expect(kpis(testDb(), {}, env).map((k) => k.key)).toEqual([
       "resultatgrad", "avrop_besvarade_i_tid", "forsta_mote_inom_en_vecka", "veckorapporter_i_tid", "manadsrapporter_i_tid", "narvarograd", "nojdhet",
     ]);
-    expect(kpiValue(testDb(), "placeringsgrad", {}, env)).toBeNull();
+    expect(kpiValue(testDb(), "okand_nyckel", {}, env)).toBeNull();
   });
 });

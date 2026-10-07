@@ -1,11 +1,13 @@
 // Rutter för området inkorg (rutt-tabellen i docs/ARKITEKTUR.md): prototypens sam.start, sam.inkorg och sam.deadlines.
+// Startsidan /start har gått upp i Min vecka (beslut 2026-10-06): adressen leder vidare till /min-vecka, där samordnarens och
+// avtalsansvarigs Min vecka (screens/min-vecka.tsx) visas.
 import type { RouteDef } from "@/shell/routes";
+import { redirectScreen } from "@/shell/redirect";
 import { ForfallerScreen } from "./screens/forfaller";
 import { InkorgScreen } from "./screens/inkorg";
-import { StartScreen } from "./screens/start";
 
 export const routes: RouteDef[] = [
-  { path: "/start", title: "Startsida", roles: ["samordnare", "avtalsansvarig"], area: "mb", screen: StartScreen },
+  { path: "/start", title: "Min vecka", roles: ["samordnare", "avtalsansvarig"], area: "mb", screen: redirectScreen("/min-vecka") },
   // keepMounted: valt mejl i adressen (/inkorg/<id>) byter inte sida – listan och skrollen står kvar.
   { path: "/inkorg/:emailId?", title: "Avropsinkorg", roles: ["samordnare", "avtalsansvarig"], area: "mb", screen: InkorgScreen, keepMounted: true },
   { path: "/forfaller", title: "Förfaller i dag och denna vecka", roles: ["samordnare", "avtalsansvarig", "chef"], area: "mb", screen: ForfallerScreen },

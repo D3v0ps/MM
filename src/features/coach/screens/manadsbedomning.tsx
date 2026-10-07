@@ -344,14 +344,14 @@ function ManadForm({ v }: { v: Ok }) {
               />
               <Kpi label="Händelser" value={String(b.events.length)} sub={b.events.length ? b.events.join(", ") : "Inga registrerade"} />
             </Grid>
-            <p className="text-small text-text-muted">{v.dueNote}. Rapporten byggs bara av godkända uppgifter – aldrig av råtranskript.</p>
+            <p className="text-body text-text-muted">{v.dueNote}. Rapporten byggs bara av godkända uppgifter – aldrig av råtranskript.</p>
           </Stack>
         </Card>
         <Card title="Skala och statistik" icon="info">
           <Stack gap="sm">
             <Kv items={([0, 1, 2, 3] as const).map((n) => [`Nivå ${n}`, v.scale[n]] as const)} />
             <Divider />
-            <p className="text-small">
+            <p className="text-body">
               <b>Tydlig progression</b> = {lcfirst(rule.clear)}. <b>Någon progression</b> = {lcfirst(rule.any)}. Bara de obligatoriska områdena räknas. Gränserna står i avtalet.
             </p>
             <Row gap="sm">
@@ -376,14 +376,14 @@ function ManadForm({ v }: { v: Ok }) {
           <AiDraftCard v={v} />
         </>
       ) : (
-        <p className="text-small text-text-muted">
+        <p className="text-body text-text-muted">
           AI-stöd används inte i det här ärendet{c.protected ? " (skyddade personuppgifter)" : " eftersom deltagaren inte har samtyckt"}. Dokumentera manuellt.
         </p>
       )}
 
       <Card title="Progressionsområden" icon="chart" flush actions={<span className="text-small text-text-muted">{levels.length} av {v.areas.length} bedömda</span>}>
         <div className="overflow-x-auto">
-          <table data-testid="progressionsomraden" className="w-full min-w-[860px] table-fixed border-collapse text-ui max-[760px]:block max-[760px]:min-w-0">
+          <table data-testid="progressionsomraden" className="w-full min-w-[860px] table-fixed border-collapse text-body max-[760px]:block max-[760px]:min-w-0">
             <caption className="sr-only">Progressionsområden med nivå, observation och nästa steg</caption>
             <colgroup className="max-[760px]:hidden">
               <col style={{ width: "20%" }} />
@@ -463,10 +463,10 @@ function ManadForm({ v }: { v: Ok }) {
                           Konkret observation för {lab}
                         </label>
                         <TextArea id={`obs-${k}`} rows={2} value={a.observation} invalid={!!(err && a.level != null)} onValueChange={(x) => setArea(k, { observation: x })} maxLength={400} />
-                        {needObs && !a.observation.trim() && !err && <span className="text-small text-text-muted">Obligatorisk från nivå {reqFrom}.</span>}
+                        {needObs && !a.observation.trim() && !err && <span className="text-body text-text-muted">Obligatorisk från nivå {reqFrom}.</span>}
                         {err && (
-                          <div role="alert" className="flex items-start gap-1.5 text-small font-bold text-antracit">
-                            <Icon name="alert-circle" className="mt-px text-rod" />
+                          <div role="alert" className="flex items-start gap-1.5 text-body font-bold text-antracit">
+                            <Icon name="alert-circle" className="mt-1 flex-none text-rod" />
                             {err}
                           </div>
                         )}
@@ -490,7 +490,7 @@ function ManadForm({ v }: { v: Ok }) {
                               <AiTag>AI-utkast</AiTag>
                               <span className="font-bold">Framgår inte</span>
                             </Row>
-                            <div className="text-small text-text-muted">
+                            <div className="text-body text-text-muted">
                               {aiObs?.text || "Framgår inte av månadens godkända avstämningar."} Skriv din egen observation om du bedömer området.
                             </div>
                           </AiBox>
@@ -587,7 +587,7 @@ function ManadForm({ v }: { v: Ok }) {
                   <span className="text-small text-text-muted">Källa: {v.aiDraft.plan.sources.join(", ") || "godkända avstämningar"}</span>
                 </Row>
                 <div>{v.aiDraft.plan.text}</div>
-                <span className="text-small text-text-muted">Underlag för planen – skriv målen och aktiviteterna själv.</span>
+                <span className="text-body text-text-muted">Underlag för planen – skriv målen och aktiviteterna själv.</span>
               </AiBox>
             )}
             <Field label="Planerade aktiviteter" id="pl-act" help="Vad deltagaren ska göra och hur ofta.">
@@ -677,7 +677,7 @@ function NotesPanel({ v, summary = "", added = [], onAdd }: { v: Ok; summary?: s
                           Lägg till i sammanfattningen
                         </Button>
                       )}
-                      {!done && !fits && <span id={tooLongId} className="text-small font-bold">{SUMMARY_TOO_LONG}</span>}
+                      {!done && !fits && <span id={tooLongId} className="text-body font-bold">{SUMMARY_TOO_LONG}</span>}
                     </div>
                   )}
                 </li>
@@ -721,7 +721,7 @@ function AiDraftCard({ v }: { v: Ok }) {
             {d?.status === "succeeded" ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända avstämningar"}
           </Button>
           {d?.status === "running" && (
-            <span role="status" className="text-small font-bold">
+            <span role="status" className="text-body font-bold">
               AI skriver utkasten …
             </span>
           )}

@@ -7,7 +7,7 @@ import { domainEnv } from "@/core/env";
 import { notificationsFor, progressionWatch } from "@/core/progression";
 import "./handlers";
 import {
-  adminAuditLog, adminCompare, adminContract, adminIntegrations, adminInviteCustomer, adminLogCheck, adminOrgRules, adminRunJob, adminSaveTemplate,
+  adminAuditLog, adminContract, adminIntegrations, adminInviteCustomer, adminLogCheck, adminOrgRules, adminRunJob, adminSaveTemplate,
   adminSetCustomerActive, adminSetOrgRule, adminTemplates, adminUsers,
 } from "./api";
 import { detailText, type AuditLookups } from "./audit-text";
@@ -33,7 +33,8 @@ const forbidden = async (p: Promise<unknown>) => {
 describe("avtal och konfiguration", () => {
   it("Botkyrka: fakta, ej fastställda värden, fastnat, bonusunderlag och prislista", async () => {
     const d = await rt.query(adminContract, {}, robin());
-    expect(d.contracts.map((c) => [c.id, c.customerName, c.status])).toEqual([["c-bot", "Botkyrka kommun", "active"], ["c-kk", "Kammarkollegiet", "draft"]]);
+    // Bara Botkyrkaavtalet i testdatat – då visar skärmen ingen avtalsväljare.
+    expect(d.contracts.map((c) => [c.id, c.customerName, c.status])).toEqual([["c-bot", "Botkyrka kommun", "active"]]);
     expect(d.contract).toMatchObject({
       id: "c-bot", customerOrgNr: "212000-2882", supplierName: "Miljonbemanning AB", supplierOrgNr: "556959-9318", dnr: "AVN/2026:00048", endsOn: "2030-09-10",
       casePrefix: "BOT", emailDomains: ["botkyrka.se"], managerName: "Johan Berg",
@@ -55,26 +56,28 @@ describe("avtal och konfiguration", () => {
     expect(d.priceItems[0]).toMatchObject({ areaName: "A Administration", fortnoxArticleNo: "BOT-A", unit: "participant_week", vatRate: 25 });
   });
 
-  it("Kammarkollegiet: skiss utan driftavsnitt, priser i konfigurationen (öre)", async () => {
-    const d = await rt.query(adminContract, { contractId: "c-kk" }, robin());
-    expect(d.contract).toMatchObject({ id: "c-kk", status: "draft", startsOn: "2027-03-13", operational: false, dataRole: "controller", emailDomains: [] });
+  it("ett nytt kommunavtal i utkast (påhittat): avtalsväljaren, inga driftavsnitt, texterna ur konfigurationen", async () => {
+    // Fler kommunavtal är en generell förmåga: ett avtal läggs till som en rad med konfiguration, utan kodändring.
+    const bot = rt.rows("contracts").find((c) => c.id === "c-bot")!;
+    rt.store.insertRow("contracts", {
+      ...structuredClone(bot), id: "c-ny", name: "Nytt kommunavtal", contractNumber: "000000000", dnr: null, startsOn: "2027-06-01", endsOn: null, casePrefix: "NYK", status: "draft",
+      config: { casePrefix: "NYK", dataRole: "processor", customerVisibility: { seesIndividualReports: true, seesCoachNotes: false }, texts: { termination: "Enligt avtalet.", scope: "Upp till 20 platser." } },
+    });
+    const d = await rt.query(adminContract, { contractId: "c-ny" }, robin());
+    expect(d.contracts.map((c) => [c.id, c.status, c.operational])).toEqual([["c-bot", "active", true], ["c-ny", "draft", false]]);
+    expect(d.contract).toMatchObject({ id: "c-ny", status: "draft", startsOn: "2027-06-01", operational: false, dataRole: "processor", casePrefix: "NYK" });
     // Avtalstexterna läses från konfigurationen (CLAUDE.md punkt 4), inte per avtalsnummer i koden.
-    expect(d.contract).toMatchObject({ termination: "Enligt KK-avtalet – kontrolleras före start.", scope: "Rang 1 av 5 i kaskad. Beställningar som inte tas går vidare till nästa leverantör." });
-    // Ett avtal utan texter i konfigurationen visar "–" (null), oavsett avtalsnummer.
-    const noTexts = structuredClone(rt.rows("contracts").find((c) => c.id === "c-kk")!.config);
-    delete noTexts.texts;
-    rt.store.updateRow("contracts", "c-kk", { config: noTexts });
-    expect((await rt.query(adminContract, { contractId: "c-kk" }, robin())).contract).toMatchObject({ termination: null, scope: null });
+    expect(d.contract).toMatchObject({ termination: "Enligt avtalet.", scope: "Upp till 20 platser." });
     expect(d.stuckCount).toBeNull();
     expect(findUnset(d.config)).toHaveLength(0);
-    expect(d.config.priceItems?.map((p) => p.priceOre)).toEqual([412000, 120000, 135000, 408000, 69900]);
-  });
-
-  it("jämförelsen: Botkyrka först, sedan Kammarkollegiet", async () => {
-    const d = await rt.query(adminCompare, {}, robin());
-    expect(d.contracts.map((c) => c.facts.customerName)).toEqual(["Botkyrka kommun", "Kammarkollegiet"]);
-    expect(d.contracts[0].priceOres).toHaveLength(12);
-    expect(d.contracts[1].priceOres).toHaveLength(0);
+    expect(d.priceItems).toEqual([]);
+    // Ett avtal utan texter i konfigurationen visar "–" (null), oavsett avtalsnummer.
+    const noTexts = structuredClone(rt.rows("contracts").find((c) => c.id === "c-ny")!.config);
+    delete noTexts.texts;
+    rt.store.updateRow("contracts", "c-ny", { config: noTexts });
+    expect((await rt.query(adminContract, { contractId: "c-ny" }, robin())).contract).toMatchObject({ termination: null, scope: null });
+    // Ett okänt avtal ger huvudavtalet (gamla länkar med ?avtal=).
+    expect((await rt.query(adminContract, { contractId: "c-finns-inte" }, robin())).contract.id).toBe("c-bot");
   });
 
   it("bara systemadmin", async () => {
@@ -132,7 +135,7 @@ describe("användare och roller", () => {
       "Robin Åberg", "Johan Berg", "Sara Lindqvist", "Amira Haddad", "Erik Sjöberg", "Leila Nouri", "Mats Holm", "Sofia Grahn", "David Olsson", "Hanna Strand", "Petra Ek",
       "Karin Wallin", "Lars Nyström",
     ]);
-    expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roleLabel: "Handledare", teamRoleLabel: "Yrkesspecifik handledare", kkRoleLabel: null });
+    expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roleLabel: "Handledare", teamRoleLabel: "Yrkesspecifik handledare" });
     expect(d.customers.map((u) => [u.name, u.role, u.unit, u.buyerReference])).toEqual([
       ["Ahmed Yusuf", "handlaggare", "Arbetsmarknadsenheten Tumba", "55102938"],
       ["Eva Bergström", "chef", "Arbetsmarknadsenheten", null],
@@ -252,8 +255,21 @@ describe("mallar och utskick", () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.sendLog[0]).toEqual({
       id: "out-kod-1", at: "2027-02-01T09:20", channel: "email", to: "karim.khalil@miljonbemanning.se", templateLabel: "Inloggningskod", caseNumber: null,
-      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false,
+      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false, status: "sent",
     });
+  });
+
+  it("utskickets läge: ett utskick som inte gick iväg är failed (systemadministratörens Min vecka, beslut 2026-10-06)", async () => {
+    expect((await rt.query(adminTemplates, {}, robin())).sendLog.every((n) => n.status === "sent")).toBe(true);
+    rt.store.insertRow("outbound_messages", {
+      id: "out-fel-1", createdAt: "2027-02-01T09:20", channel: "email", to: "maria.ekdahl@botkyrka.se", template: "ny_rapport",
+      subject: null, body: "Det finns en ny rapport för ärende BOT-26-0143 – logga in för att läsa.", caseId: "case-260143", status: "failed", sentAt: null,
+      statusReason: "provider_error", providerMessageId: null,
+    });
+    const d = await rt.query(adminTemplates, {}, robin());
+    expect(d.sendLog.filter((n) => n.status === "failed").map((n) => [n.id, n.caseNumber, n.channel])).toEqual([["out-fel-1", "BOT-26-0143", "email"]]);
+    // Samordnaren läser utskicksloggen som förut och ser samma läge.
+    expect((await rt.query(adminTemplates, {}, sara())).sendLog.find((n) => n.id === "out-fel-1")?.status).toBe("failed");
   });
 
   it("personuppgiftskontrollen stoppar mallar med namn, personnummer eller adress", async () => {

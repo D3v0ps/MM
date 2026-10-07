@@ -101,7 +101,7 @@ function NoAccess({ caseId, restricted, caseNumber, status, crumbs }: { caseId: 
             {restricted && caseNumber && (
               <Kv items={[["Ärendenummer", <span key="n" className="font-bold tabular-nums">{caseNumber}</span>], ["Status", status ? <CaseStatusBadge key="s" status={status} /> : "–"]]} />
             )}
-            <p className="text-small text-text-muted">Försöket att öppna kortet är loggat i revisionsloggen.</p>
+            <p className="text-text-muted">Försöket att öppna kortet är loggat i revisionsloggen.</p>
           </Stack>
         </div>
       </Card>
@@ -530,7 +530,7 @@ function CaseFacts({ card: c }: { card: CaseCard }) {
         </div>
       </div>
       {c.manage && c.status !== "closed" && c.status !== "declined" && c.leadCoach && (
-        <p className="text-small text-text-muted">
+        <p className="text-text-muted">
           Byte av huvudcoach kräver orsak. {k ? k.name : "Handläggaren"} och nya coachen får notis.
           {c.keyPersonnelChangeRequiresApproval ? " Avtalet kräver kommunens godkännande vid byte av nyckelpersonal." : ""}
         </p>
@@ -642,9 +642,9 @@ function ConsentText({ card }: { card: CaseCard }) {
         {cons.language ? ` på ${cons.language}` : ""}.
       </span>
     );
-  if (v === "revoked" && cons.revokedAt) return <span className="text-small text-text-muted">Återkallat {fmtDateTime(cons.revokedAt)}. Inspelning och AI är avstängt.</span>;
-  if (v === "declined") return <span className="text-small text-text-muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</span>;
-  if (v === "not_asked") return <span className="text-small text-text-muted">Inspelning kan bara startas när samtycke är registrerat.</span>;
+  if (v === "revoked" && cons.revokedAt) return <span className="text-text-muted">Återkallat {fmtDateTime(cons.revokedAt)}. Inspelning och AI är avstängt.</span>;
+  if (v === "declined") return <span className="text-text-muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</span>;
+  if (v === "not_asked") return <span className="text-text-muted">Inspelning kan bara startas när samtycke är registrerat.</span>;
   return null;
 }
 
@@ -719,7 +719,7 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
       {btns.length > 0 ? (
         btns
       ) : (
-        <p className="text-small text-text-muted">
+        <p className="text-text-muted">
           {c.readOnly ? "Läsläge – du kan inte ändra i ärendet." : team ? "Du registrerar närvaro och praktik via Närvaro och Arbetsgivare och praktik." : "Inga åtgärder för din roll just nu."}
         </p>
       )}
@@ -872,7 +872,7 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
           Tiden ligger efter {fmtDateTimeLong(due)}. Mötet markeras som sent i uppföljningen.
         </Notice>
       )}
-      <p className="text-small">
+      <p>
         {prot
           ? "Skyddade personuppgifter: inga SMS eller mejl. Coachen ringer deltagaren enligt den säkra rutinen."
           : `Deltagaren får en kallelse via ${(c.contactLabel ?? "SMS").toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}

@@ -135,7 +135,7 @@ export function FieldRow({ f }: { f: FormField }) {
         f.state === "low" && "bg-ljusgra-ton",
       )}
     >
-      <div className="col-span-full text-meta font-semibold text-text-muted @min-[520px]:col-span-1">{f.label}</div>
+      <div className="col-span-full text-small font-semibold text-text-muted @min-[520px]:col-span-1">{f.label}</div>
       <div className="min-w-0 [overflow-wrap:anywhere]">
         {f.pnr ? <Pnr v={f.pnr} /> : f.value != null ? f.value : f.state === "missing" ? <span className="font-bold">Saknas</span> : <span className="text-text-muted">Framgår inte</span>}
       </div>

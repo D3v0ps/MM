@@ -1,17 +1,16 @@
-// Rutter för området coach (prototypens coach.minvecka, coach.narvaro, coach.avstamning, coach.manad, coach.kartlaggning, coach.handelse).
+// Rutter för området coach (prototypens coach.narvaro, coach.avstamning, coach.manad, coach.kartlaggning, coach.handelse).
+// Min vecka (/min-vecka) ligger i området vecka – coachens skärm (screens/min-vecka.tsx) är förebilden för alla roller.
 import { monthName } from "@/core/time";
 import type { RouteDef } from "@/shell/routes";
 import { AvstamningScreen } from "./screens/avstamning";
 import { HandelseScreen } from "./screens/handelse";
 import { KartlaggningScreen } from "./screens/kartlaggning";
 import { ManadsbedomningScreen } from "./screens/manadsbedomning";
-import { MinVeckaScreen } from "./screens/min-vecka";
 import { NarvaroScreen } from "./screens/narvaro";
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
 export const routes: RouteDef[] = [
-  { path: "/min-vecka", title: "Min vecka", roles: ["coach"], area: "mb", screen: MinVeckaScreen },
   { path: "/narvaro", title: "Närvaro", roles: ["coach", "handledare"], area: "mb", screen: NarvaroScreen },
   { path: "/avstamning/:caseId?", title: "Veckoavstämning", roles: ["coach"], area: "mb", screen: AvstamningScreen },
   {

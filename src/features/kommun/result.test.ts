@@ -117,7 +117,7 @@ describe("nekas", () => {
     }
   });
   it("ett avtal utan individrapporter (seesIndividualReports: false) och ett annat avtal än chefens", async () => {
-    expect(await run(resultExport, { ...ALL, contractId: "c-kk", format: "xlsx" }, eva())).toMatchObject({ ok: false, error: "forbidden", message: "Ert avtal har inte resultatfilen." });
+    expect(await run(resultExport, { ...ALL, contractId: "c-ny", format: "xlsx" }, eva())).toMatchObject({ ok: false, error: "forbidden", message: "Ert avtal har inte resultatfilen." });
     setConfig((c) => {
       c.customerVisibility!.seesIndividualReports = false;
     });

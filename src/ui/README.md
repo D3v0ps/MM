@@ -76,8 +76,8 @@ Formulärfält (`input`, `select`, `textarea`) har grundutseendet i `@layer base
 ```tsx
 <Page
   eyebrow="Samordnare · Sara Lindqvist"
-  title="Startsida"
-  lead="God morgon! Det mest brådskande står först."
+  title="Avropsinkorg"
+  lead="Det mest brådskande står först."
   crumbs={[{ label: "Ärenden", to: "/arenden" }, { label: "BOT-26-0143" }]}
   actions={<Button kind="primary" icon="plus">Nytt ärende</Button>}
 >
@@ -114,6 +114,32 @@ Rubrik utan ram (versal etikett med röd punkt) + innehåll. Props: `title`, `ac
 Props: `title?`, `sub?`, `side?` (högerkolumn; under 620 px på egen rad), `icon?`, `lead?`, `children?`,
 `to?` (hela raden är en länk) eller `onClick?` (hela raden är en knapp), `chevron?`, `marked?` (röd vänsterkant, t.ex. oläst), `aria-label?`.
 Lägg inte knappar i `side` på en rad som själv har `to`/`onClick` (nästlade interaktiva element).
+
+### Min vecka (`src/ui/vecka.tsx`) – alla MB-rollers startsida (beslut 2026-10-06)
+Coachens Min vecka är förebilden; alla MB-roller har en Min vecka i samma stil med sina egna uppgifter (SPEC §7.0). Delarna:
+```tsx
+<WeekPage today={today} actions={<Button kind="primary" icon="inbox" to="/inkorg">Öppna avropsinkorgen</Button>}>
+  <WeekKpis>
+    <Kpi className={WEEK_KPI_SM} onClick={() => focusSection("mv-flaggor")} actionHint="Visa" label="Flaggor att kvittera" value="12" tone="watch" statusText="Kritiska flaggor" sub="3 kritiska" />
+    …fyra rutor…
+  </WeekKpis>
+  <Split wide>
+    <Stack>…det som ska göras, mest brådskande först…</Stack>
+    <Stack>…påminnelser, flaggor, notiser, i korthet…</Stack>
+  </Split>
+</WeekPage>
+```
+- `WeekPage` – `Page` med rubriken MIN VECKA, ögonbrynet "Namn · Titel" och ingressen "Måndag 1 februari · vecka 5. Det här behöver du göra …"
+  (`weekLead(today)`; `today` = dagens datum eller `null` medan klockan hämtas). Props: `today`, `actions?` (en primär knapp), `className?`.
+- `WeekKpis` – fyra rutor, två kolumner under 620 px. `WEEK_KPI_SM` på varje `Kpi` (mindre utfyllnad och siffror på smal skärm).
+  Rutor som leder till ett avsnitt: `onClick={() => focusSection("mv-…")}` (knapp); rutor som leder till en annan sida:
+  `to="/sökväg"` (en riktig länk – ny flik med ctrl/cmd-klick, mittenklick och länkmenyn), aldrig `onClick` med `nav.push`.
+  `Kpi dataAttrs` för data-*-attribut.
+- `DoneLine` – ett avsnitt utan något att göra blir en rad (rubriken kan ta emot fokus). `id`, `title`, `icon`, text.
+- `TitleLink` – radens rubrik som länk (44 px klickyta) i stället för en Öppna-knapp. `CaseName` (namn + ärendenummer som länk), `CaseNo`, `SlaText`.
+
+Stilregler: ett rött ämne per sida (rutan och kortet för samma sak), ingen röd text, högst en knapp per listrad och bara när det finns en åtgärd,
+meningar minst 16 px (14 px bara för datum, tider, ärendenummer och annan metadata), 24 px mellan avsnitten (`Page`), kolumnerna 2:1 med 20 px.
 
 ---
 
@@ -253,7 +279,8 @@ Värdarna (`Toaster`, `ConfirmHost`, `TextDialogHost`) ligger redan i layouten �
 
 ## 9. Data
 
-- **`Kpi`** – `label`, `value`, `sub?`, `tone?: "alert" | "watch"` (ram + "Kräver åtgärd"/"Bevaka" med ikon), `statusText?` (egen statustext), `children?`.
+- **`Kpi`** – `label`, `value`, `sub?`, `tone?: "alert" | "watch"` (ram + "Kräver åtgärd"/"Bevaka" med ikon), `statusText?` (egen statustext), `children?`,
+  `onClick?` (rutan är en knapp – avsnitt på samma sida), `to?` (rutan är en länk – en annan sida), `actionHint?` ("Visa →" längst ned), `dataAttrs?`.
 - **`Meter`** – `value`, `max = 1`, `tone?: "blue" | "red"`, `markers?: { value, label, tone?: "red" | "dark" }[]` (avtalets mål rött, internt mål antracit), `label?` (för skärmläsare).
   Det interna målet visas aldrig i kundens perspektiv – det avgör skärmen.
 - **`Kv`** – `items: [label, value][]`; `null`/`false` hoppas över, saknat värde visas "–". Staplas under 520 px.
@@ -333,6 +360,7 @@ Logotyp överst, informationsblocket högerställt, rubriker i versaler. Vanliga
   - **`om`**: prototypens egna sidor.
   - Alla: skip-länk "Hoppa till innehållet", toasts, bekräftelse- och textdialog. Utvecklingsläget (riktiga appen med testpersoner): raden
     "Utvecklingsläge – testperson: [välj]" överst.
-- `src/shell/nav-config.ts` – `navFor(role, { now })` (sidopanelens grupper), `NOTIFICATIONS_ITEM`, `PORTAL_NAV`, `activePath(path, candidates)`
+- `src/shell/nav-config.ts` – `navFor(role, { now, hidesCommercial })` (sidopanelens grupper: den gemensamma gruppen Min vardag, `COMMON_NAV`, och
+  högst en rollflik, `ROLE_TAB` – beslut 2026-10-06), `NOTIFICATIONS_ITEM`, `PORTAL_NAV`, `activePath(path, candidates)`
   (längsta träff vinner, så `/arenden/case-1` markerar Ärenden). Räknarna (`count: "inbox" | "deadlines" | "unregistered"`, olästa notiser)
   kommer från frågan `navCounts` (`src/features/session/nav-api.ts`). Ekonomens "Fakturakörning <förra månaden>" räknas från klockan (`session.ping`).

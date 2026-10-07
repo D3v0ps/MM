@@ -43,20 +43,16 @@ handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
   let mb: MbUserRow[] | null = null;
   let mbActive = 0;
   const staff: Profile[] = await ctx.repo.table("profiles").list({ organizationId: main.supplierId });
-  const otherContract = ctx.actor.role === "admin" ? (await ctx.repo.table("contracts").list()).find((c) => c.id !== main.id) : null;
   const rows = staff
     .map((u) => ({ u, role: roleIn(u.id, main.id)?.role ?? null }))
     .filter((x) => x.role !== null)
     .sort((a, b) => ROLE_ORDER.indexOf(a.role as Role) - ROLE_ORDER.indexOf(b.role as Role) || a.u.fullName.localeCompare(b.u.fullName, "sv"));
   mbActive = rows.filter((x) => x.u.active).length;
   if (isAdmin) {
-    mb = rows.map(({ u, role }) => {
-      const kk = otherContract ? roleIn(u.id, otherContract.id)?.role : undefined;
-      return {
-        id: u.id, name: u.fullName, email: u.email, title: u.title, roleLabel: ROLE_NAME[role as Role] ?? String(role), isAdmin: role === "admin",
-        teamRoleLabel: u.teamRole ? teamLabel(u.teamRole) : null, kkRoleLabel: kk ? (ROLE_NAME[kk] ?? kk) : null, active: u.active,
-      };
-    });
+    mb = rows.map(({ u, role }) => ({
+      id: u.id, name: u.fullName, email: u.email, title: u.title, roleLabel: ROLE_NAME[role as Role] ?? String(role), isAdmin: role === "admin",
+      teamRoleLabel: u.teamRole ? teamLabel(u.teamRole) : null, active: u.active,
+    }));
   }
 
   const units: UnitOption[] = uniq([...refs.filter((b) => b.active).map((b) => b.unit), ...customers.map((u) => u.unit)])

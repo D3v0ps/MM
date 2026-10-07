@@ -18,7 +18,7 @@ import {
   LEDNING_TABS, ledningAreas, ledningCoaches, ledningHead, ledningOverview, ledningPulse,
   type AlertView, type CustomerCard as CustomerCardData, type LedningOverview, type LedningTab, type ResultTargets,
 } from "../api";
-import { AckModal, AlertRow, Big, Caps, Details, KpiStatusBadge, KPI_STATUS, MiniBar, pct0, RR_STATUS, RrBadge, Tiles, TrendChart, WrapBtn, type AckTarget, type BarMarker } from "./parts";
+import { AckModal, AlertRow, Big, Caps, Details, EarlyCard, KpiStatusBadge, KPI_STATUS, MiniBar, pct0, RR_STATUS, RrBadge, Tiles, TrendChart, WrapBtn, type AckTarget, type BarMarker } from "./parts";
 
 const TABS: TabDef<LedningTab>[] = [
   { id: "kpi", label: "Resultat och KPI:er", icon: "target" },
@@ -156,12 +156,12 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
               label={`Resultatgrad ${pct(rolling.value)}. Avtalsmål ${pct0(t.contract)}${t.internal != null ? `, internt mål ${pct0(t.internal)}` : ""}. Skala 0 till ${pct0(meterMax)}.`}
             />
             {t.internal != null ? (
-              <div className="text-small text-text-muted">
+              <div className="text-text-muted">
                 Skala 0–{pct0(meterMax)}. Under {pct0(t.internal)} blir flaggan <b>Bevaka</b> (till chef och controller). Under {pct0(t.contract)} blir den <b>Åtgärd krävs</b> (även till
                 avtalsansvarig). Ingen flagga förrän minst {t.minN} avslut finns i fönstret.
               </div>
             ) : (
-              <div className="text-small text-text-muted">
+              <div className="text-text-muted">
                 Skala 0–{pct0(meterMax)}. Under avtalsmålet {pct0(t.contract)} blir flaggan <b>Åtgärd krävs</b> (till chef, controller och avtalsansvarig). Ingen flagga förrän minst {t.minN}{" "}
                 avslut finns i fönstret.
               </div>
@@ -220,7 +220,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
                   <div>{forecast.prelim} avslut med resultat räknas med i prognosen.</div>
                 </div>
               </Stack>
-              <div className="text-small text-text-muted">Prognosen är ett räkneexempel för ledningen. Den visas inte för kommunen.</div>
+              <div className="text-text-muted">Prognosen är ett räkneexempel för ledningen. Den visas inte för kommunen.</div>
             </Stack>
           </Card>
           <CustomerCard c={d.customer} liveValue={rolling.value} />
@@ -245,7 +245,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
                 ))}
               </div>
             )}
-            <div className="text-small text-text-muted">Eskaleringar om utebliven progression visas under Tidig uppmärksamhet.</div>
+            <div className="text-text-muted">Eskaleringar om utebliven progression visas under Tidig uppmärksamhet.</div>
             {d.acked.length > 0 && (
               <Details summary={`Kvitterade flaggor (${d.acked.length})`}>
                 <div>
@@ -280,11 +280,11 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
             <Stack gap="sm">
               <span className="text-small font-bold">Öppna åtgärdsplaner</span>
               {d.cds.openPlans.length === 0 ? (
-                <span className="text-small text-text-muted">Inga öppna åtgärdsplaner.</span>
+                <span className="text-text-muted">Inga öppna åtgärdsplaner.</span>
               ) : (
                 d.cds.openPlans.map((x) => (
                   <Row between key={x.id} className="gap-1.5">
-                    <span className="min-w-0 flex-[1_1_140px] text-small">{x.description.length > 60 ? `${x.description.slice(0, 58)}…` : x.description}</span>
+                    <span className="min-w-0 flex-[1_1_140px]">{x.description.length > 60 ? `${x.description.slice(0, 58)}…` : x.description}</span>
                     {x.sla && x.dueAt ? (
                       <SlaBadge sla={x.sla} dueAt={x.dueAt} />
                     ) : x.actionPlanDue ? (
@@ -296,7 +296,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
                 ))
               )}
             </Stack>
-            <div className="text-small text-text-muted">{d.cds.warningsBeforeTermination} skriftliga varningar kan leda till uppsägning av avtalet.</div>
+            <div className="text-text-muted">{d.cds.warningsBeforeTermination} skriftliga varningar kan leda till uppsägning av avtalet.</div>
             <div>
               <Button iconRight="arrow-right" to="/avtalsavvikelser">
                 Öppna registret
@@ -329,7 +329,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
             ]}
           />
         </Card>
-        <p className="text-small text-text-muted">
+        <p className="text-text-muted">
           Mål som inte är fastställda med Botkyrka ger ingen flagga förrän de är fastställda. Sista dag för månadsrapporterna är ett förslag tills kommunen bekräftat den (öppen fråga 8).
         </p>
       </Stack>
@@ -355,7 +355,7 @@ function CustVerdict({ r, target }: { r: CustomerCardData["rolling"]; target: nu
       Når avtalsmålet
     </Badge>
   ) : (
-    <Badge tone="red" icon="alert">
+    <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
       Under avtalsmålet
     </Badge>
   );
@@ -376,7 +376,7 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
               <CustVerdict r={r} target={c.contractTarget} />
             </div>
-            <p className="text-small">
+            <p>
               Det är den senast levererade rapporten (levererad {fmtDateTime(c.latest.deliveredAt)}). Den visas när kommunens chef öppnar beställarrapporten.
             </p>
           </>
@@ -384,18 +384,18 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
           <p>Kommunens chef har inte fått någon beställarrapport ännu. Siffrorna syns för kommunen först när avtalsansvarig har godkänt och levererat den första rapporten.</p>
         )}
         {c.next && c.nextRolling && (
-          <p className="text-small">
+          <p>
             Rapporten för {monthName(c.next.month)} är ett utkast tills avtalsansvarig godkänner den. Med dagens underlag visar den {c.nextRolling.value == null ? "–" : pct(c.nextRolling.value)} (
             {c.nextRolling.num} av {c.nextRolling.den} avslut).
           </p>
         )}
         {c.correctionPending && (
-          <p className="text-small">En rättad version av rapporten väntar på leverans. Kommunens chef ser den levererade versionen tills den nya har levererats.</p>
+          <p>En rättad version av rapporten väntar på leverans. Kommunens chef ser den levererade versionen tills den nya har levererats.</p>
         )}
         {r && r.value != null && liveValue != null && pct(liveValue) !== pct(r.value) && (
-          <p className="text-small text-text-muted">Ledningsvyns {pct(liveValue)} räknas fram till i dag och tar med avslut som ännu inte finns i en levererad rapport.</p>
+          <p className="text-text-muted">Ledningsvyns {pct(liveValue)} räknas fram till i dag och tar med avslut som ännu inte finns i en levererad rapport.</p>
         )}
-        <p className="text-small text-text-muted">
+        <p className="text-text-muted">
           Kommunen ser inte det interna målet, prognosen, jämförelsen per coach eller flaggorna. Grupper med färre än {n} personer redovisas som &quot;färre än {n}&quot;.
         </p>
         <Row gap="sm">
@@ -416,78 +416,6 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
             </WrapBtn>
           )}
         </Row>
-      </Stack>
-    </Card>
-  );
-}
-
-function EarlyCard({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) => void }) {
-  return (
-    <Card
-      title="Tidig uppmärksamhet"
-      icon="bell"
-      actions={
-        <Badge tone={d.escalatedCount ? "red" : "outline"} icon={d.escalatedCount ? "alert" : undefined}>
-          {d.escalatedCount} ärenden
-        </Badge>
-      }
-    >
-      <Stack>
-        <p className="text-small">
-          Ärenden med {d.escalateAfterWeeks} veckor eller fler i rad utan progression, per coach. <b>Coachen har fått påminnelser men ser inte att ärendet har eskalerats till dig.</b>
-        </p>
-        {d.early.length === 0 ? (
-          <Empty icon="check-circle" title="Inga eskaleringar">
-            Alla ärenden har progression eller bara en vecka utan.
-          </Empty>
-        ) : (
-          d.early.map((g) => (
-            <div key={g.coachId} className="flex min-w-0 flex-col gap-2.5 rounded-mb border border-ljusgra px-3.5 py-3">
-              <Row between>
-                <UserName name={g.coachName} />
-                <span className="text-small text-text-muted">{plural(g.reminders, "påminnelse", "påminnelser")} till coachen denna vecka</span>
-              </Row>
-              {g.cases.map((w) => (
-                <div key={w.caseId} className="flex flex-wrap items-start gap-x-3 gap-y-2 border-t border-ljusgra pt-2.5 first-of-type:border-t-0 first-of-type:pt-0" data-early-case={w.caseId}>
-                  <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-1.5">
-                    <Row gap="sm">
-                      <CaseLink caseId={w.caseId} caseNumber={w.caseNumber} />
-                      <span>{w.name}</span>
-                      <Badge tone="red" icon="alert">
-                        {w.streak} veckor i rad
-                      </Badge>
-                    </Row>
-                    <Row gap="sm">
-                      {w.weeks.map((x) => (
-                        <Badge tone="outline" key={x.key}>
-                          {x.label}: {x.reason}
-                        </Badge>
-                      ))}
-                    </Row>
-                    <div className="text-small text-text-muted">Coachen har fått {plural(w.streak, "påminnelse", "påminnelser")} (en per vecka), men ingen notis om eskaleringen.</div>
-                    {w.ack && (
-                      <div className="text-small">
-                        <Icon name="check" /> Kvitterad av {w.ack.byName} {fmtDateTime(w.ack.at)}: {w.ack.plan}
-                      </div>
-                    )}
-                  </div>
-                  {!w.ack && (
-                    <Button icon="check" onClick={() => onAck(w.alert)}>
-                      Kvittera
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </div>
-          ))
-        )}
-        <DemoOnly>
-          <div>
-            <WrapBtn>
-              <PerspectiveLink role="coach" to="/notiser" label="Se vad coachen Amira får (bara påminnelser)" />
-            </WrapBtn>
-          </div>
-        </DemoOnly>
       </Stack>
     </Card>
   );
@@ -523,13 +451,13 @@ function SlaCard({ d }: { d: LedningOverview }) {
                 </span>
                 <KpiStatusBadge status={x.status} />
               </div>
-              {x.provisional && <span className="text-small text-text-muted">Sista dag är inte fastställd med Botkyrka.</span>}
+              {x.provisional && <span className="text-text-muted">Sista dag är inte fastställd med Botkyrka.</span>}
             </div>
           );
         })}
         <Row between>
           <span className="font-bold">Försenat just nu</span>
-          <Badge tone={s.overdueCount ? "red" : "blue"} icon={s.overdueCount ? "alert" : "check"}>
+          <Badge tone={s.overdueCount ? "outline" : "blue"} icon={s.overdueCount ? "alert" : "check"} className={s.overdueCount ? "[&_svg]:text-rod" : undefined}>
             {s.overdueCount ? plural(s.overdueCount, "uppgift", "uppgifter") : "Inget"}
           </Badge>
         </Row>
@@ -542,7 +470,7 @@ function SlaCard({ d }: { d: LedningOverview }) {
             </WrapBtn>
           </div>
         )}
-        {!s.seesSlaStats && <div className="text-small text-text-muted">SLA-statistiken visas inte för kommunen (beslut i ledningen, öppen fråga 17).</div>}
+        {!s.seesSlaStats && <div className="text-text-muted">SLA-statistiken visas inte för kommunen (beslut i ledningen, öppen fråga 17).</div>}
       </Stack>
     </Card>
   );
@@ -562,10 +490,10 @@ function UnbilledCard({ d }: { d: LedningOverview }) {
     <Card
       title="Ofakturerat"
       icon="card"
-      tone={u.weeks ? "red" : undefined}
       actions={
+        // Sidans röda ämne är flaggorna – ofakturerat visas med text och röd ikon, utan röd ram (Min veckas stil).
         u.weeks ? (
-          <Badge tone="red" icon="alert">
+          <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
             Kräver åtgärd
           </Badge>
         ) : (
@@ -593,7 +521,7 @@ function UnbilledCard({ d }: { d: LedningOverview }) {
             ))}
           </Row>
         )}
-        <div className="text-small text-text-muted">
+        <div className="text-text-muted">
           Mål: 0 veckor. Preskription två månader efter utfört arbete. Äldsta veckan: {u.oldestDays != null ? `${u.oldestDays} dagar` : "–"}.
         </div>
         {u.canOpenBilling ? (
@@ -603,7 +531,7 @@ function UnbilledCard({ d }: { d: LedningOverview }) {
             </Button>
           </div>
         ) : (
-          <div className="text-small text-text-muted">Ekonomen hanterar fakturorna. Du ser beloppen här.</div>
+          <div className="text-text-muted">Ekonomen hanterar fakturorna. Du ser beloppen här.</div>
         )}
       </Stack>
     </Card>
@@ -955,7 +883,7 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
                           </DistRow>
                         ))}
                       </DistGrid>
-                      <div className="mt-2.5 text-small text-text-muted">Fråga 4. Används för att planera praktik, utbildning och språkstöd.</div>
+                      <div className="mt-2.5 text-text-muted">Fråga 4. Används för att planera praktik, utbildning och språkstöd.</div>
                     </Card>
                     <Card
                       title="Lågt betyg på stödet från coachen"
@@ -963,7 +891,7 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
                       tone={d.lowOpen > 0 ? "red" : undefined}
                       actions={
                         d.lowOpen > 0 ? (
-                          <Badge tone="red" icon="alert">
+                          <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
                             {d.lowOpen} att kvittera
                           </Badge>
                         ) : (
@@ -974,11 +902,11 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
                       }
                     >
                       <Stack>
-                        <p className="text-small">
+                        <p>
                           Svar med 1 eller 2 på fråga 3 går till dig som chef – <b>inte till coachen</b>. Du ser datum och betyg, inte vem som svarat.
                         </p>
                         {d.lowAlerts.length === 0 ? (
-                          <span className="text-small text-text-muted">Inga låga betyg de senaste veckorna.</span>
+                          <span className="text-text-muted">Inga låga betyg de senaste veckorna.</span>
                         ) : (
                           <div>
                             {d.lowAlerts.map((a) => (

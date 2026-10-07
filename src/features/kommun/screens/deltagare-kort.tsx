@@ -210,7 +210,8 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
         </Notice>
       ))}
       {unreadMsgs.length > 0 && (
-        <Notice tone="critical" icon={lastReq && !answered ? "calendar" : "message"} title={unreadMsgs.length === 1 ? "Du har ett nytt meddelande" : `Du har ${unreadMsgs.length} nya meddelanden`}>
+        // Nya meddelanden är blå (nytt till dig) – rött bara för uppgifterna ovan, som väntar på ditt beslut.
+        <Notice tone="info" icon={lastReq && !answered ? "calendar" : "message"} title={unreadMsgs.length === 1 ? "Du har ett nytt meddelande" : `Du har ${unreadMsgs.length} nya meddelanden`}>
           <Stack gap="sm">
             <span>
               Från {unreadMsgs[unreadMsgs.length - 1].senderLabel}, {fDT(unreadMsgs[unreadMsgs.length - 1].createdAt)}.
@@ -518,7 +519,7 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
                       </Badge>
                     )}
                     {newIds.has(m.id) && (
-                      <Badge tone="red" icon="bell">
+                      <Badge tone="dark" icon="bell">
                         Nytt
                       </Badge>
                     )}

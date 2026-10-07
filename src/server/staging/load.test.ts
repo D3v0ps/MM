@@ -93,7 +93,7 @@ describe("bootstrap-staging.sql", () => {
       const n = await counts(tx);
       for (const t of BOOTSTRAP_TABLES) expect(n[t], t).toBe((seed[t] as unknown[]).length);
       expect(n.profiles).toBe(TESTERS.length);
-      expect(n.memberships).toBe(TESTERS.length * 2);
+      expect(n.memberships).toBe(TESTERS.length); // admin i Botkyrkaavtalet (det enda avtalet)
       expect(n.cases).toBe(0);
       const s = await tx.query<{ key: string; value: string }>("select key, value from public.app_settings order by key");
       expect(Object.fromEntries(s.rows.map((r) => [r.key, r.value]))).toMatchObject({ environment: "staging", clock_demo_epoch: DEMO_START });
@@ -110,7 +110,7 @@ describe("bootstrap-staging.sql", () => {
       ]);
       const m = await tx.query<{ user_id: string; contract_id: string; role: string }>("select user_id, contract_id, role from public.memberships order by user_id, contract_id");
       expect(m.rows.filter((x) => x.role !== "admin")).toEqual([]);
-      expect(m.rows.map((x) => `${x.user_id}:${x.contract_id}`)).toEqual(TESTERS.map((t) => t.id).sort().flatMap((id) => [`${id}:c-bot`, `${id}:c-kk`]));
+      expect(m.rows.map((x) => `${x.user_id}:${x.contract_id}`)).toEqual(TESTERS.map((t) => t.id).sort().map((id) => `${id}:c-bot`));
     });
   });
 

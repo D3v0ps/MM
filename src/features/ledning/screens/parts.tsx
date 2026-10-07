@@ -2,11 +2,14 @@
 // Delade delar för ledningsvyn och registret över avtalsavvikelser (prototypens hjälpkomponenter i views/ledning.js):
 // stapel med målmarkeringar, flaggrad, kvitteringsdialog, trenddiagram, eskaleringstrappa och statusmärken.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { pct } from "@/core/format";
+import { pct, plural } from "@/core/format";
 import { MONTHS_SHORT, fmtDateTime, monthName } from "@/core/time";
 import { useCommand } from "@/shell/backend";
-import { Badge, Button, Chart, Field, Icon, Modal, ModalCancelButton, Stack, Table, TextArea, cn, useToast, type BadgeTone, type IconName } from "@/ui";
-import { alertAck, CD_STATUS_LABEL, type AlertView, type CdStatusKey, type LadderStep, type TrendRow } from "../api";
+import { DemoOnly } from "@/shell/runtime";
+import {
+  Badge, Button, Card, CaseLink, Chart, Empty, Field, Icon, Modal, ModalCancelButton, PerspectiveLink, Row, Stack, Table, TextArea, UserName, cn, useToast, type BadgeTone, type IconName,
+} from "@/ui";
+import { alertAck, CD_STATUS_LABEL, type AlertView, type CdStatusKey, type LadderStep, type LedningOverview, type TrendRow } from "../api";
 
 export const pct0 = (v: number | null | undefined) => pct(v, 0);
 
@@ -225,7 +228,7 @@ export function AlertRow({ a, onAck }: { a: AlertView; onAck?: (a: AlertView) =>
           <span className="text-small text-text-muted">{fmtDateTime(a.createdAt)}</span>
         </div>
         <div className="font-bold">{a.title}</div>
-        <div className="text-small">{a.text}</div>
+        <div>{a.text}</div>
         {a.ack && (
           <div className="text-small text-text-muted">
             <Icon name="check" /> Kvitterad av {a.ack.byName} {fmtDateTime(a.ack.at)}: {a.ack.plan}
@@ -324,7 +327,7 @@ export function TrendChart({ rows, contract, internal, minN }: { rows: TrendRow[
           {rows.map((r, i) => {
             if (r.value == null) {
               return (
-                <text key={`e${i}`} x={x(i)} y={y(0) - 8} textAnchor="middle" style={{ fill: "var(--color-text-muted)", fontSize: 11 }}>
+                <text key={`e${i}`} x={x(i)} y={y(0) - 8} textAnchor="middle" style={{ fill: "var(--color-text-muted)", fontSize: 12 }}>
                   inga avslut
                 </text>
               );
@@ -371,14 +374,14 @@ export function TrendChart({ rows, contract, internal, minN }: { rows: TrendRow[
               <text x={x(i)} y={y(0) + 19} textAnchor="middle" style={{ fontWeight: 600 }}>
                 {monthLbl(r.month, i)}
               </text>
-              <text x={x(i)} y={y(0) + 36} textAnchor="middle" style={{ fill: "var(--color-text-muted)", fontSize: 11 }}>
+              <text x={x(i)} y={y(0) + 36} textAnchor="middle" style={{ fill: "var(--color-text-muted)", fontSize: 12 }}>
                 {`n = ${r.den > 0 ? r.den : 0}`}
               </text>
             </g>
           ))}
         </Chart>
       </div>
-      <div className="flex flex-wrap gap-x-[18px] gap-y-1.5 text-meta text-text-muted">
+      <div className="flex flex-wrap gap-x-[18px] gap-y-1.5 text-small text-text-muted">
         <span className="inline-flex items-center gap-1.5">
           <Swatch kind="bar" />
           Resultatgrad per månad
@@ -482,5 +485,79 @@ export function Ladder({ ladder, current = null, counts = null, vertical }: { la
         );
       })}
     </ol>
+  );
+}
+
+/** Tidig uppmärksamhet per coach (ledningsvyn och chefens Min vecka). */
+export function EarlyCard({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) => void }) {
+  return (
+    <Card
+      title="Tidig uppmärksamhet"
+      icon="bell"
+      actions={
+        // Konturmärke med röd ikon: sidans röda ämne är flaggorna (Min veckas stil, beslut 2026-10-06).
+        <Badge tone="outline" icon={d.escalatedCount ? "alert" : undefined} className={d.escalatedCount ? "[&_svg]:text-rod" : undefined}>
+          {d.escalatedCount} ärenden
+        </Badge>
+      }
+    >
+      <Stack>
+        <p>
+          Ärenden med {d.escalateAfterWeeks} veckor eller fler i rad utan progression, per coach. <b>Coachen har fått påminnelser men ser inte att ärendet har eskalerats till dig.</b>
+        </p>
+        {d.early.length === 0 ? (
+          <Empty icon="check-circle" title="Inga eskaleringar">
+            Alla ärenden har progression eller bara en vecka utan.
+          </Empty>
+        ) : (
+          d.early.map((g) => (
+            <div key={g.coachId} className="flex min-w-0 flex-col gap-2.5 rounded-mb border border-ljusgra px-3.5 py-3">
+              <Row between>
+                <UserName name={g.coachName} />
+                <span className="text-small text-text-muted">{plural(g.reminders, "påminnelse", "påminnelser")} till coachen denna vecka</span>
+              </Row>
+              {g.cases.map((w) => (
+                <div key={w.caseId} className="flex flex-wrap items-start gap-x-3 gap-y-2 border-t border-ljusgra pt-2.5 first-of-type:border-t-0 first-of-type:pt-0" data-early-case={w.caseId}>
+                  <div className="flex min-w-0 flex-[1_1_220px] flex-col gap-1.5">
+                    <Row gap="sm">
+                      <CaseLink caseId={w.caseId} caseNumber={w.caseNumber} />
+                      <span>{w.name}</span>
+                      <Badge tone="outline" icon="alert" className="[&_svg]:text-rod">
+                        {w.streak} veckor i rad
+                      </Badge>
+                    </Row>
+                    <Row gap="sm">
+                      {w.weeks.map((x) => (
+                        <Badge tone="outline" key={x.key}>
+                          {x.label}: {x.reason}
+                        </Badge>
+                      ))}
+                    </Row>
+                    <div className="text-text-muted">Coachen har fått {plural(w.streak, "påminnelse", "påminnelser")} (en per vecka), men ingen notis om eskaleringen.</div>
+                    {w.ack && (
+                      <div className="text-small">
+                        <Icon name="check" /> Kvitterad av {w.ack.byName} {fmtDateTime(w.ack.at)}: {w.ack.plan}
+                      </div>
+                    )}
+                  </div>
+                  {!w.ack && (
+                    <Button icon="check" onClick={() => onAck(w.alert)}>
+                      Kvittera
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+        <DemoOnly>
+          <div>
+            <WrapBtn>
+              <PerspectiveLink role="coach" to="/notiser" label="Se vad coachen Amira får (bara påminnelser)" />
+            </WrapBtn>
+          </div>
+        </DemoOnly>
+      </Stack>
+    </Card>
   );
 }

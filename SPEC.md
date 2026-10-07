@@ -5,8 +5,10 @@
 | | |
 |---|---|
 | Avtal nr 1 (pilot) | Botkyrka kommun – Yrkesförberedande och yrkesinriktade insatser. Avtal 332026110, dnr AVN/2026:00048 |
-| Avtal nr 2 | Kammarkollegiet – Grundläggande omställnings- och kompetensstöd och yttrande, ref. 2.7.5-4201-2026, start 2027-03-13 |
+| Fler avtal | Miljonmatch är kommunernas plattform – fler kommunavtal kan läggas till som konfiguration (§6.3). Kammarkollegiet får en egen plattform (beslut 2026-10-06) och blandas aldrig ihop med Miljonmatch |
 | Underlag | Avtalet, Administrativa föreskrifter och krav (AFK), bilagorna Botkyrka e-handel och Fakturerings- och betalningsvillkor, Frågor och svar, 01 Avropsmall, 02 Månadsrapport individ, uppstartspresentationen |
+
+**Beslut 2026-10-06:** Kammarkollegiet får en egen plattform och blandas aldrig ihop med Miljonmatch. Det som fanns här för Kammarkollegiet – avtal nr 2, skissen av deras konfiguration (§6.3), fas 4 "KK-redo" (§12) och vad piloten skulle bevisa för dem (§14) – är borttaget ur kravspecen, koden och testdatat. Miljonmatch är kommunernas plattform: Botkyrka nu, fler kommunavtal senare.
 
 **Nytt i v0.2:** namnet är fastställt, upphandlingsdokumenten är inlästa och Botkyrkas besked är inarbetade. Det viktigaste som ändrats: beställningar sker formellt via mejl, närvarorapport ska lämnas varje vecka, fakturor kräver kommunens beställarreferens och samlingsfakturor accepteras inte utan särskild överenskommelse.
 
@@ -16,7 +18,7 @@
 
 Botkyrka-avtalet gäller 70–100 årsplatser med insatser på typiskt 4–10 veckor (utvärderingspriset byggde på 4 och 10 veckor). Med 7 veckor i snitt blir det 40–60 nya avrop i månaden, alltså 2–3 per arbetsdag, och varje avrop ska besvaras inom en arbetsdag. Beställningar sker via mejl. MB ska lämna närvarorapport varje vecka, progressionsrapport varje månad och slutrapport efter varje insats. Vite är 25 000 kr per tillfälle vid avvikelse eller bristfällig information, och kommunen har två leverantörer per område – obesvarade avrop kan flytta ner MB i rangordningen.
 
-Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller portal), MB:s coacher dokumenterar (manuellt eller med AI-stöd), rapporter genereras från godkända uppgifter, KPI:er och deadlines bevakas, och fakturaunderlag går till Fortnox. Den byggs för flera avtal från dag 1: Botkyrka är avtal nr 1 och Kammarkollegiet (KK) avtal nr 2 – samma kod, ny konfiguration.
+Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller portal), MB:s coacher dokumenterar (manuellt eller med AI-stöd), rapporter genereras från godkända uppgifter, KPI:er och deadlines bevakas, och fakturaunderlag går till Fortnox. Den byggs för flera kommunavtal från dag 1: Botkyrka är avtal nr 1, och fler kommunavtal kan läggas till med samma kod och ny konfiguration (§6.3).
 
 **Designprincip (från Miljonmatch-bilden i uppstartspresentationen):** automatisera informationsinsamling, dokumentation och påminnelser – håll utveckling, coachning, bedömning, matchning och uppföljning mänskligt. Det är också den juridiskt säkra linjen för AI-stödet (§8).
 
@@ -35,7 +37,7 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 
 **Icke-mål i v1 (med skäl):**
 
-- Ingen inloggning för deltagare – pulsmätningen använder engångslänk. Deltagarinloggning byggs inför KK (fas 4).
+- Ingen inloggning för deltagare – pulsmätningen använder engångslänk. Deltagarinloggning kan byggas senare (fas 4).
 - AI fattar inga beslut och sätter inga bedömningar – den föreslår text med belägg (§8).
 - Ingen egen e-fakturasändning – Fortnox skickar Peppol-fakturan.
 - Ingen BankID i piloten – Microsoft-inloggning för MB och e-postkod för kommunen räcker.
@@ -257,38 +259,11 @@ Miljonmatch samlar hela kedjan i ett system: kommunen beställer (mejl eller por
 
 `progression.clearFromLevel` och `progression.anyFromLevel` (beslut 2026-10-01): tydlig progression = minst ett område på nivå `clearFromLevel` eller högre, någon progression = minst ett område på nivå `anyFromLevel` eller högre (heltal 0–3, `anyFromLevel` ≤ `clearFromLevel`, Botkyrka 2 och 1). Texterna i appen och rapporterna byggs av talen. Den äldre fritexten `statDefinition` läses inte längre (fältet får finnas kvar).
 
-### 6.3 Avtalskonfiguration – skiss Kammarkollegiet (visar att modellen räcker)
+### 6.3 Fler kommunavtal
 
-```json
-{
-  "casePrefix": "KK",
-  "dataRole": "controller",
-  "customerVisibility": { "seesIndividualReports": false, "seesCoachNotes": false },
-  "priceItems": [
-    { "code": "startpaket", "unit": "package", "packageMonths": 4, "price": 4120 },
-    { "code": "forlangt_stod", "unit": "month", "price": 1200 },
-    { "code": "forstarkt_stod", "unit": "month", "price": 1350 },
-    { "code": "arbetstagarstod_startpaket", "unit": "package", "packageMonths": 4, "price": 4080 },
-    { "code": "csn_yttrande", "unit": "each", "price": 699 }
-  ],
-  "kpis": [
-    { "key": "placeringsgrad", "contractTarget": 0.60 },
-    { "key": "yttranden_i_tid", "contractTarget": 0.80 },
-    { "key": "nojdhet", "contractTarget": 0.70 }
-  ],
-  "sla": [
-    { "key": "forsta_kontakt", "from": "bestallning", "within": { "days": 5 } },
-    { "key": "forsta_mote", "from": "bestallning", "within": { "days": 10 } }
-  ],
-  "meetingMinimums": [
-    { "service": "startpaket", "minMeetings": 4, "minMinutesEach": 60, "periodMonths": 4 },
-    { "service": "forlangt_stod", "minMeetingsPerMonth": 1 }
-  ],
-  "exports": [ { "key": "kk_manadsstatistik", "format": "xlsx", "fieldsPerCustomer": 8 } ]
-}
-```
+Ett nytt kommunavtal läggs till som en rad i `contracts` med en egen konfiguration enligt samma schema som Botkyrkas ovan (zod-validerat i `src/core/config.ts`), egna avtalsområden (`contract_areas`) och en egen prislista per avtalsområde (`price_items`) – utan kodändring i kärnflödena. Ett avtal i utkast behöver bara `casePrefix` och `dataRole`; ärenden kan hanteras först när alla driftavsnitt finns (`OperationalConfigSchema`). I kommunavtalen är kommunen personuppgiftsansvarig och MB personuppgiftsbiträde (`dataRole: "processor"`), och priserna gäller per deltagare och vecka (`participant_week`). Behörigheten följer avtalet (medlemskap per avtal, SPEC §4), och adminvyn visar en avtalsväljare först när det finns fler än ett avtal.
 
-Kontrollera i KK-avtalet om dagarna är kalender- eller arbetsdagar och vilka de åtta statistikfälten är.
+Kammarkollegiet ingår inte – de får en egen plattform (beslut 2026-10-06, §14). Paket-, månads- och styckpriser, mötesminimum, statistikexport i deras format och MB som personuppgiftsansvarig finns därför inte i konfigurationen.
 
 ---
 
@@ -296,11 +271,18 @@ Kontrollera i KK-avtalet om dagarna är kalender- eller arbetsdagar och vilka de
 
 ### 7.0 Startsidor per roll
 
+**Beslut 2026-10-06: alla MB-roller börjar på Min vecka (`/min-vecka`) – samma upplägg, egna uppgifter.** Coachens Min vecka är förebilden: sidrubriken MIN VECKA, "Namn · Titel", ingressen med veckodag och vecka, en primär knapp, fyra rutor och två kolumner – det som ska göras i brådskeordning till vänster, påminnelser, flaggor, notiser och "i korthet" till höger. Varje roll ser bara det den redan har behörighet till; behörigheterna ändras inte. De gamla startsidorna finns kvar som sidor under rollens flik i menyn, och gamla adresser fungerar (`/start` leder till `/min-vecka`).
+
 - **Kommunens handläggare:** tre stora knappar – "Beställ ny insats", "Mina deltagare", "Rapporter och meddelanden". Olästa rapporter och meddelanden överst. Ingen annan navigation på startsidan.
-- **Coach ("Min vecka"):** dagens och veckans möten, närvaro att registrera (med nedräkning till måndag 10:00), AI-utkast att granska, rapporter som förfaller, egna flaggor.
-- **Samordnare/avtalsansvarig:** avropsinkorg med SLA-klocka, ärenden utan coach, första möten som inte är bokade, deadlines inom 7 dagar, avtalsavvikelser, flaggor.
-- **Chef/controller:** KPI:er mot mål, flaggor, prognos, avtalsavvikelser och varningar, per coach och per avtalsområde.
-- **Ekonom:** fakturakörningar per månad och status, ärenden som saknar beställarreferens, veckor utan närvaro att kontrollera, ofakturerade veckor, Fortnox-synk.
+- **Kommunens chef:** Beställarrapport.
+- **Coach (Min vecka – förebilden):** dagens och veckans möten, närvaro att registrera (med nedräkning till måndag 10:00), AI-utkast att granska, månadsbedömningar, meddelanden från kommunen, påminnelser, egna flaggor, rapporter som förfaller och veckokalendern.
+- **Samordnare och avtalsansvarig (Min vecka):** rutorna Att hantera i inkorgen (SLA-klocka), Första möten ej bokade, Förfaller i dag och Flaggor att kvittera; avropsinkorgen, flaggor, första möten som inte är bokade, ärenden utan coach och öppna uppgifter; i högerkolumnen förfaller snart, avtalsavvikelser, nyckeltalen för svar och första möte, tilldelningsnotisen och olästa notiser. Avtalsansvarig dessutom Skyddade avrop överst, beställarrapport att godkänna och skriftliga varningar.
+- **Handledare (Min vecka):** närvaro att registrera (förra veckan), dagens yrkesmoment och praktikdagar, kommande sju dagar, praktikplatser som saknar något av de fyra rätten och antalet tilldelade ärenden. Listan Mina tilldelade ärenden (`/handledare`) finns i menyn.
+- **Chef/controller (Min vecka):** flaggor att kvittera, tidig uppmärksamhet, det som förfaller, rapporter att granska och nyckeltalen i korthet (resultatgrad, sedan avtalsstart, prognos, försenat, ofakturerat). Ledningsvyn (`/ledning`) med KPI:er mot mål, prognos, trend, per coach och per avtalsområde ligger under fliken Ledning.
+- **Ekonom (Min vecka):** fakturakörningen för månaden, uppgifter, beställarreferenser som saknas eller är fel, preskriptionsrisk, returnerade fakturor och veckor utan närvaro att kontrollera. Fakturering (`/ekonomi`) med körningar per månad och Fortnox-synk ligger under fliken Ekonomi.
+- **Systemadministratör (Min vecka):** bakgrundsjobben, utskick som inte gick iväg de senaste sju dagarna (äldre fel finns i utskicksloggen), användarna, när avrop@ senast lästes och – bara för testare i testmiljön – synpunkterna. Avtal och konfiguration ligger inte i menyn; länken finns på Användare och roller och Min vecka.
+
+**Menyn (beslut 2026-10-06):** Notiser överst, sedan den gemensamma gruppen **Min vardag** (Min vecka, Närvaro, Ärenden – coachen "Mina ärenden", handledaren "Mina tilldelade ärenden" – Rapporter och Arbetsgivare och praktik; ett val visas bara när rollen har sidan) och högst **en rollflik**: samordnare **Samordning** (Avropsinkorg, Förfaller, Bygg rapport), avtalsansvarig **Avtalet** (Avropsinkorg, Förfaller, Avtalsavvikelser, Kommunanvändare, Bygg rapport), chef **Ledning** (Ledningsvy, Avtalsavvikelser, Förfaller, Bygg rapport, Revisionslogg), ekonom **Ekonomi** (Fakturering, Fakturakörning för förra månaden) och systemadministratör **Administratör** (Användare och roller, Underbiträden och integrationer, Mallar och utskick, Revisionslogg). Coach och handledare har ingen rollflik. En begränsad testare ser aldrig en stängd sida i menyn och börjar på Notiser om hen agerar i en roll som är dold för testare.
 
 ### 7.1 Beställning via mejl – kommunens formella kanal
 
@@ -414,7 +396,7 @@ Statistik: "tydlig progression" = minst ett område på nivå 2 eller högre; "n
   4. Vad är viktigast för dig just nu? (Hitta jobb / Praktik / Utbildning / Bli säkrare på svenska / Annat)
   5. Vill du att någon kontaktar dig? (Ja / Nej) + valfri fri text.
 - **Synlighet:** coachen ser inte enskilda svar. Svarar deltagaren "Ja" på fråga 5 skapas en uppgift till samordnaren, som avgör vem som tar kontakten. Lågt betyg (1–2) på fråga 3 går till chef, inte till coachen. Aggregat visas först vid minst 5 svar.
-- **Nöjdhet** = andel 4–5 på fråga 1. Samma mått används senare för KK:s nöjdhetskrav.
+- **Nöjdhet** = andel 4–5 på fråga 1.
 - Deltagandet är frivilligt och påverkar ingenting i insatsen – det står i utskicket.
 
 ### 7.11 Rapporter och intyg
@@ -462,7 +444,7 @@ Fakta för kommunens resultatfil (bara koder, tal, sanningsvärden och datum) fr
 
 **i) Dataexport vid avtalsslut** – allt som tillhör kommunen exporteras inom en kalendermånad, därefter raderas det (med logg).
 
-**j) Exportmallar per avtal** – t.ex. KK:s månatliga statistikfil. Byggs som konfigurerbara exporter, inte specialkod. Version 1 (kommunens resultatfil, rapporter steg 3) har ett kolumnregister med schemaversion (`EXPORT_SCHEMA_VERSION`), texter som byggs av avtalets konfiguration (prefix, faser, progressionsområden och gränser, regeln för upprepad frånvaro, avslutsorsaker) och en kolumnspärr: kolumner läggs bara till sist, och ändras ordningen (t.ex. progressionsområdena i avtalet) stoppas filen tills schemaversionen höjts. Rapportbyggarens mallar ligger i koden (v1). Exportmallar per avtal (t.ex. KK) kommer senare och kan peka på en sparad definition.
+**j) Exportmallar per avtal** – t.ex. en kommuns egen statistikfil. Byggs som konfigurerbara exporter, inte specialkod. Version 1 (kommunens resultatfil, rapporter steg 3) har ett kolumnregister med schemaversion (`EXPORT_SCHEMA_VERSION`), texter som byggs av avtalets konfiguration (prefix, faser, progressionsområden och gränser, regeln för upprepad frånvaro, avslutsorsaker) och en kolumnspärr: kolumner läggs bara till sist, och ändras ordningen (t.ex. progressionsområdena i avtalet) stoppas filen tills schemaversionen höjts. Rapportbyggarens mallar ligger i koden (v1). Exportmallar per avtal kommer senare och kan peka på en sparad definition.
 
 **k) Rapportbyggaren** (beslut 2026-10-02, rapporter steg 4) – Miljonbemanning bygger egna rapporter av samma underlag som kommunens resultatfil. Kommunen bygger inte själv.
 
@@ -485,7 +467,7 @@ Fakta för kommunens resultatfil (bara koder, tal, sanningsvärden och datum) fr
   - **Minsta antal:** flagga inte förrän minN (10 avslut) är uppnått i fönstret; visa antalet bredvid procenten. Med 40–60 avslut i månaden nås det snabbt, men en enskild vecka kan svänga kraftigt.
 - Övriga Botkyrka-KPI:er: avrop besvarade i tid, första möte inom en vecka, veckorapporter i tid, månadsrapporter i tid, närvarograd, nöjdhet.
 - **Prognos:** "om deltagarna med arbetserbjudande eller i fas 5 når resultat blir resultatgraden X %".
-- Flaggor kvitteras med en kort åtgärdsplan. Samma mekanism används för KK:s tre kvalitetskrav.
+- Flaggor kvitteras med en kort åtgärdsplan.
 
 ### 7.13 Deadlines och SLA (skydd mot vite och rangordning)
 
@@ -567,7 +549,7 @@ Beslut 2026-10-01 (rapportarbetet steg 2). Deltagarkortet är MB:s löpande unde
 4. **Dataminimering.** Ljud raderas direkt efter lyckad transkribering (senast 24 h vid fel). Råtranskript raderas när avstämningen godkänts, senast efter 30 dagar. Kvar blir bara godkända, strukturerade uppgifter enligt avtalets gallringsregler.
 5. **Bara Sverige/EU.** Avtalet förbjuder behandling utanför EU/EES utan kommunens särskilda skriftliga förhandsgodkännande. Leverantören ska ha personuppgiftsbiträdesavtal, inte träna på datan och inte lagra den.
 6. **Öppenhet.** Synlig inspelningsindikator. Utkast märks "AI-utkast" tills de godkänts. Varje godkännande loggas med vem och när.
-7. **AI Act.** Högriskkraven för bilaga III gäller från 2027-12-02 – mitt i KK-avtalet. Med designen ovan är AI ett förberedande dokumentationsstöd där människan gör bedömningen, men klassningen ska dokumenteras. Byggs en deltagarassistent senare ("Jason" på Miljonmatch-bilden) ska deltagaren få veta att hen talar med en AI.
+7. **AI Act.** Högriskkraven för bilaga III gäller från 2027-12-02 – under Botkyrka-avtalets löptid. Med designen ovan är AI ett förberedande dokumentationsstöd där människan gör bedömningen, men klassningen ska dokumenteras. Byggs en deltagarassistent senare ("Jason" på Miljonmatch-bilden) ska deltagaren få veta att hen talar med en AI.
 
 ### 8.2 Ljudkällor
 
@@ -614,9 +596,9 @@ Samma adapter används för att tolka fritextmejl i avropsinkorgen (§7.1). Alla
 
 **Val genom test (kvar som möjlighet):** samma 10–20 samtyckta testinspelningar (varav flera med deltagare som har svenska som andraspråk) körs genom båda. Två coacher bedömer blint: korrekta uppgifter, saknade uppgifter, påhittade uppgifter (måste vara noll) och tid till godkännande. Leverantören väljs per avtal i konfigurationen och kan bytas utan kodändring.
 
-### 8.5 Mätning – siffran KK-kalkylen behöver
+### 8.5 Mätning av dokumentationstiden
 
-Per avstämning mäts minuter från mötets slut till godkänd dokumentation, andel förslag som accepteras, ändras eller avvisas per fält, och antal "felaktigt förslag"-rapporter från coacher. Baslinjen mäts i fas 1 utan AI. Den uppmätta tidsvinsten per möte är det värde som ska in i KK:s kapacitetsmodell per rådgivare.
+Per avstämning mäts minuter från mötets slut till godkänd dokumentation, andel förslag som accepteras, ändras eller avvisas per fält, och antal "felaktigt förslag"-rapporter från coacher. Baslinjen mäts i fas 1 utan AI. Den uppmätta tidsvinsten per möte visar vad AI-stödet ger och används för att planera kapaciteten per coach.
 
 ### 8.6 Kostnad
 
@@ -627,9 +609,9 @@ Per avstämning mäts minuter från mötets slut till godkänd dokumentation, an
 | B: samma från 2027-01-01 | ≈ 1,70 kr | ≈ 740 kr | Googles ordinarie pris |
 | Rapportutkast och mejltolkning | – | < 100 kr | Oavsett leverantör |
 
-Antaganden: 100 deltagare × en avstämning per vecka × 52/12 ≈ 433 samtal/månad; ljud räknas som 32 token per sekund (57 600 token per 30 minuter); cirka 10 000 utdatatoken per samtal (transkript + JSON); 1 USD ≈ 9,6 kr och 1 EUR ≈ 11 kr. I praktiken blir det lägre eftersom inte alla samtal spelas in. Ett KK-möte på 60 minuter kostar ungefär 2–3,50 kr.
+Antaganden: 100 deltagare × en avstämning per vecka × 52/12 ≈ 433 samtal/månad; ljud räknas som 32 token per sekund (57 600 token per 30 minuter); cirka 10 000 utdatatoken per samtal (transkript + JSON); 1 USD ≈ 9,6 kr och 1 EUR ≈ 11 kr. I praktiken blir det lägre eftersom inte alla samtal spelas in. Ett samtal på 60 minuter kostar ungefär 2–3,50 kr.
 
-Fasta driftkostnader för piloten, ungefärligt: Supabase Pro ca 25 USD/månad inklusive 10 USD compute-kredit (större databas och point-in-time-återställning, ca 100 USD/månad, inför KK) · Vercel Pro 20 USD per utvecklarplats · Fortnox Integration-licens från ca 189 kr/månad om den inte ingår i ert paket, plus e-fakturatjänsten · SMS per meddelande. Totalt ungefär 1 000–1 500 kr/månad.
+Fasta driftkostnader för piloten, ungefärligt: Supabase Pro ca 25 USD/månad inklusive 10 USD compute-kredit (större databas och point-in-time-återställning, ca 100 USD/månad, när fler kommunavtal ansluts) · Vercel Pro 20 USD per utvecklarplats · Fortnox Integration-licens från ca 189 kr/månad om den inte ingår i ert paket, plus e-fakturatjänsten · SMS per meddelande. Totalt ungefär 1 000–1 500 kr/månad.
 
 ---
 
@@ -646,19 +628,19 @@ Fasta driftkostnader för piloten, ungefärligt: Supabase Pro ca 25 USD/månad i
 
 ## 10. Säkerhet och dataskydd
 
-- **Roll per avtal.** Botkyrka: MB är personuppgiftsbiträde (avtalet punkt 8.1); PUB-avtal enligt SKR:s mall styr instruktioner, underbiträden, gallring och incidentrapportering till kommunen. KK: MB bär personuppgiftsansvar (obegränsat GDPR-ansvar enligt avtalet) och behöver egen konsekvensbedömning och registerförteckning.
+- **Roll per avtal.** Botkyrka: MB är personuppgiftsbiträde (avtalet punkt 8.1); PUB-avtal enligt SKR:s mall styr instruktioner, underbiträden, gallring och incidentrapportering till kommunen. Fler kommunavtal: samma roll – kommunen är personuppgiftsansvarig, MB biträde med eget PUB-avtal per kommun.
 - **Skriftligt godkännande.** Botkyrkas besked om inspelning och underbiträden ska in i PUB-avtalets bilagor. Vercel och Supabase är amerikanska bolag trots drift i Stockholm – be om ett uttryckligt godkännande även av eventuell åtkomst från tredje land (t.ex. leverantörens support), eftersom avtalet kräver särskilt skriftligt förhandsgodkännande för det.
 - **Konsekvensbedömning** för AI-delen dokumenteras (kommunen som personuppgiftsansvarig; MB bidrar med underlag).
 - **Behörighet:** RLS enligt §4, need-to-know. Ekonom ser inga anteckningar. Handledare ser bara tilldelade ärenden.
 - **Kryptering:** TLS överallt; personnummer krypteras på applikationsnivå; hemligheter i miljövariabler; Supabase krypterar lagrad data.
 - **Revisionslogg** och månatlig loggkontroll (stickprov) av chef.
 - **Skyddade personuppgifter:** se CLAUDE.md punkt 8.
-- **Säkerhetskopior:** Supabase dagliga säkerhetskopior i piloten; point-in-time-återställning inför KK. Återläsning testas minst en gång före produktion.
+- **Säkerhetskopior:** Supabase dagliga säkerhetskopior i piloten; point-in-time-återställning när fler kommunavtal ansluts. Återläsning testas minst en gång före produktion.
 - **Gallring:** automatiska jobb enligt avtalets regler, med logg över vad som raderats. Vid avtalsslut: export till kommunen inom en kalendermånad, därefter radering (§7.11 i).
 - **Informationssäkerhetsrutiner** (avtalet punkt 6.3): policy, utbildning av personal, skydd mot skadlig kod och incidenthantering ska finnas dokumenterade. Plattformen bidrar med behörighetsstyrning, logg och incidentrutin; för Botkyrka meddelas kommunen enligt PUB-avtalet.
 - **Informationstexter** till deltagare på lättläst svenska och de vanligaste språken.
 - **Tillgänglighet:** WCAG 2.1 AA.
-- **Säkerhetsgranskning/penetrationstest** före KK-start.
+- **Säkerhetsgranskning/penetrationstest** innan fler kommunavtal ansluts.
 
 ---
 
@@ -670,7 +652,7 @@ Fasta driftkostnader för piloten, ungefärligt: Supabase Pro ca 25 USD/månad i
 - **Miljöer:** produktion + staging (separata Supabase-projekt, båda i Stockholm). Staging har bara testdata. Preview-deployer pekar aldrig mot produktionsdatabasen.
 - **Testare i staging (beslut 2026-10-01):** Karim och Ali samt kollegorna Sara Salah, Adam Abdalla, Shafik Muwanga och Moda Habib (Miljonbemanning) loggar in som sig själva, agerar som testpersoner och lämnar synpunkter med knappen **Lämna synpunkt** (sparas med sida och roll, listan går att ladda ner som CSV). Bara testare i staging – funktionen finns inte i produktion. Synpunkterna finns kvar när testdatat läses in på nytt. Inloggningskoder och mejl går i staging bara till adresserna i `MM_EMAIL_ALLOWLIST` (`docs/DRIFT.md` avsnitt 11). **Beslut 2026-10-02:** bara Karim och Ali ser priser, belopp, fakturaunderlag, viten, bonus, interna mål, avtalssidan och Ekonomi. Övriga testare (neka som standard, `src/api/tester-access.ts`) ser "Visas inte för testare" i stället, kan inte agera som ekonom och ser inte underbiträdena – servern lämnar inte ut uppgifterna. Avtalsmålet visas för alla.
 - **Övervakning:** drifttidskontroll och felrapportering utan personuppgifter. Används ett externt verktyg (t.ex. Sentry i EU-region) läggs det till i underbiträdesförteckningen.
-- **Portabilitet:** standard-Postgres + Next.js utan Vercel-specifika lagringstjänster. Supabase är öppen källkod, så databasen kan flyttas till svensk drift om kommunen eller KK kräver det.
+- **Portabilitet:** standard-Postgres + Next.js utan Vercel-specifika lagringstjänster. Supabase är öppen källkod, så databasen kan flyttas till svensk drift om en kommun kräver det.
 
 ---
 
@@ -720,14 +702,14 @@ Auth och roller, avtalskonfiguration, mejlbeställning och portal, ärendenummer
 - [ ] Arbetsgivarregister och praktikplatser med de fyra rätten.
 - [ ] Statistik på begäran och fullständig dataexport + radering vid avtalsslut.
 
-### Fas 4 – KK-redo (före 2027-03-13)
+### Fas 4 – Fler kommunavtal
 
-- [ ] KK-avtalet kan konfigureras utan kodändring i kärnflödena: paket-, månads- och styckpriser, KPI:er 60/80/70 %, SLA 5/10 dagar, mötesminimum.
-- [ ] Kapacitetsvy per rådgivare (aktiva ärenden mot tak).
-- [ ] Månatlig statistikexport i KK:s format.
-- [ ] Yttrande (CSN) som dokumenttyp med deadline och "i tid"-KPI.
-- [ ] Synlighetspolicy: beställaren ser statistik men inte coachanteckningar.
+- [ ] Ett nytt kommunavtal kan konfigureras utan kodändring i kärnflödena: egen konfiguration, avtalsområden, prislista, KPI:er och SLA (§6.3).
+- [ ] Kapacitetsvy per coach (aktiva ärenden mot tak).
+- [ ] Exportmallar per avtal (§7.11 j).
 - [ ] Deltagarinloggning och bokning, säkerhetsgranskning, point-in-time-återställning.
+
+Fasen hette tidigare "KK-redo" – Kammarkollegiets krav byggs inte i Miljonmatch (beslut 2026-10-06, §14).
 
 ---
 
@@ -763,34 +745,21 @@ Auth och roller, avtalskonfiguration, mejlbeställning och portal, ärendenummer
 
 ---
 
-## 14. Kammarkollegiet – vad piloten ska bevisa
+## 14. Kammarkollegiet – egen plattform (beslut 2026-10-06)
 
-| KK-krav | Mekanism i plattformen | Prövas i piloten |
-|---|---|---|
-| Rang 1 av 5 i kaskad – beställningar ni inte tar går permanent vidare | Kapacitetsvy per rådgivare och varning innan kapaciteten tar slut | Delvis (Botkyrka har samma logik med två leverantörer per område) |
-| Tunn marginal: break-even ca 67 ärenden, tak ca 72 per rådgivare | Mätning av dokumentationstid per möte (§8.5) | Ja – huvudsyftet med AI-delen |
-| Första kontakt ≤ 5 dagar, första möte ≤ 10 dagar | SLA-motorn (§7.13) | Ja (Botkyrkas en arbetsdag / en vecka) |
-| Mötesminimum (≥ 4 möten à ≥ 60 min under 4 månader; ≥ 1 möte/månad i förlängt stöd) | Mötesloggning med längd + prognos per ärende | Delvis |
-| Kvalitetströsklar 60 % placering, 80 % yttranden i tid, 70 % nöjdhet – miss utan godkänd åtgärdsplan ger rang 3 | KPI-motor, flaggor, åtgärdsplan (§7.12, §7.16) | Ja (32/35 %) |
-| Månadsstatistik, 8 fält per kund till KK:s e-tjänst; vite 25 000 kr/vecka vid brister | Exportmallar per avtal | Nej – fas 4 |
-| CSN-yttranden | Dokumenttyp med deadline | Nej – fas 4 |
-| Paket-, månads- och styckpriser | `price_items.unit` | Modellen, med Botkyrkas veckopris |
-| Rikstäckande, rådgivare på distans | Teams-transkript som ljudkälla | Delvis |
-| KK gör intag och kartläggning | Import av KK:s beställning (format ej känt) | Mejl- och portalbeställningen prövas |
-| Personuppgiftsansvar med obegränsat GDPR-ansvar | Egen konsekvensbedömning, loggkontroll | Rutinerna |
-| Nöjdhet ≥ 70 % | Pulsmätningen (§7.10) | Ja |
+Kammarkollegiet får en egen plattform och blandas aldrig ihop med Miljonmatch. Tabellen över vad piloten skulle bevisa för Kammarkollegiet är borttagen, liksom deras konfiguration, prislista och testdata. Miljonmatch är kommunernas plattform: Botkyrka nu, fler kommunavtal som konfiguration (§6.3).
 
 ---
 
-## 15. Avvägningar och vad som omprövas vid KK-skala
+## 15. Avvägningar och vad som omprövas när volymen växer
 
-- **Vercel + Supabase eller svensk drift:** snabbast att bygga och välkänt för Claude Code, data i Stockholm – men leverantörerna är amerikanska. Mildras med regionlåsning, skriftligt godkännande och portabilitet (§11). Omprövas om Botkyrka eller KK kräver svenskägd drift.
+- **Vercel + Supabase eller svensk drift:** snabbast att bygga och välkänt för Claude Code, data i Stockholm – men leverantörerna är amerikanska. Mildras med regionlåsning, skriftligt godkännande och portabilitet (§11). Omprövas om en kommun kräver svenskägd drift.
 - **Deterministisk tolkning av Word-mallen före AI:** färre fel och ingen AI på beställningar i normalfallet.
 - **En faktura per ärende:** fler fakturor men enligt kommunens villkor; blir billigt med API. Omprövas om kommunen godkänner samlingsfaktura.
 - **En app för alla roller:** enklare drift och säkerhet. Omprövas om en beställare kräver egen domän eller egen inloggning (SSO).
-- **Jobb i Postgres-tabell:** räcker för pilotens volymer. Vid KK-volym (tusentals möten i månaden) – dedikerad kö och separat worker.
-- **PDF i serverfunktion:** räcker nu; vid KK-volym genereras rapporter i batch nattetid.
-- **Omprövas inför KK:** databasstorlek och point-in-time-återställning, BankID, rumsbokning i 71 regioner, API för beställare, lasttest och penetrationstest.
+- **Jobb i Postgres-tabell:** räcker för pilotens volymer. Vid större volym (tusentals möten i månaden, fler kommunavtal) – dedikerad kö och separat worker.
+- **PDF i serverfunktion:** räcker nu; vid större volym genereras rapporter i batch nattetid.
+- **Omprövas när fler kommunavtal ansluts:** databasstorlek och point-in-time-återställning, BankID, API för beställare, lasttest och penetrationstest.
 
 ---
 

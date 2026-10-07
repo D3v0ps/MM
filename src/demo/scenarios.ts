@@ -96,9 +96,9 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "chef", view: "chef.oversikt", params: {}, text: "I ledningsvyn syns tidig uppmärksamhet per coach. Kvittera med en kort åtgärd." },
     { role: "admin", view: "admin.avtal", params: { tab: "interna" }, text: "Reglerna (antal veckor, mottagare, kanaler) är interna regler för Miljonbemanning och kan ändras i adminvyn." },
   ] },
-  { id: "s12", title: "Avtalet är konfiguration", lead: "Samma kod för Botkyrka och Kammarkollegiet. Inga avtalsvärden är hårdkodade.", steps: [
+  { id: "s12", title: "Avtalet är konfiguration", lead: "Inga avtalsvärden är hårdkodade. Fler kommunavtal kan läggas till som konfiguration, utan kodändring.", steps: [
     { role: "admin", view: "admin.avtal", params: {}, text: "Se Botkyrkas avtalskonfiguration. Värden som ska fastställas är markerade och aktiveras inte." },
-    { role: "admin", view: "admin.avtal", params: { contract: "c-kk", tab: "jamfor" }, text: "Jämför med skissen för Kammarkollegiet: paketpriser, andra KPI:er och SLA." },
+    { role: "admin", view: "admin.avtal", params: { tab: "priser" }, text: "Prislistan per avtalsområde läses också från avtalet. Priserna i testdatat är exempelpriser." },
     { role: "admin", view: "om.fragor", params: {}, text: "Gå igenom de öppna frågorna till Botkyrka." },
   ] },
   // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns

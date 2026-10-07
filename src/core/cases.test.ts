@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KK_CONFIG } from "./config";
+import { parseContractConfig } from "./config";
 import {
   ackTextFor, aiAllowed, awaitingAnswer, caseCounterId, coaches, duplicateActive, findCaseNumber, formatCaseNumber, nextCaseNumber, orderValueOre, phaseSince, previewNextCaseNumber,
   priceFor, stuck,
@@ -17,7 +17,8 @@ describe("ärendenummer {prefix}-{ÅÅ}-{NNNN}", () => {
     expect(nextCaseNumber(181, env.cfg, "2026")).toEqual({ caseNumber: "BOT-26-0182", lastValue: 182 });
   });
   it("prefixet kommer från avtalets konfiguration", () => {
-    expect(nextCaseNumber(0, KK_CONFIG, 2027).caseNumber).toBe("KK-27-0001");
+    // Ett annat kommunavtal med eget prefix (påhittat).
+    expect(nextCaseNumber(0, parseContractConfig({ casePrefix: "NYK", dataRole: "processor" }), 2027).caseNumber).toBe("NYK-27-0001");
   });
   it("fyller ut till fyra siffror men klipper aldrig", () => {
     expect(formatCaseNumber("BOT", 2027, 7)).toBe("BOT-27-0007");

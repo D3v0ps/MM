@@ -6,7 +6,7 @@ import {
   accessIndex, canSeeNotes, canSeePerson, caseAccess, caseAccessIn, displayName, effectiveCustomerScope, lookupsFor, unitCovers, visibleCases,
   type CaseAccessLookups,
 } from "./access";
-import { BOTKYRKA_CONFIG, KK_CONFIG } from "./config";
+import { BOTKYRKA_CONFIG, parseContractConfig } from "./config";
 
 const A = (userId: string, role: Actor["role"], extra: Partial<Actor> = {}): Actor => ({ userId, role, contractIds: ["c-bot"], ...extra });
 const C = { contractId: "c-bot", leadCoachId: "u-amira", referrerId: "k-maria" };
@@ -64,11 +64,12 @@ describe("caseAccess – prototypens regler", () => {
     expect(caseAccess(null, A("u-johan", "avtalsansvarig"), L())).toBe("none");
   });
   it("bara ärenden i användarens avtal – admin ser alla avtal", () => {
-    const kk = { ...C, contractId: "c-kk" };
-    expect(caseAccess(kk, A("u-sara", "samordnare"), L())).toBe("none");
-    expect(caseAccess(kk, A("k-maria", "kommun_handlaggare"), L())).toBe("none");
-    expect(caseAccess(kk, A("u-lars", "ekonom"), L())).toBe("none");
-    expect(caseAccess(kk, A("u-robin", "admin", { contractIds: [] }), L())).toBe("full");
+    // Ett annat kommunavtal (påhittat id) – flera avtal i datamodellen.
+    const other = { ...C, contractId: "c-ny" };
+    expect(caseAccess(other, A("u-sara", "samordnare"), L())).toBe("none");
+    expect(caseAccess(other, A("k-maria", "kommun_handlaggare"), L())).toBe("none");
+    expect(caseAccess(other, A("u-lars", "ekonom"), L())).toBe("none");
+    expect(caseAccess(other, A("u-robin", "admin", { contractIds: [] }), L())).toBe("full");
   });
 });
 
@@ -98,7 +99,8 @@ describe("canSeeNotes, canSeePerson och displayName", () => {
 describe("avtalskonfiguration och enheter", () => {
   it("synligheten är 'own' så länge avtalet inte fastställt den", () => {
     expect(effectiveCustomerScope(BOTKYRKA_CONFIG)).toBe("own");
-    expect(effectiveCustomerScope(KK_CONFIG)).toBe("own");
+    // Ett avtal i utkast utan fastställd synlighet.
+    expect(effectiveCustomerScope(parseContractConfig({ casePrefix: "NYK", dataRole: "processor", customerVisibility: { seesIndividualReports: false, seesCoachNotes: false } }))).toBe("own");
     expect(effectiveCustomerScope({ customerVisibility: { scope: "unit", seesIndividualReports: true, seesCoachNotes: false } })).toBe("unit");
     expect(effectiveCustomerScope({ customerVisibility: { scope: "ATT_FASTSTÄLLA", prototypeScope: "all", seesIndividualReports: true, seesCoachNotes: false } })).toBe("all");
     expect(effectiveCustomerScope(null)).toBe("own");

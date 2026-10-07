@@ -108,7 +108,7 @@ function RegisterContent({ d }: { d: CdevRegister }) {
       <Card title="Eskaleringstrappan" icon="layers" actions={<BuildPhase fas={2} />}>
         <Stack>
           <Ladder ladder={f.ladder} counts={d.stepCounts} current={d.maxStep} />
-          <div className="text-small text-text-muted">
+          <div className="text-text-muted">
             {d.maxStep == null ? "Inga öppna avvikelser." : `Högsta steg bland öppna avvikelser: ${stepLabel(f.ladder, d.maxStep)}.`} Skriftlig varning kan ges på steg {f.warningSteps.min}–
             {f.warningSteps.max}. Kommunen kan också hålla inne betalning, ta ut vite, besluta om avropsstopp och flytta Miljonbemanning sist i rangordningen vid upprepade fel.
           </div>
@@ -367,7 +367,7 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
           <Check id="cd-stop" checked={f.orderStop} disabled={!can} onCheckedChange={set("orderStop")}>
             Kommunen har beslutat om avropsstopp
           </Check>
-          {!can && <span className="text-small text-text-muted">Varningar, viten och avropsstopp registreras av avtalsansvarig eller chef.</span>}
+          {!can && <span className="text-text-muted">Varningar, viten och avropsstopp registreras av avtalsansvarig eller chef.</span>}
         </div>
       </FormGrid>
     </Modal>
@@ -462,7 +462,7 @@ function MonthSummary({ months, initial }: { months: string[]; initial: string }
                 ))}
               </ul>
             )}
-            <p className="text-small text-text-muted">
+            <p className="text-text-muted">
               Skriftliga varningar hittills: {s.warnings} av {s.warningsBeforeTermination}. Viten hittills:{" "}
               {s.penaltiesOre === undefined ? TESTER_HIDDEN_TEXT.toLowerCase() : kr(s.penaltiesOre)}.
             </p>
@@ -671,7 +671,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                     <Select value={plan.ownerId} onValueChange={(v) => setPlan({ ...plan, ownerId: v })} options={form.owners} />
                   </Field>
                 </FormGrid>
-                <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
+                <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-text-muted">
                   <Icon name="mail" className="mt-px" />
                   <div>
                     <b className="font-bold text-antracit">Kommunens chef får:</b> &quot;En åtgärdsplan inom avtalet med Miljonbemanning väntar på ert godkännande. Logga in i portalen för att
@@ -724,7 +724,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                   ]}
                 />
                 {!cd.customerApprovedAt && !closed && (
-                  <div className="text-small text-text-muted">
+                  <div className="text-text-muted">
                     Kommunens chef{d.customerChefName ? `, ${d.customerChefName},` : ""} godkänner planen i sin portal.
                     <DemoOnly> Byt perspektiv för att se och godkänna den där.</DemoOnly>
                   </div>

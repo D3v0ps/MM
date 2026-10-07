@@ -385,19 +385,19 @@ export function VoiceNotesForCheckIn({ caseId, highlightId, onUse }: { caseId: s
         <Icon name="mic" />
         <span className="font-bold">Deltagarens röstmeddelanden – underlag</span>
       </div>
-      <span className="text-small text-text-muted">Deltagarens egna ord. Använd det som stämmer och skriv sakligt – inga diagnoser.</span>
+      <span className="text-body text-text-muted">Deltagarens egna ord. Använd det som stämmer och skriv sakligt – inga diagnoser.</span>
       {ordered.map((n) => (
         <div key={n.id} className="flex flex-col gap-1.5 border-t border-ljusgra pt-2 first-of-type:border-t-0">
           <div className="flex flex-wrap items-center gap-1.5 text-small">
             <span className="font-bold">{fmtDateTime(n.createdAt)}</span>
             <NoteTags n={n} />
             {n.status === "new" && (
-              <Badge tone="red" icon="bell">
+              <Badge tone="dark" icon="bell">
                 Inte granskat
               </Badge>
             )}
           </div>
-          <blockquote className="m-0 border-l-[3px] border-antracit bg-vit px-3 py-2 text-small [overflow-wrap:anywhere]">{n.textSv}</blockquote>
+          <blockquote className="m-0 border-l-[3px] border-antracit bg-vit px-3 py-2 text-body [overflow-wrap:anywhere]">{n.textSv}</blockquote>
           <div>
             <Button kind="secondary" icon="copy" onClick={() => onUse(`Deltagarens röstmeddelande ${fmtDateShort(n.createdAt)}: ${n.textSv}`)}>
               Lägg till i anteckningen

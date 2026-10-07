@@ -20,7 +20,7 @@
 | **2. "Tala in"** | Kommunens handläggare | Talar in beställningens bakgrund eller ett meddelande → jobbet `transcribe_dictation`: transkribering → **ljudet raderas** → texten tillbaka i fältet → handläggaren läser, rättar och skickar | Bara texten handläggaren skickar. Den transkriberade texten ligger i `ai_runs.output` högst 24 timmar |
 | **3. Deltagarens röstmeddelande** | Deltagaren via länken `/rost/:token` (ingen inloggning) | Samtycke i länken → inspelning på sitt språk → jobbet `transcribe_participant`: transkribering → **ljudet raderas** → översättning till svenska → coachen granskar texten som underlag | Texten i `participant_voice_notes` (svenska + originalspråket), samtyckestextens version och tid. Inget ljud |
 
-Varje del kan slås av per avtal: `contracts.config.ai.recording` (`coach`, `customer`, `participant`), med kommunens godkännande (`approvedByCustomerOn`), längsta inspelning (`maxMinutes`), språk (`languages`) och länkens giltighet (`participantLinkValidDays`). Botkyrka: allt på (godkänt 2026-09-30). Kammarkollegiet: av.
+Varje del kan slås av per avtal: `contracts.config.ai.recording` (`coach`, `customer`, `participant`), med kommunens godkännande (`approvedByCustomerOn`), längsta inspelning (`maxMinutes`), språk (`languages`) och länkens giltighet (`participantLinkValidDays`). Botkyrka: allt på (godkänt 2026-09-30). Ett avtal utan avsnittet `ai` har allt avstängt.
 
 ## Tekniken
 

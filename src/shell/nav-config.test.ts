@@ -4,44 +4,61 @@ import { activePath, navFor, PORTAL_NAV, portalNavFor } from "./nav-config";
 const labels = (role: Parameters<typeof navFor>[0], now: string | null = "2027-02-01T09:12") =>
   navFor(role, { now }).map((g) => [g.label, g.items.map((i) => `${i.label} ${i.to}${i.count ? ` #${i.count}` : ""}`)]);
 
-describe("navFor – samma meny som prototypens NAV", () => {
-  it("samordnare", () => {
+describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", () => {
+  it("samordnare: Min vardag + Samordning", () => {
     expect(labels("samordnare")).toEqual([
-      ["Arbete", ["Startsida /start", "Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Ärenden /arenden"]],
-      ["Uppföljning", ["Rapporter /rapporter", "Bygg rapport /rapportbyggare", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Samordning", ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Bygg rapport /rapportbyggare"]],
     ]);
   });
-  it("avtalsansvarig", () => {
-    expect(labels("avtalsansvarig")[1]).toEqual(["Avtalet", ["Rapporter /rapporter", "Bygg rapport /rapportbyggare", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare"]]);
+  it("avtalsansvarig: Min vardag + Avtalet (Arbetsgivare och praktik är nytt i menyn – rollen har sidan)", () => {
+    expect(labels("avtalsansvarig")).toEqual([
+      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      [
+        "Avtalet",
+        ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare", "Bygg rapport /rapportbyggare"],
+      ],
+    ]);
   });
-  it("coach och handledare", () => {
+  it("coach och handledare: bara Min vardag", () => {
     expect(labels("coach")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro #unregistered", "Mina ärenden /arenden"]],
-      ["Uppföljning", ["Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro #unregistered", "Mina ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
     ]);
-    expect(labels("handledare")).toEqual([["Min vardag", ["Mina tilldelade ärenden /handledare", "Närvaro /narvaro", "Arbetsgivare och praktik /praktik"]]]);
+    expect(labels("handledare")).toEqual([["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro", "Mina tilldelade ärenden /handledare", "Arbetsgivare och praktik /praktik"]]]);
   });
-  it("chef och admin", () => {
+  it("chef: Min vardag + Ledning", () => {
     expect(labels("chef")).toEqual([
-      ["Ledning", ["Ledningsvy /ledning", "Avtalsavvikelser /avtalsavvikelser", "Förfaller /forfaller #deadlines"]],
-      ["Insyn", ["Ärenden /arenden", "Rapporter /rapporter", "Bygg rapport /rapportbyggare", "Revisionslogg /admin/logg"]],
-    ]);
-    expect(labels("admin")[0][1]).toEqual([
-      "Avtal och konfiguration /admin/avtal",
-      "Användare och roller /admin/anvandare",
-      "Underbiträden och integrationer /admin/integrationer",
-      "Mallar och utskick /admin/mallar",
-      "Revisionslogg /admin/logg",
+      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden", "Rapporter /rapporter"]],
+      ["Ledning", ["Ledningsvy /ledning", "Avtalsavvikelser /avtalsavvikelser", "Förfaller /forfaller #deadlines", "Bygg rapport /rapportbyggare", "Revisionslogg /admin/logg"]],
     ]);
   });
-  it("ekonom: fakturakörning för förra månaden enligt klockan", () => {
-    expect(labels("ekonom")).toEqual([["Ekonomi", ["Fakturering /ekonomi", "Fakturakörning januari /ekonomi/2027-01"]]]);
-    expect(labels("ekonom", "2027-01-05T08:00")[0][1]).toEqual(["Fakturering /ekonomi", "Fakturakörning december /ekonomi/2026-12"]);
+  it("systemadministratör: Min vardag (Ärenden i läsläge) + Administratör – Avtal och konfiguration ligger inte i menyn", () => {
+    expect(labels("admin")).toEqual([
+      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden"]],
+      ["Administratör", ["Användare och roller /admin/anvandare", "Underbiträden och integrationer /admin/integrationer", "Mallar och utskick /admin/mallar", "Revisionslogg /admin/logg"]],
+    ]);
+    expect(navFor("admin", { now: null }).flatMap((g) => g.items.map((i) => i.to))).not.toContain("/admin/avtal");
+  });
+  it("ekonom: Min vardag + Ekonomi med fakturakörningen för förra månaden enligt klockan", () => {
+    expect(labels("ekonom")).toEqual([
+      ["Min vardag", ["Min vecka /min-vecka"]],
+      ["Ekonomi", ["Fakturering /ekonomi", "Fakturakörning januari /ekonomi/2027-01"]],
+    ]);
+    expect(labels("ekonom", "2027-01-05T08:00")[1][1]).toEqual(["Fakturering /ekonomi", "Fakturakörning december /ekonomi/2026-12"]);
     // Utan klocka visas bara Fakturering (raden kommer när tiden är hämtad).
-    expect(labels("ekonom", null)[0][1]).toEqual(["Fakturering /ekonomi"]);
+    expect(labels("ekonom", null)[1][1]).toEqual(["Fakturering /ekonomi"]);
+  });
+  it("alla MB-roller börjar menyn med Min vecka, och högst en rollflik", () => {
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) {
+      const groups = navFor(role, { now: "2027-02-01T09:12" });
+      expect(groups[0].label, role).toBe("Min vardag");
+      expect(groups[0].items[0].to, role).toBe("/min-vecka");
+      expect(groups.length, role).toBeLessThanOrEqual(2);
+    }
   });
   it("kommun och deltagare har ingen sidopanel", () => {
     expect(navFor("kommun_handlaggare", { now: null })).toEqual([]);
+    expect(navFor("kommun_chef", { now: null })).toEqual([]);
     expect(navFor("deltagare", { now: null })).toEqual([]);
   });
 });
@@ -77,7 +94,7 @@ describe("rapportbyggaren (rapporter steg 4)", () => {
 });
 
 describe("activePath", () => {
-  const mb = ["/notiser", "/start", "/inkorg", "/arenden", "/ekonomi", "/ekonomi/2027-01"];
+  const mb = ["/notiser", "/min-vecka", "/inkorg", "/arenden", "/ekonomi", "/ekonomi/2027-01"];
   it("samma sökväg eller undersida, längsta träff vinner", () => {
     expect(activePath("/arenden", mb)).toBe("/arenden");
     expect(activePath("/arenden/case-1", mb)).toBe("/arenden");

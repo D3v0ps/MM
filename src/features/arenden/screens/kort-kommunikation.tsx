@@ -29,7 +29,7 @@ export function TabRapporter({ card }: TabProps) {
       <>
         <Badge tone={t[0]} icon={t[1]}>{r.statusLabel}</Badge>
         {r.correctionVersion != null && (
-          <div className="text-small text-text-muted">Rättelse pågår (version {r.correctionVersion}). Kommunen ser den här versionen tills rättelsen levereras.</div>
+          <div className="text-text-muted">Rättelse pågår (version {r.correctionVersion}). Kommunen ser den här versionen tills rättelsen levereras.</div>
         )}
       </>
     );
@@ -199,13 +199,13 @@ export function TabMeddelanden({ card }: TabProps) {
                       rows={4}
                     />
                   </Field>
-                  {draft.restored && body.trim() && <p className="text-small font-bold">Ditt osparade utkast är återställt. Det är inte skickat ännu.</p>}
+                  {draft.restored && body.trim() && <p className="font-bold">Ditt osparade utkast är återställt. Det är inte skickat ännu.</p>}
                   <div className="flex flex-wrap gap-3">
                     <Button kind="primary" type="submit" icon="send" pending={send.pending}>Skicka säkert meddelande</Button>
                   </div>
                 </form>
               ) : (
-                <p className="text-small text-text-muted">{card.readOnly ? "Läsläge – du kan läsa tråden men inte skriva." : "Huvudcoach, samordnare och avtalsansvarig skriver i tråden."}</p>
+                <p className="text-text-muted">{card.readOnly ? "Läsläge – du kan läsa tråden men inte skriva." : "Huvudcoach, samordnare och avtalsansvarig skriver i tråden."}</p>
               )}
             </Stack>
           </Card>
@@ -261,7 +261,7 @@ export function TabHistorik({ card }: TabProps) {
                 }))}
               />
             ) : (
-              <p className="text-small text-text-muted">Ingen historik ännu.</p>
+              <p className="text-text-muted">Ingen historik ännu.</p>
             )}
           </Card>
           <Card
@@ -280,7 +280,7 @@ export function TabHistorik({ card }: TabProps) {
           >
             {h.ownOnly && (
               <div className="px-[18px] pt-4">
-                <p className="text-small text-text-muted">
+                <p className="text-text-muted">
                   Här ser du det du själv har gjort i ärendet: godkända avstämningar och bedömningar, meddelanden, närvaro och ändringar. Statusändringar och coachbyten finns i kortet
                   Status och coachbyten.
                 </p>

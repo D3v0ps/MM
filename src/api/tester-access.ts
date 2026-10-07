@@ -4,7 +4,7 @@
 // Testarna (profiles.is_tester, bara i testmiljön) agerar som testpersoner med påhittade testdata. Bara testarna i
 // FULL_ACCESS_TESTERS ser allt. Alla andra testare – även testare som läggs till senare – är begränsade (neka som standard):
 // de ser inga priser, belopp i kronor, fakturaunderlag, prisartiklar, viten i kronor, bonusunderlag, Miljonbemannings interna
-// mål (t.ex. 35 % för resultatgraden) eller avtalssidan och avtalsjämförelsen – vilken testperson de än agerar som.
+// mål (t.ex. 35 % för resultatgraden) eller avtalssidan – vilken testperson de än agerar som.
 // Avtalsmålet (t.ex. 32 %) är avtalets gemensamma mål som kommunen själv ser – det visas för alla.
 //
 // Actor.testerId sätts bara av servern i testmiljön (src/server/identity.ts) och är den inloggade testarens EGEN profil, även

@@ -66,7 +66,8 @@ export function ParsedCard({ p }: { p: ParsedView }) {
   return (
     <Card title="Tolkat formulär" icon="clipboard" actions={head} flush>
       <Legend>
-        <span>{p.help}</span>
+        {/* Förklaringen är en mening (16 px); antalen bredvid är metadata (14 px). */}
+        <span className="basis-full text-body">{p.help}</span>
         <span className="inline-flex items-center gap-1.5"><Icon name="alert" /><b>{p.nMissing}</b> saknas</span>
         <span className="inline-flex items-center gap-1.5"><Icon name="alert-circle" /><b>{p.nLow}</b> osäkra (under {pct(LOW, 0)})</span>
         {p.aiRun && <span>{p.aiRun}</span>}
@@ -89,7 +90,7 @@ export function CaseFieldsCard({ v }: { v: CaseFieldsView }) {
   return (
     <Card title={v.title} icon="clipboard" actions={<Badge tone="outline" icon={m.icon}>{m.label}</Badge>} flush>
       <Legend>
-        <span>{m.help}</span>
+        <span className="basis-full text-body">{m.help}</span>
       </Legend>
       <div className="@container">
         {v.groups.map((g) => (
@@ -125,7 +126,7 @@ export function AckCard({ a, c }: { a: AckView; c: ItemCase | null }) {
         {a.leak ? (
           <Notice tone="critical" title="Personuppgifter i utskicket">Texten innehåller namn eller personnummer. Det får aldrig hända – anmäl till systemadministratören.</Notice>
         ) : (
-          <IconLine icon="shield" className="text-small">
+          <IconLine icon="shield">
             <b>Inga personuppgifter.</b>{" "}
             {a.generic
               ? "Svaret nämner varken deltagaren eller något ärendenummer, eftersom inget ärende skapas automatiskt."
@@ -157,7 +158,7 @@ export function DuplicateCard({ d }: { d: DuplicateView }) {
       ) : (
         <Notice tone="ok" title="Ingen annan aktiv insats">Kontrollerat mot personnumret inom avtalet. En person kan ha flera ärenden över tid, men inte två aktiva samtidigt.</Notice>
       )}
-      <div className="mt-2.5 text-small text-text-muted">Sökningen görs på en krypterad kontrollsumma av personnumret, aldrig i klartext.</div>
+      <div className="mt-2.5 text-text-muted">Sökningen görs på en krypterad kontrollsumma av personnumret, aldrig i klartext.</div>
     </Card>
   );
 }
@@ -203,7 +204,7 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
             {v.leadNotif.others}
           </Notice>
         )}
-        <div className="flex flex-col gap-2 text-small">
+        <div className="flex flex-col gap-2">
           {v.custMail && <IconLine icon="mail"><b>Kommunen fick:</b> {v.custMail}</IconLine>}
           {v.isProtected ? (
             <IconLine icon="lock"><b>Deltagaren:</b> ingen kallelse via SMS eller e-post (skyddade personuppgifter). Coachen ringer enligt den säkra rutinen.</IconLine>
@@ -218,11 +219,12 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
 
 export function DeclinedCard({ d }: { d: DeclinedView }) {
   return (
-    <Card tone="red" title="Avropet är avböjt" icon="x-circle">
+    // Ett avböjt avrop är avslutat, inte brådskande – inget rött kort (Min veckas stil: rött bara för det som brådskar).
+    <Card title="Avropet är avböjt" icon="x-circle">
       <div className="flex flex-col gap-4">
         <Kv items={[["Avböjt", `${d.when}${d.by ? ` av ${d.by}` : ""}`], ["Orsak", d.reason]]} />
-        {d.mail && <IconLine icon="mail" className="text-small"><b>Kommunen fick:</b> {d.mail}</IconLine>}
-        <div className="text-small text-text-muted">Orsaken är loggad och syns för kommunen i portalen. Avböjda avrop följs upp i avtalsuppföljningen.</div>
+        {d.mail && <IconLine icon="mail"><b>Kommunen fick:</b> {d.mail}</IconLine>}
+        <div className="text-text-muted">Orsaken är loggad och syns för kommunen i portalen. Avböjda avrop följs upp i avtalsuppföljningen.</div>
       </div>
     </Card>
   );

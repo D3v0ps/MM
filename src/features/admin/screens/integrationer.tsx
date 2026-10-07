@@ -7,23 +7,37 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { Badge, BuildPhase, Button, Card, CellSub, DemoNote, Grid, Icon, Kpi, Notice, Page, QueryView, Section, Split, Stack, Table, toast } from "@/ui";
 import { TestDataReset } from "@/features/session/screens/test-data-reset";
 import {
-  adminIntegrations, adminRunJob, type DataProtectionView, type IntegrationStatus, type IntegrationsView, type JobRow, type JobStatusView, type SubprocessorStatus,
+  adminIntegrations, adminRunJob, type DataProtectionView, type IntegrationStatus, type IntegrationsView, type JobRow, type SubprocessorStatus,
 } from "../api";
-import { KV, Masonry } from "./parts";
+import { JOB_STATUS, KV, Masonry } from "./parts";
 
 const INT_STATUS: Record<IntegrationStatus, ReactNode> = {
   active: <Badge tone="blue" icon="check-circle">Aktiv</Badge>,
   test: <Badge tone="bluetone" icon="sparkles">Test</Badge>,
-  chosen: <Badge tone="bluetone" icon="clock">Vald – väntar på kommunens godkännande</Badge>,
+  chosen: <Chosen />,
   off: <Badge tone="grey" icon="minus-circle">Ej ansluten</Badge>,
   notchosen: <Badge tone="outline" icon="alert-circle">Ej vald</Badge>,
 };
-const JOB_STATUS: Record<JobStatusView, ReactNode> = {
-  ok: <Badge tone="blue" icon="check">Klar</Badge>,
-  waiting: <Badge tone="grey" icon="clock">Väntar</Badge>,
-  disabled: <Badge tone="outline" icon="minus-circle">Inte aktiverad</Badge>,
-  failed: <Badge tone="red" icon="alert">Fel</Badge>,
-};
+
+/** Vald men inte godkänd: märket "Vald" och meningen i brödtextens storlek (16 px). */
+function Chosen() {
+  return (
+    <span className="flex flex-col items-start gap-1">
+      <Badge tone="bluetone" icon="clock">Vald</Badge>
+      <span className="text-text-muted">Väntar på kommunens godkännande.</span>
+    </span>
+  );
+}
+
+/** Amerikanskt bolag: en mening (16 px) med ikon, inte en underrad i 14 px. */
+function ThirdCountry() {
+  return (
+    <span className="mt-1 flex items-start gap-1.5 text-text-muted">
+      <Icon name="globe" className="mt-1 flex-none" />
+      <span>Amerikanskt bolag – åtkomst från tredje land ska godkännas skriftligt.</span>
+    </span>
+  );
+}
 
 export function IntegrationerScreen() {
   const q = useQuery(adminIntegrations, {});
@@ -57,7 +71,8 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
         {dp && <SubprocessorKpi dp={dp} />}
         <Kpi label="Integrationer" value={`${active} av ${INT.length}`} sub="aktiva" />
         <Kpi label="Bakgrundsjobb" value={d.jobs.length} sub={`${d.jobs.filter((j) => j.status === "failed").length} fel senaste dygnet`} />
-        <Kpi label="Data lagras i" value={d.storage.place} sub={d.storage.detail} />
+        {/* Ordet (t.ex. "Stockholm") krymper i en smal ruta i stället för att gå utanför den (fyra rutor vid 1024 px). */}
+        <Kpi className="[container-type:inline-size] [&>div:nth-child(2)]:text-[clamp(1.25rem,14cqi,2rem)]" label="Data lagras i" value={d.storage.place} sub={d.storage.detail} />
       </Grid>
 
       {/* Saknas för begränsade testare (servern lämnar inte ut uppgifterna). */}
@@ -85,7 +100,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
         icon="refresh"
         flush
         foot={
-          <span className="text-small text-text-muted">
+          <span className="text-text-muted">
             Jobben startas automatiskt varje minut. Ett jobb som körs om gör aldrig samma sak två gånger, försöker ett begränsat antal gånger och sparar
             orsaken när något går fel.
           </span>
@@ -108,7 +123,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
             },
             { key: "last", label: "Senaste körning", nowrap: true, render: (j) => (j.last ? <>{fmtDateTime(j.last)}{j.manual && <CellSub>Manuellt av {j.manualBy}</CellSub>}</> : "–") },
             { key: "status", label: "Status", render: (j) => JOB_STATUS[j.status] },
-            { key: "result", label: "Resultat", render: (j) => <span className="text-small">{j.result}</span> },
+            { key: "result", label: "Resultat", render: (j) => <span>{j.result}</span> },
             {
               key: "run", label: "Kör",
               render: (j) => (
@@ -152,7 +167,7 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
         <CellSub>{fmtDate(dp.approvedOn)} · simulerad tills kontot i Google Cloud finns</CellSub>
       </>
     ) : s === "chosen" ? (
-      <Badge tone="bluetone" icon="clock">Vald – väntar på kommunens godkännande</Badge>
+      <Chosen />
     ) : (
       <Badge tone="outline" icon="alert-circle">Ej vald – fråga 18</Badge>
     );
@@ -171,7 +186,7 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
         title="Underbiträden"
         icon="shield"
         flush
-        foot={<span className="text-small text-text-muted">Listan hålls kort. Ett nytt verktyg som behandlar personuppgifter – till exempel felrapportering – läggs till här och godkänns av kommunen först.</span>}
+        foot={<span className="text-text-muted">Listan hålls kort. Ett nytt verktyg som behandlar personuppgifter – till exempel felrapportering – läggs till här och godkänns av kommunen först.</span>}
       >
         <Table
           caption="Underbiträden"
@@ -179,7 +194,7 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
           columns={[
             { key: "name", label: "Leverantör", render: (s) => <span className="font-bold">{s.name}</span> },
             { key: "what", label: "Behandling" },
-            { key: "where", label: "Plats", render: (s) => (<>{s.where}{s.us && <CellSub>Amerikanskt bolag – åtkomst från tredje land ska godkännas skriftligt</CellSub>}</>) },
+            { key: "where", label: "Plats", render: (s) => (<>{s.where}{s.us && <ThirdCountry />}</>) },
             { key: "status", label: "Status", render: (s) => subStatus(s.status) },
           ]}
         />
@@ -199,7 +214,7 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
         <Card title="Så ser kommunen det" icon="building">
           <Stack gap="sm">
             <p>Underbiträdesförteckningen och instruktionerna ingår i PUB-avtalet med Botkyrka. Kommunen är personuppgiftsansvarig och Miljonbemanning är personuppgiftsbiträde.</p>
-            <p className="text-small text-text-muted">
+            <p className="text-text-muted">
               Vid avtalsslut lämnas data tillbaka inom {dp.returnDataWithinDays ?? "–"} dagar och raderas sedan. Incidenter rapporteras till kommunen enligt PUB-avtalet.
             </p>
           </Stack>

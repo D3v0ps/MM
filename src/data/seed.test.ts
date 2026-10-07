@@ -73,9 +73,10 @@ describe("antal rader per tabell", () => {
   it("är prototypens antal (mappat till nya tabellnamn)", () => {
     const n = (name: keyof Tables) => (seed[name] as unknown[]).length;
     const samples = fs.existsSync(SAMPLES_FILE) ? (JSON.parse(fs.readFileSync(SAMPLES_FILE, "utf8")) as { counts: Record<string, number> }).counts : null;
-    // [nytt tabellnamn, prototypens namn, antal i nuvarande prototyp]
+    // [nytt tabellnamn, prototypens namn, antal i nuvarande prototyp]. Avvikelse: prototypen har två avtal – Miljonmatch har
+    // bara kommunavtal, och det andra avtalet (med dess organisation och medlemskap) är borttaget ur testdatat (beslut 2026-10-06).
     const rows: [keyof Tables, string, number][] = [
-      ["contracts", "contracts", 2], ["contract_areas", "areas", 12], ["price_items", "priceItems", 12], ["buyer_references", "buyerReferences", 4],
+      ["contracts", "contracts", 1], ["contract_areas", "areas", 12], ["price_items", "priceItems", 12], ["buyer_references", "buyerReferences", 4],
       ["persons", "persons", 230], ["cases", "cases", 231], ["case_status_history", "caseStatusHistory", 594], ["inbound_emails", "inboundEmails", 27],
       ["intake_assessments", "intakeAssessments", 225], ["activities", "activities", 3861], ["attendance", "attendance", 3590],
       ["check_ins", "checkIns", 1145], ["monthly_assessments", "monthlyAssessments", 352], ["monthly_plans", "monthlyPlans", 352],
@@ -87,17 +88,17 @@ describe("antal rader per tabell", () => {
     for (const [table, , count] of rows) expect([table, n(table)]).toEqual([table, count]);
     // data-samples.json är från en äldre seed: avstämningar 1144, händelser 230, avvikelser 18, praktik 159, uppgifter 0.
     // Den nuvarande prototypen (paritetstestet ovan) har 1145, 228, 19, 158 och 2. Övriga antal stämmer med filen.
-    const STALE = new Set(["checkIns", "outcomeEvents", "deviations", "placements", "tasks"]);
+    const STALE = new Set(["checkIns", "outcomeEvents", "deviations", "placements", "tasks", "contracts"]);
     if (samples) for (const [table, proto] of rows) if (!STALE.has(proto)) expect([proto, n(table)]).toEqual([proto, samples[proto]]);
     // users + customerUsers -> profiles; ett medlemskap per användare och avtal
     expect(n("profiles")).toBe(13 + 5);
-    expect(n("memberships")).toBe(18 + 2); // avtalsansvarig och admin även i KK-avtalet
+    expect(n("memberships")).toBe(18); // ett medlemskap per användare – alla i Botkyrkaavtalet
     expect(n("user_notifications")).toBe(63);
     expect(n("notification_reads")).toBe(seed.user_notifications.filter((x) => x.createdAt < "2027-01-29").length);
     expect(n("case_team")).toBe(createProtoState().cases.reduce((sum, c) => sum + c.team.length, 0));
     expect(seed.case_team.filter((t) => t.role === "lead_coach").length).toBe(seed.cases.filter((c) => c.leadCoachId).length);
     expect(n("case_counters")).toBe(2);
-    expect(n("organizations")).toBe(3);
+    expect(n("organizations")).toBe(2); // Miljonbemanning och Botkyrka kommun
     expect(n("holidays")).toBe(32);
   });
 });
@@ -206,7 +207,9 @@ describe("mappning till tabellerna", () => {
     expect(bot.config.kpis?.find((k) => k.key === "resultatgrad")?.contractTarget).toBe(0.32);
     expect(byId("organizations", bot.customerId)!.emailDomains).toEqual(["botkyrka.se"]);
     expect(byId("organizations", bot.supplierId)!.name).toBe("Miljonbemanning AB");
-    expect(byId("contracts", "c-kk")!.status).toBe("draft");
+    expect(bot.status).toBe("active");
+    expect(seed.contracts.map((c) => c.id)).toEqual(["c-bot"]);
+    expect(seed.memberships.every((m) => m.contractId === "c-bot")).toBe(true);
     expect(seed.org_settings[0].settings.notifications.progressionWatch.escalateTo).toEqual(["chef"]);
   });
   it("användare blir profiler och medlemskap med rätt roll", () => {
