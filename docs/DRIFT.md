@@ -30,6 +30,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Supabase-projekt för testmiljön | Klart: `miljonmatch`, ref **`blxupsebzzhmjitaywev`**, eu-north-1 (Stockholm), `https://blxupsebzzhmjitaywev.supabase.co` |
 | Migrationer 0001–0017 | 0001–0016 applicerade i testprojektet av samordnaren (i 0016 görs `drop index` för hand). **0017 (synpunkter i testmiljön) appliceras av samordnaren samtidigt som koden med "Lämna synpunkt" går live** (steg 1 nedan) |
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
+| Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
 | Resend | Domänen **`miljonmatch.se`** verifierad i EU (beslut 2026-10-01), DNS-posterna hos one.com. Avsändare `notis@miljonmatch.se`. Resend skickar inte längre från `miljonbemanning.se` (avsnitt 4.2) |
@@ -243,8 +244,13 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | **ja** | Tjänstekontots JSON-nyckel som base64 (rollen *Vertex AI User*) | *(base64)* | Avsnitt 10, steg 4 |
 | `MM_AI_PRICES` | | Prislista för kostnaden i `ai_runs`, i öre per miljon token: `{"audioIn":…,"textIn":…,"output":…}`. Tom = kostnad 0 | *(från Googles prislista)* | Avsnitt 10, steg 6 |
 | `MM_AI_THINKING` | | Valfri resonemangsnivå: `minimal`, `low`, `medium`, `high`. Tom = lägsta rimliga (`docs/AI.md`) | *(tomt)* | Fast värde |
+| `MS_GRAPH_TENANT_ID` | | Mejlinläsningen från avrop@ (avsnitt 12): katalog-id (tenant) i Microsoft Entra | *(GUID)* | Entra → *Appregistreringar → appen → Översikt* |
+| `MS_GRAPH_CLIENT_ID` | | Appregistreringens klient-id (applikations-id) | *(GUID)* | Samma sida |
+| `MS_GRAPH_CLIENT_SECRET` | **ja** | Klienthemligheten. Byt den innan den går ut | *(hemlighet)* | Entra → *Certifikat och hemligheter* |
+| `MM_INBOX_MAILBOX` | | Brevlådan som läses. Appen får bara nå den (ApplicationAccessPolicy) | `avrop@miljonbemanning.se` | Fast värde |
+| `MM_INBOX_DONE_FOLDER` | | Mappen dit inlästa mejl flyttas (skapas om den saknas). Tom = `Inläst` | `Inläst` | Fast värde |
 
-Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
+Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/admin/integrationer` visar "Inte kopplad – så här kopplar du". Kommer senare: Microsoft Entra-inloggning, SMS-leverantör och Fortnox. AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
 
 ### 5.1 Nycklarna för personnummer (`MM_PNR_KEY`, `MM_PNR_HMAC_KEY`)
 - Personnummer krypteras i appen (AES-256-GCM) innan de sparas och söks via en HMAC-hash av de tio sista siffrorna (CLAUDE.md punkt 2). Nycklarna finns bara på servern (`src/server/crypto.ts`, `import "server-only"`) och når aldrig webbläsaren.
@@ -388,3 +394,40 @@ Alla är systemadministratörer i Botkyrkaavtalet (det enda avtalet i testdatat)
 - **Synpunkterna finns kvar** när testdatat läses in på nytt (0017 ändrar `mm.reset_test_data()`), och seeden rör dem inte.
 - Tiden på en synpunkt är testklockans (testtid, t.ex. 1 februari 2027), som allt annat i testmiljön.
 - Prototypen (artefakten) har kvar sin egen feedback i claude.ai med samma fält och texter.
+
+---
+
+## 12. Mejlinläsning från avrop@ – Microsoft Graph (beslut 4c, 2026-10-08)
+
+Appen läser brevlådan **avrop@miljonbemanning.se** varannan minut (jobbet `inbox_import`, `docs/UTSKICK.md`): olästa mejl i Inkorgen hämtas, tolkas, blir rader i avropsinkorgen (och ärenden med ordererkännande när avropet går att tolka) och flyttas till mappen **Inläst**, där de ligger kvar som reserv. Ingenting raderas i brevlådan. Tills brevlådan är kopplad säger kortet *avrop@-brevlådan* på `/admin/integrationer` "Inte kopplad – så här kopplar du", och samordnaren registrerar mejlavrop för hand (*Avropsinkorg → Registrera beställning*).
+
+**Så kopplar du (en gång, ca 20 minuter). Du behöver vara global administratör i Miljonbemannings Microsoft 365.**
+
+1. **Appregistrering.** [entra.microsoft.com](https://entra.microsoft.com) → *Identitet → Program → Appregistreringar → Ny registrering*. Namn `Miljonmatch avrop-inläsning`, *Endast konton i den här organisationskatalogen*, ingen omdirigerings-URI. Anteckna **Program-id (klient)** och **Katalog-id (klientorganisation)** från översikten.
+2. **Behörighet.** *API-behörigheter → Lägg till en behörighet → Microsoft Graph → Programbehörigheter* → `Mail.ReadWrite` (appen läser och flyttar mejl – ingen delegerad behörighet, ingen användare loggar in). Klicka sedan **Bevilja administratörsmedgivande för Miljonbemanning**. Ta bort `User.Read` om den lades till automatiskt.
+3. **Begränsa till brevlådan avrop@** (annars når appen alla brevlådor i tenanten). I Exchange Online PowerShell (`Install-Module ExchangeOnlineManagement`, `Connect-ExchangeOnline`):
+   ```powershell
+   New-DistributionGroup -Name "Miljonmatch avrop-inlasning" -Type Security -PrimarySmtpAddress miljonmatch-avrop@miljonbemanning.se
+   Add-DistributionGroupMember -Identity "Miljonmatch avrop-inlasning" -Member avrop@miljonbemanning.se
+   New-ApplicationAccessPolicy -AppId <Program-id> -PolicyScopeGroupId miljonmatch-avrop@miljonbemanning.se -AccessRight RestrictAccess -Description "Miljonmatch far bara lasa avrop@"
+   Test-ApplicationAccessPolicy -Identity avrop@miljonbemanning.se -AppId <Program-id>   # AccessCheckResult: Granted
+   Test-ApplicationAccessPolicy -Identity karim.khalil@miljonbemanning.se -AppId <Program-id>   # Denied
+   ```
+   Policyn slår igenom inom ungefär en halvtimme. (Är avrop@ en delad brevlåda fungerar samma kommandon.)
+4. **Hemlighet.** *Certifikat och hemligheter → Ny klienthemlighet* (giltig högst 24 månader – lägg in ett datum i kalendern för bytet). Kopiera **värdet** direkt; det visas bara en gång.
+5. **Vercel.** *Settings → Environment Variables* (Production): `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`, `MS_GRAPH_CLIENT_SECRET` (hemlig), `MM_INBOX_MAILBOX=avrop@miljonbemanning.se`, `MM_INBOX_DONE_FOLDER=Inläst` (avsnitt 5). Hemligheten skrivs aldrig i repot, chatten eller ett mejl. *Redeploy*.
+6. **Kontroll.** Inom två minuter visar kortet *avrop@-brevlådan* **Kopplad** med "Senast läst". Skicka ett testmejl till avrop@ från en adress på botkyrka.se (eller från en kollega – då blir det "Övrigt"): det ska flyttas till Inläst och synas i avropsinkorgen. `select kind, status, last_error from jobs where kind = 'inbox_import' order by created_at desc limit 5;` ska visa `done`.
+
+**Dataskydd.** Mejlen ligger kvar i Microsoft 365 (Miljonbemannings EU-tenant); appen läser dem från Vercels funktioner i Stockholm (arn1) och sparar text, tolkade uppgifter och bilagor i Supabase (eu-north-1). Microsoft är redan underbiträde (inloggning och brevlådan); behörigheten är begränsad till en brevlåda. Inga adresser, ämnesrader eller mejltexter hamnar i loggar, felorsaker eller i jobbtabellen – bara steg och HTTP-status.
+
+**Felsökning**
+
+| Kortet eller jobbet säger | Kontrollera |
+|---|---|
+| Inte kopplad | Någon av de fyra variablerna saknas i Vercel (Production), eller driftsättningen gjordes före ändringen |
+| `inloggningen svarade 401/400` | Fel klient-id, hemlighet eller katalog-id; hemligheten har gått ut |
+| `listningen svarade 403` | Administratörsmedgivandet saknas, eller ApplicationAccessPolicy nekar (kör `Test-ApplicationAccessPolicy`) |
+| `listningen svarade 404` | `MM_INBOX_MAILBOX` stavad fel, eller brevlådan är inte en Exchange-brevlåda |
+| `svarade 429` / `5xx` / `kunde inte nås` | Tillfälligt – jobbet försöker igen (1, 5, 15, 60 minuter) |
+| Mejl ligger kvar olästa i Inkorgen | Jobbkörningen står still (pg_cron, `docs/UTSKICK.md`) eller flytten misslyckas (`moveErrors` i kortet) – raderna finns redan, bara flytten görs om |
+| Ett avrop blev "att registrera för hand" | Mallens etiketter saknades eller personnumret hade fel format – samordnaren klickar *Registrera beställningen* i inkorgen |

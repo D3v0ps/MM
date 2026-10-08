@@ -12,7 +12,7 @@ import type { LocalDateTime } from "@/core/time";
 import type { AppRepo, Membership, Profile } from "@/data/schema";
 
 export type SelfRegisterResult =
-  | { ok: true; profileId: string; contractIds: string[]; domain: string }
+  | { ok: true; profileId: string; contractIds: string[]; domain: string; linkedCases: number }
   | { ok: false; reason: "exists" | "not_allowed" };
 
 /** Titeln på ett konto som handläggaren skapade själv (rollens namn). */
@@ -48,11 +48,25 @@ export async function selfRegister(system: AppRepo, o: { email: string; now: Loc
     const m: Membership = { id: `${id}:${contractId}`, userId: id, contractId, role: "kommun_handlaggare", customerUnit: null };
     await system.table("memberships").insert(m);
   }
-  return { ok: true, profileId: id, contractIds, domain: emailDomainOf(email) };
+  const linkedCases = await linkCasesToProfile(system, { profileId: id, email, contractIds });
+  return { ok: true, profileId: id, contractIds, domain: emailDomainOf(email), linkedCases };
+}
+
+/**
+ * Beställningar som Miljonbemanning registrerade åt handläggaren innan hen hade konto (beslut 4a, 2026-10-08): ärenden i
+ * avtalen med samma e-postadress och utan beställare kopplas till det nya kontot, så att handläggaren ser dem i portalen.
+ * Systemsteg (system). Returnerar antalet kopplade ärenden.
+ */
+export async function linkCasesToProfile(system: AppRepo, o: { profileId: string; email: string; contractIds: readonly string[] }): Promise<number> {
+  if (!o.contractIds.length) return 0;
+  const email = o.email.trim().toLowerCase();
+  const rows = await system.table("cases").list({ referrerEmail: email, referrerId: { isNull: true }, contractId: { in: [...o.contractIds] } });
+  for (const c of rows) await system.table("cases").update(c.id, { referrerId: o.profileId });
+  return rows.length;
 }
 
 /** Revisionsloggens rad för självregistreringen (anroparen skriver den med sin audit-funktion). */
 export const selfRegisteredAudit = (r: Extract<SelfRegisterResult, { ok: true }>) => ({
   action: "profile.self_registered", entity: "profile", entityId: r.profileId, contractId: r.contractIds[0] ?? null,
-  details: { contractIds: r.contractIds, domain: r.domain },
+  details: { contractIds: r.contractIds, domain: r.domain, linkedCases: r.linkedCases },
 });

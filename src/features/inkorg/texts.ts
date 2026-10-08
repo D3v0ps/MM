@@ -46,13 +46,15 @@ export function refErrorMB(s: string | null | undefined, pattern: string, length
 }
 
 // ---------------------------------------------------------------- Inkorgens poster
-export type InboxMethod = "template" | "ai" | "manual" | "portal" | "phone";
+export type InboxMethod = "template" | "ai" | "manual" | "portal" | "phone" | "registered";
 export const METHOD: Record<InboxMethod, { label: string; icon: IconName; help: string }> = {
   template: { label: "Word-mall", icon: "file", help: "Word-mallen (01) tolkas utan AI, via de fasta etiketterna i tabellcellerna. Samma resultat varje gång." },
   ai: { label: "AI – fritext", icon: "sparkles", help: "Fritext och avvikande mallar tolkas med AI. AI föreslår – samordnaren kontrollerar mot originalet." },
-  manual: { label: "Ingen tolkning", icon: "lock", help: "Ingen automatisk tolkning. En människa läser mejlet." },
+  manual: { label: "Ingen tolkning", icon: "lock", help: "Ingen automatisk tolkning. En människa läser mejlet och registrerar beställningen i inkorgen." },
   portal: { label: "Portalen", icon: "globe", help: "Handläggaren fyllde i beställningen själv. Fälten validerades direkt i formuläret." },
-  phone: { label: "Telefon", icon: "phone", help: "Registrerad efter ett telefonsamtal med handläggaren." },
+  phone: { label: "Telefon", icon: "phone", help: "Registrerad av Miljonbemanning efter ett telefonsamtal med handläggaren." },
+  // Beslut 4a (2026-10-08): ett mejl (eller en beställning som kom på annat sätt) som Miljonbemanning registrerade för hand.
+  registered: { label: "Registrerad av Miljonbemanning", icon: "edit", help: "Uppgifterna skrevs in av Miljonbemanning från mejlet eller samtalet. Ingen automatisk tolkning." },
 };
 // order_protected (skyddade personuppgifter) finns kvar i typen för gamla mejl men visas som Övrigt (beslut 2026-10-07).
 export const CLASSIFICATION: Record<EmailClassification, string> = { order: "Beställning", supplement: "Komplettering", order_protected: "Övrigt", other: "Övrigt" };

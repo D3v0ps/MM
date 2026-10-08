@@ -62,7 +62,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "ekonomi.preview": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.case": one("u-lars", { caseId: NADIA }), "ekonomi.caseList": one("u-lars"), "ekonomi.priceList": one("u-lars"), "ekonomi.start": one("u-lars"),
   "inkorg.list": one("u-sara"), "inkorg.item": [...one("u-sara", { id: "em-103" }), ...one("u-sara", { id: "em-101" }), ...one("u-sara", { id: "em-105" }), ...one("u-sara", { id: "em-104" })], "inkorg.confirmation": one("u-sara", { caseId: "case-270049" }),
   "inkorg.decisionForm": one("u-sara", { caseId: "case-270050" }), "inkorg.duplicateCheck": one("u-sara", { pnr: "19900101-1234" }),
-  "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"),
+  "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"), "inkorg.registerForm": [...one("u-sara"), ...one("u-sara", { emailId: "em-102" })],
   "kommun.start": one("k-maria"), "kommun.bestallning": one("k-maria"), "kommun.dubblett": one("k-maria", { pnr: "19900101-1234" }),
   "kommun.kvitto": one("k-maria", { caseId: NADIA }), "kommun.deltagareLista": one("k-maria"), "kommun.deltagare": one("k-maria", { caseId: NADIA }),
   "kommun.rapporter": one("k-maria"), "kommun.profil": one("k-maria"), "kommun.testpersoner": one("k-maria", { userIds: ["k-maria"] }), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
@@ -117,6 +117,8 @@ const WRITES: Record<string, string[]> = {
   "inkorg.emailSetStatus": ["inbound_emails", AUDIT_CASE, AUDIT], "inkorg.emailApplySupplement": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
   "inkorg.correct": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
   "inkorg.taskDone": ["tasks", AUDIT], "inkorg.revealPnr": [AUDIT_CASE, AUDIT],
+  // Registrera beställning (beslut 4a): samma rader som caseCreate plus mejlet.
+  "inkorg.register": ["persons", "case_counters", "cases", "case_status_history", "inbound_emails", "outbound_messages", "case_attachments", AUDIT_CASE, AUDIT],
   "kommun.caseSeen": ["case_seen"], "kommun.taskDone": ["tasks", AUDIT], "kommun.visaPersonnummer": [AUDIT_CASE, AUDIT], "kommun.profilSpara": ["profiles", AUDIT],
   "kommun.dictationFinish": ["ai_runs", "jobs", "audio_uploads", AUDIT],
   "ledning.alertAck": ["alert_acks", AUDIT_CASE, AUDIT], "ledning.cdevSave": ["contract_deviations", AUDIT], "ledning.cdevClose": ["contract_deviations", AUDIT],
@@ -209,7 +211,7 @@ function knownFor(command: string, query: string, tables: string[]): number[] | 
 /** Frågor som bara slår upp rader (get) eller bara läser uppslagstabeller – de får ingen automatisk kontroll (men står i planen). */
 const NO_TABLES = [
   "admin.auditDetail", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "ekonomi.priceList", "inkorg.duplicateCheck",
-  "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "kommun.testpersoner", "puls.link",
+  "inkorg.registerForm", "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "kommun.testpersoner", "puls.link",
   "rapporter.byggKatalog", "rapporter.sparad", "rost.link", "rost.sendStatus", "session.ping",
 ];
 

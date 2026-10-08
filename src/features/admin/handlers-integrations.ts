@@ -1,6 +1,9 @@
 // Hanterare: underbiträden, integrationer och bakgrundsjobb (/admin/integrationer).
-// Källa: prototyp/src/views/admin.js (admin.integrationer, jobRows, admin.runJob). Integrationerna och jobben är simulerade
-// i prototypen; manuella körningar sparas i tabellen jobs (payload.manual = true) och loggas i revisionsloggen.
+// Källa: prototyp/src/views/admin.js (admin.integrationer, jobRows, admin.runJob). De flesta jobben är simulerade i
+// prototypen; manuella körningar sparas i tabellen jobs (payload.manual = true) och loggas i revisionsloggen.
+// Brevlådan avrop@ (beslut 4c, 2026-10-08): kortet byggs av integrationsraden "graph", som jobbet inbox_import skriver
+// (src/server/jobs/inbox.ts) – kopplad (senast läst, antal, senaste fel) eller inte kopplad med stegen för att koppla.
+// "Kör nu" för avrop@ lägger ett riktigt jobb som jobbkörningen tar (supabase-läget).
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { handleCommand, handleQuery } from "@/api/server";
@@ -13,6 +16,7 @@ import { resultRate } from "@/core/kpi";
 import { progressionWatch } from "@/core/progression";
 import { addDays, dayOf, fmtDateTime, fmtTime, fmtWeekKey, isoWeek, monday } from "@/core/time";
 import { JOB_NAME, type JobKey } from "./audit-text";
+import type { Integration, Job } from "@/data/schema";
 import { hidesCommercial } from "@/api/tester-access";
 import { adminIntegrations, adminRunJob, type IntegrationView, type JobRow, type JobStatusView, type SubprocessorView } from "./api";
 import { mainContract, orgRow, userNames } from "./shared";
@@ -31,8 +35,57 @@ const SUBPROCESSORS: SubprocessorView[] = [
   // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se. Ska in i
   // PUB-avtalets förteckning över underbiträden och godkännas av Botkyrka.
   { id: "epost", name: "Resend (e-post)", what: "Notiser och inloggningskoder från notis@miljonmatch.se", where: "EU (Irland, eu-west-1)", status: "chosen", us: true },
-  { id: "microsoft", name: "Microsoft", what: "Inloggning (Entra ID) och avrop@-brevlådan (Graph)", where: "Befintligt Microsoft 365", status: "approved", us: true },
+  // Beslut 4c (2026-10-08): brevlådan avrop@ läses via Graph med applikationsbehörighet begränsad till den brevlådan (docs/DRIFT.md avsnitt 12).
+  { id: "microsoft", name: "Microsoft", what: "Inloggning (Entra ID) och avrop@-brevlådan (Graph, bara brevlådan avrop@ – mejlen ligger kvar i Microsoft 365)", where: "Befintligt Microsoft 365 (EU)", status: "approved", us: true },
 ];
+
+/** Jobbtypen i tabellen jobs för en rad i adminvyn: avrop@ är ett riktigt jobb (inbox_import), övriga simulerade. */
+const JOB_KIND: Record<JobKey, string> = { inbox: "inbox_import", weekly: "weekly", att_remind: "att_remind", progress: "progress", audio: "audio", transcripts: "transcripts", kpi: "kpi", retention: "retention" };
+
+/** Läget för brevlådan ur integrationsraden "graph" (skrivs av jobbet inbox_import – inga hemligheter). */
+type InboxConfig = {
+  configured?: boolean; mailbox?: string; doneFolder?: string; lastRunAt?: string; lastImportAt?: string; lastError?: string | null;
+  lastSummary?: { seen?: number; imported?: number; cases?: number; toRegister?: number; supplements?: number; other?: number; moveErrors?: number };
+};
+type InboxView = { state: "connected" | "not_connected" | "simulated"; cfg: InboxConfig; readAt: string | null };
+function inboxView(row: Integration | null, simulatedAt: string): InboxView {
+  const cfg = (row?.config ?? {}) as InboxConfig;
+  // Testdatat har ingen körning: visas som simulerad läsning (prototypen och minnesläget).
+  if (cfg.configured === undefined) return { state: "simulated", cfg, readAt: simulatedAt };
+  return { state: cfg.configured ? "connected" : "not_connected", cfg, readAt: cfg.configured ? cfg.lastRunAt ?? null : null };
+}
+
+/** Stegen för att koppla brevlådan (utan namn på miljövariabler – de står i docs/DRIFT.md avsnitt 12). */
+const CONNECT_STEPS: [string, string][] = [
+  ["Status", "Inte kopplad – så här kopplar du"],
+  ["Steg 1", "Registrera en app i Microsoft Entra (Appregistreringar) i Miljonbemannings Microsoft 365."],
+  ["Steg 2", "Ge appen applikationsbehörigheten Mail.ReadWrite i Microsoft Graph och godkänn den som administratör."],
+  ["Steg 3", "Begränsa appen till brevlådan avrop@ med en åtkomstpolicy i Exchange Online (ApplicationAccessPolicy)."],
+  ["Steg 4", "Skapa en klienthemlighet och lägg katalog-id, klient-id, hemligheten och brevlådans adress i Vercel – bara där."],
+  ["Steg 5", "Driftsätt igen. Inom två minuter står det Kopplad här, och olästa mejl i Inkorgen läses in och flyttas till mappen Inläst."],
+  ["Anvisning", "Steg för steg, med Exchange-kommandot och felsökning, i docs/DRIFT.md avsnitt 12."],
+];
+
+/** Kortet avrop@-brevlådan. */
+function inboxCard(v: InboxView, latestMail: string | null, vendor: boolean): IntegrationView {
+  const base = { id: "graph", name: "avrop@-brevlådan", sub: "Microsoft Graph", icon: "inbox" as const, phase: null };
+  if (v.state === "not_connected") return { ...base, status: "off", items: CONNECT_STEPS };
+  const s = v.cfg.lastSummary;
+  const run = s
+    ? `${plural(s.imported ?? 0, "mejl inläst", "mejl inlästa")}${s.cases ? `, ${plural(s.cases, "ärende skapat", "ärenden skapade")}` : ""}${s.toRegister ? `, ${s.toRegister} att registrera för hand` : ""}${s.moveErrors ? `, ${s.moveErrors} kunde inte flyttas` : ""}`
+    : "–";
+  const items: [string, string][] = v.state === "simulated"
+    ? [["Läses", "Varannan minut"], ["Senast läst", `I dag kl. ${fmtTime(v.readAt)}`], ["Senaste mejl", latestMail ? fmtDateTime(latestMail) : "–"], ["Svar skickas", "Från avrop@ i samma tråd, så att kommunen ser hela konversationen"]]
+    : [
+        ...(vendor && v.cfg.mailbox ? [["Brevlåda", v.cfg.mailbox] as [string, string]] : []),
+        ["Läses", `Varannan minut – olästa mejl i Inkorgen flyttas till mappen ${v.cfg.doneFolder || "Inläst"} och ligger kvar där som reserv`],
+        ["Senast läst", v.readAt ? fmtDateTime(v.readAt) : "–"],
+        ["Senaste inläsning", v.cfg.lastImportAt ? `${fmtDateTime(v.cfg.lastImportAt)} · ${run}` : "Inga mejl inlästa ännu"],
+        ...(v.cfg.lastError ? [["Senaste fel", v.cfg.lastError] as [string, string]] : []),
+        ["Svar skickas", "Ordererkännandet går till handläggarens adress – bara ärendenumret, aldrig personuppgifter"],
+      ];
+  return { ...base, status: v.state === "simulated" ? "test" : "active", items };
+}
 
 /** Regionlåsningen (SPEC §3.1, CLAUDE.md "Stack"). Lämnas inte ut till begränsade testare. */
 function regionLock(thirdCountryForbidden: boolean): string[] {
@@ -50,11 +103,10 @@ function regionLock(thirdCountryForbidden: boolean): string[] {
  * webbläsarens kod. vendor = false (begränsade testare): utan raderna som pekar ut underbiträdena – vald leverantör, region,
  * DNS och godkännande. Samma uppgifter står i underbiträdeslistan, som de inte ser.
  */
-function integrationCards(o: { inboxReadAt: string; latestMail: string | null; aiRunCount: number; vendor: boolean }): IntegrationView[] {
+function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRunCount: number; vendor: boolean }): IntegrationView[] {
   const v = (label: string, text: string): [string, string][] => (o.vendor ? [[label, text]] : []);
   return [
-    { id: "graph", name: "avrop@-brevlådan", sub: "Microsoft Graph", icon: "inbox", status: "active", phase: null,
-      items: [["Läses", "Var 2–5 minut"], ["Senast läst", `I dag kl. ${fmtTime(o.inboxReadAt)}`], ["Senaste mejl", o.latestMail ? fmtDateTime(o.latestMail) : "–"], ["Svar skickas", "Från avrop@ i samma tråd, så att kommunen ser hela konversationen"]] },
+    inboxCard(o.inbox, o.latestMail, o.vendor),
     { id: "entra", name: "Microsoft Entra ID", sub: "Inloggning för Miljonbemanning", icon: "key", status: "active", phase: null, items: [["MFA", "Styrs av Microsoft 365"], ["Konton", "Bara inbjudna – ingen självregistrering"]] },
     { id: "fortnox", name: "Fortnox", sub: "Fakturor som Peppol BIS Billing 3", icon: "card", status: "off", phase: 2,
       items: [["Reserv i dag", "Export till Excel och PDF, eller Botkyrkas fakturaportal"], ["Öppen fråga", "Fråga 15: ingår Fortnox Integration och e-faktura i Miljonbemannings paket?"], ["Krav", "Omkörning får inte skapa dubbletter. Status synkas tillbaka."]] },
@@ -91,7 +143,9 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
     activities: { caseId: { in: ids } }, attendance: { caseId: { in: ids } }, check_ins: { caseId: { in: ids } }, reports: { contractId: main.id }, memberships: { contractId: main.id },
   });
   const all = { ...db, cases };
-  const [audioDel, manual] = await Promise.all([ctx.repo.table("audit_log").list({ action: "audio.deleted" }), ctx.repo.table("jobs").list({}, { orderBy: "createdAt" })]);
+  const [audioDel, manual, graphRow] = await Promise.all([
+    ctx.repo.table("audit_log").list({ action: "audio.deleted" }), ctx.repo.table("jobs").list({}, { orderBy: "createdAt" }), ctx.repo.table("integrations").get("graph"),
+  ]);
 
   const lastWeek = isoWeek(addDays(monday(today), -7)).key;
   const weekly = db.reports.filter((r) => r.kind === "weekly_attendance" && r.week === lastWeek);
@@ -106,15 +160,26 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
   const retentionUnset = isUnset(env.cfg.retention);
   const pub = slaRule(env.cfg, "veckorapport_publicering")?.time?.replace(":", ".") ?? null;
   const name = await userNames(ctx);
-  const runOf = (key: JobKey) => manual.filter((j) => j.kind === key && (j.payload as { manual?: unknown }).manual === true).slice(-1)[0] ?? null;
+  const runOf = (key: JobKey) => manual.filter((j) => j.kind === JOB_KIND[key] && (j.payload as { manual?: unknown }).manual === true).slice(-1)[0] ?? null;
 
   const J = (key: JobKey, schedule: string, last: string | null, status: JobStatusView, result: string, extra: { phase?: number; disabled?: boolean } = {}): JobRow => {
     const run = runOf(key);
     const manualBy = run ? (run.createdBy === ctx.actor.userId ? "dig" : name(run.createdBy)) : null;
     return { key, name: JOB_NAME[key], schedule, last: run ? run.createdAt : last, manual: !!run, manualBy, status, result, phase: extra.phase ?? null, disabled: !!extra.disabled };
   };
+  // Brevlådan avrop@: läget ur integrationsraden (jobbet inbox_import skriver den) – testdatat visas som simulerad läsning.
+  const inbox = inboxView(graphRow, `${today}T09:10`);
+  const inboxRow = (): JobRow => {
+    if (inbox.state === "simulated") return J("inbox", "Varannan minut", inbox.readAt, "ok", latestMail ? `Senaste mejl kom ${fmtDateTime(latestMail)}` : "Inga mejl");
+    if (inbox.state === "not_connected") return J("inbox", "Varannan minut", inbox.cfg.lastRunAt ?? null, "disabled", "Brevlådan är inte kopplad – se kortet avrop@-brevlådan", { disabled: true });
+    const s = inbox.cfg.lastSummary;
+    const result = inbox.cfg.lastError
+      ? `Senaste fel: ${inbox.cfg.lastError}`
+      : s && s.seen ? `${plural(s.imported ?? 0, "mejl inläst", "mejl inlästa")} vid senaste körningen${s.cases ? `, ${plural(s.cases, "ärende", "ärenden")}` : ""}${s.toRegister ? `, ${s.toRegister} att registrera för hand` : ""}` : "Inga nya mejl vid senaste körningen";
+    return J("inbox", "Varannan minut", inbox.readAt, inbox.cfg.lastError ? "failed" : "ok", result);
+  };
   const jobs: JobRow[] = [
-    J("inbox", "Var 2–5 minut", `${today}T09:10`, "ok", latestMail ? `Senaste mejl kom ${fmtDateTime(latestMail)}` : "Inga mejl"),
+    inboxRow(),
     J("weekly", `Måndag, när närvaron är komplett${pub ? ` – senast ${pub} enligt avtalet` : ""}`, `${today}T07:00`, waiting.length ? "waiting" : "ok",
       `${weekly.length - waiting.length} publicerade, ${waiting.length} väntar på närvaro (${fmtWeekKey(lastWeek)})`),
     J("att_remind", "Fredag 14.00 och måndag 08.00", `${today}T08:00`, "ok", `${plural(coachesMissing, "coach", "coacher")} påmind${coachesMissing === 1 ? "" : "a"} om förra veckan`),
@@ -126,7 +191,6 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
     J("retention", "Dagligen 03.00", null, retentionUnset ? "disabled" : "ok", retentionUnset ? "Regeln är inte fastställd (fråga 11) – jobbet raderar ingenting" : "Enligt avtalet", { disabled: retentionUnset }),
   ];
   const hide = hidesCommercial(ctx.actor);
-  const inboxReadAt = `${today}T09:10`;
   const thirdCountryForbidden = env.cfg.thirdCountryProcessing === "forbidden_without_written_approval";
   return {
     // Begränsade testare: underbiträdena, Botkyrkas besked, regionlåsningen och avtalets villkor lämnas inte ut.
@@ -141,10 +205,11 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
             returnDataWithinDays: env.cfg.termination.returnDataWithinDays,
           },
         }),
-    integrations: integrationCards({ inboxReadAt, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide }),
+    integrations: integrationCards({ inbox, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide }),
     storage: { place: "Stockholm", ...(hide ? {} : { detail: "Supabase eu-north-1 · Vercel arn1" }) },
     latestMail,
-    inboxReadAt,
+    inboxReadAt: inbox.readAt,
+    inboxState: inbox.state,
     aiRunCount: db.ai_runs.length,
     jobs,
   };
@@ -153,10 +218,21 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
 handleCommand(adminRunJob, { roles: ["admin"] }, async (ctx, p) => {
   const main = await mainContract(ctx);
   if (p.key === "retention" && isUnset(main.config.retention)) return fail("disabled", "Gallringsregeln är inte fastställd – jobbet kan inte köras.");
+  if (p.key === "inbox") {
+    const graph = await ctx.repo.table("integrations").get("graph");
+    const cfg = (graph?.config ?? {}) as InboxConfig;
+    if (cfg.configured === false) return fail("disabled", "Brevlådan är inte kopplad – se kortet avrop@-brevlådan.");
+  }
   const now = ctx.now();
-  await ctx.repo.table("jobs").insert({
-    id: ctx.newId("job"), kind: p.key, payload: { manual: true }, status: "done", attempts: 1, runAfter: now, lastError: null, createdAt: now, createdBy: ctx.actor.userId, finishedAt: now,
-  });
+  // avrop@ (beslut 4c): ett riktigt jobb (inbox_import) som jobbkörningen tar direkt (after()) eller inom en minut (cron).
+  // I minnesläget och prototypen finns ingen jobbkörning – jobbet markeras klart direkt (simulerat). Övriga jobb är simulerade.
+  const real = p.key === "inbox" && !!ctx.jobs;
+  const job: Job = {
+    id: ctx.newId("job"), kind: JOB_KIND[p.key], payload: { manual: true }, status: real ? "queued" : "done", attempts: real ? 0 : 1, runAfter: now, lastError: null, createdAt: now,
+    createdBy: ctx.actor.userId, finishedAt: real ? null : now,
+  };
+  await ctx.repo.table("jobs").insert(job);
+  if (real) ctx.jobs?.schedule();
   await ctx.audit({ action: "job.run_manual", entity: "job", entityId: p.key, contractId: null, details: {} });
   return ok({});
 });

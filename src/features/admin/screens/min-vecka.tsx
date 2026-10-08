@@ -113,8 +113,8 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
           to="/admin/integrationer"
           actionHint="Visa"
           label="Avrop@ senast läst"
-          value={fmtTime(i.inboxReadAt)}
-          sub={i.latestMail ? `Senaste mejl ${fmtDateTime(i.latestMail)}` : "Inga mejl"}
+          value={i.inboxState === "not_connected" ? "Inte kopplad" : i.inboxReadAt ? fmtTime(i.inboxReadAt) : "–"}
+          sub={i.inboxState === "not_connected" ? "Så här kopplar du: Underbiträden och integrationer" : i.latestMail ? `Senaste mejl ${fmtDateTime(i.latestMail)}` : "Inga mejl"}
         />
       </WeekKpis>
 

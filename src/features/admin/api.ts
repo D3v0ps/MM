@@ -206,14 +206,20 @@ export type IntegrationsView = {
   /** Nyckeltalet "Data lagras i". detail (leverantörer och regioner) saknas för begränsade testare. */
   storage: { place: string; detail?: string };
   latestMail: string | null;
-  /** "I dag kl. 09.10" – simulerad läsning av avrop@. */
-  inboxReadAt: string;
+  /**
+   * När avrop@ senast lästes (jobbet inbox_import, beslut 4c): null = brevlådan är inte kopplad eller har inte lästs ännu.
+   * Testdatat: en simulerad tid.
+   */
+  inboxReadAt: string | null;
+  /** Brevlådan avrop@: kopplad via Microsoft Graph, inte kopplad (stegen visas i kortet) eller simulerad i testdatat. */
+  inboxState: "connected" | "not_connected" | "simulated";
   aiRunCount: number;
   jobs: JobRow[];
 };
 export const adminIntegrations = query("admin.integrations", z.object({})).returns<IntegrationsView>();
 // invalidates "all" med motivering: ett bakgrundsjobb kan skapa rapporter, notiser, röstresultat eller gallra – följderna är
-// inte kända i förväg, så allt räknas om (bara den här knappen på integrationssidan).
+// inte kända i förväg, så allt räknas om (bara den här knappen på integrationssidan). "inbox" lägger ett riktigt jobb
+// (inbox_import) som körs av jobbkörningen i supabase-läget; i minnesläget markeras det klart direkt (simulerat).
 export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<object, "disabled">>();
 
 // ================================================================ Mallar och utskick (/admin/mallar)

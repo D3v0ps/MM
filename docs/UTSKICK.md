@@ -165,6 +165,7 @@ Konto, domän och DNS: se `docs/DRIFT.md` avsnitt 2. Dessutom:
   ```
   Svarskoder: 401 fel nyckel · 503 `MM_JOBS_SECRET` saknas · 404 minnesläget.
 - Tiden är appens tid: testtid i testmiljön (`app_settings`), riktig Stockholmstid i produktion.
+- **Mejlinläsningen från avrop@** (`inbox_import`, beslut 4c 2026-10-08): läggs före varje jobbkörning med ett id per tvåminutersperiod (`job-inbox_import-2027-02-01T09:12`), hämtar olästa mejl i brevlådans Inkorg via Microsoft Graph, tolkar dem (`src/features/inkorg/parse.ts`), sparar dem i `inbound_emails` (idempotent på Message-ID), skapar ärende och ordererkännande när avropet går att tolka, sparar bilagorna och flyttar mejlet till mappen Inläst. Saknas inställningarna (`docs/DRIFT.md` avsnitt 12) gör jobbet ingenting (utfallet `inbox_import:not_configured`) och integrationsraden `graph` säger "inte kopplad". Läget (senaste körning, senaste fel, antal) står i `integrations.config` och visas på `/admin/integrationer`.
 
 Kör jobben för hand (t.ex. för att testa):
 ```
@@ -241,6 +242,8 @@ Att tänka på:
 
 ## Jobb som kommer senare
 
+(Mejlinläsningen från avrop@ finns sedan 2026-10-08 – se Bakgrundsjobb ovan.)
+
 Alla körs av samma anrop varje minut. Appen lägger jobben när appens klocka passerar tiden (testtiden i testmiljön), med ett id per period (t.ex. `weekly_report:2027-W05`) så att de aldrig körs två gånger. Tider och regler läses från avtalskonfigurationen och de interna reglerna – de hårdkodas inte.
 
 | Jobb | När | Vad |
@@ -249,7 +252,6 @@ Alla körs av samma anrop varje minut. Appen lägger jobben när appens klocka p
 | Eskalering av närvaro | Måndag 10.00 | Förfallotiden för registrering (`veckorapport_registrering`) – samordnaren får en flagga |
 | Veckorapport | Måndag 16.00 | Publicera veckorapporterna till kommunen (`veckorapport_publicering`) och skicka "Ny rapport" |
 | Progressionsbevakning | Enligt interna regler (`reminderSchedule`, i dag måndag 08.00) | Påminnelse till coachen (`paminnelse_progression`), eskalering till chef efter två veckor i rad (`eskalering_chef`) |
-| Mejlinläsning från avrop@ | Var 2–5 minut | Hämta nya avrop via Microsoft Graph, ordererkännande inom 5 minuter |
 | Mötespåminnelse och pulslänk | Dagen före kl. 18.00 · enligt avtalets pulsmätning | SMS – när en SMS-leverantör är vald |
 | Gallring | Varje natt | Ljud (senast 24 timmar), råtranskript (30 dagar), gamla `login_attempts`, avslutade jobb, utskickslogg enligt gallringsreglerna |
 

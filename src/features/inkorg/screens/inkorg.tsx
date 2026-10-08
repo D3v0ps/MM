@@ -39,13 +39,19 @@ export function InkorgScreen({ params, query }: ScreenProps) {
       title="Avropsinkorg"
       eyebrow="avrop@miljonbemanning.se"
       lead={q.data ? `Mejl till avrop@ läses in automatiskt och får ärendenummer och ordererkännande inom ${q.data.ackMinutes} minuter. Svara med Acceptera eller Avböj senast ${q.data.answerText} efter mottagandet.` : undefined}
-      actions={<PerspectiveLink role="kommun_handlaggare" to="/portal/bestall" label="Se hur kommunen beställer" />}
+      actions={
+        <>
+          {/* Beslut 4a (2026-10-08): avrop som kom med mejl som inte kunde tolkas, telefon eller på annat sätt registreras här. */}
+          <Button kind="primary" icon="plus" to="/inkorg/registrera">Registrera beställning</Button>
+          <PerspectiveLink role="kommun_handlaggare" to="/portal/bestall" label="Se hur kommunen beställer" />
+        </>
+      }
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : (
         <Inbox data={q.data} emailId={params.emailId ?? null} caseId={query.get("arende")} latest={query.get("senaste") === "1"} visa={query.get("visa")} />
       )}
       <DemoNote>
-        Inläsningen är simulerad. I tjänsten hämtas mejlen från avrop@ via Microsoft Graph var 2–5 minut och flyttas till mappen Inläst, där de ligger kvar som reserv.
+        Mejlen här är påhittade. I tjänsten hämtas mejlen från avrop@ via Microsoft Graph varannan minut och flyttas till mappen Inläst, där de ligger kvar som reserv.
         Inga mejl eller SMS skickas på riktigt – de syns i utskicksloggen. Demoklockan går en minut framåt för varje åtgärd.
       </DemoNote>
     </Page>
@@ -367,6 +373,14 @@ function OrderBody({ it, b, onPick }: { it: InboxItemDetail; b: OrderBodyView; o
           </div>
         </Notice>
       ))}
+      {b.register && (
+        <Notice tone="warn" icon="edit" title="Beställningen behöver registreras för hand">
+          <div className="flex flex-col gap-2">
+            {b.register.reason}
+            <div><Button kind="primary" icon="plus" to={`/inkorg/registrera?mejl=${encodeURIComponent(b.register.emailId)}`}>Registrera beställningen</Button></div>
+          </div>
+        </Notice>
+      )}
       {b.missing && <Notice tone={b.missing.critical ? "critical" : "warn"} title={b.missing.title}>{b.missing.text}</Notice>}
       {b.refProblem && <Notice tone="critical" title="Beställarreferens saknas eller är fel">{b.refProblem}</Notice>}
       <Pair>

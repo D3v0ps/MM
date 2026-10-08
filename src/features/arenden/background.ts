@@ -25,7 +25,8 @@ export async function rowsFor(ctx: Ctx, rows: readonly CaseAttachment[]): Promis
     .filter((a) => a.status === "uploaded")
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1))
     .map((a) => ({
-      id: a.id, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes, sizeText: fileSizeText(a.bytes), uploadedByName: name.get(a.uploadedBy) ?? "–",
+      // "system" = bilagan kom med ett mejl till avrop@ och sparades av inläsningen (beslut 4c).
+      id: a.id, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes, sizeText: fileSizeText(a.bytes), uploadedByName: a.uploadedBy === "system" ? "Miljonmatch (bilaga i mejlet)" : name.get(a.uploadedBy) ?? "–",
       createdAt: a.createdAt, canRemove: (!a.caseId && a.uploadedBy === ctx.actor.userId) || (!!a.caseId && mbEditor),
     }));
 }

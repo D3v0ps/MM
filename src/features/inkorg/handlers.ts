@@ -14,6 +14,8 @@ import {
 } from "./api";
 import { casePeriodValue, plainPnr } from "./model";
 import { buildConfirmation, buildDeadlines, buildDecisionForm, buildItem, buildList, buildStart } from "./views";
+// Registrera beställning (beslut 4a, 2026-10-08): inkorg.registerForm och inkorg.register.
+import "./register-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 

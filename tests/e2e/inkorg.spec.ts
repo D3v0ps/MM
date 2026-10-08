@@ -422,3 +422,49 @@ test("hela flödet: alla avrop hanteras – flikar, ?arende=, tom startsida och 
   expect(await snap()).toEqual(before);
   expect(errors).toEqual([]);
 });
+
+// ---------------------------------------------------------------- Registrera beställning (beslut 4a, 2026-10-08)
+test("registrera beställning per telefon: ärendenummer, ordererkännande och vanligt flöde i inkorgen", async ({ page }, info) => {
+  const errors = await open(page, info, "/inkorg", SARA);
+  const m = main(page);
+  await m.getByRole("link", { name: "Registrera beställning" }).click();
+  await expect(m.getByRole("heading", { level: 1, name: "Registrera beställning" })).toBeVisible();
+  // Telefon är förvalt; mottagen tid är nu. Handläggaren skrivs in (inget konto skapas).
+  await expect(page.locator("#reg-channel").getByRole("button", { name: "Telefon" })).toHaveAttribute("aria-pressed", "true");
+  await page.fill("#reg-ref-name", "Anna Ny");
+  await page.fill("#reg-ref-email", "anna.ny@botkyrka.se");
+  await page.fill("#reg-ref-unit", "Arbetsmarknadsenheten Tumba");
+  await page.fill("#reg-start", "2027-02-15");
+  await page.locator("#reg-period").getByRole("button", { name: "6 månader" }).click();
+  await page.fill("#reg-fn", "Test");
+  await page.fill("#reg-ln", "Telefonsson");
+  await page.fill("#reg-pnr", "19930303-1111");
+  await page.fill("#reg-phone", "070-000 00 00");
+  await page.fill("#reg-city", "Tumba");
+  await page.locator("#reg-prior").getByRole("button", { name: "Nej" }).click();
+  // En bilaga laddas upp innan beställningen registreras (samordnaren får ladda upp utan ärende).
+  await page.locator("#reg-files").setInputFiles({ name: "kartlaggning-test.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n% påhittad kartläggning\n") });
+  await expect(m.getByText("kartlaggning-test.pdf").first()).toBeVisible();
+  await page.fill("#reg-bg", "Vill jobba i lager. Har truckkort.");
+  await m.getByRole("button", { name: "Registrera beställningen" }).click();
+  await expect(toastWith(page, "Beställningen är registrerad. Ärendenummer BOT-27-0051.")).toBeVisible();
+  // Inkorgen visar posten: registrerad av Sara, ärendets uppgifter, ordererkännandet och Acceptera.
+  await expect(m.getByRole("heading", { name: "Beställning per telefon" })).toBeVisible();
+  await expect(m.locator("[data-inkorg-detail]").getByText("BOT-27-0051").first()).toBeVisible();
+  await expect(m.getByText(/Registrerad av Sara Lindqvist i dag kl\. \d\d\.\d\d/)).toBeVisible();
+  await expect(m.getByText("Skickat när beställningen registrerades")).toBeVisible();
+  await expect(m.getByText("Anna Ny", { exact: true }).first()).toBeVisible();
+  await expect(m.getByText("Registrerad av Miljonbemanning efter ett telefonsamtal", { exact: false })).toBeVisible();
+  await expect(m).not.toContainText("19930303");
+  await expect(m.getByRole("button", { name: "Acceptera", exact: true })).toBeVisible();
+  // Bilagan ligger i ärendet (acceptdialogens underlag).
+  await m.getByRole("button", { name: "Acceptera", exact: true }).click();
+  await expect(dialog(page).getByText("kartlaggning-test.pdf")).toBeVisible();
+  await dialog(page).getByRole("button", { name: "Avbryt" }).click();
+  // Ett validerat fel: utan personnummer stoppas registreringen med en felsammanfattning.
+  await goAs(page, info, SARA, "/inkorg/registrera");
+  await m.getByRole("button", { name: "Registrera beställningen" }).click();
+  // Felsammanfattningen överst (varje fält har dessutom sin egen felrad).
+  await expect(m.getByRole("alert").first()).toContainText("Skriv personnumret så här: ÅÅÅÅMMDD-NNNN.");
+  expect(errors).toEqual([]);
+});
