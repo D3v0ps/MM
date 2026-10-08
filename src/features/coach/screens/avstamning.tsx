@@ -30,7 +30,7 @@ import { VoiceNotesForCheckIn } from "@/features/rost/screens/coach-parts";
 import { consentSet } from "@/features/arenden/api";
 import { auditView } from "@/features/session/api";
 import {
-  AI_FIELDS, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, recordingFinish, recordingState, type AiField,
+  AI_FIELDS, AI_OFF_TEXT, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, recordingFinish, recordingState, type AiField,
   type AiFieldSuggestion, type AiSource, type CheckInPage, type CheckInReceipt, type CheckInSuggestions, type CheckInView, type RecordingState,
 } from "../api";
 import { cap, CaseHeadView, caseCrumbs, CasePicker, ChipButton, Chips, customerPerspective, GateView, lc, PageState, Persp, useCaseView } from "./shared";
@@ -378,7 +378,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
     const kind = src === "notes" ? "extract_notes" : src === "teams" ? "extract_teams" : "transcribe_extract";
     const res = await run.run({ caseId: c.caseId, kind, source: src, notesText: src === "notes" ? notesText : undefined, audioSeconds: secs, costOre: audio ? 80 : 4 }).catch(() => null);
     if (!res || !res.ok || !res.suggestions) {
-      toast(res && !res.ok && res.error === "ai_not_allowed" ? AI_BLOCKED : "AI-tolkningen gick inte att göra. Dokumentera manuellt.", "error");
+      toast(res && !res.ok && res.error === "ai_not_allowed" ? AI_BLOCKED : res && !res.ok && res.error === "ai_unavailable" ? AI_OFF_TEXT : "AI-tolkningen gick inte att göra. Dokumentera manuellt.", "error");
       setMethod("manual");
       return;
     }
@@ -1288,6 +1288,14 @@ function AiCapture({
     );
   }
   const maxSeconds = Math.max(60, recording.maxMinutes * 60);
+  // AI av (produktion utan leverantör, beslut 2026-10-08): ingen källa att välja – klartext och den manuella vägen.
+  if (recording.block === "ai_off") {
+    return (
+      <Notice tone="warn" title="Tal till text är inte kopplat ännu">
+        {recording.blockText ?? AI_OFF_TEXT} Fyll i formuläret manuellt – det är fullt likvärdigt.
+      </Notice>
+    );
+  }
   const blocked =
     !recording.allowed && (source === "recording" || source === "upload") ? (
       <Notice tone="warn" title="Inspelning används inte">

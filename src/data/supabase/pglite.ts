@@ -57,6 +57,30 @@ export async function loadSeed(db: PGlite, sql: string = readFileSync(SEED_FILE,
   await db.exec(sql);
 }
 
+/**
+ * Seeden på en databas som bara är migrerad till en viss migration (migrationstesterna, t.ex. migration-0026.test.ts):
+ * seed.sql tömmer alla tabeller i schema.ts, också de som en senare migration skapar (t.ex. role_choices från 0027). Här tas
+ * tabeller som inte finns ännu bort ur truncate-satsen. Finns det rader att läsa in i en sådan tabell stoppas testet med ett
+ * tydligt fel – då måste testet läsa in de raderna själv efter migrationen.
+ */
+export async function loadSeedForExistingTables(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8")): Promise<void> {
+  const existing = new Set((await db.query<{ tablename: string }>("select tablename from pg_tables where schemaname = 'public'")).rows.map((r) => r.tablename));
+  const missing = new Set<string>();
+  const out = sql.replace(/^truncate table (.+?) restart identity cascade;$/m, (_m, list: string) => {
+    const kept = list.split(", ").filter((t) => {
+      const name = t.replace(/^public\./, "");
+      if (existing.has(name)) return true;
+      missing.add(name);
+      return false;
+    });
+    return `truncate table ${kept.join(", ")} restart identity cascade;`;
+  });
+  for (const t of missing) {
+    if (new RegExp(`^insert into public\\.${t} \\(`, "m").test(out)) throw new Error(`seed.sql har rader för public.${t}, som inte finns i databasen ännu – läs in dem efter migrationen i testet`);
+  }
+  await db.exec(out);
+}
+
 export type Tx = Transaction;
 
 /**

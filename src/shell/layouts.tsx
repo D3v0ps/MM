@@ -6,9 +6,9 @@
 //   om      prototypens egna sidor
 // Utvecklingsläget (riktiga appen i minnesläge) får en diskret rad överst för att välja testperson.
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { isCustomerRole, ROLE_LABEL } from "@/api/roles";
+import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
 import { navCounts } from "@/features/session/nav-api";
-import { sessionPing } from "@/features/session/api";
+import { sessionPing, switchRole } from "@/features/session/api";
 import { AreaProvider, type LayoutArea } from "@/ui/area";
 import { buttonVariants } from "@/ui/button";
 import { cn } from "@/ui/cn";
@@ -17,9 +17,9 @@ import { Icon } from "@/ui/icons";
 import { Avatar } from "@/ui/data";
 import { Brand } from "@/ui/layout";
 import { Toaster } from "@/ui/toast";
-import { useQuery } from "./backend";
+import { useCommand, useQuery } from "./backend";
 import { ROUTE_STATUS_ID } from "./page-effects";
-import { Link, useNav } from "./nav";
+import { cancelLeaveDocument, confirmLeaveDocument, Link, useNav } from "./nav";
 import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_START_PATH, portalNavFor, type NavItem } from "./nav-config";
 import { startPathFor, type RouteMatch } from "./routes";
 import { useRuntime } from "./runtime";
@@ -270,9 +270,73 @@ function Sidebar() {
             </button>
           )}
         </div>
+        <RoleSwitch />
         {testData && <div className="mt-auto px-2 text-label leading-[1.4] text-vit/72 max-[900px]:hidden">Påhittade testdata.</div>}
       </div>
     </aside>
+  );
+}
+
+/**
+ * Rollväxling för egna roller (beslut 2026-10-08): den som har flera roller (t.ex. systemadministratör och avtalsansvarig)
+ * väljer roll här, under sitt namn. Valet sparas på servern (session.vaxlaRoll, role_choices) och sidan laddas om i den nya
+ * rollen – samma i appen och prototypen. 44 px, etikett, tangentbord och skärmläsare (inbyggd rullgardin). Frågar först om
+ * osparad text. Visas inte med en enda roll eller när en testare agerar som en testperson.
+ */
+function RoleSwitch() {
+  const session = useSession();
+  const sw = useCommand(switchRole);
+  const roles = session.ownRoles ?? [];
+  const current = session.actor.role;
+  const [picked, setPicked] = useState<Role>(current);
+  const [failed, setFailed] = useState<string | null>(null);
+  if (roles.length < 2 || !session.chooseRole) return null;
+  const pick = async (role: Role) => {
+    setPicked(role);
+    setFailed(null);
+    if (role === current) return;
+    // Fråga först (osparad text) och byt sedan – stannar man kvar är ingenting bytt.
+    if (!(await confirmLeaveDocument())) {
+      setPicked(current);
+      return;
+    }
+    const r = await sw.run({ role }).catch(() => null);
+    if (!r || !r.ok) {
+      cancelLeaveDocument();
+      setPicked(current);
+      setFailed((r && !r.ok && r.message) || "Rollen kunde inte bytas. Försök igen.");
+      return;
+    }
+    await session.chooseRole?.(role);
+  };
+  return (
+    <div className="flex flex-col gap-1 border-b border-vit/14 px-2 py-2.5 max-[900px]:w-full">
+      <label htmlFor="rollval" className="text-[0.6875rem] font-bold tracking-[0.12em] text-vit/72 uppercase">
+        Roll
+      </label>
+      <select
+        id="rollval"
+        className="min-h-11 w-full rounded-mb border-0 bg-vit px-2 text-ui font-semibold text-antracit"
+        value={picked}
+        aria-busy={sw.pending}
+        aria-describedby="rollval-hjalp"
+        onChange={(e) => void pick(e.target.value as Role)}
+      >
+        {roles.map((r) => (
+          <option key={r} value={r}>
+            {ROLE_LABEL[r]}
+          </option>
+        ))}
+      </select>
+      <span id="rollval-hjalp" className="sr-only">
+        Du har flera roller. Byter du roll laddas sidan om.
+      </span>
+      {failed && (
+        <span role="alert" className="text-small font-bold">
+          {failed}
+        </span>
+      )}
+    </div>
   );
 }
 

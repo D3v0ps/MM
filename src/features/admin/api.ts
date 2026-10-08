@@ -12,9 +12,12 @@
 //   admin.auditDetail    -> AuditDetail      hela detaljtexten för en loggrad (långa listor), hämtas när den visas
 // Kommandon (prototypens admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob, admin.logCheck):
 //   admin.setOrgRule, admin.inviteCustomer, admin.setCustomerActive, admin.saveTemplate, admin.runJob, admin.logCheck
+//   Beslut 2026-10-08 (skarp drift): admin.inviteStaff (Lägg till kollega), admin.setStaffRoles, admin.setStaffActive,
+//   admin.setContractManager (avtalsansvarig väljs på avtalssidan)
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, MGMT, INBOX } from "@/api/invalidation";
+import { SUPPLIER_ROLES, type SupplierRole } from "@/api/roles";
 import type { ContractConfig, DataRole, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
 import type { OutboundStatus } from "@/data/schema";
 import { IdSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
@@ -45,6 +48,10 @@ export type ContractFacts = ContractSummary & {
   casePrefix: string;
   emailDomains: string[];
   managerName: string;
+  /** Avtalsansvarig (profiles.id) – väljs bland kollegorna med rollen avtalsansvarig i avtalet (beslut 2026-10-08). */
+  managerId: string | null;
+  /** Kollegorna som kan vara avtalsansvariga (aktiva, med rollen avtalsansvarig i avtalet). */
+  managerOptions: { id: string; name: string }[];
   /** Uppsägning och omfattning i klarspråk (avtalstext som ännu inte finns i konfigurationen – se handlers). */
   termination: string | null;
   scope: string | null;
@@ -100,6 +107,11 @@ export const adminOrgRules = query("admin.orgRules", z.object({})).returns<OrgRu
 
 const EscRoleSchema = z.enum(["chef", "avtalsansvarig", "samordnare"]);
 const ChannelSchema = z.enum(["app", "email"]);
+/** Välj avtalsansvarig bland kollegorna med rollen avtalsansvarig i avtalet (beslut 2026-10-08, valfritt steg 3). */
+export const adminSetContractManager = command("admin.setContractManager", z.object({ contractId: IdSchema, userId: IdSchema }), {
+  invalidates: ["admin.contract", "admin.users", INBOX, CASES, ...LOG],
+}).returns<Result<object, "not_found" | "not_manager" | "unchanged">>();
+
 export const adminSetOrgRule = command("admin.setOrgRule", z.object({
   remindCoachAfterWeeks: z.number().int().min(0).max(52),
   escalateAfterConsecutiveWeeks: z.number().int().min(0).max(52),
@@ -114,10 +126,15 @@ export type MbUserRow = {
   name: string;
   email: string;
   title: string;
+  /** Rollerna i huvudavtalet (en person kan ha flera, beslut 2026-10-08), i rollernas ordning. */
+  roles: SupplierRole[];
+  /** Rollerna som text: "Systemadmin, Avtalsansvarig". */
   roleLabel: string;
   isAdmin: boolean;
   teamRoleLabel: string | null;
   active: boolean;
+  /** Den inloggade själv – kan inte spärras eller bli av med sin adminroll här. */
+  self: boolean;
 };
 /** Kommunens användare – alla är handläggare (beslut 2026-10-07). Enheten är fritext (tom tills personen fyllt i den). */
 export type CustomerUserRow = {
@@ -142,6 +159,8 @@ export type UsersView = {
   selfRegistrationDomains: string[];
   /** Personalen – bara för systemadmin. */
   mb: MbUserRow[] | null;
+  /** Tillåtna domäner för kollegornas adresser (Lägg till kollega): organisationens egna, annars MM_STAFF_EMAIL_DOMAINS. */
+  staffDomains: string[];
   customers: CustomerUserRow[];
   /** Enheter som redan finns (förslag i inbjudan – enheten är fritext). */
   units: UnitOption[];
@@ -160,6 +179,30 @@ export const adminInviteCustomer = command("admin.inviteCustomer", z.object({
 }), { invalidates: ["admin.users", CASES, PORTAL, INBOX, ...LOG] }).returns<Result<{ userId: string }, "name" | "email" | "domain" | "exists" | "unit">>();
 
 export const adminSetCustomerActive = command("admin.setCustomerActive", z.object({ userId: IdSchema, active: z.boolean() }), { invalidates: ["admin.users", CARD, PORTAL, INBOX] }).returns<Result<object, "not_found">>();
+
+// ---- Kollegorna (beslut 2026-10-08, skarp drift): administratören lägger till kollegor, ändrar roller och spärrar i appen.
+const StaffRoles = z.array(z.enum(SUPPLIER_ROLES)).min(1).max(SUPPLIER_ROLES.length);
+/**
+ * Lägg till kollega: namn, e-postadress på personalens domän, en eller flera roller i huvudavtalet, titel valfri. Kollegan
+ * får ett mejl utan personuppgifter (bara adressen till appen) och loggar in med e-post och kod.
+ */
+export const adminInviteStaff = command("admin.inviteStaff", z.object({
+  contractId: IdSchema.optional(),
+  name: ShortText,
+  email: ShortText,
+  roles: StaffRoles,
+  title: ShortText.optional(),
+}), { invalidates: ["admin.users", "admin.orgRules", "admin.contract", CASES, INBOX, MGMT, ...LOG] }).returns<Result<{ userId: string }, "name" | "email" | "domain" | "exists" | "roles">>();
+
+/** Ändra en kollegas roller i huvudavtalet (minst en). Den egna adminrollen kan inte tas bort. */
+export const adminSetStaffRoles = command("admin.setStaffRoles", z.object({ userId: IdSchema, roles: StaffRoles }), {
+  invalidates: ["admin.users", "admin.orgRules", "admin.contract", CASES, INBOX, MGMT, ...LOG],
+}).returns<Result<{ changed: boolean }, "not_found" | "roles" | "self">>();
+
+/** Spärra (kan inte logga in) eller aktivera en kollega. Aldrig sig själv. */
+export const adminSetStaffActive = command("admin.setStaffActive", z.object({ userId: IdSchema, active: z.boolean() }), {
+  invalidates: ["admin.users", "admin.orgRules", "admin.contract", CASES, INBOX, MGMT, ...LOG],
+}).returns<Result<object, "not_found" | "self">>();
 
 // ================================================================ Underbiträden och integrationer (/admin/integrationer)
 export type JobStatusView = "ok" | "waiting" | "disabled" | "failed";

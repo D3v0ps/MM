@@ -1,5 +1,6 @@
 // Minneslägets svar på GET /api/session (ren funktion – src/app/api/session/route.ts anropar den, testas i
 // memory-session-view.test.ts).
+import type { Role } from "@/api/roles";
 import { hidesCommercial } from "@/api/tester-access";
 import type { Persona } from "@/data/actors";
 import type { PersonaOption } from "@/shell/session";
@@ -11,7 +12,7 @@ import type { SessionView } from "./session-view";
  * visas som i testmiljön (beslut 2026-10-02, punkt 6). Ingen "Agera som"-lista och ingen impersonering här – testpersonen
  * byts i utvecklingsfältet, som behåller testerId. Vanliga testpersoner (utan testerId) är inte testare.
  */
-export function memorySessionView(persona: Persona | null, personas: PersonaOption[]): SessionView {
+export function memorySessionView(persona: Persona | null, personas: PersonaOption[], ownRoles: Role[] = []): SessionView {
   return {
     backend: "memory",
     environment: "memory",
@@ -20,6 +21,7 @@ export function memorySessionView(persona: Persona | null, personas: PersonaOpti
     isTester: !!persona?.actor.testerId,
     impersonating: false,
     personas,
+    ownRoles,
     hidesCommercial: hidesCommercial(persona?.actor),
   };
 }

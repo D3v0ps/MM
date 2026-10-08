@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import type { MemoryData } from "../memory";
 import { createSeed } from "../seed";
+import { COLLEAGUE_CONTRACT, COLLEAGUE_ORG, COLLEAGUES, colleagueMemberships, colleagueProfiles } from "../seed/colleagues";
 import { TABLE_NAMES, type Membership, type Profile, type TableName, type Tables } from "../schema";
 
 // ---------------------------------------------------------------- Deterministiska auth-id:n
@@ -31,38 +32,25 @@ export const authUserIdFor = (profileId: string): string => uuidV5(`profile:${pr
 
 // ---------------------------------------------------------------- Testarna i testmiljön
 /**
- * Riktiga användare som testar i testmiljön: admin i Botkyrkaavtalet och testare (kan agera som testpersoner och lämna
- * synpunkter). Kollegorna på Miljonbemanning bjöds in 2026-10-01 (Yacine Laghmari 2026-10-02) för att ge synpunkter på processen och
- * plattformen.
- * Varje adress ska också finnas i MM_EMAIL_ALLOWLIST i Vercel – annars får testaren ingen inloggningskod (TESTER_ALLOWLIST).
+ * Kollegorna på Miljonbemanning (src/data/seed/colleagues.ts – samma id:n och adresser som i databasen). I TESTMILJÖN är de
+ * testare (is_tester = true: kan agera som testpersoner och lämna synpunkter). I PRODUKTION används TESTERS inte: där är de
+ * vanliga användare (is_tester = false, beslut 2026-10-08) och fler kollegor läggs till i appen (Lägg till kollega).
+ * Varje adress ska också finnas i MM_EMAIL_ALLOWLIST i testmiljön – annars får testaren ingen inloggningskod (TESTER_ALLOWLIST).
  */
-export const TESTERS: readonly { id: string; fullName: string; email: string }[] = [
-  { id: "tester-karim", fullName: "Karim Khalil", email: "karim.khalil@miljonbemanning.se" },
-  { id: "tester-ali", fullName: "Ali Khalil", email: "ali.khalil@miljonbemanning.se" },
-  { id: "tester-sara", fullName: "Sara Salah", email: "sara.salah@miljonbemanning.se" },
-  { id: "tester-adam", fullName: "Adam Abdalla", email: "adam.abdalla@miljonbemanning.se" },
-  { id: "tester-shafik", fullName: "Shafik Muwanga", email: "shafik.muwanga@miljonbemanning.se" },
-  { id: "tester-moda", fullName: "Moda Habib", email: "moda.habib@miljonbemanning.se" },
-  { id: "tester-yacine", fullName: "Yacine Laghmari", email: "yacine.laghmari@miljonbemanning.se" },
-];
+export const TESTERS: readonly { id: string; fullName: string; email: string }[] = COLLEAGUES;
 /**
  * Värdet för MM_EMAIL_ALLOWLIST i testmiljön: testarnas hela adresser, kommatecken emellan. Aldrig "@miljonbemanning.se" –
  * testdatat har påhittade adresser på den domänen (t.ex. sara.lindqvist@) som aldrig får få mejl.
  */
 export const TESTER_ALLOWLIST = TESTERS.map((t) => t.email).join(",");
-export const TESTER_CONTRACTS = ["c-bot"] as const;
-export const TESTER_ORG = "org-mb";
+export const TESTER_CONTRACTS = [COLLEAGUE_CONTRACT] as const;
+export const TESTER_ORG = COLLEAGUE_ORG;
 export const TESTER_IDS: ReadonlySet<string> = new Set(TESTERS.map((t) => t.id));
 
-export function testerProfiles(): Profile[] {
-  return TESTERS.map((t) => ({
-    id: t.id, organizationId: TESTER_ORG, fullName: t.fullName, email: t.email, phone: "", title: "Testare (systemadministratör)", active: true,
-    lastLoginAt: null, customerUnit: null, buyerReferenceId: null, teamRole: null, invitedAt: null, invitedBy: null,
-  }));
-}
-export function testerMemberships(): Membership[] {
-  return TESTERS.flatMap((t) => TESTER_CONTRACTS.map((contractId) => ({ id: `${t.id}:${contractId}`, userId: t.id, contractId, role: "admin" as const, customerUnit: null })));
-}
+/** Profilerna: titeln "Systemadministratör" (rollerna ändras i appen). */
+export const testerProfiles = (): Profile[] => colleagueProfiles();
+/** Alla sju admin i Botkyrkaavtalet, Ali också avtalsansvarig (samma rader som scratchpad/skarp-drift.sql). */
+export const testerMemberships = (): Membership[] => colleagueMemberships();
 
 /** Testmiljöns data: prototypens testdata plus testarna. */
 export function seedData(): MemoryData<Tables> {

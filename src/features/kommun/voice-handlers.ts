@@ -6,7 +6,7 @@
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { recordingMaxMinutes, type ContractConfig } from "@/core/config";
-import { RECORDING_BLOCK_TEXT, recordingBlock, type RecordingBlock } from "../_shared/ai-port";
+import { AI_OFF_TEXT, aiOff, RECORDING_BLOCK_TEXT, recordingBlock, type RecordingBlock } from "../_shared/ai-port";
 import { enqueueVoiceJob, ownDictation } from "../_shared/voice-jobs";
 import { confirmOwnUpload } from "../_shared/voice-upload";
 import { dictationFinish, dictationOptions, dictationState, type DictationOptions, type DictationState } from "./api";
@@ -20,6 +20,8 @@ async function stateOf(ctx: Ctx, aiRunId: string): Promise<DictationState | null
 
 handleQuery(dictationOptions, { roles: HANDL }, async (ctx, p): Promise<DictationOptions> => {
   const off = (reason: string | null): DictationOptions => ({ enabled: false, maxMinutes: 0, reason });
+  // AI av (produktion utan leverantör): portalen säger det i klarspråk i stället för att visa "Tala in" (beslut 2026-10-08).
+  if (aiOff(ctx)) return off(AI_OFF_TEXT);
   let block: RecordingBlock | null;
   let cfg: ContractConfig | null | undefined;
   if (p.caseId) {

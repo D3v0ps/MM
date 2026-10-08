@@ -285,14 +285,6 @@ export const kommunProfileSave = command("kommun.profilSpara", z.object({
   unit: z.string().max(120),
 }), { invalidates: [PORTAL, "admin.users", NAV, ...LOG] }).returns<Result<{ changed: string[] }, "name" | "phone" | "unit">>();
 
-// ================================================================ Inloggningen (bara prototypens snabbval)
-/**
- * E-postadresserna till testpersonerna som prototypens inloggning kan fylla i ("Fyll i Maria Ekdahl (handläggare)").
- * Används bara i prototypen (knapparna ligger i DemoNote). Läser via ctx.repo – bara användare som läsaren redan får se.
- * Kan tas bort när testpersonerna i sessionen (PersonaOption) har e-postadress.
- */
-export const kommunTestPersonas = query("kommun.testpersoner", z.object({ userIds: z.array(IdSchema).max(5) })).returns<{ userId: string; email: string }[]>();
-
 // ================================================================ Kommandon (prototypens kom.*)
 /** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa på startsidan (tyst). */
 export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: [PORTAL, NAV] }).returns<Result<object, "not_found">>();
@@ -321,5 +313,5 @@ export type DictationState = { aiRunId: string; status: "running" | "succeeded" 
 export const dictationFinish = command("kommun.dictationFinish", z.object({
   uploadId: IdSchema,
   durationSec: z.number().min(0).max(86_400).nullish(),
-}), { invalidates: ["kommun.dictationState", "admin.integrations", ...LOG] }).returns<Result<DictationState, "not_found" | "forbidden" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
+}), { invalidates: ["kommun.dictationState", "admin.integrations", ...LOG] }).returns<Result<DictationState, "not_found" | "forbidden" | "ai_off" | "disabled" | "protected" | "no_consent" | "link_missing" | "link_used" | "link_expired" | "audio_missing">>();
 export const dictationState = query("kommun.dictationState", z.object({ aiRunId: IdSchema })).returns<DictationState | null>();

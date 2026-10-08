@@ -16,7 +16,7 @@ import { ApiError, type Ctx } from "@/api/server";
 import { aiLanguages, recordingMaxMinutes, type ContractConfig, type RecordingKind } from "@/core/config";
 import { PARTICIPANT_USER_ID } from "@/data/actors";
 import { AUDIO_PURPOSES, type AudioUpload, type Case, type Person, type VoiceLink } from "@/data/schema";
-import { RECORDING_BLOCK_TEXT, recordingBlock, requireAi, type RecordingBlock } from "./ai-port";
+import { AI_OFF_TEXT, RECORDING_BLOCK_TEXT, recordingBlock, requireAi, type RecordingBlock } from "./ai-port";
 import { requireAudio, validateAudioMeta, type AudioRef, type AudioUploadTicket } from "./audio-port";
 import { sha256Hex } from "@/features/rost/sha256";
 
@@ -108,7 +108,7 @@ export const AUDIO_UPLOAD_ERROR_TEXT: Record<AudioUploadError, string> = {
   too_long: "Inspelningen är för lång.",
   audio_type: "Filtypen stöds inte. Använd m4a, mp3, wav eller webm.",
   audio_size: "Ljudfilen är för stor (högst 25 MB).",
-  ai_unavailable: "Inspelningen är inte tillgänglig just nu. Fyll i formuläret själv.",
+  ai_unavailable: AI_OFF_TEXT,
 };
 const no = <E extends AudioUploadError>(e: E) => fail(e, AUDIO_UPLOAD_ERROR_TEXT[e]);
 

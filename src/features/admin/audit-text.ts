@@ -52,6 +52,10 @@ export const ACTION_LABEL: Record<string, string> = {
   "profile.self_registered": "Skapade konto själv", "auth.self_registration_started": "Begärde kod för nytt konto", "profile.updated": "Ändrade egna uppgifter",
   "attachment.upload_started": "Började ladda upp bilaga", "attachment.uploaded": "Laddade upp bilaga", "attachment.rejected": "Bilaga togs inte emot",
   "attachment.linked": "Kopplade bilagor till beställningen", "attachment.removed": "Tog bort bilaga", "attachment.viewed": "Hämtade bilaga", "attachment.deleted": "Raderade bilaga",
+  // Skarp drift (beslut 2026-10-08): kollegorna läggs till och får roller i appen; rollväxling; avtalsansvarig väljs på avtalssidan.
+  // Loggen har bara id:n, roller och domänen – aldrig namn eller adresser.
+  "staff_user.added": "Lade till kollega", "staff_user.roles_changed": "Ändrade kollegas roller", "staff_user.blocked": "Spärrade kollega", "staff_user.reactivated": "Aktiverade kollega",
+  "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -76,7 +80,7 @@ const DETAIL_KEY: Record<string, string> = {
   idempotencyKeys: "Idempotensnycklar", by: "Av", previous: "Tidigare version", at: "Tidpunkt", created: "Skapade", skippedAlreadyCreated: "Redan skapade",
   skippedDuplicates: "Dubbletter som hoppades över", blocked: "Stoppade", notApproved: "Inte godkända", changed: "Ändrade", buyerReference: "Beställarreferens", toRole: "Till roll",
   caseIds: "Ärenden", emailId: "Mejl", method: "Inloggning", hadCustomerApproval: "Godkänd av kommunen", type: "Typ", level: "Nivå", step: "Steg", sentToCustomer: "Skickad till kommunen",
-  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av",
+  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av", roles: "Roller",
   table: "Tabell", cases: "Antal deltagare", schema: "Schemaversion", columns: "Kolumner", reportIds: "Rapporter",
   savedReportId: "Sparad rapport", dataset: "Uppgifter", audience: "Visning", output: "Visas som", measures: "Mått", groupBy: "Dela upp efter",
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",

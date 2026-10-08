@@ -1,5 +1,6 @@
 // Hanterare för området coach (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
+import { AI_OFF_TEXT, aiOff } from "@/features/_shared/ai-port";
 import type { Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
@@ -430,6 +431,8 @@ handleCommand(resultVerify, { roles: CASE_EDITORS }, async (ctx, p) => {
 
 // ---------------------------------------------------------------- ai.run (simulerad)
 handleCommand(aiRun, { roles: ["coach"] }, async (ctx, p) => {
+  // AI av (produktion utan MM_AI_PROVIDER): ingen simulerad text – klartext och den manuella vägen (beslut 2026-10-08).
+  if (aiOff(ctx)) return fail("ai_unavailable", AI_OFF_TEXT);
   const c = p.caseId ? await ctx.repo.table("cases").get(p.caseId) : null;
   if (p.caseId && !c) return fail("not_found", NOT_FOUND);
   if (c) {

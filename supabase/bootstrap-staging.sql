@@ -97,13 +97,13 @@ on conflict (id) do update set contract_id = excluded.contract_id, area_code = e
 
 -- Testarna (7): admin i båda avtalen, is_tester. Inloggningskopplingen (auth_user_id) och senaste inloggning behålls.
 insert into public.profiles (id, organization_id, full_name, email, phone, title, active, last_login_at, customer_unit, buyer_reference_id, team_role, invited_at, invited_by, auth_user_id, is_tester) values
-  ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-sara', 'org-mb', 'Sara Salah', 'sara.salah@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-adam', 'org-mb', 'Adam Abdalla', 'adam.abdalla@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-shafik', 'org-mb', 'Shafik Muwanga', 'shafik.muwanga@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-yacine', 'org-mb', 'Yacine Laghmari', 'yacine.laghmari@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true)
+  ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-sara', 'org-mb', 'Sara Salah', 'sara.salah@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-adam', 'org-mb', 'Adam Abdalla', 'adam.abdalla@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-shafik', 'org-mb', 'Shafik Muwanga', 'shafik.muwanga@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-yacine', 'org-mb', 'Yacine Laghmari', 'yacine.laghmari@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true)
 on conflict (id) do update set organization_id = excluded.organization_id, full_name = excluded.full_name, email = excluded.email, phone = excluded.phone, title = excluded.title, active = excluded.active, customer_unit = excluded.customer_unit, buyer_reference_id = excluded.buyer_reference_id, team_role = excluded.team_role, invited_at = excluded.invited_at, invited_by = excluded.invited_by, is_tester = excluded.is_tester;
 insert into public.memberships (id, user_id, contract_id, role, customer_unit) values
   ('tester-karim:c-bot', 'tester-karim', 'c-bot', 'admin', null),
@@ -112,7 +112,8 @@ insert into public.memberships (id, user_id, contract_id, role, customer_unit) v
   ('tester-adam:c-bot', 'tester-adam', 'c-bot', 'admin', null),
   ('tester-shafik:c-bot', 'tester-shafik', 'c-bot', 'admin', null),
   ('tester-moda:c-bot', 'tester-moda', 'c-bot', 'admin', null),
-  ('tester-yacine:c-bot', 'tester-yacine', 'c-bot', 'admin', null)
+  ('tester-yacine:c-bot', 'tester-yacine', 'c-bot', 'admin', null),
+  ('tester-ali:c-bot:avtalsansvarig', 'tester-ali', 'c-bot', 'avtalsansvarig', null)
 on conflict (id) do update set user_id = excluded.user_id, contract_id = excluded.contract_id, role = excluded.role, customer_unit = excluded.customer_unit;
 
 -- Testmiljön och testklockan. Klockan sätts bara om den saknas – "Läs in testdata på nytt" startar om den på testtiden.

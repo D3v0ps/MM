@@ -12,7 +12,7 @@ import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import { nextScheduleBoundary } from "@/core/report-schedule";
 import { maskLinkTokens } from "@/core/link-tokens";
-import { addMinutes, type LocalDateTime } from "@/core/time";
+import { addMinutes, toStockholmLocal, type LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAttachments } from "@/features/_shared/attachment-port";
@@ -30,6 +30,14 @@ export type DemoClock = { now(): LocalDateTime; tick(): void; set(t: LocalDateTi
 export function demoClock(start: LocalDateTime): DemoClock {
   let t = start;
   return { now: () => t, tick: () => { t = addMinutes(t, 1); }, set: (v) => { t = v; } };
+}
+
+/**
+ * Riktig klocka (minnesläget med MM_SEED=empty, beslut 2026-10-08): Stockholms lokala tid just nu. tick och set gör ingenting –
+ * tiden går av sig själv, som i produktion.
+ */
+export function realClock(nowIso: () => string = () => new Date().toISOString()): DemoClock {
+  return { now: () => toStockholmLocal(nowIso()), tick: () => undefined, set: () => undefined };
 }
 
 export type MemoryRuntime = ReturnType<typeof createMemoryRuntime>;

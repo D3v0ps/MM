@@ -52,6 +52,8 @@ export function liveCtx(o: {
   attachments?: (d: { system: AppRepo; now: () => LocalDateTime; newId: (prefix: string) => string }) => AttachmentPort;
   /** Kör köade bakgrundsjobb snart (after()). Anropas högst en gång per förfrågan även om flera jobb läggs. */
   scheduleJobs?: () => void;
+  /** Tillåtna domäner för personalens adresser (MM_STAFF_EMAIL_DOMAINS) – "Lägg till kollega". */
+  staffEmailDomains?: readonly string[];
 }): Ctx {
   const newId = o.newId ?? randomId;
   const now = () => o.now;
@@ -92,5 +94,6 @@ export function liveCtx(o: {
     ...(o.audio ? { audio: o.audio({ system: o.system, now, newId }) } : {}),
     ...(o.attachments ? { attachments: o.attachments({ system: o.system, now, newId }) } : {}),
     ...(jobs ? { jobs } : {}),
+    ...(o.staffEmailDomains ? { staffEmailDomains: o.staffEmailDomains } : {}),
   };
 }

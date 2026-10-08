@@ -11,7 +11,7 @@ import { RuntimeProvider } from "@/shell/runtime";
 import { SessionProvider, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
 import { START_PATH } from "@/shell/routes";
-import { listPersonas, personaFor, type Persona } from "@/data/actors";
+import { listPersonas, ownRolesOf, personaFor, type Persona } from "@/data/actors";
 import type { Role } from "@/api/roles";
 import { DownloadProvider } from "@/ui/download";
 import { toast } from "@/ui/toast";
@@ -175,8 +175,20 @@ function Root({ initial }: { initial: DemoRuntime }) {
     setPicked(v);
   }, []);
 
-  const session: Session = useMemo(
-    () => ({
+  const session: Session = useMemo(() => {
+    // Byter testperson. Anroparen navigerar oftast själv i samma klick (t.ex. PerspectiveLink); annars öppnas
+    // rollens startsida – samma som när man byter testperson i riktiga appens utvecklingsläge.
+    const switchRole = (role: Role, userId?: string) => {
+      const byId = userId ? personaFor(demo.rt.raw(), userId, role) : null;
+      const next = byId && byId.actor.role === role ? byId : personas.find((p) => p.actor.role === role);
+      if (!next) return;
+      const before = navSeq;
+      pick(next);
+      queueMicrotask(() => {
+        if (navSeq === before) nav.push(START_PATH[next.actor.role]);
+      });
+    };
+    return {
       actor: persona.actor,
       user: persona.user,
       personas: personas.map((p) => ({
@@ -184,20 +196,14 @@ function Root({ initial }: { initial: DemoRuntime }) {
         role: p.actor.role,
         name: p.user.name,
         title: p.user.title,
+        // Adressen används bara av prototypens snabbval på kommunens inloggning (servern lämnar aldrig ut den här).
+        email: p.user.email,
         isDefaultForRole: (p as Persona & { isDefaultForRole?: boolean }).isDefaultForRole,
       })),
-      // Byter testperson. Anroparen navigerar oftast själv i samma klick (t.ex. PerspectiveLink); annars öppnas
-      // rollens startsida – samma som när man byter testperson i riktiga appens utvecklingsläge.
-      switchRole: (role: Role, userId?: string) => {
-        const byId = userId ? personaFor(demo.rt.raw(), userId, role) : null;
-        const next = byId && byId.actor.role === role ? byId : personas.find((p) => p.actor.role === role);
-        if (!next) return;
-        const before = navSeq;
-        pick(next);
-        queueMicrotask(() => {
-          if (navSeq === before) nav.push(START_PATH[next.actor.role]);
-        });
-      },
+      switchRole,
+      // Rollväxling för egna roller (beslut 2026-10-08): samma rollväljare som i appen – prototypen byter persona.
+      ownRoles: ownRolesOf(demo.rt.raw(), persona.actor.userId),
+      chooseRole: async (role: Role) => switchRole(role, persona.actor.userId),
       // Simulerad inloggning med e-post och kod: vilken sexsiffrig kod som helst godtas och inloggningen byter till
       // testpersonen med adressen. En ny adress på avtalets kommundomän skapar ett konto som handläggare
       // (självregistrering, beslut 2026-10-07). I riktiga appen skickar Supabase koden med e-post (se src/server/auth).
@@ -224,9 +230,8 @@ function Root({ initial }: { initial: DemoRuntime }) {
         },
         signOut: async () => undefined,
       },
-    }),
-    [persona, personas, demo, nav, pick],
-  );
+    };
+  }, [persona, personas, demo, nav, pick]);
 
   // Återställ: nya testdata utan omladdning, samordnaren på startsidan (som den gamla prototypens MM.resetDemo).
   const reset = useCallback(async () => {

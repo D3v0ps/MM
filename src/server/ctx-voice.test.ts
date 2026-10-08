@@ -62,7 +62,8 @@ describe("rost.linkSend lämnar aldrig ut länken från servern", () => {
     const repo = new MemoryRepo<Tables>(store, AMIRA, POLICIES) as unknown as AppRepo;
     const sent: string[] = [];
     let n = 0;
-    const ctx = liveCtx({ actor: AMIRA, now: "2027-02-01T09:40", repo, system, enqueue: async (_s, m) => void sent.push(m.body), newId: (p) => `${p}-${++n}abcdefgh` });
+    // AI-stödet måste finnas: utan leverantör (produktion) skickas inga inspelningslänkar (beslut 2026-10-08).
+    const ctx = liveCtx({ actor: AMIRA, now: "2027-02-01T09:40", repo, system, enqueue: async (_s, m) => void sent.push(m.body), newId: (p) => `${p}-${++n}abcdefgh`, ai: createSimulatedAi() });
     expect("exposeLinkPaths" in ctx).toBe(false);
     const res = (await execute("command", linkSend.key, { caseId: "case-260143", language: "sv" }, ctx)) as { ok: boolean; path?: string | null; linkId?: string };
     expect(res).toMatchObject({ ok: true, path: null });

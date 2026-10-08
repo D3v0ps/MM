@@ -79,6 +79,9 @@ export const TEMPLATES: readonly TemplateDef[] = [
   // src/features/rost/texts.ts) – bara länken, inget namn och inget ärendenummer. Länkens giltighet kommer från avtalet.
   { key: "rostlank", name: "Inspelningslänk till deltagaren", channel: "sms", alsoVia: ["email"], from: "Miljonbemanning (SMS) eller notis@miljonmatch.se (e-post)", to: "Deltagaren – via föredragen kontaktväg (SMS eller e-post). Aldrig vid skyddade personuppgifter.", when: "När coachen skickar en inspelningslänk från deltagarkortet", subject: "Spela in ett meddelande till din coach", body: "Hej! Din coach på Miljonbemanning vill gärna höra hur det går. Spela in ett kort meddelande på ditt språk. Det är frivilligt. Länken gäller i {antal_dagar} dagar och kan bara användas en gång: {lank}", version: 1, updatedAt: "2026-09-30T12:00" },
   { key: "inbjudan_kommun", name: "Inbjudan till portalen", channel: "email", from: "notis@miljonmatch.se", to: "Ny kommunanvändare", when: "När avtalsansvarig bjuder in en kommunanvändare", subject: "Inbjudan till Miljonbemannings portal", body: "Du har bjudits in till Miljonbemannings portal för beställare. Logga in på {lank} med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.", version: 1, updatedAt: "2026-09-08T11:00" },
+  // Lägg till kollega (beslut 2026-10-08): samma text som admin.inviteStaff skickar (STAFF_INVITE_TEXT). Inga personuppgifter –
+  // mejlets knapp till appen läggs till av utskicket (src/server/notify/render.ts).
+  { key: "inbjudan_personal", name: "Inbjudan till kollega", channel: "email", from: "notis@miljonmatch.se", to: "Ny kollega på Miljonbemanning", when: "När systemadministratören lägger till en kollega", subject: "Du har fått ett konto i Miljonmatch", body: "Du har fått ett konto i Miljonmatch, Miljonbemannings plattform för arbetsmarknadsinsatser. Logga in på {lank} med din e-postadress på jobbet. Du får en sexsiffrig kod i ett separat mejl när du loggar in.", version: 1, updatedAt: "2026-10-08T12:00" },
   // Inloggningskoden (beslut 2026-10-02): appen tar fram koden och skickar mejlet direkt (src/server/auth/code-mail.ts) – inte via
   // kön, eftersom koden aldrig får sparas. Ingen länk (Safe Links förbrukar länkar). Texten är fast: samma som mejlet
   // (src/server/notify/render.ts, renderLoginCodeEmail). Utskicksloggen visar "Inloggningskod skickad (••••••)" – aldrig koden.
@@ -92,6 +95,9 @@ export const templateWhen = (t: TemplateDef, env: TemplateEnv): string => (typeo
 /** Texten i inbjudan till en ny kommunanvändare (samma som mallen, med portalens adress ifylld). */
 export const INVITE_TEXT =
   "Du har bjudits in till Miljonbemannings portal för beställare. Logga in på portal.miljonbemanning.se med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.";
+/** Texten i mejlet till en ny kollega (samma som mallen; appens adress blir mejlets knapp "Logga in i Miljonmatch"). Inga personuppgifter. */
+export const STAFF_INVITE_TEXT =
+  "Du har fått ett konto i Miljonmatch, Miljonbemannings plattform för arbetsmarknadsinsatser. Logga in med din e-postadress på jobbet. Du får en sexsiffrig kod i ett separat mejl när du loggar in.";
 
 const TPL_NAME: Record<string, string> = Object.fromEntries(TEMPLATES.map((t) => [t.key, t.name]));
 const PORTAL_GENERIC_BODY = TEMPLATES.find((t) => t.key === GENERIC_PORTAL)!.body;

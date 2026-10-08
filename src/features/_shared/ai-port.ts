@@ -196,13 +196,26 @@ export interface AiPort {
 
 /** ctx.ai, eller ApiError 500 om AI inte är inkopplad i körläget (den manuella vägen fungerar alltid). */
 export function requireAi(ctx: Pick<Ctx, "ai">): AiPort {
-  if (!ctx.ai) throw new ApiError(500, "ai_unavailable", "AI-stödet är inte tillgängligt just nu. Fyll i formuläret själv.");
+  if (!ctx.ai) throw new ApiError(500, "ai_unavailable", AI_OFF_TEXT);
   return ctx.ai;
 }
 
+// ---------------------------------------------------------------- AI av (beslut 2026-10-08, skarp drift)
+/**
+ * Texten när AI-stödet inte är kopplat (produktion utan MM_AI_PROVIDER – ctx.ai saknas). Klarspråk i stället för krasch:
+ * inspelning, diktering, AI-förslag och AI-utkast visar den här texten och den manuella vägen gäller. Ingen simulerad text
+ * får visas i produktion – den simulerade leverantören finns bara i minnesläget, prototypen och testmiljön.
+ */
+export const AI_OFF_TEXT = "Tal till text är inte kopplat ännu – skriv själv så länge.";
+/** Samma sak för deltagarens inspelningslänk (coachen kan inte skicka den när inget kan transkriberas). */
+export const AI_OFF_LINK_TEXT = "Tal till text är inte kopplat ännu – inspelningslänkar kan skickas när AI-stödet är kopplat.";
+/** true = AI-stödet är av i körläget (ctx.ai saknas). */
+export const aiOff = (ctx: Pick<Ctx, "ai">): boolean => !ctx.ai;
+
 // ---------------------------------------------------------------- Får inspelning och AI användas?
-export type RecordingBlock = "disabled" | "protected" | "no_consent";
+export type RecordingBlock = "ai_off" | "disabled" | "protected" | "no_consent";
 export const RECORDING_BLOCK_TEXT: Record<RecordingBlock, string> = {
+  ai_off: AI_OFF_TEXT,
   disabled: "Inspelning är inte påslagen i avtalet.",
   protected: "Inspelning och AI används aldrig för personer med skyddade personuppgifter.",
   no_consent: "Deltagaren har inte gett sitt samtycke till inspelning. Fyll i formuläret själv.",

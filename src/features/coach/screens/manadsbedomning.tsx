@@ -16,7 +16,7 @@ import {
   AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
-import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
+import { AI_OFF_TEXT, appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
 import { breakable, CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, ToCaseButton, useCaseView } from "./shared";
 
 type Ok = Extract<AssessmentPage, { kind: "ok" }>;
@@ -698,6 +698,16 @@ function AiDraftCard({ v }: { v: Ok }) {
   const draft = useCommand(monthlyDraft);
   const d = v.aiDraft;
   const n = v.basis.checkIns.length;
+  // AI av (produktion utan leverantör, beslut 2026-10-08): klartext i stället för en knapp som inte fungerar.
+  if (v.aiOff) {
+    return (
+      <Card title="AI-utkast från godkända avstämningar" icon="sparkles">
+        <Notice tone="warn" title="Tal till text är inte kopplat ännu">
+          {AI_OFF_TEXT} Observationerna, sammanfattningen och planen skrivs manuellt – det är fullt likvärdigt.
+        </Notice>
+      </Card>
+    );
+  }
   const create = async () => {
     const res = await draft.run({ caseId: v.head.caseId, month: v.month }).catch(() => null);
     if (!res || !res.ok) {

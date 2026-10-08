@@ -2,11 +2,19 @@
 
 | Miljö | Supabase-projekt | Region | Data | App |
 |---|---|---|---|---|
-| Testmiljö (staging) | `miljonmatch` (ref `blxupsebzzhmjitaywev`), org "D3v0ps's Org" | eu-north-1 (Stockholm) | Bara påhittade testdata | Vercel-projektet `miljonmatch`: **`https://www.miljonmatch.se`** (`miljonmatch.se` skickas vidare dit) tills produktionen startar – sedan `test.miljonmatch.se` |
-| Produktion | Skapas senare, eget projekt i Stockholm | eu-north-1 | Riktiga personuppgifter | `miljonmatch.se` i eget Vercel-projekt (SPEC §11) |
+| **Produktion (skarp drift sedan 2026-10-08)** | `miljonmatch` (ref `blxupsebzzhmjitaywev`), org "D3v0ps's Org" – ska flyttas till Miljonbemanning AB:s organisation | eu-north-1 (Stockholm) | Riktiga uppgifter: testdatat togs bort 2026-10-08 (`scratchpad/skarp-drift.sql`), `environment = production` | Vercel-projektet `miljonmatch`: **`https://www.miljonmatch.se`** (`miljonmatch.se` skickas vidare dit) |
+| Testmiljö (staging) | Sätts upp senare: eget projekt i Stockholm, `environment = staging`, testarna och "Agera som" | eu-north-1 | Bara påhittade testdata | `test.miljonmatch.se` i eget Vercel-projekt (SPEC §11) |
 | Prototyp | – (data i webbläsaren) | – | Påhittade testdata | Artefakten på claude.ai, byggd med `npm run demo:build` |
+| Lokalt, tomt | – (minnet) | – | `MM_SEED=empty`: bara avtalet, konfigurationen och de sju kollegorna, riktig tid | `npm run dev` |
 
-## Testmiljön
+## Produktionsmiljön (var testmiljön till 2026-10-08)
+
+- Samma projekt och samma adress som testmiljön hade. Det som gäller nu: `docs/DRIFT.md`, avsnittet "Skarp drift sedan 2026-10-08" (Vercel-variablerna, hur kollegor läggs till i appen, hur Botkyrka släpps in, DPA före riktiga personuppgifter).
+- Migrationerna 0001–0026 är applicerade; **0027 (rollväxling)** körs av Karim i SQL Editor. Kollegorna är vanliga användare (`is_tester = false`), alla systemadministratörer tills rollerna ändras i appen; Ali är avtalsansvarig.
+- AI är av (`MM_AI_PROVIDER` tom) tills Google Cloud är kopplat – "Tal till text är inte kopplat ännu – skriv själv så länge." Ingen simulerad AI i produktion.
+- `MM_EMAIL_ALLOWLIST=@miljonbemanning.se` tills Botkyrka släpps in.
+
+## Testmiljön (historik – och mallen för den nya testmiljön)
 
 - API-adress: `https://blxupsebzzhmjitaywev.supabase.co`
 - Publik nyckel (får finnas i webbläsaren, skyddas av RLS): `sb_publishable_6gWujM1P_blTRgFvPTMiGQ_cYDPcmGO`

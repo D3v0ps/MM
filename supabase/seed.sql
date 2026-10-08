@@ -17,7 +17,7 @@ $$;
 
 -- Töm appens tabeller (aldrig auth.*). Revisionsloggen töms bara här: triggern stoppar update och delete, inte truncate.
 -- Testarnas synpunkter (feedback, feedback_replies) hör inte till testdatat och töms aldrig.
-truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.intake_assessments, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.case_notes, public.saved_reports, public.case_attachments, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
+truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.role_choices, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.intake_assessments, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.case_notes, public.saved_reports, public.case_attachments, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
 
 -- holidays (32)
 insert into public.holidays (id, date, name) values
@@ -119,15 +119,15 @@ insert into public.profiles (id, organization_id, full_name, email, phone, title
   ('k-ahmed', 'org-botkyrka', 'Ahmed Yusuf', 'ahmed.yusuf@botkyrka.se', '08-530 000 12', 'Handläggare', true, null, 'Arbetsmarknadsenheten Tumba', 'br-tumba', null, null, null, 'c4191ec5-5dd4-504e-bf93-b9148a99d476', false),
   ('k-linda', 'org-botkyrka', 'Linda Karlsson', 'linda.karlsson@botkyrka.se', '08-530 000 13', 'Handläggare', true, null, 'Arbetsmarknadsenheten Hallunda–Fittja', 'br-hallunda', null, null, null, 'e97b30fe-d39d-5eae-96f5-c4e64411e611', false),
   ('k-omar', 'org-botkyrka', 'Omar Farah', 'omar.farah@botkyrka.se', '08-530 000 14', 'Arbetsmarknadscoach', true, null, 'Arbetsmarknadsenheten Alby', 'br-alby', null, null, null, '07f9980b-579e-57d1-ac01-689f7dacfb97', false),
-  ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-sara', 'org-mb', 'Sara Salah', 'sara.salah@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-adam', 'org-mb', 'Adam Abdalla', 'adam.abdalla@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-shafik', 'org-mb', 'Shafik Muwanga', 'shafik.muwanga@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true),
-  ('tester-yacine', 'org-mb', 'Yacine Laghmari', 'yacine.laghmari@miljonbemanning.se', '', 'Testare (systemadministratör)', true, null, null, null, null, null, null, null, true);
+  ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-ali', 'org-mb', 'Ali Khalil', 'ali.khalil@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-sara', 'org-mb', 'Sara Salah', 'sara.salah@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-adam', 'org-mb', 'Adam Abdalla', 'adam.abdalla@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-shafik', 'org-mb', 'Shafik Muwanga', 'shafik.muwanga@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-moda', 'org-mb', 'Moda Habib', 'moda.habib@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
+  ('tester-yacine', 'org-mb', 'Yacine Laghmari', 'yacine.laghmari@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true);
 
--- memberships (24)
+-- memberships (25)
 insert into public.memberships (id, user_id, contract_id, role, customer_unit) values
   ('u-sara:c-bot', 'u-sara', 'c-bot', 'samordnare', null),
   ('u-johan:c-bot', 'u-johan', 'c-bot', 'avtalsansvarig', null),
@@ -152,7 +152,10 @@ insert into public.memberships (id, user_id, contract_id, role, customer_unit) v
   ('tester-adam:c-bot', 'tester-adam', 'c-bot', 'admin', null),
   ('tester-shafik:c-bot', 'tester-shafik', 'c-bot', 'admin', null),
   ('tester-moda:c-bot', 'tester-moda', 'c-bot', 'admin', null),
-  ('tester-yacine:c-bot', 'tester-yacine', 'c-bot', 'admin', null);
+  ('tester-yacine:c-bot', 'tester-yacine', 'c-bot', 'admin', null),
+  ('tester-ali:c-bot:avtalsansvarig', 'tester-ali', 'c-bot', 'avtalsansvarig', null);
+
+-- role_choices (0)
 
 -- persons (230)
 insert into public.persons (id, personnummer_enc, personnummer_hash, personnummer_last4, birth_year, first_name, last_name, phone, email, city, address, preferred_contact, protected_identity, accessibility_needs, language, needs_interpreter) values

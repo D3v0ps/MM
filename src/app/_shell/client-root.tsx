@@ -164,6 +164,13 @@ function buildSession(view: SessionView, o: { loggedOut: Session["loggedOut"] | 
       // Utvecklingsläget: byt testperson. I testmiljön och i drift loggar man in med e-postkod.
       // En simulerad testare (e2e) förblir testare när testpersonen byts.
       switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId, persona.actor.testerId),
+      // Rollväxling för egna roller: valet är redan sparat (session.vaxlaRoll) och sidopanelen har frågat om osparad text –
+      // kakan får den nya rollen och sidan laddas om.
+      ownRoles: view.ownRoles,
+      chooseRole: async (role: Role) => {
+        await postJson("/api/dev-session", { role, userId: persona.actor.userId, ...(persona.actor.testerId ? { testerId: persona.actor.testerId } : {}) }).catch(() => null);
+        await hardNavigate(stayOrStart(here(), role, view.hidesCommercial));
+      },
       auth: devAuth,
     };
   }
@@ -178,6 +185,12 @@ function buildSession(view: SessionView, o: { loggedOut: Session["loggedOut"] | 
     isTester: view.isTester,
     environment: view.environment,
     hidesCommercial: view.hidesCommercial,
+    // Rollväxling för egna roller (beslut 2026-10-08): valet är sparat i databasen (role_choices) – efter omladdningen ser
+    // servern och RLS den nya rollen (mm.current_role()). Aldrig när en testare agerar som en testperson (ownRoles är tom).
+    ownRoles: view.ownRoles,
+    chooseRole: async (role: Role) => {
+      await hardNavigate(stayOrStart(here(), role, view.hidesCommercial));
+    },
     // Testmiljön: testaren läser in testdatat på nytt i adminvyn (POST /api/staging/seed). Sidan laddas om när det är klart.
     reloadTestData: view.isTester && view.environment === "staging" ? reloadTestData : undefined,
     // Testmiljön: synpunkterna (feedback.* via /api/rpc). Servern och RLS släpper bara igenom testare i testmiljön.

@@ -361,6 +361,11 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     read: (m, a) => self(a, m.userId) || ((isMB(a) || isKom(a)) && member(a, m.contractId)),
     write: (m, a) => a.role === "admin" || (a.role === "avtalsansvarig" && member(a, m.contractId) && isCustomerRole(m.role)),
   },
+  // Vald roll (0027): bara den egna raden, id = userId, och bara en roll man har medlemskap för (role_choices_insert/update).
+  role_choices: {
+    read: (x, a) => self(a, x.userId),
+    write: (x, a, raw) => self(a, x.userId) && x.id === x.userId && raw.all("memberships").some((m) => m.userId === x.userId && m.role === x.role),
+  },
   buyer_references: {
     read: (b, a, raw) => a.role === "admin" || ((isMB(a) || isKom(a)) && customersOf(a, raw).has(b.customerId)),
     write: (b, a, raw) => a.role === "admin" || ((a.role === "avtalsansvarig" || a.role === "ekonom") && customersOf(a, raw).has(b.customerId)),

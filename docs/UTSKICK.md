@@ -110,6 +110,7 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `paminnelse_progression` | Påminnelse från Miljonmatch |
 | `eskalering_chef` | Eskalering i Miljonmatch |
 | `inbjudan_kommun` | Inbjudan till Miljonbemannings portal |
+| `inbjudan_personal` | Du har fått ett konto i Miljonmatch – Lägg till kollega (beslut 2026-10-08): texten har inga personuppgifter, knappen går till appens adress (`loginLink`, personalens domän) |
 | `kallelse` | Kallelse till första möte |
 | `rostlank` | Spela in ett meddelande till din coach |
 | `inloggningskod` | Din inloggningskod till Miljonmatch (skickas direkt, inte via kön – nästa avsnitt) |

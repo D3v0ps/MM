@@ -12,6 +12,7 @@ import { pct, plural } from "@/core/format";
 import { resultRate } from "@/core/kpi";
 import { progressionWatch } from "@/core/progression";
 import { addDays, dayOf, fmtDateTime, fmtTime, fmtWeekKey, isoWeek, monday } from "@/core/time";
+import { SIMULATED_PROVIDER } from "@/features/_shared/ai-sim";
 import { JOB_NAME, type JobKey } from "./audit-text";
 import { hidesCommercial } from "@/api/tester-access";
 import { adminIntegrations, adminRunJob, type IntegrationView, type JobRow, type JobStatusView, type SubprocessorView } from "./api";
@@ -50,7 +51,7 @@ function regionLock(thirdCountryForbidden: boolean): string[] {
  * webbläsarens kod. vendor = false (begränsade testare): utan raderna som pekar ut underbiträdena – vald leverantör, region,
  * DNS och godkännande. Samma uppgifter står i underbiträdeslistan, som de inte ser.
  */
-function integrationCards(o: { inboxReadAt: string; latestMail: string | null; aiRunCount: number; vendor: boolean }): IntegrationView[] {
+function integrationCards(o: { inboxReadAt: string; latestMail: string | null; aiRunCount: number; vendor: boolean; ai: "off" | "test" | "active" }): IntegrationView[] {
   const v = (label: string, text: string): [string, string][] => (o.vendor ? [[label, text]] : []);
   return [
     { id: "graph", name: "avrop@-brevlådan", sub: "Microsoft Graph", icon: "inbox", status: "active", phase: null,
@@ -68,10 +69,14 @@ function integrationCards(o: { inboxReadAt: string; latestMail: string | null; a
         ...v("DNS", "SPF och studsar på send.miljonmatch.se, DKIM på resend._domainkey"),
         ...v("Godkännande", "Ska in i PUB-avtalets förteckning över underbiträden och godkännas av Botkyrka"),
       ] },
-    { id: "ai", name: "AI-leverantör", sub: "Transkribering och textutkast", icon: "sparkles", status: "test", phase: 2,
+    // AI-stödet speglar körläget (beslut 2026-10-08): av i produktion tills Google Cloud är kopplat (MM_AI_PROVIDER=vertex),
+    // simulerat i testmiljön, minnesläget och prototypen. Ingen simulerad text i produktion.
+    { id: "ai", name: "AI-leverantör", sub: "Transkribering och textutkast", icon: "sparkles", status: o.ai, phase: 2,
       items: [
+        ...(o.ai === "off" ? [["Läge", "Inte kopplad – tal till text, diktering och AI-utkast är avstängda. Den manuella vägen gäller."] as [string, string]] : []),
         ...v("Vald", "Gemini Flash via Google Cloud Vertex AI, EU multi-region"),
-        ...v("I test", "Simulerad leverantör tills kontot i Google Cloud finns"),
+        ...(o.ai === "off" ? v("Så kopplas den", "Google Cloud-projekt, tjänstekonto och MM_AI_PROVIDER=vertex i Vercel – docs/DRIFT.md avsnitt 10") : []),
+        ...(o.ai === "test" ? v("I test", "Simulerad leverantör tills kontot i Google Cloud finns") : []),
         ["Aldrig", "AI Studio-nyckel eller global endpoint"],
         ["Anrop", `Bara via AI-adaptern – ${plural(o.aiRunCount, "körning", "körningar")} hittills`],
       ] },
@@ -141,7 +146,7 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
             returnDataWithinDays: env.cfg.termination.returnDataWithinDays,
           },
         }),
-    integrations: integrationCards({ inboxReadAt, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide }),
+    integrations: integrationCards({ inboxReadAt, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide, ai: !ctx.ai ? "off" : ctx.ai.provider === SIMULATED_PROVIDER ? "test" : "active" }),
     storage: { place: "Stockholm", ...(hide ? {} : { detail: "Supabase eu-north-1 · Vercel arn1" }) },
     latestMail,
     inboxReadAt,

@@ -1,6 +1,8 @@
 // Kontrakt: session och diagnos.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
+import { LOG } from "@/api/invalidation";
+import { ROLES, type Role } from "@/api/roles";
 import { IdSchema } from "../_shared/schemas";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -36,3 +38,10 @@ export const auditView = command("session.auditView", z.object({
 }), { invalidates: "none" }).returns<Result<object>>();
 
 export const sessionPing = query("session.ping", z.object({})).returns<{ now: string; role: string; userId: string }>();
+
+/**
+ * Rollväxling för egna roller (beslut 2026-10-08, migration 0027): en användare med flera medlemskap väljer roll i sidopanelens
+ * huvud. Valet sparas i role_choices (bara den egna raden) och styr rollen vid nästa anrop – sidan laddas om efteråt, så alla
+ * frågor hämtas på nytt; här räknas bara loggen om. Revisionsloggen får role.switched (bara id och roll).
+ */
+export const switchRole = command("session.vaxlaRoll", z.object({ role: z.enum(ROLES) }), { invalidates: [...LOG] }).returns<Result<{ role: Role }, "no_membership" | "unchanged">>();

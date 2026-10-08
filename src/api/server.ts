@@ -83,6 +83,12 @@ export type Ctx = {
    * prototypen kan visa länken som deltagaren fick. Saknas på servern i supabase-läget – där finns token bara i utskicket.
    */
   exposeLinkPaths?: boolean;
+  /**
+   * Tillåtna e-postdomäner för Miljonbemannings personal när en kollega läggs till (beslut 2026-10-08). Servern: MM_STAFF_EMAIL_DOMAINS
+   * (src/server/config.ts). Saknas (minnesläget, prototypen): standarddomänen i src/core/staff.ts. Organisationens egna domäner
+   * i databasen går alltid före (staffEmailDomainsOf).
+   */
+  staffEmailDomains?: readonly string[];
 };
 
 type Handler = (ctx: Ctx, input: unknown) => Promise<unknown>;

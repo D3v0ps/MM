@@ -1,6 +1,51 @@
-# Drift – så sätter du upp testmiljön (och senare produktion)
+# Drift – skarp drift sedan 2026-10-08 (och hur en testmiljö sätts upp)
 
-*Version 2026-10-02. Testmiljön har bara påhittade testdata. Produktion byggs på samma sätt, men i ett eget Supabase-projekt och ett eget Vercel-projekt (se avsnitt 7).*
+*Version 2026-10-08. Miljön på www.miljonmatch.se är produktion sedan 2026-10-08 (avsnittet "Skarp drift" nedan). Avsnitten om testmiljön längre ned beskriver hur den sattes upp och hur en ny testmiljö (test.miljonmatch.se) sätts upp senare – de rörs inte i den här versionen.*
+
+## Skarp drift sedan 2026-10-08
+
+**Beslut (Karim 2026-10-08):** samma Supabase-projekt (`blxupsebzzhmjitaywev`, eu-north-1) och samma Vercel-projekt blir skarp drift – inget nytt projekt. Testdatat är borttaget, kollegorna är vanliga användare och riktiga deltagare registreras som ärenden. En ny testmiljö på `test.miljonmatch.se` sätts upp senare (`docs/MILJOER.md`).
+
+### Vad som gäller nu
+
+- **Miljön är produktion:** `app_settings.environment = production` (`scratchpad/skarp-drift.sql`, körd av Karim). Då finns ingen testarfunktion: inget "Agera som", inget "Läs in testdata", ingen "Lämna synpunkt", ingen testmärkning i mejlen, riktig tid (`MM_CLOCK=real`). Testkoden ligger kvar i repot men är avstängd och tas bort i en senare omgång tillsammans med den nya testmiljön.
+- **Tomt är normalt:** appen fungerar utan ett enda ärende – Min vecka för alla roller, listorna, ledningsvyn, fakturakörningen, rapporterna och portalen visar tomma tillstånd i klarspråk. Samma läge går att köra lokalt med `MM_BACKEND=memory MM_SEED=empty npm run dev` (bara avtalet, konfigurationen och de sju kollegorna, riktig tid) och prövas av e2e-projektet `tom` (`tests/e2e/tom.spec.ts`).
+- **AI är av** tills Google Cloud är kopplat (`MM_AI_PROVIDER` tom = av i produktion, avsnitt 10). Inspelning, diktering ("Tala in"), AI-förslag och AI-utkast visar "Tal till text är inte kopplat ännu – skriv själv så länge." Inspelningslänkar kan inte skickas. Ingen simulerad text visas någonsin i produktion. Integrationskortet AI på `/admin/integrationer` säger "Inte kopplad".
+- **Prislistan** har exempelpriser (`exampleOnly`) tills Karim lämnar de riktiga.
+- **Mejl:** `MM_EMAIL_ALLOWLIST=@miljonbemanning.se` så länge bara kollegorna är inne – inget mejl lämnar bolaget. Kodmejl och notiser går bara till adresser på den domänen.
+
+### Vercel → Settings → Environment Variables (Production), sedan Deployments → Redeploy
+
+| Variabel | Värde |
+|---|---|
+| `MM_CLOCK` | `real` |
+| `MM_EMAIL_ALLOWLIST` | `@miljonbemanning.se` – ingen adress utanför domänen får mejl, inte ens kodmejl. När Botkyrka ska börja: `@miljonbemanning.se,@botkyrka.se`, eller tom lista (då stoppas inte längre något mejl) |
+| `MM_EMAIL_REDIRECT_TO` | *(tom)* |
+| `MM_EMAIL_REPLY_TO` | `avrop@miljonbemanning.se` |
+| `MM_AI_PROVIDER` | *(tom)* = AI av. `vertex` när Google Cloud är kopplat (avsnitt 10) |
+| `MM_STAFF_EMAIL_DOMAINS` | `miljonbemanning.se` (standard) – domänen kollegornas adresser måste ha i "Lägg till kollega" och vid inloggning |
+
+Ta bort Supabase-variablerna för *Preview*, så att förhandsversioner av kod aldrig når den skarpa databasen (de kör då i minnesläget med påhittade data).
+
+### Migration 0027 (rollväxling) – körs av Karim
+
+`supabase/migrations/0027_rollval.sql` i *SQL Editor* (hela filen, en gång – den tål att köras igen): tabellen `role_choices` (den valda rollen för den som har flera), `mm.current_role()` följer valet, och administratören får ta bort medlemskap ("Ändra roller"). Kontroll: `select * from public.role_choices;` fungerar och `select public.current_actor();` svarar som inloggad. Utan 0027 fungerar allt som förut, utom rollväljaren (kommandot `session.vaxlaRoll` ger då ett fel i sidopanelen) och "Ändra roller" när en roll ska tas bort.
+
+### Så läggs kollegor till (ingen SQL)
+
+1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
+2. Namn, e-postadress på jobbet (domänen i `MM_STAFF_EMAIL_DOMAINS` – inte en privat adress), en eller flera roller (systemadministratör, avtalsansvarig, samordnare, huvudcoach, handledare, chef och controller, ekonom), titel valfritt.
+3. Kollegan får ett mejl utan personuppgifter med knappen "Logga in i Miljonmatch" och loggar in med e-post och engångskod (`/logga-in`). Rollerna ändras när som helst med **Ändra roller**; **Spärra** stänger inloggningen (aktivera igen med **Aktivera**). Den egna adminrollen kan inte tas bort och man kan inte spärra sig själv.
+4. Den som har flera roller väljer roll i sidopanelen under sitt namn (**Roll**). Valet sparas (`role_choices`) och gäller tills det ändras. Revisionsloggen får `staff_user.added`, `staff_user.roles_changed`, `staff_user.blocked`, `staff_user.reactivated` och `role.switched` – bara id:n och roller.
+5. **Avtalsansvarig** för Botkyrkaavtalet är Ali (`contracts.contract_manager_id`). Systemadministratören kan byta på avtalssidan (`/admin/avtal`, Avtalsfakta → Avtalsansvarig → Ändra) bland kollegor som har rollen avtalsansvarig.
+
+De sju första kontona (Karim, Ali, Sara, Adam, Shafik, Moda, Yacine) finns redan – alla är systemadministratörer tills rollerna ändras i appen; Ali är också avtalsansvarig.
+
+### Så släpps Botkyrka in
+
+1. Botkyrkas handläggare skapar sina konton själva med en adress på `@botkyrka.se` (`contracts.config.selfRegistration`, `/portal/logga-in`) – eller bjuds in under Användare och roller → Bjud in kommunanvändare. Kodmejlet når dem inte förrän domänen finns i `MM_EMAIL_ALLOWLIST`: sätt `@miljonbemanning.se,@botkyrka.se` i Vercel (eller töm listan – då stoppas inte längre något mejl) och driftsätt igen.
+2. **Innan riktiga personuppgifter:** personuppgiftsbiträdesavtal (DPA) med underbiträdena – Supabase, Vercel, Resend (och Google Cloud när AI kopplas, Microsoft för avrop@) – ska vara tecknade och stå i PUB-avtalets förteckning (SPEC §3.1, `/admin/integrationer`). Bara administratörer i Resend (kodmejlen syns där, avsnitt 4.1).
+3. Kontrollera att MFA och minst två administratörer finns i Vercel, Supabase och Resend, och att bucketarna `ljud` och `bilagor` är privata.
 
 ## Översikt
 
@@ -220,7 +265,7 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | Namn | Hemlig | Förklaring | Exempel (testmiljön) | Var värdet finns |
 |---|---|---|---|---|
 | `MM_BACKEND` | | Körläge: `memory` (påhittade testdata i minnet – lokalt och e2e) eller `supabase` (testmiljön och produktion) | `supabase` | Fast värde |
-| `MM_CLOCK` | | Tomt = testtid när `app_settings` har testklockans epoker. `real` = riktig tid | *(tomt)* · produktion `real` | Fast värde |
+| `MM_CLOCK` | | Tomt = testtid när `app_settings` har testklockans epoker. `real` = riktig tid | produktion `real` · testmiljön *(tomt)* | Fast värde |
 | `MM_APP_URL` | | Appens adress utan `/` på slutet – den som **inte** skickas vidare. Länkarna i mejlen och deltagarens inspelningslänk (`/rost/…`) | `https://www.miljonmatch.se` | Vercel → *Domains* |
 | `SUPABASE_URL` | | Supabase-projektets adress (`NEXT_PUBLIC_SUPABASE_URL` från Vercels Supabase-integration fungerar också) | `https://blxupsebzzhmjitaywev.supabase.co` | Supabase → *Project Settings → API* · `docs/MILJOER.md` |
 | `SUPABASE_PUBLISHABLE_KEY` | | Publik nyckel, används bara på servern (`SUPABASE_ANON_KEY` fungerar också) | `sb_publishable_…` | Supabase → *Project Settings → API Keys* · `docs/MILJOER.md` |
@@ -229,8 +274,8 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MM_SESSION_SECRET` | **ja** | Valfri. Nyckel för att signera sessionskakan `mm_last_seen` (60 minuters inaktivitet). Tom = samma nyckel som `MM_LOGIN_HASH_SECRET`. Byts nyckeln loggas alla ut en gång | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_KEY` | **ja** | Kryptering av personnummer, AES-256-GCM: exakt 32 byte som base64 | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_HMAC_KEY` | **ja** | Sökhash för personnummer (dubblettkontrollen), HMAC-SHA256: minst 32 byte som base64, **en annan nyckel** än `MM_PNR_KEY` | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
-| `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |
-| `MM_EMAIL_ALLOWLIST` | | **Testmiljön:** de adresser som får mejl och inloggningskoder, kommatecken emellan. **Hela adresser, aldrig `@miljonbemanning.se`** – testdatat har påhittade adresser på den domänen. Tom i testmiljön = ingen får mejl. **Tom i produktion** | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
+| `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal – vid inloggning och i "Lägg till kollega" (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |
+| `MM_EMAIL_ALLOWLIST` | | Adresser eller `@domäner` som får mejl och inloggningskoder, kommatecken emellan. **Produktion:** `@miljonbemanning.se` tills Botkyrka släpps in, sedan `@miljonbemanning.se,@botkyrka.se` eller tom (alla). **Testmiljön:** hela adresser, aldrig `@miljonbemanning.se` – testdatat har påhittade adresser på den domänen; tom = ingen får mejl | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
 | `MM_EMAIL_REDIRECT_TO` | | **Bara testmiljön:** testarens adress som får mejlen till testpersoner, med raden "Testmiljö – det här mejlet skulle ha gått till …" (roll och organisation). Måste finnas i `MM_EMAIL_ALLOWLIST`. Gäller aldrig inloggningskoder – koden går bara till den som loggar in. Ignoreras i produktion – lämna tom där | `karim.khalil@miljonbemanning.se` | En testares adress |
 | `RESEND_API_KEY` | **ja** | Resends API-nyckel (bara sändrätt) för appens mejl **och inloggningskoderna** (appen skickar koden själv, avsnitt 2.1). Saknas den kan ingen logga in | `re_…` | Resend → *API Keys* (`miljonmatch-app`) |
 | `MM_EMAIL_FROM` | | Avsändare för notiserna och inloggningskoderna. Domänen måste vara verifierad i Resend | `Miljonmatch <notis@miljonmatch.se>` | Fast värde (beslut 2026-10-01) |
@@ -265,6 +310,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Personnummer (`ctx.crypto`) | `src/server/crypto.ts` (servern) · `src/data/seed/pnr.ts` (`TEST_PNR_CRYPTO`, minnesläget) |
 | Inloggning med kod | `src/app/api/auth/{code,verify,logout}`, `src/server/auth/*` – kodmejlet: `src/server/auth/code-mail.ts` (generateLink + Resend), layouten `src/server/notify/render.ts` |
 | Session, testarens val | `src/app/api/session`, `src/app/api/session/impersonate`, `src/app/_shell/client-root.tsx` |
+| Kollegor, roller, spärr (beslut 2026-10-08) | `src/features/admin/handlers-users.ts` (`admin.inviteStaff`, `admin.setStaffRoles`, `admin.setStaffActive`), skärmen `src/features/admin/screens/anvandare.tsx`, domänerna `src/core/staff.ts` |
+| Rollväxling (beslut 2026-10-08) | `supabase/migrations/0027_rollval.sql` (`role_choices`, `mm.current_role()`), `src/features/session/handlers.ts` (`session.vaxlaRoll`), `src/data/actors.ts` (`defaultRoleFor`), rollväljaren i `src/shell/layouts.tsx` |
+| Tomt testdata och riktig tid lokalt | `MM_SEED=empty` – `src/data/seed/empty.ts`, `src/data/seed/colleagues.ts`, `realClock` i `src/data/memory-runtime.ts`; e2e-projektet `tom` |
 | Läs in testdata på nytt | `src/app/api/staging/seed/route.ts`, `src/server/staging/load.ts`, `supabase/migrations/0010_testdata.sql` (och 0017, som behåller synpunkterna), knappen `src/features/session/screens/test-data-reset.tsx` |
 | Synpunkter (bara testmiljön) | `src/features/synpunkter/*` (kommandona `feedback.*`, knapparna i `panel.tsx`), `supabase/migrations/0017_synpunkter.sql` |
 | Utskick och jobb | `src/server/notify/*`, `src/server/jobs/*`, `docs/UTSKICK.md` |
@@ -280,7 +328,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 
 ---
 
-## 7. Produktion (senare)
+## 7. Produktion (planen från 2026-10-02 – genomförd 2026-10-08 i samma projekt, se "Skarp drift" överst)
+
+*Historik: planen var ett eget projekt. Beslutet 2026-10-08 blev att samma projekt blir produktion; det som står här gäller i stället för den nya testmiljön som sätts upp senare (eget projekt, egna nycklar, `environment = staging`).*
 
 - Nytt Supabase-projekt i **eu-north-1** och ett **eget Vercel-projekt**, så att förhandsversioner (Preview) aldrig kan peka mot produktionsdatabasen.
 - Samma migrationer (0001–0017, i nummerordning), **ingen seed och inget startdata**. Kör dem precis före den första driftsättningen – 0013 och koden hör ihop (steg 1 i "exakt ordning"). `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knapparna för testdata och synpunkter syns inte (tabellerna för synpunkter finns men ingen kan läsa eller skriva i dem).
@@ -321,6 +371,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Utloggad oväntat | 60 minuter utan aktivitet eller 12 timmar sedan inloggningen – så ska det vara |
 | "AI-stödet är inte tillgängligt just nu" / inspelning går inte att starta | `MM_AI_PROVIDER` och övriga AI-variabler (avsnitt 10). Vercels logg visar `ai: AI-stödet är avstängt – …` med orsaken (utan hemligheter). I produktion är AI av tills `MM_AI_PROVIDER=vertex` |
 | Transkriberingen blir aldrig klar | `jobs` (`select kind, status, attempts, started_at, last_error from jobs order by created_at desc limit 20;`). 403/404 från Vertex AI: fel projekt, modell eller roll. "AI-tjänsten svarar inte": tillfälligt – jobbet försöks igen upp till fem gånger. Ett jobb som står i `running` tas upp igen efter fem minuter. "Jobbet avbröts innan det blev klart (serverns tidsgräns)": inspelningen hann inte transkriberas inom 60 sekunder fem gånger – se "Tidsgränser" i avsnitt 10 |
+| Rollväljaren syns inte | Bara den som har fler än en roll (medlemskap) ser den, under sitt namn i sidopanelen. Migration 0027 körd? (`select count(*) from public.role_choices;`) |
+| "Tal till text är inte kopplat ännu" | Så ska det vara i produktion tills `MM_AI_PROVIDER=vertex` och Google Cloud finns (avsnitt 10). Ingen simulerad AI i produktion |
+| Kollegan får ingen kod | Adressen måste finnas som aktiv profil med roll (Användare och roller), ha domänen i `MM_STAFF_EMAIL_DOMAINS` och – med en satt `MM_EMAIL_ALLOWLIST` – matcha listan (`@miljonbemanning.se`), annars skickas inte koden |
 
 ---
 
@@ -349,7 +402,9 @@ Beslut 2026-09-30 (`docs/PLAN-ROST.md`): **Gemini Flash via Vertex AI, EU multi-
 **Tidsgränser:** alla rutter har `maxDuration` **högst 60 sekunder** (`/api/rpc`, `/api/jobs/run`, `/api/staging/seed`) – teamet kan vara på Vercels Hobby-nivå, där en högre gräns stoppar hela driftsättningen. Transkriberingen körs direkt efter svaret (after(), inom `/api/rpc`:s 60 sekunder) och annars av `/api/jobs/run` (cron varje minut). Avbryts ett jobb vid tidsgränsen står det kvar i `running` och tas upp igen efter **fem minuter** (`STALE_MINUTES` i `src/server/jobs/runner.ts`); avbryts även femte försöket ges jobbet upp (`failed`, "Jobbet avbröts innan det blev klart …", coachen ser "Inspelningen är för lång för att transkriberas" och fyller i själv) – inget jobb blir hängande. Korta inspelningar (kommunen och deltagaren, högst 5 minuter) och de flesta avstämningar klarar sig inom 60 sekunder. **Långa inspelningar (över cirka 10 minuter) kan behöva Vercel Pro med `maxDuration` 300** för `/api/rpc` och `/api/jobs/run` – höj då också `STALE_MINUTES` till minst 10. Längsta inspelning styrs av avtalet (`ai.maxMinutes`, Botkyrka: coachen 60, kommunen och deltagaren 5 minuter). Ljud över cirka 15 MB (ungefär en timme i 32 kbit/s) transkriberas inte.
 
 
-## 11. Testarna och synpunkter (beslut 2026-10-01)
+## 11. Testarna och synpunkter (beslut 2026-10-01 – historik, gäller testmiljön)
+
+*Sedan 2026-10-08 är de sju kollegorna vanliga användare i produktion (`is_tester = false`, titel Systemadministratör) och nya kollegor läggs till i appen ("Skarp drift" överst). Testarfunktionen nedan används igen när testmiljön test.miljonmatch.se finns.*
 
 Karim bjuder in kollegor på Miljonbemanning att testa testmiljön och ge synpunkter på processen och plattformen. **Testmiljön är inte färdig** – säg det när ni bjuder in, och be dem använda **Lämna synpunkt**.
 

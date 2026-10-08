@@ -73,9 +73,10 @@ describe("Min vecka och menyn (beslut 2026-10-06)", () => {
     for (const role of SUPPLIER_ROLES) expect(START_PATH[role], role).toBe("/min-vecka");
   });
 
-  it("/start leder vidare till Min vecka – samma roller som förut", () => {
+  it("/start leder vidare till Min vecka – för alla MB-roller (skarp drift 2026-10-08: en gammal länk ger aldrig 'ingen behörighet')", () => {
     const m = resolveRoute(APP_ROUTES, "/start");
-    expect(m?.route).toMatchObject({ path: "/start", title: "Min vecka", roles: ["samordnare", "avtalsansvarig"], area: "mb" });
+    expect(m?.route).toMatchObject({ path: "/start", title: "Min vecka", area: "mb" });
+    expect([...(m?.route.roles ?? [])].sort()).toEqual([...SUPPLIER_ROLES].sort());
   });
 
   it("de gamla startsidorna finns kvar", () => {

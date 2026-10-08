@@ -2,7 +2,7 @@
 import { fail, ok } from "@/api/contract";
 import { CUSTOMER_ROLES, SUPPLIER_ROLES, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { auditView, sessionPing, VIEW_EVENTS, type ViewEvent } from "./api";
+import { auditView, sessionPing, switchRole, VIEW_EVENTS, type ViewEvent } from "./api";
 import "./nav-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -69,3 +69,19 @@ handleCommand(auditView, { roles: [...SUPPLIER_ROLES, ...CUSTOMER_ROLES], silent
 });
 
 handleQuery(sessionPing, {}, (ctx) => ({ now: ctx.now(), role: ctx.actor.role, userId: ctx.actor.userId }));
+
+// ---------------------------------------------------------------- Rollväxling (beslut 2026-10-08)
+// Bara MB-personal och kommunens användare (deltagaren har inga medlemskap). Rollen måste finnas bland de egna medlemskapen –
+// policyn (RLS role_choices_insert/update) stoppar annars. Raden skrivs i eget namn via ctx.repo; id = userId (0027).
+handleCommand(switchRole, { roles: [...SUPPLIER_ROLES, ...CUSTOMER_ROLES] }, async (ctx, p) => {
+  const me = ctx.actor.userId;
+  const mine = await ctx.repo.table("memberships").list({ userId: me, role: p.role });
+  if (!mine.length) return fail("no_membership", "Du har inte den rollen.");
+  const table = ctx.repo.table("role_choices");
+  const cur = await table.get(me);
+  if (cur?.role === p.role && ctx.actor.role === p.role) return fail("unchanged", "Du har redan den rollen.");
+  if (cur) await table.update(me, { role: p.role, chosenAt: ctx.now() });
+  else await table.insert({ id: me, userId: me, role: p.role, chosenAt: ctx.now() });
+  await ctx.audit({ action: "role.switched", entity: "profile", entityId: me, contractId: mine[0].contractId, details: { role: p.role } });
+  return ok({ role: p.role });
+});

@@ -1,5 +1,5 @@
 // Svaret från GET /api/session – det klienten bygger sin Session av (src/app/_shell/client-root.tsx).
-import type { Actor } from "@/api/roles";
+import type { Actor, Role } from "@/api/roles";
 import type { PersonaOption, SessionUser } from "@/shell/session";
 
 export type SessionView = {
@@ -14,6 +14,11 @@ export type SessionView = {
   impersonating?: boolean;
   /** Utvecklingsläget: alla testpersoner. Testmiljön: testarens valbara testpersoner. Annars tom. */
   personas: PersonaOption[];
+  /**
+   * Den inloggades egna roller (medlemskap, beslut 2026-10-08): fler än en ger rollväljaren i sidopanelens huvud. Tom när en
+   * testare agerar som en testperson (då styr "Agera som") och för deltagaren.
+   */
+  ownRoles: Role[];
   /** Testmiljöns klocka (testtid), t.ex. "2027-02-01T09:40". */
   testNow?: string | null;
   /**

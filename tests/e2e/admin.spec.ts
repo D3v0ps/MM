@@ -247,7 +247,7 @@ test("användare: avtalsansvarig bjuder in och spärrar en kommunanvändare", as
   await expect(main(page)).toContainText("Poster (1)");
   await expect(main(page)).toContainText("Domän: botkyrka.se");
   await switchTo(page, info, "/admin/anvandare", ROBIN);
-  await expect(main(page)).toContainText("Personal på Miljonbemanning");
+  await expect(main(page)).toContainText("Kollegor på Miljonbemanning");
   expect(relevant(errors)).toEqual([]);
 });
 

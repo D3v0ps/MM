@@ -43,7 +43,16 @@ describe("resolveIdentity", () => {
     expect(id?.isTester).toBe(false);
     expect(id?.impersonating).toBe(false);
     expect(id?.personas).toEqual([]);
+    expect(id?.ownRoles).toEqual(["kommun_handlaggare"]);
     expect(calls).toEqual(["self"]);
+  });
+
+  it("egna roller (beslut 2026-10-08): alla medlemskapens roller i rollernas ordning – tom när en testare agerar som en testperson", async () => {
+    const two: Directory = { ...all, memberships: [...all.memberships, { id: `${KARIM.id}:c-bot:coach`, userId: KARIM.id, contractId: "c-bot", role: "coach", customerUnit: null }] };
+    const st: IdentityStore = { currentActor: async () => self(KARIM.id, "coach"), directory: async () => two };
+    expect((await resolveIdentity(st, "production"))?.ownRoles).toEqual(["admin", "coach"]);
+    const imp: IdentityStore = { currentActor: async () => self(KARIM.id, "admin", { isTester: true, impersonating: true, userId: "u-amira", role: "coach" }), directory: async () => two };
+    expect((await resolveIdentity(imp, "staging"))?.ownRoles).toEqual([]);
   });
 
   it("ingen profil, spärrad profil eller ingen roll = ingen identitet", async () => {

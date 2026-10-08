@@ -32,6 +32,8 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   atgardsplan_godkannande: T("Åtgärdsplan att godkänna", "Åtgärdsplan väntar på ert godkännande", "kommun"),
   atgardsplan_godkand: T("Åtgärdsplan godkänd", "Åtgärdsplan godkänd", "mb"),
   inbjudan_kommun: T("Inbjudan till portalen", "Inbjudan till Miljonbemannings portal", "kommun"),
+  // Lägg till kollega (beslut 2026-10-08): adressen till appen blir mejlets knapp – inga personuppgifter i texten.
+  inbjudan_personal: T("Inbjudan till kollega", "Du har fått ett konto i Miljonmatch", "mb"),
   // Deltagarens inspelningslänk (src/features/rost/handlers.ts): via föredragen kontaktväg, aldrig vid skyddade personuppgifter.
   // Texten innehåller bara länken – inget namn, inget ärendenummer. Länken blir en fullständig adress med MM_APP_URL (queue.ts),
   // och token sparas aldrig i utskicksloggen (src/core/link-tokens.ts).

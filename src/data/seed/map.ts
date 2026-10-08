@@ -53,7 +53,8 @@ const REPORT_DEFAULTS: Omit<Report, "id" | "contractId" | "kind" | "periodStart"
 };
 
 /** Avtal, organisationer, områden och priser (prototypens S.contracts, S.areas, S.priceItems). */
-function contractTables(db: Db) {
+/** Avtalet och konfigurationen (utan personer): helgdagar, organisationer, avtalet, avtalsområden, prislista, integrationer, interna regler. */
+export function contractTables(db: Db) {
   db.organizations.push(
     { id: ORG_MB, name: "Miljonbemanning AB", orgNr: "556959-9318", kind: "supplier", emailDomains: [] },
     { id: ORG_BOTKYRKA, name: "Botkyrka kommun", orgNr: "212000-2882", kind: "customer", emailDomains: ["botkyrka.se"] },

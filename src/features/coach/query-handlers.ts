@@ -25,7 +25,7 @@ import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
-import { RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
+import { aiOff, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
@@ -462,8 +462,9 @@ handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
     seesCoachNotes: !!env.cfg.customerVisibility.seesCoachNotes,
     options: { activityTypes: [...ACTIVITY_TYPES], obstacles: [...OBSTACLES], goalsByPhase: Object.fromEntries(Object.entries(GOALS).map(([k, v]) => [Number(k), [...v]])) },
     // Röstinspelning: avtalet (ai.recording.coach), skyddade personuppgifter och samtycket – samma regel som rost.uploadStart.
+    // AI av (produktion utan leverantör, beslut 2026-10-08): klartext i stället för en inspelning som inte kan tolkas.
     recording: (() => {
-      const block = recordingBlock({ cfg: env.cfg, kind: "coach", person, consent: c.aiConsentStatus });
+      const block = aiOff(ctx) ? "ai_off" : recordingBlock({ cfg: env.cfg, kind: "coach", person, consent: c.aiConsentStatus });
       return { allowed: !block, block, blockText: block ? RECORDING_BLOCK_TEXT[block] : null, maxMinutes: recordingMaxMinutes(env.cfg, "coach") ?? 0 };
     })(),
   };
@@ -571,6 +572,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     dueNote: monthDueNote(env.cfg),
     goals: [...(GOALS[Math.min(5, c.phase)] ?? [])],
     aiDraft: aiOk ? await latestMonthlyDraft(ctx, c.id, month) : null,
+    aiOff: aiOff(ctx),
     notes: await monthNotes(ctx, c.id, month),
   };
 });

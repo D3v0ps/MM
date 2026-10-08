@@ -16,7 +16,7 @@ import { caseCreate, caseDecline, messageSend } from "@/features/arenden/api";
 import { deviationCallCustomer } from "@/features/coach/api";
 import {
   kommunCase, kommunCaseList, kommunCaseSeen, kommunDuplicate, kommunOrderForm, kommunProfile, kommunProfileSave, kommunReceipt, kommunReports, kommunRevealPnr,
-  kommunStart, kommunTaskDone, kommunTestPersonas, type KomCaseDetail,
+  kommunStart, kommunTaskDone, type KomCaseDetail,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -223,10 +223,6 @@ describe("kommandon (prototypens kom.*)", () => {
     expect(d.canWrite).toBe(true);
     expect(d.messages?.at(-1)).toMatchObject({ senderLabel: "Du", mine: true, read: false, body: "Hej Amira!" });
     expect(await ask(kommunCase, { caseId: NADIA }, omar())).toEqual({ kind: "denied" });
-  });
-  it("testpersonernas adresser (prototypens snabbval) – bara användare läsaren redan får se, kommunens chef finns inte", async () => {
-    const got = await ask(kommunTestPersonas, { userIds: ["k-maria", "k-eva"] }, maria());
-    expect(got).toEqual([{ userId: "k-maria", email: "maria.ekdahl@botkyrka.se" }]);
   });
 });
 

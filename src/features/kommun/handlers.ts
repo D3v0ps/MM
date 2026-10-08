@@ -20,7 +20,7 @@ import { pnrSearchHash, revealPnr } from "../_shared/pnr";
 import { caseBackground } from "../arenden/background";
 import {
   kommunCase, kommunCaseList, kommunCaseSeen, kommunDuplicate, kommunOrderForm, kommunProfile, kommunProfileSave, kommunReceipt, kommunReports,
-  kommunRevealPnr, kommunStart, kommunTaskDone, kommunTestPersonas,
+  kommunRevealPnr, kommunStart, kommunTaskDone,
   type KomAttTile, type KomCaseDetail, type KomCaseRow, type KomEvent, type KomReportRow, type KomTask, type KomThread,
 } from "./api";
 import { deliveredOk, komCase, komContext, komMessage, reportRow, senderLabel, viewerFor, visibleCases } from "./load";
@@ -343,13 +343,6 @@ handleQuery(kommunReports, { roles: HANDL }, async (ctx) => {
 
 /** Rubriken för en rapport som är på väg (veckorapport). */
 const rowTitle = (r: Report): string => reportTitle(r, reportKindLabel);
-
-// ================================================================ kommun.testpersoner (bara prototypens snabbval på inloggningen)
-handleQuery(kommunTestPersonas, { roles: ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom", "kommun_handlaggare"] }, async (ctx, p) => {
-  if (!p.userIds.length) return [];
-  const rows = await ctx.repo.table("profiles").list({ id: { in: p.userIds } });
-  return rows.map((u) => ({ userId: u.id, email: u.email }));
-});
 
 // ================================================================ Kommandon
 /** kom.caseSeen (tyst): händelser i ärendet före den här tiden räknas som lästa på startsidan. */

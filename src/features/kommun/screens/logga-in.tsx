@@ -12,14 +12,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ROLE_LABEL, isCustomerRole } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
-import { useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useRuntime } from "@/shell/runtime";
 import { isAuthenticated, useAuth, useSession } from "@/shell/session";
 import { Button, Card, DemoNote, Field, Icon, Input, Notice, Stepper, useToast } from "@/ui";
 import { BACK_AFTER_LOGIN, LOGGED_OUT } from "@/features/session/screens/logga-in";
-import { kommunTestPersonas } from "../api";
 import { PORTAL_FIRST_LOGIN_PATH } from "@/shell/nav-config";
 import { AUTH } from "../texts";
 import { KomHead, KomPage } from "./parts";
@@ -57,9 +55,9 @@ export function PortalLoginScreen({ query }: ScreenProps) {
   const [problem, setProblem] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const codeRef = useRef<HTMLDivElement>(null);
-  // Snabbval i prototypen: standardpersonerna för kommunens roller (adresserna hämtas bara i prototypen).
-  const quick = runtime === "demo" ? (session.personas ?? []).filter((p) => isCustomerRole(p.role) && p.isDefaultForRole) : [];
-  const quickMail = useQuery(kommunTestPersonas, quick.length && isAuthenticated(session) && session.actor.role !== "deltagare" ? { userIds: quick.map((p) => p.userId) } : null);
+  // Snabbval i prototypen: standardpersonerna för kommunens roller. Adressen finns bara i prototypens testpersoner
+  // (PersonaOption.email) – servern har ingen fråga för det (beslut 2026-10-08).
+  const quick = runtime === "demo" ? (session.personas ?? []).filter((p) => isCustomerRole(p.role) && p.isDefaultForRole && !!p.email) : [];
 
   useEffect(() => {
     if (step === 1) codeRef.current?.querySelector("input")?.focus();
@@ -220,7 +218,7 @@ export function PortalLoginScreen({ query }: ScreenProps) {
                 key={p.userId}
                 icon="user"
                 onClick={() => {
-                  const mail = quickMail.data?.find((x) => x.userId === p.userId)?.email;
+                  const mail = p.email;
                   if (!mail) return;
                   setEmail(mail);
                   setEmailErr(null);

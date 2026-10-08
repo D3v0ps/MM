@@ -409,6 +409,19 @@ export type Membership = {
   customerUnit: string | null;
 };
 
+/**
+ * Vald roll för en användare med flera medlemskap (beslut 2026-10-08, migration 0027): en rad per användare, id = userId.
+ * Styr aktörens roll (actorFor i src/data/actors.ts och mm.current_role() i databasen) när rollen inte ges av testpersonens
+ * val – bara om ett medlemskap med rollen finns. Bara den egna raden får läsas och skrivas.
+ */
+export type RoleChoice = {
+  /** Samma som userId (varje tabell har id som nyckel). */
+  id: string;
+  userId: string;
+  role: Role;
+  chosenAt: LocalDateTime;
+};
+
 export type BuyerReference = {
   id: string;
   customerId: string;
@@ -1605,6 +1618,7 @@ export type Tables = {
   price_items: PriceItem;
   profiles: Profile;
   memberships: Membership;
+  role_choices: RoleChoice;
   buyer_references: BuyerReference;
   persons: Person;
   cases: Case;
@@ -1671,7 +1685,7 @@ export type Db = { [N in TableName]: Tables[N][] };
 /** Alla tabellnamn i migrationsordning (docs/PLAN-FAS1.md). */
 export const TABLE_NAMES = [
   "holidays", "organizations", "contracts", "contract_areas", "price_items",
-  "profiles", "memberships",
+  "profiles", "memberships", "role_choices",
   "persons", "cases", "case_status_history", "case_counters", "case_team", "buyer_references",
   "inbound_emails",
   "intake_assessments", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
@@ -1705,4 +1719,6 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & strin
   pulse_responses: ["inviteId"],
   // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
   invoice_drafts: ["fortnoxIdempotencyKey"],
+  // En vald roll per användare (0027).
+  role_choices: ["userId"],
 };

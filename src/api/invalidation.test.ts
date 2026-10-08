@@ -65,7 +65,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"),
   "kommun.start": one("k-maria"), "kommun.bestallning": one("k-maria"), "kommun.dubblett": one("k-maria", { pnr: "19900101-1234" }),
   "kommun.kvitto": one("k-maria", { caseId: NADIA }), "kommun.deltagareLista": one("k-maria"), "kommun.deltagare": one("k-maria", { caseId: NADIA }),
-  "kommun.rapporter": one("k-maria"), "kommun.profil": one("k-maria"), "kommun.testpersoner": one("k-maria", { userIds: ["k-maria"] }), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
+  "kommun.rapporter": one("k-maria"), "kommun.profil": one("k-maria"), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
   "kommun.dictationState": one("k-maria", { aiRunId: "ai-run-mehmet" }),
   "ledning.head": one("u-karin"), "ledning.overview": one("u-karin"), "ledning.coaches": one("u-karin"), "ledning.areas": one("u-karin"), "ledning.pulse": one("u-karin"),
   "ledning.cdevRegister": one("u-karin"), "ledning.cdevDetail": one("u-karin", { id: "cd-2" }), "ledning.cdevMonth": one("u-karin", { month: "2027-01" }),
@@ -91,6 +91,9 @@ const AUDIT_CASE = "audit_log:case";
 const WRITES: Record<string, string[]> = {
   "admin.setOrgRule": ["org_settings", "audit_log:org_rule", AUDIT], "admin.runJob": ["*"], "admin.logCheck": ["log_checks", AUDIT], "admin.saveTemplate": ["template_versions", AUDIT],
   "admin.inviteCustomer": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setCustomerActive": ["profiles"],
+  // Kollegorna och rollväxlingen (beslut 2026-10-08).
+  "admin.inviteStaff": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setStaffRoles": ["memberships", AUDIT], "admin.setStaffActive": ["profiles", AUDIT],
+  "admin.setContractManager": ["contracts", AUDIT], "session.vaxlaRoll": ["role_choices", AUDIT],
   "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", AUDIT_CASE, AUDIT],
   "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],
   "arenden.bilagaHamta": [AUDIT],
@@ -209,7 +212,7 @@ function knownFor(command: string, query: string, tables: string[]): number[] | 
 /** Frågor som bara slår upp rader (get) eller bara läser uppslagstabeller – de får ingen automatisk kontroll (men står i planen). */
 const NO_TABLES = [
   "admin.auditDetail", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "ekonomi.priceList", "inkorg.duplicateCheck",
-  "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "kommun.testpersoner", "puls.link",
+  "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "puls.link",
   "rapporter.byggKatalog", "rapporter.sparad", "rost.link", "rost.sendStatus", "session.ping",
 ];
 

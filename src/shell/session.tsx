@@ -13,8 +13,8 @@ export type SessionUser = {
   orgName: string;
   unit?: string | null;
 };
-/** Valbar testperson (prototypen och utvecklingsläget). */
-export type PersonaOption = { userId: string; role: Role; name: string; title: string; isDefaultForRole?: boolean };
+/** Valbar testperson (prototypen och utvecklingsläget). email fylls bara i av prototypen (snabbvalet på kommunens inloggning). */
+export type PersonaOption = { userId: string; role: Role; name: string; title: string; isDefaultForRole?: boolean; email?: string };
 
 /** Resultat av inloggningssteg. Felkoderna visas med text till användaren (aldrig om adressen finns eller inte). */
 export type AuthResult =
@@ -67,6 +67,13 @@ export type Session = {
   hidesCommercial?: boolean;
   /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
   personas?: PersonaOption[];
+  /**
+   * Rollväxling för egna roller (beslut 2026-10-08): den inloggades roller (medlemskap). Fler än en ger rollväljaren i
+   * sidopanelens huvud. Valet sparas på servern (session.vaxlaRoll) och chooseRole byter sedan vy: appen laddar om sidan,
+   * prototypen byter persona. Saknas när en testare agerar som en testperson.
+   */
+  ownRoles?: Role[];
+  chooseRole?: (role: Role) => Promise<void>;
   /** Bara prototypen: byt roll/persona. */
   switchRole?: (role: Role, userId?: string) => void;
   signOut?: () => void;
