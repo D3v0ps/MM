@@ -164,8 +164,10 @@ export async function loadInbox(ctx: Ctx, e: InboxEnv): Promise<InboxData> {
     const person = personOf(c);
     if (caseProtected(c, person)) continue;
     const cls = m.classification === "order_protected" ? "other" : m.classification;
+    // Registrerat av Miljonbemanning (beslut 4a): telefon visas som telefon, mejl och annan väg som "Registrerad av Miljonbemanning".
+    const method: InboxMethod = m.registeredBy ? (c?.source === "phone" ? "phone" : "registered") : m.parseMethod;
     items.push({
-      id: m.id, kind: "email", email: m, case: c, person, receivedAt: m.receivedAt, from: m.fromName, subject: m.subject, method: m.parseMethod,
+      id: m.id, kind: "email", email: m, case: c, person, receivedAt: m.receivedAt, from: m.fromName, subject: m.subject, method,
       cls, status: m.status === "protected" ? "other" : m.status, pending: PENDING.includes(m.status), handledAt: m.handledAt, sla: null,
     });
   }

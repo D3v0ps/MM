@@ -1,6 +1,7 @@
 // Kör bakgrundsjobben mot Supabase (service role). Används av POST /api/jobs/run och av after() efter ett utskick eller
 // ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript), timmens jobb för
-// bilagorna och kontostädningen (attachments.ts) och tiominutersperiodens jobb för rapportutkasten (reports.ts) om de saknas.
+// bilagorna och kontostädningen (attachments.ts), tiominutersperiodens jobb för rapportutkasten (reports.ts) och
+// tvåminutersperiodens mejlinläsning från avrop@ (inbox.ts) om de saknas.
 import "server-only";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
@@ -27,6 +28,9 @@ import { runJobs, type RunSummary } from "./runner";
 import { supabaseJobStore, type RpcClient } from "./store";
 import { ensureRetentionJobs } from "./voice";
 import { deleteOrphanAuthUsers, ensureHourlyJobs, type AuthAdminLike } from "./attachments";
+import { ensureInboxImportJob, runInboxImport } from "./inbox";
+import { docxText } from "../inbox/docx-text";
+import type { GraphFetch } from "../inbox/graph";
 
 /** Paus mellan jobben – håller oss under Resends gräns för anrop per sekund. */
 const PAUSE_MS = 500;
@@ -118,6 +122,12 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     // Rapportutkasten läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
     console.error("jobb: rapportutkasten kunde inte läggas", safeErrorText(e));
   }
+  try {
+    await ensureInboxImportJob(system, now);
+  } catch (e) {
+    // Mejlinläsningen läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
+    console.error("jobb: mejlinläsningen kunde inte läggas", safeErrorText(e));
+  }
   const deps: JobDeps = {
     notify: {
       repo: new SupabaseRepo<NotifyTables>(client),
@@ -131,6 +141,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     reportSchedule,
     attachmentsCtx: voiceCtx,
     authCleanup,
+    // Mejlinläsningen från avrop@: systemstegens Ctx (service role, bilagor, krypto, utskickskön) och Graph via fetch.
+    inboxImport: () => runInboxImport({ ctx: voiceCtx(), repo: system, now, fetchFn: globalThis.fetch as unknown as GraphFetch, docxText }),
   };
   return runJobs({
     store: supabaseJobStore(client),

@@ -23,6 +23,8 @@ import type { AppRepo } from "@/data/schema";
 /** Den del av lagringen som porten behöver (Supabase Storage i drift, en fejk i testerna). */
 export interface AttachmentStorage {
   createSignedUploadUrl(path: string): Promise<{ signedUrl: string; token: string }>;
+  /** Lägg in en fil från servern (mejlinläsningens bilagor). Finns filen redan skrivs den över. */
+  upload(path: string, content: Uint8Array, contentType: string): Promise<void>;
   /** Filens storlek i byte, eller null om filen inte finns. */
   size(path: string): Promise<number | null>;
   /** Filens början (för filsignaturen), eller null om filen inte finns. */
@@ -37,7 +39,7 @@ export interface AttachmentStorage {
 
 /** Fel i lagringen. Meddelandet innehåller bara steget och en felkod – aldrig sökväg, filnamn eller innehåll. */
 export class AttachmentStorageError extends Error {
-  constructor(public readonly step: "sign" | "info" | "download" | "remove" | "list", public readonly code: string) {
+  constructor(public readonly step: "sign" | "upload" | "info" | "download" | "remove" | "list", public readonly code: string) {
     super(`Bilagorna: ${step} misslyckades${code ? ` (${code})` : ""}`);
     this.name = "AttachmentStorageError";
   }
@@ -70,6 +72,22 @@ export function createStorageAttachments(o: { system: AppRepo; storage: Attachme
       }
       return table().update(id, { status: "uploaded", bytes: size });
     },
+    async store(meta, content) {
+      let fileName: string;
+      let mimeType: string;
+      try {
+        ({ fileName, mimeType } = validateAttachment({ ...meta, bytes: content.byteLength }));
+      } catch {
+        return null;
+      }
+      if (!signatureMatches(mimeType, content.slice(0, 16))) return null;
+      const id = o.newId("att");
+      const row = newAttachmentRow(id, { ...meta, bytes: content.byteLength }, mimeType, fileName, o.now());
+      // Raden först (pending): finns filen i bucketen finns alltid spåret, och gallringen hittar den om nästa steg bryts.
+      await table().insert(row);
+      await o.storage.upload(row.storagePath, content, mimeType);
+      return table().update(id, { status: "uploaded" });
+    },
     async link(ids, caseId) {
       for (const id of ids) await table().update(id, { caseId, linkedAt: o.now() });
     },
@@ -94,6 +112,7 @@ export function createStorageAttachments(o: { system: AppRepo; storage: Attachme
 /** Den del av supabase-js lagringsklient som används (bucketen "bilagor"). */
 export interface AttachmentBucketLike {
   createSignedUploadUrl(path: string): PromiseLike<{ data: { signedUrl: string; token: string; path: string } | null; error: unknown }>;
+  upload(path: string, body: Uint8Array, options?: { contentType?: string; upsert?: boolean }): PromiseLike<{ data: unknown; error: unknown }>;
   createSignedUrl(path: string, expiresIn: number): PromiseLike<{ data: { signedUrl: string } | null; error: unknown }>;
   exists(path: string): PromiseLike<{ data: boolean; error: unknown }>;
   info(path: string): PromiseLike<{ data: { size?: number | null } | null; error: unknown }>;
@@ -118,6 +137,10 @@ export function supabaseAttachmentStorage(client: AttachmentStorageClientLike, b
       const { data, error } = await b().createSignedUploadUrl(path);
       if (error || !data) throw new AttachmentStorageError("sign", errCode(error));
       return { signedUrl: data.signedUrl, token: data.token };
+    },
+    async upload(path, content, contentType) {
+      const { error } = await b().upload(path, content, { contentType, upsert: true });
+      if (error) throw new AttachmentStorageError("upload", errCode(error));
     },
     async size(path) {
       const ex = await b().exists(path);

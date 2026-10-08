@@ -29,6 +29,8 @@ import {
 const OPEN = ["acknowledged", "received"];
 const DECIDED = ["confirmed", "active", "paused", "closed"];
 const isOpen = (c: Pick<Case, "status"> | null | undefined) => !!c && OPEN.includes(c.status);
+/** Mejlet väntar på hantering (samma statusar som fliken Att hantera). */
+const isPending = (s: InboundEmail["status"]) => s === "received" || s === "acknowledged";
 const refConfig = (e: InboxEnv) => ({ refPattern: e.cfg.billing.buyerReference.pattern, refLen: buyerRefLengthText(e.cfg) });
 const refError = (s: string | null | undefined, e: InboxEnv) => refErrorMB(s, e.cfg.billing.buyerReference.pattern, buyerRefLengthText(e.cfg));
 
@@ -134,6 +136,8 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
  * och beställarreferens sätts av Miljonbemanning vid accept (synpunkt #8) och visas bara när de finns.
  */
 function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "Beställningen"): CaseFieldsView {
+  // Portalen, telefon eller registrerad av Miljonbemanning från mejl/annan väg (beslut 4a).
+  const method: CaseFieldsView["method"] = c.source === "phone" ? "phone" : c.source === "portal" ? "portal" : "registered";
   const p = d.personById.get(c.personId) ?? null;
   const k = c.referrerId ? d.profiles.find((u) => u.id === c.referrerId) ?? null : null;
   const row = (label: string, value: string | null, missing = false, pnr?: PnrView): FormField => ({
@@ -179,7 +183,7 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
         }]
       : []),
   ];
-  return { title, method: c.source === "phone" ? "phone" : "portal", groups };
+  return { title, method, groups };
 }
 
 function ackView(it: Item, d: InboxData, out: OutboundMessage[], crypto: PnrCrypto): AckView {
@@ -195,7 +199,9 @@ function ackView(it: Item, d: InboxData, out: OutboundMessage[], crypto: PnrCryp
   const limit = ackMinutes(d.e.cfg);
   const p = it.person;
   const leak = !!p && [p.firstName, p.lastName, plainPnr(crypto, p)].some((x) => x && n.body.includes(x));
-  return { kind: "sent", generic: n.template === "generisk_mottagningsbekraftelse", ok: mins <= limit, mins, limit, when: whenText(n.createdAt, d.e.now), to: n.to, body: n.body, leak };
+  // Registrerad av Miljonbemanning (beslut 4a): ordererkännandet gick när beställningen registrerades – minuterna från mottagandet gäller inte.
+  const registered = !!it.email?.registeredBy;
+  return { kind: "sent", generic: n.template === "generisk_mottagningsbekraftelse", ok: registered || mins <= limit, mins, limit, when: whenText(n.createdAt, d.e.now), to: n.to, body: n.body, leak, ...(registered ? { registered: true } : {}) };
 }
 
 /**
@@ -292,7 +298,10 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
     id: it.id, kind: it.kind, cls: it.cls, status: it.status, method: it.method, subject: it.subject, from: it.from, fromAddress: m?.fromAddress ?? null,
     receivedWhen: whenText(it.receivedAt, e.now),
     case: c ? { id: c.id, number: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId, status: c.status } : null,
-    headSla, handledText: m?.handledBy ? `Hanterat av ${personName(d.profiles, m.handledBy)} ${whenText(m.handledAt, e.now)}` : null,
+    headSla,
+    handledText: m?.handledBy
+      ? `Hanterat av ${personName(d.profiles, m.handledBy)} ${whenText(m.handledAt, e.now)}`
+      : m?.registeredBy ? `Registrerad av ${personName(d.profiles, m.registeredBy)} ${whenText(m.registeredAt, e.now)}` : null,
     steps, current, decision, managerName: personName(d.profiles, e.contract.contractManagerId), correct,
   };
 
@@ -375,12 +384,20 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
       text: ack.kind === "sent" && ack.body.includes("saknar") ? `Ordererkännandet bad kommunen svara med uppgifterna (${ack.when}).` : "",
     };
   }
+  // Registrerad av Miljonbemanning (beslut 4a): ärendets uppgifter visas i stället för en tolkning, originalmejlet bara när det finns.
+  const registered = !!m?.registeredBy;
+  // Ett inläst avrop utan ärende: tolkningen räckte inte (eller personen har redan en insats) – registreras för hand.
+  const register = m && !c && it.cls === "order" && isPending(m.status)
+    ? { emailId: m.id, reason: m.parseMethod === "manual" ? "Mejlet kunde inte tolkas automatiskt – uppgifterna skrivs in av en människa." : "Uppgifterna i mejlet räckte inte för att skapa ärendet automatiskt. Kontrollera dem mot originalet och registrera beställningen." }
+    : null;
   return {
     ...base,
     body: {
-      kind: "order", decided: !!c && DECIDED.includes(c.status), declined: c && c.status === "declined" ? await declinedView(ctx, d, c, out) : null,
+      kind: "order", register, decided: !!c && DECIDED.includes(c.status), declined: c && c.status === "declined" ? await declinedView(ctx, d, c, out) : null,
       pendingSups: pendingSups(d, c), missing, refProblem: c && pendingDecision && c.buyerReference ? refError(c.buyerReference, e) : null,
-      original: m ? originalView(m, mayReveal) : null, parsed: m ? await parsedView(ctx, d, m, c, areas) : null, caseFields: !m && c ? caseFieldsView(d, c, areas) : null,
+      original: m && (m.bodyText || !registered) ? originalView(m, mayReveal) : null,
+      parsed: m && !registered ? await parsedView(ctx, d, m, c, areas) : null,
+      caseFields: c && (!m || registered) ? caseFieldsView(d, c, areas) : null,
       ack, dup: c ? await duplicateView(ctx, d, c) : null,
     },
   };

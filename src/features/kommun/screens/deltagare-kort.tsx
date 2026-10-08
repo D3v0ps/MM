@@ -23,7 +23,7 @@ import { joinText, TalaIn } from "./tala-in";
 
 type Tab = "oversikt" | "rapporter" | "meddelanden";
 const TABS: readonly Tab[] = ["oversikt", "rapporter", "meddelanden"];
-const SOURCE_TEXT: Record<string, string> = { portal: "portalen", email: "mejl", phone: "telefon" };
+const SOURCE_TEXT: Record<string, string> = { portal: "portalen", email: "mejl", phone: "telefon", other: "annan väg" };
 
 export function CaseDetail({ caseId, tab: tab0 }: { caseId: string; tab: string | null }) {
   const q = useQuery(kommunCase, { caseId });

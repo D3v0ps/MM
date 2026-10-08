@@ -8,7 +8,7 @@ import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
 import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
-import { ackTextFor, caseCounterId, coaches, duplicateActive, nextCaseNumber, phaseSince, stuck } from "@/core/cases";
+import { coaches, phaseSince, stuck } from "@/core/cases";
 import { isOperational, isUnset, phaseName, requireOperational, slaRule, type OperationalConfig } from "@/core/config";
 import {
   activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
@@ -23,29 +23,29 @@ import { scopeToContract } from "@/core/scope";
 import { avropDue, finalReportDueAt, firstMeetingDays, firstMeetingDue, isProvisionalDue, slaStatus, type SlaTone } from "@/core/sla";
 import {
   addDays, addMonths, addWorkingDays, billableWeekCount, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, isoWeek, monday, monthEnd, monthKey, monthName,
-  orderPeriodEnd, WEEKDAYS, type LocalDate,
+  WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
 import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, CaseStatus, CaseStatusHistory, Contract, Db, FourRights, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FourRights, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
 import {
-  canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation, userEmail,
+  canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
-import { requireAttachments } from "../_shared/attachment-port";
-import { protectPnr, revealPnr } from "../_shared/pnr";
+import { revealPnr } from "../_shared/pnr";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import "./attachment-handlers";
 import { caseBackground } from "./background";
+import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
   caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseSetBuyerRef, caseUpdate, consentSet, messageRead, messageSend,
-  CUSTOMER_PATCH_FIELDS, MAX_ORDER_WEEKS, ORDER_REASON_MIN, type CasePatch,
+  CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
   caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, supervisorStart, TEAM_TABS,
   type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
@@ -62,18 +62,11 @@ const MANAGERS: readonly Role[] = ["samordnare", "avtalsansvarig"];
 /** Arbetar i ärendet (policyns CASE_WORKERS). */
 const CASE_WORKERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** Ärenden som väntar på svar eller pågår – en person kan bara ha ett sådant (dubblettkontroll). */
-const OPEN_STATUSES: readonly CaseStatus[] = ["received", "acknowledged", "confirmed", "active", "paused"];
 /** Textversionen av samtyckesinformationen (sparas med samtycket). */
 const CONSENT_TEXT_VERSION = "v1.0 (2026-10-01)";
 
-const SOURCE_TEXT: Record<Case["source"], string> = { portal: "portalen", email: "mejl", phone: "telefon" };
-
-/** Statushistorik för ärendet (en rad per status- eller coachbyte). */
-async function addHistory(ctx: Ctx, h: Pick<CaseStatusHistory, "caseId" | "fromStatus" | "toStatus" | "reason"> & Partial<CaseStatusHistory>): Promise<void> {
-  await ctx.repo.table("case_status_history").insert({
-    id: ctx.newId("csh"), fromCoach: null, toCoach: null, customerNotifiedAt: null, changedBy: ctx.actor.userId, changedAt: ctx.now(), ...h,
-  });
-}
+/** Statushistorik för ärendet (en rad per status- eller coachbyte) – gemensam med beställningens skapande (./order.ts). */
+const addHistory = addCaseHistory;
 
 /** Avtalet en beställning görs i: det angivna, annars användarens första aktiva avtal som har driftkonfiguration. */
 async function orderContract(ctx: Ctx, requested: string | undefined): Promise<Contract | null> {
@@ -91,34 +84,8 @@ async function orderContract(ctx: Ctx, requested: string | undefined): Promise<C
 }
 
 // ---------------------------------------------------------------- case.create
-/**
- * Omfattningen i en beställning (beslut 2026-10-07): ett av avtalets alternativ i månader (planerat slut räknas fram från
- * startdatumet) eller "Annan tidsperiod" med slutdatum och motivering. null = ingen omfattning angiven.
- */
-type OrderPeriod = { orderPeriodMonths: number | null; orderPeriodReason: string | null; plannedEnd: LocalDate; plannedWeeks: number };
-function orderPeriodFrom(
-  cfg: OperationalConfig, start: LocalDate | null | undefined,
-  p: { orderPeriodMonths?: number | null; plannedEnd?: LocalDate | null; orderPeriodReason?: string | null },
-): { ok: true; value: OrderPeriod | null } | { ok: false; message: string } {
-  if (p.orderPeriodMonths != null) {
-    if (!cfg.orderPeriods.months.includes(p.orderPeriodMonths)) return { ok: false, message: "Välj en av omfattningarna i avtalet." };
-    if (!start) return { ok: false, message: "Välj ett önskat startdatum. Slutdatumet räknas fram från det." };
-    const plannedEnd = orderPeriodEnd(start, p.orderPeriodMonths);
-    return { ok: true, value: { orderPeriodMonths: p.orderPeriodMonths, orderPeriodReason: null, plannedEnd, plannedWeeks: billableWeekCount(start, plannedEnd) } };
-  }
-  if (p.plannedEnd) {
-    if (!cfg.orderPeriods.allowOther) return { ok: false, message: "Välj en av omfattningarna i avtalet." };
-    const reason = (p.orderPeriodReason ?? "").trim();
-    if (reason.length < ORDER_REASON_MIN) return { ok: false, message: "Skriv varför insatsen behöver en annan längd." };
-    if (!start) return { ok: false, message: "Välj ett önskat startdatum." };
-    if (p.plannedEnd <= start) return { ok: false, message: "Slutdatumet måste komma efter startdatumet." };
-    const plannedWeeks = billableWeekCount(start, p.plannedEnd);
-    if (plannedWeeks > MAX_ORDER_WEEKS) return { ok: false, message: "Perioden är för lång. Kontakta Miljonbemanning." };
-    return { ok: true, value: { orderPeriodMonths: null, orderPeriodReason: reason, plannedEnd: p.plannedEnd, plannedWeeks } };
-  }
-  return { ok: true, value: null };
-}
-
+// Själva skapandet (person, löpnummer, ärende, statushistorik, bilagor och ordererkännande) ligger i ./order.ts
+// (createOrder) och delas med inkorg.register (telefon/mejl registrerat av Miljonbemanning) och mejlinläsningen.
 handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_handlaggare"] }, async (ctx, p) => {
   const customer = isCustomerRole(ctx.actor.role);
   const contract = await orderContract(ctx, p.contractId);
@@ -157,78 +124,25 @@ handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_hand
     if (!ok) return fail("attachments", "En bilaga kunde inte kopplas till beställningen. Ta bort den och bifoga den igen.");
   }
 
-  const pnr = protectPnr(ctx.crypto, p.pnr);
-  if (pnr.personnummerHash) {
-    // ctx.system: dubblettkontrollen ska se alla pågående ärenden i avtalet, även sådana användaren inte får se.
-    // Bara sökhashen jämförs och svaret är ja eller nej – inga uppgifter om det andra ärendet lämnas ut.
-    const same = await ctx.system.table("persons").list({ personnummerHash: pnr.personnummerHash });
-    if (same.length) {
-      const cases = await ctx.system.table("cases").list({ personId: { in: same.map((x) => x.id) }, contractId: contract.id, status: { in: OPEN_STATUSES } });
-      if (duplicateActive({ persons: same, cases }, pnr.personnummerHash).length) {
-        return fail("duplicate", "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.");
-      }
-    }
-  }
+  const res = await createOrder(ctx, {
+    contract, source: p.source ?? "portal", referrerId, referrerUnit: unit || null,
+    firstName: p.firstName, lastName: p.lastName, pnr: p.pnr, phone: p.phone, email: p.email, city: p.city, address: p.address,
+    preferredContact: p.preferredContact, language: p.language, needsInterpreter: p.needsInterpreter,
+    buyerReference, purchaseOrderNumber: po, primaryArea: customer ? null : p.primaryArea, secondaryArea: customer ? null : p.secondaryArea,
+    vocationalTrack: customer ? "" : p.vocationalTrack, desiredStart: p.desiredStart, orderPeriodMonths: p.orderPeriodMonths, plannedEnd: p.plannedEnd,
+    orderPeriodReason: p.orderPeriodReason, priorAssessment: p.priorAssessment, background: p.background, attachmentIds,
+  });
+  if (!res.ok) return fail(res.error, res.message);
 
-  const now = ctx.now();
-  const preferredContact = p.preferredContact ?? "sms";
-  // Skyddade personuppgifter är borttaget ur appen (beslut 2026-10-07): alla deltagare hanteras lika (protectedIdentity false).
-  const person: Person = {
-    id: ctx.newId("p"), ...pnr, birthYear: null, firstName: p.firstName.trim(), lastName: p.lastName.trim(),
-    phone: (p.phone ?? "").trim(), email: (p.email ?? "").trim(), city: (p.city ?? "").trim(),
-    address: preferredContact === "letter" ? (p.address ?? "").trim() || null : null,
-    preferredContact, protectedIdentity: false, accessibilityNeeds: "",
-    language: p.language || "svenska", needsInterpreter: !!p.needsInterpreter,
-  };
-  await ctx.repo.table("persons").insert(person);
-
-  // ctx.system: löpnumret per avtal och år är ett systemsteg (case_counters skrivs aldrig av användare). Numret återanvänds aldrig.
-  const year = now.slice(0, 4);
-  const counterId = caseCounterId(contract.id, year);
-  const counter = await ctx.system.table("case_counters").get(counterId);
-  const { caseNumber, lastValue } = nextCaseNumber(counter, cfg, year);
-  if (counter) await ctx.system.table("case_counters").update(counterId, { lastValue });
-  else await ctx.system.table("case_counters").insert({ id: counterId, contractId: contract.id, year: Number(year), lastValue });
-
-  const status: CaseStatus = "acknowledged";
-  const source = p.source ?? "portal";
-  const pv = period.value;
-  const c: Case = {
-    id: ctx.newId("case"), caseNumber, contractId: contract.id, personId: person.id, status, source, referredAt: now, referrerId,
-    referrerName: null, referrerUnit: unit || null, referrerPhone: null, referrerEmail: null,
-    buyerReference: buyerReference || null, purchaseOrderNumber: po || null,
-    primaryAreaCode: customer ? null : p.primaryArea || null, secondaryAreaCode: customer ? null : p.secondaryArea || null,
-    vocationalTrack: customer ? "" : (p.vocationalTrack ?? "").trim(), desiredStart: p.desiredStart || null, plannedStart: null,
-    plannedWeeks: pv?.plannedWeeks ?? null, plannedEnd: pv?.plannedEnd ?? null, orderValueWeeks: pv?.plannedWeeks ?? null,
-    orderPeriodMonths: pv?.orderPeriodMonths ?? null, orderPeriodReason: pv?.orderPeriodReason ?? null, priorAssessment: p.priorAssessment ?? null,
-    acknowledgedAt: now, confirmedAt: null, declinedAt: null,
-    declineReason: null, firstMeetingAt: null, startDate: null, endDate: null, closedAt: null, endReason: null, resultClass: null, resultVerifiedAt: null,
-    phase: 1, phaseSince: null, leadCoachId: null, backgroundInfo: (p.background ?? "").trim(),
-    aiConsentStatus: "not_asked", meetingDay: null, meetingTime: null,
-    // Mötesplatsen är Miljonbemannings kontor i Alby tills en annan plats bokas (som i prototypen).
-    location: "Alby", pausedWeeks: [], pauseReason: null, sourceEmailId: null,
-  };
-  await ctx.repo.table("cases").insert(c);
-  await addHistory(ctx, { caseId: c.id, fromStatus: null, toStatus: status, reason: `Beställning via ${SOURCE_TEXT[source]}` });
-  await ctx.audit({ action: "case.created", entity: "case", entityId: c.id, contractId: c.contractId, details: { number: caseNumber, source } });
-
-  if (attachmentIds.length) {
-    // Systemsteg (porten, service role): bilagorna kopplas till ärendet. Bara id:n i loggen – aldrig filnamnen.
-    await requireAttachments(ctx).link(attachmentIds, c.id);
-    await ctx.audit({ action: "attachment.linked", entity: "case", entityId: c.id, contractId: c.contractId, details: { attachmentIds } });
-  }
   // Enheten (fritext) sparas i handläggarens profil om den saknas där – förifylls nästa gång (egen profil, via behörigheten).
   if (customer && unit) {
     const me = await ctx.repo.table("profiles").get(ctx.actor.userId);
     if (me && !me.customerUnit) {
       await ctx.repo.table("profiles").update(me.id, { customerUnit: unit });
-      await ctx.audit({ action: "profile.updated", entity: "profile", entityId: me.id, contractId: c.contractId, details: { fields: ["customerUnit"] } });
+      await ctx.audit({ action: "profile.updated", entity: "profile", entityId: me.id, contractId: contract.id, details: { fields: ["customerUnit"] } });
     }
   }
-
-  const to = await userEmail(ctx, referrerId);
-  await ctx.notify({ channel: "email", to, template: "ordererkannande", body: ackTextFor(c, cfg), caseId: c.id });
-  return ok({ caseId: c.id, caseNumber });
+  return ok({ caseId: res.caseId, caseNumber: res.caseNumber });
 });
 
 // ---------------------------------------------------------------- case.accept

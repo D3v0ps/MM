@@ -1,12 +1,12 @@
 // Kontrakt för området inkorg (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING } from "@/api/invalidation";
+import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import type { SlaStatus } from "@/core/sla";
-import { INBOUND_EMAIL_STATUSES, type EmailClassification, type ParseMethod } from "@/data/schema";
+import { INBOUND_EMAIL_STATUSES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, type EmailClassification, type ParseMethod } from "@/data/schema";
 import type { IconName } from "@/ui/icons";
-import type { CaseBackground } from "@/features/arenden/api";
-import { IdSchema, LocalDateSchema } from "../_shared/schemas";
+import { ORDER_REASON_MAX, type CaseBackground } from "@/features/arenden/api";
+import { IdSchema, LocalDateSchema, LocalDateTimeSchema } from "../_shared/schemas";
 import { ORDER_FIELDS, type DeadlineRow, type InboxMethod, type OrderFieldKey } from "./texts";
 
 export type { DeadlineRow, InboxMethod, OrderFieldKey };
@@ -102,10 +102,12 @@ export type OriginalView = {
   attachments: string[];
 };
 export type ParsedView = { method: ParseMethod; help: string; nMissing: number; nLow: number; aiRun: string | null; groups: FieldGroup[] };
-export type CaseFieldsView = { title: string; method: "portal" | "phone"; groups: FieldGroup[] };
+/** Beställningens uppgifter när de inte kommer ur en tolkning: portalen, telefon eller registrerad av Miljonbemanning (beslut 4a). */
+export type CaseFieldsView = { title: string; method: "portal" | "phone" | "registered"; groups: FieldGroup[] };
 export type AckView =
   | { kind: "none"; text: string }
-  | { kind: "sent"; generic: boolean; ok: boolean; mins: number; limit: number; when: string; to: string; body: string; leak: boolean };
+  /** registered = ordererkännandet skickades när Miljonbemanning registrerade beställningen (inte inom minuterna från mottagandet). */
+  | { kind: "sent"; generic: boolean; ok: boolean; mins: number; limit: number; when: string; to: string; body: string; leak: boolean; registered?: boolean };
 export type DuplicateView = { dups: { caseId: string; caseNumber: string; status: string }[] };
 export type DeclinedView = { when: string; by: string | null; reason: string; mail: string | null };
 export type CorrectForm = {
@@ -127,6 +129,8 @@ export type PendingSupplement = { id: string; fromName: string; when: string };
 
 export type OrderBodyView = {
   kind: "order";
+  /** Ett inläst avrop som inte kunde bli ett ärende automatiskt: registreras för hand (länk till formuläret, beslut 4a). */
+  register: { emailId: string; reason: string } | null;
   decided: boolean;
   declined: DeclinedView | null;
   pendingSups: PendingSupplement[];
@@ -255,6 +259,79 @@ export const inboxDecisionForm = query("inkorg.decisionForm", z.object({ caseId:
 
 /** Har personen redan en pågående insats i avtalet? Svaret är bara ja eller nej (sökhash, aldrig klartext). */
 export const inboxDuplicateCheck = query("inkorg.duplicateCheck", z.object({ pnr: z.string().max(20) })).returns<{ duplicate: boolean }>();
+
+// ---------------------------------------------------------------- Registrera beställning (beslut 4a, 2026-10-08)
+// Samordnaren eller avtalsansvarig registrerar ett avrop som kom med mejl, telefon eller på annat sätt: samma fält som
+// kommunens formulär plus hur och när det kom och kommunens handläggare. Ingen profil skapas för handläggaren – uppgifterna
+// sparas på ärendet tills hen skapar konto själv (då kopplas ärendet via e-postadressen). Ett inläst mejl utan ärende
+// (emailId) förifyller formuläret ur tolkningen; personnumret ur mejlet lämnas aldrig ut – det används när fältet lämnas tomt.
+export const REGISTER_CHANNELS = ["email", "phone", "other"] as const;
+export type RegisterChannel = (typeof REGISTER_CHANNELS)[number];
+
+export type RegisterHandler = { id: string; name: string; email: string; unit: string; phone: string };
+export type RegisterPrefill = {
+  referrerName: string; referrerEmail: string; referrerUnit: string; referrerPhone: string;
+  desiredStart: string; orderPeriod: string; plannedEnd: string; orderPeriodReason: string; buyerReference: string;
+  firstName: string; lastName: string; phone: string; email: string; city: string; preferredContact: string; priorAssessment: string; background: string;
+  /** Personnumret finns i mejlet (maskerat) – lämnas fältet tomt används det. */
+  pnrMasked: string | null;
+};
+export type RegisterForm = {
+  today: string;
+  /** Nu ("YYYY-MM-DDTHH:mm") – förval för mottagen tid. */
+  now: string;
+  periods: { months: number[]; allowOther: boolean };
+  refPattern: string;
+  refLen: string;
+  attachments: { maxBytes: number; maxFiles: number; accept: string; typesText: string };
+  customerName: string;
+  /** Kommunens e-postdomäner (handläggarens adress måste ha en av dem). */
+  customerDomains: string[];
+  /** Kommunens handläggare med konto (att välja i stället för att skriva uppgifterna). */
+  handlers: RegisterHandler[];
+  /** "en arbetsdag" – svarstiden räknas från mottagandet. */
+  answerText: string;
+  /** Mejlet som registreras (förifyllning), eller null vid telefon/annat. */
+  email: { id: string; subject: string; from: string; fromAddress: string; receivedAt: string; receivedLong: string; attachments: number; prefill: RegisterPrefill } | null;
+};
+export const inboxRegisterForm = query("inkorg.registerForm", z.object({ emailId: IdSchema.optional() })).returns<RegisterForm>();
+
+/**
+ * Registrera beställningen: rad i inbound_emails (parse_method manual, registered_by/at – eller det inlästa mejlet uppdateras),
+ * person och ärende (samma regler som arenden.caseCreate), ordererkännande till handläggaren, bilagor kopplas. Loggas
+ * email.registered och case.created. Svaret har bara id:n och ärendenumret.
+ */
+export const inboxRegister = command("inkorg.register", z.object({
+  channel: z.enum(REGISTER_CHANNELS),
+  receivedAt: LocalDateTimeSchema,
+  /** Det inlästa mejlet som registreras (kanalen är då mejl). */
+  emailId: IdSchema.optional(),
+  /** Kommunens handläggare med konto – annars uppgifterna nedan. */
+  referrerId: IdSchema.nullable().optional(),
+  referrerName: z.string().trim().max(120),
+  referrerEmail: z.string().trim().max(200),
+  referrerUnit: z.string().trim().max(120),
+  referrerPhone: z.string().trim().max(40),
+  firstName: z.string().trim().min(1).max(100),
+  lastName: z.string().trim().min(1).max(100),
+  /** Tomt med emailId = personnumret ur mejlet. */
+  pnr: z.string().max(20),
+  phone: z.string().max(40),
+  email: z.string().max(200),
+  city: z.string().max(100),
+  address: z.string().max(300).nullable().optional(),
+  preferredContact: z.enum(PREFERRED_CONTACTS),
+  desiredStart: LocalDateSchema.nullable(),
+  orderPeriodMonths: z.number().int().min(1).max(60).nullable(),
+  plannedEnd: LocalDateSchema.nullable(),
+  orderPeriodReason: z.string().max(ORDER_REASON_MAX).nullable(),
+  priorAssessment: z.enum(PRIOR_ASSESSMENTS).nullable(),
+  background: z.string().max(4000),
+  buyerReference: z.string().max(40),
+  attachmentIds: z.array(IdSchema).max(10),
+}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ caseId: string; caseNumber: string; emailId: string }, "received_at" | "email" | "referrer" | "pnr" | "buyer_ref" | "order_period" | "duplicate" | "attachments" | "no_contract" | "not_found">
+>();
 
 // ---------------------------------------------------------------- Startsidan
 export type MiniDeadline = { id: string; kind: string; label: string; sub: string | null; dueAt: string; sla: SlaView; href: string | null; provisional: boolean; count: number | null };

@@ -18,7 +18,7 @@ const NOT_FOUND = "Filen finns inte, eller så har du inte behörighet att se de
 /** Lägger till bilagor i ett ärende som redan finns (full åtkomst). */
 const MB_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig"];
 
-/** Avtalet för en ny beställning: kommunens handläggares första aktiva avtal med driftkonfiguration (samma som caseCreate). */
+/** Avtalet för en ny beställning: användarens första aktiva avtal med driftkonfiguration (samma som caseCreate). */
 async function orderContract(ctx: Ctx): Promise<Contract | null> {
   const all = await ctx.repo.table("contracts").list({ status: "active" });
   for (const id of ctx.actor.contractIds) {
@@ -43,7 +43,7 @@ handleCommand(attachmentStart, { roles: ["kommun_handlaggare", ...MB_EDITORS] },
     if (n >= ATTACHMENT_MAX_FILES) return fail("too_many", `Högst ${ATTACHMENT_MAX_FILES} filer per beställning.`);
     contractId = c.contractId;
   } else {
-    if (ctx.actor.role !== "kommun_handlaggare") return fail("forbidden", "Bilagor till en ny beställning laddas upp i portalen.");
+    // Kommunens handläggare i portalen, och samordnare/avtalsansvarig när de registrerar en beställning i avropsinkorgen (beslut 4a).
     const contract = await orderContract(ctx);
     if (!contract) return fail("no_contract", "Det finns inget aktivt avtal att beställa i.");
     // Egna uppladdningar som inte är skickade (via behörigheten).

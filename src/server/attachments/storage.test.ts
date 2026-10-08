@@ -23,6 +23,9 @@ function fakeStorage() {
     async createSignedUploadUrl(path) {
       return { signedUrl: `https://ref.supabase.co/storage/v1/object/upload/sign/bilagor/${path}?token=t1`, token: "t1" };
     },
+    async upload(path, content) {
+      files.set(path, content);
+    },
     async size(path) {
       return files.get(path)?.byteLength ?? null;
     },
@@ -127,6 +130,7 @@ describe("supabaseAttachmentStorage", () => {
     const calls: unknown[][] = [];
     const b: AttachmentBucketLike = {
       createSignedUploadUrl: async (path) => (calls.push(["upload", path]), { data: { signedUrl: `u/${path}`, token: "t", path }, error: null }),
+      upload: async (path) => (calls.push(["put", path]), { data: null, error: null }),
       createSignedUrl: async (...a: unknown[]) => (calls.push(["sign", ...a]), { data: { signedUrl: "s" }, error: null }),
       exists: async () => ({ data: true, error: null }),
       info: async () => ({ data: { size: 1234 }, error: null }),

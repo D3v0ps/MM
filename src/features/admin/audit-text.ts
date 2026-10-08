@@ -56,6 +56,8 @@ export const ACTION_LABEL: Record<string, string> = {
   // Loggen har bara id:n, roller och domänen – aldrig namn eller adresser.
   "staff_user.added": "Lade till kollega", "staff_user.roles_changed": "Ändrade kollegas roller", "staff_user.blocked": "Spärrade kollega", "staff_user.reactivated": "Aktiverade kollega",
   "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
+  // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
+  "email.registered": "Registrerade beställning i inkorgen",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -72,6 +74,7 @@ export const entityLabel = (entity: string | null | undefined): string => ENTITY
 
 const DETAIL_KEY: Record<string, string> = {
   number: "Ärendenummer", source: "Kanal", parseMethod: "Tolkning", template: "Mall", to: "Till", from: "Från", kind: "Typ", provider: "Leverantör", reason: "Orsak", status: "Status",
+  linkedProfile: "Handläggare med konto", receivedOn: "Mottagen dag", attachments: "Bilagor", linkedCases: "Kopplade ärenden",
   month: "Månad", week: "Vecka", count: "Antal", format: "Format", rows: "Rader", role: "Roll", unit: "Enhet", domain: "Domän", version: "Version", language: "Språk",
   contactRequested: "Vill bli kontaktad", right: "Rätt", value: "Värde", date: "Datum", areas: "Områden", checked: "Kontrollerade poster", deviations: "Avvikelser", withinSla: "Inom SLA",
   leadCoachId: "Huvudcoach", firstMeetingAt: "Första möte", fields: "Fält", missing: "Saknas", classification: "Klassning", via: "Via", kpi: "Nyckeltal", window: "Period",
@@ -101,7 +104,7 @@ const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", sinc
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },
   source: { email: "e-post", portal: "portalen", phone: "telefon", manual: "manuellt" },
-  channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev", outside_portal: "utanför Miljonmatch" },
+  channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev", outside_portal: "utanför Miljonmatch", phone: "telefon", other: "annan väg" },
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },

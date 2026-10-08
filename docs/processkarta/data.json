@@ -170,7 +170,7 @@
      ],
      "where": "Mejl",
      "trigger": "Kommunen har beslutat om en insats och du vill beställa med mejl.",
-     "deadline": "Ordererkännandet ska komma automatiskt inom 5 minuter när inläsningen är inkopplad. Besked om start och coach kommer inom en arbetsdag.",
+     "deadline": "Ordererkännandet kommer automatiskt inom 5 minuter när mallen är ifylld, annars när Miljonbemanning har registrerat beställningen. Besked om start och coach kommer inom en arbetsdag.",
      "result": "Mejlet läses in, tolkas och blir ett ärende med ärendenummer. Samordnaren ser originalet bredvid de tolkade uppgifterna i avropsinkorgen.",
      "handoffTo": [
       "system",
@@ -183,11 +183,11 @@
      "rules": [
       "Svaret innehåller aldrig personuppgifter.",
       "Tidsgränsen räknas från när mejlet kom in.",
-      "Den automatiska inläsningen av brevlådan via Microsoft Graph kopplas in senare. Avropsinkorgen och tolkningen finns redan i appen och visas i prototypen med påhittade mejl.",
+      "Mejlet läses in varannan minut. Går det inte att tolka automatiskt registrerar Miljonbemanning beställningen för hand – du får ordererkännandet ändå.",
       "Den nya Word-mallen (omfattning i månader, kartläggning och bakgrund, ingen beställarreferens, texten Lämnas tomt – tilldelas av Miljonbemanning) tas fram i förberedelserna. Den är inte klar än."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
     },
     {
      "phase": "bestallning",
@@ -200,7 +200,7 @@
      ],
      "where": "/portal/bestall – kvittot Tack! Beställningen är skickad, och mejl",
      "trigger": "Du har skickat en beställning.",
-     "deadline": "I portalen visas det direkt. Mejlbeställningar: inom 5 minuter när inläsningen är inkopplad.",
+     "deadline": "I portalen visas det direkt. Mejlbeställningar: inom 5 minuter när mallen är ifylld, annars när Miljonbemanning har registrerat beställningen.",
      "result": "Du har ärendenumret och vet senaste tid för besked. Deltagaren står som Väntar på bekräftelse i Mina deltagare.",
      "handoffTo": [
       "samordnare"
@@ -236,10 +236,10 @@
      ],
      "rules": [
       "Beställarreferens och avtalsområde behöver du inte skicka – Miljonbemanning fyller i dem.",
-      "Den automatiska kopplingen via Microsoft Graph kopplas in senare."
+      "Svaret kopplas automatiskt till ärendet via ärendenumret i ämnesraden."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
     },
     {
      "phase": "svar",
@@ -691,7 +691,7 @@
     },
     {
      "when": "Vid behov",
-     "what": "Byta huvudcoach, registrera en avtalsavvikelse, kontrollera utskicksloggen, hjälpa till med slutrapporter och bygga egna rapporter i Bygg rapport."
+     "what": "Registrera en beställning som kom per telefon, på annat sätt eller med ett mejl som inte kunde tolkas, byta huvudcoach, registrera en avtalsavvikelse, kontrollera utskicksloggen, hjälpa till med slutrapporter och bygga egna rapporter i Bygg rapport."
     }
    ],
    "steps": [
@@ -735,7 +735,7 @@
       "Personnummer visas maskerat. Klicka Visa bara om du behöver. Visningen loggas."
      ],
      "where": "/inkorg – Avropsinkorg",
-     "trigger": "Ett nytt avrop har kommit in. Rutan Att hantera i inkorgen visar en siffra. Ordererkännandet med ärendenummer går ut automatiskt när inläsningen via Microsoft Graph är inkopplad.",
+     "trigger": "Ett nytt avrop har kommit in. Rutan Att hantera i inkorgen visar en siffra. Mejl till avrop@ läses in varannan minut och ordererkännandet med ärendenummer går ut automatiskt när mejlet gick att tolka.",
      "deadline": "Svar senast en arbetsdag efter att mejlet kom in. Svenska helgdagar räknas bort.",
      "result": "Beställningsuppgifterna är kontrollerade och loggade. Avropet är redo att accepteras eller avböjas.",
      "handoffTo": [
@@ -745,9 +745,38 @@
       "Kommunens handläggare får ordererkännandet automatiskt inom 5 minuter: ärendenummer och när besked kommer. Saknas startdatum, omfattning eller deltagarens uppgifter frågar samma mejl efter det. Inga personuppgifter."
      ],
      "rules": [
-      "Word-mallen tolkas utan AI. Fritext tolkas med AI. AI föreslår – du kontrollerar mot originalet.",
-      "Automatisk inläsning från avrop@ via Microsoft Graph kopplas in senare. I dag visar inkorgen påhittade testdata.",
+      "Word-mallen och mejl med mallens etiketter tolkas utan AI. Fritext tolkas inte automatiskt (AI-tolkning hör till fas 2) – du registrerar den med knappen Registrera beställningen i mejlet.",
+      "Mejl till avrop@ läses in varannan minut via Microsoft Graph när brevlådan är kopplad (systemadministratören). Mejlen ligger kvar i mappen Inläst som reserv.",
       "Klockan för svar startar när mejlet kom in."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "bestallning",
+     "title": "Registrera en beställning som kom per telefon, mejl eller på annat sätt",
+     "why": "Alla beställningar ska in i Miljonmatch så att ärendenumret, ordererkännandet och svarstiden gäller – också när handläggaren ringde, eller när mejlet inte gick att tolka automatiskt.",
+     "how": [
+      "Öppna Avropsinkorg och klicka Registrera beställning. Kom beställningen med ett mejl som inte kunde tolkas: klicka Registrera beställningen i mejlet – formuläret är då förifyllt med det som gick att läsa ut.",
+      "Ange hur beställningen kom (mejl, telefon eller annat sätt) och när den kom. Svarstiden räknas från den tiden.",
+      "Välj handläggaren om hen har konto, annars skriv namn, e-postadress på kommunens domän, enhet och telefon. Inget konto skapas – ärendet kopplas när handläggaren själv skapar konto med samma adress.",
+      "Fyll i samma uppgifter som i kommunens formulär: startdatum, omfattning, deltagaren, kartläggning, bilagor och bakgrund. Beställarreferensen är valfri nu.",
+      "Klicka Registrera beställningen. Ärendet får ärendenummer, handläggaren får ordererkännandet, och beställningen hamnar i Att hantera där du accepterar eller avböjer som vanligt."
+     ],
+     "where": "/inkorg/registrera – Avropsinkorg, Registrera beställning",
+     "trigger": "En handläggare ringde eller skrev på annat sätt, eller ett mejl i inkorgen är märkt Beställningen behöver registreras för hand.",
+     "deadline": "Svar till kommunen senast en arbetsdag efter att beställningen kom in – inte efter att den registrerades.",
+     "result": "Beställningen finns som ärende med ärendenummer, syns i inkorgen som registrerad av Miljonbemanning och följer sedan det vanliga flödet.",
+     "handoffTo": [
+      "samordnare"
+     ],
+     "notified": [
+      "Handläggaren får ordererkännandet med e-post: ärendenummer och när besked kommer. Inga personuppgifter."
+     ],
+     "rules": [
+      "Personnumret skrivs in och krypteras – det finns aldrig i adresser eller loggar. Finns det i mejlet behöver du inte skriva det igen.",
+      "Handläggarens adress måste ha kommunens domän. Miljonbemanning skapar inga konton åt kommunen.",
+      "Registreringen loggas i revisionsloggen med ärendenummer och kanal."
      ],
      "voice": false,
      "status": "finns"
@@ -4828,7 +4857,7 @@
    "rhythm": [
     {
      "when": "Dagligen, på morgonen",
-     "what": "Min vecka: bakgrundsjobb, utskick som inte gick iväg, användare och att avrop@ läses (när inläsningen är inkopplad). Alla jobb och Kör nu finns under Underbiträden och integrationer."
+     "what": "Min vecka: bakgrundsjobb, utskick som inte gick iväg, användare och att avrop@ läses (eller Inte kopplad – då följer du stegen i kortet). Alla jobb och Kör nu finns under Underbiträden och integrationer."
     },
     {
      "when": "Varje vecka, måndag efter klockan 08.00 och 16.00",
@@ -4854,9 +4883,10 @@
      "why": "Mejl är kommunens formella beställningskanal, och ordererkännandet ska gå ut inom 5 minuter.",
      "how": [
       "Öppna Underbiträden och integrationer och kortet avrop@-brevlådan.",
-      "Kontrollera Senast läst och Senaste mejl.",
-      "I tabellen Bakgrundsjobb: titta på Läs avrop@-inkorgen. Klicka Kör nu om det behövs.",
-      "Står inläsningen still: säg till samordnaren. Mejlen ligger kvar i brevlådan som reserv."
+      "Står det Inte kopplad: följ stegen i kortet (appregistrering i Microsoft Entra, behörigheten Mail.ReadWrite, åtkomstpolicy för avrop@ i Exchange Online, nycklarna i Vercel). Steg för steg i docs/DRIFT.md avsnitt 12.",
+      "Står det Kopplad: kontrollera Senast läst, Senaste inläsning och att inget fel visas.",
+      "I tabellen Bakgrundsjobb: titta på Läs avrop@-inkorgen. Klicka Kör nu om du vill läsa in direkt.",
+      "Står inläsningen still: säg till samordnaren, som registrerar mejlen för hand tills det är löst. Mejlen ligger kvar i brevlådan."
      ],
      "where": "/admin/integrationer – Underbiträden och integrationer",
      "trigger": "Varje morgon, och direkt om samordnaren saknar nya avrop.",
@@ -4870,12 +4900,12 @@
       "Ordererkännande från avrop@ i samma mejltråd, med ärendenummer och utan personuppgifter."
      ],
      "rules": [
-      "Brevlådan läses via Microsoft Graph med en egen appregistrering som bara får läsa avrop@, var 2–5 minut.",
-      "Inläsningen körs i plattformen – inte på en egen dator.",
-      "I dag är inläsningen simulerad i appen. Den automatiska inläsningen kopplas in senare."
+      "Brevlådan läses via Microsoft Graph med en egen appregistrering som bara får nå avrop@, varannan minut. Inlästa mejl flyttas till mappen Inläst och ligger kvar som reserv.",
+      "Inläsningen körs i plattformen (Stockholm) – inte på en egen dator. Hemligheterna finns bara i Vercel.",
+      "Är brevlådan inte kopplad gör jobbet ingenting, och kortet visar hur du kopplar."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
     },
     {
      "phase": "svar",
@@ -5707,9 +5737,9 @@
    },
    {
     "day": "Hela tiden",
-    "time": "Var 2–5 minut",
+    "time": "Varannan minut",
     "who": "Systemet",
-    "what": "Läser avrop@ och skickar ordererkännande inom 5 minuter. Kommer senare, med Microsoft Graph. Beställningar i portalen får svar direkt."
+    "what": "Läser avrop@ via Microsoft Graph när brevlådan är kopplad, tolkar mejlen och skickar ordererkännande inom 5 minuter när avropet går att tolka – annars registrerar samordnaren det för hand. Beställningar i portalen får svar direkt."
    },
    {
     "day": "Hela tiden",
@@ -5816,5 +5846,5 @@
    "Kommunen har bara rollen handläggare. Beställarrapporten och resultatfilen lämnar Miljonbemanning till kommunen utanför Miljonmatch."
   ]
  },
- "stamp": "Version 8 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, AI av tills Google Cloud är kopplat · Synpunkterna från genomgången 6 oktober (omgång A: kommunens portal, omgång B: en faktura per avtal och månad, belopp bara för ekonomen) · 173 steg för 9 personer, granskade mot SPEC och appen."
+ "stamp": "Version 8 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, Registrera beställning i avropsinkorgen, mejlinläsning från avrop@ via Microsoft Graph, AI av tills Google Cloud är kopplat (beslut 2026-10-08) · 174 steg för 9 personer, granskade mot SPEC och appen."
 }

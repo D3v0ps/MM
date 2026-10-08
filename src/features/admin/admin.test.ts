@@ -292,7 +292,8 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
 describe("underbiträden, integrationer och bakgrundsjobb", () => {
   it("jobbens resultat är den gamla prototypens", async () => {
     const d = await rt.query(adminIntegrations, {}, robin());
-    expect(d).toMatchObject({ latestMail: "2027-02-01T08:41", aiRunCount: 2, dataProtection: { thirdCountryForbidden: true, returnDataWithinDays: 31, approvedOn: "2026-09-29" } });
+    expect(d).toMatchObject({ latestMail: "2027-02-01T08:41", aiRunCount: 2, inboxState: "simulated", inboxReadAt: "2027-02-01T09:10", dataProtection: { thirdCountryForbidden: true, returnDataWithinDays: 31, approvedOn: "2026-09-29" } });
+    expect(d.integrations[0]).toMatchObject({ id: "graph", status: "test" });
     expect(d.jobs.map((j) => [j.key, j.last, j.status, j.result])).toEqual([
       ["inbox", "2027-02-01T09:10", "ok", "Senaste mejl kom 1 feb kl. 08.41"],
       ["weekly", "2027-02-01T07:00", "waiting", "2 publicerade, 2 väntar på närvaro (v. 4 2027)"],
@@ -308,11 +309,34 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
 
   it("\"Kör nu\" sparas i jobs och loggas; gallringen kan inte köras", async () => {
     expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true });
-    expect(rt.rows("jobs")).toMatchObject([{ kind: "inbox", status: "done", payload: { manual: true }, createdBy: "u-robin", createdAt: "2027-02-01T09:13" }]);
+    // Beslut 4c: avrop@ är ett riktigt jobb (inbox_import). Utan jobbkörning (minnesläget) markeras det klart direkt.
+    expect(rt.rows("jobs")).toMatchObject([{ kind: "inbox_import", status: "done", payload: { manual: true }, createdBy: "u-robin", createdAt: "2027-02-01T09:13" }]);
     expect(rt.rows("audit_log").find((a) => a.action === "job.run_manual")).toMatchObject({ entity: "job", entityId: "inbox" });
     const d = await rt.query(adminIntegrations, {}, robin());
     expect(d.jobs[0]).toMatchObject({ last: "2027-02-01T09:13", manual: true, manualBy: "dig" });
     expect(await rt.command(adminRunJob, { key: "retention" }, robin())).toMatchObject({ ok: false, error: "disabled" });
+  });
+
+  it("avrop@-brevlådan: inte kopplad visar stegen och stänger Kör nu; kopplad visar senaste läsning och fel (beslut 4c)", async () => {
+    rt.store.updateRow("integrations", "graph", { status: "off", config: { description: "Microsoft Graph", configured: false, lastRunAt: "2027-02-01T09:10", lastError: null } });
+    let d = await rt.query(adminIntegrations, {}, robin());
+    expect(d).toMatchObject({ inboxState: "not_connected", inboxReadAt: null });
+    expect(d.integrations[0]).toMatchObject({ id: "graph", status: "off", items: expect.arrayContaining([["Status", "Inte kopplad – så här kopplar du"]]) });
+    expect(JSON.stringify(d.integrations[0])).not.toMatch(/MS_GRAPH|MM_INBOX/);
+    expect(d.jobs[0]).toMatchObject({ key: "inbox", status: "disabled", disabled: true, result: "Brevlådan är inte kopplad – se kortet avrop@-brevlådan" });
+    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toMatchObject({ ok: false, error: "disabled" });
+    rt.store.updateRow("integrations", "graph", {
+      status: "active",
+      config: { configured: true, mailbox: "avrop@example.invalid", doneFolder: "Inläst", lastRunAt: "2027-02-01T09:12", lastImportAt: "2027-02-01T09:10", lastError: null, lastSummary: { seen: 2, imported: 2, cases: 1, toRegister: 1, supplements: 0, other: 0, moved: 2, moveErrors: 0 } },
+    });
+    d = await rt.query(adminIntegrations, {}, robin());
+    expect(d).toMatchObject({ inboxState: "connected", inboxReadAt: "2027-02-01T09:12" });
+    expect(d.integrations[0]).toMatchObject({ status: "active", items: expect.arrayContaining([["Brevlåda", "avrop@example.invalid"], ["Senast läst", "1 feb kl. 09.12"], ["Senaste inläsning", "1 feb kl. 09.10 · 2 mejl inlästa, 1 ärende skapat, 1 att registrera för hand"]]) });
+    expect(d.jobs[0]).toMatchObject({ key: "inbox", status: "ok", last: "2027-02-01T09:12", result: "2 mejl inlästa vid senaste körningen, 1 ärende, 1 att registrera för hand" });
+    rt.store.updateRow("integrations", "graph", { config: { configured: true, lastRunAt: "2027-02-01T09:12", lastError: "Microsoft Graph: listningen svarade 503" } });
+    d = await rt.query(adminIntegrations, {}, robin());
+    expect(d.jobs[0]).toMatchObject({ status: "failed", result: "Senaste fel: Microsoft Graph: listningen svarade 503" });
+    expect(d.integrations[0].items).toEqual(expect.arrayContaining([["Senaste fel", "Microsoft Graph: listningen svarade 503"]]));
   });
 });
 

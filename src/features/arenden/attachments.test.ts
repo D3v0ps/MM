@@ -174,6 +174,30 @@ describe("gallringen (jobbet attachments_retention)", () => {
     expect(rt.attachments.stored()).toBe(0);
   });
 
+  it("bilagor ur ett inläst mejl som väntar på registrering för hand behålls efter 24 timmar – tills mejlet inte väntar längre (beslut 4c)", async () => {
+    // Inläsningen sparar mejlets bilagor som systemet (uploaded_by = system) innan ärendet finns.
+    const meta = { contractId: "c-bot", caseId: null, ownerId: SYSTEM_ACTOR.userId, fileName: "Kartläggning.pdf", mimeType: "application/pdf", bytes: PDF.byteLength };
+    const fromMail = (await rt.attachments.store(meta, PDF))!;
+    const abandoned = (await rt.attachments.store({ ...meta, fileName: "Gammal.pdf" }, PDF))!;
+    rt.store.insertRow("inbound_emails", {
+      id: "em-vantar", graphMessageId: "<vantar@botkyrka.se>", receivedAt: DEMO_START, fromAddress: "ahmed.yusuf@botkyrka.se", fromName: "Ahmed Yusuf", subject: "Ny deltagare",
+      bodyText: "Se bifogat.", attachments: [{ name: "Kartläggning.pdf", kind: "pdf", path: fromMail.storagePath }], parseMethod: "manual", classification: "order",
+      extracted: {}, confidence: {}, missingFields: ["firstName"], corrections: {}, status: "received", caseId: null, ackSentAt: null, ackKind: null, aiRunId: null,
+      linkedBy: null, registeredBy: null, registeredAt: null, handledBy: null, handledAt: null,
+    });
+    const audits: { action: string; details: Record<string, unknown> }[] = [];
+    // Tre dagar senare (fredag → måndag): mejlets bilaga finns kvar, den övergivna raderas.
+    rt.clock.set("2027-02-04T10:00");
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, retention: 0, orphans: 0 });
+    expect(rt.raw().get("case_attachments", abandoned.id)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
+    expect(rt.raw().get("case_attachments", fromMail.id)).toMatchObject({ status: "uploaded", uploadedBy: "system" });
+    // Mejlet hanteras utan registrering (Övrigt): bilagan väntar inte längre och gallras vid nästa körning.
+    rt.store.updateRow("inbound_emails", "em-vantar", { status: "other" });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, retention: 0, orphans: 0 });
+    expect(rt.raw().get("case_attachments", fromMail.id)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
+    expect(JSON.stringify(audits)).not.toContain("Kartläggning");
+  });
+
   it("bilagor i en avböjd beställning gallras som i en avslutad – fristen räknas från avböjandet", async () => {
     const id = await upload(maria(), null);
     const c = await run(caseCreate, { ...ORDER, attachmentIds: [id] }, maria());

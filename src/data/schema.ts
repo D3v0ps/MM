@@ -119,7 +119,8 @@ export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 export const CASE_STATUSES = ["received", "acknowledged", "confirmed", "active", "paused", "closed", "declined"] as const;
 export type CaseStatus = (typeof CASE_STATUSES)[number];
 
-export const CASE_SOURCES = ["email", "portal", "phone"] as const;
+// other = annan väg (t.ex. besök eller brev), registrerad av Miljonbemanning i avropsinkorgen (beslut 4a, 2026-10-08).
+export const CASE_SOURCES = ["email", "portal", "phone", "other"] as const;
 export type CaseSource = (typeof CASE_SOURCES)[number];
 
 /** Har en kartläggning av deltagaren genomförts innan beställningen? (beslut 2026-10-07, synpunkt #7) */
