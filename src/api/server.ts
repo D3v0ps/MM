@@ -6,6 +6,7 @@ import type { LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import type { AttachmentPort } from "@/features/_shared/attachment-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
+import type { FortnoxPort } from "@/features/_shared/fortnox-port";
 import type { CommandDef, QueryDef } from "./contract";
 import type { Actor, Role } from "./roles";
 import { hidesCommercial, testerRoleBlocks, TESTER_HIDDEN_CODE, TESTER_HIDDEN_PAGE } from "./tester-access";
@@ -76,6 +77,12 @@ export type Ctx = {
    * (src/server/attachments). Hämtas med requireAttachments(ctx).
    */
   attachments?: AttachmentPort;
+  /**
+   * Fortnox (SPEC §7.15, src/features/_shared/fortnox-port.ts). Minnesläget: simulerad port (statusen sätts i Miljonmatch).
+   * Supabase-läget: saknas tills en riktig klient finns – då svarar ekonomi.billingSendFortnox, ekonomi.fortnoxSync och
+   * ekonomi.reissue med fortnox_off utan att ändra något, knapparna döljs och fakturan markeras som manuellt fakturerad.
+   */
+  fortnox?: FortnoxPort;
   /** Jobbkön (src/server/jobs, röstjobben i src/features/_shared/voice-jobs.ts). Saknas i minnesläget och prototypen. */
   jobs?: JobKick;
   /**

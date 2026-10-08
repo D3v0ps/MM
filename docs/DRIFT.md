@@ -295,7 +295,7 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MM_INBOX_MAILBOX` | | Brevlådan som läses. Appen får bara nå den (ApplicationAccessPolicy) | `avrop@miljonbemanning.se` | Fast värde |
 | `MM_INBOX_DONE_FOLDER` | | Mappen dit inlästa mejl flyttas (skapas om den saknas). Tom = `Inläst` | `Inläst` | Fast värde |
 
-Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/admin/integrationer` visar "Inte kopplad – så här kopplar du". Kommer senare: Microsoft Entra-inloggning, SMS-leverantör och Fortnox. AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
+Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/admin/integrationer` visar "Inte kopplad – så här kopplar du". Kommer senare: Microsoft Entra-inloggning, SMS-leverantör och Fortnox (tills dess saknas `ctx.fortnox` i supabase-läget: ekonomen ser "Fortnox är inte kopplat ännu" i fakturakörningen och på kortet Fortnox-synk, knapparna "Skapa i Fortnox" och "Hämta status" finns inte, och fakturan skapas i Fortnox för hand och markeras som manuellt fakturerad – den simulerade porten finns bara i minnesläget). AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
 
 ### 5.1 Nycklarna för personnummer (`MM_PNR_KEY`, `MM_PNR_HMAC_KEY`)
 - Personnummer krypteras i appen (AES-256-GCM) innan de sparas och söks via en HMAC-hash av de tio sista siffrorna (CLAUDE.md punkt 2). Nycklarna finns bara på servern (`src/server/crypto.ts`, `import "server-only"`) och når aldrig webbläsaren.

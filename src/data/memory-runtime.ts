@@ -4,6 +4,7 @@
 //   ctx.ai      simulerad AI (createSimulatedAi, src/features/_shared/ai-sim.ts) – deterministisk, inga anrop utanför
 //   ctx.audio   ljud i minnet (createMemoryAudio, src/features/_shared/audio-port.ts) – raderna i audio_uploads via system
 //   ctx.attachments  bilagor i minnet (createMemoryAttachments, src/features/_shared/attachment-port.ts) – raderna via system
+//   ctx.fortnox  simulerad Fortnox-port (createSimulatedFortnox, src/features/_shared/fortnox-port.ts) – statusen sätts i appen
 // Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
 // anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön. Golvet är
 // klockan när datat lästes in (testdatat är komplett dit) och högvattenmärkena sparas i minnet.
@@ -17,6 +18,7 @@ import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
+import { createSimulatedFortnox } from "@/features/_shared/fortnox-port";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
@@ -66,6 +68,8 @@ export function createMemoryRuntime(opts: {
   const audio = createMemoryAudio({ system, now: opts.clock.now, newId });
   // Bilagornas rader skrivs av porten (systemsteg) på samma sätt.
   const attachments = createMemoryAttachments({ system, now: opts.clock.now, newId });
+  // Fortnox är simulerat i minnesläget: "Skapa i Fortnox" sätter statusen i Miljonmatch. Supabase-läget har ingen port.
+  const fortnox = createSimulatedFortnox();
 
   function ctxFor(actor: Actor): Ctx {
     return {
@@ -88,6 +92,7 @@ export function createMemoryRuntime(opts: {
       ai,
       audio,
       attachments,
+      fortnox,
       // Prototypen visar länken som deltagaren fick (rost.linkSend). Servern i supabase-läget lämnar aldrig ut den.
       exposeLinkPaths: true,
     };

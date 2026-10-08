@@ -18,7 +18,7 @@ import {
 } from "@/ui";
 import {
   billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCloseRun, ekoCsv, ekoFortnoxSync, ekoLine,
-  ekoReissue, ekoRun, type InvoiceCheckView, type InvoiceView, type LineDetailView, type LineRow, type RunView,
+  ekoReissue, ekoRun, FORTNOX_OFF_TEXT, type InvoiceCheckView, type InvoiceView, type LineDetailView, type LineRow, type RunView,
 } from "../api";
 import { BILLED, monthLabel, periodOf, pl, plural, weekText } from "../model";
 import {
@@ -66,9 +66,11 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
   const confirm = useConfirm();
   const download = useDownload();
   const runQuery = useQueryRunner();
-  // Fortnox är inte anslutet ännu: knapparna sätter statusen i Miljonmatch. Prototypen säger "simulerat"; appen säger vad som
-  // hände (statusen), utan utvecklartext.
+  // Prototypen säger "simulerat"; appen säger vad som hände (statusen), utan utvecklartext.
   const demo = useRuntime() === "demo";
+  // Fortnox-porten finns (minnesläget: simulerad – knapparna sätter statusen i Miljonmatch). I supabase-läget saknas den tills
+  // en riktig klient finns: då döljs "Skapa i Fortnox" och "Hämta status" och ekonomen markerar fakturan som manuellt fakturerad.
+  const fortnox = v.fortnox.connected;
   // Fliken ligger i adressen (?filter=, replace): Tillbaka och omladdning visar samma urval.
   const [arrivedWithFilter] = useState(() => filter !== "alla" && nav.entry?.kind === "push");
   useEffect(() => {
@@ -192,8 +194,8 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
       crumbs={crumbs}
       lead={
         v.rules.perContract
-          ? "En faktura för avtalet och månaden med en rad per ärende. Fyll i beställarreferensen, granska raderna med anmärkning, godkänn och skapa fakturan i Fortnox."
-          : "En faktura per ärende och månad. Fyll i beställarreferensen, granska anmärkningarna, godkänn och skapa fakturorna i Fortnox."
+          ? `En faktura för avtalet och månaden med en rad per ärende. Fyll i beställarreferensen, granska raderna med anmärkning, godkänn och ${fortnox ? "skapa fakturan i Fortnox" : "markera fakturan som manuellt fakturerad när den är skapad i Fortnox"}.`
+          : `En faktura per ärende och månad. Fyll i beställarreferensen, granska anmärkningarna, godkänn och ${fortnox ? "skapa fakturorna i Fortnox" : "markera fakturorna som manuellt fakturerade när de är skapade i Fortnox"}.`
       }
       actions={
         <div className="flex flex-wrap items-center gap-1.5">
@@ -347,23 +349,37 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
                 </span>
               }
             >
-              {fresh.length ? `${plural(fresh.length, "godkänd faktura väntar", "godkända fakturor väntar")}.` : "Inga nya godkända fakturor väntar."}{" "}
-              {already.length
-                ? `${plural(already.length, "faktura är redan skapad eller manuellt fakturerad", "fakturor är redan skapade eller manuellt fakturerade")}.`
-                : ""}{" "}
-              Stoppade fakturor kan inte skapas.
-              <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-small">
-                <InvStatus status="fortnox_created" />
-                <Icon name="arrow-right" />
-                <InvStatus status="booked" />
-                <Icon name="arrow-right" />
-                <InvStatus status="sent" />
-                <Icon name="arrow-right" />
-                <InvStatus status="paid" />
-              </span>
+              {fortnox ? (
+                <>
+                  {fresh.length ? `${plural(fresh.length, "godkänd faktura väntar", "godkända fakturor väntar")}.` : "Inga nya godkända fakturor väntar."}{" "}
+                  {already.length
+                    ? `${plural(already.length, "faktura är redan skapad eller manuellt fakturerad", "fakturor är redan skapade eller manuellt fakturerade")}.`
+                    : ""}{" "}
+                  Stoppade fakturor kan inte skapas.
+                  <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-small">
+                    <InvStatus status="fortnox_created" />
+                    <Icon name="arrow-right" />
+                    <InvStatus status="booked" />
+                    <Icon name="arrow-right" />
+                    <InvStatus status="sent" />
+                    <Icon name="arrow-right" />
+                    <InvStatus status="paid" />
+                  </span>
+                </>
+              ) : (
+                <>
+                  {/* Ingen koppling: inga knappar som ser ut att skicka något. Lugn ruta med text och ikon; reservvägen finns i kortets fot. */}
+                  {already.length
+                    ? `${plural(already.length, "faktura är redan skapad eller manuellt fakturerad", "fakturor är redan skapade eller manuellt fakturerade")}. `
+                    : ""}
+                  <Notice tone="info" className="mt-1">
+                    {FORTNOX_OFF_TEXT}
+                  </Notice>
+                </>
+              )}
             </StepText>
             <div className="flex flex-wrap items-center gap-1.5">
-              {act && (
+              {act && fortnox && (
                 <Button
                   kind="primary"
                   icon="upload"
@@ -375,7 +391,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
                   Skapa i Fortnox ({fresh.length})
                 </Button>
               )}
-              {act && toSync.length > 0 && (
+              {act && fortnox && toSync.length > 0 && (
                 <Button kind="secondary" icon="refresh" className="text-left whitespace-normal" pending={fortnoxSync.pending} onClick={() => void sync()}>
                   Hämta status från Fortnox
                 </Button>
@@ -399,7 +415,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
           <InvoiceCard key={inv.id} v={v} inv={inv} filter={filter} onFilter={setF} onOpenLine={openLine} openId={openId} />
         ))}
       </section>
-      {v.fortnoxRuns.length > 0 && (
+      {fortnox && v.fortnoxRuns.length > 0 && (
         <Card title="Fortnox-körningar" icon="refresh" actions={<BuildPhase fas={2} />}>
           <div className="flex flex-col gap-2">
             {v.fortnoxRuns.map((r) => (

@@ -12,6 +12,7 @@ import type { SlaStatus } from "@/core/sla";
 import type { LocalDate, LocalDateTime, MonthKey, WeekKey } from "@/core/time";
 import type { BillingRunStatus, CaseStatus, InvoiceDisplayStatus, InvoiceStatus } from "@/data/schema";
 import { IdSchema, MonthKeySchema, WeekKeySchema } from "../_shared/schemas";
+export { FORTNOX_OFF_TEXT } from "../_shared/fortnox-port";
 import type { Bucket, CaseMonthStatus, InvoiceSummary, MonthRules, RefInfo, RefRules } from "./model";
 
 /** Fakturans id (inv-<avtal>-<månad>-<grupp>). */
@@ -38,16 +39,17 @@ export const billingApproveInvoice = command("ekonomi.billingApproveInvoice", z.
 }), { invalidates: [...AFTER] }).returns<Result<{ lines: number }, "not_found" | "created" | "needs_approval" | "empty">>();
 
 /**
- * Skapa fakturorna i Fortnox (simulerat) och logga körningen. Idempotent: en faktura som redan är skapad (eller manuellt
+ * Skapa fakturorna i Fortnox och logga körningen. Idempotent: en faktura som redan är skapad (eller manuellt
  * fakturerad) skapas inte igen – nyckeln är avtal:månad:grupp. Beställarreferensen och inköpsordernumret kontrolleras innan
  * en faktura skapas (CLAUDE.md punkt 11): en stoppad faktura hamnar i blocked. En faktura som inte är godkänd tas inte med.
- * Raderna fryses (invoice_lines) när fakturan skapas.
+ * Raderna fryses (invoice_lines) när fakturan skapas. Kräver ctx.fortnox (minnesläget: simulerat) – utan port svaret
+ * fortnox_off (FORTNOX_OFF_ERROR) och ingenting ändras eller loggas.
  */
 export const billingSendFortnox = command("ekonomi.billingSendFortnox", z.object({
   month: MonthKeySchema,
   // Skärmen skickar alla månadens fakturor (en per ärende i reservläget invoicePer "case_and_month": fler än 100).
   invoiceIds: z.array(InvoiceIdSchema).max(1000),
-}), { invalidates: [...AFTER] }).returns<Result<{ created: string[]; skipped: string[]; blocked: string[]; notApproved: string[]; runId: string }, "not_found">>();
+}), { invalidates: [...AFTER] }).returns<Result<{ created: string[]; skipped: string[]; blocked: string[]; notApproved: string[]; runId: string }, "not_found" | "fortnox_off">>();
 
 /** Markera fakturan som manuellt fakturerad med fakturanummer (reservvägen). Referensen krävs också här. Raderna fryses. */
 export const billingMarkManual = command("ekonomi.billingMarkManual", z.object({
@@ -82,20 +84,23 @@ export const invoiceSetPo = command("ekonomi.invoiceSetPo", z.object({
   purchaseOrderNumber: z.string().trim().max(20),
 }), { invalidates: [...AFTER] }).returns<Result<object, "not_found" | "created" | "po">>();
 
-/** Simulerad statushämtning från Fortnox: varje hämtning flyttar månadens skapade fakturor ett steg (skapad → bokförd → skickad → betald). */
+/**
+ * Statushämtning från Fortnox (minnesläget: simulerad – varje hämtning flyttar månadens skapade fakturor ett steg: skapad →
+ * bokförd → skickad → betald). Kräver ctx.fortnox – utan port svaret fortnox_off och ingenting ändras.
+ */
 export const ekoFortnoxSync = command("ekonomi.fortnoxSync", z.object({
   month: MonthKeySchema,
-}), { invalidates: [BILLING, NAV, ...LOG] }).returns<Result<{ changed: number }>>();
+}), { invalidates: [BILLING, NAV, ...LOG] }).returns<Result<{ changed: number }, "fortnox_off">>();
 
 /**
- * Returnerad faktura: kreditera och skapa en ny med rätt beställarreferens (simulerat). Raderna fryses på nytt från dagens
+ * Returnerad faktura: kreditera och skapa en ny i Fortnox med rätt beställarreferens. Raderna fryses på nytt från dagens
  * underlag – bara de veckor som fortfarande är debiterbara. reissued false = ingen vecka återstod: fakturan krediterades utan
- * ny faktura.
+ * ny faktura. Kräver ctx.fortnox (den nya fakturan får status "Skapad i Fortnox") – utan port svaret fortnox_off.
  */
 export const ekoReissue = command("ekonomi.reissue", z.object({
   month: MonthKeySchema,
   invoiceId: InvoiceIdSchema,
-}), { invalidates: [BILLING, MGMT, CARD, NAV, ...LOG] }).returns<Result<{ reissued: boolean }, "not_found" | "buyer_ref" | "not_returned">>();
+}), { invalidates: [BILLING, MGMT, CARD, NAV, ...LOG] }).returns<Result<{ reissued: boolean }, "not_found" | "buyer_ref" | "not_returned" | "fortnox_off">>();
 
 /** Markera en uppgift till ekonomen som klar. */
 export const ekoTaskDone = command("ekonomi.taskDone", z.object({
@@ -222,6 +227,8 @@ export type RunView = {
   calendarWeeks: number;
   rules: MonthRules & { perContract: boolean; refLen: string; poText: string };
   fortnoxRuns: FortnoxRunView[];
+  /** connected = ctx.fortnox finns (minnesläget: simulerat). Annars döljs "Skapa i Fortnox" och "Hämta status" – manuell fakturering gäller. */
+  fortnox: { connected: boolean };
   priceSpan: string | null;
   refRules: RefRules;
 };
@@ -405,7 +412,8 @@ export type BillingStartView = {
   refInvoices: RefInvoiceRow[];
   zero: ZeroRow[];
   runs: RunRow[];
-  fortnox: { lastRun: { at: LocalDateTime; created: number; skipped: number } | null; lastSync: { at: LocalDateTime; changed: number } | null };
+  /** connected = ctx.fortnox finns (minnesläget: simulerat); kortet Fortnox-synk säger annars "inte kopplat". */
+  fortnox: { connected: boolean; lastRun: { at: LocalDateTime; created: number; skipped: number } | null; lastSync: { at: LocalDateTime; changed: number } | null };
   priceSpan: string | null;
   refRules: RefRules;
   /** Förslag till referens per faktura (för dialogen "Fyll i referensen"). */

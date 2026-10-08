@@ -24,6 +24,7 @@ import { buyerRefError, poNumberError, poNumberValid } from "@/core/validation";
 import { PolicyError, UniqueError } from "@/data/repo";
 import type { Case, Contract, ContractArea, InvoiceCredit, InvoiceDisplayStatus, InvoiceDraft, InvoiceLine, InvoiceStatus, Organization, Profile, Task } from "@/data/schema";
 import { upsert } from "../_shared/context";
+import { FORTNOX_OFF_ERROR, fortnoxOff } from "../_shared/fortnox-port";
 import { newInvoiceDraft } from "../_shared/rows";
 import {
   billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCase, ekoCaseList, ekoCloseRun, ekoCsv,
@@ -317,6 +318,9 @@ handleCommand(billingApproveInvoice, { roles: BILLING, commercial: true }, async
 
 // ---------------------------------------------------------------- billing.sendFortnox (idempotent) + körningens logg
 handleCommand(billingSendFortnox, { roles: BILLING, commercial: true }, async (ctx, p) => {
+  // Utan Fortnox-port (supabase-läget tills en riktig klient finns) ändras ingenting: ingen rad fryses, ingen status, inget
+  // nummer, ingen logg "skapad i Fortnox". Fakturan skapas i Fortnox för hand och markeras som manuellt fakturerad.
+  if (fortnoxOff(ctx)) return fail("fortnox_off", FORTNOX_OFF_ERROR);
   const { b, db, bm } = await monthOf(ctx, p.month);
   const invoices: MonthInvoice[] = [];
   for (const id of new Set(p.invoiceIds)) {
@@ -426,9 +430,11 @@ handleCommand(invoiceSetPo, { roles: BILLING, commercial: true }, async (ctx, p)
   return ok({});
 });
 
-// ---------------------------------------------------------------- eko.fortnoxSync (simulerad statushämtning)
+// ---------------------------------------------------------------- eko.fortnoxSync (statushämtning; minnesläget: simulerad)
 const NEXT: Partial<Record<InvoiceStatus, InvoiceStatus>> = { fortnox_created: "booked", booked: "sent", sent: "paid" };
 handleCommand(ekoFortnoxSync, { roles: BILLING, commercial: true }, async (ctx, p) => {
+  // Utan Fortnox-port flyttas ingen status och ingen körning loggas.
+  if (fortnoxOff(ctx)) return fail("fortnox_off", FORTNOX_OFF_ERROR);
   const b = await base(ctx);
   const now = ctx.now();
   const drafts = await ctx.repo.table("invoice_drafts").list({ month: p.month, contractId: b.contract.id, kind: "periodic" });
@@ -448,6 +454,9 @@ handleCommand(ekoFortnoxSync, { roles: BILLING, commercial: true }, async (ctx, 
 
 // ---------------------------------------------------------------- eko.reissue (kreditera och skapa ny faktura)
 handleCommand(ekoReissue, { roles: BILLING, commercial: true }, async (ctx, p) => {
+  // Den nya fakturan får status "Skapad i Fortnox" och ett fakturanummer – förutsätter porten. Utan port: ingen kreditering,
+  // ingen ny faktura.
+  if (fortnoxOff(ctx)) return fail("fortnox_off", FORTNOX_OFF_ERROR);
   const { b, db, bm } = await monthOf(ctx, p.month);
   const inv = findInvoice(bm, p.invoiceId);
   if (!inv || !inv.stored) return fail("not_found", NO_INVOICE);
@@ -547,7 +556,7 @@ handleQuery(ekoRun, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const rules = { weeks: [], notes: [], perContract: b.perContract, refLen: refLenText(b.cfg.billing), poText: poText(b.cfg.billing) };
   const empty: RunView = {
     month: null, canAct: b.canAct, customerName: b.customer?.name ?? "", contractNumber: b.contract.contractNumber, runs: [], run: null, due: null, invoices: [], count: 0,
-    totalOre: 0, weeks: 0, vatOre: 0, calendarWeeks: 0, rules, fortnoxRuns: [], priceSpan: null, refRules: b.refRules,
+    totalOre: 0, weeks: 0, vatOre: 0, calendarWeeks: 0, rules, fortnoxRuns: [], fortnox: { connected: !fortnoxOff(ctx) }, priceSpan: null, refRules: b.refRules,
   };
   if (!month) return empty;
   const run = runs.find((r) => r.month === month) ?? null;
@@ -811,7 +820,10 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
     canAct: b.canAct, customerName: b.customer?.name ?? "", current, openTasks: tasks.filter((t) => t.status === "open").length,
     unbilled: { totalOre: sum(ub, (x) => x.amountOre), count: ub.length, limit: b.cfg.billing.unbilledWarningDays, prescText: prescText(b.cfg.billing), rows: ubRows },
     tasks: taskViews, returned, refInvoices, zero, runs: runRows,
-    fortnox: { lastRun: lastRun ? { at: lastRun.ranAt, created: lastRun.created, skipped: lastRun.skipped } : null, lastSync: lastSync ? { at: lastSync.ranAt, changed: lastSync.changed } : null },
+    fortnox: {
+      connected: !fortnoxOff(ctx),
+      lastRun: lastRun ? { at: lastRun.ranAt, created: lastRun.created, skipped: lastRun.skipped } : null, lastSync: lastSync ? { at: lastSync.ranAt, changed: lastSync.changed } : null,
+    },
     priceSpan: priceSpan(db.price_items, today), refRules: b.refRules, refSuggestions: refSuggestionsBy,
   };
 });
