@@ -206,8 +206,8 @@ function Rost({ link, token }: { link: RostLinkView; token: string | undefined }
       <div lang="sv" className="flex flex-col gap-2">
         <DemoNote>
           Deltagaren öppnar en engångslänk från SMS eller e-post – ingen inloggning. Samtycket ges i länken innan något spelas in. Ljudet raderas direkt efter
-          transkriberingen och coachen får texten, översatt till svenska, som underlag att granska. Länken gäller i {days} dagar, fungerar en gång och skickas aldrig
-          till skyddade ärenden. I prototypen är transkriberingen och översättningen simulerade.
+          transkriberingen och coachen får texten, översatt till svenska, som underlag att granska. Länken gäller i {days} dagar och fungerar en gång. I prototypen är
+          transkriberingen och översättningen simulerade.
         </DemoNote>
         <DemoOnly>
           <div className="flex flex-col gap-1">

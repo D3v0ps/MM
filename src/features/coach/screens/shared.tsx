@@ -69,7 +69,6 @@ export function CaseHeadView({ head }: { head: CaseHead }) {
             <span>{head.name}</span>
             <span className="text-small font-semibold whitespace-nowrap text-text-muted tabular-nums tracking-[0.01em]">{head.caseNumber}</span>
           </CaseLink>
-          {head.protected && <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>}
         </Row>
         <Row gap="sm">
           <PhaseTag phase={head.phase} name={head.phaseName} />
@@ -83,9 +82,9 @@ export function CaseHeadView({ head }: { head: CaseHead }) {
   );
 }
 
-/** Rollen och testpersonen för perspektivbytet till kommunen: handläggaren som beställde, annars kommunens chef. */
+/** Rollen och testpersonen för perspektivbytet till kommunen: handläggaren som beställde (annars den förvalda handläggaren). */
 export function customerPerspective(referrer: ReferrerView | null | undefined): { role: Role; userId?: string } {
-  return referrer?.id ? { role: "kommun_handlaggare", userId: referrer.id } : { role: "kommun_chef" };
+  return referrer?.id ? { role: "kommun_handlaggare", userId: referrer.id } : { role: "kommun_handlaggare" };
 }
 
 /** Perspektivbyte (bara i prototypen) som får radbrytas på smal skärm. */

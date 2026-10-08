@@ -4,6 +4,7 @@ import type { AppRepo } from "@/data/schema";
 import { PolicyError } from "@/data/repo";
 import type { LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
+import type { AttachmentPort } from "@/features/_shared/attachment-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
 import type { CommandDef, QueryDef } from "./contract";
 import type { Actor, Role } from "./roles";
@@ -69,6 +70,12 @@ export type Ctx = {
    * Minnesläget: ljud i minnet. Supabase-läget: privat bucket "ljud" i Stockholm (src/server/audio). Hämtas med requireAudio(ctx).
    */
   audio?: AudioPort;
+  /**
+   * Bilagor till beställningen (src/features/_shared/attachment-port.ts, beslut 2026-10-07): createUpload, confirm, link,
+   * signedDownload, remove. Minnesläget: filerna i minnet. Supabase-läget: privat bucket "bilagor" i Stockholm
+   * (src/server/attachments). Hämtas med requireAttachments(ctx).
+   */
+  attachments?: AttachmentPort;
   /** Jobbkön (src/server/jobs, röstjobben i src/features/_shared/voice-jobs.ts). Saknas i minnesläget och prototypen. */
   jobs?: JobKick;
   /**

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import {
-  CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, TEAM_ROLES,
+  CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PriorAssessment,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
@@ -17,49 +17,71 @@ import type { MonthlyGaps } from "../rapporter/model";
 // Affärsfel returneras som { ok: false, error, message } – message är en text till användaren (klarspråk).
 // Gemensamma felkoder: not_found = ärendet finns inte eller rollen får inte se det, forbidden = rollen får se men inte ändra.
 
+/** Högsta antal veckor i en beställning (12 månader kan bli 53 ISO-veckor, annan tidsperiod lite längre). */
+export const MAX_ORDER_WEEKS = 60;
+/** Motiveringen vid "Annan tidsperiod": minst och högst så här många tecken. */
+export const ORDER_REASON_MIN = 10;
+export const ORDER_REASON_MAX = 500;
+
 /**
- * Ny beställning (portalen, telefon eller manuellt från mejl) – prototypens case.create.
- * Ger nästa ärendenummer i avtalets serie och skickar ordererkännande (eller generisk mottagningsbekräftelse vid
- * skyddade personuppgifter, plus en uppgift till avtalsansvarig). Kommunens handläggare beställer alltid i eget namn.
- * contractId: utelämnas = användarens aktiva avtal. Personnummer krypteras innan det sparas och skickas aldrig tillbaka.
+ * Ny beställning (portalen; telefon eller mejl registreras av Miljonbemanning) – prototypens case.create, ändrad efter
+ * beslutet 2026-10-07 (synpunkt #3–#10): enheten är fritext, ingen beställarreferens, inget avtalsområde eller yrkesspår och
+ * ingen fråga om skyddade personuppgifter i kommunens formulär. Omfattningen är orderPeriodMonths (ett av avtalets
+ * alternativ – planerat slut räknas fram från önskat startdatum) eller "Annan tidsperiod": plannedEnd och orderPeriodReason.
+ * Bakgrundsinformation om deltagaren: priorAssessment (kartläggning ja/nej/vet inte), background och bilagor (attachmentIds
+ * – egna uppladdningar med arenden.bilagaStart/bilagaKlar). Ger nästa ärendenummer i avtalets serie och skickar
+ * ordererkännandet. Kommunens handläggare beställer alltid i eget namn. contractId: utelämnas = användarens aktiva avtal.
+ * Personnummer krypteras innan det sparas och skickas aldrig tillbaka.
  */
-// Omräkning brett med flit: ett nytt ärende syns i listor, inkorg, portal, KPI:er och fakturering, och skapar en uppgift.
+// Omräkning brett med flit: ett nytt ärende syns i listor, inkorg, portal, KPI:er och fakturering.
 export const caseCreate = command("arenden.caseCreate", z.object({
   contractId: IdSchema.optional(),
-  protectedIdentity: z.boolean().optional(),
   source: z.enum(CASE_SOURCES).optional(),
   /** Beställande handläggare. Ignoreras för kommunens handläggare (alltid den inloggade). */
   referrerId: IdSchema.nullable().optional(),
+  /** Enheten som handläggaren arbetar på (fritext, synpunkt #4). Sparas i profilen om den saknas där. */
+  referrerUnit: z.string().max(120).optional(),
   firstName: z.string().trim().min(1).max(100),
   lastName: z.string().trim().min(1).max(100),
   pnr: z.string().max(20).optional(),
   phone: z.string().max(40).optional(),
   email: z.string().max(200).optional(),
   city: z.string().max(100).optional(),
-  /** Bara när kontaktvägen är brev. Sparas aldrig vid skyddade personuppgifter. */
+  /** Bara när kontaktvägen är brev. */
   address: z.string().max(300).nullable().optional(),
   preferredContact: z.enum(PREFERRED_CONTACTS).optional(),
-  accessibilityNeeds: z.string().max(1000).optional(),
   language: z.string().max(60).optional(),
   needsInterpreter: z.boolean().optional(),
+  /** Bara Miljonbemanning (mejl eller telefon) – kommunens formulär har ingen beställarreferens (beslut 2026-10-07). */
   buyerReference: z.string().max(40).optional(),
   purchaseOrderNumber: z.string().max(40).nullable().optional(),
+  /** Bara Miljonbemanning – avtalsområde och yrkesspår sätts annars när avropet accepteras (synpunkt #8). */
   primaryArea: z.string().max(10).nullable().optional(),
   secondaryArea: z.string().max(10).nullable().optional(),
   vocationalTrack: z.string().max(200).optional(),
   desiredStart: LocalDateSchema.nullable().optional(),
-  plannedWeeks: z.number().int().min(1).max(52).nullable().optional(),
+  /** Omfattningen i månader (avtalets orderPeriods.months). */
+  orderPeriodMonths: z.number().int().min(1).max(60).nullable().optional(),
+  /** "Annan tidsperiod": slutdatumet och motiveringen. */
   plannedEnd: LocalDateSchema.nullable().optional(),
+  orderPeriodReason: z.string().max(ORDER_REASON_MAX).nullable().optional(),
+  /** Har en kartläggning genomförts? */
+  priorAssessment: z.enum(PRIOR_ASSESSMENTS).nullable().optional(),
+  /** Bakgrundsinformation om deltagaren (fritext). */
   background: z.string().max(4000).optional(),
-}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract">>();
+  /** Bilagor som den inloggade redan har laddat upp (arenden.bilagaStart och arenden.bilagaKlar). */
+  attachmentIds: z.array(IdSchema).max(10).optional(),
+}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract" | "order_period" | "unit" | "prior_assessment" | "attachments">
+>();
 
 /**
- * Acceptera avrop → orderbekräftelse (prototypens case.accept). Beställarreferensen valideras mot avtalets mönster
- * innan något sparas. Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till
- * kommunen och kallelse till deltagaren (aldrig vid skyddade personuppgifter).
- * Omfattar även prototypens ink.acceptProtected: vid skyddade personuppgifter skickas ingen kallelse och det loggas
- * (notify.suppressed). Samordnaren får forbidden – skyddade avrop hanteras av avtalsansvarig.
- * buyerReference: utelämnas = ärendets nuvarande referens.
+ * Acceptera avrop → orderbekräftelse (prototypens case.accept). Avtalsområde och yrkesspår sätts här (synpunkt #8 –
+ * kommunens formulär frågar inte efter dem) och krävs om ärendet saknar dem. Omfattningen (6/12 månader eller annan
+ * tidsperiod) är förifylld ur beställningen och kan ändras; planerat slut räknas om från startdatumet. Beställarreferensen
+ * är valfri (MB fyller i den här eller före faktureringen, beslut 2026-10-07) – formatet kontrolleras om något skrivits.
+ * Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till kommunen och kallelse till
+ * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens.
  */
 // Omräkning brett med flit: skapar orderbekräftelsen (reports), ändrar inkorgen och deadlines, och ger coachen ärendet.
 export const caseAccept = command("arenden.caseAccept", z.object({
@@ -67,10 +89,17 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   leadCoachId: IdSchema,
   firstMeetingAt: LocalDateTimeSchema.optional(),
   startDate: LocalDateSchema.optional(),
-  plannedWeeks: z.number().int().min(1).max(52).optional(),
+  primaryArea: z.string().max(10).nullable().optional(),
+  secondaryArea: z.string().max(10).nullable().optional(),
+  vocationalTrack: z.string().max(200).optional(),
+  orderPeriodMonths: z.number().int().min(1).max(60).nullable().optional(),
+  plannedEnd: LocalDateSchema.nullable().optional(),
+  orderPeriodReason: z.string().max(ORDER_REASON_MAX).nullable().optional(),
   buyerReference: z.string().max(40).nullable().optional(),
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<{ reportId: string; caseNumber: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ reportId: string; caseNumber: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
+>();
 
 /** Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. */
 // Omräkning som caseAccept (samma listor, inkorg och deadlines berörs).
@@ -87,9 +116,12 @@ export const CasePatchSchema = z.strictObject({
   referrerEmail: z.string().max(200).nullable(),
   desiredStart: LocalDateSchema.nullable(),
   plannedStart: LocalDateSchema.nullable(),
-  plannedWeeks: z.number().int().min(1).max(52).nullable(),
+  plannedWeeks: z.number().int().min(1).max(MAX_ORDER_WEEKS).nullable(),
   plannedEnd: LocalDateSchema.nullable(),
   orderValueWeeks: z.number().int().min(1).max(104).nullable(),
+  orderPeriodMonths: z.number().int().min(1).max(60).nullable(),
+  orderPeriodReason: z.string().max(ORDER_REASON_MAX).nullable(),
+  priorAssessment: z.enum(PRIOR_ASSESSMENTS).nullable(),
   meetingDay: z.number().int().min(0).max(6).nullable(),
   meetingTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
   location: ShortText,
@@ -160,7 +192,7 @@ export const messageRead = command("arenden.messageRead", z.object({
   messageId: IdSchema.optional(),
 }), { invalidates: [CARD, "arenden.lista", PORTAL, "inkorg.item", "coach.minVecka", "notiser."] }).returns<Result<{ marked: number }, "not_found">>();
 
-/** Samtycke till inspelning och AI (prototypens consent.set). Kan inte registreras vid skyddade personuppgifter. */
+/** Samtycke till inspelning och AI (prototypens consent.set). */
 export const consentSet = command("arenden.consentSet", z.object({
   caseId: IdSchema,
   value: z.enum(["given", "declined", "revoked"]),
@@ -168,10 +200,77 @@ export const consentSet = command("arenden.consentSet", z.object({
   language: z.string().max(60).optional(),
 }), { invalidates: [CARD, "arenden.lista", "coach.checkInPage", "coach.assessmentPage", "coach.minVecka", "rost.", ...LOG] }).returns<Result<object, "not_found" | "protected" | "forbidden">>();
 
+// ---- Bilagor till beställningen (beslut 2026-10-07, synpunkt #7 och beslut 4)
+// Delas av portalen (beställningen och deltagarens sida) och Miljonbemanning (deltagarkortet och inkorgen). Filerna ligger i
+// den privata bucketen "bilagor" (Stockholm) – appen laddar upp direkt med en signerad adress; minnesläget skickar innehållet
+// med arenden.bilagaKlar (contentBase64). Filnamnet visas bara i appen och hamnar aldrig i en URL eller i revisionsloggen.
+// Läsrätt: den som laddade upp (innan beställningen skickats), samordnare, avtalsansvarig och namngiven huvudcoach (full
+// åtkomst) och beställande handläggare – aldrig handledare, ekonom, chef eller admin (policy.ts case_attachments, 0024).
+
+/** En bilaga i listorna. */
+export type AttachmentRow = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  bytes: number;
+  /** "2,4 MB" */
+  sizeText: string;
+  uploadedByName: string;
+  createdAt: string;
+  /** Den inloggade får ta bort filen (egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig). */
+  canRemove: boolean;
+};
+
+/** Bakgrundsinformationen från beställningen (portalens deltagarsida, deltagarkortet och inkorgen). */
+export type CaseBackground = {
+  /** "6 månader", "Annan tidsperiod" eller "8 veckor" (äldre beställning). */
+  orderPeriodText: string;
+  orderPeriodReason: string | null;
+  priorAssessment: PriorAssessment | null;
+  text: string;
+  attachments: AttachmentRow[];
+};
+
+/**
+ * Börja ladda upp en bilaga. caseId null = en ny beställning som inte är skickad (kommunens handläggare). Kontroller: rollen,
+ * ärendet (via behörigheten), filtyp (PDF, Word, bild), storlek (högst 10 MB) och antal (högst 10). Svaret: var webbläsaren
+ * laddar upp (uploadUrl, null i minnesläget). Loggas attachment.upload_started (id, typ, storlek – aldrig filnamnet).
+ */
+export const attachmentStart = command("arenden.bilagaStart", z.object({
+  caseId: IdSchema.nullable(),
+  fileName: z.string().max(400),
+  mimeType: z.string().max(200),
+  bytes: z.number().int().min(0).max(1_000_000_000),
+}), { invalidates: [...LOG] }).returns<Result<{ attachmentId: string; uploadUrl: string | null; token: string | null; maxBytes: number }, "not_found" | "forbidden" | "invalid" | "too_many" | "no_contract">>();
+
+/**
+ * Filen är uppladdad: storleken och filsignaturen kontrolleras (fel typ eller för stor = filen raderas). contentBase64 bara i
+ * minnesläget och prototypen (ingen lagring att ladda upp till) – ignoreras på servern. Loggas attachment.uploaded.
+ */
+export const attachmentDone = command("arenden.bilagaKlar", z.object({
+  attachmentId: IdSchema,
+  contentBase64: z.string().max(14_500_000).optional(),
+}), { invalidates: [CARD, PORTAL, INBOX, ...LOG] }).returns<Result<{ attachment: AttachmentRow }, "not_found" | "invalid">>();
+
+/** Ta bort en bilaga: den som laddade upp innan beställningen skickats, eller samordnare/avtalsansvarig i ärendet. */
+export const attachmentRemove = command("arenden.bilagaTaBort", z.object({ attachmentId: IdSchema }), { invalidates: [CARD, PORTAL, INBOX, ...LOG] }).returns<
+  Result<object, "not_found" | "forbidden">
+>();
+
+/**
+ * Hämta en bilaga (tyst kommando – loggar attachment.viewed innan något lämnas ut; misslyckas loggningen lämnas inget ut).
+ * Appen: en signerad adress som gäller i 60 sekunder (utan filnamn) – webbläsaren hämtar filen och sparar den med fileName.
+ * Minnesläget: innehållet (base64).
+ */
+export const attachmentDownload = command("arenden.bilagaHamta", z.object({ attachmentId: IdSchema }), { invalidates: "none" }).returns<
+  Result<{ url: string | null; contentBase64: string | null; fileName: string; mimeType: string }, "not_found">
+>();
+
 // ---- Skärmarna i området ärenden (prototypens views/arenden.js: arenden.lista, arende.kort, hand.start)
 // Varje fråga returnerar en vy-modell med bara det skärmen visar och rollen får se. Personnummer skickas bara maskerat.
 // Behörighet per ärende enligt caseAccess (src/core/access.ts): full = allt, team = handledare/teammedlem (ingen
-// coachanteckning, bedömning eller rapport), restricted = bara ärendenummer och status (skyddade personuppgifter).
+// coachanteckning, bedömning eller rapport). Nivån restricted (skyddade personuppgifter) är vilande sedan 2026-10-07 och
+// behandlas som ingen åtkomst.
 
 /** Närvarostatistik (prototypens sel.attendanceStats). rate = (närvarande + sena) / registrerade, null om inget registrerats. */
 export type AttendanceSummary = {
@@ -229,17 +328,13 @@ export type CaseListRow = {
   referredAt: string;
   /** Sorteringsnyckel "planerat slut – närmast först" (avslutade och avböjda sist). */
   endSortKey: string;
-  /** Skyddade personuppgifter och rollen ser bara att ärendet finns. */
-  restricted: boolean;
-  /** Namnet ("Skyddade personuppgifter" när rollen bara ser ärendenumret). Används också i sökningen. */
+  /** Namnet. Används också i sökningen. */
   displayName: string;
-  protectedIdentity: boolean;
   /** Ärendet har flaggor för rollen. */
   flagged: boolean;
   /** Allvarligaste flaggan: 0 kritisk, 1 varning, 2 information, 9 ingen (sortering "Flaggade först"). */
   flagRank: number;
-  /** Null när rollen bara ser ärendenumret. */
-  detail: CaseListDetail | null;
+  detail: CaseListDetail;
 };
 export type CaseListModel = {
   customerName: string;
@@ -276,7 +371,6 @@ export type CaseCard = {
   manage: boolean;
   /** Chef och systemadmin ser ärendet i läsläge. */
   readOnly: boolean;
-  protectedIdentity: boolean;
   status: CaseStatus;
   phase: number;
   phaseName: string;
@@ -299,13 +393,13 @@ export type CaseCard = {
   /** Avslut till arbete eller studier som inte är verifierat. */
   resultPrelim: boolean;
   /**
-   * Beställningens omfattning och pris per deltagarvecka (inte för teamet). priceOre saknas för begränsade testare i
-   * testmiljön (src/api/tester-access.ts) – skärmen visar då "Visas inte för testare".
+   * Beställningens omfattning i veckor (inte för teamet). Inget pris och inget ordervärde – belopp syns bara för ekonomen
+   * (synpunkt #10/#11 och beslut 5, 2026-10-07).
    */
-  order: { weeks: number | null; priceOre?: number } | null;
+  order: { weeks: number | null } | null;
   pnr: { masked: string | null; canReveal: boolean; hidden: boolean };
   contactText: string;
-  /** Deltagarens föredragna kontaktväg ("SMS", "E-post" …), null vid skyddade personuppgifter. */
+  /** Deltagarens föredragna kontaktväg ("SMS", "E-post" …). */
   contactLabel: string | null;
   languageText: string;
   /** Deltagarens språk (för samtyckets språkval). */
@@ -328,7 +422,8 @@ export type CaseCard = {
   openDeviations: number;
   /** Samtycke till inspelning och AI (inte för teamet). */
   consent: {
-    value: AiConsentStatus;
+    /** "not_applicable" (skyddade personuppgifter, vilande sedan 2026-10-07) visas som "not_asked". */
+    value: Exclude<AiConsentStatus, "not_applicable">;
     givenAt: string | null;
     informedByName: string | null;
     textVersion: string | null;
@@ -340,15 +435,20 @@ export type CaseCard = {
   keyPersonnelChangeRequiresApproval: boolean;
   customerSeesCoachNotes: boolean;
   /** Kommunens roll som har åtkomst till ärendet (bara för perspektivbytet i prototypen). */
-  customerRole: "kommun_handlaggare" | "kommun_chef" | null;
+  customerRole: "kommun_handlaggare" | null;
+  /**
+   * Bakgrundsinformation från beställningen (beslut 2026-10-07): omfattningen, om en kartläggning genomförts, texten och
+   * bilagorna. Bara med full åtkomst (samordnare, avtalsansvarig, namngiven huvudcoach – chef och admin ser inte bilagorna).
+   */
+  background: CaseBackground | null;
   /** Coacher att byta till, med antal aktiva ärenden (bara samordnare och avtalsansvarig). */
   coachOptions: { id: string; name: string; active: number }[];
 };
 export type CaseCardResult =
   | CaseCard
   | { kind: "not_found" }
-  /** Ärendet finns men rollen har ingen åtkomst. restricted = skyddade personuppgifter (nummer och status syns). */
-  | { kind: "denied"; restricted: boolean; caseNumber: string | null; status: CaseStatus | null };
+  /** Ärendet finns men rollen har ingen åtkomst. */
+  | { kind: "denied" };
 export const caseCard = query("arenden.kort", z.object({ caseId: IdSchema })).returns<CaseCardResult>();
 
 const CaseParams = z.object({ caseId: IdSchema });

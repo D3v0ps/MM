@@ -12,7 +12,9 @@
 - Publik nyckel (får finnas i webbläsaren, skyddas av RLS): `sb_publishable_6gWujM1P_blTRgFvPTMiGQ_cYDPcmGO`
 - Hemliga nycklar (service role, Resend, krypteringsnycklar) läggs **bara** i Vercels miljövariabler – aldrig i repot eller i chatten. Se `docs/DRIFT.md`.
 - Databasen: migrationerna `supabase/migrations/0001–0017` (0001–0016 redan applicerade i testprojektet av samordnaren; **0017 (synpunkter i testmiljön) appliceras av samordnaren** när koden med "Lämna synpunkt" går live – se `docs/DRIFT.md`), startdatat `supabase/bootstrap-staging.sql` (samordnaren kör det – också för att lägga till nya testare), testdatat läser testaren in i appen (`/admin/integrationer` → "Läs in testdata på nytt"). Ordningen steg för steg: `docs/DRIFT.md`, "Så startar du testmiljön".
-- Testarna (sju personer på Miljonbemanning, beslut 2026-10-01) och "Lämna synpunkt": `docs/DRIFT.md` avsnitt 11. `MM_EMAIL_ALLOWLIST` innehåller deras sju hela adresser.
+- Testarna (sju personer på Miljonbemanning, beslut 2026-10-01) och "Lämna synpunkt": `docs/DRIFT.md` avsnitt 11. `MM_EMAIL_ALLOWLIST` innehåller deras sju hela adresser. En ny adress på kommundomänen (självregistrering, beslut 2026-10-07) får bara en kod om den finns i listan.
+- AI:n är **simulerad** i testmiljön tills Google Cloud är kopplat (`MM_AI_PROVIDER=simulated`): transkriberad text är påhittad och märks "Testmiljö: AI:n är simulerad – texten är påhittad …" (`docs/AI.md`). Det är svaret på synpunkten "Tal till text fungerar ej" (2026-10-06).
+- Migrationerna 0023–0026 (beslut 2026-10-07) är skrivna men inte applicerade – de appliceras tillsammans (`docs/DRIFT.md` avsnitt 1.4).
 - Projektet ska flyttas till Miljonbemanning AB:s organisation när den finns (SPEC §11: konton ägs av bolaget via funktionsadress, minst två administratörer, MFA).
 
 ## Domäner och e-post

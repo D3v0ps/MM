@@ -98,7 +98,8 @@ const CASES: Case[] = [
   { name: "veckorapport, väntar på närvaro (med skyddat ärende)", id: () => "rep-16692", actor: () => as("u-sara", "samordnare"), delivered: false },
   { name: "veckorapport, levererad, kommunens vy", id: weeklyMaria, actor: () => as("k-maria", "kommun_handlaggare"), delivered: true },
   { name: "orderbekräftelse", id: orderId, actor: () => as("u-sara", "samordnare"), delivered: true },
-  { name: "beställarrapport, levererad", id: () => "rep-16698", actor: () => as("k-eva", "kommun_chef"), delivered: true },
+  // Beställarrapporten lämnas till kommunen utanför portalen (beslut 2026-10-07) – avtalsansvarig hämtar PDF:en.
+  { name: "beställarrapport, levererad", id: () => "rep-16698", actor: () => as("u-johan", "avtalsansvarig"), delivered: true },
   { name: "beställarrapport, utkast", id: () => "rep-16699", actor: () => as("u-johan", "avtalsansvarig"), delivered: false },
 ];
 
@@ -147,6 +148,58 @@ describe("PDF för varje rapporttyp", () => {
     // Två typsnitt (latin och latin-ext) är inbäddade.
     expect((buf.toString("latin1").match(/\/FontFile2/g) ?? []).length).toBeGreaterThanOrEqual(2);
   }, 30_000);
+});
+
+// ---------------------------------------------------------------- Beslut 2026-10-07 (synpunkt #10 och #12)
+/** Sektionen med rubriken som börjar med `heading` i HTML-pappret. */
+function htmlSection(doc: ReportDocView, heading: string): Element {
+  const d = new JSDOM(renderToStaticMarkup(<ReportDocument doc={doc} />)).window.document;
+  const h = [...d.querySelectorAll("section > h2")].find((e) => (e.textContent ?? "").trim().startsWith(heading));
+  if (!h?.parentElement) throw new Error(`${heading} saknas`);
+  return h.parentElement;
+}
+const MONEY_TEXT = /\d\s?kr\b|kronor|värde|pris/i;
+
+describe("orderbekräftelsen och månadsrapportens närvaro (beslut 2026-10-07)", () => {
+  it("orderbekräftelsen (HTML och PDF) har inget pris och inget ordervärde – bara omfattningen; samma för kommunen och internt", async () => {
+    for (const actor of [as("u-sara", "samordnare"), as("u-johan", "avtalsansvarig"), as("k-maria", "kommun_handlaggare")]) {
+      const doc = await docOf(orderId(), actor);
+      if (doc.kind !== "order_confirmation") throw new Error(doc.kind);
+      const html = htmlBlocks(doc).join("\n");
+      const pdf = pdfText(<ReportPdf doc={doc} />).join("\n");
+      for (const text of [html, pdf]) {
+        expect(text).not.toMatch(MONEY_TEXT);
+        expect(text).toContain("Planerad omfattning");
+        expect(text).toContain(doc.m.period);
+        expect(text).not.toMatch(/Saknas – måste kompletteras/);
+      }
+      expect(JSON.stringify(doc)).not.toMatch(/"price"/);
+      expect(squash(htmlSection(doc, "Insatsen").textContent ?? "")).toContain(squash(`Planerad omfattning${doc.m.period}`));
+    }
+  });
+
+  it("månadsrapportens avsnitt 2 heter Närvaro och har exakt två rader: perioden och närvarograden (HTML och PDF)", async () => {
+    for (const [id, actor] of [["rep-16008", as("k-maria", "kommun_handlaggare")], ["rep-16011", as("u-amira", "coach")]] as const) {
+      const doc = await docOf(id, actor);
+      if (doc.kind !== "monthly") throw new Error(doc.kind);
+      const sec = htmlSection(doc, "2.");
+      expect(sec.querySelector("h2")?.textContent?.trim()).toBe("2. Närvaro");
+      expect([...sec.querySelectorAll("dt")].map((e) => e.textContent?.trim())).toEqual(["Period", "Närvarograd"]);
+      expect(sec.querySelectorAll("table")).toHaveLength(0);
+      const dd = [...sec.querySelectorAll("dd")].map((e) => e.textContent?.trim());
+      expect(dd[0]).toMatch(/^1–3[01] [a-zåäö]+ \d{4}$/);
+      expect(dd[1]).toMatch(/^\d{1,3}\s%$|^–$/);
+      expect(sec.textContent).toContain("Närvarograd = ");
+      // Veckotabellen, orsakerna och upprepad frånvaro finns inte längre i rapporten (finns internt på fliken Närvaro).
+      const all = htmlBlocks(doc).join("\n");
+      const pdf = pdfText(<ReportPdf doc={doc} />).join("\n");
+      for (const text of [all, pdf]) {
+        expect(text).not.toMatch(/Giltig frånvaro per orsak|Upprepad ogiltig frånvaro:|Planerade tillfällen|Närvaro och frånvaro/);
+        expect(text).toContain("2. Närvaro");
+        expect(text).toContain(dd[1]!);
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------- Den renderade PDF:en

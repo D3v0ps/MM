@@ -316,7 +316,7 @@ const DATA = /*DATA*/null/*END*/;
   const roleById = Object.fromEntries(roles.map((r) => [r.id, r]));
   const phases = DATA.flow.phases;
   const phaseById = Object.fromEntries(phases.map((p) => [p.id, p]));
-  const LANE_ORDER = ["kommun_handlaggare", "kommun_chef", "samordnare", "avtalsansvarig", "coach", "handledare", "deltagare", "chef", "ekonom", "admin", "system"];
+  const LANE_ORDER = ["kommun_handlaggare", "samordnare", "avtalsansvarig", "coach", "handledare", "deltagare", "chef", "ekonom", "admin", "system"];
   const SYSTEM = { id: "system", name: "Systemet", org: "Automatik i Miljonmatch", side: "system" };
   const lanes = LANE_ORDER.map((id) => roleById[id] || (id === "system" ? SYSTEM : null)).filter(Boolean);
   const nameOf = (id) => (roleById[id] || (id === "system" ? SYSTEM : { name: id })).name;

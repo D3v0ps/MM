@@ -30,16 +30,21 @@ const ALI = TESTER_AUTH["tester-ali"];
 const authOf = (userId: string) => TESTER_AUTH[userId] ?? authUserIdFor(userId);
 
 const data = seedData();
-/** Extra testperson: kommunens chef för underenheten Alby (rapporter steg 3). */
-const CHEF_ALBY = "k-chef-alby";
+/**
+ * Skyddade personuppgifter är borttagna ur appen (beslut 2026-10-07) och testdatat har inga skyddade personer – men spärren
+ * ligger kvar vilande i RLS och policy.ts. Den prövas här: personen i ärendet "skyddad" (Omars beställning, huvudcoach Erik)
+ * får protected_identity = true både i minnet och i databasen (beforeAll, som postgres).
+ */
+const SKYDDAD_CASE = data.cases.find((c) => c.id === data.demo_tags.find((t) => t.tag === "skyddad")!.entityIds[0])!;
+const SKYDDAD_PERSON = data.persons.find((p) => p.id === SKYDDAD_CASE.personId)!;
+SKYDDAD_PERSON.protectedIdentity = true;
 
 /**
  * Extra rader för tabeller som testdatat lämnar tomma eller bara täcker delvis (flaggor, deadlines, bonus, fakturarader,
  * AI-beslut, skyddade ärenden …), så att deras policyer också prövas. Läggs in både i minnet och i databasen.
  */
 function extraRows(): { [N in TableName]?: Tables[N][] } {
-  const prot = new Set(data.persons.filter((p) => p.protectedIdentity).map((p) => p.id));
-  const protectedCase = data.cases.find((c) => prot.has(c.personId))!;
+  const protectedCase = SKYDDAD_CASE;
   const mariaCase = data.cases.find((c) => c.referrerId === "k-maria")!;
   const amiraCase = data.cases.find((c) => c.leadCoachId === "u-amira")!;
   const petraCase = data.cases.find((c) => data.case_team.some((t) => t.caseId === c.id && t.userId === "u-petra"))!;
@@ -56,7 +61,13 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const cdev = (id: string, caseId: string | null): Tables["contract_deviations"] => ({
     ...data.contract_deviations[0], id, caseId,
   });
-  const draft = data.invoice_drafts[0];
+  // Fakturan (0023): en öppen faktura (underlag) för januari med en rad – raderna på de skapade fakturorna finns i testdatat.
+  const draft: Tables["invoice_drafts"] = {
+    ...data.invoice_drafts[0], id: "inv-c-bot-2027-01-avtal", month: "2027-01", billingRunId: "br-2027-01", status: "draft", buyerReference: null, approvedBy: null,
+    approvedAt: null, fortnoxDocumentNumber: null, fortnoxIdempotencyKey: null, fortnoxCreatedAt: null,
+  };
+  const draftCase = data.cases.find((c) => c.status === "active")!;
+  const returnedInvoice = data.invoice_drafts.find((d) => d.status === "returned")!;
   const decision = (id: string, aiRunId: string | null, decidedBy: string): Tables["ai_field_decisions"] => ({
     id, aiRunId, field: "nextGoal", suggested: "a", final: "a", decision: "accepted", changed: false, decidedBy, decidedAt: at,
   });
@@ -72,14 +83,16 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const audio = (id: string, caseId: string | null, ownerId: string, purpose: Tables["audio_uploads"]["purpose"]): Tables["audio_uploads"] => ({
     id, caseId, ownerId, purpose, storagePath: `${purpose}/${id}.webm`, mimeType: "audio/webm", bytes: 4000, durationSec: 1, status: "uploaded", createdAt: at, deletedAt: null,
   });
+  const attachment = (id: string, caseId: string | null, uploadedBy: string, deleted = false): Tables["case_attachments"] => ({
+    id, contractId: "c-bot", caseId, uploadedBy, fileName: "Kartläggning.pdf", mimeType: "application/pdf", bytes: 2048, storagePath: `c-bot/${id}.pdf`,
+    status: deleted ? "deleted" : "uploaded", createdAt: at, linkedAt: caseId ? at : null, removedAt: deleted ? at : null, removedBy: deleted ? uploadedBy : null,
+    deletedAt: deleted ? at : null, deleteReason: deleted ? "removed" : null,
+  });
   // Synpunkter (0017): Karims och Alis synpunkter, ett svar och en synpunkt med ändrad status.
   const fb = (id: string, authorId: string, status: Tables["feedback"]["status"]): Tables["feedback"] => ({
     id, type: "fel", priority: "bor", text: "Text", status, role: "coach", path: "/min-vecka", viewTitle: "Min vecka", createdAt: at, authorId,
     statusChangedAt: status === "ny" ? null : at, statusChangedBy: status === "ny" ? null : authorId, submittedAt: null,
   });
-  // Kommunens resultatfil (rapporter steg 3): en chef för en underenhet (Alby) prövar enhetsspärren – testdatat har bara en
-  // kommunchef, för hela Arbetsmarknadsenheten. Profilen får sitt auth_user_id i beforeAll (insertSql skriver inte extrakolumnerna).
-  const eva = data.profiles.find((x) => x.id === "k-eva")!;
   // Ett andra kommunavtal i utkast (påhittat, c-ny) där bara avtalsansvarig är medlem: flera avtal i datamodellen prövas,
   // och kommunen ser inga individrapporter där.
   const bot = data.contracts.find((c) => c.id === "c-bot")!;
@@ -87,8 +100,8 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     ...bot, id: "c-ny", name: "Nytt kommunavtal (påhittat)", contractNumber: "000000000", dnr: null, startsOn: "2027-06-01", endsOn: null, casePrefix: "NYK", status: "draft",
     config: { casePrefix: "NYK", dataRole: "processor", customerVisibility: { seesIndividualReports: false, seesCoachNotes: false }, reportSchedule: { automatic: [] } },
   };
-  // Rapportbyggaren (0021): en arkiverad mb-rad, en rad i c-ny och en rad delad med kommunen som ägs av samordnaren (delad av
-  // avtalsansvarig – samordnaren får sedan inte ändra den).
+  // Rapportbyggaren (0021): en arkiverad mb-rad, en rad i c-ny och en rad som ägs av samordnaren och delades inom
+  // Miljonbemanning av avtalsansvarig (delningen med kommunen är borttagen, 0026).
   const saved = (id: string, contractId: string, ownerId: string, visibility: Tables["saved_reports"]["visibility"], sharedBy: string | null, archivedBy: string | null = null): Tables["saved_reports"] => ({
     id, contractId, ownerId, title: "Testrapport", templateKey: null, definition: { v: 1, dataset: "deltagarmanader" }, visibility, createdAt: at, updatedAt: null, updatedBy: null,
     sharedAt: sharedBy ? at : null, sharedBy, archivedAt: archivedBy ? at : null, archivedBy,
@@ -99,11 +112,9 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     saved_reports: [
       saved("sr-x-arkiv", "c-bot", "u-karin", "mb", "u-karin", "u-karin"),
       saved("sr-x-ny", "c-ny", "u-johan", "mb", "u-johan"),
-      saved("sr-x-sara-kommun", "c-bot", "u-sara", "customer", "u-johan"),
+      saved("sr-x-sara-mb", "c-bot", "u-sara", "mb", "u-johan"),
     ],
-    profiles: [{ ...eva, id: CHEF_ALBY, fullName: "Testchef Alby", email: "chef.alby@example.invalid", customerUnit: "Arbetsmarknadsenheten Alby", lastLoginAt: null }],
     memberships: [
-      { id: "ms-x-chef-alby", userId: CHEF_ALBY, contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" },
       { id: "u-johan:c-ny", userId: "u-johan", contractId: "c-ny", role: "avtalsansvarig", customerUnit: null },
     ],
     feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
@@ -121,12 +132,13 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     ],
     bonus_claims: [bonus("bc-1", mariaCase.id), bonus("bc-2", amiraCase.id), bonus("bc-3", protectedCase.id), bonus("bc-4", petraCase.id)],
     contract_deviations: [cdev("cd-x1", mariaCase.id), cdev("cd-x2", protectedCase.id)],
+    invoice_drafts: [draft],
     invoice_lines: [{
-      id: "il-1", invoiceDraftId: draft.id, caseId: draft.caseId!, priceItemId: "pi-G", quantity: 4, unitPriceOre: 350000, vatRate: 25, description: "Deltagarvecka",
-      isoWeeks: ["2026-W45"], zeroAttendanceWeeks: [],
+      id: `${draft.id}:${draftCase.id}`, invoiceDraftId: draft.id, caseId: draftCase.id, priceItemId: "pi-G", quantity: 4, unitPriceOre: 350000, vatRate: 25,
+      description: `${draftCase.caseNumber} · v. 1–4 2027`, isoWeeks: ["2027-W01", "2027-W02", "2027-W03", "2027-W04"], zeroAttendanceWeeks: [], note: "",
     }],
-    billing_week_approvals: [{ id: `${draft.caseId}:2026-W45`, contractId: "c-bot", month: "2026-11", caseId: draft.caseId!, weekKey: "2026-W45", approvedBy: "u-lars", approvedAt: at, note: "" }],
-    invoice_credits: [{ id: "ic-1", contractId: "c-bot", month: "2026-12", caseId: draft.caseId!, creditedAt: at, creditedBy: "u-lars", buyerReference: null }],
+    billing_week_approvals: [{ id: `${draftCase.id}:2026-W45`, contractId: "c-bot", month: "2026-11", caseId: draftCase.id, weekKey: "2026-W45", approvedBy: "u-lars", approvedAt: at, note: "" }],
+    invoice_credits: [{ id: "ic-1", contractId: "c-bot", month: "2026-12", invoiceDraftId: returnedInvoice.id, caseId: null, creditedAt: at, creditedBy: "u-lars", buyerReference: "55102938" }],
     fortnox_runs: [
       { id: "fr-1", contractId: "c-bot", month: "2027-01", kind: "create", ranAt: at, ranBy: "u-lars", created: 1, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
       { id: "fr-2", contractId: "c-ny", month: "2027-01", kind: "sync", ranAt: at, ranBy: "u-lars", created: 0, skipped: 0, notReady: 0, blocked: 0, changed: 0 },
@@ -150,6 +162,13 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       audio("aud-x-diktat", null, "k-maria", "dictation"), audio("aud-x-diktat-arende", mariaCase.id, "k-maria", "dictation"),
       audio("aud-x-petra", petraCase.id, "u-petra", "checkin"), audio("aud-x-skyddad", protectedCase.id, protectedCase.leadCoachId!, "checkin"),
       audio("aud-x-deltagare", amiraCase.id, "deltagare", "participant"),
+    ],
+    // Bilagor till beställningen (0024): i Marias ärende, en uppladdning som ännu inte hör till en beställning, en raderad,
+    // en i det skyddade ärendet (Omar) och en i Petras ärende som samordnaren lade till.
+    case_attachments: [
+      attachment("att-x-maria", mariaCase.id, "k-maria"), attachment("att-x-utkast", null, "k-maria"),
+      attachment("att-x-borttagen", mariaCase.id, "k-maria", true), attachment("att-x-skyddad", protectedCase.id, protectedCase.referrerId!),
+      attachment("att-x-petra", petraCase.id, "u-sara"),
     ],
   };
 }
@@ -215,7 +234,8 @@ beforeAll(async () => {
   for (const [t, rows] of Object.entries(EXTRA)) {
     for (const row of rows as Record<string, unknown>[]) await db.exec(insertSql(t as TableName, row));
   }
-  await db.query("update public.profiles set auth_user_id = $1 where id = $2", [authUserIdFor(CHEF_ALBY), CHEF_ALBY]);
+  // Den vilande spärren (se SKYDDAD_PERSON): samma person får skyddade personuppgifter i databasen.
+  await db.query("update public.persons set protected_identity = true where id = $1", [SKYDDAD_PERSON.id]);
 }, 120_000);
 
 // ================================================================ Schema och seed
@@ -277,7 +297,7 @@ describe("schema och seed", () => {
     expect(fks.rows.map((x) => x.fk)).toEqual([]);
     // Stickprov: funktionerna som rådgivaren pekade ut ger samma svar som förut.
     const r = await db.query<{ a: string; b: boolean; c: string }>(
-      "select mm.case_access_level('kommun_chef', 'k-eva', array['c-bot'], 'Arbetsmarknadsenheten', 'c-bot', 'u-amira', 'k-maria', false, false, 'Arbetsmarknadsenheten Norra', 'own') as a, mm.unit_covers('', 'x') as b, mm.customer_scope('{\"customerVisibility\":{\"scope\":\"ATT_FASTSTÄLLA\",\"prototypeScope\":\"own\"}}'::jsonb) as c",
+      "select mm.case_access_level('kommun_handlaggare', 'k-maria', array['c-bot'], 'Arbetsmarknadsenheten Alby', 'c-bot', 'u-amira', 'k-maria', false, false, 'Arbetsmarknadsenheten Alby', 'own') as a, mm.unit_covers('', 'x') as b, mm.customer_scope('{\"customerVisibility\":{\"scope\":\"ATT_FASTSTÄLLA\",\"prototypeScope\":\"own\"}}'::jsonb) as c",
     );
     expect(r.rows[0]).toEqual({ a: "customer", b: true, c: "own" });
   });
@@ -295,7 +315,9 @@ describe("schema och seed", () => {
 // ================================================================ Läsning: RLS = policy.ts för varje testperson
 describe("läsning: samma rader som policy.ts", () => {
   it("testpersonerna omfattar alla roller och testarna", () => {
-    expect(new Set(personas.map((p) => p.actor.role)).size).toBe(10);
+    // Nio roller: kommunen har bara rollen handläggare (beslut 2026-10-07).
+    expect(new Set(personas.map((p) => p.actor.role)).size).toBe(9);
+    expect(personas.some((p) => (p.actor.role as string) === "kommun_chef")).toBe(false);
     expect(personas.some((p) => p.actor.userId === "tester-karim")).toBe(true);
   });
 
@@ -318,7 +340,7 @@ describe("läsning: samma rader som policy.ts", () => {
   it("mm.case_access(case_id) = caseAccess i src/core/access.ts för varje ärende", async () => {
     const src = accessIndex(data);
     const levels = new Set<string>();
-    for (const userId of ["u-sara", "u-johan", "u-amira", "u-petra", "u-karin", "u-lars", "u-robin", "k-maria", "k-eva"]) {
+    for (const userId of ["u-sara", "u-johan", "u-amira", "u-petra", "u-karin", "u-lars", "u-robin", "k-maria", "k-omar"]) {
       const p = findPersona(userId);
       const expected = Object.fromEntries(data.cases.map((c) => [c.id, caseAccessIn(c, p.actor, src)]));
       const got = await asPersona(p, async (tx) =>
@@ -330,31 +352,91 @@ describe("läsning: samma rader som policy.ts", () => {
   }, 30_000); // nio testpersoner mot databasen – tar längre tid när hela testsviten körs parallellt
 });
 
-// ================================================================ Resultatfilen: enhetsspärren (rapporter steg 3)
-describe("resultatfilen: kommunens chef för en underenhet", () => {
-  it("läser samma ärenden och rapporter i RLS och policy.ts – bara ärenden som beställts i Alby, inga skyddade", async () => {
-    const p = findPersona(CHEF_ALBY);
-    expect(p.actor).toMatchObject({ role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Alby" });
-    const mem = { cases: await memIds(p, "cases"), reports: await memIds(p, "reports") };
-    const pg = await asPersona(p, async (tx) => ({ cases: await pgIds(tx, "cases"), reports: await pgIds(tx, "reports") }));
-    expect(pg).toEqual(mem);
-    const unit = (caseId: string) => {
-      const c = data.cases.find((x) => x.id === caseId)!;
-      return (c.referrerId ? data.profiles.find((x) => x.id === c.referrerId)?.customerUnit : null) ?? c.referrerUnit;
-    };
-    expect(mem.cases.length).toBeGreaterThan(0);
-    for (const id of mem.cases) expect(unit(id)).toBe("Arbetsmarknadsenheten Alby");
-    const evaCases = await memIds(findPersona("k-eva"), "cases");
-    expect(mem.cases.length).toBeLessThan(evaCases.length);
-    // Rapporterna: bara levererade individrapporter i Alby-ärenden – aldrig det skyddade ärendets.
-    const prot = new Set(data.persons.filter((x) => x.protectedIdentity).map((x) => x.id));
-    const reports = data.reports.filter((r) => mem.reports.includes(r.id));
-    expect(reports.filter((r) => r.caseId).length).toBeGreaterThan(0);
-    for (const r of reports.filter((x) => x.caseId)) {
-      expect(unit(r.caseId!)).toBe("Arbetsmarknadsenheten Alby");
-      expect(r.deliveredAt).toBeTruthy();
-      expect(prot.has(data.cases.find((c) => c.id === r.caseId)!.personId)).toBe(false);
+// ================================================================ Kommunens roller (0026)
+describe("kommunen har bara rollen handläggare (0026)", () => {
+  it("mm.customer_roles() är bara handläggare, testdatat har inga chefsmedlemskap och ett nytt stoppas av kontrollen", async () => {
+    const r = await db.query<{ roles: string[]; chefs: number }>("select mm.customer_roles() as roles, (select count(*)::int from public.memberships where role = 'kommun_chef') as chefs");
+    expect(r.rows[0]).toEqual({ roles: ["kommun_handlaggare"], chefs: 0 });
+    // Inte ens service role (servern) kan lägga till rollen.
+    const ins = await asUser(db, null, (tx) => attempt(tx, "insert into public.memberships (id, user_id, contract_id, role, customer_unit) values ('ms-x-chef', 'k-maria', 'c-bot', 'kommun_chef', null)"), { role: "service_role" });
+    expect(ins).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("beställarrapporten: en per avtal och månad, utan mottagare – och kommunen läser den inte", async () => {
+    const summaries = data.reports.filter((r) => r.kind === "customer_summary");
+    expect(summaries.length).toBeGreaterThan(0);
+    const pg = (await db.query<{ n: number; recipients: number }>("select count(*)::int as n, count(recipient_user_id)::int as recipients from public.reports where kind = 'customer_summary'")).rows[0];
+    expect(pg).toEqual({ n: summaries.length, recipients: 0 });
+    // En andra beställarrapport för samma avtal och månad stoppas av det unika indexet (också för service role).
+    const first = summaries.find((r) => !r.previousId)!;
+    const dup = await asUser(db, null, (tx) => attempt(tx, insertSql("reports", { ...first, id: "rep-x-dubblett" } as unknown as Record<string, unknown>)), { role: "service_role" });
+    expect(dup).toMatchObject({ ok: false, code: "23505" });
+    for (const userId of ["k-maria", "k-ahmed", "k-linda", "k-omar"]) {
+      const n = await asPersona(findPersona(userId), async (tx) => (await tx.query<{ n: number }>("select count(*)::int as n from public.reports where kind = 'customer_summary'")).rows[0].n);
+      expect([userId, n]).toEqual([userId, 0]);
     }
+  });
+
+  it("prislistan läses bara av Miljonbemanning (synpunkt #11)", async () => {
+    for (const userId of ["k-maria", "k-omar", "u-johan", "u-lars"]) {
+      const p = findPersona(userId);
+      const pg = await asPersona(p, async (tx) => (await tx.query<{ n: number }>("select count(*)::int as n from public.price_items")).rows[0].n);
+      const mem = data.price_items.filter((x) => canReadRow("price_items", x, actorOf(p), raw)).length;
+      expect([userId, pg]).toEqual([userId, mem]);
+      expect([userId, pg > 0]).toEqual([userId, userId.startsWith("u-")]);
+    }
+  });
+});
+
+// ================================================================ Bilagor till beställningen (0024)
+describe("bilagor till beställningen (0024): läsning och skrivning – samma regler i RLS och policy.ts", () => {
+  const pgAtt = (userId: string) => asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.case_attachments order by id")).rows.map((r) => r.id));
+  const memAtt = (userId: string) => data.case_attachments.filter((x) => canReadRow("case_attachments", x, actorOf(findPersona(userId)), raw)).map((x) => x.id).sort();
+
+  it("läsning per testperson: den som laddade upp, samordnare, avtalsansvarig, namngiven huvudcoach och beställande handläggare", async () => {
+    // Samma rader i RLS och policy.ts för varje testperson.
+    for (const p of personas) expect(await pgAtt(p.actor.userId), personaKey(p)).toEqual(memAtt(p.actor.userId));
+    // Det som reglerna säger, i klartext.
+    expect(memAtt("k-maria")).toEqual(expect.arrayContaining(["att-x-maria", "att-x-utkast"]));
+    expect(memAtt("k-omar")).toEqual(["att-x-skyddad"]);
+    expect(memAtt("u-sara")).toEqual(expect.arrayContaining(["att-x-maria", "att-x-petra"]));
+    expect(memAtt("u-johan")).toEqual(["att-x-maria", "att-x-petra", "att-x-skyddad"]);
+    expect(memAtt(SKYDDAD_CASE.leadCoachId!)).toContain("att-x-skyddad");
+    // Den vilande spärren: samordnaren ser inte bilagan i det skyddade ärendet; ingen ser utkastet utom uppladdaren eller en raderad fil.
+    for (const p of personas) {
+      const ids = memAtt(p.actor.userId);
+      if (p.actor.userId !== "k-maria") expect(ids, p.actor.userId).not.toContain("att-x-utkast");
+      expect(ids, p.actor.userId).not.toContain("att-x-borttagen");
+      if (!["u-johan", "k-omar", SKYDDAD_CASE.leadCoachId].includes(p.actor.userId)) expect(ids, p.actor.userId).not.toContain("att-x-skyddad");
+    }
+    for (const userId of ["u-petra", "u-lars", "u-karin", "u-robin", "deltagare", "tester-karim", "k-ahmed"]) expect(memAtt(userId), userId).toEqual([]);
+  }, 30_000);
+
+  it("ingen inloggad användare skriver raderna – bara servern (service role)", async () => {
+    const row = { ...data.case_attachments.find((a) => a.id === "att-x-maria")!, id: "att-x-ny", storagePath: "c-bot/att-x-ny.pdf" };
+    for (const userId of ["k-maria", "u-sara", "u-johan", "u-robin"]) {
+      const res = await asPersona(findPersona(userId), async (tx) => ({
+        insert: await attempt(tx, insertSql("case_attachments", row as unknown as Record<string, unknown>)),
+        update: await attempt(tx, "update public.case_attachments set status = 'deleted' where id = 'att-x-maria'"),
+        remove: await attempt(tx, "delete from public.case_attachments where id = 'att-x-maria'"),
+      }));
+      expect([userId, allowed(res.insert), allowed(res.update), allowed(res.remove)]).toEqual([userId, false, false, false]);
+      expect(canWriteRow("case_attachments", row, actorOf(findPersona(userId)), raw)).toBe(false);
+    }
+    const sys = await asUser(db, null, (tx) => attempt(tx, insertSql("case_attachments", row as unknown as Record<string, unknown>)), { role: "service_role" });
+    expect(sys).toMatchObject({ ok: true, rows: 1 });
+  });
+
+  it("filtyper, storlek och sökväg: kontrollerna i tabellen stoppar fel värden", async () => {
+    const base = { ...data.case_attachments.find((a) => a.id === "att-x-maria")! };
+    const tryRow = (patch: Partial<Tables["case_attachments"]>) =>
+      asUser(db, null, (tx) => attempt(tx, insertSql("case_attachments", { ...base, id: "att-x-k", storagePath: "c-bot/att-x-k.pdf", ...patch } as unknown as Record<string, unknown>)), { role: "service_role" });
+    expect(await tryRow({ mimeType: "application/zip" })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ bytes: 10 * 1024 * 1024 + 1 })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ fileName: "" })).toMatchObject({ ok: false, code: "23514" });
+    expect(await tryRow({ storagePath: base.storagePath })).toMatchObject({ ok: false, code: "23505" });
+    expect(await tryRow({ caseId: null })).toMatchObject({ ok: false, code: "23514" }); // kopplad tid utan ärende
+    expect(await tryRow({})).toMatchObject({ ok: true, rows: 1 });
   });
 });
 
@@ -392,9 +474,9 @@ describe("ärenden: cases_public döljer plats, mötestider och bakgrund i skydd
   type Detail = { case_number: string; status: string; background_info: string; location: string; meeting_day: number | null; meeting_time: string | null; pause_reason: string | null; first_meeting: string | null; buyer_reference: string | null; start_date: string | null };
   const detail = (userId: string, caseId: string) => asPersona(findPersona(userId), async (tx) => (await tx.query<Detail>(DETAIL_SQL, [caseId])).rows[0]);
 
-  it("samordnare, chef, admin, ekonom och kommunens chef ser nummer och status – inte var eller när personen träffas", async () => {
+  it("samordnare, chef, admin och ekonom ser nummer och status – inte var eller när personen träffas", async () => {
     const c = prot();
-    for (const userId of ["u-sara", "u-karin", "u-robin", "u-lars", "k-eva"]) {
+    for (const userId of ["u-sara", "u-karin", "u-robin", "u-lars"]) {
       const row = await detail(userId, c.id);
       expect(row, userId).toEqual({
         case_number: c.caseNumber, status: c.status, background_info: "", location: "", meeting_day: null, meeting_time: null, pause_reason: null,
@@ -417,6 +499,21 @@ describe("ärenden: cases_public döljer plats, mötestider och bakgrund i skydd
     expect(await detail("u-lars", c.id)).toMatchObject({ background_info: "", location: "", meeting_day: null, meeting_time: null, buyer_reference: c.buyerReference, start_date: c.startDate });
     // Samordnaren (full åtkomst) ser allt i samma ärende.
     expect(await detail("u-sara", c.id)).toMatchObject({ background_info: c.backgroundInfo, location: c.location, meeting_day: c.meetingDay });
+  });
+
+  it("omfattning och kartläggning (0025): ekonomen ser antalet månader men inte motiveringen eller kartläggningssvaret", async () => {
+    const c = data.cases.find((x) => x.orderPeriodMonths != null && x.priorAssessment)!;
+    expect(c).toBeTruthy();
+    const before = async (tx: Tx) => {
+      await tx.query("update public.cases set order_period_reason = 'Motivering till perioden', prior_assessment = 'no' where id = $1", [c.id]);
+    };
+    const read = (userId: string) =>
+      asUser(db, authOf(userId), async (tx) => (await tx.query("select order_period_months, order_period_reason, prior_assessment from public.cases_public where id = $1", [c.id])).rows[0], { before });
+    expect(await read("u-lars")).toEqual({ order_period_months: c.orderPeriodMonths, order_period_reason: null, prior_assessment: null });
+    expect(await read("u-sara")).toEqual({ order_period_months: c.orderPeriodMonths, order_period_reason: "Motivering till perioden", prior_assessment: "no" });
+    // Testdatat utan ändring: samma värden som i minnet.
+    const plain = await asPersona(findPersona("u-sara"), async (tx) => (await tx.query("select order_period_months, prior_assessment from public.cases_public where id = $1", [c.id])).rows[0]);
+    expect(plain).toEqual({ order_period_months: c.orderPeriodMonths, prior_assessment: c.priorAssessment });
   });
 
   it("tabellen: bara id går att läsa direkt, och en ändring kan inte lämna ut kolumnerna", async () => {
@@ -472,7 +569,7 @@ describe("kvittenser ändrar bara sina egna kolumner", () => {
     expect(memWrite("reports", { ...r, openedAt: at, openedBy: "k-maria" }, "k-maria")).toBe(true);
   });
 
-  it("meddelanden: bara läskvittot ändras – aldrig text eller avsändare – och kommunens chef ändrar inget", async () => {
+  it("meddelanden: bara läskvittot ändras – aldrig text eller avsändare – och en annan handläggare ändrar inget", async () => {
     const own = new Set(data.cases.filter((c) => c.referrerId === "k-maria").map((c) => c.id));
     const fromMb = data.messages.find((m) => own.has(m.caseId) && m.senderId.startsWith("u-") && !m.readBy.includes("k-maria"))
       ?? data.messages.find((m) => own.has(m.caseId) && m.senderId.startsWith("u-"))!;
@@ -490,18 +587,18 @@ describe("kvittenser ändrar bara sina egna kolumner", () => {
     expect(res.clear.ok).toBe(false);
     expect(res.readAt.ok).toBe(false);
     expect(res.self).toMatchObject({ ok: true, rows: 1 });
-    const eva = await asPersona(findPersona("k-eva"), async (tx) => ({
-      body: await attempt(tx, "update public.messages set body = 'Chefen ändrade' where id = $1", [fromMb.id]),
-      read: await attempt(tx, "update public.messages set read_by = array_append(read_by, 'k-eva') where id = $1", [fromMb.id]),
+    const omar = await asPersona(findPersona("k-omar"), async (tx) => ({
+      body: await attempt(tx, "update public.messages set body = 'Ändrad av Omar' where id = $1", [fromMb.id]),
+      read: await attempt(tx, "update public.messages set read_by = array_append(read_by, 'k-omar') where id = $1", [fromMb.id]),
     }));
-    expect(eva.body.ok).toBe(false);
-    expect(eva.read.ok).toBe(false);
+    expect(allowed(omar.body)).toBe(false);
+    expect(allowed(omar.read)).toBe(false);
     const coach = await asPersona(findPersona("u-amira"), (tx) => attempt(tx, "update public.messages set body = 'Ändrad' where id = $1", [fromMb.id]));
     expect(coach.ok).toBe(false);
     // Samma svar i minnesläget (policy.ts).
     expect(memWrite("messages", { ...fromMb, body: "Ändrad av kommunen", senderId: "u-sara" }, "k-maria")).toBe(false);
     expect(memWrite("messages", { ...fromMb, readBy: [...fromMb.readBy, "u-sara"] }, "k-maria")).toBe(false);
-    expect(memWrite("messages", { ...fromMb, body: "Chefen ändrade" }, "k-eva")).toBe(false);
+    expect(memWrite("messages", { ...fromMb, body: "Ändrad av Omar" }, "k-omar")).toBe(false);
     expect(memWrite("messages", { ...fromMb, body: "Ändrad" }, "u-amira")).toBe(false);
     // Minnesläget med samma utgångsläge som i databasen.
     const rawBefore: RawAccess<Tables> = { ...raw, get: ((t: TableName, id: string) => (t === "messages" && id === before.id ? before : raw.get(t as never, id))) as RawAccess<Tables>["get"] };
@@ -536,6 +633,12 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
     const taken = new Set(data.attendance.map((a) => a.activityId));
     c.activityId = (data.activities.find((a) => a.caseId === row.caseId && !taken.has(a.id)) ?? data.activities.find((a) => !taken.has(a.id)))?.id;
   }
+  // Fakturan (0023): en periodisk faktura per avtal, månad och grupp; en rad per ärende och faktura; unik idempotensnyckel.
+  if (t === "invoice_drafts") {
+    c.groupingKey = `${row.groupingKey}-kopia`;
+    if (row.fortnoxIdempotencyKey) c.fortnoxIdempotencyKey = `${row.fortnoxIdempotencyKey}:kopia`;
+  }
+  if (t === "invoice_lines") c.caseId = data.cases.find((x) => !data.invoice_lines.some((l) => l.invoiceDraftId === row.invoiceDraftId && l.caseId === x.id))?.id;
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
     c.userId = data.profiles.map((p) => p.id).find((u) => !taken.has(`${u}|${row.contractId}|${row.role}`));
@@ -586,12 +689,7 @@ describe("skrivning: särskilda fall", () => {
   const ownCase = () => data.cases.find((c) => c.referrerId === "k-maria")!;
   const otherCase = () => data.cases.find((c) => c.referrerId && c.referrerId !== "k-maria" && c.contractId === "c-bot")!;
 
-  it("kommunen kan inte uppdatera ärenden den inte beställt, och kommunens chef inga ärenden alls", async () => {
-    const eva = await asPersona(findPersona("k-eva"), async (tx) => {
-      const visible = (await tx.query<{ id: string }>("select id from public.cases limit 1")).rows[0].id;
-      return attempt(tx, "update public.cases set status = 'closed' where id = $1", [visible]);
-    });
-    expect(allowed(eva)).toBe(false);
+  it("kommunen kan inte uppdatera ärenden den inte beställt", async () => {
     const res = await asPersona(maria(), async (tx) => ({
       other: await attempt(tx, "update public.cases set status = 'closed' where id = $1", [otherCase().id]),
       moveAway: await attempt(tx, "update public.cases set referrer_id = 'k-ahmed' where id = $1", [ownCase().id]),
@@ -612,8 +710,8 @@ describe("skrivning: särskilda fall", () => {
       forged: await attempt(tx, ...msg(ownCase().id, "u-amira")),
     }));
     expect(res).toMatchObject({ own: { ok: true, rows: 1 }, other: { ok: false }, forged: { ok: false } });
-    const eva = await asPersona(findPersona("k-eva"), (tx) => attempt(tx, ...msg(ownCase().id, "k-eva")));
-    expect(eva.ok).toBe(false);
+    const omar = await asPersona(findPersona("k-omar"), (tx) => attempt(tx, ...msg(ownCase().id, "k-omar")));
+    expect(omar.ok).toBe(false);
   });
 
   it("ingen kan ändra eller ta bort i revisionsloggen – inte ens service role", async () => {
@@ -829,7 +927,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       // Amira är huvudcoach för både Nadia och Mehmet (Petras teamanteckning).
       "u-amira": ["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"],
       "u-petra": ["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-praktiskt"],
-      "u-leila": [], "u-lars": [], "k-maria": [], "k-eva": [], "k-omar": [],
+      "u-leila": [], "u-lars": [], "k-maria": [], "k-omar": [],
       "u-erik": ["note-skyddad"],
       "u-johan": [...data.case_notes.map((n) => n.id)].sort(),
       "u-sara": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
@@ -849,7 +947,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
     const bot = raw.get("contracts", "c-bot")!;
     const open = { ...bot, config: { ...bot.config, customerVisibility: { ...bot.config.customerVisibility!, seesCoachNotes: true } } };
     const rawOpen: RawAccess<Tables> = { ...raw, get: ((t: TableName, id: string) => (t === "contracts" && id === "c-bot" ? open : raw.get(t as never, id))) as RawAccess<Tables>["get"] };
-    for (const userId of ["k-maria", "k-eva", "k-omar"]) {
+    for (const userId of ["k-maria", "k-ahmed", "k-omar"]) {
       expect(await pgNotes(userId, { before }), userId).toEqual([]);
       expect(await memNotes(userId, rawOpen), userId).toEqual([]);
     }
@@ -989,15 +1087,13 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
   const memSaved = (userId: string) => data.saved_reports.filter((x) => canReadRow("saved_reports", x, actorOf(findPersona(userId)), raw)).map((x) => x.id).sort();
   const at = "2027-02-01T09:30";
 
-  it("läsning per testperson: byggrollerna egna och delade (också arkiverade), kommunens chef bara delade med kommunen i c-bot", async () => {
+  it("läsning per testperson: byggrollerna egna och delade inom Miljonbemanning (också arkiverade) – aldrig kommunen", async () => {
     const bot = (ids: string[]) => ids.sort();
     const expected: Record<string, string[]> = {
-      "u-sara": bot(["sr-seed-privat", "sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun"]),
-      "u-karin": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun"]),
-      "u-johan": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-kommun", "sr-x-ny"]),
-      "u-robin": [], "u-amira": [], "u-petra": [], "u-lars": [], "k-maria": [], "tester-karim": [],
-      "k-eva": bot(["sr-seed-kommun", "sr-x-sara-kommun"]),
-      "k-chef-alby": bot(["sr-seed-kommun", "sr-x-sara-kommun"]),
+      "u-sara": bot(["sr-seed-privat", "sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-mb"]),
+      "u-karin": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-mb"]),
+      "u-johan": bot(["sr-seed-mb", "sr-seed-kommun", "sr-x-arkiv", "sr-x-sara-mb", "sr-x-ny"]),
+      "u-robin": [], "u-amira": [], "u-petra": [], "u-lars": [], "k-maria": [], "k-omar": [], "tester-karim": [],
     };
     for (const [userId, want] of Object.entries(expected)) {
       expect(await pgSaved(userId), userId).toEqual(want);
@@ -1019,24 +1115,24 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
     sharedAt: sharedBy ? at : null, sharedBy, archivedAt: null, archivedBy: null, ...patch,
   });
 
-  it("ny rad: i eget namn – samordnaren och chefen delar aldrig med kommunen, delningen i eget namn, ingen ändrad eller arkiverad", async () => {
+  it("ny rad: i eget namn – ingen delar med kommunen (0026), delningen i eget namn, ingen ändrad eller arkiverad", async () => {
     const cases: [string, Tables["saved_reports"], boolean][] = [
       ["u-sara", row("n-1", "u-sara", "private", null), true],
       ["u-karin", row("n-2", "u-karin", "mb", "u-karin"), true],
-      ["u-johan", row("n-3", "u-johan", "customer", "u-johan"), true],
-      ["u-sara", row("n-4", "u-sara", "customer", "u-sara"), false],
-      ["u-karin", row("n-5", "u-karin", "customer", "u-karin"), false],
+      ["u-johan", row("n-3", "u-johan", "customer" as never, "u-johan"), false],
+      ["u-sara", row("n-4", "u-sara", "customer" as never, "u-sara"), false],
+      ["u-karin", row("n-5", "u-karin", "customer" as never, "u-karin"), false],
       ["u-sara", row("n-6", "u-karin", "private", null), false],
       ["u-sara", row("n-7", "u-sara", "mb", "u-karin"), false],
       ["u-sara", row("n-8", "u-sara", "private", "u-sara"), false],
       ["u-sara", row("n-9", "u-sara", "private", null, { archivedAt: at, archivedBy: "u-sara" }), false],
       ["u-sara", row("n-10", "u-sara", "private", null, { updatedAt: at, updatedBy: "u-sara" }), false],
       ["u-sara", row("n-11", "u-sara", "private", null, { templateKey: "Anna Andersson" }), false],
-      ["u-johan", row("n-12", "u-johan", "customer", "u-johan", { contractId: "c-ny" }), false],
+      ["u-johan", row("n-12", "u-johan", "customer" as never, "u-johan", { contractId: "c-ny" }), false],
       ["u-robin", row("n-13", "u-robin", "private", null), false],
       ["u-amira", row("n-14", "u-amira", "private", null), false],
       ["u-lars", row("n-15", "u-lars", "private", null), false],
-      ["k-eva", row("n-16", "k-eva", "private", null), false],
+      ["k-maria", row("n-16", "k-maria", "private", null), false],
       // Titelns längd räknas i tecken som char_length (kodpunkter): "a📊" och "📊📊" är 2 tecken i Postgres (3 och 4 i JavaScript).
       ["u-sara", row("n-17", "u-sara", "private", null, { title: "a📊" }), false],
       ["u-sara", row("n-18", "u-sara", "private", null, { title: "📊📊" }), false],
@@ -1050,7 +1146,7 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
   it("ändringar som nekas: fasta fält, delning i någon annans namn, tom ändring, mallnyckel, innehåll av någon annan än ägaren, privat av avtalsansvarig, arkiverad rad, delete", async () => {
     const privat = sr("sr-seed-privat");
     const mb = sr("sr-seed-mb");
-    const kommun = sr("sr-x-sara-kommun");
+    const saras = sr("sr-x-sara-mb");
     const arkiv = sr("sr-x-arkiv");
     const upd = (id: string, set: string) => `update public.saved_reports set ${set} where id = '${id}'`;
     const cases: [string, string, Tables["saved_reports"], boolean][] = [
@@ -1059,22 +1155,24 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
       ["u-sara", upd(privat.id, `created_at = '${at}'`), { ...privat, createdAt: at }, false],
       ["u-sara", upd(privat.id, `visibility = 'mb', shared_at = '${at}', shared_by = 'u-karin'`), { ...privat, visibility: "mb", sharedAt: at, sharedBy: "u-karin" }, false],
       ["u-sara", upd(privat.id, "visibility = 'mb'"), { ...privat, visibility: "mb" }, false],
-      ["u-johan", upd(mb.id, "visibility = 'customer'"), { ...mb, visibility: "customer" }, false],
+      ["u-johan", upd(mb.id, "visibility = 'customer'"), { ...mb, visibility: "customer" as never }, false],
       ["u-karin", upd(mb.id, `shared_at = '${at}'`), { ...mb, sharedAt: at }, false],
       ["u-sara", upd(privat.id, "title = title"), privat, false],
       ["u-sara", upd(privat.id, "template_key = 'Anna Andersson'"), { ...privat, templateKey: "Anna Andersson" }, false],
-      ["u-sara", upd(kommun.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-sara'`), { ...kommun, title: "Ändrad", updatedAt: at, updatedBy: "u-sara" }, false],
-      ["u-johan", upd(kommun.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-johan'`), { ...kommun, title: "Ändrad", updatedAt: at, updatedBy: "u-johan" }, false],
+      ["u-johan", upd(saras.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-johan'`), { ...saras, title: "Ändrad", updatedAt: at, updatedBy: "u-johan" }, false],
+      // Delningen med kommunen är borttagen (0026) – inte heller avtalsansvarig i eget namn.
+      ["u-johan", upd(mb.id, `visibility = 'customer', shared_at = '${at}', shared_by = 'u-johan'`), { ...mb, visibility: "customer" as never, sharedAt: at, sharedBy: "u-johan" }, false],
+      ["u-sara", upd(saras.id, `visibility = 'customer', shared_at = '${at}', shared_by = 'u-sara'`), { ...saras, visibility: "customer" as never, sharedAt: at, sharedBy: "u-sara" }, false],
       ["u-johan", upd(mb.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-johan'`), { ...mb, title: "Ändrad", updatedAt: at, updatedBy: "u-johan" }, false],
       ["u-johan", upd(mb.id, `visibility = 'private', shared_at = '${at}', shared_by = 'u-johan'`), { ...mb, visibility: "private", sharedAt: at, sharedBy: "u-johan" }, false],
       ["u-karin", upd(arkiv.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-karin'`), { ...arkiv, title: "Ändrad", updatedAt: at, updatedBy: "u-karin" }, false],
       ["u-karin", upd(mb.id, `updated_at = '${at}', updated_by = 'u-sara', title = 'X ändrad'`), { ...mb, updatedAt: at, updatedBy: "u-sara", title: "X ändrad" }, false],
       ["u-karin", `delete from public.saved_reports where id = '${mb.id}'`, mb, false],
-      // Tillåtna: avtalsansvarig delar Karins rapport med kommunen i eget namn, ägaren ändrar sin egen, avtalsansvarig arkiverar.
-      ["u-johan", upd(mb.id, `visibility = 'customer', shared_at = '${at}', shared_by = 'u-johan'`), { ...mb, visibility: "customer", sharedAt: at, sharedBy: "u-johan" }, true],
+      // Tillåtna: ägaren ändrar sin egen (också den som avtalsansvarig delade), avtalsansvarig arkiverar.
       ["u-sara", upd(privat.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-sara'`), { ...privat, title: "Ändrad", updatedAt: at, updatedBy: "u-sara" }, true],
+      ["u-sara", upd(saras.id, `title = 'Ändrad', updated_at = '${at}', updated_by = 'u-sara'`), { ...saras, title: "Ändrad", updatedAt: at, updatedBy: "u-sara" }, true],
       ["u-johan", upd(mb.id, `archived_at = '${at}', archived_by = 'u-johan'`), { ...mb, archivedAt: at, archivedBy: "u-johan" }, true],
-      ["u-johan", upd(kommun.id, `visibility = 'mb', shared_at = '${at}', shared_by = 'u-johan'`), { ...kommun, visibility: "mb", sharedAt: at, sharedBy: "u-johan" }, true],
+      ["u-johan", upd(saras.id, `archived_at = '${at}', archived_by = 'u-johan'`), { ...saras, archivedAt: at, archivedBy: "u-johan" }, true],
     ];
     for (const [userId, sql, r, want] of cases) expect(await both(userId, sql, r), `${userId}: ${sql}`).toEqual({ pg: want, mem: want });
     // Ingen hård radering i minnesläget heller: MemoryRepo.remove() nekas av samma regel (raden ändras inte).
@@ -1114,9 +1212,110 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
     }, { role: "service_role" });
     expect(n).toBe(0);
   });
+
+  it("kontrollen tillåter bara private och mb – inte ens servern sparar en rapport delad med kommunen (0026)", async () => {
+    const r = row("n-kommun", "u-johan", "customer" as never, "u-johan");
+    const res = await asUser(db, null, (tx) => attempt(tx, insert(r)), { role: "service_role" });
+    expect(res).toMatchObject({ ok: false, code: "23514" });
+  });
 });
 
 // ================================================================ Pulslänken (0016)
+describe("fakturan per avtal och månad (0023): frysta rader – samma regler i RLS och policy.ts", () => {
+  const lars = () => findPersona("u-lars");
+  const open = () => data.invoice_drafts.find((d) => d.id === "inv-c-bot-2027-01-avtal")!;
+  const paid = () => data.invoice_drafts.find((d) => d.month === "2026-11")!;
+  const caseWithout = (draftId: string) => data.cases.find((c) => c.startDate && !data.invoice_lines.some((l) => l.invoiceDraftId === draftId && l.caseId === c.id))!;
+  const line = (draftId: string, caseId: string): Tables["invoice_lines"] => ({
+    id: `${draftId}:${caseId}`, invoiceDraftId: draftId, caseId, priceItemId: "pi-G", quantity: 1, unitPriceOre: 139800, vatRate: 25, description: "BOT-26-0001 · v. 1 2027",
+    isoWeeks: ["2027-W01"], zeroAttendanceWeeks: [], note: "",
+  });
+
+  it("testdatat: en faktura per avtal och månad, tilläggsfakturan i december och frysta rader; körningen har ingen standardstatus längre", async () => {
+    const r = await db.query<{ month: string; grouping_key: string; status: string; case_id: string | null }>(
+      "select month, grouping_key, status, case_id from public.invoice_drafts where id like 'inv-c-bot-2026%' order by month, grouping_key",
+    );
+    expect(r.rows).toEqual([
+      { month: "2026-09", grouping_key: "avtal", status: "paid", case_id: null }, { month: "2026-10", grouping_key: "avtal", status: "paid", case_id: null },
+      { month: "2026-11", grouping_key: "avtal", status: "paid", case_id: null }, { month: "2026-12", grouping_key: "avtal", status: "sent", case_id: null },
+      { month: "2026-12", grouping_key: "avtal-tillagg-2", status: "returned", case_id: null },
+    ]);
+    const cols = await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_name = 'billing_runs'");
+    expect(cols.rows.map((c) => c.column_name)).not.toContain("default_invoice_status");
+    const n = await db.query<{ n: number }>("select count(*)::int as n from public.invoice_lines");
+    expect(n.rows[0].n).toBe(data.invoice_lines.length);
+  });
+
+  it("ekonomen lägger till och ändrar rader bara medan fakturan är underlag eller godkänd – aldrig på en skapad faktura", async () => {
+    const onOpen = line(open().id, caseWithout(open().id).id);
+    const onPaid = line(paid().id, caseWithout(paid().id).id);
+    const frozenRow = data.invoice_lines.find((l) => l.invoiceDraftId === paid().id)!;
+    const openRow = data.invoice_lines.find((l) => l.invoiceDraftId === open().id)!;
+    const actor = actorOf(lars());
+    const expected = {
+      insertOpen: canWriteRow("invoice_lines", onOpen, actor, raw), insertPaid: canWriteRow("invoice_lines", onPaid, actor, raw),
+      updateOpen: canWriteRow("invoice_lines", openRow, actor, raw), updatePaid: canWriteRow("invoice_lines", frozenRow, actor, raw),
+    };
+    expect(expected).toEqual({ insertOpen: true, insertPaid: false, updateOpen: true, updatePaid: false });
+    const got = await asPersona(lars(), async (tx) => ({
+      insertOpen: allowed(await attempt(tx, insertSql("invoice_lines", onOpen))),
+      insertPaid: allowed(await attempt(tx, insertSql("invoice_lines", onPaid))),
+      updateOpen: allowed(await attempt(tx, "update public.invoice_lines set note = 'Ändrad' where id = $1", [openRow.id])),
+      updatePaid: allowed(await attempt(tx, "update public.invoice_lines set quantity = 99 where id = $1", [frozenRow.id])),
+    }));
+    expect(got).toEqual(expected);
+    // Chef och avtalsansvarig läser fakturorna men skriver inga rader (belopp visas bara för ekonomen i appen – beslut 5).
+    for (const userId of ["u-karin", "u-johan"]) {
+      const p = findPersona(userId);
+      expect(canWriteRow("invoice_lines", onOpen, actorOf(p), raw), userId).toBe(false);
+      expect(await asPersona(p, async (tx) => allowed(await attempt(tx, insertSql("invoice_lines", onOpen)))), userId).toBe(false);
+    }
+  });
+
+  it("en returnerad faktura görs om med raderna frysta på nytt; ta bort går bara medan fakturan får ändras (underlag, godkänd, returnerad)", async () => {
+    const returned = data.invoice_drafts.find((d) => d.status === "returned")!;
+    const retRow = data.invoice_lines.find((l) => l.invoiceDraftId === returned.id)!;
+    const paidRow = data.invoice_lines.find((l) => l.invoiceDraftId === paid().id)!;
+    const openRow = data.invoice_lines.find((l) => l.invoiceDraftId === open().id)!;
+    const actor = actorOf(lars());
+    const expected = {
+      updateReturned: canWriteRow("invoice_lines", retRow, actor, raw), deleteOpen: canWriteRow("invoice_lines", openRow, actor, raw),
+      deleteReturned: canWriteRow("invoice_lines", retRow, actor, raw), deletePaid: canWriteRow("invoice_lines", paidRow, actor, raw),
+    };
+    expect(expected).toEqual({ updateReturned: true, deleteOpen: true, deleteReturned: true, deletePaid: false });
+    const got = await asPersona(lars(), async (tx) => ({
+      updateReturned: allowed(await attempt(tx, "update public.invoice_lines set note = 'Rättad' where id = $1", [retRow.id])),
+      deleteOpen: allowed(await attempt(tx, "delete from public.invoice_lines where id = $1", [openRow.id])),
+      deleteReturned: allowed(await attempt(tx, "delete from public.invoice_lines where id = $1", [retRow.id])),
+      deletePaid: allowed(await attempt(tx, "delete from public.invoice_lines where id = $1", [paidRow.id])),
+    }));
+    expect(got).toEqual(expected);
+    // Chef, avtalsansvarig och admin tar aldrig bort rader.
+    for (const userId of ["u-karin", "u-johan", "u-robin"]) {
+      const p = findPersona(userId);
+      expect(canWriteRow("invoice_lines", openRow, actorOf(p), raw), userId).toBe(false);
+      expect(await asPersona(p, async (tx) => allowed(await attempt(tx, "delete from public.invoice_lines where id = $1", [openRow.id]))), userId).toBe(false);
+    }
+    const editable = await db.query<{ r: boolean }>("select mm.invoice_editable($1) as r", [returned.id]);
+    expect(editable.rows[0].r).toBe(true);
+  });
+
+  it("unika nycklar: en periodisk faktura per avtal, månad och grupp; en rad per ärende och faktura; en kreditering gäller en faktura", async () => {
+    const dup = await asUser(db, null, (tx) => attempt(tx, insertSql("invoice_drafts", { ...open(), id: "inv-x-dubblett" })), { role: "service_role" });
+    expect(dup).toMatchObject({ ok: false, code: "23505" });
+    const row = data.invoice_lines.find((l) => l.invoiceDraftId === paid().id)!;
+    const twice = await asUser(db, null, (tx) => attempt(tx, insertSql("invoice_lines", { ...row, id: "il-x-dubblett" })), { role: "service_role" });
+    expect(twice).toMatchObject({ ok: false, code: "23505" });
+    const credit = { id: "ic-x", contractId: "c-bot", month: "2026-12", invoiceDraftId: null, caseId: null, creditedAt: "2027-02-01T09:00", creditedBy: "u-lars", buyerReference: null };
+    const none = await asUser(db, null, (tx) => attempt(tx, insertSql("invoice_credits", credit)), { role: "service_role" });
+    expect(none).toMatchObject({ ok: false, code: "23514" });
+    const editable = await db.query<{ a: boolean; b: boolean; c: boolean }>(
+      "select mm.invoice_editable($1) as a, mm.invoice_editable($2) as b, mm.invoice_editable('finns-inte') as c", [open().id, paid().id],
+    );
+    expect(editable.rows[0]).toEqual({ a: true, b: false, c: false });
+  });
+});
+
 describe("pulslänken: ett svar per länk (0016)", () => {
   const answered = data.pulse_responses[0];
   const open = data.pulse_invites.find((i) => i.id === "pi-demo")!;
@@ -1216,7 +1415,7 @@ describe("röstinspelning: länkar, röstmeddelanden och ljudfiler (0015)", () =
       asUser(db, authOf(userId), async (tx) => (await tx.query<{ id: string }>("select id from public.participant_voice_notes order by id")).rows.map((r) => r.id), { before: flagOn });
     const memNotes = (userId: string, r: RawAccess<Tables>) =>
       data.participant_voice_notes.filter((n) => canReadRow("participant_voice_notes", n, findPersona(userId).actor, r)).map((n) => n.id).sort();
-    for (const userId of ["k-maria", "k-eva", "k-ahmed", "u-lars"]) {
+    for (const userId of ["k-maria", "k-omar", "k-ahmed", "u-lars"]) {
       expect(await pgNotes(userId), userId).toEqual([]);
       expect(memNotes(userId, withFlag(false)), userId).toEqual([]);
       const on = await pgNotesOn(userId);

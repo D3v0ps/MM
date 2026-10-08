@@ -206,7 +206,11 @@ const BillingSchema = z.strictObject({
   flagZeroAttendanceWeeks: z.boolean(),
   /** Veckan faktureras i månaden där torsdagen infaller. */
   weekToMonthRule: z.enum(["iso_thursday"]),
-  invoicePer: z.enum(["case_and_month"]),
+  /**
+   * En faktura per avtal och månad med en rad per ärende (beslut 2026-10-07, synpunkt #13), eller en faktura per ärende och
+   * månad. "contract_and_month" kräver collectiveInvoiceAllowed (samlingsfaktura – kontrolleras i crossCheck).
+   */
+  invoicePer: z.enum(["case_and_month", "contract_and_month"]),
   collectiveInvoiceAllowed: z.boolean(),
   /** Kommunens beställarreferens (8–10 siffror). */
   buyerReference: PatternRuleSchema,
@@ -285,7 +289,34 @@ const AiSchema = z
       ctx.addIssue({ code: "custom", message: "Inspelning kräver kommunens skriftliga godkännande (datum)", path: ["recording", "approvedByCustomerOn"] });
     }
   });
+/**
+ * Äldre: beställningens omfattning i veckor (min–max). Läses inte längre – omfattningen är månader (orderPeriods, beslut
+ * 2026-10-07). Finns kvar som valfritt fält så att en sparad konfiguration med avsnittet fortfarande validerar.
+ */
 const OrderWeeksSchema = z.strictObject({ min: PosInt, max: PosInt, note: z.string() }).refine((w) => w.max >= w.min, "max måste vara minst min");
+/**
+ * Beställningens omfattning (synpunkt #3 och #5, beslut 2026-10-07): alternativen i månader (Botkyrka 6 och 12) och om
+ * kommunen kan välja "Annan tidsperiod" (då anges slutdatum och en motivering). Planerat slutdatum räknas fram från önskat
+ * startdatum (orderPeriodEnd i src/core/time.ts).
+ */
+const OrderPeriodsSchema = z
+  .strictObject({ months: z.array(PosInt).min(1), allowOther: z.boolean() })
+  .refine((o) => new Set(o.months).size === o.months.length, "Månaderna måste vara unika");
+/** E-postdomän utan @, t.ex. "botkyrka.se". */
+const EmailDomainSchema = z.string().regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, "Domän: små bokstäver, t.ex. botkyrka.se (utan @)");
+/**
+ * Självregistrering (beslut 2026-10-07, synpunkt #2): alla med en e-postadress på en av domänerna kan själva skapa ett konto
+ * i portalen och blir kommunens handläggare. Domänen måste dessutom finnas bland beställarens tillåtna domäner
+ * (organizations.email_domains) – båda listorna krävs (src/core/self-registration.ts). Kräver att handläggaren bara ser sina
+ * egna beställningar (customerVisibility, kontrolleras i crossCheck): enheten är fritext som handläggaren skriver själv.
+ */
+const SelfRegistrationSchema = z.strictObject({ emailDomains: z.array(EmailDomainSchema).min(1) });
+/**
+ * Gallring per uppgiftstyp (beslut 2026-10-07). attachmentsAfterCloseDays: bilagor till beställningen raderas så här många
+ * dagar efter att insatsen avslutats. ATT_FASTSTÄLLA = inget raderas (visas "Ej fastställt"). Uppladdningar som aldrig
+ * kopplades till en beställning raderas alltid efter ett dygn (plattformsregel, inte ett avtalsvärde).
+ */
+const RetentionRulesSchema = z.strictObject({ attachmentsAfterCloseDays: unsetOr(PosInt) });
 
 /** Avtalstexter i klarspråk som visas under Avtalsfakta i administrationen (prototypens CONTRACT_NOTES). */
 const ContractTextsSchema = z.strictObject({
@@ -307,7 +338,7 @@ const ReportScheduleSchema = z
      *                      slut (status waiting). Sista dag: sla[veckorapport_publicering] (veckodag och klockslag veckan efter).
      *   monthly            en per ärende och månad där ärendet är inskrivet minst monthly.minEnrolledDays dagar, när månaden
      *                      är slut (status draft). Sista dag: sla[manadsrapport] (n:e arbetsdagen efter månadsskiftet).
-     *   customer_summary   en per aktiv chef hos kommunen och månad, när månaden är slut (status draft). Sista dag: customerSummaryDue.
+     *   customer_summary   en per avtal och månad, när månaden är slut (status draft, ingen mottagare). Sista dag: customerSummaryDue.
      * Veckorapporten och månadsrapporten kräver att sla-regeln finns (kontrolleras i crossCheck nedan).
      */
     automatic: z.array(z.enum(AUTO_REPORT_KINDS)),
@@ -336,6 +367,8 @@ const ContractConfigBase = z.strictObject({
   thirdCountryProcessing: z.enum(["forbidden_without_written_approval"]).optional(),
   orderChannels: z.array(OrderChannelSchema).min(1).optional(),
   orderWeeks: OrderWeeksSchema.optional(),
+  orderPeriods: OrderPeriodsSchema.optional(),
+  selfRegistration: SelfRegistrationSchema.optional(),
   customerVisibility: CustomerVisibilitySchema.optional(),
   reportDelivery: ReportDeliverySchema.optional(),
   phases: z.array(PhaseSchema).min(1).optional(),
@@ -351,6 +384,7 @@ const ContractConfigBase = z.strictObject({
   statistics: StatisticsSchema.optional(),
   termination: TerminationSchema.optional(),
   retention: z.string().min(1).optional(),
+  retentionRules: RetentionRulesSchema.optional(),
   escalationLadder: z.array(EscalationStepSchema).min(1).optional(),
   warningsBeforeTermination: PosInt.optional(),
   penalties: PenaltiesSchema.optional(),
@@ -389,6 +423,18 @@ function crossCheck(cfg: ConfigShape, ctx: z.RefinementCtx) {
   if (auto.includes("monthly") && monthlyReportWorkingDay(slaCfg) == null) {
     ctx.addIssue({ code: "custom", message: "Månadsrapporten behöver en sista dag: sla-regeln manadsrapport med within.workingDays eller proposal.nthWorkingDay", path: ["reportSchedule", "automatic"] });
   }
+  // Självregistrering (beslut 2026-10-07): enheten är fritext som handläggaren skriver själv. Med synlighet "unit" eller "all"
+  // skulle en självregistrerad handläggare kunna se andras beställningar – därför bara "own".
+  if (cfg.selfRegistration && cfg.customerVisibility && effectiveVisibilityScope({ customerVisibility: cfg.customerVisibility }) !== "own") {
+    ctx.addIssue({ code: "custom", message: "Självregistrering kräver att kommunens handläggare bara ser sina egna beställningar (customerVisibility: own)", path: ["selfRegistration"] });
+  }
+  if (cfg.selfRegistration && new Set(cfg.selfRegistration.emailDomains).size !== cfg.selfRegistration.emailDomains.length) {
+    ctx.addIssue({ code: "custom", message: "Domänerna måste vara unika", path: ["selfRegistration", "emailDomains"] });
+  }
+  // En faktura per avtal och månad är en samlingsfaktura – den måste vara tillåten i avtalet (SPEC §3).
+  if (cfg.billing?.invoicePer === "contract_and_month" && !cfg.billing.collectiveInvoiceAllowed) {
+    ctx.addIssue({ code: "custom", message: "En faktura per avtal och månad kräver att samlingsfaktura är tillåten (collectiveInvoiceAllowed)", path: ["billing", "invoicePer"] });
+  }
 }
 
 /** Avtalskonfiguration. Allt utom casePrefix och dataRole är valfritt – ett nytt kommunavtal i utkast har bara delar. */
@@ -397,7 +443,7 @@ export type ContractConfig = z.infer<typeof ContractConfigSchema>;
 
 /** Avsnitt som måste finnas för att ärenden ska kunna hanteras i avtalet (Botkyrka har alla). */
 export const OPERATIONAL_SECTIONS = [
-  "thirdCountryProcessing", "orderChannels", "orderWeeks", "customerVisibility", "reportDelivery", "phases", "stuckRules", "progression",
+  "thirdCountryProcessing", "orderChannels", "orderPeriods", "customerVisibility", "reportDelivery", "phases", "stuckRules", "progression",
   "result", "kpis", "sla", "attendance", "billing", "bonus", "pulse", "statistics", "termination", "retention", "escalationLadder",
   "warningsBeforeTermination", "penalties", "economicDeviation", "keyPersonnelChangeRequiresApproval", "ai",
 ] as const satisfies readonly (keyof ConfigShape)[];
@@ -635,7 +681,11 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
     dataRole: "processor",
     thirdCountryProcessing: "forbidden_without_written_approval",
     orderChannels: ["email", "portal", "phone"],
-    orderWeeks: { min: 4, max: 10, note: "Insatser på typiskt 4–10 veckor (utvärderingspriset byggde på 4 och 10 veckor)" },
+    // Beslut 2026-10-07 (synpunkt #3): omfattningen är 6 eller 12 månader, eller annan tidsperiod med motivering. Ersätter
+    // orderWeeks (4–10 veckor), som inte längre läses.
+    orderPeriods: { months: [6, 12], allowOther: true },
+    // Beslut 2026-10-07 (synpunkt #2): alla med en adress på botkyrka.se kan skapa ett konto som kommunens handläggare.
+    selfRegistration: { emailDomains: ["botkyrka.se"] },
     customerVisibility: { scope: "ATT_FASTSTÄLLA (own | unit | all)", prototypeScope: "own", seesIndividualReports: true, seesCoachNotes: false, seesSlaStats: false, seesParticipantVoiceNotes: false },
     reportDelivery: { channel: "portal", emailAttachmentAllowed: false },
     phases: [
@@ -702,8 +752,10 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
       billableWeekRule: "every_iso_week_with_at_least_one_enrolled_day_excluding_paused_weeks",
       flagZeroAttendanceWeeks: true,
       weekToMonthRule: "iso_thursday",
-      invoicePer: "case_and_month",
-      collectiveInvoiceAllowed: false,
+      // Beslut 2026-10-07 (Karim, synpunkt #13): en faktura per månad med ett ärende per rad. Botkyrkas villkor tillåter
+      // samlingsfaktura bara om det avtalats särskilt – stäms av med Botkyrka (SPEC §3 och §13 fråga 5).
+      invoicePer: "contract_and_month",
+      collectiveInvoiceAllowed: true,
       buyerReference: { required: true, pattern: "^[0-9]{8,10}$" },
       purchaseOrderNumber: { required: false, pattern: "^99[0-9]{7}$" },
       invoicedObject: "case_number",
@@ -719,6 +771,8 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
     statistics: { onRequestMaxPerYear: 2, free: true },
     termination: { returnDataWithinDays: 31, deleteAfterReturn: true },
     retention: "ATT_FASTSTÄLLA enligt PUB-avtalet",
+    // Bilagor till beställningen (beslut 2026-10-07): regeln är inte fastställd med Botkyrka – inget raderas efter avslut tills dess.
+    retentionRules: { attachmentsAfterCloseDays: "ATT_FASTSTÄLLA enligt PUB-avtalet" },
     escalationLadder: [
       { step: 0, level: "mindre", text: "Mindre avvikelse – påverkar inte kärnverksamheten och kan åtgärdas enkelt och snabbt." },
       { step: 1, level: "större", text: "Större avvikelse – flera återkommande mindre avvikelser eller en avvikelse som kännbart påverkar kärnverksamheten. Skriftlig varning kan ges." },

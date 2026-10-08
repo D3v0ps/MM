@@ -145,7 +145,8 @@ describe("kommunens läge", () => {
     // Skillnaden mot beställarrapporten förklaras (kommunen känner till den – inte Ledning).
     expect(kv.notes).toContain("Ett resultat som verifierats efter att slutrapporten lämnades räknas här först när slutrapporten har rättats.");
     expect(kv.notes).toContain("Beställarrapporten räknar på ärendena som de såg ut när den lämnades och kan därför visa en annan resultatgrad.");
-    expect(kv.rules).toEqual(["Ärenden med skyddade personuppgifter finns aldrig med.", "Bara levererade månads- och slutrapporter kommer med. Siffrorna är desamma som när rapporten lämnades."]);
+    // Skyddade personuppgifter nämns inte sedan beslutet 2026-10-07 (borttaget ur appen – spärren är vilande i urvalet).
+    expect(kv.rules).toEqual(["Bara levererade månads- och slutrapporter kommer med. Siffrorna är desamma som när rapporten lämnades."]);
     expect(kv.notes).toContain('Grupper med färre än 5 deltagare visas som "färre än 5", så att ingen kan kännas igen.');
     expect(kv.dimensionValues).toEqual({});
   });

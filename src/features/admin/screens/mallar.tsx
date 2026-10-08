@@ -219,11 +219,10 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
           ]}
         />
         {variants.length > 0 && (
-          <Notice tone="info" title="Två varianter skickas i dag">
+          <Notice tone="info" title="Två varianter – används inte sedan 2026-10-07">
             <Stack gap="sm">
               <p>
-                Texten här är exakt den som skickas{" "}
-                {tpl.key === GENERIC_PORTAL ? "när en beställning i portalen gäller skyddade personuppgifter" : "när ett mejl till avrop@ gäller skyddade personuppgifter eller inte kan tolkas"}. Den andra varianten:
+                Texten här är exakt den som skickades {tpl.key === GENERIC_PORTAL ? "när en beställning kom från portalen" : "till den som mejlade avrop@"}. Den andra varianten:
               </p>
               {variants.map((v) => (
                 <div key={v.key} className="border-l-[3px] border-line-strong py-1 pl-2.5">

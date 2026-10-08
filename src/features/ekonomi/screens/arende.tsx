@@ -1,6 +1,7 @@
 "use client";
 // Ärendets fakturaunderlag (prototypens eko.arende): beställning, upparbetat, fakturerat, ej fakturerat och återstående,
-// referenser och debiterbara veckor per månad. Utan ärende: sök på ärendenummer.
+// referenser och debiterbara veckor per månad med fakturan som har raden. Utan ärende: sök på ärendenummer.
+// Inget ordervärde (beslut 2026-10-07, synpunkt #11): beställningen visas i veckor.
 import { useState } from "react";
 import { useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
@@ -12,7 +13,7 @@ import {
 } from "@/ui";
 import { ekoCase, ekoCaseList, type CaseBillingView, type CaseMonthRow } from "../api";
 import { monthLabel, pl, plural, weekText } from "../model";
-import { EkoKpi, EkoKpis, InvStatus, RefBadge, RefCell, RefModal, RoleNotice, WRAP } from "./parts";
+import { EkoKpi, EkoKpis, InvStatus, RoleNotice, WRAP } from "./parts";
 
 export function ArendeScreen({ params }: ScreenProps) {
   if (!params.caseId) return <CasePicker />;
@@ -36,7 +37,7 @@ function CasePicker() {
   const needle = search.trim().toUpperCase();
   const list = (q.data?.cases ?? []).filter((c) => !needle || c.caseNumber.includes(needle));
   return (
-    <Page className={WRAP} title="Ärende" crumbs={crumbs} lead="Sök på ärendenumret för att se debiterbara veckor, fakturastatus och beställningens värde.">
+    <Page className={WRAP} title="Ärende" crumbs={crumbs} lead="Sök på ärendenumret för att se debiterbara veckor, fakturastatus och vad som återstår av beställningen.">
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
       ) : !q.data ? (
@@ -61,12 +62,11 @@ function CasePicker() {
                 { key: "area", label: "Område", render: (c) => c.areaName },
                 { key: "start", label: "Start", nowrap: true, render: (c) => fmtDate(c.startDate) },
                 { key: "status", label: "Status", render: (c) => <CaseStatusBadge status={c.status} /> },
-                { key: "ref", label: "Beställarreferens", render: (c) => <RefCell value={c.buyerReference} info={c.ref} /> },
               ]}
               footer={
                 list.length > 25 && (
                   <tr>
-                    <td colSpan={5} className="text-small text-text-muted">
+                    <td colSpan={4} className="text-small text-text-muted">
                       Visar 25 av {list.length}. Sök för att hitta fler.
                     </td>
                   </tr>
@@ -84,24 +84,23 @@ function CasePicker() {
 function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to?: string }[] }) {
   const nav = useNav();
   const [allWeeks, setAllWeeks] = useState(false);
-  const [refModal, setRefModal] = useState(false);
   const act = v.canAct;
   const { accrued, billed, returned, pending, orderWeeks } = v;
   const notBilled = { qty: returned.qty + pending.qty, amountOre: returned.amountOre + pending.amountOre };
   const remaining = Math.max(0, orderWeeks - accrued.qty);
   const over = Math.max(0, accrued.qty - orderWeeks);
-  const custRole = v.referrerId ? "kommun_handlaggare" : "kommun_chef";
+  const custRole = "kommun_handlaggare";
   return (
     <Page className={WRAP}
       title={`Ärende ${v.caseNumber}`}
       eyebrow="Fakturering · ärendets underlag"
       crumbs={crumbs}
-      lead="Debiterbara veckor, fakturastatus och beställningens värde. Ärendenumret är faktureringsobjekt på varje faktura."
+      lead="Debiterbara veckor, fakturastatus och vad som återstår av beställningen. Ärendet är en rad på månadens faktura med ärendenumret som faktureringsobjekt."
       actions={<PerspectiveLink role={custRole} userId={v.referrerId ?? undefined} to={`/portal/deltagare/${encodeURIComponent(v.caseId)}`} label="Se ärendet från kundens håll" />}
     >
       <RoleNotice canAct={act} />
       <EkoKpis>
-        <EkoKpi label="Beställning" value={kr(v.orderValueOre)} sub={`${plural(orderWeeks, "vecka", "veckor")} × ${kr(v.priceOre)}`} />
+        <EkoKpi label="Beställning" value={plural(orderWeeks, "vecka", "veckor")} sub={`${kr(v.priceOre)} per vecka`} />
         <EkoKpi label="Upparbetat" value={kr(accrued.amountOre)} sub={`${plural(accrued.qty, "debiterbar vecka", "debiterbara veckor")} hittills`} />
         <EkoKpi label="Fakturerat" value={kr(billed.amountOre)} sub={`${plural(billed.qty, "vecka", "veckor")} i Fortnox eller manuellt fakturerade`} />
         <EkoKpi
@@ -117,7 +116,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
         />
         <EkoKpi
           label="Återstående"
-          value={kr(remaining * v.priceOre)}
+          value={plural(remaining, "vecka", "veckor")}
           tone={over > 0 ? "alert" : null}
           statusText="Över beställningen"
           sub={over > 0 ? `${plural(over, "vecka", "veckor")} över beställningen` : `${plural(remaining, "vecka", "veckor")} kvar av beställningen`}
@@ -177,28 +176,20 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
             ]}
           />
         </Card>
-        <Card title="Referenser" icon="hash">
+        <Card title="Beställningen" icon="hash">
           <Kv
             items={[
-              [
-                "Beställarreferens",
-                <div key="r">
-                  <RefBadge value={v.buyerReference} info={v.ref} />
-                  <div className="mt-1 text-small">{v.ref.text}</div>
-                </div>,
-              ],
-              ["Inköpsordernummer", v.purchaseOrderNumber ? <span className="tabular-nums">{v.purchaseOrderNumber}</span> : "Används inte – kommunen beställer utanför e-handeln"],
               ["Beställning mottagen", fmtDate(v.referredAt)],
               ["Beställda veckor", plural(orderWeeks, "vecka", "veckor")],
+              [
+                "Beställarreferens vid mottagandet",
+                <div key="r">
+                  <span className="tabular-nums">{v.caseBuyerReference || "Ingen"}</span>
+                  <div className="mt-1 text-small text-text-muted">Fakturan har en egen referens som ekonomen fyller i – en per faktura.</div>
+                </div>,
+              ],
             ]}
           />
-          {act && !v.ref.ok && v.startDate && (
-            <div className="mt-3">
-              <Button kind="primary" icon="edit" onClick={() => setRefModal(true)}>
-                Rätta beställarreferensen
-              </Button>
-            </div>
-          )}
         </Card>
       </div>
       <Card
@@ -219,11 +210,11 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
           <Table<CaseMonthRow>
             caption="Debiterbara veckor per månad"
             rows={v.months}
-            rowKey="mk"
+            rowKey={(x) => `${x.mk}:${x.invoiceId ?? "–"}`}
             onRowClick={(x) => {
-              if (x.hasInvoice) nav.push(`/ekonomi/${x.mk}/faktura/${encodeURIComponent(v.caseId)}`);
+              if (x.invoiceTitle) nav.push(`/ekonomi/${x.mk}/faktura/${encodeURIComponent(v.caseId)}${x.invoiceId ? `?faktura=${encodeURIComponent(x.invoiceId)}` : ""}`);
             }}
-            rowTone={(x) => (x.hasInvoice ? null : "muted")}
+            rowTone={(x) => (x.invoiceTitle ? null : "muted")}
             columns={[
               { key: "mk", label: "Månad", nowrap: true, render: (x) => <span className="font-bold">{monthLabel(x.mk)}</span> },
               {
@@ -249,6 +240,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                   ) : x.status ? (
                     <>
                       <InvStatus status={x.status} />
+                      {x.invoiceTitle && <CellSub>{x.invoiceTitle}</CellSub>}
                       {x.status === "returned" && <CellSub>{pl(x.qty, "Veckan", "Veckorna")} faktureras om på en ny faktura</CellSub>}
                     </>
                   ) : (
@@ -260,7 +252,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                 key: "go",
                 label: "",
                 render: (x) =>
-                  x.hasInvoice && (
+                  x.invoiceTitle && (
                     <span className="inline-flex items-center gap-1.5 text-small whitespace-nowrap">
                       <Icon name="file" />
                       Förhandsgranska
@@ -319,15 +311,6 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
         Upparbetat räknas som alla debiterbara veckor till och med innevarande vecka. Fakturerat är veckor på fakturor som är skapade i Fortnox eller manuellt fakturerade. Veckor på en
         returnerad faktura räknas som ej fakturerade tills en ny faktura är skapad. Fakturastatus och Fortnox är simulerade.
       </DemoNote>
-      {refModal && (
-        <RefModal
-          cases={[{ caseId: v.caseId, caseNumber: v.caseNumber, buyerReference: v.buyerReference }]}
-          task={v.task}
-          rules={v.refRules}
-          canAct={act}
-          onClose={() => setRefModal(false)}
-        />
-      )}
     </Page>
   );
 }

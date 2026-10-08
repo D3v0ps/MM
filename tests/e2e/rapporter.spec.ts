@@ -12,7 +12,6 @@ const AVTALSANSVARIG: As = { userId: "u-johan", role: "avtalsansvarig" };
 const COACH: As = { userId: "u-amira", role: "coach" };
 const HANDLEDARE: As = { userId: "u-petra", role: "handledare" };
 const HANDLAGGARE: As = { userId: "k-maria", role: "kommun_handlaggare" };
-const KOMMUNCHEF: As = { userId: "k-eva", role: "kommun_chef" };
 
 // Testdatat (samma id:n som i den gamla prototypen)
 const NADIA = "case-260143";
@@ -29,10 +28,9 @@ const UNOPENED = "rep-15828"; // levererad till Maria Ekdahl, inte öppnad
 const DEC_ACT = "a-12459"; // Nadias närvaro i december
 const JAN_ACT = "a-12477"; // Nadias närvaro i januari
 const AMIRA_ACTIVE = { id: "case-260119", number: "BOT-26-0119" };
+// Ärendet som var skyddat före 2026-10-07 (Omar Farahs beställning) – nu ett vanligt ärende.
 const PROT_JAN = "rep-15885";
 const PROT_DEL = "rep-15882";
-const PROT_WEEK = "rep-16663";
-const PROT_NAME = "Sanna Lindgren";
 const PETRA_FINAL = "rep-16265";
 const DRAFT_FINAL = { id: "rep-16356", lead: "u-leila" };
 
@@ -92,7 +90,8 @@ const deliverNadiaJan: Cmd[] = [
   { key: "rapporter.reportDeliver", input: { reportId: NADIA_JAN }, as: COACH },
   { key: "rapporter.snapshot", input: { reportIds: [NADIA_JAN] }, as: COACH },
 ];
-const totalRow = async (page: Page) => ((await mainText(page)).match(/Totalt[^\n]*/) || [])[0];
+/** Närvarograden i månadsrapportens avsnitt 2 (bara graden sedan 2026-10-07). */
+const rateOf = async (page: Page) => ((await mainText(page)).match(/Närvarograd\s*(\d+\s?%|–)/) || [])[1];
 
 // ================================================================ 1. Listan
 test("1. rapportlistan (samordnare): sammanfattning, snabbfilter, filter, sök och öppna", async ({ page }, info) => {
@@ -187,7 +186,8 @@ test("3. kommunens handläggare öppnar och kvitterar; inga interna knappar; beh
   if (isDemo(info)) {
     await btn(page, "Se som kommunen").click();
     await expect(page).toHaveURL(new RegExp(`/portal/rapporter/${NADIA_JAN}`));
-    await expect(page.getByLabel("Roll", { exact: true })).toHaveValue("kommun_handlaggare");
+    // Kommunen har bara rollen handläggare (beslut 2026-10-07): kundens perspektiv utan rollväljare.
+    await expect(page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Kund" })).toHaveAttribute("aria-pressed", "true");
   } else {
     await go(page, info, `/portal/rapporter/${NADIA_JAN}`, HANDLAGGARE);
   }
@@ -211,18 +211,15 @@ test("3. kommunens handläggare öppnar och kvitterar; inga interna knappar; beh
 });
 
 test("3b. bara mottagaren kvitterar; tillbaka till sidan man kom från", async ({ page }, info) => {
-  const errors = await open(page, info, `/portal/rapporter/${UNOPENED}`, KOMMUNCHEF);
-  const t = await mainText(page);
-  expect(t).toMatch(/Kvitteras bara av mottagaren/i);
-  expect(t).toMatch(/Maria Ekdahl/);
-  expect(t).toMatch(/har inte öppnat rapporten än/);
-  expect(t.split(/1\. GRUNDUPPGIFTER/i)[0]).not.toMatch(/ kl\. | jan | feb | dec /);
-  await go(page, info, `/rapporter/${UNOPENED}`, SAMORDNARE);
+  // Kommunens chef finns inte längre (beslut 2026-10-07) – Miljonbemanning ser att rapporten inte är öppnad.
+  const errors = await open(page, info, `/rapporter/${UNOPENED}`, SAMORDNARE);
   await expect(main(page)).toContainText("Inte öppnad än. Bara mottagaren kan kvittera.");
   if (isDemo(info)) {
     await btn(page, "Se som kommunen").click();
-    await expect(page.getByLabel("Roll", { exact: true })).toHaveValue("kommun_handlaggare");
+    await expect(page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Kund" })).toHaveAttribute("aria-pressed", "true");
     await expect(main(page)).toContainText("Rapporten är kvitterad");
+    const t = await mainText(page);
+    expect(t.split(/1\. GRUNDUPPGIFTER/i)[0]).not.toMatch(/ kl\. | jan | feb | dec /);
   }
   await go(page, info, `/portal/rapporter/${NADIA_DEC}?fran=deltagare`, HANDLAGGARE);
   await linkOrBtn(page, "Tillbaka till deltagaren").click();
@@ -232,25 +229,26 @@ test("3b. bara mottagaren kvitterar; tillbaka till sidan man kom från", async (
 
 test("3c. levererade rapporter är låsta", async ({ page }, info) => {
   const errors = await open(page, info, `/portal/rapporter/${NADIA_DEC}`, HANDLAGGARE);
-  const before = await totalRow(page);
+  const before = await rateOf(page);
   expect(before).toBeTruthy();
   await commands(page, info, [{ key: "coach.attendanceSet", input: { activityId: DEC_ACT, status: "absent_invalid", reason: "" }, as: COACH }]);
   await go(page, info, `/portal/rapporter/${NADIA_DEC}`, HANDLAGGARE);
-  expect(await totalRow(page)).toBe(before);
+  expect(await rateOf(page)).toBe(before);
   await go(page, info, `/rapporter/${NADIA_DEC}`, COACH);
   await expect(main(page)).toContainText("Underlaget har ändrats efter leveransen");
-  expect(await totalRow(page)).toBe(before);
+  expect(await rateOf(page)).toBe(before);
 
   await commands(page, info, deliverNadiaJan);
   await go(page, info, `/portal/rapporter/${NADIA_JAN}`, HANDLAGGARE);
-  const jan = await totalRow(page);
+  const jan = await rateOf(page);
   await commands(page, info, [{ key: "coach.attendanceSet", input: { activityId: JAN_ACT, status: "absent_invalid", reason: "" }, as: COACH }]);
   await go(page, info, `/portal/rapporter/${NADIA_JAN}`, HANDLAGGARE);
-  expect(await totalRow(page)).toBe(jan);
+  expect(await rateOf(page)).toBe(jan);
 
   await go(page, info, `/portal/rapporter/${FIN_DEL}`, HANDLAGGARE);
   expect(await mainText(page)).toMatch(/Rekommenderad fortsättning:\s*\S/);
-  await go(page, info, `/portal/rapporter/${CS_DEC}`, KOMMUNCHEF);
+  // Beställarrapporten lämnas till kommunen utanför Miljonmatch – avtalsansvarig läser den levererade versionen.
+  await go(page, info, `/rapporter/${CS_DEC}`, AVTALSANSVARIG);
   const t = await mainText(page);
   expect(t).toMatch(/svar under oktober–december 2026/);
   expect(t).not.toMatch(/senaste tre månaderna/);
@@ -316,9 +314,9 @@ test("5. samordnarens valfria kvalitetsgranskning", async ({ page }, info) => {
 });
 
 // ================================================================ 6. Beställarrapport
-test("6. beställarrapport januari: bara avtalsmålet, sammanfattning, godkänn och leverera", async ({ page }, info) => {
+test("6. beställarrapport januari: bara avtalsmålet, sammanfattning, godkänn och registrera att den är lämnad", async ({ page }, info) => {
   const errors = await open(page, info, `/rapporter/${CS_JAN}`, AVTALSANSVARIG);
-  let t = await mainText(page);
+  const t = await mainText(page);
   expect((t.split(/FÖRHANDSVISNING/i)[1] ?? t)).not.toMatch(/35\s?%/);
   expect(t).toMatch(/avtalsmål(et)? 32\s%/i);
   expect(t).toMatch(/färre än 5/);
@@ -331,15 +329,16 @@ test("6. beställarrapport januari: bara avtalsmålet, sammanfattning, godkänn 
   await btn(page, "Använd förslaget").click();
   await btn(page, "Godkänn beställarrapporten").click();
   await expect(main(page)).toContainText("av Johan Berg");
-  await btn(page, "Leverera till kommunen").click();
-  await btn(page, "Leverera i portalen").click();
+  // Beslut 2026-10-07: avtalsansvarig lämnar rapporten till kommunen utanför Miljonmatch och registrerar det – inget mejl.
+  await expect(btn(page, "Leverera till kommunen")).toHaveCount(0);
+  await btn(page, "Registrera att rapporten är lämnad").click();
+  await expect(page.getByRole("dialog")).toContainText("Ingen får något mejl.");
+  await btn(page, "Registrera leveransen").click();
   await expect(main(page)).toContainText(/Levererad version – låst sedan/);
-  await expect(main(page)).toContainText("Eva Bergström");
-  await go(page, info, `/portal/rapporter/${CS_JAN}`, KOMMUNCHEF);
-  t = await mainText(page);
-  expect(t).not.toMatch(/35\s?%/);
-  expect(t).toMatch(/avtalsmål(et)? 32\s%/i);
-  await expect(main(page)).toContainText("Rapporten är kvitterad");
+  await expect(main(page)).toContainText("Lämnad till kommunen");
+  // Kommunens handläggare ser aldrig beställarrapporten i portalen.
+  await go(page, info, `/portal/rapporter/${CS_JAN}`, HANDLAGGARE);
+  await expect(main(page)).toContainText("inte tillgänglig för dig");
   await go(page, info, `/rapporter/${CS_DEC}`, COACH);
   await expect(main(page)).toContainText("inte tillgänglig för din roll");
   expect(errors).toEqual([]);
@@ -389,19 +388,15 @@ test("8. slutrapport efter avslut: coachens text, sedan godkänn", async ({ page
 });
 
 // ================================================================ 9. Behörighet
-test("9. behörighet: skyddade personuppgifter, handledare och slutrapport utan text", async ({ page }, info) => {
+test("9. behörighet: ärendet som var skyddat är ett vanligt ärende, handledare och slutrapport utan text", async ({ page }, info) => {
+  // Skyddade personuppgifter är borttagna ur appen (beslut 2026-10-07, spärren vilande): samordnaren ser rapporten.
   const errors = await open(page, info, `/rapporter/${PROT_JAN}`, SAMORDNARE);
   let t = await mainText(page);
-  expect(t).toMatch(/Skyddade personuppgifter/);
-  expect(t).not.toMatch(/1\. GRUNDUPPGIFTER/i);
-  await go(page, info, `/rapporter/${PROT_JAN}`, AVTALSANSVARIG);
-  expect(await mainText(page)).toMatch(/1\. GRUNDUPPGIFTER/i);
-  await go(page, info, `/portal/rapporter/${PROT_DEL}`, KOMMUNCHEF);
-  t = await mainText(page);
-  expect(t).not.toContain(PROT_NAME);
-  expect(t).toMatch(/skyddade personuppgifter/i);
-  await go(page, info, `/portal/rapporter/${PROT_WEEK}`, KOMMUNCHEF);
-  expect(await mainText(page)).not.toContain(PROT_NAME);
+  expect(t).toMatch(/1\. GRUNDUPPGIFTER/i);
+  expect(t).not.toMatch(/Skyddade personuppgifter/);
+  // En annan handläggares deltagare (Omar Farahs beställning) syns inte för Maria.
+  await go(page, info, `/portal/rapporter/${PROT_DEL}`, HANDLAGGARE);
+  await expect(main(page)).toContainText("inte tillgänglig för dig");
 
   await go(page, info, `/rapporter/${NADIA_DEC}`, HANDLEDARE);
   t = await mainText(page);

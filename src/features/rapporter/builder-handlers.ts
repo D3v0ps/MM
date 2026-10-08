@@ -6,6 +6,7 @@
 // När indata har savedReportId gäller den sparade rapportens avtal (konfiguration, områden, urval) – ett annat contractId
 // ger not_found. Varje fil loggas (export.saved_report) och varje visning av en sparad rapport (saved_report.viewed) innan
 // svaret; kastar loggningen lämnas ingen fil ut. Loggen har bara id:n – aldrig namn, ärendenummer, titlar eller urvalets värden.
+// Sparade rapporter delas bara inom Miljonbemanning (privat eller mb) – aldrig med kommunen (beslut 2026-10-07, 0026).
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
@@ -24,28 +25,22 @@ import {
 import { measuresFor, resultReasons } from "./builder/measures";
 import { builderFile, exportDetails, runPipeline } from "./builder/pipeline";
 import { templateFor, templateSentence, TEMPLATES } from "./builder/templates";
-import { periodError, periodLabel, resultFilename } from "./export";
-import { exportColumns, MAX_EXPORT_MONTHS, plainText, tableColumns } from "./export-columns";
+import { periodError, periodLabel, resultFilename, type ExportFileTable } from "./export";
+import { columnsStillCompatible, EXPORT_SCHEMA_VERSION, EXPORT_TABLES, exportColumns, FIELD_DESCRIPTION_COLUMNS, MAX_EXPORT_MONTHS, plainText, qualifiedKeys, tableColumns } from "./export-columns";
 import { contractInfo } from "./load";
 import { dFull } from "./report-helpers";
-import { loadResultFacts, resultExportFor, resultFileContent } from "./result-file";
+import { loadResultFacts, previousColumns, resultExportFor, resultFileContent } from "./result-file";
 import { selectDelivered } from "./selection";
 
 const BUILDERS: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
 const NOT_FOUND = "Rapporten finns inte eller så har du inte tillgång till den.";
 const NO_CONTRACT = "Avtalet finns inte eller så har du inte tillgång till det.";
 const FORBIDDEN = "Du kan inte ändra den här rapporten.";
-/** En rapport som är delad med kommunen: ägaren (som inte är avtalsansvarig) ändrar den först när avtalsansvarig slutat dela den. */
-const CUSTOMER_SHARED_OWNER = "Rapporten är delad med kommunen. Be avtalsansvarig sluta dela den om du vill ändra den, eller gör en kopia.";
-const CUSTOMER_SHARED = "Rapporten är delad med kommunen. Gör en kopia om du vill ändra något.";
-/** Delad med kommunen, men avtalet tillåter det inte längre: bara "Sluta dela med kommunen" går (RLS nekar allt annat). */
-const SHARING_ENDED_OWNER = "Avtalet tillåter inte längre att rapporter delas med kommunen. Sluta dela rapporten med kommunen innan du ändrar eller arkiverar den.";
-const SHARING_ENDED = "Avtalet tillåter inte längre att rapporter delas med kommunen. Sluta dela rapporten med kommunen innan du arkiverar den.";
-const ONLY_AVTALSANSVARIG = "Bara avtalsansvarig kan dela med kommunen.";
-const CONTRACT_NO_SHARING = "Avtalet tillåter inte att rapporter delas med kommunen.";
 const NOT_OWNER = "Bara den som skapade rapporten kan ändra innehållet. Du kan dela, sluta dela eller arkivera den.";
 const COPY_TO_CHANGE = "Bara den som skapade rapporten kan ändra den. Gör en kopia om du vill ändra något.";
 const EMPTY_RESULT = "Det finns inga levererade månadsrapporter för perioden. Välj en annan period.";
+/** Kolumnspärren: kolumnerna har ändrats sedan den senast utlämnade filen. */
+const COLUMNS_CHANGED = "Filen kan inte skapas, eftersom kolumnerna har ändrats sedan den förra filen lämnades ut. Kontakta den som ansvarar för Miljonmatch.";
 
 // ---------------------------------------------------------------- Avtalen
 type Chosen = { contract: Contract; cfg: OperationalConfig };
@@ -64,7 +59,6 @@ async function chooseContract(ctx: Ctx, contractId?: string): Promise<Chosen | n
   return (contractId ? all.find((c) => c.contract.id === contractId) : all[0]) ?? null;
 }
 const contractLabel = (c: Contract) => `${c.contractNumber} ${c.name}`.trim();
-const customerSharing = (cfg: OperationalConfig) => cfg.customerVisibility.seesIndividualReports === true;
 const monthsFor = (ctx: Ctx, c: Contract) => {
   const out: { value: string; label: string }[] = [];
   for (let mk = monthKey(ctx.now()); mk >= monthKey(c.startsOn); mk = addMonths(mk, -1)) out.push({ value: mk, label: monthName(mk) });
@@ -107,20 +101,16 @@ handleQuery(builderCatalog, { roles: BUILDERS }, async (ctx, p): Promise<Builder
   const base: BuilderCatalog = {
     contracts: all.map((c) => ({ id: c.contract.id, label: contractLabel(c.contract) })), contractId: chosen?.contract.id ?? null,
     templates: TEMPLATES.map((t) => ({ key: t.key, name: t.name, sentence: templateSentence(t, chosen ? { resultReasons: resultReasons(chosen.cfg) } : null), definition: t.definition as unknown as Record<string, unknown> })),
-    datasets: [], months: [], maxMonths: MAX_EXPORT_MONTHS, minN: 0, canShareWithCustomer: false, customerSharingAllowed: false, role: ctx.actor.role,
+    datasets: [], months: [], maxMonths: MAX_EXPORT_MONTHS, role: ctx.actor.role,
   };
   if (!chosen) return base;
   const { contract, cfg } = chosen;
   const areas = await ctx.repo.table("contract_areas").list({ contractId: contract.id });
   const env = { cfg, areas };
   const register = exportColumns(cfg, areas);
-  const allowed = customerSharing(cfg);
   return {
     ...base,
     months: monthsFor(ctx, contract),
-    minN: cfg.pulse.minNForAggregate,
-    customerSharingAllowed: allowed,
-    canShareWithCustomer: allowed && ctx.actor.role === "avtalsansvarig",
     datasets: DATASETS.map((ds) => ({
       key: ds, label: DATASET_LABEL[ds], help: DATASET_HELP[ds],
       dimensions: datasetDimensions(ds).map((d) => ({ key: d, label: DIMENSION_LABEL[d], joined: DATASET_DIMENSIONS[ds].joined.includes(d), choices: dimensionChoices(d, env) })),
@@ -140,8 +130,8 @@ handleQuery(builderCatalog, { roles: BUILDERS }, async (ctx, p): Promise<Builder
 handleCommand(builderPreview, { roles: BUILDERS, silent: true }, async (ctx, p) => {
   const t = await target(ctx, p);
   if (isFail(t)) return fail(t.fail, t.message);
-  // "Visa som kommunens chef ser den" bara när avtalet låter kommunens chef se individrapporter.
-  const audience = p.audience === "kommun" && customerSharing(t.cfg) ? "kommun" : "mb";
+  // Bara Miljonbemannings läge (växeln "Visa som kommunens chef ser den" är borttagen med rollen, beslut 2026-10-07).
+  const audience = "mb";
   // En sparad rapport som visas loggas (beslut 12) – ett osparat utkast inte.
   if (t.saved) await ctx.audit({ action: "saved_report.viewed", entity: "saved_report", entityId: t.saved.id, contractId: t.contract.id, details: { audience } });
   const run = await runPipeline(ctx, { contract: t.contract, cfg: t.cfg, def: t.def, rule: "mb", audience, title: t.title });
@@ -196,7 +186,7 @@ const newest = (r: SavedReport) => r.updatedAt ?? r.sharedAt ?? r.createdAt;
 
 handleQuery(savedReportList, { roles: BUILDERS }, async (ctx, p) => {
   const chosen = await chooseContract(ctx, p.contractId);
-  if (!chosen) return { contractId: null, mine: [], sharedMb: [], sharedCustomer: [] };
+  if (!chosen) return { contractId: null, mine: [], sharedMb: [] };
   const rows = (await ctx.repo.table("saved_reports").list({ contractId: chosen.contract.id, archivedAt: null }))
     .sort((a, b) => (newest(a) < newest(b) ? 1 : newest(a) > newest(b) ? -1 : a.id < b.id ? -1 : 1));
   const ownerIds = [...new Set(rows.map((r) => r.ownerId))];
@@ -205,36 +195,23 @@ handleQuery(savedReportList, { roles: BUILDERS }, async (ctx, p) => {
   const me = ctx.actor.userId;
   return {
     contractId: chosen.contract.id,
-    mine: rows.filter((r) => r.ownerId === me && r.visibility !== "customer").map((r) => savedRow(r, true, names)),
+    mine: rows.filter((r) => r.ownerId === me).map((r) => savedRow(r, true, names)),
     sharedMb: rows.filter((r) => r.ownerId !== me && r.visibility === "mb").map((r) => savedRow(r, false, names)),
-    sharedCustomer: rows.filter((r) => r.visibility === "customer").map((r) => savedRow(r, r.ownerId === me, names)),
   };
 });
 
 // ================================================================ En sparad rapport
-/** Raden är delad med kommunen, men avtalet tillåter inte längre att rapporter delas med kommunen. */
-const customerSharingEnded = (r: SavedReport, cfg: OperationalConfig) => r.visibility === "customer" && !customerSharing(cfg);
-
-/** Vad läsaren får göra med raden – samma regler som policyn/RLS (savedReportWrite, 0021). */
-function rights(r: SavedReport, ctx: Ctx, cfg: OperationalConfig) {
-  const role = ctx.actor.role;
+/** Vad läsaren får göra med raden – samma regler som policyn/RLS (savedReportWrite, 0021 och 0026). */
+function rights(r: SavedReport, ctx: Ctx) {
   const isOwner = r.ownerId === ctx.actor.userId;
-  const open = !r.archivedAt && (r.visibility !== "customer" || role === "avtalsansvarig");
-  const avtalsansvarig = role === "avtalsansvarig";
-  const sharingAllowed = customerSharing(cfg);
-  // Delad med kommunen men avtalet tillåter det inte längre: varje ändring där raden förblir 'customer' nekas (with check i
-  // 0021, customerOk i policy.ts). Bara att sluta dela (till mb eller privat) går – ändra och arkivera kommer efter det.
-  const sharingEnded = customerSharingEnded(r, cfg);
+  const open = !r.archivedAt;
+  const avtalsansvarig = ctx.actor.role === "avtalsansvarig";
   return {
     isOwner,
-    sharingEnded,
-    canEdit: open && isOwner && !sharingEnded,
+    canEdit: open && isOwner,
     canChangeSharing: open && isOwner,
-    // Avtalsansvarig: "Dela med kommunen" (bara när avtalet tillåter det) / "Sluta dela med kommunen" (alltid) – egna rapporter
-    // och andras som inte är privata.
-    canShareCustomer: open && avtalsansvarig && (isOwner || r.visibility !== "private") && (sharingAllowed || r.visibility === "customer"),
-    canArchive: open && !sharingEnded && (isOwner || (avtalsansvarig && r.visibility !== "private")),
-    canChooseCustomer: avtalsansvarig && sharingAllowed,
+    // Avtalsansvarig arkiverar också andras rapporter som är delade inom Miljonbemanning.
+    canArchive: open && (isOwner || (avtalsansvarig && r.visibility !== "private")),
   };
 }
 
@@ -245,19 +222,16 @@ handleQuery(savedReport, { roles: BUILDERS }, async (ctx, p) => {
   const owner = await ctx.repo.table("profiles").get(r.ownerId);
   const parsed = ReportDefinitionSchema.safeParse(r.definition);
   const d = parsed.success ? parsed.data : null;
-  const can = rights(r, ctx, chosen.cfg);
+  const can = rights(r, ctx);
   const tpl = templateFor(r.templateKey);
   const avtalsansvarig = ctx.actor.role === "avtalsansvarig";
-  const lockedText = r.archivedAt ? null
-    : r.visibility === "customer" && !avtalsansvarig ? (can.isOwner ? CUSTOMER_SHARED_OWNER : CUSTOMER_SHARED)
-    : can.sharingEnded ? (can.isOwner ? SHARING_ENDED_OWNER : SHARING_ENDED)
-    : !can.isOwner ? (avtalsansvarig && r.visibility !== "private" ? NOT_OWNER : COPY_TO_CHANGE) : null;
+  const lockedText = r.archivedAt ? null : !can.isOwner ? (avtalsansvarig && r.visibility !== "private" ? NOT_OWNER : COPY_TO_CHANGE) : null;
   return {
     found: true as const, id: r.id, contractId: r.contractId, title: r.title, templateKey: tpl?.key ?? null, templateName: tpl?.name ?? null,
     definition: r.definition, definitionError: parsed.success ? null : (parsed.error.issues[0]?.message ?? "Rapporten är inte giltig."),
     datasetLabel: d ? DATASET_LABEL[d.dataset] : "", outputLabel: d ? OUTPUT_LABEL[d.output] : "", periodText: d ? periodDefText(d.period) : "",
     visibility: r.visibility, createdBy: owner?.fullName ?? "–", createdAt: r.createdAt, updatedAt: r.updatedAt, sharedAt: r.sharedAt, archived: !!r.archivedAt,
-    ...can, customerSharingAllowed: customerSharing(chosen.cfg), minN: chosen.cfg.pulse.minNForAggregate, lockedText,
+    ...can, lockedText,
   };
 });
 
@@ -275,10 +249,6 @@ handleCommand(savedReportSave, { roles: BUILDERS }, async (ctx, p) => {
     const chosen = await chooseContract(ctx, p.contractId);
     if (!chosen) return fail("forbidden", NO_CONTRACT);
     const visibility: SavedReportVisibility = p.visibility ?? "private";
-    if (visibility === "customer") {
-      if (ctx.actor.role !== "avtalsansvarig") return fail("forbidden", ONLY_AVTALSANSVARIG);
-      if (!customerSharing(chosen.cfg)) return fail("forbidden", CONTRACT_NO_SHARING);
-    }
     const id = ctx.newId("sr");
     const shared = visibility !== "private";
     await table.insert({
@@ -292,13 +262,7 @@ handleCommand(savedReportSave, { roles: BUILDERS }, async (ctx, p) => {
   }
   const r = await table.get(p.savedReportId);
   if (!r || r.archivedAt || r.contractId !== p.contractId) return fail("forbidden", FORBIDDEN);
-  if (r.visibility === "customer" && ctx.actor.role !== "avtalsansvarig") return fail("customer_shared", r.ownerId === me ? CUSTOMER_SHARED_OWNER : CUSTOMER_SHARED);
   if (r.ownerId !== me) return fail("forbidden", NOT_OWNER);
-  if (r.visibility === "customer") {
-    const chosen = await chooseContract(ctx, r.contractId);
-    if (!chosen) return fail("forbidden", FORBIDDEN);
-    if (customerSharingEnded(r, chosen.cfg)) return fail("customer_shared", SHARING_ENDED_OWNER);
-  }
   // Oförändrat: ingen skrivning och ingen loggrad (en tom ändring stoppas av triggern och policyn).
   const fields: ("title" | "definition")[] = [];
   if (title.data !== r.title) fields.push("title");
@@ -316,18 +280,9 @@ handleCommand(savedReportShare, { roles: BUILDERS }, async (ctx, p) => {
   if (r.visibility === p.visibility) return ok({});
   const chosen = await chooseContract(ctx, r.contractId);
   if (!chosen) return fail("forbidden", FORBIDDEN);
-  const role = ctx.actor.role;
   const me = ctx.actor.userId;
-  if (p.visibility === "customer") {
-    if (role !== "avtalsansvarig") return fail("not_allowed", ONLY_AVTALSANSVARIG);
-    if (!customerSharing(chosen.cfg)) return fail("not_allowed", CONTRACT_NO_SHARING);
-  }
-  // Samma regler som 0021: ägaren, eller avtalsansvarig när raden inte är privat; en rad delad med kommunen ändras bara av
-  // avtalsansvarig; avtalsansvarig gör aldrig någon annans rapport privat.
-  const isOwner = r.ownerId === me;
-  if (!isOwner && !(role === "avtalsansvarig" && r.visibility !== "private")) return fail("forbidden", FORBIDDEN);
-  if (r.visibility === "customer" && role !== "avtalsansvarig") return fail("forbidden", isOwner ? CUSTOMER_SHARED_OWNER : CUSTOMER_SHARED);
-  if (!isOwner && p.visibility === "private") return fail("forbidden", FORBIDDEN);
+  // Samma regler som 0021: bara ägaren ändrar delningen (avtalsansvarig gör aldrig någon annans rapport privat).
+  if (r.ownerId !== me) return fail("forbidden", FORBIDDEN);
   await table.update(r.id, { visibility: p.visibility, sharedAt: ctx.now(), sharedBy: me });
   await ctx.audit({ action: "saved_report.shared", entity: "saved_report", entityId: r.id, contractId: r.contractId, details: { sharingFrom: r.visibility, sharingTo: p.visibility } });
   return ok({});
@@ -339,12 +294,7 @@ handleCommand(savedReportArchive, { roles: BUILDERS }, async (ctx, p) => {
   if (!r || r.archivedAt) return fail("forbidden", FORBIDDEN);
   const chosen = await chooseContract(ctx, r.contractId);
   if (!chosen) return fail("forbidden", FORBIDDEN);
-  const can = rights(r, ctx, chosen.cfg);
-  if (!can.canArchive) {
-    const text = can.sharingEnded && ctx.actor.role === "avtalsansvarig" ? (can.isOwner ? SHARING_ENDED_OWNER : SHARING_ENDED)
-      : r.visibility === "customer" ? (can.isOwner ? CUSTOMER_SHARED_OWNER : CUSTOMER_SHARED) : FORBIDDEN;
-    return fail("forbidden", text);
-  }
+  if (!rights(r, ctx).canArchive) return fail("forbidden", FORBIDDEN);
   await table.update(r.id, { archivedAt: ctx.now(), archivedBy: ctx.actor.userId });
   await ctx.audit({ action: "saved_report.archived", entity: "saved_report", entityId: r.id, contractId: r.contractId, details: {} });
   return ok({});
@@ -384,19 +334,35 @@ handleCommand(contractResultExport, { roles: BUILDERS, silent: true }, async (ct
   const { contract, cfg } = chosen;
   const err = periodError(p.from, p.to, periodOpts(ctx, contract));
   if (err) return fail("period", err);
-  const table = p.format === "xlsx" ? "resultat" : (p.table ?? "resultat");
-  // 2. Urval (alla ärenden i avtalet utom skyddade), 3. frysning, 5. raderna och filen. Ingen kolumnspärr (den gäller kommunens fil).
+  const table: ExportFileTable = p.format === "xlsx" ? "resultat" : (p.table ?? "resultat");
+  // 2. Urval (alla ärenden i avtalet utom skyddade), 3. frysning.
   const sel = await selectDelivered(ctx, { contractId: contract.id, cfg, from: p.from, to: p.to, rule: "mb", finals: true });
   if (!sel.monthly.length) return fail("empty", EMPTY_RESULT);
+  // Ska inte hända (report.deliver ersätter hela versionskedjan) – bara id:n i felloggen, aldrig namn eller ärendenummer.
+  if (sel.dropped.length) console.error("resultatfil: äldre versioner var levererade och inte ersatta – bara den senaste kom med", sel.dropped);
   const info = await contractInfo(ctx, contract.id);
   const rf = await loadResultFacts(ctx, sel, info);
+  // 4. Kolumnspärren: avtalsansvarig lämnar filen till kommunen, så den senast utlämnade filens kolumner måste vara början av
+  // de nya (nya kolumner bara sist). Läser både export.results (kommunens egna hämtningar förut) och export.results_mb.
   const areas = await ctx.repo.table("contract_areas").list({ contractId: contract.id });
+  const register = exportColumns(cfg, areas);
+  const tables: ExportFileTable[] = p.format === "xlsx" ? [...EXPORT_TABLES] : [table];
+  const colsFor = (t: ExportFileTable): string[] =>
+    t === "faltbeskrivning" ? FIELD_DESCRIPTION_COLUMNS.map((c) => `faltbeskrivning.${c.key}`) : qualifiedKeys(tableColumns(register, t));
+  const previous = await previousColumns(ctx, contract.id, tables);
+  for (const t of tables) {
+    const prev = previous.get(t);
+    if (prev && !columnsStillCompatible(prev, colsFor(t))) {
+      await ctx.audit({ action: "export.results_blocked", entity: "contract", entityId: contract.id, contractId: contract.id, details: { schema: EXPORT_SCHEMA_VERSION, table: t, reason: "columns_changed" } });
+      return fail("schema", COLUMNS_CHANGED);
+    }
+  }
+  // 5. Raderna och filen.
   const exp = resultExportFor(sel, rf, { cfg, areas, from: p.from, to: p.to, now: ctx.now() });
   const file = await resultFileContent(exp, cfg, p.format, table, { contractNumber: contract.contractNumber, customerName: info.customerName });
   const filename = wholeContractFilename(cfg.casePrefix, p.from, p.to, p.format, table);
-  const register = exportColumns(cfg, areas);
-  const columns = p.format === "xlsx" ? register.map((c) => `${c.table}.${c.key}`) : table === "faltbeskrivning" ? [] : tableColumns(register, table).map((c) => `${c.table}.${c.key}`);
-  // 6. Logga innan filen lämnas ut – export.results_mb (aldrig export.results, så kommunens kolumnspärr påverkas inte).
+  const columns = tables.flatMap(colsFor);
+  // 6. Logga innan filen lämnas ut – export.results_mb (kolumnlistan låser kolumnerna för nästa fil).
   await ctx.audit({
     action: "export.results_mb", entity: "contract", entityId: contract.id, contractId: contract.id,
     details: {

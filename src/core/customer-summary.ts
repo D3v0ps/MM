@@ -1,4 +1,4 @@
-// Beställarrapport till kommunens chef (prototypens sel.customerSummary).
+// Beställarrapporten (prototypens sel.customerSummary). Lämnas till kommunen utanför Miljonmatch sedan 2026-10-07.
 // Det interna målet visas aldrig för kunden: det tas bort ur resultatet och "under internt mål" blir "ok".
 // Grupper under minsta antal (pulse.minNForAggregate) redovisas som "färre än 5".
 import type { Db } from "@/data/schema";

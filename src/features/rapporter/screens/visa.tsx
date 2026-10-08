@@ -120,6 +120,30 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
 
   const onDeliver = async () => {
     const name = v.delivery.recipientName;
+    // Beställarrapporten lämnas till kommunen utanför Miljonmatch – här registreras bara att den är lämnad.
+    if (v.delivery.outside) {
+      const ok = await confirm({
+        title: "Registrera att rapporten är lämnad",
+        confirmLabel: "Registrera leveransen",
+        body: (
+          <Stack gap="sm">
+            <p>{v.delivery.notice}</p>
+            <p>Ingen får något mejl. Innehållet låses när leveransen registreras. Senare ändringar kräver en rättelse (ny version).</p>
+          </Stack>
+        ),
+      });
+      if (!ok) return;
+      const res = await deliver.run({ reportId: v.id });
+      if (!res.ok) {
+        toast(res.message || "Rapporten måste vara godkänd innan leveransen registreras.", "error");
+        return;
+      }
+      await snapshot.run({ reportIds: [v.id] });
+      toast("Leveransen är registrerad. Ladda ned PDF:en och lämna den till kommunen.");
+      setJustDelivered(true);
+      focusSoon("efter-leverans");
+      return;
+    }
     const yes = await confirm({
       title: "Leverera till kommunen",
       confirmLabel: "Leverera i portalen",
@@ -299,6 +323,11 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
             En rättad version finns. Den här versionen sparas men ska inte användas.
           </Notice>
         )}
+        {v.delivery.outside && !v.delivered && !v.superseded && (
+          <Notice tone="info" icon="info" title="Lämnas utanför Miljonmatch">
+            {v.delivery.notice}
+          </Notice>
+        )}
         {any ? (
           <Row>
             {a.approve && (
@@ -313,7 +342,7 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
             )}
             {a.deliver && (
               <Button kind="primary" icon="send" onClick={onDeliver}>
-                Leverera till kommunen
+                {v.delivery.outside ? "Registrera att rapporten är lämnad" : "Leverera till kommunen"}
               </Button>
             )}
             {a.correct && (
@@ -447,7 +476,7 @@ function SummaryApprovalCard({ v, s }: { v: ReportView; s: NonNullable<ReportVie
       return;
     }
     setErr(null);
-    toast("Beställarrapporten är godkänd. Nästa steg: leverera till kommunens chef.");
+    toast("Beställarrapporten är godkänd. Nästa steg: lämna den till kommunen och registrera att den är lämnad.");
   };
   return (
     <Card title="Sammanfattning – avtalsansvarig godkänner" icon="check-square" actions={<BuildPhase fas={2} />}>

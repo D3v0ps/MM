@@ -15,6 +15,7 @@ import { aiLanguages, recordingMaxMinutes, type ContractConfig } from "@/core/co
 import { addDays, addMinutes, diffDays, type LocalDateTime } from "@/core/time";
 import type { Case, ParticipantVoiceNote, Person, VoiceLink, VoiceLinkChannel } from "@/data/schema";
 import { recordingBlock, RECORDING_BLOCK_TEXT } from "../_shared/ai-port";
+import { SIMULATED_PROVIDER } from "../_shared/ai-sim";
 import { canEditCase } from "../_shared/context";
 import { enqueueVoiceJob, voiceRunState } from "../_shared/voice-jobs";
 import { confirmOwnUpload, startAudioUpload, voiceLinkByToken, type VoiceLinkLookup } from "../_shared/voice-upload";
@@ -169,11 +170,12 @@ async function caseContext(ctx: Ctx, caseId: string) {
   return { c, person, cfg: (contract?.config ?? null) as ContractConfig | null };
 }
 
-function toNoteView(n: ParticipantVoiceNote, names: Map<string, string>): VoiceNoteView {
+function toNoteView(n: ParticipantVoiceNote, names: Map<string, string>, simulated: ReadonlySet<string>): VoiceNoteView {
   return {
     id: n.id, caseId: n.caseId, createdAt: n.createdAt, language: n.language, languageName: languageName(n.language), textSv: n.textSv, textOriginal: n.textOriginal,
     translated: n.language !== "sv" && n.textOriginal != null, status: n.status, reviewedAt: n.reviewedAt,
     reviewedByName: n.reviewedBy ? (names.get(n.reviewedBy) ?? "–") : null, consentTextVersion: n.consentTextVersion, consentGivenAt: n.consentGivenAt,
+    simulated: !!n.aiRunId && simulated.has(n.aiRunId),
   };
 }
 
@@ -189,6 +191,10 @@ handleQuery(caseVoice, { roles: VOICE_READERS }, async (ctx, p): Promise<CaseVoi
     ctx.repo.table("profiles").list(),
   ]);
   const names = new Map(profiles.map((x) => [x.id, x.fullName]));
+  // Leverantören per körning (via behörigheten: ai_runs i ärendet) – den simulerade ger påhittad text (testmiljön).
+  const runIds = notes.map((n) => n.aiRunId).filter((x): x is string => !!x);
+  const runs = runIds.length ? await ctx.repo.table("ai_runs").list({ id: { in: runIds } }) : [];
+  const simulatedRuns = new Set(runs.filter((r) => r.provider === SIMULATED_PROVIDER).map((r) => r.id));
   const last = [...links].sort((a, b) => (a.sentAt < b.sentAt ? 1 : a.sentAt > b.sentAt ? -1 : 0))[0] ?? null;
   const check = sendCheck(c, person, cfg, canWork);
   const langs = rostLanguages(cfg);
@@ -219,7 +225,7 @@ handleQuery(caseVoice, { roles: VOICE_READERS }, async (ctx, p): Promise<CaseVoi
     notes: notes
       .filter((n) => n.status !== "archived")
       .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
-      .map((n) => toNoteView(n, names)),
+      .map((n) => toNoteView(n, names, simulatedRuns)),
   };
 });
 

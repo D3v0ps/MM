@@ -10,10 +10,11 @@
 //                      kalenderdagar (Botkyrka: 11), när månaden är slut. Status draft (granskad om coachen redan godkänt
 //                      månadsbedömningen – samma regel som coach/handlers.ts).
 //                      Sista dag: sla[manadsrapport] (förslaget: 5:e arbetsdagen efter månadsskiftet kl. 23.59).
-//   customer_summary   en per avtal, kommunens chef och månad, när månaden är slut. Status draft.
+//   customer_summary   en per avtal och månad, när månaden är slut. Status draft. Ingen mottagare: avtalsansvarig lämnar
+//                      rapporten till kommunen utanför Miljonmatch (beslut 2026-10-07 – kommunens chef är borttagen).
 //                      Sista dag: reportSchedule.customerSummaryDue (förslaget: 8:e arbetsdagen kl. 16.00).
 // Fälten blir exakt som testdatats rader (src/data/seed/gen-reports.ts): perioder, dueAt, provisionalDue och mottagare.
-// Mottagarna (handläggare och chefer) är de med aktivt konto i avtalet – hanteraren filtrerar bort spärrade konton.
+// Mottagarna (handläggarna) är de med aktivt konto i avtalet – hanteraren filtrerar bort spärrade konton.
 //
 // Inskriven en dag = startdatum passerat och slutdatum inte passerat (samma regel som veckorapporten och faktureringen).
 // Uppehåll (pausade veckor) räknas som inskriven tid: rapporten skapas och visar "Uppehåll". Ett avslutat ärende får
@@ -37,8 +38,6 @@ export type ScheduleInput = {
   cases: readonly ScheduleCase[];
   /** Kommunens handläggare i avtalet (profiles.id) – mottagare av veckorapporterna. */
   caseworkerIds: readonly string[];
-  /** Kommunens chefer i avtalet (profiles.id) – mottagare av beställarrapporterna. */
-  managerIds: readonly string[];
   /** Ärende och månad ("case-1:2027-01") där coachen godkänt månadsbedömningen. */
   approvedAssessments?: ReadonlySet<string>;
   /** Avtalets befintliga rapporter (alla versioner). */
@@ -85,11 +84,11 @@ export function enrolledDays(c: ScheduleCase, from: LocalDate, to: LocalDate): n
 /** Är ärendet inskrivet någon dag mellan from och to (inklusive)? */
 export const enrolledBetween = (c: ScheduleCase, from: LocalDate, to: LocalDate): boolean => enrolledDays(c, from, to) > 0;
 
-/** Nyckeln som de unika indexen i databasen speglar (supabase/migrations/0018_rapportutkast.sql). */
+/** Nyckeln som de unika indexen i databasen speglar (0018_rapportutkast.sql; beställarrapporten 0026: avtal och månad). */
 export function reportKey(r: ScheduleReport): string | null {
   if (r.kind === "weekly_attendance") return r.recipientUserId && r.week ? `weekly_attendance|${r.contractId}|${r.recipientUserId}|${r.week}` : null;
   if (r.kind === "monthly") return r.caseId && r.month ? `monthly|${r.contractId}|${r.caseId}|${r.month}` : null;
-  if (r.kind === "customer_summary") return r.recipientUserId && r.month ? `customer_summary|${r.contractId}|${r.recipientUserId}|${r.month}` : null;
+  if (r.kind === "customer_summary") return r.month ? `customer_summary|${r.contractId}|${r.month}` : null;
   return null;
 }
 
@@ -156,20 +155,17 @@ export function plannedReports(input: ScheduleInput): PlannedReport[] {
     }
   }
 
-  // ---- Beställarrapport: per kommunens chef och månad
+  // ---- Beställarrapport: per avtal och månad (ingen mottagare)
   const due = cfg.reportSchedule?.customerSummaryDue;
   if (kinds.includes("customer_summary") && due) {
     const since = sinceFor(input.since, "customer_summary");
-    const managers = [...new Set(input.managerIds)].sort();
     for (let mk = firstMonth(since); `${mk}-01` <= last && monthEndsAt(mk) <= now; mk = addMonths(mk, 1)) {
       if (!inWindow(monthEndsAt(mk), since, now)) continue;
-      for (const k of managers) {
-        out.push({
-          ...BLANK, contractId: contract.id, kind: "customer_summary", recipientUserId: k, month: mk, periodStart: `${mk}-01`, periodEnd: monthEnd(mk), status: "draft", version: 1,
-          // Beställarrapporten är alltid preliminär i vyerna (core/sla.ts isProvisionalDue) – raden har provisionalDue false som testdatat.
-          dueAt: `${nthWorkingDay(addMonths(mk, 1), due.nthWorkingDay)}T${due.time}`,
-        });
-      }
+      out.push({
+        ...BLANK, contractId: contract.id, kind: "customer_summary", recipientUserId: null, month: mk, periodStart: `${mk}-01`, periodEnd: monthEnd(mk), status: "draft", version: 1,
+        // Beställarrapporten är alltid preliminär i vyerna (core/sla.ts isProvisionalDue) – raden har provisionalDue false som testdatat.
+        dueAt: `${nthWorkingDay(addMonths(mk, 1), due.nthWorkingDay)}T${due.time}`,
+      });
     }
   }
   return out;

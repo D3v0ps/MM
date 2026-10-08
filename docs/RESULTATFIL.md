@@ -6,6 +6,9 @@
 
 Alla exempel i det här dokumentet är påhittade.
 
+> **Ändrat 2026-10-07:** kommunen hämtar inte längre filen själv i portalen. Miljonbemanning tar fram filen för hela avtalet och
+> lämnar den till er (avsnitt 2). Kolumnerna är oförändrade.
+
 > För utvecklare: kolumnerna, beskrivningarna, möjliga värden och exemplen i tabellerna nedan kommer från kolumnregistret
 > (`src/features/rapporter/export-columns.ts`, `exportColumns(cfg, areas)` med Botkyrkas konfiguration). Testet
 > `src/features/rapporter/export-columns.test.ts` kontrollerar att varje kolumn i registret finns här med samma text –
@@ -26,12 +29,14 @@ Ni kan öppna den i Excel och göra egna sammanställningar, diagram och present
 - För rapporter som lämnades innan resultatfilen fanns kan uppgifterna om själva insatsen (avtalsområde, yrkesspår, datum och
   fas) visa hur de såg ut när filen skapades första gången, om de har ändrats efter att rapporten lämnades.
 
-## 2. Vem kan hämta filen, och hur?
+## 2. Hur får ni filen?
 
-- Kommunens chef hämtar filen i portalen under **Hämta resultat**.
-- Chefen ser deltagarna i sin egen enhet, på samma sätt som under "Enhetens deltagare" och "Rapporter".
-- Du väljer period (högst 12 månader i taget) och filtyp. Sedan hämtar du filen.
-- **Varje hämtning sparas i Miljonbemannings logg**: vem som hämtade, när, vilken period och hur många rader. Loggen innehåller
+- **Miljonbemanning tar fram filen och lämnar den till er** (beslut 2026-10-07). Kommunen har bara handläggare i portalen, och
+  sidan "Hämta resultat" finns inte längre.
+- Filen gäller **hela avtalet** – alla deltagare, inte bara en enhet.
+- Ni säger vilken period ni vill ha (högst 12 månader i taget) och vilken filtyp. Vi lämnar filen på det sätt vi kommer överens om
+  – inte som bilaga i vanlig e-post (avsnitt 13).
+- **Varje gång filen tas fram sparas det i Miljonbemannings logg**: vem, när, vilken period och hur många rader. Loggen innehåller
   inga namn eller ärendenummer på deltagare.
 
 ## 3. Två filtyper
@@ -41,7 +46,7 @@ Ni kan öppna den i Excel och göra egna sammanställningar, diagram och present
 | **Excel** (rekommenderas) | En fil med fem flikar: Resultat, Progression, Händelser, Avslut och Om filen | Excel, presentationer |
 | **CSV** | Fem separata filer: resultat, progression, händelser, avslut och fältbeskrivning | Statistikprogram, Power BI |
 
-Filnamnen innehåller bara avtal och period, aldrig namn. Exempel: `resultat_bot_2026-10_2026-12.xlsx`.
+Filnamnen innehåller bara avtal och period, aldrig namn. Exempel: `resultat_bot_hela-avtalet_2026-10_2026-12.xlsx`.
 
 ## 4. Så läser du filen
 
@@ -59,7 +64,7 @@ Filnamnen innehåller bara avtal och period, aldrig namn. Exempel: `resultat_bot
 
 ## 5. Hur ofta uppdateras uppgifterna?
 
-- En månad kommer med i filen när **månadsrapporten är levererad** till er i portalen. Ni kan hämta filen när ni vill.
+- En månad kommer med i filen när **månadsrapporten är levererad** till er i portalen. Säg till när ni vill ha en ny fil.
 - Datumet för månadsrapporten är ännu inte bestämt i avtalet. Vårt förslag är senast den femte arbetsdagen i månaden efter.
 - Avslutsorsak och resultat kommer med när **slutrapporten** är levererad. De står i tabell 4 (Avslut), en rad per avslutad
   insats. Finns det en levererad månadsrapport för den månad då insatsen avslutades står de också på den raden i tabell 1.
@@ -267,7 +272,6 @@ kolumn, beskrivning, format, möjliga värden, källa och version (kolumnnamnen 
 |---|---|
 | Personnummer | Behövs inte för att räkna. Ärendenumret räcker som nyckel. |
 | Adress, telefon och e-post | Behövs inte för att räkna. |
-| Deltagare med skyddade personuppgifter | Deras uppgifter lämnas aldrig ut i en fil. De finns inte heller med i antalet. |
 | Fritext: coachens observationer, sammanfattning, plan, avvikelsetexter och kommentarer till händelser | Texterna kan innehålla känsliga uppgifter och går inte att räkna på. De finns i månadsrapporten i portalen. |
 | Orsaker till frånvaro | Kan röra hälsa. Antalet tillfällen med giltig och ogiltig frånvaro finns med. |
 | Områdena "Hälsa (funktionellt beskrivet)" och "Livskvalitet (deltagarens egen skattning)" | De är frivilliga och kan röra hälsa. De finns i månadsrapporten när de är bedömda. |
@@ -279,7 +283,7 @@ kolumn, beskrivning, format, möjliga värden, källa och version (kolumnnamnen 
 
 - Filen innehåller **namn**. Spara den bara där kommunen får spara personuppgifter.
 - Skicka den inte med vanlig e-post.
-- Ta bort gamla filer när ni inte behöver dem längre. Ni kan alltid hämta en ny.
+- Ta bort gamla filer när ni inte behöver dem längre. Ni kan alltid få en ny.
 
 ## 14. Frågor vi gärna stämmer av på mötet
 
@@ -287,5 +291,5 @@ kolumn, beskrivning, format, möjliga värden, källa och version (kolumnnamnen 
 2. Vill ni hellre ha Excel eller CSV, eller båda?
 3. Hur vill ni att resultat ska räknas (avsnitt 7, "Avslut och resultat", och tabell 4 i avsnitt 10)?
 4. Vilken dag i månaden ska månadsrapporten vara levererad?
-5. Avtalet ger er "statistik på begäran" högst två gånger per år. Vårt förslag är att resultatfilen inte räknas dit, eftersom ni
-   hämtar den själva. Delar ni den bedömningen?
+5. Avtalet ger er "statistik på begäran" högst två gånger per år. Vårt förslag är att resultatfilen inte räknas dit, eftersom den
+   är en del av den löpande uppföljningen. Delar ni den bedömningen?

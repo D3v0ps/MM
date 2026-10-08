@@ -31,6 +31,7 @@ import {
   aiRunRow, approvedCheckIns, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema,
   type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
+import { SIMULATED_PROVIDER } from "./ai-sim";
 import { AUDIO_RETENTION_HOURS, requireAudio } from "./audio-port";
 import { AI_FIELDS, type AiSource } from "./ai-types";
 import { blankArea, newAssessment } from "./rows";
@@ -638,8 +639,14 @@ export async function retentionTranscripts(ctx: Ctx): Promise<string> {
 
 // ---------------------------------------------------------------- Frågor för skärmarna
 /** Läget för en AI-körning som skärmen väntar på (ingen text – den hämtas av respektive fråga med rätt behörighet). */
-export type VoiceRunState = { aiRunId: string; status: AiRunStatus; error: { code: VoiceJobErrorCode; text: string } | null; audioDeletedAt: LocalDateTime | null };
-export const voiceRunState = (run: AiRun): VoiceRunState => ({ aiRunId: run.id, status: run.status, error: aiRunError(run), audioDeletedAt: run.inputDeletedAt });
+/**
+ * Läget för en röstkörning. simulated = körningen gjordes av den simulerade AI-leverantören (testmiljön, prototypen och
+ * minnesläget) – texten är påhittad och inte det som sades (synpunkt #8, beslut 2026-10-07). Produktionen kör aldrig den.
+ */
+export type VoiceRunState = { aiRunId: string; status: AiRunStatus; error: { code: VoiceJobErrorCode; text: string } | null; audioDeletedAt: LocalDateTime | null; simulated: boolean };
+export const voiceRunState = (run: AiRun): VoiceRunState => ({
+  aiRunId: run.id, status: run.status, error: aiRunError(run), audioDeletedAt: run.inputDeletedAt, simulated: run.provider === SIMULATED_PROVIDER,
+});
 
 /**
  * Kommunens dikterade text – bara för den som talade in (ljudfilens ägare). ctx.system: kommunen läser inte ai_runs

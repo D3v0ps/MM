@@ -3,8 +3,14 @@
 //      adressen finns. Koden skickas bara till en aktiv profil med roll, tillåten domän och – i testmiljön – adress i
 //      MM_EMAIL_ALLOWLIST. Servern tar fram koden (generateLink, service role) och skickar mejlet själv via Resend
 //      (code-mail.ts, beslut 2026-10-02) – Supabase Auth skickar inga mejl.
+//      Självregistrering (beslut 2026-10-07): en adress UTAN profil får en kod om domänen finns både i avtalets
+//      selfRegistration.emailDomains och bland beställarens tillåtna domäner (src/core/self-registration.ts) – i testmiljön
+//      dessutom bara om adressen står i MM_EMAIL_ALLOWLIST. Taket för nya konton räknas på unika adresser: högst 20 per timme
+//      i hela appen och högst 3 per timme från samma IP (SELF_REGISTRATION_LIMITS i rate-limit.ts). En spärrad profil
+//      registreras aldrig om, och adresser med plustecken får inget konto (src/core/self-registration.ts).
 //   2. verifyCode: högst 5 försök per kod, hastighetsbegränsning per adress och IP, kopplar profiles.auth_user_id,
-//      revisionslogg auth.login / auth.login_failed (bara id:n).
+//      revisionslogg auth.login / auth.login_failed (bara id:n). Lyckad kod utan profil (självregistrering): profil och
+//      medlemskap som kommunens handläggare skapas (src/features/session/self-register.ts) och loggas profile.self_registered.
 // Gränserna kontrolleras och försöket registreras i samma transaktion i databasen (loginGate, migration 0012) – innan
 // koden skickas eller prövas – så att anrop i klump inte kan passera spärren.
 // Inga adresser, koder eller IP-adresser i loggar – bara felkoder.
@@ -15,15 +21,17 @@ import type { LocalDateTime } from "@/core/time";
 import { appRepo, toTimestamptz, type PgClient } from "@/data/supabase";
 import { clockNow } from "../clock";
 import { emailAllowlist, loginHashSecret, staffEmailDomains } from "../config";
-import { loginGate, profileByEmail } from "../live";
+import { loginGate, profileByEmail, selfRegistrationStore } from "../live";
 import { loadAppSettings, type AppSettings } from "../settings";
+import { selfRegister, selfRegisteredAudit, selfRegistrationTargets } from "@/features/session/self-register";
+import { emailDomainOf } from "@/core/self-registration";
 import { notifyEnv } from "../notify/config";
 import type { FetchLike } from "../notify/resend";
 import { serviceClient } from "../supabase";
 import { logCode, sendLoginCode } from "./code-mail";
 import { allowedByList, AUTH_TEXT, CODE_VALID_MINUTES, domainAllowed, isValidEmail, normalizeEmail } from "./email";
 import { sessionIdFromClaims } from "../session-policy";
-import { hashesFor } from "./rate-limit";
+import { checkSelfRegistration, hashesFor, type Hashes } from "./rate-limit";
 
 export type AuthResponse = { status: number; body: AuthResult & { message?: string } };
 
@@ -46,37 +54,85 @@ async function audit(service: SupabaseClient, now: LocalDateTime, e: { action: s
     .catch((err: unknown) => logCode("revisionslogg", (err as Error)?.name));
 }
 
+/** Testmiljön (och en satt spärrlista): bara adresserna i MM_EMAIL_ALLOWLIST får en kod. */
+function blockedByAllowlist(email: string, settings: AppSettings): boolean {
+  const allowlist = emailAllowlist();
+  // Testdatat har adresser på riktiga domäner (t.ex. botkyrka.se) som aldrig får få mejl.
+  return (settings.environment === "staging" || allowlist.length > 0) && !allowedByList(email, allowlist);
+}
+
 /** Får adressen en kod? (Aktiv profil med roll, tillåten domän, spärrlistan i testmiljön.) */
 export async function eligibleForCode(service: SupabaseClient, email: string, settings: AppSettings) {
-  const allowlist = emailAllowlist();
-  // Testmiljön: testdatat har adresser på riktiga domäner (t.ex. botkyrka.se) som aldrig får få mejl.
-  if ((settings.environment === "staging" || allowlist.length) && !allowedByList(email, allowlist)) return null;
+  if (blockedByAllowlist(email, settings)) return null;
   const hit = await profileByEmail(service, email);
   if (!hit || !hit.profile.active || !hit.memberships.length) return null;
   if (!domainAllowed(email, hit.org, staffEmailDomains())) return null;
   return hit;
 }
 
-/** Skicka koden (körs efter svaret). */
-async function sendCode(email: string) {
+/**
+ * Vem koden gäller: en befintlig profil (eligibleForCode), eller en ny handläggare på avtalets kommundomän
+ * (självregistrering). null = ingen kod. En profil som finns men är spärrad eller saknar roll får ingen kod och registreras
+ * aldrig om.
+ */
+export async function codeTarget(service: SupabaseClient, email: string, settings: AppSettings): Promise<
+  | { kind: "existing"; hit: NonNullable<Awaited<ReturnType<typeof eligibleForCode>>> }
+  | { kind: "new"; contractIds: string[] }
+  | null
+> {
+  if (blockedByAllowlist(email, settings)) return null;
+  const hit = await profileByEmail(service, email);
+  if (hit) {
+    const ok = await eligibleForCode(service, email, settings);
+    return ok ? { kind: "existing", hit: ok } : null;
+  }
+  // service role: avtalens konfiguration och beställarnas domäner – bara för att avgöra om adressen får skapa ett konto.
+  const contractIds = await selfRegistrationTargets(appRepo(service), email);
+  return contractIds.length ? { kind: "new", contractIds } : null;
+}
+
+/** Skicka koden (körs efter svaret). h = adressens och IP-adressens hash (taket för nya konton räknas per IP). */
+async function sendCode(email: string, h: Hashes) {
   const service = serviceClient();
-  const settings = await loadAppSettings(service as unknown as PgClient, Date.now());
-  const hit = await eligibleForCode(service, email, settings);
-  if (!hit) return;
-  const { profile } = hit;
-  // Auth-användaren skapas vid första inloggningen (bekräftad e-post, ingen självregistrering). Testdatat har redan
-  // ett auth_user_id per profil – samma id används så att kopplingen finns från början.
-  const created = await service.auth.admin.createUser({ email, email_confirm: true, ...(profile.authUserId ? { id: profile.authUserId } : {}) });
-  if (created.error) {
-    const code = created.error.code ?? "";
-    if (code !== "email_exists" && code !== "user_already_exists") {
-      // Kontot kunde inte skapas: ingen kod. (generateLink skulle annars skapa ett eget konto – ingen självregistrering.)
-      logCode("skapa-konto", code || created.error.status?.toString());
+  const nowMs = Date.now();
+  const settings = await loadAppSettings(service as unknown as PgClient, nowMs);
+  const target = await codeTarget(service, email, settings);
+  if (!target) return;
+  const now = clockNow(settings.clock, nowMs);
+  if (target.kind === "new") {
+    // Självregistrering: taket för nya adresser (hela appen och per IP, unika adresser), sedan Auth-användaren (profilen
+    // skapas först när koden prövats). En ny kod till en adress som redan påbörjat räknas inte igen.
+    const verdict = await checkSelfRegistration(selfRegistrationStore(service), h, nowMs);
+    if (verdict === "app_limit" || verdict === "ip_limit") {
+      logCode("självregistrering", verdict === "app_limit" ? "tak" : "tak-ip");
       return;
     }
-  } else if (created.data.user && profile.authUserId !== created.data.user.id) {
-    const { error } = await service.from("profiles").update({ auth_user_id: created.data.user.id }).eq("id", profile.id);
-    if (error) logCode("koppla-konto", error.code);
+    const created = await service.auth.admin.createUser({ email, email_confirm: true });
+    if (created.error) {
+      const code = created.error.code ?? "";
+      if (code !== "email_exists" && code !== "user_already_exists") {
+        logCode("skapa-konto", code || created.error.status?.toString());
+        return;
+      }
+    }
+    // Revisionsloggen får bara domänen – aldrig adressen. En gång per ny adress och fönster.
+    if (verdict === "ok") await audit(service, now, { action: "auth.self_registration_started", actorId: null, entityId: null, contractId: target.contractIds[0] ?? null, details: { domain: emailDomainOf(email) } });
+  } else {
+    const { profile } = target.hit;
+    // Auth-användaren skapas vid första inloggningen (bekräftad e-post). Testdatat har redan ett auth_user_id per profil –
+    // samma id används så att kopplingen finns från början.
+    const created = await service.auth.admin.createUser({ email, email_confirm: true, ...(profile.authUserId ? { id: profile.authUserId } : {}) });
+    if (created.error) {
+      const code = created.error.code ?? "";
+      if (code !== "email_exists" && code !== "user_already_exists") {
+        // Kontot kunde inte skapas: ingen kod.
+        logCode("skapa-konto", code || created.error.status?.toString());
+        return;
+      }
+    } else if (created.data.user && profile.authUserId !== created.data.user.id) {
+      const { error } = await service.from("profiles").update({ auth_user_id: created.data.user.id }).eq("id", profile.id);
+      if (error) logCode("koppla-konto", error.code);
+    }
   }
   // Koden tas fram av Supabase Auth (utan mejl) och skickas av appen – aldrig omdirigerad, aldrig sparad (code-mail.ts).
   const env = notifyEnv();
@@ -87,7 +143,7 @@ async function sendCode(email: string) {
       log: appRepo(service),
       resend: env.resend,
       fetch: globalThis.fetch as unknown as FetchLike,
-      now: clockNow(settings.clock, Date.now()),
+      now,
       newId: (prefix) => `${prefix}-${crypto.randomUUID()}`,
       testEnvironment: settings.environment !== "production",
       validMinutes: CODE_VALID_MINUTES,
@@ -107,7 +163,7 @@ export async function requestCode(rawEmail: unknown, ip: string, later: (fn: () 
   if (verdict !== "ok") return fail(429, "rate_limited", AUTH_TEXT.rateLimited);
   later(async () => {
     try {
-      await sendCode(email);
+      await sendCode(email, h);
     } catch (e) {
       logCode("skicka-kod", (e as Error)?.name);
     }
@@ -144,9 +200,25 @@ export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCod
   }
   if (attempt.id != null) await gate.markVerified(attempt.id);
 
-  const hit = await profileByEmail(service, email);
+  let hit = await profileByEmail(service, email);
+  let createdNow = false;
+  if (!hit) {
+    // Självregistrering (beslut 2026-10-07): ingen profil – en adress på avtalets kommundomän får ett konto som kommunens
+    // handläggare. Samma kontroller som när koden skickades (spärrlistan i testmiljön, avtalens domäner).
+    const reg = blockedByAllowlist(email, settings) ? null : await selfRegister(appRepo(service), { email, now, newId: (prefix) => `${prefix}-${crypto.randomUUID()}` }).catch((e: unknown) => {
+      // Två samtidiga prövningar: den andra får en dubblett (profiles_email_key) och läser in profilen nedan.
+      if ((e as { code?: unknown })?.code !== "23505") logCode("självregistrering", (e as Error)?.name);
+      return null;
+    });
+    if (reg?.ok) {
+      createdNow = true;
+      const a = selfRegisteredAudit(reg);
+      await audit(service, now, { action: a.action, actorId: reg.profileId, entityId: reg.profileId, contractId: a.contractId, details: a.details });
+    }
+    hit = await profileByEmail(service, email);
+  }
   if (!hit || !hit.profile.active || !hit.memberships.length) {
-    // Kontot finns i Supabase Auth men profilen är spärrad eller borttagen: logga ut direkt.
+    // Kontot finns i Supabase Auth men profilen är spärrad eller borttagen (eller adressen får inte skapa ett konto): logga ut direkt.
     await user.auth.signOut({ scope: "local" });
     if (hit) await audit(service, now, { action: "auth.login_denied", actorId: null, entityId: hit.profile.id, contractId: hit.memberships[0]?.contractId ?? null, details: { method: "email_otp", reason: "inactive" } });
     return fail(403, "not_invited", AUTH_TEXT.noAccess);
@@ -159,5 +231,5 @@ export async function verifyCode(user: SupabaseClient, rawEmail: unknown, rawCod
   // Ny inloggning = testaren är sig själv igen.
   await service.from("tester_sessions").delete().eq("auth_user_id", data.user.id);
   await audit(service, now, { action: "auth.login", actorId: profile.id, entityId: profile.id, contractId: memberships[0]?.contractId ?? null, details: { method: "email_otp" } });
-  return { status: 200, body: { ok: true }, profileId: profile.id, sessionId: sessionIdOfToken(data.session?.access_token) };
+  return { status: 200, body: createdNow ? { ok: true, created: true } : { ok: true }, profileId: profile.id, sessionId: sessionIdOfToken(data.session?.access_token) };
 }

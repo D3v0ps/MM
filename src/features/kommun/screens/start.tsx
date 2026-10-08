@@ -5,7 +5,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import { Badge, BigButton, BigButtons, Button, Card, ErrorNotice, List, ListItem, Loading, Notice, PerspectiveLink, useToast } from "@/ui";
 import { kommunStart, kommunTaskDone, type KomStart, type KomTask } from "../api";
-import { fDT, fullText, ORDER_MAILBOX, SAFE_PHONE } from "../texts";
+import { CONTACT_PHONE, fDT, fullText } from "../texts";
 import { KIND_ICON, KomHead, KomPage, LeadIcon, SubLine, TitleRow, UNREAD_EDGE, reportPath } from "./parts";
 
 /** "Miljonbemanning behöver ditt beslut om BOT-26-0148" */
@@ -41,7 +41,17 @@ function StartContent({ d }: { d: KomStart }) {
   const allUnread = path("/portal/rapporter", { filter: "olasta", flik: d.unreadReports.length === 0 ? "meddelanden" : null });
   return (
     <KomPage>
-      <KomHead eyebrow={`${d.unit ?? ""} · ${d.customerName}`} title={`Välkommen, ${d.firstName}`} lead="Vad vill du göra i dag?" />
+      <KomHead eyebrow={d.unit ? `${d.unit} · ${d.customerName}` : d.customerName} title={`Välkommen, ${d.firstName}`} lead="Vad vill du göra i dag?" />
+      {d.profileIncomplete && (
+        <Notice tone="info" title="Fyll i dina uppgifter">
+          <p className="m-0">Vi behöver ditt namn, ditt telefonnummer och din enhet för att kunna kontakta dig om dina beställningar.</p>
+          <span className="mt-3 flex">
+            <Button kind="primary" icon="user" to="/portal/mina-uppgifter">
+              Fyll i dina uppgifter
+            </Button>
+          </span>
+        </Notice>
+      )}
       {d.tasks.length > 0 && (
         <Card title={`Att göra (${d.tasks.length})`} icon="flag" tone="red" flush>
           <List>
@@ -173,7 +183,7 @@ function StartContent({ d }: { d: KomStart }) {
         <BigButton icon="mail" title="Rapporter och meddelanden" sub={d.unreadTotal > 0 ? `${d.unreadTotal} olästa` : "Inga olästa"} to="/portal/rapporter" />
       </BigButtons>
       <p className="max-w-[62ch] text-text-muted">
-        Vill du hellre mejla? Skicka beställningen till {ORDER_MAILBOX}. Har du frågor kan du ringa oss på {SAFE_PHONE}.
+        Har du frågor kan du ringa oss på {CONTACT_PHONE}.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <PerspectiveLink role="samordnare" to="/min-vecka" label="Se startsidan hos Miljonbemanning" />

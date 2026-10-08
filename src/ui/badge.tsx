@@ -177,6 +177,26 @@ export function AiTag({ children = "AI-förslag" }: { children?: ReactNode }) {
   );
 }
 
+/** Texten i SimulatedAiNotice (synpunkt #8, beslut 2026-10-07). */
+export const SIMULATED_AI_TEXT = {
+  you: "Testmiljö: AI:n är simulerad – texten är påhittad och inte det du sa.",
+  participant: "Testmiljö: AI:n är simulerad – texten är påhittad och inte det deltagaren sa.",
+} as const;
+
+/**
+ * Förklaring där transkriberad text visas och AI-leverantören är simulerad (testmiljön, prototypen och utvecklingsläget):
+ * texten är påhittad och inte det som sades. Text + ikon (aldrig bara färg). Visas inte i produktionen – där körs aldrig den
+ * simulerade leverantören (src/server/ai/index.ts). Inte DemoOnly: den ska synas i testmiljön.
+ */
+export function SimulatedAiNotice({ who = "you", className }: { who?: keyof typeof SIMULATED_AI_TEXT; className?: string }) {
+  return (
+    <p role="note" className={cn("flex items-start gap-2 rounded-mb border-[1.5px] border-dashed border-antracit bg-ljusgra-ton px-3 py-2 font-bold", className)}>
+      <Icon name="alert-circle" className="mt-0.5 flex-none" />
+      {SIMULATED_AI_TEXT[who]}
+    </p>
+  );
+}
+
 /** Ruta för AI-förslag (blå kant, tonad yta). */
 export function AiBox({ children, className }: { children?: ReactNode; className?: string }) {
   return <div className={cn("flex flex-col gap-2 rounded-mb border-[1.5px] border-bla bg-bla-ton px-3 py-2.5", className)}>{children}</div>;

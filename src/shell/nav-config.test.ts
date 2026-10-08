@@ -42,11 +42,11 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
   it("ekonom: Min vardag + Ekonomi med fakturakörningen för förra månaden enligt klockan", () => {
     expect(labels("ekonom")).toEqual([
       ["Min vardag", ["Min vecka /min-vecka"]],
-      ["Ekonomi", ["Fakturering /ekonomi", "Fakturakörning januari /ekonomi/2027-01"]],
+      ["Ekonomi", ["Fakturering /ekonomi", "Fakturakörning januari /ekonomi/2027-01", "Prislista /ekonomi/prislista"]],
     ]);
-    expect(labels("ekonom", "2027-01-05T08:00")[1][1]).toEqual(["Fakturering /ekonomi", "Fakturakörning december /ekonomi/2026-12"]);
-    // Utan klocka visas bara Fakturering (raden kommer när tiden är hämtad).
-    expect(labels("ekonom", null)[1][1]).toEqual(["Fakturering /ekonomi"]);
+    expect(labels("ekonom", "2027-01-05T08:00")[1][1]).toEqual(["Fakturering /ekonomi", "Fakturakörning december /ekonomi/2026-12", "Prislista /ekonomi/prislista"]);
+    // Utan klocka visas inte fakturakörningen (raden kommer när tiden är hämtad).
+    expect(labels("ekonom", null)[1][1]).toEqual(["Fakturering /ekonomi", "Prislista /ekonomi/prislista"]);
   });
   it("alla MB-roller börjar menyn med Min vecka, och högst en rollflik", () => {
     for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) {
@@ -58,25 +58,17 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
   });
   it("kommun och deltagare har ingen sidopanel", () => {
     expect(navFor("kommun_handlaggare", { now: null })).toEqual([]);
-    expect(navFor("kommun_chef", { now: null })).toEqual([]);
     expect(navFor("deltagare", { now: null })).toEqual([]);
   });
 });
 
 describe("portalens meny (KOM_NAV)", () => {
-  it("handläggare och chef", () => {
-    expect(PORTAL_NAV.kommun_handlaggare.map((i) => i.label)).toEqual(["Start", "Beställ ny insats", "Mina deltagare", "Rapporter och meddelanden"]);
-    expect(PORTAL_NAV.kommun_chef.map((i) => `${i.label} ${i.to}`)).toEqual([
-      "Beställarrapport /portal/bestallarrapport", "Enhetens deltagare /portal/deltagare", "Rapporter /portal/rapporter", "Hämta resultat /portal/resultat",
-    ]);
-  });
-  it("Hämta resultat visas bara när avtalet har resultatfilen (navCounts.resultFile)", () => {
-    const chef = (counts: { resultFile?: boolean } | null) => portalNavFor("kommun_chef", counts).map((i) => i.label);
-    expect(chef({ resultFile: true })).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter", "Hämta resultat"]);
-    expect(chef({ resultFile: false })).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
-    expect(chef(null)).toEqual(["Beställarrapport", "Enhetens deltagare", "Rapporter"]);
-    // Handläggaren har aldrig menyvalet
-    expect(portalNavFor("kommun_handlaggare", { resultFile: true }).map((i) => i.to)).not.toContain("/portal/resultat");
+  it("bara handläggaren (beslut 2026-10-07) – med Mina uppgifter, utan beställarrapport och resultat", () => {
+    expect(PORTAL_NAV.kommun_handlaggare.map((i) => i.label)).toEqual(["Start", "Beställ ny insats", "Mina deltagare", "Rapporter och meddelanden", "Mina uppgifter"]);
+    expect(Object.keys(PORTAL_NAV)).toEqual(["kommun_handlaggare"]);
+    const to = portalNavFor("kommun_handlaggare").map((i) => i.to);
+    expect(to).toContain("/portal/mina-uppgifter");
+    expect(to.some((x) => x.startsWith("/portal/resultat") || x === "/portal/bestallarrapport")).toBe(false);
   });
 });
 
@@ -88,8 +80,6 @@ describe("rapportbyggaren (rapporter steg 4)", () => {
     // Rapportbyggaren och rapportlistan är olika menyval.
     expect(activePath("/rapportbyggare/sr-1", ["/rapporter", "/rapportbyggare"])).toBe("/rapportbyggare");
     expect(activePath("/rapporter/rep-1", ["/rapporter", "/rapportbyggare"])).toBe("/rapporter");
-    // Kommunens delade rapporter ligger under Hämta resultat (ingen ny menyrad).
-    expect(activePath("/portal/resultat/rapporter/sr-1", PORTAL_NAV.kommun_chef.map((i) => i.to))).toBe("/portal/resultat");
   });
 });
 

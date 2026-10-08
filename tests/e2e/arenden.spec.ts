@@ -9,7 +9,7 @@ const SC = {
   nadia: "case-260143", // BOT-26-0143, Amira, praktik, olästa meddelandet msg-3 från Maria
   yusuf: "case-260148", // BOT-26-0148, upprepad ogiltig frånvaro, eskalerad till chef
   elif: "case-270003", // BOT-27-0003, samtycke inte tillfrågat, beställd av annan handläggare än Maria
-  skyddad: "case-260120", // BOT-26-0120, skyddade personuppgifter (Sanna Lindgren), coach Erik
+  skyddad: "case-260120", // BOT-26-0120 (Sanna Lindgren), coach Erik – var skyddat före 2026-10-07, nu ett vanligt ärende
   ingetmote: "case-270039", // BOT-27-0039, första mötet inte bokat
   coachbyte: "case-260135", // BOT-26-0135, byte av huvudcoach
   annanCoach: "case-260117", // BOT-26-0117, Mats ärende – Amira har ingen åtkomst
@@ -80,7 +80,7 @@ async function probe(page: Page): Promise<string[]> {
 const horizontalOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 
 // ------------------------------------------------------------ 1. Ärendelistan som samordnare
-test("1. ärendelistan: sidor om 50, sök, filter och skyddade ärenden utan namn", async ({ page }, info) => {
+test("1. ärendelistan: sidor om 50, sök och filter – inga skyddade ärenden (beslut 2026-10-07)", async ({ page }, info) => {
   const errors = await open(page, info, "/arenden", SARA);
   await expect(rows(page)).toHaveCount(50);
   await expect(main(page)).toContainText("Visar 50 av 231");
@@ -100,37 +100,33 @@ test("1. ärendelistan: sidor om 50, sök, filter och skyddade ärenden utan nam
   const allPhase4 = await rows(page).evaluateAll((trs) => trs.every((tr) => (tr as HTMLElement).innerText.includes("Fas 4")));
   expect(allPhase4, "Fasfilter visar bara fas 4").toBe(true);
   await btn(page, "Rensa filter").first().click();
-  await page.check("#arn-onlyprot");
+  // Skyddade personuppgifter är borttagna ur appen: inget filter, och ärendet som var skyddat är ett vanligt ärende.
+  await expect(page.locator("#arn-onlyprot")).toHaveCount(0);
+  await page.fill("#arn-q", "0120");
   await expect(rows(page)).toHaveCount(1);
-  const protText = await table(page).locator("tbody").innerText();
-  expect(protText).toContain("Skyddade personuppgifter – ingen åtkomst");
-  expect(protText).not.toContain("Sanna");
-  await rows(page).first().click();
-  // Filtren ligger i adressen (?skyddade=1) – men raden öppnar inget kort.
-  await expect(page, "Skyddad rad går inte att öppna för samordnaren").toHaveURL(/\/arenden(\?[^/]*)?$/);
+  await expect(table(page).locator("tbody")).toContainText("Sanna Lindgren");
+  await expect(table(page).locator("tbody")).not.toContainText("Skyddade personuppgifter");
+  await btn(page, "Rensa filter").first().click();
   await page.check("#arn-onlyflags");
   expect(errors).toEqual([]);
 });
 
-// ------------------------------------------------------------ 2. Skyddade som avtalsansvarig (scenario 10)
-test("2. avtalsansvarig ser namn och deltagarkort i skyddat ärende – ingen AI och säker kontaktväg", async ({ page }, info) => {
-  const errors = await open(page, info, "/arenden?filter=skyddade", JOHAN);
-  await expect(main(page)).toContainText("vem ser vad");
-  await expect(table(page).locator("tbody")).toContainText("Sanna Lindgren");
-  await rows(page).first().click();
-  await expect(page).toHaveURL(new RegExp(`/arenden/${SC.skyddad}$`));
-  await expect(main(page)).toContainText("Ej tillämpligt");
-  await expect(btn(page, "Registrera samtycke")).toHaveCount(0);
-  await expect(main(page)).toContainText("Telefon enligt den säkra rutinen");
+// ------------------------------------------------------------ 2. Inga skyddade ärenden i gränssnittet (beslut 2026-10-07)
+test("2. avtalsansvarig: ärendet som var skyddat öppnas som alla andra – ingen skyddsmarkering och ingen säker rutin", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.skyddad}`, JOHAN);
+  await expect(main(page)).toContainText("Sanna Lindgren");
+  await expect(main(page)).not.toContainText(/Skyddade personuppgifter|säkra rutinen/);
+  // Det gamla filtret i adressen gör ingenting – listan visar alla ärenden.
+  await switchTo(page, info, "/arenden?filter=skyddade", JOHAN);
+  await expect(rows(page)).toHaveCount(50);
+  await expect(main(page)).not.toContainText("Skyddade personuppgifter");
   expect(errors).toEqual([]);
 });
 
 // ------------------------------------------------------------ 3. Coachens lista och åtkomst
 test("3. coachen ser bara egna ärenden och får en tydlig ingen-åtkomst-ruta; nekade försök loggas", async ({ page }, info) => {
-  const errors = await open(page, info, "/arenden?filter=skyddade", AMIRA);
-  await expect(main(page)).toContainText("Du har inga ärenden med skyddade personuppgifter");
+  const errors = await open(page, info, "/arenden", AMIRA);
   // Coachens synliga ärenden är bara egna och teamets (29 i testdatat, samma som prototypens sel.visibleCases).
-  await btn(page, "Rensa filter").first().click();
   await expect(main(page)).toContainText("29 ärenden");
   await switchTo(page, info, `/arenden/${SC.skyddad}`, AMIRA);
   await expect(main(page)).toContainText("Du saknar åtkomst");
@@ -377,40 +373,36 @@ test("12. historiken: coachen ser status och egna åtgärder – aldrig chefens 
 });
 
 // ------------------------------------------------------------ 13. Perspektivbyten (bara i prototypen)
-test("13. perspektivbyten går till rätt roll och flik och döljs för skyddade ärenden", async ({ page }, info) => {
+test("13. perspektivbyten går till rätt roll och flik – bara till handläggaren som beställde", async ({ page }, info) => {
   test.skip(!isDemo(info), "Perspektivbytena finns bara i prototypen.");
-  const role = page.getByLabel("Roll", { exact: true });
+  // Kommunen har bara rollen handläggare (beslut 2026-10-07): prototypfältet visar kundens perspektiv utan rollväljare.
+  const kund = page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Kund" });
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=rapporter`, SARA);
   await btn(page, "Så ser kommunen rapporterna").click();
   await expect(page).toHaveURL(new RegExp(`/portal/deltagare/${SC.nadia}\\?flik=rapporter$`));
-  await expect(role).toHaveValue("kommun_handlaggare");
+  await expect(kund).toHaveAttribute("aria-pressed", "true");
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=meddelanden`, SARA);
   await btn(page, "Se tråden som kommunen").click();
   await expect(page).toHaveURL(new RegExp(`/portal/deltagare/${SC.nadia}\\?flik=meddelanden$`));
-  await expect(role).toHaveValue("kommun_handlaggare");
+  await expect(kund).toHaveAttribute("aria-pressed", "true");
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=meddelanden`, SARA);
   await btn(page, "Se ärendet som kommunen").click();
   await expect(page, "Huvudets perspektivbyte behåller fliken Meddelanden").toHaveURL(/\?flik=meddelanden$/);
-  // Ärende från en annan handläggare: bytet går till kommunens chef och säger det.
+  // Ärende från en annan handläggare än prototypens: inget perspektivbyte (kommunens chef finns inte sedan 2026-10-07).
   await switchTo(page, info, `/arenden/${SC.elif}?flik=avvikelser`, AMIRA);
-  await expect(btn(page, "Se ärendet som kommunens chef")).toHaveCount(1);
+  await expect(main(page).getByRole("button", { name: /som kommunen|kommunens chef/ })).toHaveCount(0);
   await btn(page, "Kalla kommunen till uppföljning").first().click();
   await btn(page, "Skicka kallelsen").click();
-  await expect(main(page)).toContainText("finns inte som roll i prototypen");
-  await btn(page, "Se kallelsen som kommunens chef").click();
-  await expect(page).toHaveURL(new RegExp(`/portal/deltagare/${SC.elif}\\?flik=meddelanden$`));
-  await expect(role).toHaveValue("kommun_chef");
-  await expect(page.locator("body")).toContainText(/uppföljningsmöte/i);
-  // Skyddat ärende: inget perspektivbyte till kund utan åtkomst, och en förklaring varför.
+  await expect(main(page)).toContainText("Kallelsen är skickad");
+  await expect(main(page).getByRole("button", { name: /Se kallelsen som/ })).toHaveCount(0);
+  // Ärendet som var skyddat (en annan handläggare): inget perspektivbyte på någon flik. Chefen läser det som andra ärenden.
   for (const t of ["oversikt", "rapporter", "meddelanden", "avvikelser"]) {
     await switchTo(page, info, `/arenden/${SC.skyddad}?flik=${t}`, JOHAN);
     await expect(page.getByRole("tab", { selected: true })).toBeVisible();
     await expect(main(page).getByRole("button", { name: /som kommunen|kommunens chef|Så ser/ })).toHaveCount(0);
   }
-  await expect(main(page)).toContainText("bara beställande handläggare");
   await switchTo(page, info, `/arenden/${SC.skyddad}`, KARIN);
-  await expect(main(page)).toContainText("Du saknar åtkomst");
-  await expect(main(page)).not.toContainText("Sanna");
+  await expect(main(page)).toContainText("Sanna Lindgren");
   expect(errors).toEqual([]);
 });
 
@@ -568,7 +560,7 @@ test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas in
   await expect(main(page)).toContainText("Månadsbedömningen är inte godkänd. Avsnitt 4, 7 och 8 blir tomma.");
   await expect(main(page)).toContainText("3 anteckningar från januari kan användas i sammanfattningen.");
   await expect(page.getByRole("link", { name: "Gör månadsbedömningen" })).toBeVisible();
-  for (const h of ["1. Grunduppgifter", "2. Närvaro och frånvaro", "3. Genomförda aktiviteter", "4. Progression", "5. Resultat och utfall", "6. Avvikelse, risk och åtgärd", "7. Plan för nästa månad", "8. Coachens sammanfattande bedömning"]) {
+  for (const h of ["1. Grunduppgifter", "2. Närvaro", "3. Genomförda aktiviteter", "4. Progression", "5. Resultat och utfall", "6. Avvikelse, risk och åtgärd", "7. Plan för nästa månad", "8. Coachens sammanfattande bedömning"]) {
     await expect(main(page).getByRole("heading", { name: h })).toBeVisible();
   }
   await expect(main(page)).toContainText("Progression över tid");

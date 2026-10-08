@@ -214,7 +214,8 @@ describe("sidan och CSV", () => {
       `2026-10-01 14:03;2027-02-01 09:13;Fel;Måste ändras;Ny;Huvudcoach;Deltagarkort;/arenden/case-260143;"'=HYPERLINK(""x"")";Karim Khalil;1;"Ali Khalil (2026-10-01 14:10): Ok; vi fixar"`,
     );
     // Utan riktig tid (minnesläget): testtiden i båda kolumnerna.
-    expect(lines[2]).toBe("2027-02-01 10:00;2027-02-01 10:00;Bra som det är;Kan vänta;Klar;Kommunens chef;Hela Miljonmatch;;Bra;Sara Salah;0;");
+    // En äldre synpunkt från rollen kommunens chef (borttagen 2026-10-07) behåller en läsbar roll.
+    expect(lines[2]).toBe("2027-02-01 10:00;2027-02-01 10:00;Bra som det är;Kan vänta;Klar;Kommunens chef (borttagen roll);Hela Miljonmatch;;Bra;Sara Salah;0;");
     expect(lines).toHaveLength(3);
   });
 });

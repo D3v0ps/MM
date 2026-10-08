@@ -22,7 +22,9 @@ describe("registret", () => {
     expect(d.mineOnly).toBe(false);
     // Den gamla prototypen räknade 32 av 158 (31 av 32): praktikplatsen för personen med skyddade personuppgifter
     // räknas inte längre för samordnaren (CLAUDE.md punkt 8).
-    expect(d.kpis).toEqual({ employers: 12, ongoing: 31, total: 157, upcoming: 27, full: 30 });
+    // Samma tal som prototypen: personen som hade skyddade personuppgifter är en vanlig person sedan 2026-10-07, så hennes
+    // praktikplats räknas (tidigare 31 pågående av 157, 30 med alla fyra rätt).
+    expect(d.kpis).toEqual({ employers: 12, ongoing: 32, total: 158, upcoming: 27, full: 31 });
     expect(d.upcoming.map((u) => [u.date, u.employerName, u.who, u.rightsDone])).toEqual([
       ["2027-02-01", "Hallunda Lagerservice AB", "Nadia Warsame · BOT-26-0143", 3],
       ["2027-02-02", "Fittja Handel AB", "Idris Mohamed · BOT-26-0146", 4],
@@ -33,7 +35,7 @@ describe("registret", () => {
     ]);
     expect(d.employers.slice(0, 3).map((e) => [e.name, e.ongoing, e.total, e.next])).toEqual([
       ["Hallunda Lagerservice AB", 13, 56, "2027-02-01"],
-      ["Tumba Städ & Fastighet AB", 5, 33, "2027-02-05"], // prototypen: 6 och 34 (med den skyddade personens praktikplats)
+      ["Tumba Städ & Fastighet AB", 6, 34, "2027-02-05"], // som prototypen (praktikplatsen räknas – inga skyddade personer i testdatat)
       ["Fittja Handel AB", 4, 17, "2027-02-02"],
     ]);
     expect(d.employers[0].areas).toEqual([{ code: "G", name: "Lager och logistik" }, { code: "J", name: "Parti- och detaljhandel" }]);
@@ -75,7 +77,10 @@ describe("en arbetsgivare", () => {
     expect(d.employer).toMatchObject({ name: "Hallunda Lagerservice AB", orgNr: "556000-1000", contactName: "Peter Lund", email: "kontakt@example.com" });
   });
 
-  it("skyddade personuppgifter: praktikplatsen syns bara för den som får se personen – inte ens utan namn", async () => {
+  it("skyddade personuppgifter (vilande spärr påslagen): praktikplatsen syns bara för den som får se personen – inte ens utan namn", async () => {
+    // Testdatat har inga skyddade personer sedan 2026-10-07 – spärren slås på för personen i case-260120.
+    const skyddad = rt.rows("cases").find((c) => c.id === "case-260120")!;
+    Object.assign(rt.rows("persons").find((p) => p.id === skyddad.personId)!, { protectedIdentity: true });
     const prot = new Set(rt.rows("persons").filter((p) => p.protectedIdentity).map((p) => p.id));
     const protCase = rt.rows("cases").find((c) => prot.has(c.personId) && rt.rows("placements").some((p) => p.caseId === c.id))!;
     const pl = rt.rows("placements").find((p) => p.caseId === protCase.id)!;

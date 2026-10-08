@@ -54,3 +54,21 @@ describe("tidszon", () => {
     expect(t.toStockholmLocal("2027-07-01T08:12:00Z")).toBe("2027-07-01T10:12");
   });
 });
+
+describe("omfattningen i månader (beslut 2026-10-07, synpunkt #5)", () => {
+  it("planerat slut: dagen före samma datum n månader senare – månadens sista dag klipps", () => {
+    expect(t.orderPeriodEnd("2027-02-15", 6)).toBe("2027-08-14");
+    expect(t.orderPeriodEnd("2027-02-03", 6)).toBe("2027-08-02");
+    expect(t.orderPeriodEnd("2027-02-03", 12)).toBe("2028-02-02");
+    expect(t.orderPeriodEnd("2027-08-31", 6)).toBe("2028-02-28"); // 29 februari 2028 minus en dag
+    expect(t.orderPeriodEnd("2027-01-01", 12)).toBe("2027-12-31");
+    expect(t.orderPeriodEnd("2027-02-15T09:12", 6)).toBe("2027-08-14");
+  });
+  it("debiterbara veckor: alla ISO-veckor med minst en dag i perioden – samma regel som faktureringen", () => {
+    expect(t.billableWeekCount("2027-02-03", "2027-08-02")).toBe(27);
+    expect(t.billableWeekCount("2027-02-01", "2027-02-07")).toBe(1);
+    expect(t.billableWeekCount("2027-02-07", "2027-02-08")).toBe(2); // söndag till måndag
+    expect(t.billableWeekCount("2026-12-28", "2027-01-03")).toBe(1); // vecka 53 över årsskiftet
+    expect(t.billableWeekCount("2027-02-08", "2027-02-07")).toBe(0);
+  });
+});

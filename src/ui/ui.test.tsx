@@ -18,6 +18,7 @@ import {
   MaskedPnr,
   PerspectiveLink,
   QueryView,
+  SimulatedAiNotice,
   Seg,
   SlaBadge,
   Status,
@@ -164,6 +165,20 @@ describe("status alltid med text", () => {
     expect(screen.getByText("Kräver åtgärd")).toBeTruthy();
     expect(screen.getByText("Flaggat")).toBeTruthy();
   });
+  it("SimulatedAiNotice: text och ikon i en anteckning – för den som talade in och för deltagarens röst (synpunkt #8)", () => {
+    render(
+      <>
+        <SimulatedAiNotice />
+        <SimulatedAiNotice who="participant" />
+      </>,
+    );
+    const notes = screen.getAllByRole("note");
+    expect(notes.map((n) => n.textContent)).toEqual([
+      "Testmiljö: AI:n är simulerad – texten är påhittad och inte det du sa.",
+      "Testmiljö: AI:n är simulerad – texten är påhittad och inte det deltagaren sa.",
+    ]);
+    for (const n of notes) expect(n.querySelector("svg")).not.toBeNull();
+  });
   it("Kv hoppar över tomma rader och visar – för saknat värde", () => {
     render(<Kv items={[["Ärende", "BOT-26-0143"], null, ["Coach", null]]} />);
     expect(screen.getAllByRole("definition").map((d) => d.textContent)).toEqual(["BOT-26-0143", "–"]);
@@ -189,7 +204,7 @@ describe("ärende och personnummer", () => {
     const { unmount } = render(wrap(<CaseLink caseId="case-1" caseNumber="BOT-26-0143" />, { role: "coach" }));
     expect(screen.getByRole("link", { name: "BOT-26-0143" }).getAttribute("href")).toBe("#/arenden/case-1");
     unmount();
-    render(wrap(<CaseLink caseId="case-1" caseNumber="BOT-26-0143" />, { role: "kommun_chef" }));
+    render(wrap(<CaseLink caseId="case-1" caseNumber="BOT-26-0143" />, { role: "kommun_handlaggare" }));
     expect(screen.getByRole("link", { name: "BOT-26-0143" }).getAttribute("href")).toBe("#/portal/deltagare/case-1");
     cleanup();
     render(wrap(<CaseLink caseId="case-1" caseNumber="BOT-26-0143" />, { role: "ekonom" }));

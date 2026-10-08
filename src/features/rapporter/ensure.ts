@@ -68,13 +68,13 @@ export async function ensureReports(ctx: Ctx, state: ReportScheduleState): Promi
     const loadFrom = since ? addDays(dayOf(since), -7) : null;
     const [cases, memberships, existing] = await Promise.all([
       s.table("cases").list({ contractId: contract.id }, { orderBy: "id" }),
-      s.table("memberships").list({ contractId: contract.id, role: { in: ["kommun_handlaggare", "kommun_chef"] } }, { orderBy: "id" }),
+      s.table("memberships").list({ contractId: contract.id, role: "kommun_handlaggare" }, { orderBy: "id" }),
       s.table("reports").list({ contractId: contract.id, kind: { in: kinds }, ...(loadFrom ? { periodEnd: { gte: loadFrom } } : {}) }),
     ]);
     // Bara konton som är aktiva får rapporter – ett spärrat konto kan inte läsa dem.
     const userIds = [...new Set(memberships.map((m) => m.userId))];
     const active = new Set(userIds.length ? (await s.table("profiles").list({ id: { in: userIds }, active: true })).map((p) => p.id) : []);
-    const recipients = (role: string) => memberships.filter((m) => m.role === role && active.has(m.userId)).map((m) => m.userId);
+    const caseworkers = memberships.filter((m) => active.has(m.userId)).map((m) => m.userId);
     const caseIds = cases.map((c) => c.id);
     const approved = kinds.includes("monthly") && caseIds.length
       ? await s.table("monthly_assessments").list({ caseId: { in: caseIds }, status: "approved", ...(loadFrom ? { month: { gte: monthKey(loadFrom) } } : {}) })
@@ -82,8 +82,7 @@ export async function ensureReports(ctx: Ctx, state: ReportScheduleState): Promi
     const input: ScheduleInput = {
       contract: { id: contract.id, startsOn: contract.startsOn, endsOn: contract.endsOn, config: contract.config },
       cases,
-      caseworkerIds: recipients("kommun_handlaggare"),
-      managerIds: recipients("kommun_chef"),
+      caseworkerIds: caseworkers,
       approvedAssessments: new Set(approved.map((m) => `${m.caseId}:${m.month}`)),
       existing,
       since,

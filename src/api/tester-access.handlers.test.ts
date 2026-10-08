@@ -1,5 +1,7 @@
 // Servern lämnar inte ut priser, belopp, fakturaunderlag, viten, bonus eller interna mål till begränsade testare (beslut
 // 2026-10-02) – vilken testperson de än agerar som. Karim (fullständig åtkomst) får samma svar som alla andra användare.
+// Beslut 5 (2026-10-07): belopp syns bara för rollen ekonom – varje annan roll får samma skydd mot belopp som en begränsad
+// testare (sist i filen), och ekonomen (utan testarbegränsning) ser beloppen.
 // Körs mot testdatat i minnet med samma hanterare som appen (MemoryRuntime); testaren simuleras med Actor.testerId, som servern
 // sätter i testmiljön (src/server/identity.ts).
 import { beforeEach, describe, expect, it } from "vitest";
@@ -50,15 +52,15 @@ function expectClean(json: string, label: string) {
 }
 
 // ================================================================ Hela frågor och kommandon nekas
-const DENIED = [
-  "admin.contract", "admin.orgRules", "admin.setOrgRule",
+const EKONOMI = [
   "ekonomi.askCoordinator", "ekonomi.billingApproveInvoice", "ekonomi.billingApproveZeroWeek", "ekonomi.billingExport", "ekonomi.billingMarkManual",
-  "ekonomi.billingSendFortnox", "ekonomi.caseList", "ekonomi.case", "ekonomi.closeRun", "ekonomi.csv", "ekonomi.fortnoxLog", "ekonomi.fortnoxSync",
-  "ekonomi.invoice", "ekonomi.preview", "ekonomi.reissue", "ekonomi.run", "ekonomi.start", "ekonomi.taskDone",
-].sort();
-/** En roll som får anropa nyckeln (rollkontrollen kommer före spärren). */
-const roleFor = (key: string): [string, Role] =>
-  key.startsWith("admin.") ? ["u-robin", "admin"] : ["ekonomi.run", "ekonomi.invoice", "ekonomi.csv", "ekonomi.preview", "ekonomi.case", "ekonomi.caseList", "ekonomi.start"].includes(key) ? ["u-karin", "chef"] : ["u-lars", "ekonom"];
+  "ekonomi.billingSendFortnox", "ekonomi.caseList", "ekonomi.case", "ekonomi.closeRun", "ekonomi.csv", "ekonomi.fortnoxSync", "ekonomi.invoiceSetBuyerRef",
+  "ekonomi.invoiceSetPo", "ekonomi.line", "ekonomi.preview", "ekonomi.priceList", "ekonomi.reissue", "ekonomi.run", "ekonomi.start", "ekonomi.taskDone",
+];
+const DENIED = ["admin.contract", "admin.orgRules", "admin.setOrgRule", ...EKONOMI].sort();
+const EKONOMI_COMMAND = /ekonomi\.(billing|askCoordinator|closeRun|fortnox|reissue|taskDone|invoiceSet)/;
+/** En roll som får anropa nyckeln (rollkontrollen kommer före spärren). Ekonomi är bara ekonomens (beslut 5). */
+const roleFor = (key: string): [string, Role] => (key.startsWith("admin.") ? ["u-robin", "admin"] : ["u-lars", "ekonom"]);
 
 describe("spärren i execute(): hela sidor om pengar och villkor", () => {
   it("exakt avtalssidans frågor och alla Ekonomis frågor och kommandon är markerade", () => {
@@ -69,7 +71,7 @@ describe("spärren i execute(): hela sidor om pengar och villkor", () => {
   it("begränsad testare: varje nekad fråga och varje nekat kommando ger 403 tester_hidden", async () => {
     for (const key of DENIED) {
       const [userId, role] = roleFor(key);
-      const kind = key === "admin.setOrgRule" || /ekonomi\.(billing|askCoordinator|closeRun|fortnox|reissue|taskDone)/.test(key) ? "command" : "query";
+      const kind = key === "admin.setOrgRule" || EKONOMI_COMMAND.test(key) ? "command" : "query";
       const e = await errorOf(rt.run(kind, key, {}, as(userId, role, SARA_T)));
       expect(e?.status, key).toBe(403);
       expect(e?.code, key).toBe(TESTER_HIDDEN_CODE);
@@ -79,9 +81,9 @@ describe("spärren i execute(): hela sidor om pengar och villkor", () => {
 
   it("Karim och vanliga användare: samma svar som förut (inget tester_hidden)", async () => {
     for (const testerId of [KARIM, undefined]) {
-      expect((await any("admin.contract", {}, as("u-robin", "admin", testerId))).priceItems.length).toBeGreaterThan(0);
       expect((await any("admin.contract", {}, as("u-robin", "admin", testerId))).contracts).toHaveLength(1);
-      expect((await any("ekonomi.start", {}, as("u-karin", "chef", testerId)))).toBeTruthy();
+      expect((await any("ekonomi.priceList", {}, as("u-lars", "ekonom", testerId))).items.length).toBeGreaterThan(0);
+      expect((await any("ekonomi.start", {}, as("u-lars", "ekonom", testerId)))).toBeTruthy();
       expect((await any("ekonomi.run", { month: "2027-01" }, as("u-lars", "ekonom", testerId)))).toBeTruthy();
       expect((await cmd("admin.setOrgRule", { remindCoachAfterWeeks: 1, escalateAfterConsecutiveWeeks: 2, escalateTo: ["chef"], channels: ["app"], assignmentChannels: ["app"] }, as("u-robin", "admin", testerId))).ok).toBe(true);
     }
@@ -99,13 +101,11 @@ describe("spärren i execute(): hela sidor om pengar och villkor", () => {
 
 // ================================================================ Beloppsfälten saknas i svaren
 describe("fält som tas bort för begränsade testare (och finns för Karim)", () => {
-  it("deltagarkortet: beställningens veckor finns, priset saknas", async () => {
+  it("deltagarkortet: beställningens veckor finns – inget pris för någon (synpunkt #10/#11 och beslut 5)", async () => {
     const k = await any("arenden.kort", { caseId: "case-260117" }, as("u-sara", "samordnare", KARIM));
     const s = await any("arenden.kort", { caseId: "case-260117" }, as("u-sara", "samordnare", SARA_T));
-    expect(k.order).toEqual({ weeks: expect.any(Number), priceOre: expect.any(Number) });
-    expect(k.order.priceOre).toBeGreaterThan(0);
-    expect(s.order).toEqual({ weeks: k.order.weeks });
-    expect("priceOre" in s.order).toBe(false);
+    expect(k.order).toEqual({ weeks: expect.any(Number) });
+    expect(s.order).toEqual(k.order);
   });
 
   it("deltagarkortets händelser och coachens händelsesida: inget bonusunderlag", async () => {
@@ -127,7 +127,8 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     const kinds = (l: { rows: { detail: { flags: { kind: string }[] } | null }[] }) => l.rows.flatMap((r) => r.detail?.flags.map((f) => f.kind) ?? []);
     expect(kinds(kl)).toContain("unbilled");
     expect(kinds(sl)).not.toContain("unbilled");
-    expect(JSON.stringify(kl)).toMatch(AMOUNT);
+    // Beslut 5: chefen (också Karim som chef) ser flaggan om ofakturerat utan kronor.
+    expect(JSON.stringify(kl)).not.toMatch(AMOUNT);
     expectClean(JSON.stringify(sl), "arenden.lista");
     const ko = await any("ledning.overview", {}, as("u-karin", "chef", KARIM));
     const so = await any("ledning.overview", {}, as("u-karin", "chef", SARA_T));
@@ -143,8 +144,10 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     // 33,9 % ligger mellan avtalsmålet och det interna målet: "Bevaka" för Karim, "ok" (når avtalsmålet) för testaren.
     expect([k.rolling.status, s.rolling.status]).toEqual(["below_internal", "ok"]);
     expect(s.rolling.value).toBe(k.rolling.value);
-    // Fakturaunderlaget (ofakturerade veckor, ärenden och belopp) lämnas inte ut alls.
-    expect(k.unbilled).toMatchObject({ totalOre: 557400, weeks: 4, canOpenBilling: true });
+    // Fakturaunderlaget lämnas inte ut alls till testaren. Karim som chef: antal veckor och ärenden, inga kronor och ingen
+    // länk till Ekonomi (beslut 5).
+    expect(k.unbilled).toMatchObject({ weeks: 4, canOpenBilling: false });
+    expect("totalOre" in k.unbilled).toBe(false);
     expect("unbilled" in s).toBe(false);
     expect(k.sla.targetText).toBe("internt mål 100\u00a0%");
     expect(s.sla.targetText).toBe("");
@@ -175,14 +178,15 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
   });
 
   it("revisionsloggen: faktureringens detaljer visas inte – raderna finns kvar", async () => {
-    expect((await cmd("ekonomi.billingMarkManual", { month: "2027-01", caseId: "case-260072", invoiceNo: "12345" }, as("u-lars", "ekonom", KARIM))).ok).toBe(true);
+    const ref = { month: "2027-01", invoiceId: "inv-c-bot-2027-01-avtal", reference: "55102938" };
+    expect((await cmd("ekonomi.invoiceSetBuyerRef", ref, as("u-lars", "ekonom", KARIM))).ok).toBe(true);
     for (const who of [as("u-robin", "admin", SARA_T), as("u-karin", "chef", SARA_T)]) {
       const s = await any("admin.auditLog", {}, who);
       const k = await any("admin.auditLog", {}, { ...who, testerId: KARIM });
-      const row = (l: { rows: { action: string; detailText: string; hasFull: boolean }[] }) => l.rows.find((r) => r.action === "billing.manual");
-      expect(row(k)?.detailText).toBe("Månad: januari 2027 · Fakturanummer: 12345");
+      const row = (l: { rows: { action: string; detailText: string; hasFull: boolean; entityText: string }[] }) => l.rows.find((r) => r.action === "billing.buyer_reference_set");
+      expect(row(k)).toMatchObject({ detailText: "Månad: januari 2027 · Till: 55102938", entityText: "Faktura januari 2027" });
       expect(row(s)).toMatchObject({ detailText: "Visas inte för testare", hasFull: false });
-      expect(JSON.stringify(s)).not.toContain("12345");
+      expect(JSON.stringify(s)).not.toContain("55102938");
       const billing = s.rows.filter((r: { action: string }) => r.action.startsWith("billing.") || r.action === "export.billing");
       expect(billing.length).toBeGreaterThan(0);
       expect(billing.every((r: { detailText: string }) => r.detailText === "Visas inte för testare")).toBe(true);
@@ -206,28 +210,32 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
   });
 
   it("avtalsavvikelser: inga viten i kronor (registret, detaljen, månadssammanställningen och exporttexten)", async () => {
-    // Karim registrerar ett vite – testaren ser att avvikelsen finns, men inte beloppet.
+    // Karim registrerar ett vite – testaren ser att avvikelsen finns, men inte vitet. Karim ser valet (vite eller inte) men
+    // inte beloppet – belopp syns bara för ekonomen (beslut 5).
     const reg = await cmd("ledning.cdevSave", { id: "cd-3", data: { escalationStep: 1, penaltyKind: "deviation", penaltyOffsetMonth: "2027-02" } }, as("u-johan", "avtalsansvarig", KARIM));
     expect(reg.ok).toBe(true);
     const k = await any("ledning.cdevRegister", {}, as("u-johan", "avtalsansvarig", KARIM));
     const s = await any("ledning.cdevRegister", {}, as("u-johan", "avtalsansvarig", SARA_T));
-    expect(k.counts.penaltiesOre).toBe(2500000);
-    expect(k.form.penalties).toEqual({ deviationOre: 2500000, insufficientInformationOre: expect.any(Number) });
-    expect(k.rows.find((r: { id: string }) => r.id === "cd-3").penaltyOre).toBe(2500000);
-    expect("penaltiesOre" in s.counts).toBe(false);
-    expect("penalties" in s.form).toBe(false);
-    expect(s.rows.every((r: object) => !("penaltyOre" in r))).toBe(true);
+    expect(k.counts.penalties).toBe(1);
+    expect(k.form.penaltyChoice).toBe(true);
+    expect(k.rows.find((r: { id: string }) => r.id === "cd-3").hasPenalty).toBe(true);
+    expect(JSON.stringify(k)).not.toMatch(/Ore"|\d[\u00a0 ]kr/);
+    expect("penalties" in s.counts).toBe(false);
+    expect(s.form.penaltyChoice).toBe(false);
+    expect(s.rows.every((r: object) => !("hasPenalty" in r) && !("penaltyOre" in r))).toBe(true);
     expectClean(JSON.stringify(s), "ledning.cdevRegister");
     const dk = await any("ledning.cdevDetail", { id: "cd-3" }, as("u-johan", "avtalsansvarig", KARIM));
     const ds = await any("ledning.cdevDetail", { id: "cd-3" }, as("u-johan", "avtalsansvarig", SARA_T));
-    expect(dk.cd).toMatchObject({ penaltyOre: 2500000, penaltyKind: "deviation", penaltyOffsetMonth: "2027-02" });
-    for (const f of ["penaltyOre", "penaltyKind", "penaltyOffsetMonth"]) expect(f in ds.cd, f).toBe(false);
+    expect(dk.cd).toMatchObject({ hasPenalty: true, penaltyKind: "deviation", penaltyOffsetMonth: "2027-02" });
+    expect("penaltyOre" in dk.cd).toBe(false);
+    for (const f of ["penaltyOre", "hasPenalty", "penaltyKind", "penaltyOffsetMonth"]) expect(f in ds.cd, f).toBe(false);
     expectClean(JSON.stringify(ds), "ledning.cdevDetail");
     const mk = await any("ledning.cdevMonth", { month: "2027-02" }, as("u-johan", "avtalsansvarig", KARIM));
     const ms = await any("ledning.cdevMonth", { month: "2027-02" }, as("u-johan", "avtalsansvarig", SARA_T));
-    expect(mk.text).toContain("Viten hittills: 25\u00a0000\u00a0kr");
+    expect(mk.text).toMatch(/^Viten hittills: 1$/m);
+    expect(mk.text).not.toMatch(AMOUNT);
     expect(ms.text).not.toContain("Viten");
-    expect("penaltiesOre" in ms).toBe(false);
+    expect("penalties" in ms).toBe(false);
     expectClean(JSON.stringify(ms), "ledning.cdevMonth");
     // Testarens formulär saknar vitesvalet: när testaren sparar ändras vitet aldrig (ett tomt val tar inte bort det).
     const save = await cmd("ledning.cdevSave", { id: "cd-3", data: { penaltyKind: null, penaltyOffsetMonth: null, warningIssued: false, orderStop: false, escalationStep: 1 } }, as("u-johan", "avtalsansvarig", SARA_T));
@@ -239,16 +247,19 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     const sam = (t?: string) => as("u-sara", "samordnare", t);
     const ck = await any("inkorg.confirmation", { caseId: "case-270039" }, sam(KARIM));
     const cs = await any("inkorg.confirmation", { caseId: "case-270039" }, sam(SARA_T));
-    expect(ck.value).toMatch(AMOUNT);
-    expect("value" in cs).toBe(false);
+    // Inget ordervärde för någon (synpunkt #10/#11 och beslut 5).
+    expect("value" in ck || "value" in cs).toBe(false);
+    expect(cs).toEqual(ck);
+    // Beslutsdialogen visar inga priser sedan 2026-10-07 (avtalsområdet väljs i dialogen) – för ingen.
     const fk = await any("inkorg.decisionForm", { caseId: "case-270048" }, sam(KARIM));
     const fs = await any("inkorg.decisionForm", { caseId: "case-270048" }, sam(SARA_T));
-    expect(fk.prices.length).toBeGreaterThan(0);
-    expect("prices" in fs).toBe(false);
+    expect("prices" in fk || "prices" in fs).toBe(false);
+    expectClean(JSON.stringify(fs), "inkorg.decisionForm");
     const jk = await any("inkorg.start", {}, as("u-johan", "avtalsansvarig", KARIM));
     const js = await any("inkorg.start", {}, as("u-johan", "avtalsansvarig", SARA_T));
-    expect(jk.warnings.text).toMatch(/Vite 25\u00a0000\u00a0kr/);
-    expect(js.warnings).toEqual({ issued: jk.warnings.issued, max: jk.warnings.max, text: `${jk.warnings.max} varningar kan leda till uppsägning.` });
+    // Inga viten i kronor för någon (beslut 5).
+    expect(jk.warnings.text).toBe(`${jk.warnings.max} varningar kan leda till uppsägning.`);
+    expect(js.warnings).toEqual(jk.warnings);
     expect(jk.kpis.map((k: { meter: { target: number } }) => k.meter.target)).toEqual([1, 1]);
     expect(js.kpis.map((k: { meter: { target: unknown; targetText: string }; below: boolean; value: string }) => [k.meter.target, k.meter.targetText, k.below])).toEqual([[null, "", false], [null, "", false]]);
     expect(js.kpis.map((k: { value: string }) => k.value)).toEqual(jk.kpis.map((k: { value: string }) => k.value));
@@ -261,41 +272,45 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expectClean(JSON.stringify(ds), "inkorg.deadlines");
   });
 
-  it("kommunens portal: beställningsformulärets priser, deltagarsidans värde och bonusanspråket", async () => {
+  it("kommunens portal: inga priser, inget ordervärde och inget bonusanspråk – för någon (synpunkt #10 och #11)", async () => {
     const maria = (t?: string) => as("k-maria", "kommun_handlaggare", t);
-    const bk = await any("kommun.bestallning", {}, maria(KARIM));
-    const bs = await any("kommun.bestallning", {}, maria(SARA_T));
-    expect(bk.prices.length).toBeGreaterThan(0);
-    expect("prices" in bs).toBe(false);
-    const dk = await any("kommun.deltagare", { caseId: "case-260008" }, maria(KARIM));
-    const ds = await any("kommun.deltagare", { caseId: "case-260008" }, maria(SARA_T));
-    expect(dk.order).toMatchObject({ priceOre: expect.any(Number), valueOre: expect.any(Number) });
-    expect(dk.bonus).toBe(true);
-    expect("priceOre" in ds.order || "valueOre" in ds.order).toBe(false);
-    expect(ds.order.weeks).toBe(dk.order.weeks);
-    expect(ds.bonus).toBe(false);
-    expectClean(JSON.stringify(ds), "kommun.deltagare");
-    // Avtalsmålet (32 %) ser kommunens chef i beställarrapporten – det döljs inte.
-    expect((await any("kommun.chef", {}, as("k-eva", "kommun_chef", SARA_T))).contractTarget).toBe(0.32);
+    for (const t of [KARIM, SARA_T]) {
+      const b = await any("kommun.bestallning", {}, maria(t));
+      expect("prices" in b).toBe(false);
+      expectClean(JSON.stringify(b), "kommun.bestallning");
+      const d = await any("kommun.deltagare", { caseId: "case-260008" }, maria(t));
+      expect("priceOre" in d.order || "valueOre" in d.order || "bonus" in d).toBe(false);
+      expectClean(JSON.stringify(d), "kommun.deltagare");
+    }
   });
 
-  it("orderbekräftelsen (rapportsidan, portalen och PDF:en): veckopriset saknas – också i en fryst rapport", async () => {
+  it("orderbekräftelsen (rapportsidan, portalen och PDF:en): inget veckopris för någon sedan 2026-10-07 – också i en fryst rapport", async () => {
+    // Beslut 2026-10-07 (synpunkt #10): orderbekräftelsen visar omfattningen, aldrig pris eller ordervärde – inte heller för Karim.
     const id = "rep-16392";
     const k = await any("rapporter.dokument", { reportId: id }, as("u-sara", "samordnare", KARIM));
     const s = await any("rapporter.dokument", { reportId: id }, as("u-sara", "samordnare", SARA_T));
     expect(k.doc.kind).toBe("order_confirmation");
-    expect(k.doc.m.price).toBeGreaterThan(0);
-    expect("price" in s.doc.m).toBe(false);
-    expect(s.doc.m.weeks).toBe(k.doc.m.weeks);
+    for (const d of [k, s]) {
+      expect("price" in d.doc.m).toBe(false);
+      expect(d.doc.m.period).toMatch(/månader|veckor|Annan tidsperiod/);
+    }
+    expect(s.doc.m).toEqual(k.doc.m);
     // Frys rapporten (reports.snapshot) och läs igen – samma regel.
     expect((await cmd("rapporter.snapshot", { reportIds: [id] }, as("u-sara", "samordnare", KARIM))).ok).toBe(true);
-    expect(rt.raw().get("reports", id)?.snapshot).toBeTruthy();
-    const frozen = await any("rapporter.dokument", { reportId: id }, as("u-sara", "samordnare", SARA_T));
-    expect("price" in frozen.doc.m).toBe(false);
-    const portal = await any("rapporter.dokument", { reportId: id }, as("k-maria", "kommun_handlaggare", SARA_T));
-    expect(portal.ok).toBe(true);
-    expect("price" in portal.doc.m).toBe(false);
-    expect((await any("rapporter.dokument", { reportId: id }, as("k-maria", "kommun_handlaggare", KARIM))).doc.m.price).toBeGreaterThan(0);
+    const snap = rt.raw().get("reports", id)?.snapshot;
+    expect(snap).toBeTruthy();
+    expect(JSON.stringify(snap)).not.toMatch(/"price"/);
+    // En ögonblicksbild från före beslutet (med veckopris och utan omfattningen i text): priset tas bort i vyn.
+    const { period: _period, ...old } = snap!.model as Record<string, unknown>;
+    void _period;
+    rt.store.updateRow("reports", id, { snapshot: { ...snap!, model: { ...old, price: 1234500 } } });
+    for (const [userId, role, who] of [["u-sara", "samordnare", KARIM], ["k-maria", "kommun_handlaggare", KARIM], ["k-maria", "kommun_handlaggare", SARA_T]] as const) {
+      const frozen = await any("rapporter.dokument", { reportId: id }, as(userId, role, who));
+      expect(frozen.ok).toBe(true);
+      expect("price" in frozen.doc.m).toBe(false);
+      expect(frozen.doc.m.period).toBe(`${k.doc.m.weeks} veckor`);
+      expect(JSON.stringify(frozen)).not.toMatch(AMOUNT);
+    }
   });
 
   it("rapportbyggaren: inget internt mål i förhandsvisningen eller filerna – avtalets mål finns kvar", async () => {
@@ -383,7 +398,7 @@ describe("alla sidor för begränsade testare: inga belopp i kronor, inga prisny
     ["ledning.overview", {}, "u-karin", "chef"], ["ledning.cdevRegister", {}, "u-sara", "samordnare"], ["ledning.cdevMonth", { month: "2027-01" }, "u-karin", "chef"],
     ["kommun.start", {}, "k-maria", "kommun_handlaggare"], ["kommun.bestallning", {}, "k-maria", "kommun_handlaggare"], ["kommun.deltagareLista", {}, "k-maria", "kommun_handlaggare"],
     ["kommun.deltagare", { caseId: "case-260119" }, "k-maria", "kommun_handlaggare"], ["kommun.rapporter", {}, "k-maria", "kommun_handlaggare"],
-    ["kommun.chef", {}, "k-eva", "kommun_chef"], ["kommun.deltagare", { caseId: "case-260119" }, "k-eva", "kommun_chef"],
+    ["kommun.profil", {}, "k-maria", "kommun_handlaggare"],
     ["rapporter.lista", {}, "u-sara", "samordnare"], ["rapporter.dokument", { reportId: "rep-16393" }, "u-karin", "chef"], ["rapporter.byggKatalog", {}, "u-karin", "chef"],
     ["admin.integrations", {}, "u-robin", "admin"], ["admin.users", {}, "u-robin", "admin"], ["admin.templates", {}, "u-robin", "admin"], ["admin.auditLog", {}, "u-robin", "admin"],
     ["notiser.list", {}, "u-karin", "chef"], ["notiser.list", {}, "u-amira", "coach"], ["praktik.list", {}, "u-sara", "samordnare"], ["session.navCounts", {}, "u-karin", "chef"],
@@ -401,6 +416,85 @@ describe("alla sidor för begränsade testare: inga belopp i kronor, inga prisny
       const json = JSON.stringify(await any(key, input, as(userId, role, KARIM)));
       if (AMOUNT.test(json) || INTERNAL.test(json) || MONEY_KEYS.test(json) || /"internal":0\./.test(json)) found.push(key);
     }
-    expect([...new Set(found)]).toEqual(expect.arrayContaining(["inkorg.start", "inkorg.deadlines", "inkorg.confirmation", "arenden.lista", "arenden.kort", "ledning.overview", "ledning.cdevRegister", "kommun.bestallning", "kommun.deltagare", "rapporter.dokument", "admin.integrations"]));
+    // Interna mål, underbiträden och vitesantal finns för Karim. Belopp i kronor finns inte på någon av sidorna – inte heller
+    // för Karim – eftersom ingen av rollerna här är ekonom (beslut 5). Kommunens portal har inga belopp alls (synpunkt #10/#11).
+    expect([...new Set(found)]).toEqual(expect.arrayContaining(["inkorg.start", "inkorg.deadlines", "ledning.overview", "ledning.cdevRegister", "admin.integrations"]));
+    for (const [key, input, userId, role] of pages) expect(JSON.stringify(await any(key, input, as(userId, role, KARIM))), `${key} som ${role}`).not.toMatch(AMOUNT);
+    expect(found.some((k) => k.startsWith("kommun."))).toBe(false);
+    // Orderbekräftelsen har inget pris sedan 2026-10-07 (synpunkt #10) – inte heller för Karim.
+    expect(found).not.toContain("rapporter.dokument");
+  });
+});
+
+// ================================================================ Beslut 5: belopp bara för rollen ekonom
+// Karim 2026-10-07: "Belopp bara för ekonomen." Varje annan roll – samordnare, avtalsansvarig, coach, handledare, chef,
+// systemadministratör, kommunens handläggare och deltagaren – får samma skydd mot belopp som en begränsad testare, också utan
+// testarbegränsning. Ekonomen (utan testarbegränsning) ser beloppen.
+describe("beslut 5: belopp bara för rollen ekonom – alla andra roller får testarspärrens skydd mot belopp", () => {
+  /** Nycklar som bara bär belopp eller priser (interna mål och underbiträden hör till testarspärren, inte hit). */
+  const MONEY_ONLY = /"(price|priceOre|priceItems|prices|amountOre|totalOre|penaltyOre|penaltiesOre|valueOre|unitPriceOre|vatOre|costOre|accruedOre|remainingOre|deviationOre|insufficientInformationOre)"/;
+  const expectNoMoney = (json: string, label: string) => {
+    expect(json, `${label}: belopp i kronor`).not.toMatch(AMOUNT);
+    expect(json, `${label}: beloppsnycklar`).not.toMatch(MONEY_ONLY);
+  };
+  const pages: [string, Record<string, unknown>, string, Role][] = [
+    ["inkorg.start", {}, "u-sara", "samordnare"], ["inkorg.start", {}, "u-johan", "avtalsansvarig"], ["inkorg.deadlines", {}, "u-johan", "avtalsansvarig"],
+    ["inkorg.confirmation", { caseId: "case-270039" }, "u-sara", "samordnare"], ["inkorg.confirmation", { caseId: "case-270042" }, "u-johan", "avtalsansvarig"],
+    ["arenden.lista", {}, "u-sara", "samordnare"], ["arenden.lista", {}, "u-karin", "chef"], ["arenden.lista", {}, "u-robin", "admin"], ["arenden.lista", {}, "u-johan", "avtalsansvarig"],
+    ["arenden.kort", { caseId: "case-260117" }, "u-karin", "chef"], ["arenden.kort", { caseId: "case-260117" }, "u-robin", "admin"], ["arenden.kort", { caseId: "case-260117" }, "u-johan", "avtalsansvarig"],
+    ["arenden.kort", { caseId: "case-260119" }, "u-amira", "coach"], ["arenden.kortHandelser", { caseId: "case-260008" }, "u-sara", "samordnare"],
+    ["arenden.kortOversikt", { caseId: "case-260117" }, "u-sara", "samordnare"], ["arenden.handledare", {}, "u-petra", "handledare"],
+    ["coach.minVecka", {}, "u-amira", "coach"], ["coach.eventsPage", { caseId: "case-260008" }, "u-amira", "coach"],
+    ["ledning.head", {}, "u-karin", "chef"], ["ledning.overview", {}, "u-karin", "chef"], ["ledning.coaches", {}, "u-karin", "chef"], ["ledning.areas", {}, "u-karin", "chef"],
+    ["ledning.cdevRegister", {}, "u-karin", "chef"], ["ledning.cdevRegister", {}, "u-johan", "avtalsansvarig"], ["ledning.cdevRegister", {}, "u-sara", "samordnare"],
+    ["ledning.cdevDetail", { id: "cd-2" }, "u-johan", "avtalsansvarig"], ["ledning.cdevMonth", { month: "2027-01" }, "u-karin", "chef"],
+    ["admin.contract", {}, "u-robin", "admin"], ["admin.integrations", {}, "u-robin", "admin"], ["admin.auditLog", {}, "u-robin", "admin"], ["admin.auditLog", {}, "u-karin", "chef"],
+    ["rapporter.lista", {}, "u-sara", "samordnare"], ["rapporter.dokument", { reportId: "rep-16392" }, "u-sara", "samordnare"], ["rapporter.byggKatalog", {}, "u-karin", "chef"],
+    ["kommun.start", {}, "k-maria", "kommun_handlaggare"], ["kommun.bestallning", {}, "k-maria", "kommun_handlaggare"], ["kommun.deltagare", { caseId: "case-260119" }, "k-maria", "kommun_handlaggare"],
+    ["notiser.list", {}, "u-karin", "chef"], ["notiser.list", {}, "u-robin", "admin"], ["session.navCounts", {}, "u-karin", "chef"],
+  ];
+
+  it("Ekonomis frågor och kommandon nekas för varje roll utom ekonomen (403, rollen saknar behörighet)", async () => {
+    const others = listPersonas(rt.raw()).filter((p) => p.actor.role !== "ekonom");
+    expect(new Set(others.map((p) => p.actor.role))).toEqual(new Set(["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin", "kommun_handlaggare", "deltagare"]));
+    for (const p of others) {
+      for (const key of EKONOMI) {
+        const e = await errorOf(rt.run(EKONOMI_COMMAND.test(key) ? "command" : "query", key, {}, p.actor));
+        expect([e?.status, e?.code], `${key} som ${p.actor.role}`).toEqual([403, "forbidden"]);
+      }
+    }
+  });
+
+  it("varje annan roll utan testarbegränsning: inga belopp, priser, ordervärden, viten i kronor eller ofakturerat i kronor", async () => {
+    for (const [key, input, userId, role] of pages) {
+      const res = await any(key, input, as(userId, role));
+      expect(res, `${key} som ${role}`).toBeTruthy();
+      expectNoMoney(JSON.stringify(res), `${key} som ${role}`);
+    }
+    // Det som visas i stället: antal veckor och ärenden, valet om vite – utan kronor.
+    const o = await any("ledning.overview", {}, as("u-karin", "chef"));
+    expect(o.unbilled).toMatchObject({ weeks: 4, canOpenBilling: false });
+    expect(o.unbilled.cases).toHaveLength(2);
+    const r = await any("ledning.cdevRegister", {}, as("u-johan", "avtalsansvarig"));
+    expect([r.counts.penalties, r.form.penaltyChoice]).toEqual([0, true]);
+  });
+
+  it("ekonomen (utan testarbegränsning) ser beloppen: fakturorna, fakturaunderlaget och prislistan", async () => {
+    const lars = as("u-lars", "ekonom");
+    const start = await any("ekonomi.start", {}, lars);
+    expect(start.current.totalOre).toBe(51133200);
+    expect(start.unbilled.totalOre).toBe(557400);
+    const run = await any("ekonomi.run", { month: "2027-01" }, lars);
+    expect(run.invoices[0]).toMatchObject({ amountOre: 51133200, vatOre: 12783300 });
+    expect(JSON.stringify(run)).toMatch(MONEY_ONLY);
+    const prices = await any("ekonomi.priceList", {}, lars);
+    expect(prices.items).toHaveLength(12);
+    expect(Math.min(...prices.items.map((p: { priceOre: number }) => p.priceOre))).toBe(132300);
+    expect(Math.max(...prices.items.map((p: { priceOre: number }) => p.priceOre))).toBe(166800);
+    expect(prices.items[0]).toMatchObject({ areaName: "A Administration", fortnoxArticleNo: "BOT-A", unit: "participant_week", vatRate: 25 });
+    const preview = await any("ekonomi.preview", { month: "2027-01" }, lars);
+    expect(JSON.stringify(preview)).toMatch(AMOUNT);
+    // Samma ekonom som begränsad testare: allt nekas (testarspärren gäller före rollen).
+    expect((await errorOf(any("ekonomi.priceList", {}, as("u-lars", "ekonom", SARA_T))))?.code).toBe(TESTER_HIDDEN_CODE);
   });
 });

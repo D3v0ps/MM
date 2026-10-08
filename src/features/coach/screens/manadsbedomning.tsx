@@ -377,7 +377,7 @@ function ManadForm({ v }: { v: Ok }) {
         </>
       ) : (
         <p className="text-body text-text-muted">
-          AI-stöd används inte i det här ärendet{c.protected ? " (skyddade personuppgifter)" : " eftersom deltagaren inte har samtyckt"}. Dokumentera manuellt.
+          AI-stöd används inte i det här ärendet{c.protected ? "" : " eftersom deltagaren inte har samtyckt"}. Dokumentera manuellt.
         </p>
       )}
 

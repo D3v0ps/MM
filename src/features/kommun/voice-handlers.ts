@@ -1,7 +1,8 @@
 // Kommunens "Tala in" (docs/PLAN-ROST.md, flöde 2). Registreras via handlers.ts – importeras aldrig av skärmar.
 // Handläggaren talar in text i beställningens bakgrund och i meddelanden. Ljudet raderas direkt efter transkriberingen och
 // texten går bara tillbaka till den som talade in – den sparas först när handläggaren själv skickar (beställningen eller
-// meddelandet). Aldrig för skyddade personuppgifter. Behörigheten: startAudioUpload/confirmOwnUpload (voice-upload.ts).
+// meddelandet). Behörigheten: startAudioUpload/confirmOwnUpload (voice-upload.ts). I testmiljön är AI-leverantören
+// simulerad – svaret säger det (simulated), så att portalen kan förklara att texten är påhittad (synpunkt #8).
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { recordingMaxMinutes, type ContractConfig } from "@/core/config";
@@ -14,7 +15,7 @@ const HANDL = ["kommun_handlaggare"] as const;
 
 async function stateOf(ctx: Ctx, aiRunId: string): Promise<DictationState | null> {
   const d = await ownDictation(ctx, aiRunId);
-  return d ? { aiRunId: d.aiRunId, status: d.status, error: d.error?.text ?? null, audioDeletedAt: d.audioDeletedAt, text: d.text } : null;
+  return d ? { aiRunId: d.aiRunId, status: d.status, error: d.error?.text ?? null, audioDeletedAt: d.audioDeletedAt, text: d.text, simulated: d.simulated } : null;
 }
 
 handleQuery(dictationOptions, { roles: HANDL }, async (ctx, p): Promise<DictationOptions> => {
@@ -33,7 +34,7 @@ handleQuery(dictationOptions, { roles: HANDL }, async (ctx, p): Promise<Dictatio
     const contract = contractId ? await ctx.repo.table("contracts").get(contractId) : null;
     if (!contract) return off(null);
     cfg = contract.config;
-    block = recordingBlock({ cfg, kind: "customer", person: undefined, protectedOrder: !!p.protectedOrder });
+    block = recordingBlock({ cfg, kind: "customer", person: undefined });
   }
   if (block) return off(block === "disabled" ? null : RECORDING_BLOCK_TEXT[block]);
   return { enabled: true, maxMinutes: recordingMaxMinutes(cfg, "customer") ?? 0, reason: null };
@@ -56,7 +57,7 @@ handleCommand(dictationFinish, { roles: HANDL }, async (ctx, p) => {
   if (!conf.ok) return conf;
   const r = await enqueueVoiceJob(ctx, { kind: "transcribe_dictation", uploadId: u.id, contractId });
   const s = await stateOf(ctx, r.aiRunId);
-  return ok(s ?? { aiRunId: r.aiRunId, status: r.status, error: r.error?.text ?? null, audioDeletedAt: null, text: null });
+  return ok(s ?? { aiRunId: r.aiRunId, status: r.status, error: r.error?.text ?? null, audioDeletedAt: null, text: null, simulated: false });
 });
 
 handleQuery(dictationState, { roles: HANDL }, async (ctx, p) => stateOf(ctx, p.aiRunId));

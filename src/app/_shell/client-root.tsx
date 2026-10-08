@@ -21,6 +21,7 @@ import { RuntimeProvider } from "@/shell/runtime";
 import { ANONYMOUS, SessionProvider, type AuthPort, type AuthResult, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
 import { cancelLeaveDocument, confirmLeaveDocument } from "@/shell/nav";
+import { PORTAL_FIRST_LOGIN_PATH } from "@/shell/nav-config";
 import { createSessionRefresh } from "./session-refresh";
 import { stayOrStart } from "./stay-or-start";
 import { NextNavProvider } from "./next-nav";
@@ -35,7 +36,7 @@ async function postJson(url: string, body: unknown): Promise<{ status: number; j
 }
 
 const asResult = (json: Record<string, unknown>): AuthResult =>
-  json.ok === true ? { ok: true } : json.ok === false && typeof json.error === "string" ? (json as unknown as AuthResult) : FAILED;
+  json.ok === true ? { ok: true, ...(json.created === true ? { created: true } : {}) } : json.ok === false && typeof json.error === "string" ? (json as unknown as AuthResult) : FAILED;
 
 /** Återhopp efter inloggning: ?till= på inloggningssidan (bara egna sökvägar, safeReturnPath), annars startsidan för rollen. */
 function returnPath(): string {
@@ -67,7 +68,8 @@ const liveAuth: AuthPort = {
     } catch {
       return FAILED;
     }
-    return r.ok ? hardNavigate(returnPath()) : r;
+    // Kontot skapades nu (självregistrering): första gången till Mina uppgifter.
+    return r.ok ? hardNavigate(r.created ? PORTAL_FIRST_LOGIN_PATH : returnPath()) : r;
   },
   signOut: async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
@@ -82,7 +84,7 @@ const devAuth: AuthPort = {
     if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: "invalid_code", message: "Koden har sex siffror." };
     const { status, json } = await postJson("/api/dev-session", { email }).catch(() => ({ status: 500, json: {} as Record<string, unknown> }));
     if (status !== 200 || json.ok !== true) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
-    return hardNavigate(returnPath());
+    return hardNavigate(json.created === true ? PORTAL_FIRST_LOGIN_PATH : returnPath());
   },
   signOut: async () => undefined,
 };

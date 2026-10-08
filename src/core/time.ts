@@ -144,6 +144,22 @@ export function monthName(month: MonthKey): string {
   return `${MONTHS[m - 1]} ${y}`;
 }
 export const monthEnd = (month: MonthKey): LocalDate => addDays(`${addMonths(month, 1)}-01`, -1);
+/** Datumet n månader senare (dagen begränsas till månadens sista dag): 2027-01-31 + 1 -> 2027-02-28. */
+export function addMonthsDate(s: LocalDate, n: number): LocalDate {
+  const mk = addMonths(s.slice(0, 7), n);
+  const day = Math.min(Number(s.slice(8, 10)), Number(monthEnd(mk).slice(8, 10)));
+  return `${mk}-${pad(day)}`;
+}
+/**
+ * Planerat slutdatum för en insats på n månader (beslut 2026-10-07, synpunkt #5): dagen före samma datum n månader senare.
+ * 2027-02-15 + 6 -> 2027-08-14. Månadens sista dag klipps först: 2027-08-31 + 6 -> 2028-02-29 -> 2028-02-28.
+ */
+export const orderPeriodEnd = (start: LocalDate, months: number): LocalDate => addDays(addMonthsDate(dayOf(start), months), -1);
+/** Antal ISO-veckor med minst en dag i perioden (start och slut räknas med) – samma regel som debiterbara veckor. 0 om slut < start. */
+export function billableWeekCount(start: LocalDate, end: LocalDate): number {
+  if (end < start) return 0;
+  return Math.round((ms(monday(end)) - ms(monday(start))) / (7 * DAY_MS)) + 1;
+}
 
 // ---------------------------------------------------------------- Formatering (svenska)
 const parts = (s: string) => new Date(ms(s));

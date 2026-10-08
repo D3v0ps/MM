@@ -114,7 +114,8 @@ describe("Min vecka per roll", () => {
     const inbox = KPI_TILES()[0];
     expect(inbox.textContent).toContain("Närmast: 53 min kvar");
     expect(inbox.querySelectorAll(".rounded-full")).toHaveLength(0);
-    for (const t of ["Avropsinkorg", "Flaggor (12)", "Första möten som inte är bokade", "Förfaller snart", "Avtalsavvikelser", "Tilldelning ger notis", "Olästa notiser"]) {
+    // 11 flaggor: flaggan för skyddat avrop (em-104) finns inte sedan 2026-10-07.
+    for (const t of ["Avropsinkorg", "Flaggor (11)", "Första möten som inte är bokade", "Förfaller snart", "Avtalsavvikelser", "Tilldelning ger notis", "Olästa notiser"]) {
       expect(h, t).toContain(t);
     }
     expect(h.some((x) => x.startsWith("Öppna uppgifter ("))).toBe(true);
@@ -123,12 +124,12 @@ describe("Min vecka per roll", () => {
     for (const k of keys) expect(ALLOWED.samordnare, k).toContain(k);
   });
 
-  it("avtalsansvarig: skyddade avrop och Avtalet: avvikelser och frågor", async () => {
+  it("avtalsansvarig: Avtalet: avvikelser och frågor – inget kort för skyddade avrop (borttaget 2026-10-07)", async () => {
     const { keys } = setup("avtalsansvarig");
     const h = await headings("Avropsinkorg");
-    expect(h).toContain("Skyddade avrop");
+    expect(h).not.toContain("Skyddade avrop");
     expect(h).toContain("Avtalet: avvikelser och frågor");
-    expect(screen.getByText("Omar Farah · i dag kl. 07.55 · väntar på telefonsamtal")).toBeTruthy();
+    expect(screen.queryByText(/väntar på telefonsamtal/)).toBeNull();
     for (const k of keys) expect(ALLOWED.avtalsansvarig, k).toContain(k);
   });
 
@@ -196,8 +197,9 @@ describe("Min vecka per roll", () => {
     const { keys } = setup("ekonom");
     const h = await headings("Uppgifter till dig");
     expect(KPI_LABELS()).toEqual(["Januari att fakturera", "Stoppade fakturor", "Preskriptions­risk", "Senast i Fortnox"]);
-    expect(KPI_LINKS()).toEqual({ "Januari att fakturera": "#/ekonomi/2027-01", "Stoppade fakturor": "#/ekonomi/2027-01?filter=stoppade", "Senast i Fortnox": "#/ekonomi/2027-01" });
-    for (const t of ["Fakturakörning januari 2027", "Beställarreferens saknas eller är fel", "Returnerade fakturor", "Veckor utan närvaro att kontrollera", "Olästa notiser"]) {
+    expect(KPI_LINKS()).toEqual({ "Januari att fakturera": "#/ekonomi/2027-01", "Stoppade fakturor": "#/ekonomi/2027-01", "Senast i Fortnox": "#/ekonomi/2027-01" });
+    // En faktura per avtal och månad (beslut 2026-10-07): referensen fylls i per faktura.
+    for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera", "Olästa notiser"]) {
       expect(h, t).toContain(t);
     }
     expect(screen.getByRole("link", { name: "Öppna körningen januari" }).getAttribute("href")).toBe("#/ekonomi/2027-01");

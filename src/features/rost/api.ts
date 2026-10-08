@@ -114,6 +114,8 @@ export type VoiceNoteView = {
   reviewedByName: string | null;
   consentTextVersion: string;
   consentGivenAt: LocalDateTime;
+  /** Texten kommer från den simulerade AI-leverantören (testmiljön) – skärmen säger att den är påhittad. */
+  simulated: boolean;
 };
 export type VoiceLinkView = {
   id: string;

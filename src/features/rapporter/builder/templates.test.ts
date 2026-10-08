@@ -32,7 +32,8 @@ describe("testdatats sparade rapporter", () => {
     expect(seed.saved_reports.map((r) => [r.id, r.ownerId, r.visibility, r.templateKey])).toEqual([
       ["sr-seed-privat", "u-sara", "private", "narvaro-per-manad"],
       ["sr-seed-mb", "u-karin", "mb", "progression-per-omrade"],
-      ["sr-seed-kommun", "u-johan", "customer", "resultatgrad-per-omrade"],
+      // Var delad med kommunens chef före 2026-10-07 – sparade rapporter delas bara inom Miljonbemanning (0026).
+      ["sr-seed-kommun", "u-johan", "mb", "resultatgrad-per-omrade"],
     ]);
     for (const r of seed.saved_reports) {
       expect(r.contractId).toBe("c-bot");

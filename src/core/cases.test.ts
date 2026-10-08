@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseContractConfig } from "./config";
 import {
-  ackTextFor, aiAllowed, awaitingAnswer, caseCounterId, coaches, duplicateActive, findCaseNumber, formatCaseNumber, nextCaseNumber, orderValueOre, phaseSince, previewNextCaseNumber,
+  ackTextFor, aiAllowed, awaitingAnswer, caseCounterId, coaches, duplicateActive, findCaseNumber, formatCaseNumber, nextCaseNumber, phaseSince, previewNextCaseNumber,
   priceFor, stuck,
 } from "./cases";
 import { NOW, cfgWith, mkCase, mkCheckIn, mkPerson, mkPlacement, mkPriceItem, mkProfile, testDb, testEnv } from "./test-data";
@@ -35,16 +35,12 @@ describe("ärendenummer {prefix}-{ÅÅ}-{NNNN}", () => {
   });
 });
 
-describe("pris och ordervärde", () => {
+describe("pris", () => {
   const items = [mkPriceItem({ areaCode: "G", priceOre: 139800 }), mkPriceItem({ id: "pi-G2", areaCode: "G", priceOre: 145000, validFrom: "2027-09-10", validTo: null })];
   it("priset som gäller datumet", () => {
     expect(priceFor(items, "G", "2027-01-04")).toBe(139800);
     expect(priceFor(items, "G", "2027-09-10")).toBe(145000);
     expect(priceFor(items, "X", "2027-01-04")).toBe(0);
-  });
-  it("ordervärde = beställda veckor × veckopris vid start", () => {
-    expect(orderValueOre(mkCase({ id: "c1", startDate: "2027-01-11", orderValueWeeks: 6 }), items, env)).toBe(6 * 139800);
-    expect(orderValueOre(mkCase({ id: "c2", startDate: null, orderValueWeeks: null, plannedWeeks: 4 }), items, env)).toBe(4 * 139800);
   });
 });
 

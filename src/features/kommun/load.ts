@@ -16,7 +16,6 @@ const SUPPLIER_SHORT = "Miljonbemanning";
 
 export type KomContext = {
   me: Profile | null;
-  chef: boolean;
   /** Kommunens namn (användarens organisation), t.ex. "Botkyrka kommun". */
   customerName: string;
   customerOrgId: string | null;
@@ -53,41 +52,38 @@ export async function komContext(ctx: Ctx): Promise<KomContext> {
   const active = ctx.actor.contractIds.map((id) => byId.get(id)).find((c) => !!c && c.status === "active" && isOperational(c.config)) ?? null;
   const pmap = new Map(profiles.map((p) => [p.id, p]));
   return {
-    me, chef: ctx.actor.role === "kommun_chef", customerName: org?.name ?? "", customerOrgId: me?.organizationId ?? null,
+    me, customerName: org?.name ?? "", customerOrgId: me?.organizationId ?? null,
     contracts: byId, cfg, active, areas, profiles: pmap,
     name: (id) => (id ? (pmap.get(id)?.fullName ?? "–") : "–"),
   };
 }
 
-/** Ärenden som läsaren har åtkomst till (prototypens sel.visibleCases). */
+/**
+ * Ärenden som läsaren har åtkomst till (prototypens sel.visibleCases). Vilande spärr för skyddade personuppgifter
+ * (beslut 2026-10-07): ett ärende där handläggaren bara skulle ha nivån restricted/none visas inte (fail-closed) – det
+ * avgör viewerFor; här filtreras bara på avtalen.
+ */
 export async function visibleCases(ctx: Ctx): Promise<Case[]> {
   const cases = await ctx.repo.table("cases").list();
   return cases.filter((c) => ctx.actor.contractIds.includes(c.contractId));
 }
 
-/** Ärendet som kommunen ser det. Namnet enligt behörigheten ("Skyddade personuppgifter" för kommunens chef). */
-export function komCase(c: Case, viewer: Viewer, k: KomContext, protectedIdentity: boolean): KomCase {
+/** Ärendet som kommunen ser det (namnet enligt behörigheten). */
+export function komCase(c: Case, viewer: Viewer, k: KomContext): KomCase {
   const cfg = k.cfg(c.contractId);
   const areas = k.areas.filter((a) => a.contractId === c.contractId);
-  const restricted = viewer.access(c) === "restricted";
   return {
-    id: c.id, caseNumber: c.caseNumber, status: c.status, name: viewer.name(c), protectedIdentity: restricted || protectedIdentity, restricted,
+    id: c.id, caseNumber: c.caseNumber, status: c.status, name: viewer.name(c),
     primaryAreaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : null,
     secondaryAreaName: c.secondaryAreaCode ? areaName(areas, c.secondaryAreaCode) : null,
     vocationalTrack: c.vocationalTrack, phase: c.phase, phaseName: phaseName(cfg, c.phase), source: c.source,
     referredAt: c.referredAt, acknowledgedAt: c.acknowledgedAt, confirmedAt: c.confirmedAt, declinedAt: c.declinedAt, declineReason: c.declineReason,
     firstMeetingAt: c.firstMeetingAt, location: c.location, startDate: c.startDate, plannedStart: c.plannedStart, desiredStart: c.desiredStart,
-    plannedEnd: c.plannedEnd, endDate: c.endDate, endReasonLabel: c.endReason ? endReasonLabel(c.endReason) : null,
+    plannedEnd: c.plannedEnd, orderPeriodMonths: c.orderPeriodMonths, otherPeriod: !!c.orderPeriodReason, plannedWeeks: c.orderValueWeeks || c.plannedWeeks,
+    endDate: c.endDate, endReasonLabel: c.endReason ? endReasonLabel(c.endReason) : null,
     avropDue: avropDue(c, cfg), firstMeetingDue: firstMeetingDue(c, cfg),
     referrerId: c.referrerId, referrerName: c.referrerId ? k.name(c.referrerId) : (c.referrerName ?? "–"),
   };
-}
-
-/** Skyddade personuppgifter per ärende (bara de personer läsaren får se – kommunens chef ser inga skyddade personer). */
-export async function protectedFlags(ctx: Ctx, cases: readonly Case[]): Promise<Set<string>> {
-  const ids = [...new Set(cases.map((c) => c.personId))];
-  const persons = ids.length ? await ctx.repo.table("persons").list({ id: { in: ids } }) : [];
-  return new Set(persons.filter((p) => p.protectedIdentity).map((p) => p.id));
 }
 
 export { viewerFor, type Viewer };
@@ -113,28 +109,11 @@ export function komMessage(k: KomContext, m: Message): KomMessage {
 /** Levererad och inte ersatt (prototypens deliveredOk) – regeln ligger i rapporternas hjälpare (samma för resultatfilen och rapportbyggaren). */
 export { deliveredOk };
 
-// ---------------------------------------------------------------- Kommunens chef: avtalet för resultatfilen och delade rapporter
-/**
- * Avtalet där kommunens chef hämtar resultat och delade rapporter: det första av chefens avtal med driftkonfiguration
- * (via ctx.repo). Ett avtal i taget – resultatfilen, de delade rapporterna och menyns räknare (session.navCounts) använder
- * samma funktion.
- */
-export async function chefContract(ctx: Ctx, contractId?: string): Promise<{ contract: Contract; cfg: OperationalConfig } | null> {
-  const ids = contractId ? (ctx.actor.contractIds.includes(contractId) ? [contractId] : []) : ctx.actor.contractIds;
-  if (!ids.length) return null;
-  const contracts = await ctx.repo.table("contracts").list({ id: { in: ids } });
-  const contract = ids.map((id) => contracts.find((c) => c.id === id)).find((c): c is Contract => !!c && isOperational(c.config)) ?? null;
-  return contract ? { contract, cfg: requireOperational(contract.config) } : null;
-}
-
-/** Avtalet låter kommunens chef se enhetens individrapporter – resultatfilen och rapporter som Miljonbemanning delar. */
-export const seesResults = (cfg: OperationalConfig): boolean => cfg.customerVisibility.seesIndividualReports === true;
-
 /** Rapporten som rad i portalen. sub: veckorapport = veckan, beställarrapport = avtalet, övriga = ärendenummer och namn. */
 export async function reportRow(ctx: Ctx, r: Report, k: KomContext, caseOf: (id: string | null) => { caseNumber: string; name: string } | null): Promise<KomReportRow> {
   const me = ctx.actor.userId;
   let sub = "";
-  if (r.kind === "weekly_attendance") sub = r.week ? `${weekRangeText(r.week)} · ${k.chef ? "handläggarens deltagare" : "alla dina deltagare"}` : "";
+  if (r.kind === "weekly_attendance") sub = r.week ? `${weekRangeText(r.week)} · alla dina deltagare` : "";
   else if (r.kind === "customer_summary") sub = `Hela avtalet med ${k.customerName}`;
   else {
     const c = caseOf(r.caseId);

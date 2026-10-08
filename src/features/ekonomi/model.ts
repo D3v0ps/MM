@@ -2,17 +2,24 @@
 // utan React: används av hanterarna (vy-modellerna) och av skärmarna (formatering och kontroll av inskriven referens).
 // Avtalsvärden (referensens mönster, inköpsordernumrets mönster, betalningsvillkor, samlingsfakturor) kommer från
 // avtalskonfigurationen – aldrig hårdkodade (CLAUDE.md punkt 4).
-import { BILLED_STATUSES, billableWeeks, invoiceStatus, type BillableWeek, type BillingDb, type BillingCheck, type Invoice } from "@/core/billing";
+import { BILLED_STATUSES, billableWeeks, invoiceLookup, parseGroupingKey, type BillableWeek, type BillingCheck, type BillingDb, type BillingLine } from "@/core/billing";
 import { priceFor } from "@/core/cases";
 import { buyerRefLengthText, type BillingConfig } from "@/core/config";
 import type { DomainEnv } from "@/core/env";
 import { kr, num } from "@/core/format";
 import {
-  addDays, addMonths, dayOf, diffDays, fmtDate, fmtWeekKey, fmtWeekRange, isoWeek, monday, monthEnd, monthKey, monthName, nthWorkingDay, thursday, weekMonthKey,
+  addDays, addMonths, addMonthsDate, dayOf, diffDays, fmtDate, fmtWeekKey, fmtWeekRange, isoWeek, monday, monthEnd, monthKey, monthName, nthWorkingDay, thursday, weekMonthKey,
   weeksOfMonth, type LocalDate, type LocalDateTime, type MonthKey,
 } from "@/core/time";
 import { buyerRefError } from "@/core/validation";
 import type { Case, InvoiceDisplayStatus, InvoiceStatus } from "@/data/schema";
+
+/** Fakturans namn: "Faktura januari 2027", "Tilläggsfaktura 2 · december 2026" – eller med ärendet vid en faktura per ärende. */
+export function invoiceTitle(inv: { month: MonthKey; groupingKey: string }, caseNumber?: string | null): string {
+  const { n } = parseGroupingKey(inv.groupingKey);
+  const what = caseNumber ? `${caseNumber} · ` : "";
+  return n > 1 ? `Tilläggsfaktura ${n} · ${what}${monthName(inv.month)}` : `Faktura ${what}${monthName(inv.month)}`;
+}
 
 // ---------------------------------------------------------------- Ord och tal
 /** "1 vecka", "356 veckor" (talet med tusentalsavgränsare, som prototypens fmt.plural). */
@@ -44,12 +51,8 @@ export function weekText(weeks: readonly WeekLike[] | null | undefined, noYear =
 export const periodOf = (weeks: readonly Pick<BillableWeek, "monday">[]): [LocalDate | null, LocalDate | null] =>
   weeks.length ? [weeks[0].monday, addDays(weeks[weeks.length - 1].monday, 6)] : [null, null];
 
-/** Datumet n månader senare (dagen begränsas till månadens sista dag). */
-export function addMonthsDate(s: LocalDate, n: number): LocalDate {
-  const mk = addMonths(s.slice(0, 7), n);
-  const day = Math.min(Number(s.slice(8, 10)), Number(monthEnd(mk).slice(8, 10)));
-  return `${mk}-${String(day).padStart(2, "0")}`;
-}
+/** Datumet n månader senare – flyttad till src/core/time.ts (beställningens omfattning använder den också). */
+export { addMonthsDate };
 
 // ---------------------------------------------------------------- Avtalsvärden som text
 /** "8–10" ur referensens mönster. */
@@ -116,7 +119,7 @@ export function refError(v: string, current: string | null, rules: RefRules): st
   const e = buyerRefError(v, { billing: rules.billing });
   if (e) return noteText(e);
   if (!refInfo(v, rules).ok) return `Referensen ${String(v).trim()} är spärrad hos kommunen. Använd referensen som kommunen har bekräftat.`;
-  if (current && String(v).trim() === current) return "Det är samma referens som ärendet redan har.";
+  if (current && String(v).trim() === current) return "Det är samma referens som fakturan redan har.";
   return null;
 }
 
@@ -132,13 +135,13 @@ export type Bucket = "blocked" | "review" | "ready";
 export const BILLED: readonly string[] = BILLED_STATUSES;
 export const IN_FORTNOX: readonly string[] = ["fortnox_created", "booked", "sent", "paid"];
 /** blocked = stoppad · review = kräver godkännande (eller åtgärd) · ready = klar (godkänd eller fakturerad) */
-export const bucketOf = (inv: Pick<Invoice, "blocked" | "status">): Bucket =>
+export const bucketOf = (inv: { blocked: boolean; status: string }): Bucket =>
   inv.blocked && !BILLED.includes(inv.status) ? "blocked" : ["draft", "returned", "blocked"].includes(inv.status) ? "review" : "ready";
 export const BUCKET_ORDER: Record<Bucket, number> = { blocked: 0, review: 1, ready: 2 };
 export const remarksOf = (checks: readonly Pick<BillingCheck, "severity">[]): number => checks.filter((c) => c.severity === "needs_approval" || c.severity === "warning").length;
 
 /** Kärnans text för "fler veckor än beställningen" – samma begrepp som fakturatexten. Övriga kontroller: datum i läsbar form. */
-export function checkText(ch: Pick<BillingCheck, "kind" | "text">, inv: Pick<Invoice, "orderWeeks" | "accruedWeeks">): string {
+export function checkText(ch: Pick<BillingCheck, "kind" | "text">, inv: Pick<BillingLine, "orderWeeks" | "accruedWeeks">): string {
   if (ch.kind === "over_order") return `Beställningen gäller ${plural(inv.orderWeeks, "vecka", "veckor")} men ${plural(inv.accruedWeeks, "vecka", "veckor")} är upparbetade inklusive denna faktura.`;
   return noteText(ch.text);
 }
@@ -150,21 +153,45 @@ export function checkText(ch: Pick<BillingCheck, "kind" | "text">, inv: Pick<Inv
 //   Faktureras om = veckor på en faktura som kommunen har returnerat (krediteras och faktureras på nytt)
 //   Ej fakturerat = underlag, godkänd men inte skapad, stoppad eller pågående månad
 //   Upparbetat = fakturerat + faktureras om + ej fakturerat. Återstår = beställda veckor − upparbetade veckor.
+// En månad kan ha två rader för samma ärende: veckor på månadens faktura och veckor som tillkom efteråt (tilläggsfaktura).
 export type LedgerKind = "billed" | "returned" | "unbilled";
-export type LedgerRow = { mk: MonthKey; weeks: BillableWeek[]; qty: number; amountOre: number; status: InvoiceStatus | null; kind: LedgerKind };
+export type LedgerRow = {
+  mk: MonthKey;
+  weeks: BillableWeek[];
+  qty: number;
+  amountOre: number;
+  status: InvoiceStatus | null;
+  kind: LedgerKind;
+  /** Den sparade fakturan som håller veckorna (null = underlag på en faktura som ännu inte är sparad). */
+  invoiceId: string | null;
+};
 
 export const kindOf = (status: string | null): LedgerKind => (status && BILLED.includes(status) ? "billed" : status === "returned" ? "returned" : "unbilled");
 
-/** Ärendets debiterbara veckor per månad med fakturastatus (bara månader som har en fakturakörning har status). */
-export function caseLedger(c: Case, db: Pick<BillingDb, "activities" | "attendance" | "price_items" | "invoice_drafts" | "billing_runs">, env: Pick<DomainEnv, "now">): LedgerRow[] {
+/** Ärendets debiterbara veckor per månad och faktura, med fakturastatus (bara månader som har en fakturakörning har status). */
+export function caseLedger(
+  c: Case,
+  db: Pick<BillingDb, "activities" | "attendance" | "price_items" | "invoice_drafts" | "invoice_lines" | "billing_runs">,
+  env: Pick<DomainEnv, "now">,
+): LedgerRow[] {
   const weeks = billableWeeks(c, db, env).filter((w) => !w.paused);
   const runMonths = new Set(db.billing_runs.map((r) => r.month));
+  const lookup = invoiceLookup(db);
   const months = [...new Set(weeks.map((w) => w.monthKey))].sort();
-  return months.map((mk) => {
+  return months.flatMap((mk) => {
     const ws = weeks.filter((w) => w.monthKey === mk);
-    const status = runMonths.has(mk) ? invoiceStatus(db, mk, c.id) : null;
-    const amountOre = ws.length * priceFor(db.price_items, c.primaryAreaCode, ws[0].monday, c.contractId);
-    return { mk, weeks: ws, qty: ws.length, amountOre, status, kind: kindOf(status) };
+    const price = priceFor(db.price_items, c.primaryAreaCode, ws[0].monday, c.contractId);
+    const groups = new Map<string, BillableWeek[]>();
+    for (const w of ws) {
+      const holder = lookup.holderOf(c, mk, w.key);
+      const key = holder?.id ?? "";
+      groups.set(key, [...(groups.get(key) ?? []), w]);
+    }
+    return [...groups.entries()].map(([id, gw]) => {
+      const holder = id ? db.invoice_drafts.find((d) => d.id === id) ?? null : null;
+      const status = runMonths.has(mk) ? (holder?.status ?? "draft") : null;
+      return { mk, weeks: gw, qty: gw.length, amountOre: gw.length * price, status, kind: kindOf(status), invoiceId: id || null };
+    });
   });
 }
 
@@ -177,7 +204,8 @@ export const tally = (rows: readonly LedgerRow[]): Tally => ({
 export const qtyKr = (t: { qty: number; amountOre: number }): string => `${plural(t.qty, "vecka", "veckor")}, ${kr(t.amountOre)}`;
 
 export type InvoiceSummary = {
-  order: { qty: number; amountOre: number };
+  /** Beställda veckor (omfattningen) – inget ordervärde i kronor (synpunkt #11). */
+  order: { qty: number };
   current: { qty: number; amountOre: number };
   billed: Tally;
   returned: Tally;
@@ -185,16 +213,21 @@ export type InvoiceSummary = {
   accrued: Tally;
   remaining: { qty: number; amountOre: number };
   over: number;
-  /** Fakturatexten (BT-22): beställningen, denna faktura, tidigare fakturerat, faktureras om, upparbetat och återstående. */
+  /** Radens anmärkning (Peppol BT-127): beställningen, denna rad, tidigare fakturerat, faktureras om, upparbetat och återstående. */
   text: string;
 };
 
-type SummaryInvoice = Pick<Invoice, "month" | "caseNumber" | "weeks" | "quantity" | "amountOre" | "orderWeeks" | "orderValueOre" | "unitPriceOre">;
+type SummaryLine = Pick<BillingLine, "month" | "caseNumber" | "weeks" | "quantity" | "amountOre" | "orderWeeks" | "unitPriceOre">;
 
-/** Upparbetat och återstående för en faktura (till och med fakturans månad). */
-export function invoiceSummary(inv: SummaryInvoice, ledger: readonly LedgerRow[]): InvoiceSummary {
+/**
+ * Upparbetat och återstående för en fakturarad (till och med fakturans månad). currentInvoiceId = den sparade fakturan som
+ * har raden (null för en faktura som ännu inte är sparad) – så att veckor på en annan faktura samma månad räknas som tidigare.
+ * Botkyrkas fakturavillkor: upparbetat och återstående belopp på beställningen anges där det är tillämpligt (SPEC §3).
+ */
+export function invoiceSummary(inv: SummaryLine, ledger: readonly LedgerRow[], currentInvoiceId: string | null = null): InvoiceSummary {
   const upto = ledger.filter((r) => r.mk <= inv.month);
-  const earlier = upto.filter((r) => r.mk < inv.month);
+  const isCurrent = (r: LedgerRow) => r.mk === inv.month && r.invoiceId === currentInvoiceId;
+  const earlier = upto.filter((r) => !isCurrent(r));
   const accrued = tally(upto);
   const billed = tally(earlier.filter((r) => r.kind === "billed"));
   const returned = tally(earlier.filter((r) => r.kind === "returned"));
@@ -204,19 +237,25 @@ export function invoiceSummary(inv: SummaryInvoice, ledger: readonly LedgerRow[]
   const left = Math.max(0, orderWeeks - accrued.qty);
   const remaining = { qty: left, amountOre: left * inv.unitPriceOre };
   const over = Math.max(0, accrued.qty - orderWeeks);
-  const order = { qty: orderWeeks, amountOre: inv.orderValueOre };
   const monthsText = (t: Tally) => t.months.map((r) => `${monthName(r.mk)} (${weekText(r.weeks)})`).join(", ");
   const sentences = [
-    `Beställning ${inv.caseNumber}: ${qtyKr(order)}.`,
+    `Beställning ${inv.caseNumber}: ${plural(orderWeeks, "vecka", "veckor")}.`,
     `Denna faktura: ${plural(current.qty, "vecka", "veckor")} (${weekText(inv.weeks)}), ${kr(current.amountOre)}.`,
     `Tidigare fakturerat: ${qtyKr(billed)}.`,
     returned.qty > 0 &&
       `${pl(returned.months.length, "Returnerad faktura", "Returnerade fakturor")} för ${monthsText(returned)}: ${qtyKr(returned)}. ${pl(returned.months.length, "Fakturan krediteras", "Fakturorna krediteras")} och ${pl(returned.qty, "veckan", "veckorna")} faktureras om på en ny faktura.`,
-    pending.qty > 0 && `Ännu inte fakturerat från ${monthsText(pending)}: ${qtyKr(pending)}. Faktureras på en egen faktura per månad.`,
+    pending.qty > 0 && `Ännu inte fakturerat från ${monthsText(pending)}: ${qtyKr(pending)}. Faktureras på fakturan för den månaden.`,
     `Upparbetat inklusive denna faktura: ${qtyKr(accrued)}.`,
     over > 0 ? `Upparbetat är ${plural(over, "vecka", "veckor")} mer än beställningen.` : `Återstår av beställningen: ${qtyKr(remaining)}.`,
   ].filter((x): x is string => !!x);
-  return { order, current, billed, returned, pending, accrued, remaining, over, text: sentences.join(" ") };
+  return { order: { qty: orderWeeks }, current, billed, returned, pending, accrued, remaining, over, text: sentences.join(" ") };
+}
+
+/** Fakturatexten (Peppol BT-22): avtalet, månaden, antal ärenden och veckor. Inga namn eller personnummer. */
+export function invoiceText(o: { contractNumber: string; month: MonthKey; lines: number; weeks: number; number: number; perContract: boolean }): string {
+  const what = o.number > 1 ? `Tilläggsfaktura ${o.number} för ${monthName(o.month)}` : `Fakturaunderlag ${monthName(o.month)}`;
+  const rows = o.perContract ? " En rad per ärende – ärendenumret är faktureringsobjekt." : " Ärendenumret är faktureringsobjekt.";
+  return `${what}, avtal ${o.contractNumber}: ${plural(o.lines, "ärende", "ärenden")}, ${plural(o.weeks, "deltagarvecka", "deltagarveckor")}.${rows}`;
 }
 
 // ---------------------------------------------------------------- Regler för körningen
@@ -242,26 +281,34 @@ export function monthRules(mk: MonthKey): MonthRules {
 // ---------------------------------------------------------------- CSV-export (fakturaunderlag, inga namn)
 const csvCell = (v: unknown): string => {
   const s = String(v ?? "");
-  return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  // Formelskydd: en cell som börjar med =, +, -, @ eller tab tolkas inte som formel i Excel.
+  const safe = /^[=+\-@\t]/.test(s) ? `'${s}` : s;
+  return /[;"\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 };
 const krCsv = (ore: number): string => (ore / 100).toFixed(2).replace(".", ",");
 
-export type CsvInvoice = Pick<Invoice, "caseNumber" | "articleNo" | "weeks" | "quantity" | "unitPriceOre" | "amountOre" | "vatRate" | "buyerReference" | "purchaseOrderNumber"> & {
+export type CsvLine = Pick<BillingLine, "caseNumber" | "articleNo" | "weeks" | "quantity" | "unitPriceOre" | "amountOre" | "vatRate"> & {
+  invoiceTitle: string;
+  invoiceStatus: string;
+  buyerReference: string | null;
+  purchaseOrderNumber: string;
   areaName: string;
-  statusLabel: string;
   checkLabels: string[];
-  invoiceText: string;
+  note: string;
 };
 
-/** Fakturaunderlaget som CSV (semikolon, svenska decimaler). Ärendenumret är faktureringsobjekt – inga namn eller personnummer. */
-export function toCsv(invoices: readonly CsvInvoice[]): string {
+/**
+ * Fakturaunderlaget som CSV (semikolon, svenska decimaler): en rad per fakturarad med fakturans huvud först (faktura, status,
+ * beställarreferens, inköpsordernummer). Ärendenumret är faktureringsobjekt – inga namn eller personnummer.
+ */
+export function toCsv(lines: readonly CsvLine[]): string {
   const head = [
-    "Ärendenummer (faktureringsobjekt)", "Avtalsområde", "Artikel", "Veckor", "Antal veckor", "À-pris exkl. moms (kr)", "Belopp exkl. moms (kr)", "Moms (%)",
-    "Beställarreferens", "Inköpsordernummer", "Radtext", "Fakturatext", "Status", "Kontroller",
+    "Faktura", "Fakturans status", "Beställarreferens", "Inköpsordernummer", "Ärendenummer (faktureringsobjekt)", "Avtalsområde", "Artikel", "Veckor", "Antal veckor",
+    "À-pris exkl. moms (kr)", "Belopp exkl. moms (kr)", "Moms (%)", "Radtext", "Anmärkning", "Kontroller",
   ];
-  const rows = invoices.map((x) => [
-    x.caseNumber, x.areaName, x.articleNo, x.weeks.map((w) => w.week).join(" "), x.quantity, krCsv(x.unitPriceOre), krCsv(x.amountOre), x.vatRate, x.buyerReference || "",
-    x.purchaseOrderNumber || "", `${x.caseNumber} · ${weekText(x.weeks)}`, x.invoiceText, x.statusLabel, x.checkLabels.join(", "),
+  const rows = lines.map((x) => [
+    x.invoiceTitle, x.invoiceStatus, x.buyerReference || "", x.purchaseOrderNumber || "", x.caseNumber, x.areaName, x.articleNo, x.weeks.map((w) => w.week).join(" "), x.quantity,
+    krCsv(x.unitPriceOre), krCsv(x.amountOre), x.vatRate, `${x.caseNumber} · ${weekText(x.weeks)}`, x.note, x.checkLabels.join(", "),
   ]);
   return [head, ...rows].map((r) => r.map(csvCell).join(";")).join("\r\n");
 }

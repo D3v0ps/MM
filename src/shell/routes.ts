@@ -38,7 +38,6 @@ export const START_PATH: Record<Role, string> = {
   chef: "/min-vecka",
   ekonom: "/min-vecka",
   kommun_handlaggare: "/portal",
-  kommun_chef: "/portal/bestallarrapport",
   deltagare: "/puls",
 };
 

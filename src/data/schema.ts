@@ -32,10 +32,11 @@
 //   S.messages                       -> messages
 //   S.billingRuns                    -> billing_runs
 //   S.invoiceStatus {mån: {default, caseId: status}}
-//                                    -> billing_runs.defaultInvoiceStatus (= default) + invoice_drafts.status (per ärende)
+//                                    -> invoice_drafts (en faktura per avtal och månad, beslut 2026-10-07) + invoice_lines
+//                                       (frysta rader per ärende) – byggs i src/data/seed/decisions-2026-10-07.ts
 //   S.billingApprovals {mån: {zeroWeeks, approved, manual}}
 //                                    -> billing_week_approvals (zeroWeeks, id = `${caseId}:${weekKey}`)
-//                                       + invoice_drafts.approvedAt/approvedBy (approved) + invoice_drafts.manualInvoiceNo (manual)
+//                                       + invoice_drafts.approvedAt/approvedBy (approved, per faktura) + invoice_drafts.manualInvoiceNo (manual)
 //   S.ekoFortnox {runs, keys, credits, lastSync}
 //                                    -> fortnox_runs (runs och lastSync, kind 'create'/'sync')
 //                                       + invoice_drafts.fortnoxIdempotencyKey/fortnoxCreatedAt (keys) + invoice_credits (credits)
@@ -66,7 +67,7 @@
 //               emailDomains -> organizations.emailDomains (kundens organisation)
 //   areas:      (inget id) -> id; contractId, code, name, active oförändrade
 //   priceItems: oförändrade (areaCode behålls – SPEC area_id? ersätts av områdeskoden)
-//   users/customerUsers: name -> fullName; role -> memberships.role ('handlaggare' -> 'kommun_handlaggare', 'chef' -> 'kommun_chef');
+//   users/customerUsers: name -> fullName; role -> memberships.role (alla -> 'kommun_handlaggare' – kommunens chef är borttagen 2026-10-07);
 //               org ('mb'/'customer') -> organizationId; unit -> customerUnit (även memberships.customerUnit);
 //               buyerReferenceId, teamRole, lastLoginAt, invitedAt, invitedBy, title, email, phone, active oförändrade
 //   buyerReferences: customer (namn) -> customerId; note behålls. (SPEC default_for_user_id ersätts av profiles.buyerReferenceId)
@@ -121,6 +122,17 @@ export type CaseStatus = (typeof CASE_STATUSES)[number];
 export const CASE_SOURCES = ["email", "portal", "phone"] as const;
 export type CaseSource = (typeof CASE_SOURCES)[number];
 
+/** Har en kartläggning av deltagaren genomförts innan beställningen? (beslut 2026-10-07, synpunkt #7) */
+export const PRIOR_ASSESSMENTS = ["yes", "no", "unknown"] as const;
+export type PriorAssessment = (typeof PRIOR_ASSESSMENTS)[number];
+
+/** Bilagor till beställningen (0024_bilagor.sql, beslut 2026-10-07). */
+export const ATTACHMENT_STATUSES = ["pending", "uploaded", "deleted"] as const;
+export type AttachmentStatus = (typeof ATTACHMENT_STATUSES)[number];
+/** Varför filen raderades: aldrig kopplad (24 h), gallring enligt avtalet, borttagen av en användare eller ogiltig fil. */
+export const ATTACHMENT_DELETE_REASONS = ["unlinked_24h", "retention", "removed", "invalid"] as const;
+export type AttachmentDeleteReason = (typeof ATTACHMENT_DELETE_REASONS)[number];
+
 export const END_REASONS = ["arbete", "studier", "avbrott_flytt", "avbrott_kommunens_beslut", "avbrott_deltagarens_val", "avbrott_ovriga_skal", "planerat_utan_resultat"] as const;
 export type EndReason = (typeof END_REASONS)[number];
 
@@ -129,6 +141,8 @@ export const RESULT_CLASSES = ["result", "no_result", "excluded"] as const;
 export type ResultClass = (typeof RESULT_CLASSES)[number];
 
 /** Samtycke till inspelning och AI. not_applicable = skyddade personuppgifter (ingen AI). */
+// not_applicable användes för skyddade personuppgifter. Skyddet är borttaget ur appen (beslut 2026-10-07) – nya ärenden får
+// not_asked; värdet finns kvar för äldre rader.
 export const AI_CONSENT_STATUSES = ["given", "declined", "not_asked", "not_applicable", "revoked"] as const;
 export type AiConsentStatus = (typeof AI_CONSENT_STATUSES)[number];
 
@@ -206,11 +220,17 @@ export const INBOUND_EMAIL_STATUSES = ["received", "acknowledged", "linked", "pr
 export type InboundEmailStatus = (typeof INBOUND_EMAIL_STATUSES)[number];
 export const PARSE_METHODS = ["template", "ai", "manual"] as const;
 export type ParseMethod = (typeof PARSE_METHODS)[number];
+// order_protected: mejl om skyddade personuppgifter. Skyddet är borttaget ur appen (beslut 2026-10-07) – värdet finns kvar för
+// äldre rader och visas som "Övrigt".
 export const EMAIL_CLASSIFICATIONS = ["order", "supplement", "order_protected", "other"] as const;
 export type EmailClassification = (typeof EMAIL_CLASSIFICATIONS)[number];
 
-/** Fakturastatus per ärende och månad. blocked räknas fram (stoppande kontroll) och lagras inte. */
-export const INVOICE_STATUSES = ["draft", "approved", "fortnox_created", "booked", "sent", "paid", "returned", "manual"] as const;
+/**
+ * Fakturans status. blocked räknas fram (stoppande kontroll) och lagras inte. credited = en returnerad faktura som krediterats
+ * utan ny faktura, eftersom ingen av dess veckor längre är debiterbar (eko.reissue) – den täcker inga veckor och visas inte
+ * bland månadens fakturor.
+ */
+export const INVOICE_STATUSES = ["draft", "approved", "fortnox_created", "booked", "sent", "paid", "returned", "manual", "credited"] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 export type InvoiceDisplayStatus = InvoiceStatus | "blocked";
 export const INVOICE_KINDS = ["periodic", "bonus"] as const;
@@ -220,6 +240,7 @@ export type BillingRunStatus = (typeof BILLING_RUN_STATUSES)[number];
 
 export const TASK_STATUSES = ["open", "done"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+// protected_order skapas inte längre (skyddet borttaget ur appen, beslut 2026-10-07) – värdet finns kvar för äldre rader.
 export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
@@ -320,7 +341,11 @@ export type Contract = {
   endsOn: LocalDate | null;
   casePrefix: string;
   dataRole: DataRole;
-  /** Validerad med ContractConfigSchema (src/core/config.ts). Ärendehantering: requireOperational(config). */
+  /**
+   * Följer ContractConfigSchema (src/core/config.ts) – testerna kontrollerar testdatat, men appen validerar inte konfigurationen
+   * när avtalet läses. Säkerhetsregler i schemat (t.ex. att självregistrering kräver synligheten "own") kontrolleras därför
+   * också i koden där de gäller (src/core/self-registration.ts). Ärendehantering: requireOperational(config).
+   */
   config: ContractConfig;
   status: ContractStatus;
   /** Avtalsansvarig (kundansvarig) hos Miljonbemanning. */
@@ -414,11 +439,16 @@ export type Person = {
   phone: string;
   email: string;
   city: string;
-  /** Bara när kontaktvägen är brev. Aldrig vid skyddade personuppgifter (CLAUDE.md punkt 8). */
+  /** Bara när kontaktvägen är brev. */
   address: string | null;
   preferredContact: PreferredContact;
+  /**
+   * Skyddade personuppgifter. VILANDE sedan 2026-10-07 (Karims beslut, stäms av med Botkyrka): frågan ställs inte och alla
+   * deltagare hanteras lika, så värdet är alltid false. Spärren i RLS och src/data/policy.ts ligger kvar så att skyddet kan
+   * slås på igen utan ny migration.
+   */
   protectedIdentity: boolean;
-  /** Anpassningsbehov, funktionellt beskrivet. */
+  /** Anpassningsbehov, funktionellt beskrivet. Frågas inte längre i beställningen (beslut 2026-10-07) – finns kvar för äldre ärenden. */
   accessibilityNeeds: string;
   language: string;
   needsInterpreter: boolean;
@@ -450,10 +480,21 @@ export type Case = {
   desiredStart: LocalDate | null;
   /** Planerad start enligt orderbekräftelsen. */
   plannedStart: LocalDate | null;
+  /** Planerade veckor (debiterbara ISO-veckor mellan start och planerat slut – räknas av servern, internt). */
   plannedWeeks: number | null;
+  /** Planerat slut. Vid 6 eller 12 månader räknar servern fram det från startdatumet (orderPeriodEnd). */
   plannedEnd: LocalDate | null;
-  /** Beställningens värde i veckor (för upparbetat och återstående belopp). */
+  /** Beställningens värde i veckor (för upparbetat och återstående belopp – bara internt, aldrig för kommunen). */
   orderValueWeeks: number | null;
+  /**
+   * Omfattningen i månader enligt avtalets alternativ (orderPeriods.months, Botkyrka 6 eller 12). null = annan tidsperiod
+   * (orderPeriodReason är satt) eller en äldre beställning i veckor (plannedWeeks). Beslut 2026-10-07, 0025.
+   */
+  orderPeriodMonths: number | null;
+  /** Motiveringen när kommunen valt "Annan tidsperiod" (då anges slutdatumet själv). */
+  orderPeriodReason: string | null;
+  /** Har en kartläggning genomförts? (beställningens bakgrundsinformation). null = äldre beställning. */
+  priorAssessment: PriorAssessment | null;
   acknowledgedAt: LocalDateTime | null;
   confirmedAt: LocalDateTime | null;
   declinedAt: LocalDateTime | null;
@@ -470,6 +511,7 @@ export type Case = {
   /** När nuvarande fas började, om det inte framgår av godkända avstämningar. */
   phaseSince: LocalDate | null;
   leadCoachId: string | null;
+  /** Bakgrundsinformation om deltagaren från beställningen (fritext, beslut 2026-10-07 – ersätter fältet Bakgrund). */
   backgroundInfo: string;
   aiConsentStatus: AiConsentStatus;
   /** Veckodag för coachträffen (0 = måndag) och klockslag 'HH:mm'. */
@@ -546,6 +588,12 @@ export type OrderExtract = {
   secondaryArea?: AreaCode;
   vocationalTrack?: string;
   background?: string;
+  /** Omfattning (beslut 2026-10-07): antal månader ur avtalet ("6", "12"), "annan" eller "" (framgår inte). */
+  orderPeriod?: string;
+  /** Motivering när omfattningen är "annan". */
+  orderPeriodReason?: string;
+  /** Har en kartläggning genomförts? "ja", "nej", "vet_inte" eller "". */
+  priorAssessment?: "ja" | "nej" | "vet_inte" | "";
 };
 export type OrderField = keyof OrderExtract;
 /** Samordnarens rättelse eller bekräftelse av ett tolkat fält. */
@@ -837,7 +885,7 @@ export type Report = {
   contractId: string;
   /** Null för veckorapporter (per handläggare) och beställarrapporter. */
   caseId: string | null;
-  /** Mottagare för rapporter utan ärende (veckorapport: handläggaren, beställarrapport: kommunens chef). */
+  /** Mottagare för rapporter utan ärende (veckorapport: handläggaren). Beställarrapporten har ingen mottagare sedan 2026-10-07 (null). */
   recipientUserId: string | null;
   kind: ReportKind;
   /** Veckorapporter. */
@@ -988,26 +1036,33 @@ export type BillingRun = {
   createdAt: LocalDateTime;
   closedAt: LocalDateTime | null;
   closedBy: UserId | null;
-  /**
-   * Status för ärenden som saknar egen rad i invoice_drafts (prototypens invoiceStatus[månad].default,
-   * t.ex. "paid" för historiska månader i testdata). Null = "draft".
-   */
-  defaultInvoiceStatus: InvoiceStatus | null;
 };
 
-/** En faktura per ärende och månad (samlingsfakturor är inte tillåtna i Botkyrka). */
+/**
+ * En faktura (beslut 2026-10-07, synpunkt #13): en per avtal och månad med en rad per ärende (invoice_lines), plus
+ * tilläggsfakturor för veckor som tillkommer efter att månadens faktura skapats (src/core/billing.ts). Med
+ * billing.invoicePer "case_and_month" en per ärende och månad. Fakturan finns som rad först när ekonomen gjort något med den
+ * (referens, godkännande, skapad) – innan dess räknas den fram ur underlaget.
+ */
 export type InvoiceDraft = {
-  /** Prototypens form: `inv-${month}-${caseId}`. */
+  /** `inv-${contractId}-${month}-${groupingKey}` (invoiceIdOf i src/core/billing.ts). */
   id: string;
   billingRunId: string | null;
   contractId: string;
   month: MonthKey;
   kind: InvoiceKind;
+  /** Ärendet när fakturan gäller ett ärende (invoicePer "case_and_month"), annars null. */
   caseId: string | null;
+  /** "avtal" (månadens faktura), "avtal-tillagg-2" … (tilläggsfakturor), eller ärendets id (en faktura per ärende). */
   groupingKey: string;
+  /** Kommunens beställarreferens – en per faktura, fylls i av Miljonbemanning (ekonomen) och kontrolleras före fakturan. */
   buyerReference: string | null;
+  /**
+   * Kommunens inköpsordernummer (99…) om ekonomen har angett det – "" = inget. null = inte angivet: då gäller radernas
+   * gemensamma nummer. Aldrig ärendenummer eller andra egna nummer.
+   */
   purchaseOrderNumber: string | null;
-  /** Faktureringsobjekt = ärendenummer. */
+  /** Faktureringsobjekt: avtalsnumret på månadens faktura; ärendenumret står på varje rad. */
   invoicedObject: string;
   /** Upparbetat och återstående på beställningen inklusive denna faktura (öre). Null = inte beräknat ännu (räknas fram ur underlaget). */
   accruedOre: number | null;
@@ -1019,12 +1074,16 @@ export type InvoiceDraft = {
   /** Fakturanummer när fakturan skapats manuellt (t.ex. i kommunens fakturaportal). */
   manualInvoiceNo: string | null;
   fortnoxDocumentNumber: string | null;
-  /** `${month}:${caseId}` – samma faktura skapas aldrig två gånger. */
+  /** `${contractId}:${month}:${groupingKey}` (+ ":ny" efter kreditering) – samma faktura skapas aldrig två gånger. */
   fortnoxIdempotencyKey: string | null;
   fortnoxCreatedAt: LocalDateTime | null;
   syncedAt: LocalDateTime | null;
 };
 
+/**
+ * En fryst fakturarad: skrivs när fakturan skapas (Fortnox eller manuellt) och ändras sedan aldrig (0023: RLS och trigger).
+ * id = `${invoiceDraftId}:${caseId}` – en rad per ärende och faktura.
+ */
 export type InvoiceLine = {
   id: string;
   invoiceDraftId: string;
@@ -1034,9 +1093,13 @@ export type InvoiceLine = {
   /** Öre, exkl. moms. */
   unitPriceOre: number;
   vatRate: number;
+  /** Radtext: "BOT-26-0042 · v. 1–4 2027" (ärendenumret är faktureringsobjekt – inga namn). */
   description: string;
+  /** Veckorna på raden. Tom = äldre rad som täcker ärendets alla veckor i månaden. */
   isoWeeks: WeekKey[];
   zeroAttendanceWeeks: WeekKey[];
+  /** Radens anmärkning (Peppol BT-127): upparbetat och återstående på beställningen. Tom = räknas fram. */
+  note: string;
 };
 
 /** Godkänd debiterbar vecka utan närvaro (prototypens billingApprovals[mån].zeroWeeks). */
@@ -1057,7 +1120,10 @@ export type InvoiceCredit = {
   id: string;
   contractId: string;
   month: MonthKey;
-  caseId: string;
+  /** Fakturan som krediterades (0023). Null bara för äldre rader som gällde ett ärende. */
+  invoiceDraftId: string | null;
+  /** Äldre rader (före 0023): ärendet vars faktura krediterades. Null för krediteringar av en faktura. */
+  caseId: string | null;
   creditedAt: LocalDateTime;
   creditedBy: UserId;
   buyerReference: string | null;
@@ -1265,11 +1331,11 @@ export type CaseNote = {
 
 // ================================================================ Sparade rapporter i rapportbyggaren (0021, rapporter steg 4)
 // Miljonbemanning bygger rapporter av de levererade rapporternas frysta fakta och sparar definitionen (SPEC §7.11 k). En sparad
-// rapport visas för ägaren (private), för samordnare, avtalsansvarig och chef i avtalet (mb) eller dessutom för kommunens chef
-// (customer – bara avtalsansvarig delar med kommunen). Bara ägaren ändrar titel och definition; avtalsansvarig ändrar
+// rapport visas för ägaren (private) eller för samordnare, avtalsansvarig och chef i avtalet (mb). Delning med kommunens chef
+// (customer) är borttagen med rollen (beslut 2026-10-07, 0026). Bara ägaren ändrar titel och definition; avtalsansvarig ändrar
 // delningen och arkiverar. Rader raderas aldrig – de arkiveras. Definitionen innehåller aldrig personuppgifter, och titeln
 // står aldrig i filnamn eller logg.
-export const SAVED_REPORT_VISIBILITIES = ["private", "mb", "customer"] as const;
+export const SAVED_REPORT_VISIBILITIES = ["private", "mb"] as const;
 export type SavedReportVisibility = (typeof SAVED_REPORT_VISIBILITIES)[number];
 
 export type SavedReport = {
@@ -1502,6 +1568,35 @@ export type FeedbackReply = {
   submittedAt: LocalDateTime | null;
 };
 
+// ================================================================ Bilagor till beställningen (0024, beslut 2026-10-07)
+/**
+ * En fil som kommunens handläggare (eller Miljonbemanning) bifogat beställningen, t.ex. en kartläggning. Innehållet ligger i
+ * den privata bucketen "bilagor" (Supabase Storage, Stockholm) – raden är spåret. Filnamnet visas bara i appen: sökvägen har
+ * bara avtal och id, och revisionsloggen får aldrig filnamnet. Raderna skrivs bara av systemet (ctx.attachments).
+ */
+export type CaseAttachment = {
+  id: string;
+  contractId: string;
+  /** Ärendet, eller null tills beställningen har skickats (uppladdningen görs medan formuläret fylls i). */
+  caseId: string | null;
+  /** Den som laddade upp (profiles.id). */
+  uploadedBy: UserId;
+  /** Filnamnet som det visas i appen (1–200 tecken). Aldrig i sökvägar, URL:er eller loggar. */
+  fileName: string;
+  mimeType: string;
+  bytes: number;
+  /** Sökvägen i bucketen: "<avtal>/<id>.<ändelse>". */
+  storagePath: string;
+  status: AttachmentStatus;
+  createdAt: LocalDateTime;
+  linkedAt: LocalDateTime | null;
+  /** Borttagen av en användare (raderas samtidigt). */
+  removedAt: LocalDateTime | null;
+  removedBy: UserId | null;
+  deletedAt: LocalDateTime | null;
+  deleteReason: AttachmentDeleteReason | null;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1566,6 +1661,7 @@ export type Tables = {
   feedback_replies: FeedbackReply;
   case_notes: CaseNote;
   saved_reports: SavedReport;
+  case_attachments: CaseAttachment;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1588,6 +1684,7 @@ export const TABLE_NAMES = [
   "feedback", "feedback_replies",
   "case_notes",
   "saved_reports",
+  "case_attachments",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -1606,4 +1703,6 @@ export function emptyDb(): Db {
 export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
   attendance: ["activityId"],
   pulse_responses: ["inviteId"],
+  // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
+  invoice_drafts: ["fortnoxIdempotencyKey"],
 };

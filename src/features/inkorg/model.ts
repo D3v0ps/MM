@@ -65,13 +65,14 @@ const VIEW_ROLES: Record<ViewId, readonly Role[]> = {
   "coach.kartlaggning": ["coach"],
   "coach.handelse": ["coach"],
   "rapporter.lista": ["samordnare", "avtalsansvarig", "coach", "chef"],
-  "rapport.visa": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"],
+  "rapport.visa": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare"],
   "chef.oversikt": ["chef"],
   "chef.avvikelser": ["chef", "avtalsansvarig", "samordnare"],
-  "eko.start": ["ekonom", "chef"],
-  "eko.arende": ["ekonom", "chef"],
-  "eko.faktura": ["ekonom", "chef"],
-  "eko.korning": ["ekonom", "chef"],
+  // Ekonomi bara för ekonomen (beslut 5, 2026-10-07).
+  "eko.start": ["ekonom"],
+  "eko.arende": ["ekonom"],
+  "eko.faktura": ["ekonom"],
+  "eko.korning": ["ekonom"],
   notiser: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "ekonom", "admin"],
 };
 export const canOpen = (view: ViewId, role: Role): boolean => VIEW_ROLES[view].includes(role);
@@ -113,7 +114,6 @@ export type Item = {
   pending: boolean;
   handledAt: string | null;
   sla: { dueAt: string; metAt: string | null } | null;
-  isProtected: boolean;
 };
 
 export type InboxData = {
@@ -126,7 +126,14 @@ export type InboxData = {
   profiles: Profile[];
 };
 
-/** Skyddade personuppgifter: personen är skyddad, eller rollen får se ärendet men inte personen (samordnare, chef). */
+/** Ärendets omfattning som i formulären ("6", "annan" eller ""). */
+export const casePeriodValue = (c: Pick<Case, "orderPeriodMonths" | "orderPeriodReason">): string =>
+  c.orderPeriodMonths != null ? String(c.orderPeriodMonths) : c.orderPeriodReason ? "annan" : "";
+
+/**
+ * VILANDE (skyddade personuppgifter är borttaget ur appen 2026-10-07): personen är skyddad, eller rollen får se ärendet men
+ * inte personen. Sådana ärenden visas inte i inkorgen (fail-closed) – spärren finns kvar i behörigheten.
+ */
 export const caseProtected = (c: Case | null, person: Person | null | undefined): boolean => !!c && (!person || person.protectedIdentity);
 
 /**
@@ -149,24 +156,29 @@ export async function loadInbox(ctx: Ctx, e: InboxEnv): Promise<InboxData> {
   const personOf = (c: Case | null) => (c ? personById.get(c.personId) ?? null : null);
   const days = answerDays(e.cfg);
 
-  const items: Item[] = emails.map((m) => {
+  // Skyddade personuppgifter (vilande): ett ärende vars person inte får läsas visas inte (fail-closed). Mejl som en gång
+  // klassades som skyddade (order_protected) visas som Övrigt – de hanteras av en människa.
+  const items: Item[] = [];
+  for (const m of emails) {
     const c = m.caseId ? caseById.get(m.caseId) ?? null : null;
     const person = personOf(c);
-    return {
+    if (caseProtected(c, person)) continue;
+    const cls = m.classification === "order_protected" ? "other" : m.classification;
+    items.push({
       id: m.id, kind: "email", email: m, case: c, person, receivedAt: m.receivedAt, from: m.fromName, subject: m.subject, method: m.parseMethod,
-      cls: m.classification, status: m.status, pending: PENDING.includes(m.status), handledAt: m.handledAt,
-      sla: null, isProtected: m.classification === "order_protected" || caseProtected(c, person),
-    };
-  });
+      cls, status: m.status === "protected" ? "other" : m.status, pending: PENDING.includes(m.status), handledAt: m.handledAt, sla: null,
+    });
+  }
   for (const c of nonEmail) {
     const open = OPEN_CASE(c);
     const phone = c.source === "phone";
     const person = personOf(c);
+    if (caseProtected(c, person)) continue;
     items.push({
       id: `case:${c.id}`, kind: "case", email: null, case: c, person, receivedAt: c.referredAt,
       from: c.referrerId ? personName(profiles, c.referrerId) : c.referrerName ?? "–", subject: phone ? "Beställning per telefon" : "Beställning i portalen",
       method: phone ? "phone" : "portal", cls: "order", status: open ? c.status : c.status === "declined" ? "declined" : "accepted", pending: open,
-      handledAt: c.confirmedAt || c.declinedAt || null, sla: null, isProtected: caseProtected(c, person),
+      handledAt: c.confirmedAt || c.declinedAt || null, sla: null,
     });
   }
   for (const it of items) {
@@ -196,7 +208,7 @@ export function toRow(it: Item, now: string): InboxRow {
   return {
     id: it.id, kind: it.kind, emailId: m?.id ?? null, caseId: it.case?.id ?? null, caseNumber: it.case?.caseNumber ?? null,
     receivedAt: it.receivedAt, receivedWhen: whenText(it.receivedAt, now), from: it.from, subject: it.subject, method: it.method, cls: it.cls, status: it.status,
-    pending: it.pending, sla: it.sla ? sla(it.sla.dueAt, it.sla.metAt, now) : null, isProtected: it.isProtected,
+    pending: it.pending, sla: it.sla ? sla(it.sla.dueAt, it.sla.metAt, now) : null,
     missing: (m?.missingFields ?? []).map((k) => FIELD_LABEL[k].toLowerCase()),
   };
 }
@@ -209,7 +221,7 @@ export function toRow(it: Item, now: string): InboxRow {
 // Inga personuppgifter lämnas ut: posterna innehåller ärendenummer, datum, antal och namn på Miljonbemannings personal.
 const OPS_TABLES = [
   "cases", "activities", "attendance", "reports", "profiles", "memberships", "contract_deviations", "billing_runs", "deviations", "price_items",
-  "buyer_references", "invoice_drafts", "billing_week_approvals", "pulse_responses", "check_ins", "placements", "inbound_emails",
+  "buyer_references", "invoice_drafts", "invoice_lines", "billing_week_approvals", "pulse_responses", "check_ins", "placements", "inbound_emails",
 ] as const satisfies readonly TableName[];
 export type OpsDb = Pick<Db, (typeof OPS_TABLES)[number] | "alert_acks">;
 

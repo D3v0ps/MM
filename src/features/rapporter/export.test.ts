@@ -18,6 +18,10 @@ import { frozenFacts, type ReportEnv } from "./model";
 import { isDelivered } from "./report-helpers";
 
 const db = { ...emptyDb(), ...(createSeed() as unknown as Partial<Db>) } as Db;
+// Skyddade personuppgifter är vilande sedan 2026-10-07 och testdatat har inga – spärren slås på för ärendet "skyddad" så att
+// urvalet utan skyddade ärenden (selection.ts) prövas som förut: 270 rader.
+const SKYDDAD_CASE = db.cases.find((c) => c.id === db.demo_tags.find((t) => t.tag === "skyddad")!.entityIds[0])!;
+db.persons.find((p) => p.id === SKYDDAD_CASE.personId)!.protectedIdentity = true;
 const contract = db.contracts.find((c) => c.id === "c-bot")!;
 const cfg = requireOperational(contract.config);
 const env: ReportEnv = { cfg, contract: { id: contract.id, startsOn: contract.startsOn, supplierName: "Miljonbemanning AB" }, now: "2027-02-01T09:12", activityTypes: ACTIVITY_TYPES };
@@ -269,7 +273,7 @@ describe("filerna", () => {
     expect(entryText(es, "xl/worksheets/sheet4.xml")).toContain(`<autoFilter ref="A1:K${exp.meta.rows.avslut + 1}"/>`);
     const about = entryText(es, "xl/worksheets/sheet5.xml");
     for (const t of ["Avtal", "332026110, Botkyrka kommun", "Period", "oktober 2026 – december 2026", "Hämtad", "2027-02-01 09:12", "Schemaversion", "Rader",
-      "Bara levererade månadsrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.", "Ärenden med skyddade personuppgifter finns aldrig med.",
+      "Bara levererade månadsrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.",
       "Avslut och resultat för alla insatser som avslutades under perioden finns på fliken Avslut. Räkna resultatgraden där.",
       "Resultatdefinitionen är inte fastställd. Resultatet är preliminärt.",
       "Ett resultat räknas först när resultat_verifierat = 1. Kommer underlaget efter att slutrapporten lämnats rättar vi slutrapporten – hämta då en ny fil.",
@@ -286,7 +290,9 @@ describe("filerna", () => {
     expect(veckor).toHaveLength(1);
     expect(veckor[0][2]).toBe("3");
     expect(cellsOf("beskrivning")[0][4]).toBe("1");
-    expect(cellsOf("Ärenden med skyddade personuppgifter finns aldrig med.")[0][4]).toBeUndefined();
+    expect(cellsOf("Bara levererade månadsrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.")[0][4]).toBeUndefined();
+    // Skyddade personuppgifter nämns inte sedan beslutet 2026-10-07 (borttaget ur appen – spärren är vilande).
+    expect(about).not.toMatch(/skyddade personuppgifter/i);
   });
   it(`storleken: 2 000 rader i Resultat (och tillhörande progression och händelser) håller sig under 3 MB som base64`, async () => {
     // 2 000 rader: testdatats rader upprepade med nya ärendenummer (påhittade).

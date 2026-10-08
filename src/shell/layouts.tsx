@@ -322,8 +322,6 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   const { open, toggle, close, rootRef, buttonRef, layerRef } = useMobileMenu();
   const { actor, user } = session;
   const path = match.route.path;
-  // Kommunens chef: menyval som beror på avtalet ("Hämta resultat") – en liten fråga, inga tunga data.
-  const counts = useQuery(navCounts, actor.role === "kommun_chef" && path !== PORTAL_LOGIN_PATH ? {} : null).data;
   const who = [user.name, user.unit].filter(Boolean).join(", ");
   const header = cn(
     "relative flex items-center gap-x-5 gap-y-3 border-b border-ljusgra bg-vit px-6 py-3.5",
@@ -366,7 +364,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
       </header>
     );
   }
-  const items = portalNavFor(actor.role, counts);
+  const items = portalNavFor(actor.role);
   const active = activePath(nav.path, items.map((i) => i.to));
   return (
     <header ref={rootRef} className={header} data-print="hide">

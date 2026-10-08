@@ -62,7 +62,10 @@ handleCommand(reportDeliver, { roles: REPORT_ROLES }, async (ctx, p) => {
   if (!mayDeliver(ctx.actor, r, c)) return fail("forbidden", "Din roll levererar inte den här rapporten.");
   if (r.superseded || r.status === "delivered" || r.status === "opened") return fail("wrong_status", "Rapporten är redan levererad.");
   if (r.status !== "approved" && r.status !== "reviewed" && r.kind !== "weekly_attendance") return fail("not_approved", "Rapporten måste vara godkänd innan den levereras.");
-  const to = r.recipientUserId || c?.referrerId || null;
+  // Beställarrapporten lämnas till kommunen utanför Miljonmatch av avtalsansvarig (beslut 2026-10-07: kommunens chef finns inte
+  // i portalen). Leveransen registreras – ingen mottagare, inget mejl och ingen bilaga i vanlig e-post (CLAUDE.md punkt 9).
+  const outside = r.kind === "customer_summary";
+  const to = outside ? null : r.recipientUserId || c?.referrerId || null;
   if (r.kind === "weekly_attendance" && r.status === "waiting" && (!to || !r.week || !(await weeklyComplete(ctx, r.contractId, to, r.week as WeekKey)))) {
     return fail("incomplete", "All närvaro för veckan är inte registrerad ännu.");
   }
@@ -85,7 +88,7 @@ handleCommand(reportDeliver, { roles: REPORT_ROLES }, async (ctx, p) => {
     prevId = prev.previousId;
   }
   // Loggen skrivs innan rapporten fryses: leveransen är gjord, och en frysning som misslyckas får inte lämna den ologgad.
-  await ctx.audit({ action: "report.delivered", entity: "report", entityId: r.id, contractId: r.contractId, details: { kind: r.kind, channel: "portal", version: r.version } });
+  await ctx.audit({ action: "report.delivered", entity: "report", entityId: r.id, contractId: r.contractId, details: { kind: r.kind, channel: outside ? "outside_portal" : "portal", version: r.version } });
   // Frys innehållet direkt vid leveransen (modellen och, för månads- och slutrapporter, fakta för kommunens resultatfil).
   // Systemsteg (freeze.ts): samma innehåll som kommunen ser, oavsett när någon öppnar rapporten. Misslyckas frysningen
   // (tillfälligt fel) fryses rapporten i stället när den öppnas första gången eller vid kommunens export – med samma
@@ -95,6 +98,7 @@ handleCommand(reportDeliver, { roles: REPORT_ROLES }, async (ctx, p) => {
   } catch (e) {
     console.error("rapport: frysningen vid leveransen misslyckades", r.id, e instanceof Error ? e.name : typeof e);
   }
+  if (outside) return ok({});
   // Mejlet innehåller bara en notis – aldrig rapporten eller personuppgifter (CLAUDE.md punkt 9).
   await ctx.notify({
     channel: "email", to: (await userEmail(ctx, to)) || c?.referrerEmail || "", template: "ny_rapport",
@@ -126,7 +130,7 @@ handleCommand(reportCorrect, { roles: REPORT_ROLES }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- report.open (tyst)
-handleCommand(reportOpen, { roles: ["kommun_handlaggare", "kommun_chef"], silent: true }, async (ctx, p) => {
+handleCommand(reportOpen, { roles: ["kommun_handlaggare"], silent: true }, async (ctx, p) => {
   const r = await ctx.repo.table("reports").get(p.reportId);
   if (!r) return fail("not_found", NOT_FOUND);
   // Kvittens bara när en mottagare själv öppnar en levererad rapport.

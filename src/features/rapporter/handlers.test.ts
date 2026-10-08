@@ -14,6 +14,7 @@ import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
 import type { AppRepo, Report, TableName, Tables } from "@/data/schema";
 import { ensureFacts } from "./freeze";
+import { orderPeriodText } from "@/core/cases";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { assessmentSave, attendanceSet } from "@/features/coach/api";
 import { caseClose } from "@/features/arenden/api";
@@ -45,7 +46,7 @@ const johan = () => as("u-johan", "avtalsansvarig");
 const amira = () => as("u-amira", "coach");
 const petra = () => as("u-petra", "handledare");
 const maria = () => as("k-maria", "kommun_handlaggare");
-const eva = () => as("k-eva", "kommun_chef");
+const omar = () => as("k-omar", "kommun_handlaggare");
 
 // Testdatat (samma id:n som i den gamla prototypen)
 const NADIA = "case-260143";
@@ -58,6 +59,8 @@ const WEEKLY_WAIT = "rep-16692";
 const FIN_DEL = "rep-16258";
 const PROT_JAN = "rep-15885";
 const PROT_DEL = "rep-15882";
+/** Den vilande spärren (beslut 2026-10-07): personen i case-260120 får skyddade personuppgifter – testdatat har inga. */
+const protect = () => rt.store.updateRow("persons", row("cases", "case-260120")!.personId, { protectedIdentity: true });
 
 const view = async (id: string, actor: Actor) => (await ask(reportView, { reportId: id }, actor)) as ReportView;
 const doc = async (id: string, actor: Actor) => ask(reportDocument, { reportId: id }, actor);
@@ -94,14 +97,22 @@ describe("1. rapportlistan", () => {
     expect(l.rows.filter((x) => x.kind === "customer_summary" && x.search.includes("december"))).toHaveLength(1);
     expect(l.rows.some((x) => x.provisional)).toBe(true);
     expect(text(l)).not.toMatch(/deadline/i);
-    // Skyddade personuppgifter: numret men aldrig namnet
-    expect(l.rows.find((x) => x.id === PROT_JAN)?.sub).toBe("BOT-26-0120 · Skyddade personuppgifter");
+    // Ärendet som hade skyddade personuppgifter är ett vanligt ärende i dag (beslut 2026-10-07).
+    expect(l.rows.find((x) => x.id === PROT_JAN)?.sub).toBe("BOT-26-0120 · Sanna Lindgren");
   });
 
   it("nästa steg, försenad och förfaller denna vecka är desamma som i den gamla prototypen (facit)", async () => {
     type F = { title: string; eff: string; statusLabel: string; next: string; overdue: boolean; week: boolean };
     const facit = JSON.parse(readFileSync(new URL("./parity/facit.json", import.meta.url), "utf8")) as { reports: Record<string, F> };
     const l = await ask(reportList, {}, sara());
+    // Dokumenterad avvikelse (beslut 2026-10-07): beställarrapporterna lämnas till kommunen utanför Miljonmatch – de är
+    // levererade men aldrig kvitterade i portalen (prototypen: öppnade av kommunens chef).
+    const cs = new Set(rows("reports").filter((r) => r.kind === "customer_summary" && r.status === "delivered").map((r) => r.id));
+    expect(cs.size).toBe(3);
+    for (const id of cs) {
+      expect(facit.reports[id]).toMatchObject({ eff: "opened", statusLabel: "Kvitterad", next: "done:Mottagaren har öppnat rapporten" });
+      Object.assign(facit.reports[id], { eff: "delivered", statusLabel: "Lämnad till kommunen", next: "done:Lämnad till kommunen utanför Miljonmatch" });
+    }
     const diff = l.rows.filter((x) => {
       const f = facit.reports[x.id];
       return !f || f.title !== x.title || f.eff !== x.eff || f.statusLabel !== x.statusLabel || f.next !== `${x.next.key}:${x.next.label}` || f.overdue !== x.overdue || f.week !== x.week;
@@ -136,6 +147,12 @@ describe("rapporter.dokument läser rätt underlag", () => {
         expect(d.doc.m).toEqual(rest);
         expect(d.doc.total).toBe(sections?.length);
         expect(d.doc.sections.map((x) => (x.restricted ? x : (({ name: _n, restricted: _r, ...y }) => (void _n, void _r, y))(x)))).toEqual(sections);
+      } else if (d.doc.kind === "order_confirmation") {
+        // Dokumenterad avvikelse (beslut 2026-10-07, synpunkt #10): inget veckopris – omfattningen i text i stället.
+        const { price, ...rest } = s.model;
+        expect(price).toEqual(expect.any(Number));
+        expect(d.doc.m).toEqual({ ...rest, period: orderPeriodText(row("cases", d.doc.m.caseId)!) });
+        expect(JSON.stringify(d.doc)).not.toMatch(/price|kr\b/i);
       } else expect(d.doc.m).toEqual(s.model);
     });
   }
@@ -241,20 +258,20 @@ describe("3. kommunen öppnar rapporten", () => {
     await expect(ask(reportView, { reportId: NADIA_JAN }, maria())).rejects.toBeInstanceOf(ApiError);
   });
 
-  it("handläggaren kan inte öppna chefens beställarrapport, och ett utkast visas inte", async () => {
+  it("handläggaren kan inte öppna beställarrapporten (den lämnas utanför portalen), och ett utkast visas inte", async () => {
     expect(await doc(CS_JAN, maria())).toMatchObject({ ok: false, reason: "not_yours" });
     const undelivered = rows("reports").find((r) => r.kind === "monthly" && r.status === "draft" && row("cases", r.caseId!)!.referrerId === "k-maria")!;
     expect(await doc(undelivered.id, maria())).toMatchObject({ ok: false, reason: "not_delivered", title: "" });
     expect(await run(reportOpen, { reportId: undelivered.id }, maria())).toMatchObject({ ok: false, error: "not_found" });
   });
 
-  it("3b. kommunens chef läser utan att kvittera – visningen loggas", async () => {
-    const unopened = rows("reports").find((r) => r.kind === "monthly" && r.status === "delivered" && !r.openedAt && r.deliveredTo.includes("k-maria") && !row("persons", row("cases", r.caseId!)!.personId)!.protectedIdentity)!;
-    const d = await okDoc(unopened.id, eva());
-    expect(d.portal).toMatchObject({ isRecipient: false, recipientName: "Maria Ekdahl", openedAt: null });
-    expect(await run(reportOpen, { reportId: unopened.id }, eva())).toMatchObject({ ok: true, acknowledged: false });
+  it("3b. bara mottagaren läser rapporten i portalen – en annan handläggare och beställarrapporten nås inte", async () => {
+    const unopened = rows("reports").find((r) => r.kind === "monthly" && r.status === "delivered" && !r.openedAt && r.deliveredTo.includes("k-maria"))!;
+    const d = await okDoc(unopened.id, maria());
+    expect(d.portal).toMatchObject({ isRecipient: true, recipientName: "Maria Ekdahl" });
+    expect(await doc(unopened.id, omar())).toMatchObject({ ok: false, reason: "not_yours" });
+    expect(await doc(CS_DEC, omar())).toMatchObject({ ok: false });
     expect(row("reports", unopened.id)!.openedAt).toBeNull();
-    expect(rows("audit_log").some((l) => l.action === "report.view" && l.entityId === unopened.id && l.actorId === "k-eva")).toBe(true);
     // Datum utan förkortningar i portalens rubrikrad
     expect(d.portal?.deliveredText).toMatch(/^[a-zåäö]+dag \d{1,2} [a-zåäö]+ \d{4} klockan \d{2}\.\d{2}$/);
   });
@@ -281,7 +298,7 @@ describe("3. kommunen öppnar rapporten", () => {
   it("3c. seedad levererad slutrapport har en fryst rekommendation; beställarrapportens nöjdhet gäller rapportens månader", async () => {
     const fin = await okDoc(FIN_DEL, maria());
     expect(fin.doc.kind === "final" && fin.doc.m.recommendation).toBeTruthy();
-    const cs = await okDoc(CS_DEC, eva());
+    const cs = await okDoc(CS_DEC, johan());
     expect(cs.doc.kind === "customer_summary" && cs.doc.m.pulse.period).toBe("oktober–december 2026");
   });
 });
@@ -329,7 +346,7 @@ describe("5. samordnarens kvalitetsgranskning", () => {
 
 // ================================================================ 6. Beställarrapport
 describe("6. beställarrapport januari", () => {
-  it("visar bara avtalsmålet; sammanfattning krävs och får inte nämna det interna målet; godkänns och levereras till kommunens chef", async () => {
+  it("visar bara avtalsmålet; sammanfattning krävs och får inte nämna det interna målet; godkänns och lämnas till kommunen utanför portalen", async () => {
     const d = await okDoc(CS_JAN, johan());
     expect(text(d)).not.toMatch(/0\.35|35\s?%|internalTarget/);
     expect(d.doc.kind === "customer_summary" && d.doc.m.result.contractTarget).toBe(0.32);
@@ -347,12 +364,13 @@ describe("6. beställarrapport januari", () => {
     expect(rows("audit_log").pop()).toMatchObject({ action: "report.summary_saved", details: { aiUsed: true } });
     expect(await run(reportApprove, { reportId: CS_JAN }, johan())).toMatchObject({ ok: true });
     expect(row("reports", CS_JAN)).toMatchObject({ status: "approved", approvedBy: "u-johan", summaryAiUsed: true });
+    const out0 = rows("outbound_messages").length;
     expect(await run(reportDeliver, { reportId: CS_JAN }, johan())).toMatchObject({ ok: true });
-    expect(row("reports", CS_JAN)!.deliveredTo).toContain("k-eva");
-    const ev = await okDoc(CS_JAN, eva());
-    expect(text(ev)).not.toMatch(/35\s?%|0\.35/);
-    expect(ev.portal?.isRecipient).toBe(true);
-    expect(await run(reportOpen, { reportId: CS_JAN }, eva())).toMatchObject({ ok: true, acknowledged: true });
+    // Ingen mottagare i portalen, inget mejl och ingen notis – avtalsansvarig lämnar rapporten (beslut 2026-10-07).
+    expect(row("reports", CS_JAN)).toMatchObject({ status: "delivered", deliveredTo: [], recipientUserId: null });
+    expect(rows("outbound_messages").slice(out0)).toEqual([]);
+    expect(rows("audit_log").filter((l) => l.action === "report.delivered" && l.entityId === CS_JAN).pop()).toMatchObject({ details: { kind: "customer_summary", channel: "outside_portal" } });
+    expect(await doc(CS_JAN, maria())).toMatchObject({ ok: false });
     expect(await ask(reportView, { reportId: CS_DEC }, amira())).toMatchObject({ ok: false, reason: "role" });
     await expect(run(reportSaveSummary, { reportId: CS_JAN, summary: "x", aiUsed: false }, sara())).rejects.toBeInstanceOf(ApiError);
   });
@@ -432,24 +450,25 @@ describe("8. slutrapport efter avslut", () => {
 
 // ================================================================ 9. Behörighet
 describe("9. behörighet", () => {
-  it("skyddade personuppgifter: samordnaren nekas, avtalsansvarig ser rapporten, kommunens chef ser aldrig namnet", async () => {
+  it("skyddade personuppgifter (vilande spärr påslagen): samordnaren nekas, avtalsansvarig ser rapporten, en annan handläggare ser aldrig namnet", async () => {
+    // Utan spärren är det en vanlig rapport för samordnaren.
+    expect(await doc(PROT_JAN, sara())).toMatchObject({ ok: true });
+    protect();
     expect(await ask(reportView, { reportId: PROT_JAN }, sara())).toMatchObject({ ok: false, reason: "protected", caseNumber: "BOT-26-0120" });
     expect(await doc(PROT_JAN, sara())).toMatchObject({ ok: false, reason: "protected" });
     expect(await doc(PROT_JAN, johan())).toMatchObject({ ok: true, doc: { kind: "monthly" } });
     const p = row("persons", row("cases", "case-260120")!.personId)!;
     const name = `${p.firstName} ${p.lastName}`;
-    const chef = await doc(PROT_DEL, eva());
-    expect(chef).toMatchObject({ ok: false, reason: "protected_customer" });
-    expect(text(chef)).not.toContain(name);
-    // Veckorapporten: en skyddad sektion utan namn för kommunens chef
+    const other = await doc(PROT_DEL, maria());
+    expect(other).toMatchObject({ ok: false });
+    expect(text(other)).not.toContain(name);
+    // Veckorapporten: en annan handläggare når den inte
     const c = row("cases", "case-260120")!;
     const week = rows("reports").find((r) => r.kind === "weekly_attendance" && r.recipientUserId === c.referrerId && ["delivered", "opened"].includes(r.status) && (r.periodEnd ?? "") >= (c.startDate ?? ""))!;
-    // Policyn (RLS-spegeln) släpper i dag bara igenom veckorapporter till mottagaren – prototypen lät kommunens chef läsa
-    // dem (se slutrapporten). Oavsett: namnet syns aldrig, och om rapporten visas är sektionen skyddad.
-    const wd = await doc(week.id, eva());
+    // Policyn (RLS-spegeln) släpper bara igenom veckorapporter till mottagaren.
+    const wd = await doc(week.id, maria());
     expect(text(wd)).not.toContain(name);
-    if (wd.ok) expect(wd.doc.kind === "weekly_attendance" && wd.doc.sections.some((s) => s.restricted && s.caseId === c.id)).toBe(true);
-    else expect(wd.reason).toBe("not_yours");
+    expect(wd).toMatchObject({ ok: false, reason: "not_yours" });
     // Handläggaren som beställde ser sin deltagare
     expect(text(await okDoc(week.id, as(c.referrerId!, "kommun_handlaggare")))).toContain(name);
   });

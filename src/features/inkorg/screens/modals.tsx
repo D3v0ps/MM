@@ -1,18 +1,18 @@
 "use client";
-// Dialoger i avropsinkorgen: Acceptera, Avböj, Rätta uppgifter och Registrera efter telefonsamtal
-// (prototypens AcceptModal, DeclineModal, CorrectModal och PhoneModal).
+// Dialoger i avropsinkorgen: Acceptera, Avböj och Rätta uppgifter (prototypens AcceptModal, DeclineModal och CorrectModal).
+// Acceptdialogen (beslut 2026-10-07, synpunkt #8): Miljonbemanning väljer avtalsområde och yrkesspår, omfattningen är
+// förifylld ur beställningen (6/12 månader eller annan tidsperiod) och beställarreferensen är valfri. Handläggarens
+// bakgrundsinformation och bilagor visas som underlag. Inga belopp.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
-import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { kr } from "@/core/format";
-import { addWorkingDays, dayOf, diffDays, fmtDate, fmtWeekday, holidayName, isWorkingDay } from "@/core/time";
-import { pnrFormatValid } from "@/core/validation";
-import { caseAccept, caseCreate, caseDecline } from "@/features/arenden/api";
+import { addWorkingDays, dayOf, diffDays, fmtDate, fmtWeekday, holidayName, isWorkingDay, orderPeriodEnd } from "@/core/time";
+import { caseAccept, caseDecline, ORDER_REASON_MAX, ORDER_REASON_MIN } from "@/features/arenden/api";
+import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
 import {
-  BuildPhase, Button, Check, cn, DateInput, ErrorNotice, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Select, SlaBadge, TextArea, TimeInput, toast,
+  BuildPhase, Button, Check, cn, DateInput, ErrorNotice, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Seg, Select, SlaBadge, TextArea, TimeInput, toast,
 } from "@/ui";
-import { inboxCorrect, inboxDecisionForm, inboxDuplicateCheck, inboxLinkPhoneOrder, inboxPhoneForm, type CorrectForm, type DecisionForm, type PhoneForm } from "../api";
+import { inboxCorrect, inboxDecisionForm, type CorrectForm, type DecisionForm } from "../api";
 import { DECLINE_REASONS, FIELD_LABEL, ORDER_FIELDS, refErrorMB, type OrderFieldKey } from "../texts";
 import { ConfirmationCard } from "./cards";
 
@@ -47,8 +47,12 @@ export function AcceptModal({
   return <AcceptForm f={q.data} onClose={onClose} onShowEmail={onShowEmail} next={next} />;
 }
 
-const priceOn = (f: DecisionForm, date: string): number => f.prices?.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.priceOre ?? 0;
-const exampleOn = (f: DecisionForm, date: string): boolean => !!f.prices?.find((p) => p.validFrom <= date && (!p.validTo || p.validTo >= date))?.exampleOnly;
+/** Valet "Annan tidsperiod" (övriga val är antal månader ur avtalet). */
+const OTHER = "annan";
+const periodOptions = (p: { months: number[]; allowOther: boolean }) => [
+  ...p.months.map((n) => ({ value: String(n), label: `${n} månader` })),
+  ...(p.allowOther ? [{ value: OTHER, label: "Annan tidsperiod" }] : []),
+];
 
 function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void; next: NextAction }) {
   const accept = useCommand(caseAccept);
@@ -56,7 +60,12 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
   const [team, setTeam] = useState<string[]>([]);
   const [date, setDate] = useState(f.defaultDate);
   const [time, setTime] = useState("10:00");
-  const [weeks, setWeeks] = useState(f.plannedWeeks ? String(f.plannedWeeks) : "");
+  const [period, setPeriod] = useState(f.orderPeriodMonths != null ? String(f.orderPeriodMonths) : f.orderPeriodReason ? OTHER : "");
+  const [end, setEnd] = useState(f.orderPeriodMonths == null && f.orderPeriodReason ? f.plannedEnd ?? "" : "");
+  const [reason, setReason] = useState(f.orderPeriodReason ?? "");
+  const [area, setArea] = useState(f.primaryArea ?? "");
+  const [area2, setArea2] = useState(f.secondaryArea ?? "");
+  const [track, setTrack] = useState(f.vocationalTrack ?? "");
   const [ref, setRef] = useState(f.buyerReference || "");
   const [tried, setTried] = useState(false);
   const [refServerErr, setRefServerErr] = useState<string | null>(null);
@@ -71,44 +80,53 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
   }, [done]);
 
   const minActive = Math.min(...f.coaches.map((x) => x.active));
-  const w = Number(weeks);
+  const other = period === OTHER;
+  // Äldre beställning i veckor (före 2026-10-07) får behålla veckorna om ingen omfattning väljs.
+  const legacyWeeks = !period && !!f.plannedWeeks;
   const errs: Record<string, string | null> = {
     coach: !coach ? "Välj huvudcoach." : null,
     date: !date ? "Välj datum för första mötet." : date < f.today ? "Datumet har redan passerat." : null,
     time: !time ? "Välj tid för första mötet." : null,
-    weeks: !(Number.isInteger(w) && w >= 1 && w <= 52) ? "Ange planerad omfattning i hela veckor (1–52)." : null,
+    area: !area ? "Välj avtalsområde." : null,
+    area2: area2 && area2 === area ? "Välj ett annat alternativt område än det första, eller inget." : null,
+    track: !track.trim() ? "Skriv yrkesspåret." : null,
+    period: !period && !legacyWeeks ? "Välj hur länge insatsen ska pågå." : null,
+    end: other && !end ? "Välj slutdatum." : other && date && end <= date ? "Slutdatumet måste komma efter första mötet." : null,
+    reason: other && reason.trim().length < ORDER_REASON_MIN ? "Skriv varför insatsen behöver en annan längd." : null,
   };
-  const refNow = refErrorMB(ref, f.refPattern, f.refLen);
-  const refErr = refServerErr || (tried || ref ? refNow : null);
-  const refTitle = !ref.trim() ? "Beställarreferens saknas – avropet kan inte bekräftas" : "Beställarreferensen är fel – avropet kan inte bekräftas";
+  // Beställarreferensen är valfri – formatet kontrolleras bara om något har skrivits.
+  const refNow = ref.trim() ? refErrorMB(ref, f.refPattern, f.refLen) : null;
+  const refErr = refServerErr || refNow;
   /** Fältordning i dialogen: vid fel scrollas och fokuseras det första felaktiga fältet. */
-  const ORDER: [string, string][] = [["coach", `ink-coach-${coach || f.coaches[0]?.id}`], ["date", "ink-fm-date"], ["time", "ink-fm-time"], ["weeks", "ink-weeks"], ["ref", "ink-ref"]];
+  const ORDER: [string, string][] = [
+    ["coach", `ink-coach-${coach || f.coaches[0]?.id}`], ["date", "ink-fm-date"], ["time", "ink-fm-time"], ["area", "ink-area"], ["area2", "ink-area2"], ["track", "ink-track"],
+    ["period", "ink-period"], ["end", "ink-end"], ["reason", "ink-reason"], ["ref", "ink-ref"],
+  ];
   const late = !!date && !!f.firstMeetingDue && date > dayOf(f.firstMeetingDue);
   const daysAfter = date ? diffDays(f.referredAt, date) : 0;
-  const price = priceOn(f, date || f.today);
-  const example = exampleOn(f, date || f.today);
+  const plannedEnd = period && !other && date ? orderPeriodEnd(date, Number(period)) : null;
+  const trackOptions = f.tracks[area] ?? [];
 
   const submit = async () => {
     setTried(true);
     const all: Record<string, string | null> = { ...errs, ref: refNow };
     const first = ORDER.find(([k]) => all[k]);
     if (first) {
-      toast(first[0] === "ref" ? `${refTitle}.` : `Avropet kan inte accepteras ännu. ${all[first[0]]}`, "error");
+      toast(`Avropet kan inte accepteras ännu. ${all[first[0]]}`, "error");
       focusField(first[1]);
       return;
     }
     const res = await accept.run({
-      caseId: f.caseId, leadCoachId: coach, firstMeetingAt: `${date}T${time}`, plannedWeeks: w, buyerReference: ref.trim(),
+      caseId: f.caseId, leadCoachId: coach, firstMeetingAt: `${date}T${time}`, buyerReference: ref.trim() || null,
+      primaryArea: area, secondaryArea: area2 || null, vocationalTrack: track.trim(),
+      ...(period && !other ? { orderPeriodMonths: Number(period) } : other ? { plannedEnd: end, orderPeriodReason: reason.trim() } : {}),
       team: team.map((id) => ({ userId: id, role: f.helpers.find((h) => h.id === id)?.teamRole ?? "vocational_supervisor" })),
     });
     if (!res.ok) {
-      if (res.error === "buyer_ref") {
-        setRefServerErr(refErrorMB(ref, f.refPattern, f.refLen) || `Beställarreferensen godkändes inte. Den ska vara ${f.refLen} siffror.`);
-        toast(`${refTitle}.`, "error");
-        focusField("ink-ref");
-        return;
-      }
-      toast("Avropet kunde inte accepteras. Försök igen.", "error");
+      const field = res.error === "buyer_ref" ? "ink-ref" : res.error === "area" ? "ink-area" : res.error === "track" ? "ink-track" : res.error === "order_period" ? "ink-period" : null;
+      if (res.error === "buyer_ref") setRefServerErr(res.message || `Beställarreferensen ska vara ${f.refLen} siffror.`);
+      toast(res.message ? `Avropet kan inte accepteras ännu. ${res.message}` : "Avropet kunde inte accepteras. Försök igen.", "error");
+      if (field) focusField(field);
       return;
     }
     toast(`${f.caseNumber} är accepterat. Orderbekräftelsen är skickad till kommunen.`);
@@ -155,19 +173,10 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="text-small text-text-muted">Från {f.from} · {f.areaName} · {f.displayName}</span>
+        <span className="text-small text-text-muted">Från {f.from} · {f.displayName}</span>
         {f.avropSla && <SlaBadge sla={f.avropSla.sla} dueAt={f.avropSla.dueAt} prefix="Svar:" />}
       </div>
-      {refNow && (tried || !f.buyerReference) && (
-        <Notice tone="critical" title={refTitle}>
-          {refNow} Fältet finns längst ned i dialogen.{f.pendingSup ? " Kompletteringen kan innehålla referensen." : ""}
-        </Notice>
-      )}
-      {f.isProtected && (
-        <Notice tone="critical" icon="lock" title="Skyddade personuppgifter">
-          Deltagaren får ingen kallelse via SMS eller e-post. Den namngivna coachen ringer enligt den säkra rutinen. Bara coachen och avtalsansvarig ser namn och personnummer.
-        </Notice>
-      )}
+      <CaseBackgroundCard bg={f.background} title="Underlag från handläggaren" />
       {f.pendingSup && (
         <Notice tone="info" icon="link" title="Det finns en komplettering att föra in först">
           {f.pendingSup.fromName} svarade {f.pendingSup.when} med uppgifter som saknas i avropet.
@@ -247,29 +256,48 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
             <Notice tone="warn" title="Inte en arbetsdag">{fmtWeekday(date)} är {holidayName(date)?.toLowerCase() ?? "en helgdag"}. Välj en vardag.</Notice>
           </div>
         )}
-        <Field
-          id="ink-weeks" label="Planerad omfattning (veckor)" required error={tried ? errs.weeks : null}
-          help={!f.prices
-            ? `Används för orderns värde. Beställningens värde: ${TESTER_HIDDEN_TEXT.toLowerCase()}.`
-            : price && w > 0
-              ? `Beställningens värde: ${w} veckor × ${kr(price)} = ${kr(w * price)}${example ? " (exempelpris i prototypen)" : ""}.`
-              : "Används för orderns värde och för upparbetat och återstående belopp på fakturan."}
-        >
-          <Input type="number" inputMode="numeric" value={weeks} onValueChange={setWeeks} />
+        <Field id="ink-area" label="Avtalsområde" required help="Miljonbemanning väljer området utifrån handläggarens underlag." error={tried ? errs.area : null}>
+          <Select value={area} onValueChange={setArea} placeholder="Välj område" options={f.areas} />
         </Field>
+        <Field id="ink-area2" label="Alternativt område (valfritt)" help="Om det första området inte fungerar." error={tried ? errs.area2 : null}>
+          <Select value={area2} onValueChange={setArea2} placeholder="Inget" options={f.areas.filter((a) => a.value !== area)} />
+        </Field>
+        <Field id="ink-track" label="Yrkesspår" required help="Välj ett förslag eller skriv ett eget. Kan ändras efter kartläggningen." error={tried ? errs.track : null} full>
+          <Input value={track} onValueChange={setTrack} maxLength={200} list="ink-track-list" />
+        </Field>
+        <datalist id="ink-track-list">
+          {trackOptions.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
         <Field
-          id="ink-ref" label="Beställarreferens" required error={refErr}
-          help={f.buyerReference
-            ? `Från avropet. ${f.refLen} siffror, bara siffror. Krävs för att fakturan ska godkännas.`
-            : `Kommunen har inte angett någon. Ordererkännandet bad om den. ${f.refLen} siffror. Utan giltig referens kan ärendet inte bekräftas.`}
+          id="ink-period" label="Omfattning" required error={tried ? errs.period : null} full
+          help={legacyWeeks ? `Beställningen gäller ${f.plannedWeeks} veckor (äldre beställning). Välj en omfattning om den ska ändras.` : "Förifylld från beställningen. Slutdatumet räknas från första mötet."}
+        >
+          <Seg id="ink-period" ariaLabel="Omfattning" value={period} onValueChange={(v) => setPeriod(v)} options={periodOptions(f.periods)} />
+        </Field>
+        {plannedEnd && <p className="col-span-full m-0 text-text-muted">Planerat slut: {fmtDate(plannedEnd)}.</p>}
+        {other && (
+          <>
+            <Field id="ink-end" label="Slutdatum" required help="Den sista dagen i insatsen." error={tried ? errs.end : null}>
+              <DateInput value={end} onValueChange={setEnd} />
+            </Field>
+            <Field id="ink-reason" label="Motivering" required help="Varför insatsen behöver en annan längd." error={tried ? errs.reason : null} full>
+              <TextArea value={reason} onValueChange={setReason} rows={2} maxLength={ORDER_REASON_MAX} />
+            </Field>
+          </>
+        )}
+        <Field
+          id="ink-ref" label="Beställarreferens (valfritt)" error={refErr}
+          help={`Om kommunen har angett en. ${f.refLen} siffror, bara siffror. Den kan också fyllas i på fakturan.`}
         >
           <Input value={ref} inputMode="numeric" maxLength={12} onValueChange={(v) => { setRef(v); setRefServerErr(null); }} />
         </Field>
       </FormGrid>
 
       <Notice tone="info" icon="bell" title="Det här händer när du accepterar">
-        Orderbekräftelsen publiceras i portalen och kommunen får ett mejl utan personuppgifter. Huvudcoachen och teamet får automatiskt en notis i appen och via e-post (bara ärendenummer).{" "}
-        {f.isProtected ? "Ingen kallelse skickas till deltagaren." : "Deltagaren får kallelse via sin föredragna kontaktväg."}
+        Orderbekräftelsen publiceras i portalen och kommunen får ett mejl utan personuppgifter. Huvudcoachen och teamet får automatiskt en notis i appen och via e-post (bara ärendenummer).
+        Deltagaren får kallelse via sin föredragna kontaktväg.
       </Notice>
     </Modal>
   );
@@ -335,23 +363,25 @@ export function CorrectModal({ f, onClose }: { f: CorrectForm; onClose: () => vo
   const [tried, setTried] = useState(false);
   const set = (k: OrderFieldKey) => (val: string) => setV({ ...v, [k]: val });
   const low = (k: OrderFieldKey) => f.lowNotes[k] ?? "";
-  const w = Number(v.plannedWeeks);
+  const other = v.orderPeriod === OTHER;
   const errs = {
     buyerReference: v.buyerReference ? refErrorMB(v.buyerReference, f.refPattern, f.refLen) : null,
-    plannedWeeks: v.plannedWeeks && !(Number.isInteger(w) && w >= 1 && w <= 52) ? "Ange hela veckor (1–52)." : null,
-    primaryArea: !v.primaryArea ? "Välj avtalsområde." : null,
-    plannedEnd: v.plannedEnd && v.desiredStart && v.plannedEnd < v.desiredStart ? "Slutdatum kan inte vara före startdatum." : null,
+    plannedEnd: other && v.plannedEnd && v.desiredStart && v.plannedEnd <= v.desiredStart ? "Slutdatumet måste komma efter startdatumet." : null,
+    orderPeriodReason: other && v.orderPeriodReason.trim().length > 0 && v.orderPeriodReason.trim().length < ORDER_REASON_MIN ? "Skriv motiveringen med minst en mening." : null,
   };
   const save = async () => {
     setTried(true);
     if (Object.values(errs).some(Boolean)) return;
-    const next: Record<OrderFieldKey, string | number | null> = { ...v, plannedWeeks: v.plannedWeeks ? w : null, secondaryArea: v.secondaryArea || null };
-    const patch: Partial<Record<OrderFieldKey, string | number | null>> = {};
-    for (const k of ORDER_FIELDS) if ((f.current[k] ?? "") !== (next[k] == null ? "" : String(next[k]))) patch[k] = next[k];
+    // Vid 6 eller 12 månader räknas slutdatumet vid accept – slutdatum och motivering gäller bara annan tidsperiod.
+    const next: Record<OrderFieldKey, string | null> = {
+      ...v, plannedEnd: other ? v.plannedEnd || null : f.current.plannedEnd || null, orderPeriodReason: other ? v.orderPeriodReason.trim() || null : null,
+    };
+    const patch: Partial<Record<OrderFieldKey, string | null>> = {};
+    for (const k of ORDER_FIELDS) if ((f.current[k] ?? "") !== (next[k] ?? "")) patch[k] = next[k];
     const checked = ORDER_FIELDS.filter((k) => next[k] != null && next[k] !== "");
     const res = await correct.run({ caseId: f.caseId, emailId: f.emailId, patch: patch as ParamsOf<typeof inboxCorrect>["patch"], checked });
     if (!res.ok) {
-      toast("Uppgifterna kunde inte sparas.", "error");
+      toast(res.message || "Uppgifterna kunde inte sparas.", "error");
       return;
     }
     const edited = ORDER_FIELDS.filter((k) => (f.init[k] ?? "") !== (v[k] ?? ""));
@@ -370,133 +400,31 @@ export function CorrectModal({ f, onClose }: { f: CorrectForm; onClose: () => vo
         </>
       }
     >
-      <p className="text-text-muted">Jämför med originalmejlet. Det du sparar markeras som kontrollerat av dig och loggas. Uppgifter om deltagaren rättas i deltagarkortet.</p>
+      <p className="text-text-muted">
+        Jämför med originalmejlet. Det du sparar markeras som kontrollerat av dig och loggas. Uppgifter om deltagaren rättas i deltagarkortet. Avtalsområde och yrkesspår väljer du
+        när du accepterar.
+      </p>
       <FormGrid>
-        <Field id="ink-c-ref" label="Beställarreferens" help={`${f.refLen} siffror, bara siffror.${low("buyerReference")}`} error={tried ? errs.buyerReference : null}>
-          <Input value={v.buyerReference} inputMode="numeric" maxLength={12} onValueChange={set("buyerReference")} />
-        </Field>
-        <Field id="ink-c-weeks" label="Planerad omfattning (veckor)" help={`Hela veckor.${low("plannedWeeks")}`} error={tried ? errs.plannedWeeks : null}>
-          <Input type="number" inputMode="numeric" value={v.plannedWeeks} onValueChange={set("plannedWeeks")} />
-        </Field>
         <Field id="ink-c-start" label="Önskat startdatum" help={`Kommunens önskemål.${low("desiredStart")}`}>
           <DateInput value={v.desiredStart} onValueChange={set("desiredStart")} />
         </Field>
-        <Field id="ink-c-end" label="Planerat slutdatum" help={`Om kommunen angett det.${low("plannedEnd")}`} error={tried ? errs.plannedEnd : null}>
-          <DateInput value={v.plannedEnd} onValueChange={set("plannedEnd")} />
+        <Field id="ink-c-period" label="Omfattning" help={`6 eller 12 månader, eller annan tidsperiod med motivering.${low("orderPeriod")}`} full>
+          <Seg id="ink-c-period" ariaLabel="Omfattning" value={v.orderPeriod} onValueChange={set("orderPeriod")} options={periodOptions(f.periods)} />
         </Field>
-        <Field id="ink-c-area" label="Avtalsområde (primärt)" required help={`Styr pris och yrkesspår.${low("primaryArea")}`} error={tried ? errs.primaryArea : null}>
-          <Select value={v.primaryArea} onValueChange={set("primaryArea")} placeholder="Välj område" options={f.areas} />
-        </Field>
-        <Field id="ink-c-area2" label="Avtalsområde (alternativt)" help="Om det primära inte fungerar.">
-          <Select value={v.secondaryArea} onValueChange={set("secondaryArea")} placeholder="Inget" options={f.areas} />
-        </Field>
-        <Field id="ink-c-track" label="Önskat yrkesspår" help="Kan ändras efter kartläggningen." full>
-          <Input value={v.vocationalTrack} onValueChange={set("vocationalTrack")} />
-        </Field>
-      </FormGrid>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------- Registrera efter telefonsamtal
-export function PhoneModal({ emailId, onClose }: { emailId: string; onClose: () => void }) {
-  const q = useQuery(inboxPhoneForm, { emailId });
-  if (q.error || !q.data) return <Loader title="Registrera efter telefonsamtal" onClose={onClose} error={q.error ?? (q.data === null ? new Error() : undefined)} />;
-  return <PhoneFormView f={q.data} onClose={onClose} />;
-}
-
-type PhoneValues = { firstName: string; lastName: string; pnr: string; buyerReference: string; primaryArea: string; plannedWeeks: string; confirmed: boolean };
-
-function PhoneFormView({ f, onClose }: { f: PhoneForm; onClose: () => void }) {
-  const create = useCommand(caseCreate);
-  const link = useCommand(inboxLinkPhoneOrder);
-  const [v, setV] = useState<PhoneValues>({ firstName: "", lastName: "", pnr: "", buyerReference: f.brReference ?? "", primaryArea: "", plannedWeeks: "", confirmed: false });
-  const [tried, setTried] = useState(false);
-  const set = <K extends keyof PhoneValues>(key: K) => (val: PhoneValues[K]) => setV({ ...v, [key]: val });
-  const pnrOk = pnrFormatValid(v.pnr);
-  const dup = useQuery(inboxDuplicateCheck, pnrOk ? { pnr: v.pnr.trim() } : null).data?.duplicate ?? false;
-  const w = Number(v.plannedWeeks);
-  const who = f.referrerName || "handläggaren";
-  const errs: Record<keyof PhoneValues, string | null> = {
-    firstName: !v.firstName.trim() ? "Skriv förnamnet." : null,
-    lastName: !v.lastName.trim() ? "Skriv efternamnet." : null,
-    pnr: !v.pnr.trim() ? "Skriv personnummer eller samordningsnummer." : !pnrOk ? "Skriv som ÅÅÅÅMMDD-NNNN." : dup ? "Personen har redan en aktiv insats. Två aktiva ärenden samtidigt är inte tillåtet." : null,
-    buyerReference: refErrorMB(v.buyerReference, f.refPattern, f.refLen),
-    primaryArea: !v.primaryArea ? "Välj avtalsområde." : null,
-    plannedWeeks: !(Number.isInteger(w) && w >= 1 && w <= 52) ? "Ange hela veckor (1–52)." : null,
-    confirmed: !v.confirmed ? "Bekräfta att uppgifterna togs per telefon." : null,
-  };
-  const E = (key: keyof PhoneValues) => (tried ? errs[key] : null);
-  const submit = async () => {
-    setTried(true);
-    if (Object.values(errs).some(Boolean)) return;
-    const res = await create.run({
-      protectedIdentity: true, source: "phone", referrerId: f.referrerId, firstName: v.firstName.trim(), lastName: v.lastName.trim(), pnr: v.pnr.trim(),
-      buyerReference: v.buyerReference.trim(), primaryArea: v.primaryArea, plannedWeeks: w,
-    });
-    if (!res.ok) {
-      toast("Ärendet kunde inte registreras.", "error");
-      return;
-    }
-    await link.run({ emailId: f.emailId, caseId: res.caseId });
-    toast(`${res.caseNumber} är registrerat med skyddade personuppgifter. Acceptera och tilldela en namngiven coach.`);
-    onClose();
-  };
-  return (
-    <Modal
-      title="Registrera efter telefonsamtal"
-      onClose={onClose}
-      wide
-      footer={
-        <>
-          <Button kind="ghost" onClick={onClose}>Avbryt</Button>
-          <Button kind="primary" icon="lock" pending={create.pending || link.pending} onClick={() => void submit()}>Registrera ärendet</Button>
-        </>
-      }
-    >
-      <Notice tone="critical" icon="lock" title="Spara bara det som behövs">
-        Namn, personnummer och handläggare. Ingen adress, telefon eller e-post till deltagaren. Ingen AI och inga automatiska utskick till deltagaren.
-      </Notice>
-      <p>
-        Ring {who} på <b>{f.phone}</b> och fyll i uppgifterna under samtalet.
-      </p>
-      <FormGrid>
-        <Field id="ink-p-first" label="Förnamn" required help="Som i folkbokföringen." error={E("firstName")}>
-          <Input value={v.firstName} onValueChange={set("firstName")} autoComplete="off" />
-        </Field>
-        <Field id="ink-p-last" label="Efternamn" required help="Som i folkbokföringen." error={E("lastName")}>
-          <Input value={v.lastName} onValueChange={set("lastName")} />
-        </Field>
-        <Field id="ink-p-pnr" label="Personnummer" required help="ÅÅÅÅMMDD-NNNN. Kontrolleras mot aktiva ärenden i avtalet." error={E("pnr") || (dup ? errs.pnr : null)}>
-          <Input value={v.pnr} onValueChange={set("pnr")} inputMode="numeric" maxLength={13} />
-        </Field>
-        <Field
-          id="ink-p-ref" label="Beställarreferens" required error={E("buyerReference")}
-          help={f.brReference ? `${f.unit} har referensen ${f.brReference}. Stäm av i samtalet.` : `${f.refLen} siffror, bara siffror. Fråga handläggaren.`}
-        >
-          <Input value={v.buyerReference} onValueChange={set("buyerReference")} inputMode="numeric" maxLength={12} />
-        </Field>
-        <Field id="ink-p-area" label="Avtalsområde (primärt)" required help="Enligt handläggarens önskemål." error={E("primaryArea")}>
-          <Select value={v.primaryArea} onValueChange={set("primaryArea")} placeholder="Välj område" options={f.areas} />
-        </Field>
-        <Field id="ink-p-weeks" label="Planerad omfattning (veckor)" required help="Hela veckor." error={E("plannedWeeks")}>
-          <Input type="number" inputMode="numeric" value={v.plannedWeeks} onValueChange={set("plannedWeeks")} />
-        </Field>
-      </FormGrid>
-      <div className="flex flex-col gap-1.5">
-        <Check id="ink-p-confirm" checked={v.confirmed} onCheckedChange={set("confirmed")}>
-          Jag har ringt {who} och tagit uppgifterna enligt den säkra rutinen.
-        </Check>
-        {E("confirmed") && (
-          <div role="alert" className="flex items-start gap-1.5 text-small font-bold">
-            <Icon name="alert-circle" className="mt-px text-rod" />
-            {errs.confirmed}
-          </div>
+        {other && (
+          <>
+            <Field id="ink-c-end" label="Slutdatum" help={`Den sista dagen i insatsen.${low("plannedEnd")}`} error={tried ? errs.plannedEnd : null}>
+              <DateInput value={v.plannedEnd} onValueChange={set("plannedEnd")} />
+            </Field>
+            <Field id="ink-c-reason" label="Motivering" help={`Varför insatsen behöver en annan längd.${low("orderPeriodReason")}`} error={tried ? errs.orderPeriodReason : null} full>
+              <TextArea value={v.orderPeriodReason} onValueChange={set("orderPeriodReason")} rows={2} maxLength={ORDER_REASON_MAX} />
+            </Field>
+          </>
         )}
-      </div>
-      <div className="text-text-muted">
-        Nästa ärendenummer blir {f.nextCaseNumber}. Efter registreringen ser bara avtalsansvarig och den namngivna coachen namn och personnummer.
-      </div>
+        <Field id="ink-c-ref" label="Beställarreferens (valfritt)" help={`${f.refLen} siffror, bara siffror – om kommunen har angett en.${low("buyerReference")}`} error={tried ? errs.buyerReference : null}>
+          <Input value={v.buyerReference} inputMode="numeric" maxLength={12} onValueChange={set("buyerReference")} />
+        </Field>
+      </FormGrid>
     </Modal>
   );
 }

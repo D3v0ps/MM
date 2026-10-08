@@ -109,19 +109,19 @@ export const CHART_TOO_BIG = `Diagrammet visas när tabellen har högst ${MAX_CH
 export const PARTICIPANTS_HELP = "Antal olika deltagare (ärenden) i gruppen.";
 /** Resultatgraden räknas på slutrapporternas frysta fakta – ett resultat som verifierats efteråt räknas först efter en rättelse. */
 export const LATE_VERIFICATION_NOTE = "Ett resultat som verifierats efter att slutrapporten lämnades räknas här först när slutrapporten har rättats.";
-/** Kommunens chef jämför med beställarrapporten (som räknar på levande ärenden). */
+/** Kommunens läge (används inte sedan 2026-10-07): jämförelsen med beställarrapporten (som räknar på levande ärenden). */
 export const CUSTOMER_SUMMARY_NOTE = "Beställarrapporten räknar på ärendena som de såg ut när den lämnades och kan därför visa en annan resultatgrad.";
 /** Miljonbemanning: Lednings period (rullande sex månader, src/core/env.ts windowStart) skiljer sig också. */
 export const LEDNING_PERIOD_NOTE = "Ledning räknar de sex senaste hela månaderna och den pågående månaden.";
 /** En kolumn i en lista med resultatet ur slutrapporten (resultat, resultat_kod, resultat_verifierat). */
 const RESULT_COLUMN = /^(resultat|avslut)\.resultat(_kod|_verifierat)?$/;
 
-/** De fasta texterna för läget. Kommunens texter nämner aldrig Miljonbemannings interna vyer. */
-export function builderRules(audience: BuilderAudience): string[] {
-  return [
-    audience === "mb" ? "Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem." : "Ärenden med skyddade personuppgifter finns aldrig med.",
-    "Bara levererade månads- och slutrapporter kommer med. Siffrorna är desamma som när rapporten lämnades.",
-  ];
+/**
+ * De fasta texterna för läget. Skyddade personuppgifter nämns inte sedan beslutet 2026-10-07 (borttaget ur appen – spärren
+ * är vilande i behörigheten och urvalet tar fortfarande aldrig med sådana ärenden).
+ */
+export function builderRules(): string[] {
+  return ["Bara levererade månads- och slutrapporter kommer med. Siffrorna är desamma som när rapporten lämnades."];
 }
 
 /**
@@ -220,7 +220,7 @@ export function runDefinition(input: RunInput): RunResult {
 
   const base = {
     audience, dataset: def.dataset, datasetLabel: DATASET_LABEL[def.dataset], output: def.output, title: input.title,
-    periodLabel: exportPeriodLabel(period.from, period.to), from: period.from, to: period.to, rules: builderRules(audience), dimensionValues, minN,
+    periodLabel: exportPeriodLabel(period.from, period.to), from: period.from, to: period.to, rules: builderRules(), dimensionValues, minN,
   };
   const rows = items.map((i) => i.row);
   const totalCases = casesIn(items);

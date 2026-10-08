@@ -4,11 +4,13 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { orderPeriodText, priceFor } from "@/core/cases";
 import { requireOperational } from "@/core/config";
+import { dayOf } from "@/core/time";
 import { createSeed } from "@/data/seed";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import { emptyDb, type Db, type Report } from "@/data/schema";
-import { canonicalJson, driftedSinceDelivery, frozenModel, reportModel, summaryFromNumbers, type ReportEnv, type SummaryModel } from "./model";
+import { canonicalJson, driftedSinceDelivery, frozenModel, reportModel, summaryFromNumbers, type OrderModel, type ReportEnv, type SummaryModel } from "./model";
 import { effStatus, periodText, reportTitle, statusLabel } from "./report-helpers";
 
 type FacitRow = { model: string; title: string; period: string; eff: string; statusLabel: string; next: string; overdue: boolean; week: boolean };
@@ -22,6 +24,19 @@ const env: ReportEnv = { cfg: requireOperational(contract.config), contract: { i
 const hash = (v: unknown) => createHash("sha256").update(canonicalJson(v)).digest("hex").slice(0, 16);
 const J = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const rep = (id: string) => db.reports.find((r) => r.id === id)!;
+/**
+ * Dokumenterad avvikelse (beslut 2026-10-07, synpunkt #10): orderbekräftelsen har inget veckopris – fältet price är ersatt av
+ * omfattningen i text (period). Jämförelsen kontrollerar omfattningen för sig och lägger tillbaka prototypens pris, så att alla
+ * andra fält fortfarande jämförs med facit.
+ */
+function asPrototype(r: Report, m: unknown): unknown {
+  if (r.kind !== "order_confirmation" || !m) return m;
+  const { period, ...rest } = m as OrderModel;
+  const c = db.cases.find((x) => x.id === r.caseId)!;
+  expect(period).toBe(orderPeriodText(c));
+  expect(canonicalJson(m)).not.toMatch(/price/i);
+  return { ...rest, price: priceFor(db.price_items, c.primaryAreaCode, c.startDate || c.plannedStart || c.desiredStart || dayOf(env.now), c.contractId) };
+}
 
 describe("rapportmodellerna har paritet med den gamla prototypen", () => {
   it("samma antal rapporter", () => {
@@ -29,7 +44,7 @@ describe("rapportmodellerna har paritet med den gamla prototypen", () => {
   });
   for (const [name, s] of Object.entries(facit.sample)) {
     it(`hela modellen: ${name} (${s.id})`, () => {
-      expect(J(reportModel(db, rep(s.id), env))).toEqual(s.model);
+      expect(asPrototype(rep(s.id), J(reportModel(db, rep(s.id), env)))).toEqual(s.model);
     });
   }
   it("kontrollsumma för varje rapports modell, rubrik, period och status", () => {
@@ -40,10 +55,14 @@ describe("rapportmodellerna har paritet med den gamla prototypen", () => {
         diff.push(`${r.id}: saknas i facit`);
         continue;
       }
-      if (hash(J(reportModel(db, r, env))) !== f.model) diff.push(`${r.id} (${r.kind}): modellen`);
+      if (hash(asPrototype(r, J(reportModel(db, r, env)))) !== f.model) diff.push(`${r.id} (${r.kind}): modellen`);
       if (reportTitle(r) !== f.title) diff.push(`${r.id}: rubriken ${reportTitle(r)} ≠ ${f.title}`);
       if (periodText(r) !== f.period) diff.push(`${r.id}: perioden ${periodText(r)} ≠ ${f.period}`);
-      if (effStatus(r) !== f.eff || statusLabel(r) !== f.statusLabel) diff.push(`${r.id}: statusen`);
+      // Dokumenterad avvikelse (beslut 2026-10-07): beställarrapporten lämnas utanför Miljonmatch – levererad men aldrig
+      // kvitterad i portalen (prototypen: öppnad av kommunens chef).
+      const outside = r.kind === "customer_summary" && r.status === "delivered" && f.eff === "opened";
+      const [eff, label] = outside ? ["delivered", "Lämnad till kommunen"] : [f.eff, f.statusLabel];
+      if (effStatus(r) !== eff || statusLabel(r) !== label) diff.push(`${r.id}: statusen`);
     }
     expect(diff).toEqual([]);
   });

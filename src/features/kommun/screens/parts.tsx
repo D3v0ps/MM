@@ -114,7 +114,7 @@ export const KIND_ICON: Partial<Record<ReportKind, IconName>> = {
  * Rapportsidan i portalen. fran = sidan som länkade hit (tillbakaknappen). extra = listans val eller månaden, som
  * tillbakaknappen tar med sig (lista=filter=monthly&visa=30, manad=2026-10) – bara koder och siffror.
  */
-export const reportPath = (id: string, fran: "start" | "rapporter" | "deltagare" | "bestallarrapport", extra?: { lista?: string | null; manad?: string | null }) =>
+export const reportPath = (id: string, fran: "start" | "rapporter" | "deltagare", extra?: { lista?: string | null; manad?: string | null }) =>
   path(`/portal/rapporter/${encodeURIComponent(id)}`, { fran, lista: extra?.lista || null, manad: extra?.manad || null });
 
 /** En levererad rapport i en lista. Olästa har blå kant och märket "Ny". lista = listans val (för tillbakaknappen). */

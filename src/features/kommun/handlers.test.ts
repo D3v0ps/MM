@@ -1,6 +1,8 @@
 // Tester för kommunportalens frågor och kommandon – det som inte syns på skärmen i E2E-testet (tests/e2e/kommun.spec.ts):
 // revisionslogg, utskick, rollkontroller och siffrorna jämfört med den gamla prototypen (prototyp/tools/test-kommun.mjs).
-// Körs genom execute() mot testdatat i minnet som testpersonerna i rollväljaren (behörighet via policy.ts).
+// Beslut 2026-10-07: kommunen har bara rollen handläggare (ingen chef, beställarrapport eller resultatfil i portalen), inga
+// belopp, beställarreferenser eller skyddade personuppgifter i portalen och ett nytt beställningsformulär (omfattning i
+// månader, kartläggning, bilagor). Körs genom execute() mot testdatat i minnet som testpersonerna i rollväljaren.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
@@ -13,7 +15,7 @@ import type { TableName, Tables } from "@/data/schema";
 import { caseCreate, caseDecline, messageSend } from "@/features/arenden/api";
 import { deviationCallCustomer } from "@/features/coach/api";
 import {
-  kommunApproveActionPlan, kommunCase, kommunCaseList, kommunCaseSeen, kommunChef, kommunDuplicate, kommunOrderForm, kommunReceipt, kommunReports, kommunRevealPnr,
+  kommunCase, kommunCaseList, kommunCaseSeen, kommunDuplicate, kommunOrderForm, kommunProfile, kommunProfileSave, kommunReceipt, kommunReports, kommunRevealPnr,
   kommunStart, kommunTaskDone, kommunTestPersonas, type KomCaseDetail,
 } from "./api";
 
@@ -35,12 +37,13 @@ const ask = <D extends QueryDef<any, any>>(def: D, input: ParamsOf<D>, actor: Ac
 const rows = <N extends TableName>(name: N): Tables[N][] => rt.store.rows(name);
 
 const maria = () => as("k-maria", "kommun_handlaggare");
-const eva = () => as("k-eva", "kommun_chef");
+const omar = () => as("k-omar", "kommun_handlaggare");
 const sara = () => as("u-sara", "samordnare");
 const amira = () => as("u-amira", "coach");
 const NADIA = "case-260143";
 const YUSUF = "case-260148";
 const ELIF = "case-270003";
+/** Omars beställning – hade skyddade personuppgifter i testdatat före 2026-10-07, i dag ett vanligt ärende. */
 const SKYDDAD = "case-260120";
 const MALL = "case-270050";
 
@@ -60,24 +63,26 @@ describe("startsidan och listorna – samma siffror som den gamla prototypen", (
     expect(s.tasks).toEqual([]);
     expect(s.events).toEqual([]);
   });
-  it("listan: handläggaren ser 71 egna, chefen 231 i enheten och den skyddade bara som ärendenummer", async () => {
+  it("listan: handläggaren ser 71 egna – inga fält om skyddade personuppgifter, inga belopp", async () => {
     const own = await ask(kommunCaseList, {}, maria());
     expect(own.rows).toHaveLength(71);
     expect(own.rows.filter((r) => !["closed", "declined"].includes(r.status))).toHaveLength(29);
     expect(own.rows.every((r) => r.referrerId === "k-maria")).toBe(true);
-    const chef = await ask(kommunCaseList, {}, eva());
-    expect(chef.rows).toHaveLength(231);
-    const prot = chef.rows.find((r) => r.id === SKYDDAD);
-    expect(prot).toMatchObject({ name: "Skyddade personuppgifter", restricted: true, protectedIdentity: true });
-    expect(JSON.stringify(chef)).not.toContain("Lindgren");
+    for (const key of ["restricted", "protectedIdentity", "valueOre", "priceOre", "buyerReference"]) expect(own.rows[0]).not.toHaveProperty(key);
+    // Omars beställning är ett vanligt ärende: namnet visas för honom.
+    const o = await ask(kommunCaseList, {}, omar());
+    expect(o.rows.find((r) => r.id === SKYDDAD)).toMatchObject({ name: "Sanna Lindgren" });
   });
   it("rapporterna: 211 levererade till handläggaren och veckorapporten för vecka 4 är på väg", async () => {
     const r = await ask(kommunReports, {}, maria());
     expect(r.reports).toHaveLength(211);
     expect(r.coming).toEqual([{ id: "rep-16692", title: "Veckorapport närvaro, vecka 4", dueAt: "2027-02-01T16:00" }]);
-    const c = await ask(kommunReports, {}, eva());
-    expect(c.reports.map((x) => x.title)).toEqual(["Beställarrapport december 2026", "Beställarrapport november 2026", "Beställarrapport oktober 2026"]);
-    expect(c.coming.map((x) => x.title)).toEqual(["Beställarrapport januari 2027"]);
+    // Beställarrapporten lämnas utanför portalen (beslut 2026-10-07).
+    expect(r.reports.some((x) => x.title.startsWith("Beställarrapport"))).toBe(false);
+    for (const a of [omar(), as("k-ahmed", "kommun_handlaggare"), as("k-linda", "kommun_handlaggare")]) {
+      const x = await ask(kommunReports, {}, a);
+      expect([...x.reports, ...x.coming].some((y) => y.title.startsWith("Beställarrapport")), a.userId).toBe(false);
+    }
   });
 });
 
@@ -85,8 +90,11 @@ describe("deltagarens sida", () => {
   it("Nadia: orderbekräftelse, närvaro och maskerat personnummer", async () => {
     const d = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;
     expect(d.kind).toBe("ok");
-    expect(d.order).toMatchObject({ coachName: "Amira Haddad", weeks: 10, priceOre: 139800, valueOre: 1398000, buyerReference: "4410023817" });
-    expect(d.attendance).toMatchObject({ restricted: false, prev: { label: "januari", planned: 11, present: 8, late: 1, unregistered: 2, rate: 1 } });
+    expect(d.order).toMatchObject({ coachName: "Amira Haddad" });
+    // Inget ordervärde, pris eller beställarreferens i portalen (synpunkt #10 och #11).
+    for (const key of ["weeks", "priceOre", "valueOre", "buyerReference"]) expect(d.order).not.toHaveProperty(key);
+    expect(JSON.stringify(d)).not.toMatch(/4410023817|139800|1398000|valueOre|priceOre/);
+    expect(d.attendance).toMatchObject({ prev: { label: "januari", planned: 11, present: 8, late: 1, unregistered: 2, rate: 1 } });
     expect(d.participant?.pnrMasked).toBe("••••••••-9545");
     expect(JSON.stringify(d)).not.toContain("19730216");
   });
@@ -94,14 +102,16 @@ describe("deltagarens sida", () => {
     expect(await ask(kommunCase, { caseId: ELIF }, maria())).toEqual({ kind: "denied" });
     expect(await ask(kommunCase, { caseId: "case-finns-inte" }, maria())).toEqual({ kind: "not_found" });
   });
-  it("kommunens chef och skyddade personuppgifter: inga personuppgifter, meddelanden eller närvaro", async () => {
-    const d = (await ask(kommunCase, { caseId: SKYDDAD }, eva())) as KomCaseDetail;
-    expect(d.case).toMatchObject({ name: "Skyddade personuppgifter", restricted: true });
-    expect(d.participant).toBeNull();
-    expect(d.messages).toBeNull();
-    expect(d.attendance).toEqual({ restricted: true });
-    expect(d.reports).toEqual([]);
-    expect(JSON.stringify(d)).not.toMatch(/Sanna|Lindgren/);
+  it("bakgrundsinformationen från beställningen: omfattning, kartläggning, text och bilagor", async () => {
+    const maria101 = rows("inbound_emails").find((m) => m.id === "em-101")!.caseId!;
+    const d = (await ask(kommunCase, { caseId: maria101 }, maria())) as KomCaseDetail;
+    expect(d.kind).toBe("ok");
+    expect(d.background).toMatchObject({ orderPeriodText: "6 månader", orderPeriodReason: null, priorAssessment: "yes", attachments: [] });
+    expect(d.case).toMatchObject({ orderPeriodMonths: 6, otherPeriod: false });
+    // En äldre beställning i veckor.
+    const n = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;
+    expect(n.case.orderPeriodMonths).toBeNull();
+    expect(n.background.orderPeriodText).toMatch(/veckor/);
   });
   it("Visa personnummer loggas utan numret i loggen, och bara med kommunens åtkomst", async () => {
     const r = await run(kommunRevealPnr, { caseId: NADIA }, maria());
@@ -110,47 +120,70 @@ describe("deltagarens sida", () => {
     expect(log).toHaveLength(1);
     expect(log[0]).toMatchObject({ actorId: "k-maria", entity: "person", details: { caseId: NADIA } });
     expect(JSON.stringify(log[0])).not.toContain("9545");
-    expect(await run(kommunRevealPnr, { caseId: SKYDDAD }, eva())).toMatchObject({ ok: false, error: "forbidden" });
     expect(await run(kommunRevealPnr, { caseId: ELIF }, maria())).toMatchObject({ ok: false, error: "not_found" });
+    expect(await run(kommunRevealPnr, { caseId: SKYDDAD }, maria())).toMatchObject({ ok: false, error: "not_found" });
   });
 });
 
 describe("beställning", () => {
-  it("formuläret: avtalets regler, senaste referensen och spärrade referenser", async () => {
+  it("formuläret: omfattningen i månader ur avtalet, bilagorna och tidsgränserna – ingen referens, inga områden eller priser", async () => {
     const f = await ask(kommunOrderForm, {}, maria());
     expect(f).toMatchObject({
-      today: "2027-02-01", defaultStart: "2027-02-15", lastBuyerRef: "4410023817", buyerReference: { pattern: "^[0-9]{8,10}$" }, blockedRefs: ["55102983"],
-      weeks: { min: 4, max: 10 }, firstMeetingWithin: "en vecka", answerDue: "2027-02-02T09:12",
+      customerName: "Botkyrka kommun", today: "2027-02-01", defaultStart: "2027-02-15", firstMeetingWithin: "en vecka", answerDue: "2027-02-02T09:12",
+      me: { name: "Maria Ekdahl", unit: "Arbetsmarknadsenheten Alby", email: "maria.ekdahl@botkyrka.se" },
+      periods: { months: [6, 12], allowOther: true },
+      attachments: { maxBytes: 10 * 1024 * 1024, maxFiles: 10 },
     });
-    expect(f.areas).toHaveLength(12);
-    expect(f.tracks.G).toContain("Truckförare A+B");
+    // Synpunkt #5, #8 och #11: ingen beställarreferens, inga avtalsområden eller yrkesspår och inga belopp.
+    for (const key of ["lastBuyerRef", "buyerReference", "blockedRefs", "areas", "tracks", "weeks", "prices"]) expect(f).not.toHaveProperty(key);
+    expect(JSON.stringify(f)).not.toMatch(/Ore"|4410023817|Truckförare/);
   });
   it("dubblettkontrollen: egen insats med nummer, andras insatser bara som att de finns", async () => {
     expect(await ask(kommunDuplicate, { pnr: "19730216-9545" }, maria())).toEqual([{ caseId: NADIA, caseNumber: "BOT-26-0143", status: "active" }]);
     expect(await ask(kommunDuplicate, { pnr: "20030516-9502" }, maria())).toEqual([{ caseId: null, caseNumber: null, status: null }]);
     expect(await ask(kommunDuplicate, { pnr: "1988041" }, maria())).toEqual([]);
   });
-  it("kvittot: ordererkännandet och mejlet innehåller bara ärendenumret; skyddade får en generisk bekräftelse", async () => {
-    const c = await run(caseCreate, { source: "portal", protectedIdentity: false, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", city: "Tumba", preferredContact: "letter", address: "Testgatan 1", buyerReference: "4410023817", primaryArea: "G", plannedWeeks: 8, desiredStart: "2027-02-15" }, maria());
+  it("kvittot: ordererkännandet och mejlet innehåller bara ärendenumret", async () => {
+    const order = {
+      source: "portal" as const, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", city: "Tumba", preferredContact: "letter" as const, address: "Testgatan 1",
+      referrerUnit: "Arbetsmarknadsenheten Alby", orderPeriodMonths: 6, priorAssessment: "yes" as const, desiredStart: "2027-02-15",
+    };
+    const c = await run(caseCreate, order, maria());
     if (!c.ok) throw new Error(c.error);
     expect(c.caseNumber).toBe("BOT-27-0051");
+    // Omfattningen: planerat slut räknas fram från önskat startdatum (6 månader).
+    expect(rows("cases").find((x) => x.id === c.caseId)).toMatchObject({ orderPeriodMonths: 6, orderPeriodReason: null, priorAssessment: "yes", plannedEnd: "2027-08-14", buyerReference: null, primaryAreaCode: null });
     const r = await ask(kommunReceipt, { caseId: c.caseId }, maria());
     expect(r?.ackText).toMatch(/^Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0051\./);
     expect(r?.mail).toMatchObject({ from: "notis@miljonmatch.se", to: "maria.ekdahl@botkyrka.se" });
     expect(r?.mail?.body).toContain("BOT-27-0051");
     expect(r?.mail?.body).not.toMatch(/Samira|Testsson|3456|Tumba/);
     expect(r?.contactLabel).toBe("Brev");
-    const p = await run(caseCreate, { source: "portal", protectedIdentity: true, firstName: "Skyddad", lastName: "Person", pnr: "19790101-1111", buyerReference: "4410023817", plannedWeeks: 6 }, maria());
-    if (!p.ok) throw new Error(p.error);
-    const pr = await ask(kommunReceipt, { caseId: p.caseId }, maria());
-    expect(pr).toMatchObject({ protectedIdentity: true, ackText: null, contactLabel: null });
-    expect(pr?.mail?.body).toBe("Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.");
+    expect(r).not.toHaveProperty("protectedIdentity");
     // Någon annans kvitto finns inte
     expect(await ask(kommunReceipt, { caseId: NADIA }, as("k-linda", "kommun_handlaggare"))).toBeNull();
   });
+  it("formulärets krav på servern: omfattning, enhet och kartläggning – annan tidsperiod kräver slutdatum och motivering", async () => {
+    const base = { source: "portal" as const, firstName: "Kim", lastName: "Testsson", pnr: "19900303-1234", referrerUnit: "Arbetsmarknadsenheten Alby", priorAssessment: "no" as const, desiredStart: "2027-02-15" };
+    expect(await run(caseCreate, { ...base }, maria())).toMatchObject({ ok: false, error: "order_period" });
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 9 }, maria())).toMatchObject({ ok: false, error: "order_period", message: "Välj en av omfattningarna i avtalet." });
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, referrerUnit: " " }, maria())).toMatchObject({ ok: false, error: "unit" });
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, priorAssessment: null }, maria())).toMatchObject({ ok: false, error: "prior_assessment" });
+    expect(await run(caseCreate, { ...base, plannedEnd: "2027-05-31" }, maria())).toMatchObject({ ok: false, error: "order_period" });
+    const other = await run(caseCreate, { ...base, plannedEnd: "2027-05-31", orderPeriodReason: "Deltagaren flyttar i juni." }, maria());
+    if (!other.ok) throw new Error(other.error);
+    expect(rows("cases").find((x) => x.id === other.caseId)).toMatchObject({ orderPeriodMonths: null, orderPeriodReason: "Deltagaren flyttar i juni.", plannedEnd: "2027-05-31", priorAssessment: "no" });
+    // Inget i formuläret ger skyddade personuppgifter, en beställarreferens eller ett avtalsområde.
+    const extra = await run(caseCreate, { ...base, pnr: "19910404-2345", orderPeriodMonths: 12, protectedIdentity: true, buyerReference: "4410023817", primaryArea: "G" } as never, maria());
+    if (!(extra as { ok: boolean }).ok) throw new Error("ingen beställning");
+    const cx = rows("cases").find((x) => x.id === (extra as { caseId: string }).caseId)!;
+    expect(cx).toMatchObject({ buyerReference: null, primaryAreaCode: null, orderPeriodMonths: 12 });
+    expect(rows("persons").find((x) => x.id === cx.personId)!.protectedIdentity).toBe(false);
+  });
   it("bara handläggaren beställer i portalen", async () => {
-    await expectForbidden(ask(kommunOrderForm, {}, eva()));
-    await expectForbidden(ask(kommunStart, {}, eva()));
+    await expectForbidden(ask(kommunOrderForm, {}, sara()));
+    await expectForbidden(ask(kommunStart, {}, sara()));
+    await expectForbidden(ask(kommunProfile, {}, sara()));
   });
 });
 
@@ -183,68 +216,39 @@ describe("kommandon (prototypens kom.*)", () => {
     expect(rows("audit_log").some((x) => x.action === "task.done" && x.entityId === t.id && x.actorId === "k-maria")).toBe(true);
     expect((await ask(kommunStart, {}, maria())).tasks).toEqual([]);
   });
-  it("kom.approveActionPlan: chefen godkänner med tid och namn, loggas och avtalsansvarig får mejl utan personuppgifter", async () => {
-    const c = await ask(kommunChef, {}, eva());
-    expect(c.pendingPlans.map((x) => x.id)).toEqual(["cd-3"]);
-    expect(await run(kommunApproveActionPlan, { id: "cd-3" }, eva())).toEqual({ ok: true });
-    const cd = rows("contract_deviations").find((x) => x.id === "cd-3");
-    expect(cd).toMatchObject({ customerApprovedBy: "k-eva", customerApprovedAt: rt.clock.now(), status: "action_plan" });
-    expect(rows("audit_log").some((x) => x.action === "contract_deviation.action_plan_approved" && x.entityId === "cd-3")).toBe(true);
-    const mail = rows("outbound_messages").filter((x) => x.template === "atgardsplan_godkand");
-    expect(mail).toHaveLength(1);
-    expect(mail[0]).toMatchObject({ to: "johan.berg@miljonbemanning.se", body: "Beställaren har godkänt en åtgärdsplan i Miljonmatch. Logga in för att se den." });
-    expect(await run(kommunApproveActionPlan, { id: "cd-1" }, eva())).toMatchObject({ ok: false, error: "already_approved" });
-    await expectForbidden(run(kommunApproveActionPlan, { id: "cd-3" }, maria()));
-  });
-  it("meddelanden: handläggaren som beställde skriver, chefen läser utan läskvitto", async () => {
+  it("meddelanden: handläggaren som beställde skriver – en annan handläggare når inte ärendet", async () => {
     const r = await run(messageSend, { caseId: NADIA, body: "Hej Amira!" }, maria());
     expect(r.ok).toBe(true);
     const d = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;
     expect(d.canWrite).toBe(true);
     expect(d.messages?.at(-1)).toMatchObject({ senderLabel: "Du", mine: true, read: false, body: "Hej Amira!" });
-    const c = (await ask(kommunCase, { caseId: NADIA }, eva())) as KomCaseDetail;
-    expect(c.canWrite).toBe(false);
-    expect(c.messages?.at(-1)).toMatchObject({ senderLabel: "Maria Ekdahl, Botkyrka kommun", fromCustomer: true });
+    expect(await ask(kommunCase, { caseId: NADIA }, omar())).toEqual({ kind: "denied" });
   });
-  it("testpersonernas adresser (prototypens snabbval) – bara användare läsaren redan får se", async () => {
-    expect(await ask(kommunTestPersonas, { userIds: ["k-maria", "k-eva"] }, maria())).toEqual([
-      { userId: "k-maria", email: "maria.ekdahl@botkyrka.se" },
-      { userId: "k-eva", email: "eva.bergstrom@botkyrka.se" },
-    ]);
+  it("testpersonernas adresser (prototypens snabbval) – bara användare läsaren redan får se, kommunens chef finns inte", async () => {
+    const got = await ask(kommunTestPersonas, { userIds: ["k-maria", "k-eva"] }, maria());
+    expect(got).toEqual([{ userId: "k-maria", email: "maria.ekdahl@botkyrka.se" }]);
   });
 });
 
-describe("beställarrapporten", () => {
-  it("december är förvald och siffrorna är den levererade rapportens (som prototypen)", async () => {
-    const c = await ask(kommunChef, {}, eva());
-    expect(c.months).toEqual([
-      { month: "2026-10", delivered: true },
-      { month: "2026-11", delivered: true },
-      { month: "2026-12", delivered: true },
-      { month: "2027-01", delivered: false },
-    ]);
-    expect(c.month).toBe("2026-12");
-    expect(c.contractTarget).toBe(0.32);
-    expect(c.minN).toBe(5);
-    expect(c.summary).toMatchObject({ active: 129, started: 53, closed: 39, deviations: 7 });
-    expect(c.summary?.result.rolling).toMatchObject({ num: 24, den: 77, excluded: 6, minN: 10 });
-    expect(c.summary?.result.month).toMatchObject({ num: 13, den: 37 });
-    expect(c.summary?.pulse).toMatchObject({ enough: true, responses: 165 });
-    expect(c.report).toMatchObject({ id: "rep-16698", approvedByName: "Johan Berg", deliveredAt: "2027-01-12T10:05" });
-    expect(c.warnings).toBeGreaterThanOrEqual(0);
-    expect(c.managerName).toBe("Johan Berg");
-    // Det interna målet (35 %) finns aldrig i vy-modellen.
-    expect(JSON.stringify(c)).not.toMatch(/:0\.35[,}]|internalTarget|internt/i);
+describe("Mina uppgifter (kommun.profil)", () => {
+  it("visar namn, telefon, enhet och e-postadress – och om något saknas", async () => {
+    expect(await ask(kommunProfile, {}, maria())).toEqual({
+      name: "Maria Ekdahl", email: "maria.ekdahl@botkyrka.se", phone: "08-530 000 11", unit: "Arbetsmarknadsenheten Alby", customerName: "Botkyrka kommun", incomplete: false,
+    });
+    rt.store.updateRow("profiles", "k-maria", { customerUnit: null });
+    expect((await ask(kommunProfile, {}, maria())).incomplete).toBe(true);
   });
-  it("oktober: små grupper (4 av 6) och januari som utkast utan siffror", async () => {
-    const o = await ask(kommunChef, { month: "2026-10" }, eva());
-    expect(o.summary?.result.rolling).toMatchObject({ num: 4, den: 6 });
-    const j = await ask(kommunChef, { month: "2027-01" }, eva());
-    expect(j.summary).toBeNull();
-    expect(j.report).toBeNull();
-    expect(j.pending).toEqual({ dueAt: expect.any(String) });
-  });
-  it("bara kommunens chef", async () => {
-    await expectForbidden(ask(kommunChef, {}, maria()));
+  it("sparar egna uppgifter – kontrollerar på servern och loggar bara fältnamnen", async () => {
+    expect(await run(kommunProfileSave, { fullName: "M", phone: "08-530 000 11", unit: "Alby" }, maria())).toMatchObject({ ok: false, error: "name" });
+    expect(await run(kommunProfileSave, { fullName: "Maria Ekdahl", phone: "123", unit: "Alby" }, maria())).toMatchObject({ ok: false, error: "phone" });
+    expect(await run(kommunProfileSave, { fullName: "Maria Ekdahl", phone: "08-530 000 11", unit: "  " }, maria())).toMatchObject({ ok: false, error: "unit" });
+    expect(await run(kommunProfileSave, { fullName: "Maria Ekdahl", phone: "08-530 000 11", unit: "Arbetsmarknadsenheten Alby" }, maria())).toEqual({ ok: true, changed: [] });
+    expect(rows("audit_log").some((x) => x.action === "profile.updated")).toBe(false);
+    expect(await run(kommunProfileSave, { fullName: "Maria  Ekdahl Berg", phone: "070-111 22 33", unit: "Arbetsmarknadsenheten  Alby" }, maria())).toEqual({ ok: true, changed: ["fullName", "phone"] });
+    expect(rows("profiles").find((x) => x.id === "k-maria")).toMatchObject({ fullName: "Maria Ekdahl Berg", phone: "070-111 22 33", customerUnit: "Arbetsmarknadsenheten Alby" });
+    const log = rows("audit_log").filter((x) => x.action === "profile.updated");
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ actorId: "k-maria", entity: "profile", entityId: "k-maria", details: { fields: ["fullName", "phone"] } });
+    expect(JSON.stringify(log[0])).not.toMatch(/070|Berg/);
   });
 });

@@ -54,7 +54,6 @@ describe("på nyinläst testdata vid DEMO_START", () => {
       contract: { id: contract.id, startsOn: contract.startsOn, endsOn: contract.endsOn, config: contract.config },
       cases: db.cases.filter((c) => c.contractId === "c-bot"),
       caseworkerIds: members.filter((m) => m.role === "kommun_handlaggare").map((m) => m.userId),
-      managerIds: members.filter((m) => m.role === "kommun_chef").map((m) => m.userId),
       existing: [],
       since: null,
       now: DEMO_START,
@@ -131,7 +130,7 @@ describe("när klockan passerar en vecko- eller månadsgräns", () => {
     expect(created()).toHaveLength(4);
   });
 
-  it("månadsskiftet: månadsrapport per inskrivet ärende och beställarrapport till kommunens chef, inga för avslutade ärenden", async () => {
+  it("månadsskiftet: månadsrapport per inskrivet ärende och en beställarrapport för avtalet (ingen mottagare), inga för avslutade ärenden", async () => {
     await at("2027-03-01T00:01");
     const feb = reports().filter((r) => r.kind === "monthly" && r.month === "2027-02");
     const cases = rt.store.rows("cases").filter((c) => c.contractId === "c-bot" && c.startDate && c.startDate <= "2027-02-28" && (!c.endDate || c.endDate >= "2027-02-01"));
@@ -143,7 +142,8 @@ describe("när klockan passerar en vecko- eller månadsgräns", () => {
     expect(feb.filter((r) => closedBefore.includes(r.caseId!))).toEqual([]);
     const cs = reports().filter((r) => r.kind === "customer_summary" && r.month === "2027-02");
     expect(cs).toHaveLength(1);
-    expect(cs[0]).toMatchObject({ recipientUserId: "k-eva", status: "draft", dueAt: `2027-03-10T16:00`, periodStart: "2027-02-01", periodEnd: "2027-02-28" });
+    // Beställarrapporten lämnas till kommunen utanför portalen (beslut 2026-10-07): ingen mottagare.
+    expect(cs[0]).toMatchObject({ recipientUserId: null, status: "draft", dueAt: `2027-03-10T16:00`, periodStart: "2027-02-01", periodEnd: "2027-02-28" });
     // Veckorna 5–8 skapades också (klockan passerade fyra måndagar).
     expect(new Set(reports().filter((r) => r.kind === "weekly_attendance" && r.week! > "2027-W04").map((r) => r.week))).toEqual(new Set(["2027-W05", "2027-W06", "2027-W07", "2027-W08"]));
     // Rapportlistan visar de nya raderna som vanliga rapporter.
@@ -260,13 +260,10 @@ describe("en körning som avbryts halvvägs", () => {
 });
 
 describe("mottagarna är konton som är aktiva", () => {
-  it("en spärrad chef får ingen beställarrapport, en ny aktiv chef får sin", async () => {
-    rt.store.updateRow("profiles", "k-eva", { active: false });
-    const eva = rt.store.getRow("profiles", "k-eva")!;
-    rt.store.insertRow("profiles", { ...eva, id: "k-ny-chef", email: "ny.chef@example.test", active: true } as never);
-    rt.store.insertRow("memberships", { id: "k-ny-chef:c-bot", userId: "k-ny-chef", contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten" } as never);
+  it("beställarrapporten skapas en gång per avtal och månad – oberoende av kommunens konton", async () => {
+    for (const p of rt.store.rows("profiles").filter((x) => x.id.startsWith("k-"))) rt.store.updateRow("profiles", p.id, { active: false });
     await at("2027-03-01T00:05");
-    expect(reports().filter((r) => r.kind === "customer_summary" && r.month === "2027-02").map((r) => r.recipientUserId)).toEqual(["k-ny-chef"]);
+    expect(reports().filter((r) => r.kind === "customer_summary" && r.month === "2027-02").map((r) => r.recipientUserId)).toEqual([null]);
   });
   it("en spärrad handläggare får ingen veckorapport", async () => {
     rt.store.updateRow("profiles", "k-omar", { active: false });

@@ -1,6 +1,7 @@
 // Revisionsloggen i klarspråk: åtgärdskoder, objekt och detaljer som läsbar svenska (SPEC: klarspråk).
 // Isomorf och utan I/O – hanteraren skickar in uppslagen (namn på användare, ärendenummer, rapporter).
 // Texterna är exakt den gamla prototypens (prototyp/src/views/admin.js, ACTION_LABEL m.fl.).
+import { fileSizeText } from "@/core/attachments";
 import { attLabel, endReasonLabel, eventLabel, reportKindLabel } from "@/core/labels";
 import { fmtDate, fmtDateTime, fmtWeekKey, monthName } from "@/core/time";
 import { prioLabel, statusLabel, typeLabel } from "@/features/synpunkter/model";
@@ -28,8 +29,10 @@ export const ACTION_LABEL: Record<string, string> = {
   "pulse.submitted": "Pulssvar inskickat", "employer.added": "Lade till arbetsgivare", "placement.four_rights_updated": "Ändrade de fyra rätten", "placement.follow_up_added": "Lade till uppföljningsdatum",
   "case.view_denied": "Nekades att öppna deltagarkort", "ai.blocked": "AI stoppades", "notify.suppressed": "Stoppade utskick", "email.registered_by_phone": "Registrerade avrop per telefon", "case.order_details_corrected": "Rättade beställningsuppgifter",
   "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning",
+  // Fakturan per avtal och månad (beslut 2026-10-07): ekonomen fyller i kommunens referens och inköpsordernummer per faktura.
+  "billing.buyer_reference_set": "Fyllde i beställarreferens på faktura", "billing.purchase_order_set": "Fyllde i inköpsordernummer på faktura",
   "task.created": "Skapade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
-  "contract_deviation.action_plan_approved": "Godkände åtgärdsplan", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
+  "contract_deviation.action_plan_approved": "Åtgärdsplanen godkänd av kommunen", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
   "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",
   // Synpunkter i testmiljön (src/features/synpunkter) – finns inte i prototypen.
@@ -44,6 +47,11 @@ export const ACTION_LABEL: Record<string, string> = {
   "saved_report.created": "Sparade rapport", "saved_report.updated": "Ändrade sparad rapport", "saved_report.shared": "Ändrade delning av rapport",
   "saved_report.archived": "Arkiverade rapport", "saved_report.viewed": "Visade sparad rapport", "export.saved_report": "Exporterade rapport",
   "saved_report.export_blocked": "Stoppade rapportfil", "export.results_mb": "Exporterade resultat för hela avtalet",
+  // Beslut 2026-10-07: självregistrering, egna uppgifter i portalen och bilagor till beställningen. Loggen har id:n, typ,
+  // storlek och domän – aldrig e-postadresser eller filnamn.
+  "profile.self_registered": "Skapade konto själv", "auth.self_registration_started": "Begärde kod för nytt konto", "profile.updated": "Ändrade egna uppgifter",
+  "attachment.upload_started": "Började ladda upp bilaga", "attachment.uploaded": "Laddade upp bilaga", "attachment.rejected": "Bilaga togs inte emot",
+  "attachment.linked": "Kopplade bilagor till beställningen", "attachment.removed": "Tog bort bilaga", "attachment.viewed": "Hämtade bilaga", "attachment.deleted": "Raderade bilaga",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -53,7 +61,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
-  saved_report: "Sparad rapport",
+  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -73,6 +81,7 @@ const DETAIL_KEY: Record<string, string> = {
   savedReportId: "Sparad rapport", dataset: "Uppgifter", audience: "Visning", output: "Visas som", measures: "Mått", groupBy: "Dela upp efter",
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
   day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
+  mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -88,9 +97,14 @@ const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", sinc
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },
   source: { email: "e-post", portal: "portalen", phone: "telefon", manual: "manuellt" },
-  channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev" },
+  channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev", outside_portal: "utanför Miljonmatch" },
   window: WINDOW,
-  by: { customer: "kommunen", coach: "coachen", system: "systemet" },
+  by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
+  how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
+  mimeType: {
+    "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
+    "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
+  },
   method: { email_otp: "e-post och engångskod", entra: "Microsoft Entra ID" },
   role: { handlaggare: "handläggare", chef: "chef", admin: "systemadmin", avtalsansvarig: "avtalsansvarig", samordnare: "samordnare", coach: "coach", handledare: "handledare", ekonom: "ekonom" },
   toRole: { samordnare: "samordnare", avtalsansvarig: "avtalsansvarig", chef: "chef", coach: "coach", kommun_handlaggare: "kommunens handläggare" },
@@ -98,7 +112,12 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   right: { uppgift: "rätt arbetsuppgift", handledning: "rätt handledning", timing: "rätt tidpunkt", uppfoljning: "rätt uppföljning" },
   format: { csv: "CSV", xlsx: "Excel", pdf: "PDF", sie: "SIE", peppol: "Peppol" },
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
-  reason: { columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor" },
+  reason: {
+    columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
+    unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande", removed: "borttagen",
+    orphan: "fil i lagringen utan bilaga (avstämning)",
+  },
+  // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).
   sharingFrom: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef", __new: "Ny rapport" },
   sharingTo: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef" },
   visibility: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef" },
@@ -158,6 +177,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (["fields", "checked", "missing"].includes(k)) return FIELD_WORD[s] ?? s;
   if (k === "kind") return kindWord(a, s);
   if (k === "kpi") return l.kpiLabel(s) ?? s;
+  if (k === "bytes" && Number.isFinite(Number(s))) return fileSizeText(Number(s));
   if (k === "endReason") return endReasonLabel(s);
   if (k === "status" && (a.action === "attendance.registered" || a.action === "attendance.registered_all")) return attLabel(s);
   if (k === "status") return STATUS_WORD[s] ?? s;

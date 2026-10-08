@@ -20,7 +20,7 @@ export const OPEN_QUESTIONS: [number, string, string, string, QStatus][] = [
   [7, "Vill kommunen ha frånvaronotis samma dag, utöver veckorapporten?", "Botkyrka", "Öppen", "open"],
   [8, "Deadline för månads- och slutrapport; räcker portalen som kanal eller krävs e-post?", "Botkyrka", "Öppen", "open"],
   [9, "Räcker e-postkod som inloggning för kommunens personal? Ska handläggare se hela enhetens ärenden?", "Botkyrka (IT)", "Öppen", "open"],
-  [10, "Vad är den avtalade säkra rutinen för skyddade personuppgifter?", "Botkyrka", "Öppen", "open"],
+  [10, "Säker rutin för personer med skydd", "Botkyrka", "Stängd: hanteras utanför Miljonmatch (beslut 2026-10-07)", "done"],
   [11, "Gallring under avtalstiden", "Botkyrka", "Öppen", "open"],
   [12, "Progressionsområden: räcker tillägget språk, eller vill kommunen också följa hälsa och livskvalitet?", "Botkyrka + MB", "Öppen", "open"],
   [13, "Incitamentsmodell: vilken modell gäller och när kan bonus begäras?", "Botkyrka + MB", "Öppen", "open"],

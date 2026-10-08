@@ -3,6 +3,7 @@
 //   ctx.crypto  testdatats ersättning för personnummer (TEST_PNR_CRYPTO)
 //   ctx.ai      simulerad AI (createSimulatedAi, src/features/_shared/ai-sim.ts) – deterministisk, inga anrop utanför
 //   ctx.audio   ljud i minnet (createMemoryAudio, src/features/_shared/audio-port.ts) – raderna i audio_uploads via system
+//   ctx.attachments  bilagor i minnet (createMemoryAttachments, src/features/_shared/attachment-port.ts) – raderna via system
 // Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
 // anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön. Golvet är
 // klockan när datat lästes in (testdatat är komplett dit) och högvattenmärkena sparas i minnet.
@@ -14,8 +15,10 @@ import { maskLinkTokens } from "@/core/link-tokens";
 import { addMinutes, type LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
+import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
+import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
 import { TEST_PNR_CRYPTO } from "./seed/pnr";
@@ -53,6 +56,8 @@ export function createMemoryRuntime(opts: {
   const ai = opts.ai ?? createSimulatedAi();
   // Ljudfilernas rader skrivs av porten (systemsteg) med samma id-följd och klocka som hanterarna – deterministiskt vid uppspelning.
   const audio = createMemoryAudio({ system, now: opts.clock.now, newId });
+  // Bilagornas rader skrivs av porten (systemsteg) på samma sätt.
+  const attachments = createMemoryAttachments({ system, now: opts.clock.now, newId });
 
   function ctxFor(actor: Actor): Ctx {
     return {
@@ -74,6 +79,7 @@ export function createMemoryRuntime(opts: {
       crypto: TEST_PNR_CRYPTO,
       ai,
       audio,
+      attachments,
       // Prototypen visar länken som deltagaren fick (rost.linkSend). Servern i supabase-läget lämnar aldrig ut den.
       exposeLinkPaths: true,
     };
@@ -134,5 +140,23 @@ export function createMemoryRuntime(opts: {
     return res === undefined ? null : JSON.parse(JSON.stringify(res));
   }
 
-  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio, ensureScheduledReports };
+  /**
+   * Självregistrering (beslut 2026-10-07): en adress på avtalets kommundomän utan profil får ett konto som kommunens handläggare
+   * – samma funktion som servern (src/features/session/self-register.ts). Klockan flyttas en minut som för ett kommando.
+   * Revisionsloggen får profile.self_registered (bara id:n och domänen).
+   */
+  async function selfRegisterMemory(email: string): Promise<SelfRegisterResult> {
+    await ensureScheduledReports();
+    const before = opts.clock.now();
+    opts.clock.tick();
+    const res = await selfRegister(system, { email, now: opts.clock.now(), newId });
+    if (!res.ok) {
+      opts.clock.set(before);
+      return res;
+    }
+    await ctxFor({ userId: res.profileId, role: "kommun_handlaggare", contractIds: res.contractIds, customerUnit: null }).audit(selfRegisteredAudit(res));
+    return res;
+  }
+
+  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio, attachments, ensureScheduledReports, selfRegister: selfRegisterMemory };
 }

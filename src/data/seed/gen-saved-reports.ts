@@ -6,7 +6,8 @@
 //
 //   sr-seed-privat   Sara (samordnare)        bara ägaren                    mallen "Närvaro per månad"
 //   sr-seed-mb       Karin (chef)             alla på MB i avtalet           mallen "Progression per avtalsområde"
-//   sr-seed-kommun   Johan (avtalsansvarig)   delad med kommunens chef       mallen "Resultatgrad per avtalsområde"
+//   sr-seed-kommun   Johan (avtalsansvarig)   alla på MB i avtalet           mallen "Resultatgrad per avtalsområde"
+//                    (var delad med kommunens chef före 2026-10-07 – sparade rapporter delas aldrig med kommunen, 0026)
 import type { Db, SavedReport } from "../schema";
 
 const base = { v: 1, filters: {}, columns: [], split: "inget" } as const;
@@ -26,7 +27,7 @@ export function addSavedReports(db: Db): void {
       definition: { ...base, dataset: "deltagarmanader", period: { kind: "senaste", months: 3 }, output: "sammanstallning", groupBy: "avtalsomrade_kod", measures: ["tydlig_progression", "nagon_progression"], chart: { measure: "tydlig_progression" } },
     }),
     row({
-      id: "sr-seed-kommun", ownerId: "u-johan", title: "Resultatgrad per avtalsområde", templateKey: "resultatgrad-per-omrade", visibility: "customer", createdAt: "2027-01-25T09:40",
+      id: "sr-seed-kommun", ownerId: "u-johan", title: "Resultatgrad per avtalsområde", templateKey: "resultatgrad-per-omrade", visibility: "mb", createdAt: "2027-01-25T09:40",
       sharedAt: "2027-01-25T09:45", sharedBy: "u-johan",
       definition: {
         ...base, dataset: "avslut", period: { kind: "senaste", months: 6 }, output: "sammanstallning", groupBy: "avtalsomrade_kod",

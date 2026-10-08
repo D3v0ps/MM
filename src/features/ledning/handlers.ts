@@ -3,7 +3,7 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { hidesCommercial } from "@/api/tester-access";
+import { hidesCommercial, hidesMoney } from "@/api/tester-access";
 import { accessIndex, caseAccessIn, displayName } from "@/core/access";
 import { alerts, type AlertItem } from "@/core/alerts";
 import { attendanceStats as attendanceStatsFor } from "@/core/attendance";
@@ -14,7 +14,7 @@ import { customerSummary } from "@/core/customer-summary";
 import { checkInsOf } from "@/core/db-index";
 import { deadlines } from "@/core/deadlines";
 import { domainEnv, type DomainEnv } from "@/core/env";
-import { kr, pct } from "@/core/format";
+import { pct } from "@/core/format";
 import { kpis, resultForecast, resultRate, resultTrend, type KpiValue, type ResultRate } from "@/core/kpi";
 import { personName } from "@/core/labels";
 import type { ViewId } from "@/core/links";
@@ -25,9 +25,9 @@ import { addDays, addMonths, dayOf, fmtDate, fmtWeekKey, monthEnd, monthKey, mon
 import { by, groupBy, sum, uniq } from "@/core/util";
 import { loadDb } from "@/api/load";
 import type { AlertAck, Contract, ContractDeviation, Db, TableName } from "@/data/schema";
-import { orgSettingsFor, upsert, userEmail, userName } from "../_shared/context";
+import { orgSettingsFor, upsert, userName } from "../_shared/context";
 import {
-  alertAck, cdevClose, cdevDetail, cdevMonth, cdevRegister, cdevSave, cdLevelLabel, cdStatusKey, CD_STATUS_LABEL, cdTypeLabel, ledningAreas, ledningCoaches,
+  alertAck, cdevClose, cdevCustomerApproved, cdevDetail, cdevMonth, cdevRegister, cdevSave, cdLevelLabel, cdStatusKey, CD_STATUS_LABEL, cdTypeLabel, ledningAreas, ledningCoaches,
   ledningHead, ledningOverview, ledningPulse,
   type AlertView, type CdevForm, type CdevRow, type CdevMonthItem, type KpiRow, type RateView, type ResultTargets,
 } from "./api";
@@ -61,8 +61,9 @@ const isWarningStep = (n: number) => n >= WARNING_STEPS.min && n <= WARNING_STEP
 /** Roller per sida som flaggorna länkar till (prototypens vyer och roller) – länken visas bara om rollen kan öppna sidan. */
 const VIEW_ROLES: Partial<Record<ViewId, readonly Role[]>> = {
   "arende.kort": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"],
-  "rapport.visa": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare", "kommun_chef"],
-  "eko.start": ["ekonom", "chef"],
+  "rapport.visa": ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "kommun_handlaggare"],
+  // Ekonomi bara för ekonomen (beslut 5, 2026-10-07).
+  "eko.start": ["ekonom"],
   "sam.inkorg": ["samordnare", "avtalsansvarig"],
   "sam.deadlines": ["samordnare", "avtalsansvarig", "chef"],
   "coach.avstamning": ["coach"],
@@ -92,6 +93,7 @@ async function scopeFor(ctx: Ctx, contract?: Contract): Promise<Scope> {
 const BY_CONTRACT = new Set<TableName>(["reports", "contract_deviations", "contract_areas", "price_items", "memberships", "billing_runs", "invoice_drafts", "billing_week_approvals"]);
 const BY_CASE = new Set<TableName>([
   "activities", "attendance", "check_ins", "outcome_events", "placements", "pulse_invites", "pulse_responses", "deviations", "monthly_assessments", "case_team",
+  "invoice_lines",
 ]);
 
 /**
@@ -110,7 +112,7 @@ async function contractDb(ctx: Ctx, contract: Contract): Promise<Db> {
   const personIds = uniq(cases.map((c) => c.personId));
   const names: TableName[] = [
     "activities", "attendance", "check_ins", "outcome_events", "placements", "pulse_invites", "pulse_responses", "deviations", "monthly_assessments", "case_team",
-    "reports", "contract_deviations", "contract_areas", "price_items", "memberships", "billing_runs", "invoice_drafts", "billing_week_approvals",
+    "reports", "contract_deviations", "contract_areas", "price_items", "memberships", "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals",
     "buyer_references", "profiles", "persons", "contracts", "alert_acks", "demo_tags",
   ];
   const filters: Record<string, unknown> = {
@@ -184,9 +186,6 @@ const median = (xs: number[]): number | null => {
   const m = Math.floor(a.length / 2);
   return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
 };
-/** Kommunens chef (den som får beställarrapporten och godkänner åtgärdsplaner) – första kommunchefen i avtalet. */
-const customerChefId = (db: Pick<Db, "memberships">, contractId: string): string | null =>
-  db.memberships.find((m) => m.role === "kommun_chef" && m.contractId === contractId)?.userId ?? null;
 
 // ================================================================ Ledningsvyn
 
@@ -249,12 +248,10 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
   const openCds = cds.filter((x) => x.status !== "closed");
   const dueTime = env.org.alerts.followUpDueTime;
 
-  // Så ser kommunens chef resultatet: den senast levererade beställarrapporten (samma urval som portalens beställarrapport).
-  const chefId = customerChefId(db, contract.id);
+  // Så ser kommunen resultatet: den senast lämnade beställarrapporten (en per avtal och månad – avtalsansvarig lämnar den
+  // till kommunen utanför Miljonmatch, beslut 2026-10-07).
   const delivered = (r: Db["reports"][number]) => !!r.deliveredAt && (r.status === "delivered" || r.status === "opened") && !r.superseded;
-  const reps = db.reports
-    .filter((r) => r.kind === "customer_summary" && !r.superseded && !!chefId && (r.recipientUserId === chefId || r.deliveredTo.includes(chefId)))
-    .sort(by("month"));
+  const reps = db.reports.filter((r) => r.kind === "customer_summary" && r.contractId === contract.id && !r.superseded).sort(by("month"));
   const latest = reps.filter(delivered).slice(-1)[0] ?? null;
   const next = reps.find((r) => !delivered(r) && (!latest || (r.month ?? "") > (latest.month ?? ""))) ?? null;
   // Samma räknesätt som beställarrapporten (customerSummary: rullande 6 månader till och med månadens slut).
@@ -290,11 +287,12 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
       seesSlaStats: !!cfg.customerVisibility.seesSlaStats,
     },
     // Begränsade testare: fakturaunderlaget (ofakturerade veckor, ärenden och belopp) lämnas inte ut och Ekonomi är stängd.
+    // Alla utom ekonomen (beslut 5): antal veckor och ärenden, inga kronor.
     ...(hide
       ? {}
       : {
           unbilled: {
-            totalOre: sum(unbilled, (x) => x.amountOre),
+            ...(hidesMoney(ctx.actor) ? {} : { totalOre: sum(unbilled, (x) => x.amountOre) }),
             weeks: unbilled.length,
             cases: unbilledCases,
             oldestDays: unbilled.length ? Math.max(...unbilled.map((x) => x.age)) : null,
@@ -439,14 +437,19 @@ handleQuery(ledningPulse, { roles: CHEF }, async (ctx) => {
 // ================================================================ Avtalsavvikelser
 
 /** När avvikelsen stängdes. Äldre (förifyllda) poster saknar closedAt – då används planens slutdatum (bara datum). */
+/** Kommunen har tagit ut vite för avvikelsen (valet, inte beloppet). */
+const hasPenalty = (cd: ContractDeviation): boolean => !!cd.penaltyKind || (cd.penaltyOre || 0) > 0;
 const closedOn = (cd: ContractDeviation): string | null => (cd.status === "closed" ? cd.closedAt || cd.actionPlanDue || cd.raisedAt : null);
 
-/** En rad i registret. hide = begränsad testare: vitets belopp lämnas inte ut. */
+/**
+ * En rad i registret. Vitets belopp lämnas aldrig ut här – belopp syns bara för ekonomen (beslut 5, 2026-10-07), och
+ * registret är chefens, avtalsansvarigs och samordnarens. hasPenalty (om kommunen tagit ut vite) saknas för begränsade testare.
+ */
 function cdevRow(cd: ContractDeviation, hide = false): CdevRow {
   return {
     id: cd.id, raisedAt: cd.raisedAt, type: cd.type, level: cd.level, source: cd.source, escalationStep: cd.escalationStep, description: cd.description,
     hasPlan: !!String(cd.actionPlan || "").trim(), actionPlanDue: cd.actionPlanDue, customerApprovedAt: cd.customerApprovedAt, statusKey: cdStatusKey(cd),
-    warningIssued: cd.warningIssued, ...(hide ? {} : { penaltyOre: cd.penaltyOre || 0 }), orderStop: cd.orderStop,
+    warningIssued: cd.warningIssued, ...(hide ? {} : { hasPenalty: hasPenalty(cd) }), orderStop: cd.orderStop,
   };
 }
 
@@ -463,8 +466,8 @@ async function formFor(ctx: Ctx, contract: Contract, env: DomainEnv): Promise<Cd
     defaultOwnerId: ctx.actor.userId,
     today,
     offsetMonths,
-    // Begränsade testare (testmiljön): avtalets viten lämnas inte ut.
-    ...(hidesCommercial(ctx.actor) ? {} : { penalties: { deviationOre: cfg.penalties.deviationOre, insufficientInformationOre: cfg.penalties.insufficientInformationOre } }),
+    // Vitesvalet (utan belopp – beslut 5). Begränsade testare (testmiljön) får inget vitesval alls.
+    penaltyChoice: !hidesCommercial(ctx.actor),
     warningsBeforeTermination: cfg.warningsBeforeTermination,
     ladder: cfg.escalationLadder.map((s) => ({ step: s.step, level: s.level, text: s.text })),
     canManage: MANAGE_ROLES.includes(ctx.actor.role),
@@ -494,7 +497,8 @@ handleQuery(cdevRegister, { roles: CDEV_ROLES }, async (ctx) => {
       openComplaints: open.filter((x) => x.type === "klagomål").length,
       waiting: open.filter((x) => x.actionPlan && !x.customerApprovedAt).length,
       warnings: all.filter((x) => x.warningIssued).length,
-      ...(hide ? {} : { penaltiesOre: sum(all, (x) => x.penaltyOre || 0) }),
+      // Antal avvikelser med vite – inga kronor (beslut 5). Saknas för begränsade testare.
+      ...(hide ? {} : { penalties: all.filter(hasPenalty).length }),
     },
     stepCounts,
     maxStep: open.length ? Math.max(...open.map((x) => x.escalationStep || 0)) : null,
@@ -512,8 +516,6 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
   const { env } = await scopeFor(ctx, contract);
   const all = await ctx.repo.table("contract_deviations").list({ contractId: contract.id });
   const c = cd.caseId ? await ctx.repo.table("cases").get(cd.caseId) : null;
-  const chefMs = await ctx.repo.table("memberships").first({ contractId: contract.id, role: "kommun_chef" });
-  const chefName = chefMs ? await userName(ctx, chefMs.userId) : null;
   const closed = cd.status === "closed";
   const dueAt = !closed && cd.actionPlanDue ? `${cd.actionPlanDue}T${env.org.alerts.followUpDueTime}` : null;
   const s = dueAt ? slaStatus(dueAt, null, env) : null;
@@ -529,7 +531,7 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
       caseId: c ? c.id : null,
       caseNumber: c ? c.caseNumber : null,
       planSubmittedAt: cd.planSubmittedAt,
-      approvedByName: cd.customerApprovedAt ? (cd.customerApprovedBy ? await userName(ctx, cd.customerApprovedBy) : chefName) : null,
+      approvedByName: cd.customerApprovedAt ? (cd.customerApprovedBy ? await userName(ctx, cd.customerApprovedBy) : null) : null,
       warningIssuedAt: cd.warningIssuedAt,
       // Begränsade testare: vitet och fakturan det avräknas på lämnas inte ut.
       ...(hide ? {} : { penaltyKind: cd.penaltyKind ?? (cd.penaltyOre ? "deviation" : null), penaltyOffsetMonth: cd.penaltyOffsetMonth }),
@@ -538,7 +540,8 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
     },
     planDue: dueAt && s ? { dueAt, sla: { label: s.label, tone: s.tone } } : null,
     totalWarnings: all.filter((x) => x.warningIssued).length,
-    customerChefName: chefName,
+    // Samma villkor som ledning.cdevCustomerApproved: avtalsansvarig, en plan som väntar på godkännande och inte avslutad.
+    canRegisterApproval: ctx.actor.role === "avtalsansvarig" && !!String(cd.actionPlan || "").trim() && !cd.customerApprovedAt && cd.status !== "closed",
     form: await formFor(ctx, contract, env),
   };
 });
@@ -564,7 +567,7 @@ handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
   const participantDevs = caseIds.length ? (await ctx.system.table("deviations").list({ caseId: { in: caseIds } })).filter((x) => inMonth(x.createdAt)).length : 0;
   const complaints = created.filter((x) => x.type === "klagomål").length;
   const warnings = all.filter((x) => x.warningIssued && (x.warningIssuedAt || x.raisedAt).slice(0, 10) <= end).length;
-  const penaltiesOre = sum(all.filter((x) => x.penaltyOre && x.raisedAt.slice(0, 10) <= end), (x) => x.penaltyOre);
+  const penalties = all.filter((x) => hasPenalty(x) && x.raisedAt.slice(0, 10) <= end).length;
   const createdIds = new Set(created.map((x) => x.id));
   const seen = new Set<string>();
   const items: CdevMonthItem[] = [];
@@ -594,8 +597,8 @@ handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
     "",
     `Avvikelser på deltagarnivå (från veckoavstämningar): ${participantDevs}`,
     `Skriftliga varningar hittills: ${warnings} av ${cfg.warningsBeforeTermination}`,
-    // Begränsade testare: summan av viten står inte i texten (Kopiera text och Exportera).
-    ...(hide ? [] : [`Viten hittills: ${kr(penaltiesOre)}`]),
+    // Antal viten, inga kronor (beslut 5). Begränsade testare: raden står inte i texten (Kopiera text och Exportera).
+    ...(hide ? [] : [`Viten hittills: ${penalties}`]),
   ].join("\n");
   return {
     month: mk,
@@ -609,14 +612,13 @@ handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
     lessons: lessons.map((x) => ({ id: x.id, lessons: x.lessons, type: x.type, raisedAt: x.raisedAt })),
     warnings,
     warningsBeforeTermination: cfg.warningsBeforeTermination,
-    ...(hide ? {} : { penaltiesOre }),
+    ...(hide ? {} : { penalties }),
     text,
   };
 });
 
 // ---------------------------------------------------------------- ledning.cdevSave (prototypens cdev.save)
 const NO_SANCTIONS = "Varningar, viten och avropsstopp registreras av avtalsansvarig eller chef.";
-const APPROVAL_MAIL = "En åtgärdsplan inom avtalet med Miljonbemanning väntar på ert godkännande. Logga in i portalen för att läsa den.";
 
 handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
   // Begränsade testare (testmiljön) ser inte vitet – deras formulär saknar vitesvalet. Vitet och avräkningen ändras därför
@@ -687,7 +689,8 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
   if (data.warningIssued && !next.warningIssuedAt) next.warningIssuedAt = now;
   if (data.warningIssued === false) next.warningIssuedAt = null;
 
-  // En ny eller ändrad åtgärdsplan skickas till kommunens chef för (nytt) godkännande.
+  // En ny eller ändrad åtgärdsplan väntar på kommunens (nya) godkännande. Planen lämnas till kommunen utanför Miljonmatch och
+  // avtalsansvarig registrerar godkännandet (ledning.cdevCustomerApproved) – inget mejl (beslut 2026-10-07).
   let sentToCustomer = false;
   const planBefore = String(existing?.actionPlan || "");
   if (String(next.actionPlan || "").trim() && next.actionPlan !== planBefore) {
@@ -701,17 +704,31 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
   if (isNew) await ctx.repo.table("contract_deviations").insert(next);
   else await ctx.repo.table("contract_deviations").update(next.id, next);
 
-  if (sentToCustomer) {
-    // Mejlet innehåller inga personuppgifter och inget ärendenummer – bara att en plan väntar (CLAUDE.md punkt 9).
-    const chefMs = await ctx.repo.table("memberships").first({ contractId: contract.id, role: "kommun_chef" });
-    const to = chefMs ? await userEmail(ctx, chefMs.userId) : "";
-    await ctx.notify({ channel: "email", to: to || "kommunens chef", template: "atgardsplan_godkannande", body: APPROVAL_MAIL, caseId: null });
-  }
   await ctx.audit({
     action: isNew ? "contract_deviation.created" : "contract_deviation.updated", entity: "contract_deviation", entityId: next.id, contractId: contract.id,
     details: { type: next.type, level: next.level, step: next.escalationStep, fields: changed, sentToCustomer },
   });
   return ok({ id: next.id, sentToCustomer });
+});
+
+// ---------------------------------------------------------------- ledning.cdevCustomerApproved
+// Kommunen godkände åtgärdsplanen utanför Miljonmatch (möte, brev, telefon …). Avtalsansvarig registrerar godkännandet:
+// customerApprovedAt = dagen kommunen godkände (kl. 12.00 – bara datumet är känt), customerApprovedBy = den som registrerade.
+handleCommand(cdevCustomerApproved, { roles: ["avtalsansvarig"] }, async (ctx, p) => {
+  const cd = await ctx.repo.table("contract_deviations").get(p.id);
+  if (!cd) return fail("not_found", "Avvikelsen finns inte.");
+  if (!String(cd.actionPlan || "").trim()) return fail("no_plan", "Avvikelsen har ingen åtgärdsplan att godkänna.");
+  if (cd.status === "closed") return fail("closed", "Avvikelsen är avslutad.");
+  if (cd.customerApprovedAt) return fail("approved", "Åtgärdsplanen är redan godkänd.");
+  const today = dayOf(ctx.now());
+  if (p.approvedOn > today) return fail("date", "Datumet kan inte vara i framtiden.");
+  if (cd.planSubmittedAt && p.approvedOn < dayOf(cd.planSubmittedAt)) return fail("date", "Datumet kan inte vara före dagen då planen lämnades.");
+  await ctx.repo.table("contract_deviations").update(cd.id, { customerApprovedAt: `${p.approvedOn}T12:00`, customerApprovedBy: ctx.actor.userId });
+  await ctx.audit({
+    action: "contract_deviation.action_plan_approved", entity: "contract_deviation", entityId: cd.id, contractId: cd.contractId,
+    details: { by: "registered_by_mb", how: p.how, approvedOn: p.approvedOn },
+  });
+  return ok({ id: cd.id });
 });
 
 // ---------------------------------------------------------------- ledning.cdevClose (prototypens cdev.close)

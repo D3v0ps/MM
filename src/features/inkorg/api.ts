@@ -5,6 +5,7 @@ import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING } from "@/
 import type { SlaStatus } from "@/core/sla";
 import { INBOUND_EMAIL_STATUSES, type EmailClassification, type ParseMethod } from "@/data/schema";
 import type { IconName } from "@/ui/icons";
+import type { CaseBackground } from "@/features/arenden/api";
 import { IdSchema, LocalDateSchema } from "../_shared/schemas";
 import { ORDER_FIELDS, type DeadlineRow, type InboxMethod, type OrderFieldKey } from "./texts";
 
@@ -21,8 +22,8 @@ export const emailSetStatus = command("inkorg.emailSetStatus", z.object({
 }), { invalidates: [INBOX, "arenden.lista", CARD, "coach.minVecka", MGMT, NAV, ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
- * För in en komplettering i ärendet (prototypens email.applySupplement): beställarreferens och planerat slut från
- * kompletteringsmejlet. Det ursprungliga avropsmejlet får de tolkade uppgifterna och saknar dem inte längre.
+ * För in en komplettering i ärendet (prototypens email.applySupplement): omfattning, slutdatum, motivering och
+ * beställarreferens från kompletteringsmejlet. Det ursprungliga avropsmejlet får de tolkade uppgifterna och saknar dem inte längre.
  */
 export const emailApplySupplement = command("inkorg.emailApplySupplement", z.object({
   emailId: IdSchema,
@@ -57,9 +58,7 @@ export type InboxRow = {
   /** Väntar på hantering (fliken "Att hantera"). */
   pending: boolean;
   sla: SlaInfo | null;
-  /** Skyddade personuppgifter – hanteras av avtalsansvarig. */
-  isProtected: boolean;
-  /** Uppgifter som saknas i avropet (etiketter i gemener), t.ex. ["beställarreferens", "planerat slutdatum"]. */
+  /** Uppgifter som saknas i avropet (etiketter i gemener), t.ex. ["omfattning"]. */
   missing: string[];
 };
 /** Sökväg till posten i inkorgen. */
@@ -118,7 +117,8 @@ export type CorrectForm = {
   current: Record<OrderFieldKey, string>;
   /** " AI var osäker (64 %) – kontrollera mot originalet." per fält. */
   lowNotes: Partial<Record<OrderFieldKey, string>>;
-  areas: { value: string; label: string }[];
+  /** Omfattningarna i avtalet (orderPeriods): månader och om annan tidsperiod går att välja. */
+  periods: { months: number[]; allowOther: boolean };
   refPattern: string;
   refLen: string;
 };
@@ -165,15 +165,6 @@ export type OtherBodyView = {
   handled: boolean;
   handledText: string | null;
 };
-export type ProtectedBodyView = {
-  kind: "protected";
-  decided: boolean;
-  declined: DeclinedView | null;
-  original: OriginalView;
-  timeline: { icon: IconName; filled: boolean; tone?: "red"; title: string; sub: string }[];
-  ack: AckView;
-  caseFields: CaseFieldsView | null;
-};
 
 export type InboxItemDetail = {
   id: string;
@@ -191,16 +182,11 @@ export type InboxItemDetail = {
   handledText: string | null;
   steps: string[] | null;
   current: number;
-  isProtected: boolean;
-  /** Rollen hanterar posten (skyddade avrop: bara avtalsansvarig). */
-  mine: boolean;
   /** Avropet väntar på beslut (acceptera eller avböj). */
   decision: boolean;
-  /** Rollen kan registrera efter telefonsamtal (skyddat avrop utan ärende). */
-  canPhone: boolean;
   managerName: string;
   correct: CorrectForm | null;
-  body: OrderBodyView | SupplementBodyView | OtherBodyView | ProtectedBodyView;
+  body: OrderBodyView | SupplementBodyView | OtherBodyView;
 };
 export const inboxItem = query("inkorg.item", z.object({ id: z.string().min(1).max(160) })).returns<InboxItemDetail | null>();
 
@@ -217,12 +203,9 @@ export type ConfirmationView = {
   team: string;
   firstMeeting: string;
   planned: string;
-  /** "13 980 kr (10 veckor × 1 398 kr)". Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
-  value?: string;
   buyerReference: string;
   leadNotif: { title: string; emailBody: string; others: string } | null;
   custMail: string | null;
-  isProtected: boolean;
   kallelse: { title: string; icon: IconName; body: string } | null;
 };
 export const inboxConfirmation = query("inkorg.confirmation", z.object({ caseId: IdSchema })).returns<ConfirmationView | null>();
@@ -235,12 +218,11 @@ export type DecisionForm = {
   areaName: string;
   displayName: string;
   avropSla: SlaInfo | null;
-  isProtected: boolean;
   coaches: { id: string; name: string; active: number }[];
   helpers: { id: string; name: string; teamRole: "vocational_supervisor" | "employer_matcher" | "guidance_counselor"; label: string }[];
   firstMeetingDue: string | null;
   desiredStart: string | null;
-  plannedWeeks: number | null;
+  /** Beställarreferensen om kommunen har angett en (valfri vid accept – beslut 2026-10-07). */
   buyerReference: string | null;
   referredAt: string;
   today: string;
@@ -248,28 +230,28 @@ export type DecisionForm = {
   meetingText: string;
   refPattern: string;
   refLen: string;
-  /** Prisartiklar för området. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
-  prices?: { validFrom: string; validTo: string | null; priceOre: number; exampleOnly: boolean }[];
+  /** Avtalsområde och yrkesspår (synpunkt #8): Miljonbemanning väljer vid accept. */
+  areas: { value: string; label: string }[];
+  primaryArea: string | null;
+  secondaryArea: string | null;
+  vocationalTrack: string;
+  /** Yrkesspår som förslag per avtalsområde (koden). Yrkesspåret är fritext. */
+  tracks: Record<string, string[]>;
+  /** Omfattningen ur beställningen (förifylld) och avtalets alternativ. */
+  periods: { months: number[]; allowOther: boolean };
+  orderPeriodMonths: number | null;
+  orderPeriodReason: string | null;
+  plannedEnd: string | null;
+  /** Äldre beställning i veckor (före 2026-10-07). */
+  plannedWeeks: number | null;
+  /** Handläggarens bakgrundsinformation och bilagorna (underlag för beslutet). */
+  background: CaseBackground;
   pendingSup: PendingSupplement | null;
   declined: number;
   total: number;
 };
 export const inboxDecisionForm = query("inkorg.decisionForm", z.object({ caseId: IdSchema })).returns<DecisionForm | null>();
 
-/** Underlag för registrering efter telefonsamtal (skyddat avrop). */
-export type PhoneForm = {
-  emailId: string;
-  referrerId: string | null;
-  referrerName: string | null;
-  unit: string | null;
-  brReference: string | null;
-  phone: string;
-  areas: { value: string; label: string }[];
-  nextCaseNumber: string;
-  refPattern: string;
-  refLen: string;
-};
-export const inboxPhoneForm = query("inkorg.phoneForm", z.object({ emailId: IdSchema })).returns<PhoneForm | null>();
 
 /** Har personen redan en pågående insats i avtalet? Svaret är bara ja eller nej (sökhash, aldrig klartext). */
 export const inboxDuplicateCheck = query("inkorg.duplicateCheck", z.object({ pnr: z.string().max(20) })).returns<{ duplicate: boolean }>();
@@ -295,14 +277,13 @@ export type StartView = {
   /** Mest brådskande avrop (svarstid som inte är uppfylld). */
   urgent: InboxRow | null;
   firstMeetings: {
-    rows: { caseId: string; caseNumber: string; due: SlaInfo | null; sub: string; isProtected: boolean; coachName: string; dueText: string }[];
+    rows: { caseId: string; caseNumber: string; due: SlaInfo | null; sub: string; coachName: string; dueText: string }[];
     flagged: number;
   };
   /** soon = försenat och i dag, week = de tre första denna vecka (sammanslagna); weekGrouped = antal rader denna vecka efter sammanslagning. */
   deadlines: { soon: MiniDeadline[]; week: MiniDeadline[]; weekGrouped: number; soonCount: number; overdue: number; weekCount: number };
   alerts: AlertView[];
   acked: { key: string; title: string; text: string }[];
-  protectedItems: (InboxRow & { caseText: string })[];
   notifyEmail: boolean;
   kpis: KpiCardView[];
   assign: { quote: string; latest: { id: string; name: string; caseNumber: string; when: string }[] };
@@ -343,25 +324,15 @@ export const inboxCorrect = command("inkorg.correct", z.object({
   caseId: IdSchema,
   emailId: IdSchema.nullable().optional(),
   patch: z.strictObject({
-    buyerReference: z.string().max(40).nullable(),
     desiredStart: z.union([LocalDateSchema, z.literal("")]).nullable(),
+    /** Omfattningen: antal månader ur avtalet ("6", "12"), "annan" eller "". */
+    orderPeriod: z.string().regex(/^(\d{1,2}|annan)?$/).nullable(),
     plannedEnd: z.union([LocalDateSchema, z.literal("")]).nullable(),
-    plannedWeeks: z.number().int().min(1).max(52).nullable(),
-    primaryArea: z.string().max(10).nullable(),
-    secondaryArea: z.string().max(10).nullable(),
-    vocationalTrack: z.string().max(200).nullable(),
+    orderPeriodReason: z.string().max(500).nullable(),
+    buyerReference: z.string().max(40).nullable(),
   }).partial(),
   checked: z.array(z.enum(ORDER_FIELDS)).max(ORDER_FIELDS.length),
-}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden">>();
-
-/**
- * Koppla mejlet med skyddade personuppgifter till ärendet som registrerats efter telefonsamtal (prototypens ink.linkPhoneOrder).
- * SLA räknas från mejlets mottagning. Uppgifterna om mejlet och det skyddade ärendet markeras som klara.
- */
-export const inboxLinkPhoneOrder = command("inkorg.linkPhoneOrder", z.object({
-  emailId: IdSchema,
-  caseId: IdSchema,
-}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
+}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden" | "order_period">>();
 
 /** Markera en uppgift till rollen som klar (prototypens ink.taskDone). */
 export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();

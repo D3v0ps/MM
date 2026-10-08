@@ -156,7 +156,9 @@ describe("Ärendevyerna", () => {
     expect(v.dueAt).toBe("2027-02-05T23:59");
   });
 
-  it("skyddade personuppgifter: inga AI-utkast skickas till skärmen (CLAUDE.md punkt 8)", async () => {
+  it("skyddade personuppgifter (vilande spärr påslagen): inga AI-utkast skickas till skärmen", async () => {
+    // Testdatat har inga skyddade personer sedan 2026-10-07 – spärren slås på för personen i ärendet.
+    rt.store.updateRow("persons", rt.raw().get("cases", SC.skyddad)!.personId, { protectedIdentity: true });
     const v = await q(assessmentPage, { caseId: SC.skyddad, month: "2027-01" }, as("u-erik", "coach"));
     if (v.kind !== "ok") throw new Error("spärrad");
     expect(v.head.protected).toBe(true);

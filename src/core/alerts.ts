@@ -43,6 +43,8 @@ export type AlertDb = BillingDb &
  * hideCommercial = begränsad testare i testmiljön (src/api/tester-access.ts): inga flaggor som bygger på Miljonbemannings
  * interna mål (Bevaka: resultatgrad och månads-KPI:er under internt mål) och inga flaggor om ofakturerade veckor (belopp i
  * kronor, länk till Ekonomi). Flaggan om resultatgrad under avtalsmålet finns kvar.
+ * Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07 – samma regel som hidesMoney i src/api/tester-access.ts): chefen
+ * får flaggan om ofakturerade veckor med antal veckor utan kronor och en länk till ärendet i stället för till Ekonomi.
  */
 export type AlertOpts = { role: Role; personaId?: string | null; includeAcked?: boolean; hideCommercial?: boolean };
 
@@ -178,10 +180,12 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
   const limit = env.cfg.billing.unbilledWarningDays;
   for (const [caseId, rows] of Object.entries(groupBy(hideCommercial ? [] : unbilledOld(db, env), (x) => x.case.id))) {
     const c = rows[0].case;
+    // Beloppet och länken till Ekonomi bara för ekonomen (beslut 5). Flaggan byggs för den roll som frågar.
+    const money = role === "ekonom";
     add({
       key: `unbilled:${caseId}`, kind: "unbilled", severity: "critical", title: `Ofakturerade veckor äldre än ${limit} dagar`,
-      text: `${c.caseNumber}: ${rows.length} veckor (${kr(sum(rows, (x) => x.amountOre))}). Preskription två månader efter utfört arbete.`,
-      caseId, roles: ["ekonom", "chef"], createdAt: at6, link: viewLink("eko.start"),
+      text: `${c.caseNumber}: ${rows.length === 1 ? "1 vecka" : `${rows.length} veckor`}${money ? ` (${kr(sum(rows, (x) => x.amountOre))})` : ""}. Preskription två månader efter utfört arbete.`,
+      caseId, roles: ["ekonom", "chef"], createdAt: at6, link: money ? viewLink("eko.start") : viewLink("arende.kort", { caseId }),
     });
   }
 

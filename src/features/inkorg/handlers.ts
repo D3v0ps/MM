@@ -9,11 +9,11 @@ import type { Case, FieldCorrection, InboundEmail, OrderExtract, OrderField } fr
 import { canEditCase, contractOf } from "../_shared/context";
 import { pnrSearchHash } from "../_shared/pnr";
 import {
-  emailApplySupplement, emailSetStatus, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxLinkPhoneOrder,
-  inboxList, inboxPhoneForm, inboxRevealPnr, inboxStart, inboxTaskDone, type OrderFieldKey,
+  emailApplySupplement, emailSetStatus, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem,
+  inboxList, inboxRevealPnr, inboxStart, inboxTaskDone, type OrderFieldKey,
 } from "./api";
-import { plainPnr } from "./model";
-import { buildConfirmation, buildDeadlines, buildDecisionForm, buildItem, buildList, buildPhoneForm, buildStart } from "./views";
+import { casePeriodValue, plainPnr } from "./model";
+import { buildConfirmation, buildDeadlines, buildDecisionForm, buildItem, buildList, buildStart } from "./views";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 
@@ -45,6 +45,11 @@ handleCommand(emailApplySupplement, { roles: INBOX_ROLES }, async (ctx, p) => {
   const patch: Partial<Case> = {};
   if (e.extracted.buyerReference) patch.buyerReference = e.extracted.buyerReference;
   if (e.extracted.plannedEnd) patch.plannedEnd = e.extracted.plannedEnd;
+  // Omfattningen (beslut 2026-10-07): månader ur avtalet eller annan tidsperiod med motivering. Slutdatumet räknas vid accept.
+  const period = periodFrom(e.extracted.orderPeriod);
+  if (period.kind === "months") Object.assign(patch, { orderPeriodMonths: period.months, orderPeriodReason: null });
+  if (period.kind === "other") patch.orderPeriodMonths = null;
+  if (e.extracted.orderPeriodReason) patch.orderPeriodReason = e.extracted.orderPeriodReason;
   if (Object.keys(patch).length) await ctx.repo.table("cases").update(c.id, patch);
   // Det ursprungliga avropsmejlet: uppgifterna finns nu och saknas inte längre.
   const orig = await ctx.repo.table("inbound_emails").first({ caseId: c.id, classification: "order" });
@@ -64,7 +69,6 @@ handleQuery(inboxList, { roles: INBOX_ROLES }, (ctx) => buildList(ctx));
 handleQuery(inboxItem, { roles: INBOX_ROLES }, (ctx, p) => buildItem(ctx, p.id));
 handleQuery(inboxConfirmation, { roles: INBOX_ROLES }, (ctx, p) => buildConfirmation(ctx, p.caseId));
 handleQuery(inboxDecisionForm, { roles: INBOX_ROLES }, (ctx, p) => buildDecisionForm(ctx, p.caseId));
-handleQuery(inboxPhoneForm, { roles: ["avtalsansvarig"] }, (ctx, p) => buildPhoneForm(ctx, p.emailId));
 handleQuery(inboxStart, { roles: INBOX_ROLES }, (ctx) => buildStart(ctx));
 handleQuery(inboxDeadlines, { roles: DEADLINE_ROLES }, (ctx) => buildDeadlines(ctx));
 
@@ -81,10 +85,17 @@ handleQuery(inboxDuplicateCheck, { roles: INBOX_ROLES }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- ink.correct
-const CORRECT_FIELD: Record<OrderFieldKey, keyof Case> = {
-  buyerReference: "buyerReference", desiredStart: "desiredStart", plannedEnd: "plannedEnd", plannedWeeks: "plannedWeeks",
-  primaryArea: "primaryAreaCode", secondaryArea: "secondaryAreaCode", vocationalTrack: "vocationalTrack",
+const CORRECT_FIELD: Record<Exclude<OrderFieldKey, "orderPeriod">, keyof Case> = {
+  buyerReference: "buyerReference", desiredStart: "desiredStart", plannedEnd: "plannedEnd", orderPeriodReason: "orderPeriodReason",
 };
+/** Omfattningen i mejlet eller rättelsen: "6"/"12" = månader, "annan" = annan tidsperiod, annars inte angiven. */
+function periodFrom(v: unknown): { kind: "months"; months: number } | { kind: "other" } | { kind: "none" } {
+  const s = String(v ?? "").trim();
+  if (s === "annan") return { kind: "other" };
+  const n = Number(s);
+  return s && Number.isInteger(n) && n > 0 ? { kind: "months", months: n } : { kind: "none" };
+}
+
 handleCommand(inboxCorrect, { roles: INBOX_ROLES }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", CASE_NOT_FOUND);
@@ -94,6 +105,9 @@ handleCommand(inboxCorrect, { roles: INBOX_ROLES }, async (ctx, p) => {
   if (patch.buyerReference && !buyerRefValid(String(patch.buyerReference), cfg)) {
     return fail("buyer_ref", buyerRefError(String(patch.buyerReference), cfg) ?? "Beställarreferensen har fel format.");
   }
+  const period = periodFrom(patch.orderPeriod);
+  if (period.kind === "months" && !cfg.orderPeriods.months.includes(period.months)) return fail("order_period", "Välj en av omfattningarna i avtalet.");
+  if (period.kind === "other" && !cfg.orderPeriods.allowOther) return fail("order_period", "Avtalet tillåter bara omfattningarna i avtalet.");
   const e = p.emailId ? await ctx.repo.table("inbound_emails").get(p.emailId) : null;
   const now = ctx.now();
   const changed: OrderFieldKey[] = [];
@@ -104,14 +118,28 @@ handleCommand(inboxCorrect, { roles: INBOX_ROLES }, async (ctx, p) => {
   let missingFields = e ? [...e.missingFields] : [];
   const str = (v: unknown) => (v == null ? "" : String(v));
   for (const k of uniq([...(Object.keys(patch) as OrderFieldKey[]), ...p.checked])) {
-    const field = CORRECT_FIELD[k];
     const has = Object.prototype.hasOwnProperty.call(patch, k);
-    const v = has ? patch[k] : (c[field] as string | number | null);
-    const isChange = has && str(c[field]) !== str(v);
-    if (isChange) {
-      (casePatch as Record<string, unknown>)[field] = v === "" ? null : v;
-      changed.push(k);
-      if (k === "plannedWeeks") casePatch.orderValueWeeks = (v as number | null) ?? null;
+    let v: string | number | null;
+    let isChange: boolean;
+    if (k === "orderPeriod") {
+      // Omfattningen sparas som månader (orderPeriodMonths); "annan" = inga månader (slutdatum och motivering i egna fält).
+      const cur = casePeriodValue(c);
+      v = has ? (patch[k] ?? "") : cur;
+      isChange = has && cur !== str(v);
+      if (isChange) {
+        const next = periodFrom(v);
+        casePatch.orderPeriodMonths = next.kind === "months" ? next.months : null;
+        if (next.kind === "months") casePatch.orderPeriodReason = null;
+        changed.push(k);
+      }
+    } else {
+      const field = CORRECT_FIELD[k];
+      v = has ? (patch[k] ?? null) : (c[field] as string | number | null);
+      isChange = has && str(c[field]) !== str(v);
+      if (isChange) {
+        (casePatch as Record<string, unknown>)[field] = v === "" ? null : v;
+        changed.push(k);
+      }
     }
     if (e) {
       const prevEx = extracted[k];
@@ -125,24 +153,6 @@ handleCommand(inboxCorrect, { roles: INBOX_ROLES }, async (ctx, p) => {
   if (e) await ctx.repo.table("inbound_emails").update(e.id, { extracted: extracted as OrderExtract, confidence, corrections, missingFields });
   await ctx.audit({ action: "case.order_details_corrected", entity: "case", entityId: c.id, contractId: c.contractId, details: { fields: changed, checked: p.checked, emailId: p.emailId ?? null } });
   return ok({ changed });
-});
-
-// ---------------------------------------------------------------- ink.linkPhoneOrder
-handleCommand(inboxLinkPhoneOrder, { roles: ["avtalsansvarig"] }, async (ctx, p) => {
-  const e = await ctx.repo.table("inbound_emails").get(p.emailId);
-  const c = await ctx.repo.table("cases").get(p.caseId);
-  if (!e || !c) return fail("not_found", "Mejlet eller ärendet finns inte, eller så har du inte behörighet att se det.");
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", "Du har inte behörighet att ändra i ärendet.");
-  const now = ctx.now();
-  await ctx.repo.table("inbound_emails").update(e.id, { caseId: c.id, status: "received", registeredBy: ctx.actor.userId, registeredAt: now, linkedBy: "registrerat efter telefonsamtal" });
-  await ctx.repo.table("cases").update(c.id, { referredAt: e.receivedAt, sourceEmailId: e.id });
-  // Uppgiften från mejlet och den som skapades för det skyddade ärendet är klara – samtalet är redan taget.
-  const tasks = await ctx.repo.table("tasks").list({ status: "open" });
-  for (const t of tasks.filter((x) => x.emailId === e.id || (x.kind === "protected_order" && x.caseIds.includes(c.id)))) {
-    await ctx.repo.table("tasks").update(t.id, { status: "done", doneBy: ctx.actor.userId, doneAt: now });
-  }
-  await ctx.audit({ action: "email.registered_by_phone", entity: "inbound_email", entityId: e.id, contractId: c.contractId, details: { caseId: c.id } });
-  return ok({});
 });
 
 // ---------------------------------------------------------------- ink.taskDone

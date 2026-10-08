@@ -12,6 +12,7 @@ import {
   ActList, AttBadge, actIcon, actLabel, canOpen, cap, caseLink, clip, fd, FourBadges, GOAL, KpiRow, LiMain, LiSide, LiSub, LiTitle, MItem, MODE, NavTable, pct0, plural, RespTable, SEV,
   TabQuery,
 } from "./common";
+import { CaseBackgroundCard } from "./attachments";
 import type { TabProps } from "./kort";
 
 
@@ -166,6 +167,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 <FourBadges rights={pl.fourRights} className="mt-2" />
               </Card>
             )}
+            {/* Beställningens bakgrund och bilagor – bara med full åtkomst (samordnare, avtalsansvarig, huvudcoach). */}
+            {card.background && <CaseBackgroundCard bg={card.background} title="Bakgrund från beställningen" />}
           </Stack>
         );
       }}

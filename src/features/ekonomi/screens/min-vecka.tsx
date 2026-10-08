@@ -1,6 +1,6 @@
 "use client";
-// Min vecka för ekonomen (beslut 2026-10-06) i coachens stil (src/ui/vecka.tsx): fakturakörningen, uppgifterna, referenser som
-// saknas och preskriptionsrisken – samma kort som på Fakturering (/ekonomi, ./start-cards.tsx), som finns kvar under fliken
+// Min vecka för ekonomen (beslut 2026-10-06) i coachens stil (src/ui/vecka.tsx): fakturakörningen, uppgifterna, fakturor som
+// saknar beställarreferens och preskriptionsrisken – samma kort som på Fakturering (/ekonomi, ./start-cards.tsx), som finns kvar under fliken
 // Ekonomi. Fråga: ekonomi.start (commercial – stängd för begränsade testare, som förut) och notiser.list.
 import { TESTER_HIDDEN_PAGE } from "@/api/tester-access";
 import { kr, num } from "@/core/format";
@@ -13,7 +13,7 @@ import { Button, DemoNote, ErrorNotice, focusSection, Kpi, Loading, Notice, Spli
 import { ekoStart, type BillingStartView } from "../api";
 import { cap, plural } from "../model";
 import { WRAP } from "./parts";
-import { RefCasesCard, ReturnedCard, RunCard, runPath, TasksCard, UnbilledCard, useBillingActions, ZeroCard } from "./start-cards";
+import { RefInvoicesCard, ReturnedCard, RunCard, runPath, TasksCard, UnbilledCard, useBillingActions, ZeroCard } from "./start-cards";
 
 /** Belopp i rutan: siffran krymper så att "511 332 kr" får plats också i en smal ruta (som Faktureringens rutor). */
 const AMOUNT_KPI = "max-[620px]:p-3 [container-type:inline-size] [&>div:nth-child(2)]:whitespace-nowrap [&>div:nth-child(2)]:text-[clamp(1.25rem,12cqi,2rem)]";
@@ -66,17 +66,17 @@ function Week({ v }: { v: BillingStartView }) {
             actionHint="Visa"
             label={`${cap(monthName(cur.month).split(" ")[0])} att fakturera`}
             value={kr(cur.totalOre)}
-            sub={`${plural(cur.count, "faktura", "fakturor")} · ${plural(cur.weeks, "vecka", "veckor")} · exkl. moms`}
+            sub={`${plural(cur.invoices, "faktura", "fakturor")} · ${plural(cur.count, "rad", "rader")} · ${plural(cur.weeks, "vecka", "veckor")} · exkl. moms`}
           />
           {/* Bevaka i stället för röd: bara ett rött ämne per sida (preskriptionsrisken). */}
           <Kpi
             className={AMOUNT_KPI}
-            to={runPath(cur.month, { filter: "stoppade" })}
+            to={runPath(cur.month)}
             actionHint="Visa"
             label="Stoppade fakturor"
             value={num(cur.blocked)}
             tone={cur.blocked ? "watch" : undefined}
-            statusText="Rätta referensen"
+            statusText="Fyll i referensen"
             sub={cur.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
           />
           <Kpi
@@ -111,7 +111,7 @@ function Week({ v }: { v: BillingStartView }) {
           <div id="mv-uppgifter" className="scroll-mt-4">
             <TasksCard v={v} a={a} />
           </div>
-          <RefCasesCard v={v} a={a} />
+          <RefInvoicesCard v={v} a={a} />
         </Stack>
         <Stack>
           <div id="mv-preskription" className="scroll-mt-4">

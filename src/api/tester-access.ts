@@ -11,6 +11,8 @@
 // när testaren agerar som en testperson. I produktion, i prototypen och i minnesläget finns ingen testerId – då ändras
 // ingenting. (Minnesläget kan simulera en testare för e2e: POST /api/dev-session med testerId.)
 //
+// Beslut 5 (2026-10-07) generaliserar spärren för belopp: hidesMoney nedan gäller alla roller utom ekonomen.
+//
 // Spärren ligger i Next-servern: hela frågor och kommandon som bara handlar om pengar och villkor nekas i execute()
 // (HandlerOpts.commercial), och i frågor där belopp bara är en del tas fälten bort i svaret (typade, valfria fält).
 import type { Actor, Role } from "./roles";
@@ -27,6 +29,24 @@ export function hidesCommercial(actor: Pick<Actor, "testerId"> | null | undefine
   if (id === undefined || id === null) return false;
   return !FULL_ACCESS_TESTERS.includes(id);
 }
+
+/**
+ * Pengar syns bara för rollen ekonom (beslut 5, Karim 2026-10-07): belopp i kronor, priser, prisartiklar, viten i kronor,
+ * bonus, ofakturerat i kronor, AI-kostnader och fakturor med belopp lämnas bara ut när aktören har rollen ekonom OCH inte är
+ * en begränsad testare. Alla andra roller – samordnare, avtalsansvarig, coach, handledare, chef, systemadministratör,
+ * kommunen och deltagaren – får samma skydd som en begränsad testare: beloppsfälten tas bort i svaren (antal veckor och
+ * ärenden visas i stället), och frågor och kommandon som bara handlar om pengar är öppna bara för ekonomen (roles).
+ */
+export const MONEY_ROLES: readonly Role[] = ["ekonom"];
+/** true = rollen får se belopp om aktören inte är en begränsad testare (samma regel som hidesMoney, för kod utan Actor). */
+export const moneyVisible = (role: Role | string, hideCommercial: boolean): boolean => (MONEY_ROLES as readonly string[]).includes(role) && !hideCommercial;
+/** true = belopp i kronor ska tas bort i svaret till aktören (alla utom ekonomen, och alltid för begränsade testare). */
+export function hidesMoney(actor: Pick<Actor, "testerId" | "role"> | null | undefined): boolean {
+  if (!actor) return true;
+  return !moneyVisible(actor.role, hidesCommercial(actor));
+}
+/** Texten där ett belopp annars hade stått, för andra roller än ekonomen. */
+export const MONEY_HIDDEN_TEXT = "Visas bara för ekonomen";
 
 /** Roller som en begränsad testare inte får agera som (hela rollen handlar om fakturering och belopp). */
 export const ROLES_HIDDEN_FROM_TESTERS: readonly Role[] = ["ekonom"];

@@ -18,7 +18,8 @@ export type PersonaOption = { userId: string; role: Role; name: string; title: s
 
 /** Resultat av inloggningssteg. Felkoderna visas med text till användaren (aldrig om adressen finns eller inte). */
 export type AuthResult =
-  | { ok: true }
+  /** created = kontot skapades nu (självregistrering, beslut 2026-10-07) – inloggningen leder till Mina uppgifter. */
+  | { ok: true; created?: boolean }
   | { ok: false; error: "invalid_email" | "not_invited" | "invalid_code" | "expired" | "too_many_attempts" | "rate_limited" | "error"; message: string };
 
 /**

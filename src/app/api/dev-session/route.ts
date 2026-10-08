@@ -1,8 +1,10 @@
 // Utvecklingsläge (MM_BACKEND=memory): välj testperson. Finns inte i supabase-läget (testmiljön och produktion).
 //   GET                    vald testperson och alla testpersoner
 //   POST { userId, role }  byt testperson (verktygsfältet, e2e)
-//   POST { email }         simulerad inloggning med e-post och kod: testpersonen med adressen (som prototypen).
-//                          Okänd adress: { ok: false } (status 200).
+//   POST { email }         simulerad inloggning med e-post och kod: testpersonen med adressen (som prototypen). En adress på
+//                          avtalets kommundomän utan konto får ett nytt konto som kommunens handläggare (självregistrering,
+//                          beslut 2026-10-07) – svaret säger { ok: true, created: true }. Annan adress eller spärrat konto:
+//                          { ok: false } (status 200).
 //   POST { userId, role, testerId }  som ovan, men som en testare i testmiljön (t.ex. "tester-sara" = begränsad testare,
 //                          src/api/tester-access.ts). Bara för e2e i minnesläget. En begränsad testare får inte välja ekonom.
 import { cookies } from "next/headers";
@@ -25,10 +27,18 @@ export async function POST(request: Request) {
   if (!userId && typeof body.email === "string") {
     const email = body.email.trim().toLowerCase();
     const hit = listPersonas(memoryRuntime().raw()).find((p) => p.user.email.toLowerCase() === email);
-    // Okänd adress: 200 med ok=false (som prototypens simulerade inloggning – inget nätverksfel i webbläsaren).
-    if (!hit) return Response.json({ ok: false, code: "not_found" });
-    userId = hit.actor.userId;
-    role = hit.actor.role;
+    if (hit) {
+      userId = hit.actor.userId;
+      role = hit.actor.role;
+    } else {
+      // Ingen testperson med adressen: självregistrering om adressen är på avtalets kommundomän och saknar konto.
+      const created = await memoryRuntime().selfRegister(email);
+      // Okänd adress eller spärrat konto: 200 med ok=false (som prototypens simulerade inloggning – inget nätverksfel).
+      if (!created.ok) return Response.json({ ok: false, code: "not_found" });
+      const jar = await cookies();
+      jar.set(PERSONA_COOKIE, `${created.profileId}|kommun_handlaggare`, { httpOnly: true, sameSite: "lax", path: "/" });
+      return Response.json({ ok: true, created: true });
+    }
   }
   if (!userId) return Response.json({ code: "invalid_request" }, { status: 400 });
   // Samma regel som "Agera som" i testmiljön (mayImpersonate): en begränsad testare får inte välja rollen ekonom. Kontrollen

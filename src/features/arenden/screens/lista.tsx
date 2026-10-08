@@ -1,6 +1,6 @@
 "use client";
-// Ärendelistan (prototypens arenden.lista): sök, filter, sortering och sidor om 50. Skyddade ärenden visas bara med
-// nummer för roller som inte är namngivna. Coach och handledare ser aldrig eskaleringar till chef.
+// Ärendelistan (prototypens arenden.lista): sök, filter, sortering och sidor om 50. Coach och handledare ser aldrig
+// eskaleringar till chef. Funktionen protected_identity (persons) är borttagen ur appen (beslut 2026-10-07 – spärren är vilande i behörigheten).
 import { useEffect, useMemo, useState } from "react";
 import type { Role } from "@/api/roles";
 import { useQuery } from "@/shell/backend";
@@ -9,8 +9,7 @@ import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state"
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
-  Badge, Button, Card, CaseStatusBadge, Check, DemoNote, Empty, ErrorNotice, Field, Icon, Input, Kpi, Loading, Notice, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Stack,
-  Status, cn,
+  Badge, Button, Card, CaseStatusBadge, Check, DemoNote, Empty, ErrorNotice, Field, Input, Kpi, Loading, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Status, cn,
 } from "@/ui";
 import { caseList, type CaseListModel, type CaseListRow } from "../api";
 import { AttCell, fd, FlagBadges, pct0 } from "./common";
@@ -35,17 +34,16 @@ const FROM_FILTER: Record<string, Record<string, string>> = {
   aktiva: { status: "active" },
   oppna: { status: "open" },
   flaggor: { flaggor: "1", sort: "flaggor" },
-  skyddade: { skyddade: "1" },
 };
 
 export function ArendenListaScreen({ query }: ScreenProps) {
   const filter = query.get("filter");
   const patch = useQueryPatch();
   const q = useQuery(caseList, {});
-  // ?filter=skyddade → ?skyddade=1 (replace, ingen ny historikpost). Övriga val nollställs, som när listan öppnas med filtret.
+  // ?filter=flaggor → ?flaggor=1&sort=flaggor (replace, ingen ny historikpost). Övriga val nollställs, som när listan öppnas med filtret.
   useEffect(() => {
     if (filter === null) return;
-    patch({ filter: null, status: null, coach: null, omrade: null, fas: null, flaggor: null, skyddade: null, olasta: null, sort: null, visa: null, ...(FROM_FILTER[filter] ?? {}) });
+    patch({ filter: null, status: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, sort: null, visa: null, ...(FROM_FILTER[filter] ?? {}) });
   }, [filter, patch]);
   if (q.error) return <Page title="Ärenden"><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (!q.data) return <Page title="Ärenden"><Loading /></Page>;
@@ -73,7 +71,6 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
   const phase = model.phases.some((p) => String(p.no) === query.get("fas")) ? (query.get("fas") as string) : "";
   const onlyFlags = query.get("flaggor") === "1";
-  const onlyProt = query.get("skyddade") === "1";
   const onlyUnread = query.get("olasta") === "1";
   const sort = pick(query, "sort", SORT_VALUES, "nyast");
   const limit = pickInt(query, "visa", PAGE);
@@ -84,7 +81,6 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const setArea = (v: string) => patch({ omrade: v || null, visa: null });
   const setPhase = (v: string) => patch({ fas: v || null, visa: null });
   const setOnlyFlags = (v: boolean) => patch({ flaggor: v, visa: null });
-  const setOnlyProt = (v: boolean) => patch({ skyddade: v, visa: null });
   const setOnlyUnread = (v: boolean) => patch({ olasta: v, visa: null });
   const setSort = (v: string) => patch({ sort: v === "nyast" ? null : v });
   const search = (v: string) => {
@@ -93,18 +89,14 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   };
   const all = model.rows;
   const readOnly = READ_ONLY.includes(role);
-  const protCount = all.filter((c) => c.protectedIdentity).length;
   const needle = norm(q);
 
   const rows = useMemo(() => {
     const out = all.filter((c) => {
       if (status === "open" && (c.status === "closed" || c.status === "declined")) return false;
       if (status !== "alla" && status !== "open" && c.status !== status) return false;
-      if (onlyProt && !c.protectedIdentity) return false;
       if (onlyFlags && !c.flagged) return false;
       if (onlyUnread && !(c.detail?.unread ?? 0)) return false;
-      // Skyddade ärenden avslöjar inga detaljer via filter.
-      if (c.restricted && (coach || area || phase)) return false;
       if (coach && c.detail?.leadCoachId !== coach) return false;
       if (area && c.detail?.areaCode !== area) return false;
       if (phase && String(c.detail?.phase) !== phase) return false;
@@ -118,18 +110,18 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       nummer: (a, b) => (a.caseNumber < b.caseNumber ? -1 : 1),
     };
     return out.sort(sorters[sort] ?? newest);
-  }, [all, status, onlyProt, onlyFlags, onlyUnread, coach, area, phase, needle, sort]);
+  }, [all, status, onlyFlags, onlyUnread, coach, area, phase, needle, sort]);
   const shown = rows.slice(0, limit);
-  const anyFilter = !!(q || status !== "alla" || coach || area || phase || onlyFlags || onlyProt || onlyUnread);
-  const nFilters = [status !== "alla", coach, area, phase, onlyFlags, onlyProt, onlyUnread].filter(Boolean).length;
+  const anyFilter = !!(q || status !== "alla" || coach || area || phase || onlyFlags || onlyUnread);
+  const nFilters = [status !== "alla", coach, area, phase, onlyFlags, onlyUnread].filter(Boolean).length;
   const clear = () => {
     setQ("");
-    patch({ status: null, coach: null, omrade: null, fas: null, flaggor: null, skyddade: null, olasta: null, visa: null });
+    patch({ status: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, visa: null });
   };
   const nUnread = all.filter((c) => (c.detail?.unread ?? 0) > 0).length;
   const nActive = all.filter((c) => c.status === "active").length;
   const nWaiting = all.filter((c) => WAITING.includes(c.status)).length;
-  const nFlag = all.filter((c) => c.flagged && !c.restricted).length;
+  const nFlag = all.filter((c) => c.flagged).length;
   const showCoach = role !== "coach" && role !== "handledare";
   const title = role === "coach" ? "Mina ärenden" : "Ärenden";
   const customer = model.customerName;
@@ -153,37 +145,10 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       actions={
         <>
           {readOnly && <Badge tone="outline" icon="eye">Läsläge – inga ändringar</Badge>}
-          <PerspectiveLink role="kommun_chef" to="/portal/deltagare" label="Se kommunens lista" />
+          <PerspectiveLink role="kommun_handlaggare" to="/portal/deltagare" label="Se kommunens lista" />
         </>
       }
     >
-      {onlyProt && (
-        <Notice tone="info" icon="shield" title="Skyddade personuppgifter – vem ser vad?">
-          <Stack gap="sm">
-            <div>
-              Ärenden med skyddade personuppgifter visas med namn bara för <b>namngiven huvudcoach</b> och <b>avtalsansvarig</b>. Samordnare, chef och systemadmin ser att
-              ärendet finns – så att det kan planeras och följas upp – men inte vem det gäller, och kan inte öppna deltagarkortet. Övriga coacher och handledare ser inte
-              ärendet alls.
-            </div>
-            <div>Ingen adress lagras, inga SMS eller mejl skickas till deltagaren och AI används aldrig.</div>
-            <div className="font-bold">
-              {role === "avtalsansvarig"
-                ? "Du är avtalsansvarig och ser därför namn och deltagarkort."
-                : role === "samordnare" || role === "chef" || role === "admin"
-                  ? "I din roll ser du bara ärendenumret."
-                  : "Du är inte namngiven i något sådant ärende och ser därför inga."}
-            </div>
-            <div className="flex flex-wrap gap-3">
-              {role === "avtalsansvarig" ? (
-                <PerspectiveLink role="samordnare" to="/arenden?filter=skyddade" label="Jämför som samordnare" />
-              ) : (
-                <PerspectiveLink role="avtalsansvarig" to="/arenden?filter=skyddade" label="Jämför som avtalsansvarig" />
-              )}
-            </div>
-          </Stack>
-        </Notice>
-      )}
-
       <Card title="Sök och filtrera" icon="filter">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-end gap-x-4 gap-y-3">
           <div className="col-span-full">
@@ -227,11 +192,6 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
               Bara olästa meddelanden från kommunen ({nUnread})
             </Check>
           )}
-          {(protCount > 0 || onlyProt) && (
-            <Check id="arn-onlyprot" checked={onlyProt} onCheckedChange={setOnlyProt}>
-              Bara skyddade personuppgifter ({protCount})
-            </Check>
-          )}
           <Spacer />
           {anyFilter && (
             <Button kind="ghost" icon="x" onClick={clear} className="max-[620px]:hidden">
@@ -244,7 +204,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       {/* Nyckeltalen efter sökningen (också i koden – samma ordning för skärmläsare och tangentbord), så att sökfältet syns
           direkt under rubriken på smal skärm. */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-3 max-[620px]:grid-cols-2 max-[620px]:[&>div]:p-3 max-[620px]:[&>div>div:nth-child(2)]:text-[1.5rem]">
-        <Kpi label="Ärenden du ser" value={all.length} sub={protCount > 0 ? `varav ${protCount} med skyddade personuppgifter` : "enligt din behörighet"} />
+        <Kpi label="Ärenden du ser" value={all.length} sub="enligt din behörighet" />
         <Kpi label="Pågår" value={nActive} sub="aktiva insatser" />
         <Kpi label="Väntar på start" value={nWaiting} sub="mottagna eller bekräftade" />
         <Kpi label="Med flaggor" value={nFlag} sub={nFlag > 0 ? "behöver uppmärksamhet" : "inga flaggor för din roll"} tone={nFlag > 0 ? "watch" : undefined} />
@@ -288,8 +248,8 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       >
         {rows.length === 0 ? (
           <Empty
-            icon={onlyProt ? "shield" : "search"}
-            title={onlyProt && protCount === 0 ? "Du har inga ärenden med skyddade personuppgifter" : "Inga ärenden matchar"}
+            icon="search"
+            title="Inga ärenden matchar"
             action={
               anyFilter && (
                 <Button icon="x" onClick={clear}>
@@ -298,7 +258,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
               )
             }
           >
-            {onlyProt && protCount === 0 ? "De syns bara för namngiven huvudcoach och avtalsansvarig." : "Ändra sökningen eller filtren."}
+            Ändra sökningen eller filtren.
           </Empty>
         ) : (
           <>
@@ -360,22 +320,6 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
         </thead>
         <tbody>
           {rows.map((c) => {
-            if (c.restricted || !c.detail) {
-              return (
-                <tr key={c.id} className="[&>td]:bg-ljusgra-ton">
-                  <td className={`${TD} whitespace-nowrap`}>
-                    <span className="font-bold tabular-nums tracking-[0.01em]">{c.caseNumber}</span>
-                  </td>
-                  <td className={TD} colSpan={7}>
-                    <span className="inline-flex items-center gap-1.5">
-                      <Icon name="lock" />
-                      <span className="font-bold">Skyddade personuppgifter – ingen åtkomst</span>
-                    </span>
-                    <div className={sub}>Bara namngiven huvudcoach och avtalsansvarig kan öppna ärendet.</div>
-                  </td>
-                </tr>
-              );
-            }
             const d = c.detail;
             return (
               <tr key={c.id} className="cursor-pointer hover:[&>td]:bg-ljusgra-ton" onClick={(e) => rowNavigate(nav, hrefOf(c), e)} onAuxClick={(e) => rowNavigate(nav, hrefOf(c), e)}>
@@ -391,11 +335,6 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
                     {d.areaName}
                     {d.vocationalTrack ? ` · ${d.vocationalTrack}` : ""}
                   </div>
-                  {c.protectedIdentity && (
-                    <div className="mt-1">
-                      <Badge tone="dark" icon="lock">Skyddade personuppgifter</Badge>
-                    </div>
-                  )}
                 </td>
                 <td className={TD} title={`Fas ${d.phase} · ${d.phaseName}`}>
                   <div className="flex min-w-[118px] max-w-[170px] flex-col items-start gap-[5px]">
@@ -449,18 +388,6 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
 
 function NarrowItem({ c, weeksLabel, href }: { c: CaseListRow; weeksLabel: string; href: string }) {
   const cls = "flex w-full min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 text-left last:border-b-0 max-[620px]:flex-wrap";
-  if (c.restricted || !c.detail) {
-    return (
-      <div className={cls}>
-        <Icon name="lock" size="lg" />
-        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-          <span className="font-bold tabular-nums">{c.caseNumber}</span>
-          <span className="font-bold">Skyddade personuppgifter – ingen åtkomst</span>
-          <span className={sub}>Bara namngiven huvudcoach och avtalsansvarig kan öppna ärendet.</span>
-        </span>
-      </div>
-    );
-  }
   const d = c.detail;
   const ast = d.attendance;
   return (
@@ -469,7 +396,6 @@ function NarrowItem({ c, weeksLabel, href }: { c: CaseListRow; weeksLabel: strin
         <span className="flex flex-wrap items-center gap-1.5">
           <span className="font-bold tabular-nums">{c.caseNumber}</span>
           <CaseStatusBadge status={c.status} />
-          {c.protectedIdentity && <Badge tone="dark" icon="lock">Skyddad</Badge>}
         </span>
         <span className="block font-bold">{c.displayName}</span>
         <span className={sub}>

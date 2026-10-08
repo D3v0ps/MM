@@ -87,7 +87,8 @@ test("notiser: handledaren får inga eskaleringar och kommunen har ingen åtkoms
   await expect(main(page).getByRole("button", { name: /^Alla \(\d+\)$/ })).toBeVisible();
   const t = await main(page).innerText();
   expect(t).not.toMatch(/eskaler/i);
-  await open(page, info, "/notiser", { userId: "k-eva", role: "kommun_chef" });
+  // Kommunen (bara handläggare sedan 2026-10-07) har inga notiser i appen.
+  await open(page, info, "/notiser", { userId: "k-maria", role: "kommun_handlaggare" });
   // Inom sidans innehåll: Next.js har en egen role="alert" för att läsa upp sidbyten (__next-route-announcer__).
   await expect(main(page).getByRole("alert")).toContainText("Du har inte behörighet till den här sidan");
   expect(relevant(errors)).toEqual([]);

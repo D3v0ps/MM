@@ -54,6 +54,8 @@ const NADIA = "case-260143";
 const YUSUF = "case-260148";
 const MEHMET = "case-260130";
 const SKYDDAD = "case-260120";
+/** Den vilande spärren (beslut 2026-10-07): personen i SKYDDAD får skyddade personuppgifter – testdatat har inga. */
+const protect = () => rt.store.updateRow("persons", rt.raw().get("cases", SKYDDAD)!.personId, { protectedIdentity: true });
 /** Amiras avslutade ärende från september (för sidindelningen). */
 const SEPT = "case-260013";
 
@@ -114,11 +116,13 @@ describe("tidslinjen (arenden.kortTidslinje)", () => {
     expect(mehmet.sub).toBe("Skriven av Petra Ek · Även teamet");
   });
 
-  it("chefen läser men skriver inte; ekonomen nekas av rollkontrollen; skyddat ärende: samordnaren null, avtalsansvarig ser", async () => {
+  it("chefen läser men skriver inte; ekonomen nekas av rollkontrollen; skyddat ärende (vilande spärr påslagen): samordnaren null, avtalsansvarig ser", async () => {
     const chef = (await q(caseTimeline, { caseId: NADIA }, karin()))!;
     expect(chef.canWrite).toBe(false);
     expect(chef.months.flatMap((m) => m.entries).filter((e) => e.note).every((e) => !e.note!.canEdit && !e.note!.canRemove)).toBe(true);
     await expect(q(caseTimeline, { caseId: NADIA }, lars())).rejects.toBeInstanceOf(ApiError);
+    expect(await q(caseTimeline, { caseId: SKYDDAD }, sara())).not.toBeNull();
+    protect();
     expect(await q(caseTimeline, { caseId: SKYDDAD }, sara())).toBeNull();
     const j = entriesOf(await allPages(SKYDDAD, johan()));
     expect(j.find((e) => e.note)).toMatchObject({ title: "Samtal med deltagaren", sub: "Skriven av Erik Sjöberg · Bara namngiven huvudcoach och avtalsansvarig", note: { canEdit: false, canRemove: true } });
@@ -325,7 +329,8 @@ describe("fria anteckningar (arenden.noteSave, arenden.noteRemove)", () => {
     expect(await cmd(caseNoteSave.key, input({ occurredOn: "2026-12-01" }), amira())).toMatchObject({ ok: false, error: "date" });
   });
 
-  it("skyddat ärende: sparas alltid för full åtkomst", async () => {
+  it("skyddat ärende (vilande spärr påslagen): sparas alltid för full åtkomst", async () => {
+    protect();
     const r = await cmd(caseNoteSave.key, input({ caseId: SKYDDAD, audience: "team", occurredOn: "2027-01-29" }), as("u-erik", "coach"));
     expect(r.ok).toBe(true);
     expect(rt.store.getRow("case_notes", r.noteId!)!.audience).toBe("full");
@@ -497,7 +502,7 @@ describe("månadsunderlaget (arenden.kortManad)", () => {
 // ================================================================ Del 0: gränserna är konfiguration
 describe("tydlig och någon progression följer avtalets gränser (clearFromLevel: 3)", () => {
   const mk = "2026-12";
-  it("beställarrapporten, chefsvyn, månadsbedömningen och tidslinjen räknar och skriver med 3 – ingen med 2", async () => {
+  it("beställarrapporten, månadsbedömningen och tidslinjen räknar och skriver med 3 – ingen med 2", async () => {
     const data = structuredClone(SEED);
     const k = data.contracts.find((c) => c.id === "c-bot")!;
     k.config = { ...k.config, progression: { ...k.config.progression!, clearFromLevel: 3, anyFromLevel: 2 } };
@@ -508,7 +513,7 @@ describe("tydlig och någon progression följer avtalets gränser (clearFromLeve
     const at = (n: number) => mas.filter((m) => areas.some((a) => (m.areas[a]?.level ?? -1) >= n)).length;
     expect(at(3)).toBeLessThan(at(2)); // annars prövar testet ingenting
 
-    // Domänfunktionen bakom kommunens chefsvy och paritetsfacit (customerSummary): tydlig ≥ 3, någon ≥ 2, per område ≥ 3.
+    // Domänfunktionen bakom beställarrapporten och paritetsfacit (customerSummary): tydlig ≥ 3, någon ≥ 2, per område ≥ 3.
     const cs = customerSummary(db, mk, domainEnv(k, DEFAULT_ORG_SETTINGS, rt.clock.now()));
     expect(cs.progression).toMatchObject({ assessed: mas.length, clear: at(3), any: at(2) });
     expect(cs.progression.areaDist.map((d) => d.clear)).toEqual(areas.map((a) => mas.filter((m) => (m.areas[a]?.level ?? -1) >= 3).length));
@@ -522,9 +527,7 @@ describe("tydlig och någon progression följer avtalets gränser (clearFromLeve
     expect(doc.doc.m.progression.clear).toBe(at(3));
     expect(doc.doc.m.progression.areaDist.map((d) => d.clear)).toEqual(areas.map((a) => mas.filter((m) => (m.areas[a]?.level ?? -1) >= 3).length));
 
-    // Kommunens chefsvy: texterna.
-    const { kommunChef } = await import("@/features/kommun/api");
-    expect((await q(kommunChef, { month: null }, as("k-eva", "kommun_chef"))).progressionRule).toEqual({ clear: "Minst ett område på nivå 3 eller högre", any: "Minst ett område på nivå 2 eller högre", excluded: "Hälsa (funktionellt beskrivet) och livskvalitet (deltagarens egen skattning) är valfria områden och räknas inte." });
+    // (Kommunens chefsvy är borttagen med rollen, beslut 2026-10-07 – beställarrapporten ovan är samma texter.)
 
     // Coachens månadsbedömning: gränserna och texterna.
     const v = await q(assessmentPage, { caseId: NADIA, month: "2027-01" }, amira());

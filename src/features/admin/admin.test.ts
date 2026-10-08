@@ -43,17 +43,21 @@ describe("avtal och konfiguration", () => {
     });
     expect(d.yearShort).toBe("27");
     // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag".
-    // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – nu 10 värden.
+    // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – nu 10 värden. Beslut
+    // 2026-10-07: gallringen av bilagorna efter avslut är inte fastställd (retentionRules.attachmentsAfterCloseDays) – 11 värden.
     expect(findUnset(d.config).map((u) => u.path)).toEqual([
       "customerVisibility.scope", "result.definition", "result.excludedFromDenominator", "kpis.narvarograd.internalTarget", "kpis.nojdhet.internalTarget",
       "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention",
+      "retentionRules.attachmentsAfterCloseDays",
     ]);
     expect(d.stuckCount).toBe(2);
     expect(d.bonusCandidates).toBe(31);
-    expect(d.priceItems).toHaveLength(12);
-    expect(Math.min(...d.priceItems.map((p) => p.priceOre))).toBe(132300);
-    expect(Math.max(...d.priceItems.map((p) => p.priceOre))).toBe(166800);
-    expect(d.priceItems[0]).toMatchObject({ areaName: "A Administration", fortnoxArticleNo: "BOT-A", unit: "participant_week", vatRate: 25 });
+    // Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07): ingen prislista och inga vitesbelopp för systemadministratören.
+    // Prislistan finns under Ekonomi (ekonomi.priceList, src/features/ekonomi/ekonomi.test.ts).
+    expect(d).not.toHaveProperty("priceItems");
+    expect(d.config).not.toHaveProperty("penalties");
+    expect(d.penaltiesHidden).toBe(true);
+    expect(JSON.stringify(d)).not.toMatch(/priceOre|deviationOre|insufficientInformationOre/);
   });
 
   it("ett nytt kommunavtal i utkast (påhittat): avtalsväljaren, inga driftavsnitt, texterna ur konfigurationen", async () => {
@@ -70,7 +74,8 @@ describe("avtal och konfiguration", () => {
     expect(d.contract).toMatchObject({ termination: "Enligt avtalet.", scope: "Upp till 20 platser." });
     expect(d.stuckCount).toBeNull();
     expect(findUnset(d.config)).toHaveLength(0);
-    expect(d.priceItems).toEqual([]);
+    expect(d).not.toHaveProperty("priceItems");
+    expect(d.penaltiesHidden).toBe(false); // utkastet har inga viten
     // Ett avtal utan texter i konfigurationen visar "–" (null), oavsett avtalsnummer.
     const noTexts = structuredClone(rt.rows("contracts").find((c) => c.id === "c-ny")!.config);
     delete noTexts.texts;
@@ -128,22 +133,25 @@ describe("interna regler (org_settings)", () => {
 });
 
 describe("användare och roller", () => {
-  it("systemadmin ser personalen och kommunens användare med samma siffror som prototypen", async () => {
+  it("systemadmin ser personalen och kommunens användare (prototypens siffror utan kommunens chef)", async () => {
     const d = await rt.query(adminUsers, {}, robin());
-    expect(d.kpis).toEqual({ mbActive: 13, customerActive: 5, unitCount: 4, loggedIn30: 1, invited: 0 });
+    // Kommunens chef (Eva Bergström, enheten Arbetsmarknadsenheten) är borttagen (beslut 2026-10-07): 4 användare i 3 enheter.
+    expect(d.kpis).toEqual({ mbActive: 13, customerActive: 4, unitCount: 3, loggedIn30: 1, invited: 0 });
     expect(d.mb?.map((u) => u.name)).toEqual([
       "Robin Åberg", "Johan Berg", "Sara Lindqvist", "Amira Haddad", "Erik Sjöberg", "Leila Nouri", "Mats Holm", "Sofia Grahn", "David Olsson", "Hanna Strand", "Petra Ek",
       "Karin Wallin", "Lars Nyström",
     ]);
     expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roleLabel: "Handledare", teamRoleLabel: "Yrkesspecifik handledare" });
-    expect(d.customers.map((u) => [u.name, u.role, u.unit, u.buyerReference])).toEqual([
-      ["Ahmed Yusuf", "handlaggare", "Arbetsmarknadsenheten Tumba", "55102938"],
-      ["Eva Bergström", "chef", "Arbetsmarknadsenheten", null],
-      ["Linda Karlsson", "handlaggare", "Arbetsmarknadsenheten Hallunda–Fittja", "7730045120"],
-      ["Maria Ekdahl", "handlaggare", "Arbetsmarknadsenheten Alby", "4410023817"],
-      ["Omar Farah", "handlaggare", "Arbetsmarknadsenheten Alby", "4410023817"],
+    // Bara handläggare – ingen rollkolumn och ingen beställarreferens i listan.
+    expect(d.customers.map((u) => [u.name, u.unit, u.selfRegistered])).toEqual([
+      ["Ahmed Yusuf", "Arbetsmarknadsenheten Tumba", false],
+      ["Linda Karlsson", "Arbetsmarknadsenheten Hallunda–Fittja", false],
+      ["Maria Ekdahl", "Arbetsmarknadsenheten Alby", false],
+      ["Omar Farah", "Arbetsmarknadsenheten Alby", false],
     ]);
+    for (const key of ["role", "buyerReference"]) expect(d.customers[0]).not.toHaveProperty(key);
     expect(d.domains).toEqual(["botkyrka.se"]);
+    expect(d.selfRegistrationDomains).toEqual(["botkyrka.se"]);
     expect(d.escalateTo).toEqual(["chef"]);
   });
 
@@ -151,32 +159,35 @@ describe("användare och roller", () => {
     const d = await rt.query(adminUsers, {}, johan());
     expect(d.isAdmin).toBe(false);
     expect(d.mb).toBeNull();
-    expect(d.customers).toHaveLength(5);
+    expect(d.customers).toHaveLength(4);
     await forbidden(rt.query(adminUsers, {}, sara()));
   });
 
-  it("inbjudan: bara tillåten domän, unik adress, roll och enhet – mejlet utan personuppgifter", async () => {
-    const base = { name: "Kim Andersson", email: "kim.andersson@gmail.com", role: "handlaggare", unit: "Arbetsmarknadsenheten Tumba" };
+  it("inbjudan: bara tillåten domän, unik adress och enhet – alltid handläggare, mejlet utan personuppgifter", async () => {
+    const base = { name: "Kim Andersson", email: "kim.andersson@gmail.com", unit: "Arbetsmarknadsenheten Tumba" };
     expect(await rt.command(adminInviteCustomer, base, johan())).toMatchObject({ ok: false, error: "domain" });
     expect(await rt.command(adminInviteCustomer, { ...base, name: " " }, johan())).toMatchObject({ ok: false, error: "name" });
     expect(await rt.command(adminInviteCustomer, { ...base, email: "Maria.Ekdahl@botkyrka.se" }, johan())).toMatchObject({ ok: false, error: "exists" });
     expect(await rt.command(adminInviteCustomer, { ...base, email: "kim.andersson@botkyrka.se", unit: "" }, johan())).toMatchObject({ ok: false, error: "unit" });
     const n = rt.rows("profiles").length;
-    const r = await rt.command(adminInviteCustomer, { ...base, email: "Kim.Andersson@botkyrka.se", role: "chef" }, johan());
+    // En roll i anropet ignoreras (zod tar bort okända fält) – kommunen har bara rollen handläggare.
+    const r = await rt.command(adminInviteCustomer, { ...base, email: "Kim.Andersson@botkyrka.se", role: "chef" } as never, johan());
     expect(r.ok).toBe(true);
     const id = r.ok ? r.userId : "";
     expect(rt.rows("profiles")).toHaveLength(n + 1);
     expect(rt.rows("profiles").find((p) => p.id === id)).toMatchObject({
       email: "kim.andersson@botkyrka.se", fullName: "Kim Andersson", organizationId: "org-botkyrka", customerUnit: "Arbetsmarknadsenheten Tumba", buyerReferenceId: "br-tumba",
-      title: "Chef", active: true, invitedAt: "2027-02-01T09:13", invitedBy: "u-johan",
+      title: "Handläggare", active: true, invitedAt: "2027-02-01T09:13", invitedBy: "u-johan",
     });
-    expect(rt.rows("memberships").find((m) => m.userId === id)).toMatchObject({ contractId: "c-bot", role: "kommun_chef", customerUnit: "Arbetsmarknadsenheten Tumba" });
+    expect(rt.rows("memberships").find((m) => m.userId === id)).toMatchObject({ contractId: "c-bot", role: "kommun_handlaggare", customerUnit: "Arbetsmarknadsenheten Tumba" });
     const mail = rt.rows("outbound_messages").find((m) => m.template === "inbjudan_kommun");
     expect(mail).toMatchObject({ to: "kim.andersson@botkyrka.se", caseId: null });
     expect(mail?.body).not.toMatch(/Kim|Andersson/);
-    expect(rt.rows("audit_log").find((a) => a.action === "customer_user.invited")).toMatchObject({ entity: "profile", entityId: id, details: { role: "chef", unit: "Arbetsmarknadsenheten Tumba", domain: "botkyrka.se" } });
+    expect(rt.rows("audit_log").find((a) => a.action === "customer_user.invited")).toMatchObject({ entity: "profile", entityId: id, details: { role: "kommun_handlaggare", domain: "botkyrka.se" } });
+    // Enheten är fritext (synpunkt #3) och hamnar inte i loggen.
+    expect(rt.rows("audit_log").find((a) => a.action === "customer_user.invited")!.details).not.toHaveProperty("unit");
     const d = await rt.query(adminUsers, {}, johan());
-    expect(d.customers[0]).toMatchObject({ name: "Kim Andersson", role: "chef", invitedAt: "2027-02-01T09:13" });
+    expect(d.customers[0]).toMatchObject({ name: "Kim Andersson", invitedAt: "2027-02-01T09:13", selfRegistered: false });
     expect(d.kpis.invited).toBe(1);
     // Spärra och aktivera igen
     expect(await rt.command(adminSetCustomerActive, { userId: id, active: false }, johan())).toEqual({ ok: true });
@@ -234,12 +245,13 @@ describe("mallar och utskick", () => {
     expect(t("pulslank").when).toBe("Vecka 2, vid avslut och var 30:e dag vid långa insatser");
     expect(t("paminnelse_progression").when).toBe("Enligt interna regler: måndag 08.00 för föregående vecka");
     expect(t("eskalering_chef").when).toBe("När ett ärende saknar progression 2 veckor i rad");
-    // Mejlvarianten har exakt samma text som testdatats utskick; portalvarianten samma som beställningen i portalen skickar
-    const sent = rt.rows("outbound_messages").find((m) => m.template === "generisk_mottagningsbekraftelse");
-    expect(t("generisk_mottagningsbekraftelse").body).toBe(sent?.body);
-    expect(t("generisk_mottagningsbekraftelse_portal").body).toBe("Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.");
+    // Den generiska mottagningsbekräftelsen används inte sedan 2026-10-07 (skyddet borttaget) – mallarna finns kvar för gamla utskick.
+    expect(t("generisk_mottagningsbekraftelse").when).toBe("Används inte sedan 2026-10-07");
+    expect(t("generisk_mottagningsbekraftelse_portal").when).toBe("Används inte sedan 2026-10-07");
+    expect(rt.rows("outbound_messages").some((m) => m.template === "generisk_mottagningsbekraftelse")).toBe(false);
+    for (const k of ["kallelse", "pulslank"]) expect(`${t(k).to} ${t(k).when}`, k).not.toMatch(/skyddade personuppgifter/i);
     expect(d.sendLog.map((n) => n.templateLabel)).toEqual([
-      "Ordererkännande", "Pulslänk", "Generisk mottagningsbekräftelse – mejl", "Ny rapport", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
+      "Ordererkännande", "Pulslänk", "Ny rapport", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
     ]);
     expect(d.sendLog.every((n) => !n.leak && !n.byTester)).toBe(true);
     expect(d.sendLog[1]).toMatchObject({ channel: "sms", to: "070-*** ** 12", caseNumber: "BOT-26-0143" });
@@ -301,10 +313,11 @@ describe("mallar och utskick", () => {
 describe("revisionslogg och loggkontroll", () => {
   it("loggen i klarspråk – inga kodvärden i detaljerna", async () => {
     const d = await rt.query(adminAuditLog, {}, robin());
-    expect(d.rows).toHaveLength(20);
+    // 19: utskicket av den generiska mottagningsbekräftelsen till em-104 finns inte längre (beslut 2026-10-07).
+    expect(d.rows).toHaveLength(19);
     expect([d.views, d.exports, d.byTester]).toEqual([2, 0, 0]);
     const details = d.rows.map((r) => r.detailText).join("\n");
-    for (const s of ["Tolkning: Word-mall", "Tolkning: AI", "Period: rullande 6 månader", "Typ: tolka mejl", "Typ: transkribering och utkast", "Mall: Generisk mottagningsbekräftelse – mejl"]) {
+    for (const s of ["Tolkning: Word-mall", "Tolkning: AI", "Period: rullande 6 månader", "Typ: tolka mejl", "Typ: transkribering och utkast"]) {
       expect(details).toContain(s);
     }
     expect(details).not.toMatch(/Tolkning: template|Kanal: email|Typ: parse_email|rolling_6m|Mall: generisk_/);

@@ -1,7 +1,7 @@
 "use client";
 // Rapportbyggaren: listan (/rapportbyggare) – samordnare, avtalsansvarig och chef. Färdiga rapporter (resultatfilen för hela
-// avtalet), mina rapporter, delade inom Miljonbemanning och delade med kommunen. Har användaren fler än ett avtal i drift
-// visas valet "Avtal" (?avtal=).
+// avtalet), mina rapporter och delade inom Miljonbemanning. Sparade rapporter delas aldrig med kommunen (beslut 2026-10-07).
+// Har användaren fler än ett avtal i drift visas valet "Avtal" (?avtal=).
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
@@ -9,7 +9,7 @@ import { Button, Card, ErrorNotice, Field, Icon, Loading, Notice, Page, Section,
 import { builderCatalog, savedReportList, VISIBILITY_LABEL, type SavedReportRow } from "../api";
 import { Link } from "@/shell/nav";
 
-export const VISIBILITY_ICON: Record<SavedReportRow["visibility"], IconName> = { private: "lock", mb: "users", customer: "building" };
+export const VISIBILITY_ICON: Record<SavedReportRow["visibility"], IconName> = { private: "lock", mb: "users" };
 
 /** Delningen som ikon och text (aldrig bara ikon). */
 export function Sharing({ visibility }: { visibility: SavedReportRow["visibility"] }) {
@@ -62,7 +62,7 @@ export function ByggListaScreen({ query }: ScreenProps) {
   return (
     <Page
       title="Rapportbyggare"
-      lead="Här bygger du egna rapporter av de levererade månads- och slutrapporterna. Du kan spara rapporten och dela den med andra på Miljonbemanning eller med kommunens chef."
+      lead="Här bygger du egna rapporter av de levererade månads- och slutrapporterna. Du kan spara rapporten och dela den med andra på Miljonbemanning."
       actions={
         c.contractId ? (
           <Button kind="primary" icon="plus" to={withContract("/rapportbyggare/ny")}>
@@ -71,7 +71,6 @@ export function ByggListaScreen({ query }: ScreenProps) {
         ) : null
       }
     >
-      <Notice tone="info" title="Ärenden med skyddade personuppgifter ingår inte. Ledningsvyn räknar med dem." />
       {c.contracts.length > 1 && (
         <Field id="bygg-avtal" label="Avtal" help="Rapporterna gäller ett avtal i taget.">
           <Select value={c.contractId ?? ""} options={c.contracts.map((x) => ({ value: x.id, label: x.label }))} onValueChange={(v) => nav.replace(path("/rapportbyggare", { avtal: v }))} />
@@ -84,7 +83,10 @@ export function ByggListaScreen({ query }: ScreenProps) {
           <Section title="Färdiga rapporter">
             <Card title="Resultatfil för hela avtalet" icon="file">
               <Stack gap="sm">
-                <p>Samma kolumner som filen kommunens chef hämtar, men för alla ärenden i avtalet.</p>
+                <p>
+                  Resultatfilen för alla ärenden i avtalet. Avtalsansvarig lämnar den till kommunen utanför Miljonmatch – skicka den inte som bilaga i vanlig
+                  e-post.
+                </p>
                 <span>
                   <Button icon="download" to={withContract("/rapportbyggare/resultatfil")}>
                     Hämta resultatfilen
@@ -101,11 +103,6 @@ export function ByggListaScreen({ query }: ScreenProps) {
           <Section title="Delade inom Miljonbemanning">
             <Card>
               <ReportRows rows={l.sharedMb} empty="Inga rapporter är delade inom Miljonbemanning." />
-            </Card>
-          </Section>
-          <Section title="Delade med kommunen">
-            <Card>
-              <ReportRows rows={l.sharedCustomer} empty="Inga rapporter är delade med kommunen." />
             </Card>
           </Section>
         </>

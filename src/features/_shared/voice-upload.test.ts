@@ -39,6 +39,8 @@ function setup(o: { noAi?: boolean } = {}) {
   return { store, audio, ctxAs, as, setNow: (t: LocalDateTime) => (clock = t) };
 }
 const webm = { mimeType: "audio/webm;codecs=opus" };
+/** Den vilande spärren (beslut 2026-10-07): personen i SKYDDAD får skyddade personuppgifter – testdatat har inga. */
+const protect = (t: ReturnType<typeof setup>) => t.store.updateRow("persons", t.store.getRow("cases", SKYDDAD)!.personId, { protectedIdentity: true });
 
 describe("startAudioUpload", () => {
   it("coachen i sitt ärende med samtycke: rad i audio_uploads (pending), ingen adress i minnesläget, maxlängd ur avtalet, revisionslogg", async () => {
@@ -56,6 +58,7 @@ describe("startAudioUpload", () => {
     const t = setup();
     const amira = t.as("u-amira", "coach");
     expect(await startAudioUpload(amira, { purpose: "checkin", caseId: YUSUF, ...webm })).toMatchObject({ ok: false, error: "no_consent" });
+    protect(t);
     expect(await startAudioUpload(t.as("u-erik", "coach"), { purpose: "checkin", caseId: SKYDDAD, ...webm })).toMatchObject({ ok: false, error: "protected" });
     // Ärenden som coachen inte har: finns inte (policyn) eller inte hennes
     const other = t.store.rows("cases").find((c) => c.leadCoachId && c.leadCoachId !== "u-amira" && c.contractId === "c-bot" && c.id !== SKYDDAD)!;
@@ -81,7 +84,8 @@ describe("startAudioUpload", () => {
     expect(await startAudioUpload(maria, { purpose: "dictation", ...webm, protectedOrder: true })).toMatchObject({ ok: false, error: "protected" });
     expect(await startAudioUpload(maria, { purpose: "dictation", caseId: NADIA, ...webm })).toMatchObject({ ok: true });
     expect(await startAudioUpload(maria, { purpose: "dictation", contractId: "c-ny", ...webm })).toMatchObject({ ok: false, error: "forbidden" });
-    // Omars ärende med skyddade personuppgifter
+    // Omars ärende med skyddade personuppgifter (vilande spärr påslagen)
+    protect(t);
     expect(await startAudioUpload(t.as("k-omar", "kommun_handlaggare"), { purpose: "dictation", caseId: SKYDDAD, ...webm })).toMatchObject({ ok: false, error: "protected" });
     // Någon annans ärende syns inte
     expect((await startAudioUpload(t.as("k-omar", "kommun_handlaggare"), { purpose: "dictation", caseId: NADIA, ...webm })).ok).toBe(false);
@@ -109,8 +113,9 @@ describe("startAudioUpload", () => {
 });
 
 describe("voiceLinkByToken", () => {
-  it("tokenhash (SHA-256) som testdatat; skyddade ärenden räknas som saknade", async () => {
+  it("tokenhash (SHA-256) som testdatat; skyddade ärenden (vilande spärr påslagen) räknas som saknade", async () => {
     const t = setup();
+    protect(t);
     expect(await voiceTokenHash("testdata-vl-nadia")).toBe("3cb860bc33b1dce96d11e26e2a095e5e549a0f23e56340fd7261a53e59f42cb7");
     const l = await voiceLinkByToken(t.ctxAs(PARTICIPANT), "testdata-vl-nadia");
     expect(l).toMatchObject({ state: "used", link: { id: "vl-nadia" }, block: null });

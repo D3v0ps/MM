@@ -151,8 +151,10 @@ describe("transcribe_recording (coachens inspelning)", () => {
     expect(t.store.getRow("audio_uploads", id)).toMatchObject({ status: "deleted", deletedAt: DEMO_START });
   });
 
-  it("aldrig för skyddade personuppgifter – och aldrig utan samtycke (Yusuf har sagt nej)", async () => {
+  it("aldrig för skyddade personuppgifter (vilande spärr påslagen) – och aldrig utan samtycke (Yusuf har sagt nej)", async () => {
     const t = setup();
+    // Testdatat har inga skyddade personer sedan 2026-10-07 – spärren slås på för personen i ärendet.
+    t.store.updateRow("persons", t.store.getRow("cases", SKYDDAD)!.personId, { protectedIdentity: true });
     const erik = t.ctxFor(t.actor("u-erik", "coach"));
     const id = await t.upload(SKYDDAD, "checkin", "u-erik");
     const r = await enqueueVoiceJob(erik, { kind: "transcribe_recording", uploadId: id, source: "recording" });

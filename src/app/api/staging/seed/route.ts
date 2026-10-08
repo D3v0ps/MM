@@ -5,6 +5,7 @@
 import type { PnrCrypto } from "@/api/server";
 import { DEMO_START } from "@/data/seed";
 import { appRepo, type PgClient } from "@/data/supabase";
+import { emptyAttachmentBucket, type AttachmentStorageClientLike } from "@/server/attachments/storage";
 import { clockNow } from "@/server/clock";
 import { PnrKeyError, serverCrypto } from "@/server/crypto";
 import { liveSession, type LiveSession } from "@/server/live";
@@ -57,7 +58,13 @@ export async function POST(request: Request) {
   const started = Date.now();
   try {
     const summary = await loadTestData(s.service as unknown as SeedClient, { crypto: pnr, demoStart: DEMO_START });
-    await audit("staging.seed", { rows: summary.rows, tables: summary.tables, seconds: Math.round((Date.now() - started) / 1000) });
+    // Bilagornas filer (bucketen "bilagor"): tabellen tömdes nyss, så filerna saknar spår – töm bucketen också. Ett fel här
+    // stoppar inte inläsningen (filerna töms nästa gång).
+    const files = await emptyAttachmentBucket(s.service as unknown as AttachmentStorageClientLike).catch((e: unknown) => {
+      console.error("testdata", "bilagor", e instanceof Error ? e.name : "okänt");
+      return null;
+    });
+    await audit("staging.seed", { rows: summary.rows, tables: summary.tables, seconds: Math.round((Date.now() - started) / 1000), ...(files != null ? { attachmentFiles: files } : {}) });
     return json(200, { ok: true, rows: summary.rows });
   } catch (e) {
     const step = e instanceof SeedLoadError ? `${e.step} ${e.code}` : e instanceof Error ? e.name : "okänt";

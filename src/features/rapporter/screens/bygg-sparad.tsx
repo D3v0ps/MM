@@ -1,18 +1,17 @@
 "use client";
 // Rapportbyggaren: en sparad rapport (/rapportbyggare/:savedReportId). Förhandsvisningen körs en gång per sidvisning med
-// savedReportId – kommandot loggar då saved_report.viewed (beslut 12). Växeln "Visa som kommunens chef ser den" kör det igen
-// (och loggar igen, med audience kommun). ?steg= öppnar byggaren för att ändra rapporten (bara ägaren – canEdit).
+// savedReportId – kommandot loggar då saved_report.viewed (beslut 12). ?steg= öppnar byggaren för att ändra rapporten (bara
+// ägaren – canEdit). Rapporten delas bara inom Miljonbemanning – aldrig med kommunen (beslut 2026-10-07).
 import { useEffect, useRef, useState } from "react";
 import { fmtDateFull } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
-import { Button, Card, Check, ErrorNotice, Kv, Loading, Modal, Notice, Page, Stack, toast, useConfirm } from "@/ui";
+import { Button, Card, ErrorNotice, Kv, Loading, Modal, Notice, Page, Stack, toast, useConfirm } from "@/ui";
 import { builderExport, builderPreview, savedReport, savedReportArchive, savedReportShare, VISIBILITY_LABEL, type BuilderView, type SavedReportDetail } from "../api";
 import { BuilderViewPanel, DownloadStatus, useBuilderDownload } from "../components/builder-view";
 import { RadioCards } from "../components/radio-cards";
 import { BuilderForSaved } from "./bygg";
-import { ShareDialog } from "./bygg-dela";
 import { Sharing, VISIBILITY_ICON } from "./bygg-lista";
 
 type Saved = Extract<SavedReportDetail, { found: true }>;
@@ -50,55 +49,38 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
   const shareCmd = useCommand(savedReportShare);
   const archiveCmd = useCommand(savedReportArchive);
   const dl = useBuilderDownload();
-  const [audience, setAudience] = useState<"mb" | "kommun">("mb");
-  const [res, setRes] = useState<Record<string, { view: BuilderView } | { error: string }>>({});
-  const [sharing, setSharing] = useState<null | "dialog" | "customer">(null);
+  const [res, setRes] = useState<{ view: BuilderView } | { error: string } | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [shareChoice, setShareChoice] = useState<string>(s.visibility);
   const [actionError, setActionError] = useState<string | null>(null);
-  const ran = useRef(new Set<string>());
+  const ran = useRef(false);
   const valid = !s.definitionError && !s.archived;
-  // En gång per sidvisning och läge (loggas som visning av den sparade rapporten).
+  // En gång per sidvisning (loggas som visning av den sparade rapporten).
   useEffect(() => {
-    const key = `${s.id}:${audience}`;
-    if (!valid || ran.current.has(key)) return;
-    ran.current.add(key);
-    preview.run({ savedReportId: s.id, audience }).then(
-      (r) => setRes((x) => ({ ...x, [audience]: r.ok ? { view: r as unknown as BuilderView } : { error: r.message || "Rapporten kunde inte visas." } })),
-      () => setRes((x) => ({ ...x, [audience]: { error: "Rapporten kunde inte visas. Försök igen om en stund." } })),
+    if (!valid || ran.current) return;
+    ran.current = true;
+    preview.run({ savedReportId: s.id }).then(
+      (r) => setRes(r.ok ? { view: r as unknown as BuilderView } : { error: r.message || "Rapporten kunde inte visas." }),
+      () => setRes({ error: "Rapporten kunde inte visas. Försök igen om en stund." }),
     );
-  }, [s.id, audience, valid, preview]);
-  const cur = res[audience];
-  // Den sparade definitionen (kan vara ogiltig – då visas definitionError): bara visningssättet och om listan har namn.
+  }, [s.id, valid, preview]);
+  const cur = res;
+  // Den sparade definitionen (kan vara ogiltig – då visas definitionError): bara visningssättet.
   const isList = s.definition.output === "lista";
-  const hasNames = Array.isArray(s.definition.columns) && (s.definition.columns as unknown[]).includes("resultat.namn");
 
-  const share = async (visibility: "private" | "mb" | "customer") => {
+  const share = async (visibility: "private" | "mb") => {
     setActionError(null);
     try {
       const r = await shareCmd.run({ savedReportId: s.id, visibility });
       if (!r.ok) setActionError(r.message ?? "Delningen kunde inte ändras.");
-      else if (visibility !== s.visibility) {
-        toast(
-          visibility === "customer"
-            ? "Rapporten är delad med kommunen."
-            : s.visibility === "customer"
-              ? "Kommunen ser inte rapporten längre."
-              : visibility === "mb"
-                ? "Rapporten är delad med alla på Miljonbemanning i avtalet."
-                : "Rapporten syns bara för dig.",
-        );
-      }
-      setSharing(null);
+      else if (visibility !== s.visibility) toast(visibility === "mb" ? "Rapporten är delad med alla på Miljonbemanning i avtalet." : "Rapporten syns bara för dig.");
+      setSharing(false);
     } catch {
       setActionError("Delningen kunde inte ändras. Försök igen om en stund.");
     }
   };
-  const stopSharing = async () => {
-    const yes = await confirm({ title: "Sluta dela med kommunen?", body: "Kommunens chef ser inte rapporten längre. Den finns kvar för alla på Miljonbemanning i avtalet.", confirmLabel: "Sluta dela med kommunen" });
-    if (yes) await share("mb");
-  };
   const archive = async () => {
-    const yes = await confirm({ title: "Arkivera rapporten?", body: "Rapporten visas inte längre i listorna. Om den är delad med kommunens chef försvinner den där också.", confirmLabel: "Arkivera", cancelLabel: "Avbryt", tone: "danger" });
+    const yes = await confirm({ title: "Arkivera rapporten?", body: "Rapporten visas inte längre i listorna.", confirmLabel: "Arkivera", cancelLabel: "Avbryt", tone: "danger" });
     if (!yes) return;
     setActionError(null);
     try {
@@ -114,8 +96,8 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
     <Page title={s.title} crumbs={[{ label: "Rapportbyggare", to: "/rapportbyggare" }, { label: s.title }]}>
       {savedNow && <Notice tone="ok" title="Rapporten är sparad." />}
       {s.archived && <Notice tone="info" title="Rapporten är arkiverad." />}
-      {(lockedStep || (!s.archived && s.lockedText && s.visibility === "customer")) && s.lockedText && <Notice tone="info" title={s.lockedText} />}
-      {!s.archived && !s.isOwner && s.lockedText && s.visibility !== "customer" && <p className="text-text-muted">{s.lockedText}</p>}
+      {lockedStep && s.lockedText && <Notice tone="info" title={s.lockedText} />}
+      {!lockedStep && !s.archived && !s.isOwner && s.lockedText && <p className="text-text-muted">{s.lockedText}</p>}
       <Card>
         <Kv
           items={[
@@ -140,18 +122,8 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
             Gör en kopia
           </Button>
           {s.canChangeSharing && (
-            <Button icon="users" onClick={() => { setShareChoice(s.visibility); setSharing("dialog"); }}>
+            <Button icon="users" onClick={() => { setShareChoice(s.visibility); setSharing(true); }}>
               Ändra delning
-            </Button>
-          )}
-          {s.canShareCustomer && s.visibility !== "customer" && (
-            <Button icon="building" onClick={() => setSharing("customer")}>
-              Dela med kommunen
-            </Button>
-          )}
-          {s.canShareCustomer && s.visibility === "customer" && (
-            <Button icon="building" onClick={() => void stopSharing()}>
-              Sluta dela med kommunen
             </Button>
           )}
           {s.canArchive && (
@@ -191,13 +163,8 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
           <Card>
             <Stack>
               <h2 className="text-h2 font-extrabold tracking-[0.03em] uppercase">Rapporten</h2>
-              {s.customerSharingAllowed && (
-                <Check id="sparad-som-kommun" checked={audience === "kommun"} onCheckedChange={(c) => setAudience(c ? "kommun" : "mb")}>
-                  Visa som kommunens chef ser den
-                </Check>
-              )}
               {!cur ? <Loading /> : "error" in cur ? <Notice tone="critical" title={cur.error} /> : null}
-              {/* Alltid på sidan (levande region): skärmläsaren hör antalet när rapporten är klar, också efter växeln. */}
+              {/* Alltid på sidan (levande region): skärmläsaren hör antalet när rapporten är klar. */}
               <p role="status" className="m-0 font-bold empty:sr-only">
                 {cur && "view" in cur ? `${cur.view.counts.casesText} deltagare, ${cur.view.periodLabel}` : ""}
               </p>
@@ -206,18 +173,14 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
           </Card>
         )
       )}
-      {sharing === "dialog" && (
+      {sharing && (
         <Modal
           title="Ändra delning"
-          onClose={() => setSharing(null)}
+          onClose={() => setSharing(false)}
           footer={
             <div className="flex flex-wrap justify-end gap-3">
-              <Button onClick={() => setSharing(null)}>Avbryt</Button>
-              <Button
-                kind="primary"
-                pending={shareCmd.pending}
-                onClick={() => (shareChoice === "customer" && s.visibility !== "customer" ? setSharing("customer") : void share(shareChoice as "private" | "mb" | "customer"))}
-              >
+              <Button onClick={() => setSharing(false)}>Avbryt</Button>
+              <Button kind="primary" pending={shareCmd.pending} onClick={() => void share(shareChoice === "mb" ? "mb" : "private")}>
                 Spara delningen
               </Button>
             </div>
@@ -231,26 +194,10 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
             options={[
               { value: "private", label: VISIBILITY_LABEL.private, icon: VISIBILITY_ICON.private },
               { value: "mb", label: "Alla på Miljonbemanning i avtalet", help: "Samordnare, avtalsansvarig och chef i avtalet.", icon: VISIBILITY_ICON.mb },
-              {
-                value: "customer", label: "Kommunens chef", icon: VISIBILITY_ICON.customer, disabled: !s.canChooseCustomer,
-                help: !s.customerSharingAllowed ? "Avtalet tillåter inte att rapporter delas med kommunen." : !s.canChooseCustomer ? "Bara avtalsansvarig kan dela med kommunen." : "Kommunens chef ser rapporten under Hämta resultat, med siffror bara för sin egen enhet.",
-              },
             ]}
           />
+          <p className="mt-3 text-text-muted">Sparade rapporter delas inte med kommunen. Ladda ned filen om rapporten ska lämnas till kommunen.</p>
         </Modal>
-      )}
-      {sharing === "customer" && (
-        <ShareDialog
-          source={{ savedReportId: s.id }}
-          ownerIsMe={s.isOwner}
-          title={s.title}
-          minN={s.minN}
-          isList={isList}
-          hasNames={hasNames}
-          pending={shareCmd.pending}
-          onShare={() => void share("customer")}
-          onClose={() => setSharing(null)}
-        />
       )}
     </Page>
   );

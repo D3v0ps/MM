@@ -26,7 +26,6 @@ export const DEMO_ROLES: readonly DemoRoleDef[] = [
   { key: "ekonom", label: "Ekonom", org: "mb", personaId: "u-lars", desc: "Fakturaunderlag per ärende och månad – inga anteckningar eller rapporter.", icon: "card" },
   { key: "admin", label: "Systemadmin", org: "mb", personaId: "u-robin", desc: "Avtalskonfiguration, användare, underbiträden och logg.", icon: "settings" },
   { key: "kommun_handlaggare", label: "Kommunens handläggare", org: "customer", personaId: "k-maria", desc: "Beställer, läser rapporter och skickar meddelanden.", icon: "building" },
-  { key: "kommun_chef", label: "Kommunens chef", org: "customer", personaId: "k-eva", desc: "Beställarrapport och enhetens ärenden.", icon: "chart" },
   { key: "deltagare", label: "Deltagare (pulslänk)", org: "participant", personaId: null, desc: "Svarar på pulsmätningen via engångslänk – ingen inloggning.", icon: "smile" },
 ];
 
@@ -44,7 +43,7 @@ export const PERSPECTIVES: readonly PerspectiveDef[] = [
     defaultRole: "samordnare",
     icon: "briefcase",
   },
-  { key: "kund", label: "Kund", long: "Kundens perspektiv – Botkyrka kommun", roles: ["kommun_handlaggare", "kommun_chef"], defaultRole: "kommun_handlaggare", icon: "building" },
+  { key: "kund", label: "Kund", long: "Kundens perspektiv – Botkyrka kommun", roles: ["kommun_handlaggare"], defaultRole: "kommun_handlaggare", icon: "building" },
   { key: "deltagare", label: "Deltagare", long: "Deltagarens perspektiv", roles: ["deltagare"], defaultRole: "deltagare", icon: "smile" },
 ];
 

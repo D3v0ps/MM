@@ -77,12 +77,12 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "chef", view: "chef.oversikt", params: {}, text: "Resultatgraden ligger under det interna målet 35 % men över avtalets 32 %. Titta på prognosen." },
     { role: "chef", view: "chef.oversikt", params: {}, text: "Kvittera flaggan med en kort åtgärdsplan." },
     { role: "chef", view: "chef.avvikelser", params: {}, text: "Titta på avtalsavvikelser, åtgärdsplaner och varningar (0 av 3)." },
-    { role: "kommun_chef", view: "kom.chef", params: {}, text: "Byt till kundens perspektiv: kommunens chef ser beställarrapporten med bara avtalsmålet 32 %." },
+    { role: "chef", view: "chef.oversikt", params: {}, text: "Rutan Så ser kommunen resultatet visar beställarrapporten med bara avtalsmålet 32 %. Avtalsansvarig lämnar rapporten till kommunen utanför Miljonmatch." },
   ] },
   { id: "s10", title: "Behörigheter och dataskydd", lead: "Behörighet = avtal + roll + tilldelning. Testa samma data från olika roller.", steps: [
     { role: "ekonom", view: "eko.start", params: {}, text: "Som ekonom: ärendenummer, perioder och referenser – inga namn, anteckningar eller rapporter." },
     { role: "handledare", view: "hand.start", params: {}, text: "Som handledare: Petra ser bara de ärenden hon är tilldelad." },
-    { role: "avtalsansvarig", view: "arenden.lista", params: { filter: "skyddade" }, text: "Det skyddade ärendet syns bara för namngiven coach och avtalsansvarig. Byt sedan till samordnare och jämför." },
+    { role: "kommun_handlaggare", view: "kom.deltagare", params: {}, text: "Som kommunens handläggare: bara de deltagare du själv har beställt insatser för. Byt sedan till samordnare och jämför." },
     { role: "admin", view: "admin.logg", params: {}, text: "Revisionsloggen visar allt du gjort i prototypen, inklusive visningar av deltagarkort och personnummer." },
   ] },
   { id: "s11", title: "Deltagarens röst", lead: "Pulsmätning via engångslänk, utan inloggning. Coachen ser inte enskilda svar.", steps: [
@@ -98,7 +98,8 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   { id: "s12", title: "Avtalet är konfiguration", lead: "Inga avtalsvärden är hårdkodade. Fler kommunavtal kan läggas till som konfiguration, utan kodändring.", steps: [
     { role: "admin", view: "admin.avtal", params: {}, text: "Se Botkyrkas avtalskonfiguration. Värden som ska fastställas är markerade och aktiveras inte." },
-    { role: "admin", view: "admin.avtal", params: { tab: "priser" }, text: "Prislistan per avtalsområde läses också från avtalet. Priserna i testdatat är exempelpriser." },
+    // Beslut 5 (2026-10-07): belopp syns bara för ekonomen – prislistan finns under Ekonomi, inte på avtalssidan.
+    { role: "ekonom", view: "eko.prislista", params: {}, text: "Byt till ekonomen. Prislistan per avtalsområde finns under Ekonomi – bara ekonomen ser priser och belopp. Priserna i testdatat är exempelpriser." },
     { role: "admin", view: "om.fragor", params: {}, text: "Gå igenom de öppna frågorna till Botkyrka." },
   ] },
   // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns

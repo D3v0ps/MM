@@ -30,6 +30,7 @@ export function mkCase(p: Partial<Case> & { id: string }): Case {
     plannedWeeks: 10, plannedEnd: null, orderValueWeeks: 10, acknowledgedAt: null, confirmedAt: null, declinedAt: null, declineReason: null, firstMeetingAt: null,
     startDate: null, endDate: null, closedAt: null, endReason: null, resultClass: null, resultVerifiedAt: null, phase: 2, phaseSince: null, leadCoachId: "u-amira",
     backgroundInfo: "", aiConsentStatus: "not_asked", meetingDay: null, meetingTime: null, location: "Alby", pausedWeeks: [], pauseReason: null, sourceEmailId: null,
+    orderPeriodMonths: null, orderPeriodReason: null, priorAssessment: null,
     ...p,
   };
 }
@@ -66,14 +67,15 @@ export const mkPriceItem = (p: Partial<PriceItem> & { areaCode: string; priceOre
   fortnoxArticleNo: `BOT-${p.areaCode}`, exampleOnly: true, ...p,
 });
 
-export const mkInvoiceDraft = (p: Partial<InvoiceDraft> & { month: string; caseId: string }): InvoiceDraft => ({
-  id: `inv-${p.month}-${p.caseId}`, billingRunId: null, contractId: "c-bot", kind: "periodic", groupingKey: p.caseId, buyerReference: null, purchaseOrderNumber: null,
-  invoicedObject: "", accruedOre: null, remainingOre: null, status: "draft", approvedBy: null, approvedAt: null, manualInvoiceNo: null, fortnoxDocumentNumber: null,
-  fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null, ...p,
+/** En faktura för avtalet och månaden (beslut 2026-10-07: en per avtal och månad, grupp "avtal"). */
+export const mkInvoiceDraft = (p: Partial<InvoiceDraft> & { month: string }): InvoiceDraft => ({
+  id: `inv-c-bot-${p.month}-${p.groupingKey ?? "avtal"}`, billingRunId: null, contractId: "c-bot", kind: "periodic", caseId: null, groupingKey: "avtal", buyerReference: null,
+  purchaseOrderNumber: null, invoicedObject: "332026110", accruedOre: null, remainingOre: null, status: "draft", approvedBy: null, approvedAt: null, manualInvoiceNo: null,
+  fortnoxDocumentNumber: null, fortnoxIdempotencyKey: null, fortnoxCreatedAt: null, syncedAt: null, ...p,
 });
 
 export const mkBillingRun = (p: Partial<BillingRun> & { month: string }): BillingRun => ({
-  id: `br-${p.month}`, contractId: "c-bot", status: "closed", createdBy: "u-lars", createdAt: `${p.month}-28T09:00`, closedAt: null, closedBy: null, defaultInvoiceStatus: null, ...p,
+  id: `br-${p.month}`, contractId: "c-bot", status: "closed", createdBy: "u-lars", createdAt: `${p.month}-28T09:00`, closedAt: null, closedBy: null, ...p,
 });
 
 export const mkDeviation = (p: Partial<Deviation> & { id: string; caseId: string; createdAt: LocalDateTime }): Deviation => ({

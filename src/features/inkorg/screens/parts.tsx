@@ -19,16 +19,14 @@ export function usePersona(role: Role): { userId: string; name: string } | null 
 }
 
 /**
- * Perspektivbyte till kommunen (bara prototypen): beställande handläggare om det är testpersonen (Maria), annars kommunens chef.
+ * Perspektivbyte till kommunen (bara prototypen): handläggaren som beställde (kommunen har bara rollen handläggare sedan
+ * 2026-10-07). Utan känd beställare: den förvalda handläggaren.
  */
 export function KommunSwitch({ c, label = "Se vad kommunen fick" }: { c: { id: string; referrerId: string | null } | null; label?: string }) {
   const maria = usePersona("kommun_handlaggare");
-  const eva = usePersona("kommun_chef");
   if (!c) return null;
   const to = `/portal/deltagare/${encodeURIComponent(c.id)}`;
-  return maria && c.referrerId === maria.userId
-    ? <PerspectiveLink role="kommun_handlaggare" userId={maria.userId} to={to} label={label} />
-    : <PerspectiveLink role="kommun_chef" userId={eva?.userId} to={to} label={`${label} (kommunens chef)`} />;
+  return <PerspectiveLink role="kommun_handlaggare" userId={c.referrerId ?? maria?.userId} to={to} label={label} />;
 }
 
 /** Knappar som får brytas (perspektivlänkar med lång text). */

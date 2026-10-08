@@ -87,7 +87,7 @@ export type EarlyCase = {
 export type EarlyCoach = { coachId: string; coachName: string; reminders: number; cases: EarlyCase[] };
 
 export type CustomerCard = {
-  /** Senast levererade beställarrapporten till kommunens chef. */
+  /** Senast lämnade beställarrapporten (lämnas till kommunen utanför Miljonmatch sedan 2026-10-07). */
   latest: { id: string; month: string; deliveredAt: string } | null;
   /** Rullande resultatgrad i den rapporten (utan internt mål). */
   rolling: { value: number | null; num: number; den: number; minN: number } | null;
@@ -126,9 +126,10 @@ export type LedningOverview = {
   sla: { rows: KpiRow[]; targetText: string; overdueCount: number; canOpenDeadlines: boolean; seesSlaStats: boolean };
   /**
    * Ofakturerade veckor ur fakturaunderlaget. Saknas helt för begränsade testare i testmiljön (src/api/tester-access.ts) –
-   * skärmen visar "Visas inte för testare".
+   * skärmen visar "Visas inte för testare". totalOre (kronor) lämnas bara ut till ekonomen (beslut 5) – chefen ser antal
+   * veckor och ärenden.
    */
-  unbilled?: { totalOre: number; weeks: number; cases: { caseId: string; caseNumber: string }[]; oldestDays: number | null; warningDays: number; canOpenBilling: boolean };
+  unbilled?: { totalOre?: number; weeks: number; cases: { caseId: string; caseNumber: string }[]; oldestDays: number | null; warningDays: number; canOpenBilling: boolean };
   cds: {
     open: number;
     warnings: number;
@@ -225,6 +226,8 @@ export const ledningPulse = query("ledning.pulse", z.object({})).returns<Ledning
 // Kommandon:
 //   ledning.cdevSave  { id?, data }   -> { id, sentToCustomer }  (prototypens cdev.save; fel: missing, warning_step, case_not_found, forbidden, not_found)
 //   ledning.cdevClose { id, lessons } -> { id }                  (prototypens cdev.close; fel: not_found, lessons)
+//   ledning.cdevCustomerApproved { id, approvedOn, how } -> { id } (avtalsansvarig registrerar kommunens godkännande av
+//                                                                    åtgärdsplanen – beslut 2026-10-07, kommunens chef finns inte i portalen)
 
 export const CD_TYPES: readonly { value: ContractDeviationType; label: string; help: string }[] = [
   { value: "kvalitet", label: "Kvalitet", help: "Insatsen eller rapporteringen håller inte den kvalitet som avtalet kräver." },
@@ -285,8 +288,11 @@ export type CdevRow = {
   customerApprovedAt: string | null;
   statusKey: CdStatusKey;
   warningIssued: boolean;
-  /** Vitets belopp. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). */
-  penaltyOre?: number;
+  /**
+   * Kommunen har tagit ut vite. Saknas för begränsade testare i testmiljön (src/api/tester-access.ts). Beloppet lämnas aldrig
+   * ut i registret – belopp syns bara för ekonomen (beslut 5, 2026-10-07).
+   */
+  hasPenalty?: boolean;
   orderStop: boolean;
 };
 
@@ -298,8 +304,8 @@ export type CdevForm = {
   today: string;
   /** Innevarande och två följande månader (avräkning av vite). */
   offsetMonths: string[];
-  /** Avtalets viten. Saknas för begränsade testare – vitesvalet visas då inte i formulären. */
-  penalties?: { deviationOre: number; insufficientInformationOre: number };
+  /** Vitesvalet visas (utan belopp – beslut 5). false för begränsade testare i testmiljön – vitesvalet visas då inte. */
+  penaltyChoice: boolean;
   warningsBeforeTermination: number;
   ladder: LadderStep[];
   /** Chef och avtalsansvarig registrerar varningar, viten och avropsstopp. */
@@ -313,8 +319,8 @@ export type CdevForm = {
 export type CdevRegister = {
   customerName: string;
   rows: CdevRow[];
-  /** penaltiesOre saknas för begränsade testare i testmiljön. */
-  counts: { open: number; openComplaints: number; waiting: number; warnings: number; penaltiesOre?: number };
+  /** penalties = antal avvikelser med vite (inga kronor). Saknas för begränsade testare i testmiljön. */
+  counts: { open: number; openComplaints: number; waiting: number; warnings: number; penalties?: number };
   stepCounts: Record<number, number>;
   maxStep: number | null;
   /** Månader för sammanställningen: avtalets start till innevarande månad. */
@@ -347,7 +353,8 @@ export type CdevDetail =
       /** Förfallotid för en öppen åtgärdsplan (samma som listan Förfaller). */
       planDue: { dueAt: string; sla: Pick<SlaStatus, "label" | "tone"> } | null;
       totalWarnings: number;
-      customerChefName: string | null;
+      /** Avtalsansvarig kan registrera kommunens godkännande av åtgärdsplanen nu (ledning.cdevCustomerApproved): planen väntar. */
+      canRegisterApproval: boolean;
       form: CdevForm;
     };
 export const cdevDetail = query("ledning.cdevDetail", z.object({ id: IdSchema })).returns<CdevDetail>();
@@ -366,8 +373,8 @@ export type CdevMonth = {
   lessons: { id: string; lessons: string; type: ContractDeviationType; raisedAt: string }[];
   warnings: number;
   warningsBeforeTermination: number;
-  /** Summan av viten. Saknas för begränsade testare (även raden i text). */
-  penaltiesOre?: number;
+  /** Antal avvikelser med vite (inga kronor – beslut 5). Saknas för begränsade testare (även raden i text). */
+  penalties?: number;
   /** Texten för Kopiera text och Exportera (inga personuppgifter – beskrivningar skrivs med ärendenummer). */
   text: string;
 };
@@ -393,8 +400,24 @@ export const CdevDataSchema = z.object({
 });
 export type CdevData = z.infer<typeof CdevDataSchema>;
 
-export const cdevSave = command("ledning.cdevSave", z.object({ id: IdSchema.optional(), data: CdevDataSchema }), { invalidates: [MGMT, "kommun.chef", "kommun.start", "coach.minVecka", ...START, NAV, ...LOG] })
+export const cdevSave = command("ledning.cdevSave", z.object({ id: IdSchema.optional(), data: CdevDataSchema }), { invalidates: [MGMT, "kommun.start", "coach.minVecka", ...START, NAV, ...LOG] })
   .returns<Result<{ id: string; sentToCustomer: boolean }, "missing" | "warning_step" | "case_not_found" | "forbidden" | "not_found" | "no_contract">>();
 
-export const cdevClose = command("ledning.cdevClose", z.object({ id: IdSchema, lessons: z.string().max(5000) }), { invalidates: [MGMT, "kommun.chef", "kommun.start", "coach.minVecka", ...START, NAV, ...LOG] })
+export const cdevClose = command("ledning.cdevClose", z.object({ id: IdSchema, lessons: z.string().max(5000) }), { invalidates: [MGMT, "kommun.start", "coach.minVecka", ...START, NAV, ...LOG] })
   .returns<Result<{ id: string }, "not_found" | "lessons">>();
+
+/** Hur kommunen godkände åtgärdsplanen (registreras av avtalsansvarig). */
+export const CUSTOMER_APPROVAL_HOW = [
+  { value: "möte", label: "På ett möte" },
+  { value: "brev", label: "Med brev eller e-post" },
+  { value: "telefon", label: "På telefon" },
+  { value: "annat", label: "På annat sätt" },
+] as const;
+export type CustomerApprovalHow = (typeof CUSTOMER_APPROVAL_HOW)[number]["value"];
+
+/** Registrera att kommunen har godkänt åtgärdsplanen (bara avtalsansvarig). Loggas contract_deviation.action_plan_approved. */
+export const cdevCustomerApproved = command("ledning.cdevCustomerApproved", z.object({
+  id: IdSchema,
+  approvedOn: LocalDateSchema,
+  how: z.enum(["möte", "brev", "telefon", "annat"]),
+}), { invalidates: [MGMT, "coach.minVecka", ...START, NAV, ...LOG] }).returns<Result<{ id: string }, "not_found" | "no_plan" | "closed" | "approved" | "date">>();

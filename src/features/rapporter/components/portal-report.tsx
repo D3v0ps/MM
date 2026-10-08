@@ -4,7 +4,7 @@
 //
 //   <PortalReport reportId={params.reportId} from={query.get("fran")} />
 //
-// from ("fran" i URL:en) = sidan som länkade hit: "rapporter" | "deltagare" | "bestallarrapport" | "start". Den styr
+// from ("fran" i URL:en) = sidan som länkade hit: "rapporter" | "deltagare" | "start". Den styr
 // tillbakaknappen ("Tillbaka till deltagaren" …). Utan from: "Till rapporterna".
 // Komponenten hämtar rapporten (reportDocument), kvitterar och loggar visningen (reportOpen – en gång per sidvisning;
 // bara mottagaren kvitterar), fryser en levererad rapport som saknar ögonblicksbild och visar dokumentet.
@@ -32,16 +32,11 @@ function listQuery(q: URLSearchParams | undefined): Record<string, string> {
   }
   return out;
 }
-const MONTH_RE = /^\d{4}-\d{2}$/;
 
 // Tillbaka leder till sidan man kom från – med samma val (filter, antal visade, månad, fliken Rapporter).
 const BACK: Record<string, { label: string; to: (caseId: string | null, q: URLSearchParams | undefined) => string | null }> = {
   rapporter: { label: "Tillbaka till rapporterna", to: (_id, q) => path("/portal/rapporter", listQuery(q)) },
   deltagare: { label: "Tillbaka till deltagaren", to: (id) => (id ? `/portal/deltagare/${encodeURIComponent(id)}?flik=rapporter` : null) },
-  bestallarrapport: {
-    label: "Tillbaka till beställarrapporten",
-    to: (_id, q) => path("/portal/bestallarrapport", { manad: MONTH_RE.test(q?.get("manad") ?? "") ? q?.get("manad") : null }),
-  },
   start: { label: "Tillbaka till start", to: () => "/portal" },
 };
 
@@ -107,7 +102,7 @@ export function PortalReport({ reportId, from, query, next }: { reportId: string
           {p.caseNumber &&
             (p.participant == null ? (
               <>
-                Gäller ärende <span className="whitespace-nowrap">{p.caseNumber}</span>. Deltagaren har skyddade personuppgifter, så namnet visas inte.{" "}
+                Gäller ärende <span className="whitespace-nowrap">{p.caseNumber}</span>. Namnet visas inte.{" "}
               </>
             ) : (
               <>

@@ -90,10 +90,17 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     // Avvikelser (beslut 2026-09-30, röstinspelning): ai-avsnittet och customerVisibility.seesParticipantVoiceNotes – se nästa test.
     // Tillägg (beslut 2026-10-01): reportSchedule – se testet för rapportutkasten nedan.
     // Avvikelse (beslut 2026-10-01, rapporter steg 2): progression.clearFromLevel/anyFromLevel ersätter fritexten statDefinition.
-    const { texts, ai, customerVisibility, reportSchedule, progression, ...rest } = BOTKYRKA_CONFIG;
+    // Avvikelse (beslut 2026-10-07): orderPeriods ersätter orderWeeks; selfRegistration och retentionRules är nya – se testet nedan.
+    // Avvikelse (beslut 2026-10-07, synpunkt #13): en faktura per avtal och månad (billing.invoicePer, collectiveInvoiceAllowed).
+    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, retentionRules, billing, ...rest } = BOTKYRKA_CONFIG;
     void reportSchedule;
-    const { ai: protoAi, customerVisibility: protoVisibility, progression: protoProgression, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
+    void orderPeriods;
+    void selfRegistration;
+    void retentionRules;
+    const { ai: protoAi, customerVisibility: protoVisibility, progression: protoProgression, orderWeeks: protoOrderWeeks, billing: protoBilling, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
+    void protoOrderWeeks;
     expect(rest).toStrictEqual(protoRest);
+    expect({ ...billing, invoicePer: "case_and_month", collectiveInvoiceAllowed: false }).toStrictEqual(protoBilling);
     const { clearFromLevel, anyFromLevel, ...prog } = progression;
     const { statDefinition, ...protoProg } = protoProgression as { statDefinition: { clear: string; any: string } };
     expect(prog).toStrictEqual(protoProg);
@@ -106,6 +113,21 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     expect(ai.recordingApprovedByCustomer).toBe((protoAi as { recordingApprovedByCustomer: string }).recordingApprovedByCustomer);
     expect(texts).toStrictEqual(notes["c-bot"]);
     expect(texts?.scope).toBe("Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.");
+  });
+  it("Botkyrka: beställningen i månader, självregistrering på kommunens domän och bilagornas gallring ej fastställd (beslut 2026-10-07)", () => {
+    expect(BOTKYRKA_CONFIG.orderPeriods).toStrictEqual({ months: [6, 12], allowOther: true });
+    expect(BOTKYRKA_CONFIG.selfRegistration).toStrictEqual({ emailDomains: ["botkyrka.se"] });
+    expect(isUnset(BOTKYRKA_CONFIG.retentionRules?.attachmentsAfterCloseDays)).toBe(true);
+    expect("orderWeeks" in BOTKYRKA_CONFIG).toBe(false);
+    // orderPeriods krävs i drift; orderWeeks läses inte längre.
+    const noPeriods: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
+    delete noPeriods.orderPeriods;
+    expect(OperationalConfigSchema.safeParse(noPeriods).success).toBe(false);
+    // Självregistrering bara när kommunens användare ser sina egna ärenden (enheten är fritext och kan inte styra åtkomst).
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, customerVisibility: { ...BOTKYRKA_CONFIG.customerVisibility, scope: "unit" } }).success).toBe(false);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, selfRegistration: { emailDomains: ["botkyrka.se", "botkyrka.se"] } }).success).toBe(false);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, selfRegistration: { emailDomains: ["@botkyrka.se"] } }).success).toBe(false);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, orderPeriods: { months: [6, 6], allowOther: true } }).success).toBe(false);
   });
   it("Botkyrka: AI via Vertex AI EU och alla tre inspelningsflödena påslagna (beslut 2026-09-30)", () => {
     expect(BOTKYRKA_CONFIG.ai).toStrictEqual({
@@ -149,6 +171,14 @@ describe("zod-scheman", () => {
     expect(parseContractConfig(JSON.parse(JSON.stringify(BOTKYRKA_CONFIG)))).toStrictEqual(BOTKYRKA_CONFIG);
   });
 
+  it("fakturan: Botkyrka en faktura per avtal och månad (beslut 2026-10-07); en faktura per ärende finns kvar som val", () => {
+    expect(BOTKYRKA_CONFIG.billing).toMatchObject({ invoicePer: "contract_and_month", collectiveInvoiceAllowed: true });
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, billing: { ...BOTKYRKA_CONFIG.billing, invoicePer: "case_and_month", collectiveInvoiceAllowed: false } }).success).toBe(true);
+    const r = ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, billing: { ...BOTKYRKA_CONFIG.billing, collectiveInvoiceAllowed: false } });
+    expect(r.success).toBe(false);
+    expect(JSON.stringify(r.error?.issues)).toContain("samlingsfaktura");
+  });
+
   const withBilling = (patch: Record<string, unknown>) => ({ ...BOTKYRKA_CONFIG, billing: { ...BOTKYRKA_CONFIG.billing, ...patch } });
   it("stoppar felaktig konfiguration", () => {
     const bad: unknown[] = [
@@ -156,6 +186,9 @@ describe("zod-scheman", () => {
       { ...BOTKYRKA_CONFIG, casePrefx: "BOT" },
       withBilling({ buyerReference: { required: true, pattern: "^[0-9]{8,10$(" } }),
       withBilling({ unit: "hour" }),
+      // En faktura per avtal och månad (beslut 2026-10-07) är en samlingsfaktura – den måste vara tillåten i avtalet.
+      withBilling({ invoicePer: "contract_and_month", collectiveInvoiceAllowed: false }),
+      withBilling({ invoicePer: "per_referens" }),
       // Kommunavtalen: MB är alltid personuppgiftsbiträde och priserna gäller per deltagare och vecka. Paket-, månads- och
       // styckpriser, mötesminimum och statistikexporter finns inte i Miljonmatch (beslut 2026-10-06).
       { ...BOTKYRKA_CONFIG, dataRole: "controller" },
@@ -192,7 +225,10 @@ describe("zod-scheman", () => {
     ];
     for (const b of bad) expect(ContractConfigSchema.safeParse(b).success, JSON.stringify(b).slice(0, 80)).toBe(false);
     // ATT_FASTSTÄLLA är tillåtet där värdet inte är fastställt.
-    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, customerVisibility: { ...BOTKYRKA_CONFIG.customerVisibility, scope: "unit" } }).success).toBe(true);
+    // (Utan självregistrering – med den krävs synligheten "own", se testet för besluten 2026-10-07.)
+    const noSelfReg: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
+    delete noSelfReg.selfRegistration;
+    expect(ContractConfigSchema.safeParse({ ...noSelfReg, customerVisibility: { ...BOTKYRKA_CONFIG.customerVisibility, scope: "unit" } }).success).toBe(true);
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, kpis: [{ key: "a", internalTarget: UNSET }] }).success).toBe(true);
     // Avtalstexterna är valfria – ett nytt avtal utan texter parsar (administrationen visar "–").
     const noTexts: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
@@ -274,6 +310,7 @@ describe("ATT_FASTSTÄLLA", () => {
       "attendance.sameDayNoticeOnInvalidAbsence",
       "bonus.model",
       "retention",
+      "retentionRules.attachmentsAfterCloseDays",
     ]);
     expect(unsetPaths(DRAFT)).toEqual([]);
   });

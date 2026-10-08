@@ -34,10 +34,10 @@ test("praktik: registret och en ny arbetsgivare", async ({ page }, info) => {
   const t = await text(page);
   if (!isDemo(info)) expect(t).not.toContain("Byggs i fas");
   expect(t).toMatch(/Arbetsgivare\s*12\s*i registret/);
-  // Praktikplatsen för personen med skyddade personuppgifter räknas inte för samordnaren (den gamla prototypen: 32 av 158).
-  expect(t).toMatch(/Pågående praktik\s*31\s*157 praktikplatser totalt/);
+  // Alla praktikplatser räknas sedan 2026-10-07 (testdatat har inga skyddade personuppgifter) – samma som den gamla prototypen.
+  expect(t).toMatch(/Pågående praktik\s*32\s*158 praktikplatser totalt/);
   expect(t).toMatch(/Uppföljningar\s*27\s*de närmaste 7 dagarna/);
-  expect(t).toMatch(/Alla fyra rätt\s*30 av 31/);
+  expect(t).toMatch(/Alla fyra rätt\s*31 av 32/);
   await expect(main(page)).toContainText("Arbetsgivare (12)");
   await btn(page, "Lägg till arbetsgivare").click();
   const dialog = page.getByRole("dialog");

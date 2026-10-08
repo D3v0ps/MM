@@ -1,5 +1,8 @@
 // Tester för de delade kommandona (portade från prototypens 03-domain.js). Kommandona körs genom samma execute() som
 // riktiga appen och prototypen, mot testdatat i minnet och som testpersonerna i rollväljaren (behörighet via policy.ts).
+// Beslut 2026-10-07: kommunen har bara rollen handläggare, beställningen anger omfattningen i månader och beställarreferensen
+// fylls i av Miljonbemanning. Skyddade personuppgifter är borttagna ur appen – spärren är vilande, och testerna av den slår
+// på den själva (protect()) för ärendet case-260120 (Omars beställning, huvudcoach Erik).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
@@ -14,7 +17,7 @@ import { addMinutes } from "@/core/time";
 
 /** Tiden för första kommandot: klockan flyttas en minut före varje kommando (som i den gamla prototypen). */
 const T1 = addMinutes(DEMO_START, 1);
-import { addDays, monday } from "@/core/time";
+import { addDays } from "@/core/time";
 import { avropDue } from "@/core/sla";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import {
@@ -25,7 +28,7 @@ import { aiRun, assessmentSave, attendanceSet, checkinSave, deviationCallCustome
 import { reportApprove, reportCorrect, reportDeliver, reportOpen } from "@/features/rapporter/api";
 import { notifRead } from "@/features/notiser/api";
 import { alertAck } from "@/features/ledning/api";
-import { billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox } from "@/features/ekonomi/api";
+import { billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoReissue, ekoRun, invoiceSetBuyerRef, invoiceSetPo } from "@/features/ekonomi/api";
 import { auditView } from "@/features/session/api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -52,7 +55,9 @@ const johan = () => as("u-johan", "avtalsansvarig");
 const amira = () => as("u-amira", "coach");
 const lars = () => as("u-lars", "ekonom");
 const maria = () => as("k-maria", "kommun_handlaggare");
-const eva = () => as("k-eva", "kommun_chef");
+const omar = () => as("k-omar", "kommun_handlaggare");
+/** Den vilande spärren: personen i case-260120 får skyddade personuppgifter (testdatat har inga sedan 2026-10-07). */
+const protect = () => rt.store.updateRow("persons", row("cases", "case-260120")!.personId, { protectedIdentity: true, address: null });
 
 /** Utskick får aldrig innehålla personuppgifter: inga namn eller personnummer på deltagare (CLAUDE.md punkt 9). */
 function expectNoPersonalData(msgs: readonly OutboundMessage[]) {
@@ -74,30 +79,35 @@ async function expectForbidden(p: Promise<unknown>) {
 
 // ================================================================ Ärenden
 describe("arenden.caseAccept (case.accept)", () => {
-  it("utan giltig beställarreferens → buyer_ref och inget ändras", async () => {
+  it("beställarreferensen är valfri vid accept (beslut 2026-10-07) – fel format stoppas och inget ändras; omfattningen krävs", async () => {
     const before = row("cases", "case-270049")!;
-    expect(before.buyerReference).toBeNull();
-    const res = await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", plannedWeeks: 6 }, sara());
-    expect(res).toMatchObject({ ok: false, error: "buyer_ref", message: "Beställarreferens saknas. Den får ni av kommunens ekonomi eller er chef." });
-    const bad = await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", plannedWeeks: 6, buyerReference: "123" }, sara());
+    expect(before).toMatchObject({ buyerReference: null, orderPeriodMonths: null });
+    const base = { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" };
+    const bad = await run(caseAccept, { ...base, orderPeriodMonths: 6, buyerReference: "123" }, sara());
     expect(bad).toMatchObject({ ok: false, error: "buyer_ref", message: "Beställarreferensen ska vara 8–10 siffror. Du har skrivit 3." });
+    // Ahmeds mejl saknar omfattningen – den måste väljas i dialogen.
+    expect(await run(caseAccept, base, sara())).toMatchObject({ ok: false, error: "order_period" });
+    expect(await run(caseAccept, { ...base, orderPeriodMonths: 9 }, sara())).toMatchObject({ ok: false, error: "order_period", message: "Välj en av omfattningarna i avtalet." });
     expect(row("cases", "case-270049")!.status).toBe("acknowledged");
     expect(rows("reports").filter((r) => r.caseId === "case-270049")).toHaveLength(0);
+    // Utan referens går det: Miljonbemanning fyller i den före faktureringen.
+    expect(await run(caseAccept, { ...base, orderPeriodMonths: 12 }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270049")).toMatchObject({ status: "confirmed", buyerReference: null, orderPeriodMonths: 12, plannedEnd: "2028-02-02" });
   });
 
   it("med giltig referens → bekräftad, orderbekräftelse, team, notiser och utskick utan personnummer", async () => {
     const n = rows("outbound_messages").length;
     const due = avropDue({ ...row("cases", "case-270050")! }, BOTKYRKA_CONFIG);
     expect(due).toBe("2027-02-02T08:41");
-    const res = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", plannedWeeks: 6, team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara());
+    const res = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara());
     expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0050" });
     if (!res.ok) return;
     const c = row("cases", "case-270050")!;
     expect(c).toMatchObject({
       status: "confirmed", confirmedAt: T1, leadCoachId: "u-amira", buyerReference: "4410023817", firstMeetingAt: "2027-02-03T10:00",
-      plannedStart: "2027-02-03", plannedWeeks: 6, orderValueWeeks: 6, plannedEnd: addDays(monday("2027-02-03"), 5 * 7 + 4),
+      // Omfattningen ur beställningen (6 månader): slutet räknas från startdatumet, veckorna är debiterbara ISO-veckor.
+      plannedStart: "2027-02-03", orderPeriodMonths: 6, plannedEnd: "2027-08-02", plannedWeeks: 27, orderValueWeeks: 27,
     });
-    expect(c.plannedEnd).toBe("2027-03-12");
     const rep = row("reports", res.reportId)!;
     expect(rep).toMatchObject({ kind: "order_confirmation", status: "delivered", deliveredTo: ["k-maria"], approvedBy: "u-sara", caseId: "case-270050", dueAt: due });
     expect(rows("case_team").filter((t) => t.caseId === "case-270050").map((t) => [t.userId, t.role])).toEqual([["u-amira", "lead_coach"], ["u-petra", "vocational_supervisor"]]);
@@ -130,18 +140,19 @@ describe("arenden.caseAccept (case.accept)", () => {
 
   it("kompletteringen från mejlet ger referensen så att avropet kan accepteras", async () => {
     const r1 = await run(emailApplySupplement, { emailId: "em-103" }, sara());
-    expect(r1).toMatchObject({ ok: true, fields: ["buyerReference", "plannedEnd"] });
-    expect(row("cases", "case-270049")).toMatchObject({ buyerReference: "55102938", plannedEnd: "2027-03-19" });
+    expect(r1).toMatchObject({ ok: true, fields: ["orderPeriod", "buyerReference"] });
+    expect(row("cases", "case-270049")).toMatchObject({ buyerReference: "55102938", orderPeriodMonths: 6 });
     expect(row("inbound_emails", "em-103")).toMatchObject({ status: "applied", handledBy: "u-sara" });
     const orig = rows("inbound_emails").find((e) => e.caseId === "case-270049" && e.classification === "order")!;
-    expect(orig.missingFields).not.toContain("buyerReference");
-    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(orig.missingFields).toEqual([]);
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, plannedEnd: "2027-08-02" });
   });
 });
 
 describe("arenden.caseCreate (case.create)", () => {
   const order = { firstName: "Testa", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00", city: "Tumba", preferredContact: "sms" as const,
-    buyerReference: "4410023817", primaryArea: "G", desiredStart: "2027-02-08", plannedWeeks: 6, source: "portal" as const };
+    referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-08", orderPeriodMonths: 6, priorAssessment: "unknown" as const, source: "portal" as const };
 
   it("via portalen ger nästa ärendenummer i serien och ordererkännande utan personuppgifter", async () => {
     const n = rows("outbound_messages").length;
@@ -153,7 +164,7 @@ describe("arenden.caseCreate (case.create)", () => {
     if (!r1.ok) return;
     const c = row("cases", r1.caseId)!;
     // Kommunens handläggare beställer alltid i eget namn
-    expect(c).toMatchObject({ status: "acknowledged", referrerId: "k-maria", source: "portal", buyerReference: "4410023817", aiConsentStatus: "not_asked", acknowledgedAt: T1 });
+    expect(c).toMatchObject({ status: "acknowledged", referrerId: "k-maria", source: "portal", buyerReference: null, primaryAreaCode: null, aiConsentStatus: "not_asked", acknowledgedAt: T1, orderPeriodMonths: 6, priorAssessment: "unknown" });
     expect(r1.caseId).toMatch(/-n\d{5}$/);
     const person = row("persons", c.personId)!;
     expect(person).toMatchObject({ personnummerLast4: "1234", protectedIdentity: false, phone: "070-000 00 00" });
@@ -167,35 +178,28 @@ describe("arenden.caseCreate (case.create)", () => {
     expectNoPersonalData(out);
   });
 
-  it("skyddade personuppgifter → uppgift till avtalsansvarig, ingen adress och inget SMS", async () => {
+  it("skyddade personuppgifter kan inte anges (beslut 2026-10-07): en vanlig beställning, ordererkännande och ingen uppgift", async () => {
     const n = rows("outbound_messages").length;
-    const res = await run(caseCreate, { ...order, protectedIdentity: true, address: "Hemlig väg 1", preferredContact: "letter" }, maria());
+    const res = await run(caseCreate, { ...order, protectedIdentity: true, address: "Testvägen 1", preferredContact: "letter" } as never, maria());
     expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0051" });
-    if (!res.ok) return;
-    const c = row("cases", res.caseId)!;
-    expect(c).toMatchObject({ status: "received", acknowledgedAt: null, aiConsentStatus: "not_applicable", backgroundInfo: "" });
-    expect(row("persons", c.personId)).toMatchObject({ protectedIdentity: true, address: null, phone: "", email: "", city: "", preferredContact: "phone" });
-    const task = rows("tasks").find((t) => t.caseIds.includes(c.id))!;
-    expect(task).toMatchObject({
-      toRole: "avtalsansvarig", fromId: "system", kind: "protected_order", status: "open",
-      text: "Beställning BOT-27-0051 med skyddade personuppgifter. Ring handläggaren enligt den säkra rutinen. Ingen automatik har körts.",
-    });
-    const out = outboundSince(n);
-    expect(out.map((m) => [m.channel, m.template, m.caseId])).toEqual([["email", "generisk_mottagningsbekraftelse", null]]);
-    expect(out[0].body).toBe("Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.");
-    // Samordnaren registrerar inte skyddade beställningar – det gör avtalsansvarig enligt den säkra rutinen
-    expect(await run(caseCreate, { ...order, pnr: "19900303-3456", protectedIdentity: true, source: "phone", referrerId: "k-omar" }, sara())).toMatchObject({ ok: false, error: "forbidden" });
-    expect(await run(caseCreate, { ...order, pnr: "19900303-3456", protectedIdentity: true, source: "phone", referrerId: "k-omar" }, johan())).toMatchObject({ ok: true, caseNumber: "BOT-27-0052" });
-    // Acceptera: samordnaren ser bara ärendenumret; avtalsansvarig accepterar och ingen kallelse skickas till deltagaren
-    expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-erik", firstMeetingAt: "2027-02-03T10:00" }, sara())).toMatchObject({ ok: false, error: "forbidden" });
-    const m = rows("outbound_messages").length;
-    expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-erik", firstMeetingAt: "2027-02-03T10:00" }, johan())).toMatchObject({ ok: true });
-    expect(outboundSince(m).map((x) => x.template)).toEqual(["tilldelning_coach", "orderbekraftelse"]);
-    expect(rows("audit_log").pop()).toMatchObject({ action: "notify.suppressed", entityId: res.caseId });
+    const id = (res as { caseId: string }).caseId;
+    const c = row("cases", id)!;
+    expect(c).toMatchObject({ status: "acknowledged", aiConsentStatus: "not_asked" });
+    expect(row("persons", c.personId)).toMatchObject({ protectedIdentity: false, address: "Testvägen 1", preferredContact: "letter" });
+    expect(rows("tasks").some((t) => t.caseIds.includes(id) || t.kind === "protected_order")).toBe(false);
+    expect(outboundSince(n).map((m) => m.template)).toEqual(["ordererkannande"]);
+    // Miljonbemannings registrering (telefon): samma sak, också för samordnaren.
+    const tel = await run(caseCreate, { ...order, pnr: "19900303-3456", protectedIdentity: true, source: "phone", referrerId: "k-omar" } as never, sara());
+    expect(tel).toMatchObject({ ok: true, caseNumber: "BOT-27-0052" });
+    expect(row("persons", row("cases", (tel as { caseId: string }).caseId)!.personId)!.protectedIdentity).toBe(false);
   });
 
   it("felaktig beställarreferens → buyer_ref, och samma person två gånger → duplicate", async () => {
-    expect(await run(caseCreate, { ...order, buyerReference: "12-34" }, maria())).toMatchObject({ ok: false, error: "buyer_ref" });
+    // Bara Miljonbemanning anger referensen (telefon eller mejl) – kommunens formulär har ingen, och en skickad ignoreras.
+    expect(await run(caseCreate, { ...order, source: "phone", referrerId: "k-maria", buyerReference: "12-34" }, sara())).toMatchObject({ ok: false, error: "buyer_ref" });
+    const ignored = await run(caseCreate, { ...order, pnr: "19900404-4567", buyerReference: "12-34" }, maria());
+    expect(ignored).toMatchObject({ ok: true });
+    expect(row("cases", (ignored as { caseId: string }).caseId)!.buyerReference).toBeNull();
     expect(await run(caseCreate, order, maria())).toMatchObject({ ok: true });
     expect(await run(caseCreate, { ...order, pnr: "900101-1234" }, maria())).toMatchObject({ ok: false, error: "duplicate" });
     // Nadia har en pågående insats i testdatat
@@ -238,7 +242,8 @@ describe("arenden: övriga ärendekommandon", () => {
     const out = outboundSince(n);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby. Frågor? Ring 08-000 00 00." });
-    // Skyddat ärende: avtalsansvarig bokar, ingen kallelse skickas
+    // Skyddat ärende (vilande spärr påslagen): avtalsansvarig bokar, ingen kallelse skickas
+    protect();
     const m = rows("outbound_messages").length;
     expect(await run(caseBookFirstMeeting, { caseId: "case-260120", at: "2027-02-04T13:30" }, johan())).toMatchObject({ ok: true });
     expect(outboundSince(m)).toHaveLength(0);
@@ -272,7 +277,8 @@ describe("arenden: övriga ärendekommandon", () => {
     expect(rows("pulse_invites").filter((i) => i.caseId === "case-260143" && i.occasion === "exit")).toMatchObject([{ channel: "sms", sentAt: t, expiresAt: addDays(t, 7), usedAt: null }]);
     // Avbrott på grund av flytt räknas inte i nämnaren (preliminärt, avtalets prototypeExcluded)
     expect(await run(caseClose, { caseId: "case-260119", endDate: "2027-02-01", endReason: "avbrott_flytt" }, amira())).toMatchObject({ ok: true, resultClass: "excluded" });
-    // Skyddade personuppgifter: ingen pulsmätning
+    // Skyddade personuppgifter (vilande spärr påslagen): ingen pulsmätning
+    protect();
     expect(await run(caseClose, { caseId: "case-260120", endDate: "2027-02-01", endReason: "planerat_utan_resultat" }, as("u-erik", "coach"))).toMatchObject({ ok: true, resultClass: "no_result" });
     expect(rows("pulse_invites").filter((i) => i.caseId === "case-260120" && i.occasion === "exit")).toHaveLength(0);
   });
@@ -284,6 +290,9 @@ describe("arenden: övriga ärendekommandon", () => {
     expect(await run(consentSet, { caseId: "case-260129", value: "revoked" }, amira())).toMatchObject({ ok: true });
     expect(row("cases", "case-260129")!.aiConsentStatus).toBe("revoked");
     expect(rows("consents").filter((x) => x.caseId === "case-260129").pop()!.revokedAt).not.toBeNull();
+    // Utan spärren går samtycket att registrera i case-260120; med den påslagen aldrig.
+    expect(await run(consentSet, { caseId: "case-260120", value: "given" }, as("u-erik", "coach"))).toMatchObject({ ok: true });
+    protect();
     expect(await run(consentSet, { caseId: "case-260120", value: "given" }, as("u-erik", "coach"))).toMatchObject({ ok: false, error: "protected" });
   });
 });
@@ -293,8 +302,8 @@ describe("arenden: meddelanden", () => {
     // case-270049 beställdes av Ahmed – Maria ser det inte (synlighet "egna ärenden")
     expect(await run(messageSend, { caseId: "case-270049", body: "Hej" }, maria())).toMatchObject({ ok: false, error: "not_found" });
     expect(rows("messages").filter((m) => m.caseId === "case-270049" && m.senderId === "k-maria")).toHaveLength(0);
-    // Kommunens chef ser enhetens ärenden men skriver inte meddelanden
-    await expectForbidden(run(messageSend, { caseId: "case-260143", body: "Hej" }, eva()));
+    // En annan handläggare (Omar) når inte Marias ärende
+    expect(await run(messageSend, { caseId: "case-260143", body: "Hej" }, omar())).toMatchObject({ ok: false, error: "not_found" });
   });
 
   it("från kommunen → notis och mejl till huvudcoachen; från MB → mejl till handläggaren", async () => {
@@ -316,7 +325,6 @@ describe("arenden: meddelanden", () => {
     expectNoPersonalData(out);
     // Läskvitto: bara handläggaren som beställde, och tyst (demoklockan flyttas inte)
     const t = rt.clock.now();
-    expect(await run(messageRead, { caseId: "case-260143" }, eva())).toMatchObject({ ok: true, marked: 0 });
     const read = await run(messageRead, { caseId: "case-260143" }, maria());
     expect(read.ok && read.marked).toBeGreaterThan(0);
     expect(rt.clock.now()).toBe(t);
@@ -347,7 +355,7 @@ describe("coach.attendanceSet (attendance.set)", () => {
   });
 
   it("en coach kan inte registrera närvaro i någon annans ärende", async () => {
-    const act = rows("activities").find((a) => a.caseId === "case-260120")!; // skyddat ärende, coach Erik
+    const act = rows("activities").find((a) => a.caseId === "case-260120")!; // Eriks ärende
     expect(await run(attendanceSet, { activityId: act.id, status: "present" }, amira())).toMatchObject({ ok: false, error: "not_found" });
   });
 });
@@ -384,6 +392,7 @@ describe("coach.checkinSave (checkin.save)", () => {
 
   it("AI-inmatning utan samtycke eller vid skyddade personuppgifter → ai_not_allowed", async () => {
     expect(await run(checkinSave, { caseId: "case-260129", data: { ...data, inputMethod: "ai_recording", overallStatus: "green" } }, amira())).toMatchObject({ ok: false, error: "ai_not_allowed" });
+    protect();
     expect(await run(checkinSave, { caseId: "case-260120", data: { ...data, inputMethod: "notes", overallStatus: "green" } }, as("u-erik", "coach"))).toMatchObject({ ok: false, error: "ai_not_allowed" });
   });
 
@@ -459,7 +468,8 @@ describe("coach: kartläggning, händelser, avvikelser", () => {
 });
 
 describe("coach.aiRun (ai.run)", () => {
-  it("skyddat ärende → ai_not_allowed, loggas och ingen AI-körning sparas", async () => {
+  it("skyddat ärende (vilande spärr påslagen) → ai_not_allowed, loggas och ingen AI-körning sparas", async () => {
+    protect();
     const n = rows("ai_runs").length;
     expect(await run(aiRun, { caseId: "case-260120", kind: "transcribe_extract", audioSeconds: 1200 }, as("u-erik", "coach"))).toMatchObject({ ok: false, error: "ai_not_allowed" });
     expect(rows("ai_runs")).toHaveLength(n);
@@ -485,11 +495,15 @@ describe("coach.aiRun (ai.run)", () => {
 describe("rapporter", () => {
   it("report.open: bara mottagaren kvitterar, visningen loggas alltid och demoklockan står still", async () => {
     const t = rt.clock.now();
-    expect(await run(reportOpen, { reportId: "rep-15828" }, eva())).toMatchObject({ ok: true, acknowledged: false });
+    // Kommunens chef (som läste utan att kvittera) finns inte längre: en annan handläggare når inte rapporten, och
+    // Miljonbemannings roller öppnar rapporter på andra vägar (rollkontrollen).
+    expect(await run(reportOpen, { reportId: "rep-15828" }, omar())).toMatchObject({ ok: false, error: "not_found" });
+    await expectForbidden(run(reportOpen, { reportId: "rep-15828" }, sara()));
     expect(row("reports", "rep-15828")!.openedAt).toBeNull();
+    const n = rows("audit_log").length;
     expect(await run(reportOpen, { reportId: "rep-15828" }, maria())).toMatchObject({ ok: true, acknowledged: true });
     expect(row("reports", "rep-15828")).toMatchObject({ openedAt: t, openedBy: "k-maria" });
-    expect(rows("audit_log").slice(-2).map((x) => [x.action, x.details])).toEqual([["report.view", { by: "customer", acknowledged: false }], ["report.view", { by: "customer", acknowledged: true }]]);
+    expect(rows("audit_log").slice(n).map((x) => [x.action, x.details])).toEqual([["report.view", { by: "customer", acknowledged: true }]]);
     expect(rt.clock.now()).toBe(t);
     // Ett utkast syns inte för kommunen
     expect(await run(reportOpen, { reportId: "rep-16011" }, maria())).toMatchObject({ ok: false, error: "not_found" });
@@ -563,7 +577,7 @@ describe("notiser, ledning och session", () => {
     expect(await run(auditView, { action: "report.view", entity: "report", entityId: "rep-finns-inte" }, amira())).toMatchObject({ ok: false });
     expect(await run(auditView, { action: "export.audit_log", entity: "audit_log", entityId: "c-bot", details: { rows: 3, filter: "inget" } }, maria())).toMatchObject({ ok: false });
     expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: other.id }, as("u-johan", "avtalsansvarig"))).toMatchObject({ ok: true });
-    expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: "case-saknas" }, eva())).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "case.view_denied", entity: "case", entityId: "case-saknas" }, omar())).toMatchObject({ ok: false });
     expect(rows("audit_log").length).toBe(n + 1);
     // Export: bara kända detaljer följer med.
     expect(await run(auditView, { action: "export.contract_deviations", entity: "contract_deviation", entityId: null, details: { month: "2027-01" } }, sara())).toMatchObject({ ok: true });
@@ -572,39 +586,126 @@ describe("notiser, ledning och session", () => {
 });
 
 // ================================================================ Ekonomi
+// Beslut 2026-10-07 (synpunkt #13): en faktura per avtal och månad med en rad per ärende. Januari 2027 i testdatat är öppen
+// (räknas fram) och saknar beställarreferens; decembers tilläggsfaktura är returnerad med en spärrad referens.
 describe("ekonomi", () => {
-  it("billing.sendFortnox två gånger skapar inga dubbletter", async () => {
-    const ids = ["case-260143", "case-260072"];
-    expect(await run(billingApproveInvoice, { month: "2027-01", caseIds: ids }, lars())).toMatchObject({ ok: true, approved: 2 });
-    const first = await run(billingSendFortnox, { month: "2027-01", caseIds: ids }, lars());
-    expect(first).toMatchObject({ ok: true, created: ids, skipped: [], blocked: [] });
-    const second = await run(billingSendFortnox, { month: "2027-01", caseIds: ids }, lars());
-    expect(second).toMatchObject({ ok: true, created: [], skipped: ids, blocked: [] });
-    for (const id of ids) {
-      const drafts = rows("invoice_drafts").filter((x) => x.month === "2027-01" && x.caseId === id);
-      expect(drafts).toHaveLength(1);
-      expect(drafts[0]).toMatchObject({ status: "fortnox_created", fortnoxIdempotencyKey: `2027-01:${id}`, approvedBy: "u-lars", invoicedObject: row("cases", id)!.caseNumber });
+  const JAN = "inv-c-bot-2027-01-avtal";
+  const DEC2 = "inv-c-bot-2026-12-avtal-tillagg-2";
+  const runView = (month: string) => rt.run("query", ekoRun.key, { month }, lars()) as Promise<ResultOf<typeof ekoRun>>;
+  /** Godkänn januaris veckor utan närvaro (samma steg som ekonomen gör i radens detalj). */
+  const approveZeroWeeks = async () => {
+    const v = await runView("2027-01");
+    for (const l of v.invoices.flatMap((x) => x.lines).filter((x) => x.needsApproval)) {
+      for (const ch of l.checks.filter((c) => c.kind === "zero_week" && c.severity === "needs_approval")) {
+        expect(await run(billingApproveZeroWeek, { month: "2027-01", caseId: l.caseId, weekKey: ch.weekKey!, note: "Kontrollerat med samordnaren." }, lars())).toMatchObject({ ok: true });
+      }
     }
-    expect(rows("audit_log").pop()).toMatchObject({ action: "billing.fortnox_created", details: { created: 0, skippedAlreadyCreated: 2 } });
+  };
+
+  it("billing.sendFortnox två gånger skapar inga dubbletter – en faktura, frysta rader, nyckeln avtal:månad:grupp", async () => {
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "55102938" }, lars())).toMatchObject({ ok: true });
+    // Veckor utan närvaro måste godkännas innan fakturan godkänns.
+    expect(await run(billingApproveInvoice, { month: "2027-01", invoiceId: JAN }, lars())).toMatchObject({ ok: false, error: "needs_approval" });
+    await approveZeroWeeks();
+    const approved = await run(billingApproveInvoice, { month: "2027-01", invoiceId: JAN }, lars());
+    expect(approved).toMatchObject({ ok: true });
+    const lineCount = approved.ok ? approved.lines : 0;
+    expect(lineCount).toBeGreaterThan(100);
+    const first = await run(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] }, lars());
+    expect(first).toMatchObject({ ok: true, created: [JAN], skipped: [], blocked: [], notApproved: [] });
+    const second = await run(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] }, lars());
+    expect(second).toMatchObject({ ok: true, created: [], skipped: [JAN], blocked: [] });
+    const drafts = rows("invoice_drafts").filter((x) => x.month === "2027-01");
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      id: JAN, status: "fortnox_created", fortnoxIdempotencyKey: "c-bot:2027-01:avtal", approvedBy: "u-lars", buyerReference: "55102938", caseId: null,
+      invoicedObject: "332026110", purchaseOrderNumber: "",
+    });
+    const lines = rows("invoice_lines").filter((l) => l.invoiceDraftId === JAN);
+    expect(lines).toHaveLength(lineCount);
+    expect(new Set(lines.map((l) => l.caseId)).size).toBe(lineCount);
+    expect(lines.every((l) => /^BOT-\d{2}-\d{4} · v\. /.test(l.description) && l.isoWeeks.length === l.quantity && l.note.includes("Upparbetat"))).toBe(true);
+    expect(rows("audit_log").pop()).toMatchObject({ action: "billing.fortnox_created", details: { created: 0, skippedAlreadyCreated: 1 } });
+    expect(rows("fortnox_runs").filter((r) => r.month === "2027-01").map((r) => [r.created, r.skipped])).toEqual([[1, 0], [0, 1]]);
     // Historiska månader som redan är fakturerade skapas inte igen
-    expect(await run(billingSendFortnox, { month: "2026-11", caseIds: ["case-260143"] }, lars())).toMatchObject({ ok: true, created: [], skipped: ["case-260143"] });
+    expect(await run(billingSendFortnox, { month: "2026-11", invoiceIds: ["inv-c-bot-2026-11-avtal"] }, lars())).toMatchObject({ ok: true, created: [], skipped: ["inv-c-bot-2026-11-avtal"] });
   });
 
-  it("utan giltig beställarreferens skapas ingen faktura (CLAUDE.md punkt 11)", async () => {
-    const res = await run(billingSendFortnox, { month: "2027-01", caseIds: ["case-260117"] }, lars());
-    expect(res).toMatchObject({ ok: true, created: [], blocked: ["case-260117"] });
-    expect(rows("invoice_drafts").find((x) => x.month === "2027-01" && x.caseId === "case-260117")).toBeUndefined();
+  it("utan giltig beställarreferens skapas ingen faktura – varken i Fortnox eller manuellt (CLAUDE.md punkt 11)", async () => {
+    await approveZeroWeeks();
+    expect(await run(billingApproveInvoice, { month: "2027-01", invoiceId: JAN }, lars())).toMatchObject({ ok: true });
+    // Ingen referens: stoppad.
+    expect(await run(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] }, lars())).toMatchObject({ ok: true, created: [], blocked: [JAN] });
+    expect(await run(billingMarkManual, { month: "2027-01", invoiceId: JAN, invoiceNo: "20417" }, lars())).toMatchObject({ ok: false, error: "blocked" });
+    expect(rows("invoice_lines").filter((l) => l.invoiceDraftId === JAN)).toEqual([]);
+    expect(row("invoice_drafts", JAN)?.status).toBe("approved");
+    // Fel format och spärrad referens sparas inte.
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "5510293" }, lars())).toMatchObject({ ok: false, error: "buyer_ref" });
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "12 34" }, lars())).toMatchObject({ ok: false, error: "buyer_ref" });
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "55102983" }, lars())).toMatchObject({ ok: false, error: "buyer_ref" });
+    expect(row("invoice_drafts", JAN)?.buyerReference).toBeNull();
+    // Giltig referens: fakturan skapas.
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "55102938" }, lars())).toMatchObject({ ok: true });
+    expect(rows("audit_log").pop()).toMatchObject({ action: "billing.buyer_reference_set", entity: "invoice", entityId: JAN, details: { month: "2027-01", from: "", to: "55102938" } });
+    expect(await run(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] }, lars())).toMatchObject({ ok: true, created: [JAN], blocked: [] });
+    // En skapad faktura får ingen ny referens.
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "4410023817" }, lars())).toMatchObject({ ok: false, error: "created" });
+  });
+
+  it("rättelse och kreditering: den returnerade tilläggsfakturan krediteras och görs om med rätt referens – utan rättelser blir raderna desamma", async () => {
+    const linesBefore = rows("invoice_lines").filter((l) => l.invoiceDraftId === DEC2).map((l) => [l.caseId, l.quantity, l.unitPriceOre, l.isoWeeks.join(",")]);
+    expect(linesBefore).toHaveLength(2);
+    // Spärrad referens: kan inte göras om förrän referensen är rättad.
+    expect(await run(ekoReissue, { month: "2026-12", invoiceId: DEC2 }, lars())).toMatchObject({ ok: false, error: "buyer_ref" });
+    expect(await run(invoiceSetBuyerRef, { month: "2026-12", invoiceId: DEC2, reference: "55102938" }, lars())).toMatchObject({ ok: true });
+    expect(await run(ekoReissue, { month: "2026-12", invoiceId: DEC2 }, lars())).toMatchObject({ ok: true });
+    expect(row("invoice_drafts", DEC2)).toMatchObject({ status: "fortnox_created", buyerReference: "55102938", fortnoxIdempotencyKey: "c-bot:2026-12:avtal-tillagg-2:ny" });
+    expect(rows("invoice_credits")).toEqual([expect.objectContaining({ invoiceDraftId: DEC2, caseId: null, month: "2026-12", buyerReference: "55102938", creditedBy: "u-lars" })]);
+    // Inget i underlaget är rättat: raderna fryses på nytt med samma innehåll – inga nya rader och inga dubbletter.
+    expect(rows("invoice_lines").filter((l) => l.invoiceDraftId === DEC2).map((l) => [l.caseId, l.quantity, l.unitPriceOre, l.isoWeeks.join(",")])).toEqual(linesBefore);
+    expect(rows("audit_log").pop()).toMatchObject({ action: "billing.credited_and_reissued", entity: "invoice", entityId: DEC2, details: { month: "2026-12", buyerReference: "55102938" } });
+    // Bara en returnerad faktura krediteras.
+    expect(await run(ekoReissue, { month: "2026-12", invoiceId: DEC2 }, lars())).toMatchObject({ ok: false, error: "not_returned" });
+    expect(await run(ekoReissue, { month: "2026-12", invoiceId: "inv-c-bot-2026-12-avtal" }, lars())).toMatchObject({ ok: false, error: "not_returned" });
+    // Decembers veckor räknas nu som fakturerade.
+    const v = await runView("2026-12");
+    expect(v.invoices.map((x) => [x.groupingKey, x.status])).toEqual([["avtal", "sent"], ["avtal-tillagg-2", "fortnox_created"]]);
+  });
+
+  it("inköpsordernumret tar bara kommunens 99-nummer – aldrig ärendenummer eller andra egna nummer", async () => {
+    const po = (purchaseOrderNumber: string) => run(invoiceSetPo, { month: "2027-01", invoiceId: JAN, purchaseOrderNumber }, lars());
+    expect(await po("12345")).toMatchObject({ ok: false, error: "po", message: "Inköpsordernummer ska vara nio siffror som börjar med 99." });
+    expect(await po("881234567")).toMatchObject({ ok: false, error: "po" });
+    expect(await po("9912345678")).toMatchObject({ ok: false, error: "po" });
+    expect(await po("BOT-26-0042")).toMatchObject({ ok: false, error: "po", message: "Ärendenumret får aldrig stå som inköpsordernummer. Fältet är bara för kommunens eget ordernummer." });
+    expect(row("invoice_drafts", JAN)).toBeUndefined();
+    expect(await po("991234567")).toMatchObject({ ok: true });
+    expect(row("invoice_drafts", JAN)?.purchaseOrderNumber).toBe("991234567");
+    expect(rows("audit_log").pop()).toMatchObject({ action: "billing.purchase_order_set", details: { from: "", to: "991234567" } });
+    expect((await runView("2027-01")).invoices[0]).toMatchObject({ purchaseOrderNumber: "991234567", poSet: true });
+    // Tomt = inget inköpsordernummer.
+    expect(await po("")).toMatchObject({ ok: true });
+    expect(row("invoice_drafts", JAN)?.purchaseOrderNumber).toBe("");
+    // En skapad faktura ändras inte.
+    expect(await run(invoiceSetPo, { month: "2026-11", invoiceId: "inv-c-bot-2026-11-avtal", purchaseOrderNumber: "991234567" }, lars())).toMatchObject({ ok: false, error: "created" });
   });
 
   it("nollvecka, manuell faktura och export loggas; bara ekonomen", async () => {
     expect(await run(billingApproveZeroWeek, { month: "2027-01", caseId: "case-260157", weekKey: "2027-W02", note: "Sjukdom hela veckan, kontrollerat med coachen." }, lars())).toMatchObject({ ok: true });
     expect(row("billing_week_approvals", "case-260157:2027-W02")).toMatchObject({ approvedBy: "u-lars", month: "2027-01", note: "Sjukdom hela veckan, kontrollerat med coachen." });
-    expect(await run(billingMarkManual, { month: "2027-01", caseId: "case-260121", invoiceNo: "F-2027-001" }, lars())).toMatchObject({ ok: true });
-    expect(row("invoice_drafts", "inv-2027-01-case-260121")).toMatchObject({ status: "manual", manualInvoiceNo: "F-2027-001" });
-    expect(await run(billingSendFortnox, { month: "2027-01", caseIds: ["case-260121"] }, lars())).toMatchObject({ ok: true, skipped: ["case-260121"] });
+    await approveZeroWeeks();
+    expect(await run(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "55102938" }, lars())).toMatchObject({ ok: true });
+    expect(await run(billingMarkManual, { month: "2027-01", invoiceId: JAN, invoiceNo: "20417" }, lars())).toMatchObject({ ok: true });
+    expect(row("invoice_drafts", JAN)).toMatchObject({ status: "manual", manualInvoiceNo: "20417" });
+    expect(rows("invoice_lines").filter((l) => l.invoiceDraftId === JAN).length).toBeGreaterThan(100);
+    expect(await run(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] }, lars())).toMatchObject({ ok: true, skipped: [JAN] });
     expect(await run(billingExport, { month: "2027-01", format: "csv" }, lars())).toMatchObject({ ok: true });
     expect(rows("audit_log").pop()).toMatchObject({ action: "export.billing", entityId: "2027-01", details: { format: "csv" } });
-    await expectForbidden(run(billingSendFortnox, { month: "2027-01", caseIds: ["case-260143"] }, as("u-karin", "chef")));
+    // Beslut 5 (2026-10-07): belopp och fakturor bara för ekonomen – chef, avtalsansvarig och admin nekas.
+    for (const who of [as("u-karin", "chef"), as("u-johan", "avtalsansvarig"), as("u-robin", "admin")]) {
+      await expectForbidden(run(billingSendFortnox, { month: "2027-01", invoiceIds: [JAN] }, who));
+      await expectForbidden(rt.run("query", ekoRun.key, { month: "2027-01" }, who));
+    }
   });
 });
 

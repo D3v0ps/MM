@@ -327,7 +327,6 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
   const today = dayOf(card.now);
   const minDate = dayOf(card.referredAt);
   const team = card.access === "team";
-  const prot = card.protectedIdentity;
   const [kind, setKind] = useState<CaseNoteKind | "">(note?.kind ?? "");
   const [date, setDate] = useState(note?.occurredOn ?? today);
   const [body, setBody] = useState(note?.body ?? "");
@@ -350,7 +349,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
   const submit = async () => {
     if (!check() || !kind) return;
     const res = await save
-      .run({ caseId: card.caseId, noteId: note?.id, occurredOn: date, kind, audience: prot ? "full" : team ? "team" : audience, body: body.trim() })
+      .run({ caseId: card.caseId, noteId: note?.id, occurredOn: date, kind, audience: team ? "team" : audience, body: body.trim() })
       .catch(() => null);
     if (!res) {
       toast("Anteckningen kunde inte sparas.", "error");
@@ -443,9 +442,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
       ) : (
         <p className="text-text-muted">Arbetsgivarkontakter och resultat registreras som händelser av huvudcoachen. Då kommer de med i månadsrapporten automatiskt.</p>
       )}
-      {prot ? (
-        <Notice tone="info" icon="shield" title="Vem ser anteckningen?">Bara namngiven huvudcoach och avtalsansvarig ser anteckningen.</Notice>
-      ) : team ? (
+      {team ? (
         <Notice tone="info" icon="users" title="Vem ser anteckningen?">
           Hela teamet ser anteckningen, liksom huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör. Kommunen ser aldrig anteckningar.
         </Notice>

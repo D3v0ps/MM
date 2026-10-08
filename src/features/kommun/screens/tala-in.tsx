@@ -1,11 +1,11 @@
 "use client";
 // "Tala in" i kommunens portal (docs/PLAN-ROST.md, flöde 2): vid beställningens bakgrund och vid nytt meddelande.
 // Handläggaren talar i stället för att skriva. Talet blir text i fältet – handläggaren läser, rättar och skickar själv.
-// Inget ljud sparas: det raderas direkt när det blivit text. Aldrig för skyddade personuppgifter. Portalens klarspråk:
-// korta meningar, 18 px text (portallayouten).
+// Inget ljud sparas: det raderas direkt när det blivit text. Portalens klarspråk: korta meningar, 18 px text (portallayouten).
+// I testmiljön är AI:n simulerad – då står det tydligt att texten är påhittad (beslut 2026-10-07, synpunkt #9).
 import { useState } from "react";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
-import { AiTag, Button, Icon, Recorder, type RecordedAudio } from "@/ui";
+import { AiTag, Button, Icon, Recorder, SimulatedAiNotice, type RecordedAudio } from "@/ui";
 import { uploadStart } from "@/features/rost/api";
 import { runVoiceFlow } from "@/features/rost/client";
 import { dictationFinish, dictationOptions, dictationState, type DictationState } from "../api";
@@ -13,22 +13,21 @@ import { dictationFinish, dictationOptions, dictationState, type DictationState 
 /** Lägg den inlästa texten efter det som redan står i fältet (högst max tecken). */
 export const joinText = (cur: string, add: string, max: number): string => (cur.trim() ? `${cur.trimEnd()} ${add.trim()}` : add.trim()).slice(0, max);
 
-export function TalaIn({ fieldId, caseId, protectedOrder, onText }: {
+export function TalaIn({ fieldId, caseId, onText }: {
   /** Fältet som texten hamnar i (för id och etiketter). */
   fieldId: string;
   /** Ärendet (meddelanden). Utan ärende: en ny beställning. */
   caseId?: string;
-  /** Den nya beställningen gäller skyddade personuppgifter – då används inte "Tala in". */
-  protectedOrder?: boolean;
   onText: (text: string) => void;
 }) {
-  const q = useQuery(dictationOptions, caseId ? { caseId } : { protectedOrder: !!protectedOrder });
+  const q = useQuery(dictationOptions, caseId ? { caseId } : {});
   const start = useCommand(uploadStart);
   const finish = useCommand(dictationFinish);
   const runQuery = useQueryRunner();
   const [open, setOpen] = useState(false);
   const [phase, setPhase] = useState<"idle" | "uploading" | "processing">("idle");
   const [done, setDone] = useState(false);
+  const [simulated, setSimulated] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const o = q.data;
   if (!o) return null;
@@ -51,7 +50,7 @@ export function TalaIn({ fieldId, caseId, protectedOrder, onText }: {
       minPhaseMs: 500,
       errorText: "Talet kunde inte bli text. Försök igen, eller skriv i fältet.",
       onPhase: setPhase,
-      start: (meta) => start.run({ purpose: "dictation", caseId: caseId ?? null, protectedOrder: !!protectedOrder, ...meta }),
+      start: (meta) => start.run({ purpose: "dictation", caseId: caseId ?? null, ...meta }),
       finish: (ticket) => finish.run({ uploadId: ticket.uploadId, durationSec }),
       poll: (s) => runQuery(dictationState, { aiRunId: s.aiRunId }),
     });
@@ -62,6 +61,7 @@ export function TalaIn({ fieldId, caseId, protectedOrder, onText }: {
       return;
     }
     onText(text);
+    setSimulated(res.ok && res.state.simulated);
     setDone(true);
     setOpen(false);
     setTimeout(() => document.getElementById(fieldId)?.focus(), 30);
@@ -112,6 +112,7 @@ export function TalaIn({ fieldId, caseId, protectedOrder, onText }: {
           Texten står nu i fältet. Läs den och rätta det som blev fel innan du skickar.
         </p>
       )}
+      {done && simulated && <SimulatedAiNotice who="you" />}
     </div>
   );
 }

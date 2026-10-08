@@ -311,8 +311,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
 
       {role === "handledare" && (
         <Notice tone="info" title="Dina teamärenden">
-          Du ser tillfällen för {v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet. Ärenden med skyddade personuppgifter visas bara för
-          namngiven coach.
+          Du ser tillfällen för {v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet.
         </Notice>
       )}
 
@@ -373,7 +372,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           foot={
             role === "coach" ? (
               <Persp
-                role={customer ? "kommun_handlaggare" : "kommun_chef"}
+                role="kommun_handlaggare"
                 userId={customer ?? undefined}
                 to="/portal/rapporter"
                 label="Se veckorapporten från kundens håll"

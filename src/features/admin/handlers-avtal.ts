@@ -3,6 +3,7 @@
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { hidesMoney } from "@/api/tester-access";
 import { stuck } from "@/core/cases";
 import { ESCALATION_ROLES, isOperational, parseOrgSettings, requireOperational, type EscalationRole, type OrgSettings } from "@/core/config";
 import { areaName } from "@/core/labels";
@@ -73,14 +74,19 @@ handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p
     stuckCount = cases.filter((k) => k.status === "active" && stuck(k, db, env)).length;
     bonusCandidates = db.outcome_events.filter((e) => e.possibleBonus).length;
   }
+  // Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07): prislistan och vitenas belopp lämnas inte ut här.
+  // Prislistan finns i stället under Ekonomi (/ekonomi/prislista). Att avtalet har viten visas, utan belopp.
+  const hideMoney = hidesMoney(ctx.actor);
+  const { penalties, ...withoutPenalties } = c.config;
   return {
     contracts: all.map((x) => summaryOf(x, orgName(x.customerId))),
     contract: await factsOf(ctx, c),
-    config: c.config,
+    config: hideMoney ? withoutPenalties : c.config,
+    penaltiesHidden: hideMoney && !!penalties,
     yearShort: dayOf(ctx.now()).slice(2, 4),
     stuckCount,
     bonusCandidates,
-    priceItems: await priceRows(ctx, c),
+    ...(hideMoney ? {} : { priceItems: await priceRows(ctx, c) }),
   };
 });
 
