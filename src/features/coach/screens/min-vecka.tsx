@@ -15,6 +15,7 @@ import { notifRead } from "@/features/notiser/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
 import { VoiceNotesInbox } from "@/features/rost/screens/coach-parts";
 import { ATT, AttBadge, dayLabel, kindOf, lc, PageState, Persp } from "./shared";
+import { GroupDayRow } from "@/features/aktiviteter/screens/idag";
 
 /** KPI:erna på smal skärm (prototypens co-kpis) – delas med de andra rollernas Min vecka (src/ui/vecka.tsx). */
 const KPI_SM = WEEK_KPI_SM;
@@ -36,6 +37,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   const wLast = v.lastWeek.no;
   const regTone = v.reg.sla.tone;
   const next = v.today.find((a) => a.id === v.next?.id) ?? null;
+  const nextGroup = v.next?.group ? (v.groups.find((g) => g.id === v.next?.id) ?? null) : null;
+  // Dagens aktiviteter i tidsordning: enskilda tillfällen och gruppaktiviteter (en rad per aktivitet, länk till aktivitetsvyn).
+  const dayItems: ({ type: "single"; at: string; a: MinVeckaView["today"][number] } | { type: "group"; at: string; g: MinVeckaView["groups"][number] })[] = [
+    ...v.today.map((a) => ({ type: "single" as const, at: a.startsAt, a })),
+    ...v.groups.map((g) => ({ type: "group" as const, at: g.startsAt, g })),
+  ].sort((x, y) => (x.at < y.at ? -1 : x.at > y.at ? 1 : 0));
   const pm = v.monthly.month;
   const maRows = showAllMa ? v.monthly.open : v.monthly.open.slice(0, 5);
   const openMessage = async (n: MinVeckaView["messages"][number]) => {
@@ -81,9 +88,14 @@ function MinVecka({ v }: { v: MinVeckaView }) {
     <WeekPage
       today={today}
       actions={
-        <Button kind="primary" icon="check-square" to={`/narvaro?vecka=${unreg ? "forra" : "denna"}`}>
-          Registrera närvaro
-        </Button>
+        <Row gap="sm">
+          <Button kind="primary" icon="check-square" to={`/narvaro?vecka=${unreg ? "forra" : "denna"}`}>
+            Registrera närvaro
+          </Button>
+          <Button icon="plus" to="/aktiviteter/ny">
+            Ny aktivitet
+          </Button>
+        </Row>
       }
     >
       <WeekKpis>
@@ -101,8 +113,14 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           onClick={() => focusSection("mv-idag")}
           actionHint="Visa"
           label="Aktiviteter i dag"
-          value={String(v.today.length)}
-          sub={next && v.next ? `Nästa ${fmtTime(next.startsAt)}: ${kindOf(next.kind).label.toLowerCase()} med ${v.next.shortName}` : "Inga fler aktiviteter i dag"}
+          value={String(v.today.length + v.groups.length)}
+          sub={
+            nextGroup
+              ? `Nästa ${fmtTime(nextGroup.startsAt)}: ${nextGroup.name}`
+              : next && v.next
+                ? `Nästa ${fmtTime(next.startsAt)}: ${kindOf(next.kind).label.toLowerCase()} med ${v.next.shortName}`
+                : "Inga fler aktiviteter i dag"
+          }
         />
         <Kpi
           className={KPI_SM}
@@ -189,14 +207,16 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           </Card>
           )}
 
-          {v.today.length === 0 ? (
+          {dayItems.length === 0 ? (
             <DoneLine id="mv-idag" title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar">
               Inga möten eller aktiviteter i dag.
             </DoneLine>
           ) : (
           <Card id="mv-idag" title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar" flush>
               <List>
-                {v.today.map((a) => {
+                {dayItems.map((item) => {
+                  if (item.type === "group") return <GroupDayRow key={`g-${item.g.id}`} g={item.g} now={now} isNext={v.next?.id === item.g.id} />;
+                  const a = item.a;
                   const k = kindOf(a.kind);
                   const past = a.startsAt < now;
                   const isNext = v.next?.id === a.id;

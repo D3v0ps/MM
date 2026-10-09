@@ -31,6 +31,9 @@ export const KIND: Record<string, { label: string; icon: IconName; cls: "mote" |
   möte: { label: "Coachträff", icon: "message-circle", cls: "mote" },
   yrkesmoment: { label: "Yrkesmoment", icon: "tool", cls: "yrke" },
   praktikdag: { label: "Praktikdag", icon: "briefcase", cls: "praktik" },
+  // Gruppaktiviteternas övriga typer (coachmötet 2026-10-09) – samma ord som i aktivitetsvyn.
+  arbetsgivarbesök: { label: "Arbetsgivarbesök", icon: "building", cls: "" },
+  annat: { label: "Annan aktivitet", icon: "circle", cls: "" },
 };
 export const kindOf = (k: string | null | undefined) => KIND[k ?? ""] ?? { label: k || "Aktivitet", icon: "calendar" as IconName, cls: "" as const };
 

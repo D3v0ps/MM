@@ -39,6 +39,19 @@ export type GroupActivityList = {
 };
 export const groupActivityList = query("aktiviteter.lista", z.object({})).returns<GroupActivityList>();
 
+/** Dagens gruppaktivitet på Min vecka (coach och samordnare): länk till aktivitetsvyn, antal inbjudna och registrerade. */
+export type TodayGroupActivity = {
+  id: string;
+  name: string;
+  kind: GroupActivityKind;
+  startsAt: LocalDateTime;
+  durationMin: number;
+  location: string;
+  invited: number;
+  registered: number;
+  responsibleName: string | null;
+};
+
 /** En deltagare i aktivitetsvyn: närvaron som på Närvaro-skärmen och dagens anteckningar. */
 export type GroupParticipant = {
   activityId: string;

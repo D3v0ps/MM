@@ -53,6 +53,8 @@ export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: Supplier
   { roles: SUPPLIER_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar" }) },
   // Räknaren (oregistrerade tillfällen) gäller coachens egna ärenden.
   { roles: ["coach", "handledare"], item: (r) => ({ to: "/narvaro", label: "Närvaro", icon: "check-square", ...(r === "coach" ? { count: "unregistered" as const } : {}) }) },
+  // Gruppaktiviteterna (coachmötet 2026-10-09): alla på Miljonbemanning utom ekonomen ("alla ser alla").
+  { roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"], item: () => ({ to: "/aktiviteter", label: "Aktiviteter", icon: "users" }) },
   // Coachen: sina ärenden. Handledaren: listan över tilldelade ärenden (/handledare) – inte två ärendelistor i menyn.
   {
     roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"],

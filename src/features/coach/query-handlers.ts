@@ -28,6 +28,7 @@ import { orgSettingsFor } from "../_shared/context";
 import { aiOff, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { recordingOffered } from "../_shared/ai-types";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
+import { todaysGroupActivities } from "../aktiviteter/today";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
   type CaseHead, type CasePickerRow, type CheckInView, type CoachGate, type CoachSla, type MinVeckaView, type NarvaroReport, type NarvaroRow,
@@ -173,9 +174,14 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const referrers = new Set(cases.map((c) => c.referrerId).filter(Boolean));
   const waiting = db.reports.filter((r) => r.kind === "weekly_attendance" && r.week === isoWeek(lastMon).key && r.status === "waiting" && r.recipientUserId && referrers.has(r.recipientUserId));
 
-  // I dag
-  const todays = db.activities.filter((a) => dayOf(a.startsAt) === today && activeIds.has(a.caseId)).sort(by("startsAt"));
-  const next = todays.find((a) => a.startsAt >= now) ?? null;
+  // I dag: enskilda tillfällen och gruppaktiviteter (en rad per aktivitet – deltagarnas tillfällen visas i aktivitetsvyn).
+  const todaysAll = db.activities.filter((a) => dayOf(a.startsAt) === today && activeIds.has(a.caseId)).sort(by("startsAt"));
+  const todays = todaysAll.filter((a) => !a.groupActivityId);
+  const myGroupIds = new Set(todaysAll.map((a) => a.groupActivityId).filter((x): x is string => !!x));
+  const groups = await todaysGroupActivities(ctx, today, (g) => g.responsibleId === me || myGroupIds.has(g.id));
+  const nextSingle = todays.find((a) => a.startsAt >= now) ?? null;
+  const nextGroup = groups.find((g) => g.startsAt >= now) ?? null;
+  const next = nextGroup && (!nextSingle || nextGroup.startsAt < nextSingle.startsAt) ? null : nextSingle;
   const ciToday = (caseId: string): CheckIn | null => checkInsOf(all, caseId).find((x) => dayOf(x.heldAt) === today) ?? null;
 
   // AI-utkast och månadsbedömningar (förra månaden)
@@ -233,7 +239,10 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
         recordable: recordingOffered(c.aiConsentStatus),
       };
     }),
-    next: next ? { id: next.id, shortName: shortNameOf(person(caseById.get(next.caseId) as Case)) } : null,
+    groups,
+    next: next
+      ? { id: next.id, shortName: shortNameOf(person(caseById.get(next.caseId) as Case)) }
+      : nextGroup ? { id: nextGroup.id, shortName: nextGroup.name, group: true } : null,
     toStart: toStart.map((c) => ({ ...row(c), firstMeetingAt: c.firstMeetingAt as string })),
     drafts: drafts.map((ci) => ({
       checkInId: ci.id, ...row(caseById.get(ci.caseId) as Case), heldAt: ci.heldAt, inputMethod: ci.inputMethod,

@@ -4,6 +4,7 @@ import { routes as inkorg } from "@/features/inkorg/routes";
 import { routes as arenden } from "@/features/arenden/routes";
 import { routes as vecka } from "@/features/vecka/routes";
 import { routes as coach } from "@/features/coach/routes";
+import { routes as aktiviteter } from "@/features/aktiviteter/routes";
 import { routes as rapporter } from "@/features/rapporter/routes";
 import { routes as ledning } from "@/features/ledning/routes";
 import { routes as ekonomi } from "@/features/ekonomi/routes";
@@ -22,6 +23,7 @@ export const APP_ROUTES: readonly RouteDef[] = [
   ...arenden,
   ...vecka,
   ...coach,
+  ...aktiviteter,
   ...rapporter,
   ...ledning,
   ...ekonomi,

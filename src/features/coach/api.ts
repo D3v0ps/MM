@@ -15,6 +15,7 @@ import { AI_SOURCES, type AiSource, type CheckInSuggestions } from "../_shared/a
 export { AI_OFF_TEXT } from "../_shared/ai-port";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
 import type { WeeklyPublished } from "../_shared/weekly";
+import type { TodayGroupActivity } from "../aktiviteter/api";
 
 export type { AiFieldSuggestion, AiField, AiSource, CheckInSuggestions } from "../_shared/ai-types";
 export { AI_FIELDS, AI_SOURCES, recordingOffered } from "../_shared/ai-types";
@@ -387,9 +388,15 @@ export type MinVeckaView = {
     /** Handläggare vars veckorapport väntar på coachens registrering. */
     waitingFor: string[];
   };
+  /** Dagens enskilda tillfällen. Deltagarnas tillfällen i en gruppaktivitet visas i groups i stället (en rad per aktivitet). */
   today: TodayActivity[];
-  /** Nästa aktivitet i dag (id) och kortnamn för KPI:n. */
-  next: { id: string; shortName: string } | null;
+  /**
+   * Dagens gruppaktiviteter (coachmötet 2026-10-09): de coachen är ansvarig för eller där någon av coachens deltagare är
+   * inbjuden. Länk till aktivitetsvyn, där närvaron och anteckningarna tas.
+   */
+  groups: TodayGroupActivity[];
+  /** Nästa aktivitet i dag (id) och kortnamn för KPI:n – group: en gruppaktivitet (kortnamnet är aktivitetens namn). */
+  next: { id: string; shortName: string; group?: boolean } | null;
   /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
   toStart: { caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime }[];
   drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];

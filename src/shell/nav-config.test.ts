@@ -7,13 +7,13 @@ const labels = (role: Parameters<typeof navFor>[0], now: string | null = "2027-0
 describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", () => {
   it("samordnare: Min vardag + Samordning", () => {
     expect(labels("samordnare")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
       ["Samordning", ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Bygg rapport /rapportbyggare"]],
     ]);
   });
   it("avtalsansvarig: Min vardag + Avtalet (Arbetsgivare och praktik är nytt i menyn – rollen har sidan)", () => {
     expect(labels("avtalsansvarig")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
       [
         "Avtalet",
         ["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Avtalsavvikelser /avtalsavvikelser", "Kommunanvändare /admin/anvandare", "Bygg rapport /rapportbyggare"],
@@ -22,19 +22,19 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
   });
   it("coach och handledare: bara Min vardag", () => {
     expect(labels("coach")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro #unregistered", "Mina ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro #unregistered", "Aktiviteter /aktiviteter", "Mina ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
     ]);
-    expect(labels("handledare")).toEqual([["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro", "Mina tilldelade ärenden /handledare", "Arbetsgivare och praktik /praktik"]]]);
+    expect(labels("handledare")).toEqual([["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro", "Aktiviteter /aktiviteter", "Mina tilldelade ärenden /handledare", "Arbetsgivare och praktik /praktik"]]]);
   });
   it("chef: Min vardag + Ledning", () => {
     expect(labels("chef")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden", "Rapporter /rapporter"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Aktiviteter /aktiviteter", "Ärenden /arenden", "Rapporter /rapporter"]],
       ["Ledning", ["Ledningsvy /ledning", "Avtalsavvikelser /avtalsavvikelser", "Förfaller /forfaller #deadlines", "Bygg rapport /rapportbyggare", "Revisionslogg /admin/logg"]],
     ]);
   });
   it("systemadministratör: Min vardag (Ärenden i läsläge) + Administratör – Avtal och konfiguration ligger inte i menyn", () => {
     expect(labels("admin")).toEqual([
-      ["Min vardag", ["Min vecka /min-vecka", "Ärenden /arenden"]],
+      ["Min vardag", ["Min vecka /min-vecka", "Aktiviteter /aktiviteter", "Ärenden /arenden"]],
       ["Administratör", ["Användare och roller /admin/anvandare", "Underbiträden och integrationer /admin/integrationer", "Mallar och utskick /admin/mallar", "Revisionslogg /admin/logg"]],
     ]);
     expect(navFor("admin", { now: null }).flatMap((g) => g.items.map((i) => i.to))).not.toContain("/admin/avtal");
