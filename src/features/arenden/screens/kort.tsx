@@ -883,7 +883,9 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
         </Notice>
       )}
       <p>
-        {`Deltagaren får en kallelse via ${(c.contactLabel ?? "SMS").toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}
+        {c.contactMissing
+          ? "Deltagaren saknar telefonnummer och e-postadress, så kallelsen når inte fram. Kontakta handläggaren och be om en kontaktuppgift."
+          : `Deltagaren får en kallelse via ${(c.contactLabel ?? "SMS").toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}
       </p>
     </Modal>
   );

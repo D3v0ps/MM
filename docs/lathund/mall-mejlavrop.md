@@ -15,6 +15,9 @@ Tips:
 - Skriv datum som år-månad-dag, till exempel 2027-03-01.
 - Skriv personnumret med tolv siffror och bindestreck, till exempel ÅÅÅÅMMDD-NNNN. Samordningsnummer skrivs på samma sätt.
 - Under Omfattning skriver du **6 månader**, **12 månader** eller **annan tidsperiod**. Väljer du annan tidsperiod fyller du också i slutdatum och motivering.
+- Skriv deltagarens telefonnummer. Vi skickar kallelsen med SMS. Har deltagaren ingen telefon skriver du e-postadressen i stället. Då skickar vi kallelsen med e-post.
+- Under Yrkesområde skriver du det yrkesområde som deltagaren ska arbeta mot. Skriv namnet eller bokstaven från listan under mallen.
+- Under Kartläggning genomförd skriver du **ja** eller **nej**. Har du svarat ja kan du bifoga kartläggningen i mejlet.
 - Under Bakgrundsinformation kan du skriva flera rader. Texten slutar vid första tomma raden.
 - Skriv inga diagnoser och inga uppgifter om hälsa.
 - Svarar du på ett mejl från oss om ett ärende: låt ärendenumret stå kvar i ämnesraden. Då hamnar ditt svar på rätt ärende.
@@ -38,14 +41,19 @@ Efternamn:
 Personnummer (ÅÅÅÅMMDD-NNNN):
 Deltagarens telefonnummer:
 Deltagarens e-postadress:
-Bostadsort:
-Föredragen kontaktväg (SMS, telefon, e-post eller brev):
+Yrkesområde (se listan under mallen):
 
 3. Bakgrundsinformation om deltagaren
 Kartläggning genomförd (ja eller nej):
 Bakgrundsinformation:
 
 ```
+
+## Yrkesområden
+
+Yrkesområdena är avtalsområdena i avtalet. Skriv namnet eller bokstaven.
+
+<!-- yrkesområden: listan fylls i från avtalets avtalsområden när hjälpsidan visas -->
 
 ## Ifyllt exempel
 
@@ -68,8 +76,7 @@ Efternamn: Testsson
 Personnummer (ÅÅÅÅMMDD-NNNN): 19900101-1234
 Deltagarens telefonnummer: 070-000 00 00
 Deltagarens e-postadress: test.testsson@example.invalid
-Bostadsort: Testby
-Föredragen kontaktväg (SMS, telefon, e-post eller brev): SMS
+Yrkesområde (se listan under mallen): Lager och logistik
 
 3. Bakgrundsinformation om deltagaren
 Kartläggning genomförd (ja eller nej): Ja
@@ -83,6 +90,10 @@ Test Handläggarsson
 ## Vad som händer sedan
 
 1. Mejlet hamnar i Miljonbemannings avropsinkorg och tolkas automatiskt.
-2. Du får ett ordererkännande med ärendenummer till din e-postadress. Saknas någon uppgift står det i ordererkännandet vad vi behöver.
+2. Du får ett ordererkännande med ärendenummer till din e-postadress. Saknas någon uppgift står det i ordererkännandet vad vi behöver. Svara på mejlet med uppgifterna och låt ärendenumret stå kvar i ämnesraden.
 3. När vi har accepterat beställningen får du en orderbekräftelse med coach, startdatum och tid för första mötet.
 4. Mejl från oss innehåller aldrig personuppgifter – bara ärendenumret och en länk till portalen.
+
+## Avbryta en insats
+
+Vill du avbryta en insats? Mejla **avrop@miljonbemanning.se** och skriv ärendenumret i ämnesraden. Skriv inga personnummer i mejlet.

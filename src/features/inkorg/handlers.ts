@@ -38,25 +38,50 @@ handleCommand(emailSetStatus, { roles: INBOX_ROLES }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- email.applySupplement
+/**
+ * För in en komplettering (svar med ärendenummer) i ärendet: beställarreferens, omfattning, slutdatum, motivering och – medan
+ * beställningen väntar på beslut – yrkesområdet. Bara fälten som faktiskt förs in räknas som införda: de loggas, lämnas i svaret
+ * och tas bort ur originalmejlets saknade uppgifter (CLAUDE.md punkt 3 – loggen visar aldrig en ändring som inte gjordes).
+ * Övriga uppgifter i svaret (till exempel deltagarens telefonnummer) förs inte in och visas inte som införda.
+ */
 handleCommand(emailApplySupplement, { roles: INBOX_ROLES }, async (ctx, p) => {
   const e = await ctx.repo.table("inbound_emails").get(p.emailId);
   if (!e) return fail("not_found", EMAIL_NOT_FOUND);
   const c = e.caseId ? await ctx.repo.table("cases").get(e.caseId) : null;
   if (!c || !(await canEditCase(ctx, c))) return fail("not_found", "Mejlet är inte kopplat till ett ärende som du kan ändra.");
-  const fields = Object.keys(e.extracted) as OrderField[];
   const patch: Partial<Case> = {};
-  if (e.extracted.buyerReference) patch.buyerReference = e.extracted.buyerReference;
-  if (e.extracted.plannedEnd) patch.plannedEnd = e.extracted.plannedEnd;
+  const applied = new Set<OrderField>();
+  if (e.extracted.buyerReference) {
+    patch.buyerReference = e.extracted.buyerReference;
+    applied.add("buyerReference");
+  }
+  if (e.extracted.plannedEnd) {
+    patch.plannedEnd = e.extracted.plannedEnd;
+    applied.add("plannedEnd");
+  }
   // Omfattningen (beslut 2026-10-07): månader ur avtalet eller annan tidsperiod med motivering. Slutdatumet räknas vid accept.
   const period = periodFrom(e.extracted.orderPeriod);
   if (period.kind === "months") Object.assign(patch, { orderPeriodMonths: period.months, orderPeriodReason: null });
   if (period.kind === "other") patch.orderPeriodMonths = null;
-  if (e.extracted.orderPeriodReason) patch.orderPeriodReason = e.extracted.orderPeriodReason;
+  if (period.kind !== "none") applied.add("orderPeriod");
+  if (e.extracted.orderPeriodReason) {
+    patch.orderPeriodReason = e.extracted.orderPeriodReason;
+    applied.add("orderPeriodReason");
+  }
+  // Yrkesområdet (beslut 2026-10-09): förs in medan beställningen väntar på beslut – sedan är avtalsområdet valt vid accept.
+  const area = e.extracted.primaryArea;
+  if (area && (c.status === "received" || c.status === "acknowledged") && (await ctx.repo.table("contract_areas").first({ contractId: c.contractId, code: area, active: true }))) {
+    patch.primaryAreaCode = area as Case["primaryAreaCode"];
+    applied.add("primaryArea");
+  }
+  // Fälten i mejlets ordning, bara de införda.
+  const fields = (Object.keys(e.extracted) as OrderField[]).filter((k) => applied.has(k));
   if (Object.keys(patch).length) await ctx.repo.table("cases").update(c.id, patch);
-  // Det ursprungliga avropsmejlet: uppgifterna finns nu och saknas inte längre.
+  // Det ursprungliga avropsmejlet: de införda uppgifterna finns nu och saknas inte längre.
   const orig = await ctx.repo.table("inbound_emails").first({ caseId: c.id, classification: "order" });
-  if (orig) {
-    await ctx.repo.table("inbound_emails").update(orig.id, { missingFields: orig.missingFields.filter((f) => !fields.includes(f)), extracted: { ...orig.extracted, ...e.extracted } });
+  if (orig && fields.length) {
+    const added = Object.fromEntries(fields.map((k) => [k, e.extracted[k]])) as OrderExtract;
+    await ctx.repo.table("inbound_emails").update(orig.id, { missingFields: orig.missingFields.filter((f) => !fields.includes(f)), extracted: { ...orig.extracted, ...added } });
   }
   await ctx.repo.table("inbound_emails").update(e.id, { status: "applied", handledBy: ctx.actor.userId, handledAt: ctx.now() });
   await ctx.audit({ action: "email.supplement_applied", entity: "case", entityId: c.id, contractId: c.contractId, details: { fields } });

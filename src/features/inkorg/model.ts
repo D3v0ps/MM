@@ -17,6 +17,7 @@ import type { Case, Contract, Db, InboundEmail, InboundEmailStatus, Person, Prof
 import { orgSettingsFor } from "../_shared/context";
 import { revealPnr } from "../_shared/pnr";
 import type { InboxRow, SlaInfo } from "./api";
+import { looksLikeCancellation } from "./parse";
 import { CHAIN, DL_KIND, FIELD_LABEL, whenText, type ChainKey, type DeadlineKindKey, type DeadlineRow, type InboxMethod } from "./texts";
 
 // ---------------------------------------------------------------- Avtalet och klockan
@@ -212,6 +213,7 @@ export function toRow(it: Item, now: string): InboxRow {
     receivedAt: it.receivedAt, receivedWhen: whenText(it.receivedAt, now), from: it.from, subject: it.subject, method: it.method, cls: it.cls, status: it.status,
     pending: it.pending, sla: it.sla ? sla(it.sla.dueAt, it.sla.metAt, now) : null,
     missing: (m?.missingFields ?? []).map((k) => FIELD_LABEL[k].toLowerCase()),
+    cancellation: it.cls === "other" && !!m && looksLikeCancellation(m.subject, m.bodyText),
   };
 }
 

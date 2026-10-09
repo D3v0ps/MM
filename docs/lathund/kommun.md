@@ -55,16 +55,15 @@ Lämna bara de uppgifter som behövs.
 
 1. Skriv **Förnamn** och **Efternamn** som i folkbokföringen.
 2. Skriv **Personnummer eller samordningsnummer** med tolv siffror: ÅÅÅÅMMDD-NNNN. Numret visas bara maskerat i tjänsten.
-3. Skriv **Deltagarens telefonnummer**. Det används för kallelse och påminnelser. SMS innehåller aldrig personuppgifter.
-4. Skriv **Deltagarens e-postadress** bara om deltagaren vill ha kallelsen med e-post.
-5. Skriv **Bostadsort**, till exempel Alby, Tumba eller Fittja.
-6. Välj under **Hur vill deltagaren bli kontaktad?** hur vi ska kalla till första mötet. Väljer du brev fyller du också i **Fullständig adress**.
-7. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
+3. Skriv **Deltagarens telefonnummer**. Vi skickar kallelsen och påminnelser med SMS. SMS innehåller aldrig personuppgifter.
+4. Har deltagaren ingen telefon? Lämna telefonnumret tomt och skriv **Deltagarens e-postadress**. Då skickar vi kallelsen med e-post.
+5. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot.
+6. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
 
 ### Steg 3 av 3: Bakgrundsinformation om deltagaren
 
-1. Svara på **Har en kartläggning genomförts?** – till exempel en kartläggning hos kommunen eller Arbetsförmedlingen.
-2. Under **Bifoga fil** kan du bifoga kartläggningen. Filerna syns bara för dig och för dem som arbetar med deltagaren hos Miljonbemanning.
+1. Svara **Ja** eller **Nej** på **Har en kartläggning genomförts?** – till exempel en kartläggning hos kommunen eller Arbetsförmedlingen.
+2. Har du svarat Ja kan du bifoga kartläggningen under **Bifoga fil**. Filerna syns bara för dig och för dem som arbetar med deltagaren hos Miljonbemanning. Ändrar du svaret till Nej tas filerna bort.
 3. Skriv **Bakgrundsinformation**: erfarenhet, utbildning, mål och vad personen behöver. Var gärna detaljerad. Skriv inga diagnoser eller uppgifter om hälsa.
 4. Tryck på **Nästa: granska**.
 
@@ -89,6 +88,10 @@ Varje gång något nytt finns i portalen får du ett mejl utan personuppgifter m
 2. Du ser bara de deltagare som du själv har beställt insatser för.
 3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Närvaro**, **Levererade rapporter** och **Säkra meddelanden**.
 4. Vill du skriva till coachen: tryck på **Nytt meddelande** under Säkra meddelanden. Skriv aldrig personnummer i ett meddelande. Ärendenumret räcker.
+
+## Avbryta en insats
+
+Vill du avbryta en insats? Mejla **avrop@miljonbemanning.se** och skriv ärendenumret i ämnesraden. Skriv inga personnummer i mejlet. Adressen står också längst ner på deltagarens sida i portalen.
 
 ## Rapporter och meddelanden
 

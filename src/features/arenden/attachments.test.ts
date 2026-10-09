@@ -50,7 +50,7 @@ async function upload(actor: Actor, caseId: string | null, fileName = FILE_NAME,
 }
 const ORDER = {
   source: "portal" as const, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", referrerUnit: "Arbetsmarknadsenheten Alby",
-  orderPeriodMonths: 6, priorAssessment: "yes" as const, desiredStart: "2027-02-15", background: "Har arbetat i kök.",
+  orderPeriodMonths: 6, priorAssessment: "yes" as const, desiredStart: "2027-02-15", background: "Har arbetat i kök.", primaryArea: "D",
 };
 
 describe("bilagor i beställningen", () => {

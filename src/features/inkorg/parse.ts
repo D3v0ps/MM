@@ -5,12 +5,18 @@
 //   Ärendenummer i ämnesraden eller texten (prefixet ur avtalet – aldrig hårdkodat) → ett svar om ett ärende: komplettering
 //   om ärendet väntar på beslut (avgörs av anroparen, som känner ärendet), annars Övrigt.
 //   Word-mallens fasta etiketter ("Förnamn: Anna", tabellceller) → beställning tolkad utan AI (parseMethod template).
+//   Avbrott (avbryta/avsluta en insats, beslut 2026-10-09) utan ärendenummer och utan ifyllt avrop → Övrigt (en människa tar
+//   reda på vilket ärende det gäller) – aldrig en ny beställning.
 //   Ser ut som ett avrop men saknar etiketter (fritext) → beställning utan tolkning (parseMethod manual): en människa
 //   registrerar den i inkorgen. AI-tolkning av fritext hör till fas 2 och är av i produktion.
 //   Allt annat → Övrigt (lämnas till en människa).
 //
 // Personnummer lämnar tolkningen bara som text i extracted.pnr – krypteras av anroparen innan det sparas i en person;
 // i inbound_emails.extracted sparas det som i dag (samma som testdatat).
+//
+// Mallen följer portalens formulär (beslut 2026-10-09): "Yrkesområde" (avtalsområdets namn eller bokstav – tolkas mot
+// avtalets avtalsområden, o.areas) är obligatoriskt; bostadsort, föredragen kontaktväg och "vet inte" frågas inte längre
+// efter. Gamla mejl med de raderna tolkas som förut (bakåtkompatibelt).
 import { MONTHS } from "@/core/time";
 import { looksLikePnr, pnrFormatValid } from "@/core/validation";
 import type { OrderExtract, OrderField, ParseMethod } from "@/data/schema";
@@ -28,8 +34,21 @@ export type ParsedMail = {
   missingFields: OrderField[];
 };
 
-/** Uppgifter som ordererkännandet frågar efter när de saknas (SPEC §7.1): startdatum, omfattning och deltagarens uppgifter. */
-export const REQUIRED_ORDER_FIELDS: readonly OrderField[] = ["desiredStart", "orderPeriod", "firstName", "lastName", "pnr"];
+/**
+ * Uppgifter som ordererkännandet frågar efter när de saknas (SPEC §7.1): startdatum, omfattning, deltagarens uppgifter och
+ * yrkesområdet (obligatoriskt sedan 2026-10-09).
+ */
+export const REQUIRED_ORDER_FIELDS: readonly OrderField[] = ["desiredStart", "orderPeriod", "firstName", "lastName", "pnr", "primaryArea"];
+
+/** Ett avtalsområde som yrkesområdet tolkas mot (contract_areas: kod och namn). */
+export type AreaRef = { code: string; name: string };
+
+/**
+ * Uppgifter som stod i mejlet men inte gick att tolka: tomma med säkerheten 0 (ett datum som inte går att läsa, ett
+ * yrkesområde som inte finns i avtalets lista). Ordererkännandet säger då att uppgiften inte gick att tolka – inte att den saknas.
+ */
+export const unclearFields = (ex: OrderExtract, confidence: Partial<Record<OrderField, number>>): OrderField[] =>
+  (Object.keys(ex) as OrderField[]).filter((k) => ex[k] === "" && confidence[k] === 0);
 
 /** Ärendet kan skapas automatiskt när deltagarens namn och ett personnummer i rätt format finns. */
 export const canCreateCase = (ex: OrderExtract): boolean => !!ex.firstName && !!ex.lastName && pnrFormatValid(ex.pnr);
@@ -64,6 +83,7 @@ const LABELS: Record<string, LabelTarget> = {
   "föredragen kontaktväg": "preferredContact", "kontaktväg": "preferredContact", "hur vill deltagaren bli kontaktad": "preferredContact", "kontakt via": "preferredContact",
   "kartläggning genomförd": "priorAssessment", "kartläggning": "priorAssessment", "har en kartläggning genomförts": "priorAssessment",
   "bakgrundsinformation": "background", "bakgrund": "background", "bakgrundsinformation om deltagaren": "background", "övrig information": "background",
+  "yrkesområde": "primaryArea", "deltagarens yrkesområde": "primaryArea",
   "avtalsområde": "primaryArea", "avtalsområde (primärt)": "primaryArea", "primärt avtalsområde": "primaryArea",
   "avtalsområde (alternativt)": "secondaryArea", "alternativt avtalsområde": "secondaryArea",
   "yrkesspår": "vocationalTrack", "yrkesinriktning": "vocationalTrack",
@@ -127,12 +147,18 @@ const parseContact = (raw: string): OrderExtract["preferredContact"] => {
   if (/brev|post/.test(s)) return "letter";
   return "";
 };
+/**
+ * Kartläggningen: ja eller nej. "Vet inte" frågas inte längre efter (beslut 2026-10-09) men tolkas i äldre mejl – före
+ * "inte", så att "Vet inte" inte blir nej. "Inte genomförd" är nej.
+ */
 const parsePrior = (raw: string): OrderExtract["priorAssessment"] => {
   const s = raw.trim().toLowerCase();
   if (!s) return "";
-  if (/^ja\b|\bja\b|genomförd/.test(s) && !/\bnej\b/.test(s)) return "ja";
-  if (/\bnej\b|inte|ej\b/.test(s)) return "nej";
-  if (/vet/.test(s)) return "vet_inte";
+  const no = /\bnej\b|\binte\b|\bej\b/.test(s);
+  if (/\bvet\b/.test(s) && !/^(ja|nej)\b/.test(s)) return "vet_inte";
+  if (/\bja\b/.test(s) && !/\bnej\b/.test(s)) return "ja";
+  if (/genomförd/.test(s) && !no) return "ja";
+  if (no) return "nej";
   return "";
 };
 /** Personnumret som det står, normaliserat till "ÅÅÅÅMMDD-NNNN" eller "ÅÅMMDD-NNNN". Tom sträng om formatet inte stämmer. */
@@ -143,11 +169,40 @@ export function parsePnr(raw: string): string {
   const v = `${m[1]}${m[2] ?? "-"}${m[3]}`;
   return pnrFormatValid(v) ? v : "";
 }
-/** Avtalsområdets bokstav ("G Lager och logistik" → "G"). */
-const parseArea = (raw: string): string => {
-  const m = /^([A-La-l])\b/.exec(raw.trim());
-  return m ? m[1].toUpperCase() : "";
-};
+/** Namn och svar jämförs utan skiftläge, skiljetecken och extra mellanslag ("Lager & logistik" ≈ "lager logistik"). */
+const areaKey = (s: string): string =>
+  s.toLowerCase().normalize("NFKC").replace(/\boch\b|&/g, " ").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * Yrkesområdet → avtalsområdets kod. Med avtalets områden (areas): namnet ("Lager och logistik"), bokstaven ("G"), bokstav
+ * och namn ("G Lager och logistik", "G. Lager") eller början av ett namn som bara passar ett område ("Lager"). Utan
+ * areas (äldre anrop): bara bokstaven A–L. exact = svaret stämde precis (namn eller bokstav), annars en säker gissning.
+ * Tom kod när svaret inte går att tolka.
+ */
+export function parseArea(raw: string, areas?: readonly AreaRef[]): { code: string; exact: boolean } {
+  const s = raw.trim();
+  const none = { code: "", exact: false };
+  if (!s) return none;
+  if (!areas) {
+    const m = /^([A-La-l])\b/.exec(s);
+    return m ? { code: m[1].toUpperCase(), exact: true } : none;
+  }
+  const key = areaKey(s);
+  if (!key) return none;
+  const byName = areas.find((a) => areaKey(a.name) === key);
+  if (byName) return { code: byName.code, exact: true };
+  // Bokstaven, ensam eller före namnet: "G", "G Lager och logistik", "G – Lager". Namnet måste då höra till samma område.
+  const lm = /^(\p{L})(?:\s+(.*))?$/u.exec(key);
+  const byCode = lm ? areas.find((a) => a.code.toLowerCase() === lm[1]) : undefined;
+  if (byCode) {
+    const rest = lm?.[2] ?? "";
+    if (!rest || areaKey(byCode.name).startsWith(rest)) return { code: byCode.code, exact: true };
+    return none;
+  }
+  // Början av ett namn ("Lager" → "Lager och logistik") – bara när ett enda område passar.
+  const starts = areas.filter((a) => areaKey(a.name).startsWith(key) || key.startsWith(areaKey(a.name)));
+  return starts.length === 1 ? { code: starts[0].code, exact: false } : none;
+}
 
 // ---------------------------------------------------------------- Texten
 /** Mejltexten före ett citerat tidigare mejl (svar på ordererkännandet innehåller ordererkännandet under). */
@@ -227,12 +282,29 @@ export function extractLabelled(text: string): Found[] {
 
 // ---------------------------------------------------------------- Tolkningen
 const ORDER_WORDS = /\b(avrop|avropa|beställ|beställning|anvisa|anvisning|ny deltagare|insats)/i;
+/** Ord som bara en ny beställning har ("insats" finns också i ett avbrott). */
+const NEW_ORDER_WORDS = /\b(avrop|avropa|beställ|beställa|beställning|anvisa|anvisning|ny deltagare)/i;
+/** Avbrott via mejl (beslut 2026-10-09): "Avbryta insatsen", "avsluta insatsen", "avbrott". */
+const CANCEL_WORDS = /\b(avbryt|avbryta|avbryts|avbrott|avbrytande|avsluta|avslutas)\b/i;
+
+/**
+ * Ser mejlet ut att gälla ett avbrott av en insats (och inte en ny beställning)? Ämnesraden eller början av den egna texten
+ * har ett avbrottsord men inget ord som bara en ny beställning har. Används av tolkningen och av inkorgens etikett "Avbrott".
+ */
+export function looksLikeCancellation(subject: string, bodyText: string): boolean {
+  const own = ownText(String(bodyText ?? "")).slice(0, 600);
+  const text = `${String(subject ?? "")}\n${own}`;
+  return CANCEL_WORDS.test(text) && !NEW_ORDER_WORDS.test(text);
+}
 
 /**
  * Tolka ett mejl till avrop@. attachmentText = texten ur en bifogad Word-mall (servern läser den) – etiketter där väger
  * som i brödtexten. Returnerar samma struktur som inbound_emails har: extracted, confidence och missingFields.
  */
-export function parseInboundMail(mail: { subject: string; bodyText: string; attachmentText?: string | null }, o: { casePrefix: string }): ParsedMail {
+export function parseInboundMail(
+  mail: { subject: string; bodyText: string; attachmentText?: string | null },
+  o: { casePrefix: string; areas?: readonly AreaRef[] },
+): ParsedMail {
   const subject = String(mail.subject ?? "");
   const own = ownText(String(mail.bodyText ?? ""));
   const text = [own, mail.attachmentText ?? ""].filter(Boolean).join("\n\n");
@@ -271,9 +343,17 @@ export function parseInboundMail(mail: { subject: string; bodyText: string; atta
         set("pnr", parsePnr(f.value), base);
         break;
       case "primaryArea":
-      case "secondaryArea":
-        set(f.field, parseArea(f.value), base);
+      case "secondaryArea": {
+        const a = parseArea(f.value, o.areas);
+        set(f.field, a.code, a.exact ? base : Math.min(base, 0.7));
+        // Ett yrkesområde som inte går att koppla till avtalets lista ("Vård och omsorg"): tomt med säkerheten 0, som ett datum
+        // som inte går att läsa – uppgiften saknas fortfarande, men ordererkännandet säger att den inte gick att tolka.
+        if (!a.code && f.field === "primaryArea" && ex.primaryArea == null) {
+          ex.primaryArea = "";
+          confidence.primaryArea = 0;
+        }
         break;
+      }
       case "buyerReference":
         set("buyerReference", f.value.replace(/\D/g, ""), base);
         break;
@@ -293,6 +373,9 @@ export function parseInboundMail(mail: { subject: string; bodyText: string; atta
     };
   }
   const labelled = found.length;
+  // Ett avbrott utan ärendenummer är ingen ny beställning – det lämnas till en människa som Övrigt (etiketten Avbrott i inkorgen).
+  // Ett ifyllt avrop (minst två etiketter) är fortfarande en beställning.
+  if (labelled < 2 && looksLikeCancellation(subject, own)) return { kind: "other", parseMethod: "manual", caseNumber: null, linkedBy: null, extracted: {}, confidence: {}, missingFields: [] };
   const isOrder = labelled >= 2 || looksLikePnr(own) || ORDER_WORDS.test(subject) || ORDER_WORDS.test(own.slice(0, 600));
   if (!isOrder) return { kind: "other", parseMethod: "manual", caseNumber: null, linkedBy: null, extracted: {}, confidence: {}, missingFields: [] };
   // Fritext utan etiketter: personnumret plockas ut som stöd för registreringen (osäkert), inget annat gissas – AI är av.
@@ -305,6 +388,6 @@ export function parseInboundMail(mail: { subject: string; bodyText: string; atta
   return { kind: "order", parseMethod: labelled >= 2 ? "template" : "manual", caseNumber: null, linkedBy: null, extracted: ex, confidence, missingFields };
 }
 
-/** Kartläggningen i beställningen (ja/nej/vet_inte i mejlet → ärendets yes/no/unknown). */
+/** Kartläggningen i beställningen (ja/nej i mejlet → ärendets yes/no; "vet inte" i äldre mejl → unknown). */
 export const priorFromExtract = (v: OrderExtract["priorAssessment"] | undefined): "yes" | "no" | "unknown" | null =>
   v === "ja" ? "yes" : v === "nej" ? "no" : v === "vet_inte" ? "unknown" : null;

@@ -155,11 +155,46 @@ describe("arenden.caseAccept (case.accept)", () => {
     expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, plannedEnd: "2027-08-02" });
   });
+
+  it("ink.applySupplement: yrkesområdet i en komplettering förs in medan beställningen väntar på beslut (beslut 2026-10-09)", async () => {
+    // Kompletteringen em-103 med ett yrkesområde (inläsningen har tolkat namnet till koden).
+    rt.store.updateRow("inbound_emails", "em-103", { extracted: { primaryArea: "D" } });
+    rt.store.updateRow("cases", "case-270049", { primaryAreaCode: null });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true, fields: ["primaryArea"] });
+    expect(row("cases", "case-270049")!.primaryAreaCode).toBe("D");
+    const orig = () => rows("inbound_emails").find((e) => e.caseId === "case-270049" && e.classification === "order")!;
+    const lastApplied = () => rows("audit_log").filter((a) => a.action === "email.supplement_applied").at(-1);
+    expect(lastApplied()).toMatchObject({ entityId: "case-270049", details: { fields: ["primaryArea"] } });
+    expect(orig().extracted.primaryArea).toBe("D");
+    // Ett område som inte finns i avtalet förs inte in – och räknas inte som infört (svaret, loggen och originalmejlet).
+    rt.store.updateRow("inbound_emails", orig().id, { missingFields: ["primaryArea"], extracted: { ...orig().extracted, primaryArea: "" } });
+    rt.store.updateRow("inbound_emails", "em-103", { extracted: { primaryArea: "Z" }, status: "linked" });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toEqual({ ok: true, fields: [] });
+    expect(row("cases", "case-270049")!.primaryAreaCode).toBe("D");
+    expect(lastApplied()).toMatchObject({ details: { fields: [] } });
+    expect(orig().missingFields).toEqual(["primaryArea"]);
+    expect(orig().extracted.primaryArea).toBe("");
+    // Deltagarens telefonnummer i svaret förs inte in i ärendet (inget kommando skriver personen) och visas inte som infört.
+    const phoneBefore = orig().extracted.phone;
+    rt.store.updateRow("inbound_emails", "em-103", { extracted: { phone: "070-000 12 34", buyerReference: "55102938" }, status: "linked" });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toEqual({ ok: true, fields: ["buyerReference"] });
+    expect(orig().extracted.phone).toBe(phoneBefore);
+    expect(phoneBefore).not.toBe("070-000 12 34");
+    expect(lastApplied()).toMatchObject({ details: { fields: ["buyerReference"] } });
+    // Efter accept förs yrkesområdet inte in (avtalsområdet är valt i Acceptera).
+    rt.store.updateRow("cases", "case-270049", { orderPeriodMonths: 6 });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", primaryArea: "D", vocationalTrack: "Kök" }, sara())).toMatchObject({ ok: true });
+    rt.store.updateRow("inbound_emails", "em-103", { extracted: { primaryArea: "G" }, status: "linked" });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toEqual({ ok: true, fields: [] });
+    expect(row("cases", "case-270049")!.primaryAreaCode).toBe("D");
+    expect(lastApplied()).toMatchObject({ details: { fields: [] } });
+  });
 });
 
 describe("arenden.caseCreate (case.create)", () => {
-  const order = { firstName: "Testa", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00", city: "Tumba", preferredContact: "sms" as const,
-    referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-08", orderPeriodMonths: 6, priorAssessment: "unknown" as const, source: "portal" as const };
+  // Portalens beställning (beslut 2026-10-09): yrkesområde, ingen bostadsort, ingen kontaktväg och kartläggning ja eller nej.
+  const order = { firstName: "Testa", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00", primaryArea: "G",
+    referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-08", orderPeriodMonths: 6, priorAssessment: "no" as const, source: "portal" as const };
 
   it("via portalen ger nästa ärendenummer i serien och ordererkännande utan personuppgifter", async () => {
     const n = rows("outbound_messages").length;
@@ -171,10 +206,11 @@ describe("arenden.caseCreate (case.create)", () => {
     if (!r1.ok) return;
     const c = row("cases", r1.caseId)!;
     // Kommunens handläggare beställer alltid i eget namn
-    expect(c).toMatchObject({ status: "acknowledged", referrerId: "k-maria", source: "portal", buyerReference: null, primaryAreaCode: null, aiConsentStatus: "not_asked", acknowledgedAt: T1, orderPeriodMonths: 6, priorAssessment: "unknown" });
+    expect(c).toMatchObject({ status: "acknowledged", referrerId: "k-maria", source: "portal", buyerReference: null, primaryAreaCode: "G", aiConsentStatus: "not_asked", acknowledgedAt: T1, orderPeriodMonths: 6, priorAssessment: "no" });
     expect(r1.caseId).toMatch(/-n\d{5}$/);
     const person = row("persons", c.personId)!;
-    expect(person).toMatchObject({ personnummerLast4: "1234", protectedIdentity: false, phone: "070-000 00 00" });
+    // Ingen kontaktväg i beställningen: SMS när telefonnummer finns. Ingen bostadsort (tom sträng – kolumnen är NOT NULL).
+    expect(person).toMatchObject({ personnummerLast4: "1234", protectedIdentity: false, phone: "070-000 00 00", preferredContact: "sms", city: "", address: null });
     expect(person.personnummerEnc).not.toBe("19900101-1234");
     expect(rows("case_status_history").filter((h) => h.caseId === c.id)).toMatchObject([{ fromStatus: null, toStatus: "acknowledged", reason: "Beställning via portalen" }]);
     const out = outboundSince(n);

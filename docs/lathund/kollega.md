@@ -55,7 +55,7 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 ### Acceptera med team och första möte
 
 1. Tryck på **Acceptera avropet**.
-2. Välj **Avtalsområde** och eventuellt **Alternativt område (valfritt)**.
+2. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde i beställningen är det redan ifyllt. Välj eventuellt **Alternativt område (valfritt)**.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare (valfritt)** och **SYV/metodstöd (valfritt)** om de ska vara med i teamet.
 4. Fyll i **Första möte – datum** och **Första möte – tid**. Första mötet ska bokas inom den tid som står i avtalet.
 5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren och ärendet dyker upp hos coachen under **Insatser att starta**.

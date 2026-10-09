@@ -154,7 +154,7 @@ function CaseList({ d }: { d: KomCaseList }) {
                       )}
                     </span>
                     <SubLine>
-                      {c.caseNumber} · {c.primaryAreaName ?? "Avtalsområde inte valt än"}
+                      {c.caseNumber} · {c.primaryAreaName ?? "Yrkesområde inte valt än"}
                     </SubLine>
                     <SubLine>{shortStatus(c, d.phaseCount)}</SubLine>
                   </ListItem>

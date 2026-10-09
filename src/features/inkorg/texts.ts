@@ -58,6 +58,8 @@ export const METHOD: Record<InboxMethod, { label: string; icon: IconName; help: 
 };
 // order_protected (skyddade personuppgifter) finns kvar i typen för gamla mejl men visas som Övrigt (beslut 2026-10-07).
 export const CLASSIFICATION: Record<EmailClassification, string> = { order: "Beställning", supplement: "Komplettering", order_protected: "Övrigt", other: "Övrigt" };
+/** Etiketten för Övrigt som ser ut som ett avbrott av en insats (avbrott via mejl, beslut 2026-10-09). */
+export const CANCELLATION_LABEL = "Avbrott";
 export const CLASS_ICON: Partial<Record<EmailClassification, IconName>> = { supplement: "link", other: "message-circle" };
 export type BadgeToneName = "blue" | "bluetone" | "grey" | "red" | "redfill" | "dark" | "outline" | "plan";
 export const STATUS: Record<string, [string, BadgeToneName, IconName]> = {
@@ -75,8 +77,10 @@ export const statusLook = (s: string): [string, BadgeToneName, IconName] => STAT
 
 // ---------------------------------------------------------------- Fälten i det tolkade formuläret
 // Beställningen följer portalens steg (beslut 2026-10-07, synpunkt #3–#9): kontakt, startdatum och omfattning; deltagaren;
-// bakgrundsinformationen. Beställarreferens, avtalsområde och yrkesspår frågas inte efter – Miljonbemanning sätter dem vid
-// accept. Gamla nycklar (plannedWeeks, protectedIdentity, accessibilityNeeds) finns kvar i typen för gamla mejl men visas inte.
+// bakgrundsinformationen. Beslut 2026-10-09: deltagarens yrkesområde (primaryArea) frågas efter i steg 2 – bostadsort och
+// föredragen kontaktväg inte längre (de visas bara när ett äldre mejl har dem). Beställarreferens, alternativt område och
+// yrkesspår frågas inte efter – Miljonbemanning sätter dem vid accept. Gamla nycklar (plannedWeeks, protectedIdentity,
+// accessibilityNeeds) finns kvar i typen för gamla mejl men visas inte.
 export const FIELD_LABEL: Record<OrderField, string> = {
   referrerName: "Handläggare", referrerUnit: "Enhet", referrerPhone: "Handläggarens telefon", referrerEmail: "Handläggarens e-post",
   buyerReference: "Beställarreferens", desiredStart: "Önskat startdatum", plannedEnd: "Slutdatum", plannedWeeks: "Planerad omfattning",
@@ -84,16 +88,19 @@ export const FIELD_LABEL: Record<OrderField, string> = {
   firstName: "Förnamn", lastName: "Efternamn", pnr: "Personnummer", phone: "Telefon", email: "E-post", city: "Bostadsort",
   preferredContact: "Föredragen kontaktväg", protectedIdentity: "Skyddat", accessibilityNeeds: "Anpassning",
   priorAssessment: "Kartläggning genomförd", background: "Bakgrundsinformation",
-  primaryArea: "Avtalsområde (primärt)", secondaryArea: "Avtalsområde (alternativt)", vocationalTrack: "Yrkesspår",
+  primaryArea: "Yrkesområde", secondaryArea: "Avtalsområde (alternativt)", vocationalTrack: "Yrkesspår",
 };
 export const FIELD_GROUPS: readonly (readonly [string, readonly OrderField[]])[] = [
   ["1. Beställning och kontakt", ["referrerName", "referrerUnit", "referrerPhone", "referrerEmail", "desiredStart", "orderPeriod", "plannedEnd", "orderPeriodReason"]],
-  ["2. Deltagare", ["firstName", "lastName", "pnr", "phone", "email", "city", "preferredContact"]],
+  ["2. Deltagare", ["firstName", "lastName", "pnr", "phone", "email", "primaryArea", "city", "preferredContact"]],
   ["3. Bakgrundsinformation om deltagaren", ["priorAssessment", "background"]],
-  ["Uppgifter som Miljonbemanning sätter vid accept", ["buyerReference", "primaryArea", "secondaryArea", "vocationalTrack"]],
+  ["Uppgifter som Miljonbemanning sätter vid accept", ["buyerReference", "secondaryArea", "vocationalTrack"]],
 ];
-/** Fälten i sista gruppen visas bara när mejlet har ett värde (de frågas inte efter). Slutdatum och motivering bara vid annan tidsperiod. */
-export const OPTIONAL_FIELDS: readonly OrderField[] = ["buyerReference", "primaryArea", "secondaryArea", "vocationalTrack", "plannedEnd", "orderPeriodReason"];
+/**
+ * Fält som visas bara när mejlet har ett värde: de som inte frågas efter (sista gruppen, och bostadsort och kontaktväg sedan
+ * 2026-10-09). Slutdatum och motivering bara vid annan tidsperiod.
+ */
+export const OPTIONAL_FIELDS: readonly OrderField[] = ["buyerReference", "secondaryArea", "vocationalTrack", "plannedEnd", "orderPeriodReason", "city", "preferredContact"];
 /** Beställningsuppgifterna som samordnaren kan rätta (ink.correct). Avtalsområde och yrkesspår sätts i acceptdialogen. */
 export const ORDER_FIELDS = ["desiredStart", "orderPeriod", "plannedEnd", "orderPeriodReason", "buyerReference"] as const;
 export type OrderFieldKey = (typeof ORDER_FIELDS)[number];

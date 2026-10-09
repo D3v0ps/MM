@@ -126,7 +126,7 @@ describe("deltagarens sida", () => {
 });
 
 describe("beställning", () => {
-  it("formuläret: omfattningen i månader ur avtalet, bilagorna och tidsgränserna – ingen referens, inga områden eller priser", async () => {
+  it("formuläret: omfattningen i månader ur avtalet, yrkesområdena, bilagorna och tidsgränserna – ingen referens, inga yrkesspår eller priser", async () => {
     const f = await ask(kommunOrderForm, {}, maria());
     expect(f).toMatchObject({
       customerName: "Botkyrka kommun", today: "2027-02-01", defaultStart: "2027-02-15", firstMeetingWithin: "en vecka", answerDue: "2027-02-02T09:12",
@@ -134,9 +134,17 @@ describe("beställning", () => {
       periods: { months: [6, 12], allowOther: true },
       attachments: { maxBytes: 10 * 1024 * 1024, maxFiles: 10 },
     });
-    // Synpunkt #5, #8 och #11: ingen beställarreferens, inga avtalsområden eller yrkesspår och inga belopp.
-    for (const key of ["lastBuyerRef", "buyerReference", "blockedRefs", "areas", "tracks", "weeks", "prices"]) expect(f).not.toHaveProperty(key);
-    expect(JSON.stringify(f)).not.toMatch(/Ore"|4410023817|Truckförare/);
+    // Yrkesområdet (beslut 2026-10-09): avtalets aktiva avtalsområden i ordning, värdet är koden. Övrigt nämns i hjälptexten.
+    expect(f.areas).toHaveLength(12);
+    expect(f.areas[0]).toEqual({ value: "A", label: "Administration" });
+    expect(f.areas.find((a) => a.value === "G")).toEqual({ value: "G", label: "Lager och logistik" });
+    expect(f.otherAreaName).toBe("Övrigt");
+    // Ett avtalsområde som inte är aktivt går inte att välja.
+    rt.store.updateRow("contract_areas", "c-bot:K", { active: false });
+    expect((await ask(kommunOrderForm, {}, maria())).areas.map((a) => a.value)).not.toContain("K");
+    // Synpunkt #5, #8 och #11: ingen beställarreferens, inga yrkesspår och inga belopp.
+    for (const key of ["lastBuyerRef", "buyerReference", "blockedRefs", "tracks", "weeks", "prices"]) expect(f).not.toHaveProperty(key);
+    expect(JSON.stringify(f)).not.toMatch(/Ore"|4410023817|Truckförare|price/);
   });
   it("dubblettkontrollen: egen insats med nummer, andras insatser bara som att de finns", async () => {
     expect(await ask(kommunDuplicate, { pnr: "19730216-9545" }, maria())).toEqual([{ caseId: NADIA, caseNumber: "BOT-26-0143", status: "active" }]);
@@ -144,41 +152,56 @@ describe("beställning", () => {
     expect(await ask(kommunDuplicate, { pnr: "1988041" }, maria())).toEqual([]);
   });
   it("kvittot: ordererkännandet och mejlet innehåller bara ärendenumret", async () => {
+    // Portalens beställning (beslut 2026-10-09): yrkesområde, ingen bostadsort och ingen kontaktväg – bara e-post här.
     const order = {
-      source: "portal" as const, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", city: "Tumba", preferredContact: "letter" as const, address: "Testgatan 1",
+      source: "portal" as const, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", email: "samira.testsson@example.invalid", primaryArea: "G",
       referrerUnit: "Arbetsmarknadsenheten Alby", orderPeriodMonths: 6, priorAssessment: "yes" as const, desiredStart: "2027-02-15",
     };
     const c = await run(caseCreate, order, maria());
     if (!c.ok) throw new Error(c.error);
     expect(c.caseNumber).toBe("BOT-27-0051");
     // Omfattningen: planerat slut räknas fram från önskat startdatum (6 månader).
-    expect(rows("cases").find((x) => x.id === c.caseId)).toMatchObject({ orderPeriodMonths: 6, orderPeriodReason: null, priorAssessment: "yes", plannedEnd: "2027-08-14", buyerReference: null, primaryAreaCode: null });
+    expect(rows("cases").find((x) => x.id === c.caseId)).toMatchObject({ orderPeriodMonths: 6, orderPeriodReason: null, priorAssessment: "yes", plannedEnd: "2027-08-14", buyerReference: null, primaryAreaCode: "G" });
     const r = await ask(kommunReceipt, { caseId: c.caseId }, maria());
     expect(r?.ackText).toMatch(/^Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0051\./);
     expect(r?.mail).toMatchObject({ from: "notis@miljonmatch.se", to: "maria.ekdahl@botkyrka.se" });
     expect(r?.mail?.body).toContain("BOT-27-0051");
-    expect(r?.mail?.body).not.toMatch(/Samira|Testsson|3456|Tumba/);
-    expect(r?.contactLabel).toBe("Brev");
+    expect(r?.mail?.body).not.toMatch(/Samira|Testsson|3456|example|Lager/);
+    // Utan telefonnummer går kallelsen med e-post. Kvittot visar yrkesområdet.
+    expect(r?.contactLabel).toBe("E-post");
+    expect(r?.areaName).toBe("Lager och logistik");
     expect(r).not.toHaveProperty("protectedIdentity");
     // Någon annans kvitto finns inte
     expect(await ask(kommunReceipt, { caseId: NADIA }, as("k-linda", "kommun_handlaggare"))).toBeNull();
   });
-  it("formulärets krav på servern: omfattning, enhet och kartläggning – annan tidsperiod kräver slutdatum och motivering", async () => {
-    const base = { source: "portal" as const, firstName: "Kim", lastName: "Testsson", pnr: "19900303-1234", referrerUnit: "Arbetsmarknadsenheten Alby", priorAssessment: "no" as const, desiredStart: "2027-02-15" };
+  it("formulärets krav på servern: omfattning, enhet, yrkesområde och kartläggning – annan tidsperiod kräver slutdatum och motivering", async () => {
+    const base = { source: "portal" as const, firstName: "Kim", lastName: "Testsson", pnr: "19900303-1234", referrerUnit: "Arbetsmarknadsenheten Alby", priorAssessment: "no" as const, desiredStart: "2027-02-15", primaryArea: "F" };
     expect(await run(caseCreate, { ...base }, maria())).toMatchObject({ ok: false, error: "order_period" });
     expect(await run(caseCreate, { ...base, orderPeriodMonths: 9 }, maria())).toMatchObject({ ok: false, error: "order_period", message: "Välj en av omfattningarna i avtalet." });
     expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, referrerUnit: " " }, maria())).toMatchObject({ ok: false, error: "unit" });
     expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, priorAssessment: null }, maria())).toMatchObject({ ok: false, error: "prior_assessment" });
+    // "Vet inte" finns inte längre i portalen (beslut 2026-10-09) – bara ja eller nej tas emot från kommunen.
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, priorAssessment: "unknown" }, maria())).toMatchObject({ ok: false, error: "prior_assessment" });
+    // Yrkesområdet är obligatoriskt och måste vara ett av avtalets aktiva avtalsområden.
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, primaryArea: undefined }, maria())).toMatchObject({ ok: false, error: "area" });
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, primaryArea: " " }, maria())).toMatchObject({ ok: false, error: "area" });
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, primaryArea: "Z" }, maria())).toMatchObject({ ok: false, error: "area" });
+    rt.store.updateRow("contract_areas", "c-bot:K", { active: false });
+    expect(await run(caseCreate, { ...base, orderPeriodMonths: 6, primaryArea: "K" }, maria())).toMatchObject({ ok: false, error: "area" });
     expect(await run(caseCreate, { ...base, plannedEnd: "2027-05-31" }, maria())).toMatchObject({ ok: false, error: "order_period" });
     const other = await run(caseCreate, { ...base, plannedEnd: "2027-05-31", orderPeriodReason: "Deltagaren flyttar i juni." }, maria());
     if (!other.ok) throw new Error(other.error);
     expect(rows("cases").find((x) => x.id === other.caseId)).toMatchObject({ orderPeriodMonths: null, orderPeriodReason: "Deltagaren flyttar i juni.", plannedEnd: "2027-05-31", priorAssessment: "no" });
-    // Inget i formuläret ger skyddade personuppgifter, en beställarreferens eller ett avtalsområde.
-    const extra = await run(caseCreate, { ...base, pnr: "19910404-2345", orderPeriodMonths: 12, protectedIdentity: true, buyerReference: "4410023817", primaryArea: "G" } as never, maria());
+    expect(rows("cases").find((x) => x.id === other.caseId)).toMatchObject({ primaryAreaCode: "F" });
+    // Inget i formuläret ger skyddade personuppgifter, en beställarreferens, ett alternativt område eller ett yrkesspår.
+    const extra = await run(caseCreate, { ...base, pnr: "19910404-2345", orderPeriodMonths: 12, protectedIdentity: true, buyerReference: "4410023817", primaryArea: "G", secondaryArea: "F", vocationalTrack: "Truckförare A+B" } as never, maria());
     if (!(extra as { ok: boolean }).ok) throw new Error("ingen beställning");
     const cx = rows("cases").find((x) => x.id === (extra as { caseId: string }).caseId)!;
-    expect(cx).toMatchObject({ buyerReference: null, primaryAreaCode: null, orderPeriodMonths: 12 });
-    expect(rows("persons").find((x) => x.id === cx.personId)!.protectedIdentity).toBe(false);
+    expect(cx).toMatchObject({ buyerReference: null, primaryAreaCode: "G", secondaryAreaCode: null, vocationalTrack: "", orderPeriodMonths: 12 });
+    const px = rows("persons").find((x) => x.id === cx.personId)!;
+    expect(px.protectedIdentity).toBe(false);
+    // Varken telefon eller e-post i beställningen: kontaktvägen blir telefon (Miljonbemanning kontaktar deltagaren), ingen ort.
+    expect(px).toMatchObject({ preferredContact: "phone", city: "", address: null });
   });
   it("bara handläggaren beställer i portalen", async () => {
     await expectForbidden(ask(kommunOrderForm, {}, sara()));

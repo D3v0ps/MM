@@ -421,7 +421,8 @@ describe("personnummer i utskick", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cmd = <D extends CommandDef<any, any>>(def: D, input: ParamsOf<D>, actor: Actor) => rt.run("command", def.key, input, actor) as Promise<ResultOf<D>>;
     const order = { firstName: "Testa", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00", city: "Tumba", preferredContact: "email" as const,
-      email: "testa@exempel.se", referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-08", orderPeriodMonths: 6, priorAssessment: "yes" as const, source: "portal" as const };
+      email: "testa@exempel.se", referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-08", orderPeriodMonths: 6, priorAssessment: "yes" as const, source: "portal" as const,
+      primaryArea: "G" };
     expect(await cmd(caseCreate, order, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
     expect(await cmd(caseCreate, { ...order, pnr: "19900303-3456" }, as("k-maria", "kommun_handlaggare"))).toMatchObject({ ok: true });
     expect(await cmd(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, as("u-sara", "samordnare"))).toMatchObject({ ok: true });

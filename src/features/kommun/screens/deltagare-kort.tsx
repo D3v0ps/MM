@@ -2,7 +2,8 @@
 // Deltagarens sida i portalen (/portal/deltagare/:caseId?flik=) – prototypens CaseDetail i views/kommun.js.
 // Flikarna Översikt, Rapporter och Meddelanden. Bara handläggaren som beställde ser sidan (beslut 2026-10-07: kommunen har
 // bara rollen handläggare). Inga belopp, inget ordervärde och ingen beställarreferens (synpunkt #10 och #11). Bakgrunds-
-// informationen och bilagorna från beställningen visas under Översikt. Visningen loggas (case.view).
+// informationen och bilagorna från beställningen visas under Översikt. Visningen loggas (case.view). Handläggaren avbryter
+// inte en insats i portalen – det görs med ett mejl till avrop@ med ärendenumret (beslut 2026-10-09).
 import { useEffect, useState, type ReactNode } from "react";
 import { pct } from "@/core/format";
 import { messageRead, messageSend } from "@/features/arenden/api";
@@ -16,7 +17,7 @@ import {
   TextArea, Timeline, cn, useAuditView, useToast, type TimelineItem,
 } from "@/ui";
 import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomAttTile, type KomCaseDetail, type KomMessage } from "../api";
-import { fD, fDT, fDTL, fullText, looksLikePnr, orderPeriodLabel, phaseText, statusText } from "../texts";
+import { fD, fDT, fDTL, fullText, looksLikePnr, ORDER_EMAIL, orderPeriodLabel, phaseText, statusText } from "../texts";
 import { KOM_TABS, KStatus, KomHead, KomPage, ReportRowItem, reportPath } from "./parts";
 import { taskTitle, useTaskDone } from "./start";
 import { joinText, TalaIn } from "./tala-in";
@@ -332,13 +333,24 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
               />,
             ],
             ["Kontaktväg", d.participant.contactLabel ?? "–"],
-            ["Bostadsort", d.participant.city || "–"],
-            ["Avtalsområde", c.primaryAreaName ? `${c.primaryAreaName}${c.secondaryAreaName ? ` (alternativt ${c.secondaryAreaName})` : ""}` : "Väljs av Miljonbemanning"],
+            // Bostadsorten frågas inte längre efter (beslut 2026-10-09) – visas bara för äldre beställningar som har den.
+            d.participant.city ? ["Bostadsort", d.participant.city] : null,
+            ["Yrkesområde", c.primaryAreaName ? `${c.primaryAreaName}${c.secondaryAreaName ? ` (alternativt ${c.secondaryAreaName})` : ""}` : "Väljs av Miljonbemanning"],
             ["Yrkesspår", c.vocationalTrack || "Väljs av Miljonbemanning"],
           ]}
         />
       </Card>
       <CaseBackgroundCard bg={d.background} title="Bakgrundsinformation från beställningen" />
+      {/* Avbrott görs med mejl (beslut 2026-10-09) – ärendenumret i ämnesraden kopplar mejlet till ärendet i avropsinkorgen. */}
+      {c.status !== "closed" && c.status !== "declined" && (
+        <p>
+          Vill du avbryta insatsen? Mejla{" "}
+          <a className="font-bold underline underline-offset-3 [overflow-wrap:anywhere]" href={`mailto:${ORDER_EMAIL}?subject=${encodeURIComponent(`Avbryta insatsen ${c.caseNumber}`)}`}>
+            {ORDER_EMAIL}
+          </a>{" "}
+          med ärendenumret {c.caseNumber}.
+        </p>
+      )}
     </Stack>
   );
 }

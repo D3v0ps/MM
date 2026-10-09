@@ -6,11 +6,13 @@ import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { TRACKS } from "@/data/seed/constants";
 import { caseBackground, orderPeriodText } from "@/features/arenden/background";
+import { looksLikeCancellation } from "./parse";
 import { cdStatusKey } from "@/features/ledning/api";
 import { teamCandidates } from "@/features/_shared/team";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
-import { areaName, contactLabel, personName, teamLabel } from "@/core/labels";
+import { hasContactDetails } from "@/core/contact";
+import { areaName, contactLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
 import { by, uniq } from "@/core/util";
@@ -95,7 +97,13 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
   const conf = m.confidence as Record<string, number | undefined>;
   const corr = m.corrections;
   const applied = c ? d.emails.filter((x) => x.caseId === c.id && x.classification === "supplement" && x.status === "applied") : [];
-  const fromSup = (k: OrderField) => applied.find((x) => (x.extracted as Record<string, unknown>)[k] != null && (x.extracted as Record<string, unknown>)[k] !== "");
+  // Införd: kompletteringen förde in fältet. emailApplySupplement för bara in de fält som skrevs till ärendet i mejlets tolkning –
+  // ett telefonnummer i svaret (eller ett yrkesområde som inte kunde föras in) visas därför inte som infört.
+  const fromSup = (k: OrderField) =>
+    applied.find((x) => {
+      const v = (x.extracted as Record<string, unknown>)[k];
+      return v != null && v !== "" && ex[k] === v;
+    });
   const stateOf = (k: OrderField): FormField["state"] => {
     const v = ex[k];
     const empty = v == null || v === "";
@@ -137,7 +145,8 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
 }
 
 /**
- * Beställning utan mejl (portal eller telefon) – samma steg som portalens formulär, utan konfidens. Avtalsområde, yrkesspår
+ * Beställning utan mejl (portal eller telefon) – samma steg som portalens formulär, utan konfidens. Yrkesområdet kommer från
+ * kommunen (beslut 2026-10-09); bostadsorten visas bara när den finns (äldre beställningar). Alternativt område, yrkesspår
  * och beställarreferens sätts av Miljonbemanning vid accept (synpunkt #8) och visas bara när de finns.
  */
 function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "Beställningen"): CaseFieldsView {
@@ -163,9 +172,10 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
       title: "2. Deltagare",
       fields: [
         row("Namn", p ? `${p.firstName} ${p.lastName}` : null), row("Personnummer", null, false, pnrView(c, p)),
+        ...(p ? [row("Telefon", p.phone || null), row("E-post", p.email || null)] : []),
+        ...(c.primaryAreaCode ? [row("Yrkesområde", areaName(areas, c.primaryAreaCode))] : []),
         ...(p
-          ? [row("Telefon", p.phone || null), row("E-post", p.email || null), row("Bostadsort", p.city || null),
-            row("Föredragen kontaktväg", p.preferredContact ? contactLabel(p.preferredContact) : null)]
+          ? [...(p.city ? [row("Bostadsort", p.city)] : []), row("Föredragen kontaktväg", p.preferredContact ? participantContactLabel(p) : null)]
           : []),
       ],
     },
@@ -176,11 +186,10 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
         row("Bakgrundsinformation", c.backgroundInfo || null),
       ],
     },
-    ...(c.primaryAreaCode || c.vocationalTrack || c.buyerReference
+    ...(c.secondaryAreaCode || c.vocationalTrack || c.buyerReference
       ? [{
           title: "Uppgifter som Miljonbemanning sätter vid accept",
           fields: [
-            ...(c.primaryAreaCode ? [row("Avtalsområde (primärt)", areaName(areas, c.primaryAreaCode))] : []),
             ...(c.secondaryAreaCode ? [row("Avtalsområde (alternativt)", areaName(areas, c.secondaryAreaCode))] : []),
             ...(c.vocationalTrack ? [row("Yrkesspår", c.vocationalTrack)] : []),
             ...(c.buyerReference ? [row("Beställarreferens", c.buyerReference)] : []),
@@ -370,7 +379,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
     return {
       ...base,
       body: {
-        kind: "other", caseNumber: c?.caseNumber ?? null, original: originalView(m, mayReveal), caseCard, custMsgs, draft, lastReply, replyMail,
+        kind: "other", caseNumber: c?.caseNumber ?? null, cancellation: looksLikeCancellation(m.subject, m.bodyText), original: originalView(m, mayReveal), caseCard, custMsgs, draft, lastReply, replyMail,
         handled: m.status === "handled", handledText: m.status === "handled" ? `Hanterad av ${personName(d.profiles, m.handledBy)} ${whenText(m.handledAt, e.now)}` : null,
       },
     };
@@ -386,7 +395,7 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
     // acceptdialogen om den saknas.
     missing = {
       title: `Saknas: ${missingKeys.map((k) => FIELD_LABEL[k].toLowerCase()).join(", ")}`, critical: false,
-      text: ack.kind === "sent" && ack.body.includes("saknar") ? `Ordererkännandet bad kommunen svara med uppgifterna (${ack.when}).` : "",
+      text: ack.kind === "sent" && /saknar|kunde inte/.test(ack.body) ? `Ordererkännandet bad kommunen svara med uppgifterna (${ack.when}).` : "",
     };
   }
   // Registrerad av Miljonbemanning (beslut 4a): ärendets uppgifter visas i stället för en tolkning, originalmejlet bara när det finns.
@@ -430,6 +439,8 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const kallelse = out.filter((n) => n.template === "kallelse").slice(-1)[0];
   const team = (await ctx.repo.table("case_team").list({ caseId: c.id })).filter((t) => t.role !== "lead_coach");
   const [chLabel, chIcon]: [string, "phone" | "mail"] = kallelse ? CHANNEL[kallelse.channel] ?? [kallelse.channel, "mail"] : ["", "mail"];
+  // Telefon är ett val bara när det finns ett nummer: utan telefonnummer och e-postadress är det förvalet (beslut 2026-10-09).
+  const noContact = !!person && !hasContactDetails(person);
   const prefersPhone = person?.preferredContact === "phone";
   return {
     caseId: c.id, caseNumber: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId,
@@ -443,7 +454,12 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
     leadNotif: leadNotif ? { title: `${name(c.leadCoachId)} har fått en notis om tilldelningen`, emailBody: leadNotif.emailBody, others: others.length ? ` Även ${listJoin(others)} har fått en notis.` : "" } : null,
     custMail: custMail?.body ?? null,
     kallelse: kallelse
-      ? { title: prefersPhone ? `Deltagaren fick kallelse via ${chLabel} och har valt telefon – coachen ringer också:` : `Deltagaren fick kallelse via ${chLabel}, sin föredragna kontaktväg:`, icon: chIcon, body: kallelse.body }
+      ? {
+          title: noContact
+            ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:"
+            : prefersPhone ? `Deltagaren fick kallelse via ${chLabel} och har valt telefon – coachen ringer också:` : `Deltagaren fick kallelse via ${chLabel}, sin föredragna kontaktväg:`,
+          icon: chIcon, body: kallelse.body,
+        }
       : null,
   };
 }
