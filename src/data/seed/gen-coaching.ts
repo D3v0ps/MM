@@ -3,8 +3,8 @@
 import { addDays, addMinutes, diffDays, isWorkingDay, isoWeek, monday } from "@/core/time";
 import { uniq } from "@/core/util";
 import { ABS_VALID, ACTIVITY_TYPES, AREAS, GOALS, NOTES, NOW, OBSTACLES, TODAY } from "./constants";
-import { pad2, type Gen, type PCheckIn } from "./context";
-import type { Activity, ActivityKind, Attendance, AttendanceStatus, CheckInMode, EmployerContactCount, GoalStatus, InputMethod, TrafficLight } from "../schema";
+import { pad2, type Gen, type PActivity, type PAttendance, type PCheckIn } from "./context";
+import type { ActivityKind, AttendanceStatus, CheckInMode, EmployerContactCount, GoalStatus, InputMethod, TrafficLight } from "../schema";
 
 export function genActivities(g: Gen) {
   const { r, S, cases } = g;
@@ -24,11 +24,11 @@ export function genActivities(g: Gen) {
       ];
       if (paused) continue;
       const zeroWeek = (c.tags.includes("noll1") && wk === "2027-W03") ? "valid" : (c.tags.includes("noll2") && wk === "2027-W02") ? "invalid" : null;
-      const weekAtt: { act: Activity; att: Attendance }[] = [];
+      const weekAtt: { act: PActivity; att: PAttendance }[] = [];
       for (const p of plan) {
         if (p.day < c.startDate || (c.endDate && p.day > c.endDate) || !isWorkingDay(p.day)) continue;
         const startsAt = `${p.day}T${p.time}`;
-        const act: Activity = { id: g.nid("a"), caseId: c.id, kind: p.kind, startsAt, durationMin: p.dur, location: p.loc, note: "" };
+        const act: PActivity = { id: g.nid("a"), caseId: c.id, kind: p.kind, startsAt, durationMin: p.dur, location: p.loc, note: "" };
         S.activities.push(act);
         if (startsAt >= NOW) continue;
         if (c.leadCoachId === "u-amira" && wk === "2027-W04" && (c.tags.includes("nadia") || c.tags.includes("elif") || c.tags.includes("amal")) && p.kind !== "möte") { w4Missing.add(act.id); continue; }
@@ -39,7 +39,7 @@ export function genActivities(g: Gen) {
         if (c.tags.includes("yusuf") && wk >= "2027-W03" && status === "absent_invalid" && !(p.day === "2027-01-20" || p.day === "2027-01-27")) status = "present";
         const reason = status === "absent_valid" ? r.pick(ABS_VALID) : status === "absent_invalid" ? "Uteblev utan att meddela" : "";
         const regAt = `${p.day}T${pad2(Math.min(17, Number(p.time.slice(0, 2)) + Math.ceil(p.dur / 60)))}:${pad2(r.int(0, 50))}`;
-        const att: Attendance = { id: g.nid("at"), activityId: act.id, caseId: c.id, status, reason, registeredBy: p.kind === "praktikdag" ? "u-david" : (c.leadCoachId as string), registeredAt: regAt, customerNotifiedAt: null };
+        const att: PAttendance = { id: g.nid("at"), activityId: act.id, caseId: c.id, status, reason, registeredBy: p.kind === "praktikdag" ? "u-david" : (c.leadCoachId as string), registeredAt: regAt, customerNotifiedAt: null };
         S.attendance.push(att);
         weekAtt.push({ act, att });
       }

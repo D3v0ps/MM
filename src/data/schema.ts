@@ -61,6 +61,8 @@
 //                                       Testdatat: src/data/seed/gen-notes.ts
 //   (finns inte i prototypen)        -> saved_reports (rapportbyggaren, rapporter steg 4, 0021).
 //                                       Testdatat: src/data/seed/gen-saved-reports.ts
+//   (finns inte i prototypen)        -> group_activities (gruppaktiviteter, coachmötet 2026-10-09, 0030), activities.groupActivityId
+//                                       och attendance.source (automatisk närvaro). Testdatat har inga gruppaktiviteter.
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -155,9 +157,22 @@ export type PreferredContact = (typeof PREFERRED_CONTACTS)[number];
 
 export const ACTIVITY_KINDS = ["möte", "yrkesmoment", "praktikdag", "arbetsgivarbesök", "annat"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+/**
+ * Typerna en gruppaktivitet kan ha (0030, coachmötet 2026-10-09): delmängd av activities.kind. Coachträffen (möte) och
+ * praktikdagen är individuella – coachträffen hör till veckans möte med huvudcoachen och praktikdagen till praktiken.
+ */
+export const GROUP_ACTIVITY_KINDS = ["yrkesmoment", "arbetsgivarbesök", "annat"] as const;
+export type GroupActivityKind = (typeof GROUP_ACTIVITY_KINDS)[number];
 
 export const ATTENDANCE_STATUSES = ["present", "late", "absent_valid", "absent_invalid"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+/**
+ * Hur närvaron registrerades (0030, Karims beslut 1 2026-10-09): manual = en människa registrerade (radknapp, "Markera
+ * alla/övriga som närvarande", aktivitetsvyn); auto = jobbet auto_attendance registrerade Närvarande efter dagens slut för ett
+ * tillfälle som saknade närvaro. En automatisk rad som coachen ändrar blir manuell. Bara systemet skriver auto (RLS).
+ */
+export const ATTENDANCE_SOURCES = ["manual", "auto"] as const;
+export type AttendanceSource = (typeof ATTENDANCE_SOURCES)[number];
 
 /** Utkast eller godkänd (kartläggning, avstämning, månadsbedömning, månadsplan). */
 export const APPROVAL_STATUSES = ["draft", "approved"] as const;
@@ -676,6 +691,35 @@ export type Activity = {
   durationMin: number;
   location: string;
   note: string;
+  /**
+   * Gruppaktiviteten tillfället hör till (0030), annars null. Varje inbjuden deltagare har en egen rad här – veckorapporten,
+   * närvarograden och fakturan räknar raderna som förut. Tid, längd, plats och typ följer gruppaktiviteten.
+   */
+  groupActivityId: string | null;
+};
+
+/**
+ * Gruppaktivitet (0030, coachmötet 2026-10-09): ett tillfälle för flera deltagare. Bara Miljonbemanning i avtalet ser och
+ * arbetar i dem – aldrig kommunen eller ekonomen. Deltagarna har var sin rad i activities (groupActivityId). Inget raderas:
+ * en inställd aktivitet får cancelledAt och deltagarnas oregistrerade tillfällen tas bort.
+ */
+export type GroupActivity = {
+  id: string;
+  contractId: string;
+  /** Namnet MB väljer ("CV-verkstad"). 1–120 tecken. Bara internt – syns inte för kommunen. */
+  name: string;
+  kind: GroupActivityKind;
+  startsAt: LocalDateTime;
+  durationMin: number;
+  location: string;
+  /** Ansvarig coach (profiles.id), om någon. */
+  responsibleId: UserId | null;
+  createdBy: UserId;
+  createdAt: LocalDateTime;
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  cancelledAt: LocalDateTime | null;
+  cancelledBy: UserId | null;
 };
 
 export type Attendance = {
@@ -688,6 +732,8 @@ export type Attendance = {
   registeredBy: UserId;
   registeredAt: LocalDateTime;
   customerNotifiedAt: LocalDateTime | null;
+  /** manual eller auto (jobbet auto_attendance, 0030). Visas "Automatiskt registrerad" tills någon ändrar raden. */
+  source: AttendanceSource;
 };
 
 export type EmployerContacts = { count: EmployerContactCount | null; types: string[] };
@@ -1632,6 +1678,7 @@ export type Tables = {
   case_team: CaseTeamMember;
   inbound_emails: InboundEmail;
   intake_assessments: IntakeAssessment;
+  group_activities: GroupActivity;
   activities: Activity;
   attendance: Attendance;
   check_ins: CheckIn;
@@ -1693,7 +1740,7 @@ export const TABLE_NAMES = [
   "profiles", "memberships", "role_choices",
   "persons", "cases", "case_status_history", "case_counters", "case_team", "buyer_references",
   "inbound_emails",
-  "intake_assessments", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
+  "intake_assessments", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
   "reports", "messages", "user_notifications", "notification_reads", "tasks", "outbound_messages", "case_seen",
   "contract_deviations", "alerts", "alert_acks", "deadlines", "kpi_snapshots", "pulse_invites", "pulse_responses", "bonus_claims",
   "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals", "invoice_credits", "fortnox_runs", "integrations",

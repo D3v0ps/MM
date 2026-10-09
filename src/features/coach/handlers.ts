@@ -29,6 +29,11 @@ const NO_EDIT = "Du har inte behörighet att ändra i ärendet.";
 const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.";
 /** Samordnare, avtalsansvarig och coach ändrar i ärendet (canEditCase – alla coacher i avtalets ärenden sedan 2026-10-09). */
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
+/**
+ * Registrerar närvaro: de som arbetar i ärendena (policyns CASE_WORKERS). Samordnare och avtalsansvarig sedan gruppaktiviteterna
+ * (beslut 2026-10-09 – alla på Miljonbemanning arbetar i alla gruppaktiviteter och tar närvaro i aktivitetsvyn).
+ */
+const ATTENDANCE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** AI-körningar som ger förslag till en veckoavstämning. */
 const CHECK_IN_AI_KINDS: readonly AiRunKind[] = ["transcribe_extract", "extract_teams", "extract_notes"];
 
@@ -72,17 +77,19 @@ const ACTIVITY_NOT_FOUND = "Tillfället finns inte, eller så har du inte behör
 type AttendanceReg = Pick<Attendance, "status" | "reason" | "registeredBy" | "registeredAt">;
 /**
  * Närvaroraden för ett tillfälle: uppdaterar den som finns, annars skapas den. Samma rad från enskild registrering och
- * "Markera alla som närvarande", så att fakturaunderlaget och veckorapporten blir identiska oavsett väg.
+ * "Markera alla som närvarande", så att fakturaunderlaget och veckorapporten blir identiska oavsett väg. En människa
+ * registrerar alltid manuellt: en automatiskt registrerad rad (jobbet auto_attendance, 0030) som ändras blir manuell.
  */
 async function writeAttendance(ctx: Ctx, act: Activity, existing: Attendance | null, reg: AttendanceReg): Promise<string> {
   const table = ctx.repo.table("attendance");
+  const row = { ...reg, source: "manual" as const };
   if (existing) {
-    await table.update(existing.id, reg);
+    await table.update(existing.id, row);
     return existing.id;
   }
   const id = ctx.newId("at");
   try {
-    await table.insert({ id, activityId: act.id, caseId: act.caseId, customerNotifiedAt: null, ...reg });
+    await table.insert({ id, activityId: act.id, caseId: act.caseId, customerNotifiedAt: null, ...row });
     return id;
   } catch (e) {
     // Ett annat kommando hann skriva raden (dubbelklick, eller "Markera alla" samtidigt med en radknapp): den unika nyckeln
@@ -90,12 +97,12 @@ async function writeAttendance(ctx: Ctx, act: Activity, existing: Attendance | n
     if (!(e instanceof UniqueError)) throw e;
     const again = await table.first({ activityId: act.id });
     if (!again) throw e;
-    await table.update(again.id, reg);
+    await table.update(again.id, row);
     return again.id;
   }
 }
 
-handleCommand(attendanceSet, { roles: ["coach", "handledare"] }, async (ctx, p) => {
+handleCommand(attendanceSet, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   const act = await ctx.repo.table("activities").get(p.activityId);
   if (!act) return fail("not_found", ACTIVITY_NOT_FOUND);
   const c = await ctx.repo.table("cases").get(act.caseId);
@@ -103,14 +110,18 @@ handleCommand(attendanceSet, { roles: ["coach", "handledare"] }, async (ctx, p) 
   const now = ctx.now();
   const existing = await ctx.repo.table("attendance").first({ activityId: act.id });
   const attendanceId = await writeAttendance(ctx, act, existing, { status: p.status, reason: p.reason || "", registeredBy: ctx.actor.userId, registeredAt: now });
-  await ctx.audit({ action: "attendance.registered", entity: "attendance", entityId: attendanceId, contractId: c.contractId, details: { caseId: act.caseId, status: p.status } });
+  // wasAuto: en automatiskt registrerad rad som ändrades (blir manuell) – bara id:n och källan i loggen.
+  await ctx.audit({
+    action: "attendance.registered", entity: "attendance", entityId: attendanceId, contractId: c.contractId,
+    details: { caseId: act.caseId, status: p.status, ...(existing?.source === "auto" ? { wasAuto: true } : {}), ...(act.groupActivityId ? { groupActivityId: act.groupActivityId } : {}) },
+  });
   // Veckorapporten publiceras automatiskt när alla handläggarens deltagare är registrerade.
   const published = await publishWeeklyIfComplete(ctx, c.contractId, c.referrerId, isoWeek(act.startsAt).key);
   return ok({ attendanceId, published });
 });
 
 // ---------------------------------------------------------------- coach.attendanceSetAll ("Markera alla som närvarande")
-handleCommand(attendanceSetAll, { roles: ["coach", "handledare"] }, async (ctx, p) => {
+handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   const ids = uniq(p.activityIds);
   // Alla tillfällen läses via ctx.repo (policyn/RLS: alla ärenden i avtalet sedan 2026-10-09, skyddade bara för namngiven coach).
   // Saknas något skrivs ingenting – listan i bekräftelsen ska stämma med det som registreras.

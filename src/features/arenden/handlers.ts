@@ -404,7 +404,7 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
 // mötet: startdatum, status, tillfällen enligt veckoplanen, statushistorik och logg.
 const START_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
 const NO_START = "Insatsen kan startas när avropet är accepterat.";
-const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "" });
+const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null });
 /** Planen i loggen: bara dag, tid och typ – inga personuppgifter. */
 const planKeys = (plan: readonly WeekPlanRow[]) => plan.map((r) => `${WEEKDAYS[r.weekday]} ${r.time} ${r.kind}`);
 const isPlanKind = (k: string) => (WEEK_PLAN_KINDS as readonly string[]).includes(k);
@@ -471,7 +471,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
-  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "" });
+  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null });
   await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
   return ok({ activityId: id });
 });
