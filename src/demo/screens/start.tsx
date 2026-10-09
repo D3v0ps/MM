@@ -80,7 +80,7 @@ function ScenarioList() {
 }
 
 const PHASES: [string, string, string][] = [
-  ["1", "Leverera avtalet", "Inloggning och roller, mejlavrop och portal, ärendenummer, närvaro och veckorapport, avstämningar, månadsbedömning, rapporter, fakturaunderlag, deadlines, revisionslogg."],
+  ["1", "Leverera avtalet", "Inloggning och roller, mejlavrop och portal, ärendenummer, närvaro och veckorapport, möten, månadsbedömning, rapporter, fakturaunderlag, deadlines, revisionslogg."],
   ["2", "AI och automatisk fakturering", "Inspelning med samtycke, AI-förslag med belägg, Fortnox-API, pulsmätning, resultatflaggor, register för avtalsavvikelser."],
   ["3", "Mervärde", "Bonusanspråk, yrkeskompetensbevis, arbetsgivarregister och praktik med de fyra rätten, statistik och dataexport."],
   ["4", "Fler kommunavtal", "Nästa kommunavtal som konfiguration, kapacitetsvy, exportmallar per avtal, deltagarinloggning."],
@@ -149,7 +149,7 @@ export function OmStartScreen() {
             <b>Notis vid tilldelning:</b> coach och team får notis i appen och e-post (utan personuppgifter) när ett ärende tilldelas eller coach byts.
           </li>
           <li>
-            <b>Automatisk påminnelse:</b> en vecka utan progression (veckomålet inte uppnått eller ingen godkänd avstämning) ger påminnelse till coachen.
+            <b>Automatisk påminnelse:</b> en vecka utan progression (veckomålet inte uppnått eller ingen godkänd mötesrapport) ger påminnelse till coachen.
           </li>
           <li>
             <b>Tidig eskalering:</b> två veckor i rad utan progression eskaleras till chef/controller.

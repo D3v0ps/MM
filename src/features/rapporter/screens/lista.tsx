@@ -285,7 +285,7 @@ function ListView({ data, query }: { data: ReportList; query: URLSearchParams })
         <Stack>
           <Stepper steps={LIFECYCLE} current={-1} />
           <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
-            <li>Rapporter byggs bara av godkända uppgifter: registrerad närvaro, godkända avstämningar och godkända månadsbedömningar.</li>
+            <li>Rapporter byggs bara av godkända uppgifter: registrerad närvaro, godkända mötesrapporter och godkända månadsbedömningar.</li>
             <li>Coachen granskar och godkänner. Samordnaren kan kvalitetsgranska innan leverans (valfritt).</li>
             <li>Leveransen sker i kommunens portal. Mejlet innehåller bara en notis utan personuppgifter.{data.emailAttachmentAllowed ? "" : " Bilaga i e-post är avstängd."}</li>
             <li>När mottagaren öppnar rapporten första gången blir den kvitterad.</li>

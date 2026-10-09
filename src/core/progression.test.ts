@@ -15,8 +15,8 @@ describe("progression per vecka", () => {
     const no = testDb({ check_ins: [mkCheckIn({ id: "ci", caseId: "c1", heldAt: "2027-01-26T10:00", goalStatus: "no" })] });
     expect(weekProgress(c, "2027-W04", no)?.reason).toBe("Veckomålet inte uppnått");
     const draft = testDb({ check_ins: [mkCheckIn({ id: "ci", caseId: "c1", heldAt: "2027-01-26T10:00", status: "draft" })] });
-    expect(weekProgress(c, "2027-W04", draft)).toEqual({ key: "2027-W04", progress: false, reason: "Avstämningen är inte godkänd" });
-    expect(weekProgress(c, "2027-W04", testDb())).toEqual({ key: "2027-W04", progress: false, reason: "Ingen avstämning dokumenterad" });
+    expect(weekProgress(c, "2027-W04", draft)).toEqual({ key: "2027-W04", progress: false, reason: "Mötesrapporten är inte godkänd" });
+    expect(weekProgress(c, "2027-W04", testDb())).toEqual({ key: "2027-W04", progress: false, reason: "Inget möte dokumenterat" });
   });
   it("startveckan och pausade veckor räknas inte; före start inget värde", () => {
     expect(weekProgress(c, "2027-W01", testDb())).toEqual({ key: "2027-W01", progress: null, reason: "Startvecka" });
@@ -35,8 +35,8 @@ describe("veckor i rad utan progression", () => {
     expect(noProgressStreak(c, db, env)).toEqual({
       streak: 2,
       weeks: [
-        { key: "2027-W03", progress: false, reason: "Ingen avstämning dokumenterad" },
-        { key: "2027-W04", progress: false, reason: "Ingen avstämning dokumenterad" },
+        { key: "2027-W03", progress: false, reason: "Inget möte dokumenterat" },
+        { key: "2027-W04", progress: false, reason: "Inget möte dokumenterat" },
       ],
     });
   });
@@ -51,7 +51,7 @@ describe("veckor i rad utan progression", () => {
     expect(n.map((x) => x.id)).toEqual(["nprog:c1:2027-W04"]);
     expect(n[0]).toMatchObject({
       kind: "progress_reminder", title: "Påminnelse: ingen progression 2 veckor i rad", createdAt: "2027-02-01T08:00", channels: ["app", "email"],
-      body: "BOT-27-0003: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i mötet.",
+      body: "BOT-27-0003: Inget möte dokumenterat (v. 4 2027). Planera nästa steg och dokumentera i mötet.",
       emailBody: "Påminnelse från Miljonmatch: ett av dina ärenden (BOT-27-0003) saknar dokumenterad progression. Logga in för att se vilket steg som behövs.",
       readAt: null,
     });
@@ -62,7 +62,7 @@ describe("veckor i rad utan progression", () => {
     expect(n.map((x) => x.id)).toEqual(["nesc:c1:2027-W04", "nesc:c2:2027-W04"]);
     expect(n[0]).toMatchObject({
       title: "Eskalering: 2 veckor i rad utan progression", visibleToCoach: false,
-      body: "BOT-27-0003 · coach Amira Haddad · v. 3 2027: Ingen avstämning dokumenterad · v. 4 2027: Ingen avstämning dokumenterad.",
+      body: "BOT-27-0003 · coach Amira Haddad · v. 3 2027: Inget möte dokumenterat · v. 4 2027: Inget möte dokumenterat.",
       emailBody: "Eskalering i Miljonmatch: ett ärende (BOT-27-0003) har 2 veckor i rad utan progression. Logga in för att se detaljerna.",
     });
     expect(notificationsFor(db, "u-sara", "samordnare", env)).toEqual([]);

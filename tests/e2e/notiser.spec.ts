@@ -24,7 +24,7 @@ test("notiser: coachen ser tilldelningar och påminnelser men inga eskaleringar"
   // Påminnelsen om BOT-26-0148 (tre veckor i rad) – samma text som den gamla prototypen
   const first = items(page).first();
   await expect(first).toContainText("Påminnelse: ingen progression 3 veckor i rad");
-  await expect(first).toContainText("BOT-26-0148: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i mötet.");
+  await expect(first).toContainText("BOT-26-0148: Inget möte dokumenterat (v. 4 2027). Planera nästa steg och dokumentera i mötet.");
   // E-postens text innehåller bara ärendenumret – inga personuppgifter
   await first.getByRole("button", { name: "Visa e-postens text" }).click();
   await expect(first).toContainText(
@@ -69,7 +69,7 @@ test("notiser: chefen ser eskaleringarna med coach och orsak per vecka", async (
   const first = items(page).first();
   await expect(first).toContainText("Eskalering: 3 veckor i rad utan progression");
   await expect(first).toContainText(
-    "BOT-26-0148 · coach Amira Haddad · v. 2 2027: Veckomålet inte uppnått · v. 3 2027: Veckomålet inte uppnått · v. 4 2027: Ingen avstämning dokumenterad.",
+    "BOT-26-0148 · coach Amira Haddad · v. 2 2027: Veckomålet inte uppnått · v. 3 2027: Veckomålet inte uppnått · v. 4 2027: Inget möte dokumenterat.",
   );
   await first.getByRole("button", { name: "Visa e-postens text" }).click();
   await expect(first).toContainText("Eskalering i Miljonmatch: ett ärende (BOT-26-0148) har 3 veckor i rad utan progression. Logga in för att se detaljerna.");

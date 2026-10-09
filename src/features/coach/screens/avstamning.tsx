@@ -833,7 +833,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
             )}
             {pair(
               "attendanceComment",
-              <Field label="Kommentar om närvaron" id="ci-attc" help="Valfritt. Till exempel vad ni kom överens om efter en frånvaro. Närvaron i sig registrerar du ovan – AI föreslår bara texten.">
+              <Field label="Kommentar om närvaron" id="ci-attc" help={`Valfritt. Till exempel vad ni kom överens om efter en frånvaro.${method === "ai" ? " Närvaron i sig registrerar du ovan – AI föreslår bara texten." : ""}`}>
                 <Input value={form.attendanceComment} onValueChange={(x) => setF("attendanceComment", x)} maxLength={200} />
               </Field>,
             )}
@@ -1291,7 +1291,7 @@ function AiCapture({
   if (recording.block === "ai_off") {
     return (
       <Notice tone="warn" title="Tal till text är inte kopplat ännu">
-        {recording.blockText ?? AI_OFF_TEXT}
+        Fyll i mötesrapporten själv så länge.
       </Notice>
     );
   }

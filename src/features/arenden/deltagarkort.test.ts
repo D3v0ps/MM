@@ -477,16 +477,16 @@ describe("månadsunderlaget (arenden.kortManad)", () => {
     expect(b.doc!.m.assessment).toBeNull();
   });
 
-  it("godkända veckoavstämningar: ingen falsk varning när en vecka går över månadsskiftet (BOT-26-0133 januari)", async () => {
+  it("godkända mötesrapporter: ingen falsk varning när en vecka går över månadsskiftet (BOT-26-0133 januari)", async () => {
     // Vecka 53 (28 dec – 3 jan) är en veckorad i både december och januari, men avstämningen hölls 28 december och räknas i
     // december. Raden jämför därför inte antalet avstämningar med antalet veckor.
     const b = (await q(caseMonthBasis, { caseId: "case-260133", manad: "2027-01" }, amira()))!;
     expect(b.delivered).toBeNull();
     expect(b.gaps).toMatchObject({ weeks: 5, pausedWeeks: 0, checkInsApproved: 4, checkInsDraft: 0 });
     expect(b.doc!.m.weeks.map((w) => w.label)).toEqual(["Vecka 53", "Vecka 1", "Vecka 2", "Vecka 3", "Vecka 4"]);
-    expect(checkInsApprovedGap(b.gaps!)).toEqual({ kind: "ok", text: "4 veckoavstämningar är godkända." });
-    expect(checkInsApprovedGap({ checkInsApproved: 1 })).toEqual({ kind: "ok", text: "1 veckoavstämning är godkänd." });
-    expect(checkInsApprovedGap({ checkInsApproved: 0 })).toEqual({ kind: "info", text: "Ingen veckoavstämning är godkänd än." });
+    expect(checkInsApprovedGap(b.gaps!)).toEqual({ kind: "ok", text: "4 mötesrapporter är godkända." });
+    expect(checkInsApprovedGap({ checkInsApproved: 1 })).toEqual({ kind: "ok", text: "1 mötesrapport är godkänd." });
+    expect(checkInsApprovedGap({ checkInsApproved: 0 })).toEqual({ kind: "info", text: "Ingen mötesrapport är godkänd än." });
   });
 
   it("levererad månad: inget dokument här – länk till rapporten; före start: texten om att insatsen inte startat", async () => {

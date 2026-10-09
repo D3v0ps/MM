@@ -16,7 +16,7 @@ import {
   AiBox, AiTag, AutosaveStatus, Badge, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
-import { AI_OFF_TEXT, appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
+import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
 import { breakable, CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, ToCaseButton, useCaseView } from "./shared";
 
 type Ok = Extract<AssessmentPage, { kind: "ok" }>;
@@ -705,7 +705,7 @@ function AiDraftCard({ v }: { v: Ok }) {
     return (
       <Card title="AI-utkast från godkända mötesrapporter" icon="sparkles">
         <Notice tone="warn" title="Tal till text är inte kopplat ännu">
-          {AI_OFF_TEXT}
+          Skriv observationerna, sammanfattningen och planen själv så länge.
         </Notice>
       </Card>
     );

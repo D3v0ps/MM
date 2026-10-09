@@ -37,7 +37,7 @@ type CheckInAiOutput = { source: AiSource; suggestions: CheckInSuggestions; tran
 
 const AUTOSAVE_APPROVE = "Automatisk sparning kan inte godkänna. Godkänn med knappen.";
 const CONFLICT = "Utkastet har ändrats i en annan flik eller på en annan enhet. Ladda om sidan för att se den senaste versionen – inget har skrivits över.";
-const CHECK_IN_APPROVED = "Avstämningen är redan godkänd och ändras inte. Gör en ny avstämning om något behöver rättas.";
+const CHECK_IN_APPROVED = "Mötesrapporten är redan godkänd och ändras inte. Gör ett nytt möte om något behöver rättas.";
 const ASSESSMENT_APPROVED = "Bedömningen är redan godkänd och ändras inte. En godkänd bedömning ändras genom en rättad rapportversion.";
 type AutosaveParams = { autosave?: boolean; editSession?: string };
 /**
@@ -184,7 +184,7 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
 
   const table = ctx.repo.table("check_ins");
   const existing = p.checkInId ? await table.get(p.checkInId) : null;
-  if (existing && existing.caseId !== c.id) return fail("not_found", "Avstämningen finns inte.");
+  if (existing && existing.caseId !== c.id) return fail("not_found", "Mötet finns inte.");
   // En godkänd avstämning ändras inte (SPEC §7.5) – inte heller av en autosparning från en flik som inte vet att den godkänts.
   if (existing && existing.status === "approved") return fail("approved", CHECK_IN_APPROVED);
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);

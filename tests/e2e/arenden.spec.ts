@@ -566,9 +566,9 @@ test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas in
   await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
   await expect(main(page)).toContainText("Underlaget till månadsrapporten. Bara godkända uppgifter kommer med.");
   await expect(main(page)).toContainText("Innan rapporten kan godkännas");
-  // Antalet godkända avstämningar under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
-  await expect(main(page)).toContainText("4 veckoavstämningar är godkända.");
-  await expect(main(page)).not.toContainText(/\d+ av \d+ veckoavstämning/);
+  // Antalet godkända mötesrapporter under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
+  await expect(main(page)).toContainText("4 mötesrapporter är godkända.");
+  await expect(main(page)).not.toContainText(/\d+ av \d+ mötesrapport/);
   await expect(main(page)).toContainText("2 närvarotillfällen är inte registrerade.");
   await expect(main(page)).toContainText("Månadsbedömningen är inte godkänd. Avsnitt 4, 7 och 8 blir tomma.");
   await expect(main(page)).toContainText("3 anteckningar från januari kan användas i sammanfattningen.");

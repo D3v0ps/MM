@@ -396,7 +396,7 @@ handleQuery(casePicker, { roles: ["coach"] }, async (ctx, p) => {
       const draft = checkInsOf(db, c.id).find((y) => y.status === "draft");
       rows.push({
         ...base, badge: draft ? { tone: "outline", icon: "edit", text: draft.ai ? "AI-utkast att granska" : "Utkast sparat" } : null,
-        note: last ? `Senast godkänd ${fmtDate(last.heldAt)}` : "Ingen godkänd avstämning",
+        note: last ? `Senast godkänd ${fmtDate(last.heldAt)}` : "Ingen godkänd mötesrapport",
       });
     } else if (p.kind === "manad") {
       const ma = assessmentFor(db, c.id, month);

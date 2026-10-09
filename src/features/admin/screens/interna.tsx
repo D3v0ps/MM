@@ -67,7 +67,7 @@ function RulesForm({ d }: { d: OrgRulesView }) {
         >
           <Stack>
             <FormGrid>
-              <Field id="rule-remind" label="Påminn coachen efter" help="Veckor utan progression: veckomålet är inte uppnått eller ingen avstämning är godkänd.">
+              <Field id="rule-remind" label="Påminn coachen efter" help="Veckor utan progression: veckomålet är inte uppnått eller ingen mötesrapport är godkänd.">
                 <Select value={String(f.remind)} onValueChange={(v) => setF((x) => ({ ...x, remind: Number(v) }))} options={[1, 2, 3, 4].map((w) => ({ value: String(w), label: weeksWord(w) }))} />
               </Field>
               <Field id="rule-esc" label="Eskalera efter" help="Veckor i rad utan progression innan ärendet eskaleras." error={errs.esc}>

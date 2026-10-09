@@ -115,7 +115,7 @@ test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvar
   await expect(page.getByRole("link", { name: "Öppna notiser" })).toBeVisible();
   await expect(card(page, "Egna flaggor")).toContainText("Fastnat i fas 1");
   await expect(card(page, "Egna flaggor")).toContainText("Upprepad ogiltig frånvaro");
-  await expect(card(page, "Påminnelser")).toContainText("Ingen progression 3 veckor i rad: ingen avstämning dokumenterad (v. 4 2027).");
+  await expect(card(page, "Påminnelser")).toContainText("Ingen progression 3 veckor i rad: inget möte dokumenterat (v. 4 2027).");
   await expect(card(page, "Rapporter som förfaller")).toContainText("Månadsrapporter januari 2027: 14 st");
   await expect(card(page, "Rapporter som förfaller")).toContainText("Väntar på din bedömning: 11 · Godkända, ska levereras: 3");
   await page.getByRole("link", { name: "Registrera närvaro för vecka 4" }).click();

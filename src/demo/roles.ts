@@ -20,7 +20,7 @@ export type DemoRoleDef = {
 export const DEMO_ROLES: readonly DemoRoleDef[] = [
   { key: "samordnare", label: "Samordnare", org: "mb", personaId: "u-sara", desc: "Avropsinkorg med SLA-klocka, tilldelar coach, bokar start.", icon: "inbox" },
   { key: "avtalsansvarig", label: "Avtalsansvarig", org: "mb", personaId: "u-johan", desc: "Accepterar och avböjer avrop, avtalsavvikelser, godkänner beställarrapport.", icon: "briefcase" },
-  { key: "coach", label: "Huvudcoach", org: "mb", personaId: "u-amira", desc: "Min vecka: närvaro, avstämningar, månadsbedömningar och rapporter.", icon: "calendar" },
+  { key: "coach", label: "Huvudcoach", org: "mb", personaId: "u-amira", desc: "Min vecka: närvaro, möten, månadsbedömningar och rapporter.", icon: "calendar" },
   { key: "handledare", label: "Handledare", org: "mb", personaId: "u-petra", desc: "Ser bara tilldelade ärenden: moment, praktik och närvaro.", icon: "tool" },
   { key: "chef", label: "Chef och controller", org: "mb", personaId: "u-karin", desc: "KPI:er mot mål, flaggor, prognos, avvikelser och revisionslogg.", icon: "chart" },
   { key: "ekonom", label: "Ekonom", org: "mb", personaId: "u-lars", desc: "Fakturaunderlag per ärende och månad – inga anteckningar eller rapporter.", icon: "card" },

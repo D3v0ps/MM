@@ -51,13 +51,13 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "kommun_handlaggare", view: "kom.rapporter", params: {}, text: "Byt till kundens perspektiv och öppna veckorapporten för vecka 4." },
   ] },
   { id: "s5", title: "Röd status blir en avvikelse", lead: "Avvikelse = åtgärd. Röd status kräver åtgärd, ansvarig och uppföljningsdatum.", steps: [
-    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "yusuf") }), text: "Gör veckoavstämningen för Yusuf Abdi, som har upprepad ogiltig frånvaro." },
+    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "yusuf") }), text: "Dokumentera mötet med Yusuf Abdi, som har upprepad ogiltig frånvaro." },
     { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "yusuf") }), text: "Välj samlad status Röd. Systemet kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum." },
     { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "yusuf"), tab: "avvikelser" }), text: "Klicka \"Kalla kommunen till uppföljning\"." },
     { role: "kommun_handlaggare", view: "kom.deltagare", params: (r) => ({ caseId: sc(r, "yusuf") }), text: "Byt till kundens perspektiv och se mötesförfrågan som ett säkert meddelande." },
   ] },
   { id: "s6", title: "AI-stöd: granska ett utkast", lead: "Byggs i fas 2. AI föreslår – coachen bedömer. Belägg med citat och tidpunkt.", steps: [
-    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "mehmet"), checkInId: aiDraftId(r) }), text: "Öppna AI-utkastet från Mehmet Kayas avstämning i fredags." },
+    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "mehmet"), checkInId: aiDraftId(r) }), text: "Öppna AI-utkastet från Mehmet Kayas möte i fredags." },
     { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "mehmet"), checkInId: aiDraftId(r) }), text: "Visa beläggen. Samlad status är tom – den väljer du själv. Acceptera, ändra eller avvisa varje förslag." },
     { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "mehmet"), checkInId: aiDraftId(r) }), text: "Godkänn. Råtranskriptet raderas och varje beslut loggas." },
   ] },
@@ -104,13 +104,13 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns
   // inte i den gamla prototypen och har därför sökvägen som vy ("/rost").
-  { id: "s14", title: "Röstinspelning", lead: "Coachen spelar in avstämningen, kommunen talar in och deltagaren spelar in på sitt språk. AI föreslår – människan bedömer. Inget ljud sparas.", steps: [
-    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Välj Med AI-stöd och Spela in samtalet (i prototypen: Simulera en inspelning). Pausa, fortsätt och stoppa. Ljudet laddas upp, transkriberas och raderas direkt. Förslagen har belägg – samlad status väljer du själv." },
+  { id: "s14", title: "Röstinspelning", lead: "Coachen spelar in mötet, kommunen talar in och deltagaren spelar in på sitt språk. AI föreslår – människan bedömer. Inget ljud sparas.", steps: [
+    { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Välj Med AI-stöd och Spela in mötet (i prototypen: Simulera en inspelning). Pausa, fortsätt och stoppa. Ljudet laddas upp, transkriberas och raderas direkt. Förslagen har belägg – samlad status väljer du själv." },
     { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Nadia har spelat in ett röstmeddelande på somaliska. Läs den svenska översättningen, visa originaltexten och markera det som granskat. Skicka en ny inspelningslänk – utskicket innehåller inga personuppgifter." },
     { role: "deltagare", view: "/rost", params: {}, text: "Byt till deltagarens perspektiv: länken utan inloggning (arabiska som förval). Byt språk, ge samtycke, spela in och skicka." },
-    { role: "coach", view: "coach.minvecka", params: {}, text: "Tillbaka som coach: det nya röstmeddelandet väntar på granskning på Min vecka. Använd texten som underlag i nästa avstämning." },
+    { role: "coach", view: "coach.minvecka", params: {}, text: "Tillbaka som coach: det nya röstmeddelandet väntar på granskning på Min vecka. Använd texten som underlag i nästa möte." },
     { role: "kommun_handlaggare", view: "kom.bestall", params: {}, text: "Som handläggare: beställ en insats och tala in bakgrunden i stället för att skriva (steg 3). Texten hamnar i fältet och inget ljud sparas." },
-    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa AI-utkast från godkända avstämningar. Utkasten har källor och bygger aldrig på råtranskript – nivåerna väljer du själv." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa AI-utkast från godkända mötesrapporter. Utkasten har källor och bygger aldrig på råtranskript – nivåerna väljer du själv." },
   ] },
 ];
 

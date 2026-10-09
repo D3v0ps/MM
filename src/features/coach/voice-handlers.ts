@@ -15,7 +15,7 @@ import { confirmOwnUpload } from "../_shared/voice-upload";
 import { monthlyDraft, recordingFinish, recordingState, type RecordingState } from "./api";
 
 const NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
-const NOT_MINE = "Du har inte behörighet att spela in avstämningen i det här ärendet.";
+const NOT_MINE = "Du har inte behörighet att spela in mötet i det här ärendet.";
 const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.";
 
 /** Läget och förslagen för en inspelning. ai_runs läses via ctx.repo (coachen ser körningar i sina ärenden). */

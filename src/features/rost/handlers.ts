@@ -159,7 +159,7 @@ function sendCheck(c: Case, person: Person | null, cfg: ContractConfig | null, c
   if (!ch) {
     return {
       allowed: false, error: "no_channel",
-      reason: "Deltagaren har ingen kontaktväg för länken (brev eller uppgift saknas). Spela in samtalet i avstämningen i stället.",
+      reason: "Deltagaren har ingen kontaktväg för länken (brev eller uppgift saknas). Spela in mötet i stället.",
     };
   }
   return { allowed: true, channel: ch };

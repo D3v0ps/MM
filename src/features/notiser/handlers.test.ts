@@ -24,7 +24,7 @@ describe("notiser", () => {
     expect(d.items[0]).toMatchObject({
       kind: "progress_reminder", caseId: "case-260148", createdAt: "2027-02-01T08:00", channels: ["app", "email"],
       title: "Påminnelse: ingen progression 3 veckor i rad",
-      body: "BOT-26-0148: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i mötet.",
+      body: "BOT-26-0148: Inget möte dokumenterat (v. 4 2027). Planera nästa steg och dokumentera i mötet.",
     });
     expect([d.isCoach, d.isEscalationRole, d.reminderSchedule, d.escalateAfterWeeks]).toEqual([true, false, "måndag 08.00 för föregående vecka", 2]);
     expect(JSON.stringify(d)).not.toMatch(/eskaler/i);
@@ -37,7 +37,7 @@ describe("notiser", () => {
       ["progress_escalation", "Eskalering: 2 veckor i rad utan progression"],
       ["progress_escalation", "Eskalering: 2 veckor i rad utan progression"],
     ]);
-    expect(d.items[0].body).toBe("BOT-26-0148 · coach Amira Haddad · v. 2 2027: Veckomålet inte uppnått · v. 3 2027: Veckomålet inte uppnått · v. 4 2027: Ingen avstämning dokumenterad.");
+    expect(d.items[0].body).toBe("BOT-26-0148 · coach Amira Haddad · v. 2 2027: Veckomålet inte uppnått · v. 3 2027: Veckomålet inte uppnått · v. 4 2027: Inget möte dokumenterat.");
     expect(d.isEscalationRole).toBe(true);
     const pii = rt.rows("persons").flatMap((p) => [p.firstName, p.lastName, normalizePnr(decodeTestPnr(p.personnummerEnc))]).filter((x) => x && x.length >= 4);
     for (const n of [...d.items, ...(await rt.query(notifList, {}, amira())).items]) for (const x of pii) expect(n.emailBody).not.toContain(x);

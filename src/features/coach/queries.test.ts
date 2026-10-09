@@ -120,7 +120,7 @@ describe("Ärendevyerna", () => {
   it("avstämningen för Yusuf: påminnelse, upprepad frånvaro, nekat samtycke och förifyllning", async () => {
     const v = await q(checkInPage, { caseId: SC.yusuf }, amira());
     if (v.kind !== "ok") throw new Error("spärrad");
-    expect(v.watch).toMatchObject({ streak: 3, reason: "Ingen avstämning dokumenterad", weekKey: "2027-W04" });
+    expect(v.watch).toMatchObject({ streak: 3, reason: "Inget möte dokumenterat", weekKey: "2027-W04" });
     expect(v.repeatedAbsence).toEqual({ count: 2, withinDays: 14 });
     expect(v.aiConsent).toBe("declined");
     expect(v.todayMeetingAt).toBe("2027-02-01T11:00");
