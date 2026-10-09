@@ -88,20 +88,25 @@ describe("coach.attendanceSetAll", () => {
     expect(attFor(HODAN_WED)!.registeredAt).not.toBe(T1);
   });
 
-  it("4. ett tillfälle i någon annans ärende ger not_found och ingenting skrivs", async () => {
+  it("4. ett tillfälle i en kollegas ärende registreras också (beslut 2026-10-09); ett som inte finns stoppar allt", async () => {
     const before = rows("attendance").length;
     const logs = rows("audit_log").length;
-    // a-11290: BOT-26-0117 (huvudcoach Mats), onsdag 27/1 – Amira får inte se det.
-    const res = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [...WED_IDS, "a-11290"] }, amira());
+    // a-finns-inte: ingenting skrivs.
+    const res = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [...WED_IDS, "a-finns-inte"] }, amira());
     expect(res).toMatchObject({ ok: false, error: "not_found" });
     expect(rows("attendance").length).toBe(before);
     expect(rows("audit_log").length).toBe(logs);
     expect(WED_IDS.map((id) => attFor(id))).toEqual([undefined, undefined, undefined]);
+    // a-11290: BOT-26-0117 (huvudcoach Mats), onsdag 27/1 – Amira registrerar i kollegans ärende.
+    const ok = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [...WED_IDS, "a-11290"] }, amira());
+    expect(ok).toMatchObject({ ok: true });
+    if (ok.ok) expect([...ok.marked, ...ok.skipped]).toContain("a-11290");
   });
 
-  it("5. handledaren kan inte registrera i ett ärende med skyddade personuppgifter", async () => {
+  it("5. handledaren kan inte registrera i ett ärende med skyddade personuppgifter (vilande spärr påslagen)", async () => {
     const before = rows("attendance").length;
-    // a-11443: BOT-26-0120 (skyddat, coach Erik), onsdag 27/1. Petra ser Nadia (teamärende) men aldrig det skyddade.
+    // a-11443: BOT-26-0120 (coach Erik), onsdag 27/1. Med spärren påslagen ser Petra bara ärendet – inte tillfällena.
+    rt.store.updateRow("persons", rt.raw().get("cases", "case-260120")!.personId, { protectedIdentity: true });
     const res = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [WED.nadia, "a-11443"] }, as("u-petra", "handledare"));
     expect(res).toMatchObject({ ok: false, error: "not_found" });
     expect(rows("attendance").length).toBe(before);

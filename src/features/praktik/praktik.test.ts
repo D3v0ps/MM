@@ -43,37 +43,35 @@ describe("registret", () => {
     expect(d.demoCaseId).toBe("case-260143");
   });
 
-  it("coach och handledare ser uppföljningar bara i sina egna ärenden", async () => {
+  it("coach och handledare ser alla uppföljningar i avtalet (beslut 2026-10-09 – tidigare 4 respektive 8 i egna ärenden)", async () => {
+    const s = await rt.query(praktikList, {}, rt.as("u-sara", "samordnare"));
     const c = await rt.query(praktikList, {}, amira());
-    expect(c.mineOnly).toBe(true);
-    expect(c.kpis.upcoming).toBe(4);
-    expect(c.upcoming.map((u) => u.who)).toEqual(["Nadia Warsame · BOT-26-0143", "Yusuf Abdi · BOT-26-0148", "Jonna Osman · BOT-26-0133", "Nadia Warsame · BOT-26-0143"]);
+    expect(c.mineOnly).toBe(false);
+    expect(c.kpis.upcoming).toBe(27);
+    expect(c.upcoming.map((u) => u.who)).toEqual(s.upcoming.map((u) => u.who));
+    expect(c.upcoming.map((u) => u.who)).toContain("Nadia Warsame · BOT-26-0143");
     const h = await rt.query(praktikList, {}, petra());
-    expect(h.kpis.upcoming).toBe(8);
+    expect(h.kpis.upcoming).toBe(27);
     await expect(rt.query(praktikList, {}, rt.as("u-lars", "ekonom"))).rejects.toBeInstanceOf(ApiError);
   });
 });
 
 describe("en arbetsgivare", () => {
-  it("coachen ser namn i sina ärenden och andra teams praktikplatser utan namn", async () => {
+  it("coachen ser alla praktikplatser hos arbetsgivaren med namn (beslut 2026-10-09 – tidigare 3 egna och 10 utan namn)", async () => {
     const d = await rt.query(praktikEmployer, { employerId: "emp-1" }, amira());
     if (!d.found) throw new Error("saknas");
-    expect([d.scopeLabel, d.ongoingCount, d.doneCount]).toEqual(["Praktikplatser i dina ärenden", 13, 43]);
-    expect(d.ongoing.mine.map((p) => [p.who, p.caseNumber, p.rightsDone, p.canEdit])).toEqual([
+    expect([d.scopeLabel, d.ongoingCount, d.doneCount]).toEqual(["Praktikplatser", 13, 43]);
+    expect(d.ongoing.mine).toHaveLength(13);
+    expect(d.ongoing.others).toHaveLength(0);
+    expect(d.ongoing.mine.map((p) => [p.who, p.caseNumber, p.rightsDone, p.canEdit])).toEqual(expect.arrayContaining([
       ["Nadia Warsame", "BOT-26-0143", 3, true],
       ["Jonna Osman", "BOT-26-0133", 4, true],
       ["Anders Saleh", "BOT-26-0126", 4, true],
-    ]);
-    expect(d.ongoing.others).toHaveLength(10);
-    expect(d.ongoing.others.every((p) => p.who === "Deltagare i ett annat team")).toBe(true);
-    // Inga namn eller ärenden från andra coachers ärenden i svaret
-    const own = new Set(d.ongoing.mine.map((p) => p.caseId).concat(d.done.mine.map((p) => p.caseId)));
-    const cases = rt.rows("cases").filter((c) => rt.rows("placements").some((p) => p.employerId === "emp-1" && p.caseId === c.id) && !own.has(c.id));
-    const names = cases.map((c) => rt.rows("persons").find((p) => p.id === c.personId)!).map((p) => `${p.firstName} ${p.lastName}`);
-    const json = JSON.stringify(d);
-    expect(names.length).toBeGreaterThan(0);
-    for (const n of names) expect(json).not.toContain(n);
-    for (const c of cases) expect(json).not.toContain(c.caseNumber);
+    ]));
+    // Samma rader som samordnaren ser.
+    const s = await rt.query(praktikEmployer, { employerId: "emp-1" }, rt.as("u-sara", "samordnare"));
+    if (!s.found) throw new Error("saknas");
+    expect(d.ongoing.mine.map((p) => p.id).sort()).toEqual(s.ongoing.mine.map((p) => p.id).sort());
     expect(d.employer).toMatchObject({ name: "Hallunda Lagerservice AB", orgNr: "556000-1000", contactName: "Peter Lund", email: "kontakt@example.com" });
   });
 
@@ -99,15 +97,12 @@ describe("en arbetsgivare", () => {
     }
   });
 
-  it("andra team: bara period och de fyra rätten – inga arbetsuppgifter (fritext), bara det egna avtalet", async () => {
-    const d = await rt.query(praktikEmployer, { employerId: "emp-1" }, amira());
-    if (!d.found) throw new Error("saknas");
-    const others = [...d.ongoing.others, ...d.done.others];
-    expect(others.length).toBeGreaterThan(0);
-    for (const o of others) expect(Object.keys(o).sort()).toEqual(["endsOn", "id", "rightsDone", "startsOn", "who"]);
-    const tasks = rt.rows("placements").filter((p) => others.some((o) => o.id === p.id)).map((p) => p.tasks).filter(Boolean);
-    expect(tasks.length).toBeGreaterThan(0);
-    for (const t of tasks) expect(JSON.stringify(others)).not.toContain(t);
+  it("andra team finns inte längre för Miljonbemannings roller (beslut 2026-10-09); bara det egna avtalet", async () => {
+    for (const a of [amira(), petra()]) {
+      const d = await rt.query(praktikEmployer, { employerId: "emp-1" }, a);
+      if (!d.found) throw new Error("saknas");
+      expect([...d.ongoing.others, ...d.done.others], a.userId).toHaveLength(0);
+    }
     // En aktör i ett annat kommunavtal (påhittat, c-ny) ser inga praktikplatser alls.
     const bot = rt.rows("contracts").find((c) => c.id === "c-bot")!;
     rt.store.insertRow("contracts", { ...structuredClone(bot), id: "c-ny", contractNumber: "000000000", casePrefix: "NYK" });
@@ -153,10 +148,12 @@ describe("åtgärder", () => {
     expect(rt.rows("audit_log").at(-1)).toMatchObject({ action: "placement.follow_up_added", details: { date: "2027-02-10" } });
   });
 
-  it("andra teams praktikplatser går inte att ändra", async () => {
+  it("praktikplatser i kollegors ärenden går att ändra (beslut 2026-10-09) – inte i ett skyddat ärende", async () => {
     const own = new Set(rt.rows("cases").filter((c) => c.leadCoachId === "u-amira").map((c) => c.id));
     const team = new Set(rt.rows("case_team").filter((t) => t.userId === "u-amira").map((t) => t.caseId));
     const other = rt.rows("placements").find((p) => p.employerId === "emp-1" && !own.has(p.caseId) && !team.has(p.caseId))!;
-    expect(await rt.command(praktikSetRight, { placementId: other.id, right: "timing", value: false }, amira())).toMatchObject({ ok: false, error: "not_found" });
+    expect(await rt.command(praktikSetRight, { placementId: other.id, right: "timing", value: false }, amira())).toMatchObject({ ok: true });
+    rt.store.updateRow("persons", rt.rows("cases").find((c) => c.id === other.caseId)!.personId, { protectedIdentity: true });
+    expect(await rt.command(praktikSetRight, { placementId: other.id, right: "timing", value: true }, amira())).toMatchObject({ ok: false, error: "not_found" });
   });
 });

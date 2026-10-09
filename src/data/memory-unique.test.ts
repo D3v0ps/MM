@@ -9,6 +9,7 @@ import { createSeed } from "./seed";
 
 const store = () => new MemoryStore<Tables>(createSeed(), UNIQUE_KEYS);
 const amira = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "u-amira" && p.actor.role === "coach")!.actor;
+const maria = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "k-maria" && p.actor.role === "kommun_handlaggare")!.actor;
 
 describe("unika nycklar i minnet", () => {
   it("en andra närvarorad för samma tillfälle stoppas – också via en ändring till ett upptaget tillfälle", async () => {
@@ -42,9 +43,10 @@ describe("unika nycklar i minnet", () => {
     // Andra gången matchar raden inte längre: null – så att två samtidiga publiceringar inte båda går igenom.
     expect(await t.updateIf(waiting.id, { status: "waiting" }, { status: "delivered" })).toBeNull();
     expect(await t.updateIf("finns-inte", { status: "waiting" }, { status: "delivered" })).toBeNull();
-    // Policyn: en rad som aktören inte får läsa ger null (ingen information om att den finns).
-    const repo = new MemoryRepo<Tables>(s, amira(s), POLICIES);
-    const hidden = (await system.table("cases").list()).find((c) => c.leadCoachId !== "u-amira" && c.contractId === "c-bot")!;
+    // Policyn: en rad som aktören inte får läsa ger null (ingen information om att den finns). Kommunens handläggare ser
+    // bara sina egna beställningar (coachen ser alla ärenden i avtalet sedan 2026-10-09).
+    const repo = new MemoryRepo<Tables>(s, maria(s), POLICIES);
+    const hidden = (await system.table("cases").list()).find((c) => c.referrerId !== "k-maria" && c.contractId === "c-bot")!;
     expect(await repo.table("cases").updateIf(hidden.id, { status: hidden.status }, { location: "x" })).toBeNull();
   });
 });

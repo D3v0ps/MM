@@ -40,14 +40,15 @@ export async function hasRoleIn(ctx: Ctx, userId: string, contractId: string, ro
 
 /**
  * Får aktören ändra ärendet? Samma regel som policyn (caseWrite i src/data/policy.ts) och prototypens canEditCase:
- * samordnare och avtalsansvarig med full åtkomst (samordnaren ser bara ärendenumret vid skyddade personuppgifter),
- * huvudcoachen i egna ärenden, ekonomen (beställarreferens) och beställande handläggare.
+ * samordnare, avtalsansvarig och coach med full åtkomst (personen läsbar – vid skyddade personuppgifter ser bara
+ * huvudcoachen personen; beslut 2026-10-09: alla coacher arbetar i alla ärenden i avtalet, inte bara egna),
+ * ekonomen (beställarreferens) och beställande handläggare. Handledaren ändrar inte ärendet (närvaro, moment, anteckningar
+ * och meddelanden styrs av rollkontrollen i respektive hanterare och av policyns workOn).
  * Anropas efter att ärendet lästs via ctx.repo – så att ett nej blir ett begripligt fel i stället för ett behörighetsfel.
  */
 export async function canEditCase(ctx: Ctx, c: Pick<Case, "personId" | "leadCoachId" | "referrerId">): Promise<boolean> {
   const { role, userId } = ctx.actor;
-  if (role === "samordnare" || role === "avtalsansvarig") return (await ctx.repo.table("persons").get(c.personId)) !== null;
-  if (role === "coach") return c.leadCoachId === userId;
+  if (role === "samordnare" || role === "avtalsansvarig" || role === "coach") return (await ctx.repo.table("persons").get(c.personId)) !== null;
   if (role === "kommun_handlaggare") return c.referrerId === userId;
   return role === "ekonom";
 }

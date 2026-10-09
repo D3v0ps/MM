@@ -463,7 +463,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (c.startDate && dayOf(p.startsAt) < c.startDate) return fail("date", `Tillfället kan inte ligga före startdatumet ${fmtDate(c.startDate)}.`);
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
-  // Skrivningen går via behörigheten: handledaren bara i sina teamärenden (policyn/RLS för activities).
+  // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
   await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "" });
   await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
   return ok({ activityId: id });
@@ -787,7 +787,8 @@ async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded
   const { contract, cfg, env } = await envFor(ctx, c.contractId);
   const role = ctx.actor.role;
   const me = ctx.actor.userId;
-  const edit = access === "full" && (isManager(role) || (role === "coach" && c.leadCoachId === me));
+  // Coachen arbetar i alla ärenden i avtalet (beslut 2026-10-09) – inte bara där hen är huvudcoach.
+  const edit = access === "full" && (isManager(role) || role === "coach");
   return { c, access, cfg, env, contract, today: dayOf(env.now), role, me, team, edit };
 }
 
@@ -837,6 +838,7 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
       id: c.id, caseNumber: c.caseNumber, status: c.status, referredAt: c.referredAt, endSortKey: closed ? "z" : c.plannedEnd || "y",
       displayName: displayName(c, person, access), flagged: flags.length > 0,
       flagRank: Math.min(9, ...flags.map((a) => SEV_RANK[a.severity] ?? 9)),
+      mine: c.leadCoachId === me || src.teamUserIds(c.id).includes(me),
     };
     const env = envs.get(c.contractId);
     const cfg = env?.cfg;
@@ -967,7 +969,8 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     leadCoach: c.leadCoachId ? { id: c.leadCoachId, name: personName(db.profiles, c.leadCoachId) } : null,
     team: teamRows.filter((t) => t.role !== "lead_coach").map((t) => ({ userId: t.userId, name: personName(db.profiles, t.userId), role: t.role, roleLabel: teamLabel(t.role) })),
     hasLeadInTeam: !!lead,
-    myTeamRoleLabel: team ? teamLabel(myTeam?.role ?? "") : null,
+    // Tilldelningen styr notiser och påminnelser, inte åtkomsten (beslut 2026-10-09) – visas för den som ingår i teamet utan att vara huvudcoach.
+    myTeamRoleLabel: myTeam && myTeam.role !== "lead_coach" ? teamLabel(myTeam.role) : null,
     location: c.location,
     flags,
     unread: READ_ONLY.includes(role) || team ? 0 : unreadCount(db.messages, role, me, fromCustomer),
@@ -1210,7 +1213,7 @@ handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
 handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseMonthBasis | null> => {
   const L = await loadCase(ctx, p.caseId, "manad");
   if (!L) return null;
-  const { c, cfg, contract, today, role, me } = L;
+  const { c, cfg, contract, today, role } = L;
   const now = ctx.now();
   const current = monthKey(today);
   const q = { caseId: c.id };
@@ -1274,7 +1277,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
     gaps, doc,
     delivered: del ? { reportId: del.id, deliveredAt: del.deliveredAt as string, version: del.version || 1, correctionDraft: pending ? pending.version : null } : null,
     reportId: row?.id ?? null,
-    canAssess: role === "coach" && c.leadCoachId === me,
+    canAssess: role === "coach",
   };
 });
 

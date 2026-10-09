@@ -23,16 +23,22 @@ describe("caseAccess – prototypens regler", () => {
       expect(caseAccess(C, A("x", role), L({ protectedIdentity: true }))).toBe("restricted");
     }
   });
-  it("coach: huvudcoachen full, teammedlem team, annars ingen – teamet ser aldrig skyddade", () => {
+  it("coach: huvudcoachen full (även skyddade); en annan coach ser kollegans ärende (beslut 2026-10-09) – skyddade bara som ärende", () => {
     expect(caseAccess(C, A("u-amira", "coach"), L({ protectedIdentity: true }))).toBe("full");
-    expect(caseAccess(C, A("u-erik", "coach"), L({ teamUserIds: ["u-amira", "u-erik"] }))).toBe("team");
-    expect(caseAccess(C, A("u-erik", "coach"), L({ teamUserIds: ["u-amira", "u-erik"], protectedIdentity: true }))).toBe("none");
-    expect(caseAccess(C, A("u-erik", "coach"), L())).toBe("none");
+    // Teammedlemskap spelar ingen roll för åtkomsten längre: nivån "team" ges inte till någon.
+    expect(caseAccess(C, A("u-erik", "coach"), L({ teamUserIds: ["u-amira", "u-erik"] }))).toBe("full");
+    expect(caseAccess(C, A("u-erik", "coach"), L())).toBe("full");
+    // Den vilande spärren: en coach som inte är huvudcoach ser bara ärendet (nummer och status), som samordnaren.
+    expect(caseAccess(C, A("u-erik", "coach"), L({ teamUserIds: ["u-amira", "u-erik"], protectedIdentity: true }))).toBe("restricted");
+    expect(caseAccess(C, A("u-erik", "coach"), L({ protectedIdentity: true }))).toBe("restricted");
   });
-  it("handledare ser bara tilldelade ärenden", () => {
-    expect(caseAccess(C, A("u-petra", "handledare"), L())).toBe("team");
-    expect(caseAccess(C, A("u-david", "handledare"), L())).toBe("none");
-    expect(caseAccess(C, A("u-petra", "handledare"), L({ protectedIdentity: true }))).toBe("none");
+  it("handledare ser alla ärenden i avtalet, också utan att vara i teamet (beslut 2026-10-09) – skyddade bara som ärende", () => {
+    expect(caseAccess(C, A("u-petra", "handledare"), L())).toBe("full");
+    expect(caseAccess(C, A("u-david", "handledare"), L())).toBe("full");
+    expect(caseAccess(C, A("u-petra", "handledare"), L({ protectedIdentity: true }))).toBe("restricted");
+    expect(caseAccess(C, A("u-david", "handledare"), L({ protectedIdentity: true }))).toBe("restricted");
+    // Men bara i avtal hen är medlem i.
+    expect(caseAccess({ ...C, contractId: "c-ny" }, A("u-petra", "handledare"), L())).toBe("none");
   });
   it("ekonom: billing för alla ärenden i avtalet", () => {
     expect(caseAccess(C, A("u-lars", "ekonom"), L())).toBe("billing");
@@ -120,14 +126,16 @@ describe("mot testdatat – samma antal som prototypens sel.access", () => {
   };
   // Facit räknat med prototypens sel.access på prototypens MM.seed() (prototyp/src/03-domain.js) – efter besluten 2026-10-07:
   // ingen person har skyddade personuppgifter (ärendet "skyddad" är ett vanligt ärende) och kommunens chef finns inte.
+  // Beslut 2026-10-09: coach och handledare ser alla 231 ärenden i avtalet (tidigare Amira 29, Erik 54, Petra 63, David 171,
+  // Hanna 64 – tilldelningen styr nu bara listor, notiser och påminnelser).
   it.each([
     ["u-sara", "samordnare", { full: 231 }],
     ["u-johan", "avtalsansvarig", { full: 231 }],
-    ["u-amira", "coach", { none: 202, full: 29 }],
-    ["u-erik", "coach", { none: 177, full: 54 }],
-    ["u-petra", "handledare", { none: 168, team: 63 }],
-    ["u-david", "handledare", { team: 171, none: 60 }],
-    ["u-hanna", "handledare", { none: 167, team: 64 }],
+    ["u-amira", "coach", { full: 231 }],
+    ["u-erik", "coach", { full: 231 }],
+    ["u-petra", "handledare", { full: 231 }],
+    ["u-david", "handledare", { full: 231 }],
+    ["u-hanna", "handledare", { full: 231 }],
     ["u-karin", "chef", { full: 231 }],
     ["u-lars", "ekonom", { billing: 231 }],
     ["u-robin", "admin", { full: 231 }],
@@ -151,10 +159,16 @@ describe("mot testdatat – samma antal som prototypens sel.access", () => {
     expect(who.filter((x) => canSeePerson(x.a)).map((x) => x.id).sort()).toEqual([skyddad.leadCoachId, "u-johan", skyddad.referrerId].sort());
     const person = dormant.persons.find((p) => p.id === skyddad.personId)!;
     expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-sara", "samordnare"), src2))).toBe("Skyddade personuppgifter");
+    // En annan coach och en handledare får bara ärendet (restricted) – inte personen.
+    expect(caseAccessIn(skyddad, actorFor("u-amira", "coach"), src2)).toBe("restricted");
+    expect(caseAccessIn(skyddad, actorFor("u-petra", "handledare"), src2)).toBe("restricted");
+    expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-petra", "handledare"), src2))).toBe("Skyddade personuppgifter");
     expect(displayName(skyddad, person, caseAccessIn(skyddad, actorFor("u-lars", "ekonom"), src2))).toBe("–");
   });
   it("visibleCases = ärenden med annan nivå än none", () => {
-    expect(visibleCases(db.cases, actorFor("u-amira", "coach"), src)).toHaveLength(29);
+    expect(visibleCases(db.cases, actorFor("u-amira", "coach"), src)).toHaveLength(231);
+    expect(visibleCases(db.cases, actorFor("u-petra", "handledare"), src)).toHaveLength(231);
+    expect(visibleCases(db.cases, actorFor("k-maria", "kommun_handlaggare"), src)).toHaveLength(71);
     expect(visibleCases(db.cases, actorFor("k-maria", "kommun_handlaggare"), src).every((c) => c.referrerId === "k-maria")).toBe(true);
   });
 });

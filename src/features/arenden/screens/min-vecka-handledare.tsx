@@ -2,7 +2,7 @@
 // Min vecka för handledaren (beslut 2026-10-06) i coachens stil (src/ui/vecka.tsx): närvaro att registrera, dagens
 // tillfällen, kommande sju dagar och praktikplatser att följa upp. Översikten från /handledare har flyttat hit; listan
 // "Mina tilldelade ärenden" finns kvar på /handledare. Frågor som handledaren redan har: arenden.handledare och coach.narvaro
-// (bara teamärenden – policyn visar aldrig skyddade ärenden) samt notiser.list.
+// (hanterarna filtrerar på teamet – alla ärenden i avtalet är läsbara sedan 2026-10-09, aldrig skyddade utan namngiven coach) samt notiser.list.
 import { useState } from "react";
 import { dayOf, fmtTime, fmtWeek, fmtWeekday, relative } from "@/core/time";
 import { AttBadge, dayLabel, kindOf, lc } from "@/features/coach/screens/shared";
@@ -278,7 +278,7 @@ function Week({ m, v }: { m: SupervisorStart; v: NarvaroView }) {
               <p>
                 <b>{g.pagaende.length} pågående</b> · {g.start.length} väntar på start · {g.avslutade.length} avslutade
               </p>
-              <p className="text-text-muted">Du ser bara ärenden du är tilldelad. Du ser inte coachens anteckningar, bedömningar eller rapporter.</p>
+              <p className="text-text-muted">Listan visar ärenden där du ingår i teamet. Alla ärenden i avtalet finns under Ärenden.</p>
             </Stack>
           </Card>
 

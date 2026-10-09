@@ -103,7 +103,7 @@ Regler för hanterare:
 
 1. **Deterministiska.** Tid bara via `ctx.now()`, id bara via `ctx.newId("prefix")`. Aldrig `Date.now()`, `new Date()` eller `Math.random()`. Prototypen spelar upp kommandon igen vid omladdning.
 2. **Läs och skriv via `ctx.repo`**, som filtreras av behörigheten (RLS i produktion, `policy.ts` i minnet). `ctx.system` (utan filter, motsvarar service role) bara för systemsteg: löpnummer, revisionslogg, notiser till andra användare, bakgrundsjobb. Skriv en kommentar när du använder den.
-3. **Rollkontroll** i `roles` på varje hanterare. Kontrollera dessutom tilldelning (coach ser egna ärenden, handledare tilldelade) – det sköter policyn, men kommandon ska ändå kontrollera att ärendet finns via `ctx.repo`.
+3. **Rollkontroll** i `roles` på varje hanterare. Åtkomsten till ärendet sköter policyn (avtal + roll; alla på Miljonbemanning ser alla ärenden i avtalet sedan 2026-10-09, kommunen bara sina egna), men kommandon ska ändå kontrollera att ärendet finns via `ctx.repo`. Tilldelningen (huvudcoach och team) styr inte åtkomsten – bara notiser, påminnelser och listorna Mina ärenden, Min vecka, Närvaro och Mina tilldelade ärenden (hanterarna filtrerar på `leadCoachId` respektive `case_team` själva).
 4. **Revisionslogg** (`ctx.audit`) för visning av deltagarkort, rapport och transkript, alla ändringar, exporter och AI-körningar.
 5. **Utskick** bara via `ctx.notify`. Texten innehåller aldrig personuppgifter – bara ärendenummer och "logga in för att läsa".
 6. **Avtalsvärden från konfigurationen** (`contracts.config`, zod-validerad i `src/core/config.ts`). Hårdkoda aldrig 32 %, 35 %, BOT, priser eller deadlines. Värden `ATT_FASTSTÄLLA` visas som "Ej fastställt".
@@ -306,7 +306,7 @@ Hanterarna anropar redan gränssnitten, men produktionsadaptrarna byggs först n
 ## Tester
 
 - Enhetstester i `src/core/**/*.test.ts` (Vitest): KPI:er, debiterbara veckor, torsdagsregeln, arbetsdagar/SLA, ärendenummer, beställarreferens och inköpsordernummer.
-- Policytester (`src/data/policy.test.ts`): samma fall som RLS-testerna ska täcka – kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare bara tilldelade, skyddade ärenden bara namngivna (vilande spärr – testet sätter en person som skyddad), bilagorna (`case_attachments`) bara för dem med åtkomst till ärendet.
+- Policytester (`src/data/policy.test.ts`): samma fall som RLS-testerna ska täcka – kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, coach och handledare alla ärenden i avtalet (beslut 2026-10-09), skyddade ärenden bara namngivna (vilande spärr – testet sätter en person som skyddad), bilagorna (`case_attachments`) bara för dem med åtkomst till ärendet.
 - E2E (`tests/e2e`): varje test körs mot både prototypen och appen – det är beviset för att prototypen speglar appen.
 
 ## Skarp drift (beslut 2026-10-08)

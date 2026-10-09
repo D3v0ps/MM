@@ -353,8 +353,10 @@ test("7. veckorapport som väntar på närvaro publiceras när allt är registre
   let t = await mainText(page);
   expect(t).toMatch(/Väntar på närvaroregistrering/);
   expect(t).toMatch(/tillfällen? saknas/);
+  // Coachen ser alla handläggarens deltagare i veckorapporten (beslut 2026-10-09) – ingen delvy längre.
   await go(page, info, `/rapporter/${WEEKLY_WAIT}`, COACH);
-  expect(await mainText(page)).toMatch(/Du ser \d+ av \d+ deltagare/);
+  expect(await mainText(page)).not.toMatch(/Du ser \d+ av \d+ deltagare/);
+  expect(await mainText(page)).toMatch(/Väntar på närvaroregistrering/);
   await commands(page, info, WEEKLY_MISSING.map((activityId) => ({ key: "coach.attendanceSet", input: { activityId, status: "present", reason: "" }, as: COACH })));
   await go(page, info, `/rapporter/${WEEKLY_WAIT}`, SAMORDNARE);
   t = await mainText(page);

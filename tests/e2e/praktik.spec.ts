@@ -70,22 +70,22 @@ test("praktik: registret och en ny arbetsgivare", async ({ page }, info) => {
   expect(relevant(errors)).toEqual([]);
 });
 
-test("praktik: coachen ser namn bara i egna ärenden och bockar i de fyra rätten", async ({ page }, info) => {
-  // Samordnaren ser alla namn hos arbetsgivaren – de som inte är coachens egna får inte synas för coachen
+test("praktik: coachen ser alla praktikplatser hos arbetsgivaren med namn (beslut 2026-10-09) och bockar i de fyra rätten", async ({ page }, info) => {
+  // Samordnaren och coachen ser samma namn hos arbetsgivaren – alla på Miljonbemanning ser alla ärenden i avtalet.
   const errors = await open(page, info, "/praktik/emp-1", SARA);
   await expect(main(page)).toContainText("Praktikplatser (13)");
   while (await page.getByRole("button", { name: /Visa fler/ }).count()) await btn(page, /Visa fler/).click();
   const allNames = await main(page).locator("section h2").allTextContents();
   await switchTo(page, info, "/praktik/emp-1", AMIRA);
-  await expect(main(page)).toContainText("Praktikplatser i dina ärenden (3)");
+  await expect(main(page)).toContainText("Praktikplatser (13)");
+  while (await page.getByRole("button", { name: /Visa fler/ }).count()) await btn(page, /Visa fler/).click();
   const t = await text(page);
   expect(t).toContain("Nadia Warsame");
-  expect(t).toContain("Praktikplatser i andra team (10)");
-  expect(t).toContain("Deltagare i ett annat team");
-  const mine = (await main(page).locator("section h2").allTextContents()).map((x) => x.trim());
-  const others = allNames.map((x) => x.trim()).filter((n) => n && !mine.includes(n) && !/^(Kontaktuppgifter|Praktikplatser)/i.test(n));
-  expect(others.length).toBeGreaterThan(5);
-  for (const n of others) expect(t.toLowerCase()).not.toContain(n.toLowerCase());
+  expect(t).not.toContain("Praktikplatser i andra team");
+  expect(t).not.toContain("Deltagare i ett annat team");
+  const names = allNames.map((x) => x.trim()).filter((n) => n && !/^(Kontaktuppgifter|Praktikplatser)/i.test(n));
+  expect(names.length).toBeGreaterThan(5);
+  for (const n of names) expect(t.toLowerCase()).toContain(n.toLowerCase());
   expect(t).toContain("Rätt tidpunkt");
   expect(t).not.toContain("Rätt timing");
 
@@ -116,9 +116,10 @@ test("praktik: coachen ser namn bara i egna ärenden och bockar i de fyra rätte
 test("praktik: handledaren når registret och ser sina uppföljningar", async ({ page }, info) => {
   const errors = await open(page, info, "/praktik", PETRA);
   await expect(main(page)).toContainText("Arbetsgivare (");
-  await expect(main(page)).toContainText("Dina uppföljningar de närmaste 7 dagarna");
-  expect(await text(page)).toMatch(/Uppföljningar\s*8\s*i dina ärenden de närmaste 7 dagarna/);
+  // Alla uppföljningar i avtalet (beslut 2026-10-09) – tidigare 8 respektive 4 i egna ärenden.
+  await expect(main(page)).toContainText("Uppföljningar de närmaste 7 dagarna");
+  expect(await text(page)).toMatch(/Uppföljningar\s*27\s*de närmaste 7 dagarna/);
   await switchTo(page, info, "/praktik", AMIRA);
-  expect(await text(page)).toMatch(/Uppföljningar\s*4\s*i dina ärenden de närmaste 7 dagarna/);
+  expect(await text(page)).toMatch(/Uppföljningar\s*27\s*de närmaste 7 dagarna/);
   expect(relevant(errors)).toEqual([]);
 });

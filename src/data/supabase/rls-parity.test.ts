@@ -361,7 +361,8 @@ describe("läsning: samma rader som policy.ts", () => {
       expect(got).toEqual(expected);
       for (const v of Object.values(expected)) levels.add(v);
     }
-    expect([...levels].sort()).toEqual(["billing", "customer", "full", "none", "restricted", "team"]);
+    // Nivån "team" ges inte längre till någon (beslut 2026-10-09): coach och handledare har "full" i hela avtalet.
+    expect([...levels].sort()).toEqual(["billing", "customer", "full", "none", "restricted"]);
   }, 30_000); // nio testpersoner mot databasen – tar längre tid när hela testsviten körs parallellt
 });
 
@@ -994,17 +995,17 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
     expect(note("note-skyddad")).toMatchObject({ caseId: SKYDDAD, audience: "full", authorId: "u-erik" });
   });
 
-  it("läsning per roll: handledaren bara team i tilldelade ärenden, ekonom och kommunen inget, skyddat ärende bara namngivna", async () => {
+  it("läsning per roll: coach och handledare alla anteckningar i avtalet (beslut 2026-10-09), ekonom och kommunen inget, skyddat ärende bara namngivna", async () => {
+    const open = data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort();
+    expect(open).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
     const expected: Record<string, string[]> = {
-      // Amira är huvudcoach för både Nadia och Mehmet (Petras teamanteckning).
-      "u-amira": ["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"],
-      "u-petra": ["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-praktiskt"],
-      "u-leila": [], "u-lars": [], "k-maria": [], "k-omar": [],
-      "u-erik": ["note-skyddad"],
+      // Amira är huvudcoach för Nadia och Mehmet; Petra (handledare) och Leila (coach utanför teamet) läser samma anteckningar –
+      // men inte det skyddade ärendets (vilande spärr: bara namngiven huvudcoach Erik och avtalsansvarig).
+      "u-amira": open, "u-petra": open, "u-leila": open,
+      "u-lars": [], "k-maria": [], "k-omar": [],
+      "u-erik": [...data.case_notes.map((n) => n.id)].sort(),
       "u-johan": [...data.case_notes.map((n) => n.id)].sort(),
-      "u-sara": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
-      "u-karin": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
-      "u-robin": data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort(),
+      "u-sara": open, "u-karin": open, "u-robin": open,
     };
     for (const [userId, want] of Object.entries(expected)) {
       expect(await pgNotes(userId), userId).toEqual(want);
@@ -1049,11 +1050,11 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
     id, contractId, caseId, authorId, occurredOn: "2027-01-30", kind: "other", audience, body: "Text", createdAt: at, updatedAt: null, removedAt: null, removedBy: null, ...patch,
   });
 
-  it("ny anteckning: tillåten i eget namn – nekas för handledare med 'full', annan författare, fel avtal och borttagen/ändrad vid start", async () => {
+  it("ny anteckning: tillåten i eget namn (handledaren också 'full' sedan 2026-10-09) – nekas för annan författare, fel avtal och borttagen/ändrad vid start", async () => {
     const cases: [string, string, Tables["case_notes"], boolean][] = [
       ["u-amira", insertNote("n-t1", NADIA, "c-bot", "u-amira", "full"), newRow("n-t1", NADIA, "c-bot", "u-amira", "full"), true],
       ["u-petra", insertNote("n-t2", NADIA, "c-bot", "u-petra", "team"), newRow("n-t2", NADIA, "c-bot", "u-petra", "team"), true],
-      ["u-petra", insertNote("n-t3", NADIA, "c-bot", "u-petra", "full"), newRow("n-t3", NADIA, "c-bot", "u-petra", "full"), false],
+      ["u-petra", insertNote("n-t3", NADIA, "c-bot", "u-petra", "full"), newRow("n-t3", NADIA, "c-bot", "u-petra", "full"), true],
       ["u-amira", insertNote("n-t4", NADIA, "c-bot", "u-sara", "full"), newRow("n-t4", NADIA, "c-bot", "u-sara", "full"), false],
       ["u-amira", insertNote("n-t5", NADIA, "c-ny", "u-amira", "full"), newRow("n-t5", NADIA, "c-ny", "u-amira", "full"), false],
       ["u-amira", insertNote("n-t6", NADIA, "c-bot", "u-amira", "full", `null, '${at}', 'u-amira'`), newRow("n-t6", NADIA, "c-bot", "u-amira", "full", { removedAt: at, removedBy: "u-amira" }), false],

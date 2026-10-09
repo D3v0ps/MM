@@ -81,7 +81,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   { id: "s10", title: "Behörigheter och dataskydd", lead: "Behörighet = avtal + roll + tilldelning. Testa samma data från olika roller.", steps: [
     { role: "ekonom", view: "eko.start", params: {}, text: "Som ekonom: ärendenummer, perioder och referenser – inga namn, anteckningar eller rapporter." },
-    { role: "handledare", view: "hand.start", params: {}, text: "Som handledare: Petra ser bara de ärenden hon är tilldelad." },
+    { role: "handledare", view: "hand.start", params: {}, text: "Som handledare: Petras lista Mina tilldelade ärenden visar teamets ärenden – alla ärenden i avtalet finns under Ärenden." },
     { role: "kommun_handlaggare", view: "kom.deltagare", params: {}, text: "Som kommunens handläggare: bara de deltagare du själv har beställt insatser för. Byt sedan till samordnare och jämför." },
     { role: "admin", view: "admin.logg", params: {}, text: "Revisionsloggen visar allt du gjort i prototypen, inklusive visningar av deltagarkort och personnummer." },
   ] },

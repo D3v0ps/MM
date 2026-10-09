@@ -77,11 +77,13 @@ describe("veckoavstämning – coach.checkinSave med autosave", () => {
     expect(logs("check_in.saved", first.checkInId).map((x) => x.details.editSession)).toEqual([null, null]);
   });
 
-  it("autosave kan inte godkänna, och en annan coach nekas som vanligt", async () => {
+  it("autosave kan inte godkänna, och ett ärende utan åtkomst (vilande spärr) nekas som vanligt", async () => {
     const n = rows("check_ins").length;
     expect(await run(checkinSave, { caseId: NADIA, data, approve: true, autosave: true, editSession: SESSION_A }, amira())).toMatchObject({ ok: false, error: "invalid" });
     expect(rows("check_ins").length).toBe(n);
-    expect(await run(checkinSave, { caseId: "case-260120", data, approve: false, autosave: true, editSession: SESSION_A }, amira())).toMatchObject({ ok: false, error: "not_found" });
+    // Eriks ärende: Amira når det sedan 2026-10-09 – men inte när personen har skyddade personuppgifter.
+    rt.store.updateRow("persons", rt.raw().get("cases", "case-260120")!.personId, { protectedIdentity: true });
+    expect(await run(checkinSave, { caseId: "case-260120", data, approve: false, autosave: true, editSession: SESSION_A }, amira())).toMatchObject({ ok: false, error: "forbidden" });
     // Fel form på besöksnyckeln stoppas av kontraktet (ogiltiga uppgifter).
     await expect(run(checkinSave, { caseId: NADIA, data, approve: false, autosave: true, editSession: "FEL" as never }, amira())).rejects.toThrow();
   });

@@ -1083,7 +1083,7 @@
      "where": "/arenden/:caseId – Deltagarkort",
      "trigger": "En handledare, arbetsgivarmatchare eller SYV ska in i eller ut ur ärendet",
      "deadline": "",
-     "result": "Teamet är sparat. Handledaren ser ärendet direkt under Mina tilldelade ärenden och i Närvaro. Den som tas bort ser det inte längre.",
+     "result": "Teamet är sparat. Handledaren ser ärendet direkt under Mina tilldelade ärenden och i Närvaro och får notiser och påminnelser. Den som tas bort får inga fler notiser men når ärendet under Ärenden (alla på Miljonbemanning ser alla ärenden i avtalet, beslut 2026-10-09).",
      "handoffTo": [
       "handledare"
      ],
@@ -3334,14 +3334,14 @@
     }
    ],
    "sees": [
-    "Bara ärenden där hen ingår i teamet, sorterade som Pågående, Väntar på start och Avslutade",
-    "Fem flikar på deltagarkortet: Översikt, Tidslinje, Närvaro, Praktik och Arbetsgivarkontakter och händelser",
+    "Alla ärenden i avtalet under Ärenden (beslut 2026-10-09); listan Mina tilldelade ärenden visar teamets, sorterade som Pågående, Väntar på start och Avslutade",
+    "Alla flikar på deltagarkortet utom rapporterna (månads- och slutrapporter är stängda för rollen)",
     "Deltagarens namn, kontaktväg, språk och anpassningsbehov. Personnumret visas bara maskerat.",
     "Kommande moment och praktikdagar sju dagar framåt",
     "Närvaro i teamärendena och om veckorapporten är publicerad eller väntar på närvaro",
-    "Hela arbetsgivarregistret. I egna ärenden syns praktikplatserna med namn, i andra team bara som låsta rader utan namn.",
+    "Hela arbetsgivarregistret med alla praktikplatser i avtalet med namn (alla på Miljonbemanning ser alla ärenden, beslut 2026-10-09).",
     "Sina egna notiser och flaggor för ärendet, utom eskaleringar till chefen och låga betyg i pulsmätningen",
-    "Fliken Tidslinje med aktiviteter, närvaro, praktik, arbetsgivarkontakter, statusbyten och anteckningar som är skrivna för teamet"
+    "Fliken Tidslinje med allt som hänt i ärendet, inklusive alla anteckningar (full åtkomst sedan 2026-10-09)"
    ],
    "doesNotSee": [
     "Coachens anteckningar och bedömningar: kartläggning, veckoavstämningar, månadsbedömningar och avvikelser",

@@ -35,7 +35,7 @@ import {
 
 // ---------------------------------------------------------------- Gemensamt
 const GATE_NOT_FOUND: CoachGate = { title: "Ärendet finns inte", text: "Välj ett av dina ärenden i listan." };
-const GATE_NOT_MINE: CoachGate = { title: "Inte ditt ärende", text: "Coachen ser bara de ärenden där hen är huvudcoach. Kontakta samordnaren om du behöver åtkomst." };
+const GATE_NOT_MINE: CoachGate = { title: "Du saknar åtkomst till ärendet", text: "Kontakta samordnaren om du behöver åtkomst." };
 
 const sla = (dueAt: LocalDateTime, env: Pick<DomainEnv, "now">): CoachSla => {
   const s = slaStatus(dueAt, null, env);
@@ -95,17 +95,18 @@ function monthDueNote(cfg: SlaCfg): string {
 type CaseCtx = { c: Case; person: Person | null; env: DomainEnv; head: CaseHead; referrer: ReferrerView };
 
 /**
- * Ärendet för en ärendevy (prototypens gate): coachen arbetar bara i ärenden där hen är huvudcoach.
- * Ett ärende som coachen inte får läsa ger "Inte ditt ärende" om det finns – ctx.system används bara för att se att
+ * Ärendet för en ärendevy (prototypens gate). Coachen arbetar i alla ärenden i avtalet (beslut 2026-10-09) – full åtkomst
+ * = personen är läsbar via ctx.repo (vid den vilande spärren för skyddade personuppgifter bara för huvudcoachen).
+ * Ett ärende som coachen inte får läsa ger "Du saknar åtkomst" om det finns – ctx.system används bara för att se att
  * ärendet finns (ja/nej), inga uppgifter om ärendet lämnas ut.
  */
 async function caseFor(ctx: Ctx, caseId: string, envOf: (id: string) => Promise<DomainEnv | null>): Promise<CaseCtx | { gate: CoachGate }> {
   const c = await ctx.repo.table("cases").get(caseId);
   if (!c) return { gate: (await ctx.system.table("cases").get(caseId)) ? GATE_NOT_MINE : GATE_NOT_FOUND };
-  if (c.leadCoachId !== ctx.actor.userId) return { gate: GATE_NOT_MINE };
+  const person = await ctx.repo.table("persons").get(c.personId);
+  if (!person) return { gate: GATE_NOT_MINE };
   const env = await envOf(c.contractId);
   if (!env) return { gate: GATE_NOT_FOUND };
-  const person = await ctx.repo.table("persons").get(c.personId);
   const areas = await ctx.repo.table("contract_areas").list({ contractId: c.contractId });
   const head: CaseHead = {
     caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person), protected: !!person?.protectedIdentity, phase: c.phase, phaseName: phaseName(env.cfg, c.phase),
@@ -291,9 +292,11 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   const thisMon = monday(today);
   const lastMon = addDays(thisMon, -7);
   const envOf = envCache(ctx);
-  // Coachen: ärenden där hen är huvudcoach. Handledaren: teamärenden (policyn visar bara dem, aldrig skyddade).
+  // Coachen: ärenden där hen är huvudcoach. Handledaren: ärenden där hen ingår i teamet. Alla ärenden i avtalet är läsbara
+  // (beslut 2026-10-09), så tilldelningen filtreras här – Närvaro är listan över de egna tillfällena.
   const visible = await ctx.repo.table("cases").list();
-  const cases = visible.filter((c) => (ctx.actor.role === "coach" ? c.leadCoachId === me : true) && c.startDate);
+  const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
+  const cases = visible.filter((c) => (ctx.actor.role === "coach" ? c.leadCoachId === me : myTeam.has(c.id)) && c.startDate);
   const ids = cases.map((c) => c.id);
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
   if (!main) throw new Error("Inget avtal med driftkonfiguration");
@@ -476,7 +479,7 @@ handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
 
 handleQuery(checkInAttendance, { roles: ["coach"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
-  if (!c || c.leadCoachId !== ctx.actor.userId) return null;
+  if (!c || !(await ctx.repo.table("persons").get(c.personId))) return null;
   const db = await loadDb(ctx.repo, ["activities", "attendance"], { activities: { caseId: c.id }, attendance: { caseId: c.id } });
   const from = addDays(p.date, -6);
   const s = attendanceStats(db, c.id, from, p.date, { now: ctx.now() });

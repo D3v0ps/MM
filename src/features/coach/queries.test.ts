@@ -109,8 +109,11 @@ describe("Ärendevyerna", () => {
     expect(v.rows.filter((r) => r.badge?.text === "Godkänd")).toHaveLength(4);
   });
 
-  it("spärrar andras ärenden och ärenden som inte finns", async () => {
-    expect(await q(checkInPage, { caseId: SC.skyddad }, amira())).toEqual({ kind: "gate", gate: expect.objectContaining({ title: "Inte ditt ärende" }) });
+  it("öppnar kollegans ärende (beslut 2026-10-09) men spärrar ett skyddat ärende (vilande spärr) och ärenden som inte finns", async () => {
+    // Eriks ärende: Amira når det.
+    expect((await q(checkInPage, { caseId: SC.skyddad }, amira())).kind).toBe("ok");
+    rt.store.updateRow("persons", rt.raw().get("cases", SC.skyddad)!.personId, { protectedIdentity: true });
+    expect(await q(checkInPage, { caseId: SC.skyddad }, amira())).toEqual({ kind: "gate", gate: expect.objectContaining({ title: "Du saknar åtkomst till ärendet" }) });
     expect(await q(checkInPage, { caseId: "case-finns-inte" }, amira())).toEqual({ kind: "gate", gate: expect.objectContaining({ title: "Ärendet finns inte" }) });
   });
 
@@ -139,6 +142,9 @@ describe("Ärendevyerna", () => {
   it("närvaron senaste veckan följer avstämningens datum", async () => {
     const a = await q(checkInAttendance, { caseId: SC.mehmet, date: "2027-01-29" }, amira());
     expect(a).toMatchObject({ from: "2027-01-23", to: "2027-01-29", present: 3, late: 0, absentInvalid: 0, rate: 1 });
+    // Kollegans ärende nås (beslut 2026-10-09) – men inte med skyddade personuppgifter (vilande spärr).
+    expect(await q(checkInAttendance, { caseId: SC.skyddad, date: "2027-01-29" }, amira())).not.toBeNull();
+    rt.store.updateRow("persons", rt.raw().get("cases", SC.skyddad)!.personId, { protectedIdentity: true });
     expect(await q(checkInAttendance, { caseId: SC.skyddad, date: "2027-01-29" }, amira())).toBeNull();
   });
 
