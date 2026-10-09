@@ -122,8 +122,9 @@ test("1. samordnaren bygger en rapport från en mall, sparar den inom Miljonbema
   await expect(main(page)).toContainText("Rapporten är sparad.");
   await expect(main(page).getByRole("heading", { level: 1 })).toContainText("Närvaro hösten");
   await expect(main(page)).toContainText("Alla på Miljonbemanning i avtalet");
-  // Adressen har bara id:n – inga namn. Kvittensen (?sparad=1) tas bort ur adressen när den visats (toast och ruta).
-  await expect(page.getByRole("status").filter({ hasText: "Rapporten är sparad." }).first()).toBeAttached();
+  // Adressen har bara id:n – inga namn. Kvittensen (?sparad=1) är rutan (ingen toast ovanpå) och tas bort ur adressen när den visats.
+  await expect(main(page).getByRole("status").filter({ hasText: "Rapporten är sparad." })).toHaveCount(1);
+  await expect(page.locator(".animate-toast-in").filter({ hasText: "Rapporten är sparad." })).toHaveCount(0);
   await expect.poll(() => currentPath(page, info)).toMatch(/^\/rapportbyggare\/[a-z0-9-]+$/);
   await expect(main(page).getByRole("table")).toContainText("Totalt");
   const [xlsx] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), btn(page, "Hämta som Excel").click()]);

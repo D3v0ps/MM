@@ -676,7 +676,7 @@ export function ReportDocument({ doc }: { doc: ReportDocView }) {
     }
   })();
   return (
-    <div className="rap-doc [&_h3]:text-body [&_h3]:font-extrabold portal:[&_li]:text-portal portal:[&_p]:text-portal portal:[&_td]:text-portal portal:[&_.text-small]:text-body">
+    <div className="rap-doc [&_h3]:text-body [&_h3]:font-extrabold portal:[&_h2]:text-portal portal:[&_li]:text-portal portal:[&_p]:text-portal portal:[&_td]:text-portal portal:[&_.text-small]:text-body">
       {body}
     </div>
   );

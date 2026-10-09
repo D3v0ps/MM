@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
-import { Badge, Brand, Button, DemoNote, ErrorNotice, Icon, Loading, PerspectiveLink, PulsePhone, Row, Seg, Smiley, Smileys, Stack, cn, toast, type IconName } from "@/ui";
+import { Badge, Brand, Button, DemoNote, ErrorNotice, Icon, Loading, Notice, PerspectiveLink, PulsePhone, Row, Seg, Smiley, Smileys, Stack, cn, toast, type IconName } from "@/ui";
 import { pulseLink, pulseSubmit, type PulseLinkView } from "../api";
 import { LANG_LABEL, PT, PULSE_LANGS, tr, type PulseLang } from "../texts";
 
@@ -26,12 +26,27 @@ const Face = ({ v }: { v: number }) => (
   </svg>
 );
 
+/** Behörighetsfel (403): sidan är deltagarens – en inloggad kollega som öppnar länken får klartext, inte "Din roll har inte behörighet". */
+const isForbidden = (e: unknown) => e instanceof Error && (e as { code?: unknown }).code === "forbidden";
+
 export function PulsScreen({ params }: ScreenProps) {
   const token = params.token;
   const q = useQuery(pulseLink, token ? { token } : {});
   return (
     <div className="flex w-[min(420px,100%)] flex-col gap-4">
-      {q.error ? <ErrorNotice error={q.error} /> : !q.data ? <Loading /> : <Pulse link={q.data} token={token} />}
+      {q.error ? (
+        isForbidden(q.error) ? (
+          <Notice tone="info" title="Den här sidan är för deltagaren">
+            Öppna länken i ett privat fönster eller logga ut först.
+          </Notice>
+        ) : (
+          <ErrorNotice error={q.error} />
+        )
+      ) : !q.data ? (
+        <Loading />
+      ) : (
+        <Pulse link={q.data} token={token} />
+      )}
     </div>
   );
 }

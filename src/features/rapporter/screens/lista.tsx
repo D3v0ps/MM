@@ -14,7 +14,7 @@ import {
   type Column,
 } from "@/ui";
 import { reportList, type ReportList, type ReportListRow } from "../api";
-import { ProvisionalNote, ReportStatusBadge } from "../components/parts";
+import { ReportStatusBadge } from "../components/parts";
 import { LIFECYCLE, NO_DUE, QUICK_FILTERS, REPORT_LIST_KINDS, REPORT_LIST_STATUSES, ucfirst, type QuickFilter } from "../report-helpers";
 
 const PAGE_SIZE = 30;
@@ -67,10 +67,13 @@ function Tile({ label, value, sub, alert, active, onClick }: { label: string; va
   return (
     <button type="button" aria-pressed={active} onClick={onClick} className="grid min-h-11 w-full cursor-pointer rounded-card border-0 bg-transparent p-0 text-left text-inherit [font:inherit]">
       <Kpi label={label} value={String(value)} sub={sub} tone={alert ? "alert" : active ? "watch" : undefined}>
-        <span className="mt-auto inline-flex items-center gap-1 text-small font-bold">
-          <Icon name={active ? "check" : "filter"} />
-          {active ? "Filtret är på" : "Visa i listan"}
-        </span>
+        {/* "Visa i listan" bara när det finns något att visa – under en nolla lovar den inget. */}
+        {(active || value > 0) && (
+          <span className="mt-auto inline-flex items-center gap-1 text-small font-bold">
+            <Icon name={active ? "check" : "filter"} />
+            {active ? "Filtret är på" : "Visa i listan"}
+          </span>
+        )}
       </Kpi>
     </button>
   );
@@ -78,11 +81,19 @@ function Tile({ label, value, sub, alert, active, onClick }: { label: string; va
 
 function DueCell({ r }: { r: ReportListRow }) {
   if (!r.dueAt || !r.sla) return <span className="text-text-muted">–</span>;
+  // Förklaringen till en förfallotid som inte är fastställd ligger som verktygstips på märket – inte som en tredje rad per rapport.
+  const provisional = !r.delivered && r.provisional ? r.provisional : null;
   return (
     <div className="flex min-w-[150px] flex-col items-start gap-1">
-      <SlaBadge sla={r.sla} dueAt={r.dueAt} />
-      {r.dueText && <span className="text-small whitespace-nowrap text-text-muted">{r.dueText}</span>}
-      {!r.delivered && <ProvisionalNote text={r.provisional} />}
+      <span title={provisional ?? undefined} className="inline-flex">
+        <SlaBadge sla={r.sla} dueAt={provisional ? null : r.dueAt} />
+      </span>
+      {r.dueText && (
+        <span className="text-small whitespace-nowrap text-text-muted" title={provisional ?? undefined}>
+          {r.dueText}
+          {provisional ? " (förslag)" : ""}
+        </span>
+      )}
     </div>
   );
 }
@@ -143,6 +154,8 @@ function ListView({ data, query }: { data: ReportList; query: URLSearchParams })
   );
   const shown = rows.slice(0, limit);
   const anyFilter = kind !== "all" || status !== "all" || period !== "all" || !!quick || !!search;
+  // Tom lista: utan filter är det inte filtret som är orsaken – säg i stället när rapporter skapas (tom databas).
+  const emptyText = anyFilter ? "Inga rapporter matchar filtret." : "Inga rapporter ännu. Orderbekräftelsen skapas när ett avrop accepteras, veckorapporten när närvaro är registrerad.";
   const reset = () => {
     setKind("all");
     setStatus("all");
@@ -243,25 +256,29 @@ function ListView({ data, query }: { data: ReportList; query: URLSearchParams })
         {narrow ? (
           <List>
             {shown.length === 0 ? (
-              <div className="px-[18px] py-3 text-text-muted">Inga rapporter matchar filtret.</div>
+              <div className="px-[18px] py-3 text-text-muted">{emptyText}</div>
             ) : (
               shown.map((x) => (
                 <ListItem key={x.id} to={hrefOf(x)} marked={x.overdue} chevron title={x.title} sub={x.sub}>
                   <span className="mt-1 flex flex-wrap items-center gap-2">
                     <ReportStatusBadge eff={x.eff} label={x.statusLabel} />
-                    {x.sla && <SlaBadge sla={x.sla} dueAt={x.dueAt} />}
+                    {x.sla && (
+                      <span title={!x.delivered && x.provisional ? x.provisional : undefined} className="inline-flex">
+                        <SlaBadge sla={x.sla} dueAt={!x.delivered && x.provisional ? null : x.dueAt} />
+                      </span>
+                    )}
                   </span>
                   <span className="block text-small text-text-muted">
                     {x.next.label}
                     {x.version > 1 ? ` · version ${x.version}` : ""}
+                    {!x.delivered && x.provisional ? " · förfallotiden är ett förslag" : ""}
                   </span>
-                  {!x.delivered && <ProvisionalNote text={x.provisional} />}
                 </ListItem>
               ))
             )}
           </List>
         ) : (
-          <Table columns={columns} rows={shown} caption="Rapporter" empty="Inga rapporter matchar filtret." rowTone={(x) => (x.overdue ? "alert" : null)} rowHref={hrefOf} linkKey={false} />
+          <Table columns={columns} rows={shown} caption="Rapporter" empty={emptyText} rowTone={(x) => (x.overdue ? "alert" : null)} rowHref={hrefOf} linkKey={false} />
         )}
       </Card>
       <Card title="Så fungerar rapporterna" icon="info">

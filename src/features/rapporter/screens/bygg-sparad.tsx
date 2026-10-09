@@ -37,11 +37,10 @@ export function SparadScreen({ params, query }: ScreenProps) {
 function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; lockedStep: boolean }) {
   const confirm = useConfirm();
   const nav = useNav();
-  // ?sparad=1: kvittensen visas (toast och rutan) och tas bort ur adressen – Tillbaka och omladdning visar den inte igen.
+  // ?sparad=1: kvittensen visas (rutan – ingen toast ovanpå) och tas bort ur adressen – Tillbaka och omladdning visar den inte igen.
   const [savedNow] = useState(justSaved);
   useEffect(() => {
     if (!justSaved) return;
-    toast("Rapporten är sparad.");
     nav.replace(path(`/rapportbyggare/${s.id}`));
   }, [justSaved, nav, s.id]);
   const preview = useCommand(builderPreview);
@@ -94,7 +93,11 @@ function Saved({ s, justSaved, lockedStep }: { s: Saved; justSaved: boolean; loc
 
   return (
     <Page title={s.title} crumbs={[{ label: "Rapportbyggare", to: "/rapportbyggare" }, { label: s.title }]}>
-      {savedNow && <Notice tone="ok" title="Rapporten är sparad." />}
+      {savedNow && (
+        <div role="status">
+          <Notice tone="ok" title="Rapporten är sparad." />
+        </div>
+      )}
       {s.archived && <Notice tone="info" title="Rapporten är arkiverad." />}
       {lockedStep && s.lockedText && <Notice tone="info" title={s.lockedText} />}
       {!lockedStep && !s.archived && !s.isOwner && s.lockedText && <p className="text-text-muted">{s.lockedText}</p>}

@@ -325,11 +325,12 @@ function Builder({ cat, query, copy, saved }: { cat: BuilderCatalog; query: URLS
   return (
     <Page
       title={editing ? "Ändra rapporten" : "Ny rapport"}
-      lead={editing || (draft && step > 0) ? header : undefined}
+      lead={editing || (draft?.title && step > 0) ? header : undefined}
       crumbs={[{ label: "Rapportbyggare", to: "/rapportbyggare" }, ...(editing ? [{ label: saved!.title, to: `/rapportbyggare/${saved!.id}` }] : []), { label: editing ? "Ändra" : "Ny rapport" }]}
     >
       <Stepper steps={STEPS} current={step} ariaLabel="Steg för att bygga en rapport" />
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] items-start gap-6 max-[980px]:grid-cols-1">
+      {/* Förhandsvisningen (upp till sex kolumner) får bredden; formuläret behöver inte mer än 420 px. */}
+      <div className="grid grid-cols-[minmax(0,420px)_minmax(0,1fr)] items-start gap-6 max-[1200px]:grid-cols-1">
         <Card>
           <Stack>
             <Stack gap="sm">
