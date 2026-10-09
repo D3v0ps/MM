@@ -82,7 +82,7 @@ describe("coachen spelar in avstämningen", () => {
     expect(s && Object.keys(s).sort()).toEqual(["activitiesDone", "attendanceComment", "employerContacts", "goalStatus", "nextGoal", "note", "obstacles", "phase"]);
     expect(s?.phase).toMatchObject({ value: null, noEvidence: true, quote: "Framgår inte av samtalet. Fasen ändras inte." });
     const withEvidence = Object.values(s ?? {}).filter((x) => !x.noEvidence);
-    expect(withEvidence).toHaveLength(6);
+    expect(withEvidence).toHaveLength(7);
     expect(withEvidence.every((x) => x.quote.length > 0)).toBe(true);
     // Ljudet raderades direkt efter transkriberingen
     expect(res.audioDeletedAt).toBe(res.result.audioDeletedAt);
