@@ -9,7 +9,8 @@
 //                           ai_runs (och i avstämningsutkastet om det finns) – coachen godkänner i veckoavstämningen
 //   transcribe_dictation    kommunens "Tala in": transcribe -> ljudet raderas -> texten i ai_runs.output (gallras efter 24 h)
 //   transcribe_participant  deltagarens länk: transcribe -> ljudet raderas -> translate till svenska -> participant_voice_notes
-//   draft_monthly           utkast till månadsbedömningen – BARA från godkända avstämningar och registrerad närvaro
+//   draft_monthly           utkast till månadsbedömningen – BARA från godkända avstämningar, registrerad närvaro och (med
+//                           samtycke) anteckningarna i deltagarkortet utan personnummer (beslut 4 2026-10-09)
 //   retention_audio         ljud som inte raderats efter 24 timmar raderas (CLAUDE.md punkt 7)
 //   retention_transcripts   råtranskript raderas när avstämningen godkänts, senast efter 30 dagar; dikteringens text efter 24 h
 //
@@ -29,7 +30,7 @@ import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from
 import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, ParticipantVoiceNote, Person } from "@/data/schema";
 import {
   AI_OFF_TEXT,
-  aiRunRow, approvedCheckIns, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema,
+  aiRunRow, approvedCheckIns, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema,
   type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
 import { SIMULATED_PROVIDER } from "./ai-sim";
@@ -514,19 +515,27 @@ async function transcribeParticipant(ctx: Ctx, p: VoiceJobPayloads["transcribe_p
   return "succeeded";
 }
 
-// ---------------------------------------------------------------- draft_monthly (bara godkända uppgifter)
-/** Underlaget för månadens utkast: godkända avstämningar och registrerad närvaro (tillfällen som redan varit). */
+// ---------------------------------------------------------------- draft_monthly (bara godkända uppgifter och anteckningar)
+/**
+ * Underlaget för månadens utkast: godkända avstämningar, registrerad närvaro (tillfällen som redan varit) och – bara när
+ * deltagaren har registrerat samtycke till AI (samma samtycke som inspelningen, aiAllowed) – månadens anteckningar i
+ * deltagarkortet, med personnummer tvättade och utan författare (Karims beslut 4, 2026-10-09). Nivå, grupper och taggar läses
+ * aldrig här och skickas aldrig till AI.
+ */
 export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKey): Promise<DraftInput> {
   const now = ctx.now();
-  const [cis, acts, att] = await Promise.all([
+  const [cis, acts, att, c] = await Promise.all([
     ctx.system.table("check_ins").list({ caseId, status: "approved" }),
     ctx.system.table("activities").list({ caseId }),
     ctx.system.table("attendance").list({ caseId }),
+    ctx.system.table("cases").get(caseId),
   ]);
   const monthActs = acts.filter((a) => monthKey(a.startsAt) === month && a.startsAt < now);
   const byActivity = new Map(att.map((x) => [x.activityId, x]));
   const attendance = monthActs.map((a) => byActivity.get(a.id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ status: x.status }));
-  return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance };
+  const person = c ? await ctx.system.table("persons").get(c.personId) : null;
+  const notes = aiAllowed(c, person) ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month) : [];
+  return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance, notes };
 }
 
 async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Promise<string> {

@@ -1316,7 +1316,9 @@ export type AudioUpload = {
 
 // ================================================================ Fria anteckningar i deltagarkortet (0019, rapporter steg 2)
 // Anteckningar som MB skriver i ärendet (SPEC §7.18). De kommer bara in i månadsrapporten genom att coachen lägger in dem i
-// månadsbedömningens sammanfattning och godkänner den – aldrig av sig själva. Aldrig i loggar, AI, utskick eller export.
+// månadsbedömningens sammanfattning och godkänner den – aldrig av sig själva. Aldrig i loggar, utskick eller export. Underlag
+// till AI-utkastet för månadsbedömningen bara med deltagarens samtycke till AI, personnummer tvättade och utan författare
+// (Karims beslut 4, 2026-10-09 – draftNotes i src/features/_shared/ai-port.ts); coachen bedömer och godkänner.
 // Kommunen läser dem aldrig (inte heller när avtalet har customerVisibility.seesCoachNotes). Ingen hård radering: en
 // borttagen anteckning får removedAt och removedBy och visas inte längre (bara för författaren, när någon annan tog bort den).
 export const CASE_NOTE_KINDS = ["conversation", "customer_contact", "practical", "other"] as const;
@@ -1336,7 +1338,7 @@ export type CaseNote = {
   occurredOn: LocalDate;
   kind: CaseNoteKind;
   audience: CaseNoteAudience;
-  /** 1–2000 tecken. Aldrig i loggar, AI, utskick eller export. */
+  /** 1–2000 tecken. Aldrig i loggar, utskick eller export. Till AI bara som underlag för månadsutkastet (se ovan). */
   body: string;
   createdAt: LocalDateTime;
   /** Senaste ändringen av texten (bara författaren ändrar). */

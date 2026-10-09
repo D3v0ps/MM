@@ -4,7 +4,7 @@
 //   Supabase-läget: leverantören i MM_AI_PROVIDER – vertex (Gemini via Vertex AI EU, src/server/ai) eller simulated.
 //
 // Stegen: transcribe (ljud -> transkript med tidpunkter) -> extract (transkript -> formulärets fält med belägg) och
-// draft (bara GODKÄNDA uppgifter -> utkast med källor), translate (deltagarens språk -> svenska).
+// draft (bara GODKÄNDA uppgifter och coachernas anteckningar -> utkast med källor), translate (deltagarens språk -> svenska).
 // Varje anrop returnerar { value, run }: run är det som sparas i ai_runs (leverantör, modell, tid, token, kostnad).
 // Varje körning sparas i ai_runs (aiRunRow nedan) och varje beslut i ai_field_decisions – av hanteraren eller jobbet.
 //
@@ -16,11 +16,12 @@
 import { z } from "zod";
 import { ApiError, type Ctx } from "@/api/server";
 import { recordingEnabled, type ContractConfig, type RecordingKind } from "@/core/config";
-import type { LocalDateTime, MonthKey } from "@/core/time";
+import { fmtDateShort, monthKey, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
+import { looksLikePnr, scrubPnr } from "@/core/validation";
 import {
-  EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES,
-  type AiConsentStatus, type AiRun, type AiRunKind, type AiRunStatus, type AttendanceStatus, type CheckIn, type EmployerContacts, type GoalStatus,
-  type Person, type TranscriptLine,
+  CASE_NOTE_KINDS, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES,
+  type AiConsentStatus, type AiRun, type AiRunKind, type AiRunStatus, type AttendanceStatus, type CaseNote, type CaseNoteKind, type CheckIn, type EmployerContacts,
+  type GoalStatus, type Person, type TranscriptLine,
 } from "@/data/schema";
 import type { AiFieldSuggestion, CheckInSuggestions } from "./ai-types";
 import type { AudioRef } from "./audio-port";
@@ -131,11 +132,16 @@ export const EXTRACT_INSTRUCTIONS: Record<ExtractSchemaKey, string> = {
   ].join("\n"),
 };
 
-// ---------------------------------------------------------------- draft (bara godkända uppgifter)
+// ---------------------------------------------------------------- draft (bara godkända uppgifter och anteckningar)
 /** En godkänd avstämning – underlaget för utkast. status "approved" krävs (rapporter byggs aldrig av råtranskript). */
 export type ApprovedCheckIn = Pick<CheckIn, "id" | "heldAt" | "goalStatus" | "nextGoal" | "phase" | "activitiesDone" | "employerContacts" | "obstacles" | "note"> & {
   status: "approved";
 };
+/**
+ * En anteckning i deltagarkortet som underlag (Karims beslut 4, 2026-10-09): bara id, dag, typ och text – personnummer
+ * tvättade (scrubPnr), aldrig författarens namn, aldrig nivå, grupper eller taggar. Källan visas som "Anteckning 26 jan".
+ */
+export type DraftNote = { id: string; date: LocalDate; kind: CaseNoteKind; text: string };
 export type DraftInput = {
   caseId: string;
   month: MonthKey;
@@ -143,7 +149,17 @@ export type DraftInput = {
   checkIns: ApprovedCheckIn[];
   /** Månadens registrerade närvaro (ett tillfälle per rad). */
   attendance: { status: AttendanceStatus }[];
+  /** Månadens anteckningar i deltagarkortet – bara när deltagaren har registrerat samtycke till AI (annars tom). */
+  notes: DraftNote[];
 };
+/** Fälten i underlaget – inget annat får skickas (t.ex. aldrig grupper, nivåer, taggar eller namn). */
+export const DRAFT_INPUT_KEYS = ["caseId", "month", "checkIns", "attendance", "notes"] as const;
+const DraftNoteSchema = z.strictObject({
+  id: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  kind: z.enum(CASE_NOTE_KINDS),
+  text: z.string().min(1).max(2000).refine((t) => !looksLikePnr(t), "Personnummer i en anteckning"),
+});
 /**
  * Mallar: monthly_area:<områdesnyckel> (observation per progressionsområde, t.ex. "monthly_area:narvaro_rutiner"),
  * monthly_summary (sammanfattning) och monthly_plan (plan för nästa månad).
@@ -168,12 +184,34 @@ export function approvedCheckIns(checkIns: readonly CheckIn[]): ApprovedCheckIn[
       employerContacts: { count: c.employerContacts.count, types: [...c.employerContacts.types] }, obstacles: [...c.obstacles], note: c.note, status: "approved",
     }));
 }
-/** Stoppar ett utkast som bygger på något annat än godkända uppgifter (CLAUDE.md punkt 6). Anropas av varje leverantör. */
+/**
+ * Månadens anteckningar som underlag: inte borttagna, dagen i månaden, i tidsordning. Personnummer tvättas bort; bara id,
+ * dag, typ och text följer med – aldrig författaren. Anroparen tar bara med dem när deltagaren har samtycke till AI.
+ */
+export function draftNotes(notes: readonly CaseNote[], month: MonthKey): DraftNote[] {
+  return notes
+    .filter((n) => n.removedAt == null && monthKey(n.occurredOn) === month)
+    .sort((a, b) => (a.occurredOn < b.occurredOn ? -1 : a.occurredOn > b.occurredOn ? 1 : a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
+    .map((n) => ({ id: n.id, date: n.occurredOn, kind: n.kind, text: scrubPnr(n.body) }));
+}
+
+/**
+ * Källfiltret (CLAUDE.md punkt 6 och Karims beslut 4, 2026-10-09). Stoppar ett utkast som bygger på något annat än godkända
+ * avstämningar, registrerad närvaro och anteckningar utan personnummer – och ett underlag med andra fält (t.ex. grupper,
+ * nivåer, taggar eller namn). Anropas av varje leverantör innan något skickas.
+ */
 export function assertApprovedInput(input: DraftInput): void {
   if (input.checkIns.some((c) => (c as { status?: unknown }).status !== "approved")) {
     throw new Error("AI-utkast får bara byggas av godkända avstämningar");
   }
+  const extra = Object.keys(input).filter((k) => !(DRAFT_INPUT_KEYS as readonly string[]).includes(k));
+  if (extra.length) throw new Error("Underlaget till AI-utkast får bara innehålla avstämningar, närvaro och anteckningar");
+  if (!Array.isArray(input.notes) || input.notes.some((n) => !DraftNoteSchema.safeParse(n).success)) {
+    throw new Error("AI-utkast får bara byggas av anteckningar utan personnummer");
+  }
 }
+/** Källans namn för en anteckning ("Anteckning 26 jan") – samma i den simulerade och den riktiga leverantören. */
+export const noteSourceLabel = (n: Pick<DraftNote, "date">): string => `Anteckning ${fmtDateShort(n.date)}`;
 
 // ---------------------------------------------------------------- translate
 export type Translation = { text: string; from: string; to: string };

@@ -310,7 +310,7 @@ describe("transcribe_participant (deltagarens länk)", () => {
 });
 
 describe("draft_monthly (bara godkända uppgifter)", () => {
-  it("Mehmet januari: exakt testdatats (prototypens) AI-utkast per område och sammanfattning – nivåerna rörs aldrig", async () => {
+  it("Mehmet januari: testdatats (prototypens) AI-utkast per område och sammanfattningen med anteckningen som källa – nivåerna rörs aldrig", async () => {
     const t = setup();
     const before = structuredClone(t.store.getRow("monthly_assessments", "ma-15934")!);
     // Rensa utkasten så att jobbet måste skriva dem
@@ -328,8 +328,11 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
         a.aiObservationDraft && { text: a.aiObservationDraft.text, sources: a.aiObservationDraft.sources, ne: !!a.aiObservationDraft.noEvidence },
       );
     }
-    expect(ma.aiSummaryDraft).toBe(before.aiSummaryDraft);
-    expect(ma.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända avstämningar, 8 jan, 22 jan.)");
+    // Sammanfattningen: testdatats text + Petras anteckning 26 januari (Mehmet har samtycke till AI – beslut 4 2026-10-09).
+    expect(ma.aiSummaryDraft).toBe(
+      `${before.aiSummaryDraft} Ur anteckningarna – 26 jan: Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten.`,
+    );
+    expect(before.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända avstämningar, 8 jan, 22 jan.)");
     expect(ma).toMatchObject({ status: "draft", summary: before.summary, overallStatus: before.overallStatus });
     const run = t.run(r.aiRunId);
     const out = run.output as MonthlyDraftOutput;
@@ -338,12 +341,33 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
     expect(out.assessmentId).toBe("ma-15934");
   });
 
-  it("underlaget är bara godkända avstämningar i månaden och närvaro vid tillfällen som redan varit", async () => {
+  it("underlaget är bara godkända avstämningar i månaden, närvaro vid tillfällen som redan varit och (med samtycke) månadens anteckningar", async () => {
     const t = setup();
     const input = await monthlyDraftInput(t.sys, MEHMET, "2027-01");
     expect(input.checkIns.map((c) => c.status)).toEqual(["approved", "approved"]);
     expect(input.checkIns.every((c) => c.heldAt.startsWith("2027-01"))).toBe(true);
     expect(input.attendance).toHaveLength(11);
+    expect(input.notes).toEqual([{ id: "note-mehmet-handledare", date: "2027-01-26", kind: "practical", text: "Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten. Inget mer behövs inför nästa vecka." }]);
+    // Aldrig författaren, nivån, grupperna eller taggarna – Mehmet har nivå 3, Måndagsgruppen och Deltid i testdatat.
+    expect(Object.keys(input).sort()).toEqual(["attendance", "caseId", "checkIns", "month", "notes"]);
+    expect(JSON.stringify(input)).not.toMatch(/u-petra|Petra|grp-|Nivå \d|Måndagsgruppen|Deltid|Vill arbeta/);
+  });
+
+  it("anteckningarna följer bara med när deltagaren har samtycke; borttagna och personnummer aldrig", async () => {
+    const t = setup();
+    // Ett personnummer i en anteckning (borde ha stoppats när den skrevs) tvättas ändå bort; en borttagen följer inte med.
+    t.store.insertRow("case_notes", { ...t.store.getRow("case_notes", "note-mehmet-handledare")!, id: "note-x-pnr", occurredOn: "2027-01-27", body: "Pnr 19850101-1234 på blanketten.", createdAt: "2027-01-27T09:00" });
+    t.store.insertRow("case_notes", { ...t.store.getRow("case_notes", "note-mehmet-handledare")!, id: "note-x-borta", occurredOn: "2027-01-28", body: "Bort.", createdAt: "2027-01-28T09:00", removedAt: "2027-01-28T10:00", removedBy: "u-sara" });
+    const input = await monthlyDraftInput(t.sys, MEHMET, "2027-01");
+    expect(input.notes.map((n) => [n.id, n.text])).toEqual([
+      ["note-mehmet-handledare", "Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten. Inget mer behövs inför nästa vecka."],
+      ["note-x-pnr", "Pnr [personnummer borttaget] på blanketten."],
+    ]);
+    // Utan samtycke: inga anteckningar i underlaget (och jobbet stoppas redan innan – blocked_no_consent).
+    t.store.updateRow("cases", MEHMET, { aiConsentStatus: "revoked" });
+    expect((await monthlyDraftInput(t.sys, MEHMET, "2027-01")).notes).toEqual([]);
+    const r = await enqueueVoiceJob(t.amira, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.error?.code).toBe("blocked_no_consent");
   });
 
   it("en godkänd månadsbedömning ändras inte; inget samtycke -> inget utkast", async () => {

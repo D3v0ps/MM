@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { BOTKYRKA_CONFIG } from "./config";
 import { cfgWith } from "./test-data";
 import {
-  buyerRefError, buyerRefValid, emailValid, looksLikePnr, luhn, normalizePnr, pnrFormatValid, pnrLast4, pnrValid, poNumberError, poNumberFormatText, poNumberValid,
+  buyerRefError, buyerRefValid, emailValid, looksLikePnr, luhn, normalizePnr, pnrFormatValid, pnrLast4, pnrValid, PNR_SCRUBBED, poNumberError, poNumberFormatText, poNumberValid, scrubPnr,
 } from "./validation";
 
 const cfg = BOTKYRKA_CONFIG;
@@ -91,6 +91,14 @@ describe("personnummer", () => {
     for (const s of ["BOT-26-0143", "case-260143", "rep-16008", "Ring 070-123 45 67", "Mötet 2027-02-01 kl. 10", "Ärende 260143, vecka 1234", "", null, undefined]) {
       expect(looksLikePnr(s), String(s)).toBe(false);
     }
+  });
+  // Underlaget till AI-utkastet (beslut 4 2026-10-09): coachernas anteckningar tvättas innan de skickas.
+  it("scrubPnr: alla skrivsätt ersätts – och efteråt ser texten inte ut att innehålla något personnummer", () => {
+    expect(scrubPnr("Handläggaren bekräftade 850101\u20131234 i går och 19850101 1234.")).toBe(`Handläggaren bekräftade ${PNR_SCRUBBED} i går och ${PNR_SCRUBBED}.`);
+    for (const s of ["850101-1234", "19850101-1234", "8501011234", "850101 - 1234", "\uff18\uff15\uff10\uff11\uff10\uff11\uff0d\uff11\uff12\uff13\uff14"]) {
+      expect(looksLikePnr(scrubPnr(`Text ${s} text`)), s).toBe(false);
+    }
+    expect(scrubPnr("BOT-26-0143 · Ring 070-123 45 67 · 2027-02-01")).toBe("BOT-26-0143 · Ring 070-123 45 67 · 2027-02-01");
   });
 });
 

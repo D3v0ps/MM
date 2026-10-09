@@ -10,10 +10,11 @@ import { MemoryRepo, MemoryStore } from "@/data/memory";
 import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START } from "@/data/seed";
 import { participantMessage, PARTICIPANT_MESSAGES } from "@/data/seed/voice-texts";
-import type { AppRepo, CheckIn, Tables } from "@/data/schema";
+import type { AppRepo, CaseNote, CheckIn, Tables } from "@/data/schema";
+import { PNR_SCRUBBED } from "@/core/validation";
 import {
-  AI_CORE_INSTRUCTIONS, aiRunRow, approvedCheckIns, CheckInExtractSchema, DraftTextSchema, EXTRACT_INSTRUCTIONS, EXTRACT_SCHEMAS, mmss, recordingBlock, requireAi,
-  sumRuns, transcriptLines, TranscriptSchema, TranslationSchema, type AiRunMeta, type DraftInput,
+  AI_CORE_INSTRUCTIONS, aiRunRow, approvedCheckIns, assertApprovedInput, CheckInExtractSchema, DRAFT_INPUT_KEYS, draftNotes, DraftTextSchema, EXTRACT_INSTRUCTIONS, EXTRACT_SCHEMAS, mmss,
+  recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, TranslationSchema, type AiRunMeta, type DraftInput,
 } from "./ai-port";
 import { checkInSuggestionsFromTranscript, createSimulatedAi, SIMULATED_MODEL, SIMULATED_PROVIDER, simulatedDraft } from "./ai-sim";
 import { AUDIO_MAX_BYTES, audioOverdue, audioStoragePath, createMemoryAudio, normalizeAudioMime, requireAudio } from "./audio-port";
@@ -164,7 +165,7 @@ describe("draft (simulerad): bara godkända uppgifter, samma texter som testdata
     const cis = seed.check_ins.filter((x) => x.caseId === caseId && x.heldAt.slice(0, 7) === month);
     const acts = seed.activities.filter((a) => a.caseId === caseId && a.startsAt.slice(0, 7) === month && a.startsAt < NOW);
     const att = acts.map((a) => seed.attendance.find((x) => x.activityId === a.id)).filter((x) => !!x);
-    return { caseId, month, checkIns: approvedCheckIns(cis), attendance: att.map((x) => ({ status: x!.status })) };
+    return { caseId, month, checkIns: approvedCheckIns(cis), attendance: att.map((x) => ({ status: x!.status })), notes: [] };
   }
   const drafts = seed.monthly_assessments.filter((m) => m.status === "draft" && Object.values(m.areas).some((a) => a.aiObservationDraft));
 
@@ -202,9 +203,60 @@ describe("draft (simulerad): bara godkända uppgifter, samma texter som testdata
   });
   it("vägrar underlag som inte är godkänt (rapporter byggs aldrig av råtranskript)", async () => {
     const ci = seed.check_ins.find((x) => x.status === "draft")!;
-    const bad = { caseId: ci.caseId, month: ci.heldAt.slice(0, 7), checkIns: [{ ...(ci as CheckIn), status: "draft" } as never], attendance: [] } satisfies DraftInput;
+    const bad = { caseId: ci.caseId, month: ci.heldAt.slice(0, 7), checkIns: [{ ...(ci as CheckIn), status: "draft" } as never], attendance: [], notes: [] } satisfies DraftInput;
     await expect(ai.draft(bad, "monthly_summary")).rejects.toThrow("godkända");
     expect(approvedCheckIns([ci, { ...ci, id: "x", status: "approved" }]).map((c) => c.id)).toEqual(["x"]);
+  });
+});
+
+describe("draft: coachernas anteckningar som underlag (Karims beslut 4, 2026-10-09)", () => {
+  const seed = createSeed();
+  const note = (id: string, occurredOn: string, body: string, patch: Partial<CaseNote> = {}): CaseNote => ({
+    id, contractId: "c-bot", caseId: "case-1", authorId: "u-amira", occurredOn, kind: "conversation", audience: "full", body, createdAt: `${occurredOn}T10:00`,
+    updatedAt: null, removedAt: null, removedBy: null, ...patch,
+  });
+  const notes = [
+    note("n-3", "2027-01-29", "Var med på gruppträffen. Ville prata om CV."),
+    note("n-1", "2027-01-12", "Ringde och sa att personnumret är 19850101-1234 i ansökan."),
+    note("n-borttagen", "2027-01-20", "Fel deltagare.", { removedAt: "2027-01-20T11:00", removedBy: "u-sara" }),
+    note("n-feb", "2027-02-01", "Ny månad."),
+  ];
+
+  it("draftNotes: månadens anteckningar i tidsordning – borttagna och andra månader utan, personnummer tvättade, aldrig författaren", () => {
+    const d = draftNotes(notes, "2027-01");
+    expect(d).toEqual([
+      { id: "n-1", date: "2027-01-12", kind: "conversation", text: `Ringde och sa att personnumret är ${PNR_SCRUBBED} i ansökan.` },
+      { id: "n-3", date: "2027-01-29", kind: "conversation", text: "Var med på gruppträffen. Ville prata om CV." },
+    ]);
+    expect(JSON.stringify(d)).not.toMatch(/u-amira|authorId|19850101/);
+  });
+
+  it("källfiltret: inga andra fält i underlaget (aldrig grupper, nivåer, taggar eller namn) och inga personnummer i anteckningarna", () => {
+    const base: DraftInput = { caseId: "case-1", month: "2027-01", checkIns: [], attendance: [], notes: draftNotes(notes, "2027-01") };
+    expect(() => assertApprovedInput(base)).not.toThrow();
+    expect(Object.keys(base).sort()).toEqual([...DRAFT_INPUT_KEYS].sort());
+    for (const extra of [{ groupings: ["Nivå 4 – Nära arbete"] }, { level: "grp-c-bot-niva-4" }, { tags: { "Vill arbeta": "Heltid" } }, { name: "Nadia" }]) {
+      expect(() => assertApprovedInput({ ...base, ...extra } as DraftInput), JSON.stringify(extra)).toThrow(/bara innehålla/);
+    }
+    expect(() => assertApprovedInput({ ...base, notes: [{ ...base.notes[0], text: "Pnr 850101-1234" }] })).toThrow(/personnummer/);
+    expect(() => assertApprovedInput({ ...base, notes: [{ ...base.notes[0], authorId: "u-amira" } as never] })).toThrow(/personnummer|anteckningar/);
+  });
+
+  it("den simulerade sammanfattningen citerar anteckningarna med datum som källa – utan anteckningar exakt som förut", () => {
+    const ma = seed.monthly_assessments.find((m) => m.status === "draft" && m.aiSummaryDraft)!;
+    const cis = seed.check_ins.filter((x) => x.caseId === ma.caseId && x.heldAt.slice(0, 7) === ma.month);
+    const input: DraftInput = { caseId: ma.caseId, month: ma.month, checkIns: approvedCheckIns(cis), attendance: [], notes: [] };
+    const plain = simulatedDraft(input, "monthly_summary");
+    const withNotes = simulatedDraft({ ...input, notes: draftNotes(notes, "2027-01") }, "monthly_summary");
+    expect(withNotes.text).toBe(`${plain.text} Ur anteckningarna – 12 jan: Ringde och sa att personnumret är ${PNR_SCRUBBED} i ansökan. 29 jan: Var med på gruppträffen.`);
+    expect(withNotes.sources).toEqual([...plain.sources, "Anteckning 12 jan", "Anteckning 29 jan"]);
+    expect(withNotes.sourceIds).toEqual([...plain.sourceIds, "n-1", "n-3"]);
+    expect(DraftTextSchema.parse(withNotes)).toEqual(withNotes);
+    // Bara anteckningar: ett utkast med anteckningarna som källa (inte "Framgår inte").
+    const only = simulatedDraft({ caseId: "case-1", month: "2027-01", checkIns: [], attendance: [], notes: draftNotes(notes, "2027-01") }, "monthly_summary");
+    expect(only).toMatchObject({ noEvidence: false, sources: ["Anteckning 12 jan", "Anteckning 29 jan"] });
+    // Observationerna per område och planen påverkas inte (AI sätter aldrig nivåer).
+    expect(simulatedDraft({ ...input, notes: draftNotes(notes, "2027-01") }, "monthly_plan")).toEqual(simulatedDraft(input, "monthly_plan"));
   });
 });
 

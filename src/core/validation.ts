@@ -81,4 +81,13 @@ export const looksLikePnr = (s: string | null | undefined): boolean => {
   return /\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/.test(t);
 };
 
+/** Ersättningen för ett personnummer i text som tvättas (underlaget till AI, beslut 4 2026-10-09). */
+export const PNR_SCRUBBED = "[personnummer borttaget]";
+/**
+ * Tvätta bort allt som ser ut som ett personnummer (samma mönster som looksLikePnr, efter samma normalisering). Används för
+ * coachernas anteckningar innan de blir underlag till AI-utkastet – efteråt gäller looksLikePnr(text) === false.
+ */
+export const scrubPnr = (s: string): string =>
+  s.normalize("NFKC").replace(/[‐-―−﹘﹣－]/g, "-").replace(/\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/g, PNR_SCRUBBED);
+
 export const emailValid = (s: string | null | undefined): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str(s));

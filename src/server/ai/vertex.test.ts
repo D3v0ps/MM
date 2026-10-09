@@ -322,6 +322,7 @@ const INPUT: DraftInput = {
     { id: "ci-2", heldAt: "2027-01-22T10:00", goalStatus: "partly", nextGoal: "Förbereda intervjun", phase: 5, activitiesDone: ["Intervjuträning"], employerContacts: { count: "0", types: [] }, obstacles: ["Språk"], note: "Övade intervju.", status: "approved" },
   ],
   attendance: [{ status: "present" }, { status: "late" }],
+  notes: [],
 };
 
 describe("draft (bara godkända uppgifter)", () => {
@@ -350,6 +351,29 @@ describe("draft (bara godkända uppgifter)", () => {
     expect(empty.calls).toHaveLength(0);
     // Något annat än godkända avstämningar stoppas innan något skickas
     await expect(empty.ai.draft({ ...INPUT, checkIns: [{ ...INPUT.checkIns[0], status: "draft" as never }] }, "monthly_summary")).rejects.toThrow(/godkända/);
+  });
+
+  it("anteckningarna (beslut 4 2026-10-09): med i underlaget med id, datum, typ och text – aldrig författaren; källan heter Anteckning <datum>", async () => {
+    const notes = [{ id: "note-1", date: "2027-01-15", kind: "conversation" as const, text: "Var med på gruppträffen och pratade om CV." }];
+    const v = vertex(ENV, [reply({ text: "Har deltagit i gruppträff och arbetat med CV.", sourceIds: ["note-1", "ci-1"], usedAttendance: false, noEvidence: false })]);
+    const r = await v.ai.draft({ ...INPUT, notes }, "monthly_summary");
+    expect(r.value).toEqual({ text: "Har deltagit i gruppträff och arbetat med CV.", sources: ["Avstämning 8 jan", "Anteckning 15 jan"], sourceIds: ["ci-1", "note-1"], noEvidence: false });
+    const user = (v.calls[0].body.contents as { parts: { text: string }[] }[])[0].parts[0].text;
+    expect(user).toContain('"anteckningar":[{"id":"note-1","datum":"15 jan","typ":"Samtal med deltagaren","text":"Var med på gruppträffen och pratade om CV."}]');
+    expect(user).not.toMatch(/authorId|u-amira|Amira|grp-|Nivå \d|Vill arbeta/);
+    const sys = (v.calls[0].body.systemInstruction as { parts: { text: string }[] }).parts[0].text;
+    expect(sys).toContain("coachernas anteckningar");
+    expect(sys).toContain("Sätt aldrig nivå");
+    // Bara anteckningar räcker för ett anrop; påhittade anteckningar underkänns.
+    const only = vertex(ENV, [reply({ text: "Var med på gruppträffen.", sourceIds: ["note-1"], usedAttendance: false, noEvidence: false })]);
+    expect((await only.ai.draft({ ...INPUT, checkIns: [], attendance: [], notes }, "monthly_summary")).value.sources).toEqual(["Anteckning 15 jan"]);
+    const bad = vertex(ENV, [reply({ text: "x", sourceIds: ["note-9"], usedAttendance: false, noEvidence: false }), reply({ text: "x", sourceIds: ["note-9"], usedAttendance: false, noEvidence: false })]);
+    await expect(bad.ai.draft({ ...INPUT, notes }, "monthly_summary")).rejects.toMatchObject({ code: "invalid_response" });
+    // Personnummer i en anteckning eller fält utöver underlaget stoppas innan något skickas.
+    const none = vertex(ENV, []);
+    await expect(none.ai.draft({ ...INPUT, notes: [{ ...notes[0], text: "Pnr 850101-1234" }] }, "monthly_summary")).rejects.toThrow(/personnummer/);
+    await expect(none.ai.draft({ ...INPUT, notes, groupings: ["Måndagsgruppen"] } as never, "monthly_summary")).rejects.toThrow(/bara innehålla/);
+    expect(none.calls).toHaveLength(0);
   });
 });
 
