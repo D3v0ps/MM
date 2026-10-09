@@ -15,6 +15,7 @@ import { routes as rost } from "@/features/rost/routes";
 import { routes as notiser } from "@/features/notiser/routes";
 import { routes as session } from "@/features/session/routes";
 import { routes as hjalp } from "@/features/hjalp/routes";
+import { routes as grupper } from "@/features/grupper/routes";
 
 export const APP_ROUTES: readonly RouteDef[] = [
   ...session,
@@ -32,4 +33,5 @@ export const APP_ROUTES: readonly RouteDef[] = [
   ...rost,
   ...notiser,
   ...hjalp,
+  ...grupper,
 ];

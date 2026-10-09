@@ -46,7 +46,7 @@
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
-import { slotOf } from "@/core/groupings";
+import { GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
 import type { Case, Report, TableName, Tables } from "./schema";
 
 type Raw = RawAccess<Tables>;
@@ -348,10 +348,7 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
 // ---------------------------------------------------------------- Grupper, nivåer och taggar (0031)
 type GroupingRow = Tables["groupings"];
 type GroupingMemberRow = Tables["grouping_members"];
-/** Läser avtalets grupperingar: Miljonbemanning utom ekonomen (internt – aldrig kommunen). */
-export const GROUPING_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
-/** Skapar, byter namn på och arkiverar grupperingar och placerar deltagare (Karims beslut 3: en människa – Adam, coacherna). */
-export const GROUPING_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "admin"];
+// Rollerna GROUPING_READERS och GROUPING_WRITERS finns i src/core/groupings.ts (samma i hanterarna och rutterna).
 /** Fält som aldrig ändras efter att grupperingen skapats (triggern groupings_protect_columns, 0031). */
 const GROUPING_FIXED = ["contractId", "kind", "category", "createdAt", "createdBy"];
 /**

@@ -77,6 +77,9 @@ const SAMPLES: Record<string, Sample[]> = {
   "rost.link": one("deltagare", {}), "rost.sendStatus": one("deltagare", { aiRunId: "ai-run-mehmet" }), "rost.caseVoice": one("u-amira", { caseId: NADIA }), "rost.pendingNotes": one("u-amira"),
   "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-maria")],
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
+  // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
+  "grupper.katalog": [...one("u-sara", { arkiverade: true }), ...one("u-amira")], "grupper.arende": one("u-amira", { caseId: NADIA }),
+  "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "grupp", id: "grp-c-bot-g-mandag" })],
 };
 
 /**
@@ -143,6 +146,9 @@ const WRITES: Record<string, string[]> = {
   "rost.linkSend": ["voice_links", "outbound_messages", AUDIT_CASE, AUDIT], "rost.notesSeen": [AUDIT_CASE, AUDIT], "rost.noteReview": ["participant_voice_notes", AUDIT_CASE, AUDIT],
   "session.auditView": [AUDIT_CASE, AUDIT],
   "feedback.submit": ["feedback", AUDIT], "feedback.reply": ["feedback_replies", AUDIT], "feedback.setStatus": ["feedback", AUDIT],
+  // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
+  "grupper.ny": ["groupings", AUDIT], "grupper.andra": ["groupings", AUDIT], "grupper.arkivera": ["groupings", AUDIT], "grupper.standard": ["groupings", AUDIT],
+  "grupper.arendeSpara": ["grouping_members", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -204,6 +210,10 @@ const KNOWN: Known[] = [
   { command: "coach.intakeSave", query: "session.navCounts", table: "cases", reason: "yrkesspåret påverkar inga räknare" },
   { command: "praktik.employerAdd", query: "*", table: "employers", reason: "en ny arbetsgivare har inga placeringar än" },
   { command: "coach.recordingFinish", query: "*", table: "check_ins", reason: "bara AI-utkastet i avstämningen – notiser, rapporter och räknare räknar godkända avstämningar; coachens skärmar och kortet räknas om" },
+  // Massanteckningarna (coachmötet 2026-10-09): urvalets namn, ärendenummer och status, och Mina ärenden (teamet).
+  { command: "*", query: "grupper.anteckningar", table: "cases", reason: "listan över urvalet hämtas om när sidan visas igen – en anteckning går att spara i alla ärenden man arbetar i" },
+  { command: "*", query: "grupper.anteckningar", table: "case_team", reason: "Mina ärenden – tilldelningen hämtas om när sidan visas igen" },
+  { command: "*", query: "grupper.arende", table: "case_team", reason: "teamet läses bara i behörighetsuppslaget – tilldelningen styr inte åtkomsten (beslut 2026-10-09)" },
 ];
 /** Varje delad tabell måste täckas av en KNOWN-rad för paret; returnerar raderna som användes (eller null). */
 function knownFor(command: string, query: string, tables: string[]): number[] | null {

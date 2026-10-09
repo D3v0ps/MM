@@ -83,7 +83,7 @@ describe("stängda sidor, menyn och startsidan", () => {
   it("menyn: Ekonomi bara för ekonomen och döljs för begränsade testare; Avtal och konfiguration ligger inte i menyn för någon", () => {
     const now = "2027-02-01T09:12";
     const links = (role: Parameters<typeof navFor>[0], hidesCommercial?: boolean) => navFor(role, { now, hidesCommercial }).flatMap((g) => g.items.map((i) => i.to));
-    expect(links("admin")).toEqual(["/min-vecka", "/arenden", "/admin/anvandare", "/admin/integrationer", "/admin/mallar", "/admin/logg"]);
+    expect(links("admin")).toEqual(["/min-vecka", "/arenden", "/admin/anvandare", "/admin/integrationer", "/admin/mallar", "/grupper", "/admin/logg"]);
     expect(links("admin", true)).toEqual(links("admin"));
     expect(links("ekonom")).toEqual(["/min-vecka", "/ekonomi", "/ekonomi/2027-01", "/ekonomi/prislista"]);
     // Beslut 5: ingen annan roll har Ekonomi i menyn (chefen hade länken förut).

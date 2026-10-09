@@ -58,6 +58,10 @@ export const ACTION_LABEL: Record<string, string> = {
   "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
   // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
   "email.registered": "Registrerade beställning i inkorgen",
+  // Nivåer, grupper och taggar (coachmötet 2026-10-09, internt). Loggen har id:n och typ – aldrig namnen.
+  "grouping.created": "Skapade grupp eller tagg", "grouping.updated": "Bytte namn på nivå, grupp eller tagg", "grouping.archived": "Arkiverade grupp eller tagg",
+  "grouping.restored": "Återställde grupp eller tagg", "grouping.defaults_added": "Lade in standardnivåerna",
+  "grouping_member.added": "Placerade deltagare i nivå, grupp eller tagg", "grouping_member.removed": "Tog bort deltagare ur nivå, grupp eller tagg",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -67,7 +71,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
-  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura",
+  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));

@@ -10,10 +10,17 @@
 //     "tag:<kategori>") och ett partiellt unikt index (case_id, slot) där removed_at är null; grupper har ingen slot
 //   * en arkiverad gruppering kan inte väljas för fler deltagare (befintliga medlemskap ligger kvar tills de tas bort)
 //   * inget raderas: grupperingar arkiveras, medlemskap får removedAt
+import type { Role } from "@/api/roles";
 import type { Grouping, GroupingKind, GroupingMember } from "@/data/schema";
 import { GROUPING_CATEGORY_MAX, GROUPING_DESCRIPTION_MAX, GROUPING_NAME_MAX } from "@/data/schema";
 import type { LocalDateTime } from "./time";
 import { looksLikePnr } from "./validation";
+
+// ---------------------------------------------------------------- Roller (samma i policy.ts, RLS i 0031 och hanterarna)
+/** Läser avtalets grupperingar och ärendenas medlemskap: Miljonbemanning utom ekonomen (internt – aldrig kommunen). */
+export const GROUPING_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
+/** Skapar, byter namn på och arkiverar grupperingar och placerar deltagare (Karims beslut 3: en människa – Adam, coacherna). */
+export const GROUPING_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "admin"];
 
 // ---------------------------------------------------------------- Plats (slot)
 export const LEVEL_SLOT = "level";
