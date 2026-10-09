@@ -430,7 +430,8 @@ export const inboxCorrect = command("inkorg.correct", z.object({
 }), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden" | "order_period">>();
 
 /** Markera en uppgift till rollen som klar (prototypens ink.taskDone). */
-export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
+// inkorg.confirmation: en klarmarkerad uppgift att ringa deltagaren (participant_contact) försvinner ur bekräftelsens kallelse.
+export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "inkorg.confirmation", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Visa personnummer (tyst, loggas som pnr.revealed i revisionsloggen): i mejltexten (emailId) eller för ärendets person (caseId).

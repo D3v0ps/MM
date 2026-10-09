@@ -203,6 +203,8 @@ const KNOWN: Known[] = [
   { command: "coach.checkinSave", query: "coach.narvaro", table: "cases", reason: "fasen visas inte på närvarosidan" },
   { command: "coach.intakeSave", query: "session.navCounts", table: "cases", reason: "yrkesspåret påverkar inga räknare" },
   { command: "praktik.employerAdd", query: "*", table: "employers", reason: "en ny arbetsgivare har inga placeringar än" },
+  // Bekräftelsen visar bara uppgiften att ringa deltagaren (participant_contact, beslut 2026-10-09) – avvikelsens uppgift går till kommunen.
+  { command: "coach.deviationSave", query: "inkorg.confirmation", table: "tasks", reason: "bekräftelsen läser bara uppgifter av slaget participant_contact" },
   { command: "coach.recordingFinish", query: "*", table: "check_ins", reason: "bara AI-utkastet i avstämningen – notiser, rapporter och räknare räknar godkända avstämningar; coachens skärmar och kortet räknas om" },
 ];
 /** Varje delad tabell måste täckas av en KNOWN-rad för paret; returnerar raderna som användes (eller null). */

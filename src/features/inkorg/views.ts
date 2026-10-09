@@ -466,8 +466,9 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const others = notifs.filter((n) => n.recipientId !== c.leadCoachId).map((n) => name(n.recipientId));
   const out = await outboundFor(ctx, c.id, null);
   const custMail = out.filter((n) => n.template === "orderbekraftelse").slice(-1)[0];
-  // ctx.system: uppgiften går till samordnaren, men avtalsansvarig ska se samma kvittens. Bara texten (ärendenummer, tid och plats).
-  const contactTask = (await ctx.system.table("tasks").list({ kind: "participant_contact", status: "open" })).filter((t) => t.caseIds.includes(c.id)).slice(-1)[0] ?? null;
+  // Uppgiften att ringa deltagaren när kallelsen inte kunde skickas (participant-notify.ts). Samordnaren läser den som mottagare,
+  // avtalsansvarig som MB i ärendet (policyn för tasks). Bara texten: ärendenummer, tid och plats.
+  const contactTask = (await ctx.repo.table("tasks").list({ kind: "participant_contact", status: "open" })).filter((t) => t.caseIds.includes(c.id)).slice(-1)[0] ?? null;
   const team = (await ctx.repo.table("case_team").list({ caseId: c.id })).filter((t) => t.role !== "lead_coach");
   return {
     caseId: c.id, caseNumber: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId,
