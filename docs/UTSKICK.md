@@ -14,7 +14,7 @@ src/server/notify  enqueueMessage()
                 │
                 ▼
 src/server/jobs    runJobs()  ◄── POST /api/jobs/run  ◄── pg_cron i Supabase, varje minut (tar det som blev kvar)
-   mm.claim_jobs(n) → spärrar → mall → Resend (EU) → status sent / suppressed / failed
+   mm.claim_jobs(n) → spärrar → mall → Resend (EU) eller 46elks (SMS och samtal) → status sent / suppressed / failed
 ```
 
 - Texten i ett utskick kommer alltid från hanteraren och innehåller bara ärendenummer och "logga in" (CLAUDE.md punkt 9). Mallen ramar bara in texten och lägger till en knapp till portalen.
@@ -27,14 +27,15 @@ src/server/jobs    runJobs()  ◄── POST /api/jobs/run  ◄── pg_cron i 
 | Status | Betyder | `status_reason` (exempel) |
 |---|---|---|
 | `queued` | Väntar på att skickas | – |
-| `sent` | Lämnat till Resend. `sent_at` och `provider_message_id` (Resends id) sätts | – · `redirected` = testmiljön skickade mejlet till testaren i stället (`MM_EMAIL_REDIRECT_TO`) |
-| `suppressed` | Stoppat med avsikt | `Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST` · `Mottagaren saknar giltig e-postadress` · `SMS-leverantör inte vald` · `Stoppat: texten ser ut att innehålla ett personnummer` |
+| `sent` | Lämnat till Resend eller 46elks. `sent_at` och `provider_message_id` (Resends eller 46elks id) sätts | – · `redirected` = testmiljön skickade mejlet till testaren i stället (`MM_EMAIL_REDIRECT_TO`) |
+| `suppressed` | Stoppat med avsikt | `Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST` · `Mottagaren saknar giltig e-postadress` · `SMS-leverantör inte vald` · `Utringning inte kopplad` · `Mottagaren saknar telefonnummer` · `Testmiljön: numret finns inte i MM_SMS_ALLOWLIST` · `Stoppat: texten ser ut att innehålla ett personnummer` |
 | `manual` | Brev – skickas för hand | `Brev skickas manuellt` |
-| `failed` | Gick inte att skicka efter alla försök, eller Resend avvisade det | `Resend svarade 422 (validation_error)` |
+| `failed` | Gick inte att skicka efter alla försök, eller leverantören avvisade det | `Resend svarade 422 (validation_error)` · `Telefonnumret har fel format` · `46elks svarade 400 (…)` · `Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen` |
 
 Kanaler:
 - **E-post** skickas via Resend.
-- **SMS**: ingen leverantör är vald ännu (SPEC §13 punkt 18). Sparas med status `suppressed`.
+- **SMS** och **utringning** (kanalen `call`, beslut 2026-10-09) skickas via 46elks när variablerna finns (`docs/DRIFT.md` avsnitt 13, `src/server/notify/elks.ts`). Annars sparas de med status `suppressed` och orsaken `SMS-leverantör inte vald` respektive `Utringning inte kopplad` – inget jobb läggs. Numret slås upp via ärendet precis innan utskicket skickas och normaliseras till `+46…`; testmiljön har samma spärr som e-posten (`MM_SMS_ALLOWLIST`, `MM_SMS_REDIRECT_TO`). 46elks har ingen nyckel mot dubbletter: utskicket markeras (`provider_message_id = 'pending'`) innan anropet, och ett avbrutet försök skickas aldrig igen automatiskt.
+- **Till deltagare** (kallelse, inbjudan till aktivitet, inspelningslänk): mottagaren i utskicksloggen är bara en beskrivning (`deltagare (e-post)`, `deltagare (SMS)`, `deltagare (samtal)`). Adressen eller numret slås upp via ärendet med service role när utskicket skickas och lämnas aldrig ut. Kanalvalet för kallelse och inbjudan: `notifyParticipant` (`src/features/_shared/participant-notify.ts`).
 - **Brev** (kallelse när deltagaren vill ha post): status `manual`.
 
 ## Spärren för mottagare (testmiljön)
@@ -68,9 +69,9 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 
 ## Kontroller före varje mejl
 
-1. Kanal: SMS → `suppressed`, brev → `manual`.
+1. Kanal: SMS och samtal utan 46elks → `suppressed`, brev → `manual`. SMS och samtal med 46elks prövas mot telefonnumret (E.164, spärrlistan för nummer, personnummer i texten).
 2. Texten och ämnesraden får inte innehålla något som ser ut som ett personnummer eller samordningsnummer (med eller utan sekel och bindestreck, rimligt datum). Annars `suppressed`. Ett tiosiffrigt nummer som ser ut som ett datum stoppas också – hellre ett stoppat utskick än ett personnummer i ett mejl.
-3. Mottagaren måste vara en giltig e-postadress (hanterarna skriver ibland "kommunens chef" eller "deltagare (e-post)" när adressen saknas). Annars `suppressed`.
+3. Mottagaren måste vara en giltig e-postadress (hanterarna skriver ibland "kommunens chef" när adressen saknas; för `deltagare (e-post)` slås deltagarens adress upp via ärendet). Annars `suppressed`.
 4. Spärrlistan (ovan).
 
 ## Mallar
@@ -112,11 +113,12 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `inbjudan_kommun` | Inbjudan till Miljonbemannings portal |
 | `inbjudan_personal` | Du har fått ett konto i Miljonmatch – Lägg till kollega (beslut 2026-10-08): texten har inga personuppgifter, knappen går till appens adress (`loginLink`, personalens domän) |
 | `kallelse` | Kallelse till första möte |
+| `aktivitetsinbjudan` | Inbjudan till aktivitet hos Miljonbemanning (beslut 2026-10-09) |
 | `rostlank` | Spela in ett meddelande till din coach |
 | `inloggningskod` | Din inloggningskod till Miljonmatch (skickas direkt, inte via kön – nästa avsnitt) |
 | okänd mall eller saknat ärende | Meddelande från Miljonmatch |
 
-**Deltagarens inspelningslänk (`rostlank`):** skickas via deltagarens föredragna kontaktväg och aldrig vid skyddade personuppgifter (hanteraren `rost.linkSend`). Texten innehåller bara länken – inget namn och inget ärendenummer. Hanteraren skriver sökvägen `/rost/<token>`; `queueMessage` gör den till en fullständig adress med `MM_APP_URL` (`https://www.miljonmatch.se/rost/<token>`). Token är behörigheten och sparas **aldrig** i `outbound_messages.body` – där står `…/rost/•••••` (`src/core/link-tokens.ts`, samma i minnesläget). Ett mejl som ska skickas har hela texten i jobbets `payload.body` tills utskicket är avgjort (skickat, stoppat eller misslyckat); då tas den bort. Utskick till deltagare har i dag platshållaren `deltagare (SMS)`/`deltagare (e-post)` som mottagare och stoppas därför (`suppressed`) – SMS-leverantör och uppslag av deltagarens adress återstår.
+**Deltagarens inspelningslänk (`rostlank`):** skickas via deltagarens föredragna kontaktväg och aldrig vid skyddade personuppgifter (hanteraren `rost.linkSend`). Texten innehåller bara länken – inget namn och inget ärendenummer. Hanteraren skriver sökvägen `/rost/<token>`; `queueMessage` gör den till en fullständig adress med `MM_APP_URL` (`https://www.miljonmatch.se/rost/<token>`). Token är behörigheten och sparas **aldrig** i `outbound_messages.body` – där står `…/rost/•••••` (`src/core/link-tokens.ts`, samma i minnesläget). Ett mejl som ska skickas har hela texten i jobbets `payload.body` tills utskicket är avgjort (skickat, stoppat eller misslyckat); då tas den bort. Mottagaren i utskicksloggen är `deltagare (SMS)`/`deltagare (e-post)`; adressen eller numret slås upp via ärendet när utskicket skickas (sedan 2026-10-09). SMS går när 46elks är kopplat.
 
 ### Inloggningskoden – appen skickar den själv (`src/server/auth/code-mail.ts`, beslut 2026-10-02)
 Tidigare bad servern Supabase Auth skicka koden (`signInWithOtp`). Supabase använde då sin egen mall, som måste klistras in för hand – i testmiljön kom Supabases engelska standardmall med en länk i stället för koden, länken pekade på localhost och Microsofts länkskanner förbrukade den. Nu:
@@ -253,7 +255,7 @@ Alla körs av samma anrop varje minut. Appen lägger jobben när appens klocka p
 | Eskalering av närvaro | Måndag 10.00 | Förfallotiden för registrering (`veckorapport_registrering`) – samordnaren får en flagga |
 | Veckorapport | Måndag 16.00 | Publicera veckorapporterna till kommunen (`veckorapport_publicering`) och skicka "Ny rapport" |
 | Progressionsbevakning | Enligt interna regler (`reminderSchedule`, i dag måndag 08.00) | Påminnelse till coachen (`paminnelse_progression`), eskalering till chef efter två veckor i rad (`eskalering_chef`) |
-| Mötespåminnelse och pulslänk | Dagen före kl. 18.00 · enligt avtalets pulsmätning | SMS – när en SMS-leverantör är vald |
+| Mötespåminnelse och pulslänk | Dagen före kl. 18.00 · enligt avtalets pulsmätning | SMS – när 46elks är kopplat (jobben finns inte ännu) |
 | Gallring | Varje natt | Ljud (senast 24 timmar), råtranskript (30 dagar), gamla `login_attempts`, avslutade jobb, utskickslogg enligt gallringsreglerna |
 
 ## Kontrollera utskicken

@@ -24,6 +24,7 @@
 | `MM_EMAIL_REPLY_TO` | `avrop@miljonbemanning.se` |
 | `MM_AI_PROVIDER` | *(tom)* = AI av. `vertex` när Google Cloud är kopplat (avsnitt 10) |
 | `MM_STAFF_EMAIL_DOMAINS` | `miljonbemanning.se` (standard) – domänen kollegornas adresser måste ha i "Lägg till kollega" och vid inloggning |
+| `MM_SMS_PROVIDER`, `ELKS_API_USERNAME`, `ELKS_API_PASSWORD`, `MM_CALL_FROM`, `MM_CALL_AUDIO_URL` | *(tomma)* = inga SMS eller samtal till deltagare tills biträdesavtalet med 46elks finns och Botkyrka godkänt underbiträdet (avsnitt 13) |
 
 Ta bort Supabase-variablerna för *Preview*, så att förhandsversioner av kod aldrig når den skarpa databasen (de kör då i minnesläget med påhittade data).
 
@@ -43,8 +44,8 @@ De sju första kontona (Karim, Ali, Sara, Adam, Shafik, Moda, Yacine) finns reda
 
 ### Så släpps Botkyrka in
 
-1. Botkyrkas handläggare skapar sina konton själva med en adress på `@botkyrka.se` (`contracts.config.selfRegistration`, `/portal/logga-in`) – eller bjuds in under Användare och roller → Bjud in kommunanvändare. Kodmejlet når dem inte förrän domänen finns i `MM_EMAIL_ALLOWLIST`: sätt `@miljonbemanning.se,@botkyrka.se` i Vercel (eller töm listan – då stoppas inte längre något mejl) och driftsätt igen.
-2. **Innan riktiga personuppgifter:** personuppgiftsbiträdesavtal (DPA) med underbiträdena – Supabase, Vercel, Resend (och Google Cloud när AI kopplas, Microsoft för avrop@) – ska vara tecknade och stå i PUB-avtalets förteckning (SPEC §3.1, `/admin/integrationer`). Bara administratörer i Resend (kodmejlen syns där, avsnitt 4.1).
+1. Botkyrkas handläggare skapar sina konton själva med en adress på `@botkyrka.se` (`contracts.config.selfRegistration`, `/portal/logga-in`) – eller bjuds in under Användare och roller → Bjud in kommunanvändare. Kodmejlet når dem inte förrän domänen finns i `MM_EMAIL_ALLOWLIST`: sätt `@miljonbemanning.se,@botkyrka.se` i Vercel (eller töm listan – då stoppas inte längre något mejl) och driftsätt igen. Kallelsen med e-post till deltagarnas egna adresser går först när listan är tom (avsnitt 13) – tills dess ringer samordnaren.
+2. **Innan riktiga personuppgifter:** personuppgiftsbiträdesavtal (DPA) med underbiträdena – Supabase, Vercel, Resend (och Google Cloud när AI kopplas, Microsoft för avrop@, 46elks när SMS och utringning kopplas – avsnitt 13) – ska vara tecknade och stå i PUB-avtalets förteckning (SPEC §3.1, `/admin/integrationer`). Bara administratörer i Resend (kodmejlen syns där, avsnitt 4.1).
 3. Kontrollera att MFA och minst två administratörer finns i Vercel, Supabase och Resend, och att bucketarna `ljud` och `bilagor` är privata.
 
 ## Översikt
@@ -294,8 +295,16 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MS_GRAPH_CLIENT_SECRET` | **ja** | Klienthemligheten. Byt den innan den går ut | *(hemlighet)* | Entra → *Certifikat och hemligheter* |
 | `MM_INBOX_MAILBOX` | | Brevlådan som läses. Appen får bara nå den (ApplicationAccessPolicy) | `avrop@miljonbemanning.se` | Fast värde |
 | `MM_INBOX_DONE_FOLDER` | | Mappen dit inlästa mejl flyttas (skapas om den saknas). Tom = `Inläst` | `Inläst` | Fast värde |
+| `MM_SMS_PROVIDER` | | SMS till deltagare (avsnitt 13): `46elks`. Tom = inga SMS (stoppas med orsaken "SMS-leverantör inte vald") | *(tomt)* · när avtalet finns `46elks` | Fast värde |
+| `ELKS_API_USERNAME` | | 46elks API-användarnamn (börjar med `u`) – för SMS och utringning | `u…` | 46elks → *Dashboard → Account* |
+| `ELKS_API_PASSWORD` | **ja** | 46elks API-lösenord | *(hemligt)* | 46elks → *Dashboard → Account* |
+| `MM_SMS_FROM` | | Avsändarnamnet i SMS:et: 3–11 bokstäver eller siffror, börjar med en bokstav. Tom = `Miljonbem` | `Miljonbem` | Fast värde |
+| `MM_CALL_FROM` | | Numret som ringer vid utringning – ett nummer med röst hos 46elks | `+46766…` | 46elks → *Numbers* |
+| `MM_CALL_AUDIO_URL` | | Inspelningen som spelas upp (https, nås utan inloggning) – `public/ljud/README.md` | `https://www.miljonmatch.se/ljud/kallelse.mp3` | Appens adress + `/ljud/kallelse.mp3` |
+| `MM_SMS_ALLOWLIST` | | Telefonnummer som får SMS och samtal, kommatecken emellan (`070-…` eller `+46…`). Tom i produktion = alla. Testmiljön: testarnas nummer; tom = inga. I produktion kan listan användas för ett första prov med eget nummer | *(tomt)* | Testarnas nummer |
+| `MM_SMS_REDIRECT_TO` | | **Bara testmiljön:** testarens nummer som får SMS och samtal till testpersoner (måste stå i `MM_SMS_ALLOWLIST`). Ignoreras i produktion | *(tomt)* | En testares nummer |
 
-Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/admin/integrationer` visar "Inte kopplad – så här kopplar du". Kommer senare: Microsoft Entra-inloggning, SMS-leverantör och Fortnox (tills dess saknas `ctx.fortnox` i supabase-läget: ekonomen ser "Fortnox är inte kopplat ännu" i fakturakörningen och på kortet Fortnox-synk, knapparna "Skapa i Fortnox" och "Hämta status" finns inte, och fakturan skapas i Fortnox för hand och markeras som manuellt fakturerad – den simulerade porten finns bara i minnesläget). AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
+Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/admin/integrationer` visar "Inte kopplad – så här kopplar du". SMS och utringning (46elks) kopplas enligt avsnitt 13 – utan variablerna stoppas SMS och samtal med orsak och kallelsen går med e-post (eller blir en uppgift till samordnaren). Kommer senare: Microsoft Entra-inloggning och Fortnox (tills dess saknas `ctx.fortnox` i supabase-läget: ekonomen ser "Fortnox är inte kopplat ännu" i fakturakörningen och på kortet Fortnox-synk, knapparna "Skapa i Fortnox" och "Hämta status" finns inte, och fakturan skapas i Fortnox för hand och markeras som manuellt fakturerad – den simulerade porten finns bara i minnesläget). AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
 
 ### 5.1 Nycklarna för personnummer (`MM_PNR_KEY`, `MM_PNR_HMAC_KEY`)
 - Personnummer krypteras i appen (AES-256-GCM) innan de sparas och söks via en HMAC-hash av de tio sista siffrorna (CLAUDE.md punkt 2). Nycklarna finns bara på servern (`src/server/crypto.ts`, `import "server-only"`) och når aldrig webbläsaren.
@@ -322,6 +331,7 @@ Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/
 | Läs in testdata på nytt | `src/app/api/staging/seed/route.ts`, `src/server/staging/load.ts`, `supabase/migrations/0010_testdata.sql` (och 0017, som behåller synpunkterna), knappen `src/features/session/screens/test-data-reset.tsx` |
 | Synpunkter (bara testmiljön) | `src/features/synpunkter/*` (kommandona `feedback.*`, knapparna i `panel.tsx`), `supabase/migrations/0017_synpunkter.sql` |
 | Utskick och jobb | `src/server/notify/*`, `src/server/jobs/*`, `docs/UTSKICK.md` |
+| Meddelanden till deltagare, SMS och utringning (beslut 2026-10-09) | `src/features/_shared/participant-notify.ts` (`notifyParticipant`: kanalvalet och uppgiften till samordnaren), `src/features/_shared/messaging-port.ts` (`ctx.messaging`), `src/server/notify/elks.ts` (46elks), `src/server/notify/config.ts` (`phoneEnv`), `src/core/phone.ts` (E.164) – avsnitt 13 |
 | AI och röstinspelning | `src/server/ai/*` (Vertex AI EU eller simulerad), `src/server/audio/*` (bucketen `ljud`), `src/features/_shared/voice-upload.ts` och `voice-jobs.ts`, `POST /api/audio/upload-url` – `docs/AI.md` |
 | Bilagor och självregistrering | `src/server/attachments/*` (bucketen `bilagor`), `src/features/_shared/attachment-port.ts`, `src/server/jobs/attachments.ts`, `src/server/auth/service.ts` (självregistreringen), `src/core/self-registration.ts` |
 | Inaktivitet och maxtid, förnyelse av sessionen | `src/proxy.ts` (kakorna `mm_last_seen`, `mm_login_at`) |
@@ -486,3 +496,49 @@ Appen läser brevlådan **avrop@miljonbemanning.se** varannan minut (jobbet `inb
 | `svarade 429` / `5xx` / `kunde inte nås` | Tillfälligt – jobbet försöker igen (1, 5, 15, 60 minuter) |
 | Mejl ligger kvar olästa i Inkorgen | Jobbkörningen står still (pg_cron, `docs/UTSKICK.md`) eller flytten misslyckas (`moveErrors` i kortet) – raderna finns redan, bara flytten görs om |
 | Ett avrop blev "att registrera för hand" | Mallens etiketter saknades eller personnumret hade fel format – samordnaren klickar *Registrera beställningen* i inkorgen |
+
+## 13. SMS och utringning till deltagare – 46elks (beslut 2026-10-09)
+
+Kallelsen till första mötet och inbjudan till en aktivitet går till deltagaren med **e-post** (om adressen finns), **SMS** (om SMS är kopplat och telefonnumret finns) och **utringning** med en kort inspelning (dessutom, om den är kopplad och telefonnumret finns). Deltagarens valda kontaktväg går först. Finns ingen kanal får samordnaren en uppgift i Min vecka: "Ring deltagaren och kalla till första mötet – ärende BOT-…, tid, plats" (aldrig namnet). Koden: `src/features/_shared/participant-notify.ts` (`notifyParticipant`), `src/server/notify/elks.ts` (46elks), `src/server/notify/config.ts` (variablerna).
+
+Texten innehåller bara tid, plats och Miljonbemannings telefonnummer – aldrig namn, personnummer, ärendenummer eller vad insatsen gäller. Inspelningen säger bara att det finns en inbjudan och att tid och plats står i SMS:et eller mejlet (`public/ljud/README.md`).
+
+**Tills variablerna finns** är SMS och utringning avstängda: utskicken sparas i utskicksloggen som *Stoppat* med orsaken "SMS-leverantör inte vald" eller "Utringning inte kopplad", och korten **SMS (46elks)** och **Utringning (46elks)** på `/admin/integrationer` säger *Inte kopplad* och vilka variabler som saknas (bara namnen). Kallelsen går då med e-post när adressen finns, annars får samordnaren uppgiften.
+
+**Innan riktiga deltagare får SMS eller samtal**
+
+1. **Personuppgiftsbiträdesavtal** med 46elks AB (svenskt bolag, data i EU) ska vara tecknat.
+2. **Botkyrka ska godkänna underbiträdet** – 46elks står i PUB-avtalets förteckning (`/admin/integrationer`, *Underbiträden*: "46elks (SMS och utringning)", status *Vald*). 46elks får telefonnumret och texten (tid, plats, telefonnummer) – inga namn eller personnummer.
+3. Kontrollera hur länge 46elks sparar sin logg över SMS och samtal, och skriv in det i förteckningen.
+
+**Så kopplar du (ca 15 minuter)**
+
+1. **Konto.** Skapa ett företagskonto på [46elks.se](https://46elks.se) för Miljonbemanning och fyll på krediter. Slå på tvåstegsinloggning och lägg till minst två administratörer.
+2. **API-uppgifter.** I 46elks *Dashboard → Account* finns **API username** (börjar med `u`) och **API password**. Lösenordet är hemligt: bara i Vercel, aldrig i repot, chatten eller ett mejl.
+3. **Avsändare för SMS.** `MM_SMS_FROM` = avsändarnamnet som visas i telefonen, 3–11 bokstäver eller siffror som börjar med en bokstav (standard `Miljonbem`). Deltagaren kan inte svara på ett avsändarnamn – texten säger därför "Frågor? Ring 08-…".
+4. **Nummer för utringning.** Köp ett svenskt nummer med röst hos 46elks (*Numbers*) och skriv det som `MM_CALL_FROM` (`+46…`).
+5. **Inspelningen.** Spela in meddelandet (`public/ljud/README.md`), lägg filen som `public/ljud/kallelse.mp3`, driftsätt, och kontrollera att `https://www.miljonmatch.se/ljud/kallelse.mp3` spelas upp utan inloggning (`/ljud/` är öppen i `src/proxy.ts`). Sätt `MM_CALL_AUDIO_URL` till adressen (måste börja med `https://`).
+6. **Vercel.** *Settings → Environment Variables* (Production): `MM_SMS_PROVIDER=46elks`, `ELKS_API_USERNAME`, `ELKS_API_PASSWORD` (hemlig), `MM_SMS_FROM`, `MM_CALL_FROM`, `MM_CALL_AUDIO_URL`. Vill du först prova med ditt eget nummer: `MM_SMS_ALLOWLIST=+4670…` (då får bara numren i listan SMS och samtal, också i produktion). *Redeploy*.
+7. **Kontroll.** Korten **SMS (46elks)** och **Utringning (46elks)** visar *Kopplad*. Boka ett första möte i ett ärende där ditt eget nummer står (med `MM_SMS_ALLOWLIST` satt): SMS:et kommer, samtalet spelar inspelningen, och utskicksloggen (`/admin/mallar` → *Utskickslogg*) visar *Skickat*. 46elks id sparas i `outbound_messages.provider_message_id`. Töm sedan `MM_SMS_ALLOWLIST` när deltagarna ska få SMS.
+
+SMS kopplas med `MM_SMS_PROVIDER`, `ELKS_API_USERNAME` och `ELKS_API_PASSWORD`. Utringningen kräver dessutom `MM_CALL_FROM` och `MM_CALL_AUDIO_URL` – saknas någon av dem görs inga samtal, men SMS:en går.
+
+**E-post till deltagare.** Kallelsens mejl går till deltagarens egen adress, som ofta är privat. `MM_EMAIL_ALLOWLIST` gäller också dem: med `@miljonbemanning.se,@botkyrka.se` stoppas kallelsens mejl till en privat adress ("Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST" – bekräftelsen i avropsinkorgen säger då "Kallelsen gick inte iväg … – ring deltagaren"). Deltagarna får kallelsen med e-post först när listan är tom.
+
+**Testmiljön.** Samma regler som för e-posten (`docs/UTSKICK.md`): i testmiljön får bara numren i `MM_SMS_ALLOWLIST` SMS och samtal. Med `MM_SMS_REDIRECT_TO` (ett nummer som också står i listan, bara när `app_settings.environment = 'staging'`) går SMS och samtal till testpersoner i stället till testaren; SMS:et börjar med "[Testmiljö] Skulle ha gått till deltagaren i ärende …". Ignoreras i produktion.
+
+**Säkerhet i koden.** Numret slås upp via ärendet precis innan utskicket skickas – utskicksloggen har bara "deltagare (SMS)". Numret normaliseras till `+46…`; ett nummer som inte går att tolka ger *Kunde inte skickas* med orsaken "Telefonnumret har fel format" (aldrig numret). 46elks felsvar tvättas från nummer, adresser och meddelandets text. 46elks har ingen nyckel mot dubbletter: utskicket markeras innan anropet, och ett försök som avbröts mitt i skickas aldrig igen automatiskt (hellre ett SMS för lite än samma SMS två gånger). Vilande spärr: skyddade personuppgifter får inga SMS, samtal eller mejl.
+
+**Felsökning**
+
+| Utskicksloggen säger | Kontrollera |
+|---|---|
+| Stoppat – SMS-leverantör inte vald / Utringning inte kopplad | Variablerna saknas eller har fel format i Vercel (Production) – kortet på `/admin/integrationer` säger vilka. Driftsätt igen efter ändringen |
+| Kunde inte skickas – 46elks nekade inloggningen (401) | Fel `ELKS_API_USERNAME` eller `ELKS_API_PASSWORD` |
+| Kunde inte skickas – 46elks svarade 402 | Slut på krediter – fyll på i 46elks. Utskicket försöker igen (1, 5, 15, 60 minuter) |
+| Kunde inte skickas – 46elks svarade 400 (…) | 46elks avvisade numret eller avsändaren (`MM_SMS_FROM`, `MM_CALL_FROM`) |
+| Kunde inte skickas – Telefonnumret har fel format | Deltagarens nummer går inte att tolka – ring deltagaren, eller be handläggaren om rätt nummer |
+| Stoppat – Mottagaren saknar telefonnummer | Deltagaren har inget nummer |
+| Stoppat – Testmiljön: numret finns inte i MM_SMS_ALLOWLIST | Spärrlistan är satt (testmiljön, eller ett prov i produktion) |
+| Kunde inte skickas – 46elks svarade inte i tid / Osäkert om utskicket gick iväg | Anropet kan ha kommit fram. Titta i 46elks logg innan du skickar igen eller ringer |
+| Samtalet tystnar direkt | `MM_CALL_AUDIO_URL` går inte att nå utan inloggning, eller filen är inte MP3/WAV |
