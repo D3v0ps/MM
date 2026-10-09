@@ -25,7 +25,7 @@ export const SOURCE_TEXT: Record<CaseSource, string> = { portal: "portalen", ema
 const MISSING_LABEL: Partial<Record<OrderField, string>> = {
   desiredStart: "önskat startdatum", orderPeriod: "omfattningen (6 eller 12 månader, eller annan tidsperiod med motivering)", firstName: "deltagarens förnamn",
   lastName: "deltagarens efternamn", pnr: "deltagarens personnummer", phone: "deltagarens telefonnummer", city: "deltagarens bostadsort", plannedEnd: "slutdatum",
-  orderPeriodReason: "motivering till annan tidsperiod", buyerReference: "beställarreferens",
+  orderPeriodReason: "motivering till annan tidsperiod", buyerReference: "beställarreferens", primaryArea: "yrkesområde",
 };
 
 /** "a, b och c" */
@@ -39,6 +39,19 @@ export function orderAckText(c: Pick<Case, "caseNumber" | "referredAt">, cfg: Pi
   const base = ackTextFor(c, cfg);
   const labels = missing.map((k) => MISSING_LABEL[k]).filter((x): x is string => !!x);
   return labels.length ? `${base} Vi saknar ${joinSv(labels)} – svara på det här mejlet med uppgifterna.` : base;
+}
+
+// ---------------------------------------------------------------- Kontaktvägen
+/**
+ * Deltagarens kontaktväg när beställningen inte anger någon (beslut 2026-10-09: frågan "Hur vill deltagaren bli kontaktad?"
+ * är borttagen ur beställningen): SMS när ett telefonnummer finns, annars e-post när en e-postadress finns, annars telefon
+ * (Miljonbemanning kontaktar deltagaren på annat sätt). Kolumnen persons.preferred_contact får inte vara tom. Coachen ser
+ * kontaktvägen på deltagarkortet.
+ */
+export function defaultPreferredContact(p: { phone?: string | null; email?: string | null }): PreferredContact {
+  if ((p.phone ?? "").replace(/\D/g, "").length >= 8) return "sms";
+  if ((p.email ?? "").includes("@")) return "email";
+  return "phone";
 }
 
 // ---------------------------------------------------------------- Omfattningen
@@ -98,9 +111,10 @@ export type CreateOrderInput = {
   preferredContact?: PreferredContact | null;
   language?: string | null;
   needsInterpreter?: boolean;
-  /** Bara Miljonbemanning – kommunens formulär skickar ingen referens, inget avtalsområde och inget yrkesspår. */
+  /** Bara Miljonbemanning – kommunens formulär skickar ingen referens och inget yrkesspår. */
   buyerReference?: string | null;
   purchaseOrderNumber?: string | null;
+  /** Yrkesområdet (avtalsområdets kod). Kommunens formulär och mejlmallen frågar efter det (beslut 2026-10-09). */
   primaryArea?: string | null;
   secondaryArea?: string | null;
   vocationalTrack?: string | null;
@@ -154,7 +168,8 @@ export async function createOrder(ctx: Ctx, p: CreateOrderInput): Promise<Create
 
   const now = ctx.now();
   const referredAt = p.referredAt || now;
-  const preferredContact = p.preferredContact ?? "sms";
+  // Ingen kontaktväg i beställningen (portalen och mejlmallen frågar inte längre): SMS, e-post eller telefon efter uppgifterna.
+  const preferredContact = p.preferredContact ?? defaultPreferredContact(p);
   // Skyddade personuppgifter är borttaget ur appen (beslut 2026-10-07): alla deltagare hanteras lika (protectedIdentity false).
   const person: Person = {
     id: ctx.newId("p"), ...pnr, birthYear: null, firstName: p.firstName.trim(), lastName: p.lastName.trim(),

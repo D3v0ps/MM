@@ -57,7 +57,10 @@ const msg = (over: Partial<GraphMessage> & { id: string }): GraphMessage => ({
   bodyText: "", hasAttachments: false, ...over,
 });
 
-const TEMPLATE = `Hej!\n\n1. Beställning och kontakt\nHandläggare: Linda Karlsson\nEnhet: Arbetsmarknadsenheten Hallunda\nTelefon: 08-530 000 00\nE-post: linda.karlsson@botkyrka.se\nÖnskat startdatum: 2027-02-15\nOmfattning: 6 månader\n\n2. Deltagare\nFörnamn: Yonas\nEfternamn: Tesfay\nPersonnummer: 19920202-9999\nTelefon: 070-111 22 33\nBostadsort: Hallunda\nFöredragen kontaktväg: SMS\n\n3. Bakgrundsinformation om deltagaren\nKartläggning genomförd: Ja\nBakgrundsinformation: Vill arbeta i lager.\n\n/Linda`;
+/** Mallen före 2026-10-09: bostadsort och föredragen kontaktväg, inget yrkesområde. Tolkas fortfarande. */
+const OLD_TEMPLATE = `Hej!\n\n1. Beställning och kontakt\nHandläggare: Linda Karlsson\nEnhet: Arbetsmarknadsenheten Hallunda\nTelefon: 08-530 000 00\nE-post: linda.karlsson@botkyrka.se\nÖnskat startdatum: 2027-02-15\nOmfattning: 6 månader\n\n2. Deltagare\nFörnamn: Yonas\nEfternamn: Tesfay\nPersonnummer: 19920202-9999\nTelefon: 070-111 22 33\nBostadsort: Hallunda\nFöredragen kontaktväg: E-post\n\n3. Bakgrundsinformation om deltagaren\nKartläggning genomförd: Ja\nBakgrundsinformation: Vill arbeta i lager.\n\n/Linda`;
+/** Mallen sedan 2026-10-09 (docs/lathund/mall-mejlavrop.md): yrkesområde i stället för bostadsort och kontaktväg. */
+const TEMPLATE = OLD_TEMPLATE.replace("Bostadsort: Hallunda\nFöredragen kontaktväg: E-post\n", "Yrkesområde (se listan under mallen): Lager och logistik\n");
 
 describe("importInbox", () => {
   it("en beställning enligt mallen blir ett ärende med ordererkännande, bilagan sparas och mejlet flyttas till Inläst", async () => {
@@ -70,17 +73,18 @@ describe("importInbox", () => {
     expect(sum).toMatchObject({ seen: 1, imported: 1, cases: 1, toRegister: 0, supplements: 0, other: 0, skipped: 0, moved: 1, moveErrors: 0 });
     const m = t.store.rows("inbound_emails").find((e) => e.graphMessageId === "<m1@botkyrka.se>")!;
     expect(m).toMatchObject({ receivedAt: "2027-02-01T08:50", parseMethod: "template", classification: "order", status: "acknowledged", missingFields: [], fromAddress: "linda.karlsson@botkyrka.se", ackSentAt: NOW });
-    expect(m.extracted).toMatchObject({ firstName: "Yonas", lastName: "Tesfay", pnr: "19920202-9999", desiredStart: "2027-02-15", orderPeriod: "6", priorAssessment: "ja" });
+    expect(m.extracted).toMatchObject({ firstName: "Yonas", lastName: "Tesfay", pnr: "19920202-9999", desiredStart: "2027-02-15", orderPeriod: "6", priorAssessment: "ja", primaryArea: "G" });
     expect(m.attachments).toEqual([{ name: "Kartläggning.pdf", kind: "pdf", path: "c-bot/att-t2.pdf" }, { name: "bild.gif", kind: "gif", path: null }]);
     const c = t.store.getRow("cases", m.caseId!)!;
-    expect(c).toMatchObject({ caseNumber: "BOT-27-0051", source: "email", status: "acknowledged", referredAt: "2027-02-01T08:50", referrerId: "k-linda", sourceEmailId: m.id, orderPeriodMonths: 6, plannedEnd: "2027-08-14", priorAssessment: "yes", backgroundInfo: "Vill arbeta i lager." });
-    expect(t.store.getRow("persons", c.personId)).toMatchObject({ firstName: "Yonas", lastName: "Tesfay", personnummerLast4: "9999", city: "Hallunda", preferredContact: "sms" });
+    expect(c).toMatchObject({ caseNumber: "BOT-27-0051", source: "email", status: "acknowledged", referredAt: "2027-02-01T08:50", referrerId: "k-linda", sourceEmailId: m.id, orderPeriodMonths: 6, plannedEnd: "2027-08-14", priorAssessment: "yes", backgroundInfo: "Vill arbeta i lager.", primaryAreaCode: "G" });
+    // Ingen kontaktväg i mallen: SMS när telefonnummer finns. Ingen bostadsort.
+    expect(t.store.getRow("persons", c.personId)).toMatchObject({ firstName: "Yonas", lastName: "Tesfay", personnummerLast4: "9999", city: "", preferredContact: "sms" });
     // Bilagan hör till ärendet (uppladdad av systemet), den otillåtna filen sparades inte.
     expect(t.store.rows("case_attachments").filter((a) => a.caseId === c.id).map((a) => [a.fileName, a.status, a.uploadedBy])).toEqual([["Kartläggning.pdf", "uploaded", "system"]]);
     // Ordererkännandet: till handläggaren, bara ärendenumret.
     expect(t.notified).toEqual([expect.objectContaining({ to: "linda.karlsson@botkyrka.se", template: "ordererkannande", caseId: c.id })]);
     expect(t.notified[0].body).toContain("BOT-27-0051");
-    expect(t.notified[0].body).not.toMatch(/Yonas|Tesfay|19920202/);
+    expect(t.notified[0].body).not.toMatch(/Yonas|Tesfay|19920202|Vi saknar/);
     expect(t.audits.map((a) => a.action)).toEqual(["case.created", "attachment.linked", "email.received"]);
     expect(t.audits[2]).toMatchObject({ entityId: m.id, details: { parseMethod: "template", classification: "order", caseId: c.id, attachments: 2 } });
     expect(JSON.stringify(t.audits)).not.toMatch(/Yonas|19920202|linda/);
@@ -89,6 +93,21 @@ describe("importInbox", () => {
     graph.moved.length = 0;
     expect(await importInbox({ graph, ctx: t.ctx, now: NOW })).toMatchObject({ seen: 1, imported: 0, skipped: 1, moved: 1 });
     expect(t.store.rows("inbound_emails").filter((e) => e.graphMessageId === "<m1@botkyrka.se>")).toHaveLength(1);
+  });
+
+  it("ett äldre mejl med bostadsort och kontaktväg tolkas som förut – ordererkännandet frågar efter yrkesområdet", async () => {
+    const t = setup();
+    const graph = fakeGraph({ messages: [msg({ id: "o1", subject: "Avrop lager", bodyText: OLD_TEMPLATE })] });
+    expect(await importInbox({ graph, ctx: t.ctx, now: NOW })).toMatchObject({ imported: 1, cases: 1, toRegister: 0 });
+    const m = t.store.rows("inbound_emails").find((e) => e.graphMessageId === "<o1@botkyrka.se>")!;
+    expect(m).toMatchObject({ classification: "order", status: "acknowledged", missingFields: ["primaryArea"] });
+    const c = t.store.getRow("cases", m.caseId!)!;
+    expect(c.primaryAreaCode).toBeNull();
+    // Kontaktvägen och orten i mejlet behålls.
+    expect(t.store.getRow("persons", c.personId)).toMatchObject({ city: "Hallunda", preferredContact: "email" });
+    const ack = t.notified.find((n) => n.caseId === c.id)!;
+    expect(ack.body).toContain("Vi saknar yrkesområde – svara på det här mejlet");
+    expect(ack.body).not.toMatch(/Yonas|Tesfay|19920202|Hallunda/);
   });
 
   it("fritext utan etiketter: beställningen sparas och väntar på registrering; ett avrop med saknade uppgifter listar dem i ordererkännandet", async () => {
@@ -103,11 +122,12 @@ describe("importInbox", () => {
     expect(sum).toMatchObject({ imported: 2, cases: 1, toRegister: 1, moved: 2 });
     const f1 = t.store.rows("inbound_emails").find((e) => e.graphMessageId === "<f1@botkyrka.se>")!;
     expect(f1).toMatchObject({ classification: "order", parseMethod: "manual", status: "received", caseId: null, extracted: { pnr: "19940404-6666" } });
-    expect(f1.missingFields).toEqual(["desiredStart", "orderPeriod", "firstName", "lastName"]);
+    expect(f1.missingFields).toEqual(["desiredStart", "orderPeriod", "firstName", "lastName", "primaryArea"]);
     const f2 = t.store.rows("inbound_emails").find((e) => e.graphMessageId === "<f2@botkyrka.se>")!;
-    expect(f2).toMatchObject({ status: "acknowledged", missingFields: ["desiredStart", "orderPeriod"] });
+    expect(f2).toMatchObject({ status: "acknowledged", missingFields: ["desiredStart", "orderPeriod", "primaryArea"] });
     const ack = t.notified.find((n) => n.caseId === f2.caseId)!;
-    expect(ack.body).toContain("Vi saknar önskat startdatum och omfattningen");
+    expect(ack.body).toContain("Vi saknar önskat startdatum, omfattningen");
+    expect(ack.body).toContain("och yrkesområde");
     expect(ack.body).toContain("svara på det här mejlet");
     expect(t.store.getRow("cases", f2.caseId!)).toMatchObject({ referrerId: "k-linda", orderPeriodMonths: null, plannedEnd: null, desiredStart: null });
   });

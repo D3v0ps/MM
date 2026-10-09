@@ -124,7 +124,7 @@ function validate(f: Reg, m: RegisterForm, dup: boolean, uploading: boolean): Re
   if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < 8) e.phone = "Skriv deltagarens telefonnummer – det behövs för kallelsen.";
   if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
   if (f.preferredContact === "email" && !f.email.trim()) e.email = "Skriv deltagarens e-postadress – e-post är vald som kontaktväg.";
-  if (!f.city.trim()) e.city = "Skriv deltagarens bostadsort.";
+  // Bostadsorten är valfri (beslut 2026-10-09: "Vi behöver inte veta var de bor").
   if (f.preferredContact === "letter" && f.address.trim().length < 6) e.address = "Skriv hela adressen – kallelsen ska skickas med brev.";
   if (!f.priorAssessment) e.priorAssessment = "Svara om en kartläggning har genomförts (vet inte går bra).";
   if (uploading) e.attachments = "Vänta tills filerna är uppladdade.";
@@ -349,7 +349,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
             <Field id="reg-email" label="Deltagarens e-postadress" required={f.preferredContact === "email"} error={E("email")}>
               <Input type="email" value={f.email} onValueChange={set("email")} />
             </Field>
-            <Field id="reg-city" label="Bostadsort" required error={E("city")} help="Bara orten, till exempel Alby eller Tumba.">
+            <Field id="reg-city" label="Bostadsort (valfritt)" error={E("city")} help="Bara om beställningen har den. Vi behöver inte veta var deltagaren bor.">
               <Input value={f.city} onValueChange={set("city")} />
             </Field>
           </FormGrid>

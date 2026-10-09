@@ -125,7 +125,8 @@ handleQuery(kommunStart, { roles: HANDL }, async (ctx) => {
 });
 
 // ================================================================ kommun.bestallning (formulärets förval och avtalets regler)
-// Inga priser, ingen beställarreferens, inga avtalsområden (synpunkt #4, #8, #10 och #11, beslut 2026-10-07).
+// Inga priser och ingen beställarreferens (synpunkt #4, #10 och #11, beslut 2026-10-07). Yrkesområdena är avtalets aktiva
+// avtalsområden (beslut 2026-10-09) – läses via behörigheten (kommunen får läsa avtalets contract_areas).
 handleQuery(kommunOrderForm, { roles: HANDL }, async (ctx) => {
   const now = ctx.now();
   const today = dayOf(now);
@@ -134,6 +135,8 @@ handleQuery(kommunOrderForm, { roles: HANDL }, async (ctx) => {
   if (!contract) throw new Error("Det finns inget aktivt avtal att beställa i");
   const cfg = k.cfg(contract.id);
   const days = firstMeetingDays(cfg);
+  const areas = (await ctx.repo.table("contract_areas").list({ contractId: contract.id, active: true })).sort(by("code"));
+  const other = areas.find((a) => a.name.trim().toLowerCase() === "övrigt") ?? null;
   return {
     customerName: k.customerName, today, defaultStart: addDays(monday(today), 14),
     me: { name: k.me?.fullName ?? "", unit: k.me?.customerUnit ?? "", phone: k.me?.phone ?? "", email: k.me?.email ?? "" },
@@ -141,6 +144,8 @@ handleQuery(kommunOrderForm, { roles: HANDL }, async (ctx) => {
     attachments: { maxBytes: ATTACHMENT_MAX_BYTES, maxFiles: ATTACHMENT_MAX_FILES, accept: ATTACHMENT_ACCEPT, typesText: ATTACHMENT_TYPES_TEXT },
     firstMeetingWithin: days === 7 ? "en vecka" : days ? `${days} dagar` : "kort tid",
     answerDue: avropDue({ referredAt: now }, cfg),
+    areas: areas.map((a) => ({ value: a.code, label: a.name })),
+    otherAreaName: other?.name ?? null,
   };
 });
 
@@ -174,12 +179,14 @@ handleQuery(kommunReceipt, { roles: HANDL }, async (ctx, p) => {
   // läses. Utskicksloggen är annars bara för Miljonbemanning.
   const sent = email ? await ctx.system.table("outbound_messages").list({ to: email }, { orderBy: "createdAt" }) : [];
   const mail = sent.filter((n) => n.caseId === c.id && n.template === "ordererkannande").pop();
+  const area = c.primaryAreaCode ? await ctx.repo.table("contract_areas").first({ contractId: c.contractId, code: c.primaryAreaCode }) : null;
   return {
     caseId: c.id, caseNumber: c.caseNumber, referredAt: c.referredAt, avropDue: avropDue(c, cfg),
     firstMeetingDue: firstMeetingDue(c, cfg),
     ackText: ackTextFor(c, cfg),
     mail: mail ? { from: NOTIFY_FROM, to: mail.to, at: mail.createdAt, body: mail.body } : null,
     contactLabel: person ? contactLabel(person.preferredContact) : null,
+    areaName: area?.name ?? null,
   };
 });
 

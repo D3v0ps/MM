@@ -97,7 +97,10 @@ export async function importInbox(d: ImportDeps): Promise<ImportSummary> {
     const emailId = ctx.newId("em");
 
     // Bilagorna: tolkningens text ur Word, och filerna som ärendets bilagor (utan ärende tills det finns).
-    const first = parseInboundMail({ subject: m.subject, bodyText: m.bodyText }, { casePrefix: cfg.casePrefix });
+    // Yrkesområdet tolkas mot avtalets aktiva avtalsområden (namn eller bokstav, beslut 2026-10-09).
+    const areas = (await ctx.repo.table("contract_areas").list({ contractId: contract.id, active: true })).map((a) => ({ code: a.code, name: a.name }));
+    const parseOpts = { casePrefix: cfg.casePrefix, areas };
+    const first = parseInboundMail({ subject: m.subject, bodyText: m.bodyText }, parseOpts);
     const attachments: EmailAttachment[] = [];
     const attachmentIds: string[] = [];
     let attachmentText = "";
@@ -117,7 +120,7 @@ export async function importInbox(d: ImportDeps): Promise<ImportSummary> {
         attachments.push({ name: fileName, kind, path: stored?.storagePath ?? null });
       }
     }
-    const parsed = attachmentText ? parseInboundMail({ subject: m.subject, bodyText: m.bodyText, attachmentText }, { casePrefix: cfg.casePrefix }) : first;
+    const parsed = attachmentText ? parseInboundMail({ subject: m.subject, bodyText: m.bodyText, attachmentText }, parseOpts) : first;
 
     const row: InboundEmail = {
       id: emailId, graphMessageId: gid, receivedAt, fromAddress: m.fromAddress, fromName: m.fromName || m.fromAddress, subject: m.subject || "(utan ämne)",
@@ -186,7 +189,9 @@ async function createCase(
   const other = str(ex.orderPeriod) === "annan";
   const desiredStart = /^\d{4}-\d{2}-\d{2}$/.test(str(ex.desiredStart)) ? str(ex.desiredStart) : null;
   const plannedEnd = other && /^\d{4}-\d{2}-\d{2}$/.test(str(ex.plannedEnd)) && desiredStart && str(ex.plannedEnd) > desiredStart ? str(ex.plannedEnd) : null;
-  const contact = CONTACTS.includes(ex.preferredContact as PreferredContact) ? (ex.preferredContact as PreferredContact) : "sms";
+  // Kontaktvägen frågas inte längre efter (beslut 2026-10-09). Ett äldre mejl med raden behåller sitt val; annars väljer
+  // createOrder SMS, e-post eller telefon efter uppgifterna.
+  const contact = CONTACTS.includes(ex.preferredContact as PreferredContact) ? (ex.preferredContact as PreferredContact) : null;
   const buyerReference = buyerRefValid(str(ex.buyerReference), cfg) ? str(ex.buyerReference) : "";
   const res = await createOrder(ctx, {
     contract, source: "email", referrerId: known?.id ?? null, referrerName: known?.fullName ?? str(ex.referrerName) ?? row.fromName, referrerEmail: refEmail,

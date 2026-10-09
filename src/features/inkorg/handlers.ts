@@ -52,6 +52,11 @@ handleCommand(emailApplySupplement, { roles: INBOX_ROLES }, async (ctx, p) => {
   if (period.kind === "months") Object.assign(patch, { orderPeriodMonths: period.months, orderPeriodReason: null });
   if (period.kind === "other") patch.orderPeriodMonths = null;
   if (e.extracted.orderPeriodReason) patch.orderPeriodReason = e.extracted.orderPeriodReason;
+  // Yrkesområdet (beslut 2026-10-09): förs in medan beställningen väntar på beslut – sedan är avtalsområdet valt vid accept.
+  const area = e.extracted.primaryArea;
+  if (area && (c.status === "received" || c.status === "acknowledged") && (await ctx.repo.table("contract_areas").first({ contractId: c.contractId, code: area, active: true }))) {
+    patch.primaryAreaCode = area as Case["primaryAreaCode"];
+  }
   if (Object.keys(patch).length) await ctx.repo.table("cases").update(c.id, patch);
   // Det ursprungliga avropsmejlet: uppgifterna finns nu och saknas inte längre.
   const orig = await ctx.repo.table("inbound_emails").first({ caseId: c.id, classification: "order" });

@@ -110,7 +110,14 @@ handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_hand
   if (customer && !period.value) return fail("order_period", "Välj hur länge insatsen ska pågå.");
   const unit = (p.referrerUnit ?? "").trim();
   if (customer && !unit) return fail("unit", "Skriv vilken enhet du arbetar på.");
-  if (customer && !p.priorAssessment) return fail("prior_assessment", "Svara om en kartläggning har genomförts.");
+  // Yrkesområdet (beslut 2026-10-09): kommunen väljer ett av avtalets aktiva avtalsområden (samma lista som acceptdialogen).
+  const primaryArea = customer ? (p.primaryArea ?? "").trim() : p.primaryArea;
+  if (customer) {
+    const areas = await ctx.repo.table("contract_areas").list({ contractId: contract.id, active: true });
+    if (!primaryArea || !areas.some((a) => a.code === primaryArea)) return fail("area", "Välj det yrkesområde som deltagaren ska arbeta mot.");
+  }
+  // Kartläggningen: kommunen svarar ja eller nej ("vet inte" togs bort ur portalen 2026-10-09).
+  if (customer && p.priorAssessment !== "yes" && p.priorAssessment !== "no") return fail("prior_assessment", "Svara ja eller nej på om en kartläggning har genomförts.");
 
   // Kommunens handläggare beställer alltid i eget namn. MB (telefon/mejl) anger vilken handläggare som beställde.
   const referrerId = customer ? ctx.actor.userId : p.referrerId ?? null;
@@ -133,7 +140,7 @@ handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_hand
     contract, source: p.source ?? "portal", referrerId, referrerUnit: unit || null,
     firstName: p.firstName, lastName: p.lastName, pnr: p.pnr, phone: p.phone, email: p.email, city: p.city, address: p.address,
     preferredContact: p.preferredContact, language: p.language, needsInterpreter: p.needsInterpreter,
-    buyerReference, purchaseOrderNumber: po, primaryArea: customer ? null : p.primaryArea, secondaryArea: customer ? null : p.secondaryArea,
+    buyerReference, purchaseOrderNumber: po, primaryArea, secondaryArea: customer ? null : p.secondaryArea,
     vocationalTrack: customer ? "" : p.vocationalTrack, desiredStart: p.desiredStart, orderPeriodMonths: p.orderPeriodMonths, plannedEnd: p.plannedEnd,
     orderPeriodReason: p.orderPeriodReason, priorAssessment: p.priorAssessment, background: p.background, attachmentIds,
   });

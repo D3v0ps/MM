@@ -1,27 +1,29 @@
 "use client";
 // Beställ ny insats i portalen (/portal/bestall) – prototypens kom.bestall, ändrad efter synpunkterna från genomgången
-// 2026-10-06 (beslut 2026-10-07). Tre steg med uppgifter och en granskning innan beställningen skickas:
+// 2026-10-06 (beslut 2026-10-07) och coachmötet 2026-10-09. Tre steg med uppgifter och en granskning innan beställningen skickas:
 //   1. Beställning och kontakt: namn, enhet (fritext), telefon, e-post, önskat startdatum och omfattningen – 6 eller 12
 //      månader (avtalets alternativ, planerat slut räknas fram) eller annan tidsperiod med slutdatum och motivering.
 //      Ingen beställarreferens och inget planerat slutdatum att fylla i (Miljonbemanning fyller i referensen).
-//   2. Deltagare: namn, personnummer, kontaktuppgifter. Ingen fråga om skydd och ingen anpassning (beslut 2026-10-07).
-//   3. Bakgrundsinformation om deltagaren: har en kartläggning genomförts, bifoga fil och fritext (med "Tala in").
-//      Inget avtalsområde eller yrkesspår – Miljonbemanning väljer dem när beställningen bekräftas.
+//   2. Deltagare: namn, personnummer, telefon och/eller e-post och yrkesområdet (obligatoriskt, avtalets avtalsområden).
+//      Ingen fråga om skydd och ingen anpassning (beslut 2026-10-07). Ingen bostadsort, ingen fråga om kontaktväg och ingen
+//      adress (beslut 2026-10-09) – kallelsen går med SMS om telefonnummer finns, annars med e-post.
+//   3. Bakgrundsinformation om deltagaren: har en kartläggning genomförts (ja eller nej), bifoga fil (bara vid ja) och
+//      fritext (med "Tala in"). Yrkesspåret väljer Miljonbemanning.
 //   Granskning: inga belopp – inget ordervärde någonstans (synpunkt #10 och #11).
 // Beställningen sparas med arenden.caseCreate (delat kommando), som ger ärendenummer och skickar ordererkännandet.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { orderPeriodEnd } from "@/core/time";
 import { emailValid, pnrFormatValid } from "@/core/validation";
-import type { PreferredContact, PriorAssessment } from "@/data/schema";
-import { caseCreate, caseUpdate, ORDER_REASON_MAX, ORDER_REASON_MIN, type AttachmentRow } from "@/features/arenden/api";
+import type { PriorAssessment } from "@/data/schema";
+import { attachmentRemove, caseCreate, caseUpdate, ORDER_REASON_MAX, ORDER_REASON_MIN, type AttachmentRow } from "@/features/arenden/api";
 import { AttachmentList, AttachmentPicker } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
 import { leaveWithoutAsking, useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Stack, TextArea, Timeline,
-  cn, useConfirm, useToast, Field, type IconName,
+  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TextArea, Timeline,
+  cn, useConfirm, useToast, Field,
 } from "@/ui";
 import { kommunDuplicate, kommunOrderForm, kommunReceipt, type KomDuplicate, type KomOrderForm } from "../api";
 import { CONTACT_PHONE, fD, fDT, fDTL, fullText, maskPnr, statusName } from "../texts";
@@ -30,19 +32,14 @@ import { joinText, TalaIn } from "./tala-in";
 
 const STEPS = ["Beställning och kontakt", "Deltagare", "Bakgrundsinformation om deltagaren", "Granska och skicka"] as const;
 const DATA_STEPS = 3;
-const CONTACTS: { value: PreferredContact; label: string; icon: IconName }[] = [
-  { value: "sms", label: "SMS", icon: "message" },
-  { value: "phone", label: "Telefon", icon: "phone" },
-  { value: "email", label: "E-post", icon: "mail" },
-  { value: "letter", label: "Brev", icon: "file" },
-];
-const CONTACT_LABEL: Record<PreferredContact, string> = { sms: "SMS", phone: "Telefon", email: "E-post", letter: "Brev" };
-/** Kartläggning: ja, nej eller vet inte. */
-const PRIOR: { value: PriorAssessment; label: string }[] = [
+/** Kartläggning: ja eller nej ("Vet inte" togs bort 2026-10-09 – äldre beställningar med "Vet inte" visas som förut). */
+type PriorAnswer = Extract<PriorAssessment, "yes" | "no">;
+const PRIOR: { value: PriorAnswer; label: string }[] = [
   { value: "yes", label: "Ja" },
   { value: "no", label: "Nej" },
-  { value: "unknown", label: "Vet inte" },
 ];
+/** Minst så här många siffror i deltagarens telefonnummer (samma som förut när SMS var förvalt). */
+const PHONE_MIN_DIGITS = 8;
 /** Valet "Annan tidsperiod" (övriga val är antal månader ur avtalet). */
 const OTHER = "annan";
 /** Längsta bakgrundsinformation (samma som arenden.caseCreate). */
@@ -63,11 +60,11 @@ type Order = {
   pnr: string;
   phone: string;
   email: string;
-  city: string;
-  preferredContact: PreferredContact;
-  address: string;
-  priorAssessment: PriorAssessment | null;
+  /** Yrkesområdet: avtalsområdets kod ("" = inte valt). */
+  primaryArea: string;
+  priorAssessment: PriorAnswer | null;
   background: string;
+  /** Bifogade filer – bara när en kartläggning har genomförts (svaret ja). */
   attachments: AttachmentRow[];
 };
 type Base = Pick<Order, "contactName" | "unit" | "contactPhone" | "contactEmail" | "desiredStart">;
@@ -75,7 +72,7 @@ type Base = Pick<Order, "contactName" | "unit" | "contactPhone" | "contactEmail"
 function initialOrder(m: KomOrderForm, keep?: Base): Order {
   const base: Base = keep ?? { contactName: m.me.name, unit: m.me.unit, contactPhone: m.me.phone, contactEmail: m.me.email, desiredStart: m.defaultStart };
   return {
-    ...base, period: null, otherEnd: "", periodReason: "", firstName: "", lastName: "", pnr: "", phone: "", email: "", city: "", preferredContact: "sms", address: "",
+    ...base, period: null, otherEnd: "", periodReason: "", firstName: "", lastName: "", pnr: "", phone: "", email: "", primaryArea: "",
     priorAssessment: null, background: "", attachments: [],
   };
 }
@@ -92,7 +89,7 @@ const periodLabel = (p: string | null): string => (!p ? "Inte vald" : p === OTHE
 const ERROR_FIELD: Record<string, string> = {
   contactName: "kom-o-name", unit: "kom-o-unit", contactPhone: "kom-o-phone", contactEmail: "kom-o-email", desiredStart: "kom-o-start", period: "kom-o-period",
   otherEnd: "kom-o-end", periodReason: "kom-o-reason", firstName: "kom-o-fn", lastName: "kom-o-ln", pnr: "kom-o-pnr", phone: "kom-o-dphone", email: "kom-o-demail",
-  city: "kom-o-city", address: "kom-o-addr", priorAssessment: "kom-o-prior", attachments: "kom-o-files",
+  primaryArea: "kom-o-area", priorAssessment: "kom-o-prior", attachments: "kom-o-files",
 };
 
 function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly KomDuplicate[], uploading: boolean): Record<string, string> {
@@ -116,15 +113,16 @@ function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly Ko
     if (!f.lastName.trim()) e.lastName = "Skriv deltagarens efternamn.";
     if (!pnrFormatValid(f.pnr)) e.pnr = "Skriv tolv siffror så här: ÅÅÅÅMMDD-NNNN.";
     else if (dups.length) e.pnr = "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.";
-    if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < 8) e.phone = "Skriv deltagarens telefonnummer. Vi behöver det för kallelsen.";
+    // Kallelsen går med SMS eller e-post (beslut 2026-10-09): telefonnummer eller e-postadress krävs.
+    const digits = f.phone.replace(/\D/g, "").length;
+    if (!digits && !f.email.trim()) e.phone = "Skriv deltagarens telefonnummer. Har deltagaren ingen telefon? Skriv e-postadressen i stället.";
+    else if (digits && digits < PHONE_MIN_DIGITS) e.phone = "Skriv hela telefonnumret, till exempel 070-123 45 67.";
     if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
-    if (f.preferredContact === "email" && !f.email.trim()) e.email = "Skriv deltagarens e-postadress. Du har valt e-post som kontaktväg.";
-    if (!f.city.trim()) e.city = "Skriv deltagarens bostadsort.";
-    if (f.preferredContact === "letter" && f.address.trim().length < 6) e.address = "Skriv hela adressen. Du har valt att kallelsen ska skickas med brev.";
+    if (!f.primaryArea || !m.areas.some((a) => a.value === f.primaryArea)) e.primaryArea = "Välj ett yrkesområde.";
   }
   if (step === 2) {
     if (!f.priorAssessment) e.priorAssessment = "Svara om en kartläggning har genomförts.";
-    if (uploading) e.attachments = "Vänta tills filerna är uppladdade.";
+    if (uploading && f.priorAssessment === "yes") e.attachments = "Vänta tills filerna är uppladdade.";
   }
   return e;
 }
@@ -179,6 +177,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const confirm = useConfirm();
   const create = useCommand(caseCreate);
   const update = useCommand(caseUpdate);
+  const removeFile = useCommand(attachmentRemove);
   // Utkastminne (bara i minnet – personnumret sparas aldrig i webblagring): det ifyllda finns kvar om man lämnar sidan.
   const draft = useDraft<Order>("portal-bestall", () => initialOrder(m));
   const f = draft.value;
@@ -232,6 +231,39 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   };
 
   const set = <K extends keyof Order>(k: K) => (v: Order[K]) => setF((x) => ({ ...x, [k]: v }));
+  // Svaret Nej på kartläggningen: bifogade filer hör bara till svaret Ja. Finns filer frågar vi först och tar sedan bort dem
+  // på servern (samma som "Ta bort" i listan) – inga uppladdningar blir kvar utan beställning.
+  const choosePrior = async (v: PriorAnswer) => {
+    if (v === f.priorAssessment) return;
+    if (v === "no" && uploading) {
+      toast("Vänta tills filerna är uppladdade.", "error");
+      return;
+    }
+    if (v === "no" && f.attachments.length) {
+      const n = f.attachments.length;
+      const ok = await confirm({
+        title: n === 1 ? "Ta bort den bifogade filen?" : "Ta bort de bifogade filerna?",
+        body: `Du har svarat nej på frågan om kartläggning. ${n === 1 ? "Filen du har bifogat tas bort." : `De ${n} filerna du har bifogat tas bort.`}`,
+        confirmLabel: n === 1 ? "Ta bort filen" : "Ta bort filerna",
+        cancelLabel: "Behåll svaret ja",
+        tone: "danger",
+      });
+      if (!ok) return;
+      const left: AttachmentRow[] = [];
+      for (const a of f.attachments) {
+        const r = await removeFile.run({ attachmentId: a.id }).catch(() => null);
+        if (!r || !r.ok) left.push(a);
+      }
+      if (left.length) {
+        setF((x) => ({ ...x, attachments: left }));
+        toast("Alla filer kunde inte tas bort. Försök igen.", "error");
+        return;
+      }
+      setF((x) => ({ ...x, priorAssessment: "no", attachments: [] }));
+      return;
+    }
+    setF((x) => ({ ...x, priorAssessment: v }));
+  };
   const errs = validateStep(step, f, m, dups, uploading);
   const E = (k: string) => (showErr ? errs[k] : undefined);
   const end = periodEnd(f);
@@ -262,11 +294,12 @@ function OrderForm({ m }: { m: KomOrderForm }) {
     const period = f.period === OTHER
       ? { plannedEnd: f.otherEnd, orderPeriodReason: f.periodReason.trim() }
       : { orderPeriodMonths: Number(f.period) };
+    // Ingen bostadsort och ingen kontaktväg (beslut 2026-10-09): servern väljer SMS eller e-post efter uppgifterna.
     const payload = {
       source: "portal" as const, referrerUnit: f.unit.trim(), firstName: f.firstName.trim(), lastName: f.lastName.trim(), pnr: f.pnr.trim(),
-      phone: f.phone.trim(), email: f.email.trim(), city: f.city.trim(), preferredContact: f.preferredContact,
-      address: f.preferredContact === "letter" ? f.address.trim() : null, desiredStart: f.desiredStart, ...period,
-      priorAssessment: f.priorAssessment, background: f.background.trim(), attachmentIds: f.attachments.map((a) => a.id),
+      phone: f.phone.trim(), email: f.email.trim(), primaryArea: f.primaryArea, desiredStart: f.desiredStart, ...period,
+      priorAssessment: f.priorAssessment, background: f.background.trim(),
+      attachmentIds: f.priorAssessment === "yes" ? f.attachments.map((a) => a.id) : [],
     };
     const res = await create.run(payload).catch(() => null);
     if (!res) {
@@ -274,11 +307,10 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       return;
     }
     if (!res.ok) {
-      const back0 = res.error === "order_period" || res.error === "unit";
-      const back2 = res.error === "prior_assessment" || res.error === "attachments";
-      if (back0 || back2) {
-        goStep(back0 ? 0 : 2);
-        setErrStep(back0 ? 0 : 2);
+      const to = res.error === "order_period" || res.error === "unit" ? 0 : res.error === "area" ? 1 : res.error === "prior_assessment" || res.error === "attachments" ? 2 : null;
+      if (to != null) {
+        goStep(to);
+        setErrStep(to);
       }
       toast(res.message ?? "Beställningen kunde inte skickas.", "error");
       return;
@@ -399,48 +431,54 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           <Field
             id="kom-o-dphone"
             label="Deltagarens telefonnummer"
-            required={f.preferredContact === "sms" || f.preferredContact === "phone"}
+            required={!f.email.trim()}
             error={E("phone")}
-            help="För kallelse och påminnelser."
+            help="Vi skickar kallelsen och påminnelser med SMS. Har deltagaren ingen telefon? Lämna fältet tomt och skriv e-postadressen."
           >
             <Input type="tel" value={f.phone} onValueChange={set("phone")} />
           </Field>
-          <Field id="kom-o-demail" label="Deltagarens e-postadress" required={f.preferredContact === "email"} error={E("email")} help="Fyll bara i om deltagaren vill ha kallelsen med e-post.">
+          <Field id="kom-o-demail" label="Deltagarens e-postadress" error={E("email")} help="Fyll i om deltagaren har e-post. Vi använder e-post när telefonnummer saknas.">
             <Input type="email" value={f.email} onValueChange={set("email")} />
           </Field>
         </FormGrid>
-        <Field id="kom-o-city" label="Bostadsort" required error={E("city")} help="Bara orten, till exempel Alby, Tumba eller Fittja. Vi behöver den för att planera plats och resor.">
-          <Input value={f.city} onValueChange={set("city")} />
+        <Field
+          id="kom-o-area"
+          label="Yrkesområde"
+          required
+          error={E("primaryArea")}
+          help={`Det yrkesområde deltagaren ska arbeta mot.${m.otherAreaName ? ` Välj ${m.otherAreaName} om inget passar.` : ""}`}
+        >
+          <Select value={f.primaryArea} onValueChange={set("primaryArea")} placeholder="Välj yrkesområde" options={m.areas} />
         </Field>
-        <Field id="kom-o-contact" label="Hur vill deltagaren bli kontaktad?" required help="Vi kallar till första mötet på det sätt du väljer här.">
-          <Seg id="kom-o-contact" ariaLabel="Föredragen kontaktväg" value={f.preferredContact} onValueChange={set("preferredContact")} options={CONTACTS} />
-        </Field>
-        {f.preferredContact === "letter" && (
-          <Field id="kom-o-addr" label="Fullständig adress" required error={E("address")} help="Behövs bara när kallelsen skickas med brev. Annars sparar vi ingen adress.">
-            <TextArea rows={2} value={f.address} onValueChange={set("address")} />
-          </Field>
-        )}
       </Stack>
     );
   }
   if (step === 2) {
     body = (
       <Stack>
-        <Field id="kom-o-prior" label="Har en kartläggning genomförts?" required error={E("priorAssessment")} help="Till exempel en kartläggning hos kommunen eller Arbetsförmedlingen. Bifoga den gärna nedan.">
-          <Seg id="kom-o-prior" ariaLabel="Har en kartläggning genomförts?" value={f.priorAssessment} onValueChange={(v) => set("priorAssessment")(v)} options={PRIOR} />
+        <Field
+          id="kom-o-prior"
+          label="Har en kartläggning genomförts?"
+          required
+          error={E("priorAssessment")}
+          help="Till exempel hos kommunen eller Arbetsförmedlingen. Svarar du ja kan du bifoga kartläggningen."
+        >
+          <Seg id="kom-o-prior" ariaLabel="Har en kartläggning genomförts?" value={f.priorAssessment} onValueChange={(v) => void choosePrior(v)} options={PRIOR} />
         </Field>
-        <Field id="kom-o-files" label="Bifoga fil" error={E("attachments")} help="Till exempel kartläggningen.">
-          <AttachmentPicker
-            id="kom-o-files"
-            caseId={null}
-            rows={f.attachments}
-            onRows={(rows) => setF((x) => ({ ...x, attachments: rows }))}
-            maxFiles={m.attachments.maxFiles}
-            accept={m.attachments.accept}
-            typesText={m.attachments.typesText}
-            onBusy={setUploading}
-          />
-        </Field>
+        {f.priorAssessment === "yes" && (
+          <Field id="kom-o-files" label="Bifoga fil" error={E("attachments")} help="Bifoga kartläggningen om du har den. Det går också bra att inte bifoga något.">
+            <AttachmentPicker
+              id="kom-o-files"
+              caseId={null}
+              rows={f.attachments}
+              onRows={(rows) => setF((x) => ({ ...x, attachments: rows }))}
+              maxFiles={m.attachments.maxFiles}
+              accept={m.attachments.accept}
+              typesText={m.attachments.typesText}
+              onBusy={setUploading}
+            />
+          </Field>
+        )}
         <Field
           id="kom-o-bg"
           label="Bakgrundsinformation"
@@ -482,9 +520,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
                 ["Personnummer", maskPnr(f.pnr)],
                 ["Telefon", f.phone || "Inte angivet"],
                 ["E-post", f.email || "Inte angivet"],
-                ["Bostadsort", f.city],
-                ["Kontaktväg", CONTACT_LABEL[f.preferredContact]],
-                f.preferredContact === "letter" && ["Adress", f.address],
+                ["Yrkesområde", m.areas.find((a) => a.value === f.primaryArea)?.label ?? "–"],
               ]}
             />
             <ReviewSection
@@ -492,11 +528,11 @@ function OrderForm({ m }: { m: KomOrderForm }) {
               onEdit={() => edit(2)}
               items={[
                 ["Kartläggning genomförd", f.priorAssessment ? PRIOR_ASSESSMENT_LABEL[f.priorAssessment] : "–"],
-                ["Bifogade filer", f.attachments.length ? `${f.attachments.length} ${f.attachments.length === 1 ? "fil" : "filer"}` : "Inga"],
+                f.priorAssessment === "yes" && ["Bifogade filer", f.attachments.length ? `${f.attachments.length} ${f.attachments.length === 1 ? "fil" : "filer"}` : "Inga"],
                 ["Bakgrundsinformation", f.background || "Inte angivet"],
               ]}
             />
-            {f.attachments.length > 0 && <AttachmentList rows={f.attachments} />}
+            {f.priorAssessment === "yes" && f.attachments.length > 0 && <AttachmentList rows={f.attachments} />}
           </Stack>
         </Card>
         <Notice tone="info" title="När du skickar">
@@ -606,8 +642,16 @@ function DupNotice({ dups, onOpen }: { dups: readonly KomDuplicate[]; onOpen: (c
   );
 }
 
-/** Kontaktvägen i löpande text: "brev", "e-post" – men förkortningen SMS behåller sina versaler. */
-const contactWord = (label: string | null | undefined): string => (!label ? "" : label === label.toUpperCase() ? label : label.toLowerCase());
+/**
+ * Hur deltagaren kallas, i löpande text. Kontaktvägen väljs efter uppgifterna i beställningen (beslut 2026-10-09): SMS om
+ * telefonnummer finns, annars e-post. Äldre beställningar kan ha telefon eller brev.
+ */
+const inviteText = (label: string | null | undefined): string => {
+  if (label === "SMS") return "Deltagaren får en kallelse med SMS.";
+  if (label === "E-post") return "Deltagaren får en kallelse med e-post.";
+  if (label === "Brev") return "Deltagaren får en kallelse med brev.";
+  return "Vi kontaktar deltagaren och bokar tiden.";
+};
 
 /** Kvittot: ärendenummer, ordererkännande, mejlet och hur det går vidare. */
 function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string; customerName: string; onAgain: () => void; headRef: RefObject<HTMLDivElement | null> }) {
@@ -660,13 +704,19 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
       <Card title="Så här går det vidare" icon="list">
         <Timeline
           items={[
-            { icon: "check", filled: true, title: "Beställningen är mottagen", sub: fDTL(c.referredAt), body: <span>Den har fått ärendenummer {c.caseNumber}.</span> },
+            {
+              icon: "check",
+              filled: true,
+              title: "Beställningen är mottagen",
+              sub: fDTL(c.referredAt),
+              body: <span>Den har fått ärendenummer {c.caseNumber}.{c.areaName ? ` Yrkesområde: ${c.areaName}.` : ""}</span>,
+            },
             { icon: "calendar", title: "Orderbekräftelse", sub: `Senast ${fDTL(c.avropDue)}`, body: <span>Du får startdatum, ansvarig coach och tid för första mötet i portalen.</span> },
             {
               icon: "users",
               title: "Första mötet med deltagaren",
               sub: `Senast ${fD(c.firstMeetingDue)}`,
-              body: <span>Deltagaren får en kallelse på det sätt du valde ({contactWord(c.contactLabel)}).</span>,
+              body: <span>{inviteText(c.contactLabel)}</span>,
             },
           ]}
         />

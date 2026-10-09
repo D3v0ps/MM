@@ -361,16 +361,22 @@ test("portalbeställning från kommunen syns i inkorgen och kan accepteras", asy
   const errors = await open(page, info, "/min-vecka", SARA);
   await commandAs(page, info, MARIA, "arenden.caseCreate", {
     source: "portal", referrerId: "k-maria", referrerUnit: "Arbetsmarknadsenheten Alby", firstName: "Lina", lastName: "Portaltest", pnr: "19950505-1111",
-    orderPeriodMonths: 6, priorAssessment: "no", desiredStart: "2027-02-10", background: "Vill arbeta med lokalvård.",
+    orderPeriodMonths: 6, priorAssessment: "no", desiredStart: "2027-02-10", background: "Vill arbeta med lokalvård.", primaryArea: "F",
   }, SARA, "/inkorg?senaste=1");
   const m = main(page);
   await expect(m.getByRole("heading", { name: "Beställning i portalen" })).toBeVisible(); // ?senaste=1 väljer den senast mottagna (scenario 3 steg 4)
   await expect(m.locator("[data-inkorg-detail]").getByText("BOT-27-0051").first()).toBeVisible();
   await expect(m.getByText("Ordererkännande", { exact: true })).toBeVisible();
   await expect(m.getByText("Handläggaren fyllde i beställningen själv.", { exact: false })).toBeVisible();
+  // Yrkesområdet från kommunens beställning (beslut 2026-10-09) står under Deltagare.
+  await expect(m.locator("[data-inkorg-detail]")).toContainText(/Yrkesområde\s*F Lokalvård/);
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   await page.check("#ink-coach-u-mats");
-  // Avtalsområde och yrkesspår väljer Miljonbemanning här (kommunens formulär frågar inte efter dem sedan 2026-10-07).
+  // Avtalsområdet är förifyllt med yrkesområdet ur beställningen och kan ändras. Yrkesspåret väljer Miljonbemanning senare.
+  await expect(page.locator("#ink-area")).toHaveValue("F");
+  await expect(dialog(page).getByText("Förifyllt från beställningen.")).toBeVisible();
+  // Ett tomt avtalsområde går inte att acceptera.
+  await page.selectOption("#ink-area", "");
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
   await expect(dialog(page).getByText("Välj avtalsområde.").first()).toBeVisible();
   await page.selectOption("#ink-area", "F");

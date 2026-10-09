@@ -229,7 +229,7 @@ test("2. startsidan för handläggaren: tre stora knappar överst, sedan olästa
 });
 
 // ================================================================ 3. Beställning
-test("3. beställning i tre steg och en granskning: omfattning i månader, bakgrundsinformation med bifogad fil, inga belopp", async ({ page }, info) => {
+test("3. beställning i tre steg och en granskning: omfattning i månader, yrkesområde, kartläggning ja eller nej med bifogad fil, inga belopp", async ({ page }, info) => {
   // Nadias personnummer (för dubblettkontrollen) läses via "Visa" – visningen loggas.
   const errors = await open(page, info, `/portal/deltagare/${SC.nadia}`, MARIA);
   await settle(page);
@@ -248,8 +248,8 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, bakgr
   const stepper = main(page).getByRole("list", { name: "Steg i beställningen" });
   await expect(stepper.getByRole("listitem")).toHaveCount(4);
   await expect(stepper.getByRole("listitem").last().locator("svg"), "granskningen visas utan stegnummer").toHaveCount(1);
-  // Borttaget 2026-10-07: beställarreferens, planerat slutdatum, skyddade personuppgifter, anpassning, avtalsområde och värde.
-  for (const id of ["#kom-o-ref", "#kom-o-end", "#kom-o-area", "#kom-o-track", "#kom-o-needs"]) await expect(page.locator(id), id).toHaveCount(0);
+  // Borttaget 2026-10-07: beställarreferens, planerat slutdatum, skyddade personuppgifter, anpassning, yrkesspår och värde.
+  for (const id of ["#kom-o-ref", "#kom-o-end", "#kom-o-track", "#kom-o-needs"]) await expect(page.locator(id), id).toHaveCount(0);
   expect(t).not.toMatch(/Beställarreferens|Skyddade personuppgifter|Önskat yrkes/i);
   if (isDemo(info)) await expect(btn(page, "Se hur beställningar tas emot hos Miljonbemanning")).toHaveCount(1);
   await btn(page, /^Nästa/).click();
@@ -281,24 +281,55 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, bakgr
   await page.fill("#kom-o-fn", "Samira");
   await page.fill("#kom-o-ln", "Testsson");
   await page.fill("#kom-o-pnr", "19880412-3456");
-  await page.fill("#kom-o-dphone", "070-000 11 22");
-  await page.fill("#kom-o-city", "Tumba");
-  await page.getByRole("group", { name: "Föredragen kontaktväg" }).getByRole("button", { name: "Brev" }).click();
-  await expect(page.locator("#kom-o-addr"), "adressfält bara vid kallelse per brev").toBeVisible();
+  // Beslut 2026-10-09: ingen bostadsort, ingen fråga om kontaktväg och ingen adress – yrkesområdet är obligatoriskt.
+  for (const id of ["#kom-o-city", "#kom-o-contact", "#kom-o-addr"]) await expect(page.locator(id), id).toHaveCount(0);
+  t = await mainText(page);
+  expect(t).not.toMatch(/Bostadsort|Hur vill deltagaren bli kontaktad|Fullständig adress/);
   await btn(page, /^Nästa/).click();
-  await expect(main(page), "adress krävs vid brev").toContainText("Skriv hela adressen");
-  await page.fill("#kom-o-addr", "Testgatan 1, 147 30 Tumba");
+  await expect(main(page), "telefon eller e-post krävs för kallelsen").toContainText("Skriv deltagarens telefonnummer. Har deltagaren ingen telefon? Skriv e-postadressen i stället.");
+  await expect(main(page), "yrkesområdet krävs").toContainText("Välj ett yrkesområde.");
+  // Listan är avtalets avtalsområden (samma källa som acceptdialogen) – hjälptexten nämner Övrigt.
+  await expect(page.locator("#kom-o-area option"), "Välj yrkesområde och avtalets tolv avtalsområden").toHaveCount(13);
+  await expect(page.locator("#kom-o-area option").nth(7)).toHaveText("Lager och logistik");
+  await expect(main(page)).toContainText("Det yrkesområde deltagaren ska arbeta mot. Välj Övrigt om inget passar.");
+  await page.fill("#kom-o-dphone", "070-000 1");
+  await page.selectOption("#kom-o-area", "G");
+  await btn(page, /^Nästa/).click();
+  await expect(main(page), "ett för kort telefonnummer").toContainText("Skriv hela telefonnumret");
+  await page.fill("#kom-o-dphone", "070-000 11 22");
   await btn(page, /^Nästa/).click();
   await expect(main(page).getByRole("heading", { level: 2, name: "Bakgrundsinformation om deltagaren" })).toHaveCount(1);
   await expect(main(page)).toContainText("Var så detaljerad som möjligt – det är en bra utgångspunkt för oss.");
   await btn(page, /^Nästa/).click();
   await expect(main(page), "frågan om kartläggning krävs").toContainText("Svara om en kartläggning har genomförts.");
-  await page.getByRole("group", { name: "Har en kartläggning genomförts?" }).getByRole("button", { name: "Ja" }).click();
+  const prior = page.getByRole("group", { name: "Har en kartläggning genomförts?" });
+  await expect(prior.getByRole("button"), "bara Ja och Nej (Vet inte borttaget 2026-10-09)").toHaveText(["Ja", "Nej"]);
+  await expect(page.locator("#kom-o-files"), "Bifoga fil visas bara när Ja är valt").toHaveCount(0);
+  await prior.getByRole("button", { name: "Nej" }).click();
+  await expect(page.locator("#kom-o-files"), "inte vid Nej").toHaveCount(0);
+  await prior.getByRole("button", { name: "Ja" }).click();
   // Bifoga fil: en påhittad PDF. En fil av fel typ tas inte emot.
   await page.locator("#kom-o-files").setInputFiles({ name: "skript.exe", mimeType: "application/x-msdownload", buffer: Buffer.from("MZ påhittad") });
   await expect(main(page)).toContainText(/skript\.exe/);
   await page.locator("#kom-o-files").setInputFiles({ name: "kartlaggning-test.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n% påhittad kartläggning\n") });
   const files = main(page).getByRole("list", { name: "Bilagor" });
+  await expect(files).toContainText("kartlaggning-test.pdf", { timeout: 15_000 });
+  // Byts svaret till Nej frågar vi först – sedan tas filen bort och Bifoga fil döljs.
+  await prior.getByRole("button", { name: "Nej" }).click();
+  const remove = page.getByRole("dialog", { name: "Ta bort den bifogade filen?" });
+  await expect(remove).toContainText("Du har svarat nej på frågan om kartläggning.");
+  await remove.getByRole("button", { name: "Behåll svaret ja" }).click();
+  await expect(files, "Behåll svaret ja: filen finns kvar").toContainText("kartlaggning-test.pdf");
+  await prior.getByRole("button", { name: "Nej" }).click();
+  await page.getByRole("dialog", { name: "Ta bort den bifogade filen?" }).getByRole("button", { name: "Ta bort filen" }).click();
+  await expect(page.locator("#kom-o-files"), "Bifoga fil döljs vid Nej").toHaveCount(0);
+  await expect(main(page).getByRole("list", { name: "Bilagor" })).toHaveCount(0);
+  await expect(prior.getByRole("button", { name: "Nej" })).toHaveAttribute("aria-pressed", "true");
+  // Tillbaka till Ja: filen är borttagen och bifogas på nytt.
+  await prior.getByRole("button", { name: "Ja" }).click();
+  await expect(page.locator("#kom-o-files")).toHaveCount(1);
+  await expect(main(page).getByRole("list", { name: "Bilagor" }), "den borttagna filen kommer inte tillbaka").toHaveCount(0);
+  await page.locator("#kom-o-files").setInputFiles({ name: "kartlaggning-test.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n% påhittad kartläggning\n") });
   await expect(files).toContainText("kartlaggning-test.pdf", { timeout: 15_000 });
   await page.fill("#kom-o-bg", "Har arbetat på lager i två år. Vill ta truckkort.");
   await btn(page, /^Nästa/).click();
@@ -309,6 +340,8 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, bakgr
   expect(t, "personnumret maskerat i granskningen").toMatch(/•+-?3456/);
   expect(t).not.toMatch(/19880412-3456/);
   expect(t).toMatch(/Omfattning\s+6 månader/);
+  expect(t).toMatch(/Yrkesområde\s+Lager och logistik/);
+  expect(t, "inga borttagna fält i granskningen").not.toMatch(/Bostadsort|Kontaktväg|Adress/);
   expect(t).toMatch(/Kartläggning genomförd\s+Ja/);
   expect(t).toMatch(/Bifogade filer\s+1 fil/);
   expect(t, "inga belopp i granskningen (synpunkt #10)").not.toMatch(/\d\s?kr\b|kronor|värde|pris/i);
@@ -320,7 +353,10 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, bakgr
   expect(t).toMatch(/Mejlet innehåller bara ärendenumret/);
   const mail = await card(page, "Mejlet du får").innerText();
   expect(mail, "mejlet innehåller ärendenumret men inga personuppgifter").toContain("BOT-27-0051");
-  expect(mail).not.toMatch(/Samira|Testsson|3456|Tumba/);
+  expect(mail).not.toMatch(/Samira|Testsson|3456|Lager/);
+  expect(t, "kvittot visar yrkesområdet och hur deltagaren kallas – inte ett val som handläggaren inte gjort").toMatch(/Yrkesområde: Lager och logistik\./);
+  expect(t).toMatch(/Deltagaren får en kallelse med SMS\./);
+  expect(t).not.toMatch(/det sätt du valde/);
   expect(t, "kvittot skriver datum utan förkortningar").not.toMatch(/\bkl\.|\b(jan|feb|dec)\b/);
   expect(t).toMatch(/klockan/);
   await noHScroll(page, "Ordererkännande");
@@ -334,14 +370,18 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, bakgr
     await expect(main(page)).toContainText("BOT-27-0051");
   }
 
-  // Beställningen hos kommunen: väntar på bekräftelse, avtalsområdet väljs av Miljonbemanning, bakgrunden med filen
+  // Beställningen hos kommunen: väntar på bekräftelse, yrkesområdet från beställningen, SMS (telefonnummer finns), bakgrunden med filen
   await go(page, info, `/portal/deltagare/${newId}`, MARIA);
   t = await mainText(page);
   expect(t).toMatch(/Väntar på bekräftelse/);
   expect(t).toMatch(/Beställningen kom in via portalen/);
-  expect(t).toMatch(/Avtalsområde\s+Väljs av Miljonbemanning/);
-  expect(t).toMatch(/Kontaktväg\s+Brev/);
+  expect(t).toMatch(/Yrkesområde\s+G Lager och logistik/);
+  expect(t).toMatch(/Kontaktväg\s+SMS/);
+  expect(t, "ingen bostadsort i beställningen – raden visas inte").not.toMatch(/Bostadsort/);
   expect(t).toMatch(/Kartläggning genomförd\s+Ja/);
+  // Avbrott görs med mejl (beslut 2026-10-09) – adressen och ärendenumret står på sidan.
+  expect(t).toMatch(/Vill du avbryta insatsen\? Mejla avrop@miljonbemanning\.se med ärendenumret BOT-27-0051\./);
+  await expect(main(page).getByRole("link", { name: "avrop@miljonbemanning.se" })).toHaveAttribute("href", "mailto:avrop@miljonbemanning.se?subject=Avbryta%20insatsen%20BOT-27-0051");
   await expect(main(page).getByRole("list", { name: "Bilagor" })).toContainText("kartlaggning-test.pdf");
   // … och hos Miljonbemanning: omfattningen och bakgrunden med filen på deltagarkortet
   await go(page, info, `/arenden/${newId}`, SARA);
@@ -470,7 +510,7 @@ test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad 
     {
       key: "arenden.caseCreate",
       input: {
-        source: "portal", firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", phone: "070-000 11 22", city: "Tumba", preferredContact: "sms",
+        source: "portal", firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", phone: "070-000 11 22", primaryArea: "G",
         referrerUnit: "Arbetsmarknadsenheten Alby", desiredStart: "2027-02-15", orderPeriodMonths: 6, priorAssessment: "yes",
       },
       as: MARIA,
@@ -586,10 +626,10 @@ test("7. inga belopp, priser eller ordervärden på någon sida i portalen", asy
   await page.fill("#kom-o-ln", "Testsson");
   await page.fill("#kom-o-pnr", "19900101-1234");
   await page.fill("#kom-o-dphone", "070-000 22 33");
-  await page.fill("#kom-o-city", "Alby");
+  await page.selectOption("#kom-o-area", "F");
   await btn(page, /^Nästa/).click();
   expect(await mainText(page), "steg 3").not.toMatch(MONEY);
-  await page.getByRole("group", { name: "Har en kartläggning genomförts?" }).getByRole("button", { name: "Vet inte" }).click();
+  await page.getByRole("group", { name: "Har en kartläggning genomförts?" }).getByRole("button", { name: "Nej" }).click();
   await btn(page, /^Nästa/).click();
   await expect(main(page).getByRole("heading", { level: 2, name: "Granska och skicka" })).toHaveCount(1);
   expect(await mainText(page), "granskningen").not.toMatch(MONEY);

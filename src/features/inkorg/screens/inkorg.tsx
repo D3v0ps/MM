@@ -3,6 +3,7 @@
 // originalet bredvid det tolkade formuläret, ordererkännande, dubblettkontroll, acceptera/avböj, kompletteringar och
 // mejl som klassats som Övrigt.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ORDER_EMAIL } from "@/features/_shared/contact";
 import { messageSend } from "@/features/arenden/api";
 import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
@@ -38,7 +39,7 @@ export function InkorgScreen({ params, query }: ScreenProps) {
   return (
     <Page
       title="Avropsinkorg"
-      eyebrow="avrop@miljonbemanning.se"
+      eyebrow={ORDER_EMAIL}
       lead={q.data ? `Svara med Acceptera eller Avböj senast ${q.data.answerText} efter mottagandet.` : undefined}
       actions={
         <>

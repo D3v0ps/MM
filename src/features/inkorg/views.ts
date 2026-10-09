@@ -137,7 +137,8 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
 }
 
 /**
- * Beställning utan mejl (portal eller telefon) – samma steg som portalens formulär, utan konfidens. Avtalsområde, yrkesspår
+ * Beställning utan mejl (portal eller telefon) – samma steg som portalens formulär, utan konfidens. Yrkesområdet kommer från
+ * kommunen (beslut 2026-10-09); bostadsorten visas bara när den finns (äldre beställningar). Alternativt område, yrkesspår
  * och beställarreferens sätts av Miljonbemanning vid accept (synpunkt #8) och visas bara när de finns.
  */
 function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "Beställningen"): CaseFieldsView {
@@ -163,9 +164,10 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
       title: "2. Deltagare",
       fields: [
         row("Namn", p ? `${p.firstName} ${p.lastName}` : null), row("Personnummer", null, false, pnrView(c, p)),
+        ...(p ? [row("Telefon", p.phone || null), row("E-post", p.email || null)] : []),
+        ...(c.primaryAreaCode ? [row("Yrkesområde", areaName(areas, c.primaryAreaCode))] : []),
         ...(p
-          ? [row("Telefon", p.phone || null), row("E-post", p.email || null), row("Bostadsort", p.city || null),
-            row("Föredragen kontaktväg", p.preferredContact ? contactLabel(p.preferredContact) : null)]
+          ? [...(p.city ? [row("Bostadsort", p.city)] : []), row("Föredragen kontaktväg", p.preferredContact ? contactLabel(p.preferredContact) : null)]
           : []),
       ],
     },
@@ -176,11 +178,10 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
         row("Bakgrundsinformation", c.backgroundInfo || null),
       ],
     },
-    ...(c.primaryAreaCode || c.vocationalTrack || c.buyerReference
+    ...(c.secondaryAreaCode || c.vocationalTrack || c.buyerReference
       ? [{
           title: "Uppgifter som Miljonbemanning sätter vid accept",
           fields: [
-            ...(c.primaryAreaCode ? [row("Avtalsområde (primärt)", areaName(areas, c.primaryAreaCode))] : []),
             ...(c.secondaryAreaCode ? [row("Avtalsområde (alternativt)", areaName(areas, c.secondaryAreaCode))] : []),
             ...(c.vocationalTrack ? [row("Yrkesspår", c.vocationalTrack)] : []),
             ...(c.buyerReference ? [row("Beställarreferens", c.buyerReference)] : []),

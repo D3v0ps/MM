@@ -220,7 +220,7 @@ test("kommunen talar in ett meddelande och beställningens bakgrund – inget lj
   await page.fill("#kom-o-ln", "Testsson");
   await page.fill("#kom-o-pnr", "19880412-3456");
   await page.fill("#kom-o-dphone", "070-000 11 22");
-  await page.fill("#kom-o-city", "Tumba");
+  await page.selectOption("#kom-o-area", "G");
   await btn(page, /^Nästa/).click();
   await expect(main(page).getByRole("heading", { level: 2, name: "Bakgrundsinformation om deltagaren" })).toHaveCount(1);
   await page.fill("#kom-o-bg", "Har arbetat på lager.");

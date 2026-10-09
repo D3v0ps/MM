@@ -144,8 +144,9 @@ export const kommunStart = query("kommun.start", z.object({})).returns<KomStart>
 // ================================================================ Beställning (/portal/bestall)
 // Synpunkt #3–#10 (beslut 2026-10-07): enheten är fritext, ingen beställarreferens, omfattningen 6 eller 12 månader (eller
 // annan tidsperiod med motivering), inget planerat slutdatum att fylla i, ingen fråga om skyddade personuppgifter, ingen
-// anpassning och inget yrkesområde – i stället "Bakgrundsinformation om deltagaren" (kartläggning, bilagor och fritext).
-// Inga belopp.
+// anpassning och "Bakgrundsinformation om deltagaren" (kartläggning, bilagor och fritext). Beslut 2026-10-09: yrkesområdet
+// är obligatoriskt (avtalets avtalsområden), ingen bostadsort, ingen fråga om kontaktväg och kartläggningen besvaras med ja
+// eller nej. Inga belopp.
 export type KomOrderForm = {
   customerName: string;
   today: string;
@@ -160,6 +161,10 @@ export type KomOrderForm = {
   firstMeetingWithin: string;
   /** Besked om startdatum och coach senast, om beställningen skickas nu. */
   answerDue: string | null;
+  /** Yrkesområdena: avtalets aktiva avtalsområden (contract_areas, samma källa som acceptdialogen) – värdet är koden. */
+  areas: { value: string; label: string }[];
+  /** Namnet på avtalsområdet för "inget annat passar" (t.ex. "Övrigt") om avtalet har ett sådant – hjälptexten nämner det. */
+  otherAreaName: string | null;
 };
 export const kommunOrderForm = query("kommun.bestallning", z.object({})).returns<KomOrderForm>();
 
@@ -179,8 +184,10 @@ export type KomReceipt = {
   ackText: string;
   /** Mejlet till handläggaren (bara ärendenumret). */
   mail: { from: string; to: string; at: string; body: string } | null;
-  /** Deltagarens kontaktväg ("SMS" …). */
+  /** Deltagarens kontaktväg ("SMS" …) – SMS eller e-post efter uppgifterna i beställningen (beslut 2026-10-09). */
   contactLabel: string | null;
+  /** Yrkesområdet i beställningen ("Lager och logistik"), null om det saknas. */
+  areaName: string | null;
 };
 export const kommunReceipt = query("kommun.kvitto", z.object({ caseId: IdSchema })).returns<KomReceipt | null>();
 

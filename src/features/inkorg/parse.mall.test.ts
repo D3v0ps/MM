@@ -1,13 +1,17 @@
 // Mallen för mejlavrop (docs/lathund/mall-mejlavrop.md) ska alltid tolkas av parsern: den tomma mallen (första kodblocket)
 // ifylld med påhittade testuppgifter och det ifyllda exemplet (andra kodblocket) ger alla obligatoriska fält och ett ärende
-// som kan skapas automatiskt. Ändras parserns etiketter eller mallen måste de ändras tillsammans.
+// som kan skapas automatiskt. Ändras parserns etiketter eller mallen måste de ändras tillsammans. Mallen följer portalens
+// formulär (beslut 2026-10-09): yrkesområde i stället för bostadsort, ingen kontaktväg och kartläggning ja eller nej.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { canCreateCase, parseInboundMail, REQUIRED_ORDER_FIELDS } from "./parse";
+import { AREAS } from "@/data/seed/constants";
+import { canCreateCase, parseArea, parseInboundMail, REQUIRED_ORDER_FIELDS } from "./parse";
 
 const MALL_PATH = fileURLToPath(new URL("../../../docs/lathund/mall-mejlavrop.md", import.meta.url));
-const PREFIX = { casePrefix: "BOT" };
+/** Avtalets avtalsområden (testdatat: Botkyrka A–L) – inläsningen tolkar yrkesområdet mot dem. */
+const AREA_REFS = AREAS.map(([code, name]) => ({ code, name }));
+const PREFIX = { casePrefix: "BOT", areas: AREA_REFS };
 
 /** Kodblocken (```…```) i markdownfilen, i ordning. */
 function codeBlocks(md: string): string[] {
@@ -38,8 +42,7 @@ const TEST_VALUES: Record<string, string> = {
   "Personnummer": "19900101-1234",
   "Deltagarens telefonnummer": "070-000 00 00",
   "Deltagarens e-postadress": "test.testsson@example.invalid",
-  "Bostadsort": "Testby",
-  "Föredragen kontaktväg": "telefon",
+  "Yrkesområde": "Kök, restaurang och måltidsservice",
   "Kartläggning genomförd": "Nej",
   "Bakgrundsinformation:": "Har arbetat i restaurang.",
 };
@@ -53,6 +56,9 @@ describe("mallen för mejlavrop (docs/lathund/mall-mejlavrop.md)", () => {
     expect(example).toBeTruthy();
     // Den tomma mallen har inga värden – bara etiketter och avsnittsrubriker.
     for (const line of blank.split("\n").filter((l) => l.includes(":"))) expect(line.trim().endsWith(":"), line).toBe(true);
+    // Samma fält som portalen: yrkesområde, ingen bostadsort, ingen kontaktväg och inget "vet inte".
+    expect(blank).toMatch(/^Yrkesområde[^\n]*:$/m);
+    expect(md).not.toMatch(/Bostadsort|Föredragen kontaktväg|vet inte/i);
   });
 
   it("den tomma mallen tolkas inte som en beställning av misstag – men blir det när den fylls i", () => {
@@ -70,7 +76,7 @@ describe("mallen för mejlavrop (docs/lathund/mall-mejlavrop.md)", () => {
     expect(filled.extracted).toEqual({
       referrerName: "Test Handläggarsson", referrerUnit: "Arbetsmarknadsenheten Testby", referrerPhone: "08-123 45 67", referrerEmail: "test.handlaggarsson@kommun.example",
       desiredStart: "2027-03-01", orderPeriod: "12", firstName: "Test", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00",
-      email: "test.testsson@example.invalid", city: "Testby", preferredContact: "phone", priorAssessment: "nej", background: "Har arbetat i restaurang.",
+      email: "test.testsson@example.invalid", primaryArea: "D", priorAssessment: "nej", background: "Har arbetat i restaurang.",
     });
     for (const k of REQUIRED_ORDER_FIELDS) expect(filled.confidence[k], k).toBe(1);
     expect(canCreateCase(filled.extracted)).toBe(true);
@@ -92,11 +98,24 @@ describe("mallen för mejlavrop (docs/lathund/mall-mejlavrop.md)", () => {
     expect(r.missingFields).toEqual([]);
     expect(r.extracted).toMatchObject({
       referrerName: "Test Handläggarsson", referrerUnit: "Arbetsmarknadsenheten Testby", referrerPhone: "08-123 45 67", desiredStart: "2027-03-01", orderPeriod: "6",
-      firstName: "Test", lastName: "Testsson", pnr: "19900101-1234", city: "Testby", preferredContact: "sms", priorAssessment: "ja",
+      firstName: "Test", lastName: "Testsson", pnr: "19900101-1234", primaryArea: "G", priorAssessment: "ja",
       background: "Har arbetat i butik och lager i tre år.\nVill gärna arbeta med logistik. Talar svenska och arabiska.",
     });
+    expect(r.extracted).not.toHaveProperty("city");
+    expect(r.extracted).not.toHaveProperty("preferredContact");
     // Hälsningsfrasen efter den tomma raden hör inte till bakgrunden.
     expect(r.extracted.background).not.toMatch(/hälsning/);
     expect(canCreateCase(r.extracted)).toBe(true);
+  });
+
+  it("listan med yrkesområden i filen är avtalets avtalsområden – namnet och bokstaven tolkas till koden", () => {
+    const section = md.split(/^## /m).find((x) => x.startsWith("Yrkesområden"));
+    expect(section, "avsnittet Yrkesområden").toBeTruthy();
+    const listed = [...section!.matchAll(/^- \*\*([A-Z])\*\* (.+)$/gm)].map((m) => ({ code: m[1], name: m[2].trim() }));
+    expect(listed).toEqual(AREA_REFS);
+    for (const a of listed) {
+      expect(parseArea(a.name, AREA_REFS), a.name).toEqual({ code: a.code, exact: true });
+      expect(parseArea(a.code, AREA_REFS), a.code).toEqual({ code: a.code, exact: true });
+    }
   });
 });

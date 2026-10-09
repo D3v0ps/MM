@@ -4,6 +4,7 @@
 // ConfirmationCard och DeclinedCard).
 import { useState } from "react";
 import { pct } from "@/core/format";
+import { ORDER_EMAIL } from "@/features/_shared/contact";
 import { useCommand, useQuery } from "@/shell/backend";
 import { AiTag, Badge, Button, Card, CaseLink, CaseStatusBadge, ErrorNotice, Icon, Kv, Loading, Notice, PerspectiveLink } from "@/ui";
 import {
@@ -23,7 +24,7 @@ export function OriginalCard({ o }: { o: OriginalView }) {
     <Card title="Originalmejlet" icon="mail">
       <div className="flex flex-col gap-4">
         <dl className="m-0 grid gap-1.5">
-          {[["Från", `${o.fromName} <${o.fromAddress}>`], ["Till", "avrop@miljonbemanning.se"], ["Mottaget", o.receivedLong], ["Ämne", o.subject]].map(([k, v]) => (
+          {[["Från", `${o.fromName} <${o.fromAddress}>`], ["Till", ORDER_EMAIL], ["Mottaget", o.receivedLong], ["Ämne", o.subject]].map(([k, v]) => (
             <div key={k} className="flex min-w-0 flex-wrap gap-x-2.5">
               <dt className="min-w-[84px] font-semibold text-text-muted">{k}</dt>
               <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{v}</dd>

@@ -27,13 +27,16 @@ export const ORDER_REASON_MAX = 500;
 
 /**
  * Ny beställning (portalen; telefon eller mejl registreras av Miljonbemanning) – prototypens case.create, ändrad efter
- * beslutet 2026-10-07 (synpunkt #3–#10): enheten är fritext, ingen beställarreferens, inget avtalsområde eller yrkesspår och
- * ingen fråga om skyddade personuppgifter i kommunens formulär. Omfattningen är orderPeriodMonths (ett av avtalets
- * alternativ – planerat slut räknas fram från önskat startdatum) eller "Annan tidsperiod": plannedEnd och orderPeriodReason.
- * Bakgrundsinformation om deltagaren: priorAssessment (kartläggning ja/nej/vet inte), background och bilagor (attachmentIds
- * – egna uppladdningar med arenden.bilagaStart/bilagaKlar). Ger nästa ärendenummer i avtalets serie och skickar
- * ordererkännandet. Kommunens handläggare beställer alltid i eget namn. contractId: utelämnas = användarens aktiva avtal.
- * Personnummer krypteras innan det sparas och skickas aldrig tillbaka.
+ * beslutet 2026-10-07 (synpunkt #3–#10): enheten är fritext, ingen beställarreferens, inget yrkesspår och ingen fråga om
+ * skyddade personuppgifter i kommunens formulär. Beslut 2026-10-09: kommunen anger yrkesområdet (primaryArea – ett aktivt
+ * avtalsområde, obligatoriskt för kommunen), ingen bostadsort och ingen kontaktväg (city och preferredContact är valfria –
+ * utan kontaktväg blir den SMS, e-post eller telefon efter uppgifterna, se defaultPreferredContact). Omfattningen är
+ * orderPeriodMonths (ett av avtalets alternativ – planerat slut räknas fram från önskat startdatum) eller "Annan
+ * tidsperiod": plannedEnd och orderPeriodReason. Bakgrundsinformation om deltagaren: priorAssessment (kartläggning – ja
+ * eller nej för kommunen; "vet inte" finns kvar för äldre beställningar och Miljonbemannings registrering), background och
+ * bilagor (attachmentIds – egna uppladdningar med arenden.bilagaStart/bilagaKlar). Ger nästa ärendenummer i avtalets serie
+ * och skickar ordererkännandet. Kommunens handläggare beställer alltid i eget namn. contractId: utelämnas = användarens
+ * aktiva avtal. Personnummer krypteras innan det sparas och skickas aldrig tillbaka.
  */
 // Omräkning brett med flit: ett nytt ärende syns i listor, inkorg, portal, KPI:er och fakturering.
 export const caseCreate = command("arenden.caseCreate", z.object({
@@ -51,14 +54,16 @@ export const caseCreate = command("arenden.caseCreate", z.object({
   city: z.string().max(100).optional(),
   /** Bara när kontaktvägen är brev. */
   address: z.string().max(300).nullable().optional(),
+  /** Utelämnas = SMS, e-post eller telefon efter uppgifterna (kommunens formulär frågar inte, beslut 2026-10-09). */
   preferredContact: z.enum(PREFERRED_CONTACTS).optional(),
   language: z.string().max(60).optional(),
   needsInterpreter: z.boolean().optional(),
   /** Bara Miljonbemanning (mejl eller telefon) – kommunens formulär har ingen beställarreferens (beslut 2026-10-07). */
   buyerReference: z.string().max(40).optional(),
   purchaseOrderNumber: z.string().max(40).nullable().optional(),
-  /** Bara Miljonbemanning – avtalsområde och yrkesspår sätts annars när avropet accepteras (synpunkt #8). */
+  /** Yrkesområdet (avtalsområdets kod) – obligatoriskt för kommunen (beslut 2026-10-09). Kan ändras när avropet accepteras. */
   primaryArea: z.string().max(10).nullable().optional(),
+  /** Bara Miljonbemanning – alternativt område och yrkesspår sätts annars när avropet accepteras (synpunkt #8). */
   secondaryArea: z.string().max(10).nullable().optional(),
   vocationalTrack: z.string().max(200).optional(),
   desiredStart: LocalDateSchema.nullable().optional(),
@@ -74,12 +79,12 @@ export const caseCreate = command("arenden.caseCreate", z.object({
   /** Bilagor som den inloggade redan har laddat upp (arenden.bilagaStart och arenden.bilagaKlar). */
   attachmentIds: z.array(IdSchema).max(10).optional(),
 }), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<
-  Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract" | "order_period" | "unit" | "prior_assessment" | "attachments">
+  Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract" | "order_period" | "unit" | "area" | "prior_assessment" | "attachments">
 >();
 
 /**
- * Acceptera avrop → orderbekräftelse (prototypens case.accept). Avtalsområde och yrkesspår sätts här (synpunkt #8 –
- * kommunens formulär frågar inte efter dem) och krävs om ärendet saknar dem. Första mötet är obligatoriskt: planerat slut
+ * Acceptera avrop → orderbekräftelse (prototypens case.accept). Avtalsområde och yrkesspår sätts här (synpunkt #8) –
+ * avtalsområdet är förifyllt med yrkesområdet ur beställningen (beslut 2026-10-09) och krävs om ärendet saknar det. Första mötet är obligatoriskt: planerat slut
  * räknas från mötesdagen (beslut 7, 2026-10-08 – också vid ombokning, se caseBookFirstMeeting). Omfattningen (6/12 månader
  * eller annan tidsperiod) är förifylld ur beställningen och kan ändras; "annan tidsperiod" behåller slutdatumet. Beställarreferensen
  * är valfri (MB fyller i den här eller före faktureringen, beslut 2026-10-07) – formatet kontrolleras om något skrivits.

@@ -285,6 +285,7 @@ test("mallar: den generiska bekräftelsen används inte (skyddade personuppgifte
   // En portalbeställning ger ordererkännandet med ärendenummer (ingen fråga om skydd).
   await runAs(page, info, MARIA, "arenden.caseCreate", {
     source: "portal", referrerUnit: "Arbetsmarknadsenheten Alby", firstName: "Test", lastName: "Mallsson", pnr: "19950505-1111", desiredStart: "2027-02-15", orderPeriodMonths: 6, priorAssessment: "no",
+    primaryArea: "G",
   });
   await switchTo(page, info, "/admin/mallar?flik=logg", ROBIN);
   const first = main(page).locator("[data-send-item]").first();
