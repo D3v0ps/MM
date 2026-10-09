@@ -108,11 +108,11 @@ function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRu
   const v = (label: string, text: string): [string, string][] => (o.vendor ? [[label, text]] : []);
   return [
     inboxCard(o.inbox, o.latestMail, o.vendor),
-    { id: "entra", name: "Microsoft Entra ID", sub: "Inloggning för Miljonbemanning", icon: "key", status: "active", phase: null, items: [["MFA", "Styrs av Microsoft 365"], ["Konton", "Bara inbjudna – ingen självregistrering"]] },
+    { id: "entra", name: "Microsoft Entra ID", sub: "Inloggning för Miljonbemanning", icon: "key", status: "active", phase: null, items: [["Inloggning i dag", "E-post och engångskod"], ["Entra ID", "Kan kopplas senare"]] },
     { id: "fortnox", name: "Fortnox", sub: "Fakturor som Peppol BIS Billing 3", icon: "card", status: "off", phase: 2,
-      items: [["Reserv i dag", "Export till Excel och PDF, eller Botkyrkas fakturaportal"], ["Öppen fråga", "Fråga 15: ingår Fortnox Integration och e-faktura i Miljonbemannings paket?"], ["Krav", "Omkörning får inte skapa dubbletter. Status synkas tillbaka."]] },
+      items: [["Reserv i dag", "Export till Excel och PDF, eller Botkyrkas fakturaportal"], ["Öppen fråga", "Ingår Fortnox Integration och e-faktura i Miljonbemannings paket?"], ["Krav", "Omkörning får inte skapa dubbletter. Status synkas tillbaka."]] },
     { id: "sms", name: "SMS-leverantör", sub: "Påminnelser och pulslänkar", icon: "message", status: "notchosen", phase: null,
-      items: [["Öppen fråga", "Fråga 18: val av SMS-leverantör"], ["Önskemål", "Svensk leverantör med API"], ["Innehåll", "Bara tid, plats och telefonnummer – aldrig personuppgifter"]] },
+      items: [["Öppen fråga", "Val av SMS-leverantör"], ["Önskemål", "Svensk leverantör med API"], ["Innehåll", "Bara tid, plats och telefonnummer – aldrig personuppgifter"]] },
     // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se.
     { id: "email", name: "E-postleverantör", sub: "Notiser och inloggningskoder", icon: "mail", status: "chosen", phase: null,
       items: [
@@ -193,7 +193,7 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
     J("transcripts", "Dagligen 02.00 – när avstämningen godkänts, senast efter 30 dagar", `${today}T02:00`, "ok",
       pendingTranscripts.length ? `${plural(pendingTranscripts.length, "råtranskript", "råtranskript")} väntar på granskning` : "Inga råtranskript kvar", { phase: 2 }),
     J("kpi", "Dagligen 06.00", `${today}T06:00`, "ok", `Resultatgrad ${pct(rr.value)} (rullande 6 månader, ${rr.num} av ${rr.den})`),
-    J("retention", "Dagligen 03.00", null, retentionUnset ? "disabled" : "ok", retentionUnset ? "Regeln är inte fastställd (fråga 11) – jobbet raderar ingenting" : "Enligt avtalet", { disabled: retentionUnset }),
+    J("retention", "Dagligen 03.00", null, retentionUnset ? "disabled" : "ok", retentionUnset ? "Gallringsregeln är inte fastställd med kommunen ännu – jobbet raderar ingenting" : "Enligt avtalet", { disabled: retentionUnset }),
   ];
   const hide = hidesCommercial(ctx.actor);
   const thirdCountryForbidden = env.cfg.thirdCountryProcessing === "forbidden_without_written_approval";

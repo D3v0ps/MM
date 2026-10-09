@@ -34,6 +34,7 @@ export function emailError(v: string): string | null {
 /** Fel i koden (prototypens texter). */
 export function codeError(v: string): string | null {
   const s = v.replace(/\s/g, "");
+  if (!s) return "Skriv koden från mejlet.";
   if (!/^\d+$/.test(s)) return "Koden består bara av siffror.";
   if (s.length !== AUTH.codeDigits) return `Koden har ${AUTH.codeDigits} siffror. Du har skrivit ${s.length}.`;
   return null;

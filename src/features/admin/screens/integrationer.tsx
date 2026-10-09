@@ -170,7 +170,7 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
     ) : s === "chosen" ? (
       <Chosen />
     ) : (
-      <Badge tone="outline" icon="alert-circle">Ej vald – fråga 18</Badge>
+      <Badge tone="outline" icon="alert-circle">Ej vald</Badge>
     );
   // Regionlåsningens punkter kommer från servern (leverantörer och regioner ligger inte i webbläsarens kod).
   const regions = dp.regions;

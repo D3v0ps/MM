@@ -295,9 +295,11 @@ test("6 och 8. reservväg: CSV-export och manuellt fakturerad (kräver referens)
   await page.getByRole("button", { name: "Markera som manuellt fakturerad" }).click();
   let d = dialog(page);
   await expect(d).toContainText("Ingen faktura kan markeras just nu.");
-  await d.getByRole("button", { name: "Spara", exact: true }).click();
-  await expect(d).toContainText("Välj vilken faktura det gäller.");
-  await d.getByRole("button", { name: "Avbryt" }).click();
+  // Inga fält som inte går att fylla i: bara beskedet och Stäng.
+  await expect(d.getByRole("button", { name: "Spara", exact: true })).toHaveCount(0);
+  await expect(d.locator("#eko-manual-no")).toHaveCount(0);
+  // Två knappar heter Stäng (krysset och footern) – footerns är den sista.
+  await d.getByRole("button", { name: "Stäng", exact: true }).last().click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
   await prepareJanuary(page);

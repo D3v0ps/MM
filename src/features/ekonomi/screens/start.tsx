@@ -56,7 +56,7 @@ function Start({ v }: { v: BillingStartView }) {
             sub={cur.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
           />
           <EkoKpi
-            label={"Preskriptions­risk"}
+            label="Preskriptionsrisk"
             value={kr(v.unbilled.totalOre)}
             tone={v.unbilled.count ? "alert" : null}
             statusText="Fakturera nu"

@@ -197,6 +197,7 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
             <Button kind="primary" icon="check" disabled={!dirty || !chk.ok || !body.trim()} pending={save.pending} onClick={() => void onSave()}>
               Spara som version {tpl.version + 1}
             </Button>
+            {!dirty && <span className="text-small text-text-muted">Ändra ämnesrad eller text för att spara en ny version.</span>}
             {dirty && (
               <Button kind="ghost" icon="reset" onClick={() => { setSubject(tpl.subject); setBody(tpl.body); subjectDraft.clear(); bodyDraft.clear(); }}>
                 Ångra ändringarna
@@ -340,7 +341,7 @@ function SendLogTab({ items }: { items: SendLogItem[] }) {
           <Kpi label="Orsakade av dig" value={items.filter((n) => n.byTester).length} sub="i prototypen" />
         </DemoOnly>
       </Grid>
-      {leaks.length === 0 ? (
+      {items.length === 0 ? null : leaks.length === 0 ? (
         <Notice tone="ok" title="Kontroll: inga utskick innehåller namn eller personnummer">
           Alla {items.length} texter har kontrollerats mot deltagarregistret. De innehåller bara ärendenummer och en uppmaning att logga in i portalen.
         </Notice>

@@ -87,7 +87,11 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
     <Page
       title={d.isAdmin ? "Användare och roller" : "Kommunanvändare"}
       eyebrow={d.isAdmin ? "Systemadmin" : `Avtalsansvarig · ${d.customerName}`}
-      lead="Kollegorna läggs till här av systemadministratören och loggar in med sin e-postadress på jobbet och en engångskod. Kommunens handläggare loggar in med e-post och engångskod – de kan skapa sitt konto själva med en adress på kommunens domän, eller bjudas in."
+      lead={
+        d.isAdmin
+          ? "Kollegor och kommunens handläggare. Alla loggar in med e-post och engångskod."
+          : "Kommunens handläggare. De skapar sitt konto själva med en adress på kommunens domän, eller bjuds in här."
+      }
       actions={
         <>
           {contractLink && (
@@ -106,8 +110,8 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
         </>
       }
     >
-      <Grid cols={4}>
-        <Kpi label="Miljonbemanning" value={d.kpis.mbActive} sub="aktiva konton · e-post och engångskod" />
+      <Grid cols={d.isAdmin ? 4 : 3}>
+        {d.isAdmin && <Kpi label="Miljonbemanning" value={d.kpis.mbActive} sub="aktiva konton · e-post och engångskod" />}
         <Kpi label={d.customerName} value={d.kpis.customerActive} sub={`aktiva konton i ${d.kpis.unitCount} enheter`} />
         <Kpi label="Inloggade senaste 30 dagarna" value={d.kpis.loggedIn30} sub={`av ${d.customers.length} kommunanvändare – mejlbeställning kräver ingen inloggning`} />
         <Kpi label="Väntande inbjudningar" value={d.kpis.invited} sub="har inte loggat in ännu" />
@@ -148,11 +152,12 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
                         <span className="font-bold">{u.name}</span>
                         {u.self && <span className="text-small text-text-muted"> (du)</span>}
                         <CellSub>{u.email}</CellSub>
+                        {/* Titeln under namnet i stället för en egen kolumn – Status och Åtgärd ryms på smal skärm. */}
+                        {u.title && <CellSub>{u.title}</CellSub>}
                       </span>
                     </span>
                   ),
                 },
-                { key: "title", label: "Titel", render: (u) => u.title || <span className="text-text-muted">–</span> },
                 {
                   key: "bot", label: "Roller i avtalet",
                   render: (u) => (
@@ -218,6 +223,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
             <Table
               caption="Kommunens användare"
               rows={d.customers}
+              empty="Inga kommunanvändare ännu. Handläggarna skapar sitt konto själva första gången de loggar in – eller bjud in dem med knappen ovan."
               rowTone={(u) => (!u.active ? "muted" : null)}
               columns={[
                 { key: "name", label: "Namn", render: (u) => (<><span className="font-bold">{u.name}</span><CellSub>{u.email}</CellSub></>) },
@@ -519,13 +525,13 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
 
 // ================================================================ Behörighetsmatris
 const ROLE_TABLE: [string, string, string, string, string][] = [
-  ["Systemadmin", "Miljonbemanning", "Allt inklusive konfiguration och logg", "Användare, avtal, integrationer", "Microsoft Entra ID"],
-  ["Avtalsansvarig och kundansvarig", "Miljonbemanning", "Allt inom sina avtal", "Accepterar och avböjer avrop, godkänner beställarrapport, hanterar avtalsavvikelser, bjuder in kommunanvändare", "Microsoft Entra ID"],
-  ["Operativ samordnare", "Miljonbemanning", "Alla ärenden i avtalet", "Avropsinkorg, tilldelar coach, bokar start", "Microsoft Entra ID"],
-  ["Huvudcoach", "Miljonbemanning", "Egna ärenden", "Kartläggning, avstämningar, närvaro, bedömningar, utfall, rapporter", "Microsoft Entra ID"],
-  ["Handledare, arbetsgivarmatchare och SYV", "Miljonbemanning", "Tilldelade ärenden", "Moment, praktik, arbetsgivarkontakter, närvaro, validering", "Microsoft Entra ID"],
-  ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "Microsoft Entra ID"],
-  ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "Microsoft Entra ID"],
+  ["Systemadmin", "Miljonbemanning", "Allt inklusive konfiguration och logg", "Användare, avtal, integrationer", "E-post och engångskod"],
+  ["Avtalsansvarig och kundansvarig", "Miljonbemanning", "Allt inom sina avtal", "Accepterar och avböjer avrop, godkänner beställarrapport, hanterar avtalsavvikelser, bjuder in kommunanvändare", "E-post och engångskod"],
+  ["Operativ samordnare", "Miljonbemanning", "Alla ärenden i avtalet", "Avropsinkorg, tilldelar coach, bokar start", "E-post och engångskod"],
+  ["Huvudcoach", "Miljonbemanning", "Egna ärenden", "Kartläggning, avstämningar, närvaro, bedömningar, utfall, rapporter", "E-post och engångskod"],
+  ["Handledare, arbetsgivarmatchare och SYV", "Miljonbemanning", "Tilldelade ärenden", "Moment, praktik, arbetsgivarkontakter, närvaro, validering", "E-post och engångskod"],
+  ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "E-post och engångskod"],
+  ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "E-post och engångskod"],
   ["Kommunens handläggare", "Botkyrka kommun", "Egna beställda ärenden", "Beställer, läser rapporter, skickar meddelanden, kvitterar. Skapar sitt konto själv med en adress på kommunens domän", "E-post och engångskod"],
   ["Deltagare", "Utan inloggning i piloten", "Egen plan och bokningar (utvecklingsfas 4)", "Svarar på pulsmätningen via engångslänk", "Ingen – BankID senare"],
 ];

@@ -80,6 +80,7 @@ function LogContent({ d, f, set, limit, setLimit }: { d: AuditLogView; f: Filter
   // Det testaren gjort markeras bara i prototypen.
   const demo = useRuntime() === "demo";
   const rows = applyFilter(d.rows, f);
+  const anyFilter = !!(f.actor || f.action || f.q.trim() || f.mine);
   return (
     <>
       <Grid cols={4}>
@@ -135,7 +136,7 @@ function LogContent({ d, f, set, limit, setLimit }: { d: AuditLogView; f: Filter
             { label: "Objekt", mobileLabel: true },
             { label: "Detaljer", mobileLabel: true },
           ]}
-          empty="Inga poster matchar filtret."
+          empty={anyFilter ? "Inga poster matchar filtret." : "Loggen är tom än. Här hamnar visningar, ändringar, exporter och AI-körningar."}
           rows={rows.slice(0, limit).map((a) => ({
             key: a.id,
             selected: demo && a.byTester,

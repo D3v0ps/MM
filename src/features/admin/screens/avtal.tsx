@@ -254,7 +254,7 @@ const CARDS: Record<string, CardDef> = {
               "scope" in v && ["Ärenden kommunens användare ser", <><Val v={v.scope} />{v.prototypeScope && <Sub><ProtoText>{`I prototypen: ${scopeWord[v.prototypeScope]}`}</ProtoText></Sub>}</>],
               ["Individrapporter", <YesNo key="v" v={!!v.seesIndividualReports} />],
               ["Coachanteckningar", <YesNo key="v" v={!!v.seesCoachNotes} />],
-              "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Öppen fråga 17 till ledningen.</div></>],
+              "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Inte fastställt – beslut i ledningen.</div></>],
               c.reportDelivery && ["Rapporter levereras", c.reportDelivery.channel === "portal" ? "I portalen – mottagaren får en notis utan personuppgifter" : c.reportDelivery.channel],
               c.reportDelivery && ["Rapport som bilaga i e-post", <YesNo key="v" v={!!c.reportDelivery.emailAttachmentAllowed} />],
               c.orderChannels && ["Beställningskanaler", cap(c.orderChannels.map((o) => channelWord[o] ?? o).join(", "))],
@@ -321,7 +321,7 @@ const CARDS: Record<string, CardDef> = {
                 <li key={k}>{lab(k)}</li>
               ))}
             </ul>
-            {p.optionalAreas.length > 0 && <Small>Valfria områden (öppen fråga 12): {p.optionalAreas.map(lab).join(", ")}.</Small>}
+            {p.optionalAreas.length > 0 && <Small>Valfria områden – inte fastställda med Botkyrka: {p.optionalAreas.map(lab).join(", ")}.</Small>}
           </Stack>
           <KV
             items={[

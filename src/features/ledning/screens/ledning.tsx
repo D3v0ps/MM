@@ -160,7 +160,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
               </div>
             )}
             {d.resultDefinitionUnset && (
-              <Notice tone="warn" title="Resultatdefinitionen är inte fastställd (öppen fråga 6)">
+              <Notice tone="warn" title="Resultatdefinitionen är inte fastställd med Botkyrka">
                 <Stack gap="sm">
                   {d.prototypeDefinition && (
                     <span>
@@ -323,7 +323,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
           />
         </Card>
         <p className="text-text-muted">
-          Mål som inte är fastställda med Botkyrka ger ingen flagga förrän de är fastställda. Sista dag för månadsrapporterna är ett förslag tills kommunen bekräftat den (öppen fråga 8).
+          Mål som inte är fastställda med Botkyrka ger ingen flagga förrän de är fastställda. Sista dag för månadsrapporterna är ett förslag tills kommunen bekräftat den.
         </p>
       </Stack>
       <DemoNote>
@@ -462,7 +462,7 @@ function SlaCard({ d }: { d: LedningOverview }) {
             </WrapBtn>
           </div>
         )}
-        {!s.seesSlaStats && <div className="text-text-muted">SLA-statistiken visas inte för kommunen (beslut i ledningen, öppen fråga 17).</div>}
+        {!s.seesSlaStats && <div className="text-text-muted">SLA-statistiken visas inte för kommunen (beslut i ledningen).</div>}
       </Stack>
     </Card>
   );

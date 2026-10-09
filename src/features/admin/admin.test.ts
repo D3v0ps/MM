@@ -302,7 +302,7 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
       ["audio", "2027-01-29T14:01", "ok", "1 ljudfil raderade"],
       ["transcripts", "2027-02-01T02:00", "ok", "1 råtranskript väntar på granskning"],
       ["kpi", "2027-02-01T06:00", "ok", "Resultatgrad 33,9 % (rullande 6 månader, 43 av 127)"],
-      ["retention", null, "disabled", "Regeln är inte fastställd (fråga 11) – jobbet raderar ingenting"],
+      ["retention", null, "disabled", "Gallringsregeln är inte fastställd med kommunen ännu – jobbet raderar ingenting"],
     ]);
     expect(d.jobs[1].schedule).toBe("Måndag, när närvaron är komplett – senast 16.00 enligt avtalet");
   });

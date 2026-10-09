@@ -90,7 +90,9 @@ function ProfileForm({ d, first }: { d: KomProfile; first: boolean }) {
             </Field>
           </FormGrid>
           <Kv items={[["E-postadress", d.email || "Inte angiven"]]} />
-          <p className="m-0 text-text-muted">Du loggar in med e-postadressen. Behöver du byta den kan du ringa oss på {CONTACT_PHONE}.</p>
+          <p className="m-0 text-text-muted">
+            Du loggar in med e-postadressen.{CONTACT_PHONE ? ` Behöver du byta den kan du ringa oss på ${CONTACT_PHONE}.` : " Behöver du byta den? Hör av dig till din kontakt på Miljonbemanning."}
+          </p>
           <div className="flex flex-wrap items-center gap-3">
             <Button kind="primary" icon="check" type="submit" pending={busy}>
               Spara

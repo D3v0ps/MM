@@ -17,6 +17,8 @@ import { RefInvoicesCard, ReturnedCard, RunCard, runPath, TasksCard, UnbilledCar
 
 /** Belopp i rutan: siffran krymper så att "511 332 kr" får plats också i en smal ruta (som Faktureringens rutor). */
 const AMOUNT_KPI = "max-[620px]:p-3 [container-type:inline-size] [&>div:nth-child(2)]:whitespace-nowrap [&>div:nth-child(2)]:text-[clamp(1.25rem,12cqi,2rem)]";
+/** Ruta med text i stället för siffra (tom databas: "Inget ännu"). */
+const TEXT_KPI = "max-[620px]:p-3 [&>div:nth-child(2)]:text-h3";
 
 export function EkonomMinVeckaScreen() {
   const today = useWeekToday();
@@ -58,8 +60,9 @@ function Week({ v }: { v: BillingStartView }) {
   const limit = v.unbilled.limit;
   return (
     <>
-      {cur && (
-        <WeekKpis>
+      {/* Nyckeltalsraden finns alltid – även utan körning (tom databas) står det vad som gäller. */}
+      <WeekKpis>
+        {cur ? (
           <Kpi
             className={AMOUNT_KPI}
             to={runPath(cur.month)}
@@ -68,43 +71,47 @@ function Week({ v }: { v: BillingStartView }) {
             value={kr(cur.totalOre)}
             sub={`${plural(cur.invoices, "faktura", "fakturor")} · ${plural(cur.count, "rad", "rader")} · ${plural(cur.weeks, "vecka", "veckor")} · exkl. moms`}
           />
-          {/* Bevaka i stället för röd: bara ett rött ämne per sida (preskriptionsrisken). */}
+        ) : (
+          <Kpi className={TEXT_KPI} label="Att fakturera" value="Inget ännu" sub="Underlaget räknas fram efter månadsskiftet" />
+        )}
+        {/* Bevaka i stället för röd: bara ett rött ämne per sida (preskriptionsrisken). */}
+        <Kpi
+          className={AMOUNT_KPI}
+          to={cur ? runPath(cur.month) : undefined}
+          actionHint={cur ? "Visa" : undefined}
+          label="Stoppade fakturor"
+          value={num(cur?.blocked ?? 0)}
+          tone={cur?.blocked ? "watch" : undefined}
+          statusText="Fyll i referensen"
+          sub={cur?.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
+        />
+        <Kpi
+          className={AMOUNT_KPI}
+          onClick={() => focusSection("mv-preskription")}
+          actionHint="Visa"
+          label="Preskriptionsrisk"
+          value={kr(v.unbilled.totalOre)}
+          tone={v.unbilled.count ? "alert" : undefined}
+          statusText="Fakturera nu"
+          sub={v.unbilled.count ? `${plural(v.unbilled.count, "vecka ofakturerad", "veckor ofakturerade")} i mer än ${limit} dagar` : `Inga veckor äldre än ${limit} dagar`}
+        />
+        {cur?.status === "draft" ? (
           <Kpi
             className={AMOUNT_KPI}
             to={runPath(cur.month)}
             actionHint="Visa"
-            label="Stoppade fakturor"
-            value={num(cur.blocked)}
-            tone={cur.blocked ? "watch" : undefined}
-            statusText="Fyll i referensen"
-            sub={cur.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
+            label="Senast i Fortnox"
+            value={fmtDateShort(cur.due)}
+            tone="watch"
+            statusText="Bevaka tiden"
+            sub={`${cur.dueRelative} kl. ${fmtTime(cur.due)} · internt mål ${cur.fortnoxDays} arbetsdagar efter månadsskiftet`}
           />
-          <Kpi
-            className={AMOUNT_KPI}
-            onClick={() => focusSection("mv-preskription")}
-            actionHint="Visa"
-            label={"Preskriptions­risk"}
-            value={kr(v.unbilled.totalOre)}
-            tone={v.unbilled.count ? "alert" : undefined}
-            statusText="Fakturera nu"
-            sub={v.unbilled.count ? `${plural(v.unbilled.count, "vecka ofakturerad", "veckor ofakturerade")} i mer än ${limit} dagar` : `Inga veckor äldre än ${limit} dagar`}
-          />
-          {cur.status === "draft" ? (
-            <Kpi
-              className={AMOUNT_KPI}
-              to={runPath(cur.month)}
-              actionHint="Visa"
-              label="Senast i Fortnox"
-              value={fmtDateShort(cur.due)}
-              tone="watch"
-              statusText="Bevaka tiden"
-              sub={`${cur.dueRelative} kl. ${fmtTime(cur.due)} · internt mål ${cur.fortnoxDays} arbetsdagar efter månadsskiftet`}
-            />
-          ) : (
-            <Kpi className={AMOUNT_KPI} onClick={() => focusSection("mv-uppgifter")} actionHint="Visa" label="Öppna uppgifter" value={num(openTasks.length)} sub="Från avtalsansvarig" />
-          )}
-        </WeekKpis>
-      )}
+        ) : cur ? (
+          <Kpi className={AMOUNT_KPI} onClick={() => focusSection("mv-uppgifter")} actionHint="Visa" label="Öppna uppgifter" value={num(openTasks.length)} sub="Från avtalsansvarig" />
+        ) : (
+          <Kpi className={AMOUNT_KPI} label="Senast i Fortnox" value="–" sub="Ingen körning pågår" />
+        )}
+      </WeekKpis>
       <Split wide>
         <Stack>
           <RunCard v={v} buttonKind="secondary" />
