@@ -81,7 +81,9 @@ test("coachen spelar in avstämningen: paus, stopp, transkribering, ljudet rader
   // Fasen nämns inte i samtalet: "Framgår inte" och inget förslag att acceptera. Samlad status föreslås aldrig.
   await expect(aiGroup(page, "fas")).toContainText("Framgår inte");
   await expect(btn(aiGroup(page, "fas"), "Acceptera")).toHaveCount(0);
-  await expect(page.getByText("Simulerad AI (testdata)")).toBeVisible();
+  // Leverantör och modell står inte i formuläret (bara i revisionsloggen); den simulerade AI:n märks med testmiljönotisen.
+  await expect(page.getByRole("note").filter({ hasText: "Testmiljö: AI:n är simulerad" }).first()).toBeVisible();
+  await expect(page.getByText("Simulerad AI (testdata)")).toHaveCount(0);
   await expect(page.getByText(/^måndag 1 feb 2027 kl\. \d\d\.\d\d – direkt efter transkriberingen$/)).toBeVisible();
   for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await page.getByRole("group", { name: "Samlad status", exact: true }).getByRole("button", { name: /Gul/ }).click();
@@ -237,7 +239,8 @@ test("månadsbedömningen: AI-utkast från godkända avstämningar – nivåerna
   const errors = await open(page, info, `/manadsbedomning/${SC.nadia}?manad=2027-01`, COACH);
   const draft = card(page, "AI-utkast från godkända avstämningar");
   await expect(draft).toContainText("aldrig råtranskript");
-  await btn(draft, "Skapa AI-utkast från godkända avstämningar").click();
+  // Testdatat har redan AI-utkast i områdena – då säger knappen "Skapa nya AI-utkast" redan från början (fynd B24).
+  await btn(draft, /^Skapa (nya )?AI-utkast/).click();
   await expect(draft).toContainText(/Skapade 1 feb kl\. \d\d\.\d\d/, { timeout: 20_000 });
   await expect(btn(draft, "Skapa nya AI-utkast")).toBeVisible();
   const selects = page.getByTestId("progressionsomraden").locator("select");

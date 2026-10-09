@@ -126,7 +126,9 @@ describe("arenden.caseAccept (case.accept)", () => {
       ["kallelse", "deltagare (e-post)"],
     ]);
     expect(out[2].body).toBe("Orderbekräftelse för ärende BOT-27-0050 finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.");
-    expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby. Frågor? Ring 08-000 00 00." });
+    // Inget påhittat telefonnummer i kallelsen: meningen "Frågor? Ring …" finns bara när CONTACT_PHONE är satt (_shared/contact.ts).
+    expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby." });
+    expect(out[3].body).not.toMatch(/08-000 00 00/);
     expectNoPersonalData(out);
     expect(rows("audit_log").pop()).toMatchObject({ action: "case.accepted", entityId: "case-270050", actorId: "u-sara", details: { withinSla: true } });
     // Ett andra svar på samma avrop skapar ingen ny orderbekräftelse
@@ -241,7 +243,7 @@ describe("arenden: övriga ärendekommandon", () => {
     expect(row("cases", "case-270048")).toMatchObject({ firstMeetingAt: "2027-02-04T13:30", plannedStart: "2027-02-04" });
     const out = outboundSince(n);
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby. Frågor? Ring 08-000 00 00." });
+    expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby." });
     // Skyddat ärende (vilande spärr påslagen): avtalsansvarig bokar, ingen kallelse skickas
     protect();
     const m = rows("outbound_messages").length;

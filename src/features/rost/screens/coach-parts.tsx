@@ -13,7 +13,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, cn, Empty, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, SimulatedAiNotice, Stack, toast, useAuditView,
+  AiTag, Badge, BuildPhase, Button, Card, cn, DoneLine, Field, Icon, List, ListItem, Modal, Notice, PerspectiveLink, Row, Select, SimulatedAiNotice, Stack, toast, useAuditView,
 } from "@/ui";
 import { caseVoice, linkSend, noteReview, notesSeen, pendingNotes, type CaseVoiceView, type RostLang, type VoiceNoteView } from "../api";
 
@@ -331,13 +331,17 @@ function SendLinkModal({ v, onClose, onSent }: { v: CaseVoiceView; onClose: () =
 export function VoiceNotesInbox() {
   const q = useQuery(pendingNotes, {});
   const rows = q.data ?? [];
+  // Inget att göra = en rad (DoneLine), som de andra avsnitten i Min vecka.
+  if (rows.length === 0) {
+    return (
+      <DoneLine id="mv-rost" title="Deltagarnas röstmeddelanden" icon="mic">
+        Inga nya röstmeddelanden. När en deltagare spelar in via länken hamnar det här.
+      </DoneLine>
+    );
+  }
   return (
     <Card title="Deltagarnas röstmeddelanden" icon="mic" actions={<BuildPhase fas={2} />} flush>
-      {rows.length === 0 ? (
-        <Empty icon="mic" title="Inga nya röstmeddelanden">
-          När en deltagare spelar in ett meddelande via länken hamnar det här.
-        </Empty>
-      ) : (
+      {(
         <List>
           {rows.map((r) => (
             <ListItem

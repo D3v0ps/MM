@@ -7,8 +7,8 @@ import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fm
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link, useNav } from "@/shell/nav";
 import {
-  AiTag, Badge, BuildPhase, Button, Card, CaseLink, CaseName, CaseNo, cn, DemoNote, DoneLine, Empty, Field, focusSection, Icon, Input, Kpi, List, ListItem, Meter, Notice, Row, SlaBadge,
-  SlaText, Split, Stack, toast, focusSoon, WEEK_KPI_SM, WeekKpis, WeekPage, type IconName,
+  AiTag, Badge, BuildPhase, Button, Card, CaseLink, CaseName, CaseNo, cn, DemoNote, DoneLine, Field, focusSection, Icon, Input, Kpi, List, ListItem, Meter, Notice, Row, SlaBadge,
+  SlaText, Split, Stack, TitleLink, toast, focusSoon, WEEK_KPI_SM, WeekKpis, WeekPage, type IconName,
 } from "@/ui";
 import { alertAck } from "@/features/ledning/api";
 import { notifRead } from "@/features/notiser/api";
@@ -117,8 +117,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           onClick={() => focusSection("mv-manad")}
           actionHint="Visa"
           label={<span className="[overflow-wrap:break-word] [hyphens:manual]">{`Månads­bedömningar ${MONTHS[Number(pm.slice(5, 7)) - 1]}`}</span>}
-          value={`${v.monthly.done} av ${v.monthly.total}`}
-          sub={`klara · förslag senast ${fmtDateShort(v.monthly.dueAt)}`}
+          value={v.monthly.total === 0 ? "–" : `${v.monthly.done} av ${v.monthly.total}`}
+          sub={v.monthly.total === 0 ? "Inga ärenden att bedöma" : `klara · förslag senast ${fmtDateShort(v.monthly.dueAt)}`}
         />
       </WeekKpis>
 
@@ -169,10 +169,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           </Card>
           )}
 
+          {v.today.length === 0 ? (
+            <DoneLine id="mv-idag" title={`I dag – ${fmtWeekday(today)}`} icon="calendar">
+              Inga aktiviteter i dag.
+            </DoneLine>
+          ) : (
           <Card id="mv-idag" title={`I dag – ${fmtWeekday(today)}`} icon="calendar" flush>
-            {v.today.length === 0 ? (
-              <Empty icon="calendar" title="Inga aktiviteter i dag" />
-            ) : (
               <List>
                 {v.today.map((a) => {
                   const k = kindOf(a.kind);
@@ -217,7 +219,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                       </div>
                       <div className="flex flex-none flex-col items-end gap-1 max-[620px]:basis-full max-[620px]:flex-row max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:pl-[76px]">
                         {a.kind === "möte" && !(ci && ci.approved) && (
-                          <Button kind="secondary" icon="edit" to={`/avstamning/${encodeURIComponent(a.caseId)}${ci ? `?avstamning=${encodeURIComponent(ci.id)}` : ""}`}>
+                          <Button kind="ghost" icon="edit" to={`/avstamning/${encodeURIComponent(a.caseId)}${ci ? `?avstamning=${encodeURIComponent(ci.id)}` : ""}`}>
                             Avstämning
                           </Button>
                         )}
@@ -231,8 +233,8 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   );
                 })}
               </List>
-            )}
           </Card>
+          )}
 
           {v.drafts.length === 0 ? (
             <DoneLine id="mv-ai" title="AI-utkast att granska" icon="sparkles">
@@ -264,6 +266,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
 
           <VoiceNotesInbox />
 
+          {v.monthly.total === 0 ? (
+            // Tom databas eller inga aktiva ärenden i månaden: en rad i stället för "0 av 0 godkända" och ett passerat datum.
+            <DoneLine id="mv-manad" title={`Månadsbedömningar – ${monthName(pm)}`} icon="clipboard">
+              Inga ärenden att bedöma.
+            </DoneLine>
+          ) : (
           <Card
             id="mv-manad"
             title={`Månadsbedömningar – ${monthName(pm)}`}
@@ -277,15 +285,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
             <Stack>
               <Stack gap="sm">
                 <Meter value={v.monthly.done} max={Math.max(1, v.monthly.total)} tone="blue" label={`${v.monthly.done} av ${v.monthly.total} bedömningar godkända`} />
-                <Row between className="text-small">
-                  <span>
-                    <b>
-                      {v.monthly.done} av {v.monthly.total}
-                    </b>{" "}
-                    godkända · {v.monthly.open.length} utkast kvar
-                  </span>
-                  <span className="text-text-muted">{v.monthly.dueNote}</span>
-                </Row>
+                <div className="text-small">
+                  <b>
+                    {v.monthly.done} av {v.monthly.total}
+                  </b>{" "}
+                  godkända · {v.monthly.open.length} utkast kvar
+                </div>
               </Stack>
               {v.monthly.open.length === 0 ? (
                 <Notice tone="ok" title="Alla bedömningar är godkända">
@@ -325,6 +330,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
               )}
             </Stack>
           </Card>
+          )}
         </Stack>
 
         <Stack>
@@ -386,10 +392,10 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                 <p>
                   <b>{plural(v.unread.count, "oläst", "olästa")}.</b> {v.unread.count === 1 ? "Den senaste:" : "De senaste:"}
                 </p>
-                <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
+                <ul className="m-0 flex list-none flex-col gap-1 p-0">
                   {v.unread.latest.map((n) => (
                     <li key={n.id}>
-                      <span className="font-bold">{n.title}</span>
+                      <TitleLink to="/notiser">{n.title}</TitleLink>
                       {n.caseNumber && (
                         <>
                           {" "}
@@ -426,7 +432,6 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                     </span>
                     <Row gap="sm">
                       <SlaBadge sla={v.due.monthly.sla} dueAt={v.due.monthly.dueAt} />
-                      <Badge tone="plan">Förslag – ej fastställt</Badge>
                     </Row>
                   </ListItem>
                 )}
@@ -445,7 +450,6 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   >
                     <Row gap="sm">
                       <SlaBadge sla={x.sla} dueAt={x.dueAt} />
-                      {x.provisional && <Badge tone="plan">Förslag – ej fastställt</Badge>}
                     </Row>
                   </ListItem>
                 ))}

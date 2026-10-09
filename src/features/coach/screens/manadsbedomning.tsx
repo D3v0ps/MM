@@ -13,7 +13,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
+  AiBox, AiTag, AutosaveStatus, Badge, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
 import { AI_OFF_TEXT, appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
@@ -35,7 +35,7 @@ export function ManadsbedomningScreen({ params, query }: ScreenProps) {
         kind="manad"
         month={month}
         title={(m) => `Månadsbedömning ${monthName(m)}`}
-        lead={(x) => `Välj deltagare. ${x.monthDueNote}: senast ${fmtWeekday(x.monthDueAt)}.`}
+        lead={(x) => `Välj deltagare. Bedömningarna bör vara klara senast ${fmtWeekday(x.monthDueAt)}.`}
         basePath="/manadsbedomning"
         actionLabel="Bedöm"
       />
@@ -61,20 +61,21 @@ function Manad({ caseId, month }: { caseId: string; month?: string }) {
 }
 
 /** Efter godkännandet: nästa deltagare att bedöma, i samma ordning som Min vecka (coach.minVecka finns oftast redan i cachen). */
-function NextToAssess({ caseId }: { caseId: string }) {
+function NextToAssess({ caseId, month }: { caseId: string; month: string }) {
   const q = useQuery(minVecka, {});
-  const next = q.data?.monthly.open.find((x) => x.caseId !== caseId);
   if (!q.data) return null;
+  // Min veckas lista gäller den månad som ska bedömas just nu; för en annan vald månad finns ingen "nästa" att föreslå.
+  const next = q.data.monthly.month === month ? q.data.monthly.open.find((x) => x.caseId !== caseId) : undefined;
   if (!next) {
     return (
       <span className="inline-flex min-h-11 items-center gap-1.5 font-bold">
         <Icon name="check-circle" />
-        Alla månadsbedömningar för {monthName(q.data.monthly.month)} är klara.
+        Alla månadsbedömningar för {monthName(month)} är klara.
       </span>
     );
   }
   return (
-    <Button kind="primary" iconRight="arrow-right" to={`/manadsbedomning/${encodeURIComponent(next.caseId)}?manad=${q.data.monthly.month}`}>
+    <Button kind="primary" iconRight="arrow-right" to={`/manadsbedomning/${encodeURIComponent(next.caseId)}?manad=${month}`}>
       Nästa att bedöma: {next.name} ({next.caseNumber})
     </Button>
   );
@@ -276,7 +277,7 @@ function ManadForm({ v }: { v: Ok }) {
               Förhandsgranska månadsrapporten
             </Button>
           )}
-          {approvedNow && <NextToAssess caseId={c.caseId} />}
+          {approvedNow && <NextToAssess caseId={c.caseId} month={v.month} />}
           <ToCaseButton caseId={c.caseId} />
           <Button kind="secondary" to="/min-vecka">
             Till Min vecka
@@ -368,13 +369,7 @@ function ManadForm({ v }: { v: Ok }) {
       </Split>
 
       {v.aiOk ? (
-        <>
-          <Notice tone="info" title="AI-stöd">
-            AI har skrivit utkast till observationer utifrån månadens godkända avstämningar och närvaron, med källor. Där underlaget inte räcker står det <b>Framgår inte</b> och inget
-            nivåförslag ges. Nivåförslaget visas under rullgardinen men fylls aldrig i. <BuildPhase fas={2} />
-          </Notice>
-          <AiDraftCard v={v} />
-        </>
+        <AiDraftCard v={v} />
       ) : (
         <p className="text-body text-text-muted">
           AI-stöd används inte i det här ärendet{c.protected ? "" : " eftersom deltagaren inte har samtyckt"}. Dokumentera manuellt.
@@ -455,6 +450,13 @@ function ManadForm({ v }: { v: Ok }) {
                             <span className="text-text-muted">Inget nivåförslag</span>
                           </div>
                         )}
+                        {/* Felet står vid det fält som saknas: nivån här, observationen i nästa cell. */}
+                        {err && a.level == null && (
+                          <div role="alert" className="flex items-start gap-1.5 text-body font-bold text-antracit">
+                            <Icon name="alert-circle" className="mt-1 flex-none text-rod" />
+                            {err}
+                          </div>
+                        )}
                       </Stack>
                     </td>
                     <td data-label="Konkret observation" className={cn(td, label)}>
@@ -464,7 +466,7 @@ function ManadForm({ v }: { v: Ok }) {
                         </label>
                         <TextArea id={`obs-${k}`} rows={2} value={a.observation} invalid={!!(err && a.level != null)} onValueChange={(x) => setArea(k, { observation: x })} maxLength={400} />
                         {needObs && !a.observation.trim() && !err && <span className="text-body text-text-muted">Obligatorisk från nivå {reqFrom}.</span>}
-                        {err && (
+                        {err && a.level != null && (
                           <div role="alert" className="flex items-start gap-1.5 text-body font-bold text-antracit">
                             <Icon name="alert-circle" className="mt-1 flex-none text-rod" />
                             {err}
@@ -728,7 +730,7 @@ function AiDraftCard({ v }: { v: Ok }) {
         </p>
         <Row gap="sm">
           <Button kind="secondary" icon="sparkles" pending={draft.pending || d?.status === "running"} onClick={() => void create()}>
-            {d?.status === "succeeded" ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända avstämningar"}
+            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända avstämningar"}
           </Button>
           {d?.status === "running" && (
             <span role="status" className="text-body font-bold">

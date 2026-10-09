@@ -7,6 +7,7 @@ import { areaName, teamLabel } from "@/core/labels";
 import { fmtDateTime, fmtTime, fmtWeekday, type LocalDateTime } from "@/core/time";
 import type { Table } from "@/data/repo";
 import type { Case, Contract, Deviation, OutboundChannel, Person, PreferredContact, TeamRole } from "@/data/schema";
+import { CONTACT_PHONE } from "./contact";
 
 // ---------------------------------------------------------------- Avtal och regler
 /** Avtalet och dess driftkonfiguration (validerad). Ärendet är redan läst via ctx.repo, så avtalet är användarens. */
@@ -102,7 +103,7 @@ export async function sendMeetingInvitation(ctx: Ctx, c: Pick<Case, "id" | "loca
     channel: PARTICIPANT_CHANNEL[pc] as OutgoingMessage["channel"],
     to: `deltagare (${PARTICIPANT_CHANNEL_TEXT[pc]})`,
     template: "kallelse",
-    body: `Välkommen till Miljonbemanning! Ditt första möte är ${fmtWeekday(at)} klockan ${fmtTime(at)} i ${c.location || "Alby"}. Frågor? Ring 08-000 00 00.`,
+    body: `Välkommen till Miljonbemanning! Ditt första möte är ${fmtWeekday(at)} klockan ${fmtTime(at)} i ${c.location || "Alby"}.${CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : ""}`,
     caseId: c.id,
   });
 }

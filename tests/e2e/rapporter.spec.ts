@@ -101,7 +101,10 @@ test("1. rapportlistan (samordnare): sammanfattning, snabbfilter, filter, sök o
   expect(t).toMatch(/FÖRSENADE/i);
   expect(t).toMatch(/FÖRFALLER DENNA VECKA/i);
   expect(t).toMatch(/VÄNTAR PÅ GODKÄNNANDE/i);
-  expect(t).toMatch(/Sista dag ej fastställd/);
+  // Förklaringen till en förfallotid som inte är fastställd ligger som verktygstips på märket – inte som en egen rad per rapport
+  // (prototypens DemoNote längst ned nämner fortfarande "Sista dag ej fastställd", därför kontrolleras raderna i tabellen).
+  await expect(main(page).locator("[title*='inte fastställd med']").first()).toBeAttached();
+  await expect(main(page).getByRole("table", { name: "Rapporter" }).getByText("Sista dag ej fastställd")).toHaveCount(0);
   expect(t).not.toMatch(/deadline/i);
   const tile = page.getByRole("button", { name: /^Försenade/ });
   const overdue = Number((await tile.innerText()).match(/\d+/)?.[0]);

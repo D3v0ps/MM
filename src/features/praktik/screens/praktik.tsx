@@ -76,7 +76,7 @@ function ListContent({ d }: { d: EmployerListView }) {
   );
   return (
     <>
-      <Grid cols={4}>
+      <Grid cols={4} className="max-[620px]:grid-cols-2 max-[620px]:gap-2.5">
         <Kpi label="Arbetsgivare" value={d.kpis.employers} sub="i registret" />
         <Kpi label="Pågående praktik" value={d.kpis.ongoing} sub={`${d.kpis.total} praktikplatser totalt`} />
         <Kpi label="Uppföljningar" value={d.kpis.upcoming} sub={d.mineOnly ? "i dina ärenden de närmaste 7 dagarna" : "de närmaste 7 dagarna"} />
@@ -114,7 +114,7 @@ function ListContent({ d }: { d: EmployerListView }) {
         <Table
           caption="Arbetsgivarregister"
           rows={rows}
-          empty="Inga arbetsgivare matchar sökningen."
+          empty={search.trim() || area ? "Inga arbetsgivare matchar sökningen." : "Inga arbetsgivare ännu. Lägg till den första med knappen Lägg till arbetsgivare."}
           rowHref={(r) => `/praktik/${encodeURIComponent(r.id)}`}
           linkKey={false}
           columns={[

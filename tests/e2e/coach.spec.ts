@@ -87,7 +87,10 @@ test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvar
   await expect(page.getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
   await noBadText(page);
   await expect(main(page)).toContainText(/Närvaro att registrera\s*6\s*Kräver åtgärd/i);
-  await expect(page.getByText("Sista dag ej fastställd – förslag 5:e arbetsdagen").first()).toBeVisible();
+  // "Förslag/ej fastställt" står en gång på sidan: brickan i månadsavsnittet (förklaringen som verktygstips), inte i tre till rader.
+  await expect(page.getByText(/^Förslag: senast /).first()).toBeVisible();
+  await expect(page.getByTitle("Sista dag ej fastställd – förslag 5:e arbetsdagen")).toHaveCount(1);
+  await expect(page.getByText("Förslag – ej fastställt")).toHaveCount(0);
   const text = await main(page).innerText();
   expect(text).not.toMatch(/deadline/i);
   expect(text).not.toMatch(/\b1 (godkända|granskade|tillfällen|olästa)\b/);
@@ -418,7 +421,9 @@ test("Veckoavstämning: samtycke och inspelning (Elif)", async ({ page }, info) 
   await page.getByText("Ljudet är raderat").waitFor({ timeout: 15_000 });
   await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(7);
   // AI-körningen är loggad och ljudet raderat direkt. Fasen framgår inte av samtalet – inget förslag att acceptera.
-  await expect(page.getByText("Simulerad AI (testdata)")).toBeVisible();
+  // Leverantör och modell står inte i formuläret (bara i revisionsloggen); den simulerade AI:n märks med testmiljönotisen.
+  await expect(page.getByRole("note").filter({ hasText: "Testmiljö: AI:n är simulerad" }).first()).toBeVisible();
+  await expect(page.getByText("Simulerad AI (testdata)")).toHaveCount(0);
   await expect(page.getByText(/^måndag 1 feb 2027 kl\. \d\d\.\d\d – direkt efter transkriberingen$/)).toBeVisible();
   await expect(aiGroup(page, "fas")).toContainText("Framgår inte");
   for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
@@ -538,7 +543,9 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   await expect(events).toHaveCount(2);
   await btn(group(page, "Typ av händelse"), "Arbete påbörjat").click();
   await expect(main(page).getByText("Möjligt bonusunderlag", { exact: true })).toBeVisible();
-  await expect(page.getByText("Avstängd – modellen ej fastställd")).toBeVisible();
+  // Bonus är avstängd: en rad med en bricka, inget eget kort (kortet visas bara när bonus är aktiv i avtalet).
+  await expect(page.getByText("Bonus avstängd – modellen ej fastställd")).toBeVisible();
+  await expect(card(page, "Bonus")).toHaveCount(0);
   await btn(page, "Tumba Städ & Fastighet AB").click();
   await expect(page.locator("#ev-actor")).toHaveValue("Tumba Städ & Fastighet AB");
   await btn(group(page, "Verifiering"), "Anställningsbevis").click();
@@ -550,9 +557,10 @@ test("Händelse och avslut: bonusunderlag, verifierat resultat, slutrapport och 
   await expect(row).toContainText("Tumba Städ & Fastighet AB");
   await expect(row).toContainText("Anställningsbevis");
   await expect(row).toContainText("Möjligt");
-  await expect(card(page, "Bonus")).toContainText("1 händelse i ärendet är markerad som möjligt bonusunderlag.");
+  await expect(main(page)).toContainText("1 händelse i ärendet är markerad som möjligt bonusunderlag.");
 
-  await btn(group(page, "Välj uppgift"), "Avsluta insatsen").click();
+  // Lägesväxlaren säger "Avslut" – "Avsluta insatsen" är bara den riktiga knappen i kortet.
+  await btn(group(page, "Välj uppgift"), "Avslut").click();
   await expect(page.getByText("Välj avslutsorsak för att se hur avslutet räknas.")).toBeVisible();
   await btn(group(page, "Avslutsorsak"), "Arbete").click();
   await expect(page.getByText("Resultat – preliminärt")).toBeVisible();

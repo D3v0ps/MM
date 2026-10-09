@@ -402,7 +402,7 @@ handleQuery(casePicker, { roles: ["coach"] }, async (ctx, p) => {
       });
     } else {
       const n = eventsOf(db, c.id).length;
-      rows.push({ ...base, badge: null, note: `${n} ${n === 1 ? "händelse registrerad" : "händelser registrerade"}` });
+      rows.push({ ...base, badge: null, note: n === 0 ? "Inga händelser ännu" : `${n} ${n === 1 ? "händelse registrerad" : "händelser registrerade"}` });
     }
   }
   return { month, monthDueAt: monthDueFor(main.cfg, month) ?? `${monthEnd(addMonths(month, 1))}T23:59`, monthDueNote: monthDueNote(main.cfg), rows };
