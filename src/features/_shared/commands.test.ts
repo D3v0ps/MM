@@ -248,7 +248,7 @@ describe("arenden: övriga ärendekommandon", () => {
     expect(row("cases", "case-270048")).toMatchObject({ firstMeetingAt: "2027-02-04T13:30", plannedStart: "2027-02-04" });
     const out = outboundSince(n);
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby." });
+    expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby. Frågor? Ring 08-400 22 750." });
     // Skyddat ärende (vilande spärr påslagen): avtalsansvarig bokar om, ingen kallelse skickas – bara den nya orderbekräftelsens
     // mejl till kommunen (ärendenummer och länk, inga personuppgifter).
     protect();
