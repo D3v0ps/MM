@@ -5,7 +5,7 @@ import { useState } from "react";
 import { fmtDateTime as fmt } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
-import { Button, Card, Check, DemoNote, Field, FormGrid, Icon, Kpi, Notice, PerspectiveLink, QueryView, Row, Select, Split, Stack, toast } from "@/ui";
+import { Button, Card, Check, Field, FormGrid, Icon, Kpi, Notice, PerspectiveLink, QueryView, Row, Select, Split, Stack, toast } from "@/ui";
 import { escWord, weeksWord } from "../audit-text";
 import { adminOrgRules, adminSetOrgRule, type OrgRulesView, type RuleSnapshot } from "../api";
 import { Details, Group, Pre, Small } from "./parts";
@@ -44,7 +44,7 @@ function RulesForm({ d }: { d: OrgRulesView }) {
   return (
     <Stack gap="lg">
       <Notice tone="info" title="Interna regler för Miljonbemanning – inte avtalskrav">
-        Reglerna styr hur vi själva följer upp ärenden i alla avtal. Kommunen ser dem inte, och de ändrar inga avtalsvärden.
+        Reglerna styr hur vi själva följer upp ärenden i alla avtal.
       </Notice>
       <Split wide>
         <Card
@@ -161,9 +161,6 @@ function RulesForm({ d }: { d: OrgRulesView }) {
       <Details summary="JSON (org_settings.notifications)">
         <Pre text={JSON.stringify(d.notifications, null, 2)} />
       </Details>
-      <DemoNote>
-        Ändringen slår igenom direkt i prototypens notiser och flaggor. I den riktiga tjänsten sparas reglerna i en egen tabell för Miljonbemannings interna regler, och påminnelserna skickas av ett bakgrundsjobb måndag 08.00.
-      </DemoNote>
     </Stack>
   );
 }

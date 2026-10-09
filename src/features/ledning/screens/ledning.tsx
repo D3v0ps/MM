@@ -11,7 +11,7 @@ import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, ProtoText, useRuntime } from "@/shell/runtime";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, DemoNote, Empty, Grid, Icon, Kpi, Meter, Notice, Page, PerspectiveLink, QueryView, Row, SlaBadge, Split,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Empty, Grid, Icon, Kpi, Meter, Notice, Page, PerspectiveLink, QueryView, Row, SlaBadge, Split,
   Stack, TabPanel, Table, Tabs, UserName, cn, type MeterMarker, type TabDef,
 } from "@/ui";
 import {
@@ -213,7 +213,7 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
                   <div>{forecast.prelim} avslut med resultat räknas med i prognosen.</div>
                 </div>
               </Stack>
-              <div className="text-text-muted">Prognosen är ett räkneexempel för ledningen. Den visas inte för kommunen.</div>
+              <div className="text-text-muted">Prognosen är ett räkneexempel.</div>
             </Stack>
           </Card>
           <CustomerCard c={d.customer} liveValue={rolling.value} />
@@ -326,10 +326,6 @@ function KpiContent({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarget) =>
           Mål som inte är fastställda med Botkyrka ger ingen flagga förrän de är fastställda. Sista dag för månadsrapporterna är ett förslag tills kommunen bekräftat den.
         </p>
       </Stack>
-      <DemoNote>
-        Siffrorna räknas fram ur påhittade testdata varje gång sidan visas. I den riktiga tjänsten räknar ett schemalagt jobb om resultatgraden varje vecka och skickar veckosammanfattning via
-        e-post till chef och controller.
-      </DemoNote>
     </Stack>
   );
 }
@@ -390,7 +386,7 @@ function CustomerCard({ c, liveValue }: { c: CustomerCardData; liveValue: number
           <p className="text-text-muted">Ledningsvyns {pct(liveValue)} räknas fram till i dag och tar med avslut som ännu inte finns i en levererad rapport.</p>
         )}
         <p className="text-text-muted">
-          Kommunen ser inte det interna målet, prognosen, jämförelsen per coach eller flaggorna. Grupper med färre än {n} personer redovisas som &quot;färre än {n}&quot;.
+          Grupper med färre än {n} personer redovisas som &quot;färre än {n}&quot;.
         </p>
         <Row gap="sm">
           {c.latest && c.canOpenReport && (
@@ -462,7 +458,6 @@ function SlaCard({ d }: { d: LedningOverview }) {
             </WrapBtn>
           </div>
         )}
-        {!s.seesSlaStats && <div className="text-text-muted">SLA-statistiken visas inte för kommunen (beslut i ledningen).</div>}
       </Stack>
     </Card>
   );
@@ -523,7 +518,7 @@ function UnbilledCard({ d }: { d: LedningOverview }) {
             </Button>
           </div>
         ) : (
-          <div className="text-text-muted">Ekonomen hanterar fakturorna. Beloppen visas bara för ekonomen.</div>
+          <div className="text-text-muted">Ekonomen hanterar fakturorna.</div>
         )}
       </Stack>
     </Card>
@@ -931,18 +926,6 @@ function PulseTab({ onAck }: { onAck: (a: AlertView) => void }) {
                 </Card>
               </>
             )}
-            <Notice tone="info" title="Vem ser vad">
-              <ul className="m-0 flex list-disc flex-col gap-1 pl-[1.2em]">
-                <li>Coachen ser inte enskilda svar – bara samma aggregat som här, och först vid minst {d.minN} svar.</li>
-                <li>Lågt betyg på stödet från coachen (fråga 3) går till chef, inte till coachen.</li>
-                <li>Svarar deltagaren Ja på fråga 5 får samordnaren en uppgift.</li>
-                <li>Kommunen ser antal svar och andel nöjda i beställarrapporten.</li>
-              </ul>
-            </Notice>
-            <DemoNote>
-              Svaren är påhittade. I den riktiga tjänsten skickas pulslänken som SMS eller e-post (signerad engångslänk som gäller i 7 dagar), aldrig till deltagare med skyddade
-              personuppgifter. Deltagandet är frivilligt.
-            </DemoNote>
           </Stack>
         );
       }}

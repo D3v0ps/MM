@@ -86,7 +86,7 @@ test("avtal: konfiguration och ej fastställda värden – ett avtal, ingen väl
   await expect(page.getByRole("group", { name: "Välj avtal" })).toHaveCount(0);
   // Beslut 5 (2026-10-07): belopp syns bara för ekonomen – prislistan finns under Ekonomi, inte här.
   await expect(page.getByRole("tab")).toHaveText([/Avtal och regler/, /Interna regler \(Miljonbemanning\)/]);
-  expect(t).toContain("Per tillfälle enligt avtalet. Beloppet visas bara för ekonomen.");
+  expect(t).toContain("Per tillfälle enligt avtalet.");
   expect(t).not.toMatch(/\d[\u00a0 ]kr(?![a-zåäö])/i);
   expect(t).not.toMatch(/Kammarkollegiet|Jämför avtalen|Mötesminimum|Startpaket|Personuppgiftsansvarig –/);
   expect(t).toContain("Personuppgiftsbiträde – kommunen är personuppgiftsansvarig");
