@@ -57,7 +57,7 @@ describe("runAutoAttendance", () => {
     expect(runs()).toHaveLength(1);
     const log = runs()[0];
     expect(log).toMatchObject({ entity: "attendance", entityId: null, contractId: "c-bot", actorId: "system" });
-    expect(log.details).toMatchObject({ count: 50, at: "18:00", days: ["2027-01-27", "2027-01-28", "2027-02-01"] });
+    expect(log.details).toMatchObject({ count: 50, dayEndsAt: "18:00", days: ["2027-01-27", "2027-01-28", "2027-02-01"] });
     expect((log.details as { activityIds: string[] }).activityIds).toHaveLength(50);
     const text = JSON.stringify(log.details);
     for (const p of rt.store.rows("persons").slice(0, 50)) expect(text).not.toContain(p.lastName);

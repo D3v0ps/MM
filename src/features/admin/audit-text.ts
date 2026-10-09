@@ -96,7 +96,7 @@ const DETAIL_KEY: Record<string, string> = {
   // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
   rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
   // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
-  groupActivityId: "Gruppaktivitet", days: "Dagar", manual: "Körd manuellt", wasAuto: "Var automatiskt registrerad", startsAt: "Tid", durationMin: "Längd (minuter)",
+  groupActivityId: "Gruppaktivitet", days: "Dagar", dayEndsAt: "Dagens slut", manual: "Körd manuellt", wasAuto: "Var automatiskt registrerad", startsAt: "Tid", durationMin: "Längd (minuter)",
   invited: "Inbjudna", removed: "Borttagna tillfällen", holiday: "Helgdag",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */

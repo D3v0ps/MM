@@ -1463,7 +1463,13 @@ const AUDIT_TEXT: Record<string, string> = {
   "voice_note.view": "Visade röstmeddelanden",
   "case_note.created": "Skrev anteckning", "case_note.updated": "Ändrade anteckning", "case_note.removed": "Tog bort anteckning",
   "case_note.used_in_summary": "Använde anteckning i sammanfattningen", "report.downloaded": "Rapport laddades ner som PDF", "report.created": "Rapportutkast skapades",
+  // Coachmötet 2026-10-09: automatisk närvaro och gruppaktiviteter (raderna hör till ärendet via details.caseIds).
+  "attendance.auto_registered": "Närvaro registrerades automatiskt", "group_activity.created": "Bjöds in till en ny gruppaktivitet",
+  "group_activity.updated": "Gruppaktiviteten ändrades", "group_activity.invited": "Bjöds in till gruppaktivitet", "group_activity.removed_participant": "Togs bort från gruppaktivitet",
+  "group_activity.cancelled": "Gruppaktiviteten ställdes in",
 };
+/** Fälten i en ändrad gruppaktivitet som ord (Historik). */
+const GROUP_FIELD_WORD: Record<string, string> = { name: "namn", kind: "typ", startsAt: "tid", durationMin: "längd", location: "plats", responsibleId: "ansvarig" };
 
 type LogEntry = { id: string; occurredAt: string; actorId: string | null; action: string; entity: string; entityId: string | null; details: Record<string, unknown>; text?: string };
 
@@ -1497,6 +1503,14 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
     // "Markera alla som närvarande": antalet tillfällen den dagen (alla deltagare) – raden hör till flera ärenden.
     if (x.action === "attendance.registered_all") return plural(Number(dt.count ?? 0), "tillfälle", "tillfällen");
+    // Automatisk närvaro: antalet tillfällen i körningen (alla deltagare i avtalet) – frånvaro registrerar coachen.
+    if (x.action === "attendance.auto_registered") return `${plural(Number(dt.count ?? 0), "tillfälle", "tillfällen")} – ändra till frånvaro under Närvaro om deltagaren inte var där`;
+    // Gruppaktiviteter: tiden och vad som ändrades – aldrig namnet eller platsen.
+    if (x.action.startsWith("group_activity.")) {
+      if (Array.isArray(dt.fields)) return `Ändrat: ${(dt.fields as string[]).map((f) => GROUP_FIELD_WORD[f] ?? f).join(", ")}`;
+      if (s(dt.startsAt)) return fmtDateTimeLong(s(dt.startsAt));
+      return "";
+    }
     // Automatisk utkastsparning loggas en gång per besök på sidan.
     if (dt.autosave === true) return "Sparades automatiskt";
     if (dt.reason) return String(dt.reason);

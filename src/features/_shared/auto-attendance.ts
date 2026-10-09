@@ -91,7 +91,7 @@ export async function runAutoAttendance(ctx: Ctx, opts: { floor?: LocalDateTime 
       action: "attendance.auto_registered", entity: "attendance", entityId: null, contractId: contract.id,
       details: {
         count: written.length, activityIds: written.map((d) => d.activityId), attendanceIds, caseIds: uniq(written.map((d) => d.caseId)), days: uniq(written.map((d) => d.day)),
-        at: settings.autoPresentAt, ...(opts.manual ? { manual: true } : {}),
+        dayEndsAt: settings.autoPresentAt, ...(opts.manual ? { manual: true } : {}),
       },
     });
     run.contracts.push({ contractId: contract.id, registered: written.length, activityIds: written.map((d) => d.activityId) });
