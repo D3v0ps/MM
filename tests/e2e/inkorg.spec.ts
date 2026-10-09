@@ -271,7 +271,6 @@ test("em-102: acceptera stoppas när omfattningen saknas – felet syns direkt (
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   const d = dialog(page);
   await page.check("#ink-coach-u-erik");
-  await page.fill("#ink-track", "Kockbiträde");
   await d.getByRole("button", { name: "Acceptera avropet" }).click();
   // Ingen toast (den täckte knappen): felsammanfattningen överst i dialogen och felet vid fältet.
   await expect(d.getByText("Rätta det här innan du accepterar")).toBeVisible();
@@ -375,7 +374,6 @@ test("portalbeställning från kommunen syns i inkorgen och kan accepteras", asy
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
   await expect(dialog(page).getByText("Välj avtalsområde.").first()).toBeVisible();
   await page.selectOption("#ink-area", "F");
-  await page.fill("#ink-track", "Lokalvårdare med certifiering");
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
   await expect(dialog(page).getByText("Mats Holm har fått en notis om tilldelningen")).toBeVisible();
   await dialog(page).getByRole("button", { name: "Klart" }).click();

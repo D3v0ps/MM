@@ -10,7 +10,7 @@ import { AiProviderError } from "./errors";
 import { GOOGLE_TOKEN_URL, type FetchLike } from "./google-auth";
 
 vi.mock("server-only", () => ({}));
-const { INLINE_AUDIO_MAX_BYTES, thinkingFor, VERTEX_PROVIDER } = await import("./vertex");
+const { INLINE_AUDIO_MAX_BYTES, providerErrorDetail, thinkingFor, VERTEX_PROVIDER } = await import("./vertex");
 const { buildServerAi } = await import("./index");
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -120,7 +120,15 @@ describe("endast Vertex AI:s EU-endpoint", () => {
     expect(thinkingFor("gemini-2.5-flash-lite", "low")).toEqual({ temperature: 0, thinkingConfig: { thinkingBudget: 0 } });
     expect(thinkingFor("gemini-2.5-pro", "low")).toEqual({ temperature: 0, thinkingConfig: { thinkingBudget: 128 } });
     expect(thinkingFor("gemini-3-flash", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "MINIMAL" } });
+    expect(thinkingFor("gemini-3.5-flash", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "MINIMAL" } });
+    expect(thinkingFor("gemini-3.6-flash", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "MINIMAL" } });
+    // Gemini 3.7 Flash och 3.8 Flash tar bara LOW, MEDIUM och HIGH (Googles tabell) – MINIMAL gav HTTP 400 i skarp drift 2026-10-09.
+    expect(thinkingFor("gemini-3.8-flash", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "LOW" } });
+    expect(thinkingFor("gemini-3.7-flash", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "LOW" } });
+    expect(thinkingFor("gemini-3.8-flash", "low")).toEqual({ thinkingConfig: { thinkingLevel: "LOW" } });
+    expect(thinkingFor("gemini-3.8-flash", "high")).toEqual({ thinkingConfig: { thinkingLevel: "HIGH" } });
     expect(thinkingFor("gemini-3-pro", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "LOW" } });
+    expect(thinkingFor("gemini-3.1-pro", "minimal")).toEqual({ thinkingConfig: { thinkingLevel: "LOW" } });
     expect(thinkingFor("gemini-2.0-flash", "low")).toEqual({ temperature: 0 });
   });
 });
@@ -197,6 +205,47 @@ describe("transcribe", () => {
     const json = JSON.stringify({ language: "sv", segments: [{ start: 0, end: 1, speaker: null, text: "Ja." }] });
     const d = vertex(ENV, [{ body: { candidates: [{ content: { parts: [{ text: "tänker…", thought: true }, { text: json }] }, finishReason: "STOP" }] } }]);
     expect((await d.ai.transcribe(audio(), { language: "sv" })).value.text).toBe("Ja.");
+  });
+
+  it("HTTP 400: Googles felorsak (status + message) följer med i detail – texten till användaren är oförändrad", async () => {
+    const msg = "Request contains an invalid argument. thinking_level MINIMAL is not supported for this model.";
+    const a = vertex(ENV, [{ status: 400, body: { error: { code: 400, message: msg, status: "INVALID_ARGUMENT" } } }]);
+    const e = (await a.ai.transcribe(audio(), { language: "sv" }).catch((x: unknown) => x)) as AiProviderError;
+    expect(e).toBeInstanceOf(AiProviderError);
+    expect(e).toMatchObject({ code: "unsupported", retryable: false, message: "Ljudformatet stöds inte av AI-leverantören" });
+    expect(e.detail).toBe(`Vertex AI gav HTTP 400: INVALID_ARGUMENT: ${msg}`);
+    expect(a.calls).toHaveLength(1);
+    // 403 utan kropp: bara statusen. 404 med kropp: felorsaken följer med.
+    const b = vertex(ENV, [{ status: 403, body: "not json" }]);
+    expect(((await b.ai.transcribe(audio(), { language: "sv" }).catch((x: unknown) => x)) as AiProviderError).detail).toBe("Vertex AI gav HTTP 403");
+    const c = vertex(ENV, [{ status: 404, body: { error: { message: "Publisher Model `gemini-x` not found", status: "NOT_FOUND" } } }]);
+    expect(((await c.ai.transcribe(audio(), { language: "sv" }).catch((x: unknown) => x)) as AiProviderError).detail).toBe(
+      "Vertex AI gav HTTP 404: NOT_FOUND: Publisher Model `gemini-x` not found",
+    );
+  });
+
+  it("felorsaken kortas till 300 tecken, base64-block tas bort och radbrytningar slås ihop", () => {
+    const b64 = Buffer.from(new Uint8Array(90)).toString("base64");
+    expect(providerErrorDetail(400, { error: { message: `Invalid data ${b64} here\n  next line` } })).toBe("Vertex AI gav HTTP 400: Invalid data [data] here next line");
+    expect(providerErrorDetail(400, { error: { message: "fel i anropet ".repeat(40), status: "INVALID_ARGUMENT" } })).toHaveLength(300);
+    expect(providerErrorDetail(400, { error: { message: "https://cloud.google.com/vertex-ai/docs/generative-ai/learn/overview is the page" } })).toContain("overview is the page");
+    expect(providerErrorDetail(500, null)).toBe("Vertex AI gav HTTP 500");
+    expect(providerErrorDetail(400, { error: "sträng" })).toBe("Vertex AI gav HTTP 400");
+  });
+
+  it("inspelningens grundtyper (mp4, ogg, webm, mpeg, m4a, wav) skickas med Vertex AI:s mimeType", async () => {
+    const ok = reply({ language: "sv", segments: [{ start: 0, end: 1, speaker: null, text: "Hej." }] });
+    const cases: [string, string][] = [
+      ["audio/mp4", "audio/mp4"], ["audio/ogg", "audio/ogg"], ["audio/webm", "audio/webm"], ["audio/mpeg", "audio/mpeg"], ["audio/mp3", "audio/mp3"],
+      ["audio/x-m4a", "audio/m4a"], ["audio/wav", "audio/wav"], ["audio/x-wav", "audio/wav"],
+    ];
+    for (const [stored, sent] of cases) {
+      const v = vertex(ENV, [ok]);
+      await v.ai.transcribe(audio(new Uint8Array([1, 2, 3]), stored), { language: "sv" });
+      const contents = v.calls[0].body.contents as { parts: { inlineData?: { mimeType: string; data: string }; text?: string }[] }[];
+      expect(contents[0].parts[0].inlineData).toEqual({ mimeType: sent, data: "AQID" });
+      expect(contents[0].parts[1].text).toBe("Transkribera ljudet.");
+    }
   });
 
   it("för stort ljud och okänd filtyp skickas aldrig", async () => {
