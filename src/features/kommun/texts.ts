@@ -6,8 +6,8 @@ import type { CaseStatus, ReportKind } from "@/data/schema";
 import type { KomCase } from "./api";
 
 // ---------------------------------------------------------------- Miljonbemannings kontaktuppgifter (inte avtalsvärden)
-/** Telefon för frågor om beställningar och deltagare. */
-export const CONTACT_PHONE = "08-000 00 00";
+/** Telefon för frågor om beställningar och deltagare – null tills Miljonbemanning bestämt numret (inga påhittade nummer). */
+export { CONTACT_PHONE } from "@/features/_shared/contact";
 /**
  * Avsändaren av notiserna (beslut 2026-10-01, SPEC §11): notis@miljonmatch.se – domänen är verifierad i Resend med DNS hos
  * one.com. Svar går till avrop@miljonbemanning.se i produktion (MM_EMAIL_REPLY_TO).

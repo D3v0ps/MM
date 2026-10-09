@@ -597,13 +597,18 @@ function DupNotice({ dups, onOpen }: { dups: readonly KomDuplicate[]; onOpen: (c
               </Button>
             </span>
           ) : (
-            <span key={`annan-${i}`}>Insatsen är beställd av en annan handläggare. Ring oss på {CONTACT_PHONE} så hjälper vi dig.</span>
+            <span key={`annan-${i}`}>
+              Insatsen är beställd av en annan handläggare.{CONTACT_PHONE ? ` Ring oss på ${CONTACT_PHONE} så hjälper vi dig.` : " Hör av dig till oss på Miljonbemanning så hjälper vi dig."}
+            </span>
           ),
         )}
       </Stack>
     </Notice>
   );
 }
+
+/** Kontaktvägen i löpande text: "brev", "e-post" – men förkortningen SMS behåller sina versaler. */
+const contactWord = (label: string | null | undefined): string => (!label ? "" : label === label.toUpperCase() ? label : label.toLowerCase());
 
 /** Kvittot: ärendenummer, ordererkännande, mejlet och hur det går vidare. */
 function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string; customerName: string; onAgain: () => void; headRef: RefObject<HTMLDivElement | null> }) {
@@ -662,17 +667,20 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
               icon: "users",
               title: "Första mötet med deltagaren",
               sub: `Senast ${fD(c.firstMeetingDue)}`,
-              body: <span>Deltagaren får en kallelse på det sätt du valde ({(c.contactLabel ?? "").toLowerCase()}).</span>,
+              body: <span>Deltagaren får en kallelse på det sätt du valde ({contactWord(c.contactLabel)}).</span>,
             },
           ]}
         />
       </Card>
       <div className="flex flex-wrap items-center gap-3">
-        <Button kind="primary" size="lg" icon="plus" onClick={onAgain}>
+        <Button kind="primary" size="lg" iconRight="arrow-right" to={`/portal/deltagare/${encodeURIComponent(c.caseId)}`}>
+          Se beställningen
+        </Button>
+        <Button size="lg" icon="plus" onClick={onAgain}>
           Beställ en till
         </Button>
-        <Button size="lg" iconRight="arrow-right" to={`/portal/deltagare/${encodeURIComponent(c.caseId)}`}>
-          Se beställningen
+        <Button kind="ghost" size="lg" icon="arrow-left" to="/portal">
+          Till start
         </Button>
       </div>
       <div className="flex flex-wrap items-center gap-3">

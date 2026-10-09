@@ -1,7 +1,7 @@
 "use client";
 // Register över avtalsavvikelser, varningar och klagomål (/avtalsavvikelser/:id?, prototypens chef.avvikelser). SPEC §7.16 och §3.
 // Eskaleringstrappa, viten och antal varningar före uppsägning kommer från avtalskonfigurationen via frågorna.
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { TESTER_HIDDEN_TEXT } from "@/api/tester-access";
 import { plural } from "@/core/format";
 import { fmtDate, fmtDateShort, fmtDateTime, monthName } from "@/core/time";
@@ -11,8 +11,8 @@ import { Link, useNav } from "@/shell/nav";
 import { pick, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, Field, focusFirstError, FormGrid, Input, Kpi, Kv, Loading, Modal,
-  ModalCancelButton, Notice,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, ErrorSummary, Field, focusFirstError, FormGrid, Input, Kpi, Kv, List, ListItem, Loading,
+  Modal, ModalCancelButton, Notice,
   Page, QueryView, Row, Seg, Select, SlaBadge, Split, Stack, TabPanel, Table, Tabs, TextArea, Timeline, useCopy, useDownload, useToast,
   type TimelineItem,
 } from "@/ui";
@@ -33,6 +33,30 @@ const PENALTY_OPTIONS = [
 const PENALTY_LABEL: Record<string, string> = { deviation: "Vite för avvikelse", information: "Vite för bristfällig information" };
 const monthOptions = (ms: string[]) => ms.map((mk) => ({ value: mk, label: monthName(mk) }));
 const typeHelpOf = (f: CdevForm, type: string) => (type === "ekonomi" ? f.economicHelp : CD_TYPES.find((x) => x.value === type)?.help);
+
+/** Smal skärm (mobil): registret visas som lista i stället för tabell med fem kolumner. */
+function useNarrow(px = 620): boolean {
+  const q = `(max-width: ${px}px)`;
+  return useSyncExternalStore(
+    (on) => {
+      try {
+        const m = window.matchMedia(q);
+        m.addEventListener("change", on);
+        return () => m.removeEventListener("change", on);
+      } catch {
+        return () => {};
+      }
+    },
+    () => {
+      try {
+        return window.matchMedia(q).matches;
+      } catch {
+        return false;
+      }
+    },
+    () => false,
+  );
+}
 
 export function AvvikelserScreen({ params }: ScreenProps) {
   return params.id ? <DetailView id={params.id} /> : <Register />;
@@ -73,6 +97,7 @@ function RegisterContent({ d }: { d: CdevRegister }) {
   const setFilter = (v: "open" | "all" | "klagomal") => patch({ visa: v === "open" ? null : v === "all" ? "alla" : v });
   const tab = pick(nav.query, "flik", ["register", "apt"] as const, "register");
   const setTab = (v: "register" | "apt") => patch({ flik: v === "register" ? null : v });
+  const narrow = useNarrow();
   const f = d.form;
   const open = d.rows.filter((x) => x.statusKey !== "closed");
   const rows = filter === "open" ? open : filter === "klagomal" ? d.rows.filter((x) => x.type === "klagomål") : d.rows;
@@ -134,15 +159,41 @@ function RegisterContent({ d }: { d: CdevRegister }) {
               ]}
             />
             <Card flush>
-              <Table
-                caption="Register över avtalsavvikelser"
-                rows={rows}
-                empty="Inga avvikelser i det här urvalet."
-                rowHref={(x) => `/avtalsavvikelser/${encodeURIComponent(x.id)}`}
-                linkKey={false}
-                rowTone={(x) => (x.statusKey === "no_plan" ? "alert" : x.statusKey === "closed" ? "muted" : null)}
-                columns={registerColumns}
-              />
+              {narrow ? (
+                <List>
+                  {rows.length === 0 ? (
+                    <div className="px-[18px] py-3 text-text-muted">Inga avvikelser i det här urvalet.</div>
+                  ) : (
+                    rows.map((x) => (
+                      <ListItem
+                        key={x.id}
+                        to={`/avtalsavvikelser/${encodeURIComponent(x.id)}`}
+                        chevron
+                        marked={x.statusKey === "no_plan"}
+                        title={cdTypeLabel(x.type)}
+                        sub={`${cdLevelLabel(x.level)} · steg ${x.escalationStep} · ${fmtDate(x.raisedAt)}`}
+                      >
+                        <span className="mt-1 flex flex-wrap items-center gap-2">
+                          <CdStatusBadge status={x.statusKey} />
+                        </span>
+                        <span className="block text-small text-text-muted">
+                          {x.hasPlan ? (x.customerApprovedAt ? `Åtgärdsplan godkänd av kommunen ${fmtDateShort(x.customerApprovedAt)}` : "Åtgärdsplan inte godkänd av kommunen") : "Åtgärdsplan saknas"}
+                        </span>
+                      </ListItem>
+                    ))
+                  )}
+                </List>
+              ) : (
+                <Table
+                  caption="Register över avtalsavvikelser"
+                  rows={rows}
+                  empty="Inga avvikelser i det här urvalet."
+                  rowHref={(x) => `/avtalsavvikelser/${encodeURIComponent(x.id)}`}
+                  linkKey={false}
+                  rowTone={(x) => (x.statusKey === "no_plan" ? "alert" : x.statusKey === "closed" ? "muted" : null)}
+                  columns={registerColumns}
+                />
+              )}
             </Card>
           </Stack>
         ) : (
@@ -257,6 +308,11 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
   };
   const typeHelp = typeHelpOf(form, f.type);
   const levelHelp = CD_LEVELS.find((x) => x.value === f.level)?.help;
+  // Felsammanfattningen överst i dialogen (samma mönster som Lägg till kollega): fält i formulärets ordning.
+  const ERR_FIELDS: [keyof NewForm, string][] = [
+    ["type", "cd-type"], ["source", "cd-source"], ["raisedOn", "cd-date"], ["level", "cd-level"], ["description", "cd-desc"], ["caseNumber", "cd-case"], ["actionPlanDue", "cd-due"],
+  ];
+  const errItems = ERR_FIELDS.filter(([k]) => err[k]).map(([k, id]) => ({ id, text: err[k] as string }));
   const step = f.escalationStep === "" ? null : Number(f.escalationStep);
   const can = form.canManage;
   const submit = async () => {
@@ -309,59 +365,62 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
         </>
       }
     >
-      <FormGrid>
-        <Field full label="Typ" id="cd-type" required help={typeHelp || "Kvalitet, process, avtal, ekonomi eller klagomål."} error={err.type}>
-          <Seg id="cd-type" value={f.type} onValueChange={set("type")} options={CD_TYPES.map((x) => ({ value: x.value, label: x.label }))} />
-        </Field>
-        <Field label="Källa" id="cd-source" required help="Vem påtalade eller upptäckte avvikelsen?" error={err.source}>
-          <Select value={f.source} onValueChange={set("source")} placeholder="Välj källa" options={CD_SOURCES.map((x) => ({ value: x.value, label: x.label }))} />
-        </Field>
-        <Field label="Datum" id="cd-date" required help="När avvikelsen påtalades eller upptäcktes." error={err.raisedOn}>
-          <DateInput value={f.raisedOn} onValueChange={set("raisedOn")} />
-        </Field>
-        <Field label="Nivå" id="cd-level" required help={levelHelp || "Mindre, större eller allvarlig enligt avtalet."} error={err.level}>
-          <Seg id="cd-level" value={f.level} onValueChange={set("level")} options={CD_LEVELS.map((x) => ({ value: x.value, label: x.label }))} />
-        </Field>
-        <Field label="Steg i eskaleringstrappan" id="cd-step" help="Föreslås utifrån nivån. Ändra om kommunen har angett ett annat steg.">
-          <Select value={f.escalationStep} onValueChange={set("escalationStep")} placeholder="Välj steg" options={form.ladder.map((s) => ({ value: String(s.step), label: stepLabel(form.ladder, s.step) }))} />
-        </Field>
-        <Field full label="Beskrivning" id="cd-desc" required help="Beskriv vad som hänt. Skriv inga namn eller personnummer – använd ärendenummer." error={err.description}>
-          <TextArea value={f.description} onValueChange={set("description")} rows={3} />
-        </Field>
-        <Field label="Ärendenummer (valfritt)" id="cd-case" help={`Om avvikelsen gäller ett visst ärende, till exempel ${form.caseNumberExample}.`} error={err.caseNumber}>
-          <Input value={f.caseNumber} onValueChange={set("caseNumber")} />
-        </Field>
-        <Field label="Ansvarig hos Miljonbemanning" id="cd-owner" help="Den som driver åtgärderna.">
-          <Select value={f.ownerId} onValueChange={set("ownerId")} options={form.owners} />
-        </Field>
-        <Field full label="Åtgärdsplan (kan fyllas i senare)" id="cd-plan" help="Vad görs, av vem och när? Kommunen godkänner planen – avtalsansvarig registrerar godkännandet.">
-          <TextArea value={f.actionPlan} onValueChange={set("actionPlan")} rows={3} />
-        </Field>
-        <Field label="Åtgärderna klara senast" id="cd-due" help="Tidsplan för åtgärdsplanen." error={err.actionPlanDue}>
-          <DateInput value={f.actionPlanDue} onValueChange={set("actionPlanDue")} />
-        </Field>
-        <div className="col-span-full flex flex-col gap-2">
-          <span className="text-label font-extrabold tracking-[0.1em] text-text-muted uppercase">Sanktioner från kommunen</span>
-          <Check id="cd-warning" checked={f.warningIssued} disabled={!(step != null && isWarnStep(step)) || !can} onCheckedChange={set("warningIssued")}>
-            Kommunen har gett en skriftlig varning (räknas mot {form.warningsBeforeTermination}). Kan bara ges på steg {ws.min}–{ws.max}.
-          </Check>
-          {/* Vitesvalet saknas för begränsade testare. Beloppet visas aldrig här (beslut 5) – det står i avtalet. */}
-          {form.penaltyChoice && (
-            <Field label="Vite" id="cd-penalty" help="Välj om kommunen har tagit ut vite. Beloppet står i avtalet och hanteras av ekonomen.">
-              <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={PENALTY_OPTIONS} />
-            </Field>
-          )}
-          {form.penaltyChoice && f.penaltyKind && (
-            <Field label="Avräknas på faktura för" id="cd-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
-              <Select value={f.penaltyOffsetMonth} onValueChange={set("penaltyOffsetMonth")} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
-            </Field>
-          )}
-          <Check id="cd-stop" checked={f.orderStop} disabled={!can} onCheckedChange={set("orderStop")}>
-            Kommunen har beslutat om avropsstopp
-          </Check>
-          {!can && <span className="text-text-muted">Varningar, viten och avropsstopp registreras av avtalsansvarig eller chef.</span>}
-        </div>
-      </FormGrid>
+      <Stack>
+        <ErrorSummary items={errItems} title="Rätta det här innan du registrerar" />
+        <FormGrid>
+          <Field full label="Typ" id="cd-type" required help={typeHelp || "Kvalitet, process, avtal, ekonomi eller klagomål."} error={err.type}>
+            <Seg id="cd-type" value={f.type} onValueChange={set("type")} options={CD_TYPES.map((x) => ({ value: x.value, label: x.label }))} />
+          </Field>
+          <Field label="Källa" id="cd-source" required help="Vem påtalade eller upptäckte avvikelsen?" error={err.source}>
+            <Select value={f.source} onValueChange={set("source")} placeholder="Välj källa" options={CD_SOURCES.map((x) => ({ value: x.value, label: x.label }))} />
+          </Field>
+          <Field label="Datum" id="cd-date" required help="När avvikelsen påtalades eller upptäcktes." error={err.raisedOn}>
+            <DateInput value={f.raisedOn} onValueChange={set("raisedOn")} />
+          </Field>
+          <Field label="Nivå" id="cd-level" required help={levelHelp || "Mindre, större eller allvarlig enligt avtalet."} error={err.level}>
+            <Seg id="cd-level" value={f.level} onValueChange={set("level")} options={CD_LEVELS.map((x) => ({ value: x.value, label: x.label }))} />
+          </Field>
+          <Field label="Steg i eskaleringstrappan" id="cd-step" help="Föreslås utifrån nivån. Ändra om kommunen har angett ett annat steg.">
+            <Select value={f.escalationStep} onValueChange={set("escalationStep")} placeholder="Välj steg" options={form.ladder.map((s) => ({ value: String(s.step), label: stepLabel(form.ladder, s.step) }))} />
+          </Field>
+          <Field full label="Beskrivning" id="cd-desc" required help="Beskriv vad som hänt. Skriv inga namn eller personnummer – använd ärendenummer." error={err.description}>
+            <TextArea value={f.description} onValueChange={set("description")} rows={3} />
+          </Field>
+          <Field label="Ärendenummer (valfritt)" id="cd-case" help={`Om avvikelsen gäller ett visst ärende, till exempel ${form.caseNumberExample}.`} error={err.caseNumber}>
+            <Input value={f.caseNumber} onValueChange={set("caseNumber")} />
+          </Field>
+          <Field label="Ansvarig hos Miljonbemanning" id="cd-owner" help="Den som driver åtgärderna.">
+            <Select value={f.ownerId} onValueChange={set("ownerId")} options={form.owners} />
+          </Field>
+          <Field full label="Åtgärdsplan (kan fyllas i senare)" id="cd-plan" help="Vad görs, av vem och när? Kommunen godkänner planen – avtalsansvarig registrerar godkännandet.">
+            <TextArea value={f.actionPlan} onValueChange={set("actionPlan")} rows={3} />
+          </Field>
+          <Field label="Åtgärderna klara senast" id="cd-due" help="Tidsplan för åtgärdsplanen." error={err.actionPlanDue}>
+            <DateInput value={f.actionPlanDue} onValueChange={set("actionPlanDue")} />
+          </Field>
+          <div className="col-span-full flex flex-col gap-2">
+            <span className="text-label font-extrabold tracking-[0.1em] text-text-muted uppercase">Sanktioner från kommunen</span>
+            <Check id="cd-warning" checked={f.warningIssued} disabled={!(step != null && isWarnStep(step)) || !can} onCheckedChange={set("warningIssued")}>
+              Kommunen har gett en skriftlig varning (räknas mot {form.warningsBeforeTermination}). Kan bara ges på steg {ws.min}–{ws.max}.
+            </Check>
+            {/* Vitesvalet saknas för begränsade testare. Beloppet visas aldrig här (beslut 5) – det står i avtalet. */}
+            {form.penaltyChoice && (
+              <Field label="Vite" id="cd-penalty" help="Välj om kommunen har tagit ut vite. Beloppet står i avtalet och hanteras av ekonomen.">
+                <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={PENALTY_OPTIONS} />
+              </Field>
+            )}
+            {form.penaltyChoice && f.penaltyKind && (
+              <Field label="Avräknas på faktura för" id="cd-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
+                <Select value={f.penaltyOffsetMonth} onValueChange={set("penaltyOffsetMonth")} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
+              </Field>
+            )}
+            <Check id="cd-stop" checked={f.orderStop} disabled={!can} onCheckedChange={set("orderStop")}>
+              Kommunen har beslutat om avropsstopp
+            </Check>
+            {!can && <span className="text-text-muted">Varningar, viten och avropsstopp registreras av avtalsansvarig eller chef.</span>}
+          </div>
+        </FormGrid>
+      </Stack>
     </Modal>
   );
 }
@@ -566,12 +625,13 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
   };
 
   const timeline: TimelineItem[] = [
-    { key: "reg", icon: "flag", title: `Registrerad – ${cdSourceLabel(cd.source).toLowerCase()}`, sub: fmtDateTime(cd.raisedAt), filled: true },
+    // Datum utan klockslag: avvikelsen registreras med dag, inte tidpunkt (klockslaget vore påhittat).
+    { key: "reg", icon: "flag", title: `Registrerad – ${cdSourceLabel(cd.source).toLowerCase()}`, sub: fmtDate(cd.raisedAt), filled: true },
     ...(cd.hasPlan
       ? [{ key: "plan", icon: "clipboard" as const, title: "Åtgärdsplan skickad till kommunen", sub: cd.planSubmittedAt ? fmtDateTime(cd.planSubmittedAt) : cd.actionPlanDue ? `Klart senast ${fmtDate(cd.actionPlanDue)}` : "" }]
       : []),
     ...(cd.customerApprovedAt
-      ? [{ key: "ok", icon: "check" as const, title: `Godkänd av kommunen${cd.approvedByName ? ` (registrerat av ${cd.approvedByName})` : ""}`, sub: fmtDateTime(cd.customerApprovedAt), filled: true }]
+      ? [{ key: "ok", icon: "check" as const, title: `Godkänd av kommunen${cd.approvedByName ? ` (registrerat av ${cd.approvedByName})` : ""}`, sub: fmtDate(cd.customerApprovedAt), filled: true }]
       : []),
     ...(cd.warningIssued ? [{ key: "warn", icon: "alert" as const, title: "Skriftlig varning från kommunen", sub: cd.warningIssuedAt ? fmtDateTime(cd.warningIssuedAt) : "", tone: "red" as const }] : []),
     ...(closed ? [{ key: "closed", icon: "check-circle" as const, title: "Klar", sub: cd.closedOn ? (cd.closedOn.length > 10 ? fmtDateTime(cd.closedOn) : fmtDate(cd.closedOn)) : "–", filled: true }] : []),
@@ -606,7 +666,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                   ["Typ", cdTypeLabel(cd.type)],
                   ["Nivå", cdLevelLabel(cd.level)],
                   ["Källa", cdSourceLabel(cd.source)],
-                  ["Datum", fmtDateTime(cd.raisedAt)],
+                  ["Datum", fmtDate(cd.raisedAt)],
                   cd.caseId && cd.caseNumber ? ["Ärende", <CaseLink key="c" caseId={cd.caseId} caseNumber={cd.caseNumber} />] : null,
                   ["Ansvarig", cd.ownerName ?? "Ingen utsedd"],
                   cd.registeredByName ? ["Registrerad av", cd.registeredByName] : null,
@@ -690,7 +750,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                       "Kommunens godkännande",
                       cd.customerApprovedAt ? (
                         <Badge tone="blue" icon="check-circle">
-                          Godkänd {fmtDateTime(cd.customerApprovedAt)}
+                          Godkänd {fmtDate(cd.customerApprovedAt)}
                         </Badge>
                       ) : (
                         <Badge tone="grey" icon="clock">
@@ -739,7 +799,8 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                   />
                 </Field>
                 <div>
-                  <Button kind="primary" icon="check" pending={closeCmd.pending} onClick={() => void close()}>
+                  {/* Primär bara när inget annat väntar: finns en plan som kommunen inte godkänt är Registrera godkännandet huvudhandlingen. */}
+                  <Button kind={cd.customerApprovedAt || !cd.hasPlan ? "primary" : "secondary"} icon="check" pending={closeCmd.pending} onClick={() => void close()}>
                     Markera som klar
                   </Button>
                 </div>

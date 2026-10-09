@@ -69,83 +69,102 @@ function CaseList({ d }: { d: KomCaseList }) {
         back={{ label: "Till start", to: "/portal" }}
         lead="De deltagare som du har beställt en insats för. Välj en deltagare för att se hur insatsen går, rapporter och meddelanden."
       />
-      <Stack>
-        <Seg
-          ariaLabel="Visa deltagare"
-          value={filter}
-          onValueChange={(v) => {
-            setFilter(v);
-            more();
-          }}
-          options={LIST_FILTERS.filter((o) => o.value !== "avbojda" || counts.avbojda > 0).map((o) => ({ value: o.value, label: `${o.label} (${counts[o.value]})` }))}
-        />
-        <Field id="kom-sok" label="Sök" help="Skriv ett namn eller ett ärendenummer, till exempel BOT-26-0143. Ärendenumret är beställningens nummer.">
-          <Input
-            type="search"
-            value={q}
-            onValueChange={(v) => {
-              setQ(v);
-              more();
-            }}
-          />
-        </Field>
-        {(term || elsewhere.length > 0) && (
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            {elsewhere.map((o) => (
-              <span key={o.value} className="inline-flex flex-wrap items-center gap-2">
-                <Icon name="info" />
-                {o.n === 1 ? "1 träff" : `${o.n} träffar`} bland {o.label.toLowerCase()}
-                <Button
-                  onClick={() => {
-                    setFilter(o.value);
-                    more();
-                  }}
-                >
-                  Visa
-                </Button>
-              </span>
-            ))}
-            {term && (
-              <Button kind="ghost" icon="x" onClick={() => setQ("")}>
-                Rensa sökningen
+      {all.length === 0 ? (
+        // Ny handläggare utan någon beställning: inga filter eller sökfält att tolka – bara nästa steg.
+        <Card>
+          <Empty
+            icon="users"
+            title="Du har inte beställt någon insats än"
+            action={
+              <Button kind="primary" icon="file-plus" to="/portal/bestall">
+                Beställ ny insats
               </Button>
-            )}
-          </div>
-        )}
-      </Stack>
-      <Card flush title={`${rows.length} deltagare`} icon="users">
-        {rows.length === 0 ? (
-          <Empty icon="search" title="Inga deltagare hittades">
-            Prova ett annat filter eller en annan sökning.
+            }
+          >
+            När du har skickat en beställning visas deltagaren här med status, rapporter och meddelanden.
           </Empty>
-        ) : (
-          <List>
-            {rows.slice(0, limit).map((c) => (
-              <ListItem
-                key={c.id}
-                to={`/portal/deltagare/${encodeURIComponent(c.id)}`}
-                className={c.unread > 0 || (c.status === "declined" && c.recentlyDeclined) ? UNREAD_EDGE : undefined}
-                chevron
-                title={c.name}
-              >
-                <span className="flex flex-wrap items-center gap-2.5">
-                  <KStatus c={c} />
-                  {c.unread > 0 && (
-                    <Badge tone="dark" icon="message">
-                      {c.unread === 1 ? "1 nytt meddelande" : `${c.unread} nya meddelanden`}
-                    </Badge>
-                  )}
-                </span>
-                <SubLine>
-                  {c.caseNumber} · {c.primaryAreaName ?? "Avtalsområde inte valt än"}
-                </SubLine>
-                <SubLine>{shortStatus(c, d.phaseCount)}</SubLine>
-              </ListItem>
-            ))}
-          </List>
-        )}
-        <MoreButton shown={Math.min(limit, rows.length)} total={rows.length} onMore={() => setLimit(limit + 20)} />
-      </Card>
+        </Card>
+      ) : (
+        <>
+          <Stack>
+            <Seg
+              ariaLabel="Visa deltagare"
+              value={filter}
+              onValueChange={(v) => {
+                setFilter(v);
+                more();
+              }}
+              options={LIST_FILTERS.filter((o) => o.value !== "avbojda" || counts.avbojda > 0).map((o) => ({ value: o.value, label: `${o.label} (${counts[o.value]})` }))}
+            />
+            <Field id="kom-sok" label="Sök" help="Skriv ett namn eller ett ärendenummer, till exempel BOT-26-0143. Ärendenumret är beställningens nummer.">
+              <Input
+                type="search"
+                value={q}
+                onValueChange={(v) => {
+                  setQ(v);
+                  more();
+                }}
+              />
+            </Field>
+            {(term || elsewhere.length > 0) && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {elsewhere.map((o) => (
+                  <span key={o.value} className="inline-flex flex-wrap items-center gap-2">
+                    <Icon name="info" />
+                    {o.n === 1 ? "1 träff" : `${o.n} träffar`} bland {o.label.toLowerCase()}
+                    <Button
+                      onClick={() => {
+                        setFilter(o.value);
+                        more();
+                      }}
+                    >
+                      Visa
+                    </Button>
+                  </span>
+                ))}
+                {term && (
+                  <Button kind="ghost" icon="x" onClick={() => setQ("")}>
+                    Rensa sökningen
+                  </Button>
+                )}
+              </div>
+            )}
+          </Stack>
+          <Card flush title={`${rows.length} deltagare`} icon="users">
+            {rows.length === 0 ? (
+              <Empty icon="search" title="Inga deltagare hittades">
+                Prova ett annat filter eller en annan sökning.
+              </Empty>
+            ) : (
+              <List>
+                {rows.slice(0, limit).map((c) => (
+                  <ListItem
+                    key={c.id}
+                    to={`/portal/deltagare/${encodeURIComponent(c.id)}`}
+                    className={c.unread > 0 || (c.status === "declined" && c.recentlyDeclined) ? UNREAD_EDGE : undefined}
+                    chevron
+                    title={c.name}
+                  >
+                    <span className="flex flex-wrap items-center gap-2.5">
+                      <KStatus c={c} />
+                      {c.unread > 0 && (
+                        <Badge tone="dark" icon="message">
+                          {c.unread === 1 ? "1 nytt meddelande" : `${c.unread} nya meddelanden`}
+                        </Badge>
+                      )}
+                    </span>
+                    <SubLine>
+                      {c.caseNumber} · {c.primaryAreaName ?? "Avtalsområde inte valt än"}
+                    </SubLine>
+                    <SubLine>{shortStatus(c, d.phaseCount)}</SubLine>
+                  </ListItem>
+                ))}
+              </List>
+            )}
+            <MoreButton shown={Math.min(limit, rows.length)} total={rows.length} onMore={() => setLimit(limit + 20)} />
+          </Card>
+        </>
+      )}
       {d.scopeUnset && (
         <DemoNote>Om handläggaren ska kunna se fler än sina egna deltagare är inte bestämt ännu. Nu ser handläggaren bara sina egna.</DemoNote>
       )}

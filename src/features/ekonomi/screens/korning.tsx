@@ -186,6 +186,13 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
   const step2Done = toApprove.length === 0;
   const step3Done = allDone;
   const openLineRow = openId ? allLines.find((l) => l.caseId === openId) : null;
+  // Månadsväljaren: körningarna som finns, plus den visade månaden om den saknas (tom databas). En enda månad behöver ingen väljare.
+  const monthOptions = (() => {
+    const opts = v.runs.map((r) => ({ value: r.month, label: `${monthLabel(r.month)}${r.status === "draft" ? " (pågår)" : ""}` }));
+    return opts.some((o) => o.value === mk) ? opts : [{ value: mk, label: monthLabel(mk) }, ...opts];
+  })();
+  // En stängd körning skickar inget mer till Fortnox – knapparna visas inte.
+  const closedRun = v.run?.status === "closed";
 
   return (
     <Page className={WRAP}
@@ -198,19 +205,16 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
           : `En faktura per ärende och månad. Fyll i beställarreferensen, granska anmärkningarna, godkänn och ${fortnox ? "skapa fakturorna i Fortnox" : "markera fakturorna som manuellt fakturerade när de är skapade i Fortnox"}.`
       }
       actions={
-        <div className="flex flex-wrap items-center gap-1.5">
-          <label htmlFor="eko-month" className="text-small font-bold">
-            Månad
-          </label>
-          <div className="w-[210px] max-w-full">
-            <Select
-              id="eko-month"
-              value={mk}
-              options={v.runs.map((r) => ({ value: r.month, label: `${monthLabel(r.month)}${r.status === "draft" ? " (pågår)" : ""}` }))}
-              onValueChange={(x) => nav.replace(`/ekonomi/${x}`)}
-            />
+        monthOptions.length > 1 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label htmlFor="eko-month" className="text-small font-bold">
+              Månad
+            </label>
+            <div className="w-[210px] max-w-full">
+              <Select id="eko-month" value={mk} options={monthOptions} onValueChange={(x) => nav.replace(`/ekonomi/${x}`)} />
+            </div>
           </div>
-        </div>
+        ) : undefined
       }
     >
       <div className="flex flex-wrap items-center gap-1.5">
@@ -242,7 +246,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
           sub={blocked.length ? "Kan inte skapas utan giltig beställarreferens" : "Inga stoppade"}
         />
         <EkoKpi
-          label={"Kräver godkän­nande"}
+          label="Att godkänna"
           value={num(pendingZero.length)}
           tone={pendingZero.length ? "watch" : null}
           statusText="Granska"
@@ -379,7 +383,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
               )}
             </StepText>
             <div className="flex flex-wrap items-center gap-1.5">
-              {act && fortnox && (
+              {act && fortnox && !closedRun && (
                 <Button
                   kind="primary"
                   icon="upload"
@@ -391,7 +395,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
                   Skapa i Fortnox ({fresh.length})
                 </Button>
               )}
-              {act && fortnox && toSync.length > 0 && (
+              {act && fortnox && !closedRun && toSync.length > 0 && (
                 <Button kind="secondary" icon="refresh" className="text-left whitespace-normal" pending={fortnoxSync.pending} onClick={() => void sync()}>
                   Hämta status från Fortnox
                 </Button>
@@ -974,31 +978,41 @@ function ManualModal({ month, invoices, presetId, onClose }: { month: string; in
       onClose={onClose}
       dirty={!!no.trim()}
       footer={
-        <>
-          <ModalCancelButton />
-          <Button kind="primary" icon="check" pending={markManual.pending} onClick={() => void save()}>
-            Spara
-          </Button>
-        </>
+        options.length === 0 ? (
+          <ModalCancelButton>Stäng</ModalCancelButton>
+        ) : (
+          <>
+            <ModalCancelButton />
+            <Button kind="primary" icon="check" pending={markManual.pending} onClick={() => void save()}>
+              Spara
+            </Button>
+          </>
+        )
       }
     >
       <p>
         Använd reservvägen när fakturan har registrerats för hand i Fortnox eller i kommunens kostnadsfria fakturaportal. Fakturanumret sparas och raderna låses, så att
         samma vecka inte faktureras två gånger.
       </p>
-      {options.length === 0 && <Notice tone="info">Ingen faktura kan markeras just nu. Fakturan behöver giltig beställarreferens och godkända veckor utan närvaro.</Notice>}
-      <Field id="eko-manual-invoice" label="Faktura" required help="Stoppade och redan skapade fakturor går inte att välja." error={tried ? errInv : undefined}>
-        <Select
-          value={invoiceId}
-          onValueChange={setInvoiceId}
-          placeholder="Välj faktura"
-          invalid={tried && !!errInv}
-          options={options.map((o) => ({ value: o.id, label: `${o.title} · ${plural(o.lines.length, "rad", "rader")} · ${kr(o.amountOre)}` }))}
-        />
-      </Field>
-      <Field id="eko-manual-no" label="Fakturanummer" required help="Numret från Fortnox eller från kommunens fakturaportal." error={tried ? errNo : undefined}>
-        <Input value={no} onValueChange={setNo} inputMode="numeric" maxLength={10} invalid={tried && !!errNo} />
-      </Field>
+      {options.length === 0 ? (
+        // Inga fält som inte går att fylla i: bara beskedet och Stäng.
+        <Notice tone="info">Ingen faktura kan markeras just nu. Fakturan behöver giltig beställarreferens och godkända veckor utan närvaro.</Notice>
+      ) : (
+        <>
+          <Field id="eko-manual-invoice" label="Faktura" required help="Stoppade och redan skapade fakturor går inte att välja." error={tried ? errInv : undefined}>
+            <Select
+              value={invoiceId}
+              onValueChange={setInvoiceId}
+              placeholder="Välj faktura"
+              invalid={tried && !!errInv}
+              options={options.map((o) => ({ value: o.id, label: `${o.title} · ${plural(o.lines.length, "rad", "rader")} · ${kr(o.amountOre)}` }))}
+            />
+          </Field>
+          <Field id="eko-manual-no" label="Fakturanummer" required help="Numret från Fortnox eller från kommunens fakturaportal." error={tried ? errNo : undefined}>
+            <Input value={no} onValueChange={setNo} inputMode="numeric" maxLength={10} invalid={tried && !!errNo} />
+          </Field>
+        </>
+      )}
     </Modal>
   );
 }

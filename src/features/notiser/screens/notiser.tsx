@@ -109,7 +109,7 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
       <Card flush>
         {list.length === 0 ? (
           <Empty icon="bell" title="Inga notiser">
-            När du får ett ärende tilldelat eller en påminnelse visas den här.
+            Nya uppgifter, påminnelser och besked som gäller dig visas här.
           </Empty>
         ) : (
           <List data-notif-list="">

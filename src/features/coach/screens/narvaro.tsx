@@ -23,7 +23,7 @@ type Week = "last" | "this";
 type Show = "open" | "all";
 
 /** Tomt läge: säger vad som gör att tillfällen dyker upp (tom databas, nytt ärende utan schema). */
-const NO_SESSIONS_TEXT = "Tillfällen skapas när ett ärende är bekräftat och har ett schema. Då registrerar du närvaron här med ett klick per tillfälle.";
+const NO_SESSIONS_TEXT = "Tillfällen skapas när insatsen startas – knappen Starta insatsen på deltagarkortet efter första mötet. Sedan registrerar du närvaron här med ett klick per tillfälle.";
 type AttStatus = "present" | "late" | "absent_valid" | "absent_invalid";
 
 export function NarvaroScreen({ query }: ScreenProps) {

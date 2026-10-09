@@ -258,7 +258,7 @@ test("integrationer: underbiträden, regioner och bakgrundsjobb", async ({ page 
   const t = await text(page);
   for (const s of ["eu-north-1", "arn1", "Vertex AI", "Fortnox"]) expect(t).toContain(s);
   expect(t).not.toContain("Berget AI");
-  expect(t).toContain("Regeln är inte fastställd (fråga 11)");
+  expect(t).toContain("Gallringsregeln är inte fastställd med kommunen ännu");
   // Veckorapportjobbets tid läses från avtalet (veckorapport_publicering 16:00)
   expect(t).toContain("senast 16.00 enligt avtalet");
   expect(t).toContain("17 påminnelser till coacher, 3 eskaleringar till chef");

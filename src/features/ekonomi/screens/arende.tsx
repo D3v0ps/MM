@@ -22,7 +22,7 @@ export function ArendeScreen({ params }: ScreenProps) {
 
 function ArendeLoader({ caseId }: { caseId: string }) {
   const q = useQuery(ekoCase, { caseId });
-  const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: "Ärende", to: "/ekonomi/arende" }, { label: q.data?.caseNumber ?? "Ärende" }];
+  const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: "Sök ärende", to: "/ekonomi/arende" }, { label: q.data?.caseNumber ?? "Ärende" }];
   if (q.error) return <Page className={WRAP} title="Ärende" crumbs={crumbs}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (q.data === undefined) return <Page className={WRAP} title="Ärende" crumbs={crumbs}><Loading /></Page>;
   if (q.data === null) return <CasePicker />;
@@ -33,11 +33,11 @@ function ArendeLoader({ caseId }: { caseId: string }) {
 function CasePicker() {
   const q = useQuery(ekoCaseList, {});
   const [search, setSearch] = useState("");
-  const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: "Ärende" }];
+  const crumbs = [{ label: "Fakturering", to: "/ekonomi" }, { label: "Sök ärende" }];
   const needle = search.trim().toUpperCase();
   const list = (q.data?.cases ?? []).filter((c) => !needle || c.caseNumber.includes(needle));
   return (
-    <Page className={WRAP} title="Ärende" crumbs={crumbs} lead="Sök på ärendenumret för att se debiterbara veckor, fakturastatus och vad som återstår av beställningen.">
+    <Page className={WRAP} title="Sök ärende" crumbs={crumbs} lead="Sök på ärendenumret för att se debiterbara veckor, fakturastatus och vad som återstår av beställningen.">
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
       ) : !q.data ? (
