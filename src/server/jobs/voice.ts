@@ -8,7 +8,7 @@ import type { Repo } from "@/data/repo";
 import { DataError } from "@/data/supabase/repo";
 import type { Job } from "@/data/schema";
 import {
-  failVoiceJob, runVoiceJob, toVoiceJobError, VOICE_JOB_KINDS, voiceErrorCodeFromText, VoiceJobError, type VoiceJobKind,
+  failVoiceJob, runVoiceJob, toVoiceJobError, VOICE_JOB_KINDS, voiceErrorCodeFromText, VoiceJobError, voiceJobErrorText, type VoiceJobKind,
 } from "@/features/_shared/voice-jobs";
 import { JobError } from "./errors";
 import { INTERRUPTED_REASON, MAX_ATTEMPTS, type JobHandler } from "./runner";
@@ -38,7 +38,8 @@ export function voiceJobHandlers<D extends VoiceDeps>(): Record<VoiceJobKind, Jo
           const last = !err.retryable || job.attempts >= MAX_ATTEMPTS;
           // Sista försöket: körningen markeras här, med AI-anropens mätvärden (onGiveUp får bara felets text).
           if (last) await failVoiceJob(ctx, kind, job.payload, err);
-          throw new JobError(err.message, { retryable: err.retryable });
+          // jobs.last_error: den fasta texten + adapterns tekniska felorsak (t.ex. Googles meddelande vid HTTP 400).
+          throw new JobError(voiceJobErrorText(err), { retryable: err.retryable });
         }
       },
       async onGiveUp(job, reason, d) {

@@ -4,7 +4,8 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RuntimeProvider, type RuntimeMode } from "@/shell/runtime";
-import { audioFileType, Recorder, type RecordedAudio } from "./recorder";
+import { normalizeAudioMime } from "@/features/_shared/audio-port";
+import { audioFileType, pickMimeType, Recorder, RECORDING_MIME_PREFERENCE, type RecordedAudio } from "./recorder";
 
 afterEach(() => {
   cleanup();
@@ -20,6 +21,25 @@ describe("audioFileType", () => {
     expect(audioFileType({ name: "samtal.webm", type: "video/webm" })).toBe("audio/webm");
     expect(audioFileType({ name: "samtal.pdf", type: "application/pdf" })).toBeNull();
     expect(audioFileType({ name: "film.avi", type: "" })).toBeNull();
+  });
+});
+
+describe("pickMimeType", () => {
+  it("föredrar mp4/AAC, sedan ogg/opus, sist webm/opus – och alla grundtyper tas emot av lagringen", () => {
+    const only = (...ok: string[]) => ({ isTypeSupported: (t: string) => ok.includes(t) });
+    // Chrome/Edge på Windows och macOS, Safari
+    expect(pickMimeType(only("audio/webm;codecs=opus", "audio/webm", "audio/mp4;codecs=mp4a.40.2", "audio/mp4"))).toBe("audio/mp4;codecs=mp4a.40.2");
+    expect(pickMimeType(only("audio/mp4"))).toBe("audio/mp4");
+    // Firefox
+    expect(pickMimeType(only("audio/webm;codecs=opus", "audio/ogg;codecs=opus"))).toBe("audio/ogg;codecs=opus");
+    // Chrome på Linux och Chromebook
+    expect(pickMimeType(only("audio/webm;codecs=opus", "audio/webm"))).toBe("audio/webm;codecs=opus");
+    expect(pickMimeType(only())).toBe("");
+    expect(pickMimeType(undefined)).toBe("");
+    expect(pickMimeType({})).toBe("");
+    expect(pickMimeType({ isTypeSupported: () => { throw new Error("nej"); } })).toBe("");
+    expect(RECORDING_MIME_PREFERENCE).toEqual(["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/webm"]);
+    for (const t of RECORDING_MIME_PREFERENCE) expect(normalizeAudioMime(t)).toBe(t.split(";")[0]);
   });
 });
 
