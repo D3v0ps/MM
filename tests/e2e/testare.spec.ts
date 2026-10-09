@@ -93,7 +93,10 @@ test.describe("begränsad testare (appen)", () => {
     await expect(main(page).getByText("Underbiträdena, regionlåsningen och kommunens villkor visas inte för testare.")).toBeVisible();
     // Leverantörerna och regionerna står inte heller i integrationskorten eller i nyckeltalet "Data lagras i".
     const it = await pageText(page);
-    for (const s of ["Supabase", "Vercel", "Resend", "resend._domainkey", "Google", "Vertex", "Gemini", "eu-north-1", "eu-west-1", "arn1"]) expect(it, s).not.toContain(s);
+    for (const s of ["Supabase", "Vercel", "Resend", "resend._domainkey", "Google", "Vertex", "Gemini", "eu-north-1", "eu-west-1", "arn1", "46elks", "ELKS_"]) expect(it, s).not.toContain(s);
+    // SMS och utringning (beslut 2026-10-09): läget syns, leverantören och variablerna inte.
+    await expect(page.getByRole("heading", { name: "SMS", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Utringning", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "E-postleverantör" })).toBeVisible();
     // Kör nu fungerar för alla testare.
     await page.getByRole("row", { name: /Beräkna nyckeltal/ }).getByRole("button", { name: "Kör nu" }).click();

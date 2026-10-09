@@ -584,7 +584,7 @@ function BookModal({ c, today, meetingText, onClose }: { c: StartView["firstMeet
           Mötet markeras i uppföljningen av nyckeltalet för första möte.
         </Notice>
       )}
-      <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får du en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
+      <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
     </Modal>
   );
 }

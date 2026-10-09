@@ -12,7 +12,8 @@ const ROBIN: Who = { userId: "u-robin", role: "admin" };
 const main = (page: Page) => page.locator("#main");
 const dialog = (page: Page) => page.getByRole("dialog");
 const toastWith = (page: Page, text: string | RegExp) => page.getByRole("status").filter({ hasText: text });
-const card = (page: Page, title: string) => main(page).locator("section").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+/** Kortet med rubriken (närmaste section – avsnittet Integrationer runt korten är också en section). */
+const card = (page: Page, title: string) => main(page).getByRole("heading", { name: title, exact: true }).locator("xpath=ancestor::section[1]");
 
 /** Byt testperson utan att nollställa testdata (som i admin.spec.ts). */
 async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
@@ -34,7 +35,7 @@ test("kallelsen går med e-post när deltagaren har e-post – SMS och utringnin
   const m = main(page);
   await expect(m.getByRole("link", { name: "BOT-27-0039" })).toBeVisible();
   await m.getByRole("button", { name: "Boka", exact: true }).first().click();
-  await expect(dialog(page)).toContainText("Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får du en uppgift att ringa deltagaren.");
+  await expect(dialog(page)).toContainText("Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren.");
   await dialog(page).getByRole("button", { name: "Boka mötet" }).click();
   await expect(dialog(page)).toHaveCount(0);
   // Deltagaren har e-post (och har valt brev): e-posten går, brevet skickas för hand. SMS är inte kopplat.
