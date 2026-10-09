@@ -14,6 +14,8 @@ import { useQueryPatch } from "@/shell/url-state";
 import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
+import { activityRemove } from "@/features/arenden/api";
+import { ActivityModal } from "@/features/arenden/screens/kort-start";
 import { attendanceSet, attendanceSetAll, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
 import { ATT_OPTIONS, AttBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, Persp } from "./shared";
 
@@ -64,6 +66,22 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
   const [inflight, setInflight] = useState<Record<string, true>>({});
   // Senaste "Markera alla som närvarande": visas som statusrad (läses upp) tills veckan eller dagen byts.
   const [bulk, setBulk] = useState<{ day: string; marked: number; total: number } | null>(null);
+  // Lägg till och ta bort enstaka tillfällen (beslut 2026-10-08) – bara tillfällen utan registrerad närvaro kan tas bort.
+  const [adding, setAdding] = useState(false);
+  const remove = useCommand(activityRemove);
+  const removeActivity = async (a: NarvaroRow) => {
+    const ok = await confirm({
+      title: "Ta bort tillfället?",
+      body: `${kindOf(a.kind).label} ${dayLabel(a.startsAt)} ${fmtTime(a.startsAt)} för ${a.name} tas bort.`,
+      confirmLabel: "Ta bort",
+      cancelLabel: "Avbryt",
+      tone: "danger",
+    });
+    if (!ok) return;
+    const res = await remove.run({ activityId: a.activityId }).catch(() => null);
+    if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Tillfället kunde inte tas bort.", "error");
+    else toast("Tillfället är borttaget.");
+  };
   const setWeek = (w: Week) => {
     // Veckan i adressen (replace): Tillbaka och omladdning visar samma vecka.
     patch({ vecka: w === "last" ? "forra" : "denna" });
@@ -215,7 +233,12 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
         </div>
         <div className="col-start-2 flex min-w-0 flex-col gap-2 max-[560px]:col-span-full max-[560px]:col-start-1">
           {future ? (
-            <span className="text-body text-text-muted">Registreras när tillfället har startat.</span>
+            <Row gap="sm">
+              <span className="text-body text-text-muted">Registreras när tillfället har startat.</span>
+              <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
+                Ta bort
+              </Button>
+            </Row>
           ) : (
             <>
               <Seg
@@ -334,7 +357,21 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
         {day !== "all" && <Row>{markAllButton(day)}</Row>}
       </Stack>
 
-      <Card flush title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`} icon="list" actions={<span className="text-small text-text-muted">{visible.length} visas</span>}>
+      <Card
+        flush
+        title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`}
+        icon="list"
+        actions={
+          <Row gap="sm">
+            <span className="text-small text-text-muted">{visible.length} visas</span>
+            {v.cases.length > 0 && (
+              <Button icon="plus" onClick={() => setAdding(true)}>
+                Lägg till tillfälle
+              </Button>
+            )}
+          </Row>
+        }
+      >
         {visible.length === 0 ? (
           <Empty
             icon="check-square"
@@ -442,6 +479,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           </Stack>
         </Card>
       </Split>
+      {adding && <ActivityModal cases={v.cases} caseId={caseId} now={now} onClose={() => setAdding(false)} />}
     </Page>
   );
 }

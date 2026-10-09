@@ -3,11 +3,13 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import {
-  CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PriorAssessment,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PriorAssessment, type TeamRole,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
 import type { SlaTone } from "@/core/sla";
+import { WEEK_PLAN_KINDS } from "@/core/config";
+import type { WeekPlanRow } from "@/core/schedule";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText, WeekKeySchema } from "../_shared/schemas";
 import type { ReportDocView } from "../rapporter/api";
 import type { MonthlyGaps } from "../rapporter/model";
@@ -170,6 +172,73 @@ export const caseChangeCoach = command("arenden.caseChangeCoach", z.object({
   toCoachId: IdSchema,
   reason: z.string().max(2000),
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<Result<object, "not_found" | "reason" | "coach" | "forbidden">>();
+
+// ---- Starta insatsen, veckoplan, tillfällen och team (beslut 2026-10-08, skarp drift: i skarp drift blev ett ärende aldrig "Pågår")
+const TimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Klockslag ska skrivas TT:MM");
+/** En rad i veckoplanen: veckodag 0–4 (måndag–fredag), typ, klockslag, längd och plats. */
+export const WeekPlanRowSchema = z.strictObject({
+  weekday: z.number().int().min(0).max(4),
+  kind: z.enum(WEEK_PLAN_KINDS),
+  time: TimeSchema,
+  durationMin: z.number().int().min(15).max(600),
+  location: ShortText,
+});
+export const WeekPlanSchema = z.array(WeekPlanRowSchema).min(1).max(10);
+
+/**
+ * Starta insatsen: bekräftat ärende med bokat första möte. Startdatumet är första mötets dag om inget annat anges och
+ * aldrig före mötet. Sätter status Pågår och startdatum, skapar tillfällena från startdatumet till planerat slut enligt
+ * veckoplanen (helgdagar hoppas över, högst 60 veckor), statushistorik och loggen case.started. Huvudcoachen, samordnare
+ * och avtalsansvarig.
+ */
+// Omräkning brett med flit: statusen och tillfällena syns i listor, Min vecka, närvaro, portal, rapporter, KPI:er och fakturering.
+export const caseStart = command("arenden.caseStart", z.object({
+  caseId: IdSchema,
+  startDate: LocalDateSchema,
+  plan: WeekPlanSchema,
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "start_date" | "no_end" | "plan">
+>();
+
+/**
+ * Ändra veckoplanen för ett pågående ärende: framtida tillfällen utan registrerad närvaro ersätts av den nya planen;
+ * tillfällen med närvaro rörs aldrig. Praktikdagar från en praktik rörs bara om planen själv innehåller praktikdagar.
+ * Logg case.schedule_changed.
+ */
+export const caseScheduleChange = command("arenden.caseScheduleChange", z.object({
+  caseId: IdSchema,
+  plan: WeekPlanSchema,
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan">
+>();
+
+/** Lägg till ett enstaka tillfälle i ett pågående ärende (den som arbetar i ärendet). Logg activity.added. */
+export const activityAdd = command("arenden.activityAdd", z.object({
+  caseId: IdSchema,
+  kind: z.enum(ACTIVITY_KINDS),
+  startsAt: LocalDateTimeSchema,
+  durationMin: z.number().int().min(15).max(600),
+  location: ShortText,
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate">
+>();
+
+/** Ta bort ett tillfälle som saknar registrerad närvaro. Logg activity.removed. */
+export const activityRemove = command("arenden.activityRemove", z.object({ activityId: IdSchema }), {
+  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG],
+}).returns<Result<object, "not_found" | "forbidden" | "has_attendance">>();
+
+/**
+ * Ändra teamet (samordnare och avtalsansvarig): handledare, arbetsgivarmatchare och SYV/metodstöd läggs till eller tas
+ * bort. Huvudcoachen byts med arenden.caseChangeCoach (orsak och notis till kommunen). Nya medlemmar får samma notis som
+ * vid accept (bara ärendenummer). Logg case.team_changed.
+ */
+export const caseSetTeam = command("arenden.caseSetTeam", z.object({
+  caseId: IdSchema,
+  team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10),
+}), { invalidates: [CASES, COACH, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<
+  Result<{ added: number; removed: number }, "not_found" | "forbidden" | "wrong_status" | "team">
+>();
 
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
@@ -420,7 +489,7 @@ export type CaseCard = {
   /** Inte för teamet. */
   buyer: { reference: string | null; problem: string | null; purchaseOrderNumber: string | null } | null;
   leadCoach: { id: string; name: string } | null;
-  team: { userId: string; name: string; roleLabel: string }[];
+  team: { userId: string; name: string; role: TeamRole; roleLabel: string }[];
   /** Teamet har en huvudcoach (för texten "Bara huvudcoach"). */
   hasLeadInTeam: boolean;
   /** Den inloggades roll i teamet (teamåtkomst). */
@@ -453,6 +522,15 @@ export type CaseCard = {
   background: CaseBackground | null;
   /** Coacher att byta till, med antal aktiva ärenden (bara samordnare och avtalsansvarig). */
   coachOptions: { id: string; name: string; active: number }[];
+  /**
+   * Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte, för den som får ändra i ärendet.
+   * Standardplanen ur avtalet med första mötets dag och tid, och startdatumet (första mötets dag).
+   */
+  start: { firstMeetingAt: string; startDate: string; plan: WeekPlanRow[] } | null;
+  /** Nuvarande veckoplan i ett pågående ärende (ur kommande tillfällen, annars avtalets standard) – för Ändra veckoplan. */
+  weekPlan: WeekPlanRow[] | null;
+  /** Kandidater till teamet (bara samordnare och avtalsansvarig i ett öppet ärende): rollen handledare, och all MB-personal utom ekonom och admin. */
+  teamOptions: { supervisors: { id: string; name: string }[]; staff: { id: string; name: string }[] } | null;
 };
 export type CaseCardResult =
   | CaseCard
@@ -505,6 +583,8 @@ export type CaseAttendance = {
   repeated: { dates: string[]; absentInvalid: number; withinDays: number } | null;
   /** Senaste tio passerade tillfällena, senaste först. */
   past: (CaseActivity & { attendance: { status: AttendanceStatus; reason: string } | null })[];
+  /** Kommande tillfällen (högst tio) – kan tas bort tills närvaro registrerats (beslut 2026-10-08). */
+  upcoming: (CaseActivity & { durationMin: number })[];
   /** "måndag 10.00" – när närvaron ska vara registrerad (avtalet), eller null. */
   registerBy: string | null;
 };

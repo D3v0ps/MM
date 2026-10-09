@@ -246,6 +246,31 @@ function Week({ v }: { v: StartView }) {
             </Card>
           )}
 
+          {v.toStart.length > 0 && (
+            <Card
+              id="mv-starta"
+              title="Insatser att starta"
+              icon="play"
+              flush
+              foot={<span className="text-text-muted">Första mötet har hållits. Starta insatsen så att tillfällen, närvaro och rapporter kommer igång – coachen kan också göra det.</span>}
+            >
+              <MiniList>
+                {v.toStart.map((c) => (
+                  <MiniRow
+                    key={c.caseId}
+                    main={<CaseLink caseId={c.caseId} caseNumber={c.caseNumber} className="-ml-1.5" />}
+                    sub={c.sub}
+                    right={
+                      <Button kind="primary" icon="play" to={`/arenden/${encodeURIComponent(c.caseId)}?starta=1`}>
+                        Starta insatsen
+                      </Button>
+                    }
+                  />
+                ))}
+              </MiniList>
+            </Card>
+          )}
+
           {v.noCoach.length === 0 ? (
             <DoneLine title="Ärenden utan coach" icon="user">
               Alla ärenden har en coach. Coach tilldelas när avropet accepteras.

@@ -9,7 +9,7 @@ import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
 import { coaches, phaseSince, stuck } from "@/core/cases";
-import { isOperational, isUnset, phaseName, requireOperational, slaRule, type OperationalConfig } from "@/core/config";
+import { isOperational, isUnset, phaseName, requireOperational, slaRule, WEEK_PLAN_KINDS, type OperationalConfig } from "@/core/config";
 import {
   activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
   messagesOf, placementsOf, reportsOf,
@@ -19,6 +19,7 @@ import { plural } from "@/core/format";
 import {
   areaName, attLabel, contactLabel, END_REASONS, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
 } from "@/core/labels";
+import { defaultWeekPlan, normalizePlan, planActivities, planFromActivities, type PlannedActivity, type WeekPlanRow } from "@/core/schedule";
 import { scopeToContract } from "@/core/scope";
 import { avropDue, finalReportDueAt, firstMeetingDays, firstMeetingDue, isProvisionalDue, slaStatus, type SlaTone } from "@/core/sla";
 import {
@@ -36,6 +37,7 @@ import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
 import { revealPnr } from "../_shared/pnr";
+import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
 import { freezeReport } from "../rapporter/freeze";
@@ -46,7 +48,8 @@ import "./attachment-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
-  caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseSetBuyerRef, caseUpdate, consentSet, messageRead, messageSend,
+  activityAdd, activityRemove, caseAccept, caseBookFirstMeeting, caseChangeCoach, caseClose, caseCreate, caseDecline, caseScheduleChange, caseSetBuyerRef, caseSetTeam, caseStart,
+  caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
   caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, supervisorStart, TEAM_TABS,
@@ -173,7 +176,8 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   const team: { userId: string; role: TeamRole }[] = [{ userId: p.leadCoachId, role: "lead_coach" }];
   for (const t of p.team ?? []) {
     if (team.some((x) => x.userId === t.userId)) continue;
-    if (!(await hasRoleIn(ctx, t.userId, c.contractId, ["coach", "handledare"]))) return fail("team", "Välj teammedlemmar bland Miljonbemannings personal i avtalet.");
+    // Teamrollerna bygger på medlemskapens roller (beslut 2026-10-08): handledare, eller all MB-personal utom ekonom och admin.
+    if (t.role === "lead_coach" || !(await canHaveTeamRole(ctx, t.userId, c.contractId, t.role))) return fail("team", "Välj teammedlemmar bland Miljonbemannings personal i avtalet.");
     team.push({ userId: t.userId, role: t.role });
   }
 
@@ -385,6 +389,134 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
   await notifyAssignment(ctx, updated, p.toCoachId, "lead_coach", await orgSettingsFor(ctx, contract));
   await notifyReferrer(ctx, c, "coachbyte", `Ärende ${c.caseNumber} har fått ny huvudcoach. Logga in i portalen för att se vem.`);
   return ok({});
+});
+
+// ---------------------------------------------------------------- case.start, veckoplan, tillfällen och team (beslut 2026-10-08, skarp drift)
+// I skarp drift blev ett ärende aldrig "Pågår": ingen hanterare satte status active eller startdatum och inga tillfällen
+// skapades – bara testdatat gjorde det. Här startar huvudcoachen, samordnaren eller avtalsansvarig insatsen efter första
+// mötet: startdatum, status, tillfällen enligt veckoplanen, statushistorik och logg.
+const START_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
+const NO_START = "Insatsen kan startas när avropet är accepterat.";
+const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "" });
+/** Planen i loggen: bara dag, tid och typ – inga personuppgifter. */
+const planKeys = (plan: readonly WeekPlanRow[]) => plan.map((r) => `${WEEKDAYS[r.weekday]} ${r.time} ${r.kind}`);
+const isPlanKind = (k: string) => (WEEK_PLAN_KINDS as readonly string[]).includes(k);
+
+handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) return fail("not_found", NOT_FOUND);
+  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (c.status === "active" || c.status === "paused") return fail("wrong_status", "Insatsen har redan startat.");
+  if (c.status !== "confirmed") return fail("wrong_status", NO_START);
+  if (!c.firstMeetingAt) return fail("no_meeting", "Boka första mötet innan insatsen startar.");
+  const meetingDay = dayOf(c.firstMeetingAt);
+  if (p.startDate < meetingDay) return fail("start_date", `Startdatumet kan inte vara före första mötet ${fmtDate(meetingDay)}.`);
+  const end = c.plannedEnd;
+  if (!end || end < p.startDate) return fail("no_end", "Ärendet saknar ett planerat slut efter startdatumet. Rätta omfattningen i beställningen först.");
+  const plan = normalizePlan(p.plan);
+  if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
+  const rows = planActivities(plan, p.startDate, end, { pausedWeeks: c.pausedWeeks });
+  const acts = ctx.repo.table("activities");
+  for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
+  const meet = plan.find((r) => r.kind === "möte");
+  await ctx.repo.table("cases").update(c.id, {
+    status: "active", startDate: p.startDate, meetingDay: meet?.weekday ?? c.meetingDay, meetingTime: meet?.time ?? c.meetingTime,
+    phase: c.phase || 1, phaseSince: c.phaseSince ?? p.startDate,
+  });
+  await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "active", toCoach: c.leadCoachId, reason: "Insatsen startad" });
+  await ctx.audit({ action: "case.started", entity: "case", entityId: c.id, contractId: c.contractId, details: { startDate: p.startDate, plannedEnd: end, activities: rows.length, plan: planKeys(plan) } });
+  return ok({ activities: rows.length, firstActivityAt: rows[0]?.startsAt ?? null });
+});
+
+handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) return fail("not_found", NOT_FOUND);
+  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (c.status !== "active" && c.status !== "paused") return fail("wrong_status", "Veckoplanen kan ändras när insatsen pågår.");
+  const now = ctx.now();
+  const today = dayOf(now);
+  const end = c.endDate ?? c.plannedEnd;
+  if (!end || end < today) return fail("no_end", "Insatsens planerade slut har passerat – inga nya tillfällen kan planeras.");
+  const plan = normalizePlan(p.plan);
+  if (!plan.length) return fail("plan", "Välj minst en dag i veckoplanen.");
+  const acts = ctx.repo.table("activities");
+  const existing = await acts.list({ caseId: c.id });
+  const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
+  // Framtida tillfällen utan närvaro ersätts. Praktikdagar hör till praktiken och rörs bara om planen själv har praktikdagar.
+  const replacesPractice = plan.some((r) => r.kind === "praktikdag");
+  const removable = existing.filter((a) => a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice));
+  for (const a of removable) await acts.remove(a.id);
+  const kept = new Set(existing.filter((a) => !removable.includes(a)).map((a) => `${a.startsAt}|${a.kind}`));
+  const from = c.startDate && c.startDate > today ? c.startDate : today;
+  const rows = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now }).filter((r) => !kept.has(`${r.startsAt}|${r.kind}`));
+  for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
+  const meet = plan.find((r) => r.kind === "möte");
+  if (meet) await ctx.repo.table("cases").update(c.id, { meetingDay: meet.weekday, meetingTime: meet.time });
+  await ctx.audit({ action: "case.schedule_changed", entity: "case", entityId: c.id, contractId: c.contractId, details: { removed: removable.length, added: rows.length, plan: planKeys(plan) } });
+  return ok({ removed: removable.length, added: rows.length });
+});
+
+handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) return fail("not_found", NOT_FOUND);
+  if (c.status !== "active" && c.status !== "paused") return fail("wrong_status", "Tillfällen kan läggas till när insatsen pågår.");
+  if (c.startDate && dayOf(p.startsAt) < c.startDate) return fail("date", `Tillfället kan inte ligga före startdatumet ${fmtDate(c.startDate)}.`);
+  if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
+  const id = ctx.newId("a");
+  // Skrivningen går via behörigheten: handledaren bara i sina teamärenden (policyn/RLS för activities).
+  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "" });
+  await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
+  return ok({ activityId: id });
+});
+
+handleCommand(activityRemove, { roles: CASE_WORKERS }, async (ctx, p) => {
+  const a = await ctx.repo.table("activities").get(p.activityId);
+  if (!a) return fail("not_found", "Tillfället finns inte, eller så har du inte behörighet att se det.");
+  const c = await ctx.repo.table("cases").get(a.caseId);
+  if (!c) return fail("not_found", NOT_FOUND);
+  if (await ctx.repo.table("attendance").first({ activityId: a.id })) return fail("has_attendance", "Tillfället har registrerad närvaro och kan inte tas bort.");
+  await ctx.repo.table("activities").remove(a.id);
+  await ctx.audit({ action: "activity.removed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, kind: a.kind, startsAt: a.startsAt } });
+  return ok({});
+});
+
+handleCommand(caseSetTeam, { roles: MANAGERS }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) return fail("not_found", NOT_FOUND);
+  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (c.status === "closed" || c.status === "declined") return fail("wrong_status", "Teamet kan inte ändras i ett avslutat ärende.");
+  const wanted = new Map<string, TeamRole>();
+  for (const t of p.team) {
+    // Huvudcoachen byts bara med Byt huvudcoach (orsak, historik och notis till kommunen).
+    if (t.role === "lead_coach" || t.userId === c.leadCoachId) continue;
+    if (wanted.has(t.userId)) return fail("team", "Samma person kan bara ha en roll i teamet.");
+    if (!(await canHaveTeamRole(ctx, t.userId, c.contractId, t.role))) return fail("team", "Välj teammedlemmar bland Miljonbemannings personal i avtalet.");
+    wanted.set(t.userId, t.role);
+  }
+  const teamTable = ctx.repo.table("case_team");
+  const current = await teamTable.list({ caseId: c.id });
+  const currentRole = new Map(current.map((t) => [t.userId, t.role]));
+  const removed: string[] = [];
+  const added: { userId: string; role: TeamRole }[] = [];
+  for (const t of current) {
+    if (t.role === "lead_coach" || wanted.get(t.userId) === t.role) continue;
+    await teamTable.remove(t.id);
+    if (!wanted.has(t.userId)) removed.push(t.userId);
+  }
+  for (const [userId, role] of wanted) {
+    if (currentRole.get(userId) === role) continue;
+    await teamTable.insert({ id: `${c.id}:${userId}`, caseId: c.id, userId, role });
+    added.push({ userId, role });
+  }
+  await ctx.audit({ action: "case.team_changed", entity: "case", entityId: c.id, contractId: c.contractId, details: { added: added.map((a) => `${a.userId}:${a.role}`), removed } });
+  // Nya medlemmar får samma notis som vid accept (bara ärendenummer). Den som bara bytt roll får ingen ny notis.
+  const newUsers = added.filter((a) => !currentRole.has(a.userId));
+  if (newUsers.length) {
+    const { contract } = await contractOf(ctx, c.contractId);
+    const settings = await orgSettingsFor(ctx, contract);
+    for (const a of newUsers) await notifyAssignment(ctx, c, a.userId, a.role, settings);
+  }
+  return ok({ added: added.length, removed: removed.length });
 });
 
 // ---------------------------------------------------------------- case.close
@@ -833,7 +965,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
       purchaseOrderNumber: c.purchaseOrderNumber,
     },
     leadCoach: c.leadCoachId ? { id: c.leadCoachId, name: personName(db.profiles, c.leadCoachId) } : null,
-    team: teamRows.filter((t) => t.role !== "lead_coach").map((t) => ({ userId: t.userId, name: personName(db.profiles, t.userId), roleLabel: teamLabel(t.role) })),
+    team: teamRows.filter((t) => t.role !== "lead_coach").map((t) => ({ userId: t.userId, name: personName(db.profiles, t.userId), role: t.role, roleLabel: teamLabel(t.role) })),
     hasLeadInTeam: !!lead,
     myTeamRoleLabel: team ? teamLabel(myTeam?.role ?? "") : null,
     location: c.location,
@@ -857,8 +989,27 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     coachOptions: manage && active && c.leadCoachId
       ? await coachOptionsFor(ctx, c)
       : [],
+    // Starta insatsen (beslut 2026-10-08): bekräftat ärende med bokat första möte – standardplanen ur avtalet.
+    start: edit && c.status === "confirmed" && c.firstMeetingAt
+      ? { firstMeetingAt: c.firstMeetingAt, startDate: dayOf(c.firstMeetingAt), plan: defaultWeekPlan(cfg, c.firstMeetingAt) }
+      : null,
+    weekPlan: edit && (c.status === "active" || c.status === "paused") ? currentWeekPlan(db.activities, dayOf(now), cfg, c) : null,
+    teamOptions: manage && active ? await teamOptionsFor(ctx, c) : null,
   };
 });
+
+/** Den gällande veckoplanen: ur kommande tillfällen, annars avtalets standard. */
+function currentWeekPlan(acts: readonly Activity[], today: string, cfg: OperationalConfig, c: Case): WeekPlanRow[] {
+  const fromActs = planFromActivities(acts, today);
+  return fromActs.length ? fromActs : defaultWeekPlan(cfg, c.firstMeetingAt);
+}
+
+/** Kandidater till teamet ur medlemskapens roller (beslut 2026-10-08) – huvudcoachen själv visas inte. */
+async function teamOptionsFor(ctx: Ctx, c: Case): Promise<CaseCard["teamOptions"]> {
+  const cand = await teamCandidates(ctx, c.contractId);
+  const notLead = (u: { id: string }) => u.id !== c.leadCoachId;
+  return { supervisors: cand.supervisors.filter(notLead), staff: cand.staff.filter(notLead) };
+}
 
 const pickSla = (s: { label: string; tone: SlaTone }) => ({ label: s.label, tone: s.tone });
 
@@ -945,7 +1096,7 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
   const registerBy = reg?.time ? `${WEEKDAYS[reg.weekday ?? 0]} ${reg.time.replace(":", ".")}` : null;
   if (!c.startDate) {
     const empty = summary(attendanceStats({ activities: [], attendance: [] }, c.id, today, today, env));
-    return { started: false, weeks: [], total: { ...empty, reasons: [] }, last4: empty, weeksLabel: w4.label, repeated: null, past: [], registerBy };
+    return { started: false, weeks: [], total: { ...empty, reasons: [] }, last4: empty, weeksLabel: w4.label, repeated: null, past: [], upcoming: [], registerBy };
   }
   const q = { caseId: c.id };
   const db = await loadDb(ctx.repo, ["activities", "attendance"], { activities: q, attendance: q });
@@ -975,6 +1126,7 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
       const at = attendanceFor(db, a.id);
       return { ...activityView(a), attendance: at ? { status: at.status, reason: at.reason } : null };
     }),
+    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({ ...activityView(a), durationMin: a.durationMin })),
     registerBy,
   };
 });

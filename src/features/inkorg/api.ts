@@ -223,7 +223,10 @@ export type DecisionForm = {
   displayName: string;
   avropSla: SlaInfo | null;
   coaches: { id: string; name: string; active: number }[];
+  /** Handledare (rollen handledare i avtalet – beslut 2026-10-08, inte profiles.teamRole). */
   helpers: { id: string; name: string; teamRole: "vocational_supervisor" | "employer_matcher" | "guidance_counselor"; label: string }[];
+  /** Arbetsgivarmatchare och SYV/metodstöd kan vara vem som helst av MB-personalen utom ekonom och systemadministratör. */
+  staff: { id: string; name: string }[];
   firstMeetingDue: string | null;
   desiredStart: string | null;
   /** Beställarreferensen om kommunen har angett en (valfri vid accept – beslut 2026-10-07). */
@@ -365,6 +368,8 @@ export type StartView = {
   kpis: KpiCardView[];
   assign: { quote: string; latest: { id: string; name: string; caseNumber: string; when: string }[] };
   noCoach: { caseId: string; caseNumber: string; sla: SlaInfo | null; sub: string }[];
+  /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
+  toStart: { caseId: string; caseNumber: string; firstMeetingAt: string; coachName: string; sub: string }[];
   tasks: { id: string; text: string; sub: string; emailId: string | null; caseId: string | null }[];
   deviations: { id: string; description: string; sub: string; due: SlaInfo | null; href: string | null }[];
   deviationsHref: string | null;

@@ -383,6 +383,8 @@ export type MinVeckaView = {
   today: TodayActivity[];
   /** Nästa aktivitet i dag (id) och kortnamn för KPI:n. */
   next: { id: string; shortName: string } | null;
+  /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
+  toStart: { caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime }[];
   drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];
   monthly: {
     month: MonthKey;
@@ -446,6 +448,8 @@ export type NarvaroView = {
   absenceReasons: string[];
   repeatedRule: { absentInvalid: number; withinDays: number };
   caseCount: number;
+  /** Pågående ärenden som tillfällen kan läggas till i (beslut 2026-10-08). */
+  cases: { caseId: string; caseNumber: string; name: string; location: string }[];
   weeks: { last: NarvaroWeek; this: NarvaroWeek };
 };
 export const narvaroView = query("coach.narvaro", z.object({})).returns<NarvaroView>();

@@ -4,6 +4,7 @@
 import { useState } from "react";
 import { fmtDate, fmtDateShort, fmtWeekday } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
+import { useSession } from "@/shell/session";
 import { Link, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly } from "@/shell/runtime";
@@ -13,6 +14,8 @@ import {
 } from "@/ui";
 import { emailValid } from "@/core/validation";
 import { Group, KV } from "@/features/admin/screens/parts";
+import { caseList } from "@/features/arenden/api";
+import { PlacementModal } from "./placement-modal";
 import {
   praktikAddFollowUp, praktikEmployer, praktikEmployerAdd, praktikList, praktikSetRight, RIGHT_KEYS,
   type EmployerDetailView, type EmployerListView, type PlacementCardView, type PlacementGroup,
@@ -248,15 +251,26 @@ function EmployerDetail({ id }: { id: string }) {
 }
 
 type Found = Extract<EmployerDetailView, { found: true }>;
+/** Roller som planerar praktik (praktik.placementCreate). */
+const PLANNERS = ["coach", "samordnare", "avtalsansvarig"];
 function DetailContent({ d }: { d: Found }) {
   const [show, setShow] = useState<"ongoing" | "done">("ongoing");
   const [limit, setLimit] = useState(6);
+  const { actor } = useSession();
+  // Ny praktik hos arbetsgivaren (beslut 2026-10-08): ärendena hämtas först när dialogen öppnas.
+  const [newPl, setNewPl] = useState(false);
+  const canPlan = PLANNERS.includes(actor.role);
+  const cl = useQuery(caseList, newPl ? {} : null);
+  const planCases = (cl.data?.rows ?? [])
+    .filter((r) => (r.status === "active" || r.status === "paused") && (actor.role !== "coach" || r.detail.leadCoachId === actor.userId))
+    .map((r) => ({ caseId: r.id, caseNumber: r.caseNumber, name: r.displayName, plannedEnd: r.detail.end }));
   const e = d.employer;
   const group: PlacementGroup = show === "ongoing" ? d.ongoing : d.done;
   const count = show === "ongoing" ? d.ongoingCount : d.doneCount;
   return (
     <>
-      <Card title="Kontaktuppgifter" icon="building">
+      {newPl && cl.data && <PlacementModal cases={planCases} employerId={e.id} now={`${d.today}T09:00`} onClose={() => setNewPl(false)} />}
+      <Card title="Kontaktuppgifter" icon="building" actions={canPlan ? <Button kind="primary" icon="plus" onClick={() => setNewPl(true)}>Ny praktik</Button> : undefined}>
         <div className="grid grid-cols-2 gap-x-8 max-[620px]:grid-cols-1">
           <KV items={[["Organisationsnummer", e.orgNr || "–"], ["Kontaktperson", e.contactName || "–"], ["Telefon", e.phone || "–"], ["E-post", e.email || "–"]]} />
           <KV

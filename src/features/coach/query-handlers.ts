@@ -160,6 +160,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const caseById = new Map(cases.map((c) => [c.id, c]));
   const active = cases.filter((c) => c.status === "active");
   const activeIds = new Set(active.map((c) => c.id));
+  // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
+  const toStart = cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= today).sort(by<Case>("firstMeetingAt"));
 
   // Närvaro att registrera (förra veckan)
   const unreg = unregistered(all, me, lastMon, addDays(lastMon, 6), main);
@@ -229,6 +231,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       };
     }),
     next: next ? { id: next.id, shortName: shortNameOf(person(caseById.get(next.caseId) as Case)) } : null,
+    toStart: toStart.map((c) => ({ ...row(c), firstMeetingAt: c.firstMeetingAt as string })),
     drafts: drafts.map((ci) => ({
       checkInId: ci.id, ...row(caseById.get(ci.caseId) as Case), heldAt: ci.heldAt, inputMethod: ci.inputMethod,
       audioDeletedAt: ci.ai?.audioDeletedAt ?? null, rawTranscriptDeleteBy: ci.ai?.rawTranscriptDeleteBy ?? null,
@@ -347,6 +350,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
     absenceReasons: [...ABSENCE_REASONS],
     repeatedRule: { ...main.cfg.attendance.repeatedAbsenceRule },
     caseCount: cases.length,
+    cases: cases.filter((c) => c.status === "active").map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), location: c.location })),
     weeks: { last: await week(lastMon), this: await week(thisMon) },
   };
 });

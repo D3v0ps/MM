@@ -197,6 +197,28 @@ const AttendanceSchema = z.strictObject({
   sameDayNoticeOnInvalidAbsence: unsetOr(z.boolean()),
   repeatedAbsenceRule: z.strictObject({ absentInvalid: PosInt, withinDays: PosInt }),
 });
+// ---- Veckoplan (beslut 2026-10-08, skarp drift): standardtillfällena som skapas när insatsen startar.
+/** Tillfällen som en veckoplan kan innehålla (delmängd av activities.kind). */
+export const WEEK_PLAN_KINDS = ["möte", "yrkesmoment", "praktikdag"] as const;
+export type WeekPlanKind = (typeof WEEK_PLAN_KINDS)[number];
+/**
+ * En rad i avtalets standardveckoplan. weekday 0–4 = måndag–fredag; "first_meeting" = första mötets veckodag (och tid om
+ * time saknas). Helgdagar hoppas alltid över när tillfällena skapas (src/core/schedule.ts).
+ */
+const WeekPlanDaySchema = z
+  .strictObject({
+    weekday: z.union([z.int().min(0).max(4), z.literal("first_meeting")]),
+    kind: z.enum(WEEK_PLAN_KINDS),
+    time: TimeSchema.optional(),
+    durationMin: PosInt,
+    location: z.string().min(1),
+  })
+  .refine((d) => d.time != null || d.weekday === "first_meeting", "Klockslag krävs för alla dagar utom första mötets dag");
+export type WeekPlanDay = z.infer<typeof WeekPlanDaySchema>;
+const ActivitiesSchema = z.strictObject({
+  /** Standardveckoplanen som föreslås när insatsen startar. Utan avsnittet föreslås bara coachträffen på första mötets dag. */
+  defaultWeekPlan: z.array(WeekPlanDaySchema).max(10).optional(),
+});
 
 const PatternRuleSchema = z.strictObject({ required: z.boolean(), pattern: RegexSchema });
 const BillingSchema = z.strictObject({
@@ -380,6 +402,8 @@ const ContractConfigBase = z.strictObject({
   kpis: z.array(KpiSchema).optional(),
   sla: z.array(SlaRuleSchema).optional(),
   attendance: AttendanceSchema.optional(),
+  /** Veckoplanen när insatsen startar (valfritt avsnitt, beslut 2026-10-08). */
+  activities: ActivitiesSchema.optional(),
   billing: BillingSchema.optional(),
   bonus: BonusSchema.optional(),
   pulse: PulseSchema.optional(),
@@ -467,6 +491,8 @@ export type ResultConfig = OperationalConfig["result"];
 export type KpiDef = OperationalConfig["kpis"][number];
 export type SlaRule = OperationalConfig["sla"][number];
 export type AttendanceConfig = OperationalConfig["attendance"];
+/** Veckoplanen (valfritt avsnitt). */
+export type ActivitiesConfig = NonNullable<ContractConfig["activities"]>;
 export type BillingConfig = OperationalConfig["billing"];
 export type PulseConfig = OperationalConfig["pulse"];
 export type EscalationStep = OperationalConfig["escalationLadder"][number];
@@ -750,6 +776,15 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
       { key: "slutrapport", label: "Slutrapport", from: "avslutsdatum", within: "ATT_FASTSTÄLLA (förslag: 5 arbetsdagar)", proposal: { workingDays: 5 } },
     ],
     attendance: { sameDayNoticeOnInvalidAbsence: "ATT_FASTSTÄLLA", repeatedAbsenceRule: { absentInvalid: 2, withinDays: 14 } },
+    // Standardveckoplanen när insatsen startar (beslut 2026-10-08, samma mönster som testdatat): coachträff på första mötets
+    // dag och tid, yrkesmoment tisdag och torsdag 09.00. Praktikdagar läggs till när en praktik planeras.
+    activities: {
+      defaultWeekPlan: [
+        { weekday: "first_meeting", kind: "möte", durationMin: 60, location: "Miljonbemanning" },
+        { weekday: 1, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "Miljonbemanning" },
+        { weekday: 3, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "Miljonbemanning" },
+      ],
+    },
     billing: {
       unit: "participant_week",
       billableWeekRule: "every_iso_week_with_at_least_one_enrolled_day_excluding_paused_weeks",
