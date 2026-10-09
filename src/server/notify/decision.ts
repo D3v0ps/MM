@@ -8,7 +8,7 @@
 //   Testmiljön med MM_EMAIL_REDIRECT_TO: mejl som annars skulle ha stoppats av spärrlistan går i stället till testarens adress
 //           (status sent, orsak "redirected"). Aldrig i produktion.
 import { toE164 } from "@/core/phone";
-import { CALL_OFF_REASON, SMS_OFF_REASON } from "@/features/_shared/messaging-port";
+import { CALL_OFF_REASON, LETTER_REASON, SMS_OFF_REASON } from "@/features/_shared/messaging-port";
 import { allowedByList, isValidEmail, normalizeEmail } from "../auth/email";
 import { containsPersonnummer } from "./personnummer";
 import type { DeliveryStatus, OutboundRow } from "./types";
@@ -31,7 +31,7 @@ export const REASON = {
   protectedIdentity: "Skyddade personuppgifter – inget utskick till deltagaren",
   /** Ett tidigare försök avbröts efter att det skickats till 46elks – skickas inte igen utan kontroll (ingen idempotensnyckel). */
   uncertain: "Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen",
-  letter: "Brev skickas manuellt",
+  letter: LETTER_REASON,
   noAddress: "Mottagaren saknar giltig e-postadress",
   personnummer: "Stoppat: texten ser ut att innehålla ett personnummer",
   notAllowed: "Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST",

@@ -59,6 +59,9 @@ describe("planParticipantChannels – kanalvalet", () => {
     expect(planParticipantChannels(who(EMAIL, PHONE, "letter", "Testgatan 1, 147 00 Tumba"), all).send).toEqual(["brev", "email", "sms", "call"]);
     expect(planParticipantChannels(who("", "", "letter", "Testgatan 1, 147 00 Tumba"), status(false, false))).toEqual({ send: ["brev"], off: [] });
     expect(planParticipantChannels(who(EMAIL, "", "letter", null), all).send).toEqual(["email"]);
+    // Inbjudan till en aktivitet går aldrig som brev (hinner inte fram): utan e-post och kopplat SMS blir det en uppgift.
+    expect(planParticipantChannels(who(EMAIL, PHONE, "letter", "Testgatan 1, 147 00 Tumba"), all, { letter: false }).send).toEqual(["email", "sms", "call"]);
+    expect(planParticipantChannels(who("", "", "letter", "Testgatan 1, 147 00 Tumba"), status(false, false), { letter: false })).toEqual({ send: [], off: [] });
   });
 
   it("ogiltiga adresser och nummer räknas inte", () => {
@@ -96,6 +99,9 @@ describe("mallarna – bara tid, plats och Miljonbemannings telefonnummer", () =
     expect(notifySummary("kallelse", { channels: ["sms", "email", "call"], taskId: null, blocked: false })).toBe("Kallelsen är skickad med SMS och e-post. Deltagaren blir också uppringd med ett inspelat meddelande.");
     expect(notifySummary("aktivitetsinbjudan", { channels: [], taskId: "task-1", blocked: false })).toBe("Inbjudan kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren.");
     expect(notifySummary("kallelse", { channels: [], taskId: null, blocked: true })).toBe("Kallelsen skickades inte.");
+    // Brev (deltagaren har valt brev och adressen finns): skickas för hand, utöver e-posten.
+    expect(notifySummary("kallelse", { channels: ["brev", "email"], taskId: null, blocked: false })).toBe("Kallelsen är skickad med e-post. Ett brev skickas också för hand.");
+    expect(notifySummary("kallelse", { channels: ["brev"], taskId: null, blocked: false })).toBe("Kallelsen ska skickas som brev. Brevet skickas för hand.");
   });
 });
 

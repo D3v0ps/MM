@@ -28,6 +28,8 @@ export const messagingOf = (ctx: Pick<Ctx, "messaging">): MessagingStatus => ctx
 export const SMS_OFF_REASON = "SMS-leverantör inte vald";
 /** Orsaken när utringningen inte är kopplad (alla tre variablerna och inloggningen hos 46elks krävs). */
 export const CALL_OFF_REASON = "Utringning inte kopplad";
+/** Orsaken för brev (status manual – skickas för hand). */
+export const LETTER_REASON = "Brev skickas manuellt";
 
 /** Kanalerna till en deltagare. brev = kallelse per post (bara när deltagaren valt brev och adressen finns). */
 export type ParticipantChannel = "email" | "sms" | "call" | "brev";
@@ -41,11 +43,12 @@ export const PARTICIPANT_TO: Readonly<Record<ParticipantChannel, string>> = {
 export const isParticipantRecipient = (to: string | null | undefined): boolean => /^deltagare \(/.test(String(to ?? "").trim());
 
 /**
- * Status för ett utskick i minnesläget, där inget skickas på riktigt: SMS och samtal som inte är kopplade stoppas med samma
- * orsak som servern ger (src/server/notify/decision.ts); allt annat räknas som skickat (simulerat).
+ * Status för ett utskick i minnesläget, där inget skickas på riktigt: SMS och samtal som inte är kopplade stoppas och brev
+ * skickas för hand, med samma orsak som servern ger (src/server/notify/decision.ts); allt annat räknas som skickat (simulerat).
  */
-export function memoryDeliveryStatus(channel: string, status: MessagingStatus): { status: "sent" | "suppressed"; statusReason: string | null } {
+export function memoryDeliveryStatus(channel: string, status: MessagingStatus): { status: "sent" | "suppressed" | "manual"; statusReason: string | null } {
   if (channel === "sms" && !status.sms.connected) return { status: "suppressed", statusReason: SMS_OFF_REASON };
   if (channel === "call" && !status.call.connected) return { status: "suppressed", statusReason: CALL_OFF_REASON };
+  if (channel === "brev" || channel === "letter") return { status: "manual", statusReason: LETTER_REASON };
   return { status: "sent", statusReason: null };
 }

@@ -51,7 +51,9 @@ handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
     .map((n) => ({
       id: n.id, at: n.createdAt, channel: n.channel, to: n.to, templateLabel: templateLabel(templateKeyOf(n)), caseNumber: n.caseId ? (caseNo.get(n.caseId) ?? null) : null,
-      body: n.body, byTester: isDemoCreated(n.id), leak: leak(n.body), status: n.status, reason: outboundReasonLabel(n.statusReason),
+      body: n.body, byTester: isDemoCreated(n.id), leak: leak(n.body), status: n.status,
+      // Brev: statusen säger redan att det skickas för hand.
+      reason: n.status === "manual" ? null : outboundReasonLabel(n.statusReason),
     }));
   return { canEdit: TEMPLATE_EDITORS.includes(ctx.actor.role), templates, sendLog };
 });

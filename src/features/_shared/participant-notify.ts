@@ -7,7 +7,7 @@
 //   SMS        när SMS är kopplat (46elks) och deltagaren har ett telefonnummer
 //   utringning dessutom, när den är kopplad och deltagaren har ett telefonnummer – en kort inspelning utan personuppgifter
 //              som hänvisar till SMS:et eller mejlet (ringer bara när något av dem gick iväg)
-//   brev       när deltagaren har valt brev och adressen finns (skickas för hand, som förut)
+//   brev       bara kallelsen: när deltagaren har valt brev och adressen finns (skickas för hand, som förut)
 //   ingen      en uppgift till samordnaren: "Ring deltagaren och kalla till första mötet" med ärendenumret – aldrig namnet
 // Deltagarens valda kontaktväg (persons.preferredContact, som coachen kan ändra) går först när den kanalen är kopplad.
 // SMS och utringning som inte är kopplade sparas i utskicksloggen som stoppade med orsak – så syns varför inget SMS gick.
@@ -52,8 +52,11 @@ const ORDER: Record<PreferredContact, readonly ParticipantChannel[]> = {
   letter: ["brev", "email", "sms", "call"],
 };
 
-/** Kanalvalet (rent – testas i alla kombinationer i participant-notify.test.ts). */
-export function planParticipantChannels(p: ParticipantContact, status: MessagingStatus): ChannelPlan {
+/**
+ * Kanalvalet (rent – testas i alla kombinationer i participant-notify.test.ts). letter = brev får användas (kallelsen; inbjudan
+ * till en aktivitet går aldrig som brev – det hinner inte fram).
+ */
+export function planParticipantChannels(p: ParticipantContact, status: MessagingStatus, opts: { letter?: boolean } = {}): ChannelPlan {
   const phone = hasPhone(p.phone);
   const use = new Set<ParticipantChannel>();
   const off: ("sms" | "call")[] = [];
@@ -62,7 +65,7 @@ export function planParticipantChannels(p: ParticipantContact, status: Messaging
     if (status.sms.connected) use.add("sms");
     else off.push("sms");
   }
-  if (p.preferredContact === "letter" && (p.address ?? "").trim()) use.add("brev");
+  if ((opts.letter ?? true) && p.preferredContact === "letter" && (p.address ?? "").trim()) use.add("brev");
   // Utringningen hänvisar till SMS:et eller mejlet – den görs bara när något av dem går iväg.
   if (phone && (use.has("email") || use.has("sms"))) {
     if (status.call.connected) use.add("call");
@@ -122,17 +125,18 @@ export type NotifyParticipantResult = {
   summary: string;
 };
 
-const CHANNEL_TEXT: Record<ParticipantChannel, string> = { email: "e-post", sms: "SMS", call: "samtal", brev: "brev (skickas för hand)" };
+const CHANNEL_TEXT: Record<"email" | "sms", string> = { email: "e-post", sms: "SMS" };
 const listSv = (xs: readonly string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}` : xs.join(""));
 
-/** Meningen till den som bokade mötet eller bjöd in. */
+/** Meningen till den som bokade mötet eller bjöd in. Brevet skickas för hand; samtalet hänvisar till SMS:et eller mejlet. */
 export function notifySummary(template: ParticipantTemplate, r: Pick<NotifyParticipantResult, "channels" | "taskId" | "blocked">): string {
   const what = template === "kallelse" ? "Kallelsen" : "Inbjudan";
   if (r.blocked) return `${what} skickades inte.`;
-  const written = r.channels.filter((c) => c !== "call");
-  if (written.length) {
-    return `${what} är skickad med ${listSv(written.map((c) => CHANNEL_TEXT[c]))}.${r.channels.includes("call") ? " Deltagaren blir också uppringd med ett inspelat meddelande." : ""}`;
-  }
+  const sent = r.channels.filter((c): c is "email" | "sms" => c === "email" || c === "sms");
+  const letter = r.channels.includes("brev");
+  const call = r.channels.includes("call") ? " Deltagaren blir också uppringd med ett inspelat meddelande." : "";
+  if (sent.length) return `${what} är skickad med ${listSv(sent.map((c) => CHANNEL_TEXT[c]))}.${letter ? " Ett brev skickas också för hand." : ""}${call}`;
+  if (letter) return `${what} ska skickas som brev. Brevet skickas för hand.`;
   return `${what} kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren.`;
 }
 
@@ -148,7 +152,7 @@ export async function notifyParticipant(ctx: Ctx, input: NotifyParticipantInput)
     const blocked = { channels: [], off: [], taskId: null, blocked: true };
     return { ...blocked, summary: notifySummary(input.template, blocked) };
   }
-  const plan = planParticipantChannels(person, messagingOf(ctx));
+  const plan = planParticipantChannels(person, messagingOf(ctx), { letter: input.template === "kallelse" });
   const text = participantMessage(input.template, input.when, input.place);
   const send = (ch: ParticipantChannel) =>
     ctx.notify({
