@@ -119,8 +119,8 @@ test("kvittera flagga: Min vecka och sidopanelens räknare hämtas om (chefens d
 test("öppna kortet direkt: högst 8 anrop, varje fråga en gång, och röstmeddelandenas visning loggas inte vid laddning", async ({ page }, info) => {
   onlyApp(info);
   const rpc = watchRpc(page);
-  const errors = await open(page, info, `/arenden/${NADIA}?flik=meddelanden`, AMIRA);
-  await expect(page.getByRole("group", { name: "Röstmeddelanden:" })).toBeVisible();
+  const errors = await open(page, info, `/arenden/${NADIA}`, AMIRA);
+  await loaded(page);
   await quiet(page);
   const all = rpc.all();
   expect(all.length).toBeLessThanOrEqual(8);
@@ -128,6 +128,11 @@ test("öppna kortet direkt: högst 8 anrop, varje fråga en gång, och röstmedd
   for (const k of all) counts.set(k, (counts.get(k) ?? 0) + 1);
   expect([...counts.entries()].filter(([, n]) => n > 1)).toEqual([]);
   expect(all).toContain("cmd session.auditView");
-  expect(all).not.toContain("cmd rost.notesSeen");
+  // Röstmeddelandena ligger under fliken Meddelanden (sedan 2026-10-09): att öppna fliken markerar meddelandena som lästa
+  // (arenden.messageRead räknar om kortet) men loggar aldrig en visning av röstmeddelandet.
+  await page.getByRole("tab", { name: /^Meddelanden/ }).click();
+  await expect(page.getByRole("group", { name: "Röstmeddelanden:" })).toBeVisible();
+  await quiet(page);
+  expect(rpc.all()).not.toContain("cmd rost.notesSeen");
   expect(errors).toEqual([]);
 });
