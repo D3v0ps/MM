@@ -66,7 +66,7 @@ function ProfileForm({ d, first }: { d: KomProfile; first: boolean }) {
       />
       {first && (
         <Notice tone="info" title="Så fungerar portalen">
-          Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning. Du ser bara de deltagare som du har beställt insatser för.
+          Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning.
         </Notice>
       )}
       <Card title="Dina uppgifter" icon="user">

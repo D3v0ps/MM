@@ -159,7 +159,7 @@ export function DuplicateCard({ d }: { d: DuplicateView }) {
           </div>
         </Notice>
       ) : (
-        <Notice tone="ok" title="Ingen annan aktiv insats">Kontrollerat mot personnumret inom avtalet. En person kan ha flera ärenden över tid, men inte två aktiva samtidigt.</Notice>
+        <Notice tone="ok" title="Ingen annan aktiv insats" />
       )}
       <div className="mt-2.5 text-text-muted">Sökningen görs på en krypterad kontrollsumma av personnumret, aldrig i klartext.</div>
     </Card>

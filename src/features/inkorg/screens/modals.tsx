@@ -307,7 +307,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         )}
         <Field
           id="ink-area" label="Avtalsområde" required error={tried ? errs.area : null}
-          help={f.primaryArea ? "Förifyllt från beställningen – ändra om underlaget säger något annat." : "Miljonbemanning väljer området utifrån handläggarens underlag."}
+          help={f.primaryArea ? "Förifyllt från beställningen." : undefined}
         >
           <Select value={area} onValueChange={setArea} placeholder="Välj område" options={f.areas} />
         </Field>
@@ -316,7 +316,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         </Field>
         <Field
           id="ink-period" label="Omfattning" required error={tried ? errs.period : null} full
-          help={legacyWeeks ? `Beställningen gäller ${f.plannedWeeks} veckor (äldre beställning). Välj en omfattning om den ska ändras.` : "Förifylld från beställningen. Slutdatumet räknas från första mötet."}
+          help={legacyWeeks ? `Beställningen gäller ${f.plannedWeeks} veckor (äldre beställning). Välj en omfattning om den ska ändras.` : "Förifylld från beställningen."}
         >
           <Seg id="ink-period" ariaLabel="Omfattning" value={period} onValueChange={(v) => setPeriod(v)} options={periodOptions(f.periods)} />
         </Field>
@@ -333,15 +333,14 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         )}
         <Field
           id="ink-ref" label="Beställarreferens (valfritt)" error={refErr}
-          help={`Om kommunen har angett en. ${f.refLen} siffror, bara siffror. Den kan också fyllas i på fakturan.`}
+          help={`${f.refLen} siffror. Kan också fyllas i på fakturan.`}
         >
           <Input value={ref} inputMode="numeric" maxLength={12} onValueChange={(v) => { setRef(v); setRefServerErr(null); }} />
         </Field>
       </FormGrid>
 
-      <Notice tone="info" icon="bell" title="Det här händer när du accepterar">
-        Orderbekräftelsen publiceras i portalen och kommunen får ett mejl utan personuppgifter. Huvudcoachen och teamet får automatiskt en notis i appen och via e-post (bara ärendenummer).
-        Deltagaren får kallelse via sin föredragna kontaktväg.
+      <Notice tone="info" icon="bell" title="När du accepterar">
+        Orderbekräftelsen publiceras i portalen, teamet får en notis och deltagaren får kallelse.
       </Notice>
     </Modal>
   );
@@ -382,9 +381,9 @@ export function DeclineModal({ caseId, caseNumber, onClose }: { caseId: string; 
       }
     >
       <Notice tone="warn" title="Avböj bara om vi verkligen inte kan ta uppdraget">
-        Obesvarade och ofta avböjda avrop kan flytta ned Miljonbemanning i kommunens rangordning. Hittills i avtalet: {f.declined} av {f.total} avrop avböjda.
+        Hittills i avtalet: {f.declined} av {f.total} avrop avböjda.
       </Notice>
-      <Field id="ink-decline-reason" label="Orsak" required help="Orsaken loggas och syns för kommunen i portalen." error={tried ? errs.reason : null}>
+      <Field id="ink-decline-reason" label="Orsak" required help="Syns för kommunen i portalen." error={tried ? errs.reason : null}>
         <Select value={reason} onValueChange={setReason} placeholder="Välj orsak" options={DECLINE_REASONS.map((r) => ({ value: r, label: r }))} />
       </Field>
       <Field
