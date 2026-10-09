@@ -77,6 +77,8 @@ const SAMPLES: Record<string, Sample[]> = {
   "rost.link": one("deltagare", {}), "rost.sendStatus": one("deltagare", { aiRunId: "ai-run-mehmet" }), "rost.caseVoice": one("u-amira", { caseId: NADIA }), "rost.pendingNotes": one("u-amira"),
   "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-maria")],
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
+  // Gruppaktiviteter (2026-10-09): testdatat har inga – testet skapar en först (se nedan) och visar den.
+  "aktiviteter.lista": [...one("u-amira"), ...one("u-karin")], "aktiviteter.visa": one("u-amira", { id: "__first_group__" }), "aktiviteter.form": one("u-sara"),
 };
 
 /**
@@ -143,6 +145,10 @@ const WRITES: Record<string, string[]> = {
   "rost.linkSend": ["voice_links", "outbound_messages", AUDIT_CASE, AUDIT], "rost.notesSeen": [AUDIT_CASE, AUDIT], "rost.noteReview": ["participant_voice_notes", AUDIT_CASE, AUDIT],
   "session.auditView": [AUDIT_CASE, AUDIT],
   "feedback.submit": ["feedback", AUDIT], "feedback.reply": ["feedback_replies", AUDIT], "feedback.setStatus": ["feedback", AUDIT],
+  // Gruppaktiviteter (coachmötet 2026-10-09): loggraderna har deltagarnas ärenden (caseIds) och syns i kortets Historik.
+  "aktiviteter.skapa": ["group_activities", "activities", AUDIT_CASE, AUDIT], "aktiviteter.andra": ["group_activities", "activities", AUDIT_CASE, AUDIT],
+  "aktiviteter.bjudIn": ["activities", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", AUDIT_CASE, AUDIT],
+  "aktiviteter.stallIn": ["group_activities", "activities", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -204,6 +210,9 @@ const KNOWN: Known[] = [
   { command: "coach.intakeSave", query: "session.navCounts", table: "cases", reason: "yrkesspåret påverkar inga räknare" },
   { command: "praktik.employerAdd", query: "*", table: "employers", reason: "en ny arbetsgivare har inga placeringar än" },
   { command: "coach.recordingFinish", query: "*", table: "check_ins", reason: "bara AI-utkastet i avstämningen – notiser, rapporter och räknare räknar godkända avstämningar; coachens skärmar och kortet räknas om" },
+  // Gruppaktiviteternas formulär (2026-10-09): deltagarna att bjuda in hämtas färskt varje gång formuläret öppnas (useQueryRunner,
+  // ingen cache) och servern prövar varje inbjudan igen (not_invitable) – en ändring av ett ärende behöver inte räkna om något.
+  { command: "*", query: "aktiviteter.form", table: "cases", reason: "formuläret hämtar deltagarna utan cache när det öppnas; inbjudan prövas av servern" },
 ];
 /** Varje delad tabell måste täckas av en KNOWN-rad för paret; returnerar raderna som användes (eller null). */
 function knownFor(command: string, query: string, tables: string[]): number[] | null {
@@ -264,7 +273,9 @@ async function readsOf(q: QueryDef<unknown, unknown>): Promise<Set<string>> {
   if (!samples) throw new Error(`Frågan ${q.key} saknar exempel i SAMPLES (src/api/invalidation.test.ts)`);
   const out = new Set<string>();
   for (const s of samples) {
-    const params = JSON.parse(JSON.stringify(s.params).replace("__first_log__", rt.raw().all("audit_log")[0]?.id ?? "log-x"));
+    const params = JSON.parse(
+      JSON.stringify(s.params).replace("__first_log__", rt.raw().all("audit_log")[0]?.id ?? "log-x").replace("__first_group__", rt.raw().all("group_activities")[0]?.id ?? "ga-x"),
+    );
     trace = new Set();
     try {
       await rt.run("query", q.key, params, actorOf(s.actor, s.testerId));
@@ -304,6 +315,8 @@ describe("exakt omräkning per kommando", () => {
   it("frågor som läser en tabell ett kommando skriver räknas om av kommandot", async () => {
     // Första anropet läser in rapportutkasten (systemsteg) – körs utan spårning.
     await rt.run("query", "session.ping", {}, actorOf("u-amira"));
+    // En gruppaktivitet med en deltagare (testdatat har inga), så att aktivitetsvyns exempel har något att visa.
+    await rt.run("command", "aktiviteter.skapa", { name: "CV-verkstad", kind: "yrkesmoment", startsAt: "2027-02-01T08:00", durationMin: 90, location: "Alby", caseIds: [NADIA] }, actorOf("u-amira"));
     const reads = new Map<string, Set<string>>();
     for (const q of queries()) reads.set(q.key, await readsOf(q));
     expect(badSamples).toEqual([]);

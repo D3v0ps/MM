@@ -9,7 +9,7 @@
 // utan ärendenummer (period, arbetsuppgifter och de fyra rätten) – så att registret visar hur arbetsgivaren används.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CASES, START, COACH, PORTAL, REPORTS, MGMT, BILLING, INBOX, CASE_STATS } from "@/api/invalidation";
+import { NAV, LOG, CASES, START, COACH, PORTAL, REPORTS, MGMT, BILLING, INBOX, CASE_STATS, AKTIVITETER } from "@/api/invalidation";
 import type { FourRights, PlacementStatus } from "@/data/schema";
 import { IdSchema, LocalDateSchema, ShortText } from "../_shared/schemas";
 
@@ -128,7 +128,7 @@ export const placementCreate = command("praktik.placementCreate", z.object({
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   durationMin: z.number().int().min(60).max(600),
   tasks: z.string().max(2000).optional(),
-}), { invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
   Result<{ placementId: string; employerId: string; days: number }, "not_found" | "forbidden" | "wrong_status" | "employer" | "period" | "weekdays" | "email">
 >();
 
@@ -137,5 +137,5 @@ export const placementCreate = command("praktik.placementCreate", z.object({
  * Utfallet (arbete, erbjudande …) registreras som en händelse i ärendet. Logg placement.ended.
  */
 export const placementEnd = command("praktik.placementEnd", z.object({ placementId: IdSchema, endsOn: LocalDateSchema }), {
-  invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, ...LOG],
+  invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, ...LOG],
 }).returns<Result<{ removed: number }, "not_found" | "forbidden" | "date" | "wrong_status">>();

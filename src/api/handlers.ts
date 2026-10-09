@@ -3,6 +3,7 @@ import "@/features/session/handlers";
 import "@/features/inkorg/handlers";
 import "@/features/arenden/handlers";
 import "@/features/coach/handlers";
+import "@/features/aktiviteter/handlers";
 import "@/features/rapporter/handlers";
 import "@/features/ledning/handlers";
 import "@/features/ekonomi/handlers";

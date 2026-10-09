@@ -26,13 +26,15 @@ export const START = ["inkorg.start", "inkorg.deadlines"] as const;
 export const INBOX = "inkorg.";
 /** Ekonomi: fakturaunderlag, körningar, fakturor. */
 export const BILLING = "ekonomi.";
+/** Gruppaktiviteterna (coachmötet 2026-10-09): listan, aktivitetsvyn och formulärets deltagare. */
+export const AKTIVITETER = "aktiviteter.";
 /** Adminsidor som räknar ärenden, avstämningar och körningar. */
 export const CASE_STATS = ["admin.contract", "admin.integrations", "admin.orgRules"] as const;
 /**
  * Ärendets fakta ändras (närvaro, avstämning, status, rapporter): allt som räknar KPI:er, flaggor, deadlines och
  * fakturering. Brett med flit – närvaron styr veckorapporter, fakturaunderlag, sidopanelens räknare och ledningens nyckeltal.
  */
-export const CASE_FACTS = [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, BILLING, ...CASE_STATS, NAV, ...LOG] as const;
+export const CASE_FACTS = [CASES, COACH, PORTAL, REPORTS, MGMT, ...START, BILLING, ...CASE_STATS, NAV, AKTIVITETER, ...LOG] as const;
 
 // ---- Automatisk utkastsparning (D2 punkt 2): skärmen väljer en smalare mängd (useCommand(def, { invalidate })) än kontraktets.
 // Ett utkast påverkar bara utkastlistor och kortet – aldrig sidan själv (formuläret ligger kvar), inte räknarna i sidopanelen.

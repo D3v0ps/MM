@@ -27,7 +27,7 @@ import {
   WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
-import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/core/validation";
+import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
@@ -36,6 +36,7 @@ import type {
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
+import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
@@ -1174,9 +1175,9 @@ handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const person = await ctx.repo.table("persons").get(c.personId);
   const audience = person?.protectedIdentity ? "full" : p.audience;
   if (team && audience === "full") return fail("forbidden", "Du kan bara skriva anteckningar som hela teamet ser.");
-  if (p.occurredOn > today) return fail("date", "Datumet kan inte vara senare än i dag.");
-  if (p.occurredOn < dayOf(c.referredAt)) return fail("date", "Datumet kan inte vara före beställningen.");
-  if (looksLikePnr(p.body)) return fail("pnr", "Det ser ut som ett personnummer i texten. Ta bort det – ärendenumret räcker.");
+  // Samma kontroll som aktivitetsvyns anteckningsrader (src/features/_shared/notes.ts).
+  const problem = noteProblem(c, p.occurredOn, p.body, today);
+  if (problem) return fail(problem.code, problem.text);
   const table = ctx.repo.table("case_notes");
   if (p.noteId) {
     const cur = await table.get(p.noteId);

@@ -1,7 +1,7 @@
 // Kontrakt för området ärenden (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
+import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER } from "@/api/invalidation";
 import {
   ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PriorAssessment, type TeamRole,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
@@ -201,7 +201,7 @@ export const caseStart = command("arenden.caseStart", z.object({
   caseId: IdSchema,
   startDate: LocalDateSchema,
   plan: WeekPlanSchema,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
   Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "start_date" | "no_end" | "plan">
 >();
 
@@ -213,7 +213,7 @@ export const caseStart = command("arenden.caseStart", z.object({
 export const caseScheduleChange = command("arenden.caseScheduleChange", z.object({
   caseId: IdSchema,
   plan: WeekPlanSchema,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
   Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan">
 >();
 
@@ -224,13 +224,13 @@ export const activityAdd = command("arenden.activityAdd", z.object({
   startsAt: LocalDateTimeSchema,
   durationMin: z.number().int().min(15).max(600),
   location: ShortText,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
   Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate">
 >();
 
 /** Ta bort ett tillfälle som saknar registrerad närvaro. Logg activity.removed. */
 export const activityRemove = command("arenden.activityRemove", z.object({ activityId: IdSchema }), {
-  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG],
+  invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG],
 }).returns<Result<object, "not_found" | "forbidden" | "has_attendance">>();
 
 /**
@@ -691,13 +691,13 @@ export const caseNoteSave = command("arenden.noteSave", z.object({
   kind: z.enum(CASE_NOTE_KINDS),
   audience: z.enum(CASE_NOTE_AUDIENCES),
   body: z.string().trim().min(1).max(2000),
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "pnr" | "date">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "pnr" | "date">>();
 
 /** Ta bort (dölja) en anteckning: författaren, eller samordnare och avtalsansvarig i avtalet. Inget raderas på riktigt. */
 export const caseNoteRemove = command("arenden.noteRemove", z.object({
   caseId: IdSchema,
   noteId: IdSchema,
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author">>();
 
 // ---------------------------------------------------------------- Flik: Månadsunderlag (?flik=manad)
 /** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */
