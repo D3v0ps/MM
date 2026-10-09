@@ -13,7 +13,18 @@ import { createSeed } from "@/data/seed";
 import { emptyDb, type Db } from "@/data/schema";
 
 // Läses som fil (inte import) så att typkontrollen slipper härleda typer för hela facit.
-const facit = JSON.parse(readFileSync(new URL("./parity/facit.json", import.meta.url), "utf8")) as Facit;
+const facit = renamedMeeting(JSON.parse(readFileSync(new URL("./parity/facit.json", import.meta.url), "utf8"))) as Facit;
+
+// Beslut 2026-10-09: veckoavstämningen heter Möte för coachen. Facit är genererat ur den gamla prototypen och behåller de gamla
+// orden – texterna byts här så att resten av facit gäller oförändrat.
+function renamedMeeting(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace("dokumentera i veckoavstämningen.", "dokumentera i mötet.").replace(/^Avstämning (\d{1,2} \w{3} kl\.)/u, "Möte $1");
+  }
+  if (Array.isArray(value)) return value.map(renamedMeeting);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, renamedMeeting(v)]));
+  return value;
+}
 
 function loadSeed(): Db | null {
   try {
