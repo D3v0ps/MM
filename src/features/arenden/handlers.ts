@@ -164,14 +164,14 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   if (p.buyerReference != null && ref && !buyerRefValid(ref, cfg)) {
     return fail("buyer_ref", buyerRefError(ref, cfg) ?? "Beställarreferensen har fel format.");
   }
-  // Avtalsområde och yrkesspår sätts av Miljonbemanning (synpunkt #8) – krävs om ärendet saknar dem.
+  // Avtalsområdet sätts av Miljonbemanning (synpunkt #8) – krävs om ärendet saknar det. Yrkesspåret är frivilligt
+  // (beslut Karim 2026-10-09: inget yrkesspår vid accept) och kan fyllas i på deltagarkortet efter kartläggningen.
   const primary = p.primaryArea !== undefined ? p.primaryArea || null : c.primaryAreaCode;
   const secondary = p.secondaryArea !== undefined ? p.secondaryArea || null : c.secondaryAreaCode;
   const areas = await ctx.repo.table("contract_areas").list({ contractId: c.contractId, active: true });
   if (!primary || !areas.some((a) => a.code === primary)) return fail("area", "Välj ett avtalsområde.");
   if (secondary && (secondary === primary || !areas.some((a) => a.code === secondary))) return fail("area", "Välj ett annat alternativt område än det första, eller inget.");
   const track = p.vocationalTrack !== undefined ? p.vocationalTrack.trim() : c.vocationalTrack;
-  if (!track) return fail("track", "Skriv yrkesspåret.");
   if (!(await hasRoleIn(ctx, p.leadCoachId, c.contractId, ["coach"]))) return fail("coach", "Välj huvudcoach.");
   const team: { userId: string; role: TeamRole }[] = [{ userId: p.leadCoachId, role: "lead_coach" }];
   for (const t of p.team ?? []) {

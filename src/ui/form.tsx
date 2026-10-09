@@ -47,7 +47,8 @@ export function Field({ label, help, error, required, id: idProp, full, classNam
             {help}
           </div>
         )}
-        {children}
+        {/* mt-auto: i ett FormGrid ligger fälten i samma rad alltid i linje längst ner, oavsett hur lång hjälptexten är (2026-10-09). */}
+        <div className="mt-auto flex min-w-0 flex-col gap-1.5">{children}</div>
         {error && (
           <div id={errorId} role="alert" className="flex items-start gap-1.5 text-small font-bold text-antracit portal:text-body">
             <Icon name="alert-circle" className="mt-px text-rod" />
