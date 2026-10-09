@@ -72,7 +72,6 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
   const [reason, setReason] = useState(f.orderPeriodReason ?? "");
   const [area, setArea] = useState(f.primaryArea ?? "");
   const [area2, setArea2] = useState(f.secondaryArea ?? "");
-  const [track, setTrack] = useState(f.vocationalTrack ?? "");
   const [ref, setRef] = useState(f.buyerReference || "");
   const [tried, setTried] = useState(false);
   const [refServerErr, setRefServerErr] = useState<string | null>(null);
@@ -96,7 +95,6 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
     time: !time ? "Välj tid för första mötet." : null,
     area: !area ? "Välj avtalsområde." : null,
     area2: area2 && area2 === area ? "Välj ett annat alternativt område än det första, eller inget." : null,
-    track: !track.trim() ? "Skriv yrkesspåret." : null,
     period: !period && !legacyWeeks ? "Välj hur länge insatsen ska pågå." : null,
     end: other && !end ? "Välj slutdatum." : other && date && end <= date ? "Slutdatumet måste komma efter första mötet." : null,
     reason: other && reason.trim().length < ORDER_REASON_MIN ? "Skriv varför insatsen behöver en annan längd." : null,
@@ -106,12 +104,11 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
   const refErr = refServerErr || refNow;
   /** Fältordning i dialogen: vid fel scrollas och fokuseras det första felaktiga fältet. */
   const ORDER: [string, string][] = [
-    ["coach", `ink-coach-${coach || f.coaches[0]?.id}`], ["date", "ink-fm-date"], ["time", "ink-fm-time"], ["area", "ink-area"], ["area2", "ink-area2"], ["track", "ink-track"],
+    ["coach", `ink-coach-${coach || f.coaches[0]?.id}`], ["date", "ink-fm-date"], ["time", "ink-fm-time"], ["area", "ink-area"], ["area2", "ink-area2"],
     ["period", "ink-period"], ["end", "ink-end"], ["reason", "ink-reason"], ["ref", "ink-ref"],
   ];
   const late = !!date && !!f.firstMeetingDue && date > dayOf(f.firstMeetingDue);
   const plannedEnd = period && !other && date ? orderPeriodEnd(date, Number(period)) : null;
-  const trackOptions = f.tracks[area] ?? [];
 
   const submit = async () => {
     setTried(true);
@@ -124,7 +121,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
     }
     const res = await accept.run({
       caseId: f.caseId, leadCoachId: coach, firstMeetingAt: `${date}T${time}`, buyerReference: ref.trim() || null,
-      primaryArea: area, secondaryArea: area2 || null, vocationalTrack: track.trim(),
+      primaryArea: area, secondaryArea: area2 || null,
       ...(period && !other ? { orderPeriodMonths: Number(period) } : other ? { plannedEnd: end, orderPeriodReason: reason.trim() } : {}),
       team: [
         ...team.map((id) => ({ userId: id, role: f.helpers.find((h) => h.id === id)?.teamRole ?? ("vocational_supervisor" as const) })),
@@ -133,7 +130,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
       ],
     });
     if (!res.ok) {
-      const field = res.error === "buyer_ref" ? "ink-ref" : res.error === "area" ? "ink-area" : res.error === "track" ? "ink-track" : res.error === "order_period" ? "ink-period" : null;
+      const field = res.error === "buyer_ref" ? "ink-ref" : res.error === "area" ? "ink-area" : res.error === "order_period" ? "ink-period" : null;
       if (res.error === "buyer_ref") setRefServerErr(res.message || `Beställarreferensen ska vara ${f.refLen} siffror.`);
       toast(res.message ? `Avropet kan inte accepteras ännu. ${res.message}` : "Avropet kunde inte accepteras. Försök igen.", "error");
       if (field) focusField(field);
@@ -318,17 +315,6 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
           <Select value={area2} onValueChange={setArea2} placeholder="Inget" options={f.areas.filter((a) => a.value !== area)} />
         </Field>
         <Field
-          id="ink-track" label="Yrkesspår" required error={tried ? errs.track : null} full
-          help={f.vocationalTrack ? "Förifyllt från beställningen – ändra om underlaget säger något annat. Kan ändras efter kartläggningen." : "Välj ett förslag eller skriv ett eget. Kan ändras efter kartläggningen."}
-        >
-          <Input value={track} onValueChange={setTrack} maxLength={200} list="ink-track-list" />
-        </Field>
-        <datalist id="ink-track-list">
-          {trackOptions.map((t) => (
-            <option key={t} value={t} />
-          ))}
-        </datalist>
-        <Field
           id="ink-period" label="Omfattning" required error={tried ? errs.period : null} full
           help={legacyWeeks ? `Beställningen gäller ${f.plannedWeeks} veckor (äldre beställning). Välj en omfattning om den ska ändras.` : "Förifylld från beställningen. Slutdatumet räknas från första mötet."}
         >
@@ -459,8 +445,7 @@ export function CorrectModal({ f, onClose }: { f: CorrectForm; onClose: () => vo
       }
     >
       <p className="text-text-muted">
-        Jämför med originalmejlet. Det du sparar markeras som kontrollerat av dig och loggas. Uppgifter om deltagaren rättas i deltagarkortet. Avtalsområde och yrkesspår väljer du
-        när du accepterar.
+        Jämför med originalmejlet. Det du sparar markeras som kontrollerat av dig och loggas. Uppgifter om deltagaren rättas i deltagarkortet. Avtalsområdet väljer du när du accepterar.
       </p>
       <FormGrid>
         <Field id="ink-c-start" label="Önskat startdatum" help={`Kommunens önskemål.${low("desiredStart")}`}>
