@@ -111,9 +111,9 @@ function CheckInReadOnly({ v, ci }: { v: Ok; ci: CheckInView }) {
         <Kv
           items={[
             ["Sätt och längd", `${cap(ci.mode || "fysiskt")}, ${ci.durationMin || "–"} min`],
+            ["Fas", phaseText(ci.phase)],
             ["Veckomål uppnått", ci.goalStatus ? GOAL_TEXT[ci.goalStatus] : "–"],
             ["Nytt veckomål", ci.nextGoal || "–"],
-            ["Fas", phaseText(ci.phase)],
             ["Aktiviteter", ci.activitiesDone.join(", ") || "–"],
             ["Arbetsgivarkontakter", ci.employerContacts ? ecText(ci.employerContacts) : "–"],
             ["Samlad status", <Status key="status" value={ci.overallStatus} />],
@@ -836,7 +836,16 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
             </Field>
           </AttendanceSection>
 
-          <Section n="3" title="Veckomål" ok={!!form.goalStatus && !!form.nextGoal.trim()}>
+          <Section n="3" title="Fas" ok={!!form.phase}>
+            {pair(
+              "phase",
+              <Field label="Fas" id="ci-phase" required help={`Ärendet är i fas ${c.phase} sedan ${fmtDate(v.phaseSince)}. Byte registreras när du godkänner.`}>
+                <Seg id="ci-phase" ariaLabel="Fas" value={form.phase} onValueChange={(x) => setF("phase", x)} options={v.phases.map((p) => ({ value: String(p.no), label: `${p.no} ${p.name}` }))} />
+              </Field>,
+            )}
+          </Section>
+
+          <Section n="4" title="Veckomål" ok={!!form.goalStatus && !!form.nextGoal.trim()}>
             {pair(
               "goalStatus",
               <Field label="Veckomål uppnått" id="ci-goal" required error={shown.goalStatus} help={prevGoal ? `Förra veckans mål: ”${prevGoal}”` : "Stäm av målet från förra veckan."}>
@@ -853,15 +862,6 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
                   <Chips label="Förslag på veckomål" items={goalSuggestions} onPick={(g) => setF("nextGoal", g)} />
                 )}
               </>,
-            )}
-          </Section>
-
-          <Section n="4" title="Fas" ok={!!form.phase}>
-            {pair(
-              "phase",
-              <Field label="Fas" id="ci-phase" required help={`Ärendet är i fas ${c.phase} sedan ${fmtDate(v.phaseSince)}. Byte registreras när du godkänner.`}>
-                <Seg id="ci-phase" ariaLabel="Fas" value={form.phase} onValueChange={(x) => setF("phase", x)} options={v.phases.map((p) => ({ value: String(p.no), label: `${p.no} ${p.name}` }))} />
-              </Field>,
             )}
           </Section>
 
