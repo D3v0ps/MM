@@ -326,8 +326,11 @@ test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)
   await granska.click();
   await expect(page.getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   await noBadText(page);
-  await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(7);
-  expect(await page.getByText(/^Tidpunkt \d\d:\d\d$/).count()).toBeGreaterThanOrEqual(7);
+  await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(8);
+  expect(await page.getByText(/^Tidpunkt \d\d:\d\d$/).count()).toBeGreaterThanOrEqual(8);
+  // Närvarokommentaren föreslås som text med citat – närvarostatusen föreslås aldrig
+  await expect(aiGroup(page, "kommentar om närvaron").getByTestId("ai-forslag-varde")).toHaveText(/^Närvarande måndag, tisdag och torsdag\./);
+  await expect(aiGroup(page, "kommentar om närvaron")).toContainText("Tidpunkt 02:30");
   await expect(group(page, "Samlad status").locator('button[aria-pressed="true"]')).toHaveCount(0);
   await expect(page.getByText("Ljudet är raderat")).toBeVisible();
   await btn(page, "Visa råtranskriptet").click();
@@ -336,7 +339,8 @@ test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)
   await group(page, "Samlad status").getByRole("button", { name: /Grön/ }).click();
   await btn(page, "Godkänn mötesrapporten").click();
   await expect(page.getByText(/Ta ställning till alla AI-förslag/)).toBeVisible();
-  for (const f of ["veckomål uppnått", "fas", "arbetsgivarkontakter", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
+  for (const f of ["kommentar om närvaron", "veckomål uppnått", "fas", "arbetsgivarkontakter", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
+  await expect(page.locator("#ci-attc")).toHaveValue(/^Närvarande måndag, tisdag och torsdag\./);
   // Ändra men behåll värdet -> loggas som accepterat, och det syns
   await btn(aiGroup(page, "genomförda aktiviteter"), "Ändra").click();
   await expect(aiGroup(page, "genomförda aktiviteter").getByText("Oförändrat – loggas som accepterat")).toBeVisible();
@@ -348,10 +352,11 @@ test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)
   await btn(page, "Godkänn mötesrapporten").click();
 
   await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
-  await expect(main(page)).toContainText(/AI-förslag\s*5 \/ 1 \/ 1/i);
+  await expect(main(page)).toContainText(/AI-förslag\s*6 \/ 1 \/ 1/i);
   await expect(main(page)).toContainText(/Samlad status\s*Grön\s*Fas 3 · Yrkesspecifika moment/i);
   const log = card(page, "Loggade AI-beslut");
   await expect(log.getByText("Du valde Ändra men behöll förslaget")).toBeVisible();
+  await expect(log).toContainText(/Kommentar om närvaron\s*Förslag: Närvarande måndag, tisdag och torsdag\..*\s*Accepterat/);
   await expect(log).toContainText(/Veckomål uppnått\s*Förslag: Delvis\s*Accepterat/);
   await expect(log).toContainText(/Nytt veckomål\s*Förslag: .+ · Sparat: Köra hela distributionsrundan själv på tisdag\s*Ändrat/);
   await expect(log).toContainText(/Hinder\s*Förslag: Språk\s*Avvisat/);
@@ -383,15 +388,16 @@ test("Veckoavstämning: AI-förslag från inklistrade anteckningar (Hodan)", asy
     await expect(btn(aiGroup(page, f), "Acceptera")).toHaveCount(0);
   }
   await noBadText(page);
-  for (const f of ["veckomål uppnått", "genomförda aktiviteter", "arbetsgivarkontakter", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
+  await expect(aiGroup(page, "kommentar om närvaron")).toContainText("sjuk hela veckan");
+  for (const f of ["kommentar om närvaron", "veckomål uppnått", "genomförda aktiviteter", "arbetsgivarkontakter", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await page.locator("#ci-nextgoal").fill("Komma tillbaka och gå igenom ansökningarna");
   await group(page, "Samlad status").getByRole("button", { name: /Gul/ }).click();
   await btn(page, "Godkänn mötesrapporten").click();
   await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
   // Bara förslag med belägg loggas som AI-beslut – och de sparade värdena är förslagen (Nej, 0)
-  await expect(main(page)).toContainText(/AI-förslag\s*4 \/ 0 \/ 0/i);
+  await expect(main(page)).toContainText(/AI-förslag\s*5 \/ 0 \/ 0/i);
   const log = card(page, "Loggade AI-beslut");
-  await expect(log.locator("div.font-bold")).toHaveText(["Veckomål uppnått", "Genomförda aktiviteter", "Arbetsgivarkontakter", "Anteckning"]);
+  await expect(log.locator("div.font-bold")).toHaveText(["Kommentar om närvaron", "Veckomål uppnått", "Genomförda aktiviteter", "Arbetsgivarkontakter", "Anteckning"]);
   await expect(log).toContainText(/Veckomål uppnått\s*Förslag: Nej\s*Accepterat/);
   await expect(log).toContainText(/Arbetsgivarkontakter\s*Förslag: 0\s*Accepterat/);
   await expect(card(page, "Dataminimering")).toContainText("Inget ljud användes");
@@ -419,18 +425,18 @@ test("Veckoavstämning: samtycke och inspelning (Elif)", async ({ page }, info) 
   await btn(page, "Stoppa och tolka").click();
   await expect(page.getByText("Transkriberar …")).toBeVisible();
   await page.getByText("Ljudet är raderat").waitFor({ timeout: 15_000 });
-  await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(7);
+  await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(8);
   // AI-körningen är loggad och ljudet raderat direkt. Fasen framgår inte av samtalet – inget förslag att acceptera.
   // Leverantör och modell står inte i formuläret (bara i revisionsloggen); den simulerade AI:n märks med testmiljönotisen.
   await expect(page.getByRole("note").filter({ hasText: "Testmiljö: AI:n är simulerad" }).first()).toBeVisible();
   await expect(page.getByText("Simulerad AI (testdata)")).toHaveCount(0);
   await expect(page.getByText(/^måndag 1 feb 2027 kl\. \d\d\.\d\d – direkt efter transkriberingen$/)).toBeVisible();
   await expect(aiGroup(page, "fas")).toContainText("Framgår inte");
-  for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
+  for (const f of ["kommentar om närvaron", "veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await group(page, "Samlad status").getByRole("button", { name: /Gul/ }).click();
   await btn(page, "Godkänn mötesrapporten").click();
   await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
-  await expect(main(page)).toContainText(/AI-förslag\s*6 \/ 0 \/ 0/i);
+  await expect(main(page)).toContainText(/AI-förslag\s*7 \/ 0 \/ 0/i);
   await expect(main(page)).toContainText(/Samlad status\s*Gul/i);
   await expect(page.getByText("Ljudet raderades direkt efter transkriberingen", { exact: true })).toBeVisible();
   await expect(page.getByText("Råtranskriptet raderades vid godkännandet", { exact: true })).toBeVisible();

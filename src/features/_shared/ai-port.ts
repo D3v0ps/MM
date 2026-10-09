@@ -73,6 +73,8 @@ export const TranscriptSchema = z.strictObject({
 export type WithEvidence<T> = { [K in keyof T]: AiFieldSuggestion<T[K]> };
 /** Fälten AI får föreslå i veckoavstämningen. Samlad status finns inte (CLAUDE.md punkt 5). */
 export type CheckInExtract = {
+  /** Kort kommentar om närvaron ur samtalet (dagar, frånvaro och skäl, anmäld i förväg, vad som bestämts). Aldrig närvarostatus. */
+  attendanceComment: string;
   goalStatus: GoalStatus;
   nextGoal: string;
   phase: number;
@@ -93,6 +95,7 @@ const evidence = <S extends z.ZodType>(value: S) =>
 
 /** Veckoavstämningens förslag (samma form som CheckInSuggestions i ai-types.ts). Strikt: inga andra fält, t.ex. samlad status. */
 export const CheckInExtractSchema = z.strictObject({
+  attendanceComment: evidence(z.string()),
   goalStatus: evidence(z.enum(GOAL_STATUSES)),
   nextGoal: evidence(z.string()),
   phase: evidence(z.int().min(1)),
@@ -121,8 +124,9 @@ export const AI_CORE_INSTRUCTIONS = [
 export const EXTRACT_INSTRUCTIONS: Record<ExtractSchemaKey, string> = {
   check_in: [
     AI_CORE_INSTRUCTIONS,
-    "Fyll i veckoavstämningen från samtalet mellan coach och deltagare: veckomålet (yes, partly eller no), nästa veckas mål, fas (bara om den nämns),",
-    "genomförda aktiviteter, arbetsgivarkontakter (antal 0, 1 eller 2+ och typ), hinder och en kort anteckning.",
+    "Fyll i veckoavstämningen från samtalet mellan coach och deltagare: en kort kommentar om närvaron, veckomålet (yes, partly eller no), nästa veckas mål,",
+    "fas (bara om den nämns), genomförda aktiviteter, arbetsgivarkontakter (antal 0, 1 eller 2+ och typ), hinder och en kort anteckning.",
+    "Närvarostatus (närvarande/frånvarande) registreras av coachen i Närvaro – föreslå bara kommentarstexten.",
     "Föreslå aldrig samlad status (Grön/Gul/Röd) – den sätter coachen.",
   ].join("\n"),
 };

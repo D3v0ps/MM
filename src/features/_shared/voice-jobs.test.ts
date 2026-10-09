@@ -245,7 +245,7 @@ describe("transcribe_recording (coachens inspelning)", () => {
     const tr = { text: "", language: "sv", segments: [{ start: 10, end: 20, text: "Jag var på en intervju hos en arbetsgivare i torsdags.", speaker: "Deltagare" }] };
     const base = { value: null, quote: "", t: null, noEvidence: true };
     const s = {
-      goalStatus: base, nextGoal: base, phase: base, activitiesDone: base, obstacles: base, note: base,
+      attendanceComment: base, goalStatus: base, nextGoal: base, phase: base, activitiesDone: base, obstacles: base, note: base,
       employerContacts: { value: { count: "1" as const, types: ["intervju"] }, quote: "jag var på en INTERVJU … i torsdags", t: 10 },
     };
     expect(checkEvidence(s, tr).unverified).toEqual([]);
@@ -379,9 +379,9 @@ describe("gallring", () => {
 
   it("råtranskript: kvar i utkastet före sista dagen, raderat när avstämningen godkänts eller efter 30 dagar", async () => {
     const t = setup();
-    expect(t.store.getRow("check_ins", "ci-11916")!.ai!.transcript.length).toBe(7);
+    expect(t.store.getRow("check_ins", "ci-11916")!.ai!.transcript.length).toBe(8);
     await retentionTranscripts(t.sys);
-    expect(t.store.getRow("check_ins", "ci-11916")!.ai!.transcript.length).toBe(7);
+    expect(t.store.getRow("check_ins", "ci-11916")!.ai!.transcript.length).toBe(8);
     t.setNow("2027-02-28T13:00");
     expect(await retentionTranscripts(t.sys)).toBe("cleared:1");
     expect(t.store.getRow("check_ins", "ci-11916")!.ai).toMatchObject({ transcript: [], rawTranscriptDeletedAt: "2027-02-28T13:00" });

@@ -98,6 +98,7 @@ export function genActivities(g: Gen) {
     mehFri.aiRunId = run.id;
     mehFri.ai = {
       // Förslag med belägg (citat + tidpunkt i sekunder). Bedömningsfält (samlad status) föreslås aldrig.
+      attendanceComment: { value: "Närvarande måndag, tisdag och torsdag. Onsdag frånvaro med giltigt skäl (möte på kommunen), anmäld i förväg.", quote: "Jag var här måndag, tisdag och torsdag. I onsdags var jag på kommunen, det sa jag till om innan.", t: 150 },
       goalStatus: { value: "partly", quote: "Jag hann två leveranser själv, men den tredje åkte jag med Kristina.", t: 312 },
       nextGoal: { value: "Köra hela distributionsrundan själv en dag", quote: "Nästa vecka vill jag köra hela rundan själv på tisdag.", t: 1510 },
       phase: { value: 3, quote: "Vi fortsätter med ruttplaneringen och lastsäkringen.", t: 1622 },
@@ -106,6 +107,7 @@ export function genActivities(g: Gen) {
       obstacles: { value: ["Språk"], quote: "Ibland förstår jag inte ruttlappen, orden är svåra.", t: 1133 },
       note: { value: "Har kört två leveranser på egen hand. Behöver stöd med yrkesord på ruttlappen. Intresse för praktik hos Södertörns Distribution i mars.", quote: "Framgår av samtalet 03:25–18:53", t: 205 },
       transcript: [
+        { t: 150, who: "Deltagare", text: "Jag var här måndag, tisdag och torsdag. I onsdags var jag på kommunen, det sa jag till om innan." },
         { t: 205, who: "Coach", text: "Vad gjorde ni i onsdags?" }, { t: 212, who: "Deltagare", text: "I onsdags gjorde vi lastsäkring, och så skrev vi om CV:t." },
         { t: 312, who: "Deltagare", text: "Jag hann två leveranser själv, men den tredje åkte jag med Kristina." },
         { t: 948, who: "Deltagare", text: "Södertörns Distribution ringde och frågade om praktik i mars." },
