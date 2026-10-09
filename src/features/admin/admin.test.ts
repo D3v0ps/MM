@@ -310,7 +310,7 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
   });
 
   it("\"Kör nu\" sparas i jobs och loggas; gallringen kan inte köras", async () => {
-    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true });
+    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true, queued: false });
     // Beslut 4c: avrop@ är ett riktigt jobb (inbox_import). Utan jobbkörning (minnesläget) markeras det klart direkt.
     expect(rt.rows("jobs")).toMatchObject([{ kind: "inbox_import", status: "done", payload: { manual: true }, createdBy: "u-robin", createdAt: "2027-02-01T09:13" }]);
     expect(rt.rows("audit_log").find((a) => a.action === "job.run_manual")).toMatchObject({ entity: "job", entityId: "inbox" });

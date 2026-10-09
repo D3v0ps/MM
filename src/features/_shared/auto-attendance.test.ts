@@ -157,7 +157,7 @@ describe("minnesläget och Kör nu", () => {
 
   it("Kör nu (admin.runJob auto_attendance) registrerar direkt, utan golv – och syns på integrationssidan", async () => {
     const robin = actor("u-robin", "admin");
-    expect(await rt.run("command", adminRunJob.key, { key: "auto_attendance" }, robin)).toEqual({ ok: true });
+    expect(await rt.run("command", adminRunJob.key, { key: "auto_attendance" }, robin)).toEqual({ ok: true, queued: false });
     // Klockan 09.13: förra veckans sex tillfällen (dagens dag är inte slut).
     expect(auto().map((a) => a.activityId).sort()).toEqual([...W4].sort());
     expect(runs()[0]).toMatchObject({ actorId: "u-robin", details: { count: 6, manual: true } });

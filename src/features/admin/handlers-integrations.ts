@@ -257,5 +257,5 @@ handleCommand(adminRunJob, { roles: ["admin"] }, async (ctx, p) => {
   await ctx.repo.table("jobs").insert(job);
   if (real) ctx.jobs?.schedule();
   await ctx.audit({ action: "job.run_manual", entity: "job", entityId: p.key, contractId: null, details: {} });
-  return ok({});
+  return ok({ queued: real });
 });

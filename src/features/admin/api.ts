@@ -265,7 +265,7 @@ export const adminIntegrations = query("admin.integrations", z.object({})).retur
 // (inbox_import) som körs av jobbkörningen i supabase-läget; i minnesläget markeras det klart direkt (simulerat).
 // "auto_attendance" (beslut 2026-10-09) lägger ett riktigt jobb i supabase-läget och registrerar närvaron direkt i minnesläget
 // och prototypen (runAutoAttendance, utan golv – som produktionen).
-export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "auto_attendance", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<object, "disabled">>();
+export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "auto_attendance", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<{ queued: boolean }, "disabled">>();
 
 // ================================================================ Mallar och utskick (/admin/mallar)
 export type TemplateVersionView = { version: number; savedAt: string; savedByName: string };
