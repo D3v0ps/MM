@@ -38,7 +38,7 @@ async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
 const ROLES: [Who, string[], string, string[]][] = [
   [SARA, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Flaggor (11)", ["Min vardag", "Samordning"]],
   [JOHAN, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Avtalet: avvikelser och frågor", ["Min vardag", "Avtalet"]],
-  [AMIRA, ["Närvaro att registrera", "Aktiviteter i dag", "AI-utkast att granska", "Månads­bedömningar januari"], "Påminnelser", ["Min vardag"]],
+  [AMIRA, ["Närvaro att registrera", "Aktiviteter i dag", "Mötesrapporter att granska", "Månads­bedömningar januari"], "Påminnelser", ["Min vardag"]],
   [PETRA, ["Närvaro att registrera", "Tillfällen i dag", "Yrkesmoment den här veckan", "Praktik som saknar något av de fyra rätten"], "Kommande sju dagar", ["Min vardag"]],
   [KARIN, ["Flaggor att hantera", "Förfaller i dag", "Resultatgrad, rullande 6 mån", "Rapporter försenade"], "Tidig uppmärksamhet", ["Min vardag", "Ledning"]],
   [LARS, ["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"], "Uppgifter till dig", ["Min vardag", "Ekonomi"]],

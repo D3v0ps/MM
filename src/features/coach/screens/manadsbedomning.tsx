@@ -315,7 +315,7 @@ function ManadForm({ v }: { v: Ok }) {
       title={`Månadsbedömning ${monthName(month)}`}
       eyebrow={`${c.name} · ${c.caseNumber}`}
       crumbs={crumbs}
-      lead={`Bedöm förändringen jämfört med föregående månad. Nivån är tom tills du väljer. Konkret observation krävs från nivå ${reqFrom}.`}
+      lead={`Bedöm förändringen jämfört med föregående månad. Konkret observation krävs från nivå ${reqFrom}.`}
       actions={
         <Badge tone="plan" icon="clock" title={v.dueNote}>
           Förslag: senast {fmtWeekday(v.dueAt)}
@@ -337,7 +337,7 @@ function ManadForm({ v }: { v: Ok }) {
           <Stack>
             <CaseHeadView head={c} />
             <Grid cols={3}>
-              <Kpi label="Godkända avstämningar" value={String(b.checkIns.length)} sub={b.checkIns.length ? b.checkIns.map((x) => fmtDateShort(x)).join(", ") : "Inga i månaden"} />
+              <Kpi label="Godkända mötesrapporter" value={String(b.checkIns.length)} sub={b.checkIns.length ? b.checkIns.map((x) => fmtDateShort(x)).join(", ") : "Inga i månaden"} />
               <Kpi
                 label="Närvarograd"
                 value={b.attendance.rate != null ? pct(b.attendance.rate, 0) : "–"}
@@ -476,7 +476,7 @@ function ManadForm({ v }: { v: Ok }) {
                           <AiBox>
                             <Row gap="sm">
                               <AiTag>AI-utkast</AiTag>
-                              <span className="text-small text-text-muted">Källa: {aiObs.sources.join(", ") || "godkända avstämningar"}</span>
+                              <span className="text-small text-text-muted">Källa: {aiObs.sources.join(", ") || "godkända mötesrapporter"}</span>
                             </Row>
                             <div>{aiObs.text}</div>
                             <div>
@@ -493,7 +493,7 @@ function ManadForm({ v }: { v: Ok }) {
                               <span className="font-bold">Framgår inte</span>
                             </Row>
                             <div className="text-body text-text-muted">
-                              {aiObs?.text || "Framgår inte av månadens godkända avstämningar."} Skriv din egen observation om du bedömer området.
+                              {aiObs?.text || "Framgår inte av månadens godkända mötesrapporter."} Skriv din egen observation om du bedömer området.
                             </div>
                           </AiBox>
                         )}
@@ -529,7 +529,7 @@ function ManadForm({ v }: { v: Ok }) {
       <Split>
         <Card title="Samlad status och sammanfattning" icon="clipboard">
           <Stack>
-            <Field label="Samlad status" id="cm-overall" required error={errors.overall} help="Ditt val. Föreslås aldrig av AI.">
+            <Field label="Samlad status" id="cm-overall" required error={errors.overall}>
               <Seg<Rag>
                 id="cm-overall"
                 ariaLabel="Samlad status"
@@ -561,7 +561,7 @@ function ManadForm({ v }: { v: Ok }) {
               <AiBox>
                 <Row gap="sm">
                   <AiTag>AI-utkast</AiTag>
-                  <span className="text-small text-text-muted">Bygger bara på godkända avstämningar och registrerad närvaro</span>
+                  <span className="text-small text-text-muted">Bygger bara på godkända mötesrapporter och registrerad närvaro</span>
                 </Row>
                 <div>{ma0.aiSummaryDraft}</div>
                 <div>
@@ -586,7 +586,7 @@ function ManadForm({ v }: { v: Ok }) {
               <AiBox>
                 <Row gap="sm">
                   <AiTag>AI-utkast</AiTag>
-                  <span className="text-small text-text-muted">Källa: {v.aiDraft.plan.sources.join(", ") || "godkända avstämningar"}</span>
+                  <span className="text-small text-text-muted">Källa: {v.aiDraft.plan.sources.join(", ") || "godkända mötesrapporter"}</span>
                 </Row>
                 <div>{v.aiDraft.plan.text}</div>
                 <span className="text-body text-text-muted">Underlag för planen – skriv målen och aktiviteterna själv.</span>
@@ -693,8 +693,8 @@ function NotesPanel({ v, summary = "", added = [], onAdd }: { v: Ok; summary?: s
 }
 
 /**
- * "Skapa AI-utkast från godkända avstämningar" (coach.monthlyDraft): utkast till observation per område, sammanfattning och
- * plan – bara från månadens godkända avstämningar och registrerad närvaro. Nivåerna och samlad status väljer coachen själv.
+ * "Skapa AI-utkast från godkända mötesrapporter" (coach.monthlyDraft): utkast till observation per område, sammanfattning och
+ * plan – bara från månadens godkända mötesrapporter och registrerad närvaro. Nivåerna och samlad status väljer coachen själv.
  */
 function AiDraftCard({ v }: { v: Ok }) {
   const draft = useCommand(monthlyDraft);
@@ -703,9 +703,9 @@ function AiDraftCard({ v }: { v: Ok }) {
   // AI av (produktion utan leverantör, beslut 2026-10-08): klartext i stället för en knapp som inte fungerar.
   if (v.aiOff) {
     return (
-      <Card title="AI-utkast från godkända avstämningar" icon="sparkles">
+      <Card title="AI-utkast från godkända mötesrapporter" icon="sparkles">
         <Notice tone="warn" title="Tal till text är inte kopplat ännu">
-          {AI_OFF_TEXT} Observationerna, sammanfattningen och planen skrivs manuellt – det är fullt likvärdigt.
+          {AI_OFF_TEXT}
         </Notice>
       </Card>
     );
@@ -721,16 +721,16 @@ function AiDraftCard({ v }: { v: Ok }) {
     else toast("AI skriver utkasten. De visas här när de är klara.");
   };
   return (
-    <Card title="AI-utkast från godkända avstämningar" icon="sparkles">
+    <Card title="AI-utkast från godkända mötesrapporter" icon="sparkles">
       <Stack gap="sm">
         <p>
           AI skriver ett utkast till observation för varje område, en sammanfattning och ett underlag för planen. Underlaget är bara månadens{" "}
-          {n === 1 ? "godkända avstämning" : `${n} godkända avstämningar`} och den registrerade närvaron – aldrig råtranskript. Du väljer nivåerna och den samlade
+          {n === 1 ? "godkänd mötesrapport" : `${n} godkända mötesrapporter`} och den registrerade närvaron – aldrig råtranskript. Du väljer nivåerna och den samlade
           statusen själv.
         </p>
         <Row gap="sm">
           <Button kind="secondary" icon="sparkles" pending={draft.pending || d?.status === "running"} onClick={() => void create()}>
-            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända avstämningar"}
+            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända mötesrapporter"}
           </Button>
           {d?.status === "running" && (
             <span role="status" className="text-body font-bold">

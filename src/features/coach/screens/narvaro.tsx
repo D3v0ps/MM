@@ -12,7 +12,6 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { Link } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useQueryPatch } from "@/shell/url-state";
-import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
 import { activityRemove } from "@/features/arenden/api";
@@ -52,7 +51,6 @@ const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.star
 function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId: string | null }) {
   const { actor } = useSession();
   const patch = useQueryPatch();
-  const runtime = useRuntime();
   const role = actor.role;
   const set = useCommand(attendanceSet);
   const setAll = useCommand(attendanceSetAll);
@@ -283,7 +281,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
       eyebrow={role === "handledare" ? "Handledare – dina teamärenden" : "Snabbregistrering"}
       lead={`${
         role === "handledare" ? `Du ser tillfällen för ${v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet. ` : ""
-      }Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}. När alla tillfällen för en handläggares deltagare är registrerade publiceras veckorapporten automatiskt.`}
+      }Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}.`}
       crumbs={role === "coach" ? [MIN_VECKA_CRUMB, { label: "Närvaro" }] : undefined}
     >
       {caseId && (
@@ -487,9 +485,6 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
               </li>
               <li>Påminnelse fredag eftermiddag och måndag morgon. Saknas registreringen {v.dueText} går en påminnelse till samordnaren.</li>
             </ul>
-            <Notice tone="info" title="Frånvaronotis samma dag – ej fastställd">
-              En notis till handläggaren samma dag vid ogiltig frånvaro är ett tillval i avtalet som inte är beslutat. Den är avstängd{runtime === "demo" ? " i prototypen" : ""}.
-            </Notice>
           </Stack>
         </Card>
       </Split>

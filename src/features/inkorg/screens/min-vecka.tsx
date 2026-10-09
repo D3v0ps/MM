@@ -10,7 +10,7 @@ import { addWorkingDays, dayOf, fmtTime, fmtWeekday } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, DateInput, DemoNote, DoneLine, ErrorNotice, Field, focusSection, FormGrid, Icon, Kpi, Loading, Meter, Modal, Notice,
+  Badge, BuildPhase, Button, Card, CaseLink, DateInput, DoneLine, ErrorNotice, Field, focusSection, FormGrid, Icon, Kpi, Loading, Meter, Modal, Notice,
   PerspectiveLink, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
 import { inboxRowPath, inboxStart, inboxTaskDone, type AlertView, type StartView } from "../api";
@@ -35,7 +35,6 @@ export function SamMinVeckaScreen() {
       }
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : <Week v={q.data} />}
-      <DemoNote>Siffrorna räknas fram ur demodata och demoklockan. Flaggor och förfallotider följer reglerna i avtalskonfigurationen och de interna reglerna för notiser.</DemoNote>
     </WeekPage>
   );
 }
@@ -526,7 +525,7 @@ function AckModal({ a, onClose }: { a: AlertView; onClose: () => void }) {
         id="ink-ack-plan"
         label="Kort åtgärdsplan"
         required
-        help="Vad görs, av vem och när? Till exempel: Sara ringer handläggaren i dag före kl. 12 och bokar mötet."
+        help="Vad görs, av vem och när?"
         error={tried ? err : null}
       >
         <TextArea value={plan} onValueChange={setPlan} rows={3} maxLength={500} />
@@ -576,7 +575,7 @@ function BookModal({ c, today, meetingText, onClose }: { c: StartView["firstMeet
         <Field id="ink-b-date" label="Datum" required help="En vardag." error={tried ? err : null}>
           <DateInput value={date} onValueChange={setDate} />
         </Field>
-        <Field id="ink-b-time" label="Tid" required help="Mötet hålls i Alby.">
+        <Field id="ink-b-time" label="Tid" required>
           <TimeInput value={time} onValueChange={setTime} />
         </Field>
       </FormGrid>

@@ -8,7 +8,7 @@ import { Link, useNav } from "@/shell/nav";
 import { useMemoryState, useQueryPatch } from "@/shell/url-state";
 import { useSession } from "@/shell/session";
 import {
-  Button, Card, CaseStatusBadge, DemoNote, Empty, ErrorNotice, Field, Grid, Icon, Input, Loading, Page, PhaseBar, Seg, Select, Stack,
+  Button, Card, CaseStatusBadge, Empty, ErrorNotice, Field, Grid, Icon, Input, Loading, Page, PhaseBar, Seg, Select, Stack,
 } from "@/ui";
 import { supervisorStart, type SupervisorCase, type SupervisorStart } from "../api";
 import { ActList, fd, FourBadges, Label, plural } from "./common";
@@ -68,7 +68,7 @@ function Content({ m }: { m: SupervisorStart }) {
       </p>
       <Card title="Sök bland dina ärenden" icon="search">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] items-end gap-x-4 gap-y-3">
-          <Field label="Sök" id="hand-q" help="Namn eller en del av ärendenumret, till exempel 0143.">
+          <Field label="Sök" id="hand-q" help="Namn eller en del av ärendenumret.">
             <Input
               type="search"
               value={q}
@@ -76,7 +76,6 @@ function Content({ m }: { m: SupervisorStart }) {
                 setQ(v);
                 setLimit(12);
               }}
-              placeholder="Namn eller ärendenummer"
             />
           </Field>
           {areas.length > 1 && (
@@ -139,10 +138,6 @@ function Content({ m }: { m: SupervisorStart }) {
           </Button>
         </div>
       )}
-      <DemoNote>
-        I testdatan är Petra yrkesspecifik handledare för lager, logistik, transport och industri och finns därför i teamet för de ärendena. Kommunen ser inte den här vyn – de ser
-        närvaron i veckorapporten.
-      </DemoNote>
     </>
   );
 }

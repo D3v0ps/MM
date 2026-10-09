@@ -6,7 +6,7 @@ import { useQuery } from "@/shell/backend";
 import { useNav } from "@/shell/nav";
 import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
-import { Badge, Button, Card, DemoNote, Empty, ErrorNotice, Field, Icon, Input, List, ListItem, Loading, PerspectiveLink, Seg, Stack } from "@/ui";
+import { Badge, Button, Card, Empty, ErrorNotice, Field, Icon, Input, List, ListItem, Loading, PerspectiveLink, Seg, Stack } from "@/ui";
 import { kommunCaseList, type KomCaseList, type KomCaseRow } from "../api";
 import { shortStatus } from "../texts";
 import { KStatus, KomHead, KomPage, MoreButton, SubLine, UNREAD_EDGE } from "./parts";
@@ -96,7 +96,7 @@ function CaseList({ d }: { d: KomCaseList }) {
               }}
               options={LIST_FILTERS.filter((o) => o.value !== "avbojda" || counts.avbojda > 0).map((o) => ({ value: o.value, label: `${o.label} (${counts[o.value]})` }))}
             />
-            <Field id="kom-sok" label="Sök" help="Skriv ett namn eller ett ärendenummer, till exempel BOT-26-0143. Ärendenumret är beställningens nummer.">
+            <Field id="kom-sok" label="Sök" help="Skriv deltagarens namn eller ärendenumret.">
               <Input
                 type="search"
                 value={q}
@@ -164,9 +164,6 @@ function CaseList({ d }: { d: KomCaseList }) {
             <MoreButton shown={Math.min(limit, rows.length)} total={rows.length} onMore={() => setLimit(limit + 20)} />
           </Card>
         </>
-      )}
-      {d.scopeUnset && (
-        <DemoNote>Om handläggaren ska kunna se fler än sina egna deltagare är inte bestämt ännu. Nu ser handläggaren bara sina egna.</DemoNote>
       )}
       <div className="flex flex-wrap items-center gap-3">
         <PerspectiveLink role="samordnare" to="/arenden" label="Se listan hos Miljonbemanning" />

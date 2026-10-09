@@ -20,7 +20,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
   AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
-  List, Notice, Page,
+  List, Notice, ProcessSteps, Page,
   Recorder, Row, Seg, Select, SimulatedAiNotice, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
 import { Link } from "@/shell/nav";
@@ -43,17 +43,17 @@ type Method = "manual" | "ai";
 type Clicked = "accepted" | "edit" | "rejected";
 type Outcome = "accepted" | "edited" | "rejected";
 
-const TITLE = "Veckoavstämning";
+const TITLE = "Möte";
 const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas. Dokumentera manuellt.";
-const FIELD_ID: Record<AiField, string> = { goalStatus: "ci-goal", nextGoal: "ci-nextgoal", phase: "ci-phase", activitiesDone: "ci-acts", employerContacts: "ci-ec", obstacles: "ci-obst", note: "ci-note" };
+const FIELD_ID: Record<AiField, string> = { attendanceComment: "ci-attc", goalStatus: "ci-goal", nextGoal: "ci-nextgoal", phase: "ci-phase", activitiesDone: "ci-acts", employerContacts: "ci-ec", obstacles: "ci-obst", note: "ci-note" };
 const FIELD_LABEL: Record<AiField, string> = {
-  goalStatus: "Veckomål uppnått", nextGoal: "Nytt veckomål", phase: "Fas", activitiesDone: "Genomförda aktiviteter", employerContacts: "Arbetsgivarkontakter", obstacles: "Hinder", note: "Anteckning",
+  attendanceComment: "Kommentar om närvaron", goalStatus: "Veckomål uppnått", nextGoal: "Nytt veckomål", phase: "Fas", activitiesDone: "Genomförda aktiviteter", employerContacts: "Arbetsgivarkontakter", obstacles: "Hinder", note: "Anteckning",
 };
 /** Loggat utfall per AI-förslag: accepted (värdet oförändrat), edited (coachen ändrade värdet), rejected (avvisat). */
 const OUTCOME_LABEL: Record<Outcome, string> = { accepted: "Accepterat", edited: "Ändrat", rejected: "Avvisat" };
 /** label = underlaget i sammanfattningen, choose = valet av källa. */
 const SOURCE: Record<AiSource, { label: string; choose: string; icon: IconName; method: "ai_recording" | "ai_upload" | "teams" | "notes"; audio: boolean }> = {
-  recording: { label: "Inspelning i rummet", choose: "Spela in samtalet", icon: "mic", method: "ai_recording", audio: true },
+  recording: { label: "Inspelning i rummet", choose: "Spela in mötet", icon: "mic", method: "ai_recording", audio: true },
   upload: { label: "Uppladdad ljudfil", choose: "Ladda upp ljudfil", icon: "upload", method: "ai_upload", audio: true },
   teams: { label: "Teams-transkript", choose: "Teams-transkript", icon: "video", method: "teams", audio: false },
   notes: { label: "Inklistrade anteckningar", choose: "Inklistrade anteckningar", icon: "clipboard", method: "notes", audio: false },
@@ -78,25 +78,25 @@ const scrollTop = () => {
 export function AvstamningScreen({ params, query }: ScreenProps) {
   if (!params.caseId) {
     return (
-      <CasePicker kind="avstamning" title={TITLE} lead="Välj den deltagare du har träffat. Dokumentationen tar under fem minuter." basePath="/avstamning" actionLabel="Gör avstämning" />
+      <CasePicker kind="avstamning" title={TITLE} lead="Välj den deltagare du har möte med. Spela in mötet eller dokumentera det manuellt." basePath="/avstamning" actionLabel="Öppna mötet" />
     );
   }
-  return <Avstamning caseId={params.caseId} checkInId={query.get("avstamning")} rostId={query.get("rost")} />;
+  return <Avstamning caseId={params.caseId} checkInId={query.get("avstamning")} rostId={query.get("rost")} spela={query.get("spela") === "1"} />;
 }
 
-function Avstamning({ caseId, checkInId, rostId }: { caseId: string; checkInId: string | null; rostId: string | null }) {
+function Avstamning({ caseId, checkInId, rostId, spela }: { caseId: string; checkInId: string | null; rostId: string | null; spela: boolean }) {
   const q = useQuery(checkInPage, { caseId, checkInId: checkInId ?? undefined });
   const v = q.data;
   if (!v) return <PageState title={TITLE} error={q.error} onRetry={() => void q.refetch()} />;
   if (v.kind === "gate") return <GateView gate={v.gate} title={TITLE} listPath="/avstamning" />;
-  return <Loaded key={`${caseId}|${checkInId ?? ""}`} v={v} rostId={rostId} />;
+  return <Loaded key={`${caseId}|${checkInId ?? ""}`} v={v} rostId={rostId} spela={spela} />;
 }
 
-/** Om avstämningen redan var godkänd när vyn öppnades visas den skrivskyddat. Godkänns den här behålls kvittot. */
-function Loaded({ v, rostId }: { v: Ok; rostId: string | null }) {
+/** Om mötet redan var godkänt när vyn öppnades visas den skrivskyddat. Godkänns den här behålls kvittot. */
+function Loaded({ v, rostId, spela }: { v: Ok; rostId: string | null; spela: boolean }) {
   const [wasApproved] = useState(() => v.checkIn?.status === "approved");
   if (v.checkIn && wasApproved) return <CheckInReadOnly v={v} ci={v.checkIn} />;
-  return <CheckInForm v={v} rostId={rostId} />;
+  return <CheckInForm v={v} rostId={rostId} spela={spela} />;
 }
 
 // ================================================================ Skrivskyddad (redan godkänd)
@@ -105,15 +105,15 @@ function CheckInReadOnly({ v, ci }: { v: Ok; ci: CheckInView }) {
   return (
     <Page title={TITLE} eyebrow={`${v.head.name} · ${v.head.caseNumber}`} crumbs={caseCrumbs(v.head, TITLE)}>
       <Notice tone="ok" title={`Godkänd ${fmtDateTime(ci.approvedAt)} av ${ci.approvedByName ?? "–"}`}>
-        En godkänd avstämning ändras inte. Behöver något rättas gör du en ny avstämning.
+        En godkänd mötesrapport ändras inte. Behöver något rättas gör du ett nytt möte.
       </Notice>
-      <Card title={`Avstämning ${fmtDateTimeLong(ci.heldAt)}`} icon="clipboard">
+      <Card title={`Mötesrapport ${fmtDateTimeLong(ci.heldAt)}`} icon="clipboard">
         <Kv
           items={[
             ["Sätt och längd", `${cap(ci.mode || "fysiskt")}, ${ci.durationMin || "–"} min`],
+            ["Fas", phaseText(ci.phase)],
             ["Veckomål uppnått", ci.goalStatus ? GOAL_TEXT[ci.goalStatus] : "–"],
             ["Nytt veckomål", ci.nextGoal || "–"],
-            ["Fas", phaseText(ci.phase)],
             ["Aktiviteter", ci.activitiesDone.join(", ") || "–"],
             ["Arbetsgivarkontakter", ci.employerContacts ? ecText(ci.employerContacts) : "–"],
             ["Samlad status", <Status key="status" value={ci.overallStatus} />],
@@ -125,7 +125,7 @@ function CheckInReadOnly({ v, ci }: { v: Ok; ci: CheckInView }) {
       </Card>
       <Row>
         <Button kind="primary" icon="plus" to={`/avstamning/${encodeURIComponent(v.head.caseId)}`}>
-          Ny avstämning
+          Nytt möte
         </Button>
         <Button kind="ghost" to="/min-vecka">
           Till Min vecka
@@ -198,7 +198,7 @@ const ERROR_FIELD: Record<string, string> = {
 };
 const REC_LEAVE = "Inspelningen stoppas och försvinner. Lämna ändå?";
 const UNOPENED_DRAFT = "Sparas inte automatiskt – det finns redan ett sparat utkast. Öppna utkastet, eller spara det här som ett nytt med Spara utkast.";
-const ALREADY_APPROVED = "Avstämningen är redan godkänd – inget sparas. Ladda om sidan.";
+const ALREADY_APPROVED = "Mötesrapporten är redan godkänd – inget sparas. Ladda om sidan.";
 const CONFLICT_TEXT = "Utkastet har ändrats i en annan flik eller på en annan enhet – ladda om sidan. Inget skrivs över.";
 const DEV_MISSING: Record<string, string> = { devDescription: "beskrivning", devAction: "åtgärd", devOwner: "ansvarig", devFollow: "uppföljningsdatum", devCust: "om kommunen behöver fatta beslut" };
 
@@ -214,10 +214,11 @@ function suggestionsOf(ci: CheckInView | null): CheckInSuggestions | null {
   void _a;
   void _r;
   void _d;
-  return s;
+  // Utkast sparade innan närvarokommentaren fanns: "Framgår inte", som för de andra fälten utan belägg.
+  return { ...s, attendanceComment: s.attendanceComment ?? { value: null, quote: "Framgår inte av underlaget. Fyll i själv.", t: null, noEvidence: true } };
 }
 
-function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
+function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela: boolean }) {
   const { user } = useSession();
   const save = useCommand(checkinSave);
   // Automatisk utkastsparning räknar bara om utkastlistor och kortet – inte sidan själv och inte sidopanelens räknare.
@@ -283,8 +284,9 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
   };
   const setF = <K extends keyof FormState>(k: K, val: FormState[K]) => setForm((f) => ({ ...f, [k]: val }));
   const prot = c.protected;
-  const [method, setMethod] = useState<Method>(ci0?.ai ? "ai" : "manual");
-  const [source, setSource] = useState<AiSource>(sourceOf(ci0));
+  // ?spela=1 ("Spela in mötet" på deltagarkortet och Min vecka): AI-stöd med inspelning är förvalt – coachen trycker bara på inspelningsknappen.
+  const [method, setMethod] = useState<Method>(ci0?.ai || (spela && !ci0) ? "ai" : "manual");
+  const [source, setSource] = useState<AiSource>(spela && !ci0 ? "recording" : sourceOf(ci0));
   const [sugg, setSugg] = useState<CheckInSuggestions | null>(() => suggestionsOf(ci0));
   const [aiMeta, setAiMeta] = useState<AiMeta | null>(() =>
     ci0?.ai ? { runId: ci0.aiRunId, audioDeletedAt: ci0.ai.audioDeletedAt, deleteBy: ci0.ai.rawTranscriptDeleteBy, transcript: ci0.ai.transcript ?? [], fromSeed: true } : null,
@@ -340,7 +342,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       } else if (field === "phase") setForm((f) => ({ ...f, phase: val == null ? "1" : String(val) }));
       else setForm((f) => ({ ...f, [field]: Array.isArray(val) ? val.slice() : val }));
     };
-    const blank: Record<AiField, unknown> = { goalStatus: null, nextGoal: "", phase: c.phase || 1, activitiesDone: [], employerContacts: null, obstacles: [], note: "" };
+    const blank: Record<AiField, unknown> = { attendanceComment: "", goalStatus: null, nextGoal: "", phase: c.phase || 1, activitiesDone: [], employerContacts: null, obstacles: [], note: "" };
     if (dec === "rejected") apply(blank[field]);
     else apply(s.value);
     if (errors.ai) setErrors((e) => {
@@ -507,7 +509,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       if (!form.goalStatus) e.goalStatus = "Välj om veckomålet är uppnått.";
       if (!form.nextGoal.trim()) e.nextGoal = "Skriv ett nytt veckomål.";
       if (form.ecCount == null) e.ec = "Välj antal arbetsgivarkontakter.";
-      if (!form.overallStatus) e.overallStatus = "Välj samlad status. Den väljer du själv – AI föreslår den aldrig.";
+      if (!form.overallStatus) e.overallStatus = "Välj samlad status.";
       if (pendingAi.length) e.ai = `Ta ställning till alla AI-förslag innan du godkänner: ${pendingAi.map((f) => FIELD_LABEL[f].toLowerCase()).join(", ")}.`;
     }
     if (form.overallStatus === "red") {
@@ -625,7 +627,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       })
       .catch(() => null);
     if (!res) {
-      toast("Avstämningen kunde inte sparas.", "error");
+      toast("Mötesrapporten kunde inte sparas.", "error");
       return;
     }
     if (!res.ok) {
@@ -633,8 +635,8 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
         setErrors({ devDescription: "Röd status kräver en avvikelse med åtgärd, ansvarig och uppföljningsdatum." });
         toast("Röd status kräver en avvikelse.", "error");
       } else if (res.error === "ai_not_allowed") toast(AI_BLOCKED, "error");
-      else if (res.error === "approved" || res.error === "conflict") toast(res.message ?? "Avstämningen kunde inte sparas.", "error");
-      else toast("Avstämningen kunde inte sparas.", "error");
+      else if (res.error === "approved" || res.error === "conflict") toast(res.message ?? "Mötesrapporten kunde inte sparas.", "error");
+      else toast("Mötesrapporten kunde inte sparas.", "error");
       return;
     }
     remember(res);
@@ -651,7 +653,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
     forgetDraft();
     const stopped = Date.now();
     setDone({ checkInId: res.checkInId, deviationId: res.deviationId, decisions: decisionsLogged, docSecs: Math.round((stopped - start) / 1000), stopped });
-    toast("Avstämningen är godkänd.");
+    toast("Mötesrapporten är godkänd.");
     scrollTop();
   };
 
@@ -677,7 +679,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
     <Page
       title={TITLE}
       eyebrow={`${c.name} · ${c.caseNumber}`}
-      lead="Förifyllt från kalendern och närvaron. Välj med knapparna – det enda du skriver är anteckningen."
+      lead="Spela in mötet eller fyll i mötesrapporten själv. Datum, närvaro och förra veckans mål är förifyllda."
       crumbs={caseCrumbs(c, TITLE)}
     >
       <Card>
@@ -700,8 +702,8 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
         </Notice>
       )}
       {draftElsewhere && (
-        <Notice tone="warn" title={draftElsewhere.ai ? "Det finns ett AI-utkast att granska" : "Det finns ett sparat utkast"}>
-          Avstämning {fmtDateTimeLong(draftElsewhere.heldAt)}.{" "}
+        <Notice tone="warn" title={draftElsewhere.ai ? "Det finns en mötesrapport från AI att granska" : "Det finns ett sparat utkast"}>
+          Möte {fmtDateTimeLong(draftElsewhere.heldAt)}.{" "}
           {!draftElsewhere.ai && "Det du skriver här sparas inte automatiskt förrän du har öppnat utkastet eller sparat det här som ett nytt utkast. "}
           <Button kind="ghost" to={`/avstamning/${encodeURIComponent(c.caseId)}?avstamning=${encodeURIComponent(draftElsewhere.id)}`}>
             Öppna utkastet
@@ -797,28 +799,27 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
         </Stack>
       </Card>
 
-      <Card title="Avstämningen" icon="clipboard">
+      <Card title="Mötesrapporten" icon="clipboard">
         {sugg && method === "ai" && (
           <div className="mb-4">
-            <Notice tone="info" title="AI-förslag – du bedömer">
-              Varje förslag visas med belägg{source === "notes" ? " (meningen i dina anteckningar)" : " (citat och tidpunkt)"}. Acceptera, ändra eller avvisa. Det som inte framgår av
-              underlaget visas som <b>Framgår inte</b> och fyller du i själv. <b>Samlad status föreslås aldrig</b> – den väljer du själv.
+            <Notice tone="info" title="Förslag från AI">
+              Acceptera, ändra eller avvisa varje förslag. Det som inte framgår av underlaget visas som <b>Framgår inte</b>.
             </Notice>
           </div>
         )}
         <div>
           <Section n="1" title="Datum, längd och sätt" ok={!!form.date} extra={<span className="text-small font-medium text-text-muted">Förifyllt från kalendern</span>}>
             <FormGrid>
-              <Field label="Datum" id="ci-date" help="Dagen för mötet.">
+              <Field label="Datum" id="ci-date">
                 <DateInput value={form.date} onValueChange={(x) => setF("date", x)} />
               </Field>
-              <Field label="Starttid" id="ci-time" help="När mötet började.">
+              <Field label="Starttid" id="ci-time">
                 <TimeInput value={form.time} onValueChange={(x) => setF("time", x)} />
               </Field>
-              <Field label="Längd" id="ci-dur" help="Ungefärlig längd på samtalet.">
+              <Field label="Längd" id="ci-dur">
                 <Seg id="ci-dur" ariaLabel="Längd" value={form.durationMin} onValueChange={(x) => setF("durationMin", x)} options={["30", "45", "60", "90"].map((x) => ({ value: x, label: `${x} min` }))} />
               </Field>
-              <Field label="Sätt" id="ci-mode" help="Hur ni träffades.">
+              <Field label="Sätt" id="ci-mode">
                 <Seg id="ci-mode" ariaLabel="Sätt" value={form.mode} onValueChange={(x) => setF("mode", x)} options={MODE_OPTIONS} />
               </Field>
             </FormGrid>
@@ -830,12 +831,24 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                 {repeated.count} ogiltiga frånvarotillfällen inom {repeated.withinDays} dagar. Överväg samlad status Röd med en åtgärdsplan.
               </Notice>
             )}
-            <Field label="Kommentar om närvaron" id="ci-attc" help="Valfritt. Till exempel vad ni kom överens om efter en frånvaro.">
-              <Input value={form.attendanceComment} onValueChange={(x) => setF("attendanceComment", x)} maxLength={200} />
-            </Field>
+            {pair(
+              "attendanceComment",
+              <Field label="Kommentar om närvaron" id="ci-attc" help="Valfritt. Till exempel vad ni kom överens om efter en frånvaro. Närvaron i sig registrerar du ovan – AI föreslår bara texten.">
+                <Input value={form.attendanceComment} onValueChange={(x) => setF("attendanceComment", x)} maxLength={200} />
+              </Field>,
+            )}
           </AttendanceSection>
 
-          <Section n="3" title="Veckomål" ok={!!form.goalStatus && !!form.nextGoal.trim()}>
+          <Section n="3" title="Fas" ok={!!form.phase}>
+            {pair(
+              "phase",
+              <Field label="Fas" id="ci-phase" required help={`Ärendet är i fas ${c.phase} sedan ${fmtDate(v.phaseSince)}.`}>
+                <Seg id="ci-phase" ariaLabel="Fas" value={form.phase} onValueChange={(x) => setF("phase", x)} options={v.phases.map((p) => ({ value: String(p.no), label: `${p.no} ${p.name}` }))} />
+              </Field>,
+            )}
+          </Section>
+
+          <Section n="4" title="Veckomål" ok={!!form.goalStatus && !!form.nextGoal.trim()}>
             {pair(
               "goalStatus",
               <Field label="Veckomål uppnått" id="ci-goal" required error={shown.goalStatus} help={prevGoal ? `Förra veckans mål: ”${prevGoal}”` : "Stäm av målet från förra veckan."}>
@@ -852,15 +865,6 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                   <Chips label="Förslag på veckomål" items={goalSuggestions} onPick={(g) => setF("nextGoal", g)} />
                 )}
               </>,
-            )}
-          </Section>
-
-          <Section n="4" title="Fas" ok={!!form.phase}>
-            {pair(
-              "phase",
-              <Field label="Fas" id="ci-phase" required help={`Ärendet är i fas ${c.phase} sedan ${fmtDate(v.phaseSince)}. Byte registreras när du godkänner.`}>
-                <Seg id="ci-phase" ariaLabel="Fas" value={form.phase} onValueChange={(x) => setF("phase", x)} options={v.phases.map((p) => ({ value: String(p.no), label: `${p.no} ${p.name}` }))} />
-              </Field>,
             )}
           </Section>
 
@@ -937,7 +941,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
                     <TextArea rows={2} value={dev.action} onValueChange={(x) => setDev({ ...dev, action: x })} maxLength={300} />
                   </Field>
                   <FormGrid>
-                    <Field label="Ansvarig" id="dev-owner" required error={shown.devOwner} help="Den som ser till att åtgärden blir gjord.">
+                    <Field label="Ansvarig" id="dev-owner" required error={shown.devOwner}>
                       <Select value={dev.ownerId} placeholder="Välj ansvarig" onValueChange={(x) => setDev({ ...dev, ownerId: x })} options={v.owners.map((o) => ({ value: o.id, label: o.name }))} />
                     </Field>
                     <Field label="Uppföljningsdatum" id="dev-follow" required error={shown.devFollow} help="Förslag: om en vecka.">
@@ -973,7 +977,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
           <Section n="8" title="Hinder" ok>
             {pair(
               "obstacles",
-              <Field label="Hinder" id="ci-obst" help="Funktionella kategorier. Välj inga om inget hindrar.">
+              <Field label="Hinder" id="ci-obst" help="Välj inga om inget hindrar.">
                 <Seg id="ci-obst" multi ariaLabel="Hinder" value={form.obstacles} onValueChange={(x) => setF("obstacles", x)} options={v.options.obstacles} />
               </Field>,
             )}
@@ -985,7 +989,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
               <Field
                 label="Anteckning"
                 id="ci-note"
-                help={`Kort och saklig. Inga diagnoser eller omdömen om personen. ${v.seesCoachNotes ? "Kommunen kan läsa anteckningen." : "Kommunen ser inte anteckningen."}`}
+                help="Kort och saklig. Inga diagnoser eller omdömen om personen."
               >
                 <TextArea rows={3} value={form.note} onValueChange={(x) => setF("note", x)} maxLength={500} />
               </Field>,
@@ -1007,7 +1011,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
 
       {devMissing.length > 0 && (
         <Notice tone="critical" title="Stopp: röd status kräver en avvikelse">
-          Avstämningen godkänns inte förrän avvikelsen är ifylld. Det saknas: {devMissing.join(", ")}.
+          Mötesrapporten godkänns inte förrän avvikelsen är ifylld. Det saknas: {devMissing.join(", ")}.
           <div className="mt-2">
             <Button kind="secondary" icon="chevron-up" onClick={goToDev}>
               Gå till avvikelsen
@@ -1015,14 +1019,14 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
           </div>
         </Notice>
       )}
-      <ErrorSummary items={summary} title={attempt ? "Avstämningen kan inte godkännas ännu" : "Rätta det här innan du sparar"} />
+      <ErrorSummary items={summary} title={attempt ? "Mötesrapporten kan inte godkännas ännu" : "Rätta det här innan du sparar"} />
       {/* Knapparna ligger kvar längst ned på skärmen medan man fyller i formuläret. */}
       <div data-print="hide" className="sticky bottom-0 z-10 -mx-1 border-t border-ljusgra bg-vit px-1 py-2.5 shadow-[0_-6px_12px_-8px_rgb(30_37_43/0.25)]">
-        {/* Smal skärm: knapparna staplas i full bredd så att "Godkänn avstämningen" aldrig klipps; dokumentationstiden döljs (den syns i kvittot). */}
+        {/* Smal skärm: knapparna staplas i full bredd så att "Godkänn mötesrapporten" aldrig klipps; dokumentationstiden döljs (den syns i kvittot). */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div className="flex flex-wrap gap-2 max-[560px]:w-full max-[560px]:flex-col max-[560px]:[&>button]:w-full">
             <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
-              Godkänn avstämningen
+              Godkänn mötesrapporten
             </Button>
             <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
               Spara utkast
@@ -1230,7 +1234,7 @@ function ConsentPanel({
         <p>Ljudet raderas direkt när det har skrivits ut. Texten raderas när din coach har godkänt anteckningarna.</p>
         <p>Det är frivilligt. Du kan säga nej eller ändra dig när du vill. Ett nej påverkar inte ditt stöd.</p>
       </div>
-      <Field label="Språk för informationen" id="cons-lang" help="Översättning finns på de vanligaste språken.">
+      <Field label="Språk för informationen" id="cons-lang">
         <Seg id="cons-lang" ariaLabel="Språk för informationen" value={lang} onValueChange={setLang} options={CONSENT_LANGS.map((x) => ({ value: x, label: cap(x) }))} />
       </Field>
       <Check id="cons-informed" checked={informed} onCheckedChange={setInformed}>
@@ -1274,15 +1278,12 @@ function AiCapture({
 }) {
   if (proc) {
     return (
-      <div role="status" aria-live="polite" className="flex flex-col gap-2 rounded-mb border-[1.5px] border-bla bg-bla-ton px-3.5 py-3">
-        {proc.steps.map((s, i) => (
-          <div key={s} className={cn("flex items-center gap-2", i > proc.i && "text-text-muted", i === proc.i && "font-extrabold")}>
-            <Icon name={i < proc.i ? "check" : i === proc.i ? "refresh" : "circle"} />
-            {s}
-          </div>
-        ))}
-        <span className="text-body text-text-muted">Bearbetas i Sverige/EU. Ingenting används för att träna modellen.</span>
-      </div>
+      <ProcessSteps
+        title={proc.steps.length > 2 ? "Inspelningen bearbetas" : "Underlaget tolkas"}
+        steps={proc.steps}
+        current={proc.i}
+        hint={proc.steps.length > 2 ? "Tar vanligtvis en till två minuter. Ljudet raderas så fort texten är klar." : undefined}
+      />
     );
   }
   const maxSeconds = Math.max(60, recording.maxMinutes * 60);
@@ -1290,7 +1291,7 @@ function AiCapture({
   if (recording.block === "ai_off") {
     return (
       <Notice tone="warn" title="Tal till text är inte kopplat ännu">
-        {recording.blockText ?? AI_OFF_TEXT} Fyll i formuläret manuellt – det är fullt likvärdigt.
+        {recording.blockText ?? AI_OFF_TEXT}
       </Notice>
     );
   }
@@ -1302,7 +1303,7 @@ function AiCapture({
     ) : null;
   return (
     <Stack>
-      <Field label="Källa" id="ai-src" help="AI fyller samma formulär som den manuella vägen.">
+      <Field label="Källa" id="ai-src">
         <Seg<AiSource>
           id="ai-src"
           ariaLabel="Källa"
@@ -1317,7 +1318,7 @@ function AiCapture({
         (blocked ?? (
           <Stack gap="sm">
             <p className="text-body">
-              Spela in samtalet i rummet. Pausa när samtalet går in på sådant som inte behövs för uppdraget. Ljudet laddas upp till en privat lagring i Sverige och
+              Spela in mötet i rummet. Pausa när samtalet går in på sådant som inte behövs för uppdraget. Ljudet laddas upp till en privat lagring i Sverige och
               raderas direkt efter transkriberingen.
             </p>
             <Recorder
@@ -1409,7 +1410,7 @@ function AiSourceSummary({
   return (
     <Stack>
       <Row gap="sm">
-        <AiTag>AI-utkast</AiTag>
+        <AiTag>Mötesrapport – utkast från AI</AiTag>
         <span className="font-bold">
           {src.label}
           {heldAt ? ` · ${fmtDateTimeLong(heldAt)}` : ""}
@@ -1423,7 +1424,7 @@ function AiSourceSummary({
           src.audio
             ? { icon: "trash", filled: true, title: "Ljudet är raderat", sub: aiMeta?.audioDeletedAt ? `${fmtDateTimeLong(aiMeta.audioDeletedAt)} – direkt efter transkriberingen` : "Direkt efter transkriberingen" }
             : { icon: "info", title: "Inget ljud", sub: source === "teams" ? "Transkriptet hämtades från Teams." : "Förslagen bygger på dina anteckningar." },
-          { icon: "file", title: "Råtranskriptet raderas när du godkänner", sub: aiMeta?.deleteBy ? `Senast ${fmtDate(aiMeta.deleteBy)} om avstämningen inte godkänns.` : "" },
+          { icon: "file", title: "Råtranskriptet raderas när du godkänner", sub: aiMeta?.deleteBy ? `Senast ${fmtDate(aiMeta.deleteBy)} om mötesrapporten inte godkänns.` : "" },
           { icon: "check", title: pending > 0 ? `${pending} förslag väntar på ditt beslut` : "Alla förslag är granskade", sub: "Varje beslut sparas och loggas." },
         ]}
       />
@@ -1465,7 +1466,7 @@ function TranscriptPanel({ ciId, transcript }: { ciId: string | null; transcript
 function CheckInDone({ v, done }: { v: Ok; done: Done }) {
   const q = useQuery(checkInReceipt, { caseId: v.head.caseId, checkInId: done.checkInId, deviationId: done.deviationId });
   const r = q.data;
-  if (!r) return <PageState title="Avstämningen är godkänd" error={q.error} onRetry={() => void q.refetch()} />;
+  if (!r) return <PageState title="Mötesrapporten är godkänd" error={q.error} onRetry={() => void q.refetch()} />;
   if (r.kind === "gate") return <GateView gate={r.gate} title={TITLE} listPath="/avstamning" />;
   return <Receipt v={v} r={r} done={done} />;
 }
@@ -1475,7 +1476,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
   const ref = r.referrer;
   const [proposed, setProposed] = useState(r.proposedAt);
   const template = (at: string) =>
-    `Hej${ref.name ? ` ${ref.name.split(" ")[0]}` : ""}! Veckoavstämningen för ärende ${r.caseNumber} visar att planen behöver ses över. Jag föreslår ett uppföljningsmöte ${
+    `Hej${ref.name ? ` ${ref.name.split(" ")[0]}` : ""}! Mötet för ärende ${r.caseNumber} visar att planen behöver ses över. Jag föreslår ett uppföljningsmöte ${
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at) ? fmtDateTimeLong(at) : "en tid som passar dig"
     } hos oss i ${r.location}. Svara gärna här om tiden passar eller föreslå en annan. Hälsningar ${r.coachName}, Miljonbemanning`;
   const [edited, setEdited] = useState<string | null>(null);
@@ -1507,7 +1508,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
     toast("Mötesförfrågan är skickad till kommunen.");
   };
   return (
-    <Page title="Avstämningen är godkänd" eyebrow={`${r.name} · ${r.caseNumber}`} crumbs={caseCrumbs({ caseId: v.head.caseId, caseNumber: r.caseNumber }, TITLE)}>
+    <Page title="Mötesrapporten är godkänd" eyebrow={`${r.name} · ${r.caseNumber}`} crumbs={caseCrumbs({ caseId: v.head.caseId, caseNumber: r.caseNumber }, TITLE)}>
       <Grid cols={3}>
         <Kpi label="Dokumentationstid" value={`${m} min ${String(s).padStart(2, "0")} s`} sub={m < 5 ? "Under målet 5 min" : "Över målet 5 min"} tone={m < 5 ? undefined : "watch"} />
         <Kpi label="Samlad status" value={<Status value={ci?.overallStatus ?? null} short />} sub={ci?.phaseLabel ?? ""} />
@@ -1583,7 +1584,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
                     <DateTimeInput value={proposed} onValueChange={setProposed} />
                   </Field>
                 </FormGrid>
-                <Field label="Meddelande" id="call-body" help="Skrivs i portalen. Skriv inga känsliga detaljer.">
+                <Field label="Meddelande" id="call-body" help="Skriv inga känsliga detaljer.">
                   <TextArea rows={4} value={body} onValueChange={setEdited} maxLength={800} />
                 </Field>
                 <Row>

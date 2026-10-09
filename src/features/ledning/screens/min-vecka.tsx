@@ -14,7 +14,7 @@ import { reportList, type ReportList } from "@/features/rapporter/api";
 import { useWeekToday } from "@/features/vecka/today";
 import { useQuery } from "@/shell/backend";
 import {
-  Badge, Button, Card, DemoNote, DoneLine, ErrorNotice, focusSection, Kpi, Kv, List, ListItem, Loading, SlaBadge, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
+  Badge, Button, Card, DoneLine, ErrorNotice, focusSection, Kpi, Kv, List, ListItem, Loading, SlaBadge, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
 import { ledningOverview, type LedningOverview } from "../api";
 import { AckModal, AlertRow, EarlyCard, RR_STATUS, RrBadge, type AckTarget } from "./parts";
@@ -48,7 +48,6 @@ export function ChefMinVeckaScreen() {
       ) : (
         <Week o={o.data} dl={d.data} reports={r.data} />
       )}
-      <DemoNote>Siffrorna räknas fram ur påhittade testdata varje gång sidan visas. Ledningsvyn har trenden, per coach, per avtalsområde och deltagarnas röst.</DemoNote>
     </WeekPage>
   );
 }

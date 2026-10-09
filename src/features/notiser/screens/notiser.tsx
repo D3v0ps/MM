@@ -72,7 +72,7 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
   const target = (n: NotifView) => {
     if (!n.caseId) return null;
     const id = encodeURIComponent(n.caseId);
-    if (n.kind === "progress_reminder") return { to: `/avstamning/${id}`, label: "Gör avstämning" };
+    if (n.kind === "progress_reminder") return { to: `/avstamning/${id}`, label: "Öppna mötet" };
     if (n.kind === "message") return { to: `/arenden/${id}?flik=meddelanden`, label: "Läs meddelandet" };
     return { to: `/arenden/${id}`, label: "Öppna ärendet" };
   };
@@ -80,7 +80,7 @@ function NotiserContent({ d, onRead }: { d: NotifList; onRead: (ids: string[]) =
     <>
       {d.isCoach && (
         <Notice tone="info" title="Så fungerar påminnelserna">
-          Du får en påminnelse när ett av dina ärenden saknar progression en vecka – veckomålet inte uppnått eller ingen godkänd avstämning. Påminnelsen skickas {d.reminderSchedule}.
+          Du får en påminnelse när ett av dina ärenden saknar progression en vecka – veckomålet inte uppnått eller ingen godkänd mötesrapport. Påminnelsen skickas {d.reminderSchedule}.
         </Notice>
       )}
       {d.isEscalationRole && (

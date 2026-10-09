@@ -269,6 +269,7 @@ const TRANSCRIPT: Transcript = {
 };
 const none = { value: null, quote: "Framgår inte", t: null, noEvidence: true };
 const EXTRACT = {
+  attendanceComment: none,
   goalStatus: { value: "yes", quote: "Jag nådde målet.", t: 96, noEvidence: false },
   nextGoal: none, phase: none, activitiesDone: none, employerContacts: none, obstacles: none,
   note: { value: "Nådde veckomålet.", quote: "Jag nådde målet.", t: 96, noEvidence: false },
@@ -293,7 +294,10 @@ describe("extract", () => {
     expect(sys).toContain("Framgår inte");
     expect(sys).toContain("Föreslå aldrig samlad status");
     const schema = (body.generationConfig as { responseSchema: { properties: Record<string, unknown> } }).responseSchema;
-    expect(Object.keys(schema.properties)).toEqual(["goalStatus", "nextGoal", "phase", "activitiesDone", "employerContacts", "obstacles", "note"]);
+    expect(Object.keys(schema.properties)).toEqual(["attendanceComment", "goalStatus", "nextGoal", "phase", "activitiesDone", "employerContacts", "obstacles", "note"]);
+    // Närvarokommentaren: bara texten föreslås – närvarostatusen sätts aldrig av AI (CLAUDE.md punkt 5)
+    expect(sys).toContain("attendanceComment: ett kort förslag till kommentar om närvaron");
+    expect(sys).toContain("Sätt aldrig närvarostatus");
   });
 
   it("samlad status eller värden utanför formulärets listor underkänns (två försök, sedan fel)", async () => {
@@ -338,7 +342,7 @@ describe("draft (bara godkända uppgifter)", () => {
 
   it("utan belägg: standardtexten \"Framgår inte\"; utan underlag görs inget anrop", async () => {
     const v = vertex(ENV, [reply({ text: "Framgår inte", sourceIds: [], usedAttendance: false, noEvidence: true })]);
-    expect((await v.ai.draft(INPUT, "monthly_plan")).value).toEqual({ text: "Framgår inte av månadens godkända avstämningar.", sources: [], sourceIds: [], noEvidence: true });
+    expect((await v.ai.draft(INPUT, "monthly_plan")).value).toEqual({ text: "Framgår inte av månadens godkända mötesrapporter.", sources: [], sourceIds: [], noEvidence: true });
     const empty = vertex(ENV, []);
     const r = await empty.ai.draft({ ...INPUT, checkIns: [], attendance: [] }, "monthly_summary");
     expect(r.value.noEvidence).toBe(true);

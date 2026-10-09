@@ -8,7 +8,7 @@ import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
+  Badge, Button, Card, CaseLink, CaseStatusBadge, CellSub, cn, Empty, ErrorNotice, Field, Icon, Kv, Loading, Notice, Page, PerspectiveLink, SlaBadge, Stepper,
   Table, Tabs, TextArea, toast, type Column, type IconName,
 } from "@/ui";
 import {
@@ -39,7 +39,7 @@ export function InkorgScreen({ params, query }: ScreenProps) {
     <Page
       title="Avropsinkorg"
       eyebrow="avrop@miljonbemanning.se"
-      lead={q.data ? `Mejl till avrop@ läses in automatiskt och får ärendenummer och ordererkännande inom ${q.data.ackMinutes} minuter. Svara med Acceptera eller Avböj senast ${q.data.answerText} efter mottagandet.` : undefined}
+      lead={q.data ? `Svara med Acceptera eller Avböj senast ${q.data.answerText} efter mottagandet.` : undefined}
       actions={
         <>
           {/* Beslut 4a (2026-10-08): avrop som kom med mejl som inte kunde tolkas, telefon eller på annat sätt registreras här.
@@ -52,10 +52,6 @@ export function InkorgScreen({ params, query }: ScreenProps) {
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : (
         <Inbox data={q.data} emailId={params.emailId ?? null} caseId={query.get("arende")} latest={query.get("senaste") === "1"} visa={query.get("visa")} />
       )}
-      <DemoNote>
-        Mejlen här är påhittade. I tjänsten hämtas mejlen från avrop@ via Microsoft Graph varannan minut och flyttas till mappen Inläst, där de ligger kvar som reserv.
-        Inga mejl eller SMS skickas på riktigt – de syns i utskicksloggen. Demoklockan går en minut framåt för varje åtgärd.
-      </DemoNote>
     </Page>
   );
 }
@@ -481,7 +477,7 @@ function SupplementBody({ b, onPick, onAccept }: { b: SupplementBodyView; onPick
   const cc = b.caseCard;
   return (
     <>
-      <Notice tone="info" icon="link" title={`Kopplad automatiskt till ${b.caseNumber}`}>Svaret på ordererkännandet kopplades via ärendenumret i ämnesraden. Ingen manuell sortering behövs.</Notice>
+      <Notice tone="info" icon="link" title={`Kopplad automatiskt till ${b.caseNumber}`} />
       <Card
         title={b.applied ? "Uppgifterna är införda" : "Uppgifter att föra in"}
         icon={b.applied ? "check-circle" : "file-plus"}
@@ -607,14 +603,14 @@ function OtherBody({ it, b }: { it: InboxItemDetail; b: OtherBodyView }) {
         >
           {b.lastReply ? (
             <div className="flex flex-col gap-2">
-              <Notice tone="ok" title={`Svar skickat ${b.lastReply.when} som säkert meddelande`}>Svaret ligger i ärendet i portalen. Svara inte med vanligt mejl när det gäller en deltagare.</Notice>
+              <Notice tone="ok" title={`Svar skickat ${b.lastReply.when} som säkert meddelande`} />
               <Quote>{b.lastReply.body}</Quote>
               {b.replyMail && <IconLine icon="mail"><b>Kommunen fick ett mejl utan innehåll:</b> {b.replyMail}</IconLine>}
             </div>
           ) : (
             <Field
               id="ink-reply" label="Svar till kommunen" required error={err}
-              help={`Skickas som säkert meddelande i ärendet. Kommunen får bara ett mejl: ”Du har ett nytt meddelande om ärende ${c.caseNumber} – logga in för att läsa.” Förslaget bygger på schemat i ärendet – ändra fritt.`}
+              help="Skriv inga personnummer. Ändra texten fritt."
             >
               <TextArea value={draft} onValueChange={(x) => { setDraft(x); setErr(null); }} rows={8} maxLength={2000} />
             </Field>

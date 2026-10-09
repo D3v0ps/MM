@@ -24,7 +24,7 @@ describe("notiser", () => {
     expect(d.items[0]).toMatchObject({
       kind: "progress_reminder", caseId: "case-260148", createdAt: "2027-02-01T08:00", channels: ["app", "email"],
       title: "Påminnelse: ingen progression 3 veckor i rad",
-      body: "BOT-26-0148: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i veckoavstämningen.",
+      body: "BOT-26-0148: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i mötet.",
     });
     expect([d.isCoach, d.isEscalationRole, d.reminderSchedule, d.escalateAfterWeeks]).toEqual([true, false, "måndag 08.00 för föregående vecka", 2]);
     expect(JSON.stringify(d)).not.toMatch(/eskaler/i);

@@ -6,7 +6,7 @@ import { useSession } from "@/shell/session";
 import { dayOf, fmtDate, fmtDateTime, fmtDateTimeLong } from "@/core/time";
 import { RESULT_CLASS_LABEL } from "@/core/labels";
 import {
-  Badge, BuildPhase, Button, Card, Check, DateInput, DateTimeInput, DemoNote, Empty, Field, FormGrid, Icon, Kv, List, ListItem, Modal, Notice, Select, SlaBadge, Split, Stack,
+  Badge, BuildPhase, Button, Card, Check, DateInput, DateTimeInput, Empty, Field, FormGrid, Icon, Kv, List, ListItem, Modal, Notice, Select, SlaBadge, Split, Stack,
   TextArea, cn, toast, useConfirm, type IconName,
 } from "@/ui";
 import { deviationCallCustomer, deviationSave } from "@/features/coach/api";
@@ -87,7 +87,7 @@ export function TabHandelser({ card }: TabProps) {
               {team && (
                 <div className="px-[18px] pt-4">
                   <p className="text-text-muted">
-                    Arbetsgivarkontakter i godkända avstämningar: <b>{e.checkInContacts}</b>. Coachens anteckningar visas inte.
+                    Arbetsgivarkontakter i godkända mötesrapporter: <b>{e.checkInContacts}</b>.
                   </p>
                 </div>
               )}
@@ -163,7 +163,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
     <Stack>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-[70ch] text-text-muted">
-          En avvikelse är alltid en åtgärd: vad har hänt, vad gör vi, vem ansvarar och när följer vi upp. Röd samlad status i en avstämning skapar en avvikelse automatiskt.
+          En avvikelse är alltid en åtgärd: vad har hänt, vad gör vi, vem ansvarar och när följer vi upp. Röd samlad status i en mötesrapport skapar en avvikelse automatiskt.
         </p>
         {card.edit && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -211,7 +211,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
       )}
       {devs.length === 0 && !form && (
         <Card>
-          <Empty icon="flag" title="Inga avvikelser registrerade">Avvikelser skapas här eller automatiskt när en avstämning får röd samlad status.</Empty>
+          <Empty icon="flag" title="Inga avvikelser registrerade">Avvikelser skapas här eller automatiskt när en mötesrapport får röd samlad status.</Empty>
         </Card>
       )}
       {devs.map((dv) => (
@@ -224,7 +224,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
           actions={
             <span className="text-small text-text-muted">
               {fmtDateTime(dv.createdAt)}
-              {dv.fromCheckIn ? " · från veckoavstämning" : ""}
+              {dv.fromCheckIn ? " · från möte" : ""}
             </span>
           }
           foot={
@@ -336,10 +336,10 @@ function DeviationForm({ card, m, onDone }: { card: TabProps["card"]; m: CaseDev
         <Field label="Åtgärd" id="arn-dev-action" required full error={err.action} help="Vad gör vi nu? En avvikelse utan åtgärd kan inte sparas.">
           <TextArea value={f.action} onValueChange={set("action")} rows={2} />
         </Field>
-        <Field label="Ansvarig" id="arn-dev-owner" required error={err.ownerId} help="Den som ser till att åtgärden blir gjord.">
+        <Field label="Ansvarig" id="arn-dev-owner" required error={err.ownerId}>
           <Select value={f.ownerId} onValueChange={set("ownerId")} placeholder="Välj ansvarig" options={m.owners.map((u) => ({ value: u.id, label: u.label }))} />
         </Field>
-        <Field label="Följs upp senast" id="arn-dev-follow" required error={err.followUpOn} help="Uppföljningen syns i Förfaller-listan.">
+        <Field label="Följs upp senast" id="arn-dev-follow" required error={err.followUpOn}>
           <DateInput value={f.followUpOn} onValueChange={set("followUpOn")} />
         </Field>
         <div className="col-span-full">
@@ -436,7 +436,7 @@ function CallModal({
             options={devs.map((x) => ({ value: x.id, label: `${fd(x.createdAt, dayOf(m.now))} – ${clip(x.description, 60)}` }))}
           />
         </Field>
-        <Field label="Föreslagen tid" id="arn-call-at" required error={err.at} help="Kommunen bekräftar eller föreslår en annan tid i svaret.">
+        <Field label="Föreslagen tid" id="arn-call-at" required error={err.at}>
           <DateTimeInput
             value={at}
             onValueChange={(v) => {
@@ -446,7 +446,7 @@ function CallModal({
             }}
           />
         </Field>
-        <Field label="Meddelande till kommunen" id="arn-call-body" required full error={err.body} help="Skickas som säkert meddelande i portalen. Du kan ändra texten.">
+        <Field label="Meddelande till kommunen" id="arn-call-body" required full error={err.body} help="Du kan ändra texten.">
           <TextArea
             value={body}
             onValueChange={(v) => {
@@ -477,7 +477,6 @@ function CallModal({
 export function TabPraktik({ card }: TabProps) {
   const q = useQuery(casePlacements, { caseId: card.caseId });
   const role = useSession().actor.role;
-  const team = card.access === "team";
   // Ny praktik (beslut 2026-10-08): huvudcoachen, samordnare och avtalsansvarig i ett pågående ärende.
   const canPlan = card.edit && (card.status === "active" || card.status === "paused");
   const [modal, setModal] = useState<"new" | { end: { id: string; employerName: string | null; startsOn: string } } | null>(null);
@@ -587,7 +586,7 @@ export function TabPraktik({ card }: TabProps) {
           <Card title="Arbetsgivarkontakter" icon="users" flush>
             <div className="px-[18px] pt-4 pb-1">
               <p>
-                I godkända veckoavstämningar: <b>{p.checkInContacts}</b> kontakter. Registrerade händelser: <b>{p.contacts.length}</b>.
+                I godkända mötesrapporter: <b>{p.checkInContacts}</b> kontakter. Registrerade händelser: <b>{p.contacts.length}</b>.
               </p>
             </div>
             {p.contacts.length === 0 ? (
@@ -602,7 +601,6 @@ export function TabPraktik({ card }: TabProps) {
               </List>
             )}
           </Card>
-          {team && <DemoNote>Som handledare ser du praktik och arbetsgivarkontakter men inte coachens anteckningar.</DemoNote>}
           {modal === "new" && (
             <PlacementModal cases={[{ caseId: card.caseId, caseNumber: card.caseNumber, name: card.displayName, plannedEnd: card.plannedEnd }]} now={card.now} onClose={() => setModal(null)} />
           )}

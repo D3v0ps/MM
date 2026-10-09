@@ -1,5 +1,5 @@
 "use client";
-// Min vecka (/min-vecka) – coachens startsida: närvaro att registrera, dagens aktiviteter, AI-utkast, månadsbedömningar,
+// Min vecka (/min-vecka) – coachens startsida: närvaro att registrera, dagens möten, mötesrapporter att granska, månadsbedömningar,
 // meddelanden, påminnelser, flaggor, notiser, rapporter som förfaller och veckokalendern. Port av prototypens coach.minvecka.
 import { useState } from "react";
 import { plural } from "@/core/format";
@@ -108,7 +108,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           className={KPI_SM}
           onClick={() => focusSection("mv-ai")}
           actionHint="Visa"
-          label="AI-utkast att granska"
+          label="Mötesrapporter att granska"
           value={String(v.drafts.length)}
           sub={v.drafts.length > 0 ? "Råtranskript raderas när du godkänner" : "Inget väntar"}
         />
@@ -184,16 +184,17 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                   </Button>
                   <Persp role="kommun_handlaggare" to="/portal/rapporter" label="Se vad handläggaren får" />
                 </Row>
+                <p className="text-small text-text-muted">Närvaron är underlaget för fakturan till kommunen och för rapporterna.</p>
               </Stack>
           </Card>
           )}
 
           {v.today.length === 0 ? (
-            <DoneLine id="mv-idag" title={`I dag – ${fmtWeekday(today)}`} icon="calendar">
-              Inga aktiviteter i dag.
+            <DoneLine id="mv-idag" title={`Dagens möten – ${fmtWeekday(today)}`} icon="calendar">
+              Inga möten eller aktiviteter i dag.
             </DoneLine>
           ) : (
-          <Card id="mv-idag" title={`I dag – ${fmtWeekday(today)}`} icon="calendar" flush>
+          <Card id="mv-idag" title={`Dagens möten – ${fmtWeekday(today)}`} icon="calendar" flush>
               <List>
                 {v.today.map((a) => {
                   const k = kindOf(a.kind);
@@ -231,15 +232,20 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                           {past && <AttBadge at={a.attendance} />}
                           {ci && (
                             <Badge tone={ci.approved ? "blue" : "outline"} icon={ci.approved ? "check" : "edit"}>
-                              {ci.approved ? "Avstämning godkänd" : "Avstämning påbörjad"}
+                              {ci.approved ? "Mötesrapport godkänd" : "Möte påbörjat"}
                             </Badge>
                           )}
                         </Row>
                       </div>
                       <div className="flex flex-none flex-col items-end gap-1 max-[620px]:basis-full max-[620px]:flex-row max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:pl-[76px]">
-                        {a.kind === "möte" && !(ci && ci.approved) && (
-                          <Button kind="ghost" icon="edit" to={`/avstamning/${encodeURIComponent(a.caseId)}${ci ? `?avstamning=${encodeURIComponent(ci.id)}` : ""}`}>
-                            Avstämning
+                        {a.kind === "möte" && !ci && (
+                          <Button kind="primary" icon="mic" to={`/avstamning/${encodeURIComponent(a.caseId)}?spela=1`}>
+                            Spela in mötet
+                          </Button>
+                        )}
+                        {a.kind === "möte" && ci && !ci.approved && (
+                          <Button kind="ghost" icon="edit" to={`/avstamning/${encodeURIComponent(a.caseId)}?avstamning=${encodeURIComponent(ci.id)}`}>
+                            Öppna mötet
                           </Button>
                         )}
                         {past && !a.attendance && (
@@ -256,18 +262,21 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           )}
 
           {v.drafts.length === 0 ? (
-            <DoneLine id="mv-ai" title="AI-utkast att granska" icon="sparkles">
-              Inga AI-utkast väntar. När du spelar in en avstämning med samtycke hamnar utkastet här.
+            <DoneLine id="mv-ai" title="Mötesrapporter att granska" icon="sparkles">
+              Inga utkast väntar. När du spelat in ett möte skriver AI:n ett utkast till mötesrapport som hamnar här. Du granskar, rättar och godkänner – först då blir det dokumentation.
             </DoneLine>
           ) : (
-          <Card id="mv-ai" title="AI-utkast att granska" icon="sparkles" actions={<BuildPhase fas={2} />} flush>
+          <Card id="mv-ai" title="Mötesrapporter att granska" icon="sparkles" actions={<BuildPhase fas={2} />} flush>
+              <p className="border-b border-ljusgra px-[18px] py-3 text-small text-text-muted">
+                När du spelat in ett möte skriver AI:n ett utkast till mötesrapport. Du granskar, rättar och godkänner – först då blir det dokumentation.
+              </p>
               <List>
                 {v.drafts.map((ci) => (
                   <ListItem
                     key={ci.checkInId}
-                    lead={<AiTag>AI-utkast</AiTag>}
+                    lead={<AiTag>Utkast från AI</AiTag>}
                     title={<CaseName caseId={ci.caseId} name={ci.name} caseNumber={ci.caseNumber} />}
-                    sub={`Avstämning ${fmtDateTimeLong(ci.heldAt)} · ${ci.inputMethod === "teams" ? "Teams-transkript" : ci.inputMethod === "notes" ? "inklistrade anteckningar" : "inspelning"}`}
+                    sub={`Möte ${fmtDateTimeLong(ci.heldAt)} · ${ci.inputMethod === "teams" ? "Teams-transkript" : ci.inputMethod === "notes" ? "inklistrade anteckningar" : "inspelning"}`}
                     side={
                       <Button kind="primary" iconRight="arrow-right" to={`/avstamning/${encodeURIComponent(ci.caseId)}?avstamning=${encodeURIComponent(ci.checkInId)}`}>
                         Granska
@@ -282,8 +291,6 @@ function MinVecka({ v }: { v: MinVeckaView }) {
               </List>
           </Card>
           )}
-
-          <VoiceNotesInbox />
 
           {v.monthly.total === 0 ? (
             // Tom databas eller inga aktiva ärenden i månaden: en rad i stället för "0 av 0 godkända" och ett passerat datum.
@@ -350,6 +357,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
             </Stack>
           </Card>
           )}
+          <VoiceNotesInbox />
         </Stack>
 
         <Stack>
@@ -373,14 +381,14 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                     </span>
                     <div>
                       <Button kind="secondary" iconRight="arrow-right" to={`/avstamning/${encodeURIComponent(w.caseId)}`}>
-                        Gör avstämning
+                        Öppna mötet
                       </Button>
                     </div>
                   </ListItem>
                 ))}
               </List>
             <div className="border-t border-ljusgra px-[18px] py-3 text-small text-text-muted">
-              Påminnelsen kommer när veckomålet inte nåtts eller när en godkänd avstämning saknas. Planera nästa steg tillsammans med deltagaren.
+              Påminnelsen kommer när veckomålet inte nåtts eller när en godkänd mötesrapport saknas. Planera nästa steg tillsammans med deltagaren.
             </div>
           </Card>
           )}
@@ -519,7 +527,7 @@ function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: (
     a.kind === "stuck" && a.caseId
       ? [`/kartlaggning/${encodeURIComponent(a.caseId)}`, "Slutför kartläggningen"]
       : a.kind === "absence" && a.caseId
-        ? [`/avstamning/${encodeURIComponent(a.caseId)}`, "Gör avstämning"]
+        ? [`/avstamning/${encodeURIComponent(a.caseId)}`, "Öppna mötet"]
         : a.href
           ? [a.href, "Öppna"]
           : null;
@@ -565,7 +573,7 @@ function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: (
         </Row>
         {open && (
           <Stack gap="sm" className="mt-1.5">
-            <Field label="Kort åtgärd" id={id} help="Skriv vad du gör åt flaggan. Kvitteringen loggas.">
+            <Field label="Kort åtgärd" id={id} help="Skriv vad du gör åt flaggan.">
               <Input value={plan} onValueChange={setPlan} maxLength={160} />
             </Field>
             <Row gap="sm">
@@ -651,7 +659,7 @@ function WeekCalendar({ mon, acts, now }: { mon: string; acts: CalendarActivity[
                     </span>
                   );
                   if (single) {
-                    // En deltagare: två mål – tiden och typen leder till avstämningen (eller närvaron), namnet till deltagarkortet.
+                    // En deltagare: två mål – tiden och typen leder till mötet (eller närvaron), namnet till deltagarkortet.
                     return (
                       <div key={a.id} className={tile}>
                         <Link to={target} aria-label={label} className="flex min-h-11 flex-col justify-center rounded-t-[3px] px-2 pt-1.5 no-underline hover:bg-ljusgra-ton">

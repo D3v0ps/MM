@@ -77,7 +77,7 @@ describe("flaggor", () => {
     expect(chef.filter((x) => x.kind === "no_progress_escalated").map((x) => x.key)).toEqual(["noprog_esc:b:2027-W04"]);
     const coach = alerts(noProg, { role: "coach", personaId: "u-erik" }, env);
     expect(coach.some((x) => x.kind === "no_progress_escalated")).toBe(false);
-    expect(coach.find((x) => x.kind === "no_progress")?.text).toBe("BOT-26-0148: Ingen avstämning dokumenterad. Planera nästa steg och dokumentera i veckoavstämningen.");
+    expect(coach.find((x) => x.kind === "no_progress")?.text).toBe("BOT-26-0148: Ingen avstämning dokumenterad. Planera nästa steg och dokumentera i mötet.");
   });
 });
 

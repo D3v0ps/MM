@@ -210,7 +210,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
       </Card>
       <Stack gap="sm" as="ul" className="m-0 list-none p-0 text-text-muted">
         <li>
-          <IconText icon="key">Inloggning med ditt Microsoft-konto kommer senare. Tills vidare loggar du in med en kod som vi mejlar till dig.</IconText>
+          <IconText icon="key">Du loggar in med en kod som vi mejlar till dig.</IconText>
         </li>
         <li>
           <IconText icon="clock">

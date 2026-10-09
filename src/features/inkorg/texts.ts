@@ -49,7 +49,7 @@ export function refErrorMB(s: string | null | undefined, pattern: string, length
 export type InboxMethod = "template" | "ai" | "manual" | "portal" | "phone" | "registered";
 export const METHOD: Record<InboxMethod, { label: string; icon: IconName; help: string }> = {
   template: { label: "Word-mall", icon: "file", help: "Word-mallen (01) tolkas utan AI, via de fasta etiketterna i tabellcellerna. Samma resultat varje gång." },
-  ai: { label: "AI – fritext", icon: "sparkles", help: "Fritext och avvikande mallar tolkas med AI. AI föreslår – samordnaren kontrollerar mot originalet." },
+  ai: { label: "AI – fritext", icon: "sparkles", help: "Fritext och avvikande mallar tolkas med AI. Kontrollera mot originalet." },
   manual: { label: "Ingen tolkning", icon: "lock", help: "Ingen automatisk tolkning. En människa läser mejlet och registrerar beställningen i inkorgen." },
   portal: { label: "Portalen", icon: "globe", help: "Handläggaren fyllde i beställningen själv. Fälten validerades direkt i formuläret." },
   phone: { label: "Telefon", icon: "phone", help: "Registrerad av Miljonbemanning efter ett telefonsamtal med handläggaren." },

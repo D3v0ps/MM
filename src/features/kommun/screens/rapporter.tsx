@@ -137,7 +137,7 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
             ) : (
               <Seg ariaLabel="Visa rapporter" value={filter} onValueChange={setFilter} options={filterOptions} />
             )}
-            <Field id="kom-rap-q" label="Sök rapport" help="Skriv deltagarens namn eller ärendenumret, till exempel 0143.">
+            <Field id="kom-rap-q" label="Sök rapport" help="Skriv deltagarens namn eller ärendenumret.">
               <Input
                 type="search"
                 value={text}

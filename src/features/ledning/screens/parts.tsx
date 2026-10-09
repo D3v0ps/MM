@@ -187,7 +187,7 @@ export function AckModal({ alert, onClose }: { alert: AckTarget; onClose: () => 
         id="ldg-ack-plan"
         required
         error={err}
-        help="Vad görs, av vem och när? Planen sparas med ditt namn och tidpunkt. Flaggan försvinner från listan men finns kvar under Kvitterade flaggor."
+        help="Vad görs, av vem och när?"
       >
         <TextArea
           value={plan}
@@ -504,7 +504,7 @@ export function EarlyCard({ d, onAck }: { d: LedningOverview; onAck: (a: AckTarg
     >
       <Stack>
         <p>
-          Ärenden med {d.escalateAfterWeeks} veckor eller fler i rad utan progression, per coach. <b>Coachen har fått påminnelser men ser inte att ärendet har eskalerats till dig.</b>
+          Ärenden med {d.escalateAfterWeeks} veckor eller fler i rad utan progression, per coach.
         </p>
         {d.early.length === 0 ? (
           <Empty icon="check-circle" title="Inga eskaleringar">

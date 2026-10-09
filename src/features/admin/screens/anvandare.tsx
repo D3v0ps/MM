@@ -133,8 +133,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
             }
             foot={
               <span className="text-text-muted">
-                Rollerna gäller i avtalet. En kollega med flera roller väljer roll i sidopanelen. Inloggning med e-post och engångskod – Miljonmatch lagrar inga
-                lösenord. Microsoft-inloggning kommer senare.
+                Rollerna gäller i avtalet. En kollega med flera roller väljer roll i sidopanelen. Inloggning sker med e-post och engångskod.
               </span>
             }
           >

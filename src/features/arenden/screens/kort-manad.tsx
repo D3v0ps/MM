@@ -52,7 +52,7 @@ function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTa
         </Notice>
       )}
       {options.length > 0 && (
-        <Field label="Månad" id="manad-val" help="Välj vilken månad du vill se underlaget för.">
+        <Field label="Månad" id="manad-val">
           <Select value={b.month} onValueChange={onMonth} options={options} className="max-w-[360px]" />
         </Field>
       )}
@@ -79,7 +79,7 @@ function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTa
       ) : (
         <>
           <div className="rounded-mb bg-bla px-4 py-3 text-antracit">
-            Det här är samma innehåll som kommer i månadsrapporten till kommunen. Bara godkända uppgifter kommer med.
+            Underlaget till månadsrapporten. Bara godkända uppgifter kommer med.
           </div>
           {b.gaps && <Gaps g={b.gaps} b={b} card={card} setTab={setTab} />}
           <div>
@@ -150,8 +150,8 @@ function Gaps({ g, b, card, setTab }: Pick<TabProps, "card" | "setTab"> & { g: M
   if (g.checkInsDraft > 0) {
     rows.push({
       key: "ci-draft", kind: "warn",
-      text: g.checkInsDraft === 1 ? "1 veckoavstämning är ett utkast och kommer inte med förrän den är godkänd." : `${g.checkInsDraft} veckoavstämningar är utkast och kommer inte med förrän de är godkända.`,
-      action: <Button kind="ghost" iconRight="arrow-right" onClick={() => setTab("avstamningar")}>Öppna avstämningarna</Button>,
+      text: g.checkInsDraft === 1 ? "1 mötesrapport är ett utkast och kommer inte med förrän den är godkänd." : `${g.checkInsDraft} mötesrapporter är utkast och kommer inte med förrän de är godkända.`,
+      action: <Button kind="ghost" iconRight="arrow-right" onClick={() => setTab("avstamningar")}>Öppna mötena</Button>,
     });
   }
   rows.push(

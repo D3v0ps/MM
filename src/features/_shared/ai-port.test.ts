@@ -82,7 +82,7 @@ describe("extract (simulerad): förslag med belägg ur transkriptet", () => {
       expect(EXTRACT_SCHEMAS.check_in.parse(value)).toEqual(value);
       expect(Object.keys(value)).not.toContain("overallStatus");
       expect(value.phase).toEqual({ value: null, quote: "Framgår inte av samtalet. Fasen ändras inte.", t: null, noEvidence: true });
-      for (const f of ["goalStatus", "nextGoal", "activitiesDone", "employerContacts", "obstacles"] as const) {
+      for (const f of ["attendanceComment", "goalStatus", "nextGoal", "activitiesDone", "employerContacts", "obstacles"] as const) {
         const s = value[f];
         expect(s.noEvidence, f).toBeFalsy();
         const seg = t.segments.find((x) => x.text === s.quote);
@@ -112,6 +112,29 @@ describe("extract (simulerad): förslag med belägg ur transkriptet", () => {
       quote: "Sammanfattning av samtalet 01:36–03:04", t: 96,
     });
     expect(transcriptLines(t)[0]).toEqual({ t: 96, who: "Deltagare", text: t.segments[0].text });
+  });
+  it("närvaron (Karims test 2026-10-09): coachens rader om närvaron blir ett förslag till kommentar med citat och tidpunkt – aldrig närvarostatus", () => {
+    const t = { text: "", language: "sv", segments: [
+      { start: 60, end: 90, text: "Närvaro den här veckan: måndag, tisdag och torsdag.", speaker: "Coach" },
+      { start: 91, end: 130, text: "Onsdag var han frånvarande med giltigt skäl – möte på kommunen, meddelat i förväg.", speaker: "Coach" },
+      { start: 184, end: 741, text: "Jag nådde delvis veckomålet, en dag hann jag inte.", speaker: "Deltagare" },
+    ] };
+    const s = checkInSuggestionsFromTranscript(t);
+    expect(s.attendanceComment).toEqual({
+      value: "Närvaro den här veckan: måndag, tisdag och torsdag. Onsdag var han frånvarande med giltigt skäl – möte på kommunen, meddelat i förväg.",
+      quote: "Närvaro den här veckan: måndag, tisdag och torsdag.", t: 60,
+    });
+    expect(s.attendanceComment.value!.length).toBeLessThanOrEqual(200);
+    expect(Object.keys(s)).not.toContain("attendanceStatus");
+    expect(CheckInExtractSchema.safeParse(s).success).toBe(true);
+    // Säger samtalet inget om närvaron: Framgår inte
+    const none = checkInSuggestionsFromTranscript({ text: "", segments: [t.segments[2]], language: "sv" });
+    expect(none.attendanceComment).toEqual({ value: null, quote: "Framgår inte av samtalet. Fyll i själv.", t: null, noEvidence: true });
+    // Schemat kräver fältet
+    const { attendanceComment: _a, ...without } = s;
+    void _a;
+    expect(CheckInExtractSchema.safeParse(without).success).toBe(false);
+    expect(Object.keys(EXTRACT_SCHEMAS.check_in.parse(s))).toContain("attendanceComment");
   });
   it("tomt samtal: allt Framgår inte", () => {
     const s = checkInSuggestionsFromTranscript({ text: "", segments: [], language: "sv" });

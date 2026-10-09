@@ -411,7 +411,7 @@ export function validateCheckIn(json: unknown): ExtractSchemas["check_in"] {
   return s;
 }
 
-const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända avstämningar.", sources: [], sourceIds: [], noEvidence: true };
+const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända mötesrapporter.", sources: [], sourceIds: [], noEvidence: true };
 
 /**
  * Utkastet: bara id för avstämningar som finns i underlaget (annars ogiltigt – påhittade källor visas aldrig). Källornas

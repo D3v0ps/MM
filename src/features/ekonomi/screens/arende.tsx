@@ -149,7 +149,6 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                 "Deltagare",
                 <span key="d">
                   {v.name}
-                  {act && <span className="text-small text-text-muted"> (namn visas inte för ekonom)</span>}
                 </span>,
               ],
               ["Avtalsområde", `${v.areaName} · artikel ${v.articleNo} · ${kr(v.priceOre)} per vecka`],
@@ -167,7 +166,7 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                         </Badge>
                       ))}
                     </div>
-                    <div className="text-small text-text-muted">Debiteras inte. Orsaken visas inte för ekonom.</div>
+                    <div className="text-small text-text-muted">Debiteras inte.</div>
                   </div>
                 ) : (
                   "Inga"

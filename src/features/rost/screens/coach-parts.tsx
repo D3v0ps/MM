@@ -257,7 +257,7 @@ function VoiceNote({ n, canWork, canUse }: { n: VoiceNoteView; canWork: boolean;
           )}
           {canUse && (
             <Button kind="secondary" icon="clipboard" to={`/avstamning/${encodeURIComponent(n.caseId)}?rost=${encodeURIComponent(n.id)}`}>
-              Använd i avstämningen
+              Använd i mötet
             </Button>
           )}
         </div>
