@@ -1,7 +1,8 @@
 "use client";
 // Inspelning i webbläsaren (röstinspelningen, docs/PLAN-ROST.md). Samma komponent i riktiga appen och i prototypen.
 //
-//   Spela in   MediaRecorder: webm/opus i Chrome, Edge och Firefox, mp4 i Safari. Tydlig inspelningsindikator (röd punkt,
+//   Spela in   MediaRecorder: mp4/AAC där det finns (Chrome och Edge på Windows och macOS, Safari), annars ogg/opus (Firefox)
+//              eller webm/opus (Chrome på Linux och Chromebook) – se RECORDING_MIME_PREFERENCE. Tydlig inspelningsindikator (röd punkt,
 //              ikon, text och tid), paus, fortsätt och stopp. Stoppar själv vid avtalets längsta tid. Felmeddelande på svenska
 //              om mikrofon saknas eller nekas. Varnar innan sidan lämnas mitt i en inspelning.
 //   Ladda upp  en ljudfil (m4a, mp3, wav, webm) som alternativ.
@@ -125,11 +126,17 @@ export function audioFileType(file: { name: string; type: string }): string | nu
   return byExt;
 }
 
-/** Bästa inspelningsformatet i webbläsaren: webm/opus (Chrome, Edge, Firefox) eller mp4 (Safari). "" = webbläsarens standard. */
-function pickMimeType(): string {
-  const MR = typeof window !== "undefined" ? window.MediaRecorder : undefined;
+/**
+ * Inspelningsformat i den ordning vi föredrar dem. Alla grundtyper (audio/mp4, audio/ogg, audio/webm) tas emot av lagringen
+ * (AUDIO_MIME_EXTENSIONS) och av Vertex AI (VERTEX_AUDIO_MIME). Först mp4/AAC (Chrome och Edge på Windows och macOS, Safari),
+ * sedan ogg/opus (Firefox), sist webm/opus (Chrome på Linux och Chromebook). Grundtypen utan ";codecs=" skickas vidare.
+ */
+export const RECORDING_MIME_PREFERENCE: readonly string[] = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/webm"];
+
+/** Bästa inspelningsformatet i webbläsaren enligt RECORDING_MIME_PREFERENCE. "" = webbläsarens standard. */
+export function pickMimeType(MR: { isTypeSupported?: (t: string) => boolean } | undefined = typeof window !== "undefined" ? window.MediaRecorder : undefined): string {
   if (!MR || typeof MR.isTypeSupported !== "function") return "";
-  for (const t of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/ogg;codecs=opus"]) {
+  for (const t of RECORDING_MIME_PREFERENCE) {
     try {
       if (MR.isTypeSupported(t)) return t;
     } catch {

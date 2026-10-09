@@ -58,6 +58,14 @@ const VERTEX_AUDIO_MIME: Readonly<Record<string, string>> = {
 
 // ---------------------------------------------------------------- Resonemangsnivå
 /**
+ * Modeller som tar thinkingLevel MINIMAL enligt Googles tabell (docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking):
+ * Gemini 3 Flash, 3.5 Flash och 3.6 Flash. Gemini 3.7 Flash och 3.8 Flash tar bara LOW, MEDIUM och HIGH, och Pro-modellerna
+ * har aldrig MINIMAL. Ett värde modellen inte tar ger HTTP 400 (INVALID_ARGUMENT) – skarp drift 2026-10-09 med gemini-3.8-flash.
+ * Okända modeller får därför LOW, som alla Gemini 3-modeller tar.
+ */
+const MINIMAL_SUPPORTED = /^gemini-3(\.5|\.6)?-flash/;
+
+/**
  * generationConfig för modellen: Gemini 2.5 styrs med thinkingBudget (0 = av för Flash), nyare modeller med thinkingLevel.
  * Äldre modeller utan resonemang får inget. Temperatur 0 bara för 2.x – Google avråder från att sänka den för Gemini 3.
  */
@@ -69,8 +77,34 @@ export function thinkingFor(model: string, level: ThinkingLevel): Record<string,
     const budget = level === "high" ? 8192 : level === "medium" ? 1024 : flash ? 0 : 128;
     return { temperature: 0, thinkingConfig: { thinkingBudget: budget } };
   }
-  const lvl = level === "minimal" && m.includes("pro") ? "low" : level;
+  const lvl = level === "minimal" && !MINIMAL_SUPPORTED.test(m) ? "low" : level;
   return { thinkingConfig: { thinkingLevel: lvl.toUpperCase() } };
+}
+
+// ---------------------------------------------------------------- Leverantörens felorsak
+/** Längsta felorsak som sparas (jobs.last_error, ai_runs.output.detail). */
+export const PROVIDER_DETAIL_MAX = 300;
+/**
+ * Googles felorsak ur svarskroppen vid 4xx/5xx ({ error: { message, status } }), så att orsaken till t.ex. ett 400 syns i
+ * jobbets last_error och ai_runs.output i stället för bara koden. Googles meddelanden beskriver anropet (fält, modell,
+ * värden) – inga personuppgifter – men allt som ser ut som base64-data (ljudet) tas bort, och texten kortas till 300 tecken.
+ */
+export function providerErrorDetail(status: number, body: unknown): string {
+  const head = `Vertex AI gav HTTP ${status}`;
+  const err = body && typeof body === "object" ? (body as { error?: unknown }).error : null;
+  const e = err && typeof err === "object" ? (err as { message?: unknown; status?: unknown }) : null;
+  const message = e && typeof e.message === "string" ? e.message : "";
+  const st = e && typeof e.status === "string" ? e.status : "";
+  const text = scrubProviderText([st, message].filter(Boolean).join(": "));
+  return text ? `${head}: ${text}`.slice(0, PROVIDER_DETAIL_MAX) : head;
+}
+/** Tar bort base64-liknande block (≥ 40 tecken) och radbrytningar; kortar till PROVIDER_DETAIL_MAX. */
+export function scrubProviderText(text: string): string {
+  return text
+    .replace(/[A-Za-z0-9+/=]{40,}/g, "[data]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, PROVIDER_DETAIL_MAX);
 }
 
 // ---------------------------------------------------------------- Svaret från generateContent
@@ -190,9 +224,11 @@ export function createVertexAi(o: VertexAiOptions): AiPort {
       }
       if (!res.ok) {
         const retryable = res.status === 429 || res.status >= 500;
-        // 400: t.ex. fel format på ljudet eller för stort anrop. 403/404: fel projekt, modell eller behörighet.
+        // 400: t.ex. fel format på ljudet, för stort anrop eller ett generationConfig-värde modellen inte tar.
+        // 403/404: fel projekt, modell eller behörighet. Googles felorsak följer med i detail (aldrig i texten till användaren).
         const code = retryable ? "unavailable" : res.status === 400 ? "unsupported" : "config";
-        throw new AiProviderError(code, { retryable, detail: `Vertex AI gav HTTP ${res.status}`, run: meta(nowMs() - started, null, c.audioSeconds) });
+        const errBody = await res.json().catch(() => null);
+        throw new AiProviderError(code, { retryable, detail: providerErrorDetail(res.status, errBody), run: meta(nowMs() - started, null, c.audioSeconds) });
       }
       const data = (await res.json().catch(() => null)) as GenerateResponse | null;
       const run = meta(nowMs() - started, data ? usageOf(data) : null, c.audioSeconds, data?.modelVersion);
