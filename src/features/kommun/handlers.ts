@@ -8,7 +8,7 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { attendanceStats, repeatedAbsence } from "@/core/attendance";
 import { ackTextFor, duplicateActive } from "@/core/cases";
 import { isUnset } from "@/core/config";
-import { contactLabel, reportKindLabel, teamLabel } from "@/core/labels";
+import { contactLabel, NO_CONTACT_TEXT_PORTAL, participantContactLabel, reportKindLabel, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDays, firstMeetingDue } from "@/core/sla";
 import { MONTHS, addDays, addMonths, dayOf, diffDays, monday, monthEnd, monthKey } from "@/core/time";
 import { by } from "@/core/util";
@@ -300,7 +300,8 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
       ocReportId: oc?.id ?? null, ackText: c.acknowledgedAt ? ackTextFor(c, cfg) : null,
     },
     attendance,
-    participant: { pnrMasked: masked, canReveal: !!masked, contactLabel: person ? contactLabel(person.preferredContact) : null, city: person?.city ?? "" },
+    // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09).
+    participant: { pnrMasked: masked, canReveal: !!masked, contactLabel: person ? participantContactLabel(person, NO_CONTACT_TEXT_PORTAL) : null, city: person?.city ?? "" },
     // Bakgrundsinformationen och bilagorna från beställningen (bilagorna läses via behörigheten – den som beställde).
     background: await caseBackground(ctx, c),
     seesCoachNotes: cfg.customerVisibility.seesCoachNotes,

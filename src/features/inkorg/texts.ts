@@ -58,6 +58,8 @@ export const METHOD: Record<InboxMethod, { label: string; icon: IconName; help: 
 };
 // order_protected (skyddade personuppgifter) finns kvar i typen för gamla mejl men visas som Övrigt (beslut 2026-10-07).
 export const CLASSIFICATION: Record<EmailClassification, string> = { order: "Beställning", supplement: "Komplettering", order_protected: "Övrigt", other: "Övrigt" };
+/** Etiketten för Övrigt som ser ut som ett avbrott av en insats (avbrott via mejl, beslut 2026-10-09). */
+export const CANCELLATION_LABEL = "Avbrott";
 export const CLASS_ICON: Partial<Record<EmailClassification, IconName>> = { supplement: "link", other: "message-circle" };
 export type BadgeToneName = "blue" | "bluetone" | "grey" | "red" | "redfill" | "dark" | "outline" | "plan";
 export const STATUS: Record<string, [string, BadgeToneName, IconName]> = {

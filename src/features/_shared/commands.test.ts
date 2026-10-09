@@ -162,10 +162,32 @@ describe("arenden.caseAccept (case.accept)", () => {
     rt.store.updateRow("cases", "case-270049", { primaryAreaCode: null });
     expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true, fields: ["primaryArea"] });
     expect(row("cases", "case-270049")!.primaryAreaCode).toBe("D");
-    // Ett område som inte finns i avtalet förs inte in.
+    const orig = () => rows("inbound_emails").find((e) => e.caseId === "case-270049" && e.classification === "order")!;
+    const lastApplied = () => rows("audit_log").filter((a) => a.action === "email.supplement_applied").at(-1);
+    expect(lastApplied()).toMatchObject({ entityId: "case-270049", details: { fields: ["primaryArea"] } });
+    expect(orig().extracted.primaryArea).toBe("D");
+    // Ett område som inte finns i avtalet förs inte in – och räknas inte som infört (svaret, loggen och originalmejlet).
+    rt.store.updateRow("inbound_emails", orig().id, { missingFields: ["primaryArea"], extracted: { ...orig().extracted, primaryArea: "" } });
     rt.store.updateRow("inbound_emails", "em-103", { extracted: { primaryArea: "Z" }, status: "linked" });
-    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toEqual({ ok: true, fields: [] });
     expect(row("cases", "case-270049")!.primaryAreaCode).toBe("D");
+    expect(lastApplied()).toMatchObject({ details: { fields: [] } });
+    expect(orig().missingFields).toEqual(["primaryArea"]);
+    expect(orig().extracted.primaryArea).toBe("");
+    // Deltagarens telefonnummer i svaret förs inte in i ärendet (inget kommando skriver personen) och visas inte som infört.
+    const phoneBefore = orig().extracted.phone;
+    rt.store.updateRow("inbound_emails", "em-103", { extracted: { phone: "070-000 12 34", buyerReference: "55102938" }, status: "linked" });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toEqual({ ok: true, fields: ["buyerReference"] });
+    expect(orig().extracted.phone).toBe(phoneBefore);
+    expect(phoneBefore).not.toBe("070-000 12 34");
+    expect(lastApplied()).toMatchObject({ details: { fields: ["buyerReference"] } });
+    // Efter accept förs yrkesområdet inte in (avtalsområdet är valt i Acceptera).
+    rt.store.updateRow("cases", "case-270049", { orderPeriodMonths: 6 });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", primaryArea: "D", vocationalTrack: "Kök" }, sara())).toMatchObject({ ok: true });
+    rt.store.updateRow("inbound_emails", "em-103", { extracted: { primaryArea: "G" }, status: "linked" });
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toEqual({ ok: true, fields: [] });
+    expect(row("cases", "case-270049")!.primaryAreaCode).toBe("D");
+    expect(lastApplied()).toMatchObject({ details: { fields: [] } });
   });
 });
 

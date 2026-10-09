@@ -21,6 +21,7 @@ import {
   type TeamRole,
   type TrafficLight,
 } from "@/data/schema";
+import { hasContactDetails } from "./contact";
 import { byId } from "./db-index";
 
 export { phaseName, phaseLabel } from "./config";
@@ -96,6 +97,14 @@ export const CASE_NOTE_PROTECTED_AUDIENCE = "Bara namngiven huvudcoach och avtal
 
 export const CONTACT_LABEL: Record<PreferredContact, string> = { sms: "SMS", phone: "Telefon", email: "E-post", letter: "Brev" };
 export const contactLabel = (k: string): string => lookup(CONTACT_LABEL, k) ?? k;
+
+/** Texten i stället för kontaktvägen när deltagaren saknar telefonnummer och e-postadress (Miljonbemannings vyer). */
+export const NO_CONTACT_TEXT = "Kontaktuppgift saknas – kontakta handläggaren";
+/** Samma sak i kommunens portal (läsaren är handläggaren). */
+export const NO_CONTACT_TEXT_PORTAL = "Kontaktuppgift saknas";
+/** Kontaktvägen i klarspråk ("SMS", "E-post" …), eller missingText när det inte finns något sätt att nå deltagaren. */
+export const participantContactLabel = (p: Parameters<typeof hasContactDetails>[0] & { preferredContact: string }, missingText = NO_CONTACT_TEXT): string =>
+  hasContactDetails(p) ? contactLabel(p.preferredContact) : missingText;
 
 export const TEAM_ROLE_LABEL: Record<TeamRole, string> = {
   lead_coach: "Huvudcoach", vocational_supervisor: "Yrkesspecifik handledare", employer_matcher: "Arbetsgivarmatchare", guidance_counselor: "SYV/metodstöd",

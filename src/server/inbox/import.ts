@@ -18,7 +18,7 @@ import type { Case, Contract, EmailAttachment, InboundEmail, OrderExtract, Prefe
 import { fromTimestamptz } from "@/data/supabase/columns";
 import { attachmentMime, cleanFileName } from "@/core/attachments";
 import { createOrder } from "@/features/arenden/order";
-import { canCreateCase, parseInboundMail, priorFromExtract } from "@/features/inkorg/parse";
+import { canCreateCase, parseInboundMail, priorFromExtract, unclearFields } from "@/features/inkorg/parse";
 import { JobError } from "../jobs/errors";
 import { MAX_ATTACHMENT_BYTES, type GraphMail, type GraphMessage } from "./graph";
 
@@ -200,7 +200,8 @@ async function createCase(
     preferredContact: contact, buyerReference, primaryArea: str(ex.primaryArea) || null, secondaryArea: str(ex.secondaryArea) || null, vocationalTrack: str(ex.vocationalTrack),
     desiredStart, orderPeriodMonths: desiredStart && Number.isInteger(months) && periods.months.includes(months) ? months : null,
     plannedEnd: periods.allowOther ? plannedEnd : null, orderPeriodReason: plannedEnd ? str(ex.orderPeriodReason) || "Enligt beställningen i mejlet." : null,
-    priorAssessment: priorFromExtract(ex.priorAssessment), background: str(ex.background), attachmentIds, sourceEmailId: row.id, missingFields: row.missingFields, referredAt: receivedAt,
+    priorAssessment: priorFromExtract(ex.priorAssessment), background: str(ex.background), attachmentIds, sourceEmailId: row.id, missingFields: row.missingFields,
+    unclearFields: unclearFields(ex, row.confidence), referredAt: receivedAt,
   });
   return res.ok ? { caseId: res.caseId } : null;
 }

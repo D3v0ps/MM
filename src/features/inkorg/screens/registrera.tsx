@@ -4,6 +4,7 @@
 // och kommunens handläggare. ?mejl=<id> förifyller formuläret ur ett inläst mejl som inte kunde bli ett ärende automatiskt.
 // Personnumret ur mejlet lämnas aldrig ut till skärmen: lämnas fältet tomt använder servern numret i mejlet.
 import { useMemo, useState, type ReactNode } from "react";
+import { defaultPreferredContact, PHONE_MIN_DIGITS } from "@/core/contact";
 import { fmtDateTimeLong, orderPeriodEnd } from "@/core/time";
 import { emailValid, pnrFormatValid } from "@/core/validation";
 import type { PreferredContact, PriorAssessment } from "@/data/schema";
@@ -61,6 +62,8 @@ type Reg = {
   phone: string;
   email: string;
   city: string;
+  /** Yrkesområdet (avtalsområdets kod) eller "" = inte angivet. */
+  primaryArea: string;
   preferredContact: PreferredContact;
   address: string;
   priorAssessment: PriorAssessment | null;
@@ -74,14 +77,16 @@ function initialReg(m: RegisterForm): Reg {
   const received = e?.receivedAt ?? m.now;
   const known = p ? m.handlers.find((h) => h.email.toLowerCase() === p.referrerEmail.toLowerCase()) : null;
   const period = p?.orderPeriod && (p.orderPeriod === OTHER ? m.periods.allowOther : m.periods.months.includes(Number(p.orderPeriod))) ? p.orderPeriod : null;
-  const contact = (CONTACTS.find((c) => c.value === p?.preferredContact)?.value ?? "sms") as PreferredContact;
+  // Kontaktvägen ur mejlet (äldre mallar), annars samma förval som när ärendet skapas automatiskt: SMS, e-post eller telefon.
+  const contact = (CONTACTS.find((c) => c.value === p?.preferredContact)?.value ?? defaultPreferredContact({ phone: p?.phone, email: p?.email })) as PreferredContact;
   const prior = (PRIOR.find((x) => x.value === p?.priorAssessment)?.value ?? null) as PriorAssessment | null;
   return {
     channel: e ? "email" : "phone", receivedDate: received.slice(0, 10), receivedTime: received.slice(11, 16),
     handlerId: known?.id ?? NEW_HANDLER, referrerName: p?.referrerName ?? "", referrerEmail: p?.referrerEmail ?? "", referrerUnit: p?.referrerUnit ?? "", referrerPhone: p?.referrerPhone ?? "",
     desiredStart: p?.desiredStart ?? "", period, otherEnd: period === OTHER ? p?.plannedEnd ?? "" : "", periodReason: period === OTHER ? p?.orderPeriodReason ?? "" : "",
     buyerReference: p?.buyerReference ?? "",
-    firstName: p?.firstName ?? "", lastName: p?.lastName ?? "", pnr: "", phone: p?.phone ?? "", email: p?.email ?? "", city: p?.city ?? "", preferredContact: contact, address: "",
+    firstName: p?.firstName ?? "", lastName: p?.lastName ?? "", pnr: "", phone: p?.phone ?? "", email: p?.email ?? "", city: p?.city ?? "",
+    primaryArea: p?.primaryArea && m.areas.some((a) => a.value === p.primaryArea) ? p.primaryArea : "", preferredContact: contact, address: "",
     priorAssessment: prior, background: p?.background ?? "", attachments: [],
   };
 }
@@ -89,7 +94,7 @@ function initialReg(m: RegisterForm): Reg {
 const ERROR_FIELD: Record<string, string> = {
   channel: "reg-channel", receivedDate: "reg-received-date", receivedTime: "reg-received-time", handlerId: "reg-handler", referrerName: "reg-ref-name", referrerEmail: "reg-ref-email",
   referrerUnit: "reg-ref-unit", desiredStart: "reg-start", period: "reg-period", otherEnd: "reg-end", periodReason: "reg-reason", buyerReference: "reg-ref",
-  firstName: "reg-fn", lastName: "reg-ln", pnr: "reg-pnr", phone: "reg-phone", email: "reg-email", city: "reg-city", address: "reg-addr", priorAssessment: "reg-prior", attachments: "reg-files",
+  firstName: "reg-fn", lastName: "reg-ln", pnr: "reg-pnr", phone: "reg-phone", email: "reg-email", city: "reg-city", primaryArea: "reg-area", address: "reg-addr", priorAssessment: "reg-prior", attachments: "reg-files",
 };
 
 function validate(f: Reg, m: RegisterForm, dup: boolean, uploading: boolean): Record<string, string> {
@@ -121,10 +126,11 @@ function validate(f: Reg, m: RegisterForm, dup: boolean, uploading: boolean): Re
     if (!pnrInMail) e.pnr = "Skriv personnumret så här: ÅÅÅÅMMDD-NNNN.";
   } else if (!pnrFormatValid(f.pnr.trim())) e.pnr = "Skriv tolv siffror så här: ÅÅÅÅMMDD-NNNN.";
   else if (dup) e.pnr = "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.";
-  if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < 8) e.phone = "Skriv deltagarens telefonnummer – det behövs för kallelsen.";
+  if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < PHONE_MIN_DIGITS) e.phone = "Skriv deltagarens telefonnummer – det behövs för kallelsen.";
   if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
   if (f.preferredContact === "email" && !f.email.trim()) e.email = "Skriv deltagarens e-postadress – e-post är vald som kontaktväg.";
   // Bostadsorten är valfri (beslut 2026-10-09: "Vi behöver inte veta var de bor").
+  if (f.primaryArea && !m.areas.some((a) => a.value === f.primaryArea)) e.primaryArea = "Välj ett yrkesområde i listan.";
   if (f.preferredContact === "letter" && f.address.trim().length < 6) e.address = "Skriv hela adressen – kallelsen ska skickas med brev.";
   if (!f.priorAssessment) e.priorAssessment = "Svara om en kartläggning har genomförts (vet inte går bra).";
   if (uploading) e.attachments = "Vänta tills filerna är uppladdade.";
@@ -196,7 +202,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
         channel: f.channel, receivedAt: `${f.receivedDate}T${f.receivedTime}`, emailId: m.email?.id, referrerId: f.handlerId || null,
         referrerName: handler?.name ?? f.referrerName.trim(), referrerEmail: handler?.email ?? f.referrerEmail.trim(), referrerUnit: f.referrerUnit.trim() || handler?.unit || "",
         referrerPhone: f.referrerPhone.trim() || handler?.phone || "",
-        firstName: f.firstName.trim(), lastName: f.lastName.trim(), pnr: f.pnr.trim(), phone: f.phone.trim(), email: f.email.trim(), city: f.city.trim(),
+        firstName: f.firstName.trim(), lastName: f.lastName.trim(), pnr: f.pnr.trim(), phone: f.phone.trim(), email: f.email.trim(), city: f.city.trim(), primaryArea: f.primaryArea,
         address: f.preferredContact === "letter" ? f.address.trim() : null, preferredContact: f.preferredContact, desiredStart: f.desiredStart || null, ...period,
         priorAssessment: f.priorAssessment, background: f.background.trim(), buyerReference: f.buyerReference.trim(), attachmentIds: f.attachments.map((a) => a.id),
       })
@@ -353,6 +359,14 @@ function RegisterForm({ m }: { m: RegisterForm }) {
               <Input value={f.city} onValueChange={set("city")} />
             </Field>
           </FormGrid>
+          <Field
+            id="reg-area"
+            label="Yrkesområde"
+            error={E("primaryArea")}
+            help="Det yrkesområde kommunen angav. Välj Inte angivet om det inte framgår – då väljer du avtalsområde när du accepterar."
+          >
+            <Select id="reg-area" value={f.primaryArea} onValueChange={set("primaryArea")} options={[{ value: "", label: "Inte angivet" }, ...m.areas]} />
+          </Field>
           <Field id="reg-contact" label="Hur vill deltagaren bli kontaktad?" required help="Kallelsen till första mötet går den vägen.">
             <Seg id="reg-contact" ariaLabel="Föredragen kontaktväg" value={f.preferredContact} onValueChange={set("preferredContact")} options={CONTACTS} />
           </Field>

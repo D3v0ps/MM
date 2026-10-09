@@ -5,6 +5,8 @@
 //   ärendet tills hen skapar konto själv (då kopplas ärendet via adressen – src/features/session/self-register.ts).
 //   Mejlet: ett inläst mejl utan ärende (emailId) uppdateras (caseId, status, registered_by/at); annars skapas en rad i
 //   inbound_emails med parse_method manual. Personnumret ur mejlet lämnas aldrig ut – det används när fältet lämnas tomt.
+//   Yrkesområdet (beslut 2026-10-09): ett aktivt avtalsområde i avtalet – förifyllt ur mejlet och sparat på ärendet, så att
+//   Acceptera och kommunens portal visar det.
 //   Revisionslogg: email.registered (id:n och kanal) och case.created. Inga personuppgifter i svar, loggar eller adresser.
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
@@ -13,7 +15,7 @@ import { buyerRefLengthText } from "@/core/config";
 import { emailDomainOf } from "@/core/self-registration";
 import { dayOf, fmtDateTimeLong } from "@/core/time";
 import { emailValid, pnrFormatValid } from "@/core/validation";
-import type { CaseAttachment, InboundEmail, OrderExtract, Profile } from "@/data/schema";
+import type { CaseAttachment, ContractArea, InboundEmail, OrderExtract, Profile } from "@/data/schema";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES, ATTACHMENT_TYPES_TEXT, requireAttachments } from "../_shared/attachment-port";
 import { hasRoleIn } from "../_shared/context";
 import { createOrder } from "../arenden/order";
@@ -36,14 +38,21 @@ async function customerHandlers(ctx: Parameters<typeof inboxEnv>[0], customerId:
   return { profiles, rows };
 }
 
-/** Förifyllningen ur mejlets tolkning (samma nycklar som OrderExtract). Personnumret bara maskerat. */
-function prefillOf(ex: OrderExtract): RegisterPrefill {
+/** Avtalets aktiva avtalsområden (yrkesområdet), i bokstavsordning. */
+async function activeAreas(ctx: Parameters<typeof inboxEnv>[0], contractId: string): Promise<ContractArea[]> {
+  return (await ctx.repo.table("contract_areas").list({ contractId, active: true })).sort((a, b) => a.code.localeCompare(b.code, "sv"));
+}
+
+/** Förifyllningen ur mejlets tolkning (samma nycklar som OrderExtract). Personnumret bara maskerat. Yrkesområdet bara om det är aktivt. */
+function prefillOf(ex: OrderExtract, areas: readonly ContractArea[]): RegisterPrefill {
   const s = (v: unknown) => (v == null ? "" : String(v));
+  const area = s(ex.primaryArea).trim();
   return {
     referrerName: s(ex.referrerName), referrerEmail: s(ex.referrerEmail).toLowerCase(), referrerUnit: s(ex.referrerUnit), referrerPhone: s(ex.referrerPhone),
     desiredStart: s(ex.desiredStart), orderPeriod: s(ex.orderPeriod), plannedEnd: s(ex.plannedEnd), orderPeriodReason: s(ex.orderPeriodReason), buyerReference: s(ex.buyerReference),
     firstName: s(ex.firstName), lastName: s(ex.lastName), phone: s(ex.phone), email: s(ex.email), city: s(ex.city), preferredContact: s(ex.preferredContact),
     priorAssessment: priorFromExtract(ex.priorAssessment) ?? "", background: s(ex.background),
+    primaryArea: areas.some((a) => a.code === area) ? area : "",
     pnrMasked: pnrFormatValid(ex.pnr) ? maskedPnr({ personnummerLast4: String(ex.pnr).replace(/\D/g, "").slice(-4) }) : null,
   };
 }
@@ -56,13 +65,14 @@ handleQuery(inboxRegisterForm, { roles: ROLES }, async (ctx, p) => {
   const e = await inboxEnv(ctx);
   const customer = await ctx.repo.table("organizations").get(e.contract.customerId);
   const { rows } = await customerHandlers(ctx, e.contract.customerId, e.contract.id);
+  const areas = await activeAreas(ctx, e.contract.id);
   let email: RegisterForm["email"] = null;
   if (p.emailId) {
     const m = await ctx.repo.table("inbound_emails").get(p.emailId);
     if (m && registrable(m)) {
       // Avsändaren förifyller handläggaren när mallen inte hade uppgifterna.
       const ex = m.extracted as OrderExtract;
-      const prefill = prefillOf(ex);
+      const prefill = prefillOf(ex, areas);
       if (!prefill.referrerEmail) prefill.referrerEmail = m.fromAddress.toLowerCase();
       if (!prefill.referrerName) prefill.referrerName = m.fromName;
       email = { id: m.id, subject: m.subject, from: m.fromName, fromAddress: m.fromAddress, receivedAt: m.receivedAt, receivedLong: fmtDateTimeLong(m.receivedAt), attachments: m.attachments.length, prefill };
@@ -75,6 +85,7 @@ handleQuery(inboxRegisterForm, { roles: ROLES }, async (ctx, p) => {
     attachments: { maxBytes: ATTACHMENT_MAX_BYTES, maxFiles: ATTACHMENT_MAX_FILES, accept: ATTACHMENT_ACCEPT, typesText: ATTACHMENT_TYPES_TEXT },
     customerName: customer?.name ?? "Kommunen", customerDomains: (customer?.emailDomains ?? []).map((d) => d.toLowerCase()),
     handlers: rows, answerText: workingDaysText(answerDays(e.cfg)), email,
+    areas: areas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
   };
 });
 
@@ -118,6 +129,12 @@ handleCommand(inboxRegister, { roles: ROLES }, async (ctx, p) => {
   const pnr = p.pnr.trim() || String((mail?.extracted as OrderExtract | undefined)?.pnr ?? "").trim();
   if (!pnrFormatValid(pnr)) return fail("pnr", mail ? "Personnumret saknas eller har fel format. Skriv det så här: ÅÅÅÅMMDD-NNNN." : "Skriv personnumret så här: ÅÅÅÅMMDD-NNNN.");
 
+  // Yrkesområdet: det valda ("" = inte angivet), eller – när fältet inte skickas – det ur mejlet. Bara aktiva avtalsområden.
+  const areaCodes = new Set((await activeAreas(ctx, contract.id)).map((a) => a.code));
+  const chosenArea = p.primaryArea ?? String((mail?.extracted as OrderExtract | undefined)?.primaryArea ?? "").trim();
+  if (p.primaryArea && !areaCodes.has(p.primaryArea)) return fail("area", "Välj ett yrkesområde i listan.");
+  const primaryArea = areaCodes.has(chosenArea) ? chosenArea : null;
+
   // Bilagorna: egna uppladdningar i avtalet som inte är kopplade (läses via behörigheten).
   const attachmentIds = [...new Set(p.attachmentIds)];
   if (attachmentIds.length) {
@@ -140,7 +157,7 @@ handleCommand(inboxRegister, { roles: ROLES }, async (ctx, p) => {
   const res = await createOrder(ctx, {
     contract, source: channel, referrerId, referrerName: referrer.name, referrerEmail: referrer.email, referrerUnit: referrer.unit, referrerPhone: referrer.phone,
     firstName: p.firstName, lastName: p.lastName, pnr, phone: p.phone, email: p.email, city: p.city, address: p.address ?? null, preferredContact: p.preferredContact,
-    buyerReference: p.buyerReference, desiredStart: p.desiredStart, orderPeriodMonths: p.orderPeriodMonths, plannedEnd: p.plannedEnd, orderPeriodReason: p.orderPeriodReason,
+    primaryArea, buyerReference: p.buyerReference, desiredStart: p.desiredStart, orderPeriodMonths: p.orderPeriodMonths, plannedEnd: p.plannedEnd, orderPeriodReason: p.orderPeriodReason,
     priorAssessment: p.priorAssessment, background: p.background, attachmentIds: [...attachmentIds, ...mailAttachmentIds], sourceEmailId: emailId, referredAt: p.receivedAt,
   });
   if (!res.ok) return fail(res.error === "po_number" ? "buyer_ref" : res.error, res.message);

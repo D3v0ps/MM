@@ -5,6 +5,8 @@
 //   Ärendenummer i ämnesraden eller texten (prefixet ur avtalet – aldrig hårdkodat) → ett svar om ett ärende: komplettering
 //   om ärendet väntar på beslut (avgörs av anroparen, som känner ärendet), annars Övrigt.
 //   Word-mallens fasta etiketter ("Förnamn: Anna", tabellceller) → beställning tolkad utan AI (parseMethod template).
+//   Avbrott (avbryta/avsluta en insats, beslut 2026-10-09) utan ärendenummer och utan ifyllt avrop → Övrigt (en människa tar
+//   reda på vilket ärende det gäller) – aldrig en ny beställning.
 //   Ser ut som ett avrop men saknar etiketter (fritext) → beställning utan tolkning (parseMethod manual): en människa
 //   registrerar den i inkorgen. AI-tolkning av fritext hör till fas 2 och är av i produktion.
 //   Allt annat → Övrigt (lämnas till en människa).
@@ -40,6 +42,13 @@ export const REQUIRED_ORDER_FIELDS: readonly OrderField[] = ["desiredStart", "or
 
 /** Ett avtalsområde som yrkesområdet tolkas mot (contract_areas: kod och namn). */
 export type AreaRef = { code: string; name: string };
+
+/**
+ * Uppgifter som stod i mejlet men inte gick att tolka: tomma med säkerheten 0 (ett datum som inte går att läsa, ett
+ * yrkesområde som inte finns i avtalets lista). Ordererkännandet säger då att uppgiften inte gick att tolka – inte att den saknas.
+ */
+export const unclearFields = (ex: OrderExtract, confidence: Partial<Record<OrderField, number>>): OrderField[] =>
+  (Object.keys(ex) as OrderField[]).filter((k) => ex[k] === "" && confidence[k] === 0);
 
 /** Ärendet kan skapas automatiskt när deltagarens namn och ett personnummer i rätt format finns. */
 export const canCreateCase = (ex: OrderExtract): boolean => !!ex.firstName && !!ex.lastName && pnrFormatValid(ex.pnr);
@@ -273,6 +282,20 @@ export function extractLabelled(text: string): Found[] {
 
 // ---------------------------------------------------------------- Tolkningen
 const ORDER_WORDS = /\b(avrop|avropa|beställ|beställning|anvisa|anvisning|ny deltagare|insats)/i;
+/** Ord som bara en ny beställning har ("insats" finns också i ett avbrott). */
+const NEW_ORDER_WORDS = /\b(avrop|avropa|beställ|beställa|beställning|anvisa|anvisning|ny deltagare)/i;
+/** Avbrott via mejl (beslut 2026-10-09): "Avbryta insatsen", "avsluta insatsen", "avbrott". */
+const CANCEL_WORDS = /\b(avbryt|avbryta|avbryts|avbrott|avbrytande|avsluta|avslutas)\b/i;
+
+/**
+ * Ser mejlet ut att gälla ett avbrott av en insats (och inte en ny beställning)? Ämnesraden eller början av den egna texten
+ * har ett avbrottsord men inget ord som bara en ny beställning har. Används av tolkningen och av inkorgens etikett "Avbrott".
+ */
+export function looksLikeCancellation(subject: string, bodyText: string): boolean {
+  const own = ownText(String(bodyText ?? "")).slice(0, 600);
+  const text = `${String(subject ?? "")}\n${own}`;
+  return CANCEL_WORDS.test(text) && !NEW_ORDER_WORDS.test(text);
+}
 
 /**
  * Tolka ett mejl till avrop@. attachmentText = texten ur en bifogad Word-mall (servern läser den) – etiketter där väger
@@ -323,6 +346,12 @@ export function parseInboundMail(
       case "secondaryArea": {
         const a = parseArea(f.value, o.areas);
         set(f.field, a.code, a.exact ? base : Math.min(base, 0.7));
+        // Ett yrkesområde som inte går att koppla till avtalets lista ("Vård och omsorg"): tomt med säkerheten 0, som ett datum
+        // som inte går att läsa – uppgiften saknas fortfarande, men ordererkännandet säger att den inte gick att tolka.
+        if (!a.code && f.field === "primaryArea" && ex.primaryArea == null) {
+          ex.primaryArea = "";
+          confidence.primaryArea = 0;
+        }
         break;
       }
       case "buyerReference":
@@ -344,6 +373,9 @@ export function parseInboundMail(
     };
   }
   const labelled = found.length;
+  // Ett avbrott utan ärendenummer är ingen ny beställning – det lämnas till en människa som Övrigt (etiketten Avbrott i inkorgen).
+  // Ett ifyllt avrop (minst två etiketter) är fortfarande en beställning.
+  if (labelled < 2 && looksLikeCancellation(subject, own)) return { kind: "other", parseMethod: "manual", caseNumber: null, linkedBy: null, extracted: {}, confidence: {}, missingFields: [] };
   const isOrder = labelled >= 2 || looksLikePnr(own) || ORDER_WORDS.test(subject) || ORDER_WORDS.test(own.slice(0, 600));
   if (!isOrder) return { kind: "other", parseMethod: "manual", caseNumber: null, linkedBy: null, extracted: {}, confidence: {}, missingFields: [] };
   // Fritext utan etiketter: personnumret plockas ut som stöd för registreringen (osäkert), inget annat gissas – AI är av.

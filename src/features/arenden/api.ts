@@ -489,6 +489,8 @@ export type CaseCard = {
   contactText: string;
   /** Deltagarens föredragna kontaktväg ("SMS", "E-post" …). */
   contactLabel: string | null;
+  /** Deltagaren saknar telefonnummer och e-postadress – kontaktvägen är bara förvalet (kallelsen når inte fram). */
+  contactMissing: boolean;
   languageText: string;
   /** Deltagarens språk (för samtyckets språkval). */
   language: string;

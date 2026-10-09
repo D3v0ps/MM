@@ -3,6 +3,7 @@
 import type { Role } from "@/api/roles";
 import type { Ctx, OutgoingMessage } from "@/api/server";
 import { DEFAULT_ORG_SETTINGS, requireOperational, type OperationalConfig, type OrgSettings } from "@/core/config";
+import { hasContactDetails } from "@/core/contact";
 import { areaName, teamLabel } from "@/core/labels";
 import { fmtDateTime, fmtTime, fmtWeekday, type LocalDateTime } from "@/core/time";
 import type { Table } from "@/data/repo";
@@ -94,15 +95,22 @@ const PARTICIPANT_CHANNEL_TEXT: Record<PreferredContact, string> = { email: "e-p
 /**
  * Kallelse till första mötet via deltagarens föredragna kontaktväg. Aldrig vid skyddade personuppgifter (CLAUDE.md punkt 8).
  * Mottagaren anges som i prototypen ("deltagare (SMS)") – utskicksadaptern slår upp numret eller adressen via ärendet.
- * Texten innehåller bara tid och plats.
+ * Texten innehåller bara tid och plats. Saknar deltagaren telefonnummer och e-postadress är kontaktvägen bara förvalet
+ * telefon (inget val, beslut 2026-10-09): mottagaren säger då att kontaktuppgift saknas – inte att telefon är vald.
  */
-export async function sendMeetingInvitation(ctx: Ctx, c: Pick<Case, "id" | "location">, person: Pick<Person, "preferredContact" | "protectedIdentity">, at: LocalDateTime): Promise<void> {
+export async function sendMeetingInvitation(
+  ctx: Ctx, c: Pick<Case, "id" | "location">, person: Pick<Person, "preferredContact" | "protectedIdentity"> & Partial<Pick<Person, "phone" | "email" | "address">>, at: LocalDateTime,
+): Promise<void> {
   if (person.protectedIdentity) return;
   const pc = person.preferredContact || "sms";
+  // Utan telefonnummer och e-postadress: "deltagare (SMS – kontaktuppgift saknas)" – förvalet telefon är inget val.
+  const missing = (person.phone !== undefined || person.email !== undefined) && !hasContactDetails(person);
+  const channelText = missing && pc === "phone" ? PARTICIPANT_CHANNEL_TEXT.sms : PARTICIPANT_CHANNEL_TEXT[pc];
+  const to = `deltagare (${channelText}${missing ? " – kontaktuppgift saknas" : ""})`;
   await ctx.notify({
     // Brev är en egen kanal i utskicksloggen (outbound_messages.channel). OutgoingMessage har ännu bara e-post och SMS.
     channel: PARTICIPANT_CHANNEL[pc] as OutgoingMessage["channel"],
-    to: `deltagare (${PARTICIPANT_CHANNEL_TEXT[pc]})`,
+    to,
     template: "kallelse",
     body: `Välkommen till Miljonbemanning! Ditt första möte är ${fmtWeekday(at)} klockan ${fmtTime(at)} i ${c.location || "Alby"}.${CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : ""}`,
     caseId: c.id,

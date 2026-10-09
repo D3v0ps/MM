@@ -57,7 +57,7 @@ Lämna bara de uppgifter som behövs.
 2. Skriv **Personnummer eller samordningsnummer** med tolv siffror: ÅÅÅÅMMDD-NNNN. Numret visas bara maskerat i tjänsten.
 3. Skriv **Deltagarens telefonnummer**. Vi skickar kallelsen och påminnelser med SMS. SMS innehåller aldrig personuppgifter.
 4. Har deltagaren ingen telefon? Lämna telefonnumret tomt och skriv **Deltagarens e-postadress**. Då skickar vi kallelsen med e-post.
-5. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot. Välj Övrigt om inget passar.
+5. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot.
 6. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
 
 ### Steg 3 av 3: Bakgrundsinformation om deltagaren

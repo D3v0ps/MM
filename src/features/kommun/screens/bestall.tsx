@@ -12,6 +12,7 @@
 //   Granskning: inga belopp – inget ordervärde någonstans (synpunkt #10 och #11).
 // Beställningen sparas med arenden.caseCreate (delat kommando), som ger ärendenummer och skickar ordererkännandet.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { PHONE_MIN_DIGITS } from "@/core/contact";
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { orderPeriodEnd } from "@/core/time";
 import { emailValid, pnrFormatValid } from "@/core/validation";
@@ -39,7 +40,6 @@ const PRIOR: { value: PriorAnswer; label: string }[] = [
   { value: "no", label: "Nej" },
 ];
 /** Minst så här många siffror i deltagarens telefonnummer (samma som förut när SMS var förvalt). */
-const PHONE_MIN_DIGITS = 8;
 /** Valet "Annan tidsperiod" (övriga val är antal månader ur avtalet). */
 const OTHER = "annan";
 /** Längsta bakgrundsinformation (samma som arenden.caseCreate). */
@@ -117,7 +117,8 @@ function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly Ko
     const digits = f.phone.replace(/\D/g, "").length;
     if (!digits && !f.email.trim()) e.phone = "Skriv deltagarens telefonnummer. Har deltagaren ingen telefon? Skriv e-postadressen i stället.";
     else if (digits && digits < PHONE_MIN_DIGITS) e.phone = "Skriv hela telefonnumret, till exempel 070-123 45 67.";
-    if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
+    // Utan telefonnummer är e-postadressen den enda vägen – då går fältet inte att lämna tomt.
+    if (f.email.trim() && !emailValid(f.email)) e.email = digits ? "Skriv en hel e-postadress, eller lämna fältet tomt." : "Skriv en hel e-postadress. Vi behöver telefonnummer eller e-postadress för kallelsen.";
     if (!f.primaryArea || !m.areas.some((a) => a.value === f.primaryArea)) e.primaryArea = "Välj ett yrkesområde.";
   }
   if (step === 2) {
@@ -427,20 +428,24 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           <Input value={f.pnr} inputMode="numeric" maxLength={15} onValueChange={set("pnr")} />
         </Field>
         {dups.length > 0 && <DupNotice dups={dups} onOpen={(id) => nav.push(`/portal/deltagare/${encodeURIComponent(id)}`)} />}
-        <FormGrid>
-          <Field
-            id="kom-o-dphone"
-            label="Deltagarens telefonnummer"
-            required={!f.email.trim()}
-            error={E("phone")}
-            help="Vi skickar kallelsen och påminnelser med SMS. Har deltagaren ingen telefon? Lämna fältet tomt och skriv e-postadressen."
-          >
-            <Input type="tel" value={f.phone} onValueChange={set("phone")} />
-          </Field>
-          <Field id="kom-o-demail" label="Deltagarens e-postadress" error={E("email")} help="Fyll i om deltagaren har e-post. Vi använder e-post när telefonnummer saknas.">
-            <Input type="email" value={f.email} onValueChange={set("email")} />
-          </Field>
-        </FormGrid>
+        {/* Telefon eller e-post krävs (beslut 2026-10-09): en grupp med en rubrik, så att markeringen för obligatoriskt inte
+            hoppar mellan fälten. Skärmläsaren läser rubriken när fokus kommer in i gruppen. */}
+        <fieldset className="m-0 flex min-w-0 flex-col gap-3 border-0 p-0">
+          <legend className="mb-3 p-0 text-ui font-bold portal:text-h3">
+            Hur når vi deltagaren? Fyll i telefonnummer eller e-postadress
+            <span className="font-extrabold before:ml-0.5 before:text-rod before:content-['*']">
+              <span className="sr-only">(obligatoriskt)</span>
+            </span>
+          </legend>
+          <FormGrid>
+            <Field id="kom-o-dphone" label="Deltagarens telefonnummer" error={E("phone")} help="Vi skickar kallelsen och påminnelser med SMS.">
+              <Input type="tel" value={f.phone} onValueChange={set("phone")} />
+            </Field>
+            <Field id="kom-o-demail" label="Deltagarens e-postadress" error={E("email")} help="Har deltagaren ingen telefon? Då skickar vi kallelsen med e-post.">
+              <Input type="email" value={f.email} onValueChange={set("email")} />
+            </Field>
+          </FormGrid>
+        </fieldset>
         <Field
           id="kom-o-area"
           label="Yrkesområde"

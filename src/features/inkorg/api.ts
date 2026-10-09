@@ -60,6 +60,8 @@ export type InboxRow = {
   sla: SlaInfo | null;
   /** Uppgifter som saknas i avropet (etiketter i gemener), t.ex. ["omfattning"]. */
   missing: string[];
+  /** Övrigt som ser ut som ett avbrott av en insats (avbrott via mejl, beslut 2026-10-09) – etiketten "Avbrott". */
+  cancellation: boolean;
 };
 /** Sökväg till posten i inkorgen. */
 export const inboxRowPath = (r: Pick<InboxRow, "emailId" | "caseId">): string =>
@@ -160,6 +162,8 @@ export type SupplementBodyView =
 export type OtherBodyView = {
   kind: "other";
   caseNumber: string | null;
+  /** Mejlet ser ut att gälla ett avbrott av en insats (parse.ts looksLikeCancellation). */
+  cancellation: boolean;
   original: OriginalView;
   caseCard: { caseId: string; caseNumber: string; displayName: string; coachName: string; status: string; phase: string } | null;
   custMsgs: { id: string; sender: string; when: string; unread: boolean; body: string }[];
@@ -276,6 +280,8 @@ export type RegisterPrefill = {
   referrerName: string; referrerEmail: string; referrerUnit: string; referrerPhone: string;
   desiredStart: string; orderPeriod: string; plannedEnd: string; orderPeriodReason: string; buyerReference: string;
   firstName: string; lastName: string; phone: string; email: string; city: string; preferredContact: string; priorAssessment: string; background: string;
+  /** Yrkesområdet ur mejlet (avtalsområdets kod), tomt när det saknas eller inte är ett aktivt avtalsområde (beslut 2026-10-09). */
+  primaryArea: string;
   /** Personnumret finns i mejlet (maskerat) – lämnas fältet tomt används det. */
   pnrMasked: string | null;
 };
@@ -292,6 +298,8 @@ export type RegisterForm = {
   customerDomains: string[];
   /** Kommunens handläggare med konto (att välja i stället för att skriva uppgifterna). */
   handlers: RegisterHandler[];
+  /** Avtalets aktiva avtalsområden – yrkesområdet att välja (samma lista som kommunens formulär och Acceptera). */
+  areas: { value: string; label: string }[];
   /** "en arbetsdag" – svarstiden räknas från mottagandet. */
   answerText: string;
   /** Mejlet som registreras (förifyllning), eller null vid telefon/annat. */
@@ -324,6 +332,11 @@ export const inboxRegister = command("inkorg.register", z.object({
   city: z.string().max(100),
   address: z.string().max(300).nullable().optional(),
   preferredContact: z.enum(PREFERRED_CONTACTS),
+  /**
+   * Yrkesområdet (avtalsområdets kod, beslut 2026-10-09). Ett aktivt avtalsområde i avtalet, eller "" = inte angivet.
+   * Utelämnat med emailId = yrkesområdet ur mejlet (som personnumret), om det är ett aktivt avtalsområde.
+   */
+  primaryArea: z.string().trim().max(10).optional(),
   desiredStart: LocalDateSchema.nullable(),
   orderPeriodMonths: z.number().int().min(1).max(60).nullable(),
   plannedEnd: LocalDateSchema.nullable(),
@@ -333,7 +346,7 @@ export const inboxRegister = command("inkorg.register", z.object({
   buyerReference: z.string().max(40),
   attachmentIds: z.array(IdSchema).max(10),
 }), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<
-  Result<{ caseId: string; caseNumber: string; emailId: string }, "received_at" | "email" | "referrer" | "pnr" | "buyer_ref" | "order_period" | "duplicate" | "attachments" | "no_contract" | "not_found">
+  Result<{ caseId: string; caseNumber: string; emailId: string }, "received_at" | "email" | "referrer" | "pnr" | "area" | "buyer_ref" | "order_period" | "duplicate" | "attachments" | "no_contract" | "not_found">
 >();
 
 // ---------------------------------------------------------------- Startsidan

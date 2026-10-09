@@ -107,7 +107,33 @@ describe("importInbox", () => {
     expect(t.store.getRow("persons", c.personId)).toMatchObject({ city: "Hallunda", preferredContact: "email" });
     const ack = t.notified.find((n) => n.caseId === c.id)!;
     expect(ack.body).toContain("Vi saknar yrkesområde – svara på det här mejlet");
+    // Avtalets yrkesområden står i ordererkännandet (namn och bokstav ur contract_areas), så att handläggaren kan svara.
+    expect(ack.body).toContain("\n\nYrkesområden i avtalet:\nA Administration\n");
+    expect(ack.body).toContain("\nG Lager och logistik\n");
     expect(ack.body).not.toMatch(/Yonas|Tesfay|19920202|Hallunda/);
+  });
+
+  it("ett yrkesområde som inte finns i avtalets lista: ordererkännandet säger att det inte gick att koppla – inte att det saknas", async () => {
+    const t = setup();
+    const graph = fakeGraph({ messages: [msg({ id: "v1", subject: "Avrop", bodyText: TEMPLATE.replace("Lager och logistik", "Vård och omsorg") })] });
+    expect(await importInbox({ graph, ctx: t.ctx, now: NOW })).toMatchObject({ imported: 1, cases: 1 });
+    const m = t.store.rows("inbound_emails").find((e) => e.graphMessageId === "<v1@botkyrka.se>")!;
+    expect(m).toMatchObject({ missingFields: ["primaryArea"], extracted: { primaryArea: "" }, confidence: { primaryArea: 0 } });
+    expect(t.store.getRow("cases", m.caseId!)!.primaryAreaCode).toBeNull();
+    const ack = t.notified.find((n) => n.caseId === m.caseId)!;
+    expect(ack.body).toContain("Vi kunde inte koppla yrkesområdet till avtalets lista. Svara med namnet eller bokstaven från listan.");
+    expect(ack.body).not.toContain("Vi saknar");
+    expect(ack.body).toContain("Yrkesområden i avtalet:\n");
+    expect(ack.body).toContain("\nB Hälsa och sjukvård\n");
+    expect(ack.body).not.toMatch(/Yonas|Tesfay|19920202/);
+  });
+
+  it("ett avbrott utan ärendenummer blir Övrigt – inte en beställning att registrera", async () => {
+    const t = setup();
+    const graph = fakeGraph({ messages: [msg({ id: "x1", subject: "Avbryta insatsen", bodyText: "Hej! Deltagaren har fått jobb. /Linda" })] });
+    expect(await importInbox({ graph, ctx: t.ctx, now: NOW })).toMatchObject({ imported: 1, cases: 0, toRegister: 0, other: 1 });
+    expect(t.store.rows("inbound_emails").find((e) => e.graphMessageId === "<x1@botkyrka.se>")).toMatchObject({ classification: "other", status: "other", caseId: null, missingFields: [] });
+    expect(t.notified).toEqual([]);
   });
 
   it("fritext utan etiketter: beställningen sparas och väntar på registrering; ett avrop med saknade uppgifter listar dem i ordererkännandet", async () => {

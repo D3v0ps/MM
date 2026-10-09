@@ -16,7 +16,7 @@ import {
   emailApplySupplement, emailSetStatus, inboxItem, inboxList, type InboxItemDetail, type InboxList, type InboxRow, type OrderBodyView, type OtherBodyView, type PendingSupplement,
   type SupplementBodyView,
 } from "../api";
-import { CLASS_ICON, CLASSIFICATION, METHOD, statusLook } from "../texts";
+import { CANCELLATION_LABEL, CLASS_ICON, CLASSIFICATION, METHOD, statusLook } from "../texts";
 import { AckCard, CaseFieldsCard, ConfirmationCard, DeclinedCard, DuplicateCard, OriginalCard, ParsedCard } from "./cards";
 import { AcceptModal, CorrectModal, DeclineModal } from "./modals";
 import { Caps, IconLine, KommunSwitch, Quote, useIsDemo, WrapBtns } from "./parts";
@@ -279,7 +279,7 @@ function Row({ it, active, onPick }: { it: InboxRow; active: boolean; onPick: Pi
           {/* Metod och ärendenummer är metadata (14 px, ikon + text) – bara status/SLA är märke. */}
           {it.cls === "order"
             ? <MetaText icon={m.icon}>{m.label}</MetaText>
-            : <MetaText icon={CLASS_ICON[it.cls] ?? "mail"}>{CLASSIFICATION[it.cls]}</MetaText>}
+            : <MetaText icon={CLASS_ICON[it.cls] ?? "mail"}>{it.cancellation ? CANCELLATION_LABEL : CLASSIFICATION[it.cls]}</MetaText>}
           {it.caseNumber && <span className="text-small font-bold tabular-nums tracking-[0.01em]">{it.caseNumber}</span>}
         </span>
       </span>
@@ -367,7 +367,7 @@ function DetailHead({
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-[1_1_260px] flex-col gap-1">
-            <Caps>{CLASSIFICATION[it.cls] ?? "Mejl"}{c ? ` · ${c.number}` : ""}</Caps>
+            <Caps>{it.body.kind === "other" && it.body.cancellation ? CANCELLATION_LABEL : CLASSIFICATION[it.cls] ?? "Mejl"}{c ? ` · ${c.number}` : ""}</Caps>
             <h2 className="text-h2 font-extrabold [overflow-wrap:anywhere]">{it.subject}</h2>
             <div className="text-small text-text-muted">Från {it.from}{it.fromAddress ? ` (${it.fromAddress})` : ""} · mottaget {it.receivedWhen}</div>
           </div>
@@ -542,9 +542,17 @@ function OtherBody({ it, b }: { it: InboxItemDetail; b: OtherBodyView }) {
   };
   return (
     <>
-      <Notice tone="info" title="Klassat som Övrigt – inte en beställning">
-        Mejl som inte är beställningar lämnas till en människa.{b.caseNumber ? ` Det kopplades till ${b.caseNumber} via ärendenumret i texten.` : " Inget ärendenummer hittades."}
-      </Notice>
+      {b.cancellation ? (
+        <Notice tone="info" title="Avbrott av en insats – inte en beställning">
+          {b.caseNumber
+            ? `Mejlet ser ut att gälla ett avbrott. Det kopplades till ${b.caseNumber} via ärendenumret.`
+            : "Mejlet ser ut att gälla ett avbrott, men inget ärendenummer hittades. Ta reda på vilket ärende det gäller och svara handläggaren."}
+        </Notice>
+      ) : (
+        <Notice tone="info" title="Klassat som Övrigt – inte en beställning">
+          Mejl som inte är beställningar lämnas till en människa.{b.caseNumber ? ` Det kopplades till ${b.caseNumber} via ärendenumret i texten.` : " Inget ärendenummer hittades."}
+        </Notice>
+      )}
       <Pair>
         <OriginalCard o={b.original} />
         {c ? (

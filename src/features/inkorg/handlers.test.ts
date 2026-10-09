@@ -303,6 +303,60 @@ describe("registrera beställning (mejl, telefon eller annan väg)", () => {
     expect(await run(inboxRegister, { ...PHONE_ORDER, emailId: "em-ny", pnr: "19940404-7777" }, sara())).toMatchObject({ ok: false, error: "email" });
   });
 
+  it("yrkesområdet i ett inläst mejl följer med registreringen – också när personnumret var ogiltigt (granskningen 2026-10-09)", async () => {
+    // Nya mallen med yrkesområde men ett personnummer med för få siffror: inläsningen kunde inte skapa ärendet.
+    rt.store.insertRow("inbound_emails", {
+      id: "em-area", graphMessageId: "<area@botkyrka.se>", receivedAt: "2027-02-01T08:40", fromAddress: "ahmed.yusuf@botkyrka.se", fromName: "Ahmed Yusuf", subject: "Avrop – ny insats",
+      bodyText: "Förnamn: Test\nEfternamn: Lagersson\nPersonnummer: 19900101-123\nYrkesområde: Lager och logistik", attachments: [], parseMethod: "template", classification: "order",
+      extracted: { firstName: "Test", lastName: "Lagersson", primaryArea: "G" }, confidence: { firstName: 1, lastName: 1, primaryArea: 1 },
+      missingFields: ["desiredStart", "orderPeriod", "pnr"], corrections: {}, status: "received",
+      caseId: null, ackSentAt: null, ackKind: null, aiRunId: null, linkedBy: null, registeredBy: null, registeredAt: null, handledBy: null, handledAt: null,
+    });
+    const f = await q(inboxRegisterForm, { emailId: "em-area" }, sara());
+    expect(f.areas).toContainEqual({ value: "G", label: "G Lager och logistik" });
+    expect(f.email?.prefill.primaryArea).toBe("G");
+    const order = { ...PHONE_ORDER, emailId: "em-area", referrerId: "k-ahmed", referrerName: "", referrerEmail: "", referrerUnit: "", firstName: "Test", lastName: "Lagersson", pnr: "19900101-1236" };
+    // Fältet skickas inte: yrkesområdet ur mejlet används (som personnumret).
+    const res = await run(inboxRegister, order, sara());
+    expect(res).toMatchObject({ ok: true });
+    if (!res.ok) return;
+    expect(row("cases", res.caseId)!.primaryAreaCode).toBe("G");
+    // Acceptera är förifylld med yrkesområdet.
+    const form = await q(inboxDecisionForm, { caseId: res.caseId }, sara());
+    expect(form).toMatchObject({ primaryArea: "G", areaName: "G Lager och logistik" });
+  });
+
+  it("registreringen: ett valt yrkesområde sparas, \"\" = inte angivet, och ett område utanför avtalet avvisas", async () => {
+    const a = await run(inboxRegister, { ...PHONE_ORDER, primaryArea: "D" }, sara());
+    expect(a).toMatchObject({ ok: true });
+    if (a.ok) expect(row("cases", a.caseId)!.primaryAreaCode).toBe("D");
+    const b = await run(inboxRegister, { ...PHONE_ORDER, pnr: "19930303-6666", primaryArea: "" }, sara());
+    expect(b).toMatchObject({ ok: true });
+    if (b.ok) expect(row("cases", b.caseId)!.primaryAreaCode).toBeNull();
+    expect(await run(inboxRegister, { ...PHONE_ORDER, pnr: "19930303-7777", primaryArea: "Z" }, sara())).toMatchObject({ ok: false, error: "area" });
+    rt.store.updateRow("contract_areas", rows("contract_areas").find((x) => x.code === "F")!.id, { active: false });
+    expect(await run(inboxRegister, { ...PHONE_ORDER, pnr: "19930303-8888", primaryArea: "F" }, sara())).toMatchObject({ ok: false, error: "area" });
+  });
+
+  it("utan telefonnummer och e-postadress: förvalet telefon visas som \"Kontaktuppgift saknas\", aldrig som ett val", async () => {
+    const res = await run(inboxRegister, { ...PHONE_ORDER, phone: "", email: "", preferredContact: "phone" }, sara());
+    if (!res.ok) throw new Error(res.error);
+    expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
+    const kallelse = rows("outbound_messages").filter((x) => x.caseId === res.caseId && x.template === "kallelse");
+    expect(kallelse.map((x) => x.to)).toEqual(["deltagare (SMS – kontaktuppgift saknas)"]);
+    const conf = await q(inboxConfirmation, { caseId: res.caseId }, sara());
+    expect(conf?.kallelse?.title).toBe("Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:");
+    expect(JSON.stringify(conf)).not.toMatch(/har valt telefon/);
+    const d = await q(inboxItem, { id: res.emailId }, sara());
+    const fields = d?.body.kind === "order" ? d.body.caseFields?.groups.flatMap((g) => g.fields) ?? [] : [];
+    expect(fields.find((f) => f.label === "Föredragen kontaktväg")?.value).toBe("Kontaktuppgift saknas – kontakta handläggaren");
+    // Med telefonnummer och ett aktivt val av telefon står valet kvar.
+    const res2 = await run(inboxRegister, { ...PHONE_ORDER, pnr: "19930303-9999", preferredContact: "phone" }, sara());
+    if (!res2.ok) throw new Error(res2.error);
+    expect(await run(caseAccept, { caseId: res2.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
+    expect((await q(inboxConfirmation, { caseId: res2.caseId }, sara()))?.kallelse?.title).toBe("Deltagaren fick kallelse via SMS och har valt telefon – coachen ringer också:");
+  });
+
   it("när handläggaren skapar konto kopplas ärendet via e-postadressen", async () => {
     const res = await run(inboxRegister, PHONE_ORDER, sara());
     if (!res.ok) throw new Error(res.error);

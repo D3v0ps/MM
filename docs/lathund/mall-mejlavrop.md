@@ -16,7 +16,7 @@ Tips:
 - Skriv personnumret med tolv siffror och bindestreck, till exempel ÅÅÅÅMMDD-NNNN. Samordningsnummer skrivs på samma sätt.
 - Under Omfattning skriver du **6 månader**, **12 månader** eller **annan tidsperiod**. Väljer du annan tidsperiod fyller du också i slutdatum och motivering.
 - Skriv deltagarens telefonnummer. Vi skickar kallelsen med SMS. Har deltagaren ingen telefon skriver du e-postadressen i stället. Då skickar vi kallelsen med e-post.
-- Under Yrkesområde skriver du det yrkesområde som deltagaren ska arbeta mot. Skriv namnet eller bokstaven från listan under mallen, till exempel **Lager och logistik** eller **G**. Skriv **Övrigt** om inget passar.
+- Under Yrkesområde skriver du det yrkesområde som deltagaren ska arbeta mot. Skriv namnet eller bokstaven från listan under mallen.
 - Under Kartläggning genomförd skriver du **ja** eller **nej**. Har du svarat ja kan du bifoga kartläggningen i mejlet.
 - Under Bakgrundsinformation kan du skriva flera rader. Texten slutar vid första tomma raden.
 - Skriv inga diagnoser och inga uppgifter om hälsa.
@@ -53,18 +53,7 @@ Bakgrundsinformation:
 
 Yrkesområdena är avtalsområdena i avtalet. Skriv namnet eller bokstaven.
 
-- **A** Administration
-- **B** Hälsa och sjukvård
-- **C** Bygg och anläggning
-- **D** Kök, restaurang och måltidsservice
-- **E** Transport och åkeri
-- **F** Lokalvård
-- **G** Lager och logistik
-- **H** Serviceyrken
-- **I** Fastighet, mark och park
-- **J** Parti- och detaljhandel
-- **K** Industri
-- **L** Övrigt
+<!-- yrkesområden: listan fylls i från avtalets avtalsområden när hjälpsidan visas -->
 
 ## Ifyllt exempel
 

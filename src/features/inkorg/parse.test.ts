@@ -2,7 +2,8 @@
 import { describe, expect, it } from "vitest";
 import { AREAS } from "@/data/seed/constants";
 import {
-  canCreateCase, extractLabelled, findCaseNumber, ownText, parseArea, parseInboundMail, parseOrderPeriod, parsePnr, parseSvDate, priorFromExtract, REQUIRED_ORDER_FIELDS,
+  canCreateCase, extractLabelled, findCaseNumber, looksLikeCancellation, ownText, parseArea, parseInboundMail, parseOrderPeriod, parsePnr, parseSvDate, priorFromExtract,
+  REQUIRED_ORDER_FIELDS, unclearFields,
 } from "./parse";
 
 const PREFIX = { casePrefix: "BOT" };
@@ -68,10 +69,31 @@ describe("parseInboundMail – Word-mallens etiketter", () => {
     // Bokstaven går lika bra, och den gamla etiketten "Avtalsområde" tolkas fortfarande.
     expect(parseInboundMail({ subject: "Avrop", bodyText: body.replace("Lager och logistik", "g") }, WITH_AREAS).extracted.primaryArea).toBe("G");
     expect(parseInboundMail({ subject: "Avrop", bodyText: body.replace("Yrkesområde (se listan under mallen): Lager och logistik", "Avtalsområde: F Lokalvård") }, WITH_AREAS).extracted.primaryArea).toBe("F");
-    // Ett yrkesområde som inte finns i avtalet saknas – samordnaren ser mejlet och ordererkännandet frågar efter det.
+    // Ett yrkesområde som inte finns i avtalet saknas fortfarande, men det stod i mejlet: tomt med säkerheten 0 (gick inte att
+    // tolka) – ordererkännandet säger att det inte gick att koppla till listan, inte att det saknas.
     const unknown = parseInboundMail({ subject: "Avrop", bodyText: body.replace("Lager och logistik", "Rymdteknik") }, WITH_AREAS);
-    expect(unknown.extracted.primaryArea).toBeUndefined();
+    expect(unknown.extracted.primaryArea).toBe("");
+    expect(unknown.confidence.primaryArea).toBe(0);
     expect(unknown.missingFields).toEqual(["primaryArea"]);
+    expect(unclearFields(unknown.extracted, unknown.confidence)).toEqual(["primaryArea"]);
+    // Ett mejl utan raden saknar uppgiften (inte otolkad).
+    const none = parseInboundMail({ subject: "Avrop", bodyText: body.replace("Yrkesområde (se listan under mallen): Lager och logistik\n", "") }, WITH_AREAS);
+    expect(none.extracted).not.toHaveProperty("primaryArea");
+    expect(none.missingFields).toEqual(["primaryArea"]);
+    expect(unclearFields(none.extracted, none.confidence)).toEqual([]);
+  });
+
+  it("\"Vård och omsorg\" finns inte i avtalets lista: otolkat, inte saknat (granskningen 2026-10-09)", () => {
+    const body = TEMPLATE.replace("Bostadsort: Alby\nFöredragen kontaktväg: SMS\n", "Yrkesområde: Vård och omsorg\n");
+    const r = parseInboundMail({ subject: "Avrop – ny insats", bodyText: body }, WITH_AREAS);
+    expect(parseArea("Vård och omsorg", AREA_REFS)).toEqual({ code: "", exact: false });
+    expect(r.extracted.primaryArea).toBe("");
+    expect(r.missingFields).toEqual(["primaryArea"]);
+    expect(unclearFields(r.extracted, r.confidence)).toEqual(["primaryArea"]);
+    // En senare rad med ett giltigt område gäller.
+    const later = parseInboundMail({ subject: "Avrop", bodyText: `${body}\nAvtalsområde: G\n` }, WITH_AREAS);
+    expect(later.extracted.primaryArea).toBe("G");
+    expect(later.missingFields).toEqual([]);
   });
 
   it("saknade uppgifter listas (startdatum och omfattning) och tabellceller 'Etikett<tab>värde' fungerar", () => {
@@ -123,6 +145,22 @@ describe("parseInboundMail – fritext, svar och övrigt", () => {
     expect(findCaseNumber("Fråga", "Gäller KAM-27-0012.", "BOT")).toBeNull();
     const r = parseInboundMail({ subject: "Fråga om schema", bodyText: "Hej! Gäller BOT-27-0012. Vilka dagar är praktiken?" }, PREFIX);
     expect(r).toMatchObject({ kind: "reply", caseNumber: "BOT-27-0012", linkedBy: "ärendenummer i texten", extracted: {} });
+  });
+
+  it("avbrott via mejl utan ärendenummer är Övrigt – aldrig en ny beställning (beslut 2026-10-09)", () => {
+    const other = { kind: "other", parseMethod: "manual", caseNumber: null, linkedBy: null, extracted: {}, confidence: {}, missingFields: [] };
+    // Ämnet "Avbryta insatsen" och ordet "insats" gjorde det tidigare till en beställning med allt saknat.
+    expect(parseInboundMail({ subject: "Avbryta insatsen", bodyText: "Deltagaren har fått jobb." }, PREFIX)).toEqual(other);
+    expect(parseInboundMail({ subject: "Fråga", bodyText: "Hej! Vi vill avsluta insatsen för deltagaren. Hen har börjat studera." }, PREFIX)).toEqual(other);
+    expect(looksLikeCancellation("Avbryta insatsen", "Deltagaren har fått jobb.")).toBe(true);
+    // Med ärendenumret blir det ett svar om ärendet (mejllänken i portalen fyller i numret).
+    expect(parseInboundMail({ subject: "Avbryta insatsen BOT-27-0012", bodyText: "Deltagaren har fått jobb." }, PREFIX)).toMatchObject({ kind: "reply", caseNumber: "BOT-27-0012" });
+    // En ny beställning som nämner ett avbrott är fortfarande en beställning, och ett ifyllt avrop likaså.
+    expect(looksLikeCancellation("Ny deltagare", "Hen fick avbryta sin utbildning och vill beställa en insats.")).toBe(false);
+    expect(parseInboundMail({ subject: "Ny deltagare", bodyText: "Hen fick avbryta sin utbildning. Vi vill anvisa hen till en insats." }, PREFIX).kind).toBe("order");
+    expect(parseInboundMail({ subject: "Avrop – ny insats", bodyText: TEMPLATE.replace("Har arbetat i butik i Chile.", "Fick avbryta sin utbildning.") }, PREFIX).kind).toBe("order");
+    // "avslutat" (en avslutad utbildning) är inget avbrott.
+    expect(looksLikeCancellation("Fråga", "Hen har avslutat gymnasiet.")).toBe(false);
   });
 
   it("ett mejl som varken är en beställning eller nämner ett ärende är Övrigt", () => {

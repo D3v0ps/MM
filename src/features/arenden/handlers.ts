@@ -8,6 +8,7 @@ import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
 import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
+import { hasContactDetails } from "@/core/contact";
 import { coaches, phaseSince, stuck } from "@/core/cases";
 import { isOperational, isUnset, phaseName, requireOperational, slaRule, WEEK_PLAN_KINDS, type OperationalConfig } from "@/core/config";
 import {
@@ -17,7 +18,7 @@ import {
 import { domainEnv, type DomainEnv } from "@/core/env";
 import { plural } from "@/core/format";
 import {
-  areaName, attLabel, contactLabel, END_REASONS, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
+  areaName, attLabel, contactLabel, END_REASONS, participantContactLabel, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
 } from "@/core/labels";
 import { defaultWeekPlan, normalizePlan, planActivities, planFromActivities, type PlannedActivity, type WeekPlanRow } from "@/core/schedule";
 import { scopeToContract } from "@/core/scope";
@@ -960,8 +961,10 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     // Omfattningen i veckor – inget pris och inget ordervärde (synpunkt #10/#11 och beslut 5, 2026-10-07).
     order: team ? null : { weeks: c.orderValueWeeks || c.plannedWeeks },
     pnr: person ? { masked: maskedPnr(ctx.crypto, person), canReveal: access === "full", hidden: false } : { masked: null, canReveal: false, hidden: true },
-    contactText: contactLabel(person?.preferredContact ?? ""),
+    // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09).
+    contactText: person ? participantContactLabel(person) : contactLabel(""),
     contactLabel: !person ? null : contactLabel(person.preferredContact),
+    contactMissing: !!person && !hasContactDetails(person),
     languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
     language: person?.language ?? "",
     accessibilityNeeds: person?.accessibilityNeeds || "Inga behov angivna",

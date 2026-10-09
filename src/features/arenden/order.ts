@@ -7,6 +7,7 @@
 import type { Ctx } from "@/api/server";
 import { ackTextFor, caseCounterId, duplicateActive, nextCaseNumber } from "@/core/cases";
 import { requireOperational, type OperationalConfig } from "@/core/config";
+import { defaultPreferredContact } from "@/core/contact";
 import { billableWeekCount, orderPeriodEnd, type LocalDate } from "@/core/time";
 import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import type { Case, CaseSource, CaseStatus, CaseStatusHistory, Contract, OrderField, Person, PreferredContact, PriorAssessment } from "@/data/schema";
@@ -31,28 +32,36 @@ const MISSING_LABEL: Partial<Record<OrderField, string>> = {
 /** "a, b och c" */
 const joinSv = (xs: readonly string[]): string => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}`);
 
+/** Ett avtalsområde i ordererkännandets lista över yrkesområden (kod och namn ur contract_areas – inga personuppgifter). */
+export type AckArea = { code: string; name: string };
+
 /**
  * Ordererkännandets text (SPEC §7.1): ärendenummer och när besked kommer; saknas uppgifter i avropet listas de i samma svar
  * ("Vi saknar …, svara på det här mejlet"). Aldrig personuppgifter.
+ *   unclear  uppgifter som stod i mejlet men inte gick att tolka (parse.ts unclearFields): de "saknas" inte – texten säger att
+ *            de inte gick att tolka. Ett yrkesområde utanför avtalets lista får en egen mening (beslut 2026-10-09).
+ *   areas    avtalets aktiva avtalsområden: saknas yrkesområdet eller gick det inte att tolka listas namnen och bokstäverna, så
+ *            att handläggaren kan svara utan att leta i lathunden.
  */
-export function orderAckText(c: Pick<Case, "caseNumber" | "referredAt">, cfg: Pick<OperationalConfig, "sla">, missing: readonly OrderField[] = []): string {
-  const base = ackTextFor(c, cfg);
-  const labels = missing.map((k) => MISSING_LABEL[k]).filter((x): x is string => !!x);
-  return labels.length ? `${base} Vi saknar ${joinSv(labels)} – svara på det här mejlet med uppgifterna.` : base;
+export function orderAckText(
+  c: Pick<Case, "caseNumber" | "referredAt">, cfg: Pick<OperationalConfig, "sla">, missing: readonly OrderField[] = [],
+  opts: { unclear?: readonly OrderField[]; areas?: readonly AckArea[] } = {},
+): string {
+  const label = (k: OrderField) => MISSING_LABEL[k];
+  const unclear = missing.filter((k) => opts.unclear?.includes(k));
+  const absent = missing.filter((k) => !unclear.includes(k)).map(label).filter((x): x is string => !!x);
+  const unread = unclear.filter((k) => k !== "primaryArea").map(label).filter((x): x is string => !!x);
+  let text = ackTextFor(c, cfg);
+  if (absent.length) text += ` Vi saknar ${joinSv(absent)} – svara på det här mejlet med uppgifterna.`;
+  if (unread.length) text += ` Vi kunde inte tolka ${joinSv(unread)} – svara på det här mejlet och skriv uppgifterna igen.`;
+  if (unclear.includes("primaryArea")) text += " Vi kunde inte koppla yrkesområdet till avtalets lista. Svara med namnet eller bokstaven från listan.";
+  if (missing.includes("primaryArea") && opts.areas?.length) text += `\n\nYrkesområden i avtalet:\n${opts.areas.map((a) => `${a.code} ${a.name}`).join("\n")}`;
+  return text;
 }
 
 // ---------------------------------------------------------------- Kontaktvägen
-/**
- * Deltagarens kontaktväg när beställningen inte anger någon (beslut 2026-10-09: frågan "Hur vill deltagaren bli kontaktad?"
- * är borttagen ur beställningen): SMS när ett telefonnummer finns, annars e-post när en e-postadress finns, annars telefon
- * (Miljonbemanning kontaktar deltagaren på annat sätt). Kolumnen persons.preferred_contact får inte vara tom. Coachen ser
- * kontaktvägen på deltagarkortet.
- */
-export function defaultPreferredContact(p: { phone?: string | null; email?: string | null }): PreferredContact {
-  if ((p.phone ?? "").replace(/\D/g, "").length >= 8) return "sms";
-  if ((p.email ?? "").includes("@")) return "email";
-  return "phone";
-}
+// defaultPreferredContact finns i core/contact.ts (används också av skärmarna). Exporteras här som förut.
+export { defaultPreferredContact };
 
 // ---------------------------------------------------------------- Omfattningen
 /**
@@ -130,6 +139,8 @@ export type CreateOrderInput = {
   sourceEmailId?: string | null;
   /** Uppgifter som saknas i avropet – listas i ordererkännandet. */
   missingFields?: readonly OrderField[];
+  /** Av de saknade: uppgifter som stod i mejlet men inte gick att tolka (parse.ts unclearFields). */
+  unclearFields?: readonly OrderField[];
   /** Mottagningstiden (registrering i efterhand, eller mejlets tid). Standard: nu. */
   referredAt?: string | null;
 };
@@ -220,6 +231,10 @@ export async function createOrder(ctx: Ctx, p: CreateOrderInput): Promise<Create
 
   // Ordererkännandet: handläggarens konto, annars kontaktuppgiften i beställningen (handläggare utan konto). Inga personuppgifter.
   const to = await referrerEmail(ctx, c);
-  await ctx.notify({ channel: "email", to, template: "ordererkannande", body: orderAckText(c, cfg, missing), caseId: c.id });
+  // Saknas yrkesområdet listas avtalets aktiva avtalsområden i ordererkännandet (namn och bokstav – aldrig hårdkodade).
+  const areas = missing.includes("primaryArea")
+    ? (await ctx.repo.table("contract_areas").list({ contractId: contract.id, active: true })).sort((a, b) => a.code.localeCompare(b.code, "sv")).map((a) => ({ code: a.code, name: a.name }))
+    : [];
+  await ctx.notify({ channel: "email", to, template: "ordererkannande", body: orderAckText(c, cfg, missing, { unclear: p.unclearFields, areas }), caseId: c.id });
   return { ok: true, caseId: c.id, caseNumber, personId: person.id };
 }
