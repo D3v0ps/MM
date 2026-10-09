@@ -19,7 +19,7 @@ import { ALLOWED_PLACEHOLDERS, CHANNEL_LABEL, GENERIC_PORTAL, fillExample, templ
 import { KV } from "./parts";
 
 type MallTab = "mallar" | "logg";
-const CH_ICON: Record<string, "message" | "mail" | "file"> = { sms: "message", email: "mail", brev: "file", letter: "file" };
+const CH_ICON: Record<string, "message" | "mail" | "file" | "phone"> = { sms: "message", email: "mail", brev: "file", letter: "file", call: "phone" };
 const listSv = (xs: readonly string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}` : xs.join(""));
 
 /** Metadata med ikon (14 px) – i stället för ett märke (Min veckas stil: märken bara för status som kräver något). */
@@ -212,7 +212,8 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
             ["Avsändare", tpl.from],
             ["Mottagare", tpl.to],
             ["Skickas", tpl.when],
-            tpl.alsoVia.length > 0 && ["Kanal", `${listSv([tpl.channel, ...tpl.alsoVia].map((c) => CHANNEL_LABEL[c] ?? c))} – den kontaktväg deltagaren har valt`],
+            // Kallelsen och inbjudan går alla vägar som finns och är kopplade (beslut 2026-10-09); inspelningslänken den valda.
+            tpl.alsoVia.length > 0 && ["Kanal", `${listSv([tpl.channel, ...tpl.alsoVia].map((c) => CHANNEL_LABEL[c] ?? c))} – ${tpl.alsoVia.includes("call") ? "alla som finns och är kopplade" : "den kontaktväg deltagaren har valt"}`],
             ["Senast ändrad", `${fmtDate(tpl.updatedAt)}${tpl.updatedByName ? ` av ${tpl.updatedByName}` : ""}`],
           ]}
         />
@@ -383,6 +384,7 @@ function SendLogTab({ items }: { items: SendLogItem[] }) {
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     <Meta icon={SEND_STATUS_ICON[n.status] ?? "info"} className={n.status === "failed" ? "font-bold text-antracit [&_svg]:text-rod" : undefined}>
                       {outboundStatusLabel(n.status)}
+                      {n.reason ? ` – ${n.reason}` : ""}
                     </Meta>
                     {n.leak ? <Badge tone="red" icon="alert">Kan innehålla personuppgifter</Badge> : <Meta icon="check">Inga personuppgifter</Meta>}
                   </div>

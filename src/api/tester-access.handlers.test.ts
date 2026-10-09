@@ -42,7 +42,7 @@ const INTERNAL = /internt mål[: ]+\d|Internt mål \d|internt mål:/i;
 /** Nycklar som bara bär belopp, priser, viten eller interna mål. */
 const MONEY_KEYS = /"(price|priceOre|amountOre|totalOre|penaltyOre|penaltiesOre|valueOre|unitPriceOre|vatOre|costOre|internalTarget|penalties|prices|bonusOn|dataProtection|subprocessors|unbilled|docGoalMinutes|responseGoal)"/;
 /** Underbiträdena och deras regioner (underbiträdeslistan, regionlåsningen och integrationskorten). */
-const VENDORS = /Supabase|Vercel|Resend|resend\._domainkey|Vertex|Google|Gemini|eu-north-1|eu-west-1|arn1/;
+const VENDORS = /Supabase|Vercel|Resend|resend\._domainkey|Vertex|Google|Gemini|eu-north-1|eu-west-1|arn1|46elks|ELKS_/;
 
 function expectClean(json: string, label: string) {
   expect(json, `${label}: belopp i kronor`).not.toMatch(AMOUNT);
@@ -345,11 +345,11 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     const k = await any("admin.integrations", {}, as("u-robin", "admin", KARIM));
     const s = await any("admin.integrations", {}, as("u-robin", "admin", SARA_T));
     expect(k.dataProtection).toMatchObject({ approvedOn: "2026-09-29", thirdCountryForbidden: true, returnDataWithinDays: expect.any(Number) });
-    // Rättad lista: Resend är vald och väntar på kommunens godkännande. SMS-leverantören är inte vald.
+    // Rättad lista: Resend är vald och väntar på kommunens godkännande. 46elks (SMS och utringning) är vald (beslut 2026-10-09).
     expect(k.dataProtection.subprocessors.find((x: { id: string }) => x.id === "epost")).toEqual({
       id: "epost", name: "Resend (e-post)", what: "Notiser och inloggningskoder från notis@miljonmatch.se", where: "EU (Irland, eu-west-1)", status: "chosen", us: true,
     });
-    expect(k.dataProtection.subprocessors.find((x: { id: string }) => x.id === "sms").status).toBe("not_chosen");
+    expect(k.dataProtection.subprocessors.find((x: { id: string }) => x.id === "sms")).toMatchObject({ name: "46elks (SMS och utringning)", status: "chosen" });
     expect("dataProtection" in s).toBe(false);
     expect(k.dataProtection.regions).toHaveLength(5);
     // Integrationskorten och nyckeltalet "Data lagras i": leverantörerna och regionerna finns bara hos Karim.
@@ -363,6 +363,10 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect(labels(s, "email")).toEqual(["Avsändare"]);
     expect(labels(k, "ai")).toEqual(["Vald", "I test", "Aldrig", "Anrop"]);
     expect(labels(s, "ai")).toEqual(["Aldrig", "Anrop"]);
+    // SMS och utringning: begränsade testare ser läget och innehållsregeln – inte leverantören eller variablerna.
+    expect(labels(k, "sms")).toEqual(["Status", "Saknas i Vercel", "Innehåll", "Avsändare", "Godkännande", "Anvisning"]);
+    expect(labels(s, "sms")).toEqual(["Status", "Innehåll"]);
+    expect(labels(s, "call")).toEqual(["Status", "Meddelande", "När"]);
     expect(s.jobs.map((j: { key: string }) => j.key)).toEqual(k.jobs.map((j: { key: string }) => j.key));
     expect(s.jobs.length).toBe(8);
     expect([s.aiRunCount, s.latestMail, s.inboxReadAt]).toEqual([k.aiRunCount, k.latestMail, k.inboxReadAt]);

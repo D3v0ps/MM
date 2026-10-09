@@ -4,6 +4,7 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery } from "@/api/server";
+import { outboundReasonLabel } from "@/core/labels";
 import { by } from "@/core/util";
 import { adminSaveTemplate, adminTemplates, type SendLogItem, type TemplateView } from "./api";
 import { isDemoCreated, mainContract, orgRow, userNames } from "./shared";
@@ -50,7 +51,7 @@ handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
     .map((n) => ({
       id: n.id, at: n.createdAt, channel: n.channel, to: n.to, templateLabel: templateLabel(templateKeyOf(n)), caseNumber: n.caseId ? (caseNo.get(n.caseId) ?? null) : null,
-      body: n.body, byTester: isDemoCreated(n.id), leak: leak(n.body), status: n.status,
+      body: n.body, byTester: isDemoCreated(n.id), leak: leak(n.body), status: n.status, reason: outboundReasonLabel(n.statusReason),
     }));
   return { canEdit: TEMPLATE_EDITORS.includes(ctx.actor.role), templates, sendLog };
 });
