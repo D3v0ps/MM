@@ -6,7 +6,7 @@ import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
-import { addDays, dayOf, isoWeek, monthKey } from "@/core/time";
+import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
 import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDraft, Deviation, IntakeAssessment, MonthlyAssessment, TranscriptLine } from "@/data/schema";
@@ -180,6 +180,18 @@ handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- checkin.save
+/**
+ * Mötets tidpunkt när formuläret bara har dagen (coachmötet 2026-10-09 – ingen starttid att fylla i): samma som det sparade
+ * utkastet om dagen är densamma (autosparningen flyttar aldrig tiden), annars det planerade mötets klockslag den dagen
+ * (coachträffen i kalendern), annars klockslaget när rapporten sparas.
+ */
+async function heldAtFor(ctx: Ctx, caseId: string, day: LocalDate, existing: CheckIn | null): Promise<LocalDateTime> {
+  if (existing && dayOf(existing.heldAt) === day) return existing.heldAt;
+  const planned = await ctx.repo.table("activities").first({ caseId, kind: "möte", startsAt: { gte: `${day}T00:00`, lte: `${day}T23:59` } }, { orderBy: "startsAt" });
+  if (planned) return planned.startsAt;
+  return `${day}T${timeOf(ctx.now())}`;
+}
+
 handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
   if (p.autosave && p.approve) return fail("invalid", AUTOSAVE_APPROVE);
   const c = await ctx.repo.table("cases").get(p.caseId);
@@ -218,9 +230,12 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
     run = await ctx.repo.table("ai_runs").get(aiRunId);
   }
 
-  const { aiRunId: _ignored, ...fields } = d;
+  const { aiRunId: _ignored, heldOn, ...fields } = d;
   void _ignored;
-  const ci: CheckIn = { ...(existing ?? newCheckIn({ id: ctx.newId("ci"), caseId: c.id, heldAt: d.heldAt || now })), ...defined(fields), ai, aiRunId, version: existing ? existing.version + 1 : 1 };
+  const heldAt = fields.heldAt ?? (heldOn ? await heldAtFor(ctx, c.id, heldOn, existing) : undefined);
+  const ci: CheckIn = {
+    ...(existing ?? newCheckIn({ id: ctx.newId("ci"), caseId: c.id, heldAt: heldAt || now })), ...defined({ ...fields, heldAt }), ai, aiRunId, version: existing ? existing.version + 1 : 1,
+  };
   if (p.approve) {
     ci.status = "approved";
     ci.approvedBy = ctx.actor.userId;

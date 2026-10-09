@@ -77,6 +77,12 @@ export type SavedInfo = { savedAt: LocalDateTime; version: number };
 /** Fälten i en avstämning som coachen fyller i. AI-utkastet (ai) hämtas av hanteraren från AI-körningen (aiRunId) – skicka det inte. */
 export const CheckInDataSchema = z.object({
   heldAt: LocalDateTimeSchema.optional(),
+  /**
+   * Mötets dag utan klockslag (coachmötet 2026-10-09: "tiden är onödig att fylla i"). Servern sätter tiden: samma som det sparade
+   * utkastet om dagen är densamma, annars det planerade mötets klockslag den dagen (coachträffen i kalendern), annars klockslaget
+   * när rapporten sparas. heldAt (äldre anropare) går före.
+   */
+  heldOn: LocalDateSchema.optional(),
   durationMin: z.number().int().min(0).max(600).nullable().optional(),
   mode: z.enum(CHECK_IN_MODES).nullable().optional(),
   inputMethod: z.enum(INPUT_METHODS).optional(),
