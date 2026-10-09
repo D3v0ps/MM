@@ -9,7 +9,7 @@ import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state"
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
-  Badge, Button, Card, CaseStatusBadge, Check, DemoNote, Empty, ErrorNotice, Field, Input, Kpi, Loading, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Status, cn,
+  Badge, Button, Card, CaseStatusBadge, Check, Empty, ErrorNotice, Field, Input, Kpi, Loading, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Status, cn,
 } from "@/ui";
 import { CASE_LIST_SCOPES, caseList, type CaseListModel, type CaseListRow } from "../api";
 import { AttCell, fd, FlagBadges, pct0 } from "./common";
@@ -158,8 +158,8 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       <Card title="Sök och filtrera" icon="filter">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-end gap-x-4 gap-y-3">
           <div className="col-span-full">
-            <Field label="Sök" id="arn-q" help="Ärendenummer eller namn. Det räcker med en del av numret, till exempel 0143.">
-              <Input type="search" value={q} onValueChange={search} placeholder="BOT-26-0143 eller namn" />
+            <Field label="Sök" id="arn-q" help="Namn eller en del av ärendenumret.">
+              <Input type="search" value={q} onValueChange={search} />
             </Field>
           </div>
           <div className="col-span-full hidden max-[620px]:flex max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:gap-2">
@@ -292,13 +292,6 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
           </>
         )}
       </Card>
-      <DemoNote>
-        Listan visar påhittade testdata. Senaste status är den samlade statusen i senaste godkända mötesrapport.{" "}
-        {role === "coach" || role === "handledare"
-          ? "Flaggorna är de som gäller för din roll."
-          : "Flaggorna är de som gäller för din roll – coacher och handledare ser aldrig eskaleringar till chef."}
-        {!readOnly ? " Olästa meddelanden från kommunen markeras i listan." : ""}
-      </DemoNote>
     </Page>
   );
 }

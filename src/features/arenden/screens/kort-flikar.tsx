@@ -6,7 +6,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import { useSession } from "@/shell/session";
 import { dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, fmtWeekKey, fmtWeekRange, relative } from "@/core/time";
-import { AiTag, Badge, Button, Card, DemoNote, Empty, Grid, Icon, Kpi, Kv, List, ListItem, Meter, Notice, SlaBadge, Spacer, Stack, Status, toast, useConfirm, type Column } from "@/ui";
+import { AiTag, Badge, Button, Card, Empty, Grid, Icon, Kpi, Kv, List, ListItem, Meter, Notice, SlaBadge, Spacer, Stack, Status, toast, useConfirm, type Column } from "@/ui";
 import { activityRemove, caseAttendance, caseCheckIns, caseIntake, caseOverview, type CaseAttendance, type CaseAttendanceWeek, type CaseCheckInRow } from "../api";
 import {
   ActList, AttBadge, actIcon, actLabel, canOpen, cap, caseLink, clip, fd, FourBadges, GOAL, KpiRow, LiMain, LiSide, LiSub, LiTitle, MItem, MODE, NavTable, pct0, plural, RespTable, SEV,
@@ -492,10 +492,6 @@ export function TabNarvaro({ card, setTab, openModal }: TabProps) {
               />
             </Card>
             <UpcomingList rows={a.upcoming} canEdit={canEditActivities} />
-            <DemoNote>
-              Närvarograd = närvarande och sena tillfällen delat med registrerade tillfällen. Pausade veckor debiteras inte. Veckorapporten till kommunen publiceras automatiskt när all
-              närvaro är registrerad.
-            </DemoNote>
           </Stack>
         );
       }}

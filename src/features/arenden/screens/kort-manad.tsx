@@ -52,7 +52,7 @@ function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTa
         </Notice>
       )}
       {options.length > 0 && (
-        <Field label="Månad" id="manad-val" help="Välj vilken månad du vill se underlaget för.">
+        <Field label="Månad" id="manad-val">
           <Select value={b.month} onValueChange={onMonth} options={options} className="max-w-[360px]" />
         </Field>
       )}
@@ -79,7 +79,7 @@ function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTa
       ) : (
         <>
           <div className="rounded-mb bg-bla px-4 py-3 text-antracit">
-            Det här är samma innehåll som kommer i månadsrapporten till kommunen. Bara godkända uppgifter kommer med.
+            Underlaget till månadsrapporten. Bara godkända uppgifter kommer med.
           </div>
           {b.gaps && <Gaps g={b.gaps} b={b} card={card} setTab={setTab} />}
           <div>

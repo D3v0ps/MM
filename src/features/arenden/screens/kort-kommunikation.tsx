@@ -29,7 +29,7 @@ export function TabRapporter({ card }: TabProps) {
       <>
         <Badge tone={t[0]} icon={t[1]}>{r.statusLabel}</Badge>
         {r.correctionVersion != null && (
-          <div className="text-text-muted">Rättelse pågår (version {r.correctionVersion}). Kommunen ser den här versionen tills rättelsen levereras.</div>
+          <div className="text-text-muted">Rättelse pågår (version {r.correctionVersion}).</div>
         )}
       </>
     );
@@ -77,10 +77,6 @@ export function TabRapporter({ card }: TabProps) {
     <TabQuery q={q}>
       {({ reports }) => (
         <Stack>
-          <p className="max-w-[75ch] text-text-muted">
-            Rapporter byggs bara av godkända uppgifter – godkända mötesrapporter och bedömningar. Kommunen ser levererade rapporter i portalen. Mejlet till kommunen innehåller bara
-            ärendenumret.
-          </p>
           <Card flush title={`Rapporter för ${card.caseNumber}`} icon="file" actions={<CustSwitch card={card} tab="rapporter" label={(who) => `Så ser ${who} rapporterna`} />}>
             <NavTable
               columns={cols}
@@ -188,7 +184,7 @@ export function TabMeddelanden({ card }: TabProps) {
                     label="Nytt meddelande"
                     id="arn-msg-body"
                     error={err}
-                    help={`Skriv sakligt och använd ärendenumret i stället för personnummer. ${k ? k.name : "Handläggaren"} får ett mejl utan innehåll med en uppmaning att logga in.`}
+                    help="Skriv sakligt. Använd ärendenumret, inte personnummer."
                   >
                     <TextArea
                       value={body}

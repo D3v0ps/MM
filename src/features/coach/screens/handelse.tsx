@@ -210,8 +210,8 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
       crumbs={caseCrumbs(c, mode === "close" ? "Avsluta insatsen" : "Händelser")}
       lead={
         mode === "close"
-          ? "Avslutsorsak och resultat väljer du själv. Arbete och studier räknas som resultat först när verifiering finns."
-          : "Registrera det som hänt i insatsen. Händelserna syns i månadsrapporten och slutrapporten."
+          ? "Arbete och studier räknas som resultat först när verifiering finns."
+          : "Registrera det som hänt i insatsen."
       }
     >
       <Card>
@@ -342,11 +342,11 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
         <Split wide>
           <Card title="Ny händelse" icon="plus">
             <Stack>
-              <Field label="Typ av händelse" id="ev-kind" required error={evErr.kind} help="Välj den händelse som stämmer bäst.">
+              <Field label="Typ av händelse" id="ev-kind" required error={evErr.kind}>
                 <Seg id="ev-kind" ariaLabel="Typ av händelse" value={ev.kind} onValueChange={(x) => setE("kind", x)} options={v.eventKinds} />
               </Field>
               <FormGrid>
-                <Field label="Datum" id="ev-date" required error={evErr.occurredOn} help="När det hände.">
+                <Field label="Datum" id="ev-date" required error={evErr.occurredOn}>
                   <DateInput value={ev.occurredOn} onValueChange={(x) => setE("occurredOn", x)} />
                 </Field>
                 <Field label="Aktör" id="ev-actor" required error={evErr.actor} help="Arbetsgivare, skola eller annan aktör.">
@@ -367,7 +367,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                       {ev.file}
                     </Badge>
                   )}
-                  <span className="text-body text-text-muted">{demo ? "Simulerad – ingen fil laddas upp i prototypen." : "Uppladdning av filer kommer senare. Här sparas att underlaget finns."}</span>
+                  <span className="text-body text-text-muted">{demo ? "Simulerad – ingen fil laddas upp i prototypen." : "Här sparas att underlaget finns."}</span>
                 </Row>
               )}
               <Field label="Kommentar" id="ev-note" help="Kort och saklig. Till exempel omfattning eller startdatum.">
@@ -394,7 +394,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               <Field label="Avslutsdatum" id="cl-date" required error={clErr.endDate} help="Sista dagen i insatsen.">
                 <DateInput value={cl.endDate} onValueChange={(x) => setC({ endDate: x })} />
               </Field>
-              <Field label="Avslutsorsak" id="cl-reason" required error={clErr.endReason} help="Tom tills du väljer.">
+              <Field label="Avslutsorsak" id="cl-reason" required error={clErr.endReason}>
                 <Seg id="cl-reason" ariaLabel="Avslutsorsak" value={cl.endReason} onValueChange={(x) => setC({ endReason: x })} options={v.endReasons} />
               </Field>
               {needsVer && (
@@ -446,7 +446,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
               )}
               <p className="mt-2.5 text-body text-text-muted"><ProtoText>{v.result.definitionText}</ProtoText></p>
             </Card>
-            <Card title="Det här händer vid avslut" icon="info">
+            <Card title="Vid avslut" icon="info">
               <ul className="m-0 flex list-disc flex-col gap-2 pl-5">
                 <li>Ett utkast till slutrapport skapas ({v.finalProvisional ? `förslag, ej fastställt: klar inom ${v.finalDays} arbetsdagar` : `klar inom ${v.finalDays} arbetsdagar`}).</li>
                 <li>En pulsmätning skickas till deltagaren via SMS eller e-post, utan personuppgifter.</li>

@@ -573,7 +573,7 @@ function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: (
         </Row>
         {open && (
           <Stack gap="sm" className="mt-1.5">
-            <Field label="Kort åtgärd" id={id} help="Skriv vad du gör åt flaggan. Kvitteringen loggas.">
+            <Field label="Kort åtgärd" id={id} help="Skriv vad du gör åt flaggan.">
               <Input value={plan} onValueChange={setPlan} maxLength={160} />
             </Field>
             <Row gap="sm">

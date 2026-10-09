@@ -10,7 +10,7 @@ import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosa
 import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
-import { AutosaveStatus, Badge, Button, Card, DemoNote, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
+import { AutosaveStatus, Badge, Button, Card, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
 import { intakePage, intakeSave, type IntakePage } from "../api";
 import { CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, useCaseView } from "./shared";
 
@@ -231,10 +231,10 @@ function IntakeForm({ v }: { v: Ok }) {
           <Field label="Språk" id="ia-lang" required={req} error={errors.languageNotes} help="Modersmål och hur väl deltagaren förstår och talar svenska i arbetet.">
             <Input value={f.languageNotes} onValueChange={(x) => set("languageNotes", x)} maxLength={200} />
           </Field>
-          <Field full label="Digital vana" id="ia-dig" required={req} error={errors.digitalSkills} help="Välj det som stämmer bäst.">
+          <Field full label="Digital vana" id="ia-dig" required={req} error={errors.digitalSkills}>
             <Seg id="ia-dig" ariaLabel="Digital vana" value={f.digitalSkills} onValueChange={(x) => set("digitalSkills", x)} options={withValue(DIGITAL, f.digitalSkills)} />
           </Field>
-          <Field full label="Körkort" id="ia-lic" required={req} error={errors.drivingLicence} help="Behörighet som är relevant för arbete.">
+          <Field full label="Körkort" id="ia-lic" required={req} error={errors.drivingLicence}>
             <Seg id="ia-lic" ariaLabel="Körkort" value={f.drivingLicence} onValueChange={(x) => set("drivingLicence", x)} options={withValue(LICENCE, f.drivingLicence)} />
           </Field>
         </FormGrid>
@@ -250,7 +250,7 @@ function IntakeForm({ v }: { v: Ok }) {
             id="ia-track"
             required={req}
             error={errors.chosenTrack}
-            help={`Spår inom ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""}. Spåret sparas på ärendet när du godkänner.`}
+            help={`Spår inom ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""}.`}
           >
             {allTracks ? (
               <Select value={f.chosenTrack} placeholder="Välj yrkesspår" onValueChange={(x) => set("chosenTrack", x)} options={v.tracks.all} />
@@ -300,10 +300,6 @@ function IntakeForm({ v }: { v: Ok }) {
         )}
         {!approved && <AutosaveStatus state={autosave.state} savedAt={autosave.savedAt} invalidText={autosave.invalidText} />}
       </Row>
-      <DemoNote>
-        I tjänsten används kartläggningen som underlag för CV, matchning mot arbetsgivare och validering av reell kompetens. Kommunen ser den i månadsrapporten, inte som egen
-        handling.
-      </DemoNote>
     </Page>
   );
 }

@@ -388,7 +388,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
         </>
       }
     >
-      <Field label="Vad gäller anteckningen?" id="note-kind" required help="Välj det som passar bäst." error={err.kind}>
+      <Field label="Vad gäller anteckningen?" id="note-kind" required error={err.kind}>
         <Select
           value={kind}
           placeholder="Välj"
@@ -399,7 +399,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
           options={CASE_NOTE_KINDS.map((k) => ({ value: k, label: CASE_NOTE_KIND_LABEL[k] }))}
         />
       </Field>
-      <Field label="Datum" id="note-date" required help="Dagen det hände." error={err.date}>
+      <Field label="Datum" id="note-date" required error={err.date}>
         <DateInput
           value={date}
           max={today}
@@ -444,12 +444,11 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
       )}
       {team ? (
         <Notice tone="info" icon="users" title="Vem ser anteckningen?">
-          Hela teamet ser anteckningen, liksom huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör. Kommunen ser aldrig anteckningar.
+          Teamet, huvudcoachen, samordnaren, avtalsansvarig och chef.
         </Notice>
       ) : (
         <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
           <legend className="mb-0.5 p-0 text-ui font-bold">Vem ser anteckningen?</legend>
-          <div id="note-audience-help" className="text-small leading-[1.45] text-text-muted">Kommunen ser aldrig anteckningar.</div>
           {(["full", "team"] as const).map((a) => (
             <label
               key={a}
@@ -462,7 +461,6 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
                 id={`note-audience-${a}`}
                 value={a}
                 checked={audience === a}
-                aria-describedby="note-audience-help"
                 onChange={() => setAudience(a)}
                 className="m-0 size-5 flex-none accent-antracit"
               />
