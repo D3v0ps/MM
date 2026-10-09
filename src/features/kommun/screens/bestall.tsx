@@ -327,7 +327,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
           <Field id="kom-o-phone" label="Ditt telefonnummer" required error={E("contactPhone")} help="Hit ringer vi om vi har frågor om beställningen.">
             <Input type="tel" value={f.contactPhone} onValueChange={set("contactPhone")} autoComplete="tel" />
           </Field>
-          <Field id="kom-o-email" label="Din e-postadress" required error={E("contactEmail")} help="Hit skickar vi ordererkännandet. Mejlet innehåller bara ärendenumret.">
+          <Field id="kom-o-email" label="Din e-postadress" required error={E("contactEmail")} help="Hit skickar vi ordererkännandet.">
             <Input type="email" value={f.contactEmail} onValueChange={set("contactEmail")} autoComplete="email" />
           </Field>
         </FormGrid>
@@ -401,7 +401,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
             label="Deltagarens telefonnummer"
             required={f.preferredContact === "sms" || f.preferredContact === "phone"}
             error={E("phone")}
-            help="För kallelse och påminnelser. SMS:en innehåller aldrig personuppgifter."
+            help="För kallelse och påminnelser."
           >
             <Input type="tel" value={f.phone} onValueChange={set("phone")} />
           </Field>
@@ -429,7 +429,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
         <Field id="kom-o-prior" label="Har en kartläggning genomförts?" required error={E("priorAssessment")} help="Till exempel en kartläggning hos kommunen eller Arbetsförmedlingen. Bifoga den gärna nedan.">
           <Seg id="kom-o-prior" ariaLabel="Har en kartläggning genomförts?" value={f.priorAssessment} onValueChange={(v) => set("priorAssessment")(v)} options={PRIOR} />
         </Field>
-        <Field id="kom-o-files" label="Bifoga fil" error={E("attachments")} help="Till exempel kartläggningen. Filerna sparas säkert och syns bara för dig och dem som arbetar med deltagaren hos Miljonbemanning.">
+        <Field id="kom-o-files" label="Bifoga fil" error={E("attachments")} help="Till exempel kartläggningen.">
           <AttachmentPicker
             id="kom-o-files"
             caseId={null}
@@ -499,9 +499,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
             {f.attachments.length > 0 && <AttachmentList rows={f.attachments} />}
           </Stack>
         </Card>
-        <Notice tone="info" title="Det här händer när du skickar">
-          Beställningen får ett ärendenummer direkt. Du ser ordererkännandet här på skärmen och får det i ett mejl. Mejlet innehåller bara ärendenumret – inga
-          personuppgifter. Ärendenumret är beställningens nummer. Senast {fDTL(m.answerDue)} får du besked om startdatum och coach.
+        <Notice tone="info" title="När du skickar">
+          Beställningen får ett ärendenummer och du får ordererkännandet här och i ett mejl. Senast {fDTL(m.answerDue)} får du besked om startdatum och coach.
         </Notice>
       </Stack>
     );

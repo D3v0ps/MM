@@ -2,7 +2,7 @@
 // Förfaller i dag och denna vecka (/forfaller) – port av prototypens vy sam.deadlines (SPEC §7.13).
 import { Fragment, useState } from "react";
 import { useQuery } from "@/shell/backend";
-import { Badge, Card, CaseLink, CellSub, DemoNote, Empty, ErrorNotice, Grid, Icon, Kpi, Loading, Notice, Page, PerspectiveLink, Seg, SlaBadge, Table, TitleLink, type Column } from "@/ui";
+import { Badge, Card, CaseLink, CellSub, Empty, ErrorNotice, Grid, Icon, Kpi, Loading, Notice, Page, PerspectiveLink, Seg, SlaBadge, Table, TitleLink, type Column } from "@/ui";
 import { inboxDeadlines, type DeadlinesView } from "../api";
 import { DL_KIND, dlDesc, groupDeadlines, kindLabel, type DeadlineGroupRow, type DeadlineKindKey } from "../texts";
 import { Caps, ProvBadge } from "./parts";
@@ -13,14 +13,10 @@ export function ForfallerScreen() {
     <Page
       title="Förfaller i dag och denna vecka"
       eyebrow={q.data?.eyebrow}
-      lead="Allt som förfaller inom 7 dagar enligt avtalets SLA-regler, räknat i arbetsdagar med svenska helgdagar. Det som passerat sista dag markeras och eskaleras: coach → samordnare → chef."
+      lead="Allt som förfaller inom 7 dagar, räknat i arbetsdagar."
       actions={<PerspectiveLink role="kommun_handlaggare" to="/portal/rapporter" label="Se vad kommunen får levererat" />}
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : <Deadlines v={q.data} />}
-      <DemoNote>
-        Förfallotiderna räknas fram av SLA-reglerna och demoklockan. I tjänsten sparas de som rader med förfallotid och tidpunkt för leverans, så att ni kan visa vad som
-        levererades och när om kommunen skulle hävda en avvikelse.
-      </DemoNote>
     </Page>
   );
 }
@@ -116,9 +112,6 @@ function Deadlines({ v }: { v: DeadlinesView }) {
     { value: "alla" as const, label: `Alla (${all.length})` },
     ...(Object.keys(DL_KIND) as DeadlineKindKey[]).filter((k) => counts.get(k)).map((k) => ({ value: k, label: `${kindLabel(k)} (${counts.get(k)})` })),
   ];
-  const customerNote = (
-    <Notice tone="info" icon="eye-off" title="Kommunen ser inte den här listan">Avtalskonfigurationen visar inte SLA-statistik för kommunen. Kommunen ser det som levereras i portalen.</Notice>
-  );
   // Inget förfaller inom sju dagar (till exempel tom databas): en ruta i stället för fyra nollor och tre tomma tabeller.
   if (all.length === 0) {
     return (
@@ -128,7 +121,6 @@ function Deadlines({ v }: { v: DeadlinesView }) {
             Svar på avrop, första möten, veckorapporter och månadsrapporter dyker upp här sju dagar innan sista dag.
           </Empty>
         </Card>
-        {customerNote}
       </>
     );
   }
@@ -161,7 +153,6 @@ function Deadlines({ v }: { v: DeadlinesView }) {
           Förfallotiderna bygger på förslag i avtalskonfigurationen tills Botkyrka bekräftat: {v.unsetText}.
         </Notice>
       )}
-      {customerNote}
     </>
   );
 }

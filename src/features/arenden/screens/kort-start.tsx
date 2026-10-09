@@ -158,7 +158,7 @@ export function StartModal({ card: c, mode, onClose }: { card: CaseCard; mode: "
         />
         {mode === "start" ? (
           <>
-            <Field id="arn-start-date" label="Startdatum" required error={tried ? err.date : null} help="Första mötets dag om inget annat gäller. Insatsen kan inte starta före första mötet. Från det här datumet räknas veckorna.">
+            <Field id="arn-start-date" label="Startdatum" required error={tried ? err.date : null} help="Tidigast första mötets dag. Veckorna räknas från det här datumet.">
               <DateInput value={startDate} onValueChange={(v) => { setStartDate(v); setErr({ ...err, date: null }); }} />
             </Field>
             {startDate && !isWorkingDay(startDate) && (
@@ -316,7 +316,7 @@ export function TeamModal({ card: c, onClose }: { card: CaseCard; onClose: () =>
           )}
         </fieldset>
         <FormGrid>
-          <Field id="arn-team-matcher" label="Arbetsgivarmatchare (valfritt)" help="Vem som helst av Miljonbemannings personal utom ekonom och systemadministratör.">
+          <Field id="arn-team-matcher" label="Arbetsgivarmatchare (valfritt)">
             <Select value={matcher} onValueChange={(v) => { setMatcher(v); setErr(null); }} placeholder="Ingen" options={staffOptions([counselor])} />
           </Field>
           <Field id="arn-team-counselor" label="SYV/metodstöd (valfritt)">

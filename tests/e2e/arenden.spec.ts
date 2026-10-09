@@ -540,7 +540,6 @@ test("19. anteckningen stoppas om texten liknar ett personnummer", async ({ page
   await d.locator("#note-body").fill("Ring deltagaren, 850101-1234, om tiden.");
   await btn(d, "Spara anteckningen").click();
   await expect(d).toContainText("Det ser ut som ett personnummer i texten. Ta bort det – ärendenumret räcker.");
-  await expect(d).toContainText("Kommunen ser aldrig anteckningar.");
   expect(errors).toEqual([]);
 });
 
@@ -565,7 +564,7 @@ test("20. handledaren ser hela tidslinjen med båda anteckningarna och avstämni
 test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas innan rapporten kan godkännas", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=manad`, AMIRA);
   await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
-  await expect(main(page)).toContainText("Det här är samma innehåll som kommer i månadsrapporten till kommunen. Bara godkända uppgifter kommer med.");
+  await expect(main(page)).toContainText("Underlaget till månadsrapporten. Bara godkända uppgifter kommer med.");
   await expect(main(page)).toContainText("Innan rapporten kan godkännas");
   // Antalet godkända avstämningar under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
   await expect(main(page)).toContainText("4 veckoavstämningar är godkända.");

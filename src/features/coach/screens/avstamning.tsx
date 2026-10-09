@@ -509,7 +509,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
       if (!form.goalStatus) e.goalStatus = "Välj om veckomålet är uppnått.";
       if (!form.nextGoal.trim()) e.nextGoal = "Skriv ett nytt veckomål.";
       if (form.ecCount == null) e.ec = "Välj antal arbetsgivarkontakter.";
-      if (!form.overallStatus) e.overallStatus = "Välj samlad status. Den väljer du själv – AI föreslår den aldrig.";
+      if (!form.overallStatus) e.overallStatus = "Välj samlad status.";
       if (pendingAi.length) e.ai = `Ta ställning till alla AI-förslag innan du godkänner: ${pendingAi.map((f) => FIELD_LABEL[f].toLowerCase()).join(", ")}.`;
     }
     if (form.overallStatus === "red") {
@@ -679,7 +679,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
     <Page
       title={TITLE}
       eyebrow={`${c.name} · ${c.caseNumber}`}
-      lead="Spela in mötet medan ni pratar. När du stoppar skriver AI:n ett utkast till mötesrapport som du granskar och godkänner. Förifyllt från kalendern och närvaron – välj med knapparna, det enda du skriver är anteckningen."
+      lead="Spela in mötet eller fyll i mötesrapporten själv. Datum, närvaro och förra veckans mål är förifyllda."
       crumbs={caseCrumbs(c, TITLE)}
     >
       <Card>
@@ -802,25 +802,24 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
       <Card title="Mötesrapporten" icon="clipboard">
         {sugg && method === "ai" && (
           <div className="mb-4">
-            <Notice tone="info" title="AI-förslag – du bedömer">
-              Varje förslag visas med belägg{source === "notes" ? " (meningen i dina anteckningar)" : " (citat och tidpunkt)"}. Acceptera, ändra eller avvisa. Det som inte framgår av
-              underlaget visas som <b>Framgår inte</b> och fyller du i själv. <b>Samlad status föreslås aldrig</b> – den väljer du själv.
+            <Notice tone="info" title="Förslag från AI">
+              Acceptera, ändra eller avvisa varje förslag. Det som inte framgår av underlaget visas som <b>Framgår inte</b>.
             </Notice>
           </div>
         )}
         <div>
           <Section n="1" title="Datum, längd och sätt" ok={!!form.date} extra={<span className="text-small font-medium text-text-muted">Förifyllt från kalendern</span>}>
             <FormGrid>
-              <Field label="Datum" id="ci-date" help="Dagen för mötet.">
+              <Field label="Datum" id="ci-date">
                 <DateInput value={form.date} onValueChange={(x) => setF("date", x)} />
               </Field>
-              <Field label="Starttid" id="ci-time" help="När mötet började.">
+              <Field label="Starttid" id="ci-time">
                 <TimeInput value={form.time} onValueChange={(x) => setF("time", x)} />
               </Field>
-              <Field label="Längd" id="ci-dur" help="Ungefärlig längd på samtalet.">
+              <Field label="Längd" id="ci-dur">
                 <Seg id="ci-dur" ariaLabel="Längd" value={form.durationMin} onValueChange={(x) => setF("durationMin", x)} options={["30", "45", "60", "90"].map((x) => ({ value: x, label: `${x} min` }))} />
               </Field>
-              <Field label="Sätt" id="ci-mode" help="Hur ni träffades.">
+              <Field label="Sätt" id="ci-mode">
                 <Seg id="ci-mode" ariaLabel="Sätt" value={form.mode} onValueChange={(x) => setF("mode", x)} options={MODE_OPTIONS} />
               </Field>
             </FormGrid>
@@ -843,7 +842,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
           <Section n="3" title="Fas" ok={!!form.phase}>
             {pair(
               "phase",
-              <Field label="Fas" id="ci-phase" required help={`Ärendet är i fas ${c.phase} sedan ${fmtDate(v.phaseSince)}. Byte registreras när du godkänner.`}>
+              <Field label="Fas" id="ci-phase" required help={`Ärendet är i fas ${c.phase} sedan ${fmtDate(v.phaseSince)}.`}>
                 <Seg id="ci-phase" ariaLabel="Fas" value={form.phase} onValueChange={(x) => setF("phase", x)} options={v.phases.map((p) => ({ value: String(p.no), label: `${p.no} ${p.name}` }))} />
               </Field>,
             )}
@@ -942,7 +941,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
                     <TextArea rows={2} value={dev.action} onValueChange={(x) => setDev({ ...dev, action: x })} maxLength={300} />
                   </Field>
                   <FormGrid>
-                    <Field label="Ansvarig" id="dev-owner" required error={shown.devOwner} help="Den som ser till att åtgärden blir gjord.">
+                    <Field label="Ansvarig" id="dev-owner" required error={shown.devOwner}>
                       <Select value={dev.ownerId} placeholder="Välj ansvarig" onValueChange={(x) => setDev({ ...dev, ownerId: x })} options={v.owners.map((o) => ({ value: o.id, label: o.name }))} />
                     </Field>
                     <Field label="Uppföljningsdatum" id="dev-follow" required error={shown.devFollow} help="Förslag: om en vecka.">
@@ -978,7 +977,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
           <Section n="8" title="Hinder" ok>
             {pair(
               "obstacles",
-              <Field label="Hinder" id="ci-obst" help="Funktionella kategorier. Välj inga om inget hindrar.">
+              <Field label="Hinder" id="ci-obst" help="Välj inga om inget hindrar.">
                 <Seg id="ci-obst" multi ariaLabel="Hinder" value={form.obstacles} onValueChange={(x) => setF("obstacles", x)} options={v.options.obstacles} />
               </Field>,
             )}
@@ -990,7 +989,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
               <Field
                 label="Anteckning"
                 id="ci-note"
-                help={`Kort och saklig. Inga diagnoser eller omdömen om personen. ${v.seesCoachNotes ? "Kommunen kan läsa anteckningen." : "Kommunen ser inte anteckningen."}`}
+                help="Kort och saklig. Inga diagnoser eller omdömen om personen."
               >
                 <TextArea rows={3} value={form.note} onValueChange={(x) => setF("note", x)} maxLength={500} />
               </Field>,
@@ -1235,7 +1234,7 @@ function ConsentPanel({
         <p>Ljudet raderas direkt när det har skrivits ut. Texten raderas när din coach har godkänt anteckningarna.</p>
         <p>Det är frivilligt. Du kan säga nej eller ändra dig när du vill. Ett nej påverkar inte ditt stöd.</p>
       </div>
-      <Field label="Språk för informationen" id="cons-lang" help="Översättning finns på de vanligaste språken.">
+      <Field label="Språk för informationen" id="cons-lang">
         <Seg id="cons-lang" ariaLabel="Språk för informationen" value={lang} onValueChange={setLang} options={CONSENT_LANGS.map((x) => ({ value: x, label: cap(x) }))} />
       </Field>
       <Check id="cons-informed" checked={informed} onCheckedChange={setInformed}>
@@ -1292,7 +1291,7 @@ function AiCapture({
   if (recording.block === "ai_off") {
     return (
       <Notice tone="warn" title="Tal till text är inte kopplat ännu">
-        {recording.blockText ?? AI_OFF_TEXT} Fyll i formuläret manuellt – det är fullt likvärdigt.
+        {recording.blockText ?? AI_OFF_TEXT}
       </Notice>
     );
   }
@@ -1304,7 +1303,7 @@ function AiCapture({
     ) : null;
   return (
     <Stack>
-      <Field label="Källa" id="ai-src" help="AI fyller samma formulär som den manuella vägen.">
+      <Field label="Källa" id="ai-src">
         <Seg<AiSource>
           id="ai-src"
           ariaLabel="Källa"
@@ -1585,7 +1584,7 @@ function Receipt({ v, r, done }: { v: Ok; r: Extract<CheckInReceipt, { kind: "ok
                     <DateTimeInput value={proposed} onValueChange={setProposed} />
                   </Field>
                 </FormGrid>
-                <Field label="Meddelande" id="call-body" help="Skrivs i portalen. Skriv inga känsliga detaljer.">
+                <Field label="Meddelande" id="call-body" help="Skriv inga känsliga detaljer.">
                   <TextArea rows={4} value={body} onValueChange={setEdited} maxLength={800} />
                 </Field>
                 <Row>

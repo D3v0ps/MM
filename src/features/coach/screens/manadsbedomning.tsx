@@ -315,7 +315,7 @@ function ManadForm({ v }: { v: Ok }) {
       title={`Månadsbedömning ${monthName(month)}`}
       eyebrow={`${c.name} · ${c.caseNumber}`}
       crumbs={crumbs}
-      lead={`Bedöm förändringen jämfört med föregående månad. Nivån är tom tills du väljer. Konkret observation krävs från nivå ${reqFrom}.`}
+      lead={`Bedöm förändringen jämfört med föregående månad. Konkret observation krävs från nivå ${reqFrom}.`}
       actions={
         <Badge tone="plan" icon="clock" title={v.dueNote}>
           Förslag: senast {fmtWeekday(v.dueAt)}
@@ -529,7 +529,7 @@ function ManadForm({ v }: { v: Ok }) {
       <Split>
         <Card title="Samlad status och sammanfattning" icon="clipboard">
           <Stack>
-            <Field label="Samlad status" id="cm-overall" required error={errors.overall} help="Ditt val. Föreslås aldrig av AI.">
+            <Field label="Samlad status" id="cm-overall" required error={errors.overall}>
               <Seg<Rag>
                 id="cm-overall"
                 ariaLabel="Samlad status"
@@ -705,7 +705,7 @@ function AiDraftCard({ v }: { v: Ok }) {
     return (
       <Card title="AI-utkast från godkända mötesrapporter" icon="sparkles">
         <Notice tone="warn" title="Tal till text är inte kopplat ännu">
-          {AI_OFF_TEXT} Observationerna, sammanfattningen och planen skrivs manuellt – det är fullt likvärdigt.
+          {AI_OFF_TEXT}
         </Notice>
       </Card>
     );

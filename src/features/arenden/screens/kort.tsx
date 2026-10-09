@@ -10,7 +10,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
 import {
-  Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
+  Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
   anchorTabs, PhaseBar, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
@@ -242,20 +242,14 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
     >
       {card.readOnly && (
         <Notice tone="info" icon="eye" title="Läsläge">
-          {role === "chef" ? "Som chef och controller ser du allt i ärendet men kan inte ändra något." : "Som systemadmin ser du ärendet men arbetar inte i det."} Visningen är
-          loggad.
+          Du kan inte ändra något i ärendet. Visningen loggas.
         </Notice>
       )}
       {team && (
-        <Notice tone="info" icon="users" title={`Du ingår i teamet som ${(card.myTeamRoleLabel ?? "").toLowerCase()}`}>
-          Du ser moment, närvaro, praktik, arbetsgivarkontakter och tidslinjen med anteckningar som är skrivna för teamet. Coachens anteckningar och bedömningar,
-          månadsrapporter och slutrapporter visas inte för handledare.
-        </Notice>
+        <Notice tone="info" icon="users" title={`Du ingår i teamet som ${(card.myTeamRoleLabel ?? "").toLowerCase()}`} />
       )}
       {!team && card.myTeamRoleLabel && (
-        <Notice tone="info" icon="users" title={`Du ingår i teamet som ${card.myTeamRoleLabel.toLowerCase()}`}>
-          Du får notiser och påminnelser om ärendet. Det finns med under Mina tilldelade ärenden och i Närvaro.
-        </Notice>
+        <Notice tone="info" icon="users" title={`Du ingår i teamet som ${card.myTeamRoleLabel.toLowerCase()}`} />
       )}
 
       <CaseSummary card={card} openModal={setModal} />
@@ -272,9 +266,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
           className="relative min-[621px]:flex-wrap min-[621px]:overflow-x-visible [&_[role=tab]]:px-2.5"
         />
         {blocked && (
-          <Notice tone="info" title="Den delen visas inte för din roll">
-            {TAB_LABEL[flik as CaseTab]} innehåller coachens anteckningar och bedömningar. Du ser översikten i stället.
-          </Notice>
+          <Notice tone="info" title="Den delen visas inte för din roll" />
         )}
         {mal && tab !== "tidslinje" && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-mb bg-bla-ton px-3 py-1.5 text-small">
@@ -683,8 +675,8 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
         </>
       }
     >
-      <p>Samtycket gäller inspelning av möten och AI-stöd för utkast till mötesrapporter. AI föreslår – coachen bedömer. Ljudet raderas direkt efter transkribering.</p>
-      <Field label="Informationen gavs på" id="arn-cons-lang" help="Välj det språk deltagaren fick informationstexten på.">
+      <p>Samtycket gäller inspelning av möten och AI-stöd för utkast till mötesrapporter. Ljudet raderas direkt efter transkribering.</p>
+      <Field label="Informationen gavs på" id="arn-cons-lang">
         <Select value={lang} onValueChange={setLang} options={langs.map((x) => ({ value: x, label: cap(x) }))} />
       </Field>
       <Field id="arn-cons-ok-field" error={err}>
@@ -699,7 +691,6 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
           Deltagaren har fått informationen muntligt och skriftligt och har själv sagt ja. Deltagaren vet att samtycket kan återkallas när som helst.
         </Check>
       </Field>
-      <DemoNote>Textversion v1.0 (2026-10-01) sparas tillsammans med samtycket och vem som informerade.</DemoNote>
     </Modal>
   );
 }
@@ -781,7 +772,7 @@ function CoachModal({ card: c, onClose }: { card: CaseCard; onClose: () => void 
         </Notice>
       )}
       <Kv items={[["Ärende", <span key="n" className="font-bold tabular-nums">{c.caseNumber}</span>], ["Nuvarande huvudcoach", c.leadCoach?.name ?? "–"]]} />
-      <Field label="Ny huvudcoach" id="arn-coach-to" required error={err.to} help="Antalet aktiva ärenden hjälper dig att fördela arbetet jämnt.">
+      <Field label="Ny huvudcoach" id="arn-coach-to" required error={err.to}>
         <Select
           value={to}
           onValueChange={(v) => {
@@ -792,7 +783,7 @@ function CoachModal({ card: c, onClose }: { card: CaseCard; onClose: () => void 
           options={c.coachOptions.map((u) => ({ value: u.id, label: `${u.name} – ${u.active} aktiva ärenden` }))}
         />
       </Field>
-      <Field label="Orsak till bytet" id="arn-coach-reason" required error={err.reason} help="Obligatorisk. Samma coach genom hela insatsen är huvudregeln, så orsaken loggas och syns i historiken.">
+      <Field label="Orsak till bytet" id="arn-coach-reason" required error={err.reason} help="Orsaken syns i ärendets historik.">
         <TextArea
           value={reason}
           onValueChange={(v) => {
@@ -800,7 +791,6 @@ function CoachModal({ card: c, onClose }: { card: CaseCard; onClose: () => void 
             if (err.reason) setErr({ ...err, reason: null });
           }}
           rows={3}
-          placeholder="Till exempel: Föräldraledighet från vecka 8."
         />
       </Field>
       <Card tone="sub">
