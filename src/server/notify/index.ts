@@ -2,7 +2,8 @@
 //   1. queueMessage sparar utskicket i outbound_messages (status queued) och lägger jobbet send_message
 //   2. after() kör jobben direkt när svaret skickats, så att mejlet går iväg utan att vänta på cron
 //   3. cron (pg_cron -> POST /api/jobs/run varje minut) tar det som blev kvar, t.ex. nya försök efter fel
-// Mejl skickas via Resend (resend.ts). I testmiljön får bara adresserna i MM_EMAIL_ALLOWLIST mejl (decision.ts).
+// Mejl skickas via Resend (resend.ts), SMS och samtal via 46elks (elks.ts) när det är kopplat. I testmiljön får bara adresserna i
+// MM_EMAIL_ALLOWLIST mejl och numren i MM_SMS_ALLOWLIST SMS och samtal (decision.ts).
 // Texten innehåller aldrig personuppgifter (CLAUDE.md punkt 9) – hanterarna skickar bara ärendenummer och "logga in".
 // Minnesläget (prototypen) använder inte den här filen – där sparas utskicken direkt i minnet (src/data/memory-runtime.ts).
 import "server-only";
@@ -13,7 +14,7 @@ import type { AppRepo } from "@/data/schema";
 import { randomId } from "../ctx";
 import { safeErrorText } from "../jobs/errors";
 import { runDueJobs } from "../jobs/live";
-import { notifyEnv } from "./config";
+import { notifyEnv, phoneEnv } from "./config";
 import { queueMessage } from "./queue";
 import type { NotifyRepo } from "./types";
 
@@ -24,7 +25,9 @@ const RUN_AFTER_REQUEST = 5;
 export async function enqueueMessage(system: AppRepo, msg: OutgoingMessage, now: LocalDateTime): Promise<string> {
   // ctx.system (service role): utskicksloggen och jobben skrivs bara av systemet.
   // MM_APP_URL: engångslänkar (deltagarens inspelningslänk) blir fullständiga adresser.
-  const r = await queueMessage(system as unknown as NotifyRepo, msg, now, randomId, { appUrl: notifyEnv().appUrl });
+  // SMS och samtal läggs i kön bara när 46elks är kopplat – annars stoppas de direkt med orsak.
+  const phone = phoneEnv();
+  const r = await queueMessage(system as unknown as NotifyRepo, msg, now, randomId, { appUrl: notifyEnv().appUrl, phone: { sms: !!phone.sms, call: !!phone.call } });
   if (r.jobId) sendSoon();
   return r.messageId;
 }

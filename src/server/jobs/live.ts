@@ -13,8 +13,9 @@ import { serverAudio } from "../audio";
 import { clockNow } from "../clock";
 import { lazyServerCrypto } from "../crypto";
 import { liveCtx, randomId, type Enqueue } from "../ctx";
-import { recipientGate } from "../notify/decision";
-import { notifyEnv } from "../notify/config";
+import { phoneGate, recipientGate } from "../notify/decision";
+import { notifyEnv, phoneEnv } from "../notify/config";
+import type { ElksFetch } from "../notify/elks";
 import { queueMessage } from "../notify/queue";
 import type { FetchLike } from "../notify/resend";
 import type { NotifyRepo, NotifyTables } from "../notify/types";
@@ -56,11 +57,12 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
   const [settings, env] = await Promise.all([loadAppSettings(client, startedMs), environmentSetting(client)]);
   const now = clockNow(settings.clock, startedMs);
   const cfg = notifyEnv();
+  const phone = phoneEnv();
   const system = appRepo(client);
   // Röstjobbens Ctx (systemsteg: service role, AI-leverantören, ljudlagringen) byggs först när ett röstjobb körs.
   let voice: Ctx | null = null;
   // Utskick från systemstegen läggs i kön och skickas av cron.
-  const enqueue: Enqueue = (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl });
+  const enqueue: Enqueue = (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl, phone: { sms: !!phone.sms, call: !!phone.call } });
   const voiceCtx = (): Ctx =>
     (voice ??= liveCtx({
       actor: SYSTEM_ACTOR,
@@ -73,6 +75,7 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),
       attachments: (d) => serverAttachments(d),
+      messaging: phone.status,
     }));
   // Städningen av Auth-användare utan profil (självregistrering som aldrig slutfördes).
   const authCleanup = async () => {
@@ -136,6 +139,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       resend: cfg.resend,
       fetch: globalThis.fetch as unknown as FetchLike,
       now,
+      // SMS och utringning via 46elks – samma spärr för testmiljön som e-posten (MM_SMS_ALLOWLIST, MM_SMS_REDIRECT_TO).
+      phone: { gate: phoneGate(env, phone.allowlist, phone.redirectTo), sms: phone.sms, call: phone.call, fetch: globalThis.fetch as unknown as ElksFetch },
     },
     voice: voiceCtx,
     reportSchedule,
