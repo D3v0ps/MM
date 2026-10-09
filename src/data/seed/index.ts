@@ -13,6 +13,7 @@
 //   gen-saved-reports.ts  sparade rapporter i rapportbyggaren (finns inte i prototypen, rapporter steg 4)
 //   decisions-2026-10-07.ts  besluten 2026-10-07: kommunens chef bort, skyddade personuppgifter bort ur testdatat, omfattning i månader,
 //                    en faktura per avtal och månad
+//   decisions-2026-10-09-handledare.ts  rollen handledare bort: de tre handledarna får rollen coach (Karims beslut 2026-10-09)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -22,6 +23,7 @@ import { genActivities, genIntakeConsentsPlacements } from "./gen-coaching";
 import { genContractDeviations, genInbox, genPulse, genRest } from "./gen-other";
 import { genMonthly, genOtherReports } from "./gen-reports";
 import { applyDecisions20261007 } from "./decisions-2026-10-07";
+import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -59,6 +61,7 @@ export function createSeed(): MemoryData<Tables> {
   addCaseNotes(db);
   addSavedReports(db);
   applyDecisions20261007(db, { invoiceStatus: S.invoiceStatus });
+  applyNoSupervisorRole(db);
   return db;
 }
 

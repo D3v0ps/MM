@@ -15,7 +15,8 @@ const ROLES: { role: string; userId: string; label: string }[] = [
   { role: "avtalsansvarig", userId: "tester-ali", label: "Avtalsansvarig" },
   { role: "samordnare", userId: "tester-sara", label: "Operativ samordnare" },
   { role: "coach", userId: "tester-adam", label: "Huvudcoach" },
-  { role: "handledare", userId: "tester-shafik", label: "Handledare" },
+  // Rollen handledare finns inte (Karims beslut 2026-10-09): två jobbcoacher har rollen coach.
+  { role: "coach", userId: "tester-shafik", label: "Huvudcoach" },
   { role: "chef", userId: "tester-moda", label: "Chef/controller" },
   { role: "ekonom", userId: "tester-yacine", label: "Ekonom" },
 ];
@@ -103,6 +104,12 @@ test("varje MB-roll: Notiser, Min vecka och alla menyval fungerar utan ett enda 
   expect(seen.some((s) => s.startsWith("ekonom /ekonomi/"))).toBe(true);
   expect(seen.some((s) => s.startsWith("chef /ledning"))).toBe(true);
   expect(seen.some((s) => s.startsWith("samordnare /inkorg"))).toBe(true);
+  // Ingen roll når handledarens gamla sidor (borttagna 2026-10-09).
+  expect(seen.some((s) => s.includes("/handledare"))).toBe(false);
+  // Administratören kan inte ge rollen handledare (zod nekar den).
+  await loginAs(page, KARIM);
+  const denied = await page.request.post("/api/rpc", { data: { kind: "command", key: "admin.setStaffRoles", input: { userId: "tester-shafik", roles: ["handledare"] } } });
+  expect(denied.status()).toBe(400);
   expect(errors).toEqual([]);
 });
 
@@ -156,7 +163,10 @@ test("lägg till kollega i appen: ny kollega med två roller, ändra roller, sp�
   await page.fill("#ny-kollega-name", "Nour Testsson");
   await page.fill("#ny-kollega-email", "nour.testsson@gmail.com");
   await page.check("#ny-kollega-role-coach");
-  await page.check("#ny-kollega-role-handledare");
+  await page.check("#ny-kollega-role-samordnare");
+  // Rollen handledare finns inte (Karims beslut 2026-10-09, vilande i databasen).
+  await expect(page.locator("#ny-kollega-role-handledare")).toHaveCount(0);
+  await expect(dialog).not.toContainText("Handledare");
   await dialog.getByRole("button", { name: "Lägg till kollega" }).click();
   await expect(dialog).toContainText("Adressen måste sluta på @miljonbemanning.se");
   await page.fill("#ny-kollega-email", "nour.testsson@miljonbemanning.se");
@@ -165,12 +175,13 @@ test("lägg till kollega i appen: ny kollega med två roller, ändra roller, sp�
   await expect(dialog).toBeHidden();
   const row = main(page).getByRole("row").filter({ hasText: "Nour Testsson" });
   await expect(row).toContainText("Huvudcoach");
-  await expect(row).toContainText("Handledare");
+  await expect(row).toContainText("Operativ samordnare");
   await expect(row).toContainText("Jobbcoach");
   // Ändra roller: bara ekonom.
   await row.getByRole("button", { name: "Ändra roller" }).click();
+  await expect(page.locator("#roller-role-handledare")).toHaveCount(0);
   await page.uncheck("#roller-role-coach");
-  await page.uncheck("#roller-role-handledare");
+  await page.uncheck("#roller-role-samordnare");
   await page.check("#roller-role-ekonom");
   await page.getByRole("dialog").getByRole("button", { name: "Spara roller" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();

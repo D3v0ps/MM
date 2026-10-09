@@ -8,7 +8,8 @@ import { isDemo, loaded, open, switchPersona } from "./helpers";
 type Who = { userId: string; role: string };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
 const AMIRA: Who = { userId: "u-amira", role: "coach" };
-const PETRA: Who = { userId: "u-petra", role: "handledare" };
+/** Petra Ek – coach sedan rollen handledare togs bort (Karims beslut 2026-10-09). */
+const PETRA: Who = { userId: "u-petra", role: "coach" };
 const LARS: Who = { userId: "u-lars", role: "ekonom" };
 /** Marias avrop em-101 (Word-mallen) blir BOT-27-0050 när det accepteras; Diego Morales är deltagaren i testdatat. */
 const CASE = "case-270050";
@@ -135,13 +136,15 @@ test("acceptera → Insatser att starta → Starta insatsen → tillfällen i N�
   expect(errors).toEqual([]);
 });
 
-test("Ändra team: handledaren utan teamroll i profilen läggs till och ser ärendet direkt", async ({ page }, info) => {
+test("Ändra team: arbetsgivarmatcharen läggs till och ser sin teamroll direkt – teamvalet Handledare finns inte (beslut 2026-10-09)", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${TEAM_CASE}`, SARA);
   await main(page).getByRole("button", { name: "Ändra team" }).click();
   const td = dialog(page, "Ändra team");
   await expect(td).toContainText("byts med Byt huvudcoach");
-  await td.locator("#arn-team-u-petra").check();
-  await td.locator("#arn-team-matcher").selectOption("u-leila");
+  await expect(td).not.toContainText(/handledare/i);
+  await expect(td.locator("#arn-team-u-petra")).toHaveCount(0);
+  await td.locator("#arn-team-matcher").selectOption("u-petra");
+  await td.locator("#arn-team-counselor").selectOption("u-leila");
   await td.getByRole("button", { name: "Spara teamet" }).click();
   await expect(toastWith(page, "Teamet för BOT-27-0039 är sparat. 2 nya medlemmar har fått notis.")).toBeVisible();
   await main(page).getByRole("button", { name: "Visa alla uppgifter" }).click();
@@ -149,21 +152,17 @@ test("Ändra team: handledaren utan teamroll i profilen läggs till och ser äre
   await expect(main(page)).toContainText("Leila Nouri");
   await expect(main(page)).toContainText("Arbetsgivarmatchare");
 
-  await switchTo(page, info, "/handledare", PETRA);
-  await page.getByRole("button", { name: /^Väntar på start/ }).click();
-  await expect(main(page)).toContainText("BOT-27-0039");
-  await go(page, info, `/arenden/${TEAM_CASE}`);
-  await expect(main(page)).toContainText("Du ingår i teamet som yrkesspecifik handledare");
+  await switchTo(page, info, `/arenden/${TEAM_CASE}`, PETRA);
+  await expect(main(page)).toContainText("Du ingår i teamet som arbetsgivarmatchare");
 
   // Tas Petra bort har hon ingen teamroll längre – men ärendet nås fortfarande (alla ser alla i avtalet, beslut 2026-10-09).
   await switchTo(page, info, `/arenden/${TEAM_CASE}`, SARA);
   await main(page).getByRole("button", { name: "Ändra team" }).click();
-  await dialog(page, "Ändra team").locator("#arn-team-u-petra").uncheck();
+  await dialog(page, "Ändra team").locator("#arn-team-matcher").selectOption("");
   await dialog(page, "Ändra team").getByRole("button", { name: "Spara teamet" }).click();
   await expect(toastWith(page, "Teamet för BOT-27-0039 är sparat.")).toBeVisible();
   await switchTo(page, info, `/arenden/${TEAM_CASE}`, PETRA);
   await expect(main(page)).toContainText("BOT-27-0039");
   await expect(main(page)).not.toContainText("Du ingår i teamet");
-  await expect(main(page)).not.toContainText("BOT-27-0039 · ");
   expect(errors).toEqual([]);
 });

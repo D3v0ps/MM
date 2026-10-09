@@ -79,9 +79,9 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "chef", view: "chef.avvikelser", params: {}, text: "Titta på avtalsavvikelser, åtgärdsplaner och varningar (0 av 3)." },
     { role: "chef", view: "chef.oversikt", params: {}, text: "Rutan Så ser kommunen resultatet visar beställarrapporten med bara avtalsmålet 32 %. Avtalsansvarig lämnar rapporten till kommunen utanför Miljonmatch." },
   ] },
-  { id: "s10", title: "Behörigheter och dataskydd", lead: "Behörighet = avtal + roll + tilldelning. Testa samma data från olika roller.", steps: [
+  { id: "s10", title: "Behörigheter och dataskydd", lead: "Behörighet = avtal + roll. Tilldelningen styr notiser och listorna med egna ärenden. Testa samma data från olika roller.", steps: [
     { role: "ekonom", view: "eko.start", params: {}, text: "Som ekonom: ärendenummer, perioder och referenser – inga namn, anteckningar eller rapporter." },
-    { role: "handledare", view: "hand.start", params: {}, text: "Som handledare: Petras lista Mina tilldelade ärenden visar teamets ärenden – alla ärenden i avtalet finns under Ärenden." },
+    { role: "coach", view: "arenden.lista", params: {}, text: "Som coach: alla ärenden i avtalet finns under Ärenden – dina egna är markerade. Kommunen ser bara sina egna." },
     { role: "kommun_handlaggare", view: "kom.deltagare", params: {}, text: "Som kommunens handläggare: bara de deltagare du själv har beställt insatser för. Byt sedan till samordnare och jämför." },
     { role: "admin", view: "admin.logg", params: {}, text: "Revisionsloggen visar allt du gjort i prototypen, inklusive visningar av deltagarkort och personnummer." },
   ] },

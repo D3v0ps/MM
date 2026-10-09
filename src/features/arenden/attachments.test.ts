@@ -3,6 +3,7 @@
 // revisionsloggen utan filnamn och städningen (24 timmar för okopplade; bilagor i ett ärende gallras aldrig automatiskt, beslut 5
 // 2026-10-08 – Miljonbemanning tar bort dem för hand tidigast när ärendet är avslutat). Bara påhittade filer.
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, ResultOf } from "@/api/contract";
 import { execute } from "@/api/handlers";
 import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
@@ -114,7 +115,7 @@ describe("hämta och ta bort", () => {
       expect(await run(attachmentDownload, { attachmentId: id }, a), a.userId).toMatchObject({ ok: false, error: "not_found" });
     }
     // Handledare, ekonom, chef och admin: rollkontrollen.
-    for (const a of [as("u-petra", "handledare"), as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin")]) {
+    for (const a of [dormantSupervisor(), as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin")]) {
       await expect(run(attachmentDownload, { attachmentId: id }, a), a.role).rejects.toBeInstanceOf(ApiError);
     }
     // Varje hämtning loggas (tyst kommando – klockan står still), utan filnamn.

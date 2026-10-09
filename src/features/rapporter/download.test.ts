@@ -3,6 +3,7 @@
 // personuppgifter. Beslut 2026-10-07: kommunens chef är borttagen – beställarrapporten laddas ned av Miljonbemanning och lämnas
 // till kommunen utanför portalen.
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { ApiError } from "@/api/server";
@@ -68,8 +69,8 @@ describe("rapporter.download – behörighet som för att visa rapporten", () =>
 
   it("ekonomen nekas (rollen), handledaren nekas månadsrapporter men får veckorapporten", async () => {
     await expect(download(NADIA_DEC, as("u-lars", "ekonom"))).rejects.toBeInstanceOf(ApiError);
-    expect(await download(NADIA_DEC, as("u-petra", "handledare"))).toMatchObject({ ok: false, error: "handledare" });
-    expect(await download(WEEKLY_WAIT, as("u-petra", "handledare"))).toEqual({ ok: true, filename: "Veckorapport_2027-W04.pdf" });
+    expect(await download(NADIA_DEC, dormantSupervisor())).toMatchObject({ ok: false, error: "handledare" });
+    expect(await download(WEEKLY_WAIT, dormantSupervisor())).toEqual({ ok: true, filename: "Veckorapport_2027-W04.pdf" });
     expect(logs().map((l) => l.actorId)).toEqual(["u-petra"]);
   });
 

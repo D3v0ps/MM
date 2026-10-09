@@ -35,7 +35,11 @@ const PSTORE = withProtected();
 
 const MARIA = who("k-maria");
 const LARS = who("u-lars");
-const PETRA = who("u-petra");
+/**
+ * Rollen handledare är vilande (Karims beslut 2026-10-09): ingen har den – Petra är coach i testdatat. Aktören byggs här så att
+ * reglerna för rollen i policy.ts (= RLS) fortfarande prövas och kan slås på igen utan migration.
+ */
+const PETRA: Actor = { userId: "u-petra", role: "handledare", contractIds: ["c-bot"], customerUnit: null };
 const AMIRA = who("u-amira");
 const ERIK = who("u-erik");
 const SARA = who("u-sara");
@@ -88,11 +92,17 @@ describe("testpersoner (actors.ts)", () => {
   it("standardpersonen för varje roll först, i prototypens ordning, sedan övriga användare", () => {
     const ps = listPersonas(raw);
     expect(ps.filter((p) => p.isDefaultForRole).map((p) => `${p.actor.userId}:${p.actor.role}`)).toEqual([
-      "u-sara:samordnare", "u-johan:avtalsansvarig", "u-amira:coach", "u-petra:handledare", "u-karin:chef", "u-lars:ekonom", "u-robin:admin",
+      "u-sara:samordnare", "u-johan:avtalsansvarig", "u-amira:coach", "u-karin:chef", "u-lars:ekonom", "u-robin:admin",
       "k-maria:kommun_handlaggare", "deltagare:deltagare",
     ]);
-    expect(ps.slice(9).map((p) => p.actor.userId)).toEqual(["u-erik", "u-leila", "u-mats", "u-sofia", "u-david", "u-hanna", "k-ahmed", "k-linda", "k-omar"]);
-    expect(ps.every((p, i) => p.isDefaultForRole === i < 9)).toBe(true);
+    // Rollen handledare är borttagen (beslut 2026-10-09): Petra, David och Hanna är coacher; ingen testperson har rollen.
+    expect(ps.slice(8).map((p) => `${p.actor.userId}:${p.actor.role}`)).toEqual([
+      "u-erik:coach", "u-leila:coach", "u-mats:coach", "u-sofia:coach", "u-petra:coach", "u-david:coach", "u-hanna:coach",
+      "k-ahmed:kommun_handlaggare", "k-linda:kommun_handlaggare", "k-omar:kommun_handlaggare",
+    ]);
+    expect(ps.every((p, i) => p.isDefaultForRole === i < 8)).toBe(true);
+    expect(ps.some((p) => p.actor.role === "handledare")).toBe(false);
+    expect(actorFor(raw, "u-petra", "handledare")).toBeNull();
   });
   it("aktören får avtal och kommunens enhet från medlemskapen (aldrig från profilen, som handläggaren skriver själv)", () => {
     expect(JOHAN).toEqual({ userId: "u-johan", role: "avtalsansvarig", contractIds: ["c-bot"], customerUnit: null });
@@ -244,12 +254,11 @@ describe("ekonomen ser inga coachanteckningar", () => {
 });
 
 describe("coach och handledare ser alla ärenden i avtalet (beslut 2026-10-09) – tilldelningen styr inte åtkomsten", () => {
-  it("handledaren ser alla ärenden och anteckningar i avtalet, inte bara teamets (63 av 231 före beslutet)", async () => {
-    const assigned = new Set(all("case_team").filter((t) => t.userId === "u-petra").map((t) => t.caseId));
-    expect(assigned.size).toBe(63);
+  it("den vilande rollen handledare ser alla ärenden och anteckningar i avtalet (63 av 231 i teamet före beslutet 2026-10-09)", async () => {
+    // Teamplatserna som yrkesspecifik handledare finns inte i testdatat sedan rollen togs bort (beslut 2026-10-09).
+    expect(all("case_team").some((t) => t.userId === "u-petra")).toBe(false);
     const cases = await repoFor(PETRA).table("cases").list();
     expect(cases).toHaveLength(231);
-    expect(cases.some((c) => !assigned.has(c.id))).toBe(true);
     const cis = await repoFor(PETRA).table("check_ins").list();
     expect(cis.length).toBe(all("check_ins").length);
   });
@@ -394,11 +403,10 @@ describe("skrivregler", () => {
     await expect(repoFor(KARIN, s).table("check_ins").update(ci.id, { note: "x" })).rejects.toBeInstanceOf(PolicyError);
     await expect(repoFor(AMIRA, s).table("check_ins").update(ci.id, { note: "x" })).resolves.toBeTruthy();
   });
-  it("handledaren registrerar närvaro i alla ärenden i avtalet (beslut 2026-10-09) – men inte i ett skyddat ärende", async () => {
+  it("den vilande rollen handledare registrerar närvaro i alla ärenden i avtalet (beslut 2026-10-09) – men inte i ett skyddat ärende", async () => {
     const s = fresh();
-    const assigned = all("case_team").find((t) => t.userId === "u-petra")!.caseId;
-    const act = all("activities").find((a) => a.caseId === assigned)!;
-    const notAssigned = all("activities").find((a) => a.caseId !== tagged("skyddad") && !all("case_team").some((t) => t.caseId === a.caseId && t.userId === "u-petra"))!;
+    const act = all("activities").find((a) => a.caseId === tagged("nadia"))!;
+    const notAssigned = all("activities").find((a) => a.caseId !== tagged("skyddad") && a.caseId !== tagged("nadia"))!;
     const att = (id: string, a: typeof act) => ({ id, activityId: a.id, caseId: a.caseId, status: "present" as const, reason: "", registeredBy: "u-petra", registeredAt: "2027-02-01T09:13", customerNotifiedAt: null });
     await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x1", act))).resolves.toBeTruthy();
     await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x2", notAssigned))).resolves.toBeTruthy();
@@ -462,7 +470,7 @@ describe("röstinspelning: länkar, deltagarens röstmeddelanden och ljudfiler",
   it("coachen och teamet läser röstmeddelandena i sina ärenden – aldrig ekonomen, andra coacher eller kommunen", async () => {
     expect(await ids(AMIRA, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
     expect(await ids(AMIRA, "voice_links")).toEqual(["vl-demo", "vl-nadia", "vl-yusuf"]);
-    // Petra är handledare i Nadias team men inte i Yusufs – hon och Erik arbetar ändå i alla ärenden i avtalet (beslut 2026-10-09).
+    // Den vilande rollen handledare (Petra, byggd i testet) och Erik arbetar i alla ärenden i avtalet (beslut 2026-10-09).
     expect(await ids(PETRA, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
     expect(await ids(ERIK, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
     expect(await ids(ERIK, "voice_links")).toEqual(["vl-demo", "vl-nadia", "vl-yusuf"]);
@@ -675,7 +683,7 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
   const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list()).map((r) => r.id).sort();
 
   it("läsning: samordnare, avtalsansvarig, coach med full åtkomst och beställande handläggare – aldrig handledare, ekonom, chef eller admin", async () => {
-    // Nadias ärende: Maria beställde, Amira är huvudcoach och Petra handledare i teamet. Erik (coach) ser den sedan 2026-10-09.
+    // Nadias ärende: Maria beställde, Amira är huvudcoach. Erik (coach) ser den sedan 2026-10-09. Den vilande rollen handledare aldrig.
     expect(await ids(MARIA)).toEqual(["att-nadia", "att-utkast"]);
     for (const a of [SARA, JOHAN, AMIRA, ERIK]) expect(await ids(a), a.userId).toEqual(["att-nadia"]);
     for (const a of [PETRA, LARS, KARIN, ROBIN, OMAR, who("k-ahmed"), DELTAGARE]) expect(await ids(a), a.userId).toEqual([]);

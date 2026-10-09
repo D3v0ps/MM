@@ -6,7 +6,7 @@
 // spärrar eller aktiverar – i appen, utan SQL. Mejlet till kollegan innehåller inga personuppgifter.
 // Avtal och konfiguration ligger inte i menyn (beslut 2026-10-06): systemadministratören når den härifrån och från Min vecka.
 import { useState } from "react";
-import { ROLE_LABEL, type SupplierRole } from "@/api/roles";
+import { isDormantRole, ROLE_LABEL, type StaffRole } from "@/api/roles";
 import { isTesterHiddenPath } from "@/api/tester-access";
 import type { EscalationRole } from "@/core/config";
 import { fmtDateShort, fmtDateTime } from "@/core/time";
@@ -25,13 +25,15 @@ import {
 } from "../api";
 import { INVITE_TEXT, STAFF_INVITE_TEXT } from "../templates";
 
-/** Rollerna en kollega kan få, med hjälptext i klarspråk (samma ordning som i tabellen). */
-const STAFF_ROLES: { role: SupplierRole; label: string; help: string }[] = [
+/**
+ * Rollerna en kollega kan få, med hjälptext i klarspråk (samma ordning som i tabellen). Rollen handledare finns inte
+ * (Karims beslut 2026-10-09, vilande i databasen) – två jobbcoacher har rollen coach.
+ */
+const STAFF_ROLES: { role: StaffRole; label: string; help: string }[] = [
   { role: "admin", label: "Systemadministratör", help: "Allt inklusive användare, avtal, integrationer och revisionslogg." },
   { role: "avtalsansvarig", label: "Avtalsansvarig", help: "Accepterar och avböjer avrop, avtalsavvikelser, kommunanvändare, rapportbyggaren." },
   { role: "samordnare", label: "Operativ samordnare", help: "Avropsinkorg, tilldelar coach, bokar första möte." },
   { role: "coach", label: "Huvudcoach", help: "Egna ärenden: närvaro, möten, månadsbedömningar och rapporter." },
-  { role: "handledare", label: "Handledare", help: "Tilldelade ärenden: moment, praktik och närvaro." },
   { role: "chef", label: "Chef och controller", help: "Nyckeltal, flaggor, avtalsavvikelser och loggkontroll – i läsläge." },
   { role: "ekonom", label: "Ekonom", help: "Fakturaunderlag och belopp – inga anteckningar eller rapporter." },
 ];
@@ -288,7 +290,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
 
 // ================================================================ Lägg till kollega (beslut 2026-10-08)
 /** Kryssrutor för rollerna, med hjälptext per roll. */
-function RolePicker({ idPrefix, value, onChange, error }: { idPrefix: string; value: SupplierRole[]; onChange: (roles: SupplierRole[]) => void; error?: string }) {
+function RolePicker({ idPrefix, value, onChange, error }: { idPrefix: string; value: StaffRole[]; onChange: (roles: StaffRole[]) => void; error?: string }) {
   return (
     <Field id={`${idPrefix}-roles`} label="Roller" required help="Välj en eller flera. Kollegan väljer sedan roll i sidopanelen." error={error}>
       <div id={`${idPrefix}-roles`} role="group" aria-label="Roller" className="flex flex-col gap-1">
@@ -311,7 +313,7 @@ function RolePicker({ idPrefix, value, onChange, error }: { idPrefix: string; va
 function StaffModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
   const invite = useCommand(adminInviteStaff);
   const [f, setF] = useState({ name: "", email: "", title: "" });
-  const [roles, setRoles] = useState<SupplierRole[]>([]);
+  const [roles, setRoles] = useState<StaffRole[]>([]);
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<string | null>(null);
   const set = (key: keyof typeof f) => (v: string) => {
@@ -389,7 +391,7 @@ function StaffModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
 // ================================================================ Ändra roller
 function RolesModal({ user, onClose }: { user: MbUserRow; onClose: () => void }) {
   const save = useCommand(adminSetStaffRoles);
-  const [roles, setRoles] = useState<SupplierRole[]>(user.roles);
+  const [roles, setRoles] = useState<StaffRole[]>(user.roles.filter((r): r is StaffRole => !isDormantRole(r)));
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<string | null>(null);
   const order = STAFF_ROLES.map((r) => r.role);
@@ -527,15 +529,14 @@ const ROLE_TABLE: [string, string, string, string, string][] = [
   ["Systemadmin", "Miljonbemanning", "Allt inklusive konfiguration och logg", "Användare, avtal, integrationer", "E-post och engångskod"],
   ["Avtalsansvarig och kundansvarig", "Miljonbemanning", "Allt inom sina avtal", "Accepterar och avböjer avrop, godkänner beställarrapport, hanterar avtalsavvikelser, bjuder in kommunanvändare", "E-post och engångskod"],
   ["Operativ samordnare", "Miljonbemanning", "Alla ärenden i avtalet", "Avropsinkorg, tilldelar coach, bokar start", "E-post och engångskod"],
-  ["Huvudcoach", "Miljonbemanning", "Egna ärenden", "Kartläggning, möten, närvaro, bedömningar, utfall, rapporter", "E-post och engångskod"],
-  ["Handledare, arbetsgivarmatchare och SYV", "Miljonbemanning", "Tilldelade ärenden", "Moment, praktik, arbetsgivarkontakter, närvaro, validering", "E-post och engångskod"],
+  ["Huvudcoach", "Miljonbemanning", "Alla ärenden i avtalet", "Kartläggning, möten, närvaro, bedömningar, utfall, rapporter", "E-post och engångskod"],
   ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "E-post och engångskod"],
   ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "E-post och engångskod"],
   ["Kommunens handläggare", "Botkyrka kommun", "Egna beställda ärenden", "Beställer, läser rapporter, skickar meddelanden, kvitterar. Skapar sitt konto själv med en adress på kommunens domän", "E-post och engångskod"],
   ["Deltagare", "Utan inloggning i piloten", "Egen plan och bokningar (utvecklingsfas 4)", "Svarar på pulsmätningen via engångslänk", "Ingen – BankID senare"],
 ];
 const MX_ROLES: [string, string][] = [
-  ["admin", "Admin"], ["avtalsansvarig", "Avtals­ansvarig"], ["samordnare", "Sam­ordnare"], ["coach", "Coach"], ["handledare", "Hand­ledare"],
+  ["admin", "Admin"], ["avtalsansvarig", "Avtals­ansvarig"], ["samordnare", "Sam­ordnare"], ["coach", "Coach"],
   ["chef", "Chef och con­troller"], ["ekonom", "Ekonom"], ["kommun_handlaggare", "Kommunens hand­läggare"],
 ];
 const MX_CELL: Record<string, [IconName, string]> = {
@@ -547,25 +548,25 @@ function matrixGroups(escalateTo: readonly EscalationRole[]): [string, [string, 
   const esc = escalateTo as readonly string[];
   return [
     ["Ser", [
-      ["Ärenden i avtalet", ["alla", "alla", "alla", "egna", "tilldelade", "las", "nummer", "egna"]],
-      ["Coachanteckningar", ["ja", "ja", "ja", "egna", "tilldelade", "las", "nej", "nej"]],
-      ["Rapporter", ["ja", "ja", "ja", "egna", "tilldelade", "las", "nej", "egna"]],
-      ["Fakturaunderlag", ["ja", "ja", "nej", "nej", "nej", "las", "ja", "nej"]],
-      ["Avtalskonfiguration", ["ja", "las", "nej", "nej", "nej", "las", "nej", "nej"]],
-      ["Revisionslogg", ["ja", "nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
+      ["Ärenden i avtalet", ["alla", "alla", "alla", "alla", "las", "nummer", "egna"]],
+      ["Coachanteckningar", ["ja", "ja", "ja", "ja", "las", "nej", "nej"]],
+      ["Rapporter", ["ja", "ja", "ja", "ja", "las", "nej", "egna"]],
+      ["Fakturaunderlag", ["ja", "ja", "nej", "nej", "las", "ja", "nej"]],
+      ["Avtalskonfiguration", ["ja", "las", "nej", "nej", "las", "nej", "nej"]],
+      ["Revisionslogg", ["ja", "nej", "nej", "nej", "ja", "nej", "nej"]],
     ]],
     ["Gör", [
-      ["Acceptera och avböja avrop", ["nej", "ja", "ja", "nej", "nej", "nej", "nej", "nej"]],
-      ["Bjuda in kommunanvändare", ["ja", "ja", "nej", "nej", "nej", "nej", "nej", "nej"]],
-      ["Ändra avtal, användare och integrationer", ["ja", "nej", "nej", "nej", "nej", "nej", "nej", "nej"]],
-      ["Kvittera flaggor och godkänna åtgärdsplaner", ["nej", "ja", "nej", "nej", "nej", "ja", "nej", "nej"]],
-      ["Fakturakörning och Fortnox", ["nej", "nej", "nej", "nej", "nej", "nej", "ja", "nej"]],
-      ["Månatlig loggkontroll", ["nej", "nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
+      ["Acceptera och avböja avrop", ["nej", "ja", "ja", "nej", "nej", "nej", "nej"]],
+      ["Bjuda in kommunanvändare", ["ja", "ja", "nej", "nej", "nej", "nej", "nej"]],
+      ["Ändra avtal, användare och integrationer", ["ja", "nej", "nej", "nej", "nej", "nej", "nej"]],
+      ["Kvittera flaggor och godkänna åtgärdsplaner", ["nej", "ja", "nej", "nej", "ja", "nej", "nej"]],
+      ["Fakturakörning och Fortnox", ["nej", "nej", "nej", "nej", "nej", "ja", "nej"]],
+      ["Månatlig loggkontroll", ["nej", "nej", "nej", "nej", "ja", "nej", "nej"]],
     ]],
     ["Notiser", [
-      ["Notis vid tilldelning: huvudcoach och team", roles.map((r) => (["coach", "handledare"].includes(r) ? "mottagare" : "nej"))],
+      ["Notis vid tilldelning: huvudcoach och team", roles.map((r) => (r === "coach" ? "mottagare" : "nej"))],
       ["Påminnelser om utebliven progression: coach", roles.map((r) => (r === "coach" ? "mottagare" : r === "chef" ? "ser" : "nej"))],
-      [`Eskaleringar: ${escalateTo.map(escWord).join(", ")} – syns inte för coachen`, roles.map((r) => (esc.includes(r) ? "mottagare" : ["coach", "handledare"].includes(r) ? "dold" : "nej"))],
+      [`Eskaleringar: ${escalateTo.map(escWord).join(", ")} – syns inte för coachen`, roles.map((r) => (esc.includes(r) ? "mottagare" : r === "coach" ? "dold" : "nej"))],
     ]],
   ];
 }

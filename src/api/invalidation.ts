@@ -10,7 +10,7 @@ export const NAV = "session.navCounts";
 export const LOG = ["admin.auditLog", "admin.auditDetail"] as const;
 /** Deltagarkortet och alla dess flikar (arenden.kort, kortOversikt … kortHistorik, kortTidslinjeText). */
 export const CARD = "arenden.kort";
-/** Ärendelistan, kortet och handledarens startsida. */
+/** Ärendelistan och kortet. */
 export const CASES = "arenden.";
 /** Coachens skärmar (Min vecka, närvaro, avstämning, månadsbedömning, kartläggning, händelser). */
 export const COACH = "coach.";

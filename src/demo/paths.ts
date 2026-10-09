@@ -34,7 +34,8 @@ const VIEWS: readonly ViewDef[] = [
   { view: "sam.deadlines", pattern: "/forfaller", to: () => "/forfaller" },
   { view: "arenden.lista", pattern: "/arenden", to: (p) => path("/arenden", { filter: str(p.filter) }) },
   { view: "arende.kort", pattern: "/arenden/:caseId", to: (p) => (str(p.caseId) ? path(seg("/arenden", p.caseId), { flik: str(p.tab) }) : "/arenden") },
-  { view: "hand.start", pattern: "/handledare", to: () => "/handledare" },
+  // Handledarens lista (/handledare) är borttagen med rollen (beslut 2026-10-09) – synpunkter med det gamla vy-id:t visar Ärenden.
+  { view: "hand.start", pattern: "/handledare", to: () => "/arenden" },
   { view: "coach.minvecka", pattern: "/min-vecka", to: () => "/min-vecka" },
   { view: "coach.narvaro", pattern: "/narvaro", to: (p) => path("/narvaro", { vecka: p.week === "last" ? "forra" : p.week === "this" ? "denna" : null }) },
   { view: "coach.avstamning", pattern: "/avstamning/:caseId?", to: (p) => path(seg("/avstamning", p.caseId), { avstamning: str(p.checkInId) }) },

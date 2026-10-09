@@ -2,10 +2,10 @@
 // (samma som i den gamla prototypen) plus sökvägen enligt rutt-tabellen i docs/ARKITEKTUR.md.
 // URL:er innehåller bara id:n – aldrig namn eller personnummer.
 
-/** Prototypens vy-id, t.ex. "arende.kort". */
+/** Prototypens vy-id, t.ex. "arende.kort". Handledarens hand.start är borttagen med rollen (beslut 2026-10-09). */
 export type ViewId =
   | "sam.start" | "sam.inkorg" | "sam.deadlines"
-  | "arenden.lista" | "arende.kort" | "hand.start"
+  | "arenden.lista" | "arende.kort"
   | "coach.minvecka" | "coach.narvaro" | "coach.avstamning" | "coach.manad" | "coach.kartlaggning" | "coach.handelse"
   | "rapporter.lista" | "rapport.visa"
   | "chef.oversikt" | "chef.avvikelser"
@@ -33,7 +33,6 @@ export function linkHref(link: ViewLink): string {
     case "sam.deadlines": return "/forfaller";
     case "arenden.lista": return `/arenden${q([["filter", p.filter]])}`;
     case "arende.kort": return `/arenden${seg(p.caseId)}${q([["flik", p.tab]])}`;
-    case "hand.start": return "/handledare";
     case "coach.minvecka": return "/min-vecka";
     case "coach.narvaro": return `/narvaro${q([["vecka", p.week === "last" ? "forra" : p.week === "this" ? "denna" : p.week]])}`;
     case "coach.avstamning": return `/avstamning${seg(p.caseId)}${q([["avstamning", p.checkInId]])}`;

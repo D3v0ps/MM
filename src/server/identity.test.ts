@@ -103,9 +103,11 @@ describe("begränsade testare (alla utom Karim och Ali)", () => {
     expect(sara?.personas.some((p) => p.role === "ekonom")).toBe(false);
     expect(sara?.personas.map((p) => `${p.userId}|${p.role}`)).toEqual(karim?.personas.filter((p) => p.role !== "ekonom").map((p) => `${p.userId}|${p.role}`));
     // Systemadministratör, chef, coach, kommunens handläggare m.fl. finns kvar. Kommunens chef finns inte (beslut 2026-10-07).
-    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "kommun_handlaggare"]) {
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "kommun_handlaggare"]) {
       expect(sara?.personas.some((p) => p.role === role), role).toBe(true);
     }
+    // Rollen handledare är borttagen (Karims beslut 2026-10-09, vilande): ingen testperson har den.
+    expect(karim?.personas.some((p) => p.role === "handledare")).toBe(false);
     expect(sara?.personas.some((p) => (p.role as string) === "kommun_chef")).toBe(false);
   });
 

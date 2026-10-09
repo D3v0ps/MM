@@ -16,20 +16,11 @@ test.use({
 });
 
 const COACH = { userId: "u-amira", role: "coach" };
-const HANDLEDARE = { userId: "u-petra", role: "handledare" };
+/** Petra Ek – var handledare, är coach sedan rollen handledare togs bort (Karims beslut 2026-10-09). Inga egna ärenden. */
+const PETRA = { userId: "u-petra", role: "coach" };
 const MARIA = { userId: "k-maria", role: "kommun_handlaggare" };
 const KARIN = { userId: "u-karin", role: "chef" };
 const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", hodan: "case-260119", mehmet: "case-260130", amal: "case-270012", skyddad: "case-260120" };
-/** Petras teamärenden i testdatat (case_team). Handledaren ser bara dessa. */
-const PETRA_CASES = new Set(
-  (
-    "BOT-26-0008,BOT-26-0009,BOT-26-0013,BOT-26-0015,BOT-26-0019,BOT-26-0021,BOT-26-0027,BOT-26-0031,BOT-26-0036,BOT-26-0041,BOT-26-0043,BOT-26-0052,BOT-26-0053,BOT-26-0054," +
-    "BOT-26-0059,BOT-26-0070,BOT-26-0072,BOT-26-0073,BOT-26-0075,BOT-26-0076,BOT-26-0077,BOT-26-0082,BOT-26-0086,BOT-26-0087,BOT-26-0088,BOT-26-0095,BOT-26-0098,BOT-26-0099," +
-    "BOT-26-0102,BOT-26-0103,BOT-26-0106,BOT-26-0107,BOT-26-0117,BOT-26-0124,BOT-26-0126,BOT-26-0127,BOT-26-0130,BOT-26-0132,BOT-26-0143,BOT-26-0156,BOT-26-0157,BOT-26-0159," +
-    "BOT-26-0160,BOT-26-0163,BOT-26-0165,BOT-26-0166,BOT-26-0167,BOT-26-0169,BOT-26-0176,BOT-26-0181,BOT-27-0004,BOT-27-0008,BOT-27-0009,BOT-27-0013,BOT-27-0016,BOT-27-0021," +
-    "BOT-27-0028,BOT-27-0030,BOT-27-0034,BOT-27-0035,BOT-27-0036,BOT-27-0042,BOT-27-0046"
-  ).split(","),
-);
 
 // ---------------------------------------------------------------- Hjälpare
 const main = (page: Page) => page.locator("main");
@@ -155,24 +146,12 @@ test("Närvaro: snabbregistrering vecka 4 publicerar veckorapporterna automatisk
   expect(errors).toEqual([]);
 });
 
-test("Närvaro: handledaren ser bara sina teamärenden", async ({ page }, info) => {
-  const errors = await open(page, info, "/narvaro?vecka=forra", HANDLEDARE);
-  await expect(page.getByText("Handledare – dina teamärenden")).toBeVisible();
-  await expect(page.getByText("Du ser tillfällen för de 63 ärenden där du ingår i teamet.")).toBeVisible();
-  await expect(page.getByTestId("narvaro-raknare")).toContainText("2 tillfällen kvar – senast måndag 10.00");
-  await btn(page, "Alla (81)").click();
-  await expect(page.getByTestId("narvaro-rad")).toHaveCount(81);
-  const shown = (await page.getByTestId("arendenummer").allInnerTexts()).map((x) => x.trim());
-  expect(shown.length).toBe(81);
-  expect(shown.every((n) => PETRA_CASES.has(n))).toBeTruthy();
-  expect(shown).not.toContain("BOT-26-0120"); // skyddade personuppgifter
-  expect(shown).not.toContain("BOT-27-0003"); // Amiras ärende utan Petra i teamet
-  await page.getByRole("button", { name: /^Den här veckan/ }).click();
-  await expect(page.getByRole("button", { name: /^Den här veckan/ })).toHaveAttribute("aria-pressed", "true");
-  await expect(card(page, "Veckorapporter – vecka 5")).toContainText("Veckorapporten för vecka 5 skapas måndag 8 februari");
-  // Ingen brödsmula till coachens startsida på sidan (Min vecka finns i handledarens egen meny sedan 2026-10-06).
-  await expect(main(page).getByText("Min vecka")).toHaveCount(0);
-  await expect(page.getByRole("navigation", { name: "Brödsmulor" })).toHaveCount(0);
+test("Närvaro: rollen handledare finns inte – Petra (coach utan egna ärenden) ser coachens vy utan teamärenden", async ({ page }, info) => {
+  const errors = await open(page, info, "/narvaro?vecka=forra", PETRA);
+  await expect(main(page)).toContainText("Snabbregistrering");
+  await expect(main(page)).not.toContainText("Handledare – dina teamärenden");
+  await expect(main(page)).not.toContainText("där du ingår i teamet");
+  await expect(page.getByTestId("narvaro-rad")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

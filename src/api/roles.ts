@@ -1,6 +1,18 @@
 // Roller enligt SPEC §4. Nyckeln används i kod, etiketten visas.
 export const SUPPLIER_ROLES = ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const;
 /**
+ * Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
+ * Rollen finns inte i verkligheten (två jobbcoacher = rollen coach). Den ligger kvar i typen, i databasens rollista och i
+ * RLS-reglerna (och i src/core/access.ts och src/data/policy.ts), men ingen kan få den eller se den: Lägg till kollega och
+ * Ändra roller tar bara emot STAFF_ROLES, och menyn, rutterna, testpersonerna och teamvalen har den inte.
+ */
+export const DORMANT_ROLES = ["handledare"] as const;
+export type DormantRole = (typeof DORMANT_ROLES)[number];
+export const isDormantRole = (role: string): role is DormantRole => (DORMANT_ROLES as readonly string[]).includes(role);
+/** Rollerna en kollega kan få i appen (Lägg till kollega, Ändra roller) – Miljonbemannings roller utom de vilande. */
+export const STAFF_ROLES = ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const satisfies readonly Exclude<(typeof SUPPLIER_ROLES)[number], DormantRole>[];
+export type StaffRole = (typeof STAFF_ROLES)[number];
+/**
  * Kommunens roller. Beslut 2026-10-07 (synpunkt #14): kommunen har bara rollen handläggare – rollen kommunens chef är
  * borttagen. Alla med en adress på avtalets kommundomän kan skapa ett konto själva (contracts.config.selfRegistration).
  */

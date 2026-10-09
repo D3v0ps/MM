@@ -10,7 +10,6 @@ type As = { userId: string; role: string };
 const SAMORDNARE: As = { userId: "u-sara", role: "samordnare" };
 const AVTALSANSVARIG: As = { userId: "u-johan", role: "avtalsansvarig" };
 const COACH: As = { userId: "u-amira", role: "coach" };
-const HANDLEDARE: As = { userId: "u-petra", role: "handledare" };
 const HANDLAGGARE: As = { userId: "k-maria", role: "kommun_handlaggare" };
 
 // Testdatat (samma id:n som i den gamla prototypen)
@@ -31,7 +30,6 @@ const AMIRA_ACTIVE = { id: "case-260119", number: "BOT-26-0119" };
 // Ärendet som var skyddat före 2026-10-07 (Omar Farahs beställning) – nu ett vanligt ärende.
 const PROT_JAN = "rep-15885";
 const PROT_DEL = "rep-15882";
-const PETRA_FINAL = "rep-16265";
 const DRAFT_FINAL = { id: "rep-16356", lead: "u-leila" };
 
 // ---------------------------------------------------------------- Hjälpare
@@ -362,7 +360,8 @@ test("7. veckorapport som väntar på närvaro publiceras när allt är registre
   t = await mainText(page);
   expect(t).toMatch(/Levererad version – låst sedan/);
   expect(t).not.toMatch(/Väntar på närvaroregistrering/);
-  await go(page, info, `/rapporter/${WEEKLY_WAIT}`, HANDLEDARE);
+  // En annan coach (Petra, tidigare handledare – rollen borttagen 2026-10-09) läser den levererade veckorapporten.
+  await go(page, info, `/rapporter/${WEEKLY_WAIT}`, { userId: "u-petra", role: "coach" });
   t = await mainText(page);
   expect(t).toMatch(/VECKORAPPORT NÄRVARO|Veckorapport närvaro/);
   expect(t).not.toMatch(/visas inte för handledare/i);
@@ -393,23 +392,17 @@ test("8. slutrapport efter avslut: coachens text, sedan godkänn", async ({ page
 });
 
 // ================================================================ 9. Behörighet
-test("9. behörighet: ärendet som var skyddat är ett vanligt ärende, handledare och slutrapport utan text", async ({ page }, info) => {
+// Rollen handledare är borttagen (Karims beslut 2026-10-09): förklaringen "visas inte för handledare" prövas för den vilande
+// rollen i enhetstesterna (src/features/rapporter/handlers.test.ts) – ingen testperson har rollen.
+test("9. behörighet: ärendet som var skyddat är ett vanligt ärende och slutrapport utan text", async ({ page }, info) => {
   // Skyddade personuppgifter är borttagna ur appen (beslut 2026-10-07, spärren vilande): samordnaren ser rapporten.
   const errors = await open(page, info, `/rapporter/${PROT_JAN}`, SAMORDNARE);
-  let t = await mainText(page);
+  const t = await mainText(page);
   expect(t).toMatch(/1\. GRUNDUPPGIFTER/i);
   expect(t).not.toMatch(/Skyddade personuppgifter/);
   // En annan handläggares deltagare (Omar Farahs beställning) syns inte för Maria.
   await go(page, info, `/portal/rapporter/${PROT_DEL}`, HANDLAGGARE);
   await expect(main(page)).toContainText("inte tillgänglig för dig");
-
-  await go(page, info, `/rapporter/${NADIA_DEC}`, HANDLEDARE);
-  t = await mainText(page);
-  expect(t).toMatch(/visas inte för handledare/i);
-  expect(t).not.toMatch(/4\. PROGRESSION/i);
-  expect(t).not.toMatch(/8\. COACHENS SAMMANFATTANDE/i);
-  await go(page, info, `/rapporter/${PETRA_FINAL}`, HANDLEDARE);
-  expect(await mainText(page)).toMatch(/visas inte för handledare/i);
 
   // En godkänd slutrapport utan coachens text kan inte levereras (texten skapas inte automatiskt).
   await commands(page, info, [{ key: "rapporter.reportApprove", input: { reportId: DRAFT_FINAL.id }, as: { userId: DRAFT_FINAL.lead, role: "coach" } }]);

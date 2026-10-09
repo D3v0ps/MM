@@ -227,9 +227,10 @@ export type DecisionForm = {
   displayName: string;
   avropSla: SlaInfo | null;
   coaches: { id: string; name: string; active: number }[];
-  /** Handledare (rollen handledare i avtalet – beslut 2026-10-08, inte profiles.teamRole). */
-  helpers: { id: string; name: string; teamRole: "vocational_supervisor" | "employer_matcher" | "guidance_counselor"; label: string }[];
-  /** Arbetsgivarmatchare och SYV/metodstöd kan vara vem som helst av MB-personalen utom ekonom och systemadministratör. */
+  /**
+   * Arbetsgivarmatchare och SYV/metodstöd kan vara vem som helst av MB-personalen utom ekonom och systemadministratör.
+   * Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09).
+   */
   staff: { id: string; name: string }[];
   firstMeetingDue: string | null;
   desiredStart: string | null;

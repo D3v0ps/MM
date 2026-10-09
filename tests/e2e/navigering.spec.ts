@@ -361,7 +361,7 @@ test("byte av testperson med osparad text: appen frågar först – Stanna kvar 
 test("byte av testperson: på ett deltagarkort leder bytet till startsidan, på en lista stannar man", async ({ page }, info) => {
   test.skip(isDemo(info), "Utvecklingslägets val av testperson finns bara i appen.");
   const errors = await open(page, info, "/arenden/case-260145", AMIRA);
-  await page.selectOption("#dev-persona", "u-petra|handledare");
+  await page.selectOption("#dev-persona", "u-lars|ekonom");
   await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/min-vecka");
   await loaded(page);
   await expect(main(page)).not.toContainText("Åtkomst saknas");

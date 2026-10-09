@@ -3,6 +3,7 @@
 // som testpersonerna i rollväljaren (behörighet via policy.ts), precis som prototypen och riktiga appen.
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import { execute } from "@/api/handlers";
 import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
@@ -44,7 +45,8 @@ const row = <N extends TableName>(name: N, id: string): Tables[N] | undefined =>
 const sara = () => as("u-sara", "samordnare");
 const johan = () => as("u-johan", "avtalsansvarig");
 const amira = () => as("u-amira", "coach");
-const petra = () => as("u-petra", "handledare");
+/** Den vilande rollen handledare (beslut 2026-10-09) – se dormant-role.test-helper.ts. */
+const petra = () => dormantSupervisor();
 const maria = () => as("k-maria", "kommun_handlaggare");
 const omar = () => as("k-omar", "kommun_handlaggare");
 
@@ -476,10 +478,11 @@ describe("9. behörighet", () => {
   it("handledaren får en förklaring i stället för månads- och slutrapporter", async () => {
     expect(await ask(reportView, { reportId: NADIA_DEC }, petra())).toMatchObject({ ok: false, reason: "handledare" });
     expect(await doc(NADIA_DEC, petra())).toMatchObject({ ok: false, reason: "handledare" });
-    const fin = rows("reports").find((r) => r.kind === "final" && rows("case_team").some((t) => t.caseId === r.caseId && t.userId === "u-petra"));
-    if (fin) expect(await ask(reportView, { reportId: fin.id }, petra())).toMatchObject({ ok: false, reason: "handledare" });
-    const order = rows("reports").find((r) => r.kind === "order_confirmation" && rows("case_team").some((t) => t.caseId === r.caseId && t.userId === "u-petra"));
-    if (order) expect(await ask(reportView, { reportId: order.id }, petra())).toMatchObject({ ok: false, reason: "handledare_order" });
+    // Den vilande rollen når alla ärenden i avtalet (beslut 2026-10-09) – teamplatsen spelar ingen roll.
+    const fin = rows("reports").find((r) => r.kind === "final")!;
+    expect(await ask(reportView, { reportId: fin.id }, petra())).toMatchObject({ ok: false, reason: "handledare" });
+    const order = rows("reports").find((r) => r.kind === "order_confirmation")!;
+    expect(await ask(reportView, { reportId: order.id }, petra())).toMatchObject({ ok: false, reason: "handledare_order" });
   });
 
   it("coachen ser kollegornas rapporter (beslut 2026-10-09) – men inte i ett skyddat ärende (vilande spärr)", async () => {

@@ -1,7 +1,11 @@
 // Teamet i ett ärende (beslut 2026-10-08, skarp drift): kandidaterna bygger på medlemskapens roller i avtalet – inte på
-// profiles.teamRole, som bara testdatat sätter. Rollen coach ger huvudcoach-listan, rollen handledare ger handledar-listan,
-// och arbetsgivarmatchare eller SYV/metodstöd kan vara vem som helst av Miljonbemannings personal utom ekonom och
-// systemadministratör. Används av Acceptera-dialogen, Ändra team på deltagarkortet och kommandona som skriver case_team.
+// profiles.teamRole, som bara testdatat sätter. Rollen coach ger huvudcoach-listan, och arbetsgivarmatchare eller SYV/metodstöd
+// kan vara vem som helst av Miljonbemannings personal utom ekonom och systemadministratör. Används av Acceptera-dialogen, Ändra
+// team på deltagarkortet och kommandona som skriver case_team.
+//
+// Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration. Teamvalet
+// Handledare (teamrollen vocational_supervisor, yrkesspecifik handledare) finns inte längre: ingen kan få teamrollen
+// (ROLES_FOR_TEAM_ROLE är tom), men värdet ligger kvar i databasens lista och i typen.
 import type { Role } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import { coaches } from "@/core/cases";
@@ -9,11 +13,11 @@ import type { Profile, TeamRole } from "@/data/schema";
 import { hasRoleIn } from "./context";
 
 /** MB-roller som kan vara arbetsgivarmatchare eller SYV/metodstöd i ett team. */
-export const TEAM_STAFF_ROLES: readonly Role[] = ["coach", "handledare", "samordnare", "avtalsansvarig", "chef"];
-/** Roller i avtalet som får ha respektive teamroll. */
+export const TEAM_STAFF_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig", "chef"];
+/** Roller i avtalet som får ha respektive teamroll. Yrkesspecifik handledare: ingen (vilande, beslut 2026-10-09). */
 export const ROLES_FOR_TEAM_ROLE: Record<TeamRole, readonly Role[]> = {
   lead_coach: ["coach"],
-  vocational_supervisor: ["handledare", "coach"],
+  vocational_supervisor: [],
   employer_matcher: TEAM_STAFF_ROLES,
   guidance_counselor: TEAM_STAFF_ROLES,
 };
@@ -22,8 +26,6 @@ export type TeamCandidate = { id: string; name: string };
 export type TeamCandidates = {
   /** Rollen coach i avtalet (huvudcoach). */
   coaches: Profile[];
-  /** Rollen handledare i avtalet (yrkesspecifik handledare). */
-  supervisors: TeamCandidate[];
   /** Alla MB-roller utom ekonom och systemadministratör (arbetsgivarmatchare, SYV/metodstöd). */
   staff: TeamCandidate[];
 };
@@ -41,7 +43,6 @@ export async function teamCandidates(ctx: Ctx, contractId: string): Promise<Team
   };
   return {
     coaches: coaches({ profiles: active, memberships }, contractId).sort((a, b) => a.fullName.localeCompare(b.fullName, "sv")),
-    supervisors: withRole(["handledare"]),
     staff: withRole(TEAM_STAFF_ROLES),
   };
 }

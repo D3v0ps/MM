@@ -393,7 +393,7 @@ describe("alla sidor för begränsade testare: inga belopp i kronor, inga prisny
     ["arenden.kort", { caseId: CASE }, "u-karin", "chef"], ["arenden.kort", { caseId: CASE }, "u-robin", "admin"], ["arenden.kort", { caseId: "case-260119" }, "u-amira", "coach"],
     ["arenden.kortOversikt", { caseId: CASE }, "u-sara", "samordnare"], ["arenden.kortHandelser", { caseId: "case-260007" }, "u-sara", "samordnare"],
     ["arenden.kortRapporter", { caseId: CASE }, "u-sara", "samordnare"], ["arenden.kortTidslinje", { caseId: CASE }, "u-sara", "samordnare"],
-    ["arenden.kortManad", { caseId: CASE }, "u-sara", "samordnare"], ["arenden.handledare", {}, "u-petra", "handledare"],
+    ["arenden.kortManad", { caseId: CASE }, "u-sara", "samordnare"], ["arenden.lista", {}, "u-petra", "coach"],
     ["coach.minVecka", {}, "u-amira", "coach"], ["coach.narvaro", {}, "u-amira", "coach"], ["coach.eventsPage", { caseId: "case-260119" }, "u-amira", "coach"],
     ["ledning.overview", {}, "u-karin", "chef"], ["ledning.cdevRegister", {}, "u-sara", "samordnare"], ["ledning.cdevMonth", { month: "2027-01" }, "u-karin", "chef"],
     ["kommun.start", {}, "k-maria", "kommun_handlaggare"], ["kommun.bestallning", {}, "k-maria", "kommun_handlaggare"], ["kommun.deltagareLista", {}, "k-maria", "kommun_handlaggare"],
@@ -443,7 +443,7 @@ describe("beslut 5: belopp bara för rollen ekonom – alla andra roller får te
     ["arenden.lista", {}, "u-sara", "samordnare"], ["arenden.lista", {}, "u-karin", "chef"], ["arenden.lista", {}, "u-robin", "admin"], ["arenden.lista", {}, "u-johan", "avtalsansvarig"],
     ["arenden.kort", { caseId: "case-260117" }, "u-karin", "chef"], ["arenden.kort", { caseId: "case-260117" }, "u-robin", "admin"], ["arenden.kort", { caseId: "case-260117" }, "u-johan", "avtalsansvarig"],
     ["arenden.kort", { caseId: "case-260119" }, "u-amira", "coach"], ["arenden.kortHandelser", { caseId: "case-260008" }, "u-sara", "samordnare"],
-    ["arenden.kortOversikt", { caseId: "case-260117" }, "u-sara", "samordnare"], ["arenden.handledare", {}, "u-petra", "handledare"],
+    ["arenden.kortOversikt", { caseId: "case-260117" }, "u-sara", "samordnare"], ["arenden.lista", {}, "u-petra", "coach"],
     ["coach.minVecka", {}, "u-amira", "coach"], ["coach.eventsPage", { caseId: "case-260008" }, "u-amira", "coach"],
     ["ledning.head", {}, "u-karin", "chef"], ["ledning.overview", {}, "u-karin", "chef"], ["ledning.coaches", {}, "u-karin", "chef"], ["ledning.areas", {}, "u-karin", "chef"],
     ["ledning.cdevRegister", {}, "u-karin", "chef"], ["ledning.cdevRegister", {}, "u-johan", "avtalsansvarig"], ["ledning.cdevRegister", {}, "u-sara", "samordnare"],
@@ -455,7 +455,9 @@ describe("beslut 5: belopp bara för rollen ekonom – alla andra roller får te
   ];
 
   it("Ekonomis frågor och kommandon nekas för varje roll utom ekonomen (403, rollen saknar behörighet)", async () => {
-    const others = listPersonas(rt.raw()).filter((p) => p.actor.role !== "ekonom");
+    // Rollen handledare är vilande (beslut 2026-10-09): ingen testperson har den – aktören byggs här så att den också prövas.
+    const dormant = { actor: { userId: "u-petra", role: "handledare", contractIds: ["c-bot"], customerUnit: null } satisfies Actor };
+    const others = [...listPersonas(rt.raw()).filter((p) => p.actor.role !== "ekonom"), dormant];
     expect(new Set(others.map((p) => p.actor.role))).toEqual(new Set(["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin", "kommun_handlaggare", "deltagare"]));
     for (const p of others) {
       for (const key of EKONOMI) {

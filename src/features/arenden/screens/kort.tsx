@@ -47,7 +47,7 @@ type ModalKind = "coach" | "meeting" | "consent" | "start" | "plan" | "activity"
 
 function useCrumbs() {
   const role = useSession().actor.role;
-  return [role === "handledare" ? { label: "Mina tilldelade ärenden", to: "/handledare" } : { label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
+  return [{ label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
 }
 
 export function DeltagarkortScreen({ params, query }: ScreenProps) {

@@ -485,7 +485,6 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
     areaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : "Avtalsområde inte valt",
     displayName: person ? `${person.firstName} ${person.lastName}` : "–", avropSla: avrop ? sla(avrop, null, e.now) : null,
     coaches: coachesOf({ profiles: d.profiles, memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
-    helpers: cand.supervisors.map((u) => ({ id: u.id, name: u.name, teamRole: "vocational_supervisor" as const, label: lc(teamLabel("vocational_supervisor")) })),
     staff: cand.staff,
     firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),

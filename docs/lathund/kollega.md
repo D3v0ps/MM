@@ -29,7 +29,7 @@ Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver g
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
-- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**, handledaren **Mina tilldelade ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen och handledaren har också **Närvaro**.
+- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen har också **Närvaro**.
 - Högst en rollflik, till exempel **Samordning**, **Ekonomi** eller **Ledning**.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
@@ -64,7 +64,7 @@ Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du v
 
 ## Huvudcoach
 
-Coachen har ingen egen rollflik. Allt finns under **Min vardag**.
+Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns under **Min vardag**.
 
 ### Starta insatsen
 
@@ -98,10 +98,6 @@ Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **All
 4. Godkänn bedömningen. Månadsrapporten till kommunen byggs av den.
 
 Händelser och avslut registrerar du under **Registrera händelse** respektive **Avsluta insatsen**.
-
-## Handledare
-
-Handledaren ser **Mina tilldelade ärenden** och **Närvaro** under Min vardag. Du registrerar närvaro för dina tillfällen och följer deltagarnas praktik under **Arbetsgivare och praktik**.
 
 ## Arbetsgivarmatchare
 

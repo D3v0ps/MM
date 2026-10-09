@@ -11,7 +11,7 @@ import { NarvaroScreen } from "./screens/narvaro";
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
 export const routes: RouteDef[] = [
-  { path: "/narvaro", title: "Närvaro", roles: ["coach", "handledare"], area: "mb", screen: NarvaroScreen },
+  { path: "/narvaro", title: "Närvaro", roles: ["coach"], area: "mb", screen: NarvaroScreen },
   { path: "/avstamning/:caseId?", title: "Möte", roles: ["coach"], area: "mb", screen: AvstamningScreen },
   {
     path: "/manadsbedomning/:caseId?",

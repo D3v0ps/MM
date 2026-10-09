@@ -20,11 +20,14 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
       ],
     ]);
   });
-  it("coach och handledare: bara Min vardag", () => {
+  it("coach: bara Min vardag – den vilande rollen handledare har ingen meny (Karims beslut 2026-10-09)", () => {
     expect(labels("coach")).toEqual([
       ["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro #unregistered", "Mina ärenden /arenden", "Rapporter /rapporter", "Arbetsgivare och praktik /praktik"]],
     ]);
-    expect(labels("handledare")).toEqual([["Min vardag", ["Min vecka /min-vecka", "Närvaro /narvaro", "Mina tilldelade ärenden /handledare", "Arbetsgivare och praktik /praktik"]]]);
+    expect(navFor("handledare", { now: "2027-02-01T09:12" })).toEqual([]);
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const) {
+      expect(navFor(role, { now: "2027-02-01T09:12" }).flatMap((g) => g.items.map((i) => `${i.label} ${i.to}`)).join(" "), role).not.toMatch(/handledare|tilldelade/i);
+    }
   });
   it("chef: Min vardag + Ledning", () => {
     expect(labels("chef")).toEqual([
@@ -49,7 +52,7 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
     expect(labels("ekonom", null)[1][1]).toEqual(["Fakturering /ekonomi", "Prislista /ekonomi/prislista"]);
   });
   it("alla MB-roller börjar menyn med Min vecka, och högst en rollflik", () => {
-    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) {
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const) {
       const groups = navFor(role, { now: "2027-02-01T09:12" });
       expect(groups[0].label, role).toBe("Min vardag");
       expect(groups[0].items[0].to, role).toBe("/min-vecka");
