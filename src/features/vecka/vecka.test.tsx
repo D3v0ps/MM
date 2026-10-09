@@ -135,7 +135,7 @@ describe("Min vecka per roll", () => {
 
   it("coachen: förebilden är oförändrad (samma rubriker och rutor)", async () => {
     const { keys } = setup("coach");
-    const h = await headings("Dagens möten");
+    const h = await headings("Dagens aktiviteter");
     expect(KPI_LABELS()).toEqual(["Närvaro att registrera", "Aktiviteter i dag", "Mötesrapporter att granska", "Månads­bedömningar januari"]);
     expect(KPI_LINKS()).toEqual({});
     for (const t of ["Påminnelser", "Olästa notiser"]) expect(h, t).toContain(t);

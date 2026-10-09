@@ -26,6 +26,7 @@ import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
 import { aiOff, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
+import { recordingOffered } from "../_shared/ai-types";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
@@ -229,6 +230,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       return {
         id: a.id, ...row(c), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin, location: a.location,
         attendance: at ? { status: at.status, reason: at.reason } : null, checkIn: ci ? { id: ci.id, approved: ci.status === "approved" } : null,
+        recordable: recordingOffered(c.aiConsentStatus),
       };
     }),
     next: next ? { id: next.id, shortName: shortNameOf(person(caseById.get(next.caseId) as Case)) } : null,

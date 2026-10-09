@@ -17,7 +17,7 @@ import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchem
 import type { WeeklyPublished } from "../_shared/weekly";
 
 export type { AiFieldSuggestion, AiField, AiSource, CheckInSuggestions } from "../_shared/ai-types";
-export { AI_FIELDS, AI_SOURCES } from "../_shared/ai-types";
+export { AI_FIELDS, AI_SOURCES, recordingOffered } from "../_shared/ai-types";
 export type { WeeklyPublished } from "../_shared/weekly";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -357,6 +357,8 @@ export type TodayActivity = {
   attendance: AttMark;
   /** Dagens avstämning för coachträffen, om den påbörjats. */
   checkIn: { id: string; approved: boolean } | null;
+  /** Inspelning erbjuds (deltagaren har inte sagt nej eller återkallat samtycket) – annars är "Nytt möte" vägen. */
+  recordable: boolean;
 };
 export type CalendarActivity = {
   id: string;

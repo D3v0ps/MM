@@ -638,6 +638,15 @@ test("Deltagarkortet: Spela in mötet öppnar sidan MÖTE med inspelningsläget 
   await expect(btn(src, "Spela in mötet")).toHaveAttribute("aria-pressed", "true");
   await expect(btn(page, isDemo(info) ? "Simulera en inspelning" : "Starta inspelning")).toBeVisible();
   await expect(main(page)).toContainText("Spela in mötet eller fyll i mötesrapporten själv.");
+  // Yusuf har sagt nej till inspelning: huvudknappen är Nytt möte och ingen inspelningsknapp visas (kortet och fliken Möten).
+  await go(page, info, `/arenden/${SC.yusuf}`);
+  const yusuf = page.getByRole("group", { name: "Åtgärder" });
+  await expect(yusuf.getByRole("link", { name: "Nytt möte", exact: true })).toBeVisible();
+  await expect(yusuf.getByRole("link", { name: "Spela in mötet", exact: true })).toHaveCount(0);
+  await expect(yusuf.getByRole("link", { name: "Nytt möte utan inspelning", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: /^Möten/ }).click();
+  await expect(page.getByRole("link", { name: "Spela in mötet", exact: true })).toHaveCount(0);
+  await expect(card(page, /^Möten/).getByRole("link", { name: "Nytt möte", exact: true })).toHaveCount(1);
   await noBadText(page);
   expect(errors).toEqual([]);
 });
