@@ -78,7 +78,7 @@ test("coachen spelar in avstämningen: paus, stopp, transkribering, ljudet rader
   await btn(page, "Stoppa och tolka").click();
   await expect(page.getByText(/Laddar upp inspelningen|Transkriberar/).first()).toBeVisible();
   await page.getByText("Ljudet är raderat").waitFor({ timeout: 20_000 });
-  await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(7);
+  await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(8);
   // Fasen nämns inte i samtalet: "Framgår inte" och inget förslag att acceptera. Samlad status föreslås aldrig.
   await expect(aiGroup(page, "fas")).toContainText("Framgår inte");
   await expect(btn(aiGroup(page, "fas"), "Acceptera")).toHaveCount(0);
@@ -86,11 +86,11 @@ test("coachen spelar in avstämningen: paus, stopp, transkribering, ljudet rader
   await expect(page.getByRole("note").filter({ hasText: "Testmiljö: AI:n är simulerad" }).first()).toBeVisible();
   await expect(page.getByText("Simulerad AI (testdata)")).toHaveCount(0);
   await expect(page.getByText(/^måndag 1 feb 2027 kl\. \d\d\.\d\d – direkt efter transkriberingen$/)).toBeVisible();
-  for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
+  for (const f of ["kommentar om närvaron", "veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await page.getByRole("group", { name: "Samlad status", exact: true }).getByRole("button", { name: /Gul/ }).click();
   await btn(page, "Godkänn mötesrapporten").click();
   await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
-  await expect(main(page)).toContainText(/AI-förslag\s*6 \/ 0 \/ 0/i);
+  await expect(main(page)).toContainText(/AI-förslag\s*7 \/ 0 \/ 0/i);
   await expect(page.getByText("Ljudet raderades direkt efter transkriberingen", { exact: true })).toBeVisible();
   await expect(page.getByText("Råtranskriptet raderades vid godkännandet", { exact: true })).toBeVisible();
   expect(relevant(errors)).toEqual([]);

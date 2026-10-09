@@ -79,7 +79,7 @@ describe("coachen spelar in avstämningen", () => {
     const s = res.result.suggestions;
     expect(s).not.toBeNull();
     // Förslag bara med belägg (citat ur samtalet + tidpunkt). Fasen nämns inte: "Framgår inte". Samlad status föreslås aldrig.
-    expect(s && Object.keys(s).sort()).toEqual(["activitiesDone", "employerContacts", "goalStatus", "nextGoal", "note", "obstacles", "phase"]);
+    expect(s && Object.keys(s).sort()).toEqual(["activitiesDone", "attendanceComment", "employerContacts", "goalStatus", "nextGoal", "note", "obstacles", "phase"]);
     expect(s?.phase).toMatchObject({ value: null, noEvidence: true, quote: "Framgår inte av samtalet. Fasen ändras inte." });
     const withEvidence = Object.values(s ?? {}).filter((x) => !x.noEvidence);
     expect(withEvidence).toHaveLength(6);

@@ -637,7 +637,7 @@ test("Deltagarkortet: Spela in mötet öppnar sidan MÖTE med inspelningsläget 
   const src = page.getByRole("group", { name: "Källa" });
   await expect(btn(src, "Spela in mötet")).toHaveAttribute("aria-pressed", "true");
   await expect(btn(page, isDemo(info) ? "Simulera en inspelning" : "Starta inspelning")).toBeVisible();
-  await expect(main(page)).toContainText("Spela in mötet medan ni pratar.");
+  await expect(main(page)).toContainText("Spela in mötet eller fyll i mötesrapporten själv.");
   await noBadText(page);
   expect(errors).toEqual([]);
 });
