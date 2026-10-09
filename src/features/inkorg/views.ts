@@ -454,7 +454,8 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
   const active = (uid: string) => d.cases.filter((x) => x.leadCoachId === uid && ["confirmed", "active", "paused"].includes(x.status)).length;
   const helperIds = new Set(memberships.filter((x) => x.role === "handledare").map((x) => x.userId));
-  const helpers = d.profiles.filter((u) => helperIds.has(u.id) && u.active !== false && u.teamRole && u.teamRole !== "lead_coach");
+  // Handledare utan teamroll (alla som bjudits in i appen) räknas som yrkesspecifik handledare – samma standard som acceptdialogen.
+  const helpers = d.profiles.filter((u) => helperIds.has(u.id) && u.active !== false && u.teamRole !== "lead_coach");
   const due = firstMeetingDue(c, e.cfg);
   const avrop = avropDue(c, e.cfg);
   const sup = pendingSups(d, c)[0] ?? null;
@@ -464,7 +465,10 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
     areaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : "Avtalsområde inte valt",
     displayName: person ? `${person.firstName} ${person.lastName}` : "–", avropSla: avrop ? sla(avrop, null, e.now) : null,
     coaches: coachesOf({ profiles: d.profiles, memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
-    helpers: helpers.map((u) => ({ id: u.id, name: u.fullName, teamRole: u.teamRole as "vocational_supervisor" | "employer_matcher" | "guidance_counselor", label: lc(teamLabel(u.teamRole as string)) })),
+    helpers: helpers.map((u) => {
+      const teamRole = (u.teamRole ?? "vocational_supervisor") as "vocational_supervisor" | "employer_matcher" | "guidance_counselor";
+      return { id: u.id, name: u.fullName, teamRole, label: lc(teamLabel(teamRole)) };
+    }),
     firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
     areas: activeAreas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
@@ -539,7 +543,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     const hide = e.hideCommercial;
     kpis.push({
       key, label: v.label, value: v.value == null ? "–" : pct(v.value), below: !hide && v.status === "below_internal",
-      sub: `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
+      // Inga avrop i månaden: bara månaden (rutan säger "Inga avrop ännu").
+      sub: v.den === 0 ? monthName(lastMonth).replace(/^./, (x) => x.toUpperCase()) : `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
       meter: v.value != null
         ? hide
           ? { value: v.value, valueText: pct(v.value), target: null, targetText: "" }

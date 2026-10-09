@@ -199,7 +199,7 @@ export function Tabs<T extends string>({
               onTouchStart={onIntent ? () => onIntent(t.id) : undefined}
               className={cn(
                 "-mb-0.5 inline-flex min-h-11 cursor-pointer items-center gap-1.5 border-0 border-b-[3px] border-transparent bg-transparent px-3.5 py-2.5 text-ui font-semibold whitespace-nowrap text-text-muted",
-                "hover:text-antracit aria-selected:border-rod aria-selected:font-extrabold aria-selected:text-antracit portal:text-body",
+                "hover:text-antracit aria-selected:border-rod aria-selected:text-antracit portal:text-body",
               )}
             >
               {t.icon && <Icon name={t.icon} />}

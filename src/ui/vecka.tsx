@@ -3,6 +3,7 @@
 // avsnitt och högerkolumn, men med rollens egna uppgifter. Delarna kommer från coachens Min vecka
 // (src/features/coach/screens/min-vecka.tsx) utan ändring i markup eller klasser. Stilreglerna: src/ui/README.md.
 import type { ReactNode } from "react";
+import { ROLE_LABEL, type Role } from "@/api/roles";
 import { fmtDateTimeLong, fmtWeekday, isoWeek, type LocalDate } from "@/core/time";
 import { Link } from "@/shell/nav";
 import { useSession } from "@/shell/session";
@@ -25,13 +26,26 @@ export function weekLead(today: LocalDate | null): string {
 }
 
 /**
- * Sidan Min vecka: rubriken MIN VECKA, ögonbrynet "Namn · Titel", veckoingressen och en primär knapp (actions).
+ * Ögonbrynet "Namn · Titel". Rollens etikett (samma som i sidopanelen) i stället för titeln när titeln saknas, när titeln
+ * själv är ett rollnamn (t.ex. "Systemadministratör" på alla) eller när kollegan har flera roller – då säger titeln inte
+ * vilken roll sidan visas i.
+ */
+export function weekEyebrow(user: { name: string; title?: string | null }, role: Role, ownRoles?: readonly Role[] | null): string | undefined {
+  if (!user.name) return undefined;
+  const title = (user.title ?? "").trim();
+  const isRoleName = Object.values(ROLE_LABEL).some((l) => l.toLowerCase() === title.toLowerCase());
+  const useRole = (ownRoles?.length ?? 0) > 1 || !title || isRoleName;
+  return `${user.name} · ${useRole ? ROLE_LABEL[role] : title}`;
+}
+
+/**
+ * Sidan Min vecka: rubriken MIN VECKA, ögonbrynet "Namn · Titel" (weekEyebrow), veckoingressen och en primär knapp (actions).
  * today = dagens datum (demoklockan i prototypen och minnesläget); null medan klockan hämtas.
  */
 export function WeekPage({ today, actions, className, children }: { today: LocalDate | null; actions?: ReactNode; className?: string; children?: ReactNode }) {
-  const { user } = useSession();
+  const { user, actor, ownRoles } = useSession();
   return (
-    <Page title="Min vecka" eyebrow={user.name ? `${user.name} · ${user.title}` : undefined} lead={weekLead(today)} actions={actions} className={className}>
+    <Page title="Min vecka" eyebrow={weekEyebrow(user, actor.role, ownRoles)} lead={weekLead(today)} actions={actions} className={className}>
       {children}
     </Page>
   );

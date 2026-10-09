@@ -5,12 +5,13 @@
 // bakgrundsinformation och bilagor visas som underlag. Inga belopp.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { ParamsOf } from "@/api/contract";
-import { addWorkingDays, dayOf, diffDays, fmtDate, fmtWeekday, holidayName, isWorkingDay, orderPeriodEnd } from "@/core/time";
+import { addWorkingDays, dayOf, fmtDate, fmtWeekday, holidayName, isWorkingDay, orderPeriodEnd } from "@/core/time";
 import { caseAccept, caseDecline, ORDER_REASON_MAX, ORDER_REASON_MIN } from "@/features/arenden/api";
 import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
+import { useSession } from "@/shell/session";
 import {
-  BuildPhase, Button, Check, cn, DateInput, ErrorNotice, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Seg, Select, SlaBadge, TextArea, TimeInput, toast,
+  Button, Check, cn, DateInput, ErrorNotice, ErrorSummary, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Seg, Select, SlaBadge, TextArea, TimeInput, toast,
 } from "@/ui";
 import { inboxCorrect, inboxDecisionForm, type CorrectForm, type DecisionForm } from "../api";
 import { DECLINE_REASONS, FIELD_LABEL, ORDER_FIELDS, refErrorMB, type OrderFieldKey } from "../texts";
@@ -56,6 +57,9 @@ const periodOptions = (p: { months: number[]; allowOther: boolean }) => [
 
 function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void; next: NextAction }) {
   const accept = useCommand(caseAccept);
+  const role = useSession().actor.role;
+  // Ingen kollega har rollen huvudcoach ännu (tom databas): avropet kan inte accepteras förrän någon fått rollen.
+  const noCoach = f.coaches.length === 0;
   const [coach, setCoach] = useState("");
   const [team, setTeam] = useState<string[]>([]);
   const [date, setDate] = useState(f.defaultDate);
@@ -103,7 +107,6 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
     ["period", "ink-period"], ["end", "ink-end"], ["reason", "ink-reason"], ["ref", "ink-ref"],
   ];
   const late = !!date && !!f.firstMeetingDue && date > dayOf(f.firstMeetingDue);
-  const daysAfter = date ? diffDays(f.referredAt, date) : 0;
   const plannedEnd = period && !other && date ? orderPeriodEnd(date, Number(period)) : null;
   const trackOptions = f.tracks[area] ?? [];
 
@@ -112,7 +115,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
     const all: Record<string, string | null> = { ...errs, ref: refNow };
     const first = ORDER.find(([k]) => all[k]);
     if (first) {
-      toast(`Avropet kan inte accepteras ännu. ${all[first[0]]}`, "error");
+      // Felsammanfattningen överst och felet vid fältet räcker – ingen toast (den täckte knappen).
       focusField(first[1]);
       return;
     }
@@ -168,10 +171,16 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>Avbryt</Button>
-          <Button kind="primary" icon="check" pending={accept.pending} onClick={() => void submit()}>Acceptera avropet</Button>
+          <Button kind="primary" icon="check" pending={accept.pending} disabled={noCoach} onClick={() => void submit()}>Acceptera avropet</Button>
         </>
       }
     >
+      {tried && (
+        <ErrorSummary
+          title="Rätta det här innan du accepterar"
+          items={ORDER.filter(([k]) => (k === "ref" ? refNow : errs[k])).map(([k, id]) => ({ id, text: (k === "ref" ? refNow : errs[k]) as string }))}
+        />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-small text-text-muted">Från {f.from} · {f.displayName}</span>
         {f.avropSla && <SlaBadge sla={f.avropSla.sla} dueAt={f.avropSla.dueAt} prefix="Svar:" />}
@@ -193,7 +202,20 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
           Huvudcoach<span aria-hidden="true" className="ml-0.5 text-rod">*</span>
           <span className="sr-only">(obligatoriskt)</span>
         </legend>
-        <div className="text-text-muted">Samma coach genom hela insatsen. Antal aktiva ärenden visas för att fördela jämnt.</div>
+        {noCoach ? (
+          <Notice tone="warn" icon="users" title="Ingen kollega har rollen huvudcoach ännu">
+            <div className="flex flex-col gap-2">
+              <span>Lägg till kollegan under Användare och roller och ge rollen Huvudcoach. Sedan kan avropet accepteras.</span>
+              {(role === "admin" || role === "avtalsansvarig") && (
+                <div>
+                  <Button kind="secondary" icon="users" to="/admin/anvandare">Öppna Användare och roller</Button>
+                </div>
+              )}
+            </div>
+          </Notice>
+        ) : (
+          <div className="text-text-muted">Samma coach genom hela insatsen. Antal aktiva ärenden visas för att fördela jämnt.</div>
+        )}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,200px),1fr))] gap-2">
           {f.coaches.map((u) => (
             <label
@@ -221,18 +243,20 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
             {errs.coach}
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-1.5 text-small text-text-muted"><BuildPhase fas={4} off /><span>Kapacitetstak per coach (aktiva ärenden mot tak).</span></div>
       </fieldset>
 
-      <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
-        <legend className="mb-0.5 p-0 text-ui font-bold">Team (valfritt)</legend>
-        <div className="text-text-muted">Handledare, arbetsgivarmatchare och SYV. De får också en notis om tilldelningen.</div>
-        {f.helpers.map((u) => (
-          <Check key={u.id} id={`ink-team-${u.id}`} checked={team.includes(u.id)} onCheckedChange={(on) => setTeam(on ? [...team, u.id] : team.filter((x) => x !== u.id))}>
-            {u.name} – {u.label}
-          </Check>
-        ))}
-      </fieldset>
+      {/* Teamet visas bara när det finns kollegor att välja (handledare, arbetsgivarmatchare, SYV). */}
+      {f.helpers.length > 0 && (
+        <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
+          <legend className="mb-0.5 p-0 text-ui font-bold">Team (valfritt)</legend>
+          <div className="text-text-muted">Handledare, arbetsgivarmatchare och SYV. De får också en notis om tilldelningen.</div>
+          {f.helpers.map((u) => (
+            <Check key={u.id} id={`ink-team-${u.id}`} checked={team.includes(u.id)} onCheckedChange={(on) => setTeam(on ? [...team, u.id] : team.filter((x) => x !== u.id))}>
+              {u.name} – {u.label}
+            </Check>
+          ))}
+        </fieldset>
+      )}
 
       <FormGrid>
         <Field
@@ -244,10 +268,10 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         <Field id="ink-fm-time" label="Första möte – tid" required help="Mötet hålls i Alby om inget annat bokas." error={tried ? errs.time : null}>
           <TimeInput value={time} onValueChange={setTime} />
         </Field>
-        {late && (
+        {late && f.firstMeetingDue && (
           <div className="col-span-full">
-            <Notice tone="warn" title={`Mötet ligger ${daysAfter} dagar efter avropet`}>
-              Avtalet kräver att första mötet sker inom {f.meetingText} (senast {fmtDate(f.firstMeetingDue)}). Ärendet markeras i uppföljningen av nyckeltalet för första möte.
+            <Notice tone="warn" title={`Datumet är efter avtalets gräns (${fmtWeekday(f.firstMeetingDue)})`}>
+              Boka tidigare om det går. Avtalet kräver första möte inom {f.meetingText} från avropet – ärendet markeras i uppföljningen av nyckeltalet för första möte.
             </Notice>
           </div>
         )}
@@ -256,13 +280,19 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
             <Notice tone="warn" title="Inte en arbetsdag">{fmtWeekday(date)} är {holidayName(date)?.toLowerCase() ?? "en helgdag"}. Välj en vardag.</Notice>
           </div>
         )}
-        <Field id="ink-area" label="Avtalsområde" required help="Miljonbemanning väljer området utifrån handläggarens underlag." error={tried ? errs.area : null}>
+        <Field
+          id="ink-area" label="Avtalsområde" required error={tried ? errs.area : null}
+          help={f.primaryArea ? "Förifyllt från beställningen – ändra om underlaget säger något annat." : "Miljonbemanning väljer området utifrån handläggarens underlag."}
+        >
           <Select value={area} onValueChange={setArea} placeholder="Välj område" options={f.areas} />
         </Field>
         <Field id="ink-area2" label="Alternativt område (valfritt)" help="Om det första området inte fungerar." error={tried ? errs.area2 : null}>
           <Select value={area2} onValueChange={setArea2} placeholder="Inget" options={f.areas.filter((a) => a.value !== area)} />
         </Field>
-        <Field id="ink-track" label="Yrkesspår" required help="Välj ett förslag eller skriv ett eget. Kan ändras efter kartläggningen." error={tried ? errs.track : null} full>
+        <Field
+          id="ink-track" label="Yrkesspår" required error={tried ? errs.track : null} full
+          help={f.vocationalTrack ? "Förifyllt från beställningen – ändra om underlaget säger något annat. Kan ändras efter kartläggningen." : "Välj ett förslag eller skriv ett eget. Kan ändras efter kartläggningen."}
+        >
           <Input value={track} onValueChange={setTrack} maxLength={200} list="ink-track-list" />
         </Field>
         <datalist id="ink-track-list">

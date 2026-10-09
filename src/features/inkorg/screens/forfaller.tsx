@@ -2,7 +2,7 @@
 // Förfaller i dag och denna vecka (/forfaller) – port av prototypens vy sam.deadlines (SPEC §7.13).
 import { Fragment, useState } from "react";
 import { useQuery } from "@/shell/backend";
-import { Badge, Card, CaseLink, CellSub, DemoNote, ErrorNotice, Grid, Icon, Kpi, Loading, Notice, Page, PerspectiveLink, Seg, SlaBadge, Table, TitleLink, type Column } from "@/ui";
+import { Badge, Card, CaseLink, CellSub, DemoNote, Empty, ErrorNotice, Grid, Icon, Kpi, Loading, Notice, Page, PerspectiveLink, Seg, SlaBadge, Table, TitleLink, type Column } from "@/ui";
 import { inboxDeadlines, type DeadlinesView } from "../api";
 import { DL_KIND, dlDesc, groupDeadlines, kindLabel, type DeadlineGroupRow, type DeadlineKindKey } from "../texts";
 import { Caps, ProvBadge } from "./parts";
@@ -116,18 +116,37 @@ function Deadlines({ v }: { v: DeadlinesView }) {
     { value: "alla" as const, label: `Alla (${all.length})` },
     ...(Object.keys(DL_KIND) as DeadlineKindKey[]).filter((k) => counts.get(k)).map((k) => ({ value: k, label: `${kindLabel(k)} (${counts.get(k)})` })),
   ];
+  const customerNote = (
+    <Notice tone="info" icon="eye-off" title="Kommunen ser inte den här listan">Avtalskonfigurationen visar inte SLA-statistik för kommunen. Kommunen ser det som levereras i portalen.</Notice>
+  );
+  // Inget förfaller inom sju dagar (till exempel tom databas): en ruta i stället för fyra nollor och tre tomma tabeller.
+  if (all.length === 0) {
+    return (
+      <>
+        <Card>
+          <Empty icon="check-circle" title="Inget förfaller den här veckan">
+            Svar på avrop, första möten, veckorapporter och månadsrapporter dyker upp här sju dagar innan sista dag.
+          </Empty>
+        </Card>
+        {customerNote}
+      </>
+    );
+  }
   return (
     <>
-      <Grid cols={4}>
-        <Kpi label="Försenat" value={n("overdue")} tone={n("overdue") > 0 ? "alert" : undefined} statusText="Passerat – eskaleras" sub="Eskaleras automatiskt" />
+      <Grid cols={4} className="max-[620px]:grid-cols-2 max-[620px]:gap-2.5">
+        <Kpi label="Försenat" value={n("overdue")} tone={n("overdue") > 0 ? "alert" : undefined} statusText="Passerat sista dag" sub="Coach → samordnare → chef" />
         <Kpi label="I dag" value={n("today")} sub={`Senast ${v.today}`} />
         <Kpi label="Denna vecka" value={n("week")} sub="Inom 7 dagar" />
         <Kpi label="Ej fastställda" value={prov} sub="Regeln ska bekräftas med Botkyrka" />
       </Grid>
-      <div className="flex flex-col gap-2">
-        <Caps>Visa typ</Caps>
-        <Seg ariaLabel="Filtrera på typ" value={kind} onValueChange={setKind} options={options} />
-      </div>
+      {/* Typfiltret bara när det finns mer än en typ att välja mellan. */}
+      {options.length > 1 && (
+        <div className="flex flex-col gap-2">
+          <Caps>Visa typ</Caps>
+          <Seg ariaLabel="Filtrera på typ" value={kind} onValueChange={setKind} options={options} />
+        </div>
+      )}
       {BUCKETS.map(([b, title, icon, tone, sub]) => {
         const inBucket = filtered.filter((x) => x.bucket === b);
         const rows = groupDeadlines(inBucket, v.reportsHref);
@@ -142,7 +161,7 @@ function Deadlines({ v }: { v: DeadlinesView }) {
           Förfallotiderna bygger på förslag i avtalskonfigurationen tills Botkyrka bekräftat: {v.unsetText}.
         </Notice>
       )}
-      <Notice tone="info" icon="eye-off" title="Kommunen ser inte den här listan">Avtalskonfigurationen visar inte SLA-statistik för kommunen. Kommunen ser det som levereras i portalen.</Notice>
+      {customerNote}
     </>
   );
 }

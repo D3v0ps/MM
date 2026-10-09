@@ -8,7 +8,7 @@ import { Link, useNav } from "@/shell/nav";
 import { useMemoryState, useQueryPatch } from "@/shell/url-state";
 import { useSession } from "@/shell/session";
 import {
-  Button, Card, CaseStatusBadge, DemoNote, Empty, ErrorNotice, Field, Grid, Icon, Input, Loading, Notice, Page, PhaseBar, Seg, Select, Stack,
+  Button, Card, CaseStatusBadge, DemoNote, Empty, ErrorNotice, Field, Grid, Icon, Input, Loading, Page, PhaseBar, Seg, Select, Stack,
 } from "@/ui";
 import { supervisorStart, type SupervisorCase, type SupervisorStart } from "../api";
 import { ActList, fd, FourBadges, Label, plural } from "./common";
@@ -62,10 +62,10 @@ function Content({ m }: { m: SupervisorStart }) {
   });
   return (
     <>
-      <Notice tone="info" icon="shield" title="Du ser bara ärenden du är tilldelad">
-        Behörigheten styrs av teamet i varje ärende. Du ser moment, närvaro, praktik och arbetsgivarkontakter – inte coachens anteckningar, bedömningar, månadsrapporter eller slutrapporter.
-        Saknar du ett ärende? Be samordnaren lägga till dig i teamet.
-      </Notice>
+      <p className="m-0 flex items-start gap-2 text-text-muted">
+        <Icon name="shield" className="mt-1 flex-none" />
+        <span>Du ser bara ärenden där du ingår i teamet. Saknar du ett? Be samordnaren lägga till dig.</span>
+      </p>
       <Card title="Sök bland dina ärenden" icon="search">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] items-end gap-x-4 gap-y-3">
           <Field label="Sök" id="hand-q" help="Namn eller en del av ärendenumret, till exempel 0143.">

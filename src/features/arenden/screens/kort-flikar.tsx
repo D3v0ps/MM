@@ -42,7 +42,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                   </div>
                   {card.manage && (
                     <div>
-                      <Button kind="primary" icon="calendar" onClick={() => openModal("meeting")}>
+                      {/* Sekundär här: den primära "Boka första möte" ligger i åtgärdsraden i huvudet. */}
+                      <Button kind="secondary" icon="calendar" onClick={() => openModal("meeting")}>
                         Boka första möte
                       </Button>
                     </div>
@@ -383,7 +384,7 @@ export function TabNarvaro({ card, setTab }: TabProps) {
                 <span className="font-bold">Skäl till giltig frånvaro:</span> {total.reasons.map(([r, n]) => `${r} (${n})`).join(" · ")}
               </p>
             )}
-            <Card flush title="Närvaro per ISO-vecka" icon="calendar" actions={canReg && <Button kind="primary" icon="check-square" to="/narvaro">Registrera närvaro</Button>}>
+            <Card flush title="Närvaro per vecka" icon="calendar" actions={canReg && <Button kind="primary" icon="check-square" to="/narvaro">Registrera närvaro</Button>}>
               <RespTable
                 columns={cols}
                 rows={a.weeks}
