@@ -63,9 +63,11 @@ export async function loadSeed(db: PGlite, sql: string = readFileSync(SEED_FILE,
  * tabeller som inte finns ännu bort ur truncate-satsen. Finns det rader att läsa in i en sådan tabell stoppas testet med ett
  * tydligt fel – då måste testet läsa in de raderna själv efter migrationen.
  */
-export async function loadSeedForExistingTables(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8")): Promise<void> {
+export async function loadSeedForExistingTables(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8"), opts: { later?: readonly string[] } = {}): Promise<void> {
   const existing = new Set((await db.query<{ tablename: string }>("select tablename from pg_tables where schemaname = 'public'")).rows.map((r) => r.tablename));
   const missing = new Set<string>();
+  // Tabeller från en senare migration vars rader testet inte behöver (opts.later): deras insert-satser tas bort.
+  for (const t of opts.later ?? []) sql = sql.replace(new RegExp(`^insert into public\\.${t} \\([^)]*\\) values\\n[\\s\\S]*?\\);$`, "m"), "");
   const out = sql.replace(/^truncate table (.+?) restart identity cascade;$/m, (_m, list: string) => {
     const kept = list.split(", ").filter((t) => {
       const name = t.replace(/^public\./, "");
