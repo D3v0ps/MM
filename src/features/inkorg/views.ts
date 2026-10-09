@@ -9,10 +9,11 @@ import { caseBackground, orderPeriodText } from "@/features/arenden/background";
 import { looksLikeCancellation } from "./parse";
 import { cdStatusKey } from "@/features/ledning/api";
 import { teamCandidates } from "@/features/_shared/team";
+import { SMS_OFF_REASON } from "@/features/_shared/messaging-port";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { hasContactDetails } from "@/core/contact";
-import { areaName, contactLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
+import { areaName, contactLabel, outboundReasonLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
 import { by, uniq } from "@/core/util";
@@ -425,7 +426,8 @@ const PREFERRED_CHANNEL: Record<string, string> = { sms: "sms", phone: "sms", em
 /**
  * Kallelsen i bekräftelsen (beslut 2026-10-09): kanalerna i den senaste kallelsen (e-post, SMS, samtal, brev – utom de som
  * stoppades), eller – när ingen kanal fanns – att samordnaren fått en uppgift att ringa deltagaren (och, utan telefonnummer och
- * e-postadress, att kontaktuppgift saknas). Utskicken innehåller bara tid och plats; uppgiften bara ärendenummer, tid och plats.
+ * e-postadress, att kontaktuppgift saknas), eller att kallelsen stoppades när den skulle skickas. Utskicken innehåller bara tid och
+ * plats; uppgiften bara ärendenummer, tid och plats.
  */
 function kallelseView(out: readonly OutboundMessage[], person: Person | null, contactTask: string | null): ConfirmationView["kallelse"] {
   const rows = out.filter((n) => n.template === "kallelse");
@@ -441,13 +443,21 @@ function kallelseView(out: readonly OutboundMessage[], person: Person | null, co
     const [, icon] = CHANNEL[written[0].channel] ?? ["", "mail"];
     return { title: `Deltagaren fick kallelse via ${listJoin(labels)}${own ? ", sin föredragna kontaktväg" : ""}:`, icon, body: written[0].body };
   }
-  if (!contactTask) return null;
-  // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09): handläggaren behöver tillfrågas.
-  const noContact = !!person && !hasContactDetails(person);
-  return {
-    title: noContact ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:" : "Kallelsen kunde inte skickas – samordnaren har fått en uppgift:",
-    icon: "phone", body: contactTask,
-  };
+  if (contactTask) {
+    // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09): handläggaren behöver tillfrågas.
+    const noContact = !!person && !hasContactDetails(person);
+    return {
+      title: noContact ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:" : "Kallelsen kunde inte skickas – samordnaren har fått en uppgift:",
+      icon: "phone", body: contactTask,
+    };
+  }
+  // Kallelsen lades i kön men stoppades när den skulle skickas (t.ex. e-postens spärrlista i drift, src/server/notify/decision.ts):
+  // ingen nådde deltagaren. Orsaken (aldrig adress eller nummer) står i rubriken – e-postens först. Kanaler som inte är kopplade
+  // räknas inte: då fick samordnaren redan en uppgift (ovan, eller klarmarkerad).
+  const stopped = latest.filter((n) => n.channel !== "call" && (n.status === "suppressed" || n.status === "failed") && n.statusReason !== SMS_OFF_REASON);
+  if (!stopped.length) return null;
+  const reason = outboundReasonLabel((stopped.find((n) => n.channel === "email") ?? stopped[0]).statusReason);
+  return { title: `Kallelsen gick inte iväg${reason ? ` (${reason})` : ""} – ring deltagaren och kalla till mötet:`, icon: "phone", body: stopped[0].body };
 }
 
 export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<ConfirmationView | null> {

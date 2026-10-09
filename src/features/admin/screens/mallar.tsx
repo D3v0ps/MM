@@ -315,18 +315,21 @@ function TemplateEditor({ tpl, all, canEdit, onDirty }: { tpl: TemplateView; all
 }
 
 // ================================================================ Utskickslogg
-type ChFilter = "alla" | "email" | "sms" | "brev";
+type ChFilter = "alla" | "email" | "sms" | "call" | "brev";
 function SendLogTab({ items }: { items: SendLogItem[] }) {
   const demo = useRuntime() === "demo";
   const [ch, setCh] = useState<ChFilter>("alla");
   const [mine, setMine] = useState(false);
   const leaks = items.filter((n) => n.leak);
   const letters = items.filter((n) => n.channel === "brev" || n.channel === "letter").length;
+  // Utringningar (46elks, beslut 2026-10-09) – filtret visas bara när det finns några.
+  const calls = items.filter((n) => n.channel === "call").length;
   const list = items.filter((n) => (ch === "alla" || n.channel === ch || (ch === "brev" && n.channel === "letter")) && (!mine || n.byTester));
-  const opts: { value: ChFilter; label: string; icon?: "mail" | "message" | "file" }[] = [
+  const opts: { value: ChFilter; label: string; icon?: "mail" | "message" | "file" | "phone" }[] = [
     { value: "alla", label: "Alla" },
     { value: "email", label: "E-post", icon: "mail" },
     { value: "sms", label: "SMS", icon: "message" },
+    ...(calls > 0 ? [{ value: "call" as const, label: "Utringning", icon: "phone" as const }] : []),
     ...(letters > 0 ? [{ value: "brev" as const, label: "Brev", icon: "file" as const }] : []),
   ];
   return (
