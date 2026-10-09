@@ -53,6 +53,7 @@ const evidence = (value: ResponseSchema): ResponseSchema =>
 
 /** Veckoavstämningen (samma fält som CheckInExtractSchema – ingen samlad status). */
 export const CHECK_IN_RESPONSE_SCHEMA = obj({
+  attendanceComment: evidence(str()),
   goalStatus: evidence(str({ enum: [...GOAL_STATUSES] })),
   nextGoal: evidence(str()),
   phase: evidence({ type: "INTEGER" }),
@@ -102,6 +103,7 @@ export function checkInExtractInstructions(base: string = EXTRACT_INSTRUCTIONS.c
     "- Varje fält har value, quote, t och noEvidence.",
     "- quote är ett kort ordagrant citat ur transkriptet (högst 200 tecken). t är citatets starttid i sekunder (talet inom hakparentes före raden).",
     "- Finns inget belägg i samtalet: value null, quote \"Framgår inte\", t null och noEvidence true. Gissa aldrig.",
+    "- attendanceComment: ett kort förslag till kommentar om närvaron (högst 200 tecken): vilka dagar eller tillfällen deltagaren var med, frånvaro och skäl, om frånvaron var anmäld i förväg och vad som bestämts efter frånvaro. Sätt aldrig närvarostatus – den registreras av coachen i Närvaro. Säger samtalet inget om närvaron: noEvidence.",
     `- goalStatus: ${list(GOAL_STATUSES)} (veckomålet nåddes, nåddes delvis, nåddes inte).`,
     "- nextGoal: nästa veckas mål med deltagarens egna ord, kort.",
     "- phase: bara om en fas (siffra) nämns uttryckligen.",

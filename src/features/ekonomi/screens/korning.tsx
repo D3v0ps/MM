@@ -849,7 +849,7 @@ function CheckRow({ d, ch, onOpen }: { d: LineDetailView; ch: InvoiceCheckView; 
         {ch.kind === "overlap" && <OverlapInfo d={d} ch={ch} onOpen={onOpen} />}
         {ch.kind === "paused" && (
           <div className="text-text-muted">
-            Orsaken till uppehållet visas inte för ekonom. Fakturan tar bara med de veckor som inte är pausade: {weekText(d.line.weeks)}.
+            Fakturan tar bara med de veckor som inte är pausade: {weekText(d.line.weeks)}.
           </div>
         )}
       </div>

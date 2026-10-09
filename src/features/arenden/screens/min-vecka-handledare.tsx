@@ -10,7 +10,7 @@ import { narvaroView, type NarvaroRow, type NarvaroView } from "@/features/coach
 import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import { useQuery } from "@/shell/backend";
 import {
-  Badge, Button, Card, CaseName, cn, DemoNote, DoneLine, ErrorNotice, focusSection, Icon, Kpi, List, ListItem, Loading, Row, SlaText, Split, Stack, WEEK_KPI_SM, WeekKpis, WeekPage,
+  Badge, Button, Card, CaseName, cn, DoneLine, ErrorNotice, focusSection, Icon, Kpi, List, ListItem, Loading, Row, SlaText, Split, Stack, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
 import { supervisorStart, type SupervisorStart } from "../api";
 import { actIcon, actLabel, cap, plural } from "./common";
@@ -41,10 +41,6 @@ export function HandledareMinVeckaScreen() {
       ) : (
         <Week m={s.data} v={n.data} />
       )}
-      <DemoNote>
-        I testdatan är Petra yrkesspecifik handledare för lager, logistik, transport och industri och finns därför i teamet för de ärendena. Kommunen ser inte den här vyn – de ser
-        närvaron i veckorapporten.
-      </DemoNote>
     </WeekPage>
   );
 }

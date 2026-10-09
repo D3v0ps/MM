@@ -466,7 +466,6 @@ handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
     owners,
     phases: env.cfg.phases.map((x) => ({ no: x.no, name: x.name })),
     phaseSince: phaseSince(c, db),
-    seesCoachNotes: !!env.cfg.customerVisibility.seesCoachNotes,
     options: { activityTypes: [...ACTIVITY_TYPES], obstacles: [...OBSTACLES], goalsByPhase: Object.fromEntries(Object.entries(GOALS).map(([k, v]) => [Number(k), [...v]])) },
     // Röstinspelning: avtalet (ai.recording.coach), skyddade personuppgifter och samtycket – samma regel som rost.uploadStart.
     // AI av (produktion utan leverantör, beslut 2026-10-08): klartext i stället för en inspelning som inte kan tolkas.

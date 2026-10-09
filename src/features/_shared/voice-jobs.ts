@@ -94,25 +94,37 @@ export const VOICE_JOB_ERROR_TEXT: Record<VoiceJobErrorCode, string> = {
 };
 const BLOCK_CODE: Record<RecordingBlock, VoiceJobErrorCode> = { ai_off: "ai_off", disabled: "blocked_disabled", protected: "blocked_protected", no_consent: "blocked_no_consent" };
 
+/** Längsta tekniska felorsak som följer med i jobs.last_error och ai_runs.output.detail. */
+export const VOICE_JOB_DETAIL_MAX = 300;
+
 /** Fel i ett röstjobb. retryable = värt att försöka igen senare (servern lägger tillbaka jobbet i kön). */
 export class VoiceJobError extends Error {
   readonly code: VoiceJobErrorCode;
   readonly retryable: boolean;
   /** Mätvärden för AI-anrop som hann göras (token förbrukade även när svaret var ogiltigt). */
   readonly runs: AiRunMeta[];
-  constructor(code: VoiceJobErrorCode, opts: { retryable?: boolean; runs?: AiRunMeta[] } = {}) {
+  /**
+   * Teknisk felorsak utan personuppgifter från AI-adaptern (AiProviderError.detail), t.ex. "Vertex AI gav HTTP 400:
+   * INVALID_ARGUMENT: …". Visas aldrig för användaren – sparas i jobs.last_error och ai_runs.output.detail för felsökning.
+   */
+  readonly detail: string | null;
+  constructor(code: VoiceJobErrorCode, opts: { retryable?: boolean; runs?: AiRunMeta[]; detail?: string | null } = {}) {
     super(VOICE_JOB_ERROR_TEXT[code]);
     this.name = "VoiceJobError";
     this.code = code;
     this.retryable = opts.retryable ?? false;
     this.runs = opts.runs ?? [];
+    this.detail = opts.detail ? opts.detail.slice(0, VOICE_JOB_DETAIL_MAX) : null;
   }
 }
 
+/** Texten till jobs.last_error: den fasta texten, följd av den tekniska felorsaken inom parentes när den finns. */
+export const voiceJobErrorText = (err: VoiceJobError): string => (err.detail ? `${err.message} (${err.detail})` : err.message);
+
 /** Leverantörens fel (src/server/ai/errors.ts: code, retryable, run) -> VoiceJobError. Känner inte till serverns klasser. */
 export function toVoiceJobError(e: unknown, spent: AiRunMeta[] = []): VoiceJobError {
-  if (e instanceof VoiceJobError) return spent.length ? new VoiceJobError(e.code, { retryable: e.retryable, runs: [...spent, ...e.runs] }) : e;
-  const x = (e && typeof e === "object" ? e : {}) as { code?: unknown; retryable?: unknown; run?: unknown };
+  if (e instanceof VoiceJobError) return spent.length ? new VoiceJobError(e.code, { retryable: e.retryable, runs: [...spent, ...e.runs], detail: e.detail }) : e;
+  const x = (e && typeof e === "object" ? e : {}) as { code?: unknown; retryable?: unknown; run?: unknown; detail?: unknown };
   const run = x.run && typeof x.run === "object" ? [x.run as AiRunMeta] : [];
   const runs = [...spent, ...run];
   const map: Record<string, VoiceJobErrorCode> = {
@@ -120,12 +132,14 @@ export function toVoiceJobError(e: unknown, spent: AiRunMeta[] = []): VoiceJobEr
     too_large: "audio_too_large", unsupported: "audio_unsupported",
   };
   const code = typeof x.code === "string" && map[x.code] ? map[x.code] : x.retryable === true ? "provider_unavailable" : "unexpected";
-  return new VoiceJobError(code, { retryable: x.retryable === true, runs });
+  // Bara adapterns fasta detalj (AiProviderError.detail) följer med – aldrig ett okänt fels meddelande.
+  const detail = typeof x.code === "string" && map[x.code] && typeof x.detail === "string" ? x.detail : null;
+  return new VoiceJobError(code, { retryable: x.retryable === true, runs, detail });
 }
 
-/** Felkoden ur jobs.last_error (texten) – för onGiveUp på servern. */
+/** Felkoden ur jobs.last_error (texten, eventuellt följd av " (teknisk felorsak)") – för onGiveUp på servern. */
 export const voiceErrorCodeFromText = (text: string): VoiceJobErrorCode =>
-  (Object.entries(VOICE_JOB_ERROR_TEXT).find(([, t]) => t === text)?.[0] as VoiceJobErrorCode | undefined) ?? "unexpected";
+  (Object.entries(VOICE_JOB_ERROR_TEXT).find(([, t]) => t === text || text.startsWith(`${t} (`))?.[0] as VoiceJobErrorCode | undefined) ?? "unexpected";
 
 /** Felet för en misslyckad AI-körning (ai_runs.output.error), eller null. */
 export function aiRunError(run: Pick<AiRun, "status" | "output"> | null | undefined): { code: VoiceJobErrorCode; text: string } | null {
@@ -208,7 +222,7 @@ export async function enqueueVoiceJob(ctx: CtxWithJobs, req: VoiceJobRequest): P
   } catch (e) {
     const err = toVoiceJobError(e);
     await failVoiceJob(ctx, kind, payload, err);
-    await ctx.system.table("jobs").update(jobId, { status: "failed", lastError: err.message, finishedAt: ctx.now() });
+    await ctx.system.table("jobs").update(jobId, { status: "failed", lastError: voiceJobErrorText(err), finishedAt: ctx.now() });
   }
   const run = await ctx.system.table("ai_runs").get(aiRunId);
   return { jobId, aiRunId, status: run?.status ?? "failed", error: aiRunError(run) };
@@ -270,7 +284,8 @@ export async function failVoiceJob(ctx: Ctx, kind: VoiceJobKind, payload: unknow
     const m = spent.length ? sumRuns(spent) : null;
     await ctx.system.table("ai_runs").update(run.id, {
       status: "failed",
-      output: { error: err.code },
+      // Felkoden och adapterns tekniska felorsak (t.ex. Googles felmeddelande vid HTTP 400) – aldrig AI-svaret.
+      output: { error: err.code, ...(err.detail ? { detail: err.detail } : {}) },
       evidence: null,
       ...(m ? { tokensIn: m.tokensIn, tokensOut: m.tokensOut, costOre: m.costOre, latencyMs: m.latencyMs, audioSeconds: m.audioSeconds ?? run.audioSeconds } : {}),
     });

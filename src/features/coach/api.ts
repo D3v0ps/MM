@@ -521,7 +521,6 @@ export type CheckInPage = Gated<{
   owners: { id: string; name: string }[];
   phases: { no: number; name: string }[];
   phaseSince: LocalDate | null;
-  seesCoachNotes: boolean;
   options: { activityTypes: string[]; obstacles: string[]; goalsByPhase: Record<number, string[]> };
   /**
    * Coachens inspelning i avtalet (ai.recording.coach): får inspelning göras i ärendet, längsta tid och varför inte

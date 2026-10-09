@@ -27,8 +27,9 @@ const card = (page: Page, title: string | RegExp) => page.locator("section").fil
 const aiGroup = (page: Page, field: string) => page.getByRole("group", { name: `AI-förslag för ${field}`, exact: true });
 const relevant = (errors: string[]) => errors.filter((e) => !/Failed to load resource/.test(e));
 
-/** Deltagarkortet: röstmeddelandena ligger på en rad i kortets huvud – fäll ut rutan ("Läs" eller "Visa"). */
+/** Deltagarkortet: röstmeddelandena ligger under fliken Meddelanden (sedan 2026-10-09) – fäll ut rutan ("Läs" eller "Visa"). */
 async function openVoice(page: Page) {
+  await page.getByRole("tab", { name: /^Meddelanden/ }).click();
   await page.getByRole("group", { name: "Röstmeddelanden:" }).getByRole("button", { name: /^(Läs|Visa)$/ }).click();
 }
 
@@ -59,7 +60,7 @@ test("coachen spelar in avstämningen: paus, stopp, transkribering, ljudet rader
   await btn(page, "Med AI-stöd").click();
   await expect(page.getByText(/^Samtycke registrerat/).first()).toBeVisible();
   const src = page.getByRole("group", { name: "Källa" });
-  await expect(btn(src, "Spela in samtalet")).toHaveAttribute("aria-pressed", "true");
+  await expect(btn(src, "Spela in mötet")).toHaveAttribute("aria-pressed", "true");
   await expect(btn(src, "Ladda upp ljudfil")).toBeVisible();
   await expect(main(page)).toContainText("Högst 60 minuter.");
   if (isDemo(info)) await expect(main(page)).toContainText("Webbläsaren i prototypen har ofta ingen mikrofon");
@@ -87,8 +88,8 @@ test("coachen spelar in avstämningen: paus, stopp, transkribering, ljudet rader
   await expect(page.getByText(/^måndag 1 feb 2027 kl\. \d\d\.\d\d – direkt efter transkriberingen$/)).toBeVisible();
   for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await page.getByRole("group", { name: "Samlad status", exact: true }).getByRole("button", { name: /Gul/ }).click();
-  await btn(page, "Godkänn avstämningen").click();
-  await expect(page.getByRole("heading", { level: 1, name: "Avstämningen är godkänd" })).toBeVisible();
+  await btn(page, "Godkänn mötesrapporten").click();
+  await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
   await expect(main(page)).toContainText(/AI-förslag\s*6 \/ 0 \/ 0/i);
   await expect(page.getByText("Ljudet raderades direkt efter transkriberingen", { exact: true })).toBeVisible();
   await expect(page.getByText("Råtranskriptet raderades vid godkännandet", { exact: true })).toBeVisible();
@@ -176,7 +177,7 @@ test("coachen skickar inspelningslänk utan personuppgifter och granskar Nadias 
   await expect(voice).toContainText("Inte använd ännu");
   if (isDemo(info)) await expect(voice.getByRole("button", { name: "Öppna länken som deltagaren" })).toBeVisible();
   // Använd texten som underlag i avstämningen
-  await voice.getByRole("link", { name: "Använd i avstämningen" }).click();
+  await voice.getByRole("link", { name: "Använd i mötet" }).click();
   await expect(main(page)).toContainText("Deltagarens röstmeddelanden – underlag");
   await btn(page, "Lägg till i anteckningen").click();
   await expect(page.locator("#ci-note")).toHaveValue(/^Deltagarens röstmeddelande 28 jan: Hej, det är jag\./);
@@ -235,9 +236,9 @@ test("kommunen talar in ett meddelande och beställningens bakgrund – inget lj
   expect(relevant(errors)).toEqual([]);
 });
 
-test("månadsbedömningen: AI-utkast från godkända avstämningar – nivåerna väljer coachen", async ({ page }, info) => {
+test("månadsbedömningen: AI-utkast från godkända mötesrapporter – nivåerna väljer coachen", async ({ page }, info) => {
   const errors = await open(page, info, `/manadsbedomning/${SC.nadia}?manad=2027-01`, COACH);
-  const draft = card(page, "AI-utkast från godkända avstämningar");
+  const draft = card(page, "AI-utkast från godkända mötesrapporter");
   await expect(draft).toContainText("aldrig råtranskript");
   // Testdatat har redan AI-utkast i områdena – då säger knappen "Skapa nya AI-utkast" redan från början (fynd B24).
   await btn(draft, /^Skapa (nya )?AI-utkast/).click();
@@ -271,6 +272,7 @@ test("visningen av röstmeddelanden loggas när texten fälls ut – inte när k
 
   // Läs → Dölj → Läs: två utfällningar = två visningar.
   await switchUser(page, info, COACH, `/arenden/${SC.nadia}`);
+  await page.getByRole("tab", { name: /^Meddelanden/ }).click();
   const group = page.getByRole("group", { name: "Röstmeddelanden:" });
   await btn(group, "Läs").click();
   await expect(card(page, "Deltagarens röstmeddelanden")).toContainText("Praktiken har börjat bra");

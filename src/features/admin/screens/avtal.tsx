@@ -47,7 +47,7 @@ export function AvtalScreen({ query }: ScreenProps) {
       title="Avtal och konfiguration"
       eyebrow={`Systemadmin · ${user.name}`}
       crumbs={[{ label: "Användare och roller", to: "/admin/anvandare" }, { label: "Avtal och konfiguration" }]}
-      lead="Ett avtal är en konfiguration. Mål, svarstider och rapportregler läses härifrån och är aldrig hårdkodade. Fler kommunavtal kan läggas till utan kodändring. Priser och belopp visas bara för ekonomen."
+      lead="Mål, svarstider och rapportregler läses härifrån."
     >
       <Tabs id="avtal" ariaLabel="Delar av avtalet" active={tab} onChange={(id) => go({ flik: id })} tabs={tabs} />
       <TabPanel tabsId="avtal" active={tab} className="flex flex-col gap-6">
@@ -486,8 +486,8 @@ const CARDS: Record<string, CardDef> = {
       <KV
         items={[
           // Beloppen syns bara för ekonomen (beslut 5) – servern lämnar inte ut dem här.
-          ["Vite vid avvikelse", c.penalties ? `${kr(c.penalties.deviationOre)} per tillfälle` : "Per tillfälle enligt avtalet. Beloppet visas bara för ekonomen."],
-          ["Vite vid bristfällig information", c.penalties ? `${kr(c.penalties.insufficientInformationOre)} per tillfälle` : "Per tillfälle enligt avtalet. Beloppet visas bara för ekonomen."],
+          ["Vite vid avvikelse", c.penalties ? `${kr(c.penalties.deviationOre)} per tillfälle` : "Per tillfälle enligt avtalet."],
+          ["Vite vid bristfällig information", c.penalties ? `${kr(c.penalties.insufficientInformationOre)} per tillfälle` : "Per tillfälle enligt avtalet."],
           !!c.economicDeviation && ["Ekonomisk avvikelse", c.economicDeviation],
           c.keyPersonnelChangeRequiresApproval !== undefined && ["Byte av nyckelpersonal", c.keyPersonnelChangeRequiresApproval ? "Kräver kommunens godkännande" : "Kräver inte godkännande"],
         ]}
@@ -604,7 +604,7 @@ function ConfigTab({ d }: { d: ContractView }) {
       })}
       <Details summary="JSON (contracts.config)">
         <p className="mb-2.5 text-small text-text-muted">
-          Så lagras konfigurationen i databasen. Den valideras med ett zod-schema innan den sparas.{d.penaltiesHidden ? " Vitenas belopp visas bara för ekonomen och är borttagna här." : ""}
+          Konfigurationen som den lagras i databasen.
         </p>
         <Pre text={JSON.stringify(cfg, null, 2)} />
       </Details>

@@ -67,11 +67,9 @@ function ProfileForm({ d, first }: { d: KomProfile; first: boolean }) {
       />
       {first && (
         <Notice tone="info" title="Så fungerar portalen">
-          <p className="m-0">
-            Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning. Du ser bara de deltagare som du har beställt insatser för.
-          </p>
+          <p className="m-0">Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning.</p>
           <p className="m-0 mt-2">
-            Under <Link to={PORTAL_HELP_PATH} className="font-bold underline">Hjälp</Link> finns lathunden – hur du beställer i portalen – och mallen för beställning via mejl.
+            Under <Link to={PORTAL_HELP_PATH} className="font-bold underline">Hjälp</Link> finns lathunden för portalen och mallen för beställning via mejl.
           </p>
         </Notice>
       )}

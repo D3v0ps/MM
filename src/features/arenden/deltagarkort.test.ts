@@ -98,7 +98,7 @@ describe("tidslinjen (arenden.kortTidslinje)", () => {
     expect(all.find((e) => e.note?.id === "note-nadia-borttagen")).toMatchObject({ sub: "Borttagen av Sara Lindqvist 29 jan", note: { canEdit: false, canRemove: false, removed: { byName: "Sara Lindqvist" } } });
     expect(all.find((e) => e.id === "ma:ma-16006")).toMatchObject({ title: "Månadsbedömning december godkänd", sub: "Samlad status: Grön · Tydlig progression i 3 områden", light: "green", tab: "manad", month: "2026-12" });
     expect(all.find((e) => e.id === "rep:rep-16008")).toMatchObject({ title: "Månadsrapport december levererad", tab: "rapporter" });
-    expect(all.find((e) => e.id === "ci:ci-12498")).toMatchObject({ title: "Veckoavstämning vecka 4 godkänd", sub: "Fas 4 · Praktik/APL", tab: "avstamningar" });
+    expect(all.find((e) => e.id === "ci:ci-12498")).toMatchObject({ title: "Mötesrapport vecka 4 godkänd", sub: "Fas 4 · Praktik/APL", tab: "avstamningar" });
     expect(all.filter((e) => e.title.startsWith("Meddelande")).map((e) => e.title)).toEqual(["Meddelande från kommunen", "Meddelande till kommunen", "Meddelande från kommunen"]);
   });
 
@@ -165,7 +165,7 @@ describe("tidslinjen (arenden.kortTidslinje)", () => {
     }
     // Mehmets avstämning med AI-utkast: visas som utkast utan text.
     const draft = entriesOf(await allPages(MEHMET, amira())).find((e) => e.state === "utkast")!;
-    expect(draft.title).toMatch(/^Veckoavstämning vecka \d+ · Utkast – granskas av coachen$/);
+    expect(draft.title).toMatch(/^Möte vecka \d+ · Utkast – granskas av coachen$/);
     expect(draft.sub).toBeUndefined();
   });
 

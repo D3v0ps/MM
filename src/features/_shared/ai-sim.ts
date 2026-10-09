@@ -53,6 +53,11 @@ function fromConversation(phase: number, last: Pick<CheckIn, "nextGoal" | "obsta
   const ec: EmployerContacts = ph >= 4 ? { count: "1", types: ["intervju"] } : ph >= 3 ? { count: "1", types: ["studiebesök"] } : { count: "0", types: [] };
   const obst = last && last.obstacles && last.obstacles.length ? [last.obstacles[0]] : [];
   return {
+    attendanceComment: {
+      value: "Närvarande måndag, tisdag och torsdag. Onsdag frånvaro med giltigt skäl (möte på kommunen), anmäld i förväg.",
+      quote: "Jag var här måndag, tisdag och torsdag. I onsdags hade jag ett möte på kommunen, det sa jag till om i förväg.",
+      t: 410,
+    },
     goalStatus: { value: "partly", quote: "Jag har gjort det mesta av målet, men en dag hann jag inte.", t: 184 },
     nextGoal: { value: goal, quote: `Nästa vecka ska jag försöka ${lc(goal)}.`, t: 1320 },
     phase: { value: ph, quote: PHASE_QUOTE[ph] ?? "", t: 1485 },
@@ -87,6 +92,8 @@ const OBST_KEYWORDS: [string, RegExp][] = [
   ["Motivation", /motivation|orkade inte|ville inte komma|omotiverad/i],
 ];
 const EC_KEYWORDS: [string, RegExp][] = [["intervju", /intervju(?!trän)/i], ["ansökan", /ansök|sökte (jobb|tjänst)/i], ["studiebesök", /studiebesök|arbetsplatsbesök/i], ["praktikkontakt", /praktikplats|praktikkontakt/i]];
+/** Meningar som säger något om närvaron: dagar deltagaren var med, frånvaro och skäl, anmält i förväg. */
+const ATTENDANCE_RE = /närvar|frånvar|\bsjuk\b|uteblev|kom inte|var inte (här|med)|giltigt skäl|i förväg|(var|varit) (här|med|på plats)/i;
 // Meningar delas efter punkt, utrops- eller frågetecken (lookbehind) eller radbrytning.
 const SENTENCE_SPLIT = new RegExp("(?<=[.!?])\\s+|\\n+");
 
@@ -124,6 +131,12 @@ function extractCheckIn(sentences: Sentence[], mode: ExtractMode): CheckInSugges
   const find = (re: RegExp) => sentences.find((x) => re.test(x.text));
   const ev = <T>(value: T, s: Sentence | undefined): AiFieldSuggestion<T> => ({ value, quote: s?.text ?? "", t: s?.t ?? null });
   const none = <T>(why = mode.noEvidence): AiFieldSuggestion<T> => ({ value: null, quote: why, t: null, noEvidence: true });
+  // Kommentar om närvaron: meningarna som nämner närvaro eller frånvaro (högst två, högst 200 tecken som fältet).
+  // Bara kommentarstexten – närvarostatusen registreras i Närvaro, aldrig av AI.
+  const attSentences = sentences.filter((x) => ATTENDANCE_RE.test(x.text)).slice(0, 2);
+  const attendanceComment: AiFieldSuggestion<string> = attSentences.length
+    ? ev(cap(attSentences.map((x) => x.text).join(" ")).slice(0, 200), attSentences[0])
+    : none<string>();
   const absentAll = find(/sjuk (i )?hela veckan|frånvarande hela veckan|deltog inte i något|deltog inte alls|var inte här (alls|på hela veckan)/i);
   // Veckomål
   const gNo = absentAll || find(/(nådde|klarade|uppnådde) inte (vecko)?målet|(vecko)?målet (nåddes|uppnåddes) inte|inte (nått|klarat) (vecko)?målet/i);
@@ -160,7 +173,7 @@ function extractCheckIn(sentences: Sentence[], mode: ExtractMode): CheckInSugges
   const note: AiFieldSuggestion<string> = used.length
     ? { value: used.map((x) => x.text).join(" ").slice(0, 500), ...mode.summary(used) }
     : none<string>();
-  return { goalStatus, nextGoal, phase, activitiesDone, employerContacts, obstacles, note };
+  return { attendanceComment, goalStatus, nextGoal, phase, activitiesDone, employerContacts, obstacles, note };
 }
 
 const splitSentences = (text: string): string[] => String(text || "").split(SENTENCE_SPLIT).map((x) => x.trim()).filter((x) => x.length > 3);

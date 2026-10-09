@@ -159,7 +159,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
     }
     add({
       key: `noprog:${c.id}:${w.lastWeek}`, kind: "no_progress", severity: "info", title: "Påminnelse: ingen progression förra veckan",
-      text: `${c.caseNumber}: ${w.weeks[w.weeks.length - 1].reason}. Planera nästa steg och dokumentera i veckoavstämningen.`,
+      text: `${c.caseNumber}: ${w.weeks[w.weeks.length - 1].reason}. Planera nästa steg och dokumentera i mötet.`,
       caseId: c.id, roles: ["coach"], coachId: c.leadCoachId, createdAt: monday8, link: viewLink("coach.avstamning", { caseId: c.id }),
     });
   }
@@ -221,7 +221,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
     if (!c) continue;
     add({
       key: `ai_draft:${ci.id}`, kind: "ai_draft", severity: "info", title: "AI-utkast att granska",
-      text: `Avstämning ${fmtDateTime(ci.heldAt)} (${c.caseNumber}). Råtranskriptet raderas senast ${fmtDate(ci.ai?.rawTranscriptDeleteBy)}.`,
+      text: `Möte ${fmtDateTime(ci.heldAt)} (${c.caseNumber}). Råtranskriptet raderas senast ${fmtDate(ci.ai?.rawTranscriptDeleteBy)}.`,
       caseId: c.id, roles: ["coach"], coachId: c.leadCoachId, createdAt: addMinutes(ci.heldAt, 48), link: viewLink("coach.avstamning", { caseId: c.id, checkInId: ci.id }),
     });
   }

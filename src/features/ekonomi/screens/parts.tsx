@@ -161,10 +161,7 @@ export function Pager({ page, total, onPage, one = "rad", many = "rader" }: { pa
 // ---------------------------------------------------------------- Rollförklaring
 export function RoleNotice({ canAct }: { canAct: boolean }) {
   return canAct ? (
-    <Notice tone="info" title="Du ser inga namn">
-      Som ekonom ser du ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag. Namn, anteckningar och rapporter visas inte för din roll – deltagaren
-      visas som ”–”. Ärendenumret står på varje rad i fakturan.
-    </Notice>
+    <Notice tone="info" title="Ärendenumret står på varje rad i fakturan" />
   ) : (
     <Notice tone="warn" title="Läsläge">
       Du ser fakturaunderlaget i läsläge. Ekonomen godkänner, skapar fakturor och rättar referenser.

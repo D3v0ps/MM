@@ -339,11 +339,6 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
         />
       </Card>
       <CaseBackgroundCard bg={d.background} title="Bakgrundsinformation från beställningen" />
-      {!d.seesCoachNotes && (
-        <p className="flex items-center gap-1.5 text-body text-text-muted">
-          <Icon name="eye-off" /> Coachens egna anteckningar visas inte för beställaren. Så står det i avtalet.
-        </p>
-      )}
     </Stack>
   );
 }
@@ -490,7 +485,7 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
                 id="kom-msg"
                 label="Nytt meddelande"
                 error={err ?? undefined}
-                help="Skriv inga personnummer – ärendenumret räcker. Miljonbemanning får ett mejl om att det finns ett nytt meddelande, aldrig själva texten."
+                help="Skriv inga personnummer – ärendenumret räcker."
               >
                 <TextArea
                   rows={4}

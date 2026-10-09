@@ -22,7 +22,7 @@ import {
 import { caseLink, fd } from "./common";
 import type { TabProps } from "./kort";
 
-const EMPTY_CARD = "Här samlas allt som händer i insatsen: aktiviteter, närvaro, avstämningar, bedömningar, händelser och anteckningar. Inget är registrerat än.";
+const EMPTY_CARD = "Här samlas allt som händer i insatsen: aktiviteter, närvaro, möten, bedömningar, händelser och anteckningar. Inget är registrerat än.";
 const EMPTY_FILTER = "Inget i den här kategorin för perioden.";
 const monthTitle = (mk: string) => `${MONTHS[Number(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`;
 
@@ -52,7 +52,7 @@ export function TabTidslinje({ card, openTab }: TabProps) {
       title="Tidslinje"
       actions={t?.canWrite ? <Button kind="primary" icon="plus" onClick={() => setDialog({ note: null })}>Skriv anteckning</Button> : undefined}
     >
-      <p>Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller avstämningens anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
+      <p>Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller mötets anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
       <Seg<TimelineCat> ariaLabel="Visa" value={visa} onValueChange={changeFilter} options={TIMELINE_CATS.map((c) => ({ value: c, label: TIMELINE_CAT_LABEL[c] }))} />
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
@@ -255,7 +255,7 @@ function TimelineTextPanel({ id, caseId, entryId, title }: { id: string; caseId:
             </>
           ) : (
             <>
-              <p className="m-0 text-small text-text-muted">Utkast – granskas av coachen. Anteckningen visas när avstämningen är godkänd.</p>
+              <p className="m-0 text-small text-text-muted">Utkast – granskas av coachen. Anteckningen visas när mötesrapporten är godkänd.</p>
               <div>
                 <span className="font-bold">Hinder: </span>
                 {t.obstacles.join(", ")}
@@ -388,7 +388,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
         </>
       }
     >
-      <Field label="Vad gäller anteckningen?" id="note-kind" required help="Välj det som passar bäst." error={err.kind}>
+      <Field label="Vad gäller anteckningen?" id="note-kind" required error={err.kind}>
         <Select
           value={kind}
           placeholder="Välj"
@@ -399,7 +399,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
           options={CASE_NOTE_KINDS.map((k) => ({ value: k, label: CASE_NOTE_KIND_LABEL[k] }))}
         />
       </Field>
-      <Field label="Datum" id="note-date" required help="Dagen det hände." error={err.date}>
+      <Field label="Datum" id="note-date" required error={err.date}>
         <DateInput
           value={date}
           max={today}
@@ -444,12 +444,11 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
       )}
       {team ? (
         <Notice tone="info" icon="users" title="Vem ser anteckningen?">
-          Hela teamet ser anteckningen, liksom huvudcoach, samordnare, avtalsansvarig, chef och systemadministratör. Kommunen ser aldrig anteckningar.
+          Teamet, huvudcoachen, samordnaren, avtalsansvarig och chef.
         </Notice>
       ) : (
         <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
           <legend className="mb-0.5 p-0 text-ui font-bold">Vem ser anteckningen?</legend>
-          <div id="note-audience-help" className="text-small leading-[1.45] text-text-muted">Kommunen ser aldrig anteckningar.</div>
           {(["full", "team"] as const).map((a) => (
             <label
               key={a}
@@ -462,7 +461,6 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
                 id={`note-audience-${a}`}
                 value={a}
                 checked={audience === a}
-                aria-describedby="note-audience-help"
                 onChange={() => setAudience(a)}
                 className="m-0 size-5 flex-none accent-antracit"
               />

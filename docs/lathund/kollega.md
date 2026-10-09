@@ -83,16 +83,17 @@ Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **All
 
 ### Möte med inspelning och AI-förslag
 
-1. Öppna **Veckoavstämning** från deltagarkortet eller från Min vecka. Välj den deltagare du har träffat.
-2. Inspelning kräver ett registrerat samtycke. Saknas det visas **Samtycke saknas** – tryck på **Registrera samtycke** innan du spelar in. Utan samtycke skriver du en kort anteckning i stället.
-3. Efter mötet visas **AI-förslag – du bedömer**: förslag på text med belägg (citat och tidpunkt). Läs förslaget och ändra det som behövs.
-4. Fyll i **Samlad status**, **Veckomål** och **Hinder** själv. Fälten är tomma tills du gjort ett val.
-5. Godkänn avstämningen. Ljudet raderas direkt efter transkriberingen, och råtranskriptet när avstämningen är godkänd.
+1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens möten** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**.
+2. Inspelning kräver ett registrerat samtycke. Saknas det visas **Samtycke saknas** – tryck på **Registrera samtycke** innan du spelar in.
+3. Spela in medan ni pratar. När du stoppar laddas ljudet upp, texten skrivs ut och ett utkast till mötesrapport fylls i. Det tar vanligtvis en till två minuter.
+4. Varje förslag visas med citat och tidpunkt ur samtalet. Tryck på **Acceptera**, **Ändra** eller **Avvisa** för varje förslag. Det som inte framgår av samtalet står som **Framgår inte** – fyll i det själv.
+5. Välj **Fas**, kontrollera **Veckomål** och välj **Samlad status** själv. Samlad status föreslås aldrig av AI.
+6. Tryck på **Godkänn mötesrapporten**. Ljudet raderas direkt efter transkriberingen, och råtranskriptet när mötesrapporten är godkänd.
 
 ### Månadsbedömning
 
 1. Öppna **Månadsbedömning** från deltagarkortet.
-2. Under **Godkända avstämningar** och **Händelser** ser du underlaget. AI-utkastet bygger bara på godkända avstämningar.
+2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger bara på godkända mötesrapporter och registrerad närvaro.
 3. Sätt progressionsnivån för varje progressionsområde själv och skriv en **Konkret observation**.
 4. Godkänn bedömningen. Månadsrapporten till kommunen byggs av den.
 

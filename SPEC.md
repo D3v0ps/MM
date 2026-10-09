@@ -347,6 +347,8 @@ Tre steg och en granskning (beslut 2026-10-07): **1) beställning och kontakt** 
 
 ### 7.5 Veckoavstämning
 
+**Namn i gränssnittet (beslut 2026-10-09):** för coachen heter veckoavstämningen **Möte** (fliken Möten, knappen "Spela in mötet", "Mötesrapport – utkast från AI", "Godkänn mötesrapporten"); i kod, rutter (/avstamning), tabellen check_ins och i rapporter till kommunen används ordet avstämning som förut.
+
 Kärnan i coachens vardag. Mål: under 5 minuters dokumentation. Allt utom en kort anteckning är rullgardiner eller knappar.
 
 | Fält | Typ |

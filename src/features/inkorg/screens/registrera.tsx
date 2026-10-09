@@ -139,7 +139,7 @@ export function RegistreraScreen({ query }: ScreenProps) {
       title="Registrera beställning"
       eyebrow="Avropsinkorg"
       crumbs={[{ label: "Avropsinkorg", to: "/inkorg" }, { label: "Registrera beställning" }]}
-      lead="En beställning som kom med mejl, telefon eller på annat sätt. Ärendet får ärendenummer direkt, handläggaren får ordererkännandet, och sedan accepterar eller avböjer du i inkorgen som vanligt."
+      lead="En beställning som kom med mejl, telefon eller på annat sätt."
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : <RegisterForm key={q.data.email?.id ?? "ny"} m={q.data} />}
     </Page>
@@ -242,7 +242,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
               <span>Beställningen kom med <b>mejl</b> till avrop@ – mejlet kopplas till ärendet.</span>
             </p>
           ) : (
-            <Field id="reg-channel" label="Beställningen kom med" required help="Mejl läses oftast in automatiskt – det här är för telefonsamtal och beställningar som kom på annat sätt.">
+            <Field id="reg-channel" label="Beställningen kom med" required>
               <Seg id="reg-channel" ariaLabel="Beställningen kom med" value={f.channel} onValueChange={set("channel")} options={CHANNELS} />
             </Field>
           )}
@@ -263,7 +263,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
 
       {section("Kommunens handläggare", "users", (
         <>
-          <Field id="reg-handler" label="Handläggare" required help={m.handlers.length ? "Välj handläggaren om hen har konto, annars skriv uppgifterna. Inget konto skapas – ärendet kopplas när handläggaren själv skapar konto med samma adress." : "Skriv handläggarens uppgifter. Inget konto skapas – ärendet kopplas när handläggaren själv skapar konto med samma adress."}>
+          <Field id="reg-handler" label="Handläggare" required help={m.handlers.length ? "Välj handläggaren om hen har konto, annars skriv uppgifterna." : "Skriv handläggarens uppgifter."}>
             <Select
               id="reg-handler"
               value={f.handlerId}
@@ -338,7 +338,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
             label="Personnummer eller samordningsnummer"
             required={!m.email?.prefill.pnrMasked}
             error={E("pnr") ?? (dup ? "Personen har redan en pågående insats." : undefined)}
-            help={m.email?.prefill.pnrMasked ? `Mejlet har ett personnummer (${m.email.prefill.pnrMasked}). Lämna fältet tomt för att använda det, eller skriv ett annat. Numret visas bara maskerat i tjänsten.` : "Tolv siffror: ÅÅÅÅMMDD-NNNN. Numret krypteras och visas bara maskerat i tjänsten."}
+            help={m.email?.prefill.pnrMasked ? `Mejlet har ett personnummer (${m.email.prefill.pnrMasked}). Lämna fältet tomt för att använda det.` : "Tolv siffror: ÅÅÅÅMMDD-NNNN."}
           >
             <Input value={f.pnr} inputMode="numeric" maxLength={15} onValueChange={set("pnr")} />
           </Field>
@@ -378,8 +378,8 @@ function RegisterForm({ m }: { m: RegisterForm }) {
         </>
       ))}
 
-      <Notice tone="info" title="Det här händer när du registrerar">
-        Ärendet får ärendenummer direkt och handläggaren får ordererkännandet med e-post (bara ärendenumret – inga personuppgifter). Beställningen hamnar i Att hantera, där du accepterar eller avböjer den som vanligt. Svarstiden räknas från mottagandet.
+      <Notice tone="info" title="När du registrerar">
+        Ärendet får ärendenummer och handläggaren får ordererkännandet. Beställningen hamnar i Att hantera.
       </Notice>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button kind="ghost" icon="x" onClick={() => void cancel()}>Avbryt</Button>

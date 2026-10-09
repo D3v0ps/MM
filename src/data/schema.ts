@@ -701,6 +701,7 @@ export type TranscriptLine = { t: number | null; who: string; text: string };
  * I databasen kan förslagen ligga i ai_runs.output/evidence – datalagret mappar.
  */
 export type CheckInAiDraft = {
+  attendanceComment?: AiSuggestion<string>;
   goalStatus?: AiSuggestion<GoalStatus>;
   nextGoal?: AiSuggestion<string>;
   phase?: AiSuggestion<number>;
