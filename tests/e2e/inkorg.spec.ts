@@ -451,6 +451,10 @@ test("registrera beställning per telefon: ärendenummer, ordererkännande och v
   await page.fill("#reg-pnr", "19930303-1111");
   await page.fill("#reg-phone", "070-000 00 00");
   await page.fill("#reg-city", "Tumba");
+  // Yrkesområdet (beslut 2026-10-09): valfritt för Miljonbemanning, samma lista som portalen (avtalets aktiva avtalsområden).
+  await expect(page.locator("#reg-area option"), "Inte angivet och avtalets tolv avtalsområden").toHaveCount(13);
+  await expect(page.locator("#reg-area")).toHaveValue("");
+  await page.selectOption("#reg-area", "G");
   await page.locator("#reg-prior").getByRole("button", { name: "Nej" }).click();
   // En bilaga laddas upp innan beställningen registreras (samordnaren får ladda upp utan ärende).
   await page.locator("#reg-files").setInputFiles({ name: "kartlaggning-test.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n% påhittad kartläggning\n") });
@@ -467,9 +471,10 @@ test("registrera beställning per telefon: ärendenummer, ordererkännande och v
   await expect(m.getByText("Registrerad av Miljonbemanning efter ett telefonsamtal", { exact: false })).toBeVisible();
   await expect(m).not.toContainText("19930303");
   await expect(m.getByRole("button", { name: "Acceptera", exact: true })).toBeVisible();
-  // Bilagan ligger i ärendet (acceptdialogens underlag).
+  // Bilagan ligger i ärendet (acceptdialogens underlag) och yrkesområdet från registreringen är förvalt.
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   await expect(dialog(page).getByText("kartlaggning-test.pdf")).toBeVisible();
+  await expect(page.locator("#ink-area")).toHaveValue("G");
   await dialog(page).getByRole("button", { name: "Avbryt" }).click();
   // Ett validerat fel: utan personnummer stoppas registreringen med en felsammanfattning.
   await goAs(page, info, SARA, "/inkorg/registrera");

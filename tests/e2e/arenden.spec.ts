@@ -327,7 +327,10 @@ test("10. rollen handledare är borttagen: /handledare finns inte, menyn har ing
   const errors = await open(page, info, "/handledare", PETRA);
   await expect(main(page)).toContainText("Sidan finns inte");
   await expect(page.getByRole("navigation", { name: "Meny" })).not.toContainText(/tilldelade/i);
+  // Petra har inga egna ärenden: Mina ärenden är tom, Alla ärenden i avtalet visar hela avtalet (beslut 2026-10-09).
   await switchTo(page, info, "/arenden?status=alla", PETRA);
+  await expect(main(page)).toContainText("0 ärenden");
+  await page.selectOption("#arn-vilka", "alla");
   await expect(main(page)).toContainText("231 ärenden");
   // Alla flikar i ett ärende där hon inte är med i teamet. Coachen ser fortfarande aldrig eskaleringar till chef.
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=avstamningar`, PETRA);
@@ -750,6 +753,39 @@ test("27. tidslinjens text: chefen fäller ut utan att något loggas; en coach u
   // En coach som inte är med i ärendet (full åtkomst sedan 2026-10-09): "Visa text" på avstämningar och meddelanden.
   await switchTo(page, info, "/arenden/case-260167?flik=tidslinje", PETRA);
   await expect(main(page)).toContainText("Allt som hänt i insatsen");
-  expect(await main(page).getByRole("button", { name: "Visa text" }).count()).toBeGreaterThan(0);
+  await expect(main(page).getByRole("button", { name: "Visa text" }).first()).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+// ------------------------------------------------------------ 28. Kontaktväg på deltagarkortet (coachmötet 2026-10-09)
+test("28. Ändra kontaktväg: coachen för in deltagarens svar med samma regler som registreringen – loggas utan värdena; chefen kan inte ändra", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
+  await btn(page, "Visa alla uppgifter").click();
+  const facts = main(page).locator("#arende-uppgifter");
+  await expect(facts).toContainText("Kontaktväg");
+  await btn(facts, "Ändra kontaktväg").click();
+  const d = dialog(page);
+  await expect(d).toContainText("Ändra kontaktväg");
+  const ways = d.getByRole("group", { name: /Hur vill deltagaren bli kontaktad/ });
+  await expect(ways.getByRole("button"), "SMS, telefon och e-post").toHaveText(["SMS", "Telefon", "E-post"]);
+  // E-post utan adress stoppas med samma text som i Registrera beställning.
+  await ways.getByRole("button", { name: "E-post" }).click();
+  await page.fill("#arn-contact-email", "");
+  await btn(d, "Spara kontaktvägen").click();
+  await expect(d).toContainText("Skriv deltagarens e-postadress – e-post är vald som kontaktväg.");
+  await page.fill("#arn-contact-email", "nadia.test@example.invalid");
+  await btn(d, "Spara kontaktvägen").click();
+  await expect(d).toHaveCount(0);
+  await expect(facts).toContainText(/Kontaktväg\s*E-post/);
+  // Chefen ser kortet i läsläge: ingen Ändra kontaktväg. Revisionsloggen i Historik visar att kontaktvägen ändrades –
+  // aldrig adressen.
+  await switchTo(page, info, `/arenden/${SC.nadia}`, KARIN);
+  await btn(page, "Visa alla uppgifter").click();
+  await expect(main(page).locator("#arende-uppgifter")).toContainText(/Kontaktväg\s*E-post/);
+  await expect(btn(page, "Ändra kontaktväg")).toHaveCount(0);
+  await tab(page, /Historik/).click();
+  const log = page.getByRole("table", { name: "Revisionslogg" });
+  await expect(log).toContainText("Kontaktvägen ändrades");
+  await expect(main(page)).not.toContainText("nadia.test@example.invalid");
   expect(errors).toEqual([]);
 });

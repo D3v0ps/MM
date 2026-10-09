@@ -192,10 +192,15 @@ test("3. kommunens handläggare öppnar och kvitterar; inga interna knappar; beh
   } else {
     await go(page, info, `/portal/rapporter/${NADIA_JAN}`, HANDLAGGARE);
   }
-  await expect(main(page)).toContainText("Rapporten är kvitterad");
+  // Notisen "Rapporten är kvitterad" visas inte längre (beslut 2026-10-09) – kvittensen sparas som förut (se nedan).
+  await expect(main(page)).toContainText(/Månadsrapport/i);
+  await expect(main(page)).not.toContainText("Rapporten är kvitterad");
   await expect(btn(page, "Godkänn")).toHaveCount(0);
   await expect(btn(page, "Rätta")).toHaveCount(0);
   await expect(btn(page, "Leverera till kommunen")).toHaveCount(0);
+  // Miljonbemanning ser att mottagaren har öppnat rapporten.
+  await go(page, info, `/rapporter/${NADIA_JAN}`, COACH);
+  await expect(main(page)).toContainText("mottagaren har öppnat rapporten");
 
   await go(page, info, `/portal/rapporter/${CS_JAN}`, HANDLAGGARE);
   await expect(main(page)).toContainText("inte tillgänglig för dig");
@@ -218,7 +223,7 @@ test("3b. bara mottagaren kvitterar; tillbaka till sidan man kom från", async (
   if (isDemo(info)) {
     await btn(page, "Se som kommunen").click();
     await expect(page.getByRole("group", { name: "Perspektiv" }).getByRole("button", { name: "Kund" })).toHaveAttribute("aria-pressed", "true");
-    await expect(main(page)).toContainText("Rapporten är kvitterad");
+    await expect(main(page)).not.toContainText("Rapporten är kvitterad");
     const t = await mainText(page);
     expect(t.split(/1\. GRUNDUPPGIFTER/i)[0]).not.toMatch(/ kl\. | jan | feb | dec /);
   }

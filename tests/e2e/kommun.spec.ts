@@ -1,7 +1,9 @@
 // Kommunens portal – port av den gamla prototypens tools/test-kommun.mjs (inloggning, startsida, beställning, deltagare,
-// rapporter och meddelanden, händelser och uppgifter). Ändrat efter synpunkterna från 2026-10-06 (beslut 2026-10-07): självregistrering,
+// rapporter och meddelanden, uppgifter). Ändrat efter synpunkterna från 2026-10-06 (beslut 2026-10-07): självregistrering,
 // beställningen med omfattning i månader och bakgrundsinformation med bifogad fil, inga belopp, månadsrapportens närvaro och
-// ingen kommunens chef (beställarrapporten och resultatfilen lämnas av Miljonbemanning).
+// ingen kommunens chef (beställarrapporten och resultatfilen lämnas av Miljonbemanning). Coachmötet 2026-10-09 ("Vi behöver
+// inte visa så mycket till kommunens handläggare"): testerna kontrollerar också att det borttagna INTE syns och att
+// rapporterna, orderbekräftelsen, ärendets status och meddelandena finns kvar.
 // Samma test körs mot prototypen (projekt "demo") och appen (projekt "app"). Data läses via skärmen. Steg som görs i andra
 // områden (Miljonbemanning avböjer, accepterar, byter coach, kallar kommunen) körs som kommandon – i prototypen via
 // kommandologgen som spelas upp vid omladdning, i appen via /api/rpc. Det som inte syns på skärmen (revisionslogg,
@@ -114,9 +116,11 @@ test("1. inloggning med e-post och engångskod (neutralt svar, kod, självregist
   const errors = await open(page, info, "/portal/logga-in", MARIA);
   await expect(page.locator("#kom-login-email")).toHaveValue("maria.ekdahl@botkyrka.se");
   let t = await mainText(page);
-  expect(t, "förklarar varför kod i stället för länk").toMatch(/Safe Links/);
-  expect(t, "nämner utloggning efter 60 minuters inaktivitet").toMatch(/60 minuter utan aktivitet/);
-  expect(t, "kontot skapas första gången").toMatch(/Första gången du loggar in skapas ditt konto/);
+  // Beslut 2026-10-09: inget kort om varför en kod och ingen lista om utloggning och konto – bara formuläret.
+  expect(t, "inget kort om varför en kod").not.toMatch(/Safe Links|Varför en kod/);
+  expect(t, "ingen lista om utloggning").not.toMatch(/minuter utan aktivitet/);
+  expect(t, "ingen lista om kontot").not.toMatch(/Första gången du loggar in skapas ditt konto/);
+  await expect(btn(page, "Skicka kod")).toHaveCount(1);
   // Portalen påminner inte om mejlbeställning (synpunkt #1, rättelse 2026-10-07).
   expect(t).not.toMatch(/avrop@|beställa med mejl/i);
   // Avvikelse från prototypen: svaret är alltid neutralt – skärmen avslöjar inte vilka domäner eller adresser som finns.
@@ -193,18 +197,19 @@ test("1. inloggning med e-post och engångskod (neutralt svar, kod, självregist
 });
 
 // ================================================================ 2. Startsida
-test("2. startsidan för handläggaren: tre stora knappar överst, sedan olästa och Visa alla olästa", async ({ page }, info) => {
+test("2. startsidan för handläggaren: tre stora knappar utan siffror, sedan olästa och Visa alla olästa – inga händelser", async ({ page }, info) => {
   const errors = await open(page, info, "/portal", MARIA);
   await settle(page);
   const big = main(page).getByRole("navigation", { name: "Vad vill du göra?" }).getByRole("link");
   await expect(big, "tre stora knappar").toHaveCount(3);
   const texts = await big.allInnerTexts();
   expect(texts[0]).toMatch(/Beställ ny insats/);
-  expect(texts[1]).toMatch(/Mina deltagare/);
-  expect(texts[1]).toMatch(/27 pågår · 2 väntar på start/);
-  expect(texts[2]).toMatch(/Rapporter och meddelanden/);
-  expect(texts[2]).toMatch(/4 olästa/);
+  // Beslut 2026-10-09: inga siffror under knapparna.
+  expect(texts[1].trim()).toBe("Mina deltagare");
+  expect(texts[2].trim()).toBe("Rapporter och meddelanden");
   let t = await mainText(page);
+  expect(t, "inga händelser på startsidan").not.toMatch(/Händelser i dina ärenden/i);
+  expect(t).not.toMatch(/pågår · \d+ väntar på start|\d+ olästa\b/);
   expect(t, "olästa (4)").toMatch(/Olästa rapporter och meddelanden \(4\)/i);
   expect(t).toMatch(/Tre korta steg och en granskning/);
   expect(t, "listan visar tre – resten bakom Visa alla olästa").toMatch(/Visa alla olästa \(4\)/);
@@ -239,6 +244,14 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, yrkes
   expect(nadiaPnr).toMatch(/^\d{8}-\d{4}$/);
 
   await go(page, info, "/portal/bestall", MARIA);
+  // Beslut 2026-10-09: kontaktuppgifterna från kontot visas som en sammanfattning med Ändra – fälten finns bakom Ändra.
+  for (const id of ["#kom-o-name", "#kom-o-unit", "#kom-o-phone", "#kom-o-email"]) await expect(page.locator(id), `${id} bakom Ändra`).toHaveCount(0);
+  await expect(main(page)).toContainText(/Kontaktperson/i);
+  await expect(main(page)).toContainText("Maria Ekdahl");
+  await expect(main(page)).toContainText("maria.ekdahl@botkyrka.se");
+  await expect(main(page)).toContainText("Arbetsmarknadsenheten Alby");
+  await btn(page, "Ändra kontaktperson").click();
+  await expect(page.locator("#kom-o-name"), "Ändra öppnar fälten med fokus på det första").toBeFocused();
   await expect(page.locator("#kom-o-name")).toHaveValue("Maria Ekdahl");
   await expect(page.locator("#kom-o-email")).toHaveValue("maria.ekdahl@botkyrka.se");
   await expect(page.locator("#kom-o-unit"), "enheten är fritext och förifylld").toHaveValue("Arbetsmarknadsenheten Alby");
@@ -349,16 +362,13 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, yrkes
   await expect(main(page)).toContainText("Tack! Beställningen är skickad", { timeout: 15_000 });
   t = await mainText(page);
   expect(t, "ärendenummer (nästa i avtalets serie)").toMatch(/BOT-27-0051/);
-  expect(t, "ordererkännandet visas direkt").toMatch(/Tack! Vi har tagit emot er beställning/);
-  expect(t).toMatch(/Mejlet innehåller bara ärendenumret/);
-  const mail = await card(page, "Mejlet du får").innerText();
-  expect(mail, "mejlet innehåller ärendenumret men inga personuppgifter").toContain("BOT-27-0051");
-  expect(mail).not.toMatch(/Samira|Testsson|3456|Lager/);
-  expect(t, "kvittot visar yrkesområdet och hur deltagaren kallas – inte ett val som handläggaren inte gjort").toMatch(/Yrkesområde: Lager och logistik\./);
-  expect(t).toMatch(/Deltagaren får en kallelse med SMS\./);
-  expect(t).not.toMatch(/det sätt du valde/);
+  // Beslut 2026-10-09: kvittot har bara ärendenumret och en mening om orderbekräftelsen – inget mejl och ingen tidslinje.
+  expect(t).toMatch(/Du får orderbekräftelsen med mejl senast [^.]+klockan/);
+  await expect(card(page, "Mejlet du får"), "inget kort Mejlet du får").toHaveCount(0);
+  await expect(card(page, "Så här går det vidare"), "ingen tidslinje").toHaveCount(0);
+  expect(t).not.toMatch(/Mejlet du får|Så här går det vidare|Tack! Vi har tagit emot er beställning|Yrkesområde:|kallelse/);
+  expect(t, "inga personuppgifter på kvittot").not.toMatch(/Samira|Testsson|3456/);
   expect(t, "kvittot skriver datum utan förkortningar").not.toMatch(/\bkl\.|\b(jan|feb|dec)\b/);
-  expect(t).toMatch(/klockan/);
   await noHScroll(page, "Ordererkännande");
   const newId = await caseIdFromLink(page, "Se beställningen");
   // Perspektivbyte till avropsinkorgen (bara prototypen)
@@ -370,19 +380,18 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, yrkes
     await expect(main(page)).toContainText("BOT-27-0051");
   }
 
-  // Beställningen hos kommunen: väntar på bekräftelse, yrkesområdet från beställningen, SMS (telefonnummer finns), bakgrunden med filen
+  // Beställningen hos kommunen: väntar på bekräftelse och yrkesområdet från beställningen. Beslut 2026-10-09: ingen
+  // kontaktväg, bostadsort eller bakgrundsinformation (med bilagorna) på deltagarens sida.
   await go(page, info, `/portal/deltagare/${newId}`, MARIA);
   t = await mainText(page);
   expect(t).toMatch(/Väntar på bekräftelse/);
   expect(t).toMatch(/Beställningen kom in via portalen/);
   expect(t).toMatch(/Yrkesområde\s+G Lager och logistik/);
-  expect(t).toMatch(/Kontaktväg\s+SMS/);
-  expect(t, "ingen bostadsort i beställningen – raden visas inte").not.toMatch(/Bostadsort/);
-  expect(t).toMatch(/Kartläggning genomförd\s+Ja/);
+  expect(t).not.toMatch(/Kontaktväg|Bostadsort|Yrkesspår|Bakgrundsinformation från beställningen|Kartläggning genomförd/);
+  await expect(main(page).getByRole("list", { name: "Bilagor" }), "bilagorna visas inte i portalen").toHaveCount(0);
   // Avbrott görs med mejl (beslut 2026-10-09) – adressen och ärendenumret står på sidan.
   expect(t).toMatch(/Vill du avbryta insatsen\? Mejla avrop@miljonbemanning\.se med ärendenumret BOT-27-0051\./);
   await expect(main(page).getByRole("link", { name: "avrop@miljonbemanning.se" })).toHaveAttribute("href", "mailto:avrop@miljonbemanning.se?subject=Avbryta%20insatsen%20BOT-27-0051");
-  await expect(main(page).getByRole("list", { name: "Bilagor" })).toContainText("kartlaggning-test.pdf");
   // … och hos Miljonbemanning: omfattningen och bakgrunden med filen på deltagarkortet
   await go(page, info, `/arenden/${newId}`, SARA);
   await expect(main(page)).toContainText("Bakgrund från beställningen");
@@ -399,14 +408,20 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesf�
   let t = await mainText(page);
   expect(t, "listan använder begreppet deltagare").toMatch(/De deltagare som du har beställt en insats för/);
   expect(t).toMatch(/29 deltagare/i);
-  expect(t).toMatch(/Pågår och på väg \(29\)/);
+  // Beslut 2026-10-09: två urval, Pågår och Alla, och inget yrkesområde i raden.
+  await expect(page.getByRole("group", { name: "Visa deltagare" }).getByRole("button")).toHaveText([/^Pågår \(29\)$/, /^Alla \(71\)$/]);
+  expect(t).not.toMatch(/Yrkesområde inte valt än/);
   await page.fill("#kom-sok", "BOT-26-0143");
   const rows = main(page).locator("section").filter({ hasText: /deltagare/i }).getByRole("link", { name: /BOT-26-0143|Nadia/ });
   await expect(rows, "sök på ärendenummer").toHaveCount(1);
   await expect(main(page)).toContainText("Nadia Warsame");
+  const rowText = await rows.first().innerText();
   await rows.first().click();
   await expect.poll(() => currentPath(page, info)).toBe(`/portal/deltagare/${SC.nadia}`);
   await settle(page);
+  const area = ((await card(page, "Uppgifter om deltagaren").innerText()).match(/Yrkesområde\s+([^\n]+)/) ?? [])[1];
+  expect(area, "deltagarens sida visar yrkesområdet").toBeTruthy();
+  expect(rowText, "listans rad visar inte yrkesområdet").not.toContain(area as string);
   t = await mainText(page);
   expect(t, "tidslinje Mottagen → Avslutad").toMatch(/Ordererkänd[\s\S]*Bekräftad[\s\S]*Pågår[\s\S]*Avslutad/);
   expect(t, "orderbekräftelsens innehåll").toMatch(/Ansvarig coach\s+Amira Haddad/);
@@ -414,7 +429,18 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesf�
   expect(t).toMatch(/Omfattning\s+10 veckor, till 19 februari 2027/);
   expect(t).not.toMatch(/Beställningens värde|Beställarreferens|\d\s?kr\b/);
   expect(t).toMatch(/Första mötet\s+måndag 14 december 2026 klockan 10\.00, Alby/);
-  expect(t, "närvaron sammanfattad").toMatch(/Närvarande 9 av 9 tillfällen · 2 inte registrerade än/);
+  // Beslut 2026-10-09: närvaron är en rad – närvarograden senaste månaden och länken till veckorapporterna.
+  expect(t, "närvarograden senaste månaden").toMatch(/Närvarograd senaste månaden: \d+\s%/);
+  await expect(card(page, "Närvaro").getByRole("link", { name: "Till veckorapporterna" })).toHaveCount(1);
+  expect(t, "ingen uppdelning i giltig och ogiltig frånvaro").not.toMatch(/Giltig frånvaro|Ogiltig frånvaro|Närvarande \d+ av/);
+  // Ingen fasstapel och inget fasnamn, inget team, inget ordererkännande att visa och inga uppgifter som tagits bort.
+  expect(t).not.toMatch(/Fas \d+ av \d+|fas \d+ av/);
+  await expect(main(page).getByRole("progressbar")).toHaveCount(0);
+  expect(t).not.toMatch(/Team:|Visa ordererkännandet|Kontaktväg|Bostadsort|Yrkesspår|Bakgrundsinformation från beställningen/);
+  // Kvar: ärendets status, orderbekräftelsen och avbrott via mejl.
+  expect(t).toMatch(/Insatsen pågår\./);
+  await expect(linkOrBtn(page, "Öppna orderbekräftelsen")).toHaveCount(1);
+  expect(t).toMatch(/Vill du avbryta insatsen\? Mejla avrop@miljonbemanning\.se/);
   expect(t.replace("Coachens egna anteckningar visas inte för beställaren", ""), "inga coachanteckningar").not.toMatch(/anteckning/i);
   await noHScroll(page, "Deltagarens översikt");
   await page.getByRole("tab", { name: /Rapporter/ }).click();
@@ -469,14 +495,22 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesf�
 });
 
 // ================================================================ 5. Rapporter och meddelanden
-test("5. rapporter och meddelanden: olästa först, väntande veckorapport, filter och trådar", async ({ page }, info) => {
+test("5. rapporter och meddelanden: olästa först, filtren Olästa och Alla, trådar – inga rapporter på väg och ingen sökning", async ({ page }, info) => {
   const errors = await open(page, info, "/portal/rapporter", MARIA);
   await settle(page);
   const items = main(page).locator("section").last().getByRole("link");
   await expect(items.first(), "olästa rapporter först").toContainText("Ny");
-  await expect(main(page), "väntande veckorapport för vecka 4 förklaras").toContainText("Veckorapport närvaro, vecka 4 är på väg");
-  await page.getByRole("group", { name: "Visa rapporter" }).getByRole("button", { name: /^Veckorapporter/ }).click();
-  await expect(items.first(), "filter på veckorapporter").toContainText("Veckorapport närvaro");
+  // Beslut 2026-10-09: inga rutor om rapporter på väg, ingen sökning och bara filtren Olästa och Alla.
+  await expect(main(page)).not.toContainText("är på väg");
+  await expect(page.locator("#kom-rap-q"), "ingen sökning").toHaveCount(0);
+  const filters = page.getByRole("group", { name: "Visa rapporter" }).getByRole("button");
+  await expect(filters).toHaveText([/^Olästa \(4\)$/, /^Alla \(\d+\)$/]);
+  // Veckorapporterna, månadsrapporterna och orderbekräftelserna finns kvar i listan.
+  const all = await main(page).locator("section").last().innerText();
+  expect(all).toMatch(/Veckorapport närvaro/);
+  expect(all).toMatch(/Månadsrapport/);
+  await filters.first().click();
+  await expect.poll(() => currentPath(page, info)).toBe("/portal/rapporter?filter=olasta");
   const href = decodeURIComponent((await items.first().getAttribute("href")) ?? "");
   const repId = (href.match(/\/portal\/rapporter\/([^?#/]+)/) ?? [])[1];
   expect(repId).toBeTruthy();
@@ -484,12 +518,15 @@ test("5. rapporter och meddelanden: olästa först, väntande veckorapport, filt
   // Listans val följer med (bara koder), så att tillbakaknappen visar samma lista.
   await expect
     .poll(() => currentPath(page, info), { message: "rapporten öppnas i portalens rapportsida" })
-    .toMatch(new RegExp(`^/portal/rapporter/${repId}\\?fran=rapporter&lista=filter(=|%3D)weekly_attendance$`));
+    .toMatch(new RegExp(`^/portal/rapporter/${repId}\\?fran=rapporter&lista=filter(=|%3D)olasta$`));
   await settle(page);
-  await expect(main(page)).toContainText(/Veckorapport närvaro/i);
   await main(page).getByRole("link", { name: "Tillbaka till rapporterna" }).first().click();
-  await expect.poll(() => currentPath(page, info), { message: "tillbaka till samma filter" }).toBe("/portal/rapporter?filter=weekly_attendance");
-  await expect(page.getByRole("group", { name: "Visa rapporter" }).getByRole("button", { name: /^Veckorapporter/ })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => currentPath(page, info), { message: "tillbaka till samma filter" }).toBe("/portal/rapporter?filter=olasta");
+  await expect(filters.first()).toHaveAttribute("aria-pressed", "true");
+  await expect(filters.first(), "rapporten räknas som läst").toHaveText(/^Olästa \(3\)$/);
+  // Rapportsidan: ingen notis om att rapporten är kvitterad (beslut 2026-10-09).
+  await go(page, info, `/portal/rapporter/${repId}`, MARIA);
+  await expect(main(page)).not.toContainText("Rapporten är kvitterad");
   await go(page, info, "/portal/rapporter", MARIA);
   await page.getByRole("tab", { name: /Meddelanden/ }).click();
   await expect.poll(() => currentPath(page, info)).toBe("/portal/rapporter?flik=meddelanden");
@@ -501,8 +538,8 @@ test("5. rapporter och meddelanden: olästa först, väntande veckorapport, filt
   expect(errors).toEqual([]);
 });
 
-// ================================================================ 5b. Händelser, uppgifter och rättelser
-test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad rapport", async ({ page }, info) => {
+// ================================================================ 5b. Uppgifter, avböjd beställning, orderbekräftelse och rättelser
+test("5b. uppgift från Miljonbemanning, avböjd beställning, orderbekräftelsen bland olästa och rättad rapport – inga händelser på startsidan", async ({ page }, info) => {
   const errors = await open(page, info, "/portal", MARIA);
   await settle(page);
   // En portalbeställning som Miljonbemanning sedan accepterar
@@ -526,29 +563,22 @@ test("5b. händelser i dina ärenden, uppgift från Miljonbemanning och rättad 
     { key: "coach.deviationSave", input: { caseId: SC.yusuf, data: { description: "Upprepad ogiltig frånvaro", action: "Möte med deltagaren", needsCustomerDecision: true } }, as: AMIRA },
   ]);
   await go(page, info, "/portal", MARIA);
-  let t = await mainText(page);
-  expect(t, "startsidan visar tre händelser").toMatch(/Händelser i dina ärenden \(3\)/i);
-  expect(t, "avböjd beställning").toMatch(/Beställning BOT-27-0050 kunde inte tas emot/);
-  expect(t, "byte av coach").toMatch(/Ny ansvarig coach för BOT-26-0143/);
-  expect(t).toMatch(/Sofia Grahn har tagit över efter Amira Haddad\./);
-  expect(t, "ny orderbekräftelse").toMatch(/Orderbekräftelse för BOT-27-0051/);
+  const t = await mainText(page);
+  // Beslut 2026-10-09: inga händelser på startsidan – orderbekräftelsen kommer bland de olästa rapporterna.
+  expect(t).not.toMatch(/Händelser i dina ärenden|kunde inte tas emot|Ny ansvarig coach/i);
+  const unread = await main(page).locator("section").filter({ hasText: /Olästa rapporter och meddelanden/ }).first().innerText();
+  expect(unread, "ny orderbekräftelse bland de olästa").toMatch(/Orderbekräftelse[\s\S]*BOT-27-0051/);
   expect(t, "uppgiften customer_decision").toMatch(/Att göra \(1\)/i);
   expect(t).toMatch(/Miljonbemanning behöver ditt beslut om BOT-26-0148/);
   expect(t, "inga förkortningar i datum").not.toMatch(/ kl\. |\b(jan|feb|dec)\b/);
-  await noHScroll(page, "Startsidan med händelser");
-  // Avböjd syns i standardfiltret och har ett eget filter
+  await noHScroll(page, "Startsidan med uppgift och olästa");
+  // Avböjd syns i standardfiltret Pågår en tid – det finns inget eget filter för avböjda.
   await go(page, info, "/portal/deltagare", MARIA);
   await expect(main(page), "avböjd beställning i standardfiltret").toContainText("BOT-27-0050");
-  await expect(page.getByRole("group", { name: "Visa deltagare" }).getByRole("button", { name: /^Avböjda/ })).toHaveCount(1);
-  // Öppna den avböjda från startsidan – händelsen räknas som läst
-  await go(page, info, "/portal", MARIA);
-  await link(page, /Beställning BOT-27-0050 kunde inte tas emot/).click();
+  await expect(page.getByRole("group", { name: "Visa deltagare" }).getByRole("button", { name: /^Avböjda/ })).toHaveCount(0);
+  await main(page).getByRole("link").filter({ hasText: "BOT-27-0050" }).first().click();
   await settle(page);
   await expect(main(page), "orsaken visas i ärendet").toContainText("Vi har ingen ledig plats");
-  await go(page, info, "/portal", MARIA);
-  t = await mainText(page);
-  expect(t, "händelsen försvinner när ärendet har öppnats").not.toMatch(/BOT-27-0050 kunde inte tas emot/);
-  expect(t).toMatch(/Händelser i dina ärenden \(2\)/i);
   // Uppgiften visas i ärendet och kan markeras som klar
   await go(page, info, `/portal/deltagare/${SC.yusuf}`, MARIA);
   await expect(main(page)).toContainText("Miljonbemanning behöver ditt beslut");
