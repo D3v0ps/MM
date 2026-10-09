@@ -8,6 +8,8 @@
 // Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
 // anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön. Golvet är
 // klockan när datat lästes in (testdatat är komplett dit) och högvattenmärkena sparas i minnet.
+// Automatisk närvaro (src/features/_shared/auto-attendance.ts, beslut 2026-10-09) körs på samma sätt när klockan passerar dagens
+// slut (organisationens klockslag) – före rapportutkasten, med samma golv: nyinläst testdata får ingen automatisk närvaro.
 import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
@@ -20,6 +22,8 @@ import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
 import { createSimulatedFortnox } from "@/features/_shared/fortnox-port";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
+import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
+import { nextDayEnd } from "@/core/auto-attendance";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
@@ -109,20 +113,40 @@ export function createMemoryRuntime(opts: {
     },
   };
   let checkedAt: LocalDateTime | null = null;
+  // Nästa gång dagen tar slut (automatisk närvaro). null = inte räknat än (första anropet räknar bara ut tiden – golvet gör ändå
+  // att nyinläst testdata inte får något).
+  let attendanceNext: LocalDateTime | null = null;
   let ensuring: Promise<void> | null = null;
+  const orgRows = () => (system as unknown as { table(n: "org_settings"): { list(): Promise<Tables["org_settings"][]> } }).table("org_settings").list();
   async function ensureScheduledReports(): Promise<void> {
     while (ensuring) await ensuring;
     const now = opts.clock.now();
-    if (checkedAt && nextScheduleBoundary(checkedAt) > now) return;
+    const reportsDue = !checkedAt || nextScheduleBoundary(checkedAt) <= now;
+    const attendanceDue = attendanceNext === null || attendanceNext <= now;
+    if (!reportsDue && !attendanceDue) return;
     ensuring = (async () => {
-      // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
-      try {
-        await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
-      } catch (e) {
-        // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
-        console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+      if (attendanceDue) {
+        try {
+          // Klockslaget ur organisationens inställningar (null = automatisk närvaro avstängd – då räknas bara nästa dagsslut).
+          const at = autoAttendanceTime(await orgRows());
+          if (attendanceNext !== null && at) await runAutoAttendance(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+          attendanceNext = nextDayEnd(now, at ?? "18:00");
+        } catch (e) {
+          // Som rapportutkasten: ett fel stoppar inte appen – nästa försök när nästa dag tar slut. Bara feltypen loggas.
+          console.error("automatisk närvaro: kunde inte registreras", e instanceof Error ? e.name : typeof e);
+          attendanceNext = nextDayEnd(now, "18:00");
+        }
       }
-      checkedAt = now;
+      if (reportsDue) {
+        // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
+        try {
+          await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
+        } catch (e) {
+          // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
+          console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        checkedAt = now;
+      }
     })();
     try {
       await ensuring;

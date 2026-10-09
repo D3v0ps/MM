@@ -45,15 +45,29 @@ export const ATT_OPTIONS: SegOption<AttKey>[] = (["present", "late", "absent_val
   value: k, label: ATT[k].label, icon: ATT[k].icon, tone: ATT[k].seg,
 }));
 
-/** Närvaromärke: "Närvarande", "Giltig frånvaro · Sjukdom" eller "Ej registrerad". */
+/** Text och ikon för närvaro som registrerats automatiskt efter dagens slut (beslut 2026-10-09). */
+export const AUTO_ATTENDANCE_TEXT = "Automatiskt registrerad";
+/** Märket för automatisk närvaro (text + ikon). Försvinner när någon ändrar raden – den blir då manuell. */
+export function AutoBadge() {
+  return (
+    <Badge tone="outline" icon="refresh" title="Registrerades automatiskt som närvarande när dagen var slut. Ändra till frånvaro om deltagaren inte var där.">
+      {AUTO_ATTENDANCE_TEXT}
+    </Badge>
+  );
+}
+
+/** Närvaromärke: "Närvarande", "Giltig frånvaro · Sjukdom" eller "Ej registrerad" – och "Automatiskt registrerad" vid automatisk närvaro. */
 export function AttBadge({ at }: { at: AttMark }) {
   if (!at) return <Badge tone="outline" icon="circle">Ej registrerad</Badge>;
   const a = ATT[at.status] ?? ATT.present;
   return (
-    <Badge tone={a.tone} icon={a.icon}>
-      {a.label}
-      {at.status === "absent_valid" && at.reason ? ` · ${at.reason}` : ""}
-    </Badge>
+    <>
+      <Badge tone={a.tone} icon={a.icon}>
+        {a.label}
+        {at.status === "absent_valid" && at.reason ? ` · ${at.reason}` : ""}
+      </Badge>
+      {at.source === "auto" && <AutoBadge />}
+    </>
   );
 }
 

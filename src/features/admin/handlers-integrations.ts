@@ -9,13 +9,14 @@ import { loadDb } from "@/api/load";
 import { handleCommand, handleQuery } from "@/api/server";
 import { unregistered } from "@/core/attendance";
 import { coaches } from "@/core/cases";
-import { isUnset, slaRule } from "@/core/config";
+import { autoAttendanceOf, isUnset, slaRule } from "@/core/config";
 import { domainEnv } from "@/core/env";
 import { pct, plural } from "@/core/format";
 import { resultRate } from "@/core/kpi";
 import { progressionWatch } from "@/core/progression";
 import { addDays, dayOf, fmtDateTime, fmtTime, fmtWeekKey, isoWeek, monday } from "@/core/time";
 import { SIMULATED_PROVIDER } from "@/features/_shared/ai-sim";
+import { runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { JOB_NAME, type JobKey } from "./audit-text";
 import type { Integration, Job } from "@/data/schema";
 import { hidesCommercial } from "@/api/tester-access";
@@ -41,7 +42,7 @@ const SUBPROCESSORS: SubprocessorView[] = [
 ];
 
 /** Jobbtypen i tabellen jobs för en rad i adminvyn: avrop@ är ett riktigt jobb (inbox_import), övriga simulerade. */
-const JOB_KIND: Record<JobKey, string> = { inbox: "inbox_import", weekly: "weekly", att_remind: "att_remind", progress: "progress", audio: "audio", transcripts: "transcripts", kpi: "kpi", retention: "retention" };
+const JOB_KIND: Record<JobKey, string> = { inbox: "inbox_import", auto_attendance: "auto_attendance", weekly: "weekly", att_remind: "att_remind", progress: "progress", audio: "audio", transcripts: "transcripts", kpi: "kpi", retention: "retention" };
 
 /** Läget för brevlådan ur integrationsraden "graph" (skrivs av jobbet inbox_import – inga hemligheter). */
 type InboxConfig = {
@@ -148,8 +149,9 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
     activities: { caseId: { in: ids } }, attendance: { caseId: { in: ids } }, check_ins: { caseId: { in: ids } }, reports: { contractId: main.id }, memberships: { contractId: main.id },
   });
   const all = { ...db, cases };
-  const [audioDel, manual, graphRow] = await Promise.all([
+  const [audioDel, manual, graphRow, autoRuns] = await Promise.all([
     ctx.repo.table("audit_log").list({ action: "audio.deleted" }), ctx.repo.table("jobs").list({}, { orderBy: "createdAt" }), ctx.repo.table("integrations").get("graph"),
+    ctx.repo.table("audit_log").list({ action: "attendance.auto_registered", contractId: main.id }, { orderBy: "occurredAt", desc: true, limit: 1 }),
   ]);
 
   const lastWeek = isoWeek(addDays(monday(today), -7)).key;
@@ -183,8 +185,17 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
       : s && s.seen ? `${plural(s.imported ?? 0, "mejl inläst", "mejl inlästa")} vid senaste körningen${s.cases ? `, ${plural(s.cases, "ärende", "ärenden")}` : ""}${s.toRegister ? `, ${s.toRegister} att registrera för hand` : ""}` : "Inga nya mejl vid senaste körningen";
     return J("inbox", "Varannan minut", inbox.readAt, inbox.cfg.lastError ? "failed" : "ok", result);
   };
+  // Automatisk närvaro (Karims beslut 1, 2026-10-09): klockslaget ur organisationens inställningar och senaste körningens antal.
+  const auto = autoAttendanceOf(settings);
+  const lastAuto = autoRuns[0] ?? null;
+  const lastAutoCount = Number((lastAuto?.details as { count?: unknown } | undefined)?.count ?? 0);
+  const autoRow = (): JobRow => auto.autoPresent
+    ? J("auto_attendance", `Dagligen ${auto.autoPresentAt.replace(":", ".")} – passerade tillfällen utan närvaro registreras som Närvarande. Frånvaro registrerar coachen.`, lastAuto?.occurredAt ?? null, "ok",
+      lastAuto ? `${plural(lastAutoCount, "tillfälle", "tillfällen")} registrerade automatiskt vid senaste körningen` : "Inte körd än")
+    : J("auto_attendance", "Avstängd i organisationens inställningar", lastAuto?.occurredAt ?? null, "disabled", "Närvaron registreras bara för hand", { disabled: true });
   const jobs: JobRow[] = [
     inboxRow(),
+    autoRow(),
     J("weekly", `Måndag, när närvaron är komplett${pub ? ` – senast ${pub} enligt avtalet` : ""}`, `${today}T07:00`, waiting.length ? "waiting" : "ok",
       `${weekly.length - waiting.length} publicerade, ${waiting.length} väntar på närvaro (${fmtWeekKey(lastWeek)})`),
     J("att_remind", "Fredag 14.00 och måndag 08.00", `${today}T08:00`, "ok", `${plural(coachesMissing, "coach", "coacher")} påmind${coachesMissing === 1 ? "" : "a"} om förra veckan`),
@@ -228,10 +239,17 @@ handleCommand(adminRunJob, { roles: ["admin"] }, async (ctx, p) => {
     const cfg = (graph?.config ?? {}) as InboxConfig;
     if (cfg.configured === false) return fail("disabled", "Brevlådan är inte kopplad – se kortet avrop@-brevlådan.");
   }
+  if (p.key === "auto_attendance") {
+    const { settings } = await orgRow(ctx, main.supplierId);
+    if (!autoAttendanceOf(settings).autoPresent) return fail("disabled", "Automatisk närvaro är avstängd i organisationens inställningar.");
+  }
   const now = ctx.now();
   // avrop@ (beslut 4c): ett riktigt jobb (inbox_import) som jobbkörningen tar direkt (after()) eller inom en minut (cron).
-  // I minnesläget och prototypen finns ingen jobbkörning – jobbet markeras klart direkt (simulerat). Övriga jobb är simulerade.
-  const real = p.key === "inbox" && !!ctx.jobs;
+  // Automatisk närvaro (beslut 2026-10-09): ett riktigt jobb (auto_attendance, payload.manual – utan golv) i supabase-läget.
+  // I minnesläget och prototypen finns ingen jobbkörning – avrop@ markeras klart direkt (simulerat) och den automatiska
+  // närvaron registreras direkt med samma funktion som jobbet. Övriga jobb är simulerade.
+  const real = (p.key === "inbox" || p.key === "auto_attendance") && !!ctx.jobs;
+  if (p.key === "auto_attendance" && !real) await runAutoAttendance(ctx, { manual: true });
   const job: Job = {
     id: ctx.newId("job"), kind: JOB_KIND[p.key], payload: { manual: true }, status: real ? "queued" : "done", attempts: real ? 0 : 1, runAfter: now, lastError: null, createdAt: now,
     createdBy: ctx.actor.userId, finishedAt: real ? null : now,

@@ -58,6 +58,10 @@ export const ACTION_LABEL: Record<string, string> = {
   "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
   // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
   "email.registered": "Registrerade beställning i inkorgen",
+  // Coachmötet 2026-10-09: gruppaktiviteter och automatisk närvaro. Loggen har id:n, antal och tider – aldrig namn.
+  "attendance.auto_registered": "Registrerade närvaro automatiskt", "group_activity.created": "Skapade gruppaktivitet", "group_activity.updated": "Ändrade gruppaktivitet",
+  "group_activity.invited": "Bjöd in deltagare till gruppaktivitet", "group_activity.removed_participant": "Tog bort deltagare ur gruppaktivitet",
+  "group_activity.cancelled": "Ställde in gruppaktivitet",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -67,7 +71,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
-  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura",
+  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -91,6 +95,9 @@ const DETAIL_KEY: Record<string, string> = {
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
   // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
   rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
+  // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
+  groupActivityId: "Gruppaktivitet", days: "Dagar", manual: "Körd manuellt", wasAuto: "Var automatiskt registrerad", startsAt: "Tid", durationMin: "Längd (minuter)",
+  invited: "Inbjudna", removed: "Borttagna tillfällen", holiday: "Helgdag",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -259,10 +266,10 @@ export function ruleDiffText(a: RuleSnapshot, b: RuleSnapshot): string {
 
 // ---------------------------------------------------------------- Bakgrundsjobb
 export const JOB_NAME: Record<string, string> = {
-  inbox: "Läs avrop@-inkorgen", weekly: "Publicera veckorapporter", att_remind: "Påminnelser om närvaroregistrering", progress: "Progressionspåminnelser",
+  inbox: "Läs avrop@-inkorgen", auto_attendance: "Registrera närvaro automatiskt", weekly: "Publicera veckorapporter", att_remind: "Påminnelser om närvaroregistrering", progress: "Progressionspåminnelser",
   audio: "Radera ljud efter transkribering", transcripts: "Radera råtranskript", kpi: "Beräkna nyckeltal", retention: "Gallring enligt PUB-avtalet",
 };
-export const JOB_KEYS = ["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"] as const;
+export const JOB_KEYS = ["inbox", "auto_attendance", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"] as const;
 export type JobKey = (typeof JOB_KEYS)[number];
 
 /** Visningar och exporter som chef/controller stickprovar i första hand (SPEC §10). */

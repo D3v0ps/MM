@@ -229,7 +229,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       const ci = a.kind === "möte" ? ciToday(c.id) : null;
       return {
         id: a.id, ...row(c), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin, location: a.location,
-        attendance: at ? { status: at.status, reason: at.reason } : null, checkIn: ci ? { id: ci.id, approved: ci.status === "approved" } : null,
+        attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, checkIn: ci ? { id: ci.id, approved: ci.status === "approved" } : null,
         recordable: recordingOffered(c.aiConsentStatus),
       };
     }),
@@ -325,7 +325,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       const at = attendanceFor(db, a.id);
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
-        location: a.location, attendance: at ? { status: at.status, reason: at.reason } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
+        location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
         referrerId: c.referrerId,
       });
     }

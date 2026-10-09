@@ -6,7 +6,7 @@ import type { SlaTone } from "@/core/sla";
 import type { ProgressionRuleText } from "@/core/config";
 import {
   AI_DECISIONS, AI_RUN_KINDS, ATTENDANCE_STATUSES, CHECK_IN_MODES, DEVIATION_STATUSES, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES, INPUT_METHODS, OUTCOME_EVENT_KINDS,
-  TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
+  TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceSource, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
   type GoalStatus, type InputMethod, type LocalDate, type LocalDateTime, type MonthKey, type OutcomeEventKind, type ProgressLevel, type ReportStatus,
   type ResultClass, type TrafficLight, type TranscriptLine, type WeekKey,
 } from "@/data/schema";
@@ -35,11 +35,13 @@ export const attendanceSet = command("coach.attendanceSet", z.object({
   status: z.enum(ATTENDANCE_STATUSES),
   /** Frånvaroorsak (giltig frånvaro). */
   reason: ShortText.optional(),
-}), { invalidates: CASE_FACTS }).returns<Result<{ attendanceId: string; published: WeeklyPublished | null }, "not_found">>();
+// Samordnaren registrerar också (aktivitetsvyn, beslut 2026-10-09): hennes orderbekräftelse i inkorgen läser rapporterna.
+}), { invalidates: [...CASE_FACTS, "inkorg.confirmation"] }).returns<Result<{ attendanceId: string; published: WeeklyPublished | null }, "not_found">>();
 
 /**
  * Markera alla oregistrerade tillfällen en dag som närvarande (beslut 2026-10-02, kommun-och-mobil-18). Samma regler som
- * attendanceSet: coach (egna ärenden), handledare (teamärenden), skyddade ärenden bara för namngiven coach. Tillfällen som
+ * attendanceSet: de som arbetar i ärendena (coach, handledare och sedan gruppaktiviteterna samordnare och avtalsansvarig, beslut
+ * 2026-10-09 – aktivitetsvyns "Markera övriga som närvarande"), skyddade ärenden bara för namngiven coach. Tillfällen som
  * redan har närvaro eller frånvaro ändras aldrig (skipped). Raderna skrivs exakt som vid enskild registrering, så
  * fakturaunderlaget och veckorapporterna blir desamma; veckorapporterna publiceras som vid enskild registrering (published).
  * En loggrad med antal och id:n (attendance.registered_all). Finns något id inte, eller får du inte registrera det, skrivs
@@ -50,7 +52,7 @@ export const attendanceSetAll = command("coach.attendanceSetAll", z.object({
   day: LocalDateSchema,
   /** Tillfällena som visades i bekräftelsen – servern kontrollerar varje. */
   activityIds: z.array(IdSchema).min(1).max(200),
-}), { invalidates: CASE_FACTS }).returns<
+}), { invalidates: [...CASE_FACTS, "inkorg.confirmation"] }).returns<
   Result<{ marked: string[]; skipped: string[]; published: WeeklyPublished[]; registeredAt: LocalDateTime }, "not_found" | "wrong_day" | "not_started">
 >();
 
@@ -321,8 +323,11 @@ export const monthlyDraft = command("coach.monthlyDraft", z.object({ caseId: IdS
 
 /** Tidsgräns med status, räknad i hanteraren (src/core/sla). */
 export type CoachSla = { label: string; tone: SlaTone };
-/** Registrerad närvaro (null = ej registrerad). */
-export type AttMark = { status: AttendanceStatus; reason: string } | null;
+/**
+ * Registrerad närvaro (null = ej registrerad). source auto = registrerad automatiskt efter dagens slut (beslut 2026-10-09) –
+ * visas "Automatiskt registrerad" tills någon ändrar raden (då blir den manuell).
+ */
+export type AttMark = { status: AttendanceStatus; reason: string; source: AttendanceSource } | null;
 /** Varför vyn inte kan visas ärendet (prototypens gate): "Ärendet finns inte" eller "Inte ditt ärende". */
 export type CoachGate = { title: string; text: string };
 /** Deltagarhuvudet i ärendevyerna (prototypens CaseHead). */
