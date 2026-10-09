@@ -87,7 +87,7 @@ export function TabHandelser({ card }: TabProps) {
               {team && (
                 <div className="px-[18px] pt-4">
                   <p className="text-text-muted">
-                    Arbetsgivarkontakter i godkända avstämningar: <b>{e.checkInContacts}</b>. Coachens anteckningar visas inte.
+                    Arbetsgivarkontakter i godkända mötesrapporter: <b>{e.checkInContacts}</b>. Coachens anteckningar visas inte.
                   </p>
                 </div>
               )}
@@ -163,7 +163,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
     <Stack>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-[70ch] text-text-muted">
-          En avvikelse är alltid en åtgärd: vad har hänt, vad gör vi, vem ansvarar och när följer vi upp. Röd samlad status i en avstämning skapar en avvikelse automatiskt.
+          En avvikelse är alltid en åtgärd: vad har hänt, vad gör vi, vem ansvarar och när följer vi upp. Röd samlad status i en mötesrapport skapar en avvikelse automatiskt.
         </p>
         {card.edit && (
           <div className="flex flex-wrap items-center gap-1.5">
@@ -211,7 +211,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
       )}
       {devs.length === 0 && !form && (
         <Card>
-          <Empty icon="flag" title="Inga avvikelser registrerade">Avvikelser skapas här eller automatiskt när en avstämning får röd samlad status.</Empty>
+          <Empty icon="flag" title="Inga avvikelser registrerade">Avvikelser skapas här eller automatiskt när en mötesrapport får röd samlad status.</Empty>
         </Card>
       )}
       {devs.map((dv) => (
@@ -224,7 +224,7 @@ function Deviations({ card, m }: { card: TabProps["card"]; m: CaseDeviations }) 
           actions={
             <span className="text-small text-text-muted">
               {fmtDateTime(dv.createdAt)}
-              {dv.fromCheckIn ? " · från veckoavstämning" : ""}
+              {dv.fromCheckIn ? " · från möte" : ""}
             </span>
           }
           foot={
@@ -587,7 +587,7 @@ export function TabPraktik({ card }: TabProps) {
           <Card title="Arbetsgivarkontakter" icon="users" flush>
             <div className="px-[18px] pt-4 pb-1">
               <p>
-                I godkända veckoavstämningar: <b>{p.checkInContacts}</b> kontakter. Registrerade händelser: <b>{p.contacts.length}</b>.
+                I godkända mötesrapporter: <b>{p.checkInContacts}</b> kontakter. Registrerade händelser: <b>{p.contacts.length}</b>.
               </p>
             </div>
             {p.contacts.length === 0 ? (

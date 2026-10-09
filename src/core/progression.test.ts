@@ -51,7 +51,7 @@ describe("veckor i rad utan progression", () => {
     expect(n.map((x) => x.id)).toEqual(["nprog:c1:2027-W04"]);
     expect(n[0]).toMatchObject({
       kind: "progress_reminder", title: "Påminnelse: ingen progression 2 veckor i rad", createdAt: "2027-02-01T08:00", channels: ["app", "email"],
-      body: "BOT-27-0003: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i veckoavstämningen.",
+      body: "BOT-27-0003: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i mötet.",
       emailBody: "Påminnelse från Miljonmatch: ett av dina ärenden (BOT-27-0003) saknar dokumenterad progression. Logga in för att se vilket steg som behövs.",
       readAt: null,
     });

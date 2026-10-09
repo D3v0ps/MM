@@ -111,7 +111,7 @@ test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvar
 
   await expect(page.getByTestId("kalender-dag")).toHaveCount(5);
   await expect(page.getByRole("link", { name: "Granska" })).toHaveCount(1);
-  await expect(card(page, "AI-utkast att granska")).toContainText("Mehmet Kaya");
+  await expect(card(page, "Mötesrapporter att granska")).toContainText("Mehmet Kaya");
   await expect(page.getByRole("link", { name: "Öppna notiser" })).toBeVisible();
   await expect(card(page, "Egna flaggor")).toContainText("Fastnat i fas 1");
   await expect(card(page, "Egna flaggor")).toContainText("Upprepad ogiltig frånvaro");
@@ -277,17 +277,17 @@ test("Veckoavstämning manuellt: röd status kräver avvikelse (Yusuf)", async (
   for (const id of ["#dev-desc", "#dev-action", "#dev-owner", "#dev-follow"]) await expect(page.locator(id)).toHaveValue("");
   await expect(page.locator('#dev-cust button[aria-pressed="true"]')).toHaveCount(0);
   await page.locator("#ci-note").fill("Uteblev två onsdagar. Vi har gått igenom schemat och bokat uppföljning med handläggaren.");
-  await btn(page, "Godkänn avstämningen").click();
+  await btn(page, "Godkänn mötesrapporten").click();
   await expect(page.getByText("Stopp: röd status kräver en avvikelse")).toBeVisible();
   // Varje fel står vid fältet och som länk i felsammanfattningen överst (länken flyttar fokus till fältet).
-  const summary = page.getByRole("alert").filter({ hasText: "Avstämningen kan inte godkännas ännu" });
+  const summary = page.getByRole("alert").filter({ hasText: "Mötesrapporten kan inte godkännas ännu" });
   for (const t of ["Beskriv avvikelsen.", "Skriv vilken åtgärd som ska göras.", "Välj ansvarig.", "Välj datum för uppföljning."]) {
     await expect(page.locator("[id$='-error']").getByText(t)).toBeVisible();
     await expect(summary.getByRole("link", { name: t })).toBeVisible();
   }
   await expect(page.locator("#dev-desc"), "fokus på första fältet med fel").toBeFocused();
   // Ingen avstämning sparades: formuläret står kvar
-  await expect(page.getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   await btn(page, "Använd förslaget från flaggan").click();
   await expect(page.locator("#dev-desc")).toHaveValue(/Upprepad ogiltig frånvaro/);
   expect((await page.locator("#dev-action").inputValue()).length).toBeGreaterThan(10);
@@ -297,9 +297,9 @@ test("Veckoavstämning manuellt: röd status kräver avvikelse (Yusuf)", async (
   await expect(page.locator("#dev-follow")).toHaveValue("2027-02-08");
   await btn(group(page, "Behöver beslut från kommunen"), "Ja").click();
   await expect(page.getByText("Stopp: röd status kräver en avvikelse")).toHaveCount(0);
-  await btn(page, "Godkänn avstämningen").click();
+  await btn(page, "Godkänn mötesrapporten").click();
 
-  await expect(page.getByRole("heading", { level: 1, name: "Avstämningen är godkänd" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
   await expect(main(page)).toContainText(/Samlad status\s*Röd/i);
   await expect(main(page)).toContainText(/Dokumentationstid\s*\d+ min \d\d s/i);
   const dev = card(page, "Avvikelse skapad");
@@ -324,7 +324,7 @@ test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)
   const href = (await granska.getAttribute("href")) ?? "";
   expect(href).toContain(`/avstamning/${SC.mehmet}?avstamning=`);
   await granska.click();
-  await expect(page.getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   await noBadText(page);
   await expect(page.getByRole("group", { name: /^AI-förslag för / })).toHaveCount(7);
   expect(await page.getByText(/^Tidpunkt \d\d:\d\d$/).count()).toBeGreaterThanOrEqual(7);
@@ -334,7 +334,7 @@ test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)
   await expect(page.getByTestId("ratranskript")).toBeVisible();
   await expect(page.getByText("Visningen loggas i revisionsloggen. Rapporter byggs aldrig från råtranskriptet.")).toBeVisible();
   await group(page, "Samlad status").getByRole("button", { name: /Grön/ }).click();
-  await btn(page, "Godkänn avstämningen").click();
+  await btn(page, "Godkänn mötesrapporten").click();
   await expect(page.getByText(/Ta ställning till alla AI-förslag/)).toBeVisible();
   for (const f of ["veckomål uppnått", "fas", "arbetsgivarkontakter", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   // Ändra men behåll värdet -> loggas som accepterat, och det syns
@@ -345,9 +345,9 @@ test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)
   await page.locator("#ci-nextgoal").fill("Köra hela distributionsrundan själv på tisdag");
   await expect(aiGroup(page, "nytt veckomål").getByText("Ändrat – loggas som ändrat")).toBeVisible();
   await btn(aiGroup(page, "hinder"), "Avvisa").click();
-  await btn(page, "Godkänn avstämningen").click();
+  await btn(page, "Godkänn mötesrapporten").click();
 
-  await expect(page.getByRole("heading", { level: 1, name: "Avstämningen är godkänd" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
   await expect(main(page)).toContainText(/AI-förslag\s*5 \/ 1 \/ 1/i);
   await expect(main(page)).toContainText(/Samlad status\s*Grön\s*Fas 3 · Yrkesspecifika moment/i);
   const log = card(page, "Loggade AI-beslut");
@@ -386,8 +386,8 @@ test("Veckoavstämning: AI-förslag från inklistrade anteckningar (Hodan)", asy
   for (const f of ["veckomål uppnått", "genomförda aktiviteter", "arbetsgivarkontakter", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await page.locator("#ci-nextgoal").fill("Komma tillbaka och gå igenom ansökningarna");
   await group(page, "Samlad status").getByRole("button", { name: /Gul/ }).click();
-  await btn(page, "Godkänn avstämningen").click();
-  await expect(page.getByRole("heading", { level: 1, name: "Avstämningen är godkänd" })).toBeVisible();
+  await btn(page, "Godkänn mötesrapporten").click();
+  await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
   // Bara förslag med belägg loggas som AI-beslut – och de sparade värdena är förslagen (Nej, 0)
   await expect(main(page)).toContainText(/AI-förslag\s*4 \/ 0 \/ 0/i);
   const log = card(page, "Loggade AI-beslut");
@@ -428,8 +428,8 @@ test("Veckoavstämning: samtycke och inspelning (Elif)", async ({ page }, info) 
   await expect(aiGroup(page, "fas")).toContainText("Framgår inte");
   for (const f of ["veckomål uppnått", "nytt veckomål", "genomförda aktiviteter", "arbetsgivarkontakter", "hinder", "anteckning"]) await btn(aiGroup(page, f), "Acceptera").click();
   await group(page, "Samlad status").getByRole("button", { name: /Gul/ }).click();
-  await btn(page, "Godkänn avstämningen").click();
-  await expect(page.getByRole("heading", { level: 1, name: "Avstämningen är godkänd" })).toBeVisible();
+  await btn(page, "Godkänn mötesrapporten").click();
+  await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
   await expect(main(page)).toContainText(/AI-förslag\s*6 \/ 0 \/ 0/i);
   await expect(main(page)).toContainText(/Samlad status\s*Gul/i);
   await expect(page.getByText("Ljudet raderades direkt efter transkriberingen", { exact: true })).toBeVisible();
@@ -614,6 +614,24 @@ test("Meddelande från kommunen syns i Min vecka och räknas som läst efteråt"
   await expect.poll(() => currentPath(page, info)).toBe(`/arenden/${SC.nadia}?flik=meddelanden`);
   await go(page, info, "/min-vecka");
   await expect(card(page, "Meddelanden från kommunen").getByText("Inga olästa meddelanden")).toBeVisible();
+  await noBadText(page);
+  expect(errors).toEqual([]);
+});
+
+// ================================================================ Mötet (beslut 2026-10-09): Spela in mötet från deltagarkortet
+test("Deltagarkortet: Spela in mötet öppnar sidan MÖTE med inspelningsläget valt (Nadia)", async ({ page }, info) => {
+  const errors = await open(page, info, `/arenden/${SC.nadia}`, COACH);
+  const actions = page.getByRole("group", { name: "Åtgärder" });
+  await expect(actions.getByRole("link", { name: "Nytt möte utan inspelning", exact: true })).toBeVisible();
+  await actions.getByRole("link", { name: "Spela in mötet", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
+  expect(currentPath(page, info)).toBe(`/avstamning/${SC.nadia}?spela=1`);
+  // AI-stöd med inspelning är förvalt – coachen trycker bara på inspelningsknappen. Bedömningsfälten är tomma tills coachen väljer.
+  await expect(btn(page, "Med AI-stöd")).toHaveAttribute("aria-pressed", "true");
+  const src = page.getByRole("group", { name: "Källa" });
+  await expect(btn(src, "Spela in mötet")).toHaveAttribute("aria-pressed", "true");
+  await expect(btn(page, isDemo(info) ? "Simulera en inspelning" : "Starta inspelning")).toBeVisible();
+  await expect(main(page)).toContainText("Spela in mötet medan ni pratar.");
   await noBadText(page);
   expect(errors).toEqual([]);
 });

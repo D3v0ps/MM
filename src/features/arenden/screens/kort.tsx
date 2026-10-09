@@ -28,7 +28,7 @@ import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation"
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 
 const TAB_LABEL: Record<CaseTab, string> = {
-  oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Avstämningar", narvaro: "Närvaro", manad: "Månadsunderlag",
+  oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
   handelser: "Händelser och utfall", avvikelser: "Avvikelser", praktik: "Praktik", rapporter: "Rapporter", meddelanden: "Meddelanden", historik: "Historik",
 };
 const CUST_WHO = { kommun_handlaggare: "kommunen" } as const;
@@ -180,7 +180,8 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
   const role = useSession().actor.role;
   const team = card.access === "team";
   const tabIds: readonly CaseTab[] = team ? TEAM_TABS : CASE_TABS;
-  const tab: CaseTab = tabIds.includes(flik as CaseTab) ? (flik as CaseTab) : "oversikt";
+  // ?visa=rost ("Läs röstmeddelandet" på Min vecka): röstmeddelandena ligger under Meddelanden sedan 2026-10-09.
+  const tab: CaseTab = tabIds.includes(flik as CaseTab) ? (flik as CaseTab) : visa === "rost" && tabIds.includes("meddelanden") ? "meddelanden" : "oversikt";
   const blocked = !!flik && !tabIds.includes(flik as CaseTab) && (CASE_TABS as readonly string[]).includes(flik);
   const [modal, setModal] = useState<ModalKind | null>(null);
   // ?starta=1 (knappen Starta insatsen på Min vecka): dialogen öppnas en gång när kortet har laddats.
@@ -257,7 +258,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
         </Notice>
       )}
 
-      <CaseSummary card={card} openModal={setModal} voiceOpen={visa === "rost"} />
+      <CaseSummary card={card} openModal={setModal} />
 
       <Stack>
         <Tabs
@@ -296,7 +297,17 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
           {tab === "avvikelser" && <TabAvvikelser {...props} />}
           {tab === "praktik" && <TabPraktik {...props} />}
           {tab === "rapporter" && <TabRapporter {...props} />}
-          {tab === "meddelanden" && <TabMeddelanden {...props} />}
+          {tab === "meddelanden" && (
+            <Stack>
+              {/* Deltagarens röstmeddelanden (flyttade hit från kortets topp 2026-10-09) läses av coach, samordnare, avtalsansvarig, chef och admin (rost.caseVoice) – inte handledaren. */}
+              {!team && role !== "handledare" && (
+                <div className="rounded-card border border-ljusgra bg-vit px-[18px] py-4">
+                  <VoiceNotesRow caseId={card.caseId} autoOpen={visa === "rost"} />
+                </div>
+              )}
+              <TabMeddelanden {...props} />
+            </Stack>
+          )}
           {tab === "historik" && <TabHistorik {...props} />}
         </TabPanel>
       </Stack>
@@ -316,10 +327,9 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
 
 // ---------------------------------------------------------------- Huvud (kompakt)
 // Det viktigaste på några rader så att flikarna syns utan att skrolla: status och fas, huvudcoach, start, slut och
-// handläggare, varningar, åtgärder, samtycke och röstmeddelanden. Allt annat under "Visa alla uppgifter" – inget har tagits bort.
-function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openModal: (m: ModalKind) => void; voiceOpen: boolean }) {
+// handläggare, varningar, åtgärder och samtycke. Röstmeddelandena ligger under fliken Meddelanden. Allt annat under "Visa alla uppgifter" – inget har tagits bort.
+function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: ModalKind) => void }) {
   const team = c.access === "team";
-  const role = useSession().actor.role;
   const [all, setAll] = useState(showAllFacts);
   const toggle = () => {
     showAllFacts = !all;
@@ -376,10 +386,8 @@ function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openMo
       {warn.length > 0 && <div className="flex flex-wrap gap-1.5">{warn}</div>}
       {/* Rad C: åtgärder */}
       <CaseActions card={c} openModal={openModal} />
-      {/* Rad D och E: samtycke och röstmeddelanden (inte för teamet) */}
+      {/* Rad D: samtycke (inte för teamet) */}
       {!team && <ConsentRow card={c} onRegister={() => openModal("consent")} className={row} />}
-      {/* Deltagarens röstmeddelanden läses av coach, samordnare, avtalsansvarig, chef och admin (rost.caseVoice) – inte handledaren, som sedan 2026-10-09 också har full åtkomst. */}
-      {!team && role !== "handledare" && <VoiceNotesRow caseId={c.caseId} autoOpen={voiceOpen} className="border-t border-ljusgra pt-3" />}
       {/* Rad F: alla uppgifter */}
       <div className={row}>
         <Button kind="ghost" icon={all ? "chevron-up" : "chevron-down"} aria-expanded={all} aria-controls="arende-uppgifter" onClick={toggle}>
@@ -585,7 +593,7 @@ function ConsentButtons({ card, onRegister, className }: { card: CaseCard; onReg
       title: "Återkalla samtycket?",
       confirmLabel: "Återkalla samtycket",
       tone: "danger",
-      body: <p>Inspelning och AI-stöd stängs av direkt för det här ärendet. Redan godkända avstämningar påverkas inte. Deltagaren kan lämna nytt samtycke senare.</p>,
+      body: <p>Inspelning och AI-stöd stängs av direkt för det här ärendet. Redan godkända mötesrapporter påverkas inte. Deltagaren kan lämna nytt samtycke senare.</p>,
     });
     if (!ok) return;
     const res = await set.run({ caseId: card.caseId, value: "revoked" }).catch(() => null);
@@ -597,7 +605,7 @@ function ConsentButtons({ card, onRegister, className }: { card: CaseCard; onReg
   };
   const decline = async () => {
     await set.run({ caseId: card.caseId, value: "declined" }).catch(() => null);
-    toast("Registrerat att deltagaren avböjer. Avstämningar dokumenteras manuellt.");
+    toast("Registrerat att deltagaren avböjer. Mötena dokumenteras manuellt.");
   };
   return (
     <span className={`flex flex-wrap items-center gap-1.5 ${className ?? ""}`}>
@@ -633,7 +641,7 @@ function ConsentText({ card }: { card: CaseCard }) {
       </span>
     );
   if (v === "revoked" && cons.revokedAt) return <span className="text-text-muted">Återkallat {fmtDateTime(cons.revokedAt)}. Inspelning och AI är avstängt.</span>;
-  if (v === "declined") return <span className="text-text-muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</span>;
+  if (v === "declined") return <span className="text-text-muted">Mötena dokumenteras manuellt. Deltagaren kan ändra sig.</span>;
   if (v === "not_asked") return <span className="text-text-muted">Inspelning kan bara startas när samtycke är registrerat.</span>;
   return null;
 }
@@ -661,7 +669,7 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
       toast(res && !res.ok && res.message ? res.message : "Samtycket kunde inte registreras. Försök igen.", "error");
       return;
     }
-    toast("Samtycket är registrerat. Inspelning och AI-stöd kan nu användas i avstämningarna.");
+    toast("Samtycket är registrerat. Inspelning och AI-stöd kan nu användas i mötena.");
     onClose();
   };
   return (
@@ -675,7 +683,7 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
         </>
       }
     >
-      <p>Samtycket gäller inspelning av avstämningar och AI-stöd för textutkast. AI föreslår – coachen bedömer. Ljudet raderas direkt efter transkribering.</p>
+      <p>Samtycket gäller inspelning av möten och AI-stöd för utkast till mötesrapporter. AI föreslår – coachen bedömer. Ljudet raderas direkt efter transkribering.</p>
       <Field label="Informationen gavs på" id="arn-cons-lang" help="Välj det språk deltagaren fick informationstexten på.">
         <Select value={lang} onValueChange={setLang} options={langs.map((x) => ({ value: x, label: cap(x) }))} />
       </Field>
@@ -712,7 +720,11 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   if (c.start) btns.push(<Button key="start" kind="primary" icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
   if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
-  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) btns.push(<Button key="ci" kind="primary" icon="check-square" className={btn} to={`/avstamning/${id}`}>Ny veckoavstämning</Button>);
+  // Mötet (beslut 2026-10-09): "Spela in mötet" är coachens huvudväg – inspelning, AI-utkast till mötesrapport, granskning och godkännande på samma skärm.
+  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) {
+    btns.push(<Button key="rec" kind="primary" icon="mic" className={btn} to={`/avstamning/${id}?spela=1`}>Spela in mötet</Button>);
+    btns.push(<Button key="ci" kind="secondary" icon="edit" className={btn} to={`/avstamning/${id}`}>Nytt möte utan inspelning</Button>);
+  }
   if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);

@@ -1,5 +1,5 @@
 "use client";
-// Deltagarkortets flikar Översikt, Kartläggning, Avstämningar och Närvaro (prototypens views/arenden.js).
+// Deltagarkortets flikar Översikt, Kartläggning, Möten (avstämningar) och Närvaro (prototypens views/arenden.js).
 // Tidslinjen och Månadsunderlaget (rapporter steg 2) ligger i kort-tidslinje.tsx och kort-manad.tsx.
 import { useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -79,7 +79,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                 )}
               </Card>
               {!team && (
-                <Card title="Senaste avstämning" icon="check-square">
+                <Card title="Senaste möte" icon="check-square">
                   {lc ? (
                     <Stack gap="sm">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -96,12 +96,12 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                       {lc.note && <div className="text-small">{clip(lc.note, 140)}</div>}
                     </Stack>
                   ) : (
-                    <p className="text-text-muted">Ingen godkänd avstämning ännu.</p>
+                    <p className="text-text-muted">Ingen godkänd mötesrapport ännu.</p>
                   )}
                   {o.drafts.count > 0 && (
                     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                       <Badge tone="outline" icon="edit">{plural(o.drafts.count, "utkast", "utkast")} att granska</Badge>
-                      {o.drafts.ai && <AiTag>AI-utkast</AiTag>}
+                      {o.drafts.ai && <AiTag>Utkast från AI</AiTag>}
                     </div>
                   )}
                 </Card>
@@ -278,14 +278,14 @@ export function TabAvstamningar({ card }: TabProps) {
           <Stack>
             {drafts.length > 0 && (
               <Notice tone="info" title={`${plural(drafts.length, "utkast", "utkast")} väntar på granskning`}>
-                Utkast används inte i rapporter. Rapporter byggs bara av godkända avstämningar. AI-förslag sätter aldrig samlad status – coachen väljer.
+                Utkast används inte i rapporter. Rapporter byggs bara av godkända mötesrapporter. AI-förslag sätter aldrig samlad status – coachen väljer.
               </Notice>
             )}
             <Card
               flush
-              title={`Veckoavstämningar (${list.length})`}
+              title={`Möten (${list.length})`}
               icon="check-square"
-              actions={card.edit && can && card.status === "active" && <Button kind="primary" icon="plus" to={caseLink("/avstamning", card.caseId)}>Ny avstämning</Button>}
+              actions={card.edit && can && card.status === "active" && <Button kind="primary" icon="mic" to={caseLink("/avstamning", card.caseId, { spela: "1" })}>Spela in mötet</Button>}
               foot={
                 list.length > n && (
                   <>
@@ -300,8 +300,8 @@ export function TabAvstamningar({ card }: TabProps) {
                 columns={cols}
                 rows={list.slice(0, n)}
                 rowAttrs={(x) => ({ "data-mal": `ci:${x.id}` })}
-                caption="Veckoavstämningar"
-                empty="Inga avstämningar ännu."
+                caption="Möten"
+                empty="Inga möten ännu."
                 to={open}
                 mobile={(x) => (
                   <>
@@ -331,7 +331,7 @@ function StatusCell({ x }: { x: CaseCheckInRow }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {x.approved ? <Badge tone="blue" icon="check">Godkänd</Badge> : <Badge tone="outline" icon="edit">Utkast</Badge>}
-      {x.ai && !x.approved && <AiTag>AI-utkast</AiTag>}
+      {x.ai && !x.approved && <AiTag>Utkast från AI</AiTag>}
     </div>
   );
 }

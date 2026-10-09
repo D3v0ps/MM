@@ -150,8 +150,8 @@ function Gaps({ g, b, card, setTab }: Pick<TabProps, "card" | "setTab"> & { g: M
   if (g.checkInsDraft > 0) {
     rows.push({
       key: "ci-draft", kind: "warn",
-      text: g.checkInsDraft === 1 ? "1 veckoavstämning är ett utkast och kommer inte med förrän den är godkänd." : `${g.checkInsDraft} veckoavstämningar är utkast och kommer inte med förrän de är godkända.`,
-      action: <Button kind="ghost" iconRight="arrow-right" onClick={() => setTab("avstamningar")}>Öppna avstämningarna</Button>,
+      text: g.checkInsDraft === 1 ? "1 mötesrapport är ett utkast och kommer inte med förrän den är godkänd." : `${g.checkInsDraft} mötesrapporter är utkast och kommer inte med förrän de är godkända.`,
+      action: <Button kind="ghost" iconRight="arrow-right" onClick={() => setTab("avstamningar")}>Öppna mötena</Button>,
     });
   }
   rows.push(

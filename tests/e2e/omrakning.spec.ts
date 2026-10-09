@@ -57,7 +57,7 @@ test("registrera närvaro: bara närvarosidan och sidopanelens räknare hämtas 
 test("spara avstämning som utkast: närvaron, AI-läget och rösten hämtas inte om – kortets flik Avstämningar visar utkastet", async ({ page }, info) => {
   onlyApp(info);
   const errors = await open(page, info, `/avstamning/${NADIA}`, AMIRA);
-  await expect(main(page).getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   const rpc = watchRpc(page);
   await page.locator("#ci-note").fill("Ringde två arbetsgivare i lager. Uppföljning på torsdag.");
   await page.getByRole("button", { name: "Spara utkast" }).click();
@@ -72,7 +72,7 @@ test("spara avstämning som utkast: närvaron, AI-läget och rösten hämtas int
   // Kortet (grunt via brödsmulan): fliken Avstämningar hämtas på nytt och visar utkastet.
   await page.getByRole("link", { name: "BOT-26-0143" }).first().click();
   await loaded(page);
-  await page.getByRole("tab", { name: /^Avstämningar/ }).click();
+  await page.getByRole("tab", { name: /^Möten/ }).click();
   await expect(main(page)).toContainText("1 utkast väntar på granskning");
   expect(errors).toEqual([]);
 });
@@ -119,7 +119,7 @@ test("kvittera flagga: Min vecka och sidopanelens räknare hämtas om (chefens d
 test("öppna kortet direkt: högst 8 anrop, varje fråga en gång, och röstmeddelandenas visning loggas inte vid laddning", async ({ page }, info) => {
   onlyApp(info);
   const rpc = watchRpc(page);
-  const errors = await open(page, info, `/arenden/${NADIA}`, AMIRA);
+  const errors = await open(page, info, `/arenden/${NADIA}?flik=meddelanden`, AMIRA);
   await expect(page.getByRole("group", { name: "Röstmeddelanden:" })).toBeVisible();
   await quiet(page);
   const all = rpc.all();

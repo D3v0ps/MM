@@ -107,7 +107,7 @@ export function notificationsFor(db: NotificationDb, recipientId: string | null 
       out.push({
         id: `nprog:${w.case.id}:${w.lastWeek}`, recipientId, kind: "progress_reminder", caseId: w.case.id, createdAt: monday8, channels: [...rule.channels], computed: true,
         title: w.streak >= 2 ? `Påminnelse: ingen progression ${w.streak} veckor i rad` : "Påminnelse: ingen progression förra veckan",
-        body: `${w.case.caseNumber}: ${last.reason} (${fmtWeekKey(last.key)}). Planera nästa steg och dokumentera i veckoavstämningen.`,
+        body: `${w.case.caseNumber}: ${last.reason} (${fmtWeekKey(last.key)}). Planera nästa steg och dokumentera i mötet.`,
         emailBody: `Påminnelse från Miljonmatch: ett av dina ärenden (${w.case.caseNumber}) saknar dokumenterad progression. Logga in för att se vilket steg som behövs.`,
       });
     }

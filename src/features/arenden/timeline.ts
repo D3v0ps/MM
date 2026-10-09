@@ -237,10 +237,10 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
       const w = isoWeek(ci.heldAt).week;
       if (ci.status === "approved") {
         const text = ci.note.trim() || ci.obstacles.length || (ci.attendanceComment ?? "").trim() ? { text: "check_in" as const } : {};
-        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "check-square", title: `Veckoavstämning vecka ${w} godkänd`, sub: ci.phase ? phaseLabel(cfg, ci.phase) : undefined, tab: "avstamningar", ...text });
+        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "check-square", title: `Mötesrapport vecka ${w} godkänd`, sub: ci.phase ? phaseLabel(cfg, ci.phase) : undefined, tab: "avstamningar", ...text });
       } else {
         const text = ci.obstacles.length ? { text: "check_in" as const } : {};
-        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "edit", title: `Veckoavstämning vecka ${w} · Utkast – granskas av coachen`, state: "utkast", tab: "avstamningar", ...text });
+        push({ id: `ci:${ci.id}`, at: ci.heldAt, cat: "insatser", icon: "edit", title: `Möte vecka ${w} · Utkast – granskas av coachen`, state: "utkast", tab: "avstamningar", ...text });
       }
     }
     // ---- Progression: kartläggning och godkända månadsbedömningar

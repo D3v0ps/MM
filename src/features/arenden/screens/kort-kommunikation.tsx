@@ -78,7 +78,7 @@ export function TabRapporter({ card }: TabProps) {
       {({ reports }) => (
         <Stack>
           <p className="max-w-[75ch] text-text-muted">
-            Rapporter byggs bara av godkända uppgifter – godkända avstämningar och bedömningar. Kommunen ser levererade rapporter i portalen. Mejlet till kommunen innehåller bara
+            Rapporter byggs bara av godkända uppgifter – godkända mötesrapporter och bedömningar. Kommunen ser levererade rapporter i portalen. Mejlet till kommunen innehåller bara
             ärendenumret.
           </p>
           <Card flush title={`Rapporter för ${card.caseNumber}`} icon="file" actions={<CustSwitch card={card} tab="rapporter" label={(who) => `Så ser ${who} rapporterna`} />}>
@@ -281,7 +281,7 @@ export function TabHistorik({ card }: TabProps) {
             {h.ownOnly && (
               <div className="px-[18px] pt-4">
                 <p className="text-text-muted">
-                  Här ser du det du själv har gjort i ärendet: godkända avstämningar och bedömningar, meddelanden, närvaro och ändringar. Statusändringar och coachbyten finns i kortet
+                  Här ser du det du själv har gjort i ärendet: godkända mötesrapporter och bedömningar, meddelanden, närvaro och ändringar. Statusändringar och coachbyten finns i kortet
                   Status och coachbyten.
                 </p>
               </div>

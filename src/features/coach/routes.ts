@@ -12,7 +12,7 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 
 export const routes: RouteDef[] = [
   { path: "/narvaro", title: "Närvaro", roles: ["coach", "handledare"], area: "mb", screen: NarvaroScreen },
-  { path: "/avstamning/:caseId?", title: "Veckoavstämning", roles: ["coach"], area: "mb", screen: AvstamningScreen },
+  { path: "/avstamning/:caseId?", title: "Möte", roles: ["coach"], area: "mb", screen: AvstamningScreen },
   {
     path: "/manadsbedomning/:caseId?",
     title: (_p, q) => {

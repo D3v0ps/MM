@@ -61,7 +61,7 @@ async function logRows(page: Page, text: string, who = "Amira Haddad"): Promise<
 
 test("avstämning som inte kan sparas automatiskt (röd status utan avvikelse): menyn frågar – Stanna kvar behåller texten, Lämna sidan går vidare och utkastet finns kvar", async ({ page }, info) => {
   const errors = await open(page, info, `/avstamning/${NADIA}`, AMIRA);
-  await expect(main(page).getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   const note = "Ringde två arbetsgivare i lager. Uppföljning på torsdag.";
   await page.locator("#ci-note").fill(note);
   await page.getByRole("group", { name: "Samlad status" }).getByRole("button", { name: /Röd/ }).click();
@@ -116,7 +116,7 @@ function countCommands(page: Page): Record<string, number> {
 
 test("avstämningen sparas automatiskt: ingen fråga, ingen toast, utkastet finns efter Tillbaka och efter omladdning – och loggen får en rad per besök", async ({ page }, info) => {
   const errors = await open(page, info, `/avstamning/${NADIA}`, AMIRA);
-  await expect(main(page).getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   await expect(autosave(page)).toHaveText("");
   const commands = countCommands(page);
   const goal = "Ringa två arbetsgivare i lager";
@@ -233,7 +233,7 @@ test("en godkänd kartläggning som ändras utan att sparas: vakten frågar (gra
 
 test("byt sida inom 2 s: vakten sparar utkastet först – ingen fråga, och kortet visar utkastet", async ({ page }, info) => {
   const errors = await open(page, info, `/avstamning/${NADIA}`, AMIRA);
-  await expect(main(page).getByRole("heading", { level: 1, name: "Veckoavstämning" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
   await page.locator("#ci-note").fill("Snabb anteckning innan jag byter sida.");
   await menuLink(page, /^Mina ärenden/).click();
   await expect.poll(() => here(page, info)).toBe("/arenden");

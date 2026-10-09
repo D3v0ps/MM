@@ -247,7 +247,7 @@ test("6. chefen ser kortet i läsläge och eskaleringen, men kan inte ändra", a
   const errors = await open(page, info, `/arenden/${SC.yusuf}`, KARIN);
   await expect(main(page)).toContainText("Läsläge");
   await expect(main(page)).toContainText(/veckor i rad utan progression/);
-  for (const name of ["Byt huvudcoach", "Återkalla samtycke", "Registrera samtycke", "Ny veckoavstämning"]) {
+  for (const name of ["Byt huvudcoach", "Återkalla samtycke", "Registrera samtycke", "Spela in mötet", "Nytt möte utan inspelning"]) {
     await expect(action(page, name), `Chefen har ingen knapp "${name}"`).toHaveCount(0);
   }
   await tab(page, /Avvikelser/).click();
@@ -517,7 +517,7 @@ async function writeNote(page: Page, body: string, opts: { team?: boolean } = {}
 test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven av'", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}`, AMIRA);
   await tab(page, /^Tidslinje/).click();
-  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller avstämningens anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.");
+  await expect(main(page)).toContainText("Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller mötets anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.");
   await expect(page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Allt" })).toHaveAttribute("aria-pressed", "true");
   await expect(main(page)).toContainText("Månadsrapport: Levererad 8 januari 2027");
   await writeNote(page, NOTE_FULL);
@@ -528,7 +528,7 @@ test("18. tidslinjen: huvudcoachen skriver en anteckning som syns med 'Skriven a
   // Filtret Anteckningar visar bara anteckningar.
   await page.getByRole("group", { name: "Visa" }).getByRole("button", { name: "Anteckningar" }).click();
   await expect(main(page)).toContainText(NOTE_FULL);
-  await expect(main(page)).not.toContainText("Veckoavstämning vecka");
+  await expect(main(page)).not.toContainText("Mötesrapport vecka");
   expect(errors).toEqual([]);
 });
 
@@ -555,7 +555,7 @@ test("20. handledaren ser hela tidslinjen med båda anteckningarna och avstämni
   await expect(tab(page, /^Tidslinje/)).toHaveAttribute("aria-selected", "true");
   await expect(main(page)).toContainText(NOTE_TEAM);
   await expect(main(page)).toContainText(NOTE_FULL);
-  await expect(main(page)).toContainText("Veckoavstämning");
+  await expect(main(page)).toContainText("Mötesrapport vecka");
   // Månads- och slutrapporter är fortfarande stängda för handledaren.
   await expect(main(page)).not.toContainText("Månadsrapport:");
   await expect(main(page)).toContainText("Du ingår i teamet som yrkesspecifik handledare");
@@ -731,8 +731,8 @@ test("26. tidslinjen: Visa text fäller ut meddelandet och avstämningens anteck
 
   // En godkänd veckoavstämning: anteckning och hinder – samma text som fliken Avstämningar visar. Raden låses på sin
   // rubrik (ett filter på knappen "Visa text" skulle lösas om när knappen byter namn till "Dölj text").
-  const firstCi = main(page).getByRole("listitem").filter({ hasText: /Veckoavstämning vecka \d+ godkänd/ }).filter({ has: page.getByRole("button", { name: "Visa text" }) }).first();
-  const ciTitle = (await firstCi.innerText()).match(/Veckoavstämning vecka \d+ godkänd/)?.[0] ?? "";
+  const firstCi = main(page).getByRole("listitem").filter({ hasText: /Mötesrapport vecka \d+ godkänd/ }).filter({ has: page.getByRole("button", { name: "Visa text" }) }).first();
+  const ciTitle = (await firstCi.innerText()).match(/Mötesrapport vecka \d+ godkänd/)?.[0] ?? "";
   expect(ciTitle).not.toBe("");
   const ci = main(page).getByRole("listitem").filter({ hasText: ciTitle }).first();
   await ci.getByRole("button", { name: "Visa text" }).click();
@@ -741,7 +741,7 @@ test("26. tidslinjen: Visa text fäller ut meddelandet och avstämningens anteck
   await expect(ciRegion).toContainText("Hinder:");
   const note = (await ciRegion.innerText()).split("Anteckning:")[1]?.split("\n")[0]?.trim() ?? "";
   expect(note.length).toBeGreaterThan(10);
-  await tab(page, /^Avstämningar/).click();
+  await tab(page, /^Möten/).click();
   await expect(main(page)).toContainText(note.slice(0, 40));
   expect(errors).toEqual([]);
 });

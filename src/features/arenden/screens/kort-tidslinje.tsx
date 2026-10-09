@@ -22,7 +22,7 @@ import {
 import { caseLink, fd } from "./common";
 import type { TabProps } from "./kort";
 
-const EMPTY_CARD = "Här samlas allt som händer i insatsen: aktiviteter, närvaro, avstämningar, bedömningar, händelser och anteckningar. Inget är registrerat än.";
+const EMPTY_CARD = "Här samlas allt som händer i insatsen: aktiviteter, närvaro, möten, bedömningar, händelser och anteckningar. Inget är registrerat än.";
 const EMPTY_FILTER = "Inget i den här kategorin för perioden.";
 const monthTitle = (mk: string) => `${MONTHS[Number(mk.slice(5, 7)) - 1]} ${mk.slice(0, 4)}`;
 
@@ -52,7 +52,7 @@ export function TabTidslinje({ card, openTab }: TabProps) {
       title="Tidslinje"
       actions={t?.canWrite ? <Button kind="primary" icon="plus" onClick={() => setDialog({ note: null })}>Skriv anteckning</Button> : undefined}
     >
-      <p>Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller avstämningens anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
+      <p>Allt som hänt i insatsen, med det senaste först. Visa text fäller ut meddelandet eller mötets anteckning här. Öppna visar raden i sin flik – med Tillbaka kommer du hit igen.</p>
       <Seg<TimelineCat> ariaLabel="Visa" value={visa} onValueChange={changeFilter} options={TIMELINE_CATS.map((c) => ({ value: c, label: TIMELINE_CAT_LABEL[c] }))} />
       {q.error ? (
         <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />
@@ -255,7 +255,7 @@ function TimelineTextPanel({ id, caseId, entryId, title }: { id: string; caseId:
             </>
           ) : (
             <>
-              <p className="m-0 text-small text-text-muted">Utkast – granskas av coachen. Anteckningen visas när avstämningen är godkänd.</p>
+              <p className="m-0 text-small text-text-muted">Utkast – granskas av coachen. Anteckningen visas när mötesrapporten är godkänd.</p>
               <div>
                 <span className="font-bold">Hinder: </span>
                 {t.obstacles.join(", ")}

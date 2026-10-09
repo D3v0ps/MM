@@ -24,7 +24,7 @@ test("notiser: coachen ser tilldelningar och påminnelser men inga eskaleringar"
   // Påminnelsen om BOT-26-0148 (tre veckor i rad) – samma text som den gamla prototypen
   const first = items(page).first();
   await expect(first).toContainText("Påminnelse: ingen progression 3 veckor i rad");
-  await expect(first).toContainText("BOT-26-0148: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i veckoavstämningen.");
+  await expect(first).toContainText("BOT-26-0148: Ingen avstämning dokumenterad (v. 4 2027). Planera nästa steg och dokumentera i mötet.");
   // E-postens text innehåller bara ärendenumret – inga personuppgifter
   await first.getByRole("button", { name: "Visa e-postens text" }).click();
   await expect(first).toContainText(
@@ -54,7 +54,7 @@ test("notiser: coachen ser tilldelningar och påminnelser men inga eskaleringar"
   await expect(main(page).getByRole("button", { name: "Olästa (0)" })).toBeVisible();
 
   // Gör avstämning leder till avstämningen för ärendet
-  await items(page).first().getByRole("link", { name: "Gör avstämning" }).click();
+  await items(page).first().getByRole("link", { name: "Öppna mötet" }).click();
   await expect(page).toHaveURL(/\/avstamning\/case-260148/);
   expect(relevant(errors)).toEqual([]);
 });

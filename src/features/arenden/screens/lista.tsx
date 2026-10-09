@@ -293,7 +293,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
         )}
       </Card>
       <DemoNote>
-        Listan visar påhittade testdata. Senaste status är den samlade statusen i senaste godkända veckoavstämning.{" "}
+        Listan visar påhittade testdata. Senaste status är den samlade statusen i senaste godkända mötesrapport.{" "}
         {role === "coach" || role === "handledare"
           ? "Flaggorna är de som gäller för din roll."
           : "Flaggorna är de som gäller för din roll – coacher och handledare ser aldrig eskaleringar till chef."}
