@@ -2,7 +2,7 @@
 // Behörigheten speglar Row Level Security: varje läsning filtreras genom policyn för tabellen,
 // så att prototypen visar exakt det rollen skulle få se i den riktiga databasen.
 import type { Actor } from "@/api/roles";
-import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, UniqueError, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type Where } from "./repo";
+import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, PolicyError, UniqueError, type JsonPaths, type ListOpts, type Repo, type Row, type Table, type UniqueKey, type Where } from "./repo";
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
@@ -21,8 +21,11 @@ export type RawAccess<TT extends Record<string, Row>> = {
 
 export { PolicyError, UniqueError };
 
-/** Unika nycklar per tabell (speglar databasens unika index): fält vars värde bara får finnas på en rad. */
-export type UniqueKeys<TT extends Record<string, Row>> = { [N in keyof TT]?: readonly (keyof TT[N] & string)[] };
+/**
+ * Unika nycklar per tabell (speglar databasens unika index): fält vars värde bara får finnas på en rad – eller flera fält
+ * tillsammans, med ett villkor som i ett partiellt index (UniqueKey i repo.ts).
+ */
+export type UniqueKeys<TT extends Record<string, Row>> = { [N in keyof TT]?: readonly UniqueKey<TT[N]>[] };
 
 /** Datat plus index på id. Delas mellan flera repo-instanser (en per aktör och anrop). */
 export class MemoryStore<TT extends Record<string, Row>> {
@@ -36,12 +39,19 @@ export class MemoryStore<TT extends Record<string, Row>> {
   }
   /** Kontroll mot tabellens unika nycklar: finns en annan rad med samma värde stoppas skrivningen. */
   private checkUnique(name: string, row: Row) {
-    const keys = (this.unique as Record<string, readonly string[] | undefined>)[name];
+    const keys = (this.unique as Record<string, readonly UniqueKey<Record<string, unknown>>[] | undefined>)[name];
     if (!keys) return;
     const r = row as Record<string, unknown>;
-    for (const k of keys) {
-      if (r[k] == null) continue;
-      if (this.rows(name as keyof TT & string).some((x) => x.id !== row.id && (x as Record<string, unknown>)[k] === r[k])) throw new UniqueError(name, k);
+    for (const key of keys) {
+      const fields = typeof key === "string" ? [key] : key.fields;
+      const whenNull = typeof key === "string" ? [] : (key.whenNull ?? []);
+      // Null i nyckeln räknas aldrig (som i Postgres); partiellt index: bara rader där whenNull-fälten är null.
+      const counts = (x: Record<string, unknown>) => fields.every((f) => x[f] != null) && whenNull.every((f) => x[f] == null);
+      if (!counts(r)) continue;
+      const same = (x: Record<string, unknown>) => fields.every((f) => x[f] === r[f]);
+      if (this.rows(name as keyof TT & string).some((x) => x.id !== row.id && counts(x as Record<string, unknown>) && same(x as Record<string, unknown>))) {
+        throw new UniqueError(name, fields.join(", "));
+      }
     }
   }
   private reindex(name: string) {

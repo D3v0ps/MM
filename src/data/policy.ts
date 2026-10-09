@@ -34,6 +34,10 @@
 //   Bilagor       bilagor till beställningen (case_attachments, 0024): den som laddade upp innan beställningen skickats · i
 //                 ärendet samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) och beställande handläggare ·
 //                 aldrig handledare, ekonom, chef, admin eller deltagare · skrivs bara av systemet (ctx.attachments)
+//   Grupper       nivåer, grupper och taggar (groupings, grouping_members, 0031 – internt, Karims beslut 3 2026-10-09):
+//                 grupperingarna läses av MB i avtalet utom ekonomen och skrivs av samordnare, avtalsansvarig, coach och admin
+//                 (arkiveras, raderas aldrig) · medlemskapen läses som anteckningar (aldrig ekonom eller kommunen) och skrivs av
+//                 samma roller med full åtkomst till ärendet – ny rad aktiv och i eget namn, ändring bara att ta bort
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -42,6 +46,7 @@
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
+import { slotOf } from "@/core/groupings";
 import type { Case, Report, TableName, Tables } from "./schema";
 
 type Raw = RawAccess<Tables>;
@@ -340,6 +345,64 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
   return self(a, cur.ownerId) || changed.every((k) => SAVED_SHARING.includes(k));
 }
 
+// ---------------------------------------------------------------- Grupper, nivåer och taggar (0031)
+type GroupingRow = Tables["groupings"];
+type GroupingMemberRow = Tables["grouping_members"];
+/** Läser avtalets grupperingar: Miljonbemanning utom ekonomen (internt – aldrig kommunen). */
+export const GROUPING_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
+/** Skapar, byter namn på och arkiverar grupperingar och placerar deltagare (Karims beslut 3: en människa – Adam, coacherna). */
+export const GROUPING_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "admin"];
+/** Fält som aldrig ändras efter att grupperingen skapats (triggern groupings_protect_columns, 0031). */
+const GROUPING_FIXED = ["contractId", "kind", "category", "createdAt", "createdBy"];
+/**
+ * Ny rad: skrivroll, medlem i avtalet, i eget namn, varken ändrad eller arkiverad. Ändring: något ändras, fasta fält ändras
+ * aldrig, updated_* i eget namn, archived_* i eget namn (eller båda tömda – återställ). Regeln stoppar också
+ * MemoryRepo.remove() (inget ändras – ingen hård radering). Samma regler som policyerna och triggern i 0031.
+ */
+/** Tabellens kontroller (check i 0031): längderna i tecken som char_length (kodpunkter), kategori bara för taggar, paren. */
+function groupingShape(x: GroupingRow): boolean {
+  const chars = (t: string) => [...t].length;
+  const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
+  const nameLen = chars(x.name.trim());
+  return (x.kind === "tag") === (x.category != null) && (x.category == null || (chars(x.category.trim()) >= 1 && chars(x.category.trim()) <= 60))
+    && nameLen >= 1 && nameLen <= 80 && chars(x.description) <= 300 && pair(x.updatedAt, x.updatedBy) && pair(x.archivedAt, x.archivedBy);
+}
+function groupingWrite(x: GroupingRow, a: Actor, raw: Raw): boolean {
+  if (!has(GROUPING_WRITERS, a) || !member(a, x.contractId) || !groupingShape(x)) return false;
+  const cur = raw.get("groupings", x.id);
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.archivedAt == null;
+  if (!member(a, cur.contractId)) return false;
+  const changed = changedFields(cur, x);
+  if (!changed.length || changed.some((k) => GROUPING_FIXED.includes(k))) return false;
+  if ((changed.includes("updatedAt") || changed.includes("updatedBy")) && (x.updatedAt == null || !self(a, x.updatedBy))) return false;
+  if ((changed.includes("archivedAt") || changed.includes("archivedBy")) && x.archivedAt != null && !self(a, x.archivedBy)) return false;
+  return true;
+}
+/**
+ * Medlemskapet stämmer med grupperingen och ärendet (triggern grouping_members_check, 0031 – gäller också systemet där):
+ * samma avtal, grupperingens typ och plats, och en arkiverad gruppering får inga nya aktiva medlemmar.
+ */
+function memberConsistent(x: GroupingMemberRow, raw: Raw, isNew: boolean): boolean {
+  const g = raw.get("groupings", x.groupingId);
+  if (!g || g.contractId !== x.contractId || raw.get("cases", x.caseId)?.contractId !== x.contractId) return false;
+  if (x.kind !== g.kind || x.slot !== slotOf(g)) return false;
+  return !isNew || g.archivedAt == null || x.removedAt != null;
+}
+/**
+ * Ny rad: skrivroll med full åtkomst till ärendet, i eget namn, aktiv och i grupperingens avtal. Ändring: bara att ta bort
+ * (removedAt och removedBy i eget namn) ett aktivt medlemskap. Samma regler som policyerna och triggern i 0031. En unik
+ * plats per ärende (en nivå, en tagg per kategori) sköts av UNIQUE_KEYS i schema.ts.
+ */
+function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean {
+  if (!has(GROUPING_WRITERS, a) || accessTo(raw, a, x.caseId) !== "full") return false;
+  const cur = raw.get("grouping_members", x.id);
+  if (!memberConsistent(x, raw, !cur)) return false;
+  if (!cur) return self(a, x.addedBy) && x.removedAt == null && x.removedBy == null;
+  if (cur.removedAt != null || accessTo(raw, a, cur.caseId) !== "full") return false;
+  const changed = changedFields(cur, x);
+  return changed.length > 0 && changed.every((k) => k === "removedAt" || k === "removedBy") && x.removedAt != null && self(a, x.removedBy);
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -605,6 +668,10 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     },
     write: never,
   },
+
+  // ---- Grupper, nivåer och taggar (0031). Internt: aldrig kommunen eller ekonomen. Inget raderas.
+  groupings: { read: (x, a) => has(GROUPING_READERS, a) && member(a, x.contractId), write: groupingWrite },
+  grouping_members: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: groupingMemberWrite },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

@@ -88,7 +88,7 @@
 //   notifications: at -> createdAt; byTester finns inte
 //   auditLog:   byTester finns inte (demodata känns igen på id från ctx.newId)
 //
-import type { Repo } from "./repo";
+import type { Repo, UniqueKey } from "./repo";
 import type { Role } from "@/api/roles";
 import type { LocalDate, LocalDateTime, MonthKey, WeekKey } from "@/core/time";
 import type {
@@ -1615,6 +1615,62 @@ export type CaseAttachment = {
   deleteReason: AttachmentDeleteReason | null;
 };
 
+// ================================================================ Grupper, nivåer och taggar (0031, coachmötet 2026-10-09)
+// Miljonbemannings interna arbetsverktyg (Karims beslut 3, 2026-10-09): en människa (Adam i kartläggningen, coacherna,
+// samordnaren) placerar deltagaren på en nivå, i grupper och med taggar – aldrig AI. Allt är internt: kommunen och ekonomen
+// ser det aldrig, och det kommer aldrig med i rapporter, resultatfilen, exporter, fakturor eller underlaget till AI.
+// Inget raderas: en gruppering arkiveras, ett medlemskap får removedAt.
+export const GROUPING_KINDS = ["level", "group", "tag"] as const;
+/** level = nivå 1–5 (högst en per ärende) · group = grupp som MB skapar fritt · tag = tagg i en kategori (högst en per kategori och ärende). */
+export type GroupingKind = (typeof GROUPING_KINDS)[number];
+/** Längsta namn och beskrivning (samma gränser som kontrollerna i 0031). */
+export const GROUPING_NAME_MAX = 80;
+export const GROUPING_DESCRIPTION_MAX = 300;
+export const GROUPING_CATEGORY_MAX = 60;
+
+/** En nivå, grupp eller tagg i ett avtal. */
+export type Grouping = {
+  id: string;
+  contractId: string;
+  kind: GroupingKind;
+  /** Taggens kategori, t.ex. "Vill arbeta". Bara taggar har kategori. Ändras aldrig (medlemskapens slot bygger på den). */
+  category: string | null;
+  /** 1–80 tecken. Namnen väljer MB själva – neutrala ord om stödbehovet, aldrig omdömen om personen. */
+  name: string;
+  /** 0–300 tecken ("" när ingen beskrivning finns). */
+  description: string;
+  /** Ordningen i listor och val (nivåerna 1–5). */
+  sortOrder: number;
+  createdAt: LocalDateTime;
+  /** Null för standardvärdena som migrationen lade in. */
+  createdBy: UserId | null;
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  /** Arkiverad – kan inte väljas för fler deltagare; befintliga medlemskap ligger kvar. */
+  archivedAt: LocalDateTime | null;
+  archivedBy: UserId | null;
+};
+
+/** En deltagares (ärendets) plats på en nivå, i en grupp eller med en tagg. */
+export type GroupingMember = {
+  id: string;
+  contractId: string;
+  caseId: string;
+  groupingId: string;
+  /** Samma som grupperingens typ (denormaliserad, så att databasens unika index kan bygga på den). */
+  kind: GroupingKind;
+  /**
+   * Platsen som högst ett aktivt medlemskap per ärende får ha: "level" för nivån, "tag:<kategori>" för en tagg, null för
+   * grupper (en deltagare kan vara med i flera grupper). Partiellt unikt index (case_id, slot) där removed_at är null (0031).
+   */
+  slot: string | null;
+  addedAt: LocalDateTime;
+  addedBy: UserId;
+  /** Borttagen ur nivån, gruppen eller taggen – raden finns kvar. */
+  removedAt: LocalDateTime | null;
+  removedBy: UserId | null;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1681,6 +1737,8 @@ export type Tables = {
   case_notes: CaseNote;
   saved_reports: SavedReport;
   case_attachments: CaseAttachment;
+  groupings: Grouping;
+  grouping_members: GroupingMember;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1704,6 +1762,7 @@ export const TABLE_NAMES = [
   "case_notes",
   "saved_reports",
   "case_attachments",
+  "groupings", "grouping_members",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -1719,11 +1778,17 @@ export function emptyDb(): Db {
  * Unika nycklar utöver id – samma som databasens unika index, så att minnesläget stoppar samma dubbletter (UniqueError,
  * src/data/memory.ts): en närvarorad per tillfälle (0022, två samtidiga registreringar), ett pulssvar per länk (0016).
  */
-export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
+export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] } = {
   attendance: ["activityId"],
   pulse_responses: ["inviteId"],
   // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
   invoice_drafts: ["fortnoxIdempotencyKey"],
   // En vald roll per användare (0027).
   role_choices: ["userId"],
+  // Grupper, nivåer och taggar (0031): högst en aktiv nivå och högst ett aktivt värde per taggkategori per ärende
+  // (grouping_members_one_per_slot), och samma gruppering bara en gång per ärende (grouping_members_active_once).
+  grouping_members: [
+    { fields: ["caseId", "slot"], whenNull: ["removedAt"] },
+    { fields: ["caseId", "groupingId"], whenNull: ["removedAt"] },
+  ],
 };
