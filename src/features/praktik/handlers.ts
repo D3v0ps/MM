@@ -90,7 +90,8 @@ handleQuery(praktikList, { roles: WORKERS }, async (ctx) => {
   const today = dayOf(ctx.now());
   const in7 = addDays(today, 7);
   const ongoing = s.placements.filter((p) => p.status === "ongoing");
-  const mineOnly = ctx.actor.role === "coach" || ctx.actor.role === "handledare";
+  // Alla på Miljonbemanning ser alla ärenden i avtalet (beslut 2026-10-09) – ingen roll ser bara "sina" uppföljningar längre.
+  const mineOnly = false;
   const upcomingAll = ongoing
     .filter((p) => !mineOnly || canSee(s.access(p.caseId)))
     .flatMap((p) => p.followUpDates.filter((x) => x >= today && x <= in7).map((x) => ({ p, x })))
@@ -154,7 +155,8 @@ handleQuery(praktikEmployer, { roles: WORKERS }, async (ctx, p) => {
     done: group(done),
     ongoingCount: on.length,
     doneCount: done.length,
-    scopeLabel: ctx.actor.role === "samordnare" || ctx.actor.role === "avtalsansvarig" ? "Praktikplatser" : "Praktikplatser i dina ärenden",
+    // Alla på Miljonbemanning ser alla ärenden i avtalet (beslut 2026-10-09) – "i dina ärenden" gäller inte längre.
+    scopeLabel: "Praktikplatser",
     today: dayOf(ctx.now()),
   };
 });

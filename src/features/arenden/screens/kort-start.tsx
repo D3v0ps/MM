@@ -328,7 +328,7 @@ export function TeamModal({ card: c, onClose }: { card: CaseCard; onClose: () =>
           <MiniList
             items={[
               { key: "n", icon: "bell", children: <>Nya medlemmar får en notis i appen och ett mejl utan personuppgifter: ”Du har fått ett nytt ärende i Miljonmatch: {c.caseNumber}.”</> },
-              { key: "s", icon: "users", children: "Handledaren ser ärendet direkt under Mina tilldelade ärenden. Den som tas bort ser det inte längre." },
+              { key: "s", icon: "users", children: "Handledaren ser ärendet direkt under Mina tilldelade ärenden och i Närvaro, och får notiser och påminnelser. Den som tas bort får inga fler notiser men kan fortfarande öppna ärendet under Ärenden." },
               { key: "l", icon: "book", children: "Ändringen sparas i revisionsloggen." },
             ]}
           />

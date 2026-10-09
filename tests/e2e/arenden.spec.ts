@@ -12,7 +12,7 @@ const SC = {
   skyddad: "case-260120", // BOT-26-0120 (Sanna Lindgren), coach Erik – var skyddat före 2026-10-07, nu ett vanligt ärende
   ingetmote: "case-270039", // BOT-27-0039, första mötet inte bokat
   coachbyte: "case-260135", // BOT-26-0135, byte av huvudcoach
-  annanCoach: "case-260117", // BOT-26-0117, Mats ärende – Amira har ingen åtkomst
+  annanCoach: "case-260117", // BOT-26-0117, Mats ärende – Amira når det sedan 2026-10-09 (alla ser alla i avtalet)
 };
 const NADIA_DEC_REPORT = "rep-16008"; // Nadias levererade månadsrapport december 2026
 
@@ -124,24 +124,25 @@ test("2. avtalsansvarig: ärendet som var skyddat öppnas som alla andra – ing
 });
 
 // ------------------------------------------------------------ 3. Coachens lista och åtkomst
-test("3. coachen ser bara egna ärenden och får en tydlig ingen-åtkomst-ruta; nekade försök loggas", async ({ page }, info) => {
+test("3. coachen börjar i Mina ärenden och kan välja alla ärenden i avtalet; kollegans ärende öppnas (beslut 2026-10-09)", async ({ page }, info) => {
   const errors = await open(page, info, "/arenden", AMIRA);
-  // Coachens synliga ärenden är bara egna och teamets (29 i testdatat, samma som prototypens sel.visibleCases). Listan visar
-  // öppna ärenden som standard (14) – de avslutade finns under "Alla statusar".
+  // Listan börjar i de egna ärendena (huvudcoach eller i teamet: 29 i testdatat) och visar öppna som standard (14) – de
+  // avslutade finns under "Alla statusar". Valet "Alla ärenden i avtalet" visar hela avtalet (231).
   await expect(main(page)).toContainText("14 ärenden");
   await expect(main(page)).toContainText("Ärenden du ser");
   await page.selectOption("#arn-status", "alla");
   await expect(main(page)).toContainText("29 ärenden");
+  await page.selectOption("#arn-vilka", "alla");
+  await expect(main(page)).toContainText("231 ärenden");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Ärenden");
+  // Kollegans ärende (Erik respektive Mats är huvudcoach) öppnas med alla flikar – tilldelningen styr inte åtkomsten.
   await switchTo(page, info, `/arenden/${SC.skyddad}`, AMIRA);
-  await expect(main(page)).toContainText("Du saknar åtkomst");
-  await expect(main(page)).not.toContainText("Sanna");
-  // Nekat försök loggas: coachen försöker öppna ett ärende utanför sitt team, chefen ser försöket i ärendets revisionslogg.
+  await expect(main(page)).not.toContainText("Du saknar åtkomst");
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("Sanna Lindgren");
   await switchTo(page, info, `/arenden/${SC.annanCoach}`, AMIRA);
-  await expect(main(page)).toContainText("Försöket att öppna kortet är loggat i revisionsloggen.");
-  await switchTo(page, info, `/arenden/${SC.annanCoach}?flik=historik`, KARIN);
-  const log = table(page, "Revisionslogg");
-  await expect(log).toContainText("Försökte öppna deltagarkortet utan behörighet");
-  await expect(log).toContainText("Amira Haddad");
+  await expect(main(page)).not.toContainText("Du saknar åtkomst");
+  await expect(main(page)).toContainText("BOT-26-0117");
+  await expect(page.getByRole("tab")).toHaveCount(12);
   expect(errors).toEqual([]);
 });
 
@@ -320,21 +321,29 @@ test("9. första mötet: tidsgränsen från avtalet, helgdag stoppas, mötet bok
 });
 
 // ------------------------------------------------------------ 10. Handledaren
-test("10. handledaren ser bara tilldelade ärenden och fem flikar utan coachens anteckningar", async ({ page }, info) => {
+test("10. handledaren: Mina tilldelade ärenden är teamets, men alla ärenden i avtalet nås med alla flikar (beslut 2026-10-09)", async ({ page }, info) => {
   const errors = await open(page, info, "/handledare", PETRA);
-  await expect(main(page)).toContainText("Du ser bara ärenden där du ingår i teamet");
+  await expect(main(page)).toContainText("Listan visar ärenden där du ingår i teamet");
   await expect(main(page)).toContainText("Pågående (26)");
   const cards = page.getByTestId("handledare-arenden").locator(":scope > section");
   await expect(cards).toHaveCount(12);
   await btn(page, "Visa fler").click();
   await expect(cards).toHaveCount(24);
+  // Ärendelistan visar hela avtalet för handledaren; valet Mina ärenden ger teamets 63.
+  await switchTo(page, info, "/arenden?status=alla", PETRA);
+  await expect(main(page)).toContainText("231 ärenden");
+  await page.selectOption("#arn-vilka", "mina");
+  await expect(main(page)).toContainText("63 ärenden");
+  // Teamärendet: alla flikar, teamrollen visas. Coach och handledare ser fortfarande aldrig eskaleringar till chef.
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=avstamningar`, PETRA);
-  await expect(page.getByRole("tab")).toHaveCount(5);
-  await expect(main(page)).toContainText("Den delen visas inte för din roll");
+  await expect(page.getByRole("tab")).toHaveCount(12);
+  await expect(main(page)).toContainText("Du ingår i teamet som yrkesspecifik handledare");
+  await expect(main(page)).not.toContainText("Den delen visas inte för din roll");
   await expect(main(page)).not.toContainText(/eskaler/i);
-  await expect(main(page)).not.toContainText("Följde planen");
+  // Ett ärende utanför teamet nås också.
   await switchTo(page, info, `/arenden/${SC.yusuf}`, PETRA);
-  await expect(main(page)).toContainText("Du ser bara ärenden du är tilldelad");
+  await expect(main(page)).not.toContainText("Du saknar åtkomst");
+  await expect(main(page)).toContainText("BOT-26-0148");
   expect(errors).toEqual([]);
 });
 
@@ -535,7 +544,7 @@ test("19. anteckningen stoppas om texten liknar ett personnummer", async ({ page
   expect(errors).toEqual([]);
 });
 
-test("20. handledaren ser tidslinjen med teamets anteckning – inte den andra och inga avstämningar", async ({ page }, info) => {
+test("20. handledaren ser hela tidslinjen med båda anteckningarna och avstämningarna (full åtkomst sedan 2026-10-09) – inte rapporterna", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, AMIRA);
   await writeNote(page, NOTE_FULL);
   await expect(main(page)).toContainText(NOTE_FULL);
@@ -545,10 +554,11 @@ test("20. handledaren ser tidslinjen med teamets anteckning – inte den andra o
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=tidslinje`, PETRA);
   await expect(tab(page, /^Tidslinje/)).toHaveAttribute("aria-selected", "true");
   await expect(main(page)).toContainText(NOTE_TEAM);
-  await expect(main(page)).not.toContainText(NOTE_FULL);
-  await expect(main(page)).not.toContainText("Veckoavstämning");
+  await expect(main(page)).toContainText(NOTE_FULL);
+  await expect(main(page)).toContainText("Veckoavstämning");
+  // Månads- och slutrapporter är fortfarande stängda för handledaren.
   await expect(main(page)).not.toContainText("Månadsrapport:");
-  await expect(main(page)).toContainText("tidslinjen med anteckningar som är skrivna för teamet");
+  await expect(main(page)).toContainText("Du ingår i teamet som yrkesspecifik handledare");
   expect(errors).toEqual([]);
 });
 
@@ -736,7 +746,7 @@ test("26. tidslinjen: Visa text fäller ut meddelandet och avstämningens anteck
   expect(errors).toEqual([]);
 });
 
-test("27. tidslinjens text: handledaren får inga sådana poster, chefen fäller ut utan att något loggas", async ({ page }, info) => {
+test("27. tidslinjens text: chefen fäller ut utan att något loggas; handledaren får också fälla ut (beslut 2026-10-09)", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.nadia}?flik=historik`, KARIN);
   const logTable = page.getByRole("table", { name: "Revisionslogg" });
   await expect(logTable).toBeVisible();
@@ -752,10 +762,9 @@ test("27. tidslinjens text: handledaren får inga sådana poster, chefen fäller
   const after = page.getByRole("table", { name: "Revisionslogg" }).locator("tbody tr");
   expect((await after.count()) - rowsBefore).toBeLessThanOrEqual(1);
   await expect(page.getByRole("table", { name: "Revisionslogg" })).not.toContainText(/Visade meddelande|Visade text|Visade avstämning/);
-  // Handledaren i ett teamärende: inga meddelande- eller avstämningsposter alls, alltså inga "Visa text".
+  // Handledaren (full åtkomst sedan 2026-10-09): samma poster som coachen, med "Visa text" på avstämningar och meddelanden.
   await switchTo(page, info, "/arenden/case-260167?flik=tidslinje", PETRA);
   await expect(main(page)).toContainText("Allt som hänt i insatsen");
-  await expect(main(page).getByRole("button", { name: "Visa text" })).toHaveCount(0);
-  await expect(main(page)).not.toContainText("Meddelande från kommunen");
+  expect(await main(page).getByRole("button", { name: "Visa text" }).count()).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });

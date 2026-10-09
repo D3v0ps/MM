@@ -21,7 +21,7 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 
 ## Icke förhandlingsbart
 
-1. **Row Level Security på varje tabell**, neka som standard. Behörighet = avtal + roll + tilldelning (SPEC §4). Service role används bara server-side och aldrig för att kringgå RLS i vanliga användarflöden.
+1. **Row Level Security på varje tabell**, neka som standard. Behörighet = avtal + roll; tilldelningen (teamet) styr notiser, påminnelser och Mina ärenden – alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet (beslut 2026-10-09); kommunen ser bara sina egna (SPEC §4). Service role används bara server-side och aldrig för att kringgå RLS i vanliga användarflöden.
 2. **Inga personuppgifter i loggar, felmeddelanden, URL:er, analysverktyg eller commit-historik.** Logga id:n. Personnummer krypteras på applikationsnivå (AES-256-GCM, nyckel i miljövariabel) och söks via HMAC-hash. Visas maskerat; "visa" loggas.
 3. **Revisionslogg** (`audit_log`, append-only) för visning av deltagarkort, rapport och transkript, alla ändringar, exporter och AI-körningar.
 4. **Avtalet är konfiguration.** Hårdkoda aldrig avtalsvärden (32 %, 35 %, priser, prefix BOT, deadlines, rapport- och faktureringsregler). Läs dem från `contracts.config`, validerat med ett zod-schema.
@@ -92,7 +92,7 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 ## Tester (krav innan merge)
 
 - Enhetstester: resultatgrad och övriga KPI:er; debiterbara veckor (alla ISO-veckor med minst en inskriven dag, utom uppehåll) och veckans månadstillhörighet (torsdagsregeln); arbetsdagar/SLA-förfall; ärendenummer; validering av beställarreferens och inköpsordernummer.
-- RLS-tester per roll: kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare ser bara tilldelade ärenden, ekonomen är den enda som ser belopp, och den vilande spärren för skyddade ärenden gäller fortfarande när den slås på.
+- RLS-tester per roll: kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, coach och handledare ser alla ärenden i avtalet (inte bara tilldelade – beslut 2026-10-09), ekonomen är den enda som ser belopp, och den vilande spärren för skyddade ärenden gäller fortfarande när den slås på.
 - E2E: mejlavrop → ordererkännande med ärendenummer → orderbekräftelse → närvaro → veckorapport → månadsbedömning → månadsrapport-PDF → fakturaunderlag.
 
 ## Arkitektur – prototypen speglar riktiga appen

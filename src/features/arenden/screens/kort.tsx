@@ -80,7 +80,6 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
 }
 
 function NoAccess({ crumbs }: { crumbs: { label: string; to: string }[] }) {
-  const role = useSession().actor.role;
   return (
     <Page eyebrow="Ärende" title="Åtkomst saknas" crumbs={[...crumbs, { label: "Åtkomst saknas" }]}>
       <Card tone="sub">
@@ -89,8 +88,7 @@ function NoAccess({ crumbs }: { crumbs: { label: string; to: string }[] }) {
           <Stack gap="sm" className="min-w-0">
             <h2 className="text-h2 font-extrabold">Du saknar åtkomst till det här deltagarkortet</h2>
             <p>
-              {role === "handledare" ? "Du ser bara ärenden du är tilldelad." : "Du ser bara ärenden där du är huvudcoach eller ingår i teamet."} Behöver du arbeta i ärendet? Be samordnaren
-              lägga till dig i teamet.
+              Du ser bara ärenden i avtal där du är medlem. Behöver du arbeta i ärendet? Kontakta samordnaren.
             </p>
             <p className="text-text-muted">Försöket att öppna kortet är loggat i revisionsloggen.</p>
           </Stack>
@@ -253,6 +251,11 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
           månadsrapporter och slutrapporter visas inte för handledare.
         </Notice>
       )}
+      {!team && card.myTeamRoleLabel && (
+        <Notice tone="info" icon="users" title={`Du ingår i teamet som ${card.myTeamRoleLabel.toLowerCase()}`}>
+          Du får notiser och påminnelser om ärendet. Det finns med under Mina tilldelade ärenden och i Närvaro.
+        </Notice>
+      )}
 
       <CaseSummary card={card} openModal={setModal} voiceOpen={visa === "rost"} />
 
@@ -316,6 +319,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
 // handläggare, varningar, åtgärder, samtycke och röstmeddelanden. Allt annat under "Visa alla uppgifter" – inget har tagits bort.
 function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openModal: (m: ModalKind) => void; voiceOpen: boolean }) {
   const team = c.access === "team";
+  const role = useSession().actor.role;
   const [all, setAll] = useState(showAllFacts);
   const toggle = () => {
     showAllFacts = !all;
@@ -374,7 +378,8 @@ function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openMo
       <CaseActions card={c} openModal={openModal} />
       {/* Rad D och E: samtycke och röstmeddelanden (inte för teamet) */}
       {!team && <ConsentRow card={c} onRegister={() => openModal("consent")} className={row} />}
-      {!team && <VoiceNotesRow caseId={c.caseId} autoOpen={voiceOpen} className="border-t border-ljusgra pt-3" />}
+      {/* Deltagarens röstmeddelanden läses av coach, samordnare, avtalsansvarig, chef och admin (rost.caseVoice) – inte handledaren, som sedan 2026-10-09 också har full åtkomst. */}
+      {!team && role !== "handledare" && <VoiceNotesRow caseId={c.caseId} autoOpen={voiceOpen} className="border-t border-ljusgra pt-3" />}
       {/* Rad F: alla uppgifter */}
       <div className={row}>
         <Button kind="ghost" icon={all ? "chevron-up" : "chevron-down"} aria-expanded={all} aria-controls="arende-uppgifter" onClick={toggle}>

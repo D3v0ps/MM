@@ -103,14 +103,14 @@ describe("bilagor i beställningen", () => {
 });
 
 describe("hämta och ta bort", () => {
-  it("hämta: uppladdaren, samordnare, avtalsansvarig och namngiven huvudcoach – aldrig handledare, ekonom, chef eller en annan handläggare", async () => {
+  it("hämta: uppladdaren, samordnare, avtalsansvarig och coacher med full åtkomst (beslut 2026-10-09) – aldrig handledare, ekonom, chef eller en annan handläggare", async () => {
     const id = await upload(sara(), NADIA);
-    for (const a of [maria(), sara(), as("u-johan", "avtalsansvarig"), as("u-amira", "coach")]) {
+    for (const a of [maria(), sara(), as("u-johan", "avtalsansvarig"), as("u-amira", "coach"), as("u-erik", "coach")]) {
       const r = await run(attachmentDownload, { attachmentId: id }, a);
       expect(r, a.userId).toMatchObject({ ok: true, url: null, fileName: FILE_NAME, mimeType: "application/pdf", contentBase64: bytesToBase64(PDF) });
     }
-    // En annan handläggare och en coach som inte är huvudcoach: filen finns inte (behörigheten).
-    for (const a of [as("k-omar", "kommun_handlaggare"), as("u-erik", "coach")]) {
+    // En annan handläggare: filen finns inte (behörigheten).
+    for (const a of [as("k-omar", "kommun_handlaggare")]) {
       expect(await run(attachmentDownload, { attachmentId: id }, a), a.userId).toMatchObject({ ok: false, error: "not_found" });
     }
     // Handledare, ekonom, chef och admin: rollkontrollen.
@@ -119,8 +119,8 @@ describe("hämta och ta bort", () => {
     }
     // Varje hämtning loggas (tyst kommando – klockan står still), utan filnamn.
     const views = rt.raw().all("audit_log").filter((l) => l.action === "attachment.viewed");
-    expect(views).toHaveLength(4);
-    expect(views.map((l) => l.actorId)).toEqual(["k-maria", "u-sara", "u-johan", "u-amira"]);
+    expect(views).toHaveLength(5);
+    expect(views.map((l) => l.actorId)).toEqual(["k-maria", "u-sara", "u-johan", "u-amira", "u-erik"]);
     expect(JSON.stringify(views)).not.toContain("Kartläggning");
   });
 

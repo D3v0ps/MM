@@ -155,14 +155,15 @@ test("Ändra team: handledaren utan teamroll i profilen läggs till och ser äre
   await go(page, info, `/arenden/${TEAM_CASE}`);
   await expect(main(page)).toContainText("Du ingår i teamet som yrkesspecifik handledare");
 
-  // Tas Petra bort ser hon inte ärendet längre.
+  // Tas Petra bort har hon ingen teamroll längre – men ärendet nås fortfarande (alla ser alla i avtalet, beslut 2026-10-09).
   await switchTo(page, info, `/arenden/${TEAM_CASE}`, SARA);
   await main(page).getByRole("button", { name: "Ändra team" }).click();
   await dialog(page, "Ändra team").locator("#arn-team-u-petra").uncheck();
   await dialog(page, "Ändra team").getByRole("button", { name: "Spara teamet" }).click();
   await expect(toastWith(page, "Teamet för BOT-27-0039 är sparat.")).toBeVisible();
   await switchTo(page, info, `/arenden/${TEAM_CASE}`, PETRA);
-  await expect(main(page)).toContainText(/åtkomst/i);
+  await expect(main(page)).toContainText("BOT-27-0039");
+  await expect(main(page)).not.toContainText("Du ingår i teamet");
   await expect(main(page)).not.toContainText("BOT-27-0039 · ");
   expect(errors).toEqual([]);
 });

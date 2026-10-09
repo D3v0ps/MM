@@ -12,6 +12,7 @@ import { slaStatus } from "@/core/sla";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Case, MonthlyAssessment, Profile, Report } from "@/data/schema";
+import { canEditCase } from "../_shared/context";
 import { weeklyComplete } from "../_shared/weekly";
 import {
   reportCorrectionNote, reportDocument, reportDownload, reportList, reportQualityReview, reportSaveFinal, reportSaveSummary, reportSnapshot, reportView,
@@ -452,7 +453,8 @@ handleCommand(reportSaveFinal, { roles: ["coach", "samordnare"] }, async (ctx, p
   const r = await ctx.repo.table("reports").get(p.reportId);
   if (!r) return fail("not_found", NOT_FOUND);
   const c = r.caseId ? await ctx.repo.table("cases").get(r.caseId) : null;
-  if (ctx.actor.role === "coach" && (!c || c.leadCoachId !== ctx.actor.userId)) return fail("forbidden", "Huvudcoachen skriver kvarstående hinder och rekommenderad fortsättning innan slutrapporten godkänns.");
+  // Coachen skriver i alla ärenden i avtalet (beslut 2026-10-09) – full åtkomst = personen läsbar (canEditCase).
+  if (ctx.actor.role === "coach" && (!c || !(await canEditCase(ctx, c)))) return fail("forbidden", "Coachen skriver kvarstående hinder och rekommenderad fortsättning innan slutrapporten godkänns.");
   if (isDelivered(r) || r.superseded) return fail("delivered", "Rapporten är redan levererad. Rätta rapporten om texten ska ändras.");
   const recommendation = p.recommendation.trim();
   if (!recommendation) return fail("recommendation", "Skriv en rekommenderad fortsättning. Den behövs innan rapporten kan godkännas.");

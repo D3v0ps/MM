@@ -11,7 +11,7 @@ import { useSession } from "@/shell/session";
 import {
   Badge, Button, Card, CaseStatusBadge, Check, DemoNote, Empty, ErrorNotice, Field, Input, Kpi, Loading, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Status, cn,
 } from "@/ui";
-import { caseList, type CaseListModel, type CaseListRow } from "../api";
+import { CASE_LIST_SCOPES, caseList, type CaseListModel, type CaseListRow } from "../api";
 import { AttCell, fd, FlagBadges, pct0 } from "./common";
 
 const PAGE = 50;
@@ -69,6 +69,11 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   // Coach och handledare: öppna ärenden som standard (avslutade finns under "Alla statusar"); övriga roller alla.
   const defaultStatus: (typeof STATUS_VALUES)[number] = role === "coach" || role === "handledare" ? "open" : "alla";
   const status = pick(query, "status", STATUS_VALUES, defaultStatus);
+  // Alla på Miljonbemanning ser alla ärenden i avtalet (beslut 2026-10-09). Coachen börjar i sina egna (huvudcoach eller i
+  // teamet), handledaren i alla – listan Mina tilldelade ärenden finns kvar på /handledare.
+  const scopeable = role === "coach" || role === "handledare";
+  const defaultScope: (typeof CASE_LIST_SCOPES)[number] = role === "coach" ? "mina" : "alla";
+  const scope = scopeable ? pick(query, "vilka", CASE_LIST_SCOPES, defaultScope) : "alla";
   const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
   const phase = model.phases.some((p) => String(p.no) === query.get("fas")) ? (query.get("fas") as string) : "";
@@ -79,6 +84,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const setLimit = (n: number) => patch({ visa: n > PAGE ? n : null });
   // Ett ändrat filter visar de första 50 igen.
   const setStatus = (v: string) => patch({ status: v === defaultStatus ? null : v, visa: null });
+  const setScope = (v: string) => patch({ vilka: v === defaultScope ? null : v, visa: null });
   const setCoach = (v: string) => patch({ coach: v || null, visa: null });
   const setArea = (v: string) => patch({ omrade: v || null, visa: null });
   const setPhase = (v: string) => patch({ fas: v || null, visa: null });
@@ -89,7 +95,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
     setQ(v);
     if (limit !== PAGE) setLimit(PAGE);
   };
-  const all = model.rows;
+  const all = useMemo(() => (scope === "mina" ? model.rows.filter((c) => c.mine) : model.rows), [model.rows, scope]);
   const readOnly = READ_ONLY.includes(role);
   const needle = norm(q);
 
@@ -114,27 +120,25 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
     return out.sort(sorters[sort] ?? newest);
   }, [all, status, onlyFlags, onlyUnread, coach, area, phase, needle, sort]);
   const shown = rows.slice(0, limit);
-  const anyFilter = !!(q || status !== defaultStatus || coach || area || phase || onlyFlags || onlyUnread);
-  const nFilters = [status !== defaultStatus, coach, area, phase, onlyFlags, onlyUnread].filter(Boolean).length;
+  const anyFilter = !!(q || status !== defaultStatus || scope !== defaultScope || coach || area || phase || onlyFlags || onlyUnread);
+  const nFilters = [status !== defaultStatus, scope !== defaultScope, coach, area, phase, onlyFlags, onlyUnread].filter(Boolean).length;
   const clear = () => {
     setQ("");
-    patch({ status: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, visa: null });
+    patch({ status: null, vilka: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, visa: null });
   };
   const nUnread = all.filter((c) => (c.detail?.unread ?? 0) > 0).length;
   const nActive = all.filter((c) => c.status === "active").length;
   const nWaiting = all.filter((c) => WAITING.includes(c.status)).length;
   const nFlag = all.filter((c) => c.flagged).length;
-  const showCoach = role !== "coach" && role !== "handledare";
-  const title = role === "coach" ? "Mina ärenden" : "Ärenden";
+  const showCoach = !scopeable || scope === "alla";
+  const title = role === "coach" && scope === "mina" ? "Mina ärenden" : "Ärenden";
   const customer = model.customerName;
   const lead =
-    role === "coach"
-      ? "Ärenden där du är huvudcoach eller ingår i teamet. Klicka på en rad för att öppna deltagarkortet."
-      : role === "handledare"
-        ? "Du ser bara ärenden du är tilldelad. Klicka på en rad för att öppna deltagarkortet."
-        : readOnly
-          ? `Alla ärenden i avtalet med ${customer}. Du ser dem i läsläge.`
-          : `Alla ärenden i avtalet med ${customer}. Klicka på en rad för att öppna deltagarkortet.`;
+    scope === "mina"
+      ? `Ärenden där du är ${role === "coach" ? "huvudcoach eller ingår i teamet" : "med i teamet"}. Välj Alla ärenden för att se hela avtalet. Klicka på en rad för att öppna deltagarkortet.`
+      : readOnly
+        ? `Alla ärenden i avtalet med ${customer}. Du ser dem i läsläge.`
+        : `Alla ärenden i avtalet med ${customer}. Klicka på en rad för att öppna deltagarkortet.`;
   const hrefOf = (c: CaseListRow) => `/arenden/${encodeURIComponent(c.id)}`;
   const w4 = model.weeks;
   const today = model.today;
@@ -170,6 +174,11 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
           </div>
         </div>
         <div id="arn-filter" className={cn("mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] items-end gap-x-4 gap-y-3", !filtersOpen && "max-[620px]:hidden")}>
+          {scopeable && (
+            <Field label="Visa" id="arn-vilka">
+              <Select value={scope} onValueChange={setScope} options={[{ value: "mina", label: "Mina ärenden" }, { value: "alla", label: "Alla ärenden i avtalet" }]} />
+            </Field>
+          )}
           <Field label="Status" id="arn-status">
             <Select value={status} onValueChange={setStatus} options={[{ value: "alla", label: "Alla statusar" }, { value: "open", label: "Öppna (inte avslutade)" }, ...STATUS_KEYS.map(([value, label]) => ({ value, label }))]} />
           </Field>
@@ -206,7 +215,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       {/* Nyckeltalen efter sökningen (också i koden – samma ordning för skärmläsare och tangentbord), så att sökfältet syns
           direkt under rubriken på smal skärm. */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-3 max-[620px]:grid-cols-2 max-[620px]:[&>div]:p-3 max-[620px]:[&>div>div:nth-child(2)]:text-[1.5rem]">
-        <Kpi label="Ärenden du ser" value={all.length} sub="enligt din behörighet" />
+        <Kpi label="Ärenden du ser" value={all.length} sub={scope === "mina" ? "dina ärenden – välj Alla för hela avtalet" : "enligt din behörighet"} />
         <Kpi label="Pågår" value={nActive} sub="aktiva insatser" />
         <Kpi label="Väntar på start" value={nWaiting} sub="mottagna eller bekräftade" />
         <Kpi label="Med flaggor" value={nFlag} sub={nFlag > 0 ? "behöver uppmärksamhet" : "inga flaggor för din roll"} tone={nFlag > 0 ? "watch" : undefined} />

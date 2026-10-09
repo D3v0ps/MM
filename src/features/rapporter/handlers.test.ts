@@ -378,13 +378,13 @@ describe("6. beställarrapport januari", () => {
 
 // ================================================================ 7. Veckorapport som väntar
 describe("7. veckorapport som väntar på närvaro", () => {
-  it("saknade registreringar listas; coachen ser bara sina deltagare; publiceras när allt är registrerat", async () => {
+  it("saknade registreringar listas; coachen ser alla handläggarens deltagare (beslut 2026-10-09); publiceras när allt är registrerat", async () => {
     const v = await view(WEEKLY_WAIT, sara());
     expect(v.waiting?.byCoach.length).toBeGreaterThan(0);
     expect(v.waiting?.byCoach[0].coach).toMatch(/: \d+ tillfällen? saknas$/);
     const cd = await okDoc(WEEKLY_WAIT, amira());
     if (cd.doc.kind !== "weekly_attendance") throw new Error("fel typ");
-    expect(cd.doc.sections.length).toBeLessThan(cd.doc.total);
+    expect(cd.doc.sections.length).toBe(cd.doc.total);
     // Registrera allt som saknas (som coacherna gör)
     const r = row("reports", WEEKLY_WAIT)!;
     const cases = rows("cases").filter((c) => c.referrerId === r.recipientUserId);
@@ -434,8 +434,8 @@ describe("8. slutrapport efter avslut", () => {
     expect(await run(reportApprove, { reportId: fin.reportId }, amira())).toMatchObject({ ok: true });
     const d = await okDoc(fin.reportId, amira());
     expect(d.doc.kind === "final" && d.doc.m.recommendation).toBe("Ingen fortsatt insats behövs. Deltagaren har börjat arbeta.");
-    // En annan coach får inte skriva texten
-    await expect(run(reportSaveFinal, { reportId: fin.reportId, obstacles: "", recommendation: "x" }, as("u-erik", "coach"))).resolves.toMatchObject({ ok: false });
+    // En annan coach når rapporten (beslut 2026-10-09) – samma kontroller (tom rekommendation stoppas; ingenting skrivs).
+    await expect(run(reportSaveFinal, { reportId: fin.reportId, obstacles: "", recommendation: " " }, as("u-erik", "coach"))).resolves.toMatchObject({ ok: false, error: "recommendation" });
   });
 
   it("en godkänd slutrapport utan coachens text kan inte levereras (texten skapas inte automatiskt)", async () => {
@@ -482,9 +482,11 @@ describe("9. behörighet", () => {
     if (order) expect(await ask(reportView, { reportId: order.id }, petra())).toMatchObject({ ok: false, reason: "handledare_order" });
   });
 
-  it("coachen ser inte andras ärendens rapporter och kan inte frysa dem", async () => {
+  it("coachen ser kollegornas rapporter (beslut 2026-10-09) – men inte i ett skyddat ärende (vilande spärr)", async () => {
     const foreign = rows("reports").find((r) => r.kind === "monthly" && r.status === "delivered" && !r.snapshot && row("cases", r.caseId!)!.leadCoachId !== "u-amira" && !rows("case_team").some((t) => t.caseId === r.caseId && t.userId === "u-amira"))!;
-    expect(await ask(reportView, { reportId: foreign.id }, amira())).toMatchObject({ ok: false, reason: "not_assigned" });
+    expect(await ask(reportView, { reportId: foreign.id }, amira())).toMatchObject({ ok: true });
+    rt.store.updateRow("persons", row("cases", foreign.caseId!)!.personId, { protectedIdentity: true });
+    expect(await ask(reportView, { reportId: foreign.id }, amira())).toMatchObject({ ok: false, reason: "protected" });
     expect(await run(reportSnapshot, { reportIds: [foreign.id] }, amira())).toMatchObject({ ok: true, reportIds: [] });
     expect(await ask(reportView, { reportId: "rep-finns-inte" }, sara())).toMatchObject({ ok: false, reason: "not_found" });
   });

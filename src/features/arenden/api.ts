@@ -347,9 +347,9 @@ export const attachmentDownload = command("arenden.bilagaHamta", z.object({ atta
 
 // ---- Skärmarna i området ärenden (prototypens views/arenden.js: arenden.lista, arende.kort, hand.start)
 // Varje fråga returnerar en vy-modell med bara det skärmen visar och rollen får se. Personnummer skickas bara maskerat.
-// Behörighet per ärende enligt caseAccess (src/core/access.ts): full = allt, team = handledare/teammedlem (ingen
-// coachanteckning, bedömning eller rapport). Nivån restricted (skyddade personuppgifter) är vilande sedan 2026-10-07 och
-// behandlas som ingen åtkomst.
+// Behörighet per ärende enligt caseAccess (src/core/access.ts): full = allt (alla på Miljonbemanning i avtalets ärenden sedan
+// 2026-10-09); team = finns kvar i typen men ges inte längre (handledare/teammedlem utan coachanteckningar, bedömningar eller
+// rapporter). Nivån restricted (skyddade personuppgifter) är vilande sedan 2026-10-07 och behandlas som ingen åtkomst.
 
 /** Närvarostatistik (prototypens sel.attendanceStats). rate = (närvarande + sena) / registrerade, null om inget registrerats. */
 export type AttendanceSummary = {
@@ -413,6 +413,8 @@ export type CaseListRow = {
   flagged: boolean;
   /** Allvarligaste flaggan: 0 kritisk, 1 varning, 2 information, 9 ingen (sortering "Flaggade först"). */
   flagRank: number;
+  /** Tilldelat mig: huvudcoach eller i teamet (listans val Mina ärenden / Alla ärenden, beslut 2026-10-09). */
+  mine: boolean;
   detail: CaseListDetail;
 };
 export type CaseListModel = {
@@ -426,6 +428,8 @@ export type CaseListModel = {
   rows: CaseListRow[];
 };
 export const caseList = query("arenden.lista", z.object({})).returns<CaseListModel>();
+/** Listans urval för coach och handledare: egna (huvudcoach eller i teamet) eller alla ärenden i avtalet (beslut 2026-10-09). */
+export const CASE_LIST_SCOPES = ["mina", "alla"] as const;
 
 // ---------------------------------------------------------------- Deltagarkortet (/arenden/:caseId)
 export type CaseTab =

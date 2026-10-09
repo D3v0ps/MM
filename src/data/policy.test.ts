@@ -1,6 +1,7 @@
 // Behörighet i minnesläget (policy.ts) – samma fall som RLS-testerna i Postgres ska täcka (CLAUDE.md "RLS-tester per roll"):
-// kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, handledare ser bara tilldelade ärenden,
-// skyddade ärenden syns bara för namngivna – plus pulssvar, notiser, revisionslogg, utskick och skrivregler.
+// kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, coach och handledare ser alla ärenden i avtalet
+// (beslut 2026-10-09 – tilldelningen styr notiser, påminnelser och Mina ärenden, inte åtkomsten), skyddade ärenden syns
+// bara för namngivna – plus pulssvar, notiser, revisionslogg, utskick och skrivregler.
 // Beslut 2026-10-07: kommunen har bara rollen handläggare (kommunens chef är borttagen), och skyddet för skyddade
 // personuppgifter är vilande – testdatat har inga skyddade personer, så testerna av spärren slår på den själva (withProtected).
 import { describe, expect, it } from "vitest";
@@ -242,26 +243,29 @@ describe("ekonomen ser inga coachanteckningar", () => {
   });
 });
 
-describe("handledaren ser bara tilldelade ärenden", () => {
-  it("ärenden och anteckningar bara där hon är i teamet", async () => {
+describe("coach och handledare ser alla ärenden i avtalet (beslut 2026-10-09) – tilldelningen styr inte åtkomsten", () => {
+  it("handledaren ser alla ärenden och anteckningar i avtalet, inte bara teamets (63 av 231 före beslutet)", async () => {
     const assigned = new Set(all("case_team").filter((t) => t.userId === "u-petra").map((t) => t.caseId));
+    expect(assigned.size).toBe(63);
     const cases = await repoFor(PETRA).table("cases").list();
-    expect(cases).toHaveLength(63);
-    expect(cases.every((c) => assigned.has(c.id))).toBe(true);
+    expect(cases).toHaveLength(231);
+    expect(cases.some((c) => !assigned.has(c.id))).toBe(true);
     const cis = await repoFor(PETRA).table("check_ins").list();
-    expect(cis.length).toBeGreaterThan(0);
-    expect(cis.every((x) => assigned.has(x.caseId))).toBe(true);
+    expect(cis.length).toBe(all("check_ins").length);
   });
   it("bara veckorapporter – månads- och slutrapporter innehåller coachens bedömningar", async () => {
     const reps = await repoFor(PETRA).table("reports").list();
     expect(reps.length).toBeGreaterThan(0);
     expect(reps.every((r) => r.kind === "weekly_attendance")).toBe(true);
   });
-  it("coachen ser egna ärenden och team, inte andras", async () => {
-    expect(await count(AMIRA, "cases")).toBe(29);
+  it("coachen ser kollegornas ärenden och avstämningar (29 egna av 231 före beslutet)", async () => {
+    expect(all("cases").filter((c) => c.leadCoachId === "u-amira")).toHaveLength(29);
+    expect(await count(AMIRA, "cases")).toBe(231);
     const nadia = tagged("nadia");
-    expect(await repoFor(ERIK).table("cases").get(nadia)).toBeNull();
-    expect((await repoFor(ERIK).table("check_ins").list()).some((x) => x.caseId === nadia)).toBe(false);
+    expect(await repoFor(ERIK).table("cases").get(nadia)).not.toBeNull();
+    expect((await repoFor(ERIK).table("check_ins").list()).some((x) => x.caseId === nadia)).toBe(true);
+    // Ekonomen ser fortfarande inga coachanteckningar.
+    expect(await count(LARS, "check_ins")).toBe(0);
   });
 });
 
@@ -291,13 +295,15 @@ describe("skyddade personuppgifter (vilande spärr): sätts de syns personen bar
     const lead = who(c.leadCoachId!, "coach");
     expect((await repoFor(lead, PSTORE).table("check_ins").list()).some((x) => x.caseId === c.id)).toBe(true);
   });
-  it("teammedlemmar i det skyddade ärendet ser det inte", async () => {
+  it("teammedlemmar och andra coacher ser det skyddade ärendet bara som ärende (restricted) – inte personen eller detaljerna", async () => {
     const c = skyddad();
     const team = all("case_team").filter((x) => x.caseId === c.id && x.role !== "lead_coach");
     expect(team.length).toBeGreaterThan(0);
-    for (const t of team) {
-      expect(await repoFor(who(t.userId), PSTORE).table("cases").get(c.id)).toBeNull();
-      expect(await repoFor(who(t.userId)).table("cases").get(c.id)).not.toBeNull();
+    for (const a of [...team.map((t) => who(t.userId)), AMIRA, PETRA]) {
+      expect(await repoFor(a, PSTORE).table("cases").get(c.id)).not.toBeNull();
+      expect(await repoFor(a, PSTORE).table("persons").get(c.personId)).toBeNull();
+      expect((await repoFor(a, PSTORE).table("check_ins").list()).some((x) => x.caseId === c.id)).toBe(false);
+      expect(await repoFor(a).table("persons").get(c.personId)).not.toBeNull();
     }
   });
 });
@@ -375,25 +381,29 @@ describe("skrivregler", () => {
     await expect(repoFor(MARIA, s).table("cases").insert({ ...base, id: "case-new-1", referrerId: "k-maria" })).resolves.toBeTruthy();
     await expect(repoFor(MARIA, s).table("cases").insert({ ...base, id: "case-new-2", referrerId: "k-ahmed" })).rejects.toBeInstanceOf(PolicyError);
   });
-  it("coachen ändrar bara sina ärenden; chef och admin är i läsläge", async () => {
+  it("coachen ändrar alla ärenden i avtalet (beslut 2026-10-09); chef och admin är i läsläge", async () => {
     const s = fresh();
     const nadia = tagged("nadia");
     await expect(repoFor(AMIRA, s).table("cases").update(nadia, { phase: 5 })).resolves.toBeTruthy();
-    await expect(repoFor(ERIK, s).table("cases").update(nadia, { phase: 5 })).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(ERIK, s).table("cases").update(nadia, { phase: 5 })).resolves.toBeTruthy();
+    // Men inte ett skyddat ärende där hen inte är huvudcoach (vilande spärr).
+    await expect(repoFor(AMIRA, withProtected()).table("cases").update(tagged("skyddad"), { phase: 5 })).rejects.toBeInstanceOf(PolicyError);
     await expect(repoFor(KARIN, s).table("cases").update(nadia, { phase: 5 })).rejects.toBeInstanceOf(PolicyError);
     await expect(repoFor(ROBIN, s).table("cases").update(nadia, { phase: 5 })).rejects.toBeInstanceOf(PolicyError);
     const ci = all("check_ins").find((x) => x.caseId === nadia)!;
     await expect(repoFor(KARIN, s).table("check_ins").update(ci.id, { note: "x" })).rejects.toBeInstanceOf(PolicyError);
     await expect(repoFor(AMIRA, s).table("check_ins").update(ci.id, { note: "x" })).resolves.toBeTruthy();
   });
-  it("handledaren registrerar närvaro i tilldelade ärenden", async () => {
+  it("handledaren registrerar närvaro i alla ärenden i avtalet (beslut 2026-10-09) – men inte i ett skyddat ärende", async () => {
     const s = fresh();
     const assigned = all("case_team").find((t) => t.userId === "u-petra")!.caseId;
     const act = all("activities").find((a) => a.caseId === assigned)!;
-    const notAssigned = all("activities").find((a) => !all("case_team").some((t) => t.caseId === a.caseId && t.userId === "u-petra"))!;
+    const notAssigned = all("activities").find((a) => a.caseId !== tagged("skyddad") && !all("case_team").some((t) => t.caseId === a.caseId && t.userId === "u-petra"))!;
     const att = (id: string, a: typeof act) => ({ id, activityId: a.id, caseId: a.caseId, status: "present" as const, reason: "", registeredBy: "u-petra", registeredAt: "2027-02-01T09:13", customerNotifiedAt: null });
     await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x1", act))).resolves.toBeTruthy();
-    await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x2", notAssigned))).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x2", notAssigned))).resolves.toBeTruthy();
+    const protectedAct = all("activities").find((a) => a.caseId === tagged("skyddad"))!;
+    await expect(repoFor(PETRA, withProtected()).table("attendance").insert(att("at-x3", protectedAct))).rejects.toBeInstanceOf(PolicyError);
   });
   it("ekonomen rättar beställarreferensen men kan inte skriva anteckningar", async () => {
     const s = fresh();
@@ -452,9 +462,11 @@ describe("röstinspelning: länkar, deltagarens röstmeddelanden och ljudfiler",
   it("coachen och teamet läser röstmeddelandena i sina ärenden – aldrig ekonomen, andra coacher eller kommunen", async () => {
     expect(await ids(AMIRA, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
     expect(await ids(AMIRA, "voice_links")).toEqual(["vl-demo", "vl-nadia", "vl-yusuf"]);
-    // Petra är handledare i Nadias team men inte i Yusufs
-    expect(await ids(PETRA, "participant_voice_notes")).toEqual(["pvn-nadia"]);
-    for (const a of [LARS, ERIK, MARIA, OMAR, DELTAGARE]) {
+    // Petra är handledare i Nadias team men inte i Yusufs – hon och Erik arbetar ändå i alla ärenden i avtalet (beslut 2026-10-09).
+    expect(await ids(PETRA, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
+    expect(await ids(ERIK, "participant_voice_notes")).toEqual(["pvn-nadia", "pvn-yusuf"]);
+    expect(await ids(ERIK, "voice_links")).toEqual(["vl-demo", "vl-nadia", "vl-yusuf"]);
+    for (const a of [LARS, MARIA, OMAR, DELTAGARE]) {
       expect([a.userId, await ids(a, "participant_voice_notes")]).toEqual([a.userId, []]);
       expect([a.userId, await ids(a, "voice_links")]).toEqual([a.userId, []]);
     }
@@ -504,8 +516,9 @@ describe("röstinspelning: länkar, deltagarens röstmeddelanden och ljudfiler",
   it("ljudfilernas rader: bara systemet skriver; den som spelat in och den som arbetar i ärendet läser läget", async () => {
     const s = fresh();
     expect(await ids(AMIRA, "audio_uploads")).toEqual(["aud-mehmet", "aud-pvn-nadia", "aud-pvn-yusuf"]);
-    expect(await ids(PETRA, "audio_uploads")).toEqual(["aud-mehmet", "aud-pvn-nadia"]);
-    for (const a of [LARS, MARIA, ERIK, DELTAGARE]) expect([a.userId, await ids(a, "audio_uploads")]).toEqual([a.userId, []]);
+    expect(await ids(PETRA, "audio_uploads")).toEqual(["aud-mehmet", "aud-pvn-nadia", "aud-pvn-yusuf"]);
+    expect(await ids(ERIK, "audio_uploads")).toEqual(["aud-mehmet", "aud-pvn-nadia", "aud-pvn-yusuf"]);
+    for (const a of [LARS, MARIA, DELTAGARE]) expect([a.userId, await ids(a, "audio_uploads")]).toEqual([a.userId, []]);
     const u = all("audio_uploads").find((x) => x.id === "aud-mehmet")!;
     for (const a of [AMIRA, ROBIN, MARIA]) {
       await expect(repoFor(a, s).table("audio_uploads").update(u.id, { status: "uploaded", deletedAt: null })).rejects.toBeInstanceOf(PolicyError);
@@ -528,29 +541,32 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
     createdAt: "2027-02-01T09:30", updatedAt: null, removedAt: null, removedBy: null, ...patch,
   });
 
-  it("läsning: full eller team (team bara 'team'), aldrig ekonom eller kommunen; skyddat ärende bara namngivna", async () => {
-    expect(await ids(AMIRA)).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
-    expect(await ids(PETRA)).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-praktiskt"]);
-    for (const a of [LARS, MARIA, OMAR, who("u-leila")]) expect(await ids(a), a.userId).toEqual([]);
-    expect(await ids(ERIK)).toEqual(["note-skyddad"]);
+  it("läsning: alla på Miljonbemanning som arbetar i ärenden (beslut 2026-10-09), aldrig ekonom eller kommunen; skyddat ärende bara namngivna", async () => {
+    const ALL = all("case_notes").map((n) => n.id).sort();
+    expect(ALL).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad"]);
+    // Coach, handledare och en coach utanför teamet läser alla anteckningar i avtalet – också dem som är skrivna för "full".
+    for (const a of [AMIRA, PETRA, ERIK, who("u-leila")]) expect(await ids(a), a.userId).toEqual(ALL);
+    for (const a of [LARS, MARIA, OMAR]) expect(await ids(a), a.userId).toEqual([]);
     expect(await ids(JOHAN)).toContain("note-skyddad");
     expect(raw.get("case_notes", "note-skyddad")?.caseId).toBe(SKYDDAD);
     // Ärendet har inga skyddade personuppgifter i testdatat: samordnare, chef och admin läser anteckningen. Med den vilande
     // spärren påslagen ser bara namngiven coach och avtalsansvarig den.
     const pids = async (a: Actor) => (await repoFor(a, PSTORE).table("case_notes").list()).map((n) => n.id);
-    expect(await pids(ERIK)).toEqual(["note-skyddad"]);
+    expect(await pids(ERIK)).toContain("note-skyddad");
     expect(await pids(JOHAN)).toContain("note-skyddad");
+    for (const a of [AMIRA, PETRA, who("u-leila")]) expect(await pids(a), a.userId).not.toContain("note-skyddad");
     for (const a of [SARA, KARIN, ROBIN]) {
       expect(await ids(a), a.userId).toContain("note-skyddad");
       expect(await pids(a), a.userId).not.toContain("note-skyddad");
     }
   });
 
-  it("skriva: den som arbetar i ärendet i eget namn – teamet bara 'team', chef, admin och ekonom aldrig", async () => {
+  it("skriva: den som arbetar i ärendet i eget namn – handledaren också 'full' (full åtkomst sedan 2026-10-09); chef, admin och ekonom aldrig", async () => {
     const s = fresh();
     await expect(repoFor(AMIRA, s).table("case_notes").insert(base())).resolves.toBeTruthy();
     await expect(repoFor(PETRA, s).table("case_notes").insert(base({ id: "note-y", authorId: "u-petra", audience: "team" }))).resolves.toBeTruthy();
-    await expect(repoFor(PETRA, s).table("case_notes").insert(base({ id: "note-z", authorId: "u-petra", audience: "full" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(PETRA, s).table("case_notes").insert(base({ id: "note-z", authorId: "u-petra", audience: "full" }))).resolves.toBeTruthy();
+    await expect(repoFor(ERIK, s).table("case_notes").insert(base({ id: "note-v", authorId: "u-erik" }))).resolves.toBeTruthy();
     await expect(repoFor(AMIRA, s).table("case_notes").insert(base({ id: "note-w", authorId: "u-sara" }))).rejects.toBeInstanceOf(PolicyError);
     for (const a of [KARIN, ROBIN, LARS, MARIA]) {
       await expect(repoFor(a, s).table("case_notes").insert(base({ id: `note-${a.userId}`, authorId: a.userId, audience: "team" })), a.userId).rejects.toBeInstanceOf(PolicyError);
@@ -658,11 +674,11 @@ describe("bilagor till beställningen (case_attachments, 0024)", () => {
   const files = withFiles();
   const ids = async (a: Actor, s = files) => (await repoFor(a, s).table("case_attachments").list()).map((r) => r.id).sort();
 
-  it("läsning: samordnare, avtalsansvarig, namngiven huvudcoach och beställande handläggare – aldrig handledare, ekonom, chef eller admin", async () => {
-    // Nadias ärende: Maria beställde, Amira är huvudcoach och Petra handledare i teamet.
+  it("läsning: samordnare, avtalsansvarig, coach med full åtkomst och beställande handläggare – aldrig handledare, ekonom, chef eller admin", async () => {
+    // Nadias ärende: Maria beställde, Amira är huvudcoach och Petra handledare i teamet. Erik (coach) ser den sedan 2026-10-09.
     expect(await ids(MARIA)).toEqual(["att-nadia", "att-utkast"]);
-    for (const a of [SARA, JOHAN, AMIRA]) expect(await ids(a), a.userId).toEqual(["att-nadia"]);
-    for (const a of [PETRA, LARS, KARIN, ROBIN, ERIK, OMAR, who("k-ahmed"), DELTAGARE]) expect(await ids(a), a.userId).toEqual([]);
+    for (const a of [SARA, JOHAN, AMIRA, ERIK]) expect(await ids(a), a.userId).toEqual(["att-nadia"]);
+    for (const a of [PETRA, LARS, KARIN, ROBIN, OMAR, who("k-ahmed"), DELTAGARE]) expect(await ids(a), a.userId).toEqual([]);
   });
   it("en fil som inte hör till en skickad beställning läses bara av den som laddade upp – en raderad fil av ingen", async () => {
     for (const a of [SARA, JOHAN, AMIRA, OMAR]) expect(await ids(a), a.userId).not.toContain("att-utkast");

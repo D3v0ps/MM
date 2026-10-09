@@ -102,13 +102,17 @@ describe("tidslinjen (arenden.kortTidslinje)", () => {
     expect(all.filter((e) => e.title.startsWith("Meddelande")).map((e) => e.title)).toEqual(["Meddelande från kommunen", "Meddelande till kommunen", "Meddelande från kommunen"]);
   });
 
-  it("handledaren: bara teamets kategorier, bara 'team'-anteckningar, bara arbetsgivarkontakter – och ingen rapportstatus", async () => {
+  it("handledaren: full åtkomst sedan 2026-10-09 – samma poster som coachen, och får skriva", async () => {
     const pages = await allPages(NADIA, petra());
     const all = entriesOf(pages);
-    expect(all.filter((e) => e.note).map((e) => e.note!.id)).toEqual(["note-nadia-praktiskt"]);
-    expect(all.some((e) => /^(ci|ia|ma|dev|cons|rep|msg|close):/.test(e.id))).toBe(false);
-    expect(all.filter((e) => e.cat === "resultat").map((e) => e.title)).toEqual(["Anställningsintervju eller konkret arbetsgivarkontakt", "Praktik/arbetsplatsförlagt moment startat"]);
-    expect(pages[0].months.every((m) => m.report === null)).toBe(true);
+    // Rapporterna (rep:) visas inte för handledaren – månads- och slutrapporter är stängda för rollen (reportRead).
+    const coach = entriesOf(await allPages(NADIA, amira()));
+    expect(coach.some((e) => e.id.startsWith("rep:"))).toBe(true);
+    expect(all.some((e) => e.id.startsWith("rep:"))).toBe(false);
+    // Den borttagna anteckningen visas bara för författaren (Amira).
+    expect(all.map((e) => e.id)).toEqual(coach.map((e) => e.id).filter((id) => !id.startsWith("rep:") && id !== "note:note-nadia-borttagen"));
+    expect(all.filter((e) => e.note).map((e) => e.note!.id).sort()).toEqual(["note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
+    expect(all.some((e) => /^(ci|ma|rep|msg):/.test(e.id))).toBe(true);
     expect(pages[0].canWrite).toBe(true);
     // Petras anteckning i Mehmets ärende: hon får ändra den.
     const mehmet = entriesOf(await allPages(MEHMET, petra())).find((e) => e.note)!;
@@ -258,9 +262,9 @@ describe("tidslinjens utfällda text (arenden.kortTidslinjeText – beslut 2026-
     // Ingen post har själva texten – inte som body, note eller message.
     const json = JSON.stringify(all.filter((e) => e.text));
     expect(json).not.toMatch(/"body"|"obstacles"|Tack! Kan vi ses/);
-    // Handledaren (teamåtkomst): inga meddelande- eller avstämningsposter alls.
+    // Handledaren (full åtkomst sedan 2026-10-09): samma märkning som samordnaren.
     const team = await entries("case-260167", petra());
-    expect(team.filter((e) => e.text || e.id.startsWith("msg:") || e.id.startsWith("ci:"))).toEqual([]);
+    expect(team.map((e) => [e.id, e.text])).toEqual((await entries("case-260167", sara())).filter((e) => !e.id.startsWith("rep:")).map((e) => [e.id, e.text]));
   });
 
   it("meddelandet: samma rad som fliken Meddelanden; avstämningen: anteckningen bara när den är godkänd; fel ärende och teamet får null; ingen loggrad", async () => {
@@ -311,8 +315,8 @@ describe("fria anteckningar (arenden.noteSave, arenden.noteRemove)", () => {
     expect(JSON.stringify(l)).not.toMatch(/Samtal om|Ny tid|conversation|practical/);
   });
 
-  it("handledaren nekas 'full'; chef, admin och ekonom nekas av rollkontrollen", async () => {
-    expect(await cmd(caseNoteSave.key, input(), petra())).toMatchObject({ ok: false, error: "forbidden" });
+  it("handledaren skriver också 'full'-anteckningar (full åtkomst sedan 2026-10-09); chef, admin och ekonom nekas av rollkontrollen", async () => {
+    expect(await cmd(caseNoteSave.key, input(), petra())).toMatchObject({ ok: true });
     for (const a of [karin(), robin(), lars()]) await expect(cmd(caseNoteSave.key, input({ audience: "team" }), a), a.userId).rejects.toBeInstanceOf(ApiError);
     for (const a of [karin(), robin(), lars()]) await expect(cmd(caseNoteRemove.key, { caseId: NADIA, noteId: "note-nadia-samtal" }, a), a.userId).rejects.toBeInstanceOf(ApiError);
   });
@@ -372,14 +376,17 @@ describe("fria anteckningar (arenden.noteSave, arenden.noteRemove)", () => {
     expect(rt.store.getRow("case_notes", "note-nadia-samtal")).toBeTruthy();
   });
 
-  it("länken 'Registrera händelse' i dialogen: kortets edit är sant för huvudcoachen men falskt för en coach i teamet", async () => {
-    leilaInTeam();
+  it("länken 'Registrera händelse' i dialogen: kortets edit är sant för huvudcoachen och för en annan coach (beslut 2026-10-09)", async () => {
     const lc = (await q(caseCard, { caseId: NADIA }, leila())) as CaseCard;
-    expect(lc).toMatchObject({ kind: "ok", access: "team", edit: false });
+    expect(lc).toMatchObject({ kind: "ok", access: "full", edit: true, myTeamRoleLabel: null });
     expect(((await q(caseCard, { caseId: NADIA }, amira())) as CaseCard).edit).toBe(true);
-    // Coachen i teamet skriver bara för teamet och får inte dölja andras.
-    expect(await cmd(caseNoteSave.key, input(), leila())).toMatchObject({ ok: false, error: "forbidden" });
+    // Coachen utanför teamet skriver anteckningar för hela teamet och för coacher, men får inte dölja andras.
+    expect(await cmd(caseNoteSave.key, input(), leila())).toMatchObject({ ok: true });
     expect(await cmd(caseNoteSave.key, input({ audience: "team" }), leila())).toMatchObject({ ok: true });
+    expect(await cmd(caseNoteRemove.key, { caseId: NADIA, noteId: "note-nadia-samtal" }, leila())).toMatchObject({ ok: false });
+    // Läggs hon till i teamet visas teamrollen på kortet.
+    leilaInTeam();
+    expect(((await q(caseCard, { caseId: NADIA }, leila())) as CaseCard).myTeamRoleLabel).toBe("Arbetsgivarmatchare");
   });
 });
 
@@ -490,12 +497,10 @@ describe("månadsunderlaget (arenden.kortManad)", () => {
     expect(nov.months.map((m) => m.month)).toEqual(["2027-02", "2027-01", "2026-12"]);
   });
 
-  it("canAssess bara för huvudcoachen – inte coach i teamet, samordnare, chef eller admin; teamet når inte fliken", async () => {
+  it("canAssess för coacher (huvudcoachen och kollegor, beslut 2026-10-09) – inte samordnare, chef, admin eller handledare", async () => {
     expect((await q(caseMonthBasis, { caseId: NADIA }, amira()))!.canAssess).toBe(true);
-    for (const a of [sara(), karin(), robin(), johan()]) expect((await q(caseMonthBasis, { caseId: NADIA }, a))!.canAssess, a.userId).toBe(false);
-    leilaInTeam();
-    expect(await q(caseMonthBasis, { caseId: NADIA }, leila())).toBeNull();
-    expect(await q(caseMonthBasis, { caseId: NADIA }, petra())).toBeNull();
+    expect((await q(caseMonthBasis, { caseId: NADIA }, leila()))!.canAssess).toBe(true);
+    for (const a of [sara(), karin(), robin(), johan(), petra()]) expect((await q(caseMonthBasis, { caseId: NADIA }, a))!.canAssess, a.userId).toBe(false);
   });
 });
 

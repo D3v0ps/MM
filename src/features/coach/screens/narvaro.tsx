@@ -1,6 +1,7 @@
 "use client";
 // Närvaro (/narvaro?vecka=forra|denna) – snabbregistrering med ett klick per tillfälle. Veckorapporten till handläggaren
-// publiceras automatiskt när alla hennes deltagare är registrerade. Coach (egna ärenden) och handledare (teamärenden).
+// publiceras automatiskt när alla hennes deltagare är registrerade. Coach (ärenden där hen är huvudcoach) och handledare (teamärenden)
+// – listan följer tilldelningen även om alla ärenden i avtalet är läsbara (beslut 2026-10-09).
 // Port av prototypens coach.narvaro och åtgärden coach.attendanceSet. "Markera alla som närvarande" per dag (beslut
 // 2026-10-02): en bekräftelse med namnen, ett kommando (coach.attendanceSetAll), redan registrerade ändras aldrig och
 // enskilda rättas efteråt med radens knappar.

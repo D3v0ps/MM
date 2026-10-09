@@ -27,7 +27,7 @@ import "./voice-handlers";
 const NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
 const NO_EDIT = "Du har inte behörighet att ändra i ärendet.";
 const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.";
-/** Ärendets team: samordnare, avtalsansvarig och huvudcoach ändrar i ärendet (prototypens canEditCase). */
+/** Samordnare, avtalsansvarig och coach ändrar i ärendet (canEditCase – alla coacher i avtalets ärenden sedan 2026-10-09). */
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
 /** AI-körningar som ger förslag till en veckoavstämning. */
 const CHECK_IN_AI_KINDS: readonly AiRunKind[] = ["transcribe_extract", "extract_teams", "extract_notes"];
@@ -112,7 +112,7 @@ handleCommand(attendanceSet, { roles: ["coach", "handledare"] }, async (ctx, p) 
 // ---------------------------------------------------------------- coach.attendanceSetAll ("Markera alla som närvarande")
 handleCommand(attendanceSetAll, { roles: ["coach", "handledare"] }, async (ctx, p) => {
   const ids = uniq(p.activityIds);
-  // Alla tillfällen läses via ctx.repo (policyn/RLS: egna eller teamets ärenden, skyddade bara för namngiven coach).
+  // Alla tillfällen läses via ctx.repo (policyn/RLS: alla ärenden i avtalet sedan 2026-10-09, skyddade bara för namngiven coach).
   // Saknas något skrivs ingenting – listan i bekräftelsen ska stämma med det som registreras.
   const acts = (await ctx.repo.table("activities").list({ id: { in: ids } })).sort(by<Activity>("startsAt"));
   if (acts.length !== ids.length) return fail("not_found", "Något tillfälle finns inte längre eller får inte registreras av dig. Ladda om sidan.");

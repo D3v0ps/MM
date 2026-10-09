@@ -437,13 +437,16 @@ test("Veckoavstämning: samtycke och inspelning (Elif)", async ({ page }, info) 
   expect(errors).toEqual([]);
 });
 
-test("Veckoavstämning: nekat samtycke och andras ärenden", async ({ page }, info) => {
+test("Veckoavstämning: nekat samtycke; kollegans ärende öppnas (beslut 2026-10-09)", async ({ page }, info) => {
   const errors = await open(page, info, `/avstamning/${SC.yusuf}`, COACH);
   await btn(page, "Med AI-stöd").click();
   await expect(page.getByText(/Deltagaren sa nej/)).toBeVisible();
   await expect(btn(page, "Starta inspelning")).toHaveCount(0);
+  // Eriks ärende: Amira når avstämningen (alla på Miljonbemanning arbetar i alla ärenden i avtalet).
   await go(page, info, `/avstamning/${SC.skyddad}`);
-  await expect(page.getByText("Inte ditt ärende")).toBeVisible();
+  await expect(page.getByText("Du saknar åtkomst till ärendet")).toHaveCount(0);
+  await expect(page.getByText("Inte ditt ärende")).toHaveCount(0);
+  await expect(page.getByText(/BOT-26-0120/).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
 

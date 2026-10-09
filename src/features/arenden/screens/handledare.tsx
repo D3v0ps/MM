@@ -64,7 +64,7 @@ function Content({ m }: { m: SupervisorStart }) {
     <>
       <p className="m-0 flex items-start gap-2 text-text-muted">
         <Icon name="shield" className="mt-1 flex-none" />
-        <span>Du ser bara ärenden där du ingår i teamet. Saknar du ett? Be samordnaren lägga till dig.</span>
+        <span>Listan visar ärenden där du ingår i teamet – om dem får du notiser och påminnelser. Alla ärenden i avtalet finns under Ärenden. Saknar du ett här? Be samordnaren lägga till dig.</span>
       </p>
       <Card title="Sök bland dina ärenden" icon="search">
         <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] items-end gap-x-4 gap-y-3">

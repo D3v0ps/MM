@@ -447,9 +447,14 @@ describe("coach.attendanceSet (attendance.set)", () => {
     expect(rows("attendance").find((a) => a.activityId === last.activityId)).toMatchObject({ status: "absent_valid", reason: "Sjukdom", registeredBy: last.coach });
   });
 
-  it("en coach kan inte registrera närvaro i någon annans ärende", async () => {
-    const act = rows("activities").find((a) => a.caseId === "case-260120")!; // Eriks ärende
-    expect(await run(attendanceSet, { activityId: act.id, status: "present" }, amira())).toMatchObject({ ok: false, error: "not_found" });
+  it("en coach registrerar närvaro i en kollegas ärende (beslut 2026-10-09) – men inte i ett skyddat ärende", async () => {
+    const act = rows("activities").find((a) => a.caseId === "case-260120" && a.startsAt < DEMO_START)!; // Eriks ärende
+    expect(await run(attendanceSet, { activityId: act.id, status: "present" }, amira())).toMatchObject({ ok: true });
+    expect(rows("attendance").find((a) => a.activityId === act.id)).toMatchObject({ status: "present", registeredBy: "u-amira" });
+    // Den vilande spärren: med skyddade personuppgifter ser Amira (inte huvudcoach) inte tillfällena i ärendet.
+    rt.store.updateRow("persons", row("cases", "case-260120")!.personId, { protectedIdentity: true });
+    const other = rows("activities").find((a) => a.caseId === "case-260120" && a.id !== act.id)!;
+    expect(await run(attendanceSet, { activityId: other.id, status: "present" }, amira())).toMatchObject({ ok: false, error: "not_found" });
   });
 });
 

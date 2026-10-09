@@ -57,7 +57,10 @@ describe("arenden.lista (arenden.lista)", () => {
     for (const [name, a] of [["samordnare", sara()], ["avtalsansvarig", johan()], ["coach", amira()], ["handledare", petra()], ["chef", karin()], ["admin", robin()]] as const) {
       counts[name] = (await q(caseList, {}, a)).rows.length;
     }
-    expect(counts).toEqual({ samordnare: 231, avtalsansvarig: 231, coach: 29, handledare: 63, chef: 231, admin: 231 });
+    // Beslut 2026-10-09: coach och handledare ser alla ärenden i avtalet (29 respektive 63 före beslutet). Listan markerar de egna.
+    expect(counts).toEqual({ samordnare: 231, avtalsansvarig: 231, coach: 231, handledare: 231, chef: 231, admin: 231 });
+    expect((await q(caseList, {}, amira())).rows.filter((r) => r.mine)).toHaveLength(29);
+    expect((await q(caseList, {}, petra())).rows.filter((r) => r.mine)).toHaveLength(63);
   });
 
   it("samordnaren: alla ärenden med namn (inga skyddade i testdatat), åtta flaggade ärenden, tre med olästa meddelanden", async () => {
@@ -126,13 +129,16 @@ describe("arenden.kort (arende.kort)", () => {
     expect(JSON.stringify(c)).not.toContain("19730216");
   });
 
-  it("utan åtkomst: coachen får 'denied' utan ärendenummer; med den vilande spärren påslagen också samordnare och chef", async () => {
-    expect(await q(caseCard, { caseId: SKYDDAD }, amira())).toEqual({ kind: "denied" });
+  it("utan åtkomst: 'denied' utan ärendenummer – med den vilande spärren påslagen för en annan coach, handledare, samordnare och chef", async () => {
+    // Erik är huvudcoach; Amira ser kollegans ärende sedan 2026-10-09.
+    expect(await card(SKYDDAD, amira())).toMatchObject({ displayName: "Sanna Lindgren", access: "full", edit: true });
     expect(await q(caseCard, { caseId: "case-finns-inte" }, sara())).toEqual({ kind: "not_found" });
     // Ett vanligt ärende för samordnaren i dag.
     // Omars beställning – prototypens handläggare (Maria) har inte beställt den, så inget perspektivbyte.
     expect(await card(SKYDDAD, sara())).toMatchObject({ displayName: "Sanna Lindgren", contactText: "Telefon", customerRole: null });
     protect();
+    expect(await q(caseCard, { caseId: SKYDDAD }, amira())).toEqual({ kind: "denied" });
+    expect(await q(caseCard, { caseId: SKYDDAD }, petra())).toEqual({ kind: "denied" });
     expect(await q(caseCard, { caseId: SKYDDAD }, sara())).toEqual({ kind: "denied" });
     expect(await q(caseCard, { caseId: SKYDDAD }, karin())).toEqual({ kind: "denied" });
     const j = await card(SKYDDAD, johan());
@@ -140,16 +146,18 @@ describe("arenden.kort (arende.kort)", () => {
     expect(j).not.toHaveProperty("protectedIdentity");
   });
 
-  it("handledaren (teamet): inga beställnings- eller samtyckesuppgifter och bara teamets flikar", async () => {
+  it("handledaren: full åtkomst i hela avtalet (beslut 2026-10-09) – alla flikar, men ändrar inte ärendet; teamrollen visas", async () => {
     const c = await card(NADIA, petra());
-    expect(c).toMatchObject({ access: "team", edit: false, order: null, buyer: null, consent: null, myTeamRoleLabel: "Yrkesspecifik handledare", unread: 0 });
-    for (const def of [caseIntake, caseCheckIns, caseMonthBasis, caseDeviations, caseReports, caseMessages, caseHistory]) {
-      expect(await q(def, { caseId: NADIA }, petra()), def.key).toBeNull();
+    expect(c).toMatchObject({ access: "full", edit: false, manage: false, readOnly: false, myTeamRoleLabel: "Yrkesspecifik handledare" });
+    expect(c.order).not.toBeNull();
+    expect(c.consent).not.toBeNull();
+    for (const def of [caseIntake, caseCheckIns, caseMonthBasis, caseDeviations, caseReports, caseMessages, caseHistory, caseOverview, caseTimeline, caseAttendance, casePlacements, caseEvents]) {
+      expect(await q(def, { caseId: NADIA }, petra()), def.key).not.toBeNull();
     }
-    for (const def of [caseOverview, caseTimeline, caseAttendance, casePlacements, caseEvents]) expect(await q(def, { caseId: NADIA }, petra()), def.key).not.toBeNull();
     const ov = (await q(caseOverview, { caseId: NADIA }, petra()))!;
-    expect(ov.latest).toBeNull();
-    expect(ov.upcoming.some((a) => a.kind === "möte")).toBe(false);
+    expect(ov.latest).not.toBeNull();
+    // En handledare utanför teamet ser också ärendet – utan teamroll.
+    expect(await card(NADIA, as("u-hanna", "handledare"))).toMatchObject({ access: "full", edit: false, myTeamRoleLabel: null });
   });
 
   it("samordnaren: coacher att byta till med antal aktiva ärenden; första möte som inte är bokat", async () => {
@@ -250,11 +258,13 @@ describe("arenden.visaPersonnummer", () => {
     expect(JSON.stringify(log[0])).not.toContain("9545");
   });
 
-  it("teamet (handledare) och roller utan åtkomst får inte se numret", async () => {
-    expect(await cmd(caseRevealPnr.key, { caseId: NADIA }, petra())).toMatchObject({ ok: false, error: "forbidden" });
-    expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, amira())).toMatchObject({ ok: false, error: "not_found" });
-    // Den vilande spärren: samordnaren ser inte personen.
+  it("handledaren och en annan coach ser numret (full åtkomst sedan 2026-10-09) – inte i ett skyddat ärende", async () => {
+    expect(await cmd(caseRevealPnr.key, { caseId: NADIA }, petra())).toMatchObject({ ok: true, pnr: "19730216-9545" });
+    expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, amira())).toMatchObject({ ok: true });
+    // Den vilande spärren: samordnaren, en annan coach och handledaren ser inte personen.
     protect();
+    expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, amira())).toMatchObject({ ok: false, error: "forbidden" });
+    expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, petra())).toMatchObject({ ok: false, error: "forbidden" });
     expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, sara())).toMatchObject({ ok: false, error: "forbidden" });
   });
 });

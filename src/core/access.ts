@@ -3,11 +3,16 @@
 // med två tillägg som prototypen inte behövde: avtalsmedlemskap (bara ärenden i användarens avtal) och kommunens
 // synlighet enligt avtalskonfigurationen (egna ärenden, enhetens eller alla).
 //
-// Samma regler används av policyn i minnesläget (src/data/policy.ts) och ska användas av RLS i Postgres.
+// Beslut 2026-10-09 (Karim): alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet – coach och handledare får
+// "full" som samordnaren, inte bara i teamets ärenden. Tilldelningen (case_team) finns kvar och styr notiser, mejl,
+// påminnelser, Mina ärenden och handledarens Mina tilldelade ärenden – inte åtkomsten. Kommunen ser bara sina egna.
+//
+// Samma regler används av policyn i minnesläget (src/data/policy.ts) och av RLS i Postgres (mm.case_access_level, 0029).
 //
 // Nivåer:
 //   full        allt i ärendet (anteckningar, bedömningar, personuppgifter)
-//   team        tilldelad i teamet: ärendet och anteckningar, men inte skyddade ärenden
+//   team        finns kvar i typen men ges inte längre till någon roll (före 2026-10-09: tilldelad i teamet utan att vara
+//               huvudcoach). Skärmar och regler som behandlar "team" fungerar oförändrat om nivån skulle behövas igen.
 //   restricted  ärendet finns (nummer och status) men personen och detaljerna döljs – skyddade personuppgifter.
 //               VILANDE sedan 2026-10-07 (Karims beslut): skyddet är borttaget ur appen och persons.protected_identity är
 //               alltid false, så nivån uppstår inte. Spärren ligger kvar här, i policy.ts och i RLS så att skyddet kan slås
@@ -29,7 +34,7 @@ export type CaseAccessCase = Pick<Case, "contractId" | "leadCoachId" | "referrer
 export type CaseAccessLookups = {
   /** Personen har skyddade personuppgifter. */
   protectedIdentity: boolean;
-  /** Användare i ärendets team (case_team.userId, inklusive huvudcoachen). */
+  /** Användare i ärendets team (case_team.userId, inklusive huvudcoachen). Styr inte åtkomsten sedan 2026-10-09 – behålls i uppslaget (och i mm.case_access_level) så att teamnivån kan slås på igen utan ny signatur. */
   teamUserIds: readonly string[];
   /** Beställande handläggares enhet (profilen, annars ärendets referrerUnit) – för synlighet "unit". */
   referrerUnit?: string | null;
@@ -50,7 +55,6 @@ export function caseAccess(c: CaseAccessCase | null | undefined, actor: Actor, l
   if (!c) return "none";
   if (actor.role !== "admin" && !actor.contractIds.includes(c.contractId)) return "none";
   const prot = l.protectedIdentity;
-  const inTeam = l.teamUserIds.includes(actor.userId);
   switch (actor.role) {
     case "avtalsansvarig":
       return "full";
@@ -59,9 +63,11 @@ export function caseAccess(c: CaseAccessCase | null | undefined, actor: Actor, l
     case "admin":
       return prot ? "restricted" : "full";
     case "coach":
-      return c.leadCoachId === actor.userId ? "full" : inTeam && !prot ? "team" : "none";
+      // Huvudcoachen ser allt, även skyddade. Övriga coacher: alla ärenden i avtalet (beslut 2026-10-09), skyddade bara som ärende.
+      return c.leadCoachId === actor.userId ? "full" : prot ? "restricted" : "full";
     case "handledare":
-      return inTeam && !prot ? "team" : "none";
+      // Alla ärenden i avtalet (beslut 2026-10-09); tilldelningen styr bara listor och notiser. Skyddade bara som ärende.
+      return prot ? "restricted" : "full";
     case "ekonom":
       return "billing";
     case "kommun_handlaggare": {

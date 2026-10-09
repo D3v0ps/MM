@@ -1,12 +1,14 @@
 // Läs- och skrivregler per tabell i minnesläget – spegel av Row Level Security i Postgres (SPEC §4, §7.10, §10,
 // CLAUDE.md punkt 1, 2, 8). Neka som standard: varje tabell har en regel, och det som inte uttryckligen tillåts nekas.
-// Behörighet = avtal (memberships) + roll + tilldelning, via caseAccess (src/core/access.ts).
+// Behörighet = avtal (memberships) + roll, via caseAccess (src/core/access.ts). Tilldelningen (case_team) styr notiser,
+// påminnelser och Mina ärenden – inte åtkomsten (beslut 2026-10-09).
 //
 // Sammanfattning:
-//   MB-roller      coach: egna ärenden (huvudcoach) och team · handledare: tilldelade · samordnare, avtalsansvarig, chef:
-//                  alla i sina avtal (chef och admin i läsläge – chefen får ändå spara, dela inom Miljonbemanning och
-//                  arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs för fakturering, inga anteckningar,
-//                  rapporter eller namn · admin: allt inklusive konfiguration och logg (skyddade personer bara som ärende)
+//   MB-roller      coach, handledare, samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 – coach
+//                  och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
+//                  spara, dela inom Miljonbemanning och arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs
+//                  för fakturering, inga anteckningar, rapporter eller namn · admin: allt inklusive konfiguration och logg
+//                  (skyddade personer bara som ärende)
 //   Kommunen       bara rollen handläggare (beslut 2026-10-07 – kommunens chef är borttagen): sina beställningar (eller
 //                  enhetens/alla enligt avtalet) · bara levererade rapporter till dem · bara meddelanden i sina ärenden · aldrig
 //                  coachanteckningar, flaggor, KPI:er eller prislistan (#11)
