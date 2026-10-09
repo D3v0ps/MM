@@ -44,7 +44,7 @@ Tryck på **Beställ ny insats**. Beställningen görs i tre steg och en granskn
 
 ### Steg 1 av 3: Beställning och kontakt
 
-1. **Ditt namn**, **Enhet**, **Ditt telefonnummer** och **Din e-postadress** är redan ifyllda från ditt konto. Kontrollera att de stämmer. Ordererkännandet skickas till e-postadressen.
+1. Under **Kontaktperson** ser du ditt namn, din enhet, ditt telefonnummer och din e-postadress från ditt konto. Kontrollera att de stämmer. Ska någon annan vara kontaktperson för beställningen? Tryck på **Ändra**. Ordererkännandet skickas till e-postadressen.
 2. Välj **Önskat startdatum**. Startdatumet bekräftas i orderbekräftelsen.
 3. Välj **Omfattning**: 6 månader eller 12 månader. Välj **annan tidsperiod** bara om insatsen behöver en annan längd. Då fyller du också i **Slutdatum** och **Motivering**. Skriv inga diagnoser eller uppgifter om hälsa.
 4. Tryck på **Nästa: deltagare**.
@@ -71,7 +71,7 @@ Lämna bara de uppgifter som behövs.
 
 1. Läs igenom uppgifterna. Tryck på **Tillbaka** om något behöver ändras.
 2. Tryck på **Skicka beställningen**.
-3. Du ser sidan **Tack! Beställningen är skickad** med ditt ärendenummer.
+3. Du ser sidan **Tack! Beställningen är skickad** med ditt ärendenummer. Orderbekräftelsen kommer med mejl.
 
 ## Vad händer efter beställningen?
 
@@ -85,8 +85,8 @@ Varje gång något nytt finns i portalen får du ett mejl utan personuppgifter m
 ## Mina deltagare
 
 1. Tryck på **Mina deltagare** på startsidan.
-2. Du ser bara de deltagare som du själv har beställt insatser för.
-3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Närvaro**, **Levererade rapporter** och **Säkra meddelanden**.
+2. Du ser bara de deltagare som du själv har beställt insatser för. Välj **Pågår** eller **Alla** överst i listan.
+3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Närvaro**, **Levererade rapporter** och **Säkra meddelanden**. Under Närvaro står närvarograden för den senaste månaden. Närvaron vecka för vecka finns i veckorapporterna.
 4. Vill du skriva till coachen: tryck på **Nytt meddelande** under Säkra meddelanden. Skriv aldrig personnummer i ett meddelande. Ärendenumret räcker.
 
 ## Avbryta en insats
@@ -96,7 +96,7 @@ Vill du avbryta en insats? Mejla **avrop@miljonbemanning.se** och skriv ärenden
 ## Rapporter och meddelanden
 
 1. Tryck på **Rapporter och meddelanden** på startsidan.
-2. Olästa rapporter och meddelanden visas först.
+2. Olästa rapporter och meddelanden visas först. Välj **Olästa** eller **Alla**.
 3. Tryck på en rapport för att läsa den i portalen. Rapporter skickas aldrig som bilaga i vanlig e-post.
 
 ## Mina uppgifter

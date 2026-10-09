@@ -5,26 +5,23 @@ import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { attendanceStats, repeatedAbsence } from "@/core/attendance";
-import { ackTextFor, duplicateActive } from "@/core/cases";
+import { attendanceStats } from "@/core/attendance";
+import { duplicateActive } from "@/core/cases";
 import { isUnset } from "@/core/config";
-import { contactLabel, NO_CONTACT_TEXT_PORTAL, participantContactLabel, reportKindLabel, teamLabel } from "@/core/labels";
-import { avropDue, firstMeetingDays, firstMeetingDue } from "@/core/sla";
-import { MONTHS, addDays, addMonths, dayOf, diffDays, monday, monthEnd, monthKey } from "@/core/time";
+import { avropDue, firstMeetingDays } from "@/core/sla";
+import { addDays, dayOf, diffDays, monday } from "@/core/time";
 import { by } from "@/core/util";
 import { pnrFormatValid } from "@/core/validation";
 import type { Case, CaseStatus, Profile, Report } from "@/data/schema";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_FILES, ATTACHMENT_TYPES_TEXT } from "../_shared/attachment-port";
 import { upsert } from "../_shared/context";
 import { pnrSearchHash, revealPnr } from "../_shared/pnr";
-import { caseBackground } from "../arenden/background";
 import {
   kommunCase, kommunCaseList, kommunCaseSeen, kommunDuplicate, kommunOrderForm, kommunProfile, kommunProfileSave, kommunReceipt, kommunReports,
   kommunRevealPnr, kommunStart, kommunTaskDone,
-  type KomAttTile, type KomCaseDetail, type KomCaseRow, type KomEvent, type KomReportRow, type KomTask, type KomThread,
+  type KomCaseDetail, type KomCaseRow, type KomReportRow, type KomTask, type KomThread,
 } from "./api";
 import { deliveredOk, komCase, komContext, komMessage, reportRow, senderLabel, viewerFor, visibleCases } from "./load";
-import { fD, NOTIFY_FROM, reportTitle } from "./texts";
 // "Tala in" (röstinspelning): beställningens bakgrundsinformation och meddelanden.
 import "./voice-handlers";
 
@@ -34,6 +31,8 @@ const HANDL: readonly Role[] = ["kommun_handlaggare"];
 const profileIncomplete = (p: Profile | null): boolean => !p || !(p.customerUnit ?? "").trim() || p.phone.replace(/\D/g, "").length < 7;
 /** Hur länge en oläst händelse (avböjd beställning, ny coach, orderbekräftelse) visas på startsidan. Gränssnittsval, inte ett avtalsvärde. */
 const EVENT_DAYS = 14;
+/** Närvarograden på deltagarens sida i portalen räknas över så här många dagar ("senaste månaden"). Gränssnittsval. */
+const ATTENDANCE_DAYS = 30;
 /** Avböjda beställningar syns i standardfiltret så här länge, så att handläggaren hittar orsaken. Gränssnittsval. */
 const DECLINED_VISIBLE_DAYS = 30;
 const OPEN_STATUSES: readonly CaseStatus[] = ["received", "acknowledged", "confirmed", "active", "paused"];
@@ -61,7 +60,6 @@ async function myReports(ctx: Ctx): Promise<Report[]> {
 // ================================================================ kommun.start (handläggarens startsida)
 handleQuery(kommunStart, { roles: HANDL }, async (ctx) => {
   const me = ctx.actor.userId;
-  const now = ctx.now();
   const k = await komContext(ctx);
   const cases = await visibleCases(ctx);
   const byCase = new Map(cases.map((c) => [c.id, c]));
@@ -71,56 +69,24 @@ handleQuery(kommunStart, { roles: HANDL }, async (ctx) => {
     return c ? { caseNumber: c.caseNumber, name: viewer.name(c) } : null;
   };
   const ids = cases.map((c) => c.id);
-  const mine = cases.filter((c) => c.referrerId === me);
-  const mineIds = mine.map((c) => c.id);
-  const [tasks, history, seen, messages, reports] = await Promise.all([
+  const [tasks, messages, reports] = await Promise.all([
     openTasks(ctx, byCase),
-    mineIds.length ? ctx.repo.table("case_status_history").list({ caseId: { in: mineIds } }) : [],
-    ctx.repo.table("case_seen").list({ userId: me }),
     ids.length ? ctx.repo.table("messages").list({ caseId: { in: ids } }) : [],
     myReports(ctx),
   ]);
 
-  // Händelser i handläggarens egna beställningar som inte är lästa (prototypens sel.komEvents).
-  const since = `${addDays(dayOf(now), -EVENT_DAYS)}T00:00`;
-  const seenAt = new Map(seen.map((s) => [s.caseId, s.seenAt]));
-  const mineSet = new Set(mineIds);
-  const events: KomEvent[] = [];
-  for (const c of mine) {
-    if (c.status === "declined" && c.declinedAt) {
-      events.push({ key: `declined:${c.id}`, kind: "declined", at: c.declinedAt, caseId: c.id, reportId: null, title: `Beställning ${c.caseNumber} kunde inte tas emot`, sub: "Miljonbemanning har avböjt beställningen. Öppna den för att läsa orsaken." });
-    }
-  }
-  for (const h of history) {
-    if (!h.fromCoach || !h.toCoach || h.fromCoach === h.toCoach) continue;
-    const c = byCase.get(h.caseId);
-    if (!c) continue;
-    events.push({ key: `coach:${h.id}`, kind: "coach", at: h.changedAt, caseId: c.id, reportId: null, title: `Ny ansvarig coach för ${c.caseNumber}`, sub: `${k.name(h.toCoach)} har tagit över efter ${k.name(h.fromCoach)}.` });
-  }
-  for (const r of reports) {
-    if (r.kind !== "order_confirmation" || r.openedAt || !r.caseId || !r.deliveredAt) continue;
-    const c = byCase.get(r.caseId);
-    if (!c || !mineSet.has(c.id)) continue;
-    events.push({
-      key: `oc:${r.id}`, kind: "confirmed", at: r.deliveredAt, caseId: c.id, reportId: r.id, title: `Orderbekräftelse för ${c.caseNumber}`,
-      sub: `Start ${fD(c.plannedStart || c.startDate || c.desiredStart)} med ${k.name(c.leadCoachId)} som ansvarig coach.`,
-    });
-  }
-  const visibleEvents = events.filter((e) => e.at >= since && (e.kind === "confirmed" || (seenAt.get(e.caseId) ?? "") < e.at)).sort(by("at", -1));
-
-  // Olästa meddelanden och rapporter.
+  // Olästa meddelanden och rapporter (beslut 2026-10-09: inga händelser och inga siffror på startsidan – orderbekräftelsen
+  // visas bland de olästa rapporterna).
   const unreadMessages = messages
     .filter((m) => m.senderId !== me && !m.readBy.includes(me))
     .sort(by("createdAt", -1))
     .map((m) => ({ id: m.id, caseId: m.caseId, caseNumber: byCase.get(m.caseId)?.caseNumber ?? "", meeting: m.kind === "meeting_request", senderLabel: senderLabel(k, m.senderId), createdAt: m.createdAt }));
   const unreadAll = reports.filter((r) => !r.openedAt).sort(by((r: Report) => r.deliveredAt ?? "", -1));
-  const unreadReports = await Promise.all(unreadAll.filter((r) => r.kind !== "order_confirmation").map((r) => reportRow(ctx, r, k, caseOf)));
+  const unreadReports = await Promise.all(unreadAll.map((r) => reportRow(ctx, r, k, caseOf)));
 
   return {
     firstName: (k.me?.fullName ?? "").split(" ")[0], unit: k.me?.customerUnit ?? null, profileIncomplete: profileIncomplete(k.me), customerName: k.customerName,
-    tasks, events: visibleEvents, unreadMessages, unreadReports, unreadTotal: unreadAll.length + unreadMessages.length,
-    active: cases.filter((c) => c.status === "active" || c.status === "paused").length,
-    waiting: cases.filter((c) => c.status === "received" || c.status === "acknowledged" || c.status === "confirmed").length,
+    tasks, unreadMessages, unreadReports,
   };
 });
 
@@ -172,22 +138,7 @@ handleQuery(kommunReceipt, { roles: HANDL }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c || c.referrerId !== ctx.actor.userId) return null;
   const k = await komContext(ctx);
-  const cfg = k.cfg(c.contractId);
-  const person = await ctx.repo.table("persons").get(c.personId);
-  const email = k.me?.email ?? "";
-  // ctx.system: mejlet som just skickades till handläggaren själv (ordererkännandet). Bara utskick till hennes egen adress
-  // läses. Utskicksloggen är annars bara för Miljonbemanning.
-  const sent = email ? await ctx.system.table("outbound_messages").list({ to: email }, { orderBy: "createdAt" }) : [];
-  const mail = sent.filter((n) => n.caseId === c.id && n.template === "ordererkannande").pop();
-  const area = c.primaryAreaCode ? await ctx.repo.table("contract_areas").first({ contractId: c.contractId, code: c.primaryAreaCode }) : null;
-  return {
-    caseId: c.id, caseNumber: c.caseNumber, referredAt: c.referredAt, avropDue: avropDue(c, cfg),
-    firstMeetingDue: firstMeetingDue(c, cfg),
-    ackText: ackTextFor(c, cfg),
-    mail: mail ? { from: NOTIFY_FROM, to: mail.to, at: mail.createdAt, body: mail.body } : null,
-    contactLabel: person ? contactLabel(person.preferredContact) : null,
-    areaName: area?.name ?? null,
-  };
+  return { caseId: c.id, caseNumber: c.caseNumber, avropDue: avropDue(c, k.cfg(c.contractId)) };
 });
 
 // ================================================================ kommun.deltagareLista
@@ -235,8 +186,8 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
   if (access !== "customer") return { kind: "denied" as const };
   const person = await ctx.repo.table("persons").get(c.personId);
   const kc = komCase(c, viewer, k);
-  const db = await loadDb(ctx.repo, ["activities", "attendance", "messages", "case_status_history", "case_team", "reports", "case_seen"], {
-    activities: { caseId: c.id }, attendance: { caseId: c.id }, messages: { caseId: c.id }, case_status_history: { caseId: c.id }, case_team: { caseId: c.id },
+  const db = await loadDb(ctx.repo, ["activities", "attendance", "messages", "case_status_history", "reports", "case_seen"], {
+    activities: { caseId: c.id }, attendance: { caseId: c.id }, messages: { caseId: c.id }, case_status_history: { caseId: c.id },
     reports: { caseId: c.id }, case_seen: { userId: me, caseId: c.id },
   });
   const byCase = new Map([[c.id, c]]);
@@ -263,21 +214,11 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
   }
   const oc = reps.find((r) => r.kind === "order_confirmation");
 
-  // Närvaro de två senaste månaderna (när insatsen har startat).
+  // Närvarograden de senaste 30 dagarna (när insatsen har startat) – en rad i portalen, ingen uppdelning (beslut 2026-10-09).
   let attendance: KomCaseDetail["attendance"] = null;
   if (c.startDate && c.startDate <= today) {
-    const mk = monthKey(today);
-    const prevMk = addMonths(mk, -1);
-    const tile = (label: string, from: string, to: string): KomAttTile => {
-      const s = attendanceStats(db, c.id, from, to, env);
-      return { label, planned: s.planned, present: s.present, late: s.late, absentValid: s.absentValid, absentInvalid: s.absentInvalid, unregistered: s.unregistered, rate: s.rate };
-    };
-    const ra = c.status === "active" ? repeatedAbsence(db, c.id, env) : null;
-    attendance = {
-      month: tile(`${MONTHS[Number(mk.slice(5)) - 1]} hittills`, `${mk}-01`, today),
-      prev: tile(MONTHS[Number(prevMk.slice(5)) - 1], `${prevMk}-01`, monthEnd(prevMk)),
-      repeated: ra ? { count: ra.length, withinDays: cfg.attendance.repeatedAbsenceRule.withinDays } : null,
-    };
+    const from = addDays(today, -(ATTENDANCE_DAYS - 1));
+    attendance = { rate: attendanceStats(db, c.id, from < c.startDate ? c.startDate : from, today, env).rate };
   }
 
   // Deltagaren: maskerat personnummer (hela numret bara via kommun.visaPersonnummer, som loggas).
@@ -294,16 +235,10 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
     canWrite: c.referrerId === me,
     coachChanges,
     // Orderbekräftelsen – inget ordervärde, inget pris och ingen beställarreferens (synpunkt #10 och #11).
-    order: {
-      coachName: c.leadCoachId ? k.name(c.leadCoachId) : null,
-      team: db.case_team.filter((t) => t.role !== "lead_coach").map((t) => ({ name: k.name(t.userId), roleLabel: teamLabel(t.role) })),
-      ocReportId: oc?.id ?? null, ackText: c.acknowledgedAt ? ackTextFor(c, cfg) : null,
-    },
+    order: { coachName: c.leadCoachId ? k.name(c.leadCoachId) : null, ocReportId: oc?.id ?? null },
     attendance,
-    // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09).
-    participant: { pnrMasked: masked, canReveal: !!masked, contactLabel: person ? participantContactLabel(person, NO_CONTACT_TEXT_PORTAL) : null, city: person?.city ?? "" },
-    // Bakgrundsinformationen och bilagorna från beställningen (bilagorna läses via behörigheten – den som beställde).
-    background: await caseBackground(ctx, c),
+    // Beslut 2026-10-09: ingen kontaktväg, bostadsort, bakgrundsinformation eller bilagor på deltagarens sida i portalen.
+    participant: { pnrMasked: masked, canReveal: !!masked },
     seesCoachNotes: cfg.customerVisibility.seesCoachNotes,
     reports: reportRows,
   } satisfies KomCaseDetail;
@@ -325,11 +260,6 @@ handleQuery(kommunReports, { roles: HANDL }, async (ctx) => {
   const rows = await Promise.all(reps.map((r) => reportRow(ctx, r, k, caseOf)));
   rows.sort((a, b) => (a.openedAt ? 1 : 0) - (b.openedAt ? 1 : 0) || ((a.deliveredAt ?? "") < (b.deliveredAt ?? "") ? 1 : -1));
 
-  // ctx.system: veckorapporter till läsaren som inte är levererade än (väntar på närvaron). Bara rubrik och senaste
-  // leveranstid lämnas ut – aldrig innehållet.
-  const draft = await ctx.system.table("reports").list({ kind: "weekly_attendance", status: "waiting", recipientUserId: me });
-  const coming = draft.filter((r) => ctx.actor.contractIds.includes(r.contractId)).map((r) => ({ id: r.id, title: rowTitle(r), dueAt: r.dueAt }));
-
   let unreadMessages = 0;
   const threads: KomThread[] = [];
   if (cases.length) {
@@ -346,11 +276,8 @@ handleQuery(kommunReports, { roles: HANDL }, async (ctx) => {
     }
     threads.sort((a, b) => Number(b.unread > 0) - Number(a.unread > 0) || (a.lastAt < b.lastAt ? 1 : -1));
   }
-  return { customerName: k.customerName, unit: k.me?.customerUnit ?? null, reports: rows, coming, unreadMessages, threads };
+  return { customerName: k.customerName, unit: k.me?.customerUnit ?? null, reports: rows, unreadMessages, threads };
 });
-
-/** Rubriken för en rapport som är på väg (veckorapport). */
-const rowTitle = (r: Report): string => reportTitle(r, reportKindLabel);
 
 // ================================================================ Kommandon
 /** kom.caseSeen (tyst): händelser i ärendet före den här tiden räknas som lästa på startsidan. */

@@ -53,15 +53,14 @@ const expectForbidden = async (p: Promise<unknown>) => {
 };
 
 describe("startsidan och listorna – samma siffror som den gamla prototypen", () => {
-  it("startsidan: 4 olästa rapporter, 27 pågår och 2 väntar på start", async () => {
+  it("startsidan: 4 olästa rapporter – inga händelser och inga siffror (beslut 2026-10-09)", async () => {
     const s = await ask(kommunStart, {}, maria());
     expect(s.firstName).toBe("Maria");
     expect(s.customerName).toBe("Botkyrka kommun");
     expect(s.unreadReports.map((r) => r.sub)).toEqual(["BOT-26-0112 · Habiba Mohamed", "BOT-26-0108 · Selam Ibrahim", "BOT-26-0170 · Bashir Karlsson", "BOT-26-0145 · Anders Karlsson"]);
-    expect(s.unreadTotal).toBe(4);
-    expect([s.active, s.waiting]).toEqual([27, 2]);
     expect(s.tasks).toEqual([]);
-    expect(s.events).toEqual([]);
+    // Kommunens handläggare ser mindre: startsidan har bara Att göra och det olästa.
+    expect(Object.keys(s).sort()).toEqual(["customerName", "firstName", "profileIncomplete", "tasks", "unit", "unreadMessages", "unreadReports"]);
   });
   it("listan: handläggaren ser 71 egna – inga fält om skyddade personuppgifter, inga belopp", async () => {
     const own = await ask(kommunCaseList, {}, maria());
@@ -73,15 +72,17 @@ describe("startsidan och listorna – samma siffror som den gamla prototypen", (
     const o = await ask(kommunCaseList, {}, omar());
     expect(o.rows.find((r) => r.id === SKYDDAD)).toMatchObject({ name: "Sanna Lindgren" });
   });
-  it("rapporterna: 211 levererade till handläggaren och veckorapporten för vecka 4 är på väg", async () => {
+  it("rapporterna: 211 levererade till handläggaren – inga rapporter på väg (beslut 2026-10-09)", async () => {
     const r = await ask(kommunReports, {}, maria());
     expect(r.reports).toHaveLength(211);
-    expect(r.coming).toEqual([{ id: "rep-16692", title: "Veckorapport närvaro, vecka 4", dueAt: "2027-02-01T16:00" }]);
+    // Kommunens handläggare ser mindre: rapporter som inte är levererade lämnas inte ut alls.
+    expect(r).not.toHaveProperty("coming");
+    expect(r.reports.some((x) => x.id === "rep-16692")).toBe(false);
     // Beställarrapporten lämnas utanför portalen (beslut 2026-10-07).
     expect(r.reports.some((x) => x.title.startsWith("Beställarrapport"))).toBe(false);
     for (const a of [omar(), as("k-ahmed", "kommun_handlaggare"), as("k-linda", "kommun_handlaggare")]) {
       const x = await ask(kommunReports, {}, a);
-      expect([...x.reports, ...x.coming].some((y) => y.title.startsWith("Beställarrapport")), a.userId).toBe(false);
+      expect(x.reports.some((y) => y.title.startsWith("Beställarrapport")), a.userId).toBe(false);
     }
   });
 });
@@ -94,24 +95,30 @@ describe("deltagarens sida", () => {
     // Inget ordervärde, pris eller beställarreferens i portalen (synpunkt #10 och #11).
     for (const key of ["weeks", "priceOre", "valueOre", "buyerReference"]) expect(d.order).not.toHaveProperty(key);
     expect(JSON.stringify(d)).not.toMatch(/4410023817|139800|1398000|valueOre|priceOre/);
-    expect(d.attendance).toMatchObject({ prev: { label: "januari", planned: 11, present: 8, late: 1, unregistered: 2, rate: 1 } });
-    expect(d.participant?.pnrMasked).toBe("••••••••-9545");
+    // Närvaron är en rad: närvarograden de senaste 30 dagarna – ingen uppdelning i giltig och ogiltig frånvaro (beslut 2026-10-09).
+    expect(Object.keys(d.attendance ?? {})).toEqual(["rate"]);
+    expect(d.attendance?.rate).toBeGreaterThan(0);
+    expect(d.attendance?.rate).toBeLessThanOrEqual(1);
+    expect(JSON.stringify(d)).not.toMatch(/absentValid|absentInvalid|repeated/);
+    expect(d.participant).toEqual({ pnrMasked: "••••••••-9545", canReveal: true });
+    // Inget team och inget ordererkännande att visa (beslut 2026-10-09) – orderbekräftelsen finns kvar.
+    expect(Object.keys(d.order).sort()).toEqual(["coachName", "ocReportId"]);
+    expect(d.order.ocReportId).toEqual(expect.any(String));
     expect(JSON.stringify(d)).not.toContain("19730216");
   });
   it("en annan handläggares ärende nekas, ett okänt ärende finns inte", async () => {
     expect(await ask(kommunCase, { caseId: ELIF }, maria())).toEqual({ kind: "denied" });
     expect(await ask(kommunCase, { caseId: "case-finns-inte" }, maria())).toEqual({ kind: "not_found" });
   });
-  it("bakgrundsinformationen från beställningen: omfattning, kartläggning, text och bilagor", async () => {
+  it("deltagarens sida visar mindre (beslut 2026-10-09): ingen kontaktväg, bostadsort, bakgrundsinformation eller bilagor", async () => {
     const maria101 = rows("inbound_emails").find((m) => m.id === "em-101")!.caseId!;
     const d = (await ask(kommunCase, { caseId: maria101 }, maria())) as KomCaseDetail;
     expect(d.kind).toBe("ok");
-    expect(d.background).toMatchObject({ orderPeriodText: "6 månader", orderPeriodReason: null, priorAssessment: "yes", attachments: [] });
+    expect(d).not.toHaveProperty("background");
+    expect(d.participant).not.toHaveProperty("contactLabel");
+    expect(d.participant).not.toHaveProperty("city");
+    // Omfattningen finns kvar på ärendet (orderbekräftelsen).
     expect(d.case).toMatchObject({ orderPeriodMonths: 6, otherPeriod: false });
-    // En äldre beställning i veckor.
-    const n = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;
-    expect(n.case.orderPeriodMonths).toBeNull();
-    expect(n.background.orderPeriodText).toMatch(/veckor/);
   });
   it("Visa personnummer loggas utan numret i loggen, och bara med kommunens åtkomst", async () => {
     const r = await run(kommunRevealPnr, { caseId: NADIA }, maria());
@@ -151,7 +158,7 @@ describe("beställning", () => {
     expect(await ask(kommunDuplicate, { pnr: "20030516-9502" }, maria())).toEqual([{ caseId: null, caseNumber: null, status: null }]);
     expect(await ask(kommunDuplicate, { pnr: "1988041" }, maria())).toEqual([]);
   });
-  it("kvittot: ordererkännandet och mejlet innehåller bara ärendenumret", async () => {
+  it("kvittot: bara ärendenumret och svarstiden – mejlet med ordererkännandet innehåller bara ärendenumret", async () => {
     // Portalens beställning (beslut 2026-10-09): yrkesområde, ingen bostadsort och ingen kontaktväg – bara e-post här.
     const order = {
       source: "portal" as const, firstName: "Samira", lastName: "Testsson", pnr: "19880412-3456", email: "samira.testsson@example.invalid", primaryArea: "G",
@@ -163,14 +170,16 @@ describe("beställning", () => {
     // Omfattningen: planerat slut räknas fram från önskat startdatum (6 månader).
     expect(rows("cases").find((x) => x.id === c.caseId)).toMatchObject({ orderPeriodMonths: 6, orderPeriodReason: null, priorAssessment: "yes", plannedEnd: "2027-08-14", buyerReference: null, primaryAreaCode: "G" });
     const r = await ask(kommunReceipt, { caseId: c.caseId }, maria());
-    expect(r?.ackText).toMatch(/^Tack! Vi har tagit emot er beställning och gett den ärendenummer BOT-27-0051\./);
-    expect(r?.mail).toMatchObject({ from: "notis@miljonmatch.se", to: "maria.ekdahl@botkyrka.se" });
-    expect(r?.mail?.body).toContain("BOT-27-0051");
-    expect(r?.mail?.body).not.toMatch(/Samira|Testsson|3456|example|Lager/);
-    // Utan telefonnummer går kallelsen med e-post. Kvittot visar yrkesområdet.
-    expect(r?.contactLabel).toBe("E-post");
-    expect(r?.areaName).toBe("Lager och logistik");
-    expect(r).not.toHaveProperty("protectedIdentity");
+    // Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): kvittot har bara ärendenumret och
+    // när orderbekräftelsen kommer – inget mejl, ingen kontaktväg och inget yrkesområde.
+    expect(r).toEqual({ caseId: c.caseId, caseNumber: "BOT-27-0051", avropDue: expect.any(String) });
+    // Mejlet med ordererkännandet går till handläggaren och innehåller bara ärendenumret (CLAUDE.md punkt 9).
+    const mail = rows("outbound_messages").filter((m) => m.caseId === c.caseId && m.template === "ordererkannande").pop();
+    expect(mail).toMatchObject({ to: "maria.ekdahl@botkyrka.se" });
+    expect(mail?.body).toContain("BOT-27-0051");
+    expect(mail?.body).not.toMatch(/Samira|Testsson|3456|example|Lager/);
+    // Utan telefonnummer går kallelsen med e-post.
+    expect(rows("persons").find((x) => x.id === rows("cases").find((y) => y.id === c.caseId)!.personId)?.preferredContact).toBe("email");
     // Någon annans kvitto finns inte
     expect(await ask(kommunReceipt, { caseId: NADIA }, as("k-linda", "kommun_handlaggare"))).toBeNull();
   });
@@ -211,18 +220,16 @@ describe("beställning", () => {
 });
 
 describe("kommandon (prototypens kom.*)", () => {
-  it("kom.caseSeen: en avböjd beställning försvinner ur händelserna när ärendet har öppnats", async () => {
+  it("kom.caseSeen: en avböjd beställning räknas som sedd när ärendet har öppnats (startsidan visar inga händelser sedan 2026-10-09)", async () => {
     await run(caseDecline, { caseId: MALL, reason: "Ingen ledig plats." }, sara());
-    let s = await ask(kommunStart, {}, maria());
-    expect(s.events.map((e) => e.title)).toEqual(["Beställning BOT-27-0050 kunde inte tas emot"]);
-    const d = (await ask(kommunCase, { caseId: MALL }, maria())) as KomCaseDetail;
+    let d = (await ask(kommunCase, { caseId: MALL }, maria())) as KomCaseDetail;
     expect(d.unseenEvents).toBe(1);
     const before = rt.clock.now();
     expect(await run(kommunCaseSeen, { caseId: MALL }, maria())).toEqual({ ok: true });
     expect(rt.clock.now(), "tyst kommando flyttar inte klockan").toBe(before);
     expect(rows("case_seen")).toContainEqual({ id: `k-maria:${MALL}`, userId: "k-maria", caseId: MALL, seenAt: before });
-    s = await ask(kommunStart, {}, maria());
-    expect(s.events).toEqual([]);
+    d = (await ask(kommunCase, { caseId: MALL }, maria())) as KomCaseDetail;
+    expect(d.unseenEvents).toBe(0);
     expect(await run(kommunCaseSeen, { caseId: ELIF }, maria())).toMatchObject({ ok: false, error: "not_found" });
   });
   it("kom.taskDone: handläggaren markerar Miljonbemannings uppgift som klar – loggas", async () => {

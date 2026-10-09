@@ -86,8 +86,8 @@ export function statusLook(c: Pick<KomCase, "status" | "firstMeetingAt">): Badge
 }
 export const statusName = (s: CaseStatus): string => STATUS[s].label;
 
-/** Status i en mening (ingressen på deltagarens sida). */
-export function statusText(c: KomCase, phaseCount: number): string {
+/** Status i en mening (deltagarens sida i portalen). Beslut 2026-10-09: ingen fas och inget fasnamn. */
+export function statusText(c: KomCase): string {
   switch (c.status) {
     case "received":
       return "Beställningen är mottagen.";
@@ -98,7 +98,7 @@ export function statusText(c: KomCase, phaseCount: number): string {
         ? `Insatsen är bekräftad. Första mötet är ${fDTL(c.firstMeetingAt)} i ${c.location || "Alby"}.`
         : `Insatsen är bekräftad. Första mötet bokas senast ${fD(c.firstMeetingDue)}.`;
     case "active":
-      return `Insatsen pågår. Deltagaren är i fas ${c.phase} av ${phaseCount} (${phaseText(c.phaseName).toLowerCase()}).`;
+      return "Insatsen pågår.";
     case "paused":
       return "Insatsen är pausad.";
     case "closed":
