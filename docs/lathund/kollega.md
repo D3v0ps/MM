@@ -83,7 +83,7 @@ Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **All
 
 ### Möte med inspelning och AI-förslag
 
-1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens möten** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**.
+1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens aktiviteter** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**.
 2. Inspelning kräver ett registrerat samtycke. Saknas det visas **Samtycke saknas** – tryck på **Registrera samtycke** innan du spelar in.
 3. Spela in medan ni pratar. När du stoppar laddas ljudet upp, texten skrivs ut och ett utkast till mötesrapport fylls i. Det tar vanligtvis en till två minuter.
 4. Varje förslag visas med citat och tidpunkt ur samtalet. Tryck på **Acceptera**, **Ändra** eller **Avvisa** för varje förslag. Det som inte framgår av samtalet står som **Framgår inte** – fyll i det själv.
