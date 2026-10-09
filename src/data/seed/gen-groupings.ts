@@ -3,8 +3,8 @@
 // paritetstesterna inte ändras. Påhittade gruppnamn – inga personuppgifter. Alla tider före DEMO_START (2027-02-01 09.12).
 //
 //   Standardvärdena (som migrationen 0031 lägger in för varje avtal): fem nivåer och taggkategorin "Vill arbeta".
-//   Grupper (MB skapar dem fritt):  Måndagsgruppen (Amira) · Lager och logistik (Sara) · Höstgruppen 2026 (arkiverad av Sara)
-//   Medlemskap: Nadia (nivå 4, Lager och logistik, Heltid), Mehmet (nivå 3, Måndagsgruppen, Deltid), fler av Amiras ärenden,
+//   Grupper (MB skapar dem fritt):  Måndagsgruppen (Amira) · Lagergruppen (Sara) · Höstgruppen 2026 (arkiverad av Sara)
+//   Medlemskap: Nadia (nivå 4, Lagergruppen, Heltid), Mehmet (nivå 3, Måndagsgruppen, Deltid), fler av Amiras ärenden,
 //   tre av Eriks, det skyddade ärendet (nivå 2 – den vilande spärren prövas i rls-parity.test.ts) och ett borttaget
 //   medlemskap i den arkiverade gruppen (Yusuf). Amal (BOT-27-0012, kartläggning pågår) har ingen nivå än – e2e sätter den.
 import { defaultGroupings, defaultLevelId, defaultWantsWorkId, slotOf } from "@/core/groupings";
@@ -30,7 +30,7 @@ export function addGroupings(db: Db): void {
       sortOrder: 1, createdAt: "2027-01-11T09:00", createdBy: "u-amira", updatedAt: null, updatedBy: null, archivedAt: null, archivedBy: null,
     },
     {
-      id: SEED_GROUP_IDS.lager, contractId: CONTRACT, kind: "group", category: null, name: "Lager och logistik", description: "Deltagare som siktar på lagerarbete.",
+      id: SEED_GROUP_IDS.lager, contractId: CONTRACT, kind: "group", category: null, name: "Lagergruppen", description: "Deltagare som siktar på lagerarbete.",
       sortOrder: 2, createdAt: "2027-01-12T13:30", createdBy: "u-sara", updatedAt: null, updatedBy: null, archivedAt: null, archivedBy: null,
     },
     {

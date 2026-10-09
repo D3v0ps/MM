@@ -78,7 +78,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-maria")],
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
   // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
-  "grupper.katalog": [...one("u-sara", { arkiverade: true }), ...one("u-amira")], "grupper.arende": one("u-amira", { caseId: NADIA }),
+  "grupper.katalog": [...one("u-sara", { arkiverade: true }), ...one("u-amira")], "grupper.arende": one("u-amira", { caseId: NADIA }), "grupper.filter": one("u-amira"),
   "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "grupp", id: "grp-c-bot-g-mandag" })],
 };
 

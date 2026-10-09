@@ -9,7 +9,7 @@ import { caseAccessIn, displayName, type AccessSource, type CaseAccess } from "@
 import { isOperational } from "@/core/config";
 import {
   activeMembers, byOrder, CASE_GROUPING_ERROR_TEXT, caseGroupings, defaultGroupings, groupingCategoryError, groupingDescriptionError, groupingNameError, GROUPING_READERS,
-  GROUPING_WRITERS, planCaseGroupings, sameName, slotOf,
+  GROUPING_WRITERS, groupingIdsByCase, planCaseGroupings, sameName, slotOf,
 } from "@/core/groupings";
 import { dayOf, fmtDate } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
@@ -17,8 +17,8 @@ import { UniqueError } from "@/data/repo";
 import type { Case, Contract, Grouping, GroupingMember } from "@/data/schema";
 import { accessSourceFor } from "../rapporter/load";
 import {
-  caseGroupingsSave, caseGroupingsView, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingRename, MASS_NOTE_ROLES, massNotePage, massNoteSave,
-  type GroupingCatalog, type GroupingOption, type MassNoteRow, type TagCategory,
+  caseGroupingsSave, caseGroupingsView, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingFilterData, groupingRename, MASS_NOTE_ROLES, massNotePage,
+  massNoteSave, type GroupingCatalog, type GroupingFilterData, type GroupingOption, type MassNoteRow, type TagCategory,
 } from "./api";
 
 // ---------------------------------------------------------------- Hjälpare
@@ -142,6 +142,25 @@ handleCommand(groupingDefaults, { roles: GROUPING_WRITERS }, async (ctx) => {
   for (const g of add) await table.insert(g);
   if (add.length) await ctx.audit({ action: "grouping.defaults_added", entity: "contract", entityId: contract.id, contractId: contract.id, details: { count: add.length } });
   return ok({ added: add.length });
+});
+
+// ---------------------------------------------------------------- grupper.filter
+handleQuery(groupingFilterData, { roles: GROUPING_READERS }, async (ctx): Promise<GroupingFilterData | null> => {
+  const contract = await mainContract(ctx);
+  if (!contract) return null;
+  const [gs, ms] = await Promise.all([
+    ctx.repo.table("groupings").list({ contractId: contract.id, archivedAt: { isNull: true } }),
+    ctx.repo.table("grouping_members").list({ contractId: contract.id, removedAt: { isNull: true } }),
+  ]);
+  const sorted = gs.slice().sort(byOrder);
+  const byCase: Record<string, string[]> = {};
+  for (const [caseId, ids] of groupingIdsByCase(ms)) byCase[caseId] = [...ids];
+  return {
+    levels: sorted.filter((g) => g.kind === "level").map((g) => ({ id: g.id, name: g.name })),
+    groups: sorted.filter((g) => g.kind === "group").map((g) => ({ id: g.id, name: g.name })),
+    tags: sorted.filter((g) => g.kind === "tag").sort((a, b) => (a.category ?? "").localeCompare(b.category ?? "", "sv")).map((g) => ({ id: g.id, name: `${g.category}: ${g.name}` })),
+    byCase,
+  };
 });
 
 // ---------------------------------------------------------------- grupper.arende

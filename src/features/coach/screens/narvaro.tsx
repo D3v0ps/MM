@@ -5,7 +5,7 @@
 // Port av prototypens coach.narvaro och åtgärden coach.attendanceSet. "Markera alla som närvarande" per dag (beslut
 // 2026-10-02): en bekräftelse med namnen, ett kommando (coach.attendanceSetAll), redan registrerade ändras aldrig och
 // enskilda rättas efteråt med radens knappar.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, isWorkingDay, weekday, WEEKDAYS_SHORT, type LocalDate } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -16,6 +16,7 @@ import { useSession } from "@/shell/session";
 import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
 import { activityRemove } from "@/features/arenden/api";
 import { ActivityModal } from "@/features/arenden/screens/kort-start";
+import { useGroupingFilter } from "@/features/grupper/screens/grouping-filter";
 import { attendanceSet, attendanceSetAll, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
 import { ATT_OPTIONS, AttBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, Persp } from "./shared";
 
@@ -28,18 +29,21 @@ type AttStatus = "present" | "late" | "absent_valid" | "absent_invalid";
 
 export function NarvaroScreen({ query }: ScreenProps) {
   const q = useQuery(narvaroView, {});
+  // Nivå, grupp och tagg (coachmötet 2026-10-09) – samma filter som i ärendelistan, kombineras med vecka, dag och visa.
+  const gf = useGroupingFilter(query);
   if (!q.data) return <PageState title="Närvaro" error={q.error} onRetry={() => void q.refetch()} />;
   // ?arende=<id>: bara den deltagarens tillfällen (från deltagarkortet, Min vecka och handledarens lista). Veckorapporterna visas som vanligt.
   const caseId = query.get("arende");
-  const v = caseId ? onlyCase(q.data, caseId) : q.data;
+  const v0 = caseId ? onlyCases(q.data, (id) => id === caseId) : q.data;
+  const v = gf.active ? onlyCases(v0, gf.matches) : v0;
   const param = query.get("vecka");
   const initial: Week = param === "forra" ? "last" : param === "denna" ? "this" : openOf(v, "last").length ? "last" : "this";
-  return <Narvaro v={v} initial={initial} caseId={caseId} />;
+  return <Narvaro v={v} initial={initial} caseId={caseId} filters={gf.fields} />;
 }
 
-const onlyCase = (v: NarvaroView, caseId: string): NarvaroView => ({
+const onlyCases = (v: NarvaroView, keep: (caseId: string) => boolean): NarvaroView => ({
   ...v,
-  weeks: { last: { ...v.weeks.last, rows: v.weeks.last.rows.filter((r) => r.caseId === caseId) }, this: { ...v.weeks.this, rows: v.weeks.this.rows.filter((r) => r.caseId === caseId) } },
+  weeks: { last: { ...v.weeks.last, rows: v.weeks.last.rows.filter((r) => keep(r.caseId)) }, this: { ...v.weeks.this, rows: v.weeks.this.rows.filter((r) => keep(r.caseId)) } },
 });
 
 /** "BOT-26-0174" för filtret (ärendenumret från raderna – inget namn i adressen). */
@@ -48,7 +52,7 @@ const filteredLabel = (v: NarvaroView, caseId: string): string =>
 
 const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.startsAt < v.now && !a.attendance);
 
-function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId: string | null }) {
+function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Week; caseId: string | null; filters?: ReactNode }) {
   const { actor } = useSession();
   const patch = useQueryPatch();
   const role = actor.role;
@@ -291,6 +295,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           </Link>
         </Notice>
       )}
+      {filters && <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,200px),1fr))] items-end gap-x-4 gap-y-3">{filters}</div>}
       <Row between>
         <Seg<Week>
           ariaLabel="Vecka"

@@ -1324,7 +1324,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       "Nivå 1 – Långt från arbete", "Nivå 2 – Behöver stöd för att komma igång", "Nivå 3 – På väg", "Nivå 4 – Nära arbete", "Nivå 5 – Redo för arbete",
     ]);
     expect(bot.filter((g) => g.kind === "tag").map((g) => `${g.category}: ${g.name}`)).toEqual(["Vill arbeta: Heltid", "Vill arbeta: Deltid", "Vill arbeta: Vet inte än"]);
-    expect(bot.filter((g) => g.kind === "group").map((g) => [g.name, !!g.archivedAt])).toEqual([["Måndagsgruppen", false], ["Lager och logistik", false], ["Höstgruppen 2026", true]]);
+    expect(bot.filter((g) => g.kind === "group").map((g) => [g.name, !!g.archivedAt])).toEqual([["Måndagsgruppen", false], ["Lagergruppen", false], ["Höstgruppen 2026", true]]);
     expect(data.grouping_members.some((m) => m.caseId === SKYDDAD && m.removedAt == null)).toBe(true);
     expect(data.grouping_members.some((m) => m.removedAt != null)).toBe(true);
   });

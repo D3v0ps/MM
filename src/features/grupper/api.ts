@@ -58,6 +58,17 @@ export const groupingArchive = command("grupper.arkivera", z.object({ id: IdSche
 /** Lägg in standardvärdena (fem nivåer, Vill arbeta) i ett avtal som saknar dem. */
 export const groupingDefaults = command("grupper.standard", z.object({}), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ added: number }, "no_contract">>();
 
+// ---------------------------------------------------------------- Filtret i coachens listor (Närvaro)
+export type GroupingFilterData = {
+  levels: { id: string; name: string }[];
+  groups: { id: string; name: string }[];
+  tags: { id: string; name: string }[];
+  /** Ärende -> id för dess aktiva nivå, grupper och taggar (bara ärenden rollen ser – policyn/RLS). */
+  byCase: Record<string, string[]>;
+};
+/** Filtret Nivå, Grupp och Tagg för listor som inte har det i sin egen fråga (coachens Närvaro). Null utan avtal. */
+export const groupingFilterData = query("grupper.filter", z.object({})).returns<GroupingFilterData | null>();
+
 // ---------------------------------------------------------------- Ett ärendes nivå, grupper och taggar
 export type CaseGroupingsView = {
   caseId: string;

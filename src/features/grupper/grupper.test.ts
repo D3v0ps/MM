@@ -12,7 +12,7 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import {
-  caseGroupingsSave, caseGroupingsView, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingRename, massNotePage, massNoteSave,
+  caseGroupingsSave, caseGroupingsView, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingFilterData, groupingRename, massNotePage, massNoteSave,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -127,11 +127,11 @@ describe("avtalets grupperingar (grupper.katalog, ny, andra, arkivera, standard)
   it("katalogen: fem nivåer, grupperna (aktiva – eller alla med arkiverade) och taggarna per kategori med antal deltagare", async () => {
     const c = await q(groupingCatalog, {}, amira());
     expect(c?.levels.map((g) => g.name)).toHaveLength(5);
-    expect(c?.groups.map((g) => g.name)).toEqual(["Måndagsgruppen", "Lager och logistik"]);
+    expect(c?.groups.map((g) => g.name)).toEqual(["Måndagsgruppen", "Lagergruppen"]);
     expect(c?.tags.map((t) => [t.category, t.values.map((v) => v.name)])).toEqual([["Vill arbeta", ["Heltid", "Deltid", "Vet inte än"]]]);
     expect(c?.groups.find((g) => g.id === MANDAG)?.members).toBe(rt.store.rows("grouping_members").filter((m) => m.groupingId === MANDAG && !m.removedAt).length);
     expect((await q(groupingCatalog, { arkiverade: true }, amira()))?.groups.map((g) => [g.name, g.archived])).toEqual([
-      ["Måndagsgruppen", false], ["Lager och logistik", false], ["Höstgruppen 2026", true],
+      ["Måndagsgruppen", false], ["Lagergruppen", false], ["Höstgruppen 2026", true],
     ]);
     expect(c?.canEdit).toBe(true);
     expect((await q(groupingCatalog, {}, petra()))?.canEdit).toBe(false);
@@ -169,6 +169,18 @@ describe("avtalets grupperingar (grupper.katalog, ny, andra, arkivera, standard)
     expect((await q(groupingCatalog, {}, robin()))?.missingDefaults).toBe(true);
     expect(await cmd(groupingDefaults.key, {}, robin())).toMatchObject({ ok: true, added: 5 });
     expect((await q(groupingCatalog, {}, robin()))?.levels).toHaveLength(5);
+  });
+});
+
+describe("filtret i coachens listor (grupper.filter)", () => {
+  it("aktiva nivåer, grupper och taggar och ärendenas id:n – arkiverade och borttagna inte med; ekonomen och kommunen nekas", async () => {
+    const f = await q(groupingFilterData, {}, amira());
+    expect(f?.levels.map((g) => g.id)).toEqual([1, 2, 3, 4, 5].map(L));
+    expect(f?.groups.map((g) => g.name)).toEqual(["Måndagsgruppen", "Lagergruppen"]);
+    expect(f?.tags.map((g) => g.name)).toEqual(["Vill arbeta: Heltid", "Vill arbeta: Deltid", "Vill arbeta: Vet inte än"]);
+    expect([...(f?.byCase[NADIA] ?? [])].sort()).toEqual([L(4), LAGER, W("heltid")].sort());
+    expect(f?.byCase["case-260148"]).not.toContain(HOST);
+    for (const a of [lars(), maria()]) await expect(q(groupingFilterData, {}, a), a.userId).rejects.toBeInstanceOf(ApiError);
   });
 });
 

@@ -14035,7 +14035,7 @@ insert into public.groupings (id, contract_id, kind, category, name, description
   ('grp-c-bot-vill-arbeta-deltid', 'c-bot', 'tag', 'Vill arbeta', 'Deltid', '', 2, '2026-09-01T08:00', null, null, null, null, null),
   ('grp-c-bot-vill-arbeta-vet-inte-an', 'c-bot', 'tag', 'Vill arbeta', 'Vet inte än', '', 3, '2026-09-01T08:00', null, null, null, null, null),
   ('grp-c-bot-g-mandag', 'c-bot', 'group', null, 'Måndagsgruppen', 'Gruppträff på måndagar kl. 10.00 i Alby.', 1, '2027-01-11T09:00', 'u-amira', null, null, null, null),
-  ('grp-c-bot-g-lager', 'c-bot', 'group', null, 'Lager och logistik', 'Deltagare som siktar på lagerarbete.', 2, '2027-01-12T13:30', 'u-sara', null, null, null, null),
+  ('grp-c-bot-g-lager', 'c-bot', 'group', null, 'Lagergruppen', 'Deltagare som siktar på lagerarbete.', 2, '2027-01-12T13:30', 'u-sara', null, null, null, null),
   ('grp-c-bot-g-host', 'c-bot', 'group', null, 'Höstgruppen 2026', '', 3, '2026-09-15T10:00', 'u-sara', null, null, '2027-01-08T16:00', 'u-sara');
 
 -- grouping_members (28)
