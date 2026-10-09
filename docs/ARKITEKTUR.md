@@ -212,6 +212,7 @@ URL:er innehåller bara id:n – aldrig namn, personnummer eller andra personupp
 | kom.rapporter | `/portal/rapporter/:reportId?` | kommun |
 | – (beslut 2026-10-07) | `/portal/mina-uppgifter` (`?forsta=1` efter första inloggningen) – namn, telefon och enhet | kommun |
 | kom.chef (borttagen 2026-10-07) | `/portal/bestallarrapport`, `/portal/resultat`, `/portal/resultat/rapporter/:id?` – leder till `/portal` | kommun |
+| – (lathundar 2026-10-09) | `/hjalp` (MB-roller) och `/portal/hjalp` (kommunens handläggare) – lathundarna i `docs/lathund/*.md`, byggda till `src/features/hjalp/content.generated.ts` med `npm run lathund:build` | hjalp |
 | om.start / om.feedback / om.fragor | `/om`, `/om/genomgang`, `/om/fragor` | bara prototypen (`src/demo`) |
 
 Startsida per roll finns i `START_PATH` (`src/shell/routes.ts`). **Alla MB-roller börjar på `/min-vecka`** (beslut 2026-10-06, SPEC §7.0); `startPathFor`: en begränsad testare i en roll som är dold för testare (ekonom) – eller vars startsida är stängd – börjar på `/notiser`. De gamla startsidorna finns kvar under rollens flik (`/ledning`, `/ekonomi`, `/handledare`, `/admin/anvandare`), och `/start` leder vidare med `redirectScreen` (`src/shell/redirect.tsx`, `nav.replace`, query följer med – samma i appen och prototypen).
