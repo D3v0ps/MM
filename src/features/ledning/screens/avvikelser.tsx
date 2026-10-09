@@ -11,7 +11,7 @@ import { Link, useNav } from "@/shell/nav";
 import { pick, useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, DemoNote, Empty, ErrorNotice, ErrorSummary, Field, focusFirstError, FormGrid, Input, Kpi, Kv, List, ListItem, Loading,
+  Badge, BuildPhase, Button, Card, CaseLink, CellSub, Check, DateInput, Empty, ErrorNotice, ErrorSummary, Field, focusFirstError, FormGrid, Input, Kpi, Kv, List, ListItem, Loading,
   Modal, ModalCancelButton, Notice,
   Page, QueryView, Row, Seg, Select, SlaBadge, Split, Stack, TabPanel, Table, Tabs, TextArea, Timeline, useCopy, useDownload, useToast,
   type TimelineItem,
@@ -71,7 +71,7 @@ function Register() {
     <Page
       title="Avtalsavvikelser"
       eyebrow={`Avvikelser, varningar och klagomål${d ? ` · ${d.customerName}` : ""}`}
-      lead="Register enligt avtalets uppföljning och sanktioner. Kommunen godkänner åtgärdsplanerna. Klagomål från deltagare, arbetsgivare och kommun registreras här också."
+      lead="Avtalsavvikelser, varningar, åtgärdsplaner och klagomål."
       actions={
         <>
           <WrapBtn>
@@ -200,10 +200,6 @@ function RegisterContent({ d }: { d: CdevRegister }) {
           <MonthSummary months={d.aptMonths} initial={d.lastMonth} />
         )}
       </TabPanel>
-      <DemoNote>
-        Registret är förifyllt med påhittade avvikelser. Kommunen godkänner åtgärdsplaner utanför Miljonmatch – avtalsansvarig registrerar godkännandet på avvikelsens sida. Det du
-        registrerar här sparas i din webbläsare och kan återställas med knappen Återställ.
-      </DemoNote>
     </>
   );
 }
@@ -389,13 +385,13 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
           <Field label="Ärendenummer (valfritt)" id="cd-case" help={`Om avvikelsen gäller ett visst ärende, till exempel ${form.caseNumberExample}.`} error={err.caseNumber}>
             <Input value={f.caseNumber} onValueChange={set("caseNumber")} />
           </Field>
-          <Field label="Ansvarig hos Miljonbemanning" id="cd-owner" help="Den som driver åtgärderna.">
+          <Field label="Ansvarig hos Miljonbemanning" id="cd-owner">
             <Select value={f.ownerId} onValueChange={set("ownerId")} options={form.owners} />
           </Field>
-          <Field full label="Åtgärdsplan (kan fyllas i senare)" id="cd-plan" help="Vad görs, av vem och när? Kommunen godkänner planen – avtalsansvarig registrerar godkännandet.">
+          <Field full label="Åtgärdsplan (kan fyllas i senare)" id="cd-plan" help="Vad görs, av vem och när?">
             <TextArea value={f.actionPlan} onValueChange={set("actionPlan")} rows={3} />
           </Field>
-          <Field label="Åtgärderna klara senast" id="cd-due" help="Tidsplan för åtgärdsplanen." error={err.actionPlanDue}>
+          <Field label="Åtgärderna klara senast" id="cd-due" error={err.actionPlanDue}>
             <DateInput value={f.actionPlanDue} onValueChange={set("actionPlanDue")} />
           </Field>
           <div className="col-span-full flex flex-col gap-2">
@@ -405,12 +401,12 @@ function NewDeviationModal({ form, onClose }: { form: CdevForm; onClose: () => v
             </Check>
             {/* Vitesvalet saknas för begränsade testare. Beloppet visas aldrig här (beslut 5) – det står i avtalet. */}
             {form.penaltyChoice && (
-              <Field label="Vite" id="cd-penalty" help="Välj om kommunen har tagit ut vite. Beloppet står i avtalet och hanteras av ekonomen.">
+              <Field label="Vite" id="cd-penalty" help="Välj om kommunen har tagit ut vite.">
                 <Select value={f.penaltyKind} onValueChange={(v) => set("penaltyKind")(v as Penalty)} disabled={!can} options={PENALTY_OPTIONS} />
               </Field>
             )}
             {form.penaltyChoice && f.penaltyKind && (
-              <Field label="Avräknas på faktura för" id="cd-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
+              <Field label="Avräknas på faktura för" id="cd-offset">
                 <Select value={f.penaltyOffsetMonth} onValueChange={set("penaltyOffsetMonth")} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
               </Field>
             )}
@@ -455,7 +451,7 @@ function MonthSummary({ months, initial }: { months: string[]; initial: string }
       }
     >
       <Stack className="[&_h3]:mt-1.5 [&_h3]:text-label [&_h3]:font-extrabold [&_h3]:tracking-[0.1em] [&_h3]:uppercase [&_ul]:m-0 [&_ul]:list-disc [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-1.5 [&_ul]:pl-[1.2em]">
-        <Field label="Månad" id="ldg-apt-month" help="Sammanställningen räknas fram ur registret för vald månad.">
+        <Field label="Månad" id="ldg-apt-month">
           <Select value={mk} onValueChange={setMk} options={monthOptions(months)} />
         </Field>
         {q.error ? (
@@ -699,7 +695,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                   />
                 </Field>
                 <FormGrid>
-                  <Field label="Klart senast" id="cd-edit-due" required help="Tidsplan för åtgärderna." error={planErr.actionPlanDue}>
+                  <Field label="Klart senast" id="cd-edit-due" required error={planErr.actionPlanDue}>
                     <DateInput
                       value={plan.actionPlanDue}
                       onValueChange={(v) => {
@@ -708,7 +704,7 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                       }}
                     />
                   </Field>
-                  <Field label="Ansvarig" id="cd-edit-owner" help="Den som driver åtgärderna.">
+                  <Field label="Ansvarig" id="cd-edit-owner">
                     <Select value={plan.ownerId} onValueChange={(v) => setPlan({ ...plan, ownerId: v })} options={form.owners} />
                   </Field>
                 </FormGrid>
@@ -836,12 +832,12 @@ function Detail({ d }: { d: Extract<CdevDetail, { found: true }> }) {
                   Skriftlig varning från kommunen (räknas mot {wbt})
                 </Check>
                 {form.penaltyChoice && (
-                  <Field label="Vite" id="cd-s-penalty" help="Välj om kommunen har tagit ut vite. Beloppet står i avtalet och hanteras av ekonomen.">
+                  <Field label="Vite" id="cd-s-penalty" help="Välj om kommunen har tagit ut vite.">
                     <Select value={sanc.penaltyKind} onValueChange={(v) => setSanc({ ...sanc, penaltyKind: v as Penalty })} options={PENALTY_OPTIONS} />
                   </Field>
                 )}
                 {form.penaltyChoice && sanc.penaltyKind && (
-                  <Field label="Avräknas på faktura för" id="cd-s-offset" help="Kommunen kan avräkna vitet på en kommande faktura.">
+                  <Field label="Avräknas på faktura för" id="cd-s-offset">
                     <Select value={sanc.penaltyOffsetMonth} onValueChange={(v) => setSanc({ ...sanc, penaltyOffsetMonth: v })} placeholder="Inte bestämt" options={monthOptions(form.offsetMonths)} />
                   </Field>
                 )}

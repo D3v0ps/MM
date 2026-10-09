@@ -146,9 +146,6 @@ function TemplatesTab({ d }: { d: TemplatesView }) {
           {cur && <TemplateEditor key={`${cur.key}:${cur.version}`} tpl={cur} all={d.templates} canEdit={d.canEdit} onDirty={setEditorDirty} />}
         </div>
       </Split>
-      <DemoNote>
-        I prototypen påverkar en ny mallversion bara den här vyn – utskicken i demot använder de ursprungliga texterna. I den riktiga tjänsten skickas all e-post och alla SMS via en gemensam modul som alltid läser senaste versionen.
-      </DemoNote>
     </Stack>
   );
 }

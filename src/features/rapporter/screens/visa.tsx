@@ -199,11 +199,6 @@ function MbReport({ v, doc }: { v: ReportView; doc: DocQuery }) {
       {v.waiting && <WaitingCard w={v.waiting} red={!v.overdue} />}
       {v.finalText && <FinalTextCard key={`${v.id}:${v.finalText.recommendation}`} v={v} f={v.finalText} />}
       {v.summary && <SummaryApprovalCard key={v.id} v={v} s={v.summary} />}
-      {v.slaHidden && (
-        <Notice tone="info" title="SLA-statistik visas inte för kommunen">
-          Ledningen har inte beslutat att kommunen ska se svarstider och SLA-uppfyllnad. Det styrs i avtalskonfigurationen. Den interna ledningsvyn finns under Ledningsvy.
-        </Notice>
-      )}
       <section aria-label="Förhandsvisning av rapporten" className="flex flex-col gap-2">
         <Row between>
           <h2 className="flex items-center gap-2 text-label font-extrabold tracking-[0.1em] uppercase">
@@ -531,9 +526,7 @@ function SummaryApprovalCard({ v, s }: { v: ReportView; s: NonNullable<ReportVie
               <Button kind="primary" icon="check" pending={save.pending || approve.pending} onClick={() => void onApprove()}>
                 Godkänn beställarrapporten
               </Button>
-              <span className="text-small text-text-muted">
-                Sammanfattningen är tom tills du väljer. AI föreslår – du bedömer. Texten sparas i rapporten och ändras inte efter leveransen.
-              </span>
+              <span className="text-small text-text-muted">Texten sparas i rapporten och ändras inte efter leveransen.</span>
             </Row>
           </>
         ) : (

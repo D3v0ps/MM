@@ -459,7 +459,7 @@ test("10. beslut 5: prislistan och beloppen bara för ekonomen – chefen och sy
   errors = await open(page, info, "/admin/avtal", ADMIN);
   await expect(main(page)).toContainText("Viten och avvikelser");
   await expect(page.getByRole("tab", { name: /Prislista/ })).toHaveCount(0);
-  await expect(main(page)).toContainText("Beloppet visas bara för ekonomen.");
+  await expect(main(page)).toContainText("Per tillfälle enligt avtalet.");
   expect(await mainText(page)).not.toMatch(AMOUNT);
   expect(errors).toEqual([]);
 });
