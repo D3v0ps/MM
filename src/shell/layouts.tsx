@@ -21,6 +21,7 @@ import { useCommand, useQuery } from "./backend";
 import { ROUTE_STATUS_ID } from "./page-effects";
 import { cancelLeaveDocument, confirmLeaveDocument, Link, useNav } from "./nav";
 import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_START_PATH, portalNavFor, type NavItem } from "./nav-config";
+import { HELP_PATH, PORTAL_HELP_PATH } from "@/features/hjalp/routes";
 import { startPathFor, type RouteMatch } from "./routes";
 import { useRuntime } from "./runtime";
 import { useSession } from "./session";
@@ -271,7 +272,20 @@ function Sidebar() {
           )}
         </div>
         <RoleSwitch />
-        {testData && <div className="mt-auto px-2 text-label leading-[1.4] text-vit/72 max-[900px]:hidden">Påhittade testdata.</div>}
+        {/* Hjälp längst ner: lathunden för kollegor (docs/lathund/kollega.md). */}
+        <Link
+          to={HELP_PATH}
+          onClick={close}
+          aria-current={nav.path === HELP_PATH ? "page" : undefined}
+          className={cn(
+            "mt-auto flex min-h-11 items-center gap-2.5 rounded-mb px-2.5 py-2 text-ui font-medium text-vit no-underline hover:bg-vit/8 max-[900px]:mt-0 max-[900px]:w-full",
+            nav.path === HELP_PATH && "bg-vit/12 font-bold",
+          )}
+        >
+          <Icon name="help" />
+          Hjälp
+        </Link>
+        {testData && <div className="px-2 text-label leading-[1.4] text-vit/72 max-[900px]:hidden">Påhittade testdata.</div>}
       </div>
     </aside>
   );
@@ -376,7 +390,28 @@ function PortalLayout({ match, children }: { match: RouteMatch; children: ReactN
       <main id="main" tabIndex={-1}>
         <div className="mx-auto flex max-w-[860px] flex-col gap-7 px-6 pt-8 pb-[104px] max-[620px]:px-4">{children}</div>
       </main>
+      <PortalFooter match={match} />
     </div>
+  );
+}
+
+/** Portalens sidfot: Hjälp – lathunden för handläggare och mallen för beställning via mejl (docs/lathund). Inte på inloggningssidan. */
+function PortalFooter({ match }: { match: RouteMatch }) {
+  const session = useSession();
+  if (match.route.path === PORTAL_LOGIN_PATH || !isCustomerRole(session.actor.role)) return null;
+  return (
+    <footer data-print="hide" className="border-t border-ljusgra bg-vit">
+      <div className="mx-auto flex max-w-[860px] flex-wrap items-center gap-x-5 gap-y-2 px-6 py-4 max-[620px]:px-4">
+        <Link
+          to={PORTAL_HELP_PATH}
+          aria-current={match.route.path === PORTAL_HELP_PATH ? "page" : undefined}
+          className="inline-flex min-h-11 items-center gap-2 rounded-mb px-1 text-body font-bold text-antracit portal:text-body"
+        >
+          <Icon name="help" />
+          Hjälp – så beställer du, och mallen för beställning via mejl
+        </Link>
+      </div>
+    </footer>
   );
 }
 

@@ -3,14 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "npm run lathund:build",
     "dev": "next dev",
+    "prebuild": "npm run lathund:build",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "predemo:build": "npm run lathund:build",
     "demo:build": "vite build --config vite.demo.config.ts",
+    "lathund:build": "tsx scripts/docs/lathund-content.ts",
     "demo:serve": "npx http-server dist-demo -p 4173 -s",
     "e2e": "playwright test",
     "check": "npm run typecheck && npm run lint && npm run test"
