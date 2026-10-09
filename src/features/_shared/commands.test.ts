@@ -127,7 +127,7 @@ describe("arenden.caseAccept (case.accept)", () => {
     ]);
     expect(out[2].body).toBe("Orderbekräftelse för ärende BOT-27-0050 finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.");
     // Inget påhittat telefonnummer i kallelsen: meningen "Frågor? Ring …" finns bara när CONTACT_PHONE är satt (_shared/contact.ts).
-    expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby." });
+    expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby. Frågor? Ring 08-400 22 750." });
     expect(out[3].body).not.toMatch(/08-000 00 00/);
     expectNoPersonalData(out);
     expect(rows("audit_log").pop()).toMatchObject({ action: "case.accepted", entityId: "case-270050", actorId: "u-sara", details: { withinSla: true } });

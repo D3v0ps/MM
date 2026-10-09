@@ -1,5 +1,6 @@
 // Steg 4: avtalsavvikelser, puls, inkorgen (mejl till avrop@), meddelanden, fakturering, revisionslogg, utskick,
 // notiser i appen och uppgifter. Port av prototyp/src/01-seed.js rad 770–950 – samma ordning på slumpanropen.
+import { CONTACT_PHONE } from "@/features/_shared/contact";
 import { addDays, addMinutes, fmtDateTime } from "@/core/time";
 import { AREAS, BACKGROUND, NOW, TODAY } from "./constants";
 import type { Gen, PCase, PersonOverride, PNotification } from "./context";
@@ -198,7 +199,7 @@ export function genRest(g: Gen, inbox: { cLinda: PCase; cAhmed: PCase; cMaria: P
   N("2027-01-29T15:23", "email", "ahmed.yusuf@botkyrka.se", "ordererkannande", `Tack! Vi har tagit emot er beställning och gett den ärendenummer ${cAhmed.number}. Ni får besked om startdatum och ansvarig coach senast måndag 1 februari 2027 klockan 15.20.\n\nVi saknar följande uppgifter. Svara på det här mejlet med:\n• Beställarreferens (8–10 siffror)\n• Planerat slutdatum\n\nAnvänd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.`, cAhmed.id);
   N("2027-02-01T07:57", "email", "omar.farah@botkyrka.se", "generisk_mottagningsbekraftelse", "Tack för ditt mejl. Vi har tagit emot det och ringer dig i dag.", null);
   N("2027-02-01T08:43", "email", "maria.ekdahl@botkyrka.se", "ordererkannande", `Tack! Vi har tagit emot er beställning och gett den ärendenummer ${cMaria.number}. Ni får besked om startdatum och ansvarig coach senast tisdag 2 februari 2027 klockan 08.41. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.`, cMaria.id);
-  N("2027-01-31T18:00", "sms", "070-*** ** 12", "motespaminnelse", "Påminnelse: möte i morgon klockan 10.00 hos Miljonbemanning i Alby.", nadia.id);
+  N("2027-01-31T18:00", "sms", "070-*** ** 12", "motespaminnelse", `Påminnelse: möte i morgon klockan 10.00 hos Miljonbemanning i Alby.${CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : ""}`, nadia.id);
   N("2027-02-01T08:00", "sms", "070-*** ** 12", "pulslank", "Hej! Hur går det hos oss? Svara på fem korta frågor: portal.miljonbemanning.se/p/••••• Länken gäller i 7 dagar. Det är frivilligt att svara.", nadia.id);
   N("2027-01-29T14:00", "email", "maria.ekdahl@botkyrka.se", "nytt_meddelande", `Du har ett nytt meddelande om ärende ${yusuf.number} – logga in för att läsa.`, yusuf.id);
   N("2027-02-01T07:00", "email", "ahmed.yusuf@botkyrka.se", "ny_rapport", "Veckorapporten för vecka 4 finns i portalen – logga in för att läsa.", null);

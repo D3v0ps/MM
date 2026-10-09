@@ -4,6 +4,7 @@
 //    OBS: data-samples.json skapades från en äldre version av prototypens seed. Där den skiljer sig från den
 //    nuvarande prototypen gäller den nuvarande (se kommentarerna vid respektive värde).
 // 3. Determinism, hastighet och att utskick och logg saknar personuppgifter.
+import { CONTACT_PHONE } from "@/features/_shared/contact";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,6 +46,8 @@ describe.skipIf(!hasProto)("paritet med den gamla prototypen", () => {
   const neu = JSON.parse(JSON.stringify(createProtoState())) as Json;
   // Nya fältnamn tillbaka till prototypens innan jämförelsen
   for (const e of neu.outcomeEvents as Json[]) { e.verificationFile = e.verificationPath; delete e.verificationPath; }
+  // Växelnumret: prototypen har platshållaren 08-000 00 00, appen MB:s riktiga nummer (src/features/_shared/contact.ts).
+  for (const n of old.S.notifications as Json[]) if (typeof n.body === "string") n.body = (n.body as string).replace(" Frågor? Ring 08-000 00 00.", CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : "");
   // Inkorgens ärenden saknar closedAt i prototypen (undefined) – här null
   for (const c of neu.cases as Json[]) if (c.closedAt === null && !("closedAt" in ((old.S.cases as Json[]).find((x) => x.id === c.id) ?? {}))) delete c.closedAt;
 
