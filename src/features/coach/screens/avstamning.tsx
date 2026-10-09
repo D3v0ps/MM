@@ -20,7 +20,7 @@ import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
   AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
-  List, Notice, Page,
+  List, Notice, ProcessSteps, Page,
   Recorder, Row, Seg, Select, SimulatedAiNotice, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
 import { Link } from "@/shell/nav";
@@ -1275,15 +1275,12 @@ function AiCapture({
 }) {
   if (proc) {
     return (
-      <div role="status" aria-live="polite" className="flex flex-col gap-2 rounded-mb border-[1.5px] border-bla bg-bla-ton px-3.5 py-3">
-        {proc.steps.map((s, i) => (
-          <div key={s} className={cn("flex items-center gap-2", i > proc.i && "text-text-muted", i === proc.i && "font-extrabold")}>
-            <Icon name={i < proc.i ? "check" : i === proc.i ? "refresh" : "circle"} />
-            {s}
-          </div>
-        ))}
-        <span className="text-body text-text-muted">Bearbetas i Sverige/EU. Ingenting används för att träna modellen.</span>
-      </div>
+      <ProcessSteps
+        title={proc.steps.length > 2 ? "Inspelningen bearbetas" : "Underlaget tolkas"}
+        steps={proc.steps}
+        current={proc.i}
+        hint={proc.steps.length > 2 ? "Tar vanligtvis en till två minuter. Ljudet raderas så fort texten är klar." : undefined}
+      />
     );
   }
   const maxSeconds = Math.max(60, recording.maxMinutes * 60);

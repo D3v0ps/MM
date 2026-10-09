@@ -41,6 +41,7 @@ export {
 } from "./dialog";
 export { Notice, DemoNote, Empty, Loading, ErrorNotice, QueryView, Refreshing, type NoticeTone, type QueryLike } from "./feedback";
 export { AutosaveStatus, AUTOSAVE_TEXT, type AutosaveStatusState } from "./autosave-status";
+export { ProcessSteps } from "./process-steps";
 export { Toaster, toast, useToast, type ToastTone } from "./toast";
 export { DownloadProvider, useDownload, useCopy, blobDownload, type DownloadImpl, type DownloadFile, type DownloadResult } from "./download";
 export { Kpi, Meter, Kv, Timeline, Stepper, Avatar, UserName, Chart, type MeterMarker, type TimelineItem } from "./data";
