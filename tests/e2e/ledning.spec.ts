@@ -62,7 +62,7 @@ async function openLedning(page: Page, info: TestInfo, to = "/ledning") {
 }
 const openRegister = async (page: Page, info: TestInfo, as = CHEF, to = "/avtalsavvikelser") => {
   const errors = await open(page, info, to, as);
-  await expect(main(page)).toContainText("Register enligt avtalets uppföljning");
+  await expect(main(page)).toContainText("Avtalsavvikelser, varningar, åtgärdsplaner och klagomål.");
   return errors;
 };
 
@@ -84,7 +84,7 @@ test("ledningsvyn: resultat, prognos, trend, tidig uppmärksamhet och kundens bi
   expect(t).toMatch(/vilande/);
   expect(await main(page).locator("svg[role=img] rect").count()).toBeGreaterThanOrEqual(3);
   expect(t).toMatch(/Tidig uppmärksamhet/i);
-  expect(t).toMatch(/ser inte att ärendet har eskalerats/i);
+  expect(t).toMatch(/Coachen har fått \d+ påminnelser \(en per vecka\), men ingen notis om eskaleringen\./);
   expect(t).toMatch(/0 av 3/);
 
   // "Så ser kommunen resultatet" = den senast lämnade beställarrapporten. Avtalsansvarig lämnar den till kommunen utanför
@@ -321,7 +321,7 @@ test("avtalsavvikelser: registrera, ändra plan, varning och vite (utan belopp),
 
   // Registret och månadssammanställningen för APT
   await main(page).getByRole("navigation", { name: "Brödsmulor" }).getByRole("link", { name: "Avtalsavvikelser" }).click();
-  await expect(main(page)).toContainText("Register enligt avtalets uppföljning");
+  await expect(main(page)).toContainText("Avtalsavvikelser, varningar, åtgärdsplaner och klagomål.");
   await expect(main(page).locator("div.rounded-card", { hasText: /Skriftliga varningar/i })).toContainText("1 av 3");
   await page.getByRole("tab", { name: /Månadssammanställning/ }).click();
   await page.selectOption("#ldg-apt-month", "2027-02");
