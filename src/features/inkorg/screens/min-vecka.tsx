@@ -550,7 +550,7 @@ function BookModal({ c, today, meetingText, onClose }: { c: StartView["firstMeet
       toast(r.message ?? "Mötet kunde inte bokas.", "error");
       return;
     }
-    toast(`Första mötet för ${c.caseNumber} är bokat ${fmtWeekday(date)} kl. ${fmtTime(`${date}T${time}`)}. Kallelse skickad.`);
+    toast(`Första mötet för ${c.caseNumber} är bokat ${fmtWeekday(date)} kl. ${fmtTime(`${date}T${time}`)}. ${r.invitation}`);
     onClose();
   };
   return (
@@ -584,7 +584,7 @@ function BookModal({ c, today, meetingText, onClose }: { c: StartView["firstMeet
           Mötet markeras i uppföljningen av nyckeltalet för första möte.
         </Notice>
       )}
-      <div className="text-text-muted">Deltagaren får kallelse via sin föredragna kontaktväg och en SMS-påminnelse dagen före. Inga personuppgifter i utskicket.</div>
+      <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får du en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
     </Modal>
   );
 }

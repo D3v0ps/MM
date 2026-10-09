@@ -1,14 +1,13 @@
 // Hjälpare för hanterarna i de delade kommandona (utskick, notiser, uppgifter, avtalets konfiguration).
 // Bara för hanterare – importeras aldrig av skärmar. Texterna är exakt den gamla prototypens (prototyp/src/03-domain.js).
 import type { Role } from "@/api/roles";
-import type { Ctx, OutgoingMessage } from "@/api/server";
+import type { Ctx } from "@/api/server";
 import { DEFAULT_ORG_SETTINGS, requireOperational, type OperationalConfig, type OrgSettings } from "@/core/config";
-import { hasContactDetails } from "@/core/contact";
 import { areaName, teamLabel } from "@/core/labels";
-import { fmtDateTime, fmtTime, fmtWeekday, type LocalDateTime } from "@/core/time";
+import { fmtDateTime, type LocalDateTime } from "@/core/time";
 import type { Table } from "@/data/repo";
-import type { Case, Contract, Deviation, OutboundChannel, Person, PreferredContact, TeamRole } from "@/data/schema";
-import { CONTACT_PHONE } from "./contact";
+import type { Case, Contract, Deviation, TeamRole } from "@/data/schema";
+import { notifyParticipant, type NotifyParticipantResult } from "./participant-notify";
 
 // ---------------------------------------------------------------- Avtal och regler
 /** Avtalet och dess driftkonfiguration (validerad). Ärendet är redan läst via ctx.repo, så avtalet är användarens. */
@@ -89,32 +88,14 @@ export async function notifyReferrer(ctx: Ctx, c: Pick<Case, "id" | "referrerId"
 }
 
 // ---------------------------------------------------------------- Kallelse till deltagaren
-const PARTICIPANT_CHANNEL: Record<PreferredContact, OutboundChannel> = { email: "email", letter: "brev", phone: "sms", sms: "sms" };
-const PARTICIPANT_CHANNEL_TEXT: Record<PreferredContact, string> = { email: "e-post", letter: "brev", phone: "SMS (telefon vald – coachen ringer också)", sms: "SMS" };
-
 /**
- * Kallelse till första mötet via deltagarens föredragna kontaktväg. Aldrig vid skyddade personuppgifter (CLAUDE.md punkt 8).
- * Mottagaren anges som i prototypen ("deltagare (SMS)") – utskicksadaptern slår upp numret eller adressen via ärendet.
- * Texten innehåller bara tid och plats. Saknar deltagaren telefonnummer och e-postadress är kontaktvägen bara förvalet
- * telefon (inget val, beslut 2026-10-09): mottagaren säger då att kontaktuppgift saknas – inte att telefon är vald.
+ * Kallelse till första mötet (beslut 2026-10-09): e-post, SMS och utringning enligt notifyParticipant
+ * (src/features/_shared/participant-notify.ts) – finns ingen kanal får samordnaren en uppgift att ringa deltagaren.
+ * Aldrig vid skyddade personuppgifter (CLAUDE.md punkt 8, vilande spärr). Texten innehåller bara tid, plats och telefonnummer.
+ * Platsen: ärendets plats, annars Alby (som förut).
  */
-export async function sendMeetingInvitation(
-  ctx: Ctx, c: Pick<Case, "id" | "location">, person: Pick<Person, "preferredContact" | "protectedIdentity"> & Partial<Pick<Person, "phone" | "email" | "address">>, at: LocalDateTime,
-): Promise<void> {
-  if (person.protectedIdentity) return;
-  const pc = person.preferredContact || "sms";
-  // Utan telefonnummer och e-postadress: "deltagare (SMS – kontaktuppgift saknas)" – förvalet telefon är inget val.
-  const missing = (person.phone !== undefined || person.email !== undefined) && !hasContactDetails(person);
-  const channelText = missing && pc === "phone" ? PARTICIPANT_CHANNEL_TEXT.sms : PARTICIPANT_CHANNEL_TEXT[pc];
-  const to = `deltagare (${channelText}${missing ? " – kontaktuppgift saknas" : ""})`;
-  await ctx.notify({
-    // Brev är en egen kanal i utskicksloggen (outbound_messages.channel). OutgoingMessage har ännu bara e-post och SMS.
-    channel: PARTICIPANT_CHANNEL[pc] as OutgoingMessage["channel"],
-    to,
-    template: "kallelse",
-    body: `Välkommen till Miljonbemanning! Ditt första möte är ${fmtWeekday(at)} klockan ${fmtTime(at)} i ${c.location || "Alby"}.${CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : ""}`,
-    caseId: c.id,
-  });
+export async function sendMeetingInvitation(ctx: Ctx, c: Pick<Case, "id" | "location">, at: LocalDateTime): Promise<NotifyParticipantResult> {
+  return notifyParticipant(ctx, { caseId: c.id, template: "kallelse", when: at, place: c.location || "Alby" });
 }
 
 // ---------------------------------------------------------------- Notis vid tilldelning

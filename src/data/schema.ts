@@ -242,18 +242,26 @@ export type BillingRunStatus = (typeof BILLING_RUN_STATUSES)[number];
 export const TASK_STATUSES = ["open", "done"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 // protected_order skapas inte längre (skyddet borttaget ur appen, beslut 2026-10-07) – värdet finns kvar för äldre rader.
-export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact"] as const;
+/**
+ * participant_contact = ring deltagaren: kallelsen eller inbjudan kunde inte skickas (ingen e-postadress och SMS inte kopplat,
+ * src/features/_shared/participant-notify.ts). Går till samordnaren med ärendenumret – aldrig namnet.
+ */
+export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation"] as const;
 export type UserNotificationKind = (typeof USER_NOTIFICATION_KINDS)[number];
 
-/** Kanal för utskick. brev = kallelse per post (deltagarens föredragna kontaktväg letter). */
-export const OUTBOUND_CHANNELS = ["email", "sms", "brev"] as const;
+/**
+ * Kanal för utskick. brev = kallelse per post (deltagarens föredragna kontaktväg letter). call = utringning till deltagaren med
+ * en kort inspelning utan personuppgifter (46elks, beslut 2026-10-09). Kolumnen är text utan check – ingen migration behövs.
+ */
+export const OUTBOUND_CHANNELS = ["email", "sms", "brev", "call"] as const;
 export type OutboundChannel = (typeof OUTBOUND_CHANNELS)[number];
 /**
- * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till e-postleverantören ·
- * failed gick inte att skicka · suppressed stoppat med avsikt (t.ex. testmiljöns spärr, SMS utan leverantör) · manual skickas för hand (brev).
+ * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till leverantören (Resend, 46elks) ·
+ * failed gick inte att skicka (t.ex. telefonnummer med fel format) · suppressed stoppat med avsikt (t.ex. testmiljöns spärr,
+ * SMS eller utringning som inte är kopplad) · manual skickas för hand (brev).
  */
 export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual"] as const;
 export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
@@ -1417,12 +1425,15 @@ export type Holiday = {
   name: string;
 };
 
-/** Utskick (e-post, SMS, brev). Innehåller aldrig personuppgifter – bara ärendenummer och "logga in för att läsa". */
+/** Utskick (e-post, SMS, brev, utringning). Innehåller aldrig personuppgifter – bara ärendenummer och "logga in för att läsa". */
 export type OutboundMessage = {
   id: string;
   createdAt: LocalDateTime;
   channel: OutboundChannel;
-  /** Mottagarens adress, maskerat nummer eller beskrivning (t.ex. "deltagare (SMS)"). */
+  /**
+   * Mottagarens adress eller en beskrivning. Deltagare alltid som beskrivning ("deltagare (SMS)", PARTICIPANT_TO i
+   * src/features/_shared/messaging-port.ts) – numret eller adressen slås upp via ärendet när utskicket skickas.
+   */
   to: string;
   template: string;
   subject: string | null;
@@ -1432,7 +1443,7 @@ export type OutboundMessage = {
   sentAt: LocalDateTime | null;
   /** Varför utskicket stoppades, misslyckades eller skickades om (t.ex. "redirected" i testmiljön). Aldrig adresser eller personuppgifter. */
   statusReason?: string | null;
-  /** E-postleverantörens id för utskicket (Resend). */
+  /** Leverantörens id för utskicket (Resend för e-post, 46elks för SMS och samtal). */
   providerMessageId?: string | null;
 };
 

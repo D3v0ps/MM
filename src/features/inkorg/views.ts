@@ -418,7 +418,37 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
 }
 
 // ---------------------------------------------------------------- Orderbekräftelsen
-const CHANNEL: Record<string, [string, "phone" | "mail"]> = { sms: ["SMS", "phone"], email: ["e-post", "mail"], brev: ["brev", "mail"] };
+const CHANNEL: Record<string, [string, "phone" | "mail"]> = { sms: ["SMS", "phone"], email: ["e-post", "mail"], brev: ["brev", "mail"], call: ["samtal", "phone"] };
+/** Deltagarens kontaktväg -> kanalen i utskicksloggen. */
+const PREFERRED_CHANNEL: Record<string, string> = { sms: "sms", phone: "sms", email: "email", letter: "brev" };
+
+/**
+ * Kallelsen i bekräftelsen (beslut 2026-10-09): kanalerna i den senaste kallelsen (e-post, SMS, samtal, brev – utom de som
+ * stoppades), eller – när ingen kanal fanns – att samordnaren fått en uppgift att ringa deltagaren (och, utan telefonnummer och
+ * e-postadress, att kontaktuppgift saknas). Utskicken innehåller bara tid och plats; uppgiften bara ärendenummer, tid och plats.
+ */
+function kallelseView(out: readonly OutboundMessage[], person: Person | null, contactTask: string | null): ConfirmationView["kallelse"] {
+  const rows = out.filter((n) => n.template === "kallelse");
+  const lastAt = rows.length ? rows[rows.length - 1].createdAt : null;
+  const latest = rows.filter((n) => n.createdAt === lastAt);
+  const went = latest.filter((n) => n.status !== "suppressed" && n.status !== "failed");
+  const written = went.filter((n) => n.channel !== "call");
+  if (written.length) {
+    // Samtalet (en inspelning som hänvisar till SMS:et eller mejlet) står sist; texten är SMS:ets eller mejlets.
+    const labels = uniq([...written, ...went.filter((n) => n.channel === "call")].map((n) => (CHANNEL[n.channel] ?? [n.channel])[0]));
+    const preferred = person ? PREFERRED_CHANNEL[person.preferredContact] : null;
+    const own = labels.length === 1 && written[0].channel === preferred;
+    const [, icon] = CHANNEL[written[0].channel] ?? ["", "mail"];
+    return { title: `Deltagaren fick kallelse via ${listJoin(labels)}${own ? ", sin föredragna kontaktväg" : ""}:`, icon, body: written[0].body };
+  }
+  if (!contactTask) return null;
+  // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09): handläggaren behöver tillfrågas.
+  const noContact = !!person && !hasContactDetails(person);
+  return {
+    title: noContact ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:" : "Kallelsen kunde inte skickas – samordnaren har fått en uppgift:",
+    icon: "phone", body: contactTask,
+  };
+}
 
 export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<ConfirmationView | null> {
   const c = await ctx.repo.table("cases").get(caseId);
@@ -436,12 +466,9 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const others = notifs.filter((n) => n.recipientId !== c.leadCoachId).map((n) => name(n.recipientId));
   const out = await outboundFor(ctx, c.id, null);
   const custMail = out.filter((n) => n.template === "orderbekraftelse").slice(-1)[0];
-  const kallelse = out.filter((n) => n.template === "kallelse").slice(-1)[0];
+  // ctx.system: uppgiften går till samordnaren, men avtalsansvarig ska se samma kvittens. Bara texten (ärendenummer, tid och plats).
+  const contactTask = (await ctx.system.table("tasks").list({ kind: "participant_contact", status: "open" })).filter((t) => t.caseIds.includes(c.id)).slice(-1)[0] ?? null;
   const team = (await ctx.repo.table("case_team").list({ caseId: c.id })).filter((t) => t.role !== "lead_coach");
-  const [chLabel, chIcon]: [string, "phone" | "mail"] = kallelse ? CHANNEL[kallelse.channel] ?? [kallelse.channel, "mail"] : ["", "mail"];
-  // Telefon är ett val bara när det finns ett nummer: utan telefonnummer och e-postadress är det förvalet (beslut 2026-10-09).
-  const noContact = !!person && !hasContactDetails(person);
-  const prefersPhone = person?.preferredContact === "phone";
   return {
     caseId: c.id, caseNumber: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId,
     reportId: rep && canOpen("rapport.visa", ctx.actor.role) ? rep.id : null,
@@ -453,14 +480,7 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
     buyerReference: c.buyerReference || "–",
     leadNotif: leadNotif ? { title: `${name(c.leadCoachId)} har fått en notis om tilldelningen`, emailBody: leadNotif.emailBody, others: others.length ? ` Även ${listJoin(others)} har fått en notis.` : "" } : null,
     custMail: custMail?.body ?? null,
-    kallelse: kallelse
-      ? {
-          title: noContact
-            ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:"
-            : prefersPhone ? `Deltagaren fick kallelse via ${chLabel} och har valt telefon – coachen ringer också:` : `Deltagaren fick kallelse via ${chLabel}, sin föredragna kontaktväg:`,
-          icon: chIcon, body: kallelse.body,
-        }
-      : null,
+    kallelse: kallelseView(out, person, contactTask?.text ?? null),
   };
 }
 

@@ -15,14 +15,20 @@ export type TemplateInfo = {
 
 const T = (name: string, subject: string, audience: TemplateInfo["audience"], opts: { link?: false } = {}): TemplateInfo => ({ name, subject, audience, ...opts });
 
-/** Mallarna som skickas som e-post. SMS-mallarna (mötespåminnelse, pulslänk) har ingen ämnesrad. Inspelningslänken kan gå båda vägarna. */
+/**
+ * Mallarna som skickas som e-post. SMS-mallarna (mötespåminnelse, pulslänk) har ingen ämnesrad. Inspelningslänken, kallelsen
+ * och inbjudan till aktivitet kan gå flera vägar (SMS och samtal har ingen ämnesrad).
+ */
 export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   ordererkannande: T("Ordererkännande", "Vi har tagit emot er beställning – {arendenummer}", "kommun"),
   generisk_mottagningsbekraftelse: T("Generisk mottagningsbekräftelse", "Vi har tagit emot ditt mejl", "kommun"),
   orderbekraftelse: T("Orderbekräftelse", "Orderbekräftelse – {arendenummer}", "kommun"),
   ny_rapport: T("Ny rapport", "Ny rapport i portalen", "kommun"),
   nytt_meddelande: T("Nytt meddelande", "Nytt meddelande om {arendenummer}", "kommun"),
+  // Kallelsen och inbjudan till aktivitet går till deltagaren med e-post, SMS och utringning (notifyParticipant,
+  // src/features/_shared/participant-notify.ts). Texten: bara tid, plats och Miljonbemannings telefonnummer.
   kallelse: T("Kallelse till första möte", "Kallelse till första möte", "deltagare"),
+  aktivitetsinbjudan: T("Inbjudan till aktivitet", "Inbjudan till aktivitet hos Miljonbemanning", "deltagare"),
   tilldelning_coach: T("Tilldelning till coach", "Nytt ärende i Miljonmatch", "mb"),
   paminnelse_progression: T("Påminnelse om progression", "Påminnelse från Miljonmatch", "mb"),
   eskalering_chef: T("Eskalering till chef", "Eskalering i Miljonmatch", "mb"),

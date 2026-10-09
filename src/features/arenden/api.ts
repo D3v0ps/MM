@@ -106,7 +106,8 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   buyerReference: z.string().max(40).nullable().optional(),
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
 }), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
-  Result<{ reportId: string; caseNumber: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
+  /** invitation: hur kallelsen gick, i klarspråk (t.ex. "Kallelsen är skickad med e-post.") – notifyParticipant. */
+  Result<{ reportId: string; caseNumber: string; invitation: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
 >();
 
 /** Avböj avrop med orsak (prototypens case.decline). Kommunen får ett mejl utan personuppgifter. */
@@ -163,13 +164,17 @@ export const caseSetBuyerRef = command("arenden.caseSetBuyerRef", z.object({
  * Boka eller boka om första mötet (prototypens case.bookFirstMeeting). Slutdatumet, planerade veckor och ordervärdet i veckor
  * räknas om från mötesdagen (beslut 7, 2026-10-08; "annan tidsperiod" behåller kommunens slutdatum). Bokas mötet om efter att
  * orderbekräftelsen levererats skapas en ny version av den (den gamla märks ersatt) och kommunen får ett mejl utan
- * personuppgifter. Kallelse via föredragen kontaktväg – aldrig vid skyddade personuppgifter.
+ * personuppgifter. Kallelse med e-post, SMS och utringning (notifyParticipant, beslut 2026-10-09) – finns ingen kanal får
+ * samordnaren en uppgift att ringa deltagaren. Aldrig vid skyddade personuppgifter.
  */
 // Omräkning som caseAccept: skriver ärendet, orderbekräftelsen (reports) och utskicken; slutdatumet påverkar deadlines, flaggor och fakturering.
 export const caseBookFirstMeeting = command("arenden.caseBookFirstMeeting", z.object({
   caseId: IdSchema,
   at: LocalDateTimeSchema,
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "order_period">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+  /** invitation: hur kallelsen gick, i klarspråk – till bekräftelsen efter bokningen. */
+  Result<{ invitation: string }, "not_found" | "forbidden" | "order_period">
+>();
 
 /** Byt huvudcoach med orsak (prototypens case.changeCoach). Nya coachen och kommunen får notis utan personuppgifter. */
 export const caseChangeCoach = command("arenden.caseChangeCoach", z.object({
