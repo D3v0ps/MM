@@ -56,6 +56,12 @@ function pulseWhen(cfg: TemplateEnv["cfg"]): string {
   return cap(listSv([...p.occasions.map((o) => OCCASION[o] ?? o), ...(p.periodicEveryDays ? [`var ${p.periodicEveryDays}:e dag vid långa insatser`] : [])]));
 }
 
+/**
+ * Hjälpsidornas adresser i inbjudningsmejlen (docs/lathund/*.md visas på /hjalp och /portal/hjalp). Appens adress är
+ * www.miljonmatch.se (docs/MILJOER.md) – inte ett avtalsvärde. Mejlen innehåller inga personuppgifter – bara länken.
+ */
+export const STAFF_HELP_URL = "https://www.miljonmatch.se/hjalp";
+export const PORTAL_HELP_URL = "https://www.miljonmatch.se/portal/hjalp";
 export const TEMPLATES: readonly TemplateDef[] = [
   { key: "ordererkannande", name: "Ordererkännande", channel: "email", from: "notis@miljonmatch.se (svar till avrop@miljonbemanning.se)", to: "Kommunens handläggare", when: (e) => `Automatiskt inom ${slaWithinText(e.cfg, "ordererkannande")} när ett avrop kommit in`, subject: "Vi har tagit emot er beställning – {arendenummer}", body: "Tack! Vi har tagit emot er beställning och gett den ärendenummer {arendenummer}. Ni får besked om startdatum och ansvarig coach senast {svar_senast}. Använd gärna ärendenumret i stället för personnummer när ni kontaktar oss om deltagaren.", version: 3, updatedAt: "2026-12-02T10:14" },
   // Generisk mottagningsbekräftelse finns i två varianter – texterna är exakt de som skickades (inkorgen för mejl, beställningen i
@@ -79,10 +85,10 @@ export const TEMPLATES: readonly TemplateDef[] = [
   // Deltagarens inspelningslänk (röstinspelning, beslut 2026-09-30): samma text som rost.linkSend skickar (linkMessageText i
   // src/features/rost/texts.ts) – bara länken, inget namn och inget ärendenummer. Länkens giltighet kommer från avtalet.
   { key: "rostlank", name: "Inspelningslänk till deltagaren", channel: "sms", alsoVia: ["email"], from: "Miljonbemanning (SMS) eller notis@miljonmatch.se (e-post)", to: "Deltagaren – via föredragen kontaktväg (SMS eller e-post). Aldrig vid skyddade personuppgifter.", when: "När coachen skickar en inspelningslänk från deltagarkortet", subject: "Spela in ett meddelande till din coach", body: "Hej! Din coach på Miljonbemanning vill gärna höra hur det går. Spela in ett kort meddelande på ditt språk. Det är frivilligt. Länken gäller i {antal_dagar} dagar och kan bara användas en gång: {lank}", version: 1, updatedAt: "2026-09-30T12:00" },
-  { key: "inbjudan_kommun", name: "Inbjudan till portalen", channel: "email", from: "notis@miljonmatch.se", to: "Ny kommunanvändare", when: "När avtalsansvarig bjuder in en kommunanvändare", subject: "Inbjudan till Miljonbemannings portal", body: "Du har bjudits in till Miljonbemannings portal för beställare. Logga in på {lank} med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.", version: 1, updatedAt: "2026-09-08T11:00" },
+  { key: "inbjudan_kommun", name: "Inbjudan till portalen", channel: "email", from: "notis@miljonmatch.se", to: "Ny kommunanvändare", when: "När avtalsansvarig bjuder in en kommunanvändare", subject: "Inbjudan till Miljonbemannings portal", body: `Du har bjudits in till Miljonbemannings portal för beställare. Logga in på {lank} med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.\n\nLathunden – hur du loggar in och beställer i portalen, och mallen för beställning via mejl: ${PORTAL_HELP_URL}`, version: 2, updatedAt: "2026-10-09T12:00" },
   // Lägg till kollega (beslut 2026-10-08): samma text som admin.inviteStaff skickar (STAFF_INVITE_TEXT). Inga personuppgifter –
   // mejlets knapp till appen läggs till av utskicket (src/server/notify/render.ts).
-  { key: "inbjudan_personal", name: "Inbjudan till kollega", channel: "email", from: "notis@miljonmatch.se", to: "Ny kollega på Miljonbemanning", when: "När systemadministratören lägger till en kollega", subject: "Du har fått ett konto i Miljonmatch", body: "Du har fått ett konto i Miljonmatch, Miljonbemannings plattform för arbetsmarknadsinsatser. Logga in på {lank} med din e-postadress på jobbet. Du får en sexsiffrig kod i ett separat mejl när du loggar in.", version: 1, updatedAt: "2026-10-08T12:00" },
+  { key: "inbjudan_personal", name: "Inbjudan till kollega", channel: "email", from: "notis@miljonmatch.se", to: "Ny kollega på Miljonbemanning", when: "När systemadministratören lägger till en kollega", subject: "Du har fått ett konto i Miljonmatch", body: `Du har fått ett konto i Miljonmatch, Miljonbemannings plattform för arbetsmarknadsinsatser. Logga in på {lank} med din e-postadress på jobbet. Du får en sexsiffrig kod i ett separat mejl när du loggar in.\n\nLathunden – hur du loggar in, vilka roller som finns och hur du arbetar i plattformen: ${STAFF_HELP_URL}`, version: 2, updatedAt: "2026-10-09T12:00" },
   // Inloggningskoden (beslut 2026-10-02): appen tar fram koden och skickar mejlet direkt (src/server/auth/code-mail.ts) – inte via
   // kön, eftersom koden aldrig får sparas. Ingen länk (Safe Links förbrukar länkar). Texten är fast: samma som mejlet
   // (src/server/notify/render.ts, renderLoginCodeEmail). Utskicksloggen visar "Inloggningskod skickad (••••••)" – aldrig koden.
@@ -95,10 +101,10 @@ export const templateWhen = (t: TemplateDef, env: TemplateEnv): string => (typeo
 
 /** Texten i inbjudan till en ny kommunanvändare (samma som mallen, med portalens adress ifylld). */
 export const INVITE_TEXT =
-  "Du har bjudits in till Miljonbemannings portal för beställare. Logga in via knappen i det här mejlet med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.";
+  `Du har bjudits in till Miljonbemannings portal för beställare. Logga in via knappen i det här mejlet med din e-postadress. Du får en sexsiffrig kod i ett separat mejl.\n\nLathunden – hur du loggar in och beställer i portalen, och mallen för beställning via mejl: ${PORTAL_HELP_URL}. Den finns också under Hjälp längst ner i portalen.`;
 /** Texten i mejlet till en ny kollega (samma som mallen; appens adress blir mejlets knapp "Logga in i Miljonmatch"). Inga personuppgifter. */
 export const STAFF_INVITE_TEXT =
-  "Du har fått ett konto i Miljonmatch, Miljonbemannings plattform för arbetsmarknadsinsatser. Logga in med din e-postadress på jobbet. Du får en sexsiffrig kod i ett separat mejl när du loggar in.";
+  `Du har fått ett konto i Miljonmatch, Miljonbemannings plattform för arbetsmarknadsinsatser. Logga in med din e-postadress på jobbet. Du får en sexsiffrig kod i ett separat mejl när du loggar in.\n\nLathunden – hur du loggar in, vilka roller som finns och hur du arbetar i plattformen: ${STAFF_HELP_URL}. Den finns också under Hjälp längst ner i menyn.`;
 
 const TPL_NAME: Record<string, string> = Object.fromEntries(TEMPLATES.map((t) => [t.key, t.name]));
 const PORTAL_GENERIC_BODY = TEMPLATES.find((t) => t.key === GENERIC_PORTAL)!.body;

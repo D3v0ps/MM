@@ -4,7 +4,8 @@
 // Enheten är fritext (synpunkt #3). E-postadressen är inloggningen och går inte att ändra här.
 import { useEffect, useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useNav } from "@/shell/nav";
+import { Link, useNav } from "@/shell/nav";
+import { PORTAL_HELP_PATH } from "@/features/hjalp/routes";
 import type { ScreenProps } from "@/shell/routes";
 import { Button, Card, ErrorNotice, Field, FormGrid, Input, Kv, Loading, Notice, focusFirstError, useToast } from "@/ui";
 import { kommunProfile, kommunProfileSave, type KomProfile } from "../api";
@@ -66,7 +67,12 @@ function ProfileForm({ d, first }: { d: KomProfile; first: boolean }) {
       />
       {first && (
         <Notice tone="info" title="Så fungerar portalen">
-          Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning. Du ser bara de deltagare som du har beställt insatser för.
+          <p className="m-0">
+            Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning. Du ser bara de deltagare som du har beställt insatser för.
+          </p>
+          <p className="m-0 mt-2">
+            Under <Link to={PORTAL_HELP_PATH} className="font-bold underline">Hjälp</Link> finns lathunden – hur du beställer i portalen – och mallen för beställning via mejl.
+          </p>
         </Notice>
       )}
       <Card title="Dina uppgifter" icon="user">
