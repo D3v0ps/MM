@@ -164,22 +164,23 @@ export function CasePicker({
     <Page title={t} lead={typeof lead === "function" ? lead(v) : lead} crumbs={[MIN_VECKA_CRUMB, { label: t }]}>
       <Card title="Välj deltagare" icon="users" flush>
         {v.rows.length === 0 ? (
-          <Empty icon="users" title="Inga ärenden">
-            Du har inga aktiva ärenden just nu.
+          <Empty icon="users" title="Inga ärenden ännu">
+            Samordnaren tilldelar dig ärenden. När du är huvudcoach för ett ärende visas det här.
           </Empty>
         ) : (
           <List>
-            {v.rows.map((c) => (
+            {v.rows.map((c) => {
+              // Hela raden är länken (Min veckas stil) – ingen knapp per rad. Det som redan är godkänt öppnas för att visas, inte bedömas.
+              const label = c.badge?.text === "Godkänd" ? "Visa" : actionLabel;
+              return (
               <ListItem
                 key={c.caseId}
                 lead={<Avatar name={c.name} />}
                 title={c.name}
                 sub={`${c.caseNumber} · ${c.phaseLabel}`}
-                side={
-                  <Button kind="secondary" iconRight="arrow-right" to={path(`${basePath}/${encodeURIComponent(c.caseId)}`, { ...(query ?? {}), ...(kind === "manad" ? { manad: v.month } : {}) })}>
-                    {actionLabel}
-                  </Button>
-                }
+                to={path(`${basePath}/${encodeURIComponent(c.caseId)}`, { ...(query ?? {}), ...(kind === "manad" ? { manad: v.month } : {}) })}
+                chevron
+                aria-label={`${label} för ${c.name}`}
               >
                 {(c.badge || c.note) && (
                   <Row gap="sm">
@@ -192,7 +193,8 @@ export function CasePicker({
                   </Row>
                 )}
               </ListItem>
-            ))}
+              );
+            })}
           </List>
         )}
       </Card>

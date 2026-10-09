@@ -53,14 +53,14 @@ export type UploadStartInput = z.infer<typeof UploadStartSchema>;
 /** Var webbläsaren laddar upp ljudet. uploadUrl null = minnesläget/prototypen (ingen uppladdning behövs). */
 export type UploadTicket = { uploadId: string; uploadUrl: string | null; expiresAt: LocalDateTime | null; maxBytes: number };
 export type UploadStartError =
-  | "not_found" | "forbidden" | "link_missing" | "link_used" | "link_expired" | "disabled" | "protected" | "no_consent" | "too_many" | "too_long"
+  | "not_found" | "forbidden" | "link_missing" | "link_used" | "link_expired" | "ai_off" | "disabled" | "protected" | "no_consent" | "too_many" | "too_long"
   | "audio_type" | "audio_size" | "ai_unavailable" | "consent";
 export const uploadStart = command("rost.uploadStart", UploadStartSchema, { invalidates: "none" }).returns<Result<{ ticket: UploadTicket; maxMinutes: number }, UploadStartError>>();
 
 /** Läget för en AI-körning som skärmen väntar på. error är en fast text utan personuppgifter. */
 export type VoiceState = { aiRunId: string; status: AiRunStatus; error: string | null; audioDeletedAt: LocalDateTime | null };
 /** Fel när inspelningen skickas (bekräftelsen av uppladdningen). */
-export type SendError = "not_found" | "forbidden" | "link_missing" | "link_used" | "link_expired" | "audio_missing" | "disabled" | "protected" | "no_consent" | "language";
+export type SendError = "not_found" | "forbidden" | "link_missing" | "link_used" | "link_expired" | "audio_missing" | "ai_off" | "disabled" | "protected" | "no_consent" | "language";
 
 // ================================================================ Deltagaren (/rost/:token)
 export const ROST_LANGS = ["sv", "en", "ar", "so"] as const;

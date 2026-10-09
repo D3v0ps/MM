@@ -1,6 +1,7 @@
 "use client";
 // Underbiträden och integrationer (/admin/integrationer, prototypens admin.integrationer): var personuppgifterna behandlas,
-// vilka tjänster Miljonmatch är kopplad till och hur bakgrundsjobben går. Integrationerna och jobben är simulerade i prototypen.
+// vilka tjänster Miljonmatch är kopplad till och hur bakgrundsjobben går. De flesta integrationerna och jobben är simulerade;
+// brevlådan avrop@ (beslut 4c) visar riktigt läge: kopplad, inte kopplad (med stegen) eller simulerad i testdatat.
 import type { ReactNode } from "react";
 import { fmtDate, fmtDateTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -62,7 +63,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
   const runJob = async (j: JobRow) => {
     const r = await run.run({ key: j.key as never }).catch(() => null);
     if (!r || !r.ok) toast(r && !r.ok && r.message ? r.message : "Jobbet kunde inte köras.", "error");
-    else toast(`${j.name} kördes (simulerat).`);
+    else toast(j.key === "inbox" && d.inboxState === "connected" ? `${j.name} körs nu – sidan uppdateras inom någon minut.` : `${j.name} kördes (simulerat).`);
   };
   const dp = d.dataProtection;
   return (
@@ -135,7 +136,7 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
           ]}
         />
       </Card>
-      <DemoNote>Integrationerna och jobben är simulerade. &quot;Kör nu&quot; loggas i revisionsloggen men läser inga riktiga mejl och raderar ingenting.</DemoNote>
+      <DemoNote>Integrationerna och jobben är simulerade här. &quot;Kör nu&quot; loggas i revisionsloggen men läser inga riktiga mejl och raderar ingenting. I tjänsten läser jobbet avrop@ via Microsoft Graph varannan minut när brevlådan är kopplad.</DemoNote>
     </>
   );
 }
@@ -169,7 +170,7 @@ function DataProtection({ dp }: { dp: DataProtectionView }) {
     ) : s === "chosen" ? (
       <Chosen />
     ) : (
-      <Badge tone="outline" icon="alert-circle">Ej vald – fråga 18</Badge>
+      <Badge tone="outline" icon="alert-circle">Ej vald</Badge>
     );
   // Regionlåsningens punkter kommer från servern (leverantörer och regioner ligger inte i webbläsarens kod).
   const regions = dp.regions;

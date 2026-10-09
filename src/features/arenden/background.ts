@@ -11,21 +11,33 @@ import type { AttachmentRow, CaseBackground } from "./api";
 /** Lägger till och tar bort bilagor i ett ärende som redan finns (full åtkomst). */
 const MB_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig"];
 
+/**
+ * Bilagor i ett ärende får tas bort (av Miljonbemanning) tidigast när insatsen är avslutad eller beställningen avböjd
+ * (beslut 5, 2026-10-08). Ingen automatisk gallring.
+ */
+export const attachmentsRemovable = (c: Pick<Case, "status">): boolean => c.status === "closed" || c.status === "declined";
+/** Hjälptexten vid bilagorna när ingen får tas bort. */
+export const ATTACHMENTS_REMOVED_BY_MB = "Bilagor tas bort av Miljonbemanning när insatsen är avslutad.";
+
 /** Omfattningen i text (finns i src/core/cases.ts – används också av orderbekräftelsen). */
 export { orderPeriodText };
 
-/** Raden i listorna. Uppladdarens namn läses via behörigheten (namn som läsaren inte får se blir "–"). */
-export async function rowsFor(ctx: Ctx, rows: readonly CaseAttachment[]): Promise<AttachmentRow[]> {
+/**
+ * Raden i listorna. Uppladdarens namn läses via behörigheten (namn som läsaren inte får se blir "–"). c = ärendet raderna hör
+ * till (null för uppladdningar som inte är skickade) – avgör om Miljonbemanning får ta bort dem (avslutat eller avböjt).
+ */
+export async function rowsFor(ctx: Ctx, rows: readonly CaseAttachment[], c: Pick<Case, "status"> | null = null): Promise<AttachmentRow[]> {
   if (!rows.length) return [];
   const ids = [...new Set(rows.map((a) => a.uploadedBy))];
   const profiles = await ctx.repo.table("profiles").list({ id: { in: ids } });
   const name = new Map(profiles.map((p) => [p.id, p.fullName]));
-  const mbEditor = MB_EDITORS.includes(ctx.actor.role);
+  const mbEditor = MB_EDITORS.includes(ctx.actor.role) && !!c && attachmentsRemovable(c);
   return rows
     .filter((a) => a.status === "uploaded")
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1))
     .map((a) => ({
-      id: a.id, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes, sizeText: fileSizeText(a.bytes), uploadedByName: name.get(a.uploadedBy) ?? "–",
+      // "system" = bilagan kom med ett mejl till avrop@ och sparades av inläsningen (beslut 4c).
+      id: a.id, fileName: a.fileName, mimeType: a.mimeType, bytes: a.bytes, sizeText: fileSizeText(a.bytes), uploadedByName: a.uploadedBy === "system" ? "Miljonmatch (bilaga i mejlet)" : name.get(a.uploadedBy) ?? "–",
       createdAt: a.createdAt, canRemove: (!a.caseId && a.uploadedBy === ctx.actor.userId) || (!!a.caseId && mbEditor),
     }));
 }
@@ -35,7 +47,7 @@ export async function caseBackground(ctx: Ctx, c: Case): Promise<CaseBackground>
   const rows = await ctx.repo.table("case_attachments").list({ caseId: c.id });
   return {
     orderPeriodText: orderPeriodText(c), orderPeriodReason: c.orderPeriodReason, priorAssessment: c.priorAssessment, text: c.backgroundInfo,
-    attachments: await rowsFor(ctx, rows),
+    attachments: await rowsFor(ctx, rows, c),
   };
 }
 

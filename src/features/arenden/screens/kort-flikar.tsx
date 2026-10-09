@@ -2,12 +2,12 @@
 // Deltagarkortets flikar Översikt, Kartläggning, Avstämningar och Närvaro (prototypens views/arenden.js).
 // Tidslinjen och Månadsunderlaget (rapporter steg 2) ligger i kort-tidslinje.tsx och kort-manad.tsx.
 import { useState } from "react";
-import { useQuery } from "@/shell/backend";
+import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import { useSession } from "@/shell/session";
 import { dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, fmtWeekKey, fmtWeekRange, relative } from "@/core/time";
-import { AiTag, Badge, Button, Card, DemoNote, Empty, Grid, Icon, Kpi, Kv, List, ListItem, Meter, Notice, SlaBadge, Spacer, Stack, Status, type Column } from "@/ui";
-import { caseAttendance, caseCheckIns, caseIntake, caseOverview, type CaseAttendance, type CaseAttendanceWeek, type CaseCheckInRow } from "../api";
+import { AiTag, Badge, Button, Card, DemoNote, Empty, Grid, Icon, Kpi, Kv, List, ListItem, Meter, Notice, SlaBadge, Spacer, Stack, Status, toast, useConfirm, type Column } from "@/ui";
+import { activityRemove, caseAttendance, caseCheckIns, caseIntake, caseOverview, type CaseAttendance, type CaseAttendanceWeek, type CaseCheckInRow } from "../api";
 import {
   ActList, AttBadge, actIcon, actLabel, canOpen, cap, caseLink, clip, fd, FourBadges, GOAL, KpiRow, LiMain, LiSide, LiSub, LiTitle, MItem, MODE, NavTable, pct0, plural, RespTable, SEV,
   TabQuery,
@@ -42,11 +42,26 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                   </div>
                   {card.manage && (
                     <div>
-                      <Button kind="primary" icon="calendar" onClick={() => openModal("meeting")}>
+                      {/* Sekundär här: den primära "Boka första möte" ligger i åtgärdsraden i huvudet. */}
+                      <Button kind="secondary" icon="calendar" onClick={() => openModal("meeting")}>
                         Boka första möte
                       </Button>
                     </div>
                   )}
+                </Stack>
+              </Notice>
+            )}
+            {card.start && (
+              <Notice tone="info" icon="play" title={dayOf(card.start.firstMeetingAt) <= today ? "Första mötet har hållits – starta insatsen" : "Nästa steg efter första mötet: starta insatsen"}>
+                <Stack gap="sm">
+                  <div>
+                    Första mötet {fmtDateTimeLong(card.start.firstMeetingAt)}. När insatsen startar blir ärendet Pågår, tillfällena skapas enligt veckoplanen och närvaron kan registreras.
+                  </div>
+                  <div>
+                    <Button kind="primary" icon="play" onClick={() => openModal("start")}>
+                      Starta insatsen
+                    </Button>
+                  </div>
                 </Stack>
               </Notice>
             )}
@@ -322,19 +337,33 @@ function StatusCell({ x }: { x: CaseCheckInRow }) {
 }
 
 // ---------------------------------------------------------------- Närvaro
-export function TabNarvaro({ card, setTab }: TabProps) {
+export function TabNarvaro({ card, setTab, openModal }: TabProps) {
   const q = useQuery(caseAttendance, { caseId: card.caseId });
   const role = useSession().actor.role;
   const team = card.access === "team";
   const today = dayOf(card.now);
   const canReg = (card.edit || team) && canOpen("coach.narvaro", role) && card.status === "active";
+  const running = card.status === "active" || card.status === "paused";
+  // Veckoplanen ändras av den som får ändra i ärendet; enstaka tillfällen av alla som arbetar i det (även teamet).
+  const canPlan = card.edit && running;
+  const canEditActivities = (card.edit || team) && running;
   return (
     <TabQuery q={q}>
       {(a: CaseAttendance) => {
         if (!a.started) {
           return (
             <Card>
-              <Empty icon="calendar" title="Insatsen har inte startat">Närvaro registreras från första mötet.</Empty>
+              <Empty
+                icon="calendar"
+                title="Insatsen har inte startat"
+                action={card.start ? <Button kind="primary" icon="play" onClick={() => openModal("start")}>Starta insatsen</Button> : undefined}
+              >
+                {card.start
+                  ? "Starta insatsen efter första mötet – då skapas tillfällena enligt veckoplanen och närvaron kan registreras."
+                  : card.status === "confirmed"
+                    ? "Insatsen startas när första mötet är bokat och hållet."
+                    : "Närvaro registreras från första mötet."}
+              </Empty>
             </Card>
           );
         }
@@ -383,7 +412,18 @@ export function TabNarvaro({ card, setTab }: TabProps) {
                 <span className="font-bold">Skäl till giltig frånvaro:</span> {total.reasons.map(([r, n]) => `${r} (${n})`).join(" · ")}
               </p>
             )}
-            <Card flush title="Närvaro per ISO-vecka" icon="calendar" actions={canReg && <Button kind="primary" icon="check-square" to="/narvaro">Registrera närvaro</Button>}>
+            <Card
+              flush
+              title="Närvaro per vecka"
+              icon="calendar"
+              actions={
+                <>
+                  {canReg && <Button kind="primary" icon="check-square" to="/narvaro">Registrera närvaro</Button>}
+                  {canPlan && <Button icon="calendar" onClick={() => openModal("plan")}>Ändra veckoplan</Button>}
+                  {canEditActivities && <Button icon="plus" onClick={() => openModal("activity")}>Lägg till tillfälle</Button>}
+                </>
+              }
+            >
               <RespTable
                 columns={cols}
                 rows={a.weeks}
@@ -451,6 +491,7 @@ export function TabNarvaro({ card, setTab }: TabProps) {
                 )}
               />
             </Card>
+            <UpcomingList rows={a.upcoming} canEdit={canEditActivities} />
             <DemoNote>
               Närvarograd = närvarande och sena tillfällen delat med registrerade tillfällen. Pausade veckor debiteras inte. Veckorapporten till kommunen publiceras automatiskt när all
               närvaro är registrerad.
@@ -459,5 +500,43 @@ export function TabNarvaro({ card, setTab }: TabProps) {
         );
       }}
     </TabQuery>
+  );
+}
+
+/** Kommande tillfällen – kan tas bort tills närvaro registrerats (beslut 2026-10-08). */
+function UpcomingList({ rows, canEdit }: { rows: CaseAttendance["upcoming"]; canEdit: boolean }) {
+  const remove = useCommand(activityRemove);
+  const confirm = useConfirm();
+  const onRemove = async (a: CaseAttendance["upcoming"][number]) => {
+    const ok = await confirm({
+      title: "Ta bort tillfället?",
+      body: `${actLabel(a.kind)} ${fmtDateTimeLong(a.startsAt)} tas bort. Bara tillfällen utan registrerad närvaro kan tas bort.`,
+      confirmLabel: "Ta bort",
+      cancelLabel: "Avbryt",
+      tone: "danger",
+    });
+    if (!ok) return;
+    const res = await remove.run({ activityId: a.id }).catch(() => null);
+    if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Tillfället kunde inte tas bort.", "error");
+    else toast("Tillfället är borttaget.");
+  };
+  return (
+    <Card flush title="Kommande tillfällen" icon="calendar">
+      {rows.length === 0 ? (
+        <Empty icon="calendar" title="Inga kommande tillfällen" />
+      ) : (
+        <List>
+          {rows.map((a) => (
+            <ListItem
+              key={a.id}
+              icon={actIcon(a.kind)}
+              title={cap(fmtDateTimeLong(a.startsAt))}
+              sub={`${actLabel(a.kind)} · ${a.location} · ${a.durationMin} min`}
+              side={canEdit ? <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void onRemove(a)}>Ta bort</Button> : undefined}
+            />
+          ))}
+        </List>
+      )}
+    </Card>
   );
 }

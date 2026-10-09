@@ -10,7 +10,7 @@ import { useSession } from "@/shell/session";
 import { fmtDateShort, fmtDateTime, fmtTime, monthName } from "@/core/time";
 import { kr, num } from "@/core/format";
 import { Badge, BuildPhase, Card, DemoNote, ErrorNotice, Icon, Kv, Loading, Page, Table } from "@/ui";
-import { ekoStart, type BillingStartView, type RunRow } from "../api";
+import { ekoStart, FORTNOX_OFF_TEXT, type BillingStartView, type RunRow } from "../api";
 import { cap, monthLabel, plural } from "../model";
 import { EkoKpi, EkoKpis, InvStatus, RoleNotice, STATUS_ONE, STATUS_PLURAL, WRAP } from "./parts";
 import { RefInvoicesCard, ReturnedCard, RunCard, TasksCard, UnbilledCard, useBillingActions, ZeroCard } from "./start-cards";
@@ -56,7 +56,7 @@ function Start({ v }: { v: BillingStartView }) {
             sub={cur.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
           />
           <EkoKpi
-            label={"Preskriptions­risk"}
+            label="Preskriptionsrisk"
             value={kr(v.unbilled.totalOre)}
             tone={v.unbilled.count ? "alert" : null}
             statusText="Fakturera nu"
@@ -154,7 +154,16 @@ function Start({ v }: { v: BillingStartView }) {
         <TwoCols>
           <Kv
             items={[
-              ["Koppling", demo ? "Simulerad i prototypen. I fas 1 används export och manuell registrering i Fortnox." : "Inte ansluten ännu. Under tiden används export och manuell registrering i Fortnox."],
+              // Samma flagga som körningen (ekoStart.fortnox.connected). I dag är den enda porten den simulerade (minnesläget) – när en
+              // riktig klient byggs får den ett eget provider-värde och texten här följer med.
+              [
+                "Koppling",
+                demo
+                  ? "Simulerad i prototypen. I fas 1 används export och manuell registrering i Fortnox."
+                  : v.fortnox.connected
+                    ? "Simulerad i utvecklingsläget. ”Skapa i Fortnox” sätter bara statusen i Miljonmatch."
+                    : FORTNOX_OFF_TEXT,
+              ],
               ["Inloggning", "Fortnox godkänner kopplingen. Nycklarna sparas krypterade."],
               ["Hastighetsgräns", "25 anrop per 5 sekunder. Körningen köar anropen."],
               ["Dubbletter", "Varje faktura känns igen på avtal, månad och faktura. En omkörning skapar inga dubbletter."],
@@ -169,11 +178,17 @@ function Start({ v }: { v: BillingStartView }) {
                   ? `${fmtDateTime(v.fortnox.lastRun.at)}: ${plural(v.fortnox.lastRun.created, "faktura skapad", "fakturor skapade")}, ${plural(v.fortnox.lastRun.skipped, "dubblett", "dubbletter")} hoppades över`
                   : demo
                     ? "Ingen körning i prototypen ännu"
-                    : "Ingen körning ännu",
+                    : v.fortnox.connected
+                      ? "Ingen körning ännu"
+                      : "Ingen – Fortnox är inte kopplat ännu",
               ],
               [
                 "Senaste statushämtning",
-                v.fortnox.lastSync ? `${fmtDateTime(v.fortnox.lastSync.at)} (${plural(v.fortnox.lastSync.changed, "faktura uppdaterad", "fakturor uppdaterade")})` : "Ingen ännu",
+                v.fortnox.lastSync
+                  ? `${fmtDateTime(v.fortnox.lastSync.at)} (${plural(v.fortnox.lastSync.changed, "faktura uppdaterad", "fakturor uppdaterade")})`
+                  : v.fortnox.connected
+                    ? "Ingen ännu"
+                    : "Ingen – Fortnox är inte kopplat ännu",
               ],
               ["Att kontrollera", `Licenser för Fortnox Integration och Fortnox e-faktura, samt ${possessive(v.customerName)} Peppol-id.`],
             ]}

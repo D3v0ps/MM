@@ -1,6 +1,51 @@
-# Drift – så sätter du upp testmiljön (och senare produktion)
+# Drift – skarp drift sedan 2026-10-08 (och hur en testmiljö sätts upp)
 
-*Version 2026-10-02. Testmiljön har bara påhittade testdata. Produktion byggs på samma sätt, men i ett eget Supabase-projekt och ett eget Vercel-projekt (se avsnitt 7).*
+*Version 2026-10-08. Miljön på www.miljonmatch.se är produktion sedan 2026-10-08 (avsnittet "Skarp drift" nedan). Avsnitten om testmiljön längre ned beskriver hur den sattes upp och hur en ny testmiljö (test.miljonmatch.se) sätts upp senare – de rörs inte i den här versionen.*
+
+## Skarp drift sedan 2026-10-08
+
+**Beslut (Karim 2026-10-08):** samma Supabase-projekt (`blxupsebzzhmjitaywev`, eu-north-1) och samma Vercel-projekt blir skarp drift – inget nytt projekt. Testdatat är borttaget, kollegorna är vanliga användare och riktiga deltagare registreras som ärenden. En ny testmiljö på `test.miljonmatch.se` sätts upp senare (`docs/MILJOER.md`).
+
+### Vad som gäller nu
+
+- **Miljön är produktion:** `app_settings.environment = production` (`scratchpad/skarp-drift.sql`, körd av Karim). Då finns ingen testarfunktion: inget "Agera som", inget "Läs in testdata", ingen "Lämna synpunkt", ingen testmärkning i mejlen, riktig tid (`MM_CLOCK=real`). Testkoden ligger kvar i repot men är avstängd och tas bort i en senare omgång tillsammans med den nya testmiljön.
+- **Tomt är normalt:** appen fungerar utan ett enda ärende – Min vecka för alla roller, listorna, ledningsvyn, fakturakörningen, rapporterna och portalen visar tomma tillstånd i klarspråk. Samma läge går att köra lokalt med `MM_BACKEND=memory MM_SEED=empty npm run dev` (bara avtalet, konfigurationen och de sju kollegorna, riktig tid) och prövas av e2e-projektet `tom` (`tests/e2e/tom.spec.ts`).
+- **AI är av** tills Google Cloud är kopplat (`MM_AI_PROVIDER` tom = av i produktion, avsnitt 10). Inspelning, diktering ("Tala in"), AI-förslag och AI-utkast visar "Tal till text är inte kopplat ännu – skriv själv så länge." Inspelningslänkar kan inte skickas. Ingen simulerad text visas någonsin i produktion. Integrationskortet AI på `/admin/integrationer` säger "Inte kopplad".
+- **Prislistan** har exempelpriser (`exampleOnly`) tills Karim lämnar de riktiga.
+- **Mejl:** `MM_EMAIL_ALLOWLIST=@miljonbemanning.se` så länge bara kollegorna är inne – inget mejl lämnar bolaget. Kodmejl och notiser går bara till adresser på den domänen.
+
+### Vercel → Settings → Environment Variables (Production), sedan Deployments → Redeploy
+
+| Variabel | Värde |
+|---|---|
+| `MM_CLOCK` | `real` |
+| `MM_EMAIL_ALLOWLIST` | `@miljonbemanning.se` – ingen adress utanför domänen får mejl, inte ens kodmejl. När Botkyrka ska börja: `@miljonbemanning.se,@botkyrka.se`, eller tom lista (då stoppas inte längre något mejl) |
+| `MM_EMAIL_REDIRECT_TO` | *(tom)* |
+| `MM_EMAIL_REPLY_TO` | `avrop@miljonbemanning.se` |
+| `MM_AI_PROVIDER` | *(tom)* = AI av. `vertex` när Google Cloud är kopplat (avsnitt 10) |
+| `MM_STAFF_EMAIL_DOMAINS` | `miljonbemanning.se` (standard) – domänen kollegornas adresser måste ha i "Lägg till kollega" och vid inloggning |
+
+Ta bort Supabase-variablerna för *Preview*, så att förhandsversioner av kod aldrig når den skarpa databasen (de kör då i minnesläget med påhittade data).
+
+### Migration 0027 (rollväxling) – körs av Karim
+
+`supabase/migrations/0027_rollval.sql` i *SQL Editor* (hela filen, en gång – den tål att köras igen): tabellen `role_choices` (den valda rollen för den som har flera), `mm.current_role()` följer valet, och administratören får ta bort medlemskap ("Ändra roller"). Kontroll: `select * from public.role_choices;` fungerar och `select public.current_actor();` svarar som inloggad. Utan 0027 fungerar allt som förut, utom rollväljaren (kommandot `session.vaxlaRoll` ger då ett fel i sidopanelen) och "Ändra roller" när en roll ska tas bort.
+
+### Så läggs kollegor till (ingen SQL)
+
+1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
+2. Namn, e-postadress på jobbet (domänen i `MM_STAFF_EMAIL_DOMAINS` – inte en privat adress), en eller flera roller (systemadministratör, avtalsansvarig, samordnare, huvudcoach, handledare, chef och controller, ekonom), titel valfritt.
+3. Kollegan får ett mejl utan personuppgifter med knappen "Logga in i Miljonmatch" och loggar in med e-post och engångskod (`/logga-in`). Rollerna ändras när som helst med **Ändra roller**; **Spärra** stänger inloggningen (aktivera igen med **Aktivera**). Den egna adminrollen kan inte tas bort och man kan inte spärra sig själv.
+4. Den som har flera roller väljer roll i sidopanelen under sitt namn (**Roll**). Valet sparas (`role_choices`) och gäller tills det ändras. Revisionsloggen får `staff_user.added`, `staff_user.roles_changed`, `staff_user.blocked`, `staff_user.reactivated` och `role.switched` – bara id:n och roller.
+5. **Avtalsansvarig** för Botkyrkaavtalet är Ali (`contracts.contract_manager_id`). Systemadministratören kan byta på avtalssidan (`/admin/avtal`, Avtalsfakta → Avtalsansvarig → Ändra) bland kollegor som har rollen avtalsansvarig.
+
+De sju första kontona (Karim, Ali, Sara, Adam, Shafik, Moda, Yacine) finns redan – alla är systemadministratörer tills rollerna ändras i appen; Ali är också avtalsansvarig.
+
+### Så släpps Botkyrka in
+
+1. Botkyrkas handläggare skapar sina konton själva med en adress på `@botkyrka.se` (`contracts.config.selfRegistration`, `/portal/logga-in`) – eller bjuds in under Användare och roller → Bjud in kommunanvändare. Kodmejlet når dem inte förrän domänen finns i `MM_EMAIL_ALLOWLIST`: sätt `@miljonbemanning.se,@botkyrka.se` i Vercel (eller töm listan – då stoppas inte längre något mejl) och driftsätt igen.
+2. **Innan riktiga personuppgifter:** personuppgiftsbiträdesavtal (DPA) med underbiträdena – Supabase, Vercel, Resend (och Google Cloud när AI kopplas, Microsoft för avrop@) – ska vara tecknade och stå i PUB-avtalets förteckning (SPEC §3.1, `/admin/integrationer`). Bara administratörer i Resend (kodmejlen syns där, avsnitt 4.1).
+3. Kontrollera att MFA och minst två administratörer finns i Vercel, Supabase och Resend, och att bucketarna `ljud` och `bilagor` är privata.
 
 ## Översikt
 
@@ -30,6 +75,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Supabase-projekt för testmiljön | Klart: `miljonmatch`, ref **`blxupsebzzhmjitaywev`**, eu-north-1 (Stockholm), `https://blxupsebzzhmjitaywev.supabase.co` |
 | Migrationer 0001–0017 | 0001–0016 applicerade i testprojektet av samordnaren (i 0016 görs `drop index` för hand). **0017 (synpunkter i testmiljön) appliceras av samordnaren samtidigt som koden med "Lämna synpunkt" går live** (steg 1 nedan) |
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
+| Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
 | Resend | Domänen **`miljonmatch.se`** verifierad i EU (beslut 2026-10-01), DNS-posterna hos one.com. Avsändare `notis@miljonmatch.se`. Resend skickar inte längre från `miljonbemanning.se` (avsnitt 4.2) |
@@ -100,7 +146,7 @@ Migration 0015 skapar bucketen **`ljud`**: privat, högst 25 MB per fil, bara lj
 ### 1.4 Bilagor, självregistrering och kommunens roller (migration 0023–0026, beslut 2026-10-07)
 - **Driftordning:** 0023–0026 appliceras **tillsammans och i nummerordning** efter att båda omgångarna (A: kommunens portal, B: fakturering) är sammanfogade – 0023 (fakturan per avtal och månad) byggs sist men har lägst nummer. Driftsätt koden i samma veva: koden läser de nya kolumnerna i `cases_public` (0025) och tabellen `case_attachments` (0024), och 0026 gör kommunens chefer till handläggare. Kontroll efteråt: `select role, count(*) from memberships group by role;` (ingen `kommun_chef`), `select count(*) from case_attachments;` fungerar, och `select order_period_months, prior_assessment from cases_public limit 1;` fungerar som inloggad.
 - **Bucketen `bilagor`** (0024): privat, högst 10 MB per fil, bara PDF, Word och bild. Kontrollera under *Storage* att den finns och **inte** är publik. Inga policyer på `storage.objects` – bara servern läser, kontrollerar och raderar; webbläsaren laddar upp med en signerad adress. Sökvägen är `<avtal>/<id>.<ändelse>` – aldrig filnamnet. "Läs in testdata på nytt" tömmer bucketen i testmiljön.
-- **Jobben** `attachments_retention` och `auth_cleanup` läggs själv en gång i timmen av `/api/jobs/run` (samma cron som övriga jobb, avsnitt 1.2): gallringen av bilagor (uppladdningar som aldrig kopplades efter 24 timmar; bilagor i avslutade och avböjda ärenden enligt `retentionRules.attachmentsAfterCloseDays` – Botkyrka `ATT_FASTSTÄLLA`, alltså inget ännu; och filer i bucketen utan levande bilaga, eftersom en signerad uppladdningsadress gäller i två timmar och kan användas igen efter "Ta bort") och borttagning av Auth-användare som skapades för en ny adress men där koden aldrig prövades (efter 24 timmar). Kontroll: `select kind, status, last_error from jobs where kind in ('attachments_retention','auth_cleanup') order by created_at desc limit 5;`.
+- **Jobben** `attachments_retention` och `auth_cleanup` läggs själv en gång i timmen av `/api/jobs/run` (samma cron som övriga jobb, avsnitt 1.2): städningen av bilagor (uppladdningar som aldrig kopplades efter 24 timmar, och filer i bucketen utan levande bilaga, eftersom en signerad uppladdningsadress gäller i två timmar och kan användas igen efter "Ta bort"; bilagor i ett ärende gallras aldrig automatiskt – Miljonbemanning tar bort dem för hand tidigast när ärendet är avslutat, beslut 5 2026-10-08) och borttagning av Auth-användare som skapades för en ny adress men där koden aldrig prövades (efter 24 timmar). Kontroll: `select kind, status, last_error from jobs where kind in ('attachments_retention','auth_cleanup') order by created_at desc limit 5;`.
 - **Fakturan per avtal och månad** (0023, omgång B): migrationen gör om de gamla fakturorna per ärende till fakturor per avtal och månad som den gamla modellen räknade: varje ärende med debiterbara veckor fick sin egen fakturas status, annars körningens standardstatus, annars underlag. Varje skapad status i månaden blir en faktura (`inv-<avtal>-<månad>-avtal` för körningens standardstatus eller den högsta statusen, sedan `-avtal-tillagg-2` …) med en rad per ärende (utan veckor – täcker ärendets alla veckor i månaden). De gamla Fortnox- och fakturanumren sparas i radens anmärkning (`invoice_lines.note`). Ofakturerade ärenden får ingen rad och räknas som ofakturerade (varningen för preskription finns kvar). Krediteringarna kopplas till fakturan som har ärendets rad, och de gamla fakturorna tas bort. I testmiljön: **läs in testdatat på nytt** efter migrationen (seed.sql har fakturorna i den nya formen, med decembers tilläggsfaktura). Kontroll efteråt: `select month, grouping_key, status, buyer_reference from invoice_drafts order by month;` (en rad per månad och grupp) och `select count(*) from invoice_lines;`. Botkyrka ska godkänna samlingsfakturan skriftligt innan den används skarpt (SPEC §13 fråga 5) – annars ställs avtalet om till `invoicePer: "case_and_month"` i konfigurationen.
 - **Självregistrering:** inställningen i Supabase Auth ("Allow new users to sign up") ska **fortsatt vara av** – appen skapar Auth-användaren själv med service role för en adress på avtalets kommundomän (`contracts.config.selfRegistration`, bara när synligheten är "own", inga plusadresser). Taket räknas på unika adresser i `login_attempts` (kind `self_registration`, hashat): högst 20 nya adresser per timme i hela appen och högst 3 per IP. I testmiljön gäller `MM_EMAIL_ALLOWLIST` som förut: en ny adress utanför listan får ingen kod och inget konto.
 
@@ -220,7 +266,7 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | Namn | Hemlig | Förklaring | Exempel (testmiljön) | Var värdet finns |
 |---|---|---|---|---|
 | `MM_BACKEND` | | Körläge: `memory` (påhittade testdata i minnet – lokalt och e2e) eller `supabase` (testmiljön och produktion) | `supabase` | Fast värde |
-| `MM_CLOCK` | | Tomt = testtid när `app_settings` har testklockans epoker. `real` = riktig tid | *(tomt)* · produktion `real` | Fast värde |
+| `MM_CLOCK` | | Tomt = testtid när `app_settings` har testklockans epoker. `real` = riktig tid | produktion `real` · testmiljön *(tomt)* | Fast värde |
 | `MM_APP_URL` | | Appens adress utan `/` på slutet – den som **inte** skickas vidare. Länkarna i mejlen och deltagarens inspelningslänk (`/rost/…`) | `https://www.miljonmatch.se` | Vercel → *Domains* |
 | `SUPABASE_URL` | | Supabase-projektets adress (`NEXT_PUBLIC_SUPABASE_URL` från Vercels Supabase-integration fungerar också) | `https://blxupsebzzhmjitaywev.supabase.co` | Supabase → *Project Settings → API* · `docs/MILJOER.md` |
 | `SUPABASE_PUBLISHABLE_KEY` | | Publik nyckel, används bara på servern (`SUPABASE_ANON_KEY` fungerar också) | `sb_publishable_…` | Supabase → *Project Settings → API Keys* · `docs/MILJOER.md` |
@@ -229,8 +275,8 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `MM_SESSION_SECRET` | **ja** | Valfri. Nyckel för att signera sessionskakan `mm_last_seen` (60 minuters inaktivitet). Tom = samma nyckel som `MM_LOGIN_HASH_SECRET`. Byts nyckeln loggas alla ut en gång | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_KEY` | **ja** | Kryptering av personnummer, AES-256-GCM: exakt 32 byte som base64 | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
 | `MM_PNR_HMAC_KEY` | **ja** | Sökhash för personnummer (dubblettkontrollen), HMAC-SHA256: minst 32 byte som base64, **en annan nyckel** än `MM_PNR_KEY` | *(32 slumpbyte)* | Skapa: `openssl rand -base64 32` |
-| `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |
-| `MM_EMAIL_ALLOWLIST` | | **Testmiljön:** de adresser som får mejl och inloggningskoder, kommatecken emellan. **Hela adresser, aldrig `@miljonbemanning.se`** – testdatat har påhittade adresser på den domänen. Tom i testmiljön = ingen får mejl. **Tom i produktion** | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
+| `MM_STAFF_EMAIL_DOMAINS` | | Tillåtna domäner för Miljonbemannings personal – vid inloggning och i "Lägg till kollega" (kommunernas domäner står i databasen) | `miljonbemanning.se` (standard) | Fast värde |
+| `MM_EMAIL_ALLOWLIST` | | Adresser eller `@domäner` som får mejl och inloggningskoder, kommatecken emellan. **Produktion:** `@miljonbemanning.se` tills Botkyrka släpps in, sedan `@miljonbemanning.se,@botkyrka.se` eller tom (alla). **Testmiljön:** hela adresser, aldrig `@miljonbemanning.se` – testdatat har påhittade adresser på den domänen; tom = ingen får mejl | `karim.khalil@miljonbemanning.se,ali.khalil@miljonbemanning.se,sara.salah@miljonbemanning.se,adam.abdalla@miljonbemanning.se,shafik.muwanga@miljonbemanning.se,moda.habib@miljonbemanning.se,yacine.laghmari@miljonbemanning.se` | Testarnas adresser (avsnitt 11) |
 | `MM_EMAIL_REDIRECT_TO` | | **Bara testmiljön:** testarens adress som får mejlen till testpersoner, med raden "Testmiljö – det här mejlet skulle ha gått till …" (roll och organisation). Måste finnas i `MM_EMAIL_ALLOWLIST`. Gäller aldrig inloggningskoder – koden går bara till den som loggar in. Ignoreras i produktion – lämna tom där | `karim.khalil@miljonbemanning.se` | En testares adress |
 | `RESEND_API_KEY` | **ja** | Resends API-nyckel (bara sändrätt) för appens mejl **och inloggningskoderna** (appen skickar koden själv, avsnitt 2.1). Saknas den kan ingen logga in | `re_…` | Resend → *API Keys* (`miljonmatch-app`) |
 | `MM_EMAIL_FROM` | | Avsändare för notiserna och inloggningskoderna. Domänen måste vara verifierad i Resend | `Miljonmatch <notis@miljonmatch.se>` | Fast värde (beslut 2026-10-01) |
@@ -243,8 +289,13 @@ Inga hemligheter i tabellen – exempelvärdena är påhittade eller publika. **
 | `GOOGLE_SERVICE_ACCOUNT_KEY` | **ja** | Tjänstekontots JSON-nyckel som base64 (rollen *Vertex AI User*) | *(base64)* | Avsnitt 10, steg 4 |
 | `MM_AI_PRICES` | | Prislista för kostnaden i `ai_runs`, i öre per miljon token: `{"audioIn":…,"textIn":…,"output":…}`. Tom = kostnad 0 | *(från Googles prislista)* | Avsnitt 10, steg 6 |
 | `MM_AI_THINKING` | | Valfri resonemangsnivå: `minimal`, `low`, `medium`, `high`. Tom = lägsta rimliga (`docs/AI.md`) | *(tomt)* | Fast värde |
+| `MS_GRAPH_TENANT_ID` | | Mejlinläsningen från avrop@ (avsnitt 12): katalog-id (tenant) i Microsoft Entra | *(GUID)* | Entra → *Appregistreringar → appen → Översikt* |
+| `MS_GRAPH_CLIENT_ID` | | Appregistreringens klient-id (applikations-id) | *(GUID)* | Samma sida |
+| `MS_GRAPH_CLIENT_SECRET` | **ja** | Klienthemligheten. Byt den innan den går ut | *(hemlighet)* | Entra → *Certifikat och hemligheter* |
+| `MM_INBOX_MAILBOX` | | Brevlådan som läses. Appen får bara nå den (ApplicationAccessPolicy) | `avrop@miljonbemanning.se` | Fast värde |
+| `MM_INBOX_DONE_FOLDER` | | Mappen dit inlästa mejl flyttas (skapas om den saknas). Tom = `Inläst` | `Inläst` | Fast värde |
 
-Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
+Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/admin/integrationer` visar "Inte kopplad – så här kopplar du". Kommer senare: Microsoft Entra-inloggning, SMS-leverantör och Fortnox (tills dess saknas `ctx.fortnox` i supabase-läget: ekonomen ser "Fortnox är inte kopplat ännu" i fakturakörningen och på kortet Fortnox-synk, knapparna "Skapa i Fortnox" och "Hämta status" finns inte, och fakturan skapas i Fortnox för hand och markeras som manuellt fakturerad – den simulerade porten finns bara i minnesläget). AI-leverantören (Vertex AI) kopplas in enligt avsnitt 10 när kontot i Google Cloud finns – tills dess kör testmiljön den simulerade.
 
 ### 5.1 Nycklarna för personnummer (`MM_PNR_KEY`, `MM_PNR_HMAC_KEY`)
 - Personnummer krypteras i appen (AES-256-GCM) innan de sparas och söks via en HMAC-hash av de tio sista siffrorna (CLAUDE.md punkt 2). Nycklarna finns bara på servern (`src/server/crypto.ts`, `import "server-only"`) och når aldrig webbläsaren.
@@ -265,6 +316,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Personnummer (`ctx.crypto`) | `src/server/crypto.ts` (servern) · `src/data/seed/pnr.ts` (`TEST_PNR_CRYPTO`, minnesläget) |
 | Inloggning med kod | `src/app/api/auth/{code,verify,logout}`, `src/server/auth/*` – kodmejlet: `src/server/auth/code-mail.ts` (generateLink + Resend), layouten `src/server/notify/render.ts` |
 | Session, testarens val | `src/app/api/session`, `src/app/api/session/impersonate`, `src/app/_shell/client-root.tsx` |
+| Kollegor, roller, spärr (beslut 2026-10-08) | `src/features/admin/handlers-users.ts` (`admin.inviteStaff`, `admin.setStaffRoles`, `admin.setStaffActive`), skärmen `src/features/admin/screens/anvandare.tsx`, domänerna `src/core/staff.ts` |
+| Rollväxling (beslut 2026-10-08) | `supabase/migrations/0027_rollval.sql` (`role_choices`, `mm.current_role()`), `src/features/session/handlers.ts` (`session.vaxlaRoll`), `src/data/actors.ts` (`defaultRoleFor`), rollväljaren i `src/shell/layouts.tsx` |
+| Tomt testdata och riktig tid lokalt | `MM_SEED=empty` – `src/data/seed/empty.ts`, `src/data/seed/colleagues.ts`, `realClock` i `src/data/memory-runtime.ts`; e2e-projektet `tom` |
 | Läs in testdata på nytt | `src/app/api/staging/seed/route.ts`, `src/server/staging/load.ts`, `supabase/migrations/0010_testdata.sql` (och 0017, som behåller synpunkterna), knappen `src/features/session/screens/test-data-reset.tsx` |
 | Synpunkter (bara testmiljön) | `src/features/synpunkter/*` (kommandona `feedback.*`, knapparna i `panel.tsx`), `supabase/migrations/0017_synpunkter.sql` |
 | Utskick och jobb | `src/server/notify/*`, `src/server/jobs/*`, `docs/UTSKICK.md` |
@@ -280,7 +334,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 
 ---
 
-## 7. Produktion (senare)
+## 7. Produktion (planen från 2026-10-02 – genomförd 2026-10-08 i samma projekt, se "Skarp drift" överst)
+
+*Historik: planen var ett eget projekt. Beslutet 2026-10-08 blev att samma projekt blir produktion; det som står här gäller i stället för den nya testmiljön som sätts upp senare (eget projekt, egna nycklar, `environment = staging`).*
 
 - Nytt Supabase-projekt i **eu-north-1** och ett **eget Vercel-projekt**, så att förhandsversioner (Preview) aldrig kan peka mot produktionsdatabasen.
 - Samma migrationer (0001–0017, i nummerordning), **ingen seed och inget startdata**. Kör dem precis före den första driftsättningen – 0013 och koden hör ihop (steg 1 i "exakt ordning"). `app_settings` får `environment = production` och inga klockrader (`supabase/README.md`). Då gör `mm.reset_test_data()` ingenting, testarfunktionen är avstängd och knapparna för testdata och synpunkter syns inte (tabellerna för synpunkter finns men ingen kan läsa eller skriva i dem).
@@ -321,6 +377,9 @@ Kommer senare: Microsoft Entra, SMS-leverantör och Fortnox. AI-leverantören (V
 | Utloggad oväntat | 60 minuter utan aktivitet eller 12 timmar sedan inloggningen – så ska det vara |
 | "AI-stödet är inte tillgängligt just nu" / inspelning går inte att starta | `MM_AI_PROVIDER` och övriga AI-variabler (avsnitt 10). Vercels logg visar `ai: AI-stödet är avstängt – …` med orsaken (utan hemligheter). I produktion är AI av tills `MM_AI_PROVIDER=vertex` |
 | Transkriberingen blir aldrig klar | `jobs` (`select kind, status, attempts, started_at, last_error from jobs order by created_at desc limit 20;`). 403/404 från Vertex AI: fel projekt, modell eller roll. "AI-tjänsten svarar inte": tillfälligt – jobbet försöks igen upp till fem gånger. Ett jobb som står i `running` tas upp igen efter fem minuter. "Jobbet avbröts innan det blev klart (serverns tidsgräns)": inspelningen hann inte transkriberas inom 60 sekunder fem gånger – se "Tidsgränser" i avsnitt 10 |
+| Rollväljaren syns inte | Bara den som har fler än en roll (medlemskap) ser den, under sitt namn i sidopanelen. Migration 0027 körd? (`select count(*) from public.role_choices;`) |
+| "Tal till text är inte kopplat ännu" | Så ska det vara i produktion tills `MM_AI_PROVIDER=vertex` och Google Cloud finns (avsnitt 10). Ingen simulerad AI i produktion |
+| Kollegan får ingen kod | Adressen måste finnas som aktiv profil med roll (Användare och roller), ha domänen i `MM_STAFF_EMAIL_DOMAINS` och – med en satt `MM_EMAIL_ALLOWLIST` – matcha listan (`@miljonbemanning.se`), annars skickas inte koden |
 
 ---
 
@@ -349,7 +408,9 @@ Beslut 2026-09-30 (`docs/PLAN-ROST.md`): **Gemini Flash via Vertex AI, EU multi-
 **Tidsgränser:** alla rutter har `maxDuration` **högst 60 sekunder** (`/api/rpc`, `/api/jobs/run`, `/api/staging/seed`) – teamet kan vara på Vercels Hobby-nivå, där en högre gräns stoppar hela driftsättningen. Transkriberingen körs direkt efter svaret (after(), inom `/api/rpc`:s 60 sekunder) och annars av `/api/jobs/run` (cron varje minut). Avbryts ett jobb vid tidsgränsen står det kvar i `running` och tas upp igen efter **fem minuter** (`STALE_MINUTES` i `src/server/jobs/runner.ts`); avbryts även femte försöket ges jobbet upp (`failed`, "Jobbet avbröts innan det blev klart …", coachen ser "Inspelningen är för lång för att transkriberas" och fyller i själv) – inget jobb blir hängande. Korta inspelningar (kommunen och deltagaren, högst 5 minuter) och de flesta avstämningar klarar sig inom 60 sekunder. **Långa inspelningar (över cirka 10 minuter) kan behöva Vercel Pro med `maxDuration` 300** för `/api/rpc` och `/api/jobs/run` – höj då också `STALE_MINUTES` till minst 10. Längsta inspelning styrs av avtalet (`ai.maxMinutes`, Botkyrka: coachen 60, kommunen och deltagaren 5 minuter). Ljud över cirka 15 MB (ungefär en timme i 32 kbit/s) transkriberas inte.
 
 
-## 11. Testarna och synpunkter (beslut 2026-10-01)
+## 11. Testarna och synpunkter (beslut 2026-10-01 – historik, gäller testmiljön)
+
+*Sedan 2026-10-08 är de sju kollegorna vanliga användare i produktion (`is_tester = false`, titel Systemadministratör) och nya kollegor läggs till i appen ("Skarp drift" överst). Testarfunktionen nedan används igen när testmiljön test.miljonmatch.se finns.*
 
 Karim bjuder in kollegor på Miljonbemanning att testa testmiljön och ge synpunkter på processen och plattformen. **Testmiljön är inte färdig** – säg det när ni bjuder in, och be dem använda **Lämna synpunkt**.
 
@@ -388,3 +449,40 @@ Alla är systemadministratörer i Botkyrkaavtalet (det enda avtalet i testdatat)
 - **Synpunkterna finns kvar** när testdatat läses in på nytt (0017 ändrar `mm.reset_test_data()`), och seeden rör dem inte.
 - Tiden på en synpunkt är testklockans (testtid, t.ex. 1 februari 2027), som allt annat i testmiljön.
 - Prototypen (artefakten) har kvar sin egen feedback i claude.ai med samma fält och texter.
+
+---
+
+## 12. Mejlinläsning från avrop@ – Microsoft Graph (beslut 4c, 2026-10-08)
+
+Appen läser brevlådan **avrop@miljonbemanning.se** varannan minut (jobbet `inbox_import`, `docs/UTSKICK.md`): olästa mejl i Inkorgen hämtas, tolkas, blir rader i avropsinkorgen (och ärenden med ordererkännande när avropet går att tolka) och flyttas till mappen **Inläst**, där de ligger kvar som reserv. Ingenting raderas i brevlådan. Tills brevlådan är kopplad säger kortet *avrop@-brevlådan* på `/admin/integrationer` "Inte kopplad – så här kopplar du", och samordnaren registrerar mejlavrop för hand (*Avropsinkorg → Registrera beställning*).
+
+**Så kopplar du (en gång, ca 20 minuter). Du behöver vara global administratör i Miljonbemannings Microsoft 365.**
+
+1. **Appregistrering.** [entra.microsoft.com](https://entra.microsoft.com) → *Identitet → Program → Appregistreringar → Ny registrering*. Namn `Miljonmatch avrop-inläsning`, *Endast konton i den här organisationskatalogen*, ingen omdirigerings-URI. Anteckna **Program-id (klient)** och **Katalog-id (klientorganisation)** från översikten.
+2. **Behörighet.** *API-behörigheter → Lägg till en behörighet → Microsoft Graph → Programbehörigheter* → `Mail.ReadWrite` (appen läser och flyttar mejl – ingen delegerad behörighet, ingen användare loggar in). Klicka sedan **Bevilja administratörsmedgivande för Miljonbemanning**. Ta bort `User.Read` om den lades till automatiskt.
+3. **Begränsa till brevlådan avrop@** (annars når appen alla brevlådor i tenanten). I Exchange Online PowerShell (`Install-Module ExchangeOnlineManagement`, `Connect-ExchangeOnline`):
+   ```powershell
+   New-DistributionGroup -Name "Miljonmatch avrop-inlasning" -Type Security -PrimarySmtpAddress miljonmatch-avrop@miljonbemanning.se
+   Add-DistributionGroupMember -Identity "Miljonmatch avrop-inlasning" -Member avrop@miljonbemanning.se
+   New-ApplicationAccessPolicy -AppId <Program-id> -PolicyScopeGroupId miljonmatch-avrop@miljonbemanning.se -AccessRight RestrictAccess -Description "Miljonmatch far bara lasa avrop@"
+   Test-ApplicationAccessPolicy -Identity avrop@miljonbemanning.se -AppId <Program-id>   # AccessCheckResult: Granted
+   Test-ApplicationAccessPolicy -Identity karim.khalil@miljonbemanning.se -AppId <Program-id>   # Denied
+   ```
+   Policyn slår igenom inom ungefär en halvtimme. (Är avrop@ en delad brevlåda fungerar samma kommandon.)
+4. **Hemlighet.** *Certifikat och hemligheter → Ny klienthemlighet* (giltig högst 24 månader – lägg in ett datum i kalendern för bytet). Kopiera **värdet** direkt; det visas bara en gång.
+5. **Vercel.** *Settings → Environment Variables* (Production): `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`, `MS_GRAPH_CLIENT_SECRET` (hemlig), `MM_INBOX_MAILBOX=avrop@miljonbemanning.se`, `MM_INBOX_DONE_FOLDER=Inläst` (avsnitt 5). Hemligheten skrivs aldrig i repot, chatten eller ett mejl. *Redeploy*.
+6. **Kontroll.** Inom två minuter visar kortet *avrop@-brevlådan* **Kopplad** med "Senast läst". Skicka ett testmejl till avrop@ från en adress på botkyrka.se (eller från en kollega – då blir det "Övrigt"): det ska flyttas till Inläst och synas i avropsinkorgen. `select kind, status, last_error from jobs where kind = 'inbox_import' order by created_at desc limit 5;` ska visa `done`.
+
+**Dataskydd.** Mejlen ligger kvar i Microsoft 365 (Miljonbemannings EU-tenant); appen läser dem från Vercels funktioner i Stockholm (arn1) och sparar text, tolkade uppgifter och bilagor i Supabase (eu-north-1). Microsoft är redan underbiträde (inloggning och brevlådan); behörigheten är begränsad till en brevlåda. Inga adresser, ämnesrader eller mejltexter hamnar i loggar, felorsaker eller i jobbtabellen – bara steg och HTTP-status.
+
+**Felsökning**
+
+| Kortet eller jobbet säger | Kontrollera |
+|---|---|
+| Inte kopplad | Någon av de fyra variablerna saknas i Vercel (Production), eller driftsättningen gjordes före ändringen |
+| `inloggningen svarade 401/400` | Fel klient-id, hemlighet eller katalog-id; hemligheten har gått ut |
+| `listningen svarade 403` | Administratörsmedgivandet saknas, eller ApplicationAccessPolicy nekar (kör `Test-ApplicationAccessPolicy`) |
+| `listningen svarade 404` | `MM_INBOX_MAILBOX` stavad fel, eller brevlådan är inte en Exchange-brevlåda |
+| `svarade 429` / `5xx` / `kunde inte nås` | Tillfälligt – jobbet försöker igen (1, 5, 15, 60 minuter) |
+| Mejl ligger kvar olästa i Inkorgen | Jobbkörningen står still (pg_cron, `docs/UTSKICK.md`) eller flytten misslyckas (`moveErrors` i kortet) – raderna finns redan, bara flytten görs om |
+| Ett avrop blev "att registrera för hand" | Mallens etiketter saknades eller personnumret hade fel format – samordnaren klickar *Registrera beställningen* i inkorgen |

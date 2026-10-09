@@ -119,7 +119,8 @@ export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 export const CASE_STATUSES = ["received", "acknowledged", "confirmed", "active", "paused", "closed", "declined"] as const;
 export type CaseStatus = (typeof CASE_STATUSES)[number];
 
-export const CASE_SOURCES = ["email", "portal", "phone"] as const;
+// other = annan väg (t.ex. besök eller brev), registrerad av Miljonbemanning i avropsinkorgen (beslut 4a, 2026-10-08).
+export const CASE_SOURCES = ["email", "portal", "phone", "other"] as const;
 export type CaseSource = (typeof CASE_SOURCES)[number];
 
 /** Har en kartläggning av deltagaren genomförts innan beställningen? (beslut 2026-10-07, synpunkt #7) */
@@ -409,6 +410,19 @@ export type Membership = {
   customerUnit: string | null;
 };
 
+/**
+ * Vald roll för en användare med flera medlemskap (beslut 2026-10-08, migration 0027): en rad per användare, id = userId.
+ * Styr aktörens roll (actorFor i src/data/actors.ts och mm.current_role() i databasen) när rollen inte ges av testpersonens
+ * val – bara om ett medlemskap med rollen finns. Bara den egna raden får läsas och skrivas.
+ */
+export type RoleChoice = {
+  /** Samma som userId (varje tabell har id som nyckel). */
+  id: string;
+  userId: string;
+  role: Role;
+  chosenAt: LocalDateTime;
+};
+
 export type BuyerReference = {
   id: string;
   customerId: string;
@@ -478,11 +492,14 @@ export type Case = {
   secondaryAreaCode: AreaCode | null;
   vocationalTrack: string;
   desiredStart: LocalDate | null;
-  /** Planerad start enligt orderbekräftelsen. */
+  /** Planerad start enligt orderbekräftelsen: första mötets dag. */
   plannedStart: LocalDate | null;
   /** Planerade veckor (debiterbara ISO-veckor mellan start och planerat slut – räknas av servern, internt). */
   plannedWeeks: number | null;
-  /** Planerat slut. Vid 6 eller 12 månader räknar servern fram det från startdatumet (orderPeriodEnd). */
+  /**
+   * Planerat slut. Före accept preliminärt från önskat startdatum; från accept räknas det från första mötets dag och räknas om
+   * vid varje ombokning (orderPeriodEnd; beslut 7, 2026-10-08). "Annan tidsperiod" behåller kommunens slutdatum.
+   */
   plannedEnd: LocalDate | null;
   /** Beställningens värde i veckor (för upparbetat och återstående belopp – bara internt, aldrig för kommunen). */
   orderValueWeeks: number | null;
@@ -1605,6 +1622,7 @@ export type Tables = {
   price_items: PriceItem;
   profiles: Profile;
   memberships: Membership;
+  role_choices: RoleChoice;
   buyer_references: BuyerReference;
   persons: Person;
   cases: Case;
@@ -1671,7 +1689,7 @@ export type Db = { [N in TableName]: Tables[N][] };
 /** Alla tabellnamn i migrationsordning (docs/PLAN-FAS1.md). */
 export const TABLE_NAMES = [
   "holidays", "organizations", "contracts", "contract_areas", "price_items",
-  "profiles", "memberships",
+  "profiles", "memberships", "role_choices",
   "persons", "cases", "case_status_history", "case_counters", "case_team", "buyer_references",
   "inbound_emails",
   "intake_assessments", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
@@ -1705,4 +1723,6 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & strin
   pulse_responses: ["inviteId"],
   // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
   invoice_drafts: ["fortnoxIdempotencyKey"],
+  // En vald roll per användare (0027).
+  role_choices: ["userId"],
 };

@@ -4,13 +4,15 @@ import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { accessIndex, caseAccessIn, displayName, type CaseAccess } from "@/core/access";
+import { placementDays } from "@/core/schedule";
 import { addDays, dayOf } from "@/core/time";
 import { uniq } from "@/core/util";
 import { emailValid } from "@/core/validation";
 import type { Case, ContractArea, Placement } from "@/data/schema";
 import { mainContract, userNames } from "../admin/shared";
+import { canEditCase } from "../_shared/context";
 import {
-  praktikAddFollowUp, praktikEmployer, praktikEmployerAdd, praktikList, praktikSetRight, RIGHT_KEYS,
+  placementCreate, placementEnd, praktikAddFollowUp, praktikEmployer, praktikEmployerAdd, praktikList, praktikSetRight, RIGHT_KEYS,
   type AreaOption, type EmployerRow, type OtherPlacementRow, type PlacementCardView, type PlacementGroup, type UpcomingRow,
 } from "./api";
 
@@ -199,4 +201,106 @@ handleCommand(praktikAddFollowUp, { roles: WORKERS }, async (ctx, p) => {
   await ctx.repo.table("placements").update(pl.id, { followUpDates: uniq([...pl.followUpDates, p.date]).sort() });
   await ctx.audit({ action: "placement.follow_up_added", entity: "placement", entityId: pl.id, contractId: c?.contractId ?? null, details: { caseId: pl.caseId, date: p.date } });
   return ok({});
+});
+
+// ---------------------------------------------------------------- Ny praktik och avslutad praktik (beslut 2026-10-08)
+/** Planerar praktik: huvudcoachen, samordnare och avtalsansvarig (canEditCase). */
+const PLANNERS: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
+const CASE_NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
+const NO_EDIT = "Du har inte behörighet att ändra i ärendet.";
+
+handleCommand(placementCreate, { roles: PLANNERS }, async (ctx, p) => {
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (!c) return fail("not_found", CASE_NOT_FOUND);
+  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (c.status !== "active" && c.status !== "paused") return fail("wrong_status", "Praktik planeras när insatsen pågår.");
+  const endsOn = p.endsOn ?? null;
+  if (endsOn && endsOn < p.startsOn) return fail("period", "Slutdagen måste komma efter startdagen.");
+  // Praktikdagarna planeras till slutdagen, annars till insatsens planerade slut.
+  const until = endsOn ?? c.endDate ?? c.plannedEnd ?? p.startsOn;
+  if (until < p.startsOn) return fail("period", "Startdagen ligger efter insatsens planerade slut.");
+
+  // Arbetsgivaren: befintlig i registret eller en ny. Registret delas – inga uppgifter om deltagaren sparas där.
+  let employer = p.employerId ? await ctx.repo.table("employers").get(p.employerId) : null;
+  if (!employer) {
+    const name = (p.newEmployer?.name ?? "").trim();
+    if (!name) return fail("employer", "Välj en arbetsgivare i registret eller skriv namnet på en ny.");
+    const email = (p.newEmployer?.email ?? "").trim();
+    if (email && !emailValid(email)) return fail("email", "E-postadressen ser inte ut att stämma.");
+    const existing = (await ctx.repo.table("employers").list()).find((e) => e.name.toLowerCase() === name.toLowerCase());
+    if (existing) employer = existing;
+    else {
+      const id = ctx.newId("emp");
+      employer = await ctx.repo.table("employers").insert({
+        id, name, orgNr: "", contactName: (p.newEmployer?.contactName ?? "").trim(), phone: (p.newEmployer?.phone ?? "").trim(), email,
+        areas: c.primaryAreaCode ? [c.primaryAreaCode] : [], createdAt: ctx.now(), createdBy: ctx.actor.userId,
+      });
+      await ctx.audit({ action: "employer.added", entity: "employer", entityId: id, contractId: c.contractId, details: { areas: employer.areas, viaPlacement: true } });
+    }
+  }
+  const city = (p.newEmployer?.city ?? "").trim();
+  const location = city ? `${employer.name}, ${city}` : employer.name;
+  const now = ctx.now();
+  const today = dayOf(now);
+
+  // Praktikdagarna som tillfällen: yrkesmoment utan närvaro samma dagar ersätts (bara kommande), dagar som redan har en
+  // praktikdag hoppas över. Registrerad närvaro rörs aldrig.
+  const days = placementDays(p.startsOn, until, uniq(p.weekdays), c.pausedWeeks);
+  const acts = ctx.repo.table("activities");
+  const existingActs = await acts.list({ caseId: c.id });
+  const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
+  const daySet = new Set(days);
+  let replaced = 0;
+  for (const a of existingActs) {
+    if (a.kind === "yrkesmoment" && daySet.has(dayOf(a.startsAt)) && !registered.has(a.id) && a.startsAt >= now) {
+      await acts.remove(a.id);
+      replaced++;
+    }
+  }
+  const hasPractice = new Set(existingActs.filter((a) => a.kind === "praktikdag").map((a) => dayOf(a.startsAt)));
+  let created = 0;
+  for (const day of days) {
+    if (hasPractice.has(day)) continue;
+    await acts.insert({ id: ctx.newId("a"), caseId: c.id, kind: "praktikdag", startsAt: `${day}T${p.time}`, durationMin: p.durationMin, location, note: "" });
+    created++;
+  }
+
+  const tasks = (p.tasks ?? "").trim();
+  const supervisorName = (p.supervisorName ?? "").trim() || employer.contactName;
+  const placementId = ctx.newId("pl");
+  await ctx.repo.table("placements").insert({
+    id: placementId, caseId: c.id, employerId: employer.id, startsOn: p.startsOn, endsOn, tasks, supervisorName, goals: "", followUpDates: [],
+    status: p.startsOn <= today ? "ongoing" : "planned",
+    // Rätt tidpunkt: coachen har bedömt att deltagaren är redo genom att planera praktiken. Uppföljningen planeras efteråt.
+    fourRights: { uppgift: !!tasks, handledning: !!supervisorName, timing: true, uppfoljning: false },
+  });
+  // Händelsen som testdatat skapar – verifieringen är tom tills coachen laddar upp praktikavtalet.
+  const eventId = ctx.newId("oe");
+  await ctx.repo.table("outcome_events").insert({
+    id: eventId, caseId: c.id, kind: "praktik_startad", occurredOn: p.startsOn, actor: employer.name, verificationKind: null, verificationPath: null, note: "", possibleBonus: false,
+  });
+  await ctx.audit({
+    action: "placement.created", entity: "placement", entityId: placementId, contractId: c.contractId,
+    details: { caseId: c.id, employerId: employer.id, startsOn: p.startsOn, endsOn, days: created, replaced },
+  });
+  await ctx.audit({ action: "event.added", entity: "outcome_event", entityId: eventId, contractId: c.contractId, details: { caseId: c.id, kind: "praktik_startad" } });
+  return ok({ placementId, employerId: employer.id, days: created });
+});
+
+handleCommand(placementEnd, { roles: PLANNERS }, async (ctx, p) => {
+  const pl = await ctx.repo.table("placements").get(p.placementId);
+  if (!pl) return fail("not_found", "Praktikplatsen finns inte.");
+  const c = await ctx.repo.table("cases").get(pl.caseId);
+  if (!c) return fail("not_found", CASE_NOT_FOUND);
+  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (pl.status === "completed") return fail("wrong_status", "Praktiken är redan avslutad.");
+  if (p.endsOn < pl.startsOn) return fail("date", "Slutdagen kan inte vara före startdagen.");
+  // Praktikdagar efter slutdagen utan registrerad närvaro tas bort.
+  const acts = ctx.repo.table("activities");
+  const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
+  const after = (await acts.list({ caseId: c.id, kind: "praktikdag" })).filter((a) => dayOf(a.startsAt) > p.endsOn && !registered.has(a.id));
+  for (const a of after) await acts.remove(a.id);
+  await ctx.repo.table("placements").update(pl.id, { endsOn: p.endsOn, status: "completed" });
+  await ctx.audit({ action: "placement.ended", entity: "placement", entityId: pl.id, contractId: c.contractId, details: { caseId: c.id, endsOn: p.endsOn, removed: after.length } });
+  return ok({ removed: after.length });
 });

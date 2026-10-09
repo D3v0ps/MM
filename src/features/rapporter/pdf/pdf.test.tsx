@@ -15,8 +15,8 @@ import { decodeTestPnr } from "@/data/seed/pnr";
 import { reportDocument, type ReportDocResult, type ReportDocView } from "../api";
 import { ReportDocument } from "../components/report-document";
 import { metaTitle, ReportPdf } from "./documents";
-import { pdfPages, pdfText as renderedText, type PdfPage } from "./pdf-text";
-import { DRAFT_WATERMARK } from "./primitives";
+import { pdfMultiUnicodeMappings, pdfPages, pdfText as renderedText, type PdfPage } from "./pdf-text";
+import { DRAFT_WATERMARK, P, PdfDocument } from "./primitives";
 import { registerPdfFonts } from "./theme";
 
 let rt: MemoryRuntime;
@@ -200,6 +200,62 @@ describe("orderbekräftelsen och månadsrapportens närvaro (beslut 2026-10-07)"
       }
     }
   });
+});
+
+// ---------------------------------------------------------------- Beslut 6 (2026-10-08): slutrapportens närvaro bara som närvarograd
+describe("slutrapportens närvaro (beslut 6, 2026-10-08)", () => {
+  it("avsnitt 2 heter Närvaro och har exakt två rader: hela perioden och närvarograden – samma i HTML och PDF; risken står kvar i avsnitt 6", async () => {
+    for (const actor of [as("u-sara", "samordnare"), as("k-maria", "kommun_handlaggare")]) {
+      const doc = await docOf("rep-16258", actor);
+      if (doc.kind !== "final") throw new Error(doc.kind);
+      const sec = htmlSection(doc, "2.");
+      expect(sec.querySelector("h2")?.textContent?.trim()).toBe("2. Närvaro");
+      expect([...sec.querySelectorAll("dt")].map((e) => e.textContent?.trim())).toEqual(["Period", "Närvarograd"]);
+      expect(sec.querySelectorAll("table")).toHaveLength(0);
+      const dd = [...sec.querySelectorAll("dd")].map((e) => e.textContent?.trim());
+      expect(dd[0]).toBe(doc.m.period);
+      expect(dd[0]).toMatch(/^\d{1,2} [a-zåäö]+ \d{4} – \d{1,2} [a-zåäö]+ \d{4}$/);
+      expect(dd[1]).toMatch(/^\d{1,3}\s%$|^–$/);
+      expect(sec.textContent).toContain("Närvarograd = ");
+      const all = htmlBlocks(doc).join("\n");
+      const pdf = pdfText(<ReportPdf doc={doc} />).join("\n");
+      for (const text of [all, pdf]) {
+        // Inga månadsrader, inga orsaker, inga antal – men risken "Upprepad ogiltig frånvaro" i avsnitt 6 om den finns.
+        expect(text).not.toMatch(/Giltig frånvaro per orsak|Upprepad ogiltig frånvaro:|Planerade tillfällen|Närvaro och frånvaro|Totalt/);
+        expect(text).toContain("2. Närvaro");
+        expect(text).toContain(dd[1]!);
+        expect(text).toContain("6. Avvikelse, risk och åtgärd");
+        if (doc.m.deviations.repeated.hit) expect(text).toContain("Upprepad ogiltig frånvaro (");
+      }
+      // Den renderade PDF:en: inget av det borttagna ritas.
+      expect(renderedText(await render(doc))).not.toMatch(/Giltig frånvaro per orsak|Planerade tillfällen|Ogiltig frånvaro\b/);
+    }
+  }, 30_000);
+});
+
+// ---------------------------------------------------------------- Fynd 9 (2026-10-08): "fi"-ligaturen i textlagret
+describe("textlagret i PDF:en (fynd 9, 2026-10-08)", () => {
+  it("varje teckenkod står för exakt ett tecken – ord med fi och fl går att söka och kopiera", async () => {
+    const buf = await renderToBuffer(
+      <PdfDocument metaTitle="Test" title="Test" info={[["Avtal", "332026110"]]} label={null} watermark={false}>
+        <P>Sofia Grahn – certifiering, Yrkesspecifika moment, identifierar, verifierat, flytt och fluga.</P>
+      </PdfDocument>,
+    );
+    const pdf = new Uint8Array(buf);
+    expect(pdfMultiUnicodeMappings(pdf)).toEqual([]);
+    const text = renderedText(pdf);
+    for (const w of ["Sofia", "certifiering", "Yrkesspecifika", "identifierar", "verifierat", "flytt", "fluga"]) expect(text).toContain(w);
+    expect(text).not.toContain("\ufb01");
+    expect(text).not.toContain("�");
+  }, 30_000);
+
+  it("rapporterna (månadsrapport, slutrapport, orderbekräftelse) har inga flerteckensmappningar", async () => {
+    for (const [id, actor] of [["rep-16008", as("k-maria", "kommun_handlaggare")], ["rep-16258", as("u-sara", "samordnare")], [orderId(), as("u-sara", "samordnare")]] as const) {
+      const pdf = await render(await docOf(id, actor));
+      expect(pdfMultiUnicodeMappings(pdf), id).toEqual([]);
+      expect(renderedText(pdf), id).not.toContain("�");
+    }
+  }, 60_000);
 });
 
 // ---------------------------------------------------------------- Den renderade PDF:en

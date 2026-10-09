@@ -13,6 +13,7 @@ import { serverAttachments } from "./attachments";
 import { serverAudio } from "./audio";
 import { LIMITS, type GateVerdict, type LoginGate, type SelfRegistrationStore } from "./auth/rate-limit";
 import { clockNow } from "./clock";
+import { staffEmailDomains } from "./config";
 import { lazyServerCrypto } from "./crypto";
 import { liveCtx } from "./ctx";
 import { resolveIdentity, type DbActor, type Identity, type IdentityStore, type ProfileRow } from "./identity";
@@ -140,6 +141,10 @@ export function ctxFor(s: LiveSession): Ctx {
     // Bilagorna till beställningen (bucketen "bilagor").
     attachments: (d) => serverAttachments(d),
     scheduleJobs: scheduleJobsAfterResponse,
+    // Fortnox (ctx.fortnox) sätts inte förrän en riktig klient finns (beslut 2026-10-08): den simulerade porten hör bara till
+    // minnesläget. Ekonomen ser "Fortnox är inte kopplat ännu" och markerar fakturan som manuellt fakturerad.
+    // "Lägg till kollega": personalens tillåtna domäner från miljön (src/core/staff.ts).
+    staffEmailDomains: staffEmailDomains(),
   });
 }
 

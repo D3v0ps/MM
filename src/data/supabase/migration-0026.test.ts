@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { seedData, sqlLiteral } from "../../../scripts/db/seed-sql";
 import type { TableName } from "../schema";
-import { asUser, loadSeed, migrationFiles, SUPABASE_STUB_SQL } from "./pglite";
+import { asUser, loadSeedForExistingTables, migrationFiles, SUPABASE_STUB_SQL } from "./pglite";
 import { authUserIdFor } from "./seed-rows";
 
 const data = seedData();
@@ -33,7 +33,8 @@ beforeAll(async () => {
   await db.waitReady;
   await db.exec(SUPABASE_STUB_SQL);
   for (const f of files.slice(0, at)) await db.exec(readFileSync(f, "utf8"));
-  await loadSeed(db);
+  // Seeden tömmer också tabeller från senare migrationer (role_choices, 0027) – bara de som finns här.
+  await loadSeedForExistingTables(db);
 
   // Raderna som fanns före beslutet.
   const maria = data.profiles.find((p) => p.id === "k-maria")!;

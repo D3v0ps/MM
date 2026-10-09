@@ -106,9 +106,12 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     id, contractId, ownerId, title: "Testrapport", templateKey: null, definition: { v: 1, dataset: "deltagarmanader" }, visibility, createdAt: at, updatedAt: null, updatedBy: null,
     sharedAt: sharedBy ? at : null, sharedBy, archivedAt: archivedBy ? at : null, archivedBy,
   });
+  // Rollval (0027): Karims och Saras val, och Alis val av sin andra roll (avtalsansvarig) – bara den egna raden får läsas.
+  const choice = (userId: string, role: Tables["role_choices"]["role"]): Tables["role_choices"] => ({ id: userId, userId, role, chosenAt: at });
   return {
     // Först: raderna nedan pekar på avtalet (främmande nycklar).
     contracts: [other],
+    role_choices: [choice("tester-karim", "admin"), choice("u-sara", "samordnare"), choice("tester-ali", "avtalsansvarig")],
     saved_reports: [
       saved("sr-x-arkiv", "c-bot", "u-karin", "mb", "u-karin", "u-karin"),
       saved("sr-x-ny", "c-ny", "u-johan", "mb", "u-johan"),
@@ -201,11 +204,21 @@ function actorOf(p: Persona): Persona["actor"] {
   return TESTER_AUTH[p.actor.userId] ? { ...p.actor, testerId: p.actor.userId } : p.actor;
 }
 
-/** Kör fn som testpersonen: vanliga personer med sitt auth-id, deltagaren (ingen profil) via testarens val. */
+/**
+ * Kör fn som testpersonen: vanliga personer med sitt auth-id, deltagaren (ingen profil) via testarens val. En person med flera
+ * roller (Ali: admin och avtalsansvarig) agerar i rollen via rollvalet (0027, role_choices) – som sidopanelens rollväljare.
+ */
 function asPersona<T>(p: Persona, fn: (tx: Tx) => Promise<T>): Promise<T> {
   if (p.actor.role === "deltagare") return asUser(db, KARIM, fn, { before: chooseTestPerson(p.actor.userId, "deltagare") });
-  return asUser(db, authOf(p.actor.userId), fn);
+  const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+  const before = roles.size > 1 ? chooseRole(p.actor.userId, p.actor.role) : undefined;
+  return asUser(db, authOf(p.actor.userId), fn, before ? { before } : {});
 }
+
+/** Välj roll (0027) i samma transaktion, som postgres. */
+const chooseRole = (userId: string, role: string) => async (tx: Tx) => {
+  await tx.query("insert into public.role_choices (id, user_id, role, chosen_at) values ($1, $1, $2, '2027-02-01T06:00') on conflict (id) do update set role = excluded.role", [userId, role]);
+};
 
 /** Tabellen som RLS-läsningen görs mot: avtal och ärenden läses via vyerna contracts_public och cases_public (se supabase/README.md). */
 const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t);
@@ -777,6 +790,65 @@ describe("skrivning: särskilda fall", () => {
     // Den som inte är testare kan aldrig välja testperson
     const sara = await asPersona(findPersona("u-sara"), (tx) => attempt(tx, "insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, 'u-robin', 'admin')", [authOf("u-sara")]));
     expect(allowed(sara)).toBe(false);
+  });
+
+  it("rollval (0027): valet styr rollen bara med medlemskap, testpersonens roll vinner, bara den egna raden – och admin tar bort medlemskap", async () => {
+    const actorSql = "select public.current_actor() as a";
+    type A = { userId: string; role: string; contractIds: string[] };
+    const actor = async (tx: Tx) => (await tx.query<{ a: A }>(actorSql)).rows[0].a;
+    const ALI = TESTER_AUTH["tester-ali"];
+    // Ali har admin och avtalsansvarig; testdatats val (EXTRA) är avtalsansvarig. Karims val är admin (samma som lägst id).
+    expect(await asUser(db, ALI, actor)).toMatchObject({ userId: "tester-ali", role: "avtalsansvarig", contractIds: ["c-bot"] });
+    expect(await asUser(db, KARIM, actor)).toMatchObject({ userId: "tester-karim", role: "admin" });
+    // Utan rad: medlemskapet med lägst id ("tester-ali:c-bot" = admin).
+    expect(await asUser(db, ALI, actor, { before: (tx) => tx.query("delete from public.role_choices where id = 'tester-ali'").then(() => undefined) })).toMatchObject({ role: "admin" });
+    // Ett val utan medlemskap ignoreras (raden kan bara få en sådan roll med service role – RLS stoppar inloggade).
+    expect(await asUser(db, ALI, actor, { before: (tx) => tx.query("update public.role_choices set role = 'coach' where id = 'tester-ali'").then(() => undefined) })).toMatchObject({ role: "admin" });
+    // Testpersonens roll (tester_sessions, Ali som testare i testmiljön) vinner över valet.
+    const aliChooses = (tx: Tx) => tx.query("insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, 'u-amira', 'coach')", [ALI]).then(() => undefined);
+    expect(await asUser(db, ALI, actor, { before: aliChooses })).toMatchObject({ userId: "u-amira", role: "coach" });
+
+    // RLS: bara den egna raden, id = user_id, bara en roll man har medlemskap för. Amira (en roll) väljer sin roll; aldrig någon annans.
+    const amira = await asPersona(findPersona("u-amira"), async (tx) => ({
+      own: await attempt(tx, "insert into public.role_choices (id, user_id, role, chosen_at) values ('u-amira', 'u-amira', 'coach', '2027-02-01T09:00')", [], { keep: true }),
+      rows: (await tx.query("select id from public.role_choices")).rows.length,
+      update: await attempt(tx, "update public.role_choices set role = 'chef' where id = 'u-amira'"),
+      other: await attempt(tx, "update public.role_choices set role = 'coach' where id = 'u-sara'"),
+      forOther: await attempt(tx, "insert into public.role_choices (id, user_id, role, chosen_at) values ('u-erik', 'u-erik', 'coach', '2027-02-01T09:00')"),
+      wrongId: await attempt(tx, "insert into public.role_choices (id, user_id, role, chosen_at) values ('x', 'u-amira', 'coach', '2027-02-01T09:00')"),
+      del: await attempt(tx, "delete from public.role_choices where id = 'u-amira'"),
+    }));
+    expect(allowed(amira.own)).toBe(true);
+    expect(amira.rows).toBe(1); // bara den egna – inte Karims, Saras eller Alis
+    expect(allowed(amira.update)).toBe(false);
+    expect(allowed(amira.other)).toBe(false);
+    expect(allowed(amira.forOther)).toBe(false);
+    expect(allowed(amira.wrongId)).toBe(false);
+    expect(allowed(amira.del)).toBe(true);
+    // Ali byter till admin via RLS (eget val) – och får rollen i samma transaktion.
+    const ali = await asUser(db, ALI, async (tx) => ({
+      upd: await attempt(tx, "update public.role_choices set role = 'admin', chosen_at = '2027-02-01T09:30' where id = 'tester-ali'", [], { keep: true }),
+      actor: await actor(tx),
+    }));
+    expect(allowed(ali.upd)).toBe(true);
+    expect(ali.actor).toMatchObject({ role: "admin" });
+
+    // Ändra roller (admin.setStaffRoles): admin tar bort medlemskap; avtalsansvarig bara kommunens; samordnaren inget.
+    const petraMembership = data.memberships.find((m) => m.userId === "u-petra")!.id;
+    const mariaMembership = data.memberships.find((m) => m.userId === "k-maria")!.id;
+    const robin = await asPersona(findPersona("u-robin"), async (tx) => ({
+      staff: await attempt(tx, "delete from public.memberships where id = $1", [petraMembership]),
+      customer: await attempt(tx, "delete from public.memberships where id = $1", [mariaMembership]),
+    }));
+    expect(allowed(robin.staff)).toBe(true);
+    expect(allowed(robin.customer)).toBe(true);
+    const johan = await asPersona(findPersona("u-johan"), async (tx) => ({
+      staff: await attempt(tx, "delete from public.memberships where id = $1", [petraMembership]),
+      customer: await attempt(tx, "delete from public.memberships where id = $1", [mariaMembership]),
+    }));
+    expect(allowed(johan.staff)).toBe(false);
+    expect(allowed(johan.customer)).toBe(true);
+    expect(allowed(await asPersona(findPersona("u-sara"), (tx) => attempt(tx, "delete from public.memberships where id = $1", [mariaMembership])))).toBe(false);
   });
 
   it("synpunkter (0017): bara testare i testmiljön, oavsett testperson – i eget namn, bara status ändras, ingen tar bort", async () => {

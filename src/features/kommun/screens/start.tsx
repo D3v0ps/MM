@@ -1,6 +1,6 @@
 "use client";
-// Handläggarens startsida i portalen (/portal) – prototypens kom.start. Uppgifter, händelser och olästa står överst,
-// sedan tre stora knappar. Ingen annan navigering på sidan (portallayouten visar ingen meny här).
+// Handläggarens startsida i portalen (/portal) – prototypens kom.start. Uppgifter som väntar på beslut står överst, sedan de
+// tre stora knapparna (huvudhandlingen Beställ ny insats), sedan händelser och olästa. Ingen annan navigering på sidan (portallayouten visar ingen meny här).
 import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import { Badge, BigButton, BigButtons, Button, Card, ErrorNotice, List, ListItem, Loading, Notice, PerspectiveLink, useToast } from "@/ui";
@@ -35,7 +35,7 @@ export function PortalStartScreen() {
 function StartContent({ d }: { d: KomStart }) {
   const doneTask = useTaskDone();
   const items = [...d.unreadMessages.map((m) => ({ key: m.id, msg: m, rep: null })), ...d.unreadReports.map((r) => ({ key: r.id, msg: null, rep: r }))];
-  const shown = items.slice(0, 4);
+  const shown = items.slice(0, 3);
   const shownEv = d.events.slice(0, 5);
   const nothing = d.tasks.length + d.events.length + items.length === 0;
   const allUnread = path("/portal/rapporter", { filter: "olasta", flik: d.unreadReports.length === 0 ? "meddelanden" : null });
@@ -44,7 +44,7 @@ function StartContent({ d }: { d: KomStart }) {
       <KomHead eyebrow={d.unit ? `${d.unit} · ${d.customerName}` : d.customerName} title={`Välkommen, ${d.firstName}`} lead="Vad vill du göra i dag?" />
       {d.profileIncomplete && (
         <Notice tone="info" title="Fyll i dina uppgifter">
-          <p className="m-0">Vi behöver ditt namn, ditt telefonnummer och din enhet för att kunna kontakta dig om dina beställningar.</p>
+          <p className="m-0">Vi behöver ditt telefonnummer och din enhet för att kunna kontakta dig om dina beställningar. Fyll i det som saknas under Mina uppgifter.</p>
           <span className="mt-3 flex">
             <Button kind="primary" icon="user" to="/portal/mina-uppgifter">
               Fyll i dina uppgifter
@@ -83,6 +83,12 @@ function StartContent({ d }: { d: KomStart }) {
           </List>
         </Card>
       )}
+      {/* Huvudhandlingen direkt efter uppgifterna som väntar på beslut – händelser och olästa kommer efter (beslut D8, C6). */}
+      <BigButtons ariaLabel="Vad vill du göra?">
+        <BigButton primary icon="file-plus" title="Beställ ny insats" sub="Tre korta steg och en granskning. Det tar ungefär fem minuter." to="/portal/bestall" />
+        <BigButton icon="users" title="Mina deltagare" sub={`${d.active} pågår · ${d.waiting} väntar på start`} to="/portal/deltagare" />
+        <BigButton icon="mail" title="Rapporter och meddelanden" sub={d.unreadTotal > 0 ? `${d.unreadTotal} olästa` : "Inga olästa"} to="/portal/rapporter" />
+      </BigButtons>
       {d.events.length > 0 && (
         <Card
           title={`Händelser i dina ärenden (${d.events.length})`}
@@ -177,14 +183,11 @@ function StartContent({ d }: { d: KomStart }) {
           Du har inga uppgifter, inga nya händelser och inga olästa rapporter eller meddelanden.
         </Notice>
       )}
-      <BigButtons ariaLabel="Vad vill du göra?">
-        <BigButton primary icon="file-plus" title="Beställ ny insats" sub="Tre korta steg och en granskning. Det tar ungefär fem minuter." to="/portal/bestall" />
-        <BigButton icon="users" title="Mina deltagare" sub={`${d.active} pågår · ${d.waiting} väntar på start`} to="/portal/deltagare" />
-        <BigButton icon="mail" title="Rapporter och meddelanden" sub={d.unreadTotal > 0 ? `${d.unreadTotal} olästa` : "Inga olästa"} to="/portal/rapporter" />
-      </BigButtons>
-      <p className="max-w-[62ch] text-text-muted">
-        Har du frågor kan du ringa oss på {CONTACT_PHONE}.
-      </p>
+      {CONTACT_PHONE && (
+        <p className="max-w-[62ch] text-text-muted">
+          Har du frågor kan du ringa oss på {CONTACT_PHONE}.
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         <PerspectiveLink role="samordnare" to="/min-vecka" label="Se startsidan hos Miljonbemanning" />
       </div>

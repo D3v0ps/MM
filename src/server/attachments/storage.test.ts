@@ -23,6 +23,9 @@ function fakeStorage() {
     async createSignedUploadUrl(path) {
       return { signedUrl: `https://ref.supabase.co/storage/v1/object/upload/sign/bilagor/${path}?token=t1`, token: "t1" };
     },
+    async upload(path, content) {
+      files.set(path, content);
+    },
     async size(path) {
       return files.get(path)?.byteLength ?? null;
     },
@@ -115,7 +118,7 @@ describe("createStorageAttachments", () => {
     const audits: unknown[] = [];
     const system = new MemoryRepo<Tables>(t.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
     const ctx = { now: () => DEMO_START, system, attachments: t.port, audit: async (e: unknown) => void audits.push(e) } as unknown as Ctx;
-    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, retention: 0, orphans: 1 });
+    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, orphans: 1 });
     expect([...t.files.keys()]).toEqual(["c-bot/att-2.pdf"]);
     expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted" });
     expect(audits).toEqual([{ action: "attachment.deleted", entity: "case_attachment", entityId: "att-1", contractId: "c-bot", details: { caseId: null, reason: "orphan" } }]);
@@ -127,6 +130,7 @@ describe("supabaseAttachmentStorage", () => {
     const calls: unknown[][] = [];
     const b: AttachmentBucketLike = {
       createSignedUploadUrl: async (path) => (calls.push(["upload", path]), { data: { signedUrl: `u/${path}`, token: "t", path }, error: null }),
+      upload: async (path) => (calls.push(["put", path]), { data: null, error: null }),
       createSignedUrl: async (...a: unknown[]) => (calls.push(["sign", ...a]), { data: { signedUrl: "s" }, error: null }),
       exists: async () => ({ data: true, error: null }),
       info: async () => ({ data: { size: 1234 }, error: null }),

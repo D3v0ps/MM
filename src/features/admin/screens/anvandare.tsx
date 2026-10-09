@@ -1,9 +1,12 @@
 "use client";
 // Användare och roller (/admin/anvandare, prototypens admin.anvandare). Systemadmin ser personalen, kommunens användare och
-// behörighetsmatrisen; avtalsansvarig ser kommunanvändarna (bjuder in och spärrar). Personalen bjuds in. Kommunens handläggare
+// behörighetsmatrisen; avtalsansvarig ser kommunanvändarna (bjuder in och spärrar). Kommunens handläggare
 // kan också skapa sina konton själva med en adress på kommunens domän (beslut 2026-10-07) – de märks "Skapade kontot själv".
+// Kollegorna (beslut 2026-10-08, skarp drift): systemadministratören lägger till kollegor, ändrar roller (en eller flera) och
+// spärrar eller aktiverar – i appen, utan SQL. Mejlet till kollegan innehåller inga personuppgifter.
 // Avtal och konfiguration ligger inte i menyn (beslut 2026-10-06): systemadministratören når den härifrån och från Min vecka.
 import { useState } from "react";
+import { ROLE_LABEL, type SupplierRole } from "@/api/roles";
 import { isTesterHiddenPath } from "@/api/tester-access";
 import type { EscalationRole } from "@/core/config";
 import { fmtDateShort, fmtDateTime } from "@/core/time";
@@ -11,13 +14,27 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { DemoOnly } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Avatar, Badge, Button, Card, CellSub, ErrorSummary, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Modal, ModalCancelButton, Notice, Page, PerspectiveLink, QueryView, Stack, TabPanel, Table, Tabs, toast,
+  Avatar, Badge, Button, Card, CellSub, Check, ErrorSummary, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Modal, ModalCancelButton, Notice, Page, PerspectiveLink, QueryView, Row, Stack, TabPanel, Table, Tabs, toast,
   type IconName, type TabDef,
 } from "@/ui";
+import { emailDomain } from "@/core/staff";
 import { emailValid } from "@/core/validation";
 import { escWord } from "../audit-text";
-import { adminInviteCustomer, adminSetCustomerActive, adminUsers, type CustomerUserRow, type UsersView } from "../api";
-import { INVITE_TEXT } from "../templates";
+import {
+  adminInviteCustomer, adminInviteStaff, adminSetCustomerActive, adminSetStaffActive, adminSetStaffRoles, adminUsers, type CustomerUserRow, type MbUserRow, type UsersView,
+} from "../api";
+import { INVITE_TEXT, STAFF_INVITE_TEXT } from "../templates";
+
+/** Rollerna en kollega kan få, med hjälptext i klarspråk (samma ordning som i tabellen). */
+const STAFF_ROLES: { role: SupplierRole; label: string; help: string }[] = [
+  { role: "admin", label: "Systemadministratör", help: "Allt inklusive användare, avtal, integrationer och revisionslogg." },
+  { role: "avtalsansvarig", label: "Avtalsansvarig", help: "Accepterar och avböjer avrop, avtalsavvikelser, kommunanvändare, rapportbyggaren." },
+  { role: "samordnare", label: "Operativ samordnare", help: "Avropsinkorg, tilldelar coach, bokar första möte." },
+  { role: "coach", label: "Huvudcoach", help: "Egna ärenden: närvaro, avstämningar, månadsbedömningar och rapporter." },
+  { role: "handledare", label: "Handledare", help: "Tilldelade ärenden: moment, praktik och närvaro." },
+  { role: "chef", label: "Chef och controller", help: "Nyckeltal, flaggor, avtalsavvikelser och loggkontroll – i läsläge." },
+  { role: "ekonom", label: "Ekonom", help: "Fakturaunderlag och belopp – inga anteckningar eller rapporter." },
+];
 
 type UsersTab = "mb" | "kommun" | "matris";
 /** Avtal och konfiguration – inte i menyn, länkas härifrån. */
@@ -33,10 +50,19 @@ export function AnvandareScreen() {
   );
 }
 
+type StaffDialog = { mode: "add" } | { mode: "roles"; user: MbUserRow } | null;
+
 function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean }) {
   const [tab, setTab] = useState<UsersTab>(d.isAdmin ? "mb" : "kommun");
   const [inviting, setInviting] = useState(false);
+  const [staffDialog, setStaffDialog] = useState<StaffDialog>(null);
   const setActive = useCommand(adminSetCustomerActive);
+  const setStaffActive = useCommand(adminSetStaffActive);
+  const toggleStaffActive = async (u: MbUserRow) => {
+    const r = await setStaffActive.run({ userId: u.id, active: !u.active }).catch(() => null);
+    if (!r || !r.ok) toast((r && !r.ok && r.message) || "Ändringen kunde inte sparas.", "error");
+    else toast(u.active ? `${u.name} är spärrad och kan inte logga in.` : `${u.name} kan logga in igen.`);
+  };
   const tabs: TabDef<UsersTab>[] = [
     ...(d.isAdmin ? [{ id: "mb" as const, label: "Miljonbemanning", count: d.mb?.length ?? 0, icon: "briefcase" as const }] : []),
     { id: "kommun", label: d.customerName, count: d.customers.length, icon: "building" },
@@ -61,7 +87,11 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
     <Page
       title={d.isAdmin ? "Användare och roller" : "Kommunanvändare"}
       eyebrow={d.isAdmin ? "Systemadmin" : `Avtalsansvarig · ${d.customerName}`}
-      lead="Personalen bjuds in och loggar in med Microsoft Entra ID. Kommunens handläggare loggar in med e-post och engångskod – de kan skapa sitt konto själva med en adress på kommunens domän, eller bjudas in."
+      lead={
+        d.isAdmin
+          ? "Kollegor och kommunens handläggare. Alla loggar in med e-post och engångskod."
+          : "Kommunens handläggare. De skapar sitt konto själva med en adress på kommunens domän, eller bjuds in här."
+      }
       actions={
         <>
           {contractLink && (
@@ -69,14 +99,19 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
               Avtal och konfiguration
             </Button>
           )}
-          <Button kind="primary" icon="plus" onClick={() => { setTab("kommun"); setInviting(true); }}>
+          {d.isAdmin && (
+            <Button kind="primary" icon="plus" onClick={() => { setTab("mb"); setStaffDialog({ mode: "add" }); }}>
+              Lägg till kollega
+            </Button>
+          )}
+          <Button kind={d.isAdmin ? "secondary" : "primary"} icon="plus" onClick={() => { setTab("kommun"); setInviting(true); }}>
             Bjud in kommunanvändare
           </Button>
         </>
       }
     >
-      <Grid cols={4}>
-        <Kpi label="Miljonbemanning" value={d.kpis.mbActive} sub="aktiva konton · Microsoft Entra ID" />
+      <Grid cols={d.isAdmin ? 4 : 3}>
+        {d.isAdmin && <Kpi label="Miljonbemanning" value={d.kpis.mbActive} sub="aktiva konton · e-post och engångskod" />}
         <Kpi label={d.customerName} value={d.kpis.customerActive} sub={`aktiva konton i ${d.kpis.unitCount} enheter`} />
         <Kpi label="Inloggade senaste 30 dagarna" value={d.kpis.loggedIn30} sub={`av ${d.customers.length} kommunanvändare – mejlbeställning kräver ingen inloggning`} />
         <Kpi label="Väntande inbjudningar" value={d.kpis.invited} sub="har inte loggat in ännu" />
@@ -85,19 +120,28 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
       <TabPanel tabsId="anv" active={tab}>
         {tab === "mb" && d.mb && (
           <Card
-            title="Personal på Miljonbemanning"
+            title="Kollegor på Miljonbemanning"
             icon="briefcase"
             flush
-            actions={<Badge tone="outline" icon="key">Microsoft Entra ID · MFA via M365</Badge>}
+            actions={
+              <>
+                <span className="text-small text-text-muted">Adresser på:</span>
+                {d.staffDomains.map((x) => (
+                  <Badge tone="outline" key={x}>@{x}</Badge>
+                ))}
+              </>
+            }
             foot={
               <span className="text-text-muted">
-                Rollen gäller per avtal. Lösenord och MFA hanteras av Microsoft – Miljonmatch lagrar inga lösenord.
+                Rollerna gäller i avtalet. En kollega med flera roller väljer roll i sidopanelen. Inloggning med e-post och engångskod – Miljonmatch lagrar inga
+                lösenord. Microsoft-inloggning kommer senare.
               </span>
             }
           >
             <Table
-              caption="Användare på Miljonbemanning"
+              caption="Kollegor på Miljonbemanning"
               rows={d.mb}
+              rowTone={(u) => (!u.active ? "muted" : null)}
               columns={[
                 {
                   key: "name", label: "Namn",
@@ -106,22 +150,43 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
                       <Avatar name={u.name} size="sm" />
                       <span>
                         <span className="font-bold">{u.name}</span>
+                        {u.self && <span className="text-small text-text-muted"> (du)</span>}
                         <CellSub>{u.email}</CellSub>
+                        {/* Titeln under namnet i stället för en egen kolumn – Status och Åtgärd ryms på smal skärm. */}
+                        {u.title && <CellSub>{u.title}</CellSub>}
                       </span>
                     </span>
                   ),
                 },
-                { key: "title", label: "Titel", render: (u) => u.title },
                 {
-                  key: "bot", label: "Roll i avtalet",
+                  key: "bot", label: "Roller i avtalet",
                   render: (u) => (
                     <>
-                      <Badge tone={u.isAdmin ? "dark" : "bluetone"}>{u.roleLabel}</Badge>
+                      <span className="flex flex-wrap gap-1">
+                        {u.roles.map((r) => (
+                          <Badge key={r} tone={r === "admin" ? "dark" : "bluetone"}>{ROLE_LABEL[r]}</Badge>
+                        ))}
+                      </span>
                       {u.teamRoleLabel && <CellSub>{u.teamRoleLabel}</CellSub>}
                     </>
                   ),
                 },
                 { key: "st", label: "Status", render: (u) => (u.active ? <Badge tone="blue" icon="check">Aktiv</Badge> : <Badge tone="red" icon="lock">Spärrad</Badge>) },
+                {
+                  key: "act", label: "Åtgärd",
+                  render: (u) => (
+                    <Row gap="sm" className="flex-wrap">
+                      <Button kind="ghost" icon="edit" onClick={() => setStaffDialog({ mode: "roles", user: u })}>
+                        Ändra roller
+                      </Button>
+                      {!u.self && (
+                        <Button kind="ghost" icon={u.active ? "lock" : "refresh"} onClick={() => void toggleStaffActive(u)}>
+                          {u.active ? "Spärra" : "Aktivera"}
+                        </Button>
+                      )}
+                    </Row>
+                  ),
+                },
               ]}
             />
           </Card>
@@ -158,6 +223,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
             <Table
               caption="Kommunens användare"
               rows={d.customers}
+              empty="Inga kommunanvändare ännu. Handläggarna skapar sitt konto själva första gången de loggar in – eller bjud in dem med knappen ovan."
               rowTone={(u) => (!u.active ? "muted" : null)}
               columns={[
                 { key: "name", label: "Namn", render: (u) => (<><span className="font-bold">{u.name}</span><CellSub>{u.email}</CellSub></>) },
@@ -215,7 +281,159 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
         )}
       </TabPanel>
       {inviting && <InviteModal d={d} onClose={() => setInviting(false)} />}
+      {staffDialog?.mode === "add" && <StaffModal d={d} onClose={() => setStaffDialog(null)} />}
+      {staffDialog?.mode === "roles" && <RolesModal user={staffDialog.user} onClose={() => setStaffDialog(null)} />}
     </Page>
+  );
+}
+
+// ================================================================ Lägg till kollega (beslut 2026-10-08)
+/** Kryssrutor för rollerna, med hjälptext per roll. */
+function RolePicker({ idPrefix, value, onChange, error }: { idPrefix: string; value: SupplierRole[]; onChange: (roles: SupplierRole[]) => void; error?: string }) {
+  return (
+    <Field id={`${idPrefix}-roles`} label="Roller" required help="Välj en eller flera. Kollegan väljer sedan roll i sidopanelen." error={error}>
+      <div id={`${idPrefix}-roles`} role="group" aria-label="Roller" className="flex flex-col gap-1">
+        {STAFF_ROLES.map((r) => (
+          <Check
+            key={r.role}
+            id={`${idPrefix}-role-${r.role}`}
+            checked={value.includes(r.role)}
+            onCheckedChange={(on) => onChange(on ? [...value, r.role] : value.filter((x) => x !== r.role))}
+          >
+            <span className="font-bold">{r.label}</span>
+            <span className="block text-small text-text-muted">{r.help}</span>
+          </Check>
+        ))}
+      </div>
+    </Field>
+  );
+}
+
+function StaffModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
+  const invite = useCommand(adminInviteStaff);
+  const [f, setF] = useState({ name: "", email: "", title: "" });
+  const [roles, setRoles] = useState<SupplierRole[]>([]);
+  const [tried, setTried] = useState(false);
+  const [serverErr, setServerErr] = useState<string | null>(null);
+  const set = (key: keyof typeof f) => (v: string) => {
+    setServerErr(null);
+    setF((x) => ({ ...x, [key]: v }));
+  };
+  const domains = d.staffDomains;
+  const email = f.email.trim().toLowerCase();
+  const errs: Partial<Record<"name" | "email" | "roles", string>> = {};
+  if (!f.name.trim()) errs.name = "Skriv kollegans namn.";
+  if (!email) errs.email = "Skriv e-postadressen.";
+  else if (!emailValid(email)) errs.email = "E-postadressen ser inte ut att stämma. Kontrollera stavningen.";
+  else if (!domains.includes(emailDomain(email))) errs.email = `Adressen måste sluta på @${domains.join(" eller @")}.`;
+  else if ((d.mb ?? []).some((u) => u.email.toLowerCase() === email)) errs.email = "Det finns redan en kollega med den adressen.";
+  if (!roles.length) errs.roles = "Välj minst en roll.";
+  const show = (key: keyof typeof errs) => (tried ? errs[key] : undefined);
+  const submit = async () => {
+    setTried(true);
+    if (Object.keys(errs).length) {
+      focusFirstError(document.querySelector<HTMLElement>("[role=dialog]"));
+      return;
+    }
+    const r = await invite.run({ contractId: d.contractId, name: f.name, email, roles, title: f.title.trim() || undefined }).catch(() => null);
+    if (!r || !r.ok) {
+      setServerErr((r && !r.ok && r.message) || "Kollegan kunde inte läggas till. Kontrollera fälten.");
+      return;
+    }
+    toast(`${f.name.trim()} är tillagd. Ett mejl med adressen till Miljonmatch har skickats till ${email}.`);
+    onClose();
+  };
+  return (
+    <Modal
+      title="Lägg till kollega"
+      onClose={onClose}
+      dirty={!!(f.name.trim() || f.email.trim() || f.title.trim() || roles.length)}
+      footer={
+        <>
+          <ModalCancelButton />
+          <Button kind="primary" icon="plus" pending={invite.pending} onClick={() => void submit()}>Lägg till kollega</Button>
+        </>
+      }
+    >
+      <Stack>
+        <p className="text-text-muted">Kollegan loggar in med sin e-postadress på jobbet och en sexsiffrig engångskod. Rollerna gäller i avtalet och kan ändras när som helst.</p>
+        {serverErr && <Notice tone="critical">{serverErr}</Notice>}
+        {tried && (
+          <ErrorSummary
+            items={(["name", "email", "roles"] as const).filter((k) => errs[k]).map((k) => ({ id: k === "roles" ? "ny-kollega-role-admin" : `ny-kollega-${k}`, text: errs[k] as string }))}
+            title="Rätta det här innan du lägger till kollegan"
+          />
+        )}
+        <FormGrid>
+          <Field id="ny-kollega-name" label="Namn" required help="För- och efternamn." error={show("name")}>
+            <Input value={f.name} onValueChange={set("name")} maxLength={120} />
+          </Field>
+          <Field id="ny-kollega-email" label="E-postadress" required help={`Adressen på jobbet – slutar på @${domains.join(" eller @")}.`} error={show("email")}>
+            <Input type="email" value={f.email} onValueChange={set("email")} maxLength={200} />
+          </Field>
+          <Field id="ny-kollega-title" label="Titel" help="Valfritt, till exempel Jobbcoach. Visas i listan över kollegor.">
+            <Input value={f.title} onValueChange={set("title")} maxLength={80} />
+          </Field>
+        </FormGrid>
+        <RolePicker idPrefix="ny-kollega" value={roles} onChange={(r) => { setServerErr(null); setRoles(r); }} error={show("roles")} />
+        <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-text-muted">
+          <Icon name="mail" className="mt-px" />
+          <div>
+            <b className="font-bold text-antracit">Mejlet till kollegan (inga personuppgifter):</b> {STAFF_INVITE_TEXT}
+          </div>
+        </div>
+      </Stack>
+    </Modal>
+  );
+}
+
+// ================================================================ Ändra roller
+function RolesModal({ user, onClose }: { user: MbUserRow; onClose: () => void }) {
+  const save = useCommand(adminSetStaffRoles);
+  const [roles, setRoles] = useState<SupplierRole[]>(user.roles);
+  const [tried, setTried] = useState(false);
+  const [serverErr, setServerErr] = useState<string | null>(null);
+  const order = STAFF_ROLES.map((r) => r.role);
+  const sorted = order.filter((r) => roles.includes(r));
+  const changed = sorted.join("|") !== user.roles.join("|");
+  const err = !roles.length ? "Välj minst en roll." : user.self && !roles.includes("admin") ? "Du kan inte ta bort din egen roll som systemadministratör." : undefined;
+  const submit = async () => {
+    setTried(true);
+    if (err) {
+      focusFirstError(document.querySelector<HTMLElement>("[role=dialog]"));
+      return;
+    }
+    if (!changed) {
+      onClose();
+      return;
+    }
+    const r = await save.run({ userId: user.id, roles: sorted }).catch(() => null);
+    if (!r || !r.ok) {
+      setServerErr((r && !r.ok && r.message) || "Rollerna kunde inte sparas.");
+      return;
+    }
+    toast(`${user.name} har nu ${sorted.length === 1 ? "rollen" : "rollerna"} ${sorted.map((x) => ROLE_LABEL[x].toLowerCase()).join(", ")}.`);
+    onClose();
+  };
+  return (
+    <Modal
+      title={`Ändra roller – ${user.name}`}
+      onClose={onClose}
+      dirty={changed}
+      footer={
+        <>
+          <ModalCancelButton />
+          <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>Spara roller</Button>
+        </>
+      }
+    >
+      <Stack>
+        <p className="text-text-muted">Rollerna gäller i avtalet. Har kollegan flera roller väljer hen själv roll i sidopanelen.</p>
+        {serverErr && <Notice tone="critical">{serverErr}</Notice>}
+        {tried && err && <ErrorSummary items={[{ id: "roller-role-admin", text: err }]} title="Rätta det här innan du sparar" />}
+        <RolePicker idPrefix="roller" value={roles} onChange={(r) => { setServerErr(null); setRoles(r); }} error={tried ? err : undefined} />
+      </Stack>
+    </Modal>
   );
 }
 
@@ -307,13 +525,13 @@ function InviteModal({ d, onClose }: { d: UsersView; onClose: () => void }) {
 
 // ================================================================ Behörighetsmatris
 const ROLE_TABLE: [string, string, string, string, string][] = [
-  ["Systemadmin", "Miljonbemanning", "Allt inklusive konfiguration och logg", "Användare, avtal, integrationer", "Microsoft Entra ID"],
-  ["Avtalsansvarig och kundansvarig", "Miljonbemanning", "Allt inom sina avtal", "Accepterar och avböjer avrop, godkänner beställarrapport, hanterar avtalsavvikelser, bjuder in kommunanvändare", "Microsoft Entra ID"],
-  ["Operativ samordnare", "Miljonbemanning", "Alla ärenden i avtalet", "Avropsinkorg, tilldelar coach, bokar start", "Microsoft Entra ID"],
-  ["Huvudcoach", "Miljonbemanning", "Egna ärenden", "Kartläggning, avstämningar, närvaro, bedömningar, utfall, rapporter", "Microsoft Entra ID"],
-  ["Handledare, arbetsgivarmatchare och SYV", "Miljonbemanning", "Tilldelade ärenden", "Moment, praktik, arbetsgivarkontakter, närvaro, validering", "Microsoft Entra ID"],
-  ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "Microsoft Entra ID"],
-  ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "Microsoft Entra ID"],
+  ["Systemadmin", "Miljonbemanning", "Allt inklusive konfiguration och logg", "Användare, avtal, integrationer", "E-post och engångskod"],
+  ["Avtalsansvarig och kundansvarig", "Miljonbemanning", "Allt inom sina avtal", "Accepterar och avböjer avrop, godkänner beställarrapport, hanterar avtalsavvikelser, bjuder in kommunanvändare", "E-post och engångskod"],
+  ["Operativ samordnare", "Miljonbemanning", "Alla ärenden i avtalet", "Avropsinkorg, tilldelar coach, bokar start", "E-post och engångskod"],
+  ["Huvudcoach", "Miljonbemanning", "Egna ärenden", "Kartläggning, avstämningar, närvaro, bedömningar, utfall, rapporter", "E-post och engångskod"],
+  ["Handledare, arbetsgivarmatchare och SYV", "Miljonbemanning", "Tilldelade ärenden", "Moment, praktik, arbetsgivarkontakter, närvaro, validering", "E-post och engångskod"],
+  ["Chef och controller", "Miljonbemanning", "Allt i läsläge, nyckeltal, flaggor, revisionslogg", "Kvitterar flaggor, åtgärdsplaner, loggkontroll", "E-post och engångskod"],
+  ["Ekonom", "Miljonbemanning", "Ärendenummer, perioder, avtalsområde, referenser och fakturaunderlag – inga anteckningar eller rapporter", "Fakturakörning, Fortnox, export", "E-post och engångskod"],
   ["Kommunens handläggare", "Botkyrka kommun", "Egna beställda ärenden", "Beställer, läser rapporter, skickar meddelanden, kvitterar. Skapar sitt konto själv med en adress på kommunens domän", "E-post och engångskod"],
   ["Deltagare", "Utan inloggning i piloten", "Egen plan och bokningar (utvecklingsfas 4)", "Svarar på pulsmätningen via engångslänk", "Ingen – BankID senare"],
 ];

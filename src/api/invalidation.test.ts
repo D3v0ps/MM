@@ -62,10 +62,10 @@ const SAMPLES: Record<string, Sample[]> = {
   "ekonomi.preview": one("u-lars", { month: "2027-01", caseId: NADIA }), "ekonomi.case": one("u-lars", { caseId: NADIA }), "ekonomi.caseList": one("u-lars"), "ekonomi.priceList": one("u-lars"), "ekonomi.start": one("u-lars"),
   "inkorg.list": one("u-sara"), "inkorg.item": [...one("u-sara", { id: "em-103" }), ...one("u-sara", { id: "em-101" }), ...one("u-sara", { id: "em-105" }), ...one("u-sara", { id: "em-104" })], "inkorg.confirmation": one("u-sara", { caseId: "case-270049" }),
   "inkorg.decisionForm": one("u-sara", { caseId: "case-270050" }), "inkorg.duplicateCheck": one("u-sara", { pnr: "19900101-1234" }),
-  "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"),
+  "inkorg.start": one("u-sara"), "inkorg.deadlines": one("u-sara"), "inkorg.registerForm": [...one("u-sara"), ...one("u-sara", { emailId: "em-102" })],
   "kommun.start": one("k-maria"), "kommun.bestallning": one("k-maria"), "kommun.dubblett": one("k-maria", { pnr: "19900101-1234" }),
   "kommun.kvitto": one("k-maria", { caseId: NADIA }), "kommun.deltagareLista": one("k-maria"), "kommun.deltagare": one("k-maria", { caseId: NADIA }),
-  "kommun.rapporter": one("k-maria"), "kommun.profil": one("k-maria"), "kommun.testpersoner": one("k-maria", { userIds: ["k-maria"] }), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
+  "kommun.rapporter": one("k-maria"), "kommun.profil": one("k-maria"), "kommun.dictationOptions": one("k-maria", { caseId: NADIA }),
   "kommun.dictationState": one("k-maria", { aiRunId: "ai-run-mehmet" }),
   "ledning.head": one("u-karin"), "ledning.overview": one("u-karin"), "ledning.coaches": one("u-karin"), "ledning.areas": one("u-karin"), "ledning.pulse": one("u-karin"),
   "ledning.cdevRegister": one("u-karin"), "ledning.cdevDetail": one("u-karin", { id: "cd-2" }), "ledning.cdevMonth": one("u-karin", { month: "2027-01" }),
@@ -91,14 +91,21 @@ const AUDIT_CASE = "audit_log:case";
 const WRITES: Record<string, string[]> = {
   "admin.setOrgRule": ["org_settings", "audit_log:org_rule", AUDIT], "admin.runJob": ["*"], "admin.logCheck": ["log_checks", AUDIT], "admin.saveTemplate": ["template_versions", AUDIT],
   "admin.inviteCustomer": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setCustomerActive": ["profiles"],
+  // Kollegorna och rollväxlingen (beslut 2026-10-08).
+  "admin.inviteStaff": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setStaffRoles": ["memberships", AUDIT], "admin.setStaffActive": ["profiles", AUDIT],
+  "admin.setContractManager": ["contracts", AUDIT], "session.vaxlaRoll": ["role_choices", AUDIT],
   "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", AUDIT_CASE, AUDIT],
   "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],
   "arenden.bilagaHamta": [AUDIT],
   "arenden.caseAccept": ["cases", "reports", "inbound_emails", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseDecline": ["cases", "inbound_emails", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
-  "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", AUDIT_CASE, AUDIT],
+  "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseChangeCoach": ["cases", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseClose": ["cases", "reports", "pulse_invites", AUDIT_CASE, AUDIT], "arenden.messageSend": ["messages", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
+  // Starta insatsen, veckoplan, tillfällen och team (beslut 2026-10-08).
+  "arenden.caseStart": ["cases", "activities", "case_status_history", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
+  "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
+  "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
@@ -117,12 +124,15 @@ const WRITES: Record<string, string[]> = {
   "inkorg.emailSetStatus": ["inbound_emails", AUDIT_CASE, AUDIT], "inkorg.emailApplySupplement": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
   "inkorg.correct": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],
   "inkorg.taskDone": ["tasks", AUDIT], "inkorg.revealPnr": [AUDIT_CASE, AUDIT],
+  // Registrera beställning (beslut 4a): samma rader som caseCreate plus mejlet.
+  "inkorg.register": ["persons", "case_counters", "cases", "case_status_history", "inbound_emails", "outbound_messages", "case_attachments", AUDIT_CASE, AUDIT],
   "kommun.caseSeen": ["case_seen"], "kommun.taskDone": ["tasks", AUDIT], "kommun.visaPersonnummer": [AUDIT_CASE, AUDIT], "kommun.profilSpara": ["profiles", AUDIT],
   "kommun.dictationFinish": ["ai_runs", "jobs", "audio_uploads", AUDIT],
   "ledning.alertAck": ["alert_acks", AUDIT_CASE, AUDIT], "ledning.cdevSave": ["contract_deviations", AUDIT], "ledning.cdevClose": ["contract_deviations", AUDIT],
   "ledning.cdevCustomerApproved": ["contract_deviations", AUDIT],
   "notiser.notifRead": ["notification_reads"],
   "praktik.employerAdd": ["employers", AUDIT], "praktik.setRight": ["placements", AUDIT_CASE, AUDIT], "praktik.addFollowUp": ["placements", AUDIT_CASE, AUDIT],
+  "praktik.placementCreate": ["employers", "activities", "placements", "outcome_events", "audit_log:event", AUDIT_CASE, AUDIT], "praktik.placementEnd": ["activities", "placements", AUDIT_CASE, AUDIT],
   "puls.submit": ["pulse_responses", "pulse_invites", "tasks", AUDIT_CASE, AUDIT],
   "rapporter.reportApprove": ["reports", AUDIT_CASE, AUDIT], "rapporter.reportDeliver": ["reports", "outbound_messages", "user_notifications", AUDIT_CASE, AUDIT],
   "rapporter.reportCorrect": ["reports", AUDIT_CASE, AUDIT], "rapporter.reportOpen": ["reports", AUDIT_CASE, AUDIT], "rapporter.snapshot": ["reports"], "rapporter.download": [AUDIT_CASE, AUDIT],
@@ -209,7 +219,7 @@ function knownFor(command: string, query: string, tables: string[]): number[] | 
 /** Frågor som bara slår upp rader (get) eller bara läser uppslagstabeller – de får ingen automatisk kontroll (men står i planen). */
 const NO_TABLES = [
   "admin.auditDetail", "admin.users", "coach.aiRunInfo", "coach.checkInReceipt", "coach.recordingState", "ekonomi.priceList", "inkorg.duplicateCheck",
-  "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "kommun.testpersoner", "puls.link",
+  "inkorg.registerForm", "kommun.bestallning", "kommun.dictationOptions", "kommun.dictationState", "kommun.dubblett", "kommun.kvitto", "kommun.profil", "puls.link",
   "rapporter.byggKatalog", "rapporter.sparad", "rost.link", "rost.sendStatus", "session.ping",
 ];
 

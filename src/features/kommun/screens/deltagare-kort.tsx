@@ -23,7 +23,7 @@ import { joinText, TalaIn } from "./tala-in";
 
 type Tab = "oversikt" | "rapporter" | "meddelanden";
 const TABS: readonly Tab[] = ["oversikt", "rapporter", "meddelanden"];
-const SOURCE_TEXT: Record<string, string> = { portal: "portalen", email: "mejl", phone: "telefon" };
+const SOURCE_TEXT: Record<string, string> = { portal: "portalen", email: "mejl", phone: "telefon", other: "annan väg" };
 
 export function CaseDetail({ caseId, tab: tab0 }: { caseId: string; tab: string | null }) {
   const q = useQuery(kommunCase, { caseId });
@@ -56,7 +56,7 @@ export function CaseDetail({ caseId, tab: tab0 }: { caseId: string; tab: string 
       <KomPage>
         <KomHead title="Du har inte tillgång" back={back} />
         <Notice tone="warn" title="Insatsen är beställd av en annan handläggare">
-          Du ser bara de deltagare som du själv har beställt en insats för. Så fungerar behörigheten i den riktiga tjänsten också.
+          Du ser bara de deltagare som du själv har beställt en insats för.
         </Notice>
       </KomPage>
     );
@@ -159,7 +159,7 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
       title: "Bekräftad",
       filled: !!c.confirmedAt,
       sub: c.confirmedAt ? fDT(c.confirmedAt) : c.acknowledgedAt ? `Senast ${fDT(c.avropDue)}` : "Efter telefonsamtalet",
-      body: <span>Startdatum och coach är klara.</span>,
+      body: <span>{c.confirmedAt ? "Startdatum och coach är klara." : "Då får du startdatum, ansvarig coach och tid för första mötet."}</span>,
     });
     d.coachChanges.forEach((h, i) =>
       tl.push({ key: `coach-${i}`, icon: "users", title: "Ny ansvarig coach", filled: true, sub: fDT(h.at), body: <span>{h.toName} tog över efter {h.fromName}.</span> }),
@@ -490,7 +490,7 @@ function Messages({ d, messages }: { d: KomCaseDetail; messages: KomMessage[] })
                 id="kom-msg"
                 label="Nytt meddelande"
                 error={err ?? undefined}
-                help={`Skriv så lite personuppgifter som möjligt och inga personnummer. Miljonbemanning får ett mejl med texten "Du har ett nytt meddelande om ärende ${c.caseNumber} – logga in för att läsa." Själva meddelandet skickas aldrig med e-post.`}
+                help="Skriv inga personnummer – ärendenumret räcker. Miljonbemanning får ett mejl om att det finns ett nytt meddelande, aldrig själva texten."
               >
                 <TextArea
                   rows={4}

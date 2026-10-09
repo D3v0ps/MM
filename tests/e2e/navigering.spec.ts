@@ -100,7 +100,7 @@ test("länk i kortet ('Visa närvaro per vecka'): fliken byts, flikraden ligger 
   expect(pos.listTop, "flikraden överst").toBeGreaterThanOrEqual(-1);
   expect(pos.listTop).toBeLessThanOrEqual(4);
   expect(Math.abs(pos.panelTop - pos.listBottom), "panelen börjar under flikraden").toBeLessThanOrEqual(6);
-  await expect(main(page).getByRole("heading", { name: /Närvaro per ISO-vecka/i })).toBeVisible();
+  await expect(main(page).getByRole("heading", { name: /Närvaro per vecka/i })).toBeVisible();
   server.stop();
   if (!isDemo(info)) expect(server.seen.rsc).toBe(0);
   expect(errors).toEqual([]);

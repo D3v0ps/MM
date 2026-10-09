@@ -1,7 +1,7 @@
 // Timjobb som kom med självregistreringen och bilagorna (beslut 2026-10-07):
-//   attachments_retention  gallringen av bilagor (src/features/_shared/attachment-retention.ts): uppladdningar som aldrig
-//                          kopplades till en beställning efter 24 timmar, bilagor i avslutade och avböjda ärenden enligt
-//                          avtalets regel, och filer i bucketen utan levande rad (avstämningen)
+//   attachments_retention  städningen av bilagor (src/features/_shared/attachment-retention.ts): uppladdningar som aldrig
+//                          kopplades till en beställning efter 24 timmar, och filer i bucketen utan levande rad (avstämningen).
+//                          Bilagor i ett ärende gallras aldrig automatiskt (beslut 5, 2026-10-08).
 //   auth_cleanup           Auth-användare som skapades när en kod skickades till en ny adress (självregistrering) men där koden
 //                          aldrig prövades – ingen profil – raderas efter 24 timmar. Bara antalet loggas.
 // Jobben läggs en gång per timme före varje jobbkörning (samma id för timmen, som gallringen av ljud i voice.ts).
@@ -47,9 +47,9 @@ export function attachmentJobHandlers<D extends AttachmentJobDeps>(): Record<str
   return {
     [ATTACHMENTS_RETENTION_JOB]: {
       async run(_job, d) {
-        if (!d.attachmentsCtx) throw new JobError("Bilagornas gallring kan inte köras här", { retryable: false });
+        if (!d.attachmentsCtx) throw new JobError("Bilagornas städning kan inte köras här", { retryable: false });
         const r = await runAttachmentRetention(d.attachmentsCtx());
-        const n = r.unlinked + r.retention + r.orphans;
+        const n = r.unlinked + r.orphans;
         return n > 0 ? `deleted:${n}` : "none";
       },
     },

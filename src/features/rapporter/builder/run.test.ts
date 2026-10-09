@@ -71,7 +71,7 @@ describe("sammanställning", () => {
   });
   it("noterna: tomma celler i andelar och litet underlag för resultatgraden (minN ur kpis)", () => {
     const v = view(run(summaryDef({ measures: ["narvarograd", "tydlig_progression"] }), {
-      resultat: [mRow(1, "2026-10"), mRow(2, "2026-10", { narvarande: 0, franvaro_giltig: 0, bedomning_godkand: 0, progression_tydlig: null })],
+      resultat: [mRow(1, "2026-10"), mRow(2, "2026-10", { _narvaro_pa_plats: 0, _narvaro_registrerade: 0, narvaro_procent: null, bedomning_godkand: 0, progression_tydlig: null })],
     }));
     expect(v.notes).toEqual(["1 deltagarmånad har ingen registrerad närvaro och räknas inte.", "1 deltagarmånad utan godkänd bedömning räknas inte."]);
     const minN = BOTKYRKA_CONFIG.kpis.find((k) => k.key === "resultatgrad")!.minN!;
@@ -106,7 +106,7 @@ describe("sammanställning", () => {
 
 describe("kommunens läge", () => {
   const cfg3 = cfgWith((c) => { c.pulse.minNForAggregate = 3; });
-  const rows = [...people(1, 2, "2026-10", { avtalsomrade_kod: "B" }), ...people(10, 3, "2026-10", { avtalsomrade_kod: "G" }), ...people(20, 4, "2026-11", { avtalsomrade_kod: "H", narvarande: 5, franvaro_giltig: 5 })];
+  const rows = [...people(1, 2, "2026-10", { avtalsomrade_kod: "B" }), ...people(10, 3, "2026-10", { avtalsomrade_kod: "G" }), ...people(20, 4, "2026-11", { avtalsomrade_kod: "H", _narvaro_pa_plats: 5, _narvaro_registrerade: 10, narvaro_procent: 50 })];
   const def = summaryDef({ groupBy: "avtalsomrade_kod", measures: ["deltagarmanader", "narvarograd"], chart: { measure: "narvarograd" } });
   const k = view(run(def, { resultat: rows }, { audience: "kommun", cfg: cfg3 }));
 

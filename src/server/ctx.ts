@@ -8,6 +8,7 @@
 //   audio   ljudfilerna i Supabase Storage (src/server/audio) – byggs med förfrågans system, klocka och id
 //   attachments  bilagorna i Supabase Storage (src/server/attachments) – byggs på samma sätt
 //   jobs    kön för bakgrundsjobb: schedule() kör jobben med after() när svaret skickats (röstjobben, voice-jobs.ts)
+//   fortnox Fortnox-porten – sätts inte (live.ts, jobben) förrän en riktig klient finns: ekonomen ser "inte kopplat"
 import type { AuditEntry, Ctx, JobKick, OutgoingMessage, PnrCrypto } from "@/api/server";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
@@ -15,6 +16,7 @@ import type { AppRepo } from "@/data/schema";
 import type { AiPort } from "@/features/_shared/ai-port";
 import type { AttachmentPort } from "@/features/_shared/attachment-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
+import type { FortnoxPort } from "@/features/_shared/fortnox-port";
 
 export type Enqueue = (system: AppRepo, msg: OutgoingMessage, now: LocalDateTime) => Promise<unknown>;
 
@@ -52,6 +54,10 @@ export function liveCtx(o: {
   attachments?: (d: { system: AppRepo; now: () => LocalDateTime; newId: (prefix: string) => string }) => AttachmentPort;
   /** Kör köade bakgrundsjobb snart (after()). Anropas högst en gång per förfrågan även om flera jobb läggs. */
   scheduleJobs?: () => void;
+  /** Fortnox-porten. Utelämnas tills en riktig klient finns – aldrig den simulerade i supabase-läget (pengasäkerhet). */
+  fortnox?: FortnoxPort;
+  /** Tillåtna domäner för personalens adresser (MM_STAFF_EMAIL_DOMAINS) – "Lägg till kollega". */
+  staffEmailDomains?: readonly string[];
 }): Ctx {
   const newId = o.newId ?? randomId;
   const now = () => o.now;
@@ -92,5 +98,7 @@ export function liveCtx(o: {
     ...(o.audio ? { audio: o.audio({ system: o.system, now, newId }) } : {}),
     ...(o.attachments ? { attachments: o.attachments({ system: o.system, now, newId }) } : {}),
     ...(jobs ? { jobs } : {}),
+    ...(o.fortnox ? { fortnox: o.fortnox } : {}),
+    ...(o.staffEmailDomains ? { staffEmailDomains: o.staffEmailDomains } : {}),
   };
 }

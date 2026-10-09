@@ -12,7 +12,7 @@ import { isUnset, type OperationalConfig } from "@/core/config";
 import { resultTally } from "@/core/kpi";
 import { END_REASON_LABEL } from "@/core/labels";
 import type { ResultClass } from "@/data/schema";
-import type { ExportRow } from "../export";
+import { INTERNAL_FIELDS, type ExportRow } from "../export";
 import { numberWord } from "../export-columns";
 import { joinSv } from "../report-helpers";
 import { MEASURE_LABEL, MEASURES_BY_DATASET, type Dataset, type MeasureKey } from "./definition";
@@ -71,9 +71,10 @@ const MEASURES: readonly MeasureDef[] = [
       let n = 0;
       let d = 0;
       let skipped = 0;
+      // Ur de frysta fakta (radens interna fält) – inte ur resultatfilens kolumner, som bara har närvarograden (schemaversion 2).
       for (const r of rows) {
-        const onSite = num(r.narvarande) + num(r.sen_ankomst);
-        const registered = onSite + num(r.franvaro_giltig) + num(r.franvaro_ogiltig);
+        const onSite = num(r[INTERNAL_FIELDS.onSite]);
+        const registered = num(r[INTERNAL_FIELDS.registered]);
         if (!registered) skipped++;
         n += onSite;
         d += registered;

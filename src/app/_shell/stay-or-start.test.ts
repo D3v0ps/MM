@@ -30,12 +30,13 @@ describe("stayOrStart", () => {
     expect(stayOrStart("/admin/avtal", "admin", false)).toBe("/admin/avtal");
   });
 
-  it("Min vecka: alla MB-roller stannar; /start stannar för samordnare och avtalsansvarig och leder sedan vidare (beslut 2026-10-06)", () => {
-    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) expect(stayOrStart("/min-vecka", role), role).toBe("/min-vecka");
+  it("Min vecka: alla MB-roller stannar; /start stannar för alla MB-roller och leder sedan vidare (beslut 2026-10-06, alla roller sedan 2026-10-08)", () => {
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) {
+      expect(stayOrStart("/min-vecka", role), role).toBe("/min-vecka");
+      expect(stayOrStart("/start", role), role).toBe("/start");
+    }
     expect(stayOrStart("/min-vecka", "kommun_handlaggare")).toBe("/");
-    expect(stayOrStart("/start", "samordnare")).toBe("/start");
-    expect(stayOrStart("/start", "avtalsansvarig")).toBe("/start");
-    expect(stayOrStart("/start", "coach")).toBe("/");
+    expect(stayOrStart("/start", "kommun_handlaggare")).toBe("/");
     // De gamla startsidorna finns kvar under rollens flik.
     expect(stayOrStart("/handledare", "handledare")).toBe("/handledare");
     expect(stayOrStart("/ledning", "chef")).toBe("/ledning");

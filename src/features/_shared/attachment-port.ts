@@ -19,10 +19,10 @@
 //   link          -> kopplas till ärendet när beställningen skickas (caseId, linkedAt)
 //   signedDownload-> kort signerad adress (appen) eller innehållet (minnet)
 //   remove        -> filen raderas ur lagringen, raden får status deleted, deletedAt och orsak (spåret finns kvar)
-// Gallringen (jobbet attachments_retention): uppladdningar som aldrig kopplades raderas efter 24 timmar; bilagor i avslutade
-// och avböjda ärenden raderas enligt avtalets retentionRules.attachmentsAfterCloseDays (ATT_FASTSTÄLLA = inget raderas); och
-// filer i lagringen utan levande rad raderas (avstämningen – en signerad uppladdningsadress gäller i 2 timmar och kan användas
-// igen efter att filen tagits bort eller avvisats, granskningen 2026-10-07).
+// Städningen (jobbet attachments_retention): uppladdningar som aldrig kopplades raderas efter 24 timmar, och filer i lagringen
+// utan levande rad raderas (avstämningen – en signerad uppladdningsadress gäller i 2 timmar och kan användas igen efter att
+// filen tagits bort eller avvisats, granskningen 2026-10-07). Bilagor i ett ärende gallras aldrig automatiskt: Miljonbemanning
+// tar bort dem för hand tidigast när ärendet är avslutat (beslut 5, 2026-10-08).
 import { ApiError, type Ctx } from "@/api/server";
 import {
   ATTACHMENT_MAX_BYTES, ATTACHMENT_TYPES_TEXT, attachmentMime, attachmentStoragePath, cleanFileName, signatureMatches,
@@ -66,6 +66,11 @@ export interface AttachmentPort {
    * (appen läser filen ur lagringen). Fel storlek eller signatur: filen raderas (reason invalid) och svaret är null.
    */
   confirm(id: string, content?: Uint8Array | null): Promise<CaseAttachment | null>;
+  /**
+   * Lägg in en fil från servern (mejlinläsningen, beslut 4c 2026-10-08): raden skapas och innehållet kontrolleras (typ,
+   * storlek, filsignatur) och sparas i ett steg – status uploaded. Null om filen inte togs emot (ingen rad finns då kvar).
+   */
+  store(meta: AttachmentUploadMeta, content: Uint8Array): Promise<CaseAttachment | null>;
   /** Koppla uppladdade filer (utan ärende) till ärendet. */
   link(ids: readonly string[], caseId: string): Promise<void>;
   /** Adressen eller innehållet för nedladdning. Null om filen saknas eller är raderad. */
@@ -144,6 +149,21 @@ export function createMemoryAttachments(o: { system: AppRepo; now: () => LocalDa
         return table().update(id, { status: "uploaded", bytes: content.byteLength });
       }
       return table().update(id, { status: "uploaded" });
+    },
+    async store(meta, content) {
+      let fileName: string;
+      let mimeType: string;
+      try {
+        ({ fileName, mimeType } = validateAttachment({ ...meta, bytes: content.byteLength }));
+      } catch {
+        return null;
+      }
+      if (!signatureMatches(mimeType, content.slice(0, 16))) return null;
+      const id = o.newId("att");
+      const row = await table().insert({ ...newAttachmentRow(id, { ...meta, bytes: content.byteLength }, mimeType, fileName, o.now()), status: "uploaded" });
+      blobs.set(id, content);
+      pathOf.set(id, row.storagePath);
+      return row;
     },
     async link(ids, caseId) {
       for (const id of ids) await table().update(id, { caseId, linkedAt: o.now() });

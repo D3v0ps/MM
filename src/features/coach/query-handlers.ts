@@ -25,7 +25,7 @@ import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
 import { orgSettingsFor } from "../_shared/context";
-import { RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
+import { aiOff, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
@@ -160,6 +160,8 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
   const caseById = new Map(cases.map((c) => [c.id, c]));
   const active = cases.filter((c) => c.status === "active");
   const activeIds = new Set(active.map((c) => c.id));
+  // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
+  const toStart = cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= today).sort(by<Case>("firstMeetingAt"));
 
   // Närvaro att registrera (förra veckan)
   const unreg = unregistered(all, me, lastMon, addDays(lastMon, 6), main);
@@ -229,6 +231,7 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
       };
     }),
     next: next ? { id: next.id, shortName: shortNameOf(person(caseById.get(next.caseId) as Case)) } : null,
+    toStart: toStart.map((c) => ({ ...row(c), firstMeetingAt: c.firstMeetingAt as string })),
     drafts: drafts.map((ci) => ({
       checkInId: ci.id, ...row(caseById.get(ci.caseId) as Case), heldAt: ci.heldAt, inputMethod: ci.inputMethod,
       audioDeletedAt: ci.ai?.audioDeletedAt ?? null, rawTranscriptDeleteBy: ci.ai?.rawTranscriptDeleteBy ?? null,
@@ -347,6 +350,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
     absenceReasons: [...ABSENCE_REASONS],
     repeatedRule: { ...main.cfg.attendance.repeatedAbsenceRule },
     caseCount: cases.length,
+    cases: cases.filter((c) => c.status === "active").map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), location: c.location })),
     weeks: { last: await week(lastMon), this: await week(thisMon) },
   };
 });
@@ -402,7 +406,7 @@ handleQuery(casePicker, { roles: ["coach"] }, async (ctx, p) => {
       });
     } else {
       const n = eventsOf(db, c.id).length;
-      rows.push({ ...base, badge: null, note: `${n} ${n === 1 ? "händelse registrerad" : "händelser registrerade"}` });
+      rows.push({ ...base, badge: null, note: n === 0 ? "Inga händelser ännu" : `${n} ${n === 1 ? "händelse registrerad" : "händelser registrerade"}` });
     }
   }
   return { month, monthDueAt: monthDueFor(main.cfg, month) ?? `${monthEnd(addMonths(month, 1))}T23:59`, monthDueNote: monthDueNote(main.cfg), rows };
@@ -462,8 +466,9 @@ handleQuery(checkInPage, { roles: ["coach"] }, async (ctx, p) => {
     seesCoachNotes: !!env.cfg.customerVisibility.seesCoachNotes,
     options: { activityTypes: [...ACTIVITY_TYPES], obstacles: [...OBSTACLES], goalsByPhase: Object.fromEntries(Object.entries(GOALS).map(([k, v]) => [Number(k), [...v]])) },
     // Röstinspelning: avtalet (ai.recording.coach), skyddade personuppgifter och samtycket – samma regel som rost.uploadStart.
+    // AI av (produktion utan leverantör, beslut 2026-10-08): klartext i stället för en inspelning som inte kan tolkas.
     recording: (() => {
-      const block = recordingBlock({ cfg: env.cfg, kind: "coach", person, consent: c.aiConsentStatus });
+      const block = aiOff(ctx) ? "ai_off" : recordingBlock({ cfg: env.cfg, kind: "coach", person, consent: c.aiConsentStatus });
       return { allowed: !block, block, blockText: block ? RECORDING_BLOCK_TEXT[block] : null, maxMinutes: recordingMaxMinutes(env.cfg, "coach") ?? 0 };
     })(),
   };
@@ -571,6 +576,7 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     dueNote: monthDueNote(env.cfg),
     goals: [...(GOALS[Math.min(5, c.phase)] ?? [])],
     aiDraft: aiOk ? await latestMonthlyDraft(ctx, c.id, month) : null,
+    aiOff: aiOff(ctx),
     notes: await monthNotes(ctx, c.id, month),
   };
 });

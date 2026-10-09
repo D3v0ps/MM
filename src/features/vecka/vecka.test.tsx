@@ -196,7 +196,7 @@ describe("Min vecka per roll", () => {
   it("ekonomen: fakturakörningen, uppgifterna och referenserna – samma kort som Fakturering", async () => {
     const { keys } = setup("ekonom");
     const h = await headings("Uppgifter till dig");
-    expect(KPI_LABELS()).toEqual(["Januari att fakturera", "Stoppade fakturor", "Preskriptions­risk", "Senast i Fortnox"]);
+    expect(KPI_LABELS()).toEqual(["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"]);
     expect(KPI_LINKS()).toEqual({ "Januari att fakturera": "#/ekonomi/2027-01", "Stoppade fakturor": "#/ekonomi/2027-01", "Senast i Fortnox": "#/ekonomi/2027-01" });
     // En faktura per avtal och månad (beslut 2026-10-07): referensen fylls i per faktura.
     for (const t of ["Fakturakörning januari 2027", "Fakturor som saknar beställarreferens", "Returnerade fakturor", "Veckor utan närvaro att kontrollera", "Olästa notiser"]) {

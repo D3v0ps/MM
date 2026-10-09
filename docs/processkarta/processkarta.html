@@ -468,7 +468,7 @@ const DATA = {
      ],
      "where": "Mejl",
      "trigger": "Kommunen har beslutat om en insats och du vill beställa med mejl.",
-     "deadline": "Ordererkännandet ska komma automatiskt inom 5 minuter när inläsningen är inkopplad. Besked om start och coach kommer inom en arbetsdag.",
+     "deadline": "Ordererkännandet kommer automatiskt inom 5 minuter när mallen är ifylld, annars när Miljonbemanning har registrerat beställningen. Besked om start och coach kommer inom en arbetsdag.",
      "result": "Mejlet läses in, tolkas och blir ett ärende med ärendenummer. Samordnaren ser originalet bredvid de tolkade uppgifterna i avropsinkorgen.",
      "handoffTo": [
       "system",
@@ -481,11 +481,11 @@ const DATA = {
      "rules": [
       "Svaret innehåller aldrig personuppgifter.",
       "Tidsgränsen räknas från när mejlet kom in.",
-      "Den automatiska inläsningen av brevlådan via Microsoft Graph kopplas in senare. Avropsinkorgen och tolkningen finns redan i appen och visas i prototypen med påhittade mejl.",
+      "Mejlet läses in varannan minut. Går det inte att tolka automatiskt registrerar Miljonbemanning beställningen för hand – du får ordererkännandet ändå.",
       "Den nya Word-mallen (omfattning i månader, kartläggning och bakgrund, ingen beställarreferens, texten Lämnas tomt – tilldelas av Miljonbemanning) tas fram i förberedelserna. Den är inte klar än."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
     },
     {
      "phase": "bestallning",
@@ -498,7 +498,7 @@ const DATA = {
      ],
      "where": "/portal/bestall – kvittot Tack! Beställningen är skickad, och mejl",
      "trigger": "Du har skickat en beställning.",
-     "deadline": "I portalen visas det direkt. Mejlbeställningar: inom 5 minuter när inläsningen är inkopplad.",
+     "deadline": "I portalen visas det direkt. Mejlbeställningar: inom 5 minuter när mallen är ifylld, annars när Miljonbemanning har registrerat beställningen.",
      "result": "Du har ärendenumret och vet senaste tid för besked. Deltagaren står som Väntar på bekräftelse i Mina deltagare.",
      "handoffTo": [
       "samordnare"
@@ -534,10 +534,10 @@ const DATA = {
      ],
      "rules": [
       "Beställarreferens och avtalsområde behöver du inte skicka – Miljonbemanning fyller i dem.",
-      "Den automatiska kopplingen via Microsoft Graph kopplas in senare."
+      "Svaret kopplas automatiskt till ärendet via ärendenumret i ämnesraden."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
     },
     {
      "phase": "svar",
@@ -851,6 +851,7 @@ const DATA = {
       "Öppna mejlet Ny rapport i portalen och logga in.",
       "Öppna Slutrapport i fliken Rapporter hos deltagaren, eller välj filtret Slutrapporter.",
       "Läs resultatet för hela perioden, kvarstående hinder och rekommenderad fortsättning.",
+      "Avsnitt 2 Närvaro visar perioden och närvarograden – inga månadsrader, orsaker eller antal (beslut 2026-10-08, som månadsrapporten).",
       "Se avslutsdatum och orsak på deltagarens sida. Status är Avslutad."
      ],
      "where": "/portal/rapporter/:reportId – rapportsidan (Slutrapport)",
@@ -960,7 +961,7 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Tar emot varje avrop, svarar inom en arbetsdag, väljer huvudcoach och bokar start – och bevakar sedan att närvaro, veckorapporter och månadsrapporter kommer i tid.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton. Du loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas. Du loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar.",
    "startPage": "/min-vecka – Min vecka (/start leder hit)",
    "rhythm": [
     {
@@ -989,7 +990,7 @@ const DATA = {
     },
     {
      "when": "Vid behov",
-     "what": "Byta huvudcoach, registrera en avtalsavvikelse, kontrollera utskicksloggen, hjälpa till med slutrapporter och bygga egna rapporter i Bygg rapport."
+     "what": "Registrera en beställning som kom per telefon, på annat sätt eller med ett mejl som inte kunde tolkas, byta huvudcoach, registrera en avtalsavvikelse, kontrollera utskicksloggen, hjälpa till med slutrapporter och bygga egna rapporter i Bygg rapport."
     }
    ],
    "steps": [
@@ -1033,7 +1034,7 @@ const DATA = {
       "Personnummer visas maskerat. Klicka Visa bara om du behöver. Visningen loggas."
      ],
      "where": "/inkorg – Avropsinkorg",
-     "trigger": "Ett nytt avrop har kommit in. Rutan Att hantera i inkorgen visar en siffra. Ordererkännandet med ärendenummer går ut automatiskt när inläsningen via Microsoft Graph är inkopplad.",
+     "trigger": "Ett nytt avrop har kommit in. Rutan Att hantera i inkorgen visar en siffra. Mejl till avrop@ läses in varannan minut och ordererkännandet med ärendenummer går ut automatiskt när mejlet gick att tolka.",
      "deadline": "Svar senast en arbetsdag efter att mejlet kom in. Svenska helgdagar räknas bort.",
      "result": "Beställningsuppgifterna är kontrollerade och loggade. Avropet är redo att accepteras eller avböjas.",
      "handoffTo": [
@@ -1043,9 +1044,38 @@ const DATA = {
       "Kommunens handläggare får ordererkännandet automatiskt inom 5 minuter: ärendenummer och när besked kommer. Saknas startdatum, omfattning eller deltagarens uppgifter frågar samma mejl efter det. Inga personuppgifter."
      ],
      "rules": [
-      "Word-mallen tolkas utan AI. Fritext tolkas med AI. AI föreslår – du kontrollerar mot originalet.",
-      "Automatisk inläsning från avrop@ via Microsoft Graph kopplas in senare. I dag visar inkorgen påhittade testdata.",
+      "Word-mallen och mejl med mallens etiketter tolkas utan AI. Fritext tolkas inte automatiskt (AI-tolkning hör till fas 2) – du registrerar den med knappen Registrera beställningen i mejlet.",
+      "Mejl till avrop@ läses in varannan minut via Microsoft Graph när brevlådan är kopplad (systemadministratören). Mejlen ligger kvar i mappen Inläst som reserv.",
       "Klockan för svar startar när mejlet kom in."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "bestallning",
+     "title": "Registrera en beställning som kom per telefon, mejl eller på annat sätt",
+     "why": "Alla beställningar ska in i Miljonmatch så att ärendenumret, ordererkännandet och svarstiden gäller – också när handläggaren ringde, eller när mejlet inte gick att tolka automatiskt.",
+     "how": [
+      "Öppna Avropsinkorg och klicka Registrera beställning. Kom beställningen med ett mejl som inte kunde tolkas: klicka Registrera beställningen i mejlet – formuläret är då förifyllt med det som gick att läsa ut.",
+      "Ange hur beställningen kom (mejl, telefon eller annat sätt) och när den kom. Svarstiden räknas från den tiden.",
+      "Välj handläggaren om hen har konto, annars skriv namn, e-postadress på kommunens domän, enhet och telefon. Inget konto skapas – ärendet kopplas när handläggaren själv skapar konto med samma adress.",
+      "Fyll i samma uppgifter som i kommunens formulär: startdatum, omfattning, deltagaren, kartläggning, bilagor och bakgrund. Beställarreferensen är valfri nu.",
+      "Klicka Registrera beställningen. Ärendet får ärendenummer, handläggaren får ordererkännandet, och beställningen hamnar i Att hantera där du accepterar eller avböjer som vanligt."
+     ],
+     "where": "/inkorg/registrera – Avropsinkorg, Registrera beställning",
+     "trigger": "En handläggare ringde eller skrev på annat sätt, eller ett mejl i inkorgen är märkt Beställningen behöver registreras för hand.",
+     "deadline": "Svar till kommunen senast en arbetsdag efter att beställningen kom in – inte efter att den registrerades.",
+     "result": "Beställningen finns som ärende med ärendenummer, syns i inkorgen som registrerad av Miljonbemanning och följer sedan det vanliga flödet.",
+     "handoffTo": [
+      "samordnare"
+     ],
+     "notified": [
+      "Handläggaren får ordererkännandet med e-post: ärendenummer och när besked kommer. Inga personuppgifter."
+     ],
+     "rules": [
+      "Personnumret skrivs in och krypteras – det finns aldrig i adresser eller loggar. Finns det i mejlet behöver du inte skriva det igen.",
+      "Handläggarens adress måste ha kommunens domän. Miljonbemanning skapar inga konton åt kommunen.",
+      "Registreringen loggas i revisionsloggen med ärendenummer och kanal."
      ],
      "voice": false,
      "status": "finns"
@@ -1164,6 +1194,36 @@ const DATA = {
      "rules": [
       "Kallelsen innehåller inga personuppgifter.",
       "Ett möte efter gränsen markeras som sent i uppföljningen."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "start",
+     "title": "Starta insatsen efter första mötet",
+     "why": "Coachen startar oftast insatsen själv. Som samordnare kan du göra det när coachen är borta – annars blir ärendet aldrig Pågår.",
+     "how": [
+      "Min vecka visar Insatser att starta när första mötet är i dag eller har passerat. Klicka Starta insatsen. Samma knapp finns under Åtgärder på deltagarkortet.",
+      "Kontrollera Startdatum – första mötets dag är förvalt. Startdatumet kan inte vara före första mötet.",
+      "Gå igenom Veckoplan: kryssa i dagarna, välj typ (Coachträff, Yrkesmoment eller Praktikdag), tid, längd och plats. Avtalets standard är coachträff på första mötets dag och tid samt yrkesmoment tisdag och torsdag 09.00.",
+      "Klicka Starta insatsen."
+     ],
+     "where": "/min-vecka – Min vecka, eller /arenden/:caseId – Deltagarkort",
+     "trigger": "Första mötet har hållits",
+     "deadline": "Samma dag som första mötet. Veckorna räknas från startdatumet.",
+     "result": "Ärendet är Pågår med startdatum. Tillfällena är skapade från startdatumet till planerat slut (helgdagar hoppas över) och syns under Närvaro och på Min vecka. Starten står i historiken och revisionsloggen.",
+     "handoffTo": [
+      "coach",
+      "handledare",
+      "system"
+     ],
+     "notified": [
+      "Inga utskick. Kommunen ser status Pågår och startdatumet i portalen."
+     ],
+     "rules": [
+      "Bara huvudcoachen, samordnaren och avtalsansvarig kan starta insatsen, och bara en gång.",
+      "Startdatumet kan inte vara före första mötet, och ärendet måste ha ett planerat slut.",
+      "Tillfällen planeras högst 60 veckor framåt. Pausade veckor får inga tillfällen."
      ],
      "voice": false,
      "status": "finns"
@@ -1306,6 +1366,32 @@ const DATA = {
       "Kommunens handläggare: mejl Ny huvudcoach för {ärendenummer} – logga in i portalen för att se vem."
      ],
      "rules": [],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "svar",
+     "title": "Ändra teamet runt deltagaren",
+     "why": "Handledaren ska kunna läggas till när som helst – inte bara när avropet accepteras. Listorna bygger på kollegornas roller i avtalet, så en nyligen tillagd handledare syns direkt.",
+     "how": [
+      "Öppna Deltagarkortet och klicka Ändra team under Åtgärder.",
+      "Kryssa i Handledare (alla med rollen handledare). Välj Arbetsgivarmatchare och SYV/metodstöd om det behövs – vem som helst av Miljonbemannings personal utom ekonom och systemadministratör.",
+      "Klicka Spara teamet. Huvudcoachen byts med Byt huvudcoach."
+     ],
+     "where": "/arenden/:caseId – Deltagarkort",
+     "trigger": "En handledare, arbetsgivarmatchare eller SYV ska in i eller ut ur ärendet",
+     "deadline": "",
+     "result": "Teamet är sparat. Handledaren ser ärendet direkt under Mina tilldelade ärenden och i Närvaro. Den som tas bort ser det inte längre.",
+     "handoffTo": [
+      "handledare"
+     ],
+     "notified": [
+      "Nya medlemmar: notis i appen och mejlet Du har fått ett nytt ärende i Miljonmatch: {ärendenummer}. Inga personuppgifter."
+     ],
+     "rules": [
+      "Bara samordnare och avtalsansvarig ändrar teamet. Ändringen loggas.",
+      "Samma person kan bara ha en roll i teamet. Ekonom och systemadministratör kan inte ingå."
+     ],
      "voice": false,
      "status": "finns"
     },
@@ -1641,7 +1727,7 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Kan avtalet och äger kundrelationen: godkänner beställarrapporten och lämnar den och resultatfilen till kommunen, sköter avtalsavvikelser, varningar och åtgärdsplaner och spärrar kommunens konton vid behov.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton. Du loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas. Du loggas ut efter 60 minuter utan aktivitet och alltid efter 12 timmar.",
    "startPage": "/min-vecka – Min vecka (/start leder hit)",
    "rhythm": [
     {
@@ -2205,7 +2291,7 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Huvudcoachen följer samma deltagare genom hela insatsen. Hen kartlägger vecka 1, träffar deltagaren varje vecka, registrerar närvaro, bedömer progressionen varje månad och avslutar med slutrapport.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas.",
    "startPage": "/min-vecka – Min vecka",
    "rhythm": [
     {
@@ -2331,6 +2417,36 @@ const DATA = {
      "status": "finns"
     },
     {
+     "phase": "start",
+     "title": "Starta insatsen efter första mötet",
+     "why": "Förr blev ett ärende aldrig Pågår i skarp drift: inga tillfällen fanns att registrera närvaro på, ingen vecka blev debiterbar och inga rapporter kunde byggas. Nu startar du insatsen själv när första mötet har hållits.",
+     "how": [
+      "Min vecka visar Insatser att starta när första mötet är i dag eller har passerat. Klicka Starta insatsen. Samma knapp finns under Åtgärder på deltagarkortet.",
+      "Kontrollera Startdatum – första mötets dag är förvalt. Startdatumet kan inte vara före första mötet.",
+      "Gå igenom Veckoplan: kryssa i dagarna, välj typ (Coachträff, Yrkesmoment eller Praktikdag), tid, längd och plats. Avtalets standard är coachträff på första mötets dag och tid samt yrkesmoment tisdag och torsdag 09.00.",
+      "Klicka Starta insatsen."
+     ],
+     "where": "/min-vecka – Min vecka, eller /arenden/:caseId – Deltagarkort",
+     "trigger": "Första mötet har hållits",
+     "deadline": "Samma dag som första mötet. Veckorna räknas från startdatumet.",
+     "result": "Ärendet är Pågår med startdatum. Tillfällena är skapade från startdatumet till planerat slut (helgdagar hoppas över) och syns under Närvaro och på Min vecka. Starten står i historiken och revisionsloggen.",
+     "handoffTo": [
+      "coach",
+      "handledare",
+      "system"
+     ],
+     "notified": [
+      "Inga utskick. Kommunen ser status Pågår och startdatumet i portalen."
+     ],
+     "rules": [
+      "Bara huvudcoachen, samordnaren och avtalsansvarig kan starta insatsen, och bara en gång.",
+      "Startdatumet kan inte vara före första mötet, och ärendet måste ha ett planerat slut.",
+      "Tillfällen planeras högst 60 veckor framåt. Pausade veckor får inga tillfällen."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
      "phase": "vecka",
      "title": "Gå igenom Min vecka",
      "why": "Min vecka samlar det som är mest bråttom så att inga avtalskrav missas.",
@@ -2386,6 +2502,34 @@ const DATA = {
       "Två ogiltiga frånvaron inom 14 dagar ger flaggan ”Upprepad ogiltig frånvaro” och ett förslag på åtgärdsplan.",
       "En frånvaronotis samma dag till kommunen är ett tillval som inte är beslutat. Den är avstängd.",
       "Ett tillfälle kan registreras först när det har börjat."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "vecka",
+     "title": "Ändra veckoplanen eller enstaka tillfällen",
+     "why": "Deltagarens dagar hos er ändras under insatsen – till exempel när praktiken börjar eller ett yrkesmoment flyttar.",
+     "how": [
+      "Deltagarkortet, fliken Närvaro: klicka Ändra veckoplan. Kryssa i dagarna och välj typ, tid, längd och plats. Klicka Spara veckoplanen.",
+      "Ett enstaka tillfälle: klicka Lägg till tillfälle under Närvaro eller på deltagarkortets flik Närvaro. Välj deltagare, typ, datum och tid, längd och plats.",
+      "Ta bort ett planerat tillfälle med Ta bort på raden (Närvaro) eller under Kommande tillfällen på deltagarkortet."
+     ],
+     "where": "/narvaro – Närvaro, eller /arenden/:caseId?flik=narvaro – Deltagarkort, fliken Närvaro",
+     "trigger": "Schemat ändras, ett tillfälle ställs in eller läggs till",
+     "deadline": "",
+     "result": "Kommande tillfällen utan registrerad närvaro ersätts av den nya planen. Tillfällen med registrerad närvaro rörs aldrig.",
+     "handoffTo": [
+      "coach",
+      "handledare"
+     ],
+     "notified": [
+      "Inga utskick"
+     ],
+     "rules": [
+      "Ett tillfälle med registrerad närvaro kan aldrig tas bort eller ersättas.",
+      "Praktikdagar som hör till en praktik ligger kvar när veckoplanen ändras, om planen inte själv innehåller praktikdagar.",
+      "Handledaren kan lägga till och ta bort enstaka tillfällen i sina teamärenden, men inte ändra veckoplanen."
      ],
      "voice": false,
      "status": "finns"
@@ -2567,6 +2711,35 @@ const DATA = {
       "Arbete och studier räknas som resultat först när det finns en verifiering.",
       "Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag. Bonus är avstängd tills incitamentsmodellen är fastställd.",
       "För validering finns händelserna Reell kompetens dokumenterad, Vägledning till formell validering och Yrkeskompetensbevis/diplom utfärdat."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "vecka",
+     "title": "Registrera en ny praktik",
+     "why": "Praktiken är ofta vägen till arbete. Praktikdagarna ska finnas som tillfällen så att närvaron kan registreras och veckorapporten blir rätt.",
+     "how": [
+      "Deltagarkortet, fliken Praktik: klicka Ny praktik. Eller öppna arbetsgivaren under Arbetsgivare och praktik och klicka Ny praktik där.",
+      "Välj Arbetsgivare i registret eller Ny arbetsgivare (namn, ort, kontaktperson, telefon, e-post). Skriv Handledare hos arbetsgivaren.",
+      "Välj Startdag, Slutdag (valfri – annars till planerat slut), Praktikdagar i veckan, Börjar klockan och Omfattning per dag. Skriv Arbetsuppgifter.",
+      "Klicka Spara praktiken. När praktiken är slut: klicka Avsluta praktik på praktikplatsen och välj slutdag."
+     ],
+     "where": "/arenden/:caseId?flik=praktik – Deltagarkort, fliken Praktik, eller /praktik/:employerId – Arbetsgivare",
+     "trigger": "Deltagaren är redo för praktik (rätt tidpunkt)",
+     "deadline": "",
+     "result": "Praktikplatsen är registrerad med rätt tidpunkt bockad. Händelsen Praktik startad finns utan verifiering – ladda upp praktikavtalet under Händelser och utfall. Praktikdagarna är tillfällen och ersätter yrkesmoment samma dagar.",
+     "handoffTo": [
+      "handledare",
+      "kommun_handlaggare"
+     ],
+     "notified": [
+      "Inga utskick. Kommunen ser praktiken i månadsrapporten."
+     ],
+     "rules": [
+      "Bara huvudcoachen, samordnaren och avtalsansvarig registrerar praktik, och bara i ett pågående ärende.",
+      "Yrkesmoment med registrerad närvaro ersätts inte.",
+      "Uppföljningsdatum och de fyra rätten fylls i på praktikplatsen efteråt."
      ],
      "voice": false,
      "status": "finns"
@@ -2964,7 +3137,7 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Är med i deltagarens team som yrkesspecifik handledare, arbetsgivarmatchare eller studie- och yrkesvägledare (SYV/metodstöd). Hen leder yrkesmoment, ordnar praktik och arbetsgivarkontakter, registrerar närvaro och stöttar validering, men bara i de ärenden hen är tilldelad.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Koden gäller i 10 minuter. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Bara inbjudna konton.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Koden gäller i 10 minuter. Inloggning med Microsoft-kontot (Entra ID) kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas.",
    "startPage": "/min-vecka – Min vecka (listan Mina tilldelade ärenden finns i menyn)",
    "rhythm": [
     {
@@ -4046,7 +4219,7 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Följer resultat, tidsgränser och kvalitet i hela avtalet i läsläge, kvitterar flaggor med åtgärdsplaner, hanterar avtalsavvikelser och gör den månatliga loggkontrollen.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Bara inbjudna konton.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas.",
    "startPage": "/min-vecka – Min vecka (Ledningsvyn under fliken Ledning)",
    "rhythm": [
     {
@@ -4646,7 +4819,7 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Gör månadens fakturakörning – en faktura per avtal och månad med en rad per ärende – och fyller i kommunens beställarreferens på fakturan. Den enda rollen som ser belopp. Ser inga namn, anteckningar eller rapporter.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Bara inbjudna konton.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas.",
    "startPage": "/min-vecka – Min vecka (Fakturering, Fakturakörning och Prislista under fliken Ekonomi)",
    "rhythm": [
     {
@@ -5121,12 +5294,12 @@ const DATA = {
    "org": "Miljonbemanning AB",
    "side": "leverantor",
    "oneLiner": "Sköter avtalskonfiguration, användare, mallar, integrationer och bakgrundsjobb så att plattformen följer avtalet och dataskyddet – arbetar aldrig själv i ärendena.",
-   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Bara inbjudna konton.",
+   "login": "Tills vidare: e-postadress och en kod med sex siffror på /logga-in. Inloggning med Microsoft-kontot (Entra ID) och tvåstegsverifiering kommer senare. Kontot läggs till av systemadministratören under Användare och roller (Lägg till kollega) – du får ett mejl med adressen till Miljonmatch, utan personuppgifter. Har du flera roller väljer du roll i sidopanelen under ditt namn; valet sparas.",
    "startPage": "/min-vecka – Min vecka (Avtal och konfiguration nås från Användare och roller och Min vecka)",
    "rhythm": [
     {
      "when": "Dagligen, på morgonen",
-     "what": "Min vecka: bakgrundsjobb, utskick som inte gick iväg, användare och att avrop@ läses (när inläsningen är inkopplad). Alla jobb och Kör nu finns under Underbiträden och integrationer."
+     "what": "Min vecka: bakgrundsjobb, utskick som inte gick iväg, användare och att avrop@ läses (eller Inte kopplad – då följer du stegen i kortet). Alla jobb och Kör nu finns under Underbiträden och integrationer."
     },
     {
      "when": "Varje vecka, måndag efter klockan 08.00 och 16.00",
@@ -5152,9 +5325,10 @@ const DATA = {
      "why": "Mejl är kommunens formella beställningskanal, och ordererkännandet ska gå ut inom 5 minuter.",
      "how": [
       "Öppna Underbiträden och integrationer och kortet avrop@-brevlådan.",
-      "Kontrollera Senast läst och Senaste mejl.",
-      "I tabellen Bakgrundsjobb: titta på Läs avrop@-inkorgen. Klicka Kör nu om det behövs.",
-      "Står inläsningen still: säg till samordnaren. Mejlen ligger kvar i brevlådan som reserv."
+      "Står det Inte kopplad: följ stegen i kortet (appregistrering i Microsoft Entra, behörigheten Mail.ReadWrite, åtkomstpolicy för avrop@ i Exchange Online, nycklarna i Vercel). Steg för steg i docs/DRIFT.md avsnitt 12.",
+      "Står det Kopplad: kontrollera Senast läst, Senaste inläsning och att inget fel visas.",
+      "I tabellen Bakgrundsjobb: titta på Läs avrop@-inkorgen. Klicka Kör nu om du vill läsa in direkt.",
+      "Står inläsningen still: säg till samordnaren, som registrerar mejlen för hand tills det är löst. Mejlen ligger kvar i brevlådan."
      ],
      "where": "/admin/integrationer – Underbiträden och integrationer",
      "trigger": "Varje morgon, och direkt om samordnaren saknar nya avrop.",
@@ -5168,12 +5342,12 @@ const DATA = {
       "Ordererkännande från avrop@ i samma mejltråd, med ärendenummer och utan personuppgifter."
      ],
      "rules": [
-      "Brevlådan läses via Microsoft Graph med en egen appregistrering som bara får läsa avrop@, var 2–5 minut.",
-      "Inläsningen körs i plattformen – inte på en egen dator.",
-      "I dag är inläsningen simulerad i appen. Den automatiska inläsningen kopplas in senare."
+      "Brevlådan läses via Microsoft Graph med en egen appregistrering som bara får nå avrop@, varannan minut. Inlästa mejl flyttas till mappen Inläst och ligger kvar som reserv.",
+      "Inläsningen körs i plattformen (Stockholm) – inte på en egen dator. Hemligheterna finns bara i Vercel.",
+      "Är brevlådan inte kopplad gör jobbet ingenting, och kortet visar hur du kopplar."
      ],
      "voice": false,
-     "status": "senare"
+     "status": "finns"
     },
     {
      "phase": "svar",
@@ -5323,7 +5497,8 @@ const DATA = {
      "how": [
       "Öppna tabellen Bakgrundsjobb och jobbet Gallring enligt PUB-avtalet (dagligen 03.00).",
       "Jobbet är avstängt så länge regeln inte är fastställd – det raderar ingenting.",
-      "När regeln är fastställd: kontrollera att jobbet går och att raderingen loggas."
+      "När regeln är fastställd: kontrollera att jobbet går och att raderingen loggas.",
+      "Bilagor till beställningen gallras aldrig automatiskt (beslut 2026-10-08): samordnare eller avtalsansvarig tar bort dem för hand på deltagarkortet när insatsen är avslutad eller beställningen avböjd. Varje borttagning loggas."
      ],
      "where": "/admin/integrationer – Underbiträden och integrationer, tabellen Bakgrundsjobb",
      "trigger": "Avslutade ärenden passerar gallringstiden.",
@@ -5768,6 +5943,13 @@ const DATA = {
    },
    {
     "role": "coach",
+    "phase": "start",
+    "title": "Startar insatsen",
+    "detail": "När första mötet har hållits visar Min vecka Insatser att starta. Coachen (eller samordnaren) klickar Starta insatsen, kontrollerar startdatumet och veckoplanen – coachträff på första mötets dag, yrkesmoment tisdag och torsdag enligt avtalet – och startar. Ärendet blir Pågår och tillfällena skapas till planerat slut.",
+    "handoff": "Tillfällena finns under Närvaro. Veckorna räknas i fakturaunderlaget från startdatumet."
+   },
+   {
+    "role": "coach",
     "phase": "vecka",
     "title": "Registrerar närvaro",
     "detail": "Öppna Närvaro. Ett klick per tillfälle: Närvarande, Sen, Giltig frånvaro eller Ogiltig frånvaro. Vid giltig frånvaro väljer du bara orsak: sjukdom, vård av barn, myndighetsbesök eller annat giltigt skäl. Inga andra detaljer. Registrera helst samma dag. Förra veckan ska vara klar senast måndag 10.00. Min vecka visar tiden som är kvar. Två ogiltiga frånvaron inom 14 dagar ger flaggan Upprepad ogiltig frånvaro och ett förslag på åtgärdsplan. En notis till kommunen samma dag vid ogiltig frånvaro är inte beslutad och är avstängd.",
@@ -5896,7 +6078,7 @@ const DATA = {
     "role": "admin",
     "phase": "uppfoljning",
     "title": "Håller avtal, användare och utskick i ordning",
-    "detail": "Avtal och konfiguration: tidsgränser, mål och priser. Värden som inte är fastställda märks Ej fastställt och används inte. Interna regler: påminnelser och eskalering (Spara reglerna). Användare och roller: Bjud in kommunanvändare, något som även avtalsansvarig gör, och Spärra. Mallar och utskick: Spara som version och Utskickslogg. Underbiträden och integrationer: bakgrundsjobben, med knappen Kör nu. Revisionslogg: Exportera (CSV). Alla loggar in med e-post och en kod som Miljonmatch själv mejlar från notis@miljonmatch.se, utan länk. Inloggning med Microsoft för personalen kommer senare.",
+    "detail": "Avtal och konfiguration: tidsgränser, mål och priser. Värden som inte är fastställda märks Ej fastställt och används inte. Interna regler: påminnelser och eskalering (Spara reglerna). Användare och roller: Lägg till kollega (namn, e-postadress på jobbet, en eller flera roller, titel), Ändra roller och Spärra för kollegorna – ingen SQL behövs; Bjud in kommunanvändare, något som även avtalsansvarig gör, och Spärra. Avtalsansvarig för avtalet väljs på avtalssidan bland kollegor med den rollen. Mallar och utskick: Spara som version och Utskickslogg. Underbiträden och integrationer: bakgrundsjobben, med knappen Kör nu. Revisionslogg: Exportera (CSV). Alla loggar in med e-post och en kod som Miljonmatch själv mejlar från notis@miljonmatch.se, utan länk. Inloggning med Microsoft för personalen kommer senare. Den som har flera roller väljer roll i sidopanelen. Sedan 2026-10-08 är miljön skarp drift: AI (tal till text) är av tills Google Cloud är kopplat, och appen fungerar utan ett enda ärende.",
     "handoff": ""
    }
   ],
@@ -6005,9 +6187,9 @@ const DATA = {
    },
    {
     "day": "Hela tiden",
-    "time": "Var 2–5 minut",
+    "time": "Varannan minut",
     "who": "Systemet",
-    "what": "Läser avrop@ och skickar ordererkännande inom 5 minuter. Kommer senare, med Microsoft Graph. Beställningar i portalen får svar direkt."
+    "what": "Läser avrop@ via Microsoft Graph när brevlådan är kopplad, tolkar mejlen och skickar ordererkännande inom 5 minuter när avropet går att tolka – annars registrerar samordnaren det för hand. Beställningar i portalen får svar direkt."
    },
    {
     "day": "Hela tiden",
@@ -6114,7 +6296,7 @@ const DATA = {
    "Kommunen har bara rollen handläggare. Beställarrapporten och resultatfilen lämnar Miljonbemanning till kommunen utanför Miljonmatch."
   ]
  },
- "stamp": "Version 7 oktober 2026 · Synpunkterna från genomgången 6 oktober (omgång A: kommunens portal, omgång B: en faktura per avtal och månad, belopp bara för ekonomen) · 173 steg för 9 personer, granskade mot SPEC och appen."
+ "stamp": "Version 9 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, Registrera beställning i avropsinkorgen, mejlinläsning från avrop@ via Microsoft Graph, Starta insatsen med veckoplan, Ny praktik och Ändra team, slutdatum från första mötet, slutrapport och resultatfil bara närvarograd, bilagor raderas bara efter avslut, AI av tills Google Cloud är kopplat (beslut 2026-10-08) · UX-genomgång natten 8–9 oktober · granskade mot SPEC och appen."
 };
 (function () {
   const $ = (s, r = document) => r.querySelector(s);

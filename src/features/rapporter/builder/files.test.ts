@@ -32,7 +32,7 @@ describe("filnamnet", () => {
 describe("CSV", () => {
   it("sammanställning: grupp_kod, grupp, deltagare före måtten, andelar 0–100 med decimalkomma, Totalt sist", () => {
     const { exp, view, rows } = built(summaryDef({ groupBy: "avtalsomrade_kod", measures: ["deltagarmanader", "narvarograd"] }), {
-      resultat: [mRow(1, "2026-10"), mRow(2, "2026-10", { narvarande: 6, franvaro_giltig: 4 })],
+      resultat: [mRow(1, "2026-10"), mRow(2, "2026-10", { _narvaro_pa_plats: 6, _narvaro_registrerade: 10, narvaro_procent: 60 })],
     });
     const csv = builderCsv(fileTable(view, summaryDef({ groupBy: "avtalsomrade_kod", measures: ["deltagarmanader", "narvarograd"] }), exp, rows));
     expect(csv).toBe("grupp_kod;grupp;deltagare;deltagarmanader;narvarograd_procent\r\nG;G Lager och logistik;2;2;75,0\r\n;Totalt;2;2;75,0\r\n");

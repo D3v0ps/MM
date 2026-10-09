@@ -47,6 +47,42 @@ const DELTAGARE = who("deltagare");
 /** Tabeller med coachens anteckningar och bedömningar. */
 const NOTE_TABLES = ["check_ins", "intake_assessments", "monthly_assessments", "monthly_plans", "deviations", "consents"] as const;
 
+describe("rollval (0027, beslut 2026-10-08): den valda rollen styr aktören – bara med medlemskap, bara den egna raden", () => {
+  /** Johan får en andra roll (samordnare) i avtalet. */
+  const withTwoRoles = () => {
+    const s = new MemoryStore<Tables>(createSeed());
+    s.insertRow("memberships", { id: "u-johan:c-bot:samordnare", userId: "u-johan", contractId: "c-bot", role: "samordnare", customerUnit: null });
+    return s;
+  };
+  it("utan val: medlemskapet med lägst id; med val: den valda rollen; ett val utan medlemskap ignoreras", () => {
+    const s = withTwoRoles();
+    expect(actorFor(s.raw(), "u-johan")?.role).toBe("avtalsansvarig"); // "u-johan:c-bot" < "u-johan:c-bot:samordnare"
+    s.insertRow("role_choices", { id: "u-johan", userId: "u-johan", role: "samordnare", chosenAt: "2027-02-01T09:12" });
+    expect(actorFor(s.raw(), "u-johan")?.role).toBe("samordnare");
+    expect(personaFor(s.raw(), "u-johan")?.actor.role).toBe("samordnare");
+    expect(actorFor(s.raw(), "u-johan", "avtalsansvarig")?.role).toBe("avtalsansvarig"); // en angiven roll vinner (testpersonens val)
+    s.updateRow("role_choices", "u-johan", { role: "coach" });
+    expect(actorFor(s.raw(), "u-johan")?.role).toBe("avtalsansvarig");
+  });
+  it("bara den egna raden läses och skrivs, id = userId och rollen måste finnas bland medlemskapen", async () => {
+    const s = withTwoRoles();
+    s.insertRow("role_choices", { id: "u-johan", userId: "u-johan", role: "samordnare", chosenAt: "2027-02-01T09:12" });
+    const johan = who("u-johan", "avtalsansvarig");
+    const sara = who("u-sara");
+    expect(await repoFor(johan, s).table("role_choices").count()).toBe(1);
+    expect(await repoFor(sara, s).table("role_choices").count()).toBe(0);
+    expect(await repoFor(ROBIN, s).table("role_choices").count()).toBe(0); // inte ens admin läser andras val
+    await expect(repoFor(sara, s).table("role_choices").update("u-johan", { role: "coach" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(sara, s).table("role_choices").insert({ id: "u-sara", userId: "u-sara", role: "coach", chosenAt: "2027-02-01T09:13" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(repoFor(sara, s).table("role_choices").insert({ id: "x", userId: "u-sara", role: "samordnare", chosenAt: "2027-02-01T09:13" })).rejects.toBeInstanceOf(PolicyError);
+    await repoFor(sara, s).table("role_choices").insert({ id: "u-sara", userId: "u-sara", role: "samordnare", chosenAt: "2027-02-01T09:13" });
+    expect(await repoFor(sara, s).table("role_choices").count()).toBe(1);
+    await expect(repoFor(johan, s).table("role_choices").update("u-johan", { role: "coach" })).rejects.toBeInstanceOf(PolicyError);
+    await repoFor(johan, s).table("role_choices").update("u-johan", { role: "avtalsansvarig" });
+    expect(s.getRow("role_choices", "u-johan")?.role).toBe("avtalsansvarig");
+  });
+});
+
 describe("testpersoner (actors.ts)", () => {
   it("standardpersonen för varje roll först, i prototypens ordning, sedan övriga användare", () => {
     const ps = listPersonas(raw);

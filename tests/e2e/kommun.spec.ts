@@ -193,7 +193,7 @@ test("1. inloggning med e-post och engångskod (neutralt svar, kod, självregist
 });
 
 // ================================================================ 2. Startsida
-test("2. startsidan för handläggaren: olästa överst, tre stora knappar och Visa alla olästa", async ({ page }, info) => {
+test("2. startsidan för handläggaren: tre stora knappar överst, sedan olästa och Visa alla olästa", async ({ page }, info) => {
   const errors = await open(page, info, "/portal", MARIA);
   await settle(page);
   const big = main(page).getByRole("navigation", { name: "Vad vill du göra?" }).getByRole("link");
@@ -205,9 +205,9 @@ test("2. startsidan för handläggaren: olästa överst, tre stora knappar och V
   expect(texts[2]).toMatch(/Rapporter och meddelanden/);
   expect(texts[2]).toMatch(/4 olästa/);
   let t = await mainText(page);
-  expect(t, "olästa överst (4)").toMatch(/Olästa rapporter och meddelanden \(4\)/i);
+  expect(t, "olästa (4)").toMatch(/Olästa rapporter och meddelanden \(4\)/i);
   expect(t).toMatch(/Tre korta steg och en granskning/);
-  expect(t).not.toMatch(/Visa alla olästa/);
+  expect(t, "listan visar tre – resten bakom Visa alla olästa").toMatch(/Visa alla olästa \(4\)/);
   if (isDemo(info)) await expect(btn(page, "Se startsidan hos Miljonbemanning")).toHaveCount(1);
   // Fler olästa än listan rymmer: coachen skriver i tre av Marias ärenden
   await commands(page, info, [SC.nadia, SC.yusuf, "case-260119"].map((caseId) => ({ key: "arenden.messageSend", input: { caseId, body: "Testmeddelande från coachen." }, as: AMIRA })));
@@ -220,9 +220,9 @@ test("2. startsidan för handläggaren: olästa överst, tre stora knappar och V
   await settle(page);
   await expect(page.getByRole("group", { name: "Visa rapporter" }).getByRole("button", { name: /^Olästa/ }), "filtret Olästa är valt").toHaveAttribute("aria-pressed", "true");
   await go(page, info, "/portal", MARIA);
-  const firstNew = await main(page).locator("section").first().boundingBox();
+  const unreadCard = await main(page).locator("section").filter({ hasText: /Olästa rapporter och meddelanden/ }).first().boundingBox();
   const firstBig = await big.first().boundingBox();
-  expect(firstNew && firstBig && firstNew.y < firstBig.y, "olästa visas ovanför knapparna").toBeTruthy();
+  expect(unreadCard && firstBig && firstBig.y < unreadCard.y, "huvudhandlingen (knapparna) visas ovanför de olästa").toBeTruthy();
   await big.first().click();
   await expect.poll(() => currentPath(page, info), { message: "knappen öppnar beställningen" }).toBe("/portal/bestall");
   expect(errors).toEqual([]);

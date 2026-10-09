@@ -10,6 +10,7 @@ import {
   TextArea, cn, toast, useConfirm, type IconName,
 } from "@/ui";
 import { deviationCallCustomer, deviationSave } from "@/features/coach/api";
+import { EndPlacementModal, PlacementModal } from "@/features/praktik/screens/placement-modal";
 import { caseDeviations, caseEvents, casePlacements, type CaseDeviationRow, type CaseDeviations } from "../api";
 import { canOpen, caseLink, clip, fd, FOUR, Label, MiniList, PLACEMENT, PNR_ERROR, PNR_RE, TabQuery, withDot } from "./common";
 import { CustSwitch, type TabProps } from "./kort";
@@ -477,6 +478,10 @@ export function TabPraktik({ card }: TabProps) {
   const q = useQuery(casePlacements, { caseId: card.caseId });
   const role = useSession().actor.role;
   const team = card.access === "team";
+  // Ny praktik (beslut 2026-10-08): huvudcoachen, samordnare och avtalsansvarig i ett pågående ärende.
+  const canPlan = card.edit && (card.status === "active" || card.status === "paused");
+  const [modal, setModal] = useState<"new" | { end: { id: string; employerName: string | null; startsOn: string } } | null>(null);
+  const newButton = canPlan ? <Button kind="primary" icon="plus" onClick={() => setModal("new")}>Ny praktik</Button> : null;
   return (
     <TabQuery q={q}>
       {(p) => (
@@ -486,12 +491,14 @@ export function TabPraktik({ card }: TabProps) {
             <div className="flex flex-wrap items-center gap-1.5">
               <BuildPhase fas={3} />
               {canOpen("praktik.arbetsgivare", role) && <Button icon="briefcase" to="/praktik">Arbetsgivarregistret</Button>}
+              {newButton}
             </div>
           </div>
           {p.placements.length === 0 && (
             <Card>
-              <Empty icon="briefcase" title="Ingen praktik ännu">
+              <Empty icon="briefcase" title="Ingen praktik ännu" action={newButton ?? undefined}>
                 Praktik planeras oftast i fas {p.phase < 4 ? "4" : p.phase}. Coachen bedömer när deltagaren är redo (rätt tidpunkt).
+                {canPlan ? " Ny praktik skapar praktikdagarna som tillfällen och händelsen Praktik startad." : ""}
               </Empty>
             </Card>
           )}
@@ -505,7 +512,14 @@ export function TabPraktik({ card }: TabProps) {
                 title={pl.employerName ?? "Praktikplats"}
                 icon="building"
                 tone={missing.length && ongoing ? "red" : undefined}
-                actions={<Badge tone={ongoing ? "blue" : "grey"} icon={ongoing ? "play" : "check"}>{PLACEMENT[pl.status] ?? pl.status}</Badge>}
+                actions={
+                  <>
+                    <Badge tone={ongoing ? "blue" : "grey"} icon={ongoing ? "play" : "check"}>{PLACEMENT[pl.status] ?? pl.status}</Badge>
+                    {canPlan && pl.status !== "completed" && (
+                      <Button kind="ghost" icon="check" onClick={() => setModal({ end: { id: pl.id, employerName: pl.employerName, startsOn: pl.startsOn } })}>Avsluta praktik</Button>
+                    )}
+                  </>
+                }
               >
                 <Stack>
                   {missing.length > 0 && ongoing && (
@@ -589,6 +603,12 @@ export function TabPraktik({ card }: TabProps) {
             )}
           </Card>
           {team && <DemoNote>Som handledare ser du praktik och arbetsgivarkontakter men inte coachens anteckningar.</DemoNote>}
+          {modal === "new" && (
+            <PlacementModal cases={[{ caseId: card.caseId, caseNumber: card.caseNumber, name: card.displayName, plannedEnd: card.plannedEnd }]} now={card.now} onClose={() => setModal(null)} />
+          )}
+          {modal && modal !== "new" && (
+            <EndPlacementModal placementId={modal.end.id} employerName={modal.end.employerName ?? "arbetsgivaren"} startsOn={modal.end.startsOn} now={card.now} onClose={() => setModal(null)} />
+          )}
         </Stack>
       )}
     </TabQuery>

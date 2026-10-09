@@ -12,12 +12,19 @@ import { dayOf } from "@/core/time";
 import { by } from "@/core/util";
 import type { Contract } from "@/data/schema";
 import { ruleDiffText, type RuleSnapshot } from "./audit-text";
-import { adminContract, adminOrgRules, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption } from "./api";
+import { adminContract, adminOrgRules, adminSetContractManager, adminSetOrgRule, type ContractFacts, type ContractSummary, type PriceRow, type RecipientOption } from "./api";
 import { isDemoCreated, mainContract, orgRow, userNames } from "./shared";
 
 const summaryOf = (c: Contract, customerName: string): ContractSummary => ({
   id: c.id, customerName, name: c.name, contractNumber: c.contractNumber, status: c.status, startsOn: c.startsOn, operational: isOperational(c.config),
 });
+
+/** Kollegorna som kan vara avtalsansvariga: aktiva i leverantörsorganisationen med rollen avtalsansvarig i avtalet. */
+async function managerOptions(ctx: Ctx, c: Contract): Promise<{ id: string; name: string }[]> {
+  const [ms, staff] = await Promise.all([ctx.repo.table("memberships").list({ contractId: c.id, role: "avtalsansvarig" }), ctx.repo.table("profiles").list({ organizationId: c.supplierId })]);
+  const ids = new Set(ms.map((m) => m.userId));
+  return staff.filter((p) => p.active && ids.has(p.id)).sort(by((p) => p.fullName)).map((p) => ({ id: p.id, name: p.fullName }));
+}
 
 async function factsOf(ctx: Ctx, c: Contract): Promise<ContractFacts> {
   const [customer, supplier] = await Promise.all([ctx.repo.table("organizations").get(c.customerId), ctx.repo.table("organizations").get(c.supplierId)]);
@@ -35,6 +42,8 @@ async function factsOf(ctx: Ctx, c: Contract): Promise<ContractFacts> {
     casePrefix: c.casePrefix,
     emailDomains: customer?.emailDomains ?? [],
     managerName: name(c.contractManagerId),
+    managerId: c.contractManagerId ?? null,
+    managerOptions: await managerOptions(ctx, c),
     termination: texts?.termination ?? null,
     scope: texts?.scope ?? null,
   };
@@ -88,6 +97,20 @@ handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p
     bonusCandidates,
     ...(hideMoney ? {} : { priceItems: await priceRows(ctx, c) }),
   };
+});
+
+// ---------------------------------------------------------------- Avtalsansvarig (beslut 2026-10-08, valfritt steg 3)
+// Administratören väljer avtalsansvarig bland kollegorna med rollen avtalsansvarig i avtalet. Rollen ges under Användare och
+// roller; här pekas bara avtalet om. Loggen har bara id:n.
+handleCommand(adminSetContractManager, { roles: ["admin"], commercial: true }, async (ctx, p) => {
+  const c = await ctx.repo.table("contracts").get(p.contractId);
+  if (!c) return fail("not_found", "Avtalet finns inte.");
+  const options = await managerOptions(ctx, c);
+  if (!options.some((o) => o.id === p.userId)) return fail("not_manager", "Kollegan måste ha rollen avtalsansvarig i avtalet. Ge rollen under Användare och roller först.");
+  if (c.contractManagerId === p.userId) return fail("unchanged", "Kollegan är redan avtalsansvarig.");
+  await ctx.repo.table("contracts").update(c.id, { contractManagerId: p.userId });
+  await ctx.audit({ action: "contract.manager_changed", entity: "contract", entityId: c.id, contractId: c.id, details: { from: c.contractManagerId ?? null, to: p.userId } });
+  return ok({});
 });
 
 // ---------------------------------------------------------------- Interna regler (org_settings)

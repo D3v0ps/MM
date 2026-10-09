@@ -16,7 +16,7 @@ export function mRow(no: number, manad: string, p: Partial<ExportRow> = {}): Exp
     arendenummer: `BOT-26-${String(no).padStart(4, "0")}`, namn: `Testperson ${no}`, manad, bestallare_enhet: "Arbetsmarknadsenheten Alby", rapport_version: 1,
     rapport_levererad: `${manad}-28`, rattelse_pagar: 0, avtalsomrade_kod: "G", avtalsomrade: "Lager och logistik", avtalsomrade2_kod: null, yrkesspar: "Truckförare",
     insats_start: "2026-09-21", insats_planerat_slut: null, insats_slut: null, fas_nr: 2, fas: "Yrkesförberedande grund", veckor: 4, veckor_uppehall: 0,
-    tillfallen_planerade: 10, narvarande: 9, sen_ankomst: 0, franvaro_giltig: 1, franvaro_ogiltig: 0, ej_registrerade: 0, narvaro_procent: 90, upprepad_franvaro: 0,
+    narvaro_procent: 90, upprepad_franvaro: 0, _narvaro_pa_plats: 9, _narvaro_registrerade: 10,
     avstamningar_godkanda: 4, arbetsgivarkontakter: 2, veckomal_uppnatt: 2, veckomal_delvis: 1, veckomal_ej_uppnatt: 1, bedomning_godkand: 1, omraden_bedomda: 9,
     progression_tydlig: 1, progression_nagon: 1, handelser: 0, handelser_verifierade: 0, praktik_startad: 0, arbete_paborjat: 0, studier_paborjade: 0,
     avvikelser_nya: 0, avvikelser_oppna: 0, kommunens_beslut_behovs: 0, samlad_status_kod: "green", samlad_status: "Grön", bedomning_datum: `${manad}-28`,

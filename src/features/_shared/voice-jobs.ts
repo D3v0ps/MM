@@ -28,6 +28,7 @@ import { aiLanguages, isOperational, progressionAreas, recordingEnabled, type Co
 import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
 import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, ParticipantVoiceNote, Person } from "@/data/schema";
 import {
+  AI_OFF_TEXT,
   aiRunRow, approvedCheckIns, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema,
   type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
@@ -69,7 +70,7 @@ const RUN_KIND: Partial<Record<VoiceJobKind, AiRunKind>> = {
 // ---------------------------------------------------------------- Fel (fasta texter, inga personuppgifter)
 export const VOICE_JOB_ERRORS = [
   "not_found", "audio_missing", "blocked_disabled", "blocked_protected", "blocked_no_consent", "language", "invalid_response", "provider_blocked",
-  "provider_unavailable", "provider_config", "audio_too_large", "audio_unsupported", "audio_expired", "unexpected",
+  "provider_unavailable", "provider_config", "audio_too_large", "audio_unsupported", "audio_expired", "unexpected", "ai_off",
 ] as const;
 export type VoiceJobErrorCode = (typeof VOICE_JOB_ERRORS)[number];
 /** Texten till användaren (och jobs.last_error). */
@@ -88,8 +89,10 @@ export const VOICE_JOB_ERROR_TEXT: Record<VoiceJobErrorCode, string> = {
   audio_unsupported: "Ljudformatet kunde inte läsas. Använd m4a, mp3, wav eller webm.",
   audio_expired: "Ljudet raderades efter 24 timmar utan att ha transkriberats.",
   unexpected: "Något gick fel i AI-körningen. Fyll i formuläret själv eller försök igen.",
+  // AI av (produktion utan leverantör, beslut 2026-10-08).
+  ai_off: AI_OFF_TEXT,
 };
-const BLOCK_CODE: Record<RecordingBlock, VoiceJobErrorCode> = { disabled: "blocked_disabled", protected: "blocked_protected", no_consent: "blocked_no_consent" };
+const BLOCK_CODE: Record<RecordingBlock, VoiceJobErrorCode> = { ai_off: "ai_off", disabled: "blocked_disabled", protected: "blocked_protected", no_consent: "blocked_no_consent" };
 
 /** Fel i ett röstjobb. retryable = värt att försöka igen senare (servern lägger tillbaka jobbet i kön). */
 export class VoiceJobError extends Error {

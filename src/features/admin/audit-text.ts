@@ -52,6 +52,12 @@ export const ACTION_LABEL: Record<string, string> = {
   "profile.self_registered": "Skapade konto själv", "auth.self_registration_started": "Begärde kod för nytt konto", "profile.updated": "Ändrade egna uppgifter",
   "attachment.upload_started": "Började ladda upp bilaga", "attachment.uploaded": "Laddade upp bilaga", "attachment.rejected": "Bilaga togs inte emot",
   "attachment.linked": "Kopplade bilagor till beställningen", "attachment.removed": "Tog bort bilaga", "attachment.viewed": "Hämtade bilaga", "attachment.deleted": "Raderade bilaga",
+  // Skarp drift (beslut 2026-10-08): kollegorna läggs till och får roller i appen; rollväxling; avtalsansvarig väljs på avtalssidan.
+  // Loggen har bara id:n, roller och domänen – aldrig namn eller adresser.
+  "staff_user.added": "Lade till kollega", "staff_user.roles_changed": "Ändrade kollegas roller", "staff_user.blocked": "Spärrade kollega", "staff_user.reactivated": "Aktiverade kollega",
+  "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
+  // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
+  "email.registered": "Registrerade beställning i inkorgen",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -68,6 +74,7 @@ export const entityLabel = (entity: string | null | undefined): string => ENTITY
 
 const DETAIL_KEY: Record<string, string> = {
   number: "Ärendenummer", source: "Kanal", parseMethod: "Tolkning", template: "Mall", to: "Till", from: "Från", kind: "Typ", provider: "Leverantör", reason: "Orsak", status: "Status",
+  linkedProfile: "Handläggare med konto", receivedOn: "Mottagen dag", attachments: "Bilagor", linkedCases: "Kopplade ärenden",
   month: "Månad", week: "Vecka", count: "Antal", format: "Format", rows: "Rader", role: "Roll", unit: "Enhet", domain: "Domän", version: "Version", language: "Språk",
   contactRequested: "Vill bli kontaktad", right: "Rätt", value: "Värde", date: "Datum", areas: "Områden", checked: "Kontrollerade poster", deviations: "Avvikelser", withinSla: "Inom SLA",
   leadCoachId: "Huvudcoach", firstMeetingAt: "Första möte", fields: "Fält", missing: "Saknas", classification: "Klassning", via: "Via", kpi: "Nyckeltal", window: "Period",
@@ -76,12 +83,14 @@ const DETAIL_KEY: Record<string, string> = {
   idempotencyKeys: "Idempotensnycklar", by: "Av", previous: "Tidigare version", at: "Tidpunkt", created: "Skapade", skippedAlreadyCreated: "Redan skapade",
   skippedDuplicates: "Dubbletter som hoppades över", blocked: "Stoppade", notApproved: "Inte godkända", changed: "Ändrade", buyerReference: "Beställarreferens", toRole: "Till roll",
   caseIds: "Ärenden", emailId: "Mejl", method: "Inloggning", hadCustomerApproval: "Godkänd av kommunen", type: "Typ", level: "Nivå", step: "Steg", sentToCustomer: "Skickad till kommunen",
-  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av",
+  acknowledged: "Kvitterad", parse: "Tolkning", priority: "Hur viktigt", replyId: "Svar", authorId: "Skriven av", roles: "Roller",
   table: "Tabell", cases: "Antal deltagare", schema: "Schemaversion", columns: "Kolumner", reportIds: "Rapporter",
   savedReportId: "Sparad rapport", dataset: "Uppgifter", audience: "Visning", output: "Visas som", measures: "Mått", groupBy: "Dela upp efter",
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
   day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
+  // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
+  rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -97,7 +106,7 @@ const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", sinc
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },
   source: { email: "e-post", portal: "portalen", phone: "telefon", manual: "manuellt" },
-  channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev", outside_portal: "utanför Miljonmatch" },
+  channel: { email: "e-post", sms: "SMS", portal: "portalen", app: "appen", brev: "brev", letter: "brev", outside_portal: "utanför Miljonmatch", phone: "telefon", other: "annan väg" },
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
@@ -114,8 +123,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
   reason: {
     columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
-    unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande", removed: "borttagen",
-    orphan: "fil i lagringen utan bilaga (avstämning)",
+    unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
+    orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
   },
   // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).
   sharingFrom: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef", __new: "Ny rapport" },

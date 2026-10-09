@@ -376,7 +376,7 @@ describe("kolumnspärren", () => {
     expect(exportLogs().length).toBe(n + 1);
     const blocked = rows("audit_log").filter((l) => l.action === "export.results_blocked");
     expect(blocked).toHaveLength(2);
-    expect(blocked[0]).toMatchObject({ entity: "contract", entityId: "c-bot", contractId: "c-bot", details: { schema: 1, table: "resultat", reason: "columns_changed" } });
+    expect(blocked[0]).toMatchObject({ entity: "contract", entityId: "c-bot", contractId: "c-bot", details: { schema: 2, table: "resultat", reason: "columns_changed" } });
     expect(JSON.stringify(blocked)).not.toMatch(/BOT-\d|Nadia|Warsame|\d{6}-\d{4}/);
   });
 
@@ -401,7 +401,7 @@ describe("kolumnspärren", () => {
     rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
     rt.store.insertRow("audit_log", {
       id: "log-kommun-export", occurredAt: "2027-01-15T10:00", actorId: "k-maria", action: "export.results", entity: "contract", entityId: "c-bot", contractId: "c-bot",
-      details: { from: "2026-09", to: "2026-12", format: "csv", table: "resultat", rows: 1, cases: 1, schema: 1, columns },
+      details: { from: "2026-09", to: "2026-12", format: "csv", table: "resultat", rows: 1, cases: 1, schema: 2, columns },
     });
     expect(first.ok).toBe(true);
     swapFirstAreas();
@@ -421,7 +421,7 @@ describe("revisionsloggen", () => {
     const logs = exportLogs();
     expect(logs).toHaveLength(3);
     expect(logs.map((l) => l.details.table)).toEqual(["resultat", "progression", "alla"]);
-    expect(logs[0]).toMatchObject({ actorId: "u-johan", entity: "contract", entityId: "c-bot", contractId: "c-bot", details: { from: "2026-09", to: "2027-01", format: "csv", rows: total, schema: 1 } });
+    expect(logs[0]).toMatchObject({ actorId: "u-johan", entity: "contract", entityId: "c-bot", contractId: "c-bot", details: { from: "2026-09", to: "2027-01", format: "csv", rows: total, schema: 2 } });
     expect((logs[0].details.columns as string[])[0]).toBe("resultat.arendenummer");
     expect((logs[2].details.columns as string[]).some((c) => c.startsWith("handelser."))).toBe(true);
     expect((logs[0].details.reportIds as string[]).length).toBeGreaterThanOrEqual(total);
@@ -452,7 +452,7 @@ describe("revisionsloggen", () => {
     const log = await ask(adminAuditLog, {}, as("u-robin", "admin"));
     const r = log.rows.find((x) => x.action === "export.results_mb")!;
     expect(r.actionLabel).toBe("Exporterade resultat för hela avtalet");
-    expect(r.detailText).toMatch(/^Från: september 2026 · Till: januari 2027 · Format: CSV · Tabell: resultat · Rader: \d+ · Antal deltagare: \d+ · Schemaversion: 1 · Kolumner: 62 kolumner · Rapporter: \d+ rapporter$/);
+    expect(r.detailText).toMatch(/^Från: september 2026 · Till: januari 2027 · Format: CSV · Tabell: resultat · Rader: \d+ · Antal deltagare: \d+ · Schemaversion: 2 · Kolumner: 56 kolumner · Rapporter: \d+ rapporter$/);
     // Hela listan skickas inte med i loggen – den hämtas när den visas.
     expect(r.hasFull).toBe(true);
     expect(JSON.stringify(r)).not.toContain("resultat.namn");

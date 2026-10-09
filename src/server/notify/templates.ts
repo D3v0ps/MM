@@ -32,6 +32,8 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   atgardsplan_godkannande: T("Åtgärdsplan att godkänna", "Åtgärdsplan väntar på ert godkännande", "kommun"),
   atgardsplan_godkand: T("Åtgärdsplan godkänd", "Åtgärdsplan godkänd", "mb"),
   inbjudan_kommun: T("Inbjudan till portalen", "Inbjudan till Miljonbemannings portal", "kommun"),
+  // Lägg till kollega (beslut 2026-10-08): adressen till appen blir mejlets knapp – inga personuppgifter i texten.
+  inbjudan_personal: T("Inbjudan till kollega", "Du har fått ett konto i Miljonmatch", "mb"),
   // Deltagarens inspelningslänk (src/features/rost/handlers.ts): via föredragen kontaktväg, aldrig vid skyddade personuppgifter.
   // Texten innehåller bara länken – inget namn, inget ärendenummer. Länken blir en fullständig adress med MM_APP_URL (queue.ts),
   // och token sparas aldrig i utskicksloggen (src/core/link-tokens.ts).
@@ -45,7 +47,7 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
 export const LOGIN_CODE_TEMPLATE = "inloggningskod";
 
 /** Portalvarianten av den generiska mottagningsbekräftelsen (samma mallnyckel, egen text och ämnesrad – som i prototypen). */
-export const GENERIC_PORTAL_BODY = "Tack. Vi har tagit emot beställningen. Ring oss på 08-000 00 00 så tar vi resten enligt den säkra rutinen.";
+export const GENERIC_PORTAL_BODY = "Tack. Vi har tagit emot beställningen. Vi hör av oss enligt den säkra rutinen.";
 const GENERIC_PORTAL_SUBJECT = "Vi har tagit emot er beställning";
 
 /** Ämnesrad när mallen är okänd eller ärendenumret saknas. */

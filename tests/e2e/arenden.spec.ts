@@ -126,7 +126,11 @@ test("2. avtalsansvarig: ärendet som var skyddat öppnas som alla andra – ing
 // ------------------------------------------------------------ 3. Coachens lista och åtkomst
 test("3. coachen ser bara egna ärenden och får en tydlig ingen-åtkomst-ruta; nekade försök loggas", async ({ page }, info) => {
   const errors = await open(page, info, "/arenden", AMIRA);
-  // Coachens synliga ärenden är bara egna och teamets (29 i testdatat, samma som prototypens sel.visibleCases).
+  // Coachens synliga ärenden är bara egna och teamets (29 i testdatat, samma som prototypens sel.visibleCases). Listan visar
+  // öppna ärenden som standard (14) – de avslutade finns under "Alla statusar".
+  await expect(main(page)).toContainText("14 ärenden");
+  await expect(main(page)).toContainText("Ärenden du ser");
+  await page.selectOption("#arn-status", "alla");
   await expect(main(page)).toContainText("29 ärenden");
   await switchTo(page, info, `/arenden/${SC.skyddad}`, AMIRA);
   await expect(main(page)).toContainText("Du saknar åtkomst");
@@ -266,7 +270,7 @@ test("7. samtycke kräver bekräftelse och kan återkallas", async ({ page }, in
   await btn(dialog(page), "Registrera samtycke").click();
   await expect(dialog(page)).toHaveCount(0);
   await expect(main(page)).toContainText("Samtycke registrerat");
-  await expect(main(page)).toContainText("informerad av Amira Haddad · text v1.0 (2026-10-01) på lättläst svenska");
+  await expect(main(page)).toContainText("informerad av Amira Haddad · informationstext version 1.0 på lättläst svenska");
   await btn(page, "Återkalla samtycke").click();
   await btn(dialog(page), "Återkalla samtycket").click();
   await expect(main(page)).toContainText("Samtycket är återkallat");
@@ -318,7 +322,7 @@ test("9. första mötet: tidsgränsen från avtalet, helgdag stoppas, mötet bok
 // ------------------------------------------------------------ 10. Handledaren
 test("10. handledaren ser bara tilldelade ärenden och fem flikar utan coachens anteckningar", async ({ page }, info) => {
   const errors = await open(page, info, "/handledare", PETRA);
-  await expect(main(page)).toContainText("Du ser bara ärenden du är tilldelad");
+  await expect(main(page)).toContainText("Du ser bara ärenden där du ingår i teamet");
   await expect(main(page)).toContainText("Pågående (26)");
   const cards = page.getByTestId("handledare-arenden").locator(":scope > section");
   await expect(cards).toHaveCount(12);
@@ -341,7 +345,7 @@ test("11. 400 px: ingen horisontell scroll i listan, kortet och handledarens sta
   await expect(main(page)).toContainText("231 ärenden");
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
   await switchTo(page, info, `/arenden/${SC.nadia}?flik=narvaro`, AMIRA);
-  await expect(main(page)).toContainText("Närvaro per ISO-vecka");
+  await expect(main(page)).toContainText("Närvaro per vecka");
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
   await switchTo(page, info, "/handledare", PETRA);
   await expect(main(page)).toContainText("Pågående (26)");
@@ -452,7 +456,7 @@ test("17. 400 px: knappar och text inom korten, klickytor minst 44 px, tabeller 
   await expect(main(page)).toContainText("Pågående (26)");
   await check("hand.start");
   await switchTo(page, info, "/arenden", AMIRA);
-  await expect(main(page)).toContainText("29 ärenden");
+  await expect(main(page)).toContainText("14 ärenden");
   await check("arenden.lista");
   await switchTo(page, info, `/arenden/${SC.nadia}`, SARA);
   await expect(main(page)).toContainText("Kommande 14 dagar");

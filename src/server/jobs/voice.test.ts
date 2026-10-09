@@ -64,8 +64,8 @@ function setup(ai: AiPort = createSimulatedAi()) {
 }
 
 describe("röstjobben i jobbkörningen", () => {
-  it("alla röstjobb är registrerade bredvid send_message, rapportutkasten och timjobben för bilagor och inloggning", () => {
-    expect(Object.keys(JOB_HANDLERS).sort()).toEqual(["send_message", "report_schedule", "attachments_retention", "auth_cleanup", ...VOICE_JOB_KINDS].sort());
+  it("alla röstjobb är registrerade bredvid send_message, rapportutkasten, timjobben för bilagor och inloggning och mejlinläsningen", () => {
+    expect(Object.keys(JOB_HANDLERS).sort()).toEqual(["send_message", "report_schedule", "attachments_retention", "auth_cleanup", "inbox_import", ...VOICE_JOB_KINDS].sort());
   });
 
   it("ett köat transkriberingsjobb körs och blir klart", async () => {

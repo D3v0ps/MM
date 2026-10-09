@@ -304,7 +304,7 @@ describe("revisionsloggen", () => {
       ["saved_report", "sr-seed-privat", "csv", "mb", "sammanstallning"], ["saved_report", "sr-seed-privat", "xlsx", "mb", "sammanstallning"],
       ["contract", null, "pdf", "mb", "sammanstallning"], ["contract", null, "csv", "mb", "lista"],
     ]);
-    expect(ex[0].details).toMatchObject({ template: "narvaro-per-manad", dataset: "deltagarmanader", schema: 1, measures: ["deltagarmanader", "narvarograd"], groupBy: null, split: "manad" });
+    expect(ex[0].details).toMatchObject({ template: "narvaro-per-manad", dataset: "deltagarmanader", schema: 2, measures: ["deltagarmanader", "narvarograd"], groupBy: null, split: "manad" });
     expect(ex[3].details).toMatchObject({ columns: ["resultat.arendenummer", "resultat.namn"] });
     expect(ex[3].details.measures).toBeUndefined();
     const json = JSON.stringify(ex);

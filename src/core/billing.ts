@@ -464,8 +464,10 @@ export function vatBreakdown(lines: readonly Pick<BillingLine, "vatRate" | "amou
 }
 
 /**
- * Fakturanummer i Fortnox. Sparat nummer används om det finns; annars ett påhittat nummer för månaden och fakturan (Fortnox
- * är inte anslutet – simulerat, samma nummer varje gång).
+ * Fakturanummer i Fortnox för den SIMULERADE porten (minnesläget, ctx.fortnox.provider "simulated") och testdatat: sparat
+ * nummer används om det finns; annars ett påhittat nummer för månaden och fakturan (samma nummer varje gång). Får aldrig
+ * anropas utan port – hanterarna (ekonomi.billingSendFortnox, ekonomi.reissue) stoppar först med fortnox_off, och vyerna
+ * (monthInvoices) visar bara det lagrade numret (fortnoxDocumentNumber), så inget påhittat nummer når skarp drift.
  */
 export function fortnoxNumber(stored: string | null | undefined, month: MonthKey, groupingKey: string): string {
   if (stored) return stored;
@@ -576,7 +578,8 @@ export function monthInvoices(db: BillingDb, month: MonthKey, env: Pick<DomainEn
         id, contractId, month, groupingKey, number: parseGroupingKey(groupingKey).n, stored: !!draft, storedStatus,
         status: blocked && !isCreatedInv ? "blocked" : storedStatus, created: isCreatedInv, lines: sorted, quantity: sum(sorted, (l) => l.quantity), amountOre, vat,
         vatOre: sum(vat, (v) => v.vatOre), buyerReference, purchaseOrderNumber: po, checks, blocked, needsApproval, approvedAt: draft?.approvedAt ?? null,
-        approvedBy: draft?.approvedBy ?? null, fortnoxNo: FORTNOX_STATUSES.includes(storedStatus) ? fortnoxNumber(draft?.fortnoxDocumentNumber, month, groupingKey) : null,
+        // Bara det lagrade numret (satt av porten när fakturan skapades) – aldrig ett framräknat i vyn.
+        approvedBy: draft?.approvedBy ?? null, fortnoxNo: FORTNOX_STATUSES.includes(storedStatus) ? (draft?.fortnoxDocumentNumber ?? null) : null,
         manualInvoiceNo: draft?.manualInvoiceNo ?? null, fortnoxIdempotencyKey: draft?.fortnoxIdempotencyKey ?? null, fortnoxCreatedAt: draft?.fortnoxCreatedAt ?? null,
       };
     };

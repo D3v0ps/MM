@@ -41,7 +41,7 @@ const ROLES: [Who, string[], string, string[]][] = [
   [AMIRA, ["Närvaro att registrera", "Aktiviteter i dag", "AI-utkast att granska", "Månads­bedömningar januari"], "Påminnelser", ["Min vardag"]],
   [PETRA, ["Närvaro att registrera", "Tillfällen i dag", "Yrkesmoment den här veckan", "Praktik som saknar något av de fyra rätten"], "Kommande sju dagar", ["Min vardag"]],
   [KARIN, ["Flaggor att hantera", "Förfaller i dag", "Resultatgrad, rullande 6 mån", "Rapporter försenade"], "Tidig uppmärksamhet", ["Min vardag", "Ledning"]],
-  [LARS, ["Januari att fakturera", "Stoppade fakturor", "Preskriptions­risk", "Senast i Fortnox"], "Uppgifter till dig", ["Min vardag", "Ekonomi"]],
+  [LARS, ["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"], "Uppgifter till dig", ["Min vardag", "Ekonomi"]],
   [ROBIN, ["Bakgrundsjobb", "Utskick som inte gick iväg", "Användare", "Avrop@ senast läst"], "Bakgrundsjobb", ["Min vardag", "Administratör"]],
 ];
 

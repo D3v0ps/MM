@@ -19,8 +19,19 @@ import {
 import { useLazySnapshot } from "../components/use-snapshot";
 import { PdfDownloadButton } from "../components/pdf-button";
 import { ReportDocument } from "../components/report-document";
-import { CustomerPerspective, MailNote, ProvisionalBadge, ReportStatusBadge } from "../components/parts";
+import { CustomerPerspective, MailNote, ReportStatusBadge } from "../components/parts";
 import { DENIED, effStatus, LIFECYCLE } from "../report-helpers";
+
+/**
+ * "Sista dagen är inte fastställd med X. Tills vidare gäller Y." → "Förslag: Y – inte fastställt med X." (kortare i tabellen;
+ * annars texten som den är). Avtalstexten Y börjar ofta själv med "förslag:" – det ordet tas bort så att det inte står två gånger.
+ */
+const provisionalShort = (s: string): string => {
+  const m = s.match(/^Sista dagen är inte fastställd med (.+?)\. Tills vidare gäller (.+?)\.$/);
+  if (!m) return s;
+  const rule = m[2].replace(/^förslag:?\s*/i, "");
+  return `Förslag: ${rule} – inte fastställt med ${m[1]}.`;
+};
 
 const LIST_CRUMB: Crumb = { label: "Rapporter", to: "/rapporter" };
 
@@ -48,7 +59,7 @@ function AfterDelivery({ currentId }: { currentId: string }) {
       <span className="inline-flex items-center gap-1.5 font-bold">Rapporten är levererad.</span>
       {next ? (
         <Button kind="primary" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(next.id)}`}>
-          Nästa rapport som väntar på leverans: {next.title}
+          Nästa rapport som väntar på leverans: {next.title} · {next.sub}
         </Button>
       ) : (
         q.data && <span className="text-text-muted">Inga fler rapporter väntar på leverans.</span>
@@ -261,7 +272,6 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
           <Badge tone="outline" icon="layers">
             Version {v.version}
           </Badge>
-          <ProvisionalBadge text={v.provisional} />
           {v.qualityReviewed && (
             <Badge tone="bluetone" icon="shield">
               Kvalitetsgranskad
@@ -277,7 +287,7 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
         <Split>
           <Kv
             items={[
-              ["Nästa steg", v.next.label], dueRow, v.provisional ? ["Sista dag", v.provisional] : null, v.approved ? ["Godkänd", v.approved] : null,
+              ["Nästa steg", v.next.label], dueRow, v.provisional ? ["Sista dag", provisionalShort(v.provisional)] : null, v.approved ? ["Godkänd", v.approved] : null,
               v.qualityReviewed ? ["Kvalitetsgranskad", v.qualityReviewed] : null,
             ]}
           />
@@ -329,7 +339,13 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
           </Notice>
         )}
         {any ? (
+          // Nästa steg först: Leverera (när rapporten är godkänd), annars Godkänn; sedan de valfria stegen och PDF:en sist.
           <Row>
+            {a.deliver && (
+              <Button kind="primary" icon="send" onClick={onDeliver}>
+                {v.delivery.outside ? "Registrera att rapporten är lämnad" : "Leverera till kommunen"}
+              </Button>
+            )}
             {a.approve && (
               <Button kind="primary" icon="check" pending={approve.pending} onClick={() => void doApprove()}>
                 Godkänn
@@ -338,11 +354,6 @@ function StatusCard({ v, doc, onDeliver, onCorrect }: { v: ReportView; doc: Repo
             {a.quality && (
               <Button kind="secondary" icon="shield" pending={quality.pending} onClick={() => void doQuality()}>
                 Markera som kvalitetsgranskad
-              </Button>
-            )}
-            {a.deliver && (
-              <Button kind="primary" icon="send" onClick={onDeliver}>
-                {v.delivery.outside ? "Registrera att rapporten är lämnad" : "Leverera till kommunen"}
               </Button>
             )}
             {a.correct && (

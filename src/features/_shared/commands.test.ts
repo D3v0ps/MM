@@ -25,7 +25,7 @@ import {
 } from "@/features/arenden/api";
 import { emailApplySupplement, emailSetStatus } from "@/features/inkorg/api";
 import { aiRun, assessmentSave, attendanceSet, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, resultVerify } from "@/features/coach/api";
-import { reportApprove, reportCorrect, reportDeliver, reportOpen } from "@/features/rapporter/api";
+import { reportApprove, reportCorrect, reportDeliver, reportDocument, reportOpen, reportSaveFinal, type ReportDocResult } from "@/features/rapporter/api";
 import { notifRead } from "@/features/notiser/api";
 import { alertAck } from "@/features/ledning/api";
 import { billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoReissue, ekoRun, invoiceSetBuyerRef, invoiceSetPo } from "@/features/ekonomi/api";
@@ -126,7 +126,9 @@ describe("arenden.caseAccept (case.accept)", () => {
       ["kallelse", "deltagare (e-post)"],
     ]);
     expect(out[2].body).toBe("Orderbekräftelse för ärende BOT-27-0050 finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.");
-    expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby. Frågor? Ring 08-000 00 00." });
+    // Inget påhittat telefonnummer i kallelsen: meningen "Frågor? Ring …" finns bara när CONTACT_PHONE är satt (_shared/contact.ts).
+    expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby. Frågor? Ring 08-400 22 750." });
+    expect(out[3].body).not.toMatch(/08-000 00 00/);
     expectNoPersonalData(out);
     expect(rows("audit_log").pop()).toMatchObject({ action: "case.accepted", entityId: "case-270050", actorId: "u-sara", details: { withinSla: true } });
     // Ett andra svar på samma avrop skapar ingen ny orderbekräftelse
@@ -135,7 +137,12 @@ describe("arenden.caseAccept (case.accept)", () => {
   });
 
   it("en kommunanvändare kan inte acceptera (403)", async () => {
-    await expectForbidden(run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira" }, maria()));
+    await expectForbidden(run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, maria()));
+  });
+
+  it("första mötet är obligatoriskt vid accept – slutdatumet räknas från mötesdagen (beslut 7, 2026-10-08)", async () => {
+    await expect(run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira" } as never, sara())).rejects.toBeInstanceOf(ApiError);
+    expect(row("cases", "case-270050")!.status).toBe("acknowledged");
   });
 
   it("kompletteringen från mejlet ger referensen så att avropet kan accepteras", async () => {
@@ -235,20 +242,86 @@ describe("arenden: övriga ärendekommandon", () => {
   });
 
   it("case.bookFirstMeeting: kallelse via föredragen kontaktväg, aldrig vid skyddade personuppgifter", async () => {
-    await run(caseAccept, { caseId: "case-270048", leadCoachId: "u-leila" }, sara());
+    // Ett bokat möte utan levererad orderbekräftelse (beställningen är inte accepterad): bara kallelsen.
     const n = rows("outbound_messages").length;
     expect(await run(caseBookFirstMeeting, { caseId: "case-270048", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true });
     expect(row("cases", "case-270048")).toMatchObject({ firstMeetingAt: "2027-02-04T13:30", plannedStart: "2027-02-04" });
     const out = outboundSince(n);
     expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby. Frågor? Ring 08-000 00 00." });
-    // Skyddat ärende (vilande spärr påslagen): avtalsansvarig bokar, ingen kallelse skickas
+    expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby. Frågor? Ring 08-400 22 750." });
+    // Skyddat ärende (vilande spärr påslagen): avtalsansvarig bokar om, ingen kallelse skickas – bara den nya orderbekräftelsens
+    // mejl till kommunen (ärendenummer och länk, inga personuppgifter).
     protect();
     const m = rows("outbound_messages").length;
     expect(await run(caseBookFirstMeeting, { caseId: "case-260120", at: "2027-02-04T13:30" }, johan())).toMatchObject({ ok: true });
-    expect(outboundSince(m)).toHaveLength(0);
+    expect(outboundSince(m).map((x) => x.template)).toEqual(["orderbekraftelse"]);
+    expectNoPersonalData(outboundSince(m));
     // Samordnaren ser bara ärendenumret för det skyddade ärendet
     expect(await run(caseBookFirstMeeting, { caseId: "case-260120", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: false, error: "forbidden" });
+  });
+
+  // ---------------------------------------------------------------- Beslut 7 (2026-10-08): slutdatumet räknas från första mötet
+  it("ombokning räknar om planerat slut, veckor och ordervärde i veckor från mötesdagen – 6 och 12 månader", async () => {
+    // 6 månader (case-270050): accept med möte 3 februari → slut 2 augusti; ombokat till 10 februari → slut 9 augusti.
+    expect(await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270050")).toMatchObject({ orderPeriodMonths: 6, plannedStart: "2027-02-03", plannedEnd: "2027-08-02", plannedWeeks: 27, orderValueWeeks: 27 });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270050", at: "2027-02-10T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270050")).toMatchObject({ firstMeetingAt: "2027-02-10T10:00", plannedStart: "2027-02-10", plannedEnd: "2027-08-09", plannedWeeks: 27, orderValueWeeks: 27, orderPeriodMonths: 6 });
+    // 12 månader (case-270049 efter kompletteringen): möte 3 februari → slut 2 februari 2028; ombokat till 17 februari → 16 februari 2028.
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", orderPeriodMonths: 12, primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 12, plannedEnd: "2028-02-02" });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-17T09:00" }, sara())).toMatchObject({ ok: true });
+    const c12 = row("cases", "case-270049")!;
+    expect(c12).toMatchObject({ plannedStart: "2027-02-17", plannedEnd: "2028-02-16", orderPeriodMonths: 12 });
+    expect(c12.plannedWeeks).toBe(53);
+    expect(c12.orderValueWeeks).toBe(53);
+    expect(rows("audit_log").filter((l) => l.action === "case.first_meeting_booked").pop()).toMatchObject({ entityId: "case-270049", details: { at: "2027-02-17T09:00", rebooked: true, plannedEnd: "2028-02-16", plannedWeeks: 53 } });
+  });
+
+  it("annan tidsperiod: kommunens slutdatum behålls vid accept och ombokning, bara veckorna räknas om", async () => {
+    const end = "2027-05-14";
+    expect(await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", orderPeriodMonths: null, plannedEnd: end, orderPeriodReason: "Deltagaren har redan en praktikplats klar i maj." }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270050")).toMatchObject({ orderPeriodMonths: null, plannedEnd: end, plannedWeeks: 15, orderValueWeeks: 15 });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270050", at: "2027-02-22T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270050")).toMatchObject({ plannedStart: "2027-02-22", plannedEnd: end, plannedWeeks: 12, orderValueWeeks: 12, orderPeriodMonths: null });
+    // Ett möte efter slutdatumet stoppas – omfattningen måste ändras först.
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270050", at: "2027-05-17T10:00" }, sara())).toMatchObject({ ok: false, error: "order_period" });
+    expect(row("cases", "case-270050")).toMatchObject({ plannedStart: "2027-02-22", plannedEnd: end });
+  });
+
+  it("ombokning efter att orderbekräftelsen levererats: ny version till kommunen, den gamla ersatt, mejl utan personuppgifter", async () => {
+    const res = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, sara());
+    if (!res.ok) throw new Error(res.error);
+    const v1 = row("reports", res.reportId)!;
+    expect(v1).toMatchObject({ kind: "order_confirmation", version: 1, status: "delivered", superseded: false });
+    const n = rows("outbound_messages").length;
+    const t = addMinutes(rt.clock.now(), 1);
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270050", at: "2027-02-10T10:00" }, sara())).toMatchObject({ ok: true });
+    const ocs = rows("reports").filter((r) => r.caseId === "case-270050" && r.kind === "order_confirmation").sort((a, b) => a.version - b.version);
+    expect(ocs).toHaveLength(2);
+    expect(ocs[0]).toMatchObject({ id: v1.id, superseded: true, supersededAt: t, supersededBy: ocs[1].id });
+    expect(ocs[1]).toMatchObject({ version: 2, previousId: v1.id, status: "delivered", deliveredAt: t, deliveredTo: ["k-maria"], approvedBy: "u-sara", dueAt: v1.dueAt, superseded: false });
+    // Den ersatta versionen är fryst med det gamla slutdatumet; den nya visar det som gäller.
+    expect(ocs[0].snapshot?.reportId).toBe(v1.id);
+    expect(JSON.stringify(ocs[0].snapshot?.model)).toContain("2 augusti 2027");
+    const doc = (await rt.run("query", reportDocument.key, { reportId: ocs[1].id }, maria())) as ReportDocResult;
+    expect(doc.ok && doc.doc.kind === "order_confirmation" && doc.doc.m.plannedEnd).toBe("9 augusti 2027");
+    expect(doc.ok && doc.doc.version).toBe(2);
+    // Kommunen ser bara den nya versionen i portalen.
+    const kom = (await rt.run("query", "kommun.deltagare", { caseId: "case-270050" }, maria())) as { order: { ocReportId: string }; reports: { id: string }[] };
+    expect(kom.order.ocReportId).toBe(ocs[1].id);
+    expect(kom.reports.map((r) => r.id)).toContain(ocs[1].id);
+    expect(kom.reports.map((r) => r.id)).not.toContain(v1.id);
+    // Mejlet: bara ärendenummer och uppmaning att logga in, sedan kallelsen till deltagaren.
+    const out = outboundSince(n);
+    expect(out.map((m) => [m.template, m.to])).toEqual([["orderbekraftelse", "maria.ekdahl@botkyrka.se"], ["kallelse", "deltagare (e-post)"]]);
+    expect(out[0].body).toBe("Orderbekräftelsen för ärende BOT-27-0050 är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.");
+    expectNoPersonalData(out);
+    expect(rows("audit_log").filter((l) => l.action === "report.delivered").pop()).toMatchObject({ entityId: ocs[1].id, details: { kind: "order_confirmation", version: 2, reason: "first_meeting_rebooked", previous: v1.id } });
+    // En andra ombokning ersätter version 2 med version 3.
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270050", at: "2027-02-11T10:00" }, sara())).toMatchObject({ ok: true });
+    const again = rows("reports").filter((r) => r.caseId === "case-270050" && r.kind === "order_confirmation").sort((a, b) => a.version - b.version);
+    expect(again.map((r) => [r.version, r.superseded])).toEqual([[1, true], [2, true], [3, false]]);
   });
 
   it("case.setBuyerRef och case.update validerar mot avtalets mönster", async () => {
@@ -281,6 +354,26 @@ describe("arenden: övriga ärendekommandon", () => {
     protect();
     expect(await run(caseClose, { caseId: "case-260120", endDate: "2027-02-01", endReason: "planerat_utan_resultat" }, as("u-erik", "coach"))).toMatchObject({ ok: true, resultClass: "no_result" });
     expect(rows("pulse_invites").filter((i) => i.caseId === "case-260120" && i.occasion === "exit")).toHaveLength(0);
+  });
+
+  it("case.close innan insatsen startat (Start bokad, inget startdatum): slutrapporten byggs och levereras på millisekunder (fynd 5, 2026-10-08)", async () => {
+    // Deltagaren kom aldrig: accepterat avrop med bokat första möte, coachen avslutar med avbrott före mötet.
+    expect(await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270050")).toMatchObject({ status: "confirmed", startDate: null });
+    const started = Date.now();
+    const closed = await run(caseClose, { caseId: "case-270050", endDate: "2027-02-02", endReason: "avbrott_deltagarens_val" }, amira());
+    expect(closed).toMatchObject({ ok: true, resultClass: "no_result" });
+    if (!closed.ok) return;
+    // Perioden är avslutsdagen – aldrig ett tomt från-datum.
+    expect(row("reports", closed.reportId)).toMatchObject({ kind: "final", periodStart: "2027-02-02", periodEnd: "2027-02-02" });
+    const draft = (await rt.run("query", reportDocument.key, { reportId: closed.reportId }, amira())) as ReportDocResult;
+    expect(draft.ok && draft.doc.kind === "final" && draft.doc.m.period).toBe("2 februari 2027 – 2 februari 2027");
+    expect(await run(reportSaveFinal, { reportId: closed.reportId, obstacles: "", recommendation: "Kommunen avgör om en ny insats ska beställas." }, amira())).toMatchObject({ ok: true });
+    expect(await run(reportApprove, { reportId: closed.reportId }, amira())).toMatchObject({ ok: true });
+    expect(await run(reportDeliver, { reportId: closed.reportId }, amira())).toMatchObject({ ok: true });
+    const delivered = (await rt.run("query", reportDocument.key, { reportId: closed.reportId }, maria())) as ReportDocResult;
+    expect(delivered.ok && delivered.doc.kind === "final" && delivered.doc.m.months.length).toBe(1);
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 
   it("consent.set: samtycke ges, återkallas – aldrig vid skyddade personuppgifter", async () => {

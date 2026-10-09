@@ -16,7 +16,7 @@ const MONTH_RE = /^\d{4}-\d{2}$/;
 
 export const routes: RouteDef[] = [
   { path: "/ekonomi", title: "Fakturering", roles: ROLES, area: "mb", screen: StartScreen },
-  { path: "/ekonomi/arende/:caseId?", title: "Ärende (ekonomi)", roles: ROLES, area: "mb", screen: ArendeScreen },
+  { path: "/ekonomi/arende/:caseId?", title: (p) => (p.caseId ? "Ärende (ekonomi)" : "Sök ärende"), roles: ROLES, area: "mb", screen: ArendeScreen },
   // Prislistan (beslut 5): flyttad hit från avtalssidan – bara ekonomen ser priser.
   { path: "/ekonomi/prislista", title: "Prislista", roles: ROLES, area: "mb", screen: PrislistaScreen },
   { path: "/ekonomi/:month/faktura/:caseId?", title: "Faktura", roles: ROLES, area: "mb", screen: FakturaScreen },

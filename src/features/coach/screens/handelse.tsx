@@ -174,22 +174,30 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
 
   const persp = customerPerspective(v.referrer);
   const nBonus = events.filter((x) => x.possibleBonus).length;
-  const bonusCard = showBonus && (
-    <Card title="Bonus" icon="award" actions={<BuildPhase fas={3} off />}>
-      <Stack gap="sm">
-        <Row gap="sm">
-          <Badge tone="grey" icon="minus-circle">
-            {v.bonusOn ? "Aktiv" : "Avstängd – modellen ej fastställd"}
-          </Badge>
-        </Row>
-        <p className="text-body">
-          Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag. Underlaget samlas in redan nu, men inget bonusanspråk skapas förrän incitamentsmodellen är
-          beslutad.
-        </p>
-        <p className="text-body text-text-muted">{nBonus === 1 ? "1 händelse i ärendet är markerad" : `${nBonus} händelser i ärendet är markerade`} som möjligt bonusunderlag.</p>
-      </Stack>
-    </Card>
-  );
+  const bonusText = `${nBonus === 0 ? "Inga händelser i ärendet är markerade" : nBonus === 1 ? "1 händelse i ärendet är markerad" : `${nBonus} händelser i ärendet är markerade`} som möjligt bonusunderlag.`;
+  // Ett helt kort om en avstängd funktion tar plats från det coachen ska göra – då räcker en rad med en bricka.
+  const bonusCard =
+    showBonus &&
+    (v.bonusOn ? (
+      <Card title="Bonus" icon="award">
+        <Stack gap="sm">
+          <Row gap="sm">
+            <Badge tone="blue" icon="award">
+              Aktiv
+            </Badge>
+          </Row>
+          <p className="text-body">Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag.</p>
+          <p className="text-body text-text-muted">{bonusText}</p>
+        </Stack>
+      </Card>
+    ) : (
+      <Row gap="sm">
+        <Badge tone="grey" icon="minus-circle" title="Underlaget samlas in redan nu, men inget bonusanspråk skapas förrän incitamentsmodellen är beslutad.">
+          Bonus avstängd – modellen ej fastställd
+        </Badge>
+        <span className="text-small text-text-muted">{bonusText}</span>
+      </Row>
+    ));
   const isClosed = !!v.closed;
   const cv = v.closed;
   const finalRep = v.finalReport;
@@ -203,7 +211,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
       lead={
         mode === "close"
           ? "Avslutsorsak och resultat väljer du själv. Arbete och studier räknas som resultat först när verifiering finns."
-          : "Registrera det som hänt i insatsen enligt mall 02 avsnitt 5. Händelserna syns i månadsrapporten och slutrapporten."
+          : "Registrera det som hänt i insatsen. Händelserna syns i månadsrapporten och slutrapporten."
       }
     >
       <Card>
@@ -214,7 +222,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
           ariaLabel="Välj uppgift"
           value={mode}
           onValueChange={setMode}
-          options={[{ value: "event", label: "Registrera händelse", icon: "plus" }, { value: "close", label: "Avsluta insatsen", icon: "check-square" }]}
+          options={[{ value: "event", label: "Ny händelse", icon: "plus" }, { value: "close", label: "Avslut", icon: "check-square" }]}
         />
       )}
 
@@ -306,8 +314,8 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
                   <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-body text-text-muted">
                     <Icon name="message" className="mt-1 flex-none" />
                     <div>
-                      <b className="text-antracit">Utskicket (utan personuppgifter):</b> Hej! Din tid hos Miljonbemanning är avslutad. Svara gärna på fem korta frågor:
-                      portal.miljonbemanning.se/p/••••• Det är frivilligt.
+                      <b className="text-antracit">Utskicket (utan personuppgifter):</b> Hej! Din tid hos Miljonbemanning är avslutad. Svara gärna på fem korta frågor: [länk] Det är
+                      frivilligt.
                     </div>
                   </div>
                   <div>
@@ -334,7 +342,7 @@ function EventForm({ v, mode0 }: { v: Ok; mode0: Mode }) {
         <Split wide>
           <Card title="Ny händelse" icon="plus">
             <Stack>
-              <Field label="Typ av händelse" id="ev-kind" required error={evErr.kind} help="Mall 02 avsnitt 5, plus händelser för validering.">
+              <Field label="Typ av händelse" id="ev-kind" required error={evErr.kind} help="Välj den händelse som stämmer bäst.">
                 <Seg id="ev-kind" ariaLabel="Typ av händelse" value={ev.kind} onValueChange={(x) => setE("kind", x)} options={v.eventKinds} />
               </Field>
               <FormGrid>

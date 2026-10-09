@@ -6,11 +6,13 @@ import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { TRACKS } from "@/data/seed/constants";
 import { caseBackground, orderPeriodText } from "@/features/arenden/background";
+import { cdStatusKey } from "@/features/ledning/api";
+import { teamCandidates } from "@/features/_shared/team";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { areaName, contactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
-import { addDays, addMonths, addWorkingDays, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
+import { addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import type { Case, CaseStatusHistory, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Report } from "@/data/schema";
 import type {
@@ -26,9 +28,14 @@ import {
   whenText, workingDaysText, type DeadlineRow, type OrderFieldKey,
 } from "./texts";
 
+/** Avtalsavvikelsens läge i Min vecka (samma regel som ledningens CD_STATUS_LABEL, gemener i en bisats). */
+const CD_SUB_TEXT = { closed: "klar", no_plan: "öppen – åtgärdsplan saknas", waiting: "åtgärdsplan väntar på kommunens godkännande", in_progress: "åtgärdsplan godkänd av kommunen" } as const;
+
 const OPEN = ["acknowledged", "received"];
 const DECIDED = ["confirmed", "active", "paused", "closed"];
 const isOpen = (c: Pick<Case, "status"> | null | undefined) => !!c && OPEN.includes(c.status);
+/** Mejlet väntar på hantering (samma statusar som fliken Att hantera). */
+const isPending = (s: InboundEmail["status"]) => s === "received" || s === "acknowledged";
 const refConfig = (e: InboxEnv) => ({ refPattern: e.cfg.billing.buyerReference.pattern, refLen: buyerRefLengthText(e.cfg) });
 const refError = (s: string | null | undefined, e: InboxEnv) => refErrorMB(s, e.cfg.billing.buyerReference.pattern, buyerRefLengthText(e.cfg));
 
@@ -134,6 +141,8 @@ async function parsedView(ctx: Ctx, d: InboxData, m: InboundEmail, c: Case | nul
  * och beställarreferens sätts av Miljonbemanning vid accept (synpunkt #8) och visas bara när de finns.
  */
 function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "Beställningen"): CaseFieldsView {
+  // Portalen, telefon eller registrerad av Miljonbemanning från mejl/annan väg (beslut 4a).
+  const method: CaseFieldsView["method"] = c.source === "phone" ? "phone" : c.source === "portal" ? "portal" : "registered";
   const p = d.personById.get(c.personId) ?? null;
   const k = c.referrerId ? d.profiles.find((u) => u.id === c.referrerId) ?? null : null;
   const row = (label: string, value: string | null, missing = false, pnr?: PnrView): FormField => ({
@@ -179,7 +188,7 @@ function caseFieldsView(d: InboxData, c: Case, areas: ContractArea[], title = "B
         }]
       : []),
   ];
-  return { title, method: c.source === "phone" ? "phone" : "portal", groups };
+  return { title, method, groups };
 }
 
 function ackView(it: Item, d: InboxData, out: OutboundMessage[], crypto: PnrCrypto): AckView {
@@ -195,7 +204,9 @@ function ackView(it: Item, d: InboxData, out: OutboundMessage[], crypto: PnrCryp
   const limit = ackMinutes(d.e.cfg);
   const p = it.person;
   const leak = !!p && [p.firstName, p.lastName, plainPnr(crypto, p)].some((x) => x && n.body.includes(x));
-  return { kind: "sent", generic: n.template === "generisk_mottagningsbekraftelse", ok: mins <= limit, mins, limit, when: whenText(n.createdAt, d.e.now), to: n.to, body: n.body, leak };
+  // Registrerad av Miljonbemanning (beslut 4a): ordererkännandet gick när beställningen registrerades – minuterna från mottagandet gäller inte.
+  const registered = !!it.email?.registeredBy;
+  return { kind: "sent", generic: n.template === "generisk_mottagningsbekraftelse", ok: registered || mins <= limit, mins, limit, when: whenText(n.createdAt, d.e.now), to: n.to, body: n.body, leak, ...(registered ? { registered: true } : {}) };
 }
 
 /**
@@ -292,7 +303,10 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
     id: it.id, kind: it.kind, cls: it.cls, status: it.status, method: it.method, subject: it.subject, from: it.from, fromAddress: m?.fromAddress ?? null,
     receivedWhen: whenText(it.receivedAt, e.now),
     case: c ? { id: c.id, number: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId, status: c.status } : null,
-    headSla, handledText: m?.handledBy ? `Hanterat av ${personName(d.profiles, m.handledBy)} ${whenText(m.handledAt, e.now)}` : null,
+    headSla,
+    handledText: m?.handledBy
+      ? `Hanterat av ${personName(d.profiles, m.handledBy)} ${whenText(m.handledAt, e.now)}`
+      : m?.registeredBy ? `Registrerad av ${personName(d.profiles, m.registeredBy)} ${whenText(m.registeredAt, e.now)}` : null,
     steps, current, decision, managerName: personName(d.profiles, e.contract.contractManagerId), correct,
   };
 
@@ -375,12 +389,20 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
       text: ack.kind === "sent" && ack.body.includes("saknar") ? `Ordererkännandet bad kommunen svara med uppgifterna (${ack.when}).` : "",
     };
   }
+  // Registrerad av Miljonbemanning (beslut 4a): ärendets uppgifter visas i stället för en tolkning, originalmejlet bara när det finns.
+  const registered = !!m?.registeredBy;
+  // Ett inläst avrop utan ärende: tolkningen räckte inte (eller personen har redan en insats) – registreras för hand.
+  const register = m && !c && it.cls === "order" && isPending(m.status)
+    ? { emailId: m.id, reason: m.parseMethod === "manual" ? "Mejlet kunde inte tolkas automatiskt – uppgifterna skrivs in av en människa." : "Uppgifterna i mejlet räckte inte för att skapa ärendet automatiskt. Kontrollera dem mot originalet och registrera beställningen." }
+    : null;
   return {
     ...base,
     body: {
-      kind: "order", decided: !!c && DECIDED.includes(c.status), declined: c && c.status === "declined" ? await declinedView(ctx, d, c, out) : null,
+      kind: "order", register, decided: !!c && DECIDED.includes(c.status), declined: c && c.status === "declined" ? await declinedView(ctx, d, c, out) : null,
       pendingSups: pendingSups(d, c), missing, refProblem: c && pendingDecision && c.buyerReference ? refError(c.buyerReference, e) : null,
-      original: m ? originalView(m, mayReveal) : null, parsed: m ? await parsedView(ctx, d, m, c, areas) : null, caseFields: !m && c ? caseFieldsView(d, c, areas) : null,
+      original: m && (m.bodyText || !registered) ? originalView(m, mayReveal) : null,
+      parsed: m && !registered ? await parsedView(ctx, d, m, c, areas) : null,
+      caseFields: c && (!m || registered) ? caseFieldsView(d, c, areas) : null,
       ack, dup: c ? await duplicateView(ctx, d, c) : null,
     },
   };
@@ -436,8 +458,8 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
   const memberships = await ctx.repo.table("memberships").list({ contractId: e.contract.id });
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
   const active = (uid: string) => d.cases.filter((x) => x.leadCoachId === uid && ["confirmed", "active", "paused"].includes(x.status)).length;
-  const helperIds = new Set(memberships.filter((x) => x.role === "handledare").map((x) => x.userId));
-  const helpers = d.profiles.filter((u) => helperIds.has(u.id) && u.active !== false && u.teamRole && u.teamRole !== "lead_coach");
+  // Teamet bygger på medlemskapens roller (beslut 2026-10-08) – inte profiles.teamRole, som bara testdatat sätter.
+  const cand = await teamCandidates(ctx, e.contract.id);
   const due = firstMeetingDue(c, e.cfg);
   const avrop = avropDue(c, e.cfg);
   const sup = pendingSups(d, c)[0] ?? null;
@@ -447,7 +469,8 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
     areaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : "Avtalsområde inte valt",
     displayName: person ? `${person.firstName} ${person.lastName}` : "–", avropSla: avrop ? sla(avrop, null, e.now) : null,
     coaches: coachesOf({ profiles: d.profiles, memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
-    helpers: helpers.map((u) => ({ id: u.id, name: u.fullName, teamRole: u.teamRole as "vocational_supervisor" | "employer_matcher" | "guidance_counselor", label: lc(teamLabel(u.teamRole as string)) })),
+    helpers: cand.supervisors.map((u) => ({ id: u.id, name: u.name, teamRole: "vocational_supervisor" as const, label: lc(teamLabel("vocational_supervisor")) })),
+    staff: cand.staff,
     firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
     areas: activeAreas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
@@ -488,6 +511,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const fmCases = d.cases.filter((c) => c.status === "confirmed" && !c.firstMeetingAt).sort(by<Case>("referredAt"));
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
   const noCoach = d.cases.filter((c) => !c.leadCoachId && ["received", "acknowledged", "confirmed", "active", "paused"].includes(c.status)).sort(by<Case>("referredAt"));
+  // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
+  const toStart = d.cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= e.today).sort(by<Case>("firstMeetingAt"));
   const flagText = flagDaysText(e.org.alerts.firstMeetingNotBookedAfterDays);
 
   const dls = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, role));
@@ -522,7 +547,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     const hide = e.hideCommercial;
     kpis.push({
       key, label: v.label, value: v.value == null ? "–" : pct(v.value), below: !hide && v.status === "below_internal",
-      sub: `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
+      // Inga avrop i månaden: bara månaden (rutan säger "Inga avrop ännu").
+      sub: v.den === 0 ? monthName(lastMonth).replace(/^./, (x) => x.toUpperCase()) : `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
       meter: v.value != null
         ? hide
           ? { value: v.value, valueText: pct(v.value), target: null, targetText: "" }
@@ -569,6 +595,10 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       const due = avropDue(c, e.cfg);
       return { caseId: c.id, caseNumber: c.caseNumber, sla: due ? sla(due, null, now) : null, sub: `${areaName(areas, c.primaryAreaCode)} · ${c.referrerId ? name(c.referrerId) : c.referrerName ?? "–"}` };
     }),
+    toStart: toStart.map((c) => ({
+      caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
+      sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,
+    })),
     tasks: tasks.map((t) => ({
       id: t.id, text: t.text, sub: `${t.fromId === "system" ? "Skapad automatiskt" : `Från ${name(t.fromId)}`} · ${whenText(t.createdAt, now)}`,
       emailId: t.emailId, caseId: !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null,
@@ -578,7 +608,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       const dueAt = cdDue.get(x.id) || x.actionPlanDue;
       return {
         id: x.id, description: x.description,
-        sub: `${x.source === "beställare" ? "Från kommunen" : x.source === "deltagare" ? "Från deltagare" : "Intern"} · ${x.level}${step ? ` · steg ${step.step} i eskaleringstrappan` : ""} · ${x.status === "action_plan" ? "åtgärdsplan godkänd av kommunen" : "öppen"}`,
+        // Läget ur fälten (cdStatusKey): godkänd bara när kommunens godkännande är registrerat – inte så fort en åtgärdsplan finns (beslut 9, 2026-10-08).
+        sub: `${x.source === "beställare" ? "Från kommunen" : x.source === "deltagare" ? "Från deltagare" : "Intern"} · ${x.level}${step ? ` · steg ${step.step} i eskaleringstrappan` : ""} · ${CD_SUB_TEXT[cdStatusKey(x)]}`,
         due: x.actionPlanDue && dueAt ? sla(dueAt, null, now) : null, href: cdHref ? `/avtalsavvikelser/${encodeURIComponent(x.id)}` : null,
       };
     }),

@@ -244,11 +244,11 @@ function Week({ m, v }: { m: SupervisorStart; v: NarvaroView }) {
 
         <Stack>
           {m.missingFour.length === 0 ? (
-            <DoneLine id="mv-praktik" title="Praktikplatser att följa upp" icon="briefcase">
-              Alla pågående praktikplatser har de fyra rätten.
+            <DoneLine id="mv-praktik" title="Praktikplatser att komplettera" icon="briefcase">
+              Alla pågående praktikplatser är kompletta (rätt arbetsuppgifter, handledning, tidpunkt och uppföljning).
             </DoneLine>
           ) : (
-            <Card id="mv-praktik" title="Praktikplatser att följa upp" icon="briefcase" flush>
+            <Card id="mv-praktik" title="Praktikplatser att komplettera" icon="briefcase" flush>
               <List>
                 {m.missingFour.map((x) => (
                   <ListItem

@@ -2,13 +2,14 @@
 // Rapporter och meddelanden i portalen (/portal/rapporter/:reportId?) – prototypens kom.rapporter.
 // Utan reportId: handläggarens rapporter och meddelanden (flikar, ?flik=meddelanden, ?filter=olasta …). Med reportId:
 // rapportsidan (PortalReport från området rapporter). Beställarrapporten visas inte i portalen (beslut 2026-10-07).
+import { useSyncExternalStore } from "react";
 import { PortalReport } from "@/features/rapporter/components/portal-report";
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import { pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
-import { Badge, Button, Card, Empty, ErrorNotice, Field, Input, List, ListItem, Loading, Notice, PerspectiveLink, Seg, Stack, TabPanel, Tabs } from "@/ui";
+import { Badge, Button, Card, Empty, ErrorNotice, Field, Input, List, ListItem, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TabPanel, Tabs } from "@/ui";
 import type { ReportKind } from "@/data/schema";
 import { kommunReports, type KomReports } from "../api";
 import { fDT, fDTL, trunc } from "../texts";
@@ -48,6 +49,30 @@ function NextUnread({ currentId, lista }: { currentId: string; lista: string | n
 const PAGE = 15;
 const norm = (s: string) => String(s || "").toLowerCase().replace(/[\s-]/g, "");
 
+/** Smal skärm (mobil): filtret visas som en rullgardin i stället för sex knappar på fem rader. */
+function useNarrow(px = 480): boolean {
+  const q = `(max-width: ${px}px)`;
+  return useSyncExternalStore(
+    (on) => {
+      try {
+        const m = window.matchMedia(q);
+        m.addEventListener("change", on);
+        return () => m.removeEventListener("change", on);
+      } catch {
+        return () => {};
+      }
+    },
+    () => {
+      try {
+        return window.matchMedia(q).matches;
+      } catch {
+        return false;
+      }
+    },
+    () => false,
+  );
+}
+
 function ReportsScreen({ query }: { query: URLSearchParams }) {
   const q = useQuery(kommunReports, {});
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
@@ -76,6 +101,8 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
   const go = (t: "rapporter" | "meddelanden", f: Filter) => nav.replace(path("/portal/rapporter", { flik: t === "meddelanden" ? t : null, filter: f === "alla" ? null : f, visa: null }));
   const setTab = (t: "rapporter" | "meddelanden") => go(t, filter);
   const setFilter = (f: Filter) => go(tab, f);
+  const narrow = useNarrow();
+  const filterOptions = REP_FILTERS.filter(([k]) => k === "alla" || count(k) > 0).map(([k, l]) => ({ value: k, label: `${l} (${count(k)})` }));
   return (
     <KomPage>
       <KomHead
@@ -103,12 +130,13 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
                 Den publiceras när coacherna har registrerat all närvaro för veckan, senast {fDTL(r.dueAt)}.
               </Notice>
             ))}
-            <Seg
-              ariaLabel="Visa rapporter"
-              value={filter}
-              onValueChange={setFilter}
-              options={REP_FILTERS.filter(([k]) => k === "alla" || count(k) > 0).map(([k, l]) => ({ value: k, label: `${l} (${count(k)})` }))}
-            />
+            {narrow ? (
+              <Field id="kom-rap-filter" label="Visa">
+                <Select value={filter} onValueChange={(v) => setFilter(isFilter(v) ? v : "alla")} options={filterOptions} />
+              </Field>
+            ) : (
+              <Seg ariaLabel="Visa rapporter" value={filter} onValueChange={setFilter} options={filterOptions} />
+            )}
             <Field id="kom-rap-q" label="Sök rapport" help="Skriv deltagarens namn eller ärendenumret, till exempel 0143.">
               <Input
                 type="search"

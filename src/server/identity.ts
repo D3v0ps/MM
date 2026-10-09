@@ -4,7 +4,7 @@
 // I produktion finns ingen testarfunktion (databasen svarar då alltid med den egna profilen).
 import { ROLES, type Actor, type Role } from "@/api/roles";
 import { hidesCommercial, roleHiddenFromTesters } from "@/api/tester-access";
-import { listPersonas, personaFor, type Persona } from "@/data/actors";
+import { listPersonas, ownRolesOf, personaFor, type Persona } from "@/data/actors";
 import type { RawAccess } from "@/data/memory";
 import type { Membership, Organization, Profile, Tables } from "@/data/schema";
 import type { PersonaOption } from "@/shell/session";
@@ -44,6 +44,8 @@ export type Identity = {
   impersonating: boolean;
   /** Testarens valbara testpersoner (tom för alla andra). */
   personas: PersonaOption[];
+  /** Den inloggades egna roller (medlemskap) – rollväljaren i sidopanelen (beslut 2026-10-08). Tom vid impersonering. */
+  ownRoles: Role[];
 };
 
 /** Enkel RawAccess över några tabeller (för personaFor/listPersonas i src/data/actors.ts). */
@@ -95,7 +97,11 @@ export async function resolveIdentity(store: IdentityStore, environment: Environ
     ? { ...known, actor }
     : { actor, user: { id: self.id, name: self.fullName, title: self.title, email: self.email, orgName: dir.get("organizations", self.organizationId)?.name ?? "", unit: self.customerUnit }, isDefaultForRole: false, roleDescription: "" };
   const impersonating = tester && a.impersonating === true;
-  return { self, persona, isTester: tester, impersonating, personas: tester ? personaOptionsFor(listPersonas(dir).map(toOption), actor) : [] };
+  return {
+    self, persona, isTester: tester, impersonating,
+    personas: tester ? personaOptionsFor(listPersonas(dir).map(toOption), actor) : [],
+    ownRoles: impersonating ? [] : ownRolesOf(dir, a.userId),
+  };
 }
 
 /** Får testaren välja den här testpersonen? (Kontrolleras innan tester_sessions skrivs.) */

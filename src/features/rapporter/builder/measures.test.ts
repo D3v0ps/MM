@@ -27,14 +27,15 @@ describe("registret", () => {
 describe("deltagarmånader", () => {
   it("närvarograden är viktad per tillfälle – inte ett medel av procenten", () => {
     const rows = [
-      mRow(1, "2026-10", { narvarande: 9, sen_ankomst: 0, franvaro_giltig: 1, franvaro_ogiltig: 0 }),
-      mRow(2, "2026-10", { narvarande: 1, sen_ankomst: 0, franvaro_giltig: 0, franvaro_ogiltig: 9 }),
+      mRow(1, "2026-10", { _narvaro_pa_plats: 9, _narvaro_registrerade: 10 }),
+      mRow(2, "2026-10", { _narvaro_pa_plats: 1, _narvaro_registrerade: 10 }),
     ];
     // (9 + 1) / (10 + 10) = 50 % – inte medel av 90 % och 10 % (också 50 % här), så prövas med olika antal tillfällen:
     expect(v("narvarograd", rows).values).toEqual([0.5]);
-    const uneven = [mRow(1, "2026-10", { narvarande: 9, franvaro_giltig: 1 }), mRow(2, "2026-10", { narvarande: 0, sen_ankomst: 1, franvaro_giltig: 0, franvaro_ogiltig: 3 })];
+    const uneven = [mRow(1, "2026-10", { _narvaro_pa_plats: 9, _narvaro_registrerade: 10 }), mRow(2, "2026-10", { _narvaro_pa_plats: 1, _narvaro_registrerade: 4 })];
     expect(v("narvarograd", uneven).values[0]).toBeCloseTo(10 / 14);
-    const none = mRow(3, "2026-10", { narvarande: 0, sen_ankomst: 0, franvaro_giltig: 0, franvaro_ogiltig: 0, ej_registrerade: 10 });
+    // Tio planerade tillfällen, inget registrerat.
+    const none = mRow(3, "2026-10", { _narvaro_pa_plats: 0, _narvaro_registrerade: 0, narvaro_procent: null });
     expect(v("narvarograd", [...uneven, none])).toMatchObject({ skipped: 1, den: 14 });
     expect(v("narvarograd", [none]).values).toEqual([null]);
     expect(measureDef("narvarograd").skippedNote!(2)).toBe("2 deltagarmånader har ingen registrerad närvaro och räknas inte.");

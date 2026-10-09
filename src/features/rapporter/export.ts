@@ -11,6 +11,11 @@
 //     levererad månadsrapport – och alltid i tabellen Avslut (en rad per slutrapport för insatser som avslutades i perioden).
 //   - Bara den senaste levererade versionen per ärende och månad (slutrapport: per ärende).
 //   - Namnet finns bara i tabellen Resultat. Ingen fritext, inga frånvaroorsaker och inga personnummer.
+//   - Närvaron bara som veckor och närvarograd (schemaversion 2, beslut 6 2026-10-08) – inga antal per tillfälle.
+//
+// Raderna i tabellen Resultat bär dessutom interna fält (INTERNAL_FIELDS, nyckel med inledande understreck) som Miljonbemannings
+// rapportbyggare räknar sina egna mått på (närvarograden viktad per tillfälle, builder/measures.ts). De kommer från samma frysta
+// fakta och står aldrig i någon fil: filerna skrivs bara från kolumnregistret (exportColumns), aldrig från radens nycklar.
 import { isUnset, type OperationalConfig } from "@/core/config";
 import { toCsv, type CellType, type CsvColumn } from "@/core/export/csv";
 import { buildXlsx, XLSX_MIME, type XlsxCell, type XlsxSheet } from "@/core/export/xlsx";
@@ -26,6 +31,15 @@ import { plain } from "./report-helpers";
 
 export type ExportCell = string | number | null;
 export type ExportRow = Record<string, ExportCell>;
+
+/** Interna fält på raderna i tabellen Resultat – bara för rapportbyggarens mått, aldrig i kolumnregistret eller i en fil. */
+export const INTERNAL_FIELDS = {
+  /** Tillfällen då deltagaren var på plats (i tid eller sent) – ur fakta, inte ur filens kolumner. */
+  onSite: "_narvaro_pa_plats",
+  /** Planerade tillfällen där närvaron är registrerad. */
+  registered: "_narvaro_registrerade",
+} as const;
+export const isInternalField = (key: string): boolean => key.startsWith("_");
 
 export type ExportMonthly = {
   report: Pick<Report, "id" | "caseId" | "month" | "version" | "deliveredAt">;
@@ -155,12 +169,6 @@ export function buildResultExport(input: ResultExportInput): ResultExport {
       fas: f.phase != null ? (phaseName.get(f.phase) ?? null) : null,
       veckor: f.weeks,
       veckor_uppehall: f.pausedWeeks,
-      tillfallen_planerade: f.attendance.planned,
-      narvarande: f.attendance.present,
-      sen_ankomst: f.attendance.late,
-      franvaro_giltig: f.attendance.absentValid,
-      franvaro_ogiltig: f.attendance.absentInvalid,
-      ej_registrerade: f.attendance.unregistered,
       narvaro_procent: f.attendance.rate == null ? null : Math.round(f.attendance.rate * 1000) / 10,
       upprepad_franvaro: b01(f.repeatedAbsence),
       avstamningar_godkanda: f.checkInsApproved,
@@ -190,6 +198,9 @@ export function buildResultExport(input: ResultExportInput): ResultExport {
       resultat_kod: closing ? closing.facts.resultClass : null,
       resultat: closing && closing.facts.resultClass ? RESULT_CLASS_LABEL[closing.facts.resultClass] : null,
       resultat_verifierat: closing ? b01(closing.facts.resultVerified) : null,
+      // Interna fält för rapportbyggaren (aldrig i filen).
+      [INTERNAL_FIELDS.onSite]: f.attendance.present + f.attendance.late,
+      [INTERNAL_FIELDS.registered]: f.attendance.planned - f.attendance.unregistered,
     };
     resultat.push(row);
     if (ok) {

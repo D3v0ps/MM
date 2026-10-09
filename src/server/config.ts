@@ -23,6 +23,12 @@ export function supabaseEnv(): { url: string; anonKey: string; serviceKey: strin
   return { url, anonKey, serviceKey };
 }
 
+/**
+ * Minneslägets testdata (beslut 2026-10-08): "demo" (standard) = prototypens påhittade testdata och demoklockan;
+ * "empty" = bara avtalet, konfigurationen och de sju kollegorna, med riktig tid – som en nystartad produktion.
+ */
+export const seedMode = (): "demo" | "empty" => (process.env.MM_SEED?.trim().toLowerCase() === "empty" ? "empty" : "demo");
+
 /** Klockan: "real" = riktig tid (produktion), "test" = testtid från app_settings, annars testtid om epokerna finns. */
 export function clockMode(): "real" | "test" | "auto" {
   const v = process.env.MM_CLOCK?.trim().toLowerCase();

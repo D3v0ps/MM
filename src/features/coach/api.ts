@@ -11,6 +11,8 @@ import {
   type ResultClass, type TrafficLight, type TranscriptLine, type WeekKey,
 } from "@/data/schema";
 import { AI_SOURCES, type AiSource, type CheckInSuggestions } from "../_shared/ai-types";
+// Texten när AI-stödet inte är kopplat (produktion utan leverantör) – skärmarna läser den härifrån.
+export { AI_OFF_TEXT } from "../_shared/ai-port";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
 import type { WeeklyPublished } from "../_shared/weekly";
 
@@ -265,7 +267,7 @@ export const aiRun = command("coach.aiRun", z.object({
   audioSeconds: z.number().int().min(0).max(4 * 3600).optional(),
   costOre: z.number().int().min(0).max(100000).optional(),
   model: ShortText.optional(),
-}), { invalidates: ["coach.checkInPage", "coach.aiRunInfo", "coach.recordingState", "coach.assessmentPage", "arenden.kortHistorik", "admin.integrations", ...LOG] }).returns<Result<AiRunResult, "not_found" | "ai_not_allowed">>();
+}), { invalidates: ["coach.checkInPage", "coach.aiRunInfo", "coach.recordingState", "coach.assessmentPage", "arenden.kortHistorik", "admin.integrations", ...LOG] }).returns<Result<AiRunResult, "not_found" | "ai_not_allowed" | "ai_unavailable">>();
 
 export type AiRunResult = {
   runId: string;
@@ -381,6 +383,8 @@ export type MinVeckaView = {
   today: TodayActivity[];
   /** Nästa aktivitet i dag (id) och kortnamn för KPI:n. */
   next: { id: string; shortName: string } | null;
+  /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
+  toStart: { caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime }[];
   drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];
   monthly: {
     month: MonthKey;
@@ -444,6 +448,8 @@ export type NarvaroView = {
   absenceReasons: string[];
   repeatedRule: { absentInvalid: number; withinDays: number };
   caseCount: number;
+  /** Pågående ärenden som tillfällen kan läggas till i (beslut 2026-10-08). */
+  cases: { caseId: string; caseNumber: string; name: string; location: string }[];
   weeks: { last: NarvaroWeek; this: NarvaroWeek };
 };
 export const narvaroView = query("coach.narvaro", z.object({})).returns<NarvaroView>();
@@ -521,7 +527,7 @@ export type CheckInPage = Gated<{
    * Coachens inspelning i avtalet (ai.recording.coach): får inspelning göras i ärendet, längsta tid och varför inte
    * (avtalet, skyddade personuppgifter, samtycke saknas). Den manuella vägen fungerar alltid.
    */
-  recording: { allowed: boolean; block: "disabled" | "protected" | "no_consent" | null; blockText: string | null; maxMinutes: number };
+  recording: { allowed: boolean; block: "ai_off" | "disabled" | "protected" | "no_consent" | null; blockText: string | null; maxMinutes: number };
 }>;
 export const checkInPage = query("coach.checkInPage", z.object({ caseId: IdSchema, checkInId: IdSchema.optional() })).returns<CheckInPage>();
 
@@ -610,6 +616,8 @@ export type AssessmentPage = Gated<{
     plan: { text: string; sources: string[]; noEvidence: boolean } | null;
     summary: { text: string; sources: string[]; noEvidence: boolean } | null;
   } | null;
+  /** AI-stödet är inte kopplat (produktion utan leverantör, beslut 2026-10-08): inga AI-utkast – skärmen säger det i klarspråk. */
+  aiOff: boolean;
 }>;
 export const assessmentPage = query("coach.assessmentPage", z.object({ caseId: IdSchema, month: MonthKeySchema.optional() })).returns<AssessmentPage>();
 

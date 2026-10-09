@@ -197,6 +197,28 @@ const AttendanceSchema = z.strictObject({
   sameDayNoticeOnInvalidAbsence: unsetOr(z.boolean()),
   repeatedAbsenceRule: z.strictObject({ absentInvalid: PosInt, withinDays: PosInt }),
 });
+// ---- Veckoplan (beslut 2026-10-08, skarp drift): standardtillfällena som skapas när insatsen startar.
+/** Tillfällen som en veckoplan kan innehålla (delmängd av activities.kind). */
+export const WEEK_PLAN_KINDS = ["möte", "yrkesmoment", "praktikdag"] as const;
+export type WeekPlanKind = (typeof WEEK_PLAN_KINDS)[number];
+/**
+ * En rad i avtalets standardveckoplan. weekday 0–4 = måndag–fredag; "first_meeting" = första mötets veckodag (och tid om
+ * time saknas). Helgdagar hoppas alltid över när tillfällena skapas (src/core/schedule.ts).
+ */
+const WeekPlanDaySchema = z
+  .strictObject({
+    weekday: z.union([z.int().min(0).max(4), z.literal("first_meeting")]),
+    kind: z.enum(WEEK_PLAN_KINDS),
+    time: TimeSchema.optional(),
+    durationMin: PosInt,
+    location: z.string().min(1),
+  })
+  .refine((d) => d.time != null || d.weekday === "first_meeting", "Klockslag krävs för alla dagar utom första mötets dag");
+export type WeekPlanDay = z.infer<typeof WeekPlanDaySchema>;
+const ActivitiesSchema = z.strictObject({
+  /** Standardveckoplanen som föreslås när insatsen startar. Utan avsnittet föreslås bara coachträffen på första mötets dag. */
+  defaultWeekPlan: z.array(WeekPlanDaySchema).max(10).optional(),
+});
 
 const PatternRuleSchema = z.strictObject({ required: z.boolean(), pattern: RegexSchema });
 const BillingSchema = z.strictObject({
@@ -296,8 +318,9 @@ const AiSchema = z
 const OrderWeeksSchema = z.strictObject({ min: PosInt, max: PosInt, note: z.string() }).refine((w) => w.max >= w.min, "max måste vara minst min");
 /**
  * Beställningens omfattning (synpunkt #3 och #5, beslut 2026-10-07): alternativen i månader (Botkyrka 6 och 12) och om
- * kommunen kan välja "Annan tidsperiod" (då anges slutdatum och en motivering). Planerat slutdatum räknas fram från önskat
- * startdatum (orderPeriodEnd i src/core/time.ts).
+ * kommunen kan välja "Annan tidsperiod" (då anges slutdatum och en motivering). Planerat slutdatum räknas fram med
+ * orderPeriodEnd (src/core/time.ts): preliminärt från önskat startdatum i beställningen, och från första mötets dag när
+ * beställningen accepteras eller mötet bokas om (beslut 7, 2026-10-08).
  */
 const OrderPeriodsSchema = z
   .strictObject({ months: z.array(PosInt).min(1), allowOther: z.boolean() })
@@ -312,8 +335,9 @@ const EmailDomainSchema = z.string().regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, "Domä
  */
 const SelfRegistrationSchema = z.strictObject({ emailDomains: z.array(EmailDomainSchema).min(1) });
 /**
- * Gallring per uppgiftstyp (beslut 2026-10-07). attachmentsAfterCloseDays: bilagor till beställningen raderas så här många
- * dagar efter att insatsen avslutats. ATT_FASTSTÄLLA = inget raderas (visas "Ej fastställt"). Uppladdningar som aldrig
+ * Äldre: gallring av bilagor per avtal (beslut 2026-10-07). Läses inte längre – bilagor i ett ärende gallras aldrig automatiskt
+ * utan tas bort för hand av Miljonbemanning tidigast när ärendet är avslutat (beslut 5, 2026-10-08, svar till Botkyrka).
+ * Finns kvar som valfritt fält så att en sparad konfiguration med avsnittet fortfarande validerar. Uppladdningar som aldrig
  * kopplades till en beställning raderas alltid efter ett dygn (plattformsregel, inte ett avtalsvärde).
  */
 const RetentionRulesSchema = z.strictObject({ attachmentsAfterCloseDays: unsetOr(PosInt) });
@@ -378,12 +402,15 @@ const ContractConfigBase = z.strictObject({
   kpis: z.array(KpiSchema).optional(),
   sla: z.array(SlaRuleSchema).optional(),
   attendance: AttendanceSchema.optional(),
+  /** Veckoplanen när insatsen startar (valfritt avsnitt, beslut 2026-10-08). */
+  activities: ActivitiesSchema.optional(),
   billing: BillingSchema.optional(),
   bonus: BonusSchema.optional(),
   pulse: PulseSchema.optional(),
   statistics: StatisticsSchema.optional(),
   termination: TerminationSchema.optional(),
   retention: z.string().min(1).optional(),
+  /** Äldre, läses inte (beslut 5, 2026-10-08). */
   retentionRules: RetentionRulesSchema.optional(),
   escalationLadder: z.array(EscalationStepSchema).min(1).optional(),
   warningsBeforeTermination: PosInt.optional(),
@@ -464,6 +491,8 @@ export type ResultConfig = OperationalConfig["result"];
 export type KpiDef = OperationalConfig["kpis"][number];
 export type SlaRule = OperationalConfig["sla"][number];
 export type AttendanceConfig = OperationalConfig["attendance"];
+/** Veckoplanen (valfritt avsnitt). */
+export type ActivitiesConfig = NonNullable<ContractConfig["activities"]>;
 export type BillingConfig = OperationalConfig["billing"];
 export type PulseConfig = OperationalConfig["pulse"];
 export type EscalationStep = OperationalConfig["escalationLadder"][number];
@@ -747,6 +776,15 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
       { key: "slutrapport", label: "Slutrapport", from: "avslutsdatum", within: "ATT_FASTSTÄLLA (förslag: 5 arbetsdagar)", proposal: { workingDays: 5 } },
     ],
     attendance: { sameDayNoticeOnInvalidAbsence: "ATT_FASTSTÄLLA", repeatedAbsenceRule: { absentInvalid: 2, withinDays: 14 } },
+    // Standardveckoplanen när insatsen startar (beslut 2026-10-08, samma mönster som testdatat): coachträff på första mötets
+    // dag och tid, yrkesmoment tisdag och torsdag 09.00. Praktikdagar läggs till när en praktik planeras.
+    activities: {
+      defaultWeekPlan: [
+        { weekday: "first_meeting", kind: "möte", durationMin: 60, location: "Miljonbemanning" },
+        { weekday: 1, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "Miljonbemanning" },
+        { weekday: 3, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "Miljonbemanning" },
+      ],
+    },
     billing: {
       unit: "participant_week",
       billableWeekRule: "every_iso_week_with_at_least_one_enrolled_day_excluding_paused_weeks",
@@ -771,8 +809,7 @@ export const BOTKYRKA_CONFIG: OperationalConfig = /*#__PURE__*/ deepFreeze(
     statistics: { onRequestMaxPerYear: 2, free: true },
     termination: { returnDataWithinDays: 31, deleteAfterReturn: true },
     retention: "ATT_FASTSTÄLLA enligt PUB-avtalet",
-    // Bilagor till beställningen (beslut 2026-10-07): regeln är inte fastställd med Botkyrka – inget raderas efter avslut tills dess.
-    retentionRules: { attachmentsAfterCloseDays: "ATT_FASTSTÄLLA enligt PUB-avtalet" },
+    // Bilagor till beställningen gallras inte automatiskt (beslut 5, 2026-10-08) – ingen retentionRules.
     escalationLadder: [
       { step: 0, level: "mindre", text: "Mindre avvikelse – påverkar inte kärnverksamheten och kan åtgärdas enkelt och snabbt." },
       { step: 1, level: "större", text: "Större avvikelse – flera återkommande mindre avvikelser eller en avvikelse som kännbart påverkar kärnverksamheten. Skriftlig varning kan ges." },

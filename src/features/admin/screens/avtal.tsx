@@ -4,20 +4,20 @@
 // 2026-10-07: belopp syns bara för rollen ekonom) – prislistan finns under Ekonomi (/ekonomi/prislista). Sidan ligger inte i menyn (beslut 2026-10-06) –
 // systemadministratören når den från Användare och roller. Avtalsväljaren visas bara när det finns fler än ett avtal.
 // Alla värden kommer från contracts.config via frågorna – inget avtalsvärde är hårdkodat här.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { aiProviderText, isUnset, progressionRuleText, unsetHint, type ContractConfig } from "@/core/config";
 import { kr, pct, plural } from "@/core/format";
 import { endReasonLabel } from "@/core/labels";
 import { fmtDate } from "@/core/time";
-import { useQuery } from "@/shell/backend";
+import { useCommand, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { DemoOnly, ProtoText } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import {
-  Badge, BuildPhase, Button, Card, Icon, Notice, Page, QueryView, Refreshing, Row, Section, Stack, TabPanel, Table, Tabs, cn, type IconName, type TabDef,
+  Badge, BuildPhase, Button, Card, Field, Icon, Notice, Page, QueryView, Refreshing, Row, Section, Select, Stack, TabPanel, Table, Tabs, cn, toast, type IconName, type TabDef,
 } from "@/ui";
-import { adminContract, type ContractFacts, type ContractSummary, type ContractView } from "../api";
+import { adminContract, adminSetContractManager, type ContractFacts, type ContractSummary, type ContractView } from "../api";
 import { cap, DATA_ROLE, findUnset, humanPattern, LANGUAGE, OCCASION, ROLE_WORD, slaRuleText, UNIT, UNSET_INFO, whoDecides, WINDOW } from "../contract-text";
 import { InternalRules } from "./interna";
 import { Details, KV, Masonry, Pre, Small, Unset, Val, YesNo } from "./parts";
@@ -168,12 +168,62 @@ function FactsCard({ k, yearShort }: { k: ContractFacts; yearShort: string }) {
             ["Personuppgiftsroll", DATA_ROLE[k.dataRole] ?? k.dataRole],
             ["Ärendeprefix", `${k.casePrefix} – till exempel ${k.casePrefix}-${yearShort}-0001`],
             ["Tillåtna e-postdomäner", k.emailDomains.length ? k.emailDomains.join(", ") : "Inga ännu – läggs till före start"],
-            ["Avtalsansvarig", k.managerName],
+            ["Avtalsansvarig", <ManagerCell key="manager" k={k} />],
             ["Omfattning", k.scope ?? "–"],
           ]}
         />
       </div>
     </Card>
+  );
+}
+
+/**
+ * Avtalsansvarig (beslut 2026-10-08, valfritt steg 3): systemadministratören väljer bland kollegorna med rollen avtalsansvarig i
+ * avtalet. Rollen ges under Användare och roller – här pekas bara avtalet om.
+ */
+function ManagerCell({ k }: { k: ContractFacts }) {
+  const save = useCommand(adminSetContractManager);
+  const [editing, setEditing] = useState(false);
+  const [picked, setPicked] = useState<string>(k.managerId ?? "");
+  const submit = async () => {
+    if (!picked || picked === k.managerId) {
+      setEditing(false);
+      return;
+    }
+    const r = await save.run({ contractId: k.id, userId: picked }).catch(() => null);
+    if (!r || !r.ok) {
+      toast((r && !r.ok && r.message) || "Avtalsansvarig kunde inte ändras.", "error");
+      return;
+    }
+    toast(`${k.managerOptions.find((o) => o.id === picked)?.name ?? "Kollegan"} är nu avtalsansvarig.`);
+    setEditing(false);
+  };
+  if (!editing) {
+    return (
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span>{k.managerName}</span>
+        {k.managerOptions.length > 0 && (
+          <Button kind="ghost" icon="edit" onClick={() => { setPicked(k.managerId ?? k.managerOptions[0].id); setEditing(true); }}>
+            Ändra
+          </Button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <Stack gap="sm">
+      <Field id="avtal-manager" label="Välj avtalsansvarig" help="Bara kollegor med rollen avtalsansvarig i avtalet. Ge rollen under Användare och roller först.">
+        <Select id="avtal-manager" value={picked} onValueChange={setPicked} options={k.managerOptions.map((o) => ({ value: o.id, label: o.name }))} />
+      </Field>
+      <Row gap="sm">
+        <Button kind="primary" icon="check" pending={save.pending} onClick={() => void submit()}>
+          Spara
+        </Button>
+        <Button kind="ghost" onClick={() => setEditing(false)}>
+          Avbryt
+        </Button>
+      </Row>
+    </Stack>
   );
 }
 
@@ -204,7 +254,7 @@ const CARDS: Record<string, CardDef> = {
               "scope" in v && ["Ärenden kommunens användare ser", <><Val v={v.scope} />{v.prototypeScope && <Sub><ProtoText>{`I prototypen: ${scopeWord[v.prototypeScope]}`}</ProtoText></Sub>}</>],
               ["Individrapporter", <YesNo key="v" v={!!v.seesIndividualReports} />],
               ["Coachanteckningar", <YesNo key="v" v={!!v.seesCoachNotes} />],
-              "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Öppen fråga 17 till ledningen.</div></>],
+              "seesSlaStats" in v && ["SLA-statistik", <><YesNo v={!!v.seesSlaStats} /><div className="text-small text-text-muted">Inte fastställt – beslut i ledningen.</div></>],
               c.reportDelivery && ["Rapporter levereras", c.reportDelivery.channel === "portal" ? "I portalen – mottagaren får en notis utan personuppgifter" : c.reportDelivery.channel],
               c.reportDelivery && ["Rapport som bilaga i e-post", <YesNo key="v" v={!!c.reportDelivery.emailAttachmentAllowed} />],
               c.orderChannels && ["Beställningskanaler", cap(c.orderChannels.map((o) => channelWord[o] ?? o).join(", "))],
@@ -271,7 +321,7 @@ const CARDS: Record<string, CardDef> = {
                 <li key={k}>{lab(k)}</li>
               ))}
             </ul>
-            {p.optionalAreas.length > 0 && <Small>Valfria områden (öppen fråga 12): {p.optionalAreas.map(lab).join(", ")}.</Small>}
+            {p.optionalAreas.length > 0 && <Small>Valfria områden – inte fastställda med Botkyrka: {p.optionalAreas.map(lab).join(", ")}.</Small>}
           </Stack>
           <KV
             items={[
@@ -475,11 +525,7 @@ const CARDS: Record<string, CardDef> = {
           ["Återlämning av data", `Inom ${c.termination!.returnDataWithinDays} dagar efter avtalsslut`],
           ["Radering efter återlämning", <YesNo key="v" v={!!c.termination!.deleteAfterReturn} />],
           "retention" in c && ["Gallring under avtalstiden", <Val key="v" v={c.retention} />],
-          // Bilagor till beställningen (beslut 2026-10-07): raderas när dagarna efter avslutet har gått. Ej fastställt = inget raderas.
-          c.retentionRules && [
-            "Gallring av bilagor",
-            <Val key="v" v={c.retentionRules.attachmentsAfterCloseDays}>{`${plural(Number(c.retentionRules.attachmentsAfterCloseDays), "dag", "dagar")} efter avslutet`}</Val>,
-          ],
+          // Bilagor till beställningen gallras inte automatiskt (beslut 5, 2026-10-08) – ingen avtalsregel att visa.
         ]}
       />
     ),

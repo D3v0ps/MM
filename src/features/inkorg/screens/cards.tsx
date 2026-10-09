@@ -117,8 +117,12 @@ export function AckCard({ a, c }: { a: AckView; c: ItemCase | null }) {
     <Card title={a.generic ? "Generisk mottagningsbekräftelse" : "Ordererkännande"} icon="mail" foot={foot}>
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge tone={a.ok ? "blue" : "red"} icon={a.ok ? "check" : "alert"}>{a.ok ? `Skickat automatiskt efter ${a.mins} min` : `Sent – ${a.mins} min`}</Badge>
-          <span className="text-small text-text-muted">{a.when} · krav: inom {a.limit} minuter</span>
+          {a.registered ? (
+            <Badge tone="blue" icon="check">Skickat när beställningen registrerades</Badge>
+          ) : (
+            <Badge tone={a.ok ? "blue" : "red"} icon={a.ok ? "check" : "alert"}>{a.ok ? `Skickat automatiskt efter ${a.mins} min` : `Sent – ${a.mins} min`}</Badge>
+          )}
+          <span className="text-small text-text-muted">{a.when}{a.registered ? "" : ` · krav: inom ${a.limit} minuter`}</span>
         </div>
         <div className="text-small text-text-muted">Till {a.to}</div>
         <Quote>{a.body}</Quote>
@@ -176,7 +180,7 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
       tone="blue"
       title="Orderbekräftelse skickad"
       icon="check-circle"
-      actions={v.reportId ? <Button kind="secondary" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(v.reportId)}`}>Öppna</Button> : null}
+      actions={v.reportId ? <Button kind="secondary" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(v.reportId)}`}>Öppna orderbekräftelsen</Button> : null}
       foot={demo ? (
         <WrapBtns>
           <KommunSwitch c={{ id: v.caseId, referrerId: v.referrerId }} />

@@ -30,7 +30,7 @@ import { VoiceNotesForCheckIn } from "@/features/rost/screens/coach-parts";
 import { consentSet } from "@/features/arenden/api";
 import { auditView } from "@/features/session/api";
 import {
-  AI_FIELDS, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, recordingFinish, recordingState, type AiField,
+  AI_FIELDS, AI_OFF_TEXT, aiRun, aiRunInfo, checkInAttendance, checkInPage, checkInReceipt, checkinSave, deviationCallCustomer, recordingFinish, recordingState, type AiField,
   type AiFieldSuggestion, type AiSource, type CheckInPage, type CheckInReceipt, type CheckInSuggestions, type CheckInView, type RecordingState,
 } from "../api";
 import { cap, CaseHeadView, caseCrumbs, CasePicker, ChipButton, Chips, customerPerspective, GateView, lc, PageState, Persp, useCaseView } from "./shared";
@@ -58,13 +58,8 @@ const SOURCE: Record<AiSource, { label: string; choose: string; icon: IconName; 
   teams: { label: "Teams-transkript", choose: "Teams-transkript", icon: "video", method: "teams", audio: false },
   notes: { label: "Inklistrade anteckningar", choose: "Inklistrade anteckningar", icon: "clipboard", method: "notes", audio: false },
 };
-/** AI-leverantören i klarspråk (ai_runs.provider). */
-const PROVIDER_LABEL: Record<string, string> = { simulated: "Simulerad AI (testdata)", vertex_eu: "Gemini Flash via Vertex AI (EU)" };
-const providerText = (provider: string, model: string) => {
-  const label = PROVIDER_LABEL[provider];
-  if (!label) return `${provider} · ${model}`;
-  return provider === "simulated" ? label : `${label} · ${model}`;
-};
+/** Var AI-körningen gjordes, i klarspråk. Leverantör och modell hör hemma i revisionsloggen, inte i coachens formulär. */
+const PROVIDER_TEXT = "Transkriberat och tolkat i Sverige/EU";
 const GOAL_TEXT: Record<Goal, string> = { yes: "Ja", partly: "Delvis", no: "Nej" };
 const GOAL_OPTIONS: SegOption<Goal>[] = [{ value: "yes", label: "Ja", icon: "check" }, { value: "partly", label: "Delvis", icon: "minus" }, { value: "no", label: "Nej", icon: "x" }];
 const MODE_OPTIONS: SegOption<"fysiskt" | "telefon" | "video">[] = [{ value: "fysiskt", label: "Fysiskt", icon: "users" }, { value: "telefon", label: "Telefon", icon: "phone" }, { value: "video", label: "Video", icon: "video" }];
@@ -378,7 +373,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
     const kind = src === "notes" ? "extract_notes" : src === "teams" ? "extract_teams" : "transcribe_extract";
     const res = await run.run({ caseId: c.caseId, kind, source: src, notesText: src === "notes" ? notesText : undefined, audioSeconds: secs, costOre: audio ? 80 : 4 }).catch(() => null);
     if (!res || !res.ok || !res.suggestions) {
-      toast(res && !res.ok && res.error === "ai_not_allowed" ? AI_BLOCKED : "AI-tolkningen gick inte att göra. Dokumentera manuellt.", "error");
+      toast(res && !res.ok && res.error === "ai_not_allowed" ? AI_BLOCKED : res && !res.ok && res.error === "ai_unavailable" ? AI_OFF_TEXT : "AI-tolkningen gick inte att göra. Dokumentera manuellt.", "error");
       setMethod("manual");
       return;
     }
@@ -682,9 +677,8 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
     <Page
       title={TITLE}
       eyebrow={`${c.name} · ${c.caseNumber}`}
-      lead="Allt utom anteckningen är knappar. Förifyllt från kalendern och närvaron. Mål: under 5 minuters dokumentation."
+      lead="Förifyllt från kalendern och närvaron. Välj med knapparna – det enda du skriver är anteckningen."
       crumbs={caseCrumbs(c, TITLE)}
-      actions={<DocTimer start={start} />}
     >
       <Card>
         <CaseHeadView head={c} />
@@ -870,16 +864,7 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
             )}
           </Section>
 
-          <Section
-            n="5"
-            title="Genomförda aktiviteter"
-            ok={form.activitiesDone.length > 0}
-            extra={
-              <Badge tone="plan" title="Mall 02 finns inte i underlaget">
-                Exempel – stäms av mot mall 02
-              </Badge>
-            }
-          >
+          <Section n="5" title="Genomförda aktiviteter" ok={form.activitiesDone.length > 0}>
             {pair(
               "activitiesDone",
               <Field label="Aktiviteter under veckan" id="ci-acts" help="Välj alla som stämmer.">
@@ -1033,9 +1018,9 @@ function CheckInForm({ v, rostId }: { v: Ok; rostId: string | null }) {
       <ErrorSummary items={summary} title={attempt ? "Avstämningen kan inte godkännas ännu" : "Rätta det här innan du sparar"} />
       {/* Knapparna ligger kvar längst ned på skärmen medan man fyller i formuläret. */}
       <div data-print="hide" className="sticky bottom-0 z-10 -mx-1 border-t border-ljusgra bg-vit px-1 py-2.5 shadow-[0_-6px_12px_-8px_rgb(30_37_43/0.25)]">
-        {/* Smal skärm: knapparna delar en rad och dokumentationstiden visas bara överst på sidan – raden tar annars en fjärdedel av skärmen. */}
+        {/* Smal skärm: knapparna staplas i full bredd så att "Godkänn avstämningen" aldrig klipps; dokumentationstiden döljs (den syns i kvittot). */}
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-          <div className="flex flex-wrap gap-2 max-[560px]:w-full max-[560px]:flex-nowrap max-[560px]:[&>button]:flex-1">
+          <div className="flex flex-wrap gap-2 max-[560px]:w-full max-[560px]:flex-col max-[560px]:[&>button]:w-full">
             <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
               Godkänn avstämningen
             </Button>
@@ -1091,25 +1076,38 @@ function AttendanceSection({ caseId, from, to, today, children }: { caseId: stri
     >
       {att && (
         <Row gap="sm">
+          {/* Nollor döljs – bara "närvarande" visas alltid, så att raden inte blir fyra nollor. */}
           <Badge tone="blue" icon="check-circle">
             {att.present} närvarande
           </Badge>
-          <Badge tone="grey" icon="clock">
-            {att.late} sen
-          </Badge>
-          <Badge tone="outline" icon="minus-circle">
-            {att.absentValid} giltig frånvaro
-          </Badge>
-          <Badge tone={att.absentInvalid > 0 ? "red" : "outline"} icon="x-circle">
-            {att.absentInvalid} ogiltig frånvaro
-          </Badge>
+          {att.late > 0 && (
+            <Badge tone="grey" icon="clock">
+              {att.late} sen
+            </Badge>
+          )}
+          {att.absentValid > 0 && (
+            <Badge tone="outline" icon="minus-circle">
+              {att.absentValid} giltig frånvaro
+            </Badge>
+          )}
+          {att.absentInvalid > 0 && (
+            <Badge tone="red" icon="x-circle">
+              {att.absentInvalid} ogiltig frånvaro
+            </Badge>
+          )}
           {att.unregistered > 0 && (
             // Kontur och ring (som närvarosidan): rött är bara för det som brådskar.
             <Badge tone="outline" icon="circle">
               {att.unregistered} ej registrerade
             </Badge>
           )}
-          <span className="text-small text-text-muted">{att.rate != null ? `Närvarograd ${pct(att.rate, 0)} av ${att.planned} planerade` : "Inga passerade tillfällen"}</span>
+          <span className="text-small text-text-muted">
+            {att.rate != null
+              ? `Närvarograd ${pct(att.rate, 0)} av ${att.planned} planerade`
+              : att.unregistered > 0
+                ? "Närvarograden räknas när tillfällena är registrerade"
+                : "Inga passerade tillfällen"}
+          </span>
         </Row>
       )}
       {att && att.unregistered > 0 && (
@@ -1288,6 +1286,14 @@ function AiCapture({
     );
   }
   const maxSeconds = Math.max(60, recording.maxMinutes * 60);
+  // AI av (produktion utan leverantör, beslut 2026-10-08): ingen källa att välja – klartext och den manuella vägen.
+  if (recording.block === "ai_off") {
+    return (
+      <Notice tone="warn" title="Tal till text är inte kopplat ännu">
+        {recording.blockText ?? AI_OFF_TEXT} Fyll i formuläret manuellt – det är fullt likvärdigt.
+      </Notice>
+    );
+  }
   const blocked =
     !recording.allowed && (source === "recording" || source === "upload") ? (
       <Notice tone="warn" title="Inspelning används inte">
@@ -1408,7 +1414,7 @@ function AiSourceSummary({
           {src.label}
           {heldAt ? ` · ${fmtDateTimeLong(heldAt)}` : ""}
         </span>
-        {info.data && <span className="text-small text-text-muted">{providerText(info.data.provider, info.data.model)}</span>}
+        {info.data && info.data.provider !== "simulated" && <span className="text-small text-text-muted">{PROVIDER_TEXT}</span>}
       </Row>
       {/* Testmiljön: den simulerade AI-leverantören ger påhittad text (beslut 2026-10-07, synpunkt #8). */}
       {info.data?.provider === "simulated" && <SimulatedAiNotice who="you" />}

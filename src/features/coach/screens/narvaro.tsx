@@ -14,11 +14,16 @@ import { useQueryPatch } from "@/shell/url-state";
 import { useRuntime } from "@/shell/runtime";
 import { useSession } from "@/shell/session";
 import { Badge, Button, Card, cn, Empty, Notice, Page, Row, Seg, SlaBadge, Split, Stack, toast, useConfirm } from "@/ui";
+import { activityRemove } from "@/features/arenden/api";
+import { ActivityModal } from "@/features/arenden/screens/kort-start";
 import { attendanceSet, attendanceSetAll, narvaroView, type NarvaroRow, type NarvaroView } from "../api";
 import { ATT_OPTIONS, AttBadge, dayLabel, kindOf, MIN_VECKA_CRUMB, PageState, Persp } from "./shared";
 
 type Week = "last" | "this";
 type Show = "open" | "all";
+
+/** Tomt läge: säger vad som gör att tillfällen dyker upp (tom databas, nytt ärende utan schema). */
+const NO_SESSIONS_TEXT = "Tillfällen skapas när insatsen startas – knappen Starta insatsen på deltagarkortet efter första mötet. Sedan registrerar du närvaron här med ett klick per tillfälle.";
 type AttStatus = "present" | "late" | "absent_valid" | "absent_invalid";
 
 export function NarvaroScreen({ query }: ScreenProps) {
@@ -64,6 +69,22 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
   const [inflight, setInflight] = useState<Record<string, true>>({});
   // Senaste "Markera alla som närvarande": visas som statusrad (läses upp) tills veckan eller dagen byts.
   const [bulk, setBulk] = useState<{ day: string; marked: number; total: number } | null>(null);
+  // Lägg till och ta bort enstaka tillfällen (beslut 2026-10-08) – bara tillfällen utan registrerad närvaro kan tas bort.
+  const [adding, setAdding] = useState(false);
+  const remove = useCommand(activityRemove);
+  const removeActivity = async (a: NarvaroRow) => {
+    const ok = await confirm({
+      title: "Ta bort tillfället?",
+      body: `${kindOf(a.kind).label} ${dayLabel(a.startsAt)} ${fmtTime(a.startsAt)} för ${a.name} tas bort.`,
+      confirmLabel: "Ta bort",
+      cancelLabel: "Avbryt",
+      tone: "danger",
+    });
+    if (!ok) return;
+    const res = await remove.run({ activityId: a.activityId }).catch(() => null);
+    if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Tillfället kunde inte tas bort.", "error");
+    else toast("Tillfället är borttaget.");
+  };
   const setWeek = (w: Week) => {
     // Veckan i adressen (replace): Tillbaka och omladdning visar samma vecka.
     patch({ vecka: w === "last" ? "forra" : "denna" });
@@ -215,7 +236,12 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
         </div>
         <div className="col-start-2 flex min-w-0 flex-col gap-2 max-[560px]:col-span-full max-[560px]:col-start-1">
           {future ? (
-            <span className="text-body text-text-muted">Registreras när tillfället har startat.</span>
+            <Row gap="sm">
+              <span className="text-body text-text-muted">Registreras när tillfället har startat.</span>
+              <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
+                Ta bort
+              </Button>
+            </Row>
           ) : (
             <>
               <Seg
@@ -254,7 +280,9 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
     <Page
       title="Närvaro"
       eyebrow={role === "handledare" ? "Handledare – dina teamärenden" : "Snabbregistrering"}
-      lead={`Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}. När alla tillfällen för en handläggares deltagare är registrerade publiceras veckorapporten automatiskt.`}
+      lead={`${
+        role === "handledare" ? `Du ser tillfällen för ${v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet. ` : ""
+      }Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}. När alla tillfällen för en handläggares deltagare är registrerade publiceras veckorapporten automatiskt.`}
       crumbs={role === "coach" ? [MIN_VECKA_CRUMB, { label: "Närvaro" }] : undefined}
     >
       {caseId && (
@@ -285,34 +313,38 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
         />
       </Row>
 
-      <Card tone={open.length > 0 ? "red" : "blue"}>
-        <div data-testid="narvaro-raknare" className="flex flex-wrap items-center gap-x-5 gap-y-3">
-          <span className="text-[2rem] leading-none font-extrabold tabular-nums" aria-hidden="true">
-            {open.length}
-          </span>
-          <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-1">
-            <div className="text-[1.125rem] font-bold">
-              {open.length === 0 ? `Alla passerade tillfällen vecka ${wk.no} är registrerade` : `${plural(open.length, "tillfälle", "tillfällen")} kvar – senast ${v.dueText}`}
-            </div>
-            <div className="text-body text-text-muted">
-              {passed.length - open.length} av {passed.length} passerade tillfällen registrerade
-              {all.length > passed.length ? ` · ${all.length - passed.length} planerade senare i veckan` : ""}. Registrera senast {fmtDateTimeLong(wk.dueAt)}.
-            </div>
+      {all.length === 0 ? (
+        // Veckan saknar tillfällen (t.ex. tom databas): varken "0 av 0" eller ett Klart-märke – säg i stället vad som gör att tillfällen dyker upp.
+        <Card tone="sub">
+          <div data-testid="narvaro-raknare" className="flex min-w-0 flex-col gap-1">
+            <div className="text-[1.125rem] font-bold">Inga tillfällen vecka {wk.no}</div>
+            <div className="text-body text-text-muted">{NO_SESSIONS_TEXT}</div>
           </div>
-          {open.length > 0 ? (
-            <SlaBadge sla={wk.sla} dueAt={wk.dueAt} />
-          ) : (
-            <Badge tone="blue" icon="check">
-              Klart
-            </Badge>
-          )}
-        </div>
-      </Card>
-
-      {role === "handledare" && (
-        <Notice tone="info" title="Dina teamärenden">
-          Du ser tillfällen för {v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet.
-        </Notice>
+        </Card>
+      ) : (
+        <Card tone={open.length > 0 ? "red" : "blue"}>
+          <div data-testid="narvaro-raknare" className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <span className="text-[2rem] leading-none font-extrabold tabular-nums" aria-hidden="true">
+              {open.length}
+            </span>
+            <div className="flex min-w-0 flex-[1_1_240px] flex-col gap-1">
+              <div className="text-[1.125rem] font-bold">
+                {open.length === 0 ? `Alla passerade tillfällen vecka ${wk.no} är registrerade` : `${plural(open.length, "tillfälle", "tillfällen")} kvar – senast ${v.dueText}`}
+              </div>
+              <div className="text-body text-text-muted">
+                {passed.length - open.length} av {passed.length} passerade tillfällen registrerade
+                {all.length > passed.length ? ` · ${all.length - passed.length} planerade senare i veckan` : ""}. Registrera senast {fmtDateTimeLong(wk.dueAt)}.
+              </div>
+            </div>
+            {open.length > 0 ? (
+              <SlaBadge sla={wk.sla} dueAt={wk.dueAt} />
+            ) : (
+              <Badge tone="blue" icon="check">
+                Klart
+              </Badge>
+            )}
+          </div>
+        </Card>
       )}
 
       <Stack gap="sm">
@@ -334,8 +366,26 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
         {day !== "all" && <Row>{markAllButton(day)}</Row>}
       </Stack>
 
-      <Card flush title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`} icon="list" actions={<span className="text-small text-text-muted">{visible.length} visas</span>}>
-        {visible.length === 0 ? (
+      <Card
+        flush
+        title={day === "all" ? `Tillfällen vecka ${wk.no}` : `Tillfällen ${fmtWeekday(day)}`}
+        icon="list"
+        actions={
+          <Row gap="sm">
+            <span className="text-small text-text-muted">{visible.length} visas</span>
+            {v.cases.length > 0 && (
+              <Button icon="plus" onClick={() => setAdding(true)}>
+                Lägg till tillfälle
+              </Button>
+            )}
+          </Row>
+        }
+      >
+        {all.length === 0 ? (
+          <Empty icon="calendar" title={`Inga tillfällen vecka ${wk.no}`}>
+            {NO_SESSIONS_TEXT}
+          </Empty>
+        ) : visible.length === 0 ? (
           <Empty
             icon="check-square"
             title={show === "open" ? "Inget kvar att registrera här" : "Inga tillfällen"}
@@ -442,6 +492,7 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           </Stack>
         </Card>
       </Split>
+      {adding && <ActivityModal cases={v.cases} caseId={caseId} now={now} onClose={() => setAdding(false)} />}
     </Page>
   );
 }

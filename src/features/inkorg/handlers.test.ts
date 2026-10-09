@@ -14,8 +14,8 @@ import type { TableName, Tables } from "@/data/schema";
 import { caseAccept } from "@/features/arenden/api";
 import { navCounts } from "@/features/session/nav-api";
 import {
-  emailApplySupplement, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxList, inboxRevealPnr, inboxStart,
-  inboxTaskDone,
+  emailApplySupplement, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxList, inboxRegister, inboxRegisterForm,
+  inboxRevealPnr, inboxStart, inboxTaskDone,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -177,7 +177,7 @@ describe("områdets kommandon", () => {
     expect(f?.coaches.map((x) => x.name)).toContain("Leila Nouri");
     // Kompletteringen gav omfattningen (6 månader) och referensen – avtalsområde och yrkesspår väljs av Miljonbemanning.
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, buyerReference: "55102938" });
-    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", startDate: "2027-02-03", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, plannedEnd: "2027-08-02", primaryAreaCode: "G" });
     const conf = await q(inboxConfirmation, { caseId: "case-270049" }, sara());
     expect(conf).toMatchObject({ caseNumber: "BOT-27-0049", coachName: "Leila Nouri", team: "Bara huvudcoach", buyerReference: "55102938", leadNotif: { title: "Leila Nouri har fått en notis om tilldelningen" } });
@@ -205,5 +205,111 @@ describe("områdets kommandon", () => {
     expect(p).toEqual({ ok: true, text: "19750312-5223" });
     // Visningen är tyst: demoklockan står still.
     expect(rt.clock.now()).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------- Registrera beställning (beslut 4a, 2026-10-08)
+describe("registrera beställning (mejl, telefon eller annan väg)", () => {
+  const PHONE_ORDER = {
+    channel: "phone" as const, receivedAt: "2027-02-01T08:30", referrerId: null, referrerName: "Anna Ny", referrerEmail: "Anna.Ny@botkyrka.se", referrerUnit: "Arbetsmarknadsenheten Tumba", referrerPhone: "08-530 000 00",
+    firstName: "Test", lastName: "Telefonsson", pnr: "19930303-1111", phone: "070-000 00 00", email: "", city: "Tumba", address: null, preferredContact: "sms" as const,
+    desiredStart: "2027-02-15", orderPeriodMonths: 6, plannedEnd: null, orderPeriodReason: null, priorAssessment: "no" as const, background: "Vill jobba i lager.", buyerReference: "", attachmentIds: [],
+  };
+
+  it("formulärets underlag: kommunens handläggare, domäner, omfattningar och bilageregler – inget personnummer", async () => {
+    const f = await q(inboxRegisterForm, {}, sara());
+    expect(f).toMatchObject({ today: "2027-02-01", now: "2027-02-01T09:12", customerName: "Botkyrka kommun", customerDomains: ["botkyrka.se"], periods: { months: [6, 12], allowOther: true }, answerText: "en arbetsdag", email: null });
+    expect(f.handlers.map((h) => h.id)).toContain("k-maria");
+    expect(f.attachments.maxFiles).toBe(10);
+    expect(JSON.stringify(f)).not.toMatch(/\d{8}-\d{4}/);
+  });
+
+  it("per telefon utan konto: rad i inbound_emails, ärendet med handläggarens uppgifter, ordererkännande och logg", async () => {
+    const res = await run(inboxRegister, PHONE_ORDER, sara());
+    expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0051" });
+    if (!res.ok) return;
+    const c = row("cases", res.caseId)!;
+    expect(c).toMatchObject({ source: "phone", status: "acknowledged", referredAt: "2027-02-01T08:30", referrerId: null, referrerName: "Anna Ny", referrerEmail: "anna.ny@botkyrka.se", referrerUnit: "Arbetsmarknadsenheten Tumba", sourceEmailId: res.emailId, orderPeriodMonths: 6, plannedEnd: "2027-08-14" });
+    const m = row("inbound_emails", res.emailId)!;
+    expect(m).toMatchObject({ parseMethod: "manual", classification: "order", status: "acknowledged", caseId: res.caseId, registeredBy: "u-sara", registeredAt: "2027-02-01T09:13", receivedAt: "2027-02-01T08:30", fromAddress: "anna.ny@botkyrka.se", subject: "Beställning per telefon", bodyText: "", graphMessageId: `manual:${res.emailId}` });
+    // Ordererkännandet går till handläggarens adress (utan konto) och innehåller bara ärendenumret.
+    const out = rows("outbound_messages").filter((x) => x.caseId === res.caseId && x.template === "ordererkannande");
+    expect(out).toHaveLength(1);
+    expect(out[0].to).toBe("anna.ny@botkyrka.se");
+    expect(out[0].body).toContain("BOT-27-0051");
+    expect(out[0].body).not.toMatch(/Telefonsson|19930303/);
+    // Loggen: id:n och kanal – inga personuppgifter.
+    const log = rows("audit_log").filter((a) => a.action === "email.registered");
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ entity: "inbound_email", entityId: res.emailId, actorId: "u-sara", details: { caseId: res.caseId, number: "BOT-27-0051", channel: "phone", linkedProfile: false } });
+    expect(JSON.stringify(rows("audit_log"))).not.toMatch(/Telefonsson|anna\.ny|19930303/);
+    // Inkorgen: posten väntar på beslut med svarstiden från mottagandet, ärendets uppgifter i stället för en tolkning.
+    const l = await q(inboxList, {}, sara());
+    // Mest brådskande först: svarstiden räknas från mottagandet (08.30 i dag → i morgon 08.30), så dagens äldre avrop ligger före.
+    expect(l.pending).toContain(res.emailId);
+    expect(l.pending.indexOf(res.emailId)).toBeGreaterThan(l.pending.indexOf("em-106"));
+    expect(l.rows.find((x) => x.id === res.emailId)).toMatchObject({ kind: "email", method: "phone", caseNumber: "BOT-27-0051", from: "Anna Ny", sla: { dueAt: "2027-02-02T08:30" } });
+    const d = await q(inboxItem, { id: res.emailId }, sara());
+    expect(d).toMatchObject({ decision: true, method: "phone", handledText: "Registrerad av Sara Lindqvist i dag kl. 09.13" });
+    expect(d?.body.kind).toBe("order");
+    if (d?.body.kind !== "order") return;
+    expect(d.body.original).toBeNull();
+    expect(d.body.parsed).toBeNull();
+    expect(d.body.caseFields).toMatchObject({ method: "phone" });
+    expect(d.body.caseFields?.groups[0].fields.map((f) => [f.label, f.value])).toEqual(expect.arrayContaining([["Handläggare", "Anna Ny"], ["Enhet", "Arbetsmarknadsenheten Tumba"], ["Omfattning", "6 månader"]]));
+    expect(d.body.ack).toMatchObject({ kind: "sent", ok: true, registered: true });
+    expect(d.body.register).toBeNull();
+    expect(JSON.stringify(d)).not.toContain("19930303");
+    // Vanligt flöde efteråt: acceptera.
+    expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
+  });
+
+  it("handläggare med konto kopplas direkt; en adress utanför kommunens domän stoppas; annan väg sparas som 'other'", async () => {
+    const res = await run(inboxRegister, { ...PHONE_ORDER, channel: "other", referrerId: "k-maria", referrerName: "", referrerEmail: "", referrerUnit: "", pnr: "19930303-2222" }, johan());
+    expect(res).toMatchObject({ ok: true });
+    if (!res.ok) return;
+    expect(row("cases", res.caseId)).toMatchObject({ source: "other", referrerId: "k-maria", referrerEmail: "maria.ekdahl@botkyrka.se", referrerUnit: "Arbetsmarknadsenheten Alby" });
+    expect(row("inbound_emails", res.emailId)).toMatchObject({ subject: "Beställning registrerad av Miljonbemanning", fromName: "Maria Ekdahl" });
+    expect((await q(inboxList, {}, sara())).rows.find((x) => x.id === res.emailId)?.method).toBe("registered");
+    expect(await run(inboxRegister, { ...PHONE_ORDER, referrerEmail: "anna@gmail.com", pnr: "19930303-3333" }, sara())).toMatchObject({ ok: false, error: "referrer" });
+    expect(await run(inboxRegister, { ...PHONE_ORDER, referrerEmail: "maria.ekdahl@botkyrka.se", pnr: "19930303-4444" }, sara())).toMatchObject({ ok: true });
+    expect(rows("cases").at(-1)).toMatchObject({ referrerId: "k-maria" });
+    expect(await run(inboxRegister, { ...PHONE_ORDER, receivedAt: "2027-02-01T12:00", pnr: "19930303-5555" }, sara())).toMatchObject({ ok: false, error: "received_at" });
+    expect(await run(inboxRegister, { ...PHONE_ORDER, pnr: "19750312-5223" }, sara())).toMatchObject({ ok: false, error: "duplicate" });
+  });
+
+  it("ett inläst mejl utan ärende: förifyllning (personnumret bara maskerat) och registrering med numret ur mejlet", async () => {
+    rt.store.insertRow("inbound_emails", {
+      id: "em-ny", graphMessageId: "<ny@botkyrka.se>", receivedAt: "2027-02-01T08:50", fromAddress: "ahmed.yusuf@botkyrka.se", fromName: "Ahmed Yusuf", subject: "Ny deltagare",
+      bodyText: "Hej! Jag vill anvisa Samir Test (19940404-6666) till er. /Ahmed", attachments: [], parseMethod: "manual", classification: "order",
+      extracted: { pnr: "19940404-6666" }, confidence: { pnr: 0.5 }, missingFields: ["desiredStart", "orderPeriod", "firstName", "lastName"], corrections: {}, status: "received",
+      caseId: null, ackSentAt: null, ackKind: null, aiRunId: null, linkedBy: null, registeredBy: null, registeredAt: null, handledBy: null, handledAt: null,
+    });
+    const before = await q(inboxItem, { id: "em-ny" }, sara());
+    expect(before?.body.kind === "order" && before.body.register).toMatchObject({ emailId: "em-ny" });
+    const f = await q(inboxRegisterForm, { emailId: "em-ny" }, sara());
+    expect(f.email).toMatchObject({ id: "em-ny", from: "Ahmed Yusuf", prefill: { referrerEmail: "ahmed.yusuf@botkyrka.se", referrerName: "Ahmed Yusuf", pnrMasked: "••••••••-6666" } });
+    expect(JSON.stringify(f)).not.toContain("19940404");
+    const res = await run(inboxRegister, { ...PHONE_ORDER, emailId: "em-ny", referrerId: "k-ahmed", referrerName: "", referrerEmail: "", referrerUnit: "", firstName: "Samir", lastName: "Test", pnr: "" }, sara());
+    expect(res).toMatchObject({ ok: true, emailId: "em-ny" });
+    if (!res.ok) return;
+    expect(row("inbound_emails", "em-ny")).toMatchObject({ caseId: res.caseId, status: "acknowledged", registeredBy: "u-sara", missingFields: [] });
+    expect(row("cases", res.caseId)).toMatchObject({ source: "email", sourceEmailId: "em-ny", referrerId: "k-ahmed", referredAt: "2027-02-01T08:30" });
+    expect(row("persons", row("cases", res.caseId)!.personId)).toMatchObject({ personnummerLast4: "6666", firstName: "Samir" });
+    const after = await q(inboxItem, { id: "em-ny" }, sara());
+    expect(after?.body.kind === "order" && after.body).toMatchObject({ register: null, caseFields: { method: "registered" }, parsed: null });
+    expect(after?.body.kind === "order" && after.body.original?.body).toContain("••••••••-6666");
+    // Samma mejl kan inte registreras två gånger.
+    expect(await run(inboxRegister, { ...PHONE_ORDER, emailId: "em-ny", pnr: "19940404-7777" }, sara())).toMatchObject({ ok: false, error: "email" });
+  });
+
+  it("när handläggaren skapar konto kopplas ärendet via e-postadressen", async () => {
+    const res = await run(inboxRegister, PHONE_ORDER, sara());
+    if (!res.ok) throw new Error(res.error);
+    const reg = await rt.selfRegister("anna.ny@botkyrka.se");
+    expect(reg).toMatchObject({ ok: true, linkedCases: 1 });
+    if (!reg.ok) return;
+    expect(row("cases", res.caseId)).toMatchObject({ referrerId: reg.profileId, referrerName: "Anna Ny" });
+    expect(rows("audit_log").at(-1)).toMatchObject({ action: "profile.self_registered", details: { linkedCases: 1 } });
   });
 });

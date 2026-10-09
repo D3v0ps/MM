@@ -108,7 +108,7 @@ export const isDraftDoc = (status: ReportStatus): boolean => status === "draft" 
 
 /** Rapportens rubrik. */
 export function reportTitle(r: Pick<Report, "kind" | "month" | "week" | "periodStart">): string {
-  const month = () => monthName(r.month || monthKey(r.periodStart ?? ""));
+  const month = () => (r.month || r.periodStart ? monthName(r.month || monthKey(r.periodStart as string)) : "");
   switch (r.kind) {
     case "monthly":
       return `Månadsrapport ${month()}`;

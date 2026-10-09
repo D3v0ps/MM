@@ -14,7 +14,7 @@ import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { aiLanguages, recordingMaxMinutes, type ContractConfig } from "@/core/config";
 import { addDays, addMinutes, diffDays, type LocalDateTime } from "@/core/time";
 import type { Case, ParticipantVoiceNote, Person, VoiceLink, VoiceLinkChannel } from "@/data/schema";
-import { recordingBlock, RECORDING_BLOCK_TEXT } from "../_shared/ai-port";
+import { AI_OFF_LINK_TEXT, aiOff, recordingBlock, RECORDING_BLOCK_TEXT } from "../_shared/ai-port";
 import { SIMULATED_PROVIDER } from "../_shared/ai-sim";
 import { canEditCase } from "../_shared/context";
 import { enqueueVoiceJob, voiceRunState } from "../_shared/voice-jobs";
@@ -147,8 +147,10 @@ const CHANNEL_TEXT: Record<VoiceLinkChannel, string> = { sms: "SMS till deltagar
 const CHANNEL_TO: Record<VoiceLinkChannel, string> = { sms: "deltagare (SMS)", email: "deltagare (e-post)" };
 
 type SendCheck = { allowed: true; channel: VoiceLinkChannel } | { allowed: false; error: "protected" | "disabled" | "no_channel" | "closed" | "forbidden"; reason: string };
-function sendCheck(c: Case, person: Person | null, cfg: ContractConfig | null, canWork: boolean): SendCheck {
+function sendCheck(c: Case, person: Person | null, cfg: ContractConfig | null, canWork: boolean, aiOn: boolean): SendCheck {
   if (!canWork) return { allowed: false, error: "forbidden", reason: "Bara den som arbetar i ärendet kan skicka länken." };
+  // AI av (produktion utan leverantör, beslut 2026-10-08): inget kan transkriberas – ingen länk skickas.
+  if (!aiOn) return { allowed: false, error: "disabled", reason: AI_OFF_LINK_TEXT };
   const block = recordingBlock({ cfg, kind: "participant", person });
   if (block === "protected") return { allowed: false, error: "protected", reason: "Deltagaren har skyddade personuppgifter. Inga länkar, SMS eller mejl skickas och ingen inspelning görs." };
   if (block) return { allowed: false, error: "disabled", reason: "Deltagarens egen inspelning är inte påslagen i avtalet." };
@@ -196,7 +198,7 @@ handleQuery(caseVoice, { roles: VOICE_READERS }, async (ctx, p): Promise<CaseVoi
   const runs = runIds.length ? await ctx.repo.table("ai_runs").list({ id: { in: runIds } }) : [];
   const simulatedRuns = new Set(runs.filter((r) => r.provider === SIMULATED_PROVIDER).map((r) => r.id));
   const last = [...links].sort((a, b) => (a.sentAt < b.sentAt ? 1 : a.sentAt > b.sentAt ? -1 : 0))[0] ?? null;
-  const check = sendCheck(c, person, cfg, canWork);
+  const check = sendCheck(c, person, cfg, canWork, !aiOff(ctx));
   const langs = rostLanguages(cfg);
   const pref = languageCodeOf(person?.language);
   const days = linkDays(cfg);
@@ -234,7 +236,7 @@ handleCommand(linkSend, { roles: VOICE_WORKERS }, async (ctx, p) => {
   if (!cc) return fail("not_found", NOT_FOUND);
   const { c, person, cfg } = cc;
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
-  const check = sendCheck(c, person, cfg, true);
+  const check = sendCheck(c, person, cfg, true, !aiOff(ctx));
   if (!check.allowed) {
     if (check.error === "protected") {
       await ctx.audit({ action: "voice.link_blocked", entity: "case", entityId: c.id, contractId: c.contractId, details: { reason: "Skyddade personuppgifter" } });

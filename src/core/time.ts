@@ -40,7 +40,15 @@ export function toDateTime(t: number): LocalDateTime {
 
 export const dayOf = (s: string): LocalDate => String(s).slice(0, 10);
 export const timeOf = (s: string): string => String(s).slice(11, 16);
-export const monthKey = (s: string): MonthKey => String(s).slice(0, 7);
+/** Månadsnyckeln 'YYYY-MM' – aldrig något annat (ett tomt eller trasigt datum hade annars gett nycklar som "0-NaN"). */
+const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
+export const isMonthKey = (s: unknown): s is MonthKey => typeof s === "string" && MONTH_KEY.test(s);
+/** 'YYYY-MM-DD…' -> 'YYYY-MM'. Kastar om värdet inte börjar med ett datum – en ogiltig nyckel får aldrig komma ut (fynd 5, 2026-10-08). */
+export function monthKey(s: string): MonthKey {
+  const k = String(s).slice(0, 7);
+  if (!MONTH_KEY.test(k)) throw new Error(`Ogiltigt datum för månadsnyckel: ${JSON.stringify(String(s).slice(0, 10))}`);
+  return k;
+}
 
 export function addDays<T extends string>(s: T, n: number): T {
   const hasTime = String(s).includes("T");
@@ -132,7 +140,10 @@ export function weeksOfMonth(month: MonthKey): IsoWeek[] {
   }
   return out;
 }
+/** Månadsnyckeln n månader senare (n < 0 = tidigare). Kastar vid ogiltig nyckel eller icke-heltal – resultatet är alltid en giltig nyckel. */
 export function addMonths(month: MonthKey, n: number): MonthKey {
+  if (!MONTH_KEY.test(month)) throw new Error(`Ogiltig månadsnyckel: ${JSON.stringify(month)}`);
+  if (!Number.isInteger(n)) throw new Error(`Ogiltigt antal månader: ${String(n)}`);
   let [y, m] = month.split("-").map(Number);
   m += n;
   while (m > 12) { m -= 12; y++; }

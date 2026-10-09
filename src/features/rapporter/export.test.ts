@@ -11,7 +11,8 @@ import { createSeed, TEST_PNR_CRYPTO } from "@/data/seed";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import { emptyDb, type Db, type Report } from "@/data/schema";
 import {
-  buildResultExport, latestVersions, monthsInPeriod, periodError, periodLabel, resultCsv, resultFilename, resultXlsx, type ExportFinal, type ExportMonthly, type ResultExportInput,
+  buildResultExport, INTERNAL_FIELDS, isInternalField, latestVersions, monthsInPeriod, periodError, periodLabel, resultCsv, resultFilename, resultXlsx, type ExportFinal, type ExportMonthly,
+  type ResultExportInput,
 } from "./export";
 import type { FinalFacts, MonthlyFacts } from "./facts";
 import { frozenFacts, type ReportEnv } from "./model";
@@ -58,10 +59,25 @@ describe("buildResultExport", () => {
     for (const r of R) {
       for (const k of ["rattelse_pagar", "upprepad_franvaro", "bedomning_godkand", "praktik_startad", "arbete_paborjat", "studier_paborjade", "kommunens_beslut_behovs"]) expect([0, 1]).toContain(r[k]);
       expect(typeof r.veckor).toBe("number");
-      expect(r.tillfallen_planerade).toBe((r.narvarande as number) + (r.sen_ankomst as number) + (r.franvaro_giltig as number) + (r.franvaro_ogiltig as number) + (r.ej_registrerade as number));
-      const reg = (r.tillfallen_planerade as number) - (r.ej_registrerade as number);
-      expect(r.narvaro_procent).toBe(reg ? Math.round((((r.narvarande as number) + (r.sen_ankomst as number)) / reg) * 1000) / 10 : null);
+      // Schemaversion 2 (beslut 6, 2026-10-08): inga antal per tillfälle i filen. Närvarograden räknas ur de frysta fakta, och
+      // samma antal följer med raden som interna fält för rapportbyggaren (aldrig i filen – se testet nedan).
+      for (const k of ["tillfallen_planerade", "narvarande", "sen_ankomst", "franvaro_giltig", "franvaro_ogiltig", "ej_registrerade"]) expect(r).not.toHaveProperty(k);
+      const reg = r[INTERNAL_FIELDS.registered] as number;
+      expect(r.narvaro_procent).toBe(reg ? Math.round(((r[INTERNAL_FIELDS.onSite] as number) / reg) * 1000) / 10 : null);
     }
+  });
+
+  it("de interna fälten (inledande understreck) står aldrig i filen – varken i CSV, Excel eller fältbeskrivningen", async () => {
+    const internal = Object.keys(R[0]).filter(isInternalField);
+    expect(internal.sort()).toEqual([INTERNAL_FIELDS.onSite, INTERNAL_FIELDS.registered].sort());
+    for (const t of ["resultat", "progression", "handelser", "avslut", "faltbeskrivning"] as const) {
+      const csv = resultCsv(exp, t);
+      for (const k of internal) expect(csv).not.toContain(k);
+      expect(csv.split("\r\n")[0].split(";").filter(isInternalField)).toEqual([]);
+    }
+    const zip = await readZip(await resultXlsx(exp, cfg, { contractNumber: "332026110", customerName: "Botkyrka kommun" }));
+    for (const e of zip) if (e.name.endsWith(".xml")) for (const k of internal) expect(entryText(zip, e.name)).not.toContain(k);
+    expect(exp.columns.resultat.some((c) => isInternalField(c.key))).toBe(false);
   });
 
   it("progressionen: tom när bedömningen inte är godkänd; flaggorna enligt gränserna och bara de obligatoriska områdena", () => {
@@ -269,7 +285,7 @@ describe("filerna", () => {
     expect(exp.meta.rows.avslut).toBeGreaterThan(0);
     const s1 = entryText(es, "xl/worksheets/sheet1.xml");
     expect(s1).toContain('state="frozen"');
-    expect(s1).toContain(`<autoFilter ref="A1:BJ${exp.meta.rows.resultat + 1}"/>`);
+    expect(s1).toContain(`<autoFilter ref="A1:BD${exp.meta.rows.resultat + 1}"/>`);
     expect(entryText(es, "xl/worksheets/sheet4.xml")).toContain(`<autoFilter ref="A1:K${exp.meta.rows.avslut + 1}"/>`);
     const about = entryText(es, "xl/worksheets/sheet5.xml");
     for (const t of ["Avtal", "332026110, Botkyrka kommun", "Period", "oktober 2026 – december 2026", "Hämtad", "2027-02-01 09:12", "Schemaversion", "Rader",

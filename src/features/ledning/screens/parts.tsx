@@ -74,7 +74,7 @@ export function CdStatusBadge({ status }: { status: CdStatusKey }) {
 // ---------------------------------------------------------------- Layout
 /** Rutnät för nyckeltal (prototypens ldg-tiles: minst 210 px per ruta). */
 export function Tiles({ children }: { children: ReactNode }) {
-  return <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,210px),1fr))] gap-4">{children}</div>;
+  return <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,210px),1fr))] gap-4 max-[620px]:grid-cols-2 max-[620px]:gap-2.5">{children}</div>;
 }
 /** Stort tal (prototypens ldg-big). */
 export function Big({ children, className }: { children: ReactNode; className?: string }) {
@@ -472,7 +472,8 @@ export function Ladder({ ladder, current = null, counts = null, vertical }: { la
             className={cn(
               "flex min-w-0 flex-col gap-1 rounded-mb border-[1.5px] border-line-strong bg-vit px-2.5 pt-2.5 pb-3 text-small max-[760px]:!mt-0",
               cur && "border-antracit bg-antracit text-vit",
-              end && "border-2 border-rod",
+              // Röd ram bara när en avvikelse faktiskt ligger på hävningssteget – annars samma grå ram som övriga steg.
+              cur && end && "border-2 border-rod",
               cur && end && "shadow-[inset_0_0_0_2px_var(--color-rod)]",
             )}
           >

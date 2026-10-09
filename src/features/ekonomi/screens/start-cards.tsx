@@ -9,7 +9,7 @@ import { Link, useNav } from "@/shell/nav";
 import { useRuntime } from "@/shell/runtime";
 import { fmtDate, fmtDateTime, fmtWeekKey, fmtWeekRange, monthName } from "@/core/time";
 import { kr } from "@/core/format";
-import { Badge, BuildPhase, Button, Card, CaseLink, cn, Empty, Icon, Stepper, useConfirm, toast, type IconName } from "@/ui";
+import { Badge, BuildPhase, Button, Card, CaseLink, cn, DoneLine, Icon, Stepper, useConfirm, toast, type IconName } from "@/ui";
 import { ekoReissue, ekoTaskDone, type BillingStartView, type RefInvoiceRow, type ReturnedRow, type TaskView } from "../api";
 import { pl, plural, refInfo, weekText } from "../model";
 import { InvoiceRefModal, InvStatus, RefBadge, type RefInvoice } from "./parts";
@@ -126,6 +126,14 @@ export function RunCard({ v, buttonKind = "primary" }: { v: BillingStartView; bu
 /** Uppgifter till ekonomen (t.ex. rätt beställarreferens från kommunen). */
 export function TasksCard({ v, a }: { v: BillingStartView; a: BillingActions }) {
   const openTasks = v.tasks.filter((t) => t.status === "open");
+  // Inget att göra = en rad (Min veckas stil), inte ett tomt kort.
+  if (v.tasks.length === 0) {
+    return (
+      <DoneLine title="Uppgifter till dig" icon="inbox">
+        Inga uppgifter. Avtalsansvarig skickar uppgifter hit, till exempel rätt beställarreferens från kommunen.
+      </DoneLine>
+    );
+  }
   return (
     <Card
       title="Uppgifter till dig"
@@ -133,12 +141,7 @@ export function TasksCard({ v, a }: { v: BillingStartView; a: BillingActions }) 
       flush
       actions={openTasks.length > 0 && <Badge tone="dark">{plural(openTasks.length, "öppen", "öppna")}</Badge>}
     >
-      {v.tasks.length === 0 ? (
-        <Empty icon="inbox" title="Inga uppgifter">
-          Avtalsansvarig skickar uppgifter hit, till exempel rätt beställarreferens från kommunen.
-        </Empty>
-      ) : (
-        v.tasks.map((t) => (
+      {v.tasks.map((t) => (
           <div key={t.id} className={cn("flex flex-col gap-2 border-b border-ljusgra px-[18px] py-3.5 last:border-b-0", t.status !== "open" && "bg-ljusgra-ton")}>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge tone={t.status === "open" ? "dark" : "outline"} icon={t.status === "open" ? "clock" : "check"}>
@@ -174,21 +177,23 @@ export function TasksCard({ v, a }: { v: BillingStartView; a: BillingActions }) 
               </div>
             )}
           </div>
-        ))
-      )}
+        ))}
     </Card>
   );
 }
 
 /** Ofakturerade veckor äldre än gränsen (preskriptionsrisk). */
 export function UnbilledCard({ v }: { v: BillingStartView }) {
+  if (v.unbilled.rows.length === 0) {
+    return (
+      <DoneLine title={`Ofakturerade veckor äldre än ${v.unbilled.limit} dagar`} icon="alert">
+        Inga gamla ofakturerade veckor – alla debiterbara veckor äldre än {v.unbilled.limit} dagar är fakturerade.
+      </DoneLine>
+    );
+  }
   return (
-    <Card title={`Ofakturerade veckor äldre än ${v.unbilled.limit} dagar`} icon="alert" tone={v.unbilled.rows.length ? "red" : undefined} flush>
-      {v.unbilled.rows.length === 0 ? (
-        <Empty icon="check-circle" title="Inga gamla ofakturerade veckor">
-          Alla debiterbara veckor äldre än {v.unbilled.limit} dagar är fakturerade.
-        </Empty>
-      ) : (
+    <Card title={`Ofakturerade veckor äldre än ${v.unbilled.limit} dagar`} icon="alert" tone="red" flush>
+      {(
         <>
           {/* Kortet är redan rött (sidans enda röda ämne) – ingen röd ruta i den röda rutan. */}
           <p className="max-w-[70ch] border-b border-ljusgra px-[18px] py-3">
@@ -222,13 +227,16 @@ export function UnbilledCard({ v }: { v: BillingStartView }) {
 
 /** Fakturor som kommunen har returnerat (och de som krediterats och gjorts om). */
 export function ReturnedCard({ v, a }: { v: BillingStartView; a: BillingActions }) {
+  if (v.returned.length === 0) {
+    return (
+      <DoneLine title="Returnerade fakturor" icon="reply">
+        Inga returnerade fakturor – kommunen har inte returnerat någon faktura.
+      </DoneLine>
+    );
+  }
   return (
     <Card title="Returnerade fakturor" icon="reply" flush>
-      {v.returned.length === 0 ? (
-        <Empty icon="check-circle" title="Inga returnerade fakturor">
-          Kommunen har inte returnerat någon faktura.
-        </Empty>
-      ) : (
+      {(
         <div className="flex flex-col">
           {v.returned.map((inv) => {
             const cr = inv.credit;
@@ -281,6 +289,13 @@ export function ReturnedCard({ v, a }: { v: BillingStartView; a: BillingActions 
 
 /** Fakturor som inte kan skapas eftersom beställarreferensen saknas eller är fel (Miljonbemanning fyller i den). */
 export function RefInvoicesCard({ v, a }: { v: BillingStartView; a: BillingActions }) {
+  if (v.refInvoices.length === 0) {
+    return (
+      <DoneLine title="Fakturor som saknar beställarreferens" icon="hash">
+        Alla fakturor har giltig referens.
+      </DoneLine>
+    );
+  }
   return (
     <Card
       title="Fakturor som saknar beställarreferens"
@@ -288,9 +303,7 @@ export function RefInvoicesCard({ v, a }: { v: BillingStartView; a: BillingActio
       flush
       foot={<span className="text-text-muted">Miljonbemanning fyller i kommunens referens – en per faktura. Kommunen anger den inte i beställningen.</span>}
     >
-      {v.refInvoices.length === 0 ? (
-        <Empty icon="check-circle" title="Alla fakturor har giltig referens" />
-      ) : (
+      {(
         <div className="flex flex-col">
           {v.refInvoices.map((inv: RefInvoiceRow) => (
             <Row key={inv.invoiceId}>
@@ -319,11 +332,16 @@ export function RefInvoicesCard({ v, a }: { v: BillingStartView; a: BillingActio
 
 /** Veckor utan närvaro som ska kontrolleras innan de faktureras. */
 export function ZeroCard({ v }: { v: BillingStartView }) {
+  if (v.zero.length === 0) {
+    return (
+      <DoneLine title="Veckor utan närvaro att kontrollera" icon="clock">
+        Inga veckor att kontrollera.
+      </DoneLine>
+    );
+  }
   return (
     <Card title="Veckor utan närvaro att kontrollera" icon="clock" flush>
-      {v.zero.length === 0 ? (
-        <Empty icon="check-circle" title="Inga veckor att kontrollera" />
-      ) : (
+      {(
         <div className="flex flex-col">
           {v.zero.map((z) => (
             <Link

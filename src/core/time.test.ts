@@ -72,3 +72,21 @@ describe("omfattningen i månader (beslut 2026-10-07, synpunkt #5)", () => {
     expect(t.billableWeekCount("2027-02-08", "2027-02-07")).toBe(0);
   });
 });
+
+describe("månadsnycklar är alltid giltiga (fynd 5, 2026-10-08)", () => {
+  it("monthKey och addMonths ger bara 'ÅÅÅÅ-MM' – ett tomt eller trasigt datum kastar i stället för att ge '0-NaN'", () => {
+    expect(t.monthKey("2027-02-01")).toBe("2027-02");
+    expect(t.monthKey("2027-02-01T09:12")).toBe("2027-02");
+    expect(t.addMonths("2027-12", 1)).toBe("2028-01");
+    expect(t.addMonths("2027-01", -1)).toBe("2026-12");
+    expect(t.addMonths("2027-02", 0)).toBe("2027-02");
+    expect(() => t.monthKey("")).toThrow(/Ogiltigt datum/);
+    expect(() => t.monthKey("2027-13-01")).toThrow(/Ogiltigt datum/);
+    expect(() => t.addMonths("", 1)).toThrow(/Ogiltig månadsnyckel/);
+    expect(() => t.addMonths("0-NaN", 1)).toThrow(/Ogiltig månadsnyckel/);
+    expect(() => t.addMonths("2027-02", 1.5)).toThrow(/Ogiltigt antal/);
+    expect(t.isMonthKey("2027-02")).toBe(true);
+    expect(t.isMonthKey("2027-2")).toBe(false);
+    expect(() => t.monthEnd("")).toThrow();
+  });
+});

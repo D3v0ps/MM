@@ -4,6 +4,7 @@
 //   ctx.ai      simulerad AI (createSimulatedAi, src/features/_shared/ai-sim.ts) – deterministisk, inga anrop utanför
 //   ctx.audio   ljud i minnet (createMemoryAudio, src/features/_shared/audio-port.ts) – raderna i audio_uploads via system
 //   ctx.attachments  bilagor i minnet (createMemoryAttachments, src/features/_shared/attachment-port.ts) – raderna via system
+//   ctx.fortnox  simulerad Fortnox-port (createSimulatedFortnox, src/features/_shared/fortnox-port.ts) – statusen sätts i appen
 // Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
 // anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön. Golvet är
 // klockan när datat lästes in (testdatat är komplett dit) och högvattenmärkena sparas i minnet.
@@ -12,11 +13,12 @@ import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
 import { nextScheduleBoundary } from "@/core/report-schedule";
 import { maskLinkTokens } from "@/core/link-tokens";
-import { addMinutes, type LocalDateTime } from "@/core/time";
+import { addMinutes, toStockholmLocal, type LocalDateTime } from "@/core/time";
 import type { AiPort } from "@/features/_shared/ai-port";
 import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
+import { createSimulatedFortnox } from "@/features/_shared/fortnox-port";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
@@ -30,6 +32,14 @@ export type DemoClock = { now(): LocalDateTime; tick(): void; set(t: LocalDateTi
 export function demoClock(start: LocalDateTime): DemoClock {
   let t = start;
   return { now: () => t, tick: () => { t = addMinutes(t, 1); }, set: (v) => { t = v; } };
+}
+
+/**
+ * Riktig klocka (minnesläget med MM_SEED=empty, beslut 2026-10-08): Stockholms lokala tid just nu. tick och set gör ingenting –
+ * tiden går av sig själv, som i produktion.
+ */
+export function realClock(nowIso: () => string = () => new Date().toISOString()): DemoClock {
+  return { now: () => toStockholmLocal(nowIso()), tick: () => undefined, set: () => undefined };
 }
 
 export type MemoryRuntime = ReturnType<typeof createMemoryRuntime>;
@@ -58,6 +68,8 @@ export function createMemoryRuntime(opts: {
   const audio = createMemoryAudio({ system, now: opts.clock.now, newId });
   // Bilagornas rader skrivs av porten (systemsteg) på samma sätt.
   const attachments = createMemoryAttachments({ system, now: opts.clock.now, newId });
+  // Fortnox är simulerat i minnesläget: "Skapa i Fortnox" sätter statusen i Miljonmatch. Supabase-läget har ingen port.
+  const fortnox = createSimulatedFortnox();
 
   function ctxFor(actor: Actor): Ctx {
     return {
@@ -80,6 +92,7 @@ export function createMemoryRuntime(opts: {
       ai,
       audio,
       attachments,
+      fortnox,
       // Prototypen visar länken som deltagaren fick (rost.linkSend). Servern i supabase-läget lämnar aldrig ut den.
       exposeLinkPaths: true,
     };

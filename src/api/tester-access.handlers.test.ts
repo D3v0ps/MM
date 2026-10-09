@@ -57,7 +57,7 @@ const EKONOMI = [
   "ekonomi.billingSendFortnox", "ekonomi.caseList", "ekonomi.case", "ekonomi.closeRun", "ekonomi.csv", "ekonomi.fortnoxSync", "ekonomi.invoiceSetBuyerRef",
   "ekonomi.invoiceSetPo", "ekonomi.line", "ekonomi.preview", "ekonomi.priceList", "ekonomi.reissue", "ekonomi.run", "ekonomi.start", "ekonomi.taskDone",
 ];
-const DENIED = ["admin.contract", "admin.orgRules", "admin.setOrgRule", ...EKONOMI].sort();
+const DENIED = ["admin.contract", "admin.orgRules", "admin.setOrgRule", "admin.setContractManager", ...EKONOMI].sort();
 const EKONOMI_COMMAND = /ekonomi\.(billing|askCoordinator|closeRun|fortnox|reissue|taskDone|invoiceSet)/;
 /** En roll som får anropa nyckeln (rollkontrollen kommer före spärren). Ekonomi är bara ekonomens (beslut 5). */
 const roleFor = (key: string): [string, Role] => (key.startsWith("admin.") ? ["u-robin", "admin"] : ["u-lars", "ekonom"]);
@@ -71,7 +71,7 @@ describe("spärren i execute(): hela sidor om pengar och villkor", () => {
   it("begränsad testare: varje nekad fråga och varje nekat kommando ger 403 tester_hidden", async () => {
     for (const key of DENIED) {
       const [userId, role] = roleFor(key);
-      const kind = key === "admin.setOrgRule" || EKONOMI_COMMAND.test(key) ? "command" : "query";
+      const kind = key === "admin.setOrgRule" || key === "admin.setContractManager" || EKONOMI_COMMAND.test(key) ? "command" : "query";
       const e = await errorOf(rt.run(kind, key, {}, as(userId, role, SARA_T)));
       expect(e?.status, key).toBe(403);
       expect(e?.code, key).toBe(TESTER_HIDDEN_CODE);
