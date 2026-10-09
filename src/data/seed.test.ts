@@ -48,6 +48,16 @@ describe.skipIf(!hasProto)("paritet med den gamla prototypen", () => {
   for (const e of neu.outcomeEvents as Json[]) { e.verificationFile = e.verificationPath; delete e.verificationPath; }
   // Växelnumret: prototypen har platshållaren 08-000 00 00, appen MB:s riktiga nummer (src/features/_shared/contact.ts).
   for (const n of old.S.notifications as Json[]) if (typeof n.body === "string") n.body = (n.body as string).replace(" Frågor? Ring 08-000 00 00.", CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : "");
+  // Närvaroförslaget i AI-utkastet (2026-10-09) finns bara i appens testdata – bort ur förslagen och transkriptet före jämförelsen.
+  for (const ci of neu.checkIns as Json[]) {
+    const ai = ci.ai as Json | null;
+    if (!ai) continue;
+    delete ai.attendanceComment;
+    if (ai.suggestions) delete (ai.suggestions as Json).attendanceComment;
+    const oldCi = (old.S.checkIns as Json[]).find((x) => x.id === ci.id);
+    const oldTranscript = JSON.stringify(((oldCi?.ai as Json | null)?.transcript as Json[] | undefined) ?? []);
+    if (Array.isArray(ai.transcript)) ai.transcript = (ai.transcript as Json[]).filter((row) => oldTranscript.includes(JSON.stringify(row)));
+  }
   // Inkorgens ärenden saknar closedAt i prototypen (undefined) – här null
   for (const c of neu.cases as Json[]) if (c.closedAt === null && !("closedAt" in ((old.S.cases as Json[]).find((x) => x.id === c.id) ?? {}))) delete c.closedAt;
 
