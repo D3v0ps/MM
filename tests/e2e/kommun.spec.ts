@@ -165,7 +165,7 @@ test("1. inloggning med e-post och engångskod (neutralt svar, kod, självregist
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(/Välkommen till Miljonmatch/i);
   if (isDemo(info)) await expectCustomerPerspective(page);
   await expect(page.locator("#kom-p-name")).toHaveValue("Kim Testsson");
-  await expect(main(page)).toContainText("Du ser bara de deltagare som du har beställt insatser för.");
+  await expect(main(page)).toContainText("Här beställer du insatser, följer dina deltagare och läser rapporter från Miljonbemanning.");
   await btn(page, "Spara").click();
   await expect(main(page), "telefon och enhet krävs").toContainText("Skriv vilken enhet du arbetar på.");
   await page.fill("#kom-p-phone", "08-000 12 34");
