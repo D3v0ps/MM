@@ -448,8 +448,9 @@ test("16. rapportfliken visar att en rättelse pågår och att kommunen ser den 
     [NADIA_DEC_REPORT, SARA] as const,
   );
   await page.goto(`http://proto.test/index.html#/arenden/${SC.nadia}?flik=rapporter`);
-  await expect(main(page)).toContainText("Rättelse pågår");
-  await expect(main(page)).toContainText("Kommunen ser den här versionen tills rättelsen levereras.");
+  // Bara versionen visas (texten om vad kommunen ser togs bort 2026-10-09).
+  await expect(main(page)).toContainText(/Rättelse pågår \(version \d+\)\./);
+  await expect(main(page)).not.toContainText("Kommunen ser den här versionen");
   expect(errors).toEqual([]);
 });
 
