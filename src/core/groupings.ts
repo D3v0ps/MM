@@ -19,8 +19,13 @@ import { looksLikePnr } from "./validation";
 // ---------------------------------------------------------------- Roller (samma i policy.ts, RLS i 0031 och hanterarna)
 /** Läser avtalets grupperingar och ärendenas medlemskap: Miljonbemanning utom ekonomen (internt – aldrig kommunen). */
 export const GROUPING_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
-/** Skapar, byter namn på och arkiverar grupperingar och placerar deltagare (Karims beslut 3: en människa – Adam, coacherna). */
+/** Skapar, byter namn på och arkiverar avtalets nivåer, grupper och taggar. */
 export const GROUPING_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "admin"];
+/**
+ * Placerar deltagare i nivå, grupper och taggar (Karims beslut 3: en människa – Adam, coacherna, samordnaren). Inte
+ * systemadministratören: hen arbetar i ärendena i läsläge (deltagarkortet) och sköter bara avtalets grupperingar.
+ */
+export const GROUPING_MEMBER_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
 
 // ---------------------------------------------------------------- Plats (slot)
 export const LEVEL_SLOT = "level";

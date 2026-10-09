@@ -1368,12 +1368,12 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
   };
   const insertMember = (r: Tables["grouping_members"]) => insertSql("grouping_members", r as unknown as Record<string, unknown>);
 
-  it("nytt medlemskap: samordnare, avtalsansvarig, coach och admin med full åtkomst i eget namn – aldrig handledare, chef, ekonom eller kommunen", async () => {
+  it("nytt medlemskap: samordnare, avtalsansvarig och coach med full åtkomst i eget namn – aldrig admin (läsläge), handledare, chef, ekonom eller kommunen", async () => {
     const cases: [string, Tables["grouping_members"], boolean][] = [
       ["u-amira", member("gm-t1", AMAL, level(3), "u-amira"), true],
       ["u-sara", member("gm-t2", AMAL, level(3), "u-sara"), true],
       ["u-johan", member("gm-t3", AMAL, level(3), "u-johan"), true],
-      ["u-robin", member("gm-t4", AMAL, level(3), "u-robin"), true],
+      ["u-robin", member("gm-t4", AMAL, level(3), "u-robin"), false],
       ["u-petra", member("gm-t5", AMAL, level(3), "u-petra"), false],
       ["u-karin", member("gm-t6", AMAL, level(3), "u-karin"), false],
       ["u-lars", member("gm-t7", AMAL, level(3), "u-lars"), false],
@@ -1409,6 +1409,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-amira", upd(nadiaGroup.id, "id = id"), nadiaGroup, false],
       ["u-petra", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, false],
       ["u-karin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-karin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-karin" }, false],
+      ["u-robin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-robin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-robin" }, false],
       ["u-sara", upd(removed.id, "removed_at = null, removed_by = null"), { ...removed, removedAt: null, removedBy: null }, false],
       ["u-sara", `delete from public.grouping_members where id = '${nadiaGroup.id}'`, nadiaGroup, false],
     ];

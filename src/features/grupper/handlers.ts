@@ -9,7 +9,7 @@ import { caseAccessIn, displayName, type AccessSource, type CaseAccess } from "@
 import { isOperational } from "@/core/config";
 import {
   activeMembers, byOrder, CASE_GROUPING_ERROR_TEXT, caseGroupings, defaultGroupings, groupingCategoryError, groupingDescriptionError, groupingNameError, GROUPING_READERS,
-  GROUPING_WRITERS, groupingIdsByCase, planCaseGroupings, sameName, slotOf,
+  GROUPING_MEMBER_WRITERS, GROUPING_WRITERS, groupingIdsByCase, planCaseGroupings, sameName, slotOf,
 } from "@/core/groupings";
 import { dayOf, fmtDate } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
@@ -176,14 +176,14 @@ handleQuery(caseGroupingsView, { roles: GROUPING_READERS }, async (ctx, p) => {
   return {
     caseId: c.id,
     today: dayOf(ctx.now()),
-    canEdit: GROUPING_WRITERS.includes(ctx.actor.role) && access === "full",
+    canEdit: GROUPING_MEMBER_WRITERS.includes(ctx.actor.role) && access === "full",
     current: caseGroupings(c.id, ms, gs),
     options: catalogOf(gs, new Map(), (g) => g.archivedAt == null || mine.has(g.id)),
   };
 });
 
 // ---------------------------------------------------------------- grupper.arendeSpara
-handleCommand(caseGroupingsSave, { roles: GROUPING_WRITERS }, async (ctx, p) => {
+handleCommand(caseGroupingsSave, { roles: GROUPING_MEMBER_WRITERS }, async (ctx, p) => {
   const L = await caseWithAccess(ctx, p.caseId);
   if (!L || L.access === "none" || L.access === "restricted") return fail("not_found", "Ärendet finns inte, eller så har du inte behörighet att se det.");
   if (L.access !== "full") return fail("forbidden", "Du kan inte ändra nivå, grupper eller taggar i det här ärendet.");

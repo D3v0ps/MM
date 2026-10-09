@@ -122,7 +122,8 @@ test("kommunen ser inget av nivåer, grupper och taggar", async ({ page }, info)
   await expect(main(page)).toContainText("BOT-26-0143");
   for (const word of ["Nivå 4", "Nära arbete", "Lagergruppen", "Vill arbeta", "Heltid", "Nivå och grupp"]) await expect(main(page)).not.toContainText(word);
   await go(page, info, "/portal/deltagare");
-  await expect(main(page)).toContainText("BOT-26-0143");
+  await expect(main(page)).toContainText("Mina deltagare");
+  await expect(main(page)).toContainText("Nadia Öztürk");
   for (const word of ["Nivå 4", "Lagergruppen", "Vill arbeta"]) await expect(main(page)).not.toContainText(word);
   expect(relevant(errors)).toEqual([]);
 });

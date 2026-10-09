@@ -20,8 +20,9 @@
 --     arkiverad; ändring i eget namn (updated_*), arkivering och återställning i eget namn (archived_*). Avtal, typ, kategori
 --     och skapad ändras aldrig (medlemskapens slot bygger på typ och kategori). Ingen raderar.
 --   * grouping_members läses som anteckningar (mm.can_see_notes: full eller team, aldrig ekonom eller kommunen).
---   * grouping_members skrivs av samordnare, avtalsansvarig, coach och admin med full åtkomst till ärendet – ny rad i eget
---     namn (added_by) och aktiv; ändring bara att ta bort (removed_at och removed_by, i eget namn, en gång). Ingen raderar.
+--   * grouping_members skrivs av samordnare, avtalsansvarig och coach med full åtkomst till ärendet (inte admin – hen arbetar
+--     i ärendena i läsläge och sköter bara grupperingarna) – ny rad i eget namn (added_by) och aktiv; ändring bara att ta
+--     bort (removed_at och removed_by, i eget namn, en gång). Ingen raderar.
 --   * för alla (även service role): medlemskapets avtal = ärendets avtal = grupperingens avtal, typ och slot stämmer med
 --     grupperingen, och en arkiverad gruppering kan inte få nya aktiva medlemmar.
 -- Revisionsloggen (ctx.audit i src/features/grupper/handlers.ts) får bara id:n – aldrig namnen.
@@ -124,20 +125,20 @@ create policy grouping_members_select on public.grouping_members for select to a
   (select mm.current_role()) is distinct from 'ekonom'
   and case_id in (select mm.case_ids('{full,team}'))
 );
--- policy.ts groupingMemberWrite (ny rad): GROUPING_WRITERS med full åtkomst till ärendet, i eget namn.
+-- policy.ts groupingMemberWrite (ny rad): GROUPING_MEMBER_WRITERS med full åtkomst till ärendet, i eget namn.
 drop policy if exists grouping_members_insert on public.grouping_members;
 create policy grouping_members_insert on public.grouping_members for insert to authenticated with check (
-  (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'admin']))
+  (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach']))
   and mm.case_access(case_id) = 'full'
   and added_by = (select mm.current_profile_id())
 );
 -- policy.ts groupingMemberWrite (ändring): bara ta bort – kolumnerna styr triggern.
 drop policy if exists grouping_members_update on public.grouping_members;
 create policy grouping_members_update on public.grouping_members for update to authenticated using (
-  (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'admin']))
+  (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach']))
   and mm.case_access(case_id) = 'full'
 ) with check (
-  (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'admin']))
+  (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach']))
   and mm.case_access(case_id) = 'full'
 );
 

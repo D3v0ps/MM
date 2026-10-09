@@ -37,7 +37,8 @@
 //   Grupper       nivåer, grupper och taggar (groupings, grouping_members, 0031 – internt, Karims beslut 3 2026-10-09):
 //                 grupperingarna läses av MB i avtalet utom ekonomen och skrivs av samordnare, avtalsansvarig, coach och admin
 //                 (arkiveras, raderas aldrig) · medlemskapen läses som anteckningar (aldrig ekonom eller kommunen) och skrivs av
-//                 samma roller med full åtkomst till ärendet – ny rad aktiv och i eget namn, ändring bara att ta bort
+//                 samordnare, avtalsansvarig och coach (inte admin – läsläge i ärendena) med full åtkomst till ärendet – ny rad
+//                 aktiv och i eget namn, ändring bara att ta bort
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -46,7 +47,7 @@
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
-import { GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
+import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
 import type { Case, Report, TableName, Tables } from "./schema";
 
 type Raw = RawAccess<Tables>;
@@ -348,7 +349,7 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
 // ---------------------------------------------------------------- Grupper, nivåer och taggar (0031)
 type GroupingRow = Tables["groupings"];
 type GroupingMemberRow = Tables["grouping_members"];
-// Rollerna GROUPING_READERS och GROUPING_WRITERS finns i src/core/groupings.ts (samma i hanterarna och rutterna).
+// Rollerna GROUPING_READERS, GROUPING_WRITERS och GROUPING_MEMBER_WRITERS finns i src/core/groupings.ts (samma i hanterarna och rutterna).
 /** Fält som aldrig ändras efter att grupperingen skapats (triggern groupings_protect_columns, 0031). */
 const GROUPING_FIXED = ["contractId", "kind", "category", "createdAt", "createdBy"];
 /**
@@ -391,7 +392,7 @@ function memberConsistent(x: GroupingMemberRow, raw: Raw, isNew: boolean): boole
  * plats per ärende (en nivå, en tagg per kategori) sköts av UNIQUE_KEYS i schema.ts.
  */
 function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean {
-  if (!has(GROUPING_WRITERS, a) || accessTo(raw, a, x.caseId) !== "full") return false;
+  if (!has(GROUPING_MEMBER_WRITERS, a) || accessTo(raw, a, x.caseId) !== "full") return false;
   const cur = raw.get("grouping_members", x.id);
   if (!memberConsistent(x, raw, !cur)) return false;
   if (!cur) return self(a, x.addedBy) && x.removedAt == null && x.removedBy == null;

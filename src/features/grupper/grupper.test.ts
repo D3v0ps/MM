@@ -99,11 +99,12 @@ describe("ärendets nivå, grupper och taggar (grupper.arendeSpara)", () => {
     expect(await cmd(caseGroupingsSave.key, { caseId: mehmet, levelId: L(3), groupIds: [], tags: {} }, amira())).toMatchObject({ ok: true, removed: 1 });
   });
 
-  it("behörighet: handledare och chef läser men ändrar inte; ekonomen och kommunen ser ingenting", async () => {
+  it("behörighet: handledare, chef och systemadministratör läser men placerar inte; ekonomen och kommunen ser ingenting", async () => {
     expect((await q(caseGroupingsView, { caseId: NADIA }, petra()))?.canEdit).toBe(false);
     expect((await q(caseGroupingsView, { caseId: NADIA }, karin()))?.canEdit).toBe(false);
-    expect((await q(caseGroupingsView, { caseId: NADIA }, robin()))?.canEdit).toBe(true);
-    for (const a of [petra(), karin(), lars(), maria()]) {
+    // Systemadministratören sköter grupperingarna men arbetar i ärendena i läsläge – placerar ingen.
+    expect((await q(caseGroupingsView, { caseId: NADIA }, robin()))?.canEdit).toBe(false);
+    for (const a of [petra(), karin(), robin(), lars(), maria()]) {
       await expect(cmd(caseGroupingsSave.key, { caseId: NADIA, levelId: L(1), groupIds: [], tags: {} }, a), a.userId).rejects.toBeInstanceOf(ApiError);
     }
     for (const a of [lars(), maria()]) {
