@@ -45,9 +45,9 @@ type Outcome = "accepted" | "edited" | "rejected";
 
 const TITLE = "Möte";
 const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas. Dokumentera manuellt.";
-const FIELD_ID: Record<AiField, string> = { goalStatus: "ci-goal", nextGoal: "ci-nextgoal", phase: "ci-phase", activitiesDone: "ci-acts", employerContacts: "ci-ec", obstacles: "ci-obst", note: "ci-note" };
+const FIELD_ID: Record<AiField, string> = { attendanceComment: "ci-attc", goalStatus: "ci-goal", nextGoal: "ci-nextgoal", phase: "ci-phase", activitiesDone: "ci-acts", employerContacts: "ci-ec", obstacles: "ci-obst", note: "ci-note" };
 const FIELD_LABEL: Record<AiField, string> = {
-  goalStatus: "Veckomål uppnått", nextGoal: "Nytt veckomål", phase: "Fas", activitiesDone: "Genomförda aktiviteter", employerContacts: "Arbetsgivarkontakter", obstacles: "Hinder", note: "Anteckning",
+  attendanceComment: "Kommentar om närvaron", goalStatus: "Veckomål uppnått", nextGoal: "Nytt veckomål", phase: "Fas", activitiesDone: "Genomförda aktiviteter", employerContacts: "Arbetsgivarkontakter", obstacles: "Hinder", note: "Anteckning",
 };
 /** Loggat utfall per AI-förslag: accepted (värdet oförändrat), edited (coachen ändrade värdet), rejected (avvisat). */
 const OUTCOME_LABEL: Record<Outcome, string> = { accepted: "Accepterat", edited: "Ändrat", rejected: "Avvisat" };
@@ -214,7 +214,8 @@ function suggestionsOf(ci: CheckInView | null): CheckInSuggestions | null {
   void _a;
   void _r;
   void _d;
-  return s;
+  // Utkast sparade innan närvarokommentaren fanns: "Framgår inte", som för de andra fälten utan belägg.
+  return { ...s, attendanceComment: s.attendanceComment ?? { value: null, quote: "Framgår inte av underlaget. Fyll i själv.", t: null, noEvidence: true } };
 }
 
 function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela: boolean }) {
@@ -341,7 +342,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
       } else if (field === "phase") setForm((f) => ({ ...f, phase: val == null ? "1" : String(val) }));
       else setForm((f) => ({ ...f, [field]: Array.isArray(val) ? val.slice() : val }));
     };
-    const blank: Record<AiField, unknown> = { goalStatus: null, nextGoal: "", phase: c.phase || 1, activitiesDone: [], employerContacts: null, obstacles: [], note: "" };
+    const blank: Record<AiField, unknown> = { attendanceComment: "", goalStatus: null, nextGoal: "", phase: c.phase || 1, activitiesDone: [], employerContacts: null, obstacles: [], note: "" };
     if (dec === "rejected") apply(blank[field]);
     else apply(s.value);
     if (errors.ai) setErrors((e) => {
@@ -831,9 +832,12 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
                 {repeated.count} ogiltiga frånvarotillfällen inom {repeated.withinDays} dagar. Överväg samlad status Röd med en åtgärdsplan.
               </Notice>
             )}
-            <Field label="Kommentar om närvaron" id="ci-attc" help="Valfritt. Till exempel vad ni kom överens om efter en frånvaro.">
-              <Input value={form.attendanceComment} onValueChange={(x) => setF("attendanceComment", x)} maxLength={200} />
-            </Field>
+            {pair(
+              "attendanceComment",
+              <Field label="Kommentar om närvaron" id="ci-attc" help="Valfritt. Till exempel vad ni kom överens om efter en frånvaro. Närvaron i sig registrerar du ovan – AI föreslår bara texten.">
+                <Input value={form.attendanceComment} onValueChange={(x) => setF("attendanceComment", x)} maxLength={200} />
+              </Field>,
+            )}
           </AttendanceSection>
 
           <Section n="3" title="Veckomål" ok={!!form.goalStatus && !!form.nextGoal.trim()}>

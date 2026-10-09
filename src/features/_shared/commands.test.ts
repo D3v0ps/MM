@@ -501,17 +501,28 @@ describe("coach.checkinSave (checkin.save)", () => {
     expect(Object.keys(ai.suggestions)).not.toContain("overallStatus");
     expect(ai.suggestions.goalStatus).toEqual({ value: "partly", quote: "Jag har gjort det mesta av målet, men en dag hann jag inte.", t: 184 });
     expect(ai.suggestions.phase).toMatchObject({ value: 4, quote: "Praktiken fortsätter som planerat." });
-    expect(ai.transcript.map((x) => x.t)).toEqual([96, 96, 184, 742, 1034, 1320, 1485]);
+    expect(ai.transcript.map((x) => x.t)).toEqual([96, 96, 184, 410, 742, 1034, 1320, 1485]);
+    // Närvarokommentaren föreslås med citat; Acceptera fyller fältet och beslutet loggas som för de andra fälten
+    const att = ai.suggestions.attendanceComment;
+    expect(att).toMatchObject({ value: "Närvarande måndag, tisdag och torsdag. Onsdag frånvaro med giltigt skäl (möte på kommunen), anmäld i förväg.", t: 410 });
+    expect(att.quote.length).toBeGreaterThan(0);
     const res = await run(checkinSave, {
-      caseId: "case-260143", approve: true, data: { ...data, inputMethod: "ai_recording", goalStatus: "partly", overallStatus: "green", aiRunId: ai.runId },
-      aiDecisions: [{ field: "goalStatus", decision: "accepted", suggested: "partly", final: "partly" }],
+      caseId: "case-260143", approve: true, data: { ...data, inputMethod: "ai_recording", goalStatus: "partly", overallStatus: "green", aiRunId: ai.runId, attendanceComment: att.value! },
+      aiDecisions: [
+        { field: "attendanceComment", decision: "accepted", suggested: att.value, final: att.value },
+        { field: "goalStatus", decision: "accepted", suggested: "partly", final: "partly" },
+      ],
     }, amira());
     expect(res).toMatchObject({ ok: true, rawTranscriptDeletedAt: rt.store.data.check_ins.at(-1)!.approvedAt });
     if (!res.ok) return;
     const ci = row("check_ins", res.checkInId)!;
     expect(ci.aiRunId).toBe(ai.runId);
-    expect(ci.ai).toMatchObject({ goalStatus: { value: "partly" }, transcript: [], audioDeletedAt: T1 });
-    expect(rows("ai_field_decisions").pop()).toMatchObject({ aiRunId: ai.runId, field: "goalStatus", decision: "accepted", changed: false, decidedBy: "u-amira" });
+    expect(ci.ai).toMatchObject({ attendanceComment: { value: att.value, t: 410 }, goalStatus: { value: "partly" }, transcript: [], audioDeletedAt: T1 });
+    expect(ci.attendanceComment).toBe(att.value);
+    expect(rows("ai_field_decisions").slice(-2)).toMatchObject([
+      { aiRunId: ai.runId, field: "attendanceComment", decision: "accepted", changed: false, suggested: att.value, final: att.value, decidedBy: "u-amira" },
+      { aiRunId: ai.runId, field: "goalStatus", decision: "accepted", changed: false, decidedBy: "u-amira" },
+    ]);
     expect((row("ai_runs", ai.runId)!.output as { transcript: unknown[] }).transcript).toEqual([]);
     expect(rows("audit_log").map((x) => x.action).slice(-2)).toEqual(["transcript.deleted", "check_in.approved"]);
   });
