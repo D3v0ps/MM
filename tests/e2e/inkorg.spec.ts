@@ -99,7 +99,7 @@ async function answerOther(page: Page) {
 async function declineEm106(page: Page, total = 231) {
   const m = main(page);
   await m.getByRole("button", { name: "Avböj", exact: true }).click();
-  await expect(dialog(page).getByText(/rangordning/)).toBeVisible();
+  await expect(dialog(page).getByText("Avböj bara om vi verkligen inte kan ta uppdraget")).toBeVisible();
   await expect(dialog(page).getByText(`Hittills i avtalet: 0 av ${total} avrop avböjda.`, { exact: false })).toBeVisible();
   await dialog(page).getByRole("button", { name: "Avböj avropet" }).click();
   await expect(dialog(page).getByText("Välj en orsak.")).toBeVisible();

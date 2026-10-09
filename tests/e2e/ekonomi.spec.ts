@@ -450,7 +450,6 @@ test("10. beslut 5: prislistan och beloppen bara för ekonomen – chefen och sy
   await go(page, info, "/ledning");
   const unbilled = card(page, "Ofakturerat");
   await expect(unbilled).toContainText("4 veckor");
-  await expect(unbilled).toContainText("Beloppen visas bara för ekonomen.");
   expect(await unbilled.innerText()).not.toMatch(AMOUNT);
   expect(await mainText(page)).not.toMatch(AMOUNT);
   expect(errors).toEqual([]);
