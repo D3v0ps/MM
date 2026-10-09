@@ -448,8 +448,9 @@ test("16. rapportfliken visar att en rättelse pågår och att kommunen ser den 
     [NADIA_DEC_REPORT, SARA] as const,
   );
   await page.goto(`http://proto.test/index.html#/arenden/${SC.nadia}?flik=rapporter`);
-  await expect(main(page)).toContainText("Rättelse pågår");
-  await expect(main(page)).toContainText("Kommunen ser den här versionen tills rättelsen levereras.");
+  // Bara versionen visas (texten om vad kommunen ser togs bort 2026-10-09).
+  await expect(main(page)).toContainText(/Rättelse pågår \(version \d+\)\./);
+  await expect(main(page)).not.toContainText("Kommunen ser den här versionen");
   expect(errors).toEqual([]);
 });
 
@@ -566,9 +567,9 @@ test("21. månadsunderlaget visar rapportens avsnitt 1–8 och vad som saknas in
   await expect(tab(page, /^Månadsunderlag/)).toHaveAttribute("aria-selected", "true");
   await expect(main(page)).toContainText("Underlaget till månadsrapporten. Bara godkända uppgifter kommer med.");
   await expect(main(page)).toContainText("Innan rapporten kan godkännas");
-  // Antalet godkända avstämningar under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
-  await expect(main(page)).toContainText("4 veckoavstämningar är godkända.");
-  await expect(main(page)).not.toContainText(/\d+ av \d+ veckoavstämning/);
+  // Antalet godkända mötesrapporter under månaden – jämförs inte med antalet veckor (vecka 53 hör till både december och januari).
+  await expect(main(page)).toContainText("4 mötesrapporter är godkända.");
+  await expect(main(page)).not.toContainText(/\d+ av \d+ mötesrapport/);
   await expect(main(page)).toContainText("2 närvarotillfällen är inte registrerade.");
   await expect(main(page)).toContainText("Månadsbedömningen är inte godkänd. Avsnitt 4, 7 och 8 blir tomma.");
   await expect(main(page)).toContainText("3 anteckningar från januari kan användas i sammanfattningen.");

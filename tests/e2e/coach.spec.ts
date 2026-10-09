@@ -115,7 +115,7 @@ test("Min vecka: nyckeltal, månadsbedömningar, kalender och länk till närvar
   await expect(page.getByRole("link", { name: "Öppna notiser" })).toBeVisible();
   await expect(card(page, "Egna flaggor")).toContainText("Fastnat i fas 1");
   await expect(card(page, "Egna flaggor")).toContainText("Upprepad ogiltig frånvaro");
-  await expect(card(page, "Påminnelser")).toContainText("Ingen progression 3 veckor i rad: ingen avstämning dokumenterad (v. 4 2027).");
+  await expect(card(page, "Påminnelser")).toContainText("Ingen progression 3 veckor i rad: inget möte dokumenterat (v. 4 2027).");
   await expect(card(page, "Rapporter som förfaller")).toContainText("Månadsrapporter januari 2027: 14 st");
   await expect(card(page, "Rapporter som förfaller")).toContainText("Väntar på din bedömning: 11 · Godkända, ska levereras: 3");
   await page.getByRole("link", { name: "Registrera närvaro för vecka 4" }).click();
@@ -638,6 +638,15 @@ test("Deltagarkortet: Spela in mötet öppnar sidan MÖTE med inspelningsläget 
   await expect(btn(src, "Spela in mötet")).toHaveAttribute("aria-pressed", "true");
   await expect(btn(page, isDemo(info) ? "Simulera en inspelning" : "Starta inspelning")).toBeVisible();
   await expect(main(page)).toContainText("Spela in mötet eller fyll i mötesrapporten själv.");
+  // Yusuf har sagt nej till inspelning: huvudknappen är Nytt möte och ingen inspelningsknapp visas (kortet och fliken Möten).
+  await go(page, info, `/arenden/${SC.yusuf}`);
+  const yusuf = page.getByRole("group", { name: "Åtgärder" });
+  await expect(yusuf.getByRole("link", { name: "Nytt möte", exact: true })).toBeVisible();
+  await expect(yusuf.getByRole("link", { name: "Spela in mötet", exact: true })).toHaveCount(0);
+  await expect(yusuf.getByRole("link", { name: "Nytt möte utan inspelning", exact: true })).toHaveCount(0);
+  await page.getByRole("tab", { name: /^Möten/ }).click();
+  await expect(page.getByRole("link", { name: "Spela in mötet", exact: true })).toHaveCount(0);
+  await expect(card(page, /^Möten/).getByRole("link", { name: "Nytt möte", exact: true })).toHaveCount(1);
   await noBadText(page);
   expect(errors).toEqual([]);
 });

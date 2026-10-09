@@ -596,7 +596,7 @@ function CoachTab() {
                       ),
                     },
                     { key: "att", label: "Närvaro", num: true, render: (r) => <Num sub={`${r.att} av ${r.reg}`}>{r.attRate == null ? "–" : pct(r.attRate)}</Num> },
-                    { key: "ci", label: "Avstämningar", num: true, render: (r) => <Num sub={`${r.wkOk} av ${r.wk} veckor`}>{r.ciRate == null ? "–" : pct(r.ciRate)}</Num> },
+                    { key: "ci", label: "Mötesrapporter", num: true, render: (r) => <Num sub={`${r.wkOk} av ${r.wk} veckor`}>{r.ciRate == null ? "–" : pct(r.ciRate)}</Num> },
                     { key: "doc", label: "Dokumentation", num: true, render: (r) => <Num sub="median utan AI"><span className="whitespace-nowrap">{fmtMin(r.docMedian)}</span></Num> },
                     { key: "rem", label: "Påminnelser", num: true, render: (r) => <Num sub={`${r.escalated} eskalerade`}>{r.reminders}</Num> },
                   ]}
@@ -625,10 +625,10 @@ function CoachTab() {
             <Grid cols={3}>
               <Notice tone="info" title="Så räknas det">
                 Resultatgrad: avslut med verifierat resultat delat med avslut som räknas. Under {t.minN} avslut markeras underlaget som för litet och ingen flagga sätts. Närvarograd: närvarande
-                eller sen delat med registrerade tillfällen. Godkända avstämningar: andel veckor med en godkänd veckoavstämning (startveckor och pausade veckor räknas inte).
+                eller sen delat med registrerade tillfällen. Godkända mötesrapporter: andel veckor med en godkänd mötesrapport (startveckor och pausade veckor räknas inte).
               </Notice>
               <Notice tone="info" title="Dokumentationstid – baslinje">
-                Median minuter från avstämningens slut till godkänd dokumentation, för avstämningar gjorda <b>utan AI</b>. Baslinjen mäts i fas 1.{docGoal != null && ` Internt mål: högst ${docGoal} minuter.`}
+                Median minuter från mötets slut till godkänd mötesrapport, för möten dokumenterade <b>utan AI</b>. Baslinjen mäts i fas 1.{docGoal != null && ` Internt mål: högst ${docGoal} minuter.`}
                 Tidsvinsten med AI-stöd jämförs mot baslinjen i fas 2.
               </Notice>
               <Notice tone="warn" title="Påminnelser och eskaleringar">

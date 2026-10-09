@@ -464,7 +464,7 @@ function MonthSummary({ months, initial }: { months: string[]; initial: string }
               <Kpi label="Nya under månaden" value={String(s.createdCount)} sub={`varav ${s.complaints} klagomål`} />
               <Kpi label="Öppna vid månadens slut" value={String(s.openAtEnd)} />
               <Kpi label="Avslutade" value={String(s.closed)} />
-              <Kpi label="Avvikelser på deltagarnivå" value={String(s.participantDeviations)} sub="Från veckoavstämningar med röd status" />
+              <Kpi label="Avvikelser på deltagarnivå" value={String(s.participantDeviations)} sub="Från mötesrapporter med röd status" />
             </Tiles>
             <h3>Nya och öppna</h3>
             {s.items.length === 0 ? (
@@ -535,7 +535,7 @@ function DetailView({ id }: { id: string }) {
     return (
       <Page title="Avtalsavvikelser" crumbs={crumbs}>
         <Notice tone="warn" title="Avvikelsen finns inte">
-          Den kan ha tagits bort när demodatan återställdes.
+          Den kan ha tagits bort, eller så stämmer länken inte.
         </Notice>
         <div>
           <Button icon="arrow-left" to="/avtalsavvikelser">

@@ -13,6 +13,7 @@ import {
   TabQuery,
 } from "./common";
 import { CaseBackgroundCard } from "./attachments";
+import { recordingOffered } from "@/features/coach/api";
 import type { TabProps } from "./kort";
 
 
@@ -285,7 +286,16 @@ export function TabAvstamningar({ card }: TabProps) {
               flush
               title={`Möten (${list.length})`}
               icon="check-square"
-              actions={card.edit && can && card.status === "active" && <Button kind="primary" icon="mic" to={caseLink("/avstamning", card.caseId, { spela: "1" })}>Spela in mötet</Button>}
+              actions={
+                card.edit &&
+                can &&
+                card.status === "active" &&
+                (recordingOffered(card.consent?.value) ? (
+                  <Button kind="primary" icon="mic" to={caseLink("/avstamning", card.caseId, { spela: "1" })}>Spela in mötet</Button>
+                ) : (
+                  <Button kind="primary" icon="edit" to={caseLink("/avstamning", card.caseId)}>Nytt möte</Button>
+                ))
+              }
               foot={
                 list.length > n && (
                   <>

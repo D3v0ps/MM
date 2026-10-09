@@ -19,7 +19,11 @@ const facit = renamedMeeting(JSON.parse(readFileSync(new URL("./parity/facit.jso
 // orden – texterna byts här så att resten av facit gäller oförändrat.
 function renamedMeeting(value: unknown): unknown {
   if (typeof value === "string") {
-    return value.replace("dokumentera i veckoavstämningen.", "dokumentera i mötet.").replace(/^Avstämning (\d{1,2} \w{3} kl\.)/u, "Möte $1");
+    return value
+      .replace("dokumentera i veckoavstämningen.", "dokumentera i mötet.")
+      .replace(/^Avstämning (\d{1,2} \w{3} kl\.)/u, "Möte $1")
+      .replaceAll("Avstämningen är inte godkänd", "Mötesrapporten är inte godkänd")
+      .replaceAll("Ingen avstämning dokumenterad", "Inget möte dokumenterat");
   }
   if (Array.isArray(value)) return value.map(renamedMeeting);
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, renamedMeeting(v)]));

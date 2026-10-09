@@ -14,6 +14,7 @@ import {
   anchorTabs, PhaseBar, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
+import { recordingOffered } from "@/features/coach/api";
 import {
   caseAttendance, caseBookFirstMeeting, caseCard, caseChangeCoach, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseMessages, caseMonthBasis,
   caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, CASE_TABS, consentSet, messageRead, TEAM_TABS, type CaseCard, type CaseTab,
@@ -712,9 +713,14 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
   if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
   // Mötet (beslut 2026-10-09): "Spela in mötet" är coachens huvudväg – inspelning, AI-utkast till mötesrapport, granskning och godkännande på samma skärm.
+  // Har deltagaren sagt nej eller återkallat samtycket erbjuds ingen inspelning: huvudknappen är "Nytt möte" (manuell dokumentation).
   if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) {
-    btns.push(<Button key="rec" kind="primary" icon="mic" className={btn} to={`/avstamning/${id}?spela=1`}>Spela in mötet</Button>);
-    btns.push(<Button key="ci" kind="secondary" icon="edit" className={btn} to={`/avstamning/${id}`}>Nytt möte utan inspelning</Button>);
+    if (recordingOffered(c.consent?.value)) {
+      btns.push(<Button key="rec" kind="primary" icon="mic" className={btn} to={`/avstamning/${id}?spela=1`}>Spela in mötet</Button>);
+      btns.push(<Button key="ci" kind="secondary" icon="edit" className={btn} to={`/avstamning/${id}`}>Nytt möte utan inspelning</Button>);
+    } else {
+      btns.push(<Button key="ci" kind="primary" icon="edit" className={btn} to={`/avstamning/${id}`}>Nytt möte</Button>);
+    }
   }
   if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);

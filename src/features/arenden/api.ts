@@ -698,14 +698,14 @@ export const caseNoteRemove = command("arenden.noteRemove", z.object({
 /** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */
 export type { MonthlyGaps };
 /**
- * Raden om godkända veckoavstämningar i "Innan rapporten kan godkännas": antalet godkända avstämningar under månaden (som
+ * Raden om godkända mötesrapporter i "Innan rapporten kan godkännas": antalet godkända avstämningar under månaden (som
  * rapporten och dataexporten räknar dem). Jämförs aldrig med antalet veckor – en vecka över månadsskiftet hör till båda
  * månadernas veckorader, men avstämningen räknas bara i den månad den hölls. Det som saknas är utkasten (egen rad).
  */
 export function checkInsApprovedGap(g: Pick<MonthlyGaps, "checkInsApproved">): { kind: "ok" | "info"; text: string } {
   const n = g.checkInsApproved;
-  if (n === 0) return { kind: "info", text: "Ingen veckoavstämning är godkänd än." };
-  return { kind: "ok", text: n === 1 ? "1 veckoavstämning är godkänd." : `${n} veckoavstämningar är godkända.` };
+  if (n === 0) return { kind: "info", text: "Ingen mötesrapport är godkänd än." };
+  return { kind: "ok", text: n === 1 ? "1 mötesrapport är godkänd." : `${n} mötesrapporter är godkända.` };
 }
 export type CaseMonthOption = { month: MonthKey; current: boolean; delivered: boolean };
 export type CaseMonthBasis = {

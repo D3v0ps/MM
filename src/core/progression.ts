@@ -31,8 +31,8 @@ export function weekProgress(c: Case, weekKey: WeekKey, db: Pick<Db, "check_ins"
   const approved = cis.filter((x) => x.status === "approved");
   if (approved.some((x) => x.goalStatus === "yes" || x.goalStatus === "partly")) return { key: weekKey, progress: true, reason: "Veckomålet uppnått helt eller delvis" };
   if (approved.some((x) => x.goalStatus === "no")) return { key: weekKey, progress: false, reason: "Veckomålet inte uppnått" };
-  if (cis.length) return { key: weekKey, progress: false, reason: "Avstämningen är inte godkänd" };
-  return { key: weekKey, progress: false, reason: "Ingen avstämning dokumenterad" };
+  if (cis.length) return { key: weekKey, progress: false, reason: "Mötesrapporten är inte godkänd" };
+  return { key: weekKey, progress: false, reason: "Inget möte dokumenterat" };
 }
 
 export type NoProgressStreak = { streak: number; weeks: WeekProgress[] };

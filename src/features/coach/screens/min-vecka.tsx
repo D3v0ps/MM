@@ -190,11 +190,11 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           )}
 
           {v.today.length === 0 ? (
-            <DoneLine id="mv-idag" title={`Dagens möten – ${fmtWeekday(today)}`} icon="calendar">
+            <DoneLine id="mv-idag" title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar">
               Inga möten eller aktiviteter i dag.
             </DoneLine>
           ) : (
-          <Card id="mv-idag" title={`Dagens möten – ${fmtWeekday(today)}`} icon="calendar" flush>
+          <Card id="mv-idag" title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar" flush>
               <List>
                 {v.today.map((a) => {
                   const k = kindOf(a.kind);
@@ -238,9 +238,14 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                         </Row>
                       </div>
                       <div className="flex flex-none flex-col items-end gap-1 max-[620px]:basis-full max-[620px]:flex-row max-[620px]:flex-wrap max-[620px]:items-center max-[620px]:pl-[76px]">
-                        {a.kind === "möte" && !ci && (
+                        {a.kind === "möte" && !ci && a.recordable && (
                           <Button kind="primary" icon="mic" to={`/avstamning/${encodeURIComponent(a.caseId)}?spela=1`}>
                             Spela in mötet
+                          </Button>
+                        )}
+                        {a.kind === "möte" && !ci && !a.recordable && (
+                          <Button kind="primary" icon="edit" to={`/avstamning/${encodeURIComponent(a.caseId)}`}>
+                            Nytt möte
                           </Button>
                         )}
                         {a.kind === "möte" && ci && !ci.approved && (
