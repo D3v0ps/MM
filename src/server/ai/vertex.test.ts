@@ -342,7 +342,7 @@ describe("draft (bara godkända uppgifter)", () => {
 
   it("utan belägg: standardtexten \"Framgår inte\"; utan underlag görs inget anrop", async () => {
     const v = vertex(ENV, [reply({ text: "Framgår inte", sourceIds: [], usedAttendance: false, noEvidence: true })]);
-    expect((await v.ai.draft(INPUT, "monthly_plan")).value).toEqual({ text: "Framgår inte av månadens godkända avstämningar.", sources: [], sourceIds: [], noEvidence: true });
+    expect((await v.ai.draft(INPUT, "monthly_plan")).value).toEqual({ text: "Framgår inte av månadens godkända mötesrapporter.", sources: [], sourceIds: [], noEvidence: true });
     const empty = vertex(ENV, []);
     const r = await empty.ai.draft({ ...INPUT, checkIns: [], attendance: [] }, "monthly_summary");
     expect(r.value.noEvidence).toBe(true);

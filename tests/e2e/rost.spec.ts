@@ -236,9 +236,9 @@ test("kommunen talar in ett meddelande och beställningens bakgrund – inget lj
   expect(relevant(errors)).toEqual([]);
 });
 
-test("månadsbedömningen: AI-utkast från godkända avstämningar – nivåerna väljer coachen", async ({ page }, info) => {
+test("månadsbedömningen: AI-utkast från godkända mötesrapporter – nivåerna väljer coachen", async ({ page }, info) => {
   const errors = await open(page, info, `/manadsbedomning/${SC.nadia}?manad=2027-01`, COACH);
-  const draft = card(page, "AI-utkast från godkända avstämningar");
+  const draft = card(page, "AI-utkast från godkända mötesrapporter");
   await expect(draft).toContainText("aldrig råtranskript");
   // Testdatat har redan AI-utkast i områdena – då säger knappen "Skapa nya AI-utkast" redan från början (fynd B24).
   await btn(draft, /^Skapa (nya )?AI-utkast/).click();
