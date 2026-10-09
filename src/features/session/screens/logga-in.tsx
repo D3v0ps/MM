@@ -19,6 +19,7 @@ export const LOGGED_OUT: Record<string, string> = {
   inaktiv: `Du har loggats ut eftersom du inte har gjort något på ${CODE.idleMinutes} minuter. Logga in igen.`,
   maxtid: `Du har loggats ut eftersom det har gått ${CODE.maxHours} timmar sedan du loggade in. Logga in igen.`,
   session: "Du har loggats ut. Logga in igen.",
+  du: "Du är utloggad.",
 };
 /** Visas tillsammans med orsaken när ?till= finns: man kommer tillbaka till sidan man var på. */
 export const BACK_AFTER_LOGIN = "Efter inloggningen kommer du tillbaka till sidan du var på.";
@@ -51,11 +52,17 @@ export function LoggaInScreen({ query }: ScreenProps) {
   const [resent, setResent] = useState(false);
   const [pending, setPending] = useState(false);
   const codeRef = useRef<HTMLDivElement>(null);
-  const reason = LOGGED_OUT[query.get("utloggad") ?? ""];
+  const reasonKey = query.get("utloggad") ?? "";
+  const reason = LOGGED_OUT[reasonKey];
+  // Egen utloggning är ett lugnt besked; tidsgränserna en varning.
+  const chose = reasonKey === "du";
   const backAfter = !!safeReturnPath(query.get("till"));
 
   useEffect(() => {
     if (step === 1) codeRef.current?.querySelector("input")?.focus();
+    // Skrivbordet: e-postfältet har fokus direkt så att man bara kan börja skriva. Inte på mobilen – tangentbordet ska inte
+    // fällas upp oombett.
+    else if (window.matchMedia("(min-width: 901px)").matches) document.getElementById("login-email")?.focus();
   }, [step]);
 
   // Redan inloggad (riktiga appen). I prototypen och utvecklingsläget är man alltid någon testperson – där visas formuläret ändå.
@@ -120,7 +127,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
     <Stack gap="lg">
       <Heading />
       {reason && (
-        <Notice tone="warn" icon="clock">
+        <Notice tone={chose ? "ok" : "warn"} icon={chose ? "check-circle" : "clock"}>
           {reason}
           {backAfter ? ` ${BACK_AFTER_LOGIN}` : ""}
         </Notice>

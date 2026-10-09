@@ -435,10 +435,10 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
         </span>
       </Field>
       {eventLink ? (
-        <p>
-          Är det en arbetsgivarkontakt eller ett resultat?{" "}
-          <Button kind="ghost" icon="award" to={eventPath} onClick={(e) => void toEvent(e)}>Registrera händelse</Button> – då kommer det med i månadsrapporten automatiskt.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span>Arbetsgivarkontakt eller resultat? Registrera det som händelse – då kommer det med i månadsrapporten.</span>
+          <Button kind="ghost" icon="award" to={eventPath} onClick={(e) => void toEvent(e)}>Registrera händelse</Button>
+        </div>
       ) : (
         <p className="text-text-muted">Arbetsgivarkontakter och resultat registreras som händelser av huvudcoachen. Då kommer de med i månadsrapporten automatiskt.</p>
       )}

@@ -250,7 +250,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
             <Field id="reg-received-date" label="Mottagen dag" required error={E("receivedDate")} help="Svarstiden räknas från när beställningen kom – inte från när den registreras.">
               <DateInput value={f.receivedDate} onValueChange={set("receivedDate")} />
             </Field>
-            <Field id="reg-received-time" label="Klockslag" required error={E("receivedTime")}>
+            <Field id="reg-received-time" label="Klockslag" required error={E("receivedTime")} help="Ungefär går bra.">
               <TimeInput value={f.receivedTime} onValueChange={set("receivedTime")} />
             </Field>
           </FormGrid>
@@ -369,7 +369,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
           <Field id="reg-prior" label="Har en kartläggning genomförts?" required error={E("priorAssessment")} help="Till exempel hos kommunen eller Arbetsförmedlingen.">
             <Seg id="reg-prior" ariaLabel="Har en kartläggning genomförts?" value={f.priorAssessment} onValueChange={(v) => set("priorAssessment")(v)} options={PRIOR} />
           </Field>
-          <Field id="reg-files" label="Bifoga fil" error={E("attachments")} help={`Till exempel kartläggningen (${m.attachments.typesText}). Filerna syns bara för dem som arbetar med deltagaren.`}>
+          <Field id="reg-files" label="Bilagor" error={E("attachments")} help="Till exempel kartläggningen. Filerna syns bara för dem som arbetar med deltagaren.">
             <AttachmentPicker id="reg-files" caseId={null} rows={f.attachments} onRows={(rows) => setF((x) => ({ ...x, attachments: rows }))} maxFiles={m.attachments.maxFiles} accept={m.attachments.accept} typesText={m.attachments.typesText} onBusy={setUploading} />
           </Field>
           <Field id="reg-bg" label="Bakgrundsinformation" help="Det handläggaren berättade om erfarenhet, utbildning, mål och behov. Inga diagnoser eller uppgifter om hälsa.">

@@ -42,7 +42,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                   </div>
                   {card.manage && (
                     <div>
-                      <Button kind="primary" icon="calendar" onClick={() => openModal("meeting")}>
+                      {/* Sekundär här: den primära "Boka första möte" ligger i åtgärdsraden i huvudet. */}
+                      <Button kind="secondary" icon="calendar" onClick={() => openModal("meeting")}>
                         Boka första möte
                       </Button>
                     </div>
@@ -413,7 +414,7 @@ export function TabNarvaro({ card, setTab, openModal }: TabProps) {
             )}
             <Card
               flush
-              title="Närvaro per ISO-vecka"
+              title="Närvaro per vecka"
               icon="calendar"
               actions={
                 <>

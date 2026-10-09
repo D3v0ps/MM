@@ -547,7 +547,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
     const hide = e.hideCommercial;
     kpis.push({
       key, label: v.label, value: v.value == null ? "–" : pct(v.value), below: !hide && v.status === "below_internal",
-      sub: `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
+      // Inga avrop i månaden: bara månaden (rutan säger "Inga avrop ännu").
+      sub: v.den === 0 ? monthName(lastMonth).replace(/^./, (x) => x.toUpperCase()) : `${v.num} av ${v.den} · ${monthName(lastMonth)}${v.targetUnset && !hide ? " · mål ej fastställt" : ""}`,
       meter: v.value != null
         ? hide
           ? { value: v.value, valueText: pct(v.value), target: null, targetText: "" }

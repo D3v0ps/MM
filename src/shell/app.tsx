@@ -3,8 +3,8 @@
 // Används av både Next.js (src/app/client-root.tsx) och prototypen (src/demo/main.tsx).
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
 import { ROLE_LABEL, ROLES } from "@/api/roles";
-import { PerspectiveLink } from "@/ui";
-import { useNav, Link } from "./nav";
+import { Button, Empty, Page, PerspectiveLink } from "@/ui";
+import { useNav } from "./nav";
 import { isAuthenticated, useSession } from "./session";
 import { DemoOnly } from "./runtime";
 import { isTesterHiddenPath, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
@@ -105,15 +105,25 @@ export function notFoundMatch(p: string): RouteMatch {
   return { route: { path: p, title: "Sidan finns inte", roles: ROLES, area, screen: () => null }, params: {} };
 }
 
+/** Sidan finns inte, ingen behörighet eller stängd för testare: samma sidhuvud och tomma tillstånd som resten av appen. */
 function Problem({ title, text, start, children }: { title: string; text: string; start: string; children?: ReactNode }) {
   return (
-    <div role="alert" className="mx-auto max-w-xl p-8">
-      <h1 className="text-2xl font-bold">{title}</h1>
-      <p className="mt-2">{text}</p>
-      <p className="mt-4">
-        <Link to={start} className="underline">Till startsidan</Link>
-      </p>
-      {children}
+    // role="alert" runt hela sidan: rubriken och förklaringen läses upp tillsammans (testerna läser rubriken i alert-regionen).
+    <div role="alert">
+      <Page title={title}>
+        <div className="rounded-card border border-ljusgra bg-vit">
+          <Empty
+            icon="lock"
+            title={text}
+            action={
+              <Button kind="primary" icon="home" to={start}>
+                Till startsidan
+              </Button>
+            }
+          />
+        </div>
+        {children}
+      </Page>
     </div>
   );
 }

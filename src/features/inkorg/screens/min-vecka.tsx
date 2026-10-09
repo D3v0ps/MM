@@ -114,7 +114,7 @@ function Week({ v }: { v: StartView }) {
         <Stack>
           {v.items.length === 0 ? (
             <DoneLine id="mv-inkorg" title="Avropsinkorg" icon="inbox">
-              Inkorgen är tom. Alla avrop är besvarade.
+              Inkorgen är tom – inga beställningar väntar.
             </DoneLine>
           ) : (
             <Card
@@ -137,7 +137,7 @@ function Week({ v }: { v: StartView }) {
                       <TitleLink to={inboxRowPath(x)}>
                         {x.caseNumber && !x.subject.includes(x.caseNumber) ? (
                           <>
-                            <span className="tabular-nums tracking-[0.01em]">{x.caseNumber}</span>&nbsp;·&nbsp;
+                            <span className="whitespace-nowrap tabular-nums tracking-[0.01em]">{x.caseNumber}</span>&nbsp;·&nbsp;
                           </>
                         ) : (
                           ""
@@ -418,7 +418,15 @@ function Week({ v }: { v: StartView }) {
           </Card>
 
           {v.kpis.map((k) => (
-            <Kpi key={k.key} label={k.label} value={k.value} tone={k.below ? "watch" : undefined} statusText="Under internt mål" sub={k.sub}>
+            // Inga avrop i månaden (tom databas): klartext i stället för "–" och en tom mätare.
+            <Kpi
+              key={k.key}
+              label={k.label}
+              value={k.meter ? k.value : <span className="text-h3 font-bold">Inga avrop ännu</span>}
+              tone={k.below ? "watch" : undefined}
+              statusText="Under internt mål"
+              sub={k.sub}
+            >
               {k.meter && (
                 <Meter
                   value={k.meter.value}
@@ -454,6 +462,7 @@ function Week({ v }: { v: StartView }) {
           >
             <div className="flex flex-col gap-2">
               <p>Huvudcoach och team får en notis direkt när ett avrop accepteras eller coachen byts. E-posten innehåller bara ärendenumret.</p>
+              <span className="text-small font-bold">Exempel på mejlet:</span>
               <Quote>{v.assign.quote}</Quote>
               {v.assign.latest.length > 0 && (
                 <>

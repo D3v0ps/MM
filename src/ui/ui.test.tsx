@@ -6,6 +6,7 @@ import type { Role } from "@/api/roles";
 import { NavProvider, type LinkImpl, type Nav } from "@/shell/nav";
 import { RuntimeProvider, type RuntimeMode } from "@/shell/runtime";
 import { SessionProvider, type Session } from "@/shell/session";
+import { weekEyebrow } from "@/ui/vecka";
 import {
   CaseLink,
   CaseStatusBadge,
@@ -296,5 +297,20 @@ describe("toast, bekräftelse och laddning", () => {
     expect(screen.getByText("Något gick fel. Försök igen.")).toBeTruthy();
     rerender(<QueryView query={{ data: [1, 2], isLoading: false, error: null }}>{(d) => `rader: ${d.length}`}</QueryView>);
     expect(screen.getByText("rader: 2")).toBeTruthy();
+  });
+});
+
+describe("Min vecka – ögonbrynet (weekEyebrow)", () => {
+  it("titeln när den finns och kollegan har en roll", () => {
+    expect(weekEyebrow({ name: "Amira Haddad", title: "Jobbcoach" }, "coach", ["coach"])).toBe("Amira Haddad · Jobbcoach");
+  });
+  it("rollens etikett när titeln saknas, är ett rollnamn eller när kollegan har flera roller", () => {
+    expect(weekEyebrow({ name: "Sara Salah", title: "" }, "samordnare", ["samordnare"])).toBe("Sara Salah · Operativ samordnare");
+    expect(weekEyebrow({ name: "Sara Salah", title: null }, "samordnare", undefined)).toBe("Sara Salah · Operativ samordnare");
+    expect(weekEyebrow({ name: "Sara Salah", title: "Systemadministratör" }, "samordnare", ["samordnare"])).toBe("Sara Salah · Operativ samordnare");
+    expect(weekEyebrow({ name: "Ali Khalil", title: "VD" }, "avtalsansvarig", ["admin", "avtalsansvarig"])).toBe("Ali Khalil · Avtalsansvarig");
+  });
+  it("inget ögonbryn utan namn", () => {
+    expect(weekEyebrow({ name: "", title: "Jobbcoach" }, "coach", ["coach"])).toBeUndefined();
   });
 });

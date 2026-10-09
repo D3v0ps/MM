@@ -66,7 +66,9 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Valen ligger i adressen (Tillbaka och omladdning visar samma lista). Söktexten kan vara ett namn: bara i minnet.
   const [q, setQ] = useMemoryState("q", "");
-  const status = pick(query, "status", STATUS_VALUES, "alla");
+  // Coach och handledare: öppna ärenden som standard (avslutade finns under "Alla statusar"); övriga roller alla.
+  const defaultStatus: (typeof STATUS_VALUES)[number] = role === "coach" || role === "handledare" ? "open" : "alla";
+  const status = pick(query, "status", STATUS_VALUES, defaultStatus);
   const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
   const phase = model.phases.some((p) => String(p.no) === query.get("fas")) ? (query.get("fas") as string) : "";
@@ -76,7 +78,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const limit = pickInt(query, "visa", PAGE);
   const setLimit = (n: number) => patch({ visa: n > PAGE ? n : null });
   // Ett ändrat filter visar de första 50 igen.
-  const setStatus = (v: string) => patch({ status: v === "alla" ? null : v, visa: null });
+  const setStatus = (v: string) => patch({ status: v === defaultStatus ? null : v, visa: null });
   const setCoach = (v: string) => patch({ coach: v || null, visa: null });
   const setArea = (v: string) => patch({ omrade: v || null, visa: null });
   const setPhase = (v: string) => patch({ fas: v || null, visa: null });
@@ -112,8 +114,8 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
     return out.sort(sorters[sort] ?? newest);
   }, [all, status, onlyFlags, onlyUnread, coach, area, phase, needle, sort]);
   const shown = rows.slice(0, limit);
-  const anyFilter = !!(q || status !== "alla" || coach || area || phase || onlyFlags || onlyUnread);
-  const nFilters = [status !== "alla", coach, area, phase, onlyFlags, onlyUnread].filter(Boolean).length;
+  const anyFilter = !!(q || status !== defaultStatus || coach || area || phase || onlyFlags || onlyUnread);
+  const nFilters = [status !== defaultStatus, coach, area, phase, onlyFlags, onlyUnread].filter(Boolean).length;
   const clear = () => {
     setQ("");
     patch({ status: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, visa: null });
@@ -247,19 +249,28 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
         }
       >
         {rows.length === 0 ? (
-          <Empty
-            icon="search"
-            title="Inga ärenden matchar"
-            action={
-              anyFilter && (
-                <Button icon="x" onClick={clear}>
-                  Rensa filter
-                </Button>
-              )
-            }
-          >
-            Ändra sökningen eller filtren.
-          </Empty>
+          anyFilter ? (
+            <Empty icon="search" title="Inga ärenden matchar" action={<Button icon="x" onClick={clear}>Rensa filter</Button>}>
+              Ändra sökningen eller filtren.
+            </Empty>
+          ) : all.length > 0 ? (
+            // Standardfiltret (öppna ärenden) döljer allt: alla ärenden är avslutade eller avböjda.
+            <Empty icon="search" title="Inga öppna ärenden" action={<Button onClick={() => setStatus("alla")}>Visa alla statusar</Button>}>
+              Alla dina ärenden är avslutade eller avböjda.
+            </Empty>
+          ) : role === "coach" || role === "handledare" ? (
+            <Empty icon="users" title="Du har inga ärenden ännu">
+              Samordnaren tilldelar dig ärenden när ett avrop har accepterats. De visas här.
+            </Empty>
+          ) : (
+            <Empty
+              icon="users"
+              title="Inga ärenden ännu"
+              action={(role === "samordnare" || role === "avtalsansvarig") && <Button icon="inbox" to="/inkorg">Öppna avropsinkorgen</Button>}
+            >
+              Ett ärende skapas när ett avrop accepteras i avropsinkorgen.
+            </Empty>
+          )
         ) : (
           <>
             {/* 16 px i cellerna: tabellen från 1261 px, listan under (annars rullar tabellen i sidled vid 1241–1260 px). */}
@@ -349,10 +360,20 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
                 </td>
                 <td className={TD}>{d.leadCoachName ?? <span className="text-text-muted">Inte tilldelad</span>}</td>
                 <td className={`${TD} whitespace-nowrap`}>
-                  {fd(d.start, today)} –
-                  <br />
-                  {fd(d.end, today)}
-                  {d.startNote && <div className={sub}>{d.startNote}</div>}
+                  {d.end ? (
+                    <>
+                      {fd(d.start, today)} –
+                      <br />
+                      {fd(d.end, today)}
+                      {d.startNote && <div className={sub}>{d.startNote}</div>}
+                    </>
+                  ) : (
+                    // Inget slut bestämt: bara starten och en underrad – inte två staplade streck.
+                    <>
+                      {fd(d.start, today)}
+                      <div className={sub}>{d.startNote ?? "slut inte bestämt"}</div>
+                    </>
+                  )}
                 </td>
                 <td className={TD}>
                   {d.latest ? (
@@ -394,7 +415,7 @@ function NarrowItem({ c, weeksLabel, href }: { c: CaseListRow; weeksLabel: strin
     <Link to={href} className={`${cls} cursor-pointer bg-transparent text-inherit no-underline [font:inherit] hover:bg-ljusgra-ton`}>
       <span className="flex min-w-0 flex-1 flex-col gap-[3px] max-[620px]:basis-[calc(100%-44px)]">
         <span className="flex flex-wrap items-center gap-1.5">
-          <span className="font-bold tabular-nums">{c.caseNumber}</span>
+          <span className="font-bold whitespace-nowrap tabular-nums">{c.caseNumber}</span>
           <CaseStatusBadge status={c.status} />
         </span>
         <span className="block font-bold">{c.displayName}</span>

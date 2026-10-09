@@ -11,7 +11,7 @@ import { useSession } from "@/shell/session";
 import { addWorkingDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, holidayName, isWorkingDay } from "@/core/time";
 import {
   Badge, BuildPhase, Button, Card, CaseStatusBadge, Check, DateTimeInput, DemoNote, Empty, ErrorNotice, Field, Icon, Kv, Loading, MaskedPnr, Modal, Notice, Page, PerspectiveLink,
-  anchorTabs, PhaseBar, PhaseTag, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
+  anchorTabs, PhaseBar, Select, SlaBadge, Stack, Tabs, TabPanel, TextArea, toast, useAuditView, useConfirm, UserName,
 } from "@/ui";
 import { auditView } from "@/features/session/api";
 import {
@@ -340,8 +340,7 @@ function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openMo
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="flex flex-wrap items-center gap-1.5">
           <CaseStatusBadge status={c.status} />
-          <PhaseTag phase={c.phase} name={c.phaseName} />
-          {c.readOnly && <Badge tone="outline" icon="eye">Läsläge</Badge>}
+          {/* Fasen står en gång: stapeln och texten "Fas 4 av 5 · …" här intill. Läsläget står i rutan överst på sidan. */}
           {c.stuck && (
             // Kvitterad flagga (Min vecka, listan): taggen säger det – annars ser det ut som att kvitteringen inte tog.
             <Badge tone={c.stuck.acked ? "outline" : "grey"} icon={c.stuck.acked ? "check" : "clock"}>
@@ -384,14 +383,14 @@ function CaseSummary({ card: c, openModal, voiceOpen }: { card: CaseCard; openMo
         {!all && <span className="text-small text-text-muted max-[620px]:hidden">Insatsen, deltagaren, kommunen och teamet</span>}
       </div>
       <div id="arende-uppgifter" hidden={!all}>
-        <CaseFacts card={c} />
+        <CaseFacts card={c} onRegister={() => openModal("consent")} />
       </div>
     </div>
   );
 }
 
 /** Alla uppgifter i huvudet: insatsen, deltagaren, kommunen och teamet – och vad kommunen ser. */
-function CaseFacts({ card: c }: { card: CaseCard }) {
+function CaseFacts({ card: c, onRegister }: { card: CaseCard; onRegister: () => void }) {
   const reveal = useCommand(caseRevealPnr);
   const team = c.access === "team";
   const insats: ([string, ReactNode] | null)[] = [
@@ -517,10 +516,14 @@ function CaseFacts({ card: c }: { card: CaseCard }) {
           {c.keyPersonnelChangeRequiresApproval ? " Avtalet kräver kommunens godkännande vid byte av nyckelpersonal." : ""}
         </p>
       )}
+      {/* Smal skärm: samtyckets förklaring och knappar ligger här (huvudet visar bara läget) så att flikarna syns utan att skrolla. */}
       {!team && c.consent && (
-        <p className="m-0 min-[621px]:hidden">
-          <span className="font-bold">Samtycke till inspelning och AI:</span> <ConsentText card={c} />
-        </p>
+        <div className="flex flex-col gap-2 min-[621px]:hidden">
+          <p className="m-0">
+            <span className="font-bold">Samtycke till inspelning och AI:</span> <ConsentText card={c} />
+          </p>
+          <ConsentButtons card={c} onRegister={onRegister} />
+        </div>
       )}
       {!team && (
         <div className="flex items-start gap-2.5 rounded-mb border-[1.5px] border-dashed border-line-strong bg-vit px-3 py-2.5 text-small text-text-muted">
@@ -543,15 +546,35 @@ const CONSENT_STATE = {
   not_asked: ["outline", "help", "Inte tillfrågad ännu"],
 } as const;
 
-/** Samtycket på en rad: läge, kort förklaring och knapparna. */
+/** Samtycket på en rad: läge, kort förklaring och knapparna (på smal skärm ligger förklaringen och knapparna under "Visa alla uppgifter"). */
 function ConsentRow({ card, onRegister, className }: { card: CaseCard; onRegister: () => void; className?: string }) {
+  const cons = card.consent;
+  if (!cons) return null;
+  const state = CONSENT_STATE[cons.value] ?? CONSENT_STATE.not_asked;
+  return (
+    <div role="group" aria-labelledby="arende-samtycke" className={className}>
+      <h2 id="arende-samtycke" className="flex items-center gap-1.5 text-body font-bold">
+        <Icon name="mic" />
+        Samtycke till inspelning och AI
+      </h2>
+      <Badge tone={state[0]} icon={state[1]}>{state[2]}</Badge>
+      <BuildPhase fas={2} />
+      <span className="max-[620px]:hidden">
+        <ConsentText card={card} />
+      </span>
+      <ConsentButtons card={card} onRegister={onRegister} className="max-[620px]:hidden" />
+    </div>
+  );
+}
+
+/** Samtyckets knappar: Återkalla / Registrera (nytt) samtycke och Deltagaren avböjer – bara för den som får ändra, i ett öppet ärende. */
+function ConsentButtons({ card, onRegister, className }: { card: CaseCard; onRegister: () => void; className?: string }) {
   const confirm = useConfirm();
   const set = useCommand(consentSet);
   const cons = card.consent;
-  if (!cons) return null;
-  const v = cons.value;
-  const state = CONSENT_STATE[v] ?? CONSENT_STATE.not_asked;
   const active = card.status !== "closed" && card.status !== "declined";
+  if (!cons || !card.edit || !active) return null;
+  const v = cons.value;
   const revoke = async () => {
     const ok = await confirm({
       title: "Återkalla samtycket?",
@@ -572,36 +595,23 @@ function ConsentRow({ card, onRegister, className }: { card: CaseCard; onRegiste
     toast("Registrerat att deltagaren avböjer. Avstämningar dokumenteras manuellt.");
   };
   return (
-    <div role="group" aria-labelledby="arende-samtycke" className={className}>
-      <h2 id="arende-samtycke" className="flex items-center gap-1.5 text-body font-bold">
-        <Icon name="mic" />
-        Samtycke till inspelning och AI:
-      </h2>
-      <Badge tone={state[0]} icon={state[1]}>{state[2]}</Badge>
-      <BuildPhase fas={2} />
-      {/* Förklaringen: här på bredare skärm, under "Visa alla uppgifter" på mobilen. */}
-      <span className="max-[620px]:hidden">
-        <ConsentText card={card} />
-      </span>
-      {card.edit && active && (
-        <span className="flex flex-wrap items-center gap-1.5">
-          {v === "given" ? (
-            <Button kind="danger" icon="x-circle" onClick={() => void revoke()} className="whitespace-normal">
-              Återkalla samtycke
-            </Button>
-          ) : (
-            <Button icon="check" onClick={onRegister} className="whitespace-normal">
-              {v === "revoked" ? "Registrera nytt samtycke" : "Registrera samtycke"}
-            </Button>
-          )}
-          {v === "not_asked" && (
-            <Button kind="ghost" onClick={() => void decline()}>
-              Deltagaren avböjer
-            </Button>
-          )}
-        </span>
+    <span className={`flex flex-wrap items-center gap-1.5 ${className ?? ""}`}>
+      {v === "given" ? (
+        // Textknapp: återkallandet är ovanligt och har en bekräftelsedialog – det ska inte dra blicken från huvudhandlingen.
+        <Button kind="ghost" icon="x-circle" onClick={() => void revoke()} className="whitespace-normal">
+          Återkalla samtycke
+        </Button>
+      ) : (
+        <Button icon="check" onClick={onRegister} className="whitespace-normal">
+          {v === "revoked" ? "Registrera nytt samtycke" : "Registrera samtycke"}
+        </Button>
       )}
-    </div>
+      {v === "not_asked" && (
+        <Button kind="ghost" onClick={() => void decline()}>
+          Deltagaren avböjer
+        </Button>
+      )}
+    </span>
   );
 }
 
@@ -613,7 +623,7 @@ function ConsentText({ card }: { card: CaseCard }) {
   if (v === "given" && cons.givenAt)
     return (
       <span className="text-small text-text-muted">
-        Lämnat {fd(cons.givenAt, dayOf(card.now))} · informerad av {cons.informedByName ?? "–"} · text {cons.textVersion}
+        Lämnat {fd(cons.givenAt, dayOf(card.now))} · informerad av {cons.informedByName ?? "–"} · <ConsentVersion version={cons.textVersion} />
         {cons.language ? ` på ${cons.language}` : ""}.
       </span>
     );
@@ -621,6 +631,13 @@ function ConsentText({ card }: { card: CaseCard }) {
   if (v === "declined") return <span className="text-text-muted">Avstämningar dokumenteras manuellt. Deltagaren kan ändra sig.</span>;
   if (v === "not_asked") return <span className="text-text-muted">Inspelning kan bara startas när samtycke är registrerat.</span>;
   return null;
+}
+
+/** "informationstext version 1.0" – datumet i textversionen ("v1.0 (2026-10-01)") ligger i title-attributet. */
+function ConsentVersion({ version }: { version: string | null }) {
+  const m = /^v?([^\s(]+)\s*(?:\((.+)\))?$/.exec(version ?? "");
+  if (!m) return <>informationstext {version ?? "–"}</>;
+  return <span title={m[2] ? `Textversionen är från ${m[2]}` : undefined}>informationstext version {m[1]}</span>;
 }
 
 function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }) {
@@ -678,16 +695,19 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
 /** Åtgärderna som knappar på en rad (samma villkor som tidigare åtgärdskortet). */
 function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: ModalKind) => void }) {
   const role = useSession().actor.role;
+  // Läsläge (chef, systemadministratör): rutan överst säger det – ingen tom åtgärdsrad.
+  if (c.readOnly) return null;
   const team = c.access === "team";
   const active = c.status !== "closed" && c.status !== "declined";
   const id = encodeURIComponent(c.caseId);
   const btns: ReactNode[] = [];
-  const btn = "whitespace-normal";
+  // Smal skärm: knapparna staplas lika breda.
+  const btn = "whitespace-normal max-[560px]:w-full";
   // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat.
   if (c.start) btns.push(<Button key="start" kind="primary" icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
   if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
-  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) btns.push(<Button key="ci" icon="check-square" className={btn} to={`/avstamning/${id}`}>Ny veckoavstämning</Button>);
+  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) btns.push(<Button key="ci" kind="primary" icon="check-square" className={btn} to={`/avstamning/${id}`}>Ny veckoavstämning</Button>);
   if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
@@ -698,7 +718,7 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
         btns
       ) : (
         <p className="text-text-muted">
-          {c.readOnly ? "Läsläge – du kan inte ändra i ärendet." : team ? "Du registrerar närvaro och praktik via Närvaro och Arbetsgivare och praktik." : "Inga åtgärder för din roll just nu."}
+          {team ? "Du registrerar närvaro och praktik via Närvaro och Arbetsgivare och praktik." : "Inga åtgärder för din roll just nu."}
         </p>
       )}
     </div>

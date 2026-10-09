@@ -54,7 +54,8 @@ async function acceptEm101(page: Page) {
   const m = main(page);
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
-  await expect(dialog(page).getByText("Välj huvudcoach.")).toBeVisible();
+  // Felet står i felsammanfattningen överst och vid fältet.
+  await expect(dialog(page).getByText("Välj huvudcoach.").first()).toBeVisible();
   await page.check("#ink-coach-u-amira");
   await page.check("#ink-team-u-petra");
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
@@ -259,7 +260,7 @@ test("em-101: acceptera med coach och team → orderbekräftelse och notis till 
 });
 
 // ---------------------------------------------------------------- Fritext (em-102)
-test("em-102: acceptera stoppas när omfattningen saknas – felet syns direkt (toast och fältet)", async ({ page }, info) => {
+test("em-102: acceptera stoppas när omfattningen saknas – felet syns direkt (felsammanfattningen och fältet)", async ({ page }, info) => {
   const errors = await open(page, info, "/inkorg/em-102", SARA);
   const m = main(page);
   await expect(m.getByText("Tolkat med AI")).toBeVisible();
@@ -272,12 +273,15 @@ test("em-102: acceptera stoppas när omfattningen saknas – felet syns direkt (
   await page.check("#ink-coach-u-erik");
   await page.fill("#ink-track", "Kockbiträde");
   await d.getByRole("button", { name: "Acceptera avropet" }).click();
-  await expect(toastWith(page, "Avropet kan inte accepteras ännu. Välj hur länge insatsen ska pågå.").first()).toBeVisible();
+  // Ingen toast (den täckte knappen): felsammanfattningen överst i dialogen och felet vid fältet.
+  await expect(d.getByText("Rätta det här innan du accepterar")).toBeVisible();
   await expect(d.getByText("Välj hur länge insatsen ska pågå.").first()).toBeVisible();
   // Beställarreferensen är valfri (beslut 2026-10-07) – den stoppar inte.
   await expect(d.getByText(/Beställarreferens saknas/)).toHaveCount(0);
   await expect(d.getByText("Det finns en komplettering att föra in först")).toBeVisible();
   await d.getByRole("button", { name: "Avbryt" }).click();
+  // Kompletteringen ska föras in först: det är huvudhandlingen i mejlets huvud, Acceptera är sekundär.
+  await expect(m.getByRole("button", { name: "Öppna kompletteringen" })).toBeVisible();
   await expect(m.getByText("Väntar på beslut", { exact: true }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });

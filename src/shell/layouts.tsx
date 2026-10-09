@@ -391,6 +391,8 @@ function PortalHeader({ match }: { match: RouteMatch }) {
     "relative flex items-center gap-x-5 gap-y-3 border-b border-ljusgra bg-vit px-6 py-3.5",
     "max-[900px]:sticky max-[900px]:top-0 max-[900px]:z-40 max-[900px]:h-(--mm-sticky-top) max-[900px]:gap-x-3 max-[900px]:px-4 max-[900px]:py-3",
   );
+  // Utloggningen sköts av session.signOut (appen: src/app/_shell/client-root.tsx – leder till inloggningssidan, som kan visa
+  // "Du är utloggad." med ?utloggad=du, LOGGED_OUT i session/screens/logga-in.tsx).
   const signOut = () => (session.signOut ? session.signOut() : nav.push(PORTAL_LOGIN_PATH));
   const home = (
     <Link to={startPathFor(actor.role, session.hidesCommercial)} onClick={close} className="inline-flex min-h-11 shrink-0 items-center rounded-mb px-1 text-antracit no-underline hover:bg-ljusgra-ton2 max-[480px]:px-0">

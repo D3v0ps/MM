@@ -180,7 +180,7 @@ export function ConfirmationCard({ caseId }: { caseId: string }) {
       tone="blue"
       title="Orderbekräftelse skickad"
       icon="check-circle"
-      actions={v.reportId ? <Button kind="secondary" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(v.reportId)}`}>Öppna</Button> : null}
+      actions={v.reportId ? <Button kind="secondary" iconRight="arrow-right" to={`/rapporter/${encodeURIComponent(v.reportId)}`}>Öppna orderbekräftelsen</Button> : null}
       foot={demo ? (
         <WrapBtns>
           <KommunSwitch c={{ id: v.caseId, referrerId: v.referrerId }} />
