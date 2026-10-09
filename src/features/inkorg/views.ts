@@ -6,11 +6,12 @@ import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { TRACKS } from "@/data/seed/constants";
 import { caseBackground, orderPeriodText } from "@/features/arenden/background";
+import { teamCandidates } from "@/features/_shared/team";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { areaName, contactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
-import { addDays, addMonths, addWorkingDays, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
+import { addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import type { Case, CaseStatusHistory, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Report } from "@/data/schema";
 import type {
@@ -453,8 +454,8 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
   const memberships = await ctx.repo.table("memberships").list({ contractId: e.contract.id });
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
   const active = (uid: string) => d.cases.filter((x) => x.leadCoachId === uid && ["confirmed", "active", "paused"].includes(x.status)).length;
-  const helperIds = new Set(memberships.filter((x) => x.role === "handledare").map((x) => x.userId));
-  const helpers = d.profiles.filter((u) => helperIds.has(u.id) && u.active !== false && u.teamRole && u.teamRole !== "lead_coach");
+  // Teamet bygger på medlemskapens roller (beslut 2026-10-08) – inte profiles.teamRole, som bara testdatat sätter.
+  const cand = await teamCandidates(ctx, e.contract.id);
   const due = firstMeetingDue(c, e.cfg);
   const avrop = avropDue(c, e.cfg);
   const sup = pendingSups(d, c)[0] ?? null;
@@ -464,7 +465,8 @@ export async function buildDecisionForm(ctx: Ctx, caseId: string): Promise<Decis
     areaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : "Avtalsområde inte valt",
     displayName: person ? `${person.firstName} ${person.lastName}` : "–", avropSla: avrop ? sla(avrop, null, e.now) : null,
     coaches: coachesOf({ profiles: d.profiles, memberships }, e.contract.id).map((u) => ({ id: u.id, name: u.fullName, active: active(u.id) })),
-    helpers: helpers.map((u) => ({ id: u.id, name: u.fullName, teamRole: u.teamRole as "vocational_supervisor" | "employer_matcher" | "guidance_counselor", label: lc(teamLabel(u.teamRole as string)) })),
+    helpers: cand.supervisors.map((u) => ({ id: u.id, name: u.name, teamRole: "vocational_supervisor" as const, label: lc(teamLabel("vocational_supervisor")) })),
+    staff: cand.staff,
     firstMeetingDue: due, desiredStart: c.desiredStart, buyerReference: c.buyerReference, referredAt: c.referredAt, today: e.today,
     defaultDate: addWorkingDays(e.today, 2), meetingText: meetingDaysText(meetingDays(e.cfg)), ...refConfig(e),
     areas: activeAreas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` })),
@@ -505,6 +507,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const fmCases = d.cases.filter((c) => c.status === "confirmed" && !c.firstMeetingAt).sort(by<Case>("referredAt"));
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
   const noCoach = d.cases.filter((c) => !c.leadCoachId && ["received", "acknowledged", "confirmed", "active", "paused"].includes(c.status)).sort(by<Case>("referredAt"));
+  // Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat.
+  const toStart = d.cases.filter((c) => c.status === "confirmed" && !!c.firstMeetingAt && dayOf(c.firstMeetingAt) <= e.today).sort(by<Case>("firstMeetingAt"));
   const flagText = flagDaysText(e.org.alerts.firstMeetingNotBookedAfterDays);
 
   const dls = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, role));
@@ -586,6 +590,10 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       const due = avropDue(c, e.cfg);
       return { caseId: c.id, caseNumber: c.caseNumber, sla: due ? sla(due, null, now) : null, sub: `${areaName(areas, c.primaryAreaCode)} · ${c.referrerId ? name(c.referrerId) : c.referrerName ?? "–"}` };
     }),
+    toStart: toStart.map((c) => ({
+      caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
+      sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,
+    })),
     tasks: tasks.map((t) => ({
       id: t.id, text: t.text, sub: `${t.fromId === "system" ? "Skapad automatiskt" : `Från ${name(t.fromId)}`} · ${whenText(t.createdAt, now)}`,
       emailId: t.emailId, caseId: !t.emailId && t.caseIds.length === 1 ? t.caseIds[0] : null,

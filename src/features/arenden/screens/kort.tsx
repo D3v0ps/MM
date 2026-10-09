@@ -2,7 +2,7 @@
 // Deltagarkortet (prototypens arende.kort): huvud med insatsen, deltagaren och teamet, samtycke, åtgärder och flikar.
 // Chef och systemadmin läser bara. Handledare (teamet) ser fem flikar – inga coachanteckningar, bedömningar eller rapporter.
 // Visningen loggas i revisionsloggen (case.view), liksom försök utan behörighet (case.view_denied).
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePageTitle } from "@/shell/page-effects";
 import { useCommand, usePrefetch, useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
@@ -23,6 +23,7 @@ import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kor
 import { TabManad } from "./kort-manad";
 import { TabTidslinje } from "./kort-tidslinje";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
+import { ActivityModal, StartModal, TeamModal } from "./kort-start";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 
@@ -41,7 +42,7 @@ export type TabProps = {
   openTab: (t: CaseTab, o?: { mal?: string | null; manad?: string | null }) => void;
   openModal: (m: ModalKind) => void;
 };
-type ModalKind = "coach" | "meeting" | "consent";
+type ModalKind = "coach" | "meeting" | "consent" | "start" | "plan" | "activity" | "team";
 
 function useCrumbs() {
   const role = useSession().actor.role;
@@ -75,7 +76,7 @@ export function DeltagarkortScreen({ params, query }: ScreenProps) {
     );
   }
   if (d.kind === "denied") return <NoAccess crumbs={crumbs} />;
-  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} />;
+  return <CaseView card={d} crumbs={crumbs} flik={query.get("flik")} manad={query.get("manad")} mal={query.get("mal")} visa={query.get("visa")} starta={query.get("starta") === "1"} />;
 }
 
 function NoAccess({ crumbs }: { crumbs: { label: string; to: string }[] }) {
@@ -176,7 +177,7 @@ function useScrollToTarget(mal: string | null, tab: CaseTab, panelId: string) {
 /** "Visa alla uppgifter" kommer ihåg läget under sessionen (bara i minnet, aldrig i adressen). */
 let showAllFacts = false;
 
-function CaseView({ card, crumbs, flik, manad, mal, visa }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null }) {
+function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean }) {
   const nav = useNav();
   const role = useSession().actor.role;
   const team = card.access === "team";
@@ -184,6 +185,15 @@ function CaseView({ card, crumbs, flik, manad, mal, visa }: { card: CaseCard; cr
   const tab: CaseTab = tabIds.includes(flik as CaseTab) ? (flik as CaseTab) : "oversikt";
   const blocked = !!flik && !tabIds.includes(flik as CaseTab) && (CASE_TABS as readonly string[]).includes(flik);
   const [modal, setModal] = useState<ModalKind | null>(null);
+  // ?starta=1 (knappen Starta insatsen på Min vecka): dialogen öppnas en gång när kortet har laddats.
+  const autoStarted = useRef(false);
+  const canStart = !!card.start;
+  useEffect(() => {
+    if (starta && canStart && !autoStarted.current) {
+      autoStarted.current = true;
+      setModal("start");
+    }
+  }, [starta, canStart]);
   const base = `/arenden/${encodeURIComponent(card.caseId)}`;
   // Flikbyte: samma historikpost (replace) och ingen hoppning – Tillbaka lämnar kortet. Länkar i kortet byter flik likadant.
   const setTab = (t: CaseTab) => nav.replace(path(base, { flik: t === "oversikt" ? null : t }));
@@ -291,6 +301,12 @@ function CaseView({ card, crumbs, flik, manad, mal, visa }: { card: CaseCard; cr
       {modal === "coach" && <CoachModal card={card} onClose={() => setModal(null)} />}
       {modal === "meeting" && <MeetingModal card={card} onClose={() => setModal(null)} />}
       {modal === "consent" && <ConsentModal card={card} onClose={() => setModal(null)} />}
+      {modal === "start" && card.start && <StartModal card={card} mode="start" onClose={() => setModal(null)} />}
+      {modal === "plan" && <StartModal card={card} mode="plan" onClose={() => setModal(null)} />}
+      {modal === "activity" && (
+        <ActivityModal cases={[{ caseId: card.caseId, caseNumber: card.caseNumber, name: card.displayName, location: card.location }]} now={card.now} onClose={() => setModal(null)} />
+      )}
+      {modal === "team" && <TeamModal card={card} onClose={() => setModal(null)} />}
     </Page>
   );
 }
@@ -667,12 +683,15 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   const id = encodeURIComponent(c.caseId);
   const btns: ReactNode[] = [];
   const btn = "whitespace-normal";
+  // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat.
+  if (c.start) btns.push(<Button key="start" kind="primary" icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
   if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
   if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) btns.push(<Button key="ci" icon="check-square" className={btn} to={`/avstamning/${id}`}>Ny veckoavstämning</Button>);
   if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
   if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
+  if (c.manage && active && c.teamOptions) btns.push(<Button key="team" icon="users" className={btn} onClick={() => openModal("team")}>Ändra team</Button>);
   return (
     <div role="group" aria-label="Åtgärder" className="flex flex-wrap items-center gap-2">
       {btns.length > 0 ? (

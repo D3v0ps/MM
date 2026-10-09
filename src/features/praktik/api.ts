@@ -9,7 +9,7 @@
 // utan ärendenummer (period, arbetsuppgifter och de fyra rätten) – så att registret visar hur arbetsgivaren används.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CASES, START } from "@/api/invalidation";
+import { NAV, LOG, CASES, START, COACH, PORTAL, REPORTS, MGMT, BILLING, INBOX, CASE_STATS } from "@/api/invalidation";
 import type { FourRights, PlacementStatus } from "@/data/schema";
 import { IdSchema, LocalDateSchema, ShortText } from "../_shared/schemas";
 
@@ -106,3 +106,36 @@ export const praktikEmployerAdd = command("praktik.employerAdd", z.object({
 export const RIGHT_KEYS = ["uppgift", "handledning", "timing", "uppfoljning"] as const;
 export const praktikSetRight = command("praktik.setRight", z.object({ placementId: IdSchema, right: z.enum(RIGHT_KEYS), value: z.boolean() }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, ...LOG] }).returns<Result<object, "not_found">>();
 export const praktikAddFollowUp = command("praktik.addFollowUp", z.object({ placementId: IdSchema, date: LocalDateSchema }), { invalidates: ["praktik.", CASES, "coach.minVecka", "coach.intakePage", ...START, "rapporter.dokument", "rapporter.visa", "kommun.deltagare", NAV, ...LOG] }).returns<Result<object, "not_found" | "date">>();
+
+// ---- Ny praktik och avslutad praktik (beslut 2026-10-08, skarp drift: inga placeringar kunde skapas i appen)
+/**
+ * Ny praktik i ett pågående ärende (huvudcoachen, samordnare, avtalsansvarig): befintlig arbetsgivare eller en ny
+ * (namn, ort, kontaktperson, telefon, e-post – orten används bara som plats för praktikdagarna), handledare hos
+ * arbetsgivaren, startdag, slutdag (valfri – annars till planerat slut), praktikdagar i veckan samt tid och längd.
+ * Skapar placeringen, händelsen praktik_startad (verifiering tom tills praktikavtalet laddas upp) och praktikdagarna som
+ * tillfällen – de ersätter yrkesmoment utan närvaro samma dagar. Logg placement.created och event.added.
+ */
+export const placementCreate = command("praktik.placementCreate", z.object({
+  caseId: IdSchema,
+  /** Befintlig arbetsgivare – eller newEmployer. */
+  employerId: IdSchema.nullable().optional(),
+  newEmployer: z.object({ name: ShortText, city: z.string().max(100).optional(), contactName: z.string().max(200).optional(), phone: z.string().max(40).optional(), email: z.string().max(200).optional() }).optional(),
+  supervisorName: z.string().max(200).optional(),
+  startsOn: LocalDateSchema,
+  endsOn: LocalDateSchema.nullable().optional(),
+  /** Veckodagar 0–4 (måndag–fredag). */
+  weekdays: z.array(z.number().int().min(0).max(4)).min(1).max(5),
+  time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+  durationMin: z.number().int().min(60).max(600),
+  tasks: z.string().max(2000).optional(),
+}), { invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, ...LOG] }).returns<
+  Result<{ placementId: string; employerId: string; days: number }, "not_found" | "forbidden" | "wrong_status" | "employer" | "period" | "weekdays" | "email">
+>();
+
+/**
+ * Avsluta praktiken: slutdag och status avslutad; praktikdagar efter slutdagen utan registrerad närvaro tas bort.
+ * Utfallet (arbete, erbjudande …) registreras som en händelse i ärendet. Logg placement.ended.
+ */
+export const placementEnd = command("praktik.placementEnd", z.object({ placementId: IdSchema, endsOn: LocalDateSchema }), {
+  invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, ...LOG],
+}).returns<Result<{ removed: number }, "not_found" | "forbidden" | "date" | "wrong_status">>();

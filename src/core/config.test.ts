@@ -92,8 +92,10 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     // Avvikelse (beslut 2026-10-01, rapporter steg 2): progression.clearFromLevel/anyFromLevel ersätter fritexten statDefinition.
     // Avvikelse (beslut 2026-10-07): orderPeriods ersätter orderWeeks; selfRegistration och retentionRules är nya – se testet nedan.
     // Avvikelse (beslut 2026-10-07, synpunkt #13): en faktura per avtal och månad (billing.invoicePer, collectiveInvoiceAllowed).
-    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, retentionRules, billing, ...rest } = BOTKYRKA_CONFIG;
+    // Tillägg (beslut 2026-10-08, skarp drift): activities.defaultWeekPlan – se testet för veckoplanen nedan.
+    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, retentionRules, billing, activities, ...rest } = BOTKYRKA_CONFIG;
     void reportSchedule;
+    void activities;
     void orderPeriods;
     void selfRegistration;
     void retentionRules;
@@ -128,6 +130,21 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, selfRegistration: { emailDomains: ["botkyrka.se", "botkyrka.se"] } }).success).toBe(false);
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, selfRegistration: { emailDomains: ["@botkyrka.se"] } }).success).toBe(false);
     expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, orderPeriods: { months: [6, 6], allowOther: true } }).success).toBe(false);
+  });
+  it("Botkyrka: standardveckoplanen är testdatats mönster – coachträff på första mötets dag, yrkesmoment tisdag och torsdag (beslut 2026-10-08)", () => {
+    expect(BOTKYRKA_CONFIG.activities).toStrictEqual({
+      defaultWeekPlan: [
+        { weekday: "first_meeting", kind: "möte", durationMin: 60, location: "Miljonbemanning" },
+        { weekday: 1, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "Miljonbemanning" },
+        { weekday: 3, kind: "yrkesmoment", time: "09:00", durationMin: 180, location: "Miljonbemanning" },
+      ],
+    });
+    // Avsnittet är valfritt (ett avtal utan veckoplan föreslår bara coachträffen), men en rad utan klockslag kräver första mötets dag.
+    const without: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
+    delete without.activities;
+    expect(OperationalConfigSchema.safeParse(without).success).toBe(true);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, activities: { defaultWeekPlan: [{ weekday: 2, kind: "möte", durationMin: 60, location: "Alby" }] } }).success).toBe(false);
+    expect(ContractConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, activities: { defaultWeekPlan: [{ weekday: 5, kind: "möte", time: "09:00", durationMin: 60, location: "Alby" }] } }).success).toBe(false);
   });
   it("Botkyrka: AI via Vertex AI EU och alla tre inspelningsflödena påslagna (beslut 2026-09-30)", () => {
     expect(BOTKYRKA_CONFIG.ai).toStrictEqual({

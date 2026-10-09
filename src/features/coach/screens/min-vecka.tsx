@@ -126,6 +126,25 @@ function MinVecka({ v }: { v: MinVeckaView }) {
 
       <Split wide>
         <Stack>
+          {v.toStart.length > 0 && (
+            <Card id="mv-starta" title="Insatser att starta" icon="play" tone="blue" flush>
+              <List>
+                {v.toStart.map((c) => (
+                  <ListItem
+                    key={c.caseId}
+                    icon="play"
+                    title={<CaseName caseId={c.caseId} name={c.name} caseNumber={c.caseNumber} />}
+                    sub={`Första mötet ${fmtDateTimeLong(c.firstMeetingAt)}. Starta insatsen så att tillfällen, närvaro och rapporter kommer igång.`}
+                    side={
+                      <Button kind="primary" icon="play" to={`/arenden/${encodeURIComponent(c.caseId)}?starta=1`}>
+                        Starta insatsen
+                      </Button>
+                    }
+                  />
+                ))}
+              </List>
+            </Card>
+          )}
           {unreg === 0 ? (
             <DoneLine id="mv-narvaro" title={`Närvaro – vecka ${wLast}`} icon="check-square">
               Allt är registrerat för vecka {wLast}. Veckorapporterna till handläggarna publiceras automatiskt.

@@ -102,6 +102,10 @@ const WRITES: Record<string, string[]> = {
   "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", AUDIT_CASE, AUDIT],
   "arenden.caseChangeCoach": ["cases", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseClose": ["cases", "reports", "pulse_invites", AUDIT_CASE, AUDIT], "arenden.messageSend": ["messages", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
+  // Starta insatsen, veckoplan, tillfällen och team (beslut 2026-10-08).
+  "arenden.caseStart": ["cases", "activities", "case_status_history", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
+  "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
+  "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
@@ -128,6 +132,7 @@ const WRITES: Record<string, string[]> = {
   "ledning.cdevCustomerApproved": ["contract_deviations", AUDIT],
   "notiser.notifRead": ["notification_reads"],
   "praktik.employerAdd": ["employers", AUDIT], "praktik.setRight": ["placements", AUDIT_CASE, AUDIT], "praktik.addFollowUp": ["placements", AUDIT_CASE, AUDIT],
+  "praktik.placementCreate": ["employers", "activities", "placements", "outcome_events", "audit_log:event", AUDIT_CASE, AUDIT], "praktik.placementEnd": ["activities", "placements", AUDIT_CASE, AUDIT],
   "puls.submit": ["pulse_responses", "pulse_invites", "tasks", AUDIT_CASE, AUDIT],
   "rapporter.reportApprove": ["reports", AUDIT_CASE, AUDIT], "rapporter.reportDeliver": ["reports", "outbound_messages", "user_notifications", AUDIT_CASE, AUDIT],
   "rapporter.reportCorrect": ["reports", AUDIT_CASE, AUDIT], "rapporter.reportOpen": ["reports", AUDIT_CASE, AUDIT], "rapporter.snapshot": ["reports"], "rapporter.download": [AUDIT_CASE, AUDIT],

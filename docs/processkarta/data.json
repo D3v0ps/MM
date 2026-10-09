@@ -900,6 +900,36 @@
      "status": "finns"
     },
     {
+     "phase": "start",
+     "title": "Starta insatsen efter första mötet",
+     "why": "Coachen startar oftast insatsen själv. Som samordnare kan du göra det när coachen är borta – annars blir ärendet aldrig Pågår.",
+     "how": [
+      "Min vecka visar Insatser att starta när första mötet är i dag eller har passerat. Klicka Starta insatsen. Samma knapp finns under Åtgärder på deltagarkortet.",
+      "Kontrollera Startdatum – första mötets dag är förvalt. Startdatumet kan inte vara före första mötet.",
+      "Gå igenom Veckoplan: kryssa i dagarna, välj typ (Coachträff, Yrkesmoment eller Praktikdag), tid, längd och plats. Avtalets standard är coachträff på första mötets dag och tid samt yrkesmoment tisdag och torsdag 09.00.",
+      "Klicka Starta insatsen."
+     ],
+     "where": "/min-vecka – Min vecka, eller /arenden/:caseId – Deltagarkort",
+     "trigger": "Första mötet har hållits",
+     "deadline": "Samma dag som första mötet. Veckorna räknas från startdatumet.",
+     "result": "Ärendet är Pågår med startdatum. Tillfällena är skapade från startdatumet till planerat slut (helgdagar hoppas över) och syns under Närvaro och på Min vecka. Starten står i historiken och revisionsloggen.",
+     "handoffTo": [
+      "coach",
+      "handledare",
+      "system"
+     ],
+     "notified": [
+      "Inga utskick. Kommunen ser status Pågår och startdatumet i portalen."
+     ],
+     "rules": [
+      "Bara huvudcoachen, samordnaren och avtalsansvarig kan starta insatsen, och bara en gång.",
+      "Startdatumet kan inte vara före första mötet, och ärendet måste ha ett planerat slut.",
+      "Tillfällen planeras högst 60 veckor framåt. Pausade veckor får inga tillfällen."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
      "phase": "vecka",
      "title": "Bevaka att närvaron registreras senast måndag klockan 10.00",
      "why": "Avtalet kräver närvarorapport på deltagarnivå varje vecka. Saknad registrering eskaleras till samordnaren klockan 10.00.",
@@ -1037,6 +1067,32 @@
       "Kommunens handläggare: mejl Ny huvudcoach för {ärendenummer} – logga in i portalen för att se vem."
      ],
      "rules": [],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "svar",
+     "title": "Ändra teamet runt deltagaren",
+     "why": "Handledaren ska kunna läggas till när som helst – inte bara när avropet accepteras. Listorna bygger på kollegornas roller i avtalet, så en nyligen tillagd handledare syns direkt.",
+     "how": [
+      "Öppna Deltagarkortet och klicka Ändra team under Åtgärder.",
+      "Kryssa i Handledare (alla med rollen handledare). Välj Arbetsgivarmatchare och SYV/metodstöd om det behövs – vem som helst av Miljonbemannings personal utom ekonom och systemadministratör.",
+      "Klicka Spara teamet. Huvudcoachen byts med Byt huvudcoach."
+     ],
+     "where": "/arenden/:caseId – Deltagarkort",
+     "trigger": "En handledare, arbetsgivarmatchare eller SYV ska in i eller ut ur ärendet",
+     "deadline": "",
+     "result": "Teamet är sparat. Handledaren ser ärendet direkt under Mina tilldelade ärenden och i Närvaro. Den som tas bort ser det inte längre.",
+     "handoffTo": [
+      "handledare"
+     ],
+     "notified": [
+      "Nya medlemmar: notis i appen och mejlet Du har fått ett nytt ärende i Miljonmatch: {ärendenummer}. Inga personuppgifter."
+     ],
+     "rules": [
+      "Bara samordnare och avtalsansvarig ändrar teamet. Ändringen loggas.",
+      "Samma person kan bara ha en roll i teamet. Ekonom och systemadministratör kan inte ingå."
+     ],
      "voice": false,
      "status": "finns"
     },
@@ -2062,6 +2118,36 @@
      "status": "finns"
     },
     {
+     "phase": "start",
+     "title": "Starta insatsen efter första mötet",
+     "why": "Förr blev ett ärende aldrig Pågår i skarp drift: inga tillfällen fanns att registrera närvaro på, ingen vecka blev debiterbar och inga rapporter kunde byggas. Nu startar du insatsen själv när första mötet har hållits.",
+     "how": [
+      "Min vecka visar Insatser att starta när första mötet är i dag eller har passerat. Klicka Starta insatsen. Samma knapp finns under Åtgärder på deltagarkortet.",
+      "Kontrollera Startdatum – första mötets dag är förvalt. Startdatumet kan inte vara före första mötet.",
+      "Gå igenom Veckoplan: kryssa i dagarna, välj typ (Coachträff, Yrkesmoment eller Praktikdag), tid, längd och plats. Avtalets standard är coachträff på första mötets dag och tid samt yrkesmoment tisdag och torsdag 09.00.",
+      "Klicka Starta insatsen."
+     ],
+     "where": "/min-vecka – Min vecka, eller /arenden/:caseId – Deltagarkort",
+     "trigger": "Första mötet har hållits",
+     "deadline": "Samma dag som första mötet. Veckorna räknas från startdatumet.",
+     "result": "Ärendet är Pågår med startdatum. Tillfällena är skapade från startdatumet till planerat slut (helgdagar hoppas över) och syns under Närvaro och på Min vecka. Starten står i historiken och revisionsloggen.",
+     "handoffTo": [
+      "coach",
+      "handledare",
+      "system"
+     ],
+     "notified": [
+      "Inga utskick. Kommunen ser status Pågår och startdatumet i portalen."
+     ],
+     "rules": [
+      "Bara huvudcoachen, samordnaren och avtalsansvarig kan starta insatsen, och bara en gång.",
+      "Startdatumet kan inte vara före första mötet, och ärendet måste ha ett planerat slut.",
+      "Tillfällen planeras högst 60 veckor framåt. Pausade veckor får inga tillfällen."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
      "phase": "vecka",
      "title": "Gå igenom Min vecka",
      "why": "Min vecka samlar det som är mest bråttom så att inga avtalskrav missas.",
@@ -2117,6 +2203,34 @@
       "Två ogiltiga frånvaron inom 14 dagar ger flaggan ”Upprepad ogiltig frånvaro” och ett förslag på åtgärdsplan.",
       "En frånvaronotis samma dag till kommunen är ett tillval som inte är beslutat. Den är avstängd.",
       "Ett tillfälle kan registreras först när det har börjat."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "vecka",
+     "title": "Ändra veckoplanen eller enstaka tillfällen",
+     "why": "Deltagarens dagar hos er ändras under insatsen – till exempel när praktiken börjar eller ett yrkesmoment flyttar.",
+     "how": [
+      "Deltagarkortet, fliken Närvaro: klicka Ändra veckoplan. Kryssa i dagarna och välj typ, tid, längd och plats. Klicka Spara veckoplanen.",
+      "Ett enstaka tillfälle: klicka Lägg till tillfälle under Närvaro eller på deltagarkortets flik Närvaro. Välj deltagare, typ, datum och tid, längd och plats.",
+      "Ta bort ett planerat tillfälle med Ta bort på raden (Närvaro) eller under Kommande tillfällen på deltagarkortet."
+     ],
+     "where": "/narvaro – Närvaro, eller /arenden/:caseId?flik=narvaro – Deltagarkort, fliken Närvaro",
+     "trigger": "Schemat ändras, ett tillfälle ställs in eller läggs till",
+     "deadline": "",
+     "result": "Kommande tillfällen utan registrerad närvaro ersätts av den nya planen. Tillfällen med registrerad närvaro rörs aldrig.",
+     "handoffTo": [
+      "coach",
+      "handledare"
+     ],
+     "notified": [
+      "Inga utskick"
+     ],
+     "rules": [
+      "Ett tillfälle med registrerad närvaro kan aldrig tas bort eller ersättas.",
+      "Praktikdagar som hör till en praktik ligger kvar när veckoplanen ändras, om planen inte själv innehåller praktikdagar.",
+      "Handledaren kan lägga till och ta bort enstaka tillfällen i sina teamärenden, men inte ändra veckoplanen."
      ],
      "voice": false,
      "status": "finns"
@@ -2298,6 +2412,35 @@
       "Arbete och studier räknas som resultat först när det finns en verifiering.",
       "Arbete som börjar i anslutning till insatsen markeras som möjligt bonusunderlag. Bonus är avstängd tills incitamentsmodellen är fastställd.",
       "För validering finns händelserna Reell kompetens dokumenterad, Vägledning till formell validering och Yrkeskompetensbevis/diplom utfärdat."
+     ],
+     "voice": false,
+     "status": "finns"
+    },
+    {
+     "phase": "vecka",
+     "title": "Registrera en ny praktik",
+     "why": "Praktiken är ofta vägen till arbete. Praktikdagarna ska finnas som tillfällen så att närvaron kan registreras och veckorapporten blir rätt.",
+     "how": [
+      "Deltagarkortet, fliken Praktik: klicka Ny praktik. Eller öppna arbetsgivaren under Arbetsgivare och praktik och klicka Ny praktik där.",
+      "Välj Arbetsgivare i registret eller Ny arbetsgivare (namn, ort, kontaktperson, telefon, e-post). Skriv Handledare hos arbetsgivaren.",
+      "Välj Startdag, Slutdag (valfri – annars till planerat slut), Praktikdagar i veckan, Börjar klockan och Omfattning per dag. Skriv Arbetsuppgifter.",
+      "Klicka Spara praktiken. När praktiken är slut: klicka Avsluta praktik på praktikplatsen och välj slutdag."
+     ],
+     "where": "/arenden/:caseId?flik=praktik – Deltagarkort, fliken Praktik, eller /praktik/:employerId – Arbetsgivare",
+     "trigger": "Deltagaren är redo för praktik (rätt tidpunkt)",
+     "deadline": "",
+     "result": "Praktikplatsen är registrerad med rätt tidpunkt bockad. Händelsen Praktik startad finns utan verifiering – ladda upp praktikavtalet under Händelser och utfall. Praktikdagarna är tillfällen och ersätter yrkesmoment samma dagar.",
+     "handoffTo": [
+      "handledare",
+      "kommun_handlaggare"
+     ],
+     "notified": [
+      "Inga utskick. Kommunen ser praktiken i månadsrapporten."
+     ],
+     "rules": [
+      "Bara huvudcoachen, samordnaren och avtalsansvarig registrerar praktik, och bara i ett pågående ärende.",
+      "Yrkesmoment med registrerad närvaro ersätts inte.",
+      "Uppföljningsdatum och de fyra rätten fylls i på praktikplatsen efteråt."
      ],
      "voice": false,
      "status": "finns"
@@ -5500,6 +5643,13 @@
    },
    {
     "role": "coach",
+    "phase": "start",
+    "title": "Startar insatsen",
+    "detail": "När första mötet har hållits visar Min vecka Insatser att starta. Coachen (eller samordnaren) klickar Starta insatsen, kontrollerar startdatumet och veckoplanen – coachträff på första mötets dag, yrkesmoment tisdag och torsdag enligt avtalet – och startar. Ärendet blir Pågår och tillfällena skapas till planerat slut.",
+    "handoff": "Tillfällena finns under Närvaro. Veckorna räknas i fakturaunderlaget från startdatumet."
+   },
+   {
+    "role": "coach",
     "phase": "vecka",
     "title": "Registrerar närvaro",
     "detail": "Öppna Närvaro. Ett klick per tillfälle: Närvarande, Sen, Giltig frånvaro eller Ogiltig frånvaro. Vid giltig frånvaro väljer du bara orsak: sjukdom, vård av barn, myndighetsbesök eller annat giltigt skäl. Inga andra detaljer. Registrera helst samma dag. Förra veckan ska vara klar senast måndag 10.00. Min vecka visar tiden som är kvar. Två ogiltiga frånvaron inom 14 dagar ger flaggan Upprepad ogiltig frånvaro och ett förslag på åtgärdsplan. En notis till kommunen samma dag vid ogiltig frånvaro är inte beslutad och är avstängd.",
@@ -5846,5 +5996,5 @@
    "Kommunen har bara rollen handläggare. Beställarrapporten och resultatfilen lämnar Miljonbemanning till kommunen utanför Miljonmatch."
   ]
  },
- "stamp": "Version 8 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, Registrera beställning i avropsinkorgen, mejlinläsning från avrop@ via Microsoft Graph, AI av tills Google Cloud är kopplat (beslut 2026-10-08) · 174 steg för 9 personer, granskade mot SPEC och appen."
+ "stamp": "Version 8 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, Registrera beställning i avropsinkorgen, mejlinläsning från avrop@ via Microsoft Graph, AI av tills Google Cloud är kopplat, Starta insatsen med veckoplan, Ny praktik och Ändra team (beslut 2026-10-08) · 179 steg för 9 personer, granskade mot SPEC och appen."
 }
