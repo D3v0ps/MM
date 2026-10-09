@@ -46,6 +46,7 @@ import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../r
 import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import "./attachment-handlers";
+import "./contact-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
@@ -53,7 +54,7 @@ import {
   caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
-  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, TEAM_TABS,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, CONTACT_EDITORS, TEAM_TABS,
   type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
   type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseMessageRow, type CaseOverview, type CasePlacements, type CaseReportRow,
   type CaseTab, type TimelineText,
@@ -962,6 +963,10 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     contactText: person ? participantContactLabel(person) : contactLabel(""),
     contactLabel: !person ? null : contactLabel(person.preferredContact),
     contactMissing: !!person && !hasContactDetails(person),
+    // Ändra kontaktväg (coachmötet 2026-10-09): samordnare, avtalsansvarig, coach och admin med full åtkomst.
+    contact: person && access === "full" && (CONTACT_EDITORS as readonly string[]).includes(role)
+      ? { preferredContact: person.preferredContact, phone: person.phone, email: person.email }
+      : null,
     languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
     language: person?.language ?? "",
     accessibilityNeeds: person?.accessibilityNeeds || "Inga behov angivna",

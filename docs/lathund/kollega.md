@@ -69,7 +69,8 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 ### Starta insatsen
 
 1. Öppna ärendet från **Insatser att starta** på Min vecka, eller från **Mina ärenden**.
-2. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
+2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och välj SMS, telefon eller e-post. Kommunen anger inte kontaktvägen i beställningen.
+3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
 ### Mina ärenden och Alla ärenden
 

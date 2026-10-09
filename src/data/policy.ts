@@ -53,6 +53,12 @@ const CASE_WORKERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", 
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
 /** Tar emot beställningar (skapar ärenden och personer). */
 const ORDER_CREATORS: readonly Role[] = ["samordnare", "avtalsansvarig", "kommun_handlaggare"];
+/**
+ * Deltagarens kontaktuppgifter (Ändra kontaktväg på deltagarkortet, coachmötet 2026-10-09) – det enda systemadministratören
+ * får ändra hos en person (triggern persons_admin_contact_only och mm.person_write, 0032). Adressen töms när kontaktvägen
+ * inte är brev.
+ */
+export const PERSON_CONTACT_FIELDS = ["preferredContact", "phone", "email", "address"] as const;
 /** Ser avtalets helhet: beställarrapporter, avropsinkorg, avtalsavvikelser. */
 const OVERSIGHT: readonly Role[] = ["samordnare", "avtalsansvarig", "chef", "admin"];
 /** Fakturering. */
@@ -380,6 +386,11 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     write: (p, a, raw) => {
       const refs = casesByPerson(raw).get(p.id) ?? [];
       if (!refs.length) return has(ORDER_CREATORS, a); // ny person i en beställning (ärendet sparas efteråt)
+      // Systemadministratören (0032, Ändra kontaktväg): bara kontaktuppgifterna, med full åtkomst till ett av personens ärenden.
+      if (a.role === "admin") {
+        const cur = raw.get("persons", p.id);
+        return !!cur && changedFields(cur, p).every((k) => (PERSON_CONTACT_FIELDS as readonly string[]).includes(k)) && refs.some((id) => accessTo(raw, a, id) === "full");
+      }
       return refs.some((id) => {
         const acc = accessTo(raw, a, id);
         return (acc === "full" && has(CASE_EDITORS, a)) || (acc === "customer" && a.role === "kommun_handlaggare" && self(a, raw.get("cases", id)?.referrerId));

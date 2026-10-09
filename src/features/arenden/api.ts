@@ -3,7 +3,7 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import {
-  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PriorAssessment, type TeamRole,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
@@ -244,6 +244,23 @@ export const caseSetTeam = command("arenden.caseSetTeam", z.object({
 }), { invalidates: [CASES, COACH, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<
   Result<{ added: number; removed: number }, "not_found" | "forbidden" | "wrong_status" | "team">
 >();
+
+// ---------------------------------------------------------------- Kontaktväg på deltagarkortet (coachmötet 2026-10-09)
+/** Rollerna som ändrar deltagarens kontaktväg (Miljonbemanning frågar deltagaren vid första mötet). */
+export const CONTACT_EDITORS = ["samordnare", "avtalsansvarig", "coach", "admin"] as const;
+/** Kontaktvägarna som väljs på deltagarkortet. Brev finns kvar för äldre ärenden men väljs inte här. */
+export const CARD_CONTACTS = ["sms", "phone", "email"] as const;
+/**
+ * Ändra deltagarens kontaktväg (SMS, telefon eller e-post), telefonnummer och e-postadress. Samma regler som Registrera
+ * beställning (contactErrors i src/core/contact.ts). Skriver persons via behörigheten (mm.person_write, 0032 – admin bara
+ * kontaktuppgifterna). Revisionslogg person.contact_changed med id:n och vilka fält som ändrades – aldrig värdena.
+ */
+export const caseSetContact = command("arenden.caseSetContact", z.object({
+  caseId: IdSchema,
+  preferredContact: z.enum(CARD_CONTACTS),
+  phone: z.string().trim().max(40),
+  email: z.string().trim().max(200),
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, ...LOG] }).returns<Result<{ changed: boolean }, "not_found" | "forbidden" | "phone" | "email">>();
 
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
@@ -491,6 +508,11 @@ export type CaseCard = {
   contactLabel: string | null;
   /** Deltagaren saknar telefonnummer och e-postadress – kontaktvägen är bara förvalet (kallelsen når inte fram). */
   contactMissing: boolean;
+  /**
+   * Kontaktuppgifterna att ändra med Ändra kontaktväg (arenden.caseSetContact) – bara för samordnare, avtalsansvarig, coach
+   * och systemadministratör med full åtkomst, annars null. Kommunen anger inte längre kontaktvägen (beslut 2026-10-09).
+   */
+  contact: { preferredContact: PreferredContact; phone: string; email: string } | null;
   languageText: string;
   /** Deltagarens språk (för samtyckets språkval). */
   language: string;

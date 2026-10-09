@@ -988,6 +988,62 @@ describe("skrivning: särskilda fall", () => {
   });
 });
 
+// ================================================================ Kontaktvägen på deltagarkortet (0032, coachmötet 2026-10-09)
+describe("kontaktvägen (0032): vem ändrar deltagarens kontaktuppgifter – samma regler i RLS, triggern och policy.ts", () => {
+  const NADIA = "case-260143";
+  const person = () => raw.get("persons", raw.get("cases", NADIA)!.personId)!;
+  /** policy.ts: läsrätt på den befintliga raden och skrivrätt på den nya. */
+  const memWrite = (row: Tables["persons"], key: string) => {
+    const a = findPersona(key).actor;
+    return canReadRow("persons", raw.get("persons", row.id)!, a, raw) && canWriteRow("persons", row, a, raw);
+  };
+  const changes = (p: Tables["persons"]) => ({
+    contact: { sql: "update public.persons set preferred_contact = 'email', phone = '', email = 'ny@example.invalid', address = null where id = $1", row: { ...p, preferredContact: "email" as const, phone: "", email: "ny@example.invalid", address: null } },
+    phone: { sql: "update public.persons set phone = '070-000 00 09' where id = $1", row: { ...p, phone: "070-000 00 09" } },
+    name: { sql: "update public.persons set first_name = 'Annat' where id = $1", row: { ...p, firstName: "Annat" } },
+    language: { sql: "update public.persons set language = 'engelska', phone = '070-000 00 09' where id = $1", row: { ...p, language: "engelska", phone: "070-000 00 09" } },
+  });
+
+  it("systemadministratören ändrar bara kontaktuppgifterna; samordnare, avtalsansvarig och coach som förut; ekonom och chef aldrig", async () => {
+    const p = person();
+    const c = changes(p);
+    const expected: Record<string, Record<keyof typeof c, boolean>> = {
+      "u-robin|admin": { contact: true, phone: true, name: false, language: false },
+      "u-sara|samordnare": { contact: true, phone: true, name: true, language: true },
+      "u-johan|avtalsansvarig": { contact: true, phone: true, name: true, language: true },
+      "u-amira|coach": { contact: true, phone: true, name: true, language: true },
+      "u-lars|ekonom": { contact: false, phone: false, name: false, language: false },
+      "u-karin|chef": { contact: false, phone: false, name: false, language: false },
+    };
+    for (const [key, want] of Object.entries(expected)) {
+      const got = await asPersona(findPersona(key), async (tx) => {
+        const out: Record<string, boolean> = {};
+        for (const [k, v] of Object.entries(c)) out[k] = allowed(await attempt(tx, v.sql, [p.id]));
+        return out;
+      });
+      expect(got, key).toEqual(want);
+      const mem = Object.fromEntries(Object.entries(c).map(([k, v]) => [k, memWrite(v.row, key)]));
+      expect(mem, key).toEqual(want);
+    }
+  });
+
+  it("triggern stoppar systemadministratörens ändring av annat än kontaktuppgifterna med ett behörighetsfel (42501)", async () => {
+    const p = person();
+    const res = await asPersona(findPersona("u-robin|admin"), (tx) => attempt(tx, "update public.persons set first_name = 'Annat' where id = $1", [p.id]));
+    expect(res).toMatchObject({ ok: false, code: "42501" });
+    // Servern (service role) påverkas inte av triggern.
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.persons set first_name = 'Annat' where id = $1", [p.id]), { role: "service_role" });
+    expect(service).toMatchObject({ ok: true, rows: 1 });
+  });
+
+  it("den vilande spärren: i ett skyddat ärende ändrar systemadministratören ingenting (åtkomsten är 'restricted')", async () => {
+    const p = SKYDDAD_PERSON;
+    const res = await asPersona(findPersona("u-robin|admin"), (tx) => attempt(tx, "update public.persons set phone = '070-000 00 09' where id = $1", [p.id]));
+    expect(allowed(res)).toBe(false);
+    expect(canWriteRow("persons", { ...raw.get("persons", p.id)!, phone: "070-000 00 09" }, findPersona("u-robin|admin").actor, raw)).toBe(false);
+  });
+});
+
 // ================================================================ Fria anteckningar (0019, beslut 2026-10-01)
 describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i RLS, triggern och policy.ts", () => {
   const NADIA = "case-260143";
