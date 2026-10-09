@@ -1458,6 +1458,7 @@ const AUDIT_TEXT: Record<string, string> = {
   "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
   "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
   "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
+  "person.contact_changed": "Kontaktvägen ändrades",
   "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",

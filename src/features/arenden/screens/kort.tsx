@@ -454,7 +454,7 @@ function CaseFacts({ card: c, onRegister, onEditContact }: { card: CaseCard; onR
       c.contact ? (
         <span key="kontakt" className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <span>{c.contactText}</span>
-          <Button kind="ghost" icon="edit" aria-label="Ändra kontaktväg" onClick={onEditContact}>Ändra</Button>
+          <Button kind="ghost" icon="edit" ariaLabel="Ändra kontaktväg" onClick={onEditContact}>Ändra</Button>
         </span>
       ) : (
         c.contactText

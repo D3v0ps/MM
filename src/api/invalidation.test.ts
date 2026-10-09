@@ -106,6 +106,7 @@ const WRITES: Record<string, string[]> = {
   "arenden.caseStart": ["cases", "activities", "case_status_history", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
+  "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
