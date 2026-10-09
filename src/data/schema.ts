@@ -492,11 +492,14 @@ export type Case = {
   secondaryAreaCode: AreaCode | null;
   vocationalTrack: string;
   desiredStart: LocalDate | null;
-  /** Planerad start enligt orderbekräftelsen. */
+  /** Planerad start enligt orderbekräftelsen: första mötets dag. */
   plannedStart: LocalDate | null;
   /** Planerade veckor (debiterbara ISO-veckor mellan start och planerat slut – räknas av servern, internt). */
   plannedWeeks: number | null;
-  /** Planerat slut. Vid 6 eller 12 månader räknar servern fram det från startdatumet (orderPeriodEnd). */
+  /**
+   * Planerat slut. Före accept preliminärt från önskat startdatum; från accept räknas det från första mötets dag och räknas om
+   * vid varje ombokning (orderPeriodEnd; beslut 7, 2026-10-08). "Annan tidsperiod" behåller kommunens slutdatum.
+   */
   plannedEnd: LocalDate | null;
   /** Beställningens värde i veckor (för upparbetat och återstående belopp – bara internt, aldrig för kommunen). */
   orderValueWeeks: number | null;

@@ -89,6 +89,8 @@ const DETAIL_KEY: Record<string, string> = {
   split: "Dela upp per tid", sharingFrom: "Delning före", sharingTo: "Delning efter", column: "Kolumn", visibility: "Delning",
   day: "Dag", activityIds: "Tillfällen", attendanceIds: "Närvaroposter", skippedActivityIds: "Redan registrerade", contractIds: "Avtal", autosave: "Automatiskt",
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
+  // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
+  rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -121,8 +123,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   table: { alla: "alla flikar", resultat: "resultat", progression: "progression", handelser: "händelser", avslut: "avslut", faltbeskrivning: "fältbeskrivning" },
   reason: {
     columns_changed: "kolumnerna har ändrats – schemaversionen behöver höjas", column_missing: "en kolumn finns inte längre", too_large: "filen blev för stor",
-    unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande", removed: "borttagen",
-    orphan: "fil i lagringen utan bilaga (avstämning)",
+    unlinked_24h: "uppladdad men inte skickad inom 24 timmar", retention: "gallring efter avslut eller avböjande (regeln togs bort 2026-10-08)", removed: "borttagen",
+    orphan: "fil i lagringen utan bilaga (avstämning)", first_meeting_rebooked: "första mötet bokades om – ny version av orderbekräftelsen",
   },
   // "customer" och "kommun" finns bara i loggrader före 2026-10-07 (kommunens chef är borttagen).
   sharingFrom: { private: "Bara ägaren", mb: "Miljonbemanning i avtalet", customer: "Kommunens chef", __new: "Ny rapport" },

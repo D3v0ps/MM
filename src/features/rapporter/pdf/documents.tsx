@@ -9,9 +9,9 @@ import { attLabel } from "@/core/labels";
 import { num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
 import type { ReportDocView } from "../api";
-import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
+import type { ActivityModel, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
 import { ATTENDANCE_RATE_RULE, BUYER_REFERENCE_LATER, dayMonth, dFull, dtFull, isDelivered, isDraftDoc, lcfirst, monthRangeText, NO_PNR, PRINCIPLE, plain, reportTitle, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
-import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type Col, type KvItem, type Rag } from "./primitives";
+import { B, Check, CheckGrid, FixedText, H3, KEEP_TOGETHER_CHARS, Kv, Label, Meter, P, PdfDocument, Sec, Small, Stack2, Status, Table, Wait, type KvItem, type Rag } from "./primitives";
 import { PDF_COLOR } from "./theme";
 
 type Doc<K extends ReportDocView["kind"]> = Extract<ReportDocView, { kind: K }>;
@@ -28,26 +28,6 @@ function baseInfo(doc: ReportDocView, caseNumber: string | null, extra: [string,
   ];
 }
 const Superseded = ({ doc }: { doc: ReportDocView }) => (doc.superseded ? <Label>Ersatt av en rättad version</Label> : null);
-
-function AttendanceTable({ rows, total, firstCol }: { rows: AttRow[]; total: AttStats; firstCol: string }) {
-  const showUnreg = total.unregistered > 0;
-  const cols: Col[] = [
-    { label: firstCol, width: showUnreg ? 22 : 26 }, { label: "Planerade tillfällen", width: 13, num: true }, { label: "Närvaro", width: 14, num: true },
-    { label: "Giltig frånvaro", width: 13, num: true }, { label: "Ogiltig frånvaro", width: 13, num: true },
-    ...(showUnreg ? [{ label: "Ej registrerade", width: 12, num: true }] : []), { label: "Närvarograd", width: showUnreg ? 13 : 21, num: true },
-  ];
-  const cells = (st: AttStats) => [
-    String(st.planned), `${st.present + st.late}${st.late > 0 ? ` (${st.late} sen)` : ""}`, String(st.absentValid), String(st.absentInvalid),
-    ...(showUnreg ? [String(st.unregistered)] : []), pct(st.rate, 0),
-  ];
-  return (
-    <Table
-      cols={cols}
-      rows={rows.map((w) => ({ key: w.key, cells: [<Stack2 key="l" main={w.label} sub={w.sub} extra={w.paused ? "Uppehåll" : undefined} />, ...cells(w.st)] }))}
-      foot={["Totalt", ...cells(total)]}
-    />
-  );
-}
 
 function ActivityChecklist({ a }: { a: ActivityModel }) {
   const done = new Set(a.done);
@@ -194,14 +174,10 @@ function FinalPdf({ doc }: { doc: Doc<"final"> }) {
         <Kv items={[["Deltagare", doc.participant], ...m.basics]} />
         <Small muted>{NO_PNR}</Small>
       </Sec>
-      <Sec n="2" title="Närvaro och frånvaro under hela perioden">
-        <AttendanceTable rows={m.months} total={m.total} firstCol="Månad" />
-        <P>
-          <B>Giltig frånvaro per orsak:</B> {m.reasons}.
-        </P>
-        <P>
-          <B>Upprepad ogiltig frånvaro:</B> {m.repeated.hit ? `Ja – ${m.repeated.count} tillfällen under perioden. Se avsnitt 6.` : "Nej."}
-        </P>
+      {/* Bara perioden och närvarograden (beslut 6, 2026-10-08) – samma som HTML-dokumentet. */}
+      <Sec n="2" title="Närvaro">
+        <Kv items={[["Period", m.period], ["Närvarograd", pct(m.total.rate, 0)]]} />
+        <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
         <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02.</Small>

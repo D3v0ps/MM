@@ -14,7 +14,7 @@ import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time"
 import { useQuery } from "@/shell/backend";
 import { Empty, ErrorNotice, Kv, Loading, Meter, Paper, PaperFixedText, Status, XBox } from "@/ui";
 import { reportDocument, type ReportDocView } from "../api";
-import type { ActivityModel, AttRow, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
+import type { ActivityModel, AttStats, DeviationModel, EventRow, ProgressionRow } from "../model";
 import { ATTENDANCE_RATE_RULE, BUYER_REFERENCE_LATER, dayMonth, DENIED, dFull, dtFull, isDraftDoc, lcfirst, monthRangeText, NO_PNR, PRINCIPLE, plain, smallN, ucfirst, weekRange, weekText } from "../report-helpers";
 
 // ---------------------------------------------------------------- Byggstenar
@@ -55,58 +55,6 @@ function baseInfo(doc: ReportDocView, caseNumber: string | null, extra: [string,
     ["Version", String(doc.version)],
     ["Upprättad", doc.approvedAt ? dFull(doc.approvedAt) : "Utkast – ej godkänd"],
   ];
-}
-
-function AttendanceTable({ rows, total, firstCol }: { rows: AttRow[]; total: AttStats; firstCol: string }) {
-  const showUnreg = total.unregistered > 0;
-  const cells = (st: AttStats) => (
-    <>
-      <td className={NUM}>{st.planned}</td>
-      <td className={NUM}>
-        {st.present + st.late}
-        {st.late > 0 ? ` (${st.late} sen)` : ""}
-      </td>
-      <td className={NUM}>{st.absentValid}</td>
-      <td className={NUM}>{st.absentInvalid}</td>
-      {showUnreg && <td className={NUM}>{st.unregistered}</td>}
-      <td className={NUM}>{pct(st.rate, 0)}</td>
-    </>
-  );
-  return (
-    <TWrap min={560}>
-      <thead>
-        <tr>
-          <th>{firstCol}</th>
-          <th>Planerade tillfällen</th>
-          <th>Närvaro</th>
-          <th>Giltig frånvaro</th>
-          <th>Ogiltig frånvaro</th>
-          {showUnreg && <th>Ej registrerade</th>}
-          <th>Närvarograd</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((w) => (
-          <tr key={w.key}>
-            <td className="whitespace-nowrap">
-              {w.label}
-              {w.sub && <div className="text-small text-text-muted">{w.sub}</div>}
-              {w.paused && <div className="text-small text-text-muted">Uppehåll</div>}
-            </td>
-            {cells(w.st)}
-          </tr>
-        ))}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td>
-            <b>Totalt</b>
-          </td>
-          {cells(total)}
-        </tr>
-      </tfoot>
-    </TWrap>
-  );
 }
 
 function ActivityChecklist({ a }: { a: ActivityModel }) {
@@ -285,14 +233,12 @@ function FinalDoc({ doc }: { doc: Extract<ReportDocView, { kind: "final" }> }) {
         <Kv items={[["Deltagare", doc.participant], ...m.basics]} />
         <Small muted>{NO_PNR}</Small>
       </Sec>
-      <Sec n="2" title="Närvaro och frånvaro under hela perioden">
-        <AttendanceTable rows={m.months} total={m.total} firstCol="Månad" />
-        <p>
-          <b>Giltig frånvaro per orsak:</b> {m.reasons}.
-        </p>
-        <p>
-          <b>Upprepad ogiltig frånvaro:</b> {m.repeated.hit ? `Ja – ${m.repeated.count} tillfällen under perioden. Se avsnitt 6.` : "Nej."}
-        </p>
+      {/* Bara perioden och närvarograden, som månadsrapporten (beslut 6, 2026-10-08). Månadsraderna, orsakerna och antalen finns
+          internt på deltagarkortets flik Närvaro. Risken "Upprepad ogiltig frånvaro" står kvar i avsnitt 6. Modellen och frysta
+          rapporter är oförändrade – bara visningen. */}
+      <Sec n="2" title="Närvaro">
+        <Kv items={[["Period", m.period], ["Närvarograd", pct(m.total.rate, 0)]]} />
+        <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
         <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02.</Small>

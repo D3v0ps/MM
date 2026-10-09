@@ -177,7 +177,7 @@ describe("områdets kommandon", () => {
     expect(f?.coaches.map((x) => x.name)).toContain("Leila Nouri");
     // Kompletteringen gav omfattningen (6 månader) och referensen – avtalsområde och yrkesspår väljs av Miljonbemanning.
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, buyerReference: "55102938" });
-    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", startDate: "2027-02-03", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara())).toMatchObject({ ok: true });
     expect(row("cases", "case-270049")).toMatchObject({ orderPeriodMonths: 6, plannedEnd: "2027-08-02", primaryAreaCode: "G" });
     const conf = await q(inboxConfirmation, { caseId: "case-270049" }, sara());
     expect(conf).toMatchObject({ caseNumber: "BOT-27-0049", coachName: "Leila Nouri", team: "Bara huvudcoach", buyerReference: "55102938", leadNotif: { title: "Leila Nouri har fått en notis om tilldelningen" } });
@@ -261,7 +261,7 @@ describe("registrera beställning (mejl, telefon eller annan väg)", () => {
     expect(d.body.register).toBeNull();
     expect(JSON.stringify(d)).not.toContain("19930303");
     // Vanligt flöde efteråt: acceptera.
-    expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", startDate: "2027-02-03", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
   });
 
   it("handläggare med konto kopplas direkt; en adress utanför kommunens domän stoppas; annan väg sparas som 'other'", async () => {

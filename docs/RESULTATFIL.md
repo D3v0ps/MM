@@ -2,12 +2,17 @@
 
 **Till:** Botkyrka kommun, avtal 332026110
 **Från:** Miljonbemanning AB
-**Gäller:** version 1 av resultatfilen (schemaversion 1) · samma innehåll som utkastet inför mötet, 1 oktober 2026
+**Gäller:** version 2 av resultatfilen (schemaversion 2) · bygger på utkastet inför mötet 1 oktober 2026
 
 Alla exempel i det här dokumentet är påhittade.
 
+> **Ändrat 2026-10-08 (version 2):** närvaron redovisas bara som antal veckor och närvarograd, precis som i månadsrapporten och
+> slutrapporten. Kolumnerna `tillfallen_planerade`, `narvarande`, `sen_ankomst`, `franvaro_giltig`, `franvaro_ogiltig` och
+> `ej_registrerade` finns inte längre i tabell 1. Övriga kolumner är oförändrade och har samma namn och ordning som förut.
+> Filens version står på fliken Om filen och i fältbeskrivningen.
+>
 > **Ändrat 2026-10-07:** kommunen hämtar inte längre filen själv i portalen. Miljonbemanning tar fram filen för hela avtalet och
-> lämnar den till er (avsnitt 2). Kolumnerna är oförändrade.
+> lämnar den till er (avsnitt 2).
 
 > För utvecklare: kolumnerna, beskrivningarna, möjliga värden och exemplen i tabellerna nedan kommer från kolumnregistret
 > (`src/features/rapporter/export-columns.ts`, `exportColumns(cfg, areas)` med Botkyrkas konfiguration). Testet
@@ -59,7 +64,8 @@ Filnamnen innehåller bara avtal och period, aldrig namn. Exempel: `resultat_bot
   koden – den ändras inte.
 - **Datum** skrivs ÅÅÅÅ-MM-DD och **månad** ÅÅÅÅ-MM. Decimaltal har decimalkomma i CSV-filen.
 - **Kolumnnamnen** är skrivna utan å, ä och ö och ändras aldrig. Nya kolumner läggs bara till sist, så att era formler och
-  rapporter fortsätter att fungera. Filens version står på fliken Om filen och i fältbeskrivningen.
+  rapporter fortsätter att fungera. Tas en kolumn bort (som närvaroantalen 2026-10-08) höjs filens version. Filens version står
+  på fliken Om filen och i fältbeskrivningen.
 - CSV-filen använder **semikolon** mellan kolumnerna och är sparad i UTF-8, så att å, ä och ö visas rätt i Excel.
 
 ## 5. Hur ofta uppdateras uppgifterna?
@@ -112,18 +118,14 @@ I Excel: fliken **Resultat**. I CSV: filen som slutar på period, till exempel `
 | `fas_nr` | Fasens nummer vid månadens slut | 3 | 1–5 |
 | `fas` | Fasens namn | Yrkesspecifika moment | Kartläggning, Yrkesförberedande grund, Yrkesspecifika moment, Praktik (arbetsplatsförlagt lärande), Matchning och slutrapport |
 
-### Närvaro och frånvaro (avsnitt 2)
+### Närvaro (avsnitt 2)
+
+Närvaron redovisas som antal veckor och närvarograd – inga antal per tillfälle (version 2, 2026-10-08).
 
 | Kolumn | Betydelse | Exempel | Möjliga värden |
 |---|---|---|---|
 | `veckor` | Antal veckor (måndag–söndag) som helt eller delvis ligger i månaden och då deltagaren var inskriven, veckor med uppehåll inräknade. En vecka som delas mellan två månader räknas i båda månaderna. Summera därför inte veckor över flera månader, och jämför inte med antalet veckor på fakturan | 5 | Heltal |
 | `veckor_uppehall` | Antal av veckorna med uppehåll | 0 | Heltal |
-| `tillfallen_planerade` | Planerade tillfällen som har passerat | 18 | Heltal |
-| `narvarande` | Tillfällen då deltagaren var på plats i tid | 15 | Heltal |
-| `sen_ankomst` | Tillfällen då deltagaren kom för sent | 1 | Heltal |
-| `franvaro_giltig` | Frånvaro med giltigt skäl | 1 | Heltal |
-| `franvaro_ogiltig` | Frånvaro utan giltigt skäl | 1 | Heltal |
-| `ej_registrerade` | Tillfällen där närvaron inte är registrerad | 0 | Heltal |
 | `narvaro_procent` | Andel av de registrerade tillfällena då deltagaren var på plats (i tid eller sent) | 88,9 | 0–100 med en decimal, tom om inget är registrerat |
 | `upprepad_franvaro` | Upprepad ogiltig frånvaro enligt avtalets regel (två gånger inom 14 dagar) | 0 | 1 = ja, 0 = nej |
 
@@ -273,7 +275,7 @@ kolumn, beskrivning, format, möjliga värden, källa och version (kolumnnamnen 
 | Personnummer | Behövs inte för att räkna. Ärendenumret räcker som nyckel. |
 | Adress, telefon och e-post | Behövs inte för att räkna. |
 | Fritext: coachens observationer, sammanfattning, plan, avvikelsetexter och kommentarer till händelser | Texterna kan innehålla känsliga uppgifter och går inte att räkna på. De finns i månadsrapporten i portalen. |
-| Orsaker till frånvaro | Kan röra hälsa. Antalet tillfällen med giltig och ogiltig frånvaro finns med. |
+| Orsaker till frånvaro och antal tillfällen (närvaro, sen ankomst, giltig och ogiltig frånvaro) | Orsakerna kan röra hälsa. Sedan version 2 (2026-10-08) redovisas närvaron bara som veckor och närvarograd – som i månadsrapporten och slutrapporten. Om upprepad ogiltig frånvaro förekommit finns med (`upprepad_franvaro`). |
 | Områdena "Hälsa (funktionellt beskrivet)" och "Livskvalitet (deltagarens egen skattning)" | De är frivilliga och kan röra hälsa. De finns i månadsrapporten när de är bedömda. |
 | Rapporter som inte är levererade | Bara uppgifter som är granskade och lämnade till er kommer med. |
 | Rapporter som har ersatts av en rättelse | Filen har bara den senast levererade versionen. |

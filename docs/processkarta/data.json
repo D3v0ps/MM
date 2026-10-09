@@ -553,6 +553,7 @@
       "Öppna mejlet Ny rapport i portalen och logga in.",
       "Öppna Slutrapport i fliken Rapporter hos deltagaren, eller välj filtret Slutrapporter.",
       "Läs resultatet för hela perioden, kvarstående hinder och rekommenderad fortsättning.",
+      "Avsnitt 2 Närvaro visar perioden och närvarograden – inga månadsrader, orsaker eller antal (beslut 2026-10-08, som månadsrapporten).",
       "Se avslutsdatum och orsak på deltagarens sida. Status är Avslutad."
      ],
      "where": "/portal/rapporter/:reportId – rapportsidan (Slutrapport)",
@@ -5055,7 +5056,8 @@
      "how": [
       "Öppna tabellen Bakgrundsjobb och jobbet Gallring enligt PUB-avtalet (dagligen 03.00).",
       "Jobbet är avstängt så länge regeln inte är fastställd – det raderar ingenting.",
-      "När regeln är fastställd: kontrollera att jobbet går och att raderingen loggas."
+      "När regeln är fastställd: kontrollera att jobbet går och att raderingen loggas.",
+      "Bilagor till beställningen gallras aldrig automatiskt (beslut 2026-10-08): samordnare eller avtalsansvarig tar bort dem för hand på deltagarkortet när insatsen är avslutad eller beställningen avböjd. Varje borttagning loggas."
      ],
      "where": "/admin/integrationer – Underbiträden och integrationer, tabellen Bakgrundsjobb",
      "trigger": "Avslutade ärenden passerar gallringstiden.",
@@ -5846,5 +5848,5 @@
    "Kommunen har bara rollen handläggare. Beställarrapporten och resultatfilen lämnar Miljonbemanning till kommunen utanför Miljonmatch."
   ]
  },
- "stamp": "Version 8 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, Registrera beställning i avropsinkorgen, mejlinläsning från avrop@ via Microsoft Graph, AI av tills Google Cloud är kopplat (beslut 2026-10-08) · 174 steg för 9 personer, granskade mot SPEC och appen."
+ "stamp": "Version 8 oktober 2026 · Skarp drift: kollegor läggs till och får roller i appen, rollväxling i sidopanelen, Registrera beställning i avropsinkorgen, mejlinläsning från avrop@ via Microsoft Graph, AI av tills Google Cloud är kopplat, slutdatum från första mötet, slutrapport och resultatfil med närvaro bara som närvarograd, bilagor tas bort för hand efter avslut (beslut 2026-10-08) · 174 steg för 9 personer, granskade mot SPEC och appen."
 }

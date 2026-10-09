@@ -49,7 +49,16 @@ export function PdfDocument({ metaTitle, title, info, label, watermark, children
   const shownLabel = label ?? (watermark ? DRAFT_WATERMARK : null);
   return (
     <Document title={metaTitle} author="Miljonbemanning AB" creator="Miljonmatch" producer="Miljonmatch" language="sv">
-      <Page size="A4" style={{ fontFamily: PDF_FONT, fontSize: PDF_SIZE.body, color: C.antracit, backgroundColor: C.vit, paddingTop: 40, paddingBottom: 58, paddingHorizontal: 44 }}>
+      {/* Ligaturer av (liga: false, ärvs av all text): med "fi"/"fl"-ligaturer skriver pdfkit textlagrets ToUnicode som
+          <0066 0069> i en bfrange-array, och flera läsare tar bara första tecknet – sökning, kopiering och skärmläsare fick
+          "Sofa" och "certifering" (fynd 9, 2026-10-08). Utan ligaturer får varje glyf exakt ett tecken. */}
+      <Page
+        size="A4"
+        style={{
+          fontFamily: PDF_FONT, fontSize: PDF_SIZE.body, color: C.antracit, backgroundColor: C.vit, paddingTop: 40, paddingBottom: 58, paddingHorizontal: 44,
+          fontFeatureSettings: { liga: false },
+        }}
+      >
         {watermark && (
           <View fixed style={{ position: "absolute", top: 380, left: -80, right: -80, alignItems: "center", transform: "rotate(-32deg)" }}>
             <Text style={{ fontSize: 34, fontWeight: 800, color: C.ljusgra, opacity: WATERMARK_OPACITY, letterSpacing: 1.5, textTransform: "uppercase" }}>{DRAFT_WATERMARK}</Text>

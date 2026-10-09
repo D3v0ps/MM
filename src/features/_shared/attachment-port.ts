@@ -19,10 +19,10 @@
 //   link          -> kopplas till ärendet när beställningen skickas (caseId, linkedAt)
 //   signedDownload-> kort signerad adress (appen) eller innehållet (minnet)
 //   remove        -> filen raderas ur lagringen, raden får status deleted, deletedAt och orsak (spåret finns kvar)
-// Gallringen (jobbet attachments_retention): uppladdningar som aldrig kopplades raderas efter 24 timmar; bilagor i avslutade
-// och avböjda ärenden raderas enligt avtalets retentionRules.attachmentsAfterCloseDays (ATT_FASTSTÄLLA = inget raderas); och
-// filer i lagringen utan levande rad raderas (avstämningen – en signerad uppladdningsadress gäller i 2 timmar och kan användas
-// igen efter att filen tagits bort eller avvisats, granskningen 2026-10-07).
+// Städningen (jobbet attachments_retention): uppladdningar som aldrig kopplades raderas efter 24 timmar, och filer i lagringen
+// utan levande rad raderas (avstämningen – en signerad uppladdningsadress gäller i 2 timmar och kan användas igen efter att
+// filen tagits bort eller avvisats, granskningen 2026-10-07). Bilagor i ett ärende gallras aldrig automatiskt: Miljonbemanning
+// tar bort dem för hand tidigast när ärendet är avslutat (beslut 5, 2026-10-08).
 import { ApiError, type Ctx } from "@/api/server";
 import {
   ATTACHMENT_MAX_BYTES, ATTACHMENT_TYPES_TEXT, attachmentMime, attachmentStoragePath, cleanFileName, signatureMatches,

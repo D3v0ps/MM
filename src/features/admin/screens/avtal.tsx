@@ -525,11 +525,7 @@ const CARDS: Record<string, CardDef> = {
           ["Återlämning av data", `Inom ${c.termination!.returnDataWithinDays} dagar efter avtalsslut`],
           ["Radering efter återlämning", <YesNo key="v" v={!!c.termination!.deleteAfterReturn} />],
           "retention" in c && ["Gallring under avtalstiden", <Val key="v" v={c.retention} />],
-          // Bilagor till beställningen (beslut 2026-10-07): raderas när dagarna efter avslutet har gått. Ej fastställt = inget raderas.
-          c.retentionRules && [
-            "Gallring av bilagor",
-            <Val key="v" v={c.retentionRules.attachmentsAfterCloseDays}>{`${plural(Number(c.retentionRules.attachmentsAfterCloseDays), "dag", "dagar")} efter avslutet`}</Val>,
-          ],
+          // Bilagor till beställningen gallras inte automatiskt (beslut 5, 2026-10-08) – ingen avtalsregel att visa.
         ]}
       />
     ),

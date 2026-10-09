@@ -12,7 +12,7 @@ import type { Contract } from "@/data/schema";
 import { ATTACHMENT_MAX_FILES, requireAttachments } from "../_shared/attachment-port";
 import { accessSourceFor } from "../rapporter/load";
 import { attachmentDone, attachmentDownload, attachmentRemove, attachmentStart } from "./api";
-import { rowsFor } from "./background";
+import { ATTACHMENTS_REMOVED_BY_MB, attachmentsRemovable, rowsFor } from "./background";
 
 const NOT_FOUND = "Filen finns inte, eller så har du inte behörighet att se den.";
 /** Lägger till bilagor i ett ärende som redan finns (full åtkomst). */
@@ -84,11 +84,14 @@ handleCommand(attachmentDone, { roles: ["kommun_handlaggare", ...MB_EDITORS] }, 
     return fail("invalid", "Filen kunde inte tas emot. Kontrollera att den är en PDF, ett Word-dokument eller en bild och högst 10 MB.");
   }
   await ctx.audit({ action: "attachment.uploaded", entity: "case_attachment", entityId: a.id, contractId: a.contractId, details: { caseId: a.caseId, mimeType: done.mimeType, bytes: done.bytes } });
-  const [row] = await rowsFor(ctx, [done]);
+  const c = done.caseId ? await ctx.repo.table("cases").get(done.caseId) : null;
+  const [row] = await rowsFor(ctx, [done], c);
   return ok({ attachment: row });
 });
 
 // ---------------------------------------------------------------- arenden.bilagaTaBort
+// Den egna uppladdningen innan beställningen skickats, eller Miljonbemanning (samordnare/avtalsansvarig) i ärendet – men bara
+// när ärendet är avslutat eller beställningen avböjd (beslut 5, 2026-10-08). Ingen automatisk gallring av bilagor.
 handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }, async (ctx, p) => {
   const a = await ctx.repo.table("case_attachments").get(p.attachmentId);
   if (!a) return fail("not_found", NOT_FOUND);
@@ -96,6 +99,7 @@ handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }
   let allowed = own;
   if (!allowed && a.caseId && MB_EDITORS.includes(ctx.actor.role)) {
     const c = await ctx.repo.table("cases").get(a.caseId);
+    if (c && !attachmentsRemovable(c)) return fail("forbidden", ATTACHMENTS_REMOVED_BY_MB);
     allowed = !!c && caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c])) === "full";
   }
   if (!allowed) return fail("forbidden", "Du kan inte ta bort den här filen.");

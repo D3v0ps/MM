@@ -1,4 +1,4 @@
-// Kolumnregistret för kommunens resultatfil (rapporter steg 3, Del B): Botkyrkas kolumnlista är låst för schemaversion 1,
+// Kolumnregistret för kommunens resultatfil (rapporter steg 3, Del B): Botkyrkas kolumnlista är låst för schemaversion 2,
 // texterna byggs av avtalets konfiguration, källan är klarspråk, kolumnspärren och docs/RESULTATFIL.md stämmer med registret.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -14,12 +14,15 @@ const areas = createSeed().contract_areas.filter((a) => a.contractId === "c-bot"
 const cols = exportColumns(BOTKYRKA_CONFIG, areas);
 const keys = (t: ExportTable) => tableColumns(cols, t).map((c) => c.key);
 
-/** Schemaversion 1 för Botkyrka. Ändras listan utan att EXPORT_SCHEMA_VERSION höjs blir testet rött. */
-const BOTKYRKA_V1 = {
+/**
+ * Schemaversion 2 för Botkyrka (beslut 6, 2026-10-08: närvaron bara som veckor och närvarograd – de sex antalskolumnerna i
+ * version 1 är borta). Ändras listan utan att EXPORT_SCHEMA_VERSION höjs blir testet rött.
+ */
+const BOTKYRKA_V2 = {
   resultat: [
     "arendenummer", "namn", "manad", "bestallare_enhet", "rapport_version", "rapport_levererad", "rattelse_pagar",
     "avtalsomrade_kod", "avtalsomrade", "avtalsomrade2_kod", "yrkesspar", "insats_start", "insats_planerat_slut", "insats_slut", "fas_nr", "fas",
-    "veckor", "veckor_uppehall", "tillfallen_planerade", "narvarande", "sen_ankomst", "franvaro_giltig", "franvaro_ogiltig", "ej_registrerade", "narvaro_procent", "upprepad_franvaro",
+    "veckor", "veckor_uppehall", "narvaro_procent", "upprepad_franvaro",
     "avstamningar_godkanda", "arbetsgivarkontakter", "veckomal_uppnatt", "veckomal_delvis", "veckomal_ej_uppnatt",
     "bedomning_godkand", "omraden_bedomda", "progression_tydlig", "progression_nagon",
     "niva_narvaro_rutiner", "niva_yrkesfardigheter", "niva_arbetskapacitet", "niva_sjalvstandighet", "niva_digital_sjalvstandighet", "niva_instruktioner",
@@ -37,15 +40,17 @@ const BOTKYRKA_V1 = {
   ],
 };
 
-describe("kolumnregistret – schemaversion 1", () => {
-  it("Botkyrkas kolumnlista är låst (62 + 6 + 6 + 11 kolumner i exakt den här ordningen)", () => {
-    expect(EXPORT_SCHEMA_VERSION).toBe(1);
-    expect(keys("resultat")).toEqual(BOTKYRKA_V1.resultat);
-    expect(keys("resultat")).toHaveLength(62);
-    expect(keys("progression")).toEqual(BOTKYRKA_V1.progression);
-    expect(keys("handelser")).toEqual(BOTKYRKA_V1.handelser);
-    expect(keys("avslut")).toEqual(BOTKYRKA_V1.avslut);
+describe("kolumnregistret – schemaversion 2", () => {
+  it("Botkyrkas kolumnlista är låst (56 + 6 + 6 + 11 kolumner i exakt den här ordningen)", () => {
+    expect(EXPORT_SCHEMA_VERSION).toBe(2);
+    expect(keys("resultat")).toEqual(BOTKYRKA_V2.resultat);
+    expect(keys("resultat")).toHaveLength(56);
+    expect(keys("progression")).toEqual(BOTKYRKA_V2.progression);
+    expect(keys("handelser")).toEqual(BOTKYRKA_V2.handelser);
+    expect(keys("avslut")).toEqual(BOTKYRKA_V2.avslut);
     for (const c of cols) expect(c.key).toMatch(/^[a-z0-9_]+$/);
+    // Inga antal per tillfälle i filen (beslut 6, 2026-10-08) – närvaron är veckor och närvarograd.
+    for (const k of ["tillfallen_planerade", "narvarande", "sen_ankomst", "franvaro_giltig", "franvaro_ogiltig", "ej_registrerade"]) expect(keys("resultat")).not.toContain(k);
   });
 
   it("källan (kalla) är klarspråk – aldrig kod", () => {
@@ -121,10 +126,10 @@ describe("kolumnregistret – schemaversion 1", () => {
 
   it("fältbeskrivningens rader: tabell, kolumn, beskrivning, format, möjliga värden, källa och schemaversion – utan exempel och utan Markdown", () => {
     const rows = fieldDescriptionRows(cols);
-    expect(rows).toHaveLength(85);
+    expect(rows).toHaveLength(79);
     expect(rows[0]).toEqual({
       tabell: "Resultat", kolumn: "arendenummer", beskrivning: "Ärendenumret, samma som i beställningen och på fakturan", format: "Text", mojliga_varden: "BOT-ÅÅ-löpnummer",
-      kalla: "Månadsrapporten, avsnitt 1", schemaversion: 1,
+      kalla: "Månadsrapporten, avsnitt 1", schemaversion: 2,
     });
     expect(JSON.stringify(rows)).not.toContain("`");
     expect(JSON.stringify(rows)).not.toContain("Alex Exempelsson");

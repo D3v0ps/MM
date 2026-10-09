@@ -99,7 +99,7 @@ const WRITES: Record<string, string[]> = {
   "arenden.bilagaHamta": [AUDIT],
   "arenden.caseAccept": ["cases", "reports", "inbound_emails", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseDecline": ["cases", "inbound_emails", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
-  "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", AUDIT_CASE, AUDIT],
+  "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseChangeCoach": ["cases", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseClose": ["cases", "reports", "pulse_invites", AUDIT_CASE, AUDIT], "arenden.messageSend": ["messages", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],

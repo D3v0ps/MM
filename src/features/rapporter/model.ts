@@ -340,8 +340,12 @@ function buildFinal(src: Src, env: ReportEnv, r: Report, frozen: boolean): Final
   const c = src.caseById(r.caseId);
   if (!c) return null;
   const end = src.endOf(c);
-  const from = r.periodStart || c.startDate || "";
+  // Perioden: rapportens, annars startdatumet till avslutet. Ett ärende som avslutats innan det startade (status "Start bokad",
+  // inget startdatum) har ingen början – då är perioden avslutsdagen (fynd 5, 2026-10-08: ett tomt från-datum gav en loop som
+  // aldrig tog slut). Perioden slutar aldrig före sin början.
   const to = r.periodEnd || end || dayOf(src.now);
+  const fromRaw = r.periodStart || c.startDate || to;
+  const from = fromRaw > to ? to : fromRaw;
   const months: AttRow[] = [];
   for (let mk = monthKey(from); mk <= monthKey(to); mk = addMonths(mk, 1)) {
     const mFrom = maxS(`${mk}-01`, from);
@@ -553,7 +557,7 @@ const SLA_KPIS = ["avrop_besvarade_i_tid", "forsta_mote_inom_en_vecka", "veckora
 
 function buildSummary(src: Src, env: ReportEnv, r: Report, frozen: boolean): SummaryModel {
   const { cfg } = env;
-  const mk = r.month || monthKey(r.periodStart ?? "");
+  const mk = r.month || (r.periodStart ? monthKey(r.periodStart) : monthKey(dayOf(src.now)));
   const minN = cfg.pulse.minNForAggregate;
   const start = `${mk}-01`;
   const end = monthEnd(mk);

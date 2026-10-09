@@ -1,4 +1,4 @@
-// Kolumnregistret för kommunens resultatfil (rapporter steg 3, schemaversion 1). En post per kolumn: tabell, namn, typ,
+// Kolumnregistret för kommunens resultatfil (rapporter steg 3, schemaversion 2). En post per kolumn: tabell, namn, typ,
 // beskrivning, möjliga värden, källa och exempel. Fältbeskrivningen i filen (CSV-filen ..._faltbeskrivning.csv och fliken
 // "Om filen") byggs härifrån, och docs/RESULTATFIL.md kontrolleras mot registret av ett test – de kan inte glida isär.
 //
@@ -6,7 +6,9 @@
 // faser, progressionsområden och gränser, regeln för upprepad frånvaro, skalan och avslutsorsakerna. Inga avtalsvärden står
 // som fast text här. Exemplen (bara i docs/RESULTATFIL.md) är påhittade.
 //
-// Kolumner läggs bara till sist och byter aldrig namn eller plats. Ändras något annat höjs EXPORT_SCHEMA_VERSION. Områdes-
+// Kolumner läggs bara till sist och byter aldrig namn eller plats. Ändras något annat höjs EXPORT_SCHEMA_VERSION – så skedde
+// 2026-10-08 (beslut 6, schemaversion 2): närvaron redovisas bara som veckor och närvarograd; antalen per tillfälle
+// (tillfallen_planerade, narvarande, sen_ankomst, franvaro_giltig, franvaro_ogiltig, ej_registrerade) togs bort. Områdes-
 // kolumnerna niva_<område> ligger mitt i huvudtabellen; ändras områdena i avtalet flyttas kolumnerna efter dem – därför
 // låser exporten kolumnlistan per avtal och schemaversion vid den första utlämnade filen (columnsStillCompatible).
 import type { OperationalConfig } from "@/core/config";
@@ -16,7 +18,7 @@ import { OUTCOME_EVENT_KINDS, RESULT_CLASSES, TRAFFIC_LIGHTS, type ContractArea 
 import { monthName, type MonthKey } from "@/core/time";
 import { plain } from "./report-helpers";
 
-export const EXPORT_SCHEMA_VERSION = 1;
+export const EXPORT_SCHEMA_VERSION = 2;
 /** Högst så här många månader i en fil (produktens gräns, inte ett avtalsvärde). */
 export const MAX_EXPORT_MONTHS = 12;
 
@@ -107,19 +109,13 @@ export function exportColumns(cfg: OperationalConfig, areas: readonly Pick<Contr
     R("insats_slut", "date", "Dagen då insatsen avslutades", "Datum eller tom (pågår)", S1, ""),
     R("fas_nr", "int", "Fasens nummer vid månadens slut", range(phases.map((p) => p.no)), S1, "3"),
     R("fas", "text", "Fasens namn", list(phases.map((p) => plain(p.name))), S1, "Yrkesspecifika moment"),
-    // Närvaro och frånvaro (avsnitt 2)
+    // Närvaro (avsnitt 2) – bara veckor och närvarograd (beslut 6, 2026-10-08)
     R(
       "veckor", "int",
       "Antal veckor (måndag–söndag) som helt eller delvis ligger i månaden och då deltagaren var inskriven, veckor med uppehåll inräknade. En vecka som delas mellan två månader räknas i båda månaderna. Summera därför inte veckor över flera månader, och jämför inte med antalet veckor på fakturan",
       "Heltal", S2, "5",
     ),
     R("veckor_uppehall", "int", "Antal av veckorna med uppehåll", "Heltal", S2, "0"),
-    R("tillfallen_planerade", "int", "Planerade tillfällen som har passerat", "Heltal", S2, "18"),
-    R("narvarande", "int", "Tillfällen då deltagaren var på plats i tid", "Heltal", S2, "15"),
-    R("sen_ankomst", "int", "Tillfällen då deltagaren kom för sent", "Heltal", S2, "1"),
-    R("franvaro_giltig", "int", "Frånvaro med giltigt skäl", "Heltal", S2, "1"),
-    R("franvaro_ogiltig", "int", "Frånvaro utan giltigt skäl", "Heltal", S2, "1"),
-    R("ej_registrerade", "int", "Tillfällen där närvaron inte är registrerad", "Heltal", S2, "0"),
     R("narvaro_procent", "decimal1", "Andel av de registrerade tillfällena då deltagaren var på plats (i tid eller sent)", "0–100 med en decimal, tom om inget är registrerat", S2, "88,9"),
     R("upprepad_franvaro", "bool01", `Upprepad ogiltig frånvaro enligt avtalets regel (${times} inom ${rule.withinDays} dagar)`, YES_NO, S2, "0"),
     // Aktiviteter (avsnitt 3)

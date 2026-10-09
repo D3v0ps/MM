@@ -158,3 +158,21 @@ export function pdfPages(pdf: Uint8Array): PdfPage[] {
 
 /** All text i dokumentet (raderna i ritordning, en per rad). */
 export const pdfText = (pdf: Uint8Array): string => pdfPages(pdf).map((p) => p.lines.map((l) => l.text).join("\n")).join("\n");
+
+/**
+ * Textlagrets mappningar där en teckenkod står för mer än ett tecken (t.ex. ligaturen fi som <0066 0069>). Flera PDF-läsare tar
+ * bara första tecknet av en sådan post, så rapporterna ska inte ha några (fynd 9, 2026-10-08). Surrogatpar (ett tecken utanför
+ * BMP) räknas inte.
+ */
+export function pdfMultiUnicodeMappings(pdf: Uint8Array): string[] {
+  const out: string[] = [];
+  for (const o of parseObjects(Buffer.from(pdf)).values()) {
+    const cmap = o.stream?.toString("latin1");
+    if (!cmap || !cmap.includes("begincmap")) continue;
+    for (const text of toUnicode(cmap).values()) {
+      const isPair = text.length === 2 && text.charCodeAt(0) >= 0xd800 && text.charCodeAt(0) <= 0xdbff;
+      if (text.length > 1 && !isPair) out.push(text);
+    }
+  }
+  return out;
+}

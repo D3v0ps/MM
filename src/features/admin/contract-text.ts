@@ -32,7 +32,6 @@ export const UNSET_INFO: Record<string, [string, number | "internt" | "test"]> =
   "attendance.sameDayNoticeOnInvalidAbsence": ["Frånvaronotis till kommunen samma dag", 7],
   "bonus.model": ["Incitamentsmodell för bonus", 13],
   retention: ["Gallring under avtalstiden", 11],
-  "retentionRules.attachmentsAfterCloseDays": ["Gallring av bilagor till beställningen", 27],
   "ai.provider": ["AI-leverantör", "test"],
 };
 export const whoDecides = (q: number | "internt" | "test"): string =>

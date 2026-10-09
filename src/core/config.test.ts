@@ -90,13 +90,13 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     // Avvikelser (beslut 2026-09-30, röstinspelning): ai-avsnittet och customerVisibility.seesParticipantVoiceNotes – se nästa test.
     // Tillägg (beslut 2026-10-01): reportSchedule – se testet för rapportutkasten nedan.
     // Avvikelse (beslut 2026-10-01, rapporter steg 2): progression.clearFromLevel/anyFromLevel ersätter fritexten statDefinition.
-    // Avvikelse (beslut 2026-10-07): orderPeriods ersätter orderWeeks; selfRegistration och retentionRules är nya – se testet nedan.
+    // Avvikelse (beslut 2026-10-07): orderPeriods ersätter orderWeeks; selfRegistration är ny – se testet nedan. retentionRules (bilagornas
+    // gallring) togs bort 2026-10-08 (beslut 5): bilagor gallras inte automatiskt.
     // Avvikelse (beslut 2026-10-07, synpunkt #13): en faktura per avtal och månad (billing.invoicePer, collectiveInvoiceAllowed).
-    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, retentionRules, billing, ...rest } = BOTKYRKA_CONFIG;
+    const { texts, ai, customerVisibility, reportSchedule, progression, orderPeriods, selfRegistration, billing, ...rest } = BOTKYRKA_CONFIG;
     void reportSchedule;
     void orderPeriods;
     void selfRegistration;
-    void retentionRules;
     const { ai: protoAi, customerVisibility: protoVisibility, progression: protoProgression, orderWeeks: protoOrderWeeks, billing: protoBilling, ...protoRest } = proto.seedConstants.CONFIG_BOT as Record<string, unknown>;
     void protoOrderWeeks;
     expect(rest).toStrictEqual(protoRest);
@@ -114,10 +114,13 @@ describe("avtalskonfigurationen – samma värden som den gamla prototypen", () 
     expect(texts).toStrictEqual(notes["c-bot"]);
     expect(texts?.scope).toBe("Minst 70 och upp till 100 årsplatser i tolv avtalsområden (A–L). Miljonbemanning är rangordnad 1 i alla områden.");
   });
-  it("Botkyrka: beställningen i månader, självregistrering på kommunens domän och bilagornas gallring ej fastställd (beslut 2026-10-07)", () => {
+  it("Botkyrka: beställningen i månader, självregistrering på kommunens domän och ingen gallringsregel för bilagor (beslut 2026-10-07 och 2026-10-08)", () => {
     expect(BOTKYRKA_CONFIG.orderPeriods).toStrictEqual({ months: [6, 12], allowOther: true });
     expect(BOTKYRKA_CONFIG.selfRegistration).toStrictEqual({ emailDomains: ["botkyrka.se"] });
-    expect(isUnset(BOTKYRKA_CONFIG.retentionRules?.attachmentsAfterCloseDays)).toBe(true);
+    // Beslut 5 (2026-10-08): bilagor gallras inte automatiskt – ingen regel i avtalet. En sparad konfiguration med det äldre
+    // avsnittet validerar fortfarande (läses inte).
+    expect("retentionRules" in BOTKYRKA_CONFIG).toBe(false);
+    expect(OperationalConfigSchema.safeParse({ ...BOTKYRKA_CONFIG, retentionRules: { attachmentsAfterCloseDays: "ATT_FASTSTÄLLA enligt PUB-avtalet" } }).success).toBe(true);
     expect("orderWeeks" in BOTKYRKA_CONFIG).toBe(false);
     // orderPeriods krävs i drift; orderWeeks läses inte längre.
     const noPeriods: Record<string, unknown> = { ...BOTKYRKA_CONFIG };
@@ -310,7 +313,6 @@ describe("ATT_FASTSTÄLLA", () => {
       "attendance.sameDayNoticeOnInvalidAbsence",
       "bonus.model",
       "retention",
-      "retentionRules.attachmentsAfterCloseDays",
     ]);
     expect(unsetPaths(DRAFT)).toEqual([]);
   });

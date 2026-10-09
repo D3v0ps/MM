@@ -77,8 +77,9 @@ export const caseCreate = command("arenden.caseCreate", z.object({
 
 /**
  * Acceptera avrop → orderbekräftelse (prototypens case.accept). Avtalsområde och yrkesspår sätts här (synpunkt #8 –
- * kommunens formulär frågar inte efter dem) och krävs om ärendet saknar dem. Omfattningen (6/12 månader eller annan
- * tidsperiod) är förifylld ur beställningen och kan ändras; planerat slut räknas om från startdatumet. Beställarreferensen
+ * kommunens formulär frågar inte efter dem) och krävs om ärendet saknar dem. Första mötet är obligatoriskt: planerat slut
+ * räknas från mötesdagen (beslut 7, 2026-10-08 – också vid ombokning, se caseBookFirstMeeting). Omfattningen (6/12 månader
+ * eller annan tidsperiod) är förifylld ur beställningen och kan ändras; "annan tidsperiod" behåller slutdatumet. Beställarreferensen
  * är valfri (MB fyller i den här eller före faktureringen, beslut 2026-10-07) – formatet kontrolleras om något skrivits.
  * Skapar orderbekräftelsen (levererad i portalen), teamet, notiser till coach och team, mejl till kommunen och kallelse till
  * deltagaren. buyerReference: utelämnas = ärendets nuvarande referens.
@@ -87,8 +88,8 @@ export const caseCreate = command("arenden.caseCreate", z.object({
 export const caseAccept = command("arenden.caseAccept", z.object({
   caseId: IdSchema,
   leadCoachId: IdSchema,
-  firstMeetingAt: LocalDateTimeSchema.optional(),
-  startDate: LocalDateSchema.optional(),
+  /** Första mötet – obligatoriskt: slutdatumet räknas från mötesdagen (beslut 7, 2026-10-08). */
+  firstMeetingAt: LocalDateTimeSchema,
   primaryArea: z.string().max(10).nullable().optional(),
   secondaryArea: z.string().max(10).nullable().optional(),
   vocationalTrack: z.string().max(200).optional(),
@@ -151,11 +152,17 @@ export const caseSetBuyerRef = command("arenden.caseSetBuyerRef", z.object({
   source: ShortText.optional(),
 }), { invalidates: [CASES, BILLING, INBOX, PORTAL, REPORTS, MGMT, "coach.minVecka", "admin.users", NAV, ...LOG] }).returns<Result<object, "not_found" | "buyer_ref" | "forbidden">>();
 
-/** Boka första mötet (prototypens case.bookFirstMeeting). Kallelse via föredragen kontaktväg – aldrig vid skyddade personuppgifter. */
+/**
+ * Boka eller boka om första mötet (prototypens case.bookFirstMeeting). Slutdatumet, planerade veckor och ordervärdet i veckor
+ * räknas om från mötesdagen (beslut 7, 2026-10-08; "annan tidsperiod" behåller kommunens slutdatum). Bokas mötet om efter att
+ * orderbekräftelsen levererats skapas en ny version av den (den gamla märks ersatt) och kommunen får ett mejl utan
+ * personuppgifter. Kallelse via föredragen kontaktväg – aldrig vid skyddade personuppgifter.
+ */
+// Omräkning som caseAccept: skriver ärendet, orderbekräftelsen (reports) och utskicken; slutdatumet påverkar deadlines, flaggor och fakturering.
 export const caseBookFirstMeeting = command("arenden.caseBookFirstMeeting", z.object({
   caseId: IdSchema,
   at: LocalDateTimeSchema,
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, MGMT, REPORTS, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "order_period">>();
 
 /** Byt huvudcoach med orsak (prototypens case.changeCoach). Nya coachen och kommunen får notis utan personuppgifter. */
 export const caseChangeCoach = command("arenden.caseChangeCoach", z.object({
@@ -217,7 +224,7 @@ export type AttachmentRow = {
   sizeText: string;
   uploadedByName: string;
   createdAt: string;
-  /** Den inloggade får ta bort filen (egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig). */
+  /** Den inloggade får ta bort filen: egen uppladdning innan beställningen skickats, eller samordnare/avtalsansvarig när ärendet är avslutat eller avböjt (beslut 5, 2026-10-08). */
   canRemove: boolean;
 };
 
@@ -252,7 +259,10 @@ export const attachmentDone = command("arenden.bilagaKlar", z.object({
   contentBase64: z.string().max(14_500_000).optional(),
 }), { invalidates: [CARD, PORTAL, INBOX, ...LOG] }).returns<Result<{ attachment: AttachmentRow }, "not_found" | "invalid">>();
 
-/** Ta bort en bilaga: den som laddade upp innan beställningen skickats, eller samordnare/avtalsansvarig i ärendet. */
+/**
+ * Ta bort en bilaga: den som laddade upp innan beställningen skickats, eller samordnare/avtalsansvarig i ärendet – tidigast när
+ * ärendet är avslutat eller beställningen avböjd (beslut 5, 2026-10-08; ingen automatisk gallring av bilagor).
+ */
 export const attachmentRemove = command("arenden.bilagaTaBort", z.object({ attachmentId: IdSchema }), { invalidates: [CARD, PORTAL, INBOX, ...LOG] }).returns<
   Result<object, "not_found" | "forbidden">
 >();

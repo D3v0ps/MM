@@ -43,12 +43,11 @@ describe("avtal och konfiguration", () => {
     });
     expect(d.yearShort).toBe("27");
     // Den gamla prototypen: "11 värden är inte fastställda", "Just nu flaggas 2 ärenden", "31 händelser markerade som möjligt bonusunderlag".
-    // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – nu 10 värden. Beslut
-    // 2026-10-07: gallringen av bilagorna efter avslut är inte fastställd (retentionRules.attachmentsAfterCloseDays) – 11 värden.
+    // Avvikelse: AI-leverantören är fastställd (beslut 2026-09-30, Gemini Flash via Vertex AI EU) – 10 värden. Gallringen av
+    // bilagorna (2026-10-07) togs bort igen 2026-10-08 (beslut 5: bilagor gallras inte automatiskt) – fortfarande 10 värden.
     expect(findUnset(d.config).map((u) => u.path)).toEqual([
       "customerVisibility.scope", "result.definition", "result.excludedFromDenominator", "kpis.narvarograd.internalTarget", "kpis.nojdhet.internalTarget",
       "sla.manadsrapport.due", "sla.slutrapport.within", "attendance.sameDayNoticeOnInvalidAbsence", "bonus.model", "retention",
-      "retentionRules.attachmentsAfterCloseDays",
     ]);
     expect(d.stuckCount).toBe(2);
     expect(d.bonusCandidates).toBe(31);

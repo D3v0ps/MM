@@ -38,7 +38,9 @@ import {
 import { revealPnr } from "../_shared/pnr";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
+import { freezeReport } from "../rapporter/freeze";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
+import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import "./attachment-handlers";
 import { caseBackground } from "./background";
@@ -176,8 +178,9 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   }
 
   const now = ctx.now();
-  const plannedStart = p.firstMeetingAt ? dayOf(p.firstMeetingAt) : p.startDate ?? c.desiredStart;
-  // Omfattningen: ny i dialogen, annars beställningens (planerat slut räknas om från startdatumet). Äldre beställningar i
+  // Slutdatumet räknas från första mötets dag (beslut 7, 2026-10-08) – mötet är obligatoriskt vid accept.
+  const plannedStart = dayOf(p.firstMeetingAt);
+  // Omfattningen: ny i dialogen, annars beställningens (planerat slut räknas om från mötesdagen). Äldre beställningar i
   // veckor räknas som förut (fredagen i sista veckan).
   const given = orderPeriodFrom(cfg, plannedStart, p);
   if (!given.ok) return fail("order_period", given.message);
@@ -186,21 +189,21 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
     const kept = orderPeriodFrom(cfg, plannedStart, { orderPeriodMonths: c.orderPeriodMonths });
     if (!kept.ok) return fail("order_period", kept.message);
     period = kept.value;
-  } else if (!period && c.orderPeriodReason && c.plannedEnd && plannedStart && c.plannedEnd > plannedStart) {
+  } else if (!period && c.orderPeriodReason && c.plannedEnd && c.plannedEnd > plannedStart) {
+    // Annan tidsperiod: kommunens slutdatum behålls, veckorna räknas om från mötesdagen.
     period = { orderPeriodMonths: null, orderPeriodReason: c.orderPeriodReason, plannedEnd: c.plannedEnd, plannedWeeks: billableWeekCount(plannedStart, c.plannedEnd) };
   }
   const patch: Partial<Case> = {
-    buyerReference: ref, leadCoachId: p.leadCoachId, status: "confirmed", confirmedAt: now, plannedStart,
+    buyerReference: ref, leadCoachId: p.leadCoachId, status: "confirmed", confirmedAt: now, plannedStart, firstMeetingAt: p.firstMeetingAt,
     primaryAreaCode: primary, secondaryAreaCode: secondary, vocationalTrack: track,
   };
   if (period) {
     Object.assign(patch, { orderPeriodMonths: period.orderPeriodMonths, orderPeriodReason: period.orderPeriodReason, plannedEnd: period.plannedEnd, plannedWeeks: period.plannedWeeks, orderValueWeeks: period.plannedWeeks });
   } else if (c.plannedWeeks) {
-    if (plannedStart) patch.plannedEnd = addDays(monday(plannedStart), (c.plannedWeeks - 1) * 7 + 4);
+    patch.plannedEnd = addDays(monday(plannedStart), (c.plannedWeeks - 1) * 7 + 4);
   } else {
     return fail("order_period", "Välj hur länge insatsen ska pågå.");
   }
-  if (p.firstMeetingAt) patch.firstMeetingAt = p.firstMeetingAt;
   const updated = await ctx.repo.table("cases").update(c.id, patch);
 
   const teamTable = ctx.repo.table("case_team");
@@ -219,7 +222,7 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   if (email) await ctx.repo.table("inbound_emails").update(email.id, { status: "accepted", handledBy: ctx.actor.userId, handledAt: now });
   await ctx.audit({
     action: "case.accepted", entity: "case", entityId: c.id, contractId: c.contractId,
-    details: { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt ?? null, withinSla: due ? now <= due : null },
+    details: { leadCoachId: p.leadCoachId, firstMeetingAt: p.firstMeetingAt, withinSla: due ? now <= due : null },
   });
 
   const settings = await orgSettingsFor(ctx, contract);
@@ -228,7 +231,7 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   if (person.protectedIdentity) {
     // VILANDE spärr (skyddade personuppgifter borttaget ur appen 2026-10-07, protectedIdentity är alltid false): ingen kallelse.
     await ctx.audit({ action: "notify.suppressed", entity: "case", entityId: c.id, contractId: c.contractId, details: { reason: "Skyddade personuppgifter – ingen kallelse via SMS eller e-post till deltagaren" } });
-  } else if (p.firstMeetingAt) {
+  } else {
     await sendMeetingInvitation(ctx, updated, person, p.firstMeetingAt);
   }
   return ok({ reportId: rep.id, caseNumber: c.caseNumber });
@@ -292,14 +295,72 @@ handleCommand(caseSetBuyerRef, { roles: ["ekonom", "samordnare", "avtalsansvarig
 });
 
 // ---------------------------------------------------------------- case.bookFirstMeeting
+/**
+ * Omfattningen räknad från en startdag (beslut 7, 2026-10-08 – slutdatumet räknas från första mötet): 6 eller 12 månader ur
+ * avtalet via orderPeriodFrom; "annan tidsperiod" behåller kommunens slutdatum men räknar om veckorna; en äldre beställning i
+ * veckor slutar fredagen i sista veckan. Tomt när beställningen saknar omfattning (den väljs vid accept).
+ */
+function periodFromStart(cfg: OperationalConfig, c: Case, start: string): { ok: true; patch: Partial<Case> } | { ok: false; message: string } {
+  if (c.orderPeriodMonths != null) {
+    const r = orderPeriodFrom(cfg, start, { orderPeriodMonths: c.orderPeriodMonths });
+    if (!r.ok) return r;
+    const v = r.value;
+    return v ? { ok: true, patch: { plannedEnd: v.plannedEnd, plannedWeeks: v.plannedWeeks, orderValueWeeks: v.plannedWeeks } } : { ok: true, patch: {} };
+  }
+  if (c.orderPeriodReason && c.plannedEnd) {
+    if (c.plannedEnd <= start) return { ok: false, message: "Mötet ligger efter beställningens slutdatum. Ändra omfattningen i ärendet först." };
+    const weeks = billableWeekCount(start, c.plannedEnd);
+    return { ok: true, patch: { plannedWeeks: weeks, orderValueWeeks: weeks } };
+  }
+  if (c.plannedWeeks) return { ok: true, patch: { plannedEnd: addDays(monday(start), (c.plannedWeeks - 1) * 7 + 4) } };
+  return { ok: true, patch: {} };
+}
+
+// Bokning och ombokning av första mötet. Slutdatumet räknas om från mötesdagen (beslut 7, 2026-10-08). Bokas mötet om efter
+// att orderbekräftelsen levererats får kommunen en ny version av orderbekräftelsen (den gamla märks ersatt) och ett mejl med
+// bara ärendenummer och länk – orderbekräftelsen visar alltid det slutdatum som gäller.
 handleCommand(caseBookFirstMeeting, { roles: MANAGERS }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   const person = await ctx.repo.table("persons").get(c.personId);
   if (!person) return fail("forbidden", NO_EDIT);
-  await ctx.repo.table("cases").update(c.id, { firstMeetingAt: p.at, plannedStart: dayOf(p.at) });
-  await ctx.audit({ action: "case.first_meeting_booked", entity: "case", entityId: c.id, contractId: c.contractId, details: { at: p.at } });
-  await sendMeetingInvitation(ctx, c, person, p.at);
+  const { cfg } = await contractOf(ctx, c.contractId);
+  const day = dayOf(p.at);
+  const period = periodFromStart(cfg, c, day);
+  if (!period.ok) return fail("order_period", period.message);
+  const now = ctx.now();
+  const rebooked = !!c.firstMeetingAt;
+  // Den senaste levererade orderbekräftelsen ersätts av en ny version. Den gamla fryses FÖRE ändringen av ärendet (bästa försök,
+  // som vid leverans), så att den behåller det slutdatum och det möte den lovade.
+  const previous = (await ctx.repo.table("reports").list({ caseId: c.id, kind: "order_confirmation" })).filter(deliveredOk).sort(by("version", -1))[0] ?? null;
+  if (previous) {
+    try {
+      await freezeReport(ctx, previous.id);
+    } catch (e) {
+      console.error("orderbekräftelse: frysningen av den ersatta versionen misslyckades", previous.id, e instanceof Error ? e.name : typeof e);
+    }
+  }
+  const updated = await ctx.repo.table("cases").update(c.id, { firstMeetingAt: p.at, plannedStart: day, ...period.patch });
+  await ctx.audit({
+    action: "case.first_meeting_booked", entity: "case", entityId: c.id, contractId: c.contractId,
+    details: { at: p.at, rebooked, plannedEnd: updated.plannedEnd, plannedWeeks: updated.plannedWeeks },
+  });
+  if (previous) {
+    const today = dayOf(now);
+    const nr = newReport({
+      id: ctx.newId("rep"), contractId: c.contractId, caseId: c.id, kind: "order_confirmation", periodStart: today, periodEnd: today, status: "delivered",
+      dueAt: previous.dueAt, version: previous.version + 1, previousId: previous.id, approvedBy: ctx.actor.userId, approvedAt: now, deliveredAt: now,
+      deliveredTo: c.referrerId ? [c.referrerId] : previous.deliveredTo,
+    });
+    await ctx.repo.table("reports").insert(nr);
+    await ctx.repo.table("reports").update(previous.id, { superseded: true, supersededAt: now, supersededBy: nr.id });
+    await ctx.audit({
+      action: "report.delivered", entity: "report", entityId: nr.id, contractId: c.contractId,
+      details: { kind: "order_confirmation", channel: "portal", version: nr.version, reason: "first_meeting_rebooked", previous: previous.id },
+    });
+    await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelsen för ärende ${c.caseNumber} är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.`);
+  }
+  await sendMeetingInvitation(ctx, updated, person, p.at);
   return ok({});
 });
 
@@ -342,9 +403,10 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
     status: "closed", endDate: p.endDate, endReason: p.endReason, closedAt: now, resultClass, resultVerifiedAt: resultClass === "result" && p.verified ? now : null,
   });
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "closed", reason: p.endReason });
-  // Utkast till slutrapport (SPEC §7.8). Förfallotiden är preliminär så länge avtalets regel är ATT_FASTSTÄLLA.
+  // Utkast till slutrapport (SPEC §7.8). Förfallotiden är preliminär så länge avtalets regel är ATT_FASTSTÄLLA. Ett ärende som
+  // avslutas innan det startade (deltagaren kom aldrig) har inget startdatum – perioden är då avslutsdagen (fynd 5, 2026-10-08).
   const rep = newReport({
-    id: ctx.newId("rep"), contractId: c.contractId, caseId: c.id, kind: "final", periodStart: c.startDate, periodEnd: p.endDate, status: "draft",
+    id: ctx.newId("rep"), contractId: c.contractId, caseId: c.id, kind: "final", periodStart: c.startDate ?? p.endDate, periodEnd: p.endDate, status: "draft",
     dueAt: finalReportDueAt(cfg, p.endDate), provisionalDue: isProvisionalDue(cfg, "final"),
   });
   await ctx.repo.table("reports").insert(rep);

@@ -75,11 +75,11 @@ test("avtal: konfiguration och ej fastställda värden – ett avtal, ingen väl
   const errors = await open(page, info, "/admin/avtal", ROBIN);
   await rendersOk(page);
   // AI-leverantören är fastställd sedan 2026-09-30 (Gemini Flash via Vertex AI EU). Gallringen av bilagor till beställningen
-  // (beslut 2026-10-07, retentionRules.attachmentsAfterCloseDays) är ny och inte fastställd – därför 11.
-  await expect(main(page)).toContainText("11 värden är inte fastställda – reglerna aktiveras inte");
-  await expect(main(page)).toContainText("Gallring av bilagor till beställningen – Fråga 27 till Botkyrka");
+  // togs bort 2026-10-08 (beslut 5: bilagor gallras inte automatiskt) – därför 10.
+  await expect(main(page)).toContainText("10 värden är inte fastställda – reglerna aktiveras inte");
   let t = await text(page);
-  expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(10);
+  expect(t).not.toContain("Gallring av bilagor");
+  expect((t.match(/Ej fastställt – regeln aktiveras inte/g) ?? []).length).toBeGreaterThanOrEqual(9);
   expect(!/\b35 %/.test(t) || t.includes("Internt mål")).toBe(true);
   expect(t).not.toMatch(/deadline/i);
   // Bara kommunavtal i Miljonmatch (beslut 2026-10-06): ett avtal i testdatat – ingen avtalsväljare, ingen jämförelse.

@@ -118,7 +118,7 @@ describe("createStorageAttachments", () => {
     const audits: unknown[] = [];
     const system = new MemoryRepo<Tables>(t.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
     const ctx = { now: () => DEMO_START, system, attachments: t.port, audit: async (e: unknown) => void audits.push(e) } as unknown as Ctx;
-    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, retention: 0, orphans: 1 });
+    expect(await runAttachmentRetention(ctx)).toEqual({ unlinked: 0, orphans: 1 });
     expect([...t.files.keys()]).toEqual(["c-bot/att-2.pdf"]);
     expect(t.store.getRow("case_attachments", "att-1")).toMatchObject({ status: "deleted" });
     expect(audits).toEqual([{ action: "attachment.deleted", entity: "case_attachment", entityId: "att-1", contractId: "c-bot", details: { caseId: null, reason: "orphan" } }]);

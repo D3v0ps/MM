@@ -12,6 +12,7 @@ import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { useCommand } from "@/shell/backend";
 import { Button, Card, Icon, Kv, Stack, cn, useDownload, useToast } from "@/ui";
 import { attachmentDone, attachmentDownload, attachmentRemove, attachmentStart, type AttachmentRow, type CaseBackground } from "../api";
+import { ATTACHMENTS_REMOVED_BY_MB } from "../background";
 
 /** Ikon och text för filtypen ("PDF", "Word", "Bild"). */
 function typeText(mime: string): string {
@@ -302,6 +303,8 @@ export function CaseBackgroundCard({ bg, title = "Bakgrundsinformation", onRemov
         <div className="flex flex-col gap-2">
           <h3 className="m-0 text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">Bifogade filer</h3>
           <AttachmentList rows={bg.attachments} empty="Inga filer är bifogade." onRemoved={onRemoved} />
+          {/* Beslut 5 (2026-10-08): bilagor gallras inte automatiskt – Miljonbemanning tar bort dem för hand när insatsen är avslutad. */}
+          {bg.attachments.length > 0 && !bg.attachments.some((a) => a.canRemove) && <p className="m-0 text-text-muted">{ATTACHMENTS_REMOVED_BY_MB}</p>}
         </div>
       </Stack>
     </Card>

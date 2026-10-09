@@ -6,6 +6,7 @@ import { coaches as coachesOf, duplicateActive, previewNextCaseNumber } from "@/
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { TRACKS } from "@/data/seed/constants";
 import { caseBackground, orderPeriodText } from "@/features/arenden/background";
+import { cdStatusKey } from "@/features/ledning/api";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { areaName, contactLabel, personName, teamLabel } from "@/core/labels";
@@ -25,6 +26,9 @@ import {
   dlDesc, FIELD_GROUPS, FIELD_LABEL, flagDaysText, groupDeadlines, kindLabel, lc, listJoin, LOW, meetingDaysText, METHOD, OPTIONAL_FIELDS, ORDER_FIELDS, refErrorMB,
   whenText, workingDaysText, type DeadlineRow, type OrderFieldKey,
 } from "./texts";
+
+/** Avtalsavvikelsens läge i Min vecka (samma regel som ledningens CD_STATUS_LABEL, gemener i en bisats). */
+const CD_SUB_TEXT = { closed: "klar", no_plan: "öppen – åtgärdsplan saknas", waiting: "åtgärdsplan väntar på kommunens godkännande", in_progress: "åtgärdsplan godkänd av kommunen" } as const;
 
 const OPEN = ["acknowledged", "received"];
 const DECIDED = ["confirmed", "active", "paused", "closed"];
@@ -595,7 +599,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       const dueAt = cdDue.get(x.id) || x.actionPlanDue;
       return {
         id: x.id, description: x.description,
-        sub: `${x.source === "beställare" ? "Från kommunen" : x.source === "deltagare" ? "Från deltagare" : "Intern"} · ${x.level}${step ? ` · steg ${step.step} i eskaleringstrappan` : ""} · ${x.status === "action_plan" ? "åtgärdsplan godkänd av kommunen" : "öppen"}`,
+        // Läget ur fälten (cdStatusKey): godkänd bara när kommunens godkännande är registrerat – inte så fort en åtgärdsplan finns (beslut 9, 2026-10-08).
+        sub: `${x.source === "beställare" ? "Från kommunen" : x.source === "deltagare" ? "Från deltagare" : "Intern"} · ${x.level}${step ? ` · steg ${step.step} i eskaleringstrappan` : ""} · ${CD_SUB_TEXT[cdStatusKey(x)]}`,
         due: x.actionPlanDue && dueAt ? sla(dueAt, null, now) : null, href: cdHref ? `/avtalsavvikelser/${encodeURIComponent(x.id)}` : null,
       };
     }),

@@ -1,6 +1,7 @@
 // Bilagor till beställningen (beslut 2026-10-07, synpunkt #7 och beslut 4) i minnesläget: uppladdning före och efter
 // beställningen, koppling när beställningen skickas, behörigheten för att hämta och ta bort, filsignaturen, högsta antal,
-// revisionsloggen utan filnamn och gallringen (24 timmar för okopplade, avtalets regel efter avslut). Bara påhittade filer.
+// revisionsloggen utan filnamn och städningen (24 timmar för okopplade; bilagor i ett ärende gallras aldrig automatiskt, beslut 5
+// 2026-10-08 – Miljonbemanning tar bort dem för hand tidigast när ärendet är avslutat). Bara påhittade filer.
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, ResultOf } from "@/api/contract";
 import { execute } from "@/api/handlers";
@@ -61,9 +62,13 @@ describe("bilagor i beställningen", () => {
     expect(rt.raw().get("case_attachments", id)).toMatchObject({ caseId: c.caseId, linkedAt: expect.any(String) });
     const d = await q("kommun.deltagare", { caseId: c.caseId }, maria());
     expect(d.background).toMatchObject({ orderPeriodText: "6 månader", priorAssessment: "yes", text: "Har arbetat i kök.", attachments: [{ id, fileName: FILE_NAME, sizeText: "1 kB", canRemove: false }] });
-    // Samordnaren ser bilagan i deltagarkortet och får ta bort den.
+    // Samordnaren ser bilagan i deltagarkortet men får ta bort den först när ärendet är avslutat (beslut 5, 2026-10-08).
     const card = (await rt.run("query", caseCard.key, { caseId: c.caseId }, sara())) as CaseCard;
-    expect(card.background?.attachments.map((a) => [a.id, a.canRemove])).toEqual([[id, true]]);
+    expect(card.background?.attachments.map((a) => [a.id, a.canRemove])).toEqual([[id, false]]);
+    rt.store.updateRow("cases", c.caseId, { status: "closed", endDate: "2027-02-01", closedAt: "2027-02-01T10:00" });
+    const closedCard = (await rt.run("query", caseCard.key, { caseId: c.caseId }, sara())) as CaseCard;
+    expect(closedCard.background?.attachments.map((a) => [a.id, a.canRemove])).toEqual([[id, true]]);
+    expect(await q("kommun.deltagare", { caseId: c.caseId }, maria())).toMatchObject({ background: { attachments: [{ id, canRemove: false }] } });
     // Revisionsloggen: id, typ och storlek – aldrig filnamnet.
     const logs = rt.raw().all("audit_log").filter((l) => l.action.startsWith("attachment."));
     expect(logs.map((l) => l.action)).toEqual(["attachment.upload_started", "attachment.uploaded", "attachment.linked"]);
@@ -119,7 +124,7 @@ describe("hämta och ta bort", () => {
     expect(JSON.stringify(views)).not.toContain("Kartläggning");
   });
 
-  it("ta bort: den egna uppladdningen innan beställningen skickats, och samordnare/avtalsansvarig i ärendet – spåret finns kvar", async () => {
+  it("ta bort: den egna uppladdningen innan beställningen skickats, och samordnare/avtalsansvarig tidigast när ärendet är avslutat (beslut 5, 2026-10-08) – spåret finns kvar", async () => {
     const draft = await upload(maria(), null);
     expect(await run(attachmentRemove, { attachmentId: draft }, as("k-omar", "kommun_handlaggare"))).toMatchObject({ ok: false });
     expect(await run(attachmentRemove, { attachmentId: draft }, maria())).toEqual({ ok: true });
@@ -127,6 +132,10 @@ describe("hämta och ta bort", () => {
     const linked = await upload(sara(), NADIA);
     expect(await run(attachmentRemove, { attachmentId: linked }, maria())).toMatchObject({ ok: false, error: "forbidden" });
     await expect(run(attachmentRemove, { attachmentId: linked }, as("u-amira", "coach"))).rejects.toBeInstanceOf(ApiError);
+    // Under en pågående insats får inte heller Miljonbemanning ta bort bilagan.
+    expect(await run(attachmentRemove, { attachmentId: linked }, as("u-johan", "avtalsansvarig"))).toMatchObject({ ok: false, error: "forbidden", message: "Bilagor tas bort av Miljonbemanning när insatsen är avslutad." });
+    expect(rt.raw().get("case_attachments", linked)).toMatchObject({ status: "uploaded" });
+    rt.store.updateRow("cases", NADIA, { status: "closed", endDate: "2027-02-01", closedAt: "2027-02-01T10:00" });
     expect(await run(attachmentRemove, { attachmentId: linked }, as("u-johan", "avtalsansvarig"))).toEqual({ ok: true });
     expect(rt.raw().get("case_attachments", linked)).toMatchObject({ status: "deleted", removedBy: "u-johan" });
     // En borttagen fil går inte att hämta.
@@ -141,36 +150,37 @@ describe("hämta och ta bort", () => {
   });
 });
 
-describe("gallringen (jobbet attachments_retention)", () => {
+describe("städningen (jobbet attachments_retention)", () => {
   const sysCtx = (audits: { action: string; details: Record<string, unknown> }[]): Ctx => ({
     actor: SYSTEM_ACTOR, now: () => rt.clock.now(), repo: new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo,
     system: new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo, newId: (p) => `${p}-g`,
     audit: async (e) => void audits.push({ action: e.action, details: e.details ?? {} }), notify: async () => undefined, crypto: TEST_PNR_CRYPTO, attachments: rt.attachments,
   });
 
-  it("okopplade uppladdningar raderas efter 24 timmar; bilagor i avslutade ärenden bara när avtalets regel är fastställd", async () => {
+  it("okopplade uppladdningar raderas efter 24 timmar; bilagor i ett avslutat ärende gallras aldrig automatiskt (beslut 5, 2026-10-08)", async () => {
     const draft = await upload(maria(), null);
     const linked = await upload(sara(), NADIA);
     const audits: { action: string; details: Record<string, unknown> }[] = [];
     // Inom 24 timmar: inget raderas.
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
     rt.clock.set("2027-02-02T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, retention: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, orphans: 0 });
     expect(rt.raw().get("case_attachments", draft)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
-    // Ärendet avslutas – Botkyrkas regel är inte fastställd (ATT_FASTSTÄLLA): inget raderas.
+    // Ärendet avslutas: ingenting raderas – inte ens år senare, och inte heller med den äldre avtalsregeln i konfigurationen.
     rt.store.updateRow("cases", NADIA, { status: "closed", endDate: "2027-02-02", closedAt: "2027-02-02T10:00" });
-    rt.clock.set("2028-02-02T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 0 });
-    // Med en fastställd regel (påhittad: 90 dagar efter avslut) raderas bilagan.
     const bot = rt.raw().get("contracts", "c-bot")!;
-    rt.store.updateRow("contracts", "c-bot", { config: { ...bot.config, retentionRules: { ...bot.config.retentionRules, attachmentsAfterCloseDays: 90 } } });
-    rt.clock.set("2027-04-30T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 0 });
-    rt.clock.set("2027-05-03T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 1, orphans: 0 });
-    expect(rt.raw().get("case_attachments", linked)).toMatchObject({ status: "deleted", deleteReason: "retention" });
-    expect(audits.map((a) => [a.action, a.details.reason])).toEqual([["attachment.deleted", "unlinked_24h"], ["attachment.deleted", "retention"]]);
+    rt.store.updateRow("contracts", "c-bot", { config: { ...bot.config, retentionRules: { attachmentsAfterCloseDays: 90 } } });
+    rt.clock.set("2029-02-02T10:00");
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
+    expect(rt.raw().get("case_attachments", linked)).toMatchObject({ status: "uploaded" });
+    expect(audits.map((a) => [a.action, a.details.reason])).toEqual([["attachment.deleted", "unlinked_24h"]]);
     expect(JSON.stringify(audits)).not.toContain("Kartläggning");
+    expect(rt.attachments.stored()).toBe(1);
+    // Bilagan tas bort för hand av Miljonbemanning (ärendet är avslutat). Klockan tillbaka: kommandon i minnesläget kör också
+    // schemaläggningen av rapportutkast, som annars går igenom två års veckor.
+    rt.clock.set("2027-02-03T10:00");
+    expect(await run(attachmentRemove, { attachmentId: linked }, sara())).toEqual({ ok: true });
+    expect(rt.raw().get("case_attachments", linked)).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-sara" });
     expect(rt.attachments.stored()).toBe(0);
   });
 
@@ -188,39 +198,35 @@ describe("gallringen (jobbet attachments_retention)", () => {
     const audits: { action: string; details: Record<string, unknown> }[] = [];
     // Tre dagar senare (fredag → måndag): mejlets bilaga finns kvar, den övergivna raderas.
     rt.clock.set("2027-02-04T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, retention: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, orphans: 0 });
     expect(rt.raw().get("case_attachments", abandoned.id)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
     expect(rt.raw().get("case_attachments", fromMail.id)).toMatchObject({ status: "uploaded", uploadedBy: "system" });
     // Mejlet hanteras utan registrering (Övrigt): bilagan väntar inte längre och gallras vid nästa körning.
     rt.store.updateRow("inbound_emails", "em-vantar", { status: "other" });
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, retention: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 1, orphans: 0 });
     expect(rt.raw().get("case_attachments", fromMail.id)).toMatchObject({ status: "deleted", deleteReason: "unlinked_24h" });
     expect(JSON.stringify(audits)).not.toContain("Kartläggning");
   });
 
-  it("bilagor i en avböjd beställning gallras som i en avslutad – fristen räknas från avböjandet", async () => {
+  it("bilagor i en avböjd beställning gallras inte automatiskt – samordnaren tar bort dem för hand (avböjd räknas som avslutad)", async () => {
     const id = await upload(maria(), null);
     const c = await run(caseCreate, { ...ORDER, attachmentIds: [id] }, maria());
     if (!c.ok) throw new Error(c.error);
+    // Innan beställningen är besvarad får Miljonbemanning inte ta bort bilagan.
+    expect(await run(attachmentRemove, { attachmentId: id }, sara())).toMatchObject({ ok: false, error: "forbidden" });
     const declined = await run(caseDecline, { caseId: c.caseId, reason: "Personen har redan en insats hos en annan leverantör." }, sara());
     expect(declined).toMatchObject({ ok: true });
-    const declinedAt = rt.raw().get("cases", c.caseId)!.declinedAt!;
     expect(rt.raw().get("cases", c.caseId)).toMatchObject({ status: "declined", endDate: null });
     const audits: { action: string; details: Record<string, unknown> }[] = [];
-    // Regeln är inte fastställd (Botkyrka): inget raderas.
     rt.clock.set("2029-01-01T10:00");
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 0 });
-    // Fastställd regel (påhittad: 30 dagar): dagen före fristen kvar, sedan raderad.
-    const bot = rt.raw().get("contracts", "c-bot")!;
-    rt.store.updateRow("contracts", "c-bot", { config: { ...bot.config, retentionRules: { attachmentsAfterCloseDays: 30 } } });
-    const day = declinedAt.slice(0, 10);
-    const plus = (n: number) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-    rt.clock.set(`${plus(29)}T10:00`);
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 0 });
-    rt.clock.set(`${plus(30)}T10:00`);
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 1, orphans: 0 });
-    expect(rt.raw().get("case_attachments", id)).toMatchObject({ status: "deleted", deleteReason: "retention" });
-    expect(audits.map((a) => [a.action, a.details.caseId, a.details.reason])).toEqual([["attachment.deleted", c.caseId, "retention"]]);
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
+    expect(rt.raw().get("case_attachments", id)).toMatchObject({ status: "uploaded" });
+    expect(audits).toEqual([]);
+    // Avböjd beställning: samordnaren får ta bort bilagan för hand (klockan tillbaka – se testet ovan).
+    rt.clock.set("2027-02-03T10:00");
+    expect(await run(attachmentRemove, { attachmentId: id }, sara())).toEqual({ ok: true });
+    expect(rt.raw().get("case_attachments", id)).toMatchObject({ status: "deleted", deleteReason: "removed", removedBy: "u-sara" });
+    expect(rt.raw().all("audit_log").filter((l) => l.action === "attachment.removed").pop()).toMatchObject({ entityId: id, details: { caseId: c.caseId } });
   });
 
   it("avstämningen: en fil i lagringen utan levande rad raderas (loggas med id, aldrig filnamnet)", async () => {
@@ -229,12 +235,12 @@ describe("gallringen (jobbet attachments_retention)", () => {
     rt.store.updateRow("case_attachments", id, { status: "deleted", deletedAt: rt.clock.now(), deleteReason: "removed" });
     expect(rt.attachments.stored()).toBe(1);
     const audits: { action: string; details: Record<string, unknown> }[] = [];
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 1 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 1 });
     expect(rt.attachments.stored()).toBe(0);
     expect(audits).toEqual([{ action: "attachment.deleted", details: { caseId: null, reason: "orphan" } }]);
     // En levande uppladdning rörs inte.
     const live = await upload(maria(), null);
-    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, retention: 0, orphans: 0 });
+    expect(await runAttachmentRetention(sysCtx(audits))).toEqual({ unlinked: 0, orphans: 0 });
     expect(rt.raw().get("case_attachments", live)).toMatchObject({ status: "uploaded" });
     expect(rt.attachments.stored()).toBe(1);
   });
