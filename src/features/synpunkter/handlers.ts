@@ -88,7 +88,8 @@ handleCommand(feedbackSubmit, {}, async (ctx, p) => {
     priority: p.priority,
     text: p.text,
     status: "ny",
-    role: ctx.actor.role,
+    // En kolumn för rollen: testpersonens första roll (rollernas ordning) – sedan Karims beslut 7 har den alla samtidigt.
+    role: ctx.actor.roles[0],
     path,
     viewTitle: path ? sanitizeViewTitle(p.viewTitle) : null,
     createdAt: ctx.now(),

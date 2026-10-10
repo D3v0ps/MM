@@ -213,7 +213,7 @@ export function createMemoryRuntime(opts: {
       opts.clock.set(before);
       return res;
     }
-    await ctxFor({ userId: res.profileId, role: "kommun_handlaggare", contractIds: res.contractIds, customerUnit: null }).audit(selfRegisteredAudit(res));
+    await ctxFor({ userId: res.profileId, roles: ["kommun_handlaggare"], contractIds: res.contractIds, customerUnit: null }).audit(selfRegisteredAudit(res));
     return res;
   }
 

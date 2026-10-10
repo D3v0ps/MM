@@ -1,6 +1,7 @@
 // Frågor för coachens skärmar (Min vecka, närvaro, avstämning, månadsbedömning, kartläggning, händelser och avslut).
 // Port av vyerna i prototyp/src/views/coach.js: samma urval, regler och siffror. Beräkningarna görs med funktionerna i
 // src/core och datat läses via ctx.repo (behörigheten gäller). Registreras via handlers.ts – importeras aldrig av skärmar.
+import { hasRole } from "@/api/roles";
 import { handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
@@ -304,10 +305,12 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
   const lastMon = addDays(thisMon, -7);
   const envOf = envCache(ctx);
   // Coachen: ärenden där hen är huvudcoach. Handledaren: ärenden där hen ingår i teamet. Alla ärenden i avtalet är läsbara
-  // (beslut 2026-10-09), så tilldelningen filtreras här – Närvaro är listan över de egna tillfällena.
+  // (beslut 2026-10-09), så tilldelningen filtreras här – Närvaro är listan över de egna tillfällena. Båda rollerna: båda.
   const visible = await ctx.repo.table("cases").list();
   const myTeam = new Set((await ctx.repo.table("case_team").list({ userId: me })).map((t) => t.caseId));
-  const cases = visible.filter((c) => (ctx.actor.role === "coach" ? c.leadCoachId === me : myTeam.has(c.id)) && c.startDate);
+  const asCoach = hasRole(ctx.actor, "coach");
+  const asTeam = hasRole(ctx.actor, "handledare");
+  const cases = visible.filter((c) => ((asCoach && c.leadCoachId === me) || (asTeam && myTeam.has(c.id))) && c.startDate);
   const ids = cases.map((c) => c.id);
   const main = await primaryEnv(ctx, envOf, cases.map((c) => c.contractId));
   if (!main) throw new Error("Inget avtal med driftkonfiguration");

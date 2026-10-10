@@ -8,7 +8,7 @@
 // svaret; kastar loggningen lämnas ingen fil ut. Loggen har bara id:n – aldrig namn, ärendenummer, titlar eller urvalets värden.
 // Sparade rapporter delas bara inom Miljonbemanning (privat eller mb) – aldrig med kommunen (beslut 2026-10-07, 0026).
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { hasRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { isOperational, requireOperational, type OperationalConfig } from "@/core/config";
 import { addMonths, monthKey, monthName } from "@/core/time";
@@ -101,7 +101,7 @@ handleQuery(builderCatalog, { roles: BUILDERS }, async (ctx, p): Promise<Builder
   const base: BuilderCatalog = {
     contracts: all.map((c) => ({ id: c.contract.id, label: contractLabel(c.contract) })), contractId: chosen?.contract.id ?? null,
     templates: TEMPLATES.map((t) => ({ key: t.key, name: t.name, sentence: templateSentence(t, chosen ? { resultReasons: resultReasons(chosen.cfg) } : null), definition: t.definition as unknown as Record<string, unknown> })),
-    datasets: [], months: [], maxMonths: MAX_EXPORT_MONTHS, role: ctx.actor.role,
+    datasets: [], months: [], maxMonths: MAX_EXPORT_MONTHS, roles: ctx.actor.roles,
   };
   if (!chosen) return base;
   const { contract, cfg } = chosen;
@@ -205,7 +205,7 @@ handleQuery(savedReportList, { roles: BUILDERS }, async (ctx, p) => {
 function rights(r: SavedReport, ctx: Ctx) {
   const isOwner = r.ownerId === ctx.actor.userId;
   const open = !r.archivedAt;
-  const avtalsansvarig = ctx.actor.role === "avtalsansvarig";
+  const avtalsansvarig = hasRole(ctx.actor, "avtalsansvarig");
   return {
     isOwner,
     canEdit: open && isOwner,
@@ -224,7 +224,7 @@ handleQuery(savedReport, { roles: BUILDERS }, async (ctx, p) => {
   const d = parsed.success ? parsed.data : null;
   const can = rights(r, ctx);
   const tpl = templateFor(r.templateKey);
-  const avtalsansvarig = ctx.actor.role === "avtalsansvarig";
+  const avtalsansvarig = hasRole(ctx.actor, "avtalsansvarig");
   const lockedText = r.archivedAt ? null : !can.isOwner ? (avtalsansvarig && r.visibility !== "private" ? NOT_OWNER : COPY_TO_CHANGE) : null;
   return {
     found: true as const, id: r.id, contractId: r.contractId, title: r.title, templateKey: tpl?.key ?? null, templateName: tpl?.name ?? null,

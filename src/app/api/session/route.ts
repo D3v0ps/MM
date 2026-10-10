@@ -1,7 +1,7 @@
 // GET /api/session – vem är inloggad? { authenticated, persona, isTester, personas, environment }.
 // Minnesläget: vald testperson (som /api/dev-session). Supabase-läget: inloggningen, och testarens val i testmiljön.
 import { hidesCommercial } from "@/api/tester-access";
-import { listPersonas, ownRolesOf } from "@/data/actors";
+import { listPersonas } from "@/data/actors";
 import { personaOptionsFor, toOption } from "@/server/identity";
 import { liveSession } from "@/server/live";
 import { memorySessionView } from "@/server/memory-session-view";
@@ -16,7 +16,7 @@ export async function GET() {
     // Minnesläget: en simulerad testare (e2e, /api/dev-session med testerId) får samma lista som i testmiljön och räknas
     // som testare (synpunkterna och raden Testmiljö visas) – src/server/memory-session-view.ts.
     const raw = memoryRuntime().raw();
-    const view = memorySessionView(persona, personaOptionsFor(listPersonas(raw).map(toOption), persona?.actor), persona ? ownRolesOf(raw, persona.actor.userId) : []);
+    const view = memorySessionView(persona, personaOptionsFor(listPersonas(raw).map(toOption), persona?.actor));
     return Response.json(view, { headers: noStore });
   }
   try {
@@ -31,7 +31,6 @@ export async function GET() {
       isTester: !!id?.isTester,
       impersonating: !!id?.impersonating,
       personas: id?.personas ?? [],
-      ownRoles: id?.ownRoles ?? [],
       testNow: s.settings.clock.mode === "test" ? s.now : null,
       hidesCommercial: hidesCommercial(id?.persona.actor),
     };

@@ -10,6 +10,7 @@
 // Flödet: startAudioUpload -> klienten laddar upp till uploadUrl (appen; minnesläget har ingen adress) -> confirmOwnUpload ->
 // enqueueVoiceJob (voice-jobs.ts). Ärendet läses via ctx.repo (RLS/policy) för inloggade. Deltagarens länk och ärende läses
 // via ctx.system efter tokenkontrollen (samma mönster som pulslänken i src/features/puls/handlers.ts).
+import { isParticipantActor } from "@/api/roles";
 import { z } from "zod";
 import { fail, ok, type Result } from "@/api/contract";
 import { ApiError, type Ctx } from "@/api/server";
@@ -127,7 +128,7 @@ export async function audioUploadTarget(ctx: Ctx, req: Pick<AudioUploadRequest, 
   }
   if (req.purpose === "checkin") {
     // Veckoavstämningen är huvudcoachens (checkinSave: roles coach).
-    if (a.role !== "coach") return no("forbidden");
+    if (!a.roles.includes("coach")) return no("forbidden");
     if (!req.caseId) return no("not_found");
     const c = await ctx.repo.table("cases").get(req.caseId);
     if (!c) return no("not_found");
@@ -138,7 +139,7 @@ export async function audioUploadTarget(ctx: Ctx, req: Pick<AudioUploadRequest, 
     return ok({ caseId: c.id, contractId: c.contractId, ownerId: a.userId, kind: "coach", config: contract?.config ?? null, linkId: null });
   }
   // Kommunens handläggare: "Tala in".
-  if (a.role !== "kommun_handlaggare") return no("forbidden");
+  if (!a.roles.includes("kommun_handlaggare")) return no("forbidden");
   if (req.caseId) {
     const c = await ctx.repo.table("cases").get(req.caseId);
     if (!c) return no("not_found");
@@ -207,7 +208,7 @@ const CONFIRM_TEXT: Record<"audio_missing", string> = { audio_missing: "Ljudfile
  */
 export async function confirmOwnUpload(ctx: Ctx, p: { uploadId: string; token?: string | null; durationSec?: number | null }): Promise<Result<{ audio: AudioRef }, ConfirmError>> {
   let u: AudioUpload | null;
-  if (p.token !== undefined || ctx.actor.role === "deltagare") {
+  if (p.token !== undefined || isParticipantActor(ctx.actor)) {
     const l = await voiceLinkByToken(ctx, p.token);
     if (l.state === "missing" || !l.case) return fail("link_missing", AUDIO_UPLOAD_ERROR_TEXT.link_missing);
     if (l.state === "used") return fail("link_used", AUDIO_UPLOAD_ERROR_TEXT.link_used);

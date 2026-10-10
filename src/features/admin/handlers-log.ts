@@ -1,6 +1,7 @@
 // Hanterare: revisionsloggen (/admin/logg) och chefens månatliga loggkontroll (stickprov, SPEC §10).
 // Källa: prototyp/src/views/admin.js (admin.logg, admin.logCheck). Loggen är append-only och innehåller id:n – aldrig namn
 // eller personnummer på deltagare. Deltagare visas bara som ärendenummer; användare (personal och kommun) med namn.
+import { hasRole } from "@/api/roles";
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
@@ -129,7 +130,7 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     caseNumber: (() => { const cid = caseIdOf(a); return cid ? (caseNo.get(cid) ?? "") : ""; })(),
   }));
   return {
-    isChef: ctx.actor.role === "chef",
+    isChef: hasRole(ctx.actor, "chef"),
     today: dayOf(ctx.now()),
     contractId: main.id,
     rows,
@@ -141,7 +142,7 @@ handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
     byTester: rows.filter((a) => a.byTester).length,
     logCheck: {
       month,
-      canSign: ctx.actor.role === "chef",
+      canSign: hasRole(ctx.actor, "chef"),
       done: done
         ? { signedByName: name(done.signedBy), signedAt: done.signedAt, items: done.items.length, deviations: done.items.filter((x) => x.verdict === "avvikelse").length, note: done.note }
         : null,

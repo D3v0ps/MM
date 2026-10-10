@@ -3,10 +3,11 @@
 //   deadlines      förfaller: försenat + i dag (samordnare, avtalsansvarig, chef)
 //   unregistered   coachens oregistrerade närvaro från förra veckans måndag till i dag
 //   notifications  olästa personliga notiser (alla MB-roller)
-// Bara räknarna för rollens menyrader räknas fram (övriga är 0 – de visas inte).
+// Bara räknarna för rollernas menyrader räknas fram (övriga är 0 – de visas inte). Den som har flera roller får räknarna för
+// alla sina roller (Karims beslut 7, 2026-10-09).
 import type { Ctx } from "@/api/server";
 import { handleQuery } from "@/api/server";
-import { isSupplierRole } from "@/api/roles";
+import { hasAnyRole, hasRole, isStaffActor, type Role } from "@/api/roles";
 import { loadDb } from "@/api/load";
 import { unregistered } from "@/core/attendance";
 import { unreadNotifications } from "@/core/progression";
@@ -15,8 +16,8 @@ import { addDays, monday } from "@/core/time";
 import { deadlineItems, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
 import { navCounts, type NavCounts } from "./nav-api";
 
-const INBOX_ROLES = ["samordnare", "avtalsansvarig"];
-const DEADLINE_ROLES = ["samordnare", "avtalsansvarig", "chef"];
+const INBOX_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig"];
+const DEADLINE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
 
 async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
   const me = ctx.actor.userId;
@@ -42,21 +43,21 @@ async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {
     ctx.repo.table("profiles").list(),
   ]);
   const ops = scopeToContract(await loadDb(ctx.system, ["cases", "check_ins"], { cases: { contractId: e.contract.id } }), e.contract.id);
-  return unreadNotifications({ ...ops, user_notifications: own, notification_reads: reads, profiles }, ctx.actor.userId, ctx.actor.role, e.env);
+  return unreadNotifications({ ...ops, user_notifications: own, notification_reads: reads, profiles }, ctx.actor.userId, ctx.actor.roles, e.env);
 }
 
 handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
-  const role = ctx.actor.role;
+  const a = ctx.actor;
   const out: NavCounts = { inbox: 0, deadlines: 0, unregistered: 0, notifications: 0 };
-  if (!isSupplierRole(role) || !ctx.actor.contractIds.length) return out;
+  if (!isStaffActor(a) || !a.contractIds.length) return out;
   const e = await inboxEnv(ctx).catch(() => null);
   if (!e) return out;
-  if (INBOX_ROLES.includes(role)) out.inbox = inboxToHandle((await loadInbox(ctx, e)).items).length;
-  if (DEADLINE_ROLES.includes(role)) {
+  if (hasAnyRole(a, INBOX_ROLES)) out.inbox = inboxToHandle((await loadInbox(ctx, e)).items).length;
+  if (hasAnyRole(a, DEADLINE_ROLES)) {
     const ops = await loadOps(ctx, e);
     out.deadlines = deadlineItems(ops, e, await visibleCaseIds(ctx, e), 0).filter((x) => x.bucket !== "week").length;
   }
-  if (role === "coach") out.unregistered = await unregisteredCount(ctx, e);
+  if (hasRole(a, "coach")) out.unregistered = await unregisteredCount(ctx, e);
   out.notifications = await notificationCount(ctx, e);
   return out;
 });

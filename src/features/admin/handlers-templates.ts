@@ -2,7 +2,7 @@
 // Källa: prototyp/src/views/admin.js (admin.mallar, admin.saveTemplate). Grundtexterna ligger i ./templates.ts,
 // sparade versioner i tabellen template_versions. En ny version stoppas om texten innehåller personuppgifter.
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { hasAnyRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { outboundReasonLabel } from "@/core/labels";
@@ -57,7 +57,7 @@ handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
       // Brev: statusen säger redan att det skickas för hand. Begränsade testare ser orsaken utan leverantörer och variabelnamn.
       reason: n.status === "manual" ? null : outboundReasonLabel(n.statusReason, { neutral }),
     }));
-  return { canEdit: TEMPLATE_EDITORS.includes(ctx.actor.role), templates, sendLog };
+  return { canEdit: hasAnyRole(ctx.actor, TEMPLATE_EDITORS), templates, sendLog };
 });
 
 /** Ny version av en mall. Stoppas om texten innehåller personuppgifter. */

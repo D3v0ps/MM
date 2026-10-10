@@ -46,16 +46,32 @@ export type AlertDb = BillingDb &
  * Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07 – samma regel som hidesMoney i src/api/tester-access.ts): chefen
  * får flaggan om ofakturerade veckor med antal veckor utan kronor och en länk till ärendet i stället för till Ekonomi.
  */
-export type AlertOpts = { role: Role; personaId?: string | null; includeAcked?: boolean; hideCommercial?: boolean };
+export type AlertOpts = {
+  /** Rollen – eller alla roller för den som har flera (Karims beslut 7, 2026-10-09): flaggorna för var och en av rollerna. */
+  role: Role | readonly Role[];
+  personaId?: string | null;
+  includeAcked?: boolean;
+  hideCommercial?: boolean;
+};
 
 type Draft = Omit<AlertItem, "ack" | "href">;
 const SEVERITY_ORDER: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
 /** Konfigurationens mottagare -> appens roller ("controller" = chef/controller). */
 const toRoles = (xs: readonly string[]): Role[] => xs.map((x) => (x === "controller" ? "chef" : x) as Role);
 
-/** Flaggor för en roll (och persona för coachen), allvarligast och senast först. Kvitterade flaggor bara med includeAcked. */
+/** Gäller flaggan för rollen (och coachen: bara sina egna ärenden)? Avtalsansvarig får också samordnarens flaggor. */
+export function alertForRole(a: Pick<AlertItem, "roles" | "coachId">, role: Role, personaId: string | null): boolean {
+  const keys: Role[] = role === "avtalsansvarig" ? ["avtalsansvarig", "samordnare"] : [role];
+  return a.roles.some((r) => keys.includes(r)) && (role !== "coach" || !a.coachId || a.coachId === personaId);
+}
+
+/**
+ * Flaggor för en roll eller flera (och persona för coachen), allvarligast och senast först. Kvitterade flaggor bara med
+ * includeAcked. Med flera roller: unionen – en flagga visas om någon av rollerna får den.
+ */
 export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[] {
-  const { role, personaId = null, includeAcked = false, hideCommercial = false } = opts;
+  const { personaId = null, includeAcked = false, hideCommercial = false } = opts;
+  const roles: readonly Role[] = typeof opts.role === "string" ? [opts.role] : opts.role;
   const today = dayOf(env.now);
   const at6 = `${today}T06:00`;
   const acks = byId(db.alert_acks);
@@ -181,7 +197,7 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
   for (const [caseId, rows] of Object.entries(groupBy(hideCommercial ? [] : unbilledOld(db, env), (x) => x.case.id))) {
     const c = rows[0].case;
     // Beloppet och länken till Ekonomi bara för ekonomen (beslut 5). Flaggan byggs för den roll som frågar.
-    const money = role === "ekonom";
+    const money = roles.includes("ekonom");
     add({
       key: `unbilled:${caseId}`, kind: "unbilled", severity: "critical", title: `Ofakturerade veckor äldre än ${limit} dagar`,
       text: `${c.caseNumber}: ${rows.length === 1 ? "1 vecka" : `${rows.length} veckor`}${money ? ` (${kr(sum(rows, (x) => x.amountOre))})` : ""}. Preskription två månader efter utfört arbete.`,
@@ -226,9 +242,8 @@ export function alerts(db: AlertDb, opts: AlertOpts, env: DomainEnv): AlertItem[
     });
   }
 
-  const roleKey: Role[] = role === "avtalsansvarig" ? ["avtalsansvarig", "samordnare"] : [role];
   return out
-    .filter((a) => a.roles.some((r) => roleKey.includes(r)) && (role !== "coach" || !a.coachId || a.coachId === personaId))
+    .filter((a) => roles.some((role) => alertForRole(a, role, personaId)))
     // Samma jämförelse som prototypen (lika tidpunkter behåller inte sin ordning – prototypens beteende).
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.createdAt < b.createdAt ? 1 : -1));
 }

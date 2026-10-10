@@ -1,6 +1,6 @@
 // Hanterare för området rapporter (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import type { Actor, Role } from "@/api/roles";
+import { type Actor, hasAnyRole, hasRole, type Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { reportKindLabel } from "@/core/labels";
 import type { Case, Report, WeekKey } from "@/data/schema";
@@ -27,18 +27,18 @@ async function loadReport(ctx: Ctx, id: string): Promise<{ r: Report; c: Case | 
 }
 
 /** Är aktören huvudcoach i rapportens ärende? */
-const isLeadCoach = (a: Actor, c: Case | null) => a.role === "coach" && !!c && c.leadCoachId === a.userId;
+const isLeadCoach = (a: Actor, c: Case | null) => hasRole(a, "coach") && !!c && c.leadCoachId === a.userId;
 
-/** Vem godkänner rapporten (prototypens canApprove). */
+/** Vem godkänner rapporten (prototypens canApprove). Någon av rollerna (Karims beslut 7, 2026-10-09). */
 function mayApprove(a: Actor, r: Report, c: Case | null): boolean {
   if (r.kind === "monthly" || r.kind === "final") return isLeadCoach(a, c);
-  if (r.kind === "customer_summary") return a.role === "avtalsansvarig";
-  return a.role === "samordnare" || a.role === "avtalsansvarig";
+  if (r.kind === "customer_summary") return hasRole(a, "avtalsansvarig");
+  return hasAnyRole(a, ["samordnare", "avtalsansvarig"]);
 }
 
 /** Vem levererar och rättar rapporten (prototypens deliverRoles). Coachen bara i egna ärenden. */
 function mayDeliver(a: Actor, r: Report, c: Case | null): boolean {
-  if (a.role === "samordnare" || a.role === "avtalsansvarig") return true;
+  if (hasAnyRole(a, ["samordnare", "avtalsansvarig"])) return true;
   return r.kind !== "customer_summary" && isLeadCoach(a, c);
 }
 

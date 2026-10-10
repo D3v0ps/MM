@@ -1,7 +1,7 @@
 // Beställningens bakgrundsinformation med bilagorna (beslut 2026-10-07, synpunkt #7) – byggs för portalens deltagarsida,
 // deltagarkortet och acceptdialogen i inkorgen. Bara för hanterare (läser via ctx.repo: policy.ts/RLS case_attachments).
 // Registrerar inga hanterare – kan importeras av alla områden.
-import type { Role } from "@/api/roles";
+import { hasAnyRole, type Role } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import { orderPeriodText } from "@/core/cases";
 import type { Case, CaseAttachment } from "@/data/schema";
@@ -31,7 +31,7 @@ export async function rowsFor(ctx: Ctx, rows: readonly CaseAttachment[], c: Pick
   const ids = [...new Set(rows.map((a) => a.uploadedBy))];
   const profiles = await ctx.repo.table("profiles").list({ id: { in: ids } });
   const name = new Map(profiles.map((p) => [p.id, p.fullName]));
-  const mbEditor = MB_EDITORS.includes(ctx.actor.role) && !!c && attachmentsRemovable(c);
+  const mbEditor = hasAnyRole(ctx.actor, MB_EDITORS) && !!c && attachmentsRemovable(c);
   return rows
     .filter((a) => a.status === "uploaded")
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : 1))

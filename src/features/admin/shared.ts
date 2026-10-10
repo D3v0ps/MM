@@ -1,4 +1,5 @@
 // Hjälpare för områdets hanterare (admin, puls, praktik). Bara för hanterare – importeras aldrig av skärmar.
+import { hasRole } from "@/api/roles";
 import { ApiError, type Ctx } from "@/api/server";
 import { DEFAULT_ORG_SETTINGS, isOperational, requireOperational, type OperationalConfig, type OrgSettings } from "@/core/config";
 import type { Contract, OrgSettingsRow } from "@/data/schema";
@@ -18,7 +19,7 @@ export const isParticipantActor = (id: string | null | undefined): boolean => id
  */
 export async function mainContract(ctx: Ctx): Promise<Contract> {
   const rows = await ctx.repo.table("contracts").list();
-  const mine = ctx.actor.role === "admin" ? rows : rows.filter((c) => ctx.actor.contractIds.includes(c.id));
+  const mine = hasRole(ctx.actor, "admin") ? rows : rows.filter((c) => ctx.actor.contractIds.includes(c.id));
   const c = mine.find((x) => x.status === "active" && isOperational(x.config)) ?? mine[0];
   if (!c) throw new ApiError(404, "no_contract", "Det finns inget avtal att visa.");
   return c;

@@ -1,11 +1,11 @@
 // Hanterare för området ärenden (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
-import { isCustomerRole, type Role } from "@/api/roles";
+import { hasAnyRole, hasRole, isCustomerActor, type Actor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx, type PnrCrypto } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
-import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
+import { alertForRole, alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
 import { hasContactDetails } from "@/core/contact";
@@ -99,7 +99,8 @@ async function orderContract(ctx: Ctx, requested: string | undefined): Promise<C
 // Själva skapandet (person, löpnummer, ärende, statushistorik, bilagor och ordererkännande) ligger i ./order.ts
 // (createOrder) och delas med inkorg.register (telefon/mejl registrerat av Miljonbemanning) och mejlinläsningen.
 handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_handlaggare"] }, async (ctx, p) => {
-  const customer = isCustomerRole(ctx.actor.role);
+  // Kommunen: bara kommunens roller (den som också har en av Miljonbemannings roller beställer som Miljonbemanning).
+  const customer = isCustomerActor(ctx.actor);
   const contract = await orderContract(ctx, p.contractId);
   if (!contract) return fail("no_contract", "Det finns inget aktivt avtal att beställa i.");
   const cfg = requireOperational(contract.config);
@@ -281,7 +282,7 @@ handleCommand(caseUpdate, { roles: ["samordnare", "avtalsansvarig", "coach", "ko
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   const keys = Object.keys(p.patch) as (keyof CasePatch)[];
-  if (isCustomerRole(ctx.actor.role) && keys.some((k) => !(CUSTOMER_PATCH_FIELDS as readonly string[]).includes(k))) {
+  if (isCustomerActor(ctx.actor) && keys.some((k) => !(CUSTOMER_PATCH_FIELDS as readonly string[]).includes(k))) {
     return fail("forbidden", "Du kan bara ändra dina kontaktuppgifter i beställningen.");
   }
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
@@ -583,7 +584,7 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
 handleCommand(messageSend, { roles: [...CASE_WORKERS, "kommun_handlaggare"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  const fromCustomer = isCustomerRole(ctx.actor.role);
+  const fromCustomer = isCustomerActor(ctx.actor);
   // Från kommunen skriver bara handläggaren som beställde insatsen (prototypens canWrite).
   if (fromCustomer && c.referrerId !== ctx.actor.userId) return fail("forbidden", "Meddelanden om deltagaren skickas av handläggaren som beställde insatsen.");
   const body = p.body.trim();
@@ -618,7 +619,7 @@ handleCommand(
     if (!c) return fail("not_found", NOT_FOUND);
     const me = ctx.actor.userId;
     // Läskvitto bara från den som arbetar i ärendet eller beställande handläggare. Chef och admin läser utan kvitto.
-    const marks = CASE_WORKERS.includes(ctx.actor.role) || (ctx.actor.role === "kommun_handlaggare" && c.referrerId === me);
+    const marks = hasAnyRole(ctx.actor, CASE_WORKERS) || (hasRole(ctx.actor, "kommun_handlaggare") && c.referrerId === me);
     if (!marks) return ok({ marked: 0 });
     const now = ctx.now();
     let marked = 0;
@@ -679,7 +680,12 @@ const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt
 /** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
 const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view", "group_activity.view"];
 
-const isManager = (role: Role) => role === "samordnare" || role === "avtalsansvarig";
+/** Samordnare eller avtalsansvarig – någon av rollerna (Karims beslut 7, 2026-10-09). */
+const isManager = (roles: readonly Role[]) => roles.some((r) => MANAGERS.includes(r));
+/** Chef och systemadmin läser bara – bara när ingen annan av rollerna arbetar i ärendena. */
+const readOnly = (roles: readonly Role[]) => roles.length > 0 && roles.every((r) => READ_ONLY.includes(r));
+/** Coach och den vilande rollen handledare – utan någon roll som ser mer (samordnare, avtalsansvarig, chef, admin). */
+const teamOnly = (roles: readonly Role[]) => !roles.some((r) => (["samordnare", "avtalsansvarig", "chef", "admin"] as Role[]).includes(r));
 const cap = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
 const clip = (s: string | null | undefined, n = 90) => (!s ? "" : s.length > n ? `${s.slice(0, n - 1)}…` : s);
 /** Datum utan år om det är innevarande år (prototypens fd). */
@@ -729,12 +735,16 @@ async function accessSourceFor(ctx: Ctx, cases: readonly Pick<Case, "id" | "pers
   };
 }
 
-/** Flaggor för rollen (prototypens alertsFor): coach och handledare ser aldrig eskaleringar till chef. */
+/**
+ * Flaggor för rollerna (prototypens alertsFor): coach och handledare ser aldrig eskaleringar till chef. Med flera roller:
+ * flaggan visas om någon av rollerna ser den (coachrollen utan eskaleringarna, chefsrollen med).
+ */
 function flagsFor(db: AlertDb, ctx: Ctx, env: DomainEnv): AlertItem[] {
-  const role = ctx.actor.role;
+  const { roles, userId } = ctx.actor;
   // Begränsade testare: inga flaggor om ofakturerat (belopp) eller interna mål (src/api/tester-access.ts).
-  const xs = alerts(db, { role, personaId: ctx.actor.userId, hideCommercial: hidesCommercial(ctx.actor) }, env);
-  return role === "coach" || role === "handledare" ? xs.filter((a) => !HIDE_FOR_TEAM.includes(a.kind)) : xs;
+  const xs = alerts(db, { role: roles, personaId: userId, hideCommercial: hidesCommercial(ctx.actor) }, env);
+  const team = (r: Role) => r === "coach" || r === "handledare";
+  return xs.filter((a) => roles.some((r) => alertForRole(a, r, userId) && !(team(r) && HIDE_FOR_TEAM.includes(a.kind))));
 }
 /**
  * "Fastnat i fas n" i kortets huvud, med kvitteringen från Min vecka eller listan (alert_acks, samma nyckel som flaggan:
@@ -759,8 +769,8 @@ async function customerUserIds(ctx: Ctx): Promise<Set<string>> {
 }
 
 /** Olästa meddelanden från kommunen till den inloggade (chef och systemadmin markerar inget som läst). */
-function unreadCount(msgs: readonly Message[], role: Role, me: string, fromCustomer: Set<string>): number {
-  if (READ_ONLY.includes(role)) return 0;
+function unreadCount(msgs: readonly Message[], roles: readonly Role[], me: string, fromCustomer: Set<string>): number {
+  if (readOnly(roles)) return 0;
   return msgs.filter((m) => fromCustomer.has(m.senderId) && !m.readBy.includes(me)).length;
 }
 
@@ -791,7 +801,8 @@ type Loaded = {
   env: DomainEnv;
   contract: Contract;
   today: string;
-  role: Role;
+  /** Alla roller (Karims beslut 7, 2026-10-09). */
+  roles: Role[];
   me: string;
   team: boolean;
   edit: boolean;
@@ -806,11 +817,11 @@ async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded
   const team = access === "team";
   if (tab && team && !(TEAM_TABS as readonly string[]).includes(tab)) return null;
   const { contract, cfg, env } = await envFor(ctx, c.contractId);
-  const role = ctx.actor.role;
+  const roles = ctx.actor.roles;
   const me = ctx.actor.userId;
   // Coachen arbetar i alla ärenden i avtalet (beslut 2026-10-09) – inte bara där hen är huvudcoach.
-  const edit = access === "full" && (isManager(role) || role === "coach");
-  return { c, access, cfg, env, contract, today: dayOf(env.now), role, me, team, edit };
+  const edit = access === "full" && (isManager(roles) || roles.includes("coach"));
+  return { c, access, cfg, env, contract, today: dayOf(env.now), roles, me, team, edit };
 }
 
 /** Tabeller för flaggorna (prototypens sel.alerts). */
@@ -821,7 +832,7 @@ const ALERT_TABLES = [
 
 // ---------------------------------------------------------------- arenden.lista
 handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel> => {
-  const role = ctx.actor.role;
+  const roles = ctx.actor.roles;
   const me = ctx.actor.userId;
   const db = await loadDb(ctx.repo, [...ALERT_TABLES, "memberships", "contract_areas", "messages", "persons"]);
   const src = await accessSourceFor(ctx, db.cases);
@@ -889,7 +900,7 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
         latest: latest ? { overallStatus: latest.overallStatus, heldAt: latest.heldAt } : null,
         attendance: summary(attendanceStats(db, c.id, w4.from, w4.to, { now: ctx.now() })),
         flags: flags.map((a) => flagView(a, c.id)),
-        unread: access === "full" ? unreadCount(msgsByCase.get(c.id) ?? [], role, me, fromCustomer) : 0,
+        unread: access === "full" ? unreadCount(msgsByCase.get(c.id) ?? [], roles, me, fromCustomer) : 0,
         levelName: levelNameOf(c.id),
         groupingIds: [...(groupingIdsOf.get(c.id) ?? [])],
       },
@@ -924,7 +935,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
   // restricted (vilande spärr för skyddade personuppgifter) behandlas som ingen åtkomst.
   if (access !== "full" && access !== "team") return { kind: "denied" };
   const L = (await loadCase(ctx, c.id))!;
-  const { cfg, env, role, me, team, edit } = L;
+  const { cfg, env, roles, me, team, edit } = L;
   const now = env.now;
   const byCase = { caseId: c.id };
   const db = await loadDb(ctx.repo, [...ALERT_TABLES, "case_team", "messages", "deviations", "consents", "contract_areas", "memberships"], {
@@ -944,7 +955,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
   const cons = consentOf(db, c.id);
   const due = firstMeetingDue(c, cfg);
   const active = c.status !== "closed" && c.status !== "declined";
-  const manage = isManager(role) && access === "full";
+  const manage = isManager(roles) && access === "full";
 
   // Kommunens roll för perspektivbytet (bara prototypen): beställande handläggare om hon är prototypens handläggare.
   // ctx.system: bara medlemskap och enhet för prototypens testpersoner.
@@ -954,7 +965,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     const ms = await ctx.system.table("memberships").list({ userId: def.personaId, role: def.key });
     if (!ms.length) continue;
     // Enheten bara från medlemskapet (som actorFor i src/data/actors.ts) – profilens enhet skriver handläggaren själv.
-    const actor = { userId: def.personaId, role: def.key, contractIds: ms.map((m) => m.contractId), customerUnit: ms[0].customerUnit ?? null };
+    const actor: Actor = { userId: def.personaId, roles: [def.key], contractIds: ms.map((m) => m.contractId), customerUnit: ms[0].customerUnit ?? null };
     if (caseAccessIn(c, actor, src) === "customer") {
       customerRole = "kommun_handlaggare";
       break;
@@ -972,7 +983,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     access,
     edit,
     manage,
-    readOnly: READ_ONLY.includes(role),
+    readOnly: readOnly(roles),
     status: c.status,
     phase: c.phase,
     phaseName: phaseName(cfg, c.phase),
@@ -998,7 +1009,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     contactLabel: !person ? null : contactLabel(person.preferredContact),
     contactMissing: !!person && !hasContactDetails(person),
     // Ändra kontaktväg (coachmötet 2026-10-09): samordnare, avtalsansvarig, coach och admin med full åtkomst.
-    contact: person && access === "full" && (CONTACT_EDITORS as readonly string[]).includes(role)
+    contact: person && access === "full" && roles.some((r) => (CONTACT_EDITORS as readonly string[]).includes(r))
       ? { preferredContact: person.preferredContact, phone: person.phone, email: person.email }
       : null,
     languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
@@ -1019,7 +1030,7 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     myTeamRoleLabel: myTeam && myTeam.role !== "lead_coach" ? teamLabel(myTeam.role) : null,
     location: c.location,
     flags,
-    unread: READ_ONLY.includes(role) || team ? 0 : unreadCount(db.messages, role, me, fromCustomer),
+    unread: readOnly(roles) || team ? 0 : unreadCount(db.messages, roles, me, fromCustomer),
     openDeviations: db.deviations.filter((x) => x.status === "open").length,
     consent: team ? null : {
       value: c.aiConsentStatus === "not_applicable" ? "not_asked" : c.aiConsentStatus || "not_asked",
@@ -1186,7 +1197,7 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
 handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTimeline | null> => {
   const L = await loadCase(ctx, p.caseId, "tidslinje");
   if (!L) return null;
-  const { c, cfg, env, team, role, me, access } = L;
+  const { c, cfg, env, team, roles, me, access } = L;
   const q = { caseId: c.id };
   const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles"], {
     persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q,
@@ -1196,7 +1207,7 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
     : await loadDb(ctx.repo, ["check_ins", "intake_assessments", "monthly_assessments", "deviations", "consents", "reports", "messages", "organizations"], {
         check_ins: q, intake_assessments: q, monthly_assessments: q, deviations: q, consents: q, reports: q, messages: q, organizations: { kind: "customer" },
       });
-  return buildTimeline({ cases: [c], ...base, ...fullDb }, { caseId: c.id, viewer: { access, role, userId: me }, cfg, now: env.now, visa: p.visa, fore: p.fore });
+  return buildTimeline({ cases: [c], ...base, ...fullDb }, { caseId: c.id, viewer: { access, roles, userId: me }, cfg, now: env.now, visa: p.visa, fore: p.fore });
 });
 
 // ---------------------------------------------------------------- Fria anteckningar (case_notes)
@@ -1238,12 +1249,12 @@ handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
 handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const L = await loadCase(ctx, p.caseId, "tidslinje");
   if (!L) return fail("not_found", NOT_FOUND);
-  const { c, me, role, access } = L;
+  const { c, me, roles, access } = L;
   const table = ctx.repo.table("case_notes");
   const cur = await table.get(p.noteId);
   if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
   // Författaren, och samordnare och avtalsansvarig med full åtkomst i ärendet (beslut 2026-10-01). Inget raderas på riktigt.
-  if (cur.authorId !== me && !(isManager(role) && access === "full")) {
+  if (cur.authorId !== me && !(isManager(roles) && access === "full")) {
     return fail("not_author", "Bara den som skrev anteckningen, samordnaren och avtalsansvarig kan ta bort den.");
   }
   await table.update(cur.id, { removedAt: ctx.now(), removedBy: me });
@@ -1259,7 +1270,7 @@ handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
 handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseMonthBasis | null> => {
   const L = await loadCase(ctx, p.caseId, "manad");
   if (!L) return null;
-  const { c, cfg, contract, today, role } = L;
+  const { c, cfg, contract, today, roles } = L;
   const now = ctx.now();
   const current = monthKey(today);
   const q = { caseId: c.id };
@@ -1323,7 +1334,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
     gaps, doc,
     delivered: del ? { reportId: del.id, deliveredAt: del.deliveredAt as string, version: del.version || 1, correctionDraft: pending ? pending.version : null } : null,
     reportId: row?.id ?? null,
-    canAssess: role === "coach",
+    canAssess: roles.includes("coach"),
   };
 });
 
@@ -1477,7 +1488,7 @@ handleQuery(caseTimelineText, { roles: CASE_ROLES }, async (ctx, p): Promise<Tim
     const x = await messageContext(ctx, L);
     const row = messageRowOf(m, x);
     // Oläst av den som tittar: bara kommunens meddelanden och bara för den som arbetar i ärendet (chef och admin läser utan kvitto).
-    const unreadByMe = !row.mine && CASE_WORKERS.includes(L.role) && !m.readBy.includes(L.me);
+    const unreadByMe = !row.mine && L.roles.some((r) => CASE_WORKERS.includes(r)) && !m.readBy.includes(L.me);
     return { kind: "message", senderName: row.senderName, orgName: row.orgName, createdAt: row.createdAt, meetingRequest: row.meetingRequest, body: row.body, readText: row.readText, unreadByMe };
   }
   const ci = await ctx.repo.table("check_ins").get(rawId);
@@ -1519,14 +1530,14 @@ type LogEntry = { id: string; occurredAt: string; actorId: string | null; action
 handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHistory | null> => {
   const L = await loadCase(ctx, p.caseId, "historik");
   if (!L) return null;
-  const { c, role, me, today } = L;
+  const { c, roles, me, today } = L;
   const q = { caseId: c.id };
   const db = await loadDb(ctx.repo, ["case_status_history", "profiles", "reports", "check_ins", "monthly_assessments", "intake_assessments", "messages", "attendance"], {
     case_status_history: q, reports: q, check_ins: q, monthly_assessments: q, intake_assessments: q, messages: q, attendance: q,
   });
   const name = (id: string | null | undefined) => personName(db.profiles, id);
   // Coach och handledare ser bara statushistoriken och sina egna åtgärder – aldrig andras poster (t.ex. vem som öppnat kortet).
-  const ownOnly = role === "coach" || role === "handledare";
+  const ownOnly = teamOnly(roles);
   const repIds = new Set(db.reports.map((r) => r.id));
   // Revisionsloggen läses via ctx.repo: behörigheten (policyn/RLS) avgör vilka poster rollen ser.
   const audit = (await ctx.repo.table("audit_log").list({ contractId: c.contractId })).filter(

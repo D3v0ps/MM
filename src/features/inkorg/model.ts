@@ -75,9 +75,11 @@ const VIEW_ROLES: Record<ViewId, readonly Role[]> = {
   "eko.korning": ["ekonom"],
   notiser: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "ekonom", "admin"],
 };
-export const canOpen = (view: ViewId, role: Role): boolean => VIEW_ROLES[view].includes(role);
-/** Sökvägen om rollen kan öppna vyn, annars null. */
-export const hrefFor = (link: ViewLink | null | undefined, role: Role): string | null => (link && canOpen(link.view, role) ? linkHref(link) : null);
+/** Kan rollen – eller någon av rollerna (Karims beslut 7, 2026-10-09) – öppna vyn? */
+export const canOpen = (view: ViewId, role: Role | readonly Role[]): boolean =>
+  (typeof role === "string" ? [role] : role).some((r) => VIEW_ROLES[view].includes(r));
+/** Sökvägen om rollen (någon av rollerna) kan öppna vyn, annars null. */
+export const hrefFor = (link: ViewLink | null | undefined, role: Role | readonly Role[]): string | null => (link && canOpen(link.view, role) ? linkHref(link) : null);
 
 // ---------------------------------------------------------------- Personnummer
 const PNR_RE = /\b((?:19|20)\d{6}|\d{6})([-+])(\d{4})\b/g;
@@ -244,8 +246,8 @@ export async function visibleCaseIds(ctx: Ctx, e: InboxEnv): Promise<Set<string>
   return new Set((await ctx.repo.table("cases").list({ contractId: e.contract.id })).map((c) => c.id));
 }
 
-export function alertItems(ops: OpsDb, e: InboxEnv, actor: { role: Role; userId: string }, visible: Set<string>, includeAcked = false): AlertItem[] {
-  return computeAlerts(ops, { role: actor.role, personaId: actor.userId, includeAcked, hideCommercial: e.hideCommercial }, e.env).filter((a) => !a.caseId || visible.has(a.caseId));
+export function alertItems(ops: OpsDb, e: InboxEnv, actor: { roles: readonly Role[]; userId: string }, visible: Set<string>, includeAcked = false): AlertItem[] {
+  return computeAlerts(ops, { role: actor.roles, personaId: actor.userId, includeAcked, hideCommercial: e.hideCommercial }, e.env).filter((a) => !a.caseId || visible.has(a.caseId));
 }
 
 /** Förfallotider som användaren ser. Begränsade testare: utan fakturakörningen (ekonomens interna mål, länk till Ekonomi). */
@@ -283,7 +285,7 @@ function escalationStep(x: DeadlineItem, chain: readonly string[], now: string):
   return Math.min(chain.length - 1, hours > 24 ? 2 : 1);
 }
 
-export function deadlineRow(x: DeadlineItem, ops: OpsDb, e: InboxEnv, role: Role): DeadlineRow {
+export function deadlineRow(x: DeadlineItem, ops: OpsDb, e: InboxEnv, role: Role | readonly Role[]): DeadlineRow {
   const o = ownerOf(x, ops, e);
   const chain = CHAIN[o.chain] ?? CHAIN.samordnare;
   const c = x.caseId ? ops.cases.find((y) => y.id === x.caseId) ?? null : null;

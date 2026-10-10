@@ -124,7 +124,7 @@ export async function liveSession(): Promise<LiveSession> {
 }
 
 /** Deltagaren via pulslänk – ingen inloggning, inga avtal. Databasen ser rollen anon (bara hanterarnas systemsteg). */
-const PARTICIPANT: Actor = { userId: PARTICIPANT_USER_ID, role: "deltagare", contractIds: [], customerUnit: null };
+const PARTICIPANT: Actor = { userId: PARTICIPANT_USER_ID, roles: ["deltagare"], contractIds: [], customerUnit: null };
 
 export function ctxFor(s: LiveSession): Ctx {
   const system: AppRepo = appRepo(s.service);

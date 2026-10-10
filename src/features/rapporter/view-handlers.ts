@@ -2,7 +2,7 @@
 // Registreras via handlers.ts – importeras aldrig av skärmar. Datainläsning och behörighet: load.ts (med kommentarer
 // om när ctx.system används).
 import { fail, ok } from "@/api/contract";
-import { isCustomerRole, type Role } from "@/api/roles";
+import { hasRole, isCustomerActor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
@@ -74,7 +74,7 @@ function nextStep(r: Report, ma: MonthlyAssessment | null, pend: Report | null):
 /** Rapporten och ärendet via ctx.system (för att kunna säga varför rapporten inte visas – aldrig innehållet). */
 async function reportAndCase(ctx: Ctx, id: string): Promise<{ r: Report; c: Case | null } | null> {
   const r = await ctx.system.table("reports").get(id);
-  if (!r || (ctx.actor.role !== "admin" && !ctx.actor.contractIds.includes(r.contractId))) return null;
+  if (!r || (!hasRole(ctx.actor, "admin") && !ctx.actor.contractIds.includes(r.contractId))) return null;
   const c = r.caseId ? await ctx.system.table("cases").get(r.caseId) : null;
   return { r, c };
 }
@@ -87,7 +87,9 @@ const monthlyAssessmentOf = async (ctx: Ctx, r: Report): Promise<MonthlyAssessme
 
 // ================================================================ Rapportlistan
 handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> => {
-  const { role, userId } = ctx.actor;
+  const { roles, userId } = ctx.actor;
+  // Bara coach bland listans roller: coachens egna rapporter. Med samordnare, avtalsansvarig eller chef: alla (Karims beslut 7).
+  const coachOnly = roles.includes("coach") && !roles.some((r) => r !== "coach" && LIST_ROLES.includes(r));
   const now = ctx.now();
   // Avtalet där rapporterna hanteras (ett nytt avtal i utkast har inga rapporter än).
   const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
@@ -102,7 +104,7 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
   ]);
   const caseMap = new Map(cases.map((c) => [c.id, c]));
   const viewer = await viewerFor(ctx, cases);
-  const myCases = role === "coach" ? cases.filter((c) => c.leadCoachId === userId) : [];
+  const myCases = coachOnly ? cases.filter((c) => c.leadCoachId === userId) : [];
   const hasCaseIn = (r: Report) =>
     myCases.some((c) => c.referrerId === r.recipientUserId && c.startDate && c.startDate <= (r.periodEnd ?? "") && (!c.endDate || c.endDate >= (r.periodStart ?? "")));
   const monthlyCaseIds = [...new Set(reports.filter((r) => r.kind === "monthly" && r.caseId).map((r) => r.caseId as string))];
@@ -119,8 +121,8 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
     if (r.superseded || !(REPORT_LIST_KINDS as readonly string[]).includes(r.kind)) continue;
     const c = r.caseId ? caseMap.get(r.caseId) ?? null : null;
     if (r.caseId && !c) continue; // ärendet syns inte för rollen
-    if (role === "coach" && (c ? c.leadCoachId !== userId : !(r.kind === "weekly_attendance" && hasCaseIn(r)))) continue;
-    if (r.kind === "customer_summary" && role === "coach") continue;
+    if (coachOnly && (c ? c.leadCoachId !== userId : !(r.kind === "weekly_attendance" && hasCaseIn(r)))) continue;
+    if (r.kind === "customer_summary" && coachOnly) continue;
     const who = c ? `${c.caseNumber} · ${viewer.name(c)}` : `Till ${personName(profiles, r.recipientUserId)}`;
     const sub = r.kind === "final" || r.kind === "order_confirmation" ? `${who} · ${periodText(r)}` : r.kind === "weekly_attendance" && r.week ? `${who} · ${fmtWeekRange(r.week)}` : who;
     const title = reportTitle(r);
@@ -139,7 +141,7 @@ handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> 
   const months: string[] = [];
   for (let mk = monthKey(now); mk >= monthKey(info.contract.startsOn); mk = addMonths(mk, -1)) months.push(mk);
   return {
-    rows, coach: role === "coach", customerName: info.customerName, contractNumber: info.contract.contractNumber, months, weekEnd: weekEndOf(now),
+    rows, coach: coachOnly, customerName: info.customerName, contractNumber: info.contract.contractNumber, months, weekEnd: weekEndOf(now),
     emailAttachmentAllowed: info.cfg.reportDelivery.emailAttachmentAllowed,
   };
 });
@@ -188,14 +190,14 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
       const pub = info.cfg.sla.find((x) => x.key === "veckorapport_publicering");
       const pubTime = pub?.time || "16:00";
       const pubDay = WEEKDAYS[pub?.weekday ?? 0];
-      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerRole(ctx.actor.role), pubTime, pubDay };
+      return { ...base, kind: "weekly_attendance", m: rest, sections: visible, total: sections.length, customer: isCustomerActor(ctx.actor), pubTime, pubDay };
     }
   }
 }
 
 handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<ReportDocResult> => {
   const found = await reportAndCase(ctx, p.reportId);
-  const customer = isCustomerRole(ctx.actor.role);
+  const customer = isCustomerActor(ctx.actor);
   if (!found) return { ok: false, reason: "not_found", title: "Rapporten finns inte", caseId: null, caseNumber: null };
   const req = found.r;
   let { r, c } = found;
@@ -241,7 +243,7 @@ handleQuery(reportDocument, { roles: VIEW_ROLES }, async (ctx, p): Promise<Repor
 // Samma behörighet som reportDocument för exakt den rapport som laddas ned (ingen omdirigering till en annan version –
 // skärmen skickar id:t på dokumentet den visar). Loggen innehåller bara id, typ, version och period.
 handleCommand(reportDownload, { roles: VIEW_ROLES, silent: true }, async (ctx, p) => {
-  const customer = isCustomerRole(ctx.actor.role);
+  const customer = isCustomerActor(ctx.actor);
   const found = await reportAndCase(ctx, p.reportId);
   if (!found || !hasDocument(found.r.kind)) return fail("not_found", DENIED.not_found[0]);
   const { r, c } = found;
@@ -263,8 +265,9 @@ handleCommand(reportDownload, { roles: VIEW_ROLES, silent: true }, async (ctx, p
 });
 
 // ================================================================ Rapportsidan (Miljonbemanning)
-function idleText(r: Report, role: Role, step: Step, coachName: string | null): string | null {
-  if (role === "chef" || role === "handledare") return "Du kan läsa rapporten. Coach, samordnare och avtalsansvarig hanterar godkännande och leverans.";
+function idleText(r: Report, roles: readonly Role[], step: Step, coachName: string | null): string | null {
+  // Bara läsare (chef, den vilande rollen handledare) – ingen av rollerna hanterar rapporten.
+  if (!roles.some((x) => x === "coach" || x === "samordnare" || x === "avtalsansvarig")) return "Du kan läsa rapporten. Coach, samordnare och avtalsansvarig hanterar godkännande och leverans.";
   if (step.key === "blocked" || step.key === "correcting") return null;
   if (step.key === "registration") return "Rapporten publiceras automatiskt när coacherna har registrerat närvaron.";
   if (step.key === "approval") {
@@ -286,8 +289,9 @@ const LEAD: Partial<Record<Report["kind"], string>> = {
 };
 
 handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<ReportView | ReportViewDenied> => {
-  const role = ctx.actor.role;
-  const listCrumb = LIST_ROLES.includes(role);
+  const roles = ctx.actor.roles;
+  const has = (r: Role) => roles.includes(r);
+  const listCrumb = roles.some((r) => LIST_ROLES.includes(r));
   const found = await reportAndCase(ctx, p.reportId);
   if (!found) return { ok: false, reason: "not_found", title: "Rapport", listCrumb, caseId: null, caseNumber: null };
   const { r, c } = found;
@@ -315,14 +319,14 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
   // Knapparna (prototypens StatusCard)
   const approvable = (r.status === "draft" || r.status === "reviewed") && !r.superseded;
   const canApprove = approvable && step.key === "approval" &&
-    (((r.kind === "monthly" || r.kind === "final") && role === "coach" && lead) || ((r.kind === "order_confirmation" || r.kind === "weekly_attendance") && (role === "samordnare" || role === "avtalsansvarig")));
+    (((r.kind === "monthly" || r.kind === "final") && has("coach") && lead) || ((r.kind === "order_confirmation" || r.kind === "weekly_attendance") && (has("samordnare") || has("avtalsansvarig"))));
   const deliverRoles: readonly Role[] = r.kind === "customer_summary" ? ["avtalsansvarig", "samordnare"] : ["coach", "samordnare", "avtalsansvarig"];
-  const roleOk = deliverRoles.includes(role) && (role !== "coach" || lead);
+  const roleOk = deliverRoles.some((x) => has(x) && (x !== "coach" || lead));
   const weeklyReady = r.kind === "weekly_attendance" && r.status === "waiting" && !!r.recipientUserId && !!r.week && (await weeklyComplete(ctx, r.contractId, r.recipientUserId, r.week));
   const textOk = r.kind !== "final" || hasRecommendation(r);
   const actions = {
     approve: canApprove,
-    quality: role === "samordnare" && !r.superseded && (r.status === "reviewed" || r.status === "approved") && !r.qualityReviewedAt,
+    quality: has("samordnare") && !r.superseded && (r.status === "reviewed" || r.status === "approved") && !r.qualityReviewedAt,
     deliver: roleOk && !r.superseded && textOk && (r.status === "approved" || weeklyReady),
     correct: roleOk && !r.superseded && !pend && ["approved", "delivered", "opened"].includes(r.status),
   };
@@ -345,7 +349,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
     waiting = {
       regDay: d("veckorapport_registrering"), regTime: t("veckorapport_registrering", "10:00"), pubDay: d("veckorapport_publicering"), pubTime: t("veckorapport_publicering", "16:00"),
       byCoach: [...byCoach.entries()].map(([coachId, items]) => ({ coach: `${pname(coachId)}: ${items.length} ${items.length === 1 ? "tillfälle" : "tillfällen"} saknas`, items })),
-      canRegister: role === "coach",
+      canRegister: has("coach"),
     };
   }
 
@@ -354,7 +358,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
   if (r.kind === "final" && ["draft", "reviewed", "approved"].includes(r.status) && !r.superseded && !(r.status === "approved" && hasRecommendation(r))) {
     const lastCi = c ? lastApprovedCheckIn(db, c.id, r.periodStart || c.startDate || "", r.periodEnd || dayOf(now)) : null;
     finalText = {
-      canEdit: (role === "coach" && lead) || role === "samordnare",
+      canEdit: (has("coach") && lead) || has("samordnare"),
       obstacles: r.finalText?.obstacles || obstaclesText(lastCi?.obstacles) || "",
       recommendation: r.finalText?.recommendation || "",
     };
@@ -364,7 +368,7 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
   let summary: ReportView["summary"] = null;
   if (r.kind === "customer_summary" && (r.status === "draft" || r.status === "reviewed") && !r.superseded) {
     const m = reportModel(db, r, env) as SummaryModel | null;
-    summary = { suggestion: m ? summaryFromNumbers(m) : "", text: r.summary || "", canApprove: role === "avtalsansvarig", manager: pname(info.contract.contractManagerId) };
+    summary = { suggestion: m ? summaryFromNumbers(m) : "", text: r.summary || "", canApprove: has("avtalsansvarig"), manager: pname(info.contract.contractManagerId) };
   }
 
   const pendingOf = (v: Report) => {
@@ -399,8 +403,8 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
     missingRecommendation: r.kind === "final" && r.status === "approved" && !hasRecommendation(r),
     pendingCorrection: pend ? { id: pend.id, version: pend.version } : null,
     actions,
-    idleText: actions.approve || actions.quality || actions.deliver || actions.correct ? null : idleText(r, role, step, c ? pname(c.leadCoachId) : null),
-    drift: driftedSinceDelivery(db, r, env) ? { canCorrect: role === "coach" || role === "samordnare" || role === "avtalsansvarig" } : null,
+    idleText: actions.approve || actions.quality || actions.deliver || actions.correct ? null : idleText(r, roles, step, c ? pname(c.leadCoachId) : null),
+    drift: driftedSinceDelivery(db, r, env) ? { canCorrect: has("coach") || has("samordnare") || has("avtalsansvarig") } : null,
     waiting, finalText, summary,
     slaHidden: r.kind === "customer_summary" && !info.cfg.customerVisibility.seesSlaStats,
     delivery: outside
@@ -454,7 +458,8 @@ handleCommand(reportSaveFinal, { roles: ["coach", "samordnare"] }, async (ctx, p
   if (!r) return fail("not_found", NOT_FOUND);
   const c = r.caseId ? await ctx.repo.table("cases").get(r.caseId) : null;
   // Coachen skriver i alla ärenden i avtalet (beslut 2026-10-09) – full åtkomst = personen läsbar (canEditCase).
-  if (ctx.actor.role === "coach" && (!c || !(await canEditCase(ctx, c)))) return fail("forbidden", "Coachen skriver kvarstående hinder och rekommenderad fortsättning innan slutrapporten godkänns.");
+  // Samordnaren skriver alltid; coachen (utan rollen samordnare) bara där hen får ändra ärendet.
+  if (!hasRole(ctx.actor, "samordnare") && (!c || !(await canEditCase(ctx, c)))) return fail("forbidden", "Coachen skriver kvarstående hinder och rekommenderad fortsättning innan slutrapporten godkänns.");
   if (isDelivered(r) || r.superseded) return fail("delivered", "Rapporten är redan levererad. Rätta rapporten om texten ska ändras.");
   const recommendation = p.recommendation.trim();
   if (!recommendation) return fail("recommendation", "Skriv en rekommenderad fortsättning. Den behövs innan rapporten kan godkännas.");

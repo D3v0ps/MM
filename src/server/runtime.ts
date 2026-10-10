@@ -41,17 +41,17 @@ export const DEV_TESTER_ID = /^[a-z0-9-]{1,60}$/;
 /**
  * Minnesläget: vald testperson i en kaka (utvecklingsläget). Null i supabase-läget – där gäller inloggningen.
  * Kakan är "userId|role" eller "userId|role|testerId": med testerId simuleras en testare i testmiljön (e2e för
- * src/api/tester-access.ts). Utan testerId är minnesläget oförändrat.
+ * src/api/tester-access.ts). Utan testerId är minnesläget oförändrat. Rollen i kakan väljer inget sedan Karims beslut 7
+ * (2026-10-09): testpersonen har alla sina roller samtidigt.
  */
 export async function currentPersona(): Promise<Persona | null> {
   if (BACKEND !== "memory") return null;
   const rt = memoryRuntime();
   const jar = await cookies();
   const v = jar.get(PERSONA_COOKIE)?.value;
-  const [userId, role, testerId] = (v ?? "").split("|");
+  const [userId, , testerId] = (v ?? "").split("|");
   const all = listPersonas(rt.raw());
-  // Tom roll i kakan (POST /api/dev-session utan roll): den valda rollen (role_choices), annars medlemskapet med lägst id.
-  const persona = (userId ? personaFor(rt.raw(), userId, (role || undefined) as never) : null) ?? all[0] ?? null;
+  const persona = (userId ? personaFor(rt.raw(), userId) : null) ?? all[0] ?? null;
   if (!persona || !testerId || !DEV_TESTER_ID.test(testerId)) return persona;
   return { ...persona, actor: { ...persona.actor, testerId } };
 }

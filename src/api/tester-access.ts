@@ -40,10 +40,13 @@ export function hidesCommercial(actor: Pick<Actor, "testerId"> | null | undefine
 export const MONEY_ROLES: readonly Role[] = ["ekonom"];
 /** true = rollen får se belopp om aktören inte är en begränsad testare (samma regel som hidesMoney, för kod utan Actor). */
 export const moneyVisible = (role: Role | string, hideCommercial: boolean): boolean => (MONEY_ROLES as readonly string[]).includes(role) && !hideCommercial;
-/** true = belopp i kronor ska tas bort i svaret till aktören (alla utom ekonomen, och alltid för begränsade testare). */
-export function hidesMoney(actor: Pick<Actor, "testerId" | "role"> | null | undefined): boolean {
+/**
+ * true = belopp i kronor ska tas bort i svaret till aktören: den som inte har rollen ekonom, och alltid begränsade testare.
+ * Den som har rollen ekonom ser beloppen alltid – också med andra roller samtidigt (Karims beslut 7, 2026-10-09).
+ */
+export function hidesMoney(actor: Pick<Actor, "testerId" | "roles"> | null | undefined): boolean {
   if (!actor) return true;
-  return !moneyVisible(actor.role, hidesCommercial(actor));
+  return !actor.roles.some((r) => moneyVisible(r, hidesCommercial(actor)));
 }
 /** Texten där ett belopp annars hade stått, för andra roller än ekonomen. */
 export const MONEY_HIDDEN_TEXT = "Visas bara för ekonomen";
@@ -70,6 +73,6 @@ export const isTesterHiddenPath = (p: string): boolean => TESTER_HIDDEN_PATHS.so
  * agerar som en ekonom nekas allt utom sessionens egna frågor (menyns räknare) – byte av testperson går via
  * /api/session/impersonate och påverkas inte.
  */
-export function testerRoleBlocks(actor: Pick<Actor, "testerId" | "role">, key: string): boolean {
-  return hidesCommercial(actor) && roleHiddenFromTesters(actor.role) && !key.startsWith("session.");
+export function testerRoleBlocks(actor: Pick<Actor, "testerId" | "roles">, key: string): boolean {
+  return hidesCommercial(actor) && actor.roles.some(roleHiddenFromTesters) && !key.startsWith("session.");
 }

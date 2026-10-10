@@ -53,12 +53,17 @@
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
 //
+// Alla roller samtidigt (Karims beslut 7, 2026-10-09, migration 0034): reglerna nedan är skrivna för EN roll (RoleActor – rollen
+// med sina egna avtal). Den som har flera roller får läsa eller skriva en rad om NÅGON av rollerna får det (POLICIES längst ned
+// prövar regeln för varje roll i roleActors och tar unionen) – summan av rollerna, aldrig mer. Samma union i RLS
+// (mm.current_roles, mm.contracts_as, mm.case_ids_as …).
+//
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
 // ljudfilernas rader via ctx.audio, bilagornas rader via ctx.attachments, självregistreringens profil och medlemskap) körs via
 // ctx.system (service role) och passerar inte policyn.
-import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
-import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
+import { isCustomerRole, isSupplierRole, roleActors, type Actor, type Role, type RoleActor } from "@/api/roles";
+import { canSeeNotes, canSeePerson, caseAccessAs, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
 import type { Case, Report, TableName, Tables } from "./schema";
@@ -88,12 +93,12 @@ const BILLING_READERS: readonly Role[] = ["ekonom", "chef", "avtalsansvarig", "a
 /** Läser gruppaktiviteterna (0030): Miljonbemanning utom ekonomen. Skriver: CASE_WORKERS. */
 const GROUP_ACTIVITY_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
 
-const isMB = (a: Actor) => isSupplierRole(a.role);
-const isKom = (a: Actor) => isCustomerRole(a.role);
-const has = (roles: readonly Role[], a: Actor) => roles.includes(a.role);
-const self = (a: Actor, userId: string | null | undefined) => !!userId && userId === a.userId;
+const isMB = (a: RoleActor) => isSupplierRole(a.role);
+const isKom = (a: RoleActor) => isCustomerRole(a.role);
+const has = (roles: readonly Role[], a: RoleActor) => roles.includes(a.role);
+const self = (a: RoleActor, userId: string | null | undefined) => !!userId && userId === a.userId;
 /** Medlem i avtalet (admin: alla avtal). */
-const member = (a: Actor, contractId: string | null | undefined) => a.role === "admin" || (!!contractId && a.contractIds.includes(contractId));
+const member = (a: RoleActor, contractId: string | null | undefined) => a.role === "admin" || (!!contractId && a.contractIds.includes(contractId));
 const exists = <N extends TableName>(raw: Raw, name: N, id: string) => raw.get(name, id) !== undefined;
 
 // ---------------------------------------------------------------- Uppslag (index byggs om vid ändring och nollställs efter varje synkron körning)
@@ -134,9 +139,9 @@ const sourceOf = (raw: Raw): AccessSource => ({
   contract: (id) => raw.get("contracts", id),
 });
 /** Åtkomst till ett ärende (raden själv – även en ny rad som inte sparats än). */
-const accessOfCase = (raw: Raw, a: Actor, c: Case): CaseAccess => caseAccess(c, a, lookupsFor(c, sourceOf(raw)));
+const accessOfCase = (raw: Raw, a: RoleActor, c: Case): CaseAccess => caseAccessAs(c, a, lookupsFor(c, sourceOf(raw)));
 /** Åtkomst till ärendet med ett visst id. */
-const accessTo = (raw: Raw, a: Actor, caseId: string | null | undefined): CaseAccess => {
+const accessTo = (raw: Raw, a: RoleActor, caseId: string | null | undefined): CaseAccess => {
   if (!caseId) return "none";
   const c = raw.get("cases", caseId);
   return c ? accessOfCase(raw, a, c) : "none";
@@ -144,15 +149,15 @@ const accessTo = (raw: Raw, a: Actor, caseId: string | null | undefined): CaseAc
 
 // ---------------------------------------------------------------- Återkommande regler
 /** Anteckningar och bedömningar: full eller team, aldrig ekonom eller kommunen. */
-const notesRead = (caseId: string, a: Actor, raw: Raw) => canSeeNotes(accessTo(raw, a, caseId), a.role);
+const notesRead = (caseId: string, a: RoleActor, raw: Raw) => canSeeNotes(accessTo(raw, a, caseId), a.role);
 /** Arbetar i ärendet: CASE_WORKERS med full- eller teamåtkomst. */
-const workOn = (caseId: string, a: Actor, raw: Raw) => {
+const workOn = (caseId: string, a: RoleActor, raw: Raw) => {
   if (!has(CASE_WORKERS, a)) return false;
   const acc = accessTo(raw, a, caseId);
   return acc === "full" || acc === "team";
 };
 /** Får ändra ärendet (och dess statushistorik och team). */
-function caseWrite(c: Case, a: Actor, raw: Raw): boolean {
+function caseWrite(c: Case, a: RoleActor, raw: Raw): boolean {
   const acc = accessOfCase(raw, a, c);
   if (a.role === "samordnare" || a.role === "avtalsansvarig") return acc === "full";
   if (a.role === "coach") return acc === "full" && exists(raw, "cases", c.id); // coachen skapar inga ärenden
@@ -160,14 +165,14 @@ function caseWrite(c: Case, a: Actor, raw: Raw): boolean {
   if (a.role === "kommun_handlaggare") return acc === "customer" && self(a, c.referrerId); // beställning och beställarens kontaktuppgifter
   return false;
 }
-const caseWriteById = (caseId: string, a: Actor, raw: Raw) => { const c = raw.get("cases", caseId); return !!c && caseWrite(c, a, raw); };
+const caseWriteById = (caseId: string, a: RoleActor, raw: Raw) => { const c = raw.get("cases", caseId); return !!c && caseWrite(c, a, raw); };
 /** Organisationer i aktörens avtal (leverantör och kund). */
-const orgsOf = (a: Actor, raw: Raw) => {
+const orgsOf = (a: RoleActor, raw: Raw) => {
   const out = new Set<string>();
   for (const id of a.contractIds) { const c = raw.get("contracts", id); if (c) { out.add(c.supplierId); out.add(c.customerId); } }
   return out;
 };
-const customersOf = (a: Actor, raw: Raw) => {
+const customersOf = (a: RoleActor, raw: Raw) => {
   const out = new Set<string>();
   for (const id of a.contractIds) { const c = raw.get("contracts", id); if (c) out.add(c.customerId); }
   return out;
@@ -181,11 +186,11 @@ const protectedCase = (raw: Raw, caseId: string | null | undefined): boolean => 
   const p = c ? raw.get("persons", c.personId) : undefined;
   return !p || p.protectedIdentity;
 };
-const adminOnly = <N extends TableName>(): RowPolicy<Tables, Tables[N]> => ({ read: (_r, a) => a.role === "admin", write: (_r, a) => a.role === "admin" });
+const adminOnly = <N extends TableName>(): RoleRule<Tables[N]> => ({ read: (_r, a) => a.role === "admin", write: (_r, a) => a.role === "admin" });
 const never = () => false;
 
 // ---------------------------------------------------------------- Rapporter
-function reportRead(r: Report, a: Actor, raw: Raw): boolean {
+function reportRead(r: Report, a: RoleActor, raw: Raw): boolean {
   if (!member(a, r.contractId)) return false;
   if (isMB(a)) {
     if (a.role === "ekonom") return false; // inga rapporter
@@ -216,13 +221,13 @@ function changedFields<T extends object>(cur: T, next: T): string[] {
   return [...keys].filter((k) => JSON.stringify(c[k] ?? null) !== JSON.stringify(n[k] ?? null));
 }
 /** Kommunens kvittens: bara openedAt/openedBy, en gång och i eget namn (samma som triggern reports_protect_columns, 0014). */
-function customerReceiptOnly(cur: Report, next: Report, a: Actor): boolean {
+function customerReceiptOnly(cur: Report, next: Report, a: RoleActor): boolean {
   const changed = changedFields(cur, next);
   if (changed.some((k) => k !== "openedAt" && k !== "openedBy")) return false;
   return !changed.length || (!cur.openedAt && !!next.openedAt && next.openedBy === a.userId);
 }
 /** Läskvitto: bara readBy/readAt, bara sig själv i readBy och readAt en gång (triggern messages_protect_columns, 0014). */
-function readReceiptOnly(cur: Tables["messages"], next: Tables["messages"], a: Actor): boolean {
+function readReceiptOnly(cur: Tables["messages"], next: Tables["messages"], a: RoleActor): boolean {
   const changed = changedFields(cur, next);
   if (changed.some((k) => k !== "readBy" && k !== "readAt")) return false;
   if (changed.includes("readBy") && (!cur.readBy.every((id) => next.readBy.includes(id)) || next.readBy.some((id) => !cur.readBy.includes(id) && id !== a.userId))) return false;
@@ -230,7 +235,7 @@ function readReceiptOnly(cur: Tables["messages"], next: Tables["messages"], a: A
   return true;
 }
 
-function reportWrite(r: Report, a: Actor, raw: Raw): boolean {
+function reportWrite(r: Report, a: RoleActor, raw: Raw): boolean {
   if (isKom(a)) {
     // Kommunen kvitterar bara (openedAt) – inga andra kolumner i en levererad rapport.
     const cur = raw.get("reports", r.id);
@@ -249,7 +254,7 @@ type VoiceNote = Tables["participant_voice_notes"];
  * Deltagarens röstmeddelanden: den som arbetar i ärendet (full/team, aldrig ekonom). Kommunen (åtkomst "customer") bara
  * granskade meddelanden och bara om avtalet säger det (customerVisibility.seesParticipantVoiceNotes).
  */
-function voiceNoteRead(x: VoiceNote, a: Actor, raw: Raw): boolean {
+function voiceNoteRead(x: VoiceNote, a: RoleActor, raw: Raw): boolean {
   if (isMB(a)) return notesRead(x.caseId, a, raw);
   if (!isKom(a) || x.status !== "reviewed" || accessTo(raw, a, x.caseId) !== "customer") return false;
   const c = raw.get("cases", x.caseId);
@@ -259,14 +264,14 @@ function voiceNoteRead(x: VoiceNote, a: Actor, raw: Raw): boolean {
  * Coachens granskning ändrar bara status, reviewedBy och reviewedAt – aldrig deltagarens text, språk eller samtycke – och
  * granskaren är den som ändrar (samma som triggern participant_voice_notes_protect_columns, 0015).
  */
-function reviewOnly(cur: VoiceNote, next: VoiceNote, a: Actor): boolean {
+function reviewOnly(cur: VoiceNote, next: VoiceNote, a: RoleActor): boolean {
   const changed = changedFields(cur, next);
   if (changed.some((k) => k !== "status" && k !== "reviewedBy" && k !== "reviewedAt")) return false;
   return !changed.includes("reviewedBy") || next.reviewedBy === null || next.reviewedBy === a.userId;
 }
 
 // ---------------------------------------------------------------- Meddelanden
-function messageRead(m: Tables["messages"], a: Actor, raw: Raw): boolean {
+function messageRead(m: Tables["messages"], a: RoleActor, raw: Raw): boolean {
   const acc = accessTo(raw, a, m.caseId);
   if (isMB(a)) return a.role !== "ekonom" && (acc === "full" || acc === "team");
   if (isKom(a)) return acc === "customer";
@@ -278,9 +283,9 @@ function messageRead(m: Tables["messages"], a: Actor, raw: Raw): boolean {
  * Den inloggade är testare i testmiljön (mm.auth_is_tester()). Bara servern sätter testerId – aldrig i produktion. I minnesläget
  * bara när en testare simuleras för e2e (POST /api/dev-session med testerId, src/server/runtime.ts).
  */
-const stagingTester = (a: Actor): a is Actor & { testerId: string } => typeof a.testerId === "string" && a.testerId !== "";
+const stagingTester = (a: RoleActor): a is RoleActor & { testerId: string } => typeof a.testerId === "string" && a.testerId !== "";
 /** I en synpunkt ändras bara status, statusChangedAt och statusChangedBy – i eget namn (triggern feedback_protect_columns, 0017). */
-function feedbackStatusOnly(cur: Tables["feedback"], next: Tables["feedback"], a: Actor & { testerId: string }): boolean {
+function feedbackStatusOnly(cur: Tables["feedback"], next: Tables["feedback"], a: RoleActor & { testerId: string }): boolean {
   const changed = changedFields(cur, next);
   if (changed.some((k) => k !== "status" && k !== "statusChangedAt" && k !== "statusChangedBy")) return false;
   return !changed.includes("statusChangedBy") || next.statusChangedBy === null || next.statusChangedBy === a.testerId;
@@ -293,7 +298,7 @@ const NOTE_FIXED = ["caseId", "contractId", "authorId", "createdAt"];
 /** Döljer andras anteckningar i avtalet (beslut 2026-10-01) – inom sin åtkomst, bara removedAt och removedBy. */
 const NOTE_REMOVERS: readonly Role[] = ["samordnare", "avtalsansvarig"];
 /** Läsare: notesRead (full eller team, aldrig ekonom eller kommunen) – och anteckningar för "full" bara med full åtkomst. */
-const noteAudienceOk = (x: Pick<CaseNoteRow, "caseId" | "audience">, a: Actor, raw: Raw) => x.audience === "team" || accessTo(raw, a, x.caseId) === "full";
+const noteAudienceOk = (x: Pick<CaseNoteRow, "caseId" | "audience">, a: RoleActor, raw: Raw) => x.audience === "team" || accessTo(raw, a, x.caseId) === "full";
 /**
  * Ny anteckning: den som arbetar i ärendet (workOn), i eget namn, i ärendets avtal, varken ändrad eller borttagen – och med
  * teamåtkomst bara audience "team". Ändring: författaren (texten och övriga fält, eller dölja sin egen) eller samordnare och
@@ -301,7 +306,7 @@ const noteAudienceOk = (x: Pick<CaseNoteRow, "caseId" | "audience">, a: Actor, r
  * och något måste ändras – det stoppar MemoryRepo.remove(), som anropar regeln med den befintliga raden (ingen hård
  * radering; Postgres har varken delete-policy eller delete-rättighet). Samma regler som policyerna och triggern i 0019.
  */
-function caseNoteWrite(x: CaseNoteRow, a: Actor, raw: Raw): boolean {
+function caseNoteWrite(x: CaseNoteRow, a: RoleActor, raw: Raw): boolean {
   const cur = raw.get("case_notes", x.id);
   if (!cur) {
     return workOn(x.caseId, a, raw) && self(a, x.authorId) && noteAudienceOk(x, a, raw)
@@ -325,7 +330,7 @@ const SAVED_FIXED = ["contractId", "ownerId", "createdAt"];
 const SAVED_SHARING = ["visibility", "sharedAt", "sharedBy", "archivedAt", "archivedBy"];
 const TEMPLATE_KEY = /^[a-z0-9-]{1,60}$/;
 
-function savedReportRead(x: SavedReportRow, a: Actor): boolean {
+function savedReportRead(x: SavedReportRow, a: RoleActor): boolean {
   return has(REPORT_BUILDERS, a) && member(a, x.contractId) && (self(a, x.ownerId) || x.visibility !== "private");
 }
 /** Tabellens kontroller (check i 0021): titelns längd, mallnyckeln, definitionen, delningen och paren. */
@@ -347,7 +352,7 @@ function savedReportShape(x: SavedReportRow): boolean {
  * shared_* ändras bara med delningen; den som inte är ägaren ändrar bara delningen och arkiveringen. Samma regler som
  * policyerna och triggern i 0021. Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen hård radering).
  */
-function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
+function savedReportWrite(x: SavedReportRow, a: RoleActor, raw: Raw): boolean {
   if (!has(REPORT_BUILDERS, a) || !member(a, x.contractId) || !savedReportShape(x)) return false;
   const cur = raw.get("saved_reports", x.id);
   if (!cur) {
@@ -395,7 +400,7 @@ function goalShape(goal: string | null | undefined): boolean {
  * raden är inte inställd; något ändras; avtal, skapare och skapad-tid ändras aldrig; ändrad och inställd i eget namn. Regeln
  * stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som policyerna och triggern i 0030.
  */
-function groupActivityWrite(x: GroupActivityRow, a: Actor, raw: Raw): boolean {
+function groupActivityWrite(x: GroupActivityRow, a: RoleActor, raw: Raw): boolean {
   if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !groupActivityShape(x)) return false;
   const cur = raw.get("group_activities", x.id);
   if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null;
@@ -429,7 +434,7 @@ function groupGoalConsistent(x: GroupGoalRow, raw: Raw): boolean {
  * ärende och avtal aldrig. Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som
  * policyerna och triggern i 0033.
  */
-function groupGoalWrite(x: GroupGoalRow, a: Actor, raw: Raw): boolean {
+function groupGoalWrite(x: GroupGoalRow, a: RoleActor, raw: Raw): boolean {
   if (!workOn(x.caseId, a, raw) || !member(a, x.contractId) || !self(a, x.setBy) || !groupGoalConsistent(x, raw)) return false;
   const cur = raw.get("group_goal_results", x.id);
   if (!cur) return true;
@@ -457,7 +462,7 @@ function groupingShape(x: GroupingRow): boolean {
   return (x.kind === "tag") === (x.category != null) && (x.category == null || (chars(x.category.trim()) >= 1 && chars(x.category.trim()) <= 60))
     && nameLen >= 1 && nameLen <= 80 && chars(x.description) <= 300 && pair(x.updatedAt, x.updatedBy) && pair(x.archivedAt, x.archivedBy);
 }
-function groupingWrite(x: GroupingRow, a: Actor, raw: Raw): boolean {
+function groupingWrite(x: GroupingRow, a: RoleActor, raw: Raw): boolean {
   if (!has(GROUPING_WRITERS, a) || !member(a, x.contractId) || !groupingShape(x)) return false;
   const cur = raw.get("groupings", x.id);
   if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.archivedAt == null;
@@ -483,7 +488,7 @@ function memberConsistent(x: GroupingMemberRow, raw: Raw, isNew: boolean): boole
  * (removedAt och removedBy i eget namn) ett aktivt medlemskap. Samma regler som policyerna och triggern i 0031. En unik
  * plats per ärende (en nivå, en tagg per kategori) sköts av UNIQUE_KEYS i schema.ts.
  */
-function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean {
+function groupingMemberWrite(x: GroupingMemberRow, a: RoleActor, raw: Raw): boolean {
   if (!has(GROUPING_MEMBER_WRITERS, a) || accessTo(raw, a, x.caseId) !== "full") return false;
   const cur = raw.get("grouping_members", x.id);
   if (!memberConsistent(x, raw, !cur)) return false;
@@ -494,7 +499,9 @@ function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean 
 }
 
 // ---------------------------------------------------------------- Tabellerna
-const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
+/** En regel för en roll i taget (RoleActor). */
+type RoleRule<T> = { read(row: T, a: RoleActor, raw: Raw): boolean; write?(row: T, a: RoleActor, raw: Raw): boolean };
+const RULES: { [N in TableName]: RoleRule<Tables[N]> } = {
   // ---- Avtal, organisationer, användare
   holidays: { read: () => true, write: (_r, a) => a.role === "admin" },
   organizations: {
@@ -777,8 +784,19 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   grouping_members: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: groupingMemberWrite },
 };
 
-export const POLICIES: Policies<Tables> = RULES;
+/** Unionen över aktörens roller: raden får läsas (skrivas) om någon av rollerna får det. */
+function unionOf<T>(rule: RoleRule<T>): RowPolicy<Tables, T & Tables[TableName]> {
+  return {
+    read: (row, actor, raw) => roleActors(actor).some((a) => rule.read(row, a, raw)),
+    write: (row, actor, raw) => !!rule.write && roleActors(actor).some((a) => rule.write!(row, a, raw)),
+  };
+}
+export const POLICIES: Policies<Tables> = Object.fromEntries(
+  Object.entries(RULES).map(([name, rule]) => [name, unionOf(rule as RoleRule<Tables[TableName]>)]),
+) as Policies<Tables>;
 
-/** För tester och hanterare som vill fråga utan att läsa: får aktören läsa raden? */
-export const canReadRow = <N extends TableName>(name: N, row: Tables[N], actor: Actor, raw: Raw): boolean => RULES[name].read(row, actor, raw);
-export const canWriteRow = <N extends TableName>(name: N, row: Tables[N], actor: Actor, raw: Raw): boolean => (RULES[name].write ?? never)(row, actor, raw);
+/** För tester och hanterare som vill fråga utan att läsa: får aktören läsa raden? (Någon av rollerna.) */
+export const canReadRow = <N extends TableName>(name: N, row: Tables[N], actor: Actor, raw: Raw): boolean =>
+  roleActors(actor).some((a) => RULES[name].read(row, a, raw));
+export const canWriteRow = <N extends TableName>(name: N, row: Tables[N], actor: Actor, raw: Raw): boolean =>
+  roleActors(actor).some((a) => (RULES[name].write ?? never)(row, a, raw));

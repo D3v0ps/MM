@@ -339,7 +339,8 @@ export type BuilderCatalog = {
   /** Månaderna som kan väljas (från avtalets start till innevarande månad), senaste först. */
   months: { value: string; label: string }[];
   maxMonths: number;
-  role: string;
+  /** Läsarens roller (Karims beslut 7, 2026-10-09). */
+  roles: string[];
 };
 export const builderCatalog = query("rapporter.byggKatalog", z.object({ contractId: IdSchema.optional() })).returns<BuilderCatalog>();
 

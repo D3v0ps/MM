@@ -27,7 +27,8 @@ export type TimelineDb = Pick<
   | "cases" | "persons" | "activities" | "attendance" | "check_ins" | "intake_assessments" | "monthly_assessments" | "outcome_events" | "placements" | "employers"
   | "case_status_history" | "deviations" | "consents" | "reports" | "messages" | "case_notes" | "profiles" | "organizations"
 >;
-export type TimelineViewer = { access: "full" | "team"; role: Role; userId: string };
+/** Den som tittar: åtkomsten (den högsta över rollerna) och alla roller (Karims beslut 7, 2026-10-09). */
+export type TimelineViewer = { access: "full" | "team"; roles: readonly Role[]; userId: string };
 export type TimelineOpts = {
   caseId: string;
   viewer: TimelineViewer;
@@ -121,7 +122,7 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
   const today = dayOf(now);
   const name = (id: string | null | undefined) => personName(db.profiles, id);
   const protectedCase = !!db.persons.find((p) => p.id === c.personId)?.protectedIdentity;
-  const canWrite = WRITERS.includes(viewer.role);
+  const canWrite = viewer.roles.some((r) => WRITERS.includes(r));
   const out: Draft[] = [];
   const push = (e: Omit<Draft, "sort"> & { sort?: string }) => out.push({ ...e, sort: e.sort ?? e.at });
   const endLimit = c.endDate && c.endDate < today ? c.endDate : today;
@@ -219,7 +220,7 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
     const who = protectedCase ? CASE_NOTE_PROTECTED_AUDIENCE : CASE_NOTE_AUDIENCE_LABEL[n.audience];
     const removed = n.removedAt ? { byName: name(n.removedBy), at: n.removedAt } : null;
     const canEdit = !removed && mine && canWrite && (n.audience === "team" || full);
-    const canRemove = !removed && (canEdit || (NOTE_REMOVERS.includes(viewer.role) && full));
+    const canRemove = !removed && (canEdit || (viewer.roles.some((r) => NOTE_REMOVERS.includes(r)) && full));
     const sub = removed
       ? `Borttagen av ${removed.byName} ${shortDate(removed.at, today)}`
       : `Skriven av ${name(n.authorId)} · ${who}${n.updatedAt ? ` · Ändrad ${shortDate(n.updatedAt, today)}` : ""}`;
@@ -273,7 +274,8 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
       if (x.revokedAt) push({ id: `cons-rev:${x.id}`, at: x.revokedAt, cat: "ovrigt", icon: "x-circle", title: "Samtycket återkallades" });
       if (x.declinedAt) push({ id: `cons-no:${x.id}`, at: x.declinedAt, cat: "ovrigt", icon: "minus-circle", title: "Deltagaren sa nej till inspelning" });
     }
-    if (viewer.role !== "handledare") {
+    // Den vilande rollen handledare (ensam) ser inga rapporter; med en annan roll ger den rollen rapporterna.
+    if (!viewer.roles.every((r) => r === "handledare")) {
       for (const r of db.reports.filter((x) => x.caseId === c.id && x.deliveredAt && !x.superseded)) {
         const v = (r.version || 1) > 1 ? ` · version ${r.version}` : "";
         const title =
@@ -305,7 +307,7 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
       .filter((e) => monthKey(e.at) === mk)
       .sort((a, b) => (a.sort === b.sort ? (a.id < b.id ? 1 : -1) : a.sort < b.sort ? 1 : -1))
       .map(({ sort, ...e }) => (void sort, e));
-    const st = full && viewer.role !== "handledare" && enrolledIn(c, mk) ? monthReportState(db.reports, c.id, mk) : null;
+    const st = full && !viewer.roles.every((r) => r === "handledare") && enrolledIn(c, mk) ? monthReportState(db.reports, c.id, mk) : null;
     months.push({ month: mk, report: st ? { id: st.latest?.id ?? null, statusLabel: monthReportStateLabel(st) } : null, entries });
   }
   const oldest = months.length ? months[months.length - 1].month : start;

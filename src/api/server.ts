@@ -9,7 +9,7 @@ import type { AudioPort } from "@/features/_shared/audio-port";
 import type { FortnoxPort } from "@/features/_shared/fortnox-port";
 import type { MessagingStatus } from "@/features/_shared/messaging-port";
 import type { CommandDef, QueryDef } from "./contract";
-import type { Actor, Role } from "./roles";
+import { hasAnyRole, type Actor, type Role } from "./roles";
 import { hidesCommercial, testerRoleBlocks, TESTER_HIDDEN_CODE, TESTER_HIDDEN_PAGE } from "./tester-access";
 
 /** Utskick (e-post/SMS/notis i appen). Innehåller aldrig personuppgifter – bara ärendenummer och länk. */
@@ -152,7 +152,8 @@ export class ApiError extends Error {
 export async function execute(kind: "query" | "command", key: string, input: unknown, ctx: Ctx): Promise<unknown> {
   const e = registry.get(key);
   if (!e || e.kind !== kind) throw new ApiError(404, "unknown_key", `Okänd ${kind === "query" ? "fråga" : "åtgärd"}: ${key}`);
-  if (e.roles && !e.roles.includes(ctx.actor.role)) throw new ApiError(403, "forbidden", "Din roll har inte behörighet till det här.");
+  // Någon av aktörens roller (Karims beslut 7, 2026-10-09: alla roller samtidigt).
+  if (e.roles && !hasAnyRole(ctx.actor, e.roles)) throw new ApiError(403, "forbidden", "Din roll har inte behörighet till det här.");
   // Begränsade testare (testmiljön): sidor om pengar och villkor nekas, och rollen ekonom får de inte agera som.
   if ((e.commercial && hidesCommercial(ctx.actor)) || testerRoleBlocks(ctx.actor, key)) throw new ApiError(403, TESTER_HIDDEN_CODE, TESTER_HIDDEN_PAGE);
   const parsed = e.schema.safeParse(input ?? {});

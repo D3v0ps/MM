@@ -1,8 +1,8 @@
 // Hanterare: session och diagnos.
 import { fail, ok } from "@/api/contract";
-import { CUSTOMER_ROLES, SUPPLIER_ROLES, type Role } from "@/api/roles";
+import { CUSTOMER_ROLES, hasAnyRole, SUPPLIER_ROLES, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { auditView, sessionPing, switchRole, VIEW_EVENTS, type ViewEvent } from "./api";
+import { auditView, sessionPing, VIEW_EVENTS, type ViewEvent } from "./api";
 import "./nav-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -26,7 +26,7 @@ const DENIED = () => fail("forbidden", "Visningen kunde inte loggas.");
  */
 async function contractFor(ctx: Ctx, action: ViewEvent, entityId: string | null): Promise<{ contractId: string | null } | null> {
   const a = ctx.actor;
-  const member = (contractId: string | null | undefined) => !!contractId && (a.role === "admin" || a.contractIds.includes(contractId));
+  const member = (contractId: string | null | undefined) => !!contractId && (a.roles.includes("admin") || a.contractIds.includes(contractId));
   const fallback = { contractId: a.contractIds[0] ?? null };
   switch (action) {
     case "case.view": {
@@ -55,7 +55,7 @@ async function contractFor(ctx: Ctx, action: ViewEvent, entityId: string | null)
     }
     case "export.audit_log":
     case "export.contract_deviations": {
-      if (!EXPORT_ROLES[action]?.includes(a.role)) return null;
+      if (!hasAnyRole(a, EXPORT_ROLES[action] ?? [])) return null;
       if (entityId && action === "export.audit_log") return member(entityId) ? { contractId: entityId } : null;
       return fallback;
     }
@@ -77,20 +77,4 @@ handleCommand(auditView, { roles: [...SUPPLIER_ROLES, ...CUSTOMER_ROLES], silent
   return ok({});
 });
 
-handleQuery(sessionPing, {}, (ctx) => ({ now: ctx.now(), role: ctx.actor.role, userId: ctx.actor.userId }));
-
-// ---------------------------------------------------------------- Rollväxling (beslut 2026-10-08)
-// Bara MB-personal och kommunens användare (deltagaren har inga medlemskap). Rollen måste finnas bland de egna medlemskapen –
-// policyn (RLS role_choices_insert/update) stoppar annars. Raden skrivs i eget namn via ctx.repo; id = userId (0027).
-handleCommand(switchRole, { roles: [...SUPPLIER_ROLES, ...CUSTOMER_ROLES] }, async (ctx, p) => {
-  const me = ctx.actor.userId;
-  const mine = await ctx.repo.table("memberships").list({ userId: me, role: p.role });
-  if (!mine.length) return fail("no_membership", "Du har inte den rollen.");
-  const table = ctx.repo.table("role_choices");
-  const cur = await table.get(me);
-  if (cur?.role === p.role && ctx.actor.role === p.role) return fail("unchanged", "Du har redan den rollen.");
-  if (cur) await table.update(me, { role: p.role, chosenAt: ctx.now() });
-  else await table.insert({ id: me, userId: me, role: p.role, chosenAt: ctx.now() });
-  await ctx.audit({ action: "role.switched", entity: "profile", entityId: me, contractId: mine[0].contractId, details: { role: p.role } });
-  return ok({ role: p.role });
-});
+handleQuery(sessionPing, {}, (ctx) => ({ now: ctx.now(), roles: ctx.actor.roles, userId: ctx.actor.userId }));

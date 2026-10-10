@@ -3,7 +3,7 @@
 // Behörigheten kontrolleras alltid först – ärendet och raderna läses via ctx.repo (policy.ts/RLS case_attachments, 0024);
 // raderna skrivs bara av porten (ctx.attachments, service role). Revisionsloggen får id, typ och storlek – aldrig filnamnet.
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { hasAnyRole, hasRole, type Role } from "@/api/roles";
 import { ApiError, handleCommand, type Ctx } from "@/api/server";
 import { caseAccessIn } from "@/core/access";
 import { base64ToBytes, bytesToBase64 } from "@/core/export/base64";
@@ -36,7 +36,8 @@ handleCommand(attachmentStart, { roles: ["kommun_handlaggare", ...MB_EDITORS] },
     const c = await ctx.repo.table("cases").get(p.caseId);
     if (!c) return fail("not_found", "Ärendet finns inte, eller så har du inte behörighet att se det.");
     const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
-    const allowed = ctx.actor.role === "kommun_handlaggare" ? access === "customer" && c.referrerId === me : access === "full";
+    // Någon av rollerna: beställande handläggare, eller Miljonbemanning med full åtkomst.
+    const allowed = (hasRole(ctx.actor, "kommun_handlaggare") && access === "customer" && c.referrerId === me) || (hasAnyRole(ctx.actor, MB_EDITORS) && access === "full");
     if (!allowed) return fail("forbidden", "Du kan inte bifoga filer i det här ärendet.");
     // ctx.system: antalet bilagor i ärendet (bara antal) – också sådana läsaren inte ser.
     const n = await ctx.system.table("case_attachments").count({ caseId: c.id, status: { neq: "deleted" } });
@@ -97,7 +98,7 @@ handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }
   if (!a) return fail("not_found", NOT_FOUND);
   const own = !a.caseId && a.uploadedBy === ctx.actor.userId;
   let allowed = own;
-  if (!allowed && a.caseId && MB_EDITORS.includes(ctx.actor.role)) {
+  if (!allowed && a.caseId && hasAnyRole(ctx.actor, MB_EDITORS)) {
     const c = await ctx.repo.table("cases").get(a.caseId);
     if (c && !attachmentsRemovable(c)) return fail("forbidden", ATTACHMENTS_REMOVED_BY_MB);
     allowed = !!c && caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c])) === "full";

@@ -13,8 +13,12 @@ export type SessionUser = {
   orgName: string;
   unit?: string | null;
 };
-/** Valbar testperson (prototypen och utvecklingsläget). email fylls bara i av prototypen (snabbvalet på kommunens inloggning). */
-export type PersonaOption = { userId: string; role: Role; name: string; title: string; isDefaultForRole?: boolean; email?: string };
+/**
+ * Valbar testperson (prototypen och utvecklingsläget) – en per användare, med alla roller (Karims beslut 7, 2026-10-09).
+ * role = huvudrollen (den roll personen är standardperson för, annars den första) – för visning och prototypens rollval.
+ * email fylls bara i av prototypen (snabbvalet på kommunens inloggning).
+ */
+export type PersonaOption = { userId: string; role: Role; roles: Role[]; name: string; title: string; isDefaultForRole?: boolean; email?: string };
 
 /** Resultat av inloggningssteg. Felkoderna visas med text till användaren (aldrig om adressen finns eller inte). */
 export type AuthResult =
@@ -67,14 +71,7 @@ export type Session = {
   hidesCommercial?: boolean;
   /** Bara prototypen och utvecklingsläget: testpersoner att välja mellan. */
   personas?: PersonaOption[];
-  /**
-   * Rollväxling för egna roller (beslut 2026-10-08): den inloggades roller (medlemskap). Fler än en ger rollväljaren i
-   * sidopanelens huvud. Valet sparas på servern (session.vaxlaRoll) och chooseRole byter sedan vy: appen laddar om sidan,
-   * prototypen byter persona. Saknas när en testare agerar som en testperson.
-   */
-  ownRoles?: Role[];
-  chooseRole?: (role: Role) => Promise<void>;
-  /** Bara prototypen: byt roll/persona. */
+  /** Bara prototypen och utvecklingsläget: byt testperson (standardpersonen för rollen, eller användaren med userId). */
   switchRole?: (role: Role, userId?: string) => void;
   signOut?: () => void;
 };
@@ -89,13 +86,16 @@ export function useSession(): Session {
   if (!s) throw new Error("SessionProvider saknas");
   return s;
 }
-export const useRole = (): Role => useSession().actor.role;
+/** Den inloggades alla roller (Karims beslut 7, 2026-10-09: alla samtidigt, ingen rollväxling). */
+export const useRoles = (): Role[] => useSession().actor.roles;
+/** Har den inloggade rollen? */
+export const useHasRole = (role: Role): boolean => useSession().actor.roles.includes(role);
 export const useAuth = (): AuthPort | undefined => useSession().auth;
 export const isAuthenticated = (s: Session): boolean => s.authenticated !== false;
 
 /** Platshållare för en besökare som inte är inloggad. Rollen "deltagare" når bara publika sidor. */
 export const ANONYMOUS: Pick<Session, "authenticated" | "actor" | "user"> = {
   authenticated: false,
-  actor: { userId: "", role: "deltagare", contractIds: [] },
+  actor: { userId: "", roles: ["deltagare"], contractIds: [] },
   user: { id: "", name: "", title: "", email: "", orgName: "" },
 };

@@ -4,7 +4,7 @@
 //   riktiga appen = Supabase Auth via /api/auth/*, prototypen och utvecklingsläget = simulerad kod.
 // Svaret på "skicka kod" avslöjar aldrig om adressen finns. Microsoft-inloggning (Entra) kommer senare.
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ROLE_LABEL } from "@/api/roles";
+import { rolesLabel } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { Link, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
@@ -71,7 +71,7 @@ export function LoggaInScreen({ query }: ScreenProps) {
       <Stack gap="lg">
         <Heading />
         <Notice tone="ok" title="Du är redan inloggad">
-          Du är inloggad som {session.user.name} ({ROLE_LABEL[session.actor.role].toLowerCase()}).
+          Du är inloggad som {session.user.name} ({rolesLabel(session.actor.roles).toLowerCase()}).
         </Notice>
         <Button kind="primary" size="lg" block to="/" iconRight="arrow-right">
           Till startsidan

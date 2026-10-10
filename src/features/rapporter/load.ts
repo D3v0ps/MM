@@ -7,10 +7,9 @@
 //      deltagare, beställarrapporten är ett aggregat över hela avtalet. Bara det rapporten visar lämnas ut.
 //   3. Rapportens rubrik och status när rapporten inte får visas (för att kunna säga varför) – aldrig innehållet.
 // Namn på deltagare läses alltid via ctx.repo, så att bara de namn läsaren får se lämnas ut.
-import type { Actor } from "@/api/roles";
-import { isCustomerRole } from "@/api/roles";
+import { asRole, isCustomerRole, type Actor, type Role } from "@/api/roles";
 import type { Ctx } from "@/api/server";
-import { caseAccess, displayName, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
+import { caseAccess, caseAccessAs, displayName, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import { requireOperational, type OperationalConfig } from "@/core/config";
 import { addDays, monthEnd, weekMonday } from "@/core/time";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
@@ -67,8 +66,10 @@ export async function accessSourceFor(ctx: Ctx, cases: readonly Case[]): Promise
 
 export type Viewer = {
   actor: Actor;
-  /** Åtkomst per ärende. */
+  /** Åtkomst per ärende – den högsta över rollerna. */
   access(c: Case | null | undefined): CaseAccess;
+  /** Åtkomst per ärende för en av rollerna ("none" om aktören inte har rollen). */
+  accessAs(c: Case | null | undefined, role: Role): CaseAccess;
   /** Namnet att visa för läsaren ("Skyddade personuppgifter", "–" eller namnet). */
   name(c: Case | null | undefined): string;
   /**
@@ -106,7 +107,11 @@ export async function viewerFor(ctx: Ctx, cases: readonly Case[]): Promise<Viewe
     const p = c ? src.person(c.personId) : null;
     return !p || p.protectedIdentity;
   };
-  return { actor: ctx.actor, access, name, isProtected };
+  const accessAs = (c: Case | null | undefined, role: Role): CaseAccess => {
+    const ra = asRole(ctx.actor, role);
+    return c && ra ? caseAccessAs(c, ra, lookupsFor(c, src)) : "none";
+  };
+  return { actor: ctx.actor, access, accessAs, name, isProtected };
 }
 
 // ---------------------------------------------------------------- Får läsaren se rapporten? (prototypens reportAccess)
@@ -124,14 +129,22 @@ export const recipientOf = (r: Pick<Report, "recipientUserId" | "deliveredTo">, 
  * 2026-10-07), handledaren bara veckorapporten, beställarrapporten bara avtalsansvarig, samordnare och chef.
  */
 export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" | "recipientUserId">, c: Case | null, viewer: Viewer): ReportAccess {
-  const { role, userId } = viewer.actor;
+  // Alla roller samtidigt (Karims beslut 7, 2026-10-09): den bästa åtkomsten bland rollerna, annars den första rollens nej.
+  const results = viewer.actor.roles.map((role) => reportAccessAs(r, c, viewer, role));
+  const rank = (x: ReportAccess) => (x.ok ? (x.access === "full" ? 6 : x.access === "team" ? 4 : 2) - (x.partial ? 1 : 0) : 0);
+  const best = results.slice().sort((a, b) => rank(b) - rank(a))[0];
+  return best ?? { ok: false, reason: "role" };
+}
+
+function reportAccessAs(r: Pick<Report, "kind" | "status" | "deliveredTo" | "recipientUserId">, c: Case | null, viewer: Viewer, role: Role): ReportAccess {
+  const { userId } = viewer.actor;
   if (isCustomerRole(role)) {
     const recipient = r.deliveredTo.includes(userId);
     const mine = recipient || recipientOf(r, c) === userId || (!!c && c.referrerId === userId);
     if (!mine || r.kind === "customer_summary") return { ok: false, reason: "not_yours" };
     if (!isDelivered(r)) return { ok: false, reason: "not_delivered" };
     if (c) {
-      const a = viewer.access(c);
+      const a = viewer.accessAs(c, role);
       // Skyddade personuppgifter (vilande sedan 2026-10-07): åtkomsten "restricted" ger ingen rapport i portalen.
       if (a !== "customer") return { ok: false, reason: "not_yours" };
     }
@@ -143,7 +156,7 @@ export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" |
   if (r.kind === "customer_summary") return ["samordnare", "avtalsansvarig", "chef"].includes(role) ? { ok: true, access: "full" } : { ok: false, reason: "role" };
   if (r.kind === "weekly_attendance") return ["samordnare", "avtalsansvarig", "chef"].includes(role) ? { ok: true, access: "full" } : { ok: true, partial: true, access: "team" };
   if (!c) return { ok: false, reason: "missing" };
-  const a = viewer.access(c);
+  const a = viewer.accessAs(c, role);
   if (a === "none") return { ok: false, reason: "not_assigned" };
   if (a === "restricted") return { ok: false, reason: "protected" };
   if (a !== "full" && a !== "team") return { ok: false, reason: "role" };

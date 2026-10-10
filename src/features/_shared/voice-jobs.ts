@@ -22,6 +22,7 @@
 //
 // Alla läsningar och skrivningar går via ctx.system: jobbet är ett systemsteg (bakgrundsjobb) som körs efter att
 // hanteraren kontrollerat behörigheten (startAudioUpload/confirmOwnUpload i voice-upload.ts, eller coachens ärende).
+import { isParticipantActor } from "@/api/roles";
 import { z } from "zod";
 import type { Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
@@ -683,7 +684,7 @@ export async function ownDictation(ctx: Ctx, aiRunId: string): Promise<(VoiceRun
   const run = await ctx.system.table("ai_runs").get(aiRunId);
   if (!run || run.kind !== "transcribe_dictation" || !run.inputRef) return null;
   const u = await ctx.system.table("audio_uploads").get(run.inputRef);
-  if (!u || u.ownerId !== ctx.actor.userId || ctx.actor.role === "deltagare") return null;
+  if (!u || u.ownerId !== ctx.actor.userId || isParticipantActor(ctx.actor)) return null;
   const text = run.status === "succeeded" ? ((run.output as DictationOutput | null)?.text ?? null) : null;
   return { ...voiceRunState(run), text };
 }

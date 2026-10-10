@@ -37,11 +37,12 @@ async function orgRulesFor(ctx: Ctx): Promise<OrgSettings> {
 
 // ---------------------------------------------------------------- notiser.list
 handleQuery(notifList, { roles: SUPPLIER_ROLES }, async (ctx) => {
-  const { userId, role } = ctx.actor;
+  const { userId, roles } = ctx.actor;
   const org = await orgRulesFor(ctx);
   const rule = org.notifications.progressionWatch;
-  const isEscalationRole = (rule.escalateTo as readonly string[]).includes(role);
-  const getsReminders = role === "coach" || role === "handledare";
+  // Alla roller (Karims beslut 7, 2026-10-09): påminnelser och eskaleringar för var och en av rollerna.
+  const isEscalationRole = roles.some((r) => (rule.escalateTo as readonly string[]).includes(r));
+  const getsReminders = roles.includes("coach") || roles.includes("handledare");
 
   // Sparade notiser och läsmarkeringar: bara den inloggades egna (policyn/RLS: mottagaren läser sina rader).
   const user_notifications = await ctx.repo.table("user_notifications").list({ recipientId: userId });
@@ -60,14 +61,14 @@ handleQuery(notifList, { roles: SUPPLIER_ROLES }, async (ctx) => {
     check_ins = ids.length ? await ctx.system.table("check_ins").list({ caseId: { in: ids } }) : [];
     if (isEscalationRole) profiles = await ctx.system.table("profiles").list({ id: { in: [...new Set(cases.map((c) => c.leadCoachId).filter((x): x is string => !!x))] } });
   }
-  const items = notificationsFor({ cases, check_ins, user_notifications, notification_reads, profiles }, userId, role, { now: ctx.now(), org });
+  const items = notificationsFor({ cases, check_ins, user_notifications, notification_reads, profiles }, userId, roles, { now: ctx.now(), org });
   return {
     items: items.map((n) => ({
       id: n.id, kind: n.kind, title: n.title, body: n.body, emailBody: n.emailBody, channels: n.channels, createdAt: n.createdAt, readAt: n.readAt, caseId: n.caseId,
     })),
-    isCoach: role === "coach",
+    isCoach: roles.includes("coach"),
     isEscalationRole,
-    isAdmin: role === "admin",
+    isAdmin: roles.includes("admin"),
     reminderSchedule: rule.reminderSchedule,
     escalateAfterWeeks: rule.escalateAfterConsecutiveWeeks,
   };

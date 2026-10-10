@@ -1,13 +1,17 @@
 // Användare och roller (profiles + memberships) -> Actor och testpersoner.
 // Riktiga appen: aktören kommer från inloggningen (Microsoft för MB, e-postkod för kommunen) och medlemskapen i databasen.
 // Prototypen och utvecklingsläget: välj testperson. Standardpersonerna per roll är den gamla prototypens MM.ROLES
-// (prototyp/src/02-store.js); övriga användare i testdatat kan väljas med sin roll.
-import { ROLES, type Actor, type Role } from "@/api/roles";
+// (prototyp/src/02-store.js); övriga användare i testdatat kan väljas med alla sina roller (en testperson per användare).
+import { isCustomerRole, ROLES, sortRoles, type Actor, type Role } from "@/api/roles";
 import type { SessionUser } from "@/shell/session";
 import type { RawAccess } from "./memory";
-import type { Membership, Profile, Tables } from "./schema";
+import type { Profile, Tables } from "./schema";
 
-export type Persona = { actor: Actor; user: SessionUser; isDefaultForRole: boolean; roleDescription: string };
+/**
+ * En testperson: användaren med alla sina roller (Karims beslut 7, 2026-10-09 – ingen rollväxling). role = personens
+ * huvudroll för visning och val i prototypfältet: rollen personen är standardperson för, annars den första i rollernas ordning.
+ */
+export type Persona = { actor: Actor; user: SessionUser; role: Role; isDefaultForRole: boolean; roleDescription: string };
 
 export type PrototypeRole = {
   key: Role;
@@ -52,32 +56,27 @@ function userOf(raw: RawAccess<Tables>, p: Profile): SessionUser {
 }
 
 /**
- * Rollen en användare agerar i när ingen roll anges – samma regel som mm.current_role() i databasen (0027): den valda rollen
- * (role_choices) om ett medlemskap med den rollen finns, annars medlemskapet med lägst id. Null utan medlemskap.
- */
-export function defaultRoleFor(raw: RawAccess<Tables>, userId: string): Role | null {
-  const ms = raw.all("memberships").filter((m) => m.userId === userId);
-  if (!ms.length) return null;
-  const chosen = raw.get("role_choices", userId)?.role;
-  if (chosen && ms.some((m) => m.role === chosen)) return chosen;
-  return ms.slice().sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))[0].role;
-}
-
-/**
- * Aktören för en användare i en roll: avtal = medlemskapen med rollen. Null om användaren saknar rollen. Utan roll: den valda
- * rollen (defaultRoleFor, beslut 2026-10-08) – annars medlemskapet med lägst id, som mm.current_role() (0002/0027).
- * Enheten (synligheten "unit") tas bara från medlemskapet, som Miljonbemanning sätter – aldrig från profilen, som
- * handläggaren själv skriver i Mina uppgifter (beslut 2026-10-07, självregistrering). Samma regel i mm.current_unit (0026).
+ * Aktören för en användare: alla roller (medlemskapen), avtalen per roll och kommunens enhet – samma regel som
+ * mm.current_roles(), mm.contracts_as och mm.current_unit i databasen (0034). Null om användaren saknas eller saknar roller,
+ * eller om role anges och användaren inte har den rollen.
+ * Enheten (synligheten "unit") tas bara från kommunens medlemskap (lägst id), som Miljonbemanning sätter – aldrig från
+ * profilen, som handläggaren själv skriver i Mina uppgifter (beslut 2026-10-07, självregistrering). Samma regel i mm.current_unit.
  */
 export function actorFor(raw: RawAccess<Tables>, userId: string, role?: Role): Actor | null {
-  if (userId === PARTICIPANT_USER_ID) return { userId, role: "deltagare", contractIds: [], customerUnit: null };
+  if (userId === PARTICIPANT_USER_ID) return role && role !== "deltagare" ? null : { userId, roles: ["deltagare"], contractIds: [], customerUnit: null };
   const profile = raw.get("profiles", userId);
   if (!profile) return null;
-  const ms = raw.all("memberships").filter((m) => m.userId === userId);
-  const r = role ?? defaultRoleFor(raw, userId);
-  const mine = ms.filter((m) => m.role === r);
-  if (!r || !mine.length) return null;
-  return { userId, role: r, contractIds: [...new Set(mine.map((m) => m.contractId))], customerUnit: mine[0].customerUnit ?? null };
+  const ms = raw.all("memberships").filter((m) => m.userId === userId).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const roles = sortRoles([...new Set(ms.map((m) => m.role))]);
+  if (!roles.length || (role && !roles.includes(role))) return null;
+  const contractIds = [...new Set(ms.map((m) => m.contractId))].sort();
+  const roleContracts: Partial<Record<Role, string[]>> = {};
+  for (const r of roles) {
+    const own = [...new Set(ms.filter((m) => m.role === r).map((m) => m.contractId))].sort();
+    if (own.length !== contractIds.length) roleContracts[r] = own;
+  }
+  const unit = ms.find((m) => isCustomerRole(m.role))?.customerUnit ?? null;
+  return { userId, roles, contractIds, ...(Object.keys(roleContracts).length ? { roleContracts } : {}), customerUnit: unit };
 }
 
 /** Rollerna användaren har medlemskap för (dubbletter borttagna, i rollernas ordning i SPEC §4). */
@@ -86,54 +85,51 @@ export function ownRolesOf(raw: RawAccess<Tables>, userId: string): Role[] {
   return ROLES.filter((r) => mine.has(r));
 }
 
-function personaOf(raw: RawAccess<Tables>, p: Profile, role: Role, isDefaultForRole: boolean): Persona | null {
-  const actor = actorFor(raw, p.id, role);
+function personaOf(raw: RawAccess<Tables>, p: Profile, defaultFor: Role | null): Persona | null {
+  const actor = actorFor(raw, p.id);
   if (!actor) return null;
-  return { actor, user: userOf(raw, p), isDefaultForRole, roleDescription: roleDef(role)?.description ?? "" };
+  const role = defaultFor ?? actor.roles[0];
+  return { actor, user: userOf(raw, p), role, isDefaultForRole: defaultFor !== null, roleDescription: roleDef(role)?.description ?? "" };
 }
 
 /**
- * Valbara testpersoner: först standardpersonen för varje roll i prototypens ordning (även deltagaren),
- * sedan övriga aktiva användare (MB-personal och kommunanvändare) med sin roll, i testdatats ordning.
+ * Valbara testpersoner, en per användare med alla roller: först standardpersonen för varje roll i prototypens ordning (även
+ * deltagaren), sedan övriga aktiva användare (MB-personal och kommunanvändare) i testdatats ordning.
  */
 export function listPersonas(raw: RawAccess<Tables>): Persona[] {
   const out: Persona[] = [];
   const seen = new Set<string>();
   const add = (p: Persona | null) => {
-    if (!p) return;
-    const key = `${p.actor.userId}|${p.actor.role}`;
-    if (seen.has(key)) return;
-    seen.add(key);
+    if (!p || seen.has(p.actor.userId)) return;
+    seen.add(p.actor.userId);
     out.push(p);
   };
   for (const def of PROTOTYPE_ROLES) {
     if (def.key === "deltagare") {
       add({
-        actor: { userId: PARTICIPANT_USER_ID, role: "deltagare", contractIds: [], customerUnit: null },
+        actor: { userId: PARTICIPANT_USER_ID, roles: ["deltagare"], contractIds: [], customerUnit: null },
         user: { id: PARTICIPANT_USER_ID, name: "Deltagare", title: def.label, email: "", orgName: "", unit: null },
-        isDefaultForRole: true, roleDescription: def.description,
+        role: "deltagare", isDefaultForRole: true, roleDescription: def.description,
       });
       continue;
     }
     const p = def.personaId ? raw.get("profiles", def.personaId) : undefined;
-    if (p) add(personaOf(raw, p, def.key, true));
+    if (p && ownRolesOf(raw, p.id).includes(def.key)) add(personaOf(raw, p, def.key));
   }
-  const memberships = raw.all("memberships");
-  const rolesOf = (userId: string) => [...new Set(memberships.filter((m: Membership) => m.userId === userId).map((m) => m.role))];
   for (const p of raw.all("profiles")) {
     if (!p.active) continue;
-    for (const role of rolesOf(p.id)) add(personaOf(raw, p, role, false));
+    add(personaOf(raw, p, null));
   }
   return out;
 }
 
-/** Testperson för en användare (och roll). Utan roll (eller tom roll från kakan): användarens valda roll (defaultRoleFor), annars första persona. */
-export function personaFor(raw: RawAccess<Tables>, userId: string, role?: Actor["role"] | ""): Persona | null {
-  const all = listPersonas(raw);
-  const r = role || (userId === PARTICIPANT_USER_ID ? undefined : (defaultRoleFor(raw, userId) ?? undefined));
-  return all.find((p) => p.actor.userId === userId && (!r || p.actor.role === r)) ?? all.find((p) => p.actor.userId === userId) ?? null;
+/** Testpersonen för en användare (alla roller). */
+export function personaFor(raw: RawAccess<Tables>, userId: string): Persona | null {
+  return listPersonas(raw).find((p) => p.actor.userId === userId) ?? null;
 }
 
-/** Standardpersonen för en roll. */
-export const defaultPersonaFor = (raw: RawAccess<Tables>, role: Role): Persona | null =>
-  listPersonas(raw).find((p) => p.actor.role === role && p.isDefaultForRole) ?? null;
+/** Standardpersonen för en roll (annars den första personen med rollen). */
+export const defaultPersonaFor = (raw: RawAccess<Tables>, role: Role): Persona | null => {
+  const all = listPersonas(raw);
+  return all.find((p) => p.role === role && p.isDefaultForRole) ?? all.find((p) => p.actor.roles.includes(role)) ?? null;
+};

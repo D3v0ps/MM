@@ -9,6 +9,11 @@
 //
 // Samma regler används av policyn i minnesläget (src/data/policy.ts) och av RLS i Postgres (mm.case_access_level, 0029).
 //
+// Alla roller samtidigt (Karims beslut 7, 2026-10-09, migration 0034): reglerna nedan gäller per roll (caseAccessAs). Den som
+// har flera roller får den högsta nivån över rollerna (caseAccess) i ordningen full > team > customer > billing > restricted >
+// none (ACCESS_RANK, samma som mm.access_rank). Policyn frågar per roll ("har någon av rollerna nivån?") – den högsta nivån
+// används där bara en nivå behövs (vy-modellerna, mm.case_access, vyn cases_public).
+//
 // Nivåer:
 //   full        allt i ärendet (anteckningar, bedömningar, personuppgifter)
 //   team        finns kvar i typen men ges inte längre till någon roll (före 2026-10-09: tilldelad i teamet utan att vara
@@ -20,7 +25,7 @@
 //   billing     ekonom: nummer, perioder, område, referenser och närvaro för debitering – inga namn eller anteckningar
 //   customer    kommunen: sina ärenden (inga coachanteckningar, internt mål eller interna flaggor)
 //   none        ingen åtkomst
-import type { Actor, Role } from "@/api/roles";
+import { roleActors, type Actor, type Role, type RoleActor } from "@/api/roles";
 import type { Case, Contract, Db, Person, Profile } from "@/data/schema";
 import { isUnset, type ContractConfig, type VisibilityScope } from "./config";
 
@@ -50,8 +55,23 @@ export function effectiveCustomerScope(cfg: Pick<ContractConfig, "customerVisibi
   return v.prototypeScope ?? "own";
 }
 
-/** Åtkomstnivå för aktören i ärendet. Admin har alla avtal; övriga bara avtal de är medlemmar i. */
+/** Ordningen för den högsta nivån över rollerna (mm.access_rank i 0034). */
+export const ACCESS_RANK: Record<CaseAccess, number> = { full: 5, team: 4, customer: 3, billing: 2, restricted: 1, none: 0 };
+/** Den högsta nivån (none för en tom lista). */
+export const maxAccess = (levels: readonly CaseAccess[]): CaseAccess =>
+  levels.reduce<CaseAccess>((best, l) => (ACCESS_RANK[l] > ACCESS_RANK[best] ? l : best), "none");
+
+/** Åtkomstnivå för aktören i ärendet: den högsta nivån över aktörens roller. */
 export function caseAccess(c: CaseAccessCase | null | undefined, actor: Actor, l: CaseAccessLookups): CaseAccess {
+  return maxAccess(roleActors(actor).map((a) => caseAccessAs(c, a, l)));
+}
+/** Den högsta nivån bland de angivna rollerna (de roller aktören har). */
+export function caseAccessFor(c: CaseAccessCase | null | undefined, actor: Actor, l: CaseAccessLookups, roles: readonly Role[]): CaseAccess {
+  return maxAccess(roleActors(actor).filter((a) => roles.includes(a.role)).map((a) => caseAccessAs(c, a, l)));
+}
+
+/** Åtkomstnivå för aktören i EN roll. Admin har alla avtal; övriga bara avtal där de har rollen. */
+export function caseAccessAs(c: CaseAccessCase | null | undefined, actor: RoleActor, l: CaseAccessLookups): CaseAccess {
   if (!c) return "none";
   if (actor.role !== "admin" && !actor.contractIds.includes(c.contractId)) return "none";
   const prot = l.protectedIdentity;
@@ -86,7 +106,11 @@ export function caseAccess(c: CaseAccessCase | null | undefined, actor: Actor, l
   }
 }
 
-/** Får rollen se anteckningar och bedömningar (avstämningar, kartläggning, månadsbedömningar, avvikelser)? */
+/**
+ * Får rollen se anteckningar och bedömningar (avstämningar, kartläggning, månadsbedömningar, avvikelser)? Per roll: full eller
+ * team och inte ekonom. Med den högsta nivån över rollerna (caseAccess) räcker nivån – ekonomen får aldrig full eller team, så
+ * full/team kommer alltid från en annan roll.
+ */
 export const canSeeNotes = (access: CaseAccess, role?: Role): boolean => (access === "full" || access === "team") && role !== "ekonom";
 
 /** Ser rollen personens uppgifter (namn, personnummer, kontaktuppgifter)? */

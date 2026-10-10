@@ -1,7 +1,7 @@
 // Hanterare för området ledning (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 // Källa: prototyp/src/views/ledning.js (chef.oversikt och chef.avvikelser) och prototypens alert.ack.
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { hasAnyRole, hasRole, type Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial, hidesMoney } from "@/api/tester-access";
 import { accessIndex, caseAccessIn, displayName } from "@/core/access";
@@ -69,7 +69,8 @@ const VIEW_ROLES: Partial<Record<ViewId, readonly Role[]>> = {
   "coach.avstamning": ["coach"],
   "chef.oversikt": ["chef"],
 };
-const canOpen = (view: ViewId, role: Role) => !!VIEW_ROLES[view]?.includes(role);
+/** Kan någon av rollerna öppna vyn? (Karims beslut 7, 2026-10-09: alla roller samtidigt.) */
+const canOpen = (view: ViewId, roles: readonly Role[]) => roles.some((r) => !!VIEW_ROLES[view]?.includes(r));
 const LINK_LABEL: Partial<Record<ViewId, string>> = { "arende.kort": "Öppna ärendet", "rapport.visa": "Öppna rapporten", "eko.start": "Till faktureringen", "sam.inkorg": "Till inkorgen" };
 
 /** Avtalet som ledningsvyn och registret gäller: användarens första aktiva avtal där ärenden hanteras (prototypens MM.contract()). */
@@ -154,7 +155,7 @@ function targetsOf(env: DomainEnv, hide = false): ResultTargets {
 const ackView = (db: Pick<Db, "profiles">, ack: { by: string; at: string; plan: string } | null) =>
   ack ? { byName: personName(db.profiles, ack.by), at: ack.at, plan: ack.plan } : null;
 
-function alertView(a: AlertItem, db: Pick<Db, "profiles">, role: Role): AlertView {
+function alertView(a: AlertItem, db: Pick<Db, "profiles">, role: readonly Role[]): AlertView {
   const link = a.link.view !== "chef.oversikt" && canOpen(a.link.view, role) ? { href: a.href, label: LINK_LABEL[a.link.view] ?? "Öppna" } : null;
   return { key: a.key, kind: a.kind, severity: a.severity, title: a.title, text: a.text, createdAt: a.createdAt, ack: ackView(db, a.ack), link };
 }
@@ -200,7 +201,7 @@ const SLA_KEYS = ["avrop_besvarade_i_tid", "forsta_mote_inom_en_vecka", "veckora
 
 handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
   const { contract, env, db } = await ledningData(ctx);
-  const role = ctx.actor.role;
+  const role = ctx.actor.roles;
   const cfg = env.cfg;
   // Begränsade testare (testmiljön): inga interna mål och inget fakturaunderlag (ofakturerat) eller länk till Ekonomi.
   const hide = hidesCommercial(ctx.actor);
@@ -421,7 +422,7 @@ handleQuery(ledningPulse, { roles: CHEF }, async (ctx) => {
     stats: st.enough
       ? { invites: st.invites, responses: st.responses, responseRate: st.responseRate, satisfaction: st.satisfaction, closer: st.closer, support: st.support, q1: st.q1, q2: st.q2, q3: st.q3, priorities: prio }
       : null,
-    lowAlerts: low.map((a) => alertView(a, db, ctx.actor.role)),
+    lowAlerts: low.map((a) => alertView(a, db, ctx.actor.roles)),
     lowOpen: low.filter((a) => !a.ack).length,
     contactRequested: db.pulse_responses.filter((p) => p.contactRequested).length,
     perCoach: coaches(db, contract.id).map((u) => {
@@ -470,7 +471,7 @@ async function formFor(ctx: Ctx, contract: Contract, env: DomainEnv): Promise<Cd
     penaltyChoice: !hidesCommercial(ctx.actor),
     warningsBeforeTermination: cfg.warningsBeforeTermination,
     ladder: cfg.escalationLadder.map((s) => ({ step: s.step, level: s.level, text: s.text })),
-    canManage: MANAGE_ROLES.includes(ctx.actor.role),
+    canManage: hasAnyRole(ctx.actor, MANAGE_ROLES),
     caseNumberExample: `${cfg.casePrefix}-26-0042`,
     warningSteps: { ...WARNING_STEPS },
   };
@@ -541,7 +542,7 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
     planDue: dueAt && s ? { dueAt, sla: { label: s.label, tone: s.tone } } : null,
     totalWarnings: all.filter((x) => x.warningIssued).length,
     // Samma villkor som ledning.cdevCustomerApproved: avtalsansvarig, en plan som väntar på godkännande och inte avslutad.
-    canRegisterApproval: ctx.actor.role === "avtalsansvarig" && !!String(cd.actionPlan || "").trim() && !cd.customerApprovedAt && cd.status !== "closed",
+    canRegisterApproval: hasRole(ctx.actor, "avtalsansvarig") && !!String(cd.actionPlan || "").trim() && !cd.customerApprovedAt && cd.status !== "closed",
     form: await formFor(ctx, contract, env),
   };
 });
@@ -642,7 +643,7 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
     (data.warningIssued !== undefined && data.warningIssued !== cur.warningIssued)
     || (data.penaltyKind !== undefined && (data.penaltyKind ?? null) !== (cur.penaltyKind ?? null))
     || (data.orderStop !== undefined && data.orderStop !== cur.orderStop);
-  if (sanctionChange && !MANAGE_ROLES.includes(ctx.actor.role)) return fail("forbidden", NO_SANCTIONS);
+  if (sanctionChange && !hasAnyRole(ctx.actor, MANAGE_ROLES)) return fail("forbidden", NO_SANCTIONS);
 
   const step = data.escalationStep ?? existing?.escalationStep ?? 0;
   if (data.warningIssued && !isWarningStep(step)) return fail("warning_step", `Skriftlig varning kan bara ges på steg ${WARNING_STEPS.min}–${WARNING_STEPS.max}.`);

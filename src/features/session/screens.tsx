@@ -12,7 +12,7 @@ export function DiagnosScreen() {
       {q.data && (
         <dl data-testid="diagnos" className="mt-4 grid grid-cols-[auto_1fr] gap-x-4">
           <dt>Tid</dt><dd>{q.data.now}</dd>
-          <dt>Roll</dt><dd>{q.data.role}</dd>
+          <dt>Roller</dt><dd>{q.data.roles.join(", ")}</dd>
           <dt>Användare</dt><dd>{q.data.userId}</dd>
         </dl>
       )}

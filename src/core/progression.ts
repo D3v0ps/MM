@@ -93,15 +93,17 @@ export type NotificationDb = Pick<Db, "cases" | "check_ins" | "user_notification
  * Personliga notiser för en mottagare: sparade (tilldelning, meddelanden) och beräknade påminnelser/eskaleringar.
  * Coach och handledare får påminnelser för ärenden där de är huvudcoach. Eskaleringar bara till rollerna i escalateTo.
  */
-export function notificationsFor(db: NotificationDb, recipientId: string | null | undefined, role: Role, env: Pick<DomainEnv, "now" | "org">): PersonalNotification[] {
+export function notificationsFor(db: NotificationDb, recipientId: string | null | undefined, role: Role | readonly Role[], env: Pick<DomainEnv, "now" | "org">): PersonalNotification[] {
   if (!recipientId) return [];
+  // Flera roller (Karims beslut 7, 2026-10-09): påminnelser och eskaleringar för var och en av rollerna.
+  const roles: readonly Role[] = typeof role === "string" ? [role] : role;
   const rule = env.org.notifications.progressionWatch;
   const read = new Map(db.notification_reads.filter((r) => r.userId === recipientId).map((r) => [r.notificationKey, r.readAt]));
   const out: Omit<PersonalNotification, "readAt">[] = db.user_notifications
     .filter((n) => n.recipientId === recipientId)
     .map((n: UserNotification) => ({ ...n }));
   const monday8 = `${monday(dayOf(env.now))}T08:00`;
-  if (role === "coach" || role === "handledare") {
+  if (roles.includes("coach") || roles.includes("handledare")) {
     for (const w of progressionWatch(db, { coachId: recipientId }, env)) {
       const last = w.weeks[w.weeks.length - 1];
       out.push({
@@ -112,7 +114,7 @@ export function notificationsFor(db: NotificationDb, recipientId: string | null 
       });
     }
   }
-  if ((rule.escalateTo as readonly string[]).includes(role)) {
+  if (roles.some((r) => (rule.escalateTo as readonly string[]).includes(r))) {
     for (const w of progressionWatch(db, {}, env).filter((x) => x.level === "escalated")) {
       out.push({
         id: `nesc:${w.case.id}:${w.lastWeek}`, recipientId, kind: "progress_escalation", caseId: w.case.id, createdAt: monday8, channels: [...rule.channels], computed: true,
@@ -127,5 +129,5 @@ export function notificationsFor(db: NotificationDb, recipientId: string | null 
 }
 
 /** Antal olästa notiser. */
-export const unreadNotifications = (db: NotificationDb, recipientId: string | null | undefined, role: Role, env: Pick<DomainEnv, "now" | "org">): number =>
+export const unreadNotifications = (db: NotificationDb, recipientId: string | null | undefined, role: Role | readonly Role[], env: Pick<DomainEnv, "now" | "org">): number =>
   notificationsFor(db, recipientId, role, env).filter((n) => !n.readAt).length;

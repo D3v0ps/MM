@@ -1,5 +1,6 @@
 // Hanterare: avtal och konfiguration (/admin/avtal) – avtalsfakta, konfigurationen, prislistan och Miljonbemannings
 // interna regler (org_settings). Källa: prototyp/src/views/admin.js (admin.avtal, admin.setOrgRule).
+import { hasRole } from "@/api/roles";
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
@@ -51,7 +52,7 @@ async function factsOf(ctx: Ctx, c: Contract): Promise<ContractFacts> {
 
 async function contractList(ctx: Ctx): Promise<Contract[]> {
   const rows = await ctx.repo.table("contracts").list();
-  return ctx.actor.role === "admin" ? rows : rows.filter((c) => ctx.actor.contractIds.includes(c.id));
+  return hasRole(ctx.actor, "admin") ? rows : rows.filter((c) => ctx.actor.contractIds.includes(c.id));
 }
 
 async function priceRows(ctx: Ctx, c: Contract): Promise<PriceRow[]> {

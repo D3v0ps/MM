@@ -5,7 +5,7 @@
 // Ingen SQL ska behövas för att ta in hela avdelningen. Revisionsloggen får staff_user.added, staff_user.roles_changed,
 // staff_user.blocked och staff_user.reactivated – bara id:n, roller och domänen, aldrig namn eller adresser.
 import { fail, ok } from "@/api/contract";
-import { SUPPLIER_ROLES, type Role, type SupplierRole } from "@/api/roles";
+import { hasRole, type Role, SUPPLIER_ROLES, type SupplierRole } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { isOperational } from "@/core/config";
 import { teamLabel } from "@/core/labels";
@@ -33,7 +33,7 @@ const sameRoles = (a: readonly string[], b: readonly string[]) => a.length === b
 const tidy = (s: string | null | undefined) => String(s ?? "").trim().replace(/\s+/g, " ");
 
 handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
-  const isAdmin = ctx.actor.role === "admin";
+  const isAdmin = hasRole(ctx.actor, "admin");
   const main = await mainContract(ctx);
   const [customer, supplier, memberships, refs] = await Promise.all([
     ctx.repo.table("organizations").get(main.customerId),

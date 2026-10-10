@@ -11,7 +11,7 @@
 // och coachens val per deltagare i group_goal_results (ingen rad = Klarade automatiskt) – ett val gäller bara målets version
 // (goal_version) och deltagarens tillfälle det gjordes för.
 import { fail, ok, type Fail } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { hasAnyRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import {
   ACTIVITY_KIND_WORD, GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, overlaps, slotText, type InviteGrouping, type UninvitableMember,
@@ -259,7 +259,7 @@ handleQuery(groupActivityList, { roles: GROUP_READERS }, async (ctx) => {
       cancelled: !!g.cancelledAt,
     };
   };
-  return { now, canCreate: GROUP_WRITERS.includes(ctx.actor.role), upcoming: upcoming.map(row), earlier: earlier.map(row) };
+  return { now, canCreate: hasAnyRole(ctx.actor, GROUP_WRITERS), upcoming: upcoming.map(row), earlier: earlier.map(row) };
 });
 
 handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
@@ -303,7 +303,7 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
       goal: g.goal,
     },
     participants,
-    canEdit: GROUP_WRITERS.includes(ctx.actor.role) && !g.cancelledAt,
+    canEdit: hasAnyRole(ctx.actor, GROUP_WRITERS) && !g.cancelledAt,
     absenceReasons: [...ABSENCE_REASONS],
   };
 });

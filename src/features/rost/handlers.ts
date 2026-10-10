@@ -9,7 +9,7 @@
 // efter tokenkontrollen, och bara länkens läge lämnas ut. Aldrig länkar eller inspelning för skyddade personuppgifter.
 // Röstmeddelandena är underlag för coachen: kommunen ser dem inte (policy.ts), ekonomen aldrig.
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { hasAnyRole, isParticipantActor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { aiLanguages, recordingMaxMinutes, type ContractConfig } from "@/core/config";
 import { addDays, addMinutes, diffDays, type LocalDateTime } from "@/core/time";
@@ -46,7 +46,7 @@ const stateOfLink = (l: Pick<VoiceLink, "usedAt" | "expiresAt">, now: LocalDateT
 handleCommand(uploadStart, { roles: ["coach", "kommun_handlaggare", "deltagare"] }, async (ctx, p) => {
   // Deltagarens inspelning: bara via länken och bara efter samtycke i länken (texten och versionen i rost/texts.ts).
   if (p.purpose === "participant") {
-    if (ctx.actor.role !== "deltagare") return fail("forbidden", "Deltagarens inspelning görs bara via deltagarens länk.");
+    if (!isParticipantActor(ctx.actor)) return fail("forbidden", "Deltagarens inspelning görs bara via deltagarens länk.");
     if (p.consent !== true) return fail("consent", "Kryssa i samtycket innan du spelar in.");
   }
   const r = await startAudioUpload(ctx, {
@@ -186,7 +186,7 @@ handleQuery(caseVoice, { roles: VOICE_READERS }, async (ctx, p): Promise<CaseVoi
   if (!cc) return null;
   const { c, person, cfg } = cc;
   const now = ctx.now();
-  const canWork = VOICE_WORKERS.includes(ctx.actor.role) && (await canEditCase(ctx, c));
+  const canWork = hasAnyRole(ctx.actor, VOICE_WORKERS) && (await canEditCase(ctx, c));
   const [notes, links, profiles] = await Promise.all([
     ctx.repo.table("participant_voice_notes").list({ caseId: c.id }),
     ctx.repo.table("voice_links").list({ caseId: c.id }),

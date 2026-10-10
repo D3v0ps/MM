@@ -47,10 +47,11 @@ export async function hasRoleIn(ctx: Ctx, userId: string, contractId: string, ro
  * Anropas efter att ärendet lästs via ctx.repo – så att ett nej blir ett begripligt fel i stället för ett behörighetsfel.
  */
 export async function canEditCase(ctx: Ctx, c: Pick<Case, "personId" | "leadCoachId" | "referrerId">): Promise<boolean> {
-  const { role, userId } = ctx.actor;
-  if (role === "samordnare" || role === "avtalsansvarig" || role === "coach") return (await ctx.repo.table("persons").get(c.personId)) !== null;
-  if (role === "kommun_handlaggare") return c.referrerId === userId;
-  return role === "ekonom";
+  // Någon av rollerna (Karims beslut 7, 2026-10-09).
+  const { roles, userId } = ctx.actor;
+  if (roles.some((r) => r === "samordnare" || r === "avtalsansvarig" || r === "coach") && (await ctx.repo.table("persons").get(c.personId)) !== null) return true;
+  if (roles.includes("kommun_handlaggare") && c.referrerId === userId) return true;
+  return roles.includes("ekonom");
 }
 
 // ---------------------------------------------------------------- Rader

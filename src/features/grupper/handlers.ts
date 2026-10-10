@@ -3,6 +3,7 @@
 // begripliga fel innan. ctx.system bara för behörighetsuppslaget (accessSourceFor: flaggor och id:n).
 // Revisionsloggen får bara id:n och typ – aldrig namnen på grupperna eller anteckningarnas text.
 // Inget här skickas till AI, till kommunen, till rapporter eller exporter (Karims beslut 3).
+import { hasAnyRole } from "@/api/roles";
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { caseAccessIn, displayName, type AccessSource, type CaseAccess } from "@/core/access";
@@ -75,7 +76,7 @@ async function buildCatalog(ctx: Ctx, contract: Contract, contracts: readonly Co
   return {
     contractId: contract.id,
     contracts: contractChoices(contracts),
-    canEdit: GROUPING_WRITERS.includes(ctx.actor.role),
+    canEdit: hasAnyRole(ctx.actor, GROUPING_WRITERS),
     ...catalogOf(gs, countByGrouping(ms, new Set(open.map((c) => c.id))), (g) => withArchived || g.archivedAt == null),
     missingDefaults: !gs.some((g) => g.kind === "level"),
   };
@@ -197,7 +198,7 @@ handleQuery(caseGroupingsView, { roles: GROUPING_READERS }, async (ctx, p) => {
   return {
     caseId: c.id,
     today: dayOf(ctx.now()),
-    canEdit: GROUPING_MEMBER_WRITERS.includes(ctx.actor.role) && access === "full",
+    canEdit: hasAnyRole(ctx.actor, GROUPING_MEMBER_WRITERS) && access === "full",
     current: caseGroupings(c.id, ms, gs),
     options: catalogOf(gs, new Map(), (g) => g.archivedAt == null || mine.has(g.id)),
   };

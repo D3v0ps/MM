@@ -507,7 +507,7 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const team = (await ctx.repo.table("case_team").list({ caseId: c.id })).filter((t) => t.role !== "lead_coach");
   return {
     caseId: c.id, caseNumber: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId,
-    reportId: rep && canOpen("rapport.visa", ctx.actor.role) ? rep.id : null,
+    reportId: rep && canOpen("rapport.visa", ctx.actor.roles) ? rep.id : null,
     confirmed: `${whenText(c.confirmedAt, e.now)}${by ? ` av ${name(by.changedBy)}` : ""}`,
     coachName: name(c.leadCoachId),
     team: team.length ? team.map((t) => `${name(t.userId)} (${lc(teamLabel(t.role))})`).join(", ") : "Bara huvudcoach",
@@ -563,7 +563,8 @@ function miniDeadline(x: DeadlineRow & { aggregate?: { count: number } }): MiniD
 }
 
 export async function buildStart(ctx: Ctx): Promise<StartView> {
-  const role = ctx.actor.role;
+  // Alla roller (Karims beslut 7, 2026-10-09): länkar och uppgifter för var och en av rollerna.
+  const role = ctx.actor.roles;
   const e = await inboxEnv(ctx);
   const d = await loadInbox(ctx, e);
   const ops = await loadOps(ctx, e);
@@ -592,7 +593,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const dlWeek = groupDeadlines(dls.filter((x) => x.bucket === "week"), reportsHref);
   const cdDue = new Map(deadlineItems(ops, e, visible, 366).filter((x) => x.kind === "atgardsplan").map((x) => [x.id.replace(/^cd:/, ""), x.dueAt]));
 
-  const tasks = (await ctx.repo.table("tasks").list({ toRole: role, status: "open" })).sort(by("createdAt", -1));
+  const tasks = (await ctx.repo.table("tasks").list({ toRole: { in: role }, status: "open" })).sort(by("createdAt", -1));
   const cds = (await ctx.repo.table("contract_deviations").list({ contractId: e.contract.id })).filter((x) => x.status !== "closed").sort(by("actionPlanDue"));
   const allCds = await ctx.repo.table("contract_deviations").list({ contractId: e.contract.id });
   // ctx.system: de senaste notiserna om tilldelning (till coacher och team) visas för samordnaren som kvittens.
@@ -600,7 +601,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const assignNotifs = (await ctx.system.table("user_notifications").list({ kind: "assignment" }))
     .filter((n) => !n.caseId || visible.has(n.caseId)).sort(by("createdAt", -1)).slice(0, 3);
   const counters = await ctx.repo.table("case_counters").list({ contractId: e.contract.id });
-  const summaryReport = role === "avtalsansvarig"
+  const summaryReport = role.includes("avtalsansvarig")
     ? (await ctx.repo.table("reports").list({ contractId: e.contract.id, kind: "customer_summary" })).filter((r) => r.status !== "delivered" && r.status !== "opened").sort(by<Report>((r) => r.dueAt ?? ""))[0] ?? null
     : null;
 
@@ -703,13 +704,13 @@ export async function buildDeadlines(ctx: Ctx): Promise<DeadlinesView> {
   const e = await inboxEnv(ctx);
   const ops = await loadOps(ctx, e);
   const visible = await visibleCaseIds(ctx, e);
-  const rows = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor.role));
+  const rows = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor.roles));
   const unset = e.cfg.sla.filter((s) => isUnset(s.due) || isUnset(s.within));
   return {
     eyebrow: `${fmtWeekday(e.now)} · ${fmtWeek(e.now)}`,
     today: fmtWeekday(e.today),
     rows,
-    reportsHref: hrefFor({ view: "rapporter.lista", params: {} }, ctx.actor.role),
+    reportsHref: hrefFor({ view: "rapporter.lista", params: {} }, ctx.actor.roles),
     unsetText: unset.length
       ? unset.map((s) => `${(s.label ?? s.key).toLowerCase()} – ${String(s.due || s.within).replace(/^ATT_FASTSTÄLLA\s*\(?/, "").replace(/\)$/, "")}`).join("; ")
       : null,

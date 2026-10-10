@@ -8,7 +8,7 @@
 // för begränsade testare, HandlerOpts.commercial).
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
-import type { Role } from "@/api/roles";
+import { hasRole, type Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import {
   BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceOfCase, isCreated, monthInvoices, reissueLines, reissueRound, unbilledOld,
@@ -71,7 +71,7 @@ async function base(ctx: Ctx): Promise<Base> {
     ctx.repo.table("buyer_references").list({ customerId: contract.customerId }),
   ]);
   return {
-    contract, cfg, env: { now: ctx.now(), cfg }, customer, supplier, areas, profiles, canAct: ctx.actor.role === "ekonom", perContract: cfg.billing.invoicePer === "contract_and_month",
+    contract, cfg, env: { now: ctx.now(), cfg }, customer, supplier, areas, profiles, canAct: hasRole(ctx.actor, "ekonom"), perContract: cfg.billing.invoicePer === "contract_and_month",
     refRules: { billing: cfg.billing, registry: registry.map((b) => ({ reference: b.reference, unit: b.unit, active: b.active, note: b.note })) },
   };
 }
