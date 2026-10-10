@@ -1,4 +1,5 @@
-// Meddelanden till deltagare (beslut 2026-10-09, coachmötet): kallelse till första mötet och inbjudan till aktivitet.
+// Meddelanden till deltagare (beslut 2026-10-09, coachmötet): kallelse till första mötet, inbjudan till aktivitet och besked
+// när en aktivitet får ny tid eller plats eller ställs in (spår G).
 // En funktion för alla utskick till deltagare – den väljer kanalerna och skickar samma innehåll överallt:
 //   tid, plats och Miljonbemannings telefonnummer (CONTACT_PHONE). Aldrig namn, personnummer, ärendenummer eller vad
 //   insatsen gäller (CLAUDE.md punkt 9).
@@ -6,7 +7,8 @@
 //   e-post     när deltagaren har en e-postadress
 //   SMS        när SMS är kopplat (46elks) och deltagaren har ett telefonnummer
 //   utringning dessutom, när den är kopplad och deltagaren har ett telefonnummer – en kort inspelning utan personuppgifter
-//              som hänvisar till SMS:et eller mejlet (ringer bara när något av dem gick iväg)
+//              som hänvisar till SMS:et eller mejlet (ringer bara när något av dem gick iväg). Bara kallelsen och inbjudan –
+//              inspelningen säger "inbjudan till ett möte", så ändrad tid och inställd aktivitet ringer inte
 //   brev       bara kallelsen: när deltagaren har valt brev och adressen finns (skickas för hand, som förut)
 //   ingen      en uppgift till samordnaren: "Ring deltagaren och kalla till första mötet" med ärendenumret – aldrig namnet
 // Deltagarens valda kontaktväg (persons.preferredContact, som coachen kan ändra) går först när den kanalen är kopplad.
@@ -30,7 +32,19 @@ import {
 } from "./messaging-port";
 
 /** Mallarna för utskick till deltagare (src/server/notify/templates.ts och adminvyns mallkatalog). */
-export type ParticipantTemplate = "kallelse" | "aktivitetsinbjudan";
+export type ParticipantTemplate = "kallelse" | "aktivitetsinbjudan" | "aktivitet_andrad" | "aktivitet_installd";
+export const PARTICIPANT_TEMPLATES: readonly ParticipantTemplate[] = ["kallelse", "aktivitetsinbjudan", "aktivitet_andrad", "aktivitet_installd"];
+/** Mallarna för en gruppaktivitet: inbjudan, ändrad tid eller plats, inställd. */
+export type ActivityTemplate = Exclude<ParticipantTemplate, "kallelse">;
+/** Ringer utringningen för mallen? Inspelningen säger "inbjudan till ett möte" – bara kallelsen och inbjudan till aktivitet. */
+const CALLS: Record<ParticipantTemplate, boolean> = { kallelse: true, aktivitetsinbjudan: true, aktivitet_andrad: false, aktivitet_installd: false };
+/** Vad utskicket kallas i meningarna till den som bokade och i samordnarens uppgift. */
+const WHAT: Record<ParticipantTemplate, string> = {
+  kallelse: "Kallelsen",
+  aktivitetsinbjudan: "Inbjudan",
+  aktivitet_andrad: "Meddelandet om ny tid",
+  aktivitet_installd: "Meddelandet om inställd aktivitet",
+};
 
 /** Det kanalvalet behöver om deltagaren. */
 export type ParticipantContact = Pick<Person, "email" | "phone" | "preferredContact" | "address">;
@@ -65,9 +79,9 @@ const ORDER: Record<PreferredContact, readonly ParticipantChannel[]> = {
 
 /**
  * Kanalvalet (rent – testas i alla kombinationer i participant-notify.test.ts). letter = brev får användas (kallelsen; inbjudan
- * till en aktivitet går aldrig som brev – det hinner inte fram).
+ * till en aktivitet går aldrig som brev – det hinner inte fram). call = false: ingen utringning (ändrad tid, inställd aktivitet).
  */
-export function planParticipantChannels(p: ParticipantContact, status: MessagingStatus, opts: { letter?: boolean } = {}): ChannelPlan {
+export function planParticipantChannels(p: ParticipantContact, status: MessagingStatus, opts: { letter?: boolean; call?: boolean } = {}): ChannelPlan {
   const reach = contactReach(p, status);
   const phone = reach.phone === "ok" || reach.phone === "sms_off";
   const use = new Set<ParticipantChannel>();
@@ -79,7 +93,7 @@ export function planParticipantChannels(p: ParticipantContact, status: Messaging
   else if (reach.phone !== "none") off.push("sms");
   if ((opts.letter ?? true) && p.preferredContact === "letter" && (p.address ?? "").trim()) use.add("brev");
   // Utringningen hänvisar till SMS:et eller mejlet – den görs bara när något av dem går iväg.
-  if (phone && (use.has("email") || use.has("sms"))) {
+  if ((opts.call ?? true) && phone && (use.has("email") || use.has("sms"))) {
     if (status.call.connected) use.add("call");
     else off.push("call");
   }
@@ -139,11 +153,21 @@ function reasonOfRow(m: Pick<OutboundMessage, "channel" | "statusReason">): Unre
 const placeText = (place: string): string => place.trim().replace(/\s+/g, " ").slice(0, 120) || "Miljonbemanning";
 const phoneSentence = (): string => (CONTACT_PHONE ? ` Frågor? Ring ${CONTACT_PHONE}.` : "");
 
-/** Texten till deltagaren: bara tid, plats och Miljonbemannings telefonnummer. */
-export function participantMessage(template: ParticipantTemplate, when: LocalDateTime, place: string): string {
+/**
+ * Texten till deltagaren: bara tid, plats och Miljonbemannings telefonnummer – aldrig namn, ärendenummer, aktivitetens namn eller
+ * vad insatsen gäller. previous = den tidigare tiden (ändrad aktivitet), så att deltagaren vet vilken aktivitet som ändrats.
+ */
+export function participantMessage(template: ParticipantTemplate, when: LocalDateTime, place: string, previous?: LocalDateTime | null): string {
   const where = placeText(place);
   if (template === "aktivitetsinbjudan") {
     return `Hej! Du är inbjuden till en aktivitet hos Miljonbemanning ${fmtWeekday(when)} kl. ${fmtTime(when)}, ${where}.${phoneSentence()}`;
+  }
+  if (template === "aktivitet_andrad") {
+    const was = previous ? ` ${fmtWeekday(previous)} kl. ${fmtTime(previous)}` : "";
+    return `Hej! Aktiviteten hos Miljonbemanning${was} är ändrad. Nu gäller ${fmtWeekday(when)} kl. ${fmtTime(when)}, ${where}.${phoneSentence()}`;
+  }
+  if (template === "aktivitet_installd") {
+    return `Hej! Aktiviteten hos Miljonbemanning ${fmtWeekday(when)} kl. ${fmtTime(when)}, ${where}, är inställd.${phoneSentence()}`;
   }
   return `Välkommen till Miljonbemanning! Ditt första möte är ${fmtWeekday(when)} klockan ${fmtTime(when)} i ${where}.${phoneSentence()}`;
 }
@@ -152,12 +176,14 @@ export function participantMessage(template: ParticipantTemplate, when: LocalDat
 const TASK_START: Record<ParticipantTemplate, string> = {
   kallelse: "Ring deltagaren och kalla till första mötet",
   aktivitetsinbjudan: "Ring deltagaren och bjud in till aktiviteten",
+  aktivitet_andrad: "Ring deltagaren och berätta om aktivitetens nya tid",
+  aktivitet_installd: "Ring deltagaren och berätta att aktiviteten är inställd",
 };
 
 /** Är uppgiften (tasks.text, kind participant_contact) uppgiften att ringa och kalla till första mötet? */
 export const isKallelseTask = (text: string): boolean => text.startsWith(TASK_START.kallelse);
 
-const isParticipantTemplate = (t: string): t is ParticipantTemplate => t === "kallelse" || t === "aktivitetsinbjudan";
+const isParticipantTemplate = (t: string): t is ParticipantTemplate => (PARTICIPANT_TEMPLATES as readonly string[]).includes(t);
 
 /** Uppgiftens början: mallen, ärendenumret, tiden och platsen. Samma början = samma möte eller aktivitet. */
 const taskHead = (template: ParticipantTemplate, caseNumber: string, when: LocalDateTime, place: string): string =>
@@ -171,7 +197,7 @@ export function contactTaskText(template: ParticipantTemplate, caseNumber: strin
   const head = taskHead(template, caseNumber, when, place);
   const set = new Set(reasons);
   if (set.has("no_email") && set.has("no_phone") && set.size === 2) return `${head} Deltagaren har varken e-postadress eller telefonnummer – fråga beställande handläggare.`;
-  const what = template === "kallelse" ? "Kallelsen" : "Inbjudan";
+  const what = WHAT[template];
   const texts = [...set].map((r) => UNREACHABLE_TEXT[r]);
   const check = set.has("bad_phone") && set.has("bad_email") ? " – kontrollera numret och adressen" : set.has("bad_phone") ? " – kontrollera numret" : set.has("bad_email") ? " – kontrollera adressen" : "";
   return `${head} ${what} kunde inte skickas${texts.length ? `: ${listSv(texts)}${check}` : ""}.`;
@@ -184,6 +210,8 @@ export type NotifyParticipantInput = {
   when: LocalDateTime;
   /** Platsen, t.ex. "Alby" eller "Miljonbemanning, Kontorsgatan 1". Inga namn. */
   place: string;
+  /** Ändrad aktivitet: den tidigare tiden (står i meddelandet, så att deltagaren vet vilken aktivitet som ändrats). */
+  previous?: LocalDateTime | null;
 };
 
 export type NotifyParticipantResult = {
@@ -207,7 +235,7 @@ const listSv = (xs: readonly string[]): string => (xs.length > 1 ? `${xs.slice(0
  * "skickas", inte "är skickad": utskicket ligger i kön och kan stoppas när det skickas – då får samordnaren en uppgift.
  */
 export function notifySummary(template: ParticipantTemplate, r: Pick<NotifyParticipantResult, "channels" | "taskId" | "blocked">): string {
-  const what = template === "kallelse" ? "Kallelsen" : "Inbjudan";
+  const what = WHAT[template];
   if (r.blocked) return `${what} skickades inte.`;
   const sent = r.channels.filter((c): c is "email" | "sms" => c === "email" || c === "sms");
   const letter = r.channels.includes("brev");
@@ -230,8 +258,8 @@ export async function notifyParticipant(ctx: Ctx, input: NotifyParticipantInput)
     return { ...blocked, summary: notifySummary(input.template, blocked) };
   }
   const status = messagingOf(ctx);
-  const plan = planParticipantChannels(person, status, { letter: input.template === "kallelse" });
-  const text = participantMessage(input.template, input.when, input.place);
+  const plan = planParticipantChannels(person, status, { letter: input.template === "kallelse", call: CALLS[input.template] });
+  const text = participantMessage(input.template, input.when, input.place, input.previous);
   const invitation = { when: input.when, place: input.place };
   const send = (ch: ParticipantChannel) =>
     ctx.notify({
@@ -296,7 +324,7 @@ async function closeContactTasks(ctx: Ctx, input: NotifyParticipantInput, c: Pic
   const open = await openContactTasks(ctx, input, c);
   if (!open.length) return;
   const via = listSv(uniqText(channels.map((ch) => CLOSE_TEXT[ch])));
-  const doneNote = input.template === "kallelse" ? `Kallelsen skickades med ${via} vid ombokningen.` : `Inbjudan skickades med ${via}.`;
+  const doneNote = input.template === "kallelse" ? `Kallelsen skickades med ${via} vid ombokningen.` : `${WHAT[input.template]} skickades med ${via}.`;
   for (const x of open) {
     await ctx.system.table("tasks").update(x.id, { status: "done", doneAt: ctx.now(), doneBy: SYSTEM_ACTOR.userId, doneNote });
     await ctx.audit({
@@ -307,6 +335,24 @@ async function closeContactTasks(ctx: Ctx, input: NotifyParticipantInput, c: Pic
 }
 
 const CLOSE_TEXT: Record<ParticipantChannel, string> = { email: "e-post", sms: "SMS", call: "utringning", brev: "brev" };
+
+/**
+ * En gruppaktivitet fick ny tid eller plats eller ställdes in: öppna uppgifter att ringa deltagaren om aktiviteten vid den gamla
+ * tiden och platsen (inbjudan eller tidigare ändring) gäller inte längre – annars ringer samordnaren med fel tid. De stängs av
+ * systemet med en anteckning och loggas (task.done). Returnerar hur många som stängdes.
+ */
+export async function closeActivityTasks(
+  ctx: Ctx, c: Pick<Case, "id" | "caseNumber" | "contractId">, was: { when: LocalDateTime; place: string }, doneNote: string,
+): Promise<number> {
+  const heads = (["aktivitetsinbjudan", "aktivitet_andrad"] as const).map((t) => taskHead(t, c.caseNumber, was.when, was.place));
+  const open = (await ctx.system.table("tasks").list({ kind: "participant_contact", status: "open" }))
+    .filter((x) => x.caseIds.includes(c.id) && heads.some((h) => x.text.startsWith(h)));
+  for (const x of open) {
+    await ctx.system.table("tasks").update(x.id, { status: "done", doneAt: ctx.now(), doneBy: SYSTEM_ACTOR.userId, doneNote });
+    await ctx.audit({ action: "task.done", entity: "task", entityId: x.id, contractId: c.contractId, details: { kind: "participant_contact", caseId: c.id, auto: true, superseded: true } });
+  }
+  return open.length;
+}
 const uniqText = (xs: readonly string[]): string[] => [...new Set(xs)];
 
 /** Kanalerna som är skriftliga utskick. Samtalet hänvisar till dem; brevet skickas för hand och kan inte misslyckas. */

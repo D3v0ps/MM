@@ -12,7 +12,7 @@ import { createSeed, DEMO_START, decodeTestPnr, normalizePnr } from "@/data/seed
 import { CONTACT_PHONE } from "./contact";
 import { EMAIL_NOT_ALLOWED_REASON, MESSAGING_OFF, PHONE_FORMAT_REASON, type MessagingStatus } from "./messaging-port";
 import {
-  CALL_RECORDING_TEXT, contactTaskText, notifyParticipant, notifySummary, participantMessage, participantSendStopped, planParticipantChannels, unreachableReasons,
+  CALL_RECORDING_TEXT, closeActivityTasks, contactTaskText, notifyParticipant, notifySummary, participantMessage, participantSendStopped, planParticipantChannels, unreachableReasons,
   type NotifyParticipantInput, type ParticipantContact,
 } from "./participant-notify";
 
@@ -155,6 +155,7 @@ function ctxAs(userId: string, role: "samordnare" | "coach" | "avtalsansvarig"):
 const person = () => rt.store.rows("persons").find((p) => p.id === rt.raw().get("cases", CASE)!.personId)!;
 const input = (o: Partial<NotifyParticipantInput> = {}): NotifyParticipantInput => ({ caseId: CASE, template: "aktivitetsinbjudan", when: "2027-02-04T13:30", place: "Alby", ...o });
 const outbound = () => rt.store.rows("outbound_messages").filter((m) => m.caseId === CASE && (m.template === "aktivitetsinbjudan" || m.template === "kallelse"));
+const outboundOf = (template: string) => rt.store.rows("outbound_messages").filter((m) => m.caseId === CASE && m.template === template);
 const contactTasks = () => rt.store.rows("tasks").filter((t) => t.kind === "participant_contact");
 
 /** Inga namn eller personnummer på deltagare i utskick och uppgifter (CLAUDE.md punkt 9). */
@@ -341,5 +342,63 @@ describe("participantSendStopped – utskicket stoppades eller misslyckades när
     rt.store.updateRow("persons", person().id, { protectedIdentity: false });
     expect(await participantSendStopped(sys(), row("sms").id, inv)).toBeTruthy();
     expect(contactTasks()[0].text).toContain("Kallelsen kunde inte skickas: mejlet kunde inte skickas och telefonnumret har fel format – kontrollera numret.");
+  });
+});
+
+// ================================================================ Spår G: ändrad tid eller plats och inställd aktivitet
+describe("ändrad tid och inställd aktivitet – samma textregel, ingen utringning", () => {
+  it("texterna: bara tid, plats och telefonnummer – den tidigare tiden står med så att deltagaren vet vilken aktivitet som ändrats", () => {
+    expect(participantMessage("aktivitet_andrad", "2027-02-05T10:00", "Rum 2, Alby", "2027-02-04T13:30")).toBe(
+      "Hej! Aktiviteten hos Miljonbemanning torsdag 4 februari kl. 13.30 är ändrad. Nu gäller fredag 5 februari kl. 10.00, Rum 2, Alby. Frågor? Ring 08-400 22 750.",
+    );
+    expect(participantMessage("aktivitet_andrad", "2027-02-05T10:00", "Alby")).toBe("Hej! Aktiviteten hos Miljonbemanning är ändrad. Nu gäller fredag 5 februari kl. 10.00, Alby. Frågor? Ring 08-400 22 750.");
+    expect(participantMessage("aktivitet_installd", "2027-02-04T13:30", "Alby")).toBe("Hej! Aktiviteten hos Miljonbemanning torsdag 4 februari kl. 13.30, Alby, är inställd. Frågor? Ring 08-400 22 750.");
+    expect(contactTaskText("aktivitet_andrad", "BOT-27-0048", "2027-02-05T10:00", "Alby", ["no_email", "no_phone"])).toBe(
+      "Ring deltagaren och berätta om aktivitetens nya tid – ärende BOT-27-0048, fredag 5 februari kl. 10.00, Alby. Deltagaren har varken e-postadress eller telefonnummer – fråga beställande handläggare.",
+    );
+    expect(contactTaskText("aktivitet_installd", "BOT-27-0048", "2027-02-04T13:30", "Alby", ["no_email", "sms_off"])).toBe(
+      "Ring deltagaren och berätta att aktiviteten är inställd – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Meddelandet om inställd aktivitet kunde inte skickas: deltagaren har ingen e-postadress och SMS är inte kopplat.",
+    );
+    expect(notifySummary("aktivitet_andrad", { channels: ["email"], taskId: null, blocked: false })).toBe("Meddelandet om ny tid skickas med e-post.");
+    expect(notifySummary("aktivitet_installd", { channels: [], taskId: "t", blocked: false })).toBe("Meddelandet om inställd aktivitet kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren.");
+  });
+
+  it("kanalvalet utan utringning (call: false): samtalet varken skickas eller sparas som stoppat", () => {
+    expect(planParticipantChannels(who(EMAIL, PHONE), status(true, true), { letter: false, call: false })).toEqual({ send: ["sms", "email"], off: [] });
+    expect(planParticipantChannels(who(EMAIL, PHONE), status(false, false), { letter: false, call: false })).toEqual({ send: ["email"], off: ["sms"] });
+  });
+
+  it("notifyParticipant: SMS och e-post med samma text, aldrig samtal – och inga personuppgifter", async () => {
+    setup(status(true, true));
+    const ctx = ctxAs("u-amira", "coach");
+    const changed = await notifyParticipant(ctx, input({ template: "aktivitet_andrad", when: "2027-02-05T10:00", previous: "2027-02-04T13:30" }));
+    expect(changed).toMatchObject({ channels: ["sms", "email"], off: [], taskId: null, summary: "Meddelandet om ny tid skickas med SMS och e-post." });
+    const cancelled = await notifyParticipant(ctx, input({ template: "aktivitet_installd" }));
+    expect(cancelled.channels).toEqual(["sms", "email"]);
+    for (const t of ["aktivitet_andrad", "aktivitet_installd"]) {
+      const rows = outboundOf(t);
+      expect(rows.map((m) => m.channel), t).toEqual(["sms", "email"]);
+      expect(rows[0].body).toBe(rows[1].body);
+      expectNoPersonalData(rows.flatMap((m) => [m.to, m.body, m.subject ?? ""]));
+    }
+    expect(outboundOf("aktivitet_andrad")[0].body).toContain("torsdag 4 februari kl. 13.30 är ändrad. Nu gäller fredag 5 februari kl. 10.00, Alby.");
+  });
+
+  it("closeActivityTasks: uppgiften att ringa om inbjudan (eller en tidigare ändring) vid den gamla tiden stängs av systemet – andra tider rörs inte", async () => {
+    rt.store.updateRow("persons", person().id, { email: "", phone: "" });
+    const ctx = ctxAs("u-sara", "samordnare");
+    const invited = await notifyParticipant(ctx, input());
+    const other = await notifyParticipant(ctx, input({ when: "2027-02-08T09:00" }));
+    expect(contactTasks().filter((t) => t.status === "open")).toHaveLength(2);
+    const c = rt.raw().get("cases", CASE)!;
+    expect(await closeActivityTasks(ctx, c, { when: "2027-02-04T13:30", place: "Alby" }, "Aktiviteten har fått ny tid eller plats.")).toBe(1);
+    expect(rt.raw().get("tasks", invited.taskId!)).toMatchObject({ status: "done", doneBy: "system", doneNote: "Aktiviteten har fått ny tid eller plats." });
+    expect(rt.raw().get("tasks", other.taskId!)!.status).toBe("open");
+    expect(rt.store.rows("audit_log").filter((a) => a.action === "task.done").pop()).toMatchObject({ entityId: invited.taskId, details: { caseId: CASE, auto: true, superseded: true } });
+    // En uppgift om ändringen (ny tid) stängs när aktiviteten ändras igen.
+    const changed = await notifyParticipant(ctx, input({ template: "aktivitet_andrad", when: "2027-02-05T10:00", previous: "2027-02-04T13:30" }));
+    expect(rt.raw().get("tasks", changed.taskId!)!.text).toMatch(/^Ring deltagaren och berätta om aktivitetens nya tid – ärende BOT-27-0048, fredag 5 februari kl. 10.00, Alby\./);
+    expect(await closeActivityTasks(ctx, c, { when: "2027-02-05T10:00", place: "Alby" }, "Aktiviteten är inställd.")).toBe(1);
+    expect(rt.raw().get("tasks", changed.taskId!)!.status).toBe("done");
   });
 });

@@ -115,6 +115,8 @@ Förebilden är kodmejlet som granskades med användaren 2026-10-02. Notiserna o
 | `inbjudan_personal` | Du har fått ett konto i Miljonmatch – Lägg till kollega (beslut 2026-10-08): texten har inga personuppgifter, knappen går till appens adress (`loginLink`, personalens domän) |
 | `kallelse` | Kallelse till första möte |
 | `aktivitetsinbjudan` | Inbjudan till aktivitet hos Miljonbemanning (beslut 2026-10-09) |
+| `aktivitet_andrad` | Ny tid för aktivitet hos Miljonbemanning (spår G – e-post och SMS, ingen utringning) |
+| `aktivitet_installd` | Inställd aktivitet hos Miljonbemanning (spår G – e-post och SMS, ingen utringning) |
 | `rostlank` | Spela in ett meddelande till din coach |
 | `inloggningskod` | Din inloggningskod till Miljonmatch (skickas direkt, inte via kön – nästa avsnitt) |
 | okänd mall eller saknat ärende | Meddelande från Miljonmatch |

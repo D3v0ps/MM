@@ -29,6 +29,9 @@ export const TEMPLATES: Readonly<Record<string, TemplateInfo>> = {
   // src/features/_shared/participant-notify.ts). Texten: bara tid, plats och Miljonbemannings telefonnummer.
   kallelse: T("Kallelse till första möte", "Kallelse till första möte", "deltagare"),
   aktivitetsinbjudan: T("Inbjudan till aktivitet", "Inbjudan till aktivitet hos Miljonbemanning", "deltagare"),
+  // Ändrad tid eller plats och inställd aktivitet (spår G): samma kanaler utom utringningen, samma textregel.
+  aktivitet_andrad: T("Ändrad aktivitet", "Ny tid för aktivitet hos Miljonbemanning", "deltagare"),
+  aktivitet_installd: T("Inställd aktivitet", "Inställd aktivitet hos Miljonbemanning", "deltagare"),
   tilldelning_coach: T("Tilldelning till coach", "Nytt ärende i Miljonmatch", "mb"),
   paminnelse_progression: T("Påminnelse om progression", "Påminnelse från Miljonmatch", "mb"),
   eskalering_chef: T("Eskalering till chef", "Eskalering i Miljonmatch", "mb"),

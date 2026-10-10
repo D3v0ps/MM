@@ -8,7 +8,7 @@
 // knapp eller lista som lägger till ärende-id:n i samma val (onChange med de sammanslagna id:na). Valet är alltid en lista
 // med ärende-id:n, och servern prövar varje deltagare igen.
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { INVITE_BLOCK_TEXT, inviteBlock } from "@/core/group-activities";
+import { candidateBlockText } from "@/core/group-activities";
 import { plural } from "@/core/format";
 import type { LocalDate } from "@/core/time";
 import { Button, Check, Field, Input, Row, Stack } from "@/ui";
@@ -30,12 +30,7 @@ export type InviteParticipantsProps = {
 };
 
 /** Varför en deltagare inte kan väljas: redan inbjuden, ingen dag, eller insatsens läge den dagen. null = kan väljas. */
-export function candidateBlock(c: InviteCandidate, day: LocalDate | null, already: ReadonlySet<string>): string | null {
-  if (already.has(c.caseId)) return "Redan inbjuden";
-  if (!day) return "Välj datum först";
-  const b = inviteBlock(c, day);
-  return b ? INVITE_BLOCK_TEXT[b] : null;
-}
+export const candidateBlock = (c: InviteCandidate, day: LocalDate | null, already: ReadonlySet<string>): string | null => candidateBlockText(c, day, already);
 
 const norm = (s: string) => s.toLocaleLowerCase("sv").replace(/\s+/g, " ").trim();
 

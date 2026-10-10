@@ -14,6 +14,7 @@ import { detailText, type AuditLookups } from "./audit-text";
 import { findUnset } from "./contract-text";
 import { fillExample, templateCheck } from "./templates";
 import { linkMessageText } from "@/features/rost/texts";
+import { participantMessage } from "@/features/_shared/participant-notify";
 import { testRuntime } from "./test-runtime";
 
 let rt: ReturnType<typeof testRuntime>;
@@ -376,7 +377,7 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(22);
+    expect(d.templates).toHaveLength(24);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
     // Inloggningskoden (beslut 2026-10-02): e-post från appen, fast text, ingen länk – bara {kod} (fylls i av servern).
     expect(t("inloggningskod")).toMatchObject({ name: "Inloggningskod", channel: "email", alsoVia: [], from: "notis@miljonmatch.se", subject: "Din inloggningskod till Miljonmatch", fixed: true, version: 1 });
@@ -403,6 +404,12 @@ describe("mallar och utskick", () => {
     expect(t("aktivitetsinbjudan")).toMatchObject({ name: "Inbjudan till aktivitet", channel: "sms", alsoVia: ["email", "call"], subject: "Inbjudan till aktivitet hos Miljonbemanning" });
     expect(t("aktivitetsinbjudan").body).toBe("Hej! Du är inbjuden till en aktivitet hos Miljonbemanning {datum} kl. {tid}, {plats}. Frågor? Ring {telefon}.");
     expect(templateCheck(t("aktivitetsinbjudan").body)).toMatchObject({ ok: true, unknown: [] });
+    // Ändrad tid och inställd aktivitet (spår G): e-post och SMS, ingen utringning – samma text som participantMessage.
+    expect(t("aktivitet_andrad")).toMatchObject({ name: "Ändrad aktivitet", channel: "sms", alsoVia: ["email"], subject: "Ny tid för aktivitet hos Miljonbemanning" });
+    expect(t("aktivitet_installd")).toMatchObject({ name: "Inställd aktivitet", channel: "sms", alsoVia: ["email"], subject: "Inställd aktivitet hos Miljonbemanning" });
+    for (const k of ["aktivitet_andrad", "aktivitet_installd"]) expect(templateCheck(t(k).body), k).toMatchObject({ ok: true, unknown: [] });
+    expect(fillExample(t("aktivitet_andrad").body)).toBe(participantMessage("aktivitet_andrad", "2027-02-03T10:00", "Alby", "2027-02-02T13:00"));
+    expect(fillExample(t("aktivitet_installd").body)).toBe(participantMessage("aktivitet_installd", "2027-02-03T10:00", "Alby"));
     expect(d.sendLog.map((n) => n.templateLabel)).toEqual([
       "Ordererkännande", "Pulslänk", "Ny rapport", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
     ]);
