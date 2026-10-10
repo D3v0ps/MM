@@ -11,7 +11,7 @@
 //   * en arkiverad gruppering kan inte väljas för fler deltagare (befintliga medlemskap ligger kvar tills de tas bort)
 //   * inget raderas: grupperingar arkiveras, medlemskap får removedAt
 import type { Role } from "@/api/roles";
-import type { Grouping, GroupingKind, GroupingMember } from "@/data/schema";
+import type { Contract, Grouping, GroupingKind, GroupingMember } from "@/data/schema";
 import { GROUPING_CATEGORY_MAX, GROUPING_DESCRIPTION_MAX, GROUPING_NAME_MAX } from "@/data/schema";
 import type { LocalDateTime } from "./time";
 import { looksLikePnr } from "./validation";
@@ -131,6 +131,31 @@ export function groupingIdsByCase(members: readonly GroupingMember[]): Map<strin
     else out.set(m.caseId, new Set([m.groupingId]));
   }
   return out;
+}
+
+export type GroupingFilterOption = { id: string; name: string };
+/**
+ * Valen i filtren Nivå, Grupp och Tagg (ärendelistan, coachens Närvaro): aktiva grupperingar i ordning, taggarna som
+ * "Vill arbeta: Heltid". Varje avtal har sina egna – finns grupperingar från fler än ett avtal står avtalets prefix efter
+ * namnet ("Måndagsgruppen (BOT)"), så att ärenden i alla avtal kan filtreras på sina egna grupper.
+ */
+export function groupingFilterOptions(
+  groupings: readonly Grouping[],
+  contracts: readonly Pick<Contract, "id" | "casePrefix">[],
+): { levels: GroupingFilterOption[]; groups: GroupingFilterOption[]; tags: GroupingFilterOption[] } {
+  const active = groupings.filter((g) => g.archivedAt == null);
+  const several = new Set(active.map((g) => g.contractId)).size > 1;
+  const prefix = new Map(contracts.map((c) => [c.id, c.casePrefix]));
+  const label = (g: Grouping, name: string) => (several ? `${name} (${prefix.get(g.contractId) ?? g.contractId})` : name);
+  const byContract = (a: Grouping, b: Grouping) => a.contractId.localeCompare(b.contractId);
+  const of = (kind: GroupingKind) => active.filter((g) => g.kind === kind);
+  return {
+    levels: of("level").sort((a, b) => byContract(a, b) || byOrder(a, b)).map((g) => ({ id: g.id, name: label(g, g.name) })),
+    groups: of("group").sort((a, b) => byContract(a, b) || byOrder(a, b)).map((g) => ({ id: g.id, name: label(g, g.name) })),
+    tags: of("tag")
+      .sort((a, b) => byContract(a, b) || (a.category ?? "").localeCompare(b.category ?? "", "sv") || byOrder(a, b))
+      .map((g) => ({ id: g.id, name: label(g, `${g.category}: ${g.name}`) })),
+  };
 }
 
 /** Filtret i listorna: nivå, grupp och tagg (id eller tomt). Alla valda måste stämma. */

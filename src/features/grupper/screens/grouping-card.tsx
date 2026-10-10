@@ -2,12 +2,15 @@
 // Kortet "Nivå och grupp" (coachmötet 2026-10-09, Karims beslut 3): längst ned i kartläggningen och i deltagarkortets
 // "Ändra". Den som kartlägger (Adam) eller coachen väljer nivå (1–5 med namn), grupper (flerval + Ny grupp) och taggen
 // "Vill arbeta", och skriver en rad till coacherna (sparas som en vanlig anteckning). Valen sparas direkt (som
-// kartläggningens fält sparas automatiskt) – ett anrop i taget, alltid det senaste läget. Internt: syns aldrig för kommunen,
-// i rapporter eller exporter och skickas aldrig till AI. AI placerar aldrig någon i en nivå eller grupp.
+// kartläggningens fält sparas automatiskt) – ett anrop i taget, alltid det senaste läget. Misslyckas en sparning visas det
+// senast sparade läget. Raden till coacherna sparas med "Spara raden" – osparad text skyddas (sidbyte, Klar i dialogen).
+// Internt: syns aldrig för kommunen, i rapporter eller exporter och skickas aldrig till AI. AI placerar aldrig någon i en
+// nivå eller grupp.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { fmtTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { Badge, Button, Card, ErrorNotice, Field, Icon, Input, Loading, Modal, Row, Seg, Stack, TextArea, toast, type SegOption } from "@/ui";
+import { useUnsavedGuard } from "@/shell/guard";
+import { Badge, Button, Card, ErrorNotice, Field, Icon, Input, Loading, Modal, Row, Seg, Stack, TextArea, toast, useModalClose, useModalDirty, type SegOption } from "@/ui";
 import { caseNoteSave } from "@/features/arenden/api";
 import { caseGroupingsSave, caseGroupingsView, groupingCreate, type CaseGroupings, type CaseGroupingsView, type GroupingOption } from "../api";
 
@@ -52,11 +55,21 @@ export function CaseGroupingRow({ caseId, className }: { caseId: string; classNa
         </Button>
       )}
       {open && (
-        <Modal title="Nivå och grupp" onClose={() => setOpen(false)} footer={<Button kind="primary" onClick={() => setOpen(false)}>Klar</Button>}>
+        <Modal title="Nivå och grupp" onClose={() => setOpen(false)} footer={<DoneButton />}>
           <GroupingCard caseId={caseId} bare />
         </Modal>
       )}
     </div>
+  );
+}
+
+/** Klar stänger som krysset: finns en osparad rad till coacherna frågar dialogen först (useModalDirty i Editor). */
+function DoneButton() {
+  const close = useModalClose();
+  return (
+    <Button kind="primary" onClick={close}>
+      Klar
+    </Button>
   );
 }
 
@@ -68,17 +81,30 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
   const [status, setStatus] = useState<{ kind: "idle" | "saving" | "saved" | "failed"; at?: string; text?: string }>({ kind: "idle" });
   const pending = useRef<State | null>(null);
   const running = useRef(false);
+  // Senast sparade läget (serverns) – visas när en sparning misslyckas – och senast valda läget (ändringarna bygger på det,
+  // också när en händelse kommer efter en await, t.ex. Ny grupp).
+  const saved = useRef<State>(state);
+  const latest = useRef<State>(state);
+  const creating = useRef(false);
   const [newGroup, setNewGroup] = useState<string | null>(null);
   const [newGroupError, setNewGroupError] = useState<string | null>(null);
   const [line, setLine] = useState("");
   const [lineError, setLineError] = useState<string | null>(null);
+  // Osparad rad till coacherna: frågar innan sidan byts och innan dialogen stängs (Klar, krysset, Esc).
+  const lineDirty = line.trim() !== "";
+  useUnsavedGuard(lineDirty && !note.pending);
+  useModalDirty(lineDirty);
 
   // Grupper som skapats här finns i frågan först efter omräkningen – valen läggs till lokalt tills dess.
   const [extraGroups, setExtraGroups] = useState<GroupingOption[]>([]);
   const groups = [...v.options.groups, ...extraGroups.filter((g) => !v.options.groups.some((x) => x.id === g.id))];
   useEffect(() => {
+    saved.current = stateOf(v);
     // Läget ändrades någon annanstans (en annan flik) och inget sparas härifrån just nu: visa serverns läge.
-    if (!running.current && !pending.current) setState(stateOf(v));
+    if (!running.current && !pending.current) {
+      latest.current = saved.current;
+      setState(saved.current);
+    }
   }, [v]);
 
   const flush = async () => {
@@ -92,26 +118,37 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
       if (!res || !res.ok) {
         pending.current = null;
         setStatus({ kind: "failed", text: res && !res.ok && res.message ? res.message : "Ändringen kunde inte sparas. Försök igen." });
-        setState(stateOf(v));
+        // Det senast sparade läget (inte läget när kortet visades) – det är det som finns i databasen.
+        latest.current = saved.current;
+        setState(saved.current);
         break;
       }
+      saved.current = s;
       setStatus({ kind: "saved", at: res.savedAt });
     }
     running.current = false;
   };
-  const change = (next: State) => {
-    setState(next);
-    pending.current = next;
+  /** Ändra från det senast valda läget (aldrig ett läge som fångades när knappen ritades). */
+  const change = (next: (prev: State) => State) => {
+    const n = next(latest.current);
+    latest.current = n;
+    setState(n);
+    pending.current = n;
     void flush();
   };
 
   const addGroup = async () => {
+    // En gång i taget: dubbla Enter eller klick skapar inte två grupper.
+    if (creating.current) return;
     const name = (newGroup ?? "").trim();
     if (!name) {
       setNewGroupError("Skriv ett namn på gruppen.");
       return;
     }
-    const res = await create.run({ kind: "group", name }).catch(() => null);
+    creating.current = true;
+    // Ärendets avtal (inte aktörens första) – servern kontrollerar att hen arbetar i ärendet.
+    const res = await create.run({ kind: "group", caseId: v.caseId, name }).catch(() => null);
+    creating.current = false;
     if (!res || !res.ok) {
       setNewGroupError(res && !res.ok && res.message ? res.message : "Gruppen kunde inte skapas.");
       return;
@@ -119,7 +156,7 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
     setExtraGroups((xs) => [...xs, { id: res.id, name, description: "", archived: false, members: 0 }]);
     setNewGroup(null);
     setNewGroupError(null);
-    change({ ...state, groupIds: [...state.groupIds, res.id] });
+    change((prev) => ({ ...prev, groupIds: prev.groupIds.includes(res.id) ? prev.groupIds : [...prev.groupIds, res.id] }));
     toast(`Gruppen ${name} är skapad och vald.`);
   };
 
@@ -151,7 +188,7 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
             id={`gr-niva-${v.caseId}`}
             ariaLabel="Nivå"
             value={state.levelId ?? NONE}
-            onValueChange={(x) => change({ ...state, levelId: x || null })}
+            onValueChange={(x) => change((prev) => ({ ...prev, levelId: x || null }))}
             options={opts(v.options.levels, "Ingen nivå än")}
           />
         </Field>
@@ -162,7 +199,7 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
               id={`gr-grupper-${v.caseId}`}
               ariaLabel="Grupper"
               value={state.groupIds}
-              onValueChange={(xs) => change({ ...state, groupIds: xs })}
+              onValueChange={(xs) => change((prev) => ({ ...prev, groupIds: xs }))}
               options={opts(groups)}
             />
           ) : (
@@ -178,7 +215,16 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
         ) : (
           <Field label="Namn på den nya gruppen" id={`gr-ny-${v.caseId}`} error={newGroupError ?? undefined} help="Använd neutrala ord om stödet, till exempel ”Måndagsgruppen”. Aldrig omdömen om personer.">
             <Row gap="sm">
-              <Input value={newGroup} maxLength={80} onValueChange={(x) => setNewGroup(x)} onKeyDown={(e) => e.key === "Enter" && void addGroup()} />
+              <Input
+                value={newGroup}
+                maxLength={80}
+                onValueChange={(x) => setNewGroup(x)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  if (!create.pending) void addGroup();
+                }}
+              />
               <Button kind="secondary" icon="plus" pending={create.pending} onClick={() => void addGroup()}>
                 Skapa och välj
               </Button>
@@ -194,7 +240,7 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
               id={`gr-tagg-${v.caseId}-${i}`}
               ariaLabel={t.category}
               value={state.tags[t.category] ?? NONE}
-              onValueChange={(x) => change({ ...state, tags: { ...state.tags, [t.category]: x || null } })}
+              onValueChange={(x) => change((prev) => ({ ...prev, tags: { ...prev.tags, [t.category]: x || null } }))}
               options={opts(t.values, "Inte valt")}
             />
           </Field>
@@ -203,7 +249,7 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
           {status.kind !== "idle" && <Icon name={status.kind === "failed" ? "alert" : status.kind === "saving" ? "clock" : "check"} className={status.kind === "failed" ? "text-rod" : undefined} />}
           <span className={status.kind === "failed" ? "font-bold text-antracit" : undefined}>{statusText}</span>
         </div>
-        <Field label="En rad till coacherna (valfritt)" id={`gr-rad-${v.caseId}`} error={lineError ?? undefined} help="Sparas som en anteckning i deltagarkortet med dagens datum. Skriv aldrig personnummer.">
+        <Field label="En rad till coacherna (valfritt)" id={`gr-rad-${v.caseId}`} error={lineError ?? undefined} help="Sparas som en anteckning i deltagarkortet med dagens datum när du trycker Spara raden. Skriv aldrig personnummer.">
           <TextArea rows={2} value={line} maxLength={2000} onValueChange={(x) => { setLine(x); if (lineError) setLineError(null); }} />
         </Field>
         <div>

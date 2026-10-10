@@ -21,7 +21,10 @@ const GROUPING_VIEWS = ["grupper.", "arenden.lista"] as const;
 export type GroupingOption = { id: string; name: string; description: string; archived: boolean; members: number };
 export type TagCategory = { category: string; values: GroupingOption[] };
 export type GroupingCatalog = {
+  /** Avtalet som visas. Varje avtal har sina egna nivåer, grupper och taggar. */
   contractId: string;
+  /** Aktörens avtal (fast ordning) – skärmarna visar ett val när de är fler än ett. */
+  contracts: { id: string; name: string }[];
   /** Får skapa, byta namn på och arkivera (samordnare, avtalsansvarig, coach, systemadministratör). */
   canEdit: boolean;
   levels: GroupingOption[];
@@ -30,20 +33,28 @@ export type GroupingCatalog = {
   /** Standardnivåerna saknas i avtalet (ett nytt avtal) – kan läggas in med grupper.standard. */
   missingDefaults: boolean;
 };
-/** Avtalets grupperingar. arkiverade: också arkiverade (administrationsvyn). Antal aktiva medlemmar per gruppering. */
-export const groupingCatalog = query("grupper.katalog", z.object({ arkiverade: z.boolean().optional() })).returns<GroupingCatalog | null>();
+/**
+ * Avtalets grupperingar. arkiverade: också arkiverade (administrationsvyn). contractId: ett av aktörens avtal (utan: det
+ * första). Antal aktiva medlemmar per gruppering – bara i pågående ärenden (som raderna i Anteckningar).
+ */
+export const groupingCatalog = query("grupper.katalog", z.object({ arkiverade: z.boolean().optional(), contractId: IdSchema.optional() })).returns<GroupingCatalog | null>();
 
 const Name = z.string().trim().min(1).max(GROUPING_NAME_MAX);
 const Description = z.string().trim().max(GROUPING_DESCRIPTION_MAX);
 
-/** Ny grupp eller tagg (nivåerna är alltid fem – de byter bara namn). Namnen väljer MB själva. */
+/**
+ * Ny grupp eller tagg (nivåerna är alltid fem – de byter bara namn). Namnen väljer MB själva. Avtalet: ärendets (caseId –
+ * kortet Nivå och grupp i ett ärende), annars det valda (contractId) eller aktörens första.
+ */
 export const groupingCreate = command("grupper.ny", z.object({
   kind: z.enum(["group", "tag"]),
+  caseId: IdSchema.optional(),
+  contractId: IdSchema.optional(),
   /** Taggens kategori (befintlig eller ny), t.ex. "Vill arbeta". Krävs för taggar. */
   category: z.string().trim().min(1).max(GROUPING_CATEGORY_MAX).optional(),
   name: Name,
   description: Description.optional(),
-}), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ id: string }, "invalid" | "duplicate" | "no_contract">>();
+}), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ id: string }, "invalid" | "duplicate" | "no_contract" | "not_found">>();
 
 /** Byt namn eller beskrivning. */
 export const groupingRename = command("grupper.andra", z.object({ id: IdSchema, name: Name, description: Description }), {
@@ -55,8 +66,8 @@ export const groupingArchive = command("grupper.arkivera", z.object({ id: IdSche
   invalidates: [...GROUPING_VIEWS, ...LOG],
 }).returns<Result<object, "not_found" | "level" | "duplicate">>();
 
-/** Lägg in standardvärdena (fem nivåer, Vill arbeta) i ett avtal som saknar dem. */
-export const groupingDefaults = command("grupper.standard", z.object({}), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ added: number }, "no_contract">>();
+/** Lägg in standardvärdena (fem nivåer, Vill arbeta) i ett avtal som saknar dem (det valda, annars aktörens första). */
+export const groupingDefaults = command("grupper.standard", z.object({ contractId: IdSchema.optional() }), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ added: number }, "no_contract">>();
 
 // ---------------------------------------------------------------- Filtret i coachens listor (Närvaro)
 export type GroupingFilterData = {
@@ -66,7 +77,10 @@ export type GroupingFilterData = {
   /** Ärende -> id för dess aktiva nivå, grupper och taggar (bara ärenden rollen ser – policyn/RLS). */
   byCase: Record<string, string[]>;
 };
-/** Filtret Nivå, Grupp och Tagg för listor som inte har det i sin egen fråga (coachens Närvaro). Null utan avtal. */
+/**
+ * Filtret Nivå, Grupp och Tagg för listor som inte har det i sin egen fråga (coachens Närvaro). Alla aktörens avtal –
+ * med fler än ett står avtalets prefix efter namnet. Null utan avtal.
+ */
 export const groupingFilterData = query("grupper.filter", z.object({})).returns<GroupingFilterData | null>();
 
 // ---------------------------------------------------------------- Ett ärendes nivå, grupper och taggar
@@ -115,16 +129,24 @@ export type MassNotePage = {
   catalog: GroupingCatalog | null;
   rows: MassNoteRow[];
 };
-/** Deltagarna i urvalet: mina ärenden (huvudcoach eller i teamet), en nivå, en grupp eller en tagg. Bara öppna ärenden. */
-export const massNotePage = query("grupper.anteckningar", z.object({ urval: z.enum(MASS_NOTE_SCOPES), id: IdSchema.optional() })).returns<MassNotePage>();
+/**
+ * Deltagarna i urvalet: mina ärenden (huvudcoach eller i teamet), en nivå, en grupp eller en tagg. Bara öppna ärenden, ett
+ * avtal i taget (contractId: ett av aktörens avtal, utan: det första).
+ */
+export const massNotePage = query("grupper.anteckningar", z.object({ urval: z.enum(MASS_NOTE_SCOPES), id: IdSchema.optional(), contractId: IdSchema.optional() })).returns<MassNotePage>();
 
 /** Högst så många rader i en sparning. */
 export const MASS_NOTE_MAX_ROWS = 200;
+/** Skärmens sparnyckel: slumpad när skärmen börjar ett nytt utkast, samma vid varje nytt försök tills sparningen lyckats. */
+export const MassNoteSaveKeySchema = z.string().regex(/^[A-Za-z0-9-]{16,64}$/);
 /**
- * Spara en anteckning per ifylld rad (vanliga anteckningar i deltagarkortet). Tomma rader skickas inte. Allt eller inget:
- * finns ett fel på någon rad (personnummer, datum, ärende) sparas ingenting och felen visas vid raderna (fields: caseId -> text).
+ * Spara en anteckning per ifylld rad (vanliga anteckningar i deltagarkortet). Tomma rader skickas inte. Kontrollen är allt
+ * eller inget: finns ett fel på någon rad (personnummer, datum, ärende) sparas ingenting och felen visas vid raderna
+ * (fields: caseId -> text). Sparningen är idempotent: varje rad får ett id ur sparnyckeln (saveKey) och ärendet, så ett nytt
+ * försök efter ett avbrott mitt i sparningen (nätverk, timeout) sparar bara det som saknas – aldrig dubbletter.
  */
 export const massNoteSave = command("grupper.anteckningarSpara", z.object({
+  saveKey: MassNoteSaveKeySchema,
   kind: z.enum(CASE_NOTE_KINDS),
   rows: z.array(z.object({ caseId: IdSchema, occurredOn: LocalDateSchema, body: z.string().trim().min(1).max(2000) })).min(1).max(MASS_NOTE_MAX_ROWS),
 }), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", ...LOG] }).returns<

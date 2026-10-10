@@ -434,7 +434,7 @@ export type CaseListModel = {
   coaches: { id: string; name: string }[];
   areas: { code: string; name: string }[];
   phases: { no: number; name: string }[];
-  /** Filtren Nivå, Grupp och Tagg (aktiva grupperingar i avtalet – internt, aldrig för kommunen). */
+  /** Filtren Nivå, Grupp och Tagg (aktiva grupperingar i aktörens avtal – internt, aldrig för kommunen). Fler avtal: prefixet efter namnet. */
   groupings: { levels: { id: string; name: string }[]; groups: { id: string; name: string }[]; tags: { id: string; name: string }[] };
   rows: CaseListRow[];
 };

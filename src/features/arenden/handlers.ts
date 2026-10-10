@@ -9,7 +9,7 @@ import { alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
 import { coaches, phaseSince, stuck } from "@/core/cases";
-import { byOrder, GROUPING_KIND_LABEL, groupingIdsByCase } from "@/core/groupings";
+import { GROUPING_KIND_LABEL, groupingFilterOptions, groupingIdsByCase } from "@/core/groupings";
 import { isOperational, isUnset, phaseName, requireOperational, slaRule, WEEK_PLAN_KINDS, type OperationalConfig } from "@/core/config";
 import {
   activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
@@ -32,7 +32,7 @@ import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/cor
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FourRights, Grouping, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FourRights, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
@@ -813,7 +813,8 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
   const db = await loadDb(ctx.repo, [...ALERT_TABLES, "memberships", "contract_areas", "messages", "persons"]);
   const src = await accessSourceFor(ctx, db.cases);
   const fromCustomer = await customerUserIds(ctx);
-  const contracts = (await ctx.repo.table("contracts").list()).filter((x) => x.status === "active" && isOperational(x.config));
+  // Fast ordning (id): samma "main" i båda körlägena, oavsett i vilken ordning databasen lämnar raderna.
+  const contracts = (await ctx.repo.table("contracts").list()).filter((x) => x.status === "active" && isOperational(x.config)).sort((a, b) => a.id.localeCompare(b.id));
   const main = contracts.find((x) => ctx.actor.contractIds.includes(x.id)) ?? contracts[0];
   const today = dayOf(ctx.now());
   const w4 = last4Weeks(today);
@@ -881,7 +882,6 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
       },
     };
   });
-  const ofKind = (kind: Grouping["kind"]) => groupings.filter((g) => g.kind === kind && g.contractId === main?.id).sort(byOrder);
 
   const cfg = main && isOperational(main.config) ? main.config : null;
   const customer = main ? await ctx.repo.table("organizations").get(main.customerId) : null;
@@ -892,11 +892,8 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
     coaches: main ? coaches(db, main.id).map((u) => ({ id: u.id, name: u.fullName })) : [],
     areas: db.contract_areas.filter((a) => a.contractId === main?.id).map((a) => ({ code: a.code, name: a.name })),
     phases: cfg ? cfg.phases.map((p) => ({ no: p.no, name: p.name })) : [],
-    groupings: {
-      levels: ofKind("level").map((g) => ({ id: g.id, name: g.name })),
-      groups: ofKind("group").map((g) => ({ id: g.id, name: g.name })),
-      tags: ofKind("tag").sort((a, b) => (a.category ?? "").localeCompare(b.category ?? "", "sv")).map((g) => ({ id: g.id, name: `${g.category}: ${g.name}` })),
-    },
+    // Alla avtal i listan – varje ärende filtreras på sitt eget avtals grupperingar (med fler än ett avtal: prefixet efter namnet).
+    groupings: groupingFilterOptions(groupings.filter((g) => contracts.some((k) => k.id === g.contractId)), contracts),
     rows,
   };
 });

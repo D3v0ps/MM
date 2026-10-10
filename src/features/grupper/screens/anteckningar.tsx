@@ -4,6 +4,7 @@
 // typen är förvald. "Spara N anteckningar" sparar en vanlig anteckning i deltagarkortet per ifylld rad – tomma rader hoppas
 // över. Allt eller inget: ett personnummer eller ett fel på någon rad stoppar sparningen, och felet visas vid raden.
 // Urvalet ligger i adressen (bara id:n), texterna bara i minnet (useDraft) – aldrig i adressen eller webblagring.
+// Sparnyckeln (i utkastet) gör ett nytt försök efter ett avbrott ofarligt: det som redan sparats sparas inte två gånger.
 import { useState } from "react";
 import { CASE_NOTE_KIND_LABEL } from "@/core/labels";
 import { massNotePnrRows, massNoteRowsToSave } from "@/core/mass-notes";
@@ -21,7 +22,8 @@ export function AnteckningarScreen({ query }: ScreenProps) {
   const patch = useQueryPatch();
   const urval = pick(query, "urval", MASS_NOTE_SCOPES, "mina");
   const id = query.get("id") ?? undefined;
-  const q = useQuery(massNotePage, { urval, id: urval === "mina" ? undefined : id }, { keepPrevious: true });
+  const avtal = query.get("avtal") ?? undefined;
+  const q = useQuery(massNotePage, { urval, id: urval === "mina" ? undefined : id, contractId: avtal }, { keepPrevious: true });
   const actions = (
     <Button kind="ghost" icon="layers" to="/grupper">
       Grupper och nivåer
@@ -31,6 +33,8 @@ export function AnteckningarScreen({ query }: ScreenProps) {
   if (!q.data) return <Page title="Anteckningar" actions={actions}><Loading /></Page>;
   const choices = choicesFor(urval, q.data.catalog);
   const chosenId = choices.some((c) => c.value === id) ? (id as string) : "";
+  const contracts = q.data.catalog?.contracts ?? [];
+  const contractId = q.data.catalog?.contractId ?? "";
   return (
     <Page
       title="Anteckningar"
@@ -39,6 +43,11 @@ export function AnteckningarScreen({ query }: ScreenProps) {
     >
       <Card title="Välj deltagare" icon="filter">
         <FormGrid>
+          {contracts.length > 1 && (
+            <Field label="Avtal" id="mn-avtal" help="Varje avtal har sina egna nivåer, grupper och taggar.">
+              <Select value={contractId} onValueChange={(v) => patch({ avtal: v || null, id: null })} options={contracts.map((c) => ({ value: c.id, label: c.name }))} />
+            </Field>
+          )}
           <Field label="Visa" id="mn-urval">
             <Select value={urval} onValueChange={(v) => patch({ urval: v === "mina" ? null : v, id: null })} options={MASS_NOTE_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))} />
           </Field>
@@ -56,7 +65,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
           </Empty>
         </Card>
       ) : (
-        <Rows key={`${urval}|${chosenId}`} draftKey={`anteckningar|${urval}|${chosenId}`} data={q.data} />
+        <Rows key={`${contractId}|${urval}|${chosenId}`} draftKey={`anteckningar|${contractId}|${urval}|${chosenId}`} data={q.data} />
       )}
     </Page>
   );
@@ -70,12 +79,20 @@ function choicesFor(urval: MassNoteScope, cat: GroupingCatalog | null): { value:
   return [];
 }
 
-type Draft = { kind: CaseNoteKind; date: string; texts: Record<string, string> };
+/** saveKey: samma vid varje nytt försök tills sparningen lyckats (servern härleder anteckningarnas id ur den). */
+type Draft = { kind: CaseNoteKind; date: string; texts: Record<string, string>; saveKey: string };
+
+/** En ny slumpad sparnyckel (32 hex-tecken). getRandomValues finns också på sidor utan https (prototypen). */
+function newSaveKey(): string {
+  const b = new Uint8Array(16);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
 
 function Rows({ data, draftKey }: { data: MassNotePage; draftKey: string }) {
   const save = useCommand(massNoteSave);
-  const d = useDraft<Draft>(draftKey, () => ({ kind: "conversation", date: data.today, texts: {} }));
-  const { kind, date, texts } = d.value;
+  const d = useDraft<Draft>(draftKey, () => ({ kind: "conversation", date: data.today, texts: {}, saveKey: newSaveKey() }));
+  const { kind, date, texts, saveKey } = d.value;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const filled = massNoteRowsToSave(data.rows, texts, date);
@@ -104,9 +121,10 @@ function Rows({ data, draftKey }: { data: MassNotePage; draftKey: string }) {
       document.getElementById(`mn-rad-${pnr[0]}`)?.focus();
       return;
     }
-    const res = await save.run({ kind, rows: filled }).catch(() => null);
+    const res = await save.run({ saveKey, kind, rows: filled }).catch(() => null);
     if (!res) {
-      setFormError("Anteckningarna kunde inte sparas. Försök igen.");
+      // Samma sparnyckel vid nästa försök: det som hann sparas sparas inte igen.
+      setFormError("Anteckningarna kunde inte sparas. Försök igen. Inget sparas två gånger.");
       return;
     }
     if (!res.ok) {
@@ -116,7 +134,7 @@ function Rows({ data, draftKey }: { data: MassNotePage; draftKey: string }) {
       if (first) document.getElementById(`mn-rad-${first}`)?.focus();
       return;
     }
-    d.set((x) => ({ ...x, texts: {} }));
+    d.set((x) => ({ ...x, texts: {}, saveKey: newSaveKey() }));
     d.clear();
     setErrors({});
     toast(res.saved === 1 ? "1 anteckning är sparad." : `${res.saved} anteckningar är sparade.`);

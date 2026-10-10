@@ -61,7 +61,18 @@ test("deltagarkortet visar nivån – Ändra öppnar samma val; ärendelistan fi
   await expect(btn(dialog, "Nivå 4 – Nära arbete")).toHaveAttribute("aria-pressed", "true");
   await btn(dialog, "Nivå 5 – Redo för arbete").click();
   await expect(dialog.locator("[data-grouping-status]")).toHaveText(/Sparat \d\d\.\d\d/);
+  // En osparad rad till coacherna kastas inte tyst: Klar frågar först.
+  await dialog.getByLabel("En rad till coacherna (valfritt)").fill("Vill prova lagerjobb.");
   await btn(dialog, "Klar").click();
+  const ask = page.getByRole("dialog", { name: "Vill du slänga det du skrivit?" });
+  await expect(ask).toContainText("Det du har skrivit i rutan sparas inte.");
+  await btn(ask, "Fortsätt skriva").click();
+  await expect(ask).toHaveCount(0);
+  await expect(dialog.getByLabel("En rad till coacherna (valfritt)")).toHaveValue("Vill prova lagerjobb.");
+  await btn(dialog, "Spara raden").click();
+  await expect(page.getByText("Raden är sparad som en anteckning i deltagarkortet.")).toBeVisible();
+  await btn(dialog, "Klar").click();
+  await expect(dialog).toHaveCount(0);
   await expect(row).toContainText("Nivå 5 – Redo för arbete");
 
   await go(page, info, "/arenden?vilka=alla");

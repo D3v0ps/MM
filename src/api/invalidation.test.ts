@@ -212,6 +212,7 @@ const KNOWN: Known[] = [
   { command: "coach.recordingFinish", query: "*", table: "check_ins", reason: "bara AI-utkastet i avstämningen – notiser, rapporter och räknare räknar godkända avstämningar; coachens skärmar och kortet räknas om" },
   // Massanteckningarna (coachmötet 2026-10-09): urvalets namn, ärendenummer och status, och Mina ärenden (teamet).
   { command: "*", query: "grupper.anteckningar", table: "cases", reason: "listan över urvalet hämtas om när sidan visas igen – en anteckning går att spara i alla ärenden man arbetar i" },
+  { command: "*", query: "grupper.katalog", table: "cases", reason: "antalet per nivå, grupp och tagg räknar bara pågående ärenden – statusen ändras i andra vyer och antalet hämtas om när sidan visas igen" },
   { command: "*", query: "grupper.anteckningar", table: "case_team", reason: "Mina ärenden – tilldelningen hämtas om när sidan visas igen" },
   { command: "*", query: "grupper.arende", table: "case_team", reason: "teamet läses bara i behörighetsuppslaget – tilldelningen styr inte åtkomsten (beslut 2026-10-09)" },
 ];

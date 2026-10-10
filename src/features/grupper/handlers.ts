@@ -9,12 +9,13 @@ import { caseAccessIn, displayName, type AccessSource, type CaseAccess } from "@
 import { isOperational } from "@/core/config";
 import {
   activeMembers, byOrder, CASE_GROUPING_ERROR_TEXT, caseGroupings, defaultGroupings, groupingCategoryError, groupingDescriptionError, groupingNameError, GROUPING_READERS,
-  GROUPING_MEMBER_WRITERS, GROUPING_WRITERS, groupingIdsByCase, planCaseGroupings, sameName, slotOf,
+  GROUPING_MEMBER_WRITERS, GROUPING_WRITERS, groupingFilterOptions, groupingIdsByCase, planCaseGroupings, sameName, slotOf,
 } from "@/core/groupings";
 import { dayOf, fmtDate } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
 import { UniqueError } from "@/data/repo";
 import type { Case, Contract, Grouping, GroupingMember } from "@/data/schema";
+import { sha256Hex } from "../rost/sha256";
 import { accessSourceFor } from "../rapporter/load";
 import {
   caseGroupingsSave, caseGroupingsView, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingFilterData, groupingRename, MASS_NOTE_ROLES, massNotePage,
@@ -22,11 +23,22 @@ import {
 } from "./api";
 
 // ---------------------------------------------------------------- Hjälpare
-/** Avtalet som aktören arbetar i: ett aktivt avtal där hen är medlem (admin: första aktiva). */
-async function mainContract(ctx: Ctx): Promise<Contract | null> {
-  const contracts = (await ctx.repo.table("contracts").list()).filter((c) => c.status === "active" && isOperational(c.config));
-  return contracts.find((c) => ctx.actor.contractIds.includes(c.id)) ?? contracts[0] ?? null;
+/**
+ * Avtalen aktören arbetar i: aktiva avtal där hen är medlem (utan medlemskap, t.ex. systemadministratören: alla aktiva).
+ * Fast ordning (id) – samma svar i båda körlägena, oavsett i vilken ordning databasen lämnar raderna.
+ */
+async function actorContracts(ctx: Ctx): Promise<Contract[]> {
+  const all = (await ctx.repo.table("contracts").list()).filter((c) => c.status === "active" && isOperational(c.config)).sort((a, b) => a.id.localeCompare(b.id));
+  const mine = all.filter((c) => ctx.actor.contractIds.includes(c.id));
+  return mine.length ? mine : all;
 }
+/** Det valda avtalet (bara bland aktörens), eller det första när inget är valt. Null: avtalet finns inte för aktören. */
+async function contractFor(ctx: Ctx, contractId: string | undefined): Promise<Contract | null> {
+  const cs = await actorContracts(ctx);
+  return contractId ? (cs.find((c) => c.id === contractId) ?? null) : (cs[0] ?? null);
+}
+/** Avtalen att välja mellan i skärmarna (visas bara när aktören har fler än ett). */
+const contractChoices = (cs: readonly Contract[]) => cs.map((c) => ({ id: c.id, name: `${c.name} (${c.casePrefix})` }));
 
 const option = (g: Grouping, counts: Map<string, number>): GroupingOption => ({
   id: g.id, name: g.name, description: g.description, archived: g.archivedAt != null, members: counts.get(g.id) ?? 0,
@@ -44,21 +56,27 @@ function catalogOf(groupings: readonly Grouping[], counts: Map<string, number>, 
   };
 }
 
-function countByGrouping(members: readonly GroupingMember[]): Map<string, number> {
+/** Pågående ärenden: de som visas i Anteckningar och räknas i katalogens antal. */
+const OPEN_STATUSES: readonly Case["status"][] = ["confirmed", "active", "paused"];
+
+/** Antal aktiva medlemskap per gruppering – bara i pågående ärenden (openCaseIds), som raderna i Anteckningar. */
+function countByGrouping(members: readonly GroupingMember[], openCaseIds: ReadonlySet<string>): Map<string, number> {
   const m = new Map<string, number>();
-  for (const x of activeMembers(members)) m.set(x.groupingId, (m.get(x.groupingId) ?? 0) + 1);
+  for (const x of activeMembers(members)) if (openCaseIds.has(x.caseId)) m.set(x.groupingId, (m.get(x.groupingId) ?? 0) + 1);
   return m;
 }
 
-async function buildCatalog(ctx: Ctx, contract: Contract, withArchived: boolean): Promise<GroupingCatalog> {
-  const [gs, ms] = await Promise.all([
+async function buildCatalog(ctx: Ctx, contract: Contract, contracts: readonly Contract[], withArchived: boolean): Promise<GroupingCatalog> {
+  const [gs, ms, open] = await Promise.all([
     ctx.repo.table("groupings").list({ contractId: contract.id }),
     ctx.repo.table("grouping_members").list({ contractId: contract.id, removedAt: { isNull: true } }),
+    ctx.repo.table("cases").pick(["status"], { contractId: contract.id, status: { in: OPEN_STATUSES } }),
   ]);
   return {
     contractId: contract.id,
+    contracts: contractChoices(contracts),
     canEdit: GROUPING_WRITERS.includes(ctx.actor.role),
-    ...catalogOf(gs, countByGrouping(ms), (g) => withArchived || g.archivedAt == null),
+    ...catalogOf(gs, countByGrouping(ms, new Set(open.map((c) => c.id))), (g) => withArchived || g.archivedAt == null),
     missingDefaults: !gs.some((g) => g.kind === "level"),
   };
 }
@@ -73,13 +91,20 @@ async function caseWithAccess(ctx: Ctx, caseId: string): Promise<{ c: Case; acce
 
 // ---------------------------------------------------------------- grupper.katalog
 handleQuery(groupingCatalog, { roles: GROUPING_READERS }, async (ctx, p): Promise<GroupingCatalog | null> => {
-  const contract = await mainContract(ctx);
-  return contract ? buildCatalog(ctx, contract, !!p.arkiverade) : null;
+  const contracts = await actorContracts(ctx);
+  const contract = p.contractId ? contracts.find((c) => c.id === p.contractId) : contracts[0];
+  return contract ? buildCatalog(ctx, contract, contracts, !!p.arkiverade) : null;
 });
 
 // ---------------------------------------------------------------- grupper.ny / andra / arkivera / standard
 handleCommand(groupingCreate, { roles: GROUPING_WRITERS }, async (ctx, p) => {
-  const contract = await mainContract(ctx);
+  // I ett ärende (kortet Nivå och grupp): ärendets avtal – efter kontrollen att aktören arbetar i ärendet och avtalet.
+  let contract: Contract | null;
+  if (p.caseId) {
+    const L = await caseWithAccess(ctx, p.caseId);
+    if (!L || (L.access !== "full" && L.access !== "team")) return fail("not_found", "Ärendet finns inte, eller så har du inte behörighet att se det.");
+    contract = await contractFor(ctx, L.c.contractId);
+  } else contract = await contractFor(ctx, p.contractId);
   if (!contract) return fail("no_contract", "Det finns inget aktivt avtal att lägga till i.");
   const category = p.kind === "tag" ? (p.category ?? "").trim() : null;
   const err = groupingNameError(p.name) ?? groupingDescriptionError(p.description ?? "") ?? (p.kind === "tag" ? groupingCategoryError(category ?? "") : null);
@@ -132,8 +157,8 @@ handleCommand(groupingArchive, { roles: GROUPING_WRITERS }, async (ctx, p) => {
   return ok({});
 });
 
-handleCommand(groupingDefaults, { roles: GROUPING_WRITERS }, async (ctx) => {
-  const contract = await mainContract(ctx);
+handleCommand(groupingDefaults, { roles: GROUPING_WRITERS }, async (ctx, p) => {
+  const contract = await contractFor(ctx, p.contractId);
   if (!contract) return fail("no_contract", "Det finns inget aktivt avtal att lägga till i.");
   const table = ctx.repo.table("groupings");
   const have = new Set((await table.list({ contractId: contract.id })).map((g) => g.id));
@@ -146,21 +171,17 @@ handleCommand(groupingDefaults, { roles: GROUPING_WRITERS }, async (ctx) => {
 
 // ---------------------------------------------------------------- grupper.filter
 handleQuery(groupingFilterData, { roles: GROUPING_READERS }, async (ctx): Promise<GroupingFilterData | null> => {
-  const contract = await mainContract(ctx);
-  if (!contract) return null;
+  // Alla aktörens avtal (listorna visar ärenden i alla) – varje ärende filtreras på sitt eget avtals grupperingar.
+  const contracts = await actorContracts(ctx);
+  if (!contracts.length) return null;
+  const ids = contracts.map((c) => c.id);
   const [gs, ms] = await Promise.all([
-    ctx.repo.table("groupings").list({ contractId: contract.id, archivedAt: { isNull: true } }),
-    ctx.repo.table("grouping_members").list({ contractId: contract.id, removedAt: { isNull: true } }),
+    ctx.repo.table("groupings").list({ contractId: { in: ids }, archivedAt: { isNull: true } }),
+    ctx.repo.table("grouping_members").list({ contractId: { in: ids }, removedAt: { isNull: true } }),
   ]);
-  const sorted = gs.slice().sort(byOrder);
   const byCase: Record<string, string[]> = {};
-  for (const [caseId, ids] of groupingIdsByCase(ms)) byCase[caseId] = [...ids];
-  return {
-    levels: sorted.filter((g) => g.kind === "level").map((g) => ({ id: g.id, name: g.name })),
-    groups: sorted.filter((g) => g.kind === "group").map((g) => ({ id: g.id, name: g.name })),
-    tags: sorted.filter((g) => g.kind === "tag").sort((a, b) => (a.category ?? "").localeCompare(b.category ?? "", "sv")).map((g) => ({ id: g.id, name: `${g.category}: ${g.name}` })),
-    byCase,
-  };
+  for (const [caseId, gids] of groupingIdsByCase(ms)) byCase[caseId] = [...gids];
+  return { ...groupingFilterOptions(gs, contracts), byCase };
 });
 
 // ---------------------------------------------------------------- grupper.arende
@@ -199,20 +220,38 @@ handleCommand(caseGroupingsSave, { roles: GROUPING_MEMBER_WRITERS }, async (ctx,
   const me = ctx.actor.userId;
   const log = (action: string, m: Pick<GroupingMember, "id" | "groupingId" | "kind">) =>
     ctx.audit({ action, entity: "grouping_member", entityId: m.id, contractId: c.contractId, details: { caseId: c.id, groupingId: m.groupingId, kind: m.kind } });
+  const member = (g: Pick<Grouping, "id" | "kind" | "category">): GroupingMember => ({
+    id: ctx.newId("gm"), contractId: c.contractId, caseId: c.id, groupingId: g.id, kind: g.kind, slot: slotOf(g), addedAt: now, addedBy: me, removedAt: null, removedBy: null,
+  });
+  // Det som hunnit ändras – tas tillbaka om ett senare steg misslyckas (allt eller inget).
+  const removed: GroupingMember[] = [];
+  const added: GroupingMember[] = [];
   try {
     // Borttagningar först: en ny nivå eller tagg krockar aldrig med den gamla i det unika indexet.
     for (const m of plan.plan.remove) {
       await table.update(m.id, { removedAt: now, removedBy: me });
+      removed.push(m);
       await log("grouping_member.removed", m);
     }
     for (const g of plan.plan.add) {
-      const m: GroupingMember = {
-        id: ctx.newId("gm"), contractId: c.contractId, caseId: c.id, groupingId: g.id, kind: g.kind, slot: slotOf(g), addedAt: now, addedBy: me, removedAt: null, removedBy: null,
-      };
+      const m = member(g);
       await table.insert(m);
+      added.push(m);
       await log("grouping_member.added", m);
     }
   } catch (e) {
+    // Ett steg misslyckades (nätverk, databasen eller någon annan som samtidigt satte en nivå eller tagg i samma kategori):
+    // ta tillbaka det som hann ändras, så att ärendet inte står utan nivå. Varje steg för sig – bästa försök. Ett medlemskap
+    // som tagits bort återställs som en ny rad (inget raderas, och borttagna rader ändras aldrig tillbaka).
+    for (const m of added) {
+      await table.update(m.id, { removedAt: now, removedBy: me }).then(() => log("grouping_member.removed", m)).catch(() => undefined);
+    }
+    for (const m of removed) {
+      const g = gs.find((x) => x.id === m.groupingId);
+      if (!g) continue;
+      const back = member(g);
+      await table.insert(back).then(() => log("grouping_member.added", back)).catch(() => undefined);
+    }
     // Någon annan satte samtidigt en nivå eller tagg i samma kategori (databasens unika index, UNIQUE_KEYS i minnet).
     if (e instanceof UniqueError) return fail("conflict", "Någon annan ändrade samtidigt. Ladda om sidan och försök igen.");
     throw e;
@@ -221,14 +260,15 @@ handleCommand(caseGroupingsSave, { roles: GROUPING_MEMBER_WRITERS }, async (ctx,
 });
 
 // ---------------------------------------------------------------- grupper.anteckningar (massanteckningar)
-const OPEN_STATUSES: readonly Case["status"][] = ["confirmed", "active", "paused"];
-
 handleQuery(massNotePage, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
   const now = ctx.now();
   const today = dayOf(now);
-  const contract = await mainContract(ctx);
-  const catalog = contract ? await buildCatalog(ctx, contract, false) : null;
-  const cases = (await ctx.repo.table("cases").list({ status: { in: OPEN_STATUSES } })).filter((c) => !contract || c.contractId === contract.id);
+  // Ett avtal i taget (varje avtal har sina egna nivåer, grupper och taggar) – det valda, annars det första.
+  const contracts = await actorContracts(ctx);
+  const contract = (p.contractId ? contracts.find((c) => c.id === p.contractId) : contracts[0]) ?? null;
+  if (!contract) return { today, catalog: null, rows: [] };
+  const catalog = await buildCatalog(ctx, contract, contracts, false);
+  const cases = await ctx.repo.table("cases").list({ contractId: contract.id, status: { in: OPEN_STATUSES } });
   let chosen: Case[];
   if (p.urval === "mina") {
     const team = new Set((await ctx.repo.table("case_team").list({ userId: ctx.actor.userId })).map((t) => t.caseId));
@@ -243,7 +283,7 @@ handleQuery(massNotePage, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
   const [persons, levels, gs] = await Promise.all([
     chosen.length ? ctx.repo.table("persons").list({ id: { in: [...new Set(chosen.map((c) => c.personId))] } }) : [],
     chosen.length ? ctx.repo.table("grouping_members").list({ caseId: { in: chosen.map((c) => c.id) }, kind: "level", removedAt: { isNull: true } }) : [],
-    contract ? ctx.repo.table("groupings").list({ contractId: contract.id, kind: "level" }) : [],
+    ctx.repo.table("groupings").list({ contractId: contract.id, kind: "level" }),
   ]);
   const personById = new Map(persons.map((x) => [x.id, x]));
   const levelName = new Map(gs.map((g) => [g.id, g.name]));
@@ -261,6 +301,12 @@ handleQuery(massNotePage, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
 });
 
 // ---------------------------------------------------------------- grupper.anteckningarSpara
+/**
+ * Anteckningens id i en massanteckning: härlett ur aktören, skärmens sparnyckel och ärendet. Ett nytt försök med samma
+ * nyckel (efter ett avbrott mitt i sparningen) ger samma id – det som redan sparats sparas inte igen.
+ */
+const massNoteId = (userId: string, saveKey: string, caseId: string): string => `note-mn-${sha256Hex(`${userId}|${saveKey}|${caseId}`).slice(0, 32)}`;
+
 handleCommand(massNoteSave, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
   const today = dayOf(ctx.now());
   const errors: Record<string, string> = {};
@@ -295,15 +341,34 @@ handleCommand(massNoteSave, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
   }
   const bad = Object.keys(errors).length;
   if (bad) return fail("rows", bad === 1 ? "En rad behöver rättas. Inget är sparat." : `${bad} rader behöver rättas. Inget är sparat.`, errors);
+  // Idempotent: varje rad har ett id ur sparnyckeln. Avbryts sparningen halvvägs (nätverk, timeout) och skärmen försöker
+  // igen med samma nyckel sparas bara det som saknas – aldrig dubbletter. Har texten (typen, datumet) ändrats sedan dess
+  // ändras den egna anteckningen, så att det som står på skärmen är det som är sparat.
   const table = ctx.repo.table("case_notes");
+  const me = ctx.actor.userId;
   for (const x of ok_) {
-    const id = ctx.newId("note");
-    await table.insert({
-      id, contractId: x.c.contractId, caseId: x.c.id, authorId: ctx.actor.userId, occurredOn: x.occurredOn, kind: p.kind, audience: x.audience, body: x.body, createdAt: ctx.now(),
-      updatedAt: null, removedAt: null, removedBy: null,
-    });
+    const id = massNoteId(me, p.saveKey, x.c.id);
+    const via = { caseId: x.c.id, via: "massanteckningar" };
+    const cur = await table.get(id);
+    if (cur) {
+      if (!cur.removedAt && cur.authorId === me && (cur.body !== x.body || cur.occurredOn !== x.occurredOn || cur.kind !== p.kind || cur.audience !== x.audience)) {
+        await table.update(id, { occurredOn: x.occurredOn, kind: p.kind, audience: x.audience, body: x.body, updatedAt: ctx.now() });
+        await ctx.audit({ action: "case_note.updated", entity: "case_note", entityId: id, contractId: x.c.contractId, details: via });
+      }
+      continue;
+    }
+    try {
+      await table.insert({
+        id, contractId: x.c.contractId, caseId: x.c.id, authorId: me, occurredOn: x.occurredOn, kind: p.kind, audience: x.audience, body: x.body, createdAt: ctx.now(),
+        updatedAt: null, removedAt: null, removedBy: null,
+      });
+    } catch (e) {
+      // Samma id finns redan (två samtidiga försök med samma nyckel): raden är sparad.
+      if (e instanceof UniqueError) continue;
+      throw e;
+    }
     // Samma loggrad som en vanlig anteckning (bara id:n) – via säger att den skrevs i massanteckningarna.
-    await ctx.audit({ action: "case_note.created", entity: "case_note", entityId: id, contractId: x.c.contractId, details: { caseId: x.c.id, via: "massanteckningar" } });
+    await ctx.audit({ action: "case_note.created", entity: "case_note", entityId: id, contractId: x.c.contractId, details: via });
   }
   return ok({ saved: ok_.length });
 });

@@ -5,13 +5,16 @@
 // aldrig omdömen om personer. Allt är internt – syns aldrig för kommunen.
 import { useState } from "react";
 import { useCommand, useQuery } from "@/shell/backend";
-import { Badge, Button, Card, Empty, ErrorNotice, Field, Input, Loading, Modal, ModalCancelButton, Notice, Page, Row, Stack, TextArea, toast } from "@/ui";
+import type { ScreenProps } from "@/shell/routes";
+import { useQueryPatch } from "@/shell/url-state";
+import { Badge, Button, Card, Empty, ErrorNotice, Field, Input, Loading, Modal, ModalCancelButton, Notice, Page, Row, Select, Stack, TextArea, toast } from "@/ui";
 import { groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingRename, type GroupingCatalog, type GroupingOption } from "../api";
 
 const NAME_HELP = "Använd neutrala ord om stödet eller aktiviteten, till exempel ”Måndagsgruppen”. Aldrig omdömen om personer.";
 
-export function GrupperScreen() {
-  const q = useQuery(groupingCatalog, { arkiverade: true });
+export function GrupperScreen({ query }: ScreenProps) {
+  // Varje avtal har sina egna nivåer, grupper och taggar – ?avtal= (id) väljer bland aktörens avtal, annars det första.
+  const q = useQuery(groupingCatalog, { arkiverade: true, contractId: query.get("avtal") ?? undefined }, { keepPrevious: true });
   const title = "Grupper och nivåer";
   if (q.error) return <Page title={title}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (q.data === undefined) return <Page title={title}><Loading /></Page>;
@@ -30,6 +33,7 @@ export function GrupperScreen() {
 type Dialog = { mode: "rename"; g: GroupingOption } | { mode: "new-group" } | { mode: "new-tag"; category: string | null };
 
 function Catalog({ cat }: { cat: GroupingCatalog }) {
+  const patch = useQueryPatch();
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const archive = useCommand(groupingArchive);
   const defaults = useCommand(groupingDefaults);
@@ -83,6 +87,13 @@ function Catalog({ cat }: { cat: GroupingCatalog }) {
       lead="Nivåer, grupper och taggar är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig, och de kommer aldrig med i rapporter, resultatfilen eller underlaget till AI."
       actions={<Button kind="ghost" icon="edit" to="/anteckningar">Anteckningar</Button>}
     >
+      {cat.contracts.length > 1 && (
+        <Card>
+          <Field label="Avtal" id="gr-avtal" help="Varje avtal har sina egna nivåer, grupper och taggar.">
+            <Select value={cat.contractId} onValueChange={(v) => patch({ avtal: v || null })} options={cat.contracts.map((c) => ({ value: c.id, label: c.name }))} />
+          </Field>
+        </Card>
+      )}
       {!edit && <Notice tone="info" icon="eye" title="Du kan se men inte ändra grupperna och nivåerna." />}
       {cat.missingDefaults && edit && (
         <Notice tone="warn" title="Avtalet saknar nivåerna">
@@ -91,7 +102,7 @@ function Catalog({ cat }: { cat: GroupingCatalog }) {
             <Button
               kind="secondary"
               pending={defaults.pending}
-              onClick={() => void defaults.run({}).then((r) => r.ok && toast(`${r.added} värden är tillagda.`)).catch(() => toast("Det gick inte att lägga in nivåerna.", "error"))}
+              onClick={() => void defaults.run({ contractId: cat.contractId }).then((r) => r.ok && toast(`${r.added} värden är tillagda.`)).catch(() => toast("Det gick inte att lägga in nivåerna.", "error"))}
             >
               Lägg in nivåerna
             </Button>
@@ -128,12 +139,12 @@ function Catalog({ cat }: { cat: GroupingCatalog }) {
           </Button>
         </div>
       )}
-      {dialog && <GroupingDialog dialog={dialog} onClose={() => setDialog(null)} />}
+      {dialog && <GroupingDialog dialog={dialog} contractId={cat.contractId} onClose={() => setDialog(null)} />}
     </Page>
   );
 }
 
-function GroupingDialog({ dialog, onClose }: { dialog: Dialog; onClose: () => void }) {
+function GroupingDialog({ dialog, contractId, onClose }: { dialog: Dialog; contractId: string; onClose: () => void }) {
   const create = useCommand(groupingCreate);
   const rename = useCommand(groupingRename);
   const start = dialog.mode === "rename" ? dialog.g : null;
@@ -148,7 +159,7 @@ function GroupingDialog({ dialog, onClose }: { dialog: Dialog; onClose: () => vo
     const res =
       dialog.mode === "rename"
         ? await rename.run({ id: dialog.g.id, name, description }).catch(() => null)
-        : await create.run({ kind: dialog.mode === "new-group" ? "group" : "tag", name, description, ...(dialog.mode === "new-tag" ? { category } : {}) }).catch(() => null);
+        : await create.run({ kind: dialog.mode === "new-group" ? "group" : "tag", contractId, name, description, ...(dialog.mode === "new-tag" ? { category } : {}) }).catch(() => null);
     if (!res || !res.ok) {
       setError(res && !res.ok && res.message ? res.message : "Det gick inte att spara. Kontrollera fälten.");
       return;
