@@ -40,7 +40,7 @@ async function stateOf(ctx: Ctx, aiRunId: string): Promise<RecordingState | null
 handleCommand(recordingFinish, { roles: ["coach"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NOT_MINE);
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", NOT_MINE);
   const [person, contract] = await Promise.all([ctx.repo.table("persons").get(c.personId), ctx.repo.table("contracts").get(c.contractId)]);
   const block = recordingBlock({ cfg: contract?.config, kind: "coach", person, consent: c.aiConsentStatus });
   if (block) {
@@ -68,7 +68,7 @@ handleQuery(recordingState, { roles: ["coach"] }, async (ctx, p) => stateOf(ctx,
 handleCommand(monthlyDraft, { roles: ["coach"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", "Du har inte behörighet att göra månadsbedömningen i det här ärendet.");
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", "Du har inte behörighet att göra månadsbedömningen i det här ärendet.");
   const person = await ctx.repo.table("persons").get(c.personId);
   // AI bara med samtycke och aldrig vid skyddade personuppgifter (CLAUDE.md punkt 5 och 8).
   if (!aiAllowed(c, person)) {

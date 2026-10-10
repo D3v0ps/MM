@@ -48,7 +48,7 @@ handleCommand(emailApplySupplement, { roles: INBOX_ROLES }, async (ctx, p) => {
   const e = await ctx.repo.table("inbound_emails").get(p.emailId);
   if (!e) return fail("not_found", EMAIL_NOT_FOUND);
   const c = e.caseId ? await ctx.repo.table("cases").get(e.caseId) : null;
-  if (!c || !(await canEditCase(ctx, c))) return fail("not_found", "Mejlet är inte kopplat till ett ärende som du kan ändra.");
+  if (!c || !(await canEditCase(ctx, c, INBOX_ROLES))) return fail("not_found", "Mejlet är inte kopplat till ett ärende som du kan ändra.");
   const patch: Partial<Case> = {};
   const applied = new Set<OrderField>();
   if (e.extracted.buyerReference) {
@@ -127,7 +127,7 @@ function periodFrom(v: unknown): { kind: "months"; months: number } | { kind: "o
 handleCommand(inboxCorrect, { roles: INBOX_ROLES }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", CASE_NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", "Du har inte behörighet att ändra i ärendet.");
+  if (!(await canEditCase(ctx, c, INBOX_ROLES))) return fail("forbidden", "Du har inte behörighet att ändra i ärendet.");
   const { cfg } = await contractOf(ctx, c.contractId);
   const patch = p.patch as Partial<Record<OrderFieldKey, string | number | null>>;
   if (patch.buyerReference && !buyerRefValid(String(patch.buyerReference), cfg)) {

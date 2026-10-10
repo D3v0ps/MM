@@ -196,7 +196,7 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
   if (p.autosave && p.approve) return fail("invalid", AUTOSAVE_APPROVE);
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", NO_EDIT);
   const d = p.data;
   // Röd samlad status kräver en avvikelse med beskrivning och åtgärd.
   if (d.overallStatus === "red" && (!p.deviation || !p.deviation.description.trim() || !p.deviation.action.trim())) {
@@ -341,7 +341,7 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (p.autosave && p.approve) return fail("invalid", AUTOSAVE_APPROVE);
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
   // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
   const usedNotes = [...new Set(p.usedNoteIds ?? [])];
@@ -407,7 +407,7 @@ handleCommand(intakeSave, { roles: ["coach"] }, async (ctx, p) => {
   if (p.autosave && p.approve) return fail("invalid", AUTOSAVE_APPROVE);
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", NO_EDIT);
   const table = ctx.repo.table("intake_assessments");
   const existing = await table.first({ caseId: c.id });
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
@@ -429,7 +429,7 @@ handleCommand(intakeSave, { roles: ["coach"] }, async (ctx, p) => {
 handleCommand(eventAdd, { roles: ["coach"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", NO_EDIT);
   const id = ctx.newId("oe");
   await ctx.repo.table("outcome_events").insert({
     id, caseId: c.id, kind: p.kind, occurredOn: p.occurredOn, actor: p.actor ?? "", verificationKind: p.verificationKind || null,

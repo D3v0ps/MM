@@ -14,7 +14,8 @@ import { ApiError } from "@/api/server";
 import { testerActor } from "@/api/tester-access";
 import { actorFor } from "@/data/actors";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
-import type { MemoryData } from "@/data/memory";
+import { MemoryRepo, type MemoryData } from "@/data/memory";
+import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 
@@ -132,9 +133,14 @@ describe("roller i olika avtal: en roll ger bara rätt i sitt eget avtal", () =>
     expect(await q("ekonomi.priceList", {}, amira)).toMatchObject({ contractNumber: "000000001" });
     // Lars (ekonom i c-bot) får c-bot.
     expect(await q("ekonomi.priceList", {}, actor("u-lars"))).toMatchObject({ contractNumber: "332026110" });
-    // Prislistan i c-bot läses genom coachrollen – utan belopp (MONEY_MASK per avtal).
+    // Ekonomen i c-bot ser priserna där; den som är coach i c-bot (och ekonom i c-ny) läser samma rader i datalagret utan
+    // belopp (MONEY_MASK per avtal).
     const prices = await rt.run("query", "ekonomi.priceList", {}, actor("u-lars")) as { items: { priceOre: number }[] };
     expect(prices.items.some((p) => p.priceOre > 0)).toBe(true);
+    const repo = new MemoryRepo<Tables>(rt.store, amira, POLICIES);
+    const botPrices = await repo.table("price_items").list({ contractId: "c-bot" });
+    expect(botPrices.length).toBeGreaterThan(0);
+    expect(botPrices.every((p) => p.priceOre === 0)).toBe(true);
   });
 
   it("systemadministratören som är ekonom i ett annat avtal ser inte prislistan eller vitenas belopp i c-bot", async () => {

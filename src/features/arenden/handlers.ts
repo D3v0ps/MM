@@ -276,7 +276,7 @@ handleCommand(caseDecline, { roles: MANAGERS }, async (ctx, p) => {
   if (!c) return fail("not_found", NOT_FOUND);
   const reason = p.reason.trim();
   if (!reason) return fail("reason", "Välj en orsak.");
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, MANAGERS))) return fail("forbidden", NO_EDIT);
   if (c.status !== "received" && c.status !== "acknowledged") return fail("wrong_status", `${c.caseNumber} är redan besvarat.`);
   const now = ctx.now();
   await ctx.repo.table("cases").update(c.id, { status: "declined", declineReason: reason, declinedAt: now });
@@ -408,7 +408,7 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
   if (!c) return fail("not_found", NOT_FOUND);
   const reason = p.reason.trim();
   if (!reason) return fail("reason", "Skriv orsaken till bytet. Den sparas i historiken.");
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, MANAGERS))) return fail("forbidden", NO_EDIT);
   if (!(await hasRoleIn(ctx, p.toCoachId, c.contractId, ["coach"]))) return fail("coach", "Välj ny huvudcoach.");
   const from = c.leadCoachId;
   const now = ctx.now();
@@ -525,7 +525,7 @@ handleCommand(activityRemove, { roles: CASE_WORKERS }, async (ctx, p) => {
 handleCommand(caseSetTeam, { roles: MANAGERS }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, MANAGERS))) return fail("forbidden", NO_EDIT);
   if (c.status === "closed" || c.status === "declined") return fail("wrong_status", "Teamet kan inte ändras i ett avslutat ärende.");
   const wanted = new Map<string, TeamRole>();
   for (const t of p.team) {
@@ -566,7 +566,7 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   if (!p.endDate || !p.endReason) return fail("missing", "Välj datum och orsak för avslutet.");
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  if (!(await canEditCase(ctx, c, ["coach"]))) return fail("forbidden", NO_EDIT);
   if (c.status === "closed" || c.status === "declined") return fail("wrong_status", "Insatsen är redan avslutad.");
   const { cfg } = await contractOf(ctx, c.contractId);
   // Resultatklass enligt avtalets resultatdefinition. Tills nämnarens undantag är fastställda gäller det preliminära.
