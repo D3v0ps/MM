@@ -228,3 +228,94 @@ test("Samma tid: Ny aktivitet frågar om deltagarens eget tillfälle ska ersätt
   await noBadText(page);
   expect(errors).toEqual([]);
 });
+
+// Spår G: bjud in per nivå och grupp (flikarna i Bjud in deltagare), inbjudan till deltagarna (kryssrutan) och gruppmålet.
+test("Bjud in en nivå och en grupp: antalet och vilka visas, redan inbjudna hoppas över och deltagarna får inbjudan", async ({ page }, info) => {
+  const errors = await open(page, info, "/aktiviteter/ny", COACH);
+  await expect(page.getByRole("heading", { level: 1, name: "Ny aktivitet" })).toBeVisible();
+  await page.locator("#ny-akt-namn").fill("Truckteori");
+  await page.locator("#ny-akt-datum").fill("2027-02-03");
+  await page.locator("#ny-akt-tid").fill("13:00");
+
+  // Nivå: Nivå 3 har tre deltagare – alla bjuds in, namnen visas innan man skapar.
+  await page.getByRole("tab", { name: "Nivå" }).click();
+  await page.getByRole("group", { name: "Välj nivåer" }).getByText("Nivå 3 – På väg").click();
+  await expect(main(page).getByRole("status").filter({ hasText: "bjuds in" })).toHaveText("3 deltagare bjuds in.");
+  await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0130");
+  await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0142");
+  await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0163");
+  // Kryssrutan för inbjudan är förvald.
+  const notify = page.locator("#ny-meddela");
+  await expect(notify).toBeChecked();
+  await expect(main(page)).toContainText("E-post eller SMS med tid, plats och Miljonbemannings telefonnummer – inga namn.");
+  await btn(page, "Skapa aktiviteten med 3 deltagare").click();
+  await expect(toasts(page)).toContainText("Aktiviteten är skapad med 3 deltagare. Inbjudan skickas till 3 deltagare med e-post.");
+  await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
+  await expect(page.getByTestId("aktivitet-deltagare")).toHaveCount(3);
+
+  // Grupp: Måndagsgruppen har fem deltagare – två är redan inbjudna (nivå 3) och hoppas över med orsaken.
+  await btn(page, "Bjud in deltagare").click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("tab", { name: "Grupp" }).click();
+  await dialog.getByRole("group", { name: "Välj grupper" }).getByText("Måndagsgruppen").click();
+  await expect(dialog.getByRole("status").filter({ hasText: "bjuds in" })).toHaveText("3 deltagare bjuds in, 2 hoppas över.");
+  await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("Hoppas över: 2 redan inbjuden.");
+  await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("BOT-26-0130");
+  await expect(dialog.locator("#akt-bjud-meddela")).toBeChecked();
+  await btn(dialog, "Bjud in 3 deltagare").click();
+  await expect(toasts(page)).toContainText("3 deltagare inbjudna. Inbjudan skickas till 3 deltagare med e-post.");
+  await expect(page.getByTestId("aktivitet-deltagare")).toHaveCount(6);
+  await noBadText(page);
+
+  // Utskicksloggen: sex inbjudningar med e-post – mottagaren är bara "deltagare (e-post)", aldrig ett namn.
+  await switchUser(page, info, ADMIN, "/admin/mallar?flik=logg");
+  const log = main(page);
+  await expect(log).toContainText("Inbjudan till aktivitet");
+  expect(await log.innerText()).not.toMatch(/Truckteori|Mehmet|Linnea/);
+  expect(errors).toEqual([]);
+});
+
+test("Gruppmål: alla klarar automatiskt, coachen markerar en som Klarade inte och ändrar tillbaka – kommunen ser inget", async ({ page }, info) => {
+  const errors = await open(page, info, "/aktiviteter/ny", COACH);
+  await page.locator("#ny-akt-namn").fill("CV-verkstad");
+  await page.locator("#ny-akt-datum").fill("2027-02-01");
+  await page.locator("#ny-akt-tid").fill("08:00");
+  await page.locator("#ny-akt-mal").fill("Alla skriver ett CV");
+  await invite(page, "Nadia", SC.nadia);
+  await invite(page, "Elif", SC.elif);
+  // Aktiviteten har börjat: ingen inbjudan skickas.
+  await expect(main(page)).toContainText("Aktiviteten har redan börjat. Inget meddelande skickas till deltagarna.");
+  await btn(page, "Skapa aktiviteten med 2 deltagare").click();
+  await expect(toasts(page)).toContainText("Aktiviteten är skapad med 2 deltagare.");
+  await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
+
+  await expect(main(page)).toContainText("Alla skriver ett CV");
+  const summary = page.getByTestId("gruppmal-summa");
+  await expect(summary).toContainText("Gruppmål: 2 av 2 klarade.");
+  const row = (name: string) => page.getByTestId("aktivitet-deltagare").filter({ hasText: name });
+  const goal = (name: string) => row(name).getByRole("group", { name: `Gruppmål för ${name}` });
+  for (const n of ["Nadia Warsame", "Elif Yilmaz"]) {
+    await expect(btn(goal(n), "Klarade")).toHaveAttribute("aria-pressed", "true");
+    await expect(row(n).getByTestId("gruppmal")).toContainText("Automatiskt");
+  }
+  // Elif klarade inte målet.
+  await btn(goal("Elif Yilmaz"), "Klarade inte").click();
+  await expect(btn(goal("Elif Yilmaz"), "Klarade inte")).toHaveAttribute("aria-pressed", "true");
+  await expect(row("Elif Yilmaz").getByTestId("gruppmal")).not.toContainText("Automatiskt");
+  await expect(summary).toContainText("Gruppmål: 1 av 2 klarade.");
+  await expect(row("Nadia Warsame").getByTestId("gruppmal")).toContainText("Automatiskt");
+  // Efter omladdning ligger valet kvar; sedan ändras det tillbaka.
+  await page.reload();
+  await loaded(page);
+  await expect(btn(goal("Elif Yilmaz"), "Klarade inte")).toHaveAttribute("aria-pressed", "true");
+  await btn(goal("Elif Yilmaz"), "Klarade").click();
+  await expect(summary).toContainText("Gruppmål: 2 av 2 klarade.");
+  await expect(row("Elif Yilmaz").getByTestId("gruppmal")).not.toContainText("Automatiskt");
+  await noBadText(page);
+
+  // Kommunen: varken målet eller valet syns i portalen.
+  await switchUser(page, info, { userId: "k-maria", role: "kommun_handlaggare" }, `/portal/deltagare/${SC.nadia}`);
+  await expect(main(page)).toContainText("BOT-26-0143");
+  expect(await main(page).innerText()).not.toMatch(/Alla skriver ett CV|Gruppmål|Klarade inte/);
+  expect(errors).toEqual([]);
+});
