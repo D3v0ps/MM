@@ -62,7 +62,7 @@ async function commands(page: Page, info: TestInfo, cmds: Cmd[]) {
       const log = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown[];
       for (const c of cmds) {
         const x = extra[c.as.userId] ?? { contractIds: ["c-bot"], customerUnit: null };
-        log.push({ key: c.key, input: c.input, actor: { userId: c.as.userId, role: c.as.role, ...x } });
+        log.push({ key: c.key, input: c.input, actor: { userId: c.as.userId, roles: [c.as.role], ...x } });
       }
       localStorage.setItem(key, JSON.stringify(log));
     }, { key: LOG_KEY, cmds, extra: ACTOR_EXTRA });

@@ -18,9 +18,21 @@ const LOG_KEY = "miljonmatch-prototyp-v2-logg";
 const SELF_REGISTER = "__session.selfRegister";
 type LogEntry = { key: string; input: unknown; actor: Actor };
 
+/**
+ * Aktören i en loggrad. Loggar från tiden före "alla roller samtidigt" (Karims beslut 7, 2026-10-09) har en roll (`role`) –
+ * den blir en lista med den rollen, så att det man gjort i prototypen spelas upp som förut.
+ */
+export function actorFromLog(a: unknown): Actor {
+  const x = (a ?? {}) as Partial<Actor> & { role?: unknown };
+  if (Array.isArray(x.roles)) return x as Actor;
+  const { role, ...rest } = x;
+  return { ...rest, roles: typeof role === "string" ? [role as Actor["roles"][number]] : [] } as Actor;
+}
+
 function readLog(): LogEntry[] {
   try {
-    return JSON.parse(localStorage.getItem(LOG_KEY) ?? "[]") as LogEntry[];
+    const raw = JSON.parse(localStorage.getItem(LOG_KEY) ?? "[]") as LogEntry[];
+    return Array.isArray(raw) ? raw.map((e) => ({ ...e, actor: actorFromLog(e.actor) })) : [];
   } catch {
     return [];
   }

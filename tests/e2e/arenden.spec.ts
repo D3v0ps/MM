@@ -435,7 +435,7 @@ test("16. rapportfliken visar att en rättelse pågår och att kommunen ser den 
   await page.goto("http://proto.test/blank.html");
   await page.evaluate(
     ([rid, who]) => {
-      localStorage.setItem("miljonmatch-prototyp-v2-logg", JSON.stringify([{ key: "rapporter.reportCorrect", input: { reportId: rid }, actor: { ...who, contractIds: ["c-bot"], customerUnit: null } }]));
+      localStorage.setItem("miljonmatch-prototyp-v2-logg", JSON.stringify([{ key: "rapporter.reportCorrect", input: { reportId: rid }, actor: { userId: who.userId, roles: [who.role], contractIds: ["c-bot"], customerUnit: null } }]));
       localStorage.setItem("miljonmatch-prototyp-v2-persona", JSON.stringify(who));
     },
     [NADIA_DEC_REPORT, SARA] as const,

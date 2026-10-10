@@ -12,11 +12,11 @@ const SARA: Who = { userId: "u-sara", role: "samordnare" };
 const KARIN: Who = { userId: "u-karin", role: "chef" };
 const AMIRA: Who = { userId: "u-amira", role: "coach" };
 const MARIA: Who = { userId: "k-maria", role: "kommun_handlaggare" };
-/** Aktörerna som prototypens kommandologg sparar (avtal och enhet som i testdatat). */
+/** Aktörerna som prototypens kommandologg sparar (alla roller, avtal och enhet som i testdatat – Karims beslut 7). */
 const ACTOR: Record<string, object> = {
-  "u-robin": { userId: "u-robin", role: "admin", contractIds: ["c-bot"], customerUnit: null },
-  "k-maria": { userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" },
-  deltagare: { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null },
+  "u-robin": { userId: "u-robin", roles: ["admin"], contractIds: ["c-bot"], customerUnit: null },
+  "k-maria": { userId: "k-maria", roles: ["kommun_handlaggare"], contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" },
+  deltagare: { userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null },
 };
 
 const main = (page: Page) => page.locator("#main");

@@ -62,7 +62,7 @@ async function commands(page: Page, info: TestInfo, cmds: Cmd[]) {
   if (isDemo(info)) {
     await page.evaluate(({ key, cmds }) => {
       const log = JSON.parse(localStorage.getItem(key) ?? "[]") as unknown[];
-      for (const c of cmds) log.push({ key: c.key, input: c.input, actor: { userId: c.as.userId, role: c.as.role, contractIds: ["c-bot"], customerUnit: null } });
+      for (const c of cmds) log.push({ key: c.key, input: c.input, actor: { userId: c.as.userId, roles: [c.as.role], contractIds: ["c-bot"], customerUnit: null } });
       localStorage.setItem(key, JSON.stringify(log));
     }, { key: LOG_KEY, cmds });
     await page.reload();

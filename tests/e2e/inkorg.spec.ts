@@ -10,8 +10,8 @@ type Who = { userId: string; role: string };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
 const JOHAN: Who = { userId: "u-johan", role: "avtalsansvarig" };
 const KARIN: Who = { userId: "u-karin", role: "chef" };
-/** Kommunens handläggare som beställer i portalen (aktören i prototypens kommandologg). */
-const MARIA = { userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" };
+/** Kommunens handläggare som beställer i portalen (aktören i prototypens kommandologg – alla roller, Karims beslut 7). */
+const MARIA = { userId: "k-maria", roles: ["kommun_handlaggare"], contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" };
 
 const PERSONA_KEY = "miljonmatch-prototyp-v2-persona";
 const LOG_KEY = "miljonmatch-prototyp-v2-logg";
@@ -41,7 +41,7 @@ async function commandAs(page: Page, info: TestInfo, actor: typeof MARIA, key: s
       localStorage.setItem(k, JSON.stringify(log));
     }, [LOG_KEY, JSON.stringify({ key, input, actor })] as const);
   } else {
-    await switchPersona(page, { userId: actor.userId, role: actor.role });
+    await switchPersona(page, { userId: actor.userId, role: actor.roles[0] });
     const res = await page.request.post("/api/rpc", { data: { kind: "command", key, input } });
     expect(res.ok()).toBeTruthy();
   }
