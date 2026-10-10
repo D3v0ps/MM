@@ -10,9 +10,9 @@ import { requireOperational } from "@/core/config";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
 import { listPersonas, type Persona } from "../actors";
-import { MemoryRepo, MemoryStore, type RawAccess } from "../memory";
+import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory";
 import { canReadRow, canWriteRow, POLICIES } from "../policy";
-import { TABLE_NAMES, type TableName, type Tables } from "../schema";
+import { TABLE_NAMES, UNIQUE_KEYS, type TableName, type Tables } from "../schema";
 import { allowed, asUser, attempt, createMigratedDatabase, loadSeed, MIGRATIONS_DIR, SEED_FILE, type Tx } from "./pglite";
 
 // Testarnas konton i auth.users (skapas av servern vid första inloggningen; seeden kopplar dem via e-postadressen).
@@ -109,7 +109,8 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   // Rollval (0027): Karims och Saras val, och Alis val av sin andra roll (avtalsansvarig) – bara den egna raden får läsas.
   const choice = (userId: string, role: Tables["role_choices"]["role"]): Tables["role_choices"] => ({ id: userId, userId, role, chosenAt: at });
   // Gruppaktiviteter (0030): Amiras i Botkyrka med två deltagare (Amiras och Marias ärenden), en inställd av Sara och en i c-ny.
-  // Deltagarnas tillfällen i activities, och en automatiskt registrerad närvaro (attendance.source = auto, bara jobbet skriver).
+  // Deltagarnas tillfällen i activities, och en automatiskt registrerad närvaro (attendance.source = auto, bara jobbet skriver) på
+  // ett tillfälle i Saras aktivitet – en rad per deltagare och gruppaktivitet (activities_group_activity_case_key).
   const group = (id: string, contractId: string, createdBy: string, cancelledBy: string | null = null): Tables["group_activities"] => ({
     id, contractId, name: "CV-verkstad", kind: "yrkesmoment", startsAt: "2027-02-02T13:00", durationMin: 90, location: "Miljonbemanning Alby", responsibleId: createdBy,
     createdBy, createdAt: at, updatedAt: null, updatedBy: null, cancelledAt: cancelledBy ? at : null, cancelledBy,
@@ -121,7 +122,7 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
     // Först: raderna nedan pekar på avtalet (främmande nycklar).
     contracts: [other],
     group_activities: [group("ga-x-bot", "c-bot", "u-amira"), group("ga-x-installd", "c-bot", "u-sara", "u-sara"), group("ga-x-ny", "c-ny", "u-johan")],
-    activities: [groupAct("a-x-grupp-amira", amiraCase.id, "ga-x-bot"), groupAct("a-x-grupp-maria", mariaCase.id, "ga-x-bot"), groupAct("a-x-grupp-forra", amiraCase.id, "ga-x-bot", "2027-01-28T13:00")],
+    activities: [groupAct("a-x-grupp-amira", amiraCase.id, "ga-x-bot"), groupAct("a-x-grupp-maria", mariaCase.id, "ga-x-bot"), groupAct("a-x-grupp-forra", amiraCase.id, "ga-x-installd", "2027-01-28T13:00")],
     attendance: [{
       id: "at-x-auto", activityId: "a-x-grupp-forra", caseId: amiraCase.id, status: "present", reason: "", registeredBy: "system", registeredAt: "2027-01-28T18:00",
       customerNotifiedAt: null, source: "auto",
@@ -1701,6 +1702,49 @@ describe("gruppaktiviteter och automatisk närvaro (0030): samma regler i RLS, t
     // Kontrollen i tabellen: bara manual och auto.
     const bad = await asUser(db, null, (tx) => attempt(tx, ins("at-t4", "maskin")), { role: "service_role" });
     expect(bad).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("en rad per deltagare och gruppaktivitet: databasen och minnet stoppar en andra rad (23505) – deltagarens egna tillfällen omfattas inte", async () => {
+    const amiraRow = raw.get("activities", "a-x-grupp-amira")!;
+    const ins = (id: string, groupActivityId: string | null) =>
+      `insert into public.activities (id, case_id, kind, starts_at, duration_min, location, note, group_activity_id)
+       values ('${id}', '${amiraRow.caseId}', 'yrkesmoment', '2027-02-02T15:00', 60, 'Rum 2', '', ${groupActivityId ? `'${groupActivityId}'` : "null"})`;
+    const pg = await asPersona(findPersona("u-amira"), async (tx) => ({
+      dup: await attempt(tx, ins("a-t-dup", "ga-x-bot")),
+      own1: await attempt(tx, ins("a-t-own1", null), [], { keep: true }),
+      own2: await attempt(tx, ins("a-t-own2", null)),
+    }));
+    expect(pg.dup).toMatchObject({ ok: false, code: "23505" });
+    expect(pg.own1).toMatchObject({ ok: true, rows: 1 });
+    expect(pg.own2).toMatchObject({ ok: true, rows: 1 });
+    // Minnet (UNIQUE_KEYS): samma nyckel, samma fel.
+    const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    expect(() => mem.insertRow("activities", { ...amiraRow, id: "a-t-dup", startsAt: "2027-02-02T15:00" })).toThrow(UniqueError);
+    mem.insertRow("activities", { ...amiraRow, id: "a-t-own1", groupActivityId: null });
+    mem.insertRow("activities", { ...amiraRow, id: "a-t-own2", groupActivityId: null });
+    expect(mem.rows("activities").filter((a) => a.groupActivityId === "ga-x-bot" && a.caseId === amiraRow.caseId)).toHaveLength(1);
+  });
+
+  it("migrationen tål att köras igen (SQL Editor, t.ex. efter en avbruten körning) och ändrar då ingenting", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0030_gruppaktiviteter.sql`, "utf8");
+    // Som i SQL Editor: ägaren (postgres) kör hela filen två gånger. Transaktionen rullas tillbaka.
+    let res: { before: number; after: number; policies: number; triggers: number } | null = null;
+    await db.transaction(async (tx) => {
+      const before = (await tx.query<{ n: number }>("select (select count(*) from public.group_activities) + (select count(*) from public.attendance where source = 'auto') as n")).rows[0].n;
+      await tx.exec(sql);
+      await tx.exec(sql);
+      const after = (await tx.query<{ n: number }>("select (select count(*) from public.group_activities) + (select count(*) from public.attendance where source = 'auto') as n")).rows[0].n;
+      const policies = (await tx.query<{ n: number }>(
+        "select count(*)::int as n from pg_policies where (tablename = 'group_activities') or (tablename = 'activities' and policyname = 'activities_delete') or (tablename = 'attendance' and policyname in ('attendance_insert', 'attendance_update'))",
+      )).rows[0].n;
+      const triggers = (await tx.query<{ n: number }>("select count(*)::int as n from pg_trigger where tgname = 'group_activities_protect_columns'")).rows[0].n;
+      res = { before, after, policies, triggers };
+      await tx.rollback();
+    });
+    expect(res).not.toBeNull();
+    expect(res!.after).toEqual(res!.before);
+    expect(res!.policies).toBe(6);
+    expect(res!.triggers).toBe(1);
   });
 
   it("befintlig närvaro är manuell och kolumnen har standardvärdet manual (migrationen ändrar inga rader)", async () => {

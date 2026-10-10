@@ -130,6 +130,11 @@ const Fields = {
   responsibleId: IdSchema.nullable().optional(),
   /** Dagen är en helgdag och användaren har bekräftat att aktiviteten ska ligga där ändå. */
   acceptHoliday: z.boolean().optional(),
+  /**
+   * Deltagare har redan ett eget tillfälle (utan närvaro) som överlappar aktivitetens tid, och användaren har bekräftat att det
+   * ska ersättas av aktiviteten – annars räknas deltagaren två gånger i veckorapporten, närvarograden och den automatiska närvaron.
+   */
+  replaceOverlapping: z.boolean().optional(),
 };
 /** Ärendet som stoppade (inbjudan eller ny tid) och varför – visas i dialogen. */
 export type InviteProblem = { caseId: string; caseNumber: string; reason: string };
@@ -138,23 +143,31 @@ type Problems<E extends string> = Fail<E> & { problems: InviteProblem[] };
 
 /**
  * Skapa en gruppaktivitet och bjud in deltagarna (en rad i activities per deltagare). Avslutade, avböjda och pausade ärenden
- * nekas (not_invitable, problems). Helgdag: holiday tills acceptHoliday. Alla deltagare i samma avtal.
+ * nekas (not_invitable, problems), liksom deltagare som aktören inte arbetar i (vilande spärren för skyddade personuppgifter) och
+ * deltagare som redan har ett tillfälle med närvaro eller en annan gruppaktivitet vid samma tid. Ett eget tillfälle utan närvaro
+ * vid samma tid: overlap (problems) tills replaceOverlapping – då ersätts det. Helgdag: holiday tills acceptHoliday. Alla
+ * deltagare i samma avtal.
  */
 export const groupActivityCreate = command("aktiviteter.skapa", z.object({ ...Fields, caseIds: z.array(IdSchema).max(200) }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ groupActivityId: string; invited: number }, "holiday" | "not_invitable" | "not_found" | "contract" | "responsible"> | Problems<"not_invitable">
+  Result<{ groupActivityId: string; invited: number; replaced: number }, "holiday" | "not_invitable" | "overlap" | "not_found" | "contract" | "responsible"> | Problems<"not_invitable" | "overlap">
 >();
 
 /**
  * Ändra namn, typ, tid, längd, plats eller ansvarig – tid, längd, plats och typ ändras på alla deltagares tillfällen. Tiden kan
- * inte flyttas när närvaro är registrerad (has_attendance). En ny dag prövas mot helgdagar och deltagarnas insatser.
+ * inte flyttas när närvaro är registrerad (has_attendance). En ny dag prövas mot helgdagar och deltagarnas insatser, och en ny
+ * tid eller längd mot deltagarnas andra tillfällen (not_invitable, overlap – som när aktiviteten skapas). restricted: någon
+ * deltagare kan inte ändras av aktören (vilande spärren för skyddade personuppgifter) – ingenting ändras.
  */
 export const groupActivityUpdate = command("aktiviteter.andra", z.object({ id: IdSchema, ...Fields }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ changed: number }, "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "responsible"> | Problems<"not_invitable">
+  | Result<{ changed: number; replaced: number }, "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "overlap" | "responsible" | "restricted">
+  | Problems<"not_invitable" | "overlap">
 >();
 
 /** Bjud in fler deltagare (redan inbjudna hoppas över). Samma regler som när aktiviteten skapas. */
-export const groupActivityInvite = command("aktiviteter.bjudIn", z.object({ id: IdSchema, caseIds: z.array(IdSchema).min(1).max(200) }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ invited: number; already: number }, "not_found" | "cancelled" | "not_invitable" | "contract"> | Problems<"not_invitable">
+export const groupActivityInvite = command("aktiviteter.bjudIn", z.object({ id: IdSchema, caseIds: z.array(IdSchema).min(1).max(200), replaceOverlapping: z.boolean().optional() }), {
+  invalidates: ACTIVITY_WRITES,
+}).returns<
+  Result<{ invited: number; already: number; replaced: number }, "not_found" | "cancelled" | "not_invitable" | "overlap" | "contract"> | Problems<"not_invitable" | "overlap">
 >();
 
 /** Ta bort en deltagare – bara om närvaro inte är registrerad. */
@@ -162,9 +175,14 @@ export const groupActivityRemove = command("aktiviteter.taBort", z.object({ id: 
   Result<object, "not_found" | "cancelled" | "has_attendance">
 >();
 
-/** Ställ in aktiviteten: deltagarnas tillfällen tas bort. Går inte när närvaro är registrerad (aktiviteten är genomförd). */
+/**
+ * Ställ in aktiviteten: deltagarnas tillfällen tas bort. Går inte när närvaro är registrerad (aktiviteten är genomförd).
+ * Aktiviteten märks som inställd först (en gång – två samtidiga försök ger cancelled för det andra), sedan tas tillfällena bort.
+ * kept: tillfällen som hann få närvaro registrerad under tiden – de ligger kvar. restricted: någon deltagare kan inte ändras av
+ * aktören (vilande spärren för skyddade personuppgifter) – ingenting ändras.
+ */
 export const groupActivityCancel = command("aktiviteter.stallIn", z.object({ id: IdSchema }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ removed: number }, "not_found" | "cancelled" | "has_attendance">
+  Result<{ removed: number; kept: number }, "not_found" | "cancelled" | "has_attendance" | "restricted">
 >();
 
 /** Högst så många tecken i en anteckningsrad (samma gräns som en anteckning i deltagarkortet). */

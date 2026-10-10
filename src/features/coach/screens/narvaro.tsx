@@ -237,9 +237,16 @@ function Narvaro({ v, initial, caseId }: { v: NarvaroView; initial: Week; caseId
           {future ? (
             <Row gap="sm">
               <span className="text-body text-text-muted">Registreras när tillfället har startat.</span>
-              <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
-                Ta bort
-              </Button>
+              {a.groupActivityId ? (
+                // Gruppaktivitet: deltagaren tas bort i aktivitetsvyn, så att det loggas på aktiviteten.
+                <Button kind="ghost" icon="users" to={`/aktiviteter/${encodeURIComponent(a.groupActivityId)}`}>
+                  Öppna gruppaktiviteten
+                </Button>
+              ) : (
+                <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeActivity(a)}>
+                  Ta bort
+                </Button>
+              )}
             </Row>
           ) : (
             <>

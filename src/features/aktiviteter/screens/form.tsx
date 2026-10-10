@@ -127,13 +127,43 @@ export function ProblemList({ problems }: { problems: readonly InviteProblem[] }
   );
 }
 
-/** Skicka kommandot – vid helgdag frågar dialogen först och skickar sedan igen med acceptHoliday. */
-export function useHolidayConfirm() {
+/** Det användaren har bekräftat: helgdagen, och att deltagarnas egna tillfällen vid samma tid ersätts. */
+export type ActivityConfirmations = { acceptHoliday: boolean; replaceOverlapping: boolean };
+
+/**
+ * Skicka kommandot – frågar först och skickar sedan igen: vid helgdag (holiday → acceptHoliday) och när deltagare redan har ett
+ * eget tillfälle vid samma tid (overlap → replaceOverlapping, dialogen räknar upp vilka). Avbryter användaren blir svaret null.
+ */
+export function useActivityConfirm() {
   const confirm = useConfirm();
-  return async <R extends { ok: boolean; error?: string; message?: string }>(send: (acceptHoliday: boolean) => Promise<R | null>): Promise<R | null> => {
-    const first = await send(false);
-    if (!first || first.ok || first.error !== "holiday") return first;
-    const ok = await confirm({ title: "Lägga aktiviteten på en helgdag?", body: first.message ?? "Dagen är en helgdag.", confirmLabel: "Ja, lägg den där", cancelLabel: "Välj en annan dag" });
-    return ok ? send(true) : null;
+  return async <R extends { ok: boolean; error?: string; message?: string }>(send: (c: ActivityConfirmations) => Promise<R | null>): Promise<R | null> => {
+    const c: ActivityConfirmations = { acceptHoliday: false, replaceOverlapping: false };
+    for (;;) {
+      const res = await send({ ...c });
+      if (!res || res.ok) return res;
+      if (res.error === "holiday" && !c.acceptHoliday) {
+        if (!(await confirm({ title: "Lägga aktiviteten på en helgdag?", body: res.message ?? "Dagen är en helgdag.", confirmLabel: "Ja, lägg den där", cancelLabel: "Välj en annan dag" }))) return null;
+        c.acceptHoliday = true;
+        continue;
+      }
+      if (res.error === "overlap" && !c.replaceOverlapping) {
+        const problems = "problems" in res ? (res as { problems: InviteProblem[] }).problems : [];
+        const ok = await confirm({
+          title: "Ersätta tillfällen vid samma tid?",
+          body: (
+            <div className="flex flex-col gap-2">
+              <p className="m-0">{res.message}</p>
+              <ProblemList problems={problems} />
+            </div>
+          ),
+          confirmLabel: "Ja, ersätt dem",
+          cancelLabel: "Avbryt",
+        });
+        if (!ok) return null;
+        c.replaceOverlapping = true;
+        continue;
+      }
+      return res;
+    }
   };
 }

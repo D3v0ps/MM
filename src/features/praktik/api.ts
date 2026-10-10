@@ -129,7 +129,8 @@ export const placementCreate = command("praktik.placementCreate", z.object({
   durationMin: z.number().int().min(60).max(600),
   tasks: z.string().max(2000).optional(),
 }), { invalidates: ["praktik.", CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, ...START, ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
-  Result<{ placementId: string; employerId: string; days: number }, "not_found" | "forbidden" | "wrong_status" | "employer" | "period" | "weekdays" | "email">
+  /** groupActivities: gruppaktiviteter som deltagaren är inbjuden till på praktikdagarna – de ligger kvar (ändras i aktivitetsvyn). */
+  Result<{ placementId: string; employerId: string; days: number; groupActivities: number }, "not_found" | "forbidden" | "wrong_status" | "employer" | "period" | "weekdays" | "email">
 >();
 
 /**

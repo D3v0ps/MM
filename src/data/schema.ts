@@ -1766,8 +1766,10 @@ export function emptyDb(): Db {
  * Unika nycklar utöver id – samma som databasens unika index, så att minnesläget stoppar samma dubbletter (UniqueError,
  * src/data/memory.ts): en närvarorad per tillfälle (0022, två samtidiga registreringar), ett pulssvar per länk (0016).
  */
-export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
+export const UNIQUE_KEYS: { [N in TableName]?: readonly ((keyof Tables[N] & string) | readonly (keyof Tables[N] & string)[])[] } = {
   attendance: ["activityId"],
+  // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
+  activities: [["groupActivityId", "caseId"]],
   pulse_responses: ["inviteId"],
   // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
   invoice_drafts: ["fortnoxIdempotencyKey"],

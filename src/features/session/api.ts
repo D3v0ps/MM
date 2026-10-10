@@ -16,6 +16,8 @@ export const VIEW_EVENTS = {
   "case.view_denied": "case",
   "report.view": "report",
   "transcript.view": "check_in",
+  // Aktivitetsvyn visar deltagarnas namn, närvaro och dagens anteckningar (coachmötet 2026-10-09) – loggas som deltagarkortet.
+  "group_activity.view": "group_activity",
   "export.audit_log": "audit_log",
   "export.contract_deviations": "contract_deviation",
 } as const;

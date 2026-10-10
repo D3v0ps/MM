@@ -228,10 +228,13 @@ export const activityAdd = command("arenden.activityAdd", z.object({
   Result<{ activityId: string }, "not_found" | "forbidden" | "wrong_status" | "date" | "duplicate">
 >();
 
-/** Ta bort ett tillfälle som saknar registrerad närvaro. Logg activity.removed. */
+/**
+ * Ta bort ett tillfälle som saknar registrerad närvaro. Logg activity.removed. Ett tillfälle i en gruppaktivitet tas bort i
+ * aktivitetsvyn (aktiviteter.taBort) – här nekas det (group_activity).
+ */
 export const activityRemove = command("arenden.activityRemove", z.object({ activityId: IdSchema }), {
   invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG],
-}).returns<Result<object, "not_found" | "forbidden" | "has_attendance">>();
+}).returns<Result<object, "not_found" | "forbidden" | "has_attendance" | "group_activity">>();
 
 /**
  * Ändra teamet (samordnare och avtalsansvarig): handledare, arbetsgivarmatchare och SYV/metodstöd läggs till eller tas
@@ -592,8 +595,11 @@ export type CaseAttendance = {
   repeated: { dates: string[]; absentInvalid: number; withinDays: number } | null;
   /** Senaste tio passerade tillfällena, senaste först. */
   past: (CaseActivity & { attendance: { status: AttendanceStatus; reason: string } | null })[];
-  /** Kommande tillfällen (högst tio) – kan tas bort tills närvaro registrerats (beslut 2026-10-08). */
-  upcoming: (CaseActivity & { durationMin: number })[];
+  /**
+   * Kommande tillfällen (högst tio) – kan tas bort tills närvaro registrerats (beslut 2026-10-08). groupActivityId: tillfället hör
+   * till en gruppaktivitet och tas bort i aktivitetsvyn.
+   */
+  upcoming: (CaseActivity & { durationMin: number; groupActivityId: string | null })[];
   /** "måndag 10.00" – när närvaron ska vara registrerad (avtalet), eller null. */
   registerBy: string | null;
 };

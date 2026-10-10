@@ -61,7 +61,7 @@ export const ACTION_LABEL: Record<string, string> = {
   // Coachmötet 2026-10-09: gruppaktiviteter och automatisk närvaro. Loggen har id:n, antal och tider – aldrig namn.
   "attendance.auto_registered": "Registrerade närvaro automatiskt", "group_activity.created": "Skapade gruppaktivitet", "group_activity.updated": "Ändrade gruppaktivitet",
   "group_activity.invited": "Bjöd in deltagare till gruppaktivitet", "group_activity.removed_participant": "Tog bort deltagare ur gruppaktivitet",
-  "group_activity.cancelled": "Ställde in gruppaktivitet",
+  "group_activity.cancelled": "Ställde in gruppaktivitet", "group_activity.view": "Visade aktivitetsvyn",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -273,4 +273,4 @@ export const JOB_KEYS = ["inbox", "auto_attendance", "weekly", "att_remind", "pr
 export type JobKey = (typeof JOB_KEYS)[number];
 
 /** Visningar och exporter som chef/controller stickprovar i första hand (SPEC §10). */
-export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed"] as const;
+export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed", "group_activity.view"] as const;

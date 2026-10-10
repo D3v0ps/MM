@@ -445,6 +445,8 @@ export type NarvaroRow = {
   /** Upprepad ogiltig frånvaro enligt avtalets regel (visas vid ogiltig frånvaro). */
   repeated: boolean;
   referrerId: string | null;
+  /** Tillfället hör till en gruppaktivitet: ändras och tas bort i aktivitetsvyn, inte här. */
+  groupActivityId: string | null;
 };
 export type NarvaroReport = {
   recipientId: string;

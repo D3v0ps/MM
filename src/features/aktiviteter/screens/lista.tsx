@@ -85,8 +85,18 @@ function ActivityTable({ rows, now, empty, caption }: { rows: GroupActivityListR
             Inställd
           </Badge>
         ) : r.startsAt < now ? (
-          <span>
-            {r.invited} · {r.registered === r.invited ? "närvaron är registrerad" : `${r.registered} av ${r.invited} registrerade`}
+          // Status med text och ikon (som raden på Min vecka, GroupDayRow) – aldrig bara text eller färg.
+          <span className="inline-flex flex-wrap items-center gap-1.5">
+            <span>{r.invited} deltagare</span>
+            {r.registered === r.invited ? (
+              <Badge tone="blue" icon="check">
+                Närvaron är registrerad
+              </Badge>
+            ) : (
+              <Badge tone="outline" icon="circle">
+                {r.registered} av {r.invited} registrerade
+              </Badge>
+            )}
           </span>
         ) : (
           <span>{r.invited} inbjudna</span>

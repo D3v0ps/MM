@@ -335,7 +335,7 @@ handleQuery(narvaroView, { roles: ["coach", "handledare"] }, async (ctx) => {
       rows.push({
         activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(personById.get(c.personId)), kind: a.kind, startsAt: a.startsAt, durationMin: a.durationMin,
         location: a.location, attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null, repeated: at?.status === "absent_invalid" ? await isRepeated(c) : false,
-        referrerId: c.referrerId,
+        referrerId: c.referrerId, groupActivityId: a.groupActivityId,
       });
     }
     const open = rows.filter((r) => r.startsAt < now && !r.attendance);

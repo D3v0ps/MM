@@ -23,6 +23,12 @@ import type { WeekKey } from "@/data/schema";
 import { orgSettingsFor } from "./context";
 import { publishWeeklyIfComplete } from "./weekly";
 
+/** Felets kod eller namn till loggen – aldrig meddelandet (det kan innehålla värden). */
+const errorCode = (e: unknown): string => {
+  const x = e as { code?: unknown; name?: unknown } | null;
+  return typeof x?.code === "string" && x.code ? x.code : typeof x?.name === "string" && x.name ? x.name : "error";
+};
+
 /** registeredBy på en automatisk rad. */
 export const AUTO_ATTENDANCE_BY = "system";
 
@@ -72,28 +78,38 @@ export async function runAutoAttendance(ctx: Ctx, opts: { floor?: LocalDateTime 
     });
     const written: typeof due = [];
     const attendanceIds: string[] = [];
-    for (const d of due) {
-      const id = ctx.newId("at");
-      try {
-        await s.table("attendance").insert({
-          id, activityId: d.activityId, caseId: d.caseId, status: "present", reason: "", registeredBy: AUTO_ATTENDANCE_BY, registeredAt: now, customerNotifiedAt: null, source: "auto",
-        });
-      } catch (e) {
-        // Någon registrerade tillfället mellan läsningen och skrivningen: den raden gäller – ingenting skrivs över.
-        if (e instanceof UniqueError || (e as { code?: unknown })?.code === "23505") continue;
-        throw e;
+    // En loggrad per avtal och körning: antal och id:n, aldrig namn. Kortets Historik hittar raden via details.caseIds. Raderna
+    // skrivs en i taget (ingen transaktion): avbryts körningen av ett fel loggas de rader som hann skrivas ändå (failed, felkoden –
+    // aldrig felmeddelandet), innan felet går vidare till jobbet. Nästa körning ser dem som registrerade och loggar dem inte igen.
+    const log = (failed: unknown) =>
+      ctx.audit({
+        action: "attendance.auto_registered", entity: "attendance", entityId: null, contractId: contract.id,
+        details: {
+          count: written.length, activityIds: written.map((d) => d.activityId), attendanceIds, caseIds: uniq(written.map((d) => d.caseId)), days: uniq(written.map((d) => d.day)),
+          dayEndsAt: settings.autoPresentAt, ...(opts.manual ? { manual: true } : {}),
+          ...(failed ? { failed: true, error: errorCode(failed), remaining: due.length - written.length } : {}),
+        },
+      });
+    try {
+      for (const d of due) {
+        const id = ctx.newId("at");
+        try {
+          await s.table("attendance").insert({
+            id, activityId: d.activityId, caseId: d.caseId, status: "present", reason: "", registeredBy: AUTO_ATTENDANCE_BY, registeredAt: now, customerNotifiedAt: null, source: "auto",
+          });
+        } catch (e) {
+          // Någon registrerade tillfället mellan läsningen och skrivningen: den raden gäller – ingenting skrivs över.
+          if (e instanceof UniqueError || (e as { code?: unknown })?.code === "23505") continue;
+          throw e;
+        }
+        written.push(d);
+        attendanceIds.push(id);
       }
-      written.push(d);
-      attendanceIds.push(id);
+    } catch (e) {
+      if (written.length) await log(e).catch(() => undefined);
+      throw e;
     }
-    // En loggrad per avtal och körning: antal och id:n, aldrig namn. Kortets Historik hittar raden via details.caseIds.
-    await ctx.audit({
-      action: "attendance.auto_registered", entity: "attendance", entityId: null, contractId: contract.id,
-      details: {
-        count: written.length, activityIds: written.map((d) => d.activityId), attendanceIds, caseIds: uniq(written.map((d) => d.caseId)), days: uniq(written.map((d) => d.day)),
-        dayEndsAt: settings.autoPresentAt, ...(opts.manual ? { manual: true } : {}),
-      },
-    });
+    await log(null);
     run.contracts.push({ contractId: contract.id, registered: written.length, activityIds: written.map((d) => d.activityId) });
     run.registered += written.length;
     // Veckorapporterna: en kontroll per handläggare och vecka bland de registrerade – i fast ordning.

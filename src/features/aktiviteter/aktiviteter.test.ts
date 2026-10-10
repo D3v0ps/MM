@@ -75,7 +75,7 @@ describe("skapa och bjuda in", () => {
     // Samma regel när fler bjuds in efteråt.
     const id = await create([CASES.nadia]);
     expect(await run(groupActivityInvite, { id, caseIds: [closed.id] }, amira())).toMatchObject({ ok: false, error: "not_invitable" });
-    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia, CASES.elif] }, amira())).toEqual({ ok: true, invited: 1, already: 1 });
+    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia, CASES.elif] }, amira())).toEqual({ ok: true, invited: 1, already: 1, replaced: 0 });
     expect(partsOf(id)).toHaveLength(2);
   });
 
@@ -97,12 +97,12 @@ describe("ändra, ta bort och ställa in", () => {
   it("ändrad tid, längd och plats slår igenom på alla deltagares tillfällen", async () => {
     const id = await create();
     const res = await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, as("u-sara", "samordnare"));
-    expect(res).toEqual({ ok: true, changed: 3 });
+    expect(res).toEqual({ ok: true, changed: 3, replaced: 0 });
     expect(partsOf(id).map((a) => [a.startsAt, a.durationMin, a.location])).toEqual(THREE.map(() => ["2027-02-02T13:00", 60, "Rum 2"]));
     expect(rows("group_activities")[0]).toMatchObject({ updatedBy: "u-sara", location: "Rum 2" });
     expect(audit("group_activity.updated")[0].details).toMatchObject({ fields: ["startsAt", "durationMin", "location"], count: 3 });
     // Inget ändrat: ingen skrivning.
-    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, amira())).toEqual({ ok: true, changed: 0 });
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, amira())).toEqual({ ok: true, changed: 0, replaced: 0 });
   });
 
   it("tiden flyttas inte när närvaro är registrerad – namn och plats går att ändra", async () => {
@@ -110,7 +110,7 @@ describe("ändra, ta bort och ställa in", () => {
     const [first] = partsOf(id);
     expect(await run(attendanceSet, { activityId: first.id, status: "present" }, amira())).toMatchObject({ ok: true });
     expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-01T08:30" }, amira())).toMatchObject({ ok: false, error: "has_attendance" });
-    expect(await run(groupActivityUpdate, { id, ...base, name: "CV-verkstad del 2" }, amira())).toEqual({ ok: true, changed: 1 });
+    expect(await run(groupActivityUpdate, { id, ...base, name: "CV-verkstad del 2" }, amira())).toEqual({ ok: true, changed: 1, replaced: 0 });
   });
 
   it("ta bort en deltagare: bara utan registrerad närvaro", async () => {
@@ -127,7 +127,7 @@ describe("ändra, ta bort och ställa in", () => {
     await run(attendanceSet, { activityId: partsOf(done)[0].id, status: "present" }, amira());
     expect(await run(groupActivityCancel, { id: done }, amira())).toMatchObject({ ok: false, error: "has_attendance" });
     const later = await create(THREE, { startsAt: "2027-02-03T13:00" });
-    expect(await run(groupActivityCancel, { id: later }, amira())).toEqual({ ok: true, removed: 3 });
+    expect(await run(groupActivityCancel, { id: later }, amira())).toEqual({ ok: true, removed: 3, kept: 0 });
     expect(partsOf(later)).toEqual([]);
     expect(rows("group_activities").find((g) => g.id === later)).toMatchObject({ cancelledBy: "u-amira" });
     expect(await run(groupActivityUpdate, { id: later, ...base }, amira())).toMatchObject({ ok: false, error: "cancelled" });

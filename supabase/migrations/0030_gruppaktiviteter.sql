@@ -22,10 +22,15 @@
 --    auto_attendance registrerade Närvarande efter dagens slut för ett tillfälle som saknade närvaro – src/features/_shared/
 --    auto-attendance.ts). Inloggade användare skriver bara 'manual' (insert och update): en automatisk rad som coachen ändrar
 --    blir manuell, och ingen kan förfalska en automatisk rad. Jobbet skriver med service role. Befintliga rader blir 'manual'.
--- Speglas i src/data/policy.ts och prövas i src/data/supabase/rls-parity.test.ts. Inga destruktiva satser.
+-- 4. En rad per deltagare och gruppaktivitet: unikt index (group_activity_id, case_id) för rader med group_activity_id. Två
+--    samtidiga inbjudningar av samma deltagare ger då inte två tillfällen (hanteraren räknar dubbletten som redan inbjuden).
+-- Speglas i src/data/policy.ts (och UNIQUE_KEYS i src/data/schema.ts) och prövas i src/data/supabase/rls-parity.test.ts.
+-- Inga destruktiva satser. Idempotent (if not exists, or replace, drop … if exists) – tål att köras igen i SQL Editor, t.ex.
+-- om en körning avbröts. Driftordning (docs/DRIFT.md): 0030 appliceras FÖRE koden från spår A – koden skriver
+-- attendance.source och activities.group_activity_id vid varje närvaroregistrering och varje nytt tillfälle.
 
 -- ---------------------------------------------------------------- 1. Gruppaktiviteter
-create table public.group_activities (
+create table if not exists public.group_activities (
   id                         text primary key,
   contract_id                text not null references public.contracts (id),
   name                       text not null check (char_length(btrim(name)) between 1 and 120),
@@ -44,10 +49,10 @@ create table public.group_activities (
   constraint group_activities_updated_pair check ((updated_at is null) = (updated_by is null)),
   constraint group_activities_cancelled_pair check ((cancelled_at is null) = (cancelled_by is null))
 );
-create index group_activities_contract_id_idx on public.group_activities (contract_id);
-create index group_activities_responsible_id_idx on public.group_activities (responsible_id);
-create index group_activities_created_by_idx on public.group_activities (created_by);
-create index group_activities_starts_at_idx on public.group_activities (starts_at);
+create index if not exists group_activities_contract_id_idx on public.group_activities (contract_id);
+create index if not exists group_activities_responsible_id_idx on public.group_activities (responsible_id);
+create index if not exists group_activities_created_by_idx on public.group_activities (created_by);
+create index if not exists group_activities_starts_at_idx on public.group_activities (starts_at);
 
 alter table public.group_activities enable row level security;
 revoke all on public.group_activities from anon, authenticated;
@@ -56,11 +61,13 @@ grant all on public.group_activities to service_role;
 grant select, insert, update on public.group_activities to authenticated;
 
 -- policy.ts group_activities.read
+drop policy if exists group_activities_select on public.group_activities;
 create policy group_activities_select on public.group_activities for select to authenticated using (
   (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'handledare', 'chef', 'admin']))
   and mm.member_in(contract_id, (select mm.current_role()), (select mm.my_contract_ids()))
 );
 -- policy.ts groupActivityWrite (ny rad)
+drop policy if exists group_activities_insert on public.group_activities;
 create policy group_activities_insert on public.group_activities for insert to authenticated with check (
   (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'handledare']))
   and mm.member_in(contract_id, (select mm.current_role()), (select mm.my_contract_ids()))
@@ -68,6 +75,7 @@ create policy group_activities_insert on public.group_activities for insert to a
   and updated_at is null and updated_by is null and cancelled_at is null and cancelled_by is null
 );
 -- policy.ts groupActivityWrite (ändring). Vilka kolumner som får ändras styr triggern nedan.
+drop policy if exists group_activities_update on public.group_activities;
 create policy group_activities_update on public.group_activities for update to authenticated using (
   (select mm.role_in(array['samordnare', 'avtalsansvarig', 'coach', 'handledare']))
   and mm.member_in(contract_id, (select mm.current_role()), (select mm.my_contract_ids()))
@@ -78,7 +86,7 @@ create policy group_activities_update on public.group_activities for update to a
 );
 
 -- Kolumnskydd (policy.ts groupActivityWrite). Gäller inloggade (authenticated, anon); service role påverkas inte.
-create function mm.protect_group_activity_columns() returns trigger
+create or replace function mm.protect_group_activity_columns() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 declare
@@ -105,25 +113,29 @@ begin
   return new;
 end
 $$;
+drop trigger if exists group_activities_protect_columns on public.group_activities;
 create trigger group_activities_protect_columns before update on public.group_activities
 for each row execute function mm.protect_group_activity_columns();
 
 -- ---------------------------------------------------------------- Deltagarnas tillfällen hör till gruppaktiviteten
-alter table public.activities add column group_activity_id text references public.group_activities (id);
-create index activities_group_activity_id_idx on public.activities (group_activity_id);
+alter table public.activities add column if not exists group_activity_id text references public.group_activities (id);
+create index if not exists activities_group_activity_id_idx on public.activities (group_activity_id);
+-- 4. En rad per deltagare och gruppaktivitet (UNIQUE_KEYS i src/data/schema.ts). Deltagarens egna tillfällen (null) omfattas inte.
+create unique index if not exists activities_group_activity_case_key on public.activities (group_activity_id, case_id) where group_activity_id is not null;
 
 -- ---------------------------------------------------------------- 2. Ett tillfälle utan närvaro kan tas bort
 -- policy.ts activities.write (samma regel för insert, update och delete).
 grant delete on public.activities to authenticated;
+drop policy if exists activities_delete on public.activities;
 create policy activities_delete on public.activities for delete to authenticated using (mm.work_on(case_id));
 
 -- ---------------------------------------------------------------- 3. Närvarons källa
-alter table public.attendance add column source text not null default 'manual' check (source in ('manual', 'auto'));
+alter table public.attendance add column if not exists source text not null default 'manual' check (source in ('manual', 'auto'));
 
 -- policy.ts attendance.write: den som arbetar i ärendet, och bara manuell närvaro (auto skrivs bara av jobbet).
-drop policy attendance_insert on public.attendance;
+drop policy if exists attendance_insert on public.attendance;
 create policy attendance_insert on public.attendance for insert to authenticated with check (mm.work_on(case_id) and source = 'manual');
-drop policy attendance_update on public.attendance;
+drop policy if exists attendance_update on public.attendance;
 create policy attendance_update on public.attendance for update to authenticated using (
   case_id in (select mm.case_ids('{full,team,billing,customer}'))
 ) with check (mm.work_on(case_id) and source = 'manual');

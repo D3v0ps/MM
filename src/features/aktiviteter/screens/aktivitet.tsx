@@ -12,7 +12,8 @@ import { useUnsavedGuard } from "@/shell/guard";
 import { useNav } from "@/shell/nav";
 import { usePageTitle } from "@/shell/page-effects";
 import type { ScreenProps } from "@/shell/routes";
-import { Badge, Button, Card, CaseLink, ErrorNotice, Field, Input, Kv, Loading, Modal, Notice, Page, Row, Seg, Stack, toast, useConfirm } from "@/ui";
+import { Badge, Button, Card, CaseLink, ErrorNotice, Field, Input, Kv, Loading, Modal, Notice, Page, Row, Seg, Stack, toast, useAuditView, useConfirm } from "@/ui";
+import { auditView } from "@/features/session/api";
 import { durationLabel } from "@/features/arenden/screens/kort-start";
 import { attendanceSet, attendanceSetAll } from "@/features/coach/api";
 import { ATT_OPTIONS, AttBadge } from "@/features/coach/screens/shared";
@@ -21,7 +22,7 @@ import {
   type GroupActivityView, type GroupParticipant, type InviteProblem,
 } from "../api";
 import { InviteParticipants } from "./bjud-in";
-import { ActivityFields, formErrors, formOf, payloadOf, ProblemList, useActivityFormData, useHolidayConfirm, type ActivityFormState } from "./form";
+import { ActivityFields, formErrors, formOf, payloadOf, ProblemList, useActivityFormData, useActivityConfirm, type ActivityFormState } from "./form";
 
 const CRUMB = { label: "Aktiviteter", to: "/aktiviteter" };
 type Ok = Extract<GroupActivityView, { kind: "ok" }>;
@@ -56,6 +57,10 @@ export function AktivitetScreen({ params }: ScreenProps) {
 function Aktivitet({ v }: { v: Ok }) {
   const a = v.activity;
   usePageTitle(a.name);
+  // Visningslogg (CLAUDE.md punkt 3): vyn visar deltagarnas namn, närvaro och dagens anteckningar – en gång per sidbesök, som
+  // deltagarkortet. Servern slår upp vilka deltagare som visades.
+  const logView = useCommand(auditView);
+  useAuditView(`group_activity.view:${a.id}`, () => logView.run({ action: "group_activity.view", entity: "group_activity", entityId: a.id }).catch(() => undefined));
   const nav = useNav();
   const confirm = useConfirm();
   const set = useCommand(attendanceSet);
@@ -150,7 +155,7 @@ function Aktivitet({ v }: { v: Ok }) {
     if (!ok) return;
     const res = await cancel.run({ id: a.id }).catch(() => null);
     if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Aktiviteten kunde inte ställas in.", "error");
-    else toast("Aktiviteten är inställd.");
+    else toast(res.kept ? `Aktiviteten är inställd. ${plural(res.kept, "deltagare", "deltagare")} hann få närvaro registrerad och ligger kvar.` : "Aktiviteten är inställd.");
   };
 
   const submitNotes = async () => {
@@ -323,7 +328,7 @@ function Aktivitet({ v }: { v: Ok }) {
               <Button kind="primary" icon="edit" pending={saveNotes.pending} disabled={!filledNotes.length} onClick={() => void submitNotes()}>
                 {filledNotes.length ? `Spara ${plural(filledNotes.length, "anteckning", "anteckningar")}` : "Spara anteckningar"}
               </Button>
-              <span className="text-small text-text-muted">Tomma rader sparas inte. Skriv aldrig personnummer – ärendenumret räcker.</span>
+              <span className="text-body text-text-muted">Tomma rader sparas inte. Skriv aldrig personnummer – ärendenumret räcker.</span>
             </Row>
           </div>
         )}
@@ -344,7 +349,7 @@ function Aktivitet({ v }: { v: Ok }) {
 function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const { data, error, retry } = useActivityFormData();
   const update = useCommand(groupActivityUpdate);
-  const withHoliday = useHolidayConfirm();
+  const withConfirm = useActivityConfirm();
   const [initial] = useState<ActivityFormState>(() => formOf(v.activity));
   const [value, setValue] = useState<ActivityFormState>(initial);
   const [tried, setTried] = useState(false);
@@ -353,14 +358,14 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
     setTried(true);
     setProblems([]);
     if (Object.keys(formErrors(value)).length) return;
-    const res = await withHoliday((acceptHoliday) => update.run({ id: v.activity.id, ...payloadOf(value), acceptHoliday }).catch(() => null));
+    const res = await withConfirm((c) => update.run({ id: v.activity.id, ...payloadOf(value), ...c }).catch(() => null));
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
       toast(res.message ?? "Ändringen kunde inte sparas.", "error");
       return;
     }
-    toast(res.changed ? "Aktiviteten är ändrad för alla deltagare." : "Inget var ändrat.");
+    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${res.replaced ? ` ${plural(res.replaced, "tillfälle", "tillfällen")} vid samma tid är ersatta.` : ""}` : "Inget var ändrat.");
     onClose();
   };
   return (
@@ -400,18 +405,20 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
 function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const { data, error, retry } = useActivityFormData();
   const invite = useCommand(groupActivityInvite);
+  const withConfirm = useActivityConfirm();
   const [caseIds, setCaseIds] = useState<string[]>([]);
   const [problems, setProblems] = useState<InviteProblem[]>([]);
   const submit = async () => {
     setProblems([]);
     if (!caseIds.length) return;
-    const res = await invite.run({ id: v.activity.id, caseIds }).catch(() => null);
-    if (!res || !res.ok) {
-      if (res && "problems" in res) setProblems(res.problems);
-      toast(res && !res.ok && res.message ? res.message : "Deltagarna kunde inte bjudas in.", "error");
+    const res = await withConfirm((c) => invite.run({ id: v.activity.id, caseIds, replaceOverlapping: c.replaceOverlapping }).catch(() => null));
+    if (!res) return;
+    if (!res.ok) {
+      if ("problems" in res) setProblems(res.problems);
+      toast(res.message ?? "Deltagarna kunde inte bjudas in.", "error");
       return;
     }
-    toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.`);
+    toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${res.replaced ? ` ${plural(res.replaced, "tillfälle", "tillfällen")} vid samma tid är ersatta.` : ""}`);
     onClose();
   };
   return (

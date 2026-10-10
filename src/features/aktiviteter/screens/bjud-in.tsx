@@ -80,7 +80,7 @@ export function InviteParticipants({ candidates, day, value, onChange, alreadyIn
         </Row>
       </Row>
       {chosen.length > 0 && (
-        <p className="m-0 text-small text-text-muted">
+        <p className="m-0 text-body text-text-muted">
           Valda: {chosen.map((c) => `${c.name} (${c.caseNumber})`).join(", ")}
         </p>
       )}
@@ -103,7 +103,7 @@ export function InviteParticipants({ candidates, day, value, onChange, alreadyIn
                   aria-describedby={descId}
                 >
                   <span className="font-bold">{c.name}</span> <span className="tabular-nums text-text-muted">{c.caseNumber}</span>
-                  <span id={descId} className="block text-small text-text-muted">
+                  <span id={descId} className="block text-body text-text-muted">
                     {block ?? (c.leadCoachName ? `Huvudcoach ${c.leadCoachName}` : "Ingen huvudcoach")}
                   </span>
                 </Check>

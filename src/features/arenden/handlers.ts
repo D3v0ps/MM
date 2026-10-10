@@ -15,6 +15,7 @@ import {
   messagesOf, placementsOf, reportsOf,
 } from "@/core/db-index";
 import { domainEnv, type DomainEnv } from "@/core/env";
+import { overlaps } from "@/core/group-activities";
 import { plural } from "@/core/format";
 import {
   areaName, attLabel, contactLabel, END_REASONS, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
@@ -451,12 +452,18 @@ handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
   const existing = await acts.list({ caseId: c.id });
   const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
   // Framtida tillfällen utan närvaro ersätts. Praktikdagar hör till praktiken och rörs bara om planen själv har praktikdagar.
+  // Gruppaktiviteter (group_activity_id) hör till aktiviteten och rörs aldrig här – en deltagare tas bort ur en gruppaktivitet
+  // bara i aktivitetsvyn (aktiviteter.taBort, loggad på aktiviteten). Planens tillfällen som krockar med en gruppaktivitet hoppas
+  // över, så att deltagaren inte räknas två gånger samma tid.
   const replacesPractice = plan.some((r) => r.kind === "praktikdag");
-  const removable = existing.filter((a) => a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice));
+  const removable = existing.filter((a) => !a.groupActivityId && a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice));
   for (const a of removable) await acts.remove(a.id);
   const kept = new Set(existing.filter((a) => !removable.includes(a)).map((a) => `${a.startsAt}|${a.kind}`));
+  const groupRows = existing.filter((a) => a.groupActivityId);
   const from = c.startDate && c.startDate > today ? c.startDate : today;
-  const rows = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now }).filter((r) => !kept.has(`${r.startsAt}|${r.kind}`));
+  const rows = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now }).filter(
+    (r) => !kept.has(`${r.startsAt}|${r.kind}`) && !groupRows.some((g) => overlaps(g, r)),
+  );
   for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
   const meet = plan.find((r) => r.kind === "möte");
   if (meet) await ctx.repo.table("cases").update(c.id, { meetingDay: meet.weekday, meetingTime: meet.time });
@@ -483,6 +490,8 @@ handleCommand(activityRemove, { roles: CASE_WORKERS }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(a.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   if (await ctx.repo.table("attendance").first({ activityId: a.id })) return fail("has_attendance", "Tillfället har registrerad närvaro och kan inte tas bort.");
+  // Ett tillfälle i en gruppaktivitet tas bort i aktivitetsvyn (aktiviteter.taBort), så att det loggas på aktiviteten.
+  if (a.groupActivityId) return fail("group_activity", "Tillfället hör till en gruppaktivitet. Öppna aktiviteten och ta bort deltagaren där.");
   await ctx.repo.table("activities").remove(a.id);
   await ctx.audit({ action: "activity.removed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, kind: a.kind, startsAt: a.startsAt } });
   return ok({});
@@ -661,7 +670,7 @@ const SEV_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info:
 const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
 const FOUR_LABEL: [keyof FourRights, string][] = [["uppgift", "Arbetsuppgifter"], ["handledning", "Handledning"], ["timing", "Tidpunkt"], ["uppfoljning", "Uppföljning"]];
 /** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
-const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view"];
+const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view", "group_activity.view"];
 
 const isManager = (role: Role) => role === "samordnare" || role === "avtalsansvarig";
 const cap = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
@@ -1137,7 +1146,7 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
       const at = attendanceFor(db, a.id);
       return { ...activityView(a), attendance: at ? { status: at.status, reason: at.reason } : null };
     }),
-    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({ ...activityView(a), durationMin: a.durationMin })),
+    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({ ...activityView(a), durationMin: a.durationMin, groupActivityId: a.groupActivityId })),
     registerBy,
   };
 });
@@ -1466,7 +1475,7 @@ const AUDIT_TEXT: Record<string, string> = {
   // Coachmötet 2026-10-09: automatisk närvaro och gruppaktiviteter (raderna hör till ärendet via details.caseIds).
   "attendance.auto_registered": "Närvaro registrerades automatiskt", "group_activity.created": "Bjöds in till en ny gruppaktivitet",
   "group_activity.updated": "Gruppaktiviteten ändrades", "group_activity.invited": "Bjöds in till gruppaktivitet", "group_activity.removed_participant": "Togs bort från gruppaktivitet",
-  "group_activity.cancelled": "Gruppaktiviteten ställdes in",
+  "group_activity.cancelled": "Gruppaktiviteten ställdes in", "group_activity.view": "Öppnade aktivitetsvyn",
 };
 /** Fälten i en ändrad gruppaktivitet som ord (Historik). */
 const GROUP_FIELD_WORD: Record<string, string> = { name: "namn", kind: "typ", startsAt: "tid", durationMin: "längd", location: "plats", responsibleId: "ansvarig" };

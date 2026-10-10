@@ -1,7 +1,7 @@
 // Gruppaktiviteter (coachmötet 2026-10-09): vem kan bjudas in en viss dag, och typernas namn. Ren domänlogik – samma regel
 // i inbjudningskomponenten (som visar varför en deltagare inte kan väljas) och i hanterarna (som nekar).
-import type { Case, GroupActivityKind } from "@/data/schema";
-import { isoWeek, type LocalDate } from "./time";
+import type { ActivityKind, Case, GroupActivityKind } from "@/data/schema";
+import { addMinutes, fmtTime, isoWeek, type LocalDate, type LocalDateTime } from "./time";
 
 /** Varför ett ärende inte kan bjudas in en viss dag. */
 export type InviteBlock = "closed" | "declined" | "paused" | "not_started" | "ended" | "paused_week";
@@ -33,3 +33,16 @@ export function inviteBlock(c: InviteCase, day: LocalDate): InviteBlock | null {
 
 /** Typerna en gruppaktivitet kan ha, med namn (samma ord som i närvaron och veckorapporten). */
 export const GROUP_KIND_LABEL: Record<GroupActivityKind, string> = { yrkesmoment: "Yrkesmoment", arbetsgivarbesök: "Arbetsgivarbesök", annat: "Annan aktivitet" };
+
+/** Typen som ord i en mening ("Har redan yrkesmoment kl. 09.00–12.00"). */
+export const ACTIVITY_KIND_WORD: Record<ActivityKind, string> = {
+  möte: "möte", yrkesmoment: "yrkesmoment", praktikdag: "praktikdag", arbetsgivarbesök: "arbetsgivarbesök", annat: "annan aktivitet",
+};
+
+type Slot = { startsAt: LocalDateTime; durationMin: number };
+/** Två tillfällen överlappar i tid (start före den andras slut, åt båda hållen). Ett tillfälle som slutar när nästa börjar överlappar inte. */
+export function overlaps(a: Slot, b: Slot): boolean {
+  return a.startsAt < addMinutes(b.startsAt, b.durationMin) && b.startsAt < addMinutes(a.startsAt, a.durationMin);
+}
+/** "kl. 09.00–12.00" */
+export const slotText = (a: Slot): string => `kl. ${fmtTime(a.startsAt)}–${fmtTime(addMinutes(a.startsAt, a.durationMin))}`;

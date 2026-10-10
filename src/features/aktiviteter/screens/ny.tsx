@@ -10,7 +10,7 @@ import { useNav } from "@/shell/nav";
 import { Button, Card, ErrorNotice, Loading, Notice, Page, Row, Stack, toast } from "@/ui";
 import { groupActivityCreate, type InviteProblem } from "../api";
 import { InviteParticipants } from "./bjud-in";
-import { ActivityFields, blankForm, formErrors, payloadOf, ProblemList, useActivityFormData, useHolidayConfirm, type ActivityFormState } from "./form";
+import { ActivityFields, blankForm, formErrors, payloadOf, ProblemList, useActivityFormData, useActivityConfirm, type ActivityFormState } from "./form";
 
 const CRUMBS = [{ label: "Aktiviteter", to: "/aktiviteter" }, { label: "Ny aktivitet" }];
 
@@ -29,7 +29,7 @@ export function NyAktivitetScreen() {
 function NyAktivitet({ form }: { form: NonNullable<ReturnType<typeof useActivityFormData>["data"]> }) {
   const nav = useNav();
   const create = useCommand(groupActivityCreate);
-  const withHoliday = useHolidayConfirm();
+  const withConfirm = useActivityConfirm();
   const [initial] = useState<ActivityFormState>(() => blankForm(form, addWorkingDays(dayOf(form.now), 1)));
   const [value, setValue] = useState<ActivityFormState>(initial);
   const [caseIds, setCaseIds] = useState<string[]>([]);
@@ -42,14 +42,14 @@ function NyAktivitet({ form }: { form: NonNullable<ReturnType<typeof useActivity
     setTried(true);
     setProblems([]);
     if (Object.keys(formErrors(value)).length) return;
-    const res = await withHoliday((acceptHoliday) => create.run({ ...payloadOf(value), caseIds, acceptHoliday }).catch(() => null));
+    const res = await withConfirm((c) => create.run({ ...payloadOf(value), caseIds, ...c }).catch(() => null));
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
       toast(res.message ?? "Aktiviteten kunde inte skapas.", "error");
       return;
     }
-    toast(`Aktiviteten är skapad${res.invited ? ` med ${plural(res.invited, "deltagare", "deltagare")}` : ""}.`);
+    toast(`Aktiviteten är skapad${res.invited ? ` med ${plural(res.invited, "deltagare", "deltagare")}` : ""}.${res.replaced ? ` ${plural(res.replaced, "tillfälle", "tillfällen")} vid samma tid är ersatta.` : ""}`);
     leaveWithoutAsking(() => nav.push(`/aktiviteter/${encodeURIComponent(res.groupActivityId)}`));
   };
 
