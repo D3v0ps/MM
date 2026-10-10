@@ -11,7 +11,7 @@
 // och coachens val per deltagare i group_goal_results (ingen rad = Klarade automatiskt) – ett val gäller bara målets version
 // (goal_version) och deltagarens tillfälle det gjordes för.
 import { fail, ok, type Fail } from "@/api/contract";
-import { hasAnyRole, type Role } from "@/api/roles";
+import { contractsAs, hasAnyRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import {
   ACTIVITY_KIND_WORD, GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, overlaps, slotText, type InviteGrouping, type UninvitableMember,
@@ -161,9 +161,13 @@ async function responsibleOk(ctx: Ctx, contractId: string, responsibleId: string
   return (await ctx.repo.table("memberships").list({ contractId, userId: responsibleId, role: "coach" })).length > 0;
 }
 
-/** Aktörens avtal för en ny aktivitet: det första aktiva avtalet hen är medlem i. */
+/**
+ * Aktörens avtal för en ny aktivitet: det första aktiva avtalet där hen arbetar i ärendena (GROUP_WRITERS) – aldrig ett avtal
+ * där personen bara har en annan roll (Karims beslut 7 – summan av rollerna).
+ */
 async function primaryContractId(ctx: Ctx): Promise<string | null> {
-  const contracts = (await ctx.repo.table("contracts").list({ status: "active" }, { orderBy: "id" })).filter((c) => ctx.actor.contractIds.includes(c.id));
+  const mine = contractsAs(ctx.actor, GROUP_WRITERS);
+  const contracts = (await ctx.repo.table("contracts").list({ status: "active" }, { orderBy: "id" })).filter((c) => mine.includes(c.id));
   return contracts[0]?.id ?? null;
 }
 
@@ -382,7 +386,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const contracts = uniq(cases.map((c) => c.contractId));
   if (contracts.length > 1) return fail("contract", "Deltagarna måste höra till samma avtal.");
   const contractId = contracts[0] ?? (await primaryContractId(ctx));
-  if (!contractId || !ctx.actor.contractIds.includes(contractId)) return fail("contract", "Du kan bara skapa aktiviteter i avtal där du arbetar.");
+  if (!contractId || !contractsAs(ctx.actor, GROUP_WRITERS).includes(contractId)) return fail("contract", "Du kan bara skapa aktiviteter i avtal där du arbetar.");
   const goal = goalText(p.goal);
   if ("error" in goal) return fail("goal", goal.error);
   const holiday = await holidayOn(ctx, day);

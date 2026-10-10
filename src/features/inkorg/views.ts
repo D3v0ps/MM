@@ -13,6 +13,7 @@ import { todaysGroupActivities } from "@/features/aktiviteter/today";
 import { SMS_OFF_REASON } from "@/features/_shared/messaging-port";
 import { isKallelseTask } from "@/features/_shared/participant-notify";
 import { hidesCommercial } from "@/api/tester-access";
+import { contractsFor } from "@/api/roles";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { hasContactDetails } from "@/core/contact";
@@ -28,7 +29,8 @@ import type {
   InboxList, KpiCardView, MiniDeadline, OriginalView, ParsedView, PendingSupplement, PnrView, StartView,
 } from "./api";
 import {
-  ackMinutes, alertItems, answerDays, canOpen, casePeriodValue, deadlineItems, deadlineRow, hasPnrText, hrefFor, inboxEnv, inboxToHandle, loadInbox, loadOps, maskedPnr,
+  ackMinutes, alertItems, answerDays, canOpen, casePeriodValue, DEADLINE_ROLES, deadlineItems, deadlineRow, hasPnrText, hrefFor, inboxEnv, INBOX_ROLES, inboxToHandle, loadInbox,
+  loadOps, maskedPnr,
   maskPnrText, meetingDays, plainPnr, sla, sortPending, toRow, visibleCaseIds, type InboxData, type InboxEnv, type Item,
 } from "./model";
 import {
@@ -563,9 +565,12 @@ function miniDeadline(x: DeadlineRow & { aggregate?: { count: number } }): MiniD
 }
 
 export async function buildStart(ctx: Ctx): Promise<StartView> {
-  // Alla roller (Karims beslut 7, 2026-10-09): länkar och uppgifter för var och en av rollerna.
+  // Länkarna följer alla rollerna (Karims beslut 7, 2026-10-09: den som har en roll till kan öppna dess sidor). Flaggorna,
+  // uppgifterna och beställarrapporten är samordningens – bara samordnarens och avtalsansvarigs roller i avtalet. De andra
+  // rollernas flaggor och uppgifter står i sina egna delar på Min vecka (coachens, ledningens, ekonomins) och räknas inte här.
   const role = ctx.actor.roles;
   const e = await inboxEnv(ctx);
+  const own = ctx.actor.roles.filter((r) => INBOX_ROLES.includes(r) && contractsFor(ctx.actor, r).includes(e.contract.id));
   const d = await loadInbox(ctx, e);
   const ops = await loadOps(ctx, e);
   const visible = await visibleCaseIds(ctx, e);
@@ -577,8 +582,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const orders = pending.filter((x) => x.sla && ["order", "supplement"].includes(x.cls) && !x.sla.metAt).sort(sortPending);
   const urgent = orders[0] ? toRow(orders[0], now) : null;
 
-  const alerts = alertItems(ops, e, ctx.actor, visible);
-  const acked = alertItems(ops, e, ctx.actor, visible, true).filter((a) => a.ack);
+  const alerts = alertItems(ops, e, ctx.actor, visible, false, own);
+  const acked = alertItems(ops, e, ctx.actor, visible, true, own).filter((a) => a.ack);
   const fmFlags = new Set(alerts.filter((a) => a.kind === "first_meeting").map((a) => a.caseId));
   const fmCases = d.cases.filter((c) => c.status === "confirmed" && !c.firstMeetingAt).sort(by<Case>("referredAt"));
   const areas = await ctx.repo.table("contract_areas").list({ contractId: e.contract.id });
@@ -593,7 +598,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const dlWeek = groupDeadlines(dls.filter((x) => x.bucket === "week"), reportsHref);
   const cdDue = new Map(deadlineItems(ops, e, visible, 366).filter((x) => x.kind === "atgardsplan").map((x) => [x.id.replace(/^cd:/, ""), x.dueAt]));
 
-  const tasks = (await ctx.repo.table("tasks").list({ toRole: { in: role }, status: "open" })).sort(by("createdAt", -1));
+  const tasks = own.length ? (await ctx.repo.table("tasks").list({ toRole: { in: own }, status: "open" })).sort(by("createdAt", -1)) : [];
   const cds = (await ctx.repo.table("contract_deviations").list({ contractId: e.contract.id })).filter((x) => x.status !== "closed").sort(by("actionPlanDue"));
   const allCds = await ctx.repo.table("contract_deviations").list({ contractId: e.contract.id });
   // ctx.system: de senaste notiserna om tilldelning (till coacher och team) visas för samordnaren som kvittens.
@@ -601,7 +606,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
   const assignNotifs = (await ctx.system.table("user_notifications").list({ kind: "assignment" }))
     .filter((n) => !n.caseId || visible.has(n.caseId)).sort(by("createdAt", -1)).slice(0, 3);
   const counters = await ctx.repo.table("case_counters").list({ contractId: e.contract.id });
-  const summaryReport = role.includes("avtalsansvarig")
+  const summaryReport = own.includes("avtalsansvarig")
     ? (await ctx.repo.table("reports").list({ contractId: e.contract.id, kind: "customer_summary" })).filter((r) => r.status !== "delivered" && r.status !== "opened").sort(by<Report>((r) => r.dueAt ?? ""))[0] ?? null
     : null;
 
@@ -701,7 +706,7 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
 
 // ---------------------------------------------------------------- Förfaller
 export async function buildDeadlines(ctx: Ctx): Promise<DeadlinesView> {
-  const e = await inboxEnv(ctx);
+  const e = await inboxEnv(ctx, DEADLINE_ROLES);
   const ops = await loadOps(ctx, e);
   const visible = await visibleCaseIds(ctx, e);
   const rows = deadlineItems(ops, e, visible, 7).map((x) => deadlineRow(x, ops, e, ctx.actor.roles));

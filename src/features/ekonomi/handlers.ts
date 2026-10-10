@@ -396,7 +396,7 @@ handleCommand(billingMarkManual, { roles: BILLING, commercial: true }, async (ct
 
 // ---------------------------------------------------------------- billing.export
 handleCommand(billingExport, { roles: BILLING, commercial: true }, async (ctx, p) => {
-  await ctx.audit({ action: "export.billing", entity: "billing_run", entityId: p.month, contractId: ctx.actor.contractIds[0] ?? null, details: { format: p.format } });
+  await ctx.audit({ action: "export.billing", entity: "billing_run", entityId: p.month, contractId: contractsAs(ctx.actor, BILLING)[0] ?? null, details: { format: p.format } });
   return ok({});
 });
 

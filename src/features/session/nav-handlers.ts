@@ -7,17 +7,13 @@
 // alla sina roller (Karims beslut 7, 2026-10-09).
 import type { Ctx } from "@/api/server";
 import { handleQuery } from "@/api/server";
-import { hasAnyRole, hasRole, isStaffActor, type Role } from "@/api/roles";
-import { loadDb } from "@/api/load";
+import { hasAnyRole, isStaffActor, type Role } from "@/api/roles";
 import { unregistered } from "@/core/attendance";
-import { unreadNotifications } from "@/core/progression";
-import { scopeToContract } from "@/core/scope";
 import { addDays, monday } from "@/core/time";
-import { deadlineItems, inboxEnv, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
+import { DEADLINE_ROLES, deadlineItems, inboxEnv, INBOX_ROLES, inboxToHandle, loadInbox, loadOps, visibleCaseIds, type InboxEnv } from "@/features/inkorg/model";
+import { orgRulesFor, personalNotifications } from "@/features/notiser/model";
 import { navCounts, type NavCounts } from "./nav-api";
 
-const INBOX_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig"];
-const DEADLINE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
 
 async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
   const me = ctx.actor.userId;
@@ -33,31 +29,30 @@ async function unregisteredCount(ctx: Ctx, e: InboxEnv): Promise<number> {
   return unregistered({ cases, activities, attendance }, me, lastMon, e.today, e.env).length;
 }
 
-async function notificationCount(ctx: Ctx, e: InboxEnv): Promise<number> {
-  // Sparade notiser och läsmarkeringar är användarens egna (policyn: bara mottagaren).
-  // Påminnelser och eskaleringar räknas fram av reglerna – i produktionen skapar ett schemalagt systemjobb dem som rader i
-  // user_notifications. ctx.system läser därför avtalets ärenden och avstämningar som jobbet gör; bara antalet lämnas ut.
-  const [own, reads, profiles] = await Promise.all([
-    ctx.repo.table("user_notifications").list({ recipientId: ctx.actor.userId }),
-    ctx.repo.table("notification_reads").list({ userId: ctx.actor.userId }),
-    ctx.repo.table("profiles").list(),
-  ]);
-  const ops = scopeToContract(await loadDb(ctx.system, ["cases", "check_ins"], { cases: { contractId: e.contract.id } }), e.contract.id);
-  return unreadNotifications({ ...ops, user_notifications: own, notification_reads: reads, profiles }, ctx.actor.userId, ctx.actor.roles, e.env);
+/**
+ * Olästa personliga notiser – samma som notiser.list (personalNotifications: sparade notiser och påminnelser och eskaleringar
+ * per roll i rollens avtal). Bara antalet lämnas ut.
+ */
+async function notificationCount(ctx: Ctx): Promise<number> {
+  return (await personalNotifications(ctx, await orgRulesFor(ctx))).filter((n) => !n.readAt).length;
 }
 
 handleQuery(navCounts, {}, async (ctx): Promise<NavCounts> => {
   const a = ctx.actor;
   const out: NavCounts = { inbox: 0, deadlines: 0, unregistered: 0, notifications: 0 };
   if (!isStaffActor(a) || !a.contractIds.length) return out;
-  const e = await inboxEnv(ctx).catch(() => null);
-  if (!e) return out;
-  if (hasAnyRole(a, INBOX_ROLES)) out.inbox = inboxToHandle((await loadInbox(ctx, e)).items).length;
-  if (hasAnyRole(a, DEADLINE_ROLES)) {
-    const ops = await loadOps(ctx, e);
-    out.deadlines = deadlineItems(ops, e, await visibleCaseIds(ctx, e), 0).filter((x) => x.bucket !== "week").length;
+  // Varje räknare i avtalet där personen har räknarens roll (inkorgen samordnarens, förfallolistan också chefens, närvaron
+  // coachens) – aldrig ett avtal där personen bara har en annan roll.
+  const envFor = (roles: readonly Role[]) => (hasAnyRole(a, roles) ? inboxEnv(ctx, roles).catch(() => null) : Promise.resolve(null));
+  const inbox = await envFor(INBOX_ROLES);
+  if (inbox) out.inbox = inboxToHandle((await loadInbox(ctx, inbox)).items).length;
+  const dl = await envFor(DEADLINE_ROLES);
+  if (dl) {
+    const ops = await loadOps(ctx, dl);
+    out.deadlines = deadlineItems(ops, dl, await visibleCaseIds(ctx, dl), 0).filter((x) => x.bucket !== "week").length;
   }
-  if (hasRole(a, "coach")) out.unregistered = await unregisteredCount(ctx, e);
-  out.notifications = await notificationCount(ctx, e);
+  const coach = await envFor(["coach"]);
+  if (coach) out.unregistered = await unregisteredCount(ctx, coach);
+  out.notifications = await notificationCount(ctx);
   return out;
 });

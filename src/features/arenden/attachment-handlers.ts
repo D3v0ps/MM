@@ -3,14 +3,13 @@
 // Behörigheten kontrolleras alltid först – ärendet och raderna läses via ctx.repo (policy.ts/RLS case_attachments, 0024);
 // raderna skrivs bara av porten (ctx.attachments, service role). Revisionsloggen får id, typ och storlek – aldrig filnamnet.
 import { fail, ok } from "@/api/contract";
-import { hasAnyRole, hasRole, type Role } from "@/api/roles";
+import { contractsAs, hasAnyRole, hasRole, type Role } from "@/api/roles";
 import { ApiError, handleCommand, type Ctx } from "@/api/server";
-import { caseAccessIn } from "@/core/access";
 import { base64ToBytes, bytesToBase64 } from "@/core/export/base64";
 import { isOperational } from "@/core/config";
 import type { Contract } from "@/data/schema";
 import { ATTACHMENT_MAX_FILES, requireAttachments } from "../_shared/attachment-port";
-import { accessSourceFor } from "../rapporter/load";
+import { caseAccessAsRoles } from "../_shared/case-access";
 import { attachmentDone, attachmentDownload, attachmentRemove, attachmentStart } from "./api";
 import { ATTACHMENTS_REMOVED_BY_MB, attachmentsRemovable, rowsFor } from "./background";
 
@@ -18,10 +17,13 @@ const NOT_FOUND = "Filen finns inte, eller så har du inte behörighet att se de
 /** Lägger till bilagor i ett ärende som redan finns (full åtkomst). */
 const MB_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig"];
 
-/** Avtalet för en ny beställning: användarens första aktiva avtal med driftkonfiguration (samma som caseCreate). */
+/**
+ * Avtalet för en ny beställning: användarens första aktiva avtal med driftkonfiguration bland avtalen där personen beställer
+ * (kommunens handläggare, samordnare, avtalsansvarig – samma som caseCreate).
+ */
 async function orderContract(ctx: Ctx): Promise<Contract | null> {
   const all = await ctx.repo.table("contracts").list({ status: "active" });
-  for (const id of ctx.actor.contractIds) {
+  for (const id of contractsAs(ctx.actor, ["kommun_handlaggare", ...MB_EDITORS])) {
     const c = all.find((x) => x.id === id);
     if (c && isOperational(c.config)) return c;
   }
@@ -35,9 +37,10 @@ handleCommand(attachmentStart, { roles: ["kommun_handlaggare", ...MB_EDITORS] },
   if (p.caseId) {
     const c = await ctx.repo.table("cases").get(p.caseId);
     if (!c) return fail("not_found", "Ärendet finns inte, eller så har du inte behörighet att se det.");
-    const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
-    // Någon av rollerna: beställande handläggare, eller Miljonbemanning med full åtkomst.
-    const allowed = (hasRole(ctx.actor, "kommun_handlaggare") && access === "customer" && c.referrerId === me) || (hasAnyRole(ctx.actor, MB_EDITORS) && access === "full");
+    // Per roll: beställande handläggare (kommunens åtkomst), eller samordnare/avtalsansvarig med full åtkomst genom just de
+    // rollerna – aldrig den högsta nivån över alla roller (chef eller admin har full åtkomst men lägger inte till bilagor).
+    const allowed = (hasRole(ctx.actor, "kommun_handlaggare") && c.referrerId === me && (await caseAccessAsRoles(ctx, c, ["kommun_handlaggare"])) === "customer")
+      || (hasAnyRole(ctx.actor, MB_EDITORS) && (await caseAccessAsRoles(ctx, c, MB_EDITORS)) === "full");
     if (!allowed) return fail("forbidden", "Du kan inte bifoga filer i det här ärendet.");
     // ctx.system: antalet bilagor i ärendet (bara antal) – också sådana läsaren inte ser.
     const n = await ctx.system.table("case_attachments").count({ caseId: c.id, status: { neq: "deleted" } });
@@ -101,7 +104,7 @@ handleCommand(attachmentRemove, { roles: ["kommun_handlaggare", ...MB_EDITORS] }
   if (!allowed && a.caseId && hasAnyRole(ctx.actor, MB_EDITORS)) {
     const c = await ctx.repo.table("cases").get(a.caseId);
     if (c && !attachmentsRemovable(c)) return fail("forbidden", ATTACHMENTS_REMOVED_BY_MB);
-    allowed = !!c && caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c])) === "full";
+    allowed = !!c && (await caseAccessAsRoles(ctx, c, MB_EDITORS)) === "full";
   }
   if (!allowed) return fail("forbidden", "Du kan inte ta bort den här filen.");
   await requireAttachments(ctx).remove(a.id, "removed", ctx.actor.userId);

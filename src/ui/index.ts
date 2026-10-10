@@ -48,7 +48,7 @@ export { Kpi, Meter, Kv, Timeline, Stepper, Avatar, UserName, Chart, type MeterM
 export { BarChart, barValueText, type BarChartBar, type BarChartProps } from "./bar-chart";
 export { Paper, PaperFixedText, XBox, type PaperProps } from "./paper";
 export { BigButtons, BigButton, PulsePhone, Smileys, Smiley, type BigButtonProps } from "./portal";
-export { CaseLink, casePathFor, MaskedPnr, PerspectiveLink, resetAuditViews, useAuditView } from "./case";
+export { CaseLink, casePathFor, ekonomiCasePath, MaskedPnr, PerspectiveLink, resetAuditViews, useAuditView } from "./case";
 export { WeekPage, WeekKpis, WEEK_KPI_SM, weekLead, weekEyebrow, CaseName, CaseNo, TitleLink, DoneLine, SlaText } from "./vecka";
-export { WeekPartContext, useWeekId, useWeekPart, type WeekPart } from "./week-part";
+export { WeekPartContext, useSectionHeading, useWeekId, useWeekPart, type WeekPart } from "./week-part";
 export { Recorder, RECORDER_TEXTS_SV, RECORDER_ACCEPT, audioFileType, type RecorderProps, type RecorderTexts, type RecordedAudio } from "./recorder";

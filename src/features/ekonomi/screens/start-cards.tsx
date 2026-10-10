@@ -9,7 +9,7 @@ import { Link, useNav } from "@/shell/nav";
 import { useRuntime } from "@/shell/runtime";
 import { fmtDate, fmtDateTime, fmtWeekKey, fmtWeekRange, monthName } from "@/core/time";
 import { kr } from "@/core/format";
-import { Badge, BuildPhase, Button, Card, CaseLink, cn, DoneLine, Icon, Stepper, useConfirm, toast, type IconName } from "@/ui";
+import { Badge, BuildPhase, Button, Card, CaseLink, cn, DoneLine, ekonomiCasePath, Icon, Stepper, useConfirm, toast, type IconName } from "@/ui";
 import { ekoReissue, ekoTaskDone, type BillingStartView, type RefInvoiceRow, type ReturnedRow, type TaskView } from "../api";
 import { pl, plural, refInfo, weekText } from "../model";
 import { InvoiceRefModal, InvStatus, RefBadge, type RefInvoice } from "./parts";
@@ -155,7 +155,7 @@ export function TasksCard({ v, a }: { v: BillingStartView; a: BillingActions }) 
             {t.cases.length > 0 && (
               <div className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
                 {t.cases.map((c) => (
-                  <CaseLink key={c.caseId} caseId={c.caseId} caseNumber={c.caseNumber} />
+                  <CaseLink key={c.caseId} caseId={c.caseId} caseNumber={c.caseNumber} to={ekonomiCasePath(c.caseId)} />
                 ))}
               </div>
             )}
@@ -204,7 +204,7 @@ export function UnbilledCard({ v }: { v: BillingStartView }) {
               <Row key={r.caseId}>
                 <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <CaseLink caseId={r.caseId} caseNumber={r.caseNumber} />
+                    <CaseLink caseId={r.caseId} caseNumber={r.caseNumber} to={ekonomiCasePath(r.caseId)} />
                     <InvStatus status={r.status} />
                   </div>
                   <span className="text-small">

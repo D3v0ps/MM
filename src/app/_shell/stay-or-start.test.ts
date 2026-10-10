@@ -46,6 +46,21 @@ describe("stayOrStart", () => {
     expect(stayOrStart("/admin/anvandare", "admin")).toBe("/admin/anvandare");
   });
 
+  it("flera roller (Karims beslut 7, 2026-10-09): stannar om någon av rollerna får se sidan – en begränsad testare aldrig på en stängd sida", () => {
+    expect(stayOrStart("/inkorg", ["coach", "samordnare"])).toBe("/inkorg");
+    expect(stayOrStart("/ledning", ["coach", "ekonom"])).toBe("/");
+    expect(stayOrStart("/ekonomi", ["coach", "ekonom"])).toBe("/ekonomi");
+    expect(stayOrStart("/admin/anvandare", ["admin", "avtalsansvarig"])).toBe("/admin/anvandare");
+    expect(stayOrStart("/admin/avtal", ["admin", "avtalsansvarig"])).toBe("/admin/avtal");
+    // Begränsad testare med coach och ekonom: Ekonomi är stängd, Min vecka och ärendelistan inte.
+    expect(stayOrStart("/ekonomi", ["coach", "ekonom"], true)).toBe("/");
+    expect(stayOrStart("/min-vecka", ["coach", "ekonom"], true)).toBe("/min-vecka");
+    expect(stayOrStart("/arenden", ["coach", "ekonom"], true)).toBe("/arenden");
+    // Kommunens handläggare och en MB-roll: portalen och MB-sidorna.
+    expect(stayOrStart("/portal", ["ekonom", "kommun_handlaggare"])).toBe("/portal");
+    expect(stayOrStart("/min-vecka", ["ekonom", "kommun_handlaggare"])).toBe("/min-vecka");
+  });
+
   it("okända adresser leder till startsidan", () => {
     expect(stayOrStart("/finns-inte", "coach")).toBe("/");
     expect(stayOrStart("/", "coach")).toBe("/");

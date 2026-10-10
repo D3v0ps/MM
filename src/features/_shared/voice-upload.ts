@@ -10,7 +10,7 @@
 // Flödet: startAudioUpload -> klienten laddar upp till uploadUrl (appen; minnesläget har ingen adress) -> confirmOwnUpload ->
 // enqueueVoiceJob (voice-jobs.ts). Ärendet läses via ctx.repo (RLS/policy) för inloggade. Deltagarens länk och ärende läses
 // via ctx.system efter tokenkontrollen (samma mönster som pulslänken i src/features/puls/handlers.ts).
-import { isParticipantActor } from "@/api/roles";
+import { contractsFor, isParticipantActor } from "@/api/roles";
 import { z } from "zod";
 import { fail, ok, type Result } from "@/api/contract";
 import { ApiError, type Ctx } from "@/api/server";
@@ -149,8 +149,10 @@ export async function audioUploadTarget(ctx: Ctx, req: Pick<AudioUploadRequest, 
     if (block) return no(block);
     return ok({ caseId: c.id, contractId: c.contractId, ownerId: a.userId, kind: "customer", config: contract?.config ?? null, linkId: null });
   }
-  const contractId = req.contractId ?? (a.contractIds.length === 1 ? a.contractIds[0] : null);
-  if (!contractId || !a.contractIds.includes(contractId)) return no("forbidden");
+  // Bara i avtal där personen är kommunens handläggare – aldrig ett avtal där personen har en annan roll.
+  const own = contractsFor(a, "kommun_handlaggare");
+  const contractId = req.contractId ?? (own.length === 1 ? own[0] : null);
+  if (!contractId || !own.includes(contractId)) return no("forbidden");
   const contract = await ctx.repo.table("contracts").get(contractId);
   if (!contract) return no("forbidden");
   const block = recordingBlock({ cfg: contract.config, kind: "customer", person: undefined, protectedOrder: !!req.protectedOrder });

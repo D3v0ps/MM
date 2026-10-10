@@ -1,10 +1,10 @@
 // Hanterare för området ärenden (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
-import { contractsAs, hasAnyRole, hasRole, type Actor, type Role } from "@/api/roles";
+import { contractsAs, contractsFor, hasAnyRole, hasRole, type Actor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx, type PnrCrypto } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
-import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
+import { caseAccessFor, caseAccessIn, displayName, lookupsFor, type AccessSource } from "@/core/access";
 import { alertForRole, alerts, type AlertDb, type AlertItem } from "@/core/alerts";
 import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/attendance";
 import { buyerRefProblem } from "@/core/billing";
@@ -764,7 +764,11 @@ async function accessSourceFor(ctx: Ctx, cases: readonly Pick<Case, "id" | "pers
  * flaggan visas om någon av rollerna ser den (coachrollen utan eskaleringarna, chefsrollen med).
  */
 function flagsFor(db: AlertDb, ctx: Ctx, env: DomainEnv): AlertItem[] {
-  const { roles, userId } = ctx.actor;
+  const { userId } = ctx.actor;
+  // Bara rollerna personen har i avtalet (db och env gäller ett avtal): chefens flaggor och eskaleringar aldrig i ett avtal där
+  // personen bara är coach (summan av rollerna – samma regel som tabellen alerts, mottagarrollen i flaggans avtal).
+  const roles = ctx.actor.roles.filter((r) => contractsFor(ctx.actor, r).includes(env.contractId));
+  if (!roles.length) return [];
   // Begränsade testare: inga flaggor om ofakturerat (belopp) eller interna mål (src/api/tester-access.ts).
   const xs = alerts(db, { role: roles, personaId: userId, hideCommercial: hidesCommercial(ctx.actor) }, env);
   const team = (r: Role) => r === "coach" || r === "handledare";
@@ -829,23 +833,31 @@ type Loaded = {
   roles: Role[];
   me: string;
   team: boolean;
+  /** Får ändra ärendet: full åtkomst genom samordnarens, avtalsansvarigs eller coachens roll (canEditCase). */
   edit: boolean;
+  /** Coachen gör månadsbedömningen: full åtkomst genom just rollen coach (inte genom en annan roll i ett annat avtal). */
+  coach: boolean;
 };
 
 /** Ärendet med rollens åtkomst. null = finns inte, rollen saknar åtkomst eller fliken visas inte för rollen. */
 async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded | null> {
   const c = await ctx.repo.table("cases").get(caseId);
   if (!c) return null;
-  const access = caseAccessIn(c, ctx.actor, await accessSourceFor(ctx, [c]));
+  const src = await accessSourceFor(ctx, [c]);
+  const access = caseAccessIn(c, ctx.actor, src);
   if (access !== "full" && access !== "team") return null;
   const team = access === "team";
   if (tab && team && !(TEAM_TABS as readonly string[]).includes(tab)) return null;
   const { contract, cfg, env } = await envFor(ctx, c.contractId);
   const roles = ctx.actor.roles;
   const me = ctx.actor.userId;
-  // Coachen arbetar i alla ärenden i avtalet (beslut 2026-10-09) – inte bara där hen är huvudcoach.
-  const edit = access === "full" && (isManager(roles) || roles.includes("coach"));
-  return { c, access, cfg, env, contract, today: dayOf(env.now), roles, me, team, edit };
+  // Per roll (Karims beslut 7 – summan av rollerna): ändra med full åtkomst genom samordnarens, avtalsansvarigs eller coachens
+  // roll; coachen arbetar i alla ärenden i avtalet (beslut 2026-10-09) – inte bara där hen är huvudcoach. En roll i ett annat
+  // avtal (t.ex. coach i ett avtal och chef i det här) ger inte redigering här.
+  const l = lookupsFor(c, src);
+  const edit = caseAccessFor(c, ctx.actor, l, [...MANAGERS, "coach"]) === "full";
+  const coach = caseAccessFor(c, ctx.actor, l, ["coach"]) === "full";
+  return { c, access, cfg, env, contract, today: dayOf(env.now), roles, me, team, edit, coach };
 }
 
 /** Tabeller för flaggorna (prototypens sel.alerts). */
@@ -863,7 +875,7 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
   const fromCustomer = await customerUserIds(ctx);
   // Fast ordning (id): samma "main" i båda körlägena, oavsett i vilken ordning databasen lämnar raderna.
   const contracts = (await ctx.repo.table("contracts").list()).filter((x) => x.status === "active" && isOperational(x.config)).sort((a, b) => a.id.localeCompare(b.id));
-  const main = contracts.find((x) => ctx.actor.contractIds.includes(x.id)) ?? contracts[0];
+  const main = contracts.find((x) => contractsAs(ctx.actor, CASE_ROLES).includes(x.id)) ?? contracts[0];
   const today = dayOf(ctx.now());
   const w4 = last4Weeks(today);
 
@@ -1294,7 +1306,7 @@ handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
 handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseMonthBasis | null> => {
   const L = await loadCase(ctx, p.caseId, "manad");
   if (!L) return null;
-  const { c, cfg, contract, today, roles } = L;
+  const { c, cfg, contract, today, coach } = L;
   const now = ctx.now();
   const current = monthKey(today);
   const q = { caseId: c.id };
@@ -1358,7 +1370,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
     gaps, doc,
     delivered: del ? { reportId: del.id, deliveredAt: del.deliveredAt as string, version: del.version || 1, correctionDraft: pending ? pending.version : null } : null,
     reportId: row?.id ?? null,
-    canAssess: roles.includes("coach"),
+    canAssess: coach,
   };
 });
 

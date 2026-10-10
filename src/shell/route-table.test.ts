@@ -2,13 +2,14 @@
 // sidorna (ingen inloggning) är exakt de som proxyn och servern släpper igenom (isPublicPagePath).
 import { describe, expect, it } from "vitest";
 import { registeredKeys } from "@/api/handlers";
-import { ROLES, STAFF_ROLES, SUPPLIER_ROLES } from "@/api/roles";
+import { ROLES, sortRoles, STAFF_ROLES, SUPPLIER_ROLES } from "@/api/roles";
 import { routes as coachRoutes } from "@/features/coach/routes";
 import { isPublicPagePath } from "@/server/session-policy";
 import { notFoundMatch } from "./app";
 import { COMMON_NAV, navFor, NOTIFICATIONS_ITEM } from "./nav-config";
 import { APP_ROUTES } from "./route-table";
-import { resolveRoute, START_PATH } from "./routes";
+import { stayOrStart } from "@/app/_shell/stay-or-start";
+import { resolveRoute, routeAllows, START_PATH, startPathFor } from "./routes";
 
 /** Exempelsökväg för ett mönster: "/rost/:token?" -> "/rost/abc12345". */
 const sample = (pattern: string) => pattern.replace(/:[A-Za-z]+\??/g, "abc12345");
@@ -101,6 +102,24 @@ describe("Min vecka och menyn (beslut 2026-10-06)", () => {
         const m = resolveRoute(APP_ROUTES, it.to);
         expect(m, `${role}: ${it.to} saknar rutt`).not.toBeNull();
         expect(m?.route.roles, `${role}: ${it.to}`).toContain(role);
+      }
+    }
+  });
+
+  it("menyn för två roller (Karims beslut 7, 2026-10-09): varje menyval nås av någon av rollerna – och startsidan, rutterna och stayOrStart följer kombinationen", () => {
+    for (const a of STAFF_ROLES) {
+      for (const b of STAFF_ROLES) {
+        if (a >= b) continue;
+        const roles = sortRoles([a, b]);
+        const items = [NOTIFICATIONS_ITEM, ...navFor(roles, { now }).flatMap((g) => g.items)];
+        for (const it of items) {
+          const m = resolveRoute(APP_ROUTES, it.to);
+          expect(m, `${roles.join("+")}: ${it.to} saknar rutt`).not.toBeNull();
+          expect(routeAllows(m!.route, roles), `${roles.join("+")}: ${it.to}`).toBe(true);
+          // Listor och översikter i menyn: kombinationen stannar där vid byte av testperson.
+          if (!Object.keys(m!.params).length) expect(stayOrStart(it.to, roles), `${roles.join("+")}: ${it.to}`).toBe(it.to);
+        }
+        expect(startPathFor(roles), roles.join("+")).toBe("/min-vecka");
       }
     }
   });

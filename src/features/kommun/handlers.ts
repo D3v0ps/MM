@@ -3,7 +3,7 @@
 // personer, rapporter och meddelanden som syns). ctx.system används bara där det står en kommentar vid anropet.
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
-import type { Role } from "@/api/roles";
+import { contractsFor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { attendanceStats } from "@/core/attendance";
 import { duplicateActive } from "@/core/cases";
@@ -124,9 +124,8 @@ handleQuery(kommunDuplicate, { roles: HANDL }, async (ctx, p) => {
   // kontroll som arenden.caseCreate). Bara sökhashen jämförs. För andras insatser lämnas bara ut att en insats finns.
   const persons = await ctx.system.table("persons").list({ personnummerHash: hash });
   if (!persons.length) return [];
-  const cases = (await ctx.system.table("cases").list({ personId: { in: persons.map((x) => x.id) }, status: { in: OPEN_STATUSES } })).filter((c) =>
-    ctx.actor.contractIds.includes(c.contractId),
-  );
+  const own = contractsFor(ctx.actor, "kommun_handlaggare");
+  const cases = (await ctx.system.table("cases").list({ personId: { in: persons.map((x) => x.id) }, status: { in: OPEN_STATUSES } })).filter((c) => own.includes(c.contractId));
   const dups = duplicateActive({ persons, cases }, hash);
   if (!dups.length) return [];
   const viewer = await viewerFor(ctx, dups);
@@ -177,7 +176,7 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
     // ctx.system: bara om ärendet finns i användarens avtal – så att skärmen kan säga "Du har inte tillgång" i stället för
     // "hittades inte" (som prototypen). Inga uppgifter om ärendet lämnas ut.
     const exists = await ctx.system.table("cases").get(p.caseId);
-    return exists && ctx.actor.contractIds.includes(exists.contractId) ? { kind: "denied" as const } : { kind: "not_found" as const };
+    return exists && contractsFor(ctx.actor, "kommun_handlaggare").includes(exists.contractId) ? { kind: "denied" as const } : { kind: "not_found" as const };
   }
   const k = await komContext(ctx);
   const cfg = k.cfg(c.contractId);

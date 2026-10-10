@@ -1,7 +1,7 @@
 // Hanterare: revisionsloggen (/admin/logg) och chefens månatliga loggkontroll (stickprov, SPEC §10).
 // Källa: prototyp/src/views/admin.js (admin.logg, admin.logCheck). Loggen är append-only och innehåller id:n – aldrig namn
 // eller personnummer på deltagare. Deltagare visas bara som ärendenummer; användare (personal och kommun) med namn.
-import { hasRole } from "@/api/roles";
+import { contractsAs, hasRole } from "@/api/roles";
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
@@ -35,7 +35,7 @@ export function pickSample(log: readonly AuditLogEntry[], month: string): AuditL
 
 /** Uppslagen för loggens texter: användarnas namn, ärendenummer, nyckeltal och mallar. */
 async function auditLookups(ctx: Ctx, cases: readonly { id: string; caseNumber: string }[]): Promise<AuditLookups> {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin", "chef"]);
   const name = await userNames(ctx);
   // ctx.system: finns id:t som användare? Bara namnet på användare visas (prototypens MM.personById).
   const profileIds = new Set((await ctx.system.table("profiles").list()).map((p) => p.id));
@@ -59,7 +59,7 @@ const caseIdOf = (a: AuditLogEntry): string | null =>
   ["case", "consent"].includes(a.entity) ? a.entityId : typeof a.details?.caseId === "string" ? (a.details.caseId as string) : null;
 
 handleQuery(adminAuditLog, { roles: ["admin", "chef"] }, async (ctx) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin", "chef"]);
   const [log, cases, contracts, reports, checks] = await Promise.all([
     ctx.repo.table("audit_log").list(),
     ctx.repo.table("cases").list(),
@@ -171,7 +171,7 @@ handleCommand(adminLogCheck, { roles: ["chef"] }, async (ctx, p) => {
   const id = ctx.newId("lc");
   await ctx.repo.table("log_checks").insert({ id, month: p.month, items, note, signedBy: ctx.actor.userId, signedAt: ctx.now() });
   await ctx.audit({
-    action: "audit.log_check", entity: "audit_log", entityId: p.month, contractId: ctx.actor.contractIds[0] ?? null,
+    action: "audit.log_check", entity: "audit_log", entityId: p.month, contractId: contractsAs(ctx.actor, ["chef"])[0] ?? null,
     details: { checked: items.length, deviations: items.filter((x) => x.verdict === "avvikelse").length },
   });
   return ok({ id });

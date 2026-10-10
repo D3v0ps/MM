@@ -17,7 +17,7 @@ const TEMPLATE_EDITORS: readonly Role[] = ["admin"];
 const BASE_AUTHOR = "u-robin";
 
 handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin", "samordnare"]);
   const { settings } = await orgRow(ctx, main.supplierId);
   const env = { cfg: main.config, org: settings };
   const name = await userNames(ctx);

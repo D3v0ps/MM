@@ -1,7 +1,7 @@
 // Hanterare för området praktik (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 // Källa: prototyp/src/views/admin.js (praktik.arbetsgivare, employer.add, employer.setRight, employer.addFollowUp).
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { contractsAs, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { accessIndex, caseAccessIn, displayName, type CaseAccess } from "@/core/access";
 import { placementDays } from "@/core/schedule";
@@ -38,7 +38,7 @@ type Scope = {
  * för den som får se personen (namngiven huvudcoach och avtalsansvarig), aldrig ens som antal (CLAUDE.md punkt 8).
  */
 async function scopeFor(ctx: Ctx): Promise<Scope> {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, WORKERS);
   const [allPlacements, cases, persons, team, profiles, contracts, areas] = await Promise.all([
     ctx.system.table("placements").list(),
     ctx.system.table("cases").list(),
@@ -61,9 +61,11 @@ async function scopeFor(ctx: Ctx): Promise<Scope> {
     return a;
   };
   const protectedPerson = new Set(persons.filter((p) => p.protectedIdentity).map((p) => p.id));
+  const own = contractsAs(ctx.actor, WORKERS);
   const inScope = (caseId: string): boolean => {
     const c = byCase.get(caseId);
-    if (!c || !ctx.actor.contractIds.includes(c.contractId)) return false;
+    // Avtal där personen arbetar med praktik (WORKERS) – aldrig ett avtal där personen bara har en annan roll.
+    if (!c || !own.includes(c.contractId)) return false;
     return canSee(access(caseId)) || !protectedPerson.has(c.personId);
   };
   const placements = allPlacements.filter((p) => inScope(p.caseId));
@@ -173,7 +175,7 @@ handleCommand(praktikEmployerAdd, { roles: WORKERS }, async (ctx, p) => {
   if (existing.some((e) => e.name.toLowerCase() === name.toLowerCase() || (orgNr && e.orgNr === orgNr))) {
     return fail("duplicate", "Arbetsgivaren finns redan i registret (samma namn eller organisationsnummer).");
   }
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, WORKERS);
   const codes = new Set((await ctx.repo.table("contract_areas").list({ contractId: main.id })).map((a) => a.code));
   const areas = p.areas.filter((a) => codes.has(a));
   if (!areas.length) return fail("areas", "Välj minst ett avtalsområde.");

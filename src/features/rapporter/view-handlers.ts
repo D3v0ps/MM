@@ -2,7 +2,7 @@
 // Registreras via handlers.ts – importeras aldrig av skärmar. Datainläsning och behörighet: load.ts (med kommentarer
 // om när ctx.system används).
 import { fail, ok } from "@/api/contract";
-import { hasRole, isCustomerActor, type Role } from "@/api/roles";
+import { contractsAs, hasRole, isCustomerActor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
@@ -12,6 +12,7 @@ import { slaStatus } from "@/core/sla";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
 import { weeklyReport } from "@/core/weekly-report";
 import type { Case, MonthlyAssessment, Profile, Report } from "@/data/schema";
+import { caseAccessAsRoles } from "../_shared/case-access";
 import { canEditCase } from "../_shared/context";
 import { weeklyComplete } from "../_shared/weekly";
 import {
@@ -87,13 +88,17 @@ const monthlyAssessmentOf = async (ctx: Ctx, r: Report): Promise<MonthlyAssessme
 
 // ================================================================ Rapportlistan
 handleQuery(reportList, { roles: LIST_ROLES }, async (ctx): Promise<ReportList> => {
-  const { roles, userId } = ctx.actor;
-  // Bara coach bland listans roller: coachens egna rapporter. Med samordnare, avtalsansvarig eller chef: alla (Karims beslut 7).
-  const coachOnly = roles.includes("coach") && !roles.some((r) => r !== "coach" && LIST_ROLES.includes(r));
+  const { userId } = ctx.actor;
   const now = ctx.now();
-  // Avtalet där rapporterna hanteras (ett nytt avtal i utkast har inga rapporter än).
-  const contracts = await ctx.repo.table("contracts").list({ id: { in: ctx.actor.contractIds } });
-  const contractId = (contracts.find((c) => isOperational(c.config)) ?? contracts[0])?.id ?? ctx.actor.contractIds[0];
+  // Avtalet där rapporterna hanteras (ett nytt avtal i utkast har inga rapporter än) – bland avtalen där personen har en av
+  // listans roller, aldrig ett avtal där personen bara har en annan roll.
+  const mine = contractsAs(ctx.actor, LIST_ROLES);
+  const contracts = (await ctx.repo.table("contracts").list({ id: { in: mine } })).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const contractId = (contracts.find((c) => isOperational(c.config)) ?? contracts[0])?.id ?? mine[0];
+  // Bara coach bland listans roller i avtalet: coachens egna rapporter. Med samordnare, avtalsansvarig eller chef i samma avtal:
+  // alla (Karims beslut 7). En roll i ett annat avtal räknas inte.
+  const rolesHere = LIST_ROLES.filter((r) => contractsAs(ctx.actor, [r]).includes(contractId));
+  const coachOnly = rolesHere.includes("coach") && !rolesHere.some((r) => r !== "coach");
   const info = await contractInfo(ctx, contractId);
   // Ärendena läses via ctx.repo (behörigheten). Rapporterna via ctx.system: listan visar bara rubrik, ärendenummer, status
   // och förfallotid – även för ärenden med skyddade personuppgifter, där namnet inte visas (samma som ärendelistan).
@@ -317,16 +322,19 @@ handleQuery(reportView, { roles: MB_VIEW_ROLES }, async (ctx, p): Promise<Report
   const toProfile = to ? profiles.find((x) => x.id === to) ?? null : null;
 
   // Knapparna (prototypens StatusCard)
+  // Rollerna i rapportens avtal (en roll i ett annat avtal räknas inte), och coachens åtkomst genom just rollen coach.
+  const inK = (x: Role) => contractsAs(ctx.actor, [x]).includes(r.contractId);
+  const coachLead = inK("coach") && !!c && (await caseAccessAsRoles(ctx, c, ["coach"])) === "full";
   const approvable = (r.status === "draft" || r.status === "reviewed") && !r.superseded;
   const canApprove = approvable && step.key === "approval" &&
-    (((r.kind === "monthly" || r.kind === "final") && has("coach") && lead) || ((r.kind === "order_confirmation" || r.kind === "weekly_attendance") && (has("samordnare") || has("avtalsansvarig"))));
+    (((r.kind === "monthly" || r.kind === "final") && coachLead) || ((r.kind === "order_confirmation" || r.kind === "weekly_attendance") && (inK("samordnare") || inK("avtalsansvarig"))));
   const deliverRoles: readonly Role[] = r.kind === "customer_summary" ? ["avtalsansvarig", "samordnare"] : ["coach", "samordnare", "avtalsansvarig"];
-  const roleOk = deliverRoles.some((x) => has(x) && (x !== "coach" || lead));
+  const roleOk = deliverRoles.some((x) => (x === "coach" ? coachLead : inK(x)));
   const weeklyReady = r.kind === "weekly_attendance" && r.status === "waiting" && !!r.recipientUserId && !!r.week && (await weeklyComplete(ctx, r.contractId, r.recipientUserId, r.week));
   const textOk = r.kind !== "final" || hasRecommendation(r);
   const actions = {
     approve: canApprove,
-    quality: has("samordnare") && !r.superseded && (r.status === "reviewed" || r.status === "approved") && !r.qualityReviewedAt,
+    quality: inK("samordnare") && !r.superseded && (r.status === "reviewed" || r.status === "approved") && !r.qualityReviewedAt,
     deliver: roleOk && !r.superseded && textOk && (r.status === "approved" || weeklyReady),
     correct: roleOk && !r.superseded && !pend && ["approved", "delivered", "opened"].includes(r.status),
   };
@@ -446,7 +454,8 @@ handleCommand(reportSnapshot, { roles: VIEW_ROLES, silent: true }, async (ctx, p
 // ---------------------------------------------------------------- rap.qualityReview
 handleCommand(reportQualityReview, { roles: ["samordnare"] }, async (ctx, p) => {
   const r = await ctx.repo.table("reports").get(p.reportId);
-  if (!r) return fail("not_found", NOT_FOUND);
+  // Samordnaren i rapportens avtal (en annan roll där, t.ex. coach, granskar inte kvaliteten).
+  if (!r || !contractsAs(ctx.actor, ["samordnare"]).includes(r.contractId)) return fail("not_found", NOT_FOUND);
   await ctx.repo.table("reports").update(r.id, { qualityReviewedBy: ctx.actor.userId, qualityReviewedAt: ctx.now() });
   await ctx.audit({ action: "report.quality_reviewed", entity: "report", entityId: r.id, contractId: r.contractId, details: { kind: r.kind } });
   return ok({});
@@ -459,7 +468,9 @@ handleCommand(reportSaveFinal, { roles: ["coach", "samordnare"] }, async (ctx, p
   const c = r.caseId ? await ctx.repo.table("cases").get(r.caseId) : null;
   // Coachen skriver i alla ärenden i avtalet (beslut 2026-10-09) – full åtkomst = personen läsbar (canEditCase).
   // Samordnaren skriver alltid; coachen (utan rollen samordnare) bara där hen får ändra ärendet.
-  if (!hasRole(ctx.actor, "samordnare") && (!c || !(await canEditCase(ctx, c)))) return fail("forbidden", "Coachen skriver kvarstående hinder och rekommenderad fortsättning innan slutrapporten godkänns.");
+  if (!contractsAs(ctx.actor, ["samordnare"]).includes(r.contractId) && (!c || !(await canEditCase(ctx, c, ["coach"])))) {
+    return fail("forbidden", "Coachen skriver kvarstående hinder och rekommenderad fortsättning innan slutrapporten godkänns.");
+  }
   if (isDelivered(r) || r.superseded) return fail("delivered", "Rapporten är redan levererad. Rätta rapporten om texten ska ändras.");
   const recommendation = p.recommendation.trim();
   if (!recommendation) return fail("recommendation", "Skriv en rekommenderad fortsättning. Den behövs innan rapporten kan godkännas.");

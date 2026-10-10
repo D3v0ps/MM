@@ -66,7 +66,7 @@ async function priceRows(ctx: Ctx, c: Contract): Promise<PriceRow[]> {
 // ---------------------------------------------------------------- admin.contract
 handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p) => {
   const all = await contractList(ctx);
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const c = (p.contractId && all.find((x) => x.id === p.contractId)) || main;
   const orgs = await ctx.repo.table("organizations").list();
   const orgName = (id: string) => orgs.find((o) => o.id === id)?.name ?? "";
@@ -127,7 +127,7 @@ export const ruleSnapshot = (n: OrgSettings["notifications"]): RuleSnapshot => (
 });
 
 handleQuery(adminOrgRules, { roles: ["admin"], commercial: true }, async (ctx) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const { settings } = await orgRow(ctx, main.supplierId);
   const n = settings.notifications;
   // Vem som har rollen (namnen visas bredvid mottagarna).
@@ -154,7 +154,7 @@ handleQuery(adminOrgRules, { roles: ["admin"], commercial: true }, async (ctx) =
 });
 
 handleCommand(adminSetOrgRule, { roles: ["admin"], commercial: true }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const { row, settings } = await orgRow(ctx, main.supplierId);
   const n = settings.notifications;
   const pw = n.progressionWatch;

@@ -154,4 +154,15 @@ describe("stängda sidor, menyn och startsidan", () => {
     }
     expect(startPathFor("kommun_handlaggare", true)).toBe(START_PATH.kommun_handlaggare);
   });
+
+  it("startsidan med flera roller (Karims beslut 7): MB-rollerna före kommunens; en begränsad testare med ekonom och coach börjar på Min vecka", () => {
+    expect(startPathFor(["coach", "ekonom"])).toBe("/min-vecka");
+    expect(startPathFor(["admin", "avtalsansvarig"])).toBe("/min-vecka");
+    expect(startPathFor(["ekonom", "kommun_handlaggare"])).toBe("/min-vecka");
+    expect(startPathFor(["coach", "ekonom"], true)).toBe("/min-vecka");
+    // Bara roller som är dolda för testare: Notiser.
+    expect(startPathFor(["ekonom"], true)).toBe("/notiser");
+    // Ekonom och kommunens handläggare som begränsad testare: portalen (ekonomrollen räknas inte).
+    expect(startPathFor(["ekonom", "kommun_handlaggare"], true)).toBe("/portal");
+  });
 });

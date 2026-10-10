@@ -3,7 +3,7 @@
 // begripliga fel innan. ctx.system bara för behörighetsuppslaget (accessSourceFor: flaggor och id:n).
 // Revisionsloggen får bara id:n och typ – aldrig namnen på grupperna eller anteckningarnas text.
 // Inget här skickas till AI, till kommunen, till rapporter eller exporter (Karims beslut 3).
-import { hasAnyRole } from "@/api/roles";
+import { contractsAs, hasAnyRole } from "@/api/roles";
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { caseAccessIn, displayName, type AccessSource, type CaseAccess } from "@/core/access";
@@ -30,7 +30,9 @@ import {
  */
 async function actorContracts(ctx: Ctx): Promise<Contract[]> {
   const all = (await ctx.repo.table("contracts").list()).filter((c) => c.status === "active" && isOperational(c.config)).sort((a, b) => a.id.localeCompare(b.id));
-  const mine = all.filter((c) => ctx.actor.contractIds.includes(c.id));
+  // Bara avtalen där personen har en av grupperingarnas roller (en annan roll i ett avtal ger inte dess grupperingar).
+  const own = contractsAs(ctx.actor, GROUPING_READERS);
+  const mine = all.filter((c) => own.includes(c.id));
   return mine.length ? mine : all;
 }
 /** Det valda avtalet (bara bland aktörens), eller det första när inget är valt. Null: avtalet finns inte för aktören. */

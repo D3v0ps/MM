@@ -4,6 +4,7 @@
 // meddelandet). Behörigheten: startAudioUpload/confirmOwnUpload (voice-upload.ts). I testmiljön är AI-leverantören
 // simulerad – svaret säger det (simulated), så att portalen kan förklara att texten är påhittad (synpunkt #8).
 import { fail, ok } from "@/api/contract";
+import { contractsFor } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { recordingMaxMinutes, type ContractConfig } from "@/core/config";
 import { AI_OFF_TEXT, aiOff, RECORDING_BLOCK_TEXT, recordingBlock, type RecordingBlock } from "../_shared/ai-port";
@@ -32,7 +33,8 @@ handleQuery(dictationOptions, { roles: HANDL }, async (ctx, p): Promise<Dictatio
     cfg = contract?.config;
     block = recordingBlock({ cfg, kind: "customer", person });
   } else {
-    const contractId = ctx.actor.contractIds.length === 1 ? ctx.actor.contractIds[0] : null;
+    const own = contractsFor(ctx.actor, "kommun_handlaggare");
+    const contractId = own.length === 1 ? own[0] : null;
     const contract = contractId ? await ctx.repo.table("contracts").get(contractId) : null;
     if (!contract) return off(null);
     cfg = contract.config;
@@ -52,7 +54,8 @@ handleCommand(dictationFinish, { roles: HANDL }, async (ctx, p) => {
     if (c.referrerId !== ctx.actor.userId) return fail("forbidden", "Bara handläggaren som beställde insatsen kan tala in här.");
     contractId = c.contractId;
   } else {
-    contractId = ctx.actor.contractIds.length === 1 ? ctx.actor.contractIds[0] : null;
+    const own = contractsFor(ctx.actor, "kommun_handlaggare");
+    contractId = own.length === 1 ? own[0] : null;
   }
   if (!contractId) return fail("forbidden", "Du har inte behörighet att tala in här.");
   const conf = await confirmOwnUpload(ctx, { uploadId: u.id, durationSec: p.durationSec ?? null });

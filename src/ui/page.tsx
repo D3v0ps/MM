@@ -1,8 +1,10 @@
+"use client";
 // Sidhuvud, kort och sektioner (prototypens Page, Card och Section).
-import type { ReactNode } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 import { Link } from "@/shell/nav";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
+import { useSectionHeading } from "./week-part";
 import { Dot, Eyebrow } from "./layout";
 
 export type Crumb = { label: string; to?: string };
@@ -77,7 +79,7 @@ export type CardProps = {
   /** Ingen utfyllnad i kroppen (för tabeller och listor som går kant i kant). */
   flush?: boolean;
   id?: string;
-  /** Rubriknivå (standard h2). */
+  /** Rubriknivå (standard h2 – h3 i en rolldel på Min vecka, där rollens rubrik är h2). */
   titleAs?: "h2" | "h3";
   /** Mål när kortet öppnas från deltagarkortets tidslinje (?mal=). */
   "data-mal"?: string;
@@ -86,22 +88,30 @@ export type CardProps = {
   children?: ReactNode;
 };
 
-/** Kort med versal rubrik. Rubriken är en h2 (eller h3 med titleAs). */
-export function Card({ title, icon, actions, tone, foot, flush, id, titleAs: H = "h2", className, bodyClassName, children, "data-mal": mal }: CardProps) {
+/** En rubrik på nivån h2 eller h3. */
+export function Heading({ level, ...rest }: { level: "h2" | "h3" } & HTMLAttributes<HTMLHeadingElement>) {
+  return level === "h3" ? <h3 {...rest} /> : <h2 {...rest} />;
+}
+
+/** Kort med versal rubrik. Rubriken är en h2 (eller h3 med titleAs, och i en rolldel på Min vecka). */
+export function Card({ title, icon, actions, tone, foot, flush, id, titleAs, className, bodyClassName, children, "data-mal": mal }: CardProps) {
+  const sectionHeading = useSectionHeading();
+  const level = titleAs ?? sectionHeading;
   return (
     <section id={id} data-mal={mal} className={cn("min-w-0 rounded-card border border-ljusgra bg-vit", tone && CARD_TONE[tone], className)}>
       {(title || actions) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-ljusgra px-[18px] py-3.5 portal:px-5">
           {title && (
             // Kort med id: rubriken kan ta emot fokus (focusSection – t.ex. en ruta på Min vecka som leder hit).
-            <H
+            <Heading
+              level={level}
               id={id ? `${id}-rubrik` : undefined}
               tabIndex={id ? -1 : undefined}
               className="flex items-center gap-2 text-label font-extrabold uppercase tracking-[0.1em] portal:text-body portal:tracking-[0.08em]"
             >
               {icon && <Icon name={icon} />}
               {title}
-            </H>
+            </Heading>
           )}
           <span className="flex-1" />
           {actions}

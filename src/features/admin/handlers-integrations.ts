@@ -170,7 +170,7 @@ function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRu
 }
 
 handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const { settings } = await orgRow(ctx, main.supplierId);
   const env = domainEnv(main, settings, ctx.now());
   const today = dayOf(env.now);
@@ -267,7 +267,7 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
 });
 
 handleCommand(adminRunJob, { roles: ["admin"] }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   if (p.key === "retention" && isUnset(main.config.retention)) return fail("disabled", "Gallringsregeln är inte fastställd – jobbet kan inte köras.");
   if (p.key === "inbox") {
     const graph = await ctx.repo.table("integrations").get("graph");

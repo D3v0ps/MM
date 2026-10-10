@@ -1,6 +1,7 @@
 // Datainläsning för kommunens portal. Bara för hanterare – importeras aldrig av skärmar.
 // Allt läses via ctx.repo (policyn i minnet, RLS i produktion) om inget annat står vid anropet.
 // Behörighet och namn per ärende kommer från rapportområdets viewerFor (samma regler som caseAccess i src/core/access.ts).
+import { contractsFor } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import { isOperational, phaseName, requireOperational, type OperationalConfig } from "@/core/config";
 import { areaName, endReasonLabel, reportKindLabel } from "@/core/labels";
@@ -49,7 +50,8 @@ export async function komContext(ctx: Ctx): Promise<KomContext> {
     }
     return v;
   };
-  const active = ctx.actor.contractIds.map((id) => byId.get(id)).find((c) => !!c && c.status === "active" && isOperational(c.config)) ?? null;
+  // Kommunens portal: avtalen där personen är kommunens handläggare (en annan roll i ett annat avtal räknas inte).
+  const active = contractsFor(ctx.actor, "kommun_handlaggare").map((id) => byId.get(id)).find((c) => !!c && c.status === "active" && isOperational(c.config)) ?? null;
   const pmap = new Map(profiles.map((p) => [p.id, p]));
   return {
     me, customerName: org?.name ?? "", customerOrgId: me?.organizationId ?? null,
@@ -65,7 +67,8 @@ export async function komContext(ctx: Ctx): Promise<KomContext> {
  */
 export async function visibleCases(ctx: Ctx): Promise<Case[]> {
   const cases = await ctx.repo.table("cases").list();
-  return cases.filter((c) => ctx.actor.contractIds.includes(c.contractId));
+  const own = contractsFor(ctx.actor, "kommun_handlaggare");
+  return cases.filter((c) => own.includes(c.contractId));
 }
 
 /**

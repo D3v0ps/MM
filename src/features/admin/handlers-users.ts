@@ -34,7 +34,7 @@ const tidy = (s: string | null | undefined) => String(s ?? "").trim().replace(/\
 
 handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
   const isAdmin = hasRole(ctx.actor, "admin");
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin", "avtalsansvarig"]);
   const [customer, supplier, memberships, refs] = await Promise.all([
     ctx.repo.table("organizations").get(main.customerId),
     ctx.repo.table("organizations").get(main.supplierId),
@@ -103,7 +103,7 @@ handleQuery(adminUsers, { roles: ["admin", "avtalsansvarig"] }, async (ctx) => {
  * också skapa ett konto själv (självregistrering, src/features/session/self-register.ts).
  */
 handleCommand(adminInviteCustomer, { roles: ["admin", "avtalsansvarig"] }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin", "avtalsansvarig"]);
   const k = (p.contractId && (await ctx.repo.table("contracts").get(p.contractId))) || main;
   const customer = await ctx.repo.table("organizations").get(k.customerId);
   const email = String(p.email || "").trim().toLowerCase();
@@ -131,7 +131,7 @@ handleCommand(adminInviteCustomer, { roles: ["admin", "avtalsansvarig"] }, async
 });
 
 handleCommand(adminSetCustomerActive, { roles: ["admin", "avtalsansvarig"] }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin", "avtalsansvarig"]);
   const u = await ctx.repo.table("profiles").get(p.userId);
   if (!u || u.organizationId !== main.customerId) return fail("not_found", "Användaren finns inte.");
   await ctx.repo.table("profiles").update(u.id, { active: p.active });
@@ -152,7 +152,7 @@ async function colleague(ctx: Ctx, main: Contract, userId: string): Promise<Prof
  * läggs till av utskicket). Kollegan loggar in med e-post och kod.
  */
 handleCommand(adminInviteStaff, { roles: ["admin"] }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const k = (p.contractId && (await ctx.repo.table("contracts").get(p.contractId))) || main;
   const supplier = await ctx.repo.table("organizations").get(k.supplierId);
   const name = tidy(p.name);
@@ -178,7 +178,7 @@ handleCommand(adminInviteStaff, { roles: ["admin"] }, async (ctx, p) => {
 
 /** Ändra roller: medlemskapen i huvudavtalet görs lika med listan (minst en roll). Den egna adminrollen kan inte tas bort. */
 handleCommand(adminSetStaffRoles, { roles: ["admin"] }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const u = await colleague(ctx, main, p.userId);
   if (!u) return fail("not_found", "Kollegan finns inte.");
   const roles = sortRoles(p.roles);
@@ -196,7 +196,7 @@ handleCommand(adminSetStaffRoles, { roles: ["admin"] }, async (ctx, p) => {
 
 /** Spärra eller aktivera en kollega. En spärrad kollega kan inte logga in. Aldrig sig själv. */
 handleCommand(adminSetStaffActive, { roles: ["admin"] }, async (ctx, p) => {
-  const main = await mainContract(ctx);
+  const main = await mainContract(ctx, ["admin"]);
   const u = await colleague(ctx, main, p.userId);
   if (!u) return fail("not_found", "Kollegan finns inte.");
   if (u.id === ctx.actor.userId) return fail("self", "Du kan inte spärra dig själv.");

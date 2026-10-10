@@ -1,7 +1,7 @@
 // Frågor för coachens skärmar (Min vecka, närvaro, avstämning, månadsbedömning, kartläggning, händelser och avslut).
 // Port av vyerna i prototyp/src/views/coach.js: samma urval, regler och siffror. Beräkningarna görs med funktionerna i
 // src/core och datat läses via ctx.repo (behörigheten gäller). Registreras via handlers.ts – importeras aldrig av skärmar.
-import { hasRole } from "@/api/roles";
+import { contractsAs, hasRole } from "@/api/roles";
 import { handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
@@ -66,9 +66,13 @@ function envCache(ctx: Ctx) {
   };
 }
 
-/** Aktörens första avtal med driftkonfiguration (texter som "måndag 10.00" och interna regler). */
+/**
+ * Aktörens första avtal med driftkonfiguration (texter som "måndag 10.00" och interna regler) – bland avtalen där personen
+ * arbetar i ärendena (coach; den vilande rollen handledare), inte ett avtal där personen bara har en annan roll.
+ */
 async function primaryEnv(ctx: Ctx, envOf: (id: string) => Promise<DomainEnv | null>, preferred: readonly string[] = []): Promise<DomainEnv | null> {
-  for (const id of uniq([...preferred, ...ctx.actor.contractIds])) {
+  const own = contractsAs(ctx.actor, ["coach", "handledare"]);
+  for (const id of uniq([...preferred, ...(own.length ? own : ctx.actor.contractIds)])) {
     const env = await envOf(id);
     if (env) return env;
   }

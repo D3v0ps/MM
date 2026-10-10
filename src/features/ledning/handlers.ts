@@ -1,7 +1,7 @@
 // Hanterare för området ledning (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 // Källa: prototyp/src/views/ledning.js (chef.oversikt och chef.avvikelser) och prototypens alert.ack.
 import { fail, ok } from "@/api/contract";
-import { hasAnyRole, hasRole, type Role } from "@/api/roles";
+import { contractsAs, type Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial, hidesMoney } from "@/api/tester-access";
 import { accessIndex, caseAccessIn, displayName } from "@/core/access";
@@ -38,7 +38,7 @@ import {
 // Flaggorna kvitteras av dem som får dem: coach (egna ärenden), samordnare, avtalsansvarig och chef/controller.
 handleCommand(alertAck, { roles: ["coach", "samordnare", "avtalsansvarig", "chef"] }, async (ctx, p) => {
   await upsert(ctx.repo.table("alert_acks"), { id: p.key, alertKey: p.key, acknowledgedBy: ctx.actor.userId, acknowledgedAt: ctx.now(), actionPlan: p.plan });
-  await ctx.audit({ action: "alert.acknowledged", entity: "alert", entityId: p.key, contractId: ctx.actor.contractIds[0] ?? null, details: { plan: p.plan } });
+  await ctx.audit({ action: "alert.acknowledged", entity: "alert", entityId: p.key, contractId: contractsAs(ctx.actor, ["coach", "samordnare", "avtalsansvarig", "chef"])[0] ?? null, details: { plan: p.plan } });
   return ok({});
 });
 
@@ -73,9 +73,14 @@ const VIEW_ROLES: Partial<Record<ViewId, readonly Role[]>> = {
 const canOpen = (view: ViewId, roles: readonly Role[]) => roles.some((r) => !!VIEW_ROLES[view]?.includes(r));
 const LINK_LABEL: Partial<Record<ViewId, string>> = { "arende.kort": "Öppna ärendet", "rapport.visa": "Öppna rapporten", "eko.start": "Till faktureringen", "sam.inkorg": "Till inkorgen" };
 
-/** Avtalet som ledningsvyn och registret gäller: användarens första aktiva avtal där ärenden hanteras (prototypens MM.contract()). */
-async function actorContract(ctx: Ctx): Promise<Contract> {
-  for (const id of ctx.actor.contractIds) {
+/**
+ * Avtalet som ledningsvyn och registret gäller: användarens första aktiva avtal där ärenden hanteras (prototypens MM.contract())
+ * – bland avtalen där personen har en av hanterarens roller (chefen i ledningsvyn, CDEV_ROLES i registret). Aldrig ett avtal där
+ * personen bara har en annan roll: den som är chef i ett avtal och coach i ett annat får ledningsvyn för chefens avtal, och
+ * ledningsvyn läser avtalets data via ctx.system.
+ */
+async function actorContract(ctx: Ctx, roles: readonly Role[]): Promise<Contract> {
+  for (const id of contractsAs(ctx.actor, roles)) {
     const c = await ctx.repo.table("contracts").get(id);
     if (c && c.status === "active" && isOperational(c.config)) return c;
   }
@@ -83,8 +88,8 @@ async function actorContract(ctx: Ctx): Promise<Contract> {
 }
 
 type Scope = { contract: Contract; env: DomainEnv; customerName: string };
-async function scopeFor(ctx: Ctx, contract?: Contract): Promise<Scope> {
-  const c = contract ?? (await actorContract(ctx));
+async function scopeFor(ctx: Ctx, roles: readonly Role[], contract?: Contract): Promise<Scope> {
+  const c = contract ?? (await actorContract(ctx, roles));
   const org = await orgSettingsFor(ctx, c);
   const customer = await ctx.repo.table("organizations").get(c.customerId);
   return { contract: c, env: domainEnv(c, org, ctx.now()), customerName: customer?.name ?? "" };
@@ -132,7 +137,7 @@ async function contractDb(ctx: Ctx, contract: Contract): Promise<Db> {
 
 /** Allt ledningsvyns flikar behöver: avtal, miljö och data. */
 async function ledningData(ctx: Ctx) {
-  const scope = await scopeFor(ctx);
+  const scope = await scopeFor(ctx, CHEF);
   const db = await contractDb(ctx, scope.contract);
   return { ...scope, db };
 }
@@ -471,7 +476,7 @@ async function formFor(ctx: Ctx, contract: Contract, env: DomainEnv): Promise<Cd
     penaltyChoice: !hidesCommercial(ctx.actor),
     warningsBeforeTermination: cfg.warningsBeforeTermination,
     ladder: cfg.escalationLadder.map((s) => ({ step: s.step, level: s.level, text: s.text })),
-    canManage: hasAnyRole(ctx.actor, MANAGE_ROLES),
+    canManage: contractsAs(ctx.actor, MANAGE_ROLES).includes(contract.id),
     caseNumberExample: `${cfg.casePrefix}-26-0042`,
     warningSteps: { ...WARNING_STEPS },
   };
@@ -482,7 +487,7 @@ const registerOrder = (a: ContractDeviation, b: ContractDeviation) => Number(a.s
 
 // ---------------------------------------------------------------- ledning.cdevRegister
 handleQuery(cdevRegister, { roles: CDEV_ROLES }, async (ctx) => {
-  const { contract, env, customerName } = await scopeFor(ctx);
+  const { contract, env, customerName } = await scopeFor(ctx, CDEV_ROLES);
   const hide = hidesCommercial(ctx.actor);
   const all = (await ctx.repo.table("contract_deviations").list({ contractId: contract.id })).sort(registerOrder);
   const open = all.filter((x) => x.status !== "closed");
@@ -513,8 +518,9 @@ handleQuery(cdevRegister, { roles: CDEV_ROLES }, async (ctx) => {
 handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
   const cd = await ctx.repo.table("contract_deviations").get(p.id);
   const contract = cd ? await ctx.repo.table("contracts").get(cd.contractId) : null;
-  if (!cd || !contract || !isOperational(contract.config)) return { found: false as const };
-  const { env } = await scopeFor(ctx, contract);
+  // Bara i avtal där personen har en av registrets roller (en annan roll i avtalet ger inte registret).
+  if (!cd || !contract || !isOperational(contract.config) || !contractsAs(ctx.actor, CDEV_ROLES).includes(contract.id)) return { found: false as const };
+  const { env } = await scopeFor(ctx, CDEV_ROLES, contract);
   const all = await ctx.repo.table("contract_deviations").list({ contractId: contract.id });
   const c = cd.caseId ? await ctx.repo.table("cases").get(cd.caseId) : null;
   const closed = cd.status === "closed";
@@ -542,14 +548,14 @@ handleQuery(cdevDetail, { roles: CDEV_ROLES }, async (ctx, p) => {
     planDue: dueAt && s ? { dueAt, sla: { label: s.label, tone: s.tone } } : null,
     totalWarnings: all.filter((x) => x.warningIssued).length,
     // Samma villkor som ledning.cdevCustomerApproved: avtalsansvarig, en plan som väntar på godkännande och inte avslutad.
-    canRegisterApproval: hasRole(ctx.actor, "avtalsansvarig") && !!String(cd.actionPlan || "").trim() && !cd.customerApprovedAt && cd.status !== "closed",
+    canRegisterApproval: contractsAs(ctx.actor, ["avtalsansvarig"]).includes(contract.id) && !!String(cd.actionPlan || "").trim() && !cd.customerApprovedAt && cd.status !== "closed",
     form: await formFor(ctx, contract, env),
   };
 });
 
 // ---------------------------------------------------------------- ledning.cdevMonth (månadssammanställning för APT)
 handleQuery(cdevMonth, { roles: CDEV_ROLES }, async (ctx, p) => {
-  const { contract, env, customerName } = await scopeFor(ctx);
+  const { contract, env, customerName } = await scopeFor(ctx, CDEV_ROLES);
   const hide = hidesCommercial(ctx.actor);
   const cfg = env.cfg;
   const mk = p.month;
@@ -633,8 +639,9 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
     const missing = (["type", "level", "source", "description"] as const).filter((k) => !String(data[k] ?? "").trim());
     if (missing.length) return fail("missing", "Avvikelsen kunde inte sparas. Kontrollera fälten.", Object.fromEntries(missing.map((k) => [k, "Obligatoriskt fält."])));
   }
-  const contract = existing ? await ctx.repo.table("contracts").get(existing.contractId) : await actorContract(ctx);
+  const contract = existing ? await ctx.repo.table("contracts").get(existing.contractId) : await actorContract(ctx, CDEV_ROLES);
   if (!contract || !isOperational(contract.config)) return fail("no_contract", "Det finns inget aktivt avtal att registrera avvikelsen i.");
+  if (!contractsAs(ctx.actor, CDEV_ROLES).includes(contract.id)) return fail("not_found", "Avvikelsen finns inte.");
   const cfg = requireOperational(contract.config);
 
   // Sanktioner från kommunen registreras bara av chef och avtalsansvarig (prototypen spärrade fälten för övriga roller).
@@ -643,7 +650,7 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
     (data.warningIssued !== undefined && data.warningIssued !== cur.warningIssued)
     || (data.penaltyKind !== undefined && (data.penaltyKind ?? null) !== (cur.penaltyKind ?? null))
     || (data.orderStop !== undefined && data.orderStop !== cur.orderStop);
-  if (sanctionChange && !hasAnyRole(ctx.actor, MANAGE_ROLES)) return fail("forbidden", NO_SANCTIONS);
+  if (sanctionChange && !contractsAs(ctx.actor, MANAGE_ROLES).includes(contract.id)) return fail("forbidden", NO_SANCTIONS);
 
   const step = data.escalationStep ?? existing?.escalationStep ?? 0;
   if (data.warningIssued && !isWarningStep(step)) return fail("warning_step", `Skriftlig varning kan bara ges på steg ${WARNING_STEPS.min}–${WARNING_STEPS.max}.`);
@@ -733,7 +740,8 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
 // customerApprovedAt = dagen kommunen godkände (kl. 12.00 – bara datumet är känt), customerApprovedBy = den som registrerade.
 handleCommand(cdevCustomerApproved, { roles: ["avtalsansvarig"] }, async (ctx, p) => {
   const cd = await ctx.repo.table("contract_deviations").get(p.id);
-  if (!cd) return fail("not_found", "Avvikelsen finns inte.");
+  // Avtalsansvarig i avvikelsens avtal – inte en annan roll där (t.ex. chef) med rollen avtalsansvarig i ett annat avtal.
+  if (!cd || !contractsAs(ctx.actor, ["avtalsansvarig"]).includes(cd.contractId)) return fail("not_found", "Avvikelsen finns inte.");
   if (!String(cd.actionPlan || "").trim()) return fail("no_plan", "Avvikelsen har ingen åtgärdsplan att godkänna.");
   if (cd.status === "closed") return fail("closed", "Avvikelsen är avslutad.");
   if (cd.customerApprovedAt) return fail("approved", "Åtgärdsplanen är redan godkänd.");

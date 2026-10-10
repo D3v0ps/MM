@@ -8,7 +8,7 @@
 // svaret; kastar loggningen lämnas ingen fil ut. Loggen har bara id:n – aldrig namn, ärendenummer, titlar eller urvalets värden.
 // Sparade rapporter delas bara inom Miljonbemanning (privat eller mb) – aldrig med kommunen (beslut 2026-10-07, 0026).
 import { fail, ok } from "@/api/contract";
-import { hasRole, type Role } from "@/api/roles";
+import { contractsAs, hasRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { isOperational, requireOperational, type OperationalConfig } from "@/core/config";
 import { addMonths, monthKey, monthName } from "@/core/time";
@@ -44,9 +44,9 @@ const COLUMNS_CHANGED = "Filen kan inte skapas, eftersom kolumnerna har ändrats
 
 // ---------------------------------------------------------------- Avtalen
 type Chosen = { contract: Contract; cfg: OperationalConfig };
-/** Läsarens avtal i drift (via ctx.repo), i medlemskapens ordning. */
+/** Läsarens avtal i drift (via ctx.repo) där personen har en av rapportbyggarens roller, i avtalens ordning. */
 async function builderContracts(ctx: Ctx): Promise<Chosen[]> {
-  const ids = ctx.actor.contractIds;
+  const ids = contractsAs(ctx.actor, BUILDERS);
   if (!ids.length) return [];
   const contracts = await ctx.repo.table("contracts").list({ id: { in: ids } });
   return ids

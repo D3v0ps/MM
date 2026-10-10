@@ -24,10 +24,17 @@ export function casePathFor(role: Role | readonly Role[], caseId: string): strin
   return null;
 }
 
-/** Ärendenumret som länk till rätt vy för rollen. canOpen=false visar bara numret. Klick bubblar inte till tabellraden. */
-export function CaseLink({ caseId, caseNumber, children, canOpen = true, className }: { caseId: string; caseNumber: string; children?: ReactNode; canOpen?: boolean; className?: string }) {
+/** Ärendets fakturavy i Ekonomi – målet för ärendelänkarna i ekonomins kort (också när ekonomen har en roll till). */
+export const ekonomiCasePath = (caseId: string): string => `/ekonomi/arende/${encodeURIComponent(caseId)}`;
+
+/**
+ * Ärendenumret som länk till rätt vy för rollen. canOpen=false visar bara numret. Klick bubblar inte till tabellraden.
+ * to = målet när länken står i en viss del (t.ex. ekonomins kort: ärendets fakturavy, ekonomiCasePath) – annars ärendekortet om
+ * någon roll når det (casePathFor).
+ */
+export function CaseLink({ caseId, caseNumber, children, canOpen = true, className, to: target }: { caseId: string; caseNumber: string; children?: ReactNode; canOpen?: boolean; className?: string; to?: string }) {
   const { actor } = useSession();
-  const to = canOpen ? casePathFor(actor.roles, caseId) : null;
+  const to = canOpen ? (target ?? casePathFor(actor.roles, caseId)) : null;
   if (!to) return <span className={cn("font-bold tabular-nums tracking-[0.01em]", className)}>{children ?? caseNumber}</span>;
   return (
     <Link

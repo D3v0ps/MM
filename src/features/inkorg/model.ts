@@ -1,7 +1,7 @@
 // Byggstenar för områdets vy-modeller: inkorgens poster (prototypens buildItems och sel.inboxToHandle), flaggor och
 // förfallotider. Bara för hanterare – importeras av ./handlers.ts och src/features/session/nav-handlers.ts, aldrig av skärmar.
 import { ApiError, type Ctx, type PnrCrypto } from "@/api/server";
-import type { Role } from "@/api/roles";
+import { contractsAs, contractsFor, type Actor, type Role } from "@/api/roles";
 import { hidesCommercial } from "@/api/tester-access";
 import { loadDb } from "@/api/load";
 import { alerts as computeAlerts, type AlertItem } from "@/core/alerts";
@@ -27,10 +27,20 @@ import { CHAIN, DL_KIND, FIELD_LABEL, whenText, type ChainKey, type DeadlineKind
  */
 export type InboxEnv = { contract: Contract; cfg: OperationalConfig; org: OrgSettings; env: DomainEnv; now: string; today: string; hideCommercial: boolean };
 
-/** Användarens första aktiva avtal med driftkonfiguration (Botkyrka i piloten). */
-export async function inboxEnv(ctx: Ctx): Promise<InboxEnv> {
+/** Inkorgens roller: avropen och startsidan för samordning (samordnare och avtalsansvarig). */
+export const INBOX_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig"];
+/** Förfallolistan: inkorgens roller och chefen. */
+export const DEADLINE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
+
+/**
+ * Användarens första aktiva avtal med driftkonfiguration (Botkyrka i piloten) – bland avtalen där användaren har en av
+ * rollerna (standard inkorgens roller; förfallolistan också chefen). Aldrig ett avtal där personen bara har en annan roll:
+ * den som är samordnare i ett avtal och coach i ett annat får inkorgen för samordnarens avtal (Karims beslut 7 – summan av
+ * rollerna, aldrig mer).
+ */
+export async function inboxEnv(ctx: Ctx, roles: readonly Role[] = INBOX_ROLES): Promise<InboxEnv> {
   const contracts = await ctx.repo.table("contracts").list({ status: "active" });
-  const contract = ctx.actor.contractIds.map((id) => contracts.find((c) => c.id === id)).find((c): c is Contract => !!c && isOperational(c.config));
+  const contract = contractsAs(ctx.actor, roles).map((id) => contracts.find((c) => c.id === id)).find((c): c is Contract => !!c && isOperational(c.config));
   if (!contract) throw new ApiError(404, "no_contract", "Det finns inget aktivt avtal.");
   const org = await orgSettingsFor(ctx, contract);
   const now = ctx.now();
@@ -246,8 +256,16 @@ export async function visibleCaseIds(ctx: Ctx, e: InboxEnv): Promise<Set<string>
   return new Set((await ctx.repo.table("cases").list({ contractId: e.contract.id })).map((c) => c.id));
 }
 
-export function alertItems(ops: OpsDb, e: InboxEnv, actor: { roles: readonly Role[]; userId: string }, visible: Set<string>, includeAcked = false): AlertItem[] {
-  return computeAlerts(ops, { role: actor.roles, personaId: actor.userId, includeAcked, hideCommercial: e.hideCommercial }, e.env).filter((a) => !a.caseId || visible.has(a.caseId));
+/**
+ * Flaggorna för rollerna (standard alla aktörens roller, eller bara de angivna) – men bara roller som aktören har i avtalet:
+ * en roll i ett annat avtal ger inga flaggor här (samma regel som tabellen alerts: mottagarrollen i flaggans avtal).
+ */
+export function alertItems(
+  ops: OpsDb, e: InboxEnv, actor: Pick<Actor, "roles" | "userId" | "contractIds" | "roleContracts">, visible: Set<string>, includeAcked = false, only?: readonly Role[],
+): AlertItem[] {
+  const roles = actor.roles.filter((r) => (!only || only.includes(r)) && contractsFor(actor, r).includes(e.contract.id));
+  if (!roles.length) return [];
+  return computeAlerts(ops, { role: roles, personaId: actor.userId, includeAcked, hideCommercial: e.hideCommercial }, e.env).filter((a) => !a.caseId || visible.has(a.caseId));
 }
 
 /** Förfallotider som användaren ser. Begränsade testare: utan fakturakörningen (ekonomens interna mål, länk till Ekonomi). */

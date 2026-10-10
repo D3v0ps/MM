@@ -12,8 +12,8 @@ import { CaseLink } from "./case";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
 import { Dot, Grid } from "./layout";
-import { Page } from "./page";
-import { useWeekPart } from "./week-part";
+import { Heading, Page } from "./page";
+import { useSectionHeading, useWeekPart } from "./week-part";
 
 /** Nyckeltalen på smal skärm (prototypens co-kpis): mindre utfyllnad och siffror så att "4 av 15" får plats. */
 export const WEEK_KPI_SM = "max-[620px]:p-3 max-[620px]:[&>div:nth-child(2)]:text-[1.625rem]";
@@ -111,12 +111,14 @@ export function TitleLink({ to, children, className }: { to?: string | null; chi
 
 /** Ett avsnitt utan något att göra: en rad i stället för ett helt kort (rubriken finns kvar och kan ta emot fokus). */
 export function DoneLine({ id, title, icon, children }: { id?: string; title: string; icon: IconName; children: ReactNode }) {
+  // h3 i en rolldel (rollens rubrik är h2), annars h2.
+  const level = useSectionHeading();
   return (
     <section id={id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-ljusgra bg-vit px-[18px] py-3">
-      <h2 id={id ? `${id}-rubrik` : undefined} tabIndex={-1} className="flex items-center gap-2 text-label font-extrabold tracking-[0.1em] uppercase">
+      <Heading level={level} id={id ? `${id}-rubrik` : undefined} tabIndex={-1} className="flex items-center gap-2 text-label font-extrabold tracking-[0.1em] uppercase">
         <Icon name={icon} />
         {title}
-      </h2>
+      </Heading>
       <span className="inline-flex min-w-0 items-start gap-1.5 text-small text-text-muted">
         <Icon name="check-circle" className="mt-0.5 flex-none" />
         <span>{children}</span>

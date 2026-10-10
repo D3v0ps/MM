@@ -2,8 +2,8 @@
 // Min vecka för alla MB-roller (beslut 2026-10-06): rätt skärm per roll, samma sidhuvud (MIN VECKA, "Namn · Titel",
 // veckoingressen) och fyra rutor – och varje roll anropar bara frågor den redan har (inga nya vägar till data). Hela vägen
 // genom hanterarna i minnesläget med testdatat (demoklockan 1 februari 2027 kl. 09.12).
-import { cleanup, render, screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useEffect, useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor, StaffRole } from "@/api/roles";
 import { dormantSupervisor } from "@/data/dormant-role.test-helper";
@@ -17,7 +17,8 @@ import { RuntimeProvider } from "@/shell/runtime";
 import { SessionProvider, type Session } from "@/shell/session";
 import { DownloadProvider } from "@/ui/download";
 import "@/api/handlers";
-import { MinVeckaScreen } from "./screens/min-vecka";
+import { DoneLine, Kpi, WeekKpis, WeekPage } from "@/ui";
+import { CombinedWeek, MinVeckaScreen, orderParts, weekPartsFor, type PartDef } from "./screens/min-vecka";
 
 afterEach(cleanup);
 
@@ -224,5 +225,99 @@ describe("Min vecka per roll", () => {
     expect(screen.queryByRole("link", { name: /Avtal och konfiguration/ })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Underbiträden" })).toBeNull();
     expect(document.body.textContent ?? "").not.toMatch(/Supabase|Vercel|Resend|eu-north-1/);
+  });
+});
+
+// ================================================================ Flera roller (Karims beslut 7, 2026-10-09)
+// CombinedWeek med påhittade rolldelar: delen vars nyckeltal kräver åtgärd står överst, vid lika i den fasta ordningen, och
+// ordningen bestäms en gång per besök – den står kvar när brådskan ändras av det man gör (sidan hoppar inte, fokus står kvar).
+describe("Min vecka med flera roller: ordningen efter vad som brådskar", () => {
+  type Tone = "alert" | "watch" | null;
+  const tones: Record<string, Tone> = {};
+  const setters: Record<string, (t: Tone) => void> = {};
+  function FakePart({ k }: { k: string }) {
+    const [tone, setTone] = useState<Tone>(tones[k] ?? null);
+    useEffect(() => {
+      setters[k] = setTone;
+    }, [k]);
+    return (
+      <WeekPage today={null}>
+        <WeekKpis>
+          <Kpi label={`Ruta ${k}`} value="1" tone={tone} onClick={() => setTone(null)} />
+        </WeekKpis>
+        <DoneLine title={`Klart ${k}`} icon="check">
+          Inget att göra.
+        </DoneLine>
+      </WeekPage>
+    );
+  }
+  const defs: PartDef[] = [
+    { key: "coach", roles: ["coach"], label: () => "Huvudcoach", Screen: () => <FakePart k="coach" /> },
+    { key: "samordning", roles: ["samordnare"], label: () => "Samordning", Screen: () => <FakePart k="samordning" /> },
+    { key: "ekonomi", roles: ["ekonom"], label: () => "Ekonomi", Screen: () => <FakePart k="ekonomi" /> },
+  ];
+  const roles: Actor["roles"] = ["samordnare", "coach", "ekonom"];
+  function renderCombined() {
+    const actor: Actor = { userId: "u-x", roles, contractIds: ["c-bot"] };
+    const backend: Backend = {
+      mode: "demo",
+      query: async (key) => (key === "session.ping" ? { now: "2027-02-01T09:12", roles } : key === "notiser.list" ? { items: [] } : null),
+      command: async () => ({ ok: true }),
+    };
+    const nav: Nav = { path: "/min-vecka", query: new URLSearchParams(), push: vi.fn(), replace: vi.fn(), back: vi.fn(), href: (to) => `#${to}` };
+    const session: Session = { authenticated: true, actor, user: { id: "u-x", name: "Kim Kollega", title: "Kollega", email: "", orgName: "", unit: null } };
+    return render(
+      <RuntimeProvider mode="app">
+        <BackendProvider backend={backend}>
+          <SessionProvider session={session}>
+            <NavProvider nav={nav} LinkImpl={A}>
+              <CombinedWeek rolesKey={roles.join(",")} defs={defs} />
+            </NavProvider>
+          </SessionProvider>
+        </BackendProvider>
+      </RuntimeProvider>,
+    );
+  }
+  const partOrder = () => [...document.querySelectorAll<HTMLElement>("[data-week-part]")].map((x) => x.dataset.weekPart);
+  const fixed = () => document.querySelector("[data-week-order]")?.getAttribute("data-week-order") === "fixed";
+
+  beforeEach(() => {
+    for (const k of Object.keys(tones)) delete tones[k];
+  });
+
+  it("orderParts: mest brådskande först (kräver åtgärd = 2, bevakas = 1), vid lika den fasta ordningen", () => {
+    const keys = ["coach", "samordning", "ledning", "ekonomi", "admin"];
+    expect(orderParts(keys, {})).toEqual(keys);
+    expect(orderParts(keys, { ekonomi: { a: 2 } })).toEqual(["ekonomi", "coach", "samordning", "ledning", "admin"]);
+    expect(orderParts(keys, { admin: { a: 1 }, ledning: { a: 1 } })).toEqual(["ledning", "admin", "coach", "samordning", "ekonomi"]);
+    expect(orderParts(keys, { coach: { a: 1 }, samordning: { a: 2 } })).toEqual(["samordning", "coach", "ledning", "ekonomi", "admin"]);
+    expect(weekPartsFor(["ekonom", "coach"]).map((p) => p.key)).toEqual(["coach", "ekonomi"]);
+    expect(weekPartsFor(["admin", "avtalsansvarig", "samordnare"]).map((p) => p.key)).toEqual(["samordning", "admin"]);
+  });
+
+  it("delen som kräver åtgärd står överst; ordningen står kvar när brådskan ändras – också efter en handling", async () => {
+    tones.ekonomi = "alert";
+    tones.samordning = "watch";
+    renderCombined();
+    await waitFor(() => expect(fixed()).toBe(true));
+    expect(partOrder()).toEqual(["ekonomi", "samordning", "coach"]);
+    // Rollens rubrik är h2 och avsnitten under den h3 (WCAG 1.3.1) – sidans rubrik h1 en gång.
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => (h.textContent ?? "").trim())).toEqual(expect.arrayContaining(["Ekonomi", "Samordning", "Huvudcoach"]));
+    expect(screen.getAllByRole("heading", { level: 3 }).map((h) => (h.textContent ?? "").trim())).toEqual(expect.arrayContaining(["Klart ekonomi", "Klart samordning", "Klart coach"]));
+    // Ekonomins ruta kvitteras (tonen försvinner) och coachens blir brådskande – delarna flyttas inte och fokus står kvar.
+    const tile = screen.getByRole("button", { name: /Ruta ekonomi/ });
+    tile.focus();
+    fireEvent.click(tile);
+    act(() => setters.coach("alert"));
+    await waitFor(() => expect(screen.getByRole("button", { name: /Ruta coach/ })).toBeTruthy());
+    expect(partOrder()).toEqual(["ekonomi", "samordning", "coach"]);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Ruta ekonomi/ }));
+  });
+
+  it("vid lika brådska: den fasta ordningen coach, samordning, ekonomi", async () => {
+    renderCombined();
+    await waitFor(() => expect(fixed()).toBe(true));
+    expect(partOrder()).toEqual(["coach", "samordning", "ekonomi"]);
   });
 });

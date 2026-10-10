@@ -1,6 +1,6 @@
 // Hanterare för området rapporter (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import { type Actor, hasAnyRole, hasRole, type Role } from "@/api/roles";
+import { contractsAs, type Actor, type Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { reportKindLabel } from "@/core/labels";
 import type { Case, Report, WeekKey } from "@/data/schema";
@@ -26,19 +26,21 @@ async function loadReport(ctx: Ctx, id: string): Promise<{ r: Report; c: Case | 
   return { r, c };
 }
 
-/** Är aktören huvudcoach i rapportens ärende? */
-const isLeadCoach = (a: Actor, c: Case | null) => hasRole(a, "coach") && !!c && c.leadCoachId === a.userId;
+/** Har aktören någon av rollerna i rapportens avtal? (En roll i ett annat avtal räknas inte – summan av rollerna.) */
+const roleIn = (a: Actor, roles: readonly Role[], contractId: string) => contractsAs(a, roles).includes(contractId);
+/** Är aktören huvudcoach i rapportens ärende – med rollen coach i ärendets avtal? */
+const isLeadCoach = (a: Actor, c: Case | null) => !!c && roleIn(a, ["coach"], c.contractId) && c.leadCoachId === a.userId;
 
-/** Vem godkänner rapporten (prototypens canApprove). Någon av rollerna (Karims beslut 7, 2026-10-09). */
+/** Vem godkänner rapporten (prototypens canApprove). Någon av rollerna i rapportens avtal (Karims beslut 7, 2026-10-09). */
 function mayApprove(a: Actor, r: Report, c: Case | null): boolean {
   if (r.kind === "monthly" || r.kind === "final") return isLeadCoach(a, c);
-  if (r.kind === "customer_summary") return hasRole(a, "avtalsansvarig");
-  return hasAnyRole(a, ["samordnare", "avtalsansvarig"]);
+  if (r.kind === "customer_summary") return roleIn(a, ["avtalsansvarig"], r.contractId);
+  return roleIn(a, ["samordnare", "avtalsansvarig"], r.contractId);
 }
 
 /** Vem levererar och rättar rapporten (prototypens deliverRoles). Coachen bara i egna ärenden. */
 function mayDeliver(a: Actor, r: Report, c: Case | null): boolean {
-  if (hasAnyRole(a, ["samordnare", "avtalsansvarig"])) return true;
+  if (roleIn(a, ["samordnare", "avtalsansvarig"], r.contractId)) return true;
   return r.kind !== "customer_summary" && isLeadCoach(a, c);
 }
 

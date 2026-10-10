@@ -1,25 +1,25 @@
 // Hanterare för området inkorg (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import type { Role } from "@/api/roles";
+import { contractsAs } from "@/api/roles";
 import { handleCommand, handleQuery } from "@/api/server";
 import { duplicateActive } from "@/core/cases";
 import { uniq } from "@/core/util";
 import { buyerRefError, buyerRefValid } from "@/core/validation";
 import type { Case, FieldCorrection, InboundEmail, OrderExtract, OrderField } from "@/data/schema";
+import { caseAccessAsRoles } from "../_shared/case-access";
 import { canEditCase, contractOf } from "../_shared/context";
 import { pnrSearchHash } from "../_shared/pnr";
 import {
   emailApplySupplement, emailSetStatus, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem,
   inboxList, inboxRevealPnr, inboxStart, inboxTaskDone, type OrderFieldKey,
 } from "./api";
-import { casePeriodValue, plainPnr } from "./model";
+import { casePeriodValue, DEADLINE_ROLES, INBOX_ROLES, plainPnr } from "./model";
 import { buildConfirmation, buildDeadlines, buildDecisionForm, buildItem, buildList, buildStart } from "./views";
 // Registrera beställning (beslut 4a, 2026-10-08): inkorg.registerForm och inkorg.register.
 import "./register-handlers";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
 
-const INBOX_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig"];
 const EMAIL_NOT_FOUND = "Mejlet finns inte, eller så har du inte behörighet att se det.";
 const CASE_NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
 
@@ -33,7 +33,7 @@ handleCommand(emailSetStatus, { roles: INBOX_ROLES }, async (ctx, p) => {
   const patch: Partial<InboundEmail> = { status: p.status, handledBy: ctx.actor.userId, handledAt: ctx.now() };
   if (p.caseId) patch.caseId = p.caseId;
   await ctx.repo.table("inbound_emails").update(e.id, patch);
-  await ctx.audit({ action: "email.handled", entity: "inbound_email", entityId: e.id, contractId: c?.contractId ?? ctx.actor.contractIds[0] ?? null, details: { status: p.status } });
+  await ctx.audit({ action: "email.handled", entity: "inbound_email", entityId: e.id, contractId: c?.contractId ?? contractsAs(ctx.actor, INBOX_ROLES)[0] ?? null, details: { status: p.status } });
   return ok({});
 });
 
@@ -90,7 +90,6 @@ handleCommand(emailApplySupplement, { roles: INBOX_ROLES }, async (ctx, p) => {
 
 // ---- Området inkorg: startsidan, avropsinkorgen och förfaller
 
-const DEADLINE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
 
 handleQuery(inboxList, { roles: INBOX_ROLES }, (ctx) => buildList(ctx));
 handleQuery(inboxItem, { roles: INBOX_ROLES }, (ctx, p) => buildItem(ctx, p.id));
@@ -103,11 +102,13 @@ handleQuery(inboxDeadlines, { roles: DEADLINE_ROLES }, (ctx) => buildDeadlines(c
 handleQuery(inboxDuplicateCheck, { roles: INBOX_ROLES }, async (ctx, p) => {
   const hash = pnrSearchHash(ctx.crypto, p.pnr);
   if (!hash) return { duplicate: false };
-  // ctx.system: dubblettkontrollen ska se alla pågående ärenden i användarens avtal, även sådana användaren inte får se
-  // (samma kontroll som när beställningen sparas). Bara sökhashen jämförs och svaret är ja eller nej.
-  const persons = await ctx.system.table("persons").list({ personnummerHash: hash });
+  // ctx.system: dubblettkontrollen ska se alla pågående ärenden i avtalen där användaren tar emot beställningar (samordnare
+  // och avtalsansvarig – inte avtal där personen har en annan roll), även sådana användaren inte får se (samma kontroll som när
+  // beställningen sparas). Bara sökhashen jämförs och svaret är ja eller nej.
+  const mine = contractsAs(ctx.actor, INBOX_ROLES);
+  const persons = mine.length ? await ctx.system.table("persons").list({ personnummerHash: hash }) : [];
   if (!persons.length) return { duplicate: false };
-  const cases = await ctx.system.table("cases").list({ personId: { in: persons.map((x) => x.id) }, contractId: { in: ctx.actor.contractIds } });
+  const cases = await ctx.system.table("cases").list({ personId: { in: persons.map((x) => x.id) }, contractId: { in: mine } });
   return { duplicate: duplicateActive({ persons, cases }, hash).length > 0 };
 });
 
@@ -187,7 +188,7 @@ handleCommand(inboxTaskDone, { roles: INBOX_ROLES }, async (ctx, p) => {
   const t = await ctx.repo.table("tasks").get(p.taskId);
   if (!t) return fail("not_found", "Uppgiften finns inte, eller så har du inte behörighet att se den.");
   await ctx.repo.table("tasks").update(t.id, { status: "done", doneBy: ctx.actor.userId, doneAt: ctx.now() });
-  await ctx.audit({ action: "task.done", entity: "task", entityId: t.id, contractId: ctx.actor.contractIds[0] ?? null, details: {} });
+  await ctx.audit({ action: "task.done", entity: "task", entityId: t.id, contractId: contractsAs(ctx.actor, INBOX_ROLES)[0] ?? null, details: {} });
   return ok({});
 });
 
@@ -197,15 +198,16 @@ handleCommand(inboxRevealPnr, { roles: INBOX_ROLES, silent: true }, async (ctx, 
     const e = await ctx.repo.table("inbound_emails").get(p.emailId);
     if (!e) return fail("not_found", EMAIL_NOT_FOUND);
     const c = e.caseId ? await ctx.repo.table("cases").get(e.caseId) : null;
-    // Som prototypen: bara med full åtkomst till ärendet (personen syns), eller när mejlet inte hör till något ärende.
-    if (c && !(await ctx.repo.table("persons").get(c.personId))) return fail("forbidden", "Personnumret visas inte för din roll.");
-    await ctx.audit({ action: "pnr.revealed", entity: "inbound_email", entityId: e.id, contractId: c?.contractId ?? ctx.actor.contractIds[0] ?? null, details: { caseId: c?.id ?? null } });
+    // Som prototypen: bara med full åtkomst till ärendet genom inkorgens roller (en annan roll, t.ex. chef i ett annat avtal,
+    // räknas inte), eller när mejlet inte hör till något ärende.
+    if (c && (await caseAccessAsRoles(ctx, c, INBOX_ROLES)) !== "full") return fail("forbidden", "Personnumret visas inte för din roll.");
+    await ctx.audit({ action: "pnr.revealed", entity: "inbound_email", entityId: e.id, contractId: c?.contractId ?? contractsAs(ctx.actor, INBOX_ROLES)[0] ?? null, details: { caseId: c?.id ?? null } });
     return ok({ text: e.bodyText });
   }
   if (!p.caseId) return fail("not_found", CASE_NOT_FOUND);
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", CASE_NOT_FOUND);
-  const person = await ctx.repo.table("persons").get(c.personId);
+  const person = (await caseAccessAsRoles(ctx, c, INBOX_ROLES)) === "full" ? await ctx.repo.table("persons").get(c.personId) : null;
   if (!person) return fail("forbidden", "Personnumret visas inte för din roll.");
   await ctx.audit({ action: "pnr.revealed", entity: "person", entityId: person.id, contractId: c.contractId, details: { caseId: c.id } });
   return ok({ text: plainPnr(ctx.crypto, person) });

@@ -1,5 +1,5 @@
 // Hjälpare för områdets hanterare (admin, puls, praktik). Bara för hanterare – importeras aldrig av skärmar.
-import { hasRole } from "@/api/roles";
+import { contractsAs, hasRole, type Role } from "@/api/roles";
 import { ApiError, type Ctx } from "@/api/server";
 import { DEFAULT_ORG_SETTINGS, isOperational, requireOperational, type OperationalConfig, type OrgSettings } from "@/core/config";
 import type { Contract, OrgSettingsRow } from "@/data/schema";
@@ -15,11 +15,13 @@ export const isParticipantActor = (id: string | null | undefined): boolean => id
 
 /**
  * Avtalet som adminvyerna utgår från: det avtal användaren är medlem i där ärenden hanteras (Botkyrka),
- * annars det första. Prototypens MM.contract() utan argument.
+ * annars det första. Prototypens MM.contract() utan argument. roles = hanterarens roller: bara avtal där personen har en av dem
+ * (systemadministratören alla avtal) – aldrig ett avtal där personen bara har en annan roll.
  */
-export async function mainContract(ctx: Ctx): Promise<Contract> {
-  const rows = await ctx.repo.table("contracts").list();
-  const mine = hasRole(ctx.actor, "admin") ? rows : rows.filter((c) => ctx.actor.contractIds.includes(c.id));
+export async function mainContract(ctx: Ctx, roles: readonly Role[] = ctx.actor.roles): Promise<Contract> {
+  const rows = (await ctx.repo.table("contracts").list()).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const own = contractsAs(ctx.actor, roles);
+  const mine = roles.includes("admin") && hasRole(ctx.actor, "admin") ? rows : rows.filter((c) => own.includes(c.id));
   const c = mine.find((x) => x.status === "active" && isOperational(x.config)) ?? mine[0];
   if (!c) throw new ApiError(404, "no_contract", "Det finns inget avtal att visa.");
   return c;

@@ -19,6 +19,14 @@ export const WeekPartContext = createContext<WeekPart | null>(null);
 /** Rolldelen skärmen ritas i (null = en egen sida, som för den som har en roll). */
 export const useWeekPart = (): WeekPart | null => useContext(WeekPartContext);
 
+/**
+ * Rubriknivån för ett avsnitt (kort, klar-rad) på Min vecka: h2 på en egen sida, h3 i en rolldel – där är rollens rubrik h2 och
+ * avsnitten står under den (WCAG 1.3.1, rubrikerna grupperar delen).
+ */
+export function useSectionHeading(): "h2" | "h3" {
+  return useWeekPart() ? "h3" : "h2";
+}
+
 /** Id för ett avsnitt på Min vecka – unikt också när flera rollers delar står på samma sida. */
 export function useWeekId(): (id: string) => string {
   const part = useWeekPart();
