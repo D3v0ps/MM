@@ -101,6 +101,20 @@ Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en grup
 4. Skriv en rad för varje deltagare du vill skriva om. Tomma rader sparas inte.
 5. Tryck på knappen som visar antalet, till exempel **Spara 3 anteckningar**. Varje rad blir en vanlig anteckning i deltagarens kort. Står det något som ser ut som ett personnummer på en rad sparas ingenting, och felet visas vid raden.
 
+### Aktiviteter för en grupp
+
+Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempel en CV-verkstad.
+
+1. Tryck på **Ny aktivitet**. Fyll i namn, typ, datum, tid och plats.
+2. Vill du ha ett mål för hela gruppen? Skriv det i **Gruppmål**, till exempel ”Alla skriver ett CV”. Gruppmålet syns bara för Miljonbemanning.
+3. Välj deltagare under **Bjud in deltagare**: fliken **Grupp** (en eller flera grupper), **Nivå** (en eller flera nivåer) eller **Enskilda** (sök och välj en och en). Du ser hur många och vilka som bjuds in. De som redan är inbjudna eller vars insats inte pågår hoppas över – det står varför.
+4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
+5. Tryck på **Skapa aktiviteten**.
+
+Ändrar du tid eller plats, tar bort en deltagare eller ställer in aktiviteten kan deltagarna få ett meddelande om det. Rutan är förvald.
+
+Öppna aktiviteten för att ta närvaro. Har aktiviteten ett gruppmål står alla som **Klarade** med märket **Automatiskt**. Tryck på **Klarade inte** för den som inte klarade målet. Du kan ändra tillbaka. Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapporterna.
+
 ### Närvaro
 
 1. Öppna **Närvaro**.

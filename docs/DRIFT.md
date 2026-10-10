@@ -40,6 +40,14 @@ Ta bort Supabase-variablerna för *Preview*, så att förhandsversioner av kod a
 
 Kontroll efteråt (som inloggad eller i SQL Editor): `select source from public.attendance limit 1;` och `select group_activity_id from public.activities limit 1;` fungerar, `select count(*) from public.group_activities;` svarar 0, och `select indexname from pg_indexes where indexname = 'activities_group_activity_case_key';` ger en rad.
 
+### Migration 0033 (gruppmål) – körs FÖRE koden från spår G
+
+`supabase/migrations/0033_gruppmal.sql` i *SQL Editor* (hela filen – den tål att köras igen): kolumnen `group_activities.goal` (gruppmålet, valfritt, 1–300 tecken) och tabellen `group_goal_results` (coachens val per deltagare: Klarade inte, eller Klarade efter att ha ändrat tillbaka – ingen rad betyder Klarade automatiskt) med RLS, en unik nyckel per deltagare och gruppaktivitet och triggern `group_goal_results_check`. Kräver 0030.
+
+**Driftordning:** 0033 ska vara applicerad **innan** koden från spår G driftsätts. Koden läser och skriver `group_activities.goal` när en gruppaktivitet skapas, visas eller ändras – utan kolumnen slutar gruppaktiviteterna att fungera.
+
+Kontroll efteråt: `select goal from public.group_activities limit 1;` fungerar, `select count(*) from public.group_goal_results;` svarar 0 och `select indexname from pg_indexes where indexname = 'group_goal_results_activity_case_key';` ger en rad.
+
 ### Så läggs kollegor till (ingen SQL)
 
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
@@ -85,6 +93,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Migrationer 0001–0017 | 0001–0016 applicerade i testprojektet av samordnaren (i 0016 görs `drop index` för hand). **0017 (synpunkter i testmiljön) appliceras av samordnaren samtidigt som koden med "Lämna synpunkt" går live** (steg 1 nedan) |
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
 | Migration 0030 (coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppaktiviteter och automatisk närvaro. Appliceras i SQL Editor **före** koden från spår A (se "Migration 0030" ovan) – koden skriver de nya kolumnerna vid varje närvaroregistrering och varje nytt tillfälle |
+| Migration 0033 (spår G, coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppmål (`group_activities.goal`, `group_goal_results`). Appliceras i SQL Editor efter 0030–0032 och **före** koden från spår G (se "Migration 0033" ovan) |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
