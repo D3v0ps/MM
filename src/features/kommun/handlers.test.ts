@@ -96,15 +96,48 @@ describe("deltagarens sida", () => {
     for (const key of ["weeks", "priceOre", "valueOre", "buyerReference"]) expect(d.order).not.toHaveProperty(key);
     expect(JSON.stringify(d)).not.toMatch(/4410023817|139800|1398000|valueOre|priceOre/);
     // Närvaron är en rad: närvarograden de senaste 30 dagarna – ingen uppdelning i giltig och ogiltig frånvaro (beslut 2026-10-09).
-    expect(Object.keys(d.attendance ?? {})).toEqual(["rate"]);
-    expect(d.attendance?.rate).toBeGreaterThan(0);
-    expect(d.attendance?.rate).toBeLessThanOrEqual(1);
-    expect(JSON.stringify(d)).not.toMatch(/absentValid|absentInvalid|repeated/);
+    // Testdatat för Nadia 3 januari–1 februari 2027 (startade 14 december): 11 passerade tillfällen – 8 närvarande, 1 sen och
+    // 2 oregistrerade. Närvarograden räknas på de registrerade: (8 + 1) / 9 = 100 %.
+    expect(d.attendance).toEqual({ rate: 1, planned: 11, ended: false });
+    expect(JSON.stringify(d)).not.toMatch(/absentValid|absentInvalid|repeated|unregistered/);
     expect(d.participant).toEqual({ pnrMasked: "••••••••-9545", canReveal: true });
     // Inget team och inget ordererkännande att visa (beslut 2026-10-09) – orderbekräftelsen finns kvar.
     expect(Object.keys(d.order).sort()).toEqual(["coachName", "ocReportId"]);
     expect(d.order.ocReportId).toEqual(expect.any(String));
     expect(JSON.stringify(d)).not.toContain("19730216");
+  });
+  it("närvarograden: perioden börjar aldrig före startdatumet, en avslutad insats räknas fram till slutdatumet, inga tillfällen är inte 'inte registrerad'", async () => {
+    const att = async (caseId: string) => ((await ask(kommunCase, { caseId }, maria())) as KomCaseDetail).attendance;
+    // BOT-27-0004 startade 11 januari (inom 30 dagar): 10 tillfällen 11 januari–1 februari – 8 närvarande, 1 sen och 1 giltig
+    // frånvaro = 9 / 10. Ett registrerat tillfälle före startdatumet (påhittat här) räknas inte med.
+    const early = "case-270004";
+    expect(rows("cases").find((c) => c.id === early)?.startDate).toBe("2027-01-11");
+    expect(await att(early)).toEqual({ rate: 0.9, planned: 10, ended: false });
+    rt.store.insertRow("activities", { id: "act-fore-start", caseId: early, kind: rows("activities").find((a) => a.caseId === early)!.kind, startsAt: "2027-01-08T10:00", durationMin: 60, location: "Alby", note: "" });
+    rt.store.insertRow("attendance", { id: "att-fore-start", activityId: "act-fore-start", caseId: early, status: "absent_invalid", reason: "Uteblev utan att meddela", registeredBy: "u-amira", registeredAt: "2027-01-08T12:00", customerNotifiedAt: null });
+    expect(await att(early), "tillfället före startdatumet räknas inte").toEqual({ rate: 0.9, planned: 10, ended: false });
+    // BOT-26-0094 avslutades 18 december 2026 (mer än 30 dagar sedan): de sista 30 dagarna i insatsen, 19 november–18
+    // december – 13 tillfällen, alla närvarande. Tidigare räknades fönstret till i dag och visade "inte registrerad än".
+    expect(rows("cases").find((c) => c.id === "case-260094")).toMatchObject({ status: "closed", endDate: "2026-12-18" });
+    expect(await att("case-260094")).toEqual({ rate: 1, planned: 13, ended: true });
+    // BOT-26-0082 (9 november–4 december 2026) är kortare än 30 dagar: hela insatsen – 12 tillfällen, 10 närvarande och 2 med giltig frånvaro.
+    expect(await att("case-260082")).toEqual({ rate: 10 / 12, planned: 12, ended: true });
+    // BOT-27-0046 startar i dag: inga passerade tillfällen – planned 0 (skärmen skriver "inga tillfällen", inte "inte registrerad än").
+    expect(await att("case-270046")).toEqual({ rate: null, planned: 0, ended: false });
+    // Inte startad: ingen närvarorad.
+    expect(await att(MALL)).toBeNull();
+  });
+  it("yrkesspåret och fasen lämnas inte ut på deltagarens sida – fasen finns bara i listans rad (beslut 2026-10-09)", async () => {
+    const d = (await ask(kommunCase, { caseId: NADIA }, maria())) as KomCaseDetail;
+    for (const key of ["vocationalTrack", "phase", "phaseName"]) expect(d.case, key).not.toHaveProperty(key);
+    expect(d).not.toHaveProperty("phaseCount");
+    expect(rows("cases").find((c) => c.id === NADIA)?.vocationalTrack, "testdatat har ett yrkesspår som inte får lämnas ut").toBeTruthy();
+    expect(JSON.stringify(d)).not.toContain(rows("cases").find((c) => c.id === NADIA)!.vocationalTrack);
+    const list = await ask(kommunCaseList, {}, maria());
+    const row = list.rows.find((r) => r.id === NADIA)!;
+    expect(row).not.toHaveProperty("vocationalTrack");
+    expect(row).toMatchObject({ phase: expect.any(Number), phaseName: expect.any(String) });
+    expect(list.phaseCount).toBeGreaterThan(0);
   });
   it("en annan handläggares ärende nekas, ett okänt ärende finns inte", async () => {
     expect(await ask(kommunCase, { caseId: ELIF }, maria())).toEqual({ kind: "denied" });

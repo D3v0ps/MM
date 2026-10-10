@@ -10,7 +10,8 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { canWriteRow } from "@/data/policy";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
-import { caseCard, caseSetContact, CONTACT_EDITORS } from "./api";
+import { detailText } from "@/features/admin/audit-text";
+import { caseCard, caseHistory, caseSetContact, CONTACT_EDITORS } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -95,6 +96,28 @@ describe("Ändra kontaktväg (arenden.caseSetContact)", () => {
     expect(contactLog()).toHaveLength(1);
   });
 
+  it("revisionsloggen och kortets Historik visar fälten på svenska – aldrig kodnamnen (preferredContact, phone, email, address)", async () => {
+    const { person } = nadia();
+    rt.store.raw().get("persons", person.id)!.address = "Testgatan 1, 123 45 Testby";
+    const next = { preferredContact: person.preferredContact === "email" ? "sms" : "email", phone: "070-111 22 44", email: "historik-test@example.invalid" } as const;
+    expect(await set({ caseId: NADIA, ...next }, amira())).toEqual({ ok: true, changed: true });
+    const [row] = contactLog();
+    expect((row.details as { fields: string[] }).fields.sort()).toEqual(["address", "email", "phone", "preferredContact"]);
+    // Administratörens revisionslogg (samma texter som adminAuditLog).
+    const lookups = { userName: () => null, caseNumber: () => "BOT-26-0143", kpiLabel: () => null, templateLabel: (k: string) => k };
+    const text = detailText({ action: row.action, entity: row.entity, entityId: row.entityId, details: row.details }, lookups);
+    expect(text).toMatch(/^Fält: /);
+    for (const word of ["kontaktväg", "telefon", "e-post", "adress"]) expect(text).toContain(word);
+    expect(text).not.toMatch(/preferredContact|\bphone\b|\bemail\b|\baddress\b/);
+    // Kortets Historik (chefen läser revisionsloggen – policyn: admin och chef).
+    const h = await q(caseHistory, { caseId: NADIA }, karin());
+    const entry = h?.log.find((x) => x.text === "Kontaktvägen ändrades");
+    expect(entry?.sub).toMatch(/^Fält: /);
+    for (const word of ["kontaktväg", "telefon", "e-post", "adress"]) expect(entry?.sub).toContain(word);
+    expect(entry?.sub).not.toMatch(/preferredContact|\bphone\b|\bemail\b|\baddress\b/);
+    expect(JSON.stringify(h)).not.toContain("historik-test@example.invalid");
+  });
+
   it("adressen töms (den används bara för brev) och ett ärende som inte finns ger not_found", async () => {
     const { person } = nadia();
     rt.store.raw().get("persons", person.id)!.address = "Testgatan 1, 123 45 Testby";
@@ -111,6 +134,11 @@ describe("Ändra kontaktväg (arenden.caseSetContact)", () => {
     }
     const chef = await q(caseCard, { caseId: NADIA }, karin());
     expect(chef.kind === "ok" && chef.contact).toBeNull();
+    // Systemadministratören och chefen är i läsläge – administratören har ändå kontaktuppgifterna att ändra, så kortets
+    // notis säger "Du kan bara ändra deltagarens kontaktväg" (kort.tsx) i stället för "Du kan inte ändra något".
+    const admin = await q(caseCard, { caseId: NADIA }, robin());
+    expect(admin.kind === "ok" && { readOnly: admin.readOnly, contact: !!admin.contact }).toEqual({ readOnly: true, contact: true });
+    expect(chef.kind === "ok" && chef.readOnly).toBe(true);
   });
 });
 

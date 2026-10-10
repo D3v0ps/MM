@@ -21,7 +21,7 @@ import {
   kommunRevealPnr, kommunStart, kommunTaskDone,
   type KomCaseDetail, type KomCaseRow, type KomReportRow, type KomTask, type KomThread,
 } from "./api";
-import { deliveredOk, komCase, komContext, komMessage, reportRow, senderLabel, viewerFor, visibleCases } from "./load";
+import { deliveredOk, komCase, komContext, komMessage, komPhase, reportRow, senderLabel, viewerFor, visibleCases } from "./load";
 // "Tala in" (röstinspelning): beställningens bakgrundsinformation och meddelanden.
 import "./voice-handlers";
 
@@ -155,6 +155,7 @@ handleQuery(kommunCaseList, { roles: HANDL }, async (ctx) => {
   for (const m of messages) if (m.senderId !== me && !m.readBy.includes(me)) unread.set(m.caseId, (unread.get(m.caseId) ?? 0) + 1);
   const rows: KomCaseRow[] = cases.map((c) => ({
     ...komCase(c, viewer, k),
+    ...komPhase(c, k),
     unread: unread.get(c.id) ?? 0,
     recentlyDeclined: c.status === "declined" && !!c.declinedAt && diffDays(c.declinedAt.slice(0, 10), today) <= DECLINED_VISIBLE_DAYS,
   }));
@@ -215,10 +216,15 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
   const oc = reps.find((r) => r.kind === "order_confirmation");
 
   // Närvarograden de senaste 30 dagarna (när insatsen har startat) – en rad i portalen, ingen uppdelning (beslut 2026-10-09).
+  // En avslutad insats räknas fram till slutdatumet (den sista månaden i insatsen), så att raden inte ser oregistrerad ut
+  // efteråt. Perioden börjar aldrig före startdatumet. planned skiljer "inga tillfällen" från "inte registrerad än".
   let attendance: KomCaseDetail["attendance"] = null;
   if (c.startDate && c.startDate <= today) {
-    const from = addDays(today, -(ATTENDANCE_DAYS - 1));
-    attendance = { rate: attendanceStats(db, c.id, from < c.startDate ? c.startDate : from, today, env).rate };
+    const ended = !!c.endDate && c.endDate < today;
+    const to = ended ? (c.endDate as string) : today;
+    const from = addDays(to, -(ATTENDANCE_DAYS - 1));
+    const s = attendanceStats(db, c.id, from < c.startDate ? c.startDate : from, to, env);
+    attendance = { rate: s.rate, planned: s.planned, ended };
   }
 
   // Deltagaren: maskerat personnummer (hela numret bara via kommun.visaPersonnummer, som loggas).
@@ -227,7 +233,7 @@ handleQuery(kommunCase, { roles: HANDL }, async (ctx, p) => {
 
   return {
     kind: "ok",
-    today, customerName: k.customerName, phaseCount: cfg.phases.length, case: kc,
+    today, customerName: k.customerName, case: kc,
     unreadReports: reportRows.filter((r) => !r.openedAt).length,
     unseenEvents,
     tasks: (await openTasks(ctx, byCase)).filter((t) => t.caseId === c.id),

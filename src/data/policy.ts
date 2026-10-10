@@ -4,8 +4,8 @@
 // påminnelser och Mina ärenden – inte åtkomsten (beslut 2026-10-09).
 //
 // Sammanfattning:
-//   MB-roller      coach, handledare, samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 – coach
-//                  och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
+//   MB-roller      coach, handledare (vilande), samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 –
+//                  coach och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
 //                  spara, dela inom Miljonbemanning och arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs
 //                  för fakturering, inga anteckningar, rapporter eller namn · admin: allt inklusive konfiguration och logg
 //                  (skyddade personer bara som ärende)
@@ -34,6 +34,9 @@
 //   Bilagor       bilagor till beställningen (case_attachments, 0024): den som laddade upp innan beställningen skickats · i
 //                 ärendet samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) och beställande handläggare ·
 //                 aldrig handledare, ekonom, chef, admin eller deltagare · skrivs bara av systemet (ctx.attachments)
+//   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
+//                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
+//                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -47,7 +50,10 @@ import type { Case, Report, TableName, Tables } from "./schema";
 type Raw = RawAccess<Tables>;
 
 // ---------------------------------------------------------------- Rollgrupper
-/** Arbetar i ärendet (registrerar närvaro, avstämningar, händelser …) med full- eller teamåtkomst. Chef och admin är i läsläge. */
+/**
+ * Arbetar i ärendet (registrerar närvaro, avstämningar, händelser …) med full- eller teamåtkomst. Chef och admin är i läsläge.
+ * Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
+ */
 const CASE_WORKERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** Ändrar ärendet (status, coach, datum) med full åtkomst. */
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
@@ -167,6 +173,7 @@ function reportRead(r: Report, a: Actor, raw: Raw): boolean {
     if (a.role === "ekonom") return false; // inga rapporter
     if (r.kind === "weekly_attendance") return true; // coach och handledare ser bara sina deltagares avsnitt (vy-modellen)
     if (r.kind === "customer_summary" || r.kind === "statistics") return has(OVERSIGHT, a);
+    // Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
     if (a.role === "handledare") return false; // månads- och slutrapporter innehåller coachens bedömningar
     if (!r.caseId) return has(OVERSIGHT, a);
     return canSeeNotes(accessTo(raw, a, r.caseId), a.role);

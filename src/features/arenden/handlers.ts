@@ -38,6 +38,7 @@ import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
 import { revealPnr } from "../_shared/pnr";
+import { fieldWord } from "../admin/audit-text";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
@@ -1508,7 +1509,8 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     if (dt.status && x.entity === "attendance") return attLabel(s(dt.status));
     if (dt.at) return fmtDateTimeLong(s(dt.at));
     if (dt.kind) return reportKindLabel(s(dt.kind)) !== dt.kind ? reportKindLabel(s(dt.kind)) : eventLabel(s(dt.kind));
-    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.join(", ")}`;
+    // Fältnamnen på svenska med revisionsloggens ordlista (t.ex. person.contact_changed: "Fält: kontaktväg, e-post").
+    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.map((f) => fieldWord(String(f))).join(", ")}`;
     return "";
   };
   return {

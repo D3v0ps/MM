@@ -243,8 +243,9 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
       actions={!team && <CustSwitch card={card} tab={tab === "rapporter" || tab === "meddelanden" ? tab : null} label={(who) => `Se ärendet som ${who}`} />}
     >
       {card.readOnly && (
+        // Systemadministratören är i läsläge men får ändra deltagarens kontaktväg (card.contact, 0032) – texten säger det.
         <Notice tone="info" icon="eye" title="Läsläge">
-          Du kan inte ändra något i ärendet. Visningen loggas.
+          {card.contact ? "Du kan bara ändra deltagarens kontaktväg. Visningen loggas." : "Du kan inte ändra något i ärendet. Visningen loggas."}
         </Notice>
       )}
       {team && (

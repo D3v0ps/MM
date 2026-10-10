@@ -3,7 +3,7 @@
 import { plural } from "@/core/format";
 import { MONTHS, MONTHS_SHORT, addDays, fmtDateFull, fmtDateTimeFull, fmtTime, fmtWeekday, monthName, weekMonday, type WeekKey } from "@/core/time";
 import type { CaseStatus, ReportKind } from "@/data/schema";
-import type { KomCase } from "./api";
+import type { KomCase, KomCaseRow } from "./api";
 
 // ---------------------------------------------------------------- Miljonbemannings kontaktuppgifter (inte avtalsvärden)
 /** Telefon för frågor om beställningar och deltagare – null tills Miljonbemanning bestämt numret (inga påhittade nummer). */
@@ -110,8 +110,8 @@ export function statusText(c: KomCase): string {
   }
 }
 
-/** Status i kort form (listan). */
-export function shortStatus(c: KomCase, phaseCount: number): string {
+/** Status i kort form (listan). Fasen visas bara här – inte på deltagarens sida (beslut 2026-10-09). */
+export function shortStatus(c: KomCaseRow, phaseCount: number): string {
   if (c.status === "active") return `Fas ${c.phase} av ${phaseCount} · ${phaseText(c.phaseName)}`;
   if (c.status === "acknowledged") return `Besked senast ${fDT(c.avropDue)}`;
   if (c.status === "confirmed") return c.firstMeetingAt ? `Första mötet ${fDT(c.firstMeetingAt)}` : "Första mötet bokas";

@@ -4,7 +4,7 @@
 //   1. Beställning och kontakt: namn, enhet (fritext), telefon, e-post, önskat startdatum och omfattningen – 6 eller 12
 //      månader (avtalets alternativ, planerat slut räknas fram) eller annan tidsperiod med slutdatum och motivering.
 //      Kontaktuppgifterna kommer från kontot och visas som en sammanfattning med Ändra (beslut 2026-10-09) – fälten öppnas
-//      med Ändra, eller direkt när en uppgift saknas eller är fel.
+//      med Ändra, eller direkt när en uppgift i kontot saknas eller är fel. Öppnade fält stängs inte medan man skriver.
 //      Ingen beställarreferens och inget planerat slutdatum att fylla i (Miljonbemanning fyller i referensen).
 //   2. Deltagare: namn, personnummer, telefon och/eller e-post och yrkesområdet (obligatoriskt, avtalets avtalsområden).
 //      Ingen fråga om skydd och ingen anpassning (beslut 2026-10-07). Ingen bostadsort, ingen fråga om kontaktväg och ingen
@@ -196,8 +196,10 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const [errStep, setErrStep] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState<{ caseId: string; caseNumber: string } | null>(null);
-  // Kontaktuppgifterna i steg 1: sammanfattning med Ändra tills handläggaren vill ändra dem.
-  const [editContact, setEditContact] = useState(false);
+  // Kontaktuppgifterna i steg 1: sammanfattning med Ändra tills handläggaren vill ändra dem. Saknas en uppgift i kontot eller
+  // är den fel (t.ex. efter självregistreringen) är fälten öppna från början. Läget räknas ut en gång och stängs aldrig medan
+  // handläggaren skriver – fälten får inte försvinna när det sista felet rättas (fokus, WCAG 3.2.2).
+  const [editContact, setEditContact] = useState(() => CONTACT_KEYS.some((k) => validateStep(0, f, m, [], false)[k]));
   const headRef = useRef<HTMLHeadingElement | HTMLDivElement | null>(null);
 
   const pnrOk = pnrFormatValid(f.pnr);
@@ -275,8 +277,9 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const errs = validateStep(step, f, m, dups, uploading);
   const E = (k: string) => (showErr ? errs[k] : undefined);
   const end = periodEnd(f);
-  // Fälten visas när handläggaren tryckt Ändra – och alltid när en uppgift saknas eller är fel (t.ex. efter självregistreringen).
-  const contactOpen = editContact || (step === 0 && CONTACT_KEYS.some((k) => errs[k]));
+  // Fälten visas när handläggaren tryckt Ändra, eller från början när en uppgift saknades (startvärdet ovan). Härleds aldrig
+  // ur de levande felen.
+  const contactOpen = editContact;
   const openContact = () => {
     setEditContact(true);
     // Fokus till första fältet när det har ritats (tangentbord och skärmläsare).
@@ -326,6 +329,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       if (to != null) {
         goStep(to);
         setErrStep(to);
+        // Enheten är en kontaktuppgift: visa fälten så att felet går att rätta.
+        if (res.error === "unit") setEditContact(true);
       }
       toast(res.message ?? "Beställningen kunde inte skickas.", "error");
       return;
@@ -702,7 +707,12 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
           <div ref={headRef} tabIndex={-1} className="text-[clamp(1.75rem,8vw,2.5rem)] leading-[1.1] font-extrabold tracking-[0.02em] tabular-nums outline-none">
             {c.caseNumber}
           </div>
-          <p>{c.avropDue ? `Du får orderbekräftelsen med mejl senast ${fDTL(c.avropDue)}.` : "Du får orderbekräftelsen med mejl."}</p>
+          {/* Mejlet innehåller bara ärendenumret och en länk – orderbekräftelsen läses i portalen (CLAUDE.md punkt 9). */}
+          <p>
+            {c.avropDue
+              ? `Senast ${fDTL(c.avropDue)} får du ett mejl om att orderbekräftelsen finns i portalen.`
+              : "Du får ett mejl när orderbekräftelsen finns i portalen."}
+          </p>
         </Stack>
       </Card>
       <div className="flex flex-wrap items-center gap-3">

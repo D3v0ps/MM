@@ -22,7 +22,11 @@ import type { CaseSource, CaseStatus, ReportKind, TaskKind } from "@/data/schema
 import { IdSchema } from "../_shared/schemas";
 
 // ================================================================ Gemensamma delar
-/** Ärendet så som kommunen ser det (lista och deltagarens sida). Texterna byggs av skärmen (texts.ts). */
+/**
+ * Ärendet så som kommunen ser det (lista och deltagarens sida). Texterna byggs av skärmen (texts.ts). Beslut 2026-10-09
+ * ("Vi behöver inte visa så mycket till kommunens handläggare"): inget yrkesspår och ingen fas – fasen finns bara i listans
+ * rad (KomCaseRow), där briefen inte tog bort den.
+ */
 export type KomCase = {
   id: string;
   caseNumber: string;
@@ -32,10 +36,6 @@ export type KomCase = {
   /** "G Lager och logistik" (null = inte valt än – Miljonbemanning väljer när beställningen bekräftas). */
   primaryAreaName: string | null;
   secondaryAreaName: string | null;
-  vocationalTrack: string;
-  phase: number;
-  /** Fasens namn i avtalet, t.ex. "Praktik/APL". */
-  phaseName: string;
   source: CaseSource;
   referredAt: string;
   acknowledgedAt: string | null;
@@ -161,7 +161,8 @@ export const kommunDuplicate = query("kommun.dubblett", z.object({ pnr: z.string
 
 /**
  * Kvittot efter beställningen. Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): bara
- * ärendenumret och när orderbekräftelsen kommer med mejl – inget mejl att visa och ingen tidslinje.
+ * ärendenumret och senast när mejlet om orderbekräftelsen kommer (orderbekräftelsen läses i portalen – mejlet har bara
+ * ärendenumret och en länk) – inget mejl att visa och ingen tidslinje.
  */
 export type KomReceipt = {
   caseId: string;
@@ -173,6 +174,10 @@ export const kommunReceipt = query("kommun.kvitto", z.object({ caseId: IdSchema 
 
 // ================================================================ Deltagare (/portal/deltagare)
 export type KomCaseRow = KomCase & {
+  /** Fasen i listans rad för en pågående insats ("Fas 2 av 4 · Praktik på en arbetsplats"). Visas inte på deltagarens sida. */
+  phase: number;
+  /** Fasens namn i avtalet, t.ex. "Praktik/APL". */
+  phaseName: string;
   /** Olästa meddelanden till handläggaren. */
   unread: number;
   /** Avböjd de senaste 30 dagarna (syns i standardfiltret). */
@@ -192,7 +197,7 @@ export type KomCaseDetail = {
   kind: "ok";
   today: string;
   customerName: string;
-  phaseCount: number;
+  /** Ärendet utan fas och yrkesspår (beslut 2026-10-09: ingen fasstapel och inget fasnamn på deltagarens sida). */
   case: KomCase;
   /** Olästa rapporter till handläggaren. */
   unreadReports: number;
@@ -214,9 +219,11 @@ export type KomCaseDetail = {
   };
   /**
    * Närvarograden de senaste 30 dagarna – en rad, ingen uppdelning i giltig och ogiltig frånvaro (beslut 2026-10-09).
-   * rate null = ingen närvaro registrerad under perioden. null = insatsen har inte startat än.
+   * En avslutad insats: de sista 30 dagarna fram till slutdatumet (ended). Perioden börjar aldrig före startdatumet.
+   * planned = passerade tillfällen i perioden (0 = inga tillfällen). rate null = inget av tillfällena är registrerat än (eller
+   * inga tillfällen). null = insatsen har inte startat än.
    */
-  attendance: { rate: number | null } | null;
+  attendance: { rate: number | null; planned: number; ended: boolean } | null;
   participant: { pnrMasked: string | null; canReveal: boolean };
   seesCoachNotes: boolean;
   reports: KomReportRow[];

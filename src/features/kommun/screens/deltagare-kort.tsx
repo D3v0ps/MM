@@ -4,7 +4,8 @@
 // bara rollen handläggare). Inga belopp, inget ordervärde och ingen beställarreferens (synpunkt #10 och #11). Visningen
 // loggas (case.view). Handläggaren avbryter inte en insats i portalen – det görs med ett mejl till avrop@ med ärendenumret
 // (beslut 2026-10-09). Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): ingen fasstapel,
-// inget fasnamn, inget team, inget ordererkännande att visa, närvaron som en rad (närvarograden senaste månaden), ingen
+// inget fasnamn, inget team, inget ordererkännande att visa, närvaron som en rad (närvarograden senaste månaden – för en
+// avslutad insats den sista månaden i insatsen – och en länk till rapporterna, där veckorapporterna finns), ingen
 // kontaktväg, bostadsort eller yrkesspår och ingen bakgrundsinformation från beställningen.
 import { useEffect, useState, type ReactNode } from "react";
 import { pct } from "@/core/format";
@@ -248,11 +249,10 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
           <Muted>Närvaron visas här när insatsen har startat.</Muted>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <p>
-              Närvarograd senaste månaden: <b>{d.attendance.rate == null ? "närvaron är inte registrerad än" : pct(d.attendance.rate, 0)}</b>
-            </p>
+            <AttendanceLine a={d.attendance} />
+            {/* Veckorapporterna gäller alla deltagare och finns bland rapporterna (inga typfilter – beslut 2026-10-09). */}
             <Button kind="ghost" iconRight="arrow-right" to="/portal/rapporter">
-              Till veckorapporterna
+              Till rapporterna
             </Button>
           </div>
         )}
@@ -290,6 +290,19 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
         </p>
       )}
     </Stack>
+  );
+}
+
+/**
+ * Närvaron som en rad. "Inte registrerad än" bara när det finns passerade tillfällen och inget av dem är registrerat – inga
+ * tillfällen i perioden (t.ex. pausad insats) har en egen text. En avslutad insats visar den sista månaden i insatsen.
+ */
+function AttendanceLine({ a }: { a: NonNullable<KomCaseDetail["attendance"]> }) {
+  if (a.planned === 0) return <p>{a.ended ? "Det var inga tillfällen den sista månaden i insatsen." : "Det har inte varit några tillfällen den senaste månaden."}</p>;
+  return (
+    <p>
+      {a.ended ? "Närvarograd den sista månaden i insatsen" : "Närvarograd senaste månaden"}: <b>{a.rate == null ? "närvaron är inte registrerad än" : pct(a.rate, 0)}</b>
+    </p>
   );
 }
 

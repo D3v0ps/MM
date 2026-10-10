@@ -102,7 +102,11 @@ const FIELD_WORD: Record<string, string> = {
   area: "avtalsområde", unit: "enhet", contactName: "kontaktperson", contactPhone: "telefon", contactEmail: "e-post", person: "deltagare",
   primaryAreaCode: "avtalsområde", secondaryAreaCode: "andra avtalsområde", referrerUnit: "beställarens enhet", events: "händelser", weeks: "veckor",
   endReason: "avslutsorsak", resultClass: "resultatklass", resultVerified: "verifiering", resultVerifiedAt: "verifieringsdatum", caseNumber: "ärendenummer",
+  // Ändra kontaktväg på deltagarkortet (person.contact_changed, coachmötet 2026-10-09): fälten hos personen.
+  preferredContact: "kontaktväg", phone: "telefon", email: "e-post", address: "adress",
 };
+/** Ett fältnamn i loggen som läsbar svenska ("preferredContact" → "kontaktväg"). Okända namn visas som de är. */
+export const fieldWord = (code: string): string => FIELD_WORD[code] ?? code;
 const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", since_start: "sedan avtalsstart", month: "per månad", rolling_3m: "rullande 3 månader" };
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },
