@@ -55,7 +55,8 @@ const openOf = (v: NarvaroView, w: Week) => v.weeks[w].rows.filter((a) => a.star
 function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Week; caseId: string | null; filters?: ReactNode }) {
   const { actor } = useSession();
   const patch = useQueryPatch();
-  const role = actor.role;
+  // Coachen (och den vilande rollen handledare): alla roller samtidigt (Karims beslut 7, 2026-10-09).
+  const isCoach = actor.roles.includes("coach");
   const set = useCommand(attendanceSet);
   const setAll = useCommand(attendanceSetAll);
   const confirm = useConfirm();
@@ -289,11 +290,11 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
   return (
     <Page
       title="Närvaro"
-      eyebrow={role === "handledare" ? "Handledare – dina teamärenden" : "Snabbregistrering"}
+      eyebrow={!isCoach ? "Handledare – dina teamärenden" : "Snabbregistrering"}
       lead={`${
-        role === "handledare" ? `Du ser tillfällen för ${v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet. ` : ""
+        !isCoach ? `Du ser tillfällen för ${v.caseCount === 1 ? "det ärende" : `de ${v.caseCount} ärenden`} där du ingår i teamet. ` : ""
       }Ett klick per tillfälle. Förra veckans närvaro ska vara registrerad senast ${v.dueText}.`}
-      crumbs={role === "coach" ? [MIN_VECKA_CRUMB, { label: "Närvaro" }] : undefined}
+      crumbs={isCoach ? [MIN_VECKA_CRUMB, { label: "Närvaro" }] : undefined}
     >
       {caseId && (
         <Notice tone="info" icon="filter" title={`Visar bara ${filteredLabel(v, caseId)}`}>
@@ -431,7 +432,7 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
           title={`Veckorapporter – vecka ${wk.no}`}
           icon="file"
           foot={
-            role === "coach" ? (
+            isCoach ? (
               <Persp
                 role="kommun_handlaggare"
                 userId={customer ?? undefined}
@@ -468,7 +469,7 @@ function Narvaro({ v, initial, caseId, filters }: { v: NarvaroView; initial: Wee
                         Väntar på närvaro{x.left > 0 ? ` (${x.left} kvar)` : ""}
                       </Badge>
                     )}
-                    {x.reportId && role === "coach" && (
+                    {x.reportId && isCoach && (
                       <Button kind="ghost" to={`/rapporter/${encodeURIComponent(x.reportId)}`}>
                         Se veckorapporten
                       </Button>

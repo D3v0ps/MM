@@ -1,7 +1,7 @@
 // Rutter. Varje område (src/features/<område>/routes.ts) exporterar sina rutter; route-table.ts samlar dem.
 // Samma tabell används av Next.js (catch-all-rutt) och av prototypen (hash-navigering) – därför speglar prototypen appen exakt.
 import type { ComponentType } from "react";
-import type { Role } from "@/api/roles";
+import { isCustomerRole, isDormantRole, isSupplierRole, type Role } from "@/api/roles";
 import { isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
 import { matchPath } from "./nav";
 
@@ -43,14 +43,20 @@ export const START_PATH: Record<Role, string> = {
 };
 
 /**
- * Startsidan för den inloggade. En begränsad testare (Session.hidesCommercial, src/api/tester-access.ts) landar aldrig på en
- * stängd sida: en roll som är dold för testare (ekonom) eller vars startsida är stängd börjar på Notiser, som förut.
+ * Startsidan för den inloggade. Med flera roller (Karims beslut 7, 2026-10-09): Miljonbemannings roller före kommunens och
+ * deltagarens – alla MB-roller börjar på Min vecka. En begränsad testare (Session.hidesCommercial, src/api/tester-access.ts)
+ * landar aldrig på en stängd sida: har hen bara roller som är dolda för testare (ekonom) börjar hen på Notiser, som förut.
  */
-export function startPathFor(role: Role, hidesCommercial?: boolean): string {
-  const p = START_PATH[role];
-  if (!hidesCommercial || !(isTesterHiddenPath(p) || roleHiddenFromTesters(role))) return p;
-  return "/notiser";
+export function startPathFor(role: Role | readonly Role[], hidesCommercial?: boolean): string {
+  const roles = typeof role === "string" ? [role] : role;
+  const usable = roles.filter((r) => !(hidesCommercial && roleHiddenFromTesters(r)));
+  const main = usable.find((r) => isSupplierRole(r) && !isDormantRole(r)) ?? usable.find(isCustomerRole) ?? usable[0];
+  if (!main) return roles.length ? "/notiser" : START_PATH.deltagare;
+  const p = START_PATH[main];
+  return hidesCommercial && isTesterHiddenPath(p) ? "/notiser" : p;
 }
+/** Får någon av rollerna öppna rutten? */
+export const routeAllows = (route: Pick<RouteDef, "roles">, roles: readonly Role[]): boolean => roles.some((r) => route.roles.includes(r));
 
 /** Inloggningssida för en sökväg när besökaren inte är inloggad. */
 export const loginPathFor = (p: string): string => (p.startsWith("/portal") ? "/portal/logga-in" : "/logga-in");

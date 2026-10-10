@@ -122,7 +122,7 @@ export function VoiceNotesRow({ caseId, autoOpen, className }: { caseId: string;
 }
 
 function VoiceCardBody({ v, startSend, onSendClosed }: { v: CaseVoiceView; startSend?: boolean; onSendClosed?: () => void }) {
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const [open, setOpenState] = useState(!!startSend);
   const setOpen = (o: boolean) => {
     setOpenState(o);
@@ -177,7 +177,7 @@ function VoiceCardBody({ v, startSend, onSendClosed }: { v: CaseVoiceView; start
         ) : (
           <div className="flex flex-col gap-3">
             {v.notes.map((n) => (
-              <VoiceNote key={n.id} n={n} canWork={v.canWork} canUse={role === "coach" && v.canWork} />
+              <VoiceNote key={n.id} n={n} canWork={v.canWork} canUse={roles.includes("coach") && v.canWork} />
             ))}
           </div>
         )}

@@ -18,7 +18,7 @@ export function useGoAs() {
   return useCallback(
     (role: Role, to: string) => {
       const personaId = demoRole(role).personaId;
-      const same = role === session.actor.role && (!personaId || session.actor.userId === personaId);
+      const same = session.actor.roles.includes(role) && (!personaId || session.actor.userId === personaId);
       if (!same) session.switchRole?.(role, personaId ?? undefined);
       if (!same || fullPath(nav.path, nav.query) !== to) nav.push(to);
     },

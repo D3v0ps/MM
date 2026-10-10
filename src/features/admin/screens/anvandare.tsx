@@ -48,7 +48,7 @@ export function AnvandareScreen() {
   // Nyckel per roll: flikar och formulär beror på rollen.
   // Länken till avtalssidan: bara systemadministratören, och inte för begränsade testare (avtalssidan är stängd för dem).
   return (
-    <QueryView query={q}>{(d) => <UsersContent key={actor.role} d={d} contractLink={d.isAdmin && !(hidesCommercial && isTesterHiddenPath(CONTRACT_PATH))} />}</QueryView>
+    <QueryView query={q}>{(d) => <UsersContent key={actor.roles.join(",")} d={d} contractLink={d.isAdmin && !(hidesCommercial && isTesterHiddenPath(CONTRACT_PATH))} />}</QueryView>
   );
 }
 

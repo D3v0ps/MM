@@ -2,13 +2,13 @@
 // Appens skal: väljer rutt, kontrollerar roll och renderar skärmen i rätt layout.
 // Används av både Next.js (src/app/client-root.tsx) och prototypen (src/demo/main.tsx).
 import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
-import { ROLE_LABEL, ROLES } from "@/api/roles";
+import { ROLE_LABEL, ROLES, rolesLabel } from "@/api/roles";
 import { Button, Empty, Page, PerspectiveLink } from "@/ui";
 import { useNav } from "./nav";
 import { isAuthenticated, useSession } from "./session";
 import { DemoOnly } from "./runtime";
 import { isTesterHiddenPath, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT } from "@/api/tester-access";
-import { loginPathFor, resolveRoute, startPathFor, titleOf, type RouteDef, type RouteMatch } from "./routes";
+import { loginPathFor, resolveRoute, routeAllows, startPathFor, titleOf, type RouteDef, type RouteMatch } from "./routes";
 import { LayoutFor } from "./layouts";
 import { usePageEffects, usePageTitleOverride } from "./page-effects";
 import { useRuntime } from "./runtime";
@@ -21,7 +21,7 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
   const session = useSession();
   const { actor } = session;
   const signedIn = isAuthenticated(session);
-  const start = signedIn ? startPathFor(actor.role, session.hidesCommercial) : loginPathFor(nav.path);
+  const start = signedIn ? startPathFor(actor.roles, session.hidesCommercial) : loginPathFor(nav.path);
   const match = resolveRoute(routes, nav.path);
   // Inte inloggad: bara publika sidor. Allt annat leder till rätt inloggning (portalen eller MB).
   const mustLogin = !signedIn && !(match && match.route.public);
@@ -58,10 +58,11 @@ export function App({ routes }: { routes: readonly RouteDef[] }) {
       </LayoutFor>
     );
   }
-  if (!match.route.public && !match.route.roles.includes(actor.role)) {
+  if (!match.route.public && !routeAllows(match.route, actor.roles)) {
+    const many = actor.roles.length > 1;
     return (
       <LayoutFor match={match}>
-        <Problem title="Du har inte behörighet till den här sidan" text={`Din roll (${ROLE_LABEL[actor.role]}) har inte tillgång till sidan.`} start={start}>
+        <Problem title="Du har inte behörighet till den här sidan" text={`${many ? "Dina roller" : "Din roll"} (${rolesLabel(actor.roles)}) har inte tillgång till sidan.`} start={start}>
           <DemoOnly>
             {/* Knapparna får radbrytas: "Visa som kommunens handläggare" ryms inte på en rad vid 400 px. */}
             <div className="mt-6 flex flex-wrap gap-3 [&_button]:whitespace-normal">

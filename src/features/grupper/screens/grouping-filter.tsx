@@ -23,7 +23,7 @@ export type GroupingFilterState = {
 export function useGroupingFilter(query: URLSearchParams): GroupingFilterState {
   const { actor } = useSession();
   const patch = useQueryPatch();
-  const q = useQuery(groupingFilterData, GROUPING_READERS.includes(actor.role) ? {} : null);
+  const q = useQuery(groupingFilterData, actor.roles.some((r) => GROUPING_READERS.includes(r)) ? {} : null);
   const d = q.data;
   const pickId = (name: string, list: { id: string }[] | undefined) => (list?.some((g) => g.id === query.get(name)) ? (query.get(name) as string) : "");
   const level = pickId("niva", d?.levels);

@@ -1,7 +1,9 @@
 // Navigering per roll med sökvägar (rutt-tabellen i docs/ARKITEKTUR.md). MB-personalen (beslut 2026-10-06): Notiser överst,
-// den gemensamma gruppen "Min vardag" (COMMON_NAV) och en rollflik (ROLE_TAB). Kommunportalen: KOM_NAV (PORTAL_NAV).
+// den gemensamma gruppen "Min vardag" (COMMON_NAV) och rollflikarna (ROLE_TAB). Den som har flera roller (Karims beslut 7,
+// 2026-10-09) får Min vardag med valen för alla sina roller och en flik per roll i en fast ordning (ROLE_TAB_ORDER) – ett
+// menyval visas bara en gång (i den första gruppen där det finns). Kommunportalen: KOM_NAV (PORTAL_NAV).
 // Räknarna kommer från frågan navCounts (src/features/session/nav-api.ts).
-import { isDormantRole, isSupplierRole, STAFF_ROLES, type CustomerRole, type Role, type SupplierRole } from "@/api/roles";
+import { isDormantRole, isSupplierRole, sortRoles, STAFF_ROLES, type CustomerRole, type Role, type SupplierRole } from "@/api/roles";
 import { isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
 import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
@@ -66,6 +68,9 @@ export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: Supplier
 ];
 export const COMMON_GROUP_LABEL = "Min vardag";
 
+/** Rollflikarnas fasta ordning för den som har flera roller (Karims beslut 7, 2026-10-09): det dagliga arbetet först. */
+export const ROLE_TAB_ORDER: readonly SupplierRole[] = ["samordnare", "avtalsansvarig", "chef", "ekonom", "admin"];
+
 /** En rollflik per roll (beslut 2026-10-06). Coachen har ingen. */
 const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
   samordnare: { label: "Samordning", items: [INKORG, FORFALLER, BYGG] },
@@ -90,22 +95,32 @@ const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
 export const NOTIFICATIONS_ITEM: NavItem = { to: "/notiser", label: "Notiser", icon: "bell" };
 
 /**
- * Sidopanelens grupper för en roll: den gemensamma gruppen Min vardag och rollens flik (tom lista för kommun och deltagare).
- * En begränsad testare ser aldrig en stängd sida i menyn; agerar hen ändå i en roll som är dold för testare (ekonom) är
- * menyn tom, som förut.
+ * Sidopanelens grupper för en roll eller alla roller (Karims beslut 7, 2026-10-09): den gemensamma gruppen Min vardag med
+ * valen för alla rollerna och en flik per roll i ROLE_TAB_ORDER (tom lista för kommun och deltagare). Ett menyval visas en
+ * gång – i den första gruppen där det finns. En begränsad testare ser aldrig en stängd sida i menyn; en roll som är dold för
+ * testare (ekonom) ger ingen flik och inga val.
  */
-export function navFor(role: Role, ctx: NavContext): NavGroup[] {
+export function navFor(role: Role | readonly Role[], ctx: NavContext): NavGroup[] {
   // Rollen handledare är vilande (Karims beslut 2026-10-09): ingen meny.
-  if (!isSupplierRole(role) || isDormantRole(role)) return [];
-  if (ctx.hidesCommercial && roleHiddenFromTesters(role)) return [];
-  const common: NavGroupDef = { label: COMMON_GROUP_LABEL, items: COMMON_NAV.filter((c) => c.roles.includes(role)).map((c) => c.item(role)) };
-  const tab = ROLE_TAB[role];
-  return [common, ...(tab ? [tab] : [])]
+  const roles = sortRoles((typeof role === "string" ? [role] : role).filter((r): r is SupplierRole => isSupplierRole(r) && !isDormantRole(r)))
+    .filter((r) => !(ctx.hidesCommercial && roleHiddenFromTesters(r)));
+  if (!roles.length) return [];
+  // Etiketten för ett gemensamt val: en annan roll än coachen går före ("Ärenden" i stället för coachens "Mina ärenden").
+  const commonItem = (c: (typeof COMMON_NAV)[number]): NavItem | null => {
+    const own = roles.filter((r) => c.roles.includes(r));
+    if (!own.length) return null;
+    return c.item(own.find((r) => r !== "coach") ?? own[0]);
+  };
+  const common: NavGroupDef = { label: COMMON_GROUP_LABEL, items: COMMON_NAV.map(commonItem).filter((x): x is NavItem => x !== null) };
+  const tabs = ROLE_TAB_ORDER.filter((r) => roles.includes(r)).map((r) => ROLE_TAB[r]).filter((t): t is NavGroupDef => !!t);
+  const seen = new Set<string>();
+  return [common, ...tabs]
     .map((g) => ({
       label: g.label,
       items: g.items
         .map((it) => (typeof it === "function" ? it(ctx) : it))
-        .filter((it): it is NavItem => it !== null && !(ctx.hidesCommercial && isTesterHiddenPath(it.to))),
+        .filter((it): it is NavItem => it !== null && !(ctx.hidesCommercial && isTesterHiddenPath(it.to)))
+        .filter((it) => (seen.has(it.to) ? false : (seen.add(it.to), true))),
     }))
     .filter((g) => g.items.length > 0);
 }

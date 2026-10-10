@@ -6,10 +6,7 @@ import { plural } from "@/core/format";
 import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekKey, holidayName, isoWeek, monthName, MONTHS, relative, WEEKDAYS } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Link, useNav } from "@/shell/nav";
-import {
-  AiTag, Badge, BuildPhase, Button, Card, CaseLink, CaseName, CaseNo, cn, DemoNote, DoneLine, Field, focusSection, Icon, Input, Kpi, List, ListItem, Meter, Notice, Row, SlaBadge,
-  SlaText, Split, Stack, TitleLink, toast, focusSoon, WEEK_KPI_SM, WeekKpis, WeekPage, type IconName,
-} from "@/ui";
+import { AiTag, Badge, BuildPhase, Button, Card, CaseLink, CaseName, CaseNo, cn, DemoNote, DoneLine, Field, focusSection, focusSoon, Icon, type IconName, Input, Kpi, List, ListItem, Meter, Notice, Row, SlaBadge, SlaText, Split, Stack, TitleLink, toast, useWeekId, useWeekPart, WEEK_KPI_SM, WeekKpis, WeekPage } from "@/ui";
 import { alertAck } from "@/features/ledning/api";
 import { notifRead } from "@/features/notiser/api";
 import { minVecka, type CalendarActivity, type MinVeckaView } from "../api";
@@ -28,6 +25,9 @@ export function MinVeckaScreen() {
 }
 
 function MinVecka({ v }: { v: MinVeckaView }) {
+  const wid = useWeekId();
+  // Flera roller på samma sida (src/ui/week-part.ts): notiskortet står en gång på sidan i stället (alla rollernas notiser).
+  const inPart = useWeekPart() !== null;
   const nav = useNav();
   const read = useCommand(notifRead);
   const [showAllMa, setShowAllMa] = useState(false);
@@ -53,12 +53,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
   // Meddelanden från kommunen: överst när det finns olästa, annars en rad i högerkolumnen.
   const messagesCard =
     v.messages.length === 0 ? (
-      <DoneLine id="mv-meddelanden" title="Meddelanden från kommunen" icon="message">
+      <DoneLine id={wid("mv-meddelanden")} title="Meddelanden från kommunen" icon="message">
         Inga olästa meddelanden
       </DoneLine>
     ) : (
       <Card
-        id="mv-meddelanden"
+        id={wid("mv-meddelanden")}
         title="Meddelanden från kommunen"
         icon="message"
         flush
@@ -101,7 +101,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
       <WeekKpis>
         <Kpi
           className={KPI_SM}
-          onClick={() => focusSection("mv-narvaro")}
+          onClick={() => focusSection(wid("mv-narvaro"))}
           actionHint="Visa"
           label="Närvaro att registrera"
           value={String(unreg)}
@@ -110,7 +110,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         />
         <Kpi
           className={KPI_SM}
-          onClick={() => focusSection("mv-idag")}
+          onClick={() => focusSection(wid("mv-idag"))}
           actionHint="Visa"
           label="Aktiviteter i dag"
           value={String(v.today.length + v.groups.length)}
@@ -124,7 +124,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         />
         <Kpi
           className={KPI_SM}
-          onClick={() => focusSection("mv-ai")}
+          onClick={() => focusSection(wid("mv-ai"))}
           actionHint="Visa"
           label="Mötesrapporter att granska"
           value={String(v.drafts.length)}
@@ -132,7 +132,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
         />
         <Kpi
           className={KPI_SM}
-          onClick={() => focusSection("mv-manad")}
+          onClick={() => focusSection(wid("mv-manad"))}
           actionHint="Visa"
           label={<span className="[overflow-wrap:break-word] [hyphens:manual]">{`Månads­bedömningar ${MONTHS[Number(pm.slice(5, 7)) - 1]}`}</span>}
           value={v.monthly.total === 0 ? "–" : `${v.monthly.done} av ${v.monthly.total}`}
@@ -145,7 +145,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
       <Split wide>
         <Stack>
           {v.toStart.length > 0 && (
-            <Card id="mv-starta" title="Insatser att starta" icon="play" tone="blue" flush>
+            <Card id={wid("mv-starta")} title="Insatser att starta" icon="play" tone="blue" flush>
               <List>
                 {v.toStart.map((c) => (
                   <ListItem
@@ -164,12 +164,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
             </Card>
           )}
           {unreg === 0 ? (
-            <DoneLine id="mv-narvaro" title={`Närvaro – vecka ${wLast}`} icon="check-square">
+            <DoneLine id={wid("mv-narvaro")} title={`Närvaro – vecka ${wLast}`} icon="check-square">
               Allt är registrerat för vecka {wLast}. Veckorapporterna till handläggarna publiceras automatiskt.
             </DoneLine>
           ) : (
           <Card
-            id="mv-narvaro"
+            id={wid("mv-narvaro")}
             title={`Närvaro att registrera – vecka ${wLast}`}
             icon="check-square"
             tone="red"
@@ -208,11 +208,11 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           )}
 
           {dayItems.length === 0 ? (
-            <DoneLine id="mv-idag" title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar">
+            <DoneLine id={wid("mv-idag")} title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar">
               Inga möten eller aktiviteter i dag.
             </DoneLine>
           ) : (
-          <Card id="mv-idag" title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar" flush>
+          <Card id={wid("mv-idag")} title={`Dagens aktiviteter – ${fmtWeekday(today)}`} icon="calendar" flush>
               <List>
                 {dayItems.map((item) => {
                   if (item.type === "group") return <GroupDayRow key={`g-${item.g.id}`} g={item.g} now={now} isNext={v.next?.id === item.g.id} />;
@@ -287,11 +287,11 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           )}
 
           {v.drafts.length === 0 ? (
-            <DoneLine id="mv-ai" title="Mötesrapporter att granska" icon="sparkles">
+            <DoneLine id={wid("mv-ai")} title="Mötesrapporter att granska" icon="sparkles">
               Inga utkast väntar. När du spelat in ett möte skriver AI:n ett utkast till mötesrapport som hamnar här. Du granskar, rättar och godkänner – först då blir det dokumentation.
             </DoneLine>
           ) : (
-          <Card id="mv-ai" title="Mötesrapporter att granska" icon="sparkles" actions={<BuildPhase fas={2} />} flush>
+          <Card id={wid("mv-ai")} title="Mötesrapporter att granska" icon="sparkles" actions={<BuildPhase fas={2} />} flush>
               <p className="border-b border-ljusgra px-[18px] py-3 text-small text-text-muted">
                 När du spelat in ett möte skriver AI:n ett utkast till mötesrapport. Du granskar, rättar och godkänner – först då blir det dokumentation.
               </p>
@@ -319,12 +319,12 @@ function MinVecka({ v }: { v: MinVeckaView }) {
 
           {v.monthly.total === 0 ? (
             // Tom databas eller inga aktiva ärenden i månaden: en rad i stället för "0 av 0 godkända" och ett passerat datum.
-            <DoneLine id="mv-manad" title={`Månadsbedömningar – ${monthName(pm)}`} icon="clipboard">
+            <DoneLine id={wid("mv-manad")} title={`Månadsbedömningar – ${monthName(pm)}`} icon="clipboard">
               Inga ärenden att bedöma.
             </DoneLine>
           ) : (
           <Card
-            id="mv-manad"
+            id={wid("mv-manad")}
             title={`Månadsbedömningar – ${monthName(pm)}`}
             icon="clipboard"
             actions={
@@ -419,16 +419,16 @@ function MinVecka({ v }: { v: MinVeckaView }) {
           )}
 
           {v.flags.length === 0 ? (
-            <DoneLine id="mv-flaggor" title="Egna flaggor" icon="flag">
+            <DoneLine id={wid("mv-flaggor")} title="Egna flaggor" icon="flag">
               Inga flaggor
             </DoneLine>
           ) : (
-            <Card id="mv-flaggor" title="Egna flaggor" icon="flag" flush>
+            <Card id={wid("mv-flaggor")} title="Egna flaggor" icon="flag" flush>
               <FlagList flags={v.flags} />
             </Card>
           )}
 
-          <Card
+          {!inPart && <Card
             title="Olästa notiser"
             icon="bell"
             actions={
@@ -459,7 +459,7 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                 </ul>
               </Stack>
             )}
-          </Card>
+          </Card>}
 
           {!v.due.monthly && v.due.other.length === 0 ? (
             <DoneLine title="Rapporter som förfaller" icon="file">
@@ -529,10 +529,11 @@ const flagDomId = (key: string) => `flagga-${key.replace(/[^a-z0-9]/gi, "-")}`;
 
 /** Flaggorna. Efter en kvittering hamnar fokus på nästa flagga (annars föregående, annars avsnittets rubrik). */
 function FlagList({ flags }: { flags: MinVeckaView["flags"] }) {
+  const wid = useWeekId();
   const after = (key: string) => {
     const i = flags.findIndex((f) => f.key === key);
     const next = flags[i + 1] ?? flags[i - 1];
-    focusSoon(next ? flagDomId(next.key) : "mv-flaggor-rubrik");
+    focusSoon(next ? wid(flagDomId(next.key)) : `${wid("mv-flaggor")}-rubrik`);
   };
   return (
     <List>
@@ -544,6 +545,7 @@ function FlagList({ flags }: { flags: MinVeckaView["flags"] }) {
 }
 
 function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: () => void }) {
+  const wid = useWeekId();
   const [open, setOpen] = useState(false);
   const [plan, setPlan] = useState("");
   const ack = useCommand(alertAck);
@@ -556,7 +558,7 @@ function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: (
         : a.href
           ? [a.href, "Öppna"]
           : null;
-  const id = `ack-${a.key.replace(/[^a-z0-9]/gi, "-")}`;
+  const id = wid(`ack-${a.key.replace(/[^a-z0-9]/gi, "-")}`);
   const save = async () => {
     const res = await ack.run({ key: a.key, plan: plan.trim() }).catch(() => null);
     if (res && res.ok) {
@@ -574,7 +576,7 @@ function FlagItem({ a, onAcked }: { a: MinVeckaView["flags"][number]; onAcked: (
     requestAnimationFrame(() => document.getElementById(`${id}-kvittera`)?.focus());
   };
   return (
-    <div id={flagDomId(a.key)} tabIndex={-1} className="flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0">
+    <div id={wid(flagDomId(a.key))} tabIndex={-1} className="flex min-w-0 items-start gap-3 border-b border-ljusgra px-[18px] py-3 last:border-b-0">
       <Icon name={critical ? "alert" : "flag"} size="lg" className={critical ? "text-rod" : undefined} />
       <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <Row gap="sm">

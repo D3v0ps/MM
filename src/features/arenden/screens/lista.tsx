@@ -61,19 +61,23 @@ const newest = (a: CaseListRow, b: CaseListRow) => (a.referredAt < b.referredAt 
 
 function List({ model, query }: { model: CaseListModel; query: URLSearchParams }) {
   const { actor } = useSession();
-  const role = actor.role;
+  // Alla roller samtidigt (Karims beslut 7, 2026-10-09). Coachens lista (öppna, Mina ärenden) när ingen av rollerna är
+  // samordnare, avtalsansvarig, chef eller admin – annars hela avtalet som förut, med valet Mina/Alla för coachen.
+  const roles = actor.roles;
+  const has = (r: Role) => roles.includes(r);
+  const teamOnly = (has("coach") || has("handledare")) && !roles.some((r) => r === "samordnare" || r === "avtalsansvarig" || r === "chef" || r === "admin");
   const patch = useQueryPatch();
   // Smal skärm: filtren ligger under knappen "Filter (n)" – sökfältet först.
   const [filtersOpen, setFiltersOpen] = useState(false);
   // Valen ligger i adressen (Tillbaka och omladdning visar samma lista). Söktexten kan vara ett namn: bara i minnet.
   const [q, setQ] = useMemoryState("q", "");
   // Coach och handledare: öppna ärenden som standard (avslutade finns under "Alla statusar"); övriga roller alla.
-  const defaultStatus: (typeof STATUS_VALUES)[number] = role === "coach" || role === "handledare" ? "open" : "alla";
+  const defaultStatus: (typeof STATUS_VALUES)[number] = teamOnly ? "open" : "alla";
   const status = pick(query, "status", STATUS_VALUES, defaultStatus);
   // Alla på Miljonbemanning ser alla ärenden i avtalet (beslut 2026-10-09). Coachen börjar i sina egna (huvudcoach eller i
   // teamet). Den vilande rollen handledare (beslut 2026-10-09) börjar i alla.
-  const scopeable = role === "coach" || role === "handledare";
-  const defaultScope: (typeof CASE_LIST_SCOPES)[number] = role === "coach" ? "mina" : "alla";
+  const scopeable = has("coach") || has("handledare");
+  const defaultScope: (typeof CASE_LIST_SCOPES)[number] = teamOnly && has("coach") ? "mina" : "alla";
   const scope = scopeable ? pick(query, "vilka", CASE_LIST_SCOPES, defaultScope) : "alla";
   const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
@@ -105,7 +109,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
     if (limit !== PAGE) setLimit(PAGE);
   };
   const all = useMemo(() => (scope === "mina" ? model.rows.filter((c) => c.mine) : model.rows), [model.rows, scope]);
-  const readOnly = READ_ONLY.includes(role);
+  const readOnly = roles.every((r) => READ_ONLY.includes(r));
   const needle = norm(q);
 
   const rows = useMemo(() => {
@@ -141,11 +145,11 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const nWaiting = all.filter((c) => WAITING.includes(c.status)).length;
   const nFlag = all.filter((c) => c.flagged).length;
   const showCoach = !scopeable || scope === "alla";
-  const title = role === "coach" && scope === "mina" ? "Mina ärenden" : "Ärenden";
+  const title = has("coach") && scope === "mina" ? "Mina ärenden" : "Ärenden";
   const customer = model.customerName;
   const lead =
     scope === "mina"
-      ? `Ärenden där du är ${role === "coach" ? "huvudcoach eller ingår i teamet" : "med i teamet"}. Välj Alla ärenden för att se hela avtalet. Klicka på en rad för att öppna deltagarkortet.`
+      ? `Ärenden där du är ${has("coach") ? "huvudcoach eller ingår i teamet" : "med i teamet"}. Välj Alla ärenden för att se hela avtalet. Klicka på en rad för att öppna deltagarkortet.`
       : readOnly
         ? `Alla ärenden i avtalet med ${customer}. Du ser dem i läsläge.`
         : `Alla ärenden i avtalet med ${customer}. Klicka på en rad för att öppna deltagarkortet.`;
@@ -156,7 +160,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   return (
     <Page
       title={title}
-      eyebrow={readOnly ? "Läsläge" : ROLE_EYEBROW[role]}
+      eyebrow={readOnly ? "Läsläge" : roles.map((r) => ROLE_EYEBROW[r]).find(Boolean)}
       lead={lead}
       actions={
         <>
@@ -292,7 +296,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
             <Empty icon="search" title="Inga öppna ärenden" action={<Button onClick={() => setStatus("alla")}>Visa alla statusar</Button>}>
               Alla dina ärenden är avslutade eller avböjda.
             </Empty>
-          ) : role === "coach" || role === "handledare" ? (
+          ) : teamOnly ? (
             <Empty icon="users" title="Du har inga ärenden ännu">
               Samordnaren tilldelar dig ärenden när ett avrop har accepterats. De visas här.
             </Empty>
@@ -300,7 +304,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
             <Empty
               icon="users"
               title="Inga ärenden ännu"
-              action={(role === "samordnare" || role === "avtalsansvarig") && <Button icon="inbox" to="/inkorg">Öppna avropsinkorgen</Button>}
+              action={(has("samordnare") || has("avtalsansvarig")) && <Button icon="inbox" to="/inkorg">Öppna avropsinkorgen</Button>}
             >
               Ett ärende skapas när ett avrop accepteras i avropsinkorgen.
             </Empty>

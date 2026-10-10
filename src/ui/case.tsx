@@ -11,19 +11,23 @@ import { Button } from "./button";
 import { cn } from "./cn";
 import { toast } from "./toast";
 
-/** Sökväg till ärendet för en roll: kommunen → portalen, ekonom → ekonomivyn, övriga → ärendekortet. Deltagaren: ingen. */
-export function casePathFor(role: Role, caseId: string): string | null {
+/**
+ * Sökväg till ärendet för en roll – eller rollerna (Karims beslut 7, 2026-10-09): ärendekortet om någon av rollerna når det,
+ * annars ekonomivyn (ekonom), annars portalen (kommunen). Deltagaren: ingen.
+ */
+export function casePathFor(role: Role | readonly Role[], caseId: string): string | null {
+  const roles = typeof role === "string" ? [role] : role;
   const id = encodeURIComponent(caseId);
-  if (isCustomerRole(role)) return `/portal/deltagare/${id}`;
-  if (role === "ekonom") return `/ekonomi/arende/${id}`;
-  if (role === "deltagare") return null;
-  return `/arenden/${id}`;
+  if (roles.some((r) => !isCustomerRole(r) && r !== "ekonom" && r !== "deltagare")) return `/arenden/${id}`;
+  if (roles.includes("ekonom")) return `/ekonomi/arende/${id}`;
+  if (roles.some(isCustomerRole)) return `/portal/deltagare/${id}`;
+  return null;
 }
 
 /** Ärendenumret som länk till rätt vy för rollen. canOpen=false visar bara numret. Klick bubblar inte till tabellraden. */
 export function CaseLink({ caseId, caseNumber, children, canOpen = true, className }: { caseId: string; caseNumber: string; children?: ReactNode; canOpen?: boolean; className?: string }) {
   const { actor } = useSession();
-  const to = canOpen ? casePathFor(actor.role, caseId) : null;
+  const to = canOpen ? casePathFor(actor.roles, caseId) : null;
   if (!to) return <span className={cn("font-bold tabular-nums tracking-[0.01em]", className)}>{children ?? caseNumber}</span>;
   return (
     <Link
@@ -139,9 +143,10 @@ export function useAuditView(key: string | null | undefined, log: () => unknown)
   });
   useEffect(() => {
     if (!key) return;
-    const k = `${actor.userId}|${actor.role}|${key}`;
+    const roles = actor.roles.join(",");
+    const k = `${actor.userId}|${roles}|${key}`;
     if (auditViewSeen(k)) return;
     markAuditView(k);
     void logRef.current();
-  }, [key, actor.userId, actor.role]);
+  }, [key, actor.userId, actor.roles]);
 }

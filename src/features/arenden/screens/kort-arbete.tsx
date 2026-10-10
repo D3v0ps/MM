@@ -21,9 +21,9 @@ const eventIcon = (kind: string): IconName =>
 
 export function TabHandelser({ card }: TabProps) {
   const q = useQuery(caseEvents, { caseId: card.caseId });
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const team = card.access === "team";
-  const can = canOpen("coach.handelse", role) && card.edit;
+  const can = canOpen("coach.handelse", roles) && card.edit;
   return (
     <TabQuery q={q}>
       {(e) => {
@@ -476,7 +476,7 @@ function CallModal({
 // ---------------------------------------------------------------- Praktik
 export function TabPraktik({ card }: TabProps) {
   const q = useQuery(casePlacements, { caseId: card.caseId });
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   // Ny praktik (beslut 2026-10-08): huvudcoachen, samordnare och avtalsansvarig i ett pågående ärende.
   const canPlan = card.edit && (card.status === "active" || card.status === "paused");
   const [modal, setModal] = useState<"new" | { end: { id: string; employerName: string | null; startsOn: string } } | null>(null);
@@ -489,7 +489,7 @@ export function TabPraktik({ card }: TabProps) {
             <p className="max-w-[70ch] text-text-muted">Varje praktikplats ska ha de fyra rätten: rätt arbetsuppgifter, rätt handledning, rätt tidpunkt och rätt uppföljning.</p>
             <div className="flex flex-wrap items-center gap-1.5">
               <BuildPhase fas={3} />
-              {canOpen("praktik.arbetsgivare", role) && <Button icon="briefcase" to="/praktik">Arbetsgivarregistret</Button>}
+              {canOpen("praktik.arbetsgivare", roles) && <Button icon="briefcase" to="/praktik">Arbetsgivarregistret</Button>}
               {newButton}
             </div>
           </div>

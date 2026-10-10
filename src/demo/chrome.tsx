@@ -58,7 +58,8 @@ function ProtoBar({ onReset }: { onReset: () => void }) {
   const goAs = useGoAs();
   const f = useFeedback();
   const [confirmReset, setConfirmReset] = useState(false);
-  const role = session.actor.role;
+  // Testpersonens första roll (rollernas ordning) – prototypens rollväljare utgår från den.
+  const role = session.actor.roles[0];
   const pDef = perspectiveDef(role);
   const now = useQuery(sessionPing, {}).data?.now;
   const open = f.items.filter((x) => x.status === "ny").length;

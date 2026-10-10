@@ -9,10 +9,7 @@ import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import { addWorkingDays, dayOf, fmtTime, fmtWeekday } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
-import {
-  Badge, BuildPhase, Button, Card, CaseLink, DateInput, DoneLine, ErrorNotice, Field, focusSection, FormGrid, Icon, Kpi, Loading, Meter, Modal, Notice,
-  PerspectiveLink, Row, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, WEEK_KPI_SM, WeekKpis, WeekPage,
-} from "@/ui";
+import { Badge, BuildPhase, Button, Card, CaseLink, DateInput, DoneLine, ErrorNotice, Field, focusSection, FormGrid, Icon, Kpi, Loading, Meter, Modal, Notice, PerspectiveLink, Row, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, useWeekId, WEEK_KPI_SM, WeekKpis, WeekPage } from "@/ui";
 import { TodayGroupsCard } from "@/features/aktiviteter/screens/idag";
 import { inboxRowPath, inboxStart, inboxTaskDone, type AlertView, type StartView } from "../api";
 import { CLASSIFICATION, METHOD } from "../texts";
@@ -46,6 +43,7 @@ export function SamMinVeckaScreen() {
 }
 
 function Week({ v }: { v: StartView }) {
+  const wid = useWeekId();
   const { actor } = useSession();
   const coach = usePersona("coach");
   const demo = useIsDemo();
@@ -54,7 +52,7 @@ function Week({ v }: { v: StartView }) {
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [showAcked, setShowAcked] = useState(false);
   const taskDone = useCommand(inboxTaskDone);
-  const handles = actor.role === "avtalsansvarig";
+  const handles = actor.roles.includes("avtalsansvarig");
   const urgent = v.urgent;
   const urgentTone = urgent?.sla && (urgent.sla.sla.tone === "urgent" || urgent.sla.sla.tone === "over") ? "alert" : undefined;
   const crit = v.alerts.filter((a) => a.severity === "critical").length;
@@ -82,7 +80,7 @@ function Week({ v }: { v: StartView }) {
         <Kpi
           className={WEEK_KPI_SM}
           dataAttrs={tile(fm.flagged > 0 ? "watch" : undefined)}
-          onClick={() => focusSection("mv-forsta-moten")}
+          onClick={() => focusSection(wid("mv-forsta-moten"))}
           actionHint="Visa"
           label="Första möten ej bokade"
           value={String(fm.rows.length)}
@@ -105,7 +103,7 @@ function Week({ v }: { v: StartView }) {
         <Kpi
           className={WEEK_KPI_SM}
           dataAttrs={tile(crit > 0 ? "watch" : undefined)}
-          onClick={() => focusSection("mv-flaggor")}
+          onClick={() => focusSection(wid("mv-flaggor"))}
           actionHint="Visa"
           label="Flaggor att kvittera"
           value={String(v.alerts.length)}
@@ -118,12 +116,12 @@ function Week({ v }: { v: StartView }) {
       <Split wide>
         <Stack>
           {v.items.length === 0 ? (
-            <DoneLine id="mv-inkorg" title="Avropsinkorg" icon="inbox">
+            <DoneLine id={wid("mv-inkorg")} title="Avropsinkorg" icon="inbox">
               Inkorgen är tom – inga beställningar väntar.
             </DoneLine>
           ) : (
             <Card
-              id="mv-inkorg"
+              id={wid("mv-inkorg")}
               title="Avropsinkorg"
               icon="inbox"
               flush
@@ -158,12 +156,12 @@ function Week({ v }: { v: StartView }) {
           )}
 
           {v.alerts.length === 0 && v.acked.length === 0 ? (
-            <DoneLine id="mv-flaggor" title={`Flaggor (${v.alerts.length})`} icon="flag">
+            <DoneLine id={wid("mv-flaggor")} title={`Flaggor (${v.alerts.length})`} icon="flag">
               Inga öppna flaggor. Allt är kvitterat.
             </DoneLine>
           ) : (
             <Card
-              id="mv-flaggor"
+              id={wid("mv-flaggor")}
               title={`Flaggor (${v.alerts.length})`}
               icon="flag"
               flush
@@ -228,11 +226,11 @@ function Week({ v }: { v: StartView }) {
           )}
 
           {fm.rows.length === 0 ? (
-            <DoneLine id="mv-forsta-moten" title="Första möten som inte är bokade" icon="calendar">
+            <DoneLine id={wid("mv-forsta-moten")} title="Första möten som inte är bokade" icon="calendar">
               Alla första möten är bokade.
             </DoneLine>
           ) : (
-            <Card id="mv-forsta-moten" title="Första möten som inte är bokade" icon="calendar" flush>
+            <Card id={wid("mv-forsta-moten")} title="Första möten som inte är bokade" icon="calendar" flush>
               <MiniList>
                 {fm.rows.map((c) => (
                   <MiniRow
@@ -255,7 +253,7 @@ function Week({ v }: { v: StartView }) {
 
           {v.toStart.length > 0 && (
             <Card
-              id="mv-starta"
+              id={wid("mv-starta")}
               title="Insatser att starta"
               icon="play"
               flush

@@ -259,10 +259,10 @@ function DetailContent({ d }: { d: Found }) {
   const { actor } = useSession();
   // Ny praktik hos arbetsgivaren (beslut 2026-10-08): ärendena hämtas först när dialogen öppnas.
   const [newPl, setNewPl] = useState(false);
-  const canPlan = PLANNERS.includes(actor.role);
+  const canPlan = actor.roles.some((r) => PLANNERS.includes(r));
   const cl = useQuery(caseList, newPl ? {} : null);
   const planCases = (cl.data?.rows ?? [])
-    .filter((r) => (r.status === "active" || r.status === "paused") && (actor.role !== "coach" || r.detail.leadCoachId === actor.userId))
+    .filter((r) => (r.status === "active" || r.status === "paused") && (!actor.roles.every((x) => x === "coach") || r.detail.leadCoachId === actor.userId))
     .map((r) => ({ caseId: r.id, caseNumber: r.caseNumber, name: r.displayName, plannedEnd: r.detail.end }));
   const e = d.employer;
   const group: PlacementGroup = show === "ongoing" ? d.ongoing : d.done;

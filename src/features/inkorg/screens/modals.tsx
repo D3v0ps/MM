@@ -57,7 +57,7 @@ const periodOptions = (p: { months: number[]; allowOther: boolean }) => [
 
 function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClose: () => void; onShowEmail?: (id: string) => void; next: NextAction }) {
   const accept = useCommand(caseAccept);
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   // Ingen kollega har rollen huvudcoach ännu (tom databas): avropet kan inte accepteras förrän någon fått rollen.
   const noCoach = f.coaches.length === 0;
   const [coach, setCoach] = useState("");
@@ -208,7 +208,7 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
           <Notice tone="warn" icon="users" title="Ingen kollega har rollen huvudcoach ännu">
             <div className="flex flex-col gap-2">
               <span>Lägg till kollegan under Användare och roller och ge rollen Huvudcoach. Sedan kan avropet accepteras.</span>
-              {(role === "admin" || role === "avtalsansvarig") && (
+              {(roles.includes("admin") || roles.includes("avtalsansvarig")) && (
                 <div>
                   <Button kind="secondary" icon="users" to="/admin/anvandare">Öppna Användare och roller</Button>
                 </div>

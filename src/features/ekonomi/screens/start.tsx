@@ -18,7 +18,7 @@ import { RefInvoicesCard, ReturnedCard, RunCard, TasksCard, UnbilledCard, useBil
 export function StartScreen() {
   const session = useSession();
   const q = useQuery(ekoStart, {});
-  const eyebrow = session.user.name ? `${session.user.name} · ${ROLE_LABEL[session.actor.role]}` : "Ekonomi";
+  const eyebrow = session.user.name ? `${session.user.name} · ${ROLE_LABEL.ekonom}` : "Ekonomi";
   const lead = (name: string) => `Fakturaunderlag för avtalet med ${name}: en faktura per månad med en rad per ärende. Peppol-faktura via Fortnox.`;
   if (q.error) return <Page className={WRAP} title="Fakturering" eyebrow={eyebrow}><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (!q.data) return <Page className={WRAP} title="Fakturering" eyebrow={eyebrow}><Loading /></Page>;

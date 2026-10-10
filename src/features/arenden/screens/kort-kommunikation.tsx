@@ -20,8 +20,8 @@ const REPORT_LOOK: Record<string, [BadgeTone, IconName]> = {
 
 export function TabRapporter({ card }: TabProps) {
   const q = useQuery(caseReports, { caseId: card.caseId });
-  const role = useSession().actor.role;
-  const can = canOpen("rapport.visa", role);
+  const roles = useSession().actor.roles;
+  const can = canOpen("rapport.visa", roles);
   const today = card.now.slice(0, 10);
   const StatusCell = ({ r }: { r: CaseReportRow }) => {
     const t = REPORT_LOOK[r.status] ?? (["grey", "circle"] as [BadgeTone, IconName]);

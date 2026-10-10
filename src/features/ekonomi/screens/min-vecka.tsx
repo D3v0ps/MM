@@ -9,7 +9,7 @@ import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import { useWeekToday } from "@/features/vecka/today";
 import { useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
-import { Button, DemoNote, ErrorNotice, focusSection, Kpi, Loading, Notice, Split, Stack, WeekKpis, WeekPage } from "@/ui";
+import { Button, DemoNote, ErrorNotice, focusSection, Kpi, Loading, Notice, Split, Stack, useWeekId, WeekKpis, WeekPage } from "@/ui";
 import { ekoStart, type BillingStartView } from "../api";
 import { cap, plural } from "../model";
 import { WRAP } from "./parts";
@@ -54,6 +54,7 @@ function EkonomWeek({ today }: { today: string | null }) {
 }
 
 function Week({ v }: { v: BillingStartView }) {
+  const wid = useWeekId();
   const a = useBillingActions(v);
   const cur = v.current;
   const openTasks = v.tasks.filter((t) => t.status === "open");
@@ -87,7 +88,7 @@ function Week({ v }: { v: BillingStartView }) {
         />
         <Kpi
           className={AMOUNT_KPI}
-          onClick={() => focusSection("mv-preskription")}
+          onClick={() => focusSection(wid("mv-preskription"))}
           actionHint="Visa"
           label="Preskriptionsrisk"
           value={kr(v.unbilled.totalOre)}
@@ -107,7 +108,7 @@ function Week({ v }: { v: BillingStartView }) {
             sub={`${cur.dueRelative} kl. ${fmtTime(cur.due)} · internt mål ${cur.fortnoxDays} arbetsdagar efter månadsskiftet`}
           />
         ) : cur ? (
-          <Kpi className={AMOUNT_KPI} onClick={() => focusSection("mv-uppgifter")} actionHint="Visa" label="Öppna uppgifter" value={num(openTasks.length)} sub="Från avtalsansvarig" />
+          <Kpi className={AMOUNT_KPI} onClick={() => focusSection(wid("mv-uppgifter"))} actionHint="Visa" label="Öppna uppgifter" value={num(openTasks.length)} sub="Från avtalsansvarig" />
         ) : (
           <Kpi className={AMOUNT_KPI} label="Senast i Fortnox" value="–" sub="Ingen körning pågår" />
         )}
@@ -115,13 +116,13 @@ function Week({ v }: { v: BillingStartView }) {
       <Split wide>
         <Stack>
           <RunCard v={v} buttonKind="secondary" />
-          <div id="mv-uppgifter" className="scroll-mt-4">
+          <div id={wid("mv-uppgifter")} className="scroll-mt-4">
             <TasksCard v={v} a={a} />
           </div>
           <RefInvoicesCard v={v} a={a} />
         </Stack>
         <Stack>
-          <div id="mv-preskription" className="scroll-mt-4">
+          <div id={wid("mv-preskription")} className="scroll-mt-4">
             <UnbilledCard v={v} />
           </div>
           <ReturnedCard v={v} a={a} />

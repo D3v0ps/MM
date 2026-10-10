@@ -13,10 +13,11 @@ import { resolveRoute } from "@/shell/routes";
  * - En begränsad testare (hidesCommercial) stannar aldrig på en sida som är stängd för testare.
  * Sidan laddas ändå om – inga data från förra testpersonen ligger kvar.
  */
-export function stayOrStart(pathWithQuery: string, role: Role, hidesCommercial?: boolean): string {
+export function stayOrStart(pathWithQuery: string, role: Role | readonly Role[], hidesCommercial?: boolean): string {
+  const roles = typeof role === "string" ? [role] : role;
   const pathname = pathWithQuery.split(/[?#]/)[0] || "/";
   if (hidesCommercial && isTesterHiddenPath(pathname)) return "/";
   const m = resolveRoute(APP_ROUTES, pathname);
   if (!m || Object.keys(m.params).length > 0) return "/";
-  return m.route.public || m.route.roles.includes(role) ? pathWithQuery : "/";
+  return m.route.public || roles.some((r) => m.route.roles.includes(r)) ? pathWithQuery : "/";
 }

@@ -6,9 +6,9 @@
 //   om      prototypens egna sidor
 // Utvecklingsläget (riktiga appen i minnesläge) får en diskret rad överst för att välja testperson.
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
+import { isCustomerRole, rolesLabel } from "@/api/roles";
 import { navCounts } from "@/features/session/nav-api";
-import { sessionPing, switchRole } from "@/features/session/api";
+import { sessionPing } from "@/features/session/api";
 import { AreaProvider, type LayoutArea } from "@/ui/area";
 import { buttonVariants } from "@/ui/button";
 import { cn } from "@/ui/cn";
@@ -17,9 +17,9 @@ import { Icon } from "@/ui/icons";
 import { Avatar } from "@/ui/data";
 import { Brand } from "@/ui/layout";
 import { Toaster } from "@/ui/toast";
-import { useCommand, useQuery } from "./backend";
+import { useQuery } from "./backend";
 import { ROUTE_STATUS_ID } from "./page-effects";
-import { cancelLeaveDocument, confirmLeaveDocument, Link, useNav } from "./nav";
+import { Link, useNav } from "./nav";
 import { activePath, navFor, NOTIFICATIONS_ITEM, PORTAL_LOGIN_PATH, PORTAL_START_PATH, portalNavFor, type NavItem } from "./nav-config";
 import { HELP_PATH, PORTAL_HELP_PATH } from "@/features/hjalp/routes";
 import { startPathFor, type RouteMatch } from "./routes";
@@ -73,7 +73,8 @@ function DevBar() {
   const runtime = useRuntime();
   const s = useSession();
   if (runtime !== "app" || !s.personas?.length || !s.switchRole) return null;
-  const value = `${s.actor.userId}|${s.actor.role}`;
+  // En testperson per användare – med alla sina roller (Karims beslut 7, 2026-10-09).
+  const value = s.actor.userId;
   return (
     <div data-print="hide" className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b-2 border-dashed border-line-strong bg-vit px-4 py-1.5 text-small">
       <label htmlFor="dev-persona" className="font-bold">
@@ -84,14 +85,13 @@ function DevBar() {
         className="w-auto max-w-full py-1.5 text-small font-semibold"
         value={value}
         onChange={(e) => {
-          const [userId, role] = e.target.value.split("|");
-          const p = s.personas?.find((x) => x.userId === userId && x.role === role);
+          const p = s.personas?.find((x) => x.userId === e.target.value);
           if (p) s.switchRole?.(p.role, p.userId);
         }}
       >
         {s.personas.map((p) => (
-          <option key={`${p.userId}|${p.role}`} value={`${p.userId}|${p.role}`}>
-            {p.name} – {ROLE_LABEL[p.role]}
+          <option key={p.userId} value={p.userId}>
+            {p.name} – {rolesLabel(p.roles)}
           </option>
         ))}
       </select>
@@ -206,8 +206,9 @@ function Sidebar() {
   const { open, toggle, close, rootRef, buttonRef, layerRef } = useMobileMenu();
   const counts = useQuery(navCounts, {}).data;
   // Klockan behövs bara för ekonomens "Fakturakörning <förra månaden>".
-  const ping = useQuery(sessionPing, actor.role === "ekonom" ? {} : null).data;
-  const groups = navFor(actor.role, { now: ping?.now ?? null, hidesCommercial: session.hidesCommercial });
+  const ping = useQuery(sessionPing, actor.roles.includes("ekonom") ? {} : null).data;
+  // Alla roller samtidigt (Karims beslut 7, 2026-10-09): Min vardag och en flik per roll.
+  const groups = navFor(actor.roles, { now: ping?.now ?? null, hidesCommercial: session.hidesCommercial });
   const active = activePath(nav.path, [NOTIFICATIONS_ITEM.to, ...groups.flatMap((g) => g.items.map((i) => i.to))]);
   const testData = runtime === "demo" || !!session.personas?.length;
   const unread = counts?.notifications ?? 0;
@@ -223,7 +224,7 @@ function Sidebar() {
       )}
     >
       <Link
-        to={startPathFor(actor.role, session.hidesCommercial)}
+        to={startPathFor(actor.roles, session.hidesCommercial)}
         onClick={close}
         className="flex min-h-11 flex-col justify-center gap-0.5 self-start rounded-mb px-2 py-1 text-vit no-underline hover:bg-vit/8 max-[900px]:self-center"
       >
@@ -257,7 +258,7 @@ function Sidebar() {
           <Avatar name={user.name} onDark />
           <div className="min-w-0 flex-1">
             <div className="text-ui leading-[1.2] font-bold">{user.name}</div>
-            <div className="text-meta text-vit/80">{ROLE_LABEL[actor.role]}</div>
+            <div className="text-meta text-vit/80">{rolesLabel(actor.roles)}</div>
           </div>
           {session.signOut && (
             <button
@@ -271,7 +272,6 @@ function Sidebar() {
             </button>
           )}
         </div>
-        <RoleSwitch />
         {/* Hjälp längst ner: lathunden för kollegor (docs/lathund/kollega.md). */}
         <Link
           to={HELP_PATH}
@@ -288,69 +288,6 @@ function Sidebar() {
         {testData && <div className="px-2 text-label leading-[1.4] text-vit/72 max-[900px]:hidden">Påhittade testdata.</div>}
       </div>
     </aside>
-  );
-}
-
-/**
- * Rollväxling för egna roller (beslut 2026-10-08): den som har flera roller (t.ex. systemadministratör och avtalsansvarig)
- * väljer roll här, under sitt namn. Valet sparas på servern (session.vaxlaRoll, role_choices) och sidan laddas om i den nya
- * rollen – samma i appen och prototypen. 44 px, etikett, tangentbord och skärmläsare (inbyggd rullgardin). Frågar först om
- * osparad text. Visas inte med en enda roll eller när en testare agerar som en testperson.
- */
-function RoleSwitch() {
-  const session = useSession();
-  const sw = useCommand(switchRole);
-  const roles = session.ownRoles ?? [];
-  const current = session.actor.role;
-  const [picked, setPicked] = useState<Role>(current);
-  const [failed, setFailed] = useState<string | null>(null);
-  if (roles.length < 2 || !session.chooseRole) return null;
-  const pick = async (role: Role) => {
-    setPicked(role);
-    setFailed(null);
-    if (role === current) return;
-    // Fråga först (osparad text) och byt sedan – stannar man kvar är ingenting bytt.
-    if (!(await confirmLeaveDocument())) {
-      setPicked(current);
-      return;
-    }
-    const r = await sw.run({ role }).catch(() => null);
-    if (!r || !r.ok) {
-      cancelLeaveDocument();
-      setPicked(current);
-      setFailed((r && !r.ok && r.message) || "Rollen kunde inte bytas. Försök igen.");
-      return;
-    }
-    await session.chooseRole?.(role);
-  };
-  return (
-    <div className="flex flex-col gap-1 border-b border-vit/14 px-2 py-2.5 max-[900px]:w-full">
-      <label htmlFor="rollval" className="text-[0.6875rem] font-bold tracking-[0.12em] text-vit/72 uppercase">
-        Roll
-      </label>
-      <select
-        id="rollval"
-        className="min-h-11 w-full rounded-mb border-0 bg-vit px-2 text-ui font-semibold text-antracit"
-        value={picked}
-        aria-busy={sw.pending}
-        aria-describedby="rollval-hjalp"
-        onChange={(e) => void pick(e.target.value as Role)}
-      >
-        {roles.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABEL[r]}
-          </option>
-        ))}
-      </select>
-      <span id="rollval-hjalp" className="sr-only">
-        Du har flera roller. Byter du roll laddas sidan om.
-      </span>
-      {failed && (
-        <span role="alert" className="text-small font-bold">
-          {failed}
-        </span>
-      )}
-    </div>
   );
 }
 
@@ -398,7 +335,7 @@ function PortalLayout({ match, children }: { match: RouteMatch; children: ReactN
 /** Portalens sidfot: Hjälp – lathunden för handläggare och mallen för beställning via mejl (docs/lathund). Inte på inloggningssidan. */
 function PortalFooter({ match }: { match: RouteMatch }) {
   const session = useSession();
-  if (match.route.path === PORTAL_LOGIN_PATH || !isCustomerRole(session.actor.role)) return null;
+  if (match.route.path === PORTAL_LOGIN_PATH || !session.actor.roles.some(isCustomerRole)) return null;
   return (
     <footer data-print="hide" className="border-t border-ljusgra bg-vit">
       <div className="mx-auto flex max-w-[860px] flex-wrap items-center gap-x-5 gap-y-2 px-6 py-4 max-[620px]:px-4">
@@ -430,7 +367,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
   // "Du är utloggad." med ?utloggad=du, LOGGED_OUT i session/screens/logga-in.tsx).
   const signOut = () => (session.signOut ? session.signOut() : nav.push(PORTAL_LOGIN_PATH));
   const home = (
-    <Link to={startPathFor(actor.role, session.hidesCommercial)} onClick={close} className="inline-flex min-h-11 shrink-0 items-center rounded-mb px-1 text-antracit no-underline hover:bg-ljusgra-ton2 max-[480px]:px-0">
+    <Link to={startPathFor(actor.roles, session.hidesCommercial)} onClick={close} className="inline-flex min-h-11 shrink-0 items-center rounded-mb px-1 text-antracit no-underline hover:bg-ljusgra-ton2 max-[480px]:px-0">
       {/* Mobil (≤ 480 px): ordmärket i brödtextens storlek, så att det och knappen bredvid ryms på en rad. */}
       <Brand name="Miljonbemanning" className="max-[480px]:text-body" />
       <span className="sr-only"> – till startsidan</span>
@@ -443,7 +380,8 @@ function PortalHeader({ match }: { match: RouteMatch }) {
     </button>
   );
 
-  if (path === PORTAL_LOGIN_PATH || !isCustomerRole(actor.role)) {
+  const customerRole = actor.roles.find(isCustomerRole);
+  if (path === PORTAL_LOGIN_PATH || !customerRole) {
     return (
       <header className={header} data-print="hide">
         <Brand name="Miljonbemanning" />
@@ -465,7 +403,7 @@ function PortalHeader({ match }: { match: RouteMatch }) {
       </header>
     );
   }
-  const items = portalNavFor(actor.role);
+  const items = portalNavFor(customerRole);
   const active = activePath(nav.path, items.map((i) => i.to));
   return (
     <header ref={rootRef} className={header} data-print="hide">

@@ -3,7 +3,7 @@
 // avsnitt och högerkolumn, men med rollens egna uppgifter. Delarna kommer från coachens Min vecka
 // (src/features/coach/screens/min-vecka.tsx) utan ändring i markup eller klasser. Stilreglerna: src/ui/README.md.
 import type { ReactNode } from "react";
-import { ROLE_LABEL, type Role } from "@/api/roles";
+import { ROLE_LABEL, rolesLabel, type Role } from "@/api/roles";
 import { fmtDateTimeLong, fmtWeekday, isoWeek, type LocalDate } from "@/core/time";
 import { Link } from "@/shell/nav";
 import { useSession } from "@/shell/session";
@@ -11,8 +11,9 @@ import type { SlaView } from "./badge";
 import { CaseLink } from "./case";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
-import { Grid } from "./layout";
+import { Dot, Grid } from "./layout";
 import { Page } from "./page";
+import { useWeekPart } from "./week-part";
 
 /** Nyckeltalen på smal skärm (prototypens co-kpis): mindre utfyllnad och siffror så att "4 av 15" får plats. */
 export const WEEK_KPI_SM = "max-[620px]:p-3 max-[620px]:[&>div:nth-child(2)]:text-[1.625rem]";
@@ -26,26 +27,45 @@ export function weekLead(today: LocalDate | null): string {
 }
 
 /**
- * Ögonbrynet "Namn · Titel". Rollens etikett (samma som i sidopanelen) i stället för titeln när titeln saknas, när titeln
- * själv är ett rollnamn (t.ex. "Systemadministratör" på alla) eller när kollegan har flera roller – då säger titeln inte
- * vilken roll sidan visas i.
+ * Ögonbrynet "Namn · Titel". Rollernas etikett (samma som i sidopanelen) i stället för titeln när titeln saknas, när titeln
+ * själv är ett rollnamn (t.ex. "Systemadministratör" på alla) eller när kollegan har flera roller – då visar sidan alla
+ * rollernas uppgifter (Karims beslut 7, 2026-10-09) och rollerna står i ögonbrynet.
  */
-export function weekEyebrow(user: { name: string; title?: string | null }, role: Role, ownRoles?: readonly Role[] | null): string | undefined {
+export function weekEyebrow(user: { name: string; title?: string | null }, roles: Role | readonly Role[]): string | undefined {
   if (!user.name) return undefined;
+  const list = typeof roles === "string" ? [roles] : roles;
   const title = (user.title ?? "").trim();
   const isRoleName = Object.values(ROLE_LABEL).some((l) => l.toLowerCase() === title.toLowerCase());
-  const useRole = (ownRoles?.length ?? 0) > 1 || !title || isRoleName;
-  return `${user.name} · ${useRole ? ROLE_LABEL[role] : title}`;
+  const useRole = list.length > 1 || !title || isRoleName;
+  return `${user.name} · ${useRole ? rolesLabel(list) : title}`;
 }
 
 /**
  * Sidan Min vecka: rubriken MIN VECKA, ögonbrynet "Namn · Titel" (weekEyebrow), veckoingressen och en primär knapp (actions).
  * today = dagens datum (demoklockan i prototypen och minnesläget); null medan klockan hämtas.
+ * I en rolldel (flera roller på samma sida, src/ui/week-part.ts) blir den ett avsnitt med rollens rubrik och knappar – sidans
+ * rubrik, ögonbryn och ingress står då en gång överst (src/features/vecka/screens/min-vecka.tsx).
  */
 export function WeekPage({ today, actions, className, children }: { today: LocalDate | null; actions?: ReactNode; className?: string; children?: ReactNode }) {
-  const { user, actor, ownRoles } = useSession();
+  const { user, actor } = useSession();
+  const part = useWeekPart();
+  if (part) {
+    const headingId = `mv-del-${part.idPrefix}`;
+    return (
+      <section aria-labelledby={headingId} data-week-part={part.idPrefix} className={cn("flex min-w-0 flex-col gap-6", className)}>
+        <div className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3 border-b-2 border-antracit pb-3">
+          <h2 id={headingId} tabIndex={-1} className="flex items-center gap-2.5 text-h2 font-extrabold tracking-[0.06em] uppercase">
+            <Dot className="size-2" />
+            {part.label}
+          </h2>
+          {actions && <div className="flex flex-wrap items-center gap-3">{actions}</div>}
+        </div>
+        {children}
+      </section>
+    );
+  }
   return (
-    <Page title="Min vecka" eyebrow={weekEyebrow(user, actor.role, ownRoles)} lead={weekLead(today)} actions={actions} className={className}>
+    <Page title="Min vecka" eyebrow={weekEyebrow(user, actor.roles)} lead={weekLead(today)} actions={actions} className={className}>
       {children}
     </Page>
   );

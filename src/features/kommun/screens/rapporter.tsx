@@ -32,7 +32,7 @@ export function PortalRapporterScreen({ params, query }: ScreenProps) {
 /** "Nästa olästa rapport" på rapportsidan (handläggaren): nästa olästa i samma ordning som listan. */
 function NextUnread({ currentId, lista }: { currentId: string; lista: string | null }) {
   const { actor } = useSession();
-  const q = useQuery(kommunReports, actor.role === "kommun_handlaggare" ? {} : null);
+  const q = useQuery(kommunReports, actor.roles.includes("kommun_handlaggare") ? {} : null);
   const next = q.data?.reports.find((r) => r.unread && r.id !== currentId);
   if (!next) return null;
   return (

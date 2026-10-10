@@ -18,7 +18,7 @@ import { StackTable } from "./parts";
 export function LoggScreen() {
   const { actor } = useSession();
   // Nyckel per roll: loggkontrollen och filtret beror på rollen.
-  return <LogPage key={actor.role} isChef={actor.role === "chef"} />;
+  return <LogPage key={actor.roles.join(",")} isChef={actor.roles.includes("chef")} />;
 }
 
 type Filter = { actor: string; action: string; q: string; mine: boolean };

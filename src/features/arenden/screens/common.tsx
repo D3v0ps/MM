@@ -51,7 +51,8 @@ const OPENS: Record<string, readonly Role[]> = {
   "chef.avvikelser": ["chef", "avtalsansvarig", "samordnare"],
 };
 /** Får rollen öppna vyn (prototypens canOpen)? */
-export const canOpen = (view: string, role: Role) => (OPENS[view] ?? []).includes(role);
+/** Kan rollen – eller någon av rollerna (Karims beslut 7, 2026-10-09) – öppna vyn? */
+export const canOpen = (view: string, role: Role | readonly Role[]) => (typeof role === "string" ? [role] : role).some((r) => (OPENS[view] ?? []).includes(r));
 
 // ---------------------------------------------------------------- Märken
 const ATT: Record<string, [BadgeTone, IconName, string]> = {

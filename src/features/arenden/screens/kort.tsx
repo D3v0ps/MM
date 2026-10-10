@@ -48,8 +48,10 @@ export type TabProps = {
 type ModalKind = "coach" | "meeting" | "consent" | "start" | "plan" | "activity" | "team" | "contact";
 
 function useCrumbs() {
-  const role = useSession().actor.role;
-  return [{ label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
+  const roles = useSession().actor.roles;
+  // Coachens egen etikett bara när ingen annan av rollerna har ärendelistan (samma som menyn, src/shell/nav-config.ts).
+  const coachOnly = roles.includes("coach") && !roles.some((r) => r === "samordnare" || r === "avtalsansvarig" || r === "chef" || r === "admin");
+  return [{ label: coachOnly ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
 }
 
 export function DeltagarkortScreen({ params, query }: ScreenProps) {
@@ -180,7 +182,7 @@ let showAllFacts = false;
 
 function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: CaseCard; crumbs: { label: string; to: string }[]; flik: string | null; manad: string | null; mal: string | null; visa: string | null; starta: boolean }) {
   const nav = useNav();
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const team = card.access === "team";
   const tabIds: readonly CaseTab[] = team ? TEAM_TABS : CASE_TABS;
   // ?visa=rost ("Läs röstmeddelandet" på Min vecka): röstmeddelandena ligger under Meddelanden sedan 2026-10-09.
@@ -296,7 +298,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
           {tab === "meddelanden" && (
             <Stack>
               {/* Deltagarens röstmeddelanden (flyttade hit från kortets topp 2026-10-09) läses av coach, samordnare, avtalsansvarig, chef och admin (rost.caseVoice) – inte handledaren. */}
-              {!team && role !== "handledare" && (
+              {!team && roles.some((r) => r !== "handledare") && (
                 <div className="rounded-card border border-ljusgra bg-vit px-[18px] py-4">
                   <VoiceNotesRow caseId={card.caseId} autoOpen={visa === "rost"} />
                 </div>
@@ -716,7 +718,7 @@ function ConsentModal({ card, onClose }: { card: CaseCard; onClose: () => void }
 // ---------------------------------------------------------------- Åtgärder
 /** Åtgärderna som knappar på en rad (samma villkor som tidigare åtgärdskortet). */
 function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: ModalKind) => void }) {
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   // Läsläge (chef, systemadministratör): rutan överst säger det – ingen tom åtgärdsrad.
   if (c.readOnly) return null;
   const team = c.access === "team";
@@ -728,10 +730,10 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
   // Starta insatsen (beslut 2026-10-08): det självklara nästa steget när första mötet är bokat.
   if (c.start) btns.push(<Button key="start" kind="primary" icon="play" className={btn} onClick={() => openModal("start")}>Starta insatsen</Button>);
   if (c.manage && c.status === "confirmed" && !c.firstMeetingAt) btns.push(<Button key="meet" kind="primary" icon="calendar" className={btn} onClick={() => openModal("meeting")}>Boka första möte</Button>);
-  if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", role)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
+  if (c.manage && (c.status === "received" || c.status === "acknowledged") && canOpen("sam.inkorg", roles)) btns.push(<Button key="inbox" kind="primary" icon="inbox" className={btn} to={`/inkorg?arende=${id}`}>Hantera avropet i inkorgen</Button>);
   // Mötet (beslut 2026-10-09): "Spela in mötet" är coachens huvudväg – inspelning, AI-utkast till mötesrapport, granskning och godkännande på samma skärm.
   // Har deltagaren sagt nej eller återkallat samtycket erbjuds ingen inspelning: huvudknappen är "Nytt möte" (manuell dokumentation).
-  if (c.edit && c.status === "active" && canOpen("coach.avstamning", role)) {
+  if (c.edit && c.status === "active" && canOpen("coach.avstamning", roles)) {
     if (recordingOffered(c.consent?.value)) {
       btns.push(<Button key="rec" kind="primary" icon="mic" className={btn} to={`/avstamning/${id}?spela=1`}>Spela in mötet</Button>);
       btns.push(<Button key="ci" kind="secondary" icon="edit" className={btn} to={`/avstamning/${id}`}>Nytt möte utan inspelning</Button>);
@@ -739,8 +741,8 @@ function CaseActions({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
       btns.push(<Button key="ci" kind="primary" icon="edit" className={btn} to={`/avstamning/${id}`}>Nytt möte</Button>);
     }
   }
-  if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", role)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
-  if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", role)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
+  if ((c.edit || team) && c.status === "active" && canOpen("coach.narvaro", roles)) btns.push(<Button key="att" icon="calendar" className={btn} to={`/narvaro?arende=${encodeURIComponent(c.caseId)}`}>Registrera närvaro</Button>);
+  if (c.edit && (c.status === "active" || c.status === "closed") && canOpen("coach.handelse", roles)) btns.push(<Button key="ev" icon="award" className={btn} to={`/handelse/${id}`}>Registrera händelse</Button>);
   if (c.manage && active && c.leadCoach) btns.push(<Button key="coach" icon="users" className={btn} onClick={() => openModal("coach")}>Byt huvudcoach</Button>);
   if (c.manage && active && c.teamOptions) btns.push(<Button key="team" icon="users" className={btn} onClick={() => openModal("team")}>Ändra team</Button>);
   return (

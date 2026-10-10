@@ -13,9 +13,7 @@ import type { FeedbackView } from "@/features/synpunkter/api";
 import { useWeekToday } from "@/features/vecka/today";
 import { useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
-import {
-  BuildPhase, Button, Card, DemoNote, DoneLine, ErrorNotice, focusSection, Icon, Kpi, Kv, List, ListItem, Loading, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
-} from "@/ui";
+import { BuildPhase, Button, Card, DemoNote, DoneLine, ErrorNotice, focusSection, Icon, Kpi, Kv, List, ListItem, Loading, Split, Stack, TitleLink, useWeekId, WEEK_KPI_SM, WeekKpis, WeekPage } from "@/ui";
 import { adminIntegrations, adminTemplates, adminUsers, type IntegrationsView, type JobRow, type TemplatesView, type UsersView } from "../api";
 import { CHANNEL_LABEL } from "../templates";
 import { JOB_STATUS } from "./parts";
@@ -66,6 +64,7 @@ export function AdminMinVeckaScreen() {
 }
 
 function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: TemplatesView; today: LocalDate }) {
+  const wid = useWeekId();
   const { hidesCommercial } = useSession();
   const jobs = i.jobs.map((j, idx) => ({ j, idx })).sort((a, b) => JOB_ORDER[a.j.status] - JOB_ORDER[b.j.status] || a.idx - b.idx).map((x) => x.j);
   const okJobs = i.jobs.filter((j) => j.status === "ok").length;
@@ -82,7 +81,7 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
       <WeekKpis>
         <Kpi
           className={WEEK_KPI_SM}
-          onClick={() => focusSection("mv-jobb")}
+          onClick={() => focusSection(wid("mv-jobb"))}
           actionHint="Visa"
           label="Bakgrundsjobb"
           value={`${okJobs} av ${i.jobs.length}`}
@@ -92,7 +91,7 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
         />
         <Kpi
           className={WEEK_KPI_SM}
-          onClick={() => focusSection("mv-utskick")}
+          onClick={() => focusSection(wid("mv-utskick"))}
           actionHint="Visa"
           label="Utskick som inte gick iväg"
           value={String(failedSends.length)}
@@ -121,7 +120,7 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
       <Split wide>
         <Stack>
           <Card
-            id="mv-jobb"
+            id={wid("mv-jobb")}
             title="Bakgrundsjobb"
             icon="refresh"
             flush
@@ -146,12 +145,12 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
           </Card>
 
           {failedSends.length === 0 ? (
-            <DoneLine id="mv-utskick" title="Utskick som inte gick iväg" icon="mail">
+            <DoneLine id={wid("mv-utskick")} title="Utskick som inte gick iväg" icon="mail">
               Alla utskick de senaste {SEND_DAYS} dagarna har gått iväg.
             </DoneLine>
           ) : (
             <Card
-              id="mv-utskick"
+              id={wid("mv-utskick")}
               title="Utskick som inte gick iväg"
               icon="mail"
               tone="red"

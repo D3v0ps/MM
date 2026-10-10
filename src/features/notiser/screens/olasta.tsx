@@ -1,14 +1,18 @@
 "use client";
 // Kortet "Olästa notiser" i högerkolumnen på Min vecka för alla MB-roller utom coachen (coachens kort får sina data ur
-// coach.minVecka). Samma utseende som coachens kort. Data: notiser.list – den inloggades egna notiser (alla MB-roller).
+// coach.minVecka). Den som har flera roller ser kortet en gång, efter rolldelarna på Min vecka. Samma utseende som coachens
+// kort. Data: notiser.list – den inloggades egna notiser (alla MB-roller).
 import { plural } from "@/core/format";
 import { useQuery } from "@/shell/backend";
-import { Button, Card, ErrorNotice, Loading, Stack } from "@/ui";
+import { Button, Card, ErrorNotice, Loading, Stack, useWeekPart } from "@/ui";
 import { notifList } from "../api";
 
 /** De tre senaste olästa notiserna och länken till Notiser. */
 export function UnreadNotices() {
-  const q = useQuery(notifList, {});
+  // Flera roller på samma sida (src/ui/week-part.ts): kortet står en gång på sidan – inte i varje rolldel.
+  const part = useWeekPart();
+  const q = useQuery(notifList, part ? null : {});
+  if (part) return null;
   const unread = (q.data?.items ?? []).filter((n) => n.readAt === null);
   const latest = unread.slice(0, 3);
   return (

@@ -322,7 +322,7 @@ function NoteActions({ note, card, onEdit, headingId }: { note: TimelineNote; ca
 const AUDIENCE_TEXT: Record<CaseNoteAudience, string> = { full: CASE_NOTE_AUDIENCE_LABEL.full, team: "Även teamet (till exempel arbetsgivarmatcharen)" };
 
 function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: TimelineNote | null; onClose: () => void }) {
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const save = useCommand(caseNoteSave);
   const today = dayOf(card.now);
   const minDate = dayOf(card.referredAt);
@@ -364,7 +364,7 @@ function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: Tim
     toast("Anteckningen är sparad.");
     onClose();
   };
-  const eventLink = role === "coach" && card.edit;
+  const eventLink = roles.includes("coach") && card.edit;
   const nav = useNav();
   const eventPath = caseLink("/handelse", card.caseId);
   // Osparad text: Esc, klick utanför, krysset, Avbryt och länken Registrera händelse frågar samma sak först.

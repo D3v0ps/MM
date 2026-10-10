@@ -12,7 +12,7 @@
 // Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): kortet om varför en kod och listan om
 // utloggning och konto är borttagna – bara formuläret.
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ROLE_LABEL, isCustomerRole } from "@/api/roles";
+import { isCustomerRole, rolesLabel } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
@@ -50,7 +50,7 @@ export function PortalLoginScreen({ query }: ScreenProps) {
   const runtime = useRuntime();
   // Prototypen och utvecklingsläget: adressen för den valda testpersonen är förifylld (om det är en kommunanvändare).
   const demo = auth?.kind === "demo";
-  const [email, setEmail] = useState(() => (demo && isCustomerRole(session.actor.role) ? session.user.email : ""));
+  const [email, setEmail] = useState(() => (demo && session.actor.roles.some(isCustomerRole) ? session.user.email : ""));
   const [step, setStep] = useState<0 | 1>(0);
   const [emailErr, setEmailErr] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -78,7 +78,7 @@ export function PortalLoginScreen({ query }: ScreenProps) {
       <KomPage narrow>
         {heading}
         <Notice tone="ok" title="Du är redan inloggad">
-          Du är inloggad som {session.user.name} ({ROLE_LABEL[session.actor.role].toLowerCase()}).
+          Du är inloggad som {session.user.name} ({rolesLabel(session.actor.roles).toLowerCase()}).
         </Notice>
         <Button kind="primary" size="lg" block to="/" iconRight="arrow-right">
           Till startsidan

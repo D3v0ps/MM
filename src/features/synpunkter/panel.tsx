@@ -6,7 +6,7 @@
 // agerar som och sidan man står på (bara sökväg och id:n) – nav följer de grunda sidbytena, så det är sidan som visas,
 // inte den som laddades in.
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ROLE_LABEL } from "@/api/roles";
+import { ROLE_LABEL, rolesLabel, type Role } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { fmtDateTime } from "@/core/time";
 import { useNav } from "@/shell/nav";
@@ -111,7 +111,7 @@ function SubmitDialog({ port, routes, onClose, onShowList }: { port: FeedbackPor
           synpunkterna, och vi går igenom dem tillsammans.
         </p>
         <Notice tone="info" icon="map-pin" title="Synpunkten sparas med">
-          {ROLE_LABEL[actor.role]} · {scope === "all" ? "Hela Miljonmatch" : viewTitle}
+          {rolesLabel(actor.roles)} · {scope === "all" ? "Hela Miljonmatch" : viewTitle}
         </Notice>
         <Field label="Gäller" id="syn-scope">
           <Seg<Scope>
@@ -149,13 +149,13 @@ type TypeFilter = "alla" | FeedbackType;
  * finns. Får testpersonen som testaren agerar som inte öppna sidan visas i stället vilken roll synpunkten lämnades som
  * (testaren byter testperson under "Agera som" – bytet laddar om sidan, så appen byter inte åt hen).
  */
-function feedbackTarget(routes: readonly RouteDef[], path: string | null, role: FeedbackView["role"]): { to: string } | { needsRole: true } | null {
+function feedbackTarget(routes: readonly RouteDef[], path: string | null, roles: readonly Role[]): { to: string } | { needsRole: true } | null {
   if (!path || path.includes(PATH_MASK)) return null;
   const to = safeReturnPath(path);
   if (!to) return null;
   const match = resolveRoute(routes, to.split(/[?#]/)[0]);
   if (!match) return null;
-  return match.route.public || match.route.roles.includes(role) ? { to } : { needsRole: true };
+  return match.route.public || roles.some((r) => match.route.roles.includes(r)) ? { to } : { needsRole: true };
 }
 
 /** Sidans rubrik (den som visas när dialogen stängs – skalet flyttar fokus dit igen om sidan byts ut strax efter). */
@@ -278,7 +278,7 @@ function ListDialog({ port, routes, onClose, onNew }: { port: FeedbackPort; rout
       )}
       <div className="flex flex-col gap-3">
         {shown.map((it) => {
-          const target = feedbackTarget(routes, it.path, actor.role);
+          const target = feedbackTarget(routes, it.path, actor.roles);
           return (
             <FeedbackCard
               key={it.id}

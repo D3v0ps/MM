@@ -33,8 +33,8 @@ export function TabManad({ card, setTab, month }: TabProps & { month: string | n
 }
 
 function MonthBasis({ b, card, setTab, onMonth }: Pick<TabProps, "card" | "setTab"> & { b: CaseMonthBasis; onMonth: (mk: string) => void }) {
-  const role = useSession().actor.role;
-  const canReport = canOpen("rapport.visa", role);
+  const roles = useSession().actor.roles;
+  const canReport = canOpen("rapport.visa", roles);
   const options = b.months.map((m) => ({ value: m.month, label: `${monthText(m.month)}${m.current ? " (pågår)" : m.delivered ? " (levererad)" : ""}` }));
   return (
     <Section title="Månadsunderlag">

@@ -13,9 +13,7 @@ import { UnreadNotices } from "@/features/notiser/screens/olasta";
 import { reportList, type ReportList } from "@/features/rapporter/api";
 import { useWeekToday } from "@/features/vecka/today";
 import { useQuery } from "@/shell/backend";
-import {
-  Badge, Button, Card, DoneLine, ErrorNotice, focusSection, Kpi, Kv, List, ListItem, Loading, SlaBadge, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
-} from "@/ui";
+import { Badge, Button, Card, DoneLine, ErrorNotice, focusSection, Kpi, Kv, List, ListItem, Loading, SlaBadge, Split, Stack, TitleLink, useWeekId, WEEK_KPI_SM, WeekKpis, WeekPage } from "@/ui";
 import { ledningOverview, type LedningOverview } from "../api";
 import { AckModal, AlertRow, EarlyCard, RR_STATUS, RrBadge, type AckTarget } from "./parts";
 
@@ -53,6 +51,7 @@ export function ChefMinVeckaScreen() {
 }
 
 function Week({ o, dl, reports }: { o: LedningOverview; dl: DeadlinesView; reports: ReportList }) {
+  const wid = useWeekId();
   const [ackAlert, setAckAlert] = useState<AckTarget | null>(null);
   const critical = o.criticalCount;
   const esc = plural(o.escalatedCount, "ärende", "ärenden");
@@ -79,7 +78,7 @@ function Week({ o, dl, reports }: { o: LedningOverview; dl: DeadlinesView; repor
       <WeekKpis>
         <Kpi
           className={WEEK_KPI_SM}
-          onClick={() => focusSection("mv-flaggor")}
+          onClick={() => focusSection(wid("mv-flaggor"))}
           actionHint="Visa"
           label="Flaggor att hantera"
           value={String(o.alertCount)}
@@ -122,11 +121,11 @@ function Week({ o, dl, reports }: { o: LedningOverview; dl: DeadlinesView; repor
       <Split wide>
         <Stack>
           {o.flagAlerts.length === 0 ? (
-            <DoneLine id="mv-flaggor" title="Flaggor för chef och controller" icon="flag">
+            <DoneLine id={wid("mv-flaggor")} title="Flaggor för chef och controller" icon="flag">
               Inga flaggor att kvittera. Nya flaggor visas här när de uppstår.
             </DoneLine>
           ) : (
-            <Card id="mv-flaggor" title="Flaggor för chef och controller" icon="flag" actions={<Badge tone="dark">{o.flagAlerts.length} att kvittera</Badge>}>
+            <Card id={wid("mv-flaggor")} title="Flaggor för chef och controller" icon="flag" actions={<Badge tone="dark">{o.flagAlerts.length} att kvittera</Badge>}>
               <Stack>
                 <div>
                   {o.flagAlerts.map((a) => (

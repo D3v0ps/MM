@@ -20,7 +20,7 @@ import type { TabProps } from "./kort";
 // ---------------------------------------------------------------- Översikt
 export function TabOversikt({ card, setTab, openModal }: TabProps) {
   const q = useQuery(caseOverview, { caseId: card.caseId });
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const team = card.access === "team";
   const now = card.now;
   const today = dayOf(now);
@@ -142,7 +142,7 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
                           a.sameCase.tab ? (
                             <Button kind="ghost" iconRight="arrow-right" onClick={() => setTab(a.sameCase!.tab as never)}>Visa</Button>
                           ) : null
-                        ) : canOpen(a.view, role) ? (
+                        ) : canOpen(a.view, roles) ? (
                           <Button kind="ghost" iconRight="arrow-right" to={a.href}>Öppna</Button>
                         ) : null;
                         return (
@@ -195,8 +195,8 @@ export function TabOversikt({ card, setTab, openModal }: TabProps) {
 // ---------------------------------------------------------------- Kartläggning
 export function TabKartlaggning({ card }: TabProps) {
   const q = useQuery(caseIntake, { caseId: card.caseId });
-  const role = useSession().actor.role;
-  const can = canOpen("coach.kartlaggning", role);
+  const roles = useSession().actor.roles;
+  const can = canOpen("coach.kartlaggning", roles);
   return (
     <TabQuery q={q}>
       {({ intake: ia, stuck }) => {
@@ -256,9 +256,9 @@ export function TabKartlaggning({ card }: TabProps) {
 // ---------------------------------------------------------------- Avstämningar
 export function TabAvstamningar({ card }: TabProps) {
   const q = useQuery(caseCheckIns, { caseId: card.caseId });
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const [n, setN] = useState(12);
-  const can = canOpen("coach.avstamning", role);
+  const can = canOpen("coach.avstamning", roles);
   const today = dayOf(card.now);
   return (
     <TabQuery q={q}>
@@ -349,10 +349,10 @@ function StatusCell({ x }: { x: CaseCheckInRow }) {
 // ---------------------------------------------------------------- Närvaro
 export function TabNarvaro({ card, setTab, openModal }: TabProps) {
   const q = useQuery(caseAttendance, { caseId: card.caseId });
-  const role = useSession().actor.role;
+  const roles = useSession().actor.roles;
   const team = card.access === "team";
   const today = dayOf(card.now);
-  const canReg = (card.edit || team) && canOpen("coach.narvaro", role) && card.status === "active";
+  const canReg = (card.edit || team) && canOpen("coach.narvaro", roles) && card.status === "active";
   const running = card.status === "active" || card.status === "paused";
   // Veckoplanen ändras av den som får ändra i ärendet; enstaka tillfällen av alla som arbetar i det (även teamet).
   const canPlan = card.edit && running;

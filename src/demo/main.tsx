@@ -10,8 +10,8 @@ import { guardedNavigate, NavProvider, newNavKey, parseHash, type LinkImpl, type
 import { RuntimeProvider } from "@/shell/runtime";
 import { SessionProvider, type Session } from "@/shell/session";
 import { APP_ROUTES } from "@/shell/route-table";
-import { START_PATH } from "@/shell/routes";
-import { listPersonas, ownRolesOf, personaFor, type Persona } from "@/data/actors";
+import { startPathFor } from "@/shell/routes";
+import { listPersonas, personaFor, type Persona } from "@/data/actors";
 import type { Role } from "@/api/roles";
 import { DownloadProvider } from "@/ui/download";
 import { toast } from "@/ui/toast";
@@ -162,15 +162,17 @@ function Root({ initial }: { initial: DemoRuntime }) {
   const [generation, setGeneration] = useState(0);
   const personas = useMemo(() => listPersonas(demo.rt.raw()), [demo]);
   const [picked, setPicked] = useState<Chosen | null>(readPersona);
+  // En testperson per användare med alla sina roller (Karims beslut 7, 2026-10-09). Rollen i det sparade valet hittar
+  // standardpersonen när användaren inte finns (t.ex. efter Återställ).
   const persona: Persona = useMemo(() => {
-    const p = picked && personaFor(demo.rt.raw(), picked.userId, picked.role);
-    return p && p.actor.role === picked?.role ? p : (personas.find((x) => x.actor.role === picked?.role) ?? personas[0]);
+    const p = picked && personaFor(demo.rt.raw(), picked.userId);
+    return p ?? (personas.find((x) => x.role === picked?.role && x.isDefaultForRole) ?? personas.find((x) => !!picked?.role && x.actor.roles.includes(picked.role as Role)) ?? personas[0]);
   }, [picked, demo, personas]);
   const actor = persona.actor;
   const backend = useMemo(() => demo.backend(() => actor), [demo, actor]);
 
   const pick = useCallback((p: Persona) => {
-    const v = { userId: p.actor.userId, role: p.actor.role };
+    const v = { userId: p.actor.userId, role: p.role };
     lsSet(PERSONA_KEY, JSON.stringify(v));
     setPicked(v);
   }, []);
@@ -179,13 +181,13 @@ function Root({ initial }: { initial: DemoRuntime }) {
     // Byter testperson. Anroparen navigerar oftast själv i samma klick (t.ex. PerspectiveLink); annars öppnas
     // rollens startsida – samma som när man byter testperson i riktiga appens utvecklingsläge.
     const switchRole = (role: Role, userId?: string) => {
-      const byId = userId ? personaFor(demo.rt.raw(), userId, role) : null;
-      const next = byId && byId.actor.role === role ? byId : personas.find((p) => p.actor.role === role);
+      const byId = userId ? personaFor(demo.rt.raw(), userId) : null;
+      const next = byId ?? personas.find((p) => p.role === role && p.isDefaultForRole) ?? personas.find((p) => p.actor.roles.includes(role));
       if (!next) return;
       const before = navSeq;
       pick(next);
       queueMicrotask(() => {
-        if (navSeq === before) nav.push(START_PATH[next.actor.role]);
+        if (navSeq === before) nav.push(startPathFor(next.actor.roles));
       });
     };
     return {
@@ -193,17 +195,15 @@ function Root({ initial }: { initial: DemoRuntime }) {
       user: persona.user,
       personas: personas.map((p) => ({
         userId: p.actor.userId,
-        role: p.actor.role,
+        role: p.role,
+        roles: p.actor.roles,
         name: p.user.name,
         title: p.user.title,
         // Adressen används bara av prototypens snabbval på kommunens inloggning (servern lämnar aldrig ut den här).
         email: p.user.email,
-        isDefaultForRole: (p as Persona & { isDefaultForRole?: boolean }).isDefaultForRole,
+        isDefaultForRole: p.isDefaultForRole,
       })),
       switchRole,
-      // Rollväxling för egna roller (beslut 2026-10-08): samma rollväljare som i appen – prototypen byter persona.
-      ownRoles: ownRolesOf(demo.rt.raw(), persona.actor.userId),
-      chooseRole: async (role: Role) => switchRole(role, persona.actor.userId),
       // Simulerad inloggning med e-post och kod: vilken sexsiffrig kod som helst godtas och inloggningen byter till
       // testpersonen med adressen. En ny adress på avtalets kommundomän skapar ett konto som handläggare
       // (självregistrering, beslut 2026-10-07). I riktiga appen skickar Supabase koden med e-post (se src/server/auth).
@@ -223,7 +223,7 @@ function Root({ initial }: { initial: DemoRuntime }) {
             return { ok: true };
           }
           const created = await demo.selfRegister(e, persona.actor);
-          const fresh = created.ok ? personaFor(demo.rt.raw(), created.profileId, "kommun_handlaggare") : null;
+          const fresh = created.ok ? personaFor(demo.rt.raw(), created.profileId) : null;
           if (!fresh) return { ok: false, error: "not_invited", message: "Koden stämmer inte eller har gått ut. Begär en ny kod." };
           pick(fresh);
           return { ok: true, created: true };
@@ -238,7 +238,7 @@ function Root({ initial }: { initial: DemoRuntime }) {
     demo.reset();
     stopScenario();
     const fresh = await bootDemo();
-    const first = listPersonas(fresh.rt.raw()).find((p) => p.actor.role === "samordnare");
+    const first = listPersonas(fresh.rt.raw()).find((p) => p.role === "samordnare" && p.isDefaultForRole);
     if (first) pick(first);
     setDemo(fresh);
     setGeneration((g) => g + 1);
@@ -249,7 +249,7 @@ function Root({ initial }: { initial: DemoRuntime }) {
   return (
     <RuntimeProvider mode="demo">
       <DownloadProvider impl={artifactDownload}>
-        <BackendProvider key={`${generation}|${actor.userId}|${actor.role}`} backend={backend}>
+        <BackendProvider key={`${generation}|${actor.userId}|${actor.roles.join(",")}`} backend={backend}>
           <SessionProvider session={session}>
             <NavProvider nav={nav} LinkImpl={HashLink}>
               <PrototypeChrome routes={ROUTES} onReset={() => void reset()} />

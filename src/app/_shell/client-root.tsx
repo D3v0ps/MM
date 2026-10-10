@@ -9,7 +9,7 @@
 //   "Testmiljö · Simulerad testare" med samma "Lämna synpunkt" och "Alla synpunkter", så att synpunkterna kan prövas med
 //   den grunda navigeringen (beslut 2026-10-02, punkt 6). Testpersonen byts i utvecklingsfältet, som behåller testerId.
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { isCustomerRole, ROLE_LABEL, type Role } from "@/api/roles";
+import { isCustomerActor, rolesLabel, type Role } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
 import { fmtDateFull, WEEKDAYS, weekday } from "@/core/time";
 import { feedbackPortOf, type FeedbackPort } from "@/features/synpunkter/api";
@@ -124,8 +124,11 @@ export function ClientRoot() {
     switchDev: async (role, userId, testerId) => {
       // Fråga först (osparad text) och byt sedan – annars är servern redan bytt till den nya personen om man stannar kvar.
       if (!(await confirmLeaveDocument())) return;
-      await postJson("/api/dev-session", { role, userId, ...(testerId ? { testerId } : {}) }).catch(() => null);
-      await hardNavigate(stayOrStart(here(), role, view.hidesCommercial));
+      // Testpersonen har alla sina roller samtidigt (Karims beslut 7, 2026-10-09) – rollen väljer bara standardpersonen.
+      const target = view.personas.find((p) => p.userId === userId) ?? view.personas.find((p) => p.role === role && p.isDefaultForRole);
+      if (!target) return;
+      await postJson("/api/dev-session", { userId: target.userId, ...(testerId ? { testerId } : {}) }).catch(() => null);
+      await hardNavigate(stayOrStart(here(), target.roles, view.hidesCommercial));
     },
     feedbackPort,
   });
@@ -133,7 +136,7 @@ export function ClientRoot() {
   const actor = session.actor;
   return (
     <RuntimeProvider mode="app">
-      <BackendProvider key={`${actor.userId}|${actor.role}`} backend={backend}>
+      <BackendProvider key={`${actor.userId}|${actor.roles.join(",")}`} backend={backend}>
         <SessionProvider session={session}>
           <Suspense>
             <NextNavProvider>
@@ -163,14 +166,7 @@ function buildSession(view: SessionView, o: { loggedOut: Session["loggedOut"] | 
       feedback: view.isTester ? o.feedbackPort : undefined,
       // Utvecklingsläget: byt testperson. I testmiljön och i drift loggar man in med e-postkod.
       // En simulerad testare (e2e) förblir testare när testpersonen byts.
-      switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId ?? persona.actor.userId, persona.actor.testerId),
-      // Rollväxling för egna roller: valet är redan sparat (session.vaxlaRoll) och sidopanelen har frågat om osparad text –
-      // kakan får den nya rollen och sidan laddas om.
-      ownRoles: view.ownRoles,
-      chooseRole: async (role: Role) => {
-        await postJson("/api/dev-session", { role, userId: persona.actor.userId, ...(persona.actor.testerId ? { testerId: persona.actor.testerId } : {}) }).catch(() => null);
-        await hardNavigate(stayOrStart(here(), role, view.hidesCommercial));
-      },
+      switchRole: (role: Role, userId?: string) => void o.switchDev(role, userId, persona.actor.testerId),
       auth: devAuth,
     };
   }
@@ -185,19 +181,13 @@ function buildSession(view: SessionView, o: { loggedOut: Session["loggedOut"] | 
     isTester: view.isTester,
     environment: view.environment,
     hidesCommercial: view.hidesCommercial,
-    // Rollväxling för egna roller (beslut 2026-10-08): valet är sparat i databasen (role_choices) – efter omladdningen ser
-    // servern och RLS den nya rollen (mm.current_role()). Aldrig när en testare agerar som en testperson (ownRoles är tom).
-    ownRoles: view.ownRoles,
-    chooseRole: async (role: Role) => {
-      await hardNavigate(stayOrStart(here(), role, view.hidesCommercial));
-    },
     // Testmiljön: testaren läser in testdatat på nytt i adminvyn (POST /api/staging/seed). Sidan laddas om när det är klart.
     reloadTestData: view.isTester && view.environment === "staging" ? reloadTestData : undefined,
     // Testmiljön: synpunkterna (feedback.* via /api/rpc). Servern och RLS släpper bara igenom testare i testmiljön.
     feedback: view.isTester && view.environment === "staging" ? o.feedbackPort : undefined,
     // Fråga först (osparad text), logga sedan ut och ladda om.
     signOut: () => {
-      void confirmLeaveDocument().then((ok) => ok && liveAuth.signOut().then(() => hardNavigate(isCustomerRole(actor.role) ? "/portal/logga-in" : "/logga-in")));
+      void confirmLeaveDocument().then((ok) => ok && liveAuth.signOut().then(() => hardNavigate(isCustomerActor(actor) ? "/portal/logga-in" : "/logga-in")));
     },
   };
 }
@@ -241,16 +231,18 @@ function StagingBar({ view }: { view: SessionView }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const actor = view.persona?.actor;
-  const value = actor ? `${actor.userId}|${actor.role}` : "";
+  // En testperson per användare, med alla sina roller (Karims beslut 7, 2026-10-09).
+  const value = actor ? actor.userId : "";
   // Valet i listan medan frågan om osparad text visas (annars hoppar listan tillbaka först när sidan laddats om).
   const [picked, setPicked] = useState(value);
   // Den valda testpersonen finns inte i listan (t.ex. en ekonom som valdes innan rollen stängdes för testaren): visa den ändå,
   // så att valet syns och testaren kan byta.
-  const current = actor && !view.personas.some((p) => `${p.userId}|${p.role}` === value) ? { value, label: `${view.persona?.user.name ?? ""} – ${ROLE_LABEL[actor.role]}` } : null;
+  const current = actor && !view.personas.some((p) => p.userId === value) ? { value, label: `${view.persona?.user.name ?? ""} – ${rolesLabel(actor.roles)}` } : null;
   const date = view.testNow ? `${WEEKDAYS[weekday(view.testNow)]} ${fmtDateFull(view.testNow)}` : null;
 
   const pick = async (v: string) => {
-    const [userId, role] = v.split("|");
+    const userId = v;
+    const roles = view.personas.find((p) => p.userId === userId)?.roles ?? [];
     // Fråga först (osparad text) och byt sedan. Stannar man kvar är ingenting bytt – och valet visar fortfarande samma person.
     if (!(await confirmLeaveDocument())) {
       setPicked(value);
@@ -259,8 +251,8 @@ function StagingBar({ view }: { view: SessionView }) {
     setPicked(v);
     setBusy(true);
     setFailed(false);
-    const { status } = await postJson("/api/session/impersonate", { userId, role }).catch(() => ({ status: 500 }));
-    if (status === 200) return hardNavigate(stayOrStart(here(), role as Role, view.hidesCommercial));
+    const { status } = await postJson("/api/session/impersonate", { userId }).catch(() => ({ status: 500 }));
+    if (status === 200) return hardNavigate(stayOrStart(here(), roles, view.hidesCommercial));
     cancelLeaveDocument();
     setPicked(value);
     setBusy(false);
@@ -293,8 +285,8 @@ function StagingBar({ view }: { view: SessionView }) {
               </option>
             )}
             {view.personas.map((p) => (
-              <option key={`${p.userId}|${p.role}`} value={`${p.userId}|${p.role}`}>
-                {p.name} – {ROLE_LABEL[p.role]}
+              <option key={p.userId} value={p.userId}>
+                {p.name} – {rolesLabel(p.roles)}
               </option>
             ))}
           </select>

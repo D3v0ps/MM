@@ -4,6 +4,7 @@ import { initials } from "@/core/format";
 import { Link } from "@/shell/nav";
 import { cn } from "./cn";
 import { Icon, type IconName } from "./icons";
+import { useReportUrgency } from "./week-part";
 
 /**
  * Nyckeltal. tone "alert" = under mål (röd ram, "Kräver åtgärd"), "watch" = bevaka (antracit ram, "Bevaka").
@@ -41,6 +42,8 @@ export function Kpi({
   /** data-*-attribut på rutan (t.ex. data-inkorg-tile och data-tone, som e2e läser). Ingen synlig skillnad. */
   dataAttrs?: { [k: `data-${string}`]: string | undefined };
 }) {
+  // Min vecka med flera roller: rutans brådska avgör rolldelens plats på sidan (src/ui/week-part.ts).
+  useReportUrgency(tone);
   const action = Boolean(onClick || to);
   const cls = cn(
     "flex min-w-0 flex-col gap-1.5 rounded-card border border-ljusgra bg-vit px-[18px] py-4",

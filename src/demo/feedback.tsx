@@ -68,7 +68,7 @@ export function FeedbackItemCard({ it }: { it: FeedbackItem }) {
   const replies = f.mode === "shared" ? (f.replies[it.id] ?? []) : (it.localReplies ?? []);
   const target = targetOf(it);
   const replyCount = it.replyCount || (it.localReplies ?? []).length;
-  const role: Role = it.role && (ROLES as readonly string[]).includes(it.role) ? it.role : session.actor.role;
+  const role: Role = it.role && (ROLES as readonly string[]).includes(it.role) ? it.role : session.actor.roles[0];
   return (
     <FeedbackCard
       id={it.id}
@@ -172,7 +172,7 @@ export function FeedbackDrawer({ routes }: { routes: readonly RouteDef[] }) {
   }, [dr.open, dr.seq]);
 
   if (!dr.open) return null;
-  const role = session.actor.role;
+  const role = session.actor.roles[0];
   const roleLabel = demoRole(role).label;
   const persp = perspectiveOf(role);
   const pDef = perspectiveDef(role);
