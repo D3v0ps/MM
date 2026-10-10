@@ -1,6 +1,7 @@
 "use client";
 // Ny aktivitet (/aktiviteter/ny) – en gruppaktivitet för flera deltagare (coachmötet 2026-10-09): namn, typ, tid, plats,
-// ansvarig och deltagarna (Bjud in deltagare). Efter Skapa visas aktivitetsvyn.
+// ansvarig, gruppmål och deltagarna (Bjud in deltagare – per grupp, nivå eller enskilt) och kryssrutan för inbjudan till
+// deltagarna. Efter Skapa visas aktivitetsvyn.
 import { useState } from "react";
 import { plural } from "@/core/format";
 import { addWorkingDays, dayOf } from "@/core/time";
@@ -9,8 +10,11 @@ import { leaveWithoutAsking, useUnsavedGuard } from "@/shell/guard";
 import { useNav } from "@/shell/nav";
 import { Button, Card, ErrorNotice, Loading, Notice, Page, Row, Stack, toast } from "@/ui";
 import { groupActivityCreate, type InviteProblem } from "../api";
-import { InviteParticipants } from "./bjud-in";
-import { ActivityFields, blankForm, formErrors, payloadOf, ProblemList, useActivityFormData, replacedText, useActivityConfirm, type ActivityFormState } from "./form";
+import { EMPTY_CHOICE, InviteParticipants, resolveChoice, type InviteChoice } from "./bjud-in";
+import {
+  ActivityFields, blankForm, formErrors, isUpcoming, notifiedText, NotifyCheck, payloadOf, ProblemList, replacedText, skippedText, useActivityConfirm, useActivityFormData,
+  type ActivityFormState,
+} from "./form";
 
 const CRUMBS = [{ label: "Aktiviteter", to: "/aktiviteter" }, { label: "Ny aktivitet" }];
 
@@ -32,24 +36,29 @@ function NyAktivitet({ form }: { form: NonNullable<ReturnType<typeof useActivity
   const withConfirm = useActivityConfirm();
   const [initial] = useState<ActivityFormState>(() => blankForm(form, addWorkingDays(dayOf(form.now), 1)));
   const [value, setValue] = useState<ActivityFormState>(initial);
-  const [caseIds, setCaseIds] = useState<string[]>([]);
+  const [choice, setChoice] = useState<InviteChoice>(EMPTY_CHOICE);
+  const [notify, setNotify] = useState(true);
   const [tried, setTried] = useState(false);
   const [problems, setProblems] = useState<InviteProblem[]>([]);
-  const dirty = JSON.stringify(value) !== JSON.stringify(initial) || caseIds.length > 0;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(value.date) ? value.date : null;
+  const resolved = resolveChoice(choice, form, day);
+  const caseIds = resolved.caseIds;
+  const upcoming = isUpcoming(`${value.date}T${value.time}`, form.now);
+  const dirty = JSON.stringify(value) !== JSON.stringify(initial) || caseIds.length > 0 || choice.groupingIds.length > 0;
   useUnsavedGuard(dirty && !create.pending);
 
   const submit = async () => {
     setTried(true);
     setProblems([]);
     if (Object.keys(formErrors(value)).length) return;
-    const res = await withConfirm((c) => create.run({ ...payloadOf(value), caseIds, ...c }).catch(() => null));
+    const res = await withConfirm((c) => create.run({ ...payloadOf(value), caseIds, ...resolved.payload, notify: upcoming && notify && caseIds.length > 0, ...c }).catch(() => null));
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
       toast(res.message ?? "Aktiviteten kunde inte skapas.", "error");
       return;
     }
-    toast(`Aktiviteten är skapad${res.invited ? ` med ${plural(res.invited, "deltagare", "deltagare")}` : ""}.${replacedText(res.replaced)}`);
+    toast(`Aktiviteten är skapad${res.invited ? ` med ${plural(res.invited, "deltagare", "deltagare")}` : ""}.${replacedText(res.replaced)}${skippedText(res.skipped)}${notifiedText(res.notified)}`);
     leaveWithoutAsking(() => nav.push(`/aktiviteter/${encodeURIComponent(res.groupActivityId)}`));
   };
 
@@ -60,7 +69,8 @@ function NyAktivitet({ form }: { form: NonNullable<ReturnType<typeof useActivity
       </Card>
       <Card title="Deltagare" icon="users">
         <Stack>
-          <InviteParticipants candidates={form.candidates} day={/^\d{4}-\d{2}-\d{2}$/.test(value.date) ? value.date : null} value={caseIds} onChange={setCaseIds} idPrefix="ny-bjud" />
+          <InviteParticipants form={form} day={day} value={choice} onChange={setChoice} idPrefix="ny-bjud" />
+          {caseIds.length > 0 && <NotifyCheck id="ny-meddela" checked={notify} onChange={setNotify} label="Skicka inbjudan till deltagarna" upcoming={upcoming} />}
           {problems.length > 0 && (
             <Notice tone="critical" title="Några deltagare kan inte bjudas in">
               <ProblemList problems={problems} />

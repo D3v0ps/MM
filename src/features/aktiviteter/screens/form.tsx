@@ -1,17 +1,21 @@
 "use client";
-// Fälten för en gruppaktivitet (namn, typ, datum, tid, längd, plats, ansvarig) – samma i Ny aktivitet och i Ändra-dialogen.
+// Fälten för en gruppaktivitet (namn, typ, datum, tid, längd, plats, ansvarig, gruppmål) – samma i Ny aktivitet och i Ändra-dialogen.
 // Formulärets data (typer, coacher, deltagare att bjuda in, helgdagar) hämtas färskt varje gång formuläret öppnas
 // (useQueryRunner, ingen cache): en deltagare som just startat eller avslutats syns som den är. Servern prövar ändå allt igen.
 import { useCallback, useEffect, useState } from "react";
 import { plural } from "@/core/format";
 import { dayOf, fmtDate, timeOf, type LocalDate } from "@/core/time";
 import { useQueryRunner } from "@/shell/backend";
-import { Field, FormGrid, Input, Notice, Select, useConfirm, DateInput, TimeInput } from "@/ui";
+import { Check, Field, FormGrid, Input, Notice, Select, useConfirm, DateInput, TimeInput } from "@/ui";
 import { durationLabel } from "@/features/arenden/screens/kort-start";
-import type { GroupActivityKind } from "@/data/schema";
-import { groupActivityForm, type GroupActivityForm, type InviteProblem } from "../api";
+import { GROUP_GOAL_MAX, type GroupActivityKind } from "@/data/schema";
+import { groupActivityForm, type GroupActivityForm, type InviteProblem, type NotifyOutcome } from "../api";
 
-export type ActivityFormState = { name: string; kind: GroupActivityKind; date: string; time: string; durationMin: number; location: string; responsibleId: string };
+export type ActivityFormState = {
+  name: string; kind: GroupActivityKind; date: string; time: string; durationMin: number; location: string; responsibleId: string;
+  /** Gruppmålet (internt). Tomt = inget mål. */
+  goal: string;
+};
 
 const DURATIONS = [30, 45, 60, 90, 120, 150, 180, 240, 300, 360, 420, 480];
 const durationOptions = (current: number) => [...new Set([...DURATIONS, current])].sort((a, b) => a - b).map((m) => ({ value: String(m), label: durationLabel(m) }));
@@ -44,11 +48,14 @@ export function useActivityFormData(): { data: GroupActivityForm | null; error: 
 
 /** Startvärden: i morgon kl. 13.00, 90 minuter, avtalets plats och den inloggade som ansvarig om hen är coach. */
 export function blankForm(f: GroupActivityForm, tomorrow: LocalDate): ActivityFormState {
-  return { name: "", kind: "yrkesmoment", date: tomorrow, time: "13:00", durationMin: 90, location: f.defaultLocation, responsibleId: f.me ?? "" };
+  return { name: "", kind: "yrkesmoment", date: tomorrow, time: "13:00", durationMin: 90, location: f.defaultLocation, responsibleId: f.me ?? "", goal: "" };
 }
 /** Formulärets värden ur en befintlig aktivitet. */
-export function formOf(a: { name: string; kind: GroupActivityKind; startsAt: string; durationMin: number; location: string; responsibleId: string | null }): ActivityFormState {
-  return { name: a.name, kind: a.kind, date: dayOf(a.startsAt), time: timeOf(a.startsAt), durationMin: a.durationMin, location: a.location, responsibleId: a.responsibleId ?? "" };
+export function formOf(a: { name: string; kind: GroupActivityKind; startsAt: string; durationMin: number; location: string; responsibleId: string | null; goal: string | null }): ActivityFormState {
+  return {
+    name: a.name, kind: a.kind, date: dayOf(a.startsAt), time: timeOf(a.startsAt), durationMin: a.durationMin, location: a.location, responsibleId: a.responsibleId ?? "",
+    goal: a.goal ?? "",
+  };
 }
 
 /** Felen i klarspråk per fält. */
@@ -64,6 +71,7 @@ export function formErrors(s: ActivityFormState): Partial<Record<"name" | "date"
 /** Värdena till kommandot. */
 export const payloadOf = (s: ActivityFormState) => ({
   name: s.name.trim(), kind: s.kind, startsAt: `${s.date}T${s.time}`, durationMin: s.durationMin, location: s.location.trim(), responsibleId: s.responsibleId || null,
+  goal: s.goal.trim() || null,
 });
 
 /** Helgdagens namn för datumet (formulärets lista), eller null. */
@@ -101,8 +109,16 @@ export function ActivityFields({
       <Field id={`${idPrefix}-langd`} label="Längd" required>
         <Select value={String(value.durationMin)} onValueChange={(v) => set("durationMin")(Number(v))} options={durationOptions(value.durationMin)} />
       </Field>
-      <Field id={`${idPrefix}-plats`} label="Plats" required error={errs.location}>
+      <Field id={`${idPrefix}-plats`} label="Plats" help="Platsen står i inbjudan till deltagarna." required error={errs.location}>
         <Input value={value.location} onValueChange={set("location")} maxLength={200} />
+      </Field>
+      <Field
+        id={`${idPrefix}-mal`}
+        label="Gruppmål"
+        help="Valfritt. Ett mål för hela gruppen, till exempel Alla skriver ett CV. Alla räknas som att de klarade målet tills du markerar något annat. Syns bara för Miljonbemanning."
+        full
+      >
+        <Input value={value.goal} onValueChange={set("goal")} maxLength={GROUP_GOAL_MAX} />
       </Field>
       {holiday && (
         <div className="col-span-full">
@@ -171,3 +187,29 @@ export function useActivityConfirm() {
     }
   };
 }
+
+/** Startar aktiviteten efter nu? Bara då skickas meddelanden till deltagarna (servern gör samma kontroll). */
+export const isUpcoming = (startsAt: string, now: string): boolean => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(startsAt) && startsAt > now;
+
+/**
+ * Kryssrutan för meddelandet till deltagarna (förvald). Bara för en aktivitet som inte har börjat – annars en mening om att
+ * inget skickas. Meddelandet innehåller bara tid, plats och Miljonbemannings telefonnummer.
+ */
+export function NotifyCheck({ id, checked, onChange, label, upcoming }: { id: string; checked: boolean; onChange: (on: boolean) => void; label: string; upcoming: boolean }) {
+  if (!upcoming) return <p className="m-0 text-body text-text-muted">Aktiviteten har redan börjat. Inget meddelande skickas till deltagarna.</p>;
+  return (
+    <Check id={id} checked={checked} onCheckedChange={onChange} aria-describedby={`${id}-hjalp`}>
+      <span className="font-bold">{label}</span>
+      <span id={`${id}-hjalp`} className="block text-body text-text-muted">
+        E-post eller SMS med tid, plats och Miljonbemannings telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
+      </span>
+    </Check>
+  );
+}
+
+/** Hur meddelandet gick, som en mening efter toasten ("" när inget skickades). */
+export const notifiedText = (n: NotifyOutcome | undefined): string => (n ? ` ${n.summary}` : "");
+
+/** De som servern hoppade över (inbjudan per grupp eller nivå): "1 deltagare hoppades över: BOT-26-0130 (är redan inbjuden …)." */
+export const skippedText = (skipped: readonly InviteProblem[] | undefined): string =>
+  skipped?.length ? ` ${plural(skipped.length, "deltagare hoppades över", "deltagare hoppades över")}: ${skipped.map((x) => `${x.caseNumber} (${x.reason.charAt(0).toLocaleLowerCase("sv")}${x.reason.slice(1)})`).join(", ")}.` : "";

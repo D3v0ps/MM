@@ -3,7 +3,10 @@
 // närvaro där". Rubrik, tid, plats och ansvarig; alla inbjudna med närvaro per rad (samma statusar och regler som Närvaro:
 // coach.attendanceSet), "Markera övriga som närvarande" (coach.attendanceSetAll – bekräftelse med namnen, ändrar aldrig det som
 // redan är registrerat) och en rad anteckning per deltagare som sparas som vanlig anteckning med aktivitetens dag (ingen tid).
-import { useState } from "react";
+// Spår G: gruppmålet – alla klarar det automatiskt (märkt "Automatiskt"), coachen markerar Klarade inte per deltagare och kan
+// ändra tillbaka (aktiviteter.malResultat). Internt: syns bara här. Bjud in per grupp, nivå eller enskilt, och kryssrutorna för
+// meddelandet till deltagarna när de bjuds in, när tid eller plats ändras, när en deltagare tas bort och när aktiviteten ställs in.
+import { useRef, useState } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
 import { plural } from "@/core/format";
 import { dayOf, fmtDate, fmtDateTime, fmtDateTimeLong, fmtTime } from "@/core/time";
@@ -12,21 +15,49 @@ import { useUnsavedGuard } from "@/shell/guard";
 import { useNav } from "@/shell/nav";
 import { usePageTitle } from "@/shell/page-effects";
 import type { ScreenProps } from "@/shell/routes";
-import { Badge, Button, Card, CaseLink, ErrorNotice, Field, Input, Kv, Loading, Modal, Notice, Page, Row, Seg, Stack, toast, useAuditView, useConfirm } from "@/ui";
+import { Badge, Button, Card, CaseLink, Check, ErrorNotice, Field, Input, Kv, Loading, Modal, Notice, Page, Row, Seg, Stack, toast, useAuditView, useConfirm, type SegOption } from "@/ui";
 import { auditView } from "@/features/session/api";
 import { durationLabel } from "@/features/arenden/screens/kort-start";
 import { attendanceSet, attendanceSetAll } from "@/features/coach/api";
 import { ATT_OPTIONS, AttBadge } from "@/features/coach/screens/shared";
 import {
-  ACTIVITY_NOTE_MAX, groupActivityCancel, groupActivityInvite, groupActivityNotes, groupActivityRemove, groupActivityUpdate, groupActivityView,
+  ACTIVITY_NOTE_MAX, groupActivityCancel, groupActivityInvite, groupActivityNotes, groupActivityRemove, groupActivityUpdate, groupActivityView, groupGoalResultSet,
   type GroupActivityView, type GroupParticipant, type InviteProblem,
 } from "../api";
-import { InviteParticipants } from "./bjud-in";
-import { ActivityFields, formErrors, formOf, payloadOf, ProblemList, replacedText, useActivityFormData, useActivityConfirm, type ActivityFormState } from "./form";
+import { EMPTY_CHOICE, InviteParticipants, resolveChoice, type InviteChoice } from "./bjud-in";
+import {
+  ActivityFields, formErrors, formOf, isUpcoming, notifiedText, NotifyCheck, payloadOf, ProblemList, replacedText, skippedText, useActivityConfirm, useActivityFormData,
+  type ActivityFormState,
+} from "./form";
 
 const CRUMB = { label: "Aktiviteter", to: "/aktiviteter" };
 type Ok = Extract<GroupActivityView, { kind: "ok" }>;
 type AttStatus = "present" | "late" | "absent_valid" | "absent_invalid";
+
+/** Gruppmålet per deltagare: Klarade (blå) eller Klarade inte (röd ram) – text och ikon, aldrig bara färg. */
+const GOAL_OPTIONS: SegOption<"yes" | "no">[] = [
+  { value: "yes", label: "Klarade", icon: "check", tone: "green" },
+  { value: "no", label: "Klarade inte", icon: "x", tone: "red" },
+];
+/** Frånvarande deltagare räknas inte i gruppmålet (de var inte med). */
+const isAbsent = (p: GroupParticipant) => p.attendance?.status === "absent_valid" || p.attendance?.status === "absent_invalid";
+
+/** En kryssruta i en bekräftelsedialog (förvald). Valet läses ur boxRef när dialogen stängs. */
+function ConfirmCheck({ id, boxRef, label }: { id: string; boxRef: { current: boolean }; label: string }) {
+  const [on, setOn] = useState(true);
+  return (
+    <Check
+      id={id}
+      checked={on}
+      onCheckedChange={(v) => {
+        boxRef.current = v;
+        setOn(v);
+      }}
+    >
+      {label}
+    </Check>
+  );
+}
 
 export function AktivitetScreen({ params }: ScreenProps) {
   const q = useQuery(groupActivityView, { id: params.id ?? "" });
@@ -68,6 +99,8 @@ function Aktivitet({ v }: { v: Ok }) {
   const remove = useCommand(groupActivityRemove);
   const cancel = useCommand(groupActivityCancel);
   const saveNotes = useCommand(groupActivityNotes);
+  const setGoal = useCommand(groupGoalResultSet);
+  const notifyBox = useRef(true);
   const [editing, setEditing] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
@@ -78,7 +111,11 @@ function Aktivitet({ v }: { v: Ok }) {
   const day = dayOf(a.startsAt);
   const started = a.startsAt < v.now;
   const notesOpen = day <= dayOf(v.now);
+  const upcoming = isUpcoming(a.startsAt, v.now);
   const parts = v.participants;
+  // Gruppmålet räknas bland dem som var med (inte frånvarande).
+  const goalParts = a.goal ? parts.filter((p) => !isAbsent(p)) : [];
+  const goalDone = goalParts.filter((p) => p.goal?.achieved !== false).length;
   const open = parts.filter((p) => !p.attendance);
   const filledNotes = Object.entries(notes).filter(([, t]) => t.trim());
   useUnsavedGuard(filledNotes.length > 0 && !saveNotes.pending);
@@ -98,6 +135,18 @@ function Aktivitet({ v }: { v: Ok }) {
       return;
     }
     if (res.published) toast(res.published.text);
+  };
+  const markGoal = async (p: GroupParticipant, achieved: boolean) => {
+    const key = `mal:${p.caseId}`;
+    if (inflight[key]) return;
+    setInflight((x) => ({ ...x, [key]: true }));
+    const res = await setGoal.run({ id: a.id, caseId: p.caseId, achieved }).catch(() => null);
+    setInflight((x) => {
+      const next = { ...x };
+      delete next[key];
+      return next;
+    });
+    if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Gruppmålet kunde inte sparas.", "error");
   };
   const pick = (p: GroupParticipant, s: AttStatus) => {
     if (s === "absent_valid") setPending(p.activityId);
@@ -137,25 +186,47 @@ function Aktivitet({ v }: { v: Ok }) {
   };
 
   const removeParticipant = async (p: GroupParticipant) => {
-    const ok = await confirm({ title: "Ta bort deltagaren?", body: `${p.name} (${p.caseNumber}) tas bort från ${a.name}. Tillfället försvinner ur deltagarens närvaro.`, confirmLabel: "Ta bort", cancelLabel: "Avbryt", tone: "danger" });
+    notifyBox.current = true;
+    const ok = await confirm({
+      title: "Ta bort deltagaren?",
+      body: (
+        <Stack gap="sm">
+          <p className="m-0">{`${p.name} (${p.caseNumber}) tas bort från ${a.name}. Tillfället försvinner ur deltagarens närvaro.`}</p>
+          {upcoming && <ConfirmCheck id="akt-ta-bort-meddela" boxRef={notifyBox} label="Meddela deltagaren att aktiviteten är inställd för hen (e-post eller SMS med tid och plats)" />}
+        </Stack>
+      ),
+      confirmLabel: "Ta bort",
+      cancelLabel: "Avbryt",
+      tone: "danger",
+    });
     if (!ok) return;
-    const res = await remove.run({ id: a.id, caseId: p.caseId }).catch(() => null);
+    const res = await remove.run({ id: a.id, caseId: p.caseId, notify: upcoming && notifyBox.current }).catch(() => null);
     if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Deltagaren kunde inte tas bort.", "error");
-    else toast(`${p.name} är borttagen från aktiviteten.`);
+    else toast(`${p.name} är borttagen från aktiviteten.${notifiedText(res.notified)}`);
   };
 
   const cancelActivity = async () => {
+    notifyBox.current = true;
     const ok = await confirm({
       title: "Ställa in aktiviteten?",
-      body: `${a.name} ${fmtDateTimeLong(a.startsAt)} ställs in. ${parts.length ? `Tillfället tas bort ur närvaron för ${plural(parts.length, "deltagare", "deltagare")}.` : ""}`,
+      body: (
+        <Stack gap="sm">
+          <p className="m-0">{`${a.name} ${fmtDateTimeLong(a.startsAt)} ställs in. ${parts.length ? `Tillfället tas bort ur närvaron för ${plural(parts.length, "deltagare", "deltagare")}.` : ""}`}</p>
+          {upcoming && parts.length > 0 && (
+            <ConfirmCheck id="akt-stall-in-meddela" boxRef={notifyBox} label="Meddela deltagarna att aktiviteten är inställd (e-post eller SMS med tid och plats)" />
+          )}
+        </Stack>
+      ),
       confirmLabel: "Ställ in",
       cancelLabel: "Avbryt",
       tone: "danger",
     });
     if (!ok) return;
-    const res = await cancel.run({ id: a.id }).catch(() => null);
+    const res = await cancel.run({ id: a.id, notify: upcoming && parts.length > 0 && notifyBox.current }).catch(() => null);
     if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Aktiviteten kunde inte ställas in.", "error");
-    else toast(res.kept ? `Aktiviteten är inställd. ${plural(res.kept, "deltagare", "deltagare")} hann få närvaro registrerad och ligger kvar.` : "Aktiviteten är inställd.");
+    else {
+      toast(`${res.kept ? `Aktiviteten är inställd. ${plural(res.kept, "deltagare", "deltagare")} hann få närvaro registrerad och ligger kvar.` : "Aktiviteten är inställd."}${notifiedText(res.notified)}`);
+    }
   };
 
   const submitNotes = async () => {
@@ -210,6 +281,7 @@ function Aktivitet({ v }: { v: Ok }) {
             ["Tid", `${fmtDateTimeLong(a.startsAt)}, ${durationLabel(a.durationMin)}`],
             ["Plats", a.location],
             ["Ansvarig", a.responsibleName ?? "Ingen ansvarig"],
+            ["Gruppmål", a.goal ?? "Inget gruppmål"],
             ["Skapad av", a.createdByName],
           ]}
         />
@@ -238,6 +310,13 @@ function Aktivitet({ v }: { v: Ok }) {
                   ? "Närvaron är registrerad för alla deltagare."
                   : `${parts.length - open.length} av ${parts.length} registrerade. Markera sena och frånvarande först, sedan övriga som närvarande.`}
           </p>
+          {a.goal && parts.length > 0 && (
+            <p className="m-0 text-body" data-testid="gruppmal-summa">
+              {started
+                ? `Gruppmål: ${goalDone} av ${goalParts.length} klarade. Alla klarar målet automatiskt – markera den som inte klarade det.`
+                : "Gruppmålet markeras när aktiviteten har startat. Alla klarar målet automatiskt."}
+            </p>
+          )}
           {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
           <p role="status" aria-live="polite" className="m-0 text-body font-bold">
             {bulk}
@@ -299,6 +378,7 @@ function Aktivitet({ v }: { v: Ok }) {
                   )}
                 </>
               )}
+              {started && a.goal && p.goal && <GoalRow p={p} canEdit={v.canEdit} busy={!!inflight[`mal:${p.caseId}`]} onPick={(achieved) => void markGoal(p, achieved)} />}
               {p.notes.length > 0 && (
                 <ul className="m-0 flex list-none flex-col gap-1 p-0">
                   {p.notes.map((n) => (
@@ -354,18 +434,23 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const [value, setValue] = useState<ActivityFormState>(initial);
   const [tried, setTried] = useState(false);
   const [problems, setProblems] = useState<InviteProblem[]>([]);
+  const [notify, setNotify] = useState(true);
+  // Ny tid eller plats: deltagarna kan få ett meddelande (bara när aktiviteten inte har börjat).
+  const timeOrPlace = value.date !== initial.date || value.time !== initial.time || value.location.trim() !== initial.location.trim();
+  const upcoming = isUpcoming(`${value.date}T${value.time}`, v.now);
   const submit = async () => {
     setTried(true);
     setProblems([]);
     if (Object.keys(formErrors(value)).length) return;
-    const res = await withConfirm((c) => update.run({ id: v.activity.id, ...payloadOf(value), ...c }).catch(() => null));
+    const send = timeOrPlace && upcoming && notify && v.participants.length > 0;
+    const res = await withConfirm((c) => update.run({ id: v.activity.id, ...payloadOf(value), notify: send, ...c }).catch(() => null));
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
       toast(res.message ?? "Ändringen kunde inte sparas.", "error");
       return;
     }
-    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${replacedText(res.replaced)}` : "Inget var ändrat.");
+    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${replacedText(res.replaced)}${notifiedText(res.notified)}` : "Inget var ändrat.");
     onClose();
   };
   return (
@@ -391,6 +476,9 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         <Stack>
           <p className="m-0 text-body">Tid, längd, plats och typ ändras för alla deltagare. Tiden kan inte flyttas när närvaro är registrerad.</p>
           <ActivityFields form={data} value={value} onChange={setValue} tried={tried} idPrefix="andra-akt" />
+          {timeOrPlace && v.participants.length > 0 && (
+            <NotifyCheck id="andra-meddela" checked={notify} onChange={setNotify} label="Skicka ny tid och plats till deltagarna" upcoming={upcoming} />
+          )}
           {problems.length > 0 && (
             <Notice tone="critical" title="Några deltagare kan inte vara med den dagen">
               <ProblemList problems={problems} />
@@ -406,19 +494,24 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const { data, error, retry } = useActivityFormData();
   const invite = useCommand(groupActivityInvite);
   const withConfirm = useActivityConfirm();
-  const [caseIds, setCaseIds] = useState<string[]>([]);
+  const [choice, setChoice] = useState<InviteChoice>(EMPTY_CHOICE);
+  const [notify, setNotify] = useState(true);
   const [problems, setProblems] = useState<InviteProblem[]>([]);
+  const already = v.participants.map((p) => p.caseId);
+  const resolved = data ? resolveChoice(choice, data, dayOf(v.activity.startsAt), already) : null;
+  const caseIds = resolved?.caseIds ?? [];
+  const upcoming = isUpcoming(v.activity.startsAt, v.now);
   const submit = async () => {
     setProblems([]);
-    if (!caseIds.length) return;
-    const res = await withConfirm((c) => invite.run({ id: v.activity.id, caseIds, replaceOverlapping: c.replaceOverlapping }).catch(() => null));
+    if (!caseIds.length || !resolved) return;
+    const res = await withConfirm((c) => invite.run({ id: v.activity.id, caseIds, ...resolved.payload, notify: upcoming && notify, replaceOverlapping: c.replaceOverlapping }).catch(() => null));
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
       toast(res.message ?? "Deltagarna kunde inte bjudas in.", "error");
       return;
     }
-    toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}`);
+    toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}${skippedText(res.skipped)}${notifiedText(res.notified)}`);
     onClose();
   };
   return (
@@ -426,7 +519,7 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       title="Bjud in deltagare"
       wide
       onClose={onClose}
-      dirty={caseIds.length > 0}
+      dirty={caseIds.length > 0 || choice.groupingIds.length > 0}
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>
@@ -442,14 +535,8 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         error ? <ErrorNotice error={error as Error} onRetry={retry} /> : <Loading />
       ) : (
         <Stack>
-          <InviteParticipants
-            candidates={data.candidates}
-            day={dayOf(v.activity.startsAt)}
-            value={caseIds}
-            onChange={setCaseIds}
-            alreadyInvited={v.participants.map((p) => p.caseId)}
-            idPrefix="akt-bjud"
-          />
+          <InviteParticipants form={data} day={dayOf(v.activity.startsAt)} value={choice} onChange={setChoice} alreadyInvited={already} idPrefix="akt-bjud" />
+          {caseIds.length > 0 && <NotifyCheck id="akt-bjud-meddela" checked={notify} onChange={setNotify} label="Skicka inbjudan till deltagarna" upcoming={upcoming} />}
           {problems.length > 0 && (
             <Notice tone="critical" title="Några deltagare kan inte bjudas in">
               <ProblemList problems={problems} />
@@ -458,5 +545,42 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         </Stack>
       )}
     </Modal>
+  );
+}
+
+/** Gruppmålet för en deltagare: Klarade (automatiskt tills någon väljer) eller Klarade inte. Frånvarande räknas inte. */
+function GoalRow({ p, canEdit, busy, onPick }: { p: GroupParticipant; canEdit: boolean; busy: boolean; onPick: (achieved: boolean) => void }) {
+  const g = p.goal!;
+  if (isAbsent(p)) {
+    return (
+      <p className="m-0 text-body text-text-muted" data-testid="gruppmal">
+        Gruppmål: räknas inte – frånvarande.
+      </p>
+    );
+  }
+  const auto = g.auto ? (
+    <Badge tone="outline" icon="refresh" title="Alla klarar gruppmålet automatiskt. Markera Klarade inte om deltagaren inte klarade det.">
+      Automatiskt
+    </Badge>
+  ) : null;
+  if (!canEdit) {
+    return (
+      <Row gap="sm" data-testid="gruppmal">
+        <span className="text-body font-bold">Gruppmål:</span>
+        <Badge tone={g.achieved ? "blue" : "red"} icon={g.achieved ? "check" : "x"}>
+          {g.achieved ? "Klarade" : "Klarade inte"}
+        </Badge>
+        {auto}
+      </Row>
+    );
+  }
+  return (
+    <Row gap="sm" data-testid="gruppmal">
+      <span className="text-body font-bold" id={`mal-${p.caseId}`}>
+        Gruppmål:
+      </span>
+      <Seg ariaLabel={`Gruppmål för ${p.name}`} value={g.achieved ? "yes" : "no"} onValueChange={(x) => onPick(x === "yes")} options={GOAL_OPTIONS} busy={busy} />
+      {auto}
+    </Row>
   );
 }

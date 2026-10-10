@@ -340,3 +340,18 @@ describe("gruppmålet är internt: aldrig veckomål, progression, samlad status,
     expect(rows("check_ins").some((c) => JSON.stringify(c).includes(SECRET))).toBe(false);
   });
 });
+
+describe("resolveChoice – skärmens val till kommandot", () => {
+  it("enskilda: de valda som kan bjudas in; grupp och nivå: urvalet, grupperingarna och att servern hoppar över de som inte kan vara med", async () => {
+    const { resolveChoice } = await import("./screens/bjud-in");
+    const f = await q(groupActivityForm, {}, amira());
+    const one = resolveChoice({ mode: "enskilda", groupingIds: [MANDAG], caseIds: [NADIA, ELIF] }, f, "2027-02-03", [ELIF]);
+    expect(one).toMatchObject({ caseIds: [NADIA], skipped: [], payload: { via: "enskilda" } });
+    const group = resolveChoice({ mode: "grupp", groupingIds: [LAGER, NIVA_3], caseIds: [ELIF] }, f, "2027-02-03", [NADIA]);
+    // Bara grupperna räknas på fliken Grupp (nivån som valts på fliken Nivå följer inte med).
+    expect(group.payload).toEqual({ via: "grupp", groupingIds: [LAGER], skipUninvitable: true });
+    expect(group.caseIds).toEqual(["case-260119", "case-260148"]);
+    expect(group.skipped.map((s) => [s.caseId, s.reason])).toEqual([[NADIA, "Redan inbjuden"]]);
+    expect(resolveChoice({ mode: "niva", groupingIds: [LAGER, NIVA_3], caseIds: [] }, f, "2027-02-03").payload).toEqual({ via: "niva", groupingIds: [NIVA_3], skipUninvitable: true });
+  });
+});
