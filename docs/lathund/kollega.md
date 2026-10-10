@@ -172,12 +172,13 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 ### Månadsbedömning
 
-1. Öppna **Månadsbedömning** från deltagarkortet.
+1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**.
 2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå, grupper och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 3. Sätt progressionsnivån för varje progressionsområde själv och skriv en **Konkret observation**.
-4. Godkänn bedömningen. Månadsrapporten till kommunen byggs av den.
+4. Tryck på **Godkänn bedömningen**. Månadsrapporten till kommunen byggs av den.
+5. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
 
-Händelser och avslut registrerar du under **Registrera händelse** respektive **Avsluta insatsen**.
+Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
 
 ## Arbetsgivarmatchare
 
