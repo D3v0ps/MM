@@ -316,6 +316,7 @@ Hanterarna anropar redan gränssnitten, men produktionsadaptrarna byggs först n
 
 - Enhetstester i `src/core/**/*.test.ts` (Vitest): KPI:er, debiterbara veckor, torsdagsregeln, arbetsdagar/SLA, ärendenummer, beställarreferens och inköpsordernummer.
 - Policytester (`src/data/policy.test.ts`): samma fall som RLS-testerna ska täcka – kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, coach och den vilande rollen handledare alla ärenden i avtalet (beslut 2026-10-09), skyddade ärenden bara namngivna (vilande spärr – testet sätter en person som skyddad), bilagorna (`case_attachments`) bara för dem med åtkomst till ärendet.
+- RLS-paritetstestet (`src/data/supabase/rls-parity.test.ts`) kör alla migrationer och seeden i PGlite en gång, tar en ögonblicksbild (`snapshotDatabase` i `src/data/supabase/pglite.ts`) och låter varje describe-block börja från en kopia (`databaseFromSnapshot`, under en sekund). PGlite 0.5.8 tappar lite stack för varje fel som når testet (en nekad sats i `attempt()`); efter ungefär 1 700 fel mot samma databas stoppas också enkla satser med "stack depth limit exceeded" (integrationen av coachmötets spår 2026-10-10). Ett nytt block får alltså en egen databas automatiskt – lägg inte hundratals nekade satser i ett och samma block.
 - E2E (`tests/e2e`): varje test körs mot både prototypen och appen – det är beviset för att prototypen speglar appen.
 
 ## Skarp drift (beslut 2026-10-08)
