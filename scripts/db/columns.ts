@@ -118,6 +118,15 @@ export const COLUMNS = {
     status: "text", createdAt: "timestamptz", linkedAt: "timestamptz | null", removedAt: "timestamptz | null", removedBy: "text | null",
     deletedAt: "timestamptz | null", deleteReason: "text | null",
   },
+  // Grupper, nivåer och taggar (0031_grupper.sql)
+  groupings: {
+    id: "text", contractId: "text", kind: "text", category: "text | null", name: "text", description: "text", sortOrder: "integer", createdAt: "timestamptz",
+    createdBy: "text | null", updatedAt: "timestamptz | null", updatedBy: "text | null", archivedAt: "timestamptz | null", archivedBy: "text | null",
+  },
+  grouping_members: {
+    id: "text", contractId: "text", caseId: "text", groupingId: "text", kind: "text", slot: "text | null", addedAt: "timestamptz", addedBy: "text",
+    removedAt: "timestamptz | null", removedBy: "text | null",
+  },
 } as const satisfies ColumnManifest;
 
 /** Extra kolumner som bara finns i databasen (inte i schema.ts). Läses av SupabaseRepo men används inte av hanterarna. */

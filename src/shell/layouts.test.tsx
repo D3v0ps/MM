@@ -59,7 +59,7 @@ describe("MB-layout", () => {
     setup({ role: "samordnare", path: "/arenden/case-1", routePath: "/arenden/:caseId", area: "mb" });
     const menu = screen.getByRole("navigation", { name: "Meny" });
     const links = within(menu).getAllByRole("link").map((a) => a.textContent);
-    expect(links).toEqual(["Notiser", "Min vecka", "Aktiviteter", "Ärenden", "Rapporter", "Arbetsgivare och praktik", "Avropsinkorg", "Förfaller", "Bygg rapport"]);
+    expect(links).toEqual(["Notiser", "Min vecka", "Aktiviteter", "Ärenden", "Anteckningar", "Rapporter", "Arbetsgivare och praktik", "Avropsinkorg", "Förfaller", "Bygg rapport"]);
     // Räknarna kommer från navCounts.
     expect(await within(menu).findByText("6")).toBeTruthy();
     expect(within(menu).getByRole("link", { name: /Notiser/ }).textContent).toBe("Notiser 4 olästa");

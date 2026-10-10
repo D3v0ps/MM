@@ -9,8 +9,9 @@ import { pick, pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state"
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
 import {
-  Badge, Button, Card, CaseStatusBadge, Check, Empty, ErrorNotice, Field, Input, Kpi, Loading, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Status, cn,
+  Badge, Button, Card, CaseStatusBadge, Check, Empty, ErrorNotice, Field, Icon, Input, Kpi, Loading, Page, PerspectiveLink, PhaseBar, rowNavigate, Select, Spacer, Status, cn,
 } from "@/ui";
+import { matchesGroupingFilter } from "@/core/groupings";
 import { CASE_LIST_SCOPES, caseList, type CaseListModel, type CaseListRow } from "../api";
 import { AttCell, fd, FlagBadges, pct0 } from "./common";
 
@@ -43,7 +44,7 @@ export function ArendenListaScreen({ query }: ScreenProps) {
   // ?filter=flaggor → ?flaggor=1&sort=flaggor (replace, ingen ny historikpost). Övriga val nollställs, som när listan öppnas med filtret.
   useEffect(() => {
     if (filter === null) return;
-    patch({ filter: null, status: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, sort: null, visa: null, ...(FROM_FILTER[filter] ?? {}) });
+    patch({ filter: null, status: null, coach: null, omrade: null, fas: null, niva: null, grupp: null, tagg: null, flaggor: null, olasta: null, sort: null, visa: null, ...(FROM_FILTER[filter] ?? {}) });
   }, [filter, patch]);
   if (q.error) return <Page title="Ärenden"><ErrorNotice error={q.error} onRetry={() => void q.refetch()} /></Page>;
   if (!q.data) return <Page title="Ärenden"><Loading /></Page>;
@@ -77,6 +78,11 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
   const phase = model.phases.some((p) => String(p.no) === query.get("fas")) ? (query.get("fas") as string) : "";
+  // Nivå, grupp och tagg (internt, coachmötet 2026-10-09) – bara id:n i adressen.
+  const G = model.groupings;
+  const level = G.levels.some((g) => g.id === query.get("niva")) ? (query.get("niva") as string) : "";
+  const group = G.groups.some((g) => g.id === query.get("grupp")) ? (query.get("grupp") as string) : "";
+  const tag = G.tags.some((g) => g.id === query.get("tagg")) ? (query.get("tagg") as string) : "";
   const onlyFlags = query.get("flaggor") === "1";
   const onlyUnread = query.get("olasta") === "1";
   const sort = pick(query, "sort", SORT_VALUES, "nyast");
@@ -88,6 +94,9 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const setCoach = (v: string) => patch({ coach: v || null, visa: null });
   const setArea = (v: string) => patch({ omrade: v || null, visa: null });
   const setPhase = (v: string) => patch({ fas: v || null, visa: null });
+  const setLevel = (v: string) => patch({ niva: v || null, visa: null });
+  const setGroup = (v: string) => patch({ grupp: v || null, visa: null });
+  const setTag = (v: string) => patch({ tagg: v || null, visa: null });
   const setOnlyFlags = (v: boolean) => patch({ flaggor: v, visa: null });
   const setOnlyUnread = (v: boolean) => patch({ olasta: v, visa: null });
   const setSort = (v: string) => patch({ sort: v === "nyast" ? null : v });
@@ -108,6 +117,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       if (coach && c.detail?.leadCoachId !== coach) return false;
       if (area && c.detail?.areaCode !== area) return false;
       if (phase && String(c.detail?.phase) !== phase) return false;
+      if ((level || group || tag) && !matchesGroupingFilter(new Set(c.detail.groupingIds), { level, group, tag })) return false;
       if (needle && !norm(`${c.caseNumber} ${c.displayName}`).includes(needle)) return false;
       return true;
     });
@@ -118,13 +128,13 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       nummer: (a, b) => (a.caseNumber < b.caseNumber ? -1 : 1),
     };
     return out.sort(sorters[sort] ?? newest);
-  }, [all, status, onlyFlags, onlyUnread, coach, area, phase, needle, sort]);
+  }, [all, status, onlyFlags, onlyUnread, coach, area, phase, level, group, tag, needle, sort]);
   const shown = rows.slice(0, limit);
-  const anyFilter = !!(q || status !== defaultStatus || scope !== defaultScope || coach || area || phase || onlyFlags || onlyUnread);
-  const nFilters = [status !== defaultStatus, scope !== defaultScope, coach, area, phase, onlyFlags, onlyUnread].filter(Boolean).length;
+  const anyFilter = !!(q || status !== defaultStatus || scope !== defaultScope || coach || area || phase || level || group || tag || onlyFlags || onlyUnread);
+  const nFilters = [status !== defaultStatus, scope !== defaultScope, coach, area, phase, level, group, tag, onlyFlags, onlyUnread].filter(Boolean).length;
   const clear = () => {
     setQ("");
-    patch({ status: null, vilka: null, coach: null, omrade: null, fas: null, flaggor: null, olasta: null, visa: null });
+    patch({ status: null, vilka: null, coach: null, omrade: null, fas: null, niva: null, grupp: null, tagg: null, flaggor: null, olasta: null, visa: null });
   };
   const nUnread = all.filter((c) => (c.detail?.unread ?? 0) > 0).length;
   const nActive = all.filter((c) => c.status === "active").length;
@@ -193,6 +203,21 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
           <Field label="Fas" id="arn-phase">
             <Select value={phase} onValueChange={setPhase} placeholder="Alla faser" options={model.phases.map((p) => ({ value: String(p.no), label: `Fas ${p.no} · ${p.name}` }))} />
           </Field>
+          {G.levels.length > 0 && (
+            <Field label="Nivå" id="arn-niva">
+              <Select value={level} onValueChange={setLevel} placeholder="Alla nivåer" options={G.levels.map((g) => ({ value: g.id, label: g.name }))} />
+            </Field>
+          )}
+          {G.groups.length > 0 && (
+            <Field label="Grupp" id="arn-grupp">
+              <Select value={group} onValueChange={setGroup} placeholder="Alla grupper" options={G.groups.map((g) => ({ value: g.id, label: g.name }))} />
+            </Field>
+          )}
+          {G.tags.length > 0 && (
+            <Field label="Tagg" id="arn-tagg">
+              <Select value={tag} onValueChange={setTag} placeholder="Alla taggar" options={G.tags.map((g) => ({ value: g.id, label: g.name }))} />
+            </Field>
+          )}
         </div>
         <div className={cn("mt-2 flex flex-wrap items-center gap-x-6 gap-y-1", !filtersOpen && "max-[620px]:hidden")}>
           <Check id="arn-onlyflags" checked={onlyFlags} onCheckedChange={setOnlyFlags}>
@@ -324,6 +349,7 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
             <th scope="col" className={TH}>Ärende</th>
             <th scope="col" className={TH}>Deltagare och område</th>
             <th scope="col" className={TH}>Status och fas</th>
+            <th scope="col" className={TH}>Nivå</th>
             <th scope="col" className={TH}>Huvud&shy;coach</th>
             <th scope="col" className={TH}>Start – slut</th>
             <th scope="col" className={TH}>Senaste status</th>
@@ -359,6 +385,16 @@ function WideTable({ rows, today, weeks, hrefOf }: { rows: CaseListRow[]; today:
                       Fas {d.phase} · {d.phaseName}
                     </span>
                   </div>
+                </td>
+                <td className={`${TD} min-w-[110px] max-w-[170px]`}>
+                  {d.levelName ? (
+                    <span className="inline-flex items-start gap-1.5 text-small">
+                      <Icon name="layers" className="mt-0.5 size-4 flex-none" />
+                      {d.levelName}
+                    </span>
+                  ) : (
+                    <span className="text-small text-text-muted">Ingen nivå</span>
+                  )}
                 </td>
                 <td className={TD}>{d.leadCoachName ?? <span className="text-text-muted">Inte tilldelad</span>}</td>
                 <td className={`${TD} whitespace-nowrap`}>
@@ -424,6 +460,12 @@ function NarrowItem({ c, weeksLabel, href }: { c: CaseListRow; weeksLabel: strin
         <span className={sub}>
           {d.areaName} · Fas {d.phase} · {d.leadCoachName ?? "Ingen coach ännu"}
         </span>
+        {d.levelName && (
+          <span className="inline-flex items-center gap-1.5 text-small">
+            <Icon name="layers" className="size-4 flex-none" />
+            {d.levelName}
+          </span>
+        )}
         <span className={sub}>
           Närvaro {weeksLabel}: {ast.planned - ast.unregistered > 0 ? pct0(ast.rate) : "inga tillfällen"}
         </span>

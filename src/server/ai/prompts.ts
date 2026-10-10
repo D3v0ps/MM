@@ -7,6 +7,7 @@ import { ACTIVITY_TYPES, OBSTACLES } from "@/data/seed/constants";
 import { EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES } from "@/data/schema";
 import { AI_CORE_INSTRUCTIONS, EXTRACT_INSTRUCTIONS, type DraftInput, type DraftTemplateKey, type Transcript } from "@/features/_shared/ai-port";
 import type { AudioPurpose } from "@/features/_shared/audio-port";
+import { caseNoteKindLabel } from "@/core/labels";
 import { fmtDateShort } from "@/core/time";
 
 /** Typer av arbetsgivarkontakt i veckoavstämningen (samma som formuläret, src/features/coach/screens/avstamning.tsx). */
@@ -63,10 +64,10 @@ export const CHECK_IN_RESPONSE_SCHEMA = obj({
   note: evidence(str()),
 });
 
-/** Utkastet: texten, vilka avstämningar den bygger på och om närvaron användes. Källornas namn sätter appen själv. */
+/** Utkastet: texten, vilka avstämningar och anteckningar den bygger på och om närvaron användes. Källornas namn sätter appen själv. */
 export const DRAFT_RESPONSE_SCHEMA = obj({
   text: str(),
-  sourceIds: arr(str(), { description: "Id för de godkända avstämningar som texten bygger på" }),
+  sourceIds: arr(str(), { description: "Id för de godkända avstämningar och anteckningar som texten bygger på" }),
   usedAttendance: bool(),
   noEvidence: bool(),
 });
@@ -133,15 +134,19 @@ export function draftInstructions(templateKey: DraftTemplateKey): string {
   return [
     AI_CORE_INSTRUCTIONS,
     "",
-    "Du skriver ett utkast till coachens månadsbedömning. Coachen läser, ändrar och godkänner. Underlaget är bara godkända avstämningar och registrerad närvaro.",
+    "Du skriver ett utkast till coachens månadsbedömning. Coachen läser, ändrar och godkänner. Underlaget är bara godkända avstämningar, registrerad närvaro och coachernas anteckningar i deltagarkortet.",
+    "Anteckningarna är korta arbetsanteckningar. Återge bara det som står i dem, sakligt och utan tolkning. Personnummer är redan borttagna – skriv aldrig personnummer.",
     "Sätt aldrig nivå, samlad status, avslutsorsak eller resultat, och skriv inga omdömen om personen.",
     task,
-    "sourceIds: id för de avstämningar som texten bygger på (bara id som finns i underlaget). usedAttendance: true om texten bygger på närvaron.",
+    "sourceIds: id för de avstämningar och anteckningar som texten bygger på (bara id som finns i underlaget). usedAttendance: true om texten bygger på närvaron.",
     "Räcker underlaget inte: noEvidence true, text \"Framgår inte\", sourceIds tom lista och usedAttendance false.",
   ].join("\n");
 }
 
-/** Underlaget till draft som JSON-text: bara godkända uppgifter, inga namn. */
+/**
+ * Underlaget till draft som JSON-text: bara godkända uppgifter och anteckningarna (id, dag, typ, text utan personnummer) –
+ * aldrig författarens namn, nivå, grupper eller taggar.
+ */
 export function draftInputForPrompt(input: DraftInput): string {
   const att = input.attendance;
   const count = (...s: string[]) => att.filter((x) => s.includes(x.status)).length;
@@ -159,6 +164,7 @@ export function draftInputForPrompt(input: DraftInput): string {
       anteckning: c.note,
     })),
     narvaro: { registreradeTillfallen: att.length, narvarande: count("present", "late"), senAnkomst: count("late"), giltigFranvaro: count("absent_valid"), ogiltigFranvaro: count("absent_invalid") },
+    anteckningar: input.notes.map((n) => ({ id: n.id, datum: fmtDateShort(n.date), typ: caseNoteKindLabel(n.kind), text: n.text })),
   });
 }
 

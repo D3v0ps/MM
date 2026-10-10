@@ -29,7 +29,7 @@ Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver g
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
-- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**, handledaren **Mina tilldelade ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen och handledaren har också **Närvaro**.
+- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**, handledaren **Mina tilldelade ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen och handledaren har också **Närvaro**. Samordnaren, avtalsansvarig, coachen och handledaren har också **Anteckningar**.
 - Högst en rollflik, till exempel **Samordning**, **Ekonomi** eller **Ledning**.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
@@ -41,6 +41,7 @@ Sidopanelen har alltid:
 - AI föreslår – människan bedömer. AI sätter aldrig progressionsnivå, samlad status, avslutsorsak eller resultat. Du gör alltid ett aktivt val.
 - Rapporter byggs bara av godkända uppgifter, aldrig direkt från råtranskript.
 - Belopp i kronor syns bara för rollen ekonom.
+- Nivå, grupper och taggar är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå eller grupp.
 
 ## Operativ samordnare
 
@@ -75,6 +76,30 @@ Coachen har ingen egen rollflik. Allt finns under **Min vardag**.
 
 Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **Alla ärenden i avtalet** i listan för att se alla ärenden.
 
+Du kan filtrera listan på **Nivå**, **Grupp** och **Tagg**. Kolumnen **Nivå** visar deltagarens nivå. Samma filter finns i **Närvaro**.
+
+### Nivå och grupp
+
+Den som kartlägger väljer deltagarens nivå, grupper och taggar i kortet **Nivå och grupp** längst ned i kartläggningen. I deltagarkortet står de på raden **Nivå och grupp** – tryck på **Ändra** för att ändra.
+
+1. Välj **Nivå**: en av fem nivåer, från **Nivå 1 – Långt från arbete** till **Nivå 5 – Redo för arbete**. En deltagare har högst en nivå.
+2. Välj en eller flera **Grupper**. Finns inte gruppen? Tryck på **Ny grupp**, skriv namnet och tryck på **Skapa och välj**. Använd neutrala ord om stödet, till exempel ”Måndagsgruppen”. Aldrig omdömen om personer.
+3. Välj **Vill arbeta**: **Heltid**, **Deltid** eller **Vet inte än**. Det är deltagarens eget svar.
+4. Valen sparas direkt.
+5. Vill du skriva något till coacherna? Skriv i **En rad till coacherna (valfritt)** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet med dagens datum.
+
+Under **Grupper och nivåer** byter du namn på nivåer, grupper och taggar, arkiverar grupper och lägger till nya. Du når sidan från **Anteckningar**. Systemadministratören har den i sin flik. Inget raderas – en arkiverad grupp kan inte väljas för fler deltagare.
+
+### Anteckningar för flera deltagare
+
+Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en gruppträff.
+
+1. Öppna **Anteckningar**.
+2. Välj vilka deltagare som ska visas under **Visa**: **Mina ärenden**, **En nivå**, **En grupp** eller **En tagg**. Bara pågående ärenden visas.
+3. Kontrollera **Typ** och **Datum**. I dag är förvalt. Det finns ingen tid.
+4. Skriv en rad för varje deltagare du vill skriva om. Tomma rader sparas inte.
+5. Tryck på knappen som visar antalet, till exempel **Spara 3 anteckningar**. Varje rad blir en vanlig anteckning i deltagarens kort. Står det något som ser ut som ett personnummer på en rad sparas ingenting, och felet visas vid raden.
+
 ### Närvaro
 
 1. Öppna **Närvaro**.
@@ -93,7 +118,7 @@ Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **All
 ### Månadsbedömning
 
 1. Öppna **Månadsbedömning** från deltagarkortet.
-2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger bara på godkända mötesrapporter och registrerad närvaro.
+2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå, grupper och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 3. Sätt progressionsnivån för varje progressionsområde själv och skriv en **Konkret observation**.
 4. Godkänn bedömningen. Månadsrapporten till kommunen byggs av den.
 

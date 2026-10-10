@@ -50,3 +50,28 @@ describe("unika nycklar i minnet", () => {
     expect(await repo.table("cases").updateIf(hidden.id, { status: hidden.status }, { location: "x" })).toBeNull();
   });
 });
+
+describe("sammansatta och partiella unika nycklar (grupper, 0031)", () => {
+  it("en aktiv nivå per ärende: en andra stoppas, en borttagen räknas inte, och efter borttagningen går en ny bra", () => {
+    const s = store();
+    const cur = s.rows("grouping_members").find((m) => m.caseId === "case-260143" && m.kind === "level" && m.removedAt == null)!;
+    const other = cur.groupingId === "grp-c-bot-niva-2" ? "grp-c-bot-niva-3" : "grp-c-bot-niva-2";
+    const next = { ...cur, id: "gm-x", groupingId: other };
+    expect(() => s.insertRow("grouping_members", next)).toThrow("Dubblett i grouping_members (caseId, slot)");
+    // Samma gruppering två gånger (oavsett plats) stoppas också.
+    expect(() => s.insertRow("grouping_members", { ...cur, id: "gm-y" })).toThrow(UniqueError);
+    // En borttagen rad med samma plats går bra (partiellt index: removed_at is null).
+    s.insertRow("grouping_members", { ...next, id: "gm-z", removedAt: "2027-02-01T09:00", removedBy: "u-amira" });
+    s.updateRow("grouping_members", cur.id, { removedAt: "2027-02-01T09:00", removedBy: "u-amira" });
+    expect(() => s.insertRow("grouping_members", next)).not.toThrow();
+    // Att återställa den gamla nivån när en ny är aktiv stoppas.
+    expect(() => s.updateRow("grouping_members", cur.id, { removedAt: null, removedBy: null })).toThrow(UniqueError);
+  });
+
+  it("grupper har ingen plats (slot null): flera grupper per ärende går bra", () => {
+    const s = store();
+    const g = s.rows("grouping_members").find((m) => m.kind === "group" && m.removedAt == null)!;
+    const other = s.rows("groupings").find((x) => x.kind === "group" && x.id !== g.groupingId && !x.archivedAt)!;
+    expect(() => s.insertRow("grouping_members", { ...g, id: "gm-g2", groupingId: other.id })).not.toThrow();
+  });
+});

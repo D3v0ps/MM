@@ -36,6 +36,8 @@ const BYGG: NavItem = { to: "/rapportbyggare", label: "Bygg rapport", icon: "cha
 const PRAKTIK: NavItem = { to: "/praktik", label: "Arbetsgivare och praktik", icon: "briefcase" };
 const AVVIKELSER: NavItem = { to: "/avtalsavvikelser", label: "Avtalsavvikelser", icon: "flag" };
 const LOGG: NavItem = { to: "/admin/logg", label: "Revisionslogg", icon: "book" };
+/** Massanteckningar (coachmötet 2026-10-09). Grupper och nivåer nås därifrån – systemadministratören har dem i sin flik. */
+const ANTECKNINGAR: NavItem = { to: "/anteckningar", label: "Anteckningar", icon: "edit" };
 
 /** Förra månadens fakturakörning ("Fakturakörning januari" den 1 februari). */
 const fakturakorning = ({ now }: NavContext): NavItem | null => {
@@ -60,6 +62,8 @@ export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: Supplier
     roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"],
     item: (r) => (r === "coach" ? { ...ARENDEN, label: "Mina ärenden" } : r === "handledare" ? { to: "/handledare", label: "Mina tilldelade ärenden", icon: "list" } : ARENDEN),
   },
+  // Massanteckningar (coachmötet 2026-10-09): en rad per deltagare i en grupp, nivå eller tagg. Samma roller som rutten.
+  { roles: ["samordnare", "avtalsansvarig", "coach", "handledare"], item: () => ANTECKNINGAR },
   { roles: ["samordnare", "avtalsansvarig", "coach", "chef"], item: () => RAPPORTER },
   { roles: ["samordnare", "avtalsansvarig", "coach", "handledare"], item: () => PRAKTIK },
 ];
@@ -79,6 +83,7 @@ const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
       { to: "/admin/anvandare", label: "Användare och roller", icon: "users" },
       { to: "/admin/integrationer", label: "Underbiträden och integrationer", icon: "database" },
       { to: "/admin/mallar", label: "Mallar och utskick", icon: "mail" },
+      { to: "/grupper", label: "Grupper och nivåer", icon: "layers" },
       LOGG,
     ],
   },

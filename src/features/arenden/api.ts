@@ -407,6 +407,10 @@ export type CaseListDetail = {
   flags: CaseFlag[];
   /** Olästa meddelanden från kommunen till den inloggade (0 för chef och systemadmin). */
   unread: number;
+  /** Nivån (internt – coachmötet 2026-10-09). Null = ingen nivå satt. */
+  levelName: string | null;
+  /** Ärendets aktiva nivå, grupper och taggar (id:n) – filtren Nivå, Grupp och Tagg. */
+  groupingIds: string[];
 };
 export type CaseListRow = {
   id: string;
@@ -433,6 +437,8 @@ export type CaseListModel = {
   coaches: { id: string; name: string }[];
   areas: { code: string; name: string }[];
   phases: { no: number; name: string }[];
+  /** Filtren Nivå, Grupp och Tagg (aktiva grupperingar i aktörens avtal – internt, aldrig för kommunen). Fler avtal: prefixet efter namnet. */
+  groupings: { levels: { id: string; name: string }[]; groups: { id: string; name: string }[]; tags: { id: string; name: string }[] };
   rows: CaseListRow[];
 };
 export const caseList = query("arenden.lista", z.object({})).returns<CaseListModel>();

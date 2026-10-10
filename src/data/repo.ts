@@ -23,6 +23,13 @@ export class UniqueError extends Error {
     this.name = "UniqueError";
   }
 }
+/**
+ * En unik nyckel (MemoryStore, spegel av databasens unika index): ett fält, eller flera fält tillsammans. whenNull = ett
+ * partiellt index – bara rader där fälten är null räknas (t.ex. aktiva medlemskap: removedAt null). Rader där något av
+ * nyckelns fält är null räknas aldrig (som i Postgres, där null aldrig är lika med null).
+ */
+export type UniqueKey<T> = (keyof T & string) | { fields: readonly (keyof T & string)[]; whenNull?: readonly (keyof T & string)[] };
+
 export type Cmp<V> =
   | V
   | { in: readonly V[] }

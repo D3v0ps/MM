@@ -765,7 +765,7 @@ test("27. tidslinjens text: chefen fäller ut utan att något loggas; handledare
   // Handledaren (full åtkomst sedan 2026-10-09): samma poster som coachen, med "Visa text" på avstämningar och meddelanden.
   await switchTo(page, info, "/arenden/case-260167?flik=tidslinje", PETRA);
   await expect(main(page)).toContainText("Allt som hänt i insatsen");
-  // Väntar tills tidslinjen har hämtats (count() väntar inte – testet var ostadigt).
+  // Väntar tills tidslinjens poster har kommit (kortets frågor laddas parallellt) – minst en "Visa text".
   await expect(main(page).getByRole("button", { name: "Visa text" }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });

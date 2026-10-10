@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { accessIndex, caseAccessIn } from "@/core/access";
+import { defaultGroupings } from "@/core/groupings";
 import { requireOperational } from "@/core/config";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
@@ -182,6 +183,11 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       audio("aud-x-petra", petraCase.id, "u-petra", "checkin"), audio("aud-x-skyddad", protectedCase.id, protectedCase.leadCoachId!, "checkin"),
       audio("aud-x-deltagare", amiraCase.id, "deltagare", "participant"),
     ],
+    // Grupper (0031): en grupp i det andra avtalet (c-ny), där bara avtalsansvarig Johan är medlem.
+    groupings: [{
+      id: "grp-x-ny", contractId: "c-ny", kind: "group", category: null, name: "Grupp i nytt avtal", description: "", sortOrder: 1, createdAt: at, createdBy: "u-johan",
+      updatedAt: null, updatedBy: null, archivedAt: null, archivedBy: null,
+    }],
     // Bilagor till beställningen (0024): i Marias ärende, en uppladdning som ännu inte hör till en beställning, en raderad,
     // en i det skyddade ärendet (Omar) och en i Petras ärende som samordnaren lade till.
     case_attachments: [
@@ -672,6 +678,13 @@ function copyOf(t: TableName, row: Record<string, unknown>): Record<string, unkn
   if (t === "memberships") {
     const taken = new Set(data.memberships.map((m) => `${m.userId}|${m.contractId}|${m.role}`));
     c.userId = data.profiles.map((p) => p.id).find((u) => !taken.has(`${u}|${row.contractId}|${row.role}`));
+  }
+  // Grupper (0031): högst en aktiv nivå och ett värde per taggkategori per ärende, samma gruppering en gång – kopian får ett
+  // ärende i samma avtal som saknar platsen och grupperingen (bara ett ärende som inte är skyddat, så att bara policyn avgör).
+  if (t === "grouping_members") {
+    const active = data.grouping_members.filter((m) => m.removedAt == null);
+    const free = (caseId: string) => !active.some((m) => m.caseId === caseId && (m.groupingId === row.groupingId || (row.slot != null && m.slot === row.slot)));
+    c.caseId = data.cases.find((x) => x.contractId === row.contractId && x.personId !== SKYDDAD_PERSON.id && free(x.id))?.id;
   }
   return c;
 }
@@ -1307,6 +1320,214 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
     const res = await asUser(db, null, (tx) => attempt(tx, insert(r)), { role: "service_role" });
     expect(res).toMatchObject({ ok: false, code: "23514" });
   });
+});
+
+// ================================================================ Grupper, nivåer och taggar (0031)
+describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma regler i RLS, triggrarna och policy.ts", () => {
+  const NADIA = "case-260143";
+  const AMAL = "case-270012";
+  const SKYDDAD = SKYDDAD_CASE.id;
+  const at = "2027-02-01T09:30";
+  const sorted = (xs: string[]) => [...xs].sort();
+  const pgIdsOf = (userId: string, t: "groupings" | "grouping_members") =>
+    asPersona(findPersona(userId), async (tx) => (await tx.query<{ id: string }>(`select id from public.${t} order by id`)).rows.map((r) => r.id));
+  const memIdsOf = (userId: string, t: "groupings" | "grouping_members") =>
+    sorted((data[t] as Tables[typeof t][]).filter((x) => canReadRow(t, x as never, actorOf(findPersona(userId)), raw)).map((x) => x.id));
+
+  it("testdatat: standardvärdena (fem nivåer, Vill arbeta), tre grupper varav en arkiverad, och medlemskap i det skyddade ärendet", () => {
+    const bot = data.groupings.filter((g) => g.contractId === "c-bot");
+    expect(bot.filter((g) => g.kind === "level").map((g) => g.name)).toEqual([
+      "Nivå 1 – Långt från arbete", "Nivå 2 – Behöver stöd för att komma igång", "Nivå 3 – På väg", "Nivå 4 – Nära arbete", "Nivå 5 – Redo för arbete",
+    ]);
+    expect(bot.filter((g) => g.kind === "tag").map((g) => `${g.category}: ${g.name}`)).toEqual(["Vill arbeta: Heltid", "Vill arbeta: Deltid", "Vill arbeta: Vet inte än"]);
+    expect(bot.filter((g) => g.kind === "group").map((g) => [g.name, !!g.archivedAt])).toEqual([["Måndagsgruppen", false], ["Lagergruppen", false], ["Höstgruppen 2026", true]]);
+    expect(data.grouping_members.some((m) => m.caseId === SKYDDAD && m.removedAt == null)).toBe(true);
+    expect(data.grouping_members.some((m) => m.removedAt != null)).toBe(true);
+  });
+
+  it("läsning per roll: MB utom ekonomen läser grupperingarna och medlemskapen – kommunen, ekonomen och deltagaren inget; skyddat ärende bara namngivna", async () => {
+    const botGroupings = sorted(data.groupings.filter((g) => g.contractId === "c-bot").map((g) => g.id));
+    const allGroupings = sorted(data.groupings.map((g) => g.id));
+    const open = sorted(data.grouping_members.filter((m) => m.caseId !== SKYDDAD).map((m) => m.id));
+    const all = sorted(data.grouping_members.map((m) => m.id));
+    const expected: Record<string, [string[], string[]]> = {
+      "u-sara": [botGroupings, open], "u-amira": [botGroupings, open], "u-petra": [botGroupings, open], "u-karin": [botGroupings, open],
+      // Admin: alla avtal (också c-ny) – men det skyddade ärendet bara som ärende (vilande spärr).
+      "u-robin": [allGroupings, open],
+      // Avtalsansvarig Johan är medlem i c-ny och ser det skyddade ärendet; Erik är namngiven huvudcoach i det.
+      "u-johan": [allGroupings, all], "u-erik": [botGroupings, all],
+      "u-lars": [[], []], "k-maria": [[], []], "k-omar": [[], []], deltagare: [[], []],
+    };
+    for (const [userId, [g, m]] of Object.entries(expected)) {
+      expect([userId, await pgIdsOf(userId, "groupings")]).toEqual([userId, g]);
+      expect([userId, memIdsOf(userId, "groupings")]).toEqual([userId, g]);
+      expect([userId, await pgIdsOf(userId, "grouping_members")]).toEqual([userId, m]);
+      expect([userId, memIdsOf(userId, "grouping_members")]).toEqual([userId, m]);
+    }
+  }, 60_000);
+
+  /** Kör satsen som personen i Postgres och samma rad i policy.ts – svaren ska vara lika. */
+  async function both<T extends "groupings" | "grouping_members">(t: T, userId: string, sql: string, row: Tables[T]) {
+    const p = findPersona(userId);
+    const cur = raw.get(t, row.id);
+    const mem = (cur ? canReadRow(t, cur, actorOf(p), raw) : true) && canWriteRow(t, row, actorOf(p), raw);
+    const pg = await asPersona(p, (tx) => attempt(tx, sql));
+    return { pg: allowed(pg), mem };
+  }
+  const level = (n: number) => `grp-c-bot-niva-${n}`;
+  const member = (id: string, caseId: string, groupingId: string, addedBy: string, patch: Partial<Tables["grouping_members"]> = {}): Tables["grouping_members"] => {
+    const g = raw.get("groupings", groupingId)!;
+    return {
+      id, contractId: "c-bot", caseId, groupingId, kind: g.kind, slot: g.kind === "level" ? "level" : g.kind === "tag" ? `tag:${g.category}` : null, addedAt: at, addedBy,
+      removedAt: null, removedBy: null, ...patch,
+    };
+  };
+  const insertMember = (r: Tables["grouping_members"]) => insertSql("grouping_members", r as unknown as Record<string, unknown>);
+
+  it("nytt medlemskap: samordnare, avtalsansvarig och coach med full åtkomst i eget namn – aldrig admin (läsläge), handledare, chef, ekonom eller kommunen", async () => {
+    const cases: [string, Tables["grouping_members"], boolean][] = [
+      ["u-amira", member("gm-t1", AMAL, level(3), "u-amira"), true],
+      ["u-sara", member("gm-t2", AMAL, level(3), "u-sara"), true],
+      ["u-johan", member("gm-t3", AMAL, level(3), "u-johan"), true],
+      ["u-robin", member("gm-t4", AMAL, level(3), "u-robin"), false],
+      ["u-petra", member("gm-t5", AMAL, level(3), "u-petra"), false],
+      ["u-karin", member("gm-t6", AMAL, level(3), "u-karin"), false],
+      ["u-lars", member("gm-t7", AMAL, level(3), "u-lars"), false],
+      ["k-maria", member("gm-t8", AMAL, level(3), "k-maria"), false],
+      // I någon annans namn, redan borttaget, fel plats, fel avtal, arkiverad grupp.
+      ["u-amira", member("gm-t9", AMAL, level(3), "u-sara"), false],
+      ["u-amira", member("gm-t10", AMAL, level(3), "u-amira", { removedAt: at, removedBy: "u-amira" }), false],
+      ["u-amira", member("gm-t11", AMAL, level(3), "u-amira", { slot: null }), false],
+      ["u-amira", member("gm-t12", AMAL, level(3), "u-amira", { kind: "group", slot: null }), false],
+      ["u-amira", member("gm-t13", AMAL, "grp-x-ny", "u-amira"), false],
+      ["u-johan", member("gm-t14", AMAL, "grp-x-ny", "u-johan"), false],
+      ["u-amira", member("gm-t15", AMAL, "grp-c-bot-g-host", "u-amira"), false],
+      ["u-amira", member("gm-t16", AMAL, "grp-c-bot-g-mandag", "u-amira"), true],
+      ["u-amira", member("gm-t17", AMAL, "grp-c-bot-vill-arbeta-deltid", "u-amira"), true],
+      // Det skyddade ärendet (vilande spärr): samordnaren har bara "restricted"; namngiven huvudcoach och avtalsansvarig får.
+      ["u-sara", member("gm-t18", SKYDDAD, "grp-c-bot-vill-arbeta-heltid", "u-sara"), false],
+      ["u-erik", member("gm-t19", SKYDDAD, "grp-c-bot-vill-arbeta-heltid", "u-erik"), true],
+      ["u-johan", member("gm-t20", SKYDDAD, "grp-c-bot-vill-arbeta-heltid", "u-johan"), true],
+    ];
+    for (const [userId, r, want] of cases) expect([userId, r.id, await both("grouping_members", userId, insertMember(r), r)]).toEqual([userId, r.id, { pg: want, mem: want }]);
+  }, 60_000);
+
+  it("ändra medlemskap: bara ta bort ett aktivt, i eget namn – inget annat ändras, inget återställs och ingen raderar", async () => {
+    const nadiaGroup = data.grouping_members.find((m) => m.caseId === NADIA && m.kind === "group" && m.removedAt == null)!;
+    const removed = data.grouping_members.find((m) => m.removedAt != null)!;
+    const upd = (id: string, set: string) => `update public.grouping_members set ${set} where id = '${id}'`;
+    const cases: [string, string, Tables["grouping_members"], boolean][] = [
+      ["u-amira", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-amira'`), { ...nadiaGroup, removedAt: at, removedBy: "u-amira" }, true],
+      ["u-sara", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-sara'`), { ...nadiaGroup, removedAt: at, removedBy: "u-sara" }, true],
+      ["u-amira", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-sara'`), { ...nadiaGroup, removedAt: at, removedBy: "u-sara" }, false],
+      ["u-amira", upd(nadiaGroup.id, "grouping_id = 'grp-c-bot-g-mandag'"), { ...nadiaGroup, groupingId: "grp-c-bot-g-mandag" }, false],
+      ["u-amira", upd(nadiaGroup.id, `added_by = 'u-sara'`), { ...nadiaGroup, addedBy: "u-sara" }, false],
+      ["u-amira", upd(nadiaGroup.id, "id = id"), nadiaGroup, false],
+      ["u-petra", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, false],
+      ["u-karin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-karin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-karin" }, false],
+      ["u-robin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-robin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-robin" }, false],
+      ["u-sara", upd(removed.id, "removed_at = null, removed_by = null"), { ...removed, removedAt: null, removedBy: null }, false],
+      ["u-sara", `delete from public.grouping_members where id = '${nadiaGroup.id}'`, nadiaGroup, false],
+    ];
+    for (const [userId, sql, r, want] of cases) expect([userId, sql, await both("grouping_members", userId, sql, r)]).toEqual([userId, sql, { pg: want, mem: want }]);
+  }, 60_000);
+
+  it("en nivå och ett värde per taggkategori per ärende – databasens unika index och minnets UNIQUE_KEYS stoppar en andra (också för servern)", async () => {
+    const nadiaLevel = data.grouping_members.find((m) => m.caseId === NADIA && m.kind === "level" && m.removedAt == null)!;
+    const nadiaTag = data.grouping_members.find((m) => m.caseId === NADIA && m.kind === "tag" && m.removedAt == null)!;
+    const second = [
+      member("gm-u1", NADIA, level(nadiaLevel.groupingId === level(2) ? 3 : 2), "u-amira"),
+      member("gm-u2", NADIA, nadiaTag.groupingId === "grp-c-bot-vill-arbeta-deltid" ? "grp-c-bot-vill-arbeta-heltid" : "grp-c-bot-vill-arbeta-deltid", "u-amira"),
+      member("gm-u3", NADIA, nadiaLevel.groupingId, "u-amira"),
+    ];
+    for (const r of second) {
+      const pg = await asUser(db, null, (tx) => attempt(tx, insertMember(r)), { role: "service_role" });
+      expect([r.id, pg]).toMatchObject([r.id, { ok: false, code: "23505" }]);
+      const st = new MemoryStore<Tables>(JSON.parse(JSON.stringify(data)) as typeof data, UNIQUE_KEYS);
+      expect(() => st.insertRow("grouping_members", r), r.id).toThrow(UniqueError);
+    }
+    // När den gamla nivån är borttagen går en ny bra – i samma transaktion i databasen och i minnet.
+    const replace = member("gm-u4", NADIA, level(nadiaLevel.groupingId === level(2) ? 3 : 2), "u-amira");
+    const pg = await asPersona(findPersona("u-amira"), async (tx) => ({
+      remove: await attempt(tx, `update public.grouping_members set removed_at = '${at}', removed_by = 'u-amira' where id = '${nadiaLevel.id}'`, [], { keep: true }),
+      add: await attempt(tx, insertMember(replace)),
+    }));
+    expect(pg).toEqual({ remove: { ok: true, rows: 1 }, add: { ok: true, rows: 1 } });
+    const st = new MemoryStore<Tables>(JSON.parse(JSON.stringify(data)) as typeof data, UNIQUE_KEYS);
+    st.updateRow("grouping_members", nadiaLevel.id, { removedAt: at, removedBy: "u-amira" });
+    expect(() => st.insertRow("grouping_members", replace)).not.toThrow();
+  }, 60_000);
+
+  const grouping = (id: string, createdBy: string, patch: Partial<Tables["groupings"]> = {}): Tables["groupings"] => ({
+    id, contractId: "c-bot", kind: "group", category: null, name: "Tisdagsgruppen", description: "", sortOrder: 9, createdAt: at, createdBy,
+    updatedAt: null, updatedBy: null, archivedAt: null, archivedBy: null, ...patch,
+  });
+  const insertGrouping = (r: Tables["groupings"]) => insertSql("groupings", r as unknown as Record<string, unknown>);
+
+  it("ny gruppering: skrivrollerna i eget namn – inte handledare, chef, ekonom eller kommunen; varken ändrad, arkiverad eller med fel form", async () => {
+    const cases: [string, Tables["groupings"], boolean][] = [
+      ["u-amira", grouping("g-t1", "u-amira"), true],
+      ["u-sara", grouping("g-t2", "u-sara"), true],
+      ["u-johan", grouping("g-t3", "u-johan"), true],
+      ["u-robin", grouping("g-t4", "u-robin"), true],
+      ["u-petra", grouping("g-t5", "u-petra"), false],
+      ["u-karin", grouping("g-t6", "u-karin"), false],
+      ["u-lars", grouping("g-t7", "u-lars"), false],
+      ["k-maria", grouping("g-t8", "k-maria"), false],
+      ["u-amira", grouping("g-t9", "u-sara"), false],
+      ["u-amira", grouping("g-t10", "u-amira", { archivedAt: at, archivedBy: "u-amira" }), false],
+      ["u-amira", grouping("g-t11", "u-amira", { updatedAt: at, updatedBy: "u-amira" }), false],
+      ["u-amira", grouping("g-t12", "u-amira", { kind: "tag" }), false],
+      ["u-amira", grouping("g-t13", "u-amira", { kind: "tag", category: "Körkort" }), true],
+      ["u-amira", grouping("g-t14", "u-amira", { category: "Körkort" }), false],
+      ["u-amira", grouping("g-t15", "u-amira", { name: "x".repeat(81) }), false],
+      ["u-amira", grouping("g-t16", "u-amira", { name: "  " }), false],
+      ["u-amira", grouping("g-t17", "u-amira", { contractId: "c-ny" }), false],
+      ["u-johan", grouping("g-t18", "u-johan", { contractId: "c-ny" }), true],
+    ];
+    for (const [userId, r, want] of cases) expect([userId, r.id, await both("groupings", userId, insertGrouping(r), r)]).toEqual([userId, r.id, { pg: want, mem: want }]);
+  }, 60_000);
+
+  it("ändra gruppering: namn och beskrivning, arkivera och återställ i eget namn – avtal, typ, kategori och skapad ändras aldrig, ingen raderar", async () => {
+    const mandag = raw.get("groupings", "grp-c-bot-g-mandag")!;
+    const host = raw.get("groupings", "grp-c-bot-g-host")!;
+    const heltid = raw.get("groupings", "grp-c-bot-vill-arbeta-heltid")!;
+    const upd = (id: string, set: string) => `update public.groupings set ${set} where id = '${id}'`;
+    const cases: [string, string, Tables["groupings"], boolean][] = [
+      ["u-sara", upd(mandag.id, `name = 'Måndagar', updated_at = '${at}', updated_by = 'u-sara'`), { ...mandag, name: "Måndagar", updatedAt: at, updatedBy: "u-sara" }, true],
+      ["u-sara", upd(mandag.id, `name = 'Måndagar', updated_at = '${at}', updated_by = 'u-amira'`), { ...mandag, name: "Måndagar", updatedAt: at, updatedBy: "u-amira" }, false],
+      ["u-amira", upd(mandag.id, `archived_at = '${at}', archived_by = 'u-amira'`), { ...mandag, archivedAt: at, archivedBy: "u-amira" }, true],
+      ["u-amira", upd(mandag.id, `archived_at = '${at}', archived_by = 'u-sara'`), { ...mandag, archivedAt: at, archivedBy: "u-sara" }, false],
+      ["u-sara", upd(host.id, "archived_at = null, archived_by = null"), { ...host, archivedAt: null, archivedBy: null }, true],
+      ["u-sara", upd(mandag.id, "kind = 'level'"), { ...mandag, kind: "level" }, false],
+      ["u-sara", upd(heltid.id, "category = 'Annan'"), { ...heltid, category: "Annan" }, false],
+      ["u-sara", upd(mandag.id, "contract_id = 'c-ny'"), { ...mandag, contractId: "c-ny" }, false],
+      ["u-sara", upd(mandag.id, `created_by = 'u-sara'`), { ...mandag, createdBy: "u-sara" }, false],
+      ["u-sara", upd(mandag.id, "name = name"), mandag, false],
+      ["u-petra", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-petra'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-petra" }, false],
+      ["u-lars", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-lars'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-lars" }, false],
+      ["u-sara", `delete from public.groupings where id = '${mandag.id}'`, mandag, false],
+    ];
+    for (const [userId, sql, r, want] of cases) expect([userId, sql, await both("groupings", userId, sql, r)]).toEqual([userId, sql, { pg: want, mem: want }]);
+  }, 60_000);
+
+  it("migrationen lägger in standardvärdena för befintliga avtal med samma id som testdatat – och kan köras igen", async () => {
+    const sqlText = readFileSync(`${MIGRATIONS_DIR}/0031_grupper.sql`, "utf8");
+    // Som postgres (migrationen skapar tabeller och funktioner) i en transaktion som rullas tillbaka.
+    type G = { id: string; contract_id: string; kind: string; category: string | null; name: string; sort_order: number };
+    let got: G[] = [];
+    await db.transaction(async (tx) => {
+      await tx.query("delete from public.grouping_members");
+      await tx.query("delete from public.groupings");
+      await tx.exec(sqlText);
+      await tx.exec(sqlText);
+      got = (await tx.query<G>("select id, contract_id, kind, category, name, sort_order from public.groupings order by contract_id, kind, sort_order")).rows;
+      await tx.rollback();
+    });
+    const want = (contractId: string) => defaultGroupings(contractId, at).map((g) => ({ id: g.id, contract_id: contractId, kind: g.kind, category: g.category, name: g.name, sort_order: g.sortOrder }));
+    const expected = ["c-bot", "c-ny"].flatMap(want).sort((a, b) => (a.contract_id + a.kind + a.sort_order < b.contract_id + b.kind + b.sort_order ? -1 : 1));
+    expect(got).toEqual(expected);
+  }, 60_000);
 });
 
 // ================================================================ Pulslänken (0016)

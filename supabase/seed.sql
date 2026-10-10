@@ -17,7 +17,7 @@ $$;
 
 -- Töm appens tabeller (aldrig auth.*). Revisionsloggen töms bara här: triggern stoppar update och delete, inte truncate.
 -- Testarnas synpunkter (feedback, feedback_replies) hör inte till testdatat och töms aldrig.
-truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.role_choices, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.intake_assessments, public.group_activities, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.case_notes, public.saved_reports, public.case_attachments, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
+truncate table public.holidays, public.organizations, public.contracts, public.contract_areas, public.price_items, public.buyer_references, public.profiles, public.memberships, public.role_choices, public.persons, public.cases, public.case_status_history, public.case_counters, public.case_team, public.inbound_emails, public.intake_assessments, public.group_activities, public.activities, public.attendance, public.check_ins, public.monthly_assessments, public.monthly_plans, public.outcome_events, public.deviations, public.consents, public.employers, public.placements, public.reports, public.messages, public.user_notifications, public.notification_reads, public.tasks, public.outbound_messages, public.case_seen, public.contract_deviations, public.alerts, public.alert_acks, public.deadlines, public.kpi_snapshots, public.pulse_invites, public.pulse_responses, public.bonus_claims, public.billing_runs, public.invoice_drafts, public.invoice_lines, public.billing_week_approvals, public.invoice_credits, public.fortnox_runs, public.integrations, public.jobs, public.ai_runs, public.ai_field_decisions, public.audit_log, public.org_settings, public.template_versions, public.log_checks, public.demo_tags, public.voice_links, public.participant_voice_notes, public.audio_uploads, public.case_notes, public.saved_reports, public.case_attachments, public.groupings, public.grouping_members, public.app_settings, public.tester_sessions, public.login_attempts restart identity cascade;
 
 -- holidays (32)
 insert into public.holidays (id, date, name) values
@@ -14025,6 +14025,51 @@ insert into public.saved_reports (id, contract_id, owner_id, title, template_key
   ('sr-seed-kommun', 'c-bot', 'u-johan', 'Resultatgrad per avtalsområde', 'resultatgrad-per-omrade', '{"v":1,"filters":{},"columns":[],"split":"inget","dataset":"avslut","period":{"kind":"senaste","months":6},"output":"sammanstallning","groupBy":"avtalsomrade_kod","measures":["avslut_som_raknas","verifierat_resultat","preliminara","resultatgrad"],"chart":{"measure":"resultatgrad"}}'::jsonb, 'mb', '2027-01-25T09:40', null, null, '2027-01-25T09:45', 'u-johan', null, null);
 
 -- case_attachments (0)
+
+-- groupings (11)
+insert into public.groupings (id, contract_id, kind, category, name, description, sort_order, created_at, created_by, updated_at, updated_by, archived_at, archived_by) values
+  ('grp-c-bot-niva-1', 'c-bot', 'level', null, 'Nivå 1 – Långt från arbete', '', 1, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-2', 'c-bot', 'level', null, 'Nivå 2 – Behöver stöd för att komma igång', '', 2, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-3', 'c-bot', 'level', null, 'Nivå 3 – På väg', '', 3, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-4', 'c-bot', 'level', null, 'Nivå 4 – Nära arbete', '', 4, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-5', 'c-bot', 'level', null, 'Nivå 5 – Redo för arbete', '', 5, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-vill-arbeta-heltid', 'c-bot', 'tag', 'Vill arbeta', 'Heltid', '', 1, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-vill-arbeta-deltid', 'c-bot', 'tag', 'Vill arbeta', 'Deltid', '', 2, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-vill-arbeta-vet-inte-an', 'c-bot', 'tag', 'Vill arbeta', 'Vet inte än', '', 3, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-g-mandag', 'c-bot', 'group', null, 'Måndagsgruppen', 'Gruppträff på måndagar kl. 10.00 i Alby.', 1, '2027-01-11T09:00', 'u-amira', null, null, null, null),
+  ('grp-c-bot-g-lager', 'c-bot', 'group', null, 'Lagergruppen', 'Deltagare som siktar på lagerarbete.', 2, '2027-01-12T13:30', 'u-sara', null, null, null, null),
+  ('grp-c-bot-g-host', 'c-bot', 'group', null, 'Höstgruppen 2026', '', 3, '2026-09-15T10:00', 'u-sara', null, null, '2027-01-08T16:00', 'u-sara');
+
+-- grouping_members (28)
+insert into public.grouping_members (id, contract_id, case_id, grouping_id, kind, slot, added_at, added_by, removed_at, removed_by) values
+  ('gm-case-260143-niva-4', 'c-bot', 'case-260143', 'grp-c-bot-niva-4', 'level', 'level', '2027-01-13T10:10', 'u-amira', null, null),
+  ('gm-case-260143-g-lager', 'c-bot', 'case-260143', 'grp-c-bot-g-lager', 'group', null, '2027-01-13T10:10', 'u-amira', null, null),
+  ('gm-case-260143-vill-arbeta-heltid', 'c-bot', 'case-260143', 'grp-c-bot-vill-arbeta-heltid', 'tag', 'tag:Vill arbeta', '2027-01-13T10:10', 'u-amira', null, null),
+  ('gm-case-260130-niva-3', 'c-bot', 'case-260130', 'grp-c-bot-niva-3', 'level', 'level', '2027-01-14T10:11', 'u-amira', null, null),
+  ('gm-case-260130-g-mandag', 'c-bot', 'case-260130', 'grp-c-bot-g-mandag', 'group', null, '2027-01-14T10:11', 'u-amira', null, null),
+  ('gm-case-260130-vill-arbeta-deltid', 'c-bot', 'case-260130', 'grp-c-bot-vill-arbeta-deltid', 'tag', 'tag:Vill arbeta', '2027-01-14T10:11', 'u-amira', null, null),
+  ('gm-case-260119-niva-5', 'c-bot', 'case-260119', 'grp-c-bot-niva-5', 'level', 'level', '2027-01-15T10:12', 'u-amira', null, null),
+  ('gm-case-260119-g-lager', 'c-bot', 'case-260119', 'grp-c-bot-g-lager', 'group', null, '2027-01-15T10:12', 'u-amira', null, null),
+  ('gm-case-260119-vill-arbeta-heltid', 'c-bot', 'case-260119', 'grp-c-bot-vill-arbeta-heltid', 'tag', 'tag:Vill arbeta', '2027-01-15T10:12', 'u-amira', null, null),
+  ('gm-case-260126-niva-4', 'c-bot', 'case-260126', 'grp-c-bot-niva-4', 'level', 'level', '2027-01-16T10:13', 'u-amira', null, null),
+  ('gm-case-260126-g-mandag', 'c-bot', 'case-260126', 'grp-c-bot-g-mandag', 'group', null, '2027-01-16T10:13', 'u-amira', null, null),
+  ('gm-case-260126-vill-arbeta-heltid', 'c-bot', 'case-260126', 'grp-c-bot-vill-arbeta-heltid', 'tag', 'tag:Vill arbeta', '2027-01-16T10:13', 'u-amira', null, null),
+  ('gm-case-260133-niva-5', 'c-bot', 'case-260133', 'grp-c-bot-niva-5', 'level', 'level', '2027-01-17T10:14', 'u-amira', null, null),
+  ('gm-case-260133-g-mandag', 'c-bot', 'case-260133', 'grp-c-bot-g-mandag', 'group', null, '2027-01-17T10:14', 'u-amira', null, null),
+  ('gm-case-260163-niva-3', 'c-bot', 'case-260163', 'grp-c-bot-niva-3', 'level', 'level', '2027-01-18T10:15', 'u-amira', null, null),
+  ('gm-case-260163-g-mandag', 'c-bot', 'case-260163', 'grp-c-bot-g-mandag', 'group', null, '2027-01-18T10:15', 'u-amira', null, null),
+  ('gm-case-260163-vill-arbeta-vet-inte-an', 'c-bot', 'case-260163', 'grp-c-bot-vill-arbeta-vet-inte-an', 'tag', 'tag:Vill arbeta', '2027-01-18T10:15', 'u-amira', null, null),
+  ('gm-case-260174-niva-2', 'c-bot', 'case-260174', 'grp-c-bot-niva-2', 'level', 'level', '2027-01-19T10:16', 'u-amira', null, null),
+  ('gm-case-260174-g-mandag', 'c-bot', 'case-260174', 'grp-c-bot-g-mandag', 'group', null, '2027-01-19T10:16', 'u-amira', null, null),
+  ('gm-case-260174-vill-arbeta-deltid', 'c-bot', 'case-260174', 'grp-c-bot-vill-arbeta-deltid', 'tag', 'tag:Vill arbeta', '2027-01-19T10:16', 'u-amira', null, null),
+  ('gm-case-270025-niva-2', 'c-bot', 'case-270025', 'grp-c-bot-niva-2', 'level', 'level', '2027-01-20T10:17', 'u-amira', null, null),
+  ('gm-case-260148-niva-4', 'c-bot', 'case-260148', 'grp-c-bot-niva-4', 'level', 'level', '2027-01-13T10:18', 'u-amira', null, null),
+  ('gm-case-260148-g-lager', 'c-bot', 'case-260148', 'grp-c-bot-g-lager', 'group', null, '2027-01-13T10:18', 'u-amira', null, null),
+  ('gm-case-260148-g-host', 'c-bot', 'case-260148', 'grp-c-bot-g-host', 'group', null, '2026-10-05T09:00', 'u-sara', '2027-01-08T15:55', 'u-sara'),
+  ('gm-case-260128-niva-1', 'c-bot', 'case-260128', 'grp-c-bot-niva-1', 'level', 'level', '2027-01-20T14:00', 'u-erik', null, null),
+  ('gm-case-260138-niva-2', 'c-bot', 'case-260138', 'grp-c-bot-niva-2', 'level', 'level', '2027-01-21T14:00', 'u-erik', null, null),
+  ('gm-case-260142-niva-3', 'c-bot', 'case-260142', 'grp-c-bot-niva-3', 'level', 'level', '2027-01-22T14:00', 'u-erik', null, null),
+  ('gm-case-260120-niva-2', 'c-bot', 'case-260120', 'grp-c-bot-niva-2', 'level', 'level', '2027-01-19T11:00', 'u-erik', null, null);
 
 -- Testmiljön: miljö och testklocka. Klockan startar på testtiden när seeden läses in och går sedan i vanlig takt.
 insert into public.app_settings (key, value) values

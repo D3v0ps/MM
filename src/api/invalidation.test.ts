@@ -79,6 +79,9 @@ const SAMPLES: Record<string, Sample[]> = {
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
   // Gruppaktiviteter (2026-10-09): testdatat har inga – testet skapar en först (se nedan) och visar den.
   "aktiviteter.lista": [...one("u-amira"), ...one("u-karin")], "aktiviteter.visa": one("u-amira", { id: "__first_group__" }), "aktiviteter.form": one("u-sara"),
+  // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
+  "grupper.katalog": [...one("u-sara", { arkiverade: true }), ...one("u-amira")], "grupper.arende": one("u-amira", { caseId: NADIA }), "grupper.filter": one("u-amira"),
+  "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "grupp", id: "grp-c-bot-g-mandag" })],
 };
 
 /**
@@ -149,6 +152,9 @@ const WRITES: Record<string, string[]> = {
   "aktiviteter.skapa": ["group_activities", "activities", AUDIT_CASE, AUDIT], "aktiviteter.andra": ["group_activities", "activities", AUDIT_CASE, AUDIT],
   "aktiviteter.bjudIn": ["activities", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", AUDIT_CASE, AUDIT],
   "aktiviteter.stallIn": ["group_activities", "activities", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
+  // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
+  "grupper.ny": ["groupings", AUDIT], "grupper.andra": ["groupings", AUDIT], "grupper.arkivera": ["groupings", AUDIT], "grupper.standard": ["groupings", AUDIT],
+  "grupper.arendeSpara": ["grouping_members", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -213,6 +219,11 @@ const KNOWN: Known[] = [
   // Gruppaktiviteternas formulär (2026-10-09): deltagarna att bjuda in hämtas färskt varje gång formuläret öppnas (useQueryRunner,
   // ingen cache) och servern prövar varje inbjudan igen (not_invitable) – en ändring av ett ärende behöver inte räkna om något.
   { command: "*", query: "aktiviteter.form", table: "cases", reason: "formuläret hämtar deltagarna utan cache när det öppnas; inbjudan prövas av servern" },
+  // Massanteckningarna (coachmötet 2026-10-09): urvalets namn, ärendenummer och status, och Mina ärenden (teamet).
+  { command: "*", query: "grupper.anteckningar", table: "cases", reason: "listan över urvalet hämtas om när sidan visas igen – en anteckning går att spara i alla ärenden man arbetar i" },
+  { command: "*", query: "grupper.katalog", table: "cases", reason: "antalet per nivå, grupp och tagg räknar bara pågående ärenden – statusen ändras i andra vyer och antalet hämtas om när sidan visas igen" },
+  { command: "*", query: "grupper.anteckningar", table: "case_team", reason: "Mina ärenden – tilldelningen hämtas om när sidan visas igen" },
+  { command: "*", query: "grupper.arende", table: "case_team", reason: "teamet läses bara i behörighetsuppslaget – tilldelningen styr inte åtkomsten (beslut 2026-10-09)" },
 ];
 /** Varje delad tabell måste täckas av en KNOWN-rad för paret; returnerar raderna som användes (eller null). */
 function knownFor(command: string, query: string, tables: string[]): number[] | null {

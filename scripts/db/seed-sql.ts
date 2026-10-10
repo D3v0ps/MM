@@ -2,6 +2,7 @@
 // plus testarna (TESTERS), app_settings (miljö och testklocka) och deterministiska auth_user_id för seedens profiler.
 // Testarnas synpunkter (TESTER_TABLES) hör inte till testdatat och töms aldrig.
 // Används av scripts/db/generate-seed.ts (skriver supabase/seed.sql) och av RLS-testerna (src/data/supabase/rls-parity.test.ts).
+import { defaultGroupings } from "../../src/core/groupings";
 import type { MemoryData } from "../../src/data/memory";
 import { DEMO_START } from "../../src/data/seed";
 import type { TableName, Tables } from "../../src/data/schema";
@@ -156,7 +157,8 @@ export function seedSql(data: MemoryData<Tables> = seedData()): string {
 // ---------------------------------------------------------------- Startdata för en ny testmiljö
 /**
  * supabase/bootstrap-staging.sql: det lilla startdatat som behövs för att testarna ska kunna logga in – organisationer,
- * avtal, avtalsområden, prislistor, helgdagar, testarnas profiler och medlemskap, och app_settings (testmiljö + testklocka).
+ * avtal, avtalsområden, prislistor, helgdagar, grupperingarnas standardvärden (nivåerna och Vill arbeta, som 0031),
+ * testarnas profiler och medlemskap, och app_settings (testmiljö + testklocka).
  * Resten av testdatat läser testaren in i appen ("Läs in testdata på nytt" i adminvyn, POST /api/staging/seed).
  * Idempotent: kan köras flera gånger (on conflict). Tömmer ingenting. Stoppar sig själv utanför testmiljön.
  */
@@ -186,6 +188,11 @@ export function bootstrapSql(data: MemoryData<Tables> = seedData()): string {
     const rows = data[table] as readonly object[];
     parts.push(`-- ${table} (${rows.length})`, ...insertStatements(table, rows, 250, { action: "update" }), "");
   }
+  // Grupperingarnas standardvärden (fem nivåer och Vill arbeta, samma id som migrationen 0031): 0031 lägger bara in dem för
+  // avtal som finns när migrationen körs – i en ny testmiljö kommer avtalen först här. "do nothing": namn som ändrats behålls.
+  const defaultIds = new Set(data.contracts.flatMap((c) => defaultGroupings(c.id, DEMO_START).map((g) => g.id)));
+  const groupings = data.groupings.filter((g) => defaultIds.has(g.id));
+  parts.push(`-- groupings: standardvärdena (${groupings.length})`, ...insertStatements("groupings", groupings, 250, { action: "nothing" }), "");
   const profiles = data.profiles.filter((p) => testers.has(p.id));
   const memberships = data.memberships.filter((m) => testers.has(m.userId));
   parts.push(
