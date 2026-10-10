@@ -42,7 +42,7 @@ const CALLS: Record<ParticipantTemplate, boolean> = { kallelse: true, aktivitets
 const WHAT: Record<ParticipantTemplate, string> = {
   kallelse: "Kallelsen",
   aktivitetsinbjudan: "Inbjudan",
-  aktivitet_andrad: "Meddelandet om ny tid",
+  aktivitet_andrad: "Meddelandet om ändringen",
   aktivitet_installd: "Meddelandet om inställd aktivitet",
 };
 
@@ -176,7 +176,7 @@ export function participantMessage(template: ParticipantTemplate, when: LocalDat
 const TASK_START: Record<ParticipantTemplate, string> = {
   kallelse: "Ring deltagaren och kalla till första mötet",
   aktivitetsinbjudan: "Ring deltagaren och bjud in till aktiviteten",
-  aktivitet_andrad: "Ring deltagaren och berätta om aktivitetens nya tid",
+  aktivitet_andrad: "Ring deltagaren och berätta om aktivitetens nya tid eller plats",
   aktivitet_installd: "Ring deltagaren och berätta att aktiviteten är inställd",
 };
 

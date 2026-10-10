@@ -21,6 +21,7 @@ import type { TableName, Tables } from "@/data/schema";
 import { detailText, type AuditLookups } from "@/features/admin/audit-text";
 import { caseHistory } from "@/features/arenden/api";
 import { attendanceSet } from "@/features/coach/api";
+import { TEMPLATES } from "@/server/notify/templates";
 import "@/api/handlers";
 import {
   groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityRemove, groupActivityUpdate, groupActivityView, groupGoalResultSet,
@@ -166,12 +167,23 @@ describe("meddelandet till deltagarna", () => {
     const moved = await run(groupActivityUpdate, {
       id: groupActivityId, ...base, name: "CV-verkstad del 2", durationMin: 60, startsAt: "2027-02-04T10:00", location: "Rum 2", notify: true, replaceOverlapping: true,
     }, amira());
-    expect(moved).toMatchObject({ ok: true, notified: { sent: 2, tasks: 0, summary: "Meddelandet om ny tid skickas till 2 deltagare med e-post." } });
+    expect(moved).toMatchObject({ ok: true, notified: { sent: 2, tasks: 0, summary: "Meddelandet om ändringen skickas till 2 deltagare med e-post." } });
     const changed = messages("aktivitet_andrad");
     expect(changed.map((m) => m.channel)).toEqual(["email", "sms", "email", "sms"]);
     expect(changed.some((m) => m.channel === "call")).toBe(false);
     expect(changed[0].body).toBe("Hej! Aktiviteten hos Miljonbemanning onsdag 3 februari kl. 13.00 är ändrad. Nu gäller torsdag 4 februari kl. 10.00, Rum 2. Frågor? Ring 08-400 22 750.");
     expectOnlyTimePlacePhone(changed.flatMap((m) => [m.body, m.subject ?? ""]));
+    // Bara platsen ändras: samma mall, och ämnet säger inte att tiden har ändrats.
+    const place = await run(groupActivityUpdate, {
+      id: groupActivityId, ...base, name: "CV-verkstad del 2", durationMin: 60, startsAt: "2027-02-04T10:00", location: "Rum 3", notify: true,
+    }, amira());
+    expect(place).toMatchObject({ ok: true, notified: { sent: 2, summary: "Meddelandet om ändringen skickas till 2 deltagare med e-post." } });
+    const placeOnly = messages("aktivitet_andrad").slice(4);
+    expect(placeOnly.find((m) => m.channel === "email")!.body).toBe(
+      "Hej! Aktiviteten hos Miljonbemanning torsdag 4 februari kl. 10.00 är ändrad. Nu gäller torsdag 4 februari kl. 10.00, Rum 3. Frågor? Ring 08-400 22 750.",
+    );
+    // Mejlets ämne (src/server/notify/templates.ts) gäller både ny tid och ny plats.
+    expect(TEMPLATES.aktivitet_andrad.subject).toBe("Ändrad aktivitet hos Miljonbemanning");
   });
 
   it("ta bort en deltagare och ställa in: mallen aktivitet_installd till dem som inte längre är med", async () => {
@@ -197,7 +209,7 @@ describe("meddelandet till deltagarna", () => {
     const first = open()[0];
     expect(await run(groupActivityUpdate, { id: res.groupActivityId, ...base, startsAt: "2027-02-04T10:00", notify: true, replaceOverlapping: true }, amira())).toMatchObject({ ok: true });
     expect(rows("tasks").find((t) => t.id === first.id)).toMatchObject({ status: "done", doneBy: "system", doneNote: "Aktiviteten har fått ny tid eller plats." });
-    expect(open().map((t) => t.text)).toEqual([expect.stringMatching(/^Ring deltagaren och berätta om aktivitetens nya tid – ärende BOT-27-0003, torsdag 4 februari kl\. 10\.00/)]);
+    expect(open().map((t) => t.text)).toEqual([expect.stringMatching(/^Ring deltagaren och berätta om aktivitetens nya tid eller plats – ärende BOT-27-0003, torsdag 4 februari kl\. 10\.00/)]);
     const second = open()[0];
     // Inställd utan meddelande: uppgiften med den gamla tiden stängs ändå – ingen ny.
     await run(groupActivityCancel, { id: res.groupActivityId, notify: false }, amira());
@@ -392,9 +404,23 @@ describe("gruppmålet är internt: aldrig veckomål, progression, samlad status,
 describe("resolveChoice – skärmens val till kommandot", () => {
   it("enskilda: de valda som kan bjudas in; grupp och nivå: urvalet, grupperingarna och att servern hoppar över de som inte kan vara med", async () => {
     const { resolveChoice } = await import("./screens/bjud-in");
+    // En deltagare utan nivå eller grupp pausas (testdatat har ingen pausad insats).
+    const f0 = await q(groupActivityForm, {}, amira());
+    const loner = f0.candidates.find((c) => c.caseId !== NADIA && c.caseId !== ELIF && !f0.groupings.some((g) => g.caseIds.includes(c.caseId)))!;
+    rt.store.updateRow("cases", loner.caseId, { status: "paused" });
     const f = await q(groupActivityForm, {}, amira());
     const one = resolveChoice({ mode: "enskilda", groupingIds: [MANDAG], caseIds: [NADIA, ELIF] }, f, "2027-02-03", [ELIF]);
     expect(one).toMatchObject({ caseIds: [NADIA], skipped: [], payload: { via: "enskilda" } });
+    // En vald deltagare som inte kan vara med den dagen (här pausad) skickas ändå – servern nekar och säger vilka; ingen hoppas
+    // tyst över.
+    const paused = f.candidates.find((c) => c.caseId === loner.caseId && c.status === "paused")!;
+    const withPaused = resolveChoice({ mode: "enskilda", groupingIds: [], caseIds: [NADIA, paused.caseId] }, f, "2027-02-03");
+    expect(withPaused.caseIds.sort()).toEqual([NADIA, paused.caseId].sort());
+    expect(withPaused.invite.map((c) => c.caseId)).toEqual([NADIA]);
+    expect(withPaused.payload).toEqual({ via: "enskilda" });
+    const res = await run(groupActivityCreate, { ...base, caseIds: withPaused.caseIds, ...withPaused.payload }, amira());
+    expect(res).toMatchObject({ ok: false, error: "not_invitable", problems: [expect.objectContaining({ caseId: paused.caseId, reason: "Insatsen är pausad" })] });
+    expect(rows("group_activities")).toEqual([]);
     const group = resolveChoice({ mode: "grupp", groupingIds: [LAGER, NIVA_3], caseIds: [ELIF] }, f, "2027-02-03", [NADIA]);
     // Bara grupperna räknas på fliken Grupp (nivån som valts på fliken Nivå följer inte med).
     expect(group.payload).toEqual({ via: "grupp", groupingIds: [LAGER], skipUninvitable: true });

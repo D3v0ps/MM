@@ -8,14 +8,15 @@
 // insats inte pågår den dagen – med antal och orsak (selectByGroupings i src/core/group-activities.ts, samma regel som servern).
 // Valet (InviteChoice) lämnas till skärmen, som räknar ut ärende-id:na med resolveChoice och skickar dem till aktiviteter.skapa
 // eller aktiviteter.bjudIn. Servern prövar varje deltagare igen; per grupp eller nivå hoppar den över de som inte kan vara med
-// (skipUninvitable) och säger vilka.
+// (skipUninvitable) och säger vilka. Enskilt valda deltagare skickas alla: kan någon inte vara med den dagen (t.ex. uppehåll
+// efter att datumet ändrats) nekar servern hela inbjudan och räknar upp vilka – ingen hoppas tyst över.
 import { useId, useMemo, useState } from "react";
 import {
   candidateBlockText, INVITE_MODE_LABEL, INVITE_MODES, selectByGroupings, skipCounts, type InviteMode, type InviteSkip, type SelectableCase,
 } from "@/core/group-activities";
 import { plural } from "@/core/format";
 import type { LocalDate } from "@/core/time";
-import { Button, Check, Field, Input, Row, Stack, TabPanel, Tabs } from "@/ui";
+import { Button, Check, Field, Input, Notice, Row, Stack, TabPanel, Tabs } from "@/ui";
 import type { GroupActivityForm, InviteCandidate } from "../api";
 
 /** Valet i komponenten: fliken, de valda nivåerna eller grupperna och de enskilt valda deltagarna. */
@@ -40,9 +41,12 @@ export function resolveChoice(choice: InviteChoice, form: FormData, day: LocalDa
   const already = new Set(alreadyInvited);
   const kind = kindOf(choice.mode);
   if (!kind) {
+    // Enskilda: alla valda som inte redan är inbjudna – också de som inte kan vara med den dagen, så att servern nekar och säger
+    // vilka (som förut). Komponenten visar dem med orsaken.
     const chosen = new Set(choice.caseIds);
-    const invite = form.candidates.filter((c) => chosen.has(c.caseId) && !candidateBlockText(c, day, already));
-    return { caseIds: invite.map((c) => c.caseId), skipped: [], invite, payload: { via: "enskilda" } };
+    const sent = form.candidates.filter((c) => chosen.has(c.caseId) && !already.has(c.caseId));
+    const invite = sent.filter((c) => !candidateBlockText(c, day, already));
+    return { caseIds: sent.map((c) => c.caseId), skipped: [], invite, payload: { via: "enskilda" } };
   }
   const of = form.groupings.filter((g) => g.kind === kind);
   const ids = choice.groupingIds.filter((id) => of.some((g) => g.id === id));
@@ -173,6 +177,11 @@ function Individuals({
   const set = (caseIds: string[]) => onChange({ ...value, caseIds });
   const toggle = (caseId: string, on: boolean) => set(on ? [...value.caseIds.filter((x) => x !== caseId), caseId] : value.caseIds.filter((x) => x !== caseId));
   const chosen = candidates.filter((c) => selected.has(c.caseId));
+  // Valda som inte kan vara med den dagen (t.ex. efter att datumet ändrats): de stoppar inbjudan tills de kryssas ur.
+  const blocked = chosen.flatMap((c) => {
+    const reason = already.has(c.caseId) ? null : candidateBlock(c, day, already);
+    return reason ? [{ c, reason }] : [];
+  });
   return (
     <Stack gap="sm">
       <Field id={`${prefix}-sok`} label="Sök deltagare" help="Skriv namn eller ärendenummer.">
@@ -197,6 +206,18 @@ function Individuals({
         </Row>
       </Row>
       {chosen.length > 0 && <p className="m-0 text-body text-text-muted">Valda: {chosen.map((c) => `${c.name} (${c.caseNumber})`).join(", ")}</p>}
+      {blocked.length > 0 && (
+        <Notice tone="warn" title={blocked.length === 1 ? "En vald deltagare kan inte bjudas in den dagen" : `${blocked.length} valda deltagare kan inte bjudas in den dagen`}>
+          <ul className="m-0 flex list-disc flex-col gap-0.5 pl-5" data-testid="bjud-in-sparrade">
+            {blocked.map(({ c, reason }) => (
+              <li key={c.caseId}>
+                {c.name} ({c.caseNumber}): {reason}
+              </li>
+            ))}
+          </ul>
+          <p className="m-0 mt-1">Kryssa ur {blocked.length === 1 ? "deltagaren" : "dem"} eller välj en annan dag.</p>
+        </Notice>
+      )}
       {candidates.length === 0 ? (
         <p className="m-0 text-body text-text-muted">Det finns inga pågående insatser att bjuda in.</p>
       ) : shown.length === 0 ? (
@@ -211,7 +232,8 @@ function Individuals({
                 <Check
                   id={`${prefix}-${c.caseId}`}
                   checked={selected.has(c.caseId) || already.has(c.caseId)}
-                  disabled={!!block}
+                  // En vald deltagare som inte längre kan väljas (t.ex. efter att datumet ändrats) går att kryssa ur.
+                  disabled={!!block && !selected.has(c.caseId)}
                   onCheckedChange={(on) => toggle(c.caseId, on)}
                   aria-describedby={descId}
                 >

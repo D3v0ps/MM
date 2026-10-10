@@ -405,7 +405,7 @@ describe("mallar och utskick", () => {
     expect(t("aktivitetsinbjudan").body).toBe("Hej! Du är inbjuden till en aktivitet hos Miljonbemanning {datum} kl. {tid}, {plats}. Frågor? Ring {telefon}.");
     expect(templateCheck(t("aktivitetsinbjudan").body)).toMatchObject({ ok: true, unknown: [] });
     // Ändrad tid och inställd aktivitet (spår G): e-post och SMS, ingen utringning – samma text som participantMessage.
-    expect(t("aktivitet_andrad")).toMatchObject({ name: "Ändrad aktivitet", channel: "sms", alsoVia: ["email"], subject: "Ny tid för aktivitet hos Miljonbemanning" });
+    expect(t("aktivitet_andrad")).toMatchObject({ name: "Ändrad aktivitet", channel: "sms", alsoVia: ["email"], subject: "Ändrad aktivitet hos Miljonbemanning" });
     expect(t("aktivitet_installd")).toMatchObject({ name: "Inställd aktivitet", channel: "sms", alsoVia: ["email"], subject: "Inställd aktivitet hos Miljonbemanning" });
     for (const k of ["aktivitet_andrad", "aktivitet_installd"]) expect(templateCheck(t(k).body), k).toMatchObject({ ok: true, unknown: [] });
     expect(fillExample(t("aktivitet_andrad").body)).toBe(participantMessage("aktivitet_andrad", "2027-02-03T10:00", "Alby", "2027-02-02T13:00"));

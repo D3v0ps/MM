@@ -354,12 +354,12 @@ describe("ändrad tid och inställd aktivitet – samma textregel, ingen utringn
     expect(participantMessage("aktivitet_andrad", "2027-02-05T10:00", "Alby")).toBe("Hej! Aktiviteten hos Miljonbemanning är ändrad. Nu gäller fredag 5 februari kl. 10.00, Alby. Frågor? Ring 08-400 22 750.");
     expect(participantMessage("aktivitet_installd", "2027-02-04T13:30", "Alby")).toBe("Hej! Aktiviteten hos Miljonbemanning torsdag 4 februari kl. 13.30, Alby, är inställd. Frågor? Ring 08-400 22 750.");
     expect(contactTaskText("aktivitet_andrad", "BOT-27-0048", "2027-02-05T10:00", "Alby", ["no_email", "no_phone"])).toBe(
-      "Ring deltagaren och berätta om aktivitetens nya tid – ärende BOT-27-0048, fredag 5 februari kl. 10.00, Alby. Deltagaren har varken e-postadress eller telefonnummer – fråga beställande handläggare.",
+      "Ring deltagaren och berätta om aktivitetens nya tid eller plats – ärende BOT-27-0048, fredag 5 februari kl. 10.00, Alby. Deltagaren har varken e-postadress eller telefonnummer – fråga beställande handläggare.",
     );
     expect(contactTaskText("aktivitet_installd", "BOT-27-0048", "2027-02-04T13:30", "Alby", ["no_email", "sms_off"])).toBe(
       "Ring deltagaren och berätta att aktiviteten är inställd – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Meddelandet om inställd aktivitet kunde inte skickas: deltagaren har ingen e-postadress och SMS är inte kopplat.",
     );
-    expect(notifySummary("aktivitet_andrad", { channels: ["email"], taskId: null, blocked: false })).toBe("Meddelandet om ny tid skickas med e-post.");
+    expect(notifySummary("aktivitet_andrad", { channels: ["email"], taskId: null, blocked: false })).toBe("Meddelandet om ändringen skickas med e-post.");
     expect(notifySummary("aktivitet_installd", { channels: [], taskId: "t", blocked: false })).toBe("Meddelandet om inställd aktivitet kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren.");
   });
 
@@ -372,7 +372,7 @@ describe("ändrad tid och inställd aktivitet – samma textregel, ingen utringn
     setup(status(true, true));
     const ctx = ctxAs("u-amira", "coach");
     const changed = await notifyParticipant(ctx, input({ template: "aktivitet_andrad", when: "2027-02-05T10:00", previous: "2027-02-04T13:30" }));
-    expect(changed).toMatchObject({ channels: ["sms", "email"], off: [], taskId: null, summary: "Meddelandet om ny tid skickas med SMS och e-post." });
+    expect(changed).toMatchObject({ channels: ["sms", "email"], off: [], taskId: null, summary: "Meddelandet om ändringen skickas med SMS och e-post." });
     const cancelled = await notifyParticipant(ctx, input({ template: "aktivitet_installd" }));
     expect(cancelled.channels).toEqual(["sms", "email"]);
     for (const t of ["aktivitet_andrad", "aktivitet_installd"]) {
@@ -397,7 +397,7 @@ describe("ändrad tid och inställd aktivitet – samma textregel, ingen utringn
     expect(rt.store.rows("audit_log").filter((a) => a.action === "task.done").pop()).toMatchObject({ entityId: invited.taskId, details: { caseId: CASE, auto: true, superseded: true } });
     // En uppgift om ändringen (ny tid) stängs när aktiviteten ändras igen.
     const changed = await notifyParticipant(ctx, input({ template: "aktivitet_andrad", when: "2027-02-05T10:00", previous: "2027-02-04T13:30" }));
-    expect(rt.raw().get("tasks", changed.taskId!)!.text).toMatch(/^Ring deltagaren och berätta om aktivitetens nya tid – ärende BOT-27-0048, fredag 5 februari kl. 10.00, Alby\./);
+    expect(rt.raw().get("tasks", changed.taskId!)!.text).toMatch(/^Ring deltagaren och berätta om aktivitetens nya tid eller plats – ärende BOT-27-0048, fredag 5 februari kl. 10.00, Alby\./);
     expect(await closeActivityTasks(ctx, c, { when: "2027-02-05T10:00", place: "Alby" }, "Aktiviteten är inställd.")).toBe(1);
     expect(rt.raw().get("tasks", changed.taskId!)!.status).toBe("done");
   });
