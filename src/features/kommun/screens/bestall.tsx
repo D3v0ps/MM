@@ -12,7 +12,7 @@
 //   Granskning: inga belopp – inget ordervärde någonstans (synpunkt #10 och #11).
 // Beställningen sparas med arenden.caseCreate (delat kommando), som ger ärendenummer och skickar ordererkännandet.
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { PHONE_MIN_DIGITS } from "@/core/contact";
+import { hasPhone } from "@/core/contact";
 import { PRIOR_ASSESSMENT_LABEL } from "@/core/labels";
 import { orderPeriodEnd } from "@/core/time";
 import { emailValid, pnrFormatValid } from "@/core/validation";
@@ -113,10 +113,11 @@ function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly Ko
     if (!f.lastName.trim()) e.lastName = "Skriv deltagarens efternamn.";
     if (!pnrFormatValid(f.pnr)) e.pnr = "Skriv tolv siffror så här: ÅÅÅÅMMDD-NNNN.";
     else if (dups.length) e.pnr = "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.";
-    // Kallelsen går med SMS eller e-post (beslut 2026-10-09): telefonnummer eller e-postadress krävs.
+    // Kallelsen går med e-post eller SMS (beslut 2026-10-09): telefonnummer eller e-postadress krävs. Numret prövas med samma
+    // regel som SMS:et (src/core/phone.ts) – ett nummer som inte går att skicka till sparas inte.
     const digits = f.phone.replace(/\D/g, "").length;
     if (!digits && !f.email.trim()) e.phone = "Skriv deltagarens telefonnummer. Har deltagaren ingen telefon? Skriv e-postadressen i stället.";
-    else if (digits && digits < PHONE_MIN_DIGITS) e.phone = "Skriv hela telefonnumret, till exempel 070-123 45 67.";
+    else if (f.phone.trim() && !hasPhone(f.phone)) e.phone = "Skriv hela telefonnumret med riktnummer, till exempel 070-123 45 67.";
     // Utan telefonnummer är e-postadressen den enda vägen – då går fältet inte att lämna tomt.
     if (f.email.trim() && !emailValid(f.email)) e.email = digits ? "Skriv en hel e-postadress, eller lämna fältet tomt." : "Skriv en hel e-postadress. Vi behöver telefonnummer eller e-postadress för kallelsen.";
     if (!f.primaryArea || !m.areas.some((a) => a.value === f.primaryArea)) e.primaryArea = "Välj ett yrkesområde.";
@@ -438,10 +439,10 @@ function OrderForm({ m }: { m: KomOrderForm }) {
             </span>
           </legend>
           <FormGrid>
-            <Field id="kom-o-dphone" label="Deltagarens telefonnummer" error={E("phone")} help="Vi skickar kallelsen och påminnelser med SMS.">
+            <Field id="kom-o-dphone" label="Deltagarens telefonnummer" error={E("phone")} help="Vi skickar kallelsen med e-post eller SMS. Går det inte ringer vi deltagaren.">
               <Input type="tel" value={f.phone} onValueChange={set("phone")} />
             </Field>
-            <Field id="kom-o-demail" label="Deltagarens e-postadress" error={E("email")} help="Har deltagaren ingen telefon? Då skickar vi kallelsen med e-post.">
+            <Field id="kom-o-demail" label="Deltagarens e-postadress" error={E("email")} help="Har deltagaren en e-postadress? Då skickar vi kallelsen dit.">
               <Input type="email" value={f.email} onValueChange={set("email")} />
             </Field>
           </FormGrid>
@@ -648,13 +649,12 @@ function DupNotice({ dups, onOpen }: { dups: readonly KomDuplicate[]; onOpen: (c
 }
 
 /**
- * Hur deltagaren kallas, i löpande text. Kontaktvägen väljs efter uppgifterna i beställningen (beslut 2026-10-09): SMS om
- * telefonnummer finns, annars e-post. Äldre beställningar kan ha telefon eller brev.
+ * Hur deltagaren kallas, i löpande text. Kallelsen går med e-post eller SMS beroende på vad som finns och fungerar, annars ringer
+ * Miljonbemanning (notifyParticipant, beslut 2026-10-09) – kvittot lovar därför ingen viss kanal. Äldre beställningar kan ha brev.
  */
 const inviteText = (label: string | null | undefined): string => {
-  if (label === "SMS") return "Deltagaren får en kallelse med SMS.";
-  if (label === "E-post") return "Deltagaren får en kallelse med e-post.";
   if (label === "Brev") return "Deltagaren får en kallelse med brev.";
+  if (label === "SMS" || label === "E-post") return "Deltagaren får en kallelse med e-post eller SMS. Går det inte ringer vi deltagaren.";
   return "Vi kontaktar deltagaren och bokar tiden.";
 };
 

@@ -39,7 +39,7 @@ test("kallelsen går med e-post när deltagaren har e-post – SMS och utringnin
   await dialog(page).getByRole("button", { name: "Boka mötet" }).click();
   await expect(dialog(page)).toHaveCount(0);
   // Deltagaren har e-post (och har valt brev): e-posten går, brevet skickas för hand. SMS är inte kopplat.
-  await expect(toastWith(page, "Kallelsen är skickad med e-post. Ett brev skickas också för hand.")).toBeVisible();
+  await expect(toastWith(page, "Kallelsen skickas med e-post. Ett brev skickas också för hand.")).toBeVisible();
 
   // Utskicksloggen: samma text i alla kanaler – bara tid, plats och telefonnummer; SMS och samtal stoppade med orsak.
   await switchTo(page, info, "/admin/mallar?flik=logg", ROBIN);

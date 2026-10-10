@@ -11,6 +11,7 @@
 import { toE164 } from "@/core/phone";
 import { CALL_ENV_VARS, SMS_ENV_VARS, type ChannelState, type MessagingStatus } from "@/features/_shared/messaging-port";
 import { parseList } from "../config";
+import { emailReaches, recipientGate } from "./decision";
 import type { ElksCallConfig, ElksSmsConfig } from "./elks";
 import type { ResendConfig } from "./resend";
 
@@ -94,5 +95,15 @@ export function phoneEnv(env: Record<string, string | undefined> = process.env):
   };
 }
 
-/** Läget för SMS och utringning (ctx.messaging) ur miljön. */
+/** Läget för SMS och utringning (integrationskorten) ur miljön. */
 export const messagingStatus = (env: Record<string, string | undefined> = process.env): MessagingStatus => phoneEnv(env).status;
+
+/**
+ * Läget för hanterarna (ctx.messaging): SMS och utringning, och om ett mejl når deltagarens egen adress – spärrlistan
+ * (MM_EMAIL_ALLOWLIST) gäller också i produktion (docs/DRIFT.md avsnitt 13). environmentSetting = app_settings.environment.
+ * Kanalvalet räknar då inte e-post som kanal och samordnaren får en uppgift att ringa i stället.
+ */
+export function participantMessaging(environmentSetting: string | null | undefined, env: Record<string, string | undefined> = process.env): MessagingStatus {
+  const mail = notifyEnv(env);
+  return { ...phoneEnv(env).status, emailReaches: emailReaches(recipientGate(environmentSetting, mail.allowlist, mail.redirectTo)) };
+}

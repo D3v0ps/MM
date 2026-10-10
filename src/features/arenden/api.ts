@@ -106,7 +106,7 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   buyerReference: z.string().max(40).nullable().optional(),
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
 }), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
-  /** invitation: hur kallelsen gick, i klarspråk (t.ex. "Kallelsen är skickad med e-post.") – notifyParticipant. */
+  /** invitation: hur kallelsen går, i klarspråk (t.ex. "Kallelsen skickas med e-post.") – notifyParticipant. */
   Result<{ reportId: string; caseNumber: string; invitation: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
 >();
 

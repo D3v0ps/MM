@@ -189,7 +189,7 @@ describe("områdets kommandon", () => {
     expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
     // Deltagaren har e-post: e-posten går, SMS och utringning är inte kopplade i testmiljön.
     expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara()))
-      .toMatchObject({ ok: true, invitation: "Kallelsen är skickad med e-post." });
+      .toMatchObject({ ok: true, invitation: "Kallelsen skickas med e-post." });
     const conf = async () => (await q(inboxConfirmation, { caseId: "case-270049" }, sara()))?.kallelse;
     expect((await conf())?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
     // Avtalsansvarig ser samma kvittens.
@@ -210,6 +210,34 @@ describe("områdets kommandon", () => {
     // Klarmarkerad (samordnaren har ringt): inget kvar att göra – SMS som inte är kopplat räknas inte som ett stoppat utskick.
     expect(await run(inboxTaskDone, { taskId: task.id }, sara())).toMatchObject({ ok: true });
     expect(await conf()).toBeNull();
+  });
+
+  it("kallelsen i bekräftelsen: uppgiften går före en tidigare kallelse, och kallelsen väljs efter mötets tid – inte utskickets minut", async () => {
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara()))
+      .toMatchObject({ ok: true });
+    const conf = async () => (await q(inboxConfirmation, { caseId: "case-270049" }, sara()))?.kallelse;
+    expect((await conf())?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
+    // Kontaktuppgifterna tas bort och mötet bokas om: ingen kallelse skrivs, samordnaren får en uppgift – den visas, inte den förra kallelsen.
+    const personId = row("cases", "case-270049")!.personId;
+    const mail = row("persons", personId)!.email;
+    rt.store.updateRow("persons", personId, { email: "", phone: "" });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true });
+    const task = rows("tasks").find((t) => t.kind === "participant_contact" && t.caseIds.includes("case-270049"))!;
+    expect(await conf()).toEqual({ title: "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:", icon: "phone", body: task.text });
+    // E-postadressen läggs in igen och mötet bokas om två gånger samma minut: uppgiften stängs, och kallelsen för det senaste mötet visas.
+    rt.store.updateRow("persons", personId, { email: mail });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-08T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-09T11:00" }, sara())).toMatchObject({ ok: true });
+    expect(row("tasks", task.id)).toMatchObject({ status: "done", doneBy: "system" });
+    const sent = rows("outbound_messages").filter((x) => x.caseId === "case-270049" && x.template === "kallelse");
+    for (const m of sent) rt.store.updateRow("outbound_messages", m.id, { createdAt: "2027-02-01T09:30" });
+    // Alla kallelser har nu samma minut: den äldsta står först (som när SupabaseRepo sorterar på slumpade id) – texten ska ändå
+    // vara kallelsen för ärendets nuvarande första möte.
+    expect(sent[0].body).not.toContain("tisdag 9 februari");
+    const k = await conf();
+    expect(k?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
+    expect(k?.body).toContain("tisdag 9 februari klockan 11.00");
   });
 
   it("dubblettkontrollen i registreringen: bara ja eller nej", async () => {

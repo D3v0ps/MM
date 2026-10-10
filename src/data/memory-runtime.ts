@@ -19,7 +19,7 @@ import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
 import { createSimulatedFortnox } from "@/features/_shared/fortnox-port";
-import { MESSAGING_OFF, memoryDeliveryStatus, type MessagingStatus } from "@/features/_shared/messaging-port";
+import { isParticipantRecipient, MESSAGING_OFF, memoryDeliveryStatus, type MessagingStatus } from "@/features/_shared/messaging-port";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
@@ -78,6 +78,13 @@ export function createMemoryRuntime(opts: {
   const fortnox = createSimulatedFortnox();
   const messaging = opts.messaging ?? MESSAGING_OFF;
 
+  /** Deltagarens e-postadress och telefonnummer via ärendet (systemsteg – lämnas aldrig ut, bara prövade). */
+  async function participantContact(caseId: string): Promise<{ email: string | null; phone: string | null }> {
+    const c = await system.table("cases").get(caseId);
+    const p = c ? await system.table("persons").get(c.personId) : null;
+    return { email: p?.email ?? null, phone: p?.phone ?? null };
+  }
+
   function ctxFor(actor: Actor): Ctx {
     return {
       actor,
@@ -93,7 +100,9 @@ export function createMemoryRuntime(opts: {
         const t = (system as unknown as { table(n: string): { insert(r: unknown): Promise<unknown> } }).table("outbound_messages");
         // Som servern: engångslänkarnas token sparas aldrig i utskicksloggen (src/core/link-tokens.ts). SMS och samtal som inte
         // är kopplade stoppas med samma orsak som servern ger; allt annat räknas som skickat (simulerat – inget går iväg).
-        const d = memoryDeliveryStatus(m.channel, messaging);
+        // Till en deltagare ("deltagare (…)"): adressen och numret prövas via ärendet, som servern gör precis innan utskicket skickas.
+        const participant = isParticipantRecipient(m.to) && m.caseId ? await participantContact(m.caseId) : null;
+        const d = memoryDeliveryStatus(m.channel, messaging, participant);
         await t.insert({
           id: newId("out"), createdAt: opts.clock.now(), channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: maskLinkTokens(m.body), caseId: m.caseId ?? null,
           status: d.status, sentAt: d.status === "sent" ? opts.clock.now() : null, ...(d.statusReason ? { statusReason: d.statusReason } : {}),

@@ -101,6 +101,16 @@ export async function deliverMessage(deps: SenderDeps, messageId: string, body?:
   return "sent";
 }
 
+/**
+ * SMS:et och mejlet i samma utskicksomgång som samtalet (samma ärende, mall och tid – notifyParticipant lägger dem tillsammans).
+ * Bara status och kanal läses.
+ */
+async function writtenSiblings(repo: NotifyRepo, row: OutboundRow): Promise<OutboundRow[]> {
+  if (!row.caseId) return [];
+  return (await repo.table("outbound_messages").list({ caseId: row.caseId, template: row.template }))
+    .filter((m) => m.id !== row.id && m.createdAt === row.createdAt && (m.channel === "email" || m.channel === "sms"));
+}
+
 /** SMS eller samtal via 46elks. Ogiltigt nummer: JobError utan nytt försök – utskicket får status failed med orsaken. */
 async function deliverPhone(deps: SenderDeps, row: OutboundRow, body?: string | null): Promise<DeliveryOutcome> {
   const t = deps.repo.table("outbound_messages");
@@ -116,6 +126,15 @@ async function deliverPhone(deps: SenderDeps, row: OutboundRow, body?: string | 
   if (rcpt.protected) {
     await t.update(row.id, { status: "suppressed", statusReason: REASON.protectedIdentity });
     return "suppressed";
+  }
+  if (!isSms && isParticipantRecipient(row.to)) {
+    // Utringningen spelar en inspelning som hänvisar till SMS:et eller mejlet: den ringer först när något av dem gått iväg.
+    const written = await writtenSiblings(deps.repo, row);
+    if (written.some((m) => m.status === "queued")) throw new JobError("Väntar på SMS:et eller mejlet innan samtalet ringer", { retryable: true });
+    if (written.length && !written.some((m) => m.status === "sent")) {
+      await t.update(row.id, { status: "suppressed", statusReason: REASON.callWithoutText });
+      return "suppressed";
+    }
   }
   const decision = phoneDecision(rcpt.to, row.body, phone.gate);
   if (decision.action === "invalid") throw new JobError(decision.reason, { retryable: false });
@@ -157,9 +176,16 @@ export function secretBodyOf(job: Pick<JobRow, "payload">): string | null {
   return typeof b === "string" && b ? b : null;
 }
 
-/** Ta bort hela texten ur jobbet när utskicket är avgjort – token ska bara finnas så länge den behövs. */
+/** Tid och plats för ett utskick till en deltagare (kallelse, inbjudan), om jobbet har dem (queue.ts). */
+export function invitationOf(job: Pick<JobRow, "payload">): { when: LocalDateTime; place: string } | null {
+  const v = (job.payload as { invitation?: { when?: unknown; place?: unknown } } | null)?.invitation;
+  return v && typeof v.when === "string" && typeof v.place === "string" ? { when: v.when as LocalDateTime, place: v.place } : null;
+}
+
+/** Ta bort hela texten ur jobbet när utskicket är avgjort – token ska bara finnas så länge den behövs. Tid och plats står kvar. */
 async function forgetSecretBody(job: JobRow, deps: SenderDeps, messageId: string): Promise<void> {
-  if (secretBodyOf(job)) await deps.repo.table("jobs").update(job.id, { payload: { messageId } });
+  const invitation = invitationOf(job);
+  if (secretBodyOf(job)) await deps.repo.table("jobs").update(job.id, { payload: { messageId, ...(invitation ? { invitation } : {}) } });
 }
 
 /** Jobbet send_message. När alla försök är slut markeras utskicket som misslyckat med felorsaken. */

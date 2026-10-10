@@ -73,6 +73,7 @@ Etiketterna för statusarna i adminvyns utskickslogg finns i `src/core/labels.ts
 2. Texten och ämnesraden får inte innehålla något som ser ut som ett personnummer eller samordningsnummer (med eller utan sekel och bindestreck, rimligt datum). Annars `suppressed`. Ett tiosiffrigt nummer som ser ut som ett datum stoppas också – hellre ett stoppat utskick än ett personnummer i ett mejl.
 3. Mottagaren måste vara en giltig e-postadress (hanterarna skriver ibland "kommunens chef" när adressen saknas; för `deltagare (e-post)` slås deltagarens adress upp via ärendet). Annars `suppressed`.
 4. Spärrlistan (ovan).
+5. Utskick till deltagare (kallelse, inbjudan till aktivitet): samtalet ringer bara när SMS:et eller mejlet i samma utskick har gått iväg (annars `suppressed`, "Inget SMS eller mejl gick iväg – samtalet ringdes inte"). Stoppas eller misslyckas SMS:et eller mejlet och inget annat skriftligt utskick gick, får samordnaren en uppgift att ringa deltagaren (`participantSendStopped`, jobbets payload har tid och plats). Kanalvalet (`notifyParticipant`) räknar redan e-post som spärrlistan stoppar och nummer som inte går att tolka som "ingen kanal".
 
 ## Mallar
 

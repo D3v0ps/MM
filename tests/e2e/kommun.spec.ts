@@ -355,7 +355,7 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, yrkes
   expect(mail, "mejlet innehåller ärendenumret men inga personuppgifter").toContain("BOT-27-0051");
   expect(mail).not.toMatch(/Samira|Testsson|3456|Lager/);
   expect(t, "kvittot visar yrkesområdet och hur deltagaren kallas – inte ett val som handläggaren inte gjort").toMatch(/Yrkesområde: Lager och logistik\./);
-  expect(t).toMatch(/Deltagaren får en kallelse med SMS\./);
+  expect(t, "kvittot lovar ingen viss kanal – kallelsen går med det som fungerar").toMatch(/Deltagaren får en kallelse med e-post eller SMS\. Går det inte ringer vi deltagaren\./);
   expect(t).not.toMatch(/det sätt du valde/);
   expect(t, "kvittot skriver datum utan förkortningar").not.toMatch(/\bkl\.|\b(jan|feb|dec)\b/);
   expect(t).toMatch(/klockan/);

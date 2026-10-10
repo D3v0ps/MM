@@ -374,6 +374,34 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect((await cmd("admin.runJob", { key: "kpi" }, as("u-robin", "admin", SARA_T))).ok).toBe(true);
   });
 
+  it("utskicksloggen (admin.templates): orsakerna visas utan leverantörer och variabelnamn för begränsade testare", async () => {
+    const reasons = [
+      ["failed", "46elks nekade inloggningen (401) – kontrollera ELKS_API_USERNAME och ELKS_API_PASSWORD"],
+      ["failed", "Resend svarade 422 (validation_error)"],
+      ["suppressed", "Testmiljön: numret finns inte i MM_SMS_ALLOWLIST"],
+      ["suppressed", "Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST"],
+      ["failed", "Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen"],
+      ["suppressed", "SMS-leverantör inte vald"],
+    ] as const;
+    reasons.forEach(([status, statusReason], i) => rt.store.insertRow("outbound_messages", {
+      id: `out-vendor-${i}`, createdAt: "2027-02-01T09:00", channel: i % 2 ? "email" : "sms", to: "deltagare (SMS)", template: "kallelse", subject: null,
+      body: "Välkommen till Miljonbemanning!", caseId: null, status, sentAt: null, statusReason, providerMessageId: null,
+    }));
+    const k = await any("admin.templates", {}, as("u-robin", "admin", KARIM));
+    expect(JSON.stringify(k.sendLog)).toMatch(VENDORS);
+    for (const who of [as("u-robin", "admin", SARA_T), as("u-sara", "samordnare", SARA_T)]) {
+      const s = await any("admin.templates", {}, who);
+      expect(JSON.stringify(s.sendLog), who.role).not.toMatch(VENDORS);
+      expect(JSON.stringify(s.sendLog), who.role).not.toMatch(/[A-Z]{2,}_[A-Z_]+/);
+      const reasonOf = (id: string) => s.sendLog.find((x: { id: string }) => x.id === id)?.reason;
+      expect(reasonOf("out-vendor-0")).toBe("Leverantören avvisade utskicket");
+      expect(reasonOf("out-vendor-2")).toBe("Stoppat av testmiljöns spärr");
+      expect(reasonOf("out-vendor-4")).toBe("Osäkert om utskicket gick iväg – kontrollera innan det skickas igen");
+      // Orsaker utan leverantör visas som de är.
+      expect(reasonOf("out-vendor-5")).toBe("SMS-leverantör inte vald");
+    }
+  });
+
   it("synpunkter: begränsade testare ser inte synpunkter från avtalssidan, Ekonomi eller rollen ekonom", async () => {
     const add = (path: string | null, actor: Actor) => cmd("feedback.submit", { type: "fel", priority: "kan", text: "Testtext", path, viewTitle: path ? "Sida" : null }, actor);
     expect((await add("/admin/avtal?flik=priser", as("u-robin", "admin", KARIM))).ok).toBe(true);

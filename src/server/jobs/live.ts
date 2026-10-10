@@ -14,7 +14,7 @@ import { clockNow } from "../clock";
 import { lazyServerCrypto } from "../crypto";
 import { liveCtx, randomId, type Enqueue } from "../ctx";
 import { phoneGate, recipientGate } from "../notify/decision";
-import { notifyEnv, phoneEnv } from "../notify/config";
+import { notifyEnv, participantMessaging, phoneEnv } from "../notify/config";
 import type { ElksFetch } from "../notify/elks";
 import { queueMessage } from "../notify/queue";
 import type { FetchLike } from "../notify/resend";
@@ -75,7 +75,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),
       attachments: (d) => serverAttachments(d),
-      messaging: phone.status,
+      // Samma läge som hanterarna (SMS, utringning och spärrlistan för e-post) – uppgiften när ett utskick till en deltagare stoppas.
+      messaging: participantMessaging(env),
     }));
   // Städningen av Auth-användare utan profil (självregistrering som aldrig slutfördes).
   const authCleanup = async () => {

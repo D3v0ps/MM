@@ -229,7 +229,7 @@ test("startsidan: boka första möte för ärende utan bokat möte", async ({ pa
   await dialog(page).getByRole("button", { name: "Boka mötet" }).click();
   await expect(dialog(page)).toHaveCount(0);
   // Kallelsen (beslut 2026-10-09): e-post när adressen finns; deltagaren har valt brev, så ett brev skickas också för hand.
-  await expect(toastWith(page, "Första mötet för BOT-27-0039 är bokat tisdag 2 februari kl. 10.00. Kallelsen är skickad med e-post. Ett brev skickas också för hand.")).toBeVisible();
+  await expect(toastWith(page, "Första mötet för BOT-27-0039 är bokat tisdag 2 februari kl. 10.00. Kallelsen skickas med e-post. Ett brev skickas också för hand.")).toBeVisible();
   await expect(m.getByText("Alla första möten är bokade")).toBeVisible();
   expect(errors).toEqual([]);
 });

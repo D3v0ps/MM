@@ -10,9 +10,10 @@ import type { MemoryData } from "@/data/memory";
 import type { PreferredContact, Tables } from "@/data/schema";
 import { createSeed, DEMO_START, decodeTestPnr, normalizePnr } from "@/data/seed";
 import { CONTACT_PHONE } from "./contact";
-import { MESSAGING_OFF, type MessagingStatus } from "./messaging-port";
+import { EMAIL_NOT_ALLOWED_REASON, MESSAGING_OFF, PHONE_FORMAT_REASON, type MessagingStatus } from "./messaging-port";
 import {
-  CALL_RECORDING_TEXT, contactTaskText, notifyParticipant, notifySummary, participantMessage, planParticipantChannels, type NotifyParticipantInput, type ParticipantContact,
+  CALL_RECORDING_TEXT, contactTaskText, notifyParticipant, notifySummary, participantMessage, participantSendStopped, planParticipantChannels, unreachableReasons,
+  type NotifyParticipantInput, type ParticipantContact,
 } from "./participant-notify";
 
 const ON = { connected: true, missing: [] };
@@ -64,9 +65,30 @@ describe("planParticipantChannels – kanalvalet", () => {
     expect(planParticipantChannels(who("", "", "letter", "Testgatan 1, 147 00 Tumba"), status(false, false), { letter: false })).toEqual({ send: [], off: [] });
   });
 
-  it("ogiltiga adresser och nummer räknas inte", () => {
-    expect(planParticipantChannels(who("inte-en-adress", "070"), status(true, true))).toEqual({ send: [], off: [] });
+  it("ogiltiga adresser och nummer räknas inte – de sparas med orsak (stoppade eller misslyckade)", () => {
+    expect(planParticipantChannels(who("inte-en-adress", "070"), status(true, true))).toEqual({ send: [], off: ["email", "sms"] });
     expect(planParticipantChannels(who(" ", "+46 (0)70-000 00 00"), status(true, false))).toEqual({ send: ["sms"], off: ["call"] });
+    // Samma regel som portalen och deltagarkortet (src/core/contact.ts): utan nolla eller plus går numret inte att tolka.
+    expect(planParticipantChannels(who(EMAIL, "701234567"), status(true, true))).toEqual({ send: ["email"], off: ["sms"] });
+    expect(planParticipantChannels(who("anna@botkyrka", ""), status(true, true))).toEqual({ send: [], off: ["email"] });
+  });
+
+  it("e-post som spärrlistan stoppar (MM_EMAIL_ALLOWLIST i drift) räknas inte som kanal", () => {
+    const blocked = (sms: boolean, call: boolean): MessagingStatus => ({ ...status(sms, call), emailReaches: (a) => a.endsWith("@miljonbemanning.se") });
+    expect(planParticipantChannels(who(EMAIL, PHONE), blocked(false, false))).toEqual({ send: [], off: ["email", "sms"] });
+    expect(planParticipantChannels(who(EMAIL, ""), blocked(false, false))).toEqual({ send: [], off: ["email"] });
+    // SMS kopplat: SMS:et går, utringningen hänvisar till det.
+    expect(planParticipantChannels(who(EMAIL, PHONE), blocked(true, true))).toEqual({ send: ["sms", "call"], off: ["email"] });
+    // En adress som listan släpper igenom räknas.
+    expect(planParticipantChannels(who("test@miljonbemanning.se", ""), blocked(false, false))).toEqual({ send: ["email"], off: [] });
+  });
+
+  it("orsakerna till uppgiften", () => {
+    const blocked: MessagingStatus = { ...status(false, false), emailReaches: () => false };
+    expect(unreachableReasons(who("", PHONE), status(false, false))).toEqual(["no_email", "sms_off"]);
+    expect(unreachableReasons(who("", ""), status(true, true))).toEqual(["no_email", "no_phone"]);
+    expect(unreachableReasons(who(EMAIL, PHONE), blocked)).toEqual(["email_blocked", "sms_off"]);
+    expect(unreachableReasons(who("anna@botkyrka", "701234567"), status(true, true))).toEqual(["bad_email", "bad_phone"]);
   });
 });
 
@@ -85,22 +107,33 @@ describe("mallarna – bara tid, plats och Miljonbemannings telefonnummer", () =
     expect(CALL_RECORDING_TEXT).toBe("Inspelat meddelande: Hej, det här är Miljonbemanning. Du har fått en inbjudan till ett möte hos oss. Tid och plats står i ditt SMS eller mejl. Har du frågor, ring 08-400 22 750.");
   });
 
-  it("uppgiften till samordnaren: ärendenummer, tid och plats – aldrig namn", () => {
-    expect(contactTaskText("kallelse", "BOT-27-0048", "2027-02-04T13:30", "Alby", who("", PHONE))).toBe(
+  it("uppgiften till samordnaren: ärendenummer, tid, plats och varför – aldrig namn, adress eller nummer", () => {
+    const text = (template: "kallelse" | "aktivitetsinbjudan", p: ParticipantContact, st: MessagingStatus = status(false, false)) =>
+      contactTaskText(template, "BOT-27-0048", "2027-02-04T13:30", "Alby", unreachableReasons(p, st));
+    expect(text("kallelse", who("", PHONE))).toBe(
       "Ring deltagaren och kalla till första mötet – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Kallelsen kunde inte skickas: deltagaren har ingen e-postadress och SMS är inte kopplat.",
     );
-    expect(contactTaskText("aktivitetsinbjudan", "BOT-27-0048", "2027-02-04T13:30", "Alby", who("", ""))).toBe(
+    expect(text("aktivitetsinbjudan", who("", ""))).toBe(
       "Ring deltagaren och bjud in till aktiviteten – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Deltagaren har varken e-postadress eller telefonnummer – fråga beställande handläggare.",
+    );
+    // Ett nummer som finns men inte går att tolka: inte "varken e-postadress eller telefonnummer".
+    expect(text("kallelse", who("", "701234567"), status(true, true))).toBe(
+      "Ring deltagaren och kalla till första mötet – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Kallelsen kunde inte skickas: deltagaren har ingen e-postadress och telefonnumret har fel format – kontrollera numret.",
+    );
+    expect(text("kallelse", who("anna@botkyrka", ""))).toContain("Kallelsen kunde inte skickas: e-postadressen har fel format och deltagaren har inget telefonnummer – kontrollera adressen.");
+    // Spärrlistan för e-post: samordnaren ringer.
+    expect(text("kallelse", who(EMAIL, PHONE), { ...status(false, false), emailReaches: () => false })).toContain(
+      "Kallelsen kunde inte skickas: e-post till deltagarens adress är spärrad just nu och SMS är inte kopplat.",
     );
   });
 
-  it("meningen till den som bokade", () => {
-    expect(notifySummary("kallelse", { channels: ["email"], taskId: null, blocked: false })).toBe("Kallelsen är skickad med e-post.");
-    expect(notifySummary("kallelse", { channels: ["sms", "email", "call"], taskId: null, blocked: false })).toBe("Kallelsen är skickad med SMS och e-post. Deltagaren blir också uppringd med ett inspelat meddelande.");
+  it("meningen till den som bokade – skickas, inte skickad: utskicket ligger i kön och kan stoppas när det skickas", () => {
+    expect(notifySummary("kallelse", { channels: ["email"], taskId: null, blocked: false })).toBe("Kallelsen skickas med e-post.");
+    expect(notifySummary("kallelse", { channels: ["sms", "email", "call"], taskId: null, blocked: false })).toBe("Kallelsen skickas med SMS och e-post. Deltagaren blir också uppringd med ett inspelat meddelande.");
     expect(notifySummary("aktivitetsinbjudan", { channels: [], taskId: "task-1", blocked: false })).toBe("Inbjudan kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren.");
     expect(notifySummary("kallelse", { channels: [], taskId: null, blocked: true })).toBe("Kallelsen skickades inte.");
     // Brev (deltagaren har valt brev och adressen finns): skickas för hand, utöver e-posten.
-    expect(notifySummary("kallelse", { channels: ["brev", "email"], taskId: null, blocked: false })).toBe("Kallelsen är skickad med e-post. Ett brev skickas också för hand.");
+    expect(notifySummary("kallelse", { channels: ["brev", "email"], taskId: null, blocked: false })).toBe("Kallelsen skickas med e-post. Ett brev skickas också för hand.");
     expect(notifySummary("kallelse", { channels: ["brev"], taskId: null, blocked: false })).toBe("Kallelsen ska skickas som brev. Brevet skickas för hand.");
   });
 });
@@ -136,7 +169,7 @@ function expectNoPersonalData(texts: string[]) {
 describe("notifyParticipant", () => {
   it("bara e-post när SMS och utringning inte är kopplade – SMS och samtal stoppas med orsak", async () => {
     const r = await notifyParticipant(ctxAs("u-sara", "samordnare"), input());
-    expect(r).toEqual({ channels: ["email"], off: ["sms", "call"], taskId: null, blocked: false, summary: "Inbjudan är skickad med e-post." });
+    expect(r).toEqual({ channels: ["email"], off: ["sms", "call"], taskId: null, blocked: false, summary: "Inbjudan skickas med e-post." });
     expect(outbound().map((m) => [m.channel, m.to, m.status, m.statusReason ?? null])).toEqual([
       ["email", "deltagare (e-post)", "sent", null],
       ["sms", "deltagare (SMS)", "suppressed", "SMS-leverantör inte vald"],
@@ -151,7 +184,7 @@ describe("notifyParticipant", () => {
   it("SMS och utringning kopplade: SMS (deltagarens val) först, e-post och samtal – samma text", async () => {
     setup(status(true, true));
     const r = await notifyParticipant(ctxAs("u-amira", "coach"), input());
-    expect(r).toMatchObject({ channels: ["sms", "email", "call"], off: [], taskId: null, summary: "Inbjudan är skickad med SMS och e-post. Deltagaren blir också uppringd med ett inspelat meddelande." });
+    expect(r).toMatchObject({ channels: ["sms", "email", "call"], off: [], taskId: null, summary: "Inbjudan skickas med SMS och e-post. Deltagaren blir också uppringd med ett inspelat meddelande." });
     expect(outbound().map((m) => [m.channel, m.status])).toEqual([["sms", "sent"], ["email", "sent"], ["call", "sent"]]);
     expect(outbound()[0].body).toBe(outbound()[1].body);
   });
@@ -189,5 +222,124 @@ describe("notifyParticipant", () => {
     expect(r).toMatchObject({ channels: [], off: [], taskId: null, blocked: true });
     expect(outbound()).toEqual([]);
     expect(contactTasks()).toEqual([]);
+  });
+});
+
+// ================================================================ Granskningen: spärrlistan, fel format, ombokning, stoppat vid sändningen
+describe("notifyParticipant – en kanal räknas bara när utskicket når fram", () => {
+  it("e-post som spärrlistan stoppar (drift med MM_EMAIL_ALLOWLIST): mejlet sparas som stoppat och samordnaren får uppgiften", async () => {
+    setup({ ...status(false, false), emailReaches: (a) => a.endsWith("@miljonbemanning.se") });
+    const r = await notifyParticipant(ctxAs("u-sara", "samordnare"), input({ template: "kallelse" }));
+    expect(r).toMatchObject({ channels: [], off: ["email", "sms"], summary: "Kallelsen kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren." });
+    expect(outbound().map((m) => [m.channel, m.status, m.statusReason])).toEqual([
+      ["email", "suppressed", EMAIL_NOT_ALLOWED_REASON],
+      ["sms", "suppressed", "SMS-leverantör inte vald"],
+    ]);
+    expect(contactTasks()).toHaveLength(1);
+    expect(contactTasks()[0].text).toBe(
+      "Ring deltagaren och kalla till första mötet – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Kallelsen kunde inte skickas: e-post till deltagarens adress är spärrad just nu och SMS är inte kopplat.",
+    );
+  });
+
+  it("ett telefonnummer med fel format: SMS:et sparas som misslyckat med orsak (utan numret) och uppgiften säger det", async () => {
+    setup(status(true, true));
+    rt.store.updateRow("persons", person().id, { email: "", phone: "701234567" });
+    const r = await notifyParticipant(ctxAs("u-sara", "samordnare"), input());
+    expect(r).toMatchObject({ channels: [], off: ["sms"] });
+    expect(outbound().map((m) => [m.channel, m.status, m.statusReason])).toEqual([["sms", "failed", PHONE_FORMAT_REASON]]);
+    expect(contactTasks()[0].text).toContain("Inbjudan kunde inte skickas: deltagaren har ingen e-postadress och telefonnumret har fel format – kontrollera numret.");
+    expectNoPersonalData([...contactTasks().map((x) => x.text), ...outbound().map((m) => m.statusReason ?? "")]);
+  });
+
+  it("ombokning när en kanal har tillkommit: kallelsens öppna uppgift med den gamla tiden stängs (systemet, anteckning, revisionslogg)", async () => {
+    const mail = person().email;
+    rt.store.updateRow("persons", person().id, { email: "" });
+    const ctx = ctxAs("u-sara", "samordnare");
+    const first = await notifyParticipant(ctx, input({ template: "kallelse", when: "2027-02-02T10:00" }));
+    expect(contactTasks()[0]).toMatchObject({ id: first.taskId, status: "open" });
+    expect(contactTasks()[0].text).toContain("tisdag 2 februari kl. 10.00");
+    // Coachen lägger till e-postadressen och bokar om: mejlet går och uppgiften med den gamla tiden stängs.
+    rt.store.updateRow("persons", person().id, { email: mail });
+    const again = await notifyParticipant(ctxAs("u-amira", "coach"), input({ template: "kallelse", when: "2027-02-03T13:00" }));
+    expect(again).toMatchObject({ channels: ["email"], taskId: null });
+    expect(contactTasks()).toHaveLength(1);
+    expect(contactTasks()[0]).toMatchObject({ status: "done", doneBy: "system", doneNote: "Kallelsen skickades med e-post vid ombokningen." });
+    expect(contactTasks()[0].doneAt).toBeTruthy();
+    expect(rt.store.rows("audit_log").filter((a) => a.action === "task.done").pop()).toMatchObject({
+      actorId: "u-amira", entityId: first.taskId, details: { kind: "participant_contact", caseId: CASE, template: "kallelse", auto: true, channels: ["email"] },
+    });
+    // Samordnaren ser ingen öppen uppgift längre.
+    expect(await ctx.repo.table("tasks").list({ kind: "participant_contact", status: "open" })).toEqual([]);
+  });
+
+  it("inbjudan: bara uppgiften med samma tid och plats stängs; ombokad kallelse utan kanal uppdaterar uppgiften och loggar ändringen", async () => {
+    const mail = person().email;
+    rt.store.updateRow("persons", person().id, { email: "" });
+    const ctx = ctxAs("u-sara", "samordnare");
+    const a1 = await notifyParticipant(ctx, input({ when: "2027-02-04T13:30" }));
+    const a2 = await notifyParticipant(ctx, input({ when: "2027-02-05T09:00" }));
+    const k = await notifyParticipant(ctx, input({ template: "kallelse", when: "2027-02-02T10:00" }));
+    await notifyParticipant(ctx, input({ template: "kallelse", when: "2027-02-02T11:00" }));
+    expect(rt.store.rows("audit_log").filter((a) => a.action === "task.updated").pop()).toMatchObject({ entityId: k.taskId, details: { kind: "participant_contact", template: "kallelse" } });
+    rt.store.updateRow("persons", person().id, { email: mail });
+    await notifyParticipant(ctx, input({ when: "2027-02-04T13:30" }));
+    const byId = (id: string | null) => contactTasks().find((t) => t.id === id)!;
+    expect(byId(a1.taskId)).toMatchObject({ status: "done", doneNote: "Inbjudan skickades med e-post." });
+    expect(byId(a2.taskId).status).toBe("open");
+    expect(byId(k.taskId).status).toBe("open");
+    expect(byId(k.taskId).text).toContain("tisdag 2 februari kl. 11.00");
+  });
+});
+
+describe("participantSendStopped – utskicket stoppades eller misslyckades när det skulle skickas (jobbet send_message)", () => {
+  const sys = () => rt.ctxFor(SYSTEM_ACTOR);
+  const AT = "2027-02-04T13:30";
+  const inv = { when: AT, place: "Alby" };
+  const row = (channel: string) => outbound().find((m) => m.channel === channel)!;
+
+  it("inget annat skriftligt utskick gick: uppgift till samordnaren – en gång, med orsaken utan leverantör eller adress", async () => {
+    setup(status(true, false));
+    await notifyParticipant(ctxAs("u-sara", "samordnare"), input());
+    expect(outbound().map((m) => [m.channel, m.status])).toEqual([["sms", "sent"], ["email", "sent"], ["call", "suppressed"]]);
+    // Mejlet stoppas av spärrlistan; SMS:et ligger kvar i kön – det avgör själv när det är klart.
+    rt.store.updateRow("outbound_messages", row("email").id, { status: "suppressed", statusReason: EMAIL_NOT_ALLOWED_REASON, sentAt: null });
+    rt.store.updateRow("outbound_messages", row("sms").id, { status: "queued", sentAt: null });
+    expect(await participantSendStopped(sys(), row("email").id, inv)).toBeNull();
+    // 46elks avvisade SMS:et efter alla försök: ingen kanal nådde deltagaren.
+    rt.store.updateRow("outbound_messages", row("sms").id, { status: "failed", statusReason: "46elks svarade 400 (Invalid to number)" });
+    const id = await participantSendStopped(sys(), row("sms").id, inv);
+    expect(id).toBeTruthy();
+    expect(contactTasks()).toEqual([expect.objectContaining({ id, toRole: "samordnare", status: "open", caseIds: [CASE], fromId: "system" })]);
+    expect(contactTasks()[0].text).toBe(
+      "Ring deltagaren och bjud in till aktiviteten – ärende BOT-27-0048, torsdag 4 februari kl. 13.30, Alby. Inbjudan kunde inte skickas: e-post till deltagarens adress är spärrad just nu och SMS:et kunde inte skickas.",
+    );
+    expect(rt.store.rows("audit_log").filter((a) => a.action === "task.created").pop()).toMatchObject({ actorId: "system", entityId: id });
+    // Idempotent: samma utskick (eller det andra i omgången) ger ingen andra uppgift.
+    expect(await participantSendStopped(sys(), row("email").id, inv)).toBe(id);
+    expect(contactTasks()).toHaveLength(1);
+    expectNoPersonalData(contactTasks().map((x) => x.text));
+  });
+
+  it("ingen uppgift när en annan kanal gick, för samtalet, utan tid och plats, för en kallelse som bokats om, eller med skyddade personuppgifter", async () => {
+    setup(status(true, true));
+    rt.store.updateRow("cases", CASE, { firstMeetingAt: AT });
+    await notifyParticipant(ctxAs("u-sara", "samordnare"), input({ template: "kallelse" }));
+    rt.store.updateRow("outbound_messages", row("email").id, { status: "failed", statusReason: "Resend svarade 422 (validation_error)" });
+    // SMS:et gick.
+    expect(await participantSendStopped(sys(), row("email").id, inv)).toBeNull();
+    rt.store.updateRow("outbound_messages", row("sms").id, { status: "failed", statusReason: PHONE_FORMAT_REASON });
+    rt.store.updateRow("outbound_messages", row("call").id, { status: "failed", statusReason: "46elks svarade 400" });
+    expect(await participantSendStopped(sys(), row("call").id, inv)).toBeNull();
+    expect(await participantSendStopped(sys(), row("email").id, null)).toBeNull();
+    // Kallelsen gäller inte längre ärendets första möte (ombokad): den nya omgången avgör.
+    rt.store.updateRow("cases", CASE, { firstMeetingAt: "2027-02-05T10:00" });
+    expect(await participantSendStopped(sys(), row("email").id, inv)).toBeNull();
+    rt.store.updateRow("cases", CASE, { firstMeetingAt: AT });
+    rt.store.updateRow("persons", person().id, { protectedIdentity: true });
+    expect(await participantSendStopped(sys(), row("email").id, inv)).toBeNull();
+    expect(contactTasks()).toEqual([]);
+    rt.store.updateRow("persons", person().id, { protectedIdentity: false });
+    expect(await participantSendStopped(sys(), row("sms").id, inv)).toBeTruthy();
+    expect(contactTasks()[0].text).toContain("Kallelsen kunde inte skickas: mejlet kunde inte skickas och telefonnumret har fel format – kontrollera numret.");
   });
 });

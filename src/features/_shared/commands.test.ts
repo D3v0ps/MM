@@ -101,7 +101,7 @@ describe("arenden.caseAccept (case.accept)", () => {
     expect(due).toBe("2027-02-02T08:41");
     const res = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara());
     // Kallelsen (beslut 2026-10-09): e-post när adressen finns; SMS och utringning är inte kopplade i testmiljön.
-    expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0050", invitation: "Kallelsen är skickad med e-post." });
+    expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0050", invitation: "Kallelsen skickas med e-post." });
     if (!res.ok) return;
     const c = row("cases", "case-270050")!;
     expect(c).toMatchObject({
@@ -285,7 +285,7 @@ describe("arenden: övriga ärendekommandon", () => {
   it("case.bookFirstMeeting: kallelse med e-post (SMS och utringning inte kopplade), aldrig vid skyddade personuppgifter", async () => {
     // Ett bokat möte utan levererad orderbekräftelse (beställningen är inte accepterad): bara kallelsen.
     const n = rows("outbound_messages").length;
-    expect(await run(caseBookFirstMeeting, { caseId: "case-270048", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true, invitation: "Kallelsen är skickad med e-post." });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270048", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true, invitation: "Kallelsen skickas med e-post." });
     expect(row("cases", "case-270048")).toMatchObject({ firstMeetingAt: "2027-02-04T13:30", plannedStart: "2027-02-04" });
     const out = outboundSince(n);
     // Deltagaren har valt SMS, men SMS är inte kopplat: e-posten går, SMS och samtal stoppas med orsak.

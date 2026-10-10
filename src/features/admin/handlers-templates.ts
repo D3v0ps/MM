@@ -4,6 +4,7 @@
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery } from "@/api/server";
+import { hidesCommercial } from "@/api/tester-access";
 import { outboundReasonLabel } from "@/core/labels";
 import { by } from "@/core/util";
 import { adminSaveTemplate, adminTemplates, type SendLogItem, type TemplateView } from "./api";
@@ -46,14 +47,15 @@ handleQuery(adminTemplates, { roles: ["admin", "samordnare"] }, async (ctx) => {
   const names = persons.map((p) => `${p.firstName} ${p.lastName}`.toLowerCase());
   const leak = (body: string) => PNR_RE.test(String(body || "")) || names.some((n) => String(body || "").toLowerCase().includes(n));
   const caseNo = new Map(cases.map((c) => [c.id, c.caseNumber]));
+  const neutral = hidesCommercial(ctx.actor);
   const sendLog: SendLogItem[] = messages
     .slice()
     .sort((a, b) => (a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0))
     .map((n) => ({
       id: n.id, at: n.createdAt, channel: n.channel, to: n.to, templateLabel: templateLabel(templateKeyOf(n)), caseNumber: n.caseId ? (caseNo.get(n.caseId) ?? null) : null,
       body: n.body, byTester: isDemoCreated(n.id), leak: leak(n.body), status: n.status,
-      // Brev: statusen säger redan att det skickas för hand.
-      reason: n.status === "manual" ? null : outboundReasonLabel(n.statusReason),
+      // Brev: statusen säger redan att det skickas för hand. Begränsade testare ser orsaken utan leverantörer och variabelnamn.
+      reason: n.status === "manual" ? null : outboundReasonLabel(n.statusReason, { neutral }),
     }));
   return { canEdit: TEMPLATE_EDITORS.includes(ctx.actor.role), templates, sendLog };
 });

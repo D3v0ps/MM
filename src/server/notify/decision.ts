@@ -8,7 +8,10 @@
 //   Testmiljön med MM_EMAIL_REDIRECT_TO: mejl som annars skulle ha stoppats av spärrlistan går i stället till testarens adress
 //           (status sent, orsak "redirected"). Aldrig i produktion.
 import { toE164 } from "@/core/phone";
-import { CALL_OFF_REASON, LETTER_REASON, SMS_OFF_REASON } from "@/features/_shared/messaging-port";
+import {
+  CALL_OFF_REASON, CALL_WITHOUT_TEXT_REASON, EMAIL_INVALID_REASON, EMAIL_NOT_ALLOWED_REASON, LETTER_REASON, PHONE_FORMAT_REASON, PHONE_MISSING_REASON,
+  PHONE_NOT_ALLOWED_REASON, SMS_OFF_REASON, type EmailReach,
+} from "@/features/_shared/messaging-port";
 import { allowedByList, isValidEmail, normalizeEmail } from "../auth/email";
 import { containsPersonnummer } from "./personnummer";
 import type { DeliveryStatus, OutboundRow } from "./types";
@@ -23,18 +26,20 @@ export const REASON = {
   sms: SMS_OFF_REASON,
   /** Utringningen är inte kopplad (MM_CALL_FROM, MM_CALL_AUDIO_URL eller inloggningen hos 46elks saknas). */
   call: CALL_OFF_REASON,
-  noPhone: "Mottagaren saknar telefonnummer",
+  noPhone: PHONE_MISSING_REASON,
   /** Ger status failed (inte suppressed): numret finns men går inte att tolka. Numret står aldrig i orsaken. */
-  badPhone: "Telefonnumret har fel format",
-  phoneNotAllowed: "Testmiljön: numret finns inte i MM_SMS_ALLOWLIST",
+  badPhone: PHONE_FORMAT_REASON,
+  phoneNotAllowed: PHONE_NOT_ALLOWED_REASON,
+  /** Utringningen hänvisar till SMS:et eller mejlet – när inget av dem gick iväg ringer den inte. */
+  callWithoutText: CALL_WITHOUT_TEXT_REASON,
   /** Vilande spärr (CLAUDE.md punkt 8): inga SMS, mejl eller samtal till en deltagare med skyddade personuppgifter. */
   protectedIdentity: "Skyddade personuppgifter – inget utskick till deltagaren",
   /** Ett tidigare försök avbröts efter att det skickats till 46elks – skickas inte igen utan kontroll (ingen idempotensnyckel). */
   uncertain: "Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen",
   letter: LETTER_REASON,
-  noAddress: "Mottagaren saknar giltig e-postadress",
+  noAddress: EMAIL_INVALID_REASON,
   personnummer: "Stoppat: texten ser ut att innehålla ett personnummer",
-  notAllowed: "Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST",
+  notAllowed: EMAIL_NOT_ALLOWED_REASON,
   /** Skickat till testarens adress i stället för till testpersonen (MM_EMAIL_REDIRECT_TO, bara testmiljön). */
   redirected: "redirected",
 } as const;
@@ -114,6 +119,12 @@ export function emailDecision(row: Pick<OutboundRow, "to" | "subject" | "body">,
   }
   return { action: "send" };
 }
+
+/**
+ * Når ett mejl adressen? Spärrlistan och testmiljöns omdirigering prövas som i emailDecision (texten prövas när mejlet skickas).
+ * Kanalvalet för kallelsen och inbjudan (ctx.messaging.emailReaches) räknar inte e-post som kanal när mejlet ändå stoppas.
+ */
+export const emailReaches = (gate: RecipientGate): EmailReach => (address) => emailDecision({ to: address, subject: null, body: "" }, gate).action !== "suppressed";
 
 /** Hela beslutet för ett utskick. */
 export function deliveryDecision(row: Pick<OutboundRow, "channel" | "to" | "subject" | "body">, gate: RecipientGate): Decision {

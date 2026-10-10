@@ -24,6 +24,12 @@ export type OutgoingMessage = {
   subject?: string;
   body: string;
   caseId?: string | null;
+  /**
+   * Bara utskick till deltagare (notifyParticipant): mötets eller aktivitetens tid och plats. Servern sparar dem i jobbets payload,
+   * så att jobbet kan ge samordnaren uppgiften att ringa om utskicket stoppas eller misslyckas när det skickas
+   * (participantSendStopped). Aldrig adresser, nummer eller namn.
+   */
+  invitation?: { when: LocalDateTime; place: string };
 };
 export type AuditEntry = {
   action: string;
