@@ -248,6 +248,7 @@ test("5. avvikelse med åtgärd och kallelse till kommunen som säkert meddeland
 test("6. chefen ser kortet i läsläge och eskaleringen, men kan inte ändra", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.yusuf}`, KARIN);
   await expect(main(page)).toContainText("Läsläge");
+  await expect(main(page)).toContainText("Du kan inte ändra något i ärendet. Visningen loggas.");
   await expect(main(page)).toContainText(/veckor i rad utan progression/);
   for (const name of ["Byt huvudcoach", "Återkalla samtycke", "Registrera samtycke", "Spela in mötet", "Nytt möte utan inspelning"]) {
     await expect(action(page, name), `Chefen har ingen knapp "${name}"`).toHaveCount(0);
@@ -360,6 +361,7 @@ test("11. 400 px: ingen horisontell scroll i listan och kortet", async ({ page }
 test("12. historiken: coachen ser status och egna åtgärder – aldrig chefens visningar eller eskaleringar", async ({ page }, info) => {
   const errors = await open(page, info, `/arenden/${SC.yusuf}`, KARIN);
   await expect(main(page)).toContainText("Läsläge");
+  await expect(main(page)).toContainText("Du kan inte ändra något i ärendet. Visningen loggas.");
   await switchTo(page, info, `/arenden/${SC.yusuf}?flik=historik`, AMIRA);
   await expect(main(page)).toContainText(/Dina åtgärder i ärendet/i);
   await expect(main(page)).toContainText(/Status och coachbyten/i);
@@ -786,6 +788,16 @@ test("28. Ändra kontaktväg: coachen för in deltagarens svar med samma regler 
   await tab(page, /Historik/).click();
   const log = page.getByRole("table", { name: "Revisionslogg" });
   await expect(log).toContainText("Kontaktvägen ändrades");
+  // Fälten på svenska – aldrig kodnamnen (preferredContact, email).
+  await expect(log).toContainText("Fält: kontaktväg, e-post");
+  await expect(log).not.toContainText(/preferredContact|\bemail\b/);
   await expect(main(page)).not.toContainText("nadia.test@example.invalid");
+  // Systemadministratören är i läsläge men får ändra kontaktvägen (0032) – notisen säger det, och knappen finns.
+  await switchTo(page, info, `/arenden/${SC.nadia}`, ROBIN);
+  await expect(main(page)).toContainText("Läsläge");
+  await expect(main(page)).toContainText("Du kan bara ändra deltagarens kontaktväg. Visningen loggas.");
+  await expect(main(page)).not.toContainText("Du kan inte ändra något i ärendet");
+  await btn(page, "Visa alla uppgifter").click();
+  await expect(btn(main(page).locator("#arende-uppgifter"), "Ändra kontaktväg")).toHaveCount(1);
   expect(errors).toEqual([]);
 });

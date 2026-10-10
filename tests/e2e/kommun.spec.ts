@@ -18,7 +18,7 @@ const AMIRA: As = { userId: "u-amira", role: "coach" };
 const SOFIA: As = { userId: "u-sofia", role: "coach" };
 
 // Testdatat (samma id:n som i den gamla prototypen, prototypens S.script)
-const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", mall: "case-270050" };
+const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", mall: "case-270050", closed: "case-260094" };
 const NADIA_DEC = "rep-16008"; // månadsrapport december, levererad till Maria Ekdahl
 const ACTOR_EXTRA: Record<string, { contractIds: string[]; customerUnit: string | null }> = {
   "k-maria": { contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" },
@@ -363,7 +363,9 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, yrkes
   t = await mainText(page);
   expect(t, "ärendenummer (nästa i avtalets serie)").toMatch(/BOT-27-0051/);
   // Beslut 2026-10-09: kvittot har bara ärendenumret och en mening om orderbekräftelsen – inget mejl och ingen tidslinje.
-  expect(t).toMatch(/Du får orderbekräftelsen med mejl senast [^.]+klockan/);
+  // Mejlet innehåller bara ärendenumret och en länk (CLAUDE.md punkt 9): orderbekräftelsen läses i portalen.
+  expect(t).toMatch(/Senast \S+ \d+ \S+ \d{4} klockan \d{2}\.\d{2} får du ett mejl om att orderbekräftelsen finns i portalen\./);
+  expect(t, "orderbekräftelsen kommer inte med mejl").not.toMatch(/orderbekräftelsen med mejl/);
   await expect(card(page, "Mejlet du får"), "inget kort Mejlet du får").toHaveCount(0);
   await expect(card(page, "Så här går det vidare"), "ingen tidslinje").toHaveCount(0);
   expect(t).not.toMatch(/Mejlet du får|Så här går det vidare|Tack! Vi har tagit emot er beställning|Yrkesområde:|kallelse/);
@@ -401,6 +403,48 @@ test("3. beställning i tre steg och en granskning: omfattning i månader, yrkes
   expect(errors).toEqual([]);
 });
 
+// ================================================================ 3b. Kontaktuppgifter som saknas i kontot
+test("3b. kontaktuppgifter som saknas i kontot: fälten är öppna och stannar öppna med fokus medan handläggaren skriver", async ({ page }, info) => {
+  // En självregistrerad handläggare som inte har fyllt i Mina uppgifter: enhet och telefon saknas i kontot.
+  const errors = await open(page, info, "/portal/logga-in", MARIA);
+  await page.fill("#kom-login-email", "lo.provsson@botkyrka.se");
+  await btn(page, "Skicka kod").click();
+  await expect(main(page)).toContainText("Om adressen lo.provsson@botkyrka.se finns hos oss har vi skickat en kod dit.");
+  await page.fill("#kom-login-code", "000000");
+  await btn(page, "Logga in").click();
+  await expect.poll(() => currentPath(page, info), { timeout: 15_000 }).toBe("/portal/mina-uppgifter?forsta=1");
+  await settle(page);
+  await page.getByRole("navigation").getByRole("link", { name: "Beställ ny insats" }).first().click();
+  await expect.poll(() => currentPath(page, info)).toBe("/portal/bestall");
+  await settle(page);
+  // Fälten är öppna från början (uppgifter saknas) – ingen sammanfattning med Ändra.
+  await expect(page.locator("#kom-o-unit")).toHaveValue("");
+  await expect(page.locator("#kom-o-phone")).toHaveValue("");
+  await expect(page.locator("#kom-o-name")).toHaveValue("Lo Provsson");
+  await expect(btn(page, "Ändra kontaktperson")).toHaveCount(0);
+  // Första tecknet rättar felet i enheten – fältet ska finnas kvar med fokus, och resten av texten hamnar i det.
+  await page.locator("#kom-o-unit").click();
+  await page.keyboard.type("A");
+  await expect(page.locator("#kom-o-unit"), "enheten finns kvar efter första tecknet").toBeFocused();
+  await page.keyboard.type("rbetsmarknadsenheten Tumba");
+  await expect(page.locator("#kom-o-unit")).toHaveValue("Arbetsmarknadsenheten Tumba");
+  // Sjunde siffran gör telefonnumret giltigt – och det sista felet är rättat. Fälten fälls inte ihop.
+  await page.locator("#kom-o-phone").click();
+  await page.keyboard.type("08-530 610 00");
+  await expect(page.locator("#kom-o-phone"), "telefonfältet har kvar fokus efter sjunde siffran").toBeFocused();
+  await expect(page.locator("#kom-o-phone"), "hela numret").toHaveValue("08-530 610 00");
+  for (const id of ["#kom-o-name", "#kom-o-unit", "#kom-o-phone", "#kom-o-email"]) await expect(page.locator(id), `${id} finns kvar`).toHaveCount(1);
+  await expect(btn(page, "Ändra kontaktperson"), "ingen sammanfattning medan handläggaren skriver").toHaveCount(0);
+  // Uppgifterna följer med till granskningen.
+  await page.getByRole("group", { name: "Omfattning" }).getByRole("button", { name: "6 månader", exact: true }).click();
+  await btn(page, /^Nästa/).click();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Deltagare", exact: true })).toHaveCount(1);
+  await btn(page, "Tillbaka").click();
+  await expect(page.locator("#kom-o-unit"), "fälten är kvar när handläggaren går tillbaka").toHaveValue("Arbetsmarknadsenheten Tumba");
+  await expect(page.locator("#kom-o-phone")).toHaveValue("08-530 610 00");
+  expect(errors).toEqual([]);
+});
+
 // ================================================================ 4. Mina deltagare
 test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesförfrågan – inga belopp och ingen chefsvy", async ({ page }, info) => {
   const errors = await open(page, info, "/portal/deltagare", MARIA);
@@ -429,9 +473,10 @@ test("4. mina deltagare: lista, sök, deltagarens sida, meddelanden och mötesf�
   expect(t).toMatch(/Omfattning\s+10 veckor, till 19 februari 2027/);
   expect(t).not.toMatch(/Beställningens värde|Beställarreferens|\d\s?kr\b/);
   expect(t).toMatch(/Första mötet\s+måndag 14 december 2026 klockan 10\.00, Alby/);
-  // Beslut 2026-10-09: närvaron är en rad – närvarograden senaste månaden och länken till veckorapporterna.
-  expect(t, "närvarograden senaste månaden").toMatch(/Närvarograd senaste månaden: \d+\s%/);
-  await expect(card(page, "Närvaro").getByRole("link", { name: "Till veckorapporterna" })).toHaveCount(1);
+  // Beslut 2026-10-09: närvaron är en rad – närvarograden senaste månaden och länken till rapporterna (där veckorapporterna
+  // finns). Nadia 3 januari–1 februari: 8 närvarande och 1 sen av 9 registrerade tillfällen = 100 %.
+  expect(t, "närvarograden senaste månaden").toMatch(/Närvarograd senaste månaden: 100\s%/);
+  await expect(card(page, "Närvaro").getByRole("link", { name: "Till rapporterna" })).toHaveCount(1);
   expect(t, "ingen uppdelning i giltig och ogiltig frånvaro").not.toMatch(/Giltig frånvaro|Ogiltig frånvaro|Närvarande \d+ av/);
   // Ingen fasstapel och inget fasnamn, inget team, inget ordererkännande att visa och inga uppgifter som tagits bort.
   expect(t).not.toMatch(/Fas \d+ av \d+|fas \d+ av/);
@@ -505,10 +550,12 @@ test("5. rapporter och meddelanden: olästa först, filtren Olästa och Alla, tr
   await expect(page.locator("#kom-rap-q"), "ingen sökning").toHaveCount(0);
   const filters = page.getByRole("group", { name: "Visa rapporter" }).getByRole("button");
   await expect(filters).toHaveText([/^Olästa \(4\)$/, /^Alla \(\d+\)$/]);
-  // Veckorapporterna, månadsrapporterna och orderbekräftelserna finns kvar i listan.
+  // Veckorapporterna, månadsrapporterna, slutrapporterna och orderbekräftelserna finns kvar i listan.
   const all = await main(page).locator("section").last().innerText();
   expect(all).toMatch(/Veckorapport närvaro/);
   expect(all).toMatch(/Månadsrapport/);
+  expect(all).toMatch(/Slutrapport/);
+  expect(all).toMatch(/Orderbekräftelse/);
   await filters.first().click();
   await expect.poll(() => currentPath(page, info)).toBe("/portal/rapporter?filter=olasta");
   const href = decodeURIComponent((await items.first().getAttribute("href")) ?? "");
@@ -535,6 +582,20 @@ test("5. rapporter och meddelanden: olästa först, filtren Olästa och Alla, tr
   expect(t).toMatch(/BOT-26-0143/);
   await main(page).locator("section").first().getByRole("link").first().click();
   await expect.poll(() => currentPath(page, info), { message: "tråden öppnas i deltagarens meddelandeflik" }).toMatch(/^\/portal\/deltagare\/[^?]+\?flik=meddelanden$/);
+
+  // En avslutad insats (BOT-26-0094, avslutad 18 december 2026): närvarograden för den sista månaden i insatsen – inte
+  // "inte registrerad än" – och slutrapporten går att öppna från deltagarens flik Rapporter.
+  await go(page, info, `/portal/deltagare/${SC.closed}`, MARIA);
+  const closed = await mainText(page);
+  expect(closed).toMatch(/Insatsen avslutades 18 december 2026/);
+  expect(closed, "närvaron för den sista månaden i insatsen").toMatch(/Närvarograd den sista månaden i insatsen: 100\s%/);
+  expect(closed).not.toMatch(/inte registrerad än/);
+  await page.getByRole("tab", { name: /Rapporter/ }).click();
+  await main(page).getByRole("link", { name: /Slutrapport/ }).click();
+  await expect.poll(() => currentPath(page, info), { message: "slutrapporten öppnas i portalens rapportsida" }).toMatch(/^\/portal\/rapporter\/[^?]+/);
+  await settle(page);
+  await expect(main(page)).toContainText("Slutrapport");
+  await expect(main(page)).toContainText("BOT-26-0094");
   expect(errors).toEqual([]);
 });
 
