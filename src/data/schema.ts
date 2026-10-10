@@ -63,6 +63,7 @@
 //                                       Testdatat: src/data/seed/gen-saved-reports.ts
 //   (finns inte i prototypen)        -> group_activities (gruppaktiviteter, coachmötet 2026-10-09, 0030), activities.groupActivityId
 //                                       och attendance.source (automatisk närvaro). Testdatat har inga gruppaktiviteter.
+//   (finns inte i prototypen)        -> group_activities.goal och group_goal_results (gruppmål, Karims beslut 2, 0033).
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -728,6 +729,29 @@ export type GroupActivity = {
   updatedBy: UserId | null;
   cancelledAt: LocalDateTime | null;
   cancelledBy: UserId | null;
+  /**
+   * Gruppmålet (0033, Karims beslut 2) – ett mål för hela gruppen, 1–300 tecken, eller null. Ett internt arbetsverktyg: aldrig
+   * deltagarens veckomål, aldrig progression, samlad status, rapporter, resultatfil, export, faktura eller kommunen.
+   */
+  goal: string | null;
+};
+
+/** Gruppmålets längd (0033, group_activities_goal_length). */
+export const GROUP_GOAL_MAX = 300;
+
+/**
+ * Coachens val för en deltagare och ett gruppmål (0033). Alla klarar målet automatiskt (ingen rad); coachen markerar den som
+ * inte klarade det (achieved = false) och kan ändra tillbaka (achieved = true – då inte längre automatiskt). En rad per
+ * deltagare och gruppaktivitet. Internt: läses bara i aktivitetsvyn – aldrig av rapporter, export, faktura eller kommunen.
+ */
+export type GroupGoalResult = {
+  id: string;
+  contractId: string;
+  groupActivityId: string;
+  caseId: string;
+  achieved: boolean;
+  setBy: UserId;
+  setAt: LocalDateTime;
 };
 
 export type Attendance = {
@@ -1748,6 +1772,7 @@ export type Tables = {
   inbound_emails: InboundEmail;
   intake_assessments: IntakeAssessment;
   group_activities: GroupActivity;
+  group_goal_results: GroupGoalResult;
   activities: Activity;
   attendance: Attendance;
   check_ins: CheckIn;
@@ -1823,6 +1848,7 @@ export const TABLE_NAMES = [
   "saved_reports",
   "case_attachments",
   "groupings", "grouping_members",
+  "group_goal_results",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -1842,6 +1868,8 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   attendance: ["activityId"],
   // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
   activities: [{ fields: ["groupActivityId", "caseId"] }],
+  // Ett val per deltagare och gruppmål (0033, group_goal_results_activity_case_key).
+  group_goal_results: [{ fields: ["groupActivityId", "caseId"] }],
   pulse_responses: ["inviteId"],
   // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
   invoice_drafts: ["fortnoxIdempotencyKey"],

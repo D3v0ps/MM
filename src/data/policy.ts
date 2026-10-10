@@ -38,6 +38,10 @@
 //   aktiviteter   beslut 2026-10-09) · de som arbetar i ärendena skapar (i eget namn) och ändrar · en inställd ändras inte ·
 //                 avtal, skapare och skapad-tid ändras aldrig · raderas aldrig · aldrig kommunen. Deltagarnas tillfällen ligger
 //                 i activities med samma regler som förut (tas bort av den som arbetar i ärendet – hanteraren nekar vid närvaro)
+//   Gruppmål      group_activities.goal och group_goal_results (0033, Karims beslut 2 – internt): läses av Miljonbemanning i
+//                 avtalet utom ekonomen med full- eller teamåtkomst till ärendet · skrivs av den som arbetar i ärendet i eget namn,
+//                 bara för en inbjuden deltagare i en aktivitet med mål som inte är inställd · bara valet ändras · raderas aldrig ·
+//                 aldrig kommunen
 //   Närvaro       attendance.source (0030): användare skriver bara manuell närvaro – automatisk (auto) bara jobbet (ctx.system)
 //   Grupper       nivåer, grupper och taggar (groupings, grouping_members, 0031 – internt, Karims beslut 3 2026-10-09):
 //                 grupperingarna läses av MB i avtalet utom ekonomen och skrivs av samordnare, avtalsansvarig, coach och admin
@@ -371,12 +375,18 @@ type GroupActivityRow = Tables["group_activities"];
 /** Fält som aldrig ändras efter att aktiviteten skapats (triggern group_activities_protect_columns, 0030). */
 const GROUP_FIXED = ["contractId", "createdBy", "createdAt"];
 const GROUP_KINDS: readonly string[] = ["yrkesmoment", "arbetsgivarbesök", "annat"];
-/** Tabellens kontroller (check i 0030): namnets längd (btrim, kodpunkter), typen, längden, platsen och paren. */
+/** Tabellens kontroller (check i 0030 och 0033): namnets längd (btrim, kodpunkter), typen, längden, platsen, paren och gruppmålet. */
 function groupActivityShape(x: GroupActivityRow): boolean {
   const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
   const nameChars = [...x.name.replace(/^ +| +$/g, "")].length;
   return nameChars >= 1 && nameChars <= 120 && GROUP_KINDS.includes(x.kind) && Number.isInteger(x.durationMin) && x.durationMin >= 1 && x.durationMin <= 720
-    && [...x.location].length <= 200 && pair(x.updatedAt, x.updatedBy) && pair(x.cancelledAt, x.cancelledBy);
+    && [...x.location].length <= 200 && pair(x.updatedAt, x.updatedBy) && pair(x.cancelledAt, x.cancelledBy) && goalShape(x.goal);
+}
+/** Gruppmålet (check group_activities_goal_length, 0033): null eller 1–300 tecken (btrim, kodpunkter). */
+function goalShape(goal: string | null | undefined): boolean {
+  if (goal == null) return true;
+  const chars = [...goal.replace(/^ +| +$/g, "")].length;
+  return chars >= 1 && chars <= 300;
 }
 /**
  * Ny rad: de som arbetar i ärendena, medlem i avtalet, i eget namn, varken ändrad eller inställd. Ändring: den befintliga
@@ -394,6 +404,34 @@ function groupActivityWrite(x: GroupActivityRow, a: Actor, raw: Raw): boolean {
   if ((changed.includes("cancelledAt") || changed.includes("cancelledBy")) && (x.cancelledAt == null || !self(a, x.cancelledBy))) return false;
   return true;
 }
+// ---------------------------------------------------------------- Gruppmål (0033)
+type GroupGoalRow = Tables["group_goal_results"];
+/** Fält som aldrig ändras (triggern group_goal_results_check, 0033). */
+const GOAL_FIXED = ["contractId", "groupActivityId", "caseId"];
+/**
+ * Raden hör till aktiviteten och deltagaren (triggern group_goal_results_check, 0033): aktivitetens och ärendets avtal, en
+ * aktivitet med gruppmål som inte är inställd, och en inbjuden deltagare (ett tillfälle i aktiviteten).
+ */
+function groupGoalConsistent(x: GroupGoalRow, raw: Raw): boolean {
+  const g = raw.get("group_activities", x.groupActivityId);
+  if (!g || g.contractId !== x.contractId || raw.get("cases", x.caseId)?.contractId !== x.contractId) return false;
+  if (g.cancelledAt != null || g.goal == null) return false;
+  return raw.all("activities").some((act) => act.groupActivityId === x.groupActivityId && act.caseId === x.caseId);
+}
+/**
+ * Ny rad: den som arbetar i ärendet, medlem i avtalet, i eget namn. Ändring: bara valet (achieved) och tiden ändras, och valet
+ * måste ändras – aktivitet, ärende och avtal aldrig. Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen radering).
+ * Samma regler som policyerna och triggern i 0033.
+ */
+function groupGoalWrite(x: GroupGoalRow, a: Actor, raw: Raw): boolean {
+  if (!workOn(x.caseId, a, raw) || !member(a, x.contractId) || !self(a, x.setBy) || !groupGoalConsistent(x, raw)) return false;
+  const cur = raw.get("group_goal_results", x.id);
+  if (!cur) return true;
+  if (!workOn(cur.caseId, a, raw) || !member(a, cur.contractId)) return false;
+  const changed = changedFields(cur, x);
+  return changed.includes("achieved") && !changed.some((k) => GOAL_FIXED.includes(k));
+}
+
 // ---------------------------------------------------------------- Grupper, nivåer och taggar (0031)
 type GroupingRow = Tables["groupings"];
 type GroupingMemberRow = Tables["grouping_members"];
@@ -534,6 +572,11 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   },
   // Gruppaktiviteter (0030): Miljonbemanning i avtalet utom ekonomen – aldrig kommunen.
   group_activities: { read: (x, a) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId), write: groupActivityWrite },
+  // Gruppmål (0033): som gruppaktiviteterna, och bara med full- eller teamåtkomst till ärendet – aldrig ekonomen eller kommunen.
+  group_goal_results: {
+    read: (x, a, raw) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId) && ["full", "team"].includes(accessTo(raw, a, x.caseId)),
+    write: groupGoalWrite,
+  },
   // Händelser och praktik: resultat som kommunen får i rapporterna
   outcome_events: { read: (x, a, raw) => canSeePerson(accessTo(raw, a, x.caseId)), write: (x, a, raw) => workOn(x.caseId, a, raw) },
   placements: { read: (x, a, raw) => canSeePerson(accessTo(raw, a, x.caseId)), write: (x, a, raw) => workOn(x.caseId, a, raw) },

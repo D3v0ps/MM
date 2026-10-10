@@ -296,7 +296,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (!(await responsibleOk(ctx, contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const g: GroupActivity = {
     id: ctx.newId("ga"), contractId, name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId,
-    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null,
+    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: null,
   };
   await ctx.repo.table("group_activities").insert(g);
   const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
