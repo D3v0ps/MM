@@ -734,6 +734,11 @@ export type GroupActivity = {
    * deltagarens veckomål, aldrig progression, samlad status, rapporter, resultatfil, export, faktura eller kommunen.
    */
   goal: string | null;
+  /**
+   * Gruppmålets version (0033): räknas upp med ett varje gång målet ändras – också när det tas bort eller skrivs in igen. Coachens
+   * val (group_goal_results) gäller bara den version de gjordes för.
+   */
+  goalVersion: number;
 };
 
 /** Gruppmålets längd (0033, group_activities_goal_length). */
@@ -742,13 +747,17 @@ export const GROUP_GOAL_MAX = 300;
 /**
  * Coachens val för en deltagare och ett gruppmål (0033). Alla klarar målet automatiskt (ingen rad); coachen markerar den som
  * inte klarade det (achieved = false) och kan ändra tillbaka (achieved = true – då inte längre automatiskt). En rad per
- * deltagare och gruppaktivitet. Internt: läses bara i aktivitetsvyn – aldrig av rapporter, export, faktura eller kommunen.
+ * deltagare och gruppaktivitet; den gäller bara målets version och deltagarens tillfälle den gjordes för (annars automatiskt). Internt: läses bara i aktivitetsvyn – aldrig av rapporter, export, faktura eller kommunen.
  */
 export type GroupGoalResult = {
   id: string;
   contractId: string;
   groupActivityId: string;
   caseId: string;
+  /** Deltagarens tillfälle i aktiviteten (activities.id) som valet gäller – tas deltagaren bort och bjuds in igen gäller valet inte längre. */
+  activityId: string;
+  /** Målets version (group_activities.goal_version) som valet gäller – byts målet gäller valet inte längre. */
+  goalVersion: number;
   achieved: boolean;
   setBy: UserId;
   setAt: LocalDateTime;

@@ -8,7 +8,8 @@
 // Spår G: meddelandet till deltagarna (notifyParticipant, src/features/_shared/participant-notify.ts) när de bjuds in, när tid eller
 // plats ändras, när en deltagare tas bort och när aktiviteten ställs in – bara när kryssrutan är ikryssad och aktiviteten inte har
 // börjat. Inbjudan per grupp eller nivå hoppar över de som inte kan vara med (skipUninvitable). Gruppmålet: group_activities.goal
-// och coachens val per deltagare i group_goal_results (ingen rad = Klarade automatiskt).
+// och coachens val per deltagare i group_goal_results (ingen rad = Klarade automatiskt) – ett val gäller bara målets version
+// (goal_version) och deltagarens tillfälle det gjordes för.
 import { fail, ok, type Fail } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
@@ -275,9 +276,10 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
   const profileName = async (id: string | null) => (id ? (await ctx.repo.table("profiles").get(id))?.fullName ?? null : null);
   const authorNames = new Map<string, string>();
   for (const id of uniq(notes.map((n) => n.authorId))) authorNames.set(id, (await profileName(id)) ?? "–");
-  // Gruppmålet: coachens val per deltagare (ingen rad = Klarade automatiskt).
-  const goalRows = g.goal ? await ctx.repo.table("group_goal_results").list({ groupActivityId: g.id }) : [];
-  const goalOf = new Map(goalRows.map((r) => [r.caseId, r]));
+  // Gruppmålet: coachens val per deltagare (ingen rad = Klarade automatiskt). Ett val gäller bara målet och inbjudan det gjordes
+  // för: rader för en tidigare version av målet, eller från innan deltagaren bjöds in igen (ett annat tillfälle), räknas inte.
+  const goalRows = g.goal ? await ctx.repo.table("group_goal_results").list({ groupActivityId: g.id, goalVersion: g.goalVersion }) : [];
+  const goalOf = new Map(goalRows.map((r) => [r.activityId, r]));
   const participants: GroupParticipant[] = [];
   for (const a of acts) {
     const c = await ctx.repo.table("cases").get(a.caseId);
@@ -287,7 +289,7 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
     participants.push({
       activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person),
       attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null,
-      goal: g.goal ? { achieved: goalOf.get(c.id)?.achieved ?? true, auto: !goalOf.has(c.id) } : null,
+      goal: g.goal ? { achieved: goalOf.get(a.id)?.achieved ?? true, auto: !goalOf.has(a.id) } : null,
       notes: notes.filter((n) => n.caseId === c.id).map((n) => ({ id: n.id, body: n.body, authorName: authorNames.get(n.authorId) ?? "–" })),
     });
   }
@@ -391,7 +393,7 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (!(await responsibleOk(ctx, contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const g: GroupActivity = {
     id: ctx.newId("ga"), contractId, name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId,
-    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: goal.goal,
+    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: goal.goal, goalVersion: 0,
   };
   await ctx.repo.table("group_activities").insert(g);
   const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
@@ -447,7 +449,9 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   }
   if (responsibleId !== g.responsibleId && !(await responsibleOk(ctx, g.contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const now = ctx.now();
-  await ctx.repo.table("group_activities").update(g.id, { ...next, updatedAt: now, updatedBy: ctx.actor.userId });
+  // Ett nytt mål (ändrat, borttaget eller inskrivet igen) får en ny version – coachens val för det tidigare målet gäller inte längre.
+  const goalVersion = next.goal !== g.goal ? g.goalVersion + 1 : g.goalVersion;
+  await ctx.repo.table("group_activities").update(g.id, { ...next, goalVersion, updatedAt: now, updatedBy: ctx.actor.userId });
   const replacedActivityIds = await removeReplaced(ctx, replaceable);
   if (actFields.length) {
     for (const a of acts) await ctx.repo.table("activities").update(a.id, { kind: next.kind, startsAt: next.startsAt, durationMin: next.durationMin, location: next.location });
@@ -568,16 +572,20 @@ handleCommand(groupGoalResultSet, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (!g.goal) return fail("no_goal", "Aktiviteten har inget gruppmål. Skriv ett mål under Ändra först.");
   const now = ctx.now();
   if (g.startsAt >= now) return fail("not_started", "Gruppmålet markeras när aktiviteten har startat.");
-  if (!(await ctx.repo.table("activities").first({ groupActivityId: g.id, caseId: p.caseId }))) {
-    return fail("not_invited", "Deltagaren är inte inbjuden till aktiviteten. Ladda om sidan.");
-  }
+  const act = await ctx.repo.table("activities").first({ groupActivityId: g.id, caseId: p.caseId });
+  if (!act) return fail("not_invited", "Deltagaren är inte inbjuden till aktiviteten. Ladda om sidan.");
   const t = ctx.repo.table("group_goal_results");
   const set = async (): Promise<{ changed: boolean; wasAuto: boolean }> => {
-    const cur = await t.first({ groupActivityId: g.id, caseId: p.caseId });
+    const row = await t.first({ groupActivityId: g.id, caseId: p.caseId });
+    // Ett val för ett tidigare mål eller en tidigare inbjudan gäller inte (deltagaren står som Klarade automatiskt).
+    const cur = row && row.goalVersion === g.goalVersion && row.activityId === act.id ? row : null;
     // Ingen rad = Klarade automatiskt: Klarade ändrar inget.
     if (!cur) {
       if (p.achieved) return { changed: false, wasAuto: true };
-      await t.insert({ id: ctx.newId("ggr"), contractId: g.contractId, groupActivityId: g.id, caseId: p.caseId, achieved: false, setBy: ctx.actor.userId, setAt: now });
+      const choice = { activityId: act.id, goalVersion: g.goalVersion, achieved: false, setBy: ctx.actor.userId, setAt: now };
+      // En rad per deltagare och aktivitet: den gamla raden förs över till det nuvarande målet och tillfället.
+      if (row) await t.update(row.id, choice);
+      else await t.insert({ id: ctx.newId("ggr"), contractId: g.contractId, groupActivityId: g.id, caseId: p.caseId, ...choice });
       return { changed: true, wasAuto: true };
     }
     if (cur.achieved === p.achieved) return { changed: false, wasAuto: false };

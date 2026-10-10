@@ -18,6 +18,8 @@ import { createSeed, decodeTestPnr, DEMO_START, normalizePnr } from "@/data/seed
 import { MemoryRepo } from "@/data/memory";
 import { POLICIES } from "@/data/policy";
 import type { TableName, Tables } from "@/data/schema";
+import { detailText, type AuditLookups } from "@/features/admin/audit-text";
+import { caseHistory } from "@/features/arenden/api";
 import { attendanceSet } from "@/features/coach/api";
 import "@/api/handlers";
 import {
@@ -244,6 +246,44 @@ describe("gruppmålet", () => {
     expect(audit("group_activity.created").pop()!.details).toMatchObject({ goal: true });
   });
 
+  it("ett val gäller målet och inbjudan det gjordes för: nytt mål, målet borttaget och inskrivet igen eller ny inbjudan – Klarade automatiskt igen", async () => {
+    const id = await started();
+    const goalOf = async (caseId: string) => (await view(id)).participants.find((p) => p.caseId === caseId)!.goal;
+    const version = () => rows("group_activities").find((g) => g.id === id)!.goalVersion;
+    const setGoal = (goal: string, name = base.name) => run(groupActivityUpdate, { id, ...base, name, startsAt: STARTED, goal }, amira());
+    expect(version()).toBe(0);
+    expect(await run(groupGoalResultSet, { id, caseId: ELIF, achieved: false }, amira())).toEqual({ ok: true, changed: true });
+    expect(await goalOf(ELIF)).toEqual({ achieved: false, auto: false });
+    // Coachen byter målet: Elif har inte bedömts mot det nya målet.
+    expect(await setGoal("Alla söker tre jobb")).toMatchObject({ ok: true, changed: 1 });
+    expect(version()).toBe(1);
+    expect(await goalOf(ELIF)).toEqual({ achieved: true, auto: true });
+    // Klarade ändrar inget (automatiskt); Klarade inte för över raden till det nya målet.
+    expect(await run(groupGoalResultSet, { id, caseId: ELIF, achieved: true }, amira())).toEqual({ ok: true, changed: false });
+    expect(await run(groupGoalResultSet, { id, caseId: ELIF, achieved: false }, amira())).toEqual({ ok: true, changed: true });
+    expect(await goalOf(ELIF)).toEqual({ achieved: false, auto: false });
+    expect(rows("group_goal_results")).toEqual([expect.objectContaining({ caseId: ELIF, goalVersion: 1, achieved: false })]);
+    expect(audit("group_goal.marked").map((x) => x.details)).toEqual([
+      { caseIds: [ELIF], achieved: false, wasAuto: true }, { caseIds: [ELIF], achieved: false, wasAuto: true },
+    ]);
+    // Ett annat namn ändrar inte målet: valet gäller fortfarande.
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: STARTED, name: "Nytt namn" }, amira())).toMatchObject({ ok: true, changed: 1 });
+    expect(version()).toBe(1);
+    expect(await goalOf(ELIF)).toEqual({ achieved: false, auto: false });
+    // Målet tas bort och skrivs in igen med samma text: ett nytt mål – automatiskt igen.
+    expect(await setGoal("", "Nytt namn")).toMatchObject({ ok: true, changed: 1 });
+    expect(await setGoal("Alla söker tre jobb", "Nytt namn")).toMatchObject({ ok: true, changed: 1 });
+    expect(version()).toBe(3);
+    expect(await goalOf(ELIF)).toEqual({ achieved: true, auto: true });
+    // Elif markeras igen, tas bort och bjuds in igen: valet gällde den tidigare inbjudan.
+    await run(groupGoalResultSet, { id, caseId: ELIF, achieved: false }, amira());
+    expect(await goalOf(ELIF)).toEqual({ achieved: false, auto: false });
+    expect(await run(groupActivityRemove, { id, caseId: ELIF, notify: false }, amira())).toMatchObject({ ok: true });
+    expect(await run(groupActivityInvite, { id, caseIds: [ELIF], notify: false }, amira())).toMatchObject({ ok: true, invited: 1 });
+    expect(await goalOf(ELIF)).toEqual({ achieved: true, auto: true });
+    expect(await goalOf(NADIA)).toEqual({ achieved: true, auto: true });
+  });
+
   it("utan mål, före start, för en deltagare som inte är inbjuden eller en inställd aktivitet: nekas", async () => {
     const none = await started(null);
     expect((await view(none)).participants.every((p) => p.goal === null)).toBe(true);
@@ -260,8 +300,16 @@ describe("gruppmålet", () => {
   it("målet skrivs när aktiviteten skapas eller ändras – tom text tar bort det, personnummer stoppas, högst 300 tecken", async () => {
     const id = await started(null);
     expect(await run(groupActivityUpdate, { id, ...base, startsAt: STARTED, goal: "Alla gör en intervju" }, amira())).toMatchObject({ ok: true, changed: 1 });
-    expect(audit("group_activity.updated").pop()!.details).toMatchObject({ fields: ["goal"] });
+    const updated = audit("group_activity.updated").pop()!;
+    expect(updated.details).toMatchObject({ fields: ["goal"] });
     expect(JSON.stringify(audit("group_activity.updated"))).not.toMatch(/intervju/);
+    // Kortets Historik och adminens revisionslogg skriver fältet på svenska – aldrig kodordet goal.
+    const history = (await q(caseHistory, { caseId: NADIA }, as("u-karin", "chef")))!.log.filter((x) => x.text === "Gruppaktiviteten ändrades");
+    expect(history.map((x) => x.sub)).toEqual(["Ändrat: gruppmål"]);
+    const l: AuditLookups = { userName: () => null, caseNumber: () => null, kpiLabel: () => null, templateLabel: (k) => k };
+    const admin = detailText({ action: updated.action, entity: updated.entity, entityId: updated.entityId, details: { fields: updated.details.fields } }, l);
+    expect(admin).toMatch(/gruppmål/);
+    expect(admin).not.toMatch(/goal/);
     expect(rows("group_activities").find((g) => g.id === id)!.goal).toBe("Alla gör en intervju");
     // Utelämnat: oförändrat.
     expect(await run(groupActivityUpdate, { id, ...base, startsAt: STARTED, name: "Nytt namn" }, amira())).toMatchObject({ ok: true, changed: 1 });

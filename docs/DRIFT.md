@@ -42,11 +42,11 @@ Kontroll efteråt (som inloggad eller i SQL Editor): `select source from public.
 
 ### Migration 0033 (gruppmål) – körs FÖRE koden från spår G
 
-`supabase/migrations/0033_gruppmal.sql` i *SQL Editor* (hela filen – den tål att köras igen): kolumnen `group_activities.goal` (gruppmålet, valfritt, 1–300 tecken) och tabellen `group_goal_results` (coachens val per deltagare: Klarade inte, eller Klarade efter att ha ändrat tillbaka – ingen rad betyder Klarade automatiskt) med RLS, en unik nyckel per deltagare och gruppaktivitet och triggern `group_goal_results_check`. Kräver 0030.
+`supabase/migrations/0033_gruppmal.sql` i *SQL Editor* (hela filen – den tål att köras igen): kolumnerna `group_activities.goal` (gruppmålet, valfritt, 1–300 tecken) och `group_activities.goal_version` (räknas upp när målet ändras – triggern `group_activities_goal_version`) och tabellen `group_goal_results` (coachens val per deltagare för målets version och deltagarens tillfälle: Klarade inte, eller Klarade efter att ha ändrat tillbaka – ingen rad betyder Klarade automatiskt) med RLS, en unik nyckel per deltagare och gruppaktivitet och triggern `group_goal_results_check`. Kräver 0030.
 
 **Driftordning:** 0033 ska vara applicerad **innan** koden från spår G driftsätts. Koden läser och skriver `group_activities.goal` när en gruppaktivitet skapas, visas eller ändras – utan kolumnen slutar gruppaktiviteterna att fungera.
 
-Kontroll efteråt: `select goal from public.group_activities limit 1;` fungerar, `select count(*) from public.group_goal_results;` svarar 0 och `select indexname from pg_indexes where indexname = 'group_goal_results_activity_case_key';` ger en rad.
+Kontroll efteråt: `select goal, goal_version from public.group_activities limit 1;` fungerar, `select count(*) from public.group_goal_results;` svarar 0 och `select indexname from pg_indexes where indexname = 'group_goal_results_activity_case_key';` ger en rad.
 
 ### Så läggs kollegor till (ingen SQL)
 

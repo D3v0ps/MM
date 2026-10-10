@@ -4,16 +4,25 @@
 -- automatiskt – coachen markerar den som inte klarade det (som frånvaro) och kan ändra tillbaka.
 --
 -- 1. group_activities.goal: gruppmålet (valfritt, 1–300 tecken). Ändras som aktivitetens övriga fält (policyerna och triggern
---    i 0030 gäller: de som arbetar i ärendena, inte en inställd aktivitet, ändrad i eget namn).
+--    i 0030 gäller: de som arbetar i ärendena, inte en inställd aktivitet, ändrad i eget namn). group_activities.goal_version
+--    räknas upp med ett varje gång målet ändras (också när det tas bort eller skrivs in igen) – triggern
+--    group_activities_goal_version kräver det, för alla (också service role).
 -- 2. group_goal_results: coachens val per deltagare. Ingen rad = Klarade automatiskt (visas så i aktivitetsvyn). achieved =
 --    false är Klarade inte; true är Klarade efter att coachen ändrat tillbaka. En rad per deltagare och gruppaktivitet.
+--    Valet gäller målet och inbjudan det gjordes för: raden har målets version (goal_version) och deltagarens tillfälle
+--    (activity_id). Byts målet, eller tas deltagaren bort och bjuds in igen, gäller valet inte längre – aktivitetsvyn läser bara
+--    rader med aktivitetens version och deltagarens nuvarande tillfälle, och deltagaren står då som Klarade automatiskt igen.
+--    Tas tillfället bort (deltagaren tas bort, aktiviteten ställs in) försvinner raden med det (on delete cascade).
 --    Behörighet (samma regler som src/data/policy.ts group_goal_results):
 --      * läsa: Miljonbemanning i avtalet utom ekonomen (som gruppaktiviteterna) med full- eller teamåtkomst till ärendet –
 --        den vilande spärren för skyddade personuppgifter gäller. Kommunen och ekonomen läser aldrig.
 --      * skapa och ändra: den som arbetar i ärendet (mm.work_on), medlem i avtalet, i eget namn (set_by). Triggern: raden hör
---        till gruppaktivitetens och ärendets avtal, aktiviteten har ett mål och är inte inställd, deltagaren är inbjuden (har
---        ett tillfälle i aktiviteten); vid ändring ändras bara valet (achieved) och tiden – aldrig aktivitet, ärende eller avtal.
---      * ingen raderar (ingen delete-policy och ingen delete-rättighet) – historiken finns i revisionsloggen.
+--        till gruppaktivitetens och ärendets avtal, aktiviteten har ett mål och är inte inställd, raden har målets nuvarande
+--        version och deltagarens tillfälle i aktiviteten (deltagaren är inbjuden); vid ändring ändras valet (achieved), eller
+--        förs ett val för ett tidigare mål eller en tidigare inbjudan över till det nuvarande (goal_version, activity_id) –
+--        aldrig aktivitet, ärende eller avtal.
+--      * ingen raderar (ingen delete-policy och ingen delete-rättighet) – historiken finns i revisionsloggen. Raden försvinner
+--        bara med deltagarens tillfälle (on delete cascade).
 --
 -- Gruppmålet är ett internt arbetsverktyg (Karims beslut 2): det blir aldrig deltagarens veckomål och påverkar aldrig
 -- progression, samlad status, rapporter, resultatfil, export eller faktura. Ingen vy, rapport eller export läser tabellerna,
@@ -25,6 +34,26 @@
 alter table public.group_activities add column if not exists goal text;
 alter table public.group_activities drop constraint if exists group_activities_goal_length;
 alter table public.group_activities add constraint group_activities_goal_length check (goal is null or char_length(btrim(goal)) between 1 and 300);
+-- Målets version: ett nytt mål (ändrat, borttaget eller inskrivet igen) gör coachens tidigare val ogiltiga.
+alter table public.group_activities add column if not exists goal_version integer not null default 0;
+alter table public.group_activities drop constraint if exists group_activities_goal_version_check;
+alter table public.group_activities add constraint group_activities_goal_version_check check (goal_version >= 0);
+
+-- Versionen följer målet (policy.ts groupActivityWrite – gäller alla, också service role): ändras målet räknas versionen upp med
+-- ett, annars är den oförändrad.
+create or replace function mm.check_group_goal_version() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+begin
+  if new.goal_version is distinct from (case when new.goal is distinct from old.goal then old.goal_version + 1 else old.goal_version end) then
+    raise exception 'Gruppmålets version räknas upp med ett när målet ändras, och bara då' using errcode = '23514';
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists group_activities_goal_version on public.group_activities;
+create trigger group_activities_goal_version before update on public.group_activities
+for each row execute function mm.check_group_goal_version();
 
 -- ---------------------------------------------------------------- 2. Coachens val per deltagare
 create table if not exists public.group_goal_results (
@@ -32,6 +61,10 @@ create table if not exists public.group_goal_results (
   contract_id       text not null references public.contracts (id),
   group_activity_id text not null references public.group_activities (id),
   case_id           text not null references public.cases (id),
+  -- Deltagarens tillfälle i aktiviteten (inbjudan) som valet gäller. Tas tillfället bort försvinner valet med det.
+  activity_id       text not null references public.activities (id) on delete cascade,
+  -- Målets version (group_activities.goal_version) som valet gäller.
+  goal_version      integer not null,
   -- false = Klarade inte, true = Klarade (coachen ändrade tillbaka). Ingen rad = Klarade automatiskt.
   achieved          boolean not null,
   set_by            text not null references public.profiles (id),
@@ -41,6 +74,7 @@ create table if not exists public.group_goal_results (
 create unique index if not exists group_goal_results_activity_case_key on public.group_goal_results (group_activity_id, case_id);
 create index if not exists group_goal_results_contract_id_idx on public.group_goal_results (contract_id);
 create index if not exists group_goal_results_case_id_idx on public.group_goal_results (case_id);
+create index if not exists group_goal_results_activity_id_idx on public.group_goal_results (activity_id);
 create index if not exists group_goal_results_set_by_idx on public.group_goal_results (set_by);
 
 alter table public.group_goal_results enable row level security;
@@ -74,8 +108,9 @@ create policy group_goal_results_update on public.group_goal_results for update 
   and set_by = (select mm.current_profile_id())
 );
 
--- Raden hör till aktiviteten och deltagaren (policy.ts groupGoalConsistent – gäller alla, också service role), och för
--- inloggade kolumnskyddet (policy.ts groupGoalWrite): vid ändring ändras bara valet och tiden, och valet måste ändras.
+-- Raden hör till aktiviteten, målets nuvarande version och deltagarens tillfälle (policy.ts groupGoalConsistent – gäller alla,
+-- också service role), och för inloggade kolumnskyddet (policy.ts groupGoalWrite): vid ändring ändras valet, eller förs valet
+-- över till det nuvarande målet eller den nuvarande inbjudan – något av dem måste ändras.
 -- Uppslagen görs med den inloggades rättigheter: den som får skriva (mm.work_on) läser aktiviteten och deltagarens tillfällen.
 create or replace function mm.check_group_goal_result() returns trigger
 language plpgsql set search_path = public, mm
@@ -90,7 +125,10 @@ begin
   if g.cancelled_at is not null or g.goal is null then
     raise exception 'Aktiviteten har inget gruppmål eller är inställd' using errcode = '23514';
   end if;
-  if not exists (select 1 from public.activities a where a.group_activity_id = new.group_activity_id and a.case_id = new.case_id) then
+  if new.goal_version is distinct from g.goal_version then
+    raise exception 'Valet gäller ett tidigare gruppmål' using errcode = '23514';
+  end if;
+  if not exists (select 1 from public.activities a where a.id = new.activity_id and a.group_activity_id = new.group_activity_id and a.case_id = new.case_id) then
     raise exception 'Deltagaren är inte inbjuden till aktiviteten' using errcode = '23514';
   end if;
   if current_user not in ('authenticated', 'anon') or tg_op = 'INSERT' then
@@ -100,7 +138,8 @@ begin
      or new.case_id is distinct from old.case_id then
     raise exception 'Aktivitet, ärende och avtal ändras aldrig' using errcode = '42501';
   end if;
-  if new.achieved is not distinct from old.achieved then
+  if new.achieved is not distinct from old.achieved and new.goal_version is not distinct from old.goal_version
+     and new.activity_id is not distinct from old.activity_id then
     raise exception 'Ändringen ändrar inte valet' using errcode = '42501';
   end if;
   return new;

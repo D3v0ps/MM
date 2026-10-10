@@ -121,6 +121,8 @@ const FIELD_WORD: Record<string, string> = {
   endReason: "avslutsorsak", resultClass: "resultatklass", resultVerified: "verifiering", resultVerifiedAt: "verifieringsdatum", caseNumber: "ärendenummer",
   // Ändra kontaktväg på deltagarkortet (person.contact_changed, coachmötet 2026-10-09): fälten hos personen.
   preferredContact: "kontaktväg", phone: "telefon", email: "e-post", address: "adress",
+  // Ändrad gruppaktivitet (group_activity.updated, fields) – samma ord som kortets Historik.
+  name: "namn", startsAt: "tid", durationMin: "längd", responsibleId: "ansvarig", goal: "gruppmål",
 };
 /** Ett fältnamn i loggen som läsbar svenska ("preferredContact" → "kontaktväg"). Okända namn visas som de är. */
 export const fieldWord = (code: string): string => FIELD_WORD[code] ?? code;

@@ -1510,7 +1510,9 @@ const AUDIT_TEXT: Record<string, string> = {
   "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
 };
 /** Fälten i en ändrad gruppaktivitet som ord (Historik). */
-const GROUP_FIELD_WORD: Record<string, string> = { name: "namn", kind: "typ", startsAt: "tid", durationMin: "längd", location: "plats", responsibleId: "ansvarig" };
+const GROUP_FIELD_WORD: Record<string, string> = {
+  name: "namn", kind: "typ", startsAt: "tid", durationMin: "längd", location: "plats", responsibleId: "ansvarig", goal: "gruppmål",
+};
 
 type LogEntry = { id: string; occurredAt: string; actorId: string | null; action: string; entity: string; entityId: string | null; details: Record<string, unknown>; text?: string };
 
