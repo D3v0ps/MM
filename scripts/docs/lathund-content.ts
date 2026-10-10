@@ -6,7 +6,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-export const LATHUND_FILES = { LATHUND_KOLLEGA: "kollega.md", LATHUND_KOMMUN: "kommun.md", LATHUND_MALL: "mall-mejlavrop.md" } as const;
+export const LATHUND_FILES = {
+  LATHUND_KOLLEGA: "kollega.md",
+  LATHUND_RUTIN: "rutin-deltagare.md",
+  LATHUND_KOMMUN: "kommun.md",
+  LATHUND_MALL: "mall-mejlavrop.md",
+} as const;
 
 export function renderContentModule(read: (file: string) => string): string {
   const lines = [

@@ -54,7 +54,7 @@ export function ContactModal({ card: c, onClose }: { card: CaseCard; onClose: ()
     >
       <Stack>
         <Kv items={[["Ärende", <span key="n" className="font-bold tabular-nums">{c.caseNumber}</span>]]} />
-        <Field id="arn-contact" label="Hur vill deltagaren bli kontaktad?" required help="Fråga deltagaren vid första mötet. Kallelser och påminnelser går den vägen.">
+        <Field id="arn-contact" label="Hur vill deltagaren bli kontaktad?" required help="Fråga deltagaren vid första mötet. Kallelser och inbjudningar skickas den vägen först.">
           <Seg
             id="arn-contact"
             value={contact}
@@ -66,7 +66,7 @@ export function ContactModal({ card: c, onClose }: { card: CaseCard; onClose: ()
           />
         </Field>
         <FormGrid>
-          <Field id="arn-contact-phone" label="Deltagarens telefonnummer" required={contact !== "email"} error={err("phone")} help="För kallelse och påminnelser. SMS innehåller aldrig personuppgifter.">
+          <Field id="arn-contact-phone" label="Deltagarens telefonnummer" required={contact !== "email"} error={err("phone")} help="För kallelser och inbjudningar. SMS innehåller aldrig personuppgifter.">
             <Input type="tel" value={phone} onValueChange={(v) => { setPhone(v); setServerErr({}); }} maxLength={40} autoComplete="off" />
           </Field>
           <Field id="arn-contact-email" label="Deltagarens e-postadress" required={contact === "email"} error={err("email")}>
