@@ -18,19 +18,19 @@ Bra att veta:
 - Lämna aldrig ut koden till någon annan. Vi frågar aldrig efter den.
 - Ditt konto skapas av systemadministratören under **Användare och roller**. Du kan inte skapa ett konto själv.
 
-## Byta roll
+## Flera roller
 
-Har du flera roller väljer du roll i rullistan **Roll** i sidopanelens huvud, under ditt namn. Sidan laddas om i den nya rollen. Har du bara en roll visas ingen rullista.
+Har du flera roller har du alla samtidigt. Du behöver aldrig byta roll. Rollerna står i sidopanelens huvud, under ditt namn. Belopp i kronor ser du bara om en av dina roller är ekonom.
 
 ## Min vecka – startsidan
 
-Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver göra den här veckan, mest brådskande först, och till höger påminnelser, flaggor och notiser. Varje roll har en egen Min vecka med sina egna uppgifter.
+Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver göra den här veckan, mest brådskande först, och till höger påminnelser, flaggor och notiser. Varje roll har en egen Min vecka med sina egna uppgifter. Har du flera roller står alla rollernas uppgifter på samma sida, en del per roll. Delen med mest som brådskar står först.
 
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
 - Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen har också **Närvaro**. Samordnaren, avtalsansvarig och coachen har också **Anteckningar**.
-- Högst en rollflik, till exempel **Samordning**, **Ekonomi** eller **Ledning**.
+- En flik per roll, till exempel **Samordning**, **Ekonomi** eller **Ledning**. Coachen har ingen egen flik.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
 ## Regler som gäller alla

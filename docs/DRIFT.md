@@ -30,7 +30,15 @@ Ta bort Supabase-variablerna för *Preview*, så att förhandsversioner av kod a
 
 ### Migration 0027 (rollväxling) – körs av Karim
 
-`supabase/migrations/0027_rollval.sql` i *SQL Editor* (hela filen, en gång – den tål att köras igen): tabellen `role_choices` (den valda rollen för den som har flera), `mm.current_role()` följer valet, och administratören får ta bort medlemskap ("Ändra roller"). Kontroll: `select * from public.role_choices;` fungerar och `select public.current_actor();` svarar som inloggad. Utan 0027 fungerar allt som förut, utom rollväljaren (kommandot `session.vaxlaRoll` ger då ett fel i sidopanelen) och "Ändra roller" när en roll ska tas bort.
+`supabase/migrations/0027_rollval.sql` i *SQL Editor* (hela filen, en gång – den tål att köras igen): tabellen `role_choices` (den valda rollen för den som har flera), `mm.current_role()` följer valet, och administratören får ta bort medlemskap ("Ändra roller"). Kontroll: `select * from public.role_choices;` fungerar och `select public.current_actor();` svarar som inloggad. Utan 0027 fungerar allt som förut, utom rollväljaren (kommandot `session.vaxlaRoll` ger då ett fel i sidopanelen) och "Ändra roller" när en roll ska tas bort. Rollväljaren är borttagen med spår H (0034, alla roller samtidigt) – tabellen ligger kvar oanvänd.
+
+### Migration 0034 (alla roller samtidigt) – körs FÖRE koden från spår H
+
+`supabase/migrations/0034_alla_roller.sql` i *SQL Editor* (hela filen – den tål att köras igen; bara `create or replace`, `alter policy` och `revoke`/`grant`, inga `drop`): rollerna som union (`mm.current_roles()`, `mm.has_role(text)`, avtalen och åtkomsten per roll), alla policyer och funktioner utan `mm.current_role()`, och beloppskolumnerna bara för rollen ekonom (vyerna `price_items_public`, `invoice_drafts_public`, `invoice_lines_public`, `bonus_claims_public`, `contract_deviations_public`, `ai_runs_public`; inloggade får inte längre läsa beloppskolumnerna direkt i tabellerna). Kräver 0027 och 0033.
+
+**Driftordning:** 0034 ska vara applicerad **innan** koden från spår H driftsätts: den nya koden läser `roles` och `roleContracts` ur `current_actor()` och tabellerna med belopp via vyerna. Den gamla koden fungerar med 0034 (`current_actor()` svarar fortfarande med `role`, och rollväljaren skriver fortfarande `role_choices`) – med ett undantag: den gamla koden läser tabellerna med belopp direkt (`select *`) och får då ett behörighetsfel. Kör därför migrationen och driftsätt koden i samma veva (migrationen först, koden direkt efter).
+
+Kontroll efteråt (som inloggad med två roller, t.ex. Ali): `select public.current_actor();` svarar med `"roles": ["admin", "avtalsansvarig"]`, `select count(*) from public.price_items_public;` fungerar (beloppet `price_ore` är 0 för den som inte har rollen ekonom) och `select price_ore from public.price_items;` ger *permission denied*.
 
 ### Migration 0030 (gruppaktiviteter och automatisk närvaro) – körs FÖRE koden
 
@@ -53,7 +61,7 @@ Kontroll efteråt: `select goal, goal_version from public.group_activities limit
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
 2. Namn, e-postadress på jobbet (domänen i `MM_STAFF_EMAIL_DOMAINS` – inte en privat adress), en eller flera roller (systemadministratör, avtalsansvarig, samordnare, huvudcoach, chef och controller, ekonom – rollen handledare är vilande sedan 2026-10-09 och kan inte väljas), titel valfritt.
 3. Kollegan får ett mejl utan personuppgifter med knappen "Logga in i Miljonmatch" och loggar in med e-post och engångskod (`/logga-in`). Rollerna ändras när som helst med **Ändra roller**; **Spärra** stänger inloggningen (aktivera igen med **Aktivera**). Den egna adminrollen kan inte tas bort och man kan inte spärra sig själv.
-4. Den som har flera roller väljer roll i sidopanelen under sitt namn (**Roll**). Valet sparas (`role_choices`) och gäller tills det ändras. Revisionsloggen får `staff_user.added`, `staff_user.roles_changed`, `staff_user.blocked`, `staff_user.reactivated` och `role.switched` – bara id:n och roller.
+4. Den som har flera roller har alla samtidigt (Karims beslut 7, 2026-10-09, migration 0034) – ingen rollväljare. Rollerna står i sidopanelen under namnet, menyn har en flik per roll och Min vecka en del per roll. Revisionsloggen får `staff_user.added`, `staff_user.roles_changed`, `staff_user.blocked` och `staff_user.reactivated` – bara id:n och roller (`role.switched` finns bara i äldre loggrader).
 5. **Avtalsansvarig** för Botkyrkaavtalet är Ali (`contracts.contract_manager_id`). Systemadministratören kan byta på avtalssidan (`/admin/avtal`, Avtalsfakta → Avtalsansvarig → Ändra) bland kollegor som har rollen avtalsansvarig.
 
 De sju första kontona (Karim, Ali, Sara, Adam, Shafik, Moda, Yacine) finns redan – alla är systemadministratörer tills rollerna ändras i appen; Ali är också avtalsansvarig.
@@ -93,6 +101,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Migrationer 0001–0017 | 0001–0016 applicerade i testprojektet av samordnaren (i 0016 görs `drop index` för hand). **0017 (synpunkter i testmiljön) appliceras av samordnaren samtidigt som koden med "Lämna synpunkt" går live** (steg 1 nedan) |
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
 | Migration 0030 (coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppaktiviteter och automatisk närvaro. Appliceras i SQL Editor **före** koden från spår A (se "Migration 0030" ovan) – koden skriver de nya kolumnerna vid varje närvaroregistrering och varje nytt tillfälle |
+| Migration 0034 (spår H, coachmötet 2026-10-09) | **Skriven, inte applicerad.** Alla roller samtidigt och beloppen bara för rollen ekonom. Appliceras i SQL Editor efter 0033 och **direkt före** koden från spår H (se "Migration 0034" ovan) |
 | Migration 0033 (spår G, coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppmål (`group_activities.goal`, `group_goal_results`). Appliceras i SQL Editor efter 0030–0032 och **före** koden från spår G (se "Migration 0033" ovan) |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
@@ -344,7 +353,7 @@ Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/
 | Inloggning med kod | `src/app/api/auth/{code,verify,logout}`, `src/server/auth/*` – kodmejlet: `src/server/auth/code-mail.ts` (generateLink + Resend), layouten `src/server/notify/render.ts` |
 | Session, testarens val | `src/app/api/session`, `src/app/api/session/impersonate`, `src/app/_shell/client-root.tsx` |
 | Kollegor, roller, spärr (beslut 2026-10-08) | `src/features/admin/handlers-users.ts` (`admin.inviteStaff`, `admin.setStaffRoles`, `admin.setStaffActive`), skärmen `src/features/admin/screens/anvandare.tsx`, domänerna `src/core/staff.ts` |
-| Rollväxling (beslut 2026-10-08) | `supabase/migrations/0027_rollval.sql` (`role_choices`, `mm.current_role()`), `src/features/session/handlers.ts` (`session.vaxlaRoll`), `src/data/actors.ts` (`defaultRoleFor`), rollväljaren i `src/shell/layouts.tsx` |
+| Alla roller samtidigt (beslut 7, 2026-10-09 – ersätter rollväxlingen) | `supabase/migrations/0034_alla_roller.sql` (`mm.current_roles()`, `mm.has_role`, vyerna `<tabell>_public` för beloppen), `src/api/roles.ts` (`Actor.roles`, `roleActors`), `src/data/policy.ts` (union per roll, `MONEY_MASK`), `src/data/actors.ts` (en testperson per användare). `role_choices` och `mm.current_role()` (0027) ligger kvar oanvända |
 | Tomt testdata och riktig tid lokalt | `MM_SEED=empty` – `src/data/seed/empty.ts`, `src/data/seed/colleagues.ts`, `realClock` i `src/data/memory-runtime.ts`; e2e-projektet `tom` |
 | Läs in testdata på nytt | `src/app/api/staging/seed/route.ts`, `src/server/staging/load.ts`, `supabase/migrations/0010_testdata.sql` (och 0017, som behåller synpunkterna), knappen `src/features/session/screens/test-data-reset.tsx` |
 | Synpunkter (bara testmiljön) | `src/features/synpunkter/*` (kommandona `feedback.*`, knapparna i `panel.tsx`), `supabase/migrations/0017_synpunkter.sql` |

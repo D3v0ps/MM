@@ -1,5 +1,6 @@
 // Min vecka för alla MB-roller (beslut 2026-10-06): samma upplägg som coachens Min vecka, med rollens egna uppgifter. Varje
-// roll börjar där, menyn har Min vardag och högst en rollflik, /start leder vidare och de gamla startsidorna finns kvar.
+// roll börjar där, menyn har Min vardag och en flik per roll, /start leder vidare och de gamla startsidorna finns kvar. Den som
+// har flera roller (Karims beslut 7, 2026-10-09) får alla rollernas delar på samma Min vecka.
 // Körs mot både prototypen och appen.
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { isDemo, loaded, open, switchPersona } from "./helpers";
@@ -65,6 +66,47 @@ test("Min vecka för varje MB-roll: rubrik, fyra rutor, rollens avsnitt och meny
     await expect(main(page)).not.toContainText("Den här sidan visas inte");
     await expect(main(page)).not.toContainText("Du har inte behörighet");
   }
+  expect(errors).toEqual([]);
+});
+
+test("flera roller samtidigt (Karims beslut 7): Lars får också rollen coach – en Min vecka med båda rollernas delar och menyn med Min vardag och Ekonomi", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const errors = await open(page, info, "/admin/anvandare", ROBIN);
+  const row = page.getByRole("table", { name: "Kollegor på Miljonbemanning" }).getByRole("row", { name: /Lars/ });
+  await row.getByRole("button", { name: "Ändra roller" }).click();
+  await page.check("#roller-role-coach");
+  await page.getByRole("dialog").getByRole("button", { name: "Spara roller" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(row).toContainText("Huvudcoach");
+  await expect(row).toContainText("Ekonom");
+
+  await switchTo(page, info, "/min-vecka", LARS);
+  await expect(main(page).getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
+  // En del per roll med rollens rubrik och avsnitt – sidans rubrik står en gång.
+  await expect(main(page).getByRole("heading", { level: 1 })).toHaveCount(1);
+  await expect(main(page).getByRole("heading", { level: 2, name: "Huvudcoach" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Ekonomi" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { name: "Påminnelser" }).first()).toBeVisible();
+  await expect(main(page).getByRole("heading", { name: "Uppgifter till dig" }).first()).toBeVisible();
+  // Inga dubbletter bland id:na (avsnitten får rolldelens suffix).
+  const dupes = await page.evaluate(() => {
+    const ids = [...document.querySelectorAll("#main [id]")].map((e) => e.id);
+    return ids.filter((x, i) => ids.indexOf(x) !== i);
+  });
+  expect(dupes).toEqual([]);
+  // Menyn: Min vardag (med coachens val) och Ekonomi – coachen har ingen egen flik.
+  expect((await groupLabels(page)).map((g) => g.toUpperCase())).toEqual(["MIN VARDAG", "EKONOMI"]);
+  await expect(menu(page).getByRole("link", { name: /Närvaro/ })).toBeVisible();
+  await expect(menu(page).getByRole("link", { name: /Fakturering/ })).toBeVisible();
+  // Sidopanelen visar båda rollerna. Appen har ingen rollväxlare (prototypfältet väljer testperson, inte roll för personen).
+  await expect(page.getByRole("complementary", { name: "Huvudmeny" })).toContainText("Huvudcoach och Ekonom");
+  if (!isDemo(info)) await expect(page.locator("#rollval")).toHaveCount(0);
+  // Båda rollernas sidor går att öppna.
+  await switchTo(page, info, "/narvaro", LARS);
+  await expect(main(page).getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(main(page)).not.toContainText("Du har inte behörighet");
+  await switchTo(page, info, "/ekonomi", LARS);
+  await expect(main(page).getByRole("heading", { level: 1, name: "Fakturering" })).toBeVisible();
   expect(errors).toEqual([]);
 });
 

@@ -135,7 +135,7 @@ function UsersContent({ d, contractLink }: { d: UsersView; contractLink: boolean
             }
             foot={
               <span className="text-text-muted">
-                Rollerna gäller i avtalet. En kollega med flera roller väljer roll i sidopanelen. Inloggning sker med e-post och engångskod.
+                Rollerna gäller i avtalet. En kollega med flera roller har alla samtidigt. Inloggning sker med e-post och engångskod.
               </span>
             }
           >
@@ -429,7 +429,7 @@ function RolesModal({ user, onClose }: { user: MbUserRow; onClose: () => void })
       }
     >
       <Stack>
-        <p className="text-text-muted">Rollerna gäller i avtalet. Har kollegan flera roller väljer hen själv roll i sidopanelen.</p>
+        <p className="text-text-muted">Rollerna gäller i avtalet. Har kollegan flera roller har hen alla samtidigt.</p>
         {serverErr && <Notice tone="critical">{serverErr}</Notice>}
         {tried && err && <ErrorSummary items={[{ id: "roller-role-admin", text: err }]} title="Rätta det här innan du sparar" />}
         <RolePicker idPrefix="roller" value={roles} onChange={(r) => { setServerErr(null); setRoles(r); }} error={tried ? err : undefined} />

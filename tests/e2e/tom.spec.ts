@@ -3,7 +3,7 @@
 // sju kollegorna (alla systemadministratörer, Ali också avtalsansvarig), riktig klocka. Varje MB-roll får sin roll av
 // administratören (admin.setStaffRoles – beslut 1) och klickar igenom Notiser, Min vecka och alla menyval; kommunens
 // handläggare skapar sitt konto själv och klickar igenom portalmenyn. Tomma tillstånd i klarspråk – aldrig krasch, NaN,
-// undefined eller "[object Object]". Rollväxlingen (beslut 2) prövas med Ali.
+// undefined eller "[object Object]". Alla roller samtidigt (beslut 7, 2026-10-09) prövas med Ali.
 import { expect, test, type Page } from "@playwright/test";
 import { acceptLeaveWarnings, loaded } from "./helpers";
 
@@ -113,38 +113,35 @@ test("varje MB-roll: Notiser, Min vecka och alla menyval fungerar utan ett enda 
   expect(errors).toEqual([]);
 });
 
-test("rollväxling: Ali har två roller, väljer i sidopanelen och valet sparas", async ({ page }) => {
+test("alla roller samtidigt: Ali har två roller utan rollväxlare – menyn har en flik per roll och Min vecka båda delarna", async ({ page }) => {
   await reset(page);
   const errors = watch(page);
-  // Utan vald roll: medlemskapet med lägst id (admin).
   await loginAs(page, { userId: "tester-ali" });
-  await visit(page, "/min-vecka", "Ali utan val");
-  await expect(sidebar(page)).toContainText("Systemadministratör");
-  const select = page.locator("#rollval");
-  await expect(select).toBeVisible();
-  await expect(select.locator("option")).toHaveText(["Systemadministratör", "Avtalsansvarig"]);
-  // Karim (en roll) har ingen rollväljare.
+  await visit(page, "/min-vecka", "Ali");
+  // Ingen rollväxlare (beslut 7, 2026-10-09) – båda rollerna står i sidopanelen.
+  await expect(page.locator("#rollval")).toHaveCount(0);
+  await expect(page.getByLabel("Roll", { exact: true })).toHaveCount(0);
+  await expect(sidebar(page)).toContainText("Systemadministratör och Avtalsansvarig");
+  // Menyn: Min vardag och en flik per roll i fast ordning – Avtalet före Administratör.
+  const nav = page.getByRole("navigation", { name: "Meny" });
+  await expect(nav).toContainText("Min vardag");
+  const navText = (await nav.textContent()) ?? "";
+  expect(navText.indexOf("Avtalet")).toBeGreaterThan(navText.indexOf("Min vardag"));
+  expect(navText.indexOf("Administratör")).toBeGreaterThan(navText.indexOf("Avtalet"));
+  await expect(nav.getByRole("link", { name: /Användare och roller/ })).toBeVisible();
+  await expect(nav.getByRole("link", { name: /Avtalsavvikelser/ }).first()).toBeVisible();
+  // Min vecka: en del per roll på samma sida.
+  await expect(main(page).getByRole("heading", { level: 2, name: "Avtalet" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Administratör" })).toBeVisible();
+  // Servern: båda rollerna samtidigt.
+  const ping = (await rpc(page, "query", "session.ping", {})) as { roles: string[] };
+  expect(ping.roles).toEqual(["admin", "avtalsansvarig"]);
+  // Varje menyval fungerar med båda rollerna.
+  for (const href of await menuLinks(page)) await visit(page, href, `Ali: ${href}`);
+  // Karim (en roll) har ingen del-rubrik – Min vecka är rollens egen sida.
   await loginAs(page, KARIM);
   await visit(page, "/min-vecka", "Karim");
-  await expect(page.locator("#rollval")).toHaveCount(0);
-  // Ali byter till avtalsansvarig: sidan laddas om i den nya rollen.
-  await loginAs(page, { userId: "tester-ali" });
-  await visit(page, "/min-vecka", "Ali igen");
-  await page.locator("#rollval").selectOption("avtalsansvarig");
-  await expect.poll(() => sidebar(page).textContent(), { timeout: 15_000 }).toContain("Avtalsansvarig");
-  await loaded(page);
-  await expect(page.locator("#rollval")).toHaveValue("avtalsansvarig");
-  await expect(page.getByRole("navigation", { name: "Meny" })).toContainText("Avtalet");
-  // Valet är sparat på servern: en ny inloggning utan angiven roll ger avtalsansvarig.
-  await loginAs(page, { userId: "tester-ali" });
-  await visit(page, "/min-vecka", "Ali efter valet");
-  await expect(sidebar(page)).toContainText("Avtalsansvarig");
-  const ping = (await rpc(page, "query", "session.ping", {})) as { role: string };
-  expect(ping.role).toBe("avtalsansvarig");
-  // Revisionsloggen: role.switched (bara id och roll).
-  await loginAs(page, KARIM);
-  await visit(page, "/admin/logg", "loggen");
-  await expect(main(page)).toContainText("Bytte roll");
+  await expect(main(page).getByRole("heading", { level: 2, name: "Administratör" })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
