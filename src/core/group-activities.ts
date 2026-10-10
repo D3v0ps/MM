@@ -109,6 +109,33 @@ export function selectByGroupings(
   return { invite: invite.sort(byNumber), skipped: skipped.sort(byNumber) };
 }
 
+/**
+ * Orsaken som etikett i summeringen för flera deltagare ("Hoppas över: redan inbjudna (2), insatsen pausad (1)."). Orsakstexterna
+ * är skrivna för en deltagare ("Redan inbjuden", "Insatsen är pausad") och blir fel svenska med ett antal framför.
+ */
+const SKIP_LABEL: Record<string, string> = {
+  [ALREADY_INVITED_TEXT]: "redan inbjudna",
+  [NO_DAY_TEXT]: "inget datum valt",
+  [INVITE_BLOCK_TEXT.closed]: "insatsen avslutad",
+  [INVITE_BLOCK_TEXT.declined]: "beställningen avböjd",
+  [INVITE_BLOCK_TEXT.paused]: "insatsen pausad",
+  [INVITE_BLOCK_TEXT.not_started]: "insatsen har inte startat",
+  [INVITE_BLOCK_TEXT.ended]: "insatsen har slutat",
+  [INVITE_BLOCK_TEXT.paused_week]: "uppehåll den veckan",
+  // Serverns orsak för en deltagare i en grupp vars insats inte har startat (aktiviteter.form, others).
+  "Insatsen har inte startat": "insatsen har inte startat",
+};
+export function skipLabel(reason: string): string {
+  if (SKIP_LABEL[reason]) return SKIP_LABEL[reason];
+  // Den vilande spärren för skyddade personuppgifter (orsaken från servern).
+  if (reason.startsWith("Skyddade personuppgifter")) return "skyddade personuppgifter";
+  return reason.charAt(0).toLocaleLowerCase("sv") + reason.slice(1);
+}
+/** Summeringen av de som hoppas över: "redan inbjudna (2), insatsen pausad (1)" – flest först. */
+export function skipSummary(skipped: readonly Pick<InviteSkip, "reason">[]): string {
+  return skipCounts(skipped.map((s) => ({ reason: skipLabel(s.reason) }))).map((c) => `${c.reason} (${c.count})`).join(", ");
+}
+
 /** Hur många som hoppas över per orsak, flest först: [{ reason: "Redan inbjuden", count: 2 }, …]. */
 export function skipCounts(skipped: readonly Pick<InviteSkip, "reason">[]): { reason: string; count: number }[] {
   const m = new Map<string, number>();

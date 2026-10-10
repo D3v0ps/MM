@@ -1,6 +1,6 @@
 // Bjud in per grupp, nivå eller enskilda (spår G): urvalet – rätt deltagare, en gång var, och de som hoppas över med orsaken.
 import { describe, expect, it } from "vitest";
-import { ALREADY_INVITED_TEXT, INVITE_BLOCK_TEXT, selectByGroupings, skipCounts, type InviteGrouping, type SelectableCase, type UninvitableMember } from "./group-activities";
+import { ALREADY_INVITED_TEXT, INVITE_BLOCK_TEXT, selectByGroupings, skipCounts, skipLabel, skipSummary, type InviteGrouping, type SelectableCase, type UninvitableMember } from "./group-activities";
 
 const DAY = "2027-02-04";
 const cand = (n: number, o: Partial<SelectableCase> = {}): SelectableCase => ({
@@ -47,6 +47,17 @@ describe("selectByGroupings – inbjudan per grupp eller nivå", () => {
   it("deltagare som rollen inte ser (finns varken bland kandidaterna eller de överhoppade) räknas inte alls", () => {
     const r = selectByGroupings(["niva-2"], [{ id: "niva-2", kind: "level", name: "Nivå 2", caseIds: ["case-10", "case-99"] }], CANDIDATES, [], DAY, new Set());
     expect(r).toEqual({ invite: [CANDIDATES[0]], skipped: [] });
+  });
+
+  it("skipSummary: en etikett per orsak med antalet – aldrig en mening för en deltagare med ett antal framför", () => {
+    const skipped = [
+      { reason: ALREADY_INVITED_TEXT }, { reason: ALREADY_INVITED_TEXT }, { reason: INVITE_BLOCK_TEXT.paused }, { reason: INVITE_BLOCK_TEXT.paused_week },
+      { reason: INVITE_BLOCK_TEXT.not_started }, { reason: "Insatsen har inte startat" }, { reason: "Skyddade personuppgifter – bara huvudcoachen och avtalsansvarig kan bjuda in deltagaren" },
+    ];
+    expect(skipSummary(skipped)).toBe("insatsen har inte startat (2), redan inbjudna (2), insatsen pausad (1), skyddade personuppgifter (1), uppehåll den veckan (1)");
+    expect(skipSummary([])).toBe("");
+    expect(skipLabel(INVITE_BLOCK_TEXT.closed)).toBe("insatsen avslutad");
+    expect(skipLabel("Okänd orsak")).toBe("okänd orsak");
   });
 
   it("skipCounts: flest först, sedan orsaken i bokstavsordning", () => {

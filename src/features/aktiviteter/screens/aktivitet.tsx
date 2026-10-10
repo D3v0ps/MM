@@ -39,8 +39,6 @@ const GOAL_OPTIONS: SegOption<"yes" | "no">[] = [
   { value: "yes", label: "Klarade", icon: "check", tone: "green" },
   { value: "no", label: "Klarade inte", icon: "x", tone: "red" },
 ];
-/** Frånvarande deltagare räknas inte i gruppmålet (de var inte med). */
-const isAbsent = (p: GroupParticipant) => p.attendance?.status === "absent_valid" || p.attendance?.status === "absent_invalid";
 
 /** En kryssruta i en bekräftelsedialog (förvald). Valet läses ur boxRef när dialogen stängs. */
 function ConfirmCheck({ id, boxRef, label }: { id: string; boxRef: { current: boolean }; label: string }) {
@@ -113,8 +111,8 @@ function Aktivitet({ v }: { v: Ok }) {
   const notesOpen = day <= dayOf(v.now);
   const upcoming = isUpcoming(a.startsAt, v.now);
   const parts = v.participants;
-  // Gruppmålet räknas bland dem som var med (inte frånvarande).
-  const goalParts = a.goal ? parts.filter((p) => !isAbsent(p)) : [];
+  // Gruppmålet: alla inbjudna klarar automatiskt (Karims beslut 2) – också den som är frånvarande, tills coachen markerar Klarade inte.
+  const goalParts = a.goal ? parts : [];
   const goalDone = goalParts.filter((p) => p.goal?.achieved !== false).length;
   const open = parts.filter((p) => !p.attendance);
   const filledNotes = Object.entries(notes).filter(([, t]) => t.trim());
@@ -548,16 +546,9 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   );
 }
 
-/** Gruppmålet för en deltagare: Klarade (automatiskt tills någon väljer) eller Klarade inte. Frånvarande räknas inte. */
+/** Gruppmålet för en deltagare: Klarade (automatiskt tills någon väljer) eller Klarade inte – för alla inbjudna (Karims beslut 2). */
 function GoalRow({ p, canEdit, busy, onPick }: { p: GroupParticipant; canEdit: boolean; busy: boolean; onPick: (achieved: boolean) => void }) {
   const g = p.goal!;
-  if (isAbsent(p)) {
-    return (
-      <p className="m-0 text-body text-text-muted" data-testid="gruppmal">
-        Gruppmål: räknas inte – frånvarande.
-      </p>
-    );
-  }
   const auto = g.auto ? (
     <Badge tone="outline" icon="refresh" title="Alla klarar gruppmålet automatiskt. Markera Klarade inte om deltagaren inte klarade det.">
       Automatiskt

@@ -259,7 +259,7 @@ test("Bjud in en nivå och en grupp: antalet och vilka visas, redan inbjudna hop
   await dialog.getByRole("tab", { name: "Grupp" }).click();
   await dialog.getByRole("group", { name: "Välj grupper" }).getByText("Måndagsgruppen").click();
   await expect(dialog.getByRole("status").filter({ hasText: "bjuds in" })).toHaveText("3 deltagare bjuds in, 2 hoppas över.");
-  await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("Hoppas över: 2 redan inbjuden.");
+  await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("Hoppas över: redan inbjudna (2).");
   await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("BOT-26-0130");
   await expect(dialog.locator("#akt-bjud-meddela")).toBeChecked();
   await btn(dialog, "Bjud in 3 deltagare").click();
@@ -272,6 +272,33 @@ test("Bjud in en nivå och en grupp: antalet och vilka visas, redan inbjudna hop
   const log = main(page);
   await expect(log).toContainText("Inbjudan till aktivitet");
   expect(await log.innerText()).not.toMatch(/Truckteori|Mehmet|Linnea/);
+  expect(errors).toEqual([]);
+});
+
+test("Enskilda: en vald deltagare som inte kan vara med den dagen stoppar inbjudan och går att kryssa ur", async ({ page }, info) => {
+  const errors = await open(page, info, "/aktiviteter/ny", COACH);
+  await page.locator("#ny-akt-namn").fill("CV-verkstad");
+  await page.locator("#ny-akt-datum").fill("2027-02-03");
+  await page.locator("#ny-akt-tid").fill("13:00");
+  await invite(page, "Nadia", SC.nadia);
+  await invite(page, "Elif", SC.elif);
+  // Datumet ändras till före Elifs start: raden är fortfarande vald, med orsaken, och går att kryssa ur.
+  await page.locator("#ny-akt-datum").fill("2027-01-05");
+  const elif = page.locator(`#ny-bjud-${SC.elif}`);
+  await expect(elif).toBeChecked();
+  await expect(elif).toBeEnabled();
+  await expect(page.getByTestId("bjud-in-sparrade")).toContainText("Elif Yilmaz (BOT-27-0003): Insatsen har inte startat den dagen");
+  // Skapa: servern nekar och räknar upp Elif – ingen aktivitet skapas utan henne.
+  await btn(page, "Skapa aktiviteten med 2 deltagare").click();
+  await expect(main(page)).toContainText("Några deltagare kan inte bjudas in");
+  await expect(main(page)).toContainText("BOT-27-0003: Insatsen har inte startat den dagen");
+  expect(currentPath(page, info)).toBe("/aktiviteter/ny");
+  // Elif kryssas ur: en deltagare kvar, och raden kan inte väljas igen den dagen.
+  await elif.uncheck();
+  await expect(elif).not.toBeChecked();
+  await expect(elif).toBeDisabled();
+  await expect(page.getByTestId("bjud-in-sparrade")).toHaveCount(0);
+  await expect(btn(page, "Skapa aktiviteten med 1 deltagare")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -311,6 +338,12 @@ test("Gruppmål: alla klarar automatiskt, coachen markerar en som Klarade inte o
   await btn(goal("Elif Yilmaz"), "Klarade").click();
   await expect(summary).toContainText("Gruppmål: 2 av 2 klarade.");
   await expect(row("Elif Yilmaz").getByTestId("gruppmal")).not.toContainText("Automatiskt");
+  // Nadia uteblev: hon står ändå som Klarade (automatiskt) och räknas med – alla klarar målet tills coachen markerar annat.
+  await btn(row("Nadia Warsame").getByRole("group", { name: "Närvaro för Nadia Warsame" }), "Ogiltig frånvaro").click();
+  await expect(row("Nadia Warsame")).toContainText("Ogiltig frånvaro");
+  await expect(btn(goal("Nadia Warsame"), "Klarade")).toHaveAttribute("aria-pressed", "true");
+  await expect(row("Nadia Warsame").getByTestId("gruppmal")).toContainText("Automatiskt");
+  await expect(summary).toContainText("Gruppmål: 2 av 2 klarade.");
   await noBadText(page);
 
   // Kommunen: varken målet eller valet syns i portalen.

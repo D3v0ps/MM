@@ -12,7 +12,7 @@
 // efter att datumet ändrats) nekar servern hela inbjudan och räknar upp vilka – ingen hoppas tyst över.
 import { useId, useMemo, useState } from "react";
 import {
-  candidateBlockText, INVITE_MODE_LABEL, INVITE_MODES, selectByGroupings, skipCounts, type InviteMode, type InviteSkip, type SelectableCase,
+  candidateBlockText, INVITE_MODE_LABEL, INVITE_MODES, selectByGroupings, skipSummary, type InviteMode, type InviteSkip, type SelectableCase,
 } from "@/core/group-activities";
 import { plural } from "@/core/format";
 import type { LocalDate } from "@/core/time";
@@ -107,7 +107,6 @@ function Groupings({
   const word = mode === "grupp" ? { one: "grupp", many: "grupper" } : { one: "nivå", many: "nivåer" };
   const chosen = new Set(value.groupingIds);
   const toggle = (id: string, on: boolean) => onChange({ ...value, groupingIds: on ? [...value.groupingIds.filter((x) => x !== id), id] : value.groupingIds.filter((x) => x !== id) });
-  const counts = skipCounts(resolved.skipped);
   const anyChosen = list.some((g) => chosen.has(g.id));
   if (!list.length) {
     return (
@@ -144,7 +143,7 @@ function Groupings({
       {anyChosen && resolved.skipped.length > 0 && (
         <div className="flex flex-col gap-1 text-body" data-testid="bjud-in-hoppas-over">
           <p className="m-0">
-            Hoppas över: {counts.map((c) => `${c.count} ${c.reason.toLocaleLowerCase("sv")}`).join(", ")}.
+            Hoppas över: {skipSummary(resolved.skipped)}.
           </p>
           <ul className="m-0 flex list-disc flex-col gap-0.5 pl-5 text-text-muted">
             {resolved.skipped.map((s) => (

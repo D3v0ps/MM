@@ -245,6 +245,11 @@ describe("gruppmålet", () => {
     v = await view(id);
     expect(v.participants.find((p) => p.caseId === NADIA)!.goal).toEqual({ achieved: false, auto: false });
     expect(v.participants.find((p) => p.caseId === ELIF)!.goal).toEqual({ achieved: true, auto: true });
+    // Elif är frånvarande: hon står ändå som Klarade automatiskt (Karims beslut 2 – alla klarar tills coachen markerar annat).
+    const elifAct = partsOf(id).find((a) => a.caseId === ELIF)!;
+    expect(await run(attendanceSet, { activityId: elifAct.id, status: "absent_invalid" }, amira())).toMatchObject({ ok: true });
+    v = await view(id);
+    expect(v.participants.find((p) => p.caseId === ELIF)).toMatchObject({ attendance: { status: "absent_invalid" }, goal: { achieved: true, auto: true } });
     // Samordnaren ändrar tillbaka: Klarade, inte längre automatiskt.
     expect(await run(groupGoalResultSet, { id, caseId: NADIA, achieved: true }, sara())).toEqual({ ok: true, changed: true });
     expect((await view(id)).participants.find((p) => p.caseId === NADIA)!.goal).toEqual({ achieved: true, auto: false });
