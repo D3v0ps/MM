@@ -95,6 +95,18 @@ insert into public.price_items (id, contract_id, area_code, code, unit, package_
   ('pi-L', 'c-bot', 'L', 'vecka-L', 'participant_week', null, 145000, 25, '2026-09-10', '2027-09-09', 'BOT-L', true)
 on conflict (id) do update set contract_id = excluded.contract_id, area_code = excluded.area_code, code = excluded.code, unit = excluded.unit, package_months = excluded.package_months, price_ore = excluded.price_ore, vat_rate = excluded.vat_rate, valid_from = excluded.valid_from, valid_to = excluded.valid_to, fortnox_article_no = excluded.fortnox_article_no, example_only = excluded.example_only;
 
+-- groupings: standardvärdena (8)
+insert into public.groupings (id, contract_id, kind, category, name, description, sort_order, created_at, created_by, updated_at, updated_by, archived_at, archived_by) values
+  ('grp-c-bot-niva-1', 'c-bot', 'level', null, 'Nivå 1 – Långt från arbete', '', 1, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-2', 'c-bot', 'level', null, 'Nivå 2 – Behöver stöd för att komma igång', '', 2, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-3', 'c-bot', 'level', null, 'Nivå 3 – På väg', '', 3, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-4', 'c-bot', 'level', null, 'Nivå 4 – Nära arbete', '', 4, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-niva-5', 'c-bot', 'level', null, 'Nivå 5 – Redo för arbete', '', 5, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-vill-arbeta-heltid', 'c-bot', 'tag', 'Vill arbeta', 'Heltid', '', 1, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-vill-arbeta-deltid', 'c-bot', 'tag', 'Vill arbeta', 'Deltid', '', 2, '2026-09-01T08:00', null, null, null, null, null),
+  ('grp-c-bot-vill-arbeta-vet-inte-an', 'c-bot', 'tag', 'Vill arbeta', 'Vet inte än', '', 3, '2026-09-01T08:00', null, null, null, null, null)
+on conflict (id) do nothing;
+
 -- Testarna (7): admin i båda avtalen, is_tester. Inloggningskopplingen (auth_user_id) och senaste inloggning behålls.
 insert into public.profiles (id, organization_id, full_name, email, phone, title, active, last_login_at, customer_unit, buyer_reference_id, team_role, invited_at, invited_by, auth_user_id, is_tester) values
   ('tester-karim', 'org-mb', 'Karim Khalil', 'karim.khalil@miljonbemanning.se', '', 'Systemadministratör', true, null, null, null, null, null, null, null, true),
