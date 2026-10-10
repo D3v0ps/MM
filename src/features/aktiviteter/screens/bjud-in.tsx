@@ -176,8 +176,9 @@ function Individuals({
   const set = (caseIds: string[]) => onChange({ ...value, caseIds });
   const toggle = (caseId: string, on: boolean) => set(on ? [...value.caseIds.filter((x) => x !== caseId), caseId] : value.caseIds.filter((x) => x !== caseId));
   const chosen = candidates.filter((c) => selected.has(c.caseId));
-  // Valda som inte kan vara med den dagen (t.ex. efter att datumet ändrats): de stoppar inbjudan tills de kryssas ur.
-  const blocked = chosen.flatMap((c) => {
+  // Valda som inte kan vara med den dagen (t.ex. efter att datumet ändrats): de stoppar inbjudan tills de kryssas ur. Utan datum
+  // visas ingen ruta – formuläret säger då "Välj datum" vid fältet.
+  const blocked = !day ? [] : chosen.flatMap((c) => {
     const reason = already.has(c.caseId) ? null : candidateBlock(c, day, already);
     return reason ? [{ c, reason }] : [];
   });
