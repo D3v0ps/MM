@@ -22,7 +22,7 @@ import {
   type GroupActivityView, type GroupParticipant, type InviteProblem,
 } from "../api";
 import { InviteParticipants } from "./bjud-in";
-import { ActivityFields, formErrors, formOf, payloadOf, ProblemList, useActivityFormData, useActivityConfirm, type ActivityFormState } from "./form";
+import { ActivityFields, formErrors, formOf, payloadOf, ProblemList, replacedText, useActivityFormData, useActivityConfirm, type ActivityFormState } from "./form";
 
 const CRUMB = { label: "Aktiviteter", to: "/aktiviteter" };
 type Ok = Extract<GroupActivityView, { kind: "ok" }>;
@@ -365,7 +365,7 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       toast(res.message ?? "Ändringen kunde inte sparas.", "error");
       return;
     }
-    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${res.replaced ? ` ${plural(res.replaced, "tillfälle", "tillfällen")} vid samma tid är ersatta.` : ""}` : "Inget var ändrat.");
+    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${replacedText(res.replaced)}` : "Inget var ändrat.");
     onClose();
   };
   return (
@@ -418,7 +418,7 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       toast(res.message ?? "Deltagarna kunde inte bjudas in.", "error");
       return;
     }
-    toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${res.replaced ? ` ${plural(res.replaced, "tillfälle", "tillfällen")} vid samma tid är ersatta.` : ""}`);
+    toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}`);
     onClose();
   };
   return (

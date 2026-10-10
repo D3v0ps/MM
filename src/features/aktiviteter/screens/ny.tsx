@@ -10,7 +10,7 @@ import { useNav } from "@/shell/nav";
 import { Button, Card, ErrorNotice, Loading, Notice, Page, Row, Stack, toast } from "@/ui";
 import { groupActivityCreate, type InviteProblem } from "../api";
 import { InviteParticipants } from "./bjud-in";
-import { ActivityFields, blankForm, formErrors, payloadOf, ProblemList, useActivityFormData, useActivityConfirm, type ActivityFormState } from "./form";
+import { ActivityFields, blankForm, formErrors, payloadOf, ProblemList, useActivityFormData, replacedText, useActivityConfirm, type ActivityFormState } from "./form";
 
 const CRUMBS = [{ label: "Aktiviteter", to: "/aktiviteter" }, { label: "Ny aktivitet" }];
 
@@ -49,7 +49,7 @@ function NyAktivitet({ form }: { form: NonNullable<ReturnType<typeof useActivity
       toast(res.message ?? "Aktiviteten kunde inte skapas.", "error");
       return;
     }
-    toast(`Aktiviteten är skapad${res.invited ? ` med ${plural(res.invited, "deltagare", "deltagare")}` : ""}.${res.replaced ? ` ${plural(res.replaced, "tillfälle", "tillfällen")} vid samma tid är ersatta.` : ""}`);
+    toast(`Aktiviteten är skapad${res.invited ? ` med ${plural(res.invited, "deltagare", "deltagare")}` : ""}.${replacedText(res.replaced)}`);
     leaveWithoutAsking(() => nav.push(`/aktiviteter/${encodeURIComponent(res.groupActivityId)}`));
   };
 

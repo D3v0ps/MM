@@ -3,6 +3,7 @@
 // Formulärets data (typer, coacher, deltagare att bjuda in, helgdagar) hämtas färskt varje gång formuläret öppnas
 // (useQueryRunner, ingen cache): en deltagare som just startat eller avslutats syns som den är. Servern prövar ändå allt igen.
 import { useCallback, useEffect, useState } from "react";
+import { plural } from "@/core/format";
 import { dayOf, fmtDate, timeOf, type LocalDate } from "@/core/time";
 import { useQueryRunner } from "@/shell/backend";
 import { Field, FormGrid, Input, Notice, Select, useConfirm, DateInput, TimeInput } from "@/ui";
@@ -126,6 +127,9 @@ export function ProblemList({ problems }: { problems: readonly InviteProblem[] }
     </ul>
   );
 }
+
+/** " 2 tillfällen vid samma tid är ersatta." – tom text när inget ersattes. */
+export const replacedText = (n: number): string => (n ? ` ${plural(n, "tillfälle", "tillfällen")} vid samma tid ${n === 1 ? "är ersatt" : "är ersatta"}.` : "");
 
 /** Det användaren har bekräftat: helgdagen, och att deltagarnas egna tillfällen vid samma tid ersätts. */
 export type ActivityConfirmations = { acceptHoliday: boolean; replaceOverlapping: boolean };

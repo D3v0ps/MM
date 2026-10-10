@@ -129,9 +129,13 @@ test("Gruppaktivitet: tre deltagare, en frånvarande, övriga närvarande, antec
   await expect.poll(() => currentPath(page, info)).toBe(activityPath);
   await expect(page.getByRole("heading", { level: 1, name: "CV-verkstad" })).toBeVisible();
 
-  // Listan /aktiviteter har aktiviteten, och menyn har Aktiviteter.
+  // Listan /aktiviteter har aktiviteten med närvarostatus som text och ikon, och menyn har Aktiviteter.
   await go(page, info, "/aktiviteter");
   await expect(main(page)).toContainText("CV-verkstad");
+  const listRow = main(page).getByRole("row", { name: /CV-verkstad/ });
+  await expect(listRow).toContainText("3 deltagare");
+  await expect(listRow.getByText("Närvaron är registrerad")).toBeVisible();
+  await expect(listRow.locator("svg").first()).toBeVisible();
   await expect(page.getByRole("navigation").getByRole("link", { name: "Aktiviteter" }).first()).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -187,5 +191,40 @@ test("Automatisk närvaro: Kör nu registrerar förra veckans oregistrerade till
   await switchUser(page, info, EKONOM, `/ekonomi/arende/${SC.nadia}`);
   await expect(main(page)).toContainText("Debiterbara veckor per månad");
   expect(await billingRows(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+test("Samma tid: Ny aktivitet frågar om deltagarens eget tillfälle ska ersättas – Närvaro länkar gruppraden till aktivitetsvyn", async ({ page }, info) => {
+  const errors = await open(page, info, "/aktiviteter/ny", COACH);
+  await expect(page.getByRole("heading", { level: 1, name: "Ny aktivitet" })).toBeVisible();
+  // Onsdag 10.00: Nadia har yrkesmoment 09.00–12.00 enligt veckoplanen.
+  await page.locator("#ny-akt-namn").fill("Intervjuträning");
+  await page.locator("#ny-akt-datum").fill("2027-02-03");
+  await page.locator("#ny-akt-tid").fill("10:00");
+  await invite(page, "Nadia", SC.nadia);
+  await btn(page, "Skapa aktiviteten med 1 deltagare").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Ersätta tillfällen vid samma tid?");
+  await expect(dialog).toContainText("BOT-26-0143: Har redan yrkesmoment kl. 09.00–12.00. Det ersätts av aktiviteten");
+  // Avbryt: ingenting skapas.
+  await btn(dialog, "Avbryt").click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect.poll(() => currentPath(page, info)).toBe("/aktiviteter/ny");
+  await btn(page, "Skapa aktiviteten med 1 deltagare").click();
+  await btn(page.getByRole("dialog"), "Ja, ersätt dem").click();
+  await expect(toasts(page)).toContainText("Aktiviteten är skapad med 1 deltagare. 1 tillfälle vid samma tid är ersatt.");
+  await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
+  const activityPath = currentPath(page, info);
+
+  // Närvaro denna vecka: gruppraden har ingen Ta bort-knapp utan en länk till aktivitetsvyn.
+  await go(page, info, `/narvaro?vecka=denna&arende=${SC.nadia}`);
+  await page.getByRole("button", { name: /^Alla \(\d+\)$/ }).click();
+  await page.getByRole("group", { name: "Dag" }).getByRole("button", { name: /^Hela veckan/ }).click();
+  const groupLink = main(page).getByRole("link", { name: "Öppna gruppaktiviteten" });
+  await expect(groupLink).toHaveCount(1);
+  await groupLink.click();
+  await expect.poll(() => currentPath(page, info)).toBe(activityPath);
+  await expect(page.getByRole("heading", { level: 1, name: "Intervjuträning" })).toBeVisible();
+  await noBadText(page);
   expect(errors).toEqual([]);
 });
