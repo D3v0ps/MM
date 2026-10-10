@@ -280,7 +280,10 @@ handleQuery(kommunReports, { roles: HANDL }, async (ctx) => {
 });
 
 // ================================================================ Kommandon
-/** kom.caseSeen (tyst): händelser i ärendet före den här tiden räknas som lästa på startsidan. */
+/**
+ * kom.caseSeen (tyst): händelser i ärendet före den här tiden räknas som lästa. Startsidan visar inga händelser sedan
+ * 2026-10-09 – tidpunkten sparas ändå, så att de kan visas igen utan ny modell.
+ */
 handleCommand(kommunCaseSeen, { roles: HANDL, silent: true }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", "Ärendet finns inte.");

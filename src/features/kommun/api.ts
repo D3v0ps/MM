@@ -159,7 +159,6 @@ export type KomDuplicate = { caseId: string | null; caseNumber: string | null; s
 /** Dubblettkontroll medan handläggaren skriver personnumret (numret skickas i anropet, aldrig i URL:en eller loggen). */
 export const kommunDuplicate = query("kommun.dubblett", z.object({ pnr: z.string().max(20) })).returns<KomDuplicate[]>();
 
-/** Kvittot efter skickad beställning: ordererkännandet och mejlet som skickades till handläggaren. */
 /**
  * Kvittot efter beställningen. Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): bara
  * ärendenumret och när orderbekräftelsen kommer med mejl – inget mejl att visa och ingen tidslinje.
@@ -265,7 +264,7 @@ export const kommunProfileSave = command("kommun.profilSpara", z.object({
 }), { invalidates: [PORTAL, "admin.users", NAV, ...LOG] }).returns<Result<{ changed: string[] }, "name" | "phone" | "unit">>();
 
 // ================================================================ Kommandon (prototypens kom.*)
-/** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa på startsidan (tyst). */
+/** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa (tyst; startsidan visar inga händelser sedan 2026-10-09). */
 export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: [PORTAL, NAV] }).returns<Result<object, "not_found">>();
 
 /** Handläggaren markerar en uppgift från Miljonbemanning som klar. */
