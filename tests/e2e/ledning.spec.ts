@@ -182,7 +182,10 @@ test("ledningsvyn: per coach, per avtalsområde och deltagarnas röst", async ({
   await expect(main(page)).toContainText("Resultatgrad, rullande 6 mån", { ignoreCase: true });
   await page.getByRole("tab", { name: /Per coach/ }).click();
   await expect(page).toHaveURL(/flik=coacher/);
-  await expect(main(page).getByRole("table", { name: "Nyckeltal per coach" }).locator("tbody tr")).toHaveCount(5);
+  // Åtta coacher sedan rollen handledare togs bort (Karims beslut 2026-10-09): Petra, David och Hanna är coacher utan egna
+  // ärenden (samma som ledning/handlers.test.ts).
+  await expect(main(page).getByRole("table", { name: "Nyckeltal per coach" }).locator("tbody tr")).toHaveCount(8);
+  for (const name of ["Petra Ek", "David Olsson", "Hanna Strand"]) await expect(main(page).getByRole("row", { name: new RegExp(name) })).toHaveCount(1);
   let t = await text(main(page));
   expect(await problems(page)).toEqual([]);
   expect(t).toMatch(/Dokumentationstid/i);
