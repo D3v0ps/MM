@@ -706,8 +706,11 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
   else {
     // Bara fälten som ändras. Den som inte har rollen ekonom läser raden utan vitets belopp (penaltyOre = 0, MONEY_MASK i
     // src/data/policy.ts och vyn contract_deviations_public, 0034) – ett oförändrat vite får aldrig skrivas tillbaka som 0.
+    // Vitet som hanteraren själv satte (valet, beloppet ur avtalet och avräkningen) skrivs däremot alltid: att jämföra med den
+    // maskerade raden skulle annars låta ett borttaget vite (beloppet 0) ligga kvar med sitt belopp i databasen.
+    const forced = new Set<string>(data.penaltyKind !== undefined ? ["penaltyKind", "penaltyOre", "penaltyOffsetMonth"] : []);
     const diff = Object.fromEntries(
-      Object.entries(next).filter(([k, v]) => k !== "id" && JSON.stringify(v) !== JSON.stringify(existing[k as keyof ContractDeviation])),
+      Object.entries(next).filter(([k, v]) => k !== "id" && (forced.has(k) || JSON.stringify(v) !== JSON.stringify(existing[k as keyof ContractDeviation]))),
     ) as Partial<ContractDeviation>;
     if (Object.keys(diff).length) await ctx.repo.table("contract_deviations").update(next.id, diff);
   }

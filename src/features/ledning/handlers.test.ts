@@ -217,12 +217,30 @@ describe("avtalsavvikelser", () => {
     // tillbaka som 0 när något annat ändras.
     expect(await rt.command(cdevSave, { id: "cd-2", data: { description: "Rapporten saknade observationer." } }, johan())).toMatchObject({ ok: true });
     expect(rt.rows("contract_deviations").find((x) => x.id === "cd-2")).toMatchObject({ description: "Rapporten saknade observationer.", penaltyKind: "deviation", penaltyOre: 2500000 });
-
     expect(await rt.command(cdevClose, { id: "cd-2", lessons: "  " }, karin())).toMatchObject({ ok: false, error: "lessons" });
     expect(await rt.command(cdevClose, { id: "cd-2", lessons: "Observation krävs från nivå 1." }, karin())).toEqual({ ok: true, id: "cd-2" });
     expect(rt.rows("contract_deviations").find((x) => x.id === "cd-2")).toMatchObject({ status: "closed", closedAt: "2027-02-01T09:17", closedBy: "u-karin", lessons: "Observation krävs från nivå 1." });
     expect(rt.rows("audit_log").at(-1)).toMatchObject({ action: "contract_deviation.closed", details: { hadCustomerApproval: false } });
     expect(await rt.query(cdevDetail, { id: "finns-inte" }, karin())).toEqual({ found: false });
+  });
+
+  it("ett vite som tas bort av någon utan rollen ekonom försvinner också med sitt belopp i lagret", async () => {
+    // Den som inte är ekonom läser raden utan vitets belopp (MONEY_MASK). Tas vitet bort (avtalsansvarig, chef) skrivs beloppet
+    // 0 ändå – annars räknas vitet fortfarande för den som också är ekonom (hasPenalty läser beloppet omaskerat).
+    const stored = () => rt.rows("contract_deviations").find((x) => x.id === "cd-2");
+    expect(await rt.command(cdevSave, { id: "cd-2", data: { penaltyKind: "deviation", penaltyOffsetMonth: "2027-03" } }, johan())).toMatchObject({ ok: true });
+    expect(stored()).toMatchObject({ penaltyKind: "deviation", penaltyOre: 2500000, penaltyOffsetMonth: "2027-03" });
+    expect(await rt.command(cdevSave, { id: "cd-2", data: { penaltyKind: null } }, johan())).toMatchObject({ ok: true });
+    expect(stored()).toMatchObject({ penaltyKind: null, penaltyOre: 0, penaltyOffsetMonth: null });
+    const chefEkonom = { ...karin(), roles: ["chef" as const, "ekonom" as const] };
+    const d = await rt.query(cdevDetail, { id: "cd-2" }, chefEkonom);
+    expect(d.found && [d.cd.hasPenalty, d.cd.penaltyKind]).toEqual([false, null]);
+    expect((await rt.query(cdevRegister, {}, chefEkonom)).counts.penalties).toBe((await rt.query(cdevRegister, {}, karin())).counts.penalties);
+    // Samma sak för chefen utan rollen ekonom.
+    expect(await rt.command(cdevSave, { id: "cd-2", data: { penaltyKind: "information" } }, karin())).toMatchObject({ ok: true });
+    expect(stored()).toMatchObject({ penaltyKind: "information", penaltyOre: 2500000 });
+    expect(await rt.command(cdevSave, { id: "cd-2", data: { penaltyKind: null } }, karin())).toMatchObject({ ok: true });
+    expect(stored()).toMatchObject({ penaltyKind: null, penaltyOre: 0, penaltyOffsetMonth: null });
   });
 
   it("detaljvyn och månadssammanställningen för APT", async () => {
