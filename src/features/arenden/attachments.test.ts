@@ -25,7 +25,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -116,7 +116,7 @@ describe("hämta och ta bort", () => {
     }
     // Handledare, ekonom, chef och admin: rollkontrollen.
     for (const a of [dormantSupervisor(), as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin")]) {
-      await expect(run(attachmentDownload, { attachmentId: id }, a), a.role).rejects.toBeInstanceOf(ApiError);
+      await expect(run(attachmentDownload, { attachmentId: id }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
     }
     // Varje hämtning loggas (tyst kommando – klockan står still), utan filnamn.
     const views = rt.raw().all("audit_log").filter((l) => l.action === "attachment.viewed");

@@ -10,8 +10,8 @@ import "./handlers";
 import { pathForView, viewForPath } from "./paths";
 import { SCENARIOS, scenarioNumber, stepPath, TOTAL_STEPS } from "./scenarios";
 
-const EKONOM: Actor = { userId: "u-lars", role: "ekonom", contractIds: ["c-bot"] };
-const KOMMUN: Actor = { userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: null };
+const EKONOM: Actor = { userId: "u-lars", roles: ["ekonom"], contractIds: ["c-bot"] };
+const KOMMUN: Actor = { userId: "k-maria", roles: ["kommun_handlaggare"], contractIds: ["c-bot"], customerUnit: null };
 
 async function refsAs(actor: Actor): Promise<DemoRefs> {
   const rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START) });

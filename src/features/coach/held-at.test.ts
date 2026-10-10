@@ -16,7 +16,7 @@ let rt: MemoryRuntime;
 beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
-const amira = () => listPersonas(rt.raw()).find((p) => p.actor.userId === "u-amira" && p.actor.role === "coach")!.actor;
+const amira = () => listPersonas(rt.raw()).find((p) => p.actor.userId === "u-amira" && p.actor.roles.includes("coach"))!.actor;
 const save = (data: Record<string, unknown>, checkInId?: string) =>
   rt.run("command", checkinSave.key, { caseId: NADIA, checkInId, data: { durationMin: 45, mode: "fysiskt", nextGoal: "", ...data }, approve: false }, amira()) as Promise<{ ok: boolean; checkInId: string }>;
 const heldAt = (id: string) => rt.store.rows("check_ins").find((c) => c.id === id)?.heldAt;

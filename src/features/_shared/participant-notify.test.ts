@@ -149,7 +149,7 @@ beforeEach(() => setup());
 
 /** En Ctx för samordnaren (som hanterarna får) – samma runtime, samma behörighet. */
 function ctxAs(userId: string, role: "samordnare" | "coach" | "avtalsansvarig"): Ctx {
-  const actor = listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.role === role)!.actor;
+  const actor = listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.roles.includes(role))!.actor;
   return rt.ctxFor(actor);
 }
 const person = () => rt.store.rows("persons").find((p) => p.id === rt.raw().get("cases", CASE)!.personId)!;

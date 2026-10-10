@@ -34,7 +34,7 @@ function setup(allowlist: string[], elksFail: { status: number; text?: string }[
   const newId = (p: string) => `${p}-q${String(++seq).padStart(4, "0")}`;
   const elks = fakeElks({ fail: elksFail });
   const resend = fakeResend();
-  const actor = listPersonas(rt.raw()).find((p) => p.actor.userId === "u-sara" && p.actor.role === "samordnare")!.actor;
+  const actor = listPersonas(rt.raw()).find((p) => p.actor.userId === "u-sara" && p.actor.roles.includes("samordnare"))!.actor;
   // Hanterarens Ctx med serverns kö: utskicken blir rader i outbound_messages och jobb send_message (src/server/notify/index.ts).
   const ctx: Ctx = { ...rt.ctxFor(actor), notify: async (m) => void (await queueMessage(repo, m, NOW, newId, { phone: { sms: true, call: true } })) };
   const deps = (now: string): JobDeps => ({

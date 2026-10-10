@@ -1113,7 +1113,7 @@ describe("skrivning: särskilda fall", () => {
     const base = await asUser(db, ALI, aliSees);
     expect(base.actor).toMatchObject({ userId: "tester-ali", roles: ["admin", "avtalsansvarig"] });
     expect(base.cases).toEqual(await memIds(findPersona("tester-ali"), "cases"));
-    const { role_choices: _choices, ...memTables } = await memCounts(findPersona("tester-ali"));
+    const memTables = Object.fromEntries(Object.entries(await memCounts(findPersona("tester-ali"))).filter(([t]) => t !== "role_choices"));
     expect(base.roleTables).toEqual(memTables);
     expect(base.cases.length).toBe(data.cases.length); // adminrollen ser alla ärenden, också när valet är avtalsansvarig
     // Valet ändrar varken rollerna eller vad som syns: utan rad, med den andra rollen och med en roll utan medlemskap.

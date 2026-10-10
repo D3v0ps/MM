@@ -4,7 +4,7 @@
 // som blir kompletta – och en automatisk rad som coachen ändrar blir manuell. Minnesläget kör den när klockan passerar dagens slut
 // (med golvet) och "Kör nu" kör den direkt (utan golv).
 import { beforeEach, describe, expect, it } from "vitest";
-import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
+import { type Actor, type Role, SYSTEM_ACTOR } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import { listPersonas } from "@/data/actors";
 import { MemoryRepo, type MemoryData } from "@/data/memory";
@@ -26,7 +26,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 
-const actor = (userId: string, role?: string): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && (!role || p.actor.role === role))!.actor;
+const actor = (userId: string, role?: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && (!role || p.actor.roles.includes(role)))!.actor;
 function systemCtx(): Ctx {
   const system = new MemoryRepo<Tables>(rt.store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as Ctx["system"];
   let seq = 0;

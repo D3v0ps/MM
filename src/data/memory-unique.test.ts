@@ -8,8 +8,8 @@ import { UNIQUE_KEYS, type Tables } from "./schema";
 import { createSeed } from "./seed";
 
 const store = () => new MemoryStore<Tables>(createSeed(), UNIQUE_KEYS);
-const amira = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "u-amira" && p.actor.role === "coach")!.actor;
-const maria = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "k-maria" && p.actor.role === "kommun_handlaggare")!.actor;
+const amira = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "u-amira" && p.actor.roles.includes("coach"))!.actor;
+const maria = (s: MemoryStore<Tables>) => listPersonas(s.raw()).find((p) => p.actor.userId === "k-maria" && p.actor.roles.includes("kommun_handlaggare"))!.actor;
 
 describe("unika nycklar i minnet", () => {
   it("en andra närvarorad för samma tillfälle stoppas – också via en ändring till ett upptaget tillfälle", async () => {
@@ -33,7 +33,7 @@ describe("unika nycklar i minnet", () => {
 
   it("updateIf: ändrar bara när raden matchar villkoret, annars null och ingen ändring", async () => {
     const s = store();
-    const system = new MemoryRepo<Tables>(s, { userId: "system", role: "admin", contractIds: [] }, POLICIES, { bypass: true });
+    const system = new MemoryRepo<Tables>(s, { userId: "system", roles: ["admin"], contractIds: [] }, POLICIES, { bypass: true });
     const t = system.table("reports");
     const waiting = (await t.first({ kind: "weekly_attendance", status: "waiting" }))!;
     expect(await t.updateIf(waiting.id, { status: "delivered" }, { status: "delivered" })).toBeNull();

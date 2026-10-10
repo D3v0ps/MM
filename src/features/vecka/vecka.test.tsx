@@ -51,7 +51,7 @@ const ALLOWED: Record<StaffRole, string[]> = {
 };
 
 function setup(role: StaffRole, extra: Partial<Session> = {}) {
-  const p = personas.find((x) => x.actor.userId === USER[role] && x.actor.role === role);
+  const p = personas.find((x) => x.actor.userId === USER[role] && x.actor.roles.includes(role));
   if (!p) throw new Error(`Ingen testperson för ${role}`);
   const actor: Actor = { ...p.actor, ...(extra.actor ?? {}) };
   const keys = new Set<string>();
@@ -164,7 +164,7 @@ describe("Min vecka per roll", () => {
   });
 
   it("chefen som begränsad testare: inga belopp – ofakturerat visas inte", async () => {
-    setup("chef", { hidesCommercial: true, actor: { userId: "u-karin", role: "chef", contractIds: ["c-bot"], testerId: "tester-sara" } });
+    setup("chef", { hidesCommercial: true, actor: { userId: "u-karin", roles: ["chef"], contractIds: ["c-bot"], testerId: "tester-sara" } });
     await headings("Nyckeltal i korthet");
     const card = screen.getByRole("heading", { name: /Nyckeltal i korthet/ }).closest("section") as HTMLElement;
     expect(within(card).getByText("Visas inte för testare")).toBeTruthy();
@@ -219,7 +219,7 @@ describe("Min vecka per roll", () => {
   });
 
   it("systemadministratören som begränsad testare: ingen länk till avtalssidan och inga underbiträden", async () => {
-    setup("admin", { hidesCommercial: true, actor: { userId: "u-robin", role: "admin", contractIds: ["c-bot"], testerId: "tester-sara" } });
+    setup("admin", { hidesCommercial: true, actor: { userId: "u-robin", roles: ["admin"], contractIds: ["c-bot"], testerId: "tester-sara" } });
     await headings("Bakgrundsjobb");
     expect(screen.queryByRole("link", { name: /Avtal och konfiguration/ })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Underbiträden" })).toBeNull();

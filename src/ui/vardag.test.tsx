@@ -18,7 +18,7 @@ const A: LinkImpl = ({ href, children, ...rest }) => (
 );
 function wrap(children: ReactNode, opts: { runtime?: RuntimeMode; push?: Nav["push"] } = {}) {
   const nav: Nav = { path: "/", query: new URLSearchParams(), push: opts.push ?? vi.fn(), replace: vi.fn(), back: vi.fn(), href: (to) => to };
-  const session: Session = { actor: { userId: "u-x", role: "samordnare", contractIds: [] }, user: { id: "u-x", name: "Test", title: "", email: "", orgName: "" } };
+  const session: Session = { actor: { userId: "u-x", roles: ["samordnare"], contractIds: [] }, user: { id: "u-x", name: "Test", title: "", email: "", orgName: "" } };
   return (
     <RuntimeProvider mode={opts.runtime ?? "app"}>
       <SessionProvider session={session}>

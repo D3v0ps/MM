@@ -18,7 +18,7 @@ const A: LinkImpl = ({ href, children, ...rest }) => (
   </a>
 );
 
-function setup(opts: { role: Role; path: string; routePath?: string; area: RouteDef["area"]; runtime?: RuntimeMode; personas?: boolean; unit?: string; resultFile?: boolean }) {
+function setup(opts: { role: Role; roles?: Role[]; path: string; routePath?: string; area: RouteDef["area"]; runtime?: RuntimeMode; personas?: boolean; unit?: string; resultFile?: boolean }) {
   const push = vi.fn();
   const switchRole = vi.fn();
   const nav: Nav = { path: opts.path, query: new URLSearchParams(), push, replace: vi.fn(), back: vi.fn(), href: (to) => `#${to}` };
@@ -27,13 +27,15 @@ function setup(opts: { role: Role; path: string; routePath?: string; area: Route
     query: async (key) =>
       key === "session.navCounts"
         ? { inbox: 6, deadlines: 3, unregistered: 2, notifications: 4, ...(opts.resultFile !== undefined ? { resultFile: opts.resultFile } : {}) }
-        : { now: "2027-02-01T09:12", role: opts.role, userId: "u-x" },
+        : { now: "2027-02-01T09:12", roles: opts.roles ?? [opts.role], userId: "u-x" },
     command: async () => null,
   };
   const session: Session = {
-    actor: { userId: "u-x", role: opts.role, contractIds: ["c-bot"] },
+    actor: { userId: "u-x", roles: opts.roles ?? [opts.role], contractIds: ["c-bot"] },
     user: { id: "u-x", name: "Test Person", title: "Titel", email: "test@example.se", orgName: "Org", unit: opts.unit ?? null },
-    personas: opts.personas ? [{ userId: "u-x", role: opts.role, name: "Test Person", title: "Titel" }, { userId: "u-y", role: "chef", name: "Annan Person", title: "Chef" }] : undefined,
+    personas: opts.personas
+      ? [{ userId: "u-x", role: opts.role, roles: opts.roles ?? [opts.role], name: "Test Person", title: "Titel" }, { userId: "u-y", role: "chef", roles: ["chef"], name: "Annan Person", title: "Chef" }]
+      : undefined,
     switchRole,
   };
   const route: RouteDef = { path: opts.routePath ?? opts.path, title: "T", roles: [opts.role], area: opts.area, screen: () => null };
@@ -96,6 +98,22 @@ describe("MB-layout", () => {
     expect(btn.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("flera roller (Karims beslut 7, 2026-10-09): Min vardag och en flik per roll, varje val en gång, alla roller under namnet, ingen rollväljare", async () => {
+    setup({ role: "samordnare", roles: ["samordnare", "ekonom"], path: "/min-vecka", area: "mb" });
+    const menu = screen.getByRole("navigation", { name: "Meny" });
+    // Fakturakörningen visas när klockan (session.ping) har hämtats.
+    await within(menu).findByRole("link", { name: "Fakturakörning januari" });
+    const links = within(menu).getAllByRole("link").map((a) => a.textContent?.replace(/\s*\d+( olästa)?$/, ""));
+    expect(links).toEqual([
+      "Notiser", "Min vecka", "Aktiviteter", "Ärenden", "Anteckningar", "Rapporter", "Arbetsgivare och praktik", "Avropsinkorg", "Förfaller", "Bygg rapport",
+      "Fakturering", "Fakturakörning januari", "Prislista",
+    ]);
+    expect(within(menu).getByText("Samordning")).toBeTruthy();
+    expect(within(menu).getByText("Ekonomi")).toBeTruthy();
+    expect(screen.getByText("Operativ samordnare och Ekonom")).toBeTruthy();
+    expect(screen.queryByLabelText("Roll")).toBeNull();
+  });
+
   it("ekonomen får förra månadens fakturakörning", async () => {
     setup({ role: "ekonom", path: "/ekonomi", area: "mb" });
     expect(await screen.findByRole("link", { name: "Fakturakörning januari" })).toBeTruthy();
@@ -107,7 +125,9 @@ describe("utvecklingsläget", () => {
   it("visar testpersonväljaren i riktiga appen och byter person", () => {
     const { switchRole } = setup({ role: "coach", path: "/min-vecka", area: "mb", runtime: "app", personas: true });
     const select = screen.getByLabelText("Utvecklingsläge – testperson:") as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: "u-y|chef" } });
+    // En testperson per användare (alla roller samtidigt, Karims beslut 7, 2026-10-09).
+    expect([...select.options].map((o) => o.textContent)).toEqual(["Test Person – Huvudcoach", "Annan Person – Chef/controller"]);
+    fireEvent.change(select, { target: { value: "u-y" } });
     expect(switchRole).toHaveBeenCalledWith("chef", "u-y");
     expect(screen.getByText("Påhittade testdata.")).toBeTruthy();
   });

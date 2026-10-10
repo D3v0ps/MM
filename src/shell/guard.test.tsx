@@ -20,7 +20,7 @@ const A: LinkImpl = ({ href, children, ...rest }) => (
 );
 function wrap(children: ReactNode, userId = "u-amira") {
   const nav: Nav = { path: "/avstamning/case-1", query: new URLSearchParams(), push: vi.fn(), replace: vi.fn(), back: vi.fn(), href: (to) => to };
-  const session: Session = { actor: { userId, role: "coach", contractIds: [] }, user: { id: userId, name: "Test", title: "", email: "", orgName: "" } };
+  const session: Session = { actor: { userId, roles: ["coach"], contractIds: [] }, user: { id: userId, name: "Test", title: "", email: "", orgName: "" } };
   return (
     <SessionProvider session={session}>
       <NavProvider nav={nav} LinkImpl={A}>

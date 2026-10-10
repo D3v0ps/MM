@@ -19,7 +19,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -51,9 +51,9 @@ describe("Ändra kontaktväg (arenden.caseSetContact)", () => {
       [robin(), { caseId: NADIA, preferredContact: "email", phone: "070-000 00 02", email: "ny@example.invalid" }],
     ];
     for (const [actor, input] of steps) {
-      expect(await set(input, actor), actor.role).toEqual({ ok: true, changed: true });
+      expect(await set(input, actor), actor.roles.join(",")).toEqual({ ok: true, changed: true });
       const { person } = nadia();
-      expect({ preferredContact: person.preferredContact, phone: person.phone, email: person.email }, actor.role).toEqual({
+      expect({ preferredContact: person.preferredContact, phone: person.phone, email: person.email }, actor.roles.join(",")).toEqual({
         preferredContact: input.preferredContact, phone: input.phone, email: input.email,
       });
     }
@@ -62,7 +62,7 @@ describe("Ändra kontaktväg (arenden.caseSetContact)", () => {
   it("kommunens handläggare, ekonomen och chefen nekas (rollkontrollen) – personen är orörd", async () => {
     const before = structuredClone(nadia().person);
     for (const actor of [kommunOf(NADIA), lars(), karin()]) {
-      await expect(set({ caseId: NADIA, preferredContact: "email", phone: "", email: "x@example.invalid" }, actor), actor.role).rejects.toBeInstanceOf(ApiError);
+      await expect(set({ caseId: NADIA, preferredContact: "email", phone: "", email: "x@example.invalid" }, actor), actor.roles.join(",")).rejects.toBeInstanceOf(ApiError);
     }
     expect(nadia().person).toEqual(before);
     expect(contactLog()).toHaveLength(0);
@@ -129,8 +129,8 @@ describe("Ändra kontaktväg (arenden.caseSetContact)", () => {
   it("deltagarkortet har kontaktuppgifterna att ändra bara för rollerna som får ändra dem", async () => {
     for (const actor of [sara(), johan(), amira(), robin()]) {
       const card = await q(caseCard, { caseId: NADIA }, actor);
-      expect(card.kind, actor.role).toBe("ok");
-      if (card.kind === "ok") expect(card.contact, actor.role).toEqual({ preferredContact: nadia().person.preferredContact, phone: nadia().person.phone, email: nadia().person.email });
+      expect(card.kind, actor.roles.join(",")).toBe("ok");
+      if (card.kind === "ok") expect(card.contact, actor.roles.join(",")).toEqual({ preferredContact: nadia().person.preferredContact, phone: nadia().person.phone, email: nadia().person.email });
     }
     const chef = await q(caseCard, { caseId: NADIA }, karin());
     expect(chef.kind === "ok" && chef.contact).toBeNull();

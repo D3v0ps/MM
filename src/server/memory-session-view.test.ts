@@ -7,7 +7,7 @@ import { memorySessionView } from "./memory-session-view";
 
 const rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START) });
 const persona = (userId: string) => listPersonas(rt.raw()).find((p) => p.actor.userId === userId)!;
-const OPTIONS = [{ userId: "u-amira", role: "coach" as const, name: "Amira Haddad", title: "Huvudcoach" }];
+const OPTIONS = [{ userId: "u-amira", role: "coach" as const, roles: ["coach" as const], name: "Amira Haddad", title: "Huvudcoach" }];
 
 describe("memorySessionView", () => {
   it("vanlig testperson: inloggad, inte testare, ingen impersonering", () => {

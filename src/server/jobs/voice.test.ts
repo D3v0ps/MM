@@ -38,7 +38,7 @@ function setup(ai: AiPort = createSimulatedAi()) {
     },
     notify: async () => undefined, crypto: TEST_PNR_CRYPTO, ai, audio, jobs: { schedule: () => undefined },
   });
-  const amira = ctxFor(personaFor(store.raw(), "u-amira", "coach")!.actor);
+  const amira = ctxFor(personaFor(store.raw(), "u-amira")!.actor);
   const voice: Ctx = ctxFor(SYSTEM_ACTOR);
   // JobStore i minnet: samma regler som mm.claim_jobs (queued, run_after passerad, färre än max försök).
   const jobStore: JobStore = {
@@ -128,7 +128,7 @@ describe("röstjobben i jobbkörningen", () => {
     };
     const t = setup(broken);
     const AMAL = "case-270012";
-    const deltagare = { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null } as Actor;
+    const deltagare = { userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null } as Actor;
     const audio = createMemoryAudio({ system: t.system, now: () => DEMO_START, newId: (p) => `${p}-d1` });
     const up = await audio.createUpload({ caseId: AMAL, ownerId: "deltagare", purpose: "participant", mimeType: "audio/webm", durationSec: 40 });
     await audio.confirm(up.uploadId);

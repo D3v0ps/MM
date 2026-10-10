@@ -141,12 +141,13 @@ export function useAuditView(key: string | null | undefined, log: () => unknown)
   useEffect(() => {
     logRef.current = log;
   });
+  // Rollerna som text: en ny aktör med samma roller (ny lista) ska inte logga igen.
+  const roles = actor.roles.join(",");
   useEffect(() => {
     if (!key) return;
-    const roles = actor.roles.join(",");
     const k = `${actor.userId}|${roles}|${key}`;
     if (auditViewSeen(k)) return;
     markAuditView(k);
     void logRef.current();
-  }, [key, actor.userId, actor.roles]);
+  }, [key, actor.userId, roles]);
 }

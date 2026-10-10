@@ -6,7 +6,7 @@ import { attendanceStats } from "@/core/attendance";
 import { mkActivity, mkAttendance, mkCase, testDb, testEnv } from "@/core/test-data";
 import { loadDb } from "./load";
 
-const actor: Actor = { userId: "u-amira", role: "coach", contractIds: ["c-bot"] };
+const actor: Actor = { userId: "u-amira", roles: ["coach"], contractIds: ["c-bot"] };
 const data = testDb({
   cases: [mkCase({ id: "c1", leadCoachId: "u-amira" }), mkCase({ id: "c2", leadCoachId: "u-erik" }), mkCase({ id: "k1", contractId: "c-ny", leadCoachId: "u-erik" })],
   activities: [mkActivity({ id: "a1", caseId: "c1", startsAt: "2027-01-25T10:00" })],

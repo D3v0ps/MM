@@ -30,7 +30,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -42,7 +42,7 @@ const cmd = <D extends CommandDef<any, any>>(def: D, input: ParamsOf<D>, actor: 
 const raw = () => new Proxy({} as { [K in keyof Tables]: Tables[K][] }, { get: (_t, name: string) => rt.store.rows(name as keyof Tables & string) });
 const amira = () => as("u-amira", "coach");
 const maria = () => as("k-maria", "kommun_handlaggare");
-const DELTAGARE: Actor = { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null };
+const DELTAGARE: Actor = { userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null };
 const SC = { nadia: "case-260143", yusuf: "case-260148", elif: "case-270003", amal: "case-270012", skyddad: "case-260120" };
 /** Den vilande spärren (beslut 2026-10-07): personen i SC.skyddad får skyddade personuppgifter – testdatat har inga. */
 const protect = () => rt.store.updateRow("persons", rt.raw().get("cases", SC.skyddad)!.personId, { protectedIdentity: true });

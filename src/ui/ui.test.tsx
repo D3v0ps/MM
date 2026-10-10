@@ -42,7 +42,7 @@ const A: LinkImpl = ({ href, children, ...rest }) => (
 function wrap(children: ReactNode, opts: { role?: Role; runtime?: RuntimeMode; switchRole?: Session["switchRole"]; push?: Nav["push"] } = {}) {
   const nav: Nav = { path: "/", query: new URLSearchParams(), push: opts.push ?? vi.fn(), replace: vi.fn(), back: vi.fn(), href: (to) => `#${to}` };
   const session: Session = {
-    actor: { userId: "u-x", role: opts.role ?? "samordnare", contractIds: [] },
+    actor: { userId: "u-x", roles: [opts.role ?? "samordnare"], contractIds: [] },
     user: { id: "u-x", name: "Test", title: "", email: "", orgName: "" },
     switchRole: opts.switchRole,
   };
@@ -302,15 +302,17 @@ describe("toast, bekräftelse och laddning", () => {
 
 describe("Min vecka – ögonbrynet (weekEyebrow)", () => {
   it("titeln när den finns och kollegan har en roll", () => {
-    expect(weekEyebrow({ name: "Amira Haddad", title: "Jobbcoach" }, "coach", ["coach"])).toBe("Amira Haddad · Jobbcoach");
+    expect(weekEyebrow({ name: "Amira Haddad", title: "Jobbcoach" }, ["coach"])).toBe("Amira Haddad · Jobbcoach");
+    expect(weekEyebrow({ name: "Amira Haddad", title: "Jobbcoach" }, "coach")).toBe("Amira Haddad · Jobbcoach");
   });
-  it("rollens etikett när titeln saknas, är ett rollnamn eller när kollegan har flera roller", () => {
-    expect(weekEyebrow({ name: "Sara Salah", title: "" }, "samordnare", ["samordnare"])).toBe("Sara Salah · Operativ samordnare");
-    expect(weekEyebrow({ name: "Sara Salah", title: null }, "samordnare", undefined)).toBe("Sara Salah · Operativ samordnare");
-    expect(weekEyebrow({ name: "Sara Salah", title: "Systemadministratör" }, "samordnare", ["samordnare"])).toBe("Sara Salah · Operativ samordnare");
-    expect(weekEyebrow({ name: "Ali Khalil", title: "VD" }, "avtalsansvarig", ["admin", "avtalsansvarig"])).toBe("Ali Khalil · Avtalsansvarig");
+  it("rollernas etikett när titeln saknas, är ett rollnamn eller när kollegan har flera roller (alla roller samtidigt, beslut 7)", () => {
+    expect(weekEyebrow({ name: "Sara Salah", title: "" }, ["samordnare"])).toBe("Sara Salah · Operativ samordnare");
+    expect(weekEyebrow({ name: "Sara Salah", title: null }, "samordnare")).toBe("Sara Salah · Operativ samordnare");
+    expect(weekEyebrow({ name: "Sara Salah", title: "Systemadministratör" }, ["samordnare"])).toBe("Sara Salah · Operativ samordnare");
+    expect(weekEyebrow({ name: "Ali Khalil", title: "VD" }, ["admin", "avtalsansvarig"])).toBe("Ali Khalil · Systemadministratör och Avtalsansvarig");
+    expect(weekEyebrow({ name: "Ali Khalil", title: "VD" }, ["admin", "avtalsansvarig", "ekonom"])).toBe("Ali Khalil · Systemadministratör, Avtalsansvarig och Ekonom");
   });
   it("inget ögonbryn utan namn", () => {
-    expect(weekEyebrow({ name: "", title: "Jobbcoach" }, "coach", ["coach"])).toBeUndefined();
+    expect(weekEyebrow({ name: "", title: "Jobbcoach" }, ["coach"])).toBeUndefined();
   });
 });

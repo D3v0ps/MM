@@ -417,7 +417,7 @@ describe("personnummer i utskick", () => {
   it("hanterarnas riktiga utskick (testdata + kommandon) blir mejl utan personnummer och utan deltagarnas namn", async () => {
     // Kör kommandon som skickar utskick genom samma execute() som appen, mot testdatat i minnet.
     const rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
-    const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((x) => x.actor.userId === userId && x.actor.role === role)!.actor;
+    const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((x) => x.actor.userId === userId && x.actor.roles.includes(role))!.actor;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cmd = <D extends CommandDef<any, any>>(def: D, input: ParamsOf<D>, actor: Actor) => rt.run("command", def.key, input, actor) as Promise<ResultOf<D>>;
     const order = { firstName: "Testa", lastName: "Testsson", pnr: "19900101-1234", phone: "070-000 00 00", city: "Tumba", preferredContact: "email" as const,

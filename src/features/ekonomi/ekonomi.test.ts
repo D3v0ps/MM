@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -182,8 +182,8 @@ describe("ekonomi.start", () => {
 
   it("bara ekonomen läser ekonomins vyer (beslut 5: belopp bara för ekonomen)", async () => {
     for (const who of [karin(), as("u-johan", "avtalsansvarig"), as("u-robin", "admin"), as("u-sara", "samordnare"), as("k-maria", "kommun_handlaggare")]) {
-      await expect(qry(ekoStart, {}, who), who.role).rejects.toBeInstanceOf(ApiError);
-      await expect(qry(ekoRun, { month: "2027-01" }, who), who.role).rejects.toBeInstanceOf(ApiError);
+      await expect(qry(ekoStart, {}, who), who.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(qry(ekoRun, { month: "2027-01" }, who), who.roles.join(",")).rejects.toBeInstanceOf(ApiError);
     }
   });
 });

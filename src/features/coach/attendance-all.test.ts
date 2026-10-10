@@ -36,7 +36,7 @@ beforeEach(() => {
   rt = fresh();
 });
 const as = (userId: string, role?: Role, r: MemoryRuntime = rt): Actor => {
-  const p = listPersonas(r.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(r.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };

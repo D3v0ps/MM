@@ -17,9 +17,9 @@ import { caseVoice, linkSend, uploadStart } from "@/features/rost/api";
 import { AI_OFF_LINK_TEXT, AI_OFF_TEXT } from "./ai-port";
 import { createSimulatedAi } from "./ai-sim";
 
-const AMIRA: Actor = { userId: "u-amira", role: "coach", contractIds: ["c-bot"], customerUnit: null };
-const MARIA: Actor = { userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" };
-const ROBIN: Actor = { userId: "u-robin", role: "admin", contractIds: ["c-bot"], customerUnit: null };
+const AMIRA: Actor = { userId: "u-amira", roles: ["coach"], contractIds: ["c-bot"], customerUnit: null };
+const MARIA: Actor = { userId: "k-maria", roles: ["kommun_handlaggare"], contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" };
+const ROBIN: Actor = { userId: "u-robin", roles: ["admin"], contractIds: ["c-bot"], customerUnit: null };
 const NADIA = "case-260143";
 
 function ctxFor(actor: Actor, withAi = false) {

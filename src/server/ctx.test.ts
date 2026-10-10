@@ -8,7 +8,7 @@ import { createSeed } from "@/data/seed";
 import type { AppRepo, Tables } from "@/data/schema";
 import { liveCtx, randomId } from "./ctx";
 
-const AMIRA: Actor = { userId: "u-amira", role: "coach", contractIds: ["c-bot"], customerUnit: null };
+const AMIRA: Actor = { userId: "u-amira", roles: ["coach"], contractIds: ["c-bot"], customerUnit: null };
 
 function setup() {
   const store = new MemoryStore<Tables>(createSeed());

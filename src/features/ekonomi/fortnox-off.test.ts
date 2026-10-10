@@ -29,7 +29,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 
-const lars = (): Actor => listPersonas(rt.raw()).find((x) => x.actor.userId === "u-lars" && x.actor.role === "ekonom")!.actor;
+const lars = (): Actor => listPersonas(rt.raw()).find((x) => x.actor.userId === "u-lars" && x.actor.roles.includes("ekonom"))!.actor;
 const rows = <N extends TableName>(name: N): Tables[N][] => rt.store.rows(name);
 const snapshot = () => JSON.stringify(WRITTEN.map((t) => rt.store.rows(t)));
 

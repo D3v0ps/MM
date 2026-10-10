@@ -43,7 +43,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -121,8 +121,8 @@ describe("bjud in per grupp eller nivå", () => {
   it("samma behörighet som förut: chef, systemadministratör, ekonom och kommunen bjuder inte in; formuläret nekas dem", async () => {
     const { groupActivityId } = await create([NADIA]);
     for (const actor of [as("u-karin", "chef"), as("u-robin", "admin"), as("u-lars", "ekonom"), as("k-maria")]) {
-      await expect(run(groupActivityInvite, { id: groupActivityId, caseIds: [ELIF], via: "grupp", groupingIds: [LAGER], skipUninvitable: true, notify: true }, actor), actor.role).rejects.toBeInstanceOf(ApiError);
-      await expect(q(groupActivityForm, {}, actor), actor.role).rejects.toBeInstanceOf(ApiError);
+      await expect(run(groupActivityInvite, { id: groupActivityId, caseIds: [ELIF], via: "grupp", groupingIds: [LAGER], skipUninvitable: true, notify: true }, actor), actor.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(q(groupActivityForm, {}, actor), actor.roles.join(",")).rejects.toBeInstanceOf(ApiError);
     }
     // Den vilande rollen handledare: regeln ligger kvar som i RLS.
     expect(await run(groupActivityInvite, { id: groupActivityId, caseIds: [ELIF] }, dormantSupervisor())).toMatchObject({ ok: true, invited: 1 });
@@ -342,13 +342,13 @@ describe("gruppmålet", () => {
     await run(groupGoalResultSet, { id, caseId: NADIA, achieved: false }, amira());
     expect((await view(id, as("u-karin", "chef"))).participants.find((p) => p.caseId === NADIA)!.goal).toEqual({ achieved: false, auto: false });
     for (const actor of [as("u-karin", "chef"), as("u-robin", "admin"), as("u-lars", "ekonom"), as("k-maria")]) {
-      await expect(run(groupGoalResultSet, { id, caseId: ELIF, achieved: false }, actor), actor.role).rejects.toBeInstanceOf(ApiError);
+      await expect(run(groupGoalResultSet, { id, caseId: ELIF, achieved: false }, actor), actor.roles.join(",")).rejects.toBeInstanceOf(ApiError);
     }
     for (const actor of [as("u-lars", "ekonom"), as("k-maria")]) {
-      await expect(q(groupActivityView, { id }, actor), actor.role).rejects.toBeInstanceOf(ApiError);
+      await expect(q(groupActivityView, { id }, actor), actor.roles.join(",")).rejects.toBeInstanceOf(ApiError);
       const repo = new MemoryRepo<Tables>(rt.store, actor, POLICIES);
-      expect(await repo.table("group_goal_results").count(), actor.role).toBe(0);
-      expect(await repo.table("group_activities").count(), actor.role).toBe(0);
+      expect(await repo.table("group_goal_results").count(), actor.roles.join(",")).toBe(0);
+      expect(await repo.table("group_activities").count(), actor.roles.join(",")).toBe(0);
     }
   });
 });

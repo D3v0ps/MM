@@ -50,7 +50,7 @@ export function testRuntime(start: LocalDateTime = DEMO_START) {
     return res === undefined ? null : JSON.parse(JSON.stringify(res));
   }
   const as = (userId: string, role?: Role): Actor => {
-    const p = listPersonas(store.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+    const p = listPersonas(store.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
     if (!p) throw new Error(`Ingen testperson ${userId}`);
     return p.actor;
   };

@@ -24,7 +24,7 @@ beforeAll(() => {
   rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START) });
   registerPdfFonts();
 });
-const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.role === role)!.actor;
+const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.roles.includes(role))!.actor;
 async function docOf(reportId: string, actor: Actor): Promise<ReportDocView> {
   const res = (await rt.run("query", reportDocument.key, { reportId }, actor)) as ReportDocResult;
   if (!res.ok) throw new Error(`${reportId}: ${res.reason}`);

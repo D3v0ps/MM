@@ -33,7 +33,7 @@ function denyAllRepo(): { repo: AppRepo; attempts: string[] } {
   return { repo, attempts };
 }
 
-const PARTICIPANT: Actor = { userId: PARTICIPANT_USER_ID, role: "deltagare", contractIds: [], customerUnit: null };
+const PARTICIPANT: Actor = { userId: PARTICIPANT_USER_ID, roles: ["deltagare"], contractIds: [], customerUnit: null };
 const answers = { q1: 4, q2: 3, q3: 2, q4: "praktik", q5: "ja" };
 
 let store: MemoryStore<Tables>;

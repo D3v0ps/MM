@@ -21,7 +21,7 @@ let rt: MemoryRuntime;
 beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
-const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.role === role)!.actor;
+const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.roles.includes(role))!.actor;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const run = <D extends CommandDef<any, any>>(def: D, input: ParamsOf<D>, actor: Actor) => rt.run("command", def.key, input, actor) as Promise<ResultOf<D>>;
 const download = (reportId: string, actor: Actor) => run(reportDownload, { reportId }, actor);

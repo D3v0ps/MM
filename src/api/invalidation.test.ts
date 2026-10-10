@@ -96,9 +96,9 @@ const AUDIT_CASE = "audit_log:case";
 const WRITES: Record<string, string[]> = {
   "admin.setOrgRule": ["org_settings", "audit_log:org_rule", AUDIT], "admin.runJob": ["*"], "admin.logCheck": ["log_checks", AUDIT], "admin.saveTemplate": ["template_versions", AUDIT],
   "admin.inviteCustomer": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setCustomerActive": ["profiles"],
-  // Kollegorna och rollväxlingen (beslut 2026-10-08).
+  // Kollegorna (beslut 2026-10-08). Rollväxlingen (session.vaxlaRoll) är borttagen – alla roller samtidigt (beslut 7, 2026-10-09).
   "admin.inviteStaff": ["profiles", "memberships", "outbound_messages", AUDIT], "admin.setStaffRoles": ["memberships", AUDIT], "admin.setStaffActive": ["profiles", AUDIT],
-  "admin.setContractManager": ["contracts", AUDIT], "session.vaxlaRoll": ["role_choices", AUDIT],
+  "admin.setContractManager": ["contracts", AUDIT],
   "arenden.caseCreate": ["persons", "case_counters", "cases", "tasks", "outbound_messages", "case_attachments", "profiles", AUDIT_CASE, AUDIT],
   "arenden.bilagaStart": ["case_attachments", AUDIT], "arenden.bilagaKlar": ["case_attachments", AUDIT], "arenden.bilagaTaBort": ["case_attachments", AUDIT],
   "arenden.bilagaHamta": [AUDIT],

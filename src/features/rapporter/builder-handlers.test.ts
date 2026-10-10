@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -113,16 +113,16 @@ describe("roller", () => {
   it("coach, handledare, ekonom, admin och kommunens handläggare nekas rapportbyggarens nycklar", async () => {
     const def = asDef(tpl("narvaro-per-manad"));
     for (const a of [as("u-amira", "coach"), dormantSupervisor(), as("u-lars", "ekonom"), as("u-robin", "admin"), maria()]) {
-      await expect(ask(builderCatalog, {}, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(run(builderPreview, { contractId: "c-bot", definition: def }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(run(builderExport, { contractId: "c-bot", definition: def, format: "csv" }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(ask(savedReportList, {}, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(ask(savedReport, { savedReportId: "sr-seed-mb" }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(run(savedReportSave, { contractId: "c-bot", title: "Rapport", definition: def }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(run(savedReportShare, { savedReportId: "sr-seed-mb", visibility: "mb" }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(run(savedReportArchive, { savedReportId: "sr-seed-mb" }, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(ask(contractResultPreview, {}, a), a.role).rejects.toBeInstanceOf(ApiError);
-      await expect(run(contractResultExport, { contractId: "c-bot", from: "2026-10", to: "2026-12", format: "xlsx" }, a), a.role).rejects.toBeInstanceOf(ApiError);
+      await expect(ask(builderCatalog, {}, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(run(builderPreview, { contractId: "c-bot", definition: def }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(run(builderExport, { contractId: "c-bot", definition: def, format: "csv" }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(ask(savedReportList, {}, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(ask(savedReport, { savedReportId: "sr-seed-mb" }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(run(savedReportSave, { contractId: "c-bot", title: "Rapport", definition: def }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(run(savedReportShare, { savedReportId: "sr-seed-mb", visibility: "mb" }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(run(savedReportArchive, { savedReportId: "sr-seed-mb" }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(ask(contractResultPreview, {}, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
+      await expect(run(contractResultExport, { contractId: "c-bot", from: "2026-10", to: "2026-12", format: "xlsx" }, a), a.roles.join(",")).rejects.toBeInstanceOf(ApiError);
     }
   });
   it("templateKey är en nyckel i koden – aldrig fri text (zod)", async () => {

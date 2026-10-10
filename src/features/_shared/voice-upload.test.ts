@@ -1,7 +1,7 @@
 // Vem får spela in vad (voice-upload.ts) – samma kontroller i kommandona och i POST /api/audio/upload-url.
 // Mot testdatat i minnet med policyn (samma regler som RLS), den simulerade AI:n och ljudet i minnet.
 import { describe, expect, it, vi } from "vitest";
-import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
+import { type Actor, type Role, SYSTEM_ACTOR } from "@/api/roles";
 import type { Ctx } from "@/api/server";
 import { addDays, type LocalDateTime } from "@/core/time";
 import { personaFor } from "@/data/actors";
@@ -18,7 +18,7 @@ const NADIA = "case-260143";
 const YUSUF = "case-260148";
 const AMAL = "case-270012";
 const SKYDDAD = "case-260120";
-const PARTICIPANT: Actor = { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null };
+const PARTICIPANT: Actor = { userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null };
 
 function setup(o: { noAi?: boolean } = {}) {
   const store = new MemoryStore<Tables>(createSeed());
@@ -35,7 +35,12 @@ function setup(o: { noAi?: boolean } = {}) {
     },
     notify: async () => undefined, crypto: TEST_PNR_CRYPTO, ...(o.noAi ? {} : { ai: createSimulatedAi() }), audio,
   });
-  const as = (userId: string, role: Actor["role"]) => ctxAs(personaFor(store.raw(), userId, role)!.actor);
+  /** Testpersonen med alla sina roller (beslut 7) – role = en roll som personen måste ha. */
+  const as = (userId: string, role: Role) => {
+    const a = personaFor(store.raw(), userId)!.actor;
+    if (!a.roles.includes(role)) throw new Error(`${userId} har inte rollen ${role}`);
+    return ctxAs(a);
+  };
   return { store, audio, ctxAs, as, setNow: (t: LocalDateTime) => (clock = t) };
 }
 const webm = { mimeType: "audio/webm;codecs=opus" };

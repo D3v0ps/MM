@@ -40,7 +40,7 @@ describe("självregistrering", () => {
     const res = await rt.selfRegister("kim.testsson@botkyrka.se");
     if (!res.ok) throw new Error(res.reason);
     const actor = actorFor(rt.raw(), res.profileId)!;
-    expect(actor).toMatchObject({ role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: null });
+    expect(actor).toMatchObject({ roles: ["kommun_handlaggare"], contractIds: ["c-bot"], customerUnit: null });
     expect(await q("kommun.profil", {}, actor)).toMatchObject({ name: "Kim Testsson", email: "kim.testsson@botkyrka.se", unit: "", phone: "", incomplete: true });
     expect((await q("kommun.deltagareLista", {}, actor)).rows).toEqual([]);
     expect((await q("kommun.rapporter", {}, actor)).reports).toEqual([]);

@@ -236,7 +236,7 @@ describe("filteröversättning", () => {
     const store = new MemoryStore<{ reports: R }>({
       reports: db.map((r) => ({ id: r.id, kind: r.kind, status: r.status, deliveredAt: r.delivered_at ? "2027-01-05T10:00" : null, snapshot: r.snapshot })),
     });
-    const mem = await new MemoryRepo<{ reports: R }>(store, { userId: "x", role: "admin", contractIds: [] }, {}).table("reports").pickJson(["kind", "deliveredAt"], json, { status: "delivered" });
+    const mem = await new MemoryRepo<{ reports: R }>(store, { userId: "x", roles: ["admin"], contractIds: [] }, {}).table("reports").pickJson(["kind", "deliveredAt"], json, { status: "delivered" });
     expect(mem).toEqual(pg);
     expect(JSON.stringify(mem)).not.toContain("stor");
     // Alias och nycklar hamnar i frågan – bara bokstäver, siffror och understreck.

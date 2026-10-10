@@ -16,7 +16,7 @@ beforeAll(() => {
   rt = createMemoryRuntime({ data: createSeed(), clock: demoClock(DEMO_START) });
   registerPdfFonts();
 });
-const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.role === role)!.actor;
+const as = (userId: string, role: Role): Actor => listPersonas(rt.raw()).find((p) => p.actor.userId === userId && p.actor.roles.includes(role))!.actor;
 async function model(actor: Actor, key: string, input: Record<string, unknown>): Promise<BuilderPdfModel> {
   const res = (await rt.run("command", key, input, actor)) as { ok: boolean; pdf?: BuilderPdfModel };
   if (!res.ok || !res.pdf) throw new Error(JSON.stringify(res).slice(0, 200));

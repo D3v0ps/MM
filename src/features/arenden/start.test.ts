@@ -22,7 +22,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 const as = (userId: string, role: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && x.actor.role === role);
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && x.actor.roles.includes(role));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };

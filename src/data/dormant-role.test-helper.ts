@@ -4,4 +4,4 @@
 // (policy.ts, RLS och hanterarnas rollkontroller) – samma form som actorFor() skulle ge med ett medlemskap i avtalet.
 import type { Actor } from "@/api/roles";
 
-export const dormantSupervisor = (userId = "u-petra", contractIds: string[] = ["c-bot"]): Actor => ({ userId, role: "handledare", contractIds, customerUnit: null });
+export const dormantSupervisor = (userId = "u-petra", contractIds: string[] = ["c-bot"]): Actor => ({ userId, roles: ["handledare"], contractIds, customerUnit: null });

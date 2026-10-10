@@ -4,7 +4,7 @@
 // röstmeddelande (somaliska -> testdatats svenska text), utkasten till månadsbedömningen (exakt testdatats/prototypens texter)
 // och gallringen (ljud efter 24 timmar, råtranskript när avstämningen godkänts och efter 30 dagar).
 import { describe, expect, it, vi } from "vitest";
-import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
+import { type Actor, type Role, SYSTEM_ACTOR } from "@/api/roles";
 import { addDays, addMinutes, type LocalDateTime } from "@/core/time";
 import { personaFor } from "@/data/actors";
 import { MemoryRepo, MemoryStore } from "@/data/memory";
@@ -37,7 +37,12 @@ function setup(o: { ai?: AiPort; jobs?: boolean } = {}) {
   const audio = createMemoryAudio({ system, now, newId });
   const ai = o.ai ?? createSimulatedAi();
   const schedule = vi.fn();
-  const actor = (userId: string, role?: Actor["role"]): Actor => personaFor(store.raw(), userId, role)!.actor;
+  /** Testpersonen med alla sina roller (beslut 7) – role = en roll som personen måste ha. */
+  const actor = (userId: string, role?: Role): Actor => {
+    const a = personaFor(store.raw(), userId)!.actor;
+    if (role && !a.roles.includes(role)) throw new Error(`${userId} har inte rollen ${role}`);
+    return a;
+  };
   const ctxFor = (a: Actor): CtxWithJobs => ({
     actor: a,
     now,
@@ -273,7 +278,7 @@ describe("transcribe_dictation (kommunens \"Tala in\")", () => {
 describe("transcribe_participant (deltagarens länk)", () => {
   it("somaliska: transkript på originalspråket + svensk översättning i ett nytt röstmeddelande (new) – inget ljud kvar", async () => {
     const t = setup();
-    const participant = t.ctxFor({ userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null });
+    const participant = t.ctxFor({ userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null });
     const id = await t.upload(AMAL, "participant", "deltagare", 45);
     const r = await enqueueVoiceJob(participant, {
       kind: "transcribe_participant", uploadId: id, linkId: "vl-demo", language: "so", consentTextVersion: "röst-v1.0 (2026-09-30)", consentGivenAt: "2027-02-01T09:11",
@@ -298,7 +303,7 @@ describe("transcribe_participant (deltagarens länk)", () => {
 
   it("svenska: ingen översättning (textOriginal null); ett språk utanför avtalet stoppas", async () => {
     const t = setup();
-    const p = t.ctxFor({ userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null });
+    const p = t.ctxFor({ userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null });
     const id = await t.upload(AMAL, "participant", "deltagare", 30);
     const r = await enqueueVoiceJob(p, { kind: "transcribe_participant", uploadId: id, linkId: "vl-demo", language: "sv", consentTextVersion: "v", consentGivenAt: DEMO_START });
     const note = t.store.getRow("participant_voice_notes", (t.run(r.aiRunId).output as { noteId: string }).noteId)!;

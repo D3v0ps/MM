@@ -14,7 +14,7 @@ import { linkSend } from "@/features/rost/api";
 import { createMemoryRuntime, demoClock } from "@/data/memory-runtime";
 import { liveCtx } from "./ctx";
 
-const AMIRA: Actor = { userId: "u-amira", role: "coach", contractIds: ["c-bot"], customerUnit: null };
+const AMIRA: Actor = { userId: "u-amira", roles: ["coach"], contractIds: ["c-bot"], customerUnit: null };
 
 describe("liveCtx med röstinspelningens portar", () => {
   it("ai och audio kopplas in; ljudlagringen får förfrågans system, klocka och id; jobben körs med after() en gång", async () => {

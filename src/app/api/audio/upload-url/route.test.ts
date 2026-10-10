@@ -21,7 +21,7 @@ vi.mock("@/server/config", () => ({ backend: () => state.backend }));
 vi.mock("@/server/live", () => ({ liveSession: async () => state.session, ctxFor: () => state.ctx }));
 const { POST } = await import("./route");
 
-const PARTICIPANT: Actor = { userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null };
+const PARTICIPANT: Actor = { userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null };
 function memoryCtx(store: MemoryStore<Tables>, a: Actor): Ctx {
   const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;
   let n = 0;
@@ -61,7 +61,7 @@ describe("POST /api/audio/upload-url", () => {
   });
 
   it("inloggad coach: signerad adress (här minnets null) och samma kontroller som kommandot", async () => {
-    const amira = personaFor(store.raw(), "u-amira", "coach")!.actor;
+    const amira = personaFor(store.raw(), "u-amira")!.actor;
     state.session = { authUserId: "auth-amira", identity: { persona: { actor: amira } } };
     state.ctx = memoryCtx(store, amira);
     const ok = await post({ purpose: "checkin", caseId: "case-260143", mimeType: "audio/webm;codecs=opus" });

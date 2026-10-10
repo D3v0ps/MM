@@ -9,13 +9,13 @@ import {
   FULL_ACCESS_TESTERS, hidesCommercial, hidesMoney, isTesterHiddenPath, MONEY_ROLES, moneyVisible, roleHiddenFromTesters, testerRoleBlocks, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT,
 } from "./tester-access";
 
-const actor = (extra: Partial<Actor> = {}): Actor => ({ userId: "u-robin", role: "admin", contractIds: ["c-bot"], ...extra });
+const actor = (extra: Partial<Actor> = {}): Actor => ({ userId: "u-robin", roles: ["admin"], contractIds: ["c-bot"], ...extra });
 
 describe("hidesCommercial", () => {
   it("fullständig åtkomst: Karim och Ali (även när de agerar som en testperson)", () => {
     expect([...FULL_ACCESS_TESTERS]).toEqual(["tester-karim", "tester-ali"]);
     expect(hidesCommercial(actor({ testerId: "tester-karim" }))).toBe(false);
-    expect(hidesCommercial(actor({ testerId: "tester-ali", userId: "u-karin", role: "chef" }))).toBe(false);
+    expect(hidesCommercial(actor({ testerId: "tester-ali", userId: "u-karin", roles: ["chef"] }))).toBe(false);
   });
 
   it("begränsade: alla andra testare i TESTERS och framtida testare (neka som standard)", () => {
@@ -23,7 +23,7 @@ describe("hidesCommercial", () => {
     expect(limited).toEqual(expect.arrayContaining(["tester-sara", "tester-adam", "tester-shafik", "tester-moda"]));
     for (const id of [...limited, "tester-yacine", "tester-ny-kollega", ""]) expect(hidesCommercial(actor({ testerId: id })), id).toBe(true);
     // Agerar som vilken testperson som helst – regeln följer testaren, inte testpersonen.
-    expect(hidesCommercial(actor({ testerId: "tester-sara", userId: "k-maria", role: "kommun_handlaggare" }))).toBe(true);
+    expect(hidesCommercial(actor({ testerId: "tester-sara", userId: "k-maria", roles: ["kommun_handlaggare"] }))).toBe(true);
   });
 
   it("ingen testare: riktiga användare, produktion, prototypen och minnesläget – ingen ändring", () => {
@@ -36,12 +36,12 @@ describe("hidesCommercial", () => {
   it("rollen ekonom är stängd för begränsade testare – utom sessionens egna frågor", () => {
     expect(roleHiddenFromTesters("ekonom")).toBe(true);
     expect(roleHiddenFromTesters("chef")).toBe(false);
-    const ekonom = actor({ role: "ekonom", userId: "u-lars", testerId: "tester-sara" });
+    const ekonom = actor({ roles: ["ekonom"], userId: "u-lars", testerId: "tester-sara" });
     expect(testerRoleBlocks(ekonom, "notiser.list")).toBe(true);
     expect(testerRoleBlocks(ekonom, "session.navCounts")).toBe(false);
     expect(testerRoleBlocks({ ...ekonom, testerId: "tester-karim" }, "notiser.list")).toBe(false);
     expect(testerRoleBlocks({ ...ekonom, testerId: undefined }, "notiser.list")).toBe(false);
-    expect(testerRoleBlocks(actor({ role: "chef", testerId: "tester-sara" }), "ledning.overview")).toBe(false);
+    expect(testerRoleBlocks(actor({ roles: ["chef"], testerId: "tester-sara" }), "ledning.overview")).toBe(false);
   });
 
   it("texterna", () => {
@@ -54,7 +54,7 @@ describe("hidesCommercial", () => {
 describe("hidesMoney: belopp bara för rollen ekonom", () => {
   it("ekonomen ser belopp – utom som begränsad testare", () => {
     expect([...MONEY_ROLES]).toEqual(["ekonom"]);
-    const lars = actor({ userId: "u-lars", role: "ekonom" });
+    const lars = actor({ userId: "u-lars", roles: ["ekonom"] });
     expect(hidesMoney(lars)).toBe(false);
     expect(hidesMoney({ ...lars, testerId: "tester-karim" })).toBe(false);
     expect(hidesMoney({ ...lars, testerId: "tester-sara" })).toBe(true);
@@ -64,13 +64,27 @@ describe("hidesMoney: belopp bara för rollen ekonom", () => {
     const others = ROLES.filter((r) => r !== "ekonom");
     expect(others).toEqual(expect.arrayContaining(["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin", "kommun_handlaggare", "deltagare"]));
     for (const role of others) {
-      for (const testerId of [undefined, "tester-karim", "tester-sara"]) expect(hidesMoney(actor({ role, testerId })), `${role} ${testerId}`).toBe(true);
+      for (const testerId of [undefined, "tester-karim", "tester-sara"]) expect(hidesMoney(actor({ roles: [role], testerId })), `${role} ${testerId}`).toBe(true);
       expect(moneyVisible(role, false), role).toBe(false);
     }
     expect(hidesMoney(null)).toBe(true);
     expect(hidesMoney(undefined)).toBe(true);
     expect(moneyVisible("ekonom", false)).toBe(true);
     expect(moneyVisible("ekonom", true)).toBe(false);
+  });
+});
+
+// Alla roller samtidigt (Karims beslut 7, 2026-10-09): den som har rollen ekonom ser belopp alltid – också med andra roller.
+describe("hidesMoney med flera roller", () => {
+  it("coach och ekonom ser belopp; coach utan ekonom aldrig; begränsad testare aldrig", () => {
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"] }))).toBe(false);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["admin", "avtalsansvarig", "chef", "coach", "samordnare"] }))).toBe(true);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"], testerId: "tester-sara" }))).toBe(true);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"], testerId: "tester-karim" }))).toBe(false);
+  });
+  it("en begränsad testare med en testperson som har rollen ekonom nekas, också med andra roller", () => {
+    expect(testerRoleBlocks(actor({ roles: ["coach", "ekonom"], testerId: "tester-sara" }), "coach.minVecka")).toBe(true);
+    expect(testerRoleBlocks(actor({ roles: ["coach"], testerId: "tester-sara" }), "coach.minVecka")).toBe(false);
   });
 });
 

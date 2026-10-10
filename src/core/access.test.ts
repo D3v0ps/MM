@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { Actor } from "@/api/roles";
+import type { Actor, Role } from "@/api/roles";
 import { createSeed } from "@/data/seed";
 import type { Db } from "@/data/schema";
 import {
-  accessIndex, canSeeNotes, canSeePerson, caseAccess, caseAccessIn, displayName, effectiveCustomerScope, lookupsFor, visibleCases,
-  type CaseAccessLookups,
+  ACCESS_RANK, accessIndex, canSeeNotes, canSeePerson, caseAccess, caseAccessFor, caseAccessIn, displayName, effectiveCustomerScope, lookupsFor, maxAccess,
+  visibleCases, type CaseAccessLookups,
 } from "./access";
 import { BOTKYRKA_CONFIG, parseContractConfig } from "./config";
 
-const A = (userId: string, role: Actor["role"], extra: Partial<Actor> = {}): Actor => ({ userId, role, contractIds: ["c-bot"], ...extra });
+const A = (userId: string, role: Role, extra: Partial<Actor> = {}): Actor => ({ userId, roles: [role], contractIds: ["c-bot"], ...extra });
 const C = { contractId: "c-bot", leadCoachId: "u-amira", referrerId: "k-maria" };
 const L = (extra: Partial<CaseAccessLookups> = {}): CaseAccessLookups => ({ protectedIdentity: false, teamUserIds: ["u-amira", "u-petra"], referrerUnit: "Arbetsmarknadsenheten Alby", ...extra });
 
@@ -59,7 +59,7 @@ describe("caseAccess – prototypens regler", () => {
     expect(caseAccess(C, ahmed, L({ customerScope: "all", protectedIdentity: true }))).toBe("none");
   });
   it("kommunens chef finns inte (beslut 2026-10-07): en kvarglömd roll kommun_chef ger ingen åtkomst", () => {
-    const eva = A("k-eva", "kommun_chef" as Actor["role"], { customerUnit: "Arbetsmarknadsenheten" });
+    const eva = A("k-eva", "kommun_chef" as Role, { customerUnit: "Arbetsmarknadsenheten" });
     expect(caseAccess(C, eva, L())).toBe("none");
     expect(caseAccess(C, eva, L({ protectedIdentity: true }))).toBe("none");
   });
@@ -111,14 +111,39 @@ describe("avtalskonfiguration och enheter", () => {
   });
 });
 
+// Alla roller samtidigt (Karims beslut 7, 2026-10-09): den högsta nivån över rollerna, och rollerna gäller bara i sina egna avtal.
+describe("caseAccess med flera roller", () => {
+  it("ordningen: full > team > customer > billing > restricted > none", () => {
+    expect(Object.entries(ACCESS_RANK).sort((a, b) => b[1] - a[1]).map(([k]) => k)).toEqual(["full", "team", "customer", "billing", "restricted", "none"]);
+    expect(maxAccess([])).toBe("none");
+    expect(maxAccess(["billing", "restricted"])).toBe("billing");
+  });
+  it("coach och ekonom: full (coachen) – och vid skyddade personuppgifter debiteringsnivån (ekonomen) i stället för bara ärendet", () => {
+    const both = A("u-erik", "coach", { roles: ["coach", "ekonom"] });
+    expect(caseAccess(C, both, L())).toBe("full");
+    expect(caseAccess(C, both, L({ protectedIdentity: true }))).toBe("billing");
+    expect(caseAccessFor(C, both, L(), ["ekonom"])).toBe("billing");
+    expect(caseAccessFor(C, both, L(), ["coach"])).toBe("full");
+    expect(caseAccessFor(C, both, L(), ["chef"])).toBe("none");
+  });
+  it("en roll ger bara rätt i avtal där personen har just den rollen", () => {
+    // Samordnare i Botkyrka och ekonom i ett annat avtal (roleContracts): ekonomen ger ingenting i Botkyrka.
+    const x = A("u-x", "samordnare", { roles: ["samordnare", "ekonom"], contractIds: ["c-bot", "c-ny"], roleContracts: { samordnare: ["c-bot"], ekonom: ["c-ny"] } });
+    expect(caseAccess(C, x, L())).toBe("full");
+    expect(caseAccessFor(C, x, L(), ["ekonom"])).toBe("none");
+    expect(caseAccess({ ...C, contractId: "c-ny" }, x, L())).toBe("billing");
+    expect(caseAccessFor({ ...C, contractId: "c-ny" }, x, L(), ["samordnare"])).toBe("none");
+  });
+});
+
 describe("mot testdatat – samma antal som prototypens sel.access", () => {
   const db = createSeed() as unknown as Db;
   const src = accessIndex(db);
-  const actorFor = (userId: string, role: Actor["role"]): Actor => {
+  const actorFor = (userId: string, role: Role): Actor => {
     const profile = db.profiles.find((p) => p.id === userId);
-    return { userId, role, contractIds: db.memberships.filter((m) => m.userId === userId).map((m) => m.contractId), customerUnit: profile?.customerUnit ?? null };
+    return { userId, roles: [role], contractIds: db.memberships.filter((m) => m.userId === userId).map((m) => m.contractId), customerUnit: profile?.customerUnit ?? null };
   };
-  const count = (userId: string, role: Actor["role"]) => {
+  const count = (userId: string, role: Role) => {
     const actor = actorFor(userId, role);
     const m: Record<string, number> = {};
     for (const c of db.cases) { const a = caseAccessIn(c, actor, src); m[a] = (m[a] ?? 0) + 1; }

@@ -23,7 +23,7 @@ beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
 });
 const as = (userId: string, role?: Role): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role)));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return p.actor;
 };
@@ -37,7 +37,7 @@ const amira = () => as("u-amira", "coach");
  * Rollen handledare är vilande (Karims beslut 2026-10-09): ingen har den – Petra är coach i testdatat. Aktören byggs här så
  * att hanterarnas regler för rollen fortfarande prövas (de ska kunna slås på igen utan migration).
  */
-const dormant = (userId: string): Actor => ({ userId, role: "handledare", contractIds: ["c-bot"], customerUnit: null });
+const dormant = (userId: string): Actor => ({ userId, roles: ["handledare"], contractIds: ["c-bot"], customerUnit: null });
 const petra = () => dormant("u-petra");
 const karin = () => as("u-karin", "chef");
 const robin = () => as("u-robin", "admin");
@@ -90,7 +90,7 @@ describe("arenden.lista (arenden.lista)", () => {
     protect();
     const j = await q(caseList, {}, johan());
     expect(j.rows.find((r) => r.id === SKYDDAD)).toMatchObject({ displayName: "Sanna Lindgren" });
-    for (const a of [sara(), karin(), amira()]) expect((await q(caseList, {}, a)).rows.find((r) => r.id === SKYDDAD), a.role).toBeUndefined();
+    for (const a of [sara(), karin(), amira()]) expect((await q(caseList, {}, a)).rows.find((r) => r.id === SKYDDAD), a.roles.join(",")).toBeUndefined();
     expect((await q(caseList, {}, sara())).rows).toHaveLength(230);
   });
 
@@ -117,7 +117,7 @@ describe("arenden.kort (arende.kort)", () => {
       const list = await q(caseList, {}, a);
       for (const r of list.rows.filter((x) => x.detail && x.flagged).slice(0, 12)) {
         const c = await card(r.id, a);
-        expect(c.flags.map((f) => f.key), `${a.role} ${r.caseNumber}`).toEqual(r.detail!.flags.map((f) => f.key));
+        expect(c.flags.map((f) => f.key), `${a.roles.join(",")} ${r.caseNumber}`).toEqual(r.detail!.flags.map((f) => f.key));
       }
     }
   });

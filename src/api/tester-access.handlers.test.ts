@@ -26,7 +26,7 @@ const KARIM = "tester-karim";
 const SARA_T = "tester-sara";
 /** Testpersonen som testaren agerar som (testerId = testarens egen profil). */
 const as = (userId: string, role: Role, testerId?: string): Actor => {
-  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && x.actor.role === role);
+  const p = listPersonas(rt.raw()).find((x) => x.actor.userId === userId && x.actor.roles.includes(role));
   if (!p) throw new Error(`Ingen testperson ${userId}`);
   return testerId ? { ...p.actor, testerId } : p.actor;
 };
@@ -93,7 +93,7 @@ describe("spärren i execute(): hela sidor om pengar och villkor", () => {
     const lars = as("u-lars", "ekonom", SARA_T);
     for (const key of ["notiser.list", "ekonomi.start"]) expect((await errorOf(any(key, {}, lars)))?.code, key).toBe(TESTER_HIDDEN_CODE);
     expect(await any("session.navCounts", {}, lars)).toMatchObject({ inbox: 0 });
-    expect(await any("session.ping", {}, lars)).toMatchObject({ role: "ekonom" });
+    expect(await any("session.ping", {}, lars)).toMatchObject({ roles: ["ekonom"] });
     // Karim kan fortfarande vara ekonom.
     expect(await any("notiser.list", {}, as("u-lars", "ekonom", KARIM))).toBeTruthy();
   });
@@ -391,8 +391,8 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect(JSON.stringify(k.sendLog)).toMatch(VENDORS);
     for (const who of [as("u-robin", "admin", SARA_T), as("u-sara", "samordnare", SARA_T)]) {
       const s = await any("admin.templates", {}, who);
-      expect(JSON.stringify(s.sendLog), who.role).not.toMatch(VENDORS);
-      expect(JSON.stringify(s.sendLog), who.role).not.toMatch(/[A-Z]{2,}_[A-Z_]+/);
+      expect(JSON.stringify(s.sendLog), who.roles.join(",")).not.toMatch(VENDORS);
+      expect(JSON.stringify(s.sendLog), who.roles.join(",")).not.toMatch(/[A-Z]{2,}_[A-Z_]+/);
       const reasonOf = (id: string) => s.sendLog.find((x: { id: string }) => x.id === id)?.reason;
       expect(reasonOf("out-vendor-0")).toBe("Leverantören avvisade utskicket");
       expect(reasonOf("out-vendor-2")).toBe("Stoppat av testmiljöns spärr");
@@ -488,13 +488,13 @@ describe("beslut 5: belopp bara för rollen ekonom – alla andra roller får te
 
   it("Ekonomis frågor och kommandon nekas för varje roll utom ekonomen (403, rollen saknar behörighet)", async () => {
     // Rollen handledare är vilande (beslut 2026-10-09): ingen testperson har den – aktören byggs här så att den också prövas.
-    const dormant = { actor: { userId: "u-petra", role: "handledare", contractIds: ["c-bot"], customerUnit: null } satisfies Actor };
-    const others = [...listPersonas(rt.raw()).filter((p) => p.actor.role !== "ekonom"), dormant];
-    expect(new Set(others.map((p) => p.actor.role))).toEqual(new Set(["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin", "kommun_handlaggare", "deltagare"]));
+    const dormant = { actor: { userId: "u-petra", roles: ["handledare"], contractIds: ["c-bot"], customerUnit: null } satisfies Actor };
+    const others = [...listPersonas(rt.raw()).filter((p) => !p.actor.roles.includes("ekonom")), dormant];
+    expect(new Set(others.flatMap((p) => p.actor.roles))).toEqual(new Set(["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin", "kommun_handlaggare", "deltagare"]));
     for (const p of others) {
       for (const key of EKONOMI) {
         const e = await errorOf(rt.run(EKONOMI_COMMAND.test(key) ? "command" : "query", key, {}, p.actor));
-        expect([e?.status, e?.code], `${key} som ${p.actor.role}`).toEqual([403, "forbidden"]);
+        expect([e?.status, e?.code], `${key} som ${p.actor.roles.join(",")}`).toEqual([403, "forbidden"]);
       }
     }
   });
@@ -511,6 +511,26 @@ describe("beslut 5: belopp bara för rollen ekonom – alla andra roller får te
     expect(o.unbilled.cases).toHaveLength(2);
     const r = await any("ledning.cdevRegister", {}, as("u-johan", "avtalsansvarig"));
     expect([r.counts.penalties, r.form.penaltyChoice]).toEqual([0, true]);
+  });
+
+  // Alla roller samtidigt (Karims beslut 7, 2026-10-09): belopp syns för den som har rollen ekonom – alltid, också med andra
+  // roller. Anteckningarna syns genom coachrollen. Den som inte är ekonom ser aldrig belopp; den som bara är ekonom aldrig
+  // anteckningar.
+  it("coach och ekonom samtidigt: beloppen i Ekonomi och i ledningsvyn saknas inte, anteckningarna i deltagarkortet syns", async () => {
+    const amira = as("u-amira", "coach");
+    const both: Actor = { ...amira, roles: ["coach", "ekonom"] };
+    const start = await any("ekonomi.start", {}, both);
+    expect(start.current.totalOre).toBe(51133200);
+    expect(JSON.stringify(await any("ekonomi.run", { month: "2027-01" }, both))).toMatch(MONEY_ONLY);
+    const lead = rt.raw().all("cases").find((c) => c.leadCoachId === "u-amira" && c.status === "active")!;
+    const cis = await any("arenden.kortAvstamningar", { caseId: lead.id }, both);
+    expect(cis?.checkIns.length).toBeGreaterThan(0);
+    // Coachen utan ekonomrollen: Ekonomi nekas och inga belopp i deltagarkortet.
+    expect((await errorOf(any("ekonomi.start", {}, amira)))?.status).toBe(403);
+    expectNoMoney(JSON.stringify(await any("arenden.kort", { caseId: lead.id }, amira)), "coach utan ekonom");
+    // Ekonomen utan coachrollen: inga anteckningar (deltagarkortet nekas, policyn ger inga avstämningar).
+    const lars = as("u-lars", "ekonom");
+    expect((await errorOf(any("arenden.kortAvstamningar", { caseId: lead.id }, lars)))?.status).toBe(403);
   });
 
   it("ekonomen (utan testarbegränsning) ser beloppen: fakturorna, fakturaunderlaget och prislistan", async () => {
