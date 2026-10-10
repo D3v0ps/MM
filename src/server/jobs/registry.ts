@@ -1,9 +1,10 @@
-// Jobbtyperna: send_message (utskick), röstinspelningens jobb (transkribering, utkast och gallring – voice.ts),
+// Jobbtyperna: send_message (utskick – och uppgiften att ringa deltagaren när kallelsen eller inbjudan inte går fram), röstinspelningens jobb (transkribering, utkast och gallring – voice.ts),
 // rapportutkasten (report_schedule – reports.ts), timjobben attachments_retention och auth_cleanup (attachments.ts) och
 // mejlinläsningen från avrop@ varannan minut (inbox_import – inbox.ts, beslut 4c 2026-10-08) och den automatiska närvaron en
 // gång per dag efter dagens slut (auto_attendance – attendance.ts, Karims beslut 1 2026-10-09).
 // Senare (docs/UTSKICK.md): närvaropåminnelser, progressionsbevakning.
-import { sendMessageJob, type SenderDeps } from "../notify/sender";
+import { participantSendStopped } from "@/features/_shared/participant-notify";
+import { invitationOf, messageIdOf, sendMessageJob, type SenderDeps } from "../notify/sender";
 import { attachmentJobHandlers, type AttachmentJobDeps } from "./attachments";
 import { AUTO_ATTENDANCE_JOB, autoAttendanceHandler, type AutoAttendanceDeps } from "./attendance";
 import { SEND_MESSAGE } from "../notify/types";
@@ -17,8 +18,19 @@ export type JobDeps = { notify: SenderDeps } & VoiceDeps & ReportDeps & Attachme
 
 export const JOB_HANDLERS: Readonly<Record<string, JobHandler<JobDeps>>> = {
   [SEND_MESSAGE]: {
-    run: (job, d) => sendMessageJob.run(job, d.notify),
-    onGiveUp: (job, reason, d) => sendMessageJob.onGiveUp(job, reason, d.notify),
+    // Ett utskick till en deltagare som stoppas eller misslyckas när det skickas ger samordnaren uppgiften att ringa, om inget
+    // annat skriftligt utskick i samma omgång gick (participantSendStopped – idempotent, körs också när utskicket redan var avgjort,
+    // så att ett avbrutet försök tar igen uppgiften).
+    run: async (job, d) => {
+      const outcome = await sendMessageJob.run(job, d.notify);
+      if (d.voice) await participantSendStopped(d.voice(), messageIdOf(job), invitationOf(job));
+      return outcome;
+    },
+    onGiveUp: async (job, reason, d) => {
+      await sendMessageJob.onGiveUp(job, reason, d.notify);
+      const id = (job.payload as { messageId?: unknown } | null)?.messageId;
+      if (d.voice && typeof id === "string" && id) await participantSendStopped(d.voice(), id, invitationOf(job));
+    },
   },
   ...voiceJobHandlers<JobDeps>(),
   [REPORT_SCHEDULE_JOB]: reportScheduleHandler<JobDeps>(),

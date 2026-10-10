@@ -42,7 +42,7 @@ const INTERNAL = /internt mål[: ]+\d|Internt mål \d|internt mål:/i;
 /** Nycklar som bara bär belopp, priser, viten eller interna mål. */
 const MONEY_KEYS = /"(price|priceOre|amountOre|totalOre|penaltyOre|penaltiesOre|valueOre|unitPriceOre|vatOre|costOre|internalTarget|penalties|prices|bonusOn|dataProtection|subprocessors|unbilled|docGoalMinutes|responseGoal)"/;
 /** Underbiträdena och deras regioner (underbiträdeslistan, regionlåsningen och integrationskorten). */
-const VENDORS = /Supabase|Vercel|Resend|resend\._domainkey|Vertex|Google|Gemini|eu-north-1|eu-west-1|arn1/;
+const VENDORS = /Supabase|Vercel|Resend|resend\._domainkey|Vertex|Google|Gemini|eu-north-1|eu-west-1|arn1|46elks|ELKS_/;
 
 function expectClean(json: string, label: string) {
   expect(json, `${label}: belopp i kronor`).not.toMatch(AMOUNT);
@@ -345,11 +345,11 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     const k = await any("admin.integrations", {}, as("u-robin", "admin", KARIM));
     const s = await any("admin.integrations", {}, as("u-robin", "admin", SARA_T));
     expect(k.dataProtection).toMatchObject({ approvedOn: "2026-09-29", thirdCountryForbidden: true, returnDataWithinDays: expect.any(Number) });
-    // Rättad lista: Resend är vald och väntar på kommunens godkännande. SMS-leverantören är inte vald.
+    // Rättad lista: Resend är vald och väntar på kommunens godkännande. 46elks (SMS och utringning) är vald (beslut 2026-10-09).
     expect(k.dataProtection.subprocessors.find((x: { id: string }) => x.id === "epost")).toEqual({
       id: "epost", name: "Resend (e-post)", what: "Notiser och inloggningskoder från notis@miljonmatch.se", where: "EU (Irland, eu-west-1)", status: "chosen", us: true,
     });
-    expect(k.dataProtection.subprocessors.find((x: { id: string }) => x.id === "sms").status).toBe("not_chosen");
+    expect(k.dataProtection.subprocessors.find((x: { id: string }) => x.id === "sms")).toMatchObject({ name: "46elks (SMS och utringning)", status: "chosen" });
     expect("dataProtection" in s).toBe(false);
     expect(k.dataProtection.regions).toHaveLength(5);
     // Integrationskorten och nyckeltalet "Data lagras i": leverantörerna och regionerna finns bara hos Karim.
@@ -363,11 +363,43 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect(labels(s, "email")).toEqual(["Avsändare"]);
     expect(labels(k, "ai")).toEqual(["Vald", "I test", "Aldrig", "Anrop"]);
     expect(labels(s, "ai")).toEqual(["Aldrig", "Anrop"]);
+    // SMS och utringning: begränsade testare ser läget och innehållsregeln – inte leverantören eller variablerna.
+    expect(labels(k, "sms")).toEqual(["Status", "Saknas i Vercel", "Innehåll", "Avsändare", "Godkännande", "Anvisning"]);
+    expect(labels(s, "sms")).toEqual(["Status", "Innehåll"]);
+    expect(labels(s, "call")).toEqual(["Status", "Meddelande", "När"]);
     expect(s.jobs.map((j: { key: string }) => j.key)).toEqual(k.jobs.map((j: { key: string }) => j.key));
     expect(s.jobs.length).toBe(9);
     expect([s.aiRunCount, s.latestMail, s.inboxReadAt]).toEqual([k.aiRunCount, k.latestMail, k.inboxReadAt]);
     // "Kör nu" fungerar för alla testare.
     expect((await cmd("admin.runJob", { key: "kpi" }, as("u-robin", "admin", SARA_T))).ok).toBe(true);
+  });
+
+  it("utskicksloggen (admin.templates): orsakerna visas utan leverantörer och variabelnamn för begränsade testare", async () => {
+    const reasons = [
+      ["failed", "46elks nekade inloggningen (401) – kontrollera ELKS_API_USERNAME och ELKS_API_PASSWORD"],
+      ["failed", "Resend svarade 422 (validation_error)"],
+      ["suppressed", "Testmiljön: numret finns inte i MM_SMS_ALLOWLIST"],
+      ["suppressed", "Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST"],
+      ["failed", "Osäkert om utskicket gick iväg (avbrutet försök) – kontrollera i 46elks innan det skickas igen"],
+      ["suppressed", "SMS-leverantör inte vald"],
+    ] as const;
+    reasons.forEach(([status, statusReason], i) => rt.store.insertRow("outbound_messages", {
+      id: `out-vendor-${i}`, createdAt: "2027-02-01T09:00", channel: i % 2 ? "email" : "sms", to: "deltagare (SMS)", template: "kallelse", subject: null,
+      body: "Välkommen till Miljonbemanning!", caseId: null, status, sentAt: null, statusReason, providerMessageId: null,
+    }));
+    const k = await any("admin.templates", {}, as("u-robin", "admin", KARIM));
+    expect(JSON.stringify(k.sendLog)).toMatch(VENDORS);
+    for (const who of [as("u-robin", "admin", SARA_T), as("u-sara", "samordnare", SARA_T)]) {
+      const s = await any("admin.templates", {}, who);
+      expect(JSON.stringify(s.sendLog), who.role).not.toMatch(VENDORS);
+      expect(JSON.stringify(s.sendLog), who.role).not.toMatch(/[A-Z]{2,}_[A-Z_]+/);
+      const reasonOf = (id: string) => s.sendLog.find((x: { id: string }) => x.id === id)?.reason;
+      expect(reasonOf("out-vendor-0")).toBe("Leverantören avvisade utskicket");
+      expect(reasonOf("out-vendor-2")).toBe("Stoppat av testmiljöns spärr");
+      expect(reasonOf("out-vendor-4")).toBe("Osäkert om utskicket gick iväg – kontrollera innan det skickas igen");
+      // Orsaker utan leverantör visas som de är.
+      expect(reasonOf("out-vendor-5")).toBe("SMS-leverantör inte vald");
+    }
   });
 
   it("synpunkter: begränsade testare ser inte synpunkter från avtalssidan, Ekonomi eller rollen ekonom", async () => {

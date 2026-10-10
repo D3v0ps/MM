@@ -236,7 +236,7 @@ export type DataProtectionView = {
 };
 /** active = ansluten, test = simulerad, chosen = vald och väntar på kommunens godkännande, off = ej ansluten, notchosen = ej vald. */
 export type IntegrationStatus = "active" | "test" | "chosen" | "off" | "notchosen";
-export type IntegrationIcon = "inbox" | "key" | "card" | "message" | "mail" | "sparkles";
+export type IntegrationIcon = "inbox" | "key" | "card" | "message" | "mail" | "sparkles" | "phone";
 /** Ett kort under "Integrationer": rubrik, ikon, status och rader (etikett, text). */
 export type IntegrationView = { id: string; name: string; sub: string; icon: IntegrationIcon; status: IntegrationStatus; phase: number | null; items: [string, string][] };
 export type IntegrationsView = {
@@ -308,6 +308,11 @@ export type SendLogItem = {
    * läge – inga personuppgifter. Systemadministratörens Min vecka visar utskick som inte gick iväg (beslut 2026-10-06).
    */
   status: OutboundStatus;
+  /**
+   * Varför utskicket stoppades eller inte gick iväg, i klarspråk (t.ex. "SMS-leverantör inte vald", "Telefonnumret har fel
+   * format"). Null när det skickades som vanligt. Aldrig adresser eller nummer (outbound_messages.statusReason).
+   */
+  reason: string | null;
 };
 export type TemplatesView = {
   /** Bara systemadmin sparar nya mallversioner (SPEC §9, policyn för template_versions). */

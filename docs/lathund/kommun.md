@@ -55,10 +55,11 @@ Lämna bara de uppgifter som behövs.
 
 1. Skriv **Förnamn** och **Efternamn** som i folkbokföringen.
 2. Skriv **Personnummer eller samordningsnummer** med tolv siffror: ÅÅÅÅMMDD-NNNN. Numret visas bara maskerat i tjänsten.
-3. Skriv **Deltagarens telefonnummer**. Vi skickar kallelsen och påminnelser med SMS. SMS innehåller aldrig personuppgifter.
-4. Har deltagaren ingen telefon? Lämna telefonnumret tomt och skriv **Deltagarens e-postadress**. Då skickar vi kallelsen med e-post.
-5. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot.
-6. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
+3. Skriv **Deltagarens telefonnummer** med riktnummer, till exempel 070-123 45 67.
+4. Har deltagaren en e-postadress? Skriv den under **Deltagarens e-postadress**. Du måste fylla i telefonnummer eller e-postadress.
+5. Vi skickar kallelsen med e-post eller SMS. Går det inte ringer vi deltagaren. Kallelsen innehåller aldrig personuppgifter – bara tid, plats och vårt telefonnummer.
+6. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot.
+7. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
 
 ### Steg 3 av 3: Bakgrundsinformation om deltagaren
 

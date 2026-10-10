@@ -19,6 +19,7 @@ import { liveCtx } from "./ctx";
 import { resolveIdentity, type DbActor, type Identity, type IdentityStore, type ProfileRow } from "./identity";
 import { scheduleJobsAfterResponse } from "./jobs/schedule";
 import { enqueueMessage } from "./notify";
+import { participantMessaging } from "./notify/config";
 import { loadAppSettings, type AppSettings } from "./settings";
 import { serviceClient, userClient } from "./supabase";
 
@@ -145,6 +146,9 @@ export function ctxFor(s: LiveSession): Ctx {
     // minnesläget. Ekonomen ser "Fortnox är inte kopplat ännu" och markerar fakturan som manuellt fakturerad.
     // "Lägg till kollega": personalens tillåtna domäner från miljön (src/core/staff.ts).
     staffEmailDomains: staffEmailDomains(),
+    // SMS och utringning (46elks): kopplat när variablerna finns (docs/DRIFT.md avsnitt 13), och om mejl når deltagarnas egna
+    // adresser (MM_EMAIL_ALLOWLIST). Hanterarna väljer kanal efter det.
+    messaging: participantMessaging(s.settings.environment),
   });
 }
 

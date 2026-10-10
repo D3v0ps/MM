@@ -20,6 +20,7 @@ import { runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { JOB_NAME, type JobKey } from "./audit-text";
 import type { Integration, Job } from "@/data/schema";
 import { hidesCommercial } from "@/api/tester-access";
+import { messagingOf, type ChannelState, type MessagingStatus } from "@/features/_shared/messaging-port";
 import { adminIntegrations, adminRunJob, type IntegrationView, type JobRow, type JobStatusView, type SubprocessorView } from "./api";
 import { mainContract, orgRow, userNames } from "./shared";
 
@@ -33,7 +34,9 @@ const SUBPROCESSORS: SubprocessorView[] = [
   // Beslut 2026-09-30 (docs/PLAN-ROST.md): Gemini Flash via Google Cloud Vertex AI, EU multi-region. Godkänd av Botkyrka
   // 2026-09-29 (bekräftat av Karim 2026-10-02) – simulerad tills kontot i Google Cloud finns.
   { id: "ai", name: "Google Cloud (Vertex AI)", what: "Transkribering och textutkast (Gemini Flash)", where: "EU multi-region (location eu)", status: "approved_test", us: true },
-  { id: "sms", name: "SMS-leverantör", what: "Påminnelser och pulslänkar", where: "Väljs – helst svensk", status: "not_chosen", us: false },
+  // Beslut 2026-10-09: 46elks (svenskt bolag, data i EU) för SMS och utringning till deltagare. Biträdesavtal krävs innan riktiga
+  // deltagare får SMS, och Botkyrka ska godkänna underbiträdet (docs/DRIFT.md avsnitt 13).
+  { id: "sms", name: "46elks (SMS och utringning)", what: "Kallelser och inbjudningar till deltagare – bara tid, plats och telefonnummer", where: "EU (svenskt bolag)", status: "chosen", us: false },
   // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se. Ska in i
   // PUB-avtalets förteckning över underbiträden och godkännas av Botkyrka.
   { id: "epost", name: "Resend (e-post)", what: "Notiser och inloggningskoder från notis@miljonmatch.se", where: "EU (Irland, eu-west-1)", status: "chosen", us: true },
@@ -105,15 +108,45 @@ function regionLock(thirdCountryForbidden: boolean): string[] {
  * webbläsarens kod. vendor = false (begränsade testare): utan raderna som pekar ut underbiträdena – vald leverantör, region,
  * DNS och godkännande. Samma uppgifter står i underbiträdeslistan, som de inte ser.
  */
-function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRunCount: number; vendor: boolean; ai: "off" | "test" | "active" }): IntegrationView[] {
+/** "Kopplad" eller "Inte kopplad" och – för den som får se underbiträdena – vilka variabler som saknas (bara namnen). */
+function phoneItems(st: ChannelState, vendor: boolean): [string, string][] {
+  if (st.connected) return [["Status", "Kopplad"]];
+  return [["Status", "Inte kopplad"], ...(vendor && st.missing.length ? [["Saknas i Vercel", st.missing.join(", ")] as [string, string]] : [])];
+}
+
+/**
+ * SMS och utringning (46elks, beslut 2026-10-09): läget ur ctx.messaging – miljövariablerna på servern, inget kopplat i minnesläget.
+ * vendor = false (begränsade testare): utan leverantörens namn och variablerna (de pekar ut underbiträdet).
+ */
+function phoneCards(m: MessagingStatus, vendor: boolean): IntegrationView[] {
+  const v = (label: string, text: string): [string, string][] => (vendor ? [[label, text]] : []);
+  return [
+    { id: "sms", name: vendor ? "SMS (46elks)" : "SMS", sub: "Kallelser och inbjudningar till deltagare", icon: "message", status: m.sms.connected ? "active" : "off", phase: null,
+      items: [
+        ...phoneItems(m.sms, vendor),
+        ["Innehåll", "Bara tid, plats och telefonnummer – aldrig namn, personnummer eller vad insatsen gäller"],
+        ...v("Avsändare", "Avsändarnamnet i MM_SMS_FROM (standard Miljonbem)"),
+        ...v("Godkännande", "Biträdesavtal med 46elks krävs innan riktiga deltagare får SMS. Botkyrka ska godkänna underbiträdet"),
+        ...v("Anvisning", "docs/DRIFT.md avsnitt 13"),
+      ] },
+    { id: "call", name: vendor ? "Utringning (46elks)" : "Utringning", sub: "Kort inspelat meddelande till deltagare", icon: "phone", status: m.call.connected ? "active" : "off", phase: null,
+      items: [
+        ...phoneItems(m.call, vendor),
+        ["Meddelande", "En inspelning utan personuppgifter som säger att tid och plats står i SMS:et eller mejlet"],
+        ["När", "Dessutom, när kallelsen eller inbjudan gått med SMS eller e-post och deltagaren har ett telefonnummer"],
+        ...v("Anvisning", "docs/DRIFT.md avsnitt 13 och public/ljud/README.md (inspelningen)"),
+      ] },
+  ];
+}
+
+function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRunCount: number; vendor: boolean; ai: "off" | "test" | "active"; messaging: MessagingStatus }): IntegrationView[] {
   const v = (label: string, text: string): [string, string][] => (o.vendor ? [[label, text]] : []);
   return [
     inboxCard(o.inbox, o.latestMail, o.vendor),
     { id: "entra", name: "Microsoft Entra ID", sub: "Inloggning för Miljonbemanning", icon: "key", status: "active", phase: null, items: [["Inloggning i dag", "E-post och engångskod"], ["Entra ID", "Kan kopplas senare"]] },
     { id: "fortnox", name: "Fortnox", sub: "Fakturor som Peppol BIS Billing 3", icon: "card", status: "off", phase: 2,
       items: [["Reserv i dag", "Export till Excel och PDF, eller Botkyrkas fakturaportal"], ["Öppen fråga", "Ingår Fortnox Integration och e-faktura i Miljonbemannings paket?"], ["Krav", "Omkörning får inte skapa dubbletter. Status synkas tillbaka."]] },
-    { id: "sms", name: "SMS-leverantör", sub: "Påminnelser och pulslänkar", icon: "message", status: "notchosen", phase: null,
-      items: [["Öppen fråga", "Val av SMS-leverantör"], ["Önskemål", "Svensk leverantör med API"], ["Innehåll", "Bara tid, plats och telefonnummer – aldrig personuppgifter"]] },
+    ...phoneCards(o.messaging, o.vendor),
     // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se.
     { id: "email", name: "E-postleverantör", sub: "Notiser och inloggningskoder", icon: "mail", status: "chosen", phase: null,
       items: [
@@ -221,7 +254,9 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
             returnDataWithinDays: env.cfg.termination.returnDataWithinDays,
           },
         }),
-    integrations: integrationCards({ inbox, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide, ai: !ctx.ai ? "off" : ctx.ai.provider === SIMULATED_PROVIDER ? "test" : "active" }),
+    integrations: integrationCards({
+      inbox, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide, ai: !ctx.ai ? "off" : ctx.ai.provider === SIMULATED_PROVIDER ? "test" : "active", messaging: messagingOf(ctx),
+    }),
     storage: { place: "Stockholm", ...(hide ? {} : { detail: "Supabase eu-north-1 · Vercel arn1" }) },
     latestMail,
     inboxReadAt: inbox.readAt,

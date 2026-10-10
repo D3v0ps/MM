@@ -126,7 +126,8 @@ function validate(f: Reg, m: RegisterForm, dup: boolean, uploading: boolean): Re
     if (!pnrInMail) e.pnr = "Skriv personnumret så här: ÅÅÅÅMMDD-NNNN.";
   } else if (!pnrFormatValid(f.pnr.trim())) e.pnr = "Skriv tolv siffror så här: ÅÅÅÅMMDD-NNNN.";
   else if (dup) e.pnr = "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.";
-  // Kontaktvägen, telefonnumret och e-postadressen: samma regler som Ändra kontaktväg på deltagarkortet (contactErrors).
+  // Kontaktvägen, telefonnumret och e-postadressen: samma regler som Ändra kontaktväg på deltagarkortet (contactErrors) – ett
+  // telefonnummer som inte går att skicka SMS till sparas inte (src/core/phone.ts, samma regel som kanalvalet).
   Object.assign(e, contactErrors(f));
   // Bostadsorten är valfri (beslut 2026-10-09: "Vi behöver inte veta var de bor").
   if (f.primaryArea && !m.areas.some((a) => a.value === f.primaryArea)) e.primaryArea = "Välj ett yrkesområde i listan.";

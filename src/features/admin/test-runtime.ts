@@ -11,10 +11,12 @@ import { MemoryRepo, MemoryStore, type MemoryData } from "@/data/memory";
 import { POLICIES } from "@/data/policy";
 import type { AppRepo, TableName, Tables } from "@/data/schema";
 import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
+import type { MessagingStatus } from "@/features/_shared/messaging-port";
 
 let SEED: MemoryData<Tables> | null = null;
 
-export function testRuntime(start: LocalDateTime = DEMO_START) {
+/** messaging: läget för SMS och utringning (46elks). Utelämnat = inget kopplat, som i minnesläget. */
+export function testRuntime(start: LocalDateTime = DEMO_START, opts: { messaging?: MessagingStatus } = {}) {
   SEED ??= createSeed();
   const store = new MemoryStore<Tables>(structuredClone(SEED));
   let now = start;
@@ -34,6 +36,7 @@ export function testRuntime(start: LocalDateTime = DEMO_START) {
       store.insertRow("outbound_messages", { id: newId("out"), createdAt: now, channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: m.body, caseId: m.caseId ?? null, status: "sent", sentAt: now } as Tables["outbound_messages"]);
     },
     crypto: TEST_PNR_CRYPTO,
+    ...(opts.messaging ? { messaging: opts.messaging } : {}),
   });
   async function run(kind: "query" | "command", key: string, input: unknown, actor: Actor): Promise<unknown> {
     const ticks = kind === "command" && !isSilentCommand(key);

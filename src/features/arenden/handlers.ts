@@ -246,13 +246,15 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   const settings = await orgSettingsFor(ctx, contract);
   for (const t of team) await notifyAssignment(ctx, updated, t.userId, t.role, settings);
   await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelse för ärende ${c.caseNumber} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`);
+  let invitation: string;
   if (person.protectedIdentity) {
     // VILANDE spärr (skyddade personuppgifter borttaget ur appen 2026-10-07, protectedIdentity är alltid false): ingen kallelse.
     await ctx.audit({ action: "notify.suppressed", entity: "case", entityId: c.id, contractId: c.contractId, details: { reason: "Skyddade personuppgifter – ingen kallelse via SMS eller e-post till deltagaren" } });
+    invitation = "Ingen kallelse skickades.";
   } else {
-    await sendMeetingInvitation(ctx, updated, person, p.firstMeetingAt);
+    invitation = (await sendMeetingInvitation(ctx, updated, p.firstMeetingAt)).summary;
   }
-  return ok({ reportId: rep.id, caseNumber: c.caseNumber });
+  return ok({ reportId: rep.id, caseNumber: c.caseNumber, invitation });
 });
 
 // ---------------------------------------------------------------- case.decline
@@ -378,8 +380,8 @@ handleCommand(caseBookFirstMeeting, { roles: MANAGERS }, async (ctx, p) => {
     });
     await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelsen för ärende ${c.caseNumber} är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.`);
   }
-  await sendMeetingInvitation(ctx, updated, person, p.at);
-  return ok({});
+  const invitation = await sendMeetingInvitation(ctx, updated, p.at);
+  return ok({ invitation: invitation.summary });
 });
 
 // ---------------------------------------------------------------- case.changeCoach

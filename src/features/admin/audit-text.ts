@@ -32,7 +32,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning",
   // Fakturan per avtal och månad (beslut 2026-10-07): ekonomen fyller i kommunens referens och inköpsordernummer per faktura.
   "billing.buyer_reference_set": "Fyllde i beställarreferens på faktura", "billing.purchase_order_set": "Fyllde i inköpsordernummer på faktura",
-  "task.created": "Skapade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
+  "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
   "contract_deviation.action_plan_approved": "Åtgärdsplanen godkänd av kommunen", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
   "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",

@@ -857,7 +857,7 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
       toast("Mötet kunde inte bokas.", "error");
       return;
     }
-    toast(`Första mötet är bokat ${fmtDateTimeLong(at)}. Kallelsen skickas via föredragen kontaktväg.`);
+    toast(`Första mötet är bokat ${fmtDateTimeLong(at)}. ${res.invitation}`);
     onClose();
   };
   return (
@@ -902,7 +902,7 @@ function MeetingModal({ card: c, onClose }: { card: CaseCard; onClose: () => voi
       <p>
         {c.contactMissing
           ? "Deltagaren saknar telefonnummer och e-postadress, så kallelsen når inte fram. Kontakta handläggaren och be om en kontaktuppgift."
-          : `Deltagaren får en kallelse via ${(c.contactLabel ?? "SMS").toLowerCase()} och en påminnelse dagen före. Kallelsen innehåller bara tid och plats.`}
+          : "Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats."}
       </p>
     </Modal>
   );

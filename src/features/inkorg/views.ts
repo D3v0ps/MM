@@ -10,12 +10,17 @@ import { looksLikeCancellation } from "./parse";
 import { cdStatusKey } from "@/features/ledning/api";
 import { teamCandidates } from "@/features/_shared/team";
 import { todaysGroupActivities } from "@/features/aktiviteter/today";
+import { SMS_OFF_REASON } from "@/features/_shared/messaging-port";
+import { isKallelseTask } from "@/features/_shared/participant-notify";
+import { hidesCommercial } from "@/api/tester-access";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { hasContactDetails } from "@/core/contact";
-import { areaName, contactLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
+import { areaName, contactLabel, outboundReasonLabel, participantContactLabel, personName, teamLabel } from "@/core/labels";
 import { avropDue, firstMeetingDue, slaStatus } from "@/core/sla";
-import { addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS } from "@/core/time";
+import {
+  addDays, addMonths, addWorkingDays, dayOf, diffMinutes, fmtDate, fmtDateTimeLong, fmtTime, fmtWeek, fmtWeekday, monday, monthKey, monthName, timeOf, weekday, WEEKDAYS, type LocalDateTime,
+} from "@/core/time";
 import { by, uniq } from "@/core/util";
 import type { Case, CaseStatusHistory, ContractArea, InboundEmail, OrderField, OutboundMessage, Person, Report } from "@/data/schema";
 import type {
@@ -419,7 +424,61 @@ export async function buildItem(ctx: Ctx, id: string): Promise<InboxItemDetail |
 }
 
 // ---------------------------------------------------------------- Orderbekräftelsen
-const CHANNEL: Record<string, [string, "phone" | "mail"]> = { sms: ["SMS", "phone"], email: ["e-post", "mail"], brev: ["brev", "mail"] };
+const CHANNEL: Record<string, [string, "phone" | "mail"]> = { sms: ["SMS", "phone"], email: ["e-post", "mail"], brev: ["brev", "mail"], call: ["samtal", "phone"] };
+/** Deltagarens kontaktväg -> kanalen i utskicksloggen. */
+const PREFERRED_CHANNEL: Record<string, string> = { sms: "sms", phone: "sms", email: "email", letter: "brev" };
+
+/**
+ * Kallelsen i bekräftelsen (beslut 2026-10-09). I tur och ordning:
+ *   1. en öppen uppgift att ringa och kalla deltagaren (ingen kanal, eller inget utskick gick fram) – den gäller alltid det senaste:
+ *      uppgiften stängs när en ombokning går ut med någon kanal (participant-notify.ts). Utan telefonnummer och e-postadress: att
+ *      kontaktuppgift saknas.
+ *   2. kanalerna i kallelsen för ärendets nuvarande första möte (e-post, SMS, samtal, brev – utom de som stoppades). Vilken kallelse
+ *      som gäller avgörs av mötets tid i texten, inte av utskickets tid (minutprecision – två bokningar samma minut blandas annars).
+ *   3. att kallelsen stoppades när den skulle skickas – om ingen uppgift för mötet redan är klarmarkerad.
+ * Utskicken innehåller bara tid och plats; uppgiften bara ärendenummer, tid och plats. neutral = begränsad testare (orsaken utan
+ * leverantörer och variabelnamn).
+ */
+function kallelseView(
+  out: readonly OutboundMessage[], person: Person | null, at: LocalDateTime | null, task: { open: string | null; doneForMeeting: boolean }, neutral: boolean,
+): ConfirmationView["kallelse"] {
+  if (task.open) {
+    // Utan telefonnummer och e-postadress är kontaktvägen bara förvalet telefon – inget val (beslut 2026-10-09): handläggaren behöver tillfrågas.
+    const noContact = !!person && !hasContactDetails(person);
+    return {
+      title: noContact ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:" : "Kallelsen kunde inte skickas – samordnaren har fått en uppgift:",
+      icon: "phone", body: task.open,
+    };
+  }
+  if (!at) return null;
+  // Kallelsens text har mötets tid ("tisdag 2 februari klockan 10.00", participantMessage). Samtalets text har ingen tid – det hör
+  // till samma omgång som SMS:et och mejlet (samma tid i utskicksloggen).
+  const marker = `${fmtWeekday(at)} klockan ${fmtTime(at)}`;
+  const rows = out.filter((n) => n.template === "kallelse");
+  const current = rows.filter((n) => n.channel !== "call" && n.body.includes(marker));
+  if (!current.length) return null;
+  const lastAt = current[current.length - 1].createdAt;
+  const latest = rows.filter((n) => n.createdAt === lastAt && (n.channel === "call" || n.body.includes(marker)));
+  const went = latest.filter((n) => n.status !== "suppressed" && n.status !== "failed");
+  const written = went.filter((n) => n.channel !== "call");
+  if (written.length) {
+    // Samtalet (en inspelning som hänvisar till SMS:et eller mejlet) står sist; texten är SMS:ets eller mejlets.
+    const labels = uniq([...written, ...went.filter((n) => n.channel === "call")].map((n) => (CHANNEL[n.channel] ?? [n.channel])[0]));
+    const preferred = person ? PREFERRED_CHANNEL[person.preferredContact] : null;
+    const own = labels.length === 1 && written[0].channel === preferred;
+    const [, icon] = CHANNEL[written[0].channel] ?? ["", "mail"];
+    return { title: `Deltagaren fick kallelse via ${listJoin(labels)}${own ? ", sin föredragna kontaktväg" : ""}:`, icon, body: written[0].body };
+  }
+  // Samordnaren har redan ringt för mötet (uppgiften klarmarkerad): inget kvar att göra.
+  if (task.doneForMeeting) return null;
+  // Kallelsen lades i kön men stoppades när den skulle skickas och ingen uppgift finns (t.ex. ett utskick från före uppgiften i
+  // jobbet): ingen nådde deltagaren. Orsaken (aldrig adress eller nummer) står i rubriken – e-postens först. SMS som inte är
+  // kopplat räknas inte: då fick samordnaren redan en uppgift.
+  const stopped = latest.filter((n) => n.channel !== "call" && (n.status === "suppressed" || n.status === "failed") && n.statusReason !== SMS_OFF_REASON);
+  if (!stopped.length) return null;
+  const reason = outboundReasonLabel((stopped.find((n) => n.channel === "email") ?? stopped[0]).statusReason, { neutral });
+  return { title: `Kallelsen gick inte iväg${reason ? ` (${reason})` : ""} – ring deltagaren och kalla till mötet:`, icon: "phone", body: stopped[0].body };
+}
 
 export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<ConfirmationView | null> {
   const c = await ctx.repo.table("cases").get(caseId);
@@ -437,12 +496,15 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
   const others = notifs.filter((n) => n.recipientId !== c.leadCoachId).map((n) => name(n.recipientId));
   const out = await outboundFor(ctx, c.id, null);
   const custMail = out.filter((n) => n.template === "orderbekraftelse").slice(-1)[0];
-  const kallelse = out.filter((n) => n.template === "kallelse").slice(-1)[0];
+  // Uppgiften att ringa och kalla deltagaren när kallelsen inte kunde skickas (participant-notify.ts) – inte inbjudningar till
+  // aktiviteter. Samordnaren läser den som mottagare, avtalsansvarig som MB i ärendet (policyn för tasks). Bara texten:
+  // ärendenummer, tid och plats. En klarmarkerad uppgift för mötets tid betyder att samordnaren redan har ringt.
+  const kallelseTasks = (await ctx.repo.table("tasks").list({ kind: "participant_contact" })).filter((t) => t.caseIds.includes(c.id) && isKallelseTask(t.text))
+    .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0));
+  const openTask = kallelseTasks.filter((t) => t.status === "open").slice(-1)[0] ?? null;
+  const meetingMarker = c.firstMeetingAt ? `${fmtWeekday(c.firstMeetingAt)} kl. ${fmtTime(c.firstMeetingAt)}` : null;
+  const doneForMeeting = !!meetingMarker && kallelseTasks.some((t) => t.status === "done" && t.text.includes(meetingMarker));
   const team = (await ctx.repo.table("case_team").list({ caseId: c.id })).filter((t) => t.role !== "lead_coach");
-  const [chLabel, chIcon]: [string, "phone" | "mail"] = kallelse ? CHANNEL[kallelse.channel] ?? [kallelse.channel, "mail"] : ["", "mail"];
-  // Telefon är ett val bara när det finns ett nummer: utan telefonnummer och e-postadress är det förvalet (beslut 2026-10-09).
-  const noContact = !!person && !hasContactDetails(person);
-  const prefersPhone = person?.preferredContact === "phone";
   return {
     caseId: c.id, caseNumber: c.caseNumber, referrerId: c.referrerId, leadCoachId: c.leadCoachId,
     reportId: rep && canOpen("rapport.visa", ctx.actor.role) ? rep.id : null,
@@ -454,14 +516,7 @@ export async function buildConfirmation(ctx: Ctx, caseId: string): Promise<Confi
     buyerReference: c.buyerReference || "–",
     leadNotif: leadNotif ? { title: `${name(c.leadCoachId)} har fått en notis om tilldelningen`, emailBody: leadNotif.emailBody, others: others.length ? ` Även ${listJoin(others)} har fått en notis.` : "" } : null,
     custMail: custMail?.body ?? null,
-    kallelse: kallelse
-      ? {
-          title: noContact
-            ? "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:"
-            : prefersPhone ? `Deltagaren fick kallelse via ${chLabel} och har valt telefon – coachen ringer också:` : `Deltagaren fick kallelse via ${chLabel}, sin föredragna kontaktväg:`,
-          icon: chIcon, body: kallelse.body,
-        }
-      : null,
+    kallelse: kallelseView(out, person, c.firstMeetingAt, { open: openTask?.text ?? null, doneForMeeting }, hidesCommercial(ctx.actor)),
   };
 }
 

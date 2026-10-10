@@ -330,6 +330,25 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
     expect(await rt.command(adminRunJob, { key: "retention" }, robin())).toMatchObject({ ok: false, error: "disabled" });
   });
 
+  it("SMS och utringning (46elks, beslut 2026-10-09): Inte kopplad i testmiljön med variablerna som saknas – bara namnen; Kopplad när läget säger det", async () => {
+    const d = await rt.query(adminIntegrations, {}, robin());
+    const card = (id: string) => d.integrations.find((x) => x.id === id)!;
+    expect(card("sms")).toMatchObject({ name: "SMS (46elks)", status: "off", icon: "message" });
+    expect(card("sms").items).toEqual(expect.arrayContaining([["Status", "Inte kopplad"], ["Saknas i Vercel", "MM_SMS_PROVIDER, ELKS_API_USERNAME, ELKS_API_PASSWORD"]]));
+    expect(card("call")).toMatchObject({ name: "Utringning (46elks)", status: "off", icon: "phone" });
+    expect(card("call").items).toEqual(expect.arrayContaining([["Status", "Inte kopplad"], ["Saknas i Vercel", "ELKS_API_USERNAME, ELKS_API_PASSWORD, MM_CALL_FROM, MM_CALL_AUDIO_URL"]]));
+    // Underbiträdet: 46elks är valt och väntar på kommunens godkännande.
+    expect(d.dataProtection?.subprocessors.find((x) => x.id === "sms")).toMatchObject({ name: "46elks (SMS och utringning)", status: "chosen", us: false });
+    // Kopplat (supabase-läget med variablerna): inga variabler visas.
+    const on = testRuntime(undefined, { messaging: { sms: { connected: true, missing: [] }, call: { connected: false, missing: ["MM_CALL_AUDIO_URL (ska börja med https://)"] } } });
+    const k = await on.query(adminIntegrations, {}, on.as("u-robin", "admin"));
+    const kc = (id: string) => k.integrations.find((x) => x.id === id)!;
+    expect(kc("sms")).toMatchObject({ status: "active" });
+    expect(kc("sms").items[0]).toEqual(["Status", "Kopplad"]);
+    expect(kc("sms").items.map(([l]) => l)).not.toContain("Saknas i Vercel");
+    expect(kc("call").items).toEqual(expect.arrayContaining([["Status", "Inte kopplad"], ["Saknas i Vercel", "MM_CALL_AUDIO_URL (ska börja med https://)"]]));
+  });
+
   it("avrop@-brevlådan: inte kopplad visar stegen och stänger Kör nu; kopplad visar senaste läsning och fel (beslut 4c)", async () => {
     rt.store.updateRow("integrations", "graph", { status: "off", config: { description: "Microsoft Graph", configured: false, lastRunAt: "2027-02-01T09:10", lastError: null } });
     let d = await rt.query(adminIntegrations, {}, robin());
@@ -357,7 +376,7 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(21);
+    expect(d.templates).toHaveLength(22);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
     // Inloggningskoden (beslut 2026-10-02): e-post från appen, fast text, ingen länk – bara {kod} (fylls i av servern).
     expect(t("inloggningskod")).toMatchObject({ name: "Inloggningskod", channel: "email", alsoVia: [], from: "notis@miljonmatch.se", subject: "Din inloggningskod till Miljonmatch", fixed: true, version: 1 });
@@ -379,6 +398,11 @@ describe("mallar och utskick", () => {
     expect(t("generisk_mottagningsbekraftelse_portal").when).toBe("Används inte sedan 2026-10-07");
     expect(rt.rows("outbound_messages").some((m) => m.template === "generisk_mottagningsbekraftelse")).toBe(false);
     for (const k of ["kallelse", "pulslank"]) expect(`${t(k).to} ${t(k).when}`, k).not.toMatch(/skyddade personuppgifter/i);
+    // Kallelsen och inbjudan till aktivitet (beslut 2026-10-09): e-post, SMS och utringning – bara tid, plats och telefonnummer.
+    expect(t("kallelse")).toMatchObject({ channel: "sms", alsoVia: ["email", "call", "brev"] });
+    expect(t("aktivitetsinbjudan")).toMatchObject({ name: "Inbjudan till aktivitet", channel: "sms", alsoVia: ["email", "call"], subject: "Inbjudan till aktivitet hos Miljonbemanning" });
+    expect(t("aktivitetsinbjudan").body).toBe("Hej! Du är inbjuden till en aktivitet hos Miljonbemanning {datum} kl. {tid}, {plats}. Frågor? Ring {telefon}.");
+    expect(templateCheck(t("aktivitetsinbjudan").body)).toMatchObject({ ok: true, unknown: [] });
     expect(d.sendLog.map((n) => n.templateLabel)).toEqual([
       "Ordererkännande", "Pulslänk", "Ny rapport", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
     ]);
@@ -396,7 +420,7 @@ describe("mallar och utskick", () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.sendLog[0]).toEqual({
       id: "out-kod-1", at: "2027-02-01T09:20", channel: "email", to: "karim.khalil@miljonbemanning.se", templateLabel: "Inloggningskod", caseNumber: null,
-      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false, status: "sent",
+      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false, status: "sent", reason: null,
     });
   });
 
@@ -408,7 +432,7 @@ describe("mallar och utskick", () => {
       statusReason: "provider_error", providerMessageId: null,
     });
     const d = await rt.query(adminTemplates, {}, robin());
-    expect(d.sendLog.filter((n) => n.status === "failed").map((n) => [n.id, n.caseNumber, n.channel])).toEqual([["out-fel-1", "BOT-26-0143", "email"]]);
+    expect(d.sendLog.filter((n) => n.status === "failed").map((n) => [n.id, n.caseNumber, n.channel, n.reason])).toEqual([["out-fel-1", "BOT-26-0143", "email", "provider_error"]]);
     // Samordnaren läser utskicksloggen som förut och ser samma läge.
     expect((await rt.query(adminTemplates, {}, sara())).sendLog.find((n) => n.id === "out-fel-1")?.status).toBe("failed");
   });
