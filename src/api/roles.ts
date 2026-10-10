@@ -91,8 +91,15 @@ export const hasRole = (a: Pick<Actor, "roles"> | null | undefined, role: Role):
 export const hasAnyRole = (a: Pick<Actor, "roles"> | null | undefined, roles: readonly Role[]): boolean => !!a && a.roles.some((r) => roles.includes(r));
 /** Har aktören bara roller bland de angivna (och minst en)? Används för spärrar som en annan roll lyfter (t.ex. bara ekonom). */
 export const onlyRoles = (a: Pick<Actor, "roles"> | null | undefined, roles: readonly Role[]): boolean => !!a && a.roles.length > 0 && a.roles.every((r) => roles.includes(r));
-/** Avtalen där aktören har rollen. */
+/** Avtalen där aktören har rollen. Bara för en roll aktören har – annars gäller avtalen inte rollen (använd contractsAs). */
 export const contractsFor = (a: Pick<Actor, "contractIds" | "roleContracts">, role: Role): string[] => a.roleContracts?.[role] ?? a.contractIds;
+/**
+ * Avtalen där aktören har någon av rollerna – unionen av rollernas egna avtal (sorterade). En hanterare som släpps in på vissa
+ * roller väljer avtal här, aldrig ur alla rollers avtal (Actor.contractIds): en roll ger bara rätt i de avtal där personen har
+ * just den rollen (mm.contracts_as i 0034).
+ */
+export const contractsAs = (a: Pick<Actor, "roles" | "contractIds" | "roleContracts">, roles: readonly Role[]): string[] =>
+  [...new Set(a.roles.filter((r) => roles.includes(r)).flatMap((r) => contractsFor(a, r)))].sort();
 /** Aktören i en av sina roller (null om aktören inte har rollen). */
 export function asRole(a: Actor, role: Role): RoleActor | null {
   if (!a.roles.includes(role)) return null;

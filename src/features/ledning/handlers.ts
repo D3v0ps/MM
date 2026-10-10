@@ -293,7 +293,7 @@ handleQuery(ledningOverview, { roles: CHEF }, async (ctx) => {
       ? {}
       : {
           unbilled: {
-            ...(hidesMoney(ctx.actor) ? {} : { totalOre: sum(unbilled, (x) => x.amountOre) }),
+            ...(hidesMoney(ctx.actor, contract.id) ? {} : { totalOre: sum(unbilled, (x) => x.amountOre) }),
             weeks: unbilled.length,
             cases: unbilledCases,
             oldestDays: unbilled.length ? Math.max(...unbilled.map((x) => x.age)) : null,
@@ -670,9 +670,15 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
   if (data.warningIssued !== undefined) patch.warningIssued = data.warningIssued;
   if (data.orderStop !== undefined) patch.orderStop = data.orderStop;
   if (data.penaltyKind !== undefined) {
-    // Vitets belopp kommer från avtalskonfigurationen (penalties), aldrig från klienten.
+    // Vitets belopp kommer från avtalskonfigurationen (penalties), aldrig från klienten. ctx.system: beloppen i avtalet lämnas
+    // bara till den som har rollen ekonom i avtalet (mm.visible_contracts, 0034) – här räknas vitet som ett systemsteg och
+    // beloppet lämnas aldrig ut i svaret.
     const kind = data.penaltyKind ?? null;
-    const ore = kind === "deviation" ? cfg.penalties.deviationOre : kind === "information" ? cfg.penalties.insufficientInformationOre : 0;
+    const penalties = (await ctx.system.table("contracts").get(contract.id))?.config.penalties;
+    if (kind && (!penalties || typeof penalties.deviationOre !== "number" || typeof penalties.insufficientInformationOre !== "number")) {
+      return fail("no_penalties", "Avtalet saknar belopp för viten.");
+    }
+    const ore = kind === "deviation" ? penalties!.deviationOre : kind === "information" ? penalties!.insufficientInformationOre : 0;
     patch.penaltyKind = kind;
     patch.penaltyOre = ore;
     patch.penaltyOffsetMonth = ore ? data.penaltyOffsetMonth || null : null;

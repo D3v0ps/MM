@@ -138,9 +138,12 @@ describe("migrationen 0026 på data från före beslutet", () => {
       bonus: (await tx.query<{ n: number }>("select count(*)::int as n from public.bonus_claims")).rows[0].n,
     }));
     expect(got).toEqual({ penalties: {}, bonus: 0 });
-    // Miljonbemanning läser hela avtalet (ekonomen ser bonusanspråket i sitt avtal).
+    // Miljonbemanning läser hela avtalet – vitenas belopp bara ekonomen i avtalet (0034, efter granskningen); ekonomen ser också
+    // bonusanspråket i sitt avtal.
     const mb = await asUser(db, authUserIdFor("u-karin"), async (tx) => (await tx.query<{ p: unknown }>("select config -> 'penalties' as p from public.contracts_public")).rows[0]?.p);
-    expect(mb).toEqual({ deviationOre: 2500000, insufficientInformationOre: 2500000 });
+    expect(mb).toEqual({});
+    const larsPenalties = await asUser(db, authUserIdFor("u-lars"), async (tx) => (await tx.query<{ p: unknown }>("select config -> 'penalties' as p from public.contracts_public")).rows[0]?.p);
+    expect(larsPenalties).toEqual({ deviationOre: 2500000, insufficientInformationOre: 2500000 });
     const lars = await asUser(db, authUserIdFor("u-lars"), async (tx) => (await tx.query<{ n: number }>("select count(*)::int as n from public.bonus_claims where id = 'bc-x-1'")).rows[0].n);
     expect(lars).toBe(1);
   });

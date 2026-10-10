@@ -5,6 +5,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { ApiError } from "@/api/server";
+import { testerActor } from "@/api/tester-access";
 import { createMemoryRuntime, demoClock, realClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import { createEmptySeed } from "@/data/seed/empty";
@@ -53,7 +54,7 @@ export async function currentPersona(): Promise<Persona | null> {
   const all = listPersonas(rt.raw());
   const persona = (userId ? personaFor(rt.raw(), userId) : null) ?? all[0] ?? null;
   if (!persona || !testerId || !DEV_TESTER_ID.test(testerId)) return persona;
-  return { ...persona, actor: { ...persona.actor, testerId } };
+  return { ...persona, actor: testerActor({ ...persona.actor, testerId }) };
 }
 
 /** Kör en fråga eller ett kommando i rätt körläge. Kastar ApiError (status + text till användaren) vid fel. */

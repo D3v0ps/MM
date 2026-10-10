@@ -20,17 +20,23 @@
 --   * Anteckningar (mm.notes_case_ids): full eller team genom en roll som inte är ekonom. Den som är coach och ekonom ser
 --     anteckningarna genom coachrollen; den som bara är ekonom ser dem aldrig.
 --   * Belopp i kronor: raderna har samma läsare som förut (nu per roll), men beloppskolumnerna lämnas bara till den som har
---     rollen ekonom (mm.has_role('ekonom')) – via vyerna <tabell>_public, och direkt i tabellerna får inloggade inte läsa
---     beloppen alls (sista avsnittet nedan). Servern tar dessutom bort beloppen i svaren som förut (hidesMoney,
---     src/api/tester-access.ts) – nu "har rollen ekonom" i stället för "har valt rollen ekonom".
+--     rollen ekonom i radens avtal (mm.money_in) – via vyerna <tabell>_public, och direkt i tabellerna får inloggade inte läsa
+--     beloppen alls (sista avsnittet nedan). Vitenas belopp i avtalets konfiguration likaså (mm.visible_contracts). Servern
+--     tar dessutom bort beloppen i svaren som förut (hidesMoney med avtalet, src/api/tester-access.ts).
 --   * Den vilande spärren för skyddade personuppgifter (persons.protected_identity, alltid false) gäller per roll som förut.
 --   * Testarens testperson (tester_sessions, bara testmiljön): testpersonens alla roller.
+--   * Efter granskningen – aldrig mer än summan av rollerna också i skrivningar: en rad flyttas aldrig till ett annat avtal,
+--     ärende, en annan faktura eller användare av en inloggad (mm.protect_keys – annars kunde läsrätten på den gamla raden
+--     komma från en roll och skrivrätten på den nya från en annan); ärendets kolumner per roll (mm.protect_case_columns:
+--     ekonomen bara beställarreferensen, kommunen bara beställarens kontaktuppgifter); kommunens kvittensspärr på rapporter
+--     per rad (mm.report_mb_write); medlemskap ändras bara med samma rätt som att ta bort och lägga till dem.
 --
 -- Nya funktioner: mm.current_roles(), mm.has_role(text), mm.contracts_as(text[]), mm.in_contracts(text, text[]),
 -- mm.member_as(text, text[]), mm.customer_ids_as(text[]), mm.access_rank(text), mm.my_case_role_access(),
 -- mm.case_role_access_of(…), mm.case_ids_as(text[], text[]), mm.notes_case_ids(), mm.case_access_as(text, text[]),
--- mm.invoice_draft_ids_as(text[]), mm.person_write_as(text, text[]) och en beloppsfunktion per beloppskolumn
--- (mm.price_item_price_ore(text) …). Nya vyer: price_items_public, invoice_drafts_public, invoice_lines_public,
+-- mm.invoice_draft_ids_as(text[]), mm.person_write_as(text, text[]), mm.report_mb_write(text, text, text), mm.money_in(text)
+-- och en beloppsfunktion per beloppskolumn (mm.price_item_price_ore(text) …), triggerfunktionerna mm.protect_keys() och
+-- mm.protect_case_columns(). Nya vyer: price_items_public, invoice_drafts_public, invoice_lines_public,
 -- bonus_claims_public, contract_deviations_public, ai_runs_public.
 -- Omskrivna (samma signatur, create or replace): mm.role_in, mm.is_mb, mm.is_kom, mm.my_contract_ids, mm.current_unit,
 -- mm.my_case_access, mm.case_ids, mm.case_access_of, mm.case_access, mm.work_on, mm.case_write_check, mm.person_write,
@@ -320,16 +326,27 @@ as $$
   select d.id from public.invoice_drafts d, k where mm.in_contracts(d.contract_id, k.ids)
 $$;
 
--- Avtal för läsning (vyn contracts_public): Miljonbemannings och kommunens roller i sina avtal. Hela konfigurationen bara
--- när aktören har en av Miljonbemannings roller i avtalet – annars utan interna delar (mm.customer_safe_config).
+-- Avtal för läsning (vyn contracts_public): Miljonbemannings och kommunens roller i sina avtal. Konfigurationen:
+--   * ekonom i avtalet: hela konfigurationen;
+--   * en annan av Miljonbemannings roller i avtalet: hela utom vitenas belopp i öre (penalties blir {} – avsnittet finns kvar
+--     så att avtalet fortfarande är i drift, som i mm.customer_safe_config). Belopp i kronor syns bara för rollen ekonom i
+--     avtalet (CLAUDE.md punkt 11); servern räknar vitet via service role (ledning.cdevSave);
+--   * kommunen: utan interna delar och viten (mm.customer_safe_config).
+-- Samma mask i src/data/policy.ts (maskOf för contracts).
 create or replace function mm.visible_contracts() returns setof public.contracts
 language sql stable security definer set search_path = public, mm
 as $$
   with k as materialized (
-    select mm.contracts_as(mm.supplier_roles()) as mb, mm.contracts_as(mm.supplier_roles() || mm.customer_roles()) as any_role
+    select mm.contracts_as(mm.supplier_roles()) as mb, mm.contracts_as(mm.supplier_roles() || mm.customer_roles()) as any_role,
+           mm.contracts_as('{ekonom}') as money
   )
   select c.id, c.supplier_id, c.customer_id, c.name, c.contract_number, c.dnr, c.starts_on, c.ends_on, c.case_prefix, c.data_role,
-         case when mm.in_contracts(c.id, k.mb) then c.config else mm.customer_safe_config(c.config) end,
+         case
+           when not mm.in_contracts(c.id, k.mb) then mm.customer_safe_config(c.config)
+           when mm.in_contracts(c.id, k.money) then c.config
+           when jsonb_typeof(c.config -> 'penalties') = 'object' then jsonb_set(c.config, '{penalties}', '{}'::jsonb)
+           else c.config
+         end,
          c.status, c.contract_manager_id
   from public.contracts c, k
   where mm.in_contracts(c.id, k.any_role)
@@ -398,12 +415,33 @@ begin
 end
 $$;
 
--- Kommunens kvittens (0014): bara för den som bara har kommunens roller – en av Miljonbemannings roller skriver som förut.
+-- policy.ts reportWrite för Miljonbemannings roller: får någon av Miljonbemannings roller skriva rapporten med de här fälten?
+-- Samma grenar som reports_insert och Miljonbemannings grenar i reports_update (with check).
+create or replace function mm.report_mb_write(p_kind text, p_contract_id text, p_case_id text) returns boolean
+language sql stable security definer set search_path = public, mm
+as $$
+  select coalesce(
+    (p_kind = 'weekly_attendance'
+     and mm.in_contracts(p_contract_id, mm.contracts_as('{samordnare,avtalsansvarig,coach,handledare}')))
+    or (p_kind in ('customer_summary', 'statistics')
+     and mm.in_contracts(p_contract_id, mm.contracts_as('{samordnare,avtalsansvarig}')))
+    or (p_kind not in ('weekly_attendance', 'customer_summary', 'statistics') and nullif(p_case_id, '') is not null
+     and mm.in_contracts(p_contract_id, mm.contracts_as('{samordnare,avtalsansvarig,coach}'))
+     and mm.case_access_as(p_case_id, '{samordnare,avtalsansvarig,coach}') = 'full'), false)
+$$;
+grant execute on function mm.report_mb_write(text, text, text) to authenticated, service_role;
+revoke all on function mm.report_mb_write(text, text, text) from public, anon;
+
+-- Kommunens kvittens (0014): per rad – spärren släpps bara när en av Miljonbemannings roller faktiskt får skriva rapporten
+-- (mm.report_mb_write, före och efter ändringen). Annars är det kommunens gren som ger åtkomsten och bara kvittensen ändras – också
+-- för den som dessutom har en av Miljonbemannings roller som inte skriver rapporter (ekonom, chef, admin) eller har rollen i
+-- ett annat avtal. policy.ts: reportWrite per roll (customerReceiptOnly för kommunens roll).
 create or replace function mm.protect_report_columns() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 begin
-  if current_user in ('authenticated', 'anon') and mm.is_kom() and not mm.is_mb() then
+  if current_user in ('authenticated', 'anon') and mm.is_kom()
+     and not (mm.report_mb_write(old.kind, old.contract_id, old.case_id) and mm.report_mb_write(new.kind, new.contract_id, new.case_id)) then
     if (to_jsonb(new) - array['opened_at', 'opened_by']) is distinct from (to_jsonb(old) - array['opened_at', 'opened_by']) then
       raise exception 'Kommunen får bara kvittera rapporten' using errcode = '42501';
     end if;
@@ -434,6 +472,102 @@ begin
   return new;
 end
 $$;
+
+-- ================================================================ Nycklar och ärendets kolumner (efter granskningen)
+-- Nycklar som en inloggad aldrig ändrar i en befintlig rad: raden flyttas inte till ett annat avtal, ärende, en annan faktura
+-- eller användare. USING och WITH CHECK prövas var för sig och kan uppfyllas av olika roller – utan spärren kunde den som är
+-- ekonom i ett avtal och samordnare i ett annat flytta ett ärende mellan avtalen (läsrätt genom ekonomen, skrivrätt genom
+-- samordnaren), mer än summan av rollerna. Systemet (service role) omfattas inte. policy.ts: KEY_COLUMNS och unionOf (samma roll
+-- läser den befintliga raden och skriver den nya). Tabellerna som redan har en egen kolumnspärr (anteckningar, sparade rapporter,
+-- gruppaktiviteter, gruppmål, grupperingar, meddelanden, röstmeddelanden) står inte här.
+create or replace function mm.protect_keys() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+declare
+  k text;
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  foreach k in array tg_argv loop
+    if (to_jsonb(new) -> k) is distinct from (to_jsonb(old) -> k) then
+      raise exception 'Kolumnen % ändras inte', k using errcode = '42501';
+    end if;
+  end loop;
+  return new;
+end
+$$;
+
+create or replace trigger cases_protect_keys before update on public.cases for each row execute function mm.protect_keys('contract_id');
+create or replace trigger memberships_protect_keys before update on public.memberships for each row execute function mm.protect_keys('user_id', 'contract_id');
+create or replace trigger contract_areas_protect_keys before update on public.contract_areas for each row execute function mm.protect_keys('contract_id');
+create or replace trigger price_items_protect_keys before update on public.price_items for each row execute function mm.protect_keys('contract_id');
+create or replace trigger billing_runs_protect_keys before update on public.billing_runs for each row execute function mm.protect_keys('contract_id');
+create or replace trigger invoice_drafts_protect_keys before update on public.invoice_drafts for each row execute function mm.protect_keys('contract_id');
+create or replace trigger invoice_lines_protect_keys before update on public.invoice_lines for each row execute function mm.protect_keys('invoice_draft_id');
+create or replace trigger billing_week_approvals_protect_keys before update on public.billing_week_approvals for each row execute function mm.protect_keys('contract_id', 'case_id');
+create or replace trigger invoice_credits_protect_keys before update on public.invoice_credits for each row execute function mm.protect_keys('contract_id');
+create or replace trigger fortnox_runs_protect_keys before update on public.fortnox_runs for each row execute function mm.protect_keys('contract_id');
+create or replace trigger contract_deviations_protect_keys before update on public.contract_deviations for each row execute function mm.protect_keys('contract_id');
+create or replace trigger alerts_protect_keys before update on public.alerts for each row execute function mm.protect_keys('contract_id', 'case_id');
+create or replace trigger reports_protect_keys before update on public.reports for each row execute function mm.protect_keys('contract_id', 'case_id');
+create or replace trigger activities_protect_keys before update on public.activities for each row execute function mm.protect_keys('case_id');
+create or replace trigger attendance_protect_keys before update on public.attendance for each row execute function mm.protect_keys('case_id');
+create or replace trigger check_ins_protect_keys before update on public.check_ins for each row execute function mm.protect_keys('case_id');
+create or replace trigger consents_protect_keys before update on public.consents for each row execute function mm.protect_keys('case_id');
+create or replace trigger deviations_protect_keys before update on public.deviations for each row execute function mm.protect_keys('case_id');
+create or replace trigger intake_assessments_protect_keys before update on public.intake_assessments for each row execute function mm.protect_keys('case_id');
+create or replace trigger monthly_assessments_protect_keys before update on public.monthly_assessments for each row execute function mm.protect_keys('case_id');
+create or replace trigger monthly_plans_protect_keys before update on public.monthly_plans for each row execute function mm.protect_keys('case_id');
+create or replace trigger outcome_events_protect_keys before update on public.outcome_events for each row execute function mm.protect_keys('case_id');
+create or replace trigger placements_protect_keys before update on public.placements for each row execute function mm.protect_keys('case_id');
+create or replace trigger pulse_invites_protect_keys before update on public.pulse_invites for each row execute function mm.protect_keys('case_id');
+create or replace trigger voice_links_protect_keys before update on public.voice_links for each row execute function mm.protect_keys('case_id');
+create or replace trigger case_status_history_protect_keys before update on public.case_status_history for each row execute function mm.protect_keys('case_id');
+create or replace trigger case_team_protect_keys before update on public.case_team for each row execute function mm.protect_keys('case_id');
+create or replace trigger bonus_claims_protect_keys before update on public.bonus_claims for each row execute function mm.protect_keys('case_id');
+create or replace trigger ai_runs_protect_keys before update on public.ai_runs for each row execute function mm.protect_keys('case_id');
+
+-- Ärendets kolumner per roll (policy.ts caseWrite). USING och WITH CHECK för cases (cases_update, mm.case_write_check) släpper
+-- in ekonomen (debiteringsåtkomst) och beställande handläggare (kommunen) – utan kolumnspärr kunde de ändra alla fält, och den
+-- som är coach och ekonom kunde ändra plats, mötestider och bakgrund i ett skyddat ärende som ingen av rollerna ensam får ändra.
+-- Per roll:
+--   samordnare, avtalsansvarig, coach  full åtkomst till ärendet före och efter ändringen (samma roll) – alla kolumner;
+--   ekonom                              debiteringsåtkomst – bara beställarreferensen (case.setBuyerRef);
+--   kommun_handlaggare                  beställande handläggare – bara beställarens kontaktuppgifter (case.update).
+-- Ändringen går igenom om någon av rollerna ensam täcker hela ändringen.
+create or replace function mm.protect_case_columns() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+declare
+  v_changed text[];
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if exists (
+    select 1
+    from mm.case_role_access_of(old.id, old.contract_id, old.person_id, old.lead_coach_id, old.referrer_id, old.referrer_unit) o
+    join mm.case_role_access_of(new.id, new.contract_id, new.person_id, new.lead_coach_id, new.referrer_id, new.referrer_unit) n on n.role = o.role
+    where o.role in ('samordnare', 'avtalsansvarig', 'coach') and o.access = 'full' and n.access = 'full'
+  ) then
+    return new;
+  end if;
+  select coalesce(array_agg(n.key), '{}') into v_changed
+  from jsonb_each(to_jsonb(new)) n
+  where n.value is distinct from (to_jsonb(old) -> n.key);
+  if v_changed <@ array['buyer_reference'] and mm.case_access_as(old.id, '{ekonom}') = 'billing' then
+    return new;
+  end if;
+  if v_changed <@ array['referrer_name', 'referrer_unit', 'referrer_phone', 'referrer_email']
+     and nullif(old.referrer_id, '') is not null and old.referrer_id = mm.current_profile_id()
+     and mm.case_access_as(old.id, mm.customer_roles()) = 'customer' then
+    return new;
+  end if;
+  raise exception 'Ärendet får inte ändras så med dina roller' using errcode = '42501';
+end
+$$;
+create or replace trigger cases_protect_columns before update on public.cases for each row execute function mm.protect_case_columns();
 
 -- ================================================================ Policyer
 -- Rollgrupperna (src/data/policy.ts):
@@ -517,9 +651,13 @@ alter policy memberships_insert on public.memberships with check (
   (select mm.has_role('admin'))
   or (mm.in_contracts(contract_id, (select mm.contracts_as('{avtalsansvarig}'))) and role = any (mm.customer_roles()))
 );
+-- Ändra ett medlemskap: samma rätt som att ta bort det (using, den befintliga raden) och att lägga till det (with check, den nya
+-- raden) – admin, eller avtalsansvarig för kommunens roller i sitt avtal. En kollegas eller en administratörs roll görs aldrig om
+-- till en kommunroll, och användare och avtal ändras aldrig (triggern memberships_protect_keys). Ingen ändrar sitt eget
+-- medlemskap. policy.ts: memberships.write prövar både den befintliga och den nya raden.
 alter policy memberships_update on public.memberships using (
-  user_id = (select mm.current_profile_id())
-  or mm.in_contracts(contract_id, (select mm.contracts_as(mm.supplier_roles() || mm.customer_roles())))
+  (select mm.has_role('admin'))
+  or (mm.in_contracts(contract_id, (select mm.contracts_as('{avtalsansvarig}'))) and role = any (mm.customer_roles()))
 ) with check (
   (select mm.has_role('admin'))
   or (mm.in_contracts(contract_id, (select mm.contracts_as('{avtalsansvarig}'))) and role = any (mm.customer_roles()))
@@ -927,42 +1065,59 @@ alter policy grouping_members_update on public.grouping_members using (
   mm.case_access_as(case_id, '{samordnare,avtalsansvarig,coach}') = 'full'
 );
 
--- ================================================================ Belopp i kronor: bara rollen ekonom
+-- ================================================================ Belopp i kronor: bara rollen ekonom i radens avtal
 -- "Belopp i kronor syns bara för den som har rollen ekonom (då alltid)." Före: tabellerna med belopp lämnade ut beloppen till
 -- alla som fick läsa raden, och servern tog bort dem i svaren (hidesMoney, src/api/tester-access.ts). Nu spärrar också
 -- databasen beloppskolumnerna:
 --   price_items.price_ore, invoice_drafts.accrued_ore och remaining_ore, invoice_lines.unit_price_ore,
 --   bonus_claims.amount_ore, contract_deviations.penalty_ore och ai_runs.cost_ore.
 -- * Inloggade läser tabellerna via vyerna <tabell>_public (security_invoker: samma rader som tabellens RLS). Beloppet lämnas
---   bara när aktören har rollen ekonom (mm.has_role('ekonom'), i något avtal – samma regel som hidesMoney); annars 0 (null i
---   kolumnerna som får vara null). Beloppet hämtas av en funktion med definer-rättighet som själv kräver rollen ekonom.
+--   bara när aktören har rollen ekonom i radens avtal (mm.money_in): radens eget avtal, fakturans (fakturarader) eller
+--   ärendets (bonus, AI-körningar) – en roll ger bara rätt i de avtal där personen har just den rollen, så den som är coach i
+--   ett avtal och ekonom i ett annat ser inga belopp i det första. Annars 0 (null i kolumnerna som får vara null). En
+--   AI-körning utan ärende har inget avtal – beloppet lämnas aldrig ut. Beloppet hämtas av en funktion med definer-rättighet
+--   som själv prövar samma villkor (också när den anropas direkt med ett id).
 -- * Direkt i tabellen får inloggade läsa alla kolumner utom beloppen (kolumnrättigheter) – ingen inloggad läser ett belopp
 --   förbi vyn. Ändringar och nya rader går som förut till tabellen, med samma policyer. Service role läser tabellerna direkt.
 -- * SupabaseRepo läser tabellerna via vyerna (USER_READ_VIEWS i src/data/supabase/index.ts, samma mönster som cases_public i
---   0013). Minnesläget: samma mask i src/data/policy.ts (MONEY_MASK), som MemoryRepo lägger på varje läsning.
--- Avtalets konfiguration (contracts.config, bl.a. vitenas belopp) är ingen beloppskolumn: servern behöver den för att räkna
--- vitet och tar bort beloppen i svaren (hidesMoney) som förut.
+--   0013). Minnesläget: samma mask i src/data/policy.ts (MONEY_MASK och MONEY_CONTRACT), som MemoryRepo lägger på varje läsning.
+-- Avtalets konfiguration (contracts.config.penalties, vitenas belopp) har samma spärr i mm.visible_contracts ovan.
+create or replace function mm.money_in(p_contract_id text) returns boolean
+language sql stable security definer set search_path = public, mm
+as $$ select mm.in_contracts(p_contract_id, mm.contracts_as('{ekonom}')) $$;
+
 create or replace function mm.price_item_price_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.price_ore from public.price_items x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$ select x.price_ore from public.price_items x where x.id = p_id and mm.money_in(x.contract_id) $$;
 create or replace function mm.invoice_draft_accrued_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.accrued_ore from public.invoice_drafts x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$ select x.accrued_ore from public.invoice_drafts x where x.id = p_id and mm.money_in(x.contract_id) $$;
 create or replace function mm.invoice_draft_remaining_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.remaining_ore from public.invoice_drafts x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$ select x.remaining_ore from public.invoice_drafts x where x.id = p_id and mm.money_in(x.contract_id) $$;
 create or replace function mm.invoice_line_unit_price_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.unit_price_ore from public.invoice_lines x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$
+  select x.unit_price_ore from public.invoice_lines x join public.invoice_drafts d on d.id = x.invoice_draft_id
+  where x.id = p_id and mm.money_in(d.contract_id)
+$$;
 create or replace function mm.bonus_claim_amount_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.amount_ore from public.bonus_claims x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$
+  select x.amount_ore from public.bonus_claims x join public.cases c on c.id = x.case_id
+  where x.id = p_id and mm.money_in(c.contract_id)
+$$;
 create or replace function mm.contract_deviation_penalty_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.penalty_ore from public.contract_deviations x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$ select x.penalty_ore from public.contract_deviations x where x.id = p_id and mm.money_in(x.contract_id) $$;
 create or replace function mm.ai_run_cost_ore(p_id text) returns bigint
 language sql stable security definer set search_path = public, mm
-as $$ select x.cost_ore from public.ai_runs x where x.id = p_id and mm.has_role('ekonom') $$;
+as $$
+  select x.cost_ore from public.ai_runs x join public.cases c on c.id = x.case_id
+  where x.id = p_id and mm.money_in(c.contract_id)
+$$;
+revoke all on function mm.money_in(text) from public, anon;
+grant execute on function mm.money_in(text) to authenticated, service_role;
 revoke all on function
   mm.price_item_price_ore(text), mm.invoice_draft_accrued_ore(text), mm.invoice_draft_remaining_ore(text),
   mm.invoice_line_unit_price_ore(text), mm.bonus_claim_amount_ore(text), mm.contract_deviation_penalty_ore(text),
@@ -974,7 +1129,8 @@ grant execute on function
   mm.ai_run_cost_ore(text)
 to authenticated, service_role;
 
--- Vyerna: tabellens kolumner i samma ordning; (select mm.has_role('ekonom')) räknas en gång per fråga.
+-- Vyerna: tabellens kolumner i samma ordning. (select mm.has_role('ekonom')) räknas en gång per fråga och hoppar över
+-- funktionen för den som inte är ekonom i något avtal; funktionen prövar sedan radens avtal (mm.money_in).
 create or replace view public.price_items_public with (security_invoker = true) as
   select x.id, x.contract_id, x.area_code, x.code, x.unit, x.package_months,
          case when (select mm.has_role('ekonom')) then coalesce(mm.price_item_price_ore(x.id), 0) else 0 end::bigint as price_ore,

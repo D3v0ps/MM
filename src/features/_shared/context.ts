@@ -7,6 +7,7 @@ import { areaName, teamLabel } from "@/core/labels";
 import { fmtDateTime, type LocalDateTime } from "@/core/time";
 import type { Table } from "@/data/repo";
 import type { Case, Contract, Deviation, TeamRole } from "@/data/schema";
+import { caseAccessAsRoles, type AccessCase } from "./case-access";
 import { notifyParticipant, type NotifyParticipantResult } from "./participant-notify";
 
 // ---------------------------------------------------------------- Avtal och regler
@@ -38,20 +39,30 @@ export async function hasRoleIn(ctx: Ctx, userId: string, contractId: string, ro
   return ms.some((m) => roles.includes(m.role));
 }
 
+/** Ändrar ärendet med full åtkomst (policyns CASE_EDITORS). */
+export const CASE_EDIT_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
+
 /**
- * Får aktören ändra ärendet? Samma regel som policyn (caseWrite i src/data/policy.ts) och prototypens canEditCase:
- * samordnare, avtalsansvarig och coach med full åtkomst (personen läsbar – vid skyddade personuppgifter ser bara
- * huvudcoachen personen; beslut 2026-10-09: alla coacher arbetar i alla ärenden i avtalet, inte bara egna),
- * ekonomen (beställarreferens) och beställande handläggare. Handledaren ändrar inte ärendet (närvaro, moment, anteckningar
- * och meddelanden styrs av rollkontrollen i respektive hanterare och av policyns workOn).
- * Anropas efter att ärendet lästs via ctx.repo – så att ett nej blir ett begripligt fel i stället för ett behörighetsfel.
+ * Får aktören ändra ärendet i någon av rollerna? Samma regel som policyn (caseWrite i src/data/policy.ts) och prototypens
+ * canEditCase, prövad per roll (Karims beslut 7, 2026-10-09 – summan av rollerna, aldrig mer):
+ *   samordnare, avtalsansvarig och coach  full åtkomst genom en av de rollerna (vid skyddade personuppgifter bara namngiven
+ *                                         huvudcoach och avtalsansvarig; beslut 2026-10-09: alla coacher i avtalets ärenden)
+ *   kommun_handlaggare                    beställande handläggare (bara kontaktuppgifterna – case.update, triggern
+ *                                         cases_protect_columns i 0034)
+ *   ekonom                                debiteringsåtkomst – bara beställarreferensen (case.setBuyerRef)
+ * roles = rollerna som hanteraren låter ändra (standard CASE_EDIT_ROLES). Ekonomen och kommunen räknas bara när hanteraren
+ * anger dem – annars skulle t.ex. coach och ekonom få ändra ett skyddat ärende som ingen av rollerna ensam får ändra.
+ * Handledaren ändrar inte ärendet (närvaro, moment, anteckningar och meddelanden styrs av rollkontrollen i respektive hanterare
+ * och av policyns workOn). Anropas efter att ärendet lästs via ctx.repo – så att ett nej blir ett begripligt fel i stället för
+ * ett behörighetsfel.
  */
-export async function canEditCase(ctx: Ctx, c: Pick<Case, "personId" | "leadCoachId" | "referrerId">): Promise<boolean> {
-  // Någon av rollerna (Karims beslut 7, 2026-10-09).
-  const { roles, userId } = ctx.actor;
-  if (roles.some((r) => r === "samordnare" || r === "avtalsansvarig" || r === "coach") && (await ctx.repo.table("persons").get(c.personId)) !== null) return true;
-  if (roles.includes("kommun_handlaggare") && c.referrerId === userId) return true;
-  return roles.includes("ekonom");
+export async function canEditCase(ctx: Ctx, c: AccessCase, roles: readonly Role[] = CASE_EDIT_ROLES): Promise<boolean> {
+  const mine = ctx.actor.roles.filter((r) => roles.includes(r));
+  if (!mine.length) return false;
+  const editors = mine.filter((r) => CASE_EDIT_ROLES.includes(r));
+  if (editors.length && (await caseAccessAsRoles(ctx, c, editors)) === "full") return true;
+  if (mine.includes("kommun_handlaggare") && !!c.referrerId && c.referrerId === ctx.actor.userId && (await caseAccessAsRoles(ctx, c, ["kommun_handlaggare"])) === "customer") return true;
+  return mine.includes("ekonom") && (await caseAccessAsRoles(ctx, c, ["ekonom"])) === "billing";
 }
 
 // ---------------------------------------------------------------- Rader

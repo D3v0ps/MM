@@ -62,7 +62,7 @@
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
 // ljudfilernas rader via ctx.audio, bilagornas rader via ctx.attachments, självregistreringens profil och medlemskap) körs via
 // ctx.system (service role) och passerar inte policyn.
-import { hasRole, isCustomerRole, isSupplierRole, roleActors, type Actor, type Role, type RoleActor } from "@/api/roles";
+import { contractsFor, hasRole, isCustomerRole, isSupplierRole, roleActors, type Actor, type Role, type RoleActor } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccessAs, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
@@ -156,13 +156,25 @@ const workOn = (caseId: string, a: RoleActor, raw: Raw) => {
   const acc = accessTo(raw, a, caseId);
   return acc === "full" || acc === "team";
 };
-/** Får ändra ärendet (och dess statushistorik och team). */
+/** Beställarens kontaktuppgifter – det enda kommunens handläggare ändrar i ett befintligt ärende (case.update). */
+export const CASE_CUSTOMER_FIELDS = ["referrerName", "referrerUnit", "referrerPhone", "referrerEmail"] as const;
+/**
+ * Får ändra ärendet (och dess statushistorik och team). Per roll, också vilka fält (triggern cases_protect_columns, 0034):
+ * samordnare, avtalsansvarig och coach med full åtkomst till ärendet före och efter ändringen – alla fält; ekonomen
+ * (debiteringsåtkomst) bara beställarreferensen; beställande handläggare bara beställarens kontaktuppgifter (och beställningen,
+ * en ny rad). En roll som bara får ändra vissa fält lyfter aldrig en annan rolls spärr – coach och ekonom ändrar inte platsen i
+ * ett skyddat ärende som ingen av rollerna ensam får ändra.
+ */
 function caseWrite(c: Case, a: RoleActor, raw: Raw): boolean {
   const acc = accessOfCase(raw, a, c);
-  if (a.role === "samordnare" || a.role === "avtalsansvarig") return acc === "full";
-  if (a.role === "coach") return acc === "full" && exists(raw, "cases", c.id); // coachen skapar inga ärenden
-  if (a.role === "ekonom") return acc === "billing" && exists(raw, "cases", c.id); // beställarreferens
-  if (a.role === "kommun_handlaggare") return acc === "customer" && self(a, c.referrerId); // beställning och beställarens kontaktuppgifter
+  const cur = raw.get("cases", c.id);
+  const before = cur ? accessOfCase(raw, a, cur) : acc;
+  const onlyFields = (fields: readonly string[]) => !cur || changedFields(cur, c).every((k) => fields.includes(k));
+  if (a.role === "samordnare" || a.role === "avtalsansvarig") return acc === "full" && before === "full";
+  if (a.role === "coach") return acc === "full" && before === "full" && !!cur; // coachen skapar inga ärenden
+  if (a.role === "ekonom") return acc === "billing" && !!cur && onlyFields(["buyerReference"]); // beställarreferens
+  // Beställningen (ny rad) och beställarens kontaktuppgifter.
+  if (a.role === "kommun_handlaggare") return acc === "customer" && self(a, c.referrerId) && (!cur || self(a, cur.referrerId)) && onlyFields(CASE_CUSTOMER_FIELDS);
   return false;
 }
 const caseWriteById = (caseId: string, a: RoleActor, raw: Raw) => { const c = raw.get("cases", caseId); return !!c && caseWrite(c, a, raw); };
@@ -521,7 +533,14 @@ const RULES: { [N in TableName]: RoleRule<Tables[N]> } = {
   },
   memberships: {
     read: (m, a) => self(a, m.userId) || ((isMB(a) || isKom(a)) && member(a, m.contractId)),
-    write: (m, a) => a.role === "admin" || (a.role === "avtalsansvarig" && member(a, m.contractId) && isCustomerRole(m.role)),
+    // Admin, eller avtalsansvarig för kommunens roller i sitt avtal – både för den nya raden och för den befintliga (en ändring
+    // gör aldrig om en kollegas roll till en kommunroll). Användare och avtal ändras aldrig (KEY_COLUMNS). Samma regler som
+    // memberships_insert/update/delete i 0034.
+    write: (m, a, raw) => {
+      const ok = (x: Tables["memberships"]) => a.role === "admin" || (a.role === "avtalsansvarig" && member(a, x.contractId) && isCustomerRole(x.role));
+      const cur = raw.get("memberships", m.id);
+      return ok(m) && (!cur || ok(cur));
+    },
   },
   // Vald roll (0027): bara den egna raden, id = userId, och bara en roll man har medlemskap för (role_choices_insert/update).
   role_choices: {
@@ -786,9 +805,11 @@ const RULES: { [N in TableName]: RoleRule<Tables[N]> } = {
 
 // ---------------------------------------------------------------- Belopp i kronor
 /**
- * Belopp i kronor (öre) lämnas bara till den som har rollen ekonom – i något avtal, och då alltid (Karims beslut 5 och 7,
- * 2026-10-07 och 2026-10-09). Raderna har samma läsare som förut; för alla andra står beloppet som 0 (null i fält som får vara
- * null). Spegel av vyerna <tabell>_public i 0034_alla_roller.sql. Servern tar dessutom bort beloppen i svaren (hidesMoney).
+ * Belopp i kronor (öre) lämnas bara till den som har rollen ekonom i radens avtal – och då alltid (Karims beslut 5 och 7,
+ * 2026-10-07 och 2026-10-09). En roll ger bara rätt i de avtal där personen har just den rollen: den som är coach i ett avtal
+ * och ekonom i ett annat ser inga belopp i det första. Raderna har samma läsare som förut; för alla andra står beloppet som 0
+ * (null i fält som får vara null). Spegel av vyerna <tabell>_public och mm.money_in i 0034_alla_roller.sql. Servern tar
+ * dessutom bort beloppen i svaren (hidesMoney med avtalet).
  */
 export const MONEY_MASK: { readonly [N in TableName]?: Readonly<Partial<Tables[N]>> } = {
   price_items: { priceOre: 0 },
@@ -798,22 +819,103 @@ export const MONEY_MASK: { readonly [N in TableName]?: Readonly<Partial<Tables[N
   contract_deviations: { penaltyOre: 0 },
   ai_runs: { costOre: 0 },
 };
-/** Ser aktören belopp i kronor i databasen? (mm.has_role('ekonom').) */
-export const seesMoneyInData = (actor: Pick<Actor, "roles">): boolean => hasRole(actor, "ekonom");
+/**
+ * Avtalet som radens belopp hör till: radens eget, fakturans (fakturarader) eller ärendets (bonus, AI-körningar). Saknas
+ * avtalet (en AI-körning utan ärende) lämnas beloppet aldrig ut. Samma uppslag som beloppsfunktionerna i 0034.
+ */
+export const MONEY_CONTRACT: { readonly [N in TableName]?: (row: Tables[N], raw: Raw) => string | null | undefined } = {
+  price_items: (x) => x.contractId,
+  invoice_drafts: (x) => x.contractId,
+  invoice_lines: (x, r) => r.get("invoice_drafts", x.invoiceDraftId)?.contractId,
+  bonus_claims: (x, r) => r.get("cases", x.caseId)?.contractId,
+  contract_deviations: (x) => x.contractId,
+  ai_runs: (x, r) => (x.caseId ? r.get("cases", x.caseId)?.contractId : null),
+};
+/** Ser aktören belopp i kronor i avtalet i databasen? (mm.money_in: rollen ekonom i just det avtalet.) */
+export const seesMoneyInData = (actor: Pick<Actor, "roles" | "contractIds" | "roleContracts">, contractId: string | null | undefined): boolean =>
+  !!contractId && hasRole(actor, "ekonom") && contractsFor(actor, "ekonom").includes(contractId);
+/**
+ * Avtalets konfiguration utan vitenas belopp (penalties tomt, som mm.customer_safe_config) för den som inte är ekonom i avtalet
+ * (mm.visible_contracts, 0034). Avsnittet finns kvar – avtalet är fortfarande i drift (isOperational) – men utan belopp.
+ * Servern räknar vitet via ctx.system (ledning.cdevSave).
+ */
+const withoutPenaltyAmounts = (c: Tables["contracts"]): Tables["contracts"] =>
+  c.config.penalties && typeof c.config.penalties === "object" ? { ...c, config: { ...c.config, penalties: {} as never } } : c;
 
-/** Unionen över aktörens roller: raden får läsas (skrivas) om någon av rollerna får det. */
-function unionOf<T>(rule: RoleRule<T>, money?: Partial<T>): RowPolicy<Tables, T & Tables[TableName]> {
+/** Masken per tabell: kolumnerna som aktören inte får läsa i en rad den får läsa (vyerna i databasen). */
+type AnyRow = Record<string, unknown>;
+type Mask = (row: AnyRow, actor: Actor, raw: Raw) => AnyRow;
+function maskOf(name: TableName): Mask | undefined {
+  if (name === "contracts") {
+    return (row, actor) => {
+      const c = row as unknown as Tables["contracts"];
+      return (seesMoneyInData(actor, c.id) ? c : withoutPenaltyAmounts(c)) as unknown as AnyRow;
+    };
+  }
+  const money = MONEY_MASK[name] as AnyRow | undefined;
+  const contractOf = MONEY_CONTRACT[name] as ((row: AnyRow, raw: Raw) => string | null | undefined) | undefined;
+  if (!money || !contractOf) return undefined;
+  return (row, actor, raw) => (seesMoneyInData(actor, contractOf(row, raw)) ? row : { ...row, ...money });
+}
+
+/**
+ * Nycklar som en användare aldrig ändrar i en befintlig rad (triggern mm.protect_keys i 0034): raden kan inte flyttas till ett
+ * annat avtal, ärende, en annan faktura eller användare. Annars kunde läsrätten på den gamla raden komma från en roll och
+ * skrivrätten på den nya från en annan – mer än summan av rollerna (t.ex. ekonom i ett avtal och samordnare i ett annat som
+ * flyttar ett ärende mellan avtalen). Systemsteg (ctx.system) omfattas inte.
+ */
+export const KEY_COLUMNS: { readonly [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
+  cases: ["contractId"],
+  memberships: ["userId", "contractId"],
+  contract_areas: ["contractId"],
+  price_items: ["contractId"],
+  billing_runs: ["contractId"],
+  invoice_drafts: ["contractId"],
+  invoice_lines: ["invoiceDraftId"],
+  billing_week_approvals: ["contractId", "caseId"],
+  invoice_credits: ["contractId"],
+  fortnox_runs: ["contractId"],
+  contract_deviations: ["contractId"],
+  alerts: ["contractId", "caseId"],
+  reports: ["contractId", "caseId"],
+  activities: ["caseId"],
+  attendance: ["caseId"],
+  check_ins: ["caseId"],
+  consents: ["caseId"],
+  deviations: ["caseId"],
+  intake_assessments: ["caseId"],
+  monthly_assessments: ["caseId"],
+  monthly_plans: ["caseId"],
+  outcome_events: ["caseId"],
+  placements: ["caseId"],
+  pulse_invites: ["caseId"],
+  voice_links: ["caseId"],
+  case_status_history: ["caseId"],
+  case_team: ["caseId"],
+  bonus_claims: ["caseId"],
+  ai_runs: ["caseId"],
+};
+const keysUnchanged = (name: TableName, cur: Record<string, unknown>, next: Record<string, unknown>): boolean =>
+  ((KEY_COLUMNS[name] ?? []) as readonly string[]).every((k) => JSON.stringify(cur[k] ?? null) === JSON.stringify(next[k] ?? null));
+
+/**
+ * Unionen över aktörens roller: raden får läsas (skrivas) om någon av rollerna får det. En ändring kräver att SAMMA roll får
+ * läsa den befintliga raden och skriva den nya (aldrig läsrätt från en roll och skrivrätt från en annan) och att nycklarna
+ * står kvar (KEY_COLUMNS).
+ */
+function unionOf<T>(name: TableName, rule: RoleRule<T>): RowPolicy<Tables, T & Tables[TableName]> {
+  const mask = maskOf(name) as RowPolicy<Tables, T & Tables[TableName]>["mask"] | undefined;
   return {
     read: (row, actor, raw) => roleActors(actor).some((a) => rule.read(row, a, raw)),
     write: (row, actor, raw) => !!rule.write && roleActors(actor).some((a) => rule.write!(row, a, raw)),
-    ...(money ? { mask: (row, actor) => (seesMoneyInData(actor) ? row : { ...row, ...money }) } : {}),
+    update: (cur, next, actor, raw) =>
+      !!rule.write && keysUnchanged(name, cur as Record<string, unknown>, next as Record<string, unknown>)
+      && roleActors(actor).some((a) => rule.read(cur, a, raw) && rule.write!(next, a, raw)),
+    ...(mask ? { mask } : {}),
   };
 }
 export const POLICIES: Policies<Tables> = Object.fromEntries(
-  Object.entries(RULES).map(([name, rule]) => [
-    name,
-    unionOf(rule as RoleRule<Tables[TableName]>, MONEY_MASK[name as TableName] as Partial<Tables[TableName]> | undefined),
-  ]),
+  Object.entries(RULES).map(([name, rule]) => [name, unionOf(name as TableName, rule as RoleRule<Tables[TableName]>)]),
 ) as Policies<Tables>;
 
 /** För tester och hanterare som vill fråga utan att läsa: får aktören läsa raden? (Någon av rollerna.) */
@@ -821,3 +923,7 @@ export const canReadRow = <N extends TableName>(name: N, row: Tables[N], actor: 
   roleActors(actor).some((a) => RULES[name].read(row, a, raw));
 export const canWriteRow = <N extends TableName>(name: N, row: Tables[N], actor: Actor, raw: Raw): boolean =>
   roleActors(actor).some((a) => (RULES[name].write ?? never)(row, a, raw));
+/** Får aktören ändra raden cur till next? Samma roll läser den befintliga och skriver den nya, och nycklarna står kvar. */
+export const canUpdateRow = <N extends TableName>(name: N, cur: Tables[N], next: Tables[N], actor: Actor, raw: Raw): boolean =>
+  !!RULES[name].write && keysUnchanged(name, cur as Record<string, unknown>, next as Record<string, unknown>)
+  && roleActors(actor).some((a) => RULES[name].read(cur, a, raw) && RULES[name].write!(next, a, raw));

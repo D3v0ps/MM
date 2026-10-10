@@ -6,7 +6,8 @@ import { navFor } from "@/shell/nav-config";
 import { startPathFor, START_PATH } from "@/shell/routes";
 import { ROLES, type Actor } from "./roles";
 import {
-  FULL_ACCESS_TESTERS, hidesCommercial, hidesMoney, isTesterHiddenPath, MONEY_ROLES, moneyVisible, roleHiddenFromTesters, testerRoleBlocks, TESTER_HIDDEN_PAGE, TESTER_HIDDEN_TEXT,
+  FULL_ACCESS_TESTERS, hidesCommercial, hidesMoney, isTesterHiddenPath, MONEY_ROLES, moneyVisible, roleHiddenFromTesters, testerActor, testerRoleBlocks, TESTER_HIDDEN_PAGE,
+  TESTER_HIDDEN_TEXT,
 } from "./tester-access";
 
 const actor = (extra: Partial<Actor> = {}): Actor => ({ userId: "u-robin", roles: ["admin"], contractIds: ["c-bot"], ...extra });
@@ -52,38 +53,64 @@ describe("hidesCommercial", () => {
 
 // Beslut 5 (Karim 2026-10-07): belopp syns bara för rollen ekonom – samma skydd som en begränsad testare för alla andra roller.
 describe("hidesMoney: belopp bara för rollen ekonom", () => {
-  it("ekonomen ser belopp – utom som begränsad testare", () => {
+  it("ekonomen ser belopp i sitt avtal – utom som begränsad testare", () => {
     expect([...MONEY_ROLES]).toEqual(["ekonom"]);
     const lars = actor({ userId: "u-lars", roles: ["ekonom"] });
-    expect(hidesMoney(lars)).toBe(false);
-    expect(hidesMoney({ ...lars, testerId: "tester-karim" })).toBe(false);
-    expect(hidesMoney({ ...lars, testerId: "tester-sara" })).toBe(true);
+    expect(hidesMoney(lars, "c-bot")).toBe(false);
+    expect(hidesMoney({ ...lars, testerId: "tester-karim" }, "c-bot")).toBe(false);
+    expect(hidesMoney({ ...lars, testerId: "tester-sara" }, "c-bot")).toBe(true);
+    // Inget avtal, eller ett avtal där personen inte är ekonom: inga belopp.
+    expect(hidesMoney(lars, "c-ny")).toBe(true);
+    expect(hidesMoney(lars, null)).toBe(true);
   });
 
   it("alla andra roller – också systemadministratören, chefen och kommunen – får samma skydd som en begränsad testare", () => {
     const others = ROLES.filter((r) => r !== "ekonom");
     expect(others).toEqual(expect.arrayContaining(["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin", "kommun_handlaggare", "deltagare"]));
     for (const role of others) {
-      for (const testerId of [undefined, "tester-karim", "tester-sara"]) expect(hidesMoney(actor({ roles: [role], testerId })), `${role} ${testerId}`).toBe(true);
+      for (const testerId of [undefined, "tester-karim", "tester-sara"]) expect(hidesMoney(actor({ roles: [role], testerId }), "c-bot"), `${role} ${testerId}`).toBe(true);
       expect(moneyVisible(role, false), role).toBe(false);
     }
-    expect(hidesMoney(null)).toBe(true);
-    expect(hidesMoney(undefined)).toBe(true);
+    expect(hidesMoney(null, "c-bot")).toBe(true);
+    expect(hidesMoney(undefined, "c-bot")).toBe(true);
     expect(moneyVisible("ekonom", false)).toBe(true);
     expect(moneyVisible("ekonom", true)).toBe(false);
   });
 });
 
-// Alla roller samtidigt (Karims beslut 7, 2026-10-09): den som har rollen ekonom ser belopp alltid – också med andra roller.
+// Alla roller samtidigt (Karims beslut 7, 2026-10-09): den som har rollen ekonom ser belopp alltid – också med andra roller –
+// men bara i avtalen där personen är ekonom (summan av rollerna, aldrig mer).
 describe("hidesMoney med flera roller", () => {
   it("coach och ekonom ser belopp; coach utan ekonom aldrig; begränsad testare aldrig", () => {
-    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"] }))).toBe(false);
-    expect(hidesMoney(actor({ userId: "u-x", roles: ["admin", "avtalsansvarig", "chef", "coach", "samordnare"] }))).toBe(true);
-    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"], testerId: "tester-sara" }))).toBe(true);
-    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"], testerId: "tester-karim" }))).toBe(false);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"] }), "c-bot")).toBe(false);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["admin", "avtalsansvarig", "chef", "coach", "samordnare"] }), "c-bot")).toBe(true);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"], testerId: "tester-sara" }), "c-bot")).toBe(true);
+    expect(hidesMoney(actor({ userId: "u-x", roles: ["coach", "ekonom"], testerId: "tester-karim" }), "c-bot")).toBe(false);
   });
-  it("en begränsad testare med en testperson som har rollen ekonom nekas, också med andra roller", () => {
-    expect(testerRoleBlocks(actor({ roles: ["coach", "ekonom"], testerId: "tester-sara" }), "coach.minVecka")).toBe(true);
+  it("roller i olika avtal: coach i c-bot och ekonom i c-ny ser belopp bara i c-ny", () => {
+    const split = actor({ userId: "u-x", roles: ["coach", "ekonom"], contractIds: ["c-bot", "c-ny"], roleContracts: { coach: ["c-bot"], ekonom: ["c-ny"] } });
+    expect(hidesMoney(split, "c-bot")).toBe(true);
+    expect(hidesMoney(split, "c-ny")).toBe(false);
+  });
+  it("en begränsad testare med rollen ekonom och en annan roll arbetar med den andra rollen (testerActor) – utan ekonomen", () => {
+    const raw = actor({ roles: ["coach", "ekonom"], testerId: "tester-sara", contractIds: ["c-bot", "c-ny"], roleContracts: { coach: ["c-bot"], ekonom: ["c-ny"] } });
+    // Utan testerActor skulle allt nekas – testaren har fått rollerna av administratören och agerar som sig själv.
+    expect(testerRoleBlocks(raw, "coach.minVecka")).toBe(true);
+    const a = testerActor(raw);
+    expect(a.roles).toEqual(["coach"]);
+    expect(a.contractIds).toEqual(["c-bot"]);
+    expect(a.roleContracts).toBeUndefined();
+    expect(testerRoleBlocks(a, "coach.minVecka")).toBe(false);
+    expect(hidesMoney(a, "c-ny")).toBe(true);
+    // Bara dolda roller: aktören orörd – allt utom sessionens frågor nekas.
+    const onlyEkonom = actor({ roles: ["ekonom"], testerId: "tester-sara" });
+    expect(testerActor(onlyEkonom)).toBe(onlyEkonom);
+    expect(testerRoleBlocks(onlyEkonom, "coach.minVecka")).toBe(true);
+    // Testare med fullständig åtkomst och vanliga användare: orörda.
+    const karim = { ...raw, testerId: "tester-karim" };
+    expect(testerActor(karim)).toBe(karim);
+    const plain = { ...raw, testerId: undefined };
+    expect(testerActor(plain)).toBe(plain);
     expect(testerRoleBlocks(actor({ roles: ["coach"], testerId: "tester-sara" }), "coach.minVecka")).toBe(false);
   });
 });

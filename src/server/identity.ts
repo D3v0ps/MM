@@ -3,7 +3,7 @@
 // hanterarnas rollkontroll och RLS alltid ser samma aktör. Testare (profiles.is_tester) kan i testmiljön agera som en testperson (tester_sessions).
 // I produktion finns ingen testarfunktion (databasen svarar då alltid med den egna profilen).
 import { ROLES, sortRoles, type Actor, type Role } from "@/api/roles";
-import { hidesCommercial, roleHiddenFromTesters } from "@/api/tester-access";
+import { hidesCommercial, roleHiddenFromTesters, testerActor } from "@/api/tester-access";
 import { listPersonas, personaFor, type Persona } from "@/data/actors";
 import type { RawAccess } from "@/data/memory";
 import type { Membership, Organization, Profile, Tables } from "@/data/schema";
@@ -96,10 +96,11 @@ export async function resolveIdentity(store: IdentityStore, environment: Environ
     const own = [...(a.roleContracts?.[r] ?? contractIds)].sort();
     if (own.length !== contractIds.length) roleContracts[r] = own;
   }
-  const actor: Actor = {
+  // En begränsad testare arbetar utan rollerna som är dolda för testare (ekonom) – summan av sina andra roller (testerActor).
+  const actor: Actor = testerActor({
     userId: a.userId, roles, contractIds, ...(Object.keys(roleContracts).length ? { roleContracts } : {}), customerUnit: a.customerUnit ?? null,
     ...(tester ? { testerId: a.authProfileId } : {}),
-  };
+  });
   const known = personaFor(dir, a.userId);
   const persona: Persona = known
     ? { ...known, actor }

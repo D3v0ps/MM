@@ -1,7 +1,7 @@
 // Hanterare för området ärenden (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
-import { hasAnyRole, hasRole, isCustomerActor, type Actor, type Role } from "@/api/roles";
+import { contractsAs, hasAnyRole, hasRole, type Actor, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx, type PnrCrypto } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { caseAccessIn, displayName, type AccessSource } from "@/core/access";
@@ -39,6 +39,7 @@ import type {
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
+import { caseAccessAsRoles } from "../_shared/case-access";
 import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
 import { fieldWord } from "../admin/audit-text";
@@ -80,15 +81,24 @@ const CONSENT_TEXT_VERSION = "v1.0 (2026-10-01)";
 /** Statushistorik för ärendet (en rad per status- eller coachbyte) – gemensam med beställningens skapande (./order.ts). */
 const addHistory = addCaseHistory;
 
-/** Avtalet en beställning görs i: det angivna, annars användarens första aktiva avtal som har driftkonfiguration. */
+/** Tar emot beställningar som Miljonbemanning (telefon, mejl): samordnare och avtalsansvarig. */
+const ORDER_MB: readonly Role[] = ["samordnare", "avtalsansvarig"];
+/** Beställer: Miljonbemanning (ORDER_MB) och kommunens handläggare. */
+const ORDER_ROLES: readonly Role[] = [...ORDER_MB, "kommun_handlaggare"];
+
+/**
+ * Avtalet en beställning görs i: det angivna, annars användarens första aktiva avtal som har driftkonfiguration – bland
+ * avtalen där användaren har en roll som beställer (ORDER_ROLES), aldrig ett avtal där personen bara har en annan roll.
+ */
 async function orderContract(ctx: Ctx, requested: string | undefined): Promise<Contract | null> {
-  const ok = (c: Contract | null | undefined): c is Contract => !!c && c.status === "active" && isOperational(c.config) && (ctx.actor.contractIds.includes(c.id));
+  const mine = contractsAs(ctx.actor, ORDER_ROLES);
+  const ok = (c: Contract | null | undefined): c is Contract => !!c && c.status === "active" && isOperational(c.config) && mine.includes(c.id);
   if (requested) {
     const c = await ctx.repo.table("contracts").get(requested);
     return ok(c) ? c : null;
   }
   const all = await ctx.repo.table("contracts").list({ status: "active" });
-  for (const id of ctx.actor.contractIds) {
+  for (const id of mine) {
     const c = all.find((x) => x.id === id);
     if (ok(c)) return c;
   }
@@ -98,11 +108,12 @@ async function orderContract(ctx: Ctx, requested: string | undefined): Promise<C
 // ---------------------------------------------------------------- case.create
 // Själva skapandet (person, löpnummer, ärende, statushistorik, bilagor och ordererkännande) ligger i ./order.ts
 // (createOrder) och delas med inkorg.register (telefon/mejl registrerat av Miljonbemanning) och mejlinläsningen.
-handleCommand(caseCreate, { roles: ["samordnare", "avtalsansvarig", "kommun_handlaggare"] }, async (ctx, p) => {
-  // Kommunen: bara kommunens roller (den som också har en av Miljonbemannings roller beställer som Miljonbemanning).
-  const customer = isCustomerActor(ctx.actor);
+handleCommand(caseCreate, { roles: ORDER_ROLES }, async (ctx, p) => {
   const contract = await orderContract(ctx, p.contractId);
   if (!contract) return fail("no_contract", "Det finns inget aktivt avtal att beställa i.");
+  // Som Miljonbemanning bara med samordnarens eller avtalsansvarigs roll i avtalet – annars som kommunens handläggare (en annan
+  // av Miljonbemannings roller, t.ex. ekonom, ger inga fält utöver kommunens formulär).
+  const customer = !contractsAs(ctx.actor, ORDER_MB).includes(contract.id);
   const cfg = requireOperational(contract.config);
 
   // Beställarreferensen fylls i av Miljonbemanning (beslut 2026-10-07) – kommunens formulär skickar ingen.
@@ -282,10 +293,13 @@ handleCommand(caseUpdate, { roles: ["samordnare", "avtalsansvarig", "coach", "ko
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   const keys = Object.keys(p.patch) as (keyof CasePatch)[];
-  if (isCustomerActor(ctx.actor) && keys.some((k) => !(CUSTOMER_PATCH_FIELDS as readonly string[]).includes(k))) {
-    return fail("forbidden", "Du kan bara ändra dina kontaktuppgifter i beställningen.");
+  // Fälträtten per roll: alla fält med full åtkomst som samordnare, avtalsansvarig eller coach – annars bara beställarens
+  // kontaktuppgifter, och bara för beställande handläggare (samma som triggern cases_protect_columns, 0034).
+  if (!(await canEditCase(ctx, c))) {
+    if (!hasRole(ctx.actor, "kommun_handlaggare")) return fail("forbidden", NO_EDIT);
+    if (keys.some((k) => !(CUSTOMER_PATCH_FIELDS as readonly string[]).includes(k))) return fail("forbidden", "Du kan bara ändra dina kontaktuppgifter i beställningen.");
+    if (!(await canEditCase(ctx, c, ["kommun_handlaggare"]))) return fail("forbidden", NO_EDIT);
   }
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   if (p.patch.purchaseOrderNumber) {
     const { cfg } = await contractOf(ctx, c.contractId);
     const err = poNumberError(p.patch.purchaseOrderNumber, cfg);
@@ -303,10 +317,12 @@ handleCommand(caseUpdate, { roles: ["samordnare", "avtalsansvarig", "coach", "ko
 });
 
 // ---------------------------------------------------------------- case.setBuyerRef
-handleCommand(caseSetBuyerRef, { roles: ["ekonom", "samordnare", "avtalsansvarig"] }, async (ctx, p) => {
+const BUYER_REF_ROLES: readonly Role[] = ["ekonom", "samordnare", "avtalsansvarig"];
+handleCommand(caseSetBuyerRef, { roles: BUYER_REF_ROLES }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
+  // Ekonomen (debiteringsåtkomst) ändrar bara beställarreferensen – här och ingen annanstans (canEditCase).
+  if (!(await canEditCase(ctx, c, BUYER_REF_ROLES))) return fail("forbidden", NO_EDIT);
   const ref = p.reference.trim();
   const { cfg } = await contractOf(ctx, c.contractId);
   const err = buyerRefError(ref, cfg);
@@ -584,9 +600,17 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
 handleCommand(messageSend, { roles: [...CASE_WORKERS, "kommun_handlaggare"] }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
-  const fromCustomer = isCustomerActor(ctx.actor);
-  // Från kommunen skriver bara handläggaren som beställde insatsen (prototypens canWrite).
-  if (fromCustomer && c.referrerId !== ctx.actor.userId) return fail("forbidden", "Meddelanden om deltagaren skickas av handläggaren som beställde insatsen.");
+  // Per roll: Miljonbemanning skriver som den som arbetar i ärendet (full- eller teamåtkomst); annars skriver bara
+  // handläggaren som beställde insatsen (prototypens canWrite) – en annan av Miljonbemannings roller (t.ex. ekonom) lyfter
+  // inte kommunens spärr.
+  const worker = ["full", "team"].includes(await caseAccessAsRoles(ctx, c, CASE_WORKERS));
+  const fromCustomer = !worker;
+  if (fromCustomer) {
+    if (!hasRole(ctx.actor, "kommun_handlaggare")) return fail("forbidden", NO_EDIT);
+    if (c.referrerId !== ctx.actor.userId || (await caseAccessAsRoles(ctx, c, ["kommun_handlaggare"])) !== "customer") {
+      return fail("forbidden", "Meddelanden om deltagaren skickas av handläggaren som beställde insatsen.");
+    }
+  }
   const body = p.body.trim();
   if (!body) return fail("empty", "Skriv ett meddelande först.");
   const now = ctx.now();

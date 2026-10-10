@@ -11,10 +11,15 @@ export type RowPolicy<TT extends Record<string, Row>, T extends Row> = {
   read(row: T, actor: Actor, raw: RawAccess<TT>): boolean;
   write?(row: T, actor: Actor, raw: RawAccess<TT>): boolean;
   /**
-   * Kolumner som aktören inte får läsa i en rad den får läsa (som vyerna <tabell>_public i databasen, t.ex. belopp i kronor
-   * för den som inte har rollen ekonom). Returnerar en ny rad – den lagrade ändras aldrig.
+   * Får aktören ändra den befintliga raden cur till next? Saknas den gäller read(cur) och write(next). Med flera roller kräver
+   * policyn att samma roll ger rätt till båda (src/data/policy.ts unionOf).
    */
-  mask?(row: T, actor: Actor): T;
+  update?(cur: T, next: T, actor: Actor, raw: RawAccess<TT>): boolean;
+  /**
+   * Kolumner som aktören inte får läsa i en rad den får läsa (som vyerna <tabell>_public i databasen, t.ex. belopp i kronor
+   * för den som inte har rollen ekonom i radens avtal). Returnerar en ny rad – den lagrade ändras aldrig.
+   */
+  mask?(row: T, actor: Actor, raw: RawAccess<TT>): T;
 };
 export type Policies<TT extends Record<string, Row>> = { [N in keyof TT]?: RowPolicy<TT, TT[N]> };
 
@@ -124,7 +129,10 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
     const canRead = (r: TT[N]) => this.opts.bypass || !policy || policy.read(r, this.actor, raw);
     const canWrite = (r: TT[N]) => this.opts.bypass || !policy?.write || policy.write(r, this.actor, raw);
     // Raden som aktören ser: utan kolumnerna som policyn döljer (mask). Villkoren i en läsning prövas mot den – som i vyn.
-    const view = (r: TT[N]): TT[N] => (this.opts.bypass || !policy?.mask ? r : policy.mask(r, this.actor));
+    const view = (r: TT[N]): TT[N] => (this.opts.bypass || !policy?.mask ? r : policy.mask(r, this.actor, raw));
+    // En ändring: samma roll läser den befintliga raden och skriver den nya (policy.update), annars läs- och skrivregeln var för sig.
+    const canUpdate = (cur: TT[N], next: TT[N]) =>
+      this.opts.bypass || !policy ? true : policy.update ? policy.update(cur, next, this.actor, raw) : canRead(cur) && canWrite(next);
     const visible = (where?: Where<TT[N]>) => store.rows(name).filter(canRead).map(view).filter((r) => matches(r, where));
     return {
       get: async (id) => {
@@ -154,7 +162,7 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         const cur = store.getRow(name, id);
         if (!cur || !canRead(cur)) throw new PolicyError(name);
         const next = { ...cur, ...patch, id } as TT[N];
-        if (!canWrite(next)) throw new PolicyError(name);
+        if (!canWrite(next) || !canUpdate(cur, next)) throw new PolicyError(name);
         return clone(view(store.updateRow(name, id, clone(patch))));
       },
       // Kontroll och skrivning i samma synkrona steg – två kommandon som körs samtidigt kan inte båda få raden.
@@ -162,7 +170,7 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
         const cur = store.getRow(name, id);
         if (!cur || !canRead(cur) || !matches(cur, where)) return null;
         const next = { ...cur, ...patch, id } as TT[N];
-        if (!canWrite(next)) return null;
+        if (!canWrite(next) || !canUpdate(cur, next)) return null;
         return clone(view(store.updateRow(name, id, clone(patch))));
       },
       remove: async (id) => {

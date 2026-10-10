@@ -208,6 +208,7 @@ const KNOWN: Known[] = [
   { command: "*", query: "admin.templates", table: "cases", reason: "utskickshistoriken visar ärendenumret" },
   { command: "*", query: "rost.pendingNotes", table: "cases", reason: "röstinkorgen filtrerar på huvudcoach – coachbytet räknar om rost." },
   { command: "*", query: "rapporter.resultatfilForhandsvisning", table: "cases", reason: "räknar bara levererade rapporter; ärendets fält läses när filen byggs" },
+  { command: "*", query: "rost.caseVoice", table: "case_team", reason: "teamet läses bara som uppslag för åtkomsten per roll (canEditCase) – tilldelningen styr inte åtkomsten sedan 2026-10-09" },
   // Notiser som går till en annan användare: mottagarens lista hämtas i dennes session (appen: 20 s och vid fokus).
   { command: "arenden.caseAccept", query: "notiser.list", table: "user_notifications", reason: "notisen går till coachen" },
   { command: "arenden.messageSend", query: "session.navCounts", table: "user_notifications", reason: "notisen går till mottagaren (coachen när kommunen skriver) – avsändarens räknare berörs inte" },

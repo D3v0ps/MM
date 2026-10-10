@@ -15,7 +15,7 @@
 //
 // Spärren ligger i Next-servern: hela frågor och kommandon som bara handlar om pengar och villkor nekas i execute()
 // (HandlerOpts.commercial), och i frågor där belopp bara är en del tas fälten bort i svaret (typade, valfria fält).
-import type { Actor, Role } from "./roles";
+import { contractsAs, contractsFor, type Actor, type Role } from "./roles";
 
 /** Testare med fullständig åtkomst (profiles.id i TESTERS, src/data/supabase/seed-rows.ts): Karim och Ali. */
 export const FULL_ACCESS_TESTERS: readonly string[] = ["tester-karim", "tester-ali"];
@@ -41,12 +41,15 @@ export const MONEY_ROLES: readonly Role[] = ["ekonom"];
 /** true = rollen får se belopp om aktören inte är en begränsad testare (samma regel som hidesMoney, för kod utan Actor). */
 export const moneyVisible = (role: Role | string, hideCommercial: boolean): boolean => (MONEY_ROLES as readonly string[]).includes(role) && !hideCommercial;
 /**
- * true = belopp i kronor ska tas bort i svaret till aktören: den som inte har rollen ekonom, och alltid begränsade testare.
- * Den som har rollen ekonom ser beloppen alltid – också med andra roller samtidigt (Karims beslut 7, 2026-10-09).
+ * true = belopp i kronor i avtalet ska tas bort i svaret till aktören: den som inte har rollen ekonom i just det avtalet, och
+ * alltid begränsade testare. Den som har rollen ekonom i avtalet ser beloppen alltid – också med andra roller samtidigt
+ * (Karims beslut 7, 2026-10-09). En roll ger bara rätt i de avtal där personen har just den rollen: den som är coach i ett
+ * avtal och ekonom i ett annat ser inga belopp i det första (samma regel som mm.money_in i 0034 och MONEY_MASK i
+ * src/data/policy.ts).
  */
-export function hidesMoney(actor: Pick<Actor, "testerId" | "roles"> | null | undefined): boolean {
-  if (!actor) return true;
-  return !actor.roles.some((r) => moneyVisible(r, hidesCommercial(actor)));
+export function hidesMoney(actor: Pick<Actor, "testerId" | "roles" | "contractIds" | "roleContracts"> | null | undefined, contractId: string | null | undefined): boolean {
+  if (!actor || !contractId) return true;
+  return !actor.roles.some((r) => moneyVisible(r, hidesCommercial(actor)) && contractsFor(actor, r).includes(contractId));
 }
 /** Texten där ett belopp annars hade stått, för andra roller än ekonomen. */
 export const MONEY_HIDDEN_TEXT = "Visas bara för ekonomen";
@@ -69,9 +72,30 @@ export const TESTER_HIDDEN_PATHS: readonly string[] = ["/admin/avtal", "/ekonomi
 export const isTesterHiddenPath = (p: string): boolean => TESTER_HIDDEN_PATHS.some((x) => p === x || p.startsWith(`${x}/`));
 
 /**
- * Får en begränsad testare anropa nyckeln med den här rollen? En begränsad testare som (från tiden före spärren) fortfarande
- * agerar som en ekonom nekas allt utom sessionens egna frågor (menyns räknare) – byte av testperson går via
- * /api/session/impersonate och påverkas inte.
+ * Aktören som en begränsad testare arbetar som: utan rollerna som är dolda för testare (ekonom) – summan av de andra rollerna,
+ * med deras avtal. Servern bygger aktören så (resolveIdentity, minneslägets simulerade testare), så att en testare som själv
+ * har fått t.ex. coach och ekonom arbetar som coach i stället för att bli utelåst. Har testaren bara dolda roller lämnas
+ * aktören orörd – då nekas allt utom sessionens frågor (testerRoleBlocks). Andra aktörer lämnas alltid orörda.
+ */
+export function testerActor<A extends Pick<Actor, "testerId" | "roles" | "contractIds" | "roleContracts">>(actor: A): A {
+  if (!hidesCommercial(actor)) return actor;
+  const roles = actor.roles.filter((r) => !roleHiddenFromTesters(r));
+  if (!roles.length || roles.length === actor.roles.length) return actor;
+  const contractIds = contractsAs(actor, roles);
+  const roleContracts: Partial<Record<Role, string[]>> = {};
+  for (const r of roles) {
+    const own = [...contractsFor(actor, r)].sort();
+    if (own.length !== contractIds.length) roleContracts[r] = own;
+  }
+  const { roleContracts: _hidden, ...rest } = actor;
+  void _hidden;
+  return { ...rest, roles, contractIds, ...(Object.keys(roleContracts).length ? { roleContracts } : {}) } as A;
+}
+
+/**
+ * Får en begränsad testare anropa nyckeln med den här rollen? En begränsad testare som bara har roller som är dolda för
+ * testare (ekonom – testerActor tar annars bort dem) nekas allt utom sessionens egna frågor (menyns räknare) – byte av
+ * testperson går via /api/session/impersonate och påverkas inte.
  */
 export function testerRoleBlocks(actor: Pick<Actor, "testerId" | "roles">, key: string): boolean {
   return hidesCommercial(actor) && actor.roles.some(roleHiddenFromTesters) && !key.startsWith("session.");

@@ -10,13 +10,13 @@ import { defaultGroupings } from "@/core/groupings";
 import { requireOperational } from "@/core/config";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
-import type { Role } from "@/api/roles";
-import { listPersonas, type Persona } from "../actors";
+import { contractsFor, sortRoles, type Actor, type Role } from "@/api/roles";
+import { actorFor, listPersonas, type Persona } from "../actors";
 import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory";
-import { canReadRow, canWriteRow, MONEY_MASK, POLICIES } from "../policy";
+import { canReadRow, canUpdateRow, canWriteRow, MONEY_CONTRACT, MONEY_MASK, POLICIES } from "../policy";
 import { TABLE_NAMES, UNIQUE_KEYS, type TableName, type Tables } from "../schema";
 import {
-  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type DatabaseSnapshot, type Tx,
+  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type Attempt, type DatabaseSnapshot, type Tx,
 } from "./pglite";
 import { USER_READ_VIEWS } from "./index";
 
@@ -145,12 +145,17 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const erik = data.profiles.find((x) => x.id === "u-erik")!;
   const colleague = (id: string, fullName: string): Tables["profiles"] => ({ ...erik, id, fullName, email: `${id}@example.invalid`, title: "Kollega (påhittad)", teamRole: null });
   const ms = (userId: string, contractId: string, role: Tables["memberships"]["role"]): Tables["memberships"] => ({ id: `${userId}:${contractId}:${role}`, userId, contractId, role, customerUnit: null });
+  // Den vilande rollen ensam (u-x-handledare) har skrivit en anteckning i Mehmets ärende – den får hen själv dölja.
+  const mehmetNote = data.case_notes.find((n) => n.id === "note-mehmet-handledare")!;
   return {
     // Först: raderna nedan pekar på avtalet (främmande nycklar).
     contracts: [other],
     profiles: [
       colleague(COACH_EKONOM, "Cecilia Coach-Ekonom"), colleague(SAM_COACH, "Sam Samordnare-Coach"), colleague(SPLIT, "Delad Kollega"), colleague(SUPERVISOR, "Hedda Handledare"),
     ],
+    // Ett pris i c-ny: beloppet syns bara för den som är ekonom i c-ny (u-x-delat), aldrig för en roll i c-bot.
+    price_items: [{ ...data.price_items.find((x) => x.priceOre > 0)!, id: "pi-x-ny", contractId: "c-ny", priceOre: 123400, fortnoxArticleNo: "NY-1" }],
+    case_notes: [{ ...mehmetNote, id: "note-x-handledare", authorId: SUPERVISOR, createdAt: "2027-01-27T09:00", body: "Text" }],
     group_activities: [
       { ...group("ga-x-bot", "c-bot", "u-amira"), goal: "Alla skriver ett CV" }, group("ga-x-installd", "c-bot", "u-sara", "u-sara"), group("ga-x-ny", "c-ny", "u-johan"),
     ],
@@ -257,6 +262,13 @@ const findPersona = (key: string) => {
 };
 
 let db: PGlite;
+
+/**
+ * policy.ts för en skrivning: en ny rad (insert) – skrivregeln; en ändring – samma roll läser den befintliga raden och skriver
+ * den nya, och nycklarna står kvar (canUpdateRow); en radering – skrivregeln med den befintliga raden.
+ */
+const memWriteRow = <N extends TableName>(t: N, cur: Tables[N] | undefined, row: Tables[N], a: Actor, r: RawAccess<Tables> = raw): boolean =>
+  cur ? canUpdateRow(t, cur, row, a, r) : canWriteRow(t, row, a, r);
 
 /** Välj testperson åt testaren (i samma transaktion, som postgres). */
 const chooseTestPerson = (profileId: string, role: string) => async (tx: Tx) => {
@@ -507,6 +519,18 @@ describe("alla roller samtidigt (0034): summan av rollerna – aldrig mer – oc
       return { id, ...Object.fromEntries(moneyFields(t).map((f) => [f, num(r[f])])) };
     });
   const masked = (t: TableName, ids: readonly string[]) => ids.map((id) => ({ id, ...Object.fromEntries(moneyFields(t).map((f) => [f, num((MONEY_MASK[t] as Record<string, unknown>)[f])])) }));
+  /** Radens avtal för beloppet (radens eget, fakturans eller ärendets – MONEY_CONTRACT, samma som mm.money_in). */
+  const moneyContract = (t: TableName, id: string) => {
+    const r = (data[t] as unknown as Record<string, unknown>[]).find((x) => x.id === id)!;
+    return (MONEY_CONTRACT[t] as (row: unknown, r: RawAccess<Tables>) => string | null | undefined)(r, raw) ?? null;
+  };
+  /** Beloppen testpersonen ska se: de verkliga i avtalen där hen är ekonom, annars 0 eller null. */
+  const expectedMoney = (t: TableName, ids: readonly string[], a: Actor) =>
+    ids.map((id) => {
+      const cid = moneyContract(t, id);
+      const sees = !!cid && a.roles.includes("ekonom") && contractsFor(a, "ekonom").includes(cid);
+      return (sees ? realMoney(t, [id]) : masked(t, [id]))[0];
+    });
 
   it("testdatat har belopp i prislistan, fakturaraderna och AI-körningarna (annars prövar testerna nedan ingenting)", () => {
     for (const t of ["price_items", "invoice_lines", "ai_runs"] as TableName[]) {
@@ -514,7 +538,7 @@ describe("alla roller samtidigt (0034): summan av rollerna – aldrig mer – oc
     }
   });
 
-  it("varje testperson: beloppen i vyerna = policy.ts – de verkliga för den som har rollen ekonom, annars 0 eller null", async () => {
+  it("varje testperson: beloppen i vyerna = policy.ts – de verkliga i avtalen där personen har rollen ekonom, annars 0 eller null", async () => {
     const ekonomer: string[] = [];
     for (const p of personas) {
       const got = await asPersona(p, async (tx) => {
@@ -525,12 +549,25 @@ describe("alla roller samtidigt (0034): summan av rollerna – aldrig mer – oc
       for (const t of MONEY_TABLES) {
         const ids = got[t].map((r) => r.id);
         expect(got[t], `${personaKey(p)} ${t}`).toEqual(await memMoney(p, t));
-        expect(got[t], `${personaKey(p)} ${t}`).toEqual(p.actor.roles.includes("ekonom") ? realMoney(t, ids) : masked(t, ids));
+        expect(got[t], `${personaKey(p)} ${t}`).toEqual(expectedMoney(t, ids, p.actor));
+        if (!p.actor.roles.includes("ekonom")) expect(got[t], `${personaKey(p)} ${t}`).toEqual(masked(t, ids));
       }
       if (p.actor.roles.includes("ekonom")) ekonomer.push(personaKey(p));
     }
-    // Ekonomen ensam, coach och ekonom, och roller i olika avtal (ekonom i c-ny – beloppen syns ändå, som hidesMoney).
     expect(ekonomer.sort()).toEqual(["u-lars|ekonom", "u-x-coachekonom|coach+ekonom", "u-x-delat|coach+ekonom"]);
+    // Roller i olika avtal (coach i c-bot, ekonom i c-ny): beloppen i c-bot (som hen läser genom coachrollen) syns inte –
+    // coachrollen ger inga belopp och ekonomrollen gäller bara i c-ny. Priset i c-ny syns.
+    const split = findPersona(SPLIT);
+    const prices = await asPersona(split, (tx) => pgMoney(tx, "price_items"));
+    expect(prices.find((r) => r.id === "pi-x-ny")).toEqual({ id: "pi-x-ny", priceOre: 123400 });
+    expect(prices.filter((r) => r.id !== "pi-x-ny").length).toBeGreaterThan(0);
+    expect(prices.filter((r) => r.id !== "pi-x-ny").every((r) => (r as Record<string, unknown>).priceOre === 0)).toBe(true);
+    expect(await memMoney(split, "price_items")).toEqual(prices);
+    const aiRuns = await asPersona(split, (tx) => pgMoney(tx, "ai_runs"));
+    expect(aiRuns.length).toBeGreaterThan(0);
+    expect(aiRuns.every((r) => (r as Record<string, unknown>).costOre === 0)).toBe(true);
+    // Ekonomen i c-bot ser inte priset i c-ny (och läser inte ens raden).
+    expect((await asPersona(findPersona("u-lars"), (tx) => pgMoney(tx, "price_items"))).some((r) => r.id === "pi-x-ny")).toBe(false);
   }, 120_000);
 
   it("ingen inloggad läser ett belopp direkt i tabellen – inte ens ekonomen; övriga kolumner och antalet rader går (service role läser allt)", async () => {
@@ -563,6 +600,15 @@ describe("alla roller samtidigt (0034): summan av rollerna – aldrig mer – oc
     const fn = (key: string) => asPersona(findPersona(key), async (tx) => (await tx.query<{ v: unknown }>("select mm.price_item_price_ore($1) as v", [priceId])).rows[0].v);
     expect(await fn("u-sara")).toBeNull();
     expect(num(await fn("u-lars"))).toBe(data.price_items.find((x) => x.id === priceId)!.priceOre);
+    // Funktionen prövar radens avtal: ekonomen i c-ny får inget belopp för en rad i c-bot (och tvärtom) – inte heller med id:t.
+    expect(await fn(SPLIT)).toBeNull();
+    const fnNy = (key: string) => asPersona(findPersona(key), async (tx) => (await tx.query<{ v: unknown }>("select mm.price_item_price_ore('pi-x-ny') as v")).rows[0].v);
+    expect(num(await fnNy(SPLIT))).toBe(123400);
+    expect(await fnNy("u-lars")).toBeNull();
+    const line = EXTRA.invoice_lines![0];
+    const lineFn = (key: string) => asPersona(findPersona(key), async (tx) => (await tx.query<{ v: unknown }>("select mm.invoice_line_unit_price_ore($1) as v", [line.id])).rows[0].v);
+    expect(num(await lineFn("u-lars"))).toBe(line.unitPriceOre);
+    expect(await lineFn(SPLIT)).toBeNull();
   }, 60_000);
 
   it("en ändring via tabellen lämnar inget belopp tillbaka (returning) – SupabaseRepo läser raden via vyn", async () => {
@@ -648,6 +694,200 @@ describe("alla roller samtidigt (0034): summan av rollerna – aldrig mer – oc
     expect(caseAccessIn(SKYDDAD_CASE, findPersona(SAM_COACH).actor, accessIndex(data))).toBe("restricted");
     expect(caseAccessIn(SKYDDAD_CASE, findPersona("tester-ali").actor, accessIndex(data))).toBe("full"); // avtalsansvarig
   }, 60_000);
+});
+
+// ================================================================ Efter granskningen: summan av rollerna också i skrivningar
+describe("efter granskningen (0034): aldrig mer än summan av rollerna – skrivningar, kvittenser, medlemskap och vitena i avtalet", () => {
+  /** Aktören i policy.ts med extra medlemskap (samma regel som actorFor). */
+  const extraMs = (userId: string, extra: readonly [Role, string][]) =>
+    extra.map(([role, contractId]) => ({ id: `${userId}:${contractId}:${role}:x`, userId, contractId, role, customerUnit: null }));
+  const withMemberships = (userId: string, extra: readonly [Role, string][]): Actor => {
+    const added = extraMs(userId, extra);
+    const rawX: RawAccess<Tables> = { ...raw, all: ((t: TableName) => (t === "memberships" ? [...raw.all("memberships"), ...added] : raw.all(t as never))) as RawAccess<Tables>["all"] };
+    const a = actorFor(rawX, userId);
+    if (!a) throw new Error(`Ingen aktör: ${userId}`);
+    return a;
+  };
+  /** Samma medlemskap i databasen (i transaktionen, som postgres). */
+  const addMemberships = (userId: string, extra: readonly [Role, string][]) => async (tx: Tx) => {
+    for (const m of extraMs(userId, extra)) await tx.query("insert into public.memberships (id, user_id, contract_id, role, customer_unit) values ($1, $2, $3, $4, null)", [m.id, m.userId, m.contractId, m.role]);
+  };
+  const pgAs = (userId: string, extra: readonly [Role, string][], sql: string, params: unknown[] = []) =>
+    asUser(db, authOf(userId), (tx) => attempt(tx, sql, params), extra.length ? { before: addMemberships(userId, extra) } : {});
+
+  it("vitenas belopp i avtalets konfiguration: bara för ekonomen i avtalet – coach, samordnare, chef, admin och kommunen får avsnittet utan belopp (databasen = policy.ts)", async () => {
+    const real = JSON.parse(JSON.stringify(data.contracts.find((c) => c.id === "c-bot")!.config.penalties));
+    expect(real).toEqual({ deviationOre: 2500000, insufficientInformationOre: 2500000 });
+    for (const key of ["u-amira", "u-sara", "u-karin", "u-robin", "u-johan", "tester-ali", "u-lars", COACH_EKONOM, SPLIT, "k-maria"]) {
+      const p = findPersona(key);
+      const pg = await asPersona(p, async (tx) => (await tx.query<{ penalties: unknown }>("select config -> 'penalties' as penalties from public.contracts_public where id = 'c-bot'")).rows[0]?.penalties ?? null);
+      const memRow = await new MemoryRepo<Tables>(store, actorOf(p), POLICIES).table("contracts").get("c-bot");
+      expect(pg, key).toEqual(JSON.parse(JSON.stringify(memRow?.config.penalties ?? null)));
+      // Ekonomen i c-bot ser beloppen; alla andra – också coach i c-bot och ekonom i c-ny – ser avsnittet utan belopp.
+      expect(pg, key).toEqual(p.actor.roles.includes("ekonom") && contractsFor(p.actor, "ekonom").includes("c-bot") ? real : {});
+    }
+    // Servern läser beloppen som service role (ledning.cdevSave räknar vitet så).
+    const service = await asUser(db, null, async (tx) => (await tx.query<{ p: unknown }>("select config -> 'penalties' as p from public.contracts where id = 'c-bot'")).rows[0].p, { role: "service_role" });
+    expect(service).toEqual(real);
+  });
+
+  it("ärendets kolumner per roll: coach och ekonom ändrar inte ett skyddat ärende (bara beställarreferensen), ekonom och kommun inte ett ärende de inte beställt (databasen = policy.ts)", async () => {
+    const skyddad = SKYDDAD_CASE;
+    const ce = findPersona(COACH_EKONOM);
+    expect(caseAccessIn(skyddad, { ...ce.actor, roles: ["coach"] }, accessIndex(data))).toBe("restricted");
+    const memCase = (a: Actor, patch: Partial<Tables["cases"]>, c = skyddad) => memWriteRow("cases", raw.get("cases", c.id)!, { ...raw.get("cases", c.id)!, ...patch }, a);
+    const coachEkonom = {
+      location: await asPersona(ce, (tx) => attempt(tx, "update public.cases set location = 'Ny plats' where id = $1", [skyddad.id])),
+      background: await asPersona(ce, (tx) => attempt(tx, "update public.cases set background_info = 'Ny' where id = $1", [skyddad.id])),
+      buyerRef: await asPersona(ce, (tx) => attempt(tx, "update public.cases set buyer_reference = '1234567890' where id = $1", [skyddad.id])),
+      both: await asPersona(ce, (tx) => attempt(tx, "update public.cases set buyer_reference = '1234567890', location = 'Ny plats' where id = $1", [skyddad.id])),
+    };
+    expect(allowed(coachEkonom.location)).toBe(false);
+    expect(allowed(coachEkonom.background)).toBe(false);
+    expect(allowed(coachEkonom.both)).toBe(false);
+    expect(allowed(coachEkonom.buyerRef)).toBe(true);
+    expect(memCase(ce.actor, { location: "Ny plats" })).toBe(false);
+    expect(memCase(ce.actor, { backgroundInfo: "Ny" })).toBe(false);
+    expect(memCase(ce.actor, { buyerReference: "1234567890", location: "Ny plats" })).toBe(false);
+    expect(memCase(ce.actor, { buyerReference: "1234567890" })).toBe(true);
+    // Namngiven huvudcoach (Erik) ändrar platsen i sitt skyddade ärende som förut.
+    expect(allowed(await asPersona(findPersona(skyddad.leadCoachId!), (tx) => attempt(tx, "update public.cases set location = 'Ny plats' where id = $1", [skyddad.id])))).toBe(true);
+    expect(memCase(findPersona(skyddad.leadCoachId!).actor, { location: "Ny plats" })).toBe(true);
+
+    // Ekonom och kommunens handläggare (Lars får rollen kommun_handlaggare i c-bot): bara beställarreferensen – inte omfattningen
+    // eller bakgrunden i ett ärende han inte beställt.
+    const maria = data.cases.find((c) => c.referrerId === "k-maria" && c.contractId === "c-bot")!;
+    const larsKom = withMemberships("u-lars", [["kommun_handlaggare", "c-bot"]]);
+    expect(larsKom.roles).toEqual(["ekonom", "kommun_handlaggare"]);
+    const lk = (sql: string) => pgAs("u-lars", [["kommun_handlaggare", "c-bot"]], sql, [maria.id]);
+    expect(allowed(await lk("update public.cases set order_value_weeks = 99 where id = $1"))).toBe(false);
+    expect(allowed(await lk("update public.cases set background_info = 'Ny' where id = $1"))).toBe(false);
+    expect(allowed(await lk("update public.cases set referrer_phone = '070-000 00 00' where id = $1"))).toBe(false);
+    expect(allowed(await lk("update public.cases set buyer_reference = '1234567890' where id = $1"))).toBe(true);
+    expect(memCase(larsKom, { orderValueWeeks: 99 }, maria)).toBe(false);
+    expect(memCase(larsKom, { backgroundInfo: "Ny" }, maria)).toBe(false);
+    expect(memCase(larsKom, { referrerPhone: "070-000 00 00" }, maria)).toBe(false);
+    expect(memCase(larsKom, { buyerReference: "1234567890" }, maria)).toBe(true);
+    // Beställande handläggare: bara sina kontaktuppgifter i beställningen – inte omfattningen.
+    const mk = (sql: string) => asPersona(findPersona("k-maria"), (tx) => attempt(tx, sql, [maria.id]));
+    expect(allowed(await mk("update public.cases set referrer_phone = '070-000 00 00' where id = $1"))).toBe(true);
+    expect(allowed(await mk("update public.cases set order_value_weeks = 99 where id = $1"))).toBe(false);
+    expect(memCase(findPersona("k-maria").actor, { referrerPhone: "070-000 00 00" }, maria)).toBe(true);
+    expect(memCase(findPersona("k-maria").actor, { orderValueWeeks: 99 }, maria)).toBe(false);
+  });
+
+  it("ingen flyttar en rad till ett annat avtal: ekonom i c-bot och samordnare i c-ny flyttar inte ett ärende (databasen = policy.ts)", async () => {
+    const c = data.cases.find((x) => x.id === "case-260117")!;
+    expect(c.contractId).toBe("c-bot");
+    const extra: [Role, string][] = [["samordnare", "c-ny"]];
+    const a = withMemberships("u-lars", extra);
+    expect(a.roleContracts).toEqual({ ekonom: ["c-bot"], samordnare: ["c-ny"] });
+    const move = await pgAs("u-lars", extra, "update public.cases set contract_id = 'c-ny' where id = $1 returning id", [c.id]);
+    expect(allowed(move)).toBe(false);
+    expect(memWriteRow("cases", c, { ...c, contractId: "c-ny" }, a)).toBe(false);
+    // Varje roll ensam nekas också (ekonomen ändrar bara referensen, samordnaren läser inte ärendet i c-bot).
+    expect(allowed(await asPersona(findPersona("u-lars"), (tx) => attempt(tx, "update public.cases set contract_id = 'c-ny' where id = $1", [c.id])))).toBe(false);
+    // Inte heller den som har full åtkomst i båda avtalen (Johan, avtalsansvarig i c-bot och c-ny), eller en avvikelse, en rapport
+    // eller en närvarorad: nycklarna ändras aldrig av en inloggad.
+    const johan = findPersona("u-johan");
+    const cd = data.contract_deviations[0];
+    const rep = data.reports.find((r) => r.caseId && r.contractId === "c-bot")!;
+    const att = data.attendance[0];
+    const other = data.cases.find((x) => x.contractId === "c-bot" && x.id !== att.caseId)!;
+    const jo = (sql: string, params: unknown[]) => asPersona(johan, (tx) => attempt(tx, sql, params));
+    expect(allowed(await jo("update public.cases set contract_id = 'c-ny' where id = $1", [c.id]))).toBe(false);
+    expect(allowed(await jo("update public.contract_deviations set contract_id = 'c-ny' where id = $1", [cd.id]))).toBe(false);
+    expect(allowed(await jo("update public.reports set contract_id = 'c-ny' where id = $1", [rep.id]))).toBe(false);
+    expect(allowed(await jo("update public.attendance set case_id = $2 where id = $1", [att.id, other.id]))).toBe(false);
+    expect(memWriteRow("cases", c, { ...c, contractId: "c-ny" }, johan.actor)).toBe(false);
+    expect(memWriteRow("contract_deviations", cd, { ...cd, contractId: "c-ny" }, johan.actor)).toBe(false);
+    expect(memWriteRow("reports", rep, { ...rep, contractId: "c-ny" }, johan.actor)).toBe(false);
+    expect(memWriteRow("attendance", att, { ...att, caseId: other.id }, johan.actor)).toBe(false);
+    // Servern (service role) omfattas inte av spärren.
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.contract_deviations set contract_id = 'c-ny' where id = $1", [cd.id]), { role: "service_role" });
+    expect(allowed(service)).toBe(true);
+  });
+
+  it("en ändring som unionen av rollerna släpper igenom går också med en av rollerna ensam (samma roll ger USING och WITH CHECK)", async () => {
+    const byRole = async (p: Persona, plan: { label: string; sql: string; params: unknown[] }[], keep?: Role) =>
+      asUser(db, authOf(p.actor.userId), async (tx) => {
+        const out: Record<string, boolean> = {};
+        for (const st of plan) out[st.label] = allowed(await attempt(tx, st.sql, st.params));
+        return out;
+      }, keep ? { before: (tx) => tx.query("delete from public.memberships where user_id = $1 and role <> $2", [p.actor.userId, keep]).then(() => undefined) } : {});
+    for (const key of [SAM_COACH, COACH_EKONOM, "tester-ali", SPLIT]) {
+      const p = findPersona(key);
+      const plan = TABLE_NAMES.flatMap((t) =>
+        sampleRows(t, p, 2).filter((row) => canReadRow(t, row as never, actorOf(p), raw))
+          .map((row) => ({ label: `${t} ${String(row.id)}`, sql: `update public.${t} set id = id where id = $1`, params: [row.id] as unknown[] })));
+      expect(plan.length, key).toBeGreaterThan(20);
+      const all = await byRole(p, plan);
+      const single: Record<string, boolean>[] = [];
+      for (const r of p.actor.roles) single.push(await byRole(p, plan, r));
+      let allowedCount = 0;
+      for (const st of plan) {
+        if (!all[st.label]) continue;
+        allowedCount++;
+        expect(single.some((x) => x[st.label]), `${key}: ${st.label}`).toBe(true);
+        // policy.ts: samma roll läser och skriver (canUpdateRow) – samma svar som databasen.
+        const t = st.label.split(" ")[0] as TableName;
+        const row = raw.get(t, String(st.params[0]))!;
+        expect(canUpdateRow(t, row as never, row as never, actorOf(p), raw), `${key}: ${st.label}`).toBe(true);
+      }
+      expect(allowedCount, key).toBeGreaterThan(0);
+    }
+  }, 120_000);
+
+  it("kommunens kvittensspärr på rapporter gäller också för den som dessutom har rollen ekonom, chef eller admin (databasen = policy.ts)", async () => {
+    const r = data.reports.find((x) => x.deliveredTo.includes("k-maria") && x.deliveredAt && !x.openedAt && x.status === "delivered" && x.caseId)!;
+    expect(r).toBeTruthy();
+    const at = "2027-02-01T09:30";
+    for (const extraRole of ["ekonom", "chef", "admin"] as Role[]) {
+      const extra: [Role, string][] = [[extraRole, r.contractId]];
+      const a = withMemberships("k-maria", extra);
+      expect(a.roles, extraRole).toEqual(sortRoles(["kommun_handlaggare", extraRole]));
+      const summary = await pgAs("k-maria", extra, "update public.reports set summary = 'Ändrad', delivered_to = '{k-maria,u-sara}' where id = $1", [r.id]);
+      const approver = await pgAs("k-maria", extra, "update public.reports set approved_by = 'k-maria' where id = $1", [r.id]);
+      const receipt = await pgAs("k-maria", extra, "update public.reports set opened_at = $2, opened_by = 'k-maria' where id = $1", [r.id, at]);
+      expect(allowed(summary), extraRole).toBe(false);
+      expect(allowed(approver), extraRole).toBe(false);
+      expect(receipt, extraRole).toMatchObject({ ok: true, rows: 1 });
+      expect(memWriteRow("reports", r, { ...r, summary: "Ändrad", deliveredTo: ["k-maria", "u-sara"] }, a), extraRole).toBe(false);
+      expect(memWriteRow("reports", r, { ...r, approvedBy: "k-maria" }, a), extraRole).toBe(false);
+      expect(memWriteRow("reports", r, { ...r, openedAt: at, openedBy: "k-maria" }, a), extraRole).toBe(true);
+    }
+    // Den som skriver rapporten som Miljonbemanning (samordnare i avtalet) och dessutom är handläggare ändrar den som förut.
+    const sam: [Role, string][] = [["samordnare", r.contractId]];
+    expect(allowed(await pgAs("k-maria", sam, "update public.reports set summary = 'Ändrad' where id = $1", [r.id]))).toBe(true);
+    expect(memWriteRow("reports", r, { ...r, summary: "Ändrad" }, withMemberships("k-maria", sam))).toBe(true);
+  });
+
+  it("medlemskap: avtalsansvarig ändrar bara kommunens roller i sitt avtal – aldrig en kollegas eller en administratörs roll, aldrig till ett annat avtal, och ingen ändrar sitt eget", async () => {
+    const ms = (userId: string, role: Role) => data.memberships.find((m) => m.userId === userId && m.role === role && m.contractId === "c-bot")!;
+    const sara = ms("u-sara", "samordnare");
+    const robin = ms("u-robin", "admin");
+    const maria = ms("k-maria", "kommun_handlaggare");
+    const johan = findPersona("u-johan");
+    const jo = (sql: string, params: unknown[]) => asPersona(johan, (tx) => attempt(tx, sql, params));
+    const cases: [string, Attempt, boolean, boolean][] = [
+      ["kollegans roll blir kommunroll", await jo("update public.memberships set role = 'kommun_handlaggare' where id = $1", [sara.id]), memWriteRow("memberships", sara, { ...sara, role: "kommun_handlaggare" }, johan.actor), false],
+      ["administratörens roll blir kommunroll", await jo("update public.memberships set role = 'kommun_handlaggare' where id = $1", [robin.id]), memWriteRow("memberships", robin, { ...robin, role: "kommun_handlaggare" }, johan.actor), false],
+      ["kommunens enhet", await jo("update public.memberships set customer_unit = 'Enhet X' where id = $1", [maria.id]), memWriteRow("memberships", maria, { ...maria, customerUnit: "Enhet X" }, johan.actor), true],
+      ["kommunens medlemskap till ett annat avtal", await jo("update public.memberships set contract_id = 'c-ny' where id = $1", [maria.id]), memWriteRow("memberships", maria, { ...maria, contractId: "c-ny" }, johan.actor), false],
+      ["kommunens medlemskap till en annan användare", await jo("update public.memberships set user_id = 'k-omar' where id = $1", [maria.id]), memWriteRow("memberships", maria, { ...maria, userId: "k-omar" }, johan.actor), false],
+    ];
+    for (const [label, pg, mem, want] of cases) expect({ pg: allowed(pg), mem }, label).toEqual({ pg: want, mem: want });
+    // Korsavtal: Amira (coach i c-bot) som också är avtalsansvarig i c-ny flyttar inte Saras medlemskap till c-ny som kommunroll.
+    const extra: [Role, string][] = [["avtalsansvarig", "c-ny"]];
+    const amira = withMemberships("u-amira", extra);
+    const cross = await pgAs("u-amira", extra, "update public.memberships set contract_id = 'c-ny', role = 'kommun_handlaggare' where id = $1", [sara.id]);
+    expect(allowed(cross)).toBe(false);
+    expect(memWriteRow("memberships", sara, { ...sara, contractId: "c-ny", role: "kommun_handlaggare" }, amira)).toBe(false);
+    // Ingen ändrar sitt eget medlemskap (Sara byter inte sin egen roll).
+    const own = await asPersona(findPersona("u-sara"), (tx) => attempt(tx, "update public.memberships set role = 'avtalsansvarig' where id = $1", [sara.id]));
+    expect(allowed(own)).toBe(false);
+    expect(memWriteRow("memberships", sara, { ...sara, role: "avtalsansvarig" }, findPersona("u-sara").actor)).toBe(false);
+  });
 });
 
 // ================================================================ Kommunens roller (0026)
@@ -757,10 +997,14 @@ describe("avtal: kommunen läser aldrig de interna målen", () => {
       .toEqual((original.kpis ?? []).map((k) => [k.key, k.contractTarget ?? null]));
   });
 
-  it("MB läser hela avtalet (samma config som testdatat)", async () => {
+  it("MB läser hela avtalet (samma config som testdatat) – vitenas belopp bara ekonomen i avtalet", async () => {
+    const full = JSON.parse(JSON.stringify(data.contracts.find((c) => c.id === "c-bot")!.config));
     const view = await asPersona(findPersona("u-karin"), async (tx) => (await tx.query<{ id: string; config: unknown }>("select id, config from public.contracts_public order by id")).rows);
     expect(view.map((c) => c.id)).toEqual(["c-bot"]);
-    expect(view[0].config).toEqual(JSON.parse(JSON.stringify(data.contracts.find((c) => c.id === "c-bot")!.config)));
+    expect(view[0].config).toEqual({ ...full, penalties: {} });
+    const lars = await asPersona(findPersona("u-lars"), async (tx) => (await tx.query<{ id: string; config: unknown }>("select id, config from public.contracts_public order by id")).rows);
+    expect(lars.map((c) => c.id)).toEqual(["c-bot"]);
+    expect(lars[0].config).toEqual(full);
   });
 });
 
@@ -841,7 +1085,7 @@ describe("kvittenser ändrar bara sina egna kolumner", () => {
   const maria = () => findPersona("k-maria");
   const unopened = () => data.reports.find((r) => r.deliveredTo.includes("k-maria") && r.deliveredAt && !r.openedAt && r.status === "delivered")!;
   const opened = () => data.reports.find((r) => r.deliveredTo.includes("k-maria") && r.deliveredAt && r.openedAt && r.status === "delivered")!;
-  const memWrite = <N extends "reports" | "messages">(t: N, row: Tables[N], userId: string) => canReadRow(t, raw.get(t, row.id)!, findPersona(userId).actor, raw) && canWriteRow(t, row, findPersona(userId).actor, raw);
+  const memWrite = <N extends "reports" | "messages">(t: N, row: Tables[N], userId: string) => memWriteRow(t, raw.get(t, row.id)!, row, findPersona(userId).actor);
 
   it("kommunen kan inte skriva om en levererad rapport – bara kvittera den en gång, i eget namn", async () => {
     const r = unopened();
@@ -979,8 +1223,8 @@ describe("skrivning: samma regler som policy.ts", () => {
       const plan: { label: string; sql: string; params: unknown[] }[] = [];
       for (const t of TABLE_NAMES) {
         for (const row of sampleRows(t, p, 1)) {
-          // Ändring: policy.ts kräver läsrätt på raden och skrivrätt på den nya raden (här oförändrad).
-          const upd = canReadRow(t, row as never, actorOf(p), raw) && canWriteRow(t, row as never, actorOf(p), raw);
+          // Ändring: policy.ts kräver att samma roll har läsrätt på raden och skrivrätt på den nya raden (här oförändrad).
+          const upd = canUpdateRow(t, row as never, row as never, actorOf(p), raw);
           expected.push(`update ${t} ${row.id}: ${upd}`);
           plan.push({ label: `update ${t} ${row.id}`, sql: `update public.${t} set id = id where id = $1`, params: [row.id] });
         }
@@ -1308,7 +1552,7 @@ describe("kontaktvägen (0032): vem ändrar deltagarens kontaktuppgifter – sam
   /** policy.ts: läsrätt på den befintliga raden och skrivrätt på den nya. */
   const memWrite = (row: Tables["persons"], key: string) => {
     const a = findPersona(key).actor;
-    return canReadRow("persons", raw.get("persons", row.id)!, a, raw) && canWriteRow("persons", row, a, raw);
+    return memWriteRow("persons", raw.get("persons", row.id)!, row, a);
   };
   const changes = (p: Tables["persons"]) => ({
     contact: { sql: "update public.persons set preferred_contact = 'email', phone = '', email = 'ny@example.invalid', address = null where id = $1", row: { ...p, preferredContact: "email" as const, phone: "", email: "ny@example.invalid", address: null } },
@@ -1376,7 +1620,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
 
   it("läsning per roll: coach och handledare alla anteckningar i avtalet (beslut 2026-10-09), ekonom och kommunen inget, skyddat ärende bara namngivna", async () => {
     const open = data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort();
-    expect(open).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
+    expect(open).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-x-handledare"]);
     const expected: Record<string, string[]> = {
       // Amira är huvudcoach för Nadia och Mehmet; Petra (coach, och i den vilande rollen handledare) och Leila läser samma
       // anteckningar – men inte det skyddade ärendets (vilande spärr: bara namngiven huvudcoach Erik och avtalsansvarig).
@@ -1412,7 +1656,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
     const st = opts.team ? new MemoryStore<Tables>({ ...data, case_team: [...data.case_team, ...extraTeam] }) : store;
     const r = st.raw();
     const cur = r.get("case_notes", row.id);
-    const mem = (cur ? canReadRow("case_notes", cur, actorOf(p), r) : true) && canWriteRow("case_notes", row, actorOf(p), r);
+    const mem = memWriteRow("case_notes", cur, row, actorOf(p), r);
     // Coach i teamet utan att vara huvudcoach: testdatat har ingen sådan, så en teamrad läggs in i samma transaktion.
     const pg = opts.team
       ? await asUser(db, authOf(userId), (tx) => attempt(tx, sql, params), {
@@ -1498,6 +1742,11 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       // Petras anteckning: Petra (coach och den vilande rollen) döljer sin egen; den vilande rollen ensam (en annan person) inte.
       ["u-petra", hide("note-mehmet-handledare", "u-petra"), hidden(note("note-mehmet-handledare"), "u-petra"), true],
       [SUPERVISOR, hide("note-mehmet-handledare", "u-x-handledare"), hidden(note("note-mehmet-handledare"), "u-x-handledare"), false],
+      // Den vilande rollen ensam döljer sin egen anteckning (spärren ska kunna slås på igen utan migration) – men aldrig i någon
+      // annans namn, och en annan coach (Amira, inte författaren och inte samordnare) döljer den inte.
+      [SUPERVISOR, hide("note-x-handledare", "u-x-handledare"), hidden(note("note-x-handledare"), "u-x-handledare"), true],
+      [SUPERVISOR, hide("note-x-handledare", "u-amira"), hidden(note("note-x-handledare"), "u-amira"), false],
+      ["u-amira", hide("note-x-handledare", "u-amira"), hidden(note("note-x-handledare"), "u-amira"), false],
     ];
     for (const [userId, sql, row, want, opts] of cases) {
       const r = await both(userId, sql, [], row, opts);
@@ -1559,7 +1808,7 @@ describe("sparade rapporter (0021): läsning, skrivning och delning – samma re
   const both = async (userId: string, sql: string, row: Tables["saved_reports"]) => {
     const p = findPersona(userId);
     const cur = raw.get("saved_reports", row.id);
-    const mem = (cur ? canReadRow("saved_reports", cur, actorOf(p), raw) : true) && canWriteRow("saved_reports", row, actorOf(p), raw);
+    const mem = memWriteRow("saved_reports", cur, row, actorOf(p));
     const pg = await asPersona(p, (tx) => attempt(tx, sql));
     return { pg: allowed(pg), mem };
   };
@@ -1722,7 +1971,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
   async function both<T extends "groupings" | "grouping_members">(t: T, userId: string, sql: string, row: Tables[T]) {
     const p = findPersona(userId);
     const cur = raw.get(t, row.id);
-    const mem = (cur ? canReadRow(t, cur, actorOf(p), raw) : true) && canWriteRow(t, row, actorOf(p), raw);
+    const mem = memWriteRow(t, cur as Tables[T] | undefined, row, actorOf(p));
     const pg = await asPersona(p, (tx) => attempt(tx, sql));
     return { pg: allowed(pg), mem };
   }
@@ -2034,8 +2283,7 @@ describe("röstinspelning: länkar, röstmeddelanden och ljudfiler (0015)", () =
   });
   const memWrite = <N extends TableName>(t: N, row: Tables[N], userId: string, r: RawAccess<Tables> = raw) => {
     const a = findPersona(userId).actor;
-    const cur = r.get(t, row.id);
-    return (!cur || canReadRow(t, cur, a, r)) && canWriteRow(t, row, a, r);
+    return memWriteRow(t, r.get(t, row.id), row, a, r);
   };
 
   it("testdatat: Nadias och Yusufs röstmeddelanden, en oanvänd länk och inga länkar i skyddade ärenden", () => {
@@ -2171,8 +2419,7 @@ describe("gruppaktiviteter och automatisk närvaro (0030): samma regler i RLS, t
   const ga = (id: string) => raw.get("group_activities", id)!;
   const memWrite = <N extends TableName>(t: N, row: Tables[N], userId: string) => {
     const a = actorOf(findPersona(userId));
-    const cur = raw.get(t, row.id);
-    return (!cur || canReadRow(t, cur, a, raw)) && canWriteRow(t, row, a, raw);
+    return memWriteRow(t, raw.get(t, row.id), row, a);
   };
   const pgWrite = async (userId: string, sql: string, params: unknown[] = []) => allowed(await asPersona(findPersona(userId), (tx) => attempt(tx, sql, params)));
   const at = "2027-02-01T09:30";

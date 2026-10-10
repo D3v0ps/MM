@@ -8,7 +8,7 @@
 // för begränsade testare, HandlerOpts.commercial).
 import { fail, ok } from "@/api/contract";
 import { loadDb } from "@/api/load";
-import { hasRole, type Role } from "@/api/roles";
+import { contractsAs, type Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import {
   BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceOfCase, isCreated, monthInvoices, reissueLines, reissueRound, unbilledOld,
@@ -57,9 +57,13 @@ type Base = {
   perContract: boolean;
 };
 
-/** Avtalet som faktureras (det första med driftkonfiguration), dess regler och uppslag. */
+/**
+ * Avtalet som faktureras (det första med driftkonfiguration bland avtalen där aktören är ekonom), dess regler och uppslag.
+ * Bara ekonomens avtal: en annan roll i ett annat avtal (t.ex. coach) ger aldrig fakturaunderlag eller belopp där.
+ */
 async function base(ctx: Ctx): Promise<Base> {
-  const contracts = await ctx.repo.table("contracts").list();
+  const mine = contractsAs(ctx.actor, BILLING);
+  const contracts = mine.length ? await ctx.repo.table("contracts").list({ id: { in: mine } }, { orderBy: "id" }) : [];
   const contract = contracts.find((c) => isOperational(c.config));
   if (!contract) throw new ApiError(404, "no_contract", "Det finns inget avtal med fakturering för din roll.");
   const cfg = requireOperational(contract.config);
@@ -71,7 +75,7 @@ async function base(ctx: Ctx): Promise<Base> {
     ctx.repo.table("buyer_references").list({ customerId: contract.customerId }),
   ]);
   return {
-    contract, cfg, env: { now: ctx.now(), cfg }, customer, supplier, areas, profiles, canAct: hasRole(ctx.actor, "ekonom"), perContract: cfg.billing.invoicePer === "contract_and_month",
+    contract, cfg, env: { now: ctx.now(), cfg }, customer, supplier, areas, profiles, canAct: mine.includes(contract.id), perContract: cfg.billing.invoicePer === "contract_and_month",
     refRules: { billing: cfg.billing, registry: registry.map((b) => ({ reference: b.reference, unit: b.unit, active: b.active, note: b.note })) },
   };
 }

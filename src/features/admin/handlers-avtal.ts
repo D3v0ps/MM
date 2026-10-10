@@ -86,7 +86,7 @@ handleQuery(adminContract, { roles: ["admin"], commercial: true }, async (ctx, p
   }
   // Belopp syns bara för rollen ekonom (beslut 5, 2026-10-07): prislistan och vitenas belopp lämnas inte ut här.
   // Prislistan finns i stället under Ekonomi (/ekonomi/prislista). Att avtalet har viten visas, utan belopp.
-  const hideMoney = hidesMoney(ctx.actor);
+  const hideMoney = hidesMoney(ctx.actor, c.id);
   const { penalties, ...withoutPenalties } = c.config;
   return {
     contracts: all.map((x) => summaryOf(x, orgName(x.customerId))),
