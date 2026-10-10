@@ -337,7 +337,7 @@ test("byte av testperson med osparad text: appen frågar först – Stanna kvar 
   // Utkastet sparas annars automatiskt innan bytet (D2 punkt 2): röd status utan avvikelse kan inte sparas – då frågar appen.
   await page.getByRole("group", { name: "Samlad status" }).getByRole("button", { name: /Röd/ }).click();
   await expect(page.locator("[data-autosave]")).toHaveText("Sparas inte automatiskt förrän avvikelsen är ifylld", { timeout: 6000 });
-  await page.selectOption("#dev-persona", "u-sara|samordnare");
+  await page.selectOption("#dev-persona", "u-sara");
   const ask = page.getByRole("dialog", { name: "Du har inte sparat" });
   await expect(ask).toBeVisible();
   await ask.getByRole("button", { name: "Stanna kvar" }).click();
@@ -345,30 +345,30 @@ test("byte av testperson med osparad text: appen frågar först – Stanna kvar 
   // Ingenting är bytt: samma sida, samma text och samma inloggade person på servern.
   expect(new URL(page.url()).pathname).toBe(`/avstamning/${NADIA}`);
   await expect(page.locator("#ci-note")).toHaveValue("Osparad anteckning");
-  await expect(page.locator("#dev-persona")).toHaveValue("u-amira|coach");
+  await expect(page.locator("#dev-persona")).toHaveValue("u-amira");
   const who = await page.evaluate(() => fetch("/api/session").then((r) => r.json() as Promise<{ persona?: { actor: { userId: string } } }>));
   expect(who.persona?.actor.userId).toBe("u-amira");
   // Lämna sidan: bytet görs och sidan laddas om – utan en andra varning från webbläsaren. Avstämningen gäller ett enskilt
   // ärende, så samordnaren hamnar på sin startsida.
-  await page.selectOption("#dev-persona", "u-sara|samordnare");
+  await page.selectOption("#dev-persona", "u-sara");
   await page.getByRole("dialog", { name: "Du har inte sparat" }).getByRole("button", { name: "Lämna sidan" }).click();
   await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/min-vecka");
   await loaded(page);
-  await expect(page.locator("#dev-persona")).toHaveValue("u-sara|samordnare");
+  await expect(page.locator("#dev-persona")).toHaveValue("u-sara");
   expect(errors, "ingen beforeunload-varning efter svaret i appen").toEqual([]);
 });
 
 test("byte av testperson: på ett deltagarkort leder bytet till startsidan, på en lista stannar man", async ({ page }, info) => {
   test.skip(isDemo(info), "Utvecklingslägets val av testperson finns bara i appen.");
   const errors = await open(page, info, "/arenden/case-260145", AMIRA);
-  await page.selectOption("#dev-persona", "u-lars|ekonom");
+  await page.selectOption("#dev-persona", "u-lars");
   await expect.poll(() => new URL(page.url()).pathname, { timeout: 15_000 }).toBe("/min-vecka");
   await loaded(page);
   await expect(main(page)).not.toContainText("Åtkomst saknas");
   // En lista som den nya rollen får se: samma sida och samma val.
   await open(page, info, "/arenden?status=active", SARA);
-  await page.selectOption("#dev-persona", "u-johan|avtalsansvarig");
-  await expect.poll(() => page.locator("#dev-persona").inputValue(), { timeout: 15_000 }).toBe("u-johan|avtalsansvarig");
+  await page.selectOption("#dev-persona", "u-johan");
+  await expect.poll(() => page.locator("#dev-persona").inputValue(), { timeout: 15_000 }).toBe("u-johan");
   await loaded(page);
   expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe("/arenden?status=active");
   await expect(page.locator("#arn-status")).toHaveValue("active");
@@ -456,7 +456,7 @@ test("utloggad under tiden: ett grunt sidbyte leder till inloggningen med till=s
   await loaded(page);
   await expect(main(page).locator("h1")).toContainText("Ärenden", { ignoreCase: true });
   await expect(page.getByRole("table", { name: "Ärenden" })).toBeVisible();
-  await expect(page.locator("#dev-persona")).toHaveValue("u-amira|coach");
+  await expect(page.locator("#dev-persona")).toHaveValue("u-amira");
   expect(relevant(errors)).toEqual([]);
 });
 

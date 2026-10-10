@@ -84,8 +84,8 @@ test("flera roller samtidigt (Karims beslut 7): Lars får också rollen coach �
   await expect(main(page).getByRole("heading", { level: 1, name: "Min vecka" })).toBeVisible();
   // En del per roll med rollens rubrik och avsnitt – sidans rubrik står en gång.
   await expect(main(page).getByRole("heading", { level: 1 })).toHaveCount(1);
-  await expect(main(page).getByRole("heading", { level: 2, name: "Huvudcoach" })).toBeVisible();
-  await expect(main(page).getByRole("heading", { level: 2, name: "Ekonomi" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Huvudcoach", exact: true })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Ekonomi", exact: true })).toBeVisible();
   await expect(main(page).getByRole("heading", { name: "Påminnelser" }).first()).toBeVisible();
   await expect(main(page).getByRole("heading", { name: "Uppgifter till dig" }).first()).toBeVisible();
   // Inga dubbletter bland id:na (avsnitten får rolldelens suffix).

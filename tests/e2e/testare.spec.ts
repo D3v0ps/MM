@@ -208,10 +208,12 @@ test.describe("begränsad testare (appen)", () => {
     for (const role of ["", "Ekonom"]) {
       expect((await page.request.post("/api/dev-session", { data: { userId: "u-lars", role, testerId: LIMITED } })).status(), role).toBe(400);
     }
-    expect((await (await page.request.get("/api/session")).json()).persona.actor.role).toBe("admin");
+    // Testpersonen är kvar (Robin, alla sina roller – Karims beslut 7), och listan har ingen testperson med rollen ekonom.
+    expect((await (await page.request.get("/api/session")).json()).persona.actor.roles).toEqual(["admin"]);
     const session = await (await page.request.get("/api/session")).json();
     expect(session.hidesCommercial).toBe(true);
-    expect(session.personas.some((p: { role: string }) => p.role === "ekonom")).toBe(false);
+    expect(session.personas.length).toBeGreaterThan(0);
+    expect(session.personas.some((p: { roles: string[] }) => p.roles.includes("ekonom"))).toBe(false);
   });
 });
 

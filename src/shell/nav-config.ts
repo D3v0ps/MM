@@ -1,7 +1,8 @@
 // Navigering per roll med sökvägar (rutt-tabellen i docs/ARKITEKTUR.md). MB-personalen (beslut 2026-10-06): Notiser överst,
 // den gemensamma gruppen "Min vardag" (COMMON_NAV) och rollflikarna (ROLE_TAB). Den som har flera roller (Karims beslut 7,
 // 2026-10-09) får Min vardag med valen för alla sina roller och en flik per roll i en fast ordning (ROLE_TAB_ORDER) – ett
-// menyval visas bara en gång (i den första gruppen där det finns). Kommunportalen: KOM_NAV (PORTAL_NAV).
+// menyval visas bara en gång (i den första gruppen där det finns – ett val med defer viker för ett annat val till samma sida).
+// Kommunportalen: KOM_NAV (PORTAL_NAV).
 // Räknarna kommer från frågan navCounts (src/features/session/nav-api.ts).
 import { isDormantRole, isSupplierRole, sortRoles, STAFF_ROLES, type CustomerRole, type Role, type SupplierRole } from "@/api/roles";
 import { isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
@@ -26,7 +27,11 @@ export type NavGroup = { label: string; items: NavItem[] };
  * hidesCommercial = begränsad testare: stängda sidor (Ekonomi) visas inte (src/api/tester-access.ts).
  */
 export type NavContext = { now: LocalDateTime | null; hidesCommercial?: boolean };
-type NavItemDef = NavItem | ((ctx: NavContext) => NavItem | null);
+/**
+ * defer: valet viker för ett annat val till samma sida i en annan grupp (den som har flera roller ser sidan som den roll som ser
+ * mest – t.ex. avtalsansvarigs Kommunanvändare och administratörens Användare och roller är samma sida, /admin/anvandare).
+ */
+type NavItemDef = (NavItem & { defer?: true }) | ((ctx: NavContext) => NavItem | null);
 type NavGroupDef = { label: string; items: NavItemDef[] };
 
 const INKORG: NavItem = { to: "/inkorg", label: "Avropsinkorg", icon: "inbox", count: "inbox" };
@@ -74,7 +79,7 @@ export const ROLE_TAB_ORDER: readonly SupplierRole[] = ["samordnare", "avtalsans
 /** En rollflik per roll (beslut 2026-10-06). Coachen har ingen. */
 const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
   samordnare: { label: "Samordning", items: [INKORG, FORFALLER, BYGG] },
-  avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG] },
+  avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users", defer: true }, BYGG] },
   chef: { label: "Ledning", items: [{ to: "/ledning", label: "Ledningsvy", icon: "chart" }, AVVIKELSER, FORFALLER, BYGG, LOGG] },
   // Ekonomi bara för ekonomen (beslut 5, 2026-10-07: belopp syns bara för rollen ekonom). Prislistan har flyttat hit från avtalssidan.
   ekonom: { label: "Ekonomi", items: [{ to: "/ekonomi", label: "Fakturering", icon: "card" }, fakturakorning, { to: "/ekonomi/prislista", label: "Prislista", icon: "list" }] },
@@ -97,7 +102,7 @@ export const NOTIFICATIONS_ITEM: NavItem = { to: "/notiser", label: "Notiser", i
 /**
  * Sidopanelens grupper för en roll eller alla roller (Karims beslut 7, 2026-10-09): den gemensamma gruppen Min vardag med
  * valen för alla rollerna och en flik per roll i ROLE_TAB_ORDER (tom lista för kommun och deltagare). Ett menyval visas en
- * gång – i den första gruppen där det finns. En begränsad testare ser aldrig en stängd sida i menyn; en roll som är dold för
+ * gång – i den första gruppen där det finns – utom ett val med defer, som viker för ett annat val till samma sida. En begränsad testare ser aldrig en stängd sida i menyn; en roll som är dold för
  * testare (ekonom) ger ingen flik och inga val.
  */
 export function navFor(role: Role | readonly Role[], ctx: NavContext): NavGroup[] {
@@ -113,14 +118,22 @@ export function navFor(role: Role | readonly Role[], ctx: NavContext): NavGroup[
   };
   const common: NavGroupDef = { label: COMMON_GROUP_LABEL, items: COMMON_NAV.map(commonItem).filter((x): x is NavItem => x !== null) };
   const tabs = ROLE_TAB_ORDER.filter((r) => roles.includes(r)).map((r) => ROLE_TAB[r]).filter((t): t is NavGroupDef => !!t);
+  const resolved = [common, ...tabs].map((g) => ({
+    label: g.label,
+    items: g.items
+      .map((it): (NavItem & { defer?: true }) | null => (typeof it === "function" ? it(ctx) : it))
+      .filter((it): it is NavItem & { defer?: true } => it !== null && !(ctx.hidesCommercial && isTesterHiddenPath(it.to))),
+  }));
+  // Sidor som ett val utan defer leder till – ett val med defer till samma sida visas inte.
+  const strong = new Set(resolved.flatMap((g) => g.items.filter((it) => !it.defer).map((it) => it.to)));
   const seen = new Set<string>();
-  return [common, ...tabs]
+  return resolved
     .map((g) => ({
       label: g.label,
       items: g.items
-        .map((it) => (typeof it === "function" ? it(ctx) : it))
-        .filter((it): it is NavItem => it !== null && !(ctx.hidesCommercial && isTesterHiddenPath(it.to)))
-        .filter((it) => (seen.has(it.to) ? false : (seen.add(it.to), true))),
+        .filter((it) => !(it.defer && strong.has(it.to)))
+        .filter((it) => (seen.has(it.to) ? false : (seen.add(it.to), true)))
+        .map((it): NavItem => ({ to: it.to, label: it.label, icon: it.icon, ...(it.count ? { count: it.count } : {}) })),
     }))
     .filter((g) => g.items.length > 0);
 }

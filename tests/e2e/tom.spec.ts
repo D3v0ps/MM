@@ -131,8 +131,8 @@ test("alla roller samtidigt: Ali har två roller utan rollväxlare – menyn har
   await expect(nav.getByRole("link", { name: /Användare och roller/ })).toBeVisible();
   await expect(nav.getByRole("link", { name: /Avtalsavvikelser/ }).first()).toBeVisible();
   // Min vecka: en del per roll på samma sida.
-  await expect(main(page).getByRole("heading", { level: 2, name: "Avtalet" })).toBeVisible();
-  await expect(main(page).getByRole("heading", { level: 2, name: "Administratör" })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Avtalet", exact: true })).toBeVisible();
+  await expect(main(page).getByRole("heading", { level: 2, name: "Administratör", exact: true })).toBeVisible();
   // Servern: båda rollerna samtidigt.
   const ping = (await rpc(page, "query", "session.ping", {})) as { roles: string[] };
   expect(ping.roles).toEqual(["admin", "avtalsansvarig"]);
@@ -141,7 +141,7 @@ test("alla roller samtidigt: Ali har två roller utan rollväxlare – menyn har
   // Karim (en roll) har ingen del-rubrik – Min vecka är rollens egen sida.
   await loginAs(page, KARIM);
   await visit(page, "/min-vecka", "Karim");
-  await expect(main(page).getByRole("heading", { level: 2, name: "Administratör" })).toHaveCount(0);
+  await expect(main(page).getByRole("heading", { level: 2, name: "Administratör", exact: true })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

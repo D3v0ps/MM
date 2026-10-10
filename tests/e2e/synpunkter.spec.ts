@@ -128,8 +128,8 @@ test("simulerad testare: synpunkten får sidan man står på efter ett grunt byt
   expect(docs.seen.doc, "ingen omladdning").toBe(0);
 
   // Byt testperson i utvecklingsfältet till Karin (chef): sidan laddas om men Ärenden står kvar, och testaren är kvar.
-  await page.selectOption("#dev-persona", "u-karin|chef");
-  await expect.poll(() => page.locator("#dev-persona").inputValue(), { timeout: 15_000 }).toBe("u-karin|chef");
+  await page.selectOption("#dev-persona", "u-karin");
+  await expect.poll(() => page.locator("#dev-persona").inputValue(), { timeout: 15_000 }).toBe("u-karin");
   await loaded(page);
   expect(new URL(page.url()).pathname).toBe("/arenden");
   await expect(bar(page)).toBeVisible();

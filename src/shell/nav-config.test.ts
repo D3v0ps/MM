@@ -59,6 +59,25 @@ describe("navFor – Min vardag för alla och en rollflik (beslut 2026-10-06)", 
       expect(groups.length, role).toBeLessThanOrEqual(2);
     }
   });
+  it("flera roller (Karims beslut 7): Min vardag och en flik per roll i fast ordning – varje sida en gång", () => {
+    // Admin och avtalsansvarig (Ali): Avtalet före Administratör. Användarsidan står en gång, med administratörens etikett
+    // (som administratör visar sidan alla användare) – avtalsansvarigs Kommunanvändare viker (defer).
+    const ali = labels(["admin", "avtalsansvarig"]);
+    expect(ali.map(([g]) => g)).toEqual(["Min vardag", "Avtalet", "Administratör"]);
+    expect(ali[1][1]).toEqual(["Avropsinkorg /inkorg #inbox", "Förfaller /forfaller #deadlines", "Avtalsavvikelser /avtalsavvikelser", "Bygg rapport /rapportbyggare"]);
+    expect(ali[2][1]).toContain("Användare och roller /admin/anvandare");
+    expect(ali.flatMap(([, items]) => items as string[]).filter((x) => x.endsWith("/admin/anvandare"))).toEqual(["Användare och roller /admin/anvandare"]);
+    // Avtalsansvarig ensam har kvar Kommunanvändare.
+    expect(labels("avtalsansvarig")[1][1]).toContain("Kommunanvändare /admin/anvandare");
+    // Alla sidor står en gång, för varje kombination av två roller.
+    const staff = ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const;
+    for (const a of staff) {
+      for (const b of staff) {
+        const paths = navFor([a, b], { now: "2027-02-01T09:12" }).flatMap((g) => g.items.map((i) => i.to));
+        expect(new Set(paths).size, `${a}+${b}`).toBe(paths.length);
+      }
+    }
+  });
   it("kommun och deltagare har ingen sidopanel", () => {
     expect(navFor("kommun_handlaggare", { now: null })).toEqual([]);
     expect(navFor("deltagare", { now: null })).toEqual([]);
