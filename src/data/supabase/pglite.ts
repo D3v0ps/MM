@@ -53,6 +53,21 @@ export async function createMigratedDatabase(): Promise<PGlite> {
   return db;
 }
 
+/**
+ * PGlite (0.5.8) frigör inte stacken efter ett fel: varje fel som når JavaScript (en nekad sats i attempt(), ett test med
+ * rejects) gör stacken lite mindre, och efter ungefär 1 700 fel stoppas också enkla satser med "stack depth limit exceeded"
+ * (mätt 2026-10-10 vid integrationen av coachmötets spår – RLS-paritetstestet hade då 131 tester mot samma databas). Långa
+ * testfiler tar därför en ögonblicksbild efter inläsningen och börjar om från den (databaseFromSnapshot): en kopia tar under
+ * en sekund, migrationerna och seeden fem.
+ */
+export type DatabaseSnapshot = File | Blob;
+export const snapshotDatabase = (db: PGlite): Promise<DatabaseSnapshot> => db.dumpDataDir("none");
+export async function databaseFromSnapshot(snapshot: DatabaseSnapshot): Promise<PGlite> {
+  const db = new PGlite({ loadDataDir: snapshot });
+  await db.waitReady;
+  return db;
+}
+
 export async function loadSeed(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8")): Promise<void> {
   await db.exec(sql);
 }

@@ -4,7 +4,7 @@
 // Kör: npx vitest run src/data/supabase/rls-parity.test.ts
 import { readFileSync } from "node:fs";
 import type { PGlite } from "@electric-sql/pglite";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { accessIndex, caseAccessIn } from "@/core/access";
 import { defaultGroupings } from "@/core/groupings";
 import { requireOperational } from "@/core/config";
@@ -14,7 +14,9 @@ import { listPersonas, type Persona } from "../actors";
 import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory";
 import { canReadRow, canWriteRow, POLICIES } from "../policy";
 import { TABLE_NAMES, UNIQUE_KEYS, type TableName, type Tables } from "../schema";
-import { allowed, asUser, attempt, createMigratedDatabase, loadSeed, MIGRATIONS_DIR, SEED_FILE, type Tx } from "./pglite";
+import {
+  allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type DatabaseSnapshot, type Tx,
+} from "./pglite";
 
 // Testarnas konton i auth.users (skapas av servern vid första inloggningen; seeden kopplar dem via e-postadressen).
 const TESTER_AUTH: Record<string, string> = {
@@ -281,7 +283,23 @@ beforeAll(async () => {
   }
   // Den vilande spärren (se SKYDDAD_PERSON): samma person får skyddade personuppgifter i databasen.
   await db.query("update public.persons set protected_identity = true where id = $1", [SKYDDAD_PERSON.id]);
+  snapshot = await snapshotDatabase(db);
 }, 120_000);
+
+// Varje describe-block börjar med en egen kopia av databasen ovan. PGlite tappar lite stack för varje fel som når testet
+// (se snapshotDatabase i pglite.ts) – med alla block mot samma databas stoppades till slut också enkla satser. Testerna lämnar
+// inga spår (asUser rullar alltid tillbaka), så kopian är samma databas som blocken annars hade sett.
+let snapshot: DatabaseSnapshot;
+let currentSuite: unknown;
+beforeEach(async (ctx) => {
+  const suite = ctx.task.suite;
+  if (suite === currentSuite) return;
+  const first = currentSuite === undefined;
+  currentSuite = suite;
+  if (first) return;
+  await db.close();
+  db = await databaseFromSnapshot(snapshot);
+}, 60_000);
 
 // ================================================================ Schema och seed
 describe("schema och seed", () => {
@@ -1456,7 +1474,9 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-sara", member("gm-t2", AMAL, level(3), "u-sara"), true],
       ["u-johan", member("gm-t3", AMAL, level(3), "u-johan"), true],
       ["u-robin", member("gm-t4", AMAL, level(3), "u-robin"), false],
-      ["u-petra", member("gm-t5", AMAL, level(3), "u-petra"), false],
+      // Petra är coach sedan rollen handledare togs bort (Karims beslut 2026-10-09); den vilande rollen placerar aldrig.
+      ["u-petra", member("gm-t5", AMAL, level(3), "u-petra"), true],
+      [SUPERVISOR, member("gm-t5b", AMAL, level(3), "u-petra"), false],
       ["u-karin", member("gm-t6", AMAL, level(3), "u-karin"), false],
       ["u-lars", member("gm-t7", AMAL, level(3), "u-lars"), false],
       ["k-maria", member("gm-t8", AMAL, level(3), "k-maria"), false],
@@ -1489,7 +1509,8 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-amira", upd(nadiaGroup.id, "grouping_id = 'grp-c-bot-g-mandag'"), { ...nadiaGroup, groupingId: "grp-c-bot-g-mandag" }, false],
       ["u-amira", upd(nadiaGroup.id, `added_by = 'u-sara'`), { ...nadiaGroup, addedBy: "u-sara" }, false],
       ["u-amira", upd(nadiaGroup.id, "id = id"), nadiaGroup, false],
-      ["u-petra", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, false],
+      ["u-petra", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, true],
+      [SUPERVISOR, upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, false],
       ["u-karin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-karin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-karin" }, false],
       ["u-robin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-robin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-robin" }, false],
       ["u-sara", upd(removed.id, "removed_at = null, removed_by = null"), { ...removed, removedAt: null, removedBy: null }, false],
@@ -1536,7 +1557,8 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-sara", grouping("g-t2", "u-sara"), true],
       ["u-johan", grouping("g-t3", "u-johan"), true],
       ["u-robin", grouping("g-t4", "u-robin"), true],
-      ["u-petra", grouping("g-t5", "u-petra"), false],
+      ["u-petra", grouping("g-t5", "u-petra"), true],
+      [SUPERVISOR, grouping("g-t5b", "u-petra"), false],
       ["u-karin", grouping("g-t6", "u-karin"), false],
       ["u-lars", grouping("g-t7", "u-lars"), false],
       ["k-maria", grouping("g-t8", "k-maria"), false],
@@ -1570,7 +1592,8 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-sara", upd(mandag.id, "contract_id = 'c-ny'"), { ...mandag, contractId: "c-ny" }, false],
       ["u-sara", upd(mandag.id, `created_by = 'u-sara'`), { ...mandag, createdBy: "u-sara" }, false],
       ["u-sara", upd(mandag.id, "name = name"), mandag, false],
-      ["u-petra", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-petra'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-petra" }, false],
+      ["u-petra", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-petra'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-petra" }, true],
+      [SUPERVISOR, upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-petra'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-petra" }, false],
       ["u-lars", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-lars'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-lars" }, false],
       ["u-sara", `delete from public.groupings where id = '${mandag.id}'`, mandag, false],
     ];

@@ -152,7 +152,7 @@ export const massNoteSave = command("grupper.anteckningarSpara", z.object({
   saveKey: MassNoteSaveKeySchema,
   kind: z.enum(CASE_NOTE_KINDS),
   rows: z.array(z.object({ caseId: IdSchema, occurredOn: LocalDateSchema, body: z.string().trim().min(1).max(2000) })).min(1).max(MASS_NOTE_MAX_ROWS),
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", ...LOG] }).returns<
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<
   Result<{ saved: number }, "rows">
 >();
 
