@@ -63,6 +63,8 @@ export const ACTION_LABEL: Record<string, string> = {
   "attendance.auto_registered": "Registrerade närvaro automatiskt", "group_activity.created": "Skapade gruppaktivitet", "group_activity.updated": "Ändrade gruppaktivitet",
   "group_activity.invited": "Bjöd in deltagare till gruppaktivitet", "group_activity.removed_participant": "Tog bort deltagare ur gruppaktivitet",
   "group_activity.cancelled": "Ställde in gruppaktivitet", "group_activity.view": "Visade aktivitetsvyn",
+  // Spår G: meddelandet till deltagarna (mallen, ärendena och antalen – aldrig adresser) och gruppmålet (ärendet och valet – aldrig målets text).
+  "group_activity.notified": "Skickade meddelande om gruppaktivitet till deltagare", "group_goal.marked": "Markerade gruppmål för deltagare",
   // Nivåer, grupper och taggar (coachmötet 2026-10-09, internt). Loggen har id:n och typ – aldrig namnen.
   "grouping.created": "Skapade grupp eller tagg", "grouping.updated": "Bytte namn på nivå, grupp eller tagg", "grouping.archived": "Arkiverade grupp eller tagg",
   "grouping.restored": "Återställde grupp eller tagg", "grouping.defaults_added": "Lade in standardnivåerna",
@@ -104,6 +106,9 @@ const DETAIL_KEY: Record<string, string> = {
   // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
   groupActivityId: "Gruppaktivitet", days: "Dagar", dayEndsAt: "Dagens slut", manual: "Körd manuellt", wasAuto: "Var automatiskt registrerad", startsAt: "Tid", durationMin: "Längd (minuter)",
   invited: "Inbjudna", removed: "Borttagna tillfällen", holiday: "Helgdag",
+  // Spår G: inbjudan per grupp eller nivå, meddelandet till deltagarna och gruppmålet.
+  groupingIds: "Nivåer och grupper", skippedCaseIds: "Hoppades över", sent: "Skickat till", tasks: "Uppgifter att ringa", superseded: "Gällde en ändrad aktivitet",
+  goal: "Gruppmål", achieved: "Klarade målet",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -127,6 +132,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
+  via: { grupp: "grupp", niva: "nivå", enskilda: "enskilda deltagare" },
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
@@ -221,6 +227,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
 const COUNTED: Record<string, [string, string]> = {
   columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"], measures: ["mått", "mått"],
   activityIds: ["tillfälle", "tillfällen"], attendanceIds: ["närvaropost", "närvaroposter"], skippedActivityIds: ["tillfälle", "tillfällen"], caseIds: ["ärende", "ärenden"],
+  skippedCaseIds: ["ärende", "ärenden"], groupingIds: ["nivå eller grupp", "nivåer eller grupper"],
 };
 
 /**

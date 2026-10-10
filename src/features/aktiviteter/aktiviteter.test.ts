@@ -82,7 +82,7 @@ describe("skapa och bjuda in", () => {
     // Samma regel när fler bjuds in efteråt.
     const id = await create([CASES.nadia]);
     expect(await run(groupActivityInvite, { id, caseIds: [closed.id] }, amira())).toMatchObject({ ok: false, error: "not_invitable" });
-    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia, CASES.elif] }, amira())).toEqual({ ok: true, invited: 1, already: 1, replaced: 0 });
+    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia, CASES.elif] }, amira())).toEqual({ ok: true, invited: 1, already: 1, replaced: 0, skipped: [], notified: null });
     expect(partsOf(id)).toHaveLength(2);
   });
 
@@ -104,12 +104,12 @@ describe("ändra, ta bort och ställa in", () => {
   it("ändrad tid, längd och plats slår igenom på alla deltagares tillfällen", async () => {
     const id = await create();
     const res = await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, as("u-sara", "samordnare"));
-    expect(res).toEqual({ ok: true, changed: 3, replaced: 0 });
+    expect(res).toEqual({ ok: true, changed: 3, replaced: 0, notified: null });
     expect(partsOf(id).map((a) => [a.startsAt, a.durationMin, a.location])).toEqual(THREE.map(() => ["2027-02-02T13:00", 60, "Rum 2"]));
     expect(rows("group_activities")[0]).toMatchObject({ updatedBy: "u-sara", location: "Rum 2" });
     expect(audit("group_activity.updated")[0].details).toMatchObject({ fields: ["startsAt", "durationMin", "location"], count: 3 });
     // Inget ändrat: ingen skrivning.
-    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, amira())).toEqual({ ok: true, changed: 0, replaced: 0 });
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, amira())).toEqual({ ok: true, changed: 0, replaced: 0, notified: null });
   });
 
   it("tiden flyttas inte när närvaro är registrerad – namn och plats går att ändra", async () => {
@@ -117,7 +117,7 @@ describe("ändra, ta bort och ställa in", () => {
     const [first] = partsOf(id);
     expect(await run(attendanceSet, { activityId: first.id, status: "present" }, amira())).toMatchObject({ ok: true });
     expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-01T08:30" }, amira())).toMatchObject({ ok: false, error: "has_attendance" });
-    expect(await run(groupActivityUpdate, { id, ...base, name: "CV-verkstad del 2" }, amira())).toEqual({ ok: true, changed: 1, replaced: 0 });
+    expect(await run(groupActivityUpdate, { id, ...base, name: "CV-verkstad del 2" }, amira())).toEqual({ ok: true, changed: 1, replaced: 0, notified: null });
   });
 
   it("ta bort en deltagare: bara utan registrerad närvaro", async () => {
@@ -125,7 +125,7 @@ describe("ändra, ta bort och ställa in", () => {
     const nadia = partsOf(id).find((a) => a.caseId === CASES.nadia)!;
     await run(attendanceSet, { activityId: nadia.id, status: "absent_valid", reason: "Sjukdom" }, amira());
     expect(await run(groupActivityRemove, { id, caseId: CASES.nadia }, amira())).toMatchObject({ ok: false, error: "has_attendance" });
-    expect(await run(groupActivityRemove, { id, caseId: CASES.elif }, amira())).toEqual({ ok: true });
+    expect(await run(groupActivityRemove, { id, caseId: CASES.elif }, amira())).toEqual({ ok: true, notified: null });
     expect(partsOf(id).map((a) => a.caseId).sort()).toEqual([CASES.amal, CASES.nadia].sort());
   });
 
@@ -134,7 +134,7 @@ describe("ändra, ta bort och ställa in", () => {
     await run(attendanceSet, { activityId: partsOf(done)[0].id, status: "present" }, amira());
     expect(await run(groupActivityCancel, { id: done }, amira())).toMatchObject({ ok: false, error: "has_attendance" });
     const later = await create(THREE, { startsAt: "2027-02-03T13:00" });
-    expect(await run(groupActivityCancel, { id: later }, amira())).toEqual({ ok: true, removed: 3, kept: 0 });
+    expect(await run(groupActivityCancel, { id: later }, amira())).toEqual({ ok: true, removed: 3, kept: 0, notified: null });
     expect(partsOf(later)).toEqual([]);
     expect(rows("group_activities").find((g) => g.id === later)).toMatchObject({ cancelledBy: "u-amira" });
     expect(await run(groupActivityUpdate, { id: later, ...base }, amira())).toMatchObject({ ok: false, error: "cancelled" });
@@ -319,15 +319,15 @@ describe("samma tid: inga dubbla tillfällen för en deltagare", () => {
   it("bjud in och ändra tid prövas på samma sätt – aktivitetens egna rader räknas inte som krock", async () => {
     const id = await create([CASES.elif], { startsAt: "2027-02-02T13:00" });
     // Längre aktivitet samma dag: inga andra tillfällen den dagen – ingen krock med de egna raderna.
-    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 120 }, amira())).toEqual({ ok: true, changed: 1, replaced: 0 });
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 120 }, amira())).toEqual({ ok: true, changed: 1, replaced: 0, notified: null });
     // Flytt till onsdag 10.00: krockar med yrkesmomentet 09.00–12.00.
     const move = { id, ...base, startsAt: WED_10, durationMin: 60 };
     expect(await run(groupActivityUpdate, move, amira())).toMatchObject({ ok: false, error: "overlap" });
     expect(partsOf(id)[0].startsAt).toBe("2027-02-02T13:00");
-    expect(await run(groupActivityUpdate, { ...move, replaceOverlapping: true }, amira())).toEqual({ ok: true, changed: 2, replaced: 1 });
+    expect(await run(groupActivityUpdate, { ...move, replaceOverlapping: true }, amira())).toEqual({ ok: true, changed: 2, replaced: 1, notified: null });
     expect(rows("activities").filter((a) => a.caseId === CASES.elif && a.startsAt.startsWith("2027-02-03")).map((a) => a.groupActivityId)).toEqual([id]);
     expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia] }, amira())).toMatchObject({ ok: false, error: "overlap" });
-    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia], replaceOverlapping: true }, amira())).toEqual({ ok: true, invited: 1, already: 0, replaced: 1 });
+    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia], replaceOverlapping: true }, amira())).toEqual({ ok: true, invited: 1, already: 0, replaced: 1, skipped: [], notified: null });
   });
 });
 

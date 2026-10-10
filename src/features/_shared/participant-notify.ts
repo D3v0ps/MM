@@ -384,3 +384,25 @@ export async function participantSendStopped(ctx: Ctx, messageId: string, invita
   const reasons: UnreachableReason[] = [mail ? reasonOfRow(mail) : "no_email", sms ? reasonOfRow(sms) : "no_phone"];
   return contactTask(ctx, { caseId: c.id, template: row.template, when: invitation.when, place: invitation.place }, c, reasons);
 }
+
+/**
+ * Meningen till den som bjöd in, ändrade eller ställde in en gruppaktivitet (flera deltagare): hur många som får meddelandet och
+ * med vilka kanaler, och hur många samordnaren ska ringa. Aldrig namn. null när ingen deltagare berördes.
+ */
+export function notifyManySummary(template: ActivityTemplate, results: readonly Pick<NotifyParticipantResult, "channels" | "taskId" | "blocked">[]): string | null {
+  if (!results.length) return null;
+  const n = (k: number) => (k === 1 ? "1 deltagare" : `${k} deltagare`);
+  const sentTo = results.filter((r) => !r.blocked && r.channels.some((c) => c === "email" || c === "sms"));
+  const written = (["email", "sms"] as const).filter((c) => sentTo.some((r) => r.channels.includes(c)));
+  const calls = sentTo.filter((r) => r.channels.includes("call")).length;
+  const tasks = results.filter((r) => !r.blocked && r.taskId).length;
+  const blocked = results.filter((r) => r.blocked).length;
+  const parts: string[] = [];
+  if (sentTo.length) {
+    parts.push(`${WHAT[template]} skickas till ${n(sentTo.length)} med ${listSv(written.map((c) => CHANNEL_TEXT[c]))}.`);
+    if (calls) parts.push(`${calls === sentTo.length ? (calls === 1 ? "Deltagaren" : "De") : `${calls} av dem`} blir också ${calls === 1 ? "uppringd" : "uppringda"} med ett inspelat meddelande.`);
+  }
+  if (tasks) parts.push(`${sentTo.length ? "" : `${WHAT[template]} kunde inte skickas. `}Samordnaren har fått en uppgift att ringa ${n(tasks)}.`);
+  if (blocked) parts.push(`${n(blocked)} fick inget meddelande (skyddade personuppgifter).`);
+  return parts.join(" ");
+}

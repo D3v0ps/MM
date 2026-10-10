@@ -3,19 +3,28 @@
 //
 // Läsning och skrivning går via ctx.repo (policyn/RLS: group_activities för Miljonbemanning i avtalet utom ekonomen, deltagarnas
 // tillfällen i activities, närvaron i attendance och anteckningarna i case_notes med samma regler som förut). Revisionsloggen
-// får en rad per ändring med id:n, tider och antal – aldrig namnet, platsen eller anteckningens text.
+// får en rad per ändring med id:n, tider och antal – aldrig namnet, platsen, gruppmålet eller anteckningens text.
+//
+// Spår G: meddelandet till deltagarna (notifyParticipant, src/features/_shared/participant-notify.ts) när de bjuds in, när tid eller
+// plats ändras, när en deltagare tas bort och när aktiviteten ställs in – bara när kryssrutan är ikryssad och aktiviteten inte har
+// börjat. Inbjudan per grupp eller nivå hoppar över de som inte kan vara med (skipUninvitable). Gruppmålet: group_activities.goal
+// och coachens val per deltagare i group_goal_results (ingen rad = Klarade automatiskt).
 import { fail, ok, type Fail } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { ACTIVITY_KIND_WORD, GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, overlaps, slotText } from "@/core/group-activities";
+import {
+  ACTIVITY_KIND_WORD, GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, overlaps, slotText, type InviteGrouping, type UninvitableMember,
+} from "@/core/group-activities";
 import { ABSENCE_REASONS } from "@/core/labels";
-import { addDays, dayOf, fmtDate, type LocalDate } from "@/core/time";
+import { addDays, dayOf, fmtDate, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
-import { GROUP_ACTIVITY_KINDS, type Activity, type Case, type GroupActivity, type Person } from "@/data/schema";
+import { looksLikePnr } from "@/core/validation";
+import { GROUP_ACTIVITY_KINDS, type Activity, type Case, type CaseStatus, type GroupActivity, type Person } from "@/data/schema";
 import { NOTE_PNR_TEXT, noteProblem } from "../_shared/notes";
+import { closeActivityTasks, notifyManySummary, notifyParticipant, type ActivityTemplate, type NotifyParticipantResult } from "../_shared/participant-notify";
 import {
   groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityList, groupActivityNotes, groupActivityRemove, groupActivityUpdate,
-  groupActivityView, type GroupActivityListRow, type GroupParticipant, type InviteProblem,
+  groupActivityView, groupGoalResultSet, type GroupActivityListRow, type GroupParticipant, type InviteProblem, type NotifyOutcome,
 } from "./api";
 
 /**
@@ -118,13 +127,16 @@ const overlapText = (problems: readonly InviteProblem[]) =>
  */
 async function participantCheck(
   ctx: Ctx, cases: readonly Case[], slot: { startsAt: string; durationMin: number }, groupActivityId: string | null, replaceOverlapping: boolean | undefined,
-  prefix = "",
-): Promise<{ fail: Fail<"not_invitable" | "overlap"> & { problems: InviteProblem[] } } | { replaceable: Activity[] }> {
+  prefix = "", skip = false,
+): Promise<{ fail: Fail<"not_invitable" | "overlap"> & { problems: InviteProblem[] } } | { replaceable: Activity[]; cases: Case[]; skipped: InviteProblem[] }> {
   const ov = await overlapsFor(ctx, cases, slot, groupActivityId);
   const hard = mergeProblems([...problemsOf(cases, dayOf(slot.startsAt)), ...(await notWorkable(ctx, cases)), ...ov.blocking]);
-  if (hard.length) return { fail: { ...fail("not_invitable", `${prefix}${problemsText(hard)}`), problems: hard } };
-  if (ov.replace.length && !replaceOverlapping) return { fail: { ...fail("overlap", `${prefix}${overlapText(ov.replace)}`), problems: ov.replace } };
-  return { replaceable: ov.replaceable };
+  if (hard.length && !skip) return { fail: { ...fail("not_invitable", `${prefix}${problemsText(hard)}`), problems: hard } };
+  // Per grupp eller nivå (skip): de som inte kan vara med hoppas över – resten bjuds in.
+  const out = new Set(hard.map((x) => x.caseId));
+  const replace = ov.replace.filter((x) => !out.has(x.caseId));
+  if (replace.length && !replaceOverlapping) return { fail: { ...fail("overlap", `${prefix}${overlapText(replace)}`), problems: replace } };
+  return { replaceable: ov.replaceable.filter((a) => !out.has(a.caseId)), cases: cases.filter((c) => !out.has(c.id)), skipped: hard };
 }
 
 /** Tar bort deltagarnas egna tillfällen som aktiviteten ersätter (bekräftat, utan närvaro – prövat i participantCheck). */
@@ -176,6 +188,53 @@ async function addParticipants(ctx: Ctx, g: GroupActivity, cases: readonly Case[
   return out;
 }
 
+/** Gruppmålet: tom text = inget mål. Personnummer stoppas – målet gäller hela gruppen. */
+const GOAL_PNR = "Det ser ut som ett personnummer i gruppmålet. Ta bort det – målet gäller hela gruppen.";
+function goalText(goal: string | null | undefined): { goal: string | null } | { error: string } {
+  const t = (goal ?? "").trim();
+  if (!t) return { goal: null };
+  return looksLikePnr(t) ? { error: GOAL_PNR } : { goal: t };
+}
+
+/**
+ * Meddelandet till deltagarna (spår G): ett utskick per deltagare via notifyParticipant – tid, plats och Miljonbemannings
+ * telefonnummer, aldrig namn. Kanalerna och uppgiften till samordnaren när ingen kanal finns avgörs där. Loggas som
+ * group_activity.notified med mallen, ärendena och antalen. null när ingen deltagare berördes.
+ */
+async function notifyAll(
+  ctx: Ctx, g: Pick<GroupActivity, "id" | "contractId">, template: ActivityTemplate, caseIds: readonly string[], slot: { when: LocalDateTime; place: string },
+  previous?: LocalDateTime,
+): Promise<NotifyOutcome> {
+  const results: NotifyParticipantResult[] = [];
+  for (const caseId of caseIds) results.push(await notifyParticipant(ctx, { caseId, template, when: slot.when, place: slot.place, previous: previous ?? null }));
+  const summary = notifyManySummary(template, results);
+  if (!summary) return null;
+  const sent = results.filter((r) => !r.blocked && r.channels.some((c) => c === "email" || c === "sms")).length;
+  const tasks = results.filter((r) => !r.blocked && r.taskId).length;
+  await ctx.audit({
+    action: "group_activity.notified", entity: "group_activity", entityId: g.id, contractId: g.contractId,
+    details: { template, caseIds: [...caseIds].sort(), count: caseIds.length, sent, tasks, startsAt: slot.when },
+  });
+  return { sent, tasks, summary };
+}
+/** Meddelanden skickas bara inför en aktivitet som inte har börjat. */
+const upcoming = (ctx: Ctx, startsAt: LocalDateTime): boolean => startsAt > ctx.now();
+
+/**
+ * Tiden eller platsen gäller inte längre (ny tid, inställd, borttagen deltagare): öppna uppgifter att ringa deltagarna om den
+ * gamla tiden stängs (closeActivityTasks) – annars ringer samordnaren med fel tid.
+ */
+async function supersedeTasks(ctx: Ctx, cases: readonly Pick<Case, "id" | "caseNumber" | "contractId">[], was: Pick<GroupActivity, "startsAt" | "location">, note: string): Promise<void> {
+  for (const c of cases) await closeActivityTasks(ctx, c, { when: was.startsAt, place: was.location }, note);
+}
+
+/** Orsaken för en deltagare i en nivå eller grupp som inte kan bjudas in alls (insatsen pågår inte). */
+function memberReason(status: CaseStatus): string {
+  if (status === "closed") return INVITE_BLOCK_TEXT.closed;
+  if (status === "declined") return INVITE_BLOCK_TEXT.declined;
+  return "Insatsen har inte startat";
+}
+
 // ================================================================ Frågor
 handleQuery(groupActivityList, { roles: GROUP_READERS }, async (ctx) => {
   const now = ctx.now();
@@ -216,6 +275,9 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
   const profileName = async (id: string | null) => (id ? (await ctx.repo.table("profiles").get(id))?.fullName ?? null : null);
   const authorNames = new Map<string, string>();
   for (const id of uniq(notes.map((n) => n.authorId))) authorNames.set(id, (await profileName(id)) ?? "–");
+  // Gruppmålet: coachens val per deltagare (ingen rad = Klarade automatiskt).
+  const goalRows = g.goal ? await ctx.repo.table("group_goal_results").list({ groupActivityId: g.id }) : [];
+  const goalOf = new Map(goalRows.map((r) => [r.caseId, r]));
   const participants: GroupParticipant[] = [];
   for (const a of acts) {
     const c = await ctx.repo.table("cases").get(a.caseId);
@@ -225,6 +287,7 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
     participants.push({
       activityId: a.id, caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person),
       attendance: at ? { status: at.status, reason: at.reason, source: at.source } : null,
+      goal: g.goal ? { achieved: goalOf.get(c.id)?.achieved ?? true, auto: !goalOf.has(c.id) } : null,
       notes: notes.filter((n) => n.caseId === c.id).map((n) => ({ id: n.id, body: n.body, authorName: authorNames.get(n.authorId) ?? "–" })),
     });
   }
@@ -235,6 +298,7 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
     activity: {
       id: g.id, contractId: g.contractId, name: g.name, kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, location: g.location, responsibleId: g.responsibleId,
       responsibleName: await profileName(g.responsibleId), createdByName: (await profileName(g.createdBy)) ?? "–", cancelledAt: g.cancelledAt, holiday: await holidayOn(ctx, day),
+      goal: g.goal,
     },
     participants,
     canEdit: GROUP_WRITERS.includes(ctx.actor.role) && !g.cancelledAt,
@@ -261,6 +325,26 @@ handleQuery(groupActivityForm, { roles: GROUP_WRITERS }, async (ctx) => {
   const personOf = new Map(persons.map((p) => [p.id, p]));
   const coachName = new Map(coaches.map((c) => [c.id, c.name]));
   const holidays = await ctx.repo.table("holidays").list({ date: { gte: today, lte: addDays(today, 366) } }, { orderBy: "date" });
+  // Inbjudan per nivå eller grupp (spår G): avtalets aktiva nivåer och grupper med deltagarna den inloggade får se (policyn för
+  // grouping_members). Deltagare vars insats inte pågår räknas upp som överhoppade med orsaken.
+  const [gs, ms] = await Promise.all([
+    ctx.repo.table("groupings").list({ contractId, archivedAt: { isNull: true }, kind: { in: ["level", "group"] } }),
+    ctx.repo.table("grouping_members").list({ contractId, removedAt: { isNull: true }, kind: { in: ["level", "group"] } }),
+  ]);
+  const groupings: InviteGrouping[] = gs
+    .sort((a, b) => (a.kind === b.kind ? a.sortOrder - b.sortOrder || a.name.localeCompare(b.name, "sv") : a.kind === "level" ? -1 : 1))
+    .map((x) => ({ id: x.id, kind: x.kind as "level" | "group", name: x.name, caseIds: uniq(ms.filter((m) => m.groupingId === x.id).map((m) => m.caseId)).sort() }));
+  const candidateIds = new Set(cases.filter((c) => personOf.has(c.personId)).map((c) => c.id));
+  const otherIds = uniq(groupings.flatMap((x) => x.caseIds)).filter((id) => !candidateIds.has(id));
+  const otherCases = otherIds.length ? await ctx.repo.table("cases").list({ id: { in: otherIds } }) : [];
+  const otherPersons = otherCases.length ? await ctx.repo.table("persons").list({ id: { in: uniq(otherCases.map((c) => c.personId)) } }) : [];
+  const otherPersonOf = new Map(otherPersons.map((x) => [x.id, x]));
+  const others: UninvitableMember[] = otherCases.sort(by<Case>("caseNumber")).map((c) => {
+    const person = otherPersonOf.get(c.personId);
+    // Personen går inte att läsa (vilande spärren för skyddade personuppgifter): bara ärendenumret och orsaken.
+    if (!person) return { caseId: c.id, caseNumber: c.caseNumber, name: null, reason: NOT_WORKABLE };
+    return { caseId: c.id, caseNumber: c.caseNumber, name: nameOf(person), reason: memberReason(c.status) };
+  });
   return {
     now,
     contractId,
@@ -274,10 +358,19 @@ handleQuery(groupActivityForm, { roles: GROUP_WRITERS }, async (ctx) => {
     holidays: holidays.map((h) => ({ date: h.date, name: h.name })),
     defaultLocation: contract?.config.activities?.defaultWeekPlan?.[0]?.location ?? "Miljonbemanning",
     me: coachIds.includes(ctx.actor.userId) ? ctx.actor.userId : null,
+    groupings,
+    others,
   };
 });
 
 // ================================================================ Kommandon
+/** Nivåerna och grupperna som valdes (revisionsloggen) – bara de som finns i aktivitetens avtal. */
+async function selectionLog(ctx: Ctx, contractId: string, p: { via?: string; groupingIds?: string[] }): Promise<Record<string, unknown>> {
+  const ids = uniq(p.groupingIds ?? []);
+  const known = ids.length ? (await ctx.repo.table("groupings").pick(["id"], { id: { in: ids }, contractId })).map((x) => x.id).sort() : [];
+  return { ...(p.via ? { via: p.via } : {}), ...(known.length ? { groupingIds: known } : {}) };
+}
+
 handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const now = ctx.now();
   const day = dayOf(p.startsAt);
@@ -288,28 +381,32 @@ handleCommand(groupActivityCreate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   if (contracts.length > 1) return fail("contract", "Deltagarna måste höra till samma avtal.");
   const contractId = contracts[0] ?? (await primaryContractId(ctx));
   if (!contractId || !ctx.actor.contractIds.includes(contractId)) return fail("contract", "Du kan bara skapa aktiviteter i avtal där du arbetar.");
+  const goal = goalText(p.goal);
+  if ("error" in goal) return fail("goal", goal.error);
   const holiday = await holidayOn(ctx, day);
   if (holiday && !p.acceptHoliday) return fail("holiday", holidayText(day, holiday));
-  const check = await participantCheck(ctx, cases, p, null, p.replaceOverlapping);
+  const check = await participantCheck(ctx, cases, p, null, p.replaceOverlapping, "", !!p.skipUninvitable);
   if ("fail" in check) return check.fail;
   const responsibleId = p.responsibleId ?? null;
   if (!(await responsibleOk(ctx, contractId, responsibleId))) return fail("responsible", "Välj en coach i avtalet som ansvarig.");
   const g: GroupActivity = {
     id: ctx.newId("ga"), contractId, name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId,
-    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: null,
+    createdBy: ctx.actor.userId, createdAt: now, updatedAt: null, updatedBy: null, cancelledAt: null, cancelledBy: null, goal: goal.goal,
   };
   await ctx.repo.table("group_activities").insert(g);
   const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
-  const added = await addParticipants(ctx, g, cases);
-  // Loggen: id:n, typ, tid och antal – aldrig namnet eller platsen. caseIds gör att kortets Historik visar raden.
+  const added = await addParticipants(ctx, g, check.cases);
+  // Loggen: id:n, typ, tid och antal – aldrig namnet, platsen eller gruppmålet. caseIds gör att kortets Historik visar raden.
   await ctx.audit({
     action: "group_activity.created", entity: "group_activity", entityId: g.id, contractId,
     details: {
-      kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, count: added.caseIds.length, caseIds: [...ids].sort(), activityIds: added.activityIds,
-      ...(replacedActivityIds.length ? { replacedActivityIds } : {}), ...(holiday ? { holiday: true } : {}),
+      kind: g.kind, startsAt: g.startsAt, durationMin: g.durationMin, count: added.caseIds.length, caseIds: [...added.caseIds].sort(), activityIds: added.activityIds,
+      ...(replacedActivityIds.length ? { replacedActivityIds } : {}), ...(holiday ? { holiday: true } : {}), ...(g.goal ? { goal: true } : {}),
+      ...(check.skipped.length ? { skippedCaseIds: check.skipped.map((x) => x.caseId) } : {}), ...(await selectionLog(ctx, contractId, p)),
     },
   });
-  return ok({ groupActivityId: g.id, invited: added.caseIds.length, replaced: replacedActivityIds.length });
+  const notified = p.notify && upcoming(ctx, g.startsAt) ? await notifyAll(ctx, g, "aktivitetsinbjudan", added.caseIds, { when: g.startsAt, place: g.location }) : null;
+  return ok({ groupActivityId: g.id, invited: added.caseIds.length, replaced: replacedActivityIds.length, skipped: check.skipped, notified });
 });
 
 handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
@@ -320,18 +417,21 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const moved = p.startsAt !== g.startsAt;
   const day = dayOf(p.startsAt);
   const responsibleId = p.responsibleId ?? null;
-  const next = { name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId };
+  // Gruppmålet: utelämnat = oförändrat.
+  const goal = p.goal === undefined ? { goal: g.goal } : goalText(p.goal);
+  if ("error" in goal) return fail("goal", goal.error);
+  const next = { name: p.name.trim(), kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), responsibleId, goal: goal.goal };
   const fields = (Object.keys(next) as (keyof typeof next)[]).filter((k) => next[k] !== g[k]);
-  if (!fields.length) return ok({ changed: 0, replaced: 0 });
+  if (!fields.length) return ok({ changed: 0, replaced: 0, notified: null });
   // Tid, längd, plats och typ ändras på alla deltagarnas tillfällen – också de aktören inte ser måste kunna ändras.
   const actFields = fields.filter((k) => k === "kind" || k === "startsAt" || k === "durationMin" || k === "location");
   if (actFields.length && (await hiddenParticipants(ctx, g.id, acts.length))) return fail("restricted", RESTRICTED);
   let replaceable: Activity[] = [];
+  const cases = (await Promise.all(uniq(acts.map((a) => a.caseId)).map((id) => ctx.repo.table("cases").get(id)))).filter((c): c is Case => !!c);
   if (moved || next.durationMin !== g.durationMin) {
     if (moved && acts.length && (await ctx.repo.table("attendance").list({ activityId: { in: acts.map((a) => a.id) } })).length) return fail("has_attendance", HAS_ATTENDANCE_TIME);
     const holiday = moved && day !== dayOf(g.startsAt) ? await holidayOn(ctx, day) : null;
     if (holiday && !p.acceptHoliday) return fail("holiday", holidayText(day, holiday));
-    const cases = (await Promise.all(uniq(acts.map((a) => a.caseId)).map((id) => ctx.repo.table("cases").get(id)))).filter((c): c is Case => !!c);
     if (moved) {
       // Ny tid: samma kontroller som en inbjudan (insatsen den dagen och deltagarnas andra tillfällen – aktivitetens egna rader räknas inte).
       const check = await participantCheck(ctx, cases, next, g.id, p.replaceOverlapping, `Aktiviteten kan inte flyttas till ${fmtDate(day)}. `);
@@ -359,7 +459,15 @@ handleCommand(groupActivityUpdate, { roles: GROUP_WRITERS }, async (ctx, p) => {
       ...(replacedActivityIds.length ? { replacedActivityIds } : {}),
     },
   });
-  return ok({ changed: fields.length, replaced: replacedActivityIds.length });
+  // Ny tid eller plats (spår G): uppgifterna att ringa om den gamla tiden gäller inte längre, och deltagarna får den nya.
+  let notified: NotifyOutcome = null;
+  if (moved || next.location !== g.location) {
+    await supersedeTasks(ctx, cases, g, "Aktiviteten har fått ny tid eller plats.");
+    if (p.notify && upcoming(ctx, next.startsAt)) {
+      notified = await notifyAll(ctx, g, "aktivitet_andrad", cases.map((c) => c.id), { when: next.startsAt, place: next.location }, g.startsAt);
+    }
+  }
+  return ok({ changed: fields.length, replaced: replacedActivityIds.length, notified });
 });
 
 handleCommand(groupActivityInvite, { roles: GROUP_WRITERS }, async (ctx, p) => {
@@ -369,21 +477,25 @@ handleCommand(groupActivityInvite, { roles: GROUP_WRITERS }, async (ctx, p) => {
   const invited = new Set((await participantsOf(ctx, g.id)).map((a) => a.caseId));
   const wanted = uniq(p.caseIds);
   const ids = wanted.filter((id) => !invited.has(id));
-  if (!ids.length) return ok({ invited: 0, already: wanted.length, replaced: 0 });
+  if (!ids.length) return ok({ invited: 0, already: wanted.length, replaced: 0, skipped: [], notified: null });
   const cases = await ctx.repo.table("cases").list({ id: { in: ids } });
   if (cases.length !== ids.length) return fail("not_found", CASES_NOT_FOUND);
   if (cases.some((c) => c.contractId !== g.contractId)) return fail("contract", "Deltagarna måste höra till aktivitetens avtal.");
-  const check = await participantCheck(ctx, cases, g, g.id, p.replaceOverlapping);
+  const check = await participantCheck(ctx, cases, g, g.id, p.replaceOverlapping, "", !!p.skipUninvitable);
   if ("fail" in check) return check.fail;
   const replacedActivityIds = await removeReplaced(ctx, check.replaceable);
-  const added = await addParticipants(ctx, g, cases);
+  const added = await addParticipants(ctx, g, check.cases);
   if (added.caseIds.length || replacedActivityIds.length) {
     await ctx.audit({
       action: "group_activity.invited", entity: "group_activity", entityId: g.id, contractId: g.contractId,
-      details: { count: added.caseIds.length, caseIds: [...added.caseIds].sort(), activityIds: added.activityIds, ...(replacedActivityIds.length ? { replacedActivityIds } : {}) },
+      details: {
+        count: added.caseIds.length, caseIds: [...added.caseIds].sort(), activityIds: added.activityIds, ...(replacedActivityIds.length ? { replacedActivityIds } : {}),
+        ...(check.skipped.length ? { skippedCaseIds: check.skipped.map((x) => x.caseId) } : {}), ...(await selectionLog(ctx, g.contractId, p)),
+      },
     });
   }
-  return ok({ invited: added.caseIds.length, already: wanted.length - added.caseIds.length, replaced: replacedActivityIds.length });
+  const notified = p.notify && upcoming(ctx, g.startsAt) ? await notifyAll(ctx, g, "aktivitetsinbjudan", added.caseIds, { when: g.startsAt, place: g.location }) : null;
+  return ok({ invited: added.caseIds.length, already: wanted.length - ids.length + added.already.length, replaced: replacedActivityIds.length, skipped: check.skipped, notified });
 });
 
 handleCommand(groupActivityRemove, { roles: GROUP_WRITERS }, async (ctx, p) => {
@@ -397,7 +509,11 @@ handleCommand(groupActivityRemove, { roles: GROUP_WRITERS }, async (ctx, p) => {
   }
   await ctx.repo.table("activities").remove(act.id);
   await ctx.audit({ action: "group_activity.removed_participant", entity: "group_activity", entityId: g.id, contractId: g.contractId, details: { caseIds: [p.caseId], activityIds: [act.id] } });
-  return ok({});
+  // Deltagaren är inte längre med: uppgiften att ringa om inbjudan stängs, och deltagaren får beskedet att aktiviteten är inställd för hen.
+  const c = await ctx.repo.table("cases").get(p.caseId);
+  if (c) await supersedeTasks(ctx, [c], g, "Deltagaren är borttagen från aktiviteten.");
+  const notified = c && p.notify && upcoming(ctx, g.startsAt) ? await notifyAll(ctx, g, "aktivitet_installd", [c.id], { when: g.startsAt, place: g.location }) : null;
+  return ok({ notified });
 });
 
 handleCommand(groupActivityCancel, { roles: GROUP_WRITERS }, async (ctx, p) => {
@@ -438,7 +554,52 @@ handleCommand(groupActivityCancel, { roles: GROUP_WRITERS }, async (ctx, p) => {
       ...(kept.length ? { keptActivityIds: kept.map((a) => a.id) } : {}),
     },
   });
-  return ok({ removed: removed.length, kept: kept.length });
+  // Spår G: uppgifterna att ringa om inbjudan stängs, och deltagarna vars tillfälle togs bort får beskedet att aktiviteten är inställd.
+  const removedCases = (await Promise.all(uniq(removed.map((a) => a.caseId)).map((id) => ctx.repo.table("cases").get(id)))).filter((c): c is Case => !!c);
+  await supersedeTasks(ctx, removedCases, g, "Aktiviteten är inställd.");
+  const notified = p.notify && upcoming(ctx, g.startsAt) ? await notifyAll(ctx, g, "aktivitet_installd", removedCases.map((c) => c.id), { when: g.startsAt, place: g.location }) : null;
+  return ok({ removed: removed.length, kept: kept.length, notified });
+});
+
+handleCommand(groupGoalResultSet, { roles: GROUP_WRITERS }, async (ctx, p) => {
+  const g = await groupOf(ctx, p.id);
+  if (!g) return fail("not_found", NOT_FOUND);
+  if (g.cancelledAt) return fail("cancelled", CANCELLED);
+  if (!g.goal) return fail("no_goal", "Aktiviteten har inget gruppmål. Skriv ett mål under Ändra först.");
+  const now = ctx.now();
+  if (g.startsAt >= now) return fail("not_started", "Gruppmålet markeras när aktiviteten har startat.");
+  if (!(await ctx.repo.table("activities").first({ groupActivityId: g.id, caseId: p.caseId }))) {
+    return fail("not_invited", "Deltagaren är inte inbjuden till aktiviteten. Ladda om sidan.");
+  }
+  const t = ctx.repo.table("group_goal_results");
+  const set = async (): Promise<{ changed: boolean; wasAuto: boolean }> => {
+    const cur = await t.first({ groupActivityId: g.id, caseId: p.caseId });
+    // Ingen rad = Klarade automatiskt: Klarade ändrar inget.
+    if (!cur) {
+      if (p.achieved) return { changed: false, wasAuto: true };
+      await t.insert({ id: ctx.newId("ggr"), contractId: g.contractId, groupActivityId: g.id, caseId: p.caseId, achieved: false, setBy: ctx.actor.userId, setAt: now });
+      return { changed: true, wasAuto: true };
+    }
+    if (cur.achieved === p.achieved) return { changed: false, wasAuto: false };
+    await t.update(cur.id, { achieved: p.achieved, setBy: ctx.actor.userId, setAt: now });
+    return { changed: true, wasAuto: false };
+  };
+  let r: { changed: boolean; wasAuto: boolean };
+  try {
+    r = await set();
+  } catch (e) {
+    // Två samtidiga val för samma deltagare (unik nyckel, 23505): läs om och gör om valet.
+    if ((e as { code?: unknown } | null)?.code !== "23505") throw e;
+    r = await set();
+  }
+  if (r.changed) {
+    // Loggen: ärendet och valet – aldrig målets text.
+    await ctx.audit({
+      action: "group_goal.marked", entity: "group_activity", entityId: g.id, contractId: g.contractId,
+      details: { caseIds: [p.caseId], achieved: p.achieved, ...(r.wasAuto ? { wasAuto: true } : {}) },
+    });
+  }
+  return ok({ changed: r.changed });
 });
 
 handleCommand(groupActivityNotes, { roles: GROUP_WRITERS }, async (ctx, p) => {

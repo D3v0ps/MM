@@ -150,9 +150,12 @@ const WRITES: Record<string, string[]> = {
   "session.auditView": [AUDIT_CASE, AUDIT],
   "feedback.submit": ["feedback", AUDIT], "feedback.reply": ["feedback_replies", AUDIT], "feedback.setStatus": ["feedback", AUDIT],
   // Gruppaktiviteter (coachmötet 2026-10-09): loggraderna har deltagarnas ärenden (caseIds) och syns i kortets Historik.
-  "aktiviteter.skapa": ["group_activities", "activities", AUDIT_CASE, AUDIT], "aktiviteter.andra": ["group_activities", "activities", AUDIT_CASE, AUDIT],
-  "aktiviteter.bjudIn": ["activities", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", AUDIT_CASE, AUDIT],
-  "aktiviteter.stallIn": ["group_activities", "activities", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
+  // Spår G: meddelandet till deltagarna (utskick, och uppgiften till samordnaren när ingen kanal finns) och gruppmålet.
+  "aktiviteter.skapa": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.andra": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.bjudIn": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.stallIn": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
+  "aktiviteter.malResultat": ["group_goal_results", AUDIT_CASE, AUDIT],
   // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
   "grupper.ny": ["groupings", AUDIT], "grupper.andra": ["groupings", AUDIT], "grupper.arkivera": ["groupings", AUDIT], "grupper.standard": ["groupings", AUDIT],
   "grupper.arendeSpara": ["grouping_members", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
@@ -222,6 +225,9 @@ const KNOWN: Known[] = [
   // Gruppaktiviteternas formulär (2026-10-09): deltagarna att bjuda in hämtas färskt varje gång formuläret öppnas (useQueryRunner,
   // ingen cache) och servern prövar varje inbjudan igen (not_invitable) – en ändring av ett ärende behöver inte räkna om något.
   { command: "*", query: "aktiviteter.form", table: "cases", reason: "formuläret hämtar deltagarna utan cache när det öppnas; inbjudan prövas av servern" },
+  // Inbjudan per nivå eller grupp (spår G): nivåerna, grupperna och deltagarna i dem hämtas på samma sätt – utan cache.
+  { command: "*", query: "aktiviteter.form", table: "groupings", reason: "formuläret hämtar nivåerna och grupperna utan cache när det öppnas" },
+  { command: "*", query: "aktiviteter.form", table: "grouping_members", reason: "formuläret hämtar deltagarna i nivåerna och grupperna utan cache när det öppnas; servern prövar varje inbjudan" },
   // Massanteckningarna (coachmötet 2026-10-09): urvalets namn, ärendenummer och status, och Mina ärenden (teamet).
   { command: "*", query: "grupper.anteckningar", table: "cases", reason: "listan över urvalet hämtas om när sidan visas igen – en anteckning går att spara i alla ärenden man arbetar i" },
   { command: "*", query: "grupper.katalog", table: "cases", reason: "antalet per nivå, grupp och tagg räknar bara pågående ärenden – statusen ändras i andra vyer och antalet hämtas om när sidan visas igen" },

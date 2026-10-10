@@ -42,6 +42,7 @@ import {
 import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
 import { fieldWord } from "../admin/audit-text";
+import { templateLabel } from "../admin/templates";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
@@ -1505,6 +1506,8 @@ const AUDIT_TEXT: Record<string, string> = {
   "attendance.auto_registered": "Närvaro registrerades automatiskt", "group_activity.created": "Bjöds in till en ny gruppaktivitet",
   "group_activity.updated": "Gruppaktiviteten ändrades", "group_activity.invited": "Bjöds in till gruppaktivitet", "group_activity.removed_participant": "Togs bort från gruppaktivitet",
   "group_activity.cancelled": "Gruppaktiviteten ställdes in", "group_activity.view": "Öppnade aktivitetsvyn",
+  // Spår G: meddelandet till deltagaren och gruppmålet (internt – bara Miljonbemanning ser Historik).
+  "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
 };
 /** Fälten i en ändrad gruppaktivitet som ord (Historik). */
 const GROUP_FIELD_WORD: Record<string, string> = { name: "namn", kind: "typ", startsAt: "tid", durationMin: "längd", location: "plats", responsibleId: "ansvarig" };
@@ -1546,6 +1549,10 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     // Automatisk närvaro: antalet tillfällen i körningen (alla deltagare i avtalet) – frånvaro registrerar coachen.
     if (x.action === "attendance.auto_registered") return `${plural(Number(dt.count ?? 0), "tillfälle", "tillfällen")} – ändra till frånvaro under Närvaro om deltagaren inte var där`;
     // Gruppaktiviteter: tiden och vad som ändrades – aldrig namnet eller platsen.
+    // Gruppmålet: bara valet – aldrig målets text.
+    if (x.action === "group_goal.marked") return dt.achieved === false ? "Klarade inte" : "Klarade";
+    // Meddelandet till deltagaren: mallens namn och aktivitetens tid.
+    if (x.action === "group_activity.notified") return [templateLabel(s(dt.template)), s(dt.startsAt) ? fmtDateTimeLong(s(dt.startsAt)) : ""].filter(Boolean).join(", ");
     if (x.action.startsWith("group_activity.")) {
       if (Array.isArray(dt.fields)) return `Ändrat: ${(dt.fields as string[]).map((f) => GROUP_FIELD_WORD[f] ?? f).join(", ")}`;
       if (s(dt.startsAt)) return fmtDateTimeLong(s(dt.startsAt));

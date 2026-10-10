@@ -6,10 +6,16 @@
 // Miljonbemanning i avtalet ser alla gruppaktiviteter ("alla ser alla", beslut 2026-10-09) och de som arbetar i ärendena
 // (samordnare, avtalsansvarig, coach, handledare) skapar, ändrar, bjuder in, ställer in, tar närvaro och skriver anteckningar.
 // Kommunen och ekonomen ser inga gruppaktiviteter. Namnet är internt: det syns aldrig i rapporter, resultatfil eller export.
+//
+// Spår G: deltagarna bjuds in per grupp, nivå eller enskilt (samma kommandon – skärmen räknar ut vilka med selectByGroupings)
+// och får ett meddelande med tid, plats och Miljonbemannings telefonnummer när de bjuds in, när tid eller plats ändras och när
+// aktiviteten ställs in (notify – kryssrutan i dialogen, bara för en aktivitet som inte har börjat). Gruppmålet (goal) är ett
+// internt arbetsverktyg: alla klarar det automatiskt, coachen markerar den som inte klarade det (aktiviteter.malResultat).
 import { z } from "zod";
 import { command, query, type Fail, type Result } from "@/api/contract";
 import { AKTIVITETER, CARD, CASE_FACTS, INBOX, LOG } from "@/api/invalidation";
-import { GROUP_ACTIVITY_KINDS, type CaseStatus, type GroupActivityKind, type LocalDate, type LocalDateTime } from "@/data/schema";
+import { GROUP_ACTIVITY_KINDS, GROUP_GOAL_MAX, type CaseStatus, type GroupActivityKind, type LocalDate, type LocalDateTime } from "@/data/schema";
+import { INVITE_MODES, type InviteGrouping, type UninvitableMember } from "@/core/group-activities";
 import { IdSchema, LocalDateTimeSchema } from "../_shared/schemas";
 import type { AttMark } from "../coach/api";
 
@@ -59,6 +65,11 @@ export type GroupParticipant = {
   caseNumber: string;
   name: string;
   attendance: AttMark;
+  /**
+   * Gruppmålet för deltagaren (null när aktiviteten saknar mål): achieved = Klarade eller Klarade inte, auto = ingen har valt –
+   * alla klarar målet automatiskt (Karims beslut 2) och vyn märker det.
+   */
+  goal: { achieved: boolean; auto: boolean } | null;
   /** Anteckningar från aktivitetens dag (case_notes, occurredOn = dagen) som den inloggade får läsa. */
   notes: { id: string; body: string; authorName: string }[];
 };
@@ -81,6 +92,8 @@ export type GroupActivityView =
         cancelledAt: LocalDateTime | null;
         /** Dagen är en helgdag (tabellen holidays): namnet. */
         holiday: string | null;
+        /** Gruppmålet (internt), eller null. */
+        goal: string | null;
       };
       participants: GroupParticipant[];
       /** Får ändra, bjuda in, ta närvaro och skriva anteckningar (de som arbetar i ärendena, inte inställd). */
@@ -114,6 +127,13 @@ export type GroupActivityForm = {
   defaultLocation: string;
   /** Den inloggade, om hen är coach i avtalet (förval för ansvarig). */
   me: string | null;
+  /**
+   * Avtalets aktiva nivåer och grupper med sina deltagare – inbjudan per nivå eller grupp (spår G). Bara deltagare den inloggade
+   * får se (policyn för grouping_members). Tomt när avtalet saknar nivåer och grupper.
+   */
+  groupings: InviteGrouping[];
+  /** Deltagare i nivåerna och grupperna vars insats inte pågår (avslutad, avböjd, inte startad) – hoppas över med orsaken. */
+  others: UninvitableMember[];
 };
 export const groupActivityForm = query("aktiviteter.form", z.object({})).returns<GroupActivityForm>();
 
@@ -135,7 +155,33 @@ const Fields = {
    * ska ersättas av aktiviteten – annars räknas deltagaren två gånger i veckorapporten, närvarograden och den automatiska närvaron.
    */
   replaceOverlapping: z.boolean().optional(),
+  /** Gruppmålet (internt, valfritt). Tom text = inget mål. Utelämnat vid ändring = oförändrat. */
+  goal: z.string().trim().max(GROUP_GOAL_MAX, `Gruppmålet får vara högst ${GROUP_GOAL_MAX} tecken.`).nullable().optional(),
 };
+/**
+ * Meddelandet till deltagarna (spår G): kryssrutan i dialogen ("Skicka inbjudan till deltagarna", förvald). Bara för en aktivitet
+ * som inte har börjat – annars skickas inget. Utelämnat = inget meddelande.
+ */
+const Notify = { notify: z.boolean().optional() };
+/**
+ * Hur deltagarna valdes (spår G) – till revisionsloggen. via = grupp, nivå eller enskilda; groupingIds = de valda nivåerna eller
+ * grupperna. skipUninvitable: deltagare som inte kan vara med (insatsens läge, en annan aktivitet vid samma tid …) hoppas över
+ * och räknas upp i svaret (skipped) i stället för att stoppa hela inbjudan – så bjuds en hel grupp eller nivå in.
+ */
+const Selection = {
+  via: z.enum(INVITE_MODES).optional(),
+  groupingIds: z.array(IdSchema).max(50).optional(),
+  skipUninvitable: z.boolean().optional(),
+};
+/** Hur meddelandet till deltagarna gick (null: inget skickades – rutan var inte ikryssad, eller aktiviteten har börjat). */
+export type NotifyOutcome = {
+  /** Deltagare som meddelandet skickas till (e-post eller SMS). */
+  sent: number;
+  /** Deltagare som samordnaren fått en uppgift att ringa (ingen kanal nådde fram). */
+  tasks: number;
+  /** En mening i klarspråk till den som bjöd in, ändrade eller ställde in. */
+  summary: string;
+} | null;
 /** Ärendet som stoppade (inbjudan eller ny tid) och varför – visas i dialogen. */
 export type InviteProblem = { caseId: string; caseNumber: string; reason: string };
 /** Nekat för vissa deltagare: vilka och varför. */
@@ -148,8 +194,12 @@ type Problems<E extends string> = Fail<E> & { problems: InviteProblem[] };
  * vid samma tid: overlap (problems) tills replaceOverlapping – då ersätts det. Helgdag: holiday tills acceptHoliday. Alla
  * deltagare i samma avtal.
  */
-export const groupActivityCreate = command("aktiviteter.skapa", z.object({ ...Fields, caseIds: z.array(IdSchema).max(200) }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ groupActivityId: string; invited: number; replaced: number }, "holiday" | "not_invitable" | "overlap" | "not_found" | "contract" | "responsible"> | Problems<"not_invitable" | "overlap">
+export const groupActivityCreate = command("aktiviteter.skapa", z.object({ ...Fields, ...Notify, ...Selection, caseIds: z.array(IdSchema).max(200) }), { invalidates: ACTIVITY_WRITES }).returns<
+  | Result<
+    { groupActivityId: string; invited: number; replaced: number; skipped: InviteProblem[]; notified: NotifyOutcome },
+    "holiday" | "not_invitable" | "overlap" | "not_found" | "contract" | "responsible" | "goal"
+  >
+  | Problems<"not_invitable" | "overlap">
 >();
 
 /**
@@ -158,21 +208,30 @@ export const groupActivityCreate = command("aktiviteter.skapa", z.object({ ...Fi
  * tid eller längd mot deltagarnas andra tillfällen (not_invitable, overlap – som när aktiviteten skapas). restricted: någon
  * deltagare kan inte ändras av aktören (vilande spärren för skyddade personuppgifter) – ingenting ändras.
  */
-export const groupActivityUpdate = command("aktiviteter.andra", z.object({ id: IdSchema, ...Fields }), { invalidates: ACTIVITY_WRITES }).returns<
-  | Result<{ changed: number; replaced: number }, "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "overlap" | "responsible" | "restricted">
+export const groupActivityUpdate = command("aktiviteter.andra", z.object({ id: IdSchema, ...Fields, ...Notify }), { invalidates: ACTIVITY_WRITES }).returns<
+  | Result<
+    { changed: number; replaced: number; notified: NotifyOutcome },
+    "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "overlap" | "responsible" | "restricted" | "goal"
+  >
   | Problems<"not_invitable" | "overlap">
 >();
 
-/** Bjud in fler deltagare (redan inbjudna hoppas över). Samma regler som när aktiviteten skapas. */
-export const groupActivityInvite = command("aktiviteter.bjudIn", z.object({ id: IdSchema, caseIds: z.array(IdSchema).min(1).max(200), replaceOverlapping: z.boolean().optional() }), {
+/**
+ * Bjud in fler deltagare (redan inbjudna hoppas över). Samma regler som när aktiviteten skapas. Per grupp eller nivå
+ * (skipUninvitable) hoppas de över som inte kan vara med (skipped) – enskilt valda stoppar inbjudan som förut.
+ */
+export const groupActivityInvite = command("aktiviteter.bjudIn", z.object({
+  id: IdSchema, caseIds: z.array(IdSchema).min(1).max(200), replaceOverlapping: z.boolean().optional(), ...Notify, ...Selection,
+}), {
   invalidates: ACTIVITY_WRITES,
 }).returns<
-  Result<{ invited: number; already: number; replaced: number }, "not_found" | "cancelled" | "not_invitable" | "overlap" | "contract"> | Problems<"not_invitable" | "overlap">
+  | Result<{ invited: number; already: number; replaced: number; skipped: InviteProblem[]; notified: NotifyOutcome }, "not_found" | "cancelled" | "not_invitable" | "overlap" | "contract">
+  | Problems<"not_invitable" | "overlap">
 >();
 
-/** Ta bort en deltagare – bara om närvaro inte är registrerad. */
-export const groupActivityRemove = command("aktiviteter.taBort", z.object({ id: IdSchema, caseId: IdSchema }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<object, "not_found" | "cancelled" | "has_attendance">
+/** Ta bort en deltagare – bara om närvaro inte är registrerad. notify: deltagaren får beskedet att aktiviteten är inställd för hen. */
+export const groupActivityRemove = command("aktiviteter.taBort", z.object({ id: IdSchema, caseId: IdSchema, ...Notify }), { invalidates: ACTIVITY_WRITES }).returns<
+  Result<{ notified: NotifyOutcome }, "not_found" | "cancelled" | "has_attendance">
 >();
 
 /**
@@ -181,8 +240,8 @@ export const groupActivityRemove = command("aktiviteter.taBort", z.object({ id: 
  * kept: tillfällen som hann få närvaro registrerad under tiden – de ligger kvar. restricted: någon deltagare kan inte ändras av
  * aktören (vilande spärren för skyddade personuppgifter) – ingenting ändras.
  */
-export const groupActivityCancel = command("aktiviteter.stallIn", z.object({ id: IdSchema }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ removed: number; kept: number }, "not_found" | "cancelled" | "has_attendance" | "restricted">
+export const groupActivityCancel = command("aktiviteter.stallIn", z.object({ id: IdSchema, ...Notify }), { invalidates: ACTIVITY_WRITES }).returns<
+  Result<{ removed: number; kept: number; notified: NotifyOutcome }, "not_found" | "cancelled" | "has_attendance" | "restricted">
 >();
 
 /** Högst så många tecken i en anteckningsrad (samma gräns som en anteckning i deltagarkortet). */
@@ -198,3 +257,12 @@ export const groupActivityNotes = command("aktiviteter.anteckningar", z.object({
 }), { invalidates: [AKTIVITETER, CARD, "coach.assessmentPage", ...LOG] }).returns<
   Result<{ saved: number; noteIds: string[] }, "not_found" | "cancelled" | "date" | "not_invited"> | Problems<"pnr">
 >();
+
+/**
+ * Gruppmålet för en deltagare (Karims beslut 2): alla klarar målet automatiskt – coachen markerar Klarade inte (achieved: false)
+ * och kan ändra tillbaka (achieved: true). Bara när aktiviteten har ett mål och har startat, för en inbjuden deltagare. Internt:
+ * påverkar aldrig veckomål, progression, samlad status, rapporter, resultatfil, export eller faktura.
+ */
+export const groupGoalResultSet = command("aktiviteter.malResultat", z.object({ id: IdSchema, caseId: IdSchema, achieved: z.boolean() }), {
+  invalidates: [AKTIVITETER, CARD, ...LOG],
+}).returns<Result<{ changed: boolean }, "not_found" | "cancelled" | "no_goal" | "not_started" | "not_invited">>();
