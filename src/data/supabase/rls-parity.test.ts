@@ -10,13 +10,15 @@ import { defaultGroupings } from "@/core/groupings";
 import { requireOperational } from "@/core/config";
 import { COLUMNS, EXTRA_COLUMNS, quoteIdent, snakeCase, type SqlType } from "../../../scripts/db/columns";
 import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../scripts/db/seed-sql";
+import type { Role } from "@/api/roles";
 import { listPersonas, type Persona } from "../actors";
 import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory";
-import { canReadRow, canWriteRow, POLICIES } from "../policy";
+import { canReadRow, canWriteRow, MONEY_MASK, POLICIES } from "../policy";
 import { TABLE_NAMES, UNIQUE_KEYS, type TableName, type Tables } from "../schema";
 import {
   allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type DatabaseSnapshot, type Tx,
 } from "./pglite";
+import { USER_READ_VIEWS } from "./index";
 
 // Testarnas konton i auth.users (skapas av servern vid första inloggningen; seeden kopplar dem via e-postadressen).
 const TESTER_AUTH: Record<string, string> = {
@@ -41,6 +43,14 @@ const data = seedData();
 const SKYDDAD_CASE = data.cases.find((c) => c.id === data.demo_tags.find((t) => t.tag === "skyddad")!.entityIds[0])!;
 const SKYDDAD_PERSON = data.persons.find((p) => p.id === SKYDDAD_CASE.personId)!;
 SKYDDAD_PERSON.protectedIdentity = true;
+
+/** Påhittade kollegor med flera roller (0034) och den vilande rollen handledare ensam – se extraRows. */
+const COACH_EKONOM = "u-x-coachekonom";
+const SAM_COACH = "u-x-samcoach";
+const SPLIT = "u-x-delat";
+/** Den vilande rollen handledare, ensam (Petra är coach och har dessutom den vilande rollen – summan av rollerna). */
+const SUPERVISOR = "u-x-handledare";
+const EXTRA_PROFILE_IDS = [COACH_EKONOM, SAM_COACH, SPLIT, SUPERVISOR];
 
 /**
  * Extra rader för tabeller som testdatat lämnar tomma eller bara täcker delvis (flaggor, deadlines, bonus, fakturarader,
@@ -129,9 +139,18 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
   const groupAct = (id: string, caseId: string, groupActivityId: string, startsAt = "2027-02-02T13:00"): Tables["activities"] => ({
     id, caseId, kind: "yrkesmoment", startsAt, durationMin: 90, location: "Miljonbemanning Alby", note: "", groupActivityId,
   });
+  // Alla roller samtidigt (Karims beslut 7, 2026-10-09, migration 0034): påhittade kollegor med flera roller – coach och ekonom,
+  // samordnare och coach, och roller i olika avtal (coach i Botkyrka, ekonom i c-ny) – och en med bara den vilande rollen
+  // handledare (Petra är coach och har dessutom den vilande rollen, se memberships). Ali har admin och avtalsansvarig.
+  const erik = data.profiles.find((x) => x.id === "u-erik")!;
+  const colleague = (id: string, fullName: string): Tables["profiles"] => ({ ...erik, id, fullName, email: `${id}@example.invalid`, title: "Kollega (påhittad)", teamRole: null });
+  const ms = (userId: string, contractId: string, role: Tables["memberships"]["role"]): Tables["memberships"] => ({ id: `${userId}:${contractId}:${role}`, userId, contractId, role, customerUnit: null });
   return {
     // Först: raderna nedan pekar på avtalet (främmande nycklar).
     contracts: [other],
+    profiles: [
+      colleague(COACH_EKONOM, "Cecilia Coach-Ekonom"), colleague(SAM_COACH, "Sam Samordnare-Coach"), colleague(SPLIT, "Delad Kollega"), colleague(SUPERVISOR, "Hedda Handledare"),
+    ],
     group_activities: [
       { ...group("ga-x-bot", "c-bot", "u-amira"), goal: "Alla skriver ett CV" }, group("ga-x-installd", "c-bot", "u-sara", "u-sara"), group("ga-x-ny", "c-ny", "u-johan"),
     ],
@@ -158,6 +177,10 @@ function extraRows(): { [N in TableName]?: Tables[N][] } {
       // Rollen handledare är vilande (Karims beslut 2026-10-09): ingen har den i testdatat och appen kan inte ge den. Petra (coach)
       // får den här så att RLS och policy.ts för den vilande rollen fortfarande jämförs – den ska kunna slås på utan migration.
       { id: "u-petra:c-bot:handledare", userId: "u-petra", contractId: "c-bot", role: "handledare", customerUnit: null },
+      ms(COACH_EKONOM, "c-bot", "coach"), ms(COACH_EKONOM, "c-bot", "ekonom"),
+      ms(SAM_COACH, "c-bot", "samordnare"), ms(SAM_COACH, "c-bot", "coach"),
+      ms(SPLIT, "c-bot", "coach"), ms(SPLIT, "c-ny", "ekonom"),
+      ms(SUPERVISOR, "c-bot", "handledare"),
     ],
     feedback: [fb("fb-x-karim", "tester-karim", "ny"), fb("fb-x-ali", "tester-ali", "klar")],
     feedback_replies: [{ id: "fbr-x-1", feedbackId: "fb-x-karim", text: "Svar", createdAt: at, authorId: "tester-ali", submittedAt: null }],
@@ -224,16 +247,14 @@ for (const [t, rows] of Object.entries(EXTRA)) (data[t as TableName] as unknown 
 const store = new MemoryStore<Tables>(data);
 const raw: RawAccess<Tables> = store.raw();
 const personas = listPersonas(raw);
-const personaKey = (p: Persona) => `${p.actor.userId}|${p.actor.role}`;
-/** Testpersonen för en användare – eller för en användare och roll ("u-petra|handledare", samma form som personaKey). */
+const personaKey = (p: Persona) => `${p.actor.userId}|${p.actor.roles.join("+")}`;
+/** Testpersonen för en användare – med alla sina roller. "u-petra|coach" kräver dessutom att personen har rollen. */
 const findPersona = (key: string) => {
   const [userId, role] = key.split("|");
-  const p = personas.find((x) => x.actor.userId === userId && (!role || x.actor.role === role));
+  const p = personas.find((x) => x.actor.userId === userId && (!role || x.actor.roles.includes(role as Role)));
   if (!p) throw new Error(`Testperson saknas: ${key}`);
   return p;
 };
-/** Den vilande rollen handledare (se EXTRA.memberships). */
-const SUPERVISOR = "u-petra|handledare";
 
 let db: PGlite;
 
@@ -248,28 +269,24 @@ const chooseTestPerson = (profileId: string, role: string) => async (tx: Tx) => 
  * synpunkterna (0017) läser testerId.
  */
 function actorOf(p: Persona): Persona["actor"] {
-  if (p.actor.role === "deltagare") return { ...p.actor, testerId: "tester-karim" };
+  if (p.actor.roles.includes("deltagare")) return { ...p.actor, testerId: "tester-karim" };
   return TESTER_AUTH[p.actor.userId] ? { ...p.actor, testerId: p.actor.userId } : p.actor;
 }
 
 /**
  * Kör fn som testpersonen: vanliga personer med sitt auth-id, deltagaren (ingen profil) via testarens val. En person med flera
- * roller (Ali: admin och avtalsansvarig) agerar i rollen via rollvalet (0027, role_choices) – som sidopanelens rollväljare.
+ * roller har alla samtidigt (Karims beslut 7, 2026-10-09, 0034) – rollvalet (role_choices) styr inget längre.
  */
 function asPersona<T>(p: Persona, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  if (p.actor.role === "deltagare") return asUser(db, KARIM, fn, { before: chooseTestPerson(p.actor.userId, "deltagare") });
-  const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
-  const before = roles.size > 1 ? chooseRole(p.actor.userId, p.actor.role) : undefined;
-  return asUser(db, authOf(p.actor.userId), fn, before ? { before } : {});
+  if (p.actor.roles.includes("deltagare")) return asUser(db, KARIM, fn, { before: chooseTestPerson(p.actor.userId, "deltagare") });
+  return asUser(db, authOf(p.actor.userId), fn);
 }
 
-/** Välj roll (0027) i samma transaktion, som postgres. */
-const chooseRole = (userId: string, role: string) => async (tx: Tx) => {
-  await tx.query("insert into public.role_choices (id, user_id, role, chosen_at) values ($1, $1, $2, '2027-02-01T06:00') on conflict (id) do update set role = excluded.role", [userId, role]);
-};
-
-/** Tabellen som RLS-läsningen görs mot: avtal och ärenden läses via vyerna contracts_public och cases_public (se supabase/README.md). */
-const readSource = (t: TableName) => (t === "contracts" ? "contracts_public" : t === "cases" ? "cases_public" : t);
+/**
+ * Tabellen som RLS-läsningen görs mot – samma som SupabaseRepo (USER_READ_VIEWS): avtal och ärenden via contracts_public och
+ * cases_public (se supabase/README.md), tabellerna med belopp via <tabell>_public (0034).
+ */
+const readSource = (t: TableName) => USER_READ_VIEWS[t] ?? t;
 const COUNT_SQL = TABLE_NAMES.map((t) => `select '${t}' as t, count(*)::int as n from public.${readSource(t)}`).join(" union all ");
 
 async function pgCounts(tx: Tx): Promise<Record<string, number>> {
@@ -295,6 +312,8 @@ beforeAll(async () => {
   for (const [t, rows] of Object.entries(EXTRA)) {
     for (const row of rows as Record<string, unknown>[]) await db.exec(insertSql(t as TableName, row));
   }
+  // De påhittade kollegorna (EXTRA.profiles) loggar in som de andra testpersonerna (auth_user_id = authUserIdFor(id)).
+  for (const id of EXTRA_PROFILE_IDS) await db.query("update public.profiles set auth_user_id = $1 where id = $2", [authUserIdFor(id), id]);
   // Den vilande spärren (se SKYDDAD_PERSON): samma person får skyddade personuppgifter i databasen.
   await db.query("update public.persons set protected_identity = true where id = $1", [SKYDDAD_PERSON.id]);
   snapshot = await snapshotDatabase(db);
@@ -391,11 +410,18 @@ describe("schema och seed", () => {
 
 // ================================================================ Läsning: RLS = policy.ts för varje testperson
 describe("läsning: samma rader som policy.ts", () => {
-  it("testpersonerna omfattar alla roller och testarna", () => {
+  it("testpersonerna omfattar alla roller, testarna och personer med flera roller", () => {
     // Nio roller: kommunen har bara rollen handläggare (beslut 2026-10-07).
-    expect(new Set(personas.map((p) => p.actor.role)).size).toBe(9);
-    expect(personas.some((p) => (p.actor.role as string) === "kommun_chef")).toBe(false);
+    expect(new Set(personas.flatMap((p) => p.actor.roles)).size).toBe(9);
+    expect(personas.some((p) => p.actor.roles.includes("kommun_chef" as never))).toBe(false);
     expect(personas.some((p) => p.actor.userId === "tester-karim")).toBe(true);
+    // Flera roller samtidigt (0034): coach och ekonom, samordnare och coach, admin och avtalsansvarig (Ali), coach och den
+    // vilande rollen handledare (Petra), roller i olika avtal – och den vilande rollen ensam.
+    expect(personas.filter((p) => p.actor.roles.length > 1).map(personaKey).sort()).toEqual([
+      "tester-ali|admin+avtalsansvarig", "u-petra|coach+handledare", "u-x-coachekonom|coach+ekonom", "u-x-delat|coach+ekonom", "u-x-samcoach|samordnare+coach",
+    ]);
+    expect(findPersona(SPLIT).actor.roleContracts).toEqual({ coach: ["c-bot"], ekonom: ["c-ny"] });
+    expect(findPersona(SUPERVISOR).actor.roles).toEqual(["handledare"]);
   });
 
   for (const p of personas) {
@@ -404,20 +430,27 @@ describe("läsning: samma rader som policy.ts", () => {
       const expectedIds = { cases: await memIds(p, "cases"), reports: await memIds(p, "reports"), messages: await memIds(p, "messages"), check_ins: await memIds(p, "check_ins") };
       const got = await asPersona(p, async (tx) => ({
         counts: await pgCounts(tx),
-        actor: (await tx.query<{ a: { userId: string; role: string; contractIds: string[]; customerUnit: string | null } }>("select public.current_actor() as a")).rows[0].a,
+        actor: (await tx.query<{ a: { userId: string; roles: string[]; roleContracts: Record<string, string[]>; contractIds: string[]; customerUnit: string | null } }>("select public.current_actor() as a")).rows[0].a,
         ids: { cases: await pgIds(tx, "cases"), reports: await pgIds(tx, "reports"), messages: await pgIds(tx, "messages"), check_ins: await pgIds(tx, "check_ins") },
       }));
       expect(got.counts).toEqual(expected);
       expect(got.ids).toEqual(expectedIds);
-      expect({ userId: got.actor.userId, role: got.actor.role, contractIds: [...got.actor.contractIds].sort(), customerUnit: got.actor.customerUnit ?? null })
-        .toEqual({ userId: p.actor.userId, role: p.actor.role, contractIds: [...p.actor.contractIds].sort(), customerUnit: p.actor.customerUnit ?? null });
+      // Alla roller (mm.current_roles) och avtalen per roll – samma som actorFor i src/data/actors.ts.
+      const perRole = (roles: readonly string[], contracts: (r: string) => string[]) => Object.fromEntries(roles.map((r) => [r, [...contracts(r)].sort()]));
+      expect({
+        userId: got.actor.userId, roles: [...got.actor.roles].sort(), contractIds: [...got.actor.contractIds].sort(), customerUnit: got.actor.customerUnit ?? null,
+        perRole: perRole(got.actor.roles, (r) => got.actor.roleContracts[r] ?? []),
+      }).toEqual({
+        userId: p.actor.userId, roles: [...p.actor.roles].sort(), contractIds: [...p.actor.contractIds].sort(), customerUnit: p.actor.customerUnit ?? null,
+        perRole: perRole(p.actor.roles, (r) => p.actor.roleContracts?.[r as never] ?? p.actor.contractIds),
+      });
     });
   }
 
   it("mm.case_access(case_id) = caseAccess i src/core/access.ts för varje ärende", async () => {
     const src = accessIndex(data);
     const levels = new Set<string>();
-    for (const userId of ["u-sara", "u-johan", "u-amira", "u-petra", SUPERVISOR, "u-karin", "u-lars", "u-robin", "k-maria", "k-omar"]) {
+    for (const userId of ["u-sara", "u-johan", "u-amira", "u-petra", SUPERVISOR, "u-karin", "u-lars", "u-robin", "k-maria", "k-omar", COACH_EKONOM, SAM_COACH, SPLIT, "tester-ali"]) {
       const p = findPersona(userId);
       const expected = Object.fromEntries(data.cases.map((c) => [c.id, caseAccessIn(c, p.actor, src)]));
       const got = await asPersona(p, async (tx) =>
@@ -427,7 +460,194 @@ describe("läsning: samma rader som policy.ts", () => {
     }
     // Nivån "team" ges inte längre till någon (beslut 2026-10-09): coach och den vilande rollen handledare har "full" i hela avtalet.
     expect([...levels].sort()).toEqual(["billing", "customer", "full", "none", "restricted"]);
-  }, 30_000); // nio testpersoner mot databasen – tar längre tid när hela testsviten körs parallellt
+  }, 60_000); // fjorton testpersoner mot databasen – tar längre tid när hela testsviten körs parallellt
+});
+
+// ================================================================ Alla roller samtidigt (0034)
+describe("alla roller samtidigt (0034): summan av rollerna – aldrig mer – och belopp bara för den som har rollen ekonom", () => {
+  const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  /** Id:n per tabell som testpersonen läser i databasen – med bara rollerna i keep kvar (övriga medlemskap tas bort i transaktionen). */
+  const pgIdsWith = (p: Persona, keep?: readonly Role[]) =>
+    asUser(db, authOf(p.actor.userId), async (tx) => {
+      const out: Record<string, string[]> = {};
+      for (const t of TABLE_NAMES) out[t] = await pgIds(tx, t);
+      return out;
+    }, keep ? { before: (tx) => tx.query("delete from public.memberships where user_id = $1 and not (role = any ($2::text[]))", [p.actor.userId, keep]).then(() => undefined) } : {});
+
+  for (const key of [SAM_COACH, COACH_EKONOM, "tester-ali", SPLIT]) {
+    it(`${key}: varje tabell i databasen är unionen av vad rollerna ger var för sig – och samma som policy.ts`, async () => {
+      const p = findPersona(key);
+      expect(p.actor.roles.length).toBeGreaterThan(1);
+      const all = await pgIdsWith(p);
+      const single: Record<string, string[]>[] = [];
+      for (const r of p.actor.roles) single.push(await pgIdsWith(p, [r]));
+      for (const t of TABLE_NAMES) {
+        expect(all[t], t).toEqual([...new Set(single.flatMap((x) => x[t]))].sort(byId));
+        expect(all[t], t).toEqual(await memIds(p, t));
+      }
+    }, 120_000);
+  }
+
+  // ---- Belopp i kronor
+  const MONEY_TABLES = Object.keys(MONEY_MASK) as TableName[];
+  const moneyFields = (t: TableName) => Object.keys(MONEY_MASK[t]!);
+  const num = (v: unknown) => (v == null ? null : Number(v));
+  const pgMoney = async (tx: Tx, t: TableName) =>
+    (await tx.query<Record<string, unknown>>(`select id, ${moneyFields(t).map(snakeCase).join(", ")} from public.${t}_public order by id`)).rows.map((r) => ({
+      id: String(r.id), ...Object.fromEntries(moneyFields(t).map((f) => [f, num(r[snakeCase(f)])])),
+    }));
+  const memMoney = async (p: Persona, t: TableName) =>
+    (await new MemoryRepo<Tables>(store, actorOf(p), POLICIES).table(t).list())
+      .map((r) => ({ id: r.id, ...Object.fromEntries(moneyFields(t).map((f) => [f, num((r as Record<string, unknown>)[f])])) }))
+      .sort((a, b) => byId(a.id, b.id));
+  /** De verkliga beloppen (testdatat, utan mask) för raderna med id:n. */
+  const realMoney = (t: TableName, ids: readonly string[]) =>
+    ids.map((id) => {
+      const r = (data[t] as unknown as Record<string, unknown>[]).find((x) => x.id === id)!;
+      return { id, ...Object.fromEntries(moneyFields(t).map((f) => [f, num(r[f])])) };
+    });
+  const masked = (t: TableName, ids: readonly string[]) => ids.map((id) => ({ id, ...Object.fromEntries(moneyFields(t).map((f) => [f, num((MONEY_MASK[t] as Record<string, unknown>)[f])])) }));
+
+  it("testdatat har belopp i prislistan, fakturaraderna och AI-körningarna (annars prövar testerna nedan ingenting)", () => {
+    for (const t of ["price_items", "invoice_lines", "ai_runs"] as TableName[]) {
+      expect((data[t] as unknown as Record<string, unknown>[]).some((r) => moneyFields(t).some((f) => Number(r[f]) > 0)), t).toBe(true);
+    }
+  });
+
+  it("varje testperson: beloppen i vyerna = policy.ts – de verkliga för den som har rollen ekonom, annars 0 eller null", async () => {
+    const ekonomer: string[] = [];
+    for (const p of personas) {
+      const got = await asPersona(p, async (tx) => {
+        const out: Record<string, Awaited<ReturnType<typeof pgMoney>>> = {};
+        for (const t of MONEY_TABLES) out[t] = await pgMoney(tx, t);
+        return out;
+      });
+      for (const t of MONEY_TABLES) {
+        const ids = got[t].map((r) => r.id);
+        expect(got[t], `${personaKey(p)} ${t}`).toEqual(await memMoney(p, t));
+        expect(got[t], `${personaKey(p)} ${t}`).toEqual(p.actor.roles.includes("ekonom") ? realMoney(t, ids) : masked(t, ids));
+      }
+      if (p.actor.roles.includes("ekonom")) ekonomer.push(personaKey(p));
+    }
+    // Ekonomen ensam, coach och ekonom, och roller i olika avtal (ekonom i c-ny – beloppen syns ändå, som hidesMoney).
+    expect(ekonomer.sort()).toEqual(["u-lars|ekonom", "u-x-coachekonom|coach+ekonom", "u-x-delat|coach+ekonom"]);
+  }, 120_000);
+
+  it("ingen inloggad läser ett belopp direkt i tabellen – inte ens ekonomen; övriga kolumner och antalet rader går (service role läser allt)", async () => {
+    // I tur och ordning: attempt använder en savepoint i transaktionen.
+    const direct = async (tx: Tx) => {
+      const out = [];
+      for (const t of MONEY_TABLES) {
+        out.push({
+          t,
+          money: await attempt(tx, `select ${moneyFields(t).map(snakeCase).join(", ")} from public.${t}`),
+          star: await attempt(tx, `select * from public.${t}`),
+          ids: await attempt(tx, `select id from public.${t}`),
+          count: await attempt(tx, `select count(*) from public.${t}`),
+        });
+      }
+      return out;
+    };
+    for (const key of ["u-lars", COACH_EKONOM, "u-amira", "u-karin", "tester-ali", "k-maria"]) {
+      for (const r of await asPersona(findPersona(key), direct)) {
+        expect(r.money, `${key} ${r.t}`).toMatchObject({ ok: false, code: "42501" });
+        expect(r.star, `${key} ${r.t}`).toMatchObject({ ok: false, code: "42501" });
+        expect(r.ids.ok, `${key} ${r.t}`).toBe(true);
+        expect(r.count.ok, `${key} ${r.t}`).toBe(true);
+      }
+    }
+    const service = await asUser(db, null, direct, { role: "service_role" });
+    for (const r of service) expect(r.money.ok && r.star.ok, r.t).toBe(true);
+    // Beloppsfunktionerna lämnar inget till den som inte har rollen ekonom – inte heller när de anropas direkt.
+    const priceId = data.price_items.find((x) => x.priceOre > 0)!.id;
+    const fn = (key: string) => asPersona(findPersona(key), async (tx) => (await tx.query<{ v: unknown }>("select mm.price_item_price_ore($1) as v", [priceId])).rows[0].v);
+    expect(await fn("u-sara")).toBeNull();
+    expect(num(await fn("u-lars"))).toBe(data.price_items.find((x) => x.id === priceId)!.priceOre);
+  }, 60_000);
+
+  it("en ändring via tabellen lämnar inget belopp tillbaka (returning) – SupabaseRepo läser raden via vyn", async () => {
+    const cd = data.contract_deviations[0];
+    const sara = await asPersona(findPersona("u-sara"), async (tx) => ({
+      returningId: await attempt(tx, "update public.contract_deviations set lessons = lessons where id = $1 returning id", [cd.id]),
+      returningMoney: await attempt(tx, "update public.contract_deviations set lessons = lessons where id = $1 returning penalty_ore", [cd.id]),
+    }));
+    expect(sara.returningId).toMatchObject({ ok: true, rows: 1 });
+    expect(sara.returningMoney).toMatchObject({ ok: false, code: "42501" });
+  });
+
+  // ---- Anteckningar och kommunen
+  const NOTE_TABLES: TableName[] = ["check_ins", "case_notes", "monthly_assessments", "monthly_plans", "intake_assessments"];
+
+  it("coach och ekonom ser anteckningarna (genom coachrollen) och beloppen (genom ekonomrollen) – samma som policy.ts", async () => {
+    const p = findPersona(COACH_EKONOM);
+    const got = await asPersona(p, async (tx) => ({
+      counts: await pgCounts(tx),
+      lines: await pgMoney(tx, "invoice_lines"),
+    }));
+    const mem = await memCounts(p);
+    for (const t of NOTE_TABLES) expect(got.counts[t], t).toBe(mem[t]);
+    expect(got.counts.check_ins).toBeGreaterThan(0);
+    expect(got.counts.case_notes).toBeGreaterThan(0);
+    expect(got.lines.length).toBeGreaterThan(0);
+    expect(got.lines).toEqual(realMoney("invoice_lines", got.lines.map((r) => r.id)));
+    expect(got.lines.some((r) => Number((r as Record<string, unknown>).unitPriceOre) > 0)).toBe(true);
+  });
+
+  it("den som är ekonom men inte coach ser aldrig coachanteckningar; med rollerna i olika avtal bara anteckningarna i coachens avtal", async () => {
+    const lars = findPersona("u-lars");
+    expect(lars.actor.roles).toEqual(["ekonom"]);
+    const larsCounts = await asPersona(lars, pgCounts);
+    const larsMem = await memCounts(lars);
+    for (const t of NOTE_TABLES) {
+      expect(larsCounts[t], t).toBe(0);
+      expect(larsMem[t], t).toBe(0);
+    }
+    // Coach i c-bot och ekonom i c-ny: anteckningarna i c-bot (coachen), inga i c-ny – ekonomrollen ger aldrig anteckningar.
+    const split = findPersona(SPLIT);
+    const contractOf = (caseId: string) => data.cases.find((c) => c.id === caseId)?.contractId;
+    const checkIns = await asPersona(split, (tx) => pgIds(tx, "check_ins"));
+    expect(checkIns).toEqual(await memIds(split, "check_ins"));
+    expect(checkIns.length).toBeGreaterThan(0);
+    expect(new Set(checkIns.map((id) => contractOf(data.check_ins.find((x) => x.id === id)!.caseId)))).toEqual(new Set(["c-bot"]));
+    // Faktureringen bara i ekonomens avtal (c-ny) – coachrollen i c-bot ger inga fakturor eller körningar.
+    const runs = await asPersona(split, async (tx) => ({ fortnox: await pgIds(tx, "fortnox_runs"), drafts: await pgIds(tx, "invoice_drafts") }));
+    expect(runs.fortnox).toEqual(await memIds(split, "fortnox_runs"));
+    expect(runs.fortnox).toEqual(["fr-2"]);
+    expect(runs.drafts).toEqual(await memIds(split, "invoice_drafts"));
+    expect(runs.drafts.every((id) => data.invoice_drafts.find((x) => x.id === id)!.contractId === "c-ny")).toBe(true);
+  });
+
+  it("kommunen ser bara sina egna beställningar och inga belopp eller anteckningar", async () => {
+    for (const key of ["k-maria", "k-omar"]) {
+      const p = findPersona(key);
+      const got = await asPersona(p, async (tx) => ({ cases: await pgIds(tx, "cases"), counts: await pgCounts(tx) }));
+      expect(got.cases.length, key).toBeGreaterThan(0);
+      expect(got.cases, key).toEqual(data.cases.filter((c) => c.referrerId === key).map((c) => c.id).sort(byId));
+      for (const t of [...NOTE_TABLES, ...MONEY_TABLES]) expect(got.counts[t], `${key} ${t}`).toBe(0);
+    }
+  });
+
+  it("den vilande spärren för skyddade personuppgifter gäller fortfarande för personer med flera roller (databasen = policy.ts)", async () => {
+    const skyddad = SKYDDAD_CASE.id;
+    for (const key of [COACH_EKONOM, SAM_COACH, SPLIT, "tester-ali"]) {
+      const p = findPersona(key);
+      const got = await asPersona(p, async (tx) => ({
+        access: (await tx.query<{ a: string }>("select mm.case_access($1) as a", [skyddad])).rows[0].a,
+        persons: await pgIds(tx, "persons"),
+        checkIns: await pgIds(tx, "check_ins"),
+        location: (await tx.query<{ l: string | null }>("select location as l from public.cases_public where id = $1", [skyddad])).rows[0]?.l ?? null,
+      }));
+      const expected = caseAccessIn(SKYDDAD_CASE, p.actor, accessIndex(data));
+      expect(got.access, key).toBe(expected);
+      expect(got.persons.includes(SKYDDAD_PERSON.id), key).toBe(expected === "full" || expected === "team");
+      expect(got.checkIns.some((id) => data.check_ins.find((x) => x.id === id)!.caseId === skyddad), key).toBe(expected === "full" || expected === "team");
+      if (expected === "restricted") expect(got.location, key).toBe("");
+    }
+    // Den som inte är namngiven och inte avtalsansvarig ser inte personen – också med flera roller.
+    expect(caseAccessIn(SKYDDAD_CASE, findPersona(COACH_EKONOM).actor, accessIndex(data))).not.toBe("full");
+    expect(caseAccessIn(SKYDDAD_CASE, findPersona(SAM_COACH).actor, accessIndex(data))).toBe("restricted");
+    expect(caseAccessIn(SKYDDAD_CASE, findPersona("tester-ali").actor, accessIndex(data))).toBe("full"); // avtalsansvarig
+  }, 60_000);
 });
 
 // ================================================================ Kommunens roller (0026)
@@ -480,12 +700,14 @@ describe("bilagor till beställningen (0024): läsning och skrivning – samma r
     expect(memAtt("u-sara")).toEqual(expect.arrayContaining(["att-x-maria", "att-x-petra"]));
     expect(memAtt("u-johan")).toEqual(["att-x-maria", "att-x-petra", "att-x-skyddad"]);
     expect(memAtt(SKYDDAD_CASE.leadCoachId!)).toContain("att-x-skyddad");
+    // Ali är admin och avtalsansvarig samtidigt (0034): avtalsansvarig ser bilagorna – adminrollen ensam ser inga.
+    expect(memAtt("tester-ali")).toEqual(["att-x-maria", "att-x-petra", "att-x-skyddad"]);
     // Den vilande spärren: samordnaren ser inte bilagan i det skyddade ärendet; ingen ser utkastet utom uppladdaren eller en raderad fil.
     for (const p of personas) {
       const ids = memAtt(p.actor.userId);
       if (p.actor.userId !== "k-maria") expect(ids, p.actor.userId).not.toContain("att-x-utkast");
       expect(ids, p.actor.userId).not.toContain("att-x-borttagen");
-      if (!["u-johan", "k-omar", SKYDDAD_CASE.leadCoachId].includes(p.actor.userId)) expect(ids, p.actor.userId).not.toContain("att-x-skyddad");
+      if (!["u-johan", "tester-ali", "k-omar", SKYDDAD_CASE.leadCoachId].includes(p.actor.userId)) expect(ids, p.actor.userId).not.toContain("att-x-skyddad");
     }
     for (const userId of [SUPERVISOR, "u-lars", "u-karin", "u-robin", "deltagare", "tester-karim", "k-ahmed"]) expect(memAtt(userId), userId).toEqual([]);
   }, 30_000);
@@ -749,7 +971,9 @@ function sampleRows(t: TableName, p: Persona, n = 2): Record<string, unknown>[] 
 }
 
 describe("skrivning: samma regler som policy.ts", () => {
-  for (const p of personas) {
+  // Ett describe-block per testperson: varje block får en egen kopia av databasen (beforeEach nedan). Varje testperson ger
+  // många nekade satser, och PGlite tappar lite stack för varje fel – med alla testpersoner mot samma kopia tog stacken slut.
+  for (const p of personas) describe(personaKey(p), () => {
     it(`${personaKey(p)}: ändra och skapa rader i varje tabell`, async () => {
       const expected: string[] = [];
       const plan: { label: string; sql: string; params: unknown[] }[] = [];
@@ -774,7 +998,7 @@ describe("skrivning: samma regler som policy.ts", () => {
       });
       expect(got).toEqual(expected);
     });
-  }
+  });
 });
 
 describe("skrivning: särskilda fall", () => {
@@ -830,12 +1054,12 @@ describe("skrivning: särskilda fall", () => {
 
   it("testaren kan agera som en testperson bara i testmiljön", async () => {
     const actorSql = "select public.current_actor() as a";
-    type A = { userId: string; role: string; isTester: boolean; impersonating: boolean };
+    type A = { userId: string; role: string; roles: string[]; isTester: boolean; impersonating: boolean };
     const staging = await asUser(db, KARIM, async (tx) => ({
       actor: (await tx.query<{ a: A }>(actorSql)).rows[0].a,
       cases: await pgIds(tx, "cases"),
     }), { before: chooseTestPerson("k-maria", "kommun_handlaggare") });
-    expect(staging.actor).toMatchObject({ userId: "k-maria", role: "kommun_handlaggare", isTester: true, impersonating: true });
+    expect(staging.actor).toMatchObject({ userId: "k-maria", role: "kommun_handlaggare", roles: ["kommun_handlaggare"], isTester: true, impersonating: true });
     expect(staging.cases).toEqual(await memIds(maria(), "cases"));
 
     // Testaren väljer själv (via RLS) en testperson
@@ -844,11 +1068,11 @@ describe("skrivning: särskilda fall", () => {
       return { ins, actor: (await tx.query<{ a: A }>(actorSql)).rows[0].a };
     });
     expect(allowed(self.ins)).toBe(true);
-    expect(self.actor).toMatchObject({ userId: "u-amira", role: "coach" });
+    expect(self.actor).toMatchObject({ userId: "u-amira", role: "coach", roles: ["coach"] });
 
     // En roll som personen inte har ger ingen testperson (testaren agerar som sig själv)
     const wrongRole = await asUser(db, KARIM, async (tx) => (await tx.query<{ a: A }>(actorSql)).rows[0].a, { before: chooseTestPerson("k-maria", "admin") });
-    expect(wrongRole).toMatchObject({ userId: "tester-karim", role: "admin", impersonating: false });
+    expect(wrongRole).toMatchObject({ userId: "tester-karim", role: "admin", roles: ["admin"], impersonating: false });
 
     // Produktion: ingen testperson, och testaren kan inte välja någon
     const production = await asUser(db, KARIM, async (tx) => ({
@@ -862,7 +1086,7 @@ describe("skrivning: särskilda fall", () => {
         await tx.query("update public.app_settings set value = 'production' where key = 'environment'");
       },
     });
-    expect(production.actor).toMatchObject({ userId: "tester-karim", role: "admin", isTester: false, impersonating: false });
+    expect(production.actor).toMatchObject({ userId: "tester-karim", role: "admin", roles: ["admin"], isTester: false, impersonating: false });
     expect(production.sessions).toBe(0);
     expect(allowed(production.ins)).toBe(false);
     expect(production.cases).toBe(data.cases.length); // admin ser alla ärenden
@@ -872,21 +1096,41 @@ describe("skrivning: särskilda fall", () => {
     expect(allowed(sara)).toBe(false);
   });
 
-  it("rollval (0027): valet styr rollen bara med medlemskap, testpersonens roll vinner, bara den egna raden – och admin tar bort medlemskap", async () => {
+  it("rollval (0027) styr inget längre (0034): alla roller samtidigt vad valet än säger, testpersonen med alla sina roller, bara den egna raden – och admin tar bort medlemskap", async () => {
     const actorSql = "select public.current_actor() as a";
-    type A = { userId: string; role: string; contractIds: string[] };
+    type A = { userId: string; role: string; roles: string[]; contractIds: string[] };
     const actor = async (tx: Tx) => (await tx.query<{ a: A }>(actorSql)).rows[0].a;
     const ALI = TESTER_AUTH["tester-ali"];
-    // Ali har admin och avtalsansvarig; testdatats val (EXTRA) är avtalsansvarig. Karims val är admin (samma som lägst id).
-    expect(await asUser(db, ALI, actor)).toMatchObject({ userId: "tester-ali", role: "avtalsansvarig", contractIds: ["c-bot"] });
-    expect(await asUser(db, KARIM, actor)).toMatchObject({ userId: "tester-karim", role: "admin" });
-    // Utan rad: medlemskapet med lägst id ("tester-ali:c-bot" = admin).
-    expect(await asUser(db, ALI, actor, { before: (tx) => tx.query("delete from public.role_choices where id = 'tester-ali'").then(() => undefined) })).toMatchObject({ role: "admin" });
-    // Ett val utan medlemskap ignoreras (raden kan bara få en sådan roll med service role – RLS stoppar inloggade).
-    expect(await asUser(db, ALI, actor, { before: (tx) => tx.query("update public.role_choices set role = 'coach' where id = 'tester-ali'").then(() => undefined) })).toMatchObject({ role: "admin" });
-    // Testpersonens roll (tester_sessions, Ali som testare i testmiljön) vinner över valet.
-    const aliChooses = (tx: Tx) => tx.query("insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, 'u-amira', 'coach')", [ALI]).then(() => undefined);
-    expect(await asUser(db, ALI, actor, { before: aliChooses })).toMatchObject({ userId: "u-amira", role: "coach" });
+    const before = (sql: string) => ({ before: (tx: Tx) => tx.query(sql).then(() => undefined) });
+    const aliSees = async (tx: Tx) => ({
+      actor: await actor(tx),
+      cases: await pgIds(tx, "cases"),
+      invoices: await pgIds(tx, "invoice_drafts"),
+      // Antal rader per tabell – utom role_choices, som satserna nedan ändrar.
+      roleTables: Object.fromEntries((await tx.query<{ t: string; n: number }>(COUNT_SQL)).rows.filter((x) => x.t !== "role_choices").map((x) => [x.t, x.n])),
+    });
+    // Ali har admin och avtalsansvarig – båda samtidigt (testdatats val är avtalsansvarig). Samma som policy.ts.
+    const base = await asUser(db, ALI, aliSees);
+    expect(base.actor).toMatchObject({ userId: "tester-ali", roles: ["admin", "avtalsansvarig"] });
+    expect(base.cases).toEqual(await memIds(findPersona("tester-ali"), "cases"));
+    const { role_choices: _choices, ...memTables } = await memCounts(findPersona("tester-ali"));
+    expect(base.roleTables).toEqual(memTables);
+    expect(base.cases.length).toBe(data.cases.length); // adminrollen ser alla ärenden, också när valet är avtalsansvarig
+    // Valet ändrar varken rollerna eller vad som syns: utan rad, med den andra rollen och med en roll utan medlemskap.
+    for (const sql of [
+      "delete from public.role_choices where id = 'tester-ali'",
+      "update public.role_choices set role = 'admin' where id = 'tester-ali'",
+      "update public.role_choices set role = 'coach' where id = 'tester-ali'",
+    ]) {
+      const got = await asUser(db, ALI, aliSees, before(sql));
+      expect({ ...got, actor: { ...got.actor, role: null } }).toEqual({ ...base, actor: { ...base.actor, role: null } });
+    }
+    // Kompatibilitet (DRIFT.md: migrationen före koden): 'role' är den tidigare valda rollen, för en server med den gamla koden.
+    expect(base.actor.role).toBe("avtalsansvarig");
+    expect(await asUser(db, KARIM, actor)).toMatchObject({ userId: "tester-karim", role: "admin", roles: ["admin"] });
+    // Testpersonen (tester_sessions, Ali som testare i testmiljön) har alla sina roller – Petra är coach och handledare.
+    const aliChooses = (tx: Tx) => tx.query("insert into public.tester_sessions (auth_user_id, profile_id, role) values ($1, 'u-petra', 'coach')", [ALI]).then(() => undefined);
+    expect(await asUser(db, ALI, actor, { before: aliChooses })).toMatchObject({ userId: "u-petra", roles: ["coach", "handledare"] });
 
     // RLS: bara den egna raden, id = user_id, bara en roll man har medlemskap för. Amira (en roll) väljer sin roll; aldrig någon annans.
     const amira = await asPersona(findPersona("u-amira"), async (tx) => ({
@@ -905,13 +1149,13 @@ describe("skrivning: särskilda fall", () => {
     expect(allowed(amira.forOther)).toBe(false);
     expect(allowed(amira.wrongId)).toBe(false);
     expect(allowed(amira.del)).toBe(true);
-    // Ali byter till admin via RLS (eget val) – och får rollen i samma transaktion.
+    // Ali sparar ett eget val via RLS (tabellens regler är orörda) – rollerna är fortfarande båda.
     const ali = await asUser(db, ALI, async (tx) => ({
       upd: await attempt(tx, "update public.role_choices set role = 'admin', chosen_at = '2027-02-01T09:30' where id = 'tester-ali'", [], { keep: true }),
       actor: await actor(tx),
     }));
     expect(allowed(ali.upd)).toBe(true);
-    expect(ali.actor).toMatchObject({ role: "admin" });
+    expect(ali.actor).toMatchObject({ role: "admin", roles: ["admin", "avtalsansvarig"] }); // valet sparas – rollerna är desamma
 
     // Ändra roller (admin.setStaffRoles): admin tar bort medlemskap; avtalsansvarig bara kommunens; samordnaren inget.
     const petraMembership = data.memberships.find((m) => m.userId === "u-petra")!.id;
@@ -1188,8 +1432,8 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
   it("ny anteckning: tillåten i eget namn (handledaren också 'full' sedan 2026-10-09) – nekas för annan författare, fel avtal och borttagen/ändrad vid start", async () => {
     const cases: [string, string, Tables["case_notes"], boolean][] = [
       ["u-amira", insertNote("n-t1", NADIA, "c-bot", "u-amira", "full"), newRow("n-t1", NADIA, "c-bot", "u-amira", "full"), true],
-      [SUPERVISOR, insertNote("n-t2", NADIA, "c-bot", "u-petra", "team"), newRow("n-t2", NADIA, "c-bot", "u-petra", "team"), true],
-      [SUPERVISOR, insertNote("n-t3", NADIA, "c-bot", "u-petra", "full"), newRow("n-t3", NADIA, "c-bot", "u-petra", "full"), true],
+      [SUPERVISOR, insertNote("n-t2", NADIA, "c-bot", "u-x-handledare", "team"), newRow("n-t2", NADIA, "c-bot", "u-x-handledare", "team"), true],
+      [SUPERVISOR, insertNote("n-t3", NADIA, "c-bot", "u-x-handledare", "full"), newRow("n-t3", NADIA, "c-bot", "u-x-handledare", "full"), true],
       ["u-amira", insertNote("n-t4", NADIA, "c-bot", "u-sara", "full"), newRow("n-t4", NADIA, "c-bot", "u-sara", "full"), false],
       ["u-amira", insertNote("n-t5", NADIA, "c-ny", "u-amira", "full"), newRow("n-t5", NADIA, "c-ny", "u-amira", "full"), false],
       ["u-amira", insertNote("n-t6", NADIA, "c-bot", "u-amira", "full", `null, '${at}', 'u-amira'`), newRow("n-t6", NADIA, "c-bot", "u-amira", "full", { removedAt: at, removedBy: "u-amira" }), false],
@@ -1242,7 +1486,7 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       ["u-sara", hide(praktiskt.id, "u-amira"), hidden(praktiskt, "u-amira"), false], // inte i någon annans namn
       ["u-sara", `update public.case_notes set removed_at = '${at}', removed_by = 'u-sara', body = 'Ändrad' where id = '${praktiskt.id}'`, { ...hidden(praktiskt, "u-sara"), body: "Ändrad" }, false],
       ["u-sara", `update public.case_notes set removed_by = 'u-sara' where id = '${praktiskt.id}'`, { ...praktiskt, removedBy: "u-sara" }, false],
-      [SUPERVISOR, hide(praktiskt.id, "u-petra"), hidden(praktiskt, "u-petra"), false],
+      [SUPERVISOR, hide(praktiskt.id, "u-x-handledare"), hidden(praktiskt, "u-x-handledare"), false],
       ["u-leila", hide(praktiskt.id, "u-leila"), hidden(praktiskt, "u-leila"), false, { team: true }],
       ["u-lars", hide(praktiskt.id, "u-lars"), hidden(praktiskt, "u-lars"), false],
       ["u-karin", hide(praktiskt.id, "u-karin"), hidden(praktiskt, "u-karin"), false],
@@ -1251,7 +1495,9 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
       // Skyddat ärende: avtalsansvarig (full) får dölja, samordnaren (bara ärendenumret) får inte.
       ["u-johan", hide(skyddad.id, "u-johan"), hidden(skyddad, "u-johan"), true],
       ["u-sara", hide(skyddad.id, "u-sara"), hidden(skyddad, "u-sara"), false],
-      [SUPERVISOR, hide("note-mehmet-handledare", "u-petra"), hidden(note("note-mehmet-handledare"), "u-petra"), true],
+      // Petras anteckning: Petra (coach och den vilande rollen) döljer sin egen; den vilande rollen ensam (en annan person) inte.
+      ["u-petra", hide("note-mehmet-handledare", "u-petra"), hidden(note("note-mehmet-handledare"), "u-petra"), true],
+      [SUPERVISOR, hide("note-mehmet-handledare", "u-x-handledare"), hidden(note("note-mehmet-handledare"), "u-x-handledare"), false],
     ];
     for (const [userId, sql, row, want, opts] of cases) {
       const r = await both(userId, sql, [], row, opts);
@@ -1498,7 +1744,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-robin", member("gm-t4", AMAL, level(3), "u-robin"), false],
       // Petra är coach sedan rollen handledare togs bort (Karims beslut 2026-10-09); den vilande rollen placerar aldrig.
       ["u-petra", member("gm-t5", AMAL, level(3), "u-petra"), true],
-      [SUPERVISOR, member("gm-t5b", AMAL, level(3), "u-petra"), false],
+      [SUPERVISOR, member("gm-t5b", AMAL, level(3), "u-x-handledare"), false],
       ["u-karin", member("gm-t6", AMAL, level(3), "u-karin"), false],
       ["u-lars", member("gm-t7", AMAL, level(3), "u-lars"), false],
       ["k-maria", member("gm-t8", AMAL, level(3), "k-maria"), false],
@@ -1532,7 +1778,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-amira", upd(nadiaGroup.id, `added_by = 'u-sara'`), { ...nadiaGroup, addedBy: "u-sara" }, false],
       ["u-amira", upd(nadiaGroup.id, "id = id"), nadiaGroup, false],
       ["u-petra", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, true],
-      [SUPERVISOR, upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-petra'`), { ...nadiaGroup, removedAt: at, removedBy: "u-petra" }, false],
+      [SUPERVISOR, upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-x-handledare'`), { ...nadiaGroup, removedAt: at, removedBy: "u-x-handledare" }, false],
       ["u-karin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-karin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-karin" }, false],
       ["u-robin", upd(nadiaGroup.id, `removed_at = '${at}', removed_by = 'u-robin'`), { ...nadiaGroup, removedAt: at, removedBy: "u-robin" }, false],
       ["u-sara", upd(removed.id, "removed_at = null, removed_by = null"), { ...removed, removedAt: null, removedBy: null }, false],
@@ -1580,7 +1826,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-johan", grouping("g-t3", "u-johan"), true],
       ["u-robin", grouping("g-t4", "u-robin"), true],
       ["u-petra", grouping("g-t5", "u-petra"), true],
-      [SUPERVISOR, grouping("g-t5b", "u-petra"), false],
+      [SUPERVISOR, grouping("g-t5b", "u-x-handledare"), false],
       ["u-karin", grouping("g-t6", "u-karin"), false],
       ["u-lars", grouping("g-t7", "u-lars"), false],
       ["k-maria", grouping("g-t8", "k-maria"), false],
@@ -1615,7 +1861,7 @@ describe("grupper, nivåer och taggar (0031): läsning och skrivning – samma r
       ["u-sara", upd(mandag.id, `created_by = 'u-sara'`), { ...mandag, createdBy: "u-sara" }, false],
       ["u-sara", upd(mandag.id, "name = name"), mandag, false],
       ["u-petra", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-petra'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-petra" }, true],
-      [SUPERVISOR, upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-petra'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-petra" }, false],
+      [SUPERVISOR, upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-x-handledare'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-x-handledare" }, false],
       ["u-lars", upd(mandag.id, `name = 'X', updated_at = '${at}', updated_by = 'u-lars'`), { ...mandag, name: "X", updatedAt: at, updatedBy: "u-lars" }, false],
       ["u-sara", `delete from public.groupings where id = '${mandag.id}'`, mandag, false],
     ];
@@ -1869,9 +2115,9 @@ describe("röstinspelning: länkar, röstmeddelanden och ljudfiler (0015)", () =
     expect(memWrite("participant_voice_notes", { ...n, consentTextVersion: "annan" }, "u-amira")).toBe(false);
     expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: "u-sara", reviewedAt: at }, "u-amira")).toBe(false);
     // Den vilande rollen handledare granskar också; ekonomen och kommunen aldrig.
-    const petra = await asPersona(findPersona(SUPERVISOR), (tx) => attempt(tx, upd(`status = 'reviewed', reviewed_by = 'u-petra', reviewed_at = '${at}'`)));
-    expect(petra).toMatchObject({ ok: true, rows: 1 });
-    expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: "u-petra", reviewedAt: at }, SUPERVISOR)).toBe(true);
+    const hedda = await asPersona(findPersona(SUPERVISOR), (tx) => attempt(tx, upd(`status = 'reviewed', reviewed_by = '${SUPERVISOR}', reviewed_at = '${at}'`)));
+    expect(hedda).toMatchObject({ ok: true, rows: 1 });
+    expect(memWrite("participant_voice_notes", { ...n, status: "reviewed", reviewedBy: SUPERVISOR, reviewedAt: at }, SUPERVISOR)).toBe(true);
     for (const userId of ["u-lars", "k-maria"]) {
       const r = await asPersona(findPersona(userId), (tx) => attempt(tx, upd(`status = 'reviewed', reviewed_by = '${userId}', reviewed_at = '${at}'`)));
       expect(allowed(r), userId).toBe(false);
@@ -2134,7 +2380,7 @@ describe("gruppmål (0033): läsning och skrivning – samma regler i RLS, trigg
       ["u-amira", ins("ggr-t1", "ga-x-bot", mariaCaseId, "u-amira"), row("ggr-t1", "ga-x-bot", mariaCaseId, "u-amira"), true],
       ["u-sara", ins("ggr-t2", "ga-x-bot", mariaCaseId, "u-sara"), row("ggr-t2", "ga-x-bot", mariaCaseId, "u-sara"), true],
       ["u-petra|coach", ins("ggr-t3", "ga-x-bot", mariaCaseId, "u-petra"), row("ggr-t3", "ga-x-bot", mariaCaseId, "u-petra"), true],
-      [SUPERVISOR, ins("ggr-t3b", "ga-x-bot", mariaCaseId, "u-petra"), row("ggr-t3b", "ga-x-bot", mariaCaseId, "u-petra"), true],
+      [SUPERVISOR, ins("ggr-t3b", "ga-x-bot", mariaCaseId, "u-x-handledare"), row("ggr-t3b", "ga-x-bot", mariaCaseId, "u-x-handledare"), true],
       // I någon annans namn, fel avtal, inte inbjuden, inställd aktivitet.
       ["u-amira", ins("ggr-t4", "ga-x-bot", mariaCaseId, "u-sara"), row("ggr-t4", "ga-x-bot", mariaCaseId, "u-sara"), false],
       ["u-amira", ins("ggr-t5", "ga-x-bot", mariaCaseId, "u-amira", "c-ny"), row("ggr-t5", "ga-x-bot", mariaCaseId, "u-amira", "c-ny"), false],

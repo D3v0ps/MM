@@ -19,16 +19,19 @@
 --     full > team > customer > billing > restricted > none (mm.access_rank).
 --   * Anteckningar (mm.notes_case_ids): full eller team genom en roll som inte är ekonom. Den som är coach och ekonom ser
 --     anteckningarna genom coachrollen; den som bara är ekonom ser dem aldrig.
---   * Belopp: tabellerna med belopp (fakturorna, fakturaraderna, körningarna, prislistan …) har samma läsare som förut, nu per
---     roll. Att belopp i kronor bara syns för rollen ekonom sköts som förut på servern (hidesMoney, src/api/tester-access.ts)
---     – nu "har rollen ekonom" i stället för "har valt rollen ekonom".
+--   * Belopp i kronor: raderna har samma läsare som förut (nu per roll), men beloppskolumnerna lämnas bara till den som har
+--     rollen ekonom (mm.has_role('ekonom')) – via vyerna <tabell>_public, och direkt i tabellerna får inloggade inte läsa
+--     beloppen alls (sista avsnittet nedan). Servern tar dessutom bort beloppen i svaren som förut (hidesMoney,
+--     src/api/tester-access.ts) – nu "har rollen ekonom" i stället för "har valt rollen ekonom".
 --   * Den vilande spärren för skyddade personuppgifter (persons.protected_identity, alltid false) gäller per roll som förut.
 --   * Testarens testperson (tester_sessions, bara testmiljön): testpersonens alla roller.
 --
 -- Nya funktioner: mm.current_roles(), mm.has_role(text), mm.contracts_as(text[]), mm.in_contracts(text, text[]),
 -- mm.member_as(text, text[]), mm.customer_ids_as(text[]), mm.access_rank(text), mm.my_case_role_access(),
 -- mm.case_role_access_of(…), mm.case_ids_as(text[], text[]), mm.notes_case_ids(), mm.case_access_as(text, text[]),
--- mm.invoice_draft_ids_as(text[]), mm.person_write_as(text, text[]).
+-- mm.invoice_draft_ids_as(text[]), mm.person_write_as(text, text[]) och en beloppsfunktion per beloppskolumn
+-- (mm.price_item_price_ore(text) …). Nya vyer: price_items_public, invoice_drafts_public, invoice_lines_public,
+-- bonus_claims_public, contract_deviations_public, ai_runs_public.
 -- Omskrivna (samma signatur, create or replace): mm.role_in, mm.is_mb, mm.is_kom, mm.my_contract_ids, mm.current_unit,
 -- mm.my_case_access, mm.case_ids, mm.case_access_of, mm.case_access, mm.work_on, mm.case_write_check, mm.person_write,
 -- mm.visible_person_ids, mm.customer_employer_ids, mm.customer_voice_note_case_ids, mm.visible_contracts,
@@ -41,7 +44,7 @@
 -- Samma regler i src/data/policy.ts (varje regel prövas per roll och unionen tas, roleActors i src/api/roles.ts) och
 -- src/core/access.ts (caseAccess = högsta nivån över rollerna). Pariteten prövas i src/data/supabase/rls-parity.test.ts – också
 -- för testpersoner med flera roller (coach och ekonom, samordnare och coach, admin och avtalsansvarig, roller i olika avtal).
--- Idempotent (create or replace, alter policy), inga destruktiva satser – kan köras i SQL Editor.
+-- Idempotent (create or replace, alter policy, revoke/grant), inga drop och inga ändrade data – kan köras i SQL Editor.
 
 -- ================================================================ Rollerna
 -- Aktörens roller: testpersonens alla roller (testaren i testmiljön, tester_sessions – deltagaren har bara 'deltagare'),
@@ -923,3 +926,115 @@ alter policy grouping_members_update on public.grouping_members using (
 ) with check (
   mm.case_access_as(case_id, '{samordnare,avtalsansvarig,coach}') = 'full'
 );
+
+-- ================================================================ Belopp i kronor: bara rollen ekonom
+-- "Belopp i kronor syns bara för den som har rollen ekonom (då alltid)." Före: tabellerna med belopp lämnade ut beloppen till
+-- alla som fick läsa raden, och servern tog bort dem i svaren (hidesMoney, src/api/tester-access.ts). Nu spärrar också
+-- databasen beloppskolumnerna:
+--   price_items.price_ore, invoice_drafts.accrued_ore och remaining_ore, invoice_lines.unit_price_ore,
+--   bonus_claims.amount_ore, contract_deviations.penalty_ore och ai_runs.cost_ore.
+-- * Inloggade läser tabellerna via vyerna <tabell>_public (security_invoker: samma rader som tabellens RLS). Beloppet lämnas
+--   bara när aktören har rollen ekonom (mm.has_role('ekonom'), i något avtal – samma regel som hidesMoney); annars 0 (null i
+--   kolumnerna som får vara null). Beloppet hämtas av en funktion med definer-rättighet som själv kräver rollen ekonom.
+-- * Direkt i tabellen får inloggade läsa alla kolumner utom beloppen (kolumnrättigheter) – ingen inloggad läser ett belopp
+--   förbi vyn. Ändringar och nya rader går som förut till tabellen, med samma policyer. Service role läser tabellerna direkt.
+-- * SupabaseRepo läser tabellerna via vyerna (USER_READ_VIEWS i src/data/supabase/index.ts, samma mönster som cases_public i
+--   0013). Minnesläget: samma mask i src/data/policy.ts (MONEY_MASK), som MemoryRepo lägger på varje läsning.
+-- Avtalets konfiguration (contracts.config, bl.a. vitenas belopp) är ingen beloppskolumn: servern behöver den för att räkna
+-- vitet och tar bort beloppen i svaren (hidesMoney) som förut.
+create or replace function mm.price_item_price_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.price_ore from public.price_items x where x.id = p_id and mm.has_role('ekonom') $$;
+create or replace function mm.invoice_draft_accrued_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.accrued_ore from public.invoice_drafts x where x.id = p_id and mm.has_role('ekonom') $$;
+create or replace function mm.invoice_draft_remaining_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.remaining_ore from public.invoice_drafts x where x.id = p_id and mm.has_role('ekonom') $$;
+create or replace function mm.invoice_line_unit_price_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.unit_price_ore from public.invoice_lines x where x.id = p_id and mm.has_role('ekonom') $$;
+create or replace function mm.bonus_claim_amount_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.amount_ore from public.bonus_claims x where x.id = p_id and mm.has_role('ekonom') $$;
+create or replace function mm.contract_deviation_penalty_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.penalty_ore from public.contract_deviations x where x.id = p_id and mm.has_role('ekonom') $$;
+create or replace function mm.ai_run_cost_ore(p_id text) returns bigint
+language sql stable security definer set search_path = public, mm
+as $$ select x.cost_ore from public.ai_runs x where x.id = p_id and mm.has_role('ekonom') $$;
+revoke all on function
+  mm.price_item_price_ore(text), mm.invoice_draft_accrued_ore(text), mm.invoice_draft_remaining_ore(text),
+  mm.invoice_line_unit_price_ore(text), mm.bonus_claim_amount_ore(text), mm.contract_deviation_penalty_ore(text),
+  mm.ai_run_cost_ore(text)
+from public, anon;
+grant execute on function
+  mm.price_item_price_ore(text), mm.invoice_draft_accrued_ore(text), mm.invoice_draft_remaining_ore(text),
+  mm.invoice_line_unit_price_ore(text), mm.bonus_claim_amount_ore(text), mm.contract_deviation_penalty_ore(text),
+  mm.ai_run_cost_ore(text)
+to authenticated, service_role;
+
+-- Vyerna: tabellens kolumner i samma ordning; (select mm.has_role('ekonom')) räknas en gång per fråga.
+create or replace view public.price_items_public with (security_invoker = true) as
+  select x.id, x.contract_id, x.area_code, x.code, x.unit, x.package_months,
+         case when (select mm.has_role('ekonom')) then coalesce(mm.price_item_price_ore(x.id), 0) else 0 end::bigint as price_ore,
+         x.vat_rate, x.valid_from, x.valid_to, x.fortnox_article_no, x.example_only
+  from public.price_items x;
+create or replace view public.invoice_drafts_public with (security_invoker = true) as
+  select x.id, x.billing_run_id, x.contract_id, x.month, x.kind, x.case_id, x.grouping_key, x.buyer_reference,
+         x.purchase_order_number, x.invoiced_object,
+         case when (select mm.has_role('ekonom')) then mm.invoice_draft_accrued_ore(x.id) end::bigint as accrued_ore,
+         case when (select mm.has_role('ekonom')) then mm.invoice_draft_remaining_ore(x.id) end::bigint as remaining_ore,
+         x.status, x.approved_by, x.approved_at, x.manual_invoice_no, x.fortnox_document_number, x.fortnox_idempotency_key,
+         x.fortnox_created_at, x.synced_at
+  from public.invoice_drafts x;
+create or replace view public.invoice_lines_public with (security_invoker = true) as
+  select x.id, x.invoice_draft_id, x.case_id, x.price_item_id, x.quantity,
+         case when (select mm.has_role('ekonom')) then coalesce(mm.invoice_line_unit_price_ore(x.id), 0) else 0 end::bigint as unit_price_ore,
+         x.vat_rate, x.description, x.iso_weeks, x.zero_attendance_weeks, x.note
+  from public.invoice_lines x;
+create or replace view public.bonus_claims_public with (security_invoker = true) as
+  select x.id, x.case_id, x.kind, x.basis, x.evidence_paths, x.submitted_at, x.customer_decision, x.decided_by, x.decided_at,
+         case when (select mm.has_role('ekonom')) then mm.bonus_claim_amount_ore(x.id) end::bigint as amount_ore,
+         x.invoice_draft_id
+  from public.bonus_claims x;
+create or replace view public.contract_deviations_public with (security_invoker = true) as
+  select x.id, x.contract_id, x.case_id, x.source, x.type, x.level, x.escalation_step, x.description, x.raised_at,
+         x.registered_by, x.action_plan, x.action_plan_due, x.owner_id, x.plan_submitted_at, x.customer_approved_at,
+         x.customer_approved_by, x.warning_issued, x.warning_issued_at, x.penalty_kind,
+         case when (select mm.has_role('ekonom')) then coalesce(mm.contract_deviation_penalty_ore(x.id), 0) else 0 end::bigint as penalty_ore,
+         x.penalty_offset_month, x.order_stop, x.status, x.lessons, x.closed_at, x.closed_by
+  from public.contract_deviations x;
+create or replace view public.ai_runs_public with (security_invoker = true) as
+  select x.id, x.case_id, x.kind, x.provider, x.model, x.input_ref, x.status, x.created_at, x.audio_seconds, x.tokens_in,
+         x.tokens_out,
+         case when (select mm.has_role('ekonom')) then coalesce(mm.ai_run_cost_ore(x.id), 0) else 0 end::bigint as cost_ore,
+         x.latency_ms, x.output, x.evidence, x.input_deleted_at
+  from public.ai_runs x;
+revoke all on public.price_items_public, public.invoice_drafts_public, public.invoice_lines_public, public.bonus_claims_public,
+  public.contract_deviations_public, public.ai_runs_public
+from public, anon, authenticated;
+grant select on public.price_items_public, public.invoice_drafts_public, public.invoice_lines_public, public.bonus_claims_public,
+  public.contract_deviations_public, public.ai_runs_public
+to authenticated, service_role;
+
+-- Direkt i tabellerna: alla kolumner utom beloppen (en återkallad tabellrättighet tar också kolumnrättigheterna – därför
+-- återkallas först och ges sedan per kolumn; kan köras igen).
+revoke select on public.price_items, public.invoice_drafts, public.invoice_lines, public.bonus_claims,
+  public.contract_deviations, public.ai_runs
+from authenticated;
+grant select (id, contract_id, area_code, code, unit, package_months, vat_rate, valid_from, valid_to, fortnox_article_no,
+  example_only) on public.price_items to authenticated;
+grant select (id, billing_run_id, contract_id, month, kind, case_id, grouping_key, buyer_reference, purchase_order_number,
+  invoiced_object, status, approved_by, approved_at, manual_invoice_no, fortnox_document_number, fortnox_idempotency_key,
+  fortnox_created_at, synced_at) on public.invoice_drafts to authenticated;
+grant select (id, invoice_draft_id, case_id, price_item_id, quantity, vat_rate, description, iso_weeks, zero_attendance_weeks,
+  note) on public.invoice_lines to authenticated;
+grant select (id, case_id, kind, basis, evidence_paths, submitted_at, customer_decision, decided_by, decided_at,
+  invoice_draft_id) on public.bonus_claims to authenticated;
+grant select (id, contract_id, case_id, source, type, level, escalation_step, description, raised_at, registered_by,
+  action_plan, action_plan_due, owner_id, plan_submitted_at, customer_approved_at, customer_approved_by, warning_issued,
+  warning_issued_at, penalty_kind, penalty_offset_month, order_stop, status, lessons, closed_at, closed_by)
+  on public.contract_deviations to authenticated;
+grant select (id, case_id, kind, provider, model, input_ref, status, created_at, audio_seconds, tokens_in, tokens_out,
+  latency_ms, output, evidence, input_deleted_at) on public.ai_runs to authenticated;

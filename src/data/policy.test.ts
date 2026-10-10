@@ -39,7 +39,7 @@ const LARS = who("u-lars");
  * Rollen handledare är vilande (Karims beslut 2026-10-09): ingen har den – Petra är coach i testdatat. Aktören byggs här så att
  * reglerna för rollen i policy.ts (= RLS) fortfarande prövas och kan slås på igen utan migration.
  */
-const PETRA: Actor = { userId: "u-petra", role: "handledare", contractIds: ["c-bot"], customerUnit: null };
+const PETRA: Actor = { userId: "u-petra", roles: ["handledare"], contractIds: ["c-bot"], customerUnit: null };
 const AMIRA = who("u-amira");
 const ERIK = who("u-erik");
 const SARA = who("u-sara");
@@ -52,27 +52,79 @@ const DELTAGARE = who("deltagare");
 /** Tabeller med coachens anteckningar och bedömningar. */
 const NOTE_TABLES = ["check_ins", "intake_assessments", "monthly_assessments", "monthly_plans", "deviations", "consents"] as const;
 
-describe("rollval (0027, beslut 2026-10-08): den valda rollen styr aktören – bara med medlemskap, bara den egna raden", () => {
+describe("alla roller samtidigt (Karims beslut 7, 2026-10-09): summan av rollerna, aldrig mer", () => {
   /** Johan får en andra roll (samordnare) i avtalet. */
   const withTwoRoles = () => {
     const s = new MemoryStore<Tables>(createSeed());
     s.insertRow("memberships", { id: "u-johan:c-bot:samordnare", userId: "u-johan", contractId: "c-bot", role: "samordnare", customerUnit: null });
     return s;
   };
-  it("utan val: medlemskapet med lägst id; med val: den valda rollen; ett val utan medlemskap ignoreras", () => {
+  it("aktören har alla medlemskapens roller i rollernas ordning – rollvalet (role_choices, 0027) styr inget längre", () => {
     const s = withTwoRoles();
-    expect(actorFor(s.raw(), "u-johan")?.role).toBe("avtalsansvarig"); // "u-johan:c-bot" < "u-johan:c-bot:samordnare"
+    expect(actorFor(s.raw(), "u-johan")?.roles).toEqual(["avtalsansvarig", "samordnare"]);
     s.insertRow("role_choices", { id: "u-johan", userId: "u-johan", role: "samordnare", chosenAt: "2027-02-01T09:12" });
-    expect(actorFor(s.raw(), "u-johan")?.role).toBe("samordnare");
-    expect(personaFor(s.raw(), "u-johan")?.actor.role).toBe("samordnare");
-    expect(actorFor(s.raw(), "u-johan", "avtalsansvarig")?.role).toBe("avtalsansvarig"); // en angiven roll vinner (testpersonens val)
-    s.updateRow("role_choices", "u-johan", { role: "coach" });
-    expect(actorFor(s.raw(), "u-johan")?.role).toBe("avtalsansvarig");
+    expect(actorFor(s.raw(), "u-johan")?.roles).toEqual(["avtalsansvarig", "samordnare"]);
+    expect(personaFor(s.raw(), "u-johan")?.actor.roles).toEqual(["avtalsansvarig", "samordnare"]);
+    expect(personaFor(s.raw(), "u-johan")?.role).toBe("avtalsansvarig"); // standardpersonen för avtalsansvarig
+    expect(actorFor(s.raw(), "u-johan", "avtalsansvarig")?.roles).toEqual(["avtalsansvarig", "samordnare"]);
+    expect(actorFor(s.raw(), "u-johan", "coach")).toBeNull(); // en angiven roll måste finnas
   });
-  it("bara den egna raden läses och skrivs, id = userId och rollen måste finnas bland medlemskapen", async () => {
+  it("avtalen per roll: en roll ger bara rätt i avtal där personen har just den rollen", () => {
+    const s = new MemoryStore<Tables>(createSeed());
+    s.insertRow("contracts", { ...s.getRow("contracts", "c-bot")!, id: "c-ny", casePrefix: "NYK", status: "draft" });
+    s.insertRow("memberships", { id: "u-amira:c-ny:ekonom", userId: "u-amira", contractId: "c-ny", role: "ekonom", customerUnit: null });
+    expect(actorFor(s.raw(), "u-amira")).toEqual({ userId: "u-amira", roles: ["coach", "ekonom"], contractIds: ["c-bot", "c-ny"], roleContracts: { coach: ["c-bot"], ekonom: ["c-ny"] }, customerUnit: null });
+  });
+  it("coach och ekonom: anteckningarna (coachen) och fakturorna (ekonomen) – summan av rollerna", async () => {
+    const both: Actor = { ...AMIRA, roles: ["coach", "ekonom"] };
+    for (const n of NOTE_TABLES) expect([n, await count(both, n)]).toEqual([n, await count(AMIRA, n)]);
+    for (const n of ["invoice_drafts", "invoice_lines", "billing_runs", "price_items"] as const) expect([n, await count(both, n)]).toEqual([n, await count(LARS, n)]);
+    expect(await count(both, "check_ins")).toBeGreaterThan(0);
+    expect(await count(both, "invoice_lines")).toBeGreaterThan(0);
+    // Ekonomen utan coachrollen ser aldrig anteckningarna; coachen utan ekonomrollen aldrig fakturorna.
+    for (const n of NOTE_TABLES) expect([n, await count(LARS, n)]).toEqual([n, 0]);
+    for (const n of ["invoice_drafts", "invoice_lines", "billing_runs"] as const) expect([n, await count(AMIRA, n)]).toEqual([n, 0]);
+    // Skriva: ekonomen skapar fakturaunderlag, coachen registrerar närvaro – med båda rollerna båda.
+    const draft = all("invoice_drafts").find((d) => d.status === "draft") ?? all("invoice_drafts")[0];
+    expect(POLICIES.invoice_drafts!.write!(draft, both, raw)).toBe(POLICIES.invoice_drafts!.write!(draft, LARS, raw));
+    expect(POLICIES.invoice_drafts!.write!(draft, AMIRA, raw)).toBe(false);
+  });
+  it("belopp i kronor (MONEY_MASK, vyerna i 0034): bara med rollen ekonom – i alla andra roller står beloppet som 0 eller null", async () => {
+    const both: Actor = { ...AMIRA, roles: ["coach", "ekonom"] };
+    const prices = async (a: Actor) => (await repoFor(a).table("price_items").list()).map((x) => x.priceOre);
+    const real = all("price_items").map((x) => x.priceOre);
+    expect(real.some((x) => x > 0)).toBe(true);
+    expect(await prices(LARS)).toEqual(real);
+    expect(await prices(both)).toEqual(real); // ekonomen ser beloppen alltid – också med andra roller samtidigt
+    expect(await prices(AMIRA)).toEqual(real.map(() => 0)); // samma rader, inga belopp
+    expect(await prices(SARA)).toEqual(real.map(() => 0));
+    // Samma för get, first, pick och update – och det lagrade beloppet ändras aldrig.
+    const id = all("price_items")[0].id;
+    expect((await repoFor(SARA).table("price_items").get(id))?.priceOre).toBe(0);
+    expect((await repoFor(LARS).table("price_items").get(id))?.priceOre).toBe(all("price_items")[0].priceOre);
+    expect((await repoFor(SARA).table("price_items").pick(["priceOre"], { id }))[0].priceOre).toBe(0);
+    expect(raw.get("price_items", id)?.priceOre).toBeGreaterThan(0);
+    // Ett villkor på beloppet prövas mot det aktören ser (som i vyn).
+    expect(await repoFor(SARA).table("price_items").count({ priceOre: 0 })).toBe(real.length);
+    expect(await repoFor(LARS).table("price_items").count({ priceOre: 0 })).toBe(real.filter((x) => x === 0).length);
+  });
+  it("varje tabell: med två roller läses exakt unionen av vad rollerna läser var för sig", async () => {
+    const pairs: [Actor, Actor][] = [[AMIRA, LARS], [SARA, AMIRA], [ROBIN, JOHAN], [KARIN, AMIRA]];
+    for (const [a, other] of pairs) {
+      // Samma person (a:s id) i den andra rollen – regler om "den egna raden" gäller personen, inte rollen.
+      const b: Actor = { ...other, userId: a.userId };
+      const both: Actor = { ...a, roles: [...a.roles, ...b.roles], contractIds: [...new Set([...a.contractIds, ...b.contractIds])] };
+      for (const n of TABLE_NAMES) {
+        const ids = async (x: Actor) => new Set(((await repoFor(x, PSTORE).table(n).list()) as { id: string }[]).map((r) => r.id));
+        const [ia, ib, iboth] = [await ids(a), await ids(b), await ids(both)];
+        expect([n, both.roles, [...iboth].sort()]).toEqual([n, both.roles, [...new Set([...ia, ...ib])].sort()]);
+      }
+    }
+  });
+  it("rollvalets tabell (0027) ligger kvar: bara den egna raden läses och skrivs, och bara en roll man har", async () => {
     const s = withTwoRoles();
     s.insertRow("role_choices", { id: "u-johan", userId: "u-johan", role: "samordnare", chosenAt: "2027-02-01T09:12" });
-    const johan = who("u-johan", "avtalsansvarig");
+    const johan = actorFor(s.raw(), "u-johan")!;
     const sara = who("u-sara");
     expect(await repoFor(johan, s).table("role_choices").count()).toBe(1);
     expect(await repoFor(sara, s).table("role_choices").count()).toBe(0);
@@ -91,33 +143,33 @@ describe("rollval (0027, beslut 2026-10-08): den valda rollen styr aktören – 
 describe("testpersoner (actors.ts)", () => {
   it("standardpersonen för varje roll först, i prototypens ordning, sedan övriga användare", () => {
     const ps = listPersonas(raw);
-    expect(ps.filter((p) => p.isDefaultForRole).map((p) => `${p.actor.userId}:${p.actor.role}`)).toEqual([
+    expect(ps.filter((p) => p.isDefaultForRole).map((p) => `${p.actor.userId}:${p.role}`)).toEqual([
       "u-sara:samordnare", "u-johan:avtalsansvarig", "u-amira:coach", "u-karin:chef", "u-lars:ekonom", "u-robin:admin",
       "k-maria:kommun_handlaggare", "deltagare:deltagare",
     ]);
     // Rollen handledare är borttagen (beslut 2026-10-09): Petra, David och Hanna är coacher; ingen testperson har rollen.
-    expect(ps.slice(8).map((p) => `${p.actor.userId}:${p.actor.role}`)).toEqual([
+    expect(ps.slice(8).map((p) => `${p.actor.userId}:${p.role}`)).toEqual([
       "u-erik:coach", "u-leila:coach", "u-mats:coach", "u-sofia:coach", "u-petra:coach", "u-david:coach", "u-hanna:coach",
       "k-ahmed:kommun_handlaggare", "k-linda:kommun_handlaggare", "k-omar:kommun_handlaggare",
     ]);
     expect(ps.every((p, i) => p.isDefaultForRole === i < 8)).toBe(true);
-    expect(ps.some((p) => p.actor.role === "handledare")).toBe(false);
+    expect(ps.some((p) => p.actor.roles.includes("handledare"))).toBe(false);
     expect(actorFor(raw, "u-petra", "handledare")).toBeNull();
   });
   it("aktören får avtal och kommunens enhet från medlemskapen (aldrig från profilen, som handläggaren skriver själv)", () => {
-    expect(JOHAN).toEqual({ userId: "u-johan", role: "avtalsansvarig", contractIds: ["c-bot"], customerUnit: null });
-    expect(MARIA).toEqual({ userId: "k-maria", role: "kommun_handlaggare", contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" });
+    expect(JOHAN).toEqual({ userId: "u-johan", roles: ["avtalsansvarig"], contractIds: ["c-bot"], customerUnit: null });
+    expect(MARIA).toEqual({ userId: "k-maria", roles: ["kommun_handlaggare"], contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" });
     // Kommunens chef är borttagen (beslut 2026-10-07): k-eva finns inte i testdatat.
     expect(actorFor(raw, "k-eva")).toBeNull();
-    expect(DELTAGARE).toEqual({ userId: "deltagare", role: "deltagare", contractIds: [], customerUnit: null });
+    expect(DELTAGARE).toEqual({ userId: "deltagare", roles: ["deltagare"], contractIds: [], customerUnit: null });
     expect(actorFor(raw, "u-amira", "chef")).toBeNull();
   });
   it("sessionens användare: namn, titel, e-post, organisation och enhet – deltagaren har ingen e-post", () => {
     const ps = listPersonas(raw);
     expect(ps.find((p) => p.actor.userId === "k-maria")!.user).toEqual({ id: "k-maria", name: "Maria Ekdahl", title: "Handläggare", email: "maria.ekdahl@botkyrka.se", orgName: "Botkyrka kommun", unit: "Arbetsmarknadsenheten Alby" });
     expect(ps.find((p) => p.actor.userId === "u-amira")!).toMatchObject({ user: { name: "Amira Haddad", orgName: "Miljonbemanning AB" }, roleDescription: "Min vecka: närvaro, avstämningar, månadsbedömningar och rapporter." });
-    expect(ps.find((p) => p.actor.role === "deltagare")!.user.email).toBe("");
-    expect(personaFor(raw, "u-johan")!.actor.role).toBe("avtalsansvarig");
+    expect(ps.find((p) => p.actor.roles.includes("deltagare"))!.user.email).toBe("");
+    expect(personaFor(raw, "u-johan")!.actor.roles).toEqual(["avtalsansvarig"]);
     expect(personaFor(raw, "okänd")).toBeNull();
   });
 });
@@ -193,11 +245,11 @@ describe("kommunens handläggare ser bara sina ärenden", () => {
 describe("kommunen har bara rollen handläggare (beslut 2026-10-07)", () => {
   const KOMMUN = () => [MARIA, OMAR, who("k-ahmed"), who("k-linda")];
   it("alla kommunens testpersoner är handläggare", () => {
-    const kom = listPersonas(raw).filter((p) => p.actor.role !== "deltagare" && p.user.orgName === "Botkyrka kommun");
-    expect(kom.map((p) => `${p.actor.userId}:${p.actor.role}`)).toEqual(["k-maria:kommun_handlaggare", "k-ahmed:kommun_handlaggare", "k-linda:kommun_handlaggare", "k-omar:kommun_handlaggare"]);
+    const kom = listPersonas(raw).filter((p) => p.role !== "deltagare" && p.user.orgName === "Botkyrka kommun");
+    expect(kom.map((p) => `${p.actor.userId}:${p.role}`)).toEqual(["k-maria:kommun_handlaggare", "k-ahmed:kommun_handlaggare", "k-linda:kommun_handlaggare", "k-omar:kommun_handlaggare"]);
   });
   it("en kvarglömd roll kommun_chef ger ingen åtkomst till ärenden, rapporter eller avvikelser", async () => {
-    const eva: Actor = { userId: "k-eva", role: "kommun_chef" as Role, contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" };
+    const eva: Actor = { userId: "k-eva", roles: ["kommun_chef" as Role], contractIds: ["c-bot"], customerUnit: "Arbetsmarknadsenheten Alby" };
     for (const n of ["cases", "persons", "attendance", "reports", "messages", "contract_deviations", "saved_reports", "case_attachments", "price_items", ...NOTE_TABLES] as const) {
       expect([n, await count(eva, n)]).toEqual([n, 0]);
     }
@@ -287,7 +339,7 @@ describe("skyddade personuppgifter (vilande spärr): sätts de syns personen bar
   it("personen: bara namngiven huvudcoach, avtalsansvarig och beställande handläggare", async () => {
     const c = skyddad();
     const seeing: string[] = [];
-    for (const p of listPersonas(raw)) if (await repoFor(p.actor, PSTORE).table("persons").get(c.personId)) seeing.push(`${p.actor.userId}:${p.actor.role}`);
+    for (const p of listPersonas(raw)) if (await repoFor(p.actor, PSTORE).table("persons").get(c.personId)) seeing.push(`${p.actor.userId}:${p.role}`);
     expect(seeing.sort()).toEqual([`${c.leadCoachId}:coach`, "k-omar:kommun_handlaggare", "u-johan:avtalsansvarig"].sort());
   });
   it("samordnare, chef och admin ser ärendet men inga detaljer", async () => {
@@ -296,7 +348,7 @@ describe("skyddade personuppgifter (vilande spärr): sätts de syns personen bar
       expect(await repoFor(a, PSTORE).table("cases").get(c.id)).not.toBeNull();
       for (const n of [...NOTE_TABLES, "activities", "attendance", "case_status_history", "case_team", "messages", "outcome_events"] as const) {
         const rows = (await repoFor(a, PSTORE).table(n).list()) as { caseId: string }[];
-        expect([a.role, n, rows.some((r) => r.caseId === c.id)]).toEqual([a.role, n, false]);
+        expect([a.roles.join(","), n, rows.some((r) => r.caseId === c.id)]).toEqual([a.roles.join(","), n, false]);
       }
       expect((await repoFor(a, PSTORE).table("reports").list()).some((r) => r.caseId === c.id)).toBe(false);
     }
@@ -336,13 +388,13 @@ describe("pulssvar, notiser, revisionslogg och utskick", () => {
     // 19: utskicket av den generiska mottagningsbekräftelsen för em-104 finns inte längre (skyddet borttaget 2026-10-07).
     expect(await count(ROBIN, "audit_log")).toBe(19);
     expect(await count(KARIN, "audit_log")).toBe(19);
-    for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.role, await count(a, "audit_log")]).toEqual([a.role, 0]);
+    for (const a of [SARA, JOHAN, AMIRA, LARS, MARIA]) expect([a.roles.join(","), await count(a, "audit_log")]).toEqual([a.roles.join(","), 0]);
   });
   it("utskick: admin och samordnare", async () => {
     // 7: den generiska mottagningsbekräftelsen till em-104 skickas inte längre (skyddet borttaget 2026-10-07).
     expect(await count(ROBIN, "outbound_messages")).toBe(7);
     expect(await count(SARA, "outbound_messages")).toBe(7);
-    for (const a of [JOHAN, AMIRA, KARIN, LARS, MARIA]) expect([a.role, await count(a, "outbound_messages")]).toEqual([a.role, 0]);
+    for (const a of [JOHAN, AMIRA, KARIN, LARS, MARIA]) expect([a.roles.join(","), await count(a, "outbound_messages")]).toEqual([a.roles.join(","), 0]);
   });
   it("interna regler: MB läser, kommunen inte", async () => {
     expect(await count(AMIRA, "org_settings")).toBe(1);

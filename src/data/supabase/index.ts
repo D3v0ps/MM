@@ -7,10 +7,20 @@ export { SupabaseRepo, DataError, toRepoError, applyWhere, PAGE_SIZE, IN_CHUNK, 
 export { toColumn, toField, toDbRow, fromDbRow, toTimestamptz, fromTimestamptz, normalizeTimestamptz } from "./columns";
 
 /**
- * Tabeller som användarens repo läser via en vy: contracts_public (0002: kommunen får inte avtalets interna mål) och
- * cases_public (0013: plats, mötestider och bakgrund döljs i skyddade ärenden och för ekonomen).
+ * Tabeller som användarens repo läser via en vy: contracts_public (0002: kommunen får inte avtalets interna mål),
+ * cases_public (0013: plats, mötestider och bakgrund döljs i skyddade ärenden och för ekonomen) och tabellerna med belopp i
+ * kronor (0034: beloppen bara för den som har rollen ekonom – MONEY_MASK i src/data/policy.ts).
  */
-export const USER_READ_VIEWS: Readonly<Record<string, string>> = { contracts: "contracts_public", cases: "cases_public" };
+export const USER_READ_VIEWS: Readonly<Record<string, string>> = {
+  contracts: "contracts_public",
+  cases: "cases_public",
+  price_items: "price_items_public",
+  invoice_drafts: "invoice_drafts_public",
+  invoice_lines: "invoice_lines_public",
+  bonus_claims: "bonus_claims_public",
+  contract_deviations: "contract_deviations_public",
+  ai_runs: "ai_runs_public",
+};
 
 /** Repo för systemsteg (service role, ctx.system): läser och skriver tabellerna direkt. */
 export function appRepo(client: SupabaseClient | PgClient): AppRepo {

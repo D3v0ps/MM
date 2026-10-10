@@ -676,7 +676,7 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
     patch.penaltyKind = kind;
     patch.penaltyOre = ore;
     patch.penaltyOffsetMonth = ore ? data.penaltyOffsetMonth || null : null;
-  } else if (data.penaltyOffsetMonth !== undefined && (existing?.penaltyOre ?? 0) > 0) patch.penaltyOffsetMonth = data.penaltyOffsetMonth || null;
+  } else if (data.penaltyOffsetMonth !== undefined && existing && hasPenalty(existing)) patch.penaltyOffsetMonth = data.penaltyOffsetMonth || null;
 
   const base: ContractDeviation = existing ?? {
     id: ctx.newId("cd"), contractId: contract.id, caseId: null, source: data.source ?? "intern", type: data.type ?? "kvalitet", level: data.level ?? "mindre",
@@ -703,7 +703,14 @@ handleCommand(cdevSave, { roles: CDEV_ROLES }, async (ctx, p) => {
   }
 
   if (isNew) await ctx.repo.table("contract_deviations").insert(next);
-  else await ctx.repo.table("contract_deviations").update(next.id, next);
+  else {
+    // Bara fälten som ändras. Den som inte har rollen ekonom läser raden utan vitets belopp (penaltyOre = 0, MONEY_MASK i
+    // src/data/policy.ts och vyn contract_deviations_public, 0034) – ett oförändrat vite får aldrig skrivas tillbaka som 0.
+    const diff = Object.fromEntries(
+      Object.entries(next).filter(([k, v]) => k !== "id" && JSON.stringify(v) !== JSON.stringify(existing[k as keyof ContractDeviation])),
+    ) as Partial<ContractDeviation>;
+    if (Object.keys(diff).length) await ctx.repo.table("contract_deviations").update(next.id, diff);
+  }
 
   await ctx.audit({
     action: isNew ? "contract_deviation.created" : "contract_deviation.updated", entity: "contract_deviation", entityId: next.id, contractId: contract.id,

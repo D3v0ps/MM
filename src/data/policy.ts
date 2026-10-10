@@ -62,7 +62,7 @@
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
 // ljudfilernas rader via ctx.audio, bilagornas rader via ctx.attachments, självregistreringens profil och medlemskap) körs via
 // ctx.system (service role) och passerar inte policyn.
-import { isCustomerRole, isSupplierRole, roleActors, type Actor, type Role, type RoleActor } from "@/api/roles";
+import { hasRole, isCustomerRole, isSupplierRole, roleActors, type Actor, type Role, type RoleActor } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccessAs, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
@@ -784,15 +784,36 @@ const RULES: { [N in TableName]: RoleRule<Tables[N]> } = {
   grouping_members: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: groupingMemberWrite },
 };
 
+// ---------------------------------------------------------------- Belopp i kronor
+/**
+ * Belopp i kronor (öre) lämnas bara till den som har rollen ekonom – i något avtal, och då alltid (Karims beslut 5 och 7,
+ * 2026-10-07 och 2026-10-09). Raderna har samma läsare som förut; för alla andra står beloppet som 0 (null i fält som får vara
+ * null). Spegel av vyerna <tabell>_public i 0034_alla_roller.sql. Servern tar dessutom bort beloppen i svaren (hidesMoney).
+ */
+export const MONEY_MASK: { readonly [N in TableName]?: Readonly<Partial<Tables[N]>> } = {
+  price_items: { priceOre: 0 },
+  invoice_drafts: { accruedOre: null, remainingOre: null },
+  invoice_lines: { unitPriceOre: 0 },
+  bonus_claims: { amountOre: null },
+  contract_deviations: { penaltyOre: 0 },
+  ai_runs: { costOre: 0 },
+};
+/** Ser aktören belopp i kronor i databasen? (mm.has_role('ekonom').) */
+export const seesMoneyInData = (actor: Pick<Actor, "roles">): boolean => hasRole(actor, "ekonom");
+
 /** Unionen över aktörens roller: raden får läsas (skrivas) om någon av rollerna får det. */
-function unionOf<T>(rule: RoleRule<T>): RowPolicy<Tables, T & Tables[TableName]> {
+function unionOf<T>(rule: RoleRule<T>, money?: Partial<T>): RowPolicy<Tables, T & Tables[TableName]> {
   return {
     read: (row, actor, raw) => roleActors(actor).some((a) => rule.read(row, a, raw)),
     write: (row, actor, raw) => !!rule.write && roleActors(actor).some((a) => rule.write!(row, a, raw)),
+    ...(money ? { mask: (row, actor) => (seesMoneyInData(actor) ? row : { ...row, ...money }) } : {}),
   };
 }
 export const POLICIES: Policies<Tables> = Object.fromEntries(
-  Object.entries(RULES).map(([name, rule]) => [name, unionOf(rule as RoleRule<Tables[TableName]>)]),
+  Object.entries(RULES).map(([name, rule]) => [
+    name,
+    unionOf(rule as RoleRule<Tables[TableName]>, MONEY_MASK[name as TableName] as Partial<Tables[TableName]> | undefined),
+  ]),
 ) as Policies<Tables>;
 
 /** För tester och hanterare som vill fråga utan att läsa: får aktören läsa raden? (Någon av rollerna.) */

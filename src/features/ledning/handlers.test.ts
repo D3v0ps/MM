@@ -213,10 +213,14 @@ describe("avtalsavvikelser", () => {
     expect(rt.rows("contract_deviations").find((x) => x.id === "cd-2")).toMatchObject({ penaltyKind: "deviation", penaltyOre: 2500000 });
     expect(d.found && [d.cd.warningIssued, d.cd.warningIssuedAt, d.cd.hasPenalty, d.cd.penaltyKind, d.totalWarnings]).toEqual([true, "2027-02-01T09:15", true, "deviation", 1]);
     expect(d.found && "penaltyOre" in d.cd).toBe(false);
+    // Den som ändrar avvikelsen utan rollen ekonom läser raden utan vitets belopp (MONEY_MASK, 0034) – vitet skrivs inte
+    // tillbaka som 0 när något annat ändras.
+    expect(await rt.command(cdevSave, { id: "cd-2", data: { description: "Rapporten saknade observationer." } }, johan())).toMatchObject({ ok: true });
+    expect(rt.rows("contract_deviations").find((x) => x.id === "cd-2")).toMatchObject({ description: "Rapporten saknade observationer.", penaltyKind: "deviation", penaltyOre: 2500000 });
 
     expect(await rt.command(cdevClose, { id: "cd-2", lessons: "  " }, karin())).toMatchObject({ ok: false, error: "lessons" });
     expect(await rt.command(cdevClose, { id: "cd-2", lessons: "Observation krävs från nivå 1." }, karin())).toEqual({ ok: true, id: "cd-2" });
-    expect(rt.rows("contract_deviations").find((x) => x.id === "cd-2")).toMatchObject({ status: "closed", closedAt: "2027-02-01T09:16", closedBy: "u-karin", lessons: "Observation krävs från nivå 1." });
+    expect(rt.rows("contract_deviations").find((x) => x.id === "cd-2")).toMatchObject({ status: "closed", closedAt: "2027-02-01T09:17", closedBy: "u-karin", lessons: "Observation krävs från nivå 1." });
     expect(rt.rows("audit_log").at(-1)).toMatchObject({ action: "contract_deviation.closed", details: { hadCustomerApproval: false } });
     expect(await rt.query(cdevDetail, { id: "finns-inte" }, karin())).toEqual({ found: false });
   });
