@@ -110,7 +110,10 @@ export const caseGroupingsSave = command("grupper.arendeSpara", z.object({
 >();
 
 // ---------------------------------------------------------------- Massanteckningar (Workbuster-stil)
-/** Skriver anteckningar: den som arbetar i ärendet (samma roller som arenden.noteSave). Chef och admin läser bara. */
+/**
+ * Skriver anteckningar: den som arbetar i ärendet (samma roller som arenden.noteSave). Chef och admin läser bara. Rollen
+ * handledare är vilande (Karims beslut 2026-10-09) – rutten /anteckningar tar bort den (routes.ts).
+ */
 export const MASS_NOTE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 export const MASS_NOTE_SCOPES = ["mina", "niva", "grupp", "tagg"] as const;
 export type MassNoteScope = (typeof MASS_NOTE_SCOPES)[number];

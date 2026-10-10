@@ -7,6 +7,7 @@ import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { ApiError } from "@/api/server";
 import { listPersonas } from "@/data/actors";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
@@ -33,7 +34,9 @@ type Res = { ok: boolean; error?: string; message?: string; fields?: Record<stri
 const cmd = (key: string, input: unknown, actor: Actor) => rt.run("command", key, input, actor) as Promise<Res>;
 const amira = () => as("u-amira", "coach");
 const sara = () => as("u-sara", "samordnare");
-const petra = () => as("u-petra", "handledare");
+// Den vilande rollen handledare (Karims beslut 2026-10-09): ingen har den i testdatat – aktören byggs för att pröva att reglerna
+// ligger kvar (läser men placerar inte).
+const petra = () => dormantSupervisor();
 const karin = () => as("u-karin", "chef");
 const robin = () => as("u-robin", "admin");
 const lars = () => as("u-lars", "ekonom");

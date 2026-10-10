@@ -12,6 +12,7 @@ import { requireOperational } from "@/core/config";
 import { overlaps } from "@/core/group-activities";
 import { weeklyReport } from "@/core/weekly-report";
 import { listPersonas } from "@/data/actors";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
@@ -196,11 +197,17 @@ describe("aktivitetsvyn: närvaro och anteckningar", () => {
 describe("behörighet", () => {
   it("alla på Miljonbemanning utom ekonomen ser alla gruppaktiviteter – chef och systemadministratör läser, kommunen och ekonomen ingenting", async () => {
     const id = await create();
-    for (const [userId, role] of [["u-sara", "samordnare"], ["u-johan", "avtalsansvarig"], ["u-leila", "coach"], ["u-petra", "handledare"], ["u-karin", "chef"], ["u-robin", "admin"]] as const) {
+    // Petra är coach sedan rollen handledare togs bort (Karims beslut 2026-10-09).
+    for (const [userId, role] of [["u-sara", "samordnare"], ["u-johan", "avtalsansvarig"], ["u-leila", "coach"], ["u-petra", "coach"], ["u-karin", "chef"], ["u-robin", "admin"]] as const) {
       const list = await q(groupActivityList, {}, as(userId, role));
       expect(list.upcoming.map((r) => r.id), userId).toEqual([id]);
-      expect(list.canCreate, userId).toBe(["samordnare", "avtalsansvarig", "coach", "handledare"].includes(role));
+      expect(list.canCreate, userId).toBe(["samordnare", "avtalsansvarig", "coach"].includes(role));
     }
+    // Den vilande rollen handledare: hanterarnas regler ligger kvar (läser och skapar) så att rollen kan slås på igen – men
+    // ingen kan få rollen och ingen sida når den (src/shell/route-table.test.ts).
+    const dormant = await q(groupActivityList, {}, dormantSupervisor());
+    expect(dormant.upcoming.map((r) => r.id)).toEqual([id]);
+    expect(dormant.canCreate).toBe(true);
     const chefView = await q(groupActivityView, { id }, as("u-karin", "chef"));
     expect(chefView).toMatchObject({ kind: "ok", canEdit: false });
     await expect(run(groupActivityCreate, { ...base, caseIds: [] }, as("u-karin", "chef"))).rejects.toMatchObject({ status: 403 });

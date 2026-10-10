@@ -18,7 +18,10 @@ import {
   groupActivityView, type GroupActivityListRow, type GroupParticipant, type InviteProblem,
 } from "./api";
 
-/** De som arbetar i ärendena skapar, ändrar, bjuder in, tar närvaro och skriver anteckningar (policyns CASE_WORKERS). */
+/**
+ * De som arbetar i ärendena skapar, ändrar, bjuder in, tar närvaro och skriver anteckningar (policyns CASE_WORKERS). Rollen
+ * handledare är vilande (Karims beslut 2026-10-09): ingen kan få den och ingen sida når den, men regeln ligger kvar som i RLS.
+ */
 const GROUP_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** Alla på Miljonbemanning utom ekonomen läser ("alla ser alla", beslut 2026-10-09). Chef och systemadministratör i läsläge. */
 const GROUP_READERS: readonly Role[] = [...GROUP_WRITERS, "chef", "admin"];

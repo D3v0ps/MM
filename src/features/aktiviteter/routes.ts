@@ -5,8 +5,9 @@ import { AktivitetScreen } from "./screens/aktivitet";
 import { AktiviteterScreen } from "./screens/lista";
 import { NyAktivitetScreen } from "./screens/ny";
 
-const READERS = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"] as const;
-const WRITERS = ["samordnare", "avtalsansvarig", "coach", "handledare"] as const;
+// Den vilande rollen handledare (Karims beslut 2026-10-09) når ingen sida – hanterarna och RLS behåller den (src/api/roles.ts).
+const READERS = ["samordnare", "avtalsansvarig", "coach", "chef", "admin"] as const;
+const WRITERS = ["samordnare", "avtalsansvarig", "coach"] as const;
 
 export const routes: RouteDef[] = [
   { path: "/aktiviteter", title: "Aktiviteter", roles: READERS, area: "mb", screen: AktiviteterScreen },
