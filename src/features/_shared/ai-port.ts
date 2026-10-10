@@ -17,9 +17,9 @@ import { z } from "zod";
 import { ApiError, type Ctx } from "@/api/server";
 import { recordingEnabled, type ContractConfig, type RecordingKind } from "@/core/config";
 import { fmtDateShort, monthKey, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
-import { looksLikePnr, scrubPnr } from "@/core/validation";
+import { looksLikePnr, PNR_SCRUBBED, scrubPnr } from "@/core/validation";
 import {
-  CASE_NOTE_KINDS, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES,
+  CASE_NOTE_KINDS, CASE_NOTE_MAX, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES,
   type AiConsentStatus, type AiRun, type AiRunKind, type AiRunStatus, type AttendanceStatus, type CaseNote, type CaseNoteKind, type CheckIn, type EmployerContacts,
   type GoalStatus, type Person, type TranscriptLine,
 } from "@/data/schema";
@@ -158,7 +158,7 @@ const DraftNoteSchema = z.strictObject({
   id: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   kind: z.enum(CASE_NOTE_KINDS),
-  text: z.string().min(1).max(2000).refine((t) => !looksLikePnr(t), "Personnummer i en anteckning"),
+  text: z.string().min(1).max(CASE_NOTE_MAX).refine((t) => !looksLikePnr(t), "Personnummer i en anteckning"),
 });
 /**
  * Mallar: monthly_area:<områdesnyckel> (observation per progressionsområde, t.ex. "monthly_area:narvaro_rutiner"),
@@ -185,6 +185,25 @@ export function approvedCheckIns(checkIns: readonly CheckIn[]): ApprovedCheckIn[
     }));
 }
 /**
+ * Högst CASE_NOTE_MAX tecken per anteckning i underlaget. Tvätten byter bara personnummer (resten av texten är orörd), så
+ * en anteckning blir bara längre om den hade personnummer – då klipps slutet med "…". Klippet görs aldrig mitt i ett tecken
+ * eller direkt efter en siffra (så att klippet inte kan bilda ett nytt personnummer).
+ */
+function clipNote(text: string): string {
+  if (text.length <= CASE_NOTE_MAX) return text;
+  const kept: string[] = [];
+  let n = 0;
+  for (const ch of text) {
+    if (n + ch.length > CASE_NOTE_MAX - 1) break;
+    kept.push(ch);
+    n += ch.length;
+  }
+  while (kept.length && /\d$/.test(kept[kept.length - 1].normalize("NFKC"))) kept.pop();
+  const out = `${kept.join("")}…`;
+  return looksLikePnr(out) ? PNR_SCRUBBED : out;
+}
+
+/**
  * Månadens anteckningar som underlag: inte borttagna, dagen i månaden, i tidsordning. Personnummer tvättas bort; bara id,
  * dag, typ och text följer med – aldrig författaren. Anroparen tar bara med dem när deltagaren har samtycke till AI.
  */
@@ -192,7 +211,7 @@ export function draftNotes(notes: readonly CaseNote[], month: MonthKey): DraftNo
   return notes
     .filter((n) => n.removedAt == null && monthKey(n.occurredOn) === month)
     .sort((a, b) => (a.occurredOn < b.occurredOn ? -1 : a.occurredOn > b.occurredOn ? 1 : a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
-    .map((n) => ({ id: n.id, date: n.occurredOn, kind: n.kind, text: scrubPnr(n.body) }));
+    .map((n) => ({ id: n.id, date: n.occurredOn, kind: n.kind, text: clipNote(scrubPnr(n.body)) }));
 }
 
 /**

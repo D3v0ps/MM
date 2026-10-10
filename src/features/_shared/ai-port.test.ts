@@ -231,6 +231,23 @@ describe("draft: coachernas anteckningar som underlag (Karims beslut 4, 2026-10-
     expect(JSON.stringify(d)).not.toMatch(/u-amira|authorId|19850101/);
   });
 
+  it("en lång anteckning med ”…” (Mac och iOS) stoppar inte utkastet: tvätten byter bara personnumren och texten blir aldrig längre än 2000 tecken", () => {
+    // 2000 tecken med "…" (U+2026) – NFKC skulle göra varje "…" till "..." och texten 2400 tecken lång.
+    const long = "Pratade om CV\u2026 ".repeat(200).slice(0, 2000);
+    expect(long).toHaveLength(2000);
+    const d = draftNotes([note("n-lang", "2027-01-15", long)], "2027-01");
+    expect(d[0].text).toBe(long);
+    expect(() => assertApprovedInput({ caseId: "case-1", month: "2027-01", checkIns: [], attendance: [], notes: d })).not.toThrow();
+    expect(simulatedDraft({ caseId: "case-1", month: "2027-01", checkIns: [], attendance: [], notes: d }, "monthly_summary").noEvidence).toBe(false);
+    // En anteckning med personnummer (sparad innan kontrollen fanns) blir längre av ersättningen – klipps med "…".
+    const withPnr = `${"Text\u2026 ".repeat(330)}850101-1234 slut`.slice(0, 2000);
+    const clipped = draftNotes([note("n-pnr", "2027-01-16", `850101-1234 ${withPnr}`.slice(0, 2000))], "2027-01")[0].text;
+    expect(clipped.length).toBeLessThanOrEqual(2000);
+    expect(clipped.startsWith(`${PNR_SCRUBBED} Text\u2026`)).toBe(true);
+    expect(clipped.endsWith("\u2026")).toBe(true);
+    expect(() => assertApprovedInput({ caseId: "case-1", month: "2027-01", checkIns: [], attendance: [], notes: [{ id: "n-pnr", date: "2027-01-16", kind: "conversation", text: clipped }] })).not.toThrow();
+  });
+
   it("källfiltret: inga andra fält i underlaget (aldrig grupper, nivåer, taggar eller namn) och inga personnummer i anteckningarna", () => {
     const base: DraftInput = { caseId: "case-1", month: "2027-01", checkIns: [], attendance: [], notes: draftNotes(notes, "2027-01") };
     expect(() => assertApprovedInput(base)).not.toThrow();

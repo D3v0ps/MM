@@ -100,6 +100,13 @@ describe("personnummer", () => {
     }
     expect(scrubPnr("BOT-26-0143 · Ring 070-123 45 67 · 2027-02-01")).toBe("BOT-26-0143 · Ring 070-123 45 67 · 2027-02-01");
   });
+  it("scrubPnr: resten av texten är orörd – ingen normalisering av det som inte är personnummer (”…” blir aldrig ”...”)", () => {
+    const t = "Pratade om CV\u2026 Ef\uFB00ekt, \uFF21 och\u00a0hårt mellanslag \u2013 inget personnummer.";
+    expect(scrubPnr(t)).toBe(t);
+    expect(scrubPnr("Sa\u2026 850101\u20131234\u2026 och \uff18\uff15\uff10\uff11\uff10\uff11\uff0d\uff11\uff12\uff13\uff14 \u2026")).toBe(`Sa\u2026 ${PNR_SCRUBBED}\u2026 och ${PNR_SCRUBBED} \u2026`);
+    const long = "Pratade om CV\u2026 ".repeat(200).slice(0, 2000);
+    expect(scrubPnr(long)).toHaveLength(2000);
+  });
 });
 
 describe("e-post", () => {

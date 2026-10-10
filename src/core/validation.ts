@@ -70,24 +70,62 @@ export const pnrValid = (s: string | null | undefined): boolean => pnrFormatVali
 /** De fyra sista siffrorna, för maskerad visning. */
 export const pnrLast4 = (s: string | null | undefined): string => String(s ?? "").replace(/\D/g, "").slice(-4);
 
+/** Streck som Word, Outlook och andra skriver i stället för bindestreck (‐ ‑ ‒ – — ― − ﹘ ﹣ －). */
+const PNR_DASHES = /[‐-―−﹘﹣－]/g;
+/** Personnummer efter normaliseringen: ÅÅMMDD-NNNN, ÅÅÅÅMMDDNNNN, mellanslag runt skiljetecknet godtas. */
+const PNR_PATTERN = /\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/;
+const pnrNormalize = (s: string): string => s.normalize("NFKC").replace(PNR_DASHES, "-");
+
 /**
  * Ser texten ut att innehålla ett personnummer (ÅÅMMDD-NNNN, ÅÅÅÅMMDDNNNN …)? Fri text – meddelanden från kommunen och
  * anteckningar i deltagarkortet – får aldrig innehålla personnummer (CLAUDE.md punkt 2). Ärendenumret räcker.
  * Texten normaliseras först: Word och Outlook gör om bindestrecket till tankstreck (–), och text kan innehålla andra
  * streck (‐ ‑ ‒ — ― −), helbreddssiffror eller hårda mellanslag. Mellanslag runt skiljetecknet godtas ("850101 - 1234").
  */
-export const looksLikePnr = (s: string | null | undefined): boolean => {
-  const t = String(s || "").normalize("NFKC").replace(/[‐-―−﹘﹣－]/g, "-");
-  return /\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/.test(t);
-};
+export const looksLikePnr = (s: string | null | undefined): boolean => PNR_PATTERN.test(pnrNormalize(String(s || "")));
 
 /** Ersättningen för ett personnummer i text som tvättas (underlaget till AI, beslut 4 2026-10-09). */
 export const PNR_SCRUBBED = "[personnummer borttaget]";
+
+/** Ett varv av tvätten: personnumren byts, resten av texten är orörd (ingen normalisering av det som inte är personnummer). */
+function scrubOnce(s: string): string {
+  // Normalisera tecken för tecken och kom ihåg varifrån varje normaliserat tecken kommer (start och slut i originalet).
+  let norm = "";
+  const from: number[] = [];
+  const to: number[] = [];
+  let i = 0;
+  for (const ch of s) {
+    const n = pnrNormalize(ch);
+    for (let k = 0; k < n.length; k++) {
+      from.push(i);
+      to.push(i + ch.length);
+    }
+    norm += n;
+    i += ch.length;
+  }
+  let out = "";
+  let last = 0;
+  for (const m of norm.matchAll(new RegExp(PNR_PATTERN.source, "g"))) {
+    const start = Math.max(from[m.index], last);
+    const end = to[m.index + m[0].length - 1];
+    if (end <= start) continue;
+    out += s.slice(last, start) + PNR_SCRUBBED;
+    last = end;
+  }
+  return out + s.slice(last);
+}
+
 /**
  * Tvätta bort allt som ser ut som ett personnummer (samma mönster som looksLikePnr, efter samma normalisering). Används för
- * coachernas anteckningar innan de blir underlag till AI-utkastet – efteråt gäller looksLikePnr(text) === false.
+ * coachernas anteckningar innan de blir underlag till AI-utkastet – efteråt gäller looksLikePnr(text) === false. Bara
+ * personnumren byts: resten av texten är orörd (normaliseringen görs bara för att hitta dem – "…" blir aldrig "...", så
+ * texten blir inte längre än anteckningen var utan personnummer).
  */
-export const scrubPnr = (s: string): string =>
-  s.normalize("NFKC").replace(/[‐-―−﹘﹣－]/g, "-").replace(/\b(19|20)?\d{6}\s*[-+]?\s*\d{4}\b/g, PNR_SCRUBBED);
+export function scrubPnr(s: string): string {
+  let out = s;
+  for (let round = 0; round < 3 && looksLikePnr(out); round++) out = scrubOnce(out);
+  // Säkerhetsnätet (tecken som bara bildar ett personnummer när hela texten normaliseras): hela texten normaliserad.
+  return looksLikePnr(out) ? pnrNormalize(out).replace(new RegExp(PNR_PATTERN.source, "g"), PNR_SCRUBBED) : out;
+}
 
 export const emailValid = (s: string | null | undefined): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str(s));
