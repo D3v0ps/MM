@@ -295,6 +295,8 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
     expect(d.integrations[0]).toMatchObject({ id: "graph", status: "test" });
     expect(d.jobs.map((j) => [j.key, j.last, j.status, j.result])).toEqual([
       ["inbox", "2027-02-01T09:10", "ok", "Senaste mejl kom 1 feb kl. 08.41"],
+      // Automatisk närvaro (beslut 2026-10-09): inte körd än i testdatat.
+      ["auto_attendance", null, "ok", "Inte körd än"],
       ["weekly", "2027-02-01T07:00", "waiting", "2 publicerade, 2 väntar på närvaro (v. 4 2027)"],
       ["att_remind", "2027-02-01T08:00", "ok", "1 coach påmind om förra veckan"],
       ["progress", "2027-02-01T08:00", "ok", "17 påminnelser till coacher, 3 eskaleringar till chef"],
@@ -303,11 +305,12 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
       ["kpi", "2027-02-01T06:00", "ok", "Resultatgrad 33,9 % (rullande 6 månader, 43 av 127)"],
       ["retention", null, "disabled", "Gallringsregeln är inte fastställd med kommunen ännu – jobbet raderar ingenting"],
     ]);
-    expect(d.jobs[1].schedule).toBe("Måndag, när närvaron är komplett – senast 16.00 enligt avtalet");
+    expect(d.jobs[1].schedule).toBe("Dagligen 18.00 – passerade tillfällen utan närvaro registreras som Närvarande. Frånvaro registrerar coachen.");
+    expect(d.jobs[2].schedule).toBe("Måndag, när närvaron är komplett – senast 16.00 enligt avtalet");
   });
 
   it("\"Kör nu\" sparas i jobs och loggas; gallringen kan inte köras", async () => {
-    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true });
+    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true, queued: false });
     // Beslut 4c: avrop@ är ett riktigt jobb (inbox_import). Utan jobbkörning (minnesläget) markeras det klart direkt.
     expect(rt.rows("jobs")).toMatchObject([{ kind: "inbox_import", status: "done", payload: { manual: true }, createdBy: "u-robin", createdAt: "2027-02-01T09:13" }]);
     expect(rt.rows("audit_log").find((a) => a.action === "job.run_manual")).toMatchObject({ entity: "job", entityId: "inbox" });

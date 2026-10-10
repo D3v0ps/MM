@@ -399,7 +399,7 @@ describe("skrivregler", () => {
     const assigned = all("case_team").find((t) => t.userId === "u-petra")!.caseId;
     const act = all("activities").find((a) => a.caseId === assigned)!;
     const notAssigned = all("activities").find((a) => a.caseId !== tagged("skyddad") && !all("case_team").some((t) => t.caseId === a.caseId && t.userId === "u-petra"))!;
-    const att = (id: string, a: typeof act) => ({ id, activityId: a.id, caseId: a.caseId, status: "present" as const, reason: "", registeredBy: "u-petra", registeredAt: "2027-02-01T09:13", customerNotifiedAt: null });
+    const att = (id: string, a: typeof act) => ({ id, activityId: a.id, caseId: a.caseId, status: "present" as const, reason: "", registeredBy: "u-petra", registeredAt: "2027-02-01T09:13", customerNotifiedAt: null, source: "manual" as const });
     await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x1", act))).resolves.toBeTruthy();
     await expect(repoFor(PETRA, s).table("attendance").insert(att("at-x2", notAssigned))).resolves.toBeTruthy();
     const protectedAct = all("activities").find((a) => a.caseId === tagged("skyddad"))!;

@@ -34,6 +34,11 @@
 //   Bilagor       bilagor till beställningen (case_attachments, 0024): den som laddade upp innan beställningen skickats · i
 //                 ärendet samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) och beställande handläggare ·
 //                 aldrig handledare, ekonom, chef, admin eller deltagare · skrivs bara av systemet (ctx.attachments)
+//   Grupp-        gruppaktiviteter (group_activities, 0030): Miljonbemanning i avtalet utom ekonomen läser ("alla ser alla",
+//   aktiviteter   beslut 2026-10-09) · de som arbetar i ärendena skapar (i eget namn) och ändrar · en inställd ändras inte ·
+//                 avtal, skapare och skapad-tid ändras aldrig · raderas aldrig · aldrig kommunen. Deltagarnas tillfällen ligger
+//                 i activities med samma regler som förut (tas bort av den som arbetar i ärendet – hanteraren nekar vid närvaro)
+//   Närvaro       attendance.source (0030): användare skriver bara manuell närvaro – automatisk (auto) bara jobbet (ctx.system)
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -57,6 +62,8 @@ const ORDER_CREATORS: readonly Role[] = ["samordnare", "avtalsansvarig", "kommun
 const OVERSIGHT: readonly Role[] = ["samordnare", "avtalsansvarig", "chef", "admin"];
 /** Fakturering. */
 const BILLING_READERS: readonly Role[] = ["ekonom", "chef", "avtalsansvarig", "admin"];
+/** Läser gruppaktiviteterna (0030): Miljonbemanning utom ekonomen. Skriver: CASE_WORKERS. */
+const GROUP_ACTIVITY_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
 
 const isMB = (a: Actor) => isSupplierRole(a.role);
 const isKom = (a: Actor) => isCustomerRole(a.role);
@@ -340,6 +347,35 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
   return self(a, cur.ownerId) || changed.every((k) => SAVED_SHARING.includes(k));
 }
 
+// ---------------------------------------------------------------- Gruppaktiviteter (0030)
+type GroupActivityRow = Tables["group_activities"];
+/** Fält som aldrig ändras efter att aktiviteten skapats (triggern group_activities_protect_columns, 0030). */
+const GROUP_FIXED = ["contractId", "createdBy", "createdAt"];
+const GROUP_KINDS: readonly string[] = ["yrkesmoment", "arbetsgivarbesök", "annat"];
+/** Tabellens kontroller (check i 0030): namnets längd (btrim, kodpunkter), typen, längden, platsen och paren. */
+function groupActivityShape(x: GroupActivityRow): boolean {
+  const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
+  const nameChars = [...x.name.replace(/^ +| +$/g, "")].length;
+  return nameChars >= 1 && nameChars <= 120 && GROUP_KINDS.includes(x.kind) && Number.isInteger(x.durationMin) && x.durationMin >= 1 && x.durationMin <= 720
+    && [...x.location].length <= 200 && pair(x.updatedAt, x.updatedBy) && pair(x.cancelledAt, x.cancelledBy);
+}
+/**
+ * Ny rad: de som arbetar i ärendena, medlem i avtalet, i eget namn, varken ändrad eller inställd. Ändring: den befintliga
+ * raden är inte inställd; något ändras; avtal, skapare och skapad-tid ändras aldrig; ändrad och inställd i eget namn. Regeln
+ * stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som policyerna och triggern i 0030.
+ */
+function groupActivityWrite(x: GroupActivityRow, a: Actor, raw: Raw): boolean {
+  if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !groupActivityShape(x)) return false;
+  const cur = raw.get("group_activities", x.id);
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null;
+  if (cur.cancelledAt != null || !member(a, cur.contractId)) return false;
+  const changed = changedFields(cur, x);
+  if (!changed.length || changed.some((k) => GROUP_FIXED.includes(k))) return false;
+  if ((changed.includes("updatedAt") || changed.includes("updatedBy")) && (x.updatedAt == null || !self(a, x.updatedBy))) return false;
+  if ((changed.includes("cancelledAt") || changed.includes("cancelledBy")) && (x.cancelledAt == null || !self(a, x.cancelledBy))) return false;
+  return true;
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -415,8 +451,11 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   },
   attendance: {
     read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
-    write: (x, a, raw) => workOn(x.caseId, a, raw),
+    // Bara manuell närvaro – automatisk (auto) skrivs bara av jobbet auto_attendance via ctx.system (0030).
+    write: (x, a, raw) => workOn(x.caseId, a, raw) && x.source === "manual",
   },
+  // Gruppaktiviteter (0030): Miljonbemanning i avtalet utom ekonomen – aldrig kommunen.
+  group_activities: { read: (x, a) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId), write: groupActivityWrite },
   // Händelser och praktik: resultat som kommunen får i rapporterna
   outcome_events: { read: (x, a, raw) => canSeePerson(accessTo(raw, a, x.caseId)), write: (x, a, raw) => workOn(x.caseId, a, raw) },
   placements: { read: (x, a, raw) => canSeePerson(accessTo(raw, a, x.caseId)), write: (x, a, raw) => workOn(x.caseId, a, raw) },

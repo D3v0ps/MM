@@ -263,7 +263,9 @@ export const adminIntegrations = query("admin.integrations", z.object({})).retur
 // invalidates "all" med motivering: ett bakgrundsjobb kan skapa rapporter, notiser, röstresultat eller gallra – följderna är
 // inte kända i förväg, så allt räknas om (bara den här knappen på integrationssidan). "inbox" lägger ett riktigt jobb
 // (inbox_import) som körs av jobbkörningen i supabase-läget; i minnesläget markeras det klart direkt (simulerat).
-export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<object, "disabled">>();
+// "auto_attendance" (beslut 2026-10-09) lägger ett riktigt jobb i supabase-läget och registrerar närvaron direkt i minnesläget
+// och prototypen (runAutoAttendance, utan golv – som produktionen).
+export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "auto_attendance", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<{ queued: boolean }, "disabled">>();
 
 // ================================================================ Mallar och utskick (/admin/mallar)
 export type TemplateVersionView = { version: number; savedAt: string; savedByName: string };

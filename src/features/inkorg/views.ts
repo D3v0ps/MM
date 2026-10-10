@@ -9,6 +9,7 @@ import { caseBackground, orderPeriodText } from "@/features/arenden/background";
 import { looksLikeCancellation } from "./parse";
 import { cdStatusKey } from "@/features/ledning/api";
 import { teamCandidates } from "@/features/_shared/team";
+import { todaysGroupActivities } from "@/features/aktiviteter/today";
 import { pct } from "@/core/format";
 import { kpiValue } from "@/core/kpi";
 import { hasContactDetails } from "@/core/contact";
@@ -611,6 +612,8 @@ export async function buildStart(ctx: Ctx): Promise<StartView> {
       const due = avropDue(c, e.cfg);
       return { caseId: c.id, caseNumber: c.caseNumber, sla: due ? sla(due, null, now) : null, sub: `${areaName(areas, c.primaryAreaCode)} · ${c.referrerId ? name(c.referrerId) : c.referrerName ?? "–"}` };
     }),
+    groupsToday: await todaysGroupActivities(ctx, e.today),
+    now,
     toStart: toStart.map((c) => ({
       caseId: c.id, caseNumber: c.caseNumber, firstMeetingAt: c.firstMeetingAt as string, coachName: name(c.leadCoachId),
       sub: `Första mötet ${fmtDateTimeLong(c.firstMeetingAt as string)} · coach ${name(c.leadCoachId)}`,

@@ -22,7 +22,11 @@ export type RawAccess<TT extends Record<string, Row>> = {
 export { PolicyError, UniqueError };
 
 /** Unika nycklar per tabell (speglar databasens unika index): fält vars värde bara får finnas på en rad. */
-export type UniqueKeys<TT extends Record<string, Row>> = { [N in keyof TT]?: readonly (keyof TT[N] & string)[] };
+/**
+ * Unika nycklar per tabell: ett fält, eller flera fält tillsammans (sammansatt nyckel). En rad där något av fälten saknar värde
+ * (null) omfattas inte – som ett partiellt unikt index "where … is not null" i Postgres.
+ */
+export type UniqueKeys<TT extends Record<string, Row>> = { [N in keyof TT]?: readonly ((keyof TT[N] & string) | readonly (keyof TT[N] & string)[])[] };
 
 /** Datat plus index på id. Delas mellan flera repo-instanser (en per aktör och anrop). */
 export class MemoryStore<TT extends Record<string, Row>> {
@@ -36,12 +40,14 @@ export class MemoryStore<TT extends Record<string, Row>> {
   }
   /** Kontroll mot tabellens unika nycklar: finns en annan rad med samma värde stoppas skrivningen. */
   private checkUnique(name: string, row: Row) {
-    const keys = (this.unique as Record<string, readonly string[] | undefined>)[name];
+    const keys = (this.unique as Record<string, readonly (string | readonly string[])[] | undefined>)[name];
     if (!keys) return;
     const r = row as Record<string, unknown>;
-    for (const k of keys) {
-      if (r[k] == null) continue;
-      if (this.rows(name as keyof TT & string).some((x) => x.id !== row.id && (x as Record<string, unknown>)[k] === r[k])) throw new UniqueError(name, k);
+    for (const key of keys) {
+      const cols: readonly string[] = typeof key === "string" ? [key] : key;
+      if (cols.some((k) => r[k] == null)) continue;
+      const clash = this.rows(name as keyof TT & string).some((x) => x.id !== row.id && cols.every((k) => (x as Record<string, unknown>)[k] === r[k]));
+      if (clash) throw new UniqueError(name, cols.join(","));
     }
   }
   private reindex(name: string) {

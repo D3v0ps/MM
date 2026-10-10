@@ -6,7 +6,7 @@ import type { SlaTone } from "@/core/sla";
 import type { ProgressionRuleText } from "@/core/config";
 import {
   AI_DECISIONS, AI_RUN_KINDS, ATTENDANCE_STATUSES, CHECK_IN_MODES, DEVIATION_STATUSES, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES, INPUT_METHODS, OUTCOME_EVENT_KINDS,
-  TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
+  TRAFFIC_LIGHTS, type ActivityKind, type AiConsentStatus, type AttendanceSource, type AttendanceStatus, type CaseStatus, type CheckInMode, type EmployerContacts, type EndReason,
   type GoalStatus, type InputMethod, type LocalDate, type LocalDateTime, type MonthKey, type OutcomeEventKind, type ProgressLevel, type ReportStatus,
   type ResultClass, type TrafficLight, type TranscriptLine, type WeekKey,
 } from "@/data/schema";
@@ -15,6 +15,7 @@ import { AI_SOURCES, type AiSource, type CheckInSuggestions } from "../_shared/a
 export { AI_OFF_TEXT } from "../_shared/ai-port";
 import { IdSchema, LocalDateSchema, LocalDateTimeSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
 import type { WeeklyPublished } from "../_shared/weekly";
+import type { TodayGroupActivity } from "../aktiviteter/api";
 
 export type { AiFieldSuggestion, AiField, AiSource, CheckInSuggestions } from "../_shared/ai-types";
 export { AI_FIELDS, AI_SOURCES, recordingOffered } from "../_shared/ai-types";
@@ -35,11 +36,13 @@ export const attendanceSet = command("coach.attendanceSet", z.object({
   status: z.enum(ATTENDANCE_STATUSES),
   /** Frånvaroorsak (giltig frånvaro). */
   reason: ShortText.optional(),
-}), { invalidates: CASE_FACTS }).returns<Result<{ attendanceId: string; published: WeeklyPublished | null }, "not_found">>();
+// Samordnaren registrerar också (aktivitetsvyn, beslut 2026-10-09): hennes orderbekräftelse i inkorgen läser rapporterna.
+}), { invalidates: [...CASE_FACTS, "inkorg.confirmation"] }).returns<Result<{ attendanceId: string; published: WeeklyPublished | null }, "not_found">>();
 
 /**
  * Markera alla oregistrerade tillfällen en dag som närvarande (beslut 2026-10-02, kommun-och-mobil-18). Samma regler som
- * attendanceSet: coach (egna ärenden), handledare (teamärenden), skyddade ärenden bara för namngiven coach. Tillfällen som
+ * attendanceSet: de som arbetar i ärendena (coach, handledare och sedan gruppaktiviteterna samordnare och avtalsansvarig, beslut
+ * 2026-10-09 – aktivitetsvyns "Markera övriga som närvarande"), skyddade ärenden bara för namngiven coach. Tillfällen som
  * redan har närvaro eller frånvaro ändras aldrig (skipped). Raderna skrivs exakt som vid enskild registrering, så
  * fakturaunderlaget och veckorapporterna blir desamma; veckorapporterna publiceras som vid enskild registrering (published).
  * En loggrad med antal och id:n (attendance.registered_all). Finns något id inte, eller får du inte registrera det, skrivs
@@ -50,7 +53,7 @@ export const attendanceSetAll = command("coach.attendanceSetAll", z.object({
   day: LocalDateSchema,
   /** Tillfällena som visades i bekräftelsen – servern kontrollerar varje. */
   activityIds: z.array(IdSchema).min(1).max(200),
-}), { invalidates: CASE_FACTS }).returns<
+}), { invalidates: [...CASE_FACTS, "inkorg.confirmation"] }).returns<
   Result<{ marked: string[]; skipped: string[]; published: WeeklyPublished[]; registeredAt: LocalDateTime }, "not_found" | "wrong_day" | "not_started">
 >();
 
@@ -74,6 +77,12 @@ export type SavedInfo = { savedAt: LocalDateTime; version: number };
 /** Fälten i en avstämning som coachen fyller i. AI-utkastet (ai) hämtas av hanteraren från AI-körningen (aiRunId) – skicka det inte. */
 export const CheckInDataSchema = z.object({
   heldAt: LocalDateTimeSchema.optional(),
+  /**
+   * Mötets dag utan klockslag (coachmötet 2026-10-09: "tiden är onödig att fylla i"). Servern sätter tiden: samma som det sparade
+   * utkastet om dagen är densamma, annars det planerade mötets klockslag den dagen (coachträffen i kalendern), annars klockslaget
+   * när rapporten sparas. heldAt (äldre anropare) går före.
+   */
+  heldOn: LocalDateSchema.optional(),
   durationMin: z.number().int().min(0).max(600).nullable().optional(),
   mode: z.enum(CHECK_IN_MODES).nullable().optional(),
   inputMethod: z.enum(INPUT_METHODS).optional(),
@@ -321,8 +330,11 @@ export const monthlyDraft = command("coach.monthlyDraft", z.object({ caseId: IdS
 
 /** Tidsgräns med status, räknad i hanteraren (src/core/sla). */
 export type CoachSla = { label: string; tone: SlaTone };
-/** Registrerad närvaro (null = ej registrerad). */
-export type AttMark = { status: AttendanceStatus; reason: string } | null;
+/**
+ * Registrerad närvaro (null = ej registrerad). source auto = registrerad automatiskt efter dagens slut (beslut 2026-10-09) –
+ * visas "Automatiskt registrerad" tills någon ändrar raden (då blir den manuell).
+ */
+export type AttMark = { status: AttendanceStatus; reason: string; source: AttendanceSource } | null;
 /** Varför vyn inte kan visas ärendet (prototypens gate): "Ärendet finns inte" eller "Inte ditt ärende". */
 export type CoachGate = { title: string; text: string };
 /** Deltagarhuvudet i ärendevyerna (prototypens CaseHead). */
@@ -382,9 +394,15 @@ export type MinVeckaView = {
     /** Handläggare vars veckorapport väntar på coachens registrering. */
     waitingFor: string[];
   };
+  /** Dagens enskilda tillfällen. Deltagarnas tillfällen i en gruppaktivitet visas i groups i stället (en rad per aktivitet). */
   today: TodayActivity[];
-  /** Nästa aktivitet i dag (id) och kortnamn för KPI:n. */
-  next: { id: string; shortName: string } | null;
+  /**
+   * Dagens gruppaktiviteter (coachmötet 2026-10-09): de coachen är ansvarig för eller där någon av coachens deltagare är
+   * inbjuden. Länk till aktivitetsvyn, där närvaron och anteckningarna tas.
+   */
+  groups: TodayGroupActivity[];
+  /** Nästa aktivitet i dag (id) och kortnamn för KPI:n – group: en gruppaktivitet (kortnamnet är aktivitetens namn). */
+  next: { id: string; shortName: string; group?: boolean } | null;
   /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
   toStart: { caseId: string; caseNumber: string; name: string; firstMeetingAt: LocalDateTime }[];
   drafts: { checkInId: string; caseId: string; caseNumber: string; name: string; heldAt: LocalDateTime; inputMethod: InputMethod; audioDeletedAt: string | null; rawTranscriptDeleteBy: string | null }[];
@@ -427,6 +445,8 @@ export type NarvaroRow = {
   /** Upprepad ogiltig frånvaro enligt avtalets regel (visas vid ogiltig frånvaro). */
   repeated: boolean;
   referrerId: string | null;
+  /** Tillfället hör till en gruppaktivitet: ändras och tas bort i aktivitetsvyn, inte här. */
+  groupActivityId: string | null;
 };
 export type NarvaroReport = {
   recipientId: string;

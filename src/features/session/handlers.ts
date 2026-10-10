@@ -42,6 +42,10 @@ async function contractFor(ctx: Ctx, action: ViewEvent, entityId: string | null)
       const r = entityId ? await ctx.repo.table("reports").get(entityId) : null;
       return r ? { contractId: r.contractId } : null;
     }
+    case "group_activity.view": {
+      const g = entityId ? await ctx.repo.table("group_activities").get(entityId) : null;
+      return g ? { contractId: g.contractId } : null;
+    }
     case "transcript.view": {
       if (!entityId) return fallback; // ny avstämning utan id
       const ci = await ctx.repo.table("check_ins").get(entityId);
@@ -63,7 +67,12 @@ handleCommand(auditView, { roles: [...SUPPLIER_ROLES, ...CUSTOMER_ROLES], silent
   const target = await contractFor(ctx, p.action, p.entityId);
   if (!target) return DENIED();
   const allowed = DETAIL_KEYS[p.action] ?? [];
-  const details = Object.fromEntries(Object.entries(p.details ?? {}).filter(([k, v]) => allowed.includes(k) && v !== undefined));
+  const details: Record<string, unknown> = Object.fromEntries(Object.entries(p.details ?? {}).filter(([k, v]) => allowed.includes(k) && v !== undefined));
+  // Aktivitetsvyn: vilka deltagares namn, närvaro och anteckningar som visades – ärendena slås upp här (det aktören får läsa),
+  // aldrig ur anropet. caseIds gör att visningen syns i deltagarkortets Historik för den som ser andras visningar.
+  if (p.action === "group_activity.view" && p.entityId) {
+    details.caseIds = [...new Set((await ctx.repo.table("activities").pick(["caseId"], { groupActivityId: p.entityId })).map((a) => a.caseId))].sort();
+  }
   await ctx.audit({ action: p.action, entity: p.entity, entityId: p.entityId, contractId: target.contractId, details });
   return ok({});
 });

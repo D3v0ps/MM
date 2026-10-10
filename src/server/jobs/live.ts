@@ -1,7 +1,8 @@
 // Kör bakgrundsjobben mot Supabase (service role). Används av POST /api/jobs/run och av after() efter ett utskick eller
 // ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript), timmens jobb för
-// bilagorna och kontostädningen (attachments.ts), tiominutersperiodens jobb för rapportutkasten (reports.ts) och
-// tvåminutersperiodens mejlinläsning från avrop@ (inbox.ts) om de saknas.
+// bilagorna och kontostädningen (attachments.ts), dagens automatiska närvaro efter dagens slut (attendance.ts – före
+// rapportutkasten), tiominutersperiodens jobb för rapportutkasten (reports.ts) och tvåminutersperiodens mejlinläsning från
+// avrop@ (inbox.ts) om de saknas.
 import "server-only";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
@@ -24,6 +25,7 @@ import { serviceClient } from "../supabase";
 import { JOB_HANDLERS, type JobDeps } from "./registry";
 import { safeErrorText } from "./errors";
 import { ensureReportScheduleJob, reportScheduleState, type AppSettingsClient } from "./reports";
+import { ensureAutoAttendanceJob } from "./attendance";
 import { runJobs, type RunSummary } from "./runner";
 import { supabaseJobStore, type RpcClient } from "./store";
 import { ensureRetentionJobs } from "./voice";
@@ -116,6 +118,13 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     // Bilagornas gallring och kontostädningen läggs vid nästa körning.
     console.error("jobb: timjobben kunde inte läggas", safeErrorText(e));
   }
+  // Automatisk närvaro: läggs före rapportjobbet, så att föregående vecka är komplett när veckorapporten skapas.
+  try {
+    await ensureAutoAttendanceJob(system, now);
+  } catch (e) {
+    // Närvarojobbet läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
+    console.error("jobb: automatiska närvaron kunde inte läggas", safeErrorText(e));
+  }
   try {
     await ensureReportScheduleJob(system, now);
   } catch (e) {
@@ -141,6 +150,15 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     reportSchedule,
     attachmentsCtx: voiceCtx,
     authCleanup,
+    // Automatisk närvaro: systemstegens Ctx med färsk klocka (som rapportutkasten) och golvet i testmiljön (testklockans start).
+    autoAttendance: async () => {
+      const rows = await freshSettingsRows(client);
+      const fresh = settingsFromRows(rows, clockMode());
+      const at = clockNow(fresh.clock, Date.now());
+      // Veckorapporter som publiceras lägger "ny rapport" i utskickskön.
+      const ctx = liveCtx({ actor: SYSTEM_ACTOR, now: at, repo: system, system, enqueue, crypto: lazyServerCrypto });
+      return { ctx, floor: fresh.clock.mode === "test" ? fresh.clock.demoEpoch : null };
+    },
     // Mejlinläsningen från avrop@: systemstegens Ctx (service role, bilagor, krypto, utskickskön) och Graph via fetch.
     inboxImport: () => runInboxImport({ ctx: voiceCtx(), repo: system, now, fetchFn: globalThis.fetch as unknown as GraphFetch, docxText }),
   };

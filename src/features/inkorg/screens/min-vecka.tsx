@@ -11,8 +11,9 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import {
   Badge, BuildPhase, Button, Card, CaseLink, DateInput, DoneLine, ErrorNotice, Field, focusSection, FormGrid, Icon, Kpi, Loading, Meter, Modal, Notice,
-  PerspectiveLink, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, WEEK_KPI_SM, WeekKpis, WeekPage,
+  PerspectiveLink, Row, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
+import { TodayGroupsCard } from "@/features/aktiviteter/screens/idag";
 import { inboxRowPath, inboxStart, inboxTaskDone, type AlertView, type StartView } from "../api";
 import { CLASSIFICATION, METHOD } from "../texts";
 import { Caps, IconLine, MiniList, MiniRow, ProvBadge, Quote, useIsDemo, usePersona, WrapBtns } from "./parts";
@@ -29,9 +30,14 @@ export function SamMinVeckaScreen() {
     <WeekPage
       today={q.data?.today ?? null}
       actions={
-        <Button kind="primary" icon="inbox" to="/inkorg">
-          Öppna avropsinkorgen
-        </Button>
+        <Row gap="sm">
+          <Button kind="primary" icon="inbox" to="/inkorg">
+            Öppna avropsinkorgen
+          </Button>
+          <Button icon="plus" to="/aktiviteter/ny">
+            Ny aktivitet
+          </Button>
+        </Row>
       }
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : <Week v={q.data} />}
@@ -244,6 +250,8 @@ function Week({ v }: { v: StartView }) {
               </MiniList>
             </Card>
           )}
+
+          <TodayGroupsCard groups={v.groupsToday} now={v.now} today={v.today} />
 
           {v.toStart.length > 0 && (
             <Card

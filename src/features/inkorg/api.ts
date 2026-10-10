@@ -1,5 +1,6 @@
 // Kontrakt för området inkorg (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
+import type { TodayGroupActivity } from "../aktiviteter/api";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import type { SlaStatus } from "@/core/sla";
@@ -383,6 +384,10 @@ export type StartView = {
   noCoach: { caseId: string; caseNumber: string; sla: SlaInfo | null; sub: string }[];
   /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
   toStart: { caseId: string; caseNumber: string; firstMeetingAt: string; coachName: string; sub: string }[];
+  /** Dagens gruppaktiviteter i avtalet (coachmötet 2026-10-09) med länk till aktivitetsvyn. */
+  groupsToday: TodayGroupActivity[];
+  /** Klockan nu (dagens gruppaktiviteter: passerade visar närvaron). */
+  now: string;
   tasks: { id: string; text: string; sub: string; emailId: string | null; caseId: string | null }[];
   deviations: { id: string; description: string; sub: string; due: SlaInfo | null; href: string | null }[];
   deviationsHref: string | null;

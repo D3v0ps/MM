@@ -318,6 +318,27 @@ test("Veckoavstämning manuellt: röd status kräver avvikelse (Yusuf)", async (
   expect(errors).toEqual([]);
 });
 
+test("Mötesrapport utan starttid: dagen är förifylld och klockslaget tas från dagens planerade möte (Nadia, coachmötet 2026-10-09)", async ({ page }, info) => {
+  const errors = await open(page, info, `/avstamning/${SC.nadia}`, COACH);
+  await expect(page.getByRole("heading", { level: 1, name: "Möte" })).toBeVisible();
+  // Bara datumet – ingen tid att fylla i.
+  await expect(page.locator("#ci-date")).toHaveValue("2027-02-01");
+  await expect(page.locator("#ci-time")).toHaveCount(0);
+  await expect(page.getByText("Starttid", { exact: true })).toHaveCount(0);
+  await btn(group(page, "Veckomål uppnått"), "Ja").click();
+  await page.getByRole("group", { name: "Förslag på veckomål" }).getByRole("button").first().click();
+  await btn(group(page, "Antal arbetsgivarkontakter"), "0").click();
+  await group(page, "Samlad status").getByRole("button", { name: /Grön/ }).click();
+  await btn(page, "Godkänn mötesrapporten").click();
+  await expect(page.getByRole("heading", { level: 1, name: "Mötesrapporten är godkänd" })).toBeVisible();
+  // Möten-fliken: mötet står på dagen med klockslaget från kalendern (Nadias coachträff kl. 10.00), inte när rapporten sparades.
+  await go(page, info, `/arenden/${SC.nadia}?flik=avstamningar`);
+  const first = page.getByRole("table", { name: "Möten" }).locator("tbody tr").first();
+  await expect(first).toContainText("kl. 10.00");
+  await expect(first).toContainText("v. 5");
+  expect(errors).toEqual([]);
+});
+
 test("Veckoavstämning med AI-utkast: varje förslag bedöms och loggas (Mehmet)", async ({ page }, info) => {
   const errors = await open(page, info, "/min-vecka", COACH);
   const granska = page.getByRole("link", { name: "Granska" });

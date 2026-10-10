@@ -364,7 +364,7 @@ describe("fält som tas bort för begränsade testare (och finns för Karim)", (
     expect(labels(k, "ai")).toEqual(["Vald", "I test", "Aldrig", "Anrop"]);
     expect(labels(s, "ai")).toEqual(["Aldrig", "Anrop"]);
     expect(s.jobs.map((j: { key: string }) => j.key)).toEqual(k.jobs.map((j: { key: string }) => j.key));
-    expect(s.jobs.length).toBe(8);
+    expect(s.jobs.length).toBe(9);
     expect([s.aiRunCount, s.latestMail, s.inboxReadAt]).toEqual([k.aiRunCount, k.latestMail, k.inboxReadAt]);
     // "Kör nu" fungerar för alla testare.
     expect((await cmd("admin.runJob", { key: "kpi" }, as("u-robin", "admin", SARA_T))).ok).toBe(true);

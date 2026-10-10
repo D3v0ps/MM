@@ -6,7 +6,7 @@ import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
-import { addDays, dayOf, isoWeek, monthKey } from "@/core/time";
+import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
 import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDraft, Deviation, IntakeAssessment, MonthlyAssessment, TranscriptLine } from "@/data/schema";
@@ -29,6 +29,11 @@ const NO_EDIT = "Du har inte behörighet att ändra i ärendet.";
 const AI_BLOCKED = "AI används inte i det här ärendet: samtycke saknas eller deltagaren har skyddade personuppgifter. Dokumentera manuellt.";
 /** Samordnare, avtalsansvarig och coach ändrar i ärendet (canEditCase – alla coacher i avtalets ärenden sedan 2026-10-09). */
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
+/**
+ * Registrerar närvaro: de som arbetar i ärendena (policyns CASE_WORKERS). Samordnare och avtalsansvarig sedan gruppaktiviteterna
+ * (beslut 2026-10-09 – alla på Miljonbemanning arbetar i alla gruppaktiviteter och tar närvaro i aktivitetsvyn).
+ */
+const ATTENDANCE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** AI-körningar som ger förslag till en veckoavstämning. */
 const CHECK_IN_AI_KINDS: readonly AiRunKind[] = ["transcribe_extract", "extract_teams", "extract_notes"];
 
@@ -72,17 +77,19 @@ const ACTIVITY_NOT_FOUND = "Tillfället finns inte, eller så har du inte behör
 type AttendanceReg = Pick<Attendance, "status" | "reason" | "registeredBy" | "registeredAt">;
 /**
  * Närvaroraden för ett tillfälle: uppdaterar den som finns, annars skapas den. Samma rad från enskild registrering och
- * "Markera alla som närvarande", så att fakturaunderlaget och veckorapporten blir identiska oavsett väg.
+ * "Markera alla som närvarande", så att fakturaunderlaget och veckorapporten blir identiska oavsett väg. En människa
+ * registrerar alltid manuellt: en automatiskt registrerad rad (jobbet auto_attendance, 0030) som ändras blir manuell.
  */
 async function writeAttendance(ctx: Ctx, act: Activity, existing: Attendance | null, reg: AttendanceReg): Promise<string> {
   const table = ctx.repo.table("attendance");
+  const row = { ...reg, source: "manual" as const };
   if (existing) {
-    await table.update(existing.id, reg);
+    await table.update(existing.id, row);
     return existing.id;
   }
   const id = ctx.newId("at");
   try {
-    await table.insert({ id, activityId: act.id, caseId: act.caseId, customerNotifiedAt: null, ...reg });
+    await table.insert({ id, activityId: act.id, caseId: act.caseId, customerNotifiedAt: null, ...row });
     return id;
   } catch (e) {
     // Ett annat kommando hann skriva raden (dubbelklick, eller "Markera alla" samtidigt med en radknapp): den unika nyckeln
@@ -90,12 +97,12 @@ async function writeAttendance(ctx: Ctx, act: Activity, existing: Attendance | n
     if (!(e instanceof UniqueError)) throw e;
     const again = await table.first({ activityId: act.id });
     if (!again) throw e;
-    await table.update(again.id, reg);
+    await table.update(again.id, row);
     return again.id;
   }
 }
 
-handleCommand(attendanceSet, { roles: ["coach", "handledare"] }, async (ctx, p) => {
+handleCommand(attendanceSet, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   const act = await ctx.repo.table("activities").get(p.activityId);
   if (!act) return fail("not_found", ACTIVITY_NOT_FOUND);
   const c = await ctx.repo.table("cases").get(act.caseId);
@@ -103,14 +110,18 @@ handleCommand(attendanceSet, { roles: ["coach", "handledare"] }, async (ctx, p) 
   const now = ctx.now();
   const existing = await ctx.repo.table("attendance").first({ activityId: act.id });
   const attendanceId = await writeAttendance(ctx, act, existing, { status: p.status, reason: p.reason || "", registeredBy: ctx.actor.userId, registeredAt: now });
-  await ctx.audit({ action: "attendance.registered", entity: "attendance", entityId: attendanceId, contractId: c.contractId, details: { caseId: act.caseId, status: p.status } });
+  // wasAuto: en automatiskt registrerad rad som ändrades (blir manuell) – bara id:n och källan i loggen.
+  await ctx.audit({
+    action: "attendance.registered", entity: "attendance", entityId: attendanceId, contractId: c.contractId,
+    details: { caseId: act.caseId, status: p.status, ...(existing?.source === "auto" ? { wasAuto: true } : {}), ...(act.groupActivityId ? { groupActivityId: act.groupActivityId } : {}) },
+  });
   // Veckorapporten publiceras automatiskt när alla handläggarens deltagare är registrerade.
   const published = await publishWeeklyIfComplete(ctx, c.contractId, c.referrerId, isoWeek(act.startsAt).key);
   return ok({ attendanceId, published });
 });
 
 // ---------------------------------------------------------------- coach.attendanceSetAll ("Markera alla som närvarande")
-handleCommand(attendanceSetAll, { roles: ["coach", "handledare"] }, async (ctx, p) => {
+handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
   const ids = uniq(p.activityIds);
   // Alla tillfällen läses via ctx.repo (policyn/RLS: alla ärenden i avtalet sedan 2026-10-09, skyddade bara för namngiven coach).
   // Saknas något skrivs ingenting – listan i bekräftelsen ska stämma med det som registreras.
@@ -169,6 +180,18 @@ handleCommand(attendanceSetAll, { roles: ["coach", "handledare"] }, async (ctx, 
 });
 
 // ---------------------------------------------------------------- checkin.save
+/**
+ * Mötets tidpunkt när formuläret bara har dagen (coachmötet 2026-10-09 – ingen starttid att fylla i): samma som det sparade
+ * utkastet om dagen är densamma (autosparningen flyttar aldrig tiden), annars det planerade mötets klockslag den dagen
+ * (coachträffen i kalendern), annars klockslaget när rapporten sparas.
+ */
+async function heldAtFor(ctx: Ctx, caseId: string, day: LocalDate, existing: CheckIn | null): Promise<LocalDateTime> {
+  if (existing && dayOf(existing.heldAt) === day) return existing.heldAt;
+  const planned = await ctx.repo.table("activities").first({ caseId, kind: "möte", startsAt: { gte: `${day}T00:00`, lte: `${day}T23:59` } }, { orderBy: "startsAt" });
+  if (planned) return planned.startsAt;
+  return `${day}T${timeOf(ctx.now())}`;
+}
+
 handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
   if (p.autosave && p.approve) return fail("invalid", AUTOSAVE_APPROVE);
   const c = await ctx.repo.table("cases").get(p.caseId);
@@ -207,9 +230,12 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
     run = await ctx.repo.table("ai_runs").get(aiRunId);
   }
 
-  const { aiRunId: _ignored, ...fields } = d;
+  const { aiRunId: _ignored, heldOn, ...fields } = d;
   void _ignored;
-  const ci: CheckIn = { ...(existing ?? newCheckIn({ id: ctx.newId("ci"), caseId: c.id, heldAt: d.heldAt || now })), ...defined(fields), ai, aiRunId, version: existing ? existing.version + 1 : 1 };
+  const heldAt = fields.heldAt ?? (heldOn ? await heldAtFor(ctx, c.id, heldOn, existing) : undefined);
+  const ci: CheckIn = {
+    ...(existing ?? newCheckIn({ id: ctx.newId("ci"), caseId: c.id, heldAt: heldAt || now })), ...defined({ ...fields, heldAt }), ai, aiRunId, version: existing ? existing.version + 1 : 1,
+  };
   if (p.approve) {
     ci.status = "approved";
     ci.approvedBy = ctx.actor.userId;

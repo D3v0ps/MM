@@ -63,7 +63,9 @@ function IntegrationsContent({ d }: { d: IntegrationsView }) {
   const runJob = async (j: JobRow) => {
     const r = await run.run({ key: j.key as never }).catch(() => null);
     if (!r || !r.ok) toast(r && !r.ok && r.message ? r.message : "Jobbet kunde inte köras.", "error");
-    else toast(j.key === "inbox" && d.inboxState === "connected" ? `${j.name} körs nu – sidan uppdateras inom någon minut.` : `${j.name} kördes (simulerat).`);
+    else if (r.queued || (j.key === "inbox" && d.inboxState === "connected")) toast(`${j.name} körs nu – sidan uppdateras inom någon minut.`);
+    // Den automatiska närvaron körs på riktigt även i minnesläget (samma funktion som jobbet).
+    else toast(j.key === "auto_attendance" ? `${j.name} kördes.` : `${j.name} kördes (simulerat).`);
   };
   const dp = d.dataProtection;
   return (

@@ -892,9 +892,30 @@ export const OrgSettingsSchema = z.strictObject({
         path: ["escalateAfterConsecutiveWeeks"],
       }),
   }),
+  /**
+   * Automatisk närvaro (Karims beslut 1, 2026-10-09): efter dagens slut registreras Närvarande (källa "auto") för varje
+   * passerat tillfälle som saknar närvaro – frånvaro registreras av coachen. Saknas avsnittet gäller standardvärdena
+   * (AUTO_ATTENDANCE_DEFAULTS: på, 18:00 Stockholmstid). Läses med autoAttendanceOf().
+   */
+  attendance: z
+    .strictObject({
+      /** Jobbet auto_attendance registrerar närvaro automatiskt. */
+      autoPresent: z.boolean(),
+      /** Klockslaget (Europe/Stockholm) då dagen räknas som slut och jobbet körs. */
+      autoPresentAt: TimeSchema,
+    })
+    .optional(),
 });
 export type OrgSettings = z.infer<typeof OrgSettingsSchema>;
 export const parseOrgSettings = (raw: unknown): OrgSettings => OrgSettingsSchema.parse(raw);
+
+/** Standard för automatisk närvaro när organisationens inställningar saknar avsnittet (beslut 2026-10-09). */
+export const AUTO_ATTENDANCE_DEFAULTS = deepFreeze({ autoPresent: true, autoPresentAt: "18:00" });
+export type AutoAttendanceSettings = { autoPresent: boolean; autoPresentAt: string };
+/** Inställningen för automatisk närvaro med standardvärdena (DEFAULT_ORG_SETTINGS är prototypens regler och saknar den). */
+export function autoAttendanceOf(s: Pick<OrgSettings, "attendance"> | null | undefined): AutoAttendanceSettings {
+  return { ...AUTO_ATTENDANCE_DEFAULTS, ...(s?.attendance ?? {}) };
+}
 
 export const DEFAULT_ORG_SETTINGS: OrgSettings = deepFreeze(
   OrgSettingsSchema.parse({

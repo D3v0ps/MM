@@ -31,6 +31,14 @@ Ta bort Supabase-variablerna för *Preview*, så att förhandsversioner av kod a
 
 `supabase/migrations/0027_rollval.sql` i *SQL Editor* (hela filen, en gång – den tål att köras igen): tabellen `role_choices` (den valda rollen för den som har flera), `mm.current_role()` följer valet, och administratören får ta bort medlemskap ("Ändra roller"). Kontroll: `select * from public.role_choices;` fungerar och `select public.current_actor();` svarar som inloggad. Utan 0027 fungerar allt som förut, utom rollväljaren (kommandot `session.vaxlaRoll` ger då ett fel i sidopanelen) och "Ändra roller" när en roll ska tas bort.
 
+### Migration 0030 (gruppaktiviteter och automatisk närvaro) – körs FÖRE koden
+
+`supabase/migrations/0030_gruppaktiviteter.sql` i *SQL Editor* (hela filen – den tål att köras igen, t.ex. om en körning avbröts): tabellen `group_activities`, `activities.group_activity_id` med en unik nyckel per deltagare och gruppaktivitet, borttagning av tillfällen utan närvaro (`activities_delete`) och `attendance.source` (`manual`/`auto`).
+
+**Driftordning:** 0030 ska vara applicerad **innan** koden med gruppaktiviteterna (spår A, coachmötet 2026-10-09) driftsätts. Koden skriver `attendance.source` vid varje närvaroregistrering och `activities.group_activity_id` vid varje nytt tillfälle (Starta insatsen, Lägg till tillfälle, Ny praktik, ändrad veckoplan). Utan kolumnerna avvisar databasen skrivningen, och då slutar närvaroregistreringen och tillfällena att fungera.
+
+Kontroll efteråt (som inloggad eller i SQL Editor): `select source from public.attendance limit 1;` och `select group_activity_id from public.activities limit 1;` fungerar, `select count(*) from public.group_activities;` svarar 0, och `select indexname from pg_indexes where indexname = 'activities_group_activity_case_key';` ger en rad.
+
 ### Så läggs kollegor till (ingen SQL)
 
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
@@ -75,6 +83,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Supabase-projekt för testmiljön | Klart: `miljonmatch`, ref **`blxupsebzzhmjitaywev`**, eu-north-1 (Stockholm), `https://blxupsebzzhmjitaywev.supabase.co` |
 | Migrationer 0001–0017 | 0001–0016 applicerade i testprojektet av samordnaren (i 0016 görs `drop index` för hand). **0017 (synpunkter i testmiljön) appliceras av samordnaren samtidigt som koden med "Lämna synpunkt" går live** (steg 1 nedan) |
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
+| Migration 0030 (coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppaktiviteter och automatisk närvaro. Appliceras i SQL Editor **före** koden från spår A (se "Migration 0030" ovan) – koden skriver de nya kolumnerna vid varje närvaroregistrering och varje nytt tillfälle |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |
