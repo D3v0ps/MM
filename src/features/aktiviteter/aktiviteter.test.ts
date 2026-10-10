@@ -7,13 +7,19 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { attendanceStats } from "@/core/attendance";
+import { billableWeeks, billingLines } from "@/core/billing";
+import { requireOperational } from "@/core/config";
+import { overlaps } from "@/core/group-activities";
 import { weeklyReport } from "@/core/weekly-report";
 import { listPersonas } from "@/data/actors";
 import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
-import { attendanceSet, attendanceSetAll } from "@/features/coach/api";
+import { activityAdd, activityRemove, caseAttendance, caseScheduleChange } from "@/features/arenden/api";
+import { attendanceSet, attendanceSetAll, narvaroView } from "@/features/coach/api";
+import { placementCreate } from "@/features/praktik/api";
+import { auditView } from "@/features/session/api";
 import "@/api/handlers";
 import {
   groupActivityCancel, groupActivityCreate, groupActivityForm, groupActivityInvite, groupActivityList, groupActivityNotes, groupActivityRemove, groupActivityUpdate,
@@ -215,5 +221,205 @@ describe("behörighet", () => {
     expect(f.holidays.map((h) => h.date)).toContain("2027-03-26");
     expect(f.me).toBeNull();
     expect((await q(groupActivityForm, {}, amira())).me).toBe("u-amira");
+  });
+});
+
+// ================================================================ Efter granskningen (2026-10-10)
+describe("deltagarens övriga tillfällen rör aldrig gruppraderna", () => {
+  const ELIF_WED = "2027-02-03T13:00";
+  const plan = [{ weekday: 2, kind: "yrkesmoment" as const, time: "13:30", durationMin: 120, location: "Miljonbemanning Alby" }];
+
+  it("ändrad veckoplan: deltagaren ligger kvar i gruppaktiviteten och planen lägger inget tillfälle som krockar med den", async () => {
+    const id = await create([CASES.elif], { startsAt: ELIF_WED });
+    const [row] = partsOf(id);
+    const res = await run(caseScheduleChange, { caseId: CASES.elif, plan }, amira());
+    expect(res.ok, !res.ok ? res.message : "").toBe(true);
+    expect(partsOf(id)).toEqual([row]);
+    const elif = rows("activities").filter((a) => a.caseId === CASES.elif && a.startsAt >= DEMO_START);
+    // Planens onsdag 13.30 krockar med aktiviteten 13.00–14.30 den veckan och hoppas över – men läggs alla andra onsdagar.
+    expect(elif.filter((a) => a.startsAt.startsWith("2027-02-03") && !a.groupActivityId)).toEqual([]);
+    expect(elif.some((a) => a.startsAt === "2027-02-10T13:30")).toBe(true);
+    expect(elif.filter((a) => !a.groupActivityId).every((a) => !overlaps(a, row))).toBe(true);
+    expect(audit("group_activity.removed_participant")).toEqual([]);
+    // Aktivitetsvyn och listan visar fortfarande deltagaren.
+    const view = await q(groupActivityView, { id }, amira());
+    expect(view.kind === "ok" && view.participants.map((x) => x.caseId)).toEqual([CASES.elif]);
+    expect((await q(groupActivityList, {}, amira())).upcoming.find((r) => r.id === id)?.invited).toBe(1);
+  });
+
+  it("ny praktik: yrkesmoment på praktikdagarna ersätts som förut, gruppaktiviteten ligger kvar och räknas i svaret och loggen", async () => {
+    const id = await create([CASES.elif], { startsAt: ELIF_WED });
+    const res = await run(placementCreate, {
+      caseId: CASES.elif, newEmployer: { name: "Testföretaget AB" }, startsOn: "2027-02-03", endsOn: "2027-02-05", weekdays: [2], time: "08:00", durationMin: 420,
+    }, amira());
+    expect(res).toMatchObject({ ok: true, days: 1, groupActivities: 1 });
+    expect(partsOf(id)).toHaveLength(1);
+    // Det enskilda yrkesmomentet samma dag (09.00) är ersatt av praktikdagen.
+    const day = rows("activities").filter((a) => a.caseId === CASES.elif && a.startsAt.startsWith("2027-02-03"));
+    expect(day.map((a) => [a.kind, a.groupActivityId ? "grupp" : "egen"]).sort()).toEqual([["praktikdag", "egen"], ["yrkesmoment", "grupp"]]);
+    expect(audit("placement.created")[0].details).toMatchObject({ groupActivityIds: [id] });
+  });
+
+  it("Ta bort tillfälle (Närvaro, deltagarkortet) nekar grupprader och hänvisar till aktivitetsvyn – vyerna länkar dit", async () => {
+    const id = await create([CASES.nadia], { startsAt: "2027-02-02T13:00" });
+    const [row] = partsOf(id);
+    expect(await run(activityRemove, { activityId: row.id }, amira())).toMatchObject({ ok: false, error: "group_activity" });
+    expect(partsOf(id)).toEqual([row]);
+    const narvaro = await q(narvaroView, {}, amira());
+    expect(narvaro.weeks.this.rows.find((r) => r.activityId === row.id)?.groupActivityId).toBe(id);
+    const kort = await q(caseAttendance, { caseId: CASES.nadia }, amira());
+    expect(kort?.upcoming.find((a) => a.id === row.id)?.groupActivityId).toBe(id);
+    expect(kort?.upcoming.filter((a) => a.id !== row.id).every((a) => a.groupActivityId === null)).toBe(true);
+  });
+});
+
+describe("samma tid: inga dubbla tillfällen för en deltagare", () => {
+  // Testdatat: alla tre har yrkesmoment onsdag 2027-02-03 09.00–12.00 (avtalets veckoplan).
+  const WED_10 = "2027-02-03T10:00";
+
+  it("skapa: ett eget tillfälle utan närvaro ger overlap per ärende tills användaren bekräftar – då ersätts det och loggas", async () => {
+    const before = rows("activities").length;
+    const res = await run(groupActivityCreate, { ...base, startsAt: WED_10, durationMin: 60, caseIds: THREE }, amira());
+    expect(res).toMatchObject({ ok: false, error: "overlap" });
+    const problems = (res as unknown as { problems: { caseId: string; reason: string }[] }).problems;
+    expect(problems.map((x) => x.caseId).sort()).toEqual([...THREE].sort());
+    expect(problems[0].reason).toBe("Har redan yrkesmoment kl. 09.00–12.00. Det ersätts av aktiviteten");
+    expect(rows("group_activities")).toEqual([]);
+    expect(rows("activities").length).toBe(before);
+    const ok = await run(groupActivityCreate, { ...base, startsAt: WED_10, durationMin: 60, caseIds: THREE, replaceOverlapping: true }, amira());
+    expect(ok).toMatchObject({ ok: true, invited: 3, replaced: 3 });
+    for (const c of THREE) {
+      const wed = rows("activities").filter((a) => a.caseId === c && a.startsAt.startsWith("2027-02-03"));
+      expect(wed.map((a) => [a.startsAt, !!a.groupActivityId])).toEqual([[WED_10, true]]);
+    }
+    expect((audit("group_activity.created")[0].details as { replacedActivityIds: string[] }).replacedActivityIds).toHaveLength(3);
+  });
+
+  it("ett tillfälle med registrerad närvaro eller en annan gruppaktivitet vid samma tid stoppar – det ersätts aldrig", async () => {
+    const add = await run(activityAdd, { caseId: CASES.nadia, kind: "annat", startsAt: "2027-02-01T07:00", durationMin: 60, location: "Alby" }, amira());
+    expect(add.ok).toBe(true);
+    await run(attendanceSet, { activityId: (add as { activityId: string }).activityId, status: "present" }, amira());
+    const res = await run(groupActivityCreate, { ...base, startsAt: "2027-02-01T07:30", durationMin: 30, caseIds: [CASES.nadia], replaceOverlapping: true }, amira());
+    expect(res).toMatchObject({ ok: false, error: "not_invitable" });
+    expect((res as unknown as { problems: { reason: string }[] }).problems[0].reason).toBe("Har redan annan aktivitet kl. 07.00–08.00 med registrerad närvaro");
+    const first = await create([CASES.nadia], { startsAt: "2027-02-02T13:00" });
+    const second = await run(groupActivityCreate, { ...base, startsAt: "2027-02-02T13:30", caseIds: [CASES.nadia], replaceOverlapping: true }, amira());
+    expect(second).toMatchObject({ ok: false, error: "not_invitable" });
+    expect((second as unknown as { problems: { reason: string }[] }).problems[0].reason).toBe("Är redan inbjuden till en annan aktivitet kl. 13.00–14.30");
+    expect(partsOf(first)).toHaveLength(1);
+  });
+
+  it("bjud in och ändra tid prövas på samma sätt – aktivitetens egna rader räknas inte som krock", async () => {
+    const id = await create([CASES.elif], { startsAt: "2027-02-02T13:00" });
+    // Längre aktivitet samma dag: inga andra tillfällen den dagen – ingen krock med de egna raderna.
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 120 }, amira())).toEqual({ ok: true, changed: 1, replaced: 0 });
+    // Flytt till onsdag 10.00: krockar med yrkesmomentet 09.00–12.00.
+    const move = { id, ...base, startsAt: WED_10, durationMin: 60 };
+    expect(await run(groupActivityUpdate, move, amira())).toMatchObject({ ok: false, error: "overlap" });
+    expect(partsOf(id)[0].startsAt).toBe("2027-02-02T13:00");
+    expect(await run(groupActivityUpdate, { ...move, replaceOverlapping: true }, amira())).toEqual({ ok: true, changed: 2, replaced: 1 });
+    expect(rows("activities").filter((a) => a.caseId === CASES.elif && a.startsAt.startsWith("2027-02-03")).map((a) => a.groupActivityId)).toEqual([id]);
+    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia] }, amira())).toMatchObject({ ok: false, error: "overlap" });
+    expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia], replaceOverlapping: true }, amira())).toEqual({ ok: true, invited: 1, already: 0, replaced: 1 });
+  });
+});
+
+describe("samtidiga anrop", () => {
+  it("två samtidiga inbjudningar av samma deltagare ger ett tillfälle (unika nyckeln) – båda svarar ok", async () => {
+    const id = await create([CASES.nadia]);
+    const [a, b] = await Promise.all([run(groupActivityInvite, { id, caseIds: [CASES.elif] }, amira()), run(groupActivityInvite, { id, caseIds: [CASES.elif] }, as("u-sara", "samordnare"))]);
+    expect(a.ok && b.ok).toBe(true);
+    expect(partsOf(id).filter((x) => x.caseId === CASES.elif)).toHaveLength(1);
+    expect((a.ok ? a.invited : 0) + (b.ok ? b.invited : 0)).toBe(1);
+  });
+
+  it("Ställ in två gånger samtidigt: aktiviteten ställs in en gång, tillfällena tas bort en gång", async () => {
+    const id = await create(THREE, { startsAt: "2027-02-03T13:00" });
+    const res = await Promise.all([run(groupActivityCancel, { id }, amira()), run(groupActivityCancel, { id }, as("u-sara", "samordnare"))]);
+    expect(res.filter((r) => r.ok)).toHaveLength(1);
+    expect(res.find((r) => !r.ok)).toMatchObject({ ok: false, error: "cancelled" });
+    expect(partsOf(id)).toEqual([]);
+    expect(audit("group_activity.cancelled")).toHaveLength(1);
+  });
+});
+
+describe("vilande spärren för skyddade personuppgifter (påslagen)", () => {
+  const protect = () => rt.store.updateRow("persons", rows("cases").find((c) => c.id === CASES.nadia)!.personId, { protectedIdentity: true });
+
+  it("den som inte arbetar i ärendet får ett ordnat nej per ärende – ingenting skrivs", async () => {
+    protect();
+    const before = rows("activities").length;
+    const res = await run(groupActivityCreate, { ...base, caseIds: [CASES.nadia, CASES.elif] }, as("u-leila", "coach"));
+    expect(res).toMatchObject({ ok: false, error: "not_invitable" });
+    expect((res as unknown as { problems: { caseId: string; reason: string }[] }).problems).toEqual([
+      { caseId: CASES.nadia, caseNumber: "BOT-26-0143", reason: "Skyddade personuppgifter – bara huvudcoachen och avtalsansvarig kan bjuda in deltagaren" },
+    ]);
+    expect(rows("group_activities")).toEqual([]);
+    expect(rows("activities").length).toBe(before);
+    // Huvudcoachen arbetar i ärendet och bjuder in; samordnaren kan sedan inte bjuda in, flytta eller ställa in för den skyddade.
+    const id = await create([CASES.nadia, CASES.elif], { startsAt: "2027-02-02T13:00" });
+    const sara = as("u-sara", "samordnare");
+    const other = await create([CASES.elif], { startsAt: "2027-02-02T09:00" }, sara);
+    expect(await run(groupActivityInvite, { id: other, caseIds: [CASES.nadia] }, sara)).toMatchObject({ ok: false, error: "not_invitable" });
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T14:00" }, sara)).toMatchObject({ ok: false, error: "restricted" });
+    expect(await run(groupActivityCancel, { id }, sara)).toMatchObject({ ok: false, error: "restricted" });
+    expect(partsOf(id).map((a) => a.startsAt)).toEqual(["2027-02-02T13:00", "2027-02-02T13:00"]);
+    expect(rows("group_activities").find((g) => g.id === id)?.cancelledAt).toBeNull();
+    // Namnet går att ändra (deltagarnas rader rörs inte).
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", name: "CV-verkstad 2" }, sara)).toMatchObject({ ok: true, changed: 1 });
+  });
+});
+
+describe("visningslogg för aktivitetsvyn", () => {
+  it("visningen loggas med deltagarnas ärenden (servern slår upp dem) – ekonomen och kommunen kan inte logga den", async () => {
+    const id = await create();
+    expect(await run(auditView, { action: "group_activity.view", entity: "group_activity", entityId: id }, as("u-karin", "chef"))).toEqual({ ok: true });
+    const log = audit("group_activity.view");
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ entity: "group_activity", entityId: id, contractId: "c-bot", actorId: "u-karin", details: { caseIds: [...THREE].sort() } });
+    expect(await run(auditView, { action: "group_activity.view", entity: "group_activity", entityId: id }, as("u-lars", "ekonom"))).toMatchObject({ ok: false });
+    expect(await run(auditView, { action: "group_activity.view", entity: "case", entityId: id }, amira())).toMatchObject({ ok: false });
+  });
+});
+
+describe("fakturaunderlaget räknar gruppaktivitetens rader som enskilda tillfällen", () => {
+  it("frånvaro på gruppaktiviteten ger samma debiterbara veckor, nollnärvaroflagga och fakturarad som samma frånvaro på ett eget tillfälle", async () => {
+    const NOW = "2027-02-05T23:00";
+    // Hela vecka 5 för Nadia: alla passerade tillfällen frånvaro – sista tillfället är antingen gruppaktiviteten eller ett eget.
+    const scenario = async (group: boolean) => {
+      rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
+      rt.clock.set("2027-02-05T09:00");
+      let actId: string;
+      if (group) {
+        const id = await create([CASES.nadia], { startsAt: "2027-02-05T08:00", durationMin: 60 });
+        actId = partsOf(id)[0].id;
+      } else {
+        const add = await run(activityAdd, { caseId: CASES.nadia, kind: "yrkesmoment", startsAt: "2027-02-05T08:00", durationMin: 60, location: base.location }, amira());
+        if (!add.ok) throw new Error(add.message);
+        actId = add.activityId;
+      }
+      for (const a of rows("activities").filter((x) => x.caseId === CASES.nadia && x.startsAt >= "2027-02-01" && x.startsAt < "2027-02-05T09:00")) {
+        const r = await run(attendanceSet, { activityId: a.id, status: "absent_invalid" }, amira());
+        if (!r.ok) throw new Error(r.message);
+      }
+      const c = rows("cases").find((x) => x.id === CASES.nadia)!;
+      const db = { activities: rows("activities"), attendance: rows("attendance") };
+      const weeks = billableWeeks(c, db, { now: NOW });
+      const contract = rows("contracts").find((x) => x.id === c.contractId)!;
+      const lines = billingLines(
+        { cases: rows("cases"), activities: rows("activities"), attendance: rows("attendance"), price_items: rows("price_items"), billing_week_approvals: rows("billing_week_approvals") },
+        "2027-02", { now: NOW, cfg: requireOperational(contract.config) },
+      ).filter((l) => l.caseId === CASES.nadia);
+      return { actId, weeks, lines };
+    };
+    const g = await scenario(true);
+    const own = await scenario(false);
+    expect(g.weeks).toEqual(own.weeks);
+    const w5 = g.weeks.find((w) => w.key === "2027-W05")!;
+    expect(w5).toMatchObject({ zeroAttendance: true, missingRegistration: false, attended: 0 });
+    expect(w5.planned).toBe(w5.registered);
+    // Fakturaraden: samma veckor, belopp och kontroller (nollnärvaroveckan flaggas i båda).
+    expect(JSON.stringify(g.lines)).toBe(JSON.stringify(own.lines));
+    expect(g.lines[0]?.checks.map((x) => x.kind)).toContain("zero_week");
   });
 });

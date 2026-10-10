@@ -138,6 +138,33 @@ describe("runAutoAttendance", () => {
   });
 });
 
+describe("avbruten körning", () => {
+  it("ett fel mitt i ett avtal: raderna som hann skrivas loggas ändå (failed, felkoden) innan felet går vidare – nästa körning loggar resten", async () => {
+    rt.clock.set("2027-02-01T18:05");
+    const ctx = systemCtx();
+    // Den fjärde skrivningen misslyckas (t.ex. nätverksfel mot databasen) – inte en dubblett.
+    let n = 0;
+    const realTable = ctx.system.table.bind(ctx.system);
+    const failing = Object.create(ctx.system) as Ctx["system"];
+    failing.table = ((name: string) => {
+      const t = realTable(name as "attendance");
+      if (name !== "attendance") return t;
+      return { ...t, insert: async (row: Tables["attendance"]) => { if (++n > 3) throw Object.assign(new Error("Databasfel i attendance (08006)"), { code: "08006" }); return t.insert(row); } };
+    }) as Ctx["system"]["table"];
+    await expect(runAutoAttendance({ ...ctx, system: failing })).rejects.toThrow("08006");
+    expect(auto()).toHaveLength(3);
+    expect(runs()).toHaveLength(1);
+    expect(runs()[0].details).toMatchObject({ count: 3, failed: true, error: "08006", remaining: 47 });
+    expect((runs()[0].details as { attendanceIds: string[] }).attendanceIds.sort()).toEqual(auto().map((a) => a.id).sort());
+    // Nästa försök: de tre räknas som registrerade och loggas inte igen – de övriga 47 får en egen loggrad.
+    const again = await runAutoAttendance(ctx); // samma ctx: nya id:n fortsätter löpnumret
+    expect(again.registered).toBe(47);
+    expect(runs()).toHaveLength(2);
+    expect(runs()[1].details).toMatchObject({ count: 47 });
+    expect(runs()[1].details).not.toHaveProperty("failed");
+  });
+});
+
 describe("minnesläget och Kör nu", () => {
   const query = (userId: string) => rt.run("query", "session.ping", {}, actor(userId));
 
