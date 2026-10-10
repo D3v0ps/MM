@@ -85,6 +85,10 @@ describe("ledningsvyn", () => {
       ["Leila Nouri", 16, 9, 32, 187, 208, 53, 67, 8.5, 3, 1],
       ["Mats Holm", 21, 10, 29, 175, 207, 52, 68, 8, 4, 1],
       ["Sofia Grahn", 20, 6, 21, 177, 189, 53, 62, 9, 4, 0],
+      // Rollen handledare bort (beslut 2026-10-09): de tre som var handledare är coacher utan egna ärenden.
+      ["Petra Ek", 0, 0, 0, 0, 0, 0, 0, null, 0, 0],
+      ["David Olsson", 0, 0, 0, 0, 0, 0, 0, null, 0, 0],
+      ["Hanna Strand", 0, 0, 0, 0, 0, 0, 0, null, 0, 0],
     ]);
     expect(c.total).toEqual({ active: 91, reminders: 17, escalated: 3, att: 839, reg: 950, wk: 312, wkOk: 252 });
     expect(c.allDoc).toBe(8);
@@ -95,7 +99,7 @@ describe("ledningsvyn", () => {
     const p = await rt.query(ledningPulse, {}, karin());
     expect(p.stats).toMatchObject({ invites: 275, responses: 175, q1: [3, 11, 26, 69, 66] });
     expect(p.stats?.priorities[0]).toEqual(["praktik", 45]);
-    expect([p.lowOpen, p.contactRequested, p.perCoach.length]).toEqual([1, 3, 5]);
+    expect([p.lowOpen, p.contactRequested, p.perCoach.length]).toEqual([1, 3, 8]); // åtta coacher sedan 2026-10-09 (tre utan ärenden)
   });
 
   it("pulsens aggregat lämnas bara ut från minsta antal svar", async () => {

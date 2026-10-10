@@ -3,6 +3,8 @@
 // 2026-10-06 (beslut 2026-10-07) och coachmötet 2026-10-09. Tre steg med uppgifter och en granskning innan beställningen skickas:
 //   1. Beställning och kontakt: namn, enhet (fritext), telefon, e-post, önskat startdatum och omfattningen – 6 eller 12
 //      månader (avtalets alternativ, planerat slut räknas fram) eller annan tidsperiod med slutdatum och motivering.
+//      Kontaktuppgifterna kommer från kontot och visas som en sammanfattning med Ändra (beslut 2026-10-09) – fälten öppnas
+//      med Ändra, eller direkt när en uppgift i kontot saknas eller är fel. Öppnade fält stängs inte medan man skriver.
 //      Ingen beställarreferens och inget planerat slutdatum att fylla i (Miljonbemanning fyller i referensen).
 //   2. Deltagare: namn, personnummer, telefon och/eller e-post och yrkesområdet (obligatoriskt, avtalets avtalsområden).
 //      Ingen fråga om skydd och ingen anpassning (beslut 2026-10-07). Ingen bostadsort, ingen fråga om kontaktväg och ingen
@@ -23,12 +25,12 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { leaveWithoutAsking, useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TextArea, Timeline,
+  Button, Card, DemoNote, ErrorNotice, ErrorSummary, Eyebrow, focusFirstError, FormGrid, Icon, Input, Kv, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TextArea,
   cn, useConfirm, useToast, Field,
 } from "@/ui";
 import { kommunDuplicate, kommunOrderForm, kommunReceipt, type KomDuplicate, type KomOrderForm } from "../api";
-import { CONTACT_PHONE, fD, fDT, fDTL, fullText, maskPnr, statusName } from "../texts";
-import { KomHead, KomPage, OkLine } from "./parts";
+import { CONTACT_PHONE, fD, fDTL, maskPnr, statusName } from "../texts";
+import { KomHead, KomPage } from "./parts";
 import { joinText, TalaIn } from "./tala-in";
 
 const STEPS = ["Beställning och kontakt", "Deltagare", "Bakgrundsinformation om deltagaren", "Granska och skicka"] as const;
@@ -91,6 +93,9 @@ const ERROR_FIELD: Record<string, string> = {
   otherEnd: "kom-o-end", periodReason: "kom-o-reason", firstName: "kom-o-fn", lastName: "kom-o-ln", pnr: "kom-o-pnr", phone: "kom-o-dphone", email: "kom-o-demail",
   primaryArea: "kom-o-area", priorAssessment: "kom-o-prior", attachments: "kom-o-files",
 };
+
+/** Beställarens kontaktuppgifter i steg 1 (sammanfattningen med Ändra). */
+const CONTACT_KEYS = ["contactName", "unit", "contactPhone", "contactEmail"] as const;
 
 function validateStep(step: number, f: Order, m: KomOrderForm, dups: readonly KomDuplicate[], uploading: boolean): Record<string, string> {
   const e: Record<string, string> = {};
@@ -191,6 +196,10 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const [errStep, setErrStep] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
   const [done, setDone] = useState<{ caseId: string; caseNumber: string } | null>(null);
+  // Kontaktuppgifterna i steg 1: sammanfattning med Ändra tills handläggaren vill ändra dem. Saknas en uppgift i kontot eller
+  // är den fel (t.ex. efter självregistreringen) är fälten öppna från början. Läget räknas ut en gång och stängs aldrig medan
+  // handläggaren skriver – fälten får inte försvinna när det sista felet rättas (fokus, WCAG 3.2.2).
+  const [editContact, setEditContact] = useState(() => CONTACT_KEYS.some((k) => validateStep(0, f, m, [], false)[k]));
   const headRef = useRef<HTMLHeadingElement | HTMLDivElement | null>(null);
 
   const pnrOk = pnrFormatValid(f.pnr);
@@ -268,6 +277,14 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   const errs = validateStep(step, f, m, dups, uploading);
   const E = (k: string) => (showErr ? errs[k] : undefined);
   const end = periodEnd(f);
+  // Fälten visas när handläggaren tryckt Ändra, eller från början när en uppgift saknades (startvärdet ovan). Härleds aldrig
+  // ur de levande felen.
+  const contactOpen = editContact;
+  const openContact = () => {
+    setEditContact(true);
+    // Fokus till första fältet när det har ritats (tangentbord och skärmläsare).
+    window.setTimeout(() => document.getElementById("kom-o-name")?.focus(), 0);
+  };
 
   const next = () => {
     if (Object.keys(errs).length) {
@@ -312,6 +329,8 @@ function OrderForm({ m }: { m: KomOrderForm }) {
       if (to != null) {
         goStep(to);
         setErrStep(to);
+        // Enheten är en kontaktuppgift: visa fälten så att felet går att rätta.
+        if (res.error === "unit") setEditContact(true);
       }
       toast(res.message ?? "Beställningen kunde inte skickas.", "error");
       return;
@@ -333,6 +352,7 @@ function OrderForm({ m }: { m: KomOrderForm }) {
     draft.clear();
     setBaseline(JSON.stringify(fresh));
     setErrStep(null);
+    setEditContact(false);
     nav.replace(stepPath(0));
   };
 
@@ -347,23 +367,36 @@ function OrderForm({ m }: { m: KomOrderForm }) {
   if (step === 0) {
     body = (
       <Stack>
-        <Notice tone="info" title="Uppgifterna kommer från ditt konto">
-          Ändra om någon annan ska vara kontaktperson för den här beställningen.
-        </Notice>
-        <FormGrid>
-          <Field id="kom-o-name" label="Ditt namn" required error={E("contactName")} help="Den som beställer och är kontaktperson hos kommunen.">
-            <Input value={f.contactName} onValueChange={set("contactName")} autoComplete="name" />
-          </Field>
-          <Field id="kom-o-unit" label="Enhet" required error={E("unit")} help="Skriv vilken enhet du arbetar på, till exempel Arbetsmarknadsenheten Alby.">
-            <Input value={f.unit} onValueChange={set("unit")} maxLength={120} />
-          </Field>
-          <Field id="kom-o-phone" label="Ditt telefonnummer" required error={E("contactPhone")} help="Hit ringer vi om vi har frågor om beställningen.">
-            <Input type="tel" value={f.contactPhone} onValueChange={set("contactPhone")} autoComplete="tel" />
-          </Field>
-          <Field id="kom-o-email" label="Din e-postadress" required error={E("contactEmail")} help="Hit skickar vi ordererkännandet.">
-            <Input type="email" value={f.contactEmail} onValueChange={set("contactEmail")} autoComplete="email" />
-          </Field>
-        </FormGrid>
+        {contactOpen ? (
+          <FormGrid>
+            <Field id="kom-o-name" label="Ditt namn" required error={E("contactName")} help="Den som beställer och är kontaktperson hos kommunen.">
+              <Input value={f.contactName} onValueChange={set("contactName")} autoComplete="name" />
+            </Field>
+            <Field id="kom-o-unit" label="Enhet" required error={E("unit")} help="Skriv vilken enhet du arbetar på, till exempel Arbetsmarknadsenheten Alby.">
+              <Input value={f.unit} onValueChange={set("unit")} maxLength={120} />
+            </Field>
+            <Field id="kom-o-phone" label="Ditt telefonnummer" required error={E("contactPhone")} help="Hit ringer vi om vi har frågor om beställningen.">
+              <Input type="tel" value={f.contactPhone} onValueChange={set("contactPhone")} autoComplete="tel" />
+            </Field>
+            <Field id="kom-o-email" label="Din e-postadress" required error={E("contactEmail")} help="Hit skickar vi ordererkännandet.">
+              <Input type="email" value={f.contactEmail} onValueChange={set("contactEmail")} autoComplete="email" />
+            </Field>
+          </FormGrid>
+        ) : (
+          <Stack gap="sm">
+            <ReviewSection
+              title="Kontaktperson"
+              onEdit={openContact}
+              items={[
+                ["Namn", f.contactName],
+                ["Enhet", f.unit],
+                ["Telefon", f.contactPhone],
+                ["E-post", f.contactEmail],
+              ]}
+            />
+            <p>Uppgifterna kommer från ditt konto. Tryck på Ändra om någon annan ska vara kontaktperson för den här beställningen.</p>
+          </Stack>
+        )}
         <Field
           id="kom-o-start"
           label="Önskat startdatum"
@@ -648,17 +681,9 @@ function DupNotice({ dups, onOpen }: { dups: readonly KomDuplicate[]; onOpen: (c
 }
 
 /**
- * Hur deltagaren kallas, i löpande text. Kontaktvägen väljs efter uppgifterna i beställningen (beslut 2026-10-09): SMS om
- * telefonnummer finns, annars e-post. Äldre beställningar kan ha telefon eller brev.
+ * Kvittot: ärendenumret och en mening om orderbekräftelsen. Beslut 2026-10-09 ("Vi behöver inte visa så mycket till
+ * kommunens handläggare"): inget mejl att visa och ingen tidslinje.
  */
-const inviteText = (label: string | null | undefined): string => {
-  if (label === "SMS") return "Deltagaren får en kallelse med SMS.";
-  if (label === "E-post") return "Deltagaren får en kallelse med e-post.";
-  if (label === "Brev") return "Deltagaren får en kallelse med brev.";
-  return "Vi kontaktar deltagaren och bokar tiden.";
-};
-
-/** Kvittot: ärendenummer, ordererkännande, mejlet och hur det går vidare. */
 function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string; customerName: string; onAgain: () => void; headRef: RefObject<HTMLDivElement | null> }) {
   const q = useQuery(kommunReceipt, { caseId });
   if (q.error) return <ErrorNotice error={q.error} onRetry={() => void q.refetch()} />;
@@ -677,54 +702,18 @@ function OrderDone({ caseId, customerName, onAgain, headRef }: { caseId: string;
     <KomPage>
       <KomHead eyebrow={`${customerName} · beställning`} title="Tack! Beställningen är skickad" />
       <Card tone="blue">
-        <Stack>
-          <Stack gap="sm">
-            <div className="text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">Ärendenummer</div>
-            <div ref={headRef} tabIndex={-1} className="text-[clamp(1.75rem,8vw,2.5rem)] leading-[1.1] font-extrabold tracking-[0.02em] tabular-nums outline-none">
-              {c.caseNumber}
-            </div>
-            <p>Ärendenumret är beställningens nummer. Använd det i stället för personnummer när du kontaktar oss om deltagaren.</p>
-          </Stack>
-          <Stack gap="sm">
-            <div className="text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">Ordererkännande</div>
-            <p>{fullText(c.ackText)}</p>
-          </Stack>
+        <Stack gap="sm">
+          <div className="text-body font-extrabold tracking-[0.09em] text-text-muted uppercase">Ärendenummer</div>
+          <div ref={headRef} tabIndex={-1} className="text-[clamp(1.75rem,8vw,2.5rem)] leading-[1.1] font-extrabold tracking-[0.02em] tabular-nums outline-none">
+            {c.caseNumber}
+          </div>
+          {/* Mejlet innehåller bara ärendenumret och en länk – orderbekräftelsen läses i portalen (CLAUDE.md punkt 9). */}
+          <p>
+            {c.avropDue
+              ? `Senast ${fDTL(c.avropDue)} får du ett mejl om att orderbekräftelsen finns i portalen.`
+              : "Du får ett mejl när orderbekräftelsen finns i portalen."}
+          </p>
         </Stack>
-      </Card>
-      {c.mail && (
-        <Card title="Mejlet du får" icon="mail">
-          <Stack gap="sm">
-            <div className="flex flex-col gap-1.5 rounded-mb border-[1.5px] border-line-strong bg-ljusgra-ton px-4 py-3.5 [overflow-wrap:anywhere]">
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-body text-text-muted">
-                <span>Från: {c.mail.from}</span>
-                <span className="[overflow-wrap:anywhere]">Till: {c.mail.to}</span>
-                <span>{fDT(c.mail.at)}</span>
-              </div>
-              <div>{fullText(c.mail.body)}</div>
-            </div>
-            <OkLine>Mejlet innehåller bara ärendenumret – inga personuppgifter.</OkLine>
-          </Stack>
-        </Card>
-      )}
-      <Card title="Så här går det vidare" icon="list">
-        <Timeline
-          items={[
-            {
-              icon: "check",
-              filled: true,
-              title: "Beställningen är mottagen",
-              sub: fDTL(c.referredAt),
-              body: <span>Den har fått ärendenummer {c.caseNumber}.{c.areaName ? ` Yrkesområde: ${c.areaName}.` : ""}</span>,
-            },
-            { icon: "calendar", title: "Orderbekräftelse", sub: `Senast ${fDTL(c.avropDue)}`, body: <span>Du får startdatum, ansvarig coach och tid för första mötet i portalen.</span> },
-            {
-              icon: "users",
-              title: "Första mötet med deltagaren",
-              sub: `Senast ${fD(c.firstMeetingDue)}`,
-              body: <span>{inviteText(c.contactLabel)}</span>,
-            },
-          ]}
-        />
       </Card>
       <div className="flex flex-wrap items-center gap-3">
         <Button kind="primary" size="lg" iconRight="arrow-right" to={`/portal/deltagare/${encodeURIComponent(c.caseId)}`}>

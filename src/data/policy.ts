@@ -4,8 +4,8 @@
 // påminnelser och Mina ärenden – inte åtkomsten (beslut 2026-10-09).
 //
 // Sammanfattning:
-//   MB-roller      coach, handledare, samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 – coach
-//                  och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
+//   MB-roller      coach, handledare (vilande), samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 –
+//                  coach och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
 //                  spara, dela inom Miljonbemanning och arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs
 //                  för fakturering, inga anteckningar, rapporter eller namn · admin: allt inklusive konfiguration och logg
 //                  (skyddade personer bara som ärende)
@@ -44,6 +44,9 @@
 //                 (arkiveras, raderas aldrig) · medlemskapen läses som anteckningar (aldrig ekonom eller kommunen) och skrivs av
 //                 samordnare, avtalsansvarig och coach (inte admin – läsläge i ärendena) med full åtkomst till ärendet – ny rad
 //                 aktiv och i eget namn, ändring bara att ta bort
+//   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
+//                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
+//                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -58,12 +61,21 @@ import type { Case, Report, TableName, Tables } from "./schema";
 type Raw = RawAccess<Tables>;
 
 // ---------------------------------------------------------------- Rollgrupper
-/** Arbetar i ärendet (registrerar närvaro, avstämningar, händelser …) med full- eller teamåtkomst. Chef och admin är i läsläge. */
+/**
+ * Arbetar i ärendet (registrerar närvaro, avstämningar, händelser …) med full- eller teamåtkomst. Chef och admin är i läsläge.
+ * Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
+ */
 const CASE_WORKERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** Ändrar ärendet (status, coach, datum) med full åtkomst. */
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
 /** Tar emot beställningar (skapar ärenden och personer). */
 const ORDER_CREATORS: readonly Role[] = ["samordnare", "avtalsansvarig", "kommun_handlaggare"];
+/**
+ * Deltagarens kontaktuppgifter (Ändra kontaktväg på deltagarkortet, coachmötet 2026-10-09) – det enda systemadministratören
+ * får ändra hos en person (triggern persons_admin_contact_only och mm.person_write, 0032). Adressen töms när kontaktvägen
+ * inte är brev.
+ */
+export const PERSON_CONTACT_FIELDS = ["preferredContact", "phone", "email", "address"] as const;
 /** Ser avtalets helhet: beställarrapporter, avropsinkorg, avtalsavvikelser. */
 const OVERSIGHT: readonly Role[] = ["samordnare", "avtalsansvarig", "chef", "admin"];
 /** Fakturering. */
@@ -174,6 +186,7 @@ function reportRead(r: Report, a: Actor, raw: Raw): boolean {
     if (a.role === "ekonom") return false; // inga rapporter
     if (r.kind === "weekly_attendance") return true; // coach och handledare ser bara sina deltagares avsnitt (vy-modellen)
     if (r.kind === "customer_summary" || r.kind === "statistics") return has(OVERSIGHT, a);
+    // Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
     if (a.role === "handledare") return false; // månads- och slutrapporter innehåller coachens bedömningar
     if (!r.caseId) return has(OVERSIGHT, a);
     return canSeeNotes(accessTo(raw, a, r.caseId), a.role);
@@ -476,6 +489,11 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     write: (p, a, raw) => {
       const refs = casesByPerson(raw).get(p.id) ?? [];
       if (!refs.length) return has(ORDER_CREATORS, a); // ny person i en beställning (ärendet sparas efteråt)
+      // Systemadministratören (0032, Ändra kontaktväg): bara kontaktuppgifterna, med full åtkomst till ett av personens ärenden.
+      if (a.role === "admin") {
+        const cur = raw.get("persons", p.id);
+        return !!cur && changedFields(cur, p).every((k) => (PERSON_CONTACT_FIELDS as readonly string[]).includes(k)) && refs.some((id) => accessTo(raw, a, id) === "full");
+      }
       return refs.some((id) => {
         const acc = accessTo(raw, a, id);
         return (acc === "full" && has(CASE_EDITORS, a)) || (acc === "customer" && a.role === "kommun_handlaggare" && self(a, raw.get("cases", id)?.referrerId));

@@ -4,7 +4,7 @@
 // och kommunens handläggare. ?mejl=<id> förifyller formuläret ur ett inläst mejl som inte kunde bli ett ärende automatiskt.
 // Personnumret ur mejlet lämnas aldrig ut till skärmen: lämnas fältet tomt använder servern numret i mejlet.
 import { useMemo, useState, type ReactNode } from "react";
-import { defaultPreferredContact, PHONE_MIN_DIGITS } from "@/core/contact";
+import { contactErrors, defaultPreferredContact } from "@/core/contact";
 import { fmtDateTimeLong, orderPeriodEnd } from "@/core/time";
 import { emailValid, pnrFormatValid } from "@/core/validation";
 import type { PreferredContact, PriorAssessment } from "@/data/schema";
@@ -126,12 +126,10 @@ function validate(f: Reg, m: RegisterForm, dup: boolean, uploading: boolean): Re
     if (!pnrInMail) e.pnr = "Skriv personnumret så här: ÅÅÅÅMMDD-NNNN.";
   } else if (!pnrFormatValid(f.pnr.trim())) e.pnr = "Skriv tolv siffror så här: ÅÅÅÅMMDD-NNNN.";
   else if (dup) e.pnr = "Personen har redan en pågående insats. En person kan inte ha två pågående insatser samtidigt.";
-  if ((f.preferredContact === "sms" || f.preferredContact === "phone") && f.phone.replace(/\D/g, "").length < PHONE_MIN_DIGITS) e.phone = "Skriv deltagarens telefonnummer – det behövs för kallelsen.";
-  if (f.email.trim() && !emailValid(f.email)) e.email = "Skriv en hel e-postadress, eller lämna fältet tomt.";
-  if (f.preferredContact === "email" && !f.email.trim()) e.email = "Skriv deltagarens e-postadress – e-post är vald som kontaktväg.";
+  // Kontaktvägen, telefonnumret och e-postadressen: samma regler som Ändra kontaktväg på deltagarkortet (contactErrors).
+  Object.assign(e, contactErrors(f));
   // Bostadsorten är valfri (beslut 2026-10-09: "Vi behöver inte veta var de bor").
   if (f.primaryArea && !m.areas.some((a) => a.value === f.primaryArea)) e.primaryArea = "Välj ett yrkesområde i listan.";
-  if (f.preferredContact === "letter" && f.address.trim().length < 6) e.address = "Skriv hela adressen – kallelsen ska skickas med brev.";
   if (!f.priorAssessment) e.priorAssessment = "Svara om en kartläggning har genomförts (vet inte går bra).";
   if (uploading) e.attachments = "Vänta tills filerna är uppladdade.";
   return e;

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER } from "@/api/invalidation";
 import {
-  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PriorAssessment, type TeamRole,
+  ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
   type GoalStatus, type OutcomeEventKind, type PlacementStatus, type ReportKind, type ReportStatus, type ResultClass, type TrafficLight,
 } from "@/data/schema";
@@ -237,8 +237,8 @@ export const activityRemove = command("arenden.activityRemove", z.object({ activ
 }).returns<Result<object, "not_found" | "forbidden" | "has_attendance" | "group_activity">>();
 
 /**
- * Ändra teamet (samordnare och avtalsansvarig): handledare, arbetsgivarmatchare och SYV/metodstöd läggs till eller tas
- * bort. Huvudcoachen byts med arenden.caseChangeCoach (orsak och notis till kommunen). Nya medlemmar får samma notis som
+ * Ändra teamet (samordnare och avtalsansvarig): arbetsgivarmatchare och SYV/metodstöd läggs till eller tas bort (teamvalet
+ * Handledare finns inte sedan 2026-10-09 – en befintlig yrkesspecifik handledare tas bort när teamet sparas). Huvudcoachen byts med arenden.caseChangeCoach (orsak och notis till kommunen). Nya medlemmar får samma notis som
  * vid accept (bara ärendenummer). Logg case.team_changed.
  */
 export const caseSetTeam = command("arenden.caseSetTeam", z.object({
@@ -247,6 +247,23 @@ export const caseSetTeam = command("arenden.caseSetTeam", z.object({
 }), { invalidates: [CASES, COACH, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<
   Result<{ added: number; removed: number }, "not_found" | "forbidden" | "wrong_status" | "team">
 >();
+
+// ---------------------------------------------------------------- Kontaktväg på deltagarkortet (coachmötet 2026-10-09)
+/** Rollerna som ändrar deltagarens kontaktväg (Miljonbemanning frågar deltagaren vid första mötet). */
+export const CONTACT_EDITORS = ["samordnare", "avtalsansvarig", "coach", "admin"] as const;
+/** Kontaktvägarna som väljs på deltagarkortet. Brev finns kvar för äldre ärenden men väljs inte här. */
+export const CARD_CONTACTS = ["sms", "phone", "email"] as const;
+/**
+ * Ändra deltagarens kontaktväg (SMS, telefon eller e-post), telefonnummer och e-postadress. Samma regler som Registrera
+ * beställning (contactErrors i src/core/contact.ts). Skriver persons via behörigheten (mm.person_write, 0032 – admin bara
+ * kontaktuppgifterna). Revisionslogg person.contact_changed med id:n och vilka fält som ändrades – aldrig värdena.
+ */
+export const caseSetContact = command("arenden.caseSetContact", z.object({
+  caseId: IdSchema,
+  preferredContact: z.enum(CARD_CONTACTS),
+  phone: z.string().trim().max(40),
+  email: z.string().trim().max(200),
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, ...LOG] }).returns<Result<{ changed: boolean }, "not_found" | "forbidden" | "phone" | "email">>();
 
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport
@@ -500,6 +517,11 @@ export type CaseCard = {
   contactLabel: string | null;
   /** Deltagaren saknar telefonnummer och e-postadress – kontaktvägen är bara förvalet (kallelsen når inte fram). */
   contactMissing: boolean;
+  /**
+   * Kontaktuppgifterna att ändra med Ändra kontaktväg (arenden.caseSetContact) – bara för samordnare, avtalsansvarig, coach
+   * och systemadministratör med full åtkomst, annars null. Kommunen anger inte längre kontaktvägen (beslut 2026-10-09).
+   */
+  contact: { preferredContact: PreferredContact; phone: string; email: string } | null;
   languageText: string;
   /** Deltagarens språk (för samtyckets språkval). */
   language: string;
@@ -549,8 +571,11 @@ export type CaseCard = {
   start: { firstMeetingAt: string; startDate: string; plan: WeekPlanRow[] } | null;
   /** Nuvarande veckoplan i ett pågående ärende (ur kommande tillfällen, annars avtalets standard) – för Ändra veckoplan. */
   weekPlan: WeekPlanRow[] | null;
-  /** Kandidater till teamet (bara samordnare och avtalsansvarig i ett öppet ärende): rollen handledare, och all MB-personal utom ekonom och admin. */
-  teamOptions: { supervisors: { id: string; name: string }[]; staff: { id: string; name: string }[] } | null;
+  /**
+   * Kandidater till teamet (bara samordnare och avtalsansvarig i ett öppet ärende): all MB-personal utom ekonom och admin.
+   * Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09).
+   */
+  teamOptions: { staff: { id: string; name: string }[] } | null;
 };
 export type CaseCardResult =
   | CaseCard
@@ -827,27 +852,4 @@ export const caseHistory = query("arenden.kortHistorik", CaseParams).returns<Cas
  */
 export const caseRevealPnr = command("arenden.visaPersonnummer", CaseParams, { invalidates: "none" }).returns<Result<{ pnr: string }, "not_found" | "forbidden" | "missing">>();
 
-// ---------------------------------------------------------------- Handledarens startsida (/handledare)
-export type SupervisorCase = {
-  id: string; caseNumber: string; status: CaseStatus; displayName: string; myRoleLabel: string; phase: number; phaseName: string; vocationalTrack: string;
-  /** Avtalsområdet (filtret i listan). */
-  areaCode: string | null;
-  areaName: string;
-  /** Kommande moment och praktikdagar (högst tre). */
-  upcoming: CaseActivity[];
-  /** Nästa moment eller praktikdag (sortering). */
-  nextAt: string | null;
-  placement: { employerName: string | null; startsOn: string; endsOn: string | null; fourRights: FourRights | null; contactName: string | null; phone: string | null } | null;
-  contacts: number;
-  lastContact: { occurredOn: string; label: string; actor: string } | null;
-};
-export type SupervisorStart = {
-  today: string;
-  groups: { pagaende: SupervisorCase[]; start: SupervisorCase[]; avslutade: SupervisorCase[] };
-  practiceDays: number;
-  vocationalMoments: number;
-  missingFour: { caseId: string; caseNumber: string; displayName: string; employerName: string | null; missing: string[] }[];
-  /** Kommande sju dagar: moment och praktikdagar i pågående ärenden. */
-  upcoming: (CaseActivity & { caseId: string; caseNumber: string; displayName: string })[];
-};
-export const supervisorStart = query("arenden.handledare", z.object({})).returns<SupervisorStart>();
+// Handledarens startsida (/handledare, arenden.handledare) är borttagen med rollen handledare (Karims beslut 2026-10-09).

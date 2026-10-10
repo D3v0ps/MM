@@ -1,7 +1,7 @@
 // Navigering per roll med sökvägar (rutt-tabellen i docs/ARKITEKTUR.md). MB-personalen (beslut 2026-10-06): Notiser överst,
 // den gemensamma gruppen "Min vardag" (COMMON_NAV) och en rollflik (ROLE_TAB). Kommunportalen: KOM_NAV (PORTAL_NAV).
 // Räknarna kommer från frågan navCounts (src/features/session/nav-api.ts).
-import { isSupplierRole, SUPPLIER_ROLES, type CustomerRole, type Role, type SupplierRole } from "@/api/roles";
+import { isDormantRole, isSupplierRole, STAFF_ROLES, type CustomerRole, type Role, type SupplierRole } from "@/api/roles";
 import { isTesterHiddenPath, roleHiddenFromTesters } from "@/api/tester-access";
 import type { NavCounts } from "@/features/session/nav-api";
 import { MONTHS, addMonths, monthKey, type LocalDateTime } from "@/core/time";
@@ -52,24 +52,21 @@ const fakturakorning = ({ now }: NavContext): NavItem | null => {
  * visar aldrig något som rollen inte når. Behörigheterna ändras inte här.
  */
 export const COMMON_NAV: { roles: readonly SupplierRole[]; item: (role: SupplierRole) => NavItem }[] = [
-  { roles: SUPPLIER_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar" }) },
+  { roles: STAFF_ROLES, item: () => ({ to: "/min-vecka", label: "Min vecka", icon: "calendar" }) },
   // Räknaren (oregistrerade tillfällen) gäller coachens egna ärenden.
-  { roles: ["coach", "handledare"], item: (r) => ({ to: "/narvaro", label: "Närvaro", icon: "check-square", ...(r === "coach" ? { count: "unregistered" as const } : {}) }) },
+  { roles: ["coach"], item: () => ({ to: "/narvaro", label: "Närvaro", icon: "check-square", count: "unregistered" }) },
   // Gruppaktiviteterna (coachmötet 2026-10-09): alla på Miljonbemanning utom ekonomen ("alla ser alla").
-  { roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"], item: () => ({ to: "/aktiviteter", label: "Aktiviteter", icon: "users" }) },
-  // Coachen: sina ärenden. Handledaren: listan över tilldelade ärenden (/handledare) – inte två ärendelistor i menyn.
-  {
-    roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"],
-    item: (r) => (r === "coach" ? { ...ARENDEN, label: "Mina ärenden" } : r === "handledare" ? { to: "/handledare", label: "Mina tilldelade ärenden", icon: "list" } : ARENDEN),
-  },
+  { roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], item: () => ({ to: "/aktiviteter", label: "Aktiviteter", icon: "users" }) },
+  // Coachen: sina ärenden (alla ärenden i avtalet finns i listan).
+  { roles: ["samordnare", "avtalsansvarig", "coach", "chef", "admin"], item: (r) => (r === "coach" ? { ...ARENDEN, label: "Mina ärenden" } : ARENDEN) },
   // Massanteckningar (coachmötet 2026-10-09): en rad per deltagare i en grupp, nivå eller tagg. Samma roller som rutten.
-  { roles: ["samordnare", "avtalsansvarig", "coach", "handledare"], item: () => ANTECKNINGAR },
+  { roles: ["samordnare", "avtalsansvarig", "coach"], item: () => ANTECKNINGAR },
   { roles: ["samordnare", "avtalsansvarig", "coach", "chef"], item: () => RAPPORTER },
-  { roles: ["samordnare", "avtalsansvarig", "coach", "handledare"], item: () => PRAKTIK },
+  { roles: ["samordnare", "avtalsansvarig", "coach"], item: () => PRAKTIK },
 ];
 export const COMMON_GROUP_LABEL = "Min vardag";
 
-/** En rollflik per roll (beslut 2026-10-06). Coach och handledare har ingen. */
+/** En rollflik per roll (beslut 2026-10-06). Coachen har ingen. */
 const ROLE_TAB: Partial<Record<SupplierRole, NavGroupDef>> = {
   samordnare: { label: "Samordning", items: [INKORG, FORFALLER, BYGG] },
   avtalsansvarig: { label: "Avtalet", items: [INKORG, FORFALLER, AVVIKELSER, { to: "/admin/anvandare", label: "Kommunanvändare", icon: "users" }, BYGG] },
@@ -98,7 +95,8 @@ export const NOTIFICATIONS_ITEM: NavItem = { to: "/notiser", label: "Notiser", i
  * menyn tom, som förut.
  */
 export function navFor(role: Role, ctx: NavContext): NavGroup[] {
-  if (!isSupplierRole(role)) return [];
+  // Rollen handledare är vilande (Karims beslut 2026-10-09): ingen meny.
+  if (!isSupplierRole(role) || isDormantRole(role)) return [];
   if (ctx.hidesCommercial && roleHiddenFromTesters(role)) return [];
   const common: NavGroupDef = { label: COMMON_GROUP_LABEL, items: COMMON_NAV.filter((c) => c.roles.includes(role)).map((c) => c.item(role)) };
   const tab = ROLE_TAB[role];

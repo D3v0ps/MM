@@ -8,7 +8,6 @@ type Who = { userId: string; role: string };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
 const JOHAN: Who = { userId: "u-johan", role: "avtalsansvarig" };
 const AMIRA: Who = { userId: "u-amira", role: "coach" };
-const PETRA: Who = { userId: "u-petra", role: "handledare" };
 const KARIN: Who = { userId: "u-karin", role: "chef" };
 const LARS: Who = { userId: "u-lars", role: "ekonom" };
 const ROBIN: Who = { userId: "u-robin", role: "admin" };
@@ -39,7 +38,6 @@ const ROLES: [Who, string[], string, string[]][] = [
   [SARA, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Flaggor (11)", ["Min vardag", "Samordning"]],
   [JOHAN, ["Att hantera i inkorgen", "Första möten ej bokade", "Förfaller i dag", "Flaggor att kvittera"], "Avtalet: avvikelser och frågor", ["Min vardag", "Avtalet"]],
   [AMIRA, ["Närvaro att registrera", "Aktiviteter i dag", "Mötesrapporter att granska", "Månads­bedömningar januari"], "Påminnelser", ["Min vardag"]],
-  [PETRA, ["Närvaro att registrera", "Tillfällen i dag", "Yrkesmoment den här veckan", "Praktik som saknar något av de fyra rätten"], "Kommande sju dagar", ["Min vardag"]],
   [KARIN, ["Flaggor att hantera", "Förfaller i dag", "Resultatgrad, rullande 6 mån", "Rapporter försenade"], "Tidig uppmärksamhet", ["Min vardag", "Ledning"]],
   [LARS, ["Januari att fakturera", "Stoppade fakturor", "Preskriptionsrisk", "Senast i Fortnox"], "Uppgifter till dig", ["Min vardag", "Ekonomi"]],
   [ROBIN, ["Bakgrundsjobb", "Utskick som inte gick iväg", "Användare", "Avrop@ senast läst"], "Bakgrundsjobb", ["Min vardag", "Administratör"]],
@@ -72,7 +70,7 @@ test("Min vecka för varje MB-roll: rubrik, fyra rutor, rollens avsnitt och meny
 
 test("ordmärket leder till Min vecka för alla MB-roller", async ({ page }, info) => {
   const errors = await open(page, info, "/notiser", KARIN);
-  for (const who of [KARIN, LARS, ROBIN, PETRA]) {
+  for (const who of [KARIN, LARS, ROBIN, AMIRA]) {
     await switchTo(page, info, "/notiser", who);
     await page.getByRole("link", { name: /till startsidan/ }).first().click();
     await expect.poll(() => here(page, info), who.role).toBe("/min-vecka");
@@ -93,10 +91,9 @@ test("/start leder vidare till Min vecka – valen i adressen följer med", asyn
   expect(errors).toEqual([]);
 });
 
-test("de gamla startsidorna finns kvar under rollens flik", async ({ page }, info) => {
-  const errors = await open(page, info, "/handledare", PETRA);
-  await expect(main(page).getByRole("heading", { level: 1, name: "Mina tilldelade ärenden" })).toBeVisible();
-  await expect(main(page)).toContainText("Pågående (26)");
+test("de gamla startsidorna finns kvar under rollens flik – handledarens lista är borttagen med rollen (beslut 2026-10-09)", async ({ page }, info) => {
+  const errors = await open(page, info, "/handledare", AMIRA);
+  await expect(main(page)).toContainText("Sidan finns inte");
   for (const [who, to, title, item] of [
     [KARIN, "/ledning", "Ledningsvy", "Ledningsvy"],
     [LARS, "/ekonomi", "Fakturering", "Fakturering"],
@@ -116,9 +113,6 @@ test("Min vecka leder vidare: rutorna, rubrikerna och knappen i sidhuvudet", asy
   await switchTo(page, info, "/min-vecka", LARS);
   await main(page).getByRole("link", { name: "Öppna körningen januari" }).click();
   await expect.poll(() => here(page, info)).toBe("/ekonomi/2027-01");
-  await switchTo(page, info, "/min-vecka", PETRA);
-  await main(page).getByRole("link", { name: /Öppna listan/ }).click();
-  await expect.poll(() => here(page, info)).toBe("/handledare");
   await switchTo(page, info, "/min-vecka", SARA);
   // Rutan "Första möten ej bokade" leder till avsnittet på sidan (fokus på rubriken).
   await main(page).getByRole("button", { name: /Första möten ej bokade/ }).click();

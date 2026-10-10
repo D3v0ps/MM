@@ -137,10 +137,13 @@ describe("användare och roller", () => {
     // Kommunens chef (Eva Bergström, enheten Arbetsmarknadsenheten) är borttagen (beslut 2026-10-07): 4 användare i 3 enheter.
     expect(d.kpis).toEqual({ mbActive: 13, customerActive: 4, unitCount: 3, loggedIn30: 1, invited: 0 });
     expect(d.mb?.map((u) => u.name)).toEqual([
-      "Robin Åberg", "Johan Berg", "Sara Lindqvist", "Amira Haddad", "Erik Sjöberg", "Leila Nouri", "Mats Holm", "Sofia Grahn", "David Olsson", "Hanna Strand", "Petra Ek",
-      "Karin Wallin", "Lars Nyström",
+      "Robin Åberg", "Johan Berg", "Sara Lindqvist", "Amira Haddad", "David Olsson", "Erik Sjöberg", "Hanna Strand", "Leila Nouri", "Mats Holm", "Petra Ek",
+      "Sofia Grahn", "Karin Wallin", "Lars Nyström",
     ]);
-    expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roleLabel: "Handledare", teamRoleLabel: "Yrkesspecifik handledare" });
+    // Rollen handledare är borttagen (Karims beslut 2026-10-09): de tre som hade den är coacher; ingen rad visar rollen.
+    expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roles: ["coach"], roleLabel: "Huvudcoach", teamRoleLabel: null });
+    expect(d.mb?.find((u) => u.id === "u-david")).toMatchObject({ roles: ["coach"], teamRoleLabel: "Arbetsgivarmatchare" });
+    expect(JSON.stringify(d.mb)).not.toMatch(/handledare/i);
     // Bara handläggare – ingen rollkolumn och ingen beställarreferens i listan.
     expect(d.customers.map((u) => [u.name, u.unit, u.selfRegistered])).toEqual([
       ["Ahmed Yusuf", "Arbetsmarknadsenheten Tumba", false],
@@ -207,7 +210,7 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
   });
 
   it("lägg till kollega: namn, adress på personalens domän, unik adress, minst en roll – mejlet utan personuppgifter, loggen med roller och domän", async () => {
-    const base = { name: "Nour Testsson", email: "nour.testsson@miljonbemanning.se", roles: ["coach" as const, "handledare" as const], title: "Jobbcoach" };
+    const base = { name: "Nour Testsson", email: "nour.testsson@miljonbemanning.se", roles: ["coach" as const, "samordnare" as const], title: "Jobbcoach" };
     expect(await rt.command(adminInviteStaff, { ...base, name: "  " }, robin())).toMatchObject({ ok: false, error: "name" });
     expect(await rt.command(adminInviteStaff, { ...base, email: "nour" }, robin())).toMatchObject({ ok: false, error: "email" });
     expect(await rt.command(adminInviteStaff, { ...base, email: "nour.testsson@gmail.com" }, robin())).toMatchObject({ ok: false, error: "domain" });
@@ -215,6 +218,9 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
     // zod stoppar en tom rollista (min 1) och okända roller.
     await expect(rt.command(adminInviteStaff, { ...base, roles: [] }, robin())).rejects.toMatchObject({ status: 400 });
     await expect(rt.command(adminInviteStaff, { ...base, roles: ["kommun_handlaggare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    // Rollen handledare är vilande (Karims beslut 2026-10-09): ingen kan få den – zod nekar den som en okänd roll.
+    await expect(rt.command(adminInviteStaff, { ...base, roles: ["handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    await expect(rt.command(adminInviteStaff, { ...base, roles: ["coach", "handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
     // Bara systemadministratören.
     await forbidden(rt.command(adminInviteStaff, base, johan()));
     const n = rt.rows("profiles").length;
@@ -227,15 +233,15 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
       invitedAt: "2027-02-01T09:13", invitedBy: "u-robin",
     });
     expect(rt.rows("memberships").filter((m) => m.userId === id).map((m) => [m.id, m.role, m.contractId])).toEqual([
-      [`${id}:c-bot:coach`, "coach", "c-bot"], [`${id}:c-bot:handledare`, "handledare", "c-bot"],
+      [`${id}:c-bot:samordnare`, "samordnare", "c-bot"], [`${id}:c-bot:coach`, "coach", "c-bot"],
     ]);
     const mail = rt.rows("outbound_messages").find((m) => m.template === "inbjudan_personal");
     expect(mail).toMatchObject({ to: "nour.testsson@miljonbemanning.se", caseId: null });
     expect(mail?.body).not.toMatch(/Nour|Testsson|Jobbcoach/);
-    expect(rt.rows("audit_log").find((a) => a.action === "staff_user.added")).toMatchObject({ entity: "profile", entityId: id, contractId: "c-bot", details: { roles: ["coach", "handledare"], domain: "miljonbemanning.se" } });
+    expect(rt.rows("audit_log").find((a) => a.action === "staff_user.added")).toMatchObject({ entity: "profile", entityId: id, contractId: "c-bot", details: { roles: ["samordnare", "coach"], domain: "miljonbemanning.se" } });
     expect(JSON.stringify(rt.rows("audit_log").find((a) => a.action === "staff_user.added")!.details)).not.toMatch(/Nour|nour\./);
     const d = await rt.query(adminUsers, {}, robin());
-    expect(d.mb!.find((u) => u.id === id)).toMatchObject({ roles: ["coach", "handledare"], roleLabel: "Huvudcoach, Handledare", isAdmin: false, title: "Jobbcoach" });
+    expect(d.mb!.find((u) => u.id === id)).toMatchObject({ roles: ["samordnare", "coach"], roleLabel: "Samordnare, Huvudcoach", isAdmin: false, title: "Jobbcoach" });
     // Titeln är valfri.
     const r2 = await rt.command(adminInviteStaff, { name: "Ali Testsson", email: "ali.testsson@miljonbemanning.se", roles: ["ekonom"] }, robin());
     expect(r2.ok).toBe(true);
@@ -255,6 +261,11 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
     // Den inloggade kan inte ta bort sin egen adminroll – men lägga till en.
     expect(await rt.command(adminSetStaffRoles, { userId: "u-robin", roles: ["chef"] }, robin())).toMatchObject({ ok: false, error: "self" });
     expect(await rt.command(adminSetStaffRoles, { userId: "u-robin", roles: ["chef", "admin"] }, robin())).toEqual({ ok: true, changed: true });
+    // Rollen handledare kan ingen få (vilande, beslut 2026-10-09) – zod nekar den och inget ändras.
+    const before = rt.rows("memberships").filter((m) => m.userId === "u-amira").map((m) => m.role);
+    await expect(rt.command(adminSetStaffRoles, { userId: "u-amira", roles: ["handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    await expect(rt.command(adminSetStaffRoles, { userId: "u-amira", roles: ["coach", "handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    expect(rt.rows("memberships").filter((m) => m.userId === "u-amira").map((m) => m.role)).toEqual(before);
     // Kommunens användare och okända id:n nås inte här.
     expect(await rt.command(adminSetStaffRoles, { userId: "k-maria", roles: ["coach"] }, robin())).toMatchObject({ ok: false, error: "not_found" });
     await forbidden(rt.command(adminSetStaffRoles, { userId: "u-amira", roles: ["coach"] }, karin()));

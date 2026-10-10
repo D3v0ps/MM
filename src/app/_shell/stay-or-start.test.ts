@@ -11,12 +11,12 @@ describe("stayOrStart", () => {
 
   it("går till startsidan när den nya rollen inte får se sidan", () => {
     expect(stayOrStart("/inkorg", "coach")).toBe("/");
-    expect(stayOrStart("/ledning", "handledare")).toBe("/");
+    expect(stayOrStart("/ledning", "coach")).toBe("/");
   });
 
   it("går till startsidan från en sida för en enskild post – den nya personen har kanske inte åtkomst till just den", () => {
     // Deltagarkortet loggar annars en nekad visning (case.view_denied) för den nya personen.
-    expect(stayOrStart("/arenden/case-260145", "handledare")).toBe("/");
+    expect(stayOrStart("/arenden/case-260145", "coach")).toBe("/");
     expect(stayOrStart("/arenden/case-260143?flik=tidslinje", "samordnare")).toBe("/");
     expect(stayOrStart("/avstamning/case-260143", "coach")).toBe("/");
     expect(stayOrStart("/rapporter/rep-16107", "chef")).toBe("/");
@@ -31,14 +31,16 @@ describe("stayOrStart", () => {
   });
 
   it("Min vecka: alla MB-roller stannar; /start stannar för alla MB-roller och leder sedan vidare (beslut 2026-10-06, alla roller sedan 2026-10-08)", () => {
-    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "handledare", "chef", "ekonom"] as const) {
+    for (const role of ["admin", "avtalsansvarig", "samordnare", "coach", "chef", "ekonom"] as const) {
       expect(stayOrStart("/min-vecka", role), role).toBe("/min-vecka");
       expect(stayOrStart("/start", role), role).toBe("/start");
     }
+    // Rollen handledare är vilande (beslut 2026-10-09) och når inga sidor; handledarens lista /handledare finns inte.
+    expect(stayOrStart("/min-vecka", "handledare")).toBe("/");
+    expect(stayOrStart("/handledare", "coach")).toBe("/");
     expect(stayOrStart("/min-vecka", "kommun_handlaggare")).toBe("/");
     expect(stayOrStart("/start", "kommun_handlaggare")).toBe("/");
     // De gamla startsidorna finns kvar under rollens flik.
-    expect(stayOrStart("/handledare", "handledare")).toBe("/handledare");
     expect(stayOrStart("/ledning", "chef")).toBe("/ledning");
     expect(stayOrStart("/ekonomi", "ekonom")).toBe("/ekonomi");
     expect(stayOrStart("/admin/anvandare", "admin")).toBe("/admin/anvandare");

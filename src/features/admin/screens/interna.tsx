@@ -108,7 +108,7 @@ function RulesForm({ d }: { d: OrgRulesView }) {
                 <span className="text-text-muted">– låst</span>
               </div>
               <div className="text-small leading-[1.45] text-text-muted">
-                Styrs av behörigheten, inte av en inställning. En eskalering kan bara läsas av sina mottagare – aldrig av coachen eller handledaren. Coachen ser sina egna påminnelser.
+                Styrs av behörigheten, inte av en inställning. En eskalering kan bara läsas av sina mottagare – aldrig av coachen. Coachen ser sina egna påminnelser.
               </div>
             </div>
           </Stack>

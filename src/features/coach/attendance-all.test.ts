@@ -3,6 +3,7 @@
 // fakturaunderlaget och veckorapporterna blir identiska med sex enskilda registreringar. Körs genom samma execute() som
 // appen och prototypen, mot testdatat i minnet.
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { billableWeeks } from "@/core/billing";
@@ -107,11 +108,11 @@ describe("coach.attendanceSetAll", () => {
     const before = rows("attendance").length;
     // a-11443: BOT-26-0120 (coach Erik), onsdag 27/1. Med spärren påslagen ser Petra bara ärendet – inte tillfällena.
     rt.store.updateRow("persons", rt.raw().get("cases", "case-260120")!.personId, { protectedIdentity: true });
-    const res = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [WED.nadia, "a-11443"] }, as("u-petra", "handledare"));
+    const res = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [WED.nadia, "a-11443"] }, dormantSupervisor());
     expect(res).toMatchObject({ ok: false, error: "not_found" });
     expect(rows("attendance").length).toBe(before);
     // Utan det skyddade går det bra – handledaren registrerar teamets tillfälle.
-    const ok = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [WED.nadia] }, as("u-petra", "handledare"));
+    const ok = await run(attendanceSetAll, { day: "2027-01-27", activityIds: [WED.nadia] }, dormantSupervisor());
     expect(ok).toMatchObject({ ok: true, marked: [WED.nadia] });
     expect(attFor(WED.nadia)).toMatchObject({ registeredBy: "u-petra", status: "present" });
   });

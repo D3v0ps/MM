@@ -15,6 +15,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
   "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.closed": "Avslutade ärende",
+  "person.contact_changed": "Ändrade kontaktväg",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
   "check_in.saved": "Sparade avstämning", "check_in.approved": "Godkände avstämning", "deviation.created": "Skapade avvikelse", "deviation.saved": "Sparade avvikelse", "deviation.customer_called": "Kallade kommunen till uppföljning",
@@ -113,7 +114,11 @@ const FIELD_WORD: Record<string, string> = {
   area: "avtalsområde", unit: "enhet", contactName: "kontaktperson", contactPhone: "telefon", contactEmail: "e-post", person: "deltagare",
   primaryAreaCode: "avtalsområde", secondaryAreaCode: "andra avtalsområde", referrerUnit: "beställarens enhet", events: "händelser", weeks: "veckor",
   endReason: "avslutsorsak", resultClass: "resultatklass", resultVerified: "verifiering", resultVerifiedAt: "verifieringsdatum", caseNumber: "ärendenummer",
+  // Ändra kontaktväg på deltagarkortet (person.contact_changed, coachmötet 2026-10-09): fälten hos personen.
+  preferredContact: "kontaktväg", phone: "telefon", email: "e-post", address: "adress",
 };
+/** Ett fältnamn i loggen som läsbar svenska ("preferredContact" → "kontaktväg"). Okända namn visas som de är. */
+export const fieldWord = (code: string): string => FIELD_WORD[code] ?? code;
 const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", since_start: "sedan avtalsstart", month: "per månad", rolling_3m: "rullande 3 månader" };
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },

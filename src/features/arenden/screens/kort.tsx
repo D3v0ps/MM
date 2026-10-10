@@ -24,6 +24,7 @@ import { TabAvstamningar, TabKartlaggning, TabNarvaro, TabOversikt } from "./kor
 import { TabManad } from "./kort-manad";
 import { TabTidslinje } from "./kort-tidslinje";
 import { TabAvvikelser, TabHandelser, TabPraktik } from "./kort-arbete";
+import { ContactModal } from "./kort-kontakt";
 import { ActivityModal, StartModal, TeamModal } from "./kort-start";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
@@ -44,11 +45,11 @@ export type TabProps = {
   openTab: (t: CaseTab, o?: { mal?: string | null; manad?: string | null }) => void;
   openModal: (m: ModalKind) => void;
 };
-type ModalKind = "coach" | "meeting" | "consent" | "start" | "plan" | "activity" | "team";
+type ModalKind = "coach" | "meeting" | "consent" | "start" | "plan" | "activity" | "team" | "contact";
 
 function useCrumbs() {
   const role = useSession().actor.role;
-  return [role === "handledare" ? { label: "Mina tilldelade ärenden", to: "/handledare" } : { label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
+  return [{ label: role === "coach" ? "Mina ärenden" : "Ärenden", to: "/arenden" }];
 }
 
 export function DeltagarkortScreen({ params, query }: ScreenProps) {
@@ -243,8 +244,9 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
       actions={!team && <CustSwitch card={card} tab={tab === "rapporter" || tab === "meddelanden" ? tab : null} label={(who) => `Se ärendet som ${who}`} />}
     >
       {card.readOnly && (
+        // Systemadministratören är i läsläge men får ändra deltagarens kontaktväg (card.contact, 0032) – texten säger det.
         <Notice tone="info" icon="eye" title="Läsläge">
-          Du kan inte ändra något i ärendet. Visningen loggas.
+          {card.contact ? "Du kan bara ändra deltagarens kontaktväg. Visningen loggas." : "Du kan inte ändra något i ärendet. Visningen loggas."}
         </Notice>
       )}
       {team && (
@@ -315,6 +317,7 @@ function CaseView({ card, crumbs, flik, manad, mal, visa, starta }: { card: Case
         <ActivityModal cases={[{ caseId: card.caseId, caseNumber: card.caseNumber, name: card.displayName, location: card.location }]} now={card.now} onClose={() => setModal(null)} />
       )}
       {modal === "team" && <TeamModal card={card} onClose={() => setModal(null)} />}
+      {modal === "contact" && card.contact && <ContactModal card={card} onClose={() => setModal(null)} />}
     </Page>
   );
 }
@@ -392,14 +395,14 @@ function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
         {!all && <span className="text-small text-text-muted max-[620px]:hidden">Insatsen, deltagaren, kommunen och teamet</span>}
       </div>
       <div id="arende-uppgifter" hidden={!all}>
-        <CaseFacts card={c} onRegister={() => openModal("consent")} />
+        <CaseFacts card={c} onRegister={() => openModal("consent")} onEditContact={() => openModal("contact")} />
       </div>
     </div>
   );
 }
 
 /** Alla uppgifter i huvudet: insatsen, deltagaren, kommunen och teamet – och vad kommunen ser. */
-function CaseFacts({ card: c, onRegister }: { card: CaseCard; onRegister: () => void }) {
+function CaseFacts({ card: c, onRegister, onEditContact }: { card: CaseCard; onRegister: () => void; onEditContact: () => void }) {
   const reveal = useCommand(caseRevealPnr);
   const team = c.access === "team";
   const insats: ([string, ReactNode] | null)[] = [
@@ -449,7 +452,18 @@ function CaseFacts({ card: c, onRegister }: { card: CaseCard; onRegister: () => 
         }
       />,
     ],
-    ["Kontaktväg", c.contactText],
+    [
+      "Kontaktväg",
+      // Kommunen anger inte längre kontaktvägen (beslut 2026-10-09) – Miljonbemanning frågar vid första mötet och ändrar här.
+      c.contact ? (
+        <span key="kontakt" className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span>{c.contactText}</span>
+          <Button kind="ghost" icon="edit" ariaLabel="Ändra kontaktväg" onClick={onEditContact}>Ändra</Button>
+        </span>
+      ) : (
+        c.contactText
+      ),
+    ],
     ["Språk", c.languageText],
     ["Anpassning", c.accessibilityNeeds],
   ];

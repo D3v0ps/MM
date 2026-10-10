@@ -81,8 +81,9 @@ test("notiser: chefen ser eskaleringarna med coach och orsak per vecka", async (
   expect(relevant(errors)).toEqual([]);
 });
 
-test("notiser: handledaren får inga eskaleringar och kommunen har ingen åtkomst", async ({ page }, info) => {
-  const errors = await open(page, info, "/notiser", { userId: "u-petra", role: "handledare" });
+// Rollen handledare är borttagen (Karims beslut 2026-10-09): Petra är coach utan egna ärenden.
+test("notiser: en coach (Petra) får inga eskaleringar och kommunen har ingen åtkomst", async ({ page }, info) => {
+  const errors = await open(page, info, "/notiser", { userId: "u-petra", role: "coach" });
   await expect(main(page).getByRole("heading", { name: /notiser/i })).toBeVisible();
   await expect(main(page).getByRole("button", { name: /^Alla \(\d+\)$/ })).toBeVisible();
   const t = await main(page).innerText();

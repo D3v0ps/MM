@@ -1,4 +1,4 @@
-// Tester för områdets frågor och kommandot "visa personnummer" (ärendelistan, deltagarkortet, handledarens start) mot
+// Tester för områdets frågor och kommandot "visa personnummer" (ärendelistan och deltagarkortet) mot
 // testdatat i minnet. Förväntade värden är den gamla prototypens (prototyp/src/views/arenden.js och MM.sel på samma testdata).
 // Beslut 2026-10-07: skyddade personuppgifter är borttagna ur appen – ärendet case-260120 (Omars beställning) är ett vanligt
 // ärende. Den vilande spärren prövas genom att slå på den (protect()): ärendet visas då inte alls för den utan full åtkomst.
@@ -14,7 +14,7 @@ import type { Tables } from "@/data/schema";
 import { auditView } from "@/features/session/api";
 import {
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseOverview, casePlacements,
-  caseMonthBasis, caseReports, caseRevealPnr, caseTimeline, messageRead, supervisorStart, type CaseCard,
+  caseMonthBasis, caseReports, caseRevealPnr, caseTimeline, messageRead, type CaseCard,
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -33,7 +33,12 @@ const cmd = (key: string, input: unknown, actor: Actor) => rt.run("command", key
 const sara = () => as("u-sara", "samordnare");
 const johan = () => as("u-johan", "avtalsansvarig");
 const amira = () => as("u-amira", "coach");
-const petra = () => as("u-petra", "handledare");
+/**
+ * Rollen handledare är vilande (Karims beslut 2026-10-09): ingen har den – Petra är coach i testdatat. Aktören byggs här så
+ * att hanterarnas regler för rollen fortfarande prövas (de ska kunna slås på igen utan migration).
+ */
+const dormant = (userId: string): Actor => ({ userId, role: "handledare", contractIds: ["c-bot"], customerUnit: null });
+const petra = () => dormant("u-petra");
 const karin = () => as("u-karin", "chef");
 const robin = () => as("u-robin", "admin");
 const lars = () => as("u-lars", "ekonom");
@@ -57,10 +62,12 @@ describe("arenden.lista (arenden.lista)", () => {
     for (const [name, a] of [["samordnare", sara()], ["avtalsansvarig", johan()], ["coach", amira()], ["handledare", petra()], ["chef", karin()], ["admin", robin()]] as const) {
       counts[name] = (await q(caseList, {}, a)).rows.length;
     }
-    // Beslut 2026-10-09: coach och handledare ser alla ärenden i avtalet (29 respektive 63 före beslutet). Listan markerar de egna.
+    // Beslut 2026-10-09: coach och (den vilande rollen) handledare ser alla ärenden i avtalet (29 respektive 63 före beslutet).
+    // Listan markerar de egna – Petra har inga teamplatser sedan rollen handledare togs bort.
     expect(counts).toEqual({ samordnare: 231, avtalsansvarig: 231, coach: 231, handledare: 231, chef: 231, admin: 231 });
     expect((await q(caseList, {}, amira())).rows.filter((r) => r.mine)).toHaveLength(29);
-    expect((await q(caseList, {}, petra())).rows.filter((r) => r.mine)).toHaveLength(63);
+    expect((await q(caseList, {}, petra())).rows.filter((r) => r.mine)).toHaveLength(0);
+    expect((await q(caseList, {}, as("u-david", "coach"))).rows.filter((r) => r.mine).length).toBeGreaterThan(0);
   });
 
   it("samordnaren: alla ärenden med namn (inga skyddade i testdatat), åtta flaggade ärenden, tre med olästa meddelanden", async () => {
@@ -124,7 +131,8 @@ describe("arenden.kort (arende.kort)", () => {
       firstMeeting: { withinText: "inom en vecka från beställningen" }, keyPersonnelChangeRequiresApproval: true, customerSeesCoachNotes: false,
     });
     expect(c.pnr).toEqual({ masked: "••••••••-9545", canReveal: true, hidden: false });
-    expect(c.team.map((t) => `${t.name} (${t.roleLabel})`)).toEqual(["Petra Ek (Yrkesspecifik handledare)", "David Olsson (Arbetsgivarmatchare)"]);
+    // Teamvalet Handledare finns inte sedan 2026-10-09 – Petras plats som yrkesspecifik handledare är borttagen ur testdatat.
+    expect(c.team.map((t) => `${t.name} (${t.roleLabel})`)).toEqual(["David Olsson (Arbetsgivarmatchare)"]);
     expect(c.consent).toMatchObject({ value: "given", informedByName: "Amira Haddad", textVersion: "v1.0 (2026-10-01)", language: "lättläst svenska" });
     expect(JSON.stringify(c)).not.toContain("19730216");
   });
@@ -146,9 +154,9 @@ describe("arenden.kort (arende.kort)", () => {
     expect(j).not.toHaveProperty("protectedIdentity");
   });
 
-  it("handledaren: full åtkomst i hela avtalet (beslut 2026-10-09) – alla flikar, men ändrar inte ärendet; teamrollen visas", async () => {
+  it("den vilande rollen handledare: full åtkomst i hela avtalet (beslut 2026-10-09) – alla flikar, men ändrar inte ärendet", async () => {
     const c = await card(NADIA, petra());
-    expect(c).toMatchObject({ access: "full", edit: false, manage: false, readOnly: false, myTeamRoleLabel: "Yrkesspecifik handledare" });
+    expect(c).toMatchObject({ access: "full", edit: false, manage: false, readOnly: false, myTeamRoleLabel: null });
     expect(c.order).not.toBeNull();
     expect(c.consent).not.toBeNull();
     for (const def of [caseIntake, caseCheckIns, caseMonthBasis, caseDeviations, caseReports, caseMessages, caseHistory, caseOverview, caseTimeline, caseAttendance, casePlacements, caseEvents]) {
@@ -156,8 +164,8 @@ describe("arenden.kort (arende.kort)", () => {
     }
     const ov = (await q(caseOverview, { caseId: NADIA }, petra()))!;
     expect(ov.latest).not.toBeNull();
-    // En handledare utanför teamet ser också ärendet – utan teamroll.
-    expect(await card(NADIA, as("u-hanna", "handledare"))).toMatchObject({ access: "full", edit: false, myTeamRoleLabel: null });
+    // Arbetsgivarmatcharen i teamet (David, coach) ser sin teamroll.
+    expect(await card(NADIA, as("u-david", "coach"))).toMatchObject({ access: "full", myTeamRoleLabel: "Arbetsgivarmatchare" });
   });
 
   it("samordnaren: coacher att byta till med antal aktiva ärenden; första möte som inte är bokat", async () => {
@@ -258,7 +266,7 @@ describe("arenden.visaPersonnummer", () => {
     expect(JSON.stringify(log[0])).not.toContain("9545");
   });
 
-  it("handledaren och en annan coach ser numret (full åtkomst sedan 2026-10-09) – inte i ett skyddat ärende", async () => {
+  it("den vilande rollen handledare och en annan coach ser numret (full åtkomst sedan 2026-10-09) – inte i ett skyddat ärende", async () => {
     expect(await cmd(caseRevealPnr.key, { caseId: NADIA }, petra())).toMatchObject({ ok: true, pnr: "19730216-9545" });
     expect(await cmd(caseRevealPnr.key, { caseId: SKYDDAD }, amira())).toMatchObject({ ok: true });
     // Den vilande spärren: samordnaren, en annan coach och handledaren ser inte personen.
@@ -269,16 +277,10 @@ describe("arenden.visaPersonnummer", () => {
   });
 });
 
-describe("arenden.handledare (hand.start)", () => {
-  it("Petras tilldelade ärenden, veckans moment och praktik som saknar något av de fyra rätten", async () => {
-    const m = await q(supervisorStart, {}, petra());
-    expect([m.groups.pagaende.length, m.groups.start.length]).toEqual([26, 1]);
-    expect([m.practiceDays, m.vocationalMoments]).toEqual([11, 41]);
-    expect(m.missingFour).toEqual([{ caseId: NADIA, caseNumber: "BOT-26-0143", displayName: "Nadia Warsame", employerName: "Hallunda Lagerservice AB", missing: ["uppföljning"] }]);
-    expect(m.upcoming.every((a) => a.kind !== "möte")).toBe(true);
-    expect(m.groups.pagaende.find((c) => c.id === NADIA)?.myRoleLabel).toBe("Yrkesspecifik handledare");
-  });
-  it("bara handledare når sidan", async () => {
-    await expect(q(supervisorStart, {}, amira())).rejects.toBeInstanceOf(ApiError);
+describe("arenden.handledare (hand.start) – borttagen med rollen handledare (Karims beslut 2026-10-09)", () => {
+  it("frågan finns inte längre – inte för någon roll", async () => {
+    for (const a of [petra(), amira(), sara()]) {
+      await expect(rt.run("query", "arenden.handledare", {}, a)).rejects.toMatchObject({ status: 404, code: "unknown_key" });
+    }
   });
 });

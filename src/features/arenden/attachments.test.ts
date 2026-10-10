@@ -3,6 +3,7 @@
 // revisionsloggen utan filnamn och städningen (24 timmar för okopplade; bilagor i ett ärende gallras aldrig automatiskt, beslut 5
 // 2026-10-08 – Miljonbemanning tar bort dem för hand tidigast när ärendet är avslutat). Bara påhittade filer.
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, ResultOf } from "@/api/contract";
 import { execute } from "@/api/handlers";
 import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
@@ -54,21 +55,21 @@ const ORDER = {
 };
 
 describe("bilagor i beställningen", () => {
-  it("handläggaren laddar upp innan beställningen skickas – filen kopplas till ärendet och syns i bakgrunden", async () => {
+  it("handläggaren laddar upp innan beställningen skickas – filen kopplas till ärendet och syns i bakgrunden hos Miljonbemanning", async () => {
     const id = await upload(maria(), null);
     expect(rt.raw().get("case_attachments", id)).toMatchObject({ caseId: null, uploadedBy: "k-maria", status: "uploaded", mimeType: "application/pdf", storagePath: `c-bot/${id}.pdf` });
     const c = await run(caseCreate, { ...ORDER, attachmentIds: [id] }, maria());
     if (!c.ok) throw new Error(c.error);
     expect(rt.raw().get("case_attachments", id)).toMatchObject({ caseId: c.caseId, linkedAt: expect.any(String) });
-    const d = await q("kommun.deltagare", { caseId: c.caseId }, maria());
-    expect(d.background).toMatchObject({ orderPeriodText: "6 månader", priorAssessment: "yes", text: "Har arbetat i kök.", attachments: [{ id, fileName: FILE_NAME, sizeText: "1 kB", canRemove: false }] });
-    // Samordnaren ser bilagan i deltagarkortet men får ta bort den först när ärendet är avslutat (beslut 5, 2026-10-08).
+    // Kommunens handläggare ser inte bakgrundsinformationen på deltagarens sida i portalen (beslut 2026-10-09).
+    expect(await q("kommun.deltagare", { caseId: c.caseId }, maria())).not.toHaveProperty("background");
+    // Samordnaren ser bakgrunden och bilagan i deltagarkortet men får ta bort den först när ärendet är avslutat (beslut 5, 2026-10-08).
     const card = (await rt.run("query", caseCard.key, { caseId: c.caseId }, sara())) as CaseCard;
+    expect(card.background).toMatchObject({ orderPeriodText: "6 månader", priorAssessment: "yes", text: "Har arbetat i kök.", attachments: [{ id, fileName: FILE_NAME, sizeText: "1 kB" }] });
     expect(card.background?.attachments.map((a) => [a.id, a.canRemove])).toEqual([[id, false]]);
     rt.store.updateRow("cases", c.caseId, { status: "closed", endDate: "2027-02-01", closedAt: "2027-02-01T10:00" });
     const closedCard = (await rt.run("query", caseCard.key, { caseId: c.caseId }, sara())) as CaseCard;
     expect(closedCard.background?.attachments.map((a) => [a.id, a.canRemove])).toEqual([[id, true]]);
-    expect(await q("kommun.deltagare", { caseId: c.caseId }, maria())).toMatchObject({ background: { attachments: [{ id, canRemove: false }] } });
     // Revisionsloggen: id, typ och storlek – aldrig filnamnet.
     const logs = rt.raw().all("audit_log").filter((l) => l.action.startsWith("attachment."));
     expect(logs.map((l) => l.action)).toEqual(["attachment.upload_started", "attachment.uploaded", "attachment.linked"]);
@@ -114,7 +115,7 @@ describe("hämta och ta bort", () => {
       expect(await run(attachmentDownload, { attachmentId: id }, a), a.userId).toMatchObject({ ok: false, error: "not_found" });
     }
     // Handledare, ekonom, chef och admin: rollkontrollen.
-    for (const a of [as("u-petra", "handledare"), as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin")]) {
+    for (const a of [dormantSupervisor(), as("u-lars", "ekonom"), as("u-karin", "chef"), as("u-robin", "admin")]) {
       await expect(run(attachmentDownload, { attachmentId: id }, a), a.role).rejects.toBeInstanceOf(ApiError);
     }
     // Varje hämtning loggas (tyst kommando – klockan står still), utan filnamn.

@@ -29,7 +29,7 @@ Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver g
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
-- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**, handledaren **Mina tilldelade ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen och handledaren har också **Närvaro**. Samordnaren, avtalsansvarig, coachen och handledaren har också **Anteckningar**.
+- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen har också **Närvaro**. Samordnaren, avtalsansvarig och coachen har också **Anteckningar**.
 - Högst en rollflik, till exempel **Samordning**, **Ekonomi** eller **Ledning**.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
@@ -65,12 +65,13 @@ Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du v
 
 ## Huvudcoach
 
-Coachen har ingen egen rollflik. Allt finns under **Min vardag**.
+Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns under **Min vardag**.
 
 ### Starta insatsen
 
 1. Öppna ärendet från **Insatser att starta** på Min vecka, eller från **Mina ärenden**.
-2. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
+2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och välj SMS, telefon eller e-post. Kommunen anger inte kontaktvägen i beställningen.
+3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
 
 ### Mina ärenden och Alla ärenden
 
@@ -123,10 +124,6 @@ Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en grup
 4. Godkänn bedömningen. Månadsrapporten till kommunen byggs av den.
 
 Händelser och avslut registrerar du under **Registrera händelse** respektive **Avsluta insatsen**.
-
-## Handledare
-
-Handledaren ser **Mina tilldelade ärenden** och **Närvaro** under Min vardag. Du registrerar närvaro för dina tillfällen och följer deltagarnas praktik under **Arbetsgivare och praktik**.
 
 ## Arbetsgivarmatchare
 

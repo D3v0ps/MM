@@ -71,7 +71,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const defaultStatus: (typeof STATUS_VALUES)[number] = role === "coach" || role === "handledare" ? "open" : "alla";
   const status = pick(query, "status", STATUS_VALUES, defaultStatus);
   // Alla på Miljonbemanning ser alla ärenden i avtalet (beslut 2026-10-09). Coachen börjar i sina egna (huvudcoach eller i
-  // teamet), handledaren i alla – listan Mina tilldelade ärenden finns kvar på /handledare.
+  // teamet). Den vilande rollen handledare (beslut 2026-10-09) börjar i alla.
   const scopeable = role === "coach" || role === "handledare";
   const defaultScope: (typeof CASE_LIST_SCOPES)[number] = role === "coach" ? "mina" : "alla";
   const scope = scopeable ? pick(query, "vilka", CASE_LIST_SCOPES, defaultScope) : "alla";

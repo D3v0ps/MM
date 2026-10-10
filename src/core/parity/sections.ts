@@ -15,6 +15,8 @@ export type Facit = Record<string, unknown> & { meta: { now: string } };
 export type ParitySection = { name: string; actual: () => unknown; expected: unknown };
 
 const J = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
+/** De tre som hade rollen handledare i prototypen och är coacher i testdatat sedan 2026-10-09 (src/data/seed/decisions-2026-10-09-handledare.ts). */
+const FORMER_SUPERVISORS = ["u-petra", "u-david", "u-hanna"];
 const PERSONAS: [Role, string][] = [
   ["samordnare", "u-sara"], ["avtalsansvarig", "u-johan"], ["coach", "u-amira"], ["handledare", "u-petra"], ["chef", "u-karin"],
   ["ekonom", "u-lars"], ["admin", "u-robin"], ["kommun_handlaggare", "k-maria"],
@@ -138,7 +140,11 @@ export function paritySections(db: Db, env: DomainEnv, facit: Facit): ParitySect
     S("flaggor övriga coacher", f.alertsOtherCoaches, () => Object.fromEntries(coachIds.map((id) => [id, withoutHref(alerts(db, { role: "coach", personaId: id }, env))]))),
     S("deadlines 7 dagar", f.deadlines.days7, () => withoutHref(deadlines(db, {}, env))),
     S("deadlines 30 dagar", f.deadlines.days30, () => withoutHref(deadlines(db, { days: 30 }, env))),
-    S("deadlines inklusive klara", f.deadlines.includeMet, () => deadlines(db, { days: 7, includeMet: true }, env).map((x) => [x.id, x.dueAt, x.sla.tone, x.bucket])),
+    // Rollen handledare bort (beslut 2026-10-09): de tre som var handledare är coacher i testdatat och får en (klar) rad för
+    // närvaroregistreringen utan ärenden – prototypen hade dem inte bland coacherna. Raderna räknas bort före jämförelsen.
+    S("deadlines inklusive klara", f.deadlines.includeMet, () => deadlines(db, { days: 7, includeMet: true }, env)
+      .filter((x) => !FORMER_SUPERVISORS.some((id) => x.id === `reg:${id}`))
+      .map((x) => [x.id, x.dueAt, x.sla.tone, x.bucket])),
     S("deadlines per coach", f.deadlines.perCoach, () => Object.fromEntries(Object.keys(f.deadlines.perCoach as object).map((id) => [id, withoutHref(deadlines(db, { coachId: id }, env))]))),
     S("SLA-status", f.slaStatus, () => (f.slaStatus as unknown as { dueAt: string; metAt: string | null }[]).map((x) => ({ dueAt: x.dueAt, metAt: x.metAt, status: slaStatus(x.dueAt, x.metAt, env) }))),
     S("närvaro", f.attendance, () => ({

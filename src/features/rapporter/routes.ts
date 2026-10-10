@@ -15,7 +15,7 @@ const BUILDERS: readonly Role[] = ["samordnare", "avtalsansvarig", "chef"];
 export const routes: RouteDef[] = [
   { path: "/rapporter", title: "Rapporter", roles: ["samordnare", "avtalsansvarig", "coach", "chef"], area: "mb", screen: RapporterListaScreen },
   // Titeln är "Rapport" – rubriken med period (t.ex. "Månadsrapport januari 2027") står på sidan (URL:en innehåller bara id:t).
-  { path: "/rapporter/:reportId", title: "Rapport", roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef"], area: "mb", screen: RapportVisaScreen },
+  { path: "/rapporter/:reportId", title: "Rapport", roles: ["samordnare", "avtalsansvarig", "coach", "chef"], area: "mb", screen: RapportVisaScreen },
   { path: "/rapportbyggare", title: "Rapportbyggare", roles: BUILDERS, area: "mb", screen: ByggListaScreen },
   { path: "/rapportbyggare/ny", title: "Ny rapport", roles: BUILDERS, area: "mb", screen: ByggScreen },
   { path: "/rapportbyggare/resultatfil", title: "Resultatfil för hela avtalet", roles: BUILDERS, area: "mb", screen: ResultatfilMbScreen },

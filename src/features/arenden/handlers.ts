@@ -34,13 +34,14 @@ import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FourRights, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, Contract, Db, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
 import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
+import { fieldWord } from "../admin/audit-text";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
@@ -49,6 +50,7 @@ import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../r
 import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import "./attachment-handlers";
+import "./contact-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
@@ -56,10 +58,10 @@ import {
   caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
-  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, supervisorStart, TEAM_TABS,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, CONTACT_EDITORS, TEAM_TABS,
   type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
   type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseMessageRow, type CaseOverview, type CasePlacements, type CaseReportRow,
-  type CaseTab, type SupervisorCase, type SupervisorStart, type TimelineText,
+  type CaseTab, type TimelineText,
 } from "./api";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -187,7 +189,8 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   const team: { userId: string; role: TeamRole }[] = [{ userId: p.leadCoachId, role: "lead_coach" }];
   for (const t of p.team ?? []) {
     if (team.some((x) => x.userId === t.userId)) continue;
-    // Teamrollerna bygger på medlemskapens roller (beslut 2026-10-08): handledare, eller all MB-personal utom ekonom och admin.
+    // Teamrollerna bygger på medlemskapens roller (beslut 2026-10-08): all MB-personal utom ekonom och admin. Yrkesspecifik
+    // handledare kan ingen få (rollen handledare borttagen, beslut 2026-10-09).
     if (t.role === "lead_coach" || !(await canHaveTeamRole(ctx, t.userId, c.contractId, t.role))) return fail("team", "Välj teammedlemmar bland Miljonbemannings personal i avtalet.");
     team.push({ userId: t.userId, role: t.role });
   }
@@ -670,7 +673,6 @@ const HIDE_FOR_TEAM: readonly AlertKind[] = ["no_progress_escalated", "pulse_low
 const SEV_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
 /** Händelser som räknas som arbetsgivarkontakter (prototypens CONTACT_KINDS). */
 const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
-const FOUR_LABEL: [keyof FourRights, string][] = [["uppgift", "Arbetsuppgifter"], ["handledning", "Handledning"], ["timing", "Tidpunkt"], ["uppfoljning", "Uppföljning"]];
 /** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
 const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view", "group_activity.view"];
 
@@ -682,9 +684,6 @@ const fd = (s: string | null | undefined, today: string) => (!s ? "–" : String
 const summary = (s: AttendanceStats): AttendanceSummary => ({
   planned: s.planned, present: s.present, late: s.late, absentValid: s.absentValid, absentInvalid: s.absentInvalid, unregistered: s.unregistered, rate: s.rate,
 });
-/** Namnet för rollen (displayName). Den vilande nivån restricted ger "–" – den visas aldrig i gränssnittet. */
-const nameFor = (c: Case, person: Pick<Person, "firstName" | "lastName"> | null | undefined, access: ReturnType<typeof caseAccessIn>) =>
-  access === "restricted" ? "–" : displayName(c, person, access);
 const activityView = (a: Activity) => ({ id: a.id, kind: a.kind, startsAt: a.startsAt, location: a.location });
 /** De fyra senaste hela ISO-veckorna (prototypens last4Weeks). */
 function last4Weeks(today: string) {
@@ -995,6 +994,10 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     contactText: person ? participantContactLabel(person) : contactLabel(""),
     contactLabel: !person ? null : contactLabel(person.preferredContact),
     contactMissing: !!person && !hasContactDetails(person),
+    // Ändra kontaktväg (coachmötet 2026-10-09): samordnare, avtalsansvarig, coach och admin med full åtkomst.
+    contact: person && access === "full" && (CONTACT_EDITORS as readonly string[]).includes(role)
+      ? { preferredContact: person.preferredContact, phone: person.phone, email: person.email }
+      : null,
     languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
     language: person?.language ?? "",
     accessibilityNeeds: person?.accessibilityNeeds || "Inga behov angivna",
@@ -1051,7 +1054,7 @@ function currentWeekPlan(acts: readonly Activity[], today: string, cfg: Operatio
 async function teamOptionsFor(ctx: Ctx, c: Case): Promise<CaseCard["teamOptions"]> {
   const cand = await teamCandidates(ctx, c.contractId);
   const notLead = (u: { id: string }) => u.id !== c.leadCoachId;
-  return { supervisors: cand.supervisors.filter(notLead), staff: cand.staff.filter(notLead) };
+  return { staff: cand.staff.filter(notLead) };
 }
 
 const pickSla = (s: { label: string; tone: SlaTone }) => ({ label: s.label, tone: s.tone });
@@ -1486,6 +1489,7 @@ const AUDIT_TEXT: Record<string, string> = {
   "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
   "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
   "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
+  "person.contact_changed": "Kontaktvägen ändrades",
   "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
@@ -1551,7 +1555,8 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     if (dt.status && x.entity === "attendance") return attLabel(s(dt.status));
     if (dt.at) return fmtDateTimeLong(s(dt.at));
     if (dt.kind) return reportKindLabel(s(dt.kind)) !== dt.kind ? reportKindLabel(s(dt.kind)) : eventLabel(s(dt.kind));
-    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.join(", ")}`;
+    // Fältnamnen på svenska med revisionsloggens ordlista (t.ex. person.contact_changed: "Fält: kontaktväg, e-post").
+    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.map((f) => fieldWord(String(f))).join(", ")}`;
     return "";
   };
   return {
@@ -1612,60 +1617,3 @@ handleCommand(caseRevealPnr, { roles: CASE_ROLES, silent: true }, async (ctx, p)
   return ok({ pnr });
 });
 
-// ---------------------------------------------------------------- arenden.handledare (hand.start)
-handleQuery(supervisorStart, { roles: ["handledare"] }, async (ctx): Promise<SupervisorStart> => {
-  const me = ctx.actor.userId;
-  const now = ctx.now();
-  const today = dayOf(now);
-  const db = await loadDb(ctx.repo, ["cases", "case_team", "persons", "activities", "placements", "employers", "outcome_events", "contract_areas"]);
-  const src = await accessSourceFor(ctx, db.cases);
-  const persons = byId(db.persons);
-  const emp = byId(db.employers);
-  const teamOf = groupedBy(db.case_team, "caseId", (t) => t.caseId);
-  const mine = db.cases.filter((c) => (teamOf.get(c.id) ?? []).some((t) => t.userId === me));
-  const name = (c: Case) => nameFor(c, persons.get(c.personId), caseAccessIn(c, ctx.actor, src));
-  const envs = new Map<string, OperationalConfig>();
-  for (const id of new Set(mine.map((c) => c.contractId))) envs.set(id, (await contractOf(ctx, id)).cfg);
-  const pagaende = mine.filter((c) => c.status === "active" || c.status === "paused");
-  const start = mine.filter((c) => c.status === "received" || c.status === "acknowledged" || c.status === "confirmed");
-  const avslutade = mine.filter((c) => c.status === "closed");
-  const card = (c: Case): SupervisorCase => {
-    const myRole = (teamOf.get(c.id) ?? []).find((t) => t.userId === me)?.role ?? "";
-    const acts = activitiesOf(db, c.id).filter((a) => a.startsAt >= now && a.kind !== "möte");
-    const pls = placementsOf(db, c.id);
-    const pl = pls.find((x) => x.status === "ongoing") ?? pls.find((x) => x.status === "planned") ?? null;
-    const e = pl ? emp.get(pl.employerId) : undefined;
-    const contacts = eventsOf(db, c.id).filter((x) => CONTACT_KINDS.includes(x.kind));
-    const cfg = envs.get(c.contractId);
-    return {
-      id: c.id, caseNumber: c.caseNumber, status: c.status, displayName: name(c), myRoleLabel: teamLabel(myRole), phase: c.phase, phaseName: cfg ? phaseName(cfg, c.phase) : "",
-      areaCode: c.primaryAreaCode ?? null, areaName: areaName(db.contract_areas.filter((a) => a.contractId === c.contractId), c.primaryAreaCode),
-      vocationalTrack: c.vocationalTrack, upcoming: acts.slice(0, 3).map(activityView), nextAt: acts[0]?.startsAt ?? null,
-      placement: pl ? { employerName: e?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, fourRights: pl.fourRights ?? null, contactName: e?.contactName ?? null, phone: e?.phone ?? null } : null,
-      contacts: contacts.length,
-      lastContact: contacts[0] ? { occurredOn: contacts[0].occurredOn, label: eventLabel(contacts[0].kind), actor: contacts[0].actor } : null,
-    };
-  };
-  const mon = monday(today);
-  const sun = addDays(mon, 6);
-  const weekActs = pagaende.flatMap((c) => activitiesOf(db, c.id).filter((a) => a.startsAt >= mon && a.startsAt <= `${sun}T23:59`));
-  const missingFour = pagaende.filter((c) => placementsOf(db, c.id).some((x) => x.status === "ongoing" && x.fourRights && Object.values(x.fourRights).some((v) => !v)));
-  const limit = `${addDays(today, 6)}T23:59`;
-  return {
-    today,
-    groups: { pagaende: pagaende.map(card), start: start.map(card), avslutade: avslutade.map(card) },
-    practiceDays: weekActs.filter((a) => a.kind === "praktikdag").length,
-    vocationalMoments: weekActs.filter((a) => a.kind === "yrkesmoment").length,
-    missingFour: missingFour.map((c) => {
-      const pl = placementsOf(db, c.id).find((x) => x.status === "ongoing");
-      const e = pl ? emp.get(pl.employerId) : undefined;
-      return {
-        caseId: c.id, caseNumber: c.caseNumber, displayName: name(c), employerName: e?.name ?? null,
-        missing: FOUR_LABEL.filter(([k]) => pl && pl.fourRights && !pl.fourRights[k]).map(([, l]) => l.toLowerCase()),
-      };
-    }),
-    upcoming: pagaende
-      .flatMap((c) => activitiesOf(db, c.id).filter((a) => a.startsAt >= now && a.startsAt <= limit && a.kind !== "möte").map((a) => ({ ...activityView(a), caseId: c.id, caseNumber: c.caseNumber, displayName: name(c) })))
-      .sort((x, y) => (x.startsAt < y.startsAt ? -1 : 1)),
-  };
-});

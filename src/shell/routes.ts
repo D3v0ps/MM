@@ -27,7 +27,8 @@ export type RouteDef = {
 
 /**
  * Startsida per roll. Alla MB-roller börjar på Min vecka (beslut 2026-10-06) – samma upplägg, egna uppgifter. De gamla
- * startsidorna finns kvar under rollens flik (/ledning, /ekonomi, /handledare, /admin/anvandare); /start leder till /min-vecka.
+ * startsidorna finns kvar under rollens flik (/ledning, /ekonomi, /admin/anvandare); /start leder till /min-vecka. Rollen
+ * handledare är vilande (beslut 2026-10-09): ingen rutt släpper in den, raden finns bara för typen.
  */
 export const START_PATH: Record<Role, string> = {
   admin: "/min-vecka",

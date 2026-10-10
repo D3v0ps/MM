@@ -17,7 +17,7 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, MGMT, INBOX } from "@/api/invalidation";
-import { SUPPLIER_ROLES, type SupplierRole } from "@/api/roles";
+import { STAFF_ROLES, type SupplierRole } from "@/api/roles";
 import type { ContractConfig, DataRole, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
 import type { OutboundStatus } from "@/data/schema";
 import { IdSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
@@ -181,7 +181,8 @@ export const adminInviteCustomer = command("admin.inviteCustomer", z.object({
 export const adminSetCustomerActive = command("admin.setCustomerActive", z.object({ userId: IdSchema, active: z.boolean() }), { invalidates: ["admin.users", CARD, PORTAL, INBOX] }).returns<Result<object, "not_found">>();
 
 // ---- Kollegorna (beslut 2026-10-08, skarp drift): administratören lägger till kollegor, ändrar roller och spärrar i appen.
-const StaffRoles = z.array(z.enum(SUPPLIER_ROLES)).min(1).max(SUPPLIER_ROLES.length);
+// Bara STAFF_ROLES: rollen handledare är vilande (Karims beslut 2026-10-09) – zod nekar den, som andra okända roller.
+const StaffRoles = z.array(z.enum(STAFF_ROLES)).min(1).max(STAFF_ROLES.length);
 /**
  * Lägg till kollega: namn, e-postadress på personalens domän, en eller flera roller i huvudavtalet, titel valfri. Kollegan
  * får ett mejl utan personuppgifter (bara adressen till appen) och loggar in med e-post och kod.

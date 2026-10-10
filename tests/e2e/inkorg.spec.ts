@@ -49,7 +49,7 @@ async function commandAs(page: Page, info: TestInfo, actor: typeof MARIA, key: s
 }
 
 // ---------------------------------------------------------------- Flöden i gränssnittet (används av flera tester)
-/** em-101 (Word-mall): acceptera med Amira som huvudcoach och Petra i teamet. */
+/** em-101 (Word-mall): acceptera med Amira som huvudcoach och Petra som arbetsgivarmatchare i teamet (teamvalet Handledare finns inte sedan 2026-10-09). */
 async function acceptEm101(page: Page) {
   const m = main(page);
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
@@ -57,7 +57,9 @@ async function acceptEm101(page: Page) {
   // Felet står i felsammanfattningen överst och vid fältet.
   await expect(dialog(page).getByText("Välj huvudcoach.").first()).toBeVisible();
   await page.check("#ink-coach-u-amira");
-  await page.check("#ink-team-u-petra");
+  await expect(page.locator("#ink-team-u-petra")).toHaveCount(0);
+  await expect(dialog(page)).not.toContainText(/handledare/i);
+  await page.locator("#ink-matcher").selectOption({ label: "Petra Ek" });
   await dialog(page).getByRole("button", { name: "Acceptera avropet" }).click();
   await expect(dialog(page).getByText("Amira Haddad har fått en notis om tilldelningen")).toBeVisible();
 }
@@ -247,7 +249,7 @@ test("em-101: acceptera med coach och team → orderbekräftelse och notis till 
   await expect(toastWith(page, "BOT-27-0050 är accepterat. Orderbekräftelsen är skickad till kommunen.")).toBeVisible();
   await expect(d.getByText("Deltagaren fick kallelse via e-post, sin föredragna kontaktväg", { exact: false })).toBeVisible();
   await expect(d.getByText("Även Petra Ek har fått en notis.", { exact: false })).toBeVisible();
-  await expect(d.getByText("Petra Ek (yrkesspecifik handledare)")).toBeVisible();
+  await expect(d.getByText("Petra Ek (arbetsgivarmatchare)")).toBeVisible();
   await expect(d.getByText("Amira Haddad", { exact: true })).toBeVisible();
   // Orderbekräftelsen till kommunen innehåller bara ärendenumret – inga personuppgifter.
   const custMail = d.getByText("Kommunen fick:").locator("..");
@@ -449,6 +451,10 @@ test("registrera beställning per telefon: ärendenummer, ordererkännande och v
   await page.fill("#reg-pnr", "19930303-1111");
   await page.fill("#reg-phone", "070-000 00 00");
   await page.fill("#reg-city", "Tumba");
+  // Yrkesområdet (beslut 2026-10-09): valfritt för Miljonbemanning, samma lista som portalen (avtalets aktiva avtalsområden).
+  await expect(page.locator("#reg-area option"), "Inte angivet och avtalets tolv avtalsområden").toHaveCount(13);
+  await expect(page.locator("#reg-area")).toHaveValue("");
+  await page.selectOption("#reg-area", "G");
   await page.locator("#reg-prior").getByRole("button", { name: "Nej" }).click();
   // En bilaga laddas upp innan beställningen registreras (samordnaren får ladda upp utan ärende).
   await page.locator("#reg-files").setInputFiles({ name: "kartlaggning-test.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7\n% påhittad kartläggning\n") });
@@ -465,9 +471,10 @@ test("registrera beställning per telefon: ärendenummer, ordererkännande och v
   await expect(m.getByText("Registrerad av Miljonbemanning efter ett telefonsamtal", { exact: false })).toBeVisible();
   await expect(m).not.toContainText("19930303");
   await expect(m.getByRole("button", { name: "Acceptera", exact: true })).toBeVisible();
-  // Bilagan ligger i ärendet (acceptdialogens underlag).
+  // Bilagan ligger i ärendet (acceptdialogens underlag) och yrkesområdet från registreringen är förvalt.
   await m.getByRole("button", { name: "Acceptera", exact: true }).click();
   await expect(dialog(page).getByText("kartlaggning-test.pdf")).toBeVisible();
+  await expect(page.locator("#ink-area")).toHaveValue("G");
   await dialog(page).getByRole("button", { name: "Avbryt" }).click();
   // Ett validerat fel: utan personnummer stoppas registreringen med en felsammanfattning.
   await goAs(page, info, SARA, "/inkorg/registrera");

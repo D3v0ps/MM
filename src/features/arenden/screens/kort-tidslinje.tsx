@@ -319,7 +319,7 @@ function NoteActions({ note, card, onEdit, headingId }: { note: TimelineNote; ca
 }
 
 // ---------------------------------------------------------------- Skriv anteckning / Ändra anteckning
-const AUDIENCE_TEXT: Record<CaseNoteAudience, string> = { full: CASE_NOTE_AUDIENCE_LABEL.full, team: "Även teamet (till exempel handledare)" };
+const AUDIENCE_TEXT: Record<CaseNoteAudience, string> = { full: CASE_NOTE_AUDIENCE_LABEL.full, team: "Även teamet (till exempel arbetsgivarmatcharen)" };
 
 function NoteDialog({ card, note, onClose }: { card: TabProps["card"]; note: TimelineNote | null; onClose: () => void }) {
   const role = useSession().actor.role;
