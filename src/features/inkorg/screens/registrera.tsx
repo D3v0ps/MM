@@ -348,7 +348,7 @@ function RegisterForm({ m }: { m: RegisterForm }) {
             <Input value={f.pnr} inputMode="numeric" maxLength={15} onValueChange={set("pnr")} />
           </Field>
           <FormGrid>
-            <Field id="reg-phone" label="Deltagarens telefonnummer" required={f.preferredContact === "sms" || f.preferredContact === "phone"} error={E("phone")} help="För kallelse och påminnelser. SMS:en innehåller aldrig personuppgifter.">
+            <Field id="reg-phone" label="Deltagarens telefonnummer" required={f.preferredContact === "sms" || f.preferredContact === "phone"} error={E("phone")} help="För kallelser och inbjudningar. SMS:en innehåller aldrig personuppgifter.">
               <Input type="tel" value={f.phone} onValueChange={set("phone")} />
             </Field>
             <Field id="reg-email" label="Deltagarens e-postadress" required={f.preferredContact === "email"} error={E("email")}>

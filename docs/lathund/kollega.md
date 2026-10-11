@@ -29,7 +29,7 @@ Alla på Miljonbemanning börjar på **Min vecka**. Där står det du behöver g
 Sidopanelen har alltid:
 
 - **Notiser** överst, med antal olästa.
-- Gruppen **Min vardag** – samma menyval för alla roller: **Min vecka**, **Ärenden** (coachen ser **Mina ärenden**), **Rapporter** och **Arbetsgivare och praktik**. Coachen har också **Närvaro**. Samordnaren, avtalsansvarig och coachen har också **Anteckningar**.
+- Gruppen **Min vardag** med **Min vecka** och de sidor dina roller har, alltid i samma ordning: **Närvaro** (coachen), **Aktiviteter** (alla utom ekonomen), **Ärenden** (coachen ser **Mina ärenden**), **Anteckningar** (samordnaren, avtalsansvarig och coachen), **Rapporter** och **Arbetsgivare och praktik**.
 - En flik per roll, till exempel **Samordning**, **Ekonomi** eller **Ledning**. Coachen har ingen egen flik.
 - **Hjälp** längst ner, som leder till den här lathunden.
 
@@ -37,11 +37,13 @@ Sidopanelen har alltid:
 
 - Alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet. Teamet som tilldelas ett ärende styr vem som får notiser, påminnelser och vad som visas under Mina ärenden.
 - Mejl och SMS innehåller aldrig personuppgifter – bara ärendenummer och en länk till portalen. Skriv aldrig personnummer i meddelanden eller anteckningar. Ärendenumret räcker.
+- Kallelser och inbjudningar till deltagaren innehåller bara tid, plats och vårt telefonnummer. Där står aldrig namn, personnummer, ärendenummer eller vad insatsen gäller.
+- Närvaro som inte är registrerad när dagen är slut registreras automatiskt som närvarande klockan 18.00. Frånvaro registrerar du själv, samma dag.
 - Personnummer visas maskerat. Trycker du på **visa** loggas det i revisionsloggen. Visningar av deltagarkort, rapporter och transkript loggas också.
 - AI föreslår – människan bedömer. AI sätter aldrig progressionsnivå, samlad status, avslutsorsak eller resultat. Du gör alltid ett aktivt val.
 - Rapporter byggs bara av godkända uppgifter, aldrig direkt från råtranskript.
 - Belopp i kronor syns bara för rollen ekonom.
-- Nivå, grupper och taggar är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå eller grupp.
+- Nivå, grupper, taggar och gruppmål är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå eller grupp.
 
 ## Operativ samordnare
 
@@ -59,9 +61,22 @@ Fliken **Samordning** har **Avropsinkorg**, **Förfaller** och **Bygg rapport**.
 2. Välj **Avtalsområde**. Har kommunen angett ett yrkesområde i beställningen är det redan ifyllt. Välj eventuellt **Alternativt område (valfritt)**.
 3. Välj **Huvudcoach**. Lägg till **Arbetsgivarmatchare (valfritt)** och **SYV/metodstöd (valfritt)** om de ska vara med i teamet.
 4. Fyll i **Första möte – datum** och **Första möte – tid**. Första mötet ska bokas inom den tid som står i avtalet.
-5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren och ärendet dyker upp hos coachen under **Insatser att starta**.
+5. Tryck på **Acceptera**. Orderbekräftelsen skickas till handläggaren och ärendet dyker upp hos coachen under **Insatser att starta**. Deltagaren får en kallelse med e-post eller SMS.
 
 Avböj bara om vi verkligen inte kan ta uppdraget. Under **Förfaller** ser du vad som förfaller i dag och den här veckan.
+
+### Ring deltagaren
+
+Går en kallelse eller inbjudan inte att skicka får samordnaren en uppgift på Min vecka, till exempel **Ring deltagaren och kalla till första mötet**. Uppgiften har ärendenummer, tid och plats – aldrig namnet. Ring deltagaren och tryck på **Markera som klar**.
+
+### Avbrott via mejl
+
+Kommunen avbryter en insats genom att mejla avrop@ med ärendenumret. Mejlet står i **Avropsinkorg** med etiketten **Avbrott**.
+
+1. Kontrollera ärendet. Saknas ärendenumret: ta reda på vilket ärende det gäller.
+2. Svara handläggaren med **Svara med säkert meddelande**.
+3. Säg till huvudcoachen. Coachen avslutar insatsen samma dag med **Avsluta insatsen**.
+4. Tryck på **Markera som hanterad**.
 
 ## Huvudcoach
 
@@ -70,8 +85,19 @@ Jobbcoacherna har rollen huvudcoach. Coachen har ingen egen rollflik. Allt finns
 ### Starta insatsen
 
 1. Öppna ärendet från **Insatser att starta** på Min vecka, eller från **Mina ärenden**.
-2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet och välj SMS, telefon eller e-post. Kommunen anger inte kontaktvägen i beställningen.
+2. Fråga deltagaren vid första mötet hur hen vill bli kontaktad. Ändra kontaktvägen i deltagarkortet, se nedan. Kommunen anger inte kontaktvägen i beställningen.
 3. När första mötet har hållits: tryck på **Starta insatsen** i deltagarkortet.
+
+Hela vägen för en deltagare, från beställning till avslut, står i **Rutin för deltagarna från början till slutet** längst ner på den här sidan.
+
+### Ändra kontaktväg
+
+1. Tryck på **Ändra** vid **Kontaktväg** i deltagarkortet.
+2. Välj **SMS**, **Telefon** eller **E-post** under **Hur vill deltagaren bli kontaktad?**.
+3. Fyll i telefonnummer eller e-postadress. Skriv hela telefonnumret med riktnummer.
+4. Tryck på **Spara kontaktvägen**. Kallelser och inbjudningar skickas den vägen först.
+
+Samordnaren, avtalsansvarig, coachen och systemadministratören kan ändra kontaktvägen. Systemadministratören kan inte ändra något annat i ärendet. Revisionsloggen visar vilka fält som ändrades, aldrig vad som står i dem.
 
 ### Mina ärenden och Alla ärenden
 
@@ -105,7 +131,7 @@ Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en grup
 
 Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempel en CV-verkstad.
 
-1. Tryck på **Ny aktivitet**. Fyll i namn, typ, datum, tid och plats.
+1. Tryck på **Ny aktivitet** under **Aktiviteter** eller på Min vecka. Fyll i namn, typ, datum, tid, längd och plats.
 2. Vill du ha ett mål för hela gruppen? Skriv det i **Gruppmål**, till exempel ”Alla skriver ett CV”. Gruppmålet syns bara för Miljonbemanning.
 3. Välj deltagare under **Bjud in deltagare**: fliken **Grupp** (en eller flera grupper), **Nivå** (en eller flera nivåer) eller **Enskilda** (sök och välj en och en). Du ser hur många och vilka som bjuds in. De som redan är inbjudna eller vars insats inte pågår hoppas över – det står varför.
 4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
@@ -113,17 +139,31 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 
 Ändrar du tid eller plats, tar bort en deltagare eller ställer in aktiviteten kan deltagarna få ett meddelande om det. Rutan är förvald.
 
-Öppna aktiviteten för att ta närvaro. Har aktiviteten ett gruppmål står alla som **Klarade** med märket **Automatiskt**. Tryck på **Klarade inte** för den som inte klarade målet. Du kan ändra tillbaka. Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapporterna.
+Samordnaren, avtalsansvarig och coachen skapar aktiviteter och tar närvaro. Chefen och systemadministratören kan bara läsa.
+
+En deltagare kan inte vara på två tillfällen samtidigt. Har deltagaren ett eget tillfälle utan närvaro vid samma tid frågar appen om det ska ersättas.
+
+### Ta närvaro i aktiviteten
+
+1. Öppna aktiviteten under **Aktiviteter** eller från **Dagens aktiviteter** på Min vecka. Alla inbjudna står i en lista.
+2. Markera de som kom sent eller var frånvarande med knapparna på deras rad.
+3. Tryck på **Markera övriga som närvarande** och bekräfta namnen. Närvaro eller frånvaro som redan är registrerad ändras aldrig.
+4. Har aktiviteten ett gruppmål står alla som **Klarade** med märket **Automatiskt**. Tryck på **Klarade inte** för den som inte klarade målet. Du kan ändra tillbaka.
+5. Vill du skriva något om en deltagare? Skriv en rad på deltagarens rad och tryck på knappen med antalet, till exempel **Spara 2 anteckningar**. Varje rad blir en anteckning i deltagarkortet med aktivitetens datum.
+
+Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapporterna.
 
 ### Närvaro
 
 1. Öppna **Närvaro**.
-2. Registrera närvaro per dag: **Närvarande**, **Giltig frånvaro** eller **Ogiltig frånvaro**. Rutan **Saknar registrering** visar vad som återstår.
-3. Närvaron ligger till grund för veckorapporten till kommunen.
+2. Registrera närvaro per dag: **Närvarande**, **Sen**, **Giltig frånvaro** eller **Ogiltig frånvaro**. Rutan **Saknar registrering** visar vad som återstår.
+3. Registrera frånvaro samma dag. Klockan 18.00 registreras tillfällen som har passerat och saknar närvaro som närvarande. De märks **Automatiskt registrerad**.
+4. Var deltagaren inte där? Ändra raden till frånvaro. Märket försvinner och raden blir en vanlig registrering.
+5. Närvaron ligger till grund för veckorapporten till kommunen, närvarograden och fakturan. Ändras närvaron efter att veckorapporten har gått ut: öppna rapporten under **Rapporter** och tryck på **Rätta**.
 
 ### Möte med inspelning och AI-förslag
 
-1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens aktiviteter** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**.
+1. Öppna deltagarkortet och tryck på **Spela in mötet**. Du kan också starta från **Dagens aktiviteter** på Min vecka. Vill du skriva själv väljer du **Nytt möte utan inspelning**. Datumet är ifyllt, och du behöver inte fylla i någon tid.
 2. Inspelning kräver ett registrerat samtycke. Saknas det visas **Samtycke saknas** – tryck på **Registrera samtycke** innan du spelar in.
 3. Spela in medan ni pratar. När du stoppar laddas ljudet upp, texten skrivs ut och ett utkast till mötesrapport fylls i. Det tar vanligtvis en till två minuter.
 4. Varje förslag visas med citat och tidpunkt ur samtalet. Tryck på **Acceptera**, **Ändra** eller **Avvisa** för varje förslag. Det som inte framgår av samtalet står som **Framgår inte** – fyll i det själv.
@@ -132,12 +172,13 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 
 ### Månadsbedömning
 
-1. Öppna **Månadsbedömning** från deltagarkortet.
+1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**.
 2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå, grupper och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 3. Sätt progressionsnivån för varje progressionsområde själv och skriv en **Konkret observation**.
-4. Godkänn bedömningen. Månadsrapporten till kommunen byggs av den.
+4. Tryck på **Godkänn bedömningen**. Månadsrapporten till kommunen byggs av den.
+5. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
 
-Händelser och avslut registrerar du under **Registrera händelse** respektive **Avsluta insatsen**.
+Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
 
 ## Arbetsgivarmatchare
 
@@ -167,7 +208,7 @@ Fliken **Avtalet** har **Avropsinkorg**, **Förfaller**, **Avtalsavvikelser**, *
 
 ## Systemadministratör
 
-Fliken **Administratör** har **Användare och roller**, **Underbiträden och integrationer**, **Mallar och utskick** och **Revisionslogg**.
+Fliken **Administratör** har **Användare och roller**, **Underbiträden och integrationer**, **Mallar och utskick**, **Grupper och nivåer** och **Revisionslogg**. I ärendena kan systemadministratören bara läsa och ändra kontaktvägen.
 
 ### Lägga till en kollega
 
@@ -178,4 +219,4 @@ Fliken **Administratör** har **Användare och roller**, **Underbiträden och in
 
 ## Hjälp
 
-Den här lathunden finns alltid under **Hjälp** längst ner i sidopanelen. Kommunens lathund och mallen för mejlbeställning finns i portalen under Hjälp.
+Den här lathunden finns alltid under **Hjälp** längst ner i sidopanelen. Längst ner på sidan står **Rutin för deltagarna från början till slutet**. Kommunens lathund och mallen för mejlbeställning finns i portalen under Hjälp.

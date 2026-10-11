@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { LATHUND_KOLLEGA, LATHUND_KOMMUN, LATHUND_MALL } from "./content.generated";
+import { LATHUND_KOLLEGA, LATHUND_KOMMUN, LATHUND_MALL, LATHUND_RUTIN } from "./content.generated";
 import { headingId, markdownTitle, parseMarkdown } from "./markdown";
 
 const doc = (file: string) => readFileSync(fileURLToPath(new URL(`../../../docs/lathund/${file}`, import.meta.url)), "utf8");
@@ -11,18 +11,31 @@ const doc = (file: string) => readFileSync(fileURLToPath(new URL(`../../../docs/
 describe("lathundarna i appen", () => {
   it("content.generated.ts är byggd ur docs/lathund/*.md (npm run lathund:build)", () => {
     expect(LATHUND_KOLLEGA).toBe(doc("kollega.md"));
+    expect(LATHUND_RUTIN).toBe(doc("rutin-deltagare.md"));
     expect(LATHUND_KOMMUN).toBe(doc("kommun.md"));
     expect(LATHUND_MALL).toBe(doc("mall-mejlavrop.md"));
   });
 
   it("varje lathund har en titel och bara block som renderaren förstår", () => {
-    for (const md of [LATHUND_KOLLEGA, LATHUND_KOMMUN, LATHUND_MALL]) {
+    for (const md of [LATHUND_KOLLEGA, LATHUND_RUTIN, LATHUND_KOMMUN, LATHUND_MALL]) {
       expect(markdownTitle(md)).toBeTruthy();
       const blocks = parseMarkdown(md);
       expect(blocks.filter((b) => b.kind === "heading" && b.level === 1)).toHaveLength(1);
       // Inga tabeller, citat eller bilder – de renderas inte.
       for (const b of blocks) if (b.kind === "paragraph") expect(b.text, b.text).not.toMatch(/^(\||>|!\[)/);
     }
+  });
+
+  it("rutinen för deltagarna: stegen är underrubriker under avsnittet på /hjalp, i ordning från beställning till avslut", () => {
+    // Hjälpsidan visar rutinens titel som avsnittsrubrik (nivå 2) efter lathunden för kollegor. Stegen är därför nivå 3.
+    const blocks = parseMarkdown(LATHUND_RUTIN);
+    expect(blocks.filter((b) => b.kind === "heading" && b.level === 2)).toHaveLength(0);
+    const steps = blocks.flatMap((b) => (b.kind === "heading" && b.level === 3 ? [b.text] : []));
+    expect(steps.map((t) => Number(t.split(".")[0]))).toEqual(steps.map((_, i) => i + 1));
+    expect(steps[0]).toMatch(/Beställning/);
+    expect(steps.at(-1)).toMatch(/Avslut/);
+    // Ingen handledare (rollen är borttagen ur appen, Karims beslut 2026-10-09).
+    expect(LATHUND_RUTIN).not.toMatch(/handledare/i);
   });
 
   it("inga personuppgifter i lathundarna: bara påhittade testnamn och testpersonnummer", () => {
