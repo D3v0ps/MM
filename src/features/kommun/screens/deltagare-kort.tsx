@@ -1,23 +1,25 @@
 "use client";
 // Deltagarens sida i portalen (/portal/deltagare/:caseId?flik=) – prototypens CaseDetail i views/kommun.js.
 // Flikarna Översikt, Rapporter och Meddelanden. Bara handläggaren som beställde ser sidan (beslut 2026-10-07: kommunen har
-// bara rollen handläggare). Inga belopp, inget ordervärde och ingen beställarreferens (synpunkt #10 och #11). Bakgrunds-
-// informationen och bilagorna från beställningen visas under Översikt. Visningen loggas (case.view). Handläggaren avbryter
-// inte en insats i portalen – det görs med ett mejl till avrop@ med ärendenumret (beslut 2026-10-09).
+// bara rollen handläggare). Inga belopp, inget ordervärde och ingen beställarreferens (synpunkt #10 och #11). Visningen
+// loggas (case.view). Handläggaren avbryter inte en insats i portalen – det görs med ett mejl till avrop@ med ärendenumret
+// (beslut 2026-10-09). Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): ingen fasstapel,
+// inget fasnamn, inget team, inget ordererkännande att visa, närvaron som en rad (närvarograden senaste månaden – för en
+// avslutad insats den sista månaden i insatsen – och en länk till rapporterna, där veckorapporterna finns), ingen
+// kontaktväg, bostadsort eller yrkesspår och ingen bakgrundsinformation från beställningen.
 import { useEffect, useState, type ReactNode } from "react";
 import { pct } from "@/core/format";
 import { messageRead, messageSend } from "@/features/arenden/api";
-import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { auditView } from "@/features/session/api";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import { path, useNav } from "@/shell/nav";
 import {
-  Badge, Button, Card, Empty, ErrorNotice, Field, focusSoon, Grid, Icon, Kpi, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, PhaseBar, Stack, TabPanel, Tabs,
+  Badge, Button, Card, Empty, ErrorNotice, Field, focusSoon, Kv, List, Loading, MaskedPnr, Notice, PerspectiveLink, Stack, TabPanel, Tabs,
   TextArea, Timeline, cn, useAuditView, useToast, type TimelineItem,
 } from "@/ui";
-import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomAttTile, type KomCaseDetail, type KomMessage } from "../api";
-import { fD, fDT, fDTL, fullText, looksLikePnr, ORDER_EMAIL, orderPeriodLabel, phaseText, statusText } from "../texts";
+import { kommunCase, kommunCaseSeen, kommunRevealPnr, type KomCaseDetail, type KomMessage } from "../api";
+import { fD, fDT, fDTL, fullText, looksLikePnr, ORDER_EMAIL, orderPeriodLabel, statusText } from "../texts";
 import { KOM_TABS, KStatus, KomHead, KomPage, ReportRowItem, reportPath } from "./parts";
 import { taskTitle, useTaskDone } from "./start";
 import { joinText, TalaIn } from "./tala-in";
@@ -77,7 +79,7 @@ function Detail({ d, tab, back }: { d: KomCaseDetail; tab: Tab; back: { label: s
         back={back}
         eyebrow={`Ärendenummer ${c.caseNumber}${c.primaryAreaName ? ` · ${c.primaryAreaName}` : ""}`}
         title={c.name}
-        lead={statusText(c, d.phaseCount)}
+        lead={statusText(c)}
         actions={
           <>
             <KStatus c={c} />
@@ -107,29 +109,6 @@ function Detail({ d, tab, back }: { d: KomCaseDetail; tab: Tab; back: { label: s
 }
 
 // ---------------------------------------------------------------- Översikt
-function AttTile({ t }: { t: KomAttTile }) {
-  const reg = t.planned - t.unregistered;
-  return (
-    <Kpi
-      label={t.label}
-      value={t.rate == null ? "–" : pct(t.rate, 0)}
-      sub={
-        reg > 0
-          ? `Närvarande ${t.present + t.late} av ${reg} tillfällen${t.unregistered > 0 ? ` · ${t.unregistered} inte registrerade än` : ""}`
-          : t.planned > 0
-            ? "Närvaron är inte registrerad än"
-            : "Inga tillfällen ännu"
-      }
-    >
-      {(t.absentValid > 0 || t.absentInvalid > 0) && (
-        <div className="text-body">
-          Giltig frånvaro: {t.absentValid} · Ogiltig frånvaro: {t.absentInvalid}
-        </div>
-      )}
-    </Kpi>
-  );
-}
-
 const Muted = ({ children, className }: { children?: ReactNode; className?: string }) => <p className={cn("text-text-muted", className)}>{children}</p>;
 
 function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomMessage[]; onTab: (t: Tab) => void }) {
@@ -230,17 +209,7 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
         </Card>
       )}
       <Card title="Så långt har insatsen kommit" icon="list">
-        <Stack>
-          {c.status === "active" && (
-            <Stack gap="sm">
-              <PhaseBar phase={c.phase} total={d.phaseCount} />
-              <div className="text-body text-text-muted">
-                Fas {c.phase} av {d.phaseCount} · {phaseText(c.phaseName)}
-              </div>
-            </Stack>
-          )}
-          <Timeline items={tl} />
-        </Stack>
+        <Timeline items={tl} />
       </Card>
       <Card title="Orderbekräftelse" icon="check-circle">
         {c.confirmedAt ? (
@@ -254,7 +223,6 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
                 ["Bekräftad", fDT(c.confirmedAt)],
               ]}
             />
-            {o.team.length > 0 && <div className="text-body text-text-muted">Team: {o.team.map((t) => `${t.name} (${t.roleLabel.toLowerCase()})`).join(", ")}</div>}
             {o.ocReportId && (
               <span>
                 <Button icon="file" to={reportPath(o.ocReportId, "deltagare")}>
@@ -275,43 +243,18 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
             <Muted>Den innehåller startdatum, ansvarig coach, tid för första mötet och omfattning.</Muted>
           </Stack>
         )}
-        {c.acknowledgedAt && o.ackText && (
-          <details className="group mt-3.5">
-            <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-bold underline underline-offset-3 [&::-webkit-details-marker]:hidden">
-              <Icon name="chevron-down" className="transition-transform group-open:rotate-180" />
-              Visa ordererkännandet
-            </summary>
-            <div className="mt-2 flex flex-col gap-1.5 rounded-mb border-[1.5px] border-line-strong bg-ljusgra-ton px-4 py-3.5 [overflow-wrap:anywhere]">
-              <div className="text-body text-text-muted">
-                Skickat till dig {fDT(c.acknowledgedAt)}
-              </div>
-              <div>{fullText(o.ackText)}</div>
-            </div>
-          </details>
-        )}
       </Card>
       <Card title="Närvaro" icon="check-square">
         {d.attendance == null ? (
           <Muted>Närvaron visas här när insatsen har startat.</Muted>
         ) : (
-          <Stack>
-            <Grid cols={2} className="gap-3">
-              <AttTile t={d.attendance.month} />
-              <AttTile t={d.attendance.prev} />
-            </Grid>
-            {d.attendance.repeated && (
-              <Notice tone="warn" title="Upprepad ogiltig frånvaro">
-                {d.attendance.repeated.count} gånger de senaste {d.attendance.repeated.withinDays} dagarna. Coachen tar kontakt med dig om ett
-                uppföljningsmöte.
-              </Notice>
-            )}
-            <Muted>Närvaron redovisas varje vecka i veckorapporten. Frånvaro visas bara som kategori.</Muted>
-            <span>
-              <Button kind="ghost" iconRight="arrow-right" to="/portal/rapporter?filter=weekly_attendance">
-                Till veckorapporterna
-              </Button>
-            </span>
-          </Stack>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <AttendanceLine a={d.attendance} />
+            {/* Veckorapporterna gäller alla deltagare och finns bland rapporterna (inga typfilter – beslut 2026-10-09). */}
+            <Button kind="ghost" iconRight="arrow-right" to="/portal/rapporter">
+              Till rapporterna
+            </Button>
+          </div>
         )}
       </Card>
       <Card title="Uppgifter om deltagaren" icon="user">
@@ -332,15 +275,10 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
                 }
               />,
             ],
-            ["Kontaktväg", d.participant.contactLabel ?? "–"],
-            // Bostadsorten frågas inte längre efter (beslut 2026-10-09) – visas bara för äldre beställningar som har den.
-            d.participant.city ? ["Bostadsort", d.participant.city] : null,
             ["Yrkesområde", c.primaryAreaName ? `${c.primaryAreaName}${c.secondaryAreaName ? ` (alternativt ${c.secondaryAreaName})` : ""}` : "Väljs av Miljonbemanning"],
-            ["Yrkesspår", c.vocationalTrack || "Väljs av Miljonbemanning"],
           ]}
         />
       </Card>
-      <CaseBackgroundCard bg={d.background} title="Bakgrundsinformation från beställningen" />
       {/* Avbrott görs med mejl (beslut 2026-10-09) – ärendenumret i ämnesraden kopplar mejlet till ärendet i avropsinkorgen. */}
       {c.status !== "closed" && c.status !== "declined" && (
         <p>
@@ -352,6 +290,19 @@ function Overview({ d, unreadMsgs, onTab }: { d: KomCaseDetail; unreadMsgs: KomM
         </p>
       )}
     </Stack>
+  );
+}
+
+/**
+ * Närvaron som en rad. "Inte registrerad än" bara när det finns passerade tillfällen och inget av dem är registrerat – inga
+ * tillfällen i perioden (t.ex. pausad insats) har en egen text. En avslutad insats visar den sista månaden i insatsen.
+ */
+function AttendanceLine({ a }: { a: NonNullable<KomCaseDetail["attendance"]> }) {
+  if (a.planned === 0) return <p>{a.ended ? "Det var inga tillfällen den sista månaden i insatsen." : "Det har inte varit några tillfällen den senaste månaden."}</p>;
+  return (
+    <p>
+      {a.ended ? "Närvarograd den sista månaden i insatsen" : "Närvarograd senaste månaden"}: <b>{a.rate == null ? "närvaron är inte registrerad än" : pct(a.rate, 0)}</b>
+    </p>
   );
 }
 

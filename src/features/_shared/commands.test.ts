@@ -99,8 +99,13 @@ describe("arenden.caseAccept (case.accept)", () => {
     const n = rows("outbound_messages").length;
     const due = avropDue({ ...row("cases", "case-270050")! }, BOTKYRKA_CONFIG);
     expect(due).toBe("2027-02-02T08:41");
-    const res = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara());
-    expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0050" });
+    // Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09): ingen kan bli yrkesspecifik handledare.
+    const supervisor = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara());
+    expect(supervisor).toMatchObject({ ok: false, error: "team" });
+    expect(rows("outbound_messages")).toHaveLength(n);
+    const res = await run(caseAccept, { caseId: "case-270050", leadCoachId: "u-amira", firstMeetingAt: "2027-02-03T10:00", team: [{ userId: "u-petra", role: "employer_matcher" }] }, sara());
+    // Kallelsen (beslut 2026-10-09): e-post när adressen finns; SMS och utringning är inte kopplade i testmiljön.
+    expect(res).toMatchObject({ ok: true, caseNumber: "BOT-27-0050", invitation: "Kallelsen skickas med e-post." });
     if (!res.ok) return;
     const c = row("cases", "case-270050")!;
     expect(c).toMatchObject({
@@ -110,21 +115,25 @@ describe("arenden.caseAccept (case.accept)", () => {
     });
     const rep = row("reports", res.reportId)!;
     expect(rep).toMatchObject({ kind: "order_confirmation", status: "delivered", deliveredTo: ["k-maria"], approvedBy: "u-sara", caseId: "case-270050", dueAt: due });
-    expect(rows("case_team").filter((t) => t.caseId === "case-270050").map((t) => [t.userId, t.role])).toEqual([["u-amira", "lead_coach"], ["u-petra", "vocational_supervisor"]]);
+    expect(rows("case_team").filter((t) => t.caseId === "case-270050").map((t) => [t.userId, t.role])).toEqual([["u-amira", "lead_coach"], ["u-petra", "employer_matcher"]]);
     expect(rows("case_status_history").filter((h) => h.caseId === "case-270050").pop()).toMatchObject({ fromStatus: "acknowledged", toStatus: "confirmed", toCoach: "u-amira", reason: "Avrop accepterat" });
     expect(row("inbound_emails", "em-101")).toMatchObject({ status: "accepted", handledBy: "u-sara" });
     const notes = rows("user_notifications").filter((x) => x.caseId === "case-270050");
     expect(notes.map((x) => [x.recipientId, x.title, x.body, x.emailBody])).toEqual([
       ["u-amira", "Nytt ärende tilldelat dig", "Du är huvudcoach för BOT-27-0050 (J Parti- och detaljhandel). Första möte 3 feb kl. 10.00.", "Du har fått ett nytt ärende i Miljonmatch: BOT-27-0050. Logga in för att se detaljerna."],
-      ["u-petra", "Du har lagts till i ett team", "Du är yrkesspecifik handledare för BOT-27-0050.", "Du har fått ett nytt ärende i Miljonmatch: BOT-27-0050. Logga in för att se detaljerna."],
+      ["u-petra", "Du har lagts till i ett team", "Du är arbetsgivarmatchare för BOT-27-0050.", "Du har fått ett nytt ärende i Miljonmatch: BOT-27-0050. Logga in för att se detaljerna."],
     ]);
     const out = outboundSince(n);
-    expect(out.map((m) => [m.template, m.to])).toEqual([
-      ["tilldelning_coach", "amira.haddad@miljonbemanning.se"],
-      ["tilldelning_coach", "petra.ek@miljonbemanning.se"],
-      ["orderbekraftelse", "maria.ekdahl@botkyrka.se"],
-      ["kallelse", "deltagare (e-post)"],
+    expect(out.map((m) => [m.template, m.to, m.status])).toEqual([
+      ["tilldelning_coach", "amira.haddad@miljonbemanning.se", "sent"],
+      ["tilldelning_coach", "petra.ek@miljonbemanning.se", "sent"],
+      ["orderbekraftelse", "maria.ekdahl@botkyrka.se", "sent"],
+      ["kallelse", "deltagare (e-post)", "sent"],
+      // Inte kopplade (inga 46elks-variabler i testmiljön): stoppade med orsak i utskicksloggen.
+      ["kallelse", "deltagare (SMS)", "suppressed"],
+      ["kallelse", "deltagare (samtal)", "suppressed"],
     ]);
+    expect(out.slice(4).map((m) => m.statusReason)).toEqual(["SMS-leverantör inte vald", "Utringning inte kopplad"]);
     expect(out[2].body).toBe("Orderbekräftelse för ärende BOT-27-0050 finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.");
     // Inget påhittat telefonnummer i kallelsen: meningen "Frågor? Ring …" finns bara när CONTACT_PHONE är satt (_shared/contact.ts).
     expect(out[3]).toMatchObject({ channel: "email", body: "Välkommen till Miljonbemanning! Ditt första möte är onsdag 3 februari klockan 10.00 i Alby. Frågor? Ring 08-400 22 750." });
@@ -264,7 +273,7 @@ describe("arenden: övriga ärendekommandon", () => {
     const from = row("cases", "case-260143")!.leadCoachId;
     expect(from).toBe("u-amira");
     expect(await run(caseChangeCoach, { caseId: "case-260143", toCoachId: "u-erik", reason: "" }, sara())).toMatchObject({ ok: false, error: "reason" });
-    expect(await run(caseChangeCoach, { caseId: "case-260143", toCoachId: "u-petra", reason: "Test" }, sara())).toMatchObject({ ok: false, error: "coach" });
+    expect(await run(caseChangeCoach, { caseId: "case-260143", toCoachId: "u-lars", reason: "Test" }, sara())).toMatchObject({ ok: false, error: "coach" });
     const n = rows("outbound_messages").length;
     const t = addMinutes(rt.clock.now(), 1); // klockan flyttas före kommandot, som i den gamla prototypen
     expect(await run(caseChangeCoach, { caseId: "case-260143", toCoachId: "u-erik", reason: "Föräldraledighet från vecka 8." }, sara())).toMatchObject({ ok: true });
@@ -277,14 +286,16 @@ describe("arenden: övriga ärendekommandon", () => {
     ]);
   });
 
-  it("case.bookFirstMeeting: kallelse via föredragen kontaktväg, aldrig vid skyddade personuppgifter", async () => {
+  it("case.bookFirstMeeting: kallelse med e-post (SMS och utringning inte kopplade), aldrig vid skyddade personuppgifter", async () => {
     // Ett bokat möte utan levererad orderbekräftelse (beställningen är inte accepterad): bara kallelsen.
     const n = rows("outbound_messages").length;
-    expect(await run(caseBookFirstMeeting, { caseId: "case-270048", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270048", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true, invitation: "Kallelsen skickas med e-post." });
     expect(row("cases", "case-270048")).toMatchObject({ firstMeetingAt: "2027-02-04T13:30", plannedStart: "2027-02-04" });
     const out = outboundSince(n);
-    expect(out).toHaveLength(1);
+    // Deltagaren har valt SMS, men SMS är inte kopplat: e-posten går, SMS och samtal stoppas med orsak.
+    expect(out.map((m) => [m.channel, m.status])).toEqual([["email", "sent"], ["sms", "suppressed"], ["call", "suppressed"]]);
     expect(out[0]).toMatchObject({ template: "kallelse", body: "Välkommen till Miljonbemanning! Ditt första möte är torsdag 4 februari klockan 13.30 i Alby. Frågor? Ring 08-400 22 750." });
+    expectNoPersonalData(out);
     // Skyddat ärende (vilande spärr påslagen): avtalsansvarig bokar om, ingen kallelse skickas – bara den nya orderbekräftelsens
     // mejl till kommunen (ärendenummer och länk, inga personuppgifter).
     protect();
@@ -350,7 +361,9 @@ describe("arenden: övriga ärendekommandon", () => {
     expect(kom.reports.map((r) => r.id)).not.toContain(v1.id);
     // Mejlet: bara ärendenummer och uppmaning att logga in, sedan kallelsen till deltagaren.
     const out = outboundSince(n);
-    expect(out.map((m) => [m.template, m.to])).toEqual([["orderbekraftelse", "maria.ekdahl@botkyrka.se"], ["kallelse", "deltagare (e-post)"]]);
+    expect(out.map((m) => [m.template, m.to])).toEqual([
+      ["orderbekraftelse", "maria.ekdahl@botkyrka.se"], ["kallelse", "deltagare (e-post)"], ["kallelse", "deltagare (SMS)"], ["kallelse", "deltagare (samtal)"],
+    ]);
     expect(out[0].body).toBe("Orderbekräftelsen för ärende BOT-27-0050 är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.");
     expectNoPersonalData(out);
     expect(rows("audit_log").filter((l) => l.action === "report.delivered").pop()).toMatchObject({ entityId: ocs[1].id, details: { kind: "order_confirmation", version: 2, reason: "first_meeting_rebooked", previous: v1.id } });

@@ -12,7 +12,8 @@ import { CONTACT_PHONE } from "@/features/_shared/contact";
 export const GENERIC = "generisk_mottagningsbekraftelse";
 export const GENERIC_PORTAL = "generisk_mottagningsbekraftelse_portal";
 
-export type TemplateChannel = "email" | "sms" | "brev";
+/** call = utringning med en kort inspelning (46elks, beslut 2026-10-09). */
+export type TemplateChannel = "email" | "sms" | "brev" | "call";
 
 /** Det "Skickas"-texten beror på: avtalets konfiguration (SLA, puls) och Miljonbemannings interna regler. */
 export type TemplateEnv = { cfg: Pick<ContractConfig, "sla" | "pulse">; org: OrgSettings };
@@ -21,7 +22,7 @@ export type TemplateDef = {
   key: string;
   name: string;
   channel: TemplateChannel;
-  /** Övriga kanaler (kallelsen kan gå som e-post eller brev). */
+  /** Övriga kanaler (kallelsen går med e-post, SMS och utringning – och brev när deltagaren valt det). */
   alsoVia?: TemplateChannel[];
   from: string;
   to: string;
@@ -71,7 +72,14 @@ export const TEMPLATES: readonly TemplateDef[] = [
   { key: "orderbekraftelse", name: "Orderbekräftelse", channel: "email", from: "notis@miljonmatch.se (svar till avrop@miljonbemanning.se)", to: "Kommunens handläggare", when: "När avropet accepteras, och när första mötet bokas om efter leveransen (ny version av orderbekräftelsen)", subject: "Orderbekräftelse – {arendenummer}", body: "Orderbekräftelse för ärende {arendenummer} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.\n\n{lank}", version: 2, updatedAt: "2026-10-20T13:32" },
   { key: "ny_rapport", name: "Ny rapport", channel: "email", from: "notis@miljonmatch.se", to: "Mottagaren av rapporten", when: "När en rapport levereras i portalen", subject: "Ny rapport i portalen", body: "{rapporttyp} för ärende {arendenummer} finns i portalen – logga in för att läsa.\n\n{lank}", version: 2, updatedAt: "2026-11-05T09:00" },
   { key: "nytt_meddelande", name: "Nytt meddelande", channel: "email", from: "notis@miljonmatch.se", to: "Kommunens handläggare eller coachen", when: "När ett säkert meddelande skickas i ett ärende", subject: "Nytt meddelande om {arendenummer}", body: "Du har ett nytt meddelande om ärende {arendenummer} – logga in för att läsa.\n\n{lank}", version: 1, updatedAt: "2026-09-08T11:00" },
-  { key: "kallelse", name: "Kallelse till första möte", channel: "sms", alsoVia: ["email", "brev"], from: "Miljonbemanning", to: "Deltagaren – via föredragen kontaktväg (SMS, e-post eller brev)", when: "När första mötet bokas.", body: "Välkommen till Miljonbemanning! Ditt första möte är {datum} kl. {tid} i {plats}. Frågor? Ring {telefon}.", version: 2, updatedAt: "2026-10-01T15:10" },
+  // Kanalerna (beslut 2026-10-09, notifyParticipant i src/features/_shared/participant-notify.ts): e-post när adressen finns, SMS och
+  // utringning när de är kopplade och telefonnumret finns. Ingen kanal: samordnaren får en uppgift att ringa deltagaren.
+  { key: "kallelse", name: "Kallelse till första möte", channel: "sms", alsoVia: ["email", "call", "brev"], from: "Miljonbemanning (SMS), notis@miljonmatch.se (e-post) och Miljonbemannings nummer (samtal)", to: "Deltagaren – e-post om adressen finns, SMS och utringning när de är kopplade och telefonnumret finns, brev om deltagaren valt det. Går inget får samordnaren en uppgift att ringa.", when: "När första mötet bokas.", body: "Välkommen till Miljonbemanning! Ditt första möte är {datum} kl. {tid} i {plats}. Frågor? Ring {telefon}.", version: 3, updatedAt: "2026-10-09T16:00" },
+  // Inbjudan till aktivitet (beslut 2026-10-09): samma kanaler som kallelsen. Bara tid, plats och telefonnummer – aldrig namn eller vad insatsen gäller.
+  { key: "aktivitetsinbjudan", name: "Inbjudan till aktivitet", channel: "sms", alsoVia: ["email", "call"], from: "Miljonbemanning (SMS), notis@miljonmatch.se (e-post) och Miljonbemannings nummer (samtal)", to: "Deltagaren – samma kanaler som kallelsen. Går inget får samordnaren en uppgift att ringa.", when: "När deltagaren bjuds in till en aktivitet som inte har börjat (per grupp, nivå eller enskilt) och rutan Skicka inbjudan till deltagarna är ikryssad.", subject: "Inbjudan till aktivitet hos Miljonbemanning", body: "Hej! Du är inbjuden till en aktivitet hos Miljonbemanning {datum} kl. {tid}, {plats}. Frågor? Ring {telefon}.", version: 1, updatedAt: "2026-10-09T16:00" },
+  // Ändrad tid eller plats och inställd aktivitet (spår G): e-post och SMS som inbjudan – ingen utringning (inspelningen gäller inbjudningar).
+  { key: "aktivitet_andrad", name: "Ändrad aktivitet", channel: "sms", alsoVia: ["email"], from: "Miljonbemanning (SMS) och notis@miljonmatch.se (e-post)", to: "De inbjudna deltagarna – samma kanaler som inbjudan, utan utringning. Går inget får samordnaren en uppgift att ringa.", when: "När en aktivitet får ny tid eller plats och coachen väljer att skicka ändringen.", subject: "Ändrad aktivitet hos Miljonbemanning", body: "Hej! Aktiviteten hos Miljonbemanning {tidigare_datum} kl. {tidigare_tid} är ändrad. Nu gäller {datum} kl. {tid}, {plats}. Frågor? Ring {telefon}.", version: 1, updatedAt: "2026-10-10T09:00" },
+  { key: "aktivitet_installd", name: "Inställd aktivitet", channel: "sms", alsoVia: ["email"], from: "Miljonbemanning (SMS) och notis@miljonmatch.se (e-post)", to: "De inbjudna deltagarna – samma kanaler som inbjudan, utan utringning. Går inget får samordnaren en uppgift att ringa.", when: "När en aktivitet ställs in och coachen väljer att meddela deltagarna.", subject: "Inställd aktivitet hos Miljonbemanning", body: "Hej! Aktiviteten hos Miljonbemanning {datum} kl. {tid}, {plats}, är inställd. Frågor? Ring {telefon}.", version: 1, updatedAt: "2026-10-10T09:00" },
   { key: "motespaminnelse", name: "Mötespåminnelse", channel: "sms", from: "Miljonbemanning (SMS)", to: "Deltagaren", when: "Dagen före ett möte kl. 18.00", body: "Påminnelse: möte i morgon kl. {tid} hos Miljonbemanning i {plats}. Frågor? Ring {telefon}.", version: 1, updatedAt: "2026-09-08T11:00" },
   { key: "pulslank", name: "Pulslänk", channel: "sms", from: "Miljonbemanning (SMS)", to: "Deltagaren", when: (e) => pulseWhen(e.cfg), body: "Hej! Hur går det hos oss? Svara på fem korta frågor: {lank} Länken gäller i 7 dagar. Det är frivilligt att svara.", version: 2, updatedAt: "2026-11-18T10:40" },
   { key: "tilldelning_coach", name: "Tilldelning till coach", channel: "email", from: "notis@miljonmatch.se", to: "Huvudcoach och team", when: "När ett ärende tilldelas eller coach byts", subject: "Nytt ärende i Miljonmatch", body: "Du har fått ett nytt ärende i Miljonmatch: {arendenummer}. Logga in för att se detaljerna.", version: 1, updatedAt: "2027-01-11T08:30" },
@@ -115,12 +123,12 @@ export const templateKeyOf = (n: { template: string; body: string }): string =>
 export const templateLabel = (key: string | null | undefined): string => TPL_NAME[key ?? ""] ?? cap(String(key || "Utskick").replace(/_/g, " "));
 
 // ---------------------------------------------------------------- Kontroll "Innehåller inga personuppgifter"
-export const ALLOWED_PLACEHOLDERS = ["arendenummer", "lank", "svar_senast", "datum", "tid", "plats", "telefon", "rapporttyp", "antal_veckor", "antal_dagar", "vecka"] as const;
+export const ALLOWED_PLACEHOLDERS = ["arendenummer", "lank", "svar_senast", "datum", "tid", "plats", "telefon", "rapporttyp", "antal_veckor", "antal_dagar", "vecka", "tidigare_datum", "tidigare_tid"] as const;
 const EXAMPLE: Record<string, string> = {
   // {kod} finns bara i den fasta mallen för inloggningskoden (den är inte en tillåten platshållare i andra mallar).
   kod: "418302",
   arendenummer: "BOT-27-0049", lank: "https://www.miljonmatch.se/portal", svar_senast: fmtDateTimeLong("2027-02-02T08:41"), datum: "onsdag 3 februari",
-  tid: "10.00", plats: "Alby", telefon: CONTACT_PHONE ?? "(telefonnummer)", rapporttyp: "Månadsrapport individ", antal_veckor: "2", antal_dagar: "7", vecka: "vecka 4",
+  tid: "10.00", plats: "Alby", tidigare_datum: "tisdag 2 februari", tidigare_tid: "13.00", telefon: CONTACT_PHONE ?? "(telefonnummer)", rapporttyp: "Månadsrapport individ", antal_veckor: "2", antal_dagar: "7", vecka: "vecka 4",
 };
 const PII_PH =
   /\{\s*(namn|förnamn|fornamn|efternamn|fullständigt_namn|deltagare|deltagarens?_namn|deltagarnamn|personnummer|pnr|samordningsnummer|födelsedatum|fodelsedatum|adress|gatuadress|postadress|hemadress|postnummer|telefon_deltagare|mobil_deltagare|mobilnummer|epost_deltagare|e-post_deltagare)\s*\}/gi;
@@ -140,4 +148,4 @@ export function templateCheck(text: string): TemplateCheck {
 export const fillExample = (s: string): string =>
   String(s || "").replace(/\{\s*([^{}\s]+)\s*\}/g, (m, k: string) => EXAMPLE[k.toLowerCase()] ?? m);
 
-export const CHANNEL_LABEL: Record<string, string> = { sms: "SMS", email: "E-post", brev: "Brev", letter: "Brev" };
+export const CHANNEL_LABEL: Record<string, string> = { sms: "SMS", email: "E-post", brev: "Brev", letter: "Brev", call: "Utringning" };

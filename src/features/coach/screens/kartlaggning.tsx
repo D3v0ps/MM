@@ -1,5 +1,6 @@
 "use client";
-// Kartläggning vecka 1 (/kartlaggning/:caseId) – deltagarens reella kompetens, yrkesmål och valt yrkesspår.
+// Kartläggning vecka 1 (/kartlaggning/:caseId) – deltagarens reella kompetens, yrkesmål och valt yrkesspår. Längst ned
+// kortet "Nivå och grupp" (src/features/grupper/screens/grouping-card.tsx, coachmötet 2026-10-09) – sparas direkt.
 // Anpassningar beskrivs funktionellt – aldrig diagnoser. Port av prototypens coach.kartlaggning. Utkastet sparas automatiskt
 // på servern tills kartläggningen är godkänd (useAutosave, beslut 2026-10-02) – en text som ser ut som en diagnos stoppar
 // autosparningen tills den är borttagen. Fälten ligger i utkastminnet (useDraft), så Tillbaka visar dem igen.
@@ -11,6 +12,7 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { AutosaveStatus, Badge, Button, Card, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
+import { GroupingCard } from "@/features/grupper/screens/grouping-card";
 import { intakePage, intakeSave, type IntakePage } from "../api";
 import { CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, useCaseView } from "./shared";
 
@@ -282,6 +284,9 @@ function IntakeForm({ v }: { v: Ok }) {
           <Chips label="Förslag på första veckomål" items={v.firstWeekGoals.filter((x) => x !== f.firstWeekGoal)} onPick={(g) => set("firstWeekGoal", g)} />
         </Stack>
       </Card>
+
+      {/* Nivå, grupper och Vill arbeta (coachmötet 2026-10-09) – sparas direkt, internt för Miljonbemanning. */}
+      <GroupingCard caseId={c.caseId} />
 
       <Row>
         {approved ? (

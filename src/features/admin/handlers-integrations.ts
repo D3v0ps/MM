@@ -9,16 +9,18 @@ import { loadDb } from "@/api/load";
 import { handleCommand, handleQuery } from "@/api/server";
 import { unregistered } from "@/core/attendance";
 import { coaches } from "@/core/cases";
-import { isUnset, slaRule } from "@/core/config";
+import { autoAttendanceOf, isUnset, slaRule } from "@/core/config";
 import { domainEnv } from "@/core/env";
 import { pct, plural } from "@/core/format";
 import { resultRate } from "@/core/kpi";
 import { progressionWatch } from "@/core/progression";
 import { addDays, dayOf, fmtDateTime, fmtTime, fmtWeekKey, isoWeek, monday } from "@/core/time";
 import { SIMULATED_PROVIDER } from "@/features/_shared/ai-sim";
+import { runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { JOB_NAME, type JobKey } from "./audit-text";
 import type { Integration, Job } from "@/data/schema";
 import { hidesCommercial } from "@/api/tester-access";
+import { messagingOf, type ChannelState, type MessagingStatus } from "@/features/_shared/messaging-port";
 import { adminIntegrations, adminRunJob, type IntegrationView, type JobRow, type JobStatusView, type SubprocessorView } from "./api";
 import { mainContract, orgRow, userNames } from "./shared";
 
@@ -32,7 +34,9 @@ const SUBPROCESSORS: SubprocessorView[] = [
   // Beslut 2026-09-30 (docs/PLAN-ROST.md): Gemini Flash via Google Cloud Vertex AI, EU multi-region. Godkänd av Botkyrka
   // 2026-09-29 (bekräftat av Karim 2026-10-02) – simulerad tills kontot i Google Cloud finns.
   { id: "ai", name: "Google Cloud (Vertex AI)", what: "Transkribering och textutkast (Gemini Flash)", where: "EU multi-region (location eu)", status: "approved_test", us: true },
-  { id: "sms", name: "SMS-leverantör", what: "Påminnelser och pulslänkar", where: "Väljs – helst svensk", status: "not_chosen", us: false },
+  // Beslut 2026-10-09: 46elks (svenskt bolag, data i EU) för SMS och utringning till deltagare. Biträdesavtal krävs innan riktiga
+  // deltagare får SMS, och Botkyrka ska godkänna underbiträdet (docs/DRIFT.md avsnitt 13).
+  { id: "sms", name: "46elks (SMS och utringning)", what: "Kallelser och inbjudningar till deltagare – bara tid, plats och telefonnummer", where: "EU (svenskt bolag)", status: "chosen", us: false },
   // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se. Ska in i
   // PUB-avtalets förteckning över underbiträden och godkännas av Botkyrka.
   { id: "epost", name: "Resend (e-post)", what: "Notiser och inloggningskoder från notis@miljonmatch.se", where: "EU (Irland, eu-west-1)", status: "chosen", us: true },
@@ -41,7 +45,7 @@ const SUBPROCESSORS: SubprocessorView[] = [
 ];
 
 /** Jobbtypen i tabellen jobs för en rad i adminvyn: avrop@ är ett riktigt jobb (inbox_import), övriga simulerade. */
-const JOB_KIND: Record<JobKey, string> = { inbox: "inbox_import", weekly: "weekly", att_remind: "att_remind", progress: "progress", audio: "audio", transcripts: "transcripts", kpi: "kpi", retention: "retention" };
+const JOB_KIND: Record<JobKey, string> = { inbox: "inbox_import", auto_attendance: "auto_attendance", weekly: "weekly", att_remind: "att_remind", progress: "progress", audio: "audio", transcripts: "transcripts", kpi: "kpi", retention: "retention" };
 
 /** Läget för brevlådan ur integrationsraden "graph" (skrivs av jobbet inbox_import – inga hemligheter). */
 type InboxConfig = {
@@ -104,15 +108,45 @@ function regionLock(thirdCountryForbidden: boolean): string[] {
  * webbläsarens kod. vendor = false (begränsade testare): utan raderna som pekar ut underbiträdena – vald leverantör, region,
  * DNS och godkännande. Samma uppgifter står i underbiträdeslistan, som de inte ser.
  */
-function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRunCount: number; vendor: boolean; ai: "off" | "test" | "active" }): IntegrationView[] {
+/** "Kopplad" eller "Inte kopplad" och – för den som får se underbiträdena – vilka variabler som saknas (bara namnen). */
+function phoneItems(st: ChannelState, vendor: boolean): [string, string][] {
+  if (st.connected) return [["Status", "Kopplad"]];
+  return [["Status", "Inte kopplad"], ...(vendor && st.missing.length ? [["Saknas i Vercel", st.missing.join(", ")] as [string, string]] : [])];
+}
+
+/**
+ * SMS och utringning (46elks, beslut 2026-10-09): läget ur ctx.messaging – miljövariablerna på servern, inget kopplat i minnesläget.
+ * vendor = false (begränsade testare): utan leverantörens namn och variablerna (de pekar ut underbiträdet).
+ */
+function phoneCards(m: MessagingStatus, vendor: boolean): IntegrationView[] {
+  const v = (label: string, text: string): [string, string][] => (vendor ? [[label, text]] : []);
+  return [
+    { id: "sms", name: vendor ? "SMS (46elks)" : "SMS", sub: "Kallelser och inbjudningar till deltagare", icon: "message", status: m.sms.connected ? "active" : "off", phase: null,
+      items: [
+        ...phoneItems(m.sms, vendor),
+        ["Innehåll", "Bara tid, plats och telefonnummer – aldrig namn, personnummer eller vad insatsen gäller"],
+        ...v("Avsändare", "Avsändarnamnet i MM_SMS_FROM (standard Miljonbem)"),
+        ...v("Godkännande", "Biträdesavtal med 46elks krävs innan riktiga deltagare får SMS. Botkyrka ska godkänna underbiträdet"),
+        ...v("Anvisning", "docs/DRIFT.md avsnitt 13"),
+      ] },
+    { id: "call", name: vendor ? "Utringning (46elks)" : "Utringning", sub: "Kort inspelat meddelande till deltagare", icon: "phone", status: m.call.connected ? "active" : "off", phase: null,
+      items: [
+        ...phoneItems(m.call, vendor),
+        ["Meddelande", "En inspelning utan personuppgifter som säger att tid och plats står i SMS:et eller mejlet"],
+        ["När", "Dessutom, när kallelsen eller inbjudan gått med SMS eller e-post och deltagaren har ett telefonnummer"],
+        ...v("Anvisning", "docs/DRIFT.md avsnitt 13 och public/ljud/README.md (inspelningen)"),
+      ] },
+  ];
+}
+
+function integrationCards(o: { inbox: InboxView; latestMail: string | null; aiRunCount: number; vendor: boolean; ai: "off" | "test" | "active"; messaging: MessagingStatus }): IntegrationView[] {
   const v = (label: string, text: string): [string, string][] => (o.vendor ? [[label, text]] : []);
   return [
     inboxCard(o.inbox, o.latestMail, o.vendor),
     { id: "entra", name: "Microsoft Entra ID", sub: "Inloggning för Miljonbemanning", icon: "key", status: "active", phase: null, items: [["Inloggning i dag", "E-post och engångskod"], ["Entra ID", "Kan kopplas senare"]] },
     { id: "fortnox", name: "Fortnox", sub: "Fakturor som Peppol BIS Billing 3", icon: "card", status: "off", phase: 2,
       items: [["Reserv i dag", "Export till Excel och PDF, eller Botkyrkas fakturaportal"], ["Öppen fråga", "Ingår Fortnox Integration och e-faktura i Miljonbemannings paket?"], ["Krav", "Omkörning får inte skapa dubbletter. Status synkas tillbaka."]] },
-    { id: "sms", name: "SMS-leverantör", sub: "Påminnelser och pulslänkar", icon: "message", status: "notchosen", phase: null,
-      items: [["Öppen fråga", "Val av SMS-leverantör"], ["Önskemål", "Svensk leverantör med API"], ["Innehåll", "Bara tid, plats och telefonnummer – aldrig personuppgifter"]] },
+    ...phoneCards(o.messaging, o.vendor),
     // SPEC §11 och docs/DRIFT.md avsnitt 4: Resend skickar notiser och inloggningskoder från notis@miljonmatch.se.
     { id: "email", name: "E-postleverantör", sub: "Notiser och inloggningskoder", icon: "mail", status: "chosen", phase: null,
       items: [
@@ -148,8 +182,9 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
     activities: { caseId: { in: ids } }, attendance: { caseId: { in: ids } }, check_ins: { caseId: { in: ids } }, reports: { contractId: main.id }, memberships: { contractId: main.id },
   });
   const all = { ...db, cases };
-  const [audioDel, manual, graphRow] = await Promise.all([
+  const [audioDel, manual, graphRow, autoRuns] = await Promise.all([
     ctx.repo.table("audit_log").list({ action: "audio.deleted" }), ctx.repo.table("jobs").list({}, { orderBy: "createdAt" }), ctx.repo.table("integrations").get("graph"),
+    ctx.repo.table("audit_log").list({ action: "attendance.auto_registered", contractId: main.id }, { orderBy: "occurredAt", desc: true, limit: 1 }),
   ]);
 
   const lastWeek = isoWeek(addDays(monday(today), -7)).key;
@@ -183,8 +218,17 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
       : s && s.seen ? `${plural(s.imported ?? 0, "mejl inläst", "mejl inlästa")} vid senaste körningen${s.cases ? `, ${plural(s.cases, "ärende", "ärenden")}` : ""}${s.toRegister ? `, ${s.toRegister} att registrera för hand` : ""}` : "Inga nya mejl vid senaste körningen";
     return J("inbox", "Varannan minut", inbox.readAt, inbox.cfg.lastError ? "failed" : "ok", result);
   };
+  // Automatisk närvaro (Karims beslut 1, 2026-10-09): klockslaget ur organisationens inställningar och senaste körningens antal.
+  const auto = autoAttendanceOf(settings);
+  const lastAuto = autoRuns[0] ?? null;
+  const lastAutoCount = Number((lastAuto?.details as { count?: unknown } | undefined)?.count ?? 0);
+  const autoRow = (): JobRow => auto.autoPresent
+    ? J("auto_attendance", `Dagligen ${auto.autoPresentAt.replace(":", ".")} – passerade tillfällen utan närvaro registreras som Närvarande. Frånvaro registrerar coachen.`, lastAuto?.occurredAt ?? null, "ok",
+      lastAuto ? `${plural(lastAutoCount, "tillfälle", "tillfällen")} registrerade automatiskt vid senaste körningen` : "Inte körd än")
+    : J("auto_attendance", "Avstängd i organisationens inställningar", lastAuto?.occurredAt ?? null, "disabled", "Närvaron registreras bara för hand", { disabled: true });
   const jobs: JobRow[] = [
     inboxRow(),
+    autoRow(),
     J("weekly", `Måndag, när närvaron är komplett${pub ? ` – senast ${pub} enligt avtalet` : ""}`, `${today}T07:00`, waiting.length ? "waiting" : "ok",
       `${weekly.length - waiting.length} publicerade, ${waiting.length} väntar på närvaro (${fmtWeekKey(lastWeek)})`),
     J("att_remind", "Fredag 14.00 och måndag 08.00", `${today}T08:00`, "ok", `${plural(coachesMissing, "coach", "coacher")} påmind${coachesMissing === 1 ? "" : "a"} om förra veckan`),
@@ -210,7 +254,9 @@ handleQuery(adminIntegrations, { roles: ["admin"] }, async (ctx) => {
             returnDataWithinDays: env.cfg.termination.returnDataWithinDays,
           },
         }),
-    integrations: integrationCards({ inbox, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide, ai: !ctx.ai ? "off" : ctx.ai.provider === SIMULATED_PROVIDER ? "test" : "active" }),
+    integrations: integrationCards({
+      inbox, latestMail, aiRunCount: db.ai_runs.length, vendor: !hide, ai: !ctx.ai ? "off" : ctx.ai.provider === SIMULATED_PROVIDER ? "test" : "active", messaging: messagingOf(ctx),
+    }),
     storage: { place: "Stockholm", ...(hide ? {} : { detail: "Supabase eu-north-1 · Vercel arn1" }) },
     latestMail,
     inboxReadAt: inbox.readAt,
@@ -228,10 +274,17 @@ handleCommand(adminRunJob, { roles: ["admin"] }, async (ctx, p) => {
     const cfg = (graph?.config ?? {}) as InboxConfig;
     if (cfg.configured === false) return fail("disabled", "Brevlådan är inte kopplad – se kortet avrop@-brevlådan.");
   }
+  if (p.key === "auto_attendance") {
+    const { settings } = await orgRow(ctx, main.supplierId);
+    if (!autoAttendanceOf(settings).autoPresent) return fail("disabled", "Automatisk närvaro är avstängd i organisationens inställningar.");
+  }
   const now = ctx.now();
   // avrop@ (beslut 4c): ett riktigt jobb (inbox_import) som jobbkörningen tar direkt (after()) eller inom en minut (cron).
-  // I minnesläget och prototypen finns ingen jobbkörning – jobbet markeras klart direkt (simulerat). Övriga jobb är simulerade.
-  const real = p.key === "inbox" && !!ctx.jobs;
+  // Automatisk närvaro (beslut 2026-10-09): ett riktigt jobb (auto_attendance, payload.manual – utan golv) i supabase-läget.
+  // I minnesläget och prototypen finns ingen jobbkörning – avrop@ markeras klart direkt (simulerat) och den automatiska
+  // närvaron registreras direkt med samma funktion som jobbet. Övriga jobb är simulerade.
+  const real = (p.key === "inbox" || p.key === "auto_attendance") && !!ctx.jobs;
+  if (p.key === "auto_attendance" && !real) await runAutoAttendance(ctx, { manual: true });
   const job: Job = {
     id: ctx.newId("job"), kind: JOB_KIND[p.key], payload: { manual: true }, status: real ? "queued" : "done", attempts: real ? 0 : 1, runAfter: now, lastError: null, createdAt: now,
     createdBy: ctx.actor.userId, finishedAt: real ? null : now,
@@ -239,5 +292,5 @@ handleCommand(adminRunJob, { roles: ["admin"] }, async (ctx, p) => {
   await ctx.repo.table("jobs").insert(job);
   if (real) ctx.jobs?.schedule();
   await ctx.audit({ action: "job.run_manual", entity: "job", entityId: p.key, contractId: null, details: {} });
-  return ok({});
+  return ok({ queued: real });
 });

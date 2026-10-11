@@ -14,6 +14,7 @@ import { detailText, type AuditLookups } from "./audit-text";
 import { findUnset } from "./contract-text";
 import { fillExample, templateCheck } from "./templates";
 import { linkMessageText } from "@/features/rost/texts";
+import { participantMessage } from "@/features/_shared/participant-notify";
 import { testRuntime } from "./test-runtime";
 
 let rt: ReturnType<typeof testRuntime>;
@@ -137,10 +138,13 @@ describe("användare och roller", () => {
     // Kommunens chef (Eva Bergström, enheten Arbetsmarknadsenheten) är borttagen (beslut 2026-10-07): 4 användare i 3 enheter.
     expect(d.kpis).toEqual({ mbActive: 13, customerActive: 4, unitCount: 3, loggedIn30: 1, invited: 0 });
     expect(d.mb?.map((u) => u.name)).toEqual([
-      "Robin Åberg", "Johan Berg", "Sara Lindqvist", "Amira Haddad", "Erik Sjöberg", "Leila Nouri", "Mats Holm", "Sofia Grahn", "David Olsson", "Hanna Strand", "Petra Ek",
-      "Karin Wallin", "Lars Nyström",
+      "Robin Åberg", "Johan Berg", "Sara Lindqvist", "Amira Haddad", "David Olsson", "Erik Sjöberg", "Hanna Strand", "Leila Nouri", "Mats Holm", "Petra Ek",
+      "Sofia Grahn", "Karin Wallin", "Lars Nyström",
     ]);
-    expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roleLabel: "Handledare", teamRoleLabel: "Yrkesspecifik handledare" });
+    // Rollen handledare är borttagen (Karims beslut 2026-10-09): de tre som hade den är coacher; ingen rad visar rollen.
+    expect(d.mb?.find((u) => u.id === "u-petra")).toMatchObject({ roles: ["coach"], roleLabel: "Huvudcoach", teamRoleLabel: null });
+    expect(d.mb?.find((u) => u.id === "u-david")).toMatchObject({ roles: ["coach"], teamRoleLabel: "Arbetsgivarmatchare" });
+    expect(JSON.stringify(d.mb)).not.toMatch(/handledare/i);
     // Bara handläggare – ingen rollkolumn och ingen beställarreferens i listan.
     expect(d.customers.map((u) => [u.name, u.unit, u.selfRegistered])).toEqual([
       ["Ahmed Yusuf", "Arbetsmarknadsenheten Tumba", false],
@@ -207,7 +211,7 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
   });
 
   it("lägg till kollega: namn, adress på personalens domän, unik adress, minst en roll – mejlet utan personuppgifter, loggen med roller och domän", async () => {
-    const base = { name: "Nour Testsson", email: "nour.testsson@miljonbemanning.se", roles: ["coach" as const, "handledare" as const], title: "Jobbcoach" };
+    const base = { name: "Nour Testsson", email: "nour.testsson@miljonbemanning.se", roles: ["coach" as const, "samordnare" as const], title: "Jobbcoach" };
     expect(await rt.command(adminInviteStaff, { ...base, name: "  " }, robin())).toMatchObject({ ok: false, error: "name" });
     expect(await rt.command(adminInviteStaff, { ...base, email: "nour" }, robin())).toMatchObject({ ok: false, error: "email" });
     expect(await rt.command(adminInviteStaff, { ...base, email: "nour.testsson@gmail.com" }, robin())).toMatchObject({ ok: false, error: "domain" });
@@ -215,6 +219,9 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
     // zod stoppar en tom rollista (min 1) och okända roller.
     await expect(rt.command(adminInviteStaff, { ...base, roles: [] }, robin())).rejects.toMatchObject({ status: 400 });
     await expect(rt.command(adminInviteStaff, { ...base, roles: ["kommun_handlaggare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    // Rollen handledare är vilande (Karims beslut 2026-10-09): ingen kan få den – zod nekar den som en okänd roll.
+    await expect(rt.command(adminInviteStaff, { ...base, roles: ["handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    await expect(rt.command(adminInviteStaff, { ...base, roles: ["coach", "handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
     // Bara systemadministratören.
     await forbidden(rt.command(adminInviteStaff, base, johan()));
     const n = rt.rows("profiles").length;
@@ -227,15 +234,15 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
       invitedAt: "2027-02-01T09:13", invitedBy: "u-robin",
     });
     expect(rt.rows("memberships").filter((m) => m.userId === id).map((m) => [m.id, m.role, m.contractId])).toEqual([
-      [`${id}:c-bot:coach`, "coach", "c-bot"], [`${id}:c-bot:handledare`, "handledare", "c-bot"],
+      [`${id}:c-bot:samordnare`, "samordnare", "c-bot"], [`${id}:c-bot:coach`, "coach", "c-bot"],
     ]);
     const mail = rt.rows("outbound_messages").find((m) => m.template === "inbjudan_personal");
     expect(mail).toMatchObject({ to: "nour.testsson@miljonbemanning.se", caseId: null });
     expect(mail?.body).not.toMatch(/Nour|Testsson|Jobbcoach/);
-    expect(rt.rows("audit_log").find((a) => a.action === "staff_user.added")).toMatchObject({ entity: "profile", entityId: id, contractId: "c-bot", details: { roles: ["coach", "handledare"], domain: "miljonbemanning.se" } });
+    expect(rt.rows("audit_log").find((a) => a.action === "staff_user.added")).toMatchObject({ entity: "profile", entityId: id, contractId: "c-bot", details: { roles: ["samordnare", "coach"], domain: "miljonbemanning.se" } });
     expect(JSON.stringify(rt.rows("audit_log").find((a) => a.action === "staff_user.added")!.details)).not.toMatch(/Nour|nour\./);
     const d = await rt.query(adminUsers, {}, robin());
-    expect(d.mb!.find((u) => u.id === id)).toMatchObject({ roles: ["coach", "handledare"], roleLabel: "Huvudcoach, Handledare", isAdmin: false, title: "Jobbcoach" });
+    expect(d.mb!.find((u) => u.id === id)).toMatchObject({ roles: ["samordnare", "coach"], roleLabel: "Samordnare, Huvudcoach", isAdmin: false, title: "Jobbcoach" });
     // Titeln är valfri.
     const r2 = await rt.command(adminInviteStaff, { name: "Ali Testsson", email: "ali.testsson@miljonbemanning.se", roles: ["ekonom"] }, robin());
     expect(r2.ok).toBe(true);
@@ -255,6 +262,11 @@ describe("kollegorna: lägg till, ändra roller, spärra (beslut 2026-10-08)", (
     // Den inloggade kan inte ta bort sin egen adminroll – men lägga till en.
     expect(await rt.command(adminSetStaffRoles, { userId: "u-robin", roles: ["chef"] }, robin())).toMatchObject({ ok: false, error: "self" });
     expect(await rt.command(adminSetStaffRoles, { userId: "u-robin", roles: ["chef", "admin"] }, robin())).toEqual({ ok: true, changed: true });
+    // Rollen handledare kan ingen få (vilande, beslut 2026-10-09) – zod nekar den och inget ändras.
+    const before = rt.rows("memberships").filter((m) => m.userId === "u-amira").map((m) => m.role);
+    await expect(rt.command(adminSetStaffRoles, { userId: "u-amira", roles: ["handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    await expect(rt.command(adminSetStaffRoles, { userId: "u-amira", roles: ["coach", "handledare"] } as never, robin())).rejects.toMatchObject({ status: 400 });
+    expect(rt.rows("memberships").filter((m) => m.userId === "u-amira").map((m) => m.role)).toEqual(before);
     // Kommunens användare och okända id:n nås inte här.
     expect(await rt.command(adminSetStaffRoles, { userId: "k-maria", roles: ["coach"] }, robin())).toMatchObject({ ok: false, error: "not_found" });
     await forbidden(rt.command(adminSetStaffRoles, { userId: "u-amira", roles: ["coach"] }, karin()));
@@ -295,6 +307,8 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
     expect(d.integrations[0]).toMatchObject({ id: "graph", status: "test" });
     expect(d.jobs.map((j) => [j.key, j.last, j.status, j.result])).toEqual([
       ["inbox", "2027-02-01T09:10", "ok", "Senaste mejl kom 1 feb kl. 08.41"],
+      // Automatisk närvaro (beslut 2026-10-09): inte körd än i testdatat.
+      ["auto_attendance", null, "ok", "Inte körd än"],
       ["weekly", "2027-02-01T07:00", "waiting", "2 publicerade, 2 väntar på närvaro (v. 4 2027)"],
       ["att_remind", "2027-02-01T08:00", "ok", "1 coach påmind om förra veckan"],
       ["progress", "2027-02-01T08:00", "ok", "17 påminnelser till coacher, 3 eskaleringar till chef"],
@@ -303,17 +317,37 @@ describe("underbiträden, integrationer och bakgrundsjobb", () => {
       ["kpi", "2027-02-01T06:00", "ok", "Resultatgrad 33,9 % (rullande 6 månader, 43 av 127)"],
       ["retention", null, "disabled", "Gallringsregeln är inte fastställd med kommunen ännu – jobbet raderar ingenting"],
     ]);
-    expect(d.jobs[1].schedule).toBe("Måndag, när närvaron är komplett – senast 16.00 enligt avtalet");
+    expect(d.jobs[1].schedule).toBe("Dagligen 18.00 – passerade tillfällen utan närvaro registreras som Närvarande. Frånvaro registrerar coachen.");
+    expect(d.jobs[2].schedule).toBe("Måndag, när närvaron är komplett – senast 16.00 enligt avtalet");
   });
 
   it("\"Kör nu\" sparas i jobs och loggas; gallringen kan inte köras", async () => {
-    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true });
+    expect(await rt.command(adminRunJob, { key: "inbox" }, robin())).toEqual({ ok: true, queued: false });
     // Beslut 4c: avrop@ är ett riktigt jobb (inbox_import). Utan jobbkörning (minnesläget) markeras det klart direkt.
     expect(rt.rows("jobs")).toMatchObject([{ kind: "inbox_import", status: "done", payload: { manual: true }, createdBy: "u-robin", createdAt: "2027-02-01T09:13" }]);
     expect(rt.rows("audit_log").find((a) => a.action === "job.run_manual")).toMatchObject({ entity: "job", entityId: "inbox" });
     const d = await rt.query(adminIntegrations, {}, robin());
     expect(d.jobs[0]).toMatchObject({ last: "2027-02-01T09:13", manual: true, manualBy: "dig" });
     expect(await rt.command(adminRunJob, { key: "retention" }, robin())).toMatchObject({ ok: false, error: "disabled" });
+  });
+
+  it("SMS och utringning (46elks, beslut 2026-10-09): Inte kopplad i testmiljön med variablerna som saknas – bara namnen; Kopplad när läget säger det", async () => {
+    const d = await rt.query(adminIntegrations, {}, robin());
+    const card = (id: string) => d.integrations.find((x) => x.id === id)!;
+    expect(card("sms")).toMatchObject({ name: "SMS (46elks)", status: "off", icon: "message" });
+    expect(card("sms").items).toEqual(expect.arrayContaining([["Status", "Inte kopplad"], ["Saknas i Vercel", "MM_SMS_PROVIDER, ELKS_API_USERNAME, ELKS_API_PASSWORD"]]));
+    expect(card("call")).toMatchObject({ name: "Utringning (46elks)", status: "off", icon: "phone" });
+    expect(card("call").items).toEqual(expect.arrayContaining([["Status", "Inte kopplad"], ["Saknas i Vercel", "ELKS_API_USERNAME, ELKS_API_PASSWORD, MM_CALL_FROM, MM_CALL_AUDIO_URL"]]));
+    // Underbiträdet: 46elks är valt och väntar på kommunens godkännande.
+    expect(d.dataProtection?.subprocessors.find((x) => x.id === "sms")).toMatchObject({ name: "46elks (SMS och utringning)", status: "chosen", us: false });
+    // Kopplat (supabase-läget med variablerna): inga variabler visas.
+    const on = testRuntime(undefined, { messaging: { sms: { connected: true, missing: [] }, call: { connected: false, missing: ["MM_CALL_AUDIO_URL (ska börja med https://)"] } } });
+    const k = await on.query(adminIntegrations, {}, on.as("u-robin", "admin"));
+    const kc = (id: string) => k.integrations.find((x) => x.id === id)!;
+    expect(kc("sms")).toMatchObject({ status: "active" });
+    expect(kc("sms").items[0]).toEqual(["Status", "Kopplad"]);
+    expect(kc("sms").items.map(([l]) => l)).not.toContain("Saknas i Vercel");
+    expect(kc("call").items).toEqual(expect.arrayContaining([["Status", "Inte kopplad"], ["Saknas i Vercel", "MM_CALL_AUDIO_URL (ska börja med https://)"]]));
   });
 
   it("avrop@-brevlådan: inte kopplad visar stegen och stänger Kör nu; kopplad visar senaste läsning och fel (beslut 4c)", async () => {
@@ -343,7 +377,7 @@ describe("mallar och utskick", () => {
   it("mallkatalogen med texterna som skickas och tidsgränser från avtalet", async () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.canEdit).toBe(true);
-    expect(d.templates).toHaveLength(21);
+    expect(d.templates).toHaveLength(24);
     const t = (key: string) => d.templates.find((x) => x.key === key)!;
     // Inloggningskoden (beslut 2026-10-02): e-post från appen, fast text, ingen länk – bara {kod} (fylls i av servern).
     expect(t("inloggningskod")).toMatchObject({ name: "Inloggningskod", channel: "email", alsoVia: [], from: "notis@miljonmatch.se", subject: "Din inloggningskod till Miljonmatch", fixed: true, version: 1 });
@@ -365,6 +399,17 @@ describe("mallar och utskick", () => {
     expect(t("generisk_mottagningsbekraftelse_portal").when).toBe("Används inte sedan 2026-10-07");
     expect(rt.rows("outbound_messages").some((m) => m.template === "generisk_mottagningsbekraftelse")).toBe(false);
     for (const k of ["kallelse", "pulslank"]) expect(`${t(k).to} ${t(k).when}`, k).not.toMatch(/skyddade personuppgifter/i);
+    // Kallelsen och inbjudan till aktivitet (beslut 2026-10-09): e-post, SMS och utringning – bara tid, plats och telefonnummer.
+    expect(t("kallelse")).toMatchObject({ channel: "sms", alsoVia: ["email", "call", "brev"] });
+    expect(t("aktivitetsinbjudan")).toMatchObject({ name: "Inbjudan till aktivitet", channel: "sms", alsoVia: ["email", "call"], subject: "Inbjudan till aktivitet hos Miljonbemanning" });
+    expect(t("aktivitetsinbjudan").body).toBe("Hej! Du är inbjuden till en aktivitet hos Miljonbemanning {datum} kl. {tid}, {plats}. Frågor? Ring {telefon}.");
+    expect(templateCheck(t("aktivitetsinbjudan").body)).toMatchObject({ ok: true, unknown: [] });
+    // Ändrad tid och inställd aktivitet (spår G): e-post och SMS, ingen utringning – samma text som participantMessage.
+    expect(t("aktivitet_andrad")).toMatchObject({ name: "Ändrad aktivitet", channel: "sms", alsoVia: ["email"], subject: "Ändrad aktivitet hos Miljonbemanning" });
+    expect(t("aktivitet_installd")).toMatchObject({ name: "Inställd aktivitet", channel: "sms", alsoVia: ["email"], subject: "Inställd aktivitet hos Miljonbemanning" });
+    for (const k of ["aktivitet_andrad", "aktivitet_installd"]) expect(templateCheck(t(k).body), k).toMatchObject({ ok: true, unknown: [] });
+    expect(fillExample(t("aktivitet_andrad").body)).toBe(participantMessage("aktivitet_andrad", "2027-02-03T10:00", "Alby", "2027-02-02T13:00"));
+    expect(fillExample(t("aktivitet_installd").body)).toBe(participantMessage("aktivitet_installd", "2027-02-03T10:00", "Alby"));
     expect(d.sendLog.map((n) => n.templateLabel)).toEqual([
       "Ordererkännande", "Pulslänk", "Ny rapport", "Mötespåminnelse", "Ordererkännande", "Nytt meddelande", "Ordererkännande",
     ]);
@@ -382,7 +427,7 @@ describe("mallar och utskick", () => {
     const d = await rt.query(adminTemplates, {}, robin());
     expect(d.sendLog[0]).toEqual({
       id: "out-kod-1", at: "2027-02-01T09:20", channel: "email", to: "karim.khalil@miljonbemanning.se", templateLabel: "Inloggningskod", caseNumber: null,
-      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false, status: "sent",
+      body: "Inloggningskod skickad (••••••). Koden sparas aldrig.", byTester: false, leak: false, status: "sent", reason: null,
     });
   });
 
@@ -394,7 +439,7 @@ describe("mallar och utskick", () => {
       statusReason: "provider_error", providerMessageId: null,
     });
     const d = await rt.query(adminTemplates, {}, robin());
-    expect(d.sendLog.filter((n) => n.status === "failed").map((n) => [n.id, n.caseNumber, n.channel])).toEqual([["out-fel-1", "BOT-26-0143", "email"]]);
+    expect(d.sendLog.filter((n) => n.status === "failed").map((n) => [n.id, n.caseNumber, n.channel, n.reason])).toEqual([["out-fel-1", "BOT-26-0143", "email", "provider_error"]]);
     // Samordnaren läser utskicksloggen som förut och ser samma läge.
     expect((await rt.query(adminTemplates, {}, sara())).sendLog.find((n) => n.id === "out-fel-1")?.status).toBe("failed");
   });

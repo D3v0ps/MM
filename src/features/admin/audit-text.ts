@@ -15,6 +15,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
   "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.closed": "Avslutade ärende",
+  "person.contact_changed": "Ändrade kontaktväg",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
   "check_in.saved": "Sparade avstämning", "check_in.approved": "Godkände avstämning", "deviation.created": "Skapade avvikelse", "deviation.saved": "Sparade avvikelse", "deviation.customer_called": "Kallade kommunen till uppföljning",
@@ -31,7 +32,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning",
   // Fakturan per avtal och månad (beslut 2026-10-07): ekonomen fyller i kommunens referens och inköpsordernummer per faktura.
   "billing.buyer_reference_set": "Fyllde i beställarreferens på faktura", "billing.purchase_order_set": "Fyllde i inköpsordernummer på faktura",
-  "task.created": "Skapade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
+  "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",
   "contract_deviation.action_plan_approved": "Åtgärdsplanen godkänd av kommunen", "contract_deviation.closed": "Stängde avtalsavvikelse", "report.quality_reviewed": "Kvalitetsgranskade rapport", "report.final_text_saved": "Sparade slutrapportens text",
   "report.summary_saved": "Sparade sammanfattning i rapport", "report.correction_reason": "Angav orsak till rättelse", view: "Visade",
   "report.downloaded": "Laddade ner rapport", "report.created": "Skapade rapportutkast",
@@ -58,6 +59,16 @@ export const ACTION_LABEL: Record<string, string> = {
   "role.switched": "Bytte roll", "contract.manager_changed": "Bytte avtalsansvarig",
   // Beslut 4 (2026-10-08): beställningar registrerade i inkorgen (mejl, telefon eller annan väg). Loggen har id:n och kanal.
   "email.registered": "Registrerade beställning i inkorgen",
+  // Coachmötet 2026-10-09: gruppaktiviteter och automatisk närvaro. Loggen har id:n, antal och tider – aldrig namn.
+  "attendance.auto_registered": "Registrerade närvaro automatiskt", "group_activity.created": "Skapade gruppaktivitet", "group_activity.updated": "Ändrade gruppaktivitet",
+  "group_activity.invited": "Bjöd in deltagare till gruppaktivitet", "group_activity.removed_participant": "Tog bort deltagare ur gruppaktivitet",
+  "group_activity.cancelled": "Ställde in gruppaktivitet", "group_activity.view": "Visade aktivitetsvyn",
+  // Spår G: meddelandet till deltagarna (mallen, ärendena och antalen – aldrig adresser) och gruppmålet (ärendet och valet – aldrig målets text).
+  "group_activity.notified": "Skickade meddelande om gruppaktivitet till deltagare", "group_goal.marked": "Markerade gruppmål för deltagare",
+  // Nivåer, grupper och taggar (coachmötet 2026-10-09, internt). Loggen har id:n och typ – aldrig namnen.
+  "grouping.created": "Skapade grupp eller tagg", "grouping.updated": "Bytte namn på nivå, grupp eller tagg", "grouping.archived": "Arkiverade grupp eller tagg",
+  "grouping.restored": "Återställde grupp eller tagg", "grouping.defaults_added": "Lade in standardnivåerna",
+  "grouping_member.added": "Placerade deltagare i nivå, grupp eller tagg", "grouping_member.removed": "Tog bort deltagare ur nivå, grupp eller tagg",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -67,7 +78,8 @@ export const ENTITY_LABEL: Record<string, string> = {
   attendance: "Närvaro", check_in: "Avstämning", deviation: "Avvikelse", monthly_assessment: "Månadsbedömning", intake_assessment: "Kartläggning", outcome_event: "Händelse", alert: "Flagga",
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
-  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura",
+  saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
+  grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -91,6 +103,12 @@ const DETAIL_KEY: Record<string, string> = {
   mimeType: "Filtyp", bytes: "Storlek", attachmentId: "Bilaga", attachmentIds: "Bilagor", how: "Hur", approvedOn: "Godkänd",
   // Första mötet (beslut 7, 2026-10-08): ombokning räknar om slutdatumet och ger en ny orderbekräftelse.
   rebooked: "Ombokat", plannedEnd: "Planerat slut", plannedWeeks: "Planerade veckor",
+  // Gruppaktiviteter och automatisk närvaro (coachmötet 2026-10-09).
+  groupActivityId: "Gruppaktivitet", days: "Dagar", dayEndsAt: "Dagens slut", manual: "Körd manuellt", wasAuto: "Var automatiskt registrerad", startsAt: "Tid", durationMin: "Längd (minuter)",
+  invited: "Inbjudna", removed: "Borttagna tillfällen", holiday: "Helgdag",
+  // Spår G: inbjudan per grupp eller nivå, meddelandet till deltagarna och gruppmålet.
+  groupingIds: "Nivåer och grupper", skippedCaseIds: "Hoppades över", sent: "Skickat till", tasks: "Uppgifter att ringa", superseded: "Gällde en ändrad aktivitet",
+  goal: "Gruppmål", achieved: "Klarade målet",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -101,7 +119,13 @@ const FIELD_WORD: Record<string, string> = {
   area: "avtalsområde", unit: "enhet", contactName: "kontaktperson", contactPhone: "telefon", contactEmail: "e-post", person: "deltagare",
   primaryAreaCode: "avtalsområde", secondaryAreaCode: "andra avtalsområde", referrerUnit: "beställarens enhet", events: "händelser", weeks: "veckor",
   endReason: "avslutsorsak", resultClass: "resultatklass", resultVerified: "verifiering", resultVerifiedAt: "verifieringsdatum", caseNumber: "ärendenummer",
+  // Ändra kontaktväg på deltagarkortet (person.contact_changed, coachmötet 2026-10-09): fälten hos personen.
+  preferredContact: "kontaktväg", phone: "telefon", email: "e-post", address: "adress",
+  // Ändrad gruppaktivitet (group_activity.updated, fields) – samma ord som kortets Historik.
+  name: "namn", startsAt: "tid", durationMin: "längd", responsibleId: "ansvarig", goal: "gruppmål",
 };
+/** Ett fältnamn i loggen som läsbar svenska ("preferredContact" → "kontaktväg"). Okända namn visas som de är. */
+export const fieldWord = (code: string): string => FIELD_WORD[code] ?? code;
 const WINDOW: Record<string, string> = { rolling_6m: "rullande 6 månader", since_start: "sedan avtalsstart", month: "per månad", rolling_3m: "rullande 3 månader" };
 const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   parseMethod: { template: "Word-mall", ai: "AI", manual: "manuellt", freetext: "fritext" },
@@ -110,6 +134,7 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
+  via: { grupp: "grupp", niva: "nivå", enskilda: "enskilda deltagare" },
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
@@ -204,6 +229,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
 const COUNTED: Record<string, [string, string]> = {
   columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"], measures: ["mått", "mått"],
   activityIds: ["tillfälle", "tillfällen"], attendanceIds: ["närvaropost", "närvaroposter"], skippedActivityIds: ["tillfälle", "tillfällen"], caseIds: ["ärende", "ärenden"],
+  skippedCaseIds: ["ärende", "ärenden"], groupingIds: ["nivå eller grupp", "nivåer eller grupper"],
 };
 
 /**
@@ -259,11 +285,11 @@ export function ruleDiffText(a: RuleSnapshot, b: RuleSnapshot): string {
 
 // ---------------------------------------------------------------- Bakgrundsjobb
 export const JOB_NAME: Record<string, string> = {
-  inbox: "Läs avrop@-inkorgen", weekly: "Publicera veckorapporter", att_remind: "Påminnelser om närvaroregistrering", progress: "Progressionspåminnelser",
+  inbox: "Läs avrop@-inkorgen", auto_attendance: "Registrera närvaro automatiskt", weekly: "Publicera veckorapporter", att_remind: "Påminnelser om närvaroregistrering", progress: "Progressionspåminnelser",
   audio: "Radera ljud efter transkribering", transcripts: "Radera råtranskript", kpi: "Beräkna nyckeltal", retention: "Gallring enligt PUB-avtalet",
 };
-export const JOB_KEYS = ["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"] as const;
+export const JOB_KEYS = ["inbox", "auto_attendance", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"] as const;
 export type JobKey = (typeof JOB_KEYS)[number];
 
 /** Visningar och exporter som chef/controller stickprovar i första hand (SPEC §10). */
-export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed"] as const;
+export const VIEW_ACTIONS = ["case.view", "pnr.revealed", "report.view", "transcript.view", "saved_report.viewed", "group_activity.view"] as const;

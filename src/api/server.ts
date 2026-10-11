@@ -7,19 +7,29 @@ import type { AiPort } from "@/features/_shared/ai-port";
 import type { AttachmentPort } from "@/features/_shared/attachment-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
 import type { FortnoxPort } from "@/features/_shared/fortnox-port";
+import type { MessagingStatus } from "@/features/_shared/messaging-port";
 import type { CommandDef, QueryDef } from "./contract";
 import type { Actor, Role } from "./roles";
 import { hidesCommercial, testerRoleBlocks, TESTER_HIDDEN_CODE, TESTER_HIDDEN_PAGE } from "./tester-access";
 
 /** Utskick (e-post/SMS/notis i appen). Innehåller aldrig personuppgifter – bara ärendenummer och länk. */
 export type OutgoingMessage = {
-  /** Brev används för kallelser när deltagaren vill ha post (fullständig adress lagras bara då). */
-  channel: "email" | "sms" | "letter";
+  /**
+   * Brev används för kallelser när deltagaren vill ha post (fullständig adress lagras bara då). call = utringning med en kort
+   * inspelning utan personuppgifter (46elks, beslut 2026-10-09) – bara via notifyParticipant (src/features/_shared/participant-notify.ts).
+   */
+  channel: "email" | "sms" | "letter" | "call";
   to: string;
   template: string;
   subject?: string;
   body: string;
   caseId?: string | null;
+  /**
+   * Bara utskick till deltagare (notifyParticipant): mötets eller aktivitetens tid och plats. Servern sparar dem i jobbets payload,
+   * så att jobbet kan ge samordnaren uppgiften att ringa om utskicket stoppas eller misslyckas när det skickas
+   * (participantSendStopped). Aldrig adresser, nummer eller namn.
+   */
+  invitation?: { when: LocalDateTime; place: string };
 };
 export type AuditEntry = {
   action: string;
@@ -83,6 +93,11 @@ export type Ctx = {
    * ekonomi.reissue med fortnox_off utan att ändra något, knapparna döljs och fakturan markeras som manuellt fakturerad.
    */
   fortnox?: FortnoxPort;
+  /**
+   * SMS och utringning (46elks, src/features/_shared/messaging-port.ts): kopplad eller inte, och vilka variabler som saknas.
+   * Saknas = inget kopplat (minnesläget och prototypen). Supabase-läget: räknas fram ur miljövariablerna på servern.
+   */
+  messaging?: MessagingStatus;
   /** Jobbkön (src/server/jobs, röstjobben i src/features/_shared/voice-jobs.ts). Saknas i minnesläget och prototypen. */
   jobs?: JobKick;
   /**

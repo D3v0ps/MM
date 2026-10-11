@@ -52,6 +52,9 @@ export type PPulseInvite = Omit<PulseInvite, "tokenHash"> & { demo?: boolean };
 export type PAiRun = Pick<AiRun, "id" | "caseId" | "kind" | "provider" | "model" | "status" | "createdAt" | "costOre" | "latencyMs"> & Partial<Pick<AiRun, "audioSeconds" | "inputDeletedAt">>;
 export type PTask = Pick<Task, "id" | "toRole" | "fromId" | "createdAt" | "status" | "text"> & Partial<Pick<Task, "caseIds" | "emailId">>;
 export type PConsent = Omit<Consent, "declinedAt"> & { declinedAt?: string | null };
+/** Tillfälle och närvaro som i prototypen: gruppaktiviteten och närvarons källa (0030) läggs till i map.ts. */
+export type PActivity = Omit<Activity, "groupActivityId">;
+export type PAttendance = Omit<Attendance, "source">;
 export type PCheckIn = Omit<CheckIn, "ai" | "version"> & { ai?: CheckIn["ai"]; tags?: string[] };
 export type POutcomeEvent = Omit<OutcomeEvent, "possibleBonus"> & { possibleBonus?: boolean };
 export type PBillingRun = { id: string; month: string; status: "draft" | "closed"; createdBy: string; createdAt: string };
@@ -60,7 +63,7 @@ export type ProtoState = {
   seq: number;
   users: PUser[]; customerUsers: PUser[]; buyerReferences: PBuyerRef[]; persons: PPerson[]; cases: PCase[];
   caseCounters: Record<string, number>; caseStatusHistory: (Omit<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt"> & Partial<Pick<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt">>)[];
-  inboundEmails: PEmail[]; intakeAssessments: Omit<IntakeAssessment, "version">[]; activities: Activity[]; attendance: Attendance[]; checkIns: PCheckIn[];
+  inboundEmails: PEmail[]; intakeAssessments: Omit<IntakeAssessment, "version">[]; activities: PActivity[]; attendance: PAttendance[]; checkIns: PCheckIn[];
   monthlyAssessments: Omit<MonthlyAssessment, "version">[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
   contractDeviations: PContractDeviation[]; employers: { id: string; name: string; orgNr: string; contactName: string; phone: string; email: string; areas: string[] }[];
   placements: Placement[]; reports: PReport[]; pulseInvites: PPulseInvite[]; pulseResponses: PulseResponse[]; messages: Omit<Message, "kind">[];
@@ -89,8 +92,8 @@ export type Gen = {
   /** Uppslag för snabbare körning (samma resultat som prototypens find/filter). */
   idx: {
     personById: Map<string, PPerson>;
-    attendanceByActivity: Map<string, Attendance>;
-    activitiesByCase: Map<string, Activity[]>;
+    attendanceByActivity: Map<string, PAttendance>;
+    activitiesByCase: Map<string, PActivity[]>;
     checkInsByCase: Map<string, PCheckIn[]>;
   };
 };

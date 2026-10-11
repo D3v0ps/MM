@@ -16,22 +16,22 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 - Vercel: `vercel.json` ska innehålla `"regions": ["arn1"]`. Vercels standardregion är iad1 (USA) och får inte användas.
 - All serverlogik som rör personuppgifter körs i Next.js på Vercel (arn1). Använd inte Supabase Edge Functions för persondata – de körs som standard i regionen närmast anroparen.
 - Undvik Vercel-specifika lagringstjänster för persondata (t.ex. Blob och Edge Config). Appen ska kunna flyttas till annan drift utan omskrivning.
-- PDF: `@react-pdf/renderer`. E-post och SMS: bara via `lib/notify/`. AI: bara via adaptern `lib/ai/` (SPEC §8) – anropa aldrig en AI-leverantör direkt från en feature. Aldrig Gemini via AI Studio-nyckel eller global endpoint.
+- PDF: `@react-pdf/renderer`. E-post, SMS och utringning: bara via `lib/notify/` (i koden `src/server/notify`). AI: bara via adaptern `lib/ai/` (SPEC §8) – anropa aldrig en AI-leverantör direkt från en feature. Aldrig Gemini via AI Studio-nyckel eller global endpoint.
 - Bakgrundsjobb: tabellen `jobs` + route `/api/jobs/run` (skyddad med hemlig nyckel) som anropas av cron varje minut. Hämta jobb med `FOR UPDATE SKIP LOCKED`, idempotent, begränsat antal försök, felorsak sparas.
 
 ## Icke förhandlingsbart
 
-1. **Row Level Security på varje tabell**, neka som standard. Behörighet = avtal + roll; tilldelningen (teamet) styr notiser, påminnelser och Mina ärenden – alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet (beslut 2026-10-09); kommunen ser bara sina egna (SPEC §4). Service role används bara server-side och aldrig för att kringgå RLS i vanliga användarflöden.
+1. **Row Level Security på varje tabell**, neka som standard. Behörighet = avtal + roll – den som har flera roller får summan av dem, aldrig mer (Karims beslut 2026-10-09; tills det är byggt gäller rollvalet i sidopanelen); tilldelningen (teamet) styr notiser, påminnelser och Mina ärenden – alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet (beslut 2026-10-09); kommunen ser bara sina egna (SPEC §4). Service role används bara server-side och aldrig för att kringgå RLS i vanliga användarflöden.
 2. **Inga personuppgifter i loggar, felmeddelanden, URL:er, analysverktyg eller commit-historik.** Logga id:n. Personnummer krypteras på applikationsnivå (AES-256-GCM, nyckel i miljövariabel) och söks via HMAC-hash. Visas maskerat; "visa" loggas.
 3. **Revisionslogg** (`audit_log`, append-only) för visning av deltagarkort, rapport och transkript, alla ändringar, exporter och AI-körningar.
 4. **Avtalet är konfiguration.** Hårdkoda aldrig avtalsvärden (32 %, 35 %, priser, prefix BOT, deadlines, rapport- och faktureringsregler). Läs dem från `contracts.config`, validerat med ett zod-schema.
-5. **AI föreslår – människan bedömer.** AI sätter aldrig progressionsnivå (0–3), samlad status, avslutsorsak eller resultat. AI föreslår text med belägg (citat + tidpunkt). Bedömningsfält är tomma tills coachen gjort ett aktivt val.
+5. **AI föreslår – människan bedömer.** AI sätter aldrig progressionsnivå (0–3), samlad status, avslutsorsak eller resultat. AI föreslår text med belägg (citat + tidpunkt). Bedömningsfält är tomma tills coachen gjort ett aktivt val. AI placerar aldrig någon i en nivå eller grupp och bedömer aldrig motivation – nivå, grupper och taggar sätts av en människa (Karims beslut 2026-10-09). Coachernas anteckningar får vara underlag för AI-utkastet till månadsbedömningen bara med registrerat samtycke till AI, med personnumren bortplockade och med anteckningen som källa. Två automatiska standardval är Karims beslut (2026-10-09) och inga bedömningar: närvaro som saknas när dagen är slut registreras som närvarande, och gruppmålet står som Klarade. Båda märks som automatiska, loggas och ändras av coachen (frånvaro, Klarade inte). **Gruppmålet är ett internt arbetsverktyg** – det blir aldrig deltagarens veckomål och påverkar aldrig progression, samlad status, rapporter, resultatfil, export eller faktura. Nivå, grupper, taggar och gruppmål visas aldrig för kommunen och skickas aldrig till AI.
 6. **Rapporter byggs bara av godkända uppgifter** – aldrig direkt från råtranskript.
 7. **Ljud raderas direkt efter lyckad transkribering** (senast efter 24 h vid fel). Råtranskript raderas när avstämningen godkänts, senast efter 30 dagar.
-8. **Skyddade personuppgifter – borttaget ur appen (Karims beslut 2026-10-07, stämt av med Botkyrka 2026-10-08).** Frågan ställs inte och alla deltagare hanteras lika. Spärren i RLS och `src/data/policy.ts` för `protected_identity` ligger kvar vilande (kolumnen är alltid false) så att skyddet kan slås på igen utan ny migration. Ta inte bort spärren och bygg inget nytt som förutsätter att den är borta.
-9. **E-post och SMS innehåller aldrig personuppgifter** – bara ärendenummer och länk till portalen. Inga rapporter som bilaga i vanlig e-post om inte avtalskonfigurationen uttryckligen tillåter det.
+8. **Skyddade personuppgifter – borttaget ur appen (Karims beslut 2026-10-07, stämt av med Botkyrka 2026-10-08).** Frågan ställs inte och alla deltagare hanteras lika. Spärren i RLS och `src/data/policy.ts` för `protected_identity` ligger kvar vilande (kolumnen är alltid false) så att skyddet kan slås på igen utan ny migration. Ta inte bort spärren och bygg inget nytt som förutsätter att den är borta. **Rollen handledare är borttagen ur appen på samma sätt (Karims beslut 2026-10-09):** två jobbcoacher har rollen coach. Rollen och teamplatsen yrkesspecifik handledare ligger kvar vilande i databasen, RLS, `src/core/access.ts` och `src/data/policy.ts` (`DORMANT_ROLES` i `src/api/roles.ts`) så att den kan slås på igen utan migration. Ingen kan få rollen, och inga sidor, menyer eller testpersoner har den.
+9. **E-post och SMS innehåller aldrig personuppgifter** – bara ärendenummer och länk till portalen. Inga rapporter som bilaga i vanlig e-post om inte avtalskonfigurationen uttryckligen tillåter det. **Meddelanden till deltagaren** (Karims beslut 2026-10-09) – kallelsen till första mötet och inbjudan till aktiviteter, också ändrad och inställd aktivitet, med e-post, SMS och utringning – innehåller bara tid, plats och Miljonbemannings telefonnummer: aldrig namn, personnummer, ärendenummer, aktivitetens namn eller vad insatsen gäller. Deltagarens adress eller nummer slås upp när utskicket skickas och står aldrig i utskicksloggen.
 10. **Mejl är kommunens formella beställningskanal.** Mejlavropet via avrop@ ska alltid fungera fullt ut, även för kommunanvändare som aldrig loggar in i portalen.
-11. **Fakturor:** en faktura per avtal och månad med ett ärende per rad (beslut 2026-10-07; `billing.invoicePer` i avtalskonfigurationen kan växla tillbaka till en per ärende). Beställarreferensen fylls i av MB (en per faktura) – den finns inte i kommunens formulär. Referensen (8–10 siffror, bara siffror) krävs och valideras innan en faktura får skapas. **Belopp i kronor syns bara för rollen ekonom** (beslut 2026-10-07, spärrat på servern) – inga priser, ordervärden, viten eller kostnader för någon annan roll eller för kommunen. Våra egna nummer (ärendenummer) läggs aldrig i fältet för kundens inköpsordernummer – det fältet används bara för kommunens egna ordernummer (nio siffror som börjar med 99). Inga namn eller personnummer på fakturor.
+11. **Fakturor:** en faktura per avtal och månad med ett ärende per rad (beslut 2026-10-07; `billing.invoicePer` i avtalskonfigurationen kan växla tillbaka till en per ärende). Beställarreferensen fylls i av MB (en per faktura) – den finns inte i kommunens formulär. Referensen (8–10 siffror, bara siffror) krävs och valideras innan en faktura får skapas. **Belopp i kronor syns bara för rollen ekonom** (beslut 2026-10-07, spärrat på servern; sedan Karims beslut 2026-10-09 alltid för den som har rollen ekonom, också med fler roller) – inga priser, ordervärden, viten eller kostnader för någon annan roll eller för kommunen. Våra egna nummer (ärendenummer) läggs aldrig i fältet för kundens inköpsordernummer – det fältet används bara för kommunens egna ordernummer (nio siffror som börjar med 99). Inga namn eller personnummer på fakturor.
 12. Tid: `Europe/Stockholm`. Veckor enligt ISO 8601. Arbetsdagar räknas med svenska helgdagar (tabellen `holidays`). Belopp i öre (heltal), priser exkl. moms, momssats per artikel.
 
 ## Språk och ton
@@ -48,7 +48,7 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 - Status visas alltid med text + ikon, aldrig bara färg. Mallarnas ord Grön/Gul/Röd skrivs ut som text; färgkodning: Grön → blå, Gul → ljusgrå, Röd → röd.
 - Brödtext minst 16 px (kommunportalen 18 px). Klickytor minst 44 × 44 px. Allt ska fungera med tangentbord och skärmläsare.
 - PDF-rapporter: logotyp överst, avtals- och ärendeinformation i högerställt block, rubriker i versaler.
-- Förebild: coachens Min vecka (beslut 2026-10-06). Alla MB-roller börjar på en Min vecka i samma stil med sina egna uppgifter (kitet `src/ui/vecka.tsx`, reglerna i `src/ui/README.md`). Menyn: Min vardag för alla och högst en rollflik.
+- Förebild: coachens Min vecka (beslut 2026-10-06). Alla MB-roller börjar på en Min vecka i samma stil med sina egna uppgifter (kitet `src/ui/vecka.tsx`, reglerna i `src/ui/README.md`). Menyn: Min vardag för alla och en rollflik per roll som personen har – den som har flera roller ser alla sina flikar och en Min vecka med alla rollernas uppgifter, utan rollbyte (Karims beslut 2026-10-09; tills det är byggt högst en rollflik, den valda rollens).
 
 ## Ordlista (UI på svenska → kod på engelska)
 
@@ -65,13 +65,19 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 | inköpsordernummer (kommunens, 99…) | purchase_order_number |
 | deltagare | participant (person + case) |
 | huvudcoach | lead_coach |
-| yrkesspecifik handledare | vocational_supervisor |
+| yrkesspecifik handledare (vilande sedan 2026-10-09) | vocational_supervisor |
 | arbetsgivarmatchare | employer_matcher |
 | SYV/metodstöd | guidance_counselor |
 | kartläggning | intake_assessment |
 | avstämning (vecka) | check_in |
 | månadsbedömning, progressionsområde | monthly_assessment, progress_area |
 | närvaro / frånvaro | attendance |
+| automatiskt registrerad närvaro | `attendance.source = 'auto'` |
+| gruppaktivitet | group_activity (`group_activities`; deltagarens tillfälle `activities.group_activity_id`) |
+| gruppmål | group_goal (`group_activities.goal`, `group_goal_results`) |
+| nivå, grupp, tagg (gruppering) | level, group, tag (`groupings.kind`); taggkategori = category |
+| placering i nivå, grupp eller tagg | grouping_member |
+| massanteckningar | mass notes (`src/core/mass-notes.ts` – sparas som vanliga case_notes) |
 | veckorapport (närvaro) | weekly_attendance_report |
 | händelse, utfall | outcome_event |
 | avslut, avslutsorsak | closure, end_reason |
@@ -86,13 +92,16 @@ Plattform för arbetsmarknadsinsatser. Repo: `miljonmatch`. Ägare: Miljonbemann
 | bonusanspråk | bonus_claim |
 | fakturaunderlag | billing_basis |
 | samtycke | consent |
+| kontaktväg | preferred_contact |
+| meddelande till deltagaren (kallelse, inbjudan) | `notifyParticipant` (mallarna kallelse, aktivitetsinbjudan, aktivitet_andrad, aktivitet_installd) |
+| utringning | call (`outbound_messages.channel`) |
 | skyddade personuppgifter | protected_identity |
 | gallring | retention |
 
 ## Tester (krav innan merge)
 
-- Enhetstester: resultatgrad och övriga KPI:er; debiterbara veckor (alla ISO-veckor med minst en inskriven dag, utom uppehåll) och veckans månadstillhörighet (torsdagsregeln); arbetsdagar/SLA-förfall; ärendenummer; validering av beställarreferens och inköpsordernummer.
-- RLS-tester per roll: kommunanvändare ser bara sina ärenden, ekonom ser inga coachanteckningar, coach och handledare ser alla ärenden i avtalet (inte bara tilldelade – beslut 2026-10-09), ekonomen är den enda som ser belopp, och den vilande spärren för skyddade ärenden gäller fortfarande när den slås på.
+- Enhetstester: resultatgrad och övriga KPI:er; debiterbara veckor (alla ISO-veckor med minst en inskriven dag, utom uppehåll) och veckans månadstillhörighet (torsdagsregeln); arbetsdagar/SLA-förfall; ärendenummer; validering av beställarreferens och inköpsordernummer; automatisk närvaro (skriver aldrig över en registrering, hoppar över helgdagar, uppehåll och skickade veckor, loggas); att nivå, grupper, taggar och gruppmål aldrig syns hos kommunen eller i rapporter, resultatfil, export eller faktura.
+- RLS-tester per roll: kommunanvändare ser bara sina ärenden, den som är ekonom men inte coach ser inga coachanteckningar, coachen ser alla ärenden i avtalet (inte bara tilldelade – beslut 2026-10-09), den som har rollen ekonom är den enda som ser belopp, kommunen och ekonomen ser inga gruppaktiviteter, nivåer, grupper, taggar eller gruppmål, och de vilande spärrarna – skyddade ärenden och rollen handledare – gäller fortfarande när de slås på.
 - E2E: mejlavrop → ordererkännande med ärendenummer → orderbekräftelse → närvaro → veckorapport → månadsbedömning → månadsrapport-PDF → fakturaunderlag.
 
 ## Arkitektur – prototypen speglar riktiga appen

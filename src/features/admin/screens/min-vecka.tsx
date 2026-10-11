@@ -17,11 +17,11 @@ import {
   BuildPhase, Button, Card, DemoNote, DoneLine, ErrorNotice, focusSection, Icon, Kpi, Kv, List, ListItem, Loading, Split, Stack, TitleLink, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
 import { adminIntegrations, adminTemplates, adminUsers, type IntegrationsView, type JobRow, type TemplatesView, type UsersView } from "../api";
+import { CHANNEL_LABEL } from "../templates";
 import { JOB_STATUS } from "./parts";
 
 /** Avtal och konfiguration – inte i menyn (beslut 2026-10-06), länkas från Användare och roller och härifrån. */
 const CONTRACT_PATH = "/admin/avtal";
-const CHANNEL: Record<string, string> = { email: "E-post", sms: "SMS", brev: "Brev" };
 /**
  * Utskick som inte gick iväg räknas för de senaste sju dagarna (i dag och sex dagar bakåt) – Min vecka visar det som behöver
  * kontrolleras nu. Äldre fel finns kvar i utskicksloggen. Utskick kan inte kvitteras, så utan gräns skulle rutan vara röd
@@ -171,7 +171,7 @@ function Week({ i, u, t, today }: { i: IntegrationsView; u: UsersView; t: Templa
                     key={n.id}
                     icon="alert"
                     title={n.templateLabel}
-                    sub={[fmtDateTime(n.at), CHANNEL[n.channel] ?? n.channel, n.caseNumber].filter(Boolean).join(" · ")}
+                    sub={[fmtDateTime(n.at), CHANNEL_LABEL[n.channel] ?? n.channel, n.caseNumber].filter(Boolean).join(" · ")}
                   />
                 ))}
               </List>

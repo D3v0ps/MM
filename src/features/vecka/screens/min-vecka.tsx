@@ -3,7 +3,6 @@
 // med rollens egna uppgifter. Skärmen väljer rollens Min vecka; varje roll använder bara frågor den redan har. Rollskärmarna
 // ligger i sina egna områden och delar kitet i src/ui/vecka.tsx.
 import { AdminMinVeckaScreen } from "@/features/admin/screens/min-vecka";
-import { HandledareMinVeckaScreen } from "@/features/arenden/screens/min-vecka-handledare";
 import { MinVeckaScreen as CoachMinVeckaScreen } from "@/features/coach/screens/min-vecka";
 import { EkonomMinVeckaScreen } from "@/features/ekonomi/screens/min-vecka";
 import { SamMinVeckaScreen } from "@/features/inkorg/screens/min-vecka";
@@ -18,8 +17,6 @@ export function MinVeckaScreen() {
     case "samordnare":
     case "avtalsansvarig":
       return <SamMinVeckaScreen />;
-    case "handledare":
-      return <HandledareMinVeckaScreen />;
     case "chef":
       return <ChefMinVeckaScreen />;
     case "ekonom":
@@ -27,7 +24,7 @@ export function MinVeckaScreen() {
     case "admin":
       return <AdminMinVeckaScreen />;
     default:
-      // Rutten släpper bara in MB-roller (SUPPLIER_ROLES).
+      // Rutten släpper bara in kollegornas roller (STAFF_ROLES) – rollen handledare är vilande (beslut 2026-10-09).
       return null;
   }
 }

@@ -68,7 +68,10 @@ export async function visibleCases(ctx: Ctx): Promise<Case[]> {
   return cases.filter((c) => ctx.actor.contractIds.includes(c.contractId));
 }
 
-/** Ärendet som kommunen ser det (namnet enligt behörigheten). */
+/**
+ * Ärendet som kommunen ser det (namnet enligt behörigheten). Inget yrkesspår och ingen fas (beslut 2026-10-09) – listans
+ * rad lägger till fasen med komPhase.
+ */
 export function komCase(c: Case, viewer: Viewer, k: KomContext): KomCase {
   const cfg = k.cfg(c.contractId);
   const areas = k.areas.filter((a) => a.contractId === c.contractId);
@@ -76,7 +79,7 @@ export function komCase(c: Case, viewer: Viewer, k: KomContext): KomCase {
     id: c.id, caseNumber: c.caseNumber, status: c.status, name: viewer.name(c),
     primaryAreaName: c.primaryAreaCode ? areaName(areas, c.primaryAreaCode) : null,
     secondaryAreaName: c.secondaryAreaCode ? areaName(areas, c.secondaryAreaCode) : null,
-    vocationalTrack: c.vocationalTrack, phase: c.phase, phaseName: phaseName(cfg, c.phase), source: c.source,
+    source: c.source,
     referredAt: c.referredAt, acknowledgedAt: c.acknowledgedAt, confirmedAt: c.confirmedAt, declinedAt: c.declinedAt, declineReason: c.declineReason,
     firstMeetingAt: c.firstMeetingAt, location: c.location, startDate: c.startDate, plannedStart: c.plannedStart, desiredStart: c.desiredStart,
     plannedEnd: c.plannedEnd, orderPeriodMonths: c.orderPeriodMonths, otherPeriod: !!c.orderPeriodReason, plannedWeeks: c.orderValueWeeks || c.plannedWeeks,
@@ -84,6 +87,11 @@ export function komCase(c: Case, viewer: Viewer, k: KomContext): KomCase {
     avropDue: avropDue(c, cfg), firstMeetingDue: firstMeetingDue(c, cfg),
     referrerId: c.referrerId, referrerName: c.referrerId ? k.name(c.referrerId) : (c.referrerName ?? "–"),
   };
+}
+
+/** Fasen för listans rad i Mina deltagare (bara listan – deltagarens sida visar ingen fas). */
+export function komPhase(c: Case, k: KomContext): { phase: number; phaseName: string } {
+  return { phase: c.phase, phaseName: phaseName(k.cfg(c.contractId), c.phase) };
 }
 
 export { viewerFor, type Viewer };

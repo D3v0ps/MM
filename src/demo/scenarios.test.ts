@@ -73,7 +73,8 @@ describe("scenariernas steg -> sökvägar", () => {
       s8: Array(4).fill("ekonom /ekonomi/2027-01"),
       s9: ["chef /ledning", "chef /ledning", "chef /avtalsavvikelser", "chef /ledning"], // kommunens chef är borttagen (beslut 2026-10-07)
       // Steget om skyddade personuppgifter är ersatt (beslut 2026-10-07): kommunens handläggare och sina deltagare.
-      s10: ["ekonom /ekonomi", "handledare /handledare", "kommun_handlaggare /portal/deltagare", "admin /admin/logg"],
+      // Rollen handledare är borttagen (beslut 2026-10-09): steget visar coachens ärendelista.
+      s10: ["ekonom /ekonomi", "coach /arenden", "kommun_handlaggare /portal/deltagare", "admin /admin/logg"],
       s11: ["deltagare /puls", "chef /ledning?flik=puls"],
       s13: ["samordnare /inkorg/em-106", "coach /notiser", "chef /notiser", "chef /ledning", "admin /admin/avtal?flik=interna"],
       s12: ["admin /admin/avtal", "ekonom /ekonomi/prislista", "admin /om/fragor"],

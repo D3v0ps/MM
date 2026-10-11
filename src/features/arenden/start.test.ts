@@ -2,6 +2,7 @@
 // demoklockan (måndag 1 februari 2027 kl. 09.12): Maria Ekdahls avrop em-101 accepteras med första möte i dag 09.00 och
 // insatsen startas av huvudcoachen. Förväntade antal räknas ur veckoplanen och helgdagarna (src/core/schedule.ts).
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { Actor, Role } from "@/api/roles";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { holidayName } from "@/core/holidays";
@@ -13,7 +14,7 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { inboxDecisionForm, type DecisionForm } from "@/features/inkorg/api";
-import { caseCard, supervisorStart, type CaseCardResult, type SupervisorStart } from "./api";
+import { caseCard, caseList, type CaseCardResult, type CaseListModel } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -30,7 +31,8 @@ const cmd = (key: string, input: unknown, actor: Actor) => rt.run("command", key
 const sara = () => as("u-sara", "samordnare");
 const amira = () => as("u-amira", "coach");
 const leila = () => as("u-leila", "coach");
-const petra = () => as("u-petra", "handledare");
+/** Petra är coach sedan rollen handledare togs bort ur testdatat. */
+const petra = () => as("u-petra", "coach");
 const lars = () => as("u-lars", "ekonom");
 
 const FIRST_MEETING = "2027-02-01T09:00";
@@ -93,9 +95,9 @@ describe("arenden.caseStart – starta insatsen", () => {
   it("startdatumet kan inte vara före första mötet, och bara huvudcoachen, samordnaren och avtalsansvarig startar", async () => {
     const caseId = await acceptMaria();
     expect(await cmd("arenden.caseStart", { caseId, startDate: "2027-01-29", plan: PLAN }, amira())).toMatchObject({ ok: false, error: "start_date" });
-    // En annan coach når också ärendet (beslut 2026-10-09) – samma kontroller; handledaren får inte köra kommandot.
+    // En annan coach når också ärendet (beslut 2026-10-09) – samma kontroller; den vilande rollen handledare får inte köra kommandot.
     expect(await cmd("arenden.caseStart", { caseId, startDate: "2027-01-29", plan: PLAN }, leila())).toMatchObject({ ok: false, error: "start_date" });
-    await expect(cmd("arenden.caseStart", { caseId, startDate: "2027-02-01", plan: PLAN }, petra())).rejects.toThrow();
+    await expect(cmd("arenden.caseStart", { caseId, startDate: "2027-02-01", plan: PLAN }, dormantSupervisor())).rejects.toThrow();
     expect(rt.raw().get("cases", caseId)!.status).toBe("confirmed");
     // Senare start: tillfällena börjar först då.
     const later = await cmd("arenden.caseStart", { caseId, startDate: "2027-02-03", plan: PLAN }, sara());
@@ -200,8 +202,8 @@ describe("praktik.placementCreate och placementEnd", () => {
     expect(await cmd("praktik.placementCreate", { ...base }, amira())).toMatchObject({ ok: false, error: "employer" });
     expect(await cmd("praktik.placementCreate", { ...base, employerId: "emp-1", endsOn: "2027-02-05" }, amira())).toMatchObject({ ok: false, error: "period" });
     expect(await cmd("praktik.placementCreate", { ...base, newEmployer: { name: "X AB", email: "fel" } }, amira())).toMatchObject({ ok: false, error: "email" });
-    // Handledaren får inte planera praktik; en annan coach når ärendet (beslut 2026-10-09) med samma kontroller.
-    await expect(cmd("praktik.placementCreate", { ...base, employerId: "emp-1" }, petra())).rejects.toThrow();
+    // Den vilande rollen handledare får inte planera praktik; en annan coach når ärendet (beslut 2026-10-09) med samma kontroller.
+    await expect(cmd("praktik.placementCreate", { ...base, employerId: "emp-1" }, dormantSupervisor())).rejects.toThrow();
     expect(await cmd("praktik.placementCreate", { ...base, employerId: "emp-1", endsOn: "2027-02-05" }, leila())).toMatchObject({ ok: false, error: "period" });
     // Befintlig arbetsgivare, utan slutdag: till planerat slut.
     const ok = await cmd("praktik.placementCreate", { ...base, employerId: "emp-1" }, sara());
@@ -212,46 +214,64 @@ describe("praktik.placementCreate och placementEnd", () => {
 });
 
 describe("teamet bygger på medlemskapens roller (arenden.caseSetTeam, inkorg.decisionForm)", () => {
-  it("handledare utan teamRole kan väljas; arbetsgivarmatchare och SYV ur all MB-personal utom ekonom och admin", async () => {
-    rt.store.updateRow("profiles", "u-petra", { teamRole: null });
+  it("teamval utan handledare (Karims beslut 2026-10-09): arbetsgivarmatchare och SYV ur all MB-personal utom ekonom och admin", async () => {
     const f = (await rt.run("query", inboxDecisionForm.key, { caseId: mariaCase() }, sara())) as DecisionForm;
-    expect(f.helpers.find((h) => h.id === "u-petra")).toMatchObject({ teamRole: "vocational_supervisor", label: "yrkesspecifik handledare" });
+    // Acceptera-dialogen har inget val för handledare.
+    expect(f).not.toHaveProperty("helpers");
     const staff = f.staff.map((u) => u.id);
-    expect(staff).toEqual(expect.arrayContaining(["u-petra", "u-sara", "u-amira", "u-karin"]));
+    expect(staff).toEqual(expect.arrayContaining(["u-petra", "u-david", "u-hanna", "u-sara", "u-amira", "u-karin"]));
     expect(staff).not.toContain("u-lars");
     expect(staff).not.toContain("u-robin");
-    // Accept med Petra i teamet fungerar utan teamRole i profilen.
-    const caseId = await acceptMaria([{ userId: "u-petra", role: "vocational_supervisor" }, { userId: "u-sara", role: "employer_matcher" }]);
-    expect(rt.raw().all("case_team").filter((t) => t.caseId === caseId).map((t) => `${t.userId}:${t.role}`).sort()).toEqual(["u-amira:lead_coach", "u-petra:vocational_supervisor", "u-sara:employer_matcher"]);
+    // Ingen kan bli yrkesspecifik handledare – varken vid accept eller i Ändra team.
+    const denied = await cmd("arenden.caseAccept", { caseId: mariaCase(), leadCoachId: "u-amira", firstMeetingAt: FIRST_MEETING, primaryArea: "G", orderPeriodMonths: 6, team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara());
+    expect(denied).toMatchObject({ ok: false, error: "team" });
+    expect(rt.raw().get("cases", mariaCase())!.status).not.toBe("confirmed");
+    // Accept med arbetsgivarmatchare och SYV fungerar utan teamRole i profilen.
+    rt.store.updateRow("profiles", "u-david", { teamRole: null });
+    const caseId = await acceptMaria([{ userId: "u-david", role: "employer_matcher" }, { userId: "u-sara", role: "guidance_counselor" }]);
+    expect(rt.raw().all("case_team").filter((t) => t.caseId === caseId).map((t) => `${t.userId}:${t.role}`).sort()).toEqual(["u-amira:lead_coach", "u-david:employer_matcher", "u-sara:guidance_counselor"]);
+    expect(await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-petra", role: "vocational_supervisor" }] }, sara())).toMatchObject({ ok: false, error: "team" });
+    // Kortets kandidater har inget val för handledare.
+    const card = (await rt.run("query", caseCard.key, { caseId }, sara())) as CaseCardResult;
+    if (card.kind !== "ok") throw new Error(card.kind);
+    expect(card.teamOptions).not.toHaveProperty("supervisors");
+    expect(card.teamOptions?.staff.map((u) => u.id)).toEqual(expect.arrayContaining(["u-petra", "u-david"]));
   });
 
-  it("Ändra team: handledaren får ärendet i Mina tilldelade ärenden och en notis utan personuppgifter; tas hon bort försvinner det ur listan men inte åtkomsten", async () => {
-    rt.store.updateRow("profiles", "u-petra", { teamRole: null });
+  it("en gammal plats som yrkesspecifik handledare tas bort när teamet sparas (vilande teamroll)", async () => {
     const caseId = await acceptMaria();
-    // Åtkomst finns redan (beslut 2026-10-09) – men ingen teamroll och ärendet ligger inte i hennes lista.
+    rt.store.insertRow("case_team", { id: `${caseId}:u-petra`, caseId, userId: "u-petra", role: "vocational_supervisor" });
+    const res = await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-leila", role: "guidance_counselor" }] }, sara());
+    expect(res).toMatchObject({ ok: true, added: 1, removed: 1 });
+    expect(rt.raw().all("case_team").filter((t) => t.caseId === caseId).map((t) => `${t.userId}:${t.role}`).sort()).toEqual(["u-amira:lead_coach", "u-leila:guidance_counselor"]);
+  });
+
+  it("Ändra team: den nya medlemmen får ärendet bland sina egna och en notis utan personuppgifter; tas hon bort försvinner det ur listan men inte åtkomsten", async () => {
+    const caseId = await acceptMaria();
+    const mine = async () => ((await rt.run("query", caseList.key, {}, petra())) as CaseListModel).rows.find((r) => r.id === caseId)?.mine;
+    // Åtkomst finns redan (beslut 2026-10-09) – men ingen teamroll och ärendet är inte hennes eget.
     const before = (await rt.run("query", caseCard.key, { caseId }, petra())) as CaseCardResult;
     expect(before.kind).toBe("ok");
     if (before.kind === "ok") expect(before).toMatchObject({ access: "full", myTeamRoleLabel: null });
-    expect(((await rt.run("query", supervisorStart.key, {}, petra())) as SupervisorStart).groups.start.some((c) => c.id === caseId)).toBe(false);
-    const res = await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-petra", role: "vocational_supervisor" }, { userId: "u-leila", role: "guidance_counselor" }] }, sara());
+    expect(await mine()).toBe(false);
+    const res = await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-petra", role: "employer_matcher" }, { userId: "u-leila", role: "guidance_counselor" }] }, sara());
     expect(res).toMatchObject({ ok: true, added: 2, removed: 0 });
     const card = (await rt.run("query", caseCard.key, { caseId }, petra())) as CaseCardResult;
     expect(card.kind).toBe("ok");
-    if (card.kind === "ok") expect(card).toMatchObject({ access: "full", myTeamRoleLabel: "Yrkesspecifik handledare" });
-    const start = (await rt.run("query", supervisorStart.key, {}, petra())) as SupervisorStart;
-    expect(start.groups.start.some((c) => c.id === caseId)).toBe(true);
+    if (card.kind === "ok") expect(card).toMatchObject({ access: "full", myTeamRoleLabel: "Arbetsgivarmatchare" });
+    expect(await mine()).toBe(true);
     const notif = rt.raw().all("user_notifications").filter((n) => n.caseId === caseId && n.recipientId === "u-petra");
     expect(notif).toHaveLength(1);
     expect(notif[0].emailBody).not.toMatch(/Maria|Ekdahl/);
     const log = rt.raw().all("audit_log").find((l) => l.action === "case.team_changed" && l.entityId === caseId)!;
-    expect(log.details).toEqual({ added: ["u-petra:vocational_supervisor", "u-leila:guidance_counselor"], removed: [] });
-    // Ta bort Petra, behåll Leila: Petra har ingen teamroll längre och ärendet lämnar hennes lista – men hon når det under Ärenden; huvudcoachen ligger kvar.
+    expect(log.details).toEqual({ added: ["u-petra:employer_matcher", "u-leila:guidance_counselor"], removed: [] });
+    // Ta bort Petra, behåll Leila: Petra har ingen teamroll längre och ärendet är inte hennes eget – men hon når det under Ärenden; huvudcoachen ligger kvar.
     const rm = await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-leila", role: "guidance_counselor" }] }, sara());
     expect(rm).toMatchObject({ ok: true, added: 0, removed: 1 });
     const after = (await rt.run("query", caseCard.key, { caseId }, petra())) as CaseCardResult;
     expect(after.kind).toBe("ok");
     if (after.kind === "ok") expect(after.myTeamRoleLabel).toBeNull();
-    expect(((await rt.run("query", supervisorStart.key, {}, petra())) as SupervisorStart).groups.start.some((c) => c.id === caseId)).toBe(false);
+    expect(await mine()).toBe(false);
     expect(rt.raw().all("case_team").filter((t) => t.caseId === caseId).map((t) => `${t.userId}:${t.role}`).sort()).toEqual(["u-amira:lead_coach", "u-leila:guidance_counselor"]);
     expect(rt.raw().all("user_notifications").filter((n) => n.caseId === caseId && n.recipientId === "u-petra")).toHaveLength(1);
   });
@@ -260,7 +280,7 @@ describe("teamet bygger på medlemskapens roller (arenden.caseSetTeam, inkorg.de
     const caseId = await acceptMaria();
     expect(await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-lars", role: "employer_matcher" }] }, sara())).toMatchObject({ ok: false, error: "team" });
     expect(await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-robin", role: "guidance_counselor" }] }, sara())).toMatchObject({ ok: false, error: "team" });
-    expect(await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-petra", role: "vocational_supervisor" }, { userId: "u-petra", role: "employer_matcher" }] }, sara())).toMatchObject({ ok: false, error: "team" });
+    expect(await cmd("arenden.caseSetTeam", { caseId, team: [{ userId: "u-petra", role: "guidance_counselor" }, { userId: "u-petra", role: "employer_matcher" }] }, sara())).toMatchObject({ ok: false, error: "team" });
     await expect(cmd("arenden.caseSetTeam", { caseId, team: [] }, amira())).rejects.toThrow();
     expect(rt.raw().all("case_team").filter((t) => t.caseId === caseId)).toHaveLength(1);
   });

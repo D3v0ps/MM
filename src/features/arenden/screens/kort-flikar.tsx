@@ -538,7 +538,14 @@ function UpcomingList({ rows, canEdit }: { rows: CaseAttendance["upcoming"]; can
               icon={actIcon(a.kind)}
               title={cap(fmtDateTimeLong(a.startsAt))}
               sub={`${actLabel(a.kind)} · ${a.location} · ${a.durationMin} min`}
-              side={canEdit ? <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void onRemove(a)}>Ta bort</Button> : undefined}
+              side={
+                !canEdit ? undefined : a.groupActivityId ? (
+                  // Gruppaktivitet: deltagaren tas bort i aktivitetsvyn, så att det loggas på aktiviteten.
+                  <Button kind="ghost" icon="users" to={`/aktiviteter/${encodeURIComponent(a.groupActivityId)}`}>Öppna gruppaktiviteten</Button>
+                ) : (
+                  <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void onRemove(a)}>Ta bort</Button>
+                )
+              }
             />
           ))}
         </List>

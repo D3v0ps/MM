@@ -4,8 +4,8 @@
 // påminnelser och Mina ärenden – inte åtkomsten (beslut 2026-10-09).
 //
 // Sammanfattning:
-//   MB-roller      coach, handledare, samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 – coach
-//                  och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
+//   MB-roller      coach, handledare (vilande), samordnare, avtalsansvarig, chef: alla ärenden i sina avtal (beslut 2026-10-09 –
+//                  coach och handledare såg tidigare bara egna respektive tilldelade; chef och admin i läsläge – chefen får ändå
 //                  spara, dela inom Miljonbemanning och arkivera egna rapporter i rapportbyggaren) · ekonom: det som behövs
 //                  för fakturering, inga anteckningar, rapporter eller namn · admin: allt inklusive konfiguration och logg
 //                  (skyddade personer bara som ärende)
@@ -34,6 +34,24 @@
 //   Bilagor       bilagor till beställningen (case_attachments, 0024): den som laddade upp innan beställningen skickats · i
 //                 ärendet samordnare, avtalsansvarig och namngiven huvudcoach (full åtkomst) och beställande handläggare ·
 //                 aldrig handledare, ekonom, chef, admin eller deltagare · skrivs bara av systemet (ctx.attachments)
+//   Grupp-        gruppaktiviteter (group_activities, 0030): Miljonbemanning i avtalet utom ekonomen läser ("alla ser alla",
+//   aktiviteter   beslut 2026-10-09) · de som arbetar i ärendena skapar (i eget namn) och ändrar · en inställd ändras inte ·
+//                 avtal, skapare och skapad-tid ändras aldrig · raderas aldrig · aldrig kommunen. Deltagarnas tillfällen ligger
+//                 i activities med samma regler som förut (tas bort av den som arbetar i ärendet – hanteraren nekar vid närvaro)
+//   Gruppmål      group_activities.goal och group_goal_results (0033, Karims beslut 2 – internt): läses av Miljonbemanning i
+//                 avtalet utom ekonomen med full- eller teamåtkomst till ärendet · skrivs av den som arbetar i ärendet i eget namn,
+//                 bara för en inbjuden deltagare i en aktivitet med mål som inte är inställd, för målets nuvarande version
+//                 (goal_version räknas upp när målet ändras) och deltagarens nuvarande tillfälle · bara valet ändras (eller förs
+//                 över till det nuvarande målet och tillfället) · raderas aldrig · aldrig kommunen
+//   Närvaro       attendance.source (0030): användare skriver bara manuell närvaro – automatisk (auto) bara jobbet (ctx.system)
+//   Grupper       nivåer, grupper och taggar (groupings, grouping_members, 0031 – internt, Karims beslut 3 2026-10-09):
+//                 grupperingarna läses av MB i avtalet utom ekonomen och skrivs av samordnare, avtalsansvarig, coach och admin
+//                 (arkiveras, raderas aldrig) · medlemskapen läses som anteckningar (aldrig ekonom eller kommunen) och skrivs av
+//                 samordnare, avtalsansvarig och coach (inte admin – läsläge i ärendena) med full åtkomst till ärendet – ny rad
+//                 aktiv och i eget namn, ändring bara att ta bort
+//   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
+//                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
+//                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
 //
 // Skrivregeln får den nya raden (insert/update) eller den befintliga (remove). Finns raden redan är det en ändring.
 // Systemsteg (löpnummer, revisionslogg, utskick, notiser till andra, publicering, pulslänkens token, röstlänkens token,
@@ -42,21 +60,33 @@
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
+import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
 import type { Case, Report, TableName, Tables } from "./schema";
 
 type Raw = RawAccess<Tables>;
 
 // ---------------------------------------------------------------- Rollgrupper
-/** Arbetar i ärendet (registrerar närvaro, avstämningar, händelser …) med full- eller teamåtkomst. Chef och admin är i läsläge. */
+/**
+ * Arbetar i ärendet (registrerar närvaro, avstämningar, händelser …) med full- eller teamåtkomst. Chef och admin är i läsläge.
+ * Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
+ */
 const CASE_WORKERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
 /** Ändrar ärendet (status, coach, datum) med full åtkomst. */
 const CASE_EDITORS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
 /** Tar emot beställningar (skapar ärenden och personer). */
 const ORDER_CREATORS: readonly Role[] = ["samordnare", "avtalsansvarig", "kommun_handlaggare"];
+/**
+ * Deltagarens kontaktuppgifter (Ändra kontaktväg på deltagarkortet, coachmötet 2026-10-09) – det enda systemadministratören
+ * får ändra hos en person (triggern persons_admin_contact_only och mm.person_write, 0032). Adressen töms när kontaktvägen
+ * inte är brev.
+ */
+export const PERSON_CONTACT_FIELDS = ["preferredContact", "phone", "email", "address"] as const;
 /** Ser avtalets helhet: beställarrapporter, avropsinkorg, avtalsavvikelser. */
 const OVERSIGHT: readonly Role[] = ["samordnare", "avtalsansvarig", "chef", "admin"];
 /** Fakturering. */
 const BILLING_READERS: readonly Role[] = ["ekonom", "chef", "avtalsansvarig", "admin"];
+/** Läser gruppaktiviteterna (0030): Miljonbemanning utom ekonomen. Skriver: CASE_WORKERS. */
+const GROUP_ACTIVITY_READERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "admin"];
 
 const isMB = (a: Actor) => isSupplierRole(a.role);
 const isKom = (a: Actor) => isCustomerRole(a.role);
@@ -161,6 +191,7 @@ function reportRead(r: Report, a: Actor, raw: Raw): boolean {
     if (a.role === "ekonom") return false; // inga rapporter
     if (r.kind === "weekly_attendance") return true; // coach och handledare ser bara sina deltagares avsnitt (vy-modellen)
     if (r.kind === "customer_summary" || r.kind === "statistics") return has(OVERSIGHT, a);
+    // Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
     if (a.role === "handledare") return false; // månads- och slutrapporter innehåller coachens bedömningar
     if (!r.caseId) return has(OVERSIGHT, a);
     return canSeeNotes(accessTo(raw, a, r.caseId), a.role);
@@ -340,6 +371,128 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
   return self(a, cur.ownerId) || changed.every((k) => SAVED_SHARING.includes(k));
 }
 
+// ---------------------------------------------------------------- Gruppaktiviteter (0030)
+type GroupActivityRow = Tables["group_activities"];
+/** Fält som aldrig ändras efter att aktiviteten skapats (triggern group_activities_protect_columns, 0030). */
+const GROUP_FIXED = ["contractId", "createdBy", "createdAt"];
+const GROUP_KINDS: readonly string[] = ["yrkesmoment", "arbetsgivarbesök", "annat"];
+/** Tabellens kontroller (check i 0030 och 0033): namnets längd (btrim, kodpunkter), typen, längden, platsen, paren och gruppmålet. */
+function groupActivityShape(x: GroupActivityRow): boolean {
+  const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
+  const nameChars = [...x.name.replace(/^ +| +$/g, "")].length;
+  return nameChars >= 1 && nameChars <= 120 && GROUP_KINDS.includes(x.kind) && Number.isInteger(x.durationMin) && x.durationMin >= 1 && x.durationMin <= 720
+    && [...x.location].length <= 200 && pair(x.updatedAt, x.updatedBy) && pair(x.cancelledAt, x.cancelledBy) && goalShape(x.goal)
+    && Number.isInteger(x.goalVersion) && x.goalVersion >= 0;
+}
+/** Gruppmålet (check group_activities_goal_length, 0033): null eller 1–300 tecken (btrim, kodpunkter). */
+function goalShape(goal: string | null | undefined): boolean {
+  if (goal == null) return true;
+  const chars = [...goal.replace(/^ +| +$/g, "")].length;
+  return chars >= 1 && chars <= 300;
+}
+/**
+ * Ny rad: de som arbetar i ärendena, medlem i avtalet, i eget namn, varken ändrad eller inställd. Ändring: den befintliga
+ * raden är inte inställd; något ändras; avtal, skapare och skapad-tid ändras aldrig; ändrad och inställd i eget namn. Regeln
+ * stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som policyerna och triggern i 0030.
+ */
+function groupActivityWrite(x: GroupActivityRow, a: Actor, raw: Raw): boolean {
+  if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !groupActivityShape(x)) return false;
+  const cur = raw.get("group_activities", x.id);
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null;
+  if (cur.cancelledAt != null || !member(a, cur.contractId)) return false;
+  // Gruppmålets version följer målet (triggern group_activities_goal_version, 0033): ett ändrat mål räknar upp den med ett.
+  if (x.goalVersion !== ((x.goal ?? null) !== (cur.goal ?? null) ? cur.goalVersion + 1 : cur.goalVersion)) return false;
+  const changed = changedFields(cur, x);
+  if (!changed.length || changed.some((k) => GROUP_FIXED.includes(k))) return false;
+  if ((changed.includes("updatedAt") || changed.includes("updatedBy")) && (x.updatedAt == null || !self(a, x.updatedBy))) return false;
+  if ((changed.includes("cancelledAt") || changed.includes("cancelledBy")) && (x.cancelledAt == null || !self(a, x.cancelledBy))) return false;
+  return true;
+}
+// ---------------------------------------------------------------- Gruppmål (0033)
+type GroupGoalRow = Tables["group_goal_results"];
+/** Fält som aldrig ändras (triggern group_goal_results_check, 0033). */
+const GOAL_FIXED = ["contractId", "groupActivityId", "caseId"];
+/**
+ * Raden hör till aktiviteten och deltagaren (triggern group_goal_results_check, 0033): aktivitetens och ärendets avtal, en
+ * aktivitet med gruppmål som inte är inställd, målets nuvarande version och deltagarens tillfälle i aktiviteten (inbjuden).
+ */
+function groupGoalConsistent(x: GroupGoalRow, raw: Raw): boolean {
+  const g = raw.get("group_activities", x.groupActivityId);
+  if (!g || g.contractId !== x.contractId || raw.get("cases", x.caseId)?.contractId !== x.contractId) return false;
+  if (g.cancelledAt != null || g.goal == null || x.goalVersion !== g.goalVersion) return false;
+  const act = raw.get("activities", x.activityId);
+  return !!act && act.groupActivityId === x.groupActivityId && act.caseId === x.caseId;
+}
+/**
+ * Ny rad: den som arbetar i ärendet, medlem i avtalet, i eget namn. Ändring: valet (achieved) ändras, eller förs ett val för ett
+ * tidigare mål eller en tidigare inbjudan över till det nuvarande (goalVersion, activityId) – något av dem måste ändras; aktivitet,
+ * ärende och avtal aldrig. Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som
+ * policyerna och triggern i 0033.
+ */
+function groupGoalWrite(x: GroupGoalRow, a: Actor, raw: Raw): boolean {
+  if (!workOn(x.caseId, a, raw) || !member(a, x.contractId) || !self(a, x.setBy) || !groupGoalConsistent(x, raw)) return false;
+  const cur = raw.get("group_goal_results", x.id);
+  if (!cur) return true;
+  if (!workOn(cur.caseId, a, raw) || !member(a, cur.contractId)) return false;
+  const changed = changedFields(cur, x);
+  return ["achieved", "goalVersion", "activityId"].some((k) => changed.includes(k)) && !changed.some((k) => GOAL_FIXED.includes(k));
+}
+
+// ---------------------------------------------------------------- Grupper, nivåer och taggar (0031)
+type GroupingRow = Tables["groupings"];
+type GroupingMemberRow = Tables["grouping_members"];
+// Rollerna GROUPING_READERS, GROUPING_WRITERS och GROUPING_MEMBER_WRITERS finns i src/core/groupings.ts (samma i hanterarna och rutterna).
+/** Fält som aldrig ändras efter att grupperingen skapats (triggern groupings_protect_columns, 0031). */
+const GROUPING_FIXED = ["contractId", "kind", "category", "createdAt", "createdBy"];
+/**
+ * Ny rad: skrivroll, medlem i avtalet, i eget namn, varken ändrad eller arkiverad. Ändring: något ändras, fasta fält ändras
+ * aldrig, updated_* i eget namn, archived_* i eget namn (eller båda tömda – återställ). Regeln stoppar också
+ * MemoryRepo.remove() (inget ändras – ingen hård radering). Samma regler som policyerna och triggern i 0031.
+ */
+/** Tabellens kontroller (check i 0031): längderna i tecken som char_length (kodpunkter), kategori bara för taggar, paren. */
+function groupingShape(x: GroupingRow): boolean {
+  const chars = (t: string) => [...t].length;
+  const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
+  const nameLen = chars(x.name.trim());
+  return (x.kind === "tag") === (x.category != null) && (x.category == null || (chars(x.category.trim()) >= 1 && chars(x.category.trim()) <= 60))
+    && nameLen >= 1 && nameLen <= 80 && chars(x.description) <= 300 && pair(x.updatedAt, x.updatedBy) && pair(x.archivedAt, x.archivedBy);
+}
+function groupingWrite(x: GroupingRow, a: Actor, raw: Raw): boolean {
+  if (!has(GROUPING_WRITERS, a) || !member(a, x.contractId) || !groupingShape(x)) return false;
+  const cur = raw.get("groupings", x.id);
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.archivedAt == null;
+  if (!member(a, cur.contractId)) return false;
+  const changed = changedFields(cur, x);
+  if (!changed.length || changed.some((k) => GROUPING_FIXED.includes(k))) return false;
+  if ((changed.includes("updatedAt") || changed.includes("updatedBy")) && (x.updatedAt == null || !self(a, x.updatedBy))) return false;
+  if ((changed.includes("archivedAt") || changed.includes("archivedBy")) && x.archivedAt != null && !self(a, x.archivedBy)) return false;
+  return true;
+}
+/**
+ * Medlemskapet stämmer med grupperingen och ärendet (triggern grouping_members_check, 0031 – gäller också systemet där):
+ * samma avtal, grupperingens typ och plats, och en arkiverad gruppering får inga nya aktiva medlemmar.
+ */
+function memberConsistent(x: GroupingMemberRow, raw: Raw, isNew: boolean): boolean {
+  const g = raw.get("groupings", x.groupingId);
+  if (!g || g.contractId !== x.contractId || raw.get("cases", x.caseId)?.contractId !== x.contractId) return false;
+  if (x.kind !== g.kind || x.slot !== slotOf(g)) return false;
+  return !isNew || g.archivedAt == null || x.removedAt != null;
+}
+/**
+ * Ny rad: skrivroll med full åtkomst till ärendet, i eget namn, aktiv och i grupperingens avtal. Ändring: bara att ta bort
+ * (removedAt och removedBy i eget namn) ett aktivt medlemskap. Samma regler som policyerna och triggern i 0031. En unik
+ * plats per ärende (en nivå, en tagg per kategori) sköts av UNIQUE_KEYS i schema.ts.
+ */
+function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean {
+  if (!has(GROUPING_MEMBER_WRITERS, a) || accessTo(raw, a, x.caseId) !== "full") return false;
+  const cur = raw.get("grouping_members", x.id);
+  if (!memberConsistent(x, raw, !cur)) return false;
+  if (!cur) return self(a, x.addedBy) && x.removedAt == null && x.removedBy == null;
+  if (cur.removedAt != null || accessTo(raw, a, cur.caseId) !== "full") return false;
+  const changed = changedFields(cur, x);
+  return changed.length > 0 && changed.every((k) => k === "removedAt" || k === "removedBy") && x.removedAt != null && self(a, x.removedBy);
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -380,6 +533,11 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     write: (p, a, raw) => {
       const refs = casesByPerson(raw).get(p.id) ?? [];
       if (!refs.length) return has(ORDER_CREATORS, a); // ny person i en beställning (ärendet sparas efteråt)
+      // Systemadministratören (0032, Ändra kontaktväg): bara kontaktuppgifterna, med full åtkomst till ett av personens ärenden.
+      if (a.role === "admin") {
+        const cur = raw.get("persons", p.id);
+        return !!cur && changedFields(cur, p).every((k) => (PERSON_CONTACT_FIELDS as readonly string[]).includes(k)) && refs.some((id) => accessTo(raw, a, id) === "full");
+      }
       return refs.some((id) => {
         const acc = accessTo(raw, a, id);
         return (acc === "full" && has(CASE_EDITORS, a)) || (acc === "customer" && a.role === "kommun_handlaggare" && self(a, raw.get("cases", id)?.referrerId));
@@ -415,7 +573,15 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   },
   attendance: {
     read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
-    write: (x, a, raw) => workOn(x.caseId, a, raw),
+    // Bara manuell närvaro – automatisk (auto) skrivs bara av jobbet auto_attendance via ctx.system (0030).
+    write: (x, a, raw) => workOn(x.caseId, a, raw) && x.source === "manual",
+  },
+  // Gruppaktiviteter (0030): Miljonbemanning i avtalet utom ekonomen – aldrig kommunen.
+  group_activities: { read: (x, a) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId), write: groupActivityWrite },
+  // Gruppmål (0033): som gruppaktiviteterna, och bara med full- eller teamåtkomst till ärendet – aldrig ekonomen eller kommunen.
+  group_goal_results: {
+    read: (x, a, raw) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId) && ["full", "team"].includes(accessTo(raw, a, x.caseId)),
+    write: groupGoalWrite,
   },
   // Händelser och praktik: resultat som kommunen får i rapporterna
   outcome_events: { read: (x, a, raw) => canSeePerson(accessTo(raw, a, x.caseId)), write: (x, a, raw) => workOn(x.caseId, a, raw) },
@@ -605,6 +771,10 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
     },
     write: never,
   },
+
+  // ---- Grupper, nivåer och taggar (0031). Internt: aldrig kommunen eller ekonomen. Inget raderas.
+  groupings: { read: (x, a) => has(GROUPING_READERS, a) && member(a, x.contractId), write: groupingWrite },
+  grouping_members: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: groupingMemberWrite },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

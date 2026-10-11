@@ -53,6 +53,21 @@ export async function createMigratedDatabase(): Promise<PGlite> {
   return db;
 }
 
+/**
+ * PGlite (0.5.8) frigör inte stacken efter ett fel: varje fel som når JavaScript (en nekad sats i attempt(), ett test med
+ * rejects) gör stacken lite mindre, och efter ungefär 1 700 fel stoppas också enkla satser med "stack depth limit exceeded"
+ * (mätt 2026-10-10 vid integrationen av coachmötets spår – RLS-paritetstestet hade då 131 tester mot samma databas). Långa
+ * testfiler tar därför en ögonblicksbild efter inläsningen och börjar om från den (databaseFromSnapshot): en kopia tar under
+ * en sekund, migrationerna och seeden fem.
+ */
+export type DatabaseSnapshot = File | Blob;
+export const snapshotDatabase = (db: PGlite): Promise<DatabaseSnapshot> => db.dumpDataDir("none");
+export async function databaseFromSnapshot(snapshot: DatabaseSnapshot): Promise<PGlite> {
+  const db = new PGlite({ loadDataDir: snapshot });
+  await db.waitReady;
+  return db;
+}
+
 export async function loadSeed(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8")): Promise<void> {
   await db.exec(sql);
 }
@@ -61,11 +76,15 @@ export async function loadSeed(db: PGlite, sql: string = readFileSync(SEED_FILE,
  * Seeden på en databas som bara är migrerad till en viss migration (migrationstesterna, t.ex. migration-0026.test.ts):
  * seed.sql tömmer alla tabeller i schema.ts, också de som en senare migration skapar (t.ex. role_choices från 0027). Här tas
  * tabeller som inte finns ännu bort ur truncate-satsen. Finns det rader att läsa in i en sådan tabell stoppas testet med ett
- * tydligt fel – då måste testet läsa in de raderna själv efter migrationen.
+ * tydligt fel – då måste testet läsa in de raderna själv efter migrationen. Kolumner som en senare migration lägger till i en
+ * befintlig tabell (t.ex. activities.group_activity_id och attendance.source från 0030) läggs till tillfälligt som text medan
+ * raderna läses in och tas sedan bort – den senare migrationen lägger till dem på riktigt (med sitt standardvärde).
  */
-export async function loadSeedForExistingTables(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8")): Promise<void> {
+export async function loadSeedForExistingTables(db: PGlite, sql: string = readFileSync(SEED_FILE, "utf8"), opts: { later?: readonly string[] } = {}): Promise<void> {
   const existing = new Set((await db.query<{ tablename: string }>("select tablename from pg_tables where schemaname = 'public'")).rows.map((r) => r.tablename));
   const missing = new Set<string>();
+  // Tabeller från en senare migration vars rader testet inte behöver (opts.later): deras insert-satser tas bort.
+  for (const t of opts.later ?? []) sql = sql.replace(new RegExp(`^insert into public\\.${t} \\([^)]*\\) values\\n[\\s\\S]*?\\);$`, "m"), "");
   const out = sql.replace(/^truncate table (.+?) restart identity cascade;$/m, (_m, list: string) => {
     const kept = list.split(", ").filter((t) => {
       const name = t.replace(/^public\./, "");
@@ -78,7 +97,17 @@ export async function loadSeedForExistingTables(db: PGlite, sql: string = readFi
   for (const t of missing) {
     if (new RegExp(`^insert into public\\.${t} \\(`, "m").test(out)) throw new Error(`seed.sql har rader för public.${t}, som inte finns i databasen ännu – läs in dem efter migrationen i testet`);
   }
+  const cols = await db.query<{ t: string; c: string }>("select table_name as t, column_name as c from information_schema.columns where table_schema = 'public'");
+  const have = new Set(cols.rows.map((r) => `${r.t}.${r.c}`));
+  const later = new Set<string>();
+  for (const m of out.matchAll(/^insert into public\.(\w+) \(([^)]*)\) values$/gm)) {
+    if (!existing.has(m[1])) continue;
+    for (const c of m[2].split(", ").map((x) => x.replace(/"/g, ""))) if (!have.has(`${m[1]}.${c}`)) later.add(`${m[1]}.${c}`);
+  }
+  const quoted = [...later].map((x) => x.split(".")).map(([t, c]) => [`public.${t}`, `"${c}"`] as const);
+  for (const [t, c] of quoted) await db.exec(`alter table ${t} add column ${c} text`);
   await db.exec(out);
+  for (const [t, c] of quoted) await db.exec(`alter table ${t} drop column ${c}`);
 }
 
 export type Tx = Transaction;

@@ -246,7 +246,9 @@ handleCommand(placementCreate, { roles: PLANNERS }, async (ctx, p) => {
   const today = dayOf(now);
 
   // Praktikdagarna som tillfällen: yrkesmoment utan närvaro samma dagar ersätts (bara kommande), dagar som redan har en
-  // praktikdag hoppas över. Registrerad närvaro rörs aldrig.
+  // praktikdag hoppas över. Registrerad närvaro rörs aldrig. Gruppaktiviteter (group_activity_id) rörs inte heller: en deltagare
+  // tas bort ur en gruppaktivitet bara i aktivitetsvyn (aktiviteter.taBort, loggad på aktiviteten). De som ligger på
+  // praktikdagarna räknas och visas för den som planerar praktiken.
   const days = placementDays(p.startsOn, until, uniq(p.weekdays), c.pausedWeeks);
   const acts = ctx.repo.table("activities");
   const existingActs = await acts.list({ caseId: c.id });
@@ -254,16 +256,19 @@ handleCommand(placementCreate, { roles: PLANNERS }, async (ctx, p) => {
   const daySet = new Set(days);
   let replaced = 0;
   for (const a of existingActs) {
-    if (a.kind === "yrkesmoment" && daySet.has(dayOf(a.startsAt)) && !registered.has(a.id) && a.startsAt >= now) {
+    if (a.kind === "yrkesmoment" && !a.groupActivityId && daySet.has(dayOf(a.startsAt)) && !registered.has(a.id) && a.startsAt >= now) {
       await acts.remove(a.id);
       replaced++;
     }
   }
+  const groupActivityIds = uniq(
+    existingActs.filter((a) => a.groupActivityId && daySet.has(dayOf(a.startsAt)) && a.startsAt >= now).map((a) => a.groupActivityId as string),
+  ).sort();
   const hasPractice = new Set(existingActs.filter((a) => a.kind === "praktikdag").map((a) => dayOf(a.startsAt)));
   let created = 0;
   for (const day of days) {
     if (hasPractice.has(day)) continue;
-    await acts.insert({ id: ctx.newId("a"), caseId: c.id, kind: "praktikdag", startsAt: `${day}T${p.time}`, durationMin: p.durationMin, location, note: "" });
+    await acts.insert({ id: ctx.newId("a"), caseId: c.id, kind: "praktikdag", startsAt: `${day}T${p.time}`, durationMin: p.durationMin, location, note: "", groupActivityId: null });
     created++;
   }
 
@@ -283,10 +288,10 @@ handleCommand(placementCreate, { roles: PLANNERS }, async (ctx, p) => {
   });
   await ctx.audit({
     action: "placement.created", entity: "placement", entityId: placementId, contractId: c.contractId,
-    details: { caseId: c.id, employerId: employer.id, startsOn: p.startsOn, endsOn, days: created, replaced },
+    details: { caseId: c.id, employerId: employer.id, startsOn: p.startsOn, endsOn, days: created, replaced, ...(groupActivityIds.length ? { groupActivityIds } : {}) },
   });
   await ctx.audit({ action: "event.added", entity: "outcome_event", entityId: eventId, contractId: c.contractId, details: { caseId: c.id, kind: "praktik_startad" } });
-  return ok({ placementId, employerId: employer.id, days: created });
+  return ok({ placementId, employerId: employer.id, days: created, groupActivities: groupActivityIds.length });
 });
 
 handleCommand(placementEnd, { roles: PLANNERS }, async (ctx, p) => {

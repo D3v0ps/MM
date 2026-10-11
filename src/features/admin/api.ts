@@ -17,7 +17,7 @@
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, MGMT, INBOX } from "@/api/invalidation";
-import { SUPPLIER_ROLES, type SupplierRole } from "@/api/roles";
+import { STAFF_ROLES, type SupplierRole } from "@/api/roles";
 import type { ContractConfig, DataRole, EscalationRole, OrgSettings, PriceUnit } from "@/core/config";
 import type { OutboundStatus } from "@/data/schema";
 import { IdSchema, LongText, MonthKeySchema, ShortText } from "../_shared/schemas";
@@ -181,7 +181,8 @@ export const adminInviteCustomer = command("admin.inviteCustomer", z.object({
 export const adminSetCustomerActive = command("admin.setCustomerActive", z.object({ userId: IdSchema, active: z.boolean() }), { invalidates: ["admin.users", CARD, PORTAL, INBOX] }).returns<Result<object, "not_found">>();
 
 // ---- Kollegorna (beslut 2026-10-08, skarp drift): administratören lägger till kollegor, ändrar roller och spärrar i appen.
-const StaffRoles = z.array(z.enum(SUPPLIER_ROLES)).min(1).max(SUPPLIER_ROLES.length);
+// Bara STAFF_ROLES: rollen handledare är vilande (Karims beslut 2026-10-09) – zod nekar den, som andra okända roller.
+const StaffRoles = z.array(z.enum(STAFF_ROLES)).min(1).max(STAFF_ROLES.length);
 /**
  * Lägg till kollega: namn, e-postadress på personalens domän, en eller flera roller i huvudavtalet, titel valfri. Kollegan
  * får ett mejl utan personuppgifter (bara adressen till appen) och loggar in med e-post och kod.
@@ -235,7 +236,7 @@ export type DataProtectionView = {
 };
 /** active = ansluten, test = simulerad, chosen = vald och väntar på kommunens godkännande, off = ej ansluten, notchosen = ej vald. */
 export type IntegrationStatus = "active" | "test" | "chosen" | "off" | "notchosen";
-export type IntegrationIcon = "inbox" | "key" | "card" | "message" | "mail" | "sparkles";
+export type IntegrationIcon = "inbox" | "key" | "card" | "message" | "mail" | "sparkles" | "phone";
 /** Ett kort under "Integrationer": rubrik, ikon, status och rader (etikett, text). */
 export type IntegrationView = { id: string; name: string; sub: string; icon: IntegrationIcon; status: IntegrationStatus; phase: number | null; items: [string, string][] };
 export type IntegrationsView = {
@@ -263,7 +264,9 @@ export const adminIntegrations = query("admin.integrations", z.object({})).retur
 // invalidates "all" med motivering: ett bakgrundsjobb kan skapa rapporter, notiser, röstresultat eller gallra – följderna är
 // inte kända i förväg, så allt räknas om (bara den här knappen på integrationssidan). "inbox" lägger ett riktigt jobb
 // (inbox_import) som körs av jobbkörningen i supabase-läget; i minnesläget markeras det klart direkt (simulerat).
-export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<object, "disabled">>();
+// "auto_attendance" (beslut 2026-10-09) lägger ett riktigt jobb i supabase-läget och registrerar närvaron direkt i minnesläget
+// och prototypen (runAutoAttendance, utan golv – som produktionen).
+export const adminRunJob = command("admin.runJob", z.object({ key: z.enum(["inbox", "auto_attendance", "weekly", "att_remind", "progress", "audio", "transcripts", "kpi", "retention"]) }), { invalidates: "all" }).returns<Result<{ queued: boolean }, "disabled">>();
 
 // ================================================================ Mallar och utskick (/admin/mallar)
 export type TemplateVersionView = { version: number; savedAt: string; savedByName: string };
@@ -305,6 +308,11 @@ export type SendLogItem = {
    * läge – inga personuppgifter. Systemadministratörens Min vecka visar utskick som inte gick iväg (beslut 2026-10-06).
    */
   status: OutboundStatus;
+  /**
+   * Varför utskicket stoppades eller inte gick iväg, i klarspråk (t.ex. "SMS-leverantör inte vald", "Telefonnumret har fel
+   * format"). Null när det skickades som vanligt. Aldrig adresser eller nummer (outbound_messages.statusReason).
+   */
+  reason: string | null;
 };
 export type TemplatesView = {
   /** Bara systemadmin sparar nya mallversioner (SPEC §9, policyn för template_versions). */

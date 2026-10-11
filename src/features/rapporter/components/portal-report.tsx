@@ -112,11 +112,8 @@ export function PortalReport({ reportId, from, query, next }: { reportId: string
           Levererad av Miljonbemanning {p.deliveredText}.{p.version > 1 ? ` Det här är version ${p.version}, som ersätter en tidigare version.` : ""}
         </p>
       </Stack>
-      {p.isRecipient && p.openedAt && (
-        <Notice tone="ok" title="Rapporten är kvitterad">
-          Du öppnade rapporten första gången {dtFull(p.openedAt)}. Miljonbemanning ser att du har läst den.
-        </Notice>
-      )}
+      {/* Notisen "Rapporten är kvitterad" är borttagen (beslut 2026-10-09: "Vi behöver inte visa så mycket till kommunens
+          handläggare"). Kvittensen sparas som förut (openedAt). */}
       {!p.isRecipient && (
         <Notice tone="info" title="Kvitteras bara av mottagaren">
           Rapporten skickades till {p.recipientName}. Den blir kvitterad först när {p.recipientName} öppnar den – inte när du läser den.{" "}

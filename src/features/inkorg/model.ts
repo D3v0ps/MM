@@ -58,7 +58,6 @@ const VIEW_ROLES: Record<ViewId, readonly Role[]> = {
   "sam.deadlines": ["samordnare", "avtalsansvarig", "chef"],
   "arenden.lista": CASE_ROLES,
   "arende.kort": CASE_ROLES,
-  "hand.start": ["handledare"],
   "coach.minvecka": ["coach"],
   "coach.narvaro": ["coach", "handledare"],
   "coach.avstamning": ["coach"],

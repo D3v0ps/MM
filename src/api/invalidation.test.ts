@@ -51,7 +51,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortManad": one("u-amira", { caseId: NADIA, manad: "2027-01" }), "arenden.kortHandelser": one("u-amira", { caseId: NADIA }),
   "arenden.kortAvvikelser": one("u-amira", { caseId: "case-260148" }), "arenden.kortPraktik": one("u-amira", { caseId: NADIA }),
   "arenden.kortRapporter": one("u-amira", { caseId: NADIA }), "arenden.kortMeddelanden": one("u-amira", { caseId: NADIA }),
-  "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })], "arenden.handledare": one("u-petra"),
+  "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],
@@ -77,6 +77,11 @@ const SAMPLES: Record<string, Sample[]> = {
   "rost.link": one("deltagare", {}), "rost.sendStatus": one("deltagare", { aiRunId: "ai-run-mehmet" }), "rost.caseVoice": one("u-amira", { caseId: NADIA }), "rost.pendingNotes": one("u-amira"),
   "session.ping": one("u-amira"), "session.navCounts": [...one("u-amira"), ...one("u-sara"), ...one("u-karin"), ...one("k-maria")],
   "feedback.list": [{ actor: "u-johan", params: {}, testerId: "tester-karim" }],
+  // Gruppaktiviteter (2026-10-09): testdatat har inga – testet skapar en först (se nedan) och visar den.
+  "aktiviteter.lista": [...one("u-amira"), ...one("u-karin")], "aktiviteter.visa": one("u-amira", { id: "__first_group__" }), "aktiviteter.form": one("u-sara"),
+  // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
+  "grupper.katalog": [...one("u-sara", { arkiverade: true }), ...one("u-amira")], "grupper.arende": one("u-amira", { caseId: NADIA }), "grupper.filter": one("u-amira"),
+  "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "grupp", id: "grp-c-bot-g-mandag" })],
 };
 
 /**
@@ -106,6 +111,7 @@ const WRITES: Record<string, string[]> = {
   "arenden.caseStart": ["cases", "activities", "case_status_history", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
+  "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
   "arenden.messageRead": ["messages"], "arenden.consentSet": ["consents", "cases", AUDIT_CASE, AUDIT], "arenden.noteSave": ["case_notes", AUDIT_CASE, AUDIT],
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
@@ -143,6 +149,16 @@ const WRITES: Record<string, string[]> = {
   "rost.linkSend": ["voice_links", "outbound_messages", AUDIT_CASE, AUDIT], "rost.notesSeen": [AUDIT_CASE, AUDIT], "rost.noteReview": ["participant_voice_notes", AUDIT_CASE, AUDIT],
   "session.auditView": [AUDIT_CASE, AUDIT],
   "feedback.submit": ["feedback", AUDIT], "feedback.reply": ["feedback_replies", AUDIT], "feedback.setStatus": ["feedback", AUDIT],
+  // Gruppaktiviteter (coachmötet 2026-10-09): loggraderna har deltagarnas ärenden (caseIds) och syns i kortets Historik.
+  // Spår G: meddelandet till deltagarna (utskick, och uppgiften till samordnaren när ingen kanal finns) och gruppmålet.
+  "aktiviteter.skapa": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.andra": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.bjudIn": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.stallIn": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
+  "aktiviteter.malResultat": ["group_goal_results", AUDIT_CASE, AUDIT],
+  // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
+  "grupper.ny": ["groupings", AUDIT], "grupper.andra": ["groupings", AUDIT], "grupper.arkivera": ["groupings", AUDIT], "grupper.standard": ["groupings", AUDIT],
+  "grupper.arendeSpara": ["grouping_members", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -203,7 +219,20 @@ const KNOWN: Known[] = [
   { command: "coach.checkinSave", query: "coach.narvaro", table: "cases", reason: "fasen visas inte på närvarosidan" },
   { command: "coach.intakeSave", query: "session.navCounts", table: "cases", reason: "yrkesspåret påverkar inga räknare" },
   { command: "praktik.employerAdd", query: "*", table: "employers", reason: "en ny arbetsgivare har inga placeringar än" },
+  // Bekräftelsen visar bara uppgiften att ringa deltagaren (participant_contact, beslut 2026-10-09) – avvikelsens uppgift går till kommunen.
+  { command: "coach.deviationSave", query: "inkorg.confirmation", table: "tasks", reason: "bekräftelsen läser bara uppgifter av slaget participant_contact" },
   { command: "coach.recordingFinish", query: "*", table: "check_ins", reason: "bara AI-utkastet i avstämningen – notiser, rapporter och räknare räknar godkända avstämningar; coachens skärmar och kortet räknas om" },
+  // Gruppaktiviteternas formulär (2026-10-09): deltagarna att bjuda in hämtas färskt varje gång formuläret öppnas (useQueryRunner,
+  // ingen cache) och servern prövar varje inbjudan igen (not_invitable) – en ändring av ett ärende behöver inte räkna om något.
+  { command: "*", query: "aktiviteter.form", table: "cases", reason: "formuläret hämtar deltagarna utan cache när det öppnas; inbjudan prövas av servern" },
+  // Inbjudan per nivå eller grupp (spår G): nivåerna, grupperna och deltagarna i dem hämtas på samma sätt – utan cache.
+  { command: "*", query: "aktiviteter.form", table: "groupings", reason: "formuläret hämtar nivåerna och grupperna utan cache när det öppnas" },
+  { command: "*", query: "aktiviteter.form", table: "grouping_members", reason: "formuläret hämtar deltagarna i nivåerna och grupperna utan cache när det öppnas; servern prövar varje inbjudan" },
+  // Massanteckningarna (coachmötet 2026-10-09): urvalets namn, ärendenummer och status, och Mina ärenden (teamet).
+  { command: "*", query: "grupper.anteckningar", table: "cases", reason: "listan över urvalet hämtas om när sidan visas igen – en anteckning går att spara i alla ärenden man arbetar i" },
+  { command: "*", query: "grupper.katalog", table: "cases", reason: "antalet per nivå, grupp och tagg räknar bara pågående ärenden – statusen ändras i andra vyer och antalet hämtas om när sidan visas igen" },
+  { command: "*", query: "grupper.anteckningar", table: "case_team", reason: "Mina ärenden – tilldelningen hämtas om när sidan visas igen" },
+  { command: "*", query: "grupper.arende", table: "case_team", reason: "teamet läses bara i behörighetsuppslaget – tilldelningen styr inte åtkomsten (beslut 2026-10-09)" },
 ];
 /** Varje delad tabell måste täckas av en KNOWN-rad för paret; returnerar raderna som användes (eller null). */
 function knownFor(command: string, query: string, tables: string[]): number[] | null {
@@ -264,7 +293,9 @@ async function readsOf(q: QueryDef<unknown, unknown>): Promise<Set<string>> {
   if (!samples) throw new Error(`Frågan ${q.key} saknar exempel i SAMPLES (src/api/invalidation.test.ts)`);
   const out = new Set<string>();
   for (const s of samples) {
-    const params = JSON.parse(JSON.stringify(s.params).replace("__first_log__", rt.raw().all("audit_log")[0]?.id ?? "log-x"));
+    const params = JSON.parse(
+      JSON.stringify(s.params).replace("__first_log__", rt.raw().all("audit_log")[0]?.id ?? "log-x").replace("__first_group__", rt.raw().all("group_activities")[0]?.id ?? "ga-x"),
+    );
     trace = new Set();
     try {
       await rt.run("query", q.key, params, actorOf(s.actor, s.testerId));
@@ -304,6 +335,8 @@ describe("exakt omräkning per kommando", () => {
   it("frågor som läser en tabell ett kommando skriver räknas om av kommandot", async () => {
     // Första anropet läser in rapportutkasten (systemsteg) – körs utan spårning.
     await rt.run("query", "session.ping", {}, actorOf("u-amira"));
+    // En gruppaktivitet med en deltagare (testdatat har inga), så att aktivitetsvyns exempel har något att visa.
+    await rt.run("command", "aktiviteter.skapa", { name: "CV-verkstad", kind: "yrkesmoment", startsAt: "2027-02-01T08:00", durationMin: 90, location: "Alby", caseIds: [NADIA] }, actorOf("u-amira"));
     const reads = new Map<string, Set<string>>();
     for (const q of queries()) reads.set(q.key, await readsOf(q));
     expect(badSamples).toEqual([]);

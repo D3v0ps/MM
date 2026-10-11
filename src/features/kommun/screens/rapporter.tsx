@@ -2,27 +2,23 @@
 // Rapporter och meddelanden i portalen (/portal/rapporter/:reportId?) – prototypens kom.rapporter.
 // Utan reportId: handläggarens rapporter och meddelanden (flikar, ?flik=meddelanden, ?filter=olasta …). Med reportId:
 // rapportsidan (PortalReport från området rapporter). Beställarrapporten visas inte i portalen (beslut 2026-10-07).
-import { useSyncExternalStore } from "react";
+// Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): inga rutor om rapporter på väg, ingen
+// sökning och bara filtren Olästa och Alla.
 import { PortalReport } from "@/features/rapporter/components/portal-report";
 import { useQuery } from "@/shell/backend";
 import { path, useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useSession } from "@/shell/session";
-import { pickInt, useMemoryState, useQueryPatch } from "@/shell/url-state";
-import { Badge, Button, Card, Empty, ErrorNotice, Field, Input, List, ListItem, Loading, Notice, PerspectiveLink, Seg, Select, Stack, TabPanel, Tabs } from "@/ui";
-import type { ReportKind } from "@/data/schema";
+import { pickInt, useQueryPatch } from "@/shell/url-state";
+import { Badge, Button, Card, Empty, ErrorNotice, List, ListItem, Loading, PerspectiveLink, Seg, Stack, TabPanel, Tabs } from "@/ui";
 import { kommunReports, type KomReports } from "../api";
-import { fDT, fDTL, trunc } from "../texts";
+import { fDT, trunc } from "../texts";
 import { KOM_TABS, KomHead, KomPage, LeadIcon, MoreButton, ReportRowItem, SubLine, TitleRow, UNREAD_EDGE } from "./parts";
 
-type Filter = "olasta" | "alla" | ReportKind;
+type Filter = "olasta" | "alla";
 const REP_FILTERS: [Filter, string][] = [
   ["olasta", "Olästa"],
   ["alla", "Alla"],
-  ["weekly_attendance", "Veckorapporter"],
-  ["monthly", "Månadsrapporter"],
-  ["final", "Slutrapporter"],
-  ["order_confirmation", "Orderbekräftelser"],
 ];
 const isFilter = (v: string | null): v is Filter => REP_FILTERS.some(([k]) => k === v);
 
@@ -47,31 +43,6 @@ function NextUnread({ currentId, lista }: { currentId: string; lista: string | n
 }
 
 const PAGE = 15;
-const norm = (s: string) => String(s || "").toLowerCase().replace(/[\s-]/g, "");
-
-/** Smal skärm (mobil): filtret visas som en rullgardin i stället för sex knappar på fem rader. */
-function useNarrow(px = 480): boolean {
-  const q = `(max-width: ${px}px)`;
-  return useSyncExternalStore(
-    (on) => {
-      try {
-        const m = window.matchMedia(q);
-        m.addEventListener("change", on);
-        return () => m.removeEventListener("change", on);
-      } catch {
-        return () => {};
-      }
-    },
-    () => {
-      try {
-        return window.matchMedia(q).matches;
-      } catch {
-        return false;
-      }
-    },
-    () => false,
-  );
-}
 
 function ReportsScreen({ query }: { query: URLSearchParams }) {
   const q = useQuery(kommunReports, {});
@@ -86,23 +57,20 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
   const tab = query.get("flik") === "meddelanden" ? "meddelanden" : "rapporter";
   const f0 = query.get("filter");
   const filter: Filter = isFilter(f0) ? f0 : "alla";
-  // Antal visade i adressen (?visa=): Tillbaka från en rapport visar lika många. Söktexten kan vara ett namn – bara i minnet.
+  // Antal visade i adressen (?visa=): Tillbaka från en rapport visar lika många.
   const limit = pickInt(query, "visa", PAGE);
   const setLimit = (n: number) => patch({ visa: n > PAGE ? n : null });
-  const [text, setText] = useMemoryState("q", "");
-  const needle = norm(text);
   const reps = d.reports;
   const unreadR = reps.filter((r) => !r.openedAt);
-  const count = (k: Filter) => (k === "alla" ? reps.length : k === "olasta" ? unreadR.length : reps.filter((r) => r.kind === k).length);
-  const list = reps.filter((r) => (filter === "alla" || (filter === "olasta" ? !r.openedAt : r.kind === filter)) && (!needle || norm(`${r.title} ${r.sub}`).includes(needle)));
+  const count = (k: Filter) => (k === "alla" ? reps.length : unreadR.length);
+  const list = filter === "alla" ? reps : unreadR;
   // Listans val följer med till rapportsidan, så att "Tillbaka till rapporterna" visar samma lista.
   const lista = new URLSearchParams(Object.entries({ filter: filter === "alla" ? "" : filter, visa: limit > PAGE ? String(limit) : "" }).filter(([, v]) => v)).toString();
   // Flik och filter står i adressen (?flik=meddelanden&filter=olasta), så att länkar från startsidan öppnar rätt vy.
   const go = (t: "rapporter" | "meddelanden", f: Filter) => nav.replace(path("/portal/rapporter", { flik: t === "meddelanden" ? t : null, filter: f === "alla" ? null : f, visa: null }));
   const setTab = (t: "rapporter" | "meddelanden") => go(t, filter);
   const setFilter = (f: Filter) => go(tab, f);
-  const narrow = useNarrow();
-  const filterOptions = REP_FILTERS.filter(([k]) => k === "alla" || count(k) > 0).map(([k, l]) => ({ value: k, label: `${l} (${count(k)})` }));
+  const filterOptions = REP_FILTERS.map(([k, l]) => ({ value: k, label: `${l} (${count(k)})` }));
   return (
     <KomPage>
       <KomHead
@@ -125,37 +93,10 @@ function Reports({ d, query }: { d: KomReports; query: URLSearchParams }) {
       <TabPanel tabsId="kom-rapporter" active={tab}>
         {tab === "rapporter" ? (
           <Stack>
-            {d.coming.map((r) => (
-              <Notice key={r.id} tone="info" icon="clock" title={`${r.title} är på väg`}>
-                Den publiceras när coacherna har registrerat all närvaro för veckan, senast {fDTL(r.dueAt)}.
-              </Notice>
-            ))}
-            {narrow ? (
-              <Field id="kom-rap-filter" label="Visa">
-                <Select value={filter} onValueChange={(v) => setFilter(isFilter(v) ? v : "alla")} options={filterOptions} />
-              </Field>
-            ) : (
-              <Seg ariaLabel="Visa rapporter" value={filter} onValueChange={setFilter} options={filterOptions} />
-            )}
-            <Field id="kom-rap-q" label="Sök rapport" help="Skriv deltagarens namn eller ärendenumret.">
-              <Input
-                type="search"
-                value={text}
-                onValueChange={(v) => {
-                  setText(v);
-                  if (limit !== PAGE) setLimit(PAGE);
-                }}
-              />
-            </Field>
+            <Seg ariaLabel="Visa rapporter" value={filter} onValueChange={setFilter} options={filterOptions} />
             <Card flush>
               {list.length === 0 ? (
-                <Empty icon={needle ? "search" : "check-circle"} title={needle ? "Ingen rapport matchar sökningen" : filter === "olasta" ? "Du har läst alla rapporter" : "Inga rapporter att visa"}>
-                  {needle ? (
-                    <Button kind="ghost" icon="x" onClick={() => setText("")}>
-                      Rensa sökningen
-                    </Button>
-                  ) : undefined}
-                </Empty>
+                <Empty icon="check-circle" title={filter === "olasta" ? "Du har läst alla rapporter" : "Inga rapporter att visa"} />
               ) : (
                 <List>
                   {list.slice(0, limit).map((r) => (

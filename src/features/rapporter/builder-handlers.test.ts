@@ -3,6 +3,7 @@
 // rapporter delas aldrig med kommunen (kommunens chef är borttagen). Resultatfilen för hela avtalet: contract-result.test.ts.
 // Körs genom execute() mot testdatat i minnet som testpersonerna i rollväljaren (behörighet via policy.ts).
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import { execute } from "@/api/handlers";
 import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
@@ -111,7 +112,7 @@ const noPersonalData = (json: string, names: RegExp) => {
 describe("roller", () => {
   it("coach, handledare, ekonom, admin och kommunens handläggare nekas rapportbyggarens nycklar", async () => {
     const def = asDef(tpl("narvaro-per-manad"));
-    for (const a of [as("u-amira", "coach"), as("u-petra", "handledare"), as("u-lars", "ekonom"), as("u-robin", "admin"), maria()]) {
+    for (const a of [as("u-amira", "coach"), dormantSupervisor(), as("u-lars", "ekonom"), as("u-robin", "admin"), maria()]) {
       await expect(ask(builderCatalog, {}, a), a.role).rejects.toBeInstanceOf(ApiError);
       await expect(run(builderPreview, { contractId: "c-bot", definition: def }, a), a.role).rejects.toBeInstanceOf(ApiError);
       await expect(run(builderExport, { contractId: "c-bot", definition: def, format: "csv" }, a), a.role).rejects.toBeInstanceOf(ApiError);

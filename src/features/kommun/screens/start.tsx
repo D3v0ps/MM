@@ -1,6 +1,8 @@
 "use client";
 // Handläggarens startsida i portalen (/portal) – prototypens kom.start. Uppgifter som väntar på beslut står överst, sedan de
-// tre stora knapparna (huvudhandlingen Beställ ny insats), sedan händelser och olästa. Ingen annan navigering på sidan (portallayouten visar ingen meny här).
+// tre stora knapparna (huvudhandlingen Beställ ny insats), sedan olästa rapporter och meddelanden. Ingen annan navigering på
+// sidan (portallayouten visar ingen meny här). Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens
+// handläggare"): inga händelser och inga siffror under knapparna.
 import { useCommand, useQuery } from "@/shell/backend";
 import { path } from "@/shell/nav";
 import { Badge, BigButton, BigButtons, Button, Card, ErrorNotice, List, ListItem, Loading, Notice, PerspectiveLink, useToast } from "@/ui";
@@ -36,8 +38,7 @@ function StartContent({ d }: { d: KomStart }) {
   const doneTask = useTaskDone();
   const items = [...d.unreadMessages.map((m) => ({ key: m.id, msg: m, rep: null })), ...d.unreadReports.map((r) => ({ key: r.id, msg: null, rep: r }))];
   const shown = items.slice(0, 3);
-  const shownEv = d.events.slice(0, 5);
-  const nothing = d.tasks.length + d.events.length + items.length === 0;
+  const nothing = d.tasks.length + items.length === 0;
   const allUnread = path("/portal/rapporter", { filter: "olasta", flik: d.unreadReports.length === 0 ? "meddelanden" : null });
   return (
     <KomPage>
@@ -83,47 +84,12 @@ function StartContent({ d }: { d: KomStart }) {
           </List>
         </Card>
       )}
-      {/* Huvudhandlingen direkt efter uppgifterna som väntar på beslut – händelser och olästa kommer efter (beslut D8, C6). */}
+      {/* Huvudhandlingen direkt efter uppgifterna som väntar på beslut – de olästa kommer efter (beslut D8, C6). */}
       <BigButtons ariaLabel="Vad vill du göra?">
         <BigButton primary icon="file-plus" title="Beställ ny insats" sub="Tre korta steg och en granskning. Det tar ungefär fem minuter." to="/portal/bestall" />
-        <BigButton icon="users" title="Mina deltagare" sub={`${d.active} pågår · ${d.waiting} väntar på start`} to="/portal/deltagare" />
-        <BigButton icon="mail" title="Rapporter och meddelanden" sub={d.unreadTotal > 0 ? `${d.unreadTotal} olästa` : "Inga olästa"} to="/portal/rapporter" />
+        <BigButton icon="users" title="Mina deltagare" to="/portal/deltagare" />
+        <BigButton icon="mail" title="Rapporter och meddelanden" to="/portal/rapporter" />
       </BigButtons>
-      {d.events.length > 0 && (
-        <Card
-          title={`Händelser i dina ärenden (${d.events.length})`}
-          icon="bell"
-          flush
-          foot={
-            d.events.length > shownEv.length ? (
-              <Button iconRight="arrow-right" to="/portal/deltagare">
-                Mina deltagare
-              </Button>
-            ) : undefined
-          }
-        >
-          <List>
-            {shownEv.map((ev) => (
-              <ListItem
-                key={ev.key}
-                to={ev.reportId ? reportPath(ev.reportId, "start") : deltagarePath(ev.caseId)}
-                className={UNREAD_EDGE}
-                chevron
-                lead={<LeadIcon name={ev.kind === "declined" ? "x-circle" : ev.kind === "coach" ? "users" : "check-circle"} />}
-                title={
-                  <TitleRow>
-                    <span>{ev.title}</span>
-                    <Badge tone="dark">Ny</Badge>
-                  </TitleRow>
-                }
-                sub={ev.sub}
-              >
-                <SubLine>{fDT(ev.at)}</SubLine>
-              </ListItem>
-            ))}
-          </List>
-        </Card>
-      )}
       {items.length > 0 && (
         <Card
           title={`Olästa rapporter och meddelanden (${items.length})`}
@@ -180,7 +146,7 @@ function StartContent({ d }: { d: KomStart }) {
       )}
       {nothing && (
         <Notice tone="ok" title="Du är uppdaterad">
-          Du har inga uppgifter, inga nya händelser och inga olästa rapporter eller meddelanden.
+          Du har inga uppgifter och inga olästa rapporter eller meddelanden.
         </Notice>
       )}
       {CONTACT_PHONE && (

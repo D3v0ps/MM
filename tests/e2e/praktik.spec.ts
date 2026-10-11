@@ -6,7 +6,8 @@ import { isDemo, loaded, open, switchPersona } from "./helpers";
 type Who = { userId: string; role: string };
 const SARA: Who = { userId: "u-sara", role: "samordnare" };
 const AMIRA: Who = { userId: "u-amira", role: "coach" };
-const PETRA: Who = { userId: "u-petra", role: "handledare" };
+/** Petra Ek – coach sedan rollen handledare togs bort (Karims beslut 2026-10-09). */
+const PETRA: Who = { userId: "u-petra", role: "coach" };
 const main = (page: Page) => page.locator("#main");
 const text = (page: Page) => main(page).evaluate((el) => (el.textContent ?? "").replace(/ /g, " "));
 const relevant = (errors: string[]) => errors.filter((e) => !/Failed to load resource/.test(e));
@@ -113,7 +114,7 @@ test("praktik: coachen ser alla praktikplatser hos arbetsgivaren med namn (beslu
   expect(relevant(errors)).toEqual([]);
 });
 
-test("praktik: handledaren når registret och ser sina uppföljningar", async ({ page }, info) => {
+test("praktik: en coach utan egna ärenden (Petra) når registret och ser alla uppföljningar", async ({ page }, info) => {
   const errors = await open(page, info, "/praktik", PETRA);
   await expect(main(page)).toContainText("Arbetsgivare (");
   // Alla uppföljningar i avtalet (beslut 2026-10-09) – tidigare 8 respektive 4 i egna ärenden.

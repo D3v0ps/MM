@@ -19,12 +19,14 @@ export type PrototypeRole = {
   description: string;
 };
 
-/** Rollerna i prototypens ordning, med standardperson och beskrivning (prototypens MM.ROLES). */
+/**
+ * Rollerna i prototypens ordning, med standardperson och beskrivning (prototypens MM.ROLES). Rollen handledare är borttagen
+ * (Karims beslut 2026-10-09, vilande i databasen) – ingen testperson har den.
+ */
 export const PROTOTYPE_ROLES: readonly PrototypeRole[] = [
   { key: "samordnare", label: "Samordnare", org: "mb", personaId: "u-sara", description: "Avropsinkorg med SLA-klocka, tilldelar coach, bokar start." },
   { key: "avtalsansvarig", label: "Avtalsansvarig", org: "mb", personaId: "u-johan", description: "Accepterar och avböjer avrop, avtalsavvikelser, godkänner beställarrapport." },
   { key: "coach", label: "Huvudcoach", org: "mb", personaId: "u-amira", description: "Min vecka: närvaro, avstämningar, månadsbedömningar och rapporter." },
-  { key: "handledare", label: "Handledare", org: "mb", personaId: "u-petra", description: "Ser bara tilldelade ärenden: moment, praktik och närvaro." },
   { key: "chef", label: "Chef och controller", org: "mb", personaId: "u-karin", description: "KPI:er mot mål, flaggor, prognos, avvikelser och revisionslogg." },
   { key: "ekonom", label: "Ekonom", org: "mb", personaId: "u-lars", description: "Fakturaunderlag per ärende och månad – inga anteckningar eller rapporter." },
   { key: "admin", label: "Systemadmin", org: "mb", personaId: "u-robin", description: "Avtalskonfiguration, användare, underbiträden och logg." },
@@ -35,7 +37,7 @@ export const PROTOTYPE_ROLES: readonly PrototypeRole[] = [
 export type PrototypePerspective = { key: "leverantor" | "kund" | "deltagare"; label: string; long: string; roles: Role[]; defaultRole: Role };
 /** Perspektiven i prototypfältet (prototypens MM.PERSPECTIVES). */
 export const PERSPECTIVES: readonly PrototypePerspective[] = [
-  { key: "leverantor", label: "Leverantör", long: "Leverantörens perspektiv – Miljonbemanning", roles: ["samordnare", "avtalsansvarig", "coach", "handledare", "chef", "ekonom", "admin"], defaultRole: "samordnare" },
+  { key: "leverantor", label: "Leverantör", long: "Leverantörens perspektiv – Miljonbemanning", roles: ["samordnare", "avtalsansvarig", "coach", "chef", "ekonom", "admin"], defaultRole: "samordnare" },
   { key: "kund", label: "Kund", long: "Kundens perspektiv – Botkyrka kommun", roles: ["kommun_handlaggare"], defaultRole: "kommun_handlaggare" },
   { key: "deltagare", label: "Deltagare", long: "Deltagarens perspektiv", roles: ["deltagare"], defaultRole: "deltagare" },
 ];

@@ -15,7 +15,7 @@ Tips:
 - Skriv datum som år-månad-dag, till exempel 2027-03-01.
 - Skriv personnumret med tolv siffror och bindestreck, till exempel ÅÅÅÅMMDD-NNNN. Samordningsnummer skrivs på samma sätt.
 - Under Omfattning skriver du **6 månader**, **12 månader** eller **annan tidsperiod**. Väljer du annan tidsperiod fyller du också i slutdatum och motivering.
-- Skriv deltagarens telefonnummer. Vi skickar kallelsen med SMS. Har deltagaren ingen telefon skriver du e-postadressen i stället. Då skickar vi kallelsen med e-post.
+- Skriv deltagarens telefonnummer med riktnummer och, om deltagaren har en, e-postadressen. Vi skickar kallelsen med e-post eller SMS. Går det inte ringer vi deltagaren.
 - Under Yrkesområde skriver du det yrkesområde som deltagaren ska arbeta mot. Skriv namnet eller bokstaven från listan under mallen.
 - Under Kartläggning genomförd skriver du **ja** eller **nej**. Har du svarat ja kan du bifoga kartläggningen i mejlet.
 - Under Bakgrundsinformation kan du skriva flera rader. Texten slutar vid första tomma raden.

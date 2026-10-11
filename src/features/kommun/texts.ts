@@ -3,7 +3,7 @@
 import { plural } from "@/core/format";
 import { MONTHS, MONTHS_SHORT, addDays, fmtDateFull, fmtDateTimeFull, fmtTime, fmtWeekday, monthName, weekMonday, type WeekKey } from "@/core/time";
 import type { CaseStatus, ReportKind } from "@/data/schema";
-import type { KomCase } from "./api";
+import type { KomCase, KomCaseRow } from "./api";
 
 // ---------------------------------------------------------------- Miljonbemannings kontaktuppgifter (inte avtalsvärden)
 /** Telefon för frågor om beställningar och deltagare – null tills Miljonbemanning bestämt numret (inga påhittade nummer). */
@@ -86,8 +86,8 @@ export function statusLook(c: Pick<KomCase, "status" | "firstMeetingAt">): Badge
 }
 export const statusName = (s: CaseStatus): string => STATUS[s].label;
 
-/** Status i en mening (ingressen på deltagarens sida). */
-export function statusText(c: KomCase, phaseCount: number): string {
+/** Status i en mening (deltagarens sida i portalen). Beslut 2026-10-09: ingen fas och inget fasnamn. */
+export function statusText(c: KomCase): string {
   switch (c.status) {
     case "received":
       return "Beställningen är mottagen.";
@@ -98,7 +98,7 @@ export function statusText(c: KomCase, phaseCount: number): string {
         ? `Insatsen är bekräftad. Första mötet är ${fDTL(c.firstMeetingAt)} i ${c.location || "Alby"}.`
         : `Insatsen är bekräftad. Första mötet bokas senast ${fD(c.firstMeetingDue)}.`;
     case "active":
-      return `Insatsen pågår. Deltagaren är i fas ${c.phase} av ${phaseCount} (${phaseText(c.phaseName).toLowerCase()}).`;
+      return "Insatsen pågår.";
     case "paused":
       return "Insatsen är pausad.";
     case "closed":
@@ -110,8 +110,8 @@ export function statusText(c: KomCase, phaseCount: number): string {
   }
 }
 
-/** Status i kort form (listan). */
-export function shortStatus(c: KomCase, phaseCount: number): string {
+/** Status i kort form (listan). Fasen visas bara här – inte på deltagarens sida (beslut 2026-10-09). */
+export function shortStatus(c: KomCaseRow, phaseCount: number): string {
   if (c.status === "active") return `Fas ${c.phase} av ${phaseCount} · ${phaseText(c.phaseName)}`;
   if (c.status === "acknowledged") return `Besked senast ${fDT(c.avropDue)}`;
   if (c.status === "confirmed") return c.firstMeetingAt ? `Första mötet ${fDT(c.firstMeetingAt)}` : "Första mötet bokas";

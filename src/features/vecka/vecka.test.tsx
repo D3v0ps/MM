@@ -5,7 +5,8 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Actor, SupplierRole } from "@/api/roles";
+import type { Actor, StaffRole } from "@/api/roles";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import { listPersonas, type Persona } from "@/data/actors";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { DEMO_START } from "@/data/seed";
@@ -34,22 +35,22 @@ beforeEach(() => {
   personas = listPersonas(rt.raw());
 });
 
-const USER: Record<SupplierRole, string> = {
-  samordnare: "u-sara", avtalsansvarig: "u-johan", coach: "u-amira", handledare: "u-petra", chef: "u-karin", ekonom: "u-lars", admin: "u-robin",
+// Rollen handledare är borttagen (Karims beslut 2026-10-09, vilande): ingen Min vecka för den.
+const USER: Record<StaffRole, string> = {
+  samordnare: "u-sara", avtalsansvarig: "u-johan", coach: "u-amira", chef: "u-karin", ekonom: "u-lars", admin: "u-robin",
 };
 
 /** Frågorna som varje roll redan hade före Min vecka (startsidans frågor och notiserna). Sessionens frågor gäller alla. */
-const ALLOWED: Record<SupplierRole, string[]> = {
+const ALLOWED: Record<StaffRole, string[]> = {
   samordnare: ["inkorg.start", "notiser.list"],
   avtalsansvarig: ["inkorg.start", "notiser.list"],
   coach: ["coach.minVecka", "rost.pendingNotes"],
-  handledare: ["arenden.handledare", "coach.narvaro", "notiser.list"],
   chef: ["ledning.overview", "inkorg.deadlines", "rapporter.lista", "notiser.list"],
   ekonom: ["ekonomi.start", "notiser.list"],
   admin: ["admin.integrations", "admin.users", "admin.templates", "notiser.list"],
 };
 
-function setup(role: SupplierRole, extra: Partial<Session> = {}) {
+function setup(role: StaffRole, extra: Partial<Session> = {}) {
   const p = personas.find((x) => x.actor.userId === USER[role] && x.actor.role === role);
   if (!p) throw new Error(`Ingen testperson för ${role}`);
   const actor: Actor = { ...p.actor, ...(extra.actor ?? {}) };
@@ -144,34 +145,11 @@ describe("Min vecka per roll", () => {
     for (const k of keys) expect(ALLOWED.coach, k).toContain(k);
   });
 
-  it("handledaren: närvaro att registrera, i dag, kommande sju dagar och praktikplatser – bara tilldelade ärenden", async () => {
-    const { keys } = setup("handledare");
-    const h = await headings("Mina tilldelade ärenden");
-    expect(KPI_LABELS()).toEqual(["Närvaro att registrera", "Tillfällen i dag", "Yrkesmoment den här veckan", "Praktik som saknar något av de fyra rätten"]);
-    expect(KPI_LINKS()).toEqual({});
-    // Ett tal med en enhet: yrkesmomenten den här veckan, praktikdagarna i undertexten (förut summan av båda).
-    const week = KPI_TILES()[2];
-    expect(week.querySelector(":scope > div:nth-child(2)")?.textContent).toBe("41");
-    expect(week.textContent).toContain("11 praktikdagar · v. 5");
-    for (const t of ["Kommande sju dagar", "Mina tilldelade ärenden", "Olästa notiser"]) expect(h, t).toContain(t);
-    expect(h.some((x) => /^Närvaro( att registrera)? – vecka 4$/.test(x))).toBe(true);
-    expect(h.some((x) => x.startsWith("I dag – måndag"))).toBe(true);
-    expect(screen.getByText(/26 pågående/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Öppna listan/ }).getAttribute("href")).toBe("#/handledare");
-    for (const k of keys) expect([...ALLOWED.handledare, "session.ping"], k).toContain(k);
-  });
-
-  it("handledaren: nästa tillfälle i dag har text och ikon (Nästa · om …), inte bara den röda kanten", async () => {
-    // Tisdag 2 februari kl. 08.00: dagens yrkesmoment börjar 09.00.
-    rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock("2027-02-02T08:00") });
-    setup("handledare");
-    await headings("Mina tilldelade ärenden");
-    const card = screen.getByRole("heading", { name: /^I dag – tisdag/ }).closest("section") as HTMLElement;
-    const next = within(card).getAllByText(/^Nästa · om 1 tim/);
-    expect(next).toHaveLength(1);
-    // Märket står i raden med den röda kanten.
-    const row = next[0].closest("div.shadow-\\[inset_4px_0_0_var\\(--color-rod\\)\\]");
-    expect(row).not.toBeNull();
+  it("den vilande rollen handledare har ingen Min vecka (Karims beslut 2026-10-09): ingenting visas och inga frågor körs", async () => {
+    const { keys } = setup("coach", { actor: dormantSupervisor() });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("heading", { level: 1 })).toBeNull();
+    expect([...keys]).toEqual([]);
   });
 
   it("chefen: flaggor, förfaller, rapporter att granska och nyckeltalen i korthet – inga ekonomi-frågor", async () => {

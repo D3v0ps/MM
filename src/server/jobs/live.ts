@@ -1,7 +1,8 @@
 // Kör bakgrundsjobben mot Supabase (service role). Används av POST /api/jobs/run och av after() efter ett utskick eller
 // ett röstjobb (schedule.ts). Före varje körning läggs timmens gallringsjobb (ljud och råtranskript), timmens jobb för
-// bilagorna och kontostädningen (attachments.ts), tiominutersperiodens jobb för rapportutkasten (reports.ts) och
-// tvåminutersperiodens mejlinläsning från avrop@ (inbox.ts) om de saknas.
+// bilagorna och kontostädningen (attachments.ts), dagens automatiska närvaro efter dagens slut (attendance.ts – före
+// rapportutkasten), tiominutersperiodens jobb för rapportutkasten (reports.ts) och tvåminutersperiodens mejlinläsning från
+// avrop@ (inbox.ts) om de saknas.
 import "server-only";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR } from "@/api/roles";
@@ -13,8 +14,9 @@ import { serverAudio } from "../audio";
 import { clockNow } from "../clock";
 import { lazyServerCrypto } from "../crypto";
 import { liveCtx, randomId, type Enqueue } from "../ctx";
-import { recipientGate } from "../notify/decision";
-import { notifyEnv } from "../notify/config";
+import { phoneGate, recipientGate } from "../notify/decision";
+import { notifyEnv, participantMessaging, phoneEnv } from "../notify/config";
+import type { ElksFetch } from "../notify/elks";
 import { queueMessage } from "../notify/queue";
 import type { FetchLike } from "../notify/resend";
 import type { NotifyRepo, NotifyTables } from "../notify/types";
@@ -24,6 +26,7 @@ import { serviceClient } from "../supabase";
 import { JOB_HANDLERS, type JobDeps } from "./registry";
 import { safeErrorText } from "./errors";
 import { ensureReportScheduleJob, reportScheduleState, type AppSettingsClient } from "./reports";
+import { ensureAutoAttendanceJob } from "./attendance";
 import { runJobs, type RunSummary } from "./runner";
 import { supabaseJobStore, type RpcClient } from "./store";
 import { ensureRetentionJobs } from "./voice";
@@ -56,11 +59,12 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
   const [settings, env] = await Promise.all([loadAppSettings(client, startedMs), environmentSetting(client)]);
   const now = clockNow(settings.clock, startedMs);
   const cfg = notifyEnv();
+  const phone = phoneEnv();
   const system = appRepo(client);
   // Röstjobbens Ctx (systemsteg: service role, AI-leverantören, ljudlagringen) byggs först när ett röstjobb körs.
   let voice: Ctx | null = null;
   // Utskick från systemstegen läggs i kön och skickas av cron.
-  const enqueue: Enqueue = (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl });
+  const enqueue: Enqueue = (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl, phone: { sms: !!phone.sms, call: !!phone.call } });
   const voiceCtx = (): Ctx =>
     (voice ??= liveCtx({
       actor: SYSTEM_ACTOR,
@@ -73,6 +77,8 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),
       attachments: (d) => serverAttachments(d),
+      // Samma läge som hanterarna (SMS, utringning och spärrlistan för e-post) – uppgiften när ett utskick till en deltagare stoppas.
+      messaging: participantMessaging(env),
     }));
   // Städningen av Auth-användare utan profil (självregistrering som aldrig slutfördes).
   const authCleanup = async () => {
@@ -116,6 +122,13 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     // Bilagornas gallring och kontostädningen läggs vid nästa körning.
     console.error("jobb: timjobben kunde inte läggas", safeErrorText(e));
   }
+  // Automatisk närvaro: läggs före rapportjobbet, så att föregående vecka är komplett när veckorapporten skapas.
+  try {
+    await ensureAutoAttendanceJob(system, now);
+  } catch (e) {
+    // Närvarojobbet läggs vid nästa körning (inom en minut). Övriga jobb körs ändå.
+    console.error("jobb: automatiska närvaron kunde inte läggas", safeErrorText(e));
+  }
   try {
     await ensureReportScheduleJob(system, now);
   } catch (e) {
@@ -136,11 +149,22 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       resend: cfg.resend,
       fetch: globalThis.fetch as unknown as FetchLike,
       now,
+      // SMS och utringning via 46elks – samma spärr för testmiljön som e-posten (MM_SMS_ALLOWLIST, MM_SMS_REDIRECT_TO).
+      phone: { gate: phoneGate(env, phone.allowlist, phone.redirectTo), sms: phone.sms, call: phone.call, fetch: globalThis.fetch as unknown as ElksFetch },
     },
     voice: voiceCtx,
     reportSchedule,
     attachmentsCtx: voiceCtx,
     authCleanup,
+    // Automatisk närvaro: systemstegens Ctx med färsk klocka (som rapportutkasten) och golvet i testmiljön (testklockans start).
+    autoAttendance: async () => {
+      const rows = await freshSettingsRows(client);
+      const fresh = settingsFromRows(rows, clockMode());
+      const at = clockNow(fresh.clock, Date.now());
+      // Veckorapporter som publiceras lägger "ny rapport" i utskickskön.
+      const ctx = liveCtx({ actor: SYSTEM_ACTOR, now: at, repo: system, system, enqueue, crypto: lazyServerCrypto });
+      return { ctx, floor: fresh.clock.mode === "test" ? fresh.clock.demoEpoch : null };
+    },
     // Mejlinläsningen från avrop@: systemstegens Ctx (service role, bilagor, krypto, utskickskön) och Graph via fetch.
     inboxImport: () => runInboxImport({ ctx: voiceCtx(), repo: system, now, fetchFn: globalThis.fetch as unknown as GraphFetch, docxText }),
   };

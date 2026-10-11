@@ -10,12 +10,14 @@ import { attendanceStats, repeatedAbsence, type AttendanceStats } from "@/core/a
 import { buyerRefProblem } from "@/core/billing";
 import { hasContactDetails } from "@/core/contact";
 import { coaches, phaseSince, stuck } from "@/core/cases";
+import { GROUPING_KIND_LABEL, groupingFilterOptions, groupingIdsByCase } from "@/core/groupings";
 import { isOperational, isUnset, phaseName, requireOperational, slaRule, WEEK_PLAN_KINDS, type OperationalConfig } from "@/core/config";
 import {
   activitiesOf, assessmentFor, assessmentsOf, attendanceFor, byId, checkInsOf, consentOf, deviationsOf, eventsOf, groupedBy, historyOf, intakeOf, latestCheckIn,
   messagesOf, placementsOf, reportsOf,
 } from "@/core/db-index";
 import { domainEnv, type DomainEnv } from "@/core/env";
+import { overlaps } from "@/core/group-activities";
 import { plural } from "@/core/format";
 import {
   areaName, attLabel, contactLabel, END_REASONS, participantContactLabel, endReasonLabel, eventLabel, personName, reportKindLabel, reportStatusLabel, statusLabel, teamLabel,
@@ -28,16 +30,19 @@ import {
   WEEKDAYS,
 } from "@/core/time";
 import { by, groupBy } from "@/core/util";
-import { buyerRefError, buyerRefValid, looksLikePnr, poNumberError } from "@/core/validation";
+import { buyerRefError, buyerRefValid, poNumberError } from "@/core/validation";
 import { PROTOTYPE_ROLES } from "@/data/actors";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import type {
-  Activity, AlertKind, AlertSeverity, Case, Contract, Db, FourRights, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
+  Activity, AlertKind, AlertSeverity, Case, Contract, Db, GroupingKind, Message, OutcomeEventKind, Person, ResultClass, TeamRole,
 } from "@/data/schema";
 import {
   canEditCase, contractOf, hasRoleIn, notifyAssignment, notifyReferrer, orgSettingsFor, sendMeetingInvitation,
 } from "../_shared/context";
+import { noteProblem } from "../_shared/notes";
 import { revealPnr } from "../_shared/pnr";
+import { fieldWord } from "../admin/audit-text";
+import { templateLabel } from "../admin/templates";
 import { canHaveTeamRole, teamCandidates } from "../_shared/team";
 import { newReport } from "../_shared/rows";
 import { docBase, monthlyDocView } from "../rapporter/doc-view";
@@ -46,6 +51,7 @@ import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../r
 import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import "./attachment-handlers";
+import "./contact-handlers";
 import { caseBackground } from "./background";
 import { addCaseHistory, createOrder, orderPeriodFrom, SOURCE_TEXT } from "./order";
 import {
@@ -53,10 +59,10 @@ import {
   caseUpdate, consentSet, messageRead, messageSend,
   CUSTOMER_PATCH_FIELDS, type CasePatch,
   caseAttendance, caseCard, caseCheckIns, caseDeviations, caseEvents, caseHistory, caseIntake, caseList, caseMessages, caseMonthBasis, caseNoteRemove, caseNoteSave,
-  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, supervisorStart, TEAM_TABS,
+  caseOverview, casePlacements, caseReports, caseRevealPnr, caseTimeline, caseTimelineText, CONTACT_EDITORS, TEAM_TABS,
   type AttendanceSummary, type CaseAttendance, type CaseMonthBasis, type CaseMonthOption, type CaseTimeline, type CaseAttendanceWeek, type CaseCard, type CaseCardResult, type CaseDeviations, type CaseEvents,
   type CaseFlag, type CaseHistory, type CaseHistoryItem, type CaseIntake, type CaseListModel, type CaseListRow, type CaseMessageRow, type CaseOverview, type CasePlacements, type CaseReportRow,
-  type CaseTab, type SupervisorCase, type SupervisorStart, type TimelineText,
+  type CaseTab, type TimelineText,
 } from "./api";
 
 // ---- Delade kommandon (portade från prototypens 03-domain.js)
@@ -184,7 +190,8 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   const team: { userId: string; role: TeamRole }[] = [{ userId: p.leadCoachId, role: "lead_coach" }];
   for (const t of p.team ?? []) {
     if (team.some((x) => x.userId === t.userId)) continue;
-    // Teamrollerna bygger på medlemskapens roller (beslut 2026-10-08): handledare, eller all MB-personal utom ekonom och admin.
+    // Teamrollerna bygger på medlemskapens roller (beslut 2026-10-08): all MB-personal utom ekonom och admin. Yrkesspecifik
+    // handledare kan ingen få (rollen handledare borttagen, beslut 2026-10-09).
     if (t.role === "lead_coach" || !(await canHaveTeamRole(ctx, t.userId, c.contractId, t.role))) return fail("team", "Välj teammedlemmar bland Miljonbemannings personal i avtalet.");
     team.push({ userId: t.userId, role: t.role });
   }
@@ -240,13 +247,15 @@ handleCommand(caseAccept, { roles: MANAGERS }, async (ctx, p) => {
   const settings = await orgSettingsFor(ctx, contract);
   for (const t of team) await notifyAssignment(ctx, updated, t.userId, t.role, settings);
   await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelse för ärende ${c.caseNumber} finns i portalen – logga in för att läsa. Startdatum och ansvarig coach framgår där.`);
+  let invitation: string;
   if (person.protectedIdentity) {
     // VILANDE spärr (skyddade personuppgifter borttaget ur appen 2026-10-07, protectedIdentity är alltid false): ingen kallelse.
     await ctx.audit({ action: "notify.suppressed", entity: "case", entityId: c.id, contractId: c.contractId, details: { reason: "Skyddade personuppgifter – ingen kallelse via SMS eller e-post till deltagaren" } });
+    invitation = "Ingen kallelse skickades.";
   } else {
-    await sendMeetingInvitation(ctx, updated, person, p.firstMeetingAt);
+    invitation = (await sendMeetingInvitation(ctx, updated, p.firstMeetingAt)).summary;
   }
-  return ok({ reportId: rep.id, caseNumber: c.caseNumber });
+  return ok({ reportId: rep.id, caseNumber: c.caseNumber, invitation });
 });
 
 // ---------------------------------------------------------------- case.decline
@@ -372,8 +381,8 @@ handleCommand(caseBookFirstMeeting, { roles: MANAGERS }, async (ctx, p) => {
     });
     await notifyReferrer(ctx, c, "orderbekraftelse", `Orderbekräftelsen för ärende ${c.caseNumber} är uppdaterad – logga in i portalen för att läsa. Första mötet och planerat slut framgår där.`);
   }
-  await sendMeetingInvitation(ctx, updated, person, p.at);
-  return ok({});
+  const invitation = await sendMeetingInvitation(ctx, updated, p.at);
+  return ok({ invitation: invitation.summary });
 });
 
 // ---------------------------------------------------------------- case.changeCoach
@@ -405,7 +414,7 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
 // mötet: startdatum, status, tillfällen enligt veckoplanen, statushistorik och logg.
 const START_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
 const NO_START = "Insatsen kan startas när avropet är accepterat.";
-const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "" });
+const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null });
 /** Planen i loggen: bara dag, tid och typ – inga personuppgifter. */
 const planKeys = (plan: readonly WeekPlanRow[]) => plan.map((r) => `${WEEKDAYS[r.weekday]} ${r.time} ${r.kind}`);
 const isPlanKind = (k: string) => (WEEK_PLAN_KINDS as readonly string[]).includes(k);
@@ -451,12 +460,18 @@ handleCommand(caseScheduleChange, { roles: START_ROLES }, async (ctx, p) => {
   const existing = await acts.list({ caseId: c.id });
   const registered = new Set((await ctx.repo.table("attendance").list({ caseId: c.id })).map((a) => a.activityId));
   // Framtida tillfällen utan närvaro ersätts. Praktikdagar hör till praktiken och rörs bara om planen själv har praktikdagar.
+  // Gruppaktiviteter (group_activity_id) hör till aktiviteten och rörs aldrig här – en deltagare tas bort ur en gruppaktivitet
+  // bara i aktivitetsvyn (aktiviteter.taBort, loggad på aktiviteten). Planens tillfällen som krockar med en gruppaktivitet hoppas
+  // över, så att deltagaren inte räknas två gånger samma tid.
   const replacesPractice = plan.some((r) => r.kind === "praktikdag");
-  const removable = existing.filter((a) => a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice));
+  const removable = existing.filter((a) => !a.groupActivityId && a.startsAt >= now && !registered.has(a.id) && isPlanKind(a.kind) && (a.kind !== "praktikdag" || replacesPractice));
   for (const a of removable) await acts.remove(a.id);
   const kept = new Set(existing.filter((a) => !removable.includes(a)).map((a) => `${a.startsAt}|${a.kind}`));
+  const groupRows = existing.filter((a) => a.groupActivityId);
   const from = c.startDate && c.startDate > today ? c.startDate : today;
-  const rows = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now }).filter((r) => !kept.has(`${r.startsAt}|${r.kind}`));
+  const rows = planActivities(plan, from, end, { pausedWeeks: c.pausedWeeks, notBefore: now }).filter(
+    (r) => !kept.has(`${r.startsAt}|${r.kind}`) && !groupRows.some((g) => overlaps(g, r)),
+  );
   for (const r of rows) await acts.insert(toActivity(ctx, c.id, r));
   const meet = plan.find((r) => r.kind === "möte");
   if (meet) await ctx.repo.table("cases").update(c.id, { meetingDay: meet.weekday, meetingTime: meet.time });
@@ -472,7 +487,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
-  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "" });
+  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null });
   await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
   return ok({ activityId: id });
 });
@@ -483,6 +498,8 @@ handleCommand(activityRemove, { roles: CASE_WORKERS }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(a.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
   if (await ctx.repo.table("attendance").first({ activityId: a.id })) return fail("has_attendance", "Tillfället har registrerad närvaro och kan inte tas bort.");
+  // Ett tillfälle i en gruppaktivitet tas bort i aktivitetsvyn (aktiviteter.taBort), så att det loggas på aktiviteten.
+  if (a.groupActivityId) return fail("group_activity", "Tillfället hör till en gruppaktivitet. Öppna aktiviteten och ta bort deltagaren där.");
   await ctx.repo.table("activities").remove(a.id);
   await ctx.audit({ action: "activity.removed", entity: "activity", entityId: a.id, contractId: c.contractId, details: { caseId: c.id, kind: a.kind, startsAt: a.startsAt } });
   return ok({});
@@ -659,9 +676,8 @@ const HIDE_FOR_TEAM: readonly AlertKind[] = ["no_progress_escalated", "pulse_low
 const SEV_RANK: Record<AlertSeverity, number> = { critical: 0, warning: 1, info: 2 };
 /** Händelser som räknas som arbetsgivarkontakter (prototypens CONTACT_KINDS). */
 const CONTACT_KINDS: readonly OutcomeEventKind[] = ["intervju_arbetsgivarkontakt", "arbetserbjudande", "praktik_startad", "arbete_paborjat"];
-const FOUR_LABEL: [keyof FourRights, string][] = [["uppgift", "Arbetsuppgifter"], ["handledning", "Handledning"], ["timing", "Tidpunkt"], ["uppfoljning", "Uppföljning"]];
 /** Revisionsloggens rena visningar – egna visningar är brus i coachens logg. */
-const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view"];
+const VIEW_ACTIONS = ["case.view", "case.view_denied", "report.view", "transcript.view", "voice_note.view", "group_activity.view"];
 
 const isManager = (role: Role) => role === "samordnare" || role === "avtalsansvarig";
 const cap = (s: string | null | undefined) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : "");
@@ -671,9 +687,6 @@ const fd = (s: string | null | undefined, today: string) => (!s ? "–" : String
 const summary = (s: AttendanceStats): AttendanceSummary => ({
   planned: s.planned, present: s.present, late: s.late, absentValid: s.absentValid, absentInvalid: s.absentInvalid, unregistered: s.unregistered, rate: s.rate,
 });
-/** Namnet för rollen (displayName). Den vilande nivån restricted ger "–" – den visas aldrig i gränssnittet. */
-const nameFor = (c: Case, person: Pick<Person, "firstName" | "lastName"> | null | undefined, access: ReturnType<typeof caseAccessIn>) =>
-  access === "restricted" ? "–" : displayName(c, person, access);
 const activityView = (a: Activity) => ({ id: a.id, kind: a.kind, startsAt: a.startsAt, location: a.location });
 /** De fyra senaste hela ISO-veckorna (prototypens last4Weeks). */
 function last4Weeks(today: string) {
@@ -813,7 +826,8 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
   const db = await loadDb(ctx.repo, [...ALERT_TABLES, "memberships", "contract_areas", "messages", "persons"]);
   const src = await accessSourceFor(ctx, db.cases);
   const fromCustomer = await customerUserIds(ctx);
-  const contracts = (await ctx.repo.table("contracts").list()).filter((x) => x.status === "active" && isOperational(x.config));
+  // Fast ordning (id): samma "main" i båda körlägena, oavsett i vilken ordning databasen lämnar raderna.
+  const contracts = (await ctx.repo.table("contracts").list()).filter((x) => x.status === "active" && isOperational(x.config)).sort((a, b) => a.id.localeCompare(b.id));
   const main = contracts.find((x) => ctx.actor.contractIds.includes(x.id)) ?? contracts[0];
   const today = dayOf(ctx.now());
   const w4 = last4Weeks(today);
@@ -834,6 +848,20 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
   }
   const persons = byId(db.persons);
   const msgsByCase = groupedBy(db.messages, "caseId", (m) => m.caseId);
+  // Nivå, grupper och taggar (internt, coachmötet 2026-10-09) – via ctx.repo: bara Miljonbemanning läser dem (0031).
+  const [groupings, members] = await Promise.all([
+    ctx.repo.table("groupings").list({ archivedAt: { isNull: true } }),
+    ctx.repo.table("grouping_members").list({ removedAt: { isNull: true } }),
+  ]);
+  const groupingById = byId(groupings);
+  const groupingIdsOf = groupingIdsByCase(members);
+  const levelNameOf = (caseId: string) => {
+    for (const id of groupingIdsOf.get(caseId) ?? []) {
+      const g = groupingById.get(id);
+      if (g?.kind === "level") return g.name;
+    }
+    return null;
+  };
 
   // Vilande spärr (skyddade personuppgifter, beslut 2026-10-07): ett ärende med nivån restricted visas inte alls (fail-closed).
   const listed = db.cases.filter((c) => caseAccessIn(c, ctx.actor, src) !== "restricted");
@@ -862,6 +890,8 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
         attendance: summary(attendanceStats(db, c.id, w4.from, w4.to, { now: ctx.now() })),
         flags: flags.map((a) => flagView(a, c.id)),
         unread: access === "full" ? unreadCount(msgsByCase.get(c.id) ?? [], role, me, fromCustomer) : 0,
+        levelName: levelNameOf(c.id),
+        groupingIds: [...(groupingIdsOf.get(c.id) ?? [])],
       },
     };
   });
@@ -875,6 +905,8 @@ handleQuery(caseList, { roles: CASE_ROLES }, async (ctx): Promise<CaseListModel>
     coaches: main ? coaches(db, main.id).map((u) => ({ id: u.id, name: u.fullName })) : [],
     areas: db.contract_areas.filter((a) => a.contractId === main?.id).map((a) => ({ code: a.code, name: a.name })),
     phases: cfg ? cfg.phases.map((p) => ({ no: p.no, name: p.name })) : [],
+    // Alla avtal i listan – varje ärende filtreras på sitt eget avtals grupperingar (med fler än ett avtal: prefixet efter namnet).
+    groupings: groupingFilterOptions(groupings.filter((g) => contracts.some((k) => k.id === g.contractId)), contracts),
     rows,
   };
 });
@@ -965,6 +997,10 @@ handleQuery(caseCard, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseCardRes
     contactText: person ? participantContactLabel(person) : contactLabel(""),
     contactLabel: !person ? null : contactLabel(person.preferredContact),
     contactMissing: !!person && !hasContactDetails(person),
+    // Ändra kontaktväg (coachmötet 2026-10-09): samordnare, avtalsansvarig, coach och admin med full åtkomst.
+    contact: person && access === "full" && (CONTACT_EDITORS as readonly string[]).includes(role)
+      ? { preferredContact: person.preferredContact, phone: person.phone, email: person.email }
+      : null,
     languageText: `${cap(person?.language) || "Framgår inte"}${person?.needsInterpreter ? " · behöver tolk" : ""}`,
     language: person?.language ?? "",
     accessibilityNeeds: person?.accessibilityNeeds || "Inga behov angivna",
@@ -1021,7 +1057,7 @@ function currentWeekPlan(acts: readonly Activity[], today: string, cfg: Operatio
 async function teamOptionsFor(ctx: Ctx, c: Case): Promise<CaseCard["teamOptions"]> {
   const cand = await teamCandidates(ctx, c.contractId);
   const notLead = (u: { id: string }) => u.id !== c.leadCoachId;
-  return { supervisors: cand.supervisors.filter(notLead), staff: cand.staff.filter(notLead) };
+  return { staff: cand.staff.filter(notLead) };
 }
 
 const pickSla = (s: { label: string; tone: SlaTone }) => ({ label: s.label, tone: s.tone });
@@ -1139,7 +1175,7 @@ handleQuery(caseAttendance, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseA
       const at = attendanceFor(db, a.id);
       return { ...activityView(a), attendance: at ? { status: at.status, reason: at.reason } : null };
     }),
-    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({ ...activityView(a), durationMin: a.durationMin })),
+    upcoming: acts.filter((a) => a.startsAt >= now).slice(0, 10).map((a) => ({ ...activityView(a), durationMin: a.durationMin, groupActivityId: a.groupActivityId })),
     registerBy,
   };
 });
@@ -1177,9 +1213,9 @@ handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const person = await ctx.repo.table("persons").get(c.personId);
   const audience = person?.protectedIdentity ? "full" : p.audience;
   if (team && audience === "full") return fail("forbidden", "Du kan bara skriva anteckningar som hela teamet ser.");
-  if (p.occurredOn > today) return fail("date", "Datumet kan inte vara senare än i dag.");
-  if (p.occurredOn < dayOf(c.referredAt)) return fail("date", "Datumet kan inte vara före beställningen.");
-  if (looksLikePnr(p.body)) return fail("pnr", "Det ser ut som ett personnummer i texten. Ta bort det – ärendenumret räcker.");
+  // Samma kontroll som aktivitetsvyns anteckningsrader (src/features/_shared/notes.ts).
+  const problem = noteProblem(c, p.occurredOn, p.body, today);
+  if (problem) return fail(problem.code, problem.text);
   const table = ctx.repo.table("case_notes");
   if (p.noteId) {
     const cur = await table.get(p.noteId);
@@ -1456,6 +1492,7 @@ const AUDIT_TEXT: Record<string, string> = {
   "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
   "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
   "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
+  "person.contact_changed": "Kontaktvägen ändrades",
   "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
@@ -1465,6 +1502,16 @@ const AUDIT_TEXT: Record<string, string> = {
   "voice_note.view": "Visade röstmeddelanden",
   "case_note.created": "Skrev anteckning", "case_note.updated": "Ändrade anteckning", "case_note.removed": "Tog bort anteckning",
   "case_note.used_in_summary": "Använde anteckning i sammanfattningen", "report.downloaded": "Rapport laddades ner som PDF", "report.created": "Rapportutkast skapades",
+  // Coachmötet 2026-10-09: automatisk närvaro och gruppaktiviteter (raderna hör till ärendet via details.caseIds).
+  "attendance.auto_registered": "Närvaro registrerades automatiskt", "group_activity.created": "Bjöds in till en ny gruppaktivitet",
+  "group_activity.updated": "Gruppaktiviteten ändrades", "group_activity.invited": "Bjöds in till gruppaktivitet", "group_activity.removed_participant": "Togs bort från gruppaktivitet",
+  "group_activity.cancelled": "Gruppaktiviteten ställdes in", "group_activity.view": "Öppnade aktivitetsvyn",
+  // Spår G: meddelandet till deltagaren och gruppmålet (internt – bara Miljonbemanning ser Historik).
+  "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
+};
+/** Fälten i en ändrad gruppaktivitet som ord (Historik). */
+const GROUP_FIELD_WORD: Record<string, string> = {
+  name: "namn", kind: "typ", startsAt: "tid", durationMin: "längd", location: "plats", responsibleId: "ansvarig", goal: "gruppmål",
 };
 
 type LogEntry = { id: string; occurredAt: string; actorId: string | null; action: string; entity: string; entityId: string | null; details: Record<string, unknown>; text?: string };
@@ -1497,15 +1544,30 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
     if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";
     if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
+    // Nivå, grupp och tagg (internt): bara typen – namnen står i deltagarkortets huvud.
+    if (x.action === "grouping_member.added" || x.action === "grouping_member.removed") return GROUPING_KIND_LABEL[s(dt.kind) as GroupingKind] ?? "";
     // "Markera alla som närvarande": antalet tillfällen den dagen (alla deltagare) – raden hör till flera ärenden.
     if (x.action === "attendance.registered_all") return plural(Number(dt.count ?? 0), "tillfälle", "tillfällen");
+    // Automatisk närvaro: antalet tillfällen i körningen (alla deltagare i avtalet) – frånvaro registrerar coachen.
+    if (x.action === "attendance.auto_registered") return `${plural(Number(dt.count ?? 0), "tillfälle", "tillfällen")} – ändra till frånvaro under Närvaro om deltagaren inte var där`;
+    // Gruppaktiviteter: tiden och vad som ändrades – aldrig namnet eller platsen.
+    // Gruppmålet: bara valet – aldrig målets text.
+    if (x.action === "group_goal.marked") return dt.achieved === false ? "Klarade inte" : "Klarade";
+    // Meddelandet till deltagaren: mallens namn och aktivitetens tid.
+    if (x.action === "group_activity.notified") return [templateLabel(s(dt.template)), s(dt.startsAt) ? fmtDateTimeLong(s(dt.startsAt)) : ""].filter(Boolean).join(", ");
+    if (x.action.startsWith("group_activity.")) {
+      if (Array.isArray(dt.fields)) return `Ändrat: ${(dt.fields as string[]).map((f) => GROUP_FIELD_WORD[f] ?? f).join(", ")}`;
+      if (s(dt.startsAt)) return fmtDateTimeLong(s(dt.startsAt));
+      return "";
+    }
     // Automatisk utkastsparning loggas en gång per besök på sidan.
     if (dt.autosave === true) return "Sparades automatiskt";
     if (dt.reason) return String(dt.reason);
     if (dt.status && x.entity === "attendance") return attLabel(s(dt.status));
     if (dt.at) return fmtDateTimeLong(s(dt.at));
     if (dt.kind) return reportKindLabel(s(dt.kind)) !== dt.kind ? reportKindLabel(s(dt.kind)) : eventLabel(s(dt.kind));
-    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.join(", ")}`;
+    // Fältnamnen på svenska med revisionsloggens ordlista (t.ex. person.contact_changed: "Fält: kontaktväg, e-post").
+    if (Array.isArray(dt.fields)) return `Fält: ${dt.fields.map((f) => fieldWord(String(f))).join(", ")}`;
     return "";
   };
   return {
@@ -1566,60 +1628,3 @@ handleCommand(caseRevealPnr, { roles: CASE_ROLES, silent: true }, async (ctx, p)
   return ok({ pnr });
 });
 
-// ---------------------------------------------------------------- arenden.handledare (hand.start)
-handleQuery(supervisorStart, { roles: ["handledare"] }, async (ctx): Promise<SupervisorStart> => {
-  const me = ctx.actor.userId;
-  const now = ctx.now();
-  const today = dayOf(now);
-  const db = await loadDb(ctx.repo, ["cases", "case_team", "persons", "activities", "placements", "employers", "outcome_events", "contract_areas"]);
-  const src = await accessSourceFor(ctx, db.cases);
-  const persons = byId(db.persons);
-  const emp = byId(db.employers);
-  const teamOf = groupedBy(db.case_team, "caseId", (t) => t.caseId);
-  const mine = db.cases.filter((c) => (teamOf.get(c.id) ?? []).some((t) => t.userId === me));
-  const name = (c: Case) => nameFor(c, persons.get(c.personId), caseAccessIn(c, ctx.actor, src));
-  const envs = new Map<string, OperationalConfig>();
-  for (const id of new Set(mine.map((c) => c.contractId))) envs.set(id, (await contractOf(ctx, id)).cfg);
-  const pagaende = mine.filter((c) => c.status === "active" || c.status === "paused");
-  const start = mine.filter((c) => c.status === "received" || c.status === "acknowledged" || c.status === "confirmed");
-  const avslutade = mine.filter((c) => c.status === "closed");
-  const card = (c: Case): SupervisorCase => {
-    const myRole = (teamOf.get(c.id) ?? []).find((t) => t.userId === me)?.role ?? "";
-    const acts = activitiesOf(db, c.id).filter((a) => a.startsAt >= now && a.kind !== "möte");
-    const pls = placementsOf(db, c.id);
-    const pl = pls.find((x) => x.status === "ongoing") ?? pls.find((x) => x.status === "planned") ?? null;
-    const e = pl ? emp.get(pl.employerId) : undefined;
-    const contacts = eventsOf(db, c.id).filter((x) => CONTACT_KINDS.includes(x.kind));
-    const cfg = envs.get(c.contractId);
-    return {
-      id: c.id, caseNumber: c.caseNumber, status: c.status, displayName: name(c), myRoleLabel: teamLabel(myRole), phase: c.phase, phaseName: cfg ? phaseName(cfg, c.phase) : "",
-      areaCode: c.primaryAreaCode ?? null, areaName: areaName(db.contract_areas.filter((a) => a.contractId === c.contractId), c.primaryAreaCode),
-      vocationalTrack: c.vocationalTrack, upcoming: acts.slice(0, 3).map(activityView), nextAt: acts[0]?.startsAt ?? null,
-      placement: pl ? { employerName: e?.name ?? null, startsOn: pl.startsOn, endsOn: pl.endsOn, fourRights: pl.fourRights ?? null, contactName: e?.contactName ?? null, phone: e?.phone ?? null } : null,
-      contacts: contacts.length,
-      lastContact: contacts[0] ? { occurredOn: contacts[0].occurredOn, label: eventLabel(contacts[0].kind), actor: contacts[0].actor } : null,
-    };
-  };
-  const mon = monday(today);
-  const sun = addDays(mon, 6);
-  const weekActs = pagaende.flatMap((c) => activitiesOf(db, c.id).filter((a) => a.startsAt >= mon && a.startsAt <= `${sun}T23:59`));
-  const missingFour = pagaende.filter((c) => placementsOf(db, c.id).some((x) => x.status === "ongoing" && x.fourRights && Object.values(x.fourRights).some((v) => !v)));
-  const limit = `${addDays(today, 6)}T23:59`;
-  return {
-    today,
-    groups: { pagaende: pagaende.map(card), start: start.map(card), avslutade: avslutade.map(card) },
-    practiceDays: weekActs.filter((a) => a.kind === "praktikdag").length,
-    vocationalMoments: weekActs.filter((a) => a.kind === "yrkesmoment").length,
-    missingFour: missingFour.map((c) => {
-      const pl = placementsOf(db, c.id).find((x) => x.status === "ongoing");
-      const e = pl ? emp.get(pl.employerId) : undefined;
-      return {
-        caseId: c.id, caseNumber: c.caseNumber, displayName: name(c), employerName: e?.name ?? null,
-        missing: FOUR_LABEL.filter(([k]) => pl && pl.fourRights && !pl.fourRights[k]).map(([, l]) => l.toLowerCase()),
-      };
-    }),
-    upcoming: pagaende
-      .flatMap((c) => activitiesOf(db, c.id).filter((a) => a.startsAt >= now && a.startsAt <= limit && a.kind !== "möte").map((a) => ({ ...activityView(a), caseId: c.id, caseNumber: c.caseNumber, displayName: name(c) })))
-      .sort((x, y) => (x.startsAt < y.startsAt ? -1 : 1)),
-  };
-});

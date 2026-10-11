@@ -3,9 +3,9 @@
 // med två tillägg som prototypen inte behövde: avtalsmedlemskap (bara ärenden i användarens avtal) och kommunens
 // synlighet enligt avtalskonfigurationen (egna ärenden, enhetens eller alla).
 //
-// Beslut 2026-10-09 (Karim): alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet – coach och handledare får
-// "full" som samordnaren, inte bara i teamets ärenden. Tilldelningen (case_team) finns kvar och styr notiser, mejl,
-// påminnelser, Mina ärenden och handledarens Mina tilldelade ärenden – inte åtkomsten. Kommunen ser bara sina egna.
+// Beslut 2026-10-09 (Karim): alla på Miljonbemanning ser och arbetar i alla ärenden i avtalet – coachen (och den vilande
+// rollen handledare) får "full" som samordnaren, inte bara i teamets ärenden. Tilldelningen (case_team) finns kvar och styr
+// notiser, mejl, påminnelser och Mina ärenden – inte åtkomsten. Kommunen ser bara sina egna.
 //
 // Samma regler används av policyn i minnesläget (src/data/policy.ts) och av RLS i Postgres (mm.case_access_level, 0029).
 //
@@ -66,7 +66,9 @@ export function caseAccess(c: CaseAccessCase | null | undefined, actor: Actor, l
       // Huvudcoachen ser allt, även skyddade. Övriga coacher: alla ärenden i avtalet (beslut 2026-10-09), skyddade bara som ärende.
       return c.leadCoachId === actor.userId ? "full" : prot ? "restricted" : "full";
     case "handledare":
-      // Alla ärenden i avtalet (beslut 2026-10-09); tilldelningen styr bara listor och notiser. Skyddade bara som ärende.
+      // Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan migration.
+      // Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES). Regeln speglar RLS: alla ärenden i avtalet (beslut
+      // 2026-10-09), skyddade bara som ärende.
       return prot ? "restricted" : "full";
     case "ekonom":
       return "billing";

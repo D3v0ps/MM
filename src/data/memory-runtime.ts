@@ -8,6 +8,8 @@
 // Rapportutkasten (src/features/rapporter/ensure.ts) skapas här i stället för i jobbkörningen: när testdatat läses in (första
 // anropet) och när demoklockan passerar en vecko- eller månadsgräns – samma funktion som jobbet i testmiljön. Golvet är
 // klockan när datat lästes in (testdatat är komplett dit) och högvattenmärkena sparas i minnet.
+// Automatisk närvaro (src/features/_shared/auto-attendance.ts, beslut 2026-10-09) körs på samma sätt när klockan passerar dagens
+// slut (organisationens klockslag) – före rapportutkasten, med samma golv: nyinläst testdata får ingen automatisk närvaro.
 import { execute, isSilentCommand } from "@/api/handlers";
 import type { Ctx } from "@/api/server";
 import { SYSTEM_ACTOR, type Actor } from "@/api/roles";
@@ -19,7 +21,10 @@ import { createSimulatedAi } from "@/features/_shared/ai-sim";
 import { createMemoryAttachments } from "@/features/_shared/attachment-port";
 import { createMemoryAudio } from "@/features/_shared/audio-port";
 import { createSimulatedFortnox } from "@/features/_shared/fortnox-port";
+import { isParticipantRecipient, MESSAGING_OFF, memoryDeliveryStatus, type MessagingStatus } from "@/features/_shared/messaging-port";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
+import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
+import { nextDayEnd } from "@/core/auto-attendance";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
@@ -57,6 +62,11 @@ export function createMemoryRuntime(opts: {
    * runtime skapas (testdatat vid DEMO_START har redan sina rapporter). null = från avtalets start.
    */
   reportFloor?: LocalDateTime | null;
+  /**
+   * SMS och utringning (46elks). Standard: inget kopplat – som en drift utan variablerna (SMS och samtal stoppas med orsak).
+   * Tester kan skicka in ett kopplat läge. Inget skickas på riktigt i minnesläget.
+   */
+  messaging?: MessagingStatus;
 }) {
   // Samma unika nycklar som databasen (UNIQUE_KEYS): en dubblett stoppas med UniqueError, som i Postgres.
   const store = new MemoryStore<Tables>(opts.data, UNIQUE_KEYS);
@@ -70,6 +80,14 @@ export function createMemoryRuntime(opts: {
   const attachments = createMemoryAttachments({ system, now: opts.clock.now, newId });
   // Fortnox är simulerat i minnesläget: "Skapa i Fortnox" sätter statusen i Miljonmatch. Supabase-läget har ingen port.
   const fortnox = createSimulatedFortnox();
+  const messaging = opts.messaging ?? MESSAGING_OFF;
+
+  /** Deltagarens e-postadress och telefonnummer via ärendet (systemsteg – lämnas aldrig ut, bara prövade). */
+  async function participantContact(caseId: string): Promise<{ email: string | null; phone: string | null }> {
+    const c = await system.table("cases").get(caseId);
+    const p = c ? await system.table("persons").get(c.personId) : null;
+    return { email: p?.email ?? null, phone: p?.phone ?? null };
+  }
 
   function ctxFor(actor: Actor): Ctx {
     return {
@@ -84,8 +102,15 @@ export function createMemoryRuntime(opts: {
       },
       notify: async (m) => {
         const t = (system as unknown as { table(n: string): { insert(r: unknown): Promise<unknown> } }).table("outbound_messages");
-        // Som servern: engångslänkarnas token sparas aldrig i utskicksloggen (src/core/link-tokens.ts).
-        await t.insert({ id: newId("out"), createdAt: opts.clock.now(), channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: maskLinkTokens(m.body), caseId: m.caseId ?? null, status: "sent", sentAt: opts.clock.now() });
+        // Som servern: engångslänkarnas token sparas aldrig i utskicksloggen (src/core/link-tokens.ts). SMS och samtal som inte
+        // är kopplade stoppas med samma orsak som servern ger; allt annat räknas som skickat (simulerat – inget går iväg).
+        // Till en deltagare ("deltagare (…)"): adressen och numret prövas via ärendet, som servern gör precis innan utskicket skickas.
+        const participant = isParticipantRecipient(m.to) && m.caseId ? await participantContact(m.caseId) : null;
+        const d = memoryDeliveryStatus(m.channel, messaging, participant);
+        await t.insert({
+          id: newId("out"), createdAt: opts.clock.now(), channel: m.channel, to: m.to, template: m.template, subject: m.subject ?? null, body: maskLinkTokens(m.body), caseId: m.caseId ?? null,
+          status: d.status, sentAt: d.status === "sent" ? opts.clock.now() : null, ...(d.statusReason ? { statusReason: d.statusReason } : {}),
+        });
       },
       // Påhittade personnummer: testdatats ersättning för kryptering och sökhash (src/data/seed/pnr.ts).
       crypto: TEST_PNR_CRYPTO,
@@ -93,6 +118,7 @@ export function createMemoryRuntime(opts: {
       audio,
       attachments,
       fortnox,
+      messaging,
       // Prototypen visar länken som deltagaren fick (rost.linkSend). Servern i supabase-läget lämnar aldrig ut den.
       exposeLinkPaths: true,
     };
@@ -109,20 +135,40 @@ export function createMemoryRuntime(opts: {
     },
   };
   let checkedAt: LocalDateTime | null = null;
+  // Nästa gång dagen tar slut (automatisk närvaro). null = inte räknat än (första anropet räknar bara ut tiden – golvet gör ändå
+  // att nyinläst testdata inte får något).
+  let attendanceNext: LocalDateTime | null = null;
   let ensuring: Promise<void> | null = null;
+  const orgRows = () => (system as unknown as { table(n: "org_settings"): { list(): Promise<Tables["org_settings"][]> } }).table("org_settings").list();
   async function ensureScheduledReports(): Promise<void> {
     while (ensuring) await ensuring;
     const now = opts.clock.now();
-    if (checkedAt && nextScheduleBoundary(checkedAt) > now) return;
+    const reportsDue = !checkedAt || nextScheduleBoundary(checkedAt) <= now;
+    const attendanceDue = attendanceNext === null || attendanceNext <= now;
+    if (!reportsDue && !attendanceDue) return;
     ensuring = (async () => {
-      // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
-      try {
-        await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
-      } catch (e) {
-        // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
-        console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+      if (attendanceDue) {
+        try {
+          // Klockslaget ur organisationens inställningar (null = automatisk närvaro avstängd – då räknas bara nästa dagsslut).
+          const at = autoAttendanceTime(await orgRows());
+          if (attendanceNext !== null && at) await runAutoAttendance(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+          attendanceNext = nextDayEnd(now, at ?? "18:00");
+        } catch (e) {
+          // Som rapportutkasten: ett fel stoppar inte appen – nästa försök när nästa dag tar slut. Bara feltypen loggas.
+          console.error("automatisk närvaro: kunde inte registreras", e instanceof Error ? e.name : typeof e);
+          attendanceNext = nextDayEnd(now, "18:00");
+        }
       }
-      checkedAt = now;
+      if (reportsDue) {
+        // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
+        try {
+          await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
+        } catch (e) {
+          // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
+          console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        checkedAt = now;
+      }
     })();
     try {
       await ensuring;
@@ -171,5 +217,6 @@ export function createMemoryRuntime(opts: {
     return res;
   }
 
-  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio, attachments, ensureScheduledReports, selfRegister: selfRegisterMemory };
+  // ctxFor: en hanterares Ctx för en aktör – för tester av delade hjälpare som inte är kommandon (t.ex. notifyParticipant).
+  return { store, run, clock: opts.clock, raw: () => store.raw(), ai, audio, attachments, ensureScheduledReports, selfRegister: selfRegisterMemory, ctxFor };
 }

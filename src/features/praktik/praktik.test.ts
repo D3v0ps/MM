@@ -2,6 +2,7 @@
 // employer.addFollowUp – prototyp/tools/test-admin.mjs): samma siffror som den gamla prototypen, namn bara för ärenden man
 // har åtkomst till och de fyra rätten bara för teamet i ärendet.
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import { ApiError } from "@/api/server";
 import { testRuntime } from "../admin/test-runtime";
 import "./handlers";
@@ -13,7 +14,8 @@ beforeEach(() => {
 });
 const sara = () => rt.as("u-sara", "samordnare");
 const amira = () => rt.as("u-amira", "coach");
-const petra = () => rt.as("u-petra", "handledare");
+/** Den vilande rollen handledare (beslut 2026-10-09) – se dormant-role.test-helper.ts. */
+const petra = () => dormantSupervisor();
 const nadiaPlacement = () => rt.rows("placements").find((p) => p.caseId === "case-260143" && p.status === "ongoing")!;
 
 describe("registret", () => {

@@ -9,6 +9,8 @@
 // Självregistrering (beslut 2026-10-07, synpunkt #2): en adress på en kommundomän som har avtal med Miljonbemanning får ett
 // konto vid första inloggningen och kommer till Mina uppgifter (r.created). Portalen nämner inte mejlbeställning (synpunkt #1).
 // Sidan är publik och hämtar inga data: texterna gäller alla beställare, inte ett visst avtal.
+// Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): kortet om varför en kod och listan om
+// utloggning och konto är borttagna – bara formuläret.
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ROLE_LABEL, isCustomerRole } from "@/api/roles";
 import { safeReturnPath } from "@/core/return-path";
@@ -16,7 +18,7 @@ import { useNav } from "@/shell/nav";
 import type { ScreenProps } from "@/shell/routes";
 import { useRuntime } from "@/shell/runtime";
 import { isAuthenticated, useAuth, useSession } from "@/shell/session";
-import { Button, Card, DemoNote, Field, Icon, Input, Notice, Stepper, useToast } from "@/ui";
+import { Button, Card, DemoNote, Field, Input, Notice, Stepper, useToast } from "@/ui";
 import { BACK_AFTER_LOGIN, LOGGED_OUT } from "@/features/session/screens/logga-in";
 import { PORTAL_FIRST_LOGIN_PATH } from "@/shell/nav-config";
 import { AUTH } from "../texts";
@@ -232,27 +234,6 @@ export function PortalLoginScreen({ query }: ScreenProps) {
           </span>
         )}
       </DemoNote>
-      <Card title="Varför en kod och inte en länk?" icon="help">
-        <p>
-          Kommunens e-postskydd, till exempel Microsoft Safe Links, öppnar länkar i mejl i förväg för att kontrollera dem. Då hinner en inloggningslänk användas upp
-          innan du själv klickar på den. En kod fungerar alltid.
-        </p>
-      </Card>
-      <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
-        <li className="flex items-start gap-2.5">
-          <Icon name="clock" className="mt-1 flex-none" />
-          <span>
-            Du loggas ut automatiskt efter {AUTH.idleMinutes} minuter utan aktivitet, och alltid efter {AUTH.maxHours} timmar.
-          </span>
-        </li>
-        <li className="flex items-start gap-2.5">
-          <Icon name="users" className="mt-1 flex-none" />
-          <span>
-            Första gången du loggar in skapas ditt konto. Det fungerar om du har en e-postadress i en kommun som har avtal med Miljonbemanning. Sedan fyller du i
-            ditt namn, ditt telefonnummer och din enhet.
-          </span>
-        </li>
-      </ul>
     </KomPage>
   );
 }

@@ -1,6 +1,7 @@
 // Tester för coachens vy-modeller (frågorna i query-handlers.ts). Körs genom samma execute() som appen och prototypen,
 // mot testdatat och som testpersonerna. Värdena är den gamla prototypens (prototyp/tools/test-coach.mjs och skärmdumpar).
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { ApiError } from "@/api/server";
@@ -74,7 +75,7 @@ describe("Min vecka", () => {
   });
 
   it("är bara för coachen", async () => {
-    await expect(q(minVecka, {}, as("u-petra", "handledare"))).rejects.toBeInstanceOf(ApiError);
+    await expect(q(minVecka, {}, dormantSupervisor())).rejects.toBeInstanceOf(ApiError);
   });
 });
 
@@ -92,12 +93,17 @@ describe("Närvaro", () => {
     expect(w.reports.filter((r) => r.publishedAt).map((r) => r.publishedAt)).toEqual(["2027-02-01T07:00", "2027-02-01T07:00"]);
   });
 
-  it("handledaren ser bara sina 63 teamärenden (81 tillfällen, 2 kvar)", async () => {
-    const v = await q(narvaroView, {}, as("u-petra", "handledare"));
-    expect(v.caseCount).toBe(63);
-    expect(v.weeks.last.rows).toHaveLength(81);
-    expect(v.weeks.last.rows.filter((r) => !r.attendance && r.startsAt < v.now)).toHaveLength(2);
-    expect(v.weeks.last.rows.some((r) => r.caseId === SC.skyddad)).toBe(false);
+  // Rollen handledare är vilande (beslut 2026-10-09; före beslutet: Petras 63 teamärenden, 81 tillfällen, 2 kvar). Regeln
+  // ligger kvar: listan bygger på teamet, inte på huvudcoachen – prövas med David (arbetsgivarmatchare i teamen).
+  it("den vilande rollen handledare ser bara sina teamärenden", async () => {
+    const v = await q(narvaroView, {}, dormantSupervisor("u-david"));
+    const team = new Set(rt.raw().all("case_team").filter((t) => t.userId === "u-david").map((t) => t.caseId));
+    expect(v.caseCount).toBe(rt.raw().all("cases").filter((c) => team.has(c.id) && c.startDate).length);
+    expect(v.caseCount).toBeGreaterThan(0);
+    expect(v.weeks.last.rows.length).toBeGreaterThan(0);
+    expect(v.weeks.last.rows.every((r) => team.has(r.caseId))).toBe(true);
+    // Petra har inga teamplatser sedan rollen togs bort ur testdatat.
+    expect((await q(narvaroView, {}, dormantSupervisor())).caseCount).toBe(0);
   });
 });
 

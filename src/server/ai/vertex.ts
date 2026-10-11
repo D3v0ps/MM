@@ -14,7 +14,7 @@
 // Inga personuppgifter i loggar eller fel: bara HTTP-status och fältnamn.
 import "server-only";
 import {
-  assertApprovedInput, DraftTextSchema, EXTRACT_SCHEMAS, TranscriptSchema, TranslationSchema,
+  assertApprovedInput, DraftTextSchema, EXTRACT_SCHEMAS, noteSourceLabel, TranscriptSchema, TranslationSchema,
   type AiPort, type AiResult, type AiRunMeta, type AudioInput, type DraftInput, type DraftTemplateKey, type DraftText, type ExtractSchemaKey,
   type ExtractSchemas, type Transcript, type Translation,
 } from "@/features/_shared/ai-port";
@@ -312,7 +312,7 @@ export function createVertexAi(o: VertexAiOptions): AiPort {
     async draft(input: DraftInput, templateKey: DraftTemplateKey): Promise<AiResult<DraftText>> {
       assertApprovedInput(input);
       // Inget underlag: inget anrop (ingen kostnad och inget att hitta på).
-      if (!input.checkIns.length && !input.attendance.length) return { value: { ...NOT_FOUND }, run: meta(0, null, null) };
+      if (!input.checkIns.length && !input.attendance.length && !input.notes.length) return { value: { ...NOT_FOUND }, run: meta(0, null, null) };
       return call(
         {
           system: draftInstructions(templateKey),
@@ -414,8 +414,9 @@ export function validateCheckIn(json: unknown): ExtractSchemas["check_in"] {
 const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända mötesrapporter.", sources: [], sourceIds: [], noEvidence: true };
 
 /**
- * Utkastet: bara id för avstämningar som finns i underlaget (annars ogiltigt – påhittade källor visas aldrig). Källornas
- * namn ("Avstämning 15 jan", "Närvaroregistrering") sätts här, inte av modellen. Utan belägg: standardtexten "Framgår inte".
+ * Utkastet: bara id för avstämningar och anteckningar som finns i underlaget (annars ogiltigt – påhittade källor visas
+ * aldrig). Källornas namn ("Närvaroregistrering", "Avstämning 15 jan", "Anteckning 26 jan") sätts här, inte av modellen –
+ * aldrig författarens namn. Utan belägg: standardtexten "Framgår inte".
  */
 export function validateDraft(json: unknown, input: DraftInput): DraftText {
   const j = (json ?? {}) as { text?: unknown; sourceIds?: unknown; usedAttendance?: unknown; noEvidence?: unknown };
@@ -426,18 +427,19 @@ export function validateDraft(json: unknown, input: DraftInput): DraftText {
   if (typeof j.noEvidence !== "boolean") bad.push("noEvidence");
   if (bad.length) throw invalid(bad);
   if (j.noEvidence) return { ...NOT_FOUND };
-  const byId = new Map(input.checkIns.map((c) => [c.id, c]));
+  const known = new Set([...input.checkIns.map((c) => c.id), ...input.notes.map((n) => n.id)]);
   const ids = [...new Set(j.sourceIds as string[])];
-  if (ids.some((id) => !byId.has(id))) throw invalid(["sourceIds"]);
+  if (ids.some((id) => !known.has(id))) throw invalid(["sourceIds"]);
   if (j.usedAttendance && !input.attendance.length) throw invalid(["usedAttendance"]);
   const text = (j.text as string).trim();
   if (!text) throw invalid(["text"]);
-  // Källorna i tidsordning, som i den simulerade leverantören.
+  // Källorna i tidsordning, som i den simulerade leverantören: närvaron, avstämningarna, anteckningarna.
   const used = input.checkIns.filter((c) => ids.includes(c.id));
+  const usedNotes = input.notes.filter((n) => ids.includes(n.id));
   const out = DraftTextSchema.safeParse({
     text,
-    sources: [...(j.usedAttendance ? ["Närvaroregistrering"] : []), ...used.map((c) => `Avstämning ${fmtDateShort(c.heldAt)}`)],
-    sourceIds: used.map((c) => c.id),
+    sources: [...(j.usedAttendance ? ["Närvaroregistrering"] : []), ...used.map((c) => `Avstämning ${fmtDateShort(c.heldAt)}`), ...usedNotes.map(noteSourceLabel)],
+    sourceIds: [...used.map((c) => c.id), ...usedNotes.map((n) => n.id)],
     noEvidence: false,
   });
   if (!out.success) throw invalid(out.error.issues);

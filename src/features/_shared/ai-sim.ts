@@ -15,7 +15,7 @@ import {
 } from "@/data/seed/voice-texts";
 import type { CheckIn, EmployerContacts, GoalStatus, TranscriptLine } from "@/data/schema";
 import {
-  assertApprovedInput, mmss,
+  assertApprovedInput, mmss, noteSourceLabel,
   type AiPort, type AiResult, type AiRunMeta, type ApprovedCheckIn, type AudioInput, type DraftInput, type DraftTemplateKey, type DraftText,
   type ExtractSchemaKey, type ExtractSchemas, type Transcript, type TranscriptSegment, type Translation,
 } from "./ai-port";
@@ -272,6 +272,11 @@ export function checkInSuggestionsFromTranscript(t: Transcript): CheckInSuggesti
 }
 
 // ---------------------------------------------------------------- Utkast från godkända uppgifter (prototypens evidenceDraft)
+/** Första meningen (högst 160 tecken) – den simulerade AI:n citerar, den hittar aldrig på. */
+const firstSentence = (t: string): string => {
+  const s = t.trim().split(/(?<=[.!?])\s+/)[0] ?? "";
+  return s.length > 160 ? `${s.slice(0, 157).trimEnd()}…` : s;
+};
 const byHeldAt = (a: ApprovedCheckIn, b: ApprovedCheckIn) => (a.heldAt < b.heldAt ? -1 : a.heldAt > b.heldAt ? 1 : 0);
 const srcLabel = (ci: Pick<ApprovedCheckIn, "heldAt">) => `Avstämning ${fmtDateShort(ci.heldAt)}`;
 const weeksText = (n: number) => (n === 1 ? "en vecka" : `${n} veckor`);
@@ -280,11 +285,14 @@ const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända avst�
 /**
  * Utkast till observation, sammanfattning eller plan – samma texter som testdatats AI-utkast (src/data/seed/gen-reports.ts,
  * prototypens evidenceDraft). Bara från godkända avstämningar och registrerad närvaro; saknas underlag: "Framgår inte".
+ * Sammanfattningen citerar dessutom de två senaste anteckningarna (med samtycke, personnummer tvättade – beslut 4
+ * 2026-10-09) med "Anteckning <datum>" som källa. Utan anteckningar är texterna exakt testdatats.
  */
 export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey): DraftText {
   assertApprovedInput(input);
   const cis = [...input.checkIns].sort(byHeldAt);
   const att = input.attendance;
+  const notes = [...input.notes].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   const attended = att.filter((x) => x.status === "present" || x.status === "late").length;
   const late = att.filter((x) => x.status === "late").length;
   const invalid = att.filter((x) => x.status === "absent_invalid").length;
@@ -297,10 +305,18 @@ export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey)
   });
 
   if (templateKey === "monthly_summary") {
-    if (!cis.length) return { ...NOT_FOUND, text: "Framgår inte – det finns inga godkända avstämningar för månaden." };
+    // Coachernas anteckningar (beslut 4 2026-10-09): de två senaste, första meningen ordagrant, med datum som källa.
+    const used = notes.slice(-2);
+    const fromNotes = used.map((n) => `${fmtDateShort(n.date)}: ${firstSentence(n.text)}`).join(" ");
+    const withNotes = (d: DraftText): DraftText =>
+      used.length ? { ...d, text: `${d.text} Ur anteckningarna – ${fromNotes}`, sources: [...d.sources, ...used.map(noteSourceLabel)], sourceIds: [...d.sourceIds, ...used.map((n) => n.id)] } : d;
+    if (!cis.length) {
+      if (!used.length) return { ...NOT_FOUND, text: "Framgår inte – det finns inga godkända avstämningar för månaden." };
+      return withNotes({ text: "Det finns inga godkända avstämningar för månaden.", sources: [], sourceIds: [], noEvidence: false });
+    }
     const m = MONTHS[Number(input.month.slice(5)) - 1];
     const text = `Under ${m} deltog deltagaren i ${attended} av ${att.length} registrerade tillfällen. ${contacts.length ? `Arbetsgivarkontakter fanns ${weeksText(contacts.length)}.` : "Inga arbetsgivarkontakter framgår."} (Källa: ${cis.length} godkända avstämningar, ${cis.map((x) => fmtDateShort(x.heldAt)).join(", ")}.)`;
-    return from(text, cis);
+    return withNotes(from(text, cis));
   }
   if (templateKey === "monthly_plan") {
     const last = cis[cis.length - 1];
@@ -386,7 +402,7 @@ export function createSimulatedAi(opts: { provider?: string; model?: string } = 
     },
     async draft(input: DraftInput, templateKey: DraftTemplateKey): Promise<AiResult<DraftText>> {
       const value = simulatedDraft(input, templateKey);
-      return { value, run: textRun(JSON.stringify(input.checkIns), value.text) };
+      return { value, run: textRun(JSON.stringify([input.checkIns, input.notes]), value.text) };
     },
     async translate(text: string, from: string, to: string): Promise<AiResult<Translation>> {
       const out = simulatedTranslation(text, from, to);

@@ -194,7 +194,7 @@ function AddEmployer({ areas, onClose }: { areas: EmployerListView["areas"]; onC
       }
     >
       <Stack>
-        <p className="text-text-muted">Registret delas av alla coacher, handledare och arbetsgivarmatchare. Skriv inga uppgifter om deltagare här.</p>
+        <p className="text-text-muted">Registret delas av alla coacher och arbetsgivarmatchare. Skriv inga uppgifter om deltagare här.</p>
         {serverErr && <Notice tone="critical">{serverErr}</Notice>}
         <FormGrid>
           <Field id="emp-name" label="Företag" required help="Företagets namn som det står i avtal och på fakturor." error={show("name")}>

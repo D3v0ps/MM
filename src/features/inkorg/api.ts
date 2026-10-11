@@ -1,5 +1,6 @@
 // Kontrakt för området inkorg (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
+import type { TodayGroupActivity } from "../aktiviteter/api";
 import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
 import type { SlaStatus } from "@/core/sla";
@@ -227,9 +228,10 @@ export type DecisionForm = {
   displayName: string;
   avropSla: SlaInfo | null;
   coaches: { id: string; name: string; active: number }[];
-  /** Handledare (rollen handledare i avtalet – beslut 2026-10-08, inte profiles.teamRole). */
-  helpers: { id: string; name: string; teamRole: "vocational_supervisor" | "employer_matcher" | "guidance_counselor"; label: string }[];
-  /** Arbetsgivarmatchare och SYV/metodstöd kan vara vem som helst av MB-personalen utom ekonom och systemadministratör. */
+  /**
+   * Arbetsgivarmatchare och SYV/metodstöd kan vara vem som helst av MB-personalen utom ekonom och systemadministratör.
+   * Teamvalet Handledare finns inte (rollen handledare borttagen, Karims beslut 2026-10-09).
+   */
   staff: { id: string; name: string }[];
   firstMeetingDue: string | null;
   desiredStart: string | null;
@@ -383,6 +385,10 @@ export type StartView = {
   noCoach: { caseId: string; caseNumber: string; sla: SlaInfo | null; sub: string }[];
   /** Insatser att starta (beslut 2026-10-08): bekräftade ärenden vars första möte är i dag eller har passerat. */
   toStart: { caseId: string; caseNumber: string; firstMeetingAt: string; coachName: string; sub: string }[];
+  /** Dagens gruppaktiviteter i avtalet (coachmötet 2026-10-09) med länk till aktivitetsvyn. */
+  groupsToday: TodayGroupActivity[];
+  /** Klockan nu (dagens gruppaktiviteter: passerade visar närvaron). */
+  now: string;
   tasks: { id: string; text: string; sub: string; emailId: string | null; caseId: string | null }[];
   deviations: { id: string; description: string; sub: string; due: SlaInfo | null; href: string | null }[];
   deviationsHref: string | null;
@@ -430,7 +436,8 @@ export const inboxCorrect = command("inkorg.correct", z.object({
 }), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden" | "order_period">>();
 
 /** Markera en uppgift till rollen som klar (prototypens ink.taskDone). */
-export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
+// inkorg.confirmation: en klarmarkerad uppgift att ringa deltagaren (participant_contact) försvinner ur bekräftelsens kallelse.
+export const inboxTaskDone = command("inkorg.taskDone", z.object({ taskId: IdSchema }), { invalidates: ["inkorg.start", "inkorg.confirmation", "kommun.start", "kommun.deltagare", "ekonomi.start", "arenden.kortManad", ...LOG] }).returns<Result<object, "not_found">>();
 
 /**
  * Visa personnummer (tyst, loggas som pnr.revealed i revisionsloggen): i mejltexten (emailId) eller för ärendets person (caseId).

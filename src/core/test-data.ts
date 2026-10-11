@@ -43,11 +43,11 @@ export function mkPerson(p: Partial<Person> & { id: string }): Person {
 }
 
 export const mkActivity = (p: Partial<Activity> & { id: string; caseId: string; startsAt: LocalDateTime }): Activity => ({
-  kind: "möte", durationMin: 60, location: "Alby", note: "", ...p,
+  kind: "möte", durationMin: 60, location: "Alby", note: "", groupActivityId: null, ...p,
 });
 
 export const mkAttendance = (p: Partial<Attendance> & { activityId: string; caseId: string; status: Attendance["status"] }): Attendance => ({
-  id: `at-${p.activityId}`, reason: "", registeredBy: "u-amira", registeredAt: "2027-01-29T16:00", customerNotifiedAt: null, ...p,
+  id: `at-${p.activityId}`, reason: "", registeredBy: "u-amira", registeredAt: "2027-01-29T16:00", customerNotifiedAt: null, source: "manual", ...p,
 });
 
 export const mkCheckIn = (p: Partial<CheckIn> & { id: string; caseId: string; heldAt: LocalDateTime }): CheckIn => ({

@@ -11,7 +11,7 @@ import { CaseBackgroundCard } from "@/features/arenden/screens/attachments";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import {
-  Button, Check, cn, DateInput, ErrorNotice, ErrorSummary, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Seg, Select, SlaBadge, TextArea, TimeInput, toast,
+  Button, cn, DateInput, ErrorNotice, ErrorSummary, Field, FormGrid, Icon, Input, Loading, Modal, Notice, Seg, Select, SlaBadge, TextArea, TimeInput, toast,
 } from "@/ui";
 import { inboxCorrect, inboxDecisionForm, type CorrectForm, type DecisionForm } from "../api";
 import { DECLINE_REASONS, FIELD_LABEL, ORDER_FIELDS, refErrorMB, type OrderFieldKey } from "../texts";
@@ -61,7 +61,6 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
   // Ingen kollega har rollen huvudcoach ännu (tom databas): avropet kan inte accepteras förrän någon fått rollen.
   const noCoach = f.coaches.length === 0;
   const [coach, setCoach] = useState("");
-  const [team, setTeam] = useState<string[]>([]);
   // Arbetsgivarmatchare och SYV/metodstöd (beslut 2026-10-08): vem som helst av MB-personalen utom ekonom och admin.
   const [matcher, setMatcher] = useState("");
   const [counselor, setCounselor] = useState("");
@@ -124,9 +123,8 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
       primaryArea: area, secondaryArea: area2 || null,
       ...(period && !other ? { orderPeriodMonths: Number(period) } : other ? { plannedEnd: end, orderPeriodReason: reason.trim() } : {}),
       team: [
-        ...team.map((id) => ({ userId: id, role: f.helpers.find((h) => h.id === id)?.teamRole ?? ("vocational_supervisor" as const) })),
-        ...(matcher && matcher !== coach && !team.includes(matcher) ? [{ userId: matcher, role: "employer_matcher" as const }] : []),
-        ...(counselor && counselor !== coach && counselor !== matcher && !team.includes(counselor) ? [{ userId: counselor, role: "guidance_counselor" as const }] : []),
+        ...(matcher && matcher !== coach ? [{ userId: matcher, role: "employer_matcher" as const }] : []),
+        ...(counselor && counselor !== coach && counselor !== matcher ? [{ userId: counselor, role: "guidance_counselor" as const }] : []),
       ],
     });
     if (!res.ok) {
@@ -249,37 +247,29 @@ function AcceptForm({ f, onClose, onShowEmail, next }: { f: DecisionForm; onClos
         )}
       </fieldset>
 
-      {/* Teamet visas bara när det finns kollegor att välja (handledare, arbetsgivarmatchare, SYV). */}
-      {(f.helpers.length > 0 || f.staff.length > 0) && (
+      {/* Teamet visas bara när det finns kollegor att välja (arbetsgivarmatchare, SYV). Teamvalet Handledare finns inte (beslut 2026-10-09). */}
+      {f.staff.length > 0 && (
         <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
           <legend className="mb-0.5 p-0 text-ui font-bold">Team (valfritt)</legend>
-          <div className="text-text-muted">Handledare, arbetsgivarmatchare och SYV. De får också en notis om tilldelningen.</div>
-          {f.helpers.map((u) => (
-            <Check key={u.id} id={`ink-team-${u.id}`} checked={team.includes(u.id)} onCheckedChange={(on) => setTeam(on ? [...team, u.id] : team.filter((x) => x !== u.id))}>
-              {u.name} – {u.label}
-            </Check>
-          ))}
-          {f.helpers.length === 0 && <p className="m-0 text-small text-text-muted">Ingen kollega har rollen handledare ännu. Teamet kan ändras senare på deltagarkortet.</p>}
-          {f.staff.length > 0 && (
-            <FormGrid>
-              <Field id="ink-matcher" label="Arbetsgivarmatchare (valfritt)">
-                <Select
-                  value={matcher}
-                  onValueChange={setMatcher}
-                  placeholder="Ingen"
-                  options={f.staff.filter((u) => u.id !== coach && u.id !== counselor && !team.includes(u.id)).map((u) => ({ value: u.id, label: u.name }))}
-                />
-              </Field>
-              <Field id="ink-syv" label="SYV/metodstöd (valfritt)">
-                <Select
-                  value={counselor}
-                  onValueChange={setCounselor}
-                  placeholder="Ingen"
-                  options={f.staff.filter((u) => u.id !== coach && u.id !== matcher && !team.includes(u.id)).map((u) => ({ value: u.id, label: u.name }))}
-                />
-              </Field>
-            </FormGrid>
-          )}
+          <div className="text-text-muted">Arbetsgivarmatchare och SYV. De får också en notis om tilldelningen.</div>
+          <FormGrid>
+            <Field id="ink-matcher" label="Arbetsgivarmatchare (valfritt)">
+              <Select
+                value={matcher}
+                onValueChange={setMatcher}
+                placeholder="Ingen"
+                options={f.staff.filter((u) => u.id !== coach && u.id !== counselor).map((u) => ({ value: u.id, label: u.name }))}
+              />
+            </Field>
+            <Field id="ink-syv" label="SYV/metodstöd (valfritt)">
+              <Select
+                value={counselor}
+                onValueChange={setCounselor}
+                placeholder="Ingen"
+                options={f.staff.filter((u) => u.id !== coach && u.id !== matcher).map((u) => ({ value: u.id, label: u.name }))}
+              />
+            </Field>
+          </FormGrid>
         </fieldset>
       )}
 

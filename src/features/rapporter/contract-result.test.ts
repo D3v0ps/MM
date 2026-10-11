@@ -5,6 +5,7 @@
 // Skyddade personuppgifter är vilande: testdatat har inga, men sätts de på en person kommer ärendet aldrig med.
 // Körs genom execute() mot testdatat i minnet som testpersonerna i rollväljaren (behörighet via policy.ts).
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { CommandDef, ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import { execute } from "@/api/handlers";
 import { SYSTEM_ACTOR, type Actor, type Role } from "@/api/roles";
@@ -117,7 +118,7 @@ describe("hela avtalet: alla levererade månadsrapporter", () => {
 
 describe("nekas", () => {
   it("kommunens handläggare, coach, handledare, ekonom och admin nekas av rollkontrollen", async () => {
-    for (const a of [as("k-maria", "kommun_handlaggare"), amira(), as("u-petra", "handledare"), as("u-lars", "ekonom"), as("u-robin", "admin")]) {
+    for (const a of [as("k-maria", "kommun_handlaggare"), amira(), dormantSupervisor(), as("u-lars", "ekonom"), as("u-robin", "admin")]) {
       await expect(run(contractResultExport, { ...ALL, format: "xlsx" }, a)).rejects.toBeInstanceOf(ApiError);
       await expect(ask(contractResultPreview, {}, a)).rejects.toBeInstanceOf(ApiError);
     }

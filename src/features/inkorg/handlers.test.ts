@@ -11,7 +11,7 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import type { MemoryData } from "@/data/memory";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
-import { caseAccept } from "@/features/arenden/api";
+import { caseAccept, caseBookFirstMeeting } from "@/features/arenden/api";
 import { navCounts } from "@/features/session/nav-api";
 import {
   emailApplySupplement, inboxConfirmation, inboxCorrect, inboxDeadlines, inboxDecisionForm, inboxDuplicateCheck, inboxItem, inboxList, inboxRegister, inboxRegisterForm,
@@ -185,6 +185,61 @@ describe("områdets kommandon", () => {
     expect((await q(inboxList, {}, sara())).pending).toEqual(["em-106", "em-101", "em-104", "em-105"]);
   });
 
+  it("kallelsen i bekräftelsen (beslut 2026-10-09): kanalerna som gick, en kallelse som stoppades när den skulle skickas, och uppgiften att ringa", async () => {
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
+    // Deltagaren har e-post: e-posten går, SMS och utringning är inte kopplade i testmiljön.
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara()))
+      .toMatchObject({ ok: true, invitation: "Kallelsen skickas med e-post." });
+    const conf = async () => (await q(inboxConfirmation, { caseId: "case-270049" }, sara()))?.kallelse;
+    expect((await conf())?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
+    // Avtalsansvarig ser samma kvittens.
+    expect((await q(inboxConfirmation, { caseId: "case-270049" }, johan()))?.kallelse?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
+    // Servern stoppade mejlet när det skulle skickas (t.ex. spärrlistan i drift): ingen nådde deltagaren – orsaken utan adress.
+    const mail = rows("outbound_messages").find((x) => x.caseId === "case-270049" && x.template === "kallelse" && x.channel === "email")!;
+    rt.store.updateRow("outbound_messages", mail.id, { status: "suppressed", statusReason: "Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST", sentAt: null });
+    expect(await conf()).toEqual({
+      title: "Kallelsen gick inte iväg (Testmiljön: mottagaren finns inte i MM_EMAIL_ALLOWLIST) – ring deltagaren och kalla till mötet:", icon: "phone", body: mail.body,
+    });
+    // Ingen kanal alls: uppgiften till samordnaren visas, och försvinner när den är klarmarkerad.
+    rt.store.updateRow("persons", row("cases", "case-270049")!.personId, { email: "", phone: "070-000 00 00", preferredContact: "sms" });
+    const booked = await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-04T13:30" }, sara());
+    expect(booked).toMatchObject({ ok: true, invitation: "Kallelsen kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren." });
+    const task = rows("tasks").find((t) => t.kind === "participant_contact" && t.caseIds.includes("case-270049"))!;
+    expect(await conf()).toMatchObject({ title: "Kallelsen kunde inte skickas – samordnaren har fått en uppgift:", body: task.text });
+    expect(task.text).toBe("Ring deltagaren och kalla till första mötet – ärende BOT-27-0049, torsdag 4 februari kl. 13.30, Alby. Kallelsen kunde inte skickas: deltagaren har ingen e-postadress och SMS är inte kopplat.");
+    // Klarmarkerad (samordnaren har ringt): inget kvar att göra – SMS som inte är kopplat räknas inte som ett stoppat utskick.
+    expect(await run(inboxTaskDone, { taskId: task.id }, sara())).toMatchObject({ ok: true });
+    expect(await conf()).toBeNull();
+  });
+
+  it("kallelsen i bekräftelsen: uppgiften går före en tidigare kallelse, och kallelsen väljs efter mötets tid – inte utskickets minut", async () => {
+    expect(await run(emailApplySupplement, { emailId: "em-103" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseAccept, { caseId: "case-270049", leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Kök och restaurang" }, sara()))
+      .toMatchObject({ ok: true });
+    const conf = async () => (await q(inboxConfirmation, { caseId: "case-270049" }, sara()))?.kallelse;
+    expect((await conf())?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
+    // Kontaktuppgifterna tas bort och mötet bokas om: ingen kallelse skrivs, samordnaren får en uppgift – den visas, inte den förra kallelsen.
+    const personId = row("cases", "case-270049")!.personId;
+    const mail = row("persons", personId)!.email;
+    rt.store.updateRow("persons", personId, { email: "", phone: "" });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-04T13:30" }, sara())).toMatchObject({ ok: true });
+    const task = rows("tasks").find((t) => t.kind === "participant_contact" && t.caseIds.includes("case-270049"))!;
+    expect(await conf()).toEqual({ title: "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:", icon: "phone", body: task.text });
+    // E-postadressen läggs in igen och mötet bokas om två gånger samma minut: uppgiften stängs, och kallelsen för det senaste mötet visas.
+    rt.store.updateRow("persons", personId, { email: mail });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-08T10:00" }, sara())).toMatchObject({ ok: true });
+    expect(await run(caseBookFirstMeeting, { caseId: "case-270049", at: "2027-02-09T11:00" }, sara())).toMatchObject({ ok: true });
+    expect(row("tasks", task.id)).toMatchObject({ status: "done", doneBy: "system" });
+    const sent = rows("outbound_messages").filter((x) => x.caseId === "case-270049" && x.template === "kallelse");
+    for (const m of sent) rt.store.updateRow("outbound_messages", m.id, { createdAt: "2027-02-01T09:30" });
+    // Alla kallelser har nu samma minut: den äldsta står först (som när SupabaseRepo sorterar på slumpade id) – texten ska ändå
+    // vara kallelsen för ärendets nuvarande första möte.
+    expect(sent[0].body).not.toContain("tisdag 9 februari");
+    const k = await conf();
+    expect(k?.title).toMatch(/^Deltagaren fick kallelse via e-post/);
+    expect(k?.body).toContain("tisdag 9 februari klockan 11.00");
+  });
+
   it("dubblettkontrollen i registreringen: bara ja eller nej", async () => {
     expect(await q(inboxDuplicateCheck, { pnr: "19880412-1234" }, johan())).toEqual({ duplicate: false });
     expect(await q(inboxDuplicateCheck, { pnr: "19750312-5223" }, sara())).toEqual({ duplicate: true });
@@ -342,19 +397,27 @@ describe("registrera beställning (mejl, telefon eller annan väg)", () => {
     const res = await run(inboxRegister, { ...PHONE_ORDER, phone: "", email: "", preferredContact: "phone" }, sara());
     if (!res.ok) throw new Error(res.error);
     expect(await run(caseAccept, { caseId: res.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
+    // Ingen kanal (notifyParticipant, beslut 2026-10-09): inget utskick – samordnaren får en uppgift med ärendenumret, aldrig namnet.
     const kallelse = rows("outbound_messages").filter((x) => x.caseId === res.caseId && x.template === "kallelse");
-    expect(kallelse.map((x) => x.to)).toEqual(["deltagare (SMS – kontaktuppgift saknas)"]);
+    expect(kallelse).toEqual([]);
+    const task = rows("tasks").find((t) => t.kind === "participant_contact" && t.caseIds.includes(res.caseId))!;
+    expect(task).toMatchObject({ toRole: "samordnare", status: "open" });
+    expect(task.text).toMatch(/^Ring deltagaren och kalla till första mötet – ärende BOT-27-\d{4}, onsdag 3 februari kl\. 10\.00, .+\. Deltagaren har varken e-postadress eller telefonnummer – fråga beställande handläggare\.$/);
+    expect(task.text).not.toMatch(/Telefonsson|Test /);
     const conf = await q(inboxConfirmation, { caseId: res.caseId }, sara());
-    expect(conf?.kallelse?.title).toBe("Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:");
+    expect(conf?.kallelse).toMatchObject({ title: "Kontaktuppgift saknas – kontakta handläggaren. Kallelsen når inte deltagaren:", body: task.text });
     expect(JSON.stringify(conf)).not.toMatch(/har valt telefon/);
     const d = await q(inboxItem, { id: res.emailId }, sara());
     const fields = d?.body.kind === "order" ? d.body.caseFields?.groups.flatMap((g) => g.fields) ?? [] : [];
     expect(fields.find((f) => f.label === "Föredragen kontaktväg")?.value).toBe("Kontaktuppgift saknas – kontakta handläggaren");
-    // Med telefonnummer och ett aktivt val av telefon står valet kvar.
+    // Med telefonnummer (valt telefon) men utan e-post och utan kopplat SMS: SMS:et stoppas med orsak och samordnaren ringer.
     const res2 = await run(inboxRegister, { ...PHONE_ORDER, pnr: "19930303-9999", preferredContact: "phone" }, sara());
     if (!res2.ok) throw new Error(res2.error);
-    expect(await run(caseAccept, { caseId: res2.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara())).toMatchObject({ ok: true });
-    expect((await q(inboxConfirmation, { caseId: res2.caseId }, sara()))?.kallelse?.title).toBe("Deltagaren fick kallelse via SMS och har valt telefon – coachen ringer också:");
+    expect(await run(caseAccept, { caseId: res2.caseId, leadCoachId: "u-leila", firstMeetingAt: "2027-02-03T10:00", primaryArea: "G", vocationalTrack: "Lager" }, sara()))
+      .toMatchObject({ ok: true, invitation: "Kallelsen kunde inte skickas. Samordnaren har fått en uppgift att ringa deltagaren." });
+    expect(rows("outbound_messages").filter((x) => x.caseId === res2.caseId && x.template === "kallelse").map((x) => [x.channel, x.status, x.statusReason]))
+      .toEqual([["sms", "suppressed", "SMS-leverantör inte vald"]]);
+    expect((await q(inboxConfirmation, { caseId: res2.caseId }, sara()))?.kallelse?.title).toBe("Kallelsen kunde inte skickas – samordnaren har fått en uppgift:");
   });
 
   it("när handläggaren skapar konto kopplas ärendet via e-postadressen", async () => {

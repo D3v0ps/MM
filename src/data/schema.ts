@@ -61,6 +61,9 @@
 //                                       Testdatat: src/data/seed/gen-notes.ts
 //   (finns inte i prototypen)        -> saved_reports (rapportbyggaren, rapporter steg 4, 0021).
 //                                       Testdatat: src/data/seed/gen-saved-reports.ts
+//   (finns inte i prototypen)        -> group_activities (gruppaktiviteter, coachmötet 2026-10-09, 0030), activities.groupActivityId
+//                                       och attendance.source (automatisk närvaro). Testdatat har inga gruppaktiviteter.
+//   (finns inte i prototypen)        -> group_activities.goal och group_goal_results (gruppmål, Karims beslut 2, 0033).
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -88,7 +91,7 @@
 //   notifications: at -> createdAt; byTester finns inte
 //   auditLog:   byTester finns inte (demodata känns igen på id från ctx.newId)
 //
-import type { Repo } from "./repo";
+import type { Repo, UniqueKey } from "./repo";
 import type { Role } from "@/api/roles";
 import type { LocalDate, LocalDateTime, MonthKey, WeekKey } from "@/core/time";
 import type {
@@ -155,9 +158,22 @@ export type PreferredContact = (typeof PREFERRED_CONTACTS)[number];
 
 export const ACTIVITY_KINDS = ["möte", "yrkesmoment", "praktikdag", "arbetsgivarbesök", "annat"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+/**
+ * Typerna en gruppaktivitet kan ha (0030, coachmötet 2026-10-09): delmängd av activities.kind. Coachträffen (möte) och
+ * praktikdagen är individuella – coachträffen hör till veckans möte med huvudcoachen och praktikdagen till praktiken.
+ */
+export const GROUP_ACTIVITY_KINDS = ["yrkesmoment", "arbetsgivarbesök", "annat"] as const;
+export type GroupActivityKind = (typeof GROUP_ACTIVITY_KINDS)[number];
 
 export const ATTENDANCE_STATUSES = ["present", "late", "absent_valid", "absent_invalid"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+/**
+ * Hur närvaron registrerades (0030, Karims beslut 1 2026-10-09): manual = en människa registrerade (radknapp, "Markera
+ * alla/övriga som närvarande", aktivitetsvyn); auto = jobbet auto_attendance registrerade Närvarande efter dagens slut för ett
+ * tillfälle som saknade närvaro. En automatisk rad som coachen ändrar blir manuell. Bara systemet skriver auto (RLS).
+ */
+export const ATTENDANCE_SOURCES = ["manual", "auto"] as const;
+export type AttendanceSource = (typeof ATTENDANCE_SOURCES)[number];
 
 /** Utkast eller godkänd (kartläggning, avstämning, månadsbedömning, månadsplan). */
 export const APPROVAL_STATUSES = ["draft", "approved"] as const;
@@ -242,18 +258,26 @@ export type BillingRunStatus = (typeof BILLING_RUN_STATUSES)[number];
 export const TASK_STATUSES = ["open", "done"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 // protected_order skapas inte längre (skyddet borttaget ur appen, beslut 2026-10-07) – värdet finns kvar för äldre rader.
-export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact"] as const;
+/**
+ * participant_contact = ring deltagaren: kallelsen eller inbjudan kunde inte skickas (ingen e-postadress och SMS inte kopplat,
+ * src/features/_shared/participant-notify.ts). Går till samordnaren med ärendenumret – aldrig namnet.
+ */
+export const TASK_KINDS = ["customer_decision", "protected_order", "billing_question", "pulse_contact", "participant_contact"] as const;
 export type TaskKind = (typeof TASK_KINDS)[number];
 
 export const USER_NOTIFICATION_KINDS = ["assignment", "message", "progress_reminder", "progress_escalation"] as const;
 export type UserNotificationKind = (typeof USER_NOTIFICATION_KINDS)[number];
 
-/** Kanal för utskick. brev = kallelse per post (deltagarens föredragna kontaktväg letter). */
-export const OUTBOUND_CHANNELS = ["email", "sms", "brev"] as const;
+/**
+ * Kanal för utskick. brev = kallelse per post (deltagarens föredragna kontaktväg letter). call = utringning till deltagaren med
+ * en kort inspelning utan personuppgifter (46elks, beslut 2026-10-09). Kolumnen är text utan check – ingen migration behövs.
+ */
+export const OUTBOUND_CHANNELS = ["email", "sms", "brev", "call"] as const;
 export type OutboundChannel = (typeof OUTBOUND_CHANNELS)[number];
 /**
- * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till e-postleverantören ·
- * failed gick inte att skicka · suppressed stoppat med avsikt (t.ex. testmiljöns spärr, SMS utan leverantör) · manual skickas för hand (brev).
+ * Utskickets status (src/server/notify): queued väntar på att skickas · sent lämnat till leverantören (Resend, 46elks) ·
+ * failed gick inte att skicka (t.ex. telefonnummer med fel format) · suppressed stoppat med avsikt (t.ex. testmiljöns spärr,
+ * SMS eller utringning som inte är kopplad) · manual skickas för hand (brev).
  */
 export const OUTBOUND_STATUSES = ["queued", "sent", "failed", "suppressed", "manual"] as const;
 export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
@@ -676,6 +700,67 @@ export type Activity = {
   durationMin: number;
   location: string;
   note: string;
+  /**
+   * Gruppaktiviteten tillfället hör till (0030), annars null. Varje inbjuden deltagare har en egen rad här – veckorapporten,
+   * närvarograden och fakturan räknar raderna som förut. Tid, längd, plats och typ följer gruppaktiviteten.
+   */
+  groupActivityId: string | null;
+};
+
+/**
+ * Gruppaktivitet (0030, coachmötet 2026-10-09): ett tillfälle för flera deltagare. Bara Miljonbemanning i avtalet ser och
+ * arbetar i dem – aldrig kommunen eller ekonomen. Deltagarna har var sin rad i activities (groupActivityId). Inget raderas:
+ * en inställd aktivitet får cancelledAt och deltagarnas oregistrerade tillfällen tas bort.
+ */
+export type GroupActivity = {
+  id: string;
+  contractId: string;
+  /** Namnet MB väljer ("CV-verkstad"). 1–120 tecken. Bara internt – syns inte för kommunen. */
+  name: string;
+  kind: GroupActivityKind;
+  startsAt: LocalDateTime;
+  durationMin: number;
+  location: string;
+  /** Ansvarig coach (profiles.id), om någon. */
+  responsibleId: UserId | null;
+  createdBy: UserId;
+  createdAt: LocalDateTime;
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  cancelledAt: LocalDateTime | null;
+  cancelledBy: UserId | null;
+  /**
+   * Gruppmålet (0033, Karims beslut 2) – ett mål för hela gruppen, 1–300 tecken, eller null. Ett internt arbetsverktyg: aldrig
+   * deltagarens veckomål, aldrig progression, samlad status, rapporter, resultatfil, export, faktura eller kommunen.
+   */
+  goal: string | null;
+  /**
+   * Gruppmålets version (0033): räknas upp med ett varje gång målet ändras – också när det tas bort eller skrivs in igen. Coachens
+   * val (group_goal_results) gäller bara den version de gjordes för.
+   */
+  goalVersion: number;
+};
+
+/** Gruppmålets längd (0033, group_activities_goal_length). */
+export const GROUP_GOAL_MAX = 300;
+
+/**
+ * Coachens val för en deltagare och ett gruppmål (0033). Alla klarar målet automatiskt (ingen rad); coachen markerar den som
+ * inte klarade det (achieved = false) och kan ändra tillbaka (achieved = true – då inte längre automatiskt). En rad per
+ * deltagare och gruppaktivitet; den gäller bara målets version och deltagarens tillfälle den gjordes för (annars automatiskt). Internt: läses bara i aktivitetsvyn – aldrig av rapporter, export, faktura eller kommunen.
+ */
+export type GroupGoalResult = {
+  id: string;
+  contractId: string;
+  groupActivityId: string;
+  caseId: string;
+  /** Deltagarens tillfälle i aktiviteten (activities.id) som valet gäller – tas deltagaren bort och bjuds in igen gäller valet inte längre. */
+  activityId: string;
+  /** Målets version (group_activities.goal_version) som valet gäller – byts målet gäller valet inte längre. */
+  goalVersion: number;
+  achieved: boolean;
+  setBy: UserId;
+  setAt: LocalDateTime;
 };
 
 export type Attendance = {
@@ -688,6 +773,8 @@ export type Attendance = {
   registeredBy: UserId;
   registeredAt: LocalDateTime;
   customerNotifiedAt: LocalDateTime | null;
+  /** manual eller auto (jobbet auto_attendance, 0030). Visas "Automatiskt registrerad" tills någon ändrar raden. */
+  source: AttendanceSource;
 };
 
 export type EmployerContacts = { count: EmployerContactCount | null; types: string[] };
@@ -1316,7 +1403,9 @@ export type AudioUpload = {
 
 // ================================================================ Fria anteckningar i deltagarkortet (0019, rapporter steg 2)
 // Anteckningar som MB skriver i ärendet (SPEC §7.18). De kommer bara in i månadsrapporten genom att coachen lägger in dem i
-// månadsbedömningens sammanfattning och godkänner den – aldrig av sig själva. Aldrig i loggar, AI, utskick eller export.
+// månadsbedömningens sammanfattning och godkänner den – aldrig av sig själva. Aldrig i loggar, utskick eller export. Underlag
+// till AI-utkastet för månadsbedömningen bara med deltagarens samtycke till AI, personnummer tvättade och utan författare
+// (Karims beslut 4, 2026-10-09 – draftNotes i src/features/_shared/ai-port.ts); coachen bedömer och godkänner.
 // Kommunen läser dem aldrig (inte heller när avtalet har customerVisibility.seesCoachNotes). Ingen hård radering: en
 // borttagen anteckning får removedAt och removedBy och visas inte längre (bara för författaren, när någon annan tog bort den).
 export const CASE_NOTE_KINDS = ["conversation", "customer_contact", "practical", "other"] as const;
@@ -1336,7 +1425,7 @@ export type CaseNote = {
   occurredOn: LocalDate;
   kind: CaseNoteKind;
   audience: CaseNoteAudience;
-  /** 1–2000 tecken. Aldrig i loggar, AI, utskick eller export. */
+  /** 1–2000 tecken. Aldrig i loggar, utskick eller export. Till AI bara som underlag för månadsutkastet (se ovan). */
   body: string;
   createdAt: LocalDateTime;
   /** Senaste ändringen av texten (bara författaren ändrar). */
@@ -1417,12 +1506,15 @@ export type Holiday = {
   name: string;
 };
 
-/** Utskick (e-post, SMS, brev). Innehåller aldrig personuppgifter – bara ärendenummer och "logga in för att läsa". */
+/** Utskick (e-post, SMS, brev, utringning). Innehåller aldrig personuppgifter – bara ärendenummer och "logga in för att läsa". */
 export type OutboundMessage = {
   id: string;
   createdAt: LocalDateTime;
   channel: OutboundChannel;
-  /** Mottagarens adress, maskerat nummer eller beskrivning (t.ex. "deltagare (SMS)"). */
+  /**
+   * Mottagarens adress eller en beskrivning. Deltagare alltid som beskrivning ("deltagare (SMS)", PARTICIPANT_TO i
+   * src/features/_shared/messaging-port.ts) – numret eller adressen slås upp via ärendet när utskicket skickas.
+   */
   to: string;
   template: string;
   subject: string | null;
@@ -1432,7 +1524,7 @@ export type OutboundMessage = {
   sentAt: LocalDateTime | null;
   /** Varför utskicket stoppades, misslyckades eller skickades om (t.ex. "redirected" i testmiljön). Aldrig adresser eller personuppgifter. */
   statusReason?: string | null;
-  /** E-postleverantörens id för utskicket (Resend). */
+  /** Leverantörens id för utskicket (Resend för e-post, 46elks för SMS och samtal). */
   providerMessageId?: string | null;
 };
 
@@ -1615,6 +1707,62 @@ export type CaseAttachment = {
   deleteReason: AttachmentDeleteReason | null;
 };
 
+// ================================================================ Grupper, nivåer och taggar (0031, coachmötet 2026-10-09)
+// Miljonbemannings interna arbetsverktyg (Karims beslut 3, 2026-10-09): en människa (Adam i kartläggningen, coacherna,
+// samordnaren) placerar deltagaren på en nivå, i grupper och med taggar – aldrig AI. Allt är internt: kommunen och ekonomen
+// ser det aldrig, och det kommer aldrig med i rapporter, resultatfilen, exporter, fakturor eller underlaget till AI.
+// Inget raderas: en gruppering arkiveras, ett medlemskap får removedAt.
+export const GROUPING_KINDS = ["level", "group", "tag"] as const;
+/** level = nivå 1–5 (högst en per ärende) · group = grupp som MB skapar fritt · tag = tagg i en kategori (högst en per kategori och ärende). */
+export type GroupingKind = (typeof GROUPING_KINDS)[number];
+/** Längsta namn och beskrivning (samma gränser som kontrollerna i 0031). */
+export const GROUPING_NAME_MAX = 80;
+export const GROUPING_DESCRIPTION_MAX = 300;
+export const GROUPING_CATEGORY_MAX = 60;
+
+/** En nivå, grupp eller tagg i ett avtal. */
+export type Grouping = {
+  id: string;
+  contractId: string;
+  kind: GroupingKind;
+  /** Taggens kategori, t.ex. "Vill arbeta". Bara taggar har kategori. Ändras aldrig (medlemskapens slot bygger på den). */
+  category: string | null;
+  /** 1–80 tecken. Namnen väljer MB själva – neutrala ord om stödbehovet, aldrig omdömen om personen. */
+  name: string;
+  /** 0–300 tecken ("" när ingen beskrivning finns). */
+  description: string;
+  /** Ordningen i listor och val (nivåerna 1–5). */
+  sortOrder: number;
+  createdAt: LocalDateTime;
+  /** Null för standardvärdena som migrationen lade in. */
+  createdBy: UserId | null;
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  /** Arkiverad – kan inte väljas för fler deltagare; befintliga medlemskap ligger kvar. */
+  archivedAt: LocalDateTime | null;
+  archivedBy: UserId | null;
+};
+
+/** En deltagares (ärendets) plats på en nivå, i en grupp eller med en tagg. */
+export type GroupingMember = {
+  id: string;
+  contractId: string;
+  caseId: string;
+  groupingId: string;
+  /** Samma som grupperingens typ (denormaliserad, så att databasens unika index kan bygga på den). */
+  kind: GroupingKind;
+  /**
+   * Platsen som högst ett aktivt medlemskap per ärende får ha: "level" för nivån, "tag:<kategori>" för en tagg, null för
+   * grupper (en deltagare kan vara med i flera grupper). Partiellt unikt index (case_id, slot) där removed_at är null (0031).
+   */
+  slot: string | null;
+  addedAt: LocalDateTime;
+  addedBy: UserId;
+  /** Borttagen ur nivån, gruppen eller taggen – raden finns kvar. */
+  removedAt: LocalDateTime | null;
+  removedBy: UserId | null;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1632,6 +1780,8 @@ export type Tables = {
   case_team: CaseTeamMember;
   inbound_emails: InboundEmail;
   intake_assessments: IntakeAssessment;
+  group_activities: GroupActivity;
+  group_goal_results: GroupGoalResult;
   activities: Activity;
   attendance: Attendance;
   check_ins: CheckIn;
@@ -1681,6 +1831,8 @@ export type Tables = {
   case_notes: CaseNote;
   saved_reports: SavedReport;
   case_attachments: CaseAttachment;
+  groupings: Grouping;
+  grouping_members: GroupingMember;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1693,7 +1845,7 @@ export const TABLE_NAMES = [
   "profiles", "memberships", "role_choices",
   "persons", "cases", "case_status_history", "case_counters", "case_team", "buyer_references",
   "inbound_emails",
-  "intake_assessments", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
+  "intake_assessments", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
   "reports", "messages", "user_notifications", "notification_reads", "tasks", "outbound_messages", "case_seen",
   "contract_deviations", "alerts", "alert_acks", "deadlines", "kpi_snapshots", "pulse_invites", "pulse_responses", "bonus_claims",
   "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals", "invoice_credits", "fortnox_runs", "integrations",
@@ -1704,6 +1856,8 @@ export const TABLE_NAMES = [
   "case_notes",
   "saved_reports",
   "case_attachments",
+  "groupings", "grouping_members",
+  "group_goal_results",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;
@@ -1719,11 +1873,21 @@ export function emptyDb(): Db {
  * Unika nycklar utöver id – samma som databasens unika index, så att minnesläget stoppar samma dubbletter (UniqueError,
  * src/data/memory.ts): en närvarorad per tillfälle (0022, två samtidiga registreringar), ett pulssvar per länk (0016).
  */
-export const UNIQUE_KEYS: { [N in TableName]?: readonly (keyof Tables[N] & string)[] } = {
+export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] } = {
   attendance: ["activityId"],
+  // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
+  activities: [{ fields: ["groupActivityId", "caseId"] }],
+  // Ett val per deltagare och gruppmål (0033, group_goal_results_activity_case_key).
+  group_goal_results: [{ fields: ["groupActivityId", "caseId"] }],
   pulse_responses: ["inviteId"],
   // Samma faktura skapas aldrig två gånger i Fortnox (0008, invoice_drafts_fortnox_idempotency_key).
   invoice_drafts: ["fortnoxIdempotencyKey"],
   // En vald roll per användare (0027).
   role_choices: ["userId"],
+  // Grupper, nivåer och taggar (0031): högst en aktiv nivå och högst ett aktivt värde per taggkategori per ärende
+  // (grouping_members_one_per_slot), och samma gruppering bara en gång per ärende (grouping_members_active_once).
+  grouping_members: [
+    { fields: ["caseId", "slot"], whenNull: ["removedAt"] },
+    { fields: ["caseId", "groupingId"], whenNull: ["removedAt"] },
+  ],
 };

@@ -112,7 +112,11 @@ describe("antal rader per tabell", () => {
     expect(n("memberships")).toBe(17); // ett medlemskap per användare – alla i Botkyrkaavtalet
     expect(n("user_notifications")).toBe(63);
     expect(n("notification_reads")).toBe(seed.user_notifications.filter((x) => x.createdAt < "2027-01-29").length);
-    expect(n("case_team")).toBe(createProtoState().cases.reduce((sum, c) => sum + c.team.length, 0));
+    // Rollen handledare bort (beslut 2026-10-09): Petras platser som yrkesspecifik handledare finns inte i testdatat.
+    const protoTeam = createProtoState().cases.flatMap((c) => c.team);
+    expect(n("case_team")).toBe(protoTeam.filter((t) => t.role !== "vocational_supervisor").length);
+    expect(protoTeam.some((t) => t.role === "vocational_supervisor")).toBe(true);
+    expect(seed.case_team.some((t) => t.role === "vocational_supervisor")).toBe(false);
     expect(seed.case_team.filter((t) => t.role === "lead_coach").length).toBe(seed.cases.filter((c) => c.leadCoachId).length);
     expect(n("case_counters")).toBe(2);
     expect(n("organizations")).toBe(2); // Miljonbemanning och Botkyrka kommun
@@ -146,7 +150,8 @@ describe("stickprov mot data-samples.json", () => {
       .toEqual({ status: s.status, referredAt: s.referredAt, referrerId: s.referrerId, buyerReference: s.buyerReference, primaryAreaCode: s.primaryArea, plannedEnd: s.plannedEnd,
         confirmedAt: s.confirmedAt, firstMeetingAt: s.firstMeetingAt, phase: s.phase, aiConsentStatus: s.aiConsent, meetingDay: s.meetingDay, meetingTime: s.meetingTime });
     const team = seed.case_team.filter((t) => t.caseId === c.id).map((t) => ({ userId: t.userId, role: t.role }));
-    expect(team).toEqual(s.team);
+    // Petra (yrkesspecifik handledare i prototypen) är inte med i teamet sedan rollen handledare togs bort (beslut 2026-10-09).
+    expect(team).toEqual((s.team as unknown as { userId: string; role: string }[]).filter((t) => t.role !== "vocational_supervisor"));
     const p = byId("persons", c.personId)!;
     const sp = S!.person;
     expect({ firstName: p.firstName, lastName: p.lastName, birthYear: p.birthYear, last4: p.personnummerLast4, city: p.city, language: p.language, preferredContact: p.preferredContact })
@@ -263,7 +268,10 @@ describe("mappning till tabellerna", () => {
     expect(byId("profiles", "k-omar")).toMatchObject({ fullName: "Omar Farah", organizationId: "org-botkyrka" });
     expect(seed.memberships.find((m) => m.userId === "k-omar")!.role).toBe("kommun_handlaggare");
     expect(byId("profiles", "u-robin")).toMatchObject({ email: "robin.aberg@miljonbemanning.se", phone: "08-000 00 23" });
-    expect(byId("profiles", "u-petra")!.teamRole).toBe("vocational_supervisor");
+    // Rollen handledare bort (beslut 2026-10-09): de tre som var handledare har rollen coach; Petra har ingen teamroll.
+    expect(byId("profiles", "u-petra")).toMatchObject({ teamRole: null, title: "Jobbcoach – lager, logistik och transport" });
+    expect(seed.memberships.some((m) => m.role === "handledare")).toBe(false);
+    expect(["u-petra", "u-david", "u-hanna"].map((id) => seed.memberships.find((m) => m.userId === id)?.role)).toEqual(["coach", "coach", "coach"]);
     expect(byId("profiles", "k-maria")!.lastLoginAt).toBe("2027-01-27T13:40");
   });
   it("inga skyddade personuppgifter i testdatat (beslut 2026-10-07): ärendet 'skyddad' är en vanlig person", () => {

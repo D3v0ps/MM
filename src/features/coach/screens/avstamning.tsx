@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AUTOSAVE_CHECKIN } from "@/api/invalidation";
 import { pct, plural } from "@/core/format";
-import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtWeekday, fmtWeekKey, monday, timeOf } from "@/core/time";
+import { addDays, dayOf, fmtDate, fmtDateShort, fmtDateTime, fmtDateTimeLong, fmtWeekday, fmtWeekKey, monday } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery, useQueryRunner } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
@@ -21,7 +21,7 @@ import { useSession } from "@/shell/session";
 import {
   AiBox, AiTag, AutosaveStatus, Badge, BuildPhase, Button, Card, Check, cn, DateInput, DateTimeInput, DemoNote, ErrorSummary, Evidence, Field, focusFirstError, FormGrid, Grid, Icon, Input, Kpi, Kv,
   List, Notice, ProcessSteps, Page,
-  Recorder, Row, Seg, Select, SimulatedAiNotice, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, TimeInput, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
+  Recorder, Row, Seg, Select, SimulatedAiNotice, Stack, Status, STATUS_ICON, STATUS_TEXT, TextArea, Timeline, toast, useAuditView, type IconName, type RecordedAudio, type SegOption,
 } from "@/ui";
 import { Link } from "@/shell/nav";
 import { uploadStart } from "@/features/rost/api";
@@ -168,8 +168,8 @@ function DocTimer({ start, stopped, className }: { start: number; stopped?: numb
 
 // ================================================================ Formuläret
 type FormState = {
+  /** Mötets dag. Ingen tid i formuläret (coachmötet 2026-10-09) – servern sätter klockslaget (se coach.checkinSave, heldOn). */
   date: string;
-  time: string;
   durationMin: string;
   mode: "fysiskt" | "telefon" | "video";
   attendanceComment: string;
@@ -247,7 +247,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
 
   const [start] = useState(() => Date.now());
   const initialForm = (): FormState => ({
-    date: dayOf(held0), time: timeOf(held0), durationMin: String(ci0?.durationMin || last?.durationMin || 45), mode: ci0?.mode || last?.mode || "fysiskt",
+    date: dayOf(held0), durationMin: String(ci0?.durationMin || last?.durationMin || 45), mode: ci0?.mode || last?.mode || "fysiskt",
     attendanceComment: ci0?.attendanceComment || "", goalStatus: ci0?.goalStatus || null, nextGoal: ci0?.nextGoal || "", phase: String(ci0?.phase || c.phase || 1),
     activitiesDone: ci0?.activitiesDone ?? [], ecCount: (ci0?.employerContacts?.count ?? null) as Ec | null, ecTypes: ci0?.employerContacts?.types ?? [],
     overallStatus: ci0?.overallStatus || null, obstacles: ci0?.obstacles ?? [], note: ci0?.note || "",
@@ -479,7 +479,7 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
 
   // ---- Spara
   const buildData = () => ({
-    heldAt: `${form.date}T${form.time || "09:00"}`,
+    heldOn: form.date,
     durationMin: Number(form.durationMin),
     mode: form.mode,
     inputMethod: aiActive ? SOURCE[source].method : ("manual" as const),
@@ -812,9 +812,6 @@ function CheckInForm({ v, rostId, spela }: { v: Ok; rostId: string | null; spela
             <FormGrid>
               <Field label="Datum" id="ci-date">
                 <DateInput value={form.date} onValueChange={(x) => setF("date", x)} />
-              </Field>
-              <Field label="Starttid" id="ci-time">
-                <TimeInput value={form.time} onValueChange={(x) => setF("time", x)} />
               </Field>
               <Field label="Längd" id="ci-dur">
                 <Seg id="ci-dur" ariaLabel="Längd" value={form.durationMin} onValueChange={(x) => setF("durationMin", x)} options={["30", "45", "60", "90"].map((x) => ({ value: x, label: `${x} min` }))} />

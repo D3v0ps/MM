@@ -9,6 +9,7 @@
 //   attachments  bilagorna i Supabase Storage (src/server/attachments) – byggs på samma sätt
 //   jobs    kön för bakgrundsjobb: schedule() kör jobben med after() när svaret skickats (röstjobben, voice-jobs.ts)
 //   fortnox Fortnox-porten – sätts inte (live.ts, jobben) förrän en riktig klient finns: ekonomen ser "inte kopplat"
+//   messaging  läget för SMS och utringning (46elks) ur miljövariablerna (src/server/notify/config.ts, messagingStatus)
 import type { AuditEntry, Ctx, JobKick, OutgoingMessage, PnrCrypto } from "@/api/server";
 import type { Actor } from "@/api/roles";
 import type { LocalDateTime } from "@/core/time";
@@ -17,6 +18,7 @@ import type { AiPort } from "@/features/_shared/ai-port";
 import type { AttachmentPort } from "@/features/_shared/attachment-port";
 import type { AudioPort } from "@/features/_shared/audio-port";
 import type { FortnoxPort } from "@/features/_shared/fortnox-port";
+import type { MessagingStatus } from "@/features/_shared/messaging-port";
 
 export type Enqueue = (system: AppRepo, msg: OutgoingMessage, now: LocalDateTime) => Promise<unknown>;
 
@@ -58,6 +60,8 @@ export function liveCtx(o: {
   fortnox?: FortnoxPort;
   /** Tillåtna domäner för personalens adresser (MM_STAFF_EMAIL_DOMAINS) – "Lägg till kollega". */
   staffEmailDomains?: readonly string[];
+  /** SMS och utringning (46elks): kopplat eller inte. Utelämnas = inget kopplat. */
+  messaging?: MessagingStatus;
 }): Ctx {
   const newId = o.newId ?? randomId;
   const now = () => o.now;
@@ -100,5 +104,6 @@ export function liveCtx(o: {
     ...(jobs ? { jobs } : {}),
     ...(o.fortnox ? { fortnox: o.fortnox } : {}),
     ...(o.staffEmailDomains ? { staffEmailDomains: o.staffEmailDomains } : {}),
+    ...(o.messaging ? { messaging: o.messaging } : {}),
   };
 }

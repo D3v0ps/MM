@@ -34,7 +34,7 @@ test("startsidan: prototypfält, demodatum, roller och 14 scenarier", async ({ p
     "Samordnare – Sara Lindqvist",
     "Avtalsansvarig – Johan Berg",
     "Huvudcoach – Amira Haddad",
-    "Handledare – Petra Ek",
+    // Rollen handledare är borttagen (Karims beslut 2026-10-09).
     "Chef och controller – Karin Wallin",
     "Ekonom – Lars Nyström",
     "Systemadmin – Robin Åberg",
@@ -295,7 +295,7 @@ test("400 px: ingen sidledsscroll med prototypfältet – varje roll, portalen o
   const pages: [string, string, string][] = [
     ["u-sara", "samordnare", "/min-vecka"],
     ["u-amira", "coach", "/min-vecka"],
-    ["u-petra", "handledare", "/min-vecka"],
+    ["u-petra", "coach", "/min-vecka"],
     ["u-karin", "chef", "/min-vecka"],
     ["u-karin", "chef", "/ledning"],
     ["u-lars", "ekonom", "/min-vecka"],

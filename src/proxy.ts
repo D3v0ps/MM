@@ -22,8 +22,11 @@ import {
   type SessionVerdict,
 } from "@/server/session-policy";
 
-/** API-vägar som alltid släpps igenom utan sessionskontroll: inloggningen själv och bakgrundsjobben (egen nyckel). */
-const PASS_THROUGH = ["/api/auth/", "/api/jobs/", "/api/dev-session"];
+/**
+ * Vägar som alltid släpps igenom utan sessionskontroll: inloggningen själv, bakgrundsjobben (egen nyckel) och /ljud/ – den
+ * publika inspelningen som 46elks spelar upp vid utringningen (public/ljud, MM_CALL_AUDIO_URL). Inga personuppgifter där.
+ */
+const PASS_THROUGH = ["/api/auth/", "/api/jobs/", "/api/dev-session", "/ljud/"];
 /** API-vägar som ska få svara även när sessionen just gått ut (de svarar "inte inloggad" själva). */
 const SOFT_API = ["/api/session"];
 

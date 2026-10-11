@@ -44,7 +44,7 @@ Tryck på **Beställ ny insats**. Beställningen görs i tre steg och en granskn
 
 ### Steg 1 av 3: Beställning och kontakt
 
-1. **Ditt namn**, **Enhet**, **Ditt telefonnummer** och **Din e-postadress** är redan ifyllda från ditt konto. Kontrollera att de stämmer. Ordererkännandet skickas till e-postadressen.
+1. Under **Kontaktperson** ser du ditt namn, din enhet, ditt telefonnummer och din e-postadress från ditt konto. Kontrollera att de stämmer. Ska någon annan vara kontaktperson för beställningen? Tryck på **Ändra**. Saknas din enhet eller ditt telefonnummer i kontot visas fälten direkt – fyll i dem. Ordererkännandet skickas till e-postadressen.
 2. Välj **Önskat startdatum**. Startdatumet bekräftas i orderbekräftelsen.
 3. Välj **Omfattning**: 6 månader eller 12 månader. Välj **annan tidsperiod** bara om insatsen behöver en annan längd. Då fyller du också i **Slutdatum** och **Motivering**. Skriv inga diagnoser eller uppgifter om hälsa.
 4. Tryck på **Nästa: deltagare**.
@@ -55,10 +55,11 @@ Lämna bara de uppgifter som behövs.
 
 1. Skriv **Förnamn** och **Efternamn** som i folkbokföringen.
 2. Skriv **Personnummer eller samordningsnummer** med tolv siffror: ÅÅÅÅMMDD-NNNN. Numret visas bara maskerat i tjänsten.
-3. Skriv **Deltagarens telefonnummer**. Vi skickar kallelsen och påminnelser med SMS. SMS innehåller aldrig personuppgifter.
-4. Har deltagaren ingen telefon? Lämna telefonnumret tomt och skriv **Deltagarens e-postadress**. Då skickar vi kallelsen med e-post.
-5. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot.
-6. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
+3. Skriv **Deltagarens telefonnummer** med riktnummer, till exempel 070-123 45 67.
+4. Har deltagaren en e-postadress? Skriv den under **Deltagarens e-postadress**. Du måste fylla i telefonnummer eller e-postadress.
+5. Vi skickar kallelsen med e-post eller SMS. Går det inte ringer vi deltagaren. Kallelsen innehåller aldrig personuppgifter – bara tid, plats och vårt telefonnummer.
+6. Välj **Yrkesområde** – det yrkesområde som deltagaren ska arbeta mot.
+7. Tryck på **Nästa: bakgrundsinformation om deltagaren**.
 
 ### Steg 3 av 3: Bakgrundsinformation om deltagaren
 
@@ -71,12 +72,12 @@ Lämna bara de uppgifter som behövs.
 
 1. Läs igenom uppgifterna. Tryck på **Tillbaka** om något behöver ändras.
 2. Tryck på **Skicka beställningen**.
-3. Du ser sidan **Tack! Beställningen är skickad** med ditt ärendenummer.
+3. Du ser sidan **Tack! Beställningen är skickad** med ditt ärendenummer. Du får ett mejl när orderbekräftelsen finns i portalen.
 
 ## Vad händer efter beställningen?
 
 1. Du får ett **ordererkännande** med ett ärendenummer till din e-postadress inom den tid som står i avtalet. Mejlet innehåller bara ärendenumret – inga personuppgifter.
-2. När Miljonbemanning har accepterat beställningen får du en **orderbekräftelse**. Där står coach, startdatum och tid för första mötet. Första mötet bokas inom den tid som står i avtalet.
+2. När Miljonbemanning har accepterat beställningen får du en **orderbekräftelse** i portalen och ett mejl om att den finns där. I orderbekräftelsen står coach, startdatum och tid för första mötet. Första mötet bokas inom den tid som står i avtalet.
 3. Insatsen startar. Varje månad får du en **månadsrapport** för deltagaren. Du får också en **veckorapport om närvaro**.
 4. När insatsen avslutas får du en **slutrapport**.
 
@@ -85,8 +86,8 @@ Varje gång något nytt finns i portalen får du ett mejl utan personuppgifter m
 ## Mina deltagare
 
 1. Tryck på **Mina deltagare** på startsidan.
-2. Du ser bara de deltagare som du själv har beställt insatser för.
-3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Närvaro**, **Levererade rapporter** och **Säkra meddelanden**.
+2. Du ser bara de deltagare som du själv har beställt insatser för. Välj **Pågår** eller **Alla** överst i listan.
+3. Tryck på en deltagare för att se **Så långt har insatsen kommit**, **Orderbekräftelse**, **Närvaro**, **Levererade rapporter** och **Säkra meddelanden**. Under Närvaro står närvarograden för den senaste månaden. För en avslutad insats står närvarograden för den sista månaden i insatsen. Närvaron vecka för vecka finns i veckorapporterna under **Rapporter och meddelanden**.
 4. Vill du skriva till coachen: tryck på **Nytt meddelande** under Säkra meddelanden. Skriv aldrig personnummer i ett meddelande. Ärendenumret räcker.
 
 ## Avbryta en insats
@@ -96,7 +97,7 @@ Vill du avbryta en insats? Mejla **avrop@miljonbemanning.se** och skriv ärenden
 ## Rapporter och meddelanden
 
 1. Tryck på **Rapporter och meddelanden** på startsidan.
-2. Olästa rapporter och meddelanden visas först.
+2. Olästa rapporter och meddelanden visas först. Välj **Olästa** eller **Alla**.
 3. Tryck på en rapport för att läsa den i portalen. Rapporter skickas aldrig som bilaga i vanlig e-post.
 
 ## Mina uppgifter

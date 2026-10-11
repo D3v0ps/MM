@@ -127,7 +127,25 @@ export const outboundStatusLabel = (s: string): string => lookup(OUTBOUND_STATUS
  * "redirected" = testmiljön skickade mejlet till testaren i stället för till testpersonen (MM_EMAIL_REDIRECT_TO).
  */
 export const OUTBOUND_REASON_LABEL: Readonly<Record<string, string>> = { redirected: "Testmiljön: skickat till testarens adress i stället för till mottagaren" };
-export const outboundReasonLabel = (r: string | null | undefined): string | null => (r ? (OUTBOUND_REASON_LABEL[r] ?? r) : null);
+/** Leverantörer och miljövariabler i en orsak ("46elks nekade inloggningen (401) – kontrollera ELKS_API_USERNAME …"). */
+const VENDOR_OR_VARIABLE = /46elks|Resend|Supabase|Vercel|Google|Vertex|Gemini|\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/;
+/**
+ * Orsaken utan leverantörer och variabelnamn – för begränsade testare (hidesCommercial), som inte ser underbiträdena eller
+ * driftens variabler (src/api/tester-access.ts). Orsaker utan sådana ord visas som de är.
+ */
+function neutralReason(text: string): string {
+  if (!VENDOR_OR_VARIABLE.test(text)) return text;
+  if (/ALLOWLIST/.test(text)) return "Stoppat av testmiljöns spärr";
+  if (/^Osäkert/.test(text)) return "Osäkert om utskicket gick iväg – kontrollera innan det skickas igen";
+  if (/inte konfigurerad/.test(text)) return "Utskicken är inte inställda ännu";
+  return "Leverantören avvisade utskicket";
+}
+/** Orsaken som text. neutral = utan leverantörer och variabelnamn (begränsade testare). */
+export const outboundReasonLabel = (r: string | null | undefined, opts: { neutral?: boolean } = {}): string | null => {
+  if (!r) return null;
+  const text = OUTBOUND_REASON_LABEL[r] ?? r;
+  return opts.neutral ? neutralReason(text) : text;
+};
 
 /** "G Lager och logistik" – områdeskod och namn. "–" om koden saknas. */
 export function areaName(areas: readonly Pick<ContractArea, "code" | "name">[], code: string | null | undefined): string {

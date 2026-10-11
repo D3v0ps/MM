@@ -24,6 +24,7 @@ const main = (page: Page) => page.locator("#main");
 const text = (page: Page) => main(page).evaluate((el) => (el.textContent ?? "").replace(/ /g, " "));
 const relevant = (errors: string[]) => errors.filter((e) => !/Failed to load resource/.test(e));
 const btn = (page: Page, name: string | RegExp) => page.getByRole("button", { name }).first();
+const modal = (page: Page) => page.getByRole("dialog");
 
 /** Byt testperson utan att nollställa testdata. */
 async function switchTo(page: Page, info: TestInfo, to: string, who: Who) {
@@ -180,6 +181,29 @@ test("avtal: interna regler – ändra, slå igenom i notiserna och återställ"
   await expect(page.locator("#rule-remind")).toHaveValue("1");
   await expect(page.locator("#rule-esc")).toHaveValue("2");
   await expect(page.locator("#rule-to-avtalsansvarig")).not.toBeChecked();
+  expect(relevant(errors)).toEqual([]);
+});
+
+// ------------------------------------------------------------------ admin.anvandare – rollistan (Karims beslut 2026-10-09)
+test("användare: rollistan i Lägg till kollega och Ändra roller har inte rollen handledare – Petra är huvudcoach", async ({ page }, info) => {
+  const errors = await open(page, info, "/admin/anvandare", ROBIN);
+  const colleagues = page.getByRole("table", { name: "Kollegor på Miljonbemanning" });
+  await expect(colleagues).toBeVisible();
+  await expect(colleagues, "ingen kollega har rollen handledare").not.toContainText("Handledare");
+  await expect(colleagues.getByRole("row", { name: /Petra Ek/ })).toContainText("Huvudcoach");
+  const STAFF = ["Systemadministratör", "Avtalsansvarig", "Operativ samordnare", "Huvudcoach", "Chef och controller", "Ekonom"];
+  await btn(page, "Lägg till kollega").click();
+  let roles = modal(page).getByRole("group", { name: "Roller" });
+  await expect(roles.getByRole("checkbox")).toHaveCount(STAFF.length);
+  for (const r of STAFF) await expect(roles, r).toContainText(r);
+  await expect(roles).not.toContainText("Handledare");
+  await expect(page.locator("#ny-kollega-role-handledare")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(modal(page)).toHaveCount(0);
+  await colleagues.getByRole("row", { name: /Petra Ek/ }).getByRole("button", { name: "Ändra roller" }).click();
+  roles = modal(page).getByRole("group", { name: "Roller" });
+  await expect(roles.getByRole("checkbox")).toHaveCount(STAFF.length);
+  await expect(roles).not.toContainText("Handledare");
   expect(relevant(errors)).toEqual([]);
 });
 

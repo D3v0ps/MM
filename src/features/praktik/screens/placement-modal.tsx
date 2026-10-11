@@ -63,6 +63,10 @@ export function PlacementModal({
       return;
     }
     toast(`Praktiken hos ${isNew ? f.name.trim() : (employer?.name ?? "arbetsgivaren")} är registrerad. ${plural(res.days, "praktikdag", "praktikdagar")} är inplanerade.`);
+    // Gruppaktiviteter på praktikdagarna ligger kvar – coachen avgör i aktivitetsvyn om deltagaren ska vara med.
+    if (res.groupActivities) {
+      toast(`Deltagaren är inbjuden till ${plural(res.groupActivities, "gruppaktivitet", "gruppaktiviteter")} på praktikdagarna. Ta bort hen under Aktiviteter om hen inte ska vara med.`);
+    }
     onClose();
   };
   const until = f.endsOn || chosen?.plannedEnd || null;

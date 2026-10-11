@@ -561,7 +561,7 @@ function ManadForm({ v }: { v: Ok }) {
               <AiBox>
                 <Row gap="sm">
                   <AiTag>AI-utkast</AiTag>
-                  <span className="text-small text-text-muted">Bygger bara på godkända mötesrapporter och registrerad närvaro</span>
+                  <span className="text-small text-text-muted">Bygger bara på godkända mötesrapporter, registrerad närvaro och anteckningarna i deltagarkortet</span>
                 </Row>
                 <div>{ma0.aiSummaryDraft}</div>
                 <div>
@@ -632,7 +632,8 @@ const SUMMARY_TOO_LONG = `Sammanfattningen får vara högst ${ASSESSMENT_SUMMARY
 /**
  * ANTECKNINGAR FRÅN MÅNADEN (rapporter steg 2): de fria anteckningarna kommer inte med i rapporten av sig själva. Coachen
  * lägger in det som behövs i sammanfattningen, skriver om texten för kommunen och godkänner. Utan onAdd (godkänd
- * bedömning) visas panelen utan knappar. Anteckningarna skickas aldrig till AI.
+ * bedömning) visas panelen utan knappar. Med deltagarens samtycke till AI är anteckningarna också underlag för AI-utkastet
+ * (personnummer tvättade, aldrig vem som skrev – beslut 4 2026-10-09); de kommer aldrig in i rapporten utan coachens val.
  */
 function NotesPanel({ v, summary = "", added = [], onAdd }: { v: Ok; summary?: string; added?: string[]; onAdd?: (id: string, text: string) => void }) {
   const word = MONTHS[Number(v.month.slice(5, 7)) - 1];
@@ -693,8 +694,9 @@ function NotesPanel({ v, summary = "", added = [], onAdd }: { v: Ok; summary?: s
 }
 
 /**
- * "Skapa AI-utkast från godkända mötesrapporter" (coach.monthlyDraft): utkast till observation per område, sammanfattning och
- * plan – bara från månadens godkända mötesrapporter och registrerad närvaro. Nivåerna och samlad status väljer coachen själv.
+ * "Skapa AI-utkast" (coach.monthlyDraft): utkast till observation per område, sammanfattning och plan – bara från månadens
+ * godkända mötesrapporter, registrerad närvaro och anteckningarna i deltagarkortet (med samtycke, personnummer borttagna, aldrig
+ * vem som skrev – beslut 4 2026-10-09). Aldrig nivå, grupper eller taggar. Nivåerna och samlad status väljer coachen själv.
  */
 function AiDraftCard({ v }: { v: Ok }) {
   const draft = useCommand(monthlyDraft);
@@ -703,7 +705,7 @@ function AiDraftCard({ v }: { v: Ok }) {
   // AI av (produktion utan leverantör, beslut 2026-10-08): klartext i stället för en knapp som inte fungerar.
   if (v.aiOff) {
     return (
-      <Card title="AI-utkast från godkända mötesrapporter" icon="sparkles">
+      <Card title="AI-utkast från mötesrapporter och anteckningar" icon="sparkles">
         <Notice tone="warn" title="Tal till text är inte kopplat ännu">
           Skriv observationerna, sammanfattningen och planen själv så länge.
         </Notice>
@@ -721,16 +723,16 @@ function AiDraftCard({ v }: { v: Ok }) {
     else toast("AI skriver utkasten. De visas här när de är klara.");
   };
   return (
-    <Card title="AI-utkast från godkända mötesrapporter" icon="sparkles">
+    <Card title="AI-utkast från mötesrapporter och anteckningar" icon="sparkles">
       <Stack gap="sm">
         <p>
           AI skriver ett utkast till observation för varje område, en sammanfattning och ett underlag för planen. Underlaget är bara månadens{" "}
-          {n === 1 ? "godkänd mötesrapport" : `${n} godkända mötesrapporter`} och den registrerade närvaron – aldrig råtranskript. Du väljer nivåerna och den samlade
-          statusen själv.
+          {n === 1 ? "godkända mötesrapport" : `${n} godkända mötesrapporter`}, den registrerade närvaron och anteckningarna i deltagarkortet – aldrig råtranskript,
+          aldrig vem som skrev anteckningen och aldrig nivå, grupper eller taggar. Personnummer tas bort. Du väljer nivåerna och den samlade statusen själv.
         </p>
         <Row gap="sm">
           <Button kind="secondary" icon="sparkles" pending={draft.pending || d?.status === "running"} onClick={() => void create()}>
-            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nya AI-utkast" : "Skapa AI-utkast från godkända mötesrapporter"}
+            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nya AI-utkast" : "Skapa AI-utkast"}
           </Button>
           {d?.status === "running" && (
             <span role="status" className="text-body font-bold">

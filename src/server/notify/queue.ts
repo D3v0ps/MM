@@ -1,14 +1,16 @@
-// Lägg ett utskick i kön: en rad i outbound_messages och – för e-post – ett jobb send_message som skickar det.
+// Lägg ett utskick i kön: en rad i outbound_messages och – för e-post, SMS och samtal – ett jobb send_message som skickar det.
 //   e-post  status queued + jobb (spärrar och sändning avgörs av jobbet, precis innan mejlet skickas)
-//   SMS     status suppressed ("SMS-leverantör inte vald") – inget jobb
+//   SMS     kopplat (46elks): status queued + jobb. Annars status suppressed ("SMS-leverantör inte vald") – inget jobb
+//   samtal  kopplat (46elks): status queued + jobb. Annars status suppressed ("Utringning inte kopplad") – inget jobb
 //   brev    status manual – inget jobb
 // Ämnesraden sätts här från mallkatalogen (templates.ts) och innehåller högst ärendenumret.
 // Engångslänkar (deltagarens inspelningslänk /rost/<token>): sökvägen blir en fullständig adress med MM_APP_URL, och token
 // sparas aldrig i outbound_messages.body ("/rost/•••••"). Ett mejl som ska skickas har hela texten i jobbets payload (body)
 // tills det skickats eller stoppats – då tas den bort (sender.ts).
+// Utskick till deltagare (kallelse, inbjudan): jobbets payload har också tid och plats (invitation) – aldrig adress eller namn.
 import { absoluteLinks, maskLinkTokens } from "@/core/link-tokens";
 import type { LocalDateTime } from "@/core/time";
-import { channelDecision } from "./decision";
+import { channelDecision, type PhoneChannels } from "./decision";
 import { subjectFor, subjectNeedsCaseNumber } from "./templates";
 import { CHANNEL, SEND_MESSAGE, type DeliveryStatus, type NotifyRepo, type QueuedMessage } from "./types";
 
@@ -17,6 +19,8 @@ export type QueueResult = { messageId: string; jobId: string | null; status: Del
 export type QueueOpts = {
   /** Appens adress (MM_APP_URL) – sökvägar till engångslänkar blir fullständiga adresser. */
   appUrl?: string | null;
+  /** Kopplade telefonkanaler (46elks, phoneEnv i config.ts). Utelämnat = inga: SMS och samtal stoppas direkt. */
+  phone?: PhoneChannels;
 };
 
 export async function queueMessage(
@@ -33,7 +37,7 @@ export async function queueMessage(
     const caseNumber = caseId && subjectNeedsCaseNumber(msg.template) ? ((await system.table("cases").get(caseId))?.caseNumber ?? null) : null;
     subject = subjectFor(msg.template, logged, caseNumber);
   }
-  const early = channelDecision(channel);
+  const early = channelDecision(channel, opts.phone);
   const messageId = newId("out");
   await system.table("outbound_messages").insert({
     id: messageId,
@@ -56,7 +60,8 @@ export async function queueMessage(
     id: jobId,
     kind: SEND_MESSAGE,
     // Hela texten bara när utskicksloggen har en maskerad länk – sender.ts tar bort den när utskicket är avgjort.
-    payload: logged === body ? { messageId } : { messageId, body },
+    // Utskick till deltagare: tid och plats (invitation), så att jobbet kan ge samordnaren uppgiften att ringa om det stoppas.
+    payload: { messageId, ...(logged === body ? {} : { body }), ...(msg.invitation ? { invitation: { when: msg.invitation.when, place: msg.invitation.place } } : {}) },
     status: "queued",
     attempts: 0,
     runAfter: now,

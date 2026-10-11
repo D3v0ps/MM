@@ -11,8 +11,9 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useSession } from "@/shell/session";
 import {
   Badge, BuildPhase, Button, Card, CaseLink, DateInput, DoneLine, ErrorNotice, Field, focusSection, FormGrid, Icon, Kpi, Loading, Meter, Modal, Notice,
-  PerspectiveLink, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, WEEK_KPI_SM, WeekKpis, WeekPage,
+  PerspectiveLink, Row, SlaBadge, Split, Stack, TextArea, TimeInput, TitleLink, toast, WEEK_KPI_SM, WeekKpis, WeekPage,
 } from "@/ui";
+import { TodayGroupsCard } from "@/features/aktiviteter/screens/idag";
 import { inboxRowPath, inboxStart, inboxTaskDone, type AlertView, type StartView } from "../api";
 import { CLASSIFICATION, METHOD } from "../texts";
 import { Caps, IconLine, MiniList, MiniRow, ProvBadge, Quote, useIsDemo, usePersona, WrapBtns } from "./parts";
@@ -29,9 +30,14 @@ export function SamMinVeckaScreen() {
     <WeekPage
       today={q.data?.today ?? null}
       actions={
-        <Button kind="primary" icon="inbox" to="/inkorg">
-          Öppna avropsinkorgen
-        </Button>
+        <Row gap="sm">
+          <Button kind="primary" icon="inbox" to="/inkorg">
+            Öppna avropsinkorgen
+          </Button>
+          <Button icon="plus" to="/aktiviteter/ny">
+            Ny aktivitet
+          </Button>
+        </Row>
       }
     >
       {q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : !q.data ? <Loading /> : <Week v={q.data} />}
@@ -244,6 +250,8 @@ function Week({ v }: { v: StartView }) {
               </MiniList>
             </Card>
           )}
+
+          <TodayGroupsCard groups={v.groupsToday} now={v.now} today={v.today} />
 
           {v.toStart.length > 0 && (
             <Card
@@ -550,7 +558,7 @@ function BookModal({ c, today, meetingText, onClose }: { c: StartView["firstMeet
       toast(r.message ?? "Mötet kunde inte bokas.", "error");
       return;
     }
-    toast(`Första mötet för ${c.caseNumber} är bokat ${fmtWeekday(date)} kl. ${fmtTime(`${date}T${time}`)}. Kallelse skickad.`);
+    toast(`Första mötet för ${c.caseNumber} är bokat ${fmtWeekday(date)} kl. ${fmtTime(`${date}T${time}`)}. ${r.invitation}`);
     onClose();
   };
   return (
@@ -584,7 +592,7 @@ function BookModal({ c, today, meetingText, onClose }: { c: StartView["firstMeet
           Mötet markeras i uppföljningen av nyckeltalet för första möte.
         </Notice>
       )}
-      <div className="text-text-muted">Deltagaren får kallelse via sin föredragna kontaktväg och en SMS-påminnelse dagen före. Inga personuppgifter i utskicket.</div>
+      <div className="text-text-muted">Deltagaren får kallelsen med e-post och SMS när det går. Går det inte får samordnaren en uppgift att ringa deltagaren. Kallelsen innehåller bara tid och plats.</div>
     </Modal>
   );
 }

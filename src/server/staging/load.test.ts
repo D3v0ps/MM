@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import type { PGlite } from "@electric-sql/pglite";
+import { defaultGroupings } from "@/core/groupings";
 import { createSeed, DEMO_START, decodeTestPnr } from "@/data/seed";
 import { TABLE_NAMES } from "@/data/schema";
 import { asUser, attempt, createMigratedDatabase, type Tx } from "@/data/supabase/pglite";
@@ -92,6 +93,10 @@ describe("bootstrap-staging.sql", () => {
     await asService(async (tx) => {
       const n = await counts(tx);
       for (const t of BOOTSTRAP_TABLES) expect(n[t], t).toBe((seed[t] as unknown[]).length);
+      // Grupperingarnas standardvärden (som 0031 för befintliga avtal): fem nivåer och Vill arbeta – inga grupper.
+      const g = await tx.query<{ id: string; kind: string }>("select id, kind from public.groupings order by id");
+      expect(g.rows.map((r) => r.id)).toEqual(defaultGroupings("c-bot", DEMO_START).map((x) => x.id).sort());
+      expect(n.grouping_members).toBe(0);
       expect(n.profiles).toBe(TESTERS.length);
       expect(n.memberships).toBe(TESTERS.length + 1); // admin i Botkyrkaavtalet (det enda avtalet) – Ali också avtalsansvarig (beslut 2026-10-08)
       expect(n.cases).toBe(0);

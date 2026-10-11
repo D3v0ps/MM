@@ -263,17 +263,19 @@ export function ActivityModal({ cases, caseId, now, onClose }: { cases: Activity
 }
 
 // ---------------------------------------------------------------- Ändra team
-/** Handledare, arbetsgivarmatchare och SYV/metodstöd. Huvudcoachen byts med Byt huvudcoach. */
+/**
+ * Arbetsgivarmatchare och SYV/metodstöd. Huvudcoachen byts med Byt huvudcoach. Teamvalet Handledare finns inte (rollen
+ * handledare borttagen, Karims beslut 2026-10-09).
+ */
 export function TeamModal({ card: c, onClose }: { card: CaseCard; onClose: () => void }) {
   const save = useCommand(caseSetTeam);
-  const opts = c.teamOptions ?? { supervisors: [], staff: [] };
-  const [supervisors, setSupervisors] = useState<string[]>(c.team.filter((t) => t.role === "vocational_supervisor").map((t) => t.userId));
+  const opts = c.teamOptions ?? { staff: [] };
   const [matcher, setMatcher] = useState(c.team.find((t) => t.role === "employer_matcher")?.userId ?? "");
   const [counselor, setCounselor] = useState(c.team.find((t) => t.role === "guidance_counselor")?.userId ?? "");
   const [err, setErr] = useState<string | null>(null);
   const staffOptions = (exclude: string[]) => opts.staff.filter((u) => !exclude.includes(u.id)).map((u) => ({ value: u.id, label: u.name }));
   const submit = async () => {
-    const team: { userId: string; role: TeamRole }[] = supervisors.map((userId) => ({ userId, role: "vocational_supervisor" as const }));
+    const team: { userId: string; role: TeamRole }[] = [];
     if (matcher) team.push({ userId: matcher, role: "employer_matcher" });
     if (counselor) team.push({ userId: counselor, role: "guidance_counselor" });
     if (new Set(team.map((t) => t.userId)).size !== team.length) {
@@ -302,19 +304,6 @@ export function TeamModal({ card: c, onClose }: { card: CaseCard; onClose: () =>
       <Stack>
         <Kv items={[["Ärende", <span key="n" className="font-bold tabular-nums">{c.caseNumber}</span>], ["Huvudcoach", c.leadCoach ? `${c.leadCoach.name} – byts med Byt huvudcoach` : "Inte tilldelad"]]} />
         {err && <Notice tone="critical">{err}</Notice>}
-        <fieldset className="m-0 flex min-w-0 flex-col gap-1 border-0 p-0">
-          <legend className="mb-0.5 p-0 text-ui font-bold">Handledare</legend>
-          <div className="text-small text-text-muted">Yrkesspecifika handledare – alla med rollen handledare i avtalet. De ser ärendets moment, närvaro och praktik.</div>
-          {opts.supervisors.length === 0 ? (
-            <p className="m-0 text-text-muted">Ingen kollega har rollen handledare ännu. Systemadministratören ger rollen under Användare och roller.</p>
-          ) : (
-            opts.supervisors.map((u) => (
-              <Check key={u.id} id={`arn-team-${u.id}`} checked={supervisors.includes(u.id)} onCheckedChange={(on) => { setErr(null); setSupervisors(on ? [...supervisors, u.id] : supervisors.filter((x) => x !== u.id)); }}>
-                {u.name}
-              </Check>
-            ))
-          )}
-        </fieldset>
         <FormGrid>
           <Field id="arn-team-matcher" label="Arbetsgivarmatchare (valfritt)">
             <Select value={matcher} onValueChange={(v) => { setMatcher(v); setErr(null); }} placeholder="Ingen" options={staffOptions([counselor])} />
@@ -328,7 +317,7 @@ export function TeamModal({ card: c, onClose }: { card: CaseCard; onClose: () =>
           <MiniList
             items={[
               { key: "n", icon: "bell", children: <>Nya medlemmar får en notis i appen och ett mejl utan personuppgifter: ”Du har fått ett nytt ärende i Miljonmatch: {c.caseNumber}.”</> },
-              { key: "s", icon: "users", children: "Handledaren ser ärendet direkt under Mina tilldelade ärenden och i Närvaro, och får notiser och påminnelser. Den som tas bort får inga fler notiser men kan fortfarande öppna ärendet under Ärenden." },
+              { key: "s", icon: "users", children: "Den som tas bort ur teamet får inga fler notiser men kan fortfarande öppna ärendet under Ärenden." },
               { key: "l", icon: "book", children: "Ändringen sparas i revisionsloggen." },
             ]}
           />

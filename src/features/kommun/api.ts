@@ -20,10 +20,13 @@ import { command, query, type Result } from "@/api/contract";
 import { NAV, LOG, PORTAL } from "@/api/invalidation";
 import type { CaseSource, CaseStatus, ReportKind, TaskKind } from "@/data/schema";
 import { IdSchema } from "../_shared/schemas";
-import type { CaseBackground } from "../arenden/api";
 
 // ================================================================ Gemensamma delar
-/** Ärendet så som kommunen ser det (lista och deltagarens sida). Texterna byggs av skärmen (texts.ts). */
+/**
+ * Ärendet så som kommunen ser det (lista och deltagarens sida). Texterna byggs av skärmen (texts.ts). Beslut 2026-10-09
+ * ("Vi behöver inte visa så mycket till kommunens handläggare"): inget yrkesspår och ingen fas – fasen finns bara i listans
+ * rad (KomCaseRow), där briefen inte tog bort den.
+ */
 export type KomCase = {
   id: string;
   caseNumber: string;
@@ -33,10 +36,6 @@ export type KomCase = {
   /** "G Lager och logistik" (null = inte valt än – Miljonbemanning väljer när beställningen bekräftas). */
   primaryAreaName: string | null;
   secondaryAreaName: string | null;
-  vocationalTrack: string;
-  phase: number;
-  /** Fasens namn i avtalet, t.ex. "Praktik/APL". */
-  phaseName: string;
   source: CaseSource;
   referredAt: string;
   acknowledgedAt: string | null;
@@ -111,16 +110,6 @@ export type KomMessage = {
 };
 
 // ================================================================ Startsidan (/portal, handläggaren)
-export type KomEvent = {
-  key: string;
-  kind: "declined" | "coach" | "confirmed";
-  at: string;
-  caseId: string;
-  /** Orderbekräftelsen öppnas som rapport. */
-  reportId: string | null;
-  title: string;
-  sub: string;
-};
 export type KomUnreadMessage = { id: string; caseId: string; caseNumber: string; meeting: boolean; senderLabel: string; createdAt: string };
 export type KomStart = {
   firstName: string;
@@ -129,15 +118,12 @@ export type KomStart = {
   profileIncomplete: boolean;
   customerName: string;
   tasks: KomTask[];
-  /** Olästa händelser i handläggarens ärenden (avböjd beställning, ny coach, ny orderbekräftelse), senaste först. */
-  events: KomEvent[];
   unreadMessages: KomUnreadMessage[];
-  /** Olästa rapporter utom orderbekräftelser (de visas bland händelserna), senaste först. */
+  /**
+   * Olästa rapporter (också orderbekräftelser), senaste först. Beslut 2026-10-09 ("Vi behöver inte visa så mycket till
+   * kommunens handläggare"): startsidan har inga händelser och inga siffror under knapparna – bara Att göra och det olästa.
+   */
   unreadReports: KomReportRow[];
-  /** Alla olästa rapporter (även orderbekräftelser) och meddelanden. */
-  unreadTotal: number;
-  active: number;
-  waiting: number;
 };
 export const kommunStart = query("kommun.start", z.object({})).returns<KomStart>();
 
@@ -173,26 +159,25 @@ export type KomDuplicate = { caseId: string | null; caseNumber: string | null; s
 /** Dubblettkontroll medan handläggaren skriver personnumret (numret skickas i anropet, aldrig i URL:en eller loggen). */
 export const kommunDuplicate = query("kommun.dubblett", z.object({ pnr: z.string().max(20) })).returns<KomDuplicate[]>();
 
-/** Kvittot efter skickad beställning: ordererkännandet och mejlet som skickades till handläggaren. */
+/**
+ * Kvittot efter beställningen. Beslut 2026-10-09 ("Vi behöver inte visa så mycket till kommunens handläggare"): bara
+ * ärendenumret och senast när mejlet om orderbekräftelsen kommer (orderbekräftelsen läses i portalen – mejlet har bara
+ * ärendenumret och en länk) – inget mejl att visa och ingen tidslinje.
+ */
 export type KomReceipt = {
   caseId: string;
   caseNumber: string;
-  referredAt: string;
+  /** Senast när orderbekräftelsen skickas (avtalets svarstid), null om den inte går att räkna ut. */
   avropDue: string | null;
-  firstMeetingDue: string | null;
-  /** Ordererkännandets text. */
-  ackText: string;
-  /** Mejlet till handläggaren (bara ärendenumret). */
-  mail: { from: string; to: string; at: string; body: string } | null;
-  /** Deltagarens kontaktväg ("SMS" …) – SMS eller e-post efter uppgifterna i beställningen (beslut 2026-10-09). */
-  contactLabel: string | null;
-  /** Yrkesområdet i beställningen ("Lager och logistik"), null om det saknas. */
-  areaName: string | null;
 };
 export const kommunReceipt = query("kommun.kvitto", z.object({ caseId: IdSchema })).returns<KomReceipt | null>();
 
 // ================================================================ Deltagare (/portal/deltagare)
 export type KomCaseRow = KomCase & {
+  /** Fasen i listans rad för en pågående insats ("Fas 2 av 4 · Praktik på en arbetsplats"). Visas inte på deltagarens sida. */
+  phase: number;
+  /** Fasens namn i avtalet, t.ex. "Praktik/APL". */
+  phaseName: string;
   /** Olästa meddelanden till handläggaren. */
   unread: number;
   /** Avböjd de senaste 30 dagarna (syns i standardfiltret). */
@@ -208,22 +193,11 @@ export type KomCaseList = {
 };
 export const kommunCaseList = query("kommun.deltagareLista", z.object({})).returns<KomCaseList>();
 
-export type KomAttTile = {
-  /** "februari hittills", "januari" */
-  label: string;
-  planned: number;
-  present: number;
-  late: number;
-  absentValid: number;
-  absentInvalid: number;
-  unregistered: number;
-  rate: number | null;
-};
 export type KomCaseDetail = {
   kind: "ok";
   today: string;
   customerName: string;
-  phaseCount: number;
+  /** Ärendet utan fas och yrkesspår (beslut 2026-10-09: ingen fasstapel och inget fasnamn på deltagarens sida). */
   case: KomCase;
   /** Olästa rapporter till handläggaren. */
   unreadReports: number;
@@ -234,20 +208,23 @@ export type KomCaseDetail = {
   /** Handläggaren som beställde skriver meddelanden. */
   canWrite: boolean;
   coachChanges: { at: string; fromName: string; toName: string }[];
-  /** Orderbekräftelsen – utan ordervärde, pris och beställarreferens (synpunkt #10 och #11). */
+  /**
+   * Orderbekräftelsen – utan ordervärde, pris och beställarreferens (synpunkt #10 och #11). Beslut 2026-10-09: inget team
+   * och inget ordererkännande att visa på deltagarens sida.
+   */
   order: {
     coachName: string | null;
-    team: { name: string; roleLabel: string }[];
     /** Levererad orderbekräftelse (öppnas som rapport). */
     ocReportId: string | null;
-    /** Ordererkännandets text (när beställningen är ordererkänd). */
-    ackText: string | null;
   };
-  /** null = inte startat än. */
-  attendance: { month: KomAttTile; prev: KomAttTile; repeated: { count: number; withinDays: number } | null } | null;
-  participant: { pnrMasked: string | null; canReveal: boolean; contactLabel: string | null; city: string };
-  /** Bakgrundsinformationen från beställningen med bilagorna. */
-  background: CaseBackground;
+  /**
+   * Närvarograden de senaste 30 dagarna – en rad, ingen uppdelning i giltig och ogiltig frånvaro (beslut 2026-10-09).
+   * En avslutad insats: de sista 30 dagarna fram till slutdatumet (ended). Perioden börjar aldrig före startdatumet.
+   * planned = passerade tillfällen i perioden (0 = inga tillfällen). rate null = inget av tillfällena är registrerat än (eller
+   * inga tillfällen). null = insatsen har inte startat än.
+   */
+  attendance: { rate: number | null; planned: number; ended: boolean } | null;
+  participant: { pnrMasked: string | null; canReveal: boolean };
   seesCoachNotes: boolean;
   reports: KomReportRow[];
 };
@@ -269,10 +246,11 @@ export type KomThread = {
 export type KomReports = {
   customerName: string;
   unit: string | null;
-  /** Levererade till läsaren: olästa först, sedan senast levererade. */
+  /**
+   * Levererade till läsaren: olästa först, sedan senast levererade. Beslut 2026-10-09 ("Vi behöver inte visa så mycket till
+   * kommunens handläggare"): inga rapporter "på väg", ingen sökning och bara filtren Olästa och Alla.
+   */
   reports: KomReportRow[];
-  /** Rapporter till läsaren som är på väg (veckorapport som väntar på närvaron). */
-  coming: { id: string; title: string; dueAt: string | null }[];
   unreadMessages: number;
   /** Meddelanden per deltagare (handläggaren). Olästa först. */
   threads: KomThread[];
@@ -293,7 +271,7 @@ export const kommunProfileSave = command("kommun.profilSpara", z.object({
 }), { invalidates: [PORTAL, "admin.users", NAV, ...LOG] }).returns<Result<{ changed: string[] }, "name" | "phone" | "unit">>();
 
 // ================================================================ Kommandon (prototypens kom.*)
-/** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa på startsidan (tyst). */
+/** Handläggaren har öppnat ärendet i portalen – händelser före den tiden räknas som lästa (tyst; startsidan visar inga händelser sedan 2026-10-09). */
 export const kommunCaseSeen = command("kommun.caseSeen", z.object({ caseId: IdSchema }), { invalidates: [PORTAL, NAV] }).returns<Result<object, "not_found">>();
 
 /** Handläggaren markerar en uppgift från Miljonbemanning som klar. */

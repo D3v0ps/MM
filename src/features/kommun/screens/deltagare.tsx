@@ -12,18 +12,16 @@ import { shortStatus } from "../texts";
 import { KStatus, KomHead, KomPage, MoreButton, SubLine, UNREAD_EDGE } from "./parts";
 import { CaseDetail } from "./deltagare-kort";
 
-type Filter = "aktuella" | "avslutade" | "avbojda" | "alla";
+// Två urval (beslut 2026-10-09, "Vi behöver inte visa så mycket till kommunens handläggare"): Pågår och Alla.
+type Filter = "aktuella" | "alla";
 const LIST_FILTERS: { value: Filter; label: string }[] = [
-  { value: "aktuella", label: "Pågår och på väg" },
-  { value: "avslutade", label: "Avslutade" },
-  { value: "avbojda", label: "Avböjda" },
+  { value: "aktuella", label: "Pågår" },
   { value: "alla", label: "Alla" },
 ];
-// Avböjda beställningar syns i standardfiltret en tid, så att handläggaren hittar orsaken.
+// Pågår: allt som inte är avslutat – också beställningar på väg. Avböjda beställningar syns en tid, så att handläggaren
+// hittar orsaken.
 const MATCH: Record<Filter, (c: KomCaseRow) => boolean> = {
   aktuella: (c) => !["closed", "declined"].includes(c.status) || c.recentlyDeclined,
-  avslutade: (c) => c.status === "closed",
-  avbojda: (c) => c.status === "declined",
   alla: () => true,
 };
 
@@ -53,13 +51,9 @@ function CaseList({ d }: { d: KomCaseList }) {
   const term = q.trim().toLowerCase();
   const hit = (c: KomCaseRow) => !term || c.caseNumber.toLowerCase().includes(term) || c.name.toLowerCase().includes(term);
   const rows = all.filter((c) => MATCH[filter](c) && hit(c));
-  // Sökningen hittar deltagare i andra urval: "1 träff bland Avslutade – Visa" (så att ingen tror att deltagaren saknas).
+  // Sökningen hittar avslutade deltagare under Alla: "1 träff bland alla deltagare – Visa" (så att ingen tror att deltagaren saknas).
   const shownIds = new Set(rows.map((c) => c.id));
-  const elsewhere = term
-    ? LIST_FILTERS.filter((o) => o.value !== filter && o.value !== "alla")
-        .map((o) => ({ ...o, n: all.filter((c) => MATCH[o.value](c) && hit(c) && !shownIds.has(c.id)).length }))
-        .filter((o) => o.n > 0)
-    : [];
+  const elsewhereN = term && filter !== "alla" ? all.filter((c) => hit(c) && !shownIds.has(c.id)).length : 0;
   const more = () => setLimit(20);
   return (
     <KomPage>
@@ -94,7 +88,7 @@ function CaseList({ d }: { d: KomCaseList }) {
                 setFilter(v);
                 more();
               }}
-              options={LIST_FILTERS.filter((o) => o.value !== "avbojda" || counts.avbojda > 0).map((o) => ({ value: o.value, label: `${o.label} (${counts[o.value]})` }))}
+              options={LIST_FILTERS.map((o) => ({ value: o.value, label: `${o.label} (${counts[o.value]})` }))}
             />
             <Field id="kom-sok" label="Sök" help="Skriv deltagarens namn eller ärendenumret.">
               <Input
@@ -106,22 +100,22 @@ function CaseList({ d }: { d: KomCaseList }) {
                 }}
               />
             </Field>
-            {(term || elsewhere.length > 0) && (
+            {term && (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                {elsewhere.map((o) => (
-                  <span key={o.value} className="inline-flex flex-wrap items-center gap-2">
+                {elsewhereN > 0 && (
+                  <span className="inline-flex flex-wrap items-center gap-2">
                     <Icon name="info" />
-                    {o.n === 1 ? "1 träff" : `${o.n} träffar`} bland {o.label.toLowerCase()}
+                    {elsewhereN === 1 ? "1 träff" : `${elsewhereN} träffar`} bland alla deltagare
                     <Button
                       onClick={() => {
-                        setFilter(o.value);
+                        setFilter("alla");
                         more();
                       }}
                     >
                       Visa
                     </Button>
                   </span>
-                ))}
+                )}
                 {term && (
                   <Button kind="ghost" icon="x" onClick={() => setQ("")}>
                     Rensa sökningen
@@ -153,9 +147,7 @@ function CaseList({ d }: { d: KomCaseList }) {
                         </Badge>
                       )}
                     </span>
-                    <SubLine>
-                      {c.caseNumber} · {c.primaryAreaName ?? "Yrkesområde inte valt än"}
-                    </SubLine>
+                    <SubLine>{c.caseNumber}</SubLine>
                     <SubLine>{shortStatus(c, d.phaseCount)}</SubLine>
                   </ListItem>
                 ))}

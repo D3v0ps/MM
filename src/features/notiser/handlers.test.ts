@@ -1,6 +1,7 @@
 // Tester för notiser: varje notis har exakt en mottagare, coachen får påminnelser men aldrig eskaleringar,
 // chefen/controllern får eskaleringarna, e-posttexten saknar personuppgifter och läsmarkeringen gäller bara den inloggade.
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import { ApiError } from "@/api/server";
 import { decodeTestPnr, normalizePnr } from "@/data/seed";
 import { testRuntime } from "../ledning/test-runtime";
@@ -44,7 +45,7 @@ describe("notiser", () => {
   });
 
   it("handledaren och ekonomen får inga påminnelser om andras ärenden eller eskaleringar; kommunen har ingen åtkomst", async () => {
-    const petra = await rt.query(notifList, {}, rt.as("u-petra", "handledare"));
+    const petra = await rt.query(notifList, {}, dormantSupervisor());
     expect(petra.items.map((n) => n.kind)).not.toContain("progress_escalation");
     expect(petra.items.map((n) => n.kind)).not.toContain("progress_reminder");
     const lars = await rt.query(notifList, {}, rt.as("u-lars", "ekonom"));

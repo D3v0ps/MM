@@ -1,6 +1,7 @@
 // Deltagarkortet som löpande underlag (rapporter steg 2): tidslinjen, de fria anteckningarna, månadsunderlaget och
 // anteckningarna i coachens månadsbedömning – mot testdatat i minnet (MemoryRuntime, samma hanterare som appen).
 import { beforeEach, describe, expect, it } from "vitest";
+import { dormantSupervisor } from "@/data/dormant-role.test-helper";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { ApiError } from "@/api/server";
@@ -41,8 +42,10 @@ const q = <D extends QueryDef<any, any>>(def: D, input: ParamsOf<D>, actor: Acto
 type Res = { ok: boolean; error?: string; message?: string; noteId?: string };
 const cmd = (key: string, input: unknown, actor: Actor) => rt.run("command", key, input, actor) as Promise<Res>;
 const amira = () => as("u-amira", "coach");
-const petra = () => as("u-petra", "handledare");
-const david = () => as("u-david", "handledare");
+/** Den vilande rollen handledare (beslut 2026-10-09) – se dormant-role.test-helper.ts. */
+const petra = () => dormantSupervisor();
+/** David är coach (arbetsgivarmatchare i Nadias team) sedan rollen handledare togs bort ur testdatat. */
+const david = () => as("u-david", "coach");
 const sara = () => as("u-sara", "samordnare");
 const johan = () => as("u-johan", "avtalsansvarig");
 const karin = () => as("u-karin", "chef");
