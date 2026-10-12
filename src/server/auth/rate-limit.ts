@@ -101,7 +101,8 @@ export async function checkVerify(store: AttemptStore, h: Hashes, nowMs: number)
  *             inte kan förbruka hela appens tak och stänga självregistreringen för riktiga handläggare (granskningen 2026-10-07).
  * En ny kod till en adress som redan påbörjat en självregistrering inom fönstret räknas inte igen.
  */
-export const SELF_REGISTRATION_LIMITS = { windowMinutes: 60, perApp: 20, perIp: 3 } as const;
+// perIp höjt från 3 till 15 (2026-10-12): kommunens handläggare registrerar sig samtidigt från samma nät (samma IP).
+export const SELF_REGISTRATION_LIMITS = { windowMinutes: 60, perApp: 20, perIp: 15 } as const;
 
 /** login_attempts för självregistreringen (service role i drift, en fejk i testerna). */
 export type SelfRegistrationStore = {
