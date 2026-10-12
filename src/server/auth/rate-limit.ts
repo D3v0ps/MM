@@ -41,18 +41,18 @@ export type AttemptStore = {
 export const LIMITS = {
   windowMinutes: 15,
   codesPerEmail: 5,
-  codesPerIp: 20,
+  codesPerIp: 60,
   attemptsPerCode: 5,
-  failedPerIp: 30,
+  failedPerIp: 60,
 } as const;
 
 /**
  * Taket för hela appen: högst så här många kodmejl per timme, oavsett adress och IP (src/server/auth/code-mail.ts räknar
- * utskicksloggens rader). Samma som Supabase Auths gräns för e-post (30 per timme) när Supabase skickade koden. Över taket
+ * utskicksloggens rader). Var 30 per timme (Supabase Auths gräns för e-post), höjt till 100 den 2026-10-12 inför Botkyrkas genomgång. Över taket
  * blir svaret detsamma, men ingen kod tas fram och inget mejl skickas – så att ingen kan tömma Resend-kontots kvot (som
  * notiserna delar) eller hålla många giltiga koder i omlopp samtidigt.
  */
-export const CODE_MAILS_PER_HOUR = 30;
+export const CODE_MAILS_PER_HOUR = 100;
 
 export const hmac = (secret: string, kind: "email" | "ip", value: string): string => createHmac("sha256", secret).update(`${kind}:${value}`).digest("hex");
 
@@ -101,8 +101,8 @@ export async function checkVerify(store: AttemptStore, h: Hashes, nowMs: number)
  *             inte kan förbruka hela appens tak och stänga självregistreringen för riktiga handläggare (granskningen 2026-10-07).
  * En ny kod till en adress som redan påbörjat en självregistrering inom fönstret räknas inte igen.
  */
-// perIp höjt från 3 till 15 (2026-10-12): kommunens handläggare registrerar sig samtidigt från samma nät (samma IP).
-export const SELF_REGISTRATION_LIMITS = { windowMinutes: 60, perApp: 20, perIp: 15 } as const;
+// Höjt 2026-10-12 (Karim): upp till 40 av kommunens handläggare registrerar sig samtidigt från samma nät (samma IP).
+export const SELF_REGISTRATION_LIMITS = { windowMinutes: 60, perApp: 60, perIp: 40 } as const;
 
 /** login_attempts för självregistreringen (service role i drift, en fejk i testerna). */
 export type SelfRegistrationStore = {

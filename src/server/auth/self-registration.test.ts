@@ -39,7 +39,7 @@ describe("checkSelfRegistration", () => {
     expect(await checkSelfRegistration(m.store, { emailHash: "en-till", ipHash: "angripare" }, T0 + 61 * 60_000)).toBe("ok");
   });
 
-  it("högst 20 nya adresser per timme i hela appen", async () => {
+  it("högst SELF_REGISTRATION_LIMITS.perApp nya adresser per timme i hela appen", async () => {
     const m = memoryStore();
     for (let i = 0; i < SELF_REGISTRATION_LIMITS.perApp; i++) expect(await checkSelfRegistration(m.store, { emailHash: `e${i}`, ipHash: `ip${i}` }, T0)).toBe("ok");
     expect(await checkSelfRegistration(m.store, { emailHash: "ny", ipHash: "ip-ny" }, T0)).toBe("app_limit");
@@ -100,7 +100,7 @@ describe("requestCode: nya konton", () => {
   };
 
   it("påhittade adresser från en IP stänger inte självregistreringen för en riktig handläggare", async () => {
-    for (let i = 0; i < 20; i++) await request(`finns.inte.${i}@botkyrka.se`, "203.0.113.7");
+    for (let i = 0; i < SELF_REGISTRATION_LIMITS.perIp + 5; i++) await request(`finns.inte.${i}@botkyrka.se`, "203.0.113.7");
     // Bara SELF_REGISTRATION_LIMITS.perIp nya adresser från samma IP fick kod och Auth-konto.
     expect(state.sent).toHaveLength(SELF_REGISTRATION_LIMITS.perIp);
     expect(state.created).toHaveLength(SELF_REGISTRATION_LIMITS.perIp);

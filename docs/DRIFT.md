@@ -371,7 +371,7 @@ Saknas någon av de fyra första Graph-variablerna gör jobbet ingenting, och `/
 - `MM_CLOCK=real`, `MM_EMAIL_ALLOWLIST` tom, `MM_EMAIL_REDIRECT_TO` tom, `MM_EMAIL_REPLY_TO=avrop@miljonbemanning.se`, egna nycklar för personnummer, jobb och inloggning.
 - Domän `miljonmatch.se` (SPEC §11 – testmiljön flyttar då till `test.miljonmatch.se`). *Site URL* och `MM_APP_URL` = den adress som inte skickas vidare; båda adresserna bland *Redirect URLs*, inga förhandsadresser.
 - DPA med Resend (och övriga underbiträden) innan riktiga personuppgifter. Bara administratörer i Resend-kontot (kodmejlen syns där, avsnitt 4.1).
-- Taket för kodmejl är 30 per timme för hela appen (`CODE_MAILS_PER_HOUR`, avsnitt 2.1). Räcker det inte när fler användare loggar in samtidigt (t.ex. på måndagsmorgonen): höj värdet i koden och driftsätt igen.
+- Taket för kodmejl är 100 per timme för hela appen (höjt från 30 den 2026-10-12) (`CODE_MAILS_PER_HOUR`, avsnitt 2.1). Räcker det inte när fler användare loggar in samtidigt (t.ex. på måndagsmorgonen): höj värdet i koden och driftsätt igen.
 - AI: ett **eget Google Cloud-projekt** för produktion med eget tjänstekonto och egen nyckel (avsnitt 10). `MM_AI_PROVIDER=vertex` – utan den är AI avstängd i produktion (den simulerade körs aldrig där).
 
 ## 8. Säkerhetskontroll
