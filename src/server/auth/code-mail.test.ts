@@ -195,11 +195,11 @@ describe("taket för hela appen: högst CODE_MAILS_PER_HOUR kodmejl per timme, o
     return { d, store, a, resend };
   };
 
-  it("taket är 30 per timme (samma som Supabase Auths tidigare gräns för e-post)", () => {
-    expect(CODE_MAILS_PER_HOUR).toBe(30);
+  it("taket är 100 per timme (höjt från 30 inför Botkyrkas genomgång 2026-10-12)", () => {
+    expect(CODE_MAILS_PER_HOUR).toBe(100);
   });
 
-  it("30 utskick (sent, failed eller pågående) den senaste timmen: nästa stoppas – ingen kod tas fram, inget mejl, raden suppressed utan kod", async () => {
+  it("CODE_MAILS_PER_HOUR utskick (sent, failed eller pågående) den senaste timmen: nästa stoppas – ingen kod tas fram, inget mejl, raden suppressed utan kod", async () => {
     const log = captureConsole();
     const existing = Array.from({ length: CODE_MAILS_PER_HOUR }, (_, i) => row(i, i % 3 === 1 ? { status: "failed", sentAt: null } : i % 3 === 2 ? { status: "queued", sentAt: null, createdAt: "2027-02-01T08:13" } : {}));
     const { d, store, a, resend } = setup(existing);
@@ -207,7 +207,7 @@ describe("taket för hela appen: högst CODE_MAILS_PER_HOUR kodmejl per timme, o
     expect(a.calls).toEqual([]);
     expect(resend.calls).toEqual([]);
     expect(store.getRow("outbound_messages", "out-1")).toMatchObject({ to: KARIM, template: "inloggningskod", status: "suppressed", body: LOGGED_BODY.suppressed, statusReason: CODE_REASON.overLimit, sentAt: null });
-    expect(CODE_REASON.overLimit).toBe("Taket är nått: högst 30 inloggningskoder per timme för hela appen");
+    expect(CODE_REASON.overLimit).toBe("Taket är nått: högst 100 inloggningskoder per timme för hela appen");
     expect(log).toEqual(["inloggning skicka-kod tak"]);
   });
 
@@ -228,16 +228,16 @@ describe("taket för hela appen: högst CODE_MAILS_PER_HOUR kodmejl per timme, o
     expect(a.calls).toHaveLength(1);
   });
 
-  it("många anrop efter varandra från olika adresser: exakt 30 mejl, resten stoppas", async () => {
+  it("många anrop efter varandra från olika adresser: exakt CODE_MAILS_PER_HOUR mejl, resten stoppas", async () => {
     captureConsole();
     const { d, store, a, resend } = setup([]);
     const out: string[] = [];
-    for (let i = 0; i < 45; i++) out.push(await sendLoginCode(d, `person${i}@botkyrka.se`));
+    for (let i = 0; i < CODE_MAILS_PER_HOUR + 15; i++) out.push(await sendLoginCode(d, `person${i}@botkyrka.se`));
     expect(out.filter((x) => x === "sent")).toHaveLength(CODE_MAILS_PER_HOUR);
     expect(out.slice(CODE_MAILS_PER_HOUR).every((x) => x === "suppressed")).toBe(true);
     expect(a.calls).toHaveLength(CODE_MAILS_PER_HOUR);
     expect(resend.calls).toHaveLength(CODE_MAILS_PER_HOUR);
-    expect(store.rows("outbound_messages").filter((r) => r.status === "suppressed")).toHaveLength(45 - CODE_MAILS_PER_HOUR);
+    expect(store.rows("outbound_messages").filter((r) => r.status === "suppressed")).toHaveLength(15);
   });
 
   it("många samtidiga anrop: aldrig fler än 30 koder tas fram eller skickas", async () => {

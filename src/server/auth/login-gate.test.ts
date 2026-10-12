@@ -74,9 +74,9 @@ function scenario(): { kind: "code" | "verify" | "ok"; h: Hashes; ms: number }[]
   for (let i = 0; i < 4; i++) out.push({ kind: "verify", h: a, ms: T0 + 16 * 60_000 + (i + 1) * 1000 });
   out.push({ kind: "ok", h: a, ms: T0 + 16 * 60_000 + 5000 });
   out.push({ kind: "verify", h: a, ms: T0 + 16 * 60_000 + 6000 });
-  // Samma IP, många adresser: 20 koder, sedan stopp. 30 misslyckade försök, sedan stopp.
-  for (let i = 0; i < 21; i++) out.push({ kind: "code", h: hashesFor("k", `x${i}@botkyrka.se`, "2.2.2.2"), ms: T0 + 40 * 60_000 + i * 100 });
-  for (let i = 0; i < 31; i++) out.push({ kind: "verify", h: hashesFor("k", `y${i}@botkyrka.se`, "3.3.3.3"), ms: T0 + 60 * 60_000 + i * 100 });
+  // Samma IP, många adresser: LIMITS.codesPerIp koder, sedan stopp. LIMITS.failedPerIp misslyckade försök, sedan stopp.
+  for (let i = 0; i < LIMITS.codesPerIp + 1; i++) out.push({ kind: "code", h: hashesFor("k", `x${i}@botkyrka.se`, "2.2.2.2"), ms: T0 + 40 * 60_000 + i * 100 });
+  for (let i = 0; i < LIMITS.failedPerIp + 1; i++) out.push({ kind: "verify", h: hashesFor("k", `y${i}@botkyrka.se`, "3.3.3.3"), ms: T0 + 60 * 60_000 + i * 100 });
   return out;
 }
 
