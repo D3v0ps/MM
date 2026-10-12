@@ -30,13 +30,13 @@ describe("checkSelfRegistration", () => {
     expect(m.rows).toHaveLength(1);
   });
 
-  it("högst tre nya adresser per IP och timme – andra IP-adresser påverkas inte", async () => {
+  it("högst SELF_REGISTRATION_LIMITS.perIp nya adresser per IP och timme – andra IP-adresser påverkas inte", async () => {
     const m = memoryStore();
     for (let i = 0; i < SELF_REGISTRATION_LIMITS.perIp; i++) expect(await checkSelfRegistration(m.store, { emailHash: `x${i}`, ipHash: "angripare" }, T0)).toBe("ok");
-    expect(await checkSelfRegistration(m.store, { emailHash: "x9", ipHash: "angripare" }, T0)).toBe("ip_limit");
+    expect(await checkSelfRegistration(m.store, { emailHash: "en-till", ipHash: "angripare" }, T0)).toBe("ip_limit");
     expect(await checkSelfRegistration(m.store, { emailHash: "riktig", ipHash: "kommunen" }, T0)).toBe("ok");
     // Efter en timme räknas försöken inte längre.
-    expect(await checkSelfRegistration(m.store, { emailHash: "x9", ipHash: "angripare" }, T0 + 61 * 60_000)).toBe("ok");
+    expect(await checkSelfRegistration(m.store, { emailHash: "en-till", ipHash: "angripare" }, T0 + 61 * 60_000)).toBe("ok");
   });
 
   it("högst 20 nya adresser per timme i hela appen", async () => {
@@ -101,7 +101,7 @@ describe("requestCode: nya konton", () => {
 
   it("påhittade adresser från en IP stänger inte självregistreringen för en riktig handläggare", async () => {
     for (let i = 0; i < 20; i++) await request(`finns.inte.${i}@botkyrka.se`, "203.0.113.7");
-    // Bara tre nya adresser från samma IP fick kod och Auth-konto.
+    // Bara SELF_REGISTRATION_LIMITS.perIp nya adresser från samma IP fick kod och Auth-konto.
     expect(state.sent).toHaveLength(SELF_REGISTRATION_LIMITS.perIp);
     expect(state.created).toHaveLength(SELF_REGISTRATION_LIMITS.perIp);
     await request("riktig.handlaggare@botkyrka.se", "198.51.100.20");
