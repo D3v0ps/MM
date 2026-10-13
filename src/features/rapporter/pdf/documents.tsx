@@ -138,7 +138,7 @@ function MonthlyPdf({ doc }: { doc: Doc<"monthly"> }) {
         <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
-        <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02. Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.</Small>
+        <Small muted>Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.</Small>
         <ActivityChecklist a={m.activities} />
         <P>
           <B>Dokumentation:</B> {m.docText}
@@ -180,7 +180,6 @@ function FinalPdf({ doc }: { doc: Doc<"final"> }) {
         <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
-        <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02.</Small>
         <ActivityChecklist a={m.activities} />
         <P>
           <B>Dokumentation:</B> {m.docText}
@@ -389,7 +388,8 @@ function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
   const restTracks = m.byTrack.slice(8);
   const month = monthText(m.month);
   return (
-    <PdfDocument metaTitle={metaTitle(doc)} title="Beställarrapport" label={isDraftDoc(doc.status) ? "Utkast" : null} watermark={!isDelivered(doc)} info={baseInfo(doc, null, [["Månad", month], ["Mottagare", doc.recipient]])}>
+    // Ingen rad Mottagare: beställarrapporten lämnas till kommunen utanför Miljonmatch och har ingen mottagare här (beslut 2026-10-07).
+    <PdfDocument metaTitle={metaTitle(doc)} title="Beställarrapport" label={isDraftDoc(doc.status) ? "Utkast" : null} watermark={!isDelivered(doc)} info={baseInfo(doc, null, [["Månad", month]])}>
       <Superseded doc={doc} />
       <Small>
         Uppgifter per grupp med färre än {m.minN} personer redovisas som &quot;färre än {m.minN}&quot;. Rapporten innehåller inga namn.
@@ -409,10 +409,13 @@ function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
         />
       </Sec>
       <Sec n="2" title="Resultat – arbete eller studier">
-        <Table
-          cols={[{ label: "Period", width: 22 }, { label: "Resultat", width: 14, num: true }, { label: "Avslut som räknas", width: 18, num: true }, { label: "Andel", width: 16, num: true }, { label: `Jämfört med avtalsmålet ${pct(target, 0)}`, width: 30 }]}
-          rows={[resRow(ucfirst(month), m.result.month), resRow("Rullande 6 månader", roll), resRow("Sedan avtalets start", m.result.sinceStart)]}
-        />
+        {/* Tre rader: rubrikraden och raderna hålls ihop på samma sida (annars kan rubrikraden upprepas ensam överst på nästa sida). */}
+        <View wrap={false}>
+          <Table
+            cols={[{ label: "Period", width: 22 }, { label: "Resultat", width: 14, num: true }, { label: "Avslut som räknas", width: 18, num: true }, { label: "Andel", width: 16, num: true }, { label: `Jämfört med avtalsmålet ${pct(target, 0)}`, width: 30 }]}
+            rows={[resRow(ucfirst(month), m.result.month), resRow("Rullande 6 månader", roll), resRow("Sedan avtalets start", m.result.sinceStart)]}
+          />
+        </View>
         {roll.den >= m.resultMinN && roll.value != null && !numSmall(roll) && (
           <Meter value={roll.value} max={0.6} label={`Resultatgrad rullande 6 månader ${pct(roll.value)}`} markers={[{ value: target, label: `Avtalsmål ${pct(target, 0)}` }]} />
         )}
@@ -445,7 +448,8 @@ function CustomerSummaryPdf({ doc }: { doc: Doc<"customer_summary"> }) {
         />
       </Sec>
       <Sec n="5" title="Avvikelser">
-        <Kv items={[["Avvikelser på deltagarnivå", small(m.deviations)], ["Avtalsavvikelser", small(m.contractDeviations)]]} />
+        {/* Avtalsavvikelser är Miljonbemannings egna (inga personuppgifter) – exakt antal. Bara avvikelser på deltagarnivå maskeras. */}
+        <Kv items={[["Avvikelser på deltagarnivå", small(m.deviations)], ["Avtalsavvikelser", num(m.contractDeviations)]]} />
       </Sec>
       <Sec n="6" title="Nöjdhet">
         {m.pulse.enough ? (

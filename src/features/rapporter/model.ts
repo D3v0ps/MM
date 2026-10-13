@@ -17,7 +17,7 @@ import { orderPeriodText } from "@/core/cases";
 import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd, monthKey, monthName, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, groupBy, sum, uniq } from "@/core/util";
 import type { AttendanceStatus, Case, Db, MonthlyAssessment, MonthlyPlan, Report, ReportKind, TrafficLight } from "@/data/schema";
-import { dayMonth, dFull, dtFull, isDelivered, joinSv, lcfirst, plain, smallN, ucfirst, wdFull } from "./report-helpers";
+import { dayMonth, dFull, dtFull, goalSentence, isDelivered, joinSv, lcfirst, plain, smallN, ucfirst, wdFull } from "./report-helpers";
 import { FACTS_VERSION, parseFacts, type FinalFacts, type MonthlyFacts, type ReportFacts } from "./facts";
 export { smallN };
 
@@ -209,12 +209,11 @@ function docText(cis: ReportDb["check_ins"], label: string): string {
   const types = uniq(cis.flatMap((x) => x.employerContacts?.types ?? []));
   const g = { yes: 0, partly: 0, no: 0 };
   for (const x of cis) if (typeof x.goalStatus === "string" && x.goalStatus in g) g[x.goalStatus as keyof typeof g]++;
-  const times = (n: number) => `${n} ${n === 1 ? "gång" : "gånger"}`;
   return [
     `Under ${label} genomfördes ${cis.length} godkända veckoavstämningar.`,
     acts.length ? `Deltagaren har arbetat med ${joinSv(acts.map((a) => plain(lcfirst(a))))}.` : "",
     `Arbetsgivarkontakter: ${contacts}${types.length ? ` (${types.join(", ")})` : ""}.`,
-    `Veckomålet uppnåddes ${times(g.yes)}, delvis ${times(g.partly)} och inte ${times(g.no)}.`,
+    goalSentence(g),
   ].filter(Boolean).join(" ");
 }
 const reasonsText = (reasons: Record<string, number>) => {

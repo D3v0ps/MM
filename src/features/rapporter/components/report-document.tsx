@@ -7,7 +7,7 @@
 //   <ReportDocumentById reportId={id} />     hämtar själv (Loading/ErrorNotice) och visar dokumentet eller varför det inte visas
 // Komponenten har ingen dataåtkomst utöver ReportDocumentById och loggar inte – visningen loggas av sidan (se api.ts).
 // Levererade rapporter visas frysta: det är hanteraren som väljer ögonblicksbilden.
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { attLabel } from "@/core/labels";
 import { num, pct } from "@/core/format";
 import { fmtTime, monthName as monthText, weekday, WEEKDAYS } from "@/core/time";
@@ -35,6 +35,37 @@ function TWrap({ min = 520, children }: { min?: number; children: ReactNode }) {
     <div className="overflow-x-auto">
       <table style={{ minWidth: min }}>{children}</table>
     </div>
+  );
+}
+/**
+ * Progressionens tabeller (månadsrapport och slutrapport): långa ord och texter bryts i stället för att tabellen blir bredare
+ * än pappret och sista kolumnen klipps (granskningen 2026-10-13). På smal skärm staplas raderna med kolumnens namn över varje
+ * cell (td data-label) – som coachens vy. Ingen minsta bredd: tabellen följer pappret.
+ */
+const FLUID_TABLE = [
+  "[&_td]:[overflow-wrap:anywhere] [&_th]:[overflow-wrap:anywhere]",
+  "max-[620px]:block max-[620px]:[&_thead]:hidden max-[620px]:[&_tbody]:block max-[620px]:[&_tr]:block max-[620px]:[&_tr]:border-t max-[620px]:[&_tr]:border-ljusgra max-[620px]:[&_tr]:py-1.5",
+  "max-[620px]:[&_td]:block max-[620px]:[&_td]:!border-0 max-[620px]:[&_td]:!px-0 max-[620px]:[&_td]:!py-1",
+  "max-[620px]:[&_td]:before:block max-[620px]:[&_td]:before:text-label max-[620px]:[&_td]:before:font-extrabold max-[620px]:[&_td]:before:tracking-[0.08em] max-[620px]:[&_td]:before:text-text-muted max-[620px]:[&_td]:before:uppercase max-[620px]:[&_td]:before:content-[attr(data-label)]",
+].join(" ");
+function FluidTable({ children }: { children: ReactNode }) {
+  return <table className={FLUID_TABLE}>{children}</table>;
+}
+/** Brytpunkt efter snedstreck: "Yrkesfärdigheter/praktisk förmåga" bryts efter "/" i stället för mitt i ett ord. */
+function Slashes({ text }: { text: string }) {
+  return (
+    <>
+      {text.split("/").map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && (
+            <>
+              /<wbr />
+            </>
+          )}
+          {p}
+        </Fragment>
+      ))}
+    </>
   );
 }
 const Small = ({ children, muted, className }: { children: ReactNode; muted?: boolean; className?: string }) => (
@@ -142,7 +173,7 @@ function ProgressionTable({ p }: { p: { scale: string; rows: ProgressionRow[] } 
   return (
     <div className="flex flex-col gap-2">
       <Small muted>Skala: {p.scale}.</Small>
-      <TWrap min={600}>
+      <FluidTable>
         <thead>
           <tr>
             <th style={{ width: "26%" }}>Område</th>
@@ -154,14 +185,22 @@ function ProgressionTable({ p }: { p: { scale: string; rows: ProgressionRow[] } 
         <tbody>
           {p.rows.map((a) => (
             <tr key={a.key}>
-              <td>{a.label}</td>
-              <td>{a.level}</td>
-              <td>{a.observation}</td>
-              <td>{a.nextStep}</td>
+              <td data-label="Område">
+                <Slashes text={a.label} />
+              </td>
+              <td data-label="Nivå">
+                <Slashes text={a.level} />
+              </td>
+              <td data-label="Observation">
+                <Slashes text={a.observation} />
+              </td>
+              <td data-label="Nästa steg">
+                <Slashes text={a.nextStep} />
+              </td>
             </tr>
           ))}
         </tbody>
-      </TWrap>
+      </FluidTable>
     </div>
   );
 }
@@ -197,7 +236,7 @@ function MonthlyDoc({ doc }: { doc: Extract<ReportDocView, { kind: "monthly" }> 
         <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
-        <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02. Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.</Small>
+        <Small muted>Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.</Small>
         <ActivityChecklist a={m.activities} />
         <p>
           <b>Dokumentation:</b> {m.docText}
@@ -241,7 +280,6 @@ function FinalDoc({ doc }: { doc: Extract<ReportDocView, { kind: "final" }> }) {
         <Small muted>{ATTENDANCE_RATE_RULE}</Small>
       </Sec>
       <Sec n="3" title="Genomförda aktiviteter">
-        <Small muted>Aktivitetstyperna är exempel – de stäms av mot mall 02.</Small>
         <ActivityChecklist a={m.activities} />
         <p>
           <b>Dokumentation:</b> {m.docText}
@@ -255,7 +293,7 @@ function FinalDoc({ doc }: { doc: Extract<ReportDocView, { kind: "final" }> }) {
             <Small muted>
               Jämförelse mellan första ({m.progression.firstMonth}) och senaste ({m.progression.lastMonth}) godkända månadsbedömning. Skala 0–3.
             </Small>
-            <TWrap min={560}>
+            <FluidTable>
               <thead>
                 <tr>
                   <th style={{ width: "30%" }}>Område</th>
@@ -267,14 +305,22 @@ function FinalDoc({ doc }: { doc: Extract<ReportDocView, { kind: "final" }> }) {
               <tbody>
                 {m.progression.rows.map((a) => (
                   <tr key={a.key}>
-                    <td>{a.label}</td>
-                    <td className={NUM}>{a.first}</td>
-                    <td className={NUM}>{a.last}</td>
-                    <td>{a.observation}</td>
+                    <td data-label="Område">
+                      <Slashes text={a.label} />
+                    </td>
+                    <td data-label="Första" className={NUM}>
+                      {a.first}
+                    </td>
+                    <td data-label="Senaste" className={NUM}>
+                      {a.last}
+                    </td>
+                    <td data-label="Senaste observation">
+                      <Slashes text={a.observation} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
-            </TWrap>
+            </FluidTable>
           </div>
         )}
       </Sec>
@@ -506,7 +552,8 @@ function CustomerSummaryDoc({ doc }: { doc: Extract<ReportDocView, { kind: "cust
   const restTracks = m.byTrack.slice(8);
   const month = monthText(m.month);
   return (
-    <Paper title="Beställarrapport" draft={isDraftDoc(doc.status) ? "Utkast" : null} info={baseInfo(doc, null, [["Månad", month], ["Mottagare", doc.recipient]])}>
+    // Ingen rad Mottagare: beställarrapporten lämnas till kommunen utanför Miljonmatch och har ingen mottagare här (beslut 2026-10-07).
+    <Paper title="Beställarrapport" draft={isDraftDoc(doc.status) ? "Utkast" : null} info={baseInfo(doc, null, [["Månad", month]])}>
       <Superseded doc={doc} />
       <Small>
         Uppgifter per grupp med färre än {m.minN} personer redovisas som &quot;färre än {m.minN}&quot;. Rapporten innehåller inga namn.
@@ -621,7 +668,8 @@ function CustomerSummaryDoc({ doc }: { doc: Extract<ReportDocView, { kind: "cust
         />
       </Sec>
       <Sec n="5" title="Avvikelser">
-        <Kv items={[["Avvikelser på deltagarnivå", small(m.deviations)], ["Avtalsavvikelser", small(m.contractDeviations)]]} />
+        {/* Avtalsavvikelser är Miljonbemannings egna (inga personuppgifter) – exakt antal. Bara avvikelser på deltagarnivå maskeras. */}
+        <Kv items={[["Avvikelser på deltagarnivå", small(m.deviations)], ["Avtalsavvikelser", num(m.contractDeviations)]]} />
       </Sec>
       <Sec n="6" title="Nöjdhet">
         <p>

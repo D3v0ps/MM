@@ -344,3 +344,62 @@ describe("den renderade PDF:en", () => {
     expect(squash(renderedText(await render(doc)))).toContain(squash("senast måndag klockan 16.00 för föregående vecka"));
   }, 30_000);
 });
+
+// ---------------------------------------------------------------- Granskningen inför mötet med Botkyrka (2026-10-13)
+/** Värdet efter en etikett (Kv: etiketten och värdet står efter varandra). */
+const valueAfter = (texts: string[], label: string) => texts[texts.indexOf(label) + 1];
+
+describe("granskningen av rapporterna (2026-10-13)", () => {
+  const KRYSS = "Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning.";
+  it("månadsrapport och slutrapport (HTML och PDF): ingen intern text om mall 02 – månadsrapporten förklarar kryssen", async () => {
+    for (const [id, actor] of [["rep-16008", as("k-maria", "kommun_handlaggare")], ["rep-16011", as("u-amira", "coach")], ["rep-16258", as("u-sara", "samordnare")]] as const) {
+      const doc = await docOf(id, actor);
+      const html = squash(htmlBlocks(doc).join(" "));
+      const pdf = squash(renderedText(await render(doc)));
+      for (const t of [html, pdf]) {
+        expect(t, id).not.toContain(squash("mall 02"));
+        expect(t, id).not.toContain(squash("Aktivitetstyperna är exempel"));
+      }
+      if (doc.kind === "monthly") {
+        expect(html, id).toContain(squash(KRYSS));
+        expect(pdf, id).toContain(squash(KRYSS));
+      }
+    }
+  }, 30_000);
+
+  it("beställarrapporten (HTML och PDF): avtalsavvikelser med exakt antal, avvikelser på deltagarnivå maskerade, ingen rad Mottagare och inga ord om prototypen", async () => {
+    const base = await docOf("rep-16698", as("u-johan", "avtalsansvarig"));
+    if (base.kind !== "customer_summary") throw new Error("rep-16698");
+    // Avtalets text är "Preliminärt i prototypen: …" – kommunen får den utan orden om prototypen, också i prototypen.
+    expect(base.resultNote).toMatch(/^Preliminärt: avslut till arbete eller studier/);
+    expect(base.resultNote).not.toMatch(/prototyp/i);
+    for (const [deviations, contractDeviations, wantDev, wantContract] of [[2, 3, "färre än 5", "3"], [0, 1, "0", "1"], [7, 0, "7", "0"]] as const) {
+      const doc = { ...base, m: { ...base.m, deviations, contractDeviations } } as ReportDocView;
+      const html = htmlBlocks(doc);
+      const pdf = pdfText(<ReportPdf doc={doc} />);
+      for (const texts of [html, pdf]) {
+        expect(valueAfter(texts, "Avvikelser på deltagarnivå")).toBe(wantDev);
+        expect(valueAfter(texts, "Avtalsavvikelser")).toBe(wantContract);
+        expect(texts.filter((t) => /^Mottagare\b/.test(t))).toEqual([]);
+        expect(texts.join("\n")).not.toMatch(/prototyp/i);
+      }
+      const rendered = renderedText(await render(doc));
+      expect(rendered).not.toMatch(/Mottagare|prototyp/i);
+    }
+  }, 60_000);
+
+  it("beställarrapportens resultattabell: rubrikraden står aldrig ensam på en sida – rubriken och alla tre raderna hålls ihop", async () => {
+    const base = await docOf("rep-16698", as("u-johan", "avtalsansvarig"));
+    if (base.kind !== "customer_summary") throw new Error("rep-16698");
+    // Fler avtalsområden flyttar resultattabellen nedåt, så att sidbrytningen hamnar före, i och efter tabellen.
+    for (let extra = 0; extra <= 14; extra++) {
+      const areas = [...base.m.byArea, ...Array.from({ length: extra }, (_, i) => ({ ...base.m.byArea[0], code: `X${i}`, name: `Testområde ${i + 1}` }))];
+      const doc = { ...base, m: { ...base.m, byArea: areas } } as ReportDocView;
+      const lines = bodyLines(pdfPages(await render(doc)));
+      const pagesWith = (t: string) => [...new Set(lines.filter((l) => l.text.trim() === t).map((l) => l.page))];
+      const head = pagesWith("Period");
+      expect(head, `extra ${extra}`).toHaveLength(1);
+      for (const row of ["Rullande 6 månader", "Sedan avtalets start"]) expect(pagesWith(row), `extra ${extra}: ${row}`).toEqual(head);
+    }
+  }, 120_000);
+});

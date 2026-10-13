@@ -15,6 +15,8 @@ import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
 import type { AppRepo, Report, TableName, Tables } from "@/data/schema";
 import { ensureFacts } from "./freeze";
+import { parseDocText } from "./facts";
+import { goalSentence } from "./report-helpers";
 import { orderPeriodText } from "@/core/cases";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { assessmentSave, attendanceSet } from "@/features/coach/api";
@@ -138,6 +140,13 @@ describe("1. rapportlistan", () => {
 });
 
 // ================================================================ Dokumentet via hanteraren (datainläsningen) = facit
+/** Prototypens text i avsnitt 3 ("… 3 gånger, delvis 1 gång och inte 0 gånger.") med appens mening om veckomålet. */
+function withGoalSentence(docText: string): string {
+  const p = parseDocText(docText);
+  const old = /Veckomålet uppnåddes \d+ (?:gång|gånger), delvis \d+ (?:gång|gånger) och inte \d+ (?:gång|gånger)\.$/;
+  if (!p || !old.test(docText)) return docText;
+  return docText.replace(old, goalSentence(p.goals));
+}
 describe("rapporter.dokument läser rätt underlag", () => {
   type Sample = Record<string, { id: string; model: Record<string, unknown> & { sections?: unknown[] } }>;
   const sample = (JSON.parse(readFileSync(new URL("./parity/facit.json", import.meta.url), "utf8")) as { sample: Sample }).sample;
@@ -155,6 +164,9 @@ describe("rapporter.dokument läser rätt underlag", () => {
         expect(price).toEqual(expect.any(Number));
         expect(d.doc.m).toEqual({ ...rest, period: orderPeriodText(row("cases", d.doc.m.caseId)!) });
         expect(JSON.stringify(d.doc)).not.toMatch(/price|kr\b/i);
+      } else if ((d.doc.kind === "monthly" || d.doc.kind === "final") && typeof s.model.docText === "string") {
+        // Dokumenterad avvikelse (granskningen 2026-10-13): meningen om veckomålet utan delar som är noll (goalSentence).
+        expect(d.doc.m).toEqual({ ...s.model, docText: withGoalSentence(s.model.docText) });
       } else expect(d.doc.m).toEqual(s.model);
     });
   }

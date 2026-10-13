@@ -6,7 +6,7 @@ import { isCustomerRole, type Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
 import { hidesCommercial } from "@/api/tester-access";
 import { isOperational, progressionRuleText, type OperationalConfig } from "@/core/config";
-import { plural } from "@/core/format";
+import { plural, withoutPrototypeWords } from "@/core/format";
 import { personName, reportKindLabel } from "@/core/labels";
 import { slaStatus } from "@/core/sla";
 import { addDays, dayOf, fmtDateTime, fmtDateTimeLong, fmtTime, fmtWeekday, fmtWeekRange, monday, monthKey, monthName, addMonths, WEEKDAYS, type LocalDateTime } from "@/core/time";
@@ -166,8 +166,10 @@ async function docView(ctx: Ctx, r: Report, c: Case | null, viewer: Viewer, info
     case "order_confirmation":
       return { ...base, kind: "order_confirmation", participant: viewer.name(c), m: orderDocModel(m) };
     case "customer_summary":
+      // resultNote går till kommunen (pappret och PDF:en) – utan orden om prototypen, också i prototypen.
       return {
-        ...base, kind: "customer_summary", m, approver: personName(profiles, r.approvedBy || info.contract.contractManagerId), resultNote: info.cfg.result.prototypeDefinition || "",
+        ...base, kind: "customer_summary", m, approver: personName(profiles, r.approvedBy || info.contract.contractManagerId),
+        resultNote: withoutPrototypeWords(info.cfg.result.prototypeDefinition || "", "app"),
         progressionRule: progressionRuleText(info.cfg),
       };
     case "weekly_attendance": {

@@ -151,7 +151,9 @@ test("2. månadsrapport januari (Nadia): bara godkända uppgifter, godkänn och 
   expect(t).toMatch(/Visas när coachen har godkänt månadsbedömningen/);
   await expect(btn(page, "Godkänn")).toHaveCount(0);
   expect(t).not.toMatch(/\d{6,8}-\d{4}/);
-  expect(t).toMatch(/exempel – de stäms av mot mall 02/);
+  // Granskningen 2026-10-13: den interna meningen om mall 02 är borta, förklaringen av kryssen står kvar.
+  expect(t).not.toMatch(/mall 02/);
+  expect(t).toMatch(/Kryss betyder minst en registrerad aktivitet av typen i en godkänd avstämning\./);
   await linkOrBtn(page, "Öppna bedömningen").click();
   await expect(page).toHaveURL(new RegExp(`/manadsbedomning/${NADIA}\\?manad=2027-01`));
 
