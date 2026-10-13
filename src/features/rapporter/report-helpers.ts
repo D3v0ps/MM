@@ -50,6 +50,16 @@ export const lcfirst = (s: string): string =>
   s && !(s.length > 1 && s.charAt(1) === s.charAt(1).toUpperCase() && /[A-ZÅÄÖ]/.test(s.charAt(1))) ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 /** "a, b och c" */
 export const joinSv = (xs: readonly string[]): string => (xs.length <= 1 ? xs.join("") : `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}`);
+/**
+ * Meningen om veckomålet i månadsrapportens och slutrapportens avsnitt 3 (docText i model.ts). Bara delarna som inte är noll:
+ * "Veckomålet uppnåddes 3 gånger och delvis 1 gång." Inget veckomål bedömt i avstämningarna: "framgår inte".
+ * parseDocText (facts.ts) läser meningen tillbaka – också den äldre formen med nollor i frysta rapporter.
+ */
+export function goalSentence(g: { yes: number; partly: number; no: number }): string {
+  const times = (n: number) => `${n} ${n === 1 ? "gång" : "gånger"}`;
+  const parts = [g.yes > 0 ? times(g.yes) : "", g.partly > 0 ? `delvis ${times(g.partly)}` : "", g.no > 0 ? `inte ${times(g.no)}` : ""].filter(Boolean);
+  return parts.length ? `Veckomålet uppnåddes ${joinSv(parts)}.` : "Om veckomålet uppnåddes framgår inte av avstämningarna.";
+}
 /** Förkortningar skrivs ut (dokumenten visas i kommunportalen): "Praktik/APL" → "Praktik (arbetsplatsförlagt lärande)". */
 export const plain = (t: string | null | undefined): string => String(t == null ? "" : t).replace(/\/APL\b/i, " (arbetsplatsförlagt lärande)");
 

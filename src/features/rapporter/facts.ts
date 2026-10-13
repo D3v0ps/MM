@@ -12,7 +12,7 @@ import { MONTHS, monthEnd, type LocalDate } from "@/core/time";
 import { END_REASONS, OUTCOME_EVENT_KINDS, RESULT_CLASSES, TRAFFIC_LIGHTS, type ContractArea, type OutcomeEvent } from "@/data/schema";
 import { progressionFlags, type OperationalConfig } from "@/core/config";
 import type { FinalModel, MonthlyModel } from "./model";
-import { dFull, plain, ucfirst } from "./report-helpers";
+import { dFull, goalSentence, plain, ucfirst } from "./report-helpers";
 
 export const FACTS_VERSION = 1 as const;
 
@@ -125,9 +125,22 @@ export function parseLevel(text: string): 0 | 1 | 2 | 3 | null | undefined {
 export function parseDocText(t: string): { checkIns: number; contacts: number; goals: { yes: number; partly: number; no: number } } | undefined {
   if (/^Inga godkända veckoavstämningar finns för .+\.$/.test(t)) return { checkIns: 0, contacts: 0, goals: { yes: 0, partly: 0, no: 0 } };
   const head = /^Under .+? genomfördes (\d+) godkända veckoavstämningar\. /.exec(t);
-  const tail = / Arbetsgivarkontakter: (\d+)(?: \(.*\))?\. Veckomålet uppnåddes (\d+) (?:gång|gånger), delvis (\d+) (?:gång|gånger) och inte (\d+) (?:gång|gånger)\.$/.exec(t);
-  if (!head || !tail) return undefined;
-  return { checkIns: Number(head[1]), contacts: Number(tail[1]), goals: { yes: Number(tail[2]), partly: Number(tail[3]), no: Number(tail[4]) } };
+  const tail = / Arbetsgivarkontakter: (\d+)(?: \(.*\))?\. ((?:Veckomålet|Om veckomålet) uppnåddes .+)$/.exec(t);
+  const goals = tail ? parseGoalSentence(tail[2]) : undefined;
+  if (!head || !tail || !goals) return undefined;
+  return { checkIns: Number(head[1]), contacts: Number(tail[1]), goals };
+}
+
+/**
+ * Meningen om veckomålet: den äldre formen med alla tre delarna (frysta rapporter: "… 3 gånger, delvis 0 gånger och inte 0
+ * gånger.") eller goalSentence (report-helpers.ts) med bara delarna som inte är noll. Annars undefined.
+ */
+function parseGoalSentence(s: string): { yes: number; partly: number; no: number } | undefined {
+  const old = /^Veckomålet uppnåddes (\d+) (?:gång|gånger), delvis (\d+) (?:gång|gånger) och inte (\d+) (?:gång|gånger)\.$/.exec(s);
+  if (old) return { yes: Number(old[1]), partly: Number(old[2]), no: Number(old[3]) };
+  const g = { yes: 0, partly: 0, no: 0 };
+  for (const x of s.matchAll(/(delvis |inte )?(\d+) (?:gång|gånger)/g)) g[x[1] === "delvis " ? "partly" : x[1] === "inte " ? "no" : "yes"] = Number(x[2]);
+  return goalSentence(g) === s ? g : undefined;
 }
 
 /**

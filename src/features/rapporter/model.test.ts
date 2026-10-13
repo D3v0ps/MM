@@ -11,7 +11,8 @@ import { createSeed } from "@/data/seed";
 import { ACTIVITY_TYPES } from "@/data/seed/constants";
 import { emptyDb, type Db, type Report } from "@/data/schema";
 import { canonicalJson, driftedSinceDelivery, frozenModel, reportModel, summaryFromNumbers, type OrderModel, type ReportEnv, type SummaryModel } from "./model";
-import { effStatus, periodText, reportTitle, statusLabel } from "./report-helpers";
+import { parseDocText } from "./facts";
+import { effStatus, goalSentence, periodText, reportTitle, statusLabel } from "./report-helpers";
 
 type FacitRow = { model: string; title: string; period: string; eff: string; statusLabel: string; next: string; overdue: boolean; week: boolean };
 type Facit = { meta: { now: string; count: number }; sample: Record<string, { id: string; model: unknown }>; reports: Record<string, FacitRow> };
@@ -25,11 +26,31 @@ const hash = (v: unknown) => createHash("sha256").update(canonicalJson(v)).diges
 const J = <T>(x: T): T => JSON.parse(JSON.stringify(x)) as T;
 const rep = (id: string) => db.reports.find((r) => r.id === id)!;
 /**
+ * Dokumenterad avvikelse (granskningen 2026-10-13): meningen om veckomålet i avsnitt 3 skriver inte ut delar som är noll
+ * (goalSentence). Jämförelsen läser tillbaka antalen (parseDocText), kontrollerar att meningen är exakt goalSentence av dem och
+ * sätter tillbaka prototypens mening med alla tre delarna – så att resten av texten och modellen fortfarande jämförs med facit.
+ * Frysta rapporter har kvar den äldre meningen och lämnas som de är.
+ */
+function protoDocText(t: string): string {
+  const p = parseDocText(t);
+  if (!p || /^Inga godkända veckoavstämningar/.test(t)) return t;
+  const g = p.goals;
+  const times = (n: number) => `${n} ${n === 1 ? "gång" : "gånger"}`;
+  const old = `Veckomålet uppnåddes ${times(g.yes)}, delvis ${times(g.partly)} och inte ${times(g.no)}.`;
+  if (t.endsWith(` ${old}`)) return t;
+  const sentence = goalSentence(g);
+  expect(t.endsWith(` ${sentence}`), t).toBe(true);
+  return `${t.slice(0, -sentence.length)}${old}`;
+}
+/**
  * Dokumenterad avvikelse (beslut 2026-10-07, synpunkt #10): orderbekräftelsen har inget veckopris – fältet price är ersatt av
  * omfattningen i text (period). Jämförelsen kontrollerar omfattningen för sig och lägger tillbaka prototypens pris, så att alla
  * andra fält fortfarande jämförs med facit.
  */
 function asPrototype(r: Report, m: unknown): unknown {
+  if ((r.kind === "monthly" || r.kind === "final") && m && typeof (m as { docText?: unknown }).docText === "string") {
+    return { ...(m as object), docText: protoDocText((m as { docText: string }).docText) };
+  }
   if (r.kind !== "order_confirmation" || !m) return m;
   const { period, ...rest } = m as OrderModel;
   const c = db.cases.find((x) => x.id === r.caseId)!;

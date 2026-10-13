@@ -16,7 +16,7 @@ import { emptyDb, type AppRepo, type Db, type Report, type Tables } from "@/data
 import { parseDFull, parseDocText, parseFacts, parseLevel, reconcileFinalFacts, reconcileMonthlyFacts, type FinalFacts, type MonthlyFacts } from "./facts";
 import { ensureFacts, freezeReport, snapshotFacts } from "./freeze";
 import { frozenFacts, frozenModel, reportFacts, reportModel, type FinalModel, type MonthlyModel, type ReportEnv } from "./model";
-import { dFull, isDelivered, plain } from "./report-helpers";
+import { dFull, goalSentence, isDelivered, plain } from "./report-helpers";
 
 const SEED = createSeed();
 const db = { ...emptyDb(), ...(structuredClone(SEED) as unknown as Partial<Db>) } as Db;
@@ -168,6 +168,32 @@ describe("omvändningen från en fryst modell", () => {
     expect(parseDocText("Under oktober 2026 genomfördes 1 godkända veckoavstämningar. Arbetsgivarkontakter: 0. Veckomålet uppnåddes 0 gånger, delvis 0 gånger och inte 1 gång."))
       .toEqual({ checkIns: 1, contacts: 0, goals: { yes: 0, partly: 0, no: 1 } });
     expect(parseDocText("Coachen har skrivit om texten.")).toBeUndefined();
+  });
+  it("meningen om veckomålet: inga delar som är noll, rätt för 1 och flera, framgår inte när inget är bedömt – och går att läsa tillbaka", () => {
+    expect(goalSentence({ yes: 3, partly: 1, no: 0 })).toBe("Veckomålet uppnåddes 3 gånger och delvis 1 gång.");
+    expect(goalSentence({ yes: 1, partly: 2, no: 1 })).toBe("Veckomålet uppnåddes 1 gång, delvis 2 gånger och inte 1 gång.");
+    expect(goalSentence({ yes: 0, partly: 0, no: 2 })).toBe("Veckomålet uppnåddes inte 2 gånger.");
+    expect(goalSentence({ yes: 0, partly: 1, no: 1 })).toBe("Veckomålet uppnåddes delvis 1 gång och inte 1 gång.");
+    expect(goalSentence({ yes: 1, partly: 0, no: 0 })).toBe("Veckomålet uppnåddes 1 gång.");
+    expect(goalSentence({ yes: 0, partly: 0, no: 0 })).toBe("Om veckomålet uppnåddes framgår inte av avstämningarna.");
+    for (const g of [{ yes: 3, partly: 1, no: 0 }, { yes: 0, partly: 0, no: 2 }, { yes: 0, partly: 1, no: 1 }, { yes: 2, partly: 0, no: 1 }, { yes: 0, partly: 0, no: 0 }]) {
+      const text = `Under oktober 2026 genomfördes 4 godkända veckoavstämningar. Arbetsgivarkontakter: 2 (ansökan). ${goalSentence(g)}`;
+      expect(text).not.toMatch(/\b0 gånger/);
+      expect(parseDocText(text)).toEqual({ checkIns: 4, contacts: 2, goals: g });
+    }
+    // En mening som inte är goalSentence (t.ex. omskriven eller i fel ordning) tolkas inte.
+    expect(parseDocText("Under oktober 2026 genomfördes 4 godkända veckoavstämningar. Arbetsgivarkontakter: 2. Veckomålet uppnåddes inte 1 gång och 2 gånger.")).toBeUndefined();
+  });
+  it("månadsrapporternas text i testdatat skriver aldrig ut \"0 gånger\"", () => {
+    let n = 0;
+    for (const r of db.reports.filter((x) => x.kind === "monthly" || x.kind === "final")) {
+      const m = reportModel(db, r, env, { live: true }) as MonthlyModel | FinalModel | null;
+      if (!m) continue;
+      expect(m.docText, r.id).not.toMatch(/\b0 (gång|gånger)\b/);
+      expect(parseDocText(m.docText), r.id).toBeDefined();
+      n++;
+    }
+    expect(n).toBeGreaterThan(0);
   });
   it("slutrapportens resultattext: verifierat, väntar på verifiering, exkluderat", () => {
     const base: FinalFacts = { factsVersion: 1, kind: "final", caseNumber: "BOT-26-0001", endDate: "2027-01-29", endReason: "arbete", resultClass: "result", resultVerified: true, resultVerifiedAt: "2027-02-01" };
