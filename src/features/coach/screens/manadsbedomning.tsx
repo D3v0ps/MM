@@ -1,19 +1,23 @@
 "use client";
-// Månadsbedömning (/manadsbedomning/:caseId?manad=2027-01) – nivå 0–3 per progressionsområde, konkret observation från
-// avtalets nivå, samlad status och plan för nästa månad. Nivån är tom tills coachen väljer; AI-förslag visas men fylls aldrig i.
-// Port av prototypens coach.manad. Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter
+// Månadsbedömning (/manadsbedomning/:caseId?manad=2027-01) – progressionsnivå 0–3 per progressionsområde, konkret observation
+// från avtalets nivå, samlad status och plan för nästa månad. Automatisk månadsbedömning (Karims beslut 2026-10-22): allt är
+// ifyllt när sidan öppnas – varje område har progressionsnivå 0 "Automatiskt – inget belägg" tills coachen väljer eller godtar
+// ett AI-förslag (nivå 1–3 med citat, källa och dag – "Godta", "Godta alla AI-förslag"), samlad status kommer från coachens
+// senaste godkända mötesrapport, sammanfattningen och planen är ifyllda och märkta "Ifyllt automatiskt – kontrollera" tills
+// coachen ändrar dem. Godkänn kräver kryssrutan "Jag har gått igenom bedömningen". Port av prototypens coach.manad. Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter
 // senaste ändringen, när sidan lämnas och när den döljs – samma kommando som "Spara utkast" (autosave: true, en loggrad per
 // besök). Godkända bedömningar sparas aldrig automatiskt.
 import { useEffect, useRef, useState } from "react";
 import { AUTOSAVE_ASSESSMENT } from "@/api/invalidation";
 import { pct, plural } from "@/core/format";
+import { AUTO_OBSERVATION } from "@/core/monthly-prefill";
 import { addMonths, fmtDateShort, fmtDateTime, fmtWeekday, MONTHS, monthName } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import {
-  AiBox, AiTag, AutosaveStatus, Badge, Button, Card, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
+  AiBox, AiTag, AutosaveStatus, Badge, Button, Card, Check, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
   STATUS_ICON, STATUS_TEXT, Table, TextArea, toast, type SegOption,
 } from "@/ui";
 import { appendToSummary, ASSESSMENT_SUMMARY_MAX, assessmentPage, assessmentSave, canAppendToSummary, minVecka, monthlyDraft, noteInSummary, type AssessmentPage } from "../api";
@@ -81,7 +85,32 @@ function NextToAssess({ caseId, month }: { caseId: string; month: string }) {
   );
 }
 
-type AreaState = { level: Level | null; observation: string; nextStep: string };
+type Source = "auto" | "coach" | "ai";
+type AreaState = { level: Level | null; observation: string; nextStep: string; levelSource: Source | null };
+type PlanKey = "goal1" | "goal2" | "plannedActivities" | "plannedEmployerContact" | "plannedAdaptation";
+
+/** Märket på ett förifyllt fält tills coachen ändrar det (Karims beslut 2026-10-22). */
+function PrefillMark({ text = "Ifyllt automatiskt – kontrollera" }: { text?: string }) {
+  return (
+    <Badge tone="outline" icon="info">
+      {text}
+    </Badge>
+  );
+}
+
+/** Områdets läge som text och ikon: Automatiskt – inget belägg, AI-förslag eller Ditt val. */
+function SourceChip({ source, suggestion }: { source: Source | null; suggestion: boolean }) {
+  if (source === "auto") {
+    return suggestion ? (
+      <Badge tone="bluetone" icon="sparkles">AI-förslag</Badge>
+    ) : (
+      <Badge tone="grey" icon="info">Automatiskt – inget belägg</Badge>
+    );
+  }
+  if (source === "ai") return <Badge tone="blue" icon="check">Ditt val (AI-förslag godtaget)</Badge>;
+  if (source === "coach") return <Badge tone="blue" icon="check">Ditt val</Badge>;
+  return null;
+}
 type Plan = { goal1: string; goal2: string; plannedActivities: string; plannedEmployerContact: string; plannedAdaptation: string; nextCustomerMeeting: string };
 
 function ManadForm({ v }: { v: Ok }) {
@@ -95,7 +124,8 @@ function ManadForm({ v }: { v: Ok }) {
   const reqFrom = v.requiredFrom;
   const ma0 = v.assessment;
   // Utkastminne (bara i minnet): nivåer, observationer, status, sammanfattning och plan finns kvar om sidan lämnas osparad.
-  const initialAreas = (): Record<string, AreaState> => Object.fromEntries(v.areas.map((a) => [a.key, { level: a.level, observation: a.observation || "", nextStep: a.nextStep || "" }]));
+  const initialAreas = (): Record<string, AreaState> =>
+    Object.fromEntries(v.areas.map((a) => [a.key, { level: a.level, observation: a.observation || "", nextStep: a.nextStep || "", levelSource: a.levelSource }]));
   const initialPlan = (): Plan => ({
     goal1: v.plan?.goal1 ?? "", goal2: v.plan?.goal2 ?? "", plannedActivities: v.plan?.plannedActivities ?? "", plannedEmployerContact: v.plan?.plannedEmployerContact ?? "",
     plannedAdaptation: v.plan?.plannedAdaptation ?? "", nextCustomerMeeting: v.plan?.nextCustomerMeeting ?? "",
@@ -127,6 +157,10 @@ function ManadForm({ v }: { v: Ok }) {
   const forgetDraft = () => [areasDraft, overallDraft, summaryDraft, planDraft, baselineDraft, savedAtDraft, versionDraft].forEach((d) => d.clear());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [approvedNow, setApprovedNow] = useState(false);
+  // "Jag har gått igenom bedömningen" – Godkänn kräver den (servern kontrollerar också).
+  const [reviewed, setReviewed] = useState(false);
+  const marks = ma0?.prefill ?? {};
+  const start = { overall: ma0?.overallStatus ?? null, summary: ma0?.summary ?? "", plan: initialPlan() };
   // Anteckningar som lagts in i sammanfattningen: added = visas som "Tillagd" tills sidan laddas om; used = skickas med
   // nästa sparning (servern loggar dem) och töms när sparningen lyckats.
   const [added, setAdded] = useState<string[]>([]);
@@ -141,7 +175,42 @@ function ManadForm({ v }: { v: Ok }) {
     });
   };
   const setP = (k: keyof Plan, val: string) => setPlan((p) => ({ ...p, [k]: val }));
+  /** "Ifyllt automatiskt – kontrollera" under ett förifyllt fält i planen tills coachen ändrar det. */
+  const planMark = (k: PlanKey) =>
+    marks.plan?.[k] && plan[k] === start.plan[k] ? (
+      <div className="mt-1.5">
+        <PrefillMark text={marks.plan[k] === "ai" ? "Ifyllt automatiskt från AI-utkastet – kontrollera" : "Ifyllt automatiskt – kontrollera"} />
+      </div>
+    ) : null;
   const levels = Object.values(areas).map((a) => a.level).filter((x): x is Level => x != null);
+  // Områden som coachen själv valt (eller godtagit AI:s förslag för) – resten står kvar som automatiska.
+  const chosen = Object.values(areas).filter((a) => a.levelSource === "coach" || a.levelSource === "ai").length;
+  // AI-förslag som inte är godtagna i områden som fortfarande är automatiska ("Godta alla AI-förslag (N)").
+  const pendingAi = v.areas.filter((x) => x.aiLevelSuggestion != null && areas[x.key]?.levelSource === "auto");
+  /** Godta AI:s förslag: nivån och – om observationen fortfarande är den automatiska – AI:s utkast till observation. */
+  const acceptPatch = (k: string): Partial<AreaState> | null => {
+    const src = v.areas.find((x) => x.key === k);
+    if (!src || src.aiLevelSuggestion == null) return null;
+    const a = areas[k];
+    const obs = src.aiObservationDraft && !src.aiObservationDraft.noEvidence && (!a.observation.trim() || a.observation === AUTO_OBSERVATION) ? { observation: src.aiObservationDraft.text } : {};
+    return { level: src.aiLevelSuggestion as Level, levelSource: "ai", ...obs };
+  };
+  const accept = (k: string) => {
+    const patch = acceptPatch(k);
+    if (patch) setArea(k, patch);
+  };
+  const acceptAll = () => {
+    const n = pendingAi.length;
+    setAreas((x) => {
+      const next = { ...x };
+      for (const src of pendingAi) {
+        const patch = acceptPatch(src.key);
+        if (patch) next[src.key] = { ...next[src.key], ...patch };
+      }
+      return next;
+    });
+    toast(`${plural(n, "AI-förslag är godtaget", "AI-förslag är godtagna")}. Kontrollera observationerna.`);
+  };
   // Avtalets gränser (assessmentPage.progressionRule) – bara de obligatoriska områdena finns i formuläret.
   const rule = v.progressionRule;
   const clear = levels.some((x) => x >= rule.clearFromLevel);
@@ -151,7 +220,10 @@ function ManadForm({ v }: { v: Ok }) {
   const persp = customerPerspective(v.referrer);
   const changeKey = JSON.stringify([areas, overall, summary, plan]);
   const dirty = !approved && changeKey !== baseline;
-  const areasPayload = () => Object.fromEntries(Object.entries(areas).map(([k, a]) => [k, { level: a.level, observation: a.observation.trim(), nextStep: a.nextStep.trim() }]));
+  const areasPayload = () =>
+    Object.fromEntries(
+      Object.entries(areas).map(([k, a]) => [k, { level: a.level, observation: a.observation.trim(), nextStep: a.nextStep.trim(), ...(a.levelSource ? { levelSource: a.levelSource } : {}) }]),
+    );
   // Automatisk utkastsparning: samma kommando som "Spara utkast". För lång sammanfattning → "invalid" tills den kortats.
   // Anteckningar som lagts in i sammanfattningen skickas med en gång (servern loggar dem) och töms sedan.
   const autosave = useAutosave({
@@ -199,6 +271,11 @@ function ManadForm({ v }: { v: Ok }) {
   };
 
   const doSave = async (approve: boolean) => {
+    // Godkänn kräver att coachen kryssat "Jag har gått igenom bedömningen" (knappen är avstängd tills dess).
+    if (approve && !reviewed) {
+      document.getElementById("cm-reviewed")?.focus();
+      return;
+    }
     // Sammanfattningen stoppas på skärmen innan anropet – coachen ska aldrig få det allmänna felet "Ogiltiga uppgifter.".
     if (summary.trim().length > ASSESSMENT_SUMMARY_MAX) {
       toast(SUMMARY_TOO_LONG, "error");
@@ -217,6 +294,7 @@ function ManadForm({ v }: { v: Ok }) {
         approve,
         plan: { ...plan, status: approve ? "approved" : "draft" },
         usedNoteIds: used.length ? used : undefined,
+        ...(approve ? { reviewed } : {}),
         expectedVersion: versionRef.current ?? undefined,
       })
       .catch(() => null);
@@ -228,7 +306,7 @@ function ManadForm({ v }: { v: Ok }) {
       if (res.error === "incomplete") {
         const missing = "missing" in res ? res.missing : [];
         const e: Record<string, string> = {};
-        for (const k of missing) e[k] = areas[k]?.level == null ? "Välj nivå." : `Skriv en konkret observation. Mallen kräver belägg från nivå ${reqFrom}.`;
+        for (const k of missing) e[k] = areas[k]?.level == null ? "Välj progressionsnivå." : `Skriv en konkret observation. Mallen kräver belägg från nivå ${reqFrom}.`;
         if (!overall) e.overall = "Välj samlad status.";
         setErrors(e);
         toast(`Bedömningen kan inte godkännas: ${plural(missing.length, "område saknar", "områden saknar")} uppgifter${!overall ? " och samlad status saknas" : ""}.`, "error");
@@ -315,13 +393,16 @@ function ManadForm({ v }: { v: Ok }) {
       title={`Månadsbedömning ${monthName(month)}`}
       eyebrow={`${c.name} · ${c.caseNumber}`}
       crumbs={crumbs}
-      lead={`Bedöm förändringen jämfört med föregående månad. Konkret observation krävs från nivå ${reqFrom}.`}
+      lead={`Bedöm förändringen jämfört med föregående månad. Konkret observation krävs från progressionsnivå ${reqFrom}.`}
       actions={
         <Badge tone="plan" icon="clock" title={v.dueNote}>
           Förslag: senast {fmtWeekday(v.dueAt)}
         </Badge>
       }
     >
+      <Notice tone="info" icon="sparkles">
+        Bedömningen är ifylld automatiskt. Gå igenom varje område och ändra det som inte stämmer.
+      </Notice>
       {restored && dirty && (
         <Notice tone="info" icon="edit" title="Ditt osparade utkast är återställt">
           <Row gap="sm">
@@ -376,7 +457,21 @@ function ManadForm({ v }: { v: Ok }) {
         </p>
       )}
 
-      <Card title="Progressionsområden" icon="chart" flush actions={<span className="text-small text-text-muted">{levels.length} av {v.areas.length} bedömda</span>}>
+      <Card
+        title="Progressionsområden"
+        icon="chart"
+        flush
+        actions={
+          <Row gap="sm">
+            <span className="text-small text-text-muted">{chosen} av {v.areas.length} valda av dig</span>
+            {pendingAi.length > 0 && (
+              <Button kind="secondary" icon="sparkles" onClick={acceptAll}>
+                Godta alla AI-förslag ({pendingAi.length})
+              </Button>
+            )}
+          </Row>
+        }
+      >
         <div className="overflow-x-auto">
           <table data-testid="progressionsomraden" className="w-full min-w-[860px] table-fixed border-collapse text-body max-[760px]:block max-[760px]:min-w-0">
             <caption className="sr-only">Progressionsområden med nivå, observation och nästa steg</caption>
@@ -388,7 +483,7 @@ function ManadForm({ v }: { v: Ok }) {
             </colgroup>
             <thead className="max-[760px]:hidden">
               <tr>
-                {["Område", "Nivå 0–3", "Konkret observation", "Nästa steg"].map((h) => (
+                {["Område", "Progressionsnivå 0–3", "Konkret observation", "Nästa steg"].map((h) => (
                   <th key={h} scope="col" className="border-b-2 border-antracit bg-vit px-3 py-2.5 text-left text-label font-extrabold tracking-[0.08em] text-text-muted uppercase">
                     {h}
                   </th>
@@ -402,9 +497,11 @@ function ManadForm({ v }: { v: Ok }) {
                 const err = errors[k];
                 const lab = src.label;
                 const needObs = a.level != null && a.level >= reqFrom;
+                const obsMissing = !a.observation.trim() || a.observation === AUTO_OBSERVATION;
                 const aiObs = src.aiObservationDraft;
                 const noEv = !!aiObs?.noEvidence;
                 const aiLvl = !noEv ? src.aiLevelSuggestion : null;
+                const ev = src.aiLevelEvidence;
                 const td = "border-b border-ljusgra px-3 py-2.5 align-top max-[760px]:block max-[760px]:w-full max-[760px]:border-b-0 max-[760px]:px-1 max-[760px]:py-1.5";
                 const label = "max-[760px]:before:mb-1 max-[760px]:before:block max-[760px]:before:text-label max-[760px]:before:font-extrabold max-[760px]:before:tracking-[0.08em] max-[760px]:before:text-text-muted max-[760px]:before:uppercase max-[760px]:before:content-[attr(data-label)]";
                 return (
@@ -417,29 +514,50 @@ function ManadForm({ v }: { v: Ok }) {
                     )}
                   >
                     <td lang="sv" className={cn(td, "font-bold [overflow-wrap:break-word] [hyphens:manual]")}>
-                      {breakable(lab)}
+                      <Stack gap="sm">
+                        <span>{breakable(lab)}</span>
+                        <span className="font-normal" data-testid="omrade-lage">
+                          <SourceChip source={a.levelSource} suggestion={aiLvl != null} />
+                        </span>
+                      </Stack>
                     </td>
-                    <td data-label="Nivå 0–3" className={cn(td, label)}>
+                    <td data-label="Progressionsnivå 0–3" className={cn(td, label)}>
                       <Stack gap="sm">
                         <label className="sr-only" htmlFor={`lvl-${k}`}>
-                          Nivå för {lab}
+                          Progressionsnivå för {lab}
                         </label>
                         <Select
                           id={`lvl-${k}`}
                           value={a.level == null ? "" : String(a.level)}
                           invalid={!!(err && a.level == null)}
-                          placeholder="Välj nivå"
-                          onValueChange={(x) => setArea(k, { level: x === "" ? null : (Number(x) as Level) })}
+                          placeholder="Välj progressionsnivå"
+                          onValueChange={(x) => setArea(k, { level: x === "" ? null : (Number(x) as Level), levelSource: "coach" })}
                           options={([0, 1, 2, 3] as const).map((n) => ({ value: String(n), label: `${n} – ${v.scale[n]}` }))}
                         />
-                        {aiLvl != null && (
-                          <div data-testid="ai-nivaforslag" className="block text-[0.875rem] leading-normal">
-                            <span className="mr-1.5 align-[1px]">
-                              <AiTag>AI</AiTag>
-                            </span>
+                        {aiLvl != null && ev && (
+                          <div data-testid="ai-nivaforslag" className="flex flex-col gap-1.5 rounded-mb border border-bla bg-bla-ton2 px-2.5 py-2 text-[0.875rem] leading-normal">
                             <span>
-                              Förslag: <b>{`${aiLvl} – ${v.scale[aiLvl]}`}</b>
+                              <span className="mr-1.5 align-[1px]">
+                                <AiTag>AI</AiTag>
+                              </span>
+                              AI-förslag: <b>{`nivå ${aiLvl} – ${v.scale[aiLvl]}`}</b>
                             </span>
+                            <q className="italic [overflow-wrap:anywhere]">{ev.quote}</q>
+                            <span className="text-text-muted">
+                              Källa: {ev.source} ({fmtDateShort(ev.date)})
+                            </span>
+                            {a.levelSource === "ai" && a.level === aiLvl ? (
+                              <span className="inline-flex items-center gap-1.5 font-bold">
+                                <Icon name="check" />
+                                Godtaget
+                              </span>
+                            ) : (
+                              <div>
+                                <Button kind="secondary" icon="check" onClick={() => accept(k)}>
+                                  Godta<span className="sr-only"> AI-förslaget för {lab}</span>
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
                         {noEv && (
@@ -465,7 +583,7 @@ function ManadForm({ v }: { v: Ok }) {
                           Konkret observation för {lab}
                         </label>
                         <TextArea id={`obs-${k}`} rows={2} value={a.observation} invalid={!!(err && a.level != null)} onValueChange={(x) => setArea(k, { observation: x })} maxLength={400} />
-                        {needObs && !a.observation.trim() && !err && <span className="text-body text-text-muted">Obligatorisk från nivå {reqFrom}.</span>}
+                        {needObs && obsMissing && !err && <span className="text-body text-text-muted">Skriv en konkret observation – obligatorisk från progressionsnivå {reqFrom}.</span>}
                         {err && a.level != null && (
                           <div role="alert" className="flex items-start gap-1.5 text-body font-bold text-antracit">
                             <Icon name="alert-circle" className="mt-1 flex-none text-rod" />
@@ -529,7 +647,19 @@ function ManadForm({ v }: { v: Ok }) {
       <Split>
         <Card title="Samlad status och sammanfattning" icon="clipboard">
           <Stack>
-            <Field label="Samlad status" id="cm-overall" required error={errors.overall}>
+            <Field
+              label="Samlad status"
+              id="cm-overall"
+              required
+              error={errors.overall}
+              help={
+                marks.overallStatus && overall === start.overall
+                  ? undefined
+                  : !start.overall
+                    ? "Ingen godkänd mötesrapport i månaden – välj själv."
+                    : "Din senaste godkända mötesrapport gav statusen. Ändra om den inte stämmer för hela månaden."
+              }
+            >
               <Seg<Rag>
                 id="cm-overall"
                 ariaLabel="Samlad status"
@@ -544,6 +674,11 @@ function ManadForm({ v }: { v: Ok }) {
                 }}
                 options={STATUS_OPTIONS}
               />
+              {marks.overallStatus && overall === start.overall && (
+                <div className="mt-1.5">
+                  <PrefillMark text={`Från mötesrapporten ${fmtDateShort(marks.overallStatus.heldAt)}`} />
+                </div>
+              )}
             </Field>
             <Field
               label="Kort sammanfattning"
@@ -552,12 +687,17 @@ function ManadForm({ v }: { v: Ok }) {
               error={summaryTooLong ? SUMMARY_TOO_LONG : undefined}
             >
               <TextArea rows={4} value={summary} onValueChange={setSummary} aria-describedby="cm-summary-count" />
+              {marks.summary && summary === start.summary && (
+                <div>
+                  <PrefillMark text={marks.summary === "ai" ? "Ifyllt automatiskt från AI-utkastet – kontrollera" : "Ifyllt automatiskt – kontrollera"} />
+                </div>
+              )}
               {/* Räknaren läses som beskrivning av fältet – inte vid varje tangenttryckning. Över gränsen läses felet upp (role=alert i Field). */}
               <div id="cm-summary-count" className={cn("text-small", summaryTooLong ? "font-bold" : "text-text-muted")}>
                 {summary.length} av {ASSESSMENT_SUMMARY_MAX} tecken
               </div>
             </Field>
-            {ma0?.aiSummaryDraft && (
+            {ma0?.aiSummaryDraft && summary.trim() !== ma0.aiSummaryDraft.trim() && (
               <AiBox>
                 <Row gap="sm">
                   <AiTag>AI-utkast</AiTag>
@@ -577,9 +717,11 @@ function ManadForm({ v }: { v: Ok }) {
           <Stack>
             <Field label="Mål 1" id="pl-g1" help="Det viktigaste målet nästa månad.">
               <Input value={plan.goal1} onValueChange={(x) => setP("goal1", x)} maxLength={140} />
+              {planMark("goal1")}
             </Field>
             <Field label="Mål 2" id="pl-g2" help="Ett andra mål, gärna kopplat till yrkesspåret.">
               <Input value={plan.goal2} onValueChange={(x) => setP("goal2", x)} maxLength={140} />
+              {planMark("goal2")}
             </Field>
             {v.goals.length > 0 && <Chips label="Förslag på mål" items={v.goals} onPick={(g) => setP(plan.goal1 ? "goal2" : "goal1", g)} />}
             {v.aiDraft?.plan && !v.aiDraft.plan.noEvidence && (
@@ -593,13 +735,16 @@ function ManadForm({ v }: { v: Ok }) {
               </AiBox>
             )}
             <Field label="Planerade aktiviteter" id="pl-act" help="Vad deltagaren ska göra och hur ofta.">
-              <Input value={plan.plannedActivities} onValueChange={(x) => setP("plannedActivities", x)} maxLength={200} />
+              <TextArea rows={3} value={plan.plannedActivities} onValueChange={(x) => setP("plannedActivities", x)} maxLength={2000} />
+              {planMark("plannedActivities")}
             </Field>
             <Field label="Planerad arbetsgivarkontakt" id="pl-emp" help="Till exempel studiebesök, intervju eller praktikstart.">
               <Input value={plan.plannedEmployerContact} onValueChange={(x) => setP("plannedEmployerContact", x)} maxLength={200} />
+              {planMark("plannedEmployerContact")}
             </Field>
             <Field label="Planerad anpassning" id="pl-adapt" help="Beskriv funktionellt, aldrig diagnos. Lämna tomt om ingen behövs.">
               <Input value={plan.plannedAdaptation} onValueChange={(x) => setP("plannedAdaptation", x)} maxLength={200} />
+              {planMark("plannedAdaptation")}
             </Field>
             <Field label="Nästa möte med kommunen" id="pl-meet" help="Datum för uppföljning med handläggaren, om det är bokat.">
               <DateInput value={plan.nextCustomerMeeting} onValueChange={(x) => setP("nextCustomerMeeting", x)} />
@@ -614,8 +759,24 @@ function ManadForm({ v }: { v: Ok }) {
           {errors.overall ? " och samlad status saknas" : ""}. Mallen kräver alltid belägg eller exempel från nivå {reqFrom}.
         </Notice>
       )}
+      <Stack gap="sm">
+        <Check id="cm-reviewed" checked={reviewed} onCheckedChange={setReviewed} aria-describedby="cm-reviewed-help">
+          <b>Jag har gått igenom bedömningen</b>
+        </Check>
+        <span id="cm-reviewed-help" className="text-body text-text-muted">
+          Kontrollera varje område, den samlade statusen, sammanfattningen och planen. Godkänn går att trycka på när rutan är ikryssad.
+        </span>
+      </Stack>
       <Row>
-        <Button kind="primary" size="lg" icon="check" pending={save.pending} onClick={() => void doSave(true)}>
+        <Button
+          kind="primary"
+          size="lg"
+          icon="check"
+          pending={save.pending}
+          aria-disabled={reviewed ? undefined : "true"}
+          aria-describedby={reviewed ? undefined : "cm-reviewed-help"}
+          onClick={() => void doSave(true)}
+        >
           Godkänn bedömningen
         </Button>
         <Button kind="secondary" icon="file" pending={save.pending} onClick={() => void doSave(false)}>
@@ -696,7 +857,9 @@ function NotesPanel({ v, summary = "", added = [], onAdd }: { v: Ok; summary?: s
 /**
  * "Skapa AI-utkast" (coach.monthlyDraft): utkast till observation per område, sammanfattning och plan – bara från månadens
  * godkända mötesrapporter, registrerad närvaro och anteckningarna i deltagarkortet (med samtycke, personnummer borttagna, aldrig
- * vem som skrev – beslut 4 2026-10-09). Aldrig nivå, grupper eller taggar. Nivåerna och samlad status väljer coachen själv.
+ * vem som skrev – beslut 4 2026-10-09). Aldrig nivå, grupper eller taggar. AI föreslår progressionsnivå 1–3 bara med ett citat ur
+ * underlaget (Karims beslut 2026-10-22) – coachen godtar förslaget eller väljer själv. Utkastet skapas automatiskt en gång per
+ * ärende och månad (rapportjobbet); "Skapa nytt AI-utkast" gör om det.
  */
 function AiDraftCard({ v }: { v: Ok }) {
   const draft = useCommand(monthlyDraft);
@@ -719,7 +882,7 @@ function AiDraftCard({ v }: { v: Ok }) {
       return;
     }
     if (res.status === "failed") toast(res.error ?? "AI-utkastet kunde inte skapas. Skriv observationerna själv.", "error");
-    else if (res.status === "succeeded") toast("AI-utkasten är klara. Granska dem och välj nivåerna själv.");
+    else if (res.status === "succeeded") toast("AI-utkasten är klara. Granska dem, godta förslagen som stämmer och välj själv där de inte gör det.");
     else toast("AI skriver utkasten. De visas här när de är klara.");
   };
   return (
@@ -728,11 +891,12 @@ function AiDraftCard({ v }: { v: Ok }) {
         <p>
           AI skriver ett utkast till observation för varje område, en sammanfattning och ett underlag för planen. Underlaget är bara månadens{" "}
           {n === 1 ? "godkända mötesrapport" : `${n} godkända mötesrapporter`}, den registrerade närvaron och anteckningarna i deltagarkortet – aldrig råtranskript,
-          aldrig vem som skrev anteckningen och aldrig nivå, grupper eller taggar. Personnummer tas bort. Du väljer nivåerna och den samlade statusen själv.
+          aldrig vem som skrev anteckningen och aldrig nivå, grupper eller taggar. Personnummer tas bort. AI föreslår progressionsnivå 1–3 bara när ett citat
+          ur underlaget visar det – du godtar förslaget eller väljer själv. Den samlade statusen kommer från din senaste godkända mötesrapport.
         </p>
         <Row gap="sm">
           <Button kind="secondary" icon="sparkles" pending={draft.pending || d?.status === "running"} onClick={() => void create()}>
-            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nya AI-utkast" : "Skapa AI-utkast"}
+            {d?.status === "succeeded" || v.areas.some((a) => a.aiObservationDraft) ? "Skapa nytt AI-utkast" : "Skapa AI-utkast"}
           </Button>
           {d?.status === "running" && (
             <span role="status" className="text-body font-bold">

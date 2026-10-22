@@ -67,6 +67,9 @@
 //   (finns inte i prototypen)        -> group_activity_series, group_activities.audience/seriesId/notify och activities.inviteSource
 //                                       (nivå- och yrkesområdesaktiviteter, Karims beslut 2026-10-22, 0035).
 //                                       Testdatat: src/data/seed/gen-group-activities.ts
+//   (finns inte i prototypen)        -> case_area_changes (byt yrkesområde, Karims beslut 2026-10-22, 0036) och
+//                                       monthly_assessments.prefill (automatisk månadsbedömning, samma beslut, 0036).
+//                                       Testdatat: src/data/seed/decisions-2026-10-22.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -907,14 +910,34 @@ export type CheckIn = {
 
 /** AI-utkast till en observation, med källor ("Avstämning 15 jan"). noEvidence = "Framgår inte". */
 export type AiObservationDraft = { text: string; sources: string[]; noEvidence?: boolean };
+/**
+ * Varifrån nivån kommer (Karims beslut 2026-10-22, automatisk månadsbedömning):
+ *   auto   förifylld progressionsnivå 0 – inget belägg ("Automatiskt – inget belägg"), tills coachen väljer något annat
+ *   coach  coachens eget val
+ *   ai     coachen godtog AI:s förslag ("Godta") – också det ett val av coachen. Servern och jobben skriver aldrig ett
+ *          AI-förslag i nivån: bara coachens sparning gör det, och bara med förslagets nivå.
+ * Saknas fältet (äldre rader): en satt nivå räknas som coachens val (levelSourceOf i src/core/monthly-prefill.ts).
+ */
+export const LEVEL_SOURCES = ["auto", "coach", "ai"] as const;
+export type LevelSource = (typeof LEVEL_SOURCES)[number];
+/**
+ * Belägget för AI:s nivåförslag: ett ordagrant citat som finns i en källa i underlaget (en godkänd mötesrapport eller en
+ * anteckning), källans namn ("Avstämning 15 jan", "Anteckning 26 jan") och dag. Citatet kontrolleras på servern mot
+ * underlaget – finns det inte där slängs förslaget (verifyLevelSuggestion i src/features/_shared/ai-port.ts).
+ */
+export type AiLevelEvidence = { quote: string; source: string; date: LocalDate };
 export type AreaAssessment = {
-  /** Coachens bedömning 0–3 – null tills coachen gjort ett aktivt val (aldrig AI). */
+  /** Progressionsnivån 0–3. Förifylld 0 (levelSource auto) tills coachen väljer – AI sätter den aldrig. */
   level: ProgressLevel | null;
   observation: string;
   nextStep: string;
-  /** AI:s förslag visas bara som förslag. */
+  /** AI:s förslag (1–3, bara med belägg) visas bara som förslag – coachen godtar det med "Godta". */
   aiLevelSuggestion: ProgressLevel | null;
   aiObservationDraft: AiObservationDraft | null;
+  /** Varifrån nivån kommer (se LevelSource). Saknas: äldre rad – en satt nivå är coachens val. */
+  levelSource?: LevelSource;
+  /** Belägget för aiLevelSuggestion (citat, källa, dag). Utan belägg finns inget förslag. */
+  aiLevelEvidence?: AiLevelEvidence | null;
 };
 
 /**
@@ -935,6 +958,24 @@ export type MonthlyAssessment = {
   overallStatus: TrafficLight | null;
   /** Radens version (0022): ökas vid varje sparning – en sparning med fel expectedVersion avvisas (två flikar). */
   version: number;
+  /**
+   * Vad som fylldes i automatiskt och ännu inte ändrats av coachen ("Ifyllt automatiskt – kontrollera", Karims beslut
+   * 2026-10-22, 0036). Tomt objekt = inget förifyllt. Ett fält försvinner härifrån när coachen ändrar värdet.
+   */
+  prefill: MonthlyPrefill;
+};
+
+/**
+ * Förifyllda fält i månadsbedömningen och planen (src/core/monthly-prefill.ts). Bara id:n, dagar och källornas typ – aldrig
+ * texten (den står i fälten själva).
+ *   overallStatus  samlad status från coachens senaste godkända mötesrapport i månaden (coachens eget val, inte AI)
+ *   summary        sammanfattningen: AI-utkastet ("ai") eller en saklig text ur godkända uppgifter ("rules")
+ *   plan           planens fält: AI-utkastet ("ai"), senaste godkända veckomålet ("check_in") eller förra månadens plan ("previous")
+ */
+export type MonthlyPrefill = {
+  overallStatus?: { checkInId: string; heldAt: LocalDateTime };
+  summary?: "ai" | "rules";
+  plan?: Partial<Record<"goal1" | "goal2" | "plannedActivities" | "plannedEmployerContact" | "plannedAdaptation", "ai" | "check_in" | "previous">>;
 };
 
 /** Plan för nästa månad (mall 02 avsnitt 7). */
@@ -1836,6 +1877,28 @@ export type GroupingMember = {
   removedBy: UserId | null;
 };
 
+// ================================================================ Byt yrkesområde (0036, Karims beslut 2026-10-22)
+/**
+ * Huvudcoachen (och samordnare, avtalsansvarig) byter deltagarens yrkesområde (avtalsområde A–L) med en kort motivering.
+ * Motiveringen är en vanlig anteckning i deltagarkortet (case_notes, noteId) – raden här har bara koder, id:n och tider (ingen
+ * fritext), så att ekonomen kan läsa den för faktureringen. Grupp och inbjudningar ändras direkt; fakturan räknas på det nya
+ * yrkesområdet från och med månaden efter bytet (effectiveMonth, areaForMonth i src/core/area-changes.ts). Ändras och raderas
+ * aldrig av användare. Kommunen läser den aldrig.
+ */
+export type CaseAreaChange = {
+  id: string;
+  contractId: string;
+  caseId: string;
+  fromArea: AreaCode;
+  toArea: AreaCode;
+  /** 'YYYY-MM': månaden efter bytet – från den månaden faktureras det nya yrkesområdet. */
+  effectiveMonth: MonthKey;
+  changedBy: UserId;
+  changedAt: LocalDateTime;
+  /** Anteckningen med motiveringen (case_notes.id). */
+  noteId: string;
+};
+
 // ================================================================ Tabellerna
 export type Tables = {
   organizations: Organization;
@@ -1907,6 +1970,7 @@ export type Tables = {
   case_attachments: CaseAttachment;
   groupings: Grouping;
   grouping_members: GroupingMember;
+  case_area_changes: CaseAreaChange;
 };
 export type TableName = keyof Tables & string;
 export type AppRepo = Repo<Tables>;
@@ -1933,6 +1997,7 @@ export const TABLE_NAMES = [
   "saved_reports",
   "case_attachments",
   "group_goal_results",
+  "case_area_changes",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
 type MissingTables = Exclude<TableName, (typeof TABLE_NAMES)[number]>;

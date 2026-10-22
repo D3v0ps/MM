@@ -583,16 +583,19 @@ describe("coach.assessmentSave (assessment.save)", () => {
   const all = (level: 0 | 1 | 2 | 3, observation = "") => Object.fromEntries(AREAS.map((k) => [k, { level, observation, nextStep: "" }]));
 
   it("nivå ≥ 1 utan observation → incomplete med missing", async () => {
-    const res = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: { ...all(0), yrkesfardigheter: { level: 2, observation: " " } }, overallStatus: "green", approve: true }, amira());
+    const res = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: { ...all(0), yrkesfardigheter: { level: 2, observation: " " } }, overallStatus: "green", approve: true, reviewed: true }, amira());
     expect(res).toMatchObject({ ok: false, error: "incomplete", missing: ["yrkesfardigheter"], message: "Bedömningen kan inte godkännas: 1 område saknar uppgifter." });
-    const noStatus = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: all(0), overallStatus: null, approve: true }, amira());
+    // Samlad status är ifylld från mötesrapporten i testdatat (Karims beslut 2026-10-22) – töms här för att pröva kontrollen.
+    const ma0 = rows("monthly_assessments").find((m) => m.caseId === "case-260143" && m.month === "2027-01")!;
+    rt.store.updateRow("monthly_assessments", ma0.id, { overallStatus: null });
+    const noStatus = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: all(0), overallStatus: null, approve: true, reviewed: true }, amira());
     expect(noStatus).toMatchObject({ ok: false, error: "incomplete", missing: [] });
     expect(rows("monthly_assessments").find((m) => m.caseId === "case-260143" && m.month === "2027-01")!.status).toBe("draft");
   });
 
   it("komplett bedömning godkänns och månadsrapporten blir granskad", async () => {
     const res = await run(assessmentSave, {
-      caseId: "case-260143", month: "2027-01", areas: all(1, "Kom i tid till samtliga tillfällen under månaden."), summary: "Sammanfattning", overallStatus: "green", approve: true,
+      caseId: "case-260143", month: "2027-01", areas: all(1, "Kom i tid till samtliga tillfällen under månaden."), summary: "Sammanfattning", overallStatus: "green", approve: true, reviewed: true,
       plan: { goal1: "Mål 1", nextCustomerMeeting: "" },
     }, amira());
     expect(res).toMatchObject({ ok: true });

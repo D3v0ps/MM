@@ -15,6 +15,8 @@
 //   decisions-2026-10-07.ts  besluten 2026-10-07: kommunens chef bort, skyddade personuppgifter bort ur testdatat, omfattning i månader,
 //                    en faktura per avtal och månad
 //   decisions-2026-10-09-handledare.ts  rollen handledare bort: de tre handledarna får rollen coach (Karims beslut 2026-10-09)
+//   decisions-2026-10-22.ts  Karims beslut 2026-10-22: ett byte av yrkesområde (med motivering) och januaris månadsbedömningar
+//                    ifyllda automatiskt
 //   gen-group-activities.ts  återkommande nivåaktiviteter och månadens yrkesområdesträffar (Karims beslut 2026-10-22)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
@@ -28,6 +30,7 @@ import { applyDecisions20261007 } from "./decisions-2026-10-07";
 import { addGroupActivities } from "./gen-group-activities";
 import { addGroupings } from "./gen-groupings";
 import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
+import { applyDecisions20261022 } from "./decisions-2026-10-22";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -67,6 +70,8 @@ export function createSeed(): MemoryData<Tables> {
   addGroupings(db);
   applyDecisions20261007(db, { invoiceStatus: S.invoiceStatus });
   applyNoSupervisorRole(db);
+  // Bytet av yrkesområde före gruppaktiviteterna: yrkesområdesträffarna bjuder in efter ärendets nuvarande yrkesområde.
+  applyDecisions20261022(db);
   addGroupActivities(db);
   return db;
 }

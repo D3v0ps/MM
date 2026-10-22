@@ -15,9 +15,9 @@ import {
 } from "@/data/seed/voice-texts";
 import type { CheckIn, EmployerContacts, GoalStatus, TranscriptLine } from "@/data/schema";
 import {
-  assertApprovedInput, mmss, noteSourceLabel,
-  type AiPort, type AiResult, type AiRunMeta, type ApprovedCheckIn, type AudioInput, type DraftInput, type DraftTemplateKey, type DraftText,
-  type ExtractSchemaKey, type ExtractSchemas, type Transcript, type TranscriptSegment, type Translation,
+  assertApprovedInput, LEVEL_QUOTE_MIN, mmss, noteSourceLabel,
+  type AiPort, type AiResult, type AiRunMeta, type ApprovedCheckIn, type AudioInput, type DraftInput, type DraftLevelSuggestion, type DraftOptions,
+  type DraftTemplateKey, type DraftText, type ExtractSchemaKey, type ExtractSchemas, type Transcript, type TranscriptSegment, type Translation,
 } from "./ai-port";
 import { AI_FIELDS, type AiFieldSuggestion, type AiSource, type CheckInSuggestions } from "./ai-types";
 
@@ -283,10 +283,33 @@ const weeksText = (n: number) => (n === 1 ? "en vecka" : `${n} veckor`);
 const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända avstämningar.", sources: [], sourceIds: [], noEvidence: true };
 
 /**
+ * Ett ordagrant citat ur mötesrapporten (simulerade nivåförslag): första meningen i anteckningen, annars i veckomålet – högst
+ * 200 tecken och aldrig omskrivet, så att kontrollen på servern (verifyLevelSuggestion) hittar det i källan.
+ */
+function verbatimQuote(ci: ApprovedCheckIn): string | null {
+  for (const t of [ci.note, ci.nextGoal]) {
+    const first = (t ?? "").trim().split(/(?<=[.!?])\s+/)[0] ?? "";
+    const q = first.length > 200 ? first.slice(0, 200).trim() : first;
+    if (q.length >= LEVEL_QUOTE_MIN) return q;
+  }
+  return null;
+}
+/** Nivåförslag med belägg ur den senaste mötesrapporten bland `used` – inget förslag utan citat. */
+function levelFrom(level: 1 | 2 | 3, used: readonly ApprovedCheckIn[]): DraftLevelSuggestion | null {
+  const ci = used[used.length - 1];
+  const quote = ci ? verbatimQuote(ci) : null;
+  return ci && quote ? { level, quote, sourceId: ci.id } : null;
+}
+
+/**
  * Utkast till observation, sammanfattning eller plan – samma texter som testdatats AI-utkast (src/data/seed/gen-reports.ts,
  * prototypens evidenceDraft). Bara från godkända avstämningar och registrerad närvaro; saknas underlag: "Framgår inte".
  * Sammanfattningen citerar dessutom de två senaste anteckningarna (med samtycke, personnummer tvättade – beslut 4
  * 2026-10-09) med "Anteckning <datum>" som källa. Utan anteckningar är texterna exakt testdatats.
+ * Nivåförslag (Karims beslut 2026-10-22, bara områdena med belägg i mötesrapporterna): yrkesfärdigheter, praktik och
+ * arbetsgivarkontakter – nivå 2 vid tre (praktik och kontakter: två) veckor eller fler, annars 1; självständighet – nivå 2 när
+ * veckomålet nåtts minst tre av fyra veckor (minst två), annars 1; digital självständighet – nivå 1. Citatet är första meningen
+ * i den senaste mötesrapporten bland källorna. Närvaron ger aldrig ett nivåförslag (siffror är inget citat).
  */
 export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey): DraftText {
   assertApprovedInput(input);
@@ -328,6 +351,7 @@ export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey)
     return parts.length ? from(parts.join(" "), [last]) : { ...from("Framgår inte av den senaste godkända avstämningen.", [last]), noEvidence: true };
   }
   const key = templateKey.slice("monthly_area:".length);
+  const withLevel = (d: DraftText, s: DraftLevelSuggestion | null): DraftText => (s ? { ...d, levelSuggestion: s } : d);
   if (key === "narvaro_rutiner") {
     if (!att.length) return NOT_FOUND;
     const text = `Närvarande vid ${attended} av ${att.length} registrerade tillfällen${late ? `, varav ${late} med sen ankomst` : ""}.${invalid ? ` ${invalid} ogiltig frånvaro.` : " Ingen ogiltig frånvaro."}`;
@@ -335,20 +359,25 @@ export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey)
   }
   if (key === "arbetsgivarkontakter") {
     if (!contacts.length) return from("Ingen arbetsgivarkontakt framgår av avstämningarna.", cis, [], true);
-    return from(`Arbetsgivarkontakt registrerad ${weeksText(contacts.length)} (${uniq(cis.flatMap((x) => (x.employerContacts && x.employerContacts.types) || [])).join(", ")}).`, contacts);
+    const d = from(`Arbetsgivarkontakt registrerad ${weeksText(contacts.length)} (${uniq(cis.flatMap((x) => (x.employerContacts && x.employerContacts.types) || [])).join(", ")}).`, contacts);
+    return withLevel(d, levelFrom(contacts.length >= 2 ? 2 : 1, contacts));
   }
   if (key === "yrkesfardigheter" && withAct("Yrkesspecifika moment").length) {
     const used = withAct("Yrkesspecifika moment");
-    return from(`Yrkesspecifika moment genomförda ${used.length} av ${cis.length} veckor.`, used);
+    return withLevel(from(`Yrkesspecifika moment genomförda ${used.length} av ${cis.length} veckor.`, used), levelFrom(used.length >= 3 ? 2 : 1, used));
   }
   if (key === "beredskap" && withAct("Praktik/APL").length) {
     const used = withAct("Praktik/APL");
-    return from(`Har genomfört praktik ${weeksText(used.length)} under månaden.`, used);
+    return withLevel(from(`Har genomfört praktik ${weeksText(used.length)} under månaden.`, used), levelFrom(used.length >= 2 ? 2 : 1, used));
   }
-  if (key === "sjalvstandighet" && cis.length) return from(`Veckomålet uppnått helt eller delvis ${goalsMet.length} av ${cis.length} veckor.`, cis);
+  if (key === "sjalvstandighet" && cis.length) {
+    const d = from(`Veckomålet uppnått helt eller delvis ${goalsMet.length} av ${cis.length} veckor.`, cis);
+    if (!goalsMet.length) return d;
+    return withLevel(d, levelFrom(cis.length >= 2 && goalsMet.length * 4 >= cis.length * 3 ? 2 : 1, goalsMet));
+  }
   if (key === "digital_sjalvstandighet" && withAct("CV och ansökningar").length) {
     const used = withAct("CV och ansökningar");
-    return from(`Har arbetat med CV och ansökningar ${weeksText(used.length)}.`, used);
+    return withLevel(from(`Har arbetat med CV och ansökningar ${weeksText(used.length)}.`, used), levelFrom(1, used));
   }
   return NOT_FOUND;
 }
@@ -400,7 +429,8 @@ export function createSimulatedAi(opts: { provider?: string; model?: string } = 
       const value = checkInSuggestionsFromTranscript(t) as ExtractSchemas[K];
       return { value, run: textRun(t.text, JSON.stringify(value)) };
     },
-    async draft(input: DraftInput, templateKey: DraftTemplateKey): Promise<AiResult<DraftText>> {
+    async draft(input: DraftInput, templateKey: DraftTemplateKey, _opts?: DraftOptions): Promise<AiResult<DraftText>> {
+      void _opts;
       const value = simulatedDraft(input, templateKey);
       return { value, run: textRun(JSON.stringify([input.checkIns, input.notes]), value.text) };
     },

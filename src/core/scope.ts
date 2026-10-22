@@ -11,7 +11,7 @@ const BY_CASE = [
 /** Tabeller med contractId. */
 const BY_CONTRACT = [
   "contract_areas", "price_items", "memberships", "reports", "contract_deviations", "billing_runs", "invoice_drafts", "billing_week_approvals",
-  "invoice_credits", "fortnox_runs", "case_counters", "kpi_snapshots", "alerts", "deadlines",
+  "invoice_credits", "fortnox_runs", "case_counters", "kpi_snapshots", "alerts", "deadlines", "case_area_changes",
 ] as const satisfies readonly TableName[];
 
 /** Samma data, men bara rader som hör till avtalet. Tabeller som inte finns i `db` lämnas utanför. */

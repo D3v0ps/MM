@@ -552,7 +552,8 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
 
   it("läsning: alla på Miljonbemanning som arbetar i ärenden (beslut 2026-10-09), aldrig ekonom eller kommunen; skyddat ärende bara namngivna", async () => {
     const ALL = all("case_notes").map((n) => n.id).sort();
-    expect(ALL).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad"]);
+    // note-byte-linnea: motiveringen till bytet av yrkesområde (Karims beslut 2026-10-22).
+    expect(ALL).toEqual(["note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal", "note-skyddad"]);
     // Coach, handledare och en coach utanför teamet läser alla anteckningar i avtalet – också dem som är skrivna för "full".
     for (const a of [AMIRA, PETRA, ERIK, who("u-leila")]) expect(await ids(a), a.userId).toEqual(ALL);
     for (const a of [LARS, MARIA, OMAR]) expect(await ids(a), a.userId).toEqual([]);
@@ -594,6 +595,50 @@ describe("fria anteckningar (case_notes, rapporter steg 2)", () => {
     await expect(t(AMIRA).update("note-nadia-borttagen", { body: "Ny" })).rejects.toBeInstanceOf(PolicyError);
     await expect(t(AMIRA).remove("note-nadia-samtal")).rejects.toBeInstanceOf(PolicyError);
     await expect(t(JOHAN).update("note-skyddad", { removedAt: "2027-02-01T09:40", removedBy: "u-johan" })).resolves.toBeTruthy();
+  });
+});
+
+describe("byt yrkesområde (case_area_changes, 0036, Karims beslut 2026-10-22)", () => {
+  const NADIA = tagged("nadia");
+  const fresh = () => new MemoryStore<Tables>(createSeed());
+  const note = (id: string, authorId = "u-amira", caseId = NADIA): Tables["case_notes"] => ({
+    id, contractId: "c-bot", caseId, authorId, occurredOn: "2027-02-01", kind: "other", audience: "team", body: "Byte av yrkesområde: motivering.",
+    createdAt: "2027-02-01T09:30", updatedAt: null, removedAt: null, removedBy: null,
+  });
+  const change = (patch: Partial<Tables["case_area_changes"]> = {}): Tables["case_area_changes"] => ({
+    id: "cac-x", contractId: "c-bot", caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changedBy: "u-amira", changedAt: "2027-02-01T09:31",
+    noteId: "note-cac", ...patch,
+  });
+
+  it("läsning: Miljonbemanning i avtalet, också ekonomen – aldrig kommunen", async () => {
+    for (const a of [AMIRA, ERIK, SARA, JOHAN, KARIN, ROBIN, LARS, PETRA]) expect(await count(a, "case_area_changes"), a.userId).toBe(1);
+    for (const a of [MARIA, OMAR, DELTAGARE]) expect(await count(a, "case_area_changes"), a.userId).toBe(0);
+  });
+
+  it("skriva: coach, samordnare och avtalsansvarig i eget namn med full åtkomst – raden stämmer med ärendet, avtalets yrkesområden, anteckningen och månaden", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-cac"));
+    s.insertRow("case_notes", note("note-sara", "u-sara"));
+    const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
+    await expect(t(AMIRA).insert(change())).resolves.toBeTruthy();
+    await expect(t(SARA).insert(change({ id: "cac-sara", changedBy: "u-sara", noteId: "note-sara" }))).resolves.toBeTruthy();
+    // I någon annans namn, fel avtal, inaktivt eller okänt område, samma område, fel månad, anteckning i ett annat ärende.
+    const bad: Partial<Tables["case_area_changes"]>[] = [
+      { id: "cac-1", changedBy: "u-sara" }, { id: "cac-2", contractId: "c-ny" }, { id: "cac-3", toArea: "Z" }, { id: "cac-4", toArea: "G" },
+      { id: "cac-5", effectiveMonth: "2027-02" }, { id: "cac-6", noteId: "note-mehmet-handledare" },
+    ];
+    for (const patch of bad) await expect(t(AMIRA).insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
+    // Läsläge, ekonomen, den vilande rollen handledare och kommunen skapar aldrig ett byte.
+    for (const a of [KARIN, ROBIN, LARS, PETRA, MARIA]) {
+      await expect(t(a).insert(change({ id: `cac-${a.userId}`, changedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+    }
+  });
+
+  it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det", async () => {
+    const s = fresh();
+    const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
+    await expect(t(AMIRA).update("cac-seed-linnea", { toArea: "C" })).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(JOHAN).remove("cac-seed-linnea")).rejects.toBeInstanceOf(PolicyError);
   });
 });
 

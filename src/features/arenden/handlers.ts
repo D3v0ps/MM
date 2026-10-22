@@ -51,6 +51,7 @@ import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../r
 import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
 import { syncAudienceInvites } from "../aktiviteter/audience-sync";
+import "./area-handlers";
 import "./attachment-handlers";
 import "./contact-handlers";
 import { caseBackground } from "./background";
@@ -821,7 +822,7 @@ async function loadCase(ctx: Ctx, caseId: string, tab?: CaseTab): Promise<Loaded
 /** Tabeller för flaggorna (prototypens sel.alerts). */
 const ALERT_TABLES = [
   "cases", "activities", "attendance", "check_ins", "placements", "reports", "price_items", "buyer_references", "invoice_drafts", "invoice_lines", "billing_runs",
-  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles",
+  "billing_week_approvals", "pulse_responses", "inbound_emails", "alert_acks", "profiles", "case_area_changes",
 ] as const;
 
 // ---------------------------------------------------------------- arenden.lista
@@ -1497,10 +1498,11 @@ const AUDIT_TEXT: Record<string, string> = {
   "case.view": "Öppnade deltagarkortet", "case.view_denied": "Försökte öppna deltagarkortet utan behörighet", "pnr.revealed": "Visade personnumret",
   "case.created": "Ärendet skapades", "case.accepted": "Avropet accepterades", "case.declined": "Avropet avböjdes", "case.updated": "Uppgifter ändrades",
   "case.buyer_reference_changed": "Beställarreferensen ändrades", "case.first_meeting_booked": "Första mötet bokades", "case.coach_changed": "Huvudcoach byttes", "case.closed": "Insatsen avslutades",
-  "person.contact_changed": "Kontaktvägen ändrades",
+  "person.contact_changed": "Kontaktvägen ändrades", "case.area_changed": "Yrkesområdet byttes",
   "message.sent": "Säkert meddelande skickades", "deviation.customer_called": "Kommunen kallades till uppföljning", "deviation.saved": "Avvikelse sparades", "deviation.created": "Avvikelse skapades",
   "consent.given": "Samtycke registrerades", "consent.declined": "Deltagaren avböjde samtycke", "consent.revoked": "Samtycket återkallades",
   "check_in.saved": "Avstämning sparades som utkast", "check_in.approved": "Avstämning godkändes", "assessment.saved": "Månadsbedömning sparades", "assessment.approved": "Månadsbedömning godkändes",
+  "assessment.prefilled": "Månadsbedömningen fylldes i automatiskt", "assessment.ai_accepted": "AI-förslag till nivå godtogs",
   "intake.saved": "Kartläggning sparades", "intake.approved": "Kartläggning godkändes", "event.added": "Händelse registrerades", "result.verified": "Resultat verifierades",
   "attendance.registered": "Närvaro registrerades", "attendance.registered_all": "Närvaro registrerades för flera tillfällen samma dag", "report.approved": "Rapport godkändes", "report.delivered": "Rapport levererades", "report.corrected": "Rapport rättades", "report.view": "Rapport öppnades", "report.published": "Rapport publicerades",
   "transcript.deleted": "Råtranskript raderades", "ai.run": "AI-körning", "audio.deleted": "Ljudfil raderades", "notify.email": "E-post skickades",
@@ -1548,9 +1550,17 @@ handleQuery(caseHistory, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseHist
     const dt = x.details ?? {};
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     if (x.action === "case.coach_changed") return `${name(s(dt.from))} → ${name(s(dt.to))}. Orsak: ${s(dt.reason) || "–"}`;
+    // Byt yrkesområde: koderna och från vilken månad fakturan räknas på det nya – motiveringen står i anteckningen.
+    if (x.action === "case.area_changed") return `${s(dt.fromArea)} → ${s(dt.toArea)}${s(dt.effectiveMonth) ? `, fakturan från ${monthName(s(dt.effectiveMonth))}` : ""}`;
     // Anteckningar: aldrig texten – bara vems anteckning som togs bort och vilken månads sammanfattning den användes i.
     if (x.action === "case_note.removed") return s(dt.authorId) && s(dt.authorId) !== x.actorId ? `Anteckning skriven av ${name(s(dt.authorId))}` : "";
     if (x.action === "case_note.used_in_summary") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
+    // Automatisk månadsbedömning (Karims beslut 2026-10-22): månaden – och vid godkännandet antalen per ursprung.
+    if (x.action === "assessment.prefilled") return s(dt.month) ? `Månadsbedömning ${monthName(s(dt.month))}` : "";
+    if (x.action === "assessment.ai_accepted") return plural(Number(dt.count ?? 0), "område", "områden");
+    if (x.action === "assessment.approved" && dt.reviewed === true) {
+      return `Genomgången · ${plural(Number(dt.coachAreas ?? 0) + Number(dt.aiAccepted ?? 0), "område", "områden")} valda, ${plural(Number(dt.autoAreas ?? 0), "automatiskt", "automatiska")}`;
+    }
     // Nivå, grupp och tagg (internt): bara typen – namnen står i deltagarkortets huvud.
     if (x.action === "grouping_member.added" || x.action === "grouping_member.removed") return GROUPING_KIND_LABEL[s(dt.kind) as GroupingKind] ?? "";
     // "Markera alla som närvarande": antalet tillfällen den dagen (alla deltagare) – raden hör till flera ärenden.

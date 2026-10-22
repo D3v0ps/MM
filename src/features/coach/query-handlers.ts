@@ -14,13 +14,14 @@ import { domainEnv, type DomainEnv } from "@/core/env";
 import {
   ABSENCE_REASONS, areaName, caseNoteKindLabel, END_REASONS, END_REASON_LABEL, EVENT_KINDS, EVENT_LABEL, eventLabel, personName, phaseLabel, phaseName, reportStatusLabel,
 } from "@/core/labels";
+import { levelSourceOf, withAutoAreas } from "@/core/monthly-prefill";
 import { notificationsFor, progressionWatch } from "@/core/progression";
 import { scopeToContract } from "@/core/scope";
 import { finalReportWorkingDays, monthlyReportDueAt, slaStatus } from "@/core/sla";
 import { addDays, addMonths, addWorkingDays, dayOf, fmtDate, isoWeek, monday, monthEnd, monthKey, weekMonday, WEEKDAYS, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { weeklyReport } from "@/core/weekly-report";
-import type { Case, CheckIn, Contract, Person, Report } from "@/data/schema";
+import type { Case, CheckIn, Contract, MonthlyPrefill, Person, Report } from "@/data/schema";
 // Mall 02:s listor (aktivitetstyper, hinder, veckomål per fas) och yrkesspåren per avtalsområde. Samma listor som den
 // simulerade AI:n använder (src/features/_shared/ai-sim.ts) – flyttas till avtalskonfigurationen när mallarna är fastställda.
 import { ACTIVITY_TYPES, GOALS, OBSTACLES, TRACKS } from "@/data/seed/constants";
@@ -28,6 +29,7 @@ import { orgSettingsFor } from "../_shared/context";
 import { aiOff, RECORDING_BLOCK_TEXT, recordingBlock } from "../_shared/ai-port";
 import { recordingOffered } from "../_shared/ai-types";
 import { aiRunError, type MonthlyDraftOutput } from "../_shared/voice-jobs";
+import { loadPrefill } from "../_shared/monthly-prefill";
 import { todaysGroupActivities } from "../aktiviteter/today";
 import {
   aiRunInfo, assessmentPage, casePicker, checkInAttendance, checkInPage, checkInReceipt, eventsPage, intakePage, minVecka, narvaroView,
@@ -150,10 +152,10 @@ handleQuery(minVecka, { roles: ["coach"] }, async (ctx): Promise<MinVeckaView> =
     ctx.repo,
     ["activities", "attendance", "check_ins", "monthly_assessments", "reports", "placements", "alert_acks", "profiles", "memberships", "deviations",
       "user_notifications", "notification_reads", "messages", "contract_deviations", "billing_runs", "price_items", "buyer_references", "invoice_drafts",
-      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails"],
+      "invoice_lines", "billing_week_approvals", "pulse_responses", "inbound_emails", "case_area_changes"],
     {
       activities: byCase, attendance: byCase, check_ins: byCase, monthly_assessments: byCase, placements: byCase, deviations: byCase, messages: byCase, invoice_lines: byCase,
-      user_notifications: { recipientId: me },
+      case_area_changes: byCase, user_notifications: { recipientId: me },
     },
   );
   const all = { ...db, cases };
@@ -548,6 +550,12 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
   });
   const ma = assessmentFor(db, c.id, month);
   const plan = planOf(db, c.id, month);
+  // Automatisk månadsbedömning (Karims beslut 2026-10-22): finns ingen rad (eller ingen plan) visas samma förifyllnad som
+  // jobbet skapar. Ett utkast utan nivå i ett område visas med progressionsnivå 0 "Automatiskt – inget belägg".
+  const approvedMa = ma?.status === "approved";
+  const pre = !approvedMa && (!ma || !plan) ? await loadPrefill(ctx.repo, c, month, env.cfg, env.now) : null;
+  const areaRows = ma ? (approvedMa ? ma.areas : withAutoAreas(ma.areas, prog.areas)) : (pre?.areas ?? {});
+  const marks: MonthlyPrefill = ma ? (ma.prefill ?? {}) : (pre?.prefill ?? {});
   const mStart = `${month}-01`;
   const mEnd = monthEnd(month);
   const cis = checkInsOf(db, c.id).filter((x) => x.status === "approved" && x.heldAt >= mStart && x.heldAt <= `${mEnd}T23:59`).sort(by("heldAt"));
@@ -566,19 +574,34 @@ handleQuery(assessmentPage, { roles: ["coach"] }, async (ctx, p) => {
     requiredFrom: prog.observationRequiredFromLevel,
     progressionRule: { clearFromLevel: prog.clearFromLevel, anyFromLevel: prog.anyFromLevel, ...progressionRuleText(env.cfg) },
     areas: prog.areas.map((key) => {
-      const a = ma?.areas[key];
+      const a = areaRows[key];
       const obs = aiOk && a?.aiObservationDraft ? { text: a.aiObservationDraft.text, sources: [...(a.aiObservationDraft.sources ?? [])], noEvidence: !!a.aiObservationDraft.noEvidence } : null;
+      // AI:s nivåförslag visas bara med belägg (citat, källa, dag) – ett förslag utan belägg (äldre utkast) visas inte.
+      const ev = aiOk && !obs?.noEvidence && a?.aiLevelSuggestion != null && a.aiLevelEvidence ? a.aiLevelEvidence : null;
       return {
         key, label: prog.areaLabels[key] ?? key, level: (a?.level ?? null) as ProgressLevel | null, observation: a?.observation ?? "", nextStep: a?.nextStep ?? "",
-        aiLevelSuggestion: aiOk && !obs?.noEvidence ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null, aiObservationDraft: obs,
+        levelSource: levelSourceOf(a),
+        aiLevelSuggestion: ev ? ((a?.aiLevelSuggestion ?? null) as ProgressLevel | null) : null,
+        aiLevelEvidence: ev ? { quote: ev.quote, source: ev.source, date: ev.date } : null,
+        aiObservationDraft: obs,
       };
     }),
     assessment: ma
-      ? { status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus, version: ma.version }
-      : null,
+      ? {
+          status: ma.status, decidedAt: ma.decidedAt, summary: ma.summary ?? "", aiSummaryDraft: aiOk ? ma.aiSummaryDraft : null, overallStatus: ma.overallStatus, version: ma.version,
+          saved: true, prefill: marks, overallFrom: marks.overallStatus?.heldAt ?? null,
+        }
+      : pre
+        ? {
+            status: "draft" as const, decidedAt: null, summary: pre.summary, aiSummaryDraft: null, overallStatus: pre.overallStatus, version: null, saved: false,
+            prefill: marks, overallFrom: marks.overallStatus?.heldAt ?? null,
+          }
+        : null,
     plan: plan
       ? { goal1: plan.goal1, goal2: plan.goal2, plannedActivities: plan.plannedActivities, plannedEmployerContact: plan.plannedEmployerContact, plannedAdaptation: plan.plannedAdaptation, nextCustomerMeeting: plan.nextCustomerMeeting }
-      : null,
+      : pre && !approvedMa
+        ? { ...pre.plan }
+        : null,
     basis: {
       checkIns: cis.map((x) => x.heldAt),
       attendance: { rate: att.rate, present: att.present, late: att.late, planned: att.planned, unregistered: att.unregistered },

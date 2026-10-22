@@ -420,7 +420,10 @@ describe("fakturaunderlaget räknar gruppaktivitetens rader som enskilda tillfä
       const weeks = billableWeeks(c, db, { now: NOW });
       const contract = rows("contracts").find((x) => x.id === c.contractId)!;
       const lines = billingLines(
-        { cases: rows("cases"), activities: rows("activities"), attendance: rows("attendance"), price_items: rows("price_items"), billing_week_approvals: rows("billing_week_approvals") },
+        {
+          cases: rows("cases"), activities: rows("activities"), attendance: rows("attendance"), price_items: rows("price_items"), billing_week_approvals: rows("billing_week_approvals"),
+          case_area_changes: rows("case_area_changes"),
+        },
         "2027-02", { now: NOW, cfg: requireOperational(contract.config) },
       ).filter((l) => l.caseId === CASES.nadia);
       return { actId, weeks, lines };

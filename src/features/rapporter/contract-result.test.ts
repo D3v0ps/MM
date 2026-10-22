@@ -229,7 +229,7 @@ describe("verifiering efter leveransen (beslut sätt a)", () => {
   it("arbete utan verifiering → 0; verifiering efter leveransen → fortfarande 0; rättad slutrapport levererad → 1", async () => {
     // NADIA: januarirapporten levereras och insatsen avslutas till arbete den 29 januari, utan verifiering.
     const areas = Object.fromEntries(BOTKYRKA_CONFIG.progression.areas.map((k) => [k, { level: 2 as const, observation: "Följer instruktionen utan stöd.", nextStep: "Fortsätta öva." }]));
-    expect(await run(assessmentSave, { caseId: NADIA, month: "2027-01", areas, summary: "Deltagaren följer planen.", overallStatus: "green", approve: true }, amira())).toMatchObject({ ok: true });
+    expect(await run(assessmentSave, { caseId: NADIA, month: "2027-01", areas, summary: "Deltagaren följer planen.", overallStatus: "green", approve: true, reviewed: true }, amira())).toMatchObject({ ok: true });
     expect(await run(reportApprove, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
     expect(await run(reportDeliver, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
     const closed = await run(caseClose, { caseId: NADIA, endDate: "2027-01-29", endReason: "arbete" }, amira());
@@ -271,7 +271,7 @@ describe("avvikelser_oppna: öppna vid månadens slut", () => {
     expect(row("deviations", "dev-jan30")).toMatchObject({ status: "closed", closedAt: savedAt("dev-jan30") });
     expect(row("deviations", "dev-jan30")!.closedAt!.startsWith("2027-02-01")).toBe(true);
     const areas = Object.fromEntries(BOTKYRKA_CONFIG.progression.areas.map((k) => [k, { level: 2 as const, observation: "Följer instruktionen.", nextStep: "Fortsätta." }]));
-    expect(await run(assessmentSave, { caseId: NADIA, month: "2027-01", areas, summary: "Följer planen.", overallStatus: "green", approve: true }, amira())).toMatchObject({ ok: true });
+    expect(await run(assessmentSave, { caseId: NADIA, month: "2027-01", areas, summary: "Följer planen.", overallStatus: "green", approve: true, reviewed: true }, amira())).toMatchObject({ ok: true });
     expect(await run(reportApprove, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
     expect(await run(reportDeliver, { reportId: NADIA_JAN }, amira())).toMatchObject({ ok: true });
     const jan = csvRows((await exportCsv(johan(), "resultat", { contractId: "c-bot", from: "2027-01", to: "2027-01" })).content).find((r) => r.arendenummer === "BOT-26-0143")!;

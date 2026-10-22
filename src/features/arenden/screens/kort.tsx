@@ -29,6 +29,7 @@ import { ActivityModal, StartModal, TeamModal } from "./kort-start";
 import { TabHistorik, TabMeddelanden, TabRapporter } from "./kort-kommunikation";
 import { VoiceNotesRow } from "@/features/rost/screens/coach-parts";
 import { CaseGroupingRow } from "@/features/grupper/screens/grouping-card";
+import { CaseAreaRow } from "./kort-yrkesomrade";
 
 const TAB_LABEL: Record<CaseTab, string> = {
   oversikt: "Översikt", tidslinje: "Tidslinje", kartlaggning: "Kartläggning", avstamningar: "Möten", narvaro: "Närvaro", manad: "Månadsunderlag",
@@ -383,6 +384,8 @@ function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
       {warn.length > 0 && <div className="flex flex-wrap gap-1.5">{warn}</div>}
       {/* Rad B2: nivå, grupper och taggar (internt – coachmötet 2026-10-09) med Ändra */}
       <CaseGroupingRow caseId={c.caseId} className="flex flex-wrap items-center gap-x-3 gap-y-1.5" />
+      {/* Rad B3: yrkesområdet med Byt yrkesområde och bytena hittills (Karims beslut 2026-10-22) */}
+      <CaseAreaRow caseId={c.caseId} className="flex flex-wrap items-center gap-x-3 gap-y-1.5" />
       {/* Rad C: åtgärder */}
       <CaseActions card={c} openModal={openModal} />
       {/* Rad D: samtycke (inte för teamet) */}

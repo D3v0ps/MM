@@ -225,6 +225,7 @@ export function toRow(it: Item, now: string): InboxRow {
 const OPS_TABLES = [
   "cases", "activities", "attendance", "reports", "profiles", "memberships", "contract_deviations", "billing_runs", "deviations", "price_items",
   "buyer_references", "invoice_drafts", "invoice_lines", "billing_week_approvals", "pulse_responses", "check_ins", "placements", "inbound_emails",
+  "case_area_changes",
 ] as const satisfies readonly TableName[];
 export type OpsDb = Pick<Db, (typeof OPS_TABLES)[number] | "alert_acks">;
 
@@ -233,6 +234,7 @@ export async function loadOps(ctx: Ctx, e: InboxEnv): Promise<OpsDb> {
   const db = await loadDb(ctx.system, OPS_TABLES, {
     cases: { contractId: cid }, reports: { contractId: cid }, memberships: { contractId: cid }, contract_deviations: { contractId: cid },
     billing_runs: { contractId: cid }, price_items: { contractId: cid }, invoice_drafts: { contractId: cid }, billing_week_approvals: { contractId: cid },
+    case_area_changes: { contractId: cid },
   });
   const scoped = scopeToContract(db, cid);
   // Kvitteringarna är användarens egen läsning (MB läser alert_acks).
