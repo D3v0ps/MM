@@ -53,7 +53,7 @@ function expectClean(json: string, label: string) {
 
 // ================================================================ Hela frågor och kommandon nekas
 const EKONOMI = [
-  "ekonomi.askCoordinator", "ekonomi.billingApproveInvoice", "ekonomi.billingApproveZeroWeek", "ekonomi.billingExport", "ekonomi.billingMarkManual",
+  "ekonomi.askCoordinator", "ekonomi.billingApproveInvoice", "ekonomi.billingApproveZeroWeek", "ekonomi.billingExport", "ekonomi.billingExportXlsx", "ekonomi.billingMarkManual",
   "ekonomi.billingSendFortnox", "ekonomi.caseList", "ekonomi.case", "ekonomi.closeRun", "ekonomi.csv", "ekonomi.fortnoxSync", "ekonomi.invoiceSetBuyerRef",
   "ekonomi.invoiceSetPo", "ekonomi.line", "ekonomi.preview", "ekonomi.priceList", "ekonomi.reissue", "ekonomi.run", "ekonomi.start", "ekonomi.taskDone",
 ];

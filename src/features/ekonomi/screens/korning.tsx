@@ -11,13 +11,14 @@ import { useRuntime } from "@/shell/runtime";
 import { useQueryPatch } from "@/shell/url-state";
 import type { ScreenProps } from "@/shell/routes";
 import { fmtDate, fmtDateShort, fmtDateTime, fmtWeekKey, fmtWeekRange, monthName } from "@/core/time";
+import { base64ToBytes } from "@/core/export/base64";
 import { kr, krExact, num } from "@/core/format";
 import {
   Badge, BuildPhase, Button, Card, Check, cn, DemoNote, Empty, ErrorNotice, Field, focusSection, Icon, Input, Kv, Loading, Modal, Notice, Page, Select, SlaBadge, Table, Tabs, TextArea,
   ModalCancelButton, useConfirm, useDownload, useModalDirty, toast, type Column,
 } from "@/ui";
 import {
-  billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCloseRun, ekoCsv, ekoFortnoxSync, ekoLine,
+  billingApproveInvoice, billingApproveZeroWeek, billingExport, billingExportXlsx, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCloseRun, ekoCsv, ekoFortnoxSync, ekoLine,
   ekoReissue, ekoRun, FORTNOX_OFF_TEXT, type InvoiceCheckView, type InvoiceView, type LineDetailView, type LineRow, type RunView,
 } from "../api";
 import { BILLED, monthLabel, periodOf, pl, plural, weekText } from "../model";
@@ -83,6 +84,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
   const sendFortnox = useCommand(billingSendFortnox);
   const fortnoxSync = useCommand(ekoFortnoxSync);
   const exportCmd = useCommand(billingExport);
+  const exportXlsxCmd = useCommand(billingExportXlsx);
   const closeRunCmd = useCommand(ekoCloseRun);
 
   const mk = v.month;
@@ -174,6 +176,19 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
     const file = await runQuery(ekoCsv, { month: mk });
     await download(file.filename, file.csv);
   };
+  // Excel med fakturans fält som i Fortnox (servern bygger filen och loggar exporten innan den lämnas ut).
+  const exportXlsx = async () => {
+    try {
+      const r = await exportXlsxCmd.run({ month: mk });
+      if (!r.ok) {
+        toast(r.message ?? "Excel-filen kunde inte skapas. Försök igen.", "error");
+        return;
+      }
+      await download(r.filename, new Blob([base64ToBytes(r.content).slice()], { type: r.mime }), r.mime);
+    } catch {
+      toast("Excel-filen kunde inte skapas. Försök igen.", "error");
+    }
+  };
   const closeRun = async () => {
     const ok = await confirm({
       title: `Stäng körningen för ${monthName(mk)}`,
@@ -264,6 +279,9 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
         foot={
           <>
             <span className="text-small font-bold">Reservväg:</span>
+            <Button kind="secondary" icon="download" className="whitespace-normal" pending={exportXlsxCmd.pending} onClick={() => void exportXlsx()}>
+              Exportera underlag (Excel)
+            </Button>
             <Button kind="secondary" icon="download" className="whitespace-normal" onClick={() => void exportCsv()}>
               Exportera underlag (CSV)
             </Button>
@@ -280,6 +298,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
               </Button>
             )}
             <span className="text-text-muted">{act && monthOpen ? monthOpen : "Registrera för hand i Fortnox eller i kommunens kostnadsfria fakturaportal."}</span>
+            <span className="w-full text-small text-text-muted">Excel-filen har fakturans fält som i Fortnox: en flik med fakturorna, en med raderna och en om hur du använder den.</span>
           </>
         }
       >

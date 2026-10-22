@@ -2,7 +2,8 @@
 //
 // Delar: [Content_Types].xml, _rels/.rels, xl/workbook.xml, xl/_rels/workbook.xml.rels, xl/styles.xml och ett blad per flik
 // (xl/worksheets/sheetN.xml). Text skrivs som inlineStr – aldrig som formel (<f>), så ingenting i filen kan köras. Tal skrivs
-// som talceller. Datum skrivs som text (ÅÅÅÅ-MM-DD) i version 1. Tecken som inte är tillåtna i XML tas bort.
+// som talceller (kronor med två decimaler i de kolumner eller celler som anges). Datum skrivs som text (ÅÅÅÅ-MM-DD) i version 1.
+// Tecken som inte är tillåtna i XML tas bort.
 // Databladen får låst rubrikrad (pane ySplit=1) och autofilter över hela tabellen.
 import type { LocalDateTime } from "../time";
 import { zip, type ZipEntry } from "./zip";
@@ -19,6 +20,10 @@ export type XlsxSheet = {
   boldRows?: readonly number[];
   /** Kolumner (0-baserade) där tal visas med en decimal. */
   decimalColumns?: readonly number[];
+  /** Kolumner (0-baserade) där tal är kronor och visas med två decimaler och tusentalsavgränsare (Excels format 4, # ##0,00). */
+  moneyColumns?: readonly number[];
+  /** Enskilda celler [rad, kolumn] (0-baserade) med kronor – t.ex. summorna på ett blad med etikett och värde. */
+  moneyCells?: readonly (readonly [number, number])[];
   /** Kolumnbredder i tecken. */
   widths?: readonly number[];
   /**
@@ -54,10 +59,11 @@ const XML_HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
 const NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const NS_REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const NS_PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships";
-// Stilar: 0 = normal, 1 = fet, 2 = tal med en decimal, 3 = radbrytning och överst i cellen.
+// Stilar: 0 = normal, 1 = fet, 2 = tal med en decimal, 3 = radbrytning och överst i cellen, 4 = kronor med två decimaler (överst).
 const STYLE_BOLD = 1;
 const STYLE_DECIMAL = 2;
 const STYLE_WRAP = 3;
+const STYLE_MONEY = 4;
 
 function cellXml(v: XlsxCell, col: number, row: number, style: number): string {
   if (v === null || v === undefined || v === "") return "";
@@ -73,13 +79,17 @@ function sheetXml(sh: XlsxSheet, index: number): string {
   const bold = new Set(sh.boldRows ?? []);
   if (sh.header) bold.add(0);
   const dec = new Set(sh.decimalColumns ?? []);
+  const money = new Set(sh.moneyColumns ?? []);
+  const moneyCell = new Set((sh.moneyCells ?? []).map(([r, c]) => `${r}:${c}`));
+  const styleOf = (v: XlsxCell, ci: number, ri: number): number => {
+    if (bold.has(ri)) return STYLE_BOLD;
+    if (typeof v === "number" && (money.has(ci) || moneyCell.has(`${ri}:${ci}`))) return STYLE_MONEY;
+    if (typeof v === "number" && dec.has(ci)) return STYLE_DECIMAL;
+    return sh.wrapFromRow != null && ri >= sh.wrapFromRow ? STYLE_WRAP : 0;
+  };
   const rows = sh.rows
     .map((r, ri) => {
-      const cells = r
-        .map((v, ci) =>
-          cellXml(v, ci, ri, bold.has(ri) ? STYLE_BOLD : typeof v === "number" && dec.has(ci) ? STYLE_DECIMAL : sh.wrapFromRow != null && ri >= sh.wrapFromRow ? STYLE_WRAP : 0),
-        )
-        .join("");
+      const cells = r.map((v, ci) => cellXml(v, ci, ri, styleOf(v, ci, ri))).join("");
       return `<row r="${ri + 1}">${cells}</row>`;
     })
     .join("");
@@ -125,9 +135,10 @@ const STYLES =
   '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
   '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
   '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-  '<cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
+  '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>' +
   '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>' +
-  '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs>' +
+  '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>' +
+  '<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment vertical="top"/></xf></cellXfs>' +
   '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
 /** Delarna i paketet (namn och XML) – utan att zippa. Exporteras för testerna. */

@@ -124,7 +124,7 @@ const WRITES: Record<string, string[]> = {
   "coach.monthlyDraft": ["ai_runs", "jobs", AUDIT_CASE, AUDIT],
   "ekonomi.billingApproveZeroWeek": ["billing_week_approvals", AUDIT_CASE, AUDIT], "ekonomi.billingApproveInvoice": ["invoice_drafts", AUDIT],
   "ekonomi.billingSendFortnox": ["invoice_drafts", "invoice_lines", "fortnox_runs", AUDIT], "ekonomi.billingMarkManual": ["invoice_drafts", "invoice_lines", AUDIT],
-  "ekonomi.billingExport": [AUDIT], "ekonomi.invoiceSetBuyerRef": ["invoice_drafts", AUDIT], "ekonomi.invoiceSetPo": ["invoice_drafts", AUDIT],
+  "ekonomi.billingExport": [AUDIT], "ekonomi.billingExportXlsx": [AUDIT], "ekonomi.invoiceSetBuyerRef": ["invoice_drafts", AUDIT], "ekonomi.invoiceSetPo": ["invoice_drafts", AUDIT],
   "ekonomi.fortnoxSync": ["fortnox_runs", "invoice_drafts", AUDIT], "ekonomi.reissue": ["invoice_credits", "invoice_drafts", AUDIT],
   "ekonomi.taskDone": ["tasks", AUDIT], "ekonomi.askCoordinator": ["tasks", AUDIT], "ekonomi.closeRun": ["billing_runs", AUDIT],
   "inkorg.emailSetStatus": ["inbound_emails", AUDIT_CASE, AUDIT], "inkorg.emailApplySupplement": ["cases", "inbound_emails", AUDIT_CASE, AUDIT],

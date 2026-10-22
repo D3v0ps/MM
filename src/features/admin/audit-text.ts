@@ -87,7 +87,7 @@ export const entityLabel = (entity: string | null | undefined): string => ENTITY
 const DETAIL_KEY: Record<string, string> = {
   number: "Ärendenummer", source: "Kanal", parseMethod: "Tolkning", template: "Mall", to: "Till", from: "Från", kind: "Typ", provider: "Leverantör", reason: "Orsak", status: "Status",
   linkedProfile: "Handläggare med konto", receivedOn: "Mottagen dag", attachments: "Bilagor", linkedCases: "Kopplade ärenden",
-  month: "Månad", week: "Vecka", count: "Antal", format: "Format", rows: "Rader", role: "Roll", unit: "Enhet", domain: "Domän", version: "Version", language: "Språk",
+  month: "Månad", week: "Vecka", count: "Antal", format: "Format", rows: "Rader", invoices: "Fakturor", role: "Roll", unit: "Enhet", domain: "Domän", version: "Version", language: "Språk",
   contactRequested: "Vill bli kontaktad", right: "Rätt", value: "Värde", date: "Datum", areas: "Områden", checked: "Kontrollerade poster", deviations: "Avvikelser", withinSla: "Inom SLA",
   leadCoachId: "Huvudcoach", firstMeetingAt: "Första möte", fields: "Fält", missing: "Saknas", classification: "Klassning", via: "Via", kpi: "Nyckeltal", window: "Period",
   audioDeleted: "Ljud raderat", automatic: "Automatiskt", waiting: "Väntar", endReason: "Avslutsorsak", resultClass: "Resultatklass", channel: "Kanal", note: "Anteckning",

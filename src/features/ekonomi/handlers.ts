@@ -15,6 +15,8 @@ import {
   type BillingMonth, type InvoiceLineView, type MonthInvoice,
 } from "@/core/billing";
 import { CASE_NUMBER_RE, findCaseNumber, priceFor, priceItem } from "@/core/cases";
+import { bytesToBase64 } from "@/core/export/base64";
+import { XLSX_MIME } from "@/core/export/xlsx";
 import { DEFAULT_ORG_SETTINGS, isOperational, requireOperational, type OperationalConfig } from "@/core/config";
 import { areaName, invoiceStatusLabel, personName } from "@/core/labels";
 import { slaStatus, type SlaStatus } from "@/core/sla";
@@ -27,14 +29,15 @@ import { upsert } from "../_shared/context";
 import { FORTNOX_OFF_ERROR, fortnoxOff } from "../_shared/fortnox-port";
 import { newInvoiceDraft } from "../_shared/rows";
 import {
-  billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCase, ekoCaseList, ekoCloseRun, ekoCsv,
+  billingApproveInvoice, billingApproveZeroWeek, billingExport, billingExportXlsx, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCase, ekoCaseList, ekoCloseRun, ekoCsv,
   ekoFortnoxSync, ekoLine, ekoPreview, ekoPriceList, ekoReissue, ekoRun, ekoStart, ekoTaskDone, invoiceSetBuyerRef, invoiceSetPo,
   type BillingStartView, type CaseMonthRow, type InvoiceCheckView, type InvoiceView, type LineRow, type OverlapView, type RefInvoiceRow, type RefSuggestion,
   type ReturnedRow, type RunRow, type RunView, type SlaView, type TaskRef, type TaskView, type UnbilledRow, type ZeroRow,
 } from "./api";
+import { billingXlsx, billingXlsxFilename } from "./billing-xlsx";
 import {
   bucketOf, cap, caseLedger, checkText, fortnoxDue, invoiceSummary, invoiceText, invoiceTitle, monthRules, noteText, periodOf, poText, prescText, prescriptionDate, priceSpan,
-  refFromTask, refInfo, refLenText, remarksOf, tally, toCsv, type RefRules,
+  invoiceTotals, refFromTask, refInfo, refLenText, remarksOf, tally, toCsv, type RefRules,
 } from "./model";
 
 /** Bara ekonomen gör fakturakörningen och ser fakturaunderlaget (SPEC §4, beslut 5 2026-10-07: belopp bara för ekonomen). */
@@ -412,6 +415,26 @@ handleCommand(billingExport, { roles: BILLING, commercial: true }, async (ctx, p
   return ok({});
 });
 
+// ---------------------------------------------------------------- billing.exportXlsx (reservvägen: Excel med Fortnox fält)
+handleCommand(billingExportXlsx, { roles: BILLING, commercial: true }, async (ctx, p) => {
+  const b = await base(ctx);
+  const db = await loadBilling(ctx, b.contract);
+  const bm = monthInvoices(db, p.month, b.env);
+  const bytes = await billingXlsx({
+    month: p.month, now: ctx.now(), contract: { contractNumber: b.contract.contractNumber, dnr: b.contract.dnr },
+    customer: { name: b.customer?.name ?? "", orgNr: b.customer?.orgNr ?? "" },
+    // Avtalskonfigurationen har inget kundnummer i Fortnox (ännu) – cellen lämnas tom och ekonomen väljer kunden i Fortnox.
+    customerNumber: null,
+    paymentTermsDays: b.cfg.billing.paymentTermsDays, perContract: b.perContract, areas: b.areas,
+    invoices: bm.invoices.map((inv) => ({ inv, title: titleOf(inv), notes: Object.fromEntries(inv.lines.map((l) => [l.caseId, lineNote(db, inv, l, b.env)])) })),
+  });
+  // Loggas innan filen lämnas ut (samma händelse som CSV-filen). Bara antal – inga ärendenummer eller belopp i loggen.
+  await ctx.audit({
+    action: "export.billing", entity: "billing_run", entityId: p.month, contractId: b.contract.id, details: { format: "xlsx", invoices: bm.invoices.length, rows: bm.count },
+  });
+  return ok({ filename: billingXlsxFilename(p.month), mime: XLSX_MIME, content: bytesToBase64(bytes), invoices: bm.invoices.length, rows: bm.count });
+});
+
 // ---------------------------------------------------------------- Fakturans beställarreferens (beslut 3: en per faktura)
 handleCommand(invoiceSetBuyerRef, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const { b, db, bm } = await monthOf(ctx, p.month);
@@ -651,8 +674,7 @@ handleQuery(ekoPreview, { roles: BILLING, commercial: true }, async (ctx, p) => 
   const [tasks, credits] = await Promise.all([ekonomTasks(ctx), ctx.repo.table("invoice_credits").list({ contractId: b.contract.id, month })]);
   const run = db.billing_runs.find((r) => r.month === month);
   const invoiceDate = dayOf(inv.created ? (inv.fortnoxCreatedAt ?? run?.createdAt ?? ctx.now()) : ctx.now());
-  const gross = inv.amountOre + inv.vatOre;
-  const grossRoundedOre = Math.round(gross / 100) * 100;
+  const { roundingOre, grossRoundedOre } = invoiceTotals(inv);
   const customerName = b.customer?.name ?? "";
   const short = customerName.replace(/ kommun$/, "");
   const domain = b.customer?.emailDomains[0];
@@ -662,7 +684,7 @@ handleQuery(ekoPreview, { roles: BILLING, commercial: true }, async (ctx, p) => 
     preview: {
       inv: invoiceView(b, db, inv, tasks, credits), notes: Object.fromEntries(inv.lines.map((l) => [l.caseId, lineNote(db, inv, l, b.env)])),
       invoiceText: invoiceText({ contractNumber: b.contract.contractNumber, month, lines: inv.lines.length, weeks: inv.quantity, number: inv.number, perContract: b.perContract }),
-      invoiceDate, dueDate: addDays(invoiceDate, b.cfg.billing.paymentTermsDays), paymentTermsDays: b.cfg.billing.paymentTermsDays, roundingOre: grossRoundedOre - gross,
+      invoiceDate, dueDate: addDays(invoiceDate, b.cfg.billing.paymentTermsDays), paymentTermsDays: b.cfg.billing.paymentTermsDays, roundingOre,
       grossRoundedOre, period: periodOf(allWeeks), refLen: refLenText(b.cfg.billing), poText: poText(b.cfg.billing),
       supplier: { name: b.supplier?.name ?? "", orgNr: b.supplier?.orgNr ?? "", vatNo: `SE${String(b.supplier?.orgNr ?? "").replace(/\D/g, "")}01` },
       customer: { name: customerName, orgNr: b.customer?.orgNr ?? "", possessive: `${short}s`, eInvoiceContact: domain ? `${short}s e-handel (e-handel@${domain})` : `${short}s e-handel` },

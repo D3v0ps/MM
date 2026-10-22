@@ -251,6 +251,16 @@ export function invoiceSummary(inv: SummaryLine, ledger: readonly LedgerRow[], c
   return { order: { qty: orderWeeks }, current, billed, returned, pending, accrued, remaining, over, text: sentences.join(" ") };
 }
 
+/**
+ * Fakturans summor i öre: inklusive moms, öresavrundningen till hela kronor och att betala. Samma räkning i förhandsvisningen
+ * och i Excel-filen med underlaget – heltal i öre, så att summorna alltid stämmer med fakturakörningen.
+ */
+export function invoiceTotals(inv: { amountOre: number; vatOre: number }): { grossOre: number; roundingOre: number; grossRoundedOre: number } {
+  const grossOre = inv.amountOre + inv.vatOre;
+  const grossRoundedOre = Math.round(grossOre / 100) * 100;
+  return { grossOre, roundingOre: grossRoundedOre - grossOre, grossRoundedOre };
+}
+
 /** Fakturatexten (Peppol BT-22): avtalet, månaden, antal ärenden och veckor. Inga namn eller personnummer. */
 export function invoiceText(o: { contractNumber: string; month: MonthKey; lines: number; weeks: number; number: number; perContract: boolean }): string {
   const what = o.number > 1 ? `Tilläggsfaktura ${o.number} för ${monthName(o.month)}` : `Fakturaunderlag ${monthName(o.month)}`;

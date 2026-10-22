@@ -198,6 +198,20 @@ Fliken **Ekonomi** har **Fakturering**, **Fakturakörning** för förra månaden
 4. Under **Granska raderna och godkänn** kontrollerar du debiterbara veckor och godkänner.
 5. Tryck på **Gör körningen**. Inga namn och inga personnummer hamnar på fakturan.
 
+### Skapa fakturan i Fortnox för hand (Excel)
+
+När Fortnox inte är kopplat skapar du fakturan i Fortnox själv. Excel-filen har samma fält som fakturan i Fortnox.
+
+1. Öppna månadens fakturakörning och tryck på **Exportera underlag (Excel)** längst ned i **Gör körningen**. Filen heter till exempel `fakturaunderlag-2027-01.xlsx`.
+2. Fliken **Faktura** visar varje faktura: status, Er referens, Ert ordernummer, betalningsvillkor, antal rader, veckor, summa, moms och att betala.
+3. Skapa bara en faktura med status **Klar att skapa**. Står det **Stoppad** eller **Väntar** rättar du det i fakturakörningen först och exporterar igen.
+4. I Fortnox: skriv beställarreferensen i **Er referens**. Lämna **Ert ordernummer** tomt om det är tomt i filen. Skriv aldrig ärendenumret där.
+5. Fliken **Fakturarader** har en rad per ärende: artikelnummer, benämning, antal veckor, à-pris, moms och radens anmärkning. Kolumnen **Anmärkningar för ekonomen** är bara för dig och står inte på fakturan.
+6. Skicka fakturan som e-faktura (Peppol).
+7. Tillbaka i Miljonmatch: tryck på **Markera som manuellt fakturerad** och skriv fakturanumret från Fortnox.
+
+Fliken **Om underlaget** förklarar reglerna och kolumnerna. Filen har bara ärendenummer – inga namn eller personnummer. Varje export sparas i revisionsloggen. CSV-filen finns kvar för den som vill ha en enkel textfil.
+
 ## Chef/controller
 
 Fliken **Ledning** har **Ledningsvy**, **Avtalsavvikelser**, **Förfaller**, **Bygg rapport** och **Revisionslogg**. Ledningsvyn visar resultatgrad, aktiva ärenden, flaggor att kvittera och nöjdhet. Flaggor kvitterar du under **Flaggor för chef och controller**.
