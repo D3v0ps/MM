@@ -1,61 +1,100 @@
 "use client";
-// Kortet "Nivå och grupp" (coachmötet 2026-10-09, Karims beslut 3): längst ned i kartläggningen och i deltagarkortets
-// "Ändra". Den som kartlägger (Adam) eller coachen väljer nivå (1–5 med namn), grupper (flerval + Ny grupp) och taggen
-// "Vill arbeta", och skriver en rad till coacherna (sparas som en vanlig anteckning). Valen sparas direkt (som
-// kartläggningens fält sparas automatiskt) – ett anrop i taget, alltid det senaste läget. Misslyckas en sparning visas det
-// senast sparade läget. Raden till coacherna sparas med "Spara raden" – osparad text skyddas (sidbyte, Klar i dialogen).
-// Internt: syns aldrig för kommunen, i rapporter eller exporter och skickas aldrig till AI. AI placerar aldrig någon i en
-// nivå eller grupp.
+// Kortet "Nivå och yrkesområde" (coachmötet 2026-10-09, Karims beslut 3; Karims beslut 2026-10-22): längst ned i kartläggningen
+// och i deltagarkortets "Ändra". Den som kartlägger (Adam) eller coachen väljer nivå (1–5 med namn) och taggen "Vill arbeta" och
+// skriver en rad till coacherna (sparas som en vanlig anteckning). Gruppen är deltagarens yrkesområde – den visas, men väljs inte
+// här (den följer ärendets yrkesområde). Nivån krävs innan kartläggningen godkänns och tas sedan aldrig bort – den höjs (Höj nivå)
+// eller byts. Valen sparas direkt (som kartläggningens fält sparas automatiskt) – ett anrop i taget, alltid det senaste läget.
+// Misslyckas en sparning visas det senast sparade läget. Raden till coacherna sparas med "Spara raden" – osparad text skyddas
+// (sidbyte, Klar i dialogen). Nivåhistoriken ("Nivå 1 från 9 okt (Amira), Nivå 2 från 22 okt (Sara)") visas under valen.
+// Internt: syns aldrig för kommunen, i rapporter eller exporter och skickas aldrig till AI. AI placerar aldrig någon i en nivå.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { fmtTime } from "@/core/time";
+import { plural } from "@/core/format";
+import { fmtDateShort, fmtTime } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { useUnsavedGuard } from "@/shell/guard";
-import { Badge, Button, Card, ErrorNotice, Field, Icon, Input, Loading, Modal, Row, Seg, Stack, TextArea, toast, useModalClose, useModalDirty, type SegOption } from "@/ui";
+import { Badge, Button, Card, ErrorNotice, Field, Icon, Loading, Modal, Notice, Seg, Stack, TextArea, toast, useModalClose, useModalDirty, type SegOption } from "@/ui";
 import { caseNoteSave } from "@/features/arenden/api";
-import { caseGroupingsSave, caseGroupingsView, groupingCreate, type CaseGroupings, type CaseGroupingsView, type GroupingOption } from "../api";
+import { caseGroupingsSave, caseGroupingsView, caseLevelRaise, type CaseGroupings, type CaseGroupingsView, type GroupingOption, type LevelChange } from "../api";
 
-type State = { levelId: string | null; groupIds: string[]; tags: Record<string, string | null> };
+type State = { levelId: string | null; tags: Record<string, string | null> };
 const NONE = "";
 const stateOf = (v: CaseGroupingsView): State => ({
   levelId: v.current.level?.id ?? null,
-  groupIds: v.current.groups.map((g) => g.id),
   tags: Object.fromEntries(v.options.tags.map((t) => [t.category, v.current.tags.find((x) => x.category === t.category)?.id ?? null])),
 });
 const opts = (xs: GroupingOption[], none?: string): SegOption<string>[] => [
   ...(none ? [{ value: NONE, label: none }] : []),
   ...xs.map((g) => ({ value: g.id, label: g.archived ? `${g.name} (arkiverad)` : g.name })),
 ];
+/** "Nivå 3" ur "Nivå 3 – På väg" (historiken). */
+const shortLevel = (name: string) => name.split(" – ")[0] ?? name;
 
-/** Kortet med valen. Utan skrivrätt (handledare, chef): bara texten. bare: utan kortets ram (i deltagarkortets dialog). */
-export function GroupingCard({ caseId, title = "Nivå och grupp", bare }: { caseId: string; title?: string; bare?: boolean }) {
+/** Meningen efter en ny nivå: inbjudningarna till nivåns kommande aktiviteter. */
+export function levelChangeText(r: LevelChange): string {
+  const parts = [
+    r.invited ? `Deltagaren är inbjuden till ${plural(r.invited, "kommande aktivitet", "kommande aktiviteter")} för nivån.` : "",
+    r.removed ? `${plural(r.removed, "aktivitet", "aktiviteter")} för den förra nivån är borttagna.` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
+/**
+ * Kortet med valen. Utan skrivrätt (chef, systemadministratör): bara texten. bare: utan kortets ram (i deltagarkortets dialog).
+ * requiredForApproval: kartläggningen – nivån krävs innan den godkänns (texten vid fältet).
+ */
+export function GroupingCard({ caseId, title = "Nivå och yrkesområde", bare, requiredForApproval }: { caseId: string; title?: string; bare?: boolean; requiredForApproval?: boolean }) {
   const q = useQuery(caseGroupingsView, { caseId });
   const wrap = (children: ReactNode) => (bare ? <>{children}</> : <Card title={title} icon="layers">{children}</Card>);
   if (q.error) return wrap(<ErrorNotice error={q.error} onRetry={() => void q.refetch()} />);
   if (q.data === undefined) return wrap(<Loading />);
   if (q.data === null) return null;
-  if (!q.data.canEdit) return wrap(<GroupingSummary g={q.data.current} />);
-  return <Editor key={caseId} v={q.data} title={title} bare={bare} />;
+  if (!q.data.canEdit) {
+    return wrap(
+      <Stack gap="sm">
+        <GroupingSummary g={q.data.current} area={q.data.area} />
+        <LevelHistory v={q.data} />
+      </Stack>,
+    );
+  }
+  return <Editor key={caseId} v={q.data} title={title} bare={bare} requiredForApproval={requiredForApproval} />;
 }
 
 /**
- * Raden i deltagarkortets huvud: nivå, grupper och taggar (text + ikon) och "Ändra", som öppnar samma val som i
- * kartläggningen. Visas inte för den som inte får se medlemskapen (frågan svarar null).
+ * Raden i deltagarkortets huvud: nivå, yrkesområde och taggar (text + ikon), "Höj nivå" (ett klick till nästa nivå – inte på
+ * nivå 5) och "Ändra", som öppnar samma val som i kartläggningen (Byt nivå, taggar, historiken). Visas inte för den som inte får
+ * se medlemskapen (frågan svarar null).
  */
 export function CaseGroupingRow({ caseId, className }: { caseId: string; className?: string }) {
   const q = useQuery(caseGroupingsView, { caseId });
+  const raise = useCommand(caseLevelRaise);
   const [open, setOpen] = useState(false);
   if (!q.data) return null;
+  const v = q.data;
+  const doRaise = async () => {
+    if (!v.current.level || raise.pending) return;
+    const res = await raise.run({ caseId, fromLevelId: v.current.level.id }).catch(() => null);
+    if (!res || !res.ok) {
+      toast(res && !res.ok && res.message ? res.message : "Nivån kunde inte höjas.", "error");
+      return;
+    }
+    toast(`Nivån är höjd till ${res.levelName}. ${levelChangeText(res)}`.trim());
+  };
   return (
     <div className={className} data-grouping-row="">
-      <span className="text-text-muted">Nivå och grupp:</span>
-      <GroupingSummary g={q.data.current} />
-      {q.data.canEdit && (
+      <span className="text-text-muted">Nivå och yrkesområde:</span>
+      <GroupingSummary g={v.current} area={v.area} />
+      {v.canEdit && v.current.level && v.nextLevel && (
+        <Button kind="ghost" icon="trending-up" pending={raise.pending} onClick={() => void doRaise()}>
+          Höj nivå<span className="sr-only"> till {v.nextLevel.name}</span>
+        </Button>
+      )}
+      {v.canEdit && (
         <Button kind="ghost" icon="edit" onClick={() => setOpen(true)}>
-          Ändra<span className="sr-only"> nivå, grupper och taggar</span>
+          Ändra<span className="sr-only"> nivå och taggar</span>
         </Button>
       )}
       {open && (
-        <Modal title="Nivå och grupp" onClose={() => setOpen(false)} footer={<DoneButton />}>
+        <Modal title="Nivå och yrkesområde" onClose={() => setOpen(false)} footer={<DoneButton />}>
           <GroupingCard caseId={caseId} bare />
         </Modal>
       )}
@@ -73,21 +112,28 @@ function DoneButton() {
   );
 }
 
-function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?: boolean }) {
+/** Nivåhistoriken: "Nivå 1 från 9 okt (Amira), Nivå 2 från 22 okt (Sara)". */
+function LevelHistory({ v }: { v: CaseGroupingsView }) {
+  if (v.levelHistory.length < 1) return null;
+  return (
+    <p className="m-0 text-small text-text-muted" data-testid="nivahistorik">
+      <span className="font-bold">Nivåhistorik: </span>
+      {v.levelHistory.map((h) => `${shortLevel(h.name)} från ${fmtDateShort(h.from)}${h.byName ? ` (${h.byName})` : ""}`).join(", ")}
+    </p>
+  );
+}
+
+function Editor({ v, title, bare, requiredForApproval }: { v: CaseGroupingsView; title: string; bare?: boolean; requiredForApproval?: boolean }) {
   const save = useCommand(caseGroupingsSave);
-  const create = useCommand(groupingCreate);
+  const raise = useCommand(caseLevelRaise);
   const note = useCommand(caseNoteSave);
   const [state, setState] = useState<State>(() => stateOf(v));
   const [status, setStatus] = useState<{ kind: "idle" | "saving" | "saved" | "failed"; at?: string; text?: string }>({ kind: "idle" });
   const pending = useRef<State | null>(null);
   const running = useRef(false);
-  // Senast sparade läget (serverns) – visas när en sparning misslyckas – och senast valda läget (ändringarna bygger på det,
-  // också när en händelse kommer efter en await, t.ex. Ny grupp).
+  // Senast sparade läget (serverns) – visas när en sparning misslyckas – och senast valda läget (ändringarna bygger på det).
   const saved = useRef<State>(state);
   const latest = useRef<State>(state);
-  const creating = useRef(false);
-  const [newGroup, setNewGroup] = useState<string | null>(null);
-  const [newGroupError, setNewGroupError] = useState<string | null>(null);
   const [line, setLine] = useState("");
   const [lineError, setLineError] = useState<string | null>(null);
   // Osparad rad till coacherna: frågar innan sidan byts och innan dialogen stängs (Klar, krysset, Esc).
@@ -95,12 +141,9 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
   useUnsavedGuard(lineDirty && !note.pending);
   useModalDirty(lineDirty);
 
-  // Grupper som skapats här finns i frågan först efter omräkningen – valen läggs till lokalt tills dess.
-  const [extraGroups, setExtraGroups] = useState<GroupingOption[]>([]);
-  const groups = [...v.options.groups, ...extraGroups.filter((g) => !v.options.groups.some((x) => x.id === g.id))];
   useEffect(() => {
     saved.current = stateOf(v);
-    // Läget ändrades någon annanstans (en annan flik) och inget sparas härifrån just nu: visa serverns läge.
+    // Läget ändrades någon annanstans (en annan flik, Höj nivå) och inget sparas härifrån just nu: visa serverns läge.
     if (!running.current && !pending.current) {
       latest.current = saved.current;
       setState(saved.current);
@@ -114,7 +157,7 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
       const s = pending.current;
       pending.current = null;
       setStatus({ kind: "saving" });
-      const res = await save.run({ caseId: v.caseId, levelId: s.levelId, groupIds: s.groupIds, tags: s.tags }).catch(() => null);
+      const res = await save.run({ caseId: v.caseId, levelId: s.levelId, tags: s.tags }).catch(() => null);
       if (!res || !res.ok) {
         pending.current = null;
         setStatus({ kind: "failed", text: res && !res.ok && res.message ? res.message : "Ändringen kunde inte sparas. Försök igen." });
@@ -137,27 +180,15 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
     void flush();
   };
 
-  const addGroup = async () => {
-    // En gång i taget: dubbla Enter eller klick skapar inte två grupper.
-    if (creating.current) return;
-    const name = (newGroup ?? "").trim();
-    if (!name) {
-      setNewGroupError("Skriv ett namn på gruppen.");
-      return;
-    }
-    creating.current = true;
-    // Ärendets avtal (inte aktörens första) – servern kontrollerar att hen arbetar i ärendet.
-    const res = await create.run({ kind: "group", caseId: v.caseId, name }).catch(() => null);
-    creating.current = false;
+  const doRaise = async () => {
+    if (!v.current.level || raise.pending || running.current) return;
+    const res = await raise.run({ caseId: v.caseId, fromLevelId: v.current.level.id }).catch(() => null);
     if (!res || !res.ok) {
-      setNewGroupError(res && !res.ok && res.message ? res.message : "Gruppen kunde inte skapas.");
+      setStatus({ kind: "failed", text: res && !res.ok && res.message ? res.message : "Nivån kunde inte höjas." });
       return;
     }
-    setExtraGroups((xs) => [...xs, { id: res.id, name, description: "", archived: false, members: 0 }]);
-    setNewGroup(null);
-    setNewGroupError(null);
-    change((prev) => ({ ...prev, groupIds: prev.groupIds.includes(res.id) ? prev.groupIds : [...prev.groupIds, res.id] }));
-    toast(`Gruppen ${name} är skapad och vald.`);
+    setStatus({ kind: "saved", at: res.savedAt });
+    toast(`Nivån är höjd till ${res.levelName}. ${levelChangeText(res)}`.trim());
   };
 
   const saveLine = async () => {
@@ -176,88 +207,69 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
     toast("Raden är sparad som en anteckning i deltagarkortet.");
   };
 
+  const hasLevel = !!v.current.level;
   const statusText =
     status.kind === "saving" ? "Sparar…" : status.kind === "saved" && status.at ? `Sparat ${fmtTime(status.at)}` : status.kind === "failed" ? (status.text ?? "") : "";
+  const levelHelp = hasLevel
+    ? "Hur nära arbete deltagaren är just nu. Byt nivå genom att välja en annan. Inte samma sak som fas eller progressionsnivå 0–3 i månadsbedömningen."
+    : "Hur nära arbete deltagaren är just nu. Inte samma sak som fas eller progressionsnivå 0–3 i månadsbedömningen.";
   const body = (
-      <Stack>
-        <p className="text-small text-text-muted">
-          Sätts av den som kartlägger. Valen sparas direkt. Kommunen ser dem aldrig, och de kommer aldrig med i rapporter.
-        </p>
-        <Field label="Nivå" id={`gr-niva-${v.caseId}`} help="Hur nära arbete deltagaren är just nu. Inte samma sak som fas eller progressionsnivå i månadsbedömningen.">
-          <Seg
-            id={`gr-niva-${v.caseId}`}
-            ariaLabel="Nivå"
-            value={state.levelId ?? NONE}
-            onValueChange={(x) => change((prev) => ({ ...prev, levelId: x || null }))}
-            options={opts(v.options.levels, "Ingen nivå än")}
-          />
-        </Field>
-        <Field label="Grupper" id={`gr-grupper-${v.caseId}`} help="Välj en eller flera. Finns inte gruppen? Skapa en ny.">
-          {groups.length > 0 ? (
-            <Seg
-              multi
-              id={`gr-grupper-${v.caseId}`}
-              ariaLabel="Grupper"
-              value={state.groupIds}
-              onValueChange={(xs) => change((prev) => ({ ...prev, groupIds: xs }))}
-              options={opts(groups)}
-            />
-          ) : (
-            <p className="text-small text-text-muted">Det finns inga grupper ännu.</p>
-          )}
-        </Field>
-        {newGroup === null ? (
-          <div>
-            <Button kind="ghost" icon="plus" onClick={() => setNewGroup("")}>
-              Ny grupp
-            </Button>
-          </div>
-        ) : (
-          <Field label="Namn på den nya gruppen" id={`gr-ny-${v.caseId}`} error={newGroupError ?? undefined} help="Använd neutrala ord om stödet, till exempel ”Måndagsgruppen”. Aldrig omdömen om personer.">
-            <Row gap="sm">
-              <Input
-                value={newGroup}
-                maxLength={80}
-                onValueChange={(x) => setNewGroup(x)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
-                  e.preventDefault();
-                  if (!create.pending) void addGroup();
-                }}
-              />
-              <Button kind="secondary" icon="plus" pending={create.pending} onClick={() => void addGroup()}>
-                Skapa och välj
-              </Button>
-              <Button kind="ghost" onClick={() => { setNewGroup(null); setNewGroupError(null); }}>
-                Avbryt
-              </Button>
-            </Row>
-          </Field>
-        )}
-        {v.options.tags.map((t, i) => (
-          <Field key={t.category} label={t.category} id={`gr-tagg-${v.caseId}-${i}`} help={t.category === "Vill arbeta" ? "Deltagarens eget svar." : undefined}>
-            <Seg
-              id={`gr-tagg-${v.caseId}-${i}`}
-              ariaLabel={t.category}
-              value={state.tags[t.category] ?? NONE}
-              onValueChange={(x) => change((prev) => ({ ...prev, tags: { ...prev.tags, [t.category]: x || null } }))}
-              options={opts(t.values, "Inte valt")}
-            />
-          </Field>
-        ))}
-        <div role="status" aria-live="polite" data-grouping-status={status.kind} className="flex min-h-6 items-center gap-1.5 text-small text-text-muted">
-          {status.kind !== "idle" && <Icon name={status.kind === "failed" ? "alert" : status.kind === "saving" ? "clock" : "check"} className={status.kind === "failed" ? "text-rod" : undefined} />}
-          <span className={status.kind === "failed" ? "font-bold text-antracit" : undefined}>{statusText}</span>
-        </div>
-        <Field label="En rad till coacherna (valfritt)" id={`gr-rad-${v.caseId}`} error={lineError ?? undefined} help="Sparas som en anteckning i deltagarkortet med dagens datum när du trycker Spara raden. Skriv aldrig personnummer.">
-          <TextArea rows={2} value={line} maxLength={2000} onValueChange={(x) => { setLine(x); if (lineError) setLineError(null); }} />
-        </Field>
+    <Stack>
+      <p className="text-small text-text-muted">
+        Sätts av den som kartlägger. Valen sparas direkt. Kommunen ser dem aldrig, och de kommer aldrig med i rapporter.
+      </p>
+      {requiredForApproval && !hasLevel && (
+        <Notice tone="info" icon="layers" title="Välj nivå innan du godkänner kartläggningen">
+          Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter.
+        </Notice>
+      )}
+      <Field label="Nivå" id={`gr-niva-${v.caseId}`} required={requiredForApproval} help={levelHelp}>
+        <Seg
+          id={`gr-niva-${v.caseId}`}
+          ariaLabel="Nivå"
+          value={state.levelId ?? NONE}
+          onValueChange={(x) => x && change((prev) => ({ ...prev, levelId: x }))}
+          // "Ingen nivå än" bara innan nivån är satt – sedan byts den, den tas inte bort.
+          options={opts(v.options.levels, hasLevel ? undefined : "Ingen nivå än")}
+        />
+      </Field>
+      {hasLevel && v.nextLevel && (
         <div>
-          <Button kind="secondary" icon="edit" pending={note.pending} onClick={() => void saveLine()}>
-            Spara raden
+          <Button kind="secondary" icon="trending-up" pending={raise.pending} onClick={() => void doRaise()}>
+            Höj nivå<span className="sr-only"> till {v.nextLevel.name}</span>
           </Button>
         </div>
-      </Stack>
+      )}
+      <LevelHistory v={v} />
+      <div className="flex flex-col gap-1">
+        <span className="text-ui font-bold">Yrkesområde (gruppen)</span>
+        <span className="text-body">{v.area ?? "Yrkesområde saknas"}</span>
+        <span className="text-small text-text-muted">Gruppen följer deltagarens yrkesområde och väljs inte här. Deltagaren bjuds in till yrkesområdets träffar.</span>
+      </div>
+      {v.options.tags.map((t, i) => (
+        <Field key={t.category} label={t.category} id={`gr-tagg-${v.caseId}-${i}`} help={t.category === "Vill arbeta" ? "Deltagarens eget svar." : undefined}>
+          <Seg
+            id={`gr-tagg-${v.caseId}-${i}`}
+            ariaLabel={t.category}
+            value={state.tags[t.category] ?? NONE}
+            onValueChange={(x) => change((prev) => ({ ...prev, tags: { ...prev.tags, [t.category]: x || null } }))}
+            options={opts(t.values, "Inte valt")}
+          />
+        </Field>
+      ))}
+      <div role="status" aria-live="polite" data-grouping-status={status.kind} className="flex min-h-6 items-center gap-1.5 text-small text-text-muted">
+        {status.kind !== "idle" && <Icon name={status.kind === "failed" ? "alert" : status.kind === "saving" ? "clock" : "check"} className={status.kind === "failed" ? "text-rod" : undefined} />}
+        <span className={status.kind === "failed" ? "font-bold text-antracit" : undefined}>{statusText}</span>
+      </div>
+      <Field label="En rad till coacherna (valfritt)" id={`gr-rad-${v.caseId}`} error={lineError ?? undefined} help="Sparas som en anteckning i deltagarkortet med dagens datum när du trycker Spara raden. Skriv aldrig personnummer.">
+        <TextArea rows={2} value={line} maxLength={2000} onValueChange={(x) => { setLine(x); if (lineError) setLineError(null); }} />
+      </Field>
+      <div>
+        <Button kind="secondary" icon="edit" pending={note.pending} onClick={() => void saveLine()}>
+          Spara raden
+        </Button>
+      </div>
+    </Stack>
   );
   if (bare) return body;
   return (
@@ -267,22 +279,26 @@ function Editor({ v, title, bare }: { v: CaseGroupingsView; title: string; bare?
   );
 }
 
-/** Nivå, grupper och taggar som text + ikon (deltagarkortets huvud och läsläget). */
-export function GroupingSummary({ g, empty = "Ingen nivå, grupp eller tagg ännu." }: { g: CaseGroupings; empty?: string }) {
-  if (!g.level && !g.groups.length && !g.tags.length) return <span className="text-small text-text-muted">{empty}</span>;
+/** Nivå, yrkesområde och taggar som text + ikon (deltagarkortets huvud och läsläget). */
+export function GroupingSummary({ g, area, empty = "Ingen nivå eller tagg ännu." }: { g: CaseGroupings; area?: string | null; empty?: string }) {
+  if (!g.level && !g.tags.length && !area) return <span className="text-small text-text-muted">{empty}</span>;
   return (
     <span className="flex flex-wrap items-center gap-1.5">
-      {g.level && (
+      {g.level ? (
         <Badge tone="blue" icon="layers">
           {g.level.name}
         </Badge>
-      )}
-      {g.groups.map((x) => (
-        <Badge key={x.id} tone="outline" icon="users">
-          <span className="sr-only">Grupp: </span>
-          {x.name}
+      ) : (
+        <Badge tone="outline" icon="layers">
+          Ingen nivå än
         </Badge>
-      ))}
+      )}
+      {area && (
+        <Badge tone="outline" icon="users">
+          <span className="sr-only">Yrkesområde: </span>
+          {area}
+        </Badge>
+      )}
       {g.tags.map((x) => (
         <Badge key={x.id} tone="grey" icon="hash">
           {x.category}: {x.name}

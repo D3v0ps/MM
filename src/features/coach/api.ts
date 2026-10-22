@@ -1,7 +1,7 @@
 // Kontrakt för området coach (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Fail, type Result } from "@/api/contract";
-import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, START, INBOX, CASE_STATS, CASE_FACTS } from "@/api/invalidation";
+import { NAV, LOG, CASES, COACH, PORTAL, REPORTS, MGMT, START, INBOX, CASE_STATS, CASE_FACTS, GRUPPER } from "@/api/invalidation";
 import type { SlaTone } from "@/core/sla";
 import type { ProgressionRuleText } from "@/core/config";
 import {
@@ -139,7 +139,7 @@ export const checkinSave = command("coach.checkinSave", z.object({
     changed: z.boolean().optional(),
   })).max(20).optional(),
   ...AutosaveFields,
-}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: ["coach.minVecka", "coach.casePicker", "coach.checkInPage", "coach.checkInReceipt", "coach.assessmentPage", "coach.intakePage", CASES, PORTAL, REPORTS, MGMT, ...START, "notiser.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   Result<{ checkInId: string; deviationId: string | null; rawTranscriptDeletedAt: string | null } & SavedInfo, "not_found" | "forbidden" | "deviation_required" | "ai_not_allowed" | "invalid" | "approved" | "conflict">
 >();
 
@@ -216,7 +216,10 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
   Result<{ assessmentId: string } & SavedInfo, "not_found" | "forbidden" | "bad_note" | "invalid" | "approved" | "conflict"> | (Fail<"incomplete"> & { missing: string[] })
 >();
 
-/** Spara eller godkänn kartläggningen (prototypens intake.save). Vid godkännande blir valt yrkesspår ärendets yrkesspår. */
+/**
+ * Spara eller godkänn kartläggningen (prototypens intake.save). Vid godkännande blir valt yrkesspår ärendets yrkesspår. Godkännandet
+ * kräver att deltagaren har en nivå (level – Karims beslut 2026-10-22; nivån väljs i kortet Nivå och yrkesområde).
+ */
 export const intakeSave = command("coach.intakeSave", z.object({
   caseId: IdSchema,
   data: z.object({
@@ -232,7 +235,7 @@ export const intakeSave = command("coach.intakeSave", z.object({
   }).partial().optional(),
   approve: z.boolean().optional(),
   ...AutosaveFields,
-}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict">>();
+}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, GRUPPER, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict" | "level">>();
 
 /** Registrera en händelse/ett utfall (prototypens event.add). Arbete påbörjat markeras som möjligt bonusunderlag. */
 export const eventAdd = command("coach.eventAdd", z.object({
@@ -255,7 +258,7 @@ export const resultVerify = command("coach.resultVerify", z.object({
   caseId: IdSchema,
   verificationKind: ShortText,
   file: ShortText.nullable().optional(),
-}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
+}), { invalidates: [COACH, CASES, PORTAL, REPORTS, MGMT, INBOX, "praktik.", "admin.contract", NAV, GRUPPER, ...LOG] }).returns<Result<{ finalDelivered: boolean; finalReportId: string | null }, "not_found" | "forbidden">>();
 /** Visas när verifieringen registreras efter att slutrapporten levererats (se resultVerify). */
 export const FINAL_DELIVERED_VERIFY_TEXT =
   "Slutrapporten är redan levererad till kommunen. Rätta slutrapporten så att verifieringen kommer med i rapporten och i kommunens resultatfil.";

@@ -2,7 +2,7 @@
 import { z } from "zod";
 import type { TodayGroupActivity } from "../aktiviteter/api";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS } from "@/api/invalidation";
+import { NAV, LOG, CARD, CASES, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, GRUPPER } from "@/api/invalidation";
 import type { SlaStatus } from "@/core/sla";
 import { INBOUND_EMAIL_STATUSES, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, type EmailClassification, type ParseMethod } from "@/data/schema";
 import type { IconName } from "@/ui/icons";
@@ -28,7 +28,7 @@ export const emailSetStatus = command("inkorg.emailSetStatus", z.object({
  */
 export const emailApplySupplement = command("inkorg.emailApplySupplement", z.object({
   emailId: IdSchema,
-}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ fields: string[] }, "not_found">>();
+}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, GRUPPER, ...LOG] }).returns<Result<{ fields: string[] }, "not_found">>();
 
 // ---- Området inkorg: samordnarens och avtalsansvarigs Min vecka (inkorg.start – /min-vecka, /start leder dit),
 // avropsinkorgen (/inkorg/:emailId?) och förfaller (/forfaller)
@@ -347,7 +347,7 @@ export const inboxRegister = command("inkorg.register", z.object({
   background: z.string().max(4000),
   buyerReference: z.string().max(40),
   attachmentIds: z.array(IdSchema).max(10),
-}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   Result<{ caseId: string; caseNumber: string; emailId: string }, "received_at" | "email" | "referrer" | "pnr" | "area" | "buyer_ref" | "order_period" | "duplicate" | "attachments" | "no_contract" | "not_found">
 >();
 
@@ -433,7 +433,7 @@ export const inboxCorrect = command("inkorg.correct", z.object({
     buyerReference: z.string().max(40).nullable(),
   }).partial(),
   checked: z.array(z.enum(ORDER_FIELDS)).max(ORDER_FIELDS.length),
-}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden" | "order_period">>();
+}), { invalidates: [INBOX, CASES, PORTAL, BILLING, REPORTS, MGMT, NAV, GRUPPER, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "buyer_ref" | "forbidden" | "order_period">>();
 
 /** Markera en uppgift till rollen som klar (prototypens ink.taskDone). */
 // inkorg.confirmation: en klarmarkerad uppgift att ringa deltagaren (participant_contact) försvinner ur bekräftelsens kallelse.

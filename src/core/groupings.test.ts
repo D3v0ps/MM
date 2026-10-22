@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Grouping, GroupingMember } from "@/data/schema";
 import {
-  caseGroupings, defaultGroupings, DEFAULT_LEVELS, groupingIdsByCase, groupingNameError, matchesGroupingFilter, planCaseGroupings, sameName, slotOf, WANTS_WORK_CATEGORY,
+  caseGroupings, defaultGroupings, DEFAULT_LEVELS, groupingFilterOptions, groupingIdsByCase, groupingNameError, levelHistory, matchesGroupingFilter, nextLevelId, planCaseGroupings,
+  sameName, slotOf, WANTS_WORK_CATEGORY, yrkesomradeFilterOptions,
 } from "./groupings";
 
 const at = "2027-02-01T09:12";
@@ -40,55 +41,105 @@ describe("standardvärden och plats", () => {
 });
 
 describe("planCaseGroupings – en nivå per ärende, en tagg per kategori, arkiverade kan inte väljas", () => {
+  // c1 har en gammal grupp (g-1, historik från före 2026-10-22) – den rörs aldrig av planen.
   const current = [member("c1", L(2)), member("c1", "g-1"), member("c1", W("heltid")), member("c1", "t-k1"), member("c1", L(1), true)];
 
   it("byter nivå: den gamla tas bort och den nya läggs till – aldrig två aktiva", () => {
-    const r = planCaseGroupings(current, { levelId: L(4), groupIds: ["g-1"], tags: { [WANTS_WORK_CATEGORY]: W("heltid") } }, all);
+    const r = planCaseGroupings(current, { levelId: L(4), tags: { [WANTS_WORK_CATEGORY]: W("heltid") } }, all);
     expect(r.ok && { add: r.plan.add.map((g) => g.id), remove: r.plan.remove.map((m) => m.groupingId) }).toEqual({ add: [L(4)], remove: [L(2)] });
   });
   it("byter värde i en taggkategori och lämnar andra kategorier orörda", () => {
-    const r = planCaseGroupings(current, { levelId: L(2), groupIds: ["g-1"], tags: { [WANTS_WORK_CATEGORY]: W("deltid") } }, all);
+    const r = planCaseGroupings(current, { levelId: L(2), tags: { [WANTS_WORK_CATEGORY]: W("deltid") } }, all);
     expect(r.ok && { add: r.plan.add.map((g) => g.id), remove: r.plan.remove.map((m) => m.groupingId) }).toEqual({ add: [W("deltid")], remove: [W("heltid")] });
   });
-  it("inget värde i kategorin tar bort taggen; ingen nivå tar bort nivån; grupperna styrs av listan", () => {
-    const r = planCaseGroupings(current, { levelId: null, groupIds: ["g-2"], tags: { [WANTS_WORK_CATEGORY]: null } }, all);
-    expect(r.ok && { add: r.plan.add.map((g) => g.id), remove: r.plan.remove.map((m) => m.groupingId).sort() }).toEqual({ add: ["g-2"], remove: [L(2), "g-1", W("heltid")].sort() });
+  it("inget värde i kategorin tar bort taggen; gamla grupper rörs aldrig", () => {
+    const r = planCaseGroupings(current, { levelId: L(2), tags: { [WANTS_WORK_CATEGORY]: null } }, all);
+    expect(r.ok && { add: r.plan.add.map((g) => g.id), remove: r.plan.remove.map((m) => m.groupingId).sort() }).toEqual({ add: [], remove: [W("heltid")] });
   });
-  it("en arkiverad grupp kan inte väljas – men den som redan är med får vara kvar", () => {
-    expect(planCaseGroupings(current, { levelId: L(2), groupIds: ["g-old"], tags: {} }, all)).toEqual({ ok: false, error: "archived", groupingId: "g-old" });
-    const withOld = [...current, member("c1", "g-old")];
-    const r = planCaseGroupings(withOld, { levelId: L(2), groupIds: ["g-1", "g-old"], tags: {} }, all);
+  it("en arkiverad tagg kan inte väljas – men den som redan har den får behålla den", () => {
+    const old = tag("t-old", "Körkort", "Gammalt");
+    const withOld = [...all, { ...old, archivedAt: at, archivedBy: "u-sara" }];
+    expect(planCaseGroupings(current, { levelId: L(2), tags: { Körkort: "t-old" } }, withOld)).toEqual({ ok: false, error: "archived", groupingId: "t-old" });
+    const byIdOld = new Map(withOld.map((g) => [g.id, g]));
+    const has = [...current.filter((m) => m.groupingId !== "t-k1"), { ...member("c1", "t-k1"), id: "m-old", groupingId: "t-old", slot: slotOf(byIdOld.get("t-old")!) }];
+    const r = planCaseGroupings(has, { levelId: L(2), tags: { Körkort: "t-old" } }, withOld);
     expect(r.ok && r.plan).toEqual({ add: [], remove: [] });
   });
-  it("fel typ, fel kategori och okänd gruppering nekas", () => {
-    expect(planCaseGroupings([], { levelId: "g-1", groupIds: [], tags: {} }, all)).toMatchObject({ ok: false, error: "wrong_kind" });
-    expect(planCaseGroupings([], { levelId: null, groupIds: [L(1)], tags: {} }, all)).toMatchObject({ ok: false, error: "wrong_kind" });
-    expect(planCaseGroupings([], { levelId: null, groupIds: [], tags: { [WANTS_WORK_CATEGORY]: "t-k1" } }, all)).toMatchObject({ ok: false, error: "wrong_category" });
-    expect(planCaseGroupings([], { levelId: "finns-inte", groupIds: [], tags: {} }, all)).toMatchObject({ ok: false, error: "unknown" });
+  it("fel typ, fel kategori och okänd gruppering nekas – en fri grupp kan aldrig väljas som nivå", () => {
+    expect(planCaseGroupings([], { levelId: "g-1", tags: {} }, all)).toMatchObject({ ok: false, error: "wrong_kind" });
+    expect(planCaseGroupings([], { levelId: null, tags: { [WANTS_WORK_CATEGORY]: "t-k1" } }, all)).toMatchObject({ ok: false, error: "wrong_category" });
+    expect(planCaseGroupings([], { levelId: null, tags: { Körkort: "g-2" } }, all)).toMatchObject({ ok: false, error: "wrong_kind" });
+    expect(planCaseGroupings([], { levelId: "finns-inte", tags: {} }, all)).toMatchObject({ ok: false, error: "unknown" });
   });
-  it("samma läge igen ändrar ingenting (dubbletter i listan räknas en gång)", () => {
-    const r = planCaseGroupings(current, { levelId: L(2), groupIds: ["g-1", "g-1"], tags: { [WANTS_WORK_CATEGORY]: W("heltid"), Körkort: "t-k1" } }, all);
+  it("samma läge igen ändrar ingenting", () => {
+    const r = planCaseGroupings(current, { levelId: L(2), tags: { [WANTS_WORK_CATEGORY]: W("heltid"), Körkort: "t-k1" } }, all);
     expect(r.ok && r.plan).toEqual({ add: [], remove: [] });
   });
 });
 
-describe("ärendets nivå, grupper och taggar, och filtret", () => {
+describe("ärendets nivå och taggar, och filtret", () => {
   const members = [member("c1", L(3)), member("c1", "g-2"), member("c1", "g-1"), member("c1", W("deltid")), member("c1", "g-old", true), member("c2", L(5))];
-  it("bara aktiva medlemskap, i grupperingarnas ordning", () => {
+  it("bara aktiva medlemskap, i grupperingarnas ordning – gamla fria grupper visas aldrig", () => {
     expect(caseGroupings("c1", members, all)).toEqual({
       level: { id: L(3), name: DEFAULT_LEVELS[2] },
-      groups: [{ id: "g-2", name: "Lager" }, { id: "g-1", name: "Måndagsgruppen" }],
       tags: [{ id: W("deltid"), category: WANTS_WORK_CATEGORY, name: "Deltid" }],
     });
-    expect(caseGroupings("c3", members, all)).toEqual({ level: null, groups: [], tags: [] });
+    expect(caseGroupings("c3", members, all)).toEqual({ level: null, tags: [] });
   });
-  it("filtret kombinerar nivå, grupp och tagg – borttagna räknas inte", () => {
+  it("filtret kombinerar nivå och tagg – borttagna och gamla grupper räknas inte", () => {
     const idx = groupingIdsByCase(members);
-    expect(matchesGroupingFilter(idx.get("c1"), { level: L(3), group: "g-1", tag: W("deltid") })).toBe(true);
-    expect(matchesGroupingFilter(idx.get("c1"), { level: L(3), group: "g-old" })).toBe(false);
+    expect(matchesGroupingFilter(idx.get("c1"), { level: L(3), tag: W("deltid") })).toBe(true);
+    expect(idx.get("c1")?.has("g-1")).toBe(false);
     expect(matchesGroupingFilter(idx.get("c2"), { level: L(3) })).toBe(false);
     expect(matchesGroupingFilter(idx.get("c3"), {})).toBe(true);
     expect(matchesGroupingFilter(undefined, { tag: W("deltid") })).toBe(false);
+  });
+  it("filtrets val: nivåer och taggar – aldrig grupper", () => {
+    const o = groupingFilterOptions(all, [{ id: "c-bot", casePrefix: "BOT" }]);
+    expect(Object.keys(o).sort()).toEqual(["levels", "tags"]);
+    expect(o.levels.map((x) => x.id)).toEqual([1, 2, 3, 4, 5].map(L));
+    expect(o.tags.map((x) => x.name)).toContain("Vill arbeta: Heltid");
+  });
+});
+
+describe("filtret Yrkesområde – grupperna är yrkesområdena (Karims beslut 2026-10-22)", () => {
+  const areas = [
+    { contractId: "c-bot", code: "G", name: "Lager och logistik", active: true },
+    { contractId: "c-bot", code: "A", name: "Administration", active: true },
+    { contractId: "c-bot", code: "Z", name: "Gammalt", active: false },
+    { contractId: "c-annat", code: "A", name: "Kontor", active: true },
+  ];
+  it("avtalets aktiva avtalsområden i bokstavsordning som \"G – Lager och logistik\"", () => {
+    expect(yrkesomradeFilterOptions(areas, [{ id: "c-bot", casePrefix: "BOT" }])).toEqual([
+      { code: "A", name: "A – Administration" }, { code: "G", name: "G – Lager och logistik" },
+    ]);
+  });
+  it("med fler avtal står prefixet efter namnet, och samma kod blir ett val", () => {
+    expect(yrkesomradeFilterOptions(areas, [{ id: "c-bot", casePrefix: "BOT" }, { id: "c-annat", casePrefix: "ANN" }])).toEqual([
+      { code: "A", name: "A – Administration (BOT) / A – Kontor (ANN)" }, { code: "G", name: "G – Lager och logistik (BOT)" },
+    ]);
+  });
+});
+
+describe("nivån: höja, byta och historiken (Karims beslut 2026-10-22)", () => {
+  it("Höj nivå: nästa nivå i ordningen – ingen på nivå 5 och ingen utan nivå", () => {
+    expect(nextLevelId(defaults, L(1))).toBe(L(2));
+    expect(nextLevelId(defaults, L(4))).toBe(L(5));
+    expect(nextLevelId(defaults, L(5))).toBeNull();
+    expect(nextLevelId(defaults, null)).toBeNull();
+    expect(nextLevelId(defaults, "g-1")).toBeNull();
+  });
+  it("historiken: alla nivåer över tid, också borttagna, äldst först med vem som satte dem", () => {
+    const ms: GroupingMember[] = [
+      { ...member("c1", L(2)), id: "m2", addedAt: "2026-10-22T10:00", addedBy: "u-sara" },
+      { ...member("c1", L(1), true), id: "m1", addedAt: "2026-10-09T09:00", addedBy: "u-amira", removedAt: "2026-10-22T10:00" },
+      { ...member("c1", W("heltid")), id: "m3" },
+      { ...member("c2", L(4)), id: "m4" },
+    ];
+    expect(levelHistory("c1", ms, all, new Map([["u-amira", "Amira"], ["u-sara", "Sara"]]))).toEqual([
+      { levelId: L(1), name: DEFAULT_LEVELS[0], from: "2026-10-09T09:00", until: "2026-10-22T10:00", byName: "Amira" },
+      { levelId: L(2), name: DEFAULT_LEVELS[1], from: "2026-10-22T10:00", until: null, byName: "Sara" },
+    ]);
   });
 });
 

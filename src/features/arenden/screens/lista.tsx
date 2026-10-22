@@ -78,10 +78,9 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const coach = model.coaches.some((u) => u.id === query.get("coach")) ? (query.get("coach") as string) : "";
   const area = model.areas.some((a) => a.code === query.get("omrade")) ? (query.get("omrade") as string) : "";
   const phase = model.phases.some((p) => String(p.no) === query.get("fas")) ? (query.get("fas") as string) : "";
-  // Nivå, grupp och tagg (internt, coachmötet 2026-10-09) – bara id:n i adressen.
+  // Nivå och tagg (internt, coachmötet 2026-10-09) – bara id:n i adressen. Gruppen är yrkesområdet (?omrade=, Karims beslut 2026-10-22).
   const G = model.groupings;
   const level = G.levels.some((g) => g.id === query.get("niva")) ? (query.get("niva") as string) : "";
-  const group = G.groups.some((g) => g.id === query.get("grupp")) ? (query.get("grupp") as string) : "";
   const tag = G.tags.some((g) => g.id === query.get("tagg")) ? (query.get("tagg") as string) : "";
   const onlyFlags = query.get("flaggor") === "1";
   const onlyUnread = query.get("olasta") === "1";
@@ -95,7 +94,6 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
   const setArea = (v: string) => patch({ omrade: v || null, visa: null });
   const setPhase = (v: string) => patch({ fas: v || null, visa: null });
   const setLevel = (v: string) => patch({ niva: v || null, visa: null });
-  const setGroup = (v: string) => patch({ grupp: v || null, visa: null });
   const setTag = (v: string) => patch({ tagg: v || null, visa: null });
   const setOnlyFlags = (v: boolean) => patch({ flaggor: v, visa: null });
   const setOnlyUnread = (v: boolean) => patch({ olasta: v, visa: null });
@@ -117,7 +115,7 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       if (coach && c.detail?.leadCoachId !== coach) return false;
       if (area && c.detail?.areaCode !== area) return false;
       if (phase && String(c.detail?.phase) !== phase) return false;
-      if ((level || group || tag) && !matchesGroupingFilter(new Set(c.detail.groupingIds), { level, group, tag })) return false;
+      if ((level || tag) && !matchesGroupingFilter(new Set(c.detail.groupingIds), { level, tag })) return false;
       if (needle && !norm(`${c.caseNumber} ${c.displayName}`).includes(needle)) return false;
       return true;
     });
@@ -128,10 +126,10 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
       nummer: (a, b) => (a.caseNumber < b.caseNumber ? -1 : 1),
     };
     return out.sort(sorters[sort] ?? newest);
-  }, [all, status, onlyFlags, onlyUnread, coach, area, phase, level, group, tag, needle, sort]);
+  }, [all, status, onlyFlags, onlyUnread, coach, area, phase, level, tag, needle, sort]);
   const shown = rows.slice(0, limit);
-  const anyFilter = !!(q || status !== defaultStatus || scope !== defaultScope || coach || area || phase || level || group || tag || onlyFlags || onlyUnread);
-  const nFilters = [status !== defaultStatus, scope !== defaultScope, coach, area, phase, level, group, tag, onlyFlags, onlyUnread].filter(Boolean).length;
+  const anyFilter = !!(q || status !== defaultStatus || scope !== defaultScope || coach || area || phase || level || tag || onlyFlags || onlyUnread);
+  const nFilters = [status !== defaultStatus, scope !== defaultScope, coach, area, phase, level, tag, onlyFlags, onlyUnread].filter(Boolean).length;
   const clear = () => {
     setQ("");
     patch({ status: null, vilka: null, coach: null, omrade: null, fas: null, niva: null, grupp: null, tagg: null, flaggor: null, olasta: null, visa: null });
@@ -197,8 +195,8 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
               <Select value={coach} onValueChange={setCoach} placeholder="Alla coacher" options={model.coaches.map((u) => ({ value: u.id, label: u.name }))} />
             </Field>
           )}
-          <Field label="Avtalsområde" id="arn-area">
-            <Select value={area} onValueChange={setArea} placeholder="Alla områden" options={model.areas.map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }))} />
+          <Field label="Yrkesområde" id="arn-area">
+            <Select value={area} onValueChange={setArea} placeholder="Alla yrkesområden" options={model.areas.map((a) => ({ value: a.code, label: `${a.code} – ${a.name}` }))} />
           </Field>
           <Field label="Fas" id="arn-phase">
             <Select value={phase} onValueChange={setPhase} placeholder="Alla faser" options={model.phases.map((p) => ({ value: String(p.no), label: `Fas ${p.no} · ${p.name}` }))} />
@@ -206,11 +204,6 @@ function List({ model, query }: { model: CaseListModel; query: URLSearchParams }
           {G.levels.length > 0 && (
             <Field label="Nivå" id="arn-niva">
               <Select value={level} onValueChange={setLevel} placeholder="Alla nivåer" options={G.levels.map((g) => ({ value: g.id, label: g.name }))} />
-            </Field>
-          )}
-          {G.groups.length > 0 && (
-            <Field label="Grupp" id="arn-grupp">
-              <Select value={group} onValueChange={setGroup} placeholder="Alla grupper" options={G.groups.map((g) => ({ value: g.id, label: g.name }))} />
             </Field>
           )}
           {G.tags.length > 0 && (

@@ -1,26 +1,38 @@
-// Hanterare för området grupper: nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
-// Allt läses och skrivs via ctx.repo – policyn (minnet) och RLS (0031) avgör vad rollen ser och får ändra; hanterarna ger
-// begripliga fel innan. ctx.system bara för behörighetsuppslaget (accessSourceFor: flaggor och id:n).
-// Revisionsloggen får bara id:n och typ – aldrig namnen på grupperna eller anteckningarnas text.
+// Hanterare för området grupper: yrkesområden, nivåer och taggar och massanteckningar (coachmötet 2026-10-09; Karims beslut
+// 2026-10-22). Allt läses och skrivs via ctx.repo – policyn (minnet) och RLS (0031, 0035) avgör vad rollen ser och får ändra;
+// hanterarna ger begripliga fel innan. ctx.system bara för behörighetsuppslaget (accessSourceFor: flaggor och id:n) och den
+// automatiska inbjudan efter en ny nivå (syncAudienceInvites – ett systemsteg).
+// Grupperna är yrkesområdena: deltagarens grupp är ärendets yrkesområde (cases.primaryAreaCode). Fria grupper kan inte skapas,
+// väljas eller återställas (felet group). Nivån: exakt en åt gången – höjs eller byts, tas aldrig bort.
+// Revisionsloggen får bara id:n och typ – aldrig namnen på nivåerna, taggarna eller anteckningarnas text.
 // Inget här skickas till AI, till kommunen, till rapporter eller exporter (Karims beslut 3).
 import { fail, ok } from "@/api/contract";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import type { Role } from "@/api/roles";
 import { caseAccessIn, displayName, type AccessSource, type CaseAccess } from "@/core/access";
+import { areaLabel } from "@/core/audience";
 import { isOperational } from "@/core/config";
 import {
-  activeMembers, byOrder, CASE_GROUPING_ERROR_TEXT, caseGroupings, defaultGroupings, groupingCategoryError, groupingDescriptionError, groupingNameError, GROUPING_READERS,
-  GROUPING_MEMBER_WRITERS, GROUPING_WRITERS, groupingFilterOptions, groupingIdsByCase, planCaseGroupings, sameName, slotOf,
+  activeMembers, byOrder, CASE_GROUPING_ERROR_TEXT, caseGroupings, defaultGroupings, FREE_GROUPS_REMOVED_TEXT, groupingCategoryError, groupingDescriptionError, groupingNameError,
+  GROUPING_READERS, GROUPING_MEMBER_WRITERS, GROUPING_WRITERS, groupingFilterOptions, groupingIdsByCase, LEVEL_KEPT_TEXT, levelHistory, nextLevelId, planCaseGroupings, sameName,
+  slotOf, yrkesomradeFilterOptions,
 } from "@/core/groupings";
-import { dayOf, fmtDate } from "@/core/time";
+import { seriesScheduleText } from "@/core/group-series";
+import { addMonths, dayOf, fmtDate, monthKey } from "@/core/time";
 import { looksLikePnr } from "@/core/validation";
 import { UniqueError } from "@/data/repo";
 import type { Case, Contract, Grouping, GroupingMember } from "@/data/schema";
+import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import { sha256Hex } from "../rost/sha256";
 import { accessSourceFor } from "../rapporter/load";
 import {
-  caseGroupingsSave, caseGroupingsView, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingFilterData, groupingRename, MASS_NOTE_ROLES, massNotePage,
-  massNoteSave, type GroupingCatalog, type GroupingFilterData, type GroupingOption, type MassNoteRow, type TagCategory,
+  caseGroupingsSave, caseGroupingsView, caseLevelRaise, caseLevelSet, groupingArchive, groupingCatalog, groupingCreate, groupingDefaults, groupingFilterData, groupingOverview,
+  groupingRename, MASS_NOTE_ROLES, massNotePage, massNoteSave, type GroupingCatalog, type GroupingFilterData, type GroupingOption, type GroupingOverview, type LevelChange,
+  type MassNoteRow, type OverviewMember, type TagCategory,
 } from "./api";
+
+/** De som skapar gruppaktiviteter (aktiviteter.skapa) – knappen Planera på översikten. */
+const ACTIVITY_PLANNERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach"];
 
 // ---------------------------------------------------------------- Hjälpare
 /**
@@ -44,14 +56,13 @@ const option = (g: Grouping, counts: Map<string, number>): GroupingOption => ({
   id: g.id, name: g.name, description: g.description, archived: g.archivedAt != null, members: counts.get(g.id) ?? 0,
 });
 
-/** Nivåer, grupper och taggar (per kategori) i ordning. keep: arkiverade som ska följa med (t.ex. de ärendet har). */
+/** Nivåer och taggar (per kategori) i ordning. keep: arkiverade som ska följa med (t.ex. de ärendet har). Gamla grupper aldrig. */
 function catalogOf(groupings: readonly Grouping[], counts: Map<string, number>, keep: (g: Grouping) => boolean) {
-  const shown = groupings.filter(keep).slice().sort(byOrder);
+  const shown = groupings.filter((g) => g.kind !== "group" && keep(g)).slice().sort(byOrder);
   const tags = new Map<string, Grouping[]>();
   for (const g of shown.filter((x) => x.kind === "tag")) tags.set(g.category ?? "", [...(tags.get(g.category ?? "") ?? []), g]);
   return {
     levels: shown.filter((g) => g.kind === "level").map((g) => option(g, counts)),
-    groups: shown.filter((g) => g.kind === "group").map((g) => option(g, counts)),
     tags: [...tags.entries()].sort(([a], [b]) => a.localeCompare(b, "sv")).map(([category, values]): TagCategory => ({ category, values: values.map((g) => option(g, counts)) })),
   };
 }
@@ -67,18 +78,32 @@ function countByGrouping(members: readonly GroupingMember[], openCaseIds: Readon
 }
 
 async function buildCatalog(ctx: Ctx, contract: Contract, contracts: readonly Contract[], withArchived: boolean): Promise<GroupingCatalog> {
-  const [gs, ms, open] = await Promise.all([
+  const [gs, ms, open, areas] = await Promise.all([
     ctx.repo.table("groupings").list({ contractId: contract.id }),
     ctx.repo.table("grouping_members").list({ contractId: contract.id, removedAt: { isNull: true } }),
-    ctx.repo.table("cases").pick(["status"], { contractId: contract.id, status: { in: OPEN_STATUSES } }),
+    ctx.repo.table("cases").pick(["status", "primaryAreaCode"], { contractId: contract.id, status: { in: OPEN_STATUSES } }),
+    ctx.repo.table("contract_areas").list({ contractId: contract.id, active: true }),
   ]);
+  const perArea = new Map<string, number>();
+  for (const c of open) if (c.primaryAreaCode) perArea.set(c.primaryAreaCode, (perArea.get(c.primaryAreaCode) ?? 0) + 1);
   return {
     contractId: contract.id,
     contracts: contractChoices(contracts),
     canEdit: GROUPING_WRITERS.includes(ctx.actor.role),
     ...catalogOf(gs, countByGrouping(ms, new Set(open.map((c) => c.id))), (g) => withArchived || g.archivedAt == null),
+    areas: areas.sort((a, b) => a.code.localeCompare(b.code, "sv")).map((a) => ({ code: a.code, name: areaLabel(a.code, a.name), members: perArea.get(a.code) ?? 0 })),
     missingDefaults: !gs.some((g) => g.kind === "level"),
   };
+}
+
+/** Namnen på användare (profiles) via behörigheten – nivåhistoriken. */
+async function profileNames(ctx: Ctx, ids: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const id of new Set(ids)) {
+    const p = await ctx.repo.table("profiles").get(id);
+    if (p) out.set(id, p.fullName);
+  }
+  return out;
 }
 
 /** Ärendet och aktörens åtkomst (via ctx.repo – null om rollen inte ser ärendet). */
@@ -98,7 +123,9 @@ handleQuery(groupingCatalog, { roles: GROUPING_READERS }, async (ctx, p): Promis
 
 // ---------------------------------------------------------------- grupper.ny / andra / arkivera / standard
 handleCommand(groupingCreate, { roles: GROUPING_WRITERS }, async (ctx, p) => {
-  // I ett ärende (kortet Nivå och grupp): ärendets avtal – efter kontrollen att aktören arbetar i ärendet och avtalet.
+  // Fria grupper finns inte längre (Karims beslut 2026-10-22) – grupperna är yrkesområdena. Databasen nekar också (0035).
+  if (p.kind === "group") return fail("group", FREE_GROUPS_REMOVED_TEXT);
+  // I ett ärende: ärendets avtal – efter kontrollen att aktören arbetar i ärendet och avtalet.
   let contract: Contract | null;
   if (p.caseId) {
     const L = await caseWithAccess(ctx, p.caseId);
@@ -128,7 +155,8 @@ handleCommand(groupingCreate, { roles: GROUPING_WRITERS }, async (ctx, p) => {
 handleCommand(groupingRename, { roles: GROUPING_WRITERS }, async (ctx, p) => {
   const table = ctx.repo.table("groupings");
   const g = await table.get(p.id);
-  if (!g) return fail("not_found", "Nivån, gruppen eller taggen finns inte längre.");
+  if (!g) return fail("not_found", "Nivån eller taggen finns inte längre.");
+  if (g.kind === "group") return fail("group", FREE_GROUPS_REMOVED_TEXT);
   const err = groupingNameError(p.name) ?? groupingDescriptionError(p.description);
   if (err) return fail("invalid", err);
   const name = p.name.trim();
@@ -144,9 +172,11 @@ handleCommand(groupingRename, { roles: GROUPING_WRITERS }, async (ctx, p) => {
 handleCommand(groupingArchive, { roles: GROUPING_WRITERS }, async (ctx, p) => {
   const table = ctx.repo.table("groupings");
   const g = await table.get(p.id);
-  if (!g) return fail("not_found", "Nivån, gruppen eller taggen finns inte längre.");
+  if (!g) return fail("not_found", "Nivån eller taggen finns inte längre.");
   // De fem nivåerna arkiveras inte – de byter namn (Karims beslut 3: fem nivåer).
   if (g.kind === "level") return fail("level", "Nivåerna kan inte arkiveras. Byt namn i stället.");
+  // En gammal fri grupp återställs aldrig (Karims beslut 2026-10-22, 0035).
+  if (g.kind === "group") return fail("group", FREE_GROUPS_REMOVED_TEXT);
   if ((g.archivedAt != null) === p.archived) return ok({});
   if (!p.archived) {
     const others = (await table.list({ contractId: g.contractId, kind: g.kind })).filter((x) => x.id !== g.id && x.archivedAt == null && (x.category ?? null) === (g.category ?? null));
@@ -175,13 +205,17 @@ handleQuery(groupingFilterData, { roles: GROUPING_READERS }, async (ctx): Promis
   const contracts = await actorContracts(ctx);
   if (!contracts.length) return null;
   const ids = contracts.map((c) => c.id);
-  const [gs, ms] = await Promise.all([
+  const [gs, ms, areas, cases] = await Promise.all([
     ctx.repo.table("groupings").list({ contractId: { in: ids }, archivedAt: { isNull: true } }),
     ctx.repo.table("grouping_members").list({ contractId: { in: ids }, removedAt: { isNull: true } }),
+    ctx.repo.table("contract_areas").list({ contractId: { in: ids } }),
+    ctx.repo.table("cases").pick(["primaryAreaCode"], { contractId: { in: ids } }),
   ]);
   const byCase: Record<string, string[]> = {};
   for (const [caseId, gids] of groupingIdsByCase(ms)) byCase[caseId] = [...gids];
-  return { ...groupingFilterOptions(gs, contracts), byCase };
+  const areaByCase: Record<string, string | null> = {};
+  for (const c of cases) areaByCase[c.id] = c.primaryAreaCode ?? null;
+  return { ...groupingFilterOptions(gs, contracts), areas: yrkesomradeFilterOptions(areas, contracts), byCase, areaByCase };
 });
 
 // ---------------------------------------------------------------- grupper.arende
@@ -189,16 +223,25 @@ handleQuery(caseGroupingsView, { roles: GROUPING_READERS }, async (ctx, p) => {
   const L = await caseWithAccess(ctx, p.caseId);
   if (!L || (L.access !== "full" && L.access !== "team")) return null;
   const { c, access } = L;
-  const [gs, ms] = await Promise.all([
+  const [gs, all, area] = await Promise.all([
     ctx.repo.table("groupings").list({ contractId: c.contractId }),
-    ctx.repo.table("grouping_members").list({ caseId: c.id, removedAt: { isNull: true } }),
+    // Alla nivåmedlemskap (också borttagna – nivåhistoriken) och de aktiva taggarna.
+    ctx.repo.table("grouping_members").list({ caseId: c.id }),
+    c.primaryAreaCode ? ctx.repo.table("contract_areas").first({ contractId: c.contractId, code: c.primaryAreaCode }) : Promise.resolve(null),
   ]);
+  const ms = activeMembers(all);
   const mine = new Set(ms.map((m) => m.groupingId));
+  const current = caseGroupings(c.id, ms, gs);
+  const next = nextLevelId(gs, current.level?.id ?? null);
+  const names = await profileNames(ctx, all.filter((m) => m.kind === "level").map((m) => m.addedBy));
   return {
     caseId: c.id,
     today: dayOf(ctx.now()),
     canEdit: GROUPING_MEMBER_WRITERS.includes(ctx.actor.role) && access === "full",
-    current: caseGroupings(c.id, ms, gs),
+    current,
+    area: c.primaryAreaCode ? areaLabel(c.primaryAreaCode, area?.name ?? "") : null,
+    nextLevel: next ? { id: next, name: gs.find((g) => g.id === next)?.name ?? "" } : null,
+    levelHistory: levelHistory(c.id, all, gs, names).map((h) => ({ name: h.name, from: h.from, until: h.until, byName: h.byName })),
     options: catalogOf(gs, new Map(), (g) => g.archivedAt == null || mine.has(g.id)),
   };
 });
@@ -207,13 +250,17 @@ handleQuery(caseGroupingsView, { roles: GROUPING_READERS }, async (ctx, p) => {
 handleCommand(caseGroupingsSave, { roles: GROUPING_MEMBER_WRITERS }, async (ctx, p) => {
   const L = await caseWithAccess(ctx, p.caseId);
   if (!L || L.access === "none" || L.access === "restricted") return fail("not_found", "Ärendet finns inte, eller så har du inte behörighet att se det.");
-  if (L.access !== "full") return fail("forbidden", "Du kan inte ändra nivå, grupper eller taggar i det här ärendet.");
+  if (L.access !== "full") return fail("forbidden", "Du kan inte ändra nivå eller taggar i det här ärendet.");
+  // Fria grupper finns inte längre (Karims beslut 2026-10-22) – grupperna är yrkesområdena.
+  if (p.groupIds?.length) return fail("group", FREE_GROUPS_REMOVED_TEXT);
   const { c } = L;
   const [gs, current] = await Promise.all([
     ctx.repo.table("groupings").list({ contractId: c.contractId }),
     ctx.repo.table("grouping_members").list({ caseId: c.id, removedAt: { isNull: true } }),
   ]);
-  const plan = planCaseGroupings(current, { levelId: p.levelId, groupIds: p.groupIds, tags: p.tags }, gs);
+  // Exakt en nivå åt gången: en satt nivå byts, den tas inte bort.
+  if (!p.levelId && current.some((m) => m.kind === "level")) return fail("level", LEVEL_KEPT_TEXT);
+  const plan = planCaseGroupings(current, { levelId: p.levelId, tags: p.tags }, gs);
   if (!plan.ok) return fail(plan.error, CASE_GROUPING_ERROR_TEXT[plan.error]);
   const table = ctx.repo.table("grouping_members");
   const now = ctx.now();
@@ -256,7 +303,147 @@ handleCommand(caseGroupingsSave, { roles: GROUPING_MEMBER_WRITERS }, async (ctx,
     if (e instanceof UniqueError) return fail("conflict", "Någon annan ändrade samtidigt. Ladda om sidan och försök igen.");
     throw e;
   }
+  // En ny nivå: deltagaren bjuds in till nivåns kommande aktiviteter och tas bort ur den gamla nivåns (Karims beslut 2026-10-22).
+  if ([...plan.plan.add, ...plan.plan.remove].some((x) => x.kind === "level")) await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
   return ok({ added: plan.plan.add.length, removed: plan.plan.remove.length, savedAt: now });
+});
+
+// ---------------------------------------------------------------- grupper.nivaHoj / grupper.nivaByt
+/**
+ * Byt ärendets nivå till target (den aktuella tas bort, den nya läggs till – i den ordningen, så att det unika indexet aldrig
+ * krockar). Allt eller inget: misslyckas den nya läggs den gamla tillbaka. Loggas som grouping_member.removed/added (id:n och typ).
+ * Därefter bjuds deltagaren in till den nya nivåns kommande aktiviteter och tas bort ur den gamlas (systemsteget syncAudienceInvites).
+ */
+async function changeLevel(ctx: Ctx, c: Case, current: GroupingMember | null, target: Grouping): Promise<LevelChange | "conflict"> {
+  const table = ctx.repo.table("grouping_members");
+  const now = ctx.now();
+  const me = ctx.actor.userId;
+  const log = (action: string, m: Pick<GroupingMember, "id" | "groupingId" | "kind">) =>
+    ctx.audit({ action, entity: "grouping_member", entityId: m.id, contractId: c.contractId, details: { caseId: c.id, groupingId: m.groupingId, kind: m.kind } });
+  const member = (g: Pick<Grouping, "id" | "kind" | "category">): GroupingMember => ({
+    id: ctx.newId("gm"), contractId: c.contractId, caseId: c.id, groupingId: g.id, kind: g.kind, slot: slotOf(g), addedAt: now, addedBy: me, removedAt: null, removedBy: null,
+  });
+  // Villkorat: bara om nivån fortfarande är den skärmen visade (en samtidig ändring ger conflict).
+  if (current && !(await table.updateIf(current.id, { removedAt: { isNull: true } }, { removedAt: now, removedBy: me }))) return "conflict";
+  if (current) await log("grouping_member.removed", current);
+  const m = member(target);
+  try {
+    await table.insert(m);
+  } catch (e) {
+    // Tillbaka till den gamla nivån (en ny rad – borttagna ändras aldrig tillbaka), så att ärendet inte står utan nivå.
+    if (current) {
+      const back = member({ id: current.groupingId, kind: "level", category: null });
+      await table.insert(back).then(() => log("grouping_member.added", back)).catch(() => undefined);
+    }
+    if (e instanceof UniqueError) return "conflict";
+    throw e;
+  }
+  await log("grouping_member.added", m);
+  const sync = await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
+  return { levelId: target.id, levelName: target.name, savedAt: now, invited: sync.added, removed: sync.removed };
+}
+
+const CONFLICT_TEXT = "Någon annan ändrade nivån samtidigt. Ladda om sidan och försök igen.";
+const NO_CASE = "Ärendet finns inte, eller så har du inte behörighet att se det.";
+
+handleCommand(caseLevelRaise, { roles: GROUPING_MEMBER_WRITERS }, async (ctx, p) => {
+  const L = await caseWithAccess(ctx, p.caseId);
+  if (!L || L.access === "none" || L.access === "restricted") return fail("not_found", NO_CASE);
+  if (L.access !== "full") return fail("forbidden", "Du kan inte ändra nivån i det här ärendet.");
+  const [gs, current] = await Promise.all([
+    ctx.repo.table("groupings").list({ contractId: L.c.contractId, kind: "level" }),
+    ctx.repo.table("grouping_members").first({ caseId: L.c.id, kind: "level", removedAt: { isNull: true } }),
+  ]);
+  if (!current) return fail("no_level", "Deltagaren har ingen nivå än. Nivån väljs i kartläggningen.");
+  if (current.groupingId !== p.fromLevelId) return fail("conflict", CONFLICT_TEXT);
+  const next = nextLevelId(gs, current.groupingId);
+  if (!next) return fail("top", "Deltagaren är redan på den högsta nivån.");
+  const res = await changeLevel(ctx, L.c, current, gs.find((g) => g.id === next)!);
+  return res === "conflict" ? fail("conflict", CONFLICT_TEXT) : ok(res);
+});
+
+handleCommand(caseLevelSet, { roles: GROUPING_MEMBER_WRITERS }, async (ctx, p) => {
+  const L = await caseWithAccess(ctx, p.caseId);
+  if (!L || L.access === "none" || L.access === "restricted") return fail("not_found", NO_CASE);
+  if (L.access !== "full") return fail("forbidden", "Du kan inte ändra nivån i det här ärendet.");
+  const [target, current] = await Promise.all([
+    ctx.repo.table("groupings").get(p.levelId),
+    ctx.repo.table("grouping_members").first({ caseId: L.c.id, kind: "level", removedAt: { isNull: true } }),
+  ]);
+  if (!target || target.contractId !== L.c.contractId) return fail("unknown", CASE_GROUPING_ERROR_TEXT.unknown);
+  if (target.kind !== "level") return fail("wrong_kind", target.kind === "group" ? FREE_GROUPS_REMOVED_TEXT : CASE_GROUPING_ERROR_TEXT.wrong_kind);
+  if (target.archivedAt) return fail("archived", CASE_GROUPING_ERROR_TEXT.archived);
+  if ((current?.groupingId ?? null) !== p.fromLevelId) return fail("conflict", CONFLICT_TEXT);
+  if (current?.groupingId === target.id) return fail("same", "Deltagaren har redan den nivån.");
+  const res = await changeLevel(ctx, L.c, current, target);
+  return res === "conflict" ? fail("conflict", CONFLICT_TEXT) : ok(res);
+});
+
+// ---------------------------------------------------------------- grupper.oversikt
+handleQuery(groupingOverview, { roles: GROUPING_READERS }, async (ctx, p): Promise<GroupingOverview | null> => {
+  const contracts = await actorContracts(ctx);
+  const contract = p.contractId ? contracts.find((c) => c.id === p.contractId) : contracts[0];
+  if (!contract) return null;
+  const now = ctx.now();
+  const today = dayOf(now);
+  const month = monthKey(today);
+  const months = [month, addMonths(month, 1)];
+  const [catalog, cases, members, meetings, series] = await Promise.all([
+    buildCatalog(ctx, contract, contracts, false),
+    ctx.repo.table("cases").list({ contractId: contract.id, status: { in: OPEN_STATUSES } }),
+    ctx.repo.table("grouping_members").list({ contractId: contract.id, kind: "level", removedAt: { isNull: true } }),
+    ctx.repo.table("group_activities").list({
+      contractId: contract.id, audience: "area", cancelledAt: { isNull: true }, startsAt: { gte: `${months[0]}-01T00:00`, lte: `${months[1]}-31T23:59` },
+    }, { orderBy: "startsAt" }),
+    ctx.repo.table("group_activity_series").list({ contractId: contract.id, endedAt: { isNull: true } }),
+  ]);
+  // Kartläggningens läge för de som saknar nivå (bara avtalets öppna ärenden).
+  const intakes = cases.length ? await ctx.repo.table("intake_assessments").pick(["caseId", "status"], { caseId: { in: cases.map((c) => c.id) } }) : [];
+  const src = await accessSourceFor(ctx, cases);
+  const persons = cases.length ? await ctx.repo.table("persons").list({ id: { in: [...new Set(cases.map((c) => c.personId))] } }) : [];
+  const personById = new Map(persons.map((x) => [x.id, x]));
+  // Vilande spärr: ett ärende där rollen inte får se personen visas inte på översikten.
+  const visible = cases
+    .map((c) => ({ c, access: caseAccessIn(c, ctx.actor, src) }))
+    .filter((x) => x.access === "full" || x.access === "team")
+    .map(({ c, access }): OverviewMember & { c: Case } => ({ c, caseId: c.id, caseNumber: c.caseNumber, name: displayName(c, personById.get(c.personId), access), status: c.status }))
+    .sort((a, b) => a.name.localeCompare(b.name, "sv") || a.caseNumber.localeCompare(b.caseNumber));
+  const levelOf = new Map(members.map((m) => [m.caseId, m.groupingId]));
+  const futureOf = new Map<string, string>();
+  const occurrences = await ctx.repo.table("group_activities").pick(["seriesId", "startsAt", "cancelledAt"], { contractId: contract.id, startsAt: { gt: now } }, { orderBy: "startsAt" });
+  for (const o of occurrences.sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1))) if (o.seriesId && !o.cancelledAt && !futureOf.has(o.seriesId)) futureOf.set(o.seriesId, o.id);
+  const levelGroupings = (await ctx.repo.table("groupings").list({ contractId: contract.id, kind: "level", archivedAt: { isNull: true } })).sort(byOrder);
+  const strip = (m: OverviewMember & { c: Case }): OverviewMember => ({ caseId: m.caseId, caseNumber: m.caseNumber, name: m.name, status: m.status });
+  const intakeOf = new Map(intakes.map((x) => [x.caseId, x.status]));
+  return {
+    contractId: contract.id,
+    contracts: catalog.contracts,
+    today,
+    months,
+    canEdit: catalog.canEdit,
+    canPlace: GROUPING_MEMBER_WRITERS.includes(ctx.actor.role),
+    canPlan: ACTIVITY_PLANNERS.includes(ctx.actor.role),
+    areas: catalog.areas.map((a) => ({
+      code: a.code, name: a.name, active: cases.filter((c) => c.status === "active" && c.primaryAreaCode === a.code).length,
+      meetings: months.map((m) => ({
+        month: m, items: meetings.filter((g) => g.audienceAreaCode === a.code && monthKey(g.startsAt) === m).map((g) => ({ id: g.id, name: g.name, startsAt: g.startsAt })),
+      })),
+    })),
+    levels: catalog.levels.map((l) => {
+      const next = nextLevelId(levelGroupings, l.id);
+      return {
+        ...l,
+        nextLevel: next ? { id: next, name: levelGroupings.find((g) => g.id === next)?.name ?? "" } : null,
+        people: visible.filter((m) => levelOf.get(m.caseId) === l.id).map(strip),
+        series: series.filter((x) => x.audienceLevelId === l.id).sort((a, b) => a.name.localeCompare(b.name, "sv"))
+          .map((x) => ({ id: x.id, name: x.name, schedule: seriesScheduleText(x.weekdays, x.startTime), nextId: futureOf.get(x.id) ?? null })),
+      };
+    }),
+    unplaced: visible.filter((m) => (m.c.status === "active" || m.c.status === "confirmed") && !levelOf.has(m.caseId))
+      .map((m) => ({ ...strip(m), intake: (intakeOf.get(m.caseId) as "draft" | "approved" | undefined) ?? "none" })),
+    tags: catalog.tags,
+    missingDefaults: catalog.missingDefaults,
+  };
 });
 
 // ---------------------------------------------------------------- grupper.anteckningar (massanteckningar)
@@ -273,10 +460,14 @@ handleQuery(massNotePage, { roles: MASS_NOTE_ROLES }, async (ctx, p) => {
   if (p.urval === "mina") {
     const team = new Set((await ctx.repo.table("case_team").list({ userId: ctx.actor.userId })).map((t) => t.caseId));
     chosen = cases.filter((c) => c.leadCoachId === ctx.actor.userId || team.has(c.id));
+  } else if (p.urval === "omrade") {
+    // Yrkesområdet (gruppen, Karims beslut 2026-10-22): ärendena med yrkesområdet.
+    if (!p.id) return { today, catalog, rows: [] };
+    chosen = cases.filter((c) => c.primaryAreaCode === p.id);
   } else {
     if (!p.id) return { today, catalog, rows: [] };
     const ms = await ctx.repo.table("grouping_members").list({ groupingId: p.id, removedAt: { isNull: true } });
-    const ids = new Set(ms.map((m) => m.caseId));
+    const ids = new Set(ms.filter((m) => m.kind !== "group").map((m) => m.caseId));
     chosen = cases.filter((c) => ids.has(c.id));
   }
   const src = await accessSourceFor(ctx, chosen);

@@ -39,7 +39,12 @@ const FIRST_MEETING = "2027-02-01T09:00";
 const PLAN = defaultWeekPlan(BOTKYRKA_CONFIG, FIRST_MEETING);
 /** Marias avrop (em-101) – ärendet som accepteras och startas. */
 const mariaCase = () => rt.raw().get("inbound_emails", "em-101")!.caseId as string;
-const activitiesOf = (caseId: string) => rt.raw().all("activities").filter((a) => a.caseId === caseId).sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
+/** Ärendets egna tillfällen (veckoplanen och enstaka) – inte raderna i gruppaktiviteterna. */
+const activitiesOf = (caseId: string) => rt.raw().all("activities").filter((a) => a.caseId === caseId && a.groupActivityId == null).sort((a, b) => (a.startsAt < b.startsAt ? -1 : 1));
+/** Ärendets rader i gruppaktiviteterna (målgruppen bjuder in automatiskt, Karims beslut 2026-10-22). */
+const groupRowsOf = (caseId: string) => rt.raw().all("activities").filter((a) => a.caseId === caseId && a.groupActivityId != null);
+/** Testdatats yrkesområdesträff för Lager och logistik (G), onsdag 17 februari 14.00. */
+const AREA_G_MEETING = "ga-traff-c-bot-g-2027-02";
 const auditActions = (caseId: string) => rt.raw().all("audit_log").filter((l) => l.entityId === caseId || (l.details as { caseId?: string })?.caseId === caseId).map((l) => l.action);
 
 /** Accepterar em-101 med Amira som huvudcoach, första möte i dag 09.00 och sex månaders omfattning (planerat slut 31 juli). */
@@ -79,6 +84,11 @@ describe("arenden.caseStart – starta insatsen", () => {
     expect(hist.at(-1)).toMatchObject({ fromStatus: "confirmed", toStatus: "active", reason: "Insatsen startad", changedBy: "u-amira" });
     const log = rt.raw().all("audit_log").find((l) => l.action === "case.started" && l.entityId === caseId)!;
     expect(log.details).toEqual({ startDate: "2027-02-01", plannedEnd: "2027-07-31", activities: 76, plan: ["måndag 09:00 möte", "tisdag 09:00 yrkesmoment", "torsdag 09:00 yrkesmoment"] });
+    // Yrkesområdet G: insatsen pågår nu, och månadens yrkesområdesträff bjuder in henne automatiskt (Karims beslut 2026-10-22).
+    // Ingen nivå än (sätts i kartläggningen) – inga nivåaktiviteter.
+    expect(groupRowsOf(caseId).map((a) => [a.groupActivityId, a.inviteSource, a.startsAt])).toEqual([[AREA_G_MEETING, "audience", "2027-02-17T14:00"]]);
+    const synced = rt.raw().all("audit_log").filter((l) => l.action === "group_activity.audience_synced" && l.entityId === AREA_G_MEETING);
+    expect(synced.at(-1)?.details).toMatchObject({ addedCaseIds: [caseId] });
   });
 
   it("kan inte startas två gånger, inte utan bokat möte och inte före första mötet", async () => {
@@ -139,6 +149,8 @@ describe("arenden.caseScheduleChange, activityAdd och activityRemove", () => {
     expect(acts[1].startsAt).toBe("2027-02-03T10:00");
     expect(rt.raw().all("attendance").filter((x) => x.caseId === caseId)).toHaveLength(1);
     expect(auditActions(caseId)).toContain("case.schedule_changed");
+    // Den nya veckoplanen rör inte gruppaktiviteterna.
+    expect(groupRowsOf(caseId).map((a) => a.groupActivityId)).toEqual([AREA_G_MEETING]);
   });
 
   it("enstaka tillfällen läggs till och tas bort – inte med registrerad närvaro, inte dubbletter, inte före startdatumet", async () => {

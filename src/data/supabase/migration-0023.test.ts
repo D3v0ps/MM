@@ -22,6 +22,8 @@ const MIGRATION = "0023_faktura_per_manad.sql";
 /** Fakturatabellerna läses inte in från testdatat – de gamla raderna läggs in nedan. Bilagorna (0024) och grupperna (0031) finns inte än. */
 const SKIP = new Set<TableName>([
   "billing_runs", "invoice_drafts", "invoice_lines", "invoice_credits", "fortnox_runs", "billing_week_approvals", "case_attachments", "groupings", "grouping_members",
+  // Gruppaktiviteterna (0030) och de återkommande aktiviteterna (0035) finns inte än.
+  "group_activity_series", "group_activities",
 ]);
 
 let db: PGlite;

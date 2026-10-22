@@ -30,6 +30,7 @@ import { notifRead } from "@/features/notiser/api";
 import { alertAck } from "@/features/ledning/api";
 import { billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoReissue, ekoRun, invoiceSetBuyerRef, invoiceSetPo } from "@/features/ekonomi/api";
 import { auditView } from "@/features/session/api";
+import { caseLevelSet } from "@/features/grupper/api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -604,6 +605,10 @@ describe("coach.assessmentSave (assessment.save)", () => {
 
 describe("coach: kartläggning, händelser, avvikelser", () => {
   it("intake.save, event.add, result.verify och deviation.callCustomer", async () => {
+    // Nivån krävs innan kartläggningen godkänns (Karims beslut 2026-10-22) – en människa väljer den, sedan går godkännandet igenom.
+    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: false, error: "level" });
+    expect(rows("intake_assessments").find((x) => x.caseId === "case-270012")?.status ?? "draft").not.toBe("approved");
+    expect(await run(caseLevelSet, { caseId: "case-270012", levelId: "grp-c-bot-niva-2", fromLevelId: null }, amira())).toMatchObject({ ok: true });
     expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: true });
     expect(row("cases", "case-270012")!.vocationalTrack).toBe("Truckförare A+B");
     const ev = await run(eventAdd, { caseId: "case-260143", kind: "arbete_paborjat", occurredOn: "2027-02-01", actor: "Hallunda Lagerservice AB" }, amira());

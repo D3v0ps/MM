@@ -1,34 +1,44 @@
-// Kontrakt för området grupper: nivåer, grupper och taggar (coachmötet 2026-10-09, Karims beslut 3 och 4) och
-// massanteckningar. Importeras av skärmar – aldrig hanterarna.
+// Kontrakt för området grupper: yrkesområden, nivåer och taggar (coachmötet 2026-10-09, Karims beslut 3 och 4; Karims beslut
+// 2026-10-22) och massanteckningar. Importeras av skärmar – aldrig hanterarna.
 //
-// Allt här är Miljonbemannings interna arbetsverktyg: en människa placerar deltagaren (aldrig AI), och nivån, grupperna
-// och taggarna visas aldrig för kommunen, i rapporter, resultatfilen, exporter eller fakturor och skickas aldrig till AI.
+// Allt här är Miljonbemannings interna arbetsverktyg: en människa placerar deltagaren på en nivå (aldrig AI), och nivån och
+// taggarna visas aldrig för kommunen, i rapporter, resultatfilen, exporter eller fakturor och skickas aldrig till AI.
+// Grupperna är yrkesområdena (Karims beslut 2026-10-22): deltagarens grupp är ärendets yrkesområde – den härleds, ingen placerar
+// den, och fria grupper kan inte skapas eller väljas (felet group). Nivån: exakt en åt gången – den sätts i kartläggningen, höjs
+// (grupper.nivaHoj) eller byts (grupper.nivaByt), och tas aldrig bort.
 // Massanteckningarna blir vanliga anteckningar (case_notes) – en per ifylld rad – och följer anteckningarnas regler.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
 import type { Role } from "@/api/roles";
-import { LOG } from "@/api/invalidation";
+import { AKTIVITETER, CASE_FACTS, INBOX, LOG } from "@/api/invalidation";
 import { CASE_NOTE_KINDS, GROUPING_CATEGORY_MAX, GROUPING_DESCRIPTION_MAX, GROUPING_NAME_MAX, type CaseNoteKind, type CaseStatus, type GroupingKind, type LocalDate, type LocalDateTime } from "@/data/schema";
-import type { CaseGroupings } from "@/core/groupings";
+import type { AreaFilterOption, CaseGroupings } from "@/core/groupings";
+import type { MonthKey } from "@/core/time";
 import { IdSchema, LocalDateSchema } from "../_shared/schemas";
 
 export type { CaseGroupings };
 
-/** Frågorna som visar grupperingar och medlemskap (prefix) – och listorna som filtrerar på dem. */
-const GROUPING_VIEWS = ["grupper.", "arenden.lista"] as const;
+/** Frågorna som visar grupperingar och medlemskap (prefix) – och listorna som filtrerar på dem. Aktiviteterna visar nivåns namn. */
+const GROUPING_VIEWS = ["grupper.", "arenden.lista", AKTIVITETER] as const;
+/**
+ * En ny nivå bjuder in till och tar bort ur kommande aktiviteter för nivån (målgruppen, Karims beslut 2026-10-22): tillfällena
+ * (activities) räknas som närvaron gör – samma breda mängd (CASE_FACTS, där aktiviteterna ingår).
+ */
+const LEVEL_WRITES = [...GROUPING_VIEWS, ...CASE_FACTS, INBOX, "praktik."] as const;
 
 // ---------------------------------------------------------------- Avtalets nivåer, grupper och taggar
 export type GroupingOption = { id: string; name: string; description: string; archived: boolean; members: number };
 export type TagCategory = { category: string; values: GroupingOption[] };
 export type GroupingCatalog = {
-  /** Avtalet som visas. Varje avtal har sina egna nivåer, grupper och taggar. */
+  /** Avtalet som visas. Varje avtal har sina egna nivåer, yrkesområden och taggar. */
   contractId: string;
   /** Aktörens avtal (fast ordning) – skärmarna visar ett val när de är fler än ett. */
   contracts: { id: string; name: string }[];
-  /** Får skapa, byta namn på och arkivera (samordnare, avtalsansvarig, coach, systemadministratör). */
+  /** Får byta namn på nivåer och taggar, lägga till och arkivera taggar (samordnare, avtalsansvarig, coach, systemadministratör). */
   canEdit: boolean;
   levels: GroupingOption[];
-  groups: GroupingOption[];
+  /** Yrkesområdena (avtalets aktiva avtalsområden A–L) – grupperna. members: pågående ärenden med yrkesområdet. */
+  areas: { code: string; name: string; members: number }[];
   tags: TagCategory[];
   /** Standardnivåerna saknas i avtalet (ett nytt avtal) – kan läggas in med grupper.standard. */
   missingDefaults: boolean;
@@ -43,8 +53,8 @@ const Name = z.string().trim().min(1).max(GROUPING_NAME_MAX);
 const Description = z.string().trim().max(GROUPING_DESCRIPTION_MAX);
 
 /**
- * Ny grupp eller tagg (nivåerna är alltid fem – de byter bara namn). Namnen väljer MB själva. Avtalet: ärendets (caseId –
- * kortet Nivå och grupp i ett ärende), annars det valda (contractId) eller aktörens första.
+ * Ny tagg (nivåerna är alltid fem – de byter bara namn). Namnen väljer MB själva. Avtalet: ärendets (caseId), annars det valda
+ * (contractId) eller aktörens första. Fria grupper finns inte längre (Karims beslut 2026-10-22) – kind group nekas (group).
  */
 export const groupingCreate = command("grupper.ny", z.object({
   kind: z.enum(["group", "tag"]),
@@ -54,17 +64,17 @@ export const groupingCreate = command("grupper.ny", z.object({
   category: z.string().trim().min(1).max(GROUPING_CATEGORY_MAX).optional(),
   name: Name,
   description: Description.optional(),
-}), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ id: string }, "invalid" | "duplicate" | "no_contract" | "not_found">>();
+}), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ id: string }, "invalid" | "duplicate" | "no_contract" | "not_found" | "group">>();
 
-/** Byt namn eller beskrivning. */
+/** Byt namn eller beskrivning (nivåer och taggar – en gammal grupp ändras inte, group). */
 export const groupingRename = command("grupper.andra", z.object({ id: IdSchema, name: Name, description: Description }), {
   invalidates: [...GROUPING_VIEWS, ...LOG],
-}).returns<Result<object, "not_found" | "invalid" | "duplicate">>();
+}).returns<Result<object, "not_found" | "invalid" | "duplicate" | "group">>();
 
-/** Arkivera (kan inte väljas för fler deltagare – de som är med ligger kvar) eller återställ. Inget raderas. */
+/** Arkivera en tagg (kan inte väljas för fler deltagare – de som är med ligger kvar) eller återställ. Inget raderas. En gammal grupp återställs aldrig (group). */
 export const groupingArchive = command("grupper.arkivera", z.object({ id: IdSchema, archived: z.boolean() }), {
   invalidates: [...GROUPING_VIEWS, ...LOG],
-}).returns<Result<object, "not_found" | "level" | "duplicate">>();
+}).returns<Result<object, "not_found" | "level" | "duplicate" | "group">>();
 
 /** Lägg in standardvärdena (fem nivåer, Vill arbeta) i ett avtal som saknar dem (det valda, annars aktörens första). */
 export const groupingDefaults = command("grupper.standard", z.object({ contractId: IdSchema.optional() }), { invalidates: [...GROUPING_VIEWS, ...LOG] }).returns<Result<{ added: number }, "no_contract">>();
@@ -72,13 +82,16 @@ export const groupingDefaults = command("grupper.standard", z.object({ contractI
 // ---------------------------------------------------------------- Filtret i coachens listor (Närvaro)
 export type GroupingFilterData = {
   levels: { id: string; name: string }[];
-  groups: { id: string; name: string }[];
+  /** Yrkesområdena (avtalens aktiva avtalsområden): koden och "G – Lager och logistik". */
+  areas: AreaFilterOption[];
   tags: { id: string; name: string }[];
-  /** Ärende -> id för dess aktiva nivå, grupper och taggar (bara ärenden rollen ser – policyn/RLS). */
+  /** Ärende -> id för dess aktiva nivå och taggar (bara ärenden rollen ser – policyn/RLS). */
   byCase: Record<string, string[]>;
+  /** Ärende -> yrkesområdets kod (cases.primaryAreaCode), för ärenden rollen ser. */
+  areaByCase: Record<string, string | null>;
 };
 /**
- * Filtret Nivå, Grupp och Tagg för listor som inte har det i sin egen fråga (coachens Närvaro). Alla aktörens avtal –
+ * Filtret Yrkesområde, Nivå och Tagg för listor som inte har det i sin egen fråga (coachens Närvaro). Alla aktörens avtal –
  * med fler än ett står avtalets prefix efter namnet. Null utan avtal.
  */
 export const groupingFilterData = query("grupper.filter", z.object({})).returns<GroupingFilterData | null>();
@@ -90,24 +103,84 @@ export type CaseGroupingsView = {
   today: LocalDate;
   canEdit: boolean;
   current: CaseGroupings;
-  /** Valen: aktiva grupperingar och de arkiverade som ärendet redan har (de kan tas bort men inte väljas på nytt). */
-  options: { levels: GroupingOption[]; groups: GroupingOption[]; tags: TagCategory[] };
+  /** Deltagarens grupp: ärendets yrkesområde ("G – Lager och logistik"), eller null när det saknas. Härleds – väljs inte här. */
+  area: string | null;
+  /** Nästa nivå (Höj nivå), eller null: ingen nivå än eller redan högsta. */
+  nextLevel: { id: string; name: string } | null;
+  /** Nivåerna över tid, äldst först ("Nivå 1 från 9 okt (Amira)"). */
+  levelHistory: { name: string; from: LocalDateTime; until: LocalDateTime | null; byName: string | null }[];
+  /** Valen: aktiva nivåer och taggar och de arkiverade som ärendet redan har (de kan tas bort men inte väljas på nytt). */
+  options: { levels: GroupingOption[]; tags: TagCategory[] };
 };
-/** Nivå, grupper och taggar för ärendet (deltagarkortets huvud, kartläggningens kort). Null utan åtkomst. */
+/** Nivå, yrkesområde och taggar för ärendet (deltagarkortets huvud, kartläggningens kort). Null utan åtkomst. */
 export const caseGroupingsView = query("grupper.arende", z.object({ caseId: IdSchema })).returns<CaseGroupingsView | null>();
 
 /**
- * Sätt ärendets nivå, grupper och taggar (hela läget – det som skiljer sig läggs till eller tas bort). Sparas direkt.
- * tags: ett värde (eller null) per taggkategori som ska ändras; kategorier som inte finns med lämnas orörda.
+ * Sätt ärendets nivå och taggar (hela läget – det som skiljer sig läggs till eller tas bort). Sparas direkt. tags: ett värde (eller
+ * null) per taggkategori som ska ändras; kategorier som inte finns med lämnas orörda. En satt nivå tas aldrig bort (level) –
+ * den byts. Fria grupper finns inte (groupIds med innehåll nekas: group). En ny nivå bjuder in till nivåns kommande aktiviteter.
  */
 export const caseGroupingsSave = command("grupper.arendeSpara", z.object({
   caseId: IdSchema,
   levelId: IdSchema.nullable(),
-  groupIds: z.array(IdSchema).max(50),
+  groupIds: z.array(IdSchema).max(50).optional(),
   tags: z.record(z.string().max(GROUPING_CATEGORY_MAX), IdSchema.nullable()),
-}), { invalidates: [...GROUPING_VIEWS, "arenden.kortHistorik", ...LOG] }).returns<
-  Result<{ added: number; removed: number; savedAt: LocalDateTime }, "not_found" | "forbidden" | "unknown" | "archived" | "wrong_kind" | "wrong_category" | "conflict">
+}), { invalidates: [...LEVEL_WRITES, "arenden.kortHistorik"] }).returns<
+  Result<{ added: number; removed: number; savedAt: LocalDateTime }, "not_found" | "forbidden" | "unknown" | "archived" | "wrong_kind" | "wrong_category" | "conflict" | "level" | "group">
 >();
+
+/** Svaret när nivån höjts eller bytts. invited/removed: kommande aktiviteter för nivåerna (målgruppen) som deltagaren bjöds in till eller togs bort ur. */
+export type LevelChange = { levelId: string; levelName: string; savedAt: LocalDateTime; invited: number; removed: number };
+/**
+ * Höj nivå: ett klick till nästa nivå (Karims beslut 2026-10-22: "deltagare kan utvecklas och levlas upp till nästa nivå").
+ * fromLevelId: nivån skärmen visade – har någon annan ändrat under tiden blir det conflict (inget dubbelt steg). top: redan på
+ * högsta nivån. no_level: ingen nivå än (sätts i kartläggningen).
+ */
+export const caseLevelRaise = command("grupper.nivaHoj", z.object({ caseId: IdSchema, fromLevelId: IdSchema }), { invalidates: [...LEVEL_WRITES, "arenden.kortHistorik"] }).returns<
+  Result<LevelChange, "not_found" | "forbidden" | "no_level" | "top" | "conflict">
+>();
+/** Byt nivå: välj vilken som helst av de fem. fromLevelId: nivån skärmen visade (null = ingen). */
+export const caseLevelSet = command("grupper.nivaByt", z.object({ caseId: IdSchema, levelId: IdSchema, fromLevelId: IdSchema.nullable() }), {
+  invalidates: [...LEVEL_WRITES, "arenden.kortHistorik"],
+}).returns<Result<LevelChange, "not_found" | "forbidden" | "unknown" | "archived" | "wrong_kind" | "conflict" | "same">>();
+
+// ---------------------------------------------------------------- Översikten (/grupper)
+export type OverviewMember = { caseId: string; caseNumber: string; name: string; status: CaseStatus };
+export type GroupingOverview = {
+  contractId: string;
+  contracts: { id: string; name: string }[];
+  today: LocalDate;
+  /** Den här och nästa månad (yrkesområdesträffarna). */
+  months: MonthKey[];
+  /** Byta namn på nivåer och taggar, nya taggar (GROUPING_WRITERS). */
+  canEdit: boolean;
+  /** Höja och byta nivå (GROUPING_MEMBER_WRITERS). */
+  canPlace: boolean;
+  /** Planera en träff (de som skapar aktiviteter). */
+  canPlan: boolean;
+  /** Yrkesområdena: aktiva deltagare (pågående insatser) och månadens träffar (aktiviteter med målgruppen yrkesområdet). */
+  areas: {
+    code: string;
+    name: string;
+    active: number;
+    meetings: { month: MonthKey; items: { id: string; name: string; startsAt: LocalDateTime }[] }[];
+  }[];
+  /** De fem nivåerna med deltagarna (pågående och bekräftade insatser) och nivåns återkommande aktiviteter. */
+  levels: (GroupingOption & {
+    nextLevel: { id: string; name: string } | null;
+    people: OverviewMember[];
+    series: { id: string; name: string; schedule: string; nextId: string | null }[];
+  })[];
+  /** Pågående och bekräftade insatser utan nivå – att kartlägga. */
+  unplaced: (OverviewMember & { intake: "none" | "draft" | "approved" })[];
+  tags: TagCategory[];
+  missingDefaults: boolean;
+};
+/**
+ * Översikten Grupper och nivåer: yrkesområdena med deltagare och månadens träffar, nivåerna med deltagare och återkommande
+ * aktiviteter, de som saknar nivå och taggarna. Ett avtal i taget (contractId: ett av aktörens, utan: det första). Null utan avtal.
+ */
+export const groupingOverview = query("grupper.oversikt", z.object({ contractId: IdSchema.optional() })).returns<GroupingOverview | null>();
 
 // ---------------------------------------------------------------- Massanteckningar (Workbuster-stil)
 /**
@@ -115,7 +188,8 @@ export const caseGroupingsSave = command("grupper.arendeSpara", z.object({
  * handledare är vilande (Karims beslut 2026-10-09) – rutten /anteckningar tar bort den (routes.ts).
  */
 export const MASS_NOTE_ROLES: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
-export const MASS_NOTE_SCOPES = ["mina", "niva", "grupp", "tagg"] as const;
+/** Urvalen: mina ärenden, en nivå, ett yrkesområde (gruppen – Karims beslut 2026-10-22) eller en tagg. */
+export const MASS_NOTE_SCOPES = ["mina", "niva", "omrade", "tagg"] as const;
 export type MassNoteScope = (typeof MASS_NOTE_SCOPES)[number];
 export type MassNoteRow = {
   caseId: string;
@@ -133,8 +207,8 @@ export type MassNotePage = {
   rows: MassNoteRow[];
 };
 /**
- * Deltagarna i urvalet: mina ärenden (huvudcoach eller i teamet), en nivå, en grupp eller en tagg. Bara öppna ärenden, ett
- * avtal i taget (contractId: ett av aktörens avtal, utan: det första).
+ * Deltagarna i urvalet: mina ärenden (huvudcoach eller i teamet), en nivå, ett yrkesområde (id = avtalsområdets kod) eller en
+ * tagg. Bara öppna ärenden, ett avtal i taget (contractId: ett av aktörens avtal, utan: det första).
  */
 export const massNotePage = query("grupper.anteckningar", z.object({ urval: z.enum(MASS_NOTE_SCOPES), id: IdSchema.optional(), contractId: IdSchema.optional() })).returns<MassNotePage>();
 

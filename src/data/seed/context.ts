@@ -53,7 +53,7 @@ export type PAiRun = Pick<AiRun, "id" | "caseId" | "kind" | "provider" | "model"
 export type PTask = Pick<Task, "id" | "toRole" | "fromId" | "createdAt" | "status" | "text"> & Partial<Pick<Task, "caseIds" | "emailId">>;
 export type PConsent = Omit<Consent, "declinedAt"> & { declinedAt?: string | null };
 /** Tillfälle och närvaro som i prototypen: gruppaktiviteten och närvarons källa (0030) läggs till i map.ts. */
-export type PActivity = Omit<Activity, "groupActivityId">;
+export type PActivity = Omit<Activity, "groupActivityId" | "inviteSource">;
 export type PAttendance = Omit<Attendance, "source">;
 export type PCheckIn = Omit<CheckIn, "ai" | "version"> & { ai?: CheckIn["ai"]; tags?: string[] };
 export type POutcomeEvent = Omit<OutcomeEvent, "possibleBonus"> & { possibleBonus?: boolean };

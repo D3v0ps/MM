@@ -1,4 +1,5 @@
-// Bjud in per grupp, nivå eller enskilda (spår G): urvalet – rätt deltagare, en gång var, och de som hoppas över med orsaken.
+// Bjud in per yrkesområde, nivå eller enskilda (spår G; Karims beslut 2026-10-22): urvalet – rätt deltagare, en gång var, och de som
+// hoppas över med orsaken.
 import { describe, expect, it } from "vitest";
 import { ALREADY_INVITED_TEXT, INVITE_BLOCK_TEXT, selectByGroupings, skipCounts, skipLabel, skipSummary, type InviteGrouping, type SelectableCase, type UninvitableMember } from "./group-activities";
 
@@ -11,7 +12,7 @@ const OTHERS: UninvitableMember[] = [{ caseId: "case-20", caseNumber: "BOT-27-00
 const GROUPINGS: InviteGrouping[] = [
   { id: "niva-2", kind: "level", name: "Nivå 2", caseIds: ["case-10", "case-12", "case-20"] },
   { id: "niva-3", kind: "level", name: "Nivå 3", caseIds: ["case-11", "case-13"] },
-  { id: "grupp-m", kind: "group", name: "Måndagsgruppen", caseIds: ["case-11", "case-14", "case-15", "case-16"] },
+  { id: "G", kind: "area", name: "G – Lager och logistik", caseIds: ["case-11", "case-14", "case-15", "case-16"] },
 ];
 
 describe("selectByGroupings – inbjudan per grupp eller nivå", () => {
@@ -25,7 +26,7 @@ describe("selectByGroupings – inbjudan per grupp eller nivå", () => {
   });
 
   it("flera grupperingar: varje deltagare en gång, i ärendenummerordning; redan inbjudna, före start och uppehåll hoppas över", () => {
-    const r = selectByGroupings(["niva-3", "grupp-m"], GROUPINGS, CANDIDATES, OTHERS, DAY, new Set(["case-16"]));
+    const r = selectByGroupings(["niva-3", "G"], GROUPINGS, CANDIDATES, OTHERS, DAY, new Set(["case-16"]));
     expect(r.invite.map((c) => c.caseId)).toEqual(["case-11", "case-15"]);
     expect(r.skipped.map((s) => [s.caseId, s.reason])).toEqual([
       ["case-13", "Insatsen har inte startat den dagen"],
@@ -39,7 +40,7 @@ describe("selectByGroupings – inbjudan per grupp eller nivå", () => {
 
   it("ingen grupp vald eller inget datum: ingen bjuds in", () => {
     expect(selectByGroupings([], GROUPINGS, CANDIDATES, OTHERS, DAY, new Set())).toEqual({ invite: [], skipped: [] });
-    const noDay = selectByGroupings(["grupp-m"], GROUPINGS, CANDIDATES, OTHERS, null, new Set());
+    const noDay = selectByGroupings(["G"], GROUPINGS, CANDIDATES, OTHERS, null, new Set());
     expect(noDay.invite).toEqual([]);
     expect(noDay.skipped.every((s) => s.reason === "Välj datum först")).toBe(true);
   });

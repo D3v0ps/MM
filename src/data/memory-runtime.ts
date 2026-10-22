@@ -27,6 +27,7 @@ import { isParticipantRecipient, MESSAGING_OFF, memoryDeliveryStatus, type Messa
 import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
+import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
 import { nextDayEnd } from "@/core/auto-attendance";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
@@ -141,6 +142,9 @@ export function createMemoryRuntime(opts: {
   // Nästa gång dagen tar slut (automatisk närvaro). null = inte räknat än (första anropet räknar bara ut tiden – golvet gör ändå
   // att nyinläst testdata inte får något).
   let attendanceNext: LocalDateTime | null = null;
+  // Nivåaktiviteternas tillfällen och målgruppernas inbjudningar (Karims beslut 2026-10-22): en gång per dag, första gången när
+  // dagen byts efter inläsningen – testdatat har redan tillfällena 14 dagar framåt och sina inbjudningar (samma golv som rapporterna).
+  let groupsCheckedDay: string = opts.clock.now().slice(0, 10);
   let ensuring: Promise<void> | null = null;
   const orgRows = () => (system as unknown as { table(n: "org_settings"): { list(): Promise<Tables["org_settings"][]> } }).table("org_settings").list();
   async function ensureScheduledReports(): Promise<void> {
@@ -148,7 +152,8 @@ export function createMemoryRuntime(opts: {
     const now = opts.clock.now();
     const reportsDue = !checkedAt || nextScheduleBoundary(checkedAt) <= now;
     const attendanceDue = attendanceNext === null || attendanceNext <= now;
-    if (!reportsDue && !attendanceDue) return;
+    const groupsDue = now.slice(0, 10) !== groupsCheckedDay;
+    if (!reportsDue && !attendanceDue && !groupsDue) return;
     ensuring = (async () => {
       if (attendanceDue) {
         try {
@@ -177,6 +182,14 @@ export function createMemoryRuntime(opts: {
           console.error("fakturakörning: kunde inte skapas", e instanceof Error ? e.name : typeof e);
         }
         checkedAt = now;
+      }
+      if (groupsDue) {
+        try {
+          await ensureGroupActivities(ctxFor(SYSTEM_ACTOR));
+        } catch (e) {
+          console.error("nivåaktiviteter: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        groupsCheckedDay = now.slice(0, 10);
       }
     })();
     try {
