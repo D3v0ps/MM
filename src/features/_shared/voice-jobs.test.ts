@@ -17,7 +17,7 @@ import { EXTRACT_SCHEMAS, type AiPort, type AiRunMeta } from "./ai-port";
 import { createSimulatedAi, simulatedDraft } from "./ai-sim";
 import { createMemoryAudio } from "./audio-port";
 import {
-  aiRunError, checkEvidence, enqueueVoiceJob, failVoiceJob, monthlyDraftInput, ownDictation, retentionAudio, retentionTranscripts, runVoiceJob,
+  aiRunError, checkEvidence, DRAFT_CONCURRENCY, enqueueVoiceJob, failVoiceJob, monthlyDraftInput, ownDictation, retentionAudio, retentionTranscripts, runVoiceJob,
   toVoiceJobError, VoiceJobError, type CheckInAiOutput, type CtxWithJobs, type MonthlyDraftOutput,
 } from "./voice-jobs";
 
@@ -306,6 +306,32 @@ describe("transcribe_participant (deltagarens länk)", () => {
     const id2 = await t.upload(AMAL, "participant", "deltagare", 30);
     const r2 = await enqueueVoiceJob(p, { kind: "transcribe_participant", uploadId: id2, linkId: "vl-demo", language: "fi", consentTextVersion: "v", consentGivenAt: DEMO_START });
     expect(r2.error?.code).toBe("language");
+  });
+});
+
+describe("draft_monthly: utkasten några i taget (jobbet ska rymmas i jobbkörningens tidsgräns)", () => {
+  it("högst DRAFT_CONCURRENCY AI-anrop samtidigt, fler än ett, och alla områden plus sammanfattning och plan", async () => {
+    const sim = createSimulatedAi();
+    let inflight = 0;
+    let max = 0;
+    let calls = 0;
+    const ai: AiPort = {
+      ...sim,
+      draft: async (...args: Parameters<AiPort["draft"]>) => {
+        calls++;
+        inflight++;
+        max = Math.max(max, inflight);
+        await new Promise((r) => setTimeout(r, 5));
+        inflight--;
+        return sim.draft(...args);
+      },
+    };
+    const t = setup({ ai });
+    const r = await enqueueVoiceJob(t.amira, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.status).toBe("succeeded");
+    const areas = Object.keys(t.store.getRow("monthly_assessments", "ma-15934")!.areas).length;
+    expect(calls).toBe(areas + 2);
+    expect(max).toBe(DRAFT_CONCURRENCY);
   });
 });
 

@@ -908,7 +908,7 @@ export type CheckIn = {
   version: number;
 };
 
-/** AI-utkast till en observation, med källor ("Avstämning 15 jan"). noEvidence = "Framgår inte". */
+/** AI-utkast till en observation, med källor ("Mötesrapport 15 jan"). noEvidence = "Framgår inte". */
 export type AiObservationDraft = { text: string; sources: string[]; noEvidence?: boolean };
 /**
  * Varifrån nivån kommer (Karims beslut 2026-10-22, automatisk månadsbedömning):
@@ -922,7 +922,7 @@ export const LEVEL_SOURCES = ["auto", "coach", "ai"] as const;
 export type LevelSource = (typeof LEVEL_SOURCES)[number];
 /**
  * Belägget för AI:s nivåförslag: ett ordagrant citat som finns i en källa i underlaget (en godkänd mötesrapport eller en
- * anteckning), källans namn ("Avstämning 15 jan", "Anteckning 26 jan") och dag. Citatet kontrolleras på servern mot
+ * anteckning), källans namn ("Mötesrapport 15 jan", "Anteckning 26 jan") och dag. Citatet kontrolleras på servern mot
  * underlaget – finns det inte där slängs förslaget (verifyLevelSuggestion i src/features/_shared/ai-port.ts).
  */
 export type AiLevelEvidence = { quote: string; source: string; date: LocalDate };

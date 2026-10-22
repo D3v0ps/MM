@@ -494,11 +494,16 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   let auto = -1;
   for (let i = 0; i < 10 && auto < 0; i++) if (await rows.nth(i).getByText("Automatiskt – inget belägg").count()) auto = i;
   expect(auto).toBeGreaterThanOrEqual(0);
+  await expect(rows.nth(auto).locator("textarea")).toHaveValue("Ingen bedömning av förändring denna månad.");
   await selects.nth(auto).selectOption("2");
+  // Den automatiska texten är inget belägg: fältet töms när coachen väljer en nivå över 0.
+  await expect(rows.nth(auto).locator("textarea")).toHaveValue("");
   await page.getByRole("checkbox", { name: "Jag har gått igenom bedömningen" }).check();
   await expect(btn(page, "Godkänn bedömningen")).not.toHaveAttribute("aria-disabled", "true");
   await btn(page, "Godkänn bedömningen").click();
   await expect(page.getByText(/Skriv en konkret observation/).first()).toBeVisible();
+  // Fokus på det som saknas: observationen (nivån är vald).
+  await expect(rows.nth(auto).locator("textarea")).toBeFocused();
   await expect(btn(page, "Godkänn bedömningen")).toBeVisible(); // fortfarande utkast
   const levels = [2, 1, 2, 1, 2, 3, 2, 2, 1, 0];
   for (let i = 0; i < 10; i++) {

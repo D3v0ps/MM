@@ -2661,6 +2661,59 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
     }
   });
 
+  it("hela bytet som SupabaseRepo skickar det: anteckningen, bytet och ärendet villkorat på det gamla yrkesområdet (läsrätt på primary_area_code)", async () => {
+    const note: Tables["case_notes"] = {
+      id: "note-r1", contractId: "c-bot", caseId: LINNEA, authorId: "u-amira", occurredOn: "2027-02-01", kind: "other", audience: "team",
+      body: "Byte av yrkesområde: D → C. Kartläggningen visade erfarenhet från bygg.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null,
+    };
+    for (const key of ["u-amira", "u-sara", "u-johan"]) {
+      const res = await asPersona(findPersona(key), async (tx) => ({
+        note: await attempt(tx, insertSql("case_notes", { ...note, authorId: key } as unknown as Record<string, unknown>), [], { keep: true }),
+        change: await attempt(tx, ins(row("cac-r1", key, { noteId: "note-r1" })), [], { keep: true }),
+        // SupabaseRepo.updateIf: update … where id = … and primary_area_code = … returning id (också alternativet och yrkesspåret).
+        moved: await attempt(tx, "update public.cases set primary_area_code = $1, secondary_area_code = null, vocational_track = $2 where id = $3 and primary_area_code = $4 returning id", ["C", "", LINNEA, "D"]),
+        stale: await attempt(tx, "update public.cases set primary_area_code = $1 where id = $2 and primary_area_code = $3 returning id", ["E", LINNEA, "G"]),
+      }));
+      expect(res, key).toEqual({ note: { ok: true, rows: 1 }, change: { ok: true, rows: 1 }, moved: { ok: true, rows: 1 }, stale: { ok: true, rows: 0 } });
+    }
+  });
+
+  it("läsrätten på cases.primary_area_code lämnar inget nytt ut: samma ärenden och yrkesområden som cases_public, för alla roller", async () => {
+    for (const p of personas) {
+      const got = await asPersona(p, async (tx) => ({
+        table: (await tx.query<{ id: string; a: string | null }>("select id, primary_area_code as a from public.cases order by id")).rows,
+        view: (await tx.query<{ id: string; a: string | null }>("select id, primary_area_code as a from public.cases_public order by id")).rows,
+      }));
+      expect(got.table, personaKey(p)).toEqual(got.view);
+    }
+    // Övriga kolumner läses fortfarande bara via vyn.
+    const other = await asPersona(findPersona("k-maria"), (tx) => attempt(tx, "select person_id from public.cases limit 1"));
+    expect(other).toMatchObject({ ok: false, code: "42501" });
+  });
+
+  it("motiveringen är låst: ingen inloggad ändrar eller döljer anteckningen som ett byte pekar på – servern kan", async () => {
+    const cur = raw.get("case_notes", "note-byte-linnea")!;
+    expect(cur.authorId).toBe("u-amira");
+    for (const key of ["u-amira", "u-sara", "u-johan"]) {
+      expect(await pgWrite(key, "update public.case_notes set body = 'Ny text i anteckningen.', updated_at = '2027-02-01T09:12' where id = 'note-byte-linnea'"), key).toBe(false);
+      expect(await pgWrite(key, `update public.case_notes set removed_at = '2027-02-01T09:12', removed_by = '${key}' where id = 'note-byte-linnea'`), key).toBe(false);
+      expect(canWriteRow("case_notes", { ...cur, body: "Ny text i anteckningen.", updatedAt: at }, actorOf(findPersona(key)), raw), key).toBe(false);
+      expect(canWriteRow("case_notes", { ...cur, removedAt: at, removedBy: key }, actorOf(findPersona(key)), raw), key).toBe(false);
+    }
+    // En vanlig anteckning i samma ärende ändras som förut.
+    const other = data.case_notes.find((n) => n.authorId === "u-amira" && n.id !== "note-byte-linnea" && !n.removedAt)!;
+    expect(await pgWrite("u-amira", `update public.case_notes set body = 'Ny text.' where id = '${other.id}'`)).toBe(true);
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.case_notes set removed_at = '2027-02-01T09:12', removed_by = 'u-amira' where id = 'note-byte-linnea'"), { role: "service_role" });
+    expect(service).toEqual({ ok: true, rows: 1 });
+  });
+
+  it("de sammansatta främmande nycklarna mot avtalets yrkesområden har var sitt index", async () => {
+    const r = await db.query<{ indexname: string; indexdef: string }>("select indexname, indexdef from pg_indexes where tablename = 'case_area_changes' order by indexname");
+    const defs = Object.fromEntries(r.rows.map((x) => [x.indexname, x.indexdef]));
+    expect(defs.case_area_changes_from_area_idx).toMatch(/\(contract_id, from_area\)/);
+    expect(defs.case_area_changes_to_area_idx).toMatch(/\(contract_id, to_area\)/);
+  });
+
   it("monthly_assessments.prefill (0036): standard {} och alltid ett objekt", async () => {
     const r = await db.query<{ n: number }>("select count(*)::int as n from public.monthly_assessments where prefill = '{}'::jsonb");
     expect(r.rows[0].n).toBe(data.monthly_assessments.filter((m) => Object.keys(m.prefill).length === 0).length);

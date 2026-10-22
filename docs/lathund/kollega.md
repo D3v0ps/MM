@@ -122,10 +122,11 @@ Går deltagaren framåt? I deltagarkortets huvud står nivån, yrkesområdet och
 
 Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen, samordnaren och avtalsansvarig kan byta det i deltagarkortet.
 
-1. Tryck på **Ändra** vid nivån och yrkesområdet i deltagarkortets huvud och sedan på **Byt yrkesområde**. Tidigare byten står under raden i huvudet.
+1. Tryck på **Ändra** vid nivån och yrkesområdet i deltagarkortets huvud och sedan på **Byt yrkesområde**. Tidigare byten står under raden i huvudet, med motiveringen.
 2. Välj **Nytt yrkesområde**.
-3. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet.
-4. Tryck på **Byt yrkesområde**.
+3. Välj **Yrkesspår i det nya yrkesområdet** om ni redan vet det. Annars väljs det i kartläggningen. Det gamla yrkesspåret följer inte med.
+4. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet och kan inte ändras eller tas bort efteråt.
+5. Tryck på **Byt yrkesområde**.
 
 Deltagaren bjuds direkt in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas. Den som du har bjudit in själv och den som har närvaro registrerad ligger kvar. Fakturan räknas på det nya yrkesområdet från och med månaden efter bytet. Kommunen ser bara det nya yrkesområdet.
 
@@ -134,8 +135,8 @@ Deltagaren bjuds direkt in till det nya yrkesområdets kommande träffar och tas
 Under **Grupper och nivåer** ser du:
 
 - **Yrkesområden**: hur många som är aktiva och om yrkesområdet har en träff den här och nästa månad. Står det **Ingen träff planerad**, tryck på **Planera** för att skapa träffen.
-- **Nivåer**: deltagarna på varje nivå och nivåns återkommande aktiviteter. Här finns också **Höj nivå** och **Byt nivå**.
-- **Utan nivå – att kartlägga**: insatser som saknar nivå. Tryck på **Öppna kartläggningen**.
+- **Nivåer**: deltagarna på varje nivå och nivåns återkommande aktiviteter. Här finns också **Höj nivå** och **Byt nivå**. Blev det fel efter **Höj nivå**? Tryck på **Ångra** överst under Nivåer.
+- **Utan nivå – att kartlägga**: insatser som saknar nivå. Coachen trycker på **Öppna kartläggningen**. Samordnaren och avtalsansvarig trycker på **Välj nivå**.
 - **Taggar**: byt namn, arkivera och lägg till nya.
 
 Du når sidan från **Anteckningar**. Systemadministratören har den i sin flik. Inget raderas – en arkiverad tagg kan inte väljas för fler deltagare.
@@ -175,6 +176,8 @@ Nivåaktiviteterna är samma tid varje vecka, till exempel tisdag och torsdag kl
 3. Välj fliken **Nivå** eller **Yrkesområde** under **Bjud in deltagare**.
 4. **Meddela deltagarna inför varje tillfälle** är inte förvalt. Deltagarna får tiderna av sin coach.
 5. Tryck på **Skapa den återkommande aktiviteten**. Tillfällena skapas två veckor i förväg. Helgdagar hoppas över.
+
+Har någon i nivån redan ett annat tillfälle vid samma tid bjuds hen inte in till det tillfället. Det står i tillfället vilka det gäller. Är det deltagarens eget tillfälle kan du trycka på **Bjud in och ersätt deras egna tillfällen**.
 
 Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle kan du trycka på **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Dag, tid och längd ändras inte efteråt – avsluta och skapa en ny i stället. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen.
 

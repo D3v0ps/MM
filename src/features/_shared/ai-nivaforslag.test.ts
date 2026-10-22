@@ -72,7 +72,8 @@ describe("verifyLevelSuggestion: citatet måste finnas ordagrant i källan", () 
     expect(verifyLevelSuggestion({ level: 1, quote: "Vill att jobba med lager.", sourceId: "ci-4" }, withBoxes)?.evidence).toEqual({
       quote: "Vill att jobba med lager.", source: "Mötesrapport 29 jan", date: "2027-01-29",
     });
-    expect(verifyLevelSuggestion({ level: 1, quote: "Söka två jobb i lager", sourceId: "ci-4" }, withBoxes)).not.toBeNull();
+    // Nästa veckas mål är en plan, ingen iakttagelse – aldrig belägg.
+    expect(verifyLevelSuggestion({ level: 1, quote: "Söka två jobb i lager", sourceId: "ci-4" }, withBoxes)).toBeNull();
   });
 });
 
@@ -82,6 +83,24 @@ describe("den simulerade AI:n: nivåförslag bara med ett citat som klarar kontr
     expect(DraftTextSchema.parse(d)).toEqual(d);
     expect(d.levelSuggestion).toEqual({ level: 2, quote: "Klarade veckans moment utan stöd.", sourceId: "ci-3" });
     expect(verifyLevelSuggestion(d.levelSuggestion, input)).not.toBeNull();
+  });
+
+  it("citerar aldrig nästa veckas mål, och bara en mening som handlar om området – annars inget förslag", () => {
+    const goalOnly: DraftInput = {
+      ...input,
+      checkIns: approvedCheckIns([ci("ci-5", "2027-01-29T10:00", { note: "Följde planen.", nextGoal: "Be handledaren om återkoppling på tempo och kvalitet" })]),
+    };
+    for (const key of ["monthly_area:yrkesfardigheter", "monthly_area:sjalvstandighet", "monthly_area:arbetsgivarkontakter", "monthly_area:beredskap"] as const) {
+      expect(simulatedDraft(goalOnly, key).levelSuggestion ?? null, key).toBeNull();
+    }
+    // "Klarade veckans moment utan stöd." handlar om yrkesmomenten – inte om arbetsgivarkontakter.
+    const cv = simulatedDraft({ ...input, checkIns: approvedCheckIns([ci("ci-6", "2027-01-29T10:00", { activitiesDone: ["CV och ansökningar"] })]) }, "monthly_area:digital_sjalvstandighet");
+    expect(cv.levelSuggestion ?? null).toBeNull();
+    const withCv = simulatedDraft(
+      { ...input, checkIns: approvedCheckIns([ci("ci-7", "2027-01-29T10:00", { activitiesDone: ["CV och ansökningar"], note: "Kom i tid. Arbetade med CV och skickade en ansökan." })]) },
+      "monthly_area:digital_sjalvstandighet",
+    );
+    expect(withCv.levelSuggestion).toEqual({ level: 1, quote: "Arbetade med CV och skickade en ansökan.", sourceId: "ci-7" });
   });
 
   it("närvaron ger aldrig ett förslag (siffror är inget citat); sammanfattning och plan har inga förslag", () => {

@@ -304,8 +304,9 @@ handleCommand(caseGroupingsSave, { roles: GROUPING_MEMBER_WRITERS }, async (ctx,
     throw e;
   }
   // En ny nivå: deltagaren bjuds in till nivåns kommande aktiviteter och tas bort ur den gamla nivåns (Karims beslut 2026-10-22).
-  if ([...plan.plan.add, ...plan.plan.remove].some((x) => x.kind === "level")) await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
-  return ok({ added: plan.plan.add.length, removed: plan.plan.remove.length, savedAt: now });
+  // Antalen kommer med i svaret – kartläggningen säger samma mening om inbjudningarna som Höj nivå.
+  const synced = [...plan.plan.add, ...plan.plan.remove].some((x) => x.kind === "level") ? await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] }) : null;
+  return ok({ added: plan.plan.add.length, removed: plan.plan.remove.length, savedAt: now, invites: synced ? { invited: synced.added, removed: synced.removed } : null });
 });
 
 // ---------------------------------------------------------------- grupper.nivaHoj / grupper.nivaByt
@@ -423,6 +424,8 @@ handleQuery(groupingOverview, { roles: GROUPING_READERS }, async (ctx, p): Promi
     canEdit: catalog.canEdit,
     canPlace: GROUPING_MEMBER_WRITERS.includes(ctx.actor.role),
     canPlan: ACTIVITY_PLANNERS.includes(ctx.actor.role),
+    // Sidan Kartläggning är coachens (src/features/coach/routes.ts) – andra roller väljer nivån här eller på deltagarkortet.
+    canIntake: ctx.actor.role === "coach",
     areas: catalog.areas.map((a) => ({
       code: a.code, name: a.name,
       active: cases.filter((c) => c.status === "active" && c.primaryAreaCode === a.code).length,

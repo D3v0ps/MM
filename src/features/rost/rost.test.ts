@@ -243,7 +243,7 @@ describe("AI-utkast till månadsbedömningen", () => {
     const after = await q(assessmentPage, { caseId: SC.nadia, month: "2027-01" }, amira());
     if (after.kind !== "ok") throw new Error("gate");
     expect(after.aiDraft).toMatchObject({ aiRunId: res.aiRunId, status: "succeeded", error: null });
-    expect(after.aiDraft?.plan?.sources.every((x) => x.startsWith("Avstämning"))).toBe(true);
+    expect(after.aiDraft?.plan?.sources.every((x) => x.startsWith("Mötesrapport"))).toBe(true);
     expect(after.areas.map((a) => a.level)).toEqual(before.areas.map((a) => a.level));
     expect(after.areas.every((a) => a.aiObservationDraft !== null)).toBe(true);
     expect(after.areas.find((a) => a.key === "narvaro_rutiner")?.aiObservationDraft?.sources).toContain("Närvaroregistrering");

@@ -8,6 +8,7 @@ import { isDemo, open, switchPersona } from "./helpers";
 
 const COACH = { userId: "u-amira", role: "coach" };
 const MARIA = { userId: "k-maria", role: "kommun_handlaggare" };
+const SARA = { userId: "u-sara", role: "samordnare" };
 const SC = { nadia: "case-260143", amal: "case-270012" };
 
 const main = (page: Page) => page.locator("#main");
@@ -117,7 +118,7 @@ test("Grupper och nivåer: yrkesområdena med månadens träff eller Planera, ni
   const levels = card(page, "Nivåer");
   // Nivåns avsnitt efter rubriken (Nivå 3:s avsnitt nämner också Nivå 4 – i Höj nivå till nästa nivå).
   const n4 = levels.getByRole("region", { name: "Nivå 4 – Nära arbete", exact: true });
-  await expect(n4).toContainText("Jobbsök och CV – mån och ons 13.30");
+  await expect(n4).toContainText("Jobbsök och CV – måndag och onsdag 13.30");
   await expect(n4.getByRole("link", { name: /Nadia Warsame/ })).toBeVisible();
   await expect(card(page, "Utan nivå – att kartlägga").getByTestId("utan-niva").filter({ hasText: "BOT-27-0012" })).toHaveCount(1);
   for (const word of ["Måndagsgruppen", "Lagergruppen", "Höstgruppen", "Ny grupp"]) await expect(main(page)).not.toContainText(word);
@@ -129,6 +130,37 @@ test("Grupper och nivåer: yrkesområdena med månadens träff eller Planera, ni
   // Fliken och valet heter båda Yrkesområde (flikpanelen är märkt med fliken) – valet är rullistan.
   await expect(page.getByRole("combobox", { name: "Yrkesområde", exact: true })).toHaveValue("E");
   await expect(main(page).getByRole("status").filter({ hasText: "just nu" })).toHaveText("4 deltagare just nu. De som tillkommer bjuds in automatiskt fram till aktiviteten.");
+  expect(relevant(errors)).toEqual([]);
+});
+
+test("Grupper och nivåer: Höj nivå kan ångras och fokus stannar på Ångra; samordnaren väljer nivån direkt för den utan nivå", async ({ page }, info) => {
+  const errors = await open(page, info, "/grupper", COACH);
+  const levels = card(page, "Nivåer");
+  const n4 = levels.getByRole("region", { name: "Nivå 4 – Nära arbete", exact: true });
+  await btn(n4, /^Höj nivå för Nadia Warsame/).click();
+  const last = page.getByTestId("senaste-hojning");
+  await expect(last).toContainText("Nadia Warsame är nu på Nivå 5");
+  const undo = btn(last, /^Ångra/);
+  await expect(undo).toBeFocused();
+  await expect(n4.getByRole("link", { name: /Nadia Warsame/ })).toHaveCount(0);
+  await undo.click();
+  await expect(page.getByText(/Ändringen är ångrad\. Nadia Warsame är på Nivå 4 – Nära arbete igen/).first()).toBeVisible();
+  await expect(last).toHaveCount(0);
+  await expect(n4.getByRole("link", { name: /Nadia Warsame/ })).toBeVisible();
+  // Samordnaren når inte sidan Kartläggning – raden har Välj nivå i stället.
+  if (isDemo(info)) await open(page, info, "/grupper", SARA);
+  else {
+    await switchPersona(page, SARA);
+    await page.goto("/grupper");
+  }
+  const amal = card(page, "Utan nivå – att kartlägga").getByTestId("utan-niva").filter({ hasText: "BOT-27-0012" });
+  await expect(amal).not.toContainText("Öppna kartläggningen");
+  await btn(amal, /^Välj nivå/).click();
+  const dialog = page.getByRole("dialog", { name: /^Välj nivå för / });
+  await btn(dialog, "Nivå 2 – Behöver stöd för att komma igång").click();
+  await btn(dialog, "Spara").click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card(page, "Utan nivå – att kartlägga").getByTestId("utan-niva").filter({ hasText: "BOT-27-0012" })).toHaveCount(0);
   expect(relevant(errors)).toEqual([]);
 });
 

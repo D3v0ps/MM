@@ -21,6 +21,7 @@ import { uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
 import type { WeekKey } from "@/data/schema";
 import { orgSettingsFor } from "./context";
+import { refreshPrefillAfterAttendance } from "./monthly-prefill";
 import { publishWeeklyIfComplete } from "./weekly";
 
 /** Felets kod eller namn till loggen – aldrig meddelandet (det kan innehålla värden). */
@@ -110,6 +111,9 @@ export async function runAutoAttendance(ctx: Ctx, opts: { floor?: LocalDateTime 
       throw e;
     }
     await log(null);
+    // Månadsbedömningens förifyllda sammanfattning följer närvaron (en körning som fyller i dagar i en avslutad månad).
+    const startsOf = new Map(acts.map((a) => [a.id, a.startsAt]));
+    await refreshPrefillAfterAttendance(ctx, written.map((d) => ({ caseId: d.caseId, contractId: contract.id, startsAt: startsOf.get(d.activityId) ?? `${d.day}T00:00` })));
     run.contracts.push({ contractId: contract.id, registered: written.length, activityIds: written.map((d) => d.activityId) });
     run.registered += written.length;
     // Veckorapporterna: en kontroll per handläggare och vecka bland de registrerade – i fast ordning.

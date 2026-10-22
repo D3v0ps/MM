@@ -198,7 +198,7 @@ describe("röstjobben mot migrationerna (PGlite)", () => {
       expect(note.textOriginal).toMatch(/[؀-ۿ]/);
       expect(note.textSv).not.toMatch(/[؀-ۿ]/);
       const ma = (await t.repo.table("monthly_assessments").first({ caseId: "case-260130", month: "2027-01" }))!;
-      expect(ma.areas.narvaro_rutiner.aiObservationDraft).toEqual({ text: "Närvarande vid 10 av 11 registrerade tillfällen. 1 ogiltig frånvaro.", sources: ["Närvaroregistrering", "Avstämning 22 jan"], noEvidence: false });
+      expect(ma.areas.narvaro_rutiner.aiObservationDraft).toEqual({ text: "Närvarande vid 10 av 11 registrerade tillfällen. 1 ogiltig frånvaro.", sources: ["Närvaroregistrering", "Mötesrapport 22 jan"], noEvidence: false });
       // Nivån är den automatiska 0:an (Karims beslut 2026-10-22) – jobbet skriver aldrig en nivå.
       expect(ma.areas.narvaro_rutiner).toMatchObject({ level: 0, levelSource: "auto" });
       expect((await t.repo.table("ai_runs").get(d.aiRunId))!.status).toBe("succeeded");

@@ -7,7 +7,7 @@
 // ändra tillbaka (aktiviteter.malResultat). Internt: syns bara här. Bjud in per yrkesområde, nivå eller enskilt, och kryssrutorna
 // för meddelandet till deltagarna när de bjuds in, när tid eller plats ändras, när en deltagare tas bort och när aktiviteten ställs in.
 // Karims beslut 2026-10-22: målgruppen (en nivå eller ett yrkesområde) visas, och de som målgruppen bjöd in tas inte bort för hand
-// (de bjuds in automatiskt). Ett tillfälle i en återkommande aktivitet visar "Del av återkommande aktivitet: tis och tor 10.00",
+// (de bjuds in automatiskt). Ett tillfälle i en återkommande aktivitet visar "Del av återkommande aktivitet: tisdag och torsdag 10.00",
 // "Ställ in bara det här tillfället" och "Avsluta hela serien"; dag, tid och längd är seriens.
 import { useRef, useState } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
@@ -102,6 +102,7 @@ function Aktivitet({ v }: { v: Ok }) {
   const cancel = useCommand(groupActivityCancel);
   const saveNotes = useCommand(groupActivityNotes);
   const setGoal = useCommand(groupGoalResultSet);
+  const replaceBusy = useCommand(groupActivityInvite);
   const endSeries = useEndSeries();
   const notifyBox = useRef(true);
   const [editing, setEditing] = useState(false);
@@ -209,6 +210,33 @@ function Aktivitet({ v }: { v: Ok }) {
     else toast(`${p.name} är borttagen från aktiviteten.${notifiedText(res.notified)}`);
   };
 
+  // Målgruppens deltagare som har ett eget tillfälle vid samma tid: bjud in dem och ersätt deras egna tillfällen (samma som
+  // Bjud in en och en med Ersätt – en annan aktivitet eller registrerad närvaro ersätts aldrig).
+  const busyReplaceable = v.audienceBusy.filter((x) => x.replaceable);
+  const inviteBusy = async () => {
+    const ok = await confirm({
+      title: `Bjuda in ${plural(busyReplaceable.length, "deltagare", "deltagare")} och ersätta deras egna tillfällen?`,
+      body: (
+        <Stack gap="sm">
+          <p className="m-0">Deltagarnas egna tillfällen vid samma tid tas bort och ersätts av aktiviteten:</p>
+          <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
+            {busyReplaceable.map((x) => (
+              <li key={x.caseId}>
+                {x.name} ({x.caseNumber})
+              </li>
+            ))}
+          </ul>
+        </Stack>
+      ),
+      confirmLabel: "Bjud in och ersätt",
+      cancelLabel: "Avbryt",
+    });
+    if (!ok) return;
+    const res = await replaceBusy.run({ id: a.id, caseIds: busyReplaceable.map((x) => x.caseId), replaceOverlapping: true }).catch(() => null);
+    if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Deltagarna kunde inte bjudas in.", "error");
+    else toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}${skippedText(res.skipped)}`);
+  };
+
   const cancelActivity = async () => {
     notifyBox.current = true;
     const ok = await confirm({
@@ -288,7 +316,8 @@ function Aktivitet({ v }: { v: Ok }) {
                 <Button kind="secondary" icon="edit" onClick={() => setEditingSeries(true)}>
                   Ändra alla kommande tillfällen
                 </Button>
-                <Button kind="secondary" icon="x" pending={endSeries.pending} onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify })}>
+                <Button kind="secondary" icon="x" pending={endSeries.pending} onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify, startsOn: series.startsOn, today: dayOf(v.now) })}
+                >
                   Avsluta hela serien
                 </Button>
                 <Button kind="ghost" icon="list" to="/aktiviteter">
@@ -311,7 +340,10 @@ function Aktivitet({ v }: { v: Ok }) {
             ["Plats", a.location],
             ["Ansvarig", a.responsibleName ?? "Ingen ansvarig"],
             ["Gruppmål", a.goal ?? "Inget gruppmål"],
-            ["Målgrupp", a.audience ? `${a.audience.label} – de som tillkommer bjuds in automatiskt fram till aktiviteten` : "Inbjudna en och en"],
+            [
+              "Målgrupp",
+              a.audience ? (a.cancelledAt ? a.audience.label : `${a.audience.label} – de som tillkommer bjuds in automatiskt fram till aktiviteten`) : "Inbjudna en och en",
+            ],
             ["Skapad av", a.createdByName],
           ]}
         />
@@ -333,7 +365,9 @@ function Aktivitet({ v }: { v: Ok }) {
         <div className="flex flex-col gap-1 border-b border-ljusgra px-[18px] py-3">
           <p className="m-0 text-body">
             {parts.length === 0
-              ? "Inga deltagare är inbjudna än."
+              ? a.cancelledAt || v.audienceBusy.length || !upcoming
+                ? "Inga deltagare är inbjudna."
+                : "Inga deltagare är inbjudna än."
               : !started
                 ? "Närvaron registreras när aktiviteten har startat. Markera de som är sena eller frånvarande och sedan övriga som närvarande."
                 : open.length === 0
@@ -346,6 +380,25 @@ function Aktivitet({ v }: { v: Ok }) {
                 ? `Gruppmål: ${goalDone} av ${goalParts.length} klarade. Alla klarar målet automatiskt – markera den som inte klarade det.`
                 : "Gruppmålet markeras när aktiviteten har startat. Alla klarar målet automatiskt."}
             </p>
+          )}
+          {v.audienceBusy.length > 0 && (
+            <div data-testid="malgrupp-upptagna" className="flex flex-col gap-1.5">
+              <p className="m-0 text-body">
+                {`${plural(v.audienceBusy.length, "deltagare", "deltagare")} i målgruppen har redan ett annat tillfälle vid samma tid och är inte ${v.audienceBusy.length === 1 ? "inbjuden" : "inbjudna"}:`}
+              </p>
+              <ul className="m-0 flex list-disc flex-col gap-0.5 pl-5 text-body">
+                {v.audienceBusy.map((x) => (
+                  <li key={x.caseId}>{`${x.name} (${x.caseNumber}) – ${x.reason.charAt(0).toLocaleLowerCase("sv")}${x.reason.slice(1).replace(/\. Det ersätts av aktiviteten$/, "")}`}</li>
+                ))}
+              </ul>
+              {v.canEdit && busyReplaceable.length > 0 && (
+                <div>
+                  <Button kind="secondary" icon="users" pending={replaceBusy.pending} onClick={() => void inviteBusy()}>
+                    {`Bjud in och ersätt deras egna tillfällen (${busyReplaceable.length})`}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
           {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
           <p role="status" aria-live="polite" className="m-0 text-body font-bold">

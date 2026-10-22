@@ -3,7 +3,8 @@
 // som förut bara nuvarande yrkesområde. Huvudcoachen (och samordnare, avtalsansvarig) byter med en kort motivering – den sparas
 // som en anteckning i deltagarkortet. Grupp och inbjudningar ändras direkt; fakturan räknas på det nya yrkesområdet från och med
 // månaden efter bytet. Knappen står i dialogen Nivå och yrkesområde (Ändra i kortets huvud – yrkesområdet är deltagarens grupp)
-// och bytena listas under huvudets rad ("22 okt: A → C (vem som bytte) – fakturan från november").
+// och bytena listas under huvudets rad med yrkesområdenas namn och motiveringen. Yrkesspåret hör till yrkesområdet: dialogen
+// erbjuder det nya yrkesområdets spår, annars väljs det i kartläggningen.
 import { useState } from "react";
 import { AREA_MOTIVATION_MAX, AREA_MOTIVATION_MIN } from "@/core/area-changes";
 import { plural } from "@/core/format";
@@ -33,16 +34,20 @@ export function CaseAreaChange({ caseId }: { caseId: string }) {
   );
 }
 
-/** Bytena hittills under raden ("27 jan: G → D (Amira Haddad) – fakturan från februari"). Inget när ärendet inte har bytt. */
+/**
+ * Bytena hittills under raden ("27 jan: G Lager och logistik → D Kök, restaurang och måltidsservice (Amira Haddad) – fakturan från
+ * februari") med motiveringen under. Inget när ärendet inte har bytt.
+ */
 export function CaseAreaHistory({ caseId, className }: { caseId: string; className?: string }) {
   const q = useQuery(caseAreaView, { caseId });
   const v = q.data;
   if (!v || v.history.length === 0) return null;
   return (
-    <ul className={cn("m-0 flex list-none flex-col gap-0.5 p-0 text-small text-text-muted", className)} aria-label="Byten av yrkesområde" data-area-history="">
+    <ul className={cn("m-0 flex list-none flex-col gap-1 p-0 text-small text-text-muted", className)} aria-label="Byten av yrkesområde" data-area-history="">
       {v.history.map((h) => (
         <li key={h.id}>
-          {fmtDateShort(h.changedAt)}: {h.fromArea} → {h.toArea} ({h.byName}) – fakturan från {monthName(h.effectiveMonth).replace(/ \d{4}$/, "")}
+          {fmtDateShort(h.changedAt)}: {h.fromName || h.fromArea} → {h.toName || h.toArea} ({h.byName}) – fakturan från {monthName(h.effectiveMonth).replace(/ \d{4}$/, "")}
+          {h.motivation ? <span className="block">Motivering: {h.motivation}</span> : null}
         </li>
       ))}
     </ul>
@@ -61,6 +66,7 @@ export function areaGroupsText(g: { invited: number; removed: number } | null): 
 function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
   const save = useCommand(caseChangeArea);
   const [toArea, setToArea] = useState("");
+  const [track, setTrack] = useState("");
   const [motivation, setMotivation] = useState("");
   const [tried, setTried] = useState(false);
   const [serverErr, setServerErr] = useState<{ area?: string; motivation?: string }>({});
@@ -69,14 +75,15 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
   const motErr = tried && (len < AREA_MOTIVATION_MIN || len > AREA_MOTIVATION_MAX)
     ? `Skriv en kort motivering, ${AREA_MOTIVATION_MIN}–${AREA_MOTIVATION_MAX} tecken.`
     : (serverErr.motivation ?? null);
-  const dirty = !!toArea || motivation.trim() !== "";
+  const dirty = !!toArea || !!track || motivation.trim() !== "";
+  const tracks = v.options.find((a) => a.code === toArea)?.tracks ?? [];
   const month = monthName(v.effectiveMonth);
   const submit = async () => {
     setTried(true);
     if (!toArea || len < AREA_MOTIVATION_MIN || len > AREA_MOTIVATION_MAX) return;
-    const res = await save.run({ caseId: v.caseId, toArea, motivation: motivation.trim(), ...(v.current ? { fromArea: v.current.code } : {}) }).catch(() => null);
+    const res = await save.run({ caseId: v.caseId, toArea, motivation: motivation.trim(), vocationalTrack: track, ...(v.current ? { fromArea: v.current.code } : {}) }).catch(() => null);
     if (!res || !res.ok) {
-      if (res && !res.ok && (res.error === "area" || res.error === "same")) setServerErr({ area: res.message });
+      if (res && !res.ok && (res.error === "area" || res.error === "same" || res.error === "track")) setServerErr({ area: res.message });
       else if (res && !res.ok && (res.error === "motivation" || res.error === "pnr")) setServerErr({ motivation: res.message });
       else toast(res && !res.ok && res.message ? res.message : "Yrkesområdet kunde inte bytas.", "error");
       return;
@@ -106,17 +113,34 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
             invalid={!!areaErr}
             onValueChange={(x) => {
               setToArea(x);
+              // Yrkesspåret hör till yrkesområdet: ett nytt yrkesområde, ett nytt val.
+              setTrack("");
               setServerErr((e) => ({ ...e, area: undefined }));
             }}
             options={v.options.map((a) => ({ value: a.code, label: `${a.code} – ${a.name}` }))}
           />
         </Field>
+        {toArea && tracks.length > 0 && (
+          <Field
+            id="arn-area-track"
+            label="Yrkesspår i det nya yrkesområdet"
+            help={`Välj om ni redan vet yrkesspåret. Annars väljs det i kartläggningen.${v.track ? ` Det nuvarande yrkesspåret (${v.track}) hör till det gamla yrkesområdet och tas bort.` : ""}`}
+          >
+            <Select
+              id="arn-area-track"
+              value={track}
+              placeholder="Väljs i kartläggningen"
+              onValueChange={setTrack}
+              options={tracks}
+            />
+          </Field>
+        )}
         <Field
           id="arn-area-why"
           label="Motivering"
           required
           error={motErr}
-          help="Kort varför, t.ex. vad som kom fram i kartläggningen. Skriv inga personnummer."
+          help="Kort varför, till exempel vad som kom fram i kartläggningen. Skriv inga personnummer."
         >
           <TextArea
             rows={3}
@@ -131,7 +155,7 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
         </Field>
         <Notice tone="info" title="Det här händer">
           Grupp och inbjudningar ändras direkt. Fakturan räknas på det nya yrkesområdet från och med {month}. Motiveringen sparas som en anteckning i
-          deltagarkortet. Kommunen ser bara det nya yrkesområdet.
+          deltagarkortet och kan inte ändras efteråt. Kommunen ser bara det nya yrkesområdet.
         </Notice>
       </Stack>
     </Modal>

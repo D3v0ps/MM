@@ -103,6 +103,45 @@ export function clearAllDrafts(): void {
   drafts.clear();
 }
 
+/**
+ * Utkastminnet för den inloggade utan React-tillstånd: läsa ett värde och glömma nycklar – innan ett formulär läser sina utkast
+ * (t.ex. när minnet är äldre än raden på servern). Nycklarna är samma som i useDraft.
+ */
+export function useDraftMemory(): { peek: (key: string) => { has: boolean; value: unknown }; drop: (keys: readonly string[]) => void } {
+  const { actor } = useSession();
+  const k = (key: string) => `${actor.userId}|${key}`;
+  return {
+    peek: (key) => ({ has: drafts.has(k(key)), value: drafts.get(k(key)) }),
+    drop: (keys) => {
+      for (const key of keys) drafts.delete(k(key));
+    },
+  };
+}
+
+export type DraftMemory = ReturnType<typeof useDraftMemory>;
+
+/**
+ * Glöm ett formulärs utkastminne när det är äldre än raden på servern (versionen i minnet < serverVersion) och saknar osparade
+ * ändringar (fältens värden = det sparade läget). fields: fältens nycklar med serverns värde (gäller när fältet inte finns i
+ * minnet), i samma ordning som det sparade läget (JSON); saved: nyckeln för det sparade läget; version: nyckeln för versionen;
+ * others: övriga nycklar som glöms samtidigt. true = minnet glömdes.
+ */
+export function dropStaleDraft(
+  memory: Pick<DraftMemory, "peek" | "drop">,
+  o: { fields: readonly (readonly [string, unknown])[]; saved: string; version: string; others?: readonly string[]; serverVersion: number | null },
+): boolean {
+  const v = memory.peek(o.version);
+  if (!v.has || typeof v.value !== "number" || o.serverVersion == null || v.value >= o.serverVersion) return false;
+  const saved = memory.peek(o.saved);
+  const current = JSON.stringify(o.fields.map(([key, server]) => {
+    const m = memory.peek(key);
+    return m.has ? m.value : server;
+  }));
+  if (saved.has && saved.value !== current) return false;
+  memory.drop([...o.fields.map(([key]) => key), o.saved, o.version, ...(o.others ?? [])]);
+  return true;
+}
+
 export type Draft<T> = {
   value: T;
   set: (next: T | ((prev: T) => T)) => void;

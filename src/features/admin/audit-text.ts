@@ -20,7 +20,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
   "check_in.saved": "Sparade avstämning", "check_in.approved": "Godkände avstämning", "deviation.created": "Skapade avvikelse", "deviation.saved": "Sparade avvikelse", "deviation.customer_called": "Kallade kommunen till uppföljning",
   "assessment.saved": "Sparade månadsbedömning", "assessment.approved": "Godkände månadsbedömning",
-  "assessment.prefilled": "Fyllde i månadsbedömningar automatiskt", "assessment.ai_accepted": "Godtog AI-förslag till progressionsnivå", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
+  "assessment.prefilled": "Fyllde i månadsbedömningen automatiskt", "assessment.ai_accepted": "Godtog AI-förslag till progressionsnivå", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
   "event.added": "Registrerade händelse", "result.verified": "Verifierade resultat", "message.sent": "Skickade meddelande", "alert.acknowledged": "Kvitterade flagga",
   "consent.given": "Registrerade samtycke", "consent.declined": "Registrerade nej till samtycke", "consent.revoked": "Återkallade samtycke",
   "ai.run": "AI-körning", "audio.deleted": "Raderade ljudfil", "transcript.deleted": "Raderade råtranskript",

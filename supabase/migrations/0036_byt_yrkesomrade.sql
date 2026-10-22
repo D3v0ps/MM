@@ -21,6 +21,10 @@
 --        hanteraren skriver bytet innan ärendet ändras) och från det förra bytets nya yrkesområde, är inte äldre än det förra
 --        bytet och registreras med aktuell tid (changed_at högst 10 minuter från mm.app_now()). Ingen kan alltså skriva in en
 --        påhittad historik som ändrar vilket yrkesområde tidigare månader faktureras på.
+--      * motiveringen (anteckningen som note_id pekar på) är låst för inloggade: den ändras och tas aldrig bort (triggern
+--        case_notes_area_change_lock) – den visas i bytets historik på deltagarkortet.
+--      * inloggade får läsa kolumnen cases.primary_area_code (hanteraren ändrar ärendet villkorat på det gamla yrkesområdet –
+--        ett villkor kräver läsrätt; inget nytt lämnas ut, se nedan).
 -- 2. monthly_assessments.prefill: vad som fylldes i automatiskt och ännu inte ändrats av coachen ("Ifyllt automatiskt –
 --    kontrollera"). jsonb med bara id:n, dagar och källornas typ – aldrig text. Standard '{}' (inget förifyllt) – befintliga
 --    rader påverkas inte. Nivåns ursprung per område (levelSource auto/coach/ai) och AI-förslagets belägg ligger i areas (jsonb)
@@ -62,6 +66,9 @@ create unique index if not exists case_area_changes_case_seq_key on public.case_
 create index if not exists case_area_changes_contract_id_idx on public.case_area_changes (contract_id, effective_month);
 create index if not exists case_area_changes_changed_by_idx on public.case_area_changes (changed_by);
 create index if not exists case_area_changes_note_id_idx on public.case_area_changes (note_id);
+-- De sammansatta främmande nycklarna mot contract_areas (contract_id, code) får var sitt index.
+create index if not exists case_area_changes_from_area_idx on public.case_area_changes (contract_id, from_area);
+create index if not exists case_area_changes_to_area_idx on public.case_area_changes (contract_id, to_area);
 
 alter table public.case_area_changes enable row level security;
 revoke all on public.case_area_changes from anon, authenticated;
@@ -91,6 +98,12 @@ language sql stable security definer set search_path = public, mm
 as $$ select c.primary_area_code from public.cases c where c.id = p_case_id $$;
 revoke all on function mm.case_primary_area(text) from public, anon;
 grant execute on function mm.case_primary_area(text) to authenticated, service_role;
+
+-- Hanteraren ändrar ärendets yrkesområde villkorat på det gamla (SupabaseRepo.updateIf: update public.cases set
+-- primary_area_code = … where id = … and primary_area_code = …). Ett villkor på en kolumn kräver läsrätt på kolumnen – sedan 0013
+-- läser inloggade bara id direkt i public.cases (övriga kolumner via cases_public). Kolumnen lämnar inget nytt ut: cases_public
+-- (mm.visible_cases) visar yrkesområdet omaskerat för samma ärenden som policyn cases_select släpper igenom.
+grant select (primary_area_code) on public.cases to authenticated;
 
 -- Raden stämmer med ärendet, avtalets yrkesområden, anteckningen och tiden (policy.ts caseAreaChangeConsistent – gäller alla,
 -- också service role). Uppslagen görs med den inloggades rättigheter: den som får skapa raden (full åtkomst) läser avtalets
@@ -145,6 +158,30 @@ $$;
 drop trigger if exists case_area_changes_check on public.case_area_changes;
 create trigger case_area_changes_check before insert or update on public.case_area_changes
 for each row execute function mm.check_case_area_change();
+
+-- Motiveringen är låst (policy.ts caseNoteWrite): en anteckning som ett byte pekar på (note_id) ändras och tas aldrig bort av
+-- inloggade – inte heller av författaren, samordnaren eller avtalsansvarig. Servern (service role) rörs inte: systemsteget som tar
+-- bort ett halvt byte (bytet skrevs men ärendet kunde inte ändras) raderar bytet och döljer sedan anteckningen.
+-- Uppslaget med security definer: bytena läses annars med den inloggades rättigheter.
+create or replace function mm.is_area_change_note(p_note_id text) returns boolean
+language sql stable security definer set search_path = public, mm
+as $$ select exists (select 1 from public.case_area_changes x where x.note_id = p_note_id) $$;
+revoke all on function mm.is_area_change_note(text) from public, anon;
+grant execute on function mm.is_area_change_note(text) to authenticated, service_role;
+
+create or replace function mm.lock_area_change_note() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+begin
+  if current_user in ('authenticated', 'anon') and mm.is_area_change_note(old.id) then
+    raise exception 'Motiveringen till ett byte av yrkesområde kan inte ändras eller tas bort' using errcode = '42501';
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists case_notes_area_change_lock on public.case_notes;
+create trigger case_notes_area_change_lock before update on public.case_notes
+for each row execute function mm.lock_area_change_note();
 
 -- ---------------------------------------------------------------- 2. Förifyllt i månadsbedömningen
 alter table public.monthly_assessments add column if not exists prefill jsonb not null default '{}'::jsonb;

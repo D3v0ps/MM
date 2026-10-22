@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConfirmHost } from "@/ui";
-import { clearAllDrafts, leaveWithoutAsking, useDraft, useUnsavedGuard } from "./guard";
+import { clearAllDrafts, dropStaleDraft, leaveWithoutAsking, useDraft, useUnsavedGuard } from "./guard";
 import { cancelLeaveDocument, confirmLeaveDocument, NavProvider, runBeforeNavigate, type LinkImpl, type Nav } from "./nav";
 import { SessionProvider, type Session } from "./session";
 
@@ -206,5 +206,29 @@ describe("useDraft", () => {
     cleanup();
     render(wrap(<Note k="avstamning|case-2" />, "u-erik"));
     expect((screen.getByLabelText("Anteckning") as HTMLTextAreaElement).value).toBe("");
+  });
+});
+
+describe("dropStaleDraft (minnet äldre än raden på servern)", () => {
+  const fake = (entries: Record<string, unknown>) => {
+    const m = new Map(Object.entries(entries));
+    return { m, memory: { peek: (k: string) => ({ has: m.has(k), value: m.get(k) }), drop: (keys: readonly string[]) => keys.forEach((k) => m.delete(k)) } };
+  };
+  const o = (serverVersion: number | null) => ({ fields: [["f|a", "server-a"], ["f|b", 1]] as const, saved: "f|sparat", version: "f|version", others: ["f|tid"], serverVersion });
+
+  it("äldre version utan osparade ändringar: minnet glöms (serverns värden och version gäller)", () => {
+    const { m, memory } = fake({ "f|a": "mitt", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3, "f|tid": "09.00" });
+    expect(dropStaleDraft(memory, o(4))).toBe(true);
+    expect([...m.keys()]).toEqual([]);
+  });
+
+  it("osparade ändringar, samma version eller inget versionsminne: minnet ligger kvar", () => {
+    const dirty = fake({ "f|a": "ändrat", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3 });
+    expect(dropStaleDraft(dirty.memory, o(4))).toBe(false);
+    expect(dirty.m.size).toBe(3);
+    const same = fake({ "f|a": "mitt", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 4 });
+    expect(dropStaleDraft(same.memory, o(4))).toBe(false);
+    expect(dropStaleDraft(fake({ "f|a": "mitt" }).memory, o(4))).toBe(false);
+    expect(dropStaleDraft(fake({ "f|version": 1 }).memory, o(null))).toBe(false);
   });
 });

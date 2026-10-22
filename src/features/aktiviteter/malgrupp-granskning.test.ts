@@ -233,3 +233,87 @@ describe("vilande spärren (påslagen): skyddade personuppgifter", () => {
     expect(await run(groupActivitySeriesEnd, { id: series.seriesId }, sara)).toMatchObject({ ok: true });
   });
 });
+
+/** Ett systemsteg där en tabells insert alltid kastar (ett databasfel eller en tidsgräns mitt i steget). */
+function withFailingInsert(ctx: Ctx, table: TableName): Ctx {
+  const base = ctx.system;
+  const system = {
+    table: (name: TableName) => {
+      const t = base.table(name);
+      if (name !== table) return t;
+      return { ...t, insert: async () => { throw Object.assign(new Error("Databasfel (57014)"), { code: "57014" }); } };
+    },
+  } as unknown as Ctx["system"];
+  return { ...ctx, system };
+}
+
+describe("granskningen, andra rundan", () => {
+  it("en deltagare som bjöds in för hand och hör till målgruppen stoppar inte en flytt – hen tas bort när hen inte kan vara med", async () => {
+    const created = await run(groupActivityCreate, { name: "Studiebesök", kind: "annat", startsAt: "2027-02-12T10:00", durationMin: 60, location: "Alby", caseIds: [NADIA] }, amira());
+    if (!created.ok) throw new Error(created.message);
+    const id = created.groupActivityId;
+    expect(await run(groupActivityInvite, { id, caseIds: [], audience: { kind: "area", areaCode: "G" } }, amira())).toMatchObject({ ok: true });
+    expect(partsOf(id).find((a) => a.caseId === NADIA)).toMatchObject({ inviteSource: "manual" });
+    // Måndag 8 februari 13.00–14.00: Nadia har nivå 4:s tillfälle 13.30 – hon kan inte vara med vid den nya tiden.
+    const moved = await run(groupActivityUpdate, { id, name: "Studiebesök", kind: "annat", startsAt: "2027-02-08T13:00", durationMin: 60, location: "Alby" }, amira());
+    expect(moved).toMatchObject({ ok: true, changed: 1 });
+    expect(partsOf(id).some((a) => a.caseId === NADIA)).toBe(false);
+    const log = rows("audit_log").filter((x) => x.action === "group_activity.updated" && x.entityId === id).at(-1)!;
+    expect((log.details as { droppedCaseIds?: string[] }).droppedCaseIds).toContain(NADIA);
+    // Ingen deltagare har två tillfällen samtidigt.
+    for (const a of partsOf(id)) {
+      const others = rows("activities").filter((x) => x.caseId === a.caseId && x.id !== a.id && x.startsAt.slice(0, 10) === "2027-02-08");
+      expect(others.filter((x) => overlaps(x, a)), a.caseId).toEqual([]);
+    }
+  });
+
+  it("synkningen loggar varje borttagning innan något bjuds in – ett fel när inbjudningarna skrivs lämnar ingen borttagen rad utan logg", async () => {
+    const level = (n: number) => rows("activities").filter((a) => a.caseId === NADIA && a.groupActivityId?.startsWith(`ga-ser-c-bot-niva-${n}-`));
+    const before = level(4).map((a) => a.groupActivityId!).sort();
+    expect(before.length).toBeGreaterThan(1);
+    const m = rows("grouping_members").find((x) => x.caseId === NADIA && x.kind === "level" && !x.removedAt)!;
+    rt.store.updateRow("grouping_members", m.id, { groupingId: L(3) });
+    await expect(syncAudienceInvites(withFailingInsert(system(), "activities"), { contractId: "c-bot", caseIds: [NADIA] })).rejects.toThrow();
+    expect(level(4)).toEqual([]);
+    const logged = rows("audit_log")
+      .filter((r) => r.action === "group_activity.audience_synced" && ((r.details as { removedCaseIds?: string[] }).removedCaseIds ?? []).includes(NADIA))
+      .map((r) => r.entityId)
+      .sort();
+    expect(logged).toEqual(before);
+  });
+
+  it("en ny nivåserie säger hur många i målgruppen som redan har ett annat tillfälle – tillfället visar vilka och kan ersätta deras egna tillfällen", async () => {
+    const res = await run(groupActivitySeriesCreate, { ...plan, name: "Morgonpass", weekdays: [1, 3], startTime: "09:00", startsOn: "2027-02-01", audience: { kind: "level", levelId: L(2) } }, amira());
+    if (!res.ok) throw new Error(res.message);
+    expect(res.skipped).toBeGreaterThan(0);
+    let busyView: Extract<ResultOf<typeof groupActivityView>, { kind: "ok" }> | null = null;
+    for (const g of occurrencesOf(res.seriesId)) {
+      const v = await q(groupActivityView, { id: g.id }, amira());
+      if (v.kind === "ok" && v.audienceBusy.some((x) => x.replaceable)) {
+        busyView = v;
+        break;
+      }
+    }
+    expect(busyView).not.toBeNull();
+    const busy = busyView!.audienceBusy.filter((x) => x.replaceable);
+    // Bara deltagare i målgruppen som inte är inbjudna, med orsaken.
+    for (const x of busyView!.audienceBusy) {
+      expect(busyView!.participants.some((p) => p.caseId === x.caseId)).toBe(false);
+      expect(x.reason).toMatch(/^(Har redan|Är redan inbjuden)/);
+    }
+    const invited = await run(groupActivityInvite, { id: busyView!.activity.id, caseIds: busy.map((x) => x.caseId), replaceOverlapping: true }, amira());
+    expect(invited).toMatchObject({ ok: true, invited: busy.length, replaced: expect.any(Number) });
+    const after = await q(groupActivityView, { id: busyView!.activity.id }, amira());
+    expect(after.kind === "ok" && after.audienceBusy.filter((x) => x.replaceable)).toEqual([]);
+  });
+
+  it("en inställd aktivitet och en aktivitet utan målgrupp listar inga upptagna deltagare", async () => {
+    const created = await run(groupActivityCreate, { name: "Studiebesök", kind: "annat", startsAt: "2027-02-12T10:00", durationMin: 60, location: "Alby", caseIds: [NADIA] }, amira());
+    if (!created.ok) throw new Error(created.message);
+    const v = await q(groupActivityView, { id: created.groupActivityId }, amira());
+    expect(v.kind === "ok" && v.audienceBusy).toEqual([]);
+    expect(await run(groupActivityCancel, { id: TRAFF_G }, amira())).toMatchObject({ ok: true });
+    const c = await q(groupActivityView, { id: TRAFF_G }, amira());
+    expect(c.kind === "ok" && c.audienceBusy).toEqual([]);
+  });
+});

@@ -283,11 +283,19 @@ export type CaseAreaView = {
   canChange: boolean;
   /** Varför bytet inte går (avslutat ärende …) – bara för den som annars får byta. */
   blockedText: string | null;
-  /** Avtalets andra aktiva yrkesområden att byta till. */
-  options: { code: string; name: string }[];
+  /** Avtalets andra aktiva yrkesområden att byta till, med yrkesspåren att välja bland (tom lista = inga förslag). */
+  options: { code: string; name: string; tracks: string[] }[];
+  /** Nuvarande yrkesspår ("" = inte valt) – det hör till det nuvarande yrkesområdet och följer inte med bytet. */
+  track: string;
   /** Månaden då fakturan börjar räknas på det nya yrkesområdet om bytet görs nu ("november 2026"). */
   effectiveMonth: MonthKey;
-  history: { id: string; changedAt: LocalDateTime; fromArea: string; toArea: string; byName: string; effectiveMonth: MonthKey }[];
+  /**
+   * Bytena, nyast först, med yrkesområdenas namn och motiveringen (den låsta anteckningen – null om läsaren inte ser den).
+   */
+  history: {
+    id: string; changedAt: LocalDateTime; fromArea: string; toArea: string; fromName: string; toName: string; byName: string; effectiveMonth: MonthKey;
+    motivation: string | null;
+  }[];
 };
 // Nyckeln ligger utanför CARD ("arenden.kort…"): raden ändras bara när ärendet ändras (CASES räknar om den), inte av kortets
 // övriga kommandon (meddelanden, anteckningar).
@@ -307,6 +315,8 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
   motivation: z.string().max(2000),
   /** Yrkesområdet som dialogen visade – har ärendet ett annat nu blir det conflict (någon annan har bytt under tiden). */
   fromArea: z.string().trim().min(1).max(10).optional(),
+  /** Yrkesspåret i det nya yrkesområdet. Tomt eller utelämnat = väljs i kartläggningen (det gamla spåret följer aldrig med). */
+  vocationalTrack: z.string().max(200).optional(),
 }), { invalidates: [...CASE_FACTS, GRUPPER, INBOX] }).returns<
   Result<
     {
@@ -314,7 +324,7 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
       /** Kommande aktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
       groups: { invited: number; removed: number } | null;
     },
-    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr" | "conflict"
+    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr" | "track" | "conflict"
   >
 >();
 
@@ -784,13 +794,13 @@ export const caseNoteSave = command("arenden.noteSave", z.object({
   kind: z.enum(CASE_NOTE_KINDS),
   audience: z.enum(CASE_NOTE_AUDIENCES),
   body: z.string().trim().min(1).max(2000),
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "pnr" | "date">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<{ noteId: string }, "not_found" | "forbidden" | "not_author" | "locked" | "pnr" | "date">>();
 
 /** Ta bort (dölja) en anteckning: författaren, eller samordnare och avtalsansvarig i avtalet. Inget raderas på riktigt. */
 export const caseNoteRemove = command("arenden.noteRemove", z.object({
   caseId: IdSchema,
   noteId: IdSchema,
-}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author">>();
+}), { invalidates: ["arenden.kortTidslinje", "arenden.kortManad", "arenden.kortHistorik", "coach.assessmentPage", "aktiviteter.visa", ...LOG] }).returns<Result<object, "not_found" | "forbidden" | "not_author" | "locked">>();
 
 // ---------------------------------------------------------------- Flik: Månadsunderlag (?flik=manad)
 /** Det som saknas innan månadsrapporten kan godkännas – bara antal, aldrig text (monthlyGaps i rapporter/model.ts). */

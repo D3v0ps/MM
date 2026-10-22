@@ -94,6 +94,8 @@ describe("ärendets nivå och taggar (grupper.arendeSpara)", () => {
     const before = rt.store.rows("audit_log").length;
     const r = await cmd(caseGroupingsSave.key, { caseId: AMAL, levelId: L(2), tags: { "Vill arbeta": W("deltid") } }, amira());
     expect(r).toMatchObject({ ok: true, added: 2, removed: 0 });
+    // Svaret har inbjudningarna (kartläggningen säger samma mening som Höj nivå).
+    expect((r as unknown as { invites: { invited: number; removed: number } }).invites).toEqual({ invited: levelRows(AMAL).length, removed: 0 });
     expect(active(AMAL).map((m) => [m.groupingId, m.kind, m.slot, m.addedBy]).sort()).toEqual([
       [L(2), "level", "level", "u-amira"], [W("deltid"), "tag", "tag:Vill arbeta", "u-amira"],
     ].sort());
@@ -257,7 +259,7 @@ describe("Grupper-sidan (grupper.oversikt)", () => {
     expect(o.areas.find((a) => a.code === "E")!.meetings.every((m) => m.items.length === 0)).toBe(true);
     expect(o.levels.map((l) => [l.id, l.nextLevel?.id ?? null])).toEqual([[L(1), L(2)], [L(2), L(3)], [L(3), L(4)], [L(4), L(5)], [L(5), null]]);
     expect(o.levels.find((l) => l.id === L(3))!.people.map((p) => p.caseId)).toContain(MEHMET);
-    expect(o.levels.find((l) => l.id === L(4))!.series).toEqual([{ id: "ser-c-bot-niva-4", name: "Jobbsök och CV", schedule: "mån och ons 13.30", nextId: "ga-ser-c-bot-niva-4-2027-02-08" }]);
+    expect(o.levels.find((l) => l.id === L(4))!.series).toEqual([{ id: "ser-c-bot-niva-4", name: "Jobbsök och CV", schedule: "måndag och onsdag 13.30", nextId: "ga-ser-c-bot-niva-4-2027-02-08" }]);
     // Utan nivå – att kartlägga: pågående och bekräftade utan nivå, med kartläggningens läge.
     expect(o.unplaced.map((u) => u.caseId)).toContain(AMAL);
     const placed = new Set(o.levels.flatMap((l) => l.people.map((p) => p.caseId)));
@@ -555,5 +557,18 @@ describe("internt: inget av grupperingarna syns för kommunen, i rapporter, resu
     }
     leak("ekonomi.csv", await rt.run("query", "ekonomi.csv", { month: "2027-01" }, lars()));
     leak("ekonomi.run", await rt.run("query", "ekonomi.run", { month: "2027-01" }, lars()));
+  });
+});
+
+describe("granskningen, andra rundan: Utan nivå – att kartlägga", () => {
+  it("bara coachen öppnar kartläggningen; samordnaren väljer nivån direkt (Välj nivå), chefen läser", async () => {
+    expect(await q(groupingOverview, {}, amira())).toMatchObject({ canIntake: true, canPlace: true });
+    expect(await q(groupingOverview, {}, sara())).toMatchObject({ canIntake: false, canPlace: true });
+    expect(await q(groupingOverview, {}, karin())).toMatchObject({ canIntake: false, canPlace: false });
+    // Välj nivå (samma kommando som Byt nivå, utan nivå före).
+    const r = await cmd(caseLevelSet.key, { caseId: AMAL, levelId: L(2), fromLevelId: null }, sara());
+    expect(r).toMatchObject({ ok: true });
+    const o = await q(groupingOverview, {}, sara());
+    expect(o!.unplaced.some((m) => m.caseId === AMAL)).toBe(false);
   });
 });

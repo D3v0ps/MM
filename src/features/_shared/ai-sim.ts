@@ -15,7 +15,7 @@ import {
 } from "@/data/seed/voice-texts";
 import type { CheckIn, EmployerContacts, GoalStatus, TranscriptLine } from "@/data/schema";
 import {
-  assertApprovedInput, LEVEL_QUOTE_MIN, mmss, noteSourceLabel,
+  assertApprovedInput, LEVEL_QUOTE_MIN, LEVEL_QUOTE_MIN_WORDS, mmss, noteSourceLabel,
   type AiPort, type AiResult, type AiRunMeta, type ApprovedCheckIn, type AudioInput, type DraftInput, type DraftLevelSuggestion, type DraftOptions,
   type DraftTemplateKey, type DraftText, type ExtractSchemaKey, type ExtractSchemas, type Transcript, type TranscriptSegment, type Translation,
 } from "./ai-port";
@@ -278,27 +278,41 @@ const firstSentence = (t: string): string => {
   return s.length > 160 ? `${s.slice(0, 157).trimEnd()}…` : s;
 };
 const byHeldAt = (a: ApprovedCheckIn, b: ApprovedCheckIn) => (a.heldAt < b.heldAt ? -1 : a.heldAt > b.heldAt ? 1 : 0);
-const srcLabel = (ci: Pick<ApprovedCheckIn, "heldAt">) => `Avstämning ${fmtDateShort(ci.heldAt)}`;
+const srcLabel = (ci: Pick<ApprovedCheckIn, "heldAt">) => `Mötesrapport ${fmtDateShort(ci.heldAt)}`;
 const weeksText = (n: number) => (n === 1 ? "en vecka" : `${n} veckor`);
 const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända avstämningar.", sources: [], sourceIds: [], noEvidence: true };
 
 /**
- * Ett ordagrant citat ur mötesrapporten (simulerade nivåförslag): första meningen i anteckningen, annars i veckomålet – högst
- * 200 tecken och aldrig omskrivet, så att kontrollen på servern (verifyLevelSuggestion) hittar det i källan.
+ * Orden som visar att en mening i anteckningen handlar om området (simulerade nivåförslag). En mening som inte handlar om
+ * området citeras aldrig för det – hellre inget förslag än samma mening i flera områden.
  */
-function verbatimQuote(ci: ApprovedCheckIn): string | null {
-  for (const t of [ci.note, ci.nextGoal]) {
-    const first = (t ?? "").trim().split(/(?<=[.!?])\s+/)[0] ?? "";
-    const q = first.length > 200 ? first.slice(0, 200).trim() : first;
-    if (q.length >= LEVEL_QUOTE_MIN) return q;
+const AREA_WORDS: Readonly<Record<string, RegExp>> = {
+  yrkesfardigheter: /moment|yrkes|tempo|truck|plock|arbetsuppgift/i,
+  beredskap: /praktik|apl|anställning|intervju/i,
+  arbetsgivarkontakter: /arbetsgivar|intervju|ansökan|kontakt/i,
+  sjalvstandighet: /själv|egen|egna|utan stöd|initiativ/i,
+  digital_sjalvstandighet: /\bcv\b|ansökan|ansökningar|digital|platsbanken|dator/i,
+};
+/**
+ * Ett ordagrant citat ur mötesrapportens anteckning (simulerade nivåförslag): den första meningen som handlar om området –
+ * högst 200 tecken och aldrig omskrivet, så att kontrollen på servern (verifyLevelSuggestion) hittar det i källan. Nästa veckas
+ * mål citeras aldrig (en plan är ingen iakttagelse).
+ */
+function verbatimQuote(ci: ApprovedCheckIn, area: string): string | null {
+  const words = AREA_WORDS[area];
+  for (const sentence of (ci.note ?? "").trim().split(/(?<=[.!?])\s+/)) {
+    const q = sentence.length > 200 ? sentence.slice(0, 200).trim() : sentence.trim();
+    if (q.length >= LEVEL_QUOTE_MIN && q.split(/\s+/).length >= LEVEL_QUOTE_MIN_WORDS && (!words || words.test(q))) return q;
   }
   return null;
 }
-/** Nivåförslag med belägg ur den senaste mötesrapporten bland `used` – inget förslag utan citat. */
-function levelFrom(level: 1 | 2 | 3, used: readonly ApprovedCheckIn[]): DraftLevelSuggestion | null {
-  const ci = used[used.length - 1];
-  const quote = ci ? verbatimQuote(ci) : null;
-  return ci && quote ? { level, quote, sourceId: ci.id } : null;
+/** Nivåförslag med belägg ur den senaste mötesrapporten bland `used` som har en mening om området – inget förslag utan citat. */
+function levelFrom(level: 1 | 2 | 3, used: readonly ApprovedCheckIn[], area: string): DraftLevelSuggestion | null {
+  for (let i = used.length - 1; i >= 0; i--) {
+    const quote = verbatimQuote(used[i], area);
+    if (quote) return { level, quote, sourceId: used[i].id };
+  }
+  return null;
 }
 
 /**
@@ -360,24 +374,24 @@ export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey)
   if (key === "arbetsgivarkontakter") {
     if (!contacts.length) return from("Ingen arbetsgivarkontakt framgår av avstämningarna.", cis, [], true);
     const d = from(`Arbetsgivarkontakt registrerad ${weeksText(contacts.length)} (${uniq(cis.flatMap((x) => (x.employerContacts && x.employerContacts.types) || [])).join(", ")}).`, contacts);
-    return withLevel(d, levelFrom(contacts.length >= 2 ? 2 : 1, contacts));
+    return withLevel(d, levelFrom(contacts.length >= 2 ? 2 : 1, contacts, key));
   }
   if (key === "yrkesfardigheter" && withAct("Yrkesspecifika moment").length) {
     const used = withAct("Yrkesspecifika moment");
-    return withLevel(from(`Yrkesspecifika moment genomförda ${used.length} av ${cis.length} veckor.`, used), levelFrom(used.length >= 3 ? 2 : 1, used));
+    return withLevel(from(`Yrkesspecifika moment genomförda ${used.length} av ${cis.length} veckor.`, used), levelFrom(used.length >= 3 ? 2 : 1, used, key));
   }
   if (key === "beredskap" && withAct("Praktik/APL").length) {
     const used = withAct("Praktik/APL");
-    return withLevel(from(`Har genomfört praktik ${weeksText(used.length)} under månaden.`, used), levelFrom(used.length >= 2 ? 2 : 1, used));
+    return withLevel(from(`Har genomfört praktik ${weeksText(used.length)} under månaden.`, used), levelFrom(used.length >= 2 ? 2 : 1, used, key));
   }
   if (key === "sjalvstandighet" && cis.length) {
     const d = from(`Veckomålet uppnått helt eller delvis ${goalsMet.length} av ${cis.length} veckor.`, cis);
     if (!goalsMet.length) return d;
-    return withLevel(d, levelFrom(cis.length >= 2 && goalsMet.length * 4 >= cis.length * 3 ? 2 : 1, goalsMet));
+    return withLevel(d, levelFrom(cis.length >= 2 && goalsMet.length * 4 >= cis.length * 3 ? 2 : 1, goalsMet, key));
   }
   if (key === "digital_sjalvstandighet" && withAct("CV och ansökningar").length) {
     const used = withAct("CV och ansökningar");
-    return withLevel(from(`Har arbetat med CV och ansökningar ${weeksText(used.length)}.`, used), levelFrom(1, used));
+    return withLevel(from(`Har arbetat med CV och ansökningar ${weeksText(used.length)}.`, used), levelFrom(1, used, key));
   }
   return NOT_FOUND;
 }

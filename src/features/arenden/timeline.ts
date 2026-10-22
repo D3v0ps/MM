@@ -25,7 +25,7 @@ import type { CaseTimeline, CaseTimelineMonth, TimelineCat, TimelineEntry } from
 export type TimelineDb = Pick<
   Db,
   | "cases" | "persons" | "activities" | "attendance" | "check_ins" | "intake_assessments" | "monthly_assessments" | "outcome_events" | "placements" | "employers"
-  | "case_status_history" | "deviations" | "consents" | "reports" | "messages" | "case_notes" | "profiles" | "organizations"
+  | "case_status_history" | "deviations" | "consents" | "reports" | "messages" | "case_notes" | "profiles" | "organizations" | "case_area_changes"
 >;
 export type TimelineViewer = { access: "full" | "team"; role: Role; userId: string };
 export type TimelineOpts = {
@@ -213,18 +213,22 @@ export function buildTimeline(db: TimelineDb, o: TimelineOpts): CaseTimeline {
 
   // ---- Anteckningar: alla med åtkomst – teamet bara audience team (RLS). Borttagna visas bara för författaren, när
   //      någon annan tog bort dem ("Borttagen av …").
+  // Motiveringen till ett byte av yrkesområde är låst (0036): den ändras och tas aldrig bort.
+  const areaNotes = new Set(db.case_area_changes.filter((x) => x.caseId === c.id).map((x) => x.noteId));
   for (const n of db.case_notes.filter((x) => x.caseId === c.id && (x.audience === "team" || full))) {
     const mine = n.authorId === viewer.userId;
+    const locked = areaNotes.has(n.id);
     if (n.removedAt && !(mine && n.removedBy && n.removedBy !== n.authorId)) continue;
     const who = protectedCase ? CASE_NOTE_PROTECTED_AUDIENCE : CASE_NOTE_AUDIENCE_LABEL[n.audience];
     const removed = n.removedAt ? { byName: name(n.removedBy), at: n.removedAt } : null;
-    const canEdit = !removed && mine && canWrite && (n.audience === "team" || full);
-    const canRemove = !removed && (canEdit || (NOTE_REMOVERS.includes(viewer.role) && full));
+    const canEdit = !removed && !locked && mine && canWrite && (n.audience === "team" || full);
+    const canRemove = !removed && !locked && (canEdit || (NOTE_REMOVERS.includes(viewer.role) && full));
     const sub = removed
       ? `Borttagen av ${removed.byName} ${shortDate(removed.at, today)}`
       : `Skriven av ${name(n.authorId)} · ${who}${n.updatedAt ? ` · Ändrad ${shortDate(n.updatedAt, today)}` : ""}`;
     push({
-      id: `note:${n.id}`, at: n.occurredOn, sort: `${n.occurredOn}T${n.createdAt.slice(11, 16)}`, cat: "anteckningar", icon: "edit", title: caseNoteKindLabel(n.kind), sub,
+      id: `note:${n.id}`, at: n.occurredOn, sort: `${n.occurredOn}T${n.createdAt.slice(11, 16)}`, cat: "anteckningar", icon: "edit",
+      title: locked ? "Byte av yrkesområde" : caseNoteKindLabel(n.kind), sub: locked && !removed ? `${sub} · Motiveringen kan inte ändras` : sub,
       note: { id: n.id, kind: n.kind, audience: n.audience, occurredOn: n.occurredOn, body: n.body, canEdit, canRemove, authorName: name(n.authorId), removed },
     });
   }

@@ -21,6 +21,21 @@ export const AREA_CHANGE_STATUSES: readonly CaseStatus[] = ["confirmed", "active
 export const AREA_MOTIVATION_MIN = 10;
 export const AREA_MOTIVATION_MAX = 300;
 
+/** Yrkesspåret som kan väljas i dialogen (fritext ur listan för det nya yrkesområdet) – tomt = väljs i kartläggningen. */
+export const AREA_TRACK_MAX = 200;
+
+/**
+ * Anteckningen med motiveringen (case_notes.body): "Byte av yrkesområde: G Lager och logistik → C Bygg och anläggning. <motivering>".
+ * Anteckningen är låst – den ändras och tas aldrig bort (0036, policy.ts caseNoteWrite) – och visas i bytets historik.
+ */
+export const areaChangeNoteBody = (fromLabel: string, toLabel: string, motivation: string): string => `${areaChangePrefix(fromLabel, toLabel)}${motivation.trim()}`;
+const areaChangePrefix = (fromLabel: string, toLabel: string) => `Byte av yrkesområde: ${fromLabel} → ${toLabel}. `;
+/** Motiveringen ur anteckningen (texten efter inledningen), eller hela texten om inledningen inte stämmer. */
+export const motivationOf = (body: string, fromLabel: string, toLabel: string): string => {
+  const prefix = areaChangePrefix(fromLabel, toLabel);
+  return body.startsWith(prefix) ? body.slice(prefix.length) : body;
+};
+
 /** Månaden efter bytet ('YYYY-MM') – från den månaden faktureras det nya yrkesområdet (Stockholmstid). */
 export const effectiveMonthOf = (changedAt: LocalDateTime): MonthKey => addMonths(monthKey(dayOf(changedAt)), 1);
 
@@ -62,7 +77,7 @@ export function areaChangesByCase<T extends Pick<CaseAreaChange, "caseId">>(chan
   return m;
 }
 
-export type AreaChangeProblem = { code: "closed" | "area" | "same" | "no_area" | "motivation" | "pnr"; text: string };
+export type AreaChangeProblem = { code: "closed" | "area" | "same" | "no_area" | "motivation" | "pnr" | "track"; text: string };
 
 /**
  * Vad som stoppar ett byte, eller null. Kontrolleras av hanteraren (arenden.bytYrkesomrade) med avtalets yrkesområden.
@@ -72,12 +87,14 @@ export type AreaChangeProblem = { code: "closed" | "area" | "same" | "no_area" |
  *   same        samma yrkesområde som nu
  *   motivation  motiveringen är kortare än 10 eller längre än 300 tecken
  *   pnr         motiveringen ser ut att innehålla ett personnummer
+ *   track       yrkesspåret i det nya yrkesområdet är för långt eller ser ut som ett personnummer (tomt är tillåtet)
  */
 export function areaChangeProblem(
   c: Pick<Case, "status" | "primaryAreaCode">,
   areas: readonly { code: string; active: boolean }[],
   toArea: string,
   motivation: string,
+  track?: string | null,
 ): AreaChangeProblem | null {
   if (!AREA_CHANGE_STATUSES.includes(c.status)) {
     return { code: "closed", text: c.status === "closed" ? "Insatsen är avslutad. Yrkesområdet kan inte bytas." : "Yrkesområdet kan bytas när beställningen är bekräftad." };
@@ -90,5 +107,7 @@ export function areaChangeProblem(
     return { code: "motivation", text: `Skriv en kort motivering, ${AREA_MOTIVATION_MIN}–${AREA_MOTIVATION_MAX} tecken.` };
   }
   if (looksLikePnr(m)) return { code: "pnr", text: "Det ser ut som ett personnummer i motiveringen. Ta bort det – ärendenumret räcker." };
+  const t = (track ?? "").trim();
+  if (t.length > AREA_TRACK_MAX || looksLikePnr(t)) return { code: "track", text: "Välj yrkesspåret i listan, eller lämna fältet tomt." };
   return null;
 }

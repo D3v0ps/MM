@@ -1194,8 +1194,8 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
   if (!L) return null;
   const { c, cfg, env, team, role, me, access } = L;
   const q = { caseId: c.id };
-  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles"], {
-    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q,
+  const base = await loadDb(ctx.repo, ["persons", "activities", "attendance", "outcome_events", "placements", "employers", "case_status_history", "case_notes", "profiles", "case_area_changes"], {
+    persons: { id: c.personId }, activities: q, attendance: q, outcome_events: q, placements: q, case_status_history: q, case_notes: q, case_area_changes: q,
   });
   const fullDb = team
     ? { check_ins: [], intake_assessments: [], monthly_assessments: [], deviations: [], consents: [], reports: [], messages: [], organizations: [] }
@@ -1209,6 +1209,12 @@ handleQuery(caseTimeline, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseTim
 const NOTE_NOT_FOUND = "Anteckningen finns inte, eller så har du inte behörighet att se den.";
 /** Skriver anteckningar: den som arbetar i ärendet. Chef och systemadministratör läser bara. */
 const NOTE_WRITERS: readonly Role[] = ["samordnare", "avtalsansvarig", "coach", "handledare"];
+const AREA_NOTE_LOCKED = "Anteckningen är motiveringen till ett byte av yrkesområde och kan inte ändras eller tas bort.";
+/**
+ * Motiveringen till ett byte av yrkesområde (case_area_changes.noteId) är låst (0036, policy.ts caseNoteWrite). ctx.system: bara
+ * ja/nej – bytet läses av alla som skriver anteckningar, men svaret ska inte bero på rollens läsrätt.
+ */
+const isAreaChangeNote = async (ctx: Ctx, noteId: string): Promise<boolean> => !!(await ctx.system.table("case_area_changes").first({ noteId }));
 
 handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const L = await loadCase(ctx, p.caseId, "tidslinje");
@@ -1226,6 +1232,7 @@ handleCommand(caseNoteSave, { roles: NOTE_WRITERS }, async (ctx, p) => {
   if (p.noteId) {
     const cur = await table.get(p.noteId);
     if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
+    if (await isAreaChangeNote(ctx, cur.id)) return fail("locked", AREA_NOTE_LOCKED);
     if (cur.authorId !== me) return fail("not_author", "Bara den som skrev anteckningen kan ändra den.");
     await table.update(cur.id, { occurredOn: p.occurredOn, kind: p.kind, audience, body: p.body, updatedAt: ctx.now() });
     // Revisionsloggen: bara id:n – aldrig texten eller typen.
@@ -1248,6 +1255,7 @@ handleCommand(caseNoteRemove, { roles: NOTE_WRITERS }, async (ctx, p) => {
   const table = ctx.repo.table("case_notes");
   const cur = await table.get(p.noteId);
   if (!cur || cur.caseId !== c.id || cur.removedAt) return fail("not_found", NOTE_NOT_FOUND);
+  if (await isAreaChangeNote(ctx, cur.id)) return fail("locked", AREA_NOTE_LOCKED);
   // Författaren, och samordnare och avtalsansvarig med full åtkomst i ärendet (beslut 2026-10-01). Inget raderas på riktigt.
   if (cur.authorId !== me && !(isManager(role) && access === "full")) {
     return fail("not_author", "Bara den som skrev anteckningen, samordnaren och avtalsansvarig kan ta bort den.");
@@ -1271,9 +1279,9 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
   const q = { caseId: c.id };
   const db = await loadDb(ctx.repo, [
     "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "tasks", "reports", "case_notes", "contract_areas",
-    "profiles", "persons", "organizations",
+    "profiles", "persons", "organizations", "case_area_changes",
   ], {
-    activities: q, attendance: q, check_ins: q, monthly_assessments: q, monthly_plans: q, outcome_events: q, deviations: q, reports: q, case_notes: q,
+    activities: q, attendance: q, check_ins: q, monthly_assessments: q, monthly_plans: q, outcome_events: q, deviations: q, reports: q, case_notes: q, case_area_changes: q,
     contract_areas: { contractId: c.contractId }, persons: { id: c.personId }, organizations: { id: { in: [contract.customerId, contract.supplierId] } },
   });
   const prog = cfg.progression;
@@ -1313,7 +1321,7 @@ handleQuery(caseMonthBasis, { roles: CASE_ROLES }, async (ctx, p): Promise<CaseM
     const rdb: ReportDb & Pick<Db, "case_notes"> = {
       cases: [c], activities: db.activities, attendance: db.attendance, check_ins: db.check_ins, monthly_assessments: db.monthly_assessments, monthly_plans: db.monthly_plans,
       outcome_events: db.outcome_events, deviations: db.deviations, tasks: db.tasks, audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: db.contract_areas,
-      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes,
+      profiles: db.profiles, price_items: [], reports: [], case_notes: db.case_notes, case_area_changes: db.case_area_changes,
     };
     const m = monthlyPreview(rdb, c.id, month, renv);
     gaps = monthlyGaps(rdb, c.id, month, renv);

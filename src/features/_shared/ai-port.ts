@@ -183,7 +183,7 @@ export const DraftLevelSuggestionSchema = z.strictObject({
   sourceId: z.string().min(1),
 }) satisfies z.ZodType<DraftLevelSuggestion>;
 /**
- * Utkastet med källor ("Avstämning 15 jan") och källornas id. noEvidence: "Framgår inte" – inget underlag. Märks "AI-utkast"
+ * Utkastet med källor ("Mötesrapport 15 jan") och källornas id. noEvidence: "Framgår inte" – inget underlag. Märks "AI-utkast"
  * tills det godkänts. levelSuggestion bara för monthly_area och bara med belägg (verifyLevelSuggestion).
  */
 export type DraftText = { text: string; sources: string[]; sourceIds: string[]; noEvidence: boolean; levelSuggestion?: DraftLevelSuggestion | null };
@@ -204,15 +204,16 @@ const normQuote = (s: string) => s.normalize("NFC").replace(/\s+/g, " ").trim();
 const unquote = (s: string) => s.replace(/^[\s"'”“»«„]+|[\s"'”“»«„]+$/g, "");
 
 /**
- * Källans fria texter i underlaget, dess namn och dag – null om id:t inte finns i underlaget. Bara fritext kan citeras:
- * mötesrapportens anteckning och nästa veckas mål, och anteckningens text. Kryssrutornas fasta värden (genomförda aktiviteter,
- * hinder som "Motivation", arbetsgivarkontakternas typ) är inget belägg – lika lite som närvarosiffrorna – och ett citat som bara
- * är ett sådant värde godtas inte (canned). Närvaron har ingen text att citera.
+ * Källans fria texter i underlaget, dess namn och dag – null om id:t inte finns i underlaget. Bara iakttagelser kan citeras:
+ * mötesrapportens anteckning och anteckningens text. Nästa veckas mål är en plan, ingen iakttagelse ("Be handledaren om
+ * återkoppling …" visar ingen förändring) – den citeras aldrig. Kryssrutornas fasta värden (genomförda aktiviteter, hinder som
+ * "Motivation", arbetsgivarkontakternas typ) är inget belägg – lika lite som närvarosiffrorna – och ett citat som bara är ett sådant
+ * värde godtas inte (canned). Närvaron har ingen text att citera.
  */
 function quoteSource(input: DraftInput, sourceId: string): { label: string; date: LocalDate; texts: string[]; canned: string[] } | null {
   const ci = input.checkIns.find((c) => c.id === sourceId);
   const canned = input.checkIns.flatMap((c) => [...c.activitiesDone, ...c.obstacles, ...c.employerContacts.types]);
-  if (ci) return { label: `Mötesrapport ${fmtDateShort(ci.heldAt)}`, date: dayOf(ci.heldAt), texts: [ci.note, ci.nextGoal], canned };
+  if (ci) return { label: `Mötesrapport ${fmtDateShort(ci.heldAt)}`, date: dayOf(ci.heldAt), texts: [ci.note], canned };
   const n = input.notes.find((x) => x.id === sourceId);
   return n ? { label: noteSourceLabel(n), date: n.date, texts: [n.text], canned } : null;
 }

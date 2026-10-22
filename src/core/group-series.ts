@@ -13,9 +13,9 @@ import { addDays, dayOf, weekday, type LocalDate, type LocalDateTime } from "./t
 export const SERIES_HORIZON_DAYS = 14;
 /** Veckodagarna som kan väljas (ISO: 1 = måndag … 5 = fredag). */
 export const SERIES_WEEKDAYS = [1, 2, 3, 4, 5] as const;
-/** Kryssrutornas etiketter (Mån–Fre). */
-export const SERIES_WEEKDAY_LABEL: Record<number, string> = { 1: "Mån", 2: "Tis", 3: "Ons", 4: "Tor", 5: "Fre" };
-const SHORT: Record<number, string> = { 1: "mån", 2: "tis", 3: "ons", 4: "tor", 5: "fre" };
+/** Kryssrutornas etiketter (Måndag–Fredag, utskrivna – klarspråk). */
+export const SERIES_WEEKDAY_LABEL: Record<number, string> = { 1: "Måndag", 2: "Tisdag", 3: "Onsdag", 4: "Torsdag", 5: "Fredag" };
+const DAY: Record<number, string> = { 1: "måndag", 2: "tisdag", 3: "onsdag", 4: "torsdag", 5: "fredag" };
 /** Rekommendationen i formuläret (beslutet: 1–3 gånger i veckan) – fler går att välja. */
 export const SERIES_RECOMMENDED_MAX_DAYS = 3;
 
@@ -48,9 +48,9 @@ export function seriesScheduleError(s: { weekdays: readonly number[]; startTime:
 
 const listSv = (xs: readonly string[]): string => (xs.length > 1 ? `${xs.slice(0, -1).join(", ")} och ${xs[xs.length - 1]}` : xs.join(""));
 
-/** Seriens dagar och tid i klarspråk: "tis och tor 10.00", "mån, ons och fre 13.30". */
+/** Seriens dagar och tid i klarspråk: "tisdag och torsdag 10.00", "måndag, onsdag och fredag 13.30". */
 export function seriesScheduleText(weekdays: readonly number[], startTime: string): string {
-  return `${listSv(normalizeWeekdays(weekdays).map((d) => SHORT[d] ?? String(d)))} ${startTime.replace(":", ".")}`;
+  return `${listSv(normalizeWeekdays(weekdays).map((d) => DAY[d] ?? String(d)))} ${startTime.replace(":", ".")}`;
 }
 
 /** Det skaparen behöver om serien. */

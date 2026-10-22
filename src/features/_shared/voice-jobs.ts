@@ -194,7 +194,15 @@ const zeroRun = (ctx: Ctx): AiRunMeta => {
  * (ärendet via ctx.repo, confirmOwnUpload). Minnesläget: jobbet körs direkt och resultatet finns när kommandot svarar.
  * Supabase-läget: jobbet körs direkt efter svaret (after()) – frågan om läget läser ai_runs tills status ändras.
  */
-export async function enqueueVoiceJob(ctx: CtxWithJobs, req: VoiceJobRequest): Promise<EnqueueResult> {
+export async function enqueueVoiceJob(
+  ctx: CtxWithJobs,
+  req: VoiceJobRequest,
+  /**
+   * ids: fasta id:n för körningen och jobbet (det automatiska månadsutkastet – två samtidiga körningar av rapportjobbet lägger
+   * aldrig två: den andra får UniqueError). runAfter: när jobbet får köras (sprider de automatiska utkasten i kön).
+   */
+  opts: { ids?: { aiRunId: string; jobId: string }; runAfter?: LocalDateTime } = {},
+): Promise<EnqueueResult> {
   const now = ctx.now();
   const { kind } = req;
   // ctx.system: systemsteg – körningen och jobbet skrivs av systemet efter hanterarens behörighetskontroll.
@@ -208,12 +216,12 @@ export async function enqueueVoiceJob(ctx: CtxWithJobs, req: VoiceJobRequest): P
     caseId = u?.caseId ?? null;
     inputRef = req.uploadId;
   }
-  const aiRunId = ctx.newId("ai");
+  const aiRunId = opts.ids?.aiRunId ?? ctx.newId("ai");
   await ctx.system.table("ai_runs").insert(aiRunRow({ id: aiRunId, now, caseId, kind: RUN_KIND[kind] as AiRunKind, inputRef, status: "running", run: zeroRun(ctx) }));
   const payload = payloadOf(req, aiRunId);
-  const jobId = ctx.newId("job");
+  const jobId = opts.ids?.jobId ?? ctx.newId("job");
   const job: Job = {
-    id: jobId, kind, payload, status: ctx.jobs ? "queued" : "running", attempts: ctx.jobs ? 0 : 1, runAfter: now, lastError: null, createdAt: now,
+    id: jobId, kind, payload, status: ctx.jobs ? "queued" : "running", attempts: ctx.jobs ? 0 : 1, runAfter: opts.runAfter && opts.runAfter > now ? opts.runAfter : now, lastError: null, createdAt: now,
     createdBy: ctx.actor.userId, finishedAt: null,
   };
   await ctx.system.table("jobs").insert(job);
@@ -548,6 +556,22 @@ export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKe
 
 /** Så många gånger skrivs AI-utkastet om när coachen sparade samtidigt (versionen ändrades) innan det bara finns i körningen. */
 const DRAFT_WRITE_ATTEMPTS = 3;
+/** Så många AI-anrop åt gången i ett månadsutkast. */
+export const DRAFT_CONCURRENCY = 4;
+
+/** fn för varje värde, högst limit åt gången; resultaten i samma ordning som värdena. Första felet kastas vidare. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+  return out;
+}
 
 async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Promise<string> {
   const run = await runFor(ctx, p.aiRunId);
@@ -575,15 +599,20 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   const levelScale = { 1: cfg.progression.scale["1"], 2: cfg.progression.scale["2"], 3: cfg.progression.scale["3"] };
   const areas: Record<string, DraftText> = {};
   const verified: Record<string, ReturnType<typeof verifyLevelSuggestion>> = {};
-  for (const a of progressionAreas(cc.config)) {
-    const d = await draft(`monthly_area:${a.key}`, { levelScale });
+  // Utkasten hämtas några i taget (DRAFT_CONCURRENCY) i stället för ett i taget: Botkyrkas tio områden plus sammanfattning och plan
+  // är tolv anrop, och jobbet ska bli klart långt inom jobbkörningens tidsgräns (maxDuration 60 s, src/server/jobs/runner.ts).
+  const keys = progressionAreas(cc.config).map((a) => a.key);
+  const texts = await mapLimit([...keys.map((k) => `monthly_area:${k}` as DraftTemplateKey), "monthly_summary", "monthly_plan"] as DraftTemplateKey[], DRAFT_CONCURRENCY, (key) =>
+    draft(key, key.startsWith("monthly_area:") ? { levelScale } : undefined));
+  keys.forEach((k, i) => {
+    const d = texts[i];
     // Kontrollen på servern, oavsett leverantör: förslaget gäller bara om citatet finns i underlaget – annars slängs det.
     const v = d.levelSuggestion && !d.noEvidence ? verifyLevelSuggestion(d.levelSuggestion, input) : null;
-    verified[a.key] = v;
-    areas[a.key] = { ...d, levelSuggestion: v ? { level: v.level as 1 | 2 | 3, quote: v.evidence.quote, sourceId: d.levelSuggestion?.sourceId ?? "" } : null };
-  }
-  const summary = await draft("monthly_summary");
-  const plan = await draft("monthly_plan");
+    verified[k] = v;
+    areas[k] = { ...d, levelSuggestion: v ? { level: v.level as 1 | 2 | 3, quote: v.evidence.quote, sourceId: d.levelSuggestion?.sourceId ?? "" } : null };
+  });
+  const summary = texts[keys.length];
+  const plan = texts[keys.length + 1];
 
   // Utkasten in i månadsbedömningen (om den inte redan är godkänd). Nivån, observationen, nästa steg och den samlade statusen
   // rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5). Nivåförslaget med belägg sparas bara som förslag. Sammanfattningen

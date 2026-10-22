@@ -9,7 +9,8 @@
 //   caseIds: bara dessa ärenden prövas (efter att ett ärende bytt nivå eller yrkesområde, startats eller avslutats).
 //   groupActivityIds: bara dessa aktiviteter (en ny aktivitet, nya tillfällen i en serie).
 //   Har aktiviteten meddelandet påslaget (group_activities.notify) får nya deltagare aktivitetsinbjudan och borttagna
-//   aktivitet_installd (mallarna är oförändrade – CLAUDE.md punkt 9).
+//   aktivitet_installd (mallarna är oförändrade – CLAUDE.md punkt 9). Borttagningarna loggas, meddelas och får sina uppgifter
+//   stängda per aktivitet innan något bjuds in, så att ett fel när inbjudningarna skrivs aldrig lämnar en borttagen rad utan logg.
 //   Anropas: efter att nivån ändrats (grupper.*), efter att en aktivitet med målgrupp skapats eller fått målgrupp, efter att en serie
 //   skapats och nya tillfällen skapats, efter att en insats startats eller avslutats (arenden.caseStart, arenden.caseClose), och i
 //   jobbet report_schedule som skyddsnät (ensureGroupActivities). Spår B och integrationen anropar den efter att ett ärende bytt
@@ -146,8 +147,11 @@ export async function syncAudienceInvites(
     });
   };
 
-  // 1. Bort: rader som målgruppen bjöd in och som inte längre hör till (bara utan registrerad närvaro).
-  const removedOf = new Map<string, string[]>();
+  // 1. Bort: rader som målgruppen bjöd in och som inte längre hör till (bara utan registrerad närvaro). Varje aktivitets
+  //    borttagningar loggas, meddelas och får sina uppgifter stängda direkt – innan något bjuds in – så att ett fel i steg 2
+  //    aldrig lämnar en borttagen rad utan revisionslogg (CLAUDE.md punkt 3). Raden loggas också med quiet (anroparen loggar
+  //    bara sina inbjudningar).
+  const removedOf = new Map<string, { removed: string[]; notified: NotifyOutcome }>();
   for (const g of groups) {
     const audience = audienceOf(g);
     if (!audience) continue;
@@ -158,7 +162,18 @@ export async function syncAudienceInvites(
       gone.add(r.id);
       if (out === "removed") removed.push(r.caseId);
     }
-    removedOf.set(g.id, removed);
+    if (!removed.length) continue;
+    await ctx.audit({
+      action: "group_activity.audience_synced", entity: "group_activity", entityId: g.id, contractId: g.contractId,
+      details: {
+        audience: g.audience, audienceId: g.audienceLevelId ?? g.audienceAreaCode, startsAt: g.startsAt, caseIds: uniq(removed).sort(), removedCaseIds: [...removed].sort(),
+        automatic: true,
+      },
+    });
+    const removedCases = removed.map((id) => caseOf.get(id)).filter((c): c is Case & AudienceCase => !!c);
+    if (removedCases.length) await supersedeTasks(ctx, removedCases, g, "Deltagaren hör inte längre till aktivitetens målgrupp.");
+    const send = g.notify && upcoming(ctx, g.startsAt);
+    removedOf.set(g.id, { removed, notified: send ? await notifyAll(ctx, g, "aktivitet_installd", removed, { when: g.startsAt, place: g.location }) : null });
   }
   if (gone.size) {
     const goneKeys = new Set(rows.filter((r) => gone.has(r.id)).map((r) => `${r.groupActivityId}|${r.caseId}`));
@@ -192,33 +207,30 @@ export async function syncAudienceInvites(
       for (const id of insertedIds) await removeParticipantRow(ctx, s, id);
       added.length = 0;
     }
-    const removed = removedOf.get(g.id) ?? [];
+    const { removed, notified: notifiedRemoved } = removedOf.get(g.id) ?? { removed: [], notified: null };
     const skipped = plan.skipped.map((x) => x.caseId);
     if (!added.length && !removed.length && !skipped.length) continue;
-    const removedCases = removed.map((id) => caseOf.get(id)).filter((c): c is Case & AudienceCase => !!c);
-    if (removedCases.length) await supersedeTasks(ctx, removedCases, g, "Deltagaren hör inte längre till aktivitetens målgrupp.");
+    if (!opts.quiet && added.length) {
+      // Bara id:n och antal. caseIds (de som bjöds in) gör att kortets Historik visar raden i varje berört ärende. Borttagningarna
+      // har redan sin rad (steg 1).
+      await ctx.audit({
+        action: "group_activity.audience_synced", entity: "group_activity", entityId: g.id, contractId: g.contractId,
+        details: {
+          audience: g.audience, audienceId: g.audienceLevelId ?? g.audienceAreaCode, startsAt: g.startsAt, caseIds: uniq(added).sort(), addedCaseIds: [...added].sort(),
+          ...(skipped.length ? { skippedCaseIds: [...skipped].sort() } : {}), automatic: true,
+        },
+      });
+    }
     const send = g.notify && upcoming(ctx, g.startsAt);
-    const slot = { when: g.startsAt, place: g.location };
     const detail: AudienceSyncDetail = {
       added, removed, skipped,
-      notifiedAdded: send && added.length ? await notifyAll(ctx, g, "aktivitetsinbjudan", added, slot) : null,
-      notifiedRemoved: send && removed.length ? await notifyAll(ctx, g, "aktivitet_installd", removed, slot) : null,
+      notifiedAdded: send && added.length ? await notifyAll(ctx, g, "aktivitetsinbjudan", added, { when: g.startsAt, place: g.location }) : null,
+      notifiedRemoved,
     };
     res.details[g.id] = detail;
     res.added += added.length;
     res.removed += removed.length;
     res.skipped += skipped.length;
-    if (!opts.quiet && (added.length || removed.length)) {
-      // Bara id:n och antal. caseIds (de som bjöds in eller togs bort) gör att kortets Historik visar raden i varje berört ärende.
-      await ctx.audit({
-        action: "group_activity.audience_synced", entity: "group_activity", entityId: g.id, contractId: g.contractId,
-        details: {
-          audience: g.audience, audienceId: g.audienceLevelId ?? g.audienceAreaCode, startsAt: g.startsAt, caseIds: uniq([...added, ...removed]).sort(),
-          ...(added.length ? { addedCaseIds: [...added].sort() } : {}), ...(removed.length ? { removedCaseIds: [...removed].sort() } : {}),
-          ...(skipped.length ? { skippedCaseIds: [...skipped].sort() } : {}), automatic: true,
-        },
-      });
-    }
   }
   return res;
 }

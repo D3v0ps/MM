@@ -14,7 +14,7 @@ import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDr
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
 import { blankArea, newAssessment, newCheckIn, newIntake, newPlan } from "../_shared/rows";
-import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill } from "../_shared/monthly-prefill";
+import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill, refreshPrefillAfterAttendance } from "../_shared/monthly-prefill";
 import { approvalCounts, keptPrefill, levelSourceOf, missingAreas, nextLevelSource, withAutoAreas } from "@/core/monthly-prefill";
 import {
   aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, NOT_REVIEWED_TEXT, resultVerify,
@@ -120,6 +120,8 @@ handleCommand(attendanceSet, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
     action: "attendance.registered", entity: "attendance", entityId: attendanceId, contractId: c.contractId,
     details: { caseId: act.caseId, status: p.status, ...(existing?.source === "auto" ? { wasAuto: true } : {}), ...(act.groupActivityId ? { groupActivityId: act.groupActivityId } : {}) },
   });
+  // Månadsbedömningens förifyllda sammanfattning (närvarosiffrorna) följer en rättad närvaro i en avslutad månad.
+  await refreshPrefillAfterAttendance(ctx, [{ caseId: c.id, contractId: c.contractId, startsAt: act.startsAt }]);
   // Veckorapporten publiceras automatiskt när alla handläggarens deltagare är registrerade.
   const published = await publishWeeklyIfComplete(ctx, c.contractId, c.referrerId, isoWeek(act.startsAt).key);
   return ok({ attendanceId, published });
@@ -170,6 +172,8 @@ handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
       },
     });
   }
+  // Månadsbedömningens förifyllda sammanfattning följer närvaron i en avslutad månad.
+  await refreshPrefillAfterAttendance(ctx, acts.filter((a) => marked.includes(a.id)).map((a) => ({ caseId: a.caseId, contractId: contractOfAct(a), startsAt: a.startsAt })));
   // Veckorapporterna: en kontroll per handläggare, avtal och vecka bland de markerade – i fast ordning.
   const published: WeeklyPublished[] = [];
   const keys = uniq(acts.filter((a) => marked.includes(a.id)).map((a) => {
@@ -296,7 +300,7 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
   // ett förifyllt utkast får de automatiskt märkta fälten (samlad status, sammanfattningen, mål 1) den nya mötesrapporten.
   if (p.approve) {
     const { cfg } = await contractOf(ctx, c.contractId);
-    await refreshMonthlyPrefill(ctx, c, monthKey(ci.heldAt), cfg, ci.id);
+    await refreshMonthlyPrefill(ctx, c, monthKey(ci.heldAt), cfg, { checkInId: ci.id });
   }
   return ok({ checkInId: ci.id, deviationId, rawTranscriptDeletedAt: ci.ai?.rawTranscriptDeletedAt ?? null, savedAt: now, version: ci.version });
 });

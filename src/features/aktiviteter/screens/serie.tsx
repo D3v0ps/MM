@@ -4,6 +4,7 @@
 // tid och längd ändras inte – då avslutas serien och en ny skapas. Delas av listan (Återkommande) och aktivitetsvyn.
 import { useState } from "react";
 import { plural } from "@/core/format";
+import { fmtDate, type LocalDate } from "@/core/time";
 import { GROUP_GOAL_MAX } from "@/data/schema";
 import { useCommand } from "@/shell/backend";
 import { Button, Check, ErrorNotice, Field, FormGrid, Input, Loading, Modal, Notice, Select, Stack, toast, useConfirm } from "@/ui";
@@ -16,12 +17,14 @@ export type SeriesEditable = { id: string; name: string; location: string; respo
 export function useEndSeries() {
   const end = useCommand(groupActivitySeriesEnd);
   const confirm = useConfirm();
-  const run = async (s: { id: string; name: string; schedule: string; notify: boolean }): Promise<boolean> => {
+  const run = async (s: { id: string; name: string; schedule: string; notify: boolean; startsOn: LocalDate; today: LocalDate }): Promise<boolean> => {
+    // Sista dagen är i dag – en serie som inte har börjat avslutas på sin första dag (samma regel som servern).
+    const when = s.startsOn > s.today ? `avslutas ${fmtDate(s.startsOn)}, den första dagen – den har inte börjat` : "avslutas i dag";
     const ok = await confirm({
       title: "Avsluta den återkommande aktiviteten?",
       body: (
         <Stack gap="sm">
-          <p className="m-0">{`${s.name} (${s.schedule}) avslutas i dag. Inga nya tillfällen skapas, och kommande tillfällen utan registrerad närvaro ställs in.`}</p>
+          <p className="m-0">{`${s.name} (${s.schedule}) ${when}. Inga nya tillfällen skapas, och kommande tillfällen utan registrerad närvaro ställs in.`}</p>
           <p className="m-0">{s.notify ? "Deltagarna får ett meddelande om att tillfällena är inställda." : "Deltagarna får inget meddelande – meddelandet är avstängt för den här aktiviteten."}</p>
         </Stack>
       ),

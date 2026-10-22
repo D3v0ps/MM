@@ -16,7 +16,8 @@ import { SYSTEM_ACTOR } from "@/api/roles";
 import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
 import { assessmentPage, assessmentSave } from "@/features/coach/api";
 import { ekoCase } from "@/features/ekonomi/api";
-import { caseAreaView, caseChangeArea } from "./api";
+import { monthlyPreview, type ReportDb, type ReportEnv } from "@/features/rapporter/model";
+import { caseAreaView, caseChangeArea, caseNoteRemove, caseNoteSave, caseTimeline } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -59,7 +60,8 @@ describe("Byt yrkesområde (arenden.bytYrkesomrade)", () => {
     });
     const log = raw.all("audit_log").filter((l) => l.action === "case.area_changed");
     expect(log).toHaveLength(1);
-    expect(log[0].details).toEqual({ caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changeId: res.changeId, noteId: res.noteId, seq: 1 });
+    // trackChanged: det gamla yrkesspåret (G) följde inte med – bara en flagga, aldrig spåret.
+    expect(log[0].details).toEqual({ caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changeId: res.changeId, noteId: res.noteId, seq: 1, trackChanged: true });
     // Revisionsloggen har aldrig motiveringen.
     expect(JSON.stringify(raw.all("audit_log"))).not.toContain("Kartläggningen visade");
   });
@@ -182,7 +184,12 @@ describe("Yrkesområdet på deltagarkortet (arenden.yrkesomrade)", () => {
     expect(v.options.map((a) => a.code)).not.toContain("D");
     expect(v.options).toHaveLength(11);
     expect(v.effectiveMonth).toBe("2027-03");
-    expect(v.history).toEqual([{ id: "cac-seed-linnea", changedAt: "2027-01-27T14:10", fromArea: "G", toArea: "D", byName: "Amira Haddad", effectiveMonth: "2027-02" }]);
+    expect(v.history).toEqual([{
+      id: "cac-seed-linnea", changedAt: "2027-01-27T14:10", fromArea: "G", toArea: "D", fromName: "G Lager och logistik", toName: "D Kök, restaurang och måltidsservice",
+      byName: "Amira Haddad", effectiveMonth: "2027-02", motivation: "Kartläggningen visade erfarenhet från storkök och ett tydligt mål att arbeta i kök.",
+    }]);
+    // Yrkesspåren att välja bland i det nya yrkesområdet.
+    expect(v.options.find((a) => a.code === "F")?.tracks).toEqual(["Lokalvårdare med certifiering"]);
   });
 
   it("chef och systemadministratör ser raden i läsläge; kommunen och ekonomen får inget", async () => {
@@ -252,5 +259,79 @@ describe("Ekonomen: avtalsområdet vid start och det som faktureras nu", () => {
     expect(v!.currentArea!.priceOre).toBe(priceD.priceOre);
     // Ett ärende utan byte: ingen extra rad.
     expect((await q(ekoCase, { caseId: NADIA }, lars()))!.currentArea).toBeNull();
+  });
+
+  it("vid start = den första debiterbara veckans månad (torsdagsregeln), som fakturan – inte startdagens kalendermånad", async () => {
+    // Start fredag 1 januari 2027: första veckan (28 dec–3 jan, torsdag 31 dec) hör till december. Bytet G → D gäller från januari.
+    rt.store.updateRow("cases", "case-260163", { startDate: "2027-01-01" });
+    rt.store.updateRow("case_area_changes", "cac-seed-linnea", { changedAt: "2026-12-20T10:00", effectiveMonth: "2027-01" });
+    const v = (await q(ekoCase, { caseId: "case-260163" }, lars()))!;
+    expect(v.weeks[0]).toMatchObject({ monday: "2026-12-28", monthKey: "2026-12" });
+    expect(v.areaName).toMatch(/^G /);
+    expect(v.currentArea!.areaName).toMatch(/^D /);
+  });
+});
+
+describe("Byt yrkesområde: granskningen, andra rundan", () => {
+  it("ärendet kan inte ändras efter att bytet skrivits: bytet tas bort, anteckningen döljs och bytet kan göras igen", async () => {
+    const orig = rt.store.updateRow.bind(rt.store);
+    let broken = true;
+    (rt.store as unknown as { updateRow: typeof orig }).updateRow = ((name: string, id: string, patch: object) => {
+      if (broken && name === "cases" && id === NADIA && "primaryAreaCode" in patch) throw new Error("ECONNRESET");
+      return orig(name as never, id, patch as never);
+    }) as typeof orig;
+    await expect(change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira())).rejects.toThrow();
+    broken = false;
+    const raw = rt.raw();
+    // Inget halvt byte: fakturan räknas inte på C, och nästa byte stoppas inte av kedjan.
+    expect(raw.all("case_area_changes").filter((x) => x.caseId === NADIA)).toEqual([]);
+    expect(raw.get("cases", NADIA)?.primaryAreaCode).toBe("G");
+    const notes = raw.all("case_notes").filter((n) => n.caseId === NADIA && n.body.startsWith("Byte av yrkesområde:"));
+    expect(notes).toHaveLength(1);
+    expect(notes[0].removedAt).not.toBeNull();
+    const again = await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira());
+    expect(again).toMatchObject({ ok: true });
+    expect(rt.raw().all("case_area_changes").filter((x) => x.caseId === NADIA).map((x) => [x.seq, x.fromArea, x.toArea])).toEqual([[1, "G", "C"]]);
+  });
+
+  it("motiveringen är låst: den ändras och tas aldrig bort, och tidslinjen visar den som Byte av yrkesområde utan knappar", async () => {
+    const res = await change({ caseId: NADIA, toArea: "F", motivation: WHY }, amira());
+    if (!res.ok) throw new Error(res.message);
+    const note = rt.raw().get("case_notes", res.noteId)!;
+    const edit = { caseId: NADIA, noteId: res.noteId, occurredOn: note.occurredOn, kind: note.kind, audience: note.audience, body: "Ändrad motivering." };
+    expect(await rt.run("command", caseNoteSave.key, edit, amira())).toMatchObject({ ok: false, error: "locked" });
+    for (const a of [amira(), sara(), johan()]) expect(await rt.run("command", caseNoteRemove.key, { caseId: NADIA, noteId: res.noteId }, a), a.role).toMatchObject({ ok: false, error: "locked" });
+    expect(rt.raw().get("case_notes", res.noteId)).toMatchObject({ body: note.body, removedAt: null });
+    const pages: { months: { entries: { note?: { id: string; canEdit: boolean; canRemove: boolean } | null; title: string }[] }[]; more?: boolean }[] = [];
+    pages.push((await q(caseTimeline, { caseId: NADIA, visa: "anteckningar" }, amira()))!);
+    const entry = pages.flatMap((p) => p.months.flatMap((m) => m.entries)).find((e) => e.note?.id === res.noteId)!;
+    expect(entry).toMatchObject({ title: "Byte av yrkesområde", note: { canEdit: false, canRemove: false } });
+    // Historiken på kortet: yrkesområdenas namn och motiveringen.
+    const v = (await q(caseAreaView, { caseId: NADIA }, amira()))!;
+    expect(v.history[0]).toMatchObject({ fromName: "G Lager och logistik", toName: "F Lokalvård", motivation: WHY });
+  });
+
+  it("yrkesspåret följer aldrig med till det nya yrkesområdet: det valda spåret, annars väljs det i kartläggningen", async () => {
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).not.toBe("");
+    expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("");
+    expect(await change({ caseId: NADIA, toArea: "G", motivation: WHY, vocationalTrack: "Lagerarbetare – plock och pack" }, amira())).toMatchObject({ ok: true });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("Lagerarbetare – plock och pack");
+    expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY, vocationalTrack: "19730216-9545" }, amira())).toMatchObject({ ok: false, error: "track" });
+  });
+
+  it("månadsrapporten: avtalsområdet som gällde månaden (samma som fakturan) – ett byte i februari ändrar inte januari", async () => {
+    expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    const raw = rt.raw();
+    const names = ["cases", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "tasks", "audit_log",
+      "contract_deviations", "pulse_responses", "contract_areas", "profiles", "price_items", "reports", "case_area_changes"] as const;
+    const db = Object.fromEntries(names.map((n) => [n, [...raw.all(n)]])) as unknown as ReportDb;
+    const contract = raw.get("contracts", "c-bot")!;
+    const env: ReportEnv = { cfg: requireOperational(contract.config), contract: { id: contract.id, startsOn: contract.startsOn, supplierName: "" }, now: rt.clock.now(), activityTypes: [] };
+    const jan = monthlyPreview(db, NADIA, "2027-01", env)!;
+    expect(Object.fromEntries(jan.basics)).toMatchObject({ Avtalsområde: "G Lager och logistik", Yrkesspår: "Framgår inte" });
+    // Utan bytet: ärendets yrkesområde som förut.
+    const without = monthlyPreview({ ...db, case_area_changes: [] }, NADIA, "2027-01", env)!;
+    expect(Object.fromEntries(without.basics)).toMatchObject({ Avtalsområde: "F Lokalvård" });
   });
 });

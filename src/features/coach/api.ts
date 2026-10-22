@@ -617,7 +617,7 @@ export type AssessmentArea = {
   levelSource: LevelSource | null;
   /** AI:s nivåförslag 1–3 – bara med belägg och bara när AI får användas i ärendet. Fylls aldrig i automatiskt. */
   aiLevelSuggestion: ProgressLevel | null;
-  /** Belägget för förslaget: citatet, källan ("Avstämning 15 jan", "Anteckning 26 jan") och dagen. */
+  /** Belägget för förslaget: citatet, källan ("Mötesrapport 15 jan", "Anteckning 26 jan") och dagen. */
   aiLevelEvidence: { quote: string; source: string; date: LocalDate } | null;
   aiObservationDraft: { text: string; sources: string[]; noEvidence: boolean } | null;
 };

@@ -6,10 +6,10 @@
 // sparas med det förifyllda värdet). AI-jobbet (draft_monthly) skapar en förifylld rad om den saknas.
 // Läser via den repo som anroparen ger: ctx.repo (coachen – behörigheten gäller) eller ctx.system (jobbet).
 import { attendanceStats } from "@/core/attendance";
-import type { OperationalConfig } from "@/core/config";
+import { isOperational, requireOperational, type OperationalConfig } from "@/core/config";
 import type { Ctx } from "@/api/server";
 import { prefillAssessment, previousMonth, refreshPrefill, type PlanFields, type Prefill } from "@/core/monthly-prefill";
-import { monthEnd, type LocalDateTime, type MonthKey } from "@/core/time";
+import { dayOf, monthEnd, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
 import type { AppRepo, Case, MonthlyAssessment, MonthlyPlan } from "@/data/schema";
 
 /** Förifyllnaden för ärendet och månaden ur godkända uppgifter (utan AI – AI-utkastet läggs in av jobbet efteråt). */
@@ -26,24 +26,50 @@ export async function loadPrefill(repo: AppRepo, c: Pick<Case, "id">, month: Mon
 }
 
 /**
- * Förifyllnaden hålls aktuell (refreshPrefill i src/core/monthly-prefill.ts) efter att en mötesrapport i månaden godkänts: ett
- * utkast som finns får de automatiskt märkta fältens nya värden. Villkorat på version och status – en samtidig sparning eller ett
- * godkännande vinner. Raden får en ny version (ett öppet formulär får "ändrats i en annan flik" i stället för att skriva över).
- * Läser och skriver via ctx.repo (coachen som godkände mötesrapporten). Revisionsloggen: ärendet, månaden och mötesrapporten.
+ * Förifyllnaden hålls aktuell (refreshPrefill i src/core/monthly-prefill.ts) när underlaget ändras efter att utkastet skapats: en
+ * mötesrapport i månaden godkänns, eller närvaron i månaden registreras eller ändras (sammanfattningens närvarosiffror). Ett utkast
+ * som finns får de automatiskt märkta fältens nya värden – coachens egna ändringar rörs aldrig. Villkorat på version och status – en
+ * samtidig sparning eller ett godkännande vinner. Raden får en ny version (ett öppet formulär utan osparade ändringar läser in den
+ * nya, annars "ändrats i en annan flik" i stället för att skriva över).
+ * repo: ctx.repo (coachen som godkände mötesrapporten) eller ctx.system (närvaron – ett systemsteg som ska fungera likadant
+ * oavsett vem som registrerade). Revisionsloggen: ärendet, månaden och orsaken (mötesrapporten eller närvaron).
  */
-export async function refreshMonthlyPrefill(ctx: Ctx, c: Pick<Case, "id" | "contractId">, month: MonthKey, cfg: Pick<OperationalConfig, "progression">, checkInId: string): Promise<boolean> {
-  const table = ctx.repo.table("monthly_assessments");
+export async function refreshMonthlyPrefill(
+  ctx: Ctx, c: Pick<Case, "id" | "contractId">, month: MonthKey, cfg: Pick<OperationalConfig, "progression">, cause: { checkInId: string } | { attendance: true },
+  repo: AppRepo = ctx.repo,
+): Promise<boolean> {
+  const table = repo.table("monthly_assessments");
   const ma = await table.first({ caseId: c.id, month });
   if (!ma || ma.status !== "draft") return false;
-  const plans = ctx.repo.table("monthly_plans");
+  const plans = repo.table("monthly_plans");
   const plan = await plans.first({ caseId: c.id, month });
-  const fresh = await loadPrefill(ctx.repo, c, month, cfg, ctx.now());
+  const fresh = await loadPrefill(repo, c, month, cfg, ctx.now());
   const r = refreshPrefill({ summary: ma.summary, overallStatus: ma.overallStatus, prefill: ma.prefill ?? {} }, plan && plan.status !== "approved" ? plan : null, fresh);
   if (!r.changed) return false;
   if (!(await table.updateIf(ma.id, { version: ma.version, status: "draft" }, { ...r.assessment, version: ma.version + 1 }))) return false;
   if (plan && r.plan) await plans.update(plan.id, r.plan);
-  await ctx.audit({ action: "assessment.prefill_refreshed", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details: { caseId: c.id, month, checkInId, automatic: true } });
+  await ctx.audit({ action: "assessment.prefill_refreshed", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details: { caseId: c.id, month, ...cause, automatic: true } });
   return true;
+}
+
+/**
+ * Efter att närvaro registrerats eller ändrats (coachen, Markera alla, den automatiska närvaron): utkasten för de månader före
+ * innevarande som tillfällena ligger i hålls aktuella (refreshMonthlyPrefill med ctx.system). Innevarande månad har inget utkast
+ * än – det skapas när månaden är slut, med närvaron då.
+ */
+export async function refreshPrefillAfterAttendance(ctx: Ctx, items: readonly { caseId: string; contractId: string; startsAt: LocalDateTime }[]): Promise<void> {
+  const current = monthKey(dayOf(ctx.now()));
+  const keys = [...new Set(items.filter((x) => monthKey(x.startsAt) < current).map((x) => `${x.contractId}|${x.caseId}|${monthKey(x.startsAt)}`))].sort();
+  const cfgOf = new Map<string, OperationalConfig | null>();
+  for (const k of keys) {
+    const [contractId, caseId, month] = k.split("|");
+    if (!cfgOf.has(contractId)) {
+      const contract = await ctx.system.table("contracts").get(contractId);
+      cfgOf.set(contractId, contract && isOperational(contract.config) ? requireOperational(contract.config) : null);
+    }
+    const cfg = cfgOf.get(contractId);
+    if (cfg) await refreshMonthlyPrefill(ctx, { id: caseId, contractId }, month, cfg, { attendance: true }, ctx.system);
+  }
 }
 
 /** Den förifyllda månadsbedömningen (utkast). */

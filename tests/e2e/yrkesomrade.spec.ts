@@ -71,6 +71,8 @@ test("byt yrkesområde: motivering krävs, inbjudningarna följer direkt och kom
   await expect(dialog).toContainText("Välj det nya yrkesområdet.");
   await expect(dialog).toContainText("Skriv en kort motivering, 10–300 tecken.");
   await dialog.getByLabel("Nytt yrkesområde").selectOption("F");
+  // Yrkesspåret hör till yrkesområdet: det nya yrkesområdets spår erbjuds, det gamla följer inte med.
+  await dialog.getByLabel("Yrkesspår i det nya yrkesområdet").selectOption("Lokalvårdare med certifiering");
   await dialog.getByLabel("Motivering").fill(WHY);
   await btn(dialog, "Byt yrkesområde").click();
   await expect(toasts(page)).toContainText("Yrkesområdet är bytt. Fakturan räknas på det nya yrkesområdet från och med mars 2027.");
@@ -82,7 +84,9 @@ test("byt yrkesområde: motivering krävs, inbjudningarna följer direkt och kom
   await btn(outer, "Klar").click();
   await expect(outer).toHaveCount(0);
   await expect(row).toContainText("F – Lokalvård");
-  await expect(page.getByRole("list", { name: "Byten av yrkesområde" })).toContainText("G → F (Amira Haddad) – fakturan från mars");
+  const history = page.getByRole("list", { name: "Byten av yrkesområde" });
+  await expect(history).toContainText("G Lager och logistik → F Lokalvård (Amira Haddad) – fakturan från mars");
+  await expect(history).toContainText(`Motivering: ${WHY}`);
 
   // Efter bytet: borta ur G:s träff, inbjuden till F:s.
   await go(page, info, `/aktiviteter/${G_MEETING}`);

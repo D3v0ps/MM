@@ -126,7 +126,14 @@ export const caseGroupingsSave = command("grupper.arendeSpara", z.object({
   groupIds: z.array(IdSchema).max(50).optional(),
   tags: z.record(z.string().max(GROUPING_CATEGORY_MAX), IdSchema.nullable()),
 }), { invalidates: [...LEVEL_WRITES, "arenden.kortHistorik"] }).returns<
-  Result<{ added: number; removed: number; savedAt: LocalDateTime }, "not_found" | "forbidden" | "unknown" | "archived" | "wrong_kind" | "wrong_category" | "conflict" | "level" | "group">
+  Result<
+    {
+      added: number; removed: number; savedAt: LocalDateTime;
+      /** Ny nivå: kommande aktiviteter som deltagaren bjöds in till och togs bort ur. null = nivån ändrades inte. */
+      invites: { invited: number; removed: number } | null;
+    },
+    "not_found" | "forbidden" | "unknown" | "archived" | "wrong_kind" | "wrong_category" | "conflict" | "level" | "group"
+  >
 >();
 
 /** Svaret när nivån höjts eller bytts. invited/removed: kommande aktiviteter för nivåerna (målgruppen) som deltagaren bjöds in till eller togs bort ur. */
@@ -158,6 +165,8 @@ export type GroupingOverview = {
   canPlace: boolean;
   /** Planera en träff (de som skapar aktiviteter). */
   canPlan: boolean;
+  /** Öppna sidan Kartläggning (bara coachen) – andra som placerar väljer nivån direkt i raden. */
+  canIntake: boolean;
   /** Yrkesområdena: aktiva deltagare (pågående insatser) och månadens träffar (aktiviteter med målgruppen yrkesområdet). */
   areas: {
     code: string;

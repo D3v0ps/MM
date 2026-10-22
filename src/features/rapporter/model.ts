@@ -14,6 +14,7 @@ import { pct } from "@/core/format";
 import { kpiValue, type KpiDb } from "@/core/kpi";
 import { areaName, endReasonLabel, eventLabel, personName } from "@/core/labels";
 import { orderPeriodText } from "@/core/cases";
+import { areaForMonth } from "@/core/area-changes";
 import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd, monthKey, monthName, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, groupBy, sum, uniq } from "@/core/util";
 import type { AttendanceStatus, Case, Db, MonthlyAssessment, MonthlyPlan, Report, ReportKind, TrafficLight } from "@/data/schema";
@@ -26,7 +27,7 @@ export { smallN };
 export type ReportDb = Pick<
   Db,
   | "cases" | "activities" | "attendance" | "check_ins" | "monthly_assessments" | "monthly_plans" | "outcome_events" | "deviations" | "tasks"
-  | "audit_log" | "contract_deviations" | "pulse_responses" | "contract_areas" | "profiles" | "price_items" | "reports"
+  | "audit_log" | "contract_deviations" | "pulse_responses" | "contract_areas" | "profiles" | "price_items" | "reports" | "case_area_changes"
 >;
 
 export type ReportEnv = {
@@ -308,10 +309,14 @@ function buildMonthly(src: Src, env: ReportEnv, r: Report): MonthlyModel | null 
   const lastCi = cis[cis.length - 1];
   const phase = lastCi && lastCi.phase ? Number(lastCi.phase) : c.phase;
   const devs = monthDeviations(src, c.id, from, to);
+  const monthArea = areaForMonth(c, src.db.case_area_changes, mk);
   return {
     kind: "monthly", caseId: c.id, caseNumber: c.caseNumber, month: mk, approved: ok,
     basics: [
-      ["Ärendenummer", c.caseNumber], ["Avtalsområde", areaName(src.db.contract_areas, c.primaryAreaCode)], ["Yrkesspår", c.vocationalTrack || "Framgår inte"], ["Insatsen startade", dFull(c.startDate)],
+      // Avtalsområdet som gällde månaden (samma regel som fakturan, areaForMonth – ett byte gäller från månaden efter bytet).
+      // Yrkesspåret följer ärendet; efter ett byte hör det gamla spåret inte till rapportmånadens yrkesområde och visas inte.
+      ["Ärendenummer", c.caseNumber], ["Avtalsområde", areaName(src.db.contract_areas, monthArea)], ["Yrkesspår", monthArea === c.primaryAreaCode ? c.vocationalTrack || "Framgår inte" : "Framgår inte"],
+      ["Insatsen startade", dFull(c.startDate)],
       [end ? "Insatsen avslutades" : "Planerat slut", dFull(end || c.plannedEnd)], ["Fas vid månadens slut", phaseText(cfg, phase)], ["Huvudcoach", profileName(src.db, c.leadCoachId)],
       ["Beställare", personWithUnit(src.db, c.referrerId)],
     ],
@@ -427,10 +432,12 @@ function buildMonthlyFacts(src: Src, env: ReportEnv, r: Report): MonthlyFacts | 
   // Tydlig/någon progression bara på de obligatoriska områdena (progressionFlags filtrerar själv, beslut 2026-10-01).
   const flags = ok ? progressionFlags(cfg, ma.areas) : null;
   const allDevs = src.deviations(c.id);
+  const monthArea = areaForMonth(c, src.db.case_area_changes, mk);
   return {
     factsVersion: FACTS_VERSION, kind: "monthly", caseNumber: c.caseNumber, month: mk,
-    referrerUnit: referrerUnitOf(src, c), primaryAreaCode: c.primaryAreaCode || null, secondaryAreaCode: c.secondaryAreaCode || null,
-    vocationalTrack: c.vocationalTrack || null, startDate: c.startDate || null, plannedEnd: c.plannedEnd || null, endDate: end || null,
+    // Avtalsområdet och yrkesspåret som gällde månaden – samma som rapportens grunduppgifter (monthlyModel).
+    referrerUnit: referrerUnitOf(src, c), primaryAreaCode: monthArea || null, secondaryAreaCode: c.secondaryAreaCode || null,
+    vocationalTrack: monthArea === c.primaryAreaCode ? c.vocationalTrack || null : null, startDate: c.startDate || null, plannedEnd: c.plannedEnd || null, endDate: end || null,
     phase: Number.isInteger(phase) && phase >= 1 ? phase : null,
     weeks: weeks.length, pausedWeeks: weeks.filter((w) => w.paused).length,
     attendance: { planned: t.planned, present: t.present, late: t.late, absentValid: t.absentValid, absentInvalid: t.absentInvalid, unregistered: t.unregistered, rate: t.rate },

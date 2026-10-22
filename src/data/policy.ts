@@ -324,6 +324,9 @@ function caseNoteWrite(x: CaseNoteRow, a: Actor, raw: Raw): boolean {
   }
   const changed = changedFields(cur, x);
   if (cur.removedAt != null || !changed.length || changed.some((k) => NOTE_FIXED.includes(k))) return false;
+  // Motiveringen till ett byte av yrkesområde (case_area_changes.noteId) är låst: den ändras och tas aldrig bort (triggern
+  // case_notes_area_change_lock, 0036). Systemsteget som tar bort ett halvt byte döljer anteckningen först när bytet är borta.
+  if (raw.all("case_area_changes").some((c) => c.noteId === cur.id)) return false;
   // Dölja: removedAt och removedBy sätts tillsammans, i eget namn.
   if ((changed.includes("removedAt") || changed.includes("removedBy")) && (x.removedAt == null || !self(a, x.removedBy))) return false;
   if (self(a, cur.authorId)) return workOn(x.caseId, a, raw) && noteAudienceOk(x, a, raw);

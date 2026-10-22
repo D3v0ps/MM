@@ -39,6 +39,23 @@ describe("runJobs", () => {
     expect(sum.claimed).toBe(4);
   });
 
+  it("tiden tar slut mitt i en omgång: jobben som inte hann börja läggs tillbaka i kön utan att försöket räknas", async () => {
+    let t = 0;
+    const ran: string[] = [];
+    // Ett långt jobb först (t.ex. ett AI-utkast) – de andra i omgången hinner inte börja innan tiden är slut.
+    const { store, jobs, handlers } = setup(5, { run: async (j) => void (ran.push(j.id), (t += 25_000)) });
+    const sum = await runJobs({ store: jobs, handlers, ctx: null, now: NOW, limit: 10, batchSize: 5, budgetMs: 20_000, elapsedMs: () => t });
+    expect(ran).toEqual(["job-01"]);
+    expect(sum).toMatchObject({ claimed: 5, done: 1, released: 4, errors: 0 });
+    expect(store.rows("jobs").map((j) => [j.id, j.status, j.attempts])).toEqual([
+      ["job-01", "done", 1], ["job-02", "queued", 0], ["job-03", "queued", 0], ["job-04", "queued", 0], ["job-05", "queued", 0],
+    ]);
+    // Nästa körning tar dem i samma ordning.
+    t = 0;
+    await runJobs({ store: jobs, handlers, ctx: null, now: NOW, limit: 1, budgetMs: 20_000, elapsedMs: () => t });
+    expect(ran).toEqual(["job-01", "job-02"]);
+  });
+
   it("pausar mellan jobben (Resends gräns per sekund), inte före det första", async () => {
     const sleeps: number[] = [];
     const { jobs, handlers } = setup(3, { run: async () => undefined });

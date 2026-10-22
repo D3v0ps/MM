@@ -48,7 +48,7 @@ export type SeriesListRow = {
   id: string;
   name: string;
   kind: GroupActivityKind;
-  /** "tis och tor 10.00" */
+  /** "tisdag och torsdag 10.00" */
   schedule: string;
   durationMin: number;
   location: string;
@@ -134,9 +134,17 @@ export type GroupActivityView =
         /** Målgruppen (nivå eller yrkesområde) i klarspråk, eller null (inbjudna för hand). */
         audience: { kind: "level" | "area"; label: string } | null;
         /** Den återkommande aktiviteten tillfället hör till, eller null. */
-        series: { id: string; name: string; schedule: string; endsOn: LocalDate | null; ended: boolean; notify: boolean; location: string; responsibleId: string | null; goal: string | null } | null;
+        series: {
+          id: string; name: string; schedule: string; startsOn: LocalDate; endsOn: LocalDate | null; ended: boolean; notify: boolean; location: string; responsibleId: string | null;
+          goal: string | null;
+        } | null;
       };
       participants: GroupParticipant[];
+      /**
+       * Deltagare i målgruppen som inte är inbjudna för att de redan har ett annat tillfälle vid samma tid (en kommande aktivitet
+       * med målgrupp, inte inställd). replaceable: tillfället är deltagarens eget och kan ersättas av aktiviteten.
+       */
+      audienceBusy: (InviteProblem & { name: string; replaceable: boolean })[];
       /** Får ändra, bjuda in, ta närvaro och skriva anteckningar (de som arbetar i ärendena, inte inställd). */
       canEdit: boolean;
       /** Giltig frånvaro: orsakerna (samma som Närvaro). */
@@ -343,7 +351,14 @@ export const groupActivitySeriesCreate = command("aktiviteter.serieSkapa", z.obj
   audience: AudienceSchema,
   notify: z.boolean().optional(),
 }), { invalidates: ACTIVITY_WRITES }).returns<
-  Result<{ seriesId: string; occurrences: number; invited: number; firstId: string | null }, "invalid" | "contract" | "responsible" | "goal" | "audience">
+  Result<
+    {
+      seriesId: string; occurrences: number; invited: number; firstId: string | null;
+      /** Deltagare i målgruppen som inte bjöds in till något tillfälle för att de redan har ett annat tillfälle vid samma tid. */
+      skipped: number;
+    },
+    "invalid" | "contract" | "responsible" | "goal" | "audience"
+  >
 >();
 
 /**

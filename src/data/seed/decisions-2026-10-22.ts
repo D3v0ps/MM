@@ -80,7 +80,9 @@ export function applyDecisions20261022(db: Db): void {
     const areas = { ...ma.areas };
     for (const key of cfg.areas) {
       const cur = areas[key];
-      const obs = consent ? (cur?.aiObservationDraft ?? null) : null;
+      // Källorna heter "Mötesrapport <dag>" som nivåförslagets belägg (prototypens testdata skrev "Avstämning <dag>").
+      const proto = consent ? (cur?.aiObservationDraft ?? null) : null;
+      const obs = proto ? { ...proto, sources: proto.sources.map((x) => x.replace(/^Avstämning /, "Mötesrapport ")) } : null;
       const raw = input && obs && !obs.noEvidence ? simulatedDraft(input, `monthly_area:${key}`).levelSuggestion : null;
       const v = raw && input ? verifyLevelSuggestion(raw, input) : null;
       areas[key] = { ...autoArea({ aiObservationDraft: obs, aiLevelSuggestion: v?.level ?? null, aiLevelEvidence: v?.evidence ?? null }), nextStep: cur?.nextStep ?? "" };

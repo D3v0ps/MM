@@ -12,8 +12,9 @@ import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import type { TableName, Tables } from "@/data/schema";
 import { createSeed, DEMO_START } from "@/data/seed";
-import { assessmentPage, assessmentSave, checkinSave, minVecka, NOT_REVIEWED_TEXT } from "./api";
-import { assessMonthOf, ensureMonthlyAssessments, needsAssessment } from "./ensure-assessments";
+import { assessmentPage, assessmentSave, attendanceSet, checkinSave, minVecka, NOT_REVIEWED_TEXT } from "./api";
+import { addMinutes } from "@/core/time";
+import { AI_QUEUE_PER_RUN, assessMonthOf, autoDraftIds, ensureMonthlyAssessments, needsAssessment } from "./ensure-assessments";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -175,15 +176,24 @@ describe("steget i rapportjobbet: utkasten skapas automatiskt (ensureMonthlyAsse
     const runs = rows("ai_runs").filter((r) => r.kind === "monthly_draft" && r.inputRef === "2027-02");
     expect(runs.map((r) => r.caseId).sort()).toEqual([...first.aiQueued].sort());
     for (const id of first.aiQueued) expect(rt.raw().get("cases", id)?.aiConsentStatus).toBe("given");
-    // Revisionsloggen: en rad per avtal med antalen och id:n.
+    // Revisionsloggen: en rad per ärende, skriven direkt när ärendets steg är klara (id:n och antal – aldrig text).
     const log = rows("audit_log").filter((l) => l.action === "assessment.prefilled");
-    expect(log).toHaveLength(1);
-    expect(log[0]).toMatchObject({ actorId: SYSTEM_ACTOR.userId, contractId: "c-bot", details: { month: "2027-02", created: first.created.length, aiQueued: first.aiQueued.length } });
+    const touched = [...new Set([...first.created.map((x) => x.caseId), ...first.aiQueued])].sort();
+    expect(log.map((l) => (l.details as { caseId: string }).caseId).sort()).toEqual(touched);
+    for (const l of log) {
+      const caseId = (l.details as { caseId: string }).caseId;
+      expect(l).toMatchObject({
+        actorId: SYSTEM_ACTOR.userId, contractId: "c-bot", entity: "monthly_assessment", entityId: `ma-${caseId}-2027-02`,
+        details: { month: "2027-02", caseIds: [caseId], created: first.created.some((x) => x.caseId === caseId) ? 1 : 0, aiQueued: first.aiQueued.includes(caseId) ? 1 : 0 },
+      });
+    }
+    // Det automatiska AI-utkastet har fasta id:n per ärende och månad.
+    for (const r of runs) expect(r.id).toBe(`ai-auto-${r.caseId}-2027-02`);
 
     const again = await ensureMonthlyAssessments(ctx, { floor: null });
     expect(again).toEqual({ month: "2027-02", created: [], aiQueued: [], duplicates: 0 });
     expect(rows("ai_runs").filter((r) => r.kind === "monthly_draft" && r.inputRef === "2027-02")).toHaveLength(runs.length);
-    expect(rows("audit_log").filter((l) => l.action === "assessment.prefilled")).toHaveLength(1);
+    expect(rows("audit_log").filter((l) => l.action === "assessment.prefilled")).toHaveLength(touched.length);
   });
 
   it("AI-stödet av: utkasten skapas, inget AI-jobb läggs; golvet: en månad som tog slut före golvet rörs inte", async () => {
@@ -250,5 +260,95 @@ describe("granskningen: förifyllnaden hålls aktuell och skrivs aldrig över i 
     const v = await q(minVecka, {}, amira());
     expect(v.monthly.open.length).toBeGreaterThan(0);
     expect(v.monthly.open.every((r) => r.prefilled)).toBe(true);
+  });
+});
+
+describe("granskningen, andra rundan: de automatiska AI-utkasten i kön", () => {
+  const MARCH = "2027-03-02T08:00";
+  /** Supabase-lägets Ctx: jobben läggs i kön (ctx.jobs) i stället för att köras direkt. */
+  const queued = () => ({ ...rt.ctxFor(SYSTEM_ACTOR), jobs: { schedule: () => undefined } });
+  const draftJobs = () => rows("jobs").filter((j) => j.kind === "draft_monthly");
+
+  it("högst tio per körning, en minut isär i kön och med fasta id:n – nästa körning lägger resten", async () => {
+    rt.clock.set(MARCH);
+    const first = await ensureMonthlyAssessments(queued(), { floor: null });
+    expect(first.aiQueued).toHaveLength(AI_QUEUE_PER_RUN);
+    const jobs = draftJobs().sort((a, b) => (a.runAfter < b.runAfter ? -1 : 1));
+    expect(jobs.map((j) => j.runAfter)).toEqual(Array.from({ length: AI_QUEUE_PER_RUN }, (_, i) => addMinutes(MARCH, i)));
+    for (const id of first.aiQueued) {
+      const ids = autoDraftIds(id, "2027-02");
+      expect(rt.raw().get("ai_runs", ids.aiRunId)).toMatchObject({ caseId: id, inputRef: "2027-02", status: "running" });
+      expect(rt.raw().get("jobs", ids.jobId)).toMatchObject({ kind: "draft_monthly", status: "queued" });
+    }
+    const second = await ensureMonthlyAssessments(queued(), { floor: null });
+    expect(second.created).toEqual([]);
+    expect(second.aiQueued.length).toBeGreaterThan(0);
+    expect(second.aiQueued.some((id) => first.aiQueued.includes(id))).toBe(false);
+  });
+
+  it("två körningar som läste AI-körningarna samtidigt lägger aldrig två utkast för samma ärende och månad", async () => {
+    rt.clock.set(MARCH);
+    const a = await ensureMonthlyAssessments(queued(), { floor: null });
+    // Den andra körningen läste ai_runs innan den första hann lägga sina utkast (samma ögonblicksbild som före den första).
+    const base = queued();
+    const stale = {
+      ...base,
+      system: {
+        table: (name: TableName) => {
+          const t = base.system.table(name);
+          return name === "ai_runs" ? { ...t, list: async () => [] } : t;
+        },
+      } as unknown as typeof base.system,
+    };
+    const b = await ensureMonthlyAssessments(stale, { floor: null });
+    const runs = rows("ai_runs").filter((r) => r.kind === "monthly_draft" && r.inputRef === "2027-02");
+    expect(new Set(runs.map((r) => r.caseId)).size).toBe(runs.length);
+    expect(b.aiQueued.some((id) => a.aiQueued.includes(id))).toBe(false);
+  });
+
+  it("revisionsloggen skrivs per ärende direkt – ett fel i ett senare ärende lämnar inget skapat utkast utan logg", async () => {
+    rt.clock.set(MARCH);
+    const base = rt.ctxFor(SYSTEM_ACTOR);
+    let inserts = 0;
+    const failing = {
+      ...base,
+      ai: undefined,
+      system: {
+        table: (name: TableName) => {
+          const t = base.system.table(name);
+          if (name !== "monthly_plans") return t;
+          return { ...t, insert: async (row: never) => { if (++inserts === 3) throw new Error("Databasfel"); return t.insert(row); } };
+        },
+      } as unknown as typeof base.system,
+    };
+    await expect(ensureMonthlyAssessments(failing, { floor: null })).rejects.toThrow();
+    const created = rows("monthly_assessments").filter((m) => m.month === "2027-02").map((m) => m.caseId).sort();
+    expect(created.length).toBe(3);
+    const logged = rows("audit_log").filter((l) => l.action === "assessment.prefilled").map((l) => (l.details as { caseId: string }).caseId).sort();
+    expect(logged).toEqual(created);
+  });
+});
+
+describe("granskningen, andra rundan: närvaron i sammanfattningen följer en rättad närvaro", () => {
+  it("närvaro som ändras i en avslutad månad: den automatiska sammanfattningen får de nya siffrorna – coachens text rörs aldrig", async () => {
+    const ma = structuredClone(rows("monthly_assessments").find((m) => m.month === JAN && m.status === "draft" && m.prefill.summary === "rules")!);
+    expect(ma).toBeDefined();
+    const present = rows("activities")
+      .filter((a) => a.caseId === ma.caseId && a.startsAt.startsWith(JAN))
+      .find((a) => rows("attendance").find((x) => x.activityId === a.id)?.status === "present")!;
+    expect(present).toBeDefined();
+    const before = ma.summary;
+    expect(before).toMatch(/^Närvaro i januari: närvarande vid \d+ av \d+/);
+    const res = await run(attendanceSet, { activityId: present.id, status: "absent_invalid" }, amira());
+    expect(res).toMatchObject({ ok: true });
+    const after = maOf(ma.caseId);
+    expect(after.summary).not.toBe(before);
+    expect(after.summary).toMatch(/ogiltig frånvaro/i);
+    expect(after.version).toBe(ma.version + 1);
+    expect(rows("audit_log").filter((l) => l.action === "assessment.prefill_refreshed").at(-1)?.details).toEqual({ caseId: ma.caseId, month: JAN, attendance: true, automatic: true });
+    // Coachen skriver sin egen sammanfattning: en ny rättning ändrar den inte.
+    expect(await run(assessmentSave, { caseId: ma.caseId, month: JAN, summary: "Coachens egen text.", expectedVersion: after.version }, amira())).toMatchObject({ ok: true });
+    expect(await run(attendanceSet, { activityId: present.id, status: "present" }, amira())).toMatchObject({ ok: true });
+    expect(maOf(ma.caseId).summary).toBe("Coachens egen text.");
   });
 });

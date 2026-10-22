@@ -294,7 +294,7 @@ test("Upprepa varje vecka: en nivåaktivitet tisdag och torsdag – tillfällena
   await btn(page, "Skapa den återkommande aktiviteten").click();
   await expect(toasts(page)).toContainText("Den återkommande aktiviteten är skapad. 4 tillfällen de närmaste två veckorna");
   await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
-  await expect(main(page)).toContainText("Del av återkommande aktivitet: tis och tor 15.00");
+  await expect(main(page)).toContainText("Del av återkommande aktivitet: tisdag och torsdag 15.00");
   await expect(btn(page, "Ställ in bara det här tillfället")).toBeVisible();
   await expect(btn(page, "Avsluta hela serien")).toBeVisible();
   // Ändra i ett tillfälle gäller bara tillfället – hela serien ändras med Ändra alla kommande tillfällen.
@@ -305,13 +305,19 @@ test("Upprepa varje vecka: en nivåaktivitet tisdag och torsdag – tillfällena
   await btn(page, "Ändra alla kommande tillfällen").click();
   await expect(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" })).toBeVisible();
   await btn(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" }), "Avbryt").click();
+  // Serien har inte börjat (första dagen 2 februari): avslutet gäller den första dagen – dialogen säger det, inte "i dag".
+  await btn(page, "Avsluta hela serien").click();
+  const end = page.getByRole("dialog", { name: "Avsluta den återkommande aktiviteten?" });
+  await expect(end).toContainText("Studiebesök (tisdag och torsdag 15.00) avslutas 2 feb 2027, den första dagen – den har inte börjat.");
+  await btn(end, "Avbryt").click();
+  await expect(end).toHaveCount(0);
   // De som nivån bjöd in kan inte tas bort här – raden säger varför och vad man gör i stället.
   await expect(page.getByTestId("automatisk-hjalp").first()).toContainText("Inbjuden automatiskt via nivån");
   // Listan: Återkommande med dagarna och tiden.
   await go(page, info, "/aktiviteter");
   const rec = card(page, "Återkommande");
   await expect(rec).toContainText("Studiebesök");
-  await expect(rec).toContainText("tis och tor 15.00");
+  await expect(rec).toContainText("tisdag och torsdag 15.00");
   await noBadText(page);
   expect(errors).toEqual([]);
 });

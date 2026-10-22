@@ -5,7 +5,7 @@
 // "Nivå 0-3 ska ligga på default på 0 om vi inte har någon anteckning som tydligt visar bedömning på nivån."
 //
 // Reglerna (ersätter "bedömningsfälten är tomma tills coachen valt" – bara för månadsbedömningen):
-//   Områdena     varje progressionsområde har progressionsnivå 0 och observationen "Framgår inte av underlaget denna månad.",
+//   Områdena     varje progressionsområde har progressionsnivå 0 och observationen "Ingen bedömning av förändring denna månad.",
 //                märkt Automatiskt – inget belägg (levelSource "auto"), tills coachen väljer något annat eller godtar ett
 //                AI-förslag. AI får bara FÖRESLÅ nivå 1–3 med ett ordagrant citat ur underlaget (aiLevelSuggestion,
 //                aiLevelEvidence) – servern och jobben skriver aldrig ett förslag i nivån.
@@ -24,8 +24,11 @@ import type { AttendanceStats } from "./attendance";
 import type { ProgressLevel } from "./config";
 import { addMonths, MONTHS, type MonthKey } from "./time";
 
-/** Observationen i ett område utan belägg. */
-export const AUTO_OBSERVATION = "Framgår inte av underlaget denna månad.";
+/**
+ * Observationen i ett område utan belägg för en förändring. Neutral: den påstår aldrig att underlaget saknas (närvaron kan vara
+ * registrerad hela månaden) – bara att ingen förändring är bedömd. Står i kommunens månadsrapport om coachen inte ändrar den.
+ */
+export const AUTO_OBSERVATION = "Ingen bedömning av förändring denna månad.";
 
 /** Varifrån nivån kommer. Äldre rader utan fältet: en satt nivå är coachens val, ingen nivå = inget val. */
 export function levelSourceOf(a: Pick<AreaAssessment, "level" | "levelSource"> | null | undefined): LevelSource | null {
@@ -283,7 +286,7 @@ export function approvalCounts(areas: Readonly<Record<string, AreaAssessment>>, 
 
 /**
  * Det som saknas för att godkänna: områden utan nivå, och områden från avtalets nivå (observationRequiredFromLevel) utan
- * konkret observation – den automatiska texten "Framgår inte …" räknas inte som belägg för en nivå över 0.
+ * konkret observation – den automatiska texten (AUTO_OBSERVATION) räknas inte som belägg för en nivå över 0.
  */
 export function missingAreas(areas: Readonly<Record<string, AreaAssessment>>, keys: readonly string[], requiredFrom: number): string[] {
   return keys.filter((k) => {

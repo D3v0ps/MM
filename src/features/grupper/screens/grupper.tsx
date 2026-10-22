@@ -9,7 +9,7 @@
 //   Utan nivå             pågående och bekräftade insatser utan nivå – länk till kartläggningen
 //   Taggar                som förut: byta namn, arkivera, återställa, nytt värde och ny kategori
 // Bara Miljonbemanning – aldrig kommunen eller ekonomen (rutten och frågan). Inget raderas. Allt är internt.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { plural } from "@/core/format";
 import { planMeetingDay } from "@/core/audience";
 import { fmtDateTimeLong, monthName } from "@/core/time";
@@ -45,7 +45,9 @@ export function GrupperScreen({ query }: ScreenProps) {
   return <Overview v={q.data} />;
 }
 
-type Dialog = { mode: "rename"; g: GroupingOption } | { mode: "new-tag"; category: string | null } | { mode: "level"; member: OverviewMember; levelId: string };
+type Dialog = { mode: "rename"; g: GroupingOption } | { mode: "new-tag"; category: string | null } | { mode: "level"; member: OverviewMember; levelId: string | null };
+/** Den senaste Höj nivå – raden med Ångra (en nivå tillbaka) tills nästa ändring. */
+type Raised = { member: OverviewMember; fromLevelId: string; fromName: string; toLevelId: string; text: string };
 
 
 function Overview({ v }: { v: GroupingOverview }) {
@@ -55,6 +57,12 @@ function Overview({ v }: { v: GroupingOverview }) {
   const archive = useCommand(groupingArchive);
   const defaults = useCommand(groupingDefaults);
   const [busy, setBusy] = useState<string | null>(null);
+  const undo = useCommand(caseLevelSet);
+  const [raised, setRaised] = useState<Raised | null>(null);
+  // Efter Höj nivå flyttar raden till nästa nivå: fokus till Ångra-raden (en fast plats) i stället för att tappas till sidan.
+  useEffect(() => {
+    if (raised) document.getElementById("gr-angra")?.focus();
+  }, [raised]);
 
   const doRaise = async (m: OverviewMember, fromLevelId: string) => {
     if (busy) return;
@@ -65,7 +73,20 @@ function Overview({ v }: { v: GroupingOverview }) {
       toast(res && !res.ok && res.message ? res.message : "Nivån kunde inte höjas.", "error");
       return;
     }
-    toast(`${m.name} är nu på ${res.levelName}. ${levelChangeText(res)}`.trim());
+    const text = `${m.name} är nu på ${res.levelName}. ${levelChangeText(res)}`.trim();
+    setRaised({ member: m, fromLevelId, fromName: v.levels.find((l) => l.id === fromLevelId)?.name ?? "", toLevelId: res.levelId, text });
+    toast(text);
+  };
+  /** Ångra Höj nivå: tillbaka till nivån före (samma som Byt nivå – inbjudningarna följer med). */
+  const doUndo = async (r: Raised) => {
+    const res = await undo.run({ caseId: r.member.caseId, levelId: r.fromLevelId, fromLevelId: r.toLevelId }).catch(() => null);
+    if (!res || !res.ok) {
+      toast(res && !res.ok && res.message ? res.message : "Ändringen kunde inte ångras.", "error");
+      return;
+    }
+    setRaised(null);
+    toast(`Ändringen är ångrad. ${r.member.name} är på ${res.levelName} igen. ${levelChangeText(res)}`.trim());
+    document.getElementById(`gr-niva-${r.fromLevelId}`)?.focus();
   };
   const toggleArchive = async (g: GroupingOption) => {
     const res = await archive.run({ id: g.id, archived: !g.archived }).catch(() => null);
@@ -150,11 +171,21 @@ function Overview({ v }: { v: GroupingOverview }) {
         <p className="mb-2 text-body text-text-muted">
           Fem nivåer: hur nära arbete deltagaren är. Varje deltagare är på exakt en nivå. Nivån väljs i kartläggningen och kan höjas när deltagaren utvecklas. Nivåaktiviteterna återkommer varje vecka och bjuder in nivåns deltagare automatiskt.
         </p>
+        {raised && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-mb border border-ljusgra px-3 py-2" data-testid="senaste-hojning">
+            <span role="status" className="text-body">
+              {raised.text}
+            </span>
+            <Button id="gr-angra" kind="secondary" icon="reset" pending={undo.pending} onClick={() => void doUndo(raised)}>
+              Ångra<span className="sr-only"> – flytta {raised.member.name} tillbaka till {raised.fromName}</span>
+            </Button>
+          </div>
+        )}
         <Stack>
           {v.levels.map((l) => (
             <section key={l.id} aria-labelledby={`gr-niva-${l.id}`} className="flex flex-col gap-2 rounded-mb border border-ljusgra p-3" data-testid="niva">
               <Row between>
-                <h3 id={`gr-niva-${l.id}`} className="m-0 text-ui font-bold">
+                <h3 id={`gr-niva-${l.id}`} tabIndex={-1} className="m-0 text-ui font-bold">
                   {l.name}
                 </h3>
                 <Row gap="sm">
@@ -231,9 +262,20 @@ function Overview({ v }: { v: GroupingOverview }) {
                 <Badge tone="outline" icon={m.intake === "draft" ? "edit" : "circle"}>
                   {m.intake === "draft" ? "Kartläggning pågår" : m.intake === "approved" ? "Kartläggningen är godkänd" : "Inte kartlagd"}
                 </Badge>
-                <Button kind="ghost" icon="arrow-right" to={`/kartlaggning/${encodeURIComponent(m.caseId)}`} className="ml-auto">
-                  Öppna kartläggningen<span className="sr-only"> för {m.name}</span>
-                </Button>
+                {/* Kartläggningen är coachens sida – den som placerar men inte kartlägger väljer nivån direkt, övriga öppnar kortet. */}
+                {v.canIntake ? (
+                  <Button kind="ghost" icon="arrow-right" to={`/kartlaggning/${encodeURIComponent(m.caseId)}`} className="ml-auto">
+                    Öppna kartläggningen<span className="sr-only"> för {m.name}</span>
+                  </Button>
+                ) : v.canPlace ? (
+                  <Button kind="ghost" icon="layers" onClick={() => setDialog({ mode: "level", member: m, levelId: null })} className="ml-auto">
+                    Välj nivå<span className="sr-only"> för {m.name}</span>
+                  </Button>
+                ) : (
+                  <Button kind="ghost" icon="arrow-right" to={`/arenden/${encodeURIComponent(m.caseId)}`} className="ml-auto">
+                    Öppna deltagarkortet<span className="sr-only"> för {m.name}</span>
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -292,13 +334,17 @@ function Overview({ v }: { v: GroupingOverview }) {
   );
 }
 
-/** Byt nivå för en deltagare: välj vilken som helst av de fem. */
-function ChangeLevelDialog({ member, fromLevelId, levels, onClose }: { member: OverviewMember; fromLevelId: string; levels: { id: string; name: string }[]; onClose: () => void }) {
+/** Byt nivå för en deltagare: välj vilken som helst av de fem. Utan nivå (fromLevelId null): Välj nivå. */
+function ChangeLevelDialog({ member, fromLevelId, levels, onClose }: { member: OverviewMember; fromLevelId: string | null; levels: { id: string; name: string }[]; onClose: () => void }) {
   const set = useCommand(caseLevelSet);
-  const [levelId, setLevelId] = useState(fromLevelId);
+  const [levelId, setLevelId] = useState<string | null>(fromLevelId);
   const [error, setError] = useState<string | null>(null);
   const submit = async () => {
     setError(null);
+    if (!levelId) {
+      setError("Välj en nivå.");
+      return;
+    }
     if (levelId === fromLevelId) {
       onClose();
       return;
@@ -313,7 +359,7 @@ function ChangeLevelDialog({ member, fromLevelId, levels, onClose }: { member: O
   };
   return (
     <Modal
-      title={`Byt nivå för ${member.name}`}
+      title={`${fromLevelId ? "Byt nivå" : "Välj nivå"} för ${member.name}`}
       onClose={onClose}
       dirty={levelId !== fromLevelId}
       footer={
@@ -328,7 +374,7 @@ function ChangeLevelDialog({ member, fromLevelId, levels, onClose }: { member: O
       <Stack>
         {error && <Notice tone="warn" title={error} />}
         <Field label="Nivå" id="gr-byt-niva" help="Deltagaren bjuds in till den nya nivåns kommande aktiviteter och tas bort ur den gamlas.">
-          <Seg id="gr-byt-niva" ariaLabel="Nivå" value={levelId} onValueChange={(x) => x && setLevelId(x)} options={levels.map((l) => ({ value: l.id, label: l.name }))} />
+          <Seg id="gr-byt-niva" ariaLabel="Nivå" value={levelId ?? ""} onValueChange={(x) => x && setLevelId(x)} options={levels.map((l) => ({ value: l.id, label: l.name }))} />
         </Field>
       </Stack>
     </Modal>

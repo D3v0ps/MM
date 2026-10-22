@@ -3,22 +3,29 @@
 //               personuppgifter, vilande spärr, bara namngiven huvudcoach och avtalsansvarig). Chef och systemadministratör ser
 //               bytena i läsläge. Kommunen och ekonomen nekas av rollkontrollen (ekonomen ser bytena i Ekonomi).
 //   Regler:     areaChangeProblem i src/core/area-changes.ts (bekräftat, pågående eller pausat ärende, ett annat aktivt yrkesområde
-//               i avtalet, motivering 10–300 tecken utan personnummer).
-//   Skrivning:  i ordning via ctx.repo (RLS): anteckningen med motiveringen (case_notes), bytet (case_area_changes, nästa nummer
-//               i ärendet – seq), ärendets yrkesområde (cases, villkorat på det gamla), revisionsloggen och sist
-//               afterCaseAreaChanged (grupp och inbjudningar – systemsteget syncAudienceInvites, som bjuder in till det nya
-//               yrkesområdets kommande aktiviteter och tar bort ur det gamlas).
+//               i avtalet, motivering 10–300 tecken utan personnummer, yrkesspåret i det nya yrkesområdet eller tomt).
+//   Skrivning:  i ordning via ctx.repo (RLS): anteckningen med motiveringen (case_notes – låst efteråt: den ändras och tas aldrig
+//               bort, 0036), bytet (case_area_changes, nästa nummer i ärendet – seq), ärendets yrkesområde och yrkesspår (cases,
+//               villkorat på det gamla yrkesområdet), revisionsloggen och sist afterCaseAreaChanged (grupp och inbjudningar –
+//               systemsteget syncAudienceInvites, som bjuder in till det nya yrkesområdets kommande aktiviteter och tar bort ur det
+//               gamlas). Det gamla yrkesspåret hör till det gamla yrkesområdet och följer aldrig med.
 //   Samtidigt:  två byten i samma ärende samtidigt – det andra får conflict (den unika nyckeln case_id + seq, och triggern som
 //               kräver att bytet utgår från ärendets nuvarande yrkesområde). Kan bytet inte skrivas tas anteckningen bort igen.
+//   Halvt byte: kan ärendet inte ändras efter att bytet skrivits (nätverksfel, tidsgräns, en samtidig ändring) tas bytet bort och
+//               anteckningen döljs igen i ett systemsteg (ctx.system) – annars skulle fakturan räknas på ett yrkesområde som
+//               ärendet aldrig fick, och kedjan i triggern skulle stoppa alla senare byten.
 //   Logg:       case.area_changed med id:n och koder – aldrig motiveringen (CLAUDE.md punkt 2).
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
-import { handleCommand, handleQuery } from "@/api/server";
-import { AREA_CHANGE_STATUSES, AREA_CHANGERS, areaChangeProblem, effectiveMonthOf, inOrder, nextAreaChangeSeq } from "@/core/area-changes";
+import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import {
+  AREA_CHANGE_STATUSES, AREA_CHANGERS, areaChangeNoteBody, areaChangeProblem, effectiveMonthOf, inOrder, motivationOf, nextAreaChangeSeq,
+} from "@/core/area-changes";
 import { areaName, personName } from "@/core/labels";
-import { dayOf } from "@/core/time";
+import { dayOf, type LocalDateTime } from "@/core/time";
 import { PolicyError, UniqueError } from "@/data/repo";
 import type { CaseAreaChange, CaseNote } from "@/data/schema";
+import { TRACKS } from "@/data/seed/constants";
 import { afterCaseAreaChanged } from "../_shared/case-area-hooks";
 import { caseAreaView, caseChangeArea, type CaseAreaView } from "./api";
 
@@ -36,7 +43,14 @@ handleQuery(caseAreaView, { roles: AREA_VIEWERS }, async (ctx, p): Promise<CaseA
     ctx.repo.table("contract_areas").list({ contractId: c.contractId }),
     ctx.repo.table("case_area_changes").list({ caseId: c.id }),
   ]);
-  const profiles = changes.length ? await ctx.repo.table("profiles").list({ id: { in: [...new Set(changes.map((x) => x.changedBy))] } }) : [];
+  const [profiles, notes] = changes.length
+    ? await Promise.all([
+      ctx.repo.table("profiles").list({ id: { in: [...new Set(changes.map((x) => x.changedBy))] } }),
+      // Motiveringen: den låsta anteckningen, via behörigheten (samma läsare som anteckningarna i kortet).
+      ctx.repo.table("case_notes").list({ id: { in: changes.map((x) => x.noteId) } }),
+    ])
+    : [[], []];
+  const label = (code: string) => areaName(areas, code).trim();
   const role = ctx.actor.role;
   const may = AREA_CHANGERS.includes(role);
   const blocked = !AREA_CHANGE_STATUSES.includes(c.status)
@@ -48,11 +62,21 @@ handleQuery(caseAreaView, { roles: AREA_VIEWERS }, async (ctx, p): Promise<CaseA
     current,
     canChange: may && !blocked,
     blockedText: may ? blocked : null,
-    options: areas.filter((a) => a.active && a.code !== c.primaryAreaCode).sort((a, b) => a.code.localeCompare(b.code)).map((a) => ({ code: a.code, name: a.name })),
+    options: areas
+      .filter((a) => a.active && a.code !== c.primaryAreaCode)
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .map((a) => ({ code: a.code, name: a.name, tracks: [...(TRACKS[a.code as keyof typeof TRACKS] ?? [])] })),
+    track: c.vocationalTrack,
     effectiveMonth: effectiveMonthOf(ctx.now()),
     history: inOrder(changes)
       .reverse()
-      .map((x) => ({ id: x.id, changedAt: x.changedAt, fromArea: x.fromArea, toArea: x.toArea, byName: personName(profiles, x.changedBy), effectiveMonth: x.effectiveMonth })),
+      .map((x) => {
+        const note = notes.find((n) => n.id === x.noteId);
+        return {
+          id: x.id, changedAt: x.changedAt, fromArea: x.fromArea, toArea: x.toArea, fromName: label(x.fromArea), toName: label(x.toArea), byName: personName(profiles, x.changedBy),
+          effectiveMonth: x.effectiveMonth, motivation: note ? motivationOf(note.body, label(x.fromArea), label(x.toArea)) : null,
+        };
+      }),
   };
 });
 
@@ -60,6 +84,15 @@ const CONFLICT = "Yrkesområdet har ändrats under tiden, kanske av en kollega. 
 const code = (e: unknown): string => String((e as { code?: unknown } | null)?.code ?? "");
 /** Ett byte som inte kunde skrivas: någon annan hann byta (nästa nummer tog slut, kedjan bröts) eller behörigheten nekade. */
 const lostRace = (e: unknown): boolean => e instanceof UniqueError || e instanceof PolicyError || ["23505", "23514", "42501"].includes(code(e));
+
+/**
+ * Ett halvt byte tas bort (systemsteg – ingen användare får radera ett byte): bytet raderas och anteckningen med motiveringen
+ * döljs, så att fakturan aldrig räknas på ett yrkesområde som ärendet inte fick och nästa byte kan göras.
+ */
+async function undoChange(ctx: Ctx, change: CaseAreaChange, now: LocalDateTime): Promise<void> {
+  await ctx.system.table("case_area_changes").remove(change.id);
+  await ctx.system.table("case_notes").update(change.noteId, { removedAt: now, removedBy: change.changedBy });
+}
 
 handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
@@ -71,7 +104,8 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
   if (p.fromArea && p.fromArea !== c.primaryAreaCode) return fail("conflict", CONFLICT);
   const areas = await ctx.repo.table("contract_areas").list({ contractId: c.contractId });
   const toArea = p.toArea.trim();
-  const problem = areaChangeProblem(c, areas, toArea, p.motivation);
+  const track = (p.vocationalTrack ?? "").trim();
+  const problem = areaChangeProblem(c, areas, toArea, p.motivation, track);
   if (problem) return fail(problem.code, problem.text);
   const fromArea = c.primaryAreaCode as string;
   const now = ctx.now();
@@ -82,12 +116,12 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
   const seq = nextAreaChangeSeq(await ctx.repo.table("case_area_changes").list({ caseId: c.id }));
 
   // 1. Motiveringen – en vanlig anteckning i deltagarkortet (internt för Miljonbemanning, aldrig till kommunen). Den skrivs först
-  //    (bytet pekar på den) och tas bort igen om bytet inte kan skrivas.
+  //    (bytet pekar på den) och tas bort igen om bytet inte kan skrivas. Efteråt är den låst (0036, policy.ts caseNoteWrite).
   const noteId = ctx.newId("note");
   const label = (code: string) => areaName(areas, code).trim();
   const note: CaseNote = {
     id: noteId, contractId: c.contractId, caseId: c.id, authorId: me, occurredOn: dayOf(now), kind: "other", audience: "team",
-    body: `Byte av yrkesområde: ${label(fromArea)} → ${label(toArea)}. ${p.motivation.trim()}`, createdAt: now, updatedAt: null, removedAt: null, removedBy: null,
+    body: areaChangeNoteBody(label(fromArea), label(toArea), p.motivation), createdAt: now, updatedAt: null, removedAt: null, removedBy: null,
   };
   await ctx.repo.table("case_notes").insert(note);
   // 2. Bytet (bara koder, id:n och tider – ekonomen läser raden för faktureringen). Före ärendet: triggern prövar att bytet utgår
@@ -100,14 +134,25 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
     await ctx.repo.table("case_notes").update(noteId, { removedAt: now, removedBy: me });
     return fail("conflict", CONFLICT);
   }
-  // 3. Ärendets yrkesområde, villkorat på det gamla. Ett alternativt yrkesområde som blir det nya tas bort (samma regel som när
-  //    avropet accepteras).
-  const moved = await ctx.repo.table("cases").updateIf(c.id, { primaryAreaCode: fromArea }, { primaryAreaCode: toArea, ...(c.secondaryAreaCode === toArea ? { secondaryAreaCode: null } : {}) });
-  if (!moved) return fail("conflict", CONFLICT);
+  // 3. Ärendets yrkesområde och yrkesspår, villkorat på det gamla yrkesområdet. Ett alternativt yrkesområde som blir det nya tas
+  //    bort (samma regel som när avropet accepteras). Går det inte (ett fel, eller ärendet hann ändras) tas bytet bort igen.
+  let moved = false;
+  try {
+    moved = !!(await ctx.repo.table("cases").updateIf(
+      c.id, { primaryAreaCode: fromArea }, { primaryAreaCode: toArea, vocationalTrack: track, ...(c.secondaryAreaCode === toArea ? { secondaryAreaCode: null } : {}) },
+    ));
+  } catch (e) {
+    await undoChange(ctx, change, now);
+    throw e;
+  }
+  if (!moved) {
+    await undoChange(ctx, change, now);
+    return fail("conflict", CONFLICT);
+  }
   // 4. Revisionsloggen: id:n och koder – aldrig motiveringen.
   await ctx.audit({
     action: "case.area_changed", entity: "case", entityId: c.id, contractId: c.contractId,
-    details: { caseId: c.id, fromArea, toArea, effectiveMonth, changeId: change.id, noteId, seq },
+    details: { caseId: c.id, fromArea, toArea, effectiveMonth, changeId: change.id, noteId, seq, ...(track !== c.vocationalTrack ? { trackChanged: true } : {}) },
   });
   // 5. Grupp och inbjudningar: det nya yrkesområdets kommande aktiviteter med målgrupp (src/features/_shared/case-area-hooks.ts).
   const groups = await afterCaseAreaChanged(ctx, c.id);

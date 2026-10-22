@@ -153,14 +153,14 @@ export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" |
 // ---------------------------------------------------------------- Rapportens underlag
 const EMPTY: ReportDb = {
   cases: [], activities: [], attendance: [], check_ins: [], monthly_assessments: [], monthly_plans: [], outcome_events: [], deviations: [], tasks: [],
-  audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: [], profiles: [], price_items: [], reports: [],
+  audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: [], profiles: [], price_items: [], reports: [], case_area_changes: [],
 };
 
 /** Underlaget för ett ärendes rapporter (månad, slut, orderbekräftelse). ctx.system: se överst i filen. */
 async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "contract_areas" | "profiles" | "price_items" | "contract_deviations" | "pulse_responses" | "reports">> {
   const s = ctx.system;
   const inCases = { caseId: { in: caseIds } };
-  const [cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations] = await Promise.all([
+  const [cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, case_area_changes] = await Promise.all([
     s.table("cases").list({ id: { in: caseIds } }),
     s.table("activities").list(inCases),
     s.table("attendance").list(inCases),
@@ -169,6 +169,8 @@ async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "co
     s.table("monthly_plans").list(inCases),
     s.table("outcome_events").list(inCases),
     s.table("deviations").list(inCases),
+    // Bytena av yrkesområde: rapportmånadens avtalsområde (areaForMonth – samma regel som fakturan).
+    s.table("case_area_changes").list(inCases),
   ]);
   const devIds = deviations.map((d) => d.id);
   const evIds = outcome_events.map((e) => e.id);
@@ -176,7 +178,7 @@ async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "co
     devIds.length ? s.table("tasks").list({ deviationId: { in: devIds } }) : [],
     evIds.length ? s.table("audit_log").list({ action: "event.added", entityId: { in: evIds } }) : [],
   ]);
-  return { cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, tasks, audit_log };
+  return { cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, tasks, audit_log, case_area_changes };
 }
 
 /** Läs underlaget för rapporten. ctx.system: se överst i filen – anropas bara när läsaren får se rapporten. */

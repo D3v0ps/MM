@@ -30,7 +30,7 @@ const opts = (xs: GroupingOption[], none?: string): SegOption<string>[] => [
 const shortLevel = (name: string) => name.split(" – ")[0] ?? name;
 
 /** Meningen efter en ny nivå: inbjudningarna till nivåns kommande aktiviteter. */
-export function levelChangeText(r: LevelChange): string {
+export function levelChangeText(r: Pick<LevelChange, "invited" | "removed">): string {
   const parts = [
     r.invited ? `Deltagaren är inbjuden till ${plural(r.invited, "kommande aktivitet", "kommande aktiviteter")} för nivån.` : "",
     r.removed ? `Deltagaren är borttagen ur ${plural(r.removed, "kommande aktivitet", "kommande aktiviteter")} för den förra nivån.` : "",
@@ -43,8 +43,8 @@ export function levelChangeText(r: LevelChange): string {
  * requiredForApproval: kartläggningen – nivån krävs innan den godkänns (texten vid fältet).
  */
 export function GroupingCard({
-  caseId, title = "Nivå och yrkesområde", bare, requiredForApproval, areaAction,
-}: { caseId: string; title?: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode }) {
+  caseId, title = "Nivå och yrkesområde", bare, requiredForApproval, areaAction, levelError,
+}: { caseId: string; title?: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode; levelError?: string | null }) {
   const q = useQuery(caseGroupingsView, { caseId });
   const wrap = (children: ReactNode) => (bare ? <>{children}</> : <Card title={title} icon="layers">{children}</Card>);
   if (q.error) return wrap(<ErrorNotice error={q.error} onRetry={() => void q.refetch()} />);
@@ -58,7 +58,7 @@ export function GroupingCard({
       </Stack>,
     );
   }
-  return <Editor key={caseId} v={q.data} title={title} bare={bare} requiredForApproval={requiredForApproval} areaAction={areaAction} />;
+  return <Editor key={caseId} v={q.data} title={title} bare={bare} requiredForApproval={requiredForApproval} areaAction={areaAction} levelError={levelError} />;
 }
 
 /**
@@ -127,8 +127,8 @@ function LevelHistory({ v }: { v: CaseGroupingsView }) {
 }
 
 function Editor({
-  v, title, bare, requiredForApproval, areaAction,
-}: { v: CaseGroupingsView; title: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode }) {
+  v, title, bare, requiredForApproval, areaAction, levelError,
+}: { v: CaseGroupingsView; title: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode; levelError?: string | null }) {
   const save = useCommand(caseGroupingsSave);
   const raise = useCommand(caseLevelRaise);
   const note = useCommand(caseNoteSave);
@@ -172,7 +172,10 @@ function Editor({
         break;
       }
       saved.current = s;
-      setStatus({ kind: "saved", at: res.savedAt });
+      // Ny nivå: samma mening om inbjudningarna som Höj nivå (vid statusraden och som toast).
+      const invites = res.invites ? levelChangeText(res.invites) : "";
+      setStatus({ kind: "saved", at: res.savedAt, text: invites || undefined });
+      if (invites) toast(invites);
     }
     running.current = false;
   };
@@ -214,7 +217,11 @@ function Editor({
 
   const hasLevel = !!v.current.level;
   const statusText =
-    status.kind === "saving" ? "Sparar…" : status.kind === "saved" && status.at ? `Sparat ${fmtTime(status.at)}` : status.kind === "failed" ? (status.text ?? "") : "";
+    status.kind === "saving"
+      ? "Sparar…"
+      : status.kind === "saved" && status.at
+        ? `Sparat ${fmtTime(status.at)}${status.text ? `. ${status.text}` : ""}`
+        : status.kind === "failed" ? (status.text ?? "") : "";
   const levelHelp = hasLevel
     ? "Hur nära arbete deltagaren är just nu. Byt nivå genom att välja en annan. Inte samma sak som fas eller progressionsnivå 0–3 i månadsbedömningen."
     : "Hur nära arbete deltagaren är just nu. Inte samma sak som fas eller progressionsnivå 0–3 i månadsbedömningen.";
@@ -228,7 +235,7 @@ function Editor({
           Deltagaren bjuds sedan in automatiskt till nivåns aktiviteter.
         </Notice>
       )}
-      <Field label="Nivå" id={`gr-niva-${v.caseId}`} required={requiredForApproval} help={levelHelp}>
+      <Field label="Nivå" id={`gr-niva-${v.caseId}`} required={requiredForApproval} help={levelHelp} error={!hasLevel && levelError ? levelError : undefined}>
         <Seg
           id={`gr-niva-${v.caseId}`}
           ariaLabel="Nivå"

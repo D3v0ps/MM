@@ -78,10 +78,10 @@ describe("ny återkommande aktivitet (aktiviteter.serieSkapa)", () => {
     expect(JSON.stringify(rows("audit_log").slice(-20))).not.toMatch(/Studiebesök|Alby/);
     // Listan: Återkommande med texten och nästa tillfälle.
     const list = await q(groupActivityList, {}, amira());
-    expect(list.series.find((s) => s.id === res.seriesId)).toMatchObject({ schedule: "tis och tor 15.00", upcoming: 4, next: { id: occ[0].id, startsAt: "2027-02-02T15:00" }, notify: false, audienceLabel: "Nivå 3 – På väg" });
+    expect(list.series.find((s) => s.id === res.seriesId)).toMatchObject({ schedule: "tisdag och torsdag 15.00", upcoming: 4, next: { id: occ[0].id, startsAt: "2027-02-02T15:00" }, notify: false, audienceLabel: "Nivå 3 – På väg" });
     // Tillfällets vy visar serien.
     const view = await q(groupActivityView, { id: occ[0].id }, amira());
-    expect(view.kind === "ok" && view.activity.series).toMatchObject({ id: res.seriesId, schedule: "tis och tor 15.00", ended: false });
+    expect(view.kind === "ok" && view.activity.series).toMatchObject({ id: res.seriesId, schedule: "tisdag och torsdag 15.00", ended: false });
   });
 
   it("meddelandet påslaget: deltagarna får en inbjudan med bara tid, plats och telefonnummer", async () => {

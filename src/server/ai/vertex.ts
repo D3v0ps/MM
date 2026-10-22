@@ -415,7 +415,7 @@ const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända möte
 
 /**
  * Utkastet: bara id för avstämningar och anteckningar som finns i underlaget (annars ogiltigt – påhittade källor visas
- * aldrig). Källornas namn ("Närvaroregistrering", "Avstämning 15 jan", "Anteckning 26 jan") sätts här, inte av modellen –
+ * aldrig). Källornas namn ("Närvaroregistrering", "Mötesrapport 15 jan", "Anteckning 26 jan") sätts här, inte av modellen –
  * aldrig författarens namn. Utan belägg: standardtexten "Framgår inte".
  * Nivåförslaget (bara monthly_area, Karims beslut 2026-10-22): behålls bara om citatet finns ordagrant i källan i underlaget
  * (verifyLevelSuggestion) – annars slängs förslaget och resten av utkastet gäller. Andra mallar får aldrig ett förslag.
@@ -442,7 +442,7 @@ export function validateDraft(json: unknown, input: DraftInput, templateKey: Dra
   const verified = templateKey.startsWith("monthly_area:") && raw ? verifyLevelSuggestion(raw, input) : null;
   const out = DraftTextSchema.safeParse({
     text,
-    sources: [...(j.usedAttendance ? ["Närvaroregistrering"] : []), ...used.map((c) => `Avstämning ${fmtDateShort(c.heldAt)}`), ...usedNotes.map(noteSourceLabel)],
+    sources: [...(j.usedAttendance ? ["Närvaroregistrering"] : []), ...used.map((c) => `Mötesrapport ${fmtDateShort(c.heldAt)}`), ...usedNotes.map(noteSourceLabel)],
     sourceIds: [...used.map((c) => c.id), ...usedNotes.map((n) => n.id)],
     noEvidence: false,
     // Bara ett kontrollerat förslag följer med – annars finns fältet inte (som för de andra mallarna).

@@ -705,10 +705,13 @@ handleQuery(ekoCase, { roles: BILLING, commercial: true }, async (ctx, p) => {
   if (!c) return null;
   const today = dayOf(ctx.now());
   const weeks = billableWeeks(c, db, b.env);
-  const priceDate = c.startDate || today;
+  // "Vid start": den första debiterbara veckan – dess måndag för priset och dess månad (torsdagsregeln) för yrkesområdet, samma
+  // som fakturaraden (billingLines). Utan veckor: startdagen, annars i dag.
+  const firstWeek = weeks.find((w) => !w.paused) ?? weeks[0] ?? null;
+  const priceDate = firstWeek?.monday ?? (c.startDate || today);
   // Byt yrkesområde (Karims beslut 2026-10-22): yrkesområdet som gällde månaden priset avser; bytena visas i en egen rad.
   const changes = inOrder(db.case_area_changes.filter((x) => x.caseId === c.id));
-  const priceArea = areaForMonth(c, changes, monthKey(priceDate));
+  const priceArea = areaForMonth(c, changes, firstWeek?.monthKey ?? monthKey(priceDate));
   const price = priceFor(db.price_items, priceArea, priceDate, c.contractId);
   const item = priceItem(db.price_items, priceArea, priceDate, c.contractId);
   // Efter ett byte: det som faktureras nu (innevarande månad, eller sista månaden för en avslutad insats) – raden ovan är då "vid start".

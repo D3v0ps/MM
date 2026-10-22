@@ -142,15 +142,13 @@ function IntakeForm({ v }: { v: Ok }) {
     const e: Record<string, string> = {};
     if (approve) for (const [k, msg] of Object.entries(REQUIRED)) if (!String(f[k as keyof F] || "").trim()) e[k] = msg;
     if (diag) e.adaptations = "Texten ser ut att innehålla en diagnos. Beskriv i stället vad deltagaren behöver i arbetet.";
+    // Nivån krävs innan godkännandet (servern prövar igen) – prövas med de andra fälten och felet står vid nivåvalet.
+    if (approve && levels.data && !levels.data.current.level) e.level = LEVEL_REQUIRED_TEXT;
     setErrors(e);
     if (Object.keys(e).length) {
       toast(approve ? "Kartläggningen kan inte godkännas ännu. Se markerade fält." : "Ta bort diagnosen innan du sparar.", "error");
-      return;
-    }
-    // Nivån krävs innan godkännandet (servern prövar igen). Fokus till nivåvalet.
-    if (approve && levels.data && !levels.data.current.level) {
-      toast(LEVEL_REQUIRED_TEXT, "error");
-      document.getElementById(`gr-niva-${c.caseId}`)?.querySelector<HTMLElement>("button")?.focus();
+      // Bara nivån saknas: fokus till nivåvalet.
+      if (Object.keys(e).length === 1 && e.level) document.getElementById(`gr-niva-${c.caseId}`)?.querySelector<HTMLElement>("button")?.focus();
       return;
     }
     // En pågående autosparning får bli klar först.
@@ -297,7 +295,7 @@ function IntakeForm({ v }: { v: Ok }) {
       </Card>
 
       {/* Nivå, yrkesområde och Vill arbeta (coachmötet 2026-10-09, Karims beslut 2026-10-22) – sparas direkt, internt för Miljonbemanning. */}
-      <GroupingCard caseId={c.caseId} requiredForApproval={!approved} />
+      <GroupingCard caseId={c.caseId} requiredForApproval={!approved} levelError={errors.level} />
 
       <Row>
         {approved ? (

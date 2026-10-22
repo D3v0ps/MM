@@ -18,7 +18,7 @@ describe("prefillAssessment: allt ifyllt innan coachen går igenom (Karims beslu
     for (const a of Object.values(p.areas)) {
       expect(a).toMatchObject({ level: 0, observation: AUTO_OBSERVATION, levelSource: "auto", aiLevelSuggestion: null, aiLevelEvidence: null });
     }
-    expect(AUTO_OBSERVATION).toBe("Framgår inte av underlaget denna månad.");
+    expect(AUTO_OBSERVATION).toBe("Ingen bedömning av förändring denna månad.");
   });
 
   it("samlad status: coachens senaste godkända mötesrapport i månaden med status – märkt med rapporten", () => {

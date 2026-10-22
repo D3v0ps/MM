@@ -31,7 +31,7 @@ export function AktiviteterScreen() {
         q.error ? <ErrorNotice error={q.error} onRetry={() => void q.refetch()} /> : <Loading />
       ) : (
         <>
-          {(v.series.length > 0 || v.canCreate) && <SeriesCard rows={v.series} canEdit={v.canCreate} />}
+          {(v.series.length > 0 || v.canCreate) && <SeriesCard rows={v.series} canEdit={v.canCreate} now={v.now} />}
           <Card title="I dag och framåt" icon="calendar" flush>
             <ActivityTable rows={v.upcoming} now={v.now} empty="Inga planerade aktiviteter." caption="Aktiviteter i dag och framåt" />
           </Card>
@@ -52,7 +52,7 @@ export function AktiviteterScreen() {
 }
 
 /** De återkommande aktiviteterna: dagar och tid, målgrupp, nästa tillfälle, Ändra och Avsluta serien. */
-function SeriesCard({ rows, canEdit }: { rows: SeriesListRow[]; canEdit: boolean }) {
+function SeriesCard({ rows, canEdit, now }: { rows: SeriesListRow[]; canEdit: boolean; now: string }) {
   const [editing, setEditing] = useState<SeriesListRow | null>(null);
   const end = useEndSeries();
   return (
@@ -96,7 +96,7 @@ function SeriesCard({ rows, canEdit }: { rows: SeriesListRow[]; canEdit: boolean
                   <Button kind="ghost" icon="edit" onClick={() => setEditing(s)}>
                     Ändra<span className="sr-only"> {s.name}</span>
                   </Button>
-                  <Button kind="ghost" icon="x" pending={end.pending} onClick={() => void end.run(s)}>
+                  <Button kind="ghost" icon="x" pending={end.pending} onClick={() => void end.run({ ...s, today: dayOf(now) })}>
                     Avsluta serien<span className="sr-only"> {s.name}</span>
                   </Button>
                 </Row>

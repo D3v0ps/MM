@@ -16,17 +16,18 @@
 //      fasta id:n (ma-<ärende>-<månad>, mp-<ärende>-<månad>), så att två samtidiga körningar aldrig skapar två rader
 //   2. AI-utkastet (jobbet draft_monthly) läggs EN gång per ärende och månad – bara när deltagaren har registrerat samtycke till
 //      AI, inte har skyddade personuppgifter och AI-stödet är kopplat (ctx.ai), och bara om ingen AI-körning för månaden finns
-//      (inte heller en som coachen startat). "Skapa nytt AI-utkast" på sidan finns kvar för nya körningar.
+//      (inte heller en som coachen startat). Fasta id:n (autoDraftIds) – två samtidiga körningar lägger aldrig två. Högst
+//      AI_QUEUE_PER_RUN per körning, en minut isär i kön (resten nästa körning). "Skapa nytt AI-utkast" finns kvar för nya körningar.
 //   En godkänd bedömning rörs aldrig.
 // Golvet (opts.floor, testklockans start i testmiljön och prototypen): en månad som tog slut senast då rörs inte – testdatat
 // har sina utkast (src/data/seed/decisions-2026-10-22.ts). null i produktionen.
-// Idempotent: en körning till skapar ingenting nytt. Revisionsloggen får en rad per avtal och körning med månaden, antalen och
-// ärendenas id:n (assessment.prefilled, systemet) – aldrig namn eller text.
+// Idempotent: en körning till skapar ingenting nytt. Revisionsloggen får en rad per ärende (assessment.prefilled, systemet) med
+// månaden och vad som gjordes, direkt när ärendets steg är klara – aldrig namn eller text.
 import type { Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { isOperational, requireOperational } from "@/core/config";
 import { enrolledDays, monthEndsAt } from "@/core/report-schedule";
-import { addMonths, dayOf, monthEnd, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
+import { addMinutes, addMonths, dayOf, monthEnd, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
 import { UniqueError } from "@/data/repo";
 import type { Case } from "@/data/schema";
 import { aiOff } from "../_shared/ai-port";
@@ -71,45 +72,71 @@ export async function ensureMonthlyAssessments(ctx: Ctx, opts: { floor: LocalDat
       s.table("ai_runs").list({ caseId: { in: ids }, kind: "monthly_draft" }),
       s.table("persons").list({ id: { in: [...new Set(cases.map((c) => c.personId))] } }),
     ]);
-    const created: string[] = [];
-    const queued: string[] = [];
     for (const c of cases) {
       let ma = existing.find((x) => x.caseId === c.id) ?? null;
-      if (!ma) {
-        const pre = await loadPrefill(s, c, month, cfg, now);
-        const row = prefilledAssessment(prefillAssessmentId(c.id, month), c.id, month, pre);
-        try {
-          await s.table("monthly_assessments").insert(row);
-        } catch (e) {
-          if (!(e instanceof UniqueError)) throw e;
-          res.duplicates++;
-          continue;
-        }
-        ma = row;
-        created.push(c.id);
-        res.created.push({ id: row.id, caseId: c.id });
-        if (!plans.some((x) => x.caseId === c.id)) {
+      let created = false;
+      let queued = false;
+      // Revisionsloggen per ärende, direkt när ärendets steg är klara – också när ett senare steg kastar (finally), så att ett
+      // utkast som skapats aldrig blir utan logg (nästa körning ser det som befintligt och loggar det inte).
+      try {
+        if (!ma) {
+          const pre = await loadPrefill(s, c, month, cfg, now);
+          const row = prefilledAssessment(prefillAssessmentId(c.id, month), c.id, month, pre);
           try {
-            await s.table("monthly_plans").insert(prefilledPlan(prefillPlanId(c.id, month), c.id, month, pre));
+            await s.table("monthly_assessments").insert(row);
           } catch (e) {
             if (!(e instanceof UniqueError)) throw e;
+            res.duplicates++;
+            continue;
+          }
+          ma = row;
+          created = true;
+          res.created.push({ id: row.id, caseId: c.id });
+          if (!plans.some((x) => x.caseId === c.id)) {
+            try {
+              await s.table("monthly_plans").insert(prefilledPlan(prefillPlanId(c.id, month), c.id, month, pre));
+            } catch (e) {
+              if (!(e instanceof UniqueError)) throw e;
+            }
           }
         }
+        if (ma.status === "approved") continue;
+        // AI-utkastet en gång per ärende och månad – bara med samtycke, utan skyddade personuppgifter och när AI är kopplat, och
+        // högst AI_QUEUE_PER_RUN per körning (resten nästa körning, var tionde minut).
+        const person = persons.find((p) => p.id === c.personId) ?? null;
+        if (aiOff(ctx) || !aiAllowed(c, person) || runs.some((r) => r.caseId === c.id && r.inputRef === month)) continue;
+        // Kön (testmiljön och produktionen): högst AI_QUEUE_PER_RUN per körning. Minnesläget kör utkasten direkt – ingen gräns.
+        if (ctx.jobs && res.aiQueued.length >= AI_QUEUE_PER_RUN) continue;
+        try {
+          // Fasta id:n per ärende och månad: två samtidiga körningar lägger aldrig två utkast (den andra får UniqueError). Jobben
+          // sprids en minut isär i kön, så att andra jobb (utskick, närvaro) aldrig väntar bakom en rad AI-utkast.
+          await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: c.id, month }, {
+            ids: autoDraftIds(c.id, month), runAfter: addMinutes(now, res.aiQueued.length * AI_QUEUE_SPACING_MINUTES),
+          });
+        } catch (e) {
+          if (e instanceof UniqueError) continue;
+          throw e;
+        }
+        queued = true;
+        res.aiQueued.push(c.id);
+      } finally {
+        if (created || queued) {
+          await ctx.audit({
+            action: "assessment.prefilled", entity: "monthly_assessment", entityId: prefillAssessmentId(c.id, month), contractId: contract.id,
+            details: { caseId: c.id, caseIds: [c.id], month, created: created ? 1 : 0, aiQueued: queued ? 1 : 0, automatic: true },
+          });
+        }
       }
-      if (ma.status === "approved") continue;
-      // AI-utkastet en gång per ärende och månad – bara med samtycke, utan skyddade personuppgifter och när AI är kopplat.
-      const person = persons.find((p) => p.id === c.personId) ?? null;
-      if (aiOff(ctx) || !aiAllowed(c, person) || runs.some((r) => r.caseId === c.id && r.inputRef === month)) continue;
-      await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: c.id, month });
-      queued.push(c.id);
-      res.aiQueued.push(c.id);
-    }
-    if (created.length || queued.length) {
-      await ctx.audit({
-        action: "assessment.prefilled", entity: "contract", entityId: contract.id, contractId: contract.id,
-        details: { month, created: created.length, aiQueued: queued.length, caseIds: [...new Set([...created, ...queued])], automatic: true },
-      });
     }
   }
   return res;
 }
+
+/** Högst så många automatiska AI-utkast läggs per körning av rapportjobbet. */
+export const AI_QUEUE_PER_RUN = 10;
+/** Minuter mellan de automatiska AI-utkasten i kön. */
+export const AI_QUEUE_SPACING_MINUTES = 1;
+/** Det automatiska AI-utkastets fasta id:n (körningen och jobbet) för ärendet och månaden. */
+export const autoDraftIds = (caseId: string, month: MonthKey): { aiRunId: string; jobId: string } => ({
+  aiRunId: `ai-auto-${caseId}-${month}`, jobId: `job-draft_monthly-${caseId}-${month}`,
+});

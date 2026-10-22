@@ -72,9 +72,9 @@ describe("veckodagar, tid och texten", () => {
     expect(seriesScheduleError({ ...ok, endsOn: "2027-01-31" }, "2027-01-01")).toMatch(/Sista dagen/);
     expect(seriesScheduleError({ ...ok, weekdays: [] }, "2027-02-01")).toBe("Välj minst en veckodag.");
   });
-  it("texten: \"tis och tor 10.00\", \"mån, ons och fre 13.30\"", () => {
-    expect(seriesScheduleText([4, 2], "10:00")).toBe("tis och tor 10.00");
-    expect(seriesScheduleText([1, 3, 5], "13:30")).toBe("mån, ons och fre 13.30");
-    expect(seriesScheduleText([5], "09:00")).toBe("fre 09.00");
+  it("texten: \"tisdag och torsdag 10.00\", \"måndag, onsdag och fredag 13.30\"", () => {
+    expect(seriesScheduleText([4, 2], "10:00")).toBe("tisdag och torsdag 10.00");
+    expect(seriesScheduleText([1, 3, 5], "13:30")).toBe("måndag, onsdag och fredag 13.30");
+    expect(seriesScheduleText([5], "09:00")).toBe("fredag 09.00");
   });
 });

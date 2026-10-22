@@ -14,7 +14,7 @@ import { AUTO_OBSERVATION } from "@/core/monthly-prefill";
 import { addMonths, fmtDateShort, fmtDateTime, fmtWeekday, MONTHS, monthName } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useDraft, useUnsavedGuard } from "@/shell/guard";
+import { dropStaleDraft, useDraft, useDraftMemory, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import {
   AiBox, AiTag, AutosaveStatus, Badge, Button, Card, Check, cn, DateInput, Divider, Field, Grid, Icon, Input, Kpi, Kv, Notice, Page, Row, Seg, Select, Split, Stack, Status,
@@ -79,7 +79,8 @@ function NextToAssess({ caseId, month }: { caseId: string; month: string }) {
     );
   }
   return (
-    <Button kind="primary" iconRight="arrow-right" to={`/manadsbedomning/${encodeURIComponent(next.caseId)}?manad=${month}`}>
+    // Texten bryts på smala skärmar (390 px) i stället för att knappen blir bredare än sidan.
+    <Button kind="primary" iconRight="arrow-right" className="max-w-full whitespace-normal text-left" to={`/manadsbedomning/${encodeURIComponent(next.caseId)}?manad=${month}`}>
       Nästa att bedöma: {next.name} ({next.caseNumber})
     </Button>
   );
@@ -131,6 +132,20 @@ function ManadForm({ v }: { v: Ok }) {
     plannedAdaptation: v.plan?.plannedAdaptation ?? "", nextCustomerMeeting: v.plan?.nextCustomerMeeting ?? "",
   });
   const draftKey = `manadsbedomning|${c.caseId}|${month}`;
+  // Utkastminnet är äldre än raden på servern (förifyllnaden uppdaterades när en mötesrapport godkändes eller närvaron rättades,
+  // eller AI-utkastet lades in) och har inga osparade ändringar: minnet glöms innan formuläret läser det, så att serverns värden
+  // och version gäller – annars skulle nästa sparning få "ändrats i en annan flik" fast ingen annan flik finns. Med osparade
+  // ändringar ligger minnet kvar (konflikten visas då). En gång, när formuläret visas (en nyckel per ärende och månad).
+  const memory = useDraftMemory();
+  useState(() =>
+    dropStaleDraft(memory, {
+      fields: [
+        [`${draftKey}|omraden`, initialAreas()], [`${draftKey}|status`, ma0?.overallStatus ?? null], [`${draftKey}|sammanfattning`, ma0?.summary ?? ""],
+        [`${draftKey}|plan`, initialPlan()],
+      ],
+      saved: `${draftKey}|sparat`, version: `${draftKey}|version`, others: [`${draftKey}|sparadtid`], serverVersion: ma0?.version ?? null,
+    }),
+  );
   const areasDraft = useDraft<Record<string, AreaState>>(`${draftKey}|omraden`, initialAreas);
   const overallDraft = useDraft<Rag | null>(`${draftKey}|status`, ma0?.overallStatus ?? null);
   const summaryDraft = useDraft<string>(`${draftKey}|sammanfattning`, ma0?.summary ?? "");
@@ -194,7 +209,9 @@ function ManadForm({ v }: { v: Ok }) {
     const src = v.areas.find((x) => x.key === k);
     if (!src || src.aiLevelSuggestion == null) return null;
     const a = areas[k];
-    const obs = src.aiObservationDraft && !src.aiObservationDraft.noEvidence && (!a.observation.trim() || a.observation === AUTO_OBSERVATION) ? { observation: src.aiObservationDraft.text } : {};
+    const auto = !a.observation.trim() || a.observation === AUTO_OBSERVATION;
+    // AI:s utkast till observation när det finns – annars töms den automatiska texten (den är inget belägg för nivå 1–3).
+    const obs = auto && src.aiObservationDraft && !src.aiObservationDraft.noEvidence ? { observation: src.aiObservationDraft.text } : auto ? { observation: "" } : {};
     return { level: src.aiLevelSuggestion as Level, levelSource: "ai", ...obs };
   };
   const accept = (k: string) => {
@@ -263,13 +280,18 @@ function ManadForm({ v }: { v: Ok }) {
   // Medan det skickas/sparas (kommandot och omhämtningen efteråt) frågar vakten inte: annars varnar sidan för text som just
   // har skickats, innan fältet hunnit tömmas. Utkastet sparas först (trySave) – frågan visas bara om det inte gick.
   useUnsavedGuard(dirty && !save.pending, undefined, { trySave: () => autosave.flush() });
+  /** Börja om: serverns värden och version – utkastminnet glöms. */
   const restartDraft = () => {
-    setAreas(initialAreas());
+    const a = initialAreas();
+    const p = initialPlan();
+    setAreas(a);
     setOverall(ma0?.overallStatus ?? null);
     setSummary(ma0?.summary ?? "");
-    setPlan(initialPlan());
+    setPlan(p);
+    setBaseline(JSON.stringify([a, ma0?.overallStatus ?? null, ma0?.summary ?? "", p]));
     setErrors({});
     forgetDraft();
+    versionRef.current = ma0?.version ?? null;
   };
 
   const doSave = async (approve: boolean) => {
@@ -313,7 +335,9 @@ function ManadForm({ v }: { v: Ok }) {
         setErrors(e);
         toast(`Bedömningen kan inte godkännas: ${plural(missing.length, "område saknar", "områden saknar")} uppgifter${!overall ? " och samlad status saknas" : ""}.`, "error");
         setTimeout(() => {
-          const first = document.querySelector<HTMLElement>('[data-row-alert="true"] select, #cm-overall');
+          // Fokus på det fält som saknas: nivån, eller observationen när nivån är vald.
+          const k = v.areas.map((x) => x.key).find((x) => missing.includes(x));
+          const first = k ? document.getElementById(areas[k]?.level == null ? `lvl-${k}` : `obs-${k}`) : document.getElementById("cm-overall");
           if (!first) return;
           try {
             first.scrollIntoView({ block: "center" });
@@ -483,13 +507,14 @@ function ManadForm({ v }: { v: Ok }) {
         }
       >
         <div className="overflow-x-auto">
-          <table data-testid="progressionsomraden" className="w-full min-w-[860px] table-fixed border-collapse text-body max-[760px]:block max-[760px]:min-w-0">
+          {/* Nivåkolumnen rymmer den längsta nivån ("0 – Ingen / för tidigt att bedöma") utan att texten klipps. */}
+          <table data-testid="progressionsomraden" className="w-full min-w-[920px] table-fixed border-collapse text-body max-[760px]:block max-[760px]:min-w-0">
             <caption className="sr-only">Progressionsområden med nivå, observation och nästa steg</caption>
             <colgroup className="max-[760px]:hidden">
-              <col style={{ width: "20%" }} />
-              <col style={{ width: "22%" }} />
-              <col style={{ width: "37%" }} />
-              <col style={{ width: "21%" }} />
+              <col style={{ width: "15%" }} />
+              <col style={{ width: "34%" }} />
+              <col style={{ width: "32%" }} />
+              <col style={{ width: "19%" }} />
             </colgroup>
             <thead className="max-[760px]:hidden">
               <tr>
@@ -541,7 +566,12 @@ function ManadForm({ v }: { v: Ok }) {
                           value={a.level == null ? "" : String(a.level)}
                           invalid={!!(err && a.level == null)}
                           placeholder="Välj progressionsnivå"
-                          onValueChange={(x) => setArea(k, { level: x === "" ? null : (Number(x) as Level), levelSource: "coach" })}
+                          onValueChange={(x) => {
+                            const level = x === "" ? null : (Number(x) as Level);
+                            // Den automatiska texten är inget belägg: väljer coachen en nivå över 0 töms fältet, så att det syns att
+                            // observationen ska skrivas.
+                            setArea(k, { level, levelSource: "coach", ...(level != null && level >= 1 && a.observation === AUTO_OBSERVATION ? { observation: "" } : {}) });
+                          }}
                           options={([0, 1, 2, 3] as const).map((n) => ({ value: String(n), label: `${n} – ${v.scale[n]}` }))}
                         />
                         {aiLvl != null && ev && (

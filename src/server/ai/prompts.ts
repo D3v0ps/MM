@@ -152,7 +152,7 @@ export function draftInstructions(templateKey: DraftTemplateKey, opts: DraftOpti
     ? [
         "Nivån sätter coachen. Du får bara FÖRESLÅ progressionsnivå 1, 2 eller 3 i levelSuggestion – och bara när ett citat ur en godkänd avstämning eller en anteckning tydligt visar förändringen på den nivån jämfört med föregående månad.",
         ...(scale ? [`Skalan: ${scale}.`] : []),
-        `levelSuggestion.quote: ordagrant citat ur källans fria text – mötesrapportens anteckning eller nästa veckas mål, eller anteckningens text (${LEVEL_QUOTE_MIN}–${LEVEL_QUOTE_MAX} tecken, minst ${LEVEL_QUOTE_MIN_WORDS} ord), utan omskrivning. levelSuggestion.sourceId: källans id i underlaget. Närvarosiffror och kryssrutornas värden (aktiviteter, hinder, typ av arbetsgivarkontakt) räcker inte som belägg för en nivå.`,
+        `levelSuggestion.quote: ordagrant citat ur en iakttagelse – mötesrapportens anteckning eller anteckningens text (${LEVEL_QUOTE_MIN}–${LEVEL_QUOTE_MAX} tecken, minst ${LEVEL_QUOTE_MIN_WORDS} ord), utan omskrivning, och citatet ska handla om just det här området. levelSuggestion.sourceId: källans id i underlaget. Nästa veckas mål är en plan och aldrig belägg. Närvarosiffror och kryssrutornas värden (aktiviteter, hinder, typ av arbetsgivarkontakt) räcker inte heller som belägg för en nivå.`,
         "Finns inget sådant citat: levelSuggestion null. Nivå 0 föreslås aldrig – den är standard. Gissa aldrig och bedöm aldrig motivation eller personlighet.",
       ]
     : ["levelSuggestion: alltid null."];

@@ -192,7 +192,7 @@ describe("draft (simulerad): bara godkända uppgifter, samma texter som testdata
     const input = inputFor(ma.caseId, ma.month);
     const d = (await ai.draft(input, "monthly_area:sjalvstandighet")).value;
     expect(d.sourceIds).toEqual(input.checkIns.map((c) => c.id));
-    expect(d.sources).toEqual(input.checkIns.map((c) => `Avstämning ${c.heldAt.slice(8, 10).replace(/^0/, "")} ${["jan", "feb", "mars", "apr", "maj", "juni", "juli", "aug", "sep", "okt", "nov", "dec"][Number(c.heldAt.slice(5, 7)) - 1]}`));
+    expect(d.sources).toEqual(input.checkIns.map((c) => `Mötesrapport ${c.heldAt.slice(8, 10).replace(/^0/, "")} ${["jan", "feb", "mars", "apr", "maj", "juni", "juli", "aug", "sep", "okt", "nov", "dec"][Number(c.heldAt.slice(5, 7)) - 1]}`));
     const empty = { ...input, checkIns: [], attendance: [] };
     for (const key of ["monthly_summary", "monthly_plan", "monthly_area:narvaro_rutiner", "monthly_area:finns_inte"] as const) {
       const x = simulatedDraft(empty, key);

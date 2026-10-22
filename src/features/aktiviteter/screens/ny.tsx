@@ -107,8 +107,12 @@ function NyAktivitet({ form, query }: { form: NonNullable<ReturnType<typeof useA
       toast(res && !res.ok && res.message ? res.message : "Den återkommande aktiviteten kunde inte skapas.", "error");
       return;
     }
+    // De som målgruppen hoppade över: tillfällets vy visar vilka och kan ersätta deras egna tillfällen.
+    const skipped = res.skipped
+      ? ` ${plural(res.skipped, "deltagare", "deltagare")} i målgruppen har redan ett annat tillfälle vid samma tid och är inte ${res.skipped === 1 ? "inbjuden" : "inbjudna"} – se tillfället.`
+      : "";
     toast(
-      `Den återkommande aktiviteten är skapad. ${res.occurrences ? `${plural(res.occurrences, "tillfälle", "tillfällen")} de närmaste två veckorna med ${plural(res.invited, "inbjudan", "inbjudningar")}.` : "Tillfällena skapas två veckor i förväg."}`,
+      `Den återkommande aktiviteten är skapad. ${res.occurrences ? `${plural(res.occurrences, "tillfälle", "tillfällen")} de närmaste två veckorna med ${plural(res.invited, "inbjudan", "inbjudningar")}.` : "Tillfällena skapas två veckor i förväg."}${skipped}`,
     );
     leaveWithoutAsking(() => nav.push(res.firstId ? `/aktiviteter/${encodeURIComponent(res.firstId)}` : "/aktiviteter"));
   };
