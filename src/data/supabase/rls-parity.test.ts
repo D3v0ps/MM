@@ -2779,6 +2779,62 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
       }
     }
     expect(await asPersona(findPersona("u-amira"), (tx) => attempt(tx, `update public.cases set primary_area_code = 'C' where id = '${LINNEA}'`))).toMatchObject({ ok: false, code: "42501" });
+
+    // Statusen som spärren utgår från går inte runt: först statusen tillbaka, sedan yrkesområdet, sist statusen fram igen – varje
+    // steg en egen sats (som PostgREST), i triggern och i policy.ts. Kommunen ändrar aldrig status; ett bekräftat ärende blir
+    // aldrig en väntande eller avböjd beställning igen.
+    const kommunCase = data.cases.find((c) => c.status === "active" && c.referrerId === "k-maria" && c.contractId === "c-bot")!;
+    const coachCase = data.cases.find((c) => c.status === "active" && c.leadCoachId === "u-amira" && c.id !== LINNEA && c.contractId === "c-bot")!;
+    const sqlOf = (patch: Partial<Case>) => Object.entries(patch).map(([k, v]) => `${snakeCase(k)} = ${v == null ? "null" : `'${String(v)}'`}`).join(", ");
+    /** Stegen i tur och ordning: om varje steg gick igenom, och ärendets status och yrkesområden efteråt – i PG och i minnet. */
+    const stepwise = async (key: string, caseId: string, steps: Partial<Case>[]) => {
+      const pg = await asPersona(findPersona(key), async (tx) => {
+        const ok: boolean[] = [];
+        for (const st of steps) ok.push(allowed(await attempt(tx, `update public.cases set ${sqlOf(st)} where id = '${caseId}'`, [], { keep: true })));
+        const end = (await tx.query<{ s: string; p: string | null; q: string | null }>(`select status as s, primary_area_code as p, secondary_area_code as q from public.cases_public where id = '${caseId}'`)).rows[0];
+        return { ok, end: [end.s, end.p, end.q] };
+      });
+      const st = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+      const repo = new MemoryRepo<Tables>(st, actorOf(findPersona(key)), POLICIES);
+      const ok: boolean[] = [];
+      for (const x of steps) ok.push(await repo.table("cases").update(caseId, x).then(() => true, () => false));
+      const end = st.getRow("cases", caseId)!;
+      return { pg, mem: { ok, end: [end.status, end.primaryAreaCode, end.secondaryAreaCode] } };
+    };
+    const kc = kommunCase;
+    expect(kc).toBeDefined();
+    const kommunSteps = await stepwise("k-maria", kc.id, [{ status: "received" }, { primaryAreaCode: "C", secondaryAreaCode: "D" }, { status: "active" }]);
+    expect(kommunSteps, "k-maria").toEqual({
+      pg: { ok: [false, false, true], end: ["active", kc.primaryAreaCode, kc.secondaryAreaCode] },
+      mem: { ok: [false, false, true], end: ["active", kc.primaryAreaCode, kc.secondaryAreaCode] },
+    });
+    const cc = coachCase;
+    expect(cc).toBeDefined();
+    for (const back of ["acknowledged", "received", "declined"] as const) {
+      const coachSteps = await stepwise("u-amira", cc.id, [{ status: back }, { primaryAreaCode: "C" }, { status: "active" }]);
+      expect(coachSteps, `u-amira ${back}`).toEqual({
+        pg: { ok: [false, false, true], end: ["active", cc.primaryAreaCode, cc.secondaryAreaCode] },
+        mem: { ok: [false, false, true], end: ["active", cc.primaryAreaCode, cc.secondaryAreaCode] },
+      });
+    }
+    // Samma för samordnaren i ett avslutat ärende.
+    const closedCase = data.cases.find((c) => c.status === "closed" && c.contractId === "c-bot" && c.primaryAreaCode)!;
+    const closedSteps = await stepwise("u-sara", closedCase.id, [{ status: "acknowledged" }, { primaryAreaCode: closedCase.primaryAreaCode === "C" ? "D" : "C" }]);
+    expect(closedSteps.pg.ok, "u-sara closed").toEqual([false, false]);
+    expect(closedSteps.mem.ok, "u-sara closed").toEqual([false, false]);
+    // Framåt som förut: Miljonbemanning bekräftar, startar och avslutar, och avböjer en väntande beställning. Kommunen ändrar
+    // inte statusen i sin egen väntande beställning heller.
+    const waitingOwn = data.cases.find((c) => c.status === "acknowledged" && c.referrerId === "k-maria" && c.contractId === "c-bot");
+    const forward: [string, string, Partial<Case>[], boolean[]][] = [
+      ["u-sara", waiting.id, [{ status: "confirmed" }, { status: "active" }, { status: "closed" }], [true, true, true]],
+      ["u-sara", waiting.id, [{ status: "declined" }], [true]],
+      ["u-amira", cc.id, [{ status: "closed" }], [true]],
+      ...(waitingOwn ? [["k-maria", waitingOwn.id, [{ status: "declined" }], [false]] as [string, string, Partial<Case>[], boolean[]]] : []),
+    ];
+    for (const [key, id, steps, want] of forward) {
+      const r = await stepwise(key, id, steps);
+      expect({ pg: r.pg.ok, mem: r.mem.ok }, `${key} ${JSON.stringify(steps)}`).toEqual({ pg: want, mem: want });
+    }
   });
 
   it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det eller av avtalsansvarig", async () => {

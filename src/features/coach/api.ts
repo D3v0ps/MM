@@ -232,9 +232,11 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
 >();
 
 /**
- * Spara eller godkänn kartläggningen (prototypens intake.save). När kartläggningen är godkänd blir valt yrkesspår ärendets
- * yrkesspår – också när det väljs om efteråt (t.ex. efter Byt yrkesområde utan spår, som tömmer valet). Godkännandet
- * kräver att deltagaren har en nivå (level – Karims beslut 2026-10-22; nivån väljs i kortet Nivå och yrkesområde).
+ * Spara eller godkänn kartläggningen (prototypens intake.save). När kartläggningen godkänns blir valt yrkesspår ärendets
+ * yrkesspår – också när det väljs om efteråt i en godkänd kartläggning (t.ex. efter Byt yrkesområde utan spår, som tömmer
+ * valet), men aldrig vid en sparning som inte ändrar valet. Spåret som förs över ska höra till ärendets yrkesområde eller
+ * alternativ (annars "track"). Godkännandet kräver att deltagaren har en nivå (level – Karims beslut 2026-10-22; nivån väljs i
+ * kortet Nivå och yrkesområde).
  */
 export const intakeSave = command("coach.intakeSave", z.object({
   caseId: IdSchema,
@@ -251,7 +253,7 @@ export const intakeSave = command("coach.intakeSave", z.object({
   }).partial().optional(),
   approve: z.boolean().optional(),
   ...AutosaveFields,
-}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, GRUPPER, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict" | "level">>();
+}), { invalidates: [COACH, CASES, "kommun.deltagare", "kommun.deltagareLista", REPORTS, MGMT, GRUPPER, ...LOG] }).returns<Result<{ intakeId: string } & SavedInfo, "not_found" | "forbidden" | "invalid" | "conflict" | "level" | "track">>();
 
 /** Registrera en händelse/ett utfall (prototypens event.add). Arbete påbörjat markeras som möjligt bonusunderlag. */
 export const eventAdd = command("coach.eventAdd", z.object({

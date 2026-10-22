@@ -69,6 +69,12 @@ export function AnteckningarScreen({ query }: ScreenProps) {
             Deltagarna visas när du har valt.
           </Empty>
         </Card>
+      ) : q.isPlaceholderData ? (
+        // Det nya urvalet hämtas: förra urvalets deltagare visas aldrig under det nya – en rad som fylls i nu skulle annars
+        // höra till fel deltagare eller försvinna när svaret kommer.
+        <Card>
+          <Loading />
+        </Card>
       ) : (
         <Rows key={`${contractId}|${urval}|${chosenId}`} draftKey={`anteckningar|${contractId}|${urval}|${chosenId}`} data={q.data} />
       )}

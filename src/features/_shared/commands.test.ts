@@ -613,8 +613,13 @@ describe("coach: kartläggning, händelser, avvikelser", () => {
     expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: false, error: "level" });
     expect(rows("intake_assessments").find((x) => x.caseId === "case-270012")?.status ?? "draft").not.toBe("approved");
     expect(await run(caseLevelSet, { caseId: "case-270012", levelId: "grp-c-bot-niva-2", fromLevelId: null }, amira())).toMatchObject({ ok: true });
-    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: true });
-    expect(row("cases", "case-270012")!.vocationalTrack).toBe("Truckförare A+B");
+    // Spåret hör till yrkesområdet (granskningen, fjärde rundan): Amal har L – ett spår i G förs inte över till ärendet.
+    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: false, error: "track" });
+    expect(rows("intake_assessments").find((x) => x.caseId === "case-270012")?.status ?? "draft").not.toBe("approved");
+    // Ärendet utan spår: godkännandet för över det valda spåret i L.
+    rt.store.updateRow("cases", "case-270012", { vocationalTrack: "" });
+    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Individuellt spår", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270012")!.vocationalTrack).toBe("Individuellt spår");
     const ev = await run(eventAdd, { caseId: "case-260143", kind: "arbete_paborjat", occurredOn: "2027-02-01", actor: "Hallunda Lagerservice AB" }, amira());
     expect(ev).toMatchObject({ ok: true });
     if (ev.ok) expect(row("outcome_events", ev.eventId)).toMatchObject({ possibleBonus: true, verificationPath: null });

@@ -10,7 +10,7 @@ import { AUTOSAVE_INTAKE } from "@/api/invalidation";
 import { fmtDate } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery } from "@/shell/backend";
-import { useDraft, useUnsavedGuard } from "@/shell/guard";
+import { rebaseStaleDraft, useDraft, useDraftMemory, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { AutosaveStatus, Badge, Button, Card, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
 import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
@@ -76,6 +76,14 @@ function IntakeForm({ v }: { v: Ok }) {
   });
   // Utkastminne (bara i minnet): fälten, sparat läge och senaste sparningstid finns kvar om sidan lämnas (2.A).
   const draftKey = `kartlaggning|${c.caseId}`;
+  // Raden på servern är nyare än utkastet i minnet (t.ex. Byt yrkesområde, som tömmer valt yrkesspår, medan coachen var på
+  // deltagarkortet): utkastet lyfts till raden innan formuläret läser det – fält som bara servern ändrat tar serverns värde,
+  // coachens osparade ändringar ligger kvar, och versionen blir serverns. Annars skulle ett gammalt yrkesspår visas som valt och
+  // nästa sparning få "ändrats i en annan flik" fast ingen annan flik finns. En gång, när formuläret visas.
+  const memory = useDraftMemory();
+  useState(() =>
+    rebaseStaleDraft(memory, { key: draftKey, saved: `${draftKey}|sparat`, version: `${draftKey}|version`, server: initialForm(), serverVersion: ia?.version ?? null }),
+  );
   const fDraft = useDraft<F>(draftKey, initialForm);
   const f = fDraft.value;
   const setF = fDraft.set;
@@ -96,7 +104,14 @@ function IntakeForm({ v }: { v: Ok }) {
   const [allTracks, setAllTracks] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savedNow, setSavedNow] = useState<"approved" | "draft" | null>(null);
+  // Utkastet bygger på det sparade läget och versionen: de läggs i minnet med första ändringen (också i en godkänd kartläggning,
+  // som inte sparas automatiskt), så att utkastet kan lyftas till raden på servern om den ändras medan sidan är lämnad.
+  const anchorDraft = () => {
+    if (!memory.peek(`${draftKey}|sparat`).has) baselineDraft.set(baseline);
+    if (!memory.peek(`${draftKey}|version`).has && versionRef.current != null) versionDraft.set(versionRef.current);
+  };
   const set = (k: keyof F, val: string) => {
+    anchorDraft();
     setF((x) => ({ ...x, [k]: val }));
     if (errors[k]) setErrors((e) => {
       const n = { ...e };
@@ -155,6 +170,8 @@ function IntakeForm({ v }: { v: Ok }) {
     await autosave.settle();
     const res = await save.run({ caseId: c.caseId, data: trimmed(f), approve, expectedVersion: versionRef.current ?? undefined }).catch(() => null);
     if (!res || !res.ok) {
+      // Spåret hör inte till deltagarens yrkesområde: felet står vid valet.
+      if (res && !res.ok && res.error === "track" && res.message) setErrors({ chosenTrack: res.message });
       toast(res && !res.ok && res.message ? res.message : "Kartläggningen kunde inte sparas.", "error");
       return;
     }
@@ -261,7 +278,11 @@ function IntakeForm({ v }: { v: Ok }) {
             id="ia-track"
             required={req}
             error={errors.chosenTrack}
-            help={`Spår inom ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""}.`}
+            help={
+              allTracks
+                ? `Spår i alla avtalsområden. Ett spår utanför ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""} kräver att du först byter yrkesområde på deltagarkortet.`
+                : `Spår inom ${v.areaNames.primary}${v.areaNames.secondary ? ` och ${v.areaNames.secondary}` : ""}.`
+            }
           >
             {allTracks ? (
               <Select value={f.chosenTrack} placeholder="Välj yrkesspår" onValueChange={(x) => set("chosenTrack", x)} options={v.tracks.all} />

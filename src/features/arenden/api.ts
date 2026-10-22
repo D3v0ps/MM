@@ -324,7 +324,7 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
       /** Kommande aktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
       groups: { invited: number; removed: number } | null;
     },
-    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr" | "track" | "conflict"
+    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr" | "track" | "conflict" | "unknown"
   >
 >();
 

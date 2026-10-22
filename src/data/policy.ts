@@ -651,12 +651,20 @@ function caseAreaChangeApply(x: CaseAreaChangeRow, _a: Actor, raw: Raw): readonl
 }
 /** Ärenden där yrkesområdet bara byts med Byt yrkesområde (triggern cases_area_guard, 0036). */
 const AREA_LOCKED_STATUSES: readonly Case["status"][] = ["confirmed", "active", "paused", "closed"];
+/** Väntande eller avböjda beställningar – ett bekräftat ärende går aldrig tillbaka hit (triggern cases_area_guard, 0036). */
+const ORDER_PENDING_STATUSES: readonly Case["status"][] = ["received", "acknowledged", "declined"];
 /**
  * Ärendets yrkesområde (triggern cases_area_guard, 0036): i ett bekräftat, pågående, pausat eller avslutat ärende ändras
  * primaryAreaCode aldrig direkt – bara via ett byte (caseAreaChangeApply). Kommunen ändrar aldrig yrkesområdena när
- * beställningen väl tagits emot.
+ * beställningen väl tagits emot. Statusen som spärren utgår från går inte runt: kommunen ändrar aldrig ärendets status, och ett
+ * bekräftat, pågående, pausat eller avslutat ärende blir aldrig en väntande eller avböjd beställning igen (annars kunde
+ * yrkesområdet ändras i tre steg: statusen tillbaka, yrkesområdet, statusen fram igen).
  */
 function caseAreaGuard(cur: Case, next: Case, a: Actor): boolean {
+  if (next.status !== cur.status) {
+    if (isKom(a)) return false;
+    if (AREA_LOCKED_STATUSES.includes(cur.status) && ORDER_PENDING_STATUSES.includes(next.status)) return false;
+  }
   if (next.primaryAreaCode !== cur.primaryAreaCode && AREA_LOCKED_STATUSES.includes(cur.status)) return false;
   if (isKom(a) && cur.status !== "received" && (next.primaryAreaCode !== cur.primaryAreaCode || (next.secondaryAreaCode ?? null) !== (cur.secondaryAreaCode ?? null))) return false;
   return true;

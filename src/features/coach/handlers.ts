@@ -10,6 +10,7 @@ import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
 import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
+import { TRACKS } from "@/data/seed/constants";
 import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDraft, Deviation, IntakeAssessment, MonthlyAssessment, TranscriptLine } from "@/data/schema";
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
@@ -474,15 +475,30 @@ handleCommand(intakeSave, { roles: ["coach"] }, async (ctx, p) => {
     ia.approvedBy = ctx.actor.userId;
     ia.approvedAt = ctx.now();
   }
+  // Det valda yrkesspåret blir ärendets när kartläggningen godkänns, och när coachen väljer om det i en redan godkänd
+  // kartläggning (t.ex. efter Byt yrkesområde utan spår, som tömmer valet och ber kartläggningen välja igen) – aldrig vid en
+  // sparning som inte väljer spåret: ett sparat spår som är äldre än ärendets (ett överhoppat steg i bytet) förs inte över.
+  // Spåret hör till yrkesområdet: bara ett spår i ärendets yrkesområde eller alternativ förs över.
+  const trackChosen = p.approve || (p.data?.chosenTrack !== undefined && p.data.chosenTrack !== (existing?.chosenTrack ?? ""));
+  const copyTrack = ia.status === "approved" && trackChosen && !!ia.chosenTrack && ia.chosenTrack !== c.vocationalTrack;
+  if (copyTrack && !trackInCaseAreas(ia.chosenTrack, c)) return fail("track", TRACK_OUTSIDE_AREA);
   if (existing) {
     if (!(await table.updateIf(ia.id, { version: existing.version }, ia))) return fail("conflict", CONFLICT);
   } else await table.insert(ia);
-  // Det valda yrkesspåret gäller ärendet när kartläggningen är godkänd – också när det väljs om i en redan godkänd kartläggning
-  // (t.ex. efter Byt yrkesområde utan spår, som tömmer valet och ber kartläggningen välja igen).
-  if (ia.status === "approved" && ia.chosenTrack && ia.chosenTrack !== c.vocationalTrack) await ctx.repo.table("cases").update(c.id, { vocationalTrack: ia.chosenTrack });
+  if (copyTrack) {
+    await ctx.repo.table("cases").update(c.id, { vocationalTrack: ia.chosenTrack });
+    await ctx.audit({ action: "case.updated", entity: "case", entityId: c.id, contractId: c.contractId, details: { fields: ["vocationalTrack"], source: "intake", intakeId: ia.id } });
+  }
   await auditSave(ctx, { action: p.approve ? "intake.approved" : "intake.saved", entity: "intake_assessment", entityId: ia.id, contractId: c.contractId, details: { caseId: c.id } }, p);
   return ok({ intakeId: ia.id, savedAt: ctx.now(), version: ia.version });
 });
+
+const TRACK_OUTSIDE_AREA = "Yrkesspåret hör inte till deltagarens yrkesområde. Välj ett spår i deltagarens yrkesområde – eller byt yrkesområde på deltagarkortet först.";
+/** Spåret är ett av yrkesspåren i ärendets yrkesområde eller alternativa yrkesområde (ett ärende utan yrkesområde: alla). */
+function trackInCaseAreas(track: string, c: Pick<Case, "primaryAreaCode" | "secondaryAreaCode">): boolean {
+  if (!c.primaryAreaCode) return true;
+  return [c.primaryAreaCode, c.secondaryAreaCode].some((code) => !!code && (TRACKS[code as keyof typeof TRACKS] ?? []).includes(track));
+}
 
 // ---------------------------------------------------------------- event.add
 handleCommand(eventAdd, { roles: ["coach"] }, async (ctx, p) => {

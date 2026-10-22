@@ -14,8 +14,11 @@
 //               yrkesområdet och följer aldrig med – det sparas på bytet (fromTrack) för rapporterna före bytet.
 //   Samtidigt:  två byten i samma ärende samtidigt – det andra får conflict (den unika nyckeln case_id + seq, och triggern som
 //               kräver att bytet utgår från ärendets nuvarande yrkesområde). Kan bytet inte skrivas döljs anteckningen igen.
-//   Svaret      kom inte fram (nätverksfel, tidsgräns) efter att bytet skrevs: bytet läses om (ctx.repo) – finns det har ärendet
-//   saknas:     bytt, och loggen och grupperna görs som vanligt.
+//   Svaret      kom inte fram (nätverksfel, tidsgräns) efter att bytet skrevs: bytet läses om (ctx.repo, några försök) – finns
+//   saknas:     det har ärendet bytt, och loggen och grupperna görs som vanligt. Går det inte att läsa om svarar hanteraren
+//               "unknown" (försök igen) i stället för ett allmänt fel. Samma byte igen (eget, nyligen, samma nya yrkesområde och
+//               spår, utan case.area_changed i loggen) gör klart kartläggningen, loggen och grupperna och svarar ok – aldrig
+//               "inget har sparats" för ett byte som sparades.
 //   Logg:       case.area_changed med id:n och koder – aldrig motiveringen (CLAUDE.md punkt 2).
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
@@ -24,11 +27,12 @@ import {
   AREA_CHANGE_STATUSES, AREA_CHANGERS, areaChangeNoteBody, areaChangeProblem, effectiveMonthOf, inOrder, motivationOf, nextAreaChangeSeq,
 } from "@/core/area-changes";
 import { areaName, personName } from "@/core/labels";
-import { dayOf } from "@/core/time";
+import { dayOf, diffMinutes } from "@/core/time";
+import type { Ctx } from "@/api/server";
 import { PolicyError, UniqueError } from "@/data/repo";
-import type { CaseAreaChange, CaseNote } from "@/data/schema";
+import type { Case, CaseAreaChange, CaseNote } from "@/data/schema";
 import { TRACKS } from "@/data/seed/constants";
-import { afterCaseAreaChanged } from "../_shared/case-area-hooks";
+import { afterCaseAreaChanged, type CaseAreaFollowUp } from "../_shared/case-area-hooks";
 import { caseAreaView, caseChangeArea, type CaseAreaView } from "./api";
 
 const NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
@@ -83,6 +87,9 @@ handleQuery(caseAreaView, { roles: AREA_VIEWERS }, async (ctx, p): Promise<CaseA
 });
 
 const CONFLICT = "Yrkesområdet har ändrats under tiden, kanske av en kollega. Ladda om sidan och försök igen – inget har sparats.";
+const UNKNOWN = "Det gick inte att se om bytet sparades. Försök igen – har bytet redan sparats görs det klart, annars sparas det nu.";
+/** Ett eget byte som inte blev klart görs klart av samma byte igen inom den här tiden (minuter). */
+const FINISH_WITHIN_MINUTES = 60;
 const code = (e: unknown): string => String((e as { code?: unknown } | null)?.code ?? "");
 /** Ett byte som inte kunde skrivas: någon annan hann byta (nästa nummer tog slut, kedjan bröts) eller behörigheten nekade. */
 const lostRace = (e: unknown): boolean => e instanceof UniqueError || e instanceof PolicyError || ["23505", "23514", "42501"].includes(code(e));
@@ -93,11 +100,15 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
   // Full åtkomst: personen läses via behörigheten (vilande spärr: bara namngivna ser personen i ett skyddat ärende).
   const person = await ctx.repo.table("persons").get(c.personId);
   if (!person) return fail("forbidden", "Du kan inte byta yrkesområde i det här ärendet.");
+  const toArea = p.toArea.trim();
+  const track = (p.vocationalTrack ?? "").trim();
+  // Samma byte igen efter "unknown": bytet sparades men blev aldrig klart (svaret kom inte fram och det gick inte att läsa om).
+  // Kartläggningen, loggen och grupperna görs nu, och svaret är ok.
+  const unfinished = await unfinishedOwnChange(ctx, c, { toArea, track, fromArea: p.fromArea });
+  if (unfinished) return ok({ changeId: unfinished.id, noteId: unfinished.noteId, effectiveMonth: unfinished.effectiveMonth, groups: await finishChange(ctx, c, unfinished) });
   // Dialogen visade ett annat yrkesområde än ärendet har nu: någon annan har bytt under tiden.
   if (p.fromArea && p.fromArea !== c.primaryAreaCode) return fail("conflict", CONFLICT);
   const areas = await ctx.repo.table("contract_areas").list({ contractId: c.contractId });
-  const toArea = p.toArea.trim();
-  const track = (p.vocationalTrack ?? "").trim();
   const problem = areaChangeProblem(c, areas, toArea, p.motivation, track, TRACKS[toArea as keyof typeof TRACKS] ?? []);
   if (problem) return fail(problem.code, problem.text);
   const fromArea = c.primaryAreaCode as string;
@@ -132,31 +143,80 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
       await hideNote();
       return fail("conflict", CONFLICT);
     }
-    // Svaret kom inte fram: bytet och ärendet skrivs tillsammans, så finns raden har ärendet bytt.
-    const saved = await ctx.repo.table("case_area_changes").get(change.id).catch(() => null);
+    // Svaret kom inte fram: bytet och ärendet skrivs tillsammans, så finns raden har ärendet bytt. Läses om några gånger – ett
+    // nätverksfel brukar träffa också den första omläsningen.
+    const saved = await readBack(ctx, change.id);
+    if (saved === "unknown") {
+      // Vet inte om bytet skrevs: anteckningen döljs om det går (är bytet skrivet är den låst och står kvar som motivering).
+      // Samma byte igen gör klart eller sparar det (unfinishedOwnChange).
+      await hideNote().catch(() => undefined);
+      return fail("unknown", UNKNOWN);
+    }
     if (!saved) {
-      // Bytet skrevs inte. Anteckningen döljs (går inte det – t.ex. för att bytet ändå skrevs och anteckningen är låst – står
-      // den kvar som en vanlig anteckning).
+      // Bytet skrevs inte. Anteckningen döljs (går inte det står den kvar som en vanlig anteckning).
       await hideNote().catch(() => undefined);
       throw e;
     }
   }
+  const groups = await finishChange(ctx, c, change);
+  return ok({ changeId: change.id, noteId, effectiveMonth, groups });
+});
+
+/** Bytet läst om efter ett tappat svar: raden, null (finns inte) eller "unknown" (gick inte att läsa – tre försök). */
+async function readBack(ctx: Ctx, id: string): Promise<CaseAreaChange | null | "unknown"> {
+  for (let i = 0; i < 3; i++) {
+    try {
+      return await ctx.repo.table("case_area_changes").get(id);
+    } catch {
+      // Försök igen.
+    }
+  }
+  return "unknown";
+}
+
+/**
+ * Ärendets senaste byte när det är ett eget byte som sparades men aldrig blev klart: samma nya yrkesområde och spår (och samma
+ * gamla yrkesområde som dialogen visade), högst FINISH_WITHIN_MINUTES gammalt, ärendet har fortfarande bytets yrkesområde och
+ * revisionsloggen saknar case.area_changed för bytet. Annars null.
+ */
+async function unfinishedOwnChange(ctx: Ctx, c: Case, p: { toArea: string; track: string; fromArea?: string }): Promise<CaseAreaChange | null> {
+  if (c.primaryAreaCode !== p.toArea) return null;
+  const last = inOrder(await ctx.repo.table("case_area_changes").list({ caseId: c.id })).at(-1);
+  if (!last || last.changedBy !== ctx.actor.userId || last.toArea !== p.toArea || last.toTrack !== p.track || (p.fromArea && p.fromArea !== last.fromArea)) return null;
+  const age = diffMinutes(last.changedAt, ctx.now());
+  if (age < 0 || age > FINISH_WITHIN_MINUTES) return null;
+  // Revisionsloggen läses av servern (bara om raden finns – samma uppslag som autosparningens logg i coach-hanterarna).
+  const logged = await ctx.system.table("audit_log").list({ entity: "case", entityId: c.id, action: "case.area_changed" });
+  return logged.some((l) => l.details?.changeId === last.id) ? null : last;
+}
+
+/**
+ * Stegen efter bytet (bytet och ärendet är redan skrivna): kartläggningens valda yrkesspår, revisionsloggen och grupperna. c är
+ * ärendet som det var när hanteraren läste det (före bytet, eller efter ett byte som görs klart).
+ */
+async function finishChange(ctx: Ctx, c: Case, change: CaseAreaChange): Promise<CaseAreaFollowUp> {
   // 3. Kartläggningens valda yrkesspår följer ärendets: det gamla hör till det gamla yrkesområdet. Utan valt spår frågar
   //    kartläggningen igen, och spåret som väljs där förs över till ärendet (coach.intakeSave).
   //    Bytet är redan gjort: går det inte (t.ex. en samtidig ändring i kartläggningen) står det gamla spåret kvar där tills
-  //    coachen väljer ett nytt.
+  //    coachen väljer ett nytt – det förs aldrig över till ärendet av en sparning som inte väljer spåret (coach.intakeSave).
+  //    Ett byte som görs klart i efterhand rör bara kartläggningen om ärendets spår fortfarande är bytets.
   try {
-    const ia = await ctx.repo.table("intake_assessments").first({ caseId: c.id });
-    if (ia && ia.chosenTrack !== track) await ctx.repo.table("intake_assessments").updateIf(ia.id, { version: ia.version }, { chosenTrack: track, version: ia.version + 1 });
+    const cur = c.primaryAreaCode === change.toArea ? c : null;
+    if (!cur || cur.vocationalTrack === change.toTrack) {
+      const ia = await ctx.repo.table("intake_assessments").first({ caseId: c.id });
+      if (ia && ia.chosenTrack !== change.toTrack) await ctx.repo.table("intake_assessments").updateIf(ia.id, { version: ia.version }, { chosenTrack: change.toTrack, version: ia.version + 1 });
+    }
   } catch {
     // Inget att göra – se ovan.
   }
   // 4. Revisionsloggen: id:n och koder – aldrig motiveringen.
   await ctx.audit({
     action: "case.area_changed", entity: "case", entityId: c.id, contractId: c.contractId,
-    details: { caseId: c.id, fromArea, toArea, effectiveMonth, changeId: change.id, noteId, seq, ...(track !== c.vocationalTrack ? { trackChanged: true } : {}) },
+    details: {
+      caseId: c.id, fromArea: change.fromArea, toArea: change.toArea, effectiveMonth: change.effectiveMonth, changeId: change.id, noteId: change.noteId, seq: change.seq,
+      ...(change.toTrack !== change.fromTrack ? { trackChanged: true } : {}),
+    },
   });
   // 5. Grupp och inbjudningar: det nya yrkesområdets kommande aktiviteter med målgrupp (src/features/_shared/case-area-hooks.ts).
-  const groups = await afterCaseAreaChanged(ctx, c.id);
-  return ok({ changeId: change.id, noteId, effectiveMonth, groups });
-});
+  return afterCaseAreaChanged(ctx, c.id);
+}

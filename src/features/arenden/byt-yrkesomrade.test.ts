@@ -16,7 +16,8 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
-import { assessmentPage, assessmentSave, intakeSave } from "@/features/coach/api";
+import { assessmentPage, assessmentSave, intakePage, intakeSave } from "@/features/coach/api";
+import { rebaseStaleDraft } from "@/shell/guard";
 import { ekoCase } from "@/features/ekonomi/api";
 import { monthlyPreview, reportModel, type ReportDb, type ReportEnv, type SummaryModel } from "@/features/rapporter/model";
 import { newReport } from "@/features/_shared/rows";
@@ -428,5 +429,163 @@ describe("Byt yrkesområde: granskningen, andra rundan", () => {
     }), env) as { basics: [string, string][] };
     expect(Object.fromEntries(final("2027-02-20").basics)).toMatchObject({ Avtalsområde: "G Lager och logistik", Yrkesspår: "Truckförare A+B" });
     expect(Object.fromEntries(final("2027-03-20").basics)).toMatchObject({ Avtalsområde: "C Bygg och anläggning", Yrkesspår: "Framgår inte" });
+  });
+});
+
+describe("Byt yrkesområde: granskningen, fjärde rundan", () => {
+  const proto = MemoryRepo.prototype as unknown as { table: (name: string) => Record<string, unknown> };
+  const intakeOf = (caseId: string) => rt.raw().all("intake_assessments").find((x) => x.caseId === caseId)!;
+  const save = (input: ParamsOf<typeof intakeSave>) => rt.run("command", intakeSave.key, input, amira()) as Promise<ResultOf<typeof intakeSave>>;
+
+  it("kartläggningen för bara över ett spår som coachen väljer: ett gammalt spår i ett återställt utkast eller i kartläggningen följer aldrig med till ärendet", async () => {
+    const ia0 = intakeOf(NADIA);
+    expect(ia0).toMatchObject({ status: "approved", chosenTrack: "Truckförare A+B" });
+    // Formuläret som coachen lämnade osparat (utkastminnet): hela kartläggningen med G-spåret som visades.
+    const form = {
+      workExperience: ia0.workExperience, education: ia0.education, languageNotes: ia0.languageNotes, digitalSkills: ia0.digitalSkills, drivingLicence: ia0.drivingLicence,
+      workGoals: ia0.workGoals, chosenTrack: ia0.chosenTrack, adaptations: "Behöver instruktioner i skrift", firstWeekGoal: ia0.firstWeekGoal,
+    };
+    expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    expect(intakeOf(NADIA).chosenTrack).toBe("");
+    // a) Det återställda utkastet med G-spåret: spåret hör inte till C – nekas, inget skrivs.
+    const v1 = intakeOf(NADIA).version;
+    expect(await save({ caseId: NADIA, data: form, expectedVersion: v1 })).toMatchObject({ ok: false, error: "track" });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("");
+    expect(intakeOf(NADIA)).toMatchObject({ version: v1, chosenTrack: "" });
+    // b) Steg 3 i bytet hoppades över (kartläggningen har kvar G-spåret): en sparning som inte väljer spåret för inte över det –
+    //    varken bara ett annat fält eller hela formuläret med samma spår som det sparade.
+    rt.store.updateRow("intake_assessments", ia0.id, { chosenTrack: "Truckförare A+B" });
+    expect(await save({ caseId: NADIA, data: { adaptations: "Behöver instruktioner i skrift" }, expectedVersion: intakeOf(NADIA).version })).toMatchObject({ ok: true });
+    expect(await save({ caseId: NADIA, data: { ...form, adaptations: "Behöver korta arbetspass" }, expectedVersion: intakeOf(NADIA).version })).toMatchObject({ ok: true });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("");
+    // Att godkänna igen med G-spåret: nekas.
+    expect(await save({ caseId: NADIA, data: {}, approve: true, expectedVersion: intakeOf(NADIA).version })).toMatchObject({ ok: false, error: "track" });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("");
+    // c) Coachen väljer ett spår i C: förs över, och revisionsloggen har ändringen av ärendet (bara fältets namn).
+    expect(await save({ caseId: NADIA, data: { chosenTrack: "Bygg – grund och arbetsmiljö" }, expectedVersion: intakeOf(NADIA).version })).toMatchObject({ ok: true });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("Bygg – grund och arbetsmiljö");
+    const logged = rt.raw().all("audit_log").filter((l) => l.action === "case.updated" && l.entityId === NADIA);
+    expect(logged).toHaveLength(1);
+    expect(logged[0].details).toMatchObject({ fields: ["vocationalTrack"], source: "intake" });
+  });
+
+  it("bytet sparades men svaret kom inte fram och det gick inte att läsa om: unknown – samma byte igen gör klart loggen, kartläggningen och grupperna", async () => {
+    const origTable = proto.table;
+    let lost = true;
+    let failedReads = 0;
+    proto.table = function (this: unknown, name: string) {
+      const t = origTable.call(this, name);
+      if (name !== "case_area_changes") return t;
+      const insert = t.insert as (row: unknown) => Promise<unknown>;
+      const get = t.get as (id: string) => Promise<unknown>;
+      return {
+        ...t,
+        insert: async (row: unknown) => { await insert(row); if (lost) { lost = false; throw new Error("fetch failed"); } return row; },
+        get: async (id: string) => { if (failedReads < 3) { failedReads++; throw new Error("fetch failed"); } return get(id); },
+      };
+    };
+    let first: ResultOf<typeof caseChangeArea>;
+    try {
+      first = await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira());
+    } finally {
+      proto.table = origTable;
+    }
+    expect(first).toMatchObject({ ok: false, error: "unknown" });
+    expect(failedReads).toBe(3);
+    // Bytet är sparat (ärendet har bytt), men loggen, kartläggningen och grupperna är inte gjorda.
+    const raw = rt.raw();
+    const saved = raw.all("case_area_changes").filter((x) => x.caseId === NADIA);
+    expect(saved).toHaveLength(1);
+    expect(raw.get("cases", NADIA)).toMatchObject({ primaryAreaCode: "C", vocationalTrack: "" });
+    expect(raw.all("audit_log").filter((l) => l.action === "case.area_changed")).toHaveLength(0);
+    expect(intakeOf(NADIA).chosenTrack).toBe("Truckförare A+B");
+    // Motiveringen är låst och står kvar.
+    expect(raw.get("case_notes", saved[0].noteId)?.removedAt).toBeNull();
+    // Samma byte igen från dialogen som fortfarande är öppen: görs klart – inget "inget har sparats".
+    const again = await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira());
+    expect(again).toMatchObject({ ok: true, changeId: saved[0].id, noteId: saved[0].noteId, effectiveMonth: "2027-03", groups: { invited: expect.any(Number), removed: expect.any(Number) } });
+    expect(rt.raw().all("case_area_changes").filter((x) => x.caseId === NADIA)).toHaveLength(1);
+    const log = rt.raw().all("audit_log").filter((l) => l.action === "case.area_changed");
+    expect(log).toHaveLength(1);
+    expect(log[0].details).toMatchObject({ changeId: saved[0].id, fromArea: "G", toArea: "C", seq: 1, trackChanged: true });
+    expect(intakeOf(NADIA).chosenTrack).toBe("");
+    // En tredje gång är bytet redan klart: conflict som förut (dialogen visade G).
+    expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira())).toMatchObject({ ok: false, error: "conflict" });
+    expect(rt.raw().all("audit_log").filter((l) => l.action === "case.area_changed")).toHaveLength(1);
+  });
+
+  it("omläsningen misslyckas en gång men lyckas sedan: bytet görs klart direkt", async () => {
+    const origTable = proto.table;
+    let lost = true;
+    let failedReads = 0;
+    proto.table = function (this: unknown, name: string) {
+      const t = origTable.call(this, name);
+      if (name !== "case_area_changes") return t;
+      const insert = t.insert as (row: unknown) => Promise<unknown>;
+      const get = t.get as (id: string) => Promise<unknown>;
+      return {
+        ...t,
+        insert: async (row: unknown) => { await insert(row); if (lost) { lost = false; throw new Error("fetch failed"); } return row; },
+        get: async (id: string) => { if (failedReads < 1) { failedReads++; throw new Error("fetch failed"); } return get(id); },
+      };
+    };
+    try {
+      expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira())).toMatchObject({ ok: true });
+    } finally {
+      proto.table = origTable;
+    }
+    expect(rt.raw().all("audit_log").filter((l) => l.action === "case.area_changed")).toHaveLength(1);
+    expect(intakeOf(NADIA).chosenTrack).toBe("");
+  });
+
+  it("ett byte som en kollega gjorde och som saknar loggen görs inte klart av mig: conflict", async () => {
+    expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, erik())).toMatchObject({ ok: true });
+    // Loggen saknas (som efter ett dubbelfel hos Erik).
+    for (const l of rt.raw().all("audit_log").filter((x) => x.action === "case.area_changed")) rt.store.removeRow("audit_log", l.id);
+    const res = await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira());
+    expect(res).toMatchObject({ ok: false, error: "conflict" });
+  });
+
+  it("kartläggningen i utkast med ett utkast i minnet: efter Byt yrkesområde lyfts utkastet till raden – ingen falsk konflikt, spåret är tomt och coachens osparade text ligger kvar", async () => {
+    const AMAL = "case-270012";
+    const ia0 = intakeOf(AMAL);
+    expect(ia0).toMatchObject({ status: "draft", chosenTrack: "" });
+    const key = `kartlaggning|${AMAL}`;
+    type F = Record<"workExperience" | "education" | "languageNotes" | "digitalSkills" | "drivingLicence" | "workGoals" | "chosenTrack" | "adaptations" | "firstWeekGoal", string>;
+    const formOf = async (): Promise<{ f: F; version: number }> => {
+      const v = await q(intakePage, { caseId: AMAL }, amira());
+      if (v.kind !== "ok" || !v.intake) throw new Error("gate");
+      const i = v.intake;
+      return {
+        f: { workExperience: i.workExperience, education: i.education, languageNotes: i.languageNotes, digitalSkills: i.digitalSkills, drivingLicence: i.drivingLicence, workGoals: i.workGoals, chosenTrack: i.chosenTrack, adaptations: i.adaptations, firstWeekGoal: i.firstWeekGoal },
+        version: i.version,
+      };
+    };
+    // Utkastminnet som formuläret har det (useDraft): fälten, det sparade läget och versionen.
+    const m = new Map<string, unknown>();
+    const memory = { peek: (k: string) => ({ has: m.has(k), value: m.get(k) }), put: (k: string, value: unknown) => void m.set(k, value) };
+    // 1. Coachen väljer spår och yrkesmål – autosparat (version i minnet).
+    const start = await formOf();
+    const typed: F = { ...start.f, workGoals: "Arbeta inom lager", chosenTrack: "Individuellt spår" };
+    const auto = await save({ caseId: AMAL, data: typed, autosave: true, editSession: "esr4amal0001", expectedVersion: start.version });
+    if (!auto.ok) throw new Error(auto.message);
+    m.set(key, typed).set(`${key}|sparat`, JSON.stringify(typed)).set(`${key}|version`, auto.version);
+    // 2. Sedan skriver coachen mer (inte sparat än) och går till deltagarkortet och byter yrkesområde utan spår.
+    m.set(key, { ...typed, adaptations: "Behöver skriftliga instruktioner" });
+    expect(await change({ caseId: AMAL, toArea: "G", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    // Utan lyftet: versionen i minnet är äldre – nästa autosparning skulle få "ändrats i en annan flik".
+    expect(await save({ caseId: AMAL, data: m.get(key) as F, autosave: true, editSession: "esr4amal0001", expectedVersion: auto.version })).toMatchObject({ ok: false, error: "conflict" });
+    // 3. Tillbaka i kartläggningen: utkastet lyfts till raden (rebaseStaleDraft – samma anrop som formuläret gör).
+    const server = await formOf();
+    expect(server.f.chosenTrack).toBe("");
+    expect(rebaseStaleDraft(memory, { key, saved: `${key}|sparat`, version: `${key}|version`, server: server.f, serverVersion: server.version })).toBe("rebased");
+    expect(m.get(key)).toEqual({ ...server.f, adaptations: "Behöver skriftliga instruktioner" });
+    expect(m.get(`${key}|version`)).toBe(server.version);
+    expect(m.get(`${key}|sparat`)).toBe(JSON.stringify(server.f));
+    // Nästa autosparning går igenom med coachens text, och det gamla spåret följer inte med.
+    const next = await save({ caseId: AMAL, data: m.get(key) as F, autosave: true, editSession: "esr4amal0001", expectedVersion: server.version });
+    expect(next).toMatchObject({ ok: true });
+    expect(intakeOf(AMAL)).toMatchObject({ chosenTrack: "", adaptations: "Behöver skriftliga instruktioner", workGoals: "Arbeta inom lager" });
+    expect(rt.raw().get("cases", AMAL)).toMatchObject({ primaryAreaCode: "G", vocationalTrack: "" });
   });
 });

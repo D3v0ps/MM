@@ -34,7 +34,9 @@
 --      * ärendets yrkesområde (triggern cases_area_guard på public.cases): i ett bekräftat, pågående, pausat eller avslutat
 --        ärende ändrar ingen inloggad cases.primary_area_code direkt – bara Byt yrkesområde (raden här). Kommunen ändrar
 --        aldrig yrkesområdena (primary_area_code, secondary_area_code) när beställningen väl tagits emot (status annan än
---        received). Hanteraren skickar bara raden här (en begäran) – den läser eller villkorar aldrig på ärendets kolumner.
+--        received). Statusen som spärren utgår från går inte runt (samma trigger): kommunen ändrar aldrig ärendets status, och
+--        ett bekräftat, pågående, pausat eller avslutat ärende blir aldrig received, acknowledged eller declined igen.
+--        Hanteraren skickar bara raden här (en begäran) – den läser eller villkorar aldrig på ärendets kolumner.
 -- 2. monthly_assessments.prefill: vad som fylldes i automatiskt och ännu inte ändrats av coachen ("Ifyllt automatiskt –
 --    kontrollera"). jsonb med bara id:n, dagar och källornas typ – aldrig text. Standard '{}' (inget förifyllt) – befintliga
 --    rader påverkas inte. Nivåns ursprung per område (levelSource auto/coach/ai) och AI-förslagets belägg ligger i areas (jsonb)
@@ -227,16 +229,28 @@ drop trigger if exists case_area_changes_apply on public.case_area_changes;
 create trigger case_area_changes_apply after insert on public.case_area_changes
 for each row execute function mm.after_case_area_change();
 
--- Ärendets yrkesområde byts bara med Byt yrkesområde (policy.ts caseWrite): i ett bekräftat, pågående, pausat eller avslutat
--- ärende ändrar ingen inloggad primary_area_code direkt (bytet ändrar ärendet via mm.apply_case_area_change – security
--- definer, som den här triggern släpper igenom). Kommunen ändrar aldrig yrkesområdena när beställningen väl tagits emot.
--- Accepten (received/acknowledged → confirmed) och avropsinkorgen (received/acknowledged) väljer yrkesområdet som förut.
+-- Ärendets yrkesområde byts bara med Byt yrkesområde (policy.ts caseWrite, caseAreaGuard): i ett bekräftat, pågående, pausat
+-- eller avslutat ärende ändrar ingen inloggad primary_area_code direkt (bytet ändrar ärendet via mm.apply_case_area_change –
+-- security definer, som den här triggern släpper igenom). Kommunen ändrar aldrig yrkesområdena när beställningen väl tagits
+-- emot. Accepten (received/acknowledged → confirmed) och avropsinkorgen (received/acknowledged) väljer yrkesområdet som förut.
+-- Statusen, som spärren utgår från, går inte runt: kommunen ändrar aldrig ärendets status (inget av kommunens flöden gör det –
+-- beställningen skapas med status), och ett bekräftat, pågående, pausat eller avslutat ärende blir aldrig en väntande eller
+-- avböjd beställning igen (accepten, starten och avslutet går bara framåt). Annars kunde den inloggade först flytta tillbaka
+-- statusen, sedan ändra yrkesområdet och sist återställa statusen – en påhittad historik för fakturan och rapporterna.
 create or replace function mm.guard_case_area() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 begin
   if current_user not in ('authenticated', 'anon') then
     return new;
+  end if;
+  if new.status is distinct from old.status then
+    if mm.current_role() = 'kommun_handlaggare' then
+      raise exception 'Ärendets status ändras av Miljonbemanning' using errcode = '42501';
+    end if;
+    if old.status in ('confirmed', 'active', 'paused', 'closed') and new.status in ('received', 'acknowledged', 'declined') then
+      raise exception 'Ett bekräftat ärende blir aldrig en väntande eller avböjd beställning igen' using errcode = '42501';
+    end if;
   end if;
   if new.primary_area_code is distinct from old.primary_area_code and old.status in ('confirmed', 'active', 'paused', 'closed') then
     raise exception 'Yrkesområdet byts med Byt yrkesområde på deltagarkortet' using errcode = '42501';
@@ -249,7 +263,7 @@ begin
 end
 $$;
 drop trigger if exists cases_area_guard on public.cases;
-create trigger cases_area_guard before update of primary_area_code, secondary_area_code on public.cases
+create trigger cases_area_guard before update of primary_area_code, secondary_area_code, status on public.cases
 for each row execute function mm.guard_case_area();
 
 -- Motiveringen är låst (policy.ts caseNoteWrite): en anteckning som ett byte pekar på (note_id) ändras och tas aldrig bort av
