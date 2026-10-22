@@ -19,9 +19,10 @@ import { SEED_TABLE_ORDER } from "./seed-rows";
 
 const data = seedData();
 const MIGRATION = "0023_faktura_per_manad.sql";
-/** Fakturatabellerna läses inte in från testdatat – de gamla raderna läggs in nedan. Bilagorna (0024) och grupperna (0031) finns inte än. */
+/** Fakturatabellerna läses inte in från testdatat – de gamla raderna läggs in nedan. Bilagorna (0024), grupperna (0031) och bytena av yrkesområde (0036) finns inte än. */
 const SKIP = new Set<TableName>([
   "billing_runs", "invoice_drafts", "invoice_lines", "invoice_credits", "fortnox_runs", "billing_week_approvals", "case_attachments", "groupings", "grouping_members",
+  "case_area_changes",
 ]);
 
 let db: PGlite;

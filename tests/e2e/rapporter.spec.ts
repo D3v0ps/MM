@@ -78,7 +78,7 @@ async function commands(page: Page, info: TestInfo, cmds: Cmd[]) {
 const AREAS = ["narvaro_rutiner", "yrkesfardigheter", "arbetskapacitet", "sjalvstandighet", "digital_sjalvstandighet", "instruktioner", "arbetsgivarkontakter", "beredskap", "sprak_kommunikation", "ovrigt"];
 const approveAssessment: Cmd = {
   key: "coach.assessmentSave",
-  input: { caseId: NADIA, month: "2027-01", areas: Object.fromEntries(AREAS.map((k) => [k, { level: 1, observation: "Följer instruktionen utan stöd.", nextStep: "Fortsätta öva." }])), summary: "Deltagaren följer planen.", overallStatus: "green", approve: true },
+  input: { caseId: NADIA, month: "2027-01", areas: Object.fromEntries(AREAS.map((k) => [k, { level: 1, observation: "Följer instruktionen utan stöd.", nextStep: "Fortsätta öva." }])), summary: "Deltagaren följer planen.", overallStatus: "green", approve: true, reviewed: true },
   as: COACH,
 };
 /** Steg 2 som kommandon: månadsbedömningen godkänns, rapporten godkänns, levereras och fryses. */

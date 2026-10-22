@@ -330,9 +330,15 @@ export type CaseBillingView = {
   caseNumber: string;
   /** Visningsnamn: alltid "–" för ekonomen (inga namn). */
   name: string;
+  /** Yrkesområdet som priset gäller (månaden för startdatumet – ett byte gäller från månaden efter bytet). */
   areaName: string;
   articleNo: string;
   priceOre: number;
+  /**
+   * Byten av yrkesområde (Karims beslut 2026-10-22), äldst först: koder, från vilken månad fakturan räknas på det nya
+   * yrkesområdet och när bytet gjordes. Motiveringen är en anteckning i deltagarkortet – ekonomen ser den inte.
+   */
+  areaChanges: { fromArea: string; toArea: string; effectiveMonth: MonthKey; changedAt: LocalDateTime }[];
   status: CaseStatus;
   startDate: LocalDate | null;
   endDate: LocalDate | null;

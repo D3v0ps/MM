@@ -48,6 +48,14 @@ Kontroll efteråt (som inloggad eller i SQL Editor): `select source from public.
 
 Kontroll efteråt: `select goal, goal_version from public.group_activities limit 1;` fungerar, `select count(*) from public.group_goal_results;` svarar 0 och `select indexname from pg_indexes where indexname = 'group_goal_results_activity_case_key';` ger en rad.
 
+### Migration 0036 (byt yrkesområde och automatisk månadsbedömning) – körs FÖRE koden från spår B
+
+`supabase/migrations/0036_byt_yrkesomrade.sql` i *SQL Editor* (hela filen – den tål att köras igen): tabellen `case_area_changes` (byten av yrkesområde med månaden fakturan räknas från, motiveringen som anteckning i `case_notes`) med RLS (läses av Miljonbemanning i avtalet också ekonomen, skapas av coach, samordnare och avtalsansvarig, ändras och raderas aldrig) och triggern `case_area_changes_check`, och kolumnen `monthly_assessments.prefill` (jsonb, standard `{}`). Inga befintliga rader ändras.
+
+**Driftordning:** 0036 ska vara applicerad **innan** koden från spår B driftsätts. Fakturaunderlaget, flaggorna och ledningsvyn läser `case_area_changes`, och månadsbedömningen skriver `prefill` – utan tabellen och kolumnen slutar de att fungera.
+
+Kontroll efteråt: `select count(*) from public.case_area_changes;` svarar 0 och `select prefill from public.monthly_assessments limit 1;` ger `{}`.
+
 ### Så läggs kollegor till (ingen SQL)
 
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
@@ -94,6 +102,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
 | Migration 0030 (coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppaktiviteter och automatisk närvaro. Appliceras i SQL Editor **före** koden från spår A (se "Migration 0030" ovan) – koden skriver de nya kolumnerna vid varje närvaroregistrering och varje nytt tillfälle |
 | Migration 0033 (spår G, coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppmål (`group_activities.goal`, `group_goal_results`). Appliceras i SQL Editor efter 0030–0032 och **före** koden från spår G (se "Migration 0033" ovan) |
+| Migration 0036 (spår B, Karims beslut 2026-10-22) | **Skriven, inte applicerad.** Byt yrkesområde (`case_area_changes`) och automatisk månadsbedömning (`monthly_assessments.prefill`). Appliceras i SQL Editor **före** koden från spår B (se "Migration 0036" ovan) |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |

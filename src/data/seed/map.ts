@@ -139,7 +139,7 @@ export function toTables(S: ProtoState, meta: { checkInTags: Record<string, stri
     void tags;
     db.check_ins.push({ ...rest, ai: ci.ai ?? null, version: 1 });
   }
-  db.monthly_assessments.push(...S.monthlyAssessments.map((x) => ({ ...x, version: 1 })));
+  db.monthly_assessments.push(...S.monthlyAssessments.map((x) => ({ ...x, version: 1, prefill: {} })));
   db.monthly_plans.push(...S.monthlyPlans);
   for (const e of S.outcomeEvents) db.outcome_events.push({ ...e, possibleBonus: e.possibleBonus ?? false });
   for (const d of S.deviations) db.deviations.push({ ...d, checkInId: null });

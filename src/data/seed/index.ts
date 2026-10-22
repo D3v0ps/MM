@@ -15,6 +15,8 @@
 //   decisions-2026-10-07.ts  besluten 2026-10-07: kommunens chef bort, skyddade personuppgifter bort ur testdatat, omfattning i månader,
 //                    en faktura per avtal och månad
 //   decisions-2026-10-09-handledare.ts  rollen handledare bort: de tre handledarna får rollen coach (Karims beslut 2026-10-09)
+//   decisions-2026-10-22.ts  Karims beslut 2026-10-22: ett byte av yrkesområde (med motivering) och januaris månadsbedömningar
+//                    ifyllda automatiskt
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -26,6 +28,7 @@ import { genMonthly, genOtherReports } from "./gen-reports";
 import { applyDecisions20261007 } from "./decisions-2026-10-07";
 import { addGroupings } from "./gen-groupings";
 import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
+import { applyDecisions20261022 } from "./decisions-2026-10-22";
 import { addCaseNotes } from "./gen-notes";
 import { addSavedReports } from "./gen-saved-reports";
 import { addVoiceData } from "./gen-voice";
@@ -65,6 +68,7 @@ export function createSeed(): MemoryData<Tables> {
   addGroupings(db);
   applyDecisions20261007(db, { invoiceStatus: S.invoiceStatus });
   applyNoSupervisorRole(db);
+  applyDecisions20261022(db);
   return db;
 }
 

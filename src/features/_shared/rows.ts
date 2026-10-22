@@ -25,7 +25,7 @@ export function newCheckIn(r: Pick<CheckIn, "id" | "caseId" | "heldAt">): CheckI
 
 /** En ny månadsbedömning (utkast) utan områden. */
 export function newAssessment(r: Pick<MonthlyAssessment, "id" | "caseId" | "month">): MonthlyAssessment {
-  return { areas: {}, status: "draft", decidedBy: null, decidedAt: null, summary: "", aiSummaryDraft: null, overallStatus: null, version: 1, ...r };
+  return { areas: {}, status: "draft", decidedBy: null, decidedAt: null, summary: "", aiSummaryDraft: null, overallStatus: null, version: 1, prefill: {}, ...r };
 }
 
 /** Ett progressionsområde utan bedömning. Nivån är tom tills coachen valt (CLAUDE.md punkt 5). */

@@ -1,7 +1,7 @@
 // Kontrakt för området ärenden (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER } from "@/api/invalidation";
+import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER, CASE_FACTS } from "@/api/invalidation";
 import {
   ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
@@ -269,6 +269,43 @@ export const caseSetContact = command("arenden.caseSetContact", z.object({
   phone: z.string().trim().max(40),
   email: z.string().trim().max(200),
 }), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, ...LOG] }).returns<Result<{ changed: boolean }, "not_found" | "forbidden" | "phone" | "email">>();
+
+// ---------------------------------------------------------------- Byt yrkesområde (Karims beslut 2026-10-22)
+/**
+ * Yrkesområdet på deltagarkortet (bara Miljonbemanning): nuvarande yrkesområde, om det får bytas, de andra aktiva
+ * yrkesområdena i avtalet och bytena hittills (nyast först). null = ingen åtkomst till ärendet (kommunen ser kortet i portalen,
+ * där bara nuvarande yrkesområde visas som förut).
+ */
+export type CaseAreaView = {
+  caseId: string;
+  current: { code: string; name: string } | null;
+  /** Coach, samordnare och avtalsansvarig med full åtkomst i ett bekräftat, pågående eller pausat ärende. */
+  canChange: boolean;
+  /** Varför bytet inte går (avslutat ärende …) – bara för den som annars får byta. */
+  blockedText: string | null;
+  /** Avtalets andra aktiva yrkesområden att byta till. */
+  options: { code: string; name: string }[];
+  /** Månaden då fakturan börjar räknas på det nya yrkesområdet om bytet görs nu ("november 2026"). */
+  effectiveMonth: MonthKey;
+  history: { id: string; changedAt: LocalDateTime; fromArea: string; toArea: string; byName: string; effectiveMonth: MonthKey }[];
+};
+export const caseAreaView = query("arenden.kortYrkesomrade", z.object({ caseId: IdSchema })).returns<CaseAreaView | null>();
+
+/**
+ * Byt deltagarens yrkesområde med en kort motivering (10–300 tecken, inga personnummer). I ordning: motiveringen sparas som
+ * en anteckning i deltagarkortet (bara Miljonbemanning ser den), bytet sparas (case_area_changes), ärendets yrkesområde ändras,
+ * revisionsloggen får case.area_changed (id:n och koder – aldrig motiveringen) och grupp och inbjudningar följer med
+ * (afterCaseAreaChanged). Fakturan räknas på det nya yrkesområdet från och med månaden efter bytet (effectiveMonth).
+ */
+// Omräkning CASE_FACTS (brett med flit) och inkorgen: yrkesområdet styr fakturaunderlaget, ledningens jämförelse per område,
+// listorna, inkorgen, kortet, aktiviteterna (grupp och inbjudningar) och revisionsloggen.
+export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
+  caseId: IdSchema,
+  toArea: z.string().trim().min(1).max(10),
+  motivation: z.string().max(2000),
+}), { invalidates: [...CASE_FACTS, INBOX] }).returns<
+  Result<{ changeId: string; noteId: string; effectiveMonth: MonthKey }, "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr">
+>();
 
 /**
  * Avsluta insatsen (prototypens case.close): resultatklass enligt avtalets resultatdefinition, utkast till slutrapport

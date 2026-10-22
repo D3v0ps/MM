@@ -64,7 +64,7 @@ export type ProtoState = {
   users: PUser[]; customerUsers: PUser[]; buyerReferences: PBuyerRef[]; persons: PPerson[]; cases: PCase[];
   caseCounters: Record<string, number>; caseStatusHistory: (Omit<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt"> & Partial<Pick<CaseStatusHistory, "fromCoach" | "toCoach" | "customerNotifiedAt">>)[];
   inboundEmails: PEmail[]; intakeAssessments: Omit<IntakeAssessment, "version">[]; activities: PActivity[]; attendance: PAttendance[]; checkIns: PCheckIn[];
-  monthlyAssessments: Omit<MonthlyAssessment, "version">[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
+  monthlyAssessments: Omit<MonthlyAssessment, "version" | "prefill">[]; monthlyPlans: MonthlyPlan[]; outcomeEvents: POutcomeEvent[]; deviations: Omit<Deviation, "checkInId">[];
   contractDeviations: PContractDeviation[]; employers: { id: string; name: string; orgNr: string; contactName: string; phone: string; email: string; areas: string[] }[];
   placements: Placement[]; reports: PReport[]; pulseInvites: PPulseInvite[]; pulseResponses: PulseResponse[]; messages: Omit<Message, "kind">[];
   invoiceStatus: Record<string, Record<string, InvoiceStatus>>; billingRuns: PBillingRun[]; consents: PConsent[]; aiRuns: PAiRun[];

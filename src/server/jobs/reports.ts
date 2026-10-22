@@ -4,7 +4,9 @@
 // högst var tionde minut. Två samtidiga körningar kan båda försöka lägga jobbet – den andra får ett dubblettfel som ignoreras.
 // Funktionen är idempotent, så ett nytt försök efter ett fel skapar bara det som fattas.
 // Samma jobb skapar också månadens fakturakörning när månaden är slut (ensureBillingRuns, src/features/ekonomi/ensure-runs.ts)
-// – med samma klocka och samma golv. Också den är idempotent.
+// – med samma klocka och samma golv. Också den är idempotent. Sist de förifyllda månadsbedömningarna för månaden att bedöma
+// nu och AI-utkasten till dem (ensureMonthlyAssessments, src/features/coach/ensure-assessments.ts, Karims beslut 2026-10-22) –
+// AI-jobben läggs i kön och körs av samma jobbkörning eller nästa (cron).
 //
 // Var körningarna har kommit sparas i app_settings och läses utan cache när jobbet körs (reportScheduleState):
 //   report_schedule_checked:<avtal>  högvattenmärket – appens klocka vid den senaste körningen där hela avtalet gicks igenom
@@ -18,6 +20,7 @@ import type { LocalDateTime } from "@/core/time";
 import type { Repo } from "@/data/repo";
 import type { Job } from "@/data/schema";
 import { DataError, type PgError } from "@/data/supabase/repo";
+import { ensureMonthlyAssessments } from "@/features/coach/ensure-assessments";
 import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { parseDemoEpoch, type ClockSettings } from "../clock";
@@ -83,8 +86,8 @@ export function reportScheduleState(db: AppSettingsClient, rows: readonly { key:
 export type ReportDeps = { reportSchedule?: () => Promise<{ ctx: Ctx; state: ReportScheduleState }> };
 
 /**
- * Jobbet: kör ensureReports och sedan ensureBillingRuns (månadens fakturakörning). Utfallet är "created" (något skapades)
- * eller "none" – inga id:n eller namn.
+ * Jobbet: kör ensureReports, ensureBillingRuns (månadens fakturakörning) och ensureMonthlyAssessments (förifyllda
+ * månadsbedömningar). Utfallet är "created" (något skapades) eller "none" – inga id:n eller namn.
  */
 export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
   return {
@@ -93,7 +96,8 @@ export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
       const { ctx, state } = await d.reportSchedule();
       const res = await ensureReports(ctx, state);
       const runs = await ensureBillingRuns(ctx, { floor: state.floor });
-      return res.created.length || runs.created.length ? "created" : "none";
+      const assessments = await ensureMonthlyAssessments(ctx, { floor: state.floor });
+      return res.created.length || runs.created.length || assessments.created.length || assessments.aiQueued.length ? "created" : "none";
     },
   };
 }

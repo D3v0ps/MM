@@ -10,18 +10,22 @@
 //
 // Regler (CLAUDE.md punkt 5–8): AI föreslår – människan bedömer. AI sätter aldrig nivå, samlad status, avslutsorsak eller
 // resultat – därför finns inga sådana fält i schemana (strictObject: ett svar med t.ex. overallStatus underkänns).
+// Undantag (Karims beslut 2026-10-22, automatisk månadsbedömning): utkastet per progressionsområde (monthly_area) får FÖRESLÅ
+// progressionsnivå 1–3 – bara med ett ordagrant citat ur en källa i underlaget (levelSuggestion). Citatet kontrolleras på
+// servern mot underlaget (verifyLevelSuggestion) och förslaget slängs om citatet inte finns där. Förslaget skrivs aldrig i
+// nivån – coachen godtar det själv ("Godta").
 // Belägg = kort citat + tidpunkt i sekunder; saknas belägg: "Framgår inte" (noEvidence). Aldrig AI för skyddade
 // personuppgifter, aldrig coachens inspelning utan samtycke (recordingBlock). Rapporter byggs bara av godkända uppgifter
 // (DraftInput tar bara godkända avstämningar – assertApprovedInput).
 import { z } from "zod";
 import { ApiError, type Ctx } from "@/api/server";
 import { recordingEnabled, type ContractConfig, type RecordingKind } from "@/core/config";
-import { fmtDateShort, monthKey, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
+import { dayOf, fmtDateShort, monthKey, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { looksLikePnr, PNR_SCRUBBED, scrubPnr } from "@/core/validation";
 import {
   CASE_NOTE_KINDS, CASE_NOTE_MAX, EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES,
-  type AiConsentStatus, type AiRun, type AiRunKind, type AiRunStatus, type AttendanceStatus, type CaseNote, type CaseNoteKind, type CheckIn, type EmployerContacts,
-  type GoalStatus, type Person, type TranscriptLine,
+  type AiConsentStatus, type AiLevelEvidence, type AiRun, type AiRunKind, type AiRunStatus, type AttendanceStatus, type CaseNote, type CaseNoteKind, type CheckIn,
+  type EmployerContacts, type GoalStatus, type Person, type ProgressLevel, type TranscriptLine,
 } from "@/data/schema";
 import type { AiFieldSuggestion, CheckInSuggestions } from "./ai-types";
 import type { AudioRef } from "./audio-port";
@@ -165,14 +169,68 @@ const DraftNoteSchema = z.strictObject({
  * monthly_summary (sammanfattning) och monthly_plan (plan för nästa månad).
  */
 export type DraftTemplateKey = "monthly_summary" | "monthly_plan" | `monthly_area:${string}`;
-/** Utkastet med källor ("Avstämning 15 jan") och källornas id. noEvidence: "Framgår inte" – inget underlag. Märks "AI-utkast" tills det godkänts. */
-export type DraftText = { text: string; sources: string[]; sourceIds: string[]; noEvidence: boolean };
+/**
+ * AI:s förslag till progressionsnivå i ett område (bara monthly_area, Karims beslut 2026-10-22): nivå 1–3, ett ordagrant citat
+ * ur källan och källans id (en godkänd avstämning eller en anteckning i underlaget). Nivå 0 föreslås aldrig – den är standard.
+ */
+export type DraftLevelSuggestion = { level: 1 | 2 | 3; quote: string; sourceId: string };
+/** Citatets längd i tecken (efter att mellanslag slagits ihop). */
+export const LEVEL_QUOTE_MIN = 8;
+export const LEVEL_QUOTE_MAX = 300;
+export const DraftLevelSuggestionSchema = z.strictObject({
+  level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  quote: z.string().min(1).max(1000),
+  sourceId: z.string().min(1),
+}) satisfies z.ZodType<DraftLevelSuggestion>;
+/**
+ * Utkastet med källor ("Avstämning 15 jan") och källornas id. noEvidence: "Framgår inte" – inget underlag. Märks "AI-utkast"
+ * tills det godkänts. levelSuggestion bara för monthly_area och bara med belägg (verifyLevelSuggestion).
+ */
+export type DraftText = { text: string; sources: string[]; sourceIds: string[]; noEvidence: boolean; levelSuggestion?: DraftLevelSuggestion | null };
 export const DraftTextSchema = z.strictObject({
   text: z.string().min(1),
   sources: z.array(z.string()),
   sourceIds: z.array(z.string()),
   noEvidence: z.boolean(),
+  levelSuggestion: DraftLevelSuggestionSchema.nullable().optional(),
 }) satisfies z.ZodType<DraftText>;
+/** Valfritt till draft: skalans texter för nivå 1–3 ur avtalskonfigurationen (cfg.progression.scale) till instruktionerna. */
+export type DraftOptions = { levelScale?: Readonly<Partial<Record<"1" | "2" | "3", string>>> };
+
+/** Ett förslag som klarat kontrollen: nivån och belägget (citatet, källans namn och dag). */
+export type VerifiedLevelSuggestion = { level: ProgressLevel; evidence: AiLevelEvidence };
+const normQuote = (s: string) => s.normalize("NFC").replace(/\s+/g, " ").trim();
+/** Citattecken runt citatet räknas inte ("…", ”…”, »…«, '…'). */
+const unquote = (s: string) => s.replace(/^[\s"'”“»«„]+|[\s"'”“»«„]+$/g, "");
+
+/** Källans texter i underlaget, dess namn och dag – null om id:t inte finns i underlaget. Närvaron har ingen text att citera. */
+function quoteSource(input: DraftInput, sourceId: string): { label: string; date: LocalDate; texts: string[] } | null {
+  const ci = input.checkIns.find((c) => c.id === sourceId);
+  if (ci) {
+    return {
+      label: `Avstämning ${fmtDateShort(ci.heldAt)}`, date: dayOf(ci.heldAt),
+      texts: [ci.note, ci.nextGoal, ...ci.activitiesDone, ...ci.obstacles, ...ci.employerContacts.types],
+    };
+  }
+  const n = input.notes.find((x) => x.id === sourceId);
+  return n ? { label: noteSourceLabel(n), date: n.date, texts: [n.text] } : null;
+}
+
+/**
+ * Kontrollen av AI:s nivåförslag (Karims beslut 2026-10-22), gjord på servern oavsett leverantör: förslaget gäller bara om
+ * citatet (8–300 tecken, mellanslag hopslagna, citattecken runt bortplockade) finns ordagrant i källan med det id:t i
+ * underlaget, och citatet inte ser ut som ett personnummer. Annars null – förslaget slängs. Källans namn och dag tas ur
+ * underlaget, aldrig från modellen.
+ */
+export function verifyLevelSuggestion(raw: unknown, input: DraftInput): VerifiedLevelSuggestion | null {
+  const p = DraftLevelSuggestionSchema.safeParse(raw);
+  if (!p.success) return null;
+  const quote = normQuote(unquote(p.data.quote));
+  if (quote.length < LEVEL_QUOTE_MIN || quote.length > LEVEL_QUOTE_MAX || looksLikePnr(quote)) return null;
+  const src = quoteSource(input, p.data.sourceId);
+  if (!src || !src.texts.some((t) => normQuote(t ?? "").includes(quote))) return null;
+  return { level: p.data.level, evidence: { quote, source: src.label, date: src.date } };
+}
 
 /** Bara godkända avstämningar som underlag (sorterade på tid). */
 export function approvedCheckIns(checkIns: readonly CheckIn[]): ApprovedCheckIn[] {
@@ -249,8 +307,8 @@ export interface AiPort {
   transcribe(audio: AudioInput, opts: { language: string }): Promise<AiResult<Transcript>>;
   /** Transkript -> formulärets fält med belägg. instructions: standard EXTRACT_INSTRUCTIONS[schemaKey]. */
   extract<K extends ExtractSchemaKey>(transcript: Transcript, schemaKey: K, instructions?: string): Promise<AiResult<ExtractSchemas[K]>>;
-  /** Bara godkända uppgifter -> utkast med källor. */
-  draft(input: DraftInput, templateKey: DraftTemplateKey): Promise<AiResult<DraftText>>;
+  /** Bara godkända uppgifter -> utkast med källor (monthly_area: ev. nivåförslag 1–3 med citat – kontrolleras av anroparen). */
+  draft(input: DraftInput, templateKey: DraftTemplateKey, opts?: DraftOptions): Promise<AiResult<DraftText>>;
   /** Text från ett språk till ett annat (deltagarens röstmeddelande -> svenska). Märks "AI-översättning". */
   translate(text: string, from: string, to: string): Promise<AiResult<Translation>>;
 }

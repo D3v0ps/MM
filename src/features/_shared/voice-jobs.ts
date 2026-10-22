@@ -10,11 +10,14 @@
 //   transcribe_dictation    kommunens "Tala in": transcribe -> ljudet raderas -> texten i ai_runs.output (gallras efter 24 h)
 //   transcribe_participant  deltagarens länk: transcribe -> ljudet raderas -> translate till svenska -> participant_voice_notes
 //   draft_monthly           utkast till månadsbedömningen – BARA från godkända avstämningar, registrerad närvaro och (med
-//                           samtycke) anteckningarna i deltagarkortet utan personnummer (beslut 4 2026-10-09)
+//                           samtycke) anteckningarna i deltagarkortet utan personnummer (beslut 4 2026-10-09). Nivåförslag
+//                           1–3 per område bara med ett citat som finns i underlaget (verifyLevelSuggestion, Karims beslut
+//                           2026-10-22) – aldrig i nivån. Saknas raden skapas den förifylld (src/core/monthly-prefill.ts).
 //   retention_audio         ljud som inte raderats efter 24 timmar raderas (CLAUDE.md punkt 7)
 //   retention_transcripts   råtranskript raderas när avstämningen godkänts, senast efter 30 dagar; dikteringens text efter 24 h
 //
-// Regler (CLAUDE.md punkt 5–8): AI sätter aldrig nivå, samlad status, avslutsorsak eller resultat. Aldrig AI för skyddade
+// Regler (CLAUDE.md punkt 5–8): AI sätter aldrig nivå, samlad status, avslutsorsak eller resultat (nivåförslag med belägg visas
+// bara som förslag – coachen godtar dem själv). Aldrig AI för skyddade
 // personuppgifter och aldrig coachens inspelning utan samtycke – kontrolleras när jobbet läggs OCH när det körs (samtycket
 // kan ha återkallats). Ljudet raderas direkt efter lyckad transkribering. Ogiltiga AI-svar sparas som fel och visas aldrig.
 // Varje körning i ai_runs (leverantör, modell, tid, token, kostnad), varje radering och körning i revisionsloggen (bara id).
@@ -25,18 +28,19 @@
 import { z } from "zod";
 import type { Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
-import { aiLanguages, isOperational, progressionAreas, recordingEnabled, type ContractConfig } from "@/core/config";
+import { aiLanguages, isOperational, progressionAreas, recordingEnabled, requireOperational, type ContractConfig } from "@/core/config";
+import { applyAiDraft, type AiAreaDraft } from "@/core/monthly-prefill";
 import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
-import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, ParticipantVoiceNote, Person } from "@/data/schema";
+import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, MonthlyPlan, ParticipantVoiceNote, Person } from "@/data/schema";
 import {
   AI_OFF_TEXT,
-  aiRunRow, approvedCheckIns, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema,
-  type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
+  aiRunRow, approvedCheckIns, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
+  type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftOptions, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
 import { SIMULATED_PROVIDER } from "./ai-sim";
 import { AUDIO_RETENTION_HOURS, requireAudio } from "./audio-port";
 import { AI_FIELDS, type AiSource } from "./ai-types";
-import { blankArea, newAssessment } from "./rows";
+import { loadPrefill, planFieldsOf, prefillAssessmentId, prefilledAssessment, prefilledPlan, prefillPlanId } from "./monthly-prefill";
 
 // ---------------------------------------------------------------- Jobbtyperna och deras innehåll
 export const VOICE_JOB_KINDS = [
@@ -548,34 +552,60 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   if (!aiAllowed(cc.c, cc.person)) throw new VoiceJobError("blocked_no_consent");
   if (!cc.config || !isOperational(cc.config)) throw new VoiceJobError("not_found");
   const input = await monthlyDraftInput(ctx, cc.c.id, p.month);
+  const cfg = requireOperational(cc.config);
   const ai = requireAi(ctx);
   const spent: AiRunMeta[] = [];
-  const draft = async (key: DraftTemplateKey): Promise<DraftText> => {
+  const draft = async (key: DraftTemplateKey, opts?: DraftOptions): Promise<DraftText> => {
     try {
-      const r = await ai.draft(input, key);
+      const r = await ai.draft(input, key, opts);
       spent.push(r.run);
       return r.value;
     } catch (e) {
       throw toVoiceJobError(e, spent);
     }
   };
+  // Skalans texter ur avtalet till instruktionerna (nivåförslagen 1–3).
+  const levelScale = { 1: cfg.progression.scale["1"], 2: cfg.progression.scale["2"], 3: cfg.progression.scale["3"] };
   const areas: Record<string, DraftText> = {};
-  for (const a of progressionAreas(cc.config)) areas[a.key] = await draft(`monthly_area:${a.key}`);
+  const verified: Record<string, ReturnType<typeof verifyLevelSuggestion>> = {};
+  for (const a of progressionAreas(cc.config)) {
+    const d = await draft(`monthly_area:${a.key}`, { levelScale });
+    // Kontrollen på servern, oavsett leverantör: förslaget gäller bara om citatet finns i underlaget – annars slängs det.
+    const v = d.levelSuggestion && !d.noEvidence ? verifyLevelSuggestion(d.levelSuggestion, input) : null;
+    verified[a.key] = v;
+    areas[a.key] = { ...d, levelSuggestion: v ? { level: v.level as 1 | 2 | 3, quote: v.evidence.quote, sourceId: d.levelSuggestion?.sourceId ?? "" } : null };
+  }
   const summary = await draft("monthly_summary");
   const plan = await draft("monthly_plan");
 
-  // Utkasten in i månadsbedömningen (om den inte redan är godkänd). Nivå, observation, nästa steg, sammanfattning och
-  // samlad status rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5).
+  // Utkasten in i månadsbedömningen (om den inte redan är godkänd). Nivån, observationen, nästa steg och den samlade statusen
+  // rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5). Nivåförslaget med belägg sparas bara som förslag. Sammanfattningen
+  // och planens aktiviteter fylls i bara där de fortfarande är förifyllda eller tomma (applyAiDraft). Saknas raden skapas den
+  // förifylld (Karims beslut 2026-10-22), med fasta id:n.
   const table = ctx.system.table("monthly_assessments");
+  const plans = ctx.system.table("monthly_plans");
   const cur = await table.first({ caseId: cc.c.id, month: p.month });
   let assessmentId: string | null = null;
   if (!cur || cur.status !== "approved") {
-    const ma: MonthlyAssessment = cur ?? newAssessment({ id: ctx.newId("ma"), caseId: cc.c.id, month: p.month });
-    const next = { ...ma.areas };
-    for (const [k, d] of Object.entries(areas)) next[k] = { ...(next[k] ?? blankArea()), aiObservationDraft: { text: d.text, sources: d.sources, noEvidence: d.noEvidence } };
+    const pre = cur ? null : await loadPrefill(ctx.system, cc.c, p.month, cfg, ctx.now());
+    const ma: MonthlyAssessment = cur ?? prefilledAssessment(prefillAssessmentId(cc.c.id, p.month), cc.c.id, p.month, pre!);
+    const curPlan = (await plans.first({ caseId: cc.c.id, month: p.month })) ?? (pre ? prefilledPlan(prefillPlanId(cc.c.id, p.month), cc.c.id, p.month, pre) : null);
+    const drafts: Record<string, AiAreaDraft> = {};
+    for (const [k, d] of Object.entries(areas)) drafts[k] = { observation: { text: d.text, sources: d.sources, noEvidence: d.noEvidence }, suggestion: verified[k] ?? null };
+    const next = applyAiDraft(ma, curPlan ? planFieldsOf(curPlan) : null, {
+      areas: drafts, summary: summary.noEvidence ? null : summary.text, plan: plan.noEvidence ? null : plan.text,
+    });
     const aiSummaryDraft = summary.noEvidence ? null : summary.text;
-    if (cur) await table.update(cur.id, { areas: next, aiSummaryDraft });
-    else await table.insert({ ...ma, areas: next, aiSummaryDraft });
+    // Ändras något som coachen ser i formuläret (sammanfattningen eller planen) får raden en ny version – ett öppet formulär
+    // får då "ändrats i en annan flik" i stället för att skriva över utkastet.
+    const version = cur && next.visible ? cur.version + 1 : ma.version;
+    if (cur) await table.update(cur.id, { areas: next.ma.areas, aiSummaryDraft, summary: next.ma.summary, prefill: next.ma.prefill, version });
+    else await table.insert({ ...next.ma, aiSummaryDraft });
+    if (curPlan && next.plan) {
+      const row: MonthlyPlan = { ...curPlan, ...next.plan };
+      if (await plans.get(curPlan.id)) await plans.update(curPlan.id, row);
+      else await plans.insert(row);
+    }
     assessmentId = ma.id;
   }
   const output: MonthlyDraftOutput = { month: p.month, areas, summary, plan, assessmentId };

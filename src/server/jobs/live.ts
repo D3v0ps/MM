@@ -107,6 +107,10 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       // Veckorapporter som publiceras direkt lägger "ny rapport" i utskickskön.
       enqueue,
       crypto: lazyServerCrypto,
+      // De förifyllda månadsbedömningarna lägger AI-utkasten i kön (draft_monthly) när AI är kopplat. Jobben tas av samma
+      // jobbkörning eller nästa (cron varje minut) – därför ingen direktkörning här.
+      ai: serverAi(settings.environment),
+      scheduleJobs: () => undefined,
     });
     return { ctx, state: reportScheduleState(client as unknown as AppSettingsClient, rows, fresh.clock) };
   };

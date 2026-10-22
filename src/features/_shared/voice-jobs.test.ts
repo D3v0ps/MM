@@ -333,7 +333,10 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
       `${before.aiSummaryDraft} Ur anteckningarna – 26 jan: Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten.`,
     );
     expect(before.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända avstämningar, 8 jan, 22 jan.)");
-    expect(ma).toMatchObject({ status: "draft", summary: before.summary, overallStatus: before.overallStatus });
+    // Sammanfattningen var ifylld automatiskt från AI-utkastet och inte ändrad av coachen (Karims beslut 2026-10-22): det nya
+    // utkastet ersätter den och märkningen står kvar. En sammanfattning som coachen skrivit rörs aldrig (monthly-prefill.test.ts).
+    expect(before.prefill.summary).toBe("ai");
+    expect(ma).toMatchObject({ status: "draft", summary: ma.aiSummaryDraft, overallStatus: before.overallStatus, prefill: { summary: "ai" } });
     const run = t.run(r.aiRunId);
     const out = run.output as MonthlyDraftOutput;
     expect(run).toMatchObject({ kind: "monthly_draft", caseId: MEHMET, inputRef: "2027-01", status: "succeeded" });

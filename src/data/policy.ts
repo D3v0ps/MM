@@ -49,6 +49,10 @@
 //                 (arkiveras, raderas aldrig) · medlemskapen läses som anteckningar (aldrig ekonom eller kommunen) och skrivs av
 //                 samordnare, avtalsansvarig och coach (inte admin – läsläge i ärendena) med full åtkomst till ärendet – ny rad
 //                 aktiv och i eget namn, ändring bara att ta bort
+//   Yrkes-        byten av yrkesområde (case_area_changes, 0036, Karims beslut 2026-10-22): läses av Miljonbemanning i avtalet,
+//   område        också ekonomen (fakturan räknas på yrkesområdet per månad – raden har ingen fritext) · skapas av coach,
+//                 samordnare och avtalsansvarig med full åtkomst, i eget namn · stämmer med ärendet, avtalets yrkesområden,
+//                 anteckningen med motiveringen och tiden (månaden efter) · ändras och raderas aldrig · aldrig kommunen
 //   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -61,6 +65,7 @@ import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/rol
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
 import type { Policies, RawAccess, RowPolicy } from "./memory";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
+import { AREA_CHANGE_READERS, AREA_CHANGERS, effectiveMonthOf } from "@/core/area-changes";
 import type { Case, Report, TableName, Tables } from "./schema";
 
 type Raw = RawAccess<Tables>;
@@ -493,6 +498,28 @@ function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean 
   return changed.length > 0 && changed.every((k) => k === "removedAt" || k === "removedBy") && x.removedAt != null && self(a, x.removedBy);
 }
 
+// ---------------------------------------------------------------- Byt yrkesområde (0036)
+type CaseAreaChangeRow = Tables["case_area_changes"];
+/**
+ * Raden stämmer med ärendet (triggern case_area_changes_check och de främmande nycklarna, 0036 – gäller också systemet där):
+ * ärendets avtal, båda yrkesområdena finns i avtalet, det nya är aktivt och skiljer sig från det gamla, anteckningen hör till
+ * ärendet och effectiveMonth är månaden efter changedAt.
+ */
+function caseAreaChangeConsistent(x: CaseAreaChangeRow, raw: Raw): boolean {
+  if (raw.get("cases", x.caseId)?.contractId !== x.contractId || x.fromArea === x.toArea) return false;
+  const areas = raw.all("contract_areas").filter((a) => a.contractId === x.contractId);
+  if (!areas.some((a) => a.code === x.fromArea) || !areas.some((a) => a.code === x.toArea && a.active)) return false;
+  return raw.get("case_notes", x.noteId)?.caseId === x.caseId && /^\d{4}-(0[1-9]|1[0-2])$/.test(x.effectiveMonth) && x.effectiveMonth === effectiveMonthOf(x.changedAt);
+}
+/**
+ * Ny rad: AREA_CHANGERS med full åtkomst till ärendet, medlem i avtalet, i eget namn och i överensstämmelse med ärendet.
+ * En befintlig rad ändras aldrig (ingen update-policy) – regeln stoppar också MemoryRepo.remove() (ingen delete-policy).
+ */
+function caseAreaChangeWrite(x: CaseAreaChangeRow, a: Actor, raw: Raw): boolean {
+  if (raw.get("case_area_changes", x.id)) return false;
+  return has(AREA_CHANGERS, a) && accessTo(raw, a, x.caseId) === "full" && member(a, x.contractId) && self(a, x.changedBy) && caseAreaChangeConsistent(x, raw);
+}
+
 // ---------------------------------------------------------------- Tabellerna
 const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Avtal, organisationer, användare
@@ -775,6 +802,9 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // ---- Grupper, nivåer och taggar (0031). Internt: aldrig kommunen eller ekonomen. Inget raderas.
   groupings: { read: (x, a) => has(GROUPING_READERS, a) && member(a, x.contractId), write: groupingWrite },
   grouping_members: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: groupingMemberWrite },
+
+  // ---- Byt yrkesområde (0036). Bara koder och id:n – ekonomen läser för faktureringen, kommunen aldrig. Ändras aldrig.
+  case_area_changes: { read: (x, a) => has(AREA_CHANGE_READERS, a) && member(a, x.contractId), write: caseAreaChangeWrite },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

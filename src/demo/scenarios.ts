@@ -62,8 +62,8 @@ export const SCENARIOS: readonly Scenario[] = [
     { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "mehmet"), checkInId: aiDraftId(r) }), text: "Godkänn. Råtranskriptet raderas och varje beslut loggas." },
   ] },
   { id: "s7", title: "Månadsbedömning till kommunen", lead: "Progression per område enligt mall 02. Rapporten byggs bara av godkända uppgifter.", steps: [
-    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Öppna januaribedömningen för Nadia Warsame. AI:s nivåförslag visas bredvid, men rullgardinen är tom tills du väljer." },
-    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Försök godkänna med nivå 1 eller högre utan observation – det stoppas, mallen kräver alltid belägg. Fyll sedan i observationerna (använd gärna AI-utkasten) och godkänn bedömningen." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Öppna januaribedömningen för Nadia Warsame. Allt är ifyllt automatiskt: progressionsnivå 0 där inget belägg finns, AI-förslag med citat och källa, samlad status från senaste mötesrapporten, sammanfattning och plan." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Godta AI-förslagen som stämmer (eller Godta alla) och ändra det som inte stämmer. Utan konkret observation från nivå 1 stoppas godkännandet – mallen kräver belägg. Kryssa i Jag har gått igenom bedömningen och godkänn." },
     { role: "coach", view: "rapport.visa", params: (r) => ({ reportId: reportOf(r, "nadia", "monthly", "2027-01") }), text: "Förhandsgranska månadsrapporten (avsnitt 1–8). Den bygger bara på godkända uppgifter. Godkänn och leverera till kommunen." },
     { role: "kommun_handlaggare", view: "kom.rapporter", params: {}, text: "Byt till kundens perspektiv och öppna rapporten. Den kvitteras som läst." },
   ] },
@@ -104,13 +104,17 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns
   // inte i den gamla prototypen och har därför sökvägen som vy ("/rost").
+  { id: "s15", title: "Byt yrkesområde", lead: "Huvudcoachen byter deltagarens yrkesområde med en kort motivering. Fakturan räknas på det nya yrkesområdet från månaden efter.", steps: [
+    { role: "coach", view: "arende.kort", params: { caseId: "case-260163" }, text: "Öppna Linnea Olssons deltagarkort. Hon bytte från G till D den 27 januari – motiveringen står som anteckning. Prova Byt yrkesområde på ett annat ärende." },
+    { role: "ekonom", view: "eko.arende", params: { caseId: "case-260163" }, text: "Byt till ekonomen. Januari faktureras på G och februari på D – bytet gäller från månaden efter." },
+  ] },
   { id: "s14", title: "Röstinspelning", lead: "Coachen spelar in mötet, kommunen talar in och deltagaren spelar in på sitt språk. AI föreslår – människan bedömer. Inget ljud sparas.", steps: [
     { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Välj Med AI-stöd och Spela in mötet (i prototypen: Simulera en inspelning). Pausa, fortsätt och stoppa. Ljudet laddas upp, transkriberas och raderas direkt. Förslagen har belägg – samlad status väljer du själv." },
     { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Nadia har spelat in ett röstmeddelande på somaliska. Läs den svenska översättningen, visa originaltexten och markera det som granskat. Skicka en ny inspelningslänk – utskicket innehåller inga personuppgifter." },
     { role: "deltagare", view: "/rost", params: {}, text: "Byt till deltagarens perspektiv: länken utan inloggning (arabiska som förval). Byt språk, ge samtycke, spela in och skicka." },
     { role: "coach", view: "coach.minvecka", params: {}, text: "Tillbaka som coach: det nya röstmeddelandet väntar på granskning på Min vecka. Använd texten som underlag i nästa möte." },
     { role: "kommun_handlaggare", view: "kom.bestall", params: {}, text: "Som handläggare: beställ en insats och tala in bakgrunden i stället för att skriva (steg 3). Texten hamnar i fältet och inget ljud sparas." },
-    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa AI-utkast från godkända mötesrapporter. Utkasten har källor och bygger aldrig på råtranskript – nivåerna väljer du själv." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa nytt AI-utkast från godkända mötesrapporter. Utkasten har källor och bygger aldrig på råtranskript – AI föreslår nivå bara med ett citat, du godtar eller väljer själv." },
   ] },
 ];
 

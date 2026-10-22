@@ -50,7 +50,7 @@ export const COLUMNS = {
   activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null" },
   attendance: { id: "text", activityId: "text", caseId: "text", status: "text", reason: "text", registeredBy: "text", registeredAt: "timestamptz", customerNotifiedAt: "timestamptz | null", source: "text" },
   check_ins: { id: "text", caseId: "text", heldAt: "timestamptz", durationMin: "integer | null", mode: "text | null", inputMethod: "text", goalStatus: "text | null", nextGoal: "text", phase: "integer | null", activitiesDone: "text[]", employerContacts: "jsonb", overallStatus: "text | null", obstacles: "text[]", note: "text", attendanceComment: "text | null", status: "text", approvedBy: "text | null", approvedAt: "timestamptz | null", aiRunId: "text | null", docMinutes: "integer | null", ai: "jsonb | null", version: "integer" },
-  monthly_assessments: { id: "text", caseId: "text", month: "text", areas: "jsonb", status: "text", decidedBy: "text | null", decidedAt: "timestamptz | null", summary: "text", aiSummaryDraft: "text | null", overallStatus: "text | null", version: "integer" },
+  monthly_assessments: { id: "text", caseId: "text", month: "text", areas: "jsonb", status: "text", decidedBy: "text | null", decidedAt: "timestamptz | null", summary: "text", aiSummaryDraft: "text | null", overallStatus: "text | null", version: "integer", prefill: "jsonb" },
   monthly_plans: { id: "text", caseId: "text", month: "text", goal1: "text", goal2: "text", plannedActivities: "text", plannedEmployerContact: "text", plannedAdaptation: "text", nextCustomerMeeting: "date | null", status: "text" },
   outcome_events: { id: "text", caseId: "text", kind: "text", occurredOn: "date", actor: "text", verificationKind: "text | null", verificationPath: "text | null", note: "text", possibleBonus: "boolean" },
   deviations: { id: "text", caseId: "text", createdAt: "timestamptz", description: "text", assessment: "text", action: "text", ownerId: "text | null", followUpOn: "date | null", needsCustomerDecision: "boolean", followUpMeetingAt: "timestamptz | null", status: "text", checkInId: "text | null", closedAt: "timestamptz | null" },
@@ -128,6 +128,10 @@ export const COLUMNS = {
   grouping_members: {
     id: "text", contractId: "text", caseId: "text", groupingId: "text", kind: "text", slot: "text | null", addedAt: "timestamptz", addedBy: "text",
     removedAt: "timestamptz | null", removedBy: "text | null",
+  },
+  // Byt yrkesområde (0036_byt_yrkesomrade.sql)
+  case_area_changes: {
+    id: "text", contractId: "text", caseId: "text", fromArea: "text", toArea: "text", effectiveMonth: "text", changedBy: "text", changedAt: "timestamptz", noteId: "text",
   },
 } as const satisfies ColumnManifest;
 

@@ -13,7 +13,8 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { MemoryRepo, type MemoryData } from "@/data/memory";
 import { POLICIES } from "@/data/policy";
 import { createSeed, DEMO_START, TEST_PNR_CRYPTO } from "@/data/seed";
-import type { AppRepo, Report, TableName, Tables } from "@/data/schema";
+import { withoutAreaChanges } from "@/data/seed/decisions-2026-10-22";
+import type { AppRepo, Db, Report, TableName, Tables } from "@/data/schema";
 import { ensureFacts } from "./freeze";
 import { parseDocText } from "./facts";
 import { goalSentence } from "./report-helpers";
@@ -26,7 +27,9 @@ import {
   reportSnapshot, reportView, type ReportDocResult, type ReportView, type WeeklyModel,
 } from "./api";
 
-const SEED: MemoryData<Tables> = createSeed();
+// Facit (parity/facit.json) är från före bytet av yrkesområde i testdatat (Karims beslut 2026-10-22) – rapporterna visar
+// ärendets nuvarande yrkesområde, så testerna körs på testdatat utan bytet (som src/core/parity.test.ts).
+const SEED = withoutAreaChanges(createSeed() as unknown as Db) as unknown as MemoryData<Tables>;
 let rt: MemoryRuntime;
 beforeEach(() => {
   rt = createMemoryRuntime({ data: structuredClone(SEED), clock: demoClock(DEMO_START) });
@@ -77,7 +80,7 @@ const text = (x: unknown) => JSON.stringify(x);
 
 async function approveNadiaJanAssessment() {
   const areas = Object.fromEntries(BOTKYRKA_CONFIG.progression.areas.map((k) => [k, { level: 1 as const, observation: "Följer instruktionen utan stöd.", nextStep: "Fortsätta öva." }]));
-  return run(assessmentSave, { caseId: NADIA, month: "2027-01", areas, summary: "Deltagaren följer planen.", overallStatus: "green", approve: true }, amira());
+  return run(assessmentSave, { caseId: NADIA, month: "2027-01", areas, summary: "Deltagaren följer planen.", overallStatus: "green", approve: true, reviewed: true }, amira());
 }
 async function deliverNadiaJan() {
   expect(await approveNadiaJanAssessment()).toMatchObject({ ok: true });

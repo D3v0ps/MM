@@ -748,8 +748,12 @@ function sampleRows(t: TableName, p: Persona, n = 2): Record<string, unknown>[] 
   return [...pick(readable), ...pick(hidden)];
 }
 
-describe("skrivning: samma regler som policy.ts", () => {
-  for (const p of personas) {
+// Två block (en egen kopia av databasen var): varje testperson prövar ett par nekade satser per tabell, och PGlite tappar lite
+// stack för varje nekad sats (se snapshotDatabase i pglite.ts) – med alla testpersoner mot samma databas stoppades till slut
+// också tillåtna satser (case_area_changes, 0036, var tabellen som gjorde att gränsen nåddes).
+const WRITE_HALF = Math.ceil(personas.length / 2);
+for (const [part, group] of [["del 1", personas.slice(0, WRITE_HALF)], ["del 2", personas.slice(WRITE_HALF)]] as const) describe(`skrivning: samma regler som policy.ts (${part})`, () => {
+  for (const p of group) {
     it(`${personaKey(p)}: ändra och skapa rader i varje tabell`, async () => {
       const expected: string[] = [];
       const plan: { label: string; sql: string; params: unknown[] }[] = [];
@@ -1132,7 +1136,8 @@ describe("anteckningar (0019): läsning, skrivning och dölja – samma regler i
 
   it("läsning per roll: coach och handledare alla anteckningar i avtalet (beslut 2026-10-09), ekonom och kommunen inget, skyddat ärende bara namngivna", async () => {
     const open = data.case_notes.filter((n) => n.caseId !== SKYDDAD).map((n) => n.id).sort();
-    expect(open).toEqual(["note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
+    // note-byte-linnea: motiveringen till testdatats byte av yrkesområde (Karims beslut 2026-10-22).
+    expect(open).toEqual(["note-byte-linnea", "note-mehmet-handledare", "note-nadia-borttagen", "note-nadia-kommun", "note-nadia-praktiskt", "note-nadia-samtal"]);
     const expected: Record<string, string[]> = {
       // Amira är huvudcoach för Nadia och Mehmet; Petra (coach, och i den vilande rollen handledare) och Leila läser samma
       // anteckningar – men inte det skyddade ärendets (vilande spärr: bara namngiven huvudcoach Erik och avtalsansvarig).
@@ -2284,5 +2289,114 @@ describe("gruppmål (0033): läsning och skrivning – samma regler i RLS, trigg
     expect(res!.after).toEqual(res!.before);
     expect(res!.policies).toBe(3);
     expect(res!.triggers).toBe(2);
+  });
+});
+
+describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS, triggern och policy.ts", () => {
+  const LINNEA = "case-260163";
+  const NADIA = "case-260143";
+  // Ett nytt byte i Linneas ärende (D → C) med anteckningen från testdatats byte. Den 1 februari – fakturan från mars.
+  const at = "2027-02-01T09:30";
+  const row = (id: string, changedBy: string, patch: Partial<Tables["case_area_changes"]> = {}): Tables["case_area_changes"] => ({
+    id, contractId: "c-bot", caseId: LINNEA, fromArea: "D", toArea: "C", effectiveMonth: "2027-03", changedBy, changedAt: at, noteId: "note-byte-linnea", ...patch,
+  });
+  const ins = (r: Tables["case_area_changes"]) => insertSql("case_area_changes", r as unknown as Record<string, unknown>);
+  const memWrite = (r: Tables["case_area_changes"], key: string, rawAccess: RawAccess<Tables> = raw) => canWriteRow("case_area_changes", r, actorOf(findPersona(key)), rawAccess);
+  const pgWrite = async (key: string, sql: string) => allowed(await asPersona(findPersona(key), (tx) => attempt(tx, sql)));
+
+  it("testdatat: Linneas byte G → D den 27 januari med motiveringen i en anteckning, fakturan på D från februari", () => {
+    expect(data.case_area_changes).toEqual([expect.objectContaining({ id: "cac-seed-linnea", caseId: LINNEA, fromArea: "G", toArea: "D", effectiveMonth: "2027-02", noteId: "note-byte-linnea" })]);
+    expect(raw.get("case_notes", "note-byte-linnea")?.caseId).toBe(LINNEA);
+    expect(raw.get("cases", LINNEA)?.primaryAreaCode).toBe("D");
+  });
+
+  it("läsning per roll: Miljonbemanning i avtalet, också ekonomen – aldrig kommunen", async () => {
+    for (const p of personas) {
+      const pg = await asPersona(p, async (tx) => (await tx.query<{ id: string }>("select id from public.case_area_changes order by id")).rows.map((r) => r.id));
+      const mem = data.case_area_changes.filter((x) => canReadRow("case_area_changes", x, actorOf(p), raw)).map((x) => x.id).sort();
+      expect(pg, personaKey(p)).toEqual(mem);
+    }
+    const memOf = (key: string) => data.case_area_changes.filter((x) => canReadRow("case_area_changes", x, actorOf(findPersona(key)), raw)).map((x) => x.id);
+    for (const key of ["u-amira", "u-erik", "u-sara", "u-johan", "u-karin", "u-robin", "u-lars", SUPERVISOR]) expect(memOf(key), key).toEqual(["cac-seed-linnea"]);
+    for (const key of ["k-maria", "k-omar", "deltagare"]) expect(memOf(key), key).toEqual([]);
+  });
+
+  it("nytt byte: coach, samordnare och avtalsansvarig i eget namn – aldrig chef, admin, ekonom, kommunen eller den vilande rollen handledare", async () => {
+    const cases: [string, Tables["case_area_changes"], boolean][] = [
+      ["u-amira", row("cac-t1", "u-amira"), true],
+      ["u-erik", row("cac-t2", "u-erik"), true],
+      ["u-sara", row("cac-t3", "u-sara"), true],
+      ["u-johan", row("cac-t4", "u-johan"), true],
+      ["u-amira", row("cac-t5", "u-sara"), false],
+      ["u-karin", row("cac-t6", "u-karin"), false],
+      ["u-robin", row("cac-t7", "u-robin"), false],
+      ["u-lars", row("cac-t8", "u-lars"), false],
+      ["k-maria", row("cac-t9", "k-maria"), false],
+      [SUPERVISOR, row("cac-t10", "u-petra"), false],
+    ];
+    for (const [key, r, want] of cases) {
+      expect({ pg: await pgWrite(key, ins(r)), mem: memWrite(r, key) }, `${key} ${r.id}`).toEqual({ pg: want, mem: want });
+    }
+  });
+
+  it("raden stämmer med ärendet: aktivt nytt yrkesområde i avtalet, skilt från det gamla, anteckningen i ärendet och månaden efter bytet – för alla", async () => {
+    const bad: [string, Tables["case_area_changes"]][] = [
+      ["okänt yrkesområde", row("cac-b1", "u-amira", { toArea: "Z" })],
+      ["samma yrkesområde", row("cac-b2", "u-amira", { toArea: "D" })],
+      ["anteckning i ett annat ärende", row("cac-b3", "u-amira", { noteId: "note-nadia-samtal" })],
+      ["fel månad", row("cac-b4", "u-amira", { effectiveMonth: "2027-02" })],
+      ["fel avtal", row("cac-b5", "u-amira", { contractId: "c-ny" })],
+      ["ärende i ett annat avtal än raden", row("cac-b6", "u-amira", { caseId: NADIA })],
+    ];
+    for (const [label, r] of bad) {
+      expect({ pg: await pgWrite("u-amira", ins(r)), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      const service = await asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role" });
+      expect(service.ok, `${label} (service role)`).toBe(false);
+    }
+    // Ett inaktivt yrkesområde i avtalet: nekas av triggern också för servern.
+    const inactive = async (tx: Tx) => { await tx.query("update public.contract_areas set active = false where contract_id = 'c-bot' and code = 'C'"); };
+    const pg = await asUser(db, authOf("u-amira"), (tx) => attempt(tx, ins(row("cac-b7", "u-amira"))), { before: inactive });
+    expect(pg).toMatchObject({ ok: false, code: "23514" });
+    const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
+    mem.rows("contract_areas").find((a) => a.contractId === "c-bot" && a.code === "C")!.active = false;
+    expect(memWrite(row("cac-b7", "u-amira"), "u-amira", mem.raw())).toBe(false);
+  });
+
+  it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det eller av avtalsansvarig", async () => {
+    const cur = raw.get("case_area_changes", "cac-seed-linnea")!;
+    for (const key of ["u-amira", "u-johan", "u-sara", "u-robin"]) {
+      expect(await pgWrite(key, "update public.case_area_changes set to_area = 'C' where id = 'cac-seed-linnea'"), key).toBe(false);
+      expect(await pgWrite(key, "delete from public.case_area_changes where id = 'cac-seed-linnea'"), key).toBe(false);
+      expect(canWriteRow("case_area_changes", { ...cur, toArea: "C" }, actorOf(findPersona(key)), raw), key).toBe(false);
+    }
+  });
+
+  it("monthly_assessments.prefill (0036): standard {} och alltid ett objekt", async () => {
+    const r = await db.query<{ n: number }>("select count(*)::int as n from public.monthly_assessments where prefill = '{}'::jsonb");
+    expect(r.rows[0].n).toBe(data.monthly_assessments.filter((m) => Object.keys(m.prefill).length === 0).length);
+    const ma = data.monthly_assessments.find((m) => m.status === "draft" && m.month === "2027-01")!;
+    expect(Object.keys(ma.prefill).length).toBeGreaterThan(0);
+    const service = await asUser(db, null, (tx) => attempt(tx, "update public.monthly_assessments set prefill = '[]'::jsonb where id = $1", [ma.id]), { role: "service_role" });
+    expect(service).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("migrationen tål att köras igen och ändrar då ingenting", async () => {
+    const sql = readFileSync(`${MIGRATIONS_DIR}/0036_byt_yrkesomrade.sql`, "utf8");
+    let res: { before: number; after: number; policies: number; triggers: number } | null = null;
+    await db.transaction(async (tx) => {
+      const count = async () => (await tx.query<{ n: number }>("select (select count(*) from public.case_area_changes) + (select count(*) from public.monthly_assessments where prefill <> '{}'::jsonb) as n")).rows[0].n;
+      const before = await count();
+      await tx.exec(sql);
+      await tx.exec(sql);
+      const after = await count();
+      const policies = (await tx.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename = 'case_area_changes'")).rows[0].n;
+      const triggers = (await tx.query<{ n: number }>("select count(*)::int as n from pg_trigger where tgname = 'case_area_changes_check'")).rows[0].n;
+      res = { before, after, policies, triggers };
+      await tx.rollback();
+    });
+    expect(res).not.toBeNull();
+    expect(res!.after).toEqual(res!.before);
+    expect(res!.policies).toBe(2);
+    expect(res!.triggers).toBe(1);
   });
 });

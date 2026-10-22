@@ -14,12 +14,13 @@ export const ACTION_LABEL: Record<string, string> = {
   "case.view": "Visade deltagarkort", "pnr.revealed": "Visade personnummer", "report.view": "Visade rapport", "transcript.view": "Visade transkript",
   "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
-  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.closed": "Avslutade ärende",
+  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.area_changed": "Bytte yrkesområde", "case.closed": "Avslutade ärende",
   "person.contact_changed": "Ändrade kontaktväg",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
   "check_in.saved": "Sparade avstämning", "check_in.approved": "Godkände avstämning", "deviation.created": "Skapade avvikelse", "deviation.saved": "Sparade avvikelse", "deviation.customer_called": "Kallade kommunen till uppföljning",
-  "assessment.saved": "Sparade månadsbedömning", "assessment.approved": "Godkände månadsbedömning", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
+  "assessment.saved": "Sparade månadsbedömning", "assessment.approved": "Godkände månadsbedömning",
+  "assessment.prefilled": "Fyllde i månadsbedömningar automatiskt", "assessment.ai_accepted": "Godtog AI-förslag till nivå", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
   "event.added": "Registrerade händelse", "result.verified": "Verifierade resultat", "message.sent": "Skickade meddelande", "alert.acknowledged": "Kvitterade flagga",
   "consent.given": "Registrerade samtycke", "consent.declined": "Registrerade nej till samtycke", "consent.revoked": "Återkallade samtycke",
   "ai.run": "AI-körning", "audio.deleted": "Raderade ljudfil", "transcript.deleted": "Raderade råtranskript",
@@ -109,6 +110,9 @@ const DETAIL_KEY: Record<string, string> = {
   // Spår G: inbjudan per grupp eller nivå, meddelandet till deltagarna och gruppmålet.
   groupingIds: "Nivåer och grupper", skippedCaseIds: "Hoppades över", sent: "Skickat till", tasks: "Uppgifter att ringa", superseded: "Gällde en ändrad aktivitet",
   goal: "Gruppmål", achieved: "Klarade målet",
+  // Spår B (Karims beslut 2026-10-22): byt yrkesområde och automatisk månadsbedömning – koder, id:n och antal.
+  fromArea: "Från yrkesområde", toArea: "Till yrkesområde", effectiveMonth: "Fakturan från", changeId: "Byte", noteId: "Anteckning med motivering",
+  aiQueued: "AI-utkast beställda", reviewed: "Genomgången", autoAreas: "Automatiska områden", coachAreas: "Coachens val", aiAccepted: "Godtagna AI-förslag",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -221,7 +225,7 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return fmtDateTime(s);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
   if (/^\d{4}-W\d{2}$/.test(s)) return fmtWeekKey(s);
-  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
+  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || k === "effectiveMonth" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
   return s;
 }
 

@@ -52,6 +52,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortAvvikelser": one("u-amira", { caseId: "case-260148" }), "arenden.kortPraktik": one("u-amira", { caseId: NADIA }),
   "arenden.kortRapporter": one("u-amira", { caseId: NADIA }), "arenden.kortMeddelanden": one("u-amira", { caseId: NADIA }),
   "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
+  "arenden.kortYrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],
@@ -159,6 +160,8 @@ const WRITES: Record<string, string[]> = {
   // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
   "grupper.ny": ["groupings", AUDIT], "grupper.andra": ["groupings", AUDIT], "grupper.arkivera": ["groupings", AUDIT], "grupper.standard": ["groupings", AUDIT],
   "grupper.arendeSpara": ["grouping_members", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
+  // Byt yrkesområde (Karims beslut 2026-10-22): anteckningen med motiveringen, bytet och ärendets yrkesområde.
+  "arenden.bytYrkesomrade": ["case_notes", "case_area_changes", "cases", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
