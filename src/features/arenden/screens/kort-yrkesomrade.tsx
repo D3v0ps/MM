@@ -2,43 +2,48 @@
 // Yrkesområdet på deltagarkortet och Byt yrkesområde (Karims beslut 2026-10-22). Bara Miljonbemanning: kommunens vyer visar
 // som förut bara nuvarande yrkesområde. Huvudcoachen (och samordnare, avtalsansvarig) byter med en kort motivering – den sparas
 // som en anteckning i deltagarkortet. Grupp och inbjudningar ändras direkt; fakturan räknas på det nya yrkesområdet från och med
-// månaden efter bytet. Bytena listas under raden ("22 okt: A → C (vem som bytte) – fakturan från november").
+// månaden efter bytet. Knappen står i dialogen Nivå och yrkesområde (Ändra i kortets huvud – yrkesområdet är deltagarens grupp)
+// och bytena listas under huvudets rad ("22 okt: A → C (vem som bytte) – fakturan från november").
 import { useState } from "react";
 import { AREA_MOTIVATION_MAX, AREA_MOTIVATION_MIN } from "@/core/area-changes";
 import { plural } from "@/core/format";
 import { fmtDateShort, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
-import { Button, Field, Kv, Modal, Notice, Select, Stack, TextArea, toast } from "@/ui";
+import { Button, cn, Field, Kv, Modal, Notice, Select, Stack, TextArea, toast } from "@/ui";
 import { caseAreaView, caseChangeArea, type CaseAreaView } from "../api";
 
-/** Raden "Yrkesområde: C – namn" med Byt yrkesområde och bytena hittills. Visas inte när frågan svarar null. */
-export function CaseAreaRow({ caseId, className }: { caseId: string; className?: string }) {
+/**
+ * Knappen Byt yrkesområde med dialogen – i dialogen Nivå och yrkesområde (Ändra i kortets huvud, CaseGroupingRow areaAction), vid
+ * yrkesområdet. Bara för den som får byta (coach, samordnare, avtalsansvarig med full åtkomst) i ett ärende som kan byta.
+ */
+export function CaseAreaChange({ caseId }: { caseId: string }) {
   const q = useQuery(caseAreaView, { caseId });
   const [open, setOpen] = useState(false);
   const v = q.data;
-  if (!v) return null;
+  if (!v || !v.canChange) return null;
   return (
-    <div className={className} data-area-row="">
-      <span className="inline-flex flex-wrap items-baseline gap-x-1.5">
-        <span className="text-text-muted">Yrkesområde:</span>
-        <span className="font-semibold">{v.current ? `${v.current.code} – ${v.current.name}` : "Inte valt"}</span>
-      </span>
-      {v.canChange && (
-        <Button kind="ghost" icon="edit" onClick={() => setOpen(true)}>
-          Byt yrkesområde
-        </Button>
-      )}
-      {v.history.length > 0 && (
-        <ul className="m-0 flex w-full list-none flex-col gap-0.5 p-0 text-small text-text-muted" aria-label="Byten av yrkesområde">
-          {v.history.map((h) => (
-            <li key={h.id}>
-              {fmtDateShort(h.changedAt)}: {h.fromArea} → {h.toArea} ({h.byName}) – fakturan från {monthName(h.effectiveMonth).replace(/ \d{4}$/, "")}
-            </li>
-          ))}
-        </ul>
-      )}
+    <>
+      <Button kind="ghost" icon="edit" onClick={() => setOpen(true)}>
+        Byt yrkesområde
+      </Button>
       {open && <AreaModal v={v} onClose={() => setOpen(false)} />}
-    </div>
+    </>
+  );
+}
+
+/** Bytena hittills under raden ("27 jan: G → D (Amira Haddad) – fakturan från februari"). Inget när ärendet inte har bytt. */
+export function CaseAreaHistory({ caseId, className }: { caseId: string; className?: string }) {
+  const q = useQuery(caseAreaView, { caseId });
+  const v = q.data;
+  if (!v || v.history.length === 0) return null;
+  return (
+    <ul className={cn("m-0 flex list-none flex-col gap-0.5 p-0 text-small text-text-muted", className)} aria-label="Byten av yrkesområde" data-area-history="">
+      {v.history.map((h) => (
+        <li key={h.id}>
+          {fmtDateShort(h.changedAt)}: {h.fromArea} → {h.toArea} ({h.byName}) – fakturan från {monthName(h.effectiveMonth).replace(/ \d{4}$/, "")}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -46,8 +51,8 @@ export function CaseAreaRow({ caseId, className }: { caseId: string; className?:
 export function areaGroupsText(g: { invited: number; removed: number } | null): string {
   if (!g) return "";
   return [
-    g.invited ? `Deltagaren är inbjuden till ${plural(g.invited, "kommande aktivitet", "kommande aktiviteter")} för yrkesområdet.` : "",
-    g.removed ? `${plural(g.removed, "aktivitet", "aktiviteter")} för det förra yrkesområdet är borttagna.` : "",
+    g.invited ? `Deltagaren är inbjuden till ${plural(g.invited, "kommande aktivitet", "kommande aktiviteter")} för det nya yrkesområdet.` : "",
+    g.removed ? `Deltagaren är borttagen ur ${plural(g.removed, "kommande aktivitet", "kommande aktiviteter")} för det förra yrkesområdet.` : "",
   ].filter(Boolean).join(" ");
 }
 

@@ -240,7 +240,7 @@ test("Bjud in en nivå: antalet och vilka visas, servern hoppar över den som ha
 
   // Nivå: Nivå 3 har 17 aktiva deltagare – namnen visas innan man skapar.
   await page.getByRole("tab", { name: "Nivå" }).click();
-  await page.getByLabel("Nivå", { exact: true }).selectOption("grp-c-bot-niva-3");
+  await page.getByRole("combobox", { name: "Nivå", exact: true }).selectOption("grp-c-bot-niva-3");
   await expect(main(page).getByRole("status").filter({ hasText: "just nu" })).toHaveText("17 deltagare just nu. De som tillkommer bjuds in automatiskt fram till aktiviteten.");
   await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0130");
   await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0142");
@@ -288,7 +288,7 @@ test("Upprepa varje vecka: en nivåaktivitet tisdag och torsdag – tillfällena
   // En återkommande aktivitet har alltid en målgrupp: Yrkesområde eller Nivå – inte Enskilda.
   await expect(page.getByRole("tab", { name: "Enskilda" })).toHaveCount(0);
   await page.getByRole("tab", { name: "Nivå" }).click();
-  await page.getByLabel("Nivå", { exact: true }).selectOption("grp-c-bot-niva-3");
+  await page.getByRole("combobox", { name: "Nivå", exact: true }).selectOption("grp-c-bot-niva-3");
   await expect(page.locator("#ny-meddela-serie")).not.toBeChecked();
   await expect(main(page)).toContainText("Deltagarna får tiderna av sin coach. Slå på om de ska få ett meddelande inför varje tillfälle.");
   await btn(page, "Skapa den återkommande aktiviteten").click();

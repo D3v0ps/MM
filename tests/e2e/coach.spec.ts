@@ -526,19 +526,20 @@ test("Månadsbedömning januari: 'Lägg till i sammanfattningen' lägger in ante
   await expect(main(page)).toContainText("Anteckningar från januari. De kommer inte med i rapporten av sig själva.");
   const note = "Handläggaren ringde och frågade om det planerade slutdatumet.";
   await expect(main(page)).toContainText(note);
-  // Sammanfattningen är ifylld automatiskt (Karims beslut 2026-10-22) – anteckningen läggs till efter texten.
+  // Sammanfattningen är ifylld automatiskt (Karims beslut 2026-10-22) – anteckningen (hela texten, som börjar med note) läggs
+  // till i ett eget stycke efter den.
   await expect(main(page)).toContainText(/\d+ av 4000 tecken/);
   await btn(page, "Lägg till i sammanfattningen").first().click();
   // Knappen byter till "Tillagd" utan att tappa fokus, och kvittensen läses upp.
   await expect(btn(page, "Tillagd i sammanfattningen")).toHaveAttribute("aria-disabled", "true");
   await expect(btn(page, "Tillagd i sammanfattningen")).toBeFocused();
   await expect(page.getByText("Anteckningen är tillagd i sammanfattningen.", { exact: false })).toBeVisible();
-  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`(^|\n\n)${note}$`));
+  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`(^|\n\n)${note}`));
   await btn(page, "Spara utkast").click();
   await expect(page.getByText("Utkastet är sparat.")).toBeVisible();
   await page.reload();
   if (!isDemo(info)) await loaded(page);
-  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`(^|\n\n)${note}$`));
+  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`(^|\n\n)${note}`));
   // Efter omladdning: texten finns i sammanfattningen – samma anteckning kan inte läggas in en gång till.
   await expect(btn(page, "Tillagd i sammanfattningen")).toHaveCount(1);
   await expect(btn(page, "Lägg till i sammanfattningen")).toHaveCount(2);

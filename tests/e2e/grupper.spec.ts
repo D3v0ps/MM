@@ -47,9 +47,8 @@ test("kartläggningen: coachen sätter nivå och Vill arbeta – gruppen är yrk
   await go(page, info, `/arenden/${SC.amal}`);
   const row = page.locator("[data-grouping-row]");
   await expect(row).toContainText("Nivå 2 – Behöver stöd för att komma igång");
+  await expect(row).toContainText("L – Övrigt");
   await expect(row).toContainText("Vill arbeta: Deltid");
-  // Yrkesområdet står på raden under, med Byt yrkesområde (Karims beslut 2026-10-22).
-  await expect(page.locator("[data-area-row]")).toContainText("L – Övrigt");
   expect(relevant(errors)).toEqual([]);
 });
 
@@ -57,7 +56,7 @@ test("deltagarkortet: Höj nivå ett steg och Ändra öppnar samma val; ärendel
   const errors = await open(page, info, `/arenden/${SC.nadia}`, COACH);
   const row = page.locator("[data-grouping-row]");
   await expect(row).toContainText("Nivå 4 – Nära arbete");
-  await expect(page.locator("[data-area-row]")).toContainText("G – Lager och logistik");
+  await expect(row).toContainText("G – Lager och logistik");
   await btn(row, /^Höj nivå/).click();
   await expect(page.getByText(/Nivån är höjd till Nivå 5 – Redo för arbete\./)).toBeVisible();
   await expect(row).toContainText("Nivå 5 – Redo för arbete");
@@ -116,16 +115,19 @@ test("Grupper och nivåer: yrkesområdena med månadens träff eller Planera, ni
   const e = areas.getByTestId("yrkesomrade").filter({ hasText: "E – Transport och åkeri" });
   await expect(e).toContainText("Ingen träff planerad i februari");
   const levels = card(page, "Nivåer");
-  const n4 = levels.getByTestId("niva").filter({ hasText: "Nivå 4 – Nära arbete" });
+  // Nivåns avsnitt efter rubriken (Nivå 3:s avsnitt nämner också Nivå 4 – i Höj nivå till nästa nivå).
+  const n4 = levels.getByRole("region", { name: "Nivå 4 – Nära arbete", exact: true });
   await expect(n4).toContainText("Jobbsök och CV – mån och ons 13.30");
   await expect(n4.getByRole("link", { name: /Nadia Warsame/ })).toBeVisible();
   await expect(card(page, "Utan nivå – att kartlägga").getByTestId("utan-niva").filter({ hasText: "BOT-27-0012" })).toHaveCount(1);
   for (const word of ["Måndagsgruppen", "Lagergruppen", "Höstgruppen", "Ny grupp"]) await expect(main(page)).not.toContainText(word);
   // Planera: Ny aktivitet med yrkesområdet förvalt – deltagarna räknas direkt.
-  await btn(e, /^Planera/).click();
+  // Planera är en länk till Ny aktivitet (den här månadens först).
+  await e.getByRole("link", { name: /^Planera/ }).first().click();
   await expect(page.getByRole("heading", { level: 1, name: "Ny aktivitet" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "Yrkesområde" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByLabel("Yrkesområde", { exact: true })).toHaveValue("E");
+  // Fliken och valet heter båda Yrkesområde (flikpanelen är märkt med fliken) – valet är rullistan.
+  await expect(page.getByRole("combobox", { name: "Yrkesområde", exact: true })).toHaveValue("E");
   await expect(main(page).getByRole("status").filter({ hasText: "just nu" })).toHaveText("4 deltagare just nu. De som tillkommer bjuds in automatiskt fram till aktiviteten.");
   expect(relevant(errors)).toEqual([]);
 });
@@ -162,7 +164,7 @@ test("kommunen ser inget av nivåer och taggar", async ({ page }, info) => {
     await page.goto(`/portal/deltagare/${SC.nadia}`);
   }
   await expect(main(page)).toContainText("BOT-26-0143");
-  for (const word of ["Nivå 4", "Nära arbete", "Vill arbeta", "Heltid", "Nivå och yrkesområde", "Nivå och taggar", "Byt yrkesområde", "Jobbsök och CV"]) await expect(main(page)).not.toContainText(word);
+  for (const word of ["Nivå 4", "Nära arbete", "Vill arbeta", "Heltid", "Nivå och yrkesområde", "Byt yrkesområde", "Jobbsök och CV"]) await expect(main(page)).not.toContainText(word);
   await go(page, info, "/portal/deltagare");
   await expect(main(page)).toContainText("Mina deltagare");
   await expect(main(page)).toContainText("Nadia Öztürk");

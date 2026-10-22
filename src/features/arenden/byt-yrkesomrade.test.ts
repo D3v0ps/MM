@@ -172,7 +172,7 @@ describe("Byt yrkesområde: grupp och inbjudningar följer direkt (Karims beslut
   });
 });
 
-describe("Yrkesområdet på deltagarkortet (arenden.kortYrkesomrade)", () => {
+describe("Yrkesområdet på deltagarkortet (arenden.yrkesomrade)", () => {
   it("nuvarande yrkesområde, de andra aktiva att byta till, och bytena – nyast först", async () => {
     const v = (await q(caseAreaView, { caseId: "case-260163" }, amira()))!;
     expect(v.current).toEqual({ code: "D", name: "Kök, restaurang och måltidsservice" });

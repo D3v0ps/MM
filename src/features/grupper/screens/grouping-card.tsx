@@ -42,7 +42,9 @@ export function levelChangeText(r: LevelChange): string {
  * Kortet med valen. Utan skrivrätt (chef, systemadministratör): bara texten. bare: utan kortets ram (i deltagarkortets dialog).
  * requiredForApproval: kartläggningen – nivån krävs innan den godkänns (texten vid fältet).
  */
-export function GroupingCard({ caseId, title = "Nivå och yrkesområde", bare, requiredForApproval }: { caseId: string; title?: string; bare?: boolean; requiredForApproval?: boolean }) {
+export function GroupingCard({
+  caseId, title = "Nivå och yrkesområde", bare, requiredForApproval, areaAction,
+}: { caseId: string; title?: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode }) {
   const q = useQuery(caseGroupingsView, { caseId });
   const wrap = (children: ReactNode) => (bare ? <>{children}</> : <Card title={title} icon="layers">{children}</Card>);
   if (q.error) return wrap(<ErrorNotice error={q.error} onRetry={() => void q.refetch()} />);
@@ -56,16 +58,16 @@ export function GroupingCard({ caseId, title = "Nivå och yrkesområde", bare, r
       </Stack>,
     );
   }
-  return <Editor key={caseId} v={q.data} title={title} bare={bare} requiredForApproval={requiredForApproval} />;
+  return <Editor key={caseId} v={q.data} title={title} bare={bare} requiredForApproval={requiredForApproval} areaAction={areaAction} />;
 }
 
 /**
- * Raden i deltagarkortets huvud: nivå och taggar (text + ikon), "Höj nivå" (ett klick till nästa nivå – inte på nivå 5) och
- * "Ändra", som öppnar samma val som i kartläggningen (Byt nivå, taggar, historiken). Yrkesområdet står på raden under, med Byt
- * yrkesområde (src/features/arenden/screens/kort-yrkesomrade.tsx) – så att varje uppgift står en gång, bredvid sin knapp. Visas
- * inte för den som inte får se medlemskapen (frågan svarar null).
+ * Raden i deltagarkortets huvud: nivå, yrkesområde och taggar (text + ikon), "Höj nivå" (ett klick till nästa nivå – inte på
+ * nivå 5) och "Ändra", som öppnar samma val som i kartläggningen (Byt nivå, taggar, historiken). areaAction: deltagarkortet lägger
+ * Byt yrkesområde i dialogen, vid yrkesområdet (src/features/arenden/screens/kort-yrkesomrade.tsx). Raden ryms på en rad (etiketten
+ * bara för skärmläsare), så att flikraden syns utan att skrolla. Visas inte för den som inte får se medlemskapen (frågan svarar null).
  */
-export function CaseGroupingRow({ caseId, className }: { caseId: string; className?: string }) {
+export function CaseGroupingRow({ caseId, className, areaAction }: { caseId: string; className?: string; areaAction?: ReactNode }) {
   const q = useQuery(caseGroupingsView, { caseId });
   const raise = useCommand(caseLevelRaise);
   const [open, setOpen] = useState(false);
@@ -82,8 +84,8 @@ export function CaseGroupingRow({ caseId, className }: { caseId: string; classNa
   };
   return (
     <div className={className} data-grouping-row="">
-      <span className="text-text-muted">Nivå och taggar:</span>
-      <GroupingSummary g={v.current} />
+      <span className="sr-only">Nivå och yrkesområde:</span>
+      <GroupingSummary g={v.current} area={v.area} />
       {v.canEdit && v.current.level && v.nextLevel && (
         <Button kind="ghost" icon="trending-up" pending={raise.pending} onClick={() => void doRaise()}>
           Höj nivå<span className="sr-only"> till {v.nextLevel.name}</span>
@@ -91,12 +93,12 @@ export function CaseGroupingRow({ caseId, className }: { caseId: string; classNa
       )}
       {v.canEdit && (
         <Button kind="ghost" icon="edit" onClick={() => setOpen(true)}>
-          Ändra<span className="sr-only"> nivå och taggar</span>
+          Ändra<span className="sr-only"> nivå, taggar och yrkesområde</span>
         </Button>
       )}
       {open && (
         <Modal title="Nivå och yrkesområde" onClose={() => setOpen(false)} footer={<DoneButton />}>
-          <GroupingCard caseId={caseId} bare />
+          <GroupingCard caseId={caseId} bare areaAction={areaAction} />
         </Modal>
       )}
     </div>
@@ -124,7 +126,9 @@ function LevelHistory({ v }: { v: CaseGroupingsView }) {
   );
 }
 
-function Editor({ v, title, bare, requiredForApproval }: { v: CaseGroupingsView; title: string; bare?: boolean; requiredForApproval?: boolean }) {
+function Editor({
+  v, title, bare, requiredForApproval, areaAction,
+}: { v: CaseGroupingsView; title: string; bare?: boolean; requiredForApproval?: boolean; areaAction?: ReactNode }) {
   const save = useCommand(caseGroupingsSave);
   const raise = useCommand(caseLevelRaise);
   const note = useCommand(caseNoteSave);
@@ -245,7 +249,12 @@ function Editor({ v, title, bare, requiredForApproval }: { v: CaseGroupingsView;
       <div className="flex flex-col gap-1">
         <span className="text-ui font-bold">Yrkesområde (gruppen)</span>
         <span className="text-body">{v.area ?? "Yrkesområde saknas"}</span>
-        <span className="text-small text-text-muted">Gruppen följer deltagarens yrkesområde och väljs inte här. Deltagaren bjuds in till yrkesområdets träffar.</span>
+        <span className="text-small text-text-muted">
+          {areaAction
+            ? "Gruppen följer deltagarens yrkesområde. Byter du yrkesområde bjuds deltagaren in till det nya yrkesområdets träffar direkt."
+            : "Gruppen följer deltagarens yrkesområde och väljs inte här. Deltagaren bjuds in till yrkesområdets träffar."}
+        </span>
+        {areaAction && <div>{areaAction}</div>}
       </div>
       {v.options.tags.map((t, i) => (
         <Field key={t.category} label={t.category} id={`gr-tagg-${v.caseId}-${i}`} help={t.category === "Vill arbeta" ? "Deltagarens eget svar." : undefined}>

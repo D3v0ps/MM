@@ -52,7 +52,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortAvvikelser": one("u-amira", { caseId: "case-260148" }), "arenden.kortPraktik": one("u-amira", { caseId: NADIA }),
   "arenden.kortRapporter": one("u-amira", { caseId: NADIA }), "arenden.kortMeddelanden": one("u-amira", { caseId: NADIA }),
   "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
-  "arenden.kortYrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
+  "arenden.yrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],

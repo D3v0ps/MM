@@ -289,7 +289,9 @@ export type CaseAreaView = {
   effectiveMonth: MonthKey;
   history: { id: string; changedAt: LocalDateTime; fromArea: string; toArea: string; byName: string; effectiveMonth: MonthKey }[];
 };
-export const caseAreaView = query("arenden.kortYrkesomrade", z.object({ caseId: IdSchema })).returns<CaseAreaView | null>();
+// Nyckeln ligger utanför CARD ("arenden.kort…"): raden ändras bara när ärendet ändras (CASES räknar om den), inte av kortets
+// övriga kommandon (meddelanden, anteckningar).
+export const caseAreaView = query("arenden.yrkesomrade", z.object({ caseId: IdSchema })).returns<CaseAreaView | null>();
 
 /**
  * Byt deltagarens yrkesområde med en kort motivering (10–300 tecken, inga personnummer). I ordning: motiveringen sparas som
@@ -297,13 +299,13 @@ export const caseAreaView = query("arenden.kortYrkesomrade", z.object({ caseId: 
  * revisionsloggen får case.area_changed (id:n och koder – aldrig motiveringen) och grupp och inbjudningar följer med
  * (afterCaseAreaChanged). Fakturan räknas på det nya yrkesområdet från och med månaden efter bytet (effectiveMonth).
  */
-// Omräkning CASE_FACTS (brett med flit) och inkorgen: yrkesområdet styr fakturaunderlaget, ledningens jämförelse per område,
-// listorna, inkorgen, kortet, aktiviteterna (grupp och inbjudningar) och revisionsloggen.
+// Omräkning CASE_FACTS (brett med flit), grupperna och inkorgen: yrkesområdet styr fakturaunderlaget, ledningens jämförelse per
+// område, listorna, inkorgen, kortet, aktiviteterna och Grupper och nivåer (grupp och inbjudningar) och revisionsloggen.
 export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
   caseId: IdSchema,
   toArea: z.string().trim().min(1).max(10),
   motivation: z.string().max(2000),
-}), { invalidates: [...CASE_FACTS, INBOX] }).returns<
+}), { invalidates: [...CASE_FACTS, GRUPPER, INBOX] }).returns<
   Result<
     {
       changeId: string; noteId: string; effectiveMonth: MonthKey;

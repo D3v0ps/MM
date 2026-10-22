@@ -84,8 +84,8 @@ Närvaron ligger till grund för veckorapporten, närvarograden och fakturan. Ko
 Vem: alla som arbetar i ärendet.
 
 - Skriv anteckningar för flera deltagare under **Anteckningar**. Välj en nivå, ett yrkesområde eller en tagg och skriv en rad per deltagare. Tryck på knappen med antalet, till exempel **Spara 3 anteckningar**.
-- Går deltagaren framåt? Tryck på **Höj nivå** vid **Nivå och taggar** i deltagarkortet, eller **Ändra** för att byta till en annan nivå. Deltagaren flyttas till den nya nivåns aktiviteter automatiskt.
-- Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen trycker på **Byt yrkesområde** i deltagarkortet och skriver en kort motivering. Deltagaren flyttas direkt till det nya yrkesområdets träffar. Fakturan räknas på det nya yrkesområdet från och med månaden efter.
+- Går deltagaren framåt? Tryck på **Höj nivå** vid nivån i deltagarkortets huvud, eller **Ändra** för att byta till en annan nivå. Deltagaren flyttas till den nya nivåns aktiviteter automatiskt.
+- Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen trycker på **Ändra** vid nivån och yrkesområdet i deltagarkortet, sedan på **Byt yrkesområde**, och skriver en kort motivering. Deltagaren flyttas direkt till det nya yrkesområdets träffar. Fakturan räknas på det nya yrkesområdet från och med månaden efter.
 - Upprepad ogiltig frånvaro ger en flagga på Min vecka. Håll ett uppföljningsmöte och gör en plan.
 - Röd samlad status blir en avvikelse automatiskt. Fyll i åtgärd, ansvarig och datum för uppföljning. Behöver kommunen besluta något: tryck på **Kalla kommunen till uppföljning**.
 - Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Händelser och utfall**. En praktik läggs in med **Ny praktik** under fliken **Praktik**.

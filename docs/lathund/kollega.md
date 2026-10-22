@@ -116,13 +116,13 @@ Den som kartlägger väljer deltagarens nivå och taggar i kortet **Nivå och yr
 3. Valen sparas direkt. Deltagaren bjuds in automatiskt till nivåns aktiviteter.
 4. Vill du skriva något till coacherna? Skriv i **En rad till coacherna (valfritt)** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet med dagens datum.
 
-Går deltagaren framåt? I deltagarkortet står nivån på raden **Nivå och taggar**. Yrkesområdet står på raden under. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
+Går deltagaren framåt? I deltagarkortets huvud står nivån, yrkesområdet och taggarna. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
 
 ### Byt yrkesområde
 
 Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen, samordnaren och avtalsansvarig kan byta det i deltagarkortet.
 
-1. Tryck på **Byt yrkesområde** på raden **Yrkesområde**.
+1. Tryck på **Ändra** vid nivån och yrkesområdet i deltagarkortets huvud och sedan på **Byt yrkesområde**. Tidigare byten står under raden i huvudet.
 2. Välj **Nytt yrkesområde**.
 3. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet.
 4. Tryck på **Byt yrkesområde**.
