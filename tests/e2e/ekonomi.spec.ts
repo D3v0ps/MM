@@ -7,6 +7,8 @@
 // case-260117/0121 (spärrad referens 55102983), case-260157/0159 och 270031 har en vecka utan närvaro, case-260131 överlappar
 // BOT-27-0004, case-260132 har en pausad vecka, case-260143 är "Nadia Warsame".
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import fs from "node:fs";
+import { entryText, readZip } from "../../src/core/export/read-zip.test-helper";
 import { isDemo, loaded, open } from "./helpers";
 
 const EKONOM = { userId: "u-lars", role: "ekonom" };
@@ -268,9 +270,28 @@ test("5. skapa i Fortnox: en faktura, idempotens, statussynk och stäng körning
   expect(errors).toEqual([]);
 });
 
-test("6 och 8. reservväg: CSV-export och manuellt fakturerad (kräver referens), ekonomens ärendevy", async ({ page }, info) => {
+test("6 och 8. reservväg: Excel- och CSV-export och manuellt fakturerad (kräver referens), ekonomens ärendevy", async ({ page }, info) => {
   const errors = await openEko(page, info, "/ekonomi/2027-01", EKONOM, JAN);
-  // Prototypen visar filens innehåll i en textruta; appen laddar ner filen.
+  // Excel med fakturans fält som i Fortnox: laddas ner som fil i både prototypen och appen.
+  const [xl] = await Promise.all([page.waitForEvent("download", { timeout: 30_000 }), page.getByRole("button", { name: "Exportera underlag (Excel)" }).click()]);
+  expect(xl.suggestedFilename()).toBe("fakturaunderlag-2027-01.xlsx");
+  const xlsx = fs.readFileSync((await xl.path())!);
+  expect(xlsx.subarray(0, 2).toString("latin1")).toBe("PK");
+  const entries = await readZip(new Uint8Array(xlsx));
+  expect([...entryText(entries, "xl/workbook.xml").matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1])).toEqual(["Faktura", "Fakturarader", "Om underlaget"]);
+  const invoiceSheet = entryText(entries, "xl/worksheets/sheet1.xml");
+  expect(invoiceSheet).toContain(JAN);
+  expect(invoiceSheet).toContain("Stoppad – beställarreferens saknas");
+  expect(invoiceSheet).toContain("Kundnummer i Fortnox");
+  const lineSheet = entryText(entries, "xl/worksheets/sheet2.xml");
+  for (const h of ["Er referens", "Ert ordernummer", "Artikelnummer", "Benämning", "À-pris exkl. moms", "Belopp exkl. moms", "Anmärkningar för ekonomen"]) expect(lineSheet).toContain(h);
+  expect(lineSheet).toContain("BOT-26-0143 · v. ");
+  expect(lineSheet).toContain('<autoFilter ref="A1:L125"/>');
+  const xlsxText = entries.map((e) => new TextDecoder().decode(e.data)).join("\n");
+  expect(xlsxText).not.toContain("Nadia");
+  expect(xlsxText).not.toContain("Warsame");
+  expect(xlsxText).not.toMatch(/<f[ >]/);
+  // Prototypen visar CSV-filens innehåll i en textruta; appen laddar ner filen.
   let csv = "";
   if (isDemo(info)) {
     await page.getByRole("button", { name: "Exportera underlag (CSV)" }).click();
@@ -282,7 +303,6 @@ test("6 och 8. reservväg: CSV-export och manuellt fakturerad (kräver referens)
     const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Exportera underlag (CSV)" }).click()]);
     expect(dl.suggestedFilename()).toMatch(/\.csv$/);
     expect(dl.suggestedFilename()).not.toMatch(/Nadia|Warsame/);
-    const fs = await import("node:fs");
     csv = fs.readFileSync((await dl.path())!, "utf8").replace(/^﻿/, "");
   }
   expect(csv.startsWith("Faktura;Fakturans status;Beställarreferens;Inköpsordernummer;Ärendenummer (faktureringsobjekt);")).toBe(true);

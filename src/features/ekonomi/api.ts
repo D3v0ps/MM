@@ -65,6 +65,15 @@ export const billingExport = command("ekonomi.billingExport", z.object({
 }), { invalidates: [BILLING, ...LOG] }).returns<Result<object>>();
 
 /**
+ * Fakturaunderlaget som Excel-fil (reservvägen, SPEC §7.15) med fälten som i Fortnox: bladen Faktura (ett block per faktura),
+ * Fakturarader (en rad per ärende) och Om underlaget. Bara ekonomen. Loggas som export.billing (format xlsx) innan filen
+ * lämnas ut. content = filen som base64 (RPC svarar med JSON). Inga namn eller personnummer.
+ */
+export const billingExportXlsx = command("ekonomi.billingExportXlsx", z.object({
+  month: MonthKeySchema,
+}), { invalidates: [...LOG] }).returns<Result<{ filename: string; mime: string; content: string; invoices: number; rows: number }>>();
+
+/**
  * Fakturans beställarreferens (beslut 3: Miljonbemanning fyller i den, en per faktura). Formatet (8–10 siffror) och kommunens
  * referensregister kontrolleras. Går att ändra tills fakturan är skapad – och på en returnerad faktura innan den görs om.
  */

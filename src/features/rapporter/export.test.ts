@@ -299,7 +299,8 @@ describe("filerna", () => {
       expect(about).toContain(t);
     }
     // Fältbeskrivningens rader bryts i cellerna (stil 3: wrapText, överst) – rubrikraden är fet, reglerna ovanför bryts inte.
-    expect(entryText(es, "xl/styles.xml")).toContain('<cellXfs count="4">');
+    // Stilarna: 0 normal, 1 fet, 2 en decimal, 3 radbrytning, 4 kronor (fakturaunderlaget).
+    expect(entryText(es, "xl/styles.xml")).toContain('<cellXfs count="5">');
     expect(entryText(es, "xl/styles.xml")).toContain('<alignment wrapText="1" vertical="top"/>');
     const cellsOf = (text: string) => [...about.matchAll(/<c r="([A-Z]+)(\d+)"( s="(\d)")? t="inlineStr"><is><t xml:space="preserve">([^<]*)<\/t>/g)].filter((m) => m[5] === text);
     const veckor = [...about.matchAll(/<c r="C(\d+)" s="(\d)" t="inlineStr"><is><t xml:space="preserve">Antal veckor \(måndag–söndag\)/g)];

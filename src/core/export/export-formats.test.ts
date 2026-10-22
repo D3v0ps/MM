@@ -130,6 +130,23 @@ describe("xlsx", () => {
     for (const e of es) expect(new TextDecoder().decode(e.data)).not.toMatch(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]|&(?!amp;|lt;|gt;|quot;|apos;)/);
   });
 
+  it("kronor med två decimaler: i en kolumn och i enskilda celler – bara tal, aldrig text eller fet rad", async () => {
+    const sheet: XlsxSheet = {
+      name: "Fakturarader", header: true, moneyColumns: [1], moneyCells: [[2, 2]],
+      rows: [["Rad", "Belopp", "Annat"], ["a", 1523, 4], ["b", "1 523,00", 1234.5]],
+    };
+    const es = await readZip(await buildXlsx([sheet]));
+    const s1 = entryText(es, "xl/worksheets/sheet1.xml");
+    expect(s1).toContain('<c r="B2" s="4"><v>1523</v></c>');
+    expect(s1).toContain('<c r="C2"><v>4</v></c>');
+    expect(s1).toContain('<c r="B3" t="inlineStr">');
+    expect(s1).toContain('<c r="C3" s="4"><v>1234.5</v></c>');
+    expect(s1).toContain('<c r="B1" s="1" t="inlineStr">');
+    const styles = entryText(es, "xl/styles.xml");
+    expect(styles).toContain('<cellXfs count="5">');
+    expect(styles).toContain('<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"');
+  });
+
   it("ogiltiga bladnamn stoppas", () => {
     expect(() => xlsxParts([{ name: "A/B", rows: [] }])).toThrow();
     expect(() => xlsxParts([{ name: "x".repeat(32), rows: [] }])).toThrow();
