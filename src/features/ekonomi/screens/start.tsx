@@ -53,7 +53,7 @@ function Start({ v }: { v: BillingStartView }) {
             value={num(cur.blocked)}
             tone={cur.blocked ? "watch" : null}
             statusText="Fyll i referensen"
-            sub={cur.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
+            sub={cur.blocked ? (cur.counts.priceBlocked ? "Exempelpris, saknat pris eller fel referens" : "Fel eller saknad beställarreferens") : "Inga stoppade"}
           />
           <EkoKpi
             label="Preskriptionsrisk"

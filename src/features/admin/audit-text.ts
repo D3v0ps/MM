@@ -29,7 +29,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "template.saved": "Sparade ny mallversion", "job.run_manual": "Körde bakgrundsjobb manuellt", "audit.log_check": "Signerade loggkontroll",
   "pulse.submitted": "Pulssvar inskickat", "employer.added": "Lade till arbetsgivare", "placement.four_rights_updated": "Ändrade de fyra rätten", "placement.follow_up_added": "Lade till uppföljningsdatum",
   "case.view_denied": "Nekades att öppna deltagarkort", "ai.blocked": "AI stoppades", "notify.suppressed": "Stoppade utskick", "email.registered_by_phone": "Registrerade avrop per telefon", "case.order_details_corrected": "Rättade beställningsuppgifter",
-  "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning",
+  "billing.fortnox_run": "Körde överföring till Fortnox", "billing.fortnox_status_synced": "Hämtade fakturastatus från Fortnox", "billing.credited_and_reissued": "Krediterade och fakturerade på nytt", "billing.run_closed": "Stängde fakturakörning", "billing.run_created": "Skapade månadens fakturakörning",
   // Fakturan per avtal och månad (beslut 2026-10-07): ekonomen fyller i kommunens referens och inköpsordernummer per faktura.
   "billing.buyer_reference_set": "Fyllde i beställarreferens på faktura", "billing.purchase_order_set": "Fyllde i inköpsordernummer på faktura",
   "task.created": "Skapade uppgift", "task.updated": "Ändrade uppgift", "task.done": "Markerade uppgift som klar", "auth.login": "Loggade in", "contract_deviation.created": "Registrerade avtalsavvikelse", "contract_deviation.updated": "Ändrade avtalsavvikelse",

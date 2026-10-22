@@ -98,6 +98,20 @@ describe("rapportutkasten i jobbkörningen", () => {
     expect(t.store.rows("reports").filter((r) => r.week === "2027-W05")).toHaveLength(4);
   });
 
+  it("samma jobb skapar månadens fakturakörning när månaden är slut – en gång, av systemet (inte på nyinläst testdata)", async () => {
+    const t = setup();
+    await t.run(DEMO_START);
+    expect(t.store.rows("billing_runs").filter((r) => r.month >= "2027-02")).toEqual([]);
+    await t.run("2027-02-28T23:55");
+    expect(t.store.rows("billing_runs").filter((r) => r.month >= "2027-02")).toEqual([]);
+    expect(await t.run("2027-03-01T00:03")).toMatchObject({ done: 1, failed: 0, outcomes: { "report_schedule:created": 1 } });
+    expect(t.store.rows("billing_runs").filter((r) => r.month >= "2027-02")).toEqual([
+      { id: "br-c-bot-2027-02", contractId: "c-bot", month: "2027-02", status: "draft", createdBy: "system", createdAt: "2027-03-01T00:03", closedAt: null, closedBy: null },
+    ]);
+    await t.run("2027-03-01T00:13");
+    expect(t.store.rows("billing_runs").filter((r) => r.month === "2027-02")).toHaveLength(1);
+  });
+
   it("högvattenmärket sparas i app_settings när avtalet gåtts igenom; ett längre uppehåll fylls i från märket", async () => {
     const t = setup();
     await t.run(DEMO_START);

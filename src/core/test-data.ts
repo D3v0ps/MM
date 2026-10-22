@@ -64,7 +64,8 @@ export const mkReport = (p: Partial<Report> & { id: string; kind: Report["kind"]
 
 export const mkPriceItem = (p: Partial<PriceItem> & { areaCode: string; priceOre: number }): PriceItem => ({
   id: `pi-${p.areaCode}`, contractId: "c-bot", code: `vecka-${p.areaCode}`, unit: "participant_week", packageMonths: null, vatRate: 25, validFrom: "2026-09-10", validTo: "2027-09-09",
-  fortnoxArticleNo: `BOT-${p.areaCode}`, exampleOnly: true, ...p,
+  // Ett inlagt pris (inte ett exempelpris – det stoppar fakturan, priceStopCheck). Tester av stoppet sätter exampleOnly: true.
+  fortnoxArticleNo: `BOT-${p.areaCode}`, exampleOnly: false, ...p,
 });
 
 /** En faktura för avtalet och månaden (beslut 2026-10-07: en per avtal och månad, grupp "avtal"). */

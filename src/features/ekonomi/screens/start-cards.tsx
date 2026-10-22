@@ -95,7 +95,7 @@ export function RunCard({ v, buttonKind = "primary" }: { v: BillingStartView; bu
         <div className="flex flex-col rounded-mb border border-ljusgra">
           {(
             [
-              ["x-circle", "Stoppade fakturor – beställarreferens", cur.counts.blocked, null, true],
+              ["x-circle", cur.counts.priceBlocked ? "Stoppade fakturor – referens eller priser" : "Stoppade fakturor – beställarreferens", cur.counts.blocked, null, true],
               ["clock", "Veckor utan närvaro att godkänna", cur.counts.zeroPending, "godkannande", true],
               ["alert-circle", "Fakturor att godkänna", cur.counts.review, null, false],
               ["check", "Klara fakturor (godkända eller skapade)", cur.counts.ready, null, false],

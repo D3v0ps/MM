@@ -36,7 +36,7 @@ export const billingApproveZeroWeek = command("ekonomi.billingApproveZeroWeek", 
 export const billingApproveInvoice = command("ekonomi.billingApproveInvoice", z.object({
   month: MonthKeySchema,
   invoiceId: InvoiceIdSchema,
-}), { invalidates: [...AFTER] }).returns<Result<{ lines: number }, "not_found" | "created" | "needs_approval" | "empty">>();
+}), { invalidates: [...AFTER] }).returns<Result<{ lines: number }, "not_found" | "created" | "month_open" | "needs_approval" | "empty">>();
 
 /**
  * Skapa fakturorna i Fortnox och logga körningen. Idempotent: en faktura som redan är skapad (eller manuellt
@@ -56,7 +56,7 @@ export const billingMarkManual = command("ekonomi.billingMarkManual", z.object({
   month: MonthKeySchema,
   invoiceId: InvoiceIdSchema,
   invoiceNo: z.string().trim().regex(/^\d{3,10}$/),
-}), { invalidates: [...AFTER] }).returns<Result<object, "not_found" | "created" | "blocked" | "needs_approval" | "empty">>();
+}), { invalidates: [...AFTER] }).returns<Result<object, "not_found" | "created" | "month_open" | "blocked" | "needs_approval" | "empty">>();
 
 /** Logga en export av fakturaunderlaget (prototypens billing.export). Själva filen byggs av skärmen med useDownload(). */
 export const billingExport = command("ekonomi.billingExport", z.object({
@@ -218,6 +218,11 @@ export type RunView = {
   run: { status: BillingRunStatus } | null;
   /** Internt mål för när fakturorna ska vara i Fortnox (bara för en pågående körning). */
   due: { at: LocalDateTime; sla: SlaView; days: number } | null;
+  /**
+   * Månaden är inte slut än: förklaringen till varför "Godkänn" och "Markera som manuellt fakturerad" är avstängda (servern
+   * nekar dem också). null = månaden är slut.
+   */
+  monthOpen: string | null;
   invoices: InvoiceView[];
   /** Antal rader (ärenden), veckor och belopp för hela månaden. */
   count: number;
@@ -358,6 +363,8 @@ export type PriceListRow = {
   vatRate: number;
   validFrom: LocalDate;
   validTo: LocalDate | null;
+  /** Exempelpris (price_items.example_only) – inte avtalets pris. En faktura med ett sådant pris är stoppad. */
+  exampleOnly: boolean;
 };
 export type PriceListView = { customerName: string; contractNumber: string; unitText: string; items: PriceListRow[] };
 export const ekoPriceList = query("ekonomi.priceList", z.object({})).returns<PriceListView>();
@@ -401,7 +408,8 @@ export type BillingStartView = {
     /** "Om 2 dagar" */
     dueRelative: string;
     fortnoxDays: number;
-    counts: { blocked: number; zeroPending: number; review: number; ready: number };
+    /** priceBlocked: stoppade av priserna (exempelpris, pris 0 kr eller inget pris) – ingår i blocked. */
+    counts: { blocked: number; priceBlocked: number; zeroPending: number; review: number; ready: number };
     stepNow: number;
     perContract: boolean;
   } | null;

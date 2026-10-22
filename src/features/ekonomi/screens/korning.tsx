@@ -98,6 +98,10 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
   const allDone = invoices.length > 0 && invoices.every((x) => BILLED.includes(x.status));
   const allLines = invoices.flatMap((x) => x.lines);
   const pendingZero = open.flatMap((x) => x.lines).filter((l) => l.needsApproval);
+  // Månaden är inte slut än: godkännandet och den manuella faktureringen väntar till månadsskiftet (servern nekar dem också).
+  const monthOpen = v.monthOpen;
+  // Stoppade av något annat än beställarreferensen (priserna eller inköpsordernumret).
+  const blockedOther = blocked.filter((x) => x.checks.some((c) => c.severity === "blocking" && c.kind !== "buyer_ref"));
   const withRemarks = open.flatMap((x) => x.lines).filter((l) => l.remarks > 0);
 
   const setF = (x: Filter) => patch({ filter: x === "alla" ? null : x });
@@ -243,7 +247,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
           value={num(blocked.length)}
           tone={blocked.length ? "alert" : null}
           statusText="Fyll i referensen"
-          sub={blocked.length ? "Kan inte skapas utan giltig beställarreferens" : "Inga stoppade"}
+          sub={blocked.length ? (blockedOther.length ? "Kan inte skapas – se steg 1" : "Kan inte skapas utan giltig beställarreferens") : "Inga stoppade"}
         />
         <EkoKpi
           label="Att godkänna"
@@ -264,48 +268,69 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
               Exportera underlag (CSV)
             </Button>
             {act && (
-              <Button kind="secondary" icon="edit" className="whitespace-normal" onClick={() => setManual({ presetId: null })}>
+              <Button
+                kind="secondary"
+                icon="edit"
+                className="whitespace-normal"
+                disabled={!!monthOpen}
+                title={monthOpen ?? undefined}
+                onClick={() => setManual({ presetId: null })}
+              >
                 Markera som manuellt fakturerad
               </Button>
             )}
-            <span className="text-text-muted">Registrera för hand i Fortnox eller i kommunens kostnadsfria fakturaportal.</span>
+            <span className="text-text-muted">{act && monthOpen ? monthOpen : "Registrera för hand i Fortnox eller i kommunens kostnadsfria fakturaportal."}</span>
           </>
         }
       >
         <div className="flex flex-col gap-2.5">
           <Step n={1} done={step1Done}>
-            <StepText title="Fyll i beställarreferensen">
-              {blocked.length
-                ? `${plural(blocked.length, "faktura saknar", "fakturor saknar")} giltig beställarreferens och kan inte skapas. Miljonbemanning fyller i referensen – en per faktura.`
-                : "Alla fakturor har giltig beställarreferens."}
+            <StepText title={blockedOther.some((x) => x.checks.some((c) => c.kind === "price")) ? "Fyll i beställarreferensen och kontrollera priserna" : "Fyll i beställarreferensen"}>
+              {!blocked.length
+                ? "Alla fakturor har giltig beställarreferens."
+                : blockedOther.length
+                  ? `${plural(blocked.length, "faktura är stoppad", "fakturor är stoppade")} och kan inte skapas. Gör det som står nedan.`
+                  : `${plural(blocked.length, "faktura saknar", "fakturor saknar")} giltig beställarreferens och kan inte skapas. Miljonbemanning fyller i referensen – en per faktura.`}
             </StepText>
             {act &&
-              blocked.map((inv) =>
-                inv.checks.some((c) => c.kind === "buyer_ref") ? (
+              blocked.map((inv) => {
+                const other = inv.checks.filter((c) => c.severity === "blocking" && c.kind !== "buyer_ref");
+                return (
                   <div key={inv.id} className="flex w-full flex-col gap-1.5">
-                    <div className="flex flex-wrap items-center gap-1.5 text-small">
-                      <span className="font-bold">{inv.title}</span>
-                      <RefBadge value={inv.buyerReference} info={inv.ref} />
-                    </div>
-                    <InvoiceRefForm inv={inv} rules={v.refRules} canAct={act} idSuffix={`steg-${inv.groupingKey}`} />
+                    {inv.checks.some((c) => c.kind === "buyer_ref") && (
+                      <>
+                        <div className="flex flex-wrap items-center gap-1.5 text-small">
+                          <span className="font-bold">{inv.title}</span>
+                          <RefBadge value={inv.buyerReference} info={inv.ref} />
+                        </div>
+                        <InvoiceRefForm inv={inv} rules={v.refRules} canAct={act} idSuffix={`steg-${inv.groupingKey}`} />
+                      </>
+                    )}
+                    {other.length > 0 && (
+                      <div className="w-full text-small">
+                        <b>{inv.title}:</b> {other.map((c) => c.text).join(" ")}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div key={inv.id} className="w-full text-small">
-                    <b>{inv.title}:</b> {inv.checks.map((c) => c.text).join(" ")}
-                  </div>
-                ),
-              )}
+                );
+              })}
           </Step>
           <Step n={2} done={step2Done}>
             <StepText title="Granska raderna och godkänn">
               {pendingZero.length ? `${plural(pendingZero.length, "vecka utan närvaro", "veckor utan närvaro")} ska godkännas först. ` : ""}
               {withRemarks.length ? `${plural(withRemarks.length, "rad", "rader")} har anmärkning – kontrollera dem innan du godkänner. ` : ""}
               {!toApprove.length ? "Inga fakturor väntar på godkännande." : ""}
+              {monthOpen && toApprove.length ? (
+                <span className="mt-1 flex items-center gap-1.5 text-small">
+                  <Icon name="clock" />
+                  {monthOpen}
+                </span>
+              ) : null}
             </StepText>
             <div className="flex w-full flex-col gap-2">
               {toApprove.map((inv) => {
                 const remarks = inv.lines.some((l) => l.remarks > 0);
-                const can = act && !inv.needsApproval && (!remarks || checked[inv.id]);
+                const can = act && !monthOpen && !inv.needsApproval && (!remarks || checked[inv.id]);
                 return (
                   <div key={inv.id} className="flex flex-col gap-1.5">
                     {act && !inv.needsApproval && remarks && (
@@ -320,7 +345,9 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
                           icon="check"
                           className="text-left whitespace-normal"
                           disabled={!can}
-                          title={inv.needsApproval ? "Godkänn veckorna utan närvaro först." : remarks && !checked[inv.id] ? "Bekräfta att du har kontrollerat anmärkningarna." : undefined}
+                          title={
+                            monthOpen ?? (inv.needsApproval ? "Godkänn veckorna utan närvaro först." : remarks && !checked[inv.id] ? "Bekräfta att du har kontrollerat anmärkningarna." : undefined)
+                          }
                           pending={approveInvoice.pending}
                           onClick={() => void approve(inv)}
                         >
@@ -607,7 +634,7 @@ function InvoiceCard({
             {c.text}
           </Notice>
         ))}
-        {act && editable && (refProblem || editRef) && inv.status !== "returned" && !inv.blocked && (
+        {act && editable && inv.status !== "returned" && ((refProblem && !inv.blocked) || (editRef && !refProblem)) && (
           <InvoiceRefForm inv={inv} rules={v.refRules} canAct={act} idSuffix={`kort-${inv.groupingKey}`} onDone={() => setEditRef(false)} />
         )}
         {act && !inv.created && <InvoicePoForm key={`${inv.id}:${inv.purchaseOrderNumber}`} inv={inv} rules={v.refRules} idSuffix={inv.groupingKey} />}
