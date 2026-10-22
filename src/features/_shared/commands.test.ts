@@ -30,6 +30,7 @@ import { notifRead } from "@/features/notiser/api";
 import { alertAck } from "@/features/ledning/api";
 import { billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoReissue, ekoRun, invoiceSetBuyerRef, invoiceSetPo } from "@/features/ekonomi/api";
 import { auditView } from "@/features/session/api";
+import { caseLevelSet } from "@/features/grupper/api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -492,7 +493,8 @@ describe("coach.attendanceSet (attendance.set)", () => {
     expect(res).toMatchObject({ ok: true, published: { reportId: "rep-16692", weekKey: "2027-W04", recipientName: "Maria Ekdahl", text: "Veckorapporten för v. 4 2027 till Maria Ekdahl publicerades automatiskt." } });
     expect(row("reports", "rep-16692")).toMatchObject({ status: "delivered", deliveredTo: ["k-maria"], deliveredAt: rt.store.data.attendance.at(-1)!.registeredAt });
     expect(outboundSince(n)).toMatchObject([{ template: "ny_rapport", to: "maria.ekdahl@botkyrka.se", caseId: null, body: "Veckorapporten för v. 4 2027 finns i portalen – logga in för att läsa." }]);
-    expect(rows("audit_log").pop()).toMatchObject({ action: "report.published", entityId: "rep-16692", details: { kind: "weekly_attendance", week: "2027-W04", automatic: true } });
+    // Publiceringen loggas (förifyllningen av januaris månadsbedömning kommer efter den – bästa försök, efter veckorapporten).
+    expect(rows("audit_log").filter((l) => l.action === "report.published").pop()).toMatchObject({ action: "report.published", entityId: "rep-16692", details: { kind: "weekly_attendance", week: "2027-W04", automatic: true } });
     expect(rows("attendance").find((a) => a.activityId === last.activityId)).toMatchObject({ status: "absent_valid", reason: "Sjukdom", registeredBy: last.coach });
   });
 
@@ -582,16 +584,19 @@ describe("coach.assessmentSave (assessment.save)", () => {
   const all = (level: 0 | 1 | 2 | 3, observation = "") => Object.fromEntries(AREAS.map((k) => [k, { level, observation, nextStep: "" }]));
 
   it("nivå ≥ 1 utan observation → incomplete med missing", async () => {
-    const res = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: { ...all(0), yrkesfardigheter: { level: 2, observation: " " } }, overallStatus: "green", approve: true }, amira());
+    const res = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: { ...all(0), yrkesfardigheter: { level: 2, observation: " " } }, overallStatus: "green", approve: true, reviewed: true }, amira());
     expect(res).toMatchObject({ ok: false, error: "incomplete", missing: ["yrkesfardigheter"], message: "Bedömningen kan inte godkännas: 1 område saknar uppgifter." });
-    const noStatus = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: all(0), overallStatus: null, approve: true }, amira());
+    // Samlad status är ifylld från mötesrapporten i testdatat (Karims beslut 2026-10-22) – töms här för att pröva kontrollen.
+    const ma0 = rows("monthly_assessments").find((m) => m.caseId === "case-260143" && m.month === "2027-01")!;
+    rt.store.updateRow("monthly_assessments", ma0.id, { overallStatus: null });
+    const noStatus = await run(assessmentSave, { caseId: "case-260143", month: "2027-01", areas: all(0), overallStatus: null, approve: true, reviewed: true }, amira());
     expect(noStatus).toMatchObject({ ok: false, error: "incomplete", missing: [] });
     expect(rows("monthly_assessments").find((m) => m.caseId === "case-260143" && m.month === "2027-01")!.status).toBe("draft");
   });
 
   it("komplett bedömning godkänns och månadsrapporten blir granskad", async () => {
     const res = await run(assessmentSave, {
-      caseId: "case-260143", month: "2027-01", areas: all(1, "Kom i tid till samtliga tillfällen under månaden."), summary: "Sammanfattning", overallStatus: "green", approve: true,
+      caseId: "case-260143", month: "2027-01", areas: all(1, "Kom i tid till samtliga tillfällen under månaden."), summary: "Sammanfattning", overallStatus: "green", approve: true, reviewed: true,
       plan: { goal1: "Mål 1", nextCustomerMeeting: "" },
     }, amira());
     expect(res).toMatchObject({ ok: true });
@@ -604,8 +609,17 @@ describe("coach.assessmentSave (assessment.save)", () => {
 
 describe("coach: kartläggning, händelser, avvikelser", () => {
   it("intake.save, event.add, result.verify och deviation.callCustomer", async () => {
-    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: true });
-    expect(row("cases", "case-270012")!.vocationalTrack).toBe("Truckförare A+B");
+    // Nivån krävs innan kartläggningen godkänns (Karims beslut 2026-10-22) – en människa väljer den, sedan går godkännandet igenom.
+    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: false, error: "level" });
+    expect(rows("intake_assessments").find((x) => x.caseId === "case-270012")?.status ?? "draft").not.toBe("approved");
+    expect(await run(caseLevelSet, { caseId: "case-270012", levelId: "grp-c-bot-niva-2", fromLevelId: null }, amira())).toMatchObject({ ok: true });
+    // Spåret hör till yrkesområdet (granskningen, fjärde rundan): Amal har L – ett spår i G förs inte över till ärendet.
+    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Truckförare A+B", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: false, error: "track" });
+    expect(rows("intake_assessments").find((x) => x.caseId === "case-270012")?.status ?? "draft").not.toBe("approved");
+    // Ärendet utan spår: godkännandet för över det valda spåret i L.
+    rt.store.updateRow("cases", "case-270012", { vocationalTrack: "" });
+    expect(await run(intakeSave, { caseId: "case-270012", data: { chosenTrack: "Individuellt spår", workGoals: "Lager" }, approve: true }, amira())).toMatchObject({ ok: true });
+    expect(row("cases", "case-270012")!.vocationalTrack).toBe("Individuellt spår");
     const ev = await run(eventAdd, { caseId: "case-260143", kind: "arbete_paborjat", occurredOn: "2027-02-01", actor: "Hallunda Lagerservice AB" }, amira());
     expect(ev).toMatchObject({ ok: true });
     if (ev.ok) expect(row("outcome_events", ev.eventId)).toMatchObject({ possibleBonus: true, verificationPath: null });

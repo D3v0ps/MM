@@ -1,11 +1,14 @@
 // Instruktioner och svarsscheman till Gemini (Vertex AI). Svaren valideras ALLTID efteråt mot appens zod-scheman
 // (src/features/_shared/ai-port.ts) – schemat här styr bara modellens utdata (OpenAPI-delmängden i Vertex AI:s responseSchema).
 // Kärnan i instruktionerna är SPEC §8.3 (AI_CORE_INSTRUCTIONS, EXTRACT_INSTRUCTIONS): dokumentationsstöd, inga beslut, inga
-// diagnoser, belägg = citat + tidpunkt, "Framgår inte" när belägg saknas. AI föreslår aldrig nivå, samlad status,
-// avslutsorsak eller resultat – de fälten finns inte i något schema.
+// diagnoser, belägg = citat + tidpunkt, "Framgår inte" när belägg saknas. AI föreslår aldrig samlad status, avslutsorsak eller
+// resultat – de fälten finns inte i något schema. Progressionsnivån föreslås bara i utkastet per område (monthly_area, Karims
+// beslut 2026-10-22): nivå 1–3 med ett ordagrant citat ur underlaget, kontrollerat av appen (verifyLevelSuggestion).
 import { ACTIVITY_TYPES, OBSTACLES } from "@/data/seed/constants";
 import { EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES } from "@/data/schema";
-import { AI_CORE_INSTRUCTIONS, EXTRACT_INSTRUCTIONS, type DraftInput, type DraftTemplateKey, type Transcript } from "@/features/_shared/ai-port";
+import {
+  AI_CORE_INSTRUCTIONS, EXTRACT_INSTRUCTIONS, LEVEL_QUOTE_MAX, LEVEL_QUOTE_MIN, LEVEL_QUOTE_MIN_WORDS, type DraftInput, type DraftOptions, type DraftTemplateKey, type Transcript,
+} from "@/features/_shared/ai-port";
 import type { AudioPurpose } from "@/features/_shared/audio-port";
 import { caseNoteKindLabel } from "@/core/labels";
 import { fmtDateShort } from "@/core/time";
@@ -64,12 +67,23 @@ export const CHECK_IN_RESPONSE_SCHEMA = obj({
   note: evidence(str()),
 });
 
-/** Utkastet: texten, vilka avstämningar och anteckningar den bygger på och om närvaron användes. Källornas namn sätter appen själv. */
+/**
+ * Utkastet: texten, vilka avstämningar och anteckningar den bygger på och om närvaron användes. Källornas namn sätter appen
+ * själv. levelSuggestion (bara för ett progressionsområde, annars null): nivå 1–3 med ett ordagrant citat och källans id.
+ */
 export const DRAFT_RESPONSE_SCHEMA = obj({
   text: str(),
   sourceIds: arr(str(), { description: "Id för de godkända avstämningar och anteckningar som texten bygger på" }),
   usedAttendance: bool(),
   noEvidence: bool(),
+  levelSuggestion: obj(
+    {
+      level: { type: "INTEGER", description: "Föreslagen progressionsnivå: 1, 2 eller 3" },
+      quote: str({ description: "Ordagrant citat ur källan som tydligt visar nivån" }),
+      sourceId: str({ description: "Id för avstämningen eller anteckningen som citatet kommer från" }),
+    },
+    { nullable: true, description: "Bara för ett progressionsområde och bara med belägg – annars null" },
+  ),
 });
 
 export const TRANSLATION_RESPONSE_SCHEMA = obj({ text: str() });
@@ -124,13 +138,24 @@ export function transcriptForPrompt(t: Transcript): string {
 /** "narvaro_rutiner" -> "narvaro rutiner" (områdets nyckel i avtalskonfigurationen). */
 const areaName = (key: string) => key.replace(/_/g, " ");
 
-export function draftInstructions(templateKey: DraftTemplateKey): string {
+export function draftInstructions(templateKey: DraftTemplateKey, opts: DraftOptions = {}): string {
+  const area = templateKey.startsWith("monthly_area:");
   const task =
     templateKey === "monthly_summary"
       ? "Skriv en sammanfattning av månaden (två till fyra meningar): deltagande, genomförda aktiviteter, arbetsgivarkontakter och hur veckomålen gått."
       : templateKey === "monthly_plan"
         ? "Skriv en plan för nästa månad (en till tre meningar) utifrån den senaste godkända avstämningens mål, aktiviteter och hinder."
         : `Skriv en kort, konkret observation (en till tre meningar) för progressionsområdet "${areaName(templateKey.slice("monthly_area:".length))}". Beskriv bara det som framgår av underlaget.`;
+  // Skalans texter ur avtalskonfigurationen (cfg.progression.scale) när anroparen skickar dem.
+  const scale = (["1", "2", "3"] as const).filter((k) => opts.levelScale?.[k]).map((k) => `${k} = ${opts.levelScale?.[k]}`).join(", ");
+  const levelRules = area
+    ? [
+        "Nivån sätter coachen. Du får bara FÖRESLÅ progressionsnivå 1, 2 eller 3 i levelSuggestion – och bara när ett citat ur en godkänd avstämning eller en anteckning tydligt visar förändringen på den nivån jämfört med föregående månad.",
+        ...(scale ? [`Skalan: ${scale}.`] : []),
+        `levelSuggestion.quote: ordagrant citat ur en iakttagelse – mötesrapportens anteckning eller anteckningens text (${LEVEL_QUOTE_MIN}–${LEVEL_QUOTE_MAX} tecken, minst ${LEVEL_QUOTE_MIN_WORDS} ord), utan omskrivning, och citatet ska handla om just det här området. levelSuggestion.sourceId: källans id i underlaget. Nästa veckas mål är en plan och aldrig belägg. Närvarosiffror och kryssrutornas värden (aktiviteter, hinder, typ av arbetsgivarkontakt) räcker inte heller som belägg för en nivå.`,
+        "Finns inget sådant citat: levelSuggestion null. Nivå 0 föreslås aldrig – den är standard. Gissa aldrig och bedöm aldrig motivation eller personlighet.",
+      ]
+    : ["levelSuggestion: alltid null."];
   return [
     AI_CORE_INSTRUCTIONS,
     "",
@@ -138,8 +163,9 @@ export function draftInstructions(templateKey: DraftTemplateKey): string {
     "Anteckningarna är korta arbetsanteckningar. Återge bara det som står i dem, sakligt och utan tolkning. Personnummer är redan borttagna – skriv aldrig personnummer.",
     "Sätt aldrig nivå, samlad status, avslutsorsak eller resultat, och skriv inga omdömen om personen.",
     task,
+    ...levelRules,
     "sourceIds: id för de avstämningar och anteckningar som texten bygger på (bara id som finns i underlaget). usedAttendance: true om texten bygger på närvaron.",
-    "Räcker underlaget inte: noEvidence true, text \"Framgår inte\", sourceIds tom lista och usedAttendance false.",
+    "Räcker underlaget inte: noEvidence true, text \"Framgår inte\", sourceIds tom lista, usedAttendance false och levelSuggestion null.",
   ].join("\n");
 }
 

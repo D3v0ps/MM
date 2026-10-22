@@ -52,6 +52,7 @@ const SAMPLES: Record<string, Sample[]> = {
   "arenden.kortAvvikelser": one("u-amira", { caseId: "case-260148" }), "arenden.kortPraktik": one("u-amira", { caseId: NADIA }),
   "arenden.kortRapporter": one("u-amira", { caseId: NADIA }), "arenden.kortMeddelanden": one("u-amira", { caseId: NADIA }),
   "arenden.kortHistorik": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
+  "arenden.yrkesomrade": [...one("u-amira", { caseId: NADIA }), ...one("u-karin", { caseId: NADIA })],
   "coach.recordingState": one("u-amira", { aiRunId: "ai-run-mehmet" }), "coach.minVecka": one("u-amira"), "coach.narvaro": [...one("u-amira"), ...one("u-petra")],
   "coach.casePicker": [...one("u-amira", { kind: "avstamning" }), ...one("u-amira", { kind: "manad", month: "2027-01" }), ...one("u-amira", { kind: "kartlaggning" }), ...one("u-amira", { kind: "handelse" })],
   "coach.checkInPage": [...one("u-amira", { caseId: NADIA }), ...one("u-amira", { caseId: "case-260130" })],
@@ -81,7 +82,9 @@ const SAMPLES: Record<string, Sample[]> = {
   "aktiviteter.lista": [...one("u-amira"), ...one("u-karin")], "aktiviteter.visa": one("u-amira", { id: "__first_group__" }), "aktiviteter.form": one("u-sara"),
   // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
   "grupper.katalog": [...one("u-sara", { arkiverade: true }), ...one("u-amira")], "grupper.arende": one("u-amira", { caseId: NADIA }), "grupper.filter": one("u-amira"),
-  "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "grupp", id: "grp-c-bot-g-mandag" })],
+  "grupper.anteckningar": [...one("u-amira", { urval: "mina" }), ...one("u-amira", { urval: "omrade", id: "G" }), ...one("u-amira", { urval: "niva", id: "grp-c-bot-niva-2" })],
+  // Yrkesområden, nivåer och återkommande aktiviteter (Karims beslut 2026-10-22).
+  "grupper.oversikt": [...one("u-amira"), ...one("u-karin")],
 };
 
 /**
@@ -106,9 +109,10 @@ const WRITES: Record<string, string[]> = {
   "arenden.caseDecline": ["cases", "inbound_emails", "outbound_messages", AUDIT_CASE, AUDIT], "arenden.caseUpdate": ["cases", AUDIT_CASE, AUDIT],
   "arenden.caseSetBuyerRef": ["cases", AUDIT_CASE, AUDIT], "arenden.caseBookFirstMeeting": ["cases", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseChangeCoach": ["cases", "case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
-  "arenden.caseClose": ["cases", "reports", "pulse_invites", AUDIT_CASE, AUDIT], "arenden.messageSend": ["messages", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
+  // Avslutet och starten synkar målgrupperna (Karims beslut 2026-10-22): kommande nivå- och yrkesområdesaktiviteter.
+  "arenden.caseClose": ["cases", "reports", "pulse_invites", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.messageSend": ["messages", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   // Starta insatsen, veckoplan, tillfällen och team (beslut 2026-10-08).
-  "arenden.caseStart": ["cases", "activities", "case_status_history", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
+  "arenden.caseStart": ["cases", "activities", "case_status_history", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "arenden.caseScheduleChange": ["cases", "activities", AUDIT_CASE, AUDIT],
   "arenden.activityAdd": ["activities", AUDIT_CASE, AUDIT], "arenden.activityRemove": ["activities", AUDIT_CASE, AUDIT],
   "arenden.caseSetTeam": ["case_team", "user_notifications", "outbound_messages", AUDIT_CASE, AUDIT],
   "arenden.caseSetContact": ["persons", AUDIT_CASE, AUDIT],
@@ -116,7 +120,7 @@ const WRITES: Record<string, string[]> = {
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.attendanceSetAll": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
-  "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", AUDIT_CASE, AUDIT],
+  "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", "monthly_assessments", "monthly_plans", AUDIT_CASE, AUDIT],
   "coach.deviationSave": ["deviations", "tasks", AUDIT_CASE, AUDIT], "coach.deviationCallCustomer": ["deviations", "messages", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.assessmentSave": ["monthly_assessments", "monthly_plans", "reports", AUDIT_CASE, AUDIT], "coach.intakeSave": ["intake_assessments", "cases", AUDIT_CASE, AUDIT],
   "coach.eventAdd": ["outcome_events", "audit_log:event", AUDIT_CASE, AUDIT], "coach.resultVerify": ["cases", "outcome_events", AUDIT_CASE, AUDIT],
@@ -153,12 +157,22 @@ const WRITES: Record<string, string[]> = {
   // Spår G: meddelandet till deltagarna (utskick, och uppgiften till samordnaren när ingen kanal finns) och gruppmålet.
   "aktiviteter.skapa": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "aktiviteter.andra": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
-  "aktiviteter.bjudIn": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.bjudIn": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.taBort": ["activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "aktiviteter.stallIn": ["group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "aktiviteter.anteckningar": ["case_notes", AUDIT_CASE, AUDIT],
   "aktiviteter.malResultat": ["group_goal_results", AUDIT_CASE, AUDIT],
+  // Återkommande aktiviteter (Karims beslut 2026-10-22): serien, tillfällena och deltagarnas rader.
+  "aktiviteter.serieSkapa": ["group_activity_series", "group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.serieAndra": ["group_activity_series", "group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "aktiviteter.serieAvsluta": ["group_activity_series", "group_activities", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   // Nivåer, grupper och taggar och massanteckningar (coachmötet 2026-10-09).
   "grupper.ny": ["groupings", AUDIT], "grupper.andra": ["groupings", AUDIT], "grupper.arkivera": ["groupings", AUDIT], "grupper.standard": ["groupings", AUDIT],
-  "grupper.arendeSpara": ["grouping_members", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
+  // En ny nivå synkar nivåns kommande aktiviteter (Karims beslut 2026-10-22).
+  "grupper.arendeSpara": ["grouping_members", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT], "grupper.anteckningarSpara": ["case_notes", AUDIT_CASE, AUDIT],
+  "grupper.nivaHoj": ["grouping_members", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  "grupper.nivaByt": ["grouping_members", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
+  // Byt yrkesområde (Karims beslut 2026-10-22): anteckningen med motiveringen, bytet och ärendets yrkesområde.
+  // Grupp och inbjudningar följer direkt (syncAudienceInvites): deltagarens rader i kommande aktiviteter med målgrupp.
+  "arenden.bytYrkesomrade": ["case_notes", "case_area_changes", "cases", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */
@@ -225,14 +239,11 @@ const KNOWN: Known[] = [
   // Gruppaktiviteternas formulär (2026-10-09): deltagarna att bjuda in hämtas färskt varje gång formuläret öppnas (useQueryRunner,
   // ingen cache) och servern prövar varje inbjudan igen (not_invitable) – en ändring av ett ärende behöver inte räkna om något.
   { command: "*", query: "aktiviteter.form", table: "cases", reason: "formuläret hämtar deltagarna utan cache när det öppnas; inbjudan prövas av servern" },
-  // Inbjudan per nivå eller grupp (spår G): nivåerna, grupperna och deltagarna i dem hämtas på samma sätt – utan cache.
-  { command: "*", query: "aktiviteter.form", table: "groupings", reason: "formuläret hämtar nivåerna och grupperna utan cache när det öppnas" },
-  { command: "*", query: "aktiviteter.form", table: "grouping_members", reason: "formuläret hämtar deltagarna i nivåerna och grupperna utan cache när det öppnas; servern prövar varje inbjudan" },
-  // Massanteckningarna (coachmötet 2026-10-09): urvalets namn, ärendenummer och status, och Mina ärenden (teamet).
-  { command: "*", query: "grupper.anteckningar", table: "cases", reason: "listan över urvalet hämtas om när sidan visas igen – en anteckning går att spara i alla ärenden man arbetar i" },
-  { command: "*", query: "grupper.katalog", table: "cases", reason: "antalet per nivå, grupp och tagg räknar bara pågående ärenden – statusen ändras i andra vyer och antalet hämtas om när sidan visas igen" },
-  { command: "*", query: "grupper.anteckningar", table: "case_team", reason: "Mina ärenden – tilldelningen hämtas om när sidan visas igen" },
-  { command: "*", query: "grupper.arende", table: "case_team", reason: "teamet läses bara i behörighetsuppslaget – tilldelningen styr inte åtkomsten (beslut 2026-10-09)" },
+  // Aktivitetsvyn läser ärendena för namn och ärendenummer och för om deltagaren hör till målgruppen (då visas inte Ta bort). Ett
+  // kommando som ändrar ärendets nivå eller yrkesområde räknar om aktiviteter. (GRUPPER/AKTIVITETER); servern prövar Ta bort igen.
+  { command: "*", query: "aktiviteter.visa", table: "cases", reason: "målgruppens Ta bort prövas av servern (audience); nivå- och yrkesområdesbyten räknar om aktiviteter." },
+  // Nivåerna, yrkesområdena och Grupper-sidan räknas om av alla kommandon som ändrar ett ärende (GRUPPER i CASE_FACTS, Karims
+  // beslut 2026-10-22) – de tidigare undantagen för grupper.* och formulärets nivåer behövs inte längre.
 ];
 /** Varje delad tabell måste täckas av en KNOWN-rad för paret; returnerar raderna som användes (eller null). */
 function knownFor(command: string, query: string, tables: string[]): number[] | null {

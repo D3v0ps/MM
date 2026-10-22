@@ -153,14 +153,14 @@ export function reportAccess(r: Pick<Report, "kind" | "status" | "deliveredTo" |
 // ---------------------------------------------------------------- Rapportens underlag
 const EMPTY: ReportDb = {
   cases: [], activities: [], attendance: [], check_ins: [], monthly_assessments: [], monthly_plans: [], outcome_events: [], deviations: [], tasks: [],
-  audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: [], profiles: [], price_items: [], reports: [],
+  audit_log: [], contract_deviations: [], pulse_responses: [], contract_areas: [], profiles: [], price_items: [], reports: [], case_area_changes: [],
 };
 
 /** Underlaget för ett ärendes rapporter (månad, slut, orderbekräftelse). ctx.system: se överst i filen. */
 async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "contract_areas" | "profiles" | "price_items" | "contract_deviations" | "pulse_responses" | "reports">> {
   const s = ctx.system;
   const inCases = { caseId: { in: caseIds } };
-  const [cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations] = await Promise.all([
+  const [cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, case_area_changes] = await Promise.all([
     s.table("cases").list({ id: { in: caseIds } }),
     s.table("activities").list(inCases),
     s.table("attendance").list(inCases),
@@ -169,6 +169,8 @@ async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "co
     s.table("monthly_plans").list(inCases),
     s.table("outcome_events").list(inCases),
     s.table("deviations").list(inCases),
+    // Bytena av yrkesområde: rapportmånadens avtalsområde och yrkesspår (areaForMonth, trackForMonth – samma regel som fakturan).
+    s.table("case_area_changes").list(inCases),
   ]);
   const devIds = deviations.map((d) => d.id);
   const evIds = outcome_events.map((e) => e.id);
@@ -176,7 +178,7 @@ async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "co
     devIds.length ? s.table("tasks").list({ deviationId: { in: devIds } }) : [],
     evIds.length ? s.table("audit_log").list({ action: "event.added", entityId: { in: evIds } }) : [],
   ]);
-  return { cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, tasks, audit_log };
+  return { cases, activities, attendance, check_ins, monthly_assessments, monthly_plans, outcome_events, deviations, tasks, audit_log, case_area_changes };
 }
 
 /** Läs underlaget för rapporten. ctx.system: se överst i filen – anropas bara när läsaren får se rapporten. */
@@ -217,15 +219,17 @@ export async function loadReportDb(ctx: Ctx, r: Report, info: ContractInfo): Pro
       const sla = !!info.cfg.customerVisibility.seesSlaStats;
       const activities = await s.table("activities").list({ ...inCases, startsAt: { gte: start, lte: `${end}T23:59` } });
       const actIds = activities.map((a) => a.id);
-      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports] = await Promise.all([
+      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes] = await Promise.all([
         actIds.length ? s.table("attendance").list({ activityId: { in: actIds } }) : [],
         s.table("monthly_assessments").list({ ...inCases, month: mk }),
         s.table("pulse_responses").list(inCases),
         s.table("deviations").list(inCases),
         s.table("contract_deviations").list({ contractId: r.contractId }),
         sla ? s.table("reports").list({ contractId: r.contractId }) : [],
+        // Bytena av yrkesområde: månadens yrkesområde och yrkesspår per deltagare (areaForMonth – samma regel som månadsrapporten).
+        s.table("case_area_changes").list({ contractId: r.contractId }),
       ]);
-      return { ...base, cases, activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports };
+      return { ...base, cases, activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes };
     }
     default:
       return base;

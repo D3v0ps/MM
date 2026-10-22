@@ -268,7 +268,7 @@ handleCommand(placementCreate, { roles: PLANNERS }, async (ctx, p) => {
   let created = 0;
   for (const day of days) {
     if (hasPractice.has(day)) continue;
-    await acts.insert({ id: ctx.newId("a"), caseId: c.id, kind: "praktikdag", startsAt: `${day}T${p.time}`, durationMin: p.durationMin, location, note: "", groupActivityId: null });
+    await acts.insert({ id: ctx.newId("a"), caseId: c.id, kind: "praktikdag", startsAt: `${day}T${p.time}`, durationMin: p.durationMin, location, note: "", groupActivityId: null, inviteSource: "manual" });
     created++;
   }
 

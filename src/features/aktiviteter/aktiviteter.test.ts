@@ -28,6 +28,7 @@ import {
 } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
+// Testdatat har nivåaktiviteter och yrkesområdesträffar (Karims beslut 2026-10-22) – testerna räknar med dem och rör dem inte.
 const CASES = { nadia: "case-260143", elif: "case-270003", amal: "case-270012" };
 const THREE = [CASES.nadia, CASES.elif, CASES.amal];
 const TODAY_0800 = "2027-02-01T08:00";
@@ -77,7 +78,7 @@ describe("skapa och bjuda in", () => {
     expect(res).toMatchObject({ ok: false, error: "not_invitable" });
     if (res.ok) return;
     expect((res as { problems: { caseNumber: string; reason: string }[] }).problems.map((x) => x.reason).sort()).toEqual(["Insatsen är avslutad", "Insatsen är pausad"]);
-    expect(rows("group_activities")).toEqual([]);
+    expect(rows("group_activities")).toHaveLength(SEED.group_activities.length);
     expect(rows("activities").length).toBe(before);
     // Samma regel när fler bjuds in efteråt.
     const id = await create([CASES.nadia]);
@@ -104,12 +105,12 @@ describe("ändra, ta bort och ställa in", () => {
   it("ändrad tid, längd och plats slår igenom på alla deltagares tillfällen", async () => {
     const id = await create();
     const res = await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, as("u-sara", "samordnare"));
-    expect(res).toEqual({ ok: true, changed: 3, replaced: 0, notified: null });
+    expect(res).toEqual({ ok: true, changed: 3, replaced: 0, dropped: 0, notified: null });
     expect(partsOf(id).map((a) => [a.startsAt, a.durationMin, a.location])).toEqual(THREE.map(() => ["2027-02-02T13:00", 60, "Rum 2"]));
-    expect(rows("group_activities")[0]).toMatchObject({ updatedBy: "u-sara", location: "Rum 2" });
+    expect(rows("group_activities").find((x) => x.id === id)).toMatchObject({ updatedBy: "u-sara", location: "Rum 2" });
     expect(audit("group_activity.updated")[0].details).toMatchObject({ fields: ["startsAt", "durationMin", "location"], count: 3 });
     // Inget ändrat: ingen skrivning.
-    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, amira())).toEqual({ ok: true, changed: 0, replaced: 0, notified: null });
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 60, location: "Rum 2" }, amira())).toEqual({ ok: true, changed: 0, replaced: 0, dropped: 0, notified: null });
   });
 
   it("tiden flyttas inte när närvaro är registrerad – namn och plats går att ändra", async () => {
@@ -117,7 +118,7 @@ describe("ändra, ta bort och ställa in", () => {
     const [first] = partsOf(id);
     expect(await run(attendanceSet, { activityId: first.id, status: "present" }, amira())).toMatchObject({ ok: true });
     expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-01T08:30" }, amira())).toMatchObject({ ok: false, error: "has_attendance" });
-    expect(await run(groupActivityUpdate, { id, ...base, name: "CV-verkstad del 2" }, amira())).toEqual({ ok: true, changed: 1, replaced: 0, notified: null });
+    expect(await run(groupActivityUpdate, { id, ...base, name: "CV-verkstad del 2" }, amira())).toEqual({ ok: true, changed: 1, replaced: 0, dropped: 0, notified: null });
   });
 
   it("ta bort en deltagare: bara utan registrerad närvaro", async () => {
@@ -197,16 +198,20 @@ describe("aktivitetsvyn: närvaro och anteckningar", () => {
 describe("behörighet", () => {
   it("alla på Miljonbemanning utom ekonomen ser alla gruppaktiviteter – chef och systemadministratör läser, kommunen och ekonomen ingenting", async () => {
     const id = await create();
+    // Alla ser samma lista: den nya aktiviteten och testdatats nivåaktiviteter och yrkesområdesträffar.
+    const all = (await q(groupActivityList, {}, amira())).upcoming.map((r) => r.id);
+    expect(all).toContain(id);
+    expect(all.length).toBeGreaterThan(1);
     // Petra är coach sedan rollen handledare togs bort (Karims beslut 2026-10-09).
     for (const [userId, role] of [["u-sara", "samordnare"], ["u-johan", "avtalsansvarig"], ["u-leila", "coach"], ["u-petra", "coach"], ["u-karin", "chef"], ["u-robin", "admin"]] as const) {
       const list = await q(groupActivityList, {}, as(userId, role));
-      expect(list.upcoming.map((r) => r.id), userId).toEqual([id]);
+      expect(list.upcoming.map((r) => r.id), userId).toEqual(all);
       expect(list.canCreate, userId).toBe(["samordnare", "avtalsansvarig", "coach"].includes(role));
     }
     // Den vilande rollen handledare: hanterarnas regler ligger kvar (läser och skapar) så att rollen kan slås på igen – men
     // ingen kan få rollen och ingen sida når den (src/shell/route-table.test.ts).
     const dormant = await q(groupActivityList, {}, dormantSupervisor());
-    expect(dormant.upcoming.map((r) => r.id)).toEqual([id]);
+    expect(dormant.upcoming.map((r) => r.id)).toEqual(all);
     expect(dormant.canCreate).toBe(true);
     const chefView = await q(groupActivityView, { id }, as("u-karin", "chef"));
     expect(chefView).toMatchObject({ kind: "ok", canEdit: false });
@@ -276,7 +281,8 @@ describe("deltagarens övriga tillfällen rör aldrig gruppraderna", () => {
     expect(narvaro.weeks.this.rows.find((r) => r.activityId === row.id)?.groupActivityId).toBe(id);
     const kort = await q(caseAttendance, { caseId: CASES.nadia }, amira());
     expect(kort?.upcoming.find((a) => a.id === row.id)?.groupActivityId).toBe(id);
-    expect(kort?.upcoming.filter((a) => a.id !== row.id).every((a) => a.groupActivityId === null)).toBe(true);
+    // Deltagarens övriga tillfällen hör inte till den här aktiviteten (nivåaktiviteterna i testdatat länkar till sina egna).
+    expect(kort?.upcoming.filter((a) => a.id !== row.id).every((a) => a.groupActivityId !== id)).toBe(true);
   });
 });
 
@@ -291,7 +297,7 @@ describe("samma tid: inga dubbla tillfällen för en deltagare", () => {
     const problems = (res as unknown as { problems: { caseId: string; reason: string }[] }).problems;
     expect(problems.map((x) => x.caseId).sort()).toEqual([...THREE].sort());
     expect(problems[0].reason).toBe("Har redan yrkesmoment kl. 09.00–12.00. Det ersätts av aktiviteten");
-    expect(rows("group_activities")).toEqual([]);
+    expect(rows("group_activities")).toHaveLength(SEED.group_activities.length);
     expect(rows("activities").length).toBe(before);
     const ok = await run(groupActivityCreate, { ...base, startsAt: WED_10, durationMin: 60, caseIds: THREE, replaceOverlapping: true }, amira());
     expect(ok).toMatchObject({ ok: true, invited: 3, replaced: 3 });
@@ -319,12 +325,12 @@ describe("samma tid: inga dubbla tillfällen för en deltagare", () => {
   it("bjud in och ändra tid prövas på samma sätt – aktivitetens egna rader räknas inte som krock", async () => {
     const id = await create([CASES.elif], { startsAt: "2027-02-02T13:00" });
     // Längre aktivitet samma dag: inga andra tillfällen den dagen – ingen krock med de egna raderna.
-    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 120 }, amira())).toEqual({ ok: true, changed: 1, replaced: 0, notified: null });
+    expect(await run(groupActivityUpdate, { id, ...base, startsAt: "2027-02-02T13:00", durationMin: 120 }, amira())).toEqual({ ok: true, changed: 1, replaced: 0, dropped: 0, notified: null });
     // Flytt till onsdag 10.00: krockar med yrkesmomentet 09.00–12.00.
     const move = { id, ...base, startsAt: WED_10, durationMin: 60 };
     expect(await run(groupActivityUpdate, move, amira())).toMatchObject({ ok: false, error: "overlap" });
     expect(partsOf(id)[0].startsAt).toBe("2027-02-02T13:00");
-    expect(await run(groupActivityUpdate, { ...move, replaceOverlapping: true }, amira())).toEqual({ ok: true, changed: 2, replaced: 1, notified: null });
+    expect(await run(groupActivityUpdate, { ...move, replaceOverlapping: true }, amira())).toEqual({ ok: true, changed: 2, replaced: 1, dropped: 0, notified: null });
     expect(rows("activities").filter((a) => a.caseId === CASES.elif && a.startsAt.startsWith("2027-02-03")).map((a) => a.groupActivityId)).toEqual([id]);
     expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia] }, amira())).toMatchObject({ ok: false, error: "overlap" });
     expect(await run(groupActivityInvite, { id, caseIds: [CASES.nadia], replaceOverlapping: true }, amira())).toEqual({ ok: true, invited: 1, already: 0, replaced: 1, skipped: [], notified: null });
@@ -361,7 +367,7 @@ describe("vilande spärren för skyddade personuppgifter (påslagen)", () => {
     expect((res as unknown as { problems: { caseId: string; reason: string }[] }).problems).toEqual([
       { caseId: CASES.nadia, caseNumber: "BOT-26-0143", reason: "Skyddade personuppgifter – bara huvudcoachen och avtalsansvarig kan bjuda in deltagaren" },
     ]);
-    expect(rows("group_activities")).toEqual([]);
+    expect(rows("group_activities")).toHaveLength(SEED.group_activities.length);
     expect(rows("activities").length).toBe(before);
     // Huvudcoachen arbetar i ärendet och bjuder in; samordnaren kan sedan inte bjuda in, flytta eller ställa in för den skyddade.
     const id = await create([CASES.nadia, CASES.elif], { startsAt: "2027-02-02T13:00" });
@@ -414,7 +420,10 @@ describe("fakturaunderlaget räknar gruppaktivitetens rader som enskilda tillfä
       const weeks = billableWeeks(c, db, { now: NOW });
       const contract = rows("contracts").find((x) => x.id === c.contractId)!;
       const lines = billingLines(
-        { cases: rows("cases"), activities: rows("activities"), attendance: rows("attendance"), price_items: rows("price_items"), billing_week_approvals: rows("billing_week_approvals") },
+        {
+          cases: rows("cases"), activities: rows("activities"), attendance: rows("attendance"), price_items: rows("price_items"), billing_week_approvals: rows("billing_week_approvals"),
+          case_area_changes: rows("case_area_changes"),
+        },
         "2027-02", { now: NOW, cfg: requireOperational(contract.config) },
       ).filter((l) => l.caseId === CASES.nadia);
       return { actId, weeks, lines };

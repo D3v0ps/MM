@@ -78,17 +78,21 @@ export const payloadOf = (s: ActivityFormState) => ({
 export const holidayOf = (f: GroupActivityForm, date: string): string | null => f.holidays.find((h) => h.date === date)?.name ?? null;
 
 export function ActivityFields({
-  form, value, onChange, tried, idPrefix,
+  form, value, onChange, tried, idPrefix, repeating, lockSchedule,
 }: {
   form: GroupActivityForm;
   value: ActivityFormState;
   onChange: (next: ActivityFormState) => void;
   tried: boolean;
   idPrefix: string;
+  /** Återkommande aktivitet: datumet är första dagen, och helgdagar hoppas över automatiskt. */
+  repeating?: boolean;
+  /** Ett tillfälle i en återkommande aktivitet: dag, tid och längd är seriens (förklaringen visas vid fälten). */
+  lockSchedule?: string;
 }) {
   const errs = tried ? formErrors(value) : {};
   const set = <K extends keyof ActivityFormState>(k: K) => (v: ActivityFormState[K]) => onChange({ ...value, [k]: v });
-  const holiday = holidayOf(form, value.date);
+  const holiday = repeating ? null : holidayOf(form, value.date);
   return (
     <FormGrid>
       <Field id={`${idPrefix}-namn`} label="Namn" help="Till exempel CV-verkstad. Namnet syns bara för Miljonbemanning." required error={errs.name} full>
@@ -100,14 +104,20 @@ export function ActivityFields({
       <Field id={`${idPrefix}-ansvarig`} label="Ansvarig coach" help="Valfritt.">
         <Select value={value.responsibleId} onValueChange={set("responsibleId")} placeholder="Ingen ansvarig" options={form.coaches.map((c) => ({ value: c.id, label: c.name }))} />
       </Field>
-      <Field id={`${idPrefix}-datum`} label="Datum" required error={errs.date}>
-        <DateInput value={value.date} onValueChange={set("date")} />
+      <Field
+        id={`${idPrefix}-datum`}
+        label={repeating ? "Första dagen" : "Datum"}
+        help={lockSchedule ?? (repeating ? "Första tillfället blir den första valda veckodagen från och med den här dagen. Helgdagar hoppas över." : undefined)}
+        required
+        error={errs.date}
+      >
+        <DateInput value={value.date} onValueChange={set("date")} disabled={!!lockSchedule} />
       </Field>
-      <Field id={`${idPrefix}-tid`} label="Tid" help="När aktiviteten börjar." required error={errs.time}>
-        <TimeInput value={value.time} onValueChange={set("time")} />
+      <Field id={`${idPrefix}-tid`} label="Tid" help={repeating ? "När aktiviteten börjar varje gång." : "När aktiviteten börjar."} required error={errs.time}>
+        <TimeInput value={value.time} onValueChange={set("time")} disabled={!!lockSchedule} />
       </Field>
       <Field id={`${idPrefix}-langd`} label="Längd" required>
-        <Select value={String(value.durationMin)} onValueChange={(v) => set("durationMin")(Number(v))} options={durationOptions(value.durationMin)} />
+        <Select value={String(value.durationMin)} onValueChange={(v) => set("durationMin")(Number(v))} options={durationOptions(value.durationMin)} disabled={!!lockSchedule} />
       </Field>
       <Field id={`${idPrefix}-plats`} label="Plats" help="Platsen står i inbjudan till deltagarna." required error={errs.location}>
         <Input value={value.location} onValueChange={set("location")} maxLength={200} />
@@ -193,19 +203,23 @@ export const isUpcoming = (startsAt: string, now: string): boolean => /^\d{4}-\d
 
 /**
  * Kryssrutan för meddelandet till deltagarna (förvald). Bara för en aktivitet som inte har börjat – annars en mening om att
- * inget skickas. Meddelandet innehåller bara tid, plats och Miljonbemannings telefonnummer.
+ * inget skickas. Meddelandet innehåller bara tid, plats och Miljonbemannings telefonnummer. help: en egen förklaring (t.ex. för en
+ * återkommande aktivitet eller en målgrupp).
  */
-export function NotifyCheck({ id, checked, onChange, label, upcoming }: { id: string; checked: boolean; onChange: (on: boolean) => void; label: string; upcoming: boolean }) {
+export function NotifyCheck({ id, checked, onChange, label, upcoming, help }: { id: string; checked: boolean; onChange: (on: boolean) => void; label: string; upcoming: boolean; help?: string }) {
   if (!upcoming) return <p className="m-0 text-body text-text-muted">Aktiviteten har redan börjat. Inget meddelande skickas till deltagarna.</p>;
   return (
     <Check id={id} checked={checked} onCheckedChange={onChange} aria-describedby={`${id}-hjalp`}>
       <span className="font-bold">{label}</span>
       <span id={`${id}-hjalp`} className="block text-body text-text-muted">
-        E-post eller SMS med tid, plats och Miljonbemannings telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
+        {help ?? "E-post eller SMS med tid, plats och Miljonbemannings telefonnummer – inga namn. Den som inte går att nå ringer samordnaren."}
       </span>
     </Check>
   );
 }
+
+/** Hjälptexten för meddelandet i en återkommande aktivitet (standard av – Karims beslut 2026-10-22). */
+export const SERIES_NOTIFY_HELP = "Deltagarna får tiderna av sin coach. Slå på om de ska få ett meddelande inför varje tillfälle.";
 
 /** Hur meddelandet gick, som en mening efter toasten ("" när inget skickades). */
 export const notifiedText = (n: NotifyOutcome | undefined): string => (n ? ` ${n.summary}` : "");

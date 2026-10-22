@@ -121,7 +121,7 @@ describe("godkända rader ändras inte", () => {
     const page = await q(assessmentPage, { caseId: NADIA, month: "2027-01" }, amira());
     if (page.kind !== "ok") throw new Error("gate");
     const full = Object.fromEntries(page.areas.map((a) => [a.key, { level: 2 as const, observation: "Konkret observation med belägg.", nextStep: "" }]));
-    const approved = await run(assessmentSave, { caseId: NADIA, month: "2027-01", areas: full, summary: "Sammanfattning.", overallStatus: "green", approve: true, plan: { goal1: "Mål 1", status: "approved" } }, amira());
+    const approved = await run(assessmentSave, { caseId: NADIA, month: "2027-01", areas: full, summary: "Sammanfattning.", overallStatus: "green", approve: true, reviewed: true, plan: { goal1: "Mål 1", status: "approved" } }, amira());
     expect(approved).toMatchObject({ ok: true });
     const ma = structuredClone(rows("monthly_assessments").find((x) => x.caseId === NADIA && x.month === "2027-01")!);
     const plan = structuredClone(rows("monthly_plans").find((x) => x.caseId === NADIA && x.month === "2027-01")!);

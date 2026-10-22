@@ -178,7 +178,10 @@ tooltip "Förfaller måndag 1 feb 2027 kl. 10.05".
 - `PhaseBar({ phase, total = 5 })` – deltagarresan som stapel. `PhaseTag({ phase, name })` – "Fas 4 · Praktik/APL" (namnet från avtalskonfigurationen).
 - `BuildPhase({ fas })` – "Byggs i fas 2" (SPEC §12).
 - `AiTag` ("AI-förslag"), `AiBox` (blå ruta för AI-förslag), `Evidence({ quote, t })` (citat + "Tidpunkt mm:ss", `t` i sekunder),
-  `RecIndicator` ("Spelar in 03:12"). AI föreslår – människan bedömer: bedömningsfält är tomma tills coachen valt.
+  `RecIndicator` ("Spelar in 03:12"). AI föreslår – människan bedömer: bedömningsfält är tomma tills coachen valt. Undantaget är
+  månadsbedömningen (Karims beslut 2026-10-22): den är förifylld med progressionsnivå 0 "Automatiskt – inget belägg", samlad status
+  ur senaste godkända mötesrapporten, sammanfattning och plan – allt märkt "Ifyllt automatiskt – kontrollera" tills coachen ändrar
+  det. AI skriver ändå aldrig en nivå; ett AI-förslag blir nivån först när coachen trycker Godta.
 
 ---
 

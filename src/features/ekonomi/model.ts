@@ -3,6 +3,7 @@
 // Avtalsvärden (referensens mönster, inköpsordernumrets mönster, betalningsvillkor, samlingsfakturor) kommer från
 // avtalskonfigurationen – aldrig hårdkodade (CLAUDE.md punkt 4).
 import { BILLED_STATUSES, billableWeeks, invoiceLookup, parseGroupingKey, type BillableWeek, type BillingCheck, type BillingDb, type BillingLine } from "@/core/billing";
+import { areaForMonth } from "@/core/area-changes";
 import { priceFor } from "@/core/cases";
 import { buyerRefLengthText, type BillingConfig } from "@/core/config";
 import type { DomainEnv } from "@/core/env";
@@ -171,7 +172,7 @@ export const kindOf = (status: string | null): LedgerKind => (status && BILLED.i
 /** Ärendets debiterbara veckor per månad och faktura, med fakturastatus (bara månader som har en fakturakörning har status). */
 export function caseLedger(
   c: Case,
-  db: Pick<BillingDb, "activities" | "attendance" | "price_items" | "invoice_drafts" | "invoice_lines" | "billing_runs">,
+  db: Pick<BillingDb, "activities" | "attendance" | "price_items" | "invoice_drafts" | "invoice_lines" | "billing_runs" | "case_area_changes">,
   env: Pick<DomainEnv, "now">,
 ): LedgerRow[] {
   const weeks = billableWeeks(c, db, env).filter((w) => !w.paused);
@@ -180,7 +181,8 @@ export function caseLedger(
   const months = [...new Set(weeks.map((w) => w.monthKey))].sort();
   return months.flatMap((mk) => {
     const ws = weeks.filter((w) => w.monthKey === mk);
-    const price = priceFor(db.price_items, c.primaryAreaCode, ws[0].monday, c.contractId);
+    // Yrkesområdet som gäller för månaden (byt yrkesområde, Karims beslut 2026-10-22).
+    const price = priceFor(db.price_items, areaForMonth(c, db.case_area_changes, mk), ws[0].monday, c.contractId);
     const groups = new Map<string, BillableWeek[]>();
     for (const w of ws) {
       const holder = lookup.holderOf(c, mk, w.key);

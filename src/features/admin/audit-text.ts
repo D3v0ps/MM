@@ -14,12 +14,13 @@ export const ACTION_LABEL: Record<string, string> = {
   "case.view": "Visade deltagarkort", "pnr.revealed": "Visade personnummer", "report.view": "Visade rapport", "transcript.view": "Visade transkript",
   "voice_note.view": "Visade röstmeddelanden",
   "case.created": "Skapade ärende", "case.accepted": "Accepterade avrop", "case.declined": "Avböjde avrop", "case.updated": "Ändrade ärende",
-  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.closed": "Avslutade ärende",
+  "case.buyer_reference_changed": "Ändrade beställarreferens", "case.first_meeting_booked": "Bokade första möte", "case.coach_changed": "Bytte huvudcoach", "case.area_changed": "Bytte yrkesområde", "case.closed": "Avslutade ärende",
   "person.contact_changed": "Ändrade kontaktväg",
   "email.received": "Tog emot mejl", "email.handled": "Hanterade mejl", "email.linked": "Kopplade mejl till ärende", "email.supplement_applied": "Förde in komplettering",
   "attendance.registered": "Registrerade närvaro", "attendance.registered_all": "Registrerade närvaro för flera tillfällen", "report.published": "Publicerade veckorapport", "report.approved": "Godkände rapport", "report.delivered": "Levererade rapport", "report.corrected": "Rättade rapport",
   "check_in.saved": "Sparade avstämning", "check_in.approved": "Godkände avstämning", "deviation.created": "Skapade avvikelse", "deviation.saved": "Sparade avvikelse", "deviation.customer_called": "Kallade kommunen till uppföljning",
-  "assessment.saved": "Sparade månadsbedömning", "assessment.approved": "Godkände månadsbedömning", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
+  "assessment.saved": "Sparade månadsbedömning", "assessment.approved": "Godkände månadsbedömning",
+  "assessment.prefilled": "Fyllde i månadsbedömningen automatiskt", "assessment.ai_accepted": "Godtog AI-förslag till progressionsnivå", "intake.saved": "Sparade kartläggning", "intake.approved": "Godkände kartläggning",
   "event.added": "Registrerade händelse", "result.verified": "Verifierade resultat", "message.sent": "Skickade meddelande", "alert.acknowledged": "Kvitterade flagga",
   "consent.given": "Registrerade samtycke", "consent.declined": "Registrerade nej till samtycke", "consent.revoked": "Återkallade samtycke",
   "ai.run": "AI-körning", "audio.deleted": "Raderade ljudfil", "transcript.deleted": "Raderade råtranskript",
@@ -69,6 +70,10 @@ export const ACTION_LABEL: Record<string, string> = {
   "grouping.created": "Skapade grupp eller tagg", "grouping.updated": "Bytte namn på nivå, grupp eller tagg", "grouping.archived": "Arkiverade grupp eller tagg",
   "grouping.restored": "Återställde grupp eller tagg", "grouping.defaults_added": "Lade in standardnivåerna",
   "grouping_member.added": "Placerade deltagare i nivå, grupp eller tagg", "grouping_member.removed": "Tog bort deltagare ur nivå, grupp eller tagg",
+  // Yrkesområden, nivåer och återkommande aktiviteter (Karims beslut 2026-10-22). Loggen har id:n, koder, tider och antal – aldrig namn.
+  "group_activity.audience_synced": "Ändrade inbjudan automatiskt (nivå eller yrkesområde)",
+  "group_activity_series.created": "Skapade återkommande aktivitet", "group_activity_series.updated": "Ändrade återkommande aktivitet",
+  "group_activity_series.ended": "Avslutade återkommande aktivitet", "group_activity_series.occurrences_created": "Skapade tillfällen i återkommande aktivitet",
 };
 /** Okänd åtgärdskod blir läsbar text i stället för kod: "billing.new_thing" → "Billing new thing". */
 export const actionLabel = (code: string | null | undefined): string => ACTION_LABEL[code ?? ""] ?? cap(String(code || "").replace(/[._]/g, " "));
@@ -79,7 +84,7 @@ export const ENTITY_LABEL: Record<string, string> = {
   consent: "Samtycke", billing_run: "Fakturakörning", contract: "Avtal", org_config: "Interna regler", profile: "Användare", template: "Mall", job: "Bakgrundsjobb", audit_log: "Revisionslogg",
   pulse_response: "Pulssvar", employer: "Arbetsgivare", placement: "Praktikplats", feedback: "Synpunkt", case_note: "Anteckning",
   saved_report: "Sparad rapport", case_attachment: "Bilaga", invoice: "Faktura", group_activity: "Gruppaktivitet",
-  grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg",
+  grouping: "Nivå, grupp eller tagg", grouping_member: "Placering i nivå, grupp eller tagg", group_activity_series: "Återkommande aktivitet",
 };
 /** Objektets typ i tabellen: "Ärende", "Mall" … Okänd typ blir läsbar text. */
 export const entityLabel = (entity: string | null | undefined): string => ENTITY_LABEL[entity ?? ""] ?? cap(String(entity || "").replace(/_/g, " "));
@@ -109,6 +114,13 @@ const DETAIL_KEY: Record<string, string> = {
   // Spår G: inbjudan per grupp eller nivå, meddelandet till deltagarna och gruppmålet.
   groupingIds: "Nivåer och grupper", skippedCaseIds: "Hoppades över", sent: "Skickat till", tasks: "Uppgifter att ringa", superseded: "Gällde en ändrad aktivitet",
   goal: "Gruppmål", achieved: "Klarade målet",
+  // Målgruppen och de återkommande aktiviteterna (Karims beslut 2026-10-22).
+  audienceId: "Nivå eller yrkesområde", addedCaseIds: "Inbjudna", removedCaseIds: "Borttagna", weekdays: "Veckodagar", startTime: "Starttid",
+  startsOn: "Första dag", endsOn: "Sista dag", notify: "Meddelande till deltagarna", occurrences: "Tillfällen", groupActivityIds: "Tillfällen",
+  seriesId: "Återkommande aktivitet", cancelled: "Inställda", kept: "Låg kvar",
+  // Spår B (Karims beslut 2026-10-22): byt yrkesområde och automatisk månadsbedömning – koder, id:n och antal.
+  fromArea: "Från yrkesområde", toArea: "Till yrkesområde", effectiveMonth: "Fakturan från", changeId: "Byte", noteId: "Anteckning med motivering",
+  aiQueued: "AI-utkast beställda", reviewed: "Genomgången", autoAreas: "Automatiska områden", coachAreas: "Coachens val", aiAccepted: "Godtagna AI-förslag",
 };
 /** Kodvärden i loggen som läsbar svenska. Nyckelberoende först, sedan generella ord. */
 const FIELD_WORD: Record<string, string> = {
@@ -134,7 +146,8 @@ const VALUE_BY_KEY: Record<string, Record<string, string>> = {
   window: WINDOW,
   by: { customer: "kommunen", coach: "coachen", system: "systemet", registered_by_mb: "kommunen (registrerat av Miljonbemanning)" },
   how: { möte: "på ett möte", brev: "med brev eller e-post", telefon: "på telefon", annat: "på annat sätt" },
-  via: { grupp: "grupp", niva: "nivå", enskilda: "enskilda deltagare" },
+  via: { grupp: "grupp", niva: "nivå", omrade: "yrkesområde", enskilda: "enskilda deltagare" },
+  weekdays: { "1": "måndag", "2": "tisdag", "3": "onsdag", "4": "torsdag", "5": "fredag" },
   mimeType: {
     "application/pdf": "PDF", "application/msword": "Word", "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "Word",
     "image/jpeg": "bild (JPEG)", "image/png": "bild (PNG)", "image/heic": "bild (HEIC)",
@@ -215,13 +228,14 @@ function fmtDetail(k: string, v: unknown, a: AuditEntryLike, l: AuditLookups): s
   if (k === "endReason") return endReasonLabel(s);
   if (k === "status" && (a.action === "attendance.registered" || a.action === "attendance.registered_all")) return attLabel(s);
   if (k === "status") return STATUS_WORD[s] ?? s;
+  if (k === "audience" && GROUP_ENTITIES.has(a.entity)) return AUDIENCE_WORD[s] ?? s;
   if (VALUE_BY_KEY[k]?.[s]) return VALUE_BY_KEY[k][s];
   if (/^(u|k)-[a-z]+$/.test(s)) return l.userName(s) ?? "–";
   if (/^case-\d+$/.test(s)) return l.caseNumber(s) ?? s;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(s)) return fmtDateTime(s);
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtDate(s);
   if (/^\d{4}-W\d{2}$/.test(s)) return fmtWeekKey(s);
-  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
+  if (/^\d{4}-\d{2}$/.test(s) && (k === "month" || k === "effectiveMonth" || (a.action.startsWith("export.") && (k === "from" || k === "to")))) return monthName(s);
   return s;
 }
 
@@ -230,7 +244,12 @@ const COUNTED: Record<string, [string, string]> = {
   columns: ["kolumn", "kolumner"], reportIds: ["rapport", "rapporter"], measures: ["mått", "mått"],
   activityIds: ["tillfälle", "tillfällen"], attendanceIds: ["närvaropost", "närvaroposter"], skippedActivityIds: ["tillfälle", "tillfällen"], caseIds: ["ärende", "ärenden"],
   skippedCaseIds: ["ärende", "ärenden"], groupingIds: ["nivå eller grupp", "nivåer eller grupper"],
+  addedCaseIds: ["ärende", "ärenden"], removedCaseIds: ["ärende", "ärenden"], groupActivityIds: ["tillfälle", "tillfällen"],
 };
+/** Gruppaktiviteternas målgrupp (audience) – samma nyckel som rapportbyggarens visning, så ordet beror på objektet. */
+const GROUP_ENTITIES = new Set(["group_activity", "group_activity_series"]);
+const AUDIENCE_WORD: Record<string, string> = { level: "nivå", area: "yrkesområde", manual: "inbjudna för hand" };
+const keyLabel = (k: string, a: AuditEntryLike): string => (k === "audience" && GROUP_ENTITIES.has(a.entity) ? "Målgrupp" : DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k));
 
 /**
  * Detaljerna i en loggrad som läsbar text: "Tolkning: Word-mall · Kanal: e-post". full = hela listorna (detaljvyn) i stället
@@ -245,7 +264,7 @@ export function detailText(a: AuditEntryLike, l: AuditLookups, opts: { full?: bo
     .map(([k, v]) => {
       const counted = COUNTED[k];
       const text = counted && Array.isArray(v) && !opts.full ? `${v.length} ${v.length === 1 ? counted[0] : counted[1]}` : fmtDetail(k, v, a, l);
-      return `${DETAIL_KEY[k] ?? cap(FIELD_WORD[k] ?? k)}: ${text}`;
+      return `${keyLabel(k, a)}: ${text}`;
     })
     .join(" · ");
 }

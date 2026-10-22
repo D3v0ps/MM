@@ -362,9 +362,9 @@ function MinVecka({ v }: { v: MinVeckaView }) {
                         >
                           <Row gap="sm">
                             <Badge tone="outline" icon="edit">
-                              Utkast
+                              {r.prefilled ? "Ifylld automatiskt – gå igenom" : "Utkast"}
                             </Badge>
-                            {r.hasAi ? <AiTag>AI-utkast finns</AiTag> : <span className="text-small text-text-muted">Underlag: manuellt</span>}
+                            {r.hasAi && <AiTag>AI-utkast finns</AiTag>}
                           </Row>
                         </ListItem>
                       </div>

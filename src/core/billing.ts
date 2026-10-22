@@ -16,8 +16,11 @@
 //   efterhand) får kontrollen "not_billable". En returnerad faktura görs om med raderna frysta på nytt från dagens underlag –
 //   bara de veckor som fortfarande är debiterbara (reissueLines). Återstår inga veckor krediteras fakturan utan ny faktura
 //   (status credited – täcker inga veckor).
+// Byt yrkesområde (Karims beslut 2026-10-22, 0036): priset och områdeskoden på en rad är yrkesområdet som gäller för månaden
+// (areaForMonth i ./area-changes.ts) – det gamla till och med bytesmånaden, det nya från och med månaden efter.
 import type { BillingRun, BillingWeekApproval, Case, Contract, Db, InvoiceDisplayStatus, InvoiceDraft, InvoiceLine, InvoiceStatus, PriceItem, UserId } from "@/data/schema";
 import type { OperationalConfig } from "./config";
+import { areaChangesByCase, areaForMonth } from "./area-changes";
 import { priceFor, priceItem } from "./cases";
 import { activitiesOf, attendanceFor, groupedBy } from "./db-index";
 import type { DomainEnv } from "./env";
@@ -255,7 +258,8 @@ export type BillingLine = {
 
 export type BillingDb = Pick<
   Db,
-  "cases" | "activities" | "attendance" | "price_items" | "buyer_references" | "invoice_drafts" | "invoice_lines" | "billing_runs" | "billing_week_approvals"
+  | "cases" | "activities" | "attendance" | "price_items" | "buyer_references" | "invoice_drafts" | "invoice_lines" | "billing_runs" | "billing_week_approvals"
+  | "case_area_changes"
 >;
 
 // ---------------------------------------------------------------- Priset på raden (stoppar fakturan)
@@ -329,6 +333,7 @@ export function billingLines(db: Omit<BillingDb, "invoice_drafts" | "invoice_lin
     return w;
   };
   const byPerson = groupedBy(db.cases, "personId", (c) => c.personId);
+  const changesOf = areaChangesByCase(db.case_area_changes);
 
   const lines: BillingLine[] = [];
   for (const c of db.cases) {
@@ -338,7 +343,9 @@ export function billingLines(db: Omit<BillingDb, "invoice_drafts" | "invoice_lin
     const pausedInMonth = all.filter((w) => w.monthKey === month && w.paused);
     if (!weeks.length) continue;
     const first = weeks[0];
-    const price = priceFor(db.price_items, c.primaryAreaCode, first.monday, c.contractId);
+    // Yrkesområdet som gäller för månaden (ett byte gäller från månaden efter bytet).
+    const area = areaForMonth(c, changesOf.get(c.id) ?? [], month);
+    const price = priceFor(db.price_items, area, first.monday, c.contractId);
     const orderWeeks = c.orderValueWeeks || c.plannedWeeks || 0;
     const accruedWeeks = all.filter((w) => !w.paused && w.monthKey <= month).length;
 
@@ -381,12 +388,12 @@ export function billingLines(db: Omit<BillingDb, "invoice_drafts" | "invoice_lin
       checks.push({ kind: "partial", severity: "info", label: "Delvis vecka", text: "Start- eller slutveckan är bara delvis, men räknas som debiterbar vecka enligt Botkyrkas besked." });
     }
 
-    const item = priceItem(db.price_items, c.primaryAreaCode, first.monday, c.contractId);
+    const item = priceItem(db.price_items, area, first.monday, c.contractId);
     // Priset först: det stoppar hela fakturan (priceStopCheck) – raden visar varför.
     const priceProblem = priceProblemOf(item);
     if (priceProblem) checks.unshift({ kind: "price", severity: "warning", ...PRICE_LINE[priceProblem] });
     lines.push({
-      month, contractId: c.contractId, caseId: c.id, caseNumber: c.caseNumber, areaCode: c.primaryAreaCode, weeks, quantity: weeks.length, unitPriceOre: price,
+      month, contractId: c.contractId, caseId: c.id, caseNumber: c.caseNumber, areaCode: area, weeks, quantity: weeks.length, unitPriceOre: price,
       amountOre: weeks.length * price, vatRate: item ? item.vatRate : 25, articleNo: item?.fortnoxArticleNo ?? "", priceItemId: item?.id ?? "", priceProblem,
       caseBuyerReference: c.buyerReference, casePurchaseOrderNumber: c.purchaseOrderNumber || "", orderWeeks, accruedWeeks,
       remainingWeeks: Math.max(0, orderWeeks - accruedWeeks), checks, needsApproval: checks.some((x) => x.severity === "needs_approval"),
@@ -743,6 +750,7 @@ export function unbilledOld(db: BillingDb, env: Pick<DomainEnv, "now" | "cfg">):
   const today = dayOf(env.now);
   const current = monthKey(today);
   const lookup = invoiceLookup(db);
+  const changesOf = areaChangesByCase(db.case_area_changes);
   const out: UnbilledWeek[] = [];
   for (const c of db.cases) {
     if (!c.startDate) continue;
@@ -751,7 +759,8 @@ export function unbilledOld(db: BillingDb, env: Pick<DomainEnv, "now" | "cfg">):
       const st = lookup.statusOf(c, w.monthKey, w.key);
       if (BILLED_STATUSES.includes(st)) continue;
       const age = diffDays(addDays(w.monday, 6), today);
-      if (age > limit) out.push({ case: c, week: w, age, status: st, amountOre: priceFor(db.price_items, c.primaryAreaCode, w.monday, c.contractId) });
+      const area = areaForMonth(c, changesOf.get(c.id) ?? [], w.monthKey);
+      if (age > limit) out.push({ case: c, week: w, age, status: st, amountOre: priceFor(db.price_items, area, w.monday, c.contractId) });
     }
   }
   return out;

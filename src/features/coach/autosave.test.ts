@@ -13,6 +13,7 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import { caseHistory } from "@/features/arenden/api";
 import { detailText } from "@/features/admin/audit-text";
 import { assessmentSave, checkinSave, intakeSave } from "./api";
+import { caseLevelSet } from "@/features/grupper/api";
 
 const SEED: MemoryData<Tables> = createSeed();
 let rt: MemoryRuntime;
@@ -157,7 +158,8 @@ describe("kartläggning – coach.intakeSave med autosave", () => {
     expect(logs("intake.saved", id)).toHaveLength(2);
     expect(await run(intakeSave, { caseId: AMAL, data: {}, approve: true, autosave: true, editSession: SESSION_A }, amira())).toMatchObject({ ok: false, error: "invalid" });
     expect(rows("intake_assessments").find((x) => x.id === id)!.status).toBe("draft");
-    // Godkännande (manuellt) loggas som förut.
+    // Godkännande (manuellt) loggas som förut – med en nivå vald (Karims beslut 2026-10-22).
+    expect(await run(caseLevelSet, { caseId: AMAL, levelId: "grp-c-bot-niva-1", fromLevelId: null }, amira())).toMatchObject({ ok: true });
     const ok = await run(intakeSave, { caseId: AMAL, data: { chosenTrack: "Individuellt spår" }, approve: true }, amira());
     expect(ok).toMatchObject({ ok: true, intakeId: id });
     expect(logs("intake.approved", id)).toHaveLength(1);

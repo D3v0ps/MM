@@ -457,27 +457,53 @@ test("Veckoavstämning: nekat samtycke; kollegans ärende öppnas (beslut 2026-1
 });
 
 // ================================================================ Månadsbedömning
-test("Månadsbedömning januari: nivåer är tomma tills coachen väljer (Nadia)", async ({ page }, info) => {
+test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går igenom, godtar AI-förslagen och godkänner (Nadia)", async ({ page }, info) => {
+  // Karims beslut 2026-10-22: progressionsnivå 0 "Automatiskt – inget belägg" i varje område, AI-förslag 1–3 bara med citat
+  // och källa, samlad status från senaste godkända mötesrapporten och "Jag har gått igenom bedömningen" före Godkänn.
   const errors = await open(page, info, `/manadsbedomning/${SC.nadia}?manad=2027-01`, COACH);
   await expect(page.getByRole("heading", { level: 1, name: "Månadsbedömning januari 2027" })).toBeVisible();
   await noBadText(page);
+  await expect(main(page)).toContainText("Bedömningen är ifylld automatiskt. Gå igenom varje område och ändra det som inte stämmer.");
   const table = page.getByTestId("progressionsomraden");
   const selects = table.locator("select");
   await expect(selects).toHaveCount(10);
-  expect(await selects.evaluateAll((els) => els.every((s) => (s as HTMLSelectElement).value === ""))).toBeTruthy();
-  await expect(page.getByText(/Förslag:\s\d\s–\s/).first()).toBeVisible();
+  expect(await selects.evaluateAll((els) => els.every((s) => (s as HTMLSelectElement).value === "0"))).toBeTruthy();
+  await expect(table.getByText("Automatiskt – inget belägg").first()).toBeVisible();
+  const suggestion = page.getByTestId("ai-nivaforslag").first();
+  await expect(suggestion).toContainText(/AI-förslag: progressionsnivå [123] – /);
+  await expect(suggestion).toContainText(/Källa: (Mötesrapport|Anteckning) \d+ \w+/);
   const rows = table.locator("tbody tr");
   for (let i = 0; i < 10; i++) {
-    const t = await rows.nth(i).innerText();
-    if (!/Framgår inte/.test(t)) continue;
-    expect(t).not.toMatch(/Förslag:\s\d/);
+    if (!(await rows.nth(i).getByText("Inget AI-förslag").count())) continue;
+    await expect(rows.nth(i).getByTestId("ai-nivaforslag")).toHaveCount(0);
     await expect(btn(rows.nth(i), "Använd utkastet")).toHaveCount(0);
   }
-  const lvl = await page.getByTestId("ai-nivaforslag").first().boundingBox();
-  expect(lvl && lvl.height < 50).toBeTruthy();
-  await selects.nth(0).selectOption("2");
+  await expect(main(page)).toContainText(/Från mötesrapporten \d+ \w+/);
+  await expect(main(page).getByText(/^Ifyllt automatiskt/).first()).toBeVisible();
+  // Godkänn går inte att trycka på förrän rutan är ikryssad.
+  await expect(btn(page, "Godkänn bedömningen")).toHaveAttribute("aria-disabled", "true");
+  // Godta alla AI-förslag: nivån och AI:s observation – coachens val, märkt "Godtaget".
+  await btn(page, /^Godta alla AI-förslag \(\d+\)$/).click();
+  await expect(page.getByText(/AI-förslag är godtag/).first()).toBeVisible();
+  await expect(btn(page, /^Godta alla AI-förslag/)).toHaveCount(0);
+  // Knappen ligger kvar (fokus tappas inte) men går inte att använda.
+  await expect(btn(page, "Inga fler AI-förslag att godta")).toHaveAttribute("aria-disabled", "true");
+  await expect(table.getByRole("button", { name: /^Godtaget/ }).first()).toHaveAttribute("aria-disabled", "true");
+  await expect(table.getByText("Ditt val (AI-förslag godtaget)").first()).toBeVisible();
+  // Ett område som fortfarande är automatiskt: nivå 2 utan egen observation stoppas – den automatiska texten är inget belägg.
+  let auto = -1;
+  for (let i = 0; i < 10 && auto < 0; i++) if (await rows.nth(i).getByText("Automatiskt – inget belägg").count()) auto = i;
+  expect(auto).toBeGreaterThanOrEqual(0);
+  await expect(rows.nth(auto).locator("textarea")).toHaveValue("Ingen förändring noterad denna månad.");
+  await selects.nth(auto).selectOption("2");
+  // Den automatiska texten är inget belägg: fältet töms när coachen väljer en nivå över 0.
+  await expect(rows.nth(auto).locator("textarea")).toHaveValue("");
+  await page.getByRole("checkbox", { name: "Jag har gått igenom bedömningen" }).check();
+  await expect(btn(page, "Godkänn bedömningen")).not.toHaveAttribute("aria-disabled", "true");
   await btn(page, "Godkänn bedömningen").click();
   await expect(page.getByText(/Skriv en konkret observation/).first()).toBeVisible();
+  // Fokus på det som saknas: observationen (nivån är vald).
+  await expect(rows.nth(auto).locator("textarea")).toBeFocused();
   await expect(btn(page, "Godkänn bedömningen")).toBeVisible(); // fortfarande utkast
   const levels = [2, 1, 2, 1, 2, 3, 2, 2, 1, 0];
   for (let i = 0; i < 10; i++) {
@@ -507,18 +533,20 @@ test("Månadsbedömning januari: 'Lägg till i sammanfattningen' lägger in ante
   await expect(main(page)).toContainText("Anteckningar från januari. De kommer inte med i rapporten av sig själva.");
   const note = "Handläggaren ringde och frågade om det planerade slutdatumet.";
   await expect(main(page)).toContainText(note);
-  await expect(main(page)).toContainText("0 av 4000 tecken");
+  // Sammanfattningen är ifylld automatiskt (Karims beslut 2026-10-22) – anteckningen (hela texten, som börjar med note) läggs
+  // till i ett eget stycke efter den.
+  await expect(main(page)).toContainText(/\d+ av 4000 tecken/);
   await btn(page, "Lägg till i sammanfattningen").first().click();
   // Knappen byter till "Tillagd" utan att tappa fokus, och kvittensen läses upp.
   await expect(btn(page, "Tillagd i sammanfattningen")).toHaveAttribute("aria-disabled", "true");
   await expect(btn(page, "Tillagd i sammanfattningen")).toBeFocused();
   await expect(page.getByText("Anteckningen är tillagd i sammanfattningen.", { exact: false })).toBeVisible();
-  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`^${note}`));
+  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`(^|\n\n)${note}`));
   await btn(page, "Spara utkast").click();
   await expect(page.getByText("Utkastet är sparat.")).toBeVisible();
   await page.reload();
   if (!isDemo(info)) await loaded(page);
-  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`^${note}`));
+  await expect(page.locator("#cm-summary")).toHaveValue(new RegExp(`(^|\n\n)${note}`));
   // Efter omladdning: texten finns i sammanfattningen – samma anteckning kan inte läggas in en gång till.
   await expect(btn(page, "Tillagd i sammanfattningen")).toHaveCount(1);
   await expect(btn(page, "Lägg till i sammanfattningen")).toHaveCount(2);
@@ -526,7 +554,7 @@ test("Månadsbedömning januari: 'Lägg till i sammanfattningen' lägger in ante
 });
 
 // ================================================================ Kartläggning
-test("Kartläggning: yrkesspår krävs och diagnoser stoppas (Amal)", async ({ page }, info) => {
+test("Kartläggning: yrkesspår och nivå krävs och diagnoser stoppas (Amal)", async ({ page }, info) => {
   const errors = await open(page, info, `/kartlaggning/${SC.amal}`, COACH);
   await noBadText(page);
   await expect(page.getByText(/Fastnat i fas 1/)).toBeVisible();
@@ -536,6 +564,13 @@ test("Kartläggning: yrkesspår krävs och diagnoser stoppas (Amal)", async ({ p
   await expect(page.getByText("Det ser ut som en diagnos")).toBeVisible();
   await page.locator("#ia-adapt").fill("Behöver tydlig struktur och schema i förväg");
   await btn(group(page, "Valt yrkesspår"), "Individuellt spår").click();
+  // Nivån krävs innan kartläggningen godkänns (Karims beslut 2026-10-22) – den väljs i kortet Nivå och yrkesområde.
+  await btn(page, "Godkänn kartläggningen").click();
+  await expect(page.getByText("Välj nivå innan du godkänner kartläggningen.").first()).toBeVisible();
+  await expect(page.getByText("Kartläggningen är godkänd", { exact: true })).toHaveCount(0);
+  const levels = card(page, "Nivå och yrkesområde");
+  await btn(levels, "Nivå 1 – Långt från arbete").click();
+  await expect(levels.locator("[data-grouping-status]")).toHaveText(/Sparat \d\d\.\d\d/);
   await btn(page, "Godkänn kartläggningen").click();
   await expect(page.getByText("Kartläggningen är godkänd", { exact: true })).toBeVisible();
   await expect(main(page)).toContainText("L Övrigt · Individuellt spår");

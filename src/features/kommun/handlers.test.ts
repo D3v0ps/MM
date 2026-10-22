@@ -113,7 +113,7 @@ describe("deltagarens sida", () => {
     const early = "case-270004";
     expect(rows("cases").find((c) => c.id === early)?.startDate).toBe("2027-01-11");
     expect(await att(early)).toEqual({ rate: 0.9, planned: 10, ended: false });
-    rt.store.insertRow("activities", { id: "act-fore-start", caseId: early, kind: rows("activities").find((a) => a.caseId === early)!.kind, startsAt: "2027-01-08T10:00", durationMin: 60, location: "Alby", note: "", groupActivityId: null });
+    rt.store.insertRow("activities", { id: "act-fore-start", caseId: early, kind: rows("activities").find((a) => a.caseId === early)!.kind, startsAt: "2027-01-08T10:00", durationMin: 60, location: "Alby", note: "", groupActivityId: null, inviteSource: "manual" });
     rt.store.insertRow("attendance", { id: "att-fore-start", activityId: "act-fore-start", caseId: early, status: "absent_invalid", reason: "Uteblev utan att meddela", registeredBy: "u-amira", registeredAt: "2027-01-08T12:00", customerNotifiedAt: null, source: "manual" });
     expect(await att(early), "tillfället före startdatumet räknas inte").toEqual({ rate: 0.9, planned: 10, ended: false });
     // BOT-26-0094 avslutades 18 december 2026 (mer än 30 dagar sedan): de sista 30 dagarna i insatsen, 19 november–18

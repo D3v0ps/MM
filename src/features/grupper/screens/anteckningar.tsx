@@ -1,6 +1,6 @@
 "use client";
 // Anteckningar (/anteckningar) – massanteckningar i Workbuster-stil (coachmötet 2026-10-09, Karims beslut 4): välj Mina
-// ärenden, en nivå, en grupp eller en tagg och skriv en rad per deltagare. Datumet är i dag (går att ändra), ingen tid,
+// ärenden, en nivå, ett yrkesområde (gruppen, Karims beslut 2026-10-22) eller en tagg och skriv en rad per deltagare. Datumet är i dag (går att ändra), ingen tid,
 // typen är förvald. "Spara N anteckningar" sparar en vanlig anteckning i deltagarkortet per ifylld rad – tomma rader hoppas
 // över. Allt eller inget: ett personnummer eller ett fel på någon rad stoppar sparningen, och felet visas vid raden.
 // Urvalet ligger i adressen (bara id:n), texterna bara i minnet (useDraft) – aldrig i adressen eller webblagring.
@@ -16,7 +16,12 @@ import { Badge, Button, Card, CaseStatusBadge, DateInput, Empty, ErrorNotice, Fi
 import { CASE_NOTE_KINDS, type CaseNoteKind } from "@/data/schema";
 import { massNotePage, massNoteSave, MASS_NOTE_SCOPES, type GroupingCatalog, type MassNotePage, type MassNoteScope } from "../api";
 
-const SCOPE_LABEL: Record<MassNoteScope, string> = { mina: "Mina ärenden", niva: "En nivå", grupp: "En grupp", tagg: "En tagg" };
+const SCOPE_LABEL: Record<MassNoteScope, string> = { mina: "Mina ärenden", niva: "En nivå", omrade: "Ett yrkesområde", tagg: "En tagg" };
+const CHOICE_LABEL: Record<Exclude<MassNoteScope, "mina">, { field: string; placeholder: string; empty: string }> = {
+  niva: { field: "Nivå", placeholder: "Välj nivå", empty: "Välj en nivå" },
+  omrade: { field: "Yrkesområde", placeholder: "Välj yrkesområde", empty: "Välj ett yrkesområde" },
+  tagg: { field: "Tagg", placeholder: "Välj tagg", empty: "Välj en tagg" },
+};
 
 export function AnteckningarScreen({ query }: ScreenProps) {
   const patch = useQueryPatch();
@@ -44,7 +49,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
       <Card title="Välj deltagare" icon="filter">
         <FormGrid>
           {contracts.length > 1 && (
-            <Field label="Avtal" id="mn-avtal" help="Varje avtal har sina egna nivåer, grupper och taggar.">
+            <Field label="Avtal" id="mn-avtal" help="Varje avtal har sina egna nivåer, yrkesområden och taggar.">
               <Select value={contractId} onValueChange={(v) => patch({ avtal: v || null, id: null })} options={contracts.map((c) => ({ value: c.id, label: c.name }))} />
             </Field>
           )}
@@ -52,17 +57,23 @@ export function AnteckningarScreen({ query }: ScreenProps) {
             <Select value={urval} onValueChange={(v) => patch({ urval: v === "mina" ? null : v, id: null })} options={MASS_NOTE_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))} />
           </Field>
           {urval !== "mina" && (
-            <Field label={urval === "niva" ? "Nivå" : urval === "grupp" ? "Grupp" : "Tagg"} id="mn-id">
-              <Select value={chosenId} placeholder={urval === "niva" ? "Välj nivå" : urval === "grupp" ? "Välj grupp" : "Välj tagg"} onValueChange={(v) => patch({ id: v || null })} options={choices} />
+            <Field label={CHOICE_LABEL[urval].field} id="mn-id" help="Antalet är deltagarna som får anteckningen: insatsen pågår, är pausad eller väntar på start.">
+              <Select value={chosenId} placeholder={CHOICE_LABEL[urval].placeholder} onValueChange={(v) => patch({ id: v || null })} options={choices} />
             </Field>
           )}
         </FormGrid>
       </Card>
       {urval !== "mina" && !chosenId ? (
         <Card>
-          <Empty icon="users" title={urval === "niva" ? "Välj en nivå" : urval === "grupp" ? "Välj en grupp" : "Välj en tagg"}>
+          <Empty icon="users" title={CHOICE_LABEL[urval].empty}>
             Deltagarna visas när du har valt.
           </Empty>
+        </Card>
+      ) : q.isPlaceholderData ? (
+        // Det nya urvalet hämtas: förra urvalets deltagare visas aldrig under det nya – en rad som fylls i nu skulle annars
+        // höra till fel deltagare eller försvinna när svaret kommer.
+        <Card>
+          <Loading />
         </Card>
       ) : (
         <Rows key={`${contractId}|${urval}|${chosenId}`} draftKey={`anteckningar|${contractId}|${urval}|${chosenId}`} data={q.data} />
@@ -74,7 +85,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
 function choicesFor(urval: MassNoteScope, cat: GroupingCatalog | null): { value: string; label: string }[] {
   if (!cat) return [];
   if (urval === "niva") return cat.levels.map((g) => ({ value: g.id, label: `${g.name} (${g.members})` }));
-  if (urval === "grupp") return cat.groups.map((g) => ({ value: g.id, label: `${g.name} (${g.members})` }));
+  if (urval === "omrade") return cat.areas.map((a) => ({ value: a.code, label: `${a.name} (${a.members})` }));
   if (urval === "tagg") return cat.tags.flatMap((t) => t.values.map((g) => ({ value: g.id, label: `${t.category}: ${g.name} (${g.members})` })));
   return [];
 }

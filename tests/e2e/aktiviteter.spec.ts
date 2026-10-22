@@ -229,49 +229,96 @@ test("Samma tid: Ny aktivitet frågar om deltagarens eget tillfälle ska ersätt
   expect(errors).toEqual([]);
 });
 
-// Spår G: bjud in per nivå och grupp (flikarna i Bjud in deltagare), inbjudan till deltagarna (kryssrutan) och gruppmålet.
-test("Bjud in en nivå och en grupp: antalet och vilka visas, redan inbjudna hoppas över och deltagarna får inbjudan", async ({ page }, info) => {
+// Karims beslut 2026-10-22: bjud in en nivå eller ett yrkesområde (målgruppen – servern bjuder in och håller listan aktuell),
+// inbjudan till deltagarna (kryssrutan) och återkommande nivåaktiviteter (Upprepa varje vecka).
+test("Bjud in en nivå: antalet och vilka visas, servern hoppar över den som har en annan aktivitet – fler bjuds in en och en", async ({ page }, info) => {
   const errors = await open(page, info, "/aktiviteter/ny", COACH);
   await expect(page.getByRole("heading", { level: 1, name: "Ny aktivitet" })).toBeVisible();
   await page.locator("#ny-akt-namn").fill("Truckteori");
   await page.locator("#ny-akt-datum").fill("2027-02-03");
   await page.locator("#ny-akt-tid").fill("13:00");
 
-  // Nivå: Nivå 3 har tre deltagare – alla bjuds in, namnen visas innan man skapar.
+  // Nivå: Nivå 3 har 17 aktiva deltagare – namnen visas innan man skapar.
   await page.getByRole("tab", { name: "Nivå" }).click();
-  await page.getByRole("group", { name: "Välj nivåer" }).getByText("Nivå 3 – På väg").click();
-  await expect(main(page).getByRole("status").filter({ hasText: "bjuds in" })).toHaveText("3 deltagare bjuds in.");
+  await page.getByRole("combobox", { name: "Nivå", exact: true }).selectOption("grp-c-bot-niva-3");
+  await expect(main(page).getByRole("status").filter({ hasText: "just nu" })).toHaveText("17 deltagare just nu. De som tillkommer bjuds in automatiskt fram till aktiviteten.");
   await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0130");
   await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0142");
   await expect(page.getByTestId("bjud-in-lista")).toContainText("BOT-26-0163");
-  // Kryssrutan för inbjudan är förvald.
+  // Kryssrutan för inbjudan är förvald – också de som tillkommer senare får inbjudan.
   const notify = page.locator("#ny-meddela");
   await expect(notify).toBeChecked();
-  await expect(main(page)).toContainText("E-post eller SMS med tid, plats och Miljonbemannings telefonnummer – inga namn.");
-  await btn(page, "Skapa aktiviteten med 3 deltagare").click();
-  await expect(toasts(page)).toContainText("Aktiviteten är skapad med 3 deltagare. Inbjudan skickas till 3 deltagare med e-post.");
+  await expect(main(page)).toContainText("De som tillkommer senare får också inbjudan.");
+  await btn(page, "Skapa aktiviteten med 17 deltagare").click();
+  // BOT-27-0019 har ett eget tillfälle vid samma tid i testdatat – servern hoppar över och säger det.
+  await expect(toasts(page)).toContainText("Aktiviteten är skapad med 16 deltagare. 1 deltagare hoppades över: BOT-27-0019 (har en annan aktivitet vid samma tid).");
   await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
-  await expect(page.getByTestId("aktivitet-deltagare")).toHaveCount(3);
+  await expect(page.getByTestId("aktivitet-deltagare")).toHaveCount(16);
+  await expect(main(page)).toContainText("Nivå 3 – På väg – de som tillkommer bjuds in automatiskt fram till aktiviteten");
 
-  // Grupp: Måndagsgruppen har fem deltagare – två är redan inbjudna (nivå 3) och hoppas över med orsaken.
+  // Aktiviteten har en målgrupp: fler bjuds in en och en (fliken Enskilda).
   await btn(page, "Bjud in deltagare").click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("tab", { name: "Grupp" }).click();
-  await dialog.getByRole("group", { name: "Välj grupper" }).getByText("Måndagsgruppen").click();
-  await expect(dialog.getByRole("status").filter({ hasText: "bjuds in" })).toHaveText("3 deltagare bjuds in, 2 hoppas över.");
-  await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("Hoppas över: redan inbjudna (2).");
-  await expect(dialog.getByTestId("bjud-in-hoppas-over")).toContainText("BOT-26-0130");
+  await expect(dialog).toContainText("Målgrupp: Nivå 3 – På väg");
+  await expect(dialog.getByRole("tab")).toHaveCount(0);
+  await dialog.locator("#akt-bjud-sok").fill("Nadia");
+  await dialog.locator(`#akt-bjud-${SC.nadia}`).check();
   await expect(dialog.locator("#akt-bjud-meddela")).toBeChecked();
-  await btn(dialog, "Bjud in 3 deltagare").click();
-  await expect(toasts(page)).toContainText("3 deltagare inbjudna. Inbjudan skickas till 3 deltagare med e-post.");
-  await expect(page.getByTestId("aktivitet-deltagare")).toHaveCount(6);
+  await btn(dialog, "Bjud in 1 deltagare").click();
+  await expect(toasts(page)).toContainText("1 deltagare inbjuden.");
+  await expect(page.getByTestId("aktivitet-deltagare")).toHaveCount(17);
   await noBadText(page);
 
-  // Utskicksloggen: sex inbjudningar med e-post – mottagaren är bara "deltagare (e-post)", aldrig ett namn.
+  // Utskicksloggen: inbjudningar med e-post – mottagaren är bara "deltagare (e-post)", aldrig ett namn.
   await switchUser(page, info, ADMIN, "/admin/mallar?flik=logg");
   const log = main(page);
   await expect(log).toContainText("Inbjudan till aktivitet");
   expect(await log.innerText()).not.toMatch(/Truckteori|Mehmet|Linnea/);
+  expect(errors).toEqual([]);
+});
+
+test("Upprepa varje vecka: en nivåaktivitet tisdag och torsdag – tillfällena två veckor framåt, inget meddelande som standard", async ({ page }, info) => {
+  const errors = await open(page, info, "/aktiviteter/ny", COACH);
+  await page.locator("#ny-akt-namn").fill("Studiebesök");
+  await page.locator("#ny-akt-datum").fill("2027-02-02");
+  await page.locator("#ny-akt-tid").fill("15:00");
+  await page.locator("#ny-upprepa").check();
+  await page.locator("#ny-dag-2").check();
+  await page.locator("#ny-dag-4").check();
+  // En återkommande aktivitet har alltid en målgrupp: Yrkesområde eller Nivå – inte Enskilda.
+  await expect(page.getByRole("tab", { name: "Enskilda" })).toHaveCount(0);
+  await page.getByRole("tab", { name: "Nivå" }).click();
+  await page.getByRole("combobox", { name: "Nivå", exact: true }).selectOption("grp-c-bot-niva-3");
+  await expect(page.locator("#ny-meddela-serie")).not.toBeChecked();
+  await expect(main(page)).toContainText("Deltagarna får tiderna av sin coach. Slå på om de ska få ett meddelande inför varje tillfälle.");
+  await btn(page, "Skapa den återkommande aktiviteten").click();
+  await expect(toasts(page)).toContainText("Den återkommande aktiviteten är skapad. 4 tillfällen de närmaste två veckorna");
+  await expect.poll(() => currentPath(page, info)).toMatch(/^\/aktiviteter\/[^/]+$/);
+  await expect(main(page)).toContainText("Del av återkommande aktivitet: tisdag och torsdag 15.00");
+  await expect(btn(page, "Ställ in bara det här tillfället")).toBeVisible();
+  await expect(btn(page, "Avsluta hela serien")).toBeVisible();
+  // Ändra i ett tillfälle gäller bara tillfället – hela serien ändras med Ändra alla kommande tillfällen.
+  await btn(page, "Ändra det här tillfället").click();
+  const edit = page.getByRole("dialog", { name: "Ändra det här tillfället" });
+  await expect(edit).toContainText("Ändringen gäller bara det här tillfället");
+  await btn(edit, "Avbryt").click();
+  await btn(page, "Ändra alla kommande tillfällen").click();
+  await expect(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" })).toBeVisible();
+  await btn(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" }), "Avbryt").click();
+  // Serien har inte börjat (första dagen 2 februari): avslutet gäller den första dagen – dialogen säger det, inte "i dag".
+  await btn(page, "Avsluta hela serien").click();
+  const end = page.getByRole("dialog", { name: "Avsluta den återkommande aktiviteten?" });
+  await expect(end).toContainText("Studiebesök (tisdag och torsdag 15.00) avslutas 2 feb 2027, den första dagen – den har inte börjat.");
+  await btn(end, "Avbryt").click();
+  await expect(end).toHaveCount(0);
+  // De som nivån bjöd in kan inte tas bort här – raden säger varför och vad man gör i stället.
+  await expect(page.getByTestId("automatisk-hjalp").first()).toContainText("Inbjuden automatiskt via nivån");
+  // Listan: Återkommande med dagarna och tiden.
+  await go(page, info, "/aktiviteter");
+  const rec = card(page, "Återkommande");
+  await expect(rec).toContainText("Studiebesök");
+  await expect(rec).toContainText("tisdag och torsdag 15.00");
+  await noBadText(page);
   expect(errors).toEqual([]);
 });
 

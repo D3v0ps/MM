@@ -4,8 +4,11 @@
 // coach.attendanceSet), "Markera övriga som närvarande" (coach.attendanceSetAll – bekräftelse med namnen, ändrar aldrig det som
 // redan är registrerat) och en rad anteckning per deltagare som sparas som vanlig anteckning med aktivitetens dag (ingen tid).
 // Spår G: gruppmålet – alla klarar det automatiskt (märkt "Automatiskt"), coachen markerar Klarade inte per deltagare och kan
-// ändra tillbaka (aktiviteter.malResultat). Internt: syns bara här. Bjud in per grupp, nivå eller enskilt, och kryssrutorna för
-// meddelandet till deltagarna när de bjuds in, när tid eller plats ändras, när en deltagare tas bort och när aktiviteten ställs in.
+// ändra tillbaka (aktiviteter.malResultat). Internt: syns bara här. Bjud in per yrkesområde, nivå eller enskilt, och kryssrutorna
+// för meddelandet till deltagarna när de bjuds in, när tid eller plats ändras, när en deltagare tas bort och när aktiviteten ställs in.
+// Karims beslut 2026-10-22: målgruppen (en nivå eller ett yrkesområde) visas, och de som målgruppen bjöd in tas inte bort för hand
+// (de bjuds in automatiskt). Ett tillfälle i en återkommande aktivitet visar "Del av återkommande aktivitet: tisdag och torsdag 10.00",
+// "Ställ in bara det här tillfället" och "Avsluta hela serien"; dag, tid och längd är seriens.
 import { useRef, useState } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
 import { plural } from "@/core/format";
@@ -25,6 +28,7 @@ import {
   type GroupActivityView, type GroupParticipant, type InviteProblem,
 } from "../api";
 import { EMPTY_CHOICE, InviteParticipants, resolveChoice, type InviteChoice } from "./bjud-in";
+import { SeriesEditModal, useEndSeries } from "./serie";
 import {
   ActivityFields, formErrors, formOf, isUpcoming, notifiedText, NotifyCheck, payloadOf, ProblemList, replacedText, skippedText, useActivityConfirm, useActivityFormData,
   type ActivityFormState,
@@ -40,9 +44,9 @@ const GOAL_OPTIONS: SegOption<"yes" | "no">[] = [
   { value: "no", label: "Klarade inte", icon: "x", tone: "red" },
 ];
 
-/** En kryssruta i en bekräftelsedialog (förvald). Valet läses ur boxRef när dialogen stängs. */
-function ConfirmCheck({ id, boxRef, label }: { id: string; boxRef: { current: boolean }; label: string }) {
-  const [on, setOn] = useState(true);
+/** En kryssruta i en bekräftelsedialog (förvald, eller initial). Valet läses ur boxRef när dialogen stängs. */
+function ConfirmCheck({ id, boxRef, label, initial = true }: { id: string; boxRef: { current: boolean }; label: string; initial?: boolean }) {
+  const [on, setOn] = useState(initial);
   return (
     <Check
       id={id}
@@ -98,8 +102,11 @@ function Aktivitet({ v }: { v: Ok }) {
   const cancel = useCommand(groupActivityCancel);
   const saveNotes = useCommand(groupActivityNotes);
   const setGoal = useCommand(groupGoalResultSet);
+  const replaceBusy = useCommand(groupActivityInvite);
+  const endSeries = useEndSeries();
   const notifyBox = useRef(true);
   const [editing, setEditing] = useState(false);
+  const [editingSeries, setEditingSeries] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [inflight, setInflight] = useState<Record<string, true>>({});
@@ -203,6 +210,38 @@ function Aktivitet({ v }: { v: Ok }) {
     else toast(`${p.name} är borttagen från aktiviteten.${notifiedText(res.notified)}`);
   };
 
+  // Målgruppens deltagare som har ett eget tillfälle vid samma tid: bjud in dem och ersätt deras egna tillfällen (samma som
+  // Bjud in en och en med Ersätt – en annan aktivitet eller registrerad närvaro ersätts aldrig). Dialogen visar vilket tillfälle
+  // som ersätts för varje deltagare, och inbjudan skickas som i Bjud in – förvalt när aktiviteten har meddelandet påslaget.
+  const busyReplaceable = v.audienceBusy.filter((x) => x.replaceable);
+  const inviteBusy = async () => {
+    notifyBox.current = a.notify;
+    const ok = await confirm({
+      title: `Bjuda in ${plural(busyReplaceable.length, "deltagare", "deltagare")} och ersätta deras egna tillfällen?`,
+      body: (
+        <Stack gap="sm">
+          <p className="m-0">Deltagarnas egna tillfällen vid samma tid tas bort och ersätts av aktiviteten:</p>
+          <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
+            {busyReplaceable.map((x) => (
+              <li key={x.caseId}>
+                {x.name} ({x.caseNumber}): {x.reason.charAt(0).toLocaleLowerCase("sv")}{x.reason.slice(1)}.
+              </li>
+            ))}
+          </ul>
+          {upcoming && (
+            <ConfirmCheck id="akt-ersatt-meddela" boxRef={notifyBox} initial={a.notify} label="Skicka inbjudan till deltagarna (e-post eller SMS med tid och plats)" />
+          )}
+        </Stack>
+      ),
+      confirmLabel: "Bjud in och ersätt",
+      cancelLabel: "Avbryt",
+    });
+    if (!ok) return;
+    const res = await replaceBusy.run({ id: a.id, caseIds: busyReplaceable.map((x) => x.caseId), replaceOverlapping: true, notify: upcoming && notifyBox.current }).catch(() => null);
+    if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Deltagarna kunde inte bjudas in.", "error");
+    else toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}${skippedText(res.skipped)}${notifiedText(res.notified)}`);
+  };
+
   const cancelActivity = async () => {
     notifyBox.current = true;
     const ok = await confirm({
@@ -241,16 +280,17 @@ function Aktivitet({ v }: { v: Ok }) {
     toast(`${plural(res.saved, "anteckning sparad", "anteckningar sparade")} i deltagarkorten.`);
   };
 
+  const series = a.series;
   const actions = v.canEdit ? (
     <Row gap="sm">
       <Button icon="users" onClick={() => setInviting(true)}>
         Bjud in deltagare
       </Button>
       <Button icon="edit" onClick={() => setEditing(true)}>
-        Ändra
+        {series ? "Ändra det här tillfället" : "Ändra"}
       </Button>
       <Button kind="danger" icon="x" pending={cancel.pending} onClick={() => void cancelActivity()}>
-        Ställ in
+        {series ? "Ställ in bara det här tillfället" : "Ställ in"}
       </Button>
     </Row>
   ) : undefined;
@@ -268,6 +308,31 @@ function Aktivitet({ v }: { v: Ok }) {
           Aktiviteten ställdes in {fmtDateTime(a.cancelledAt)}. Deltagarnas tillfällen är borttagna.
         </Notice>
       )}
+      {series && (
+        <Notice tone="info" icon="refresh" title={`Del av återkommande aktivitet: ${series.schedule}`}>
+          <Stack gap="sm">
+            <span>
+              {series.ended
+                ? `Den återkommande aktiviteten är avslutad${series.endsOn ? ` ${fmtDate(series.endsOn)}` : ""}.`
+                : "Ändringar här gäller bara det här tillfället. Med Ändra alla kommande tillfällen ändrar du namn, plats, ansvarig och gruppmål i hela serien. Dag, tid och längd gäller hela serien – ska tiden ändras avslutar du serien och skapar en ny."}
+            </span>
+            {v.canEdit && !series.ended && (
+              <Row gap="sm">
+                <Button kind="secondary" icon="edit" onClick={() => setEditingSeries(true)}>
+                  Ändra alla kommande tillfällen
+                </Button>
+                <Button kind="secondary" icon="x" pending={endSeries.pending} onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify, startsOn: series.startsOn, today: dayOf(v.now) })}
+                >
+                  Avsluta hela serien
+                </Button>
+                <Button kind="ghost" icon="list" to="/aktiviteter">
+                  Alla återkommande aktiviteter
+                </Button>
+              </Row>
+            )}
+          </Stack>
+        </Notice>
+      )}
       {a.holiday && !a.cancelledAt && (
         <Notice tone="warn" icon="calendar" title="Helgdag">
           {fmtDate(day)} är en helgdag ({a.holiday}). Närvaron registreras inte automatiskt – registrera den här.
@@ -280,6 +345,10 @@ function Aktivitet({ v }: { v: Ok }) {
             ["Plats", a.location],
             ["Ansvarig", a.responsibleName ?? "Ingen ansvarig"],
             ["Gruppmål", a.goal ?? "Inget gruppmål"],
+            [
+              "Målgrupp",
+              a.audience ? (a.cancelledAt ? a.audience.label : `${a.audience.label} – de som tillkommer bjuds in automatiskt fram till aktiviteten`) : "Inbjudna en och en",
+            ],
             ["Skapad av", a.createdByName],
           ]}
         />
@@ -301,7 +370,9 @@ function Aktivitet({ v }: { v: Ok }) {
         <div className="flex flex-col gap-1 border-b border-ljusgra px-[18px] py-3">
           <p className="m-0 text-body">
             {parts.length === 0
-              ? "Inga deltagare är inbjudna än."
+              ? a.cancelledAt || v.audienceBusy.length || !upcoming
+                ? "Inga deltagare är inbjudna."
+                : "Inga deltagare är inbjudna än."
               : !started
                 ? "Närvaron registreras när aktiviteten har startat. Markera de som är sena eller frånvarande och sedan övriga som närvarande."
                 : open.length === 0
@@ -314,6 +385,25 @@ function Aktivitet({ v }: { v: Ok }) {
                 ? `Gruppmål: ${goalDone} av ${goalParts.length} klarade. Alla klarar målet automatiskt – markera den som inte klarade det.`
                 : "Gruppmålet markeras när aktiviteten har startat. Alla klarar målet automatiskt."}
             </p>
+          )}
+          {v.audienceBusy.length > 0 && (
+            <div data-testid="malgrupp-upptagna" className="flex flex-col gap-1.5">
+              <p className="m-0 text-body">
+                {`${plural(v.audienceBusy.length, "deltagare", "deltagare")} i målgruppen har redan ett annat tillfälle vid samma tid och är inte ${v.audienceBusy.length === 1 ? "inbjuden" : "inbjudna"}:`}
+              </p>
+              <ul className="m-0 flex list-disc flex-col gap-0.5 pl-5 text-body">
+                {v.audienceBusy.map((x) => (
+                  <li key={x.caseId}>{`${x.name} (${x.caseNumber}) – ${x.reason.charAt(0).toLocaleLowerCase("sv")}${x.reason.slice(1).replace(/\. Det ersätts av aktiviteten$/, "")}`}</li>
+                ))}
+              </ul>
+              {v.canEdit && busyReplaceable.length > 0 && (
+                <div>
+                  <Button kind="secondary" icon="users" pending={replaceBusy.pending} onClick={() => void inviteBusy()}>
+                    {`Bjud in och ersätt deras egna tillfällen (${busyReplaceable.length})`}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
           {/* Statusraden finns alltid (tom tills något markerats), så att skärmläsare läser upp resultatet. */}
           <p role="status" aria-live="polite" className="m-0 text-body font-bold">
@@ -337,16 +427,22 @@ function Aktivitet({ v }: { v: Ok }) {
                     <AttBadge at={p.attendance} />
                   ) : (
                     <Badge tone="outline" icon="clock">
-                      Inbjuden
+                      {p.inviteSource === "audience" ? "Inbjuden automatiskt" : "Inbjuden"}
                     </Badge>
                   )}
-                  {v.canEdit && !p.attendance && (
+                  {/* Deltagaren hör till målgruppen – synkningen skulle bjuda in hen igen. Registrera frånvaro eller byt nivå i stället. */}
+                  {v.canEdit && !p.attendance && !p.audienceMember && (
                     <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeParticipant(p)} ariaLabel={`Ta bort ${p.name} från aktiviteten`}>
                       Ta bort
                     </Button>
                   )}
                 </Row>
               </Row>
+              {v.canEdit && !p.attendance && p.audienceMember && a.audience && (
+                <p className="m-0 text-body text-text-muted" data-testid="automatisk-hjalp">
+                  {`Inbjuden automatiskt via ${a.audience.kind === "area" ? "yrkesområdet" : "nivån"} och kan inte tas bort här. Kommer deltagaren inte: registrera frånvaro när aktiviteten har börjat. Hör deltagaren inte längre hit: byt ${a.audience.kind === "area" ? "yrkesområde" : "nivå"} på deltagarkortet.`}
+                </p>
+              )}
               {started && v.canEdit && (
                 <>
                   <Seg
@@ -413,6 +509,7 @@ function Aktivitet({ v }: { v: Ok }) {
         {v.canEdit && !notesOpen && parts.length > 0 && <p className="m-0 border-t border-ljusgra px-[18px] py-3 text-body text-text-muted">Anteckningar skrivs från aktivitetens dag.</p>}
       </Card>
       {editing && <EditModal v={v} onClose={() => setEditing(false)} />}
+      {editingSeries && series && <SeriesEditModal s={series} onClose={() => setEditingSeries(false)} />}
       {inviting && <InviteModal v={v} onClose={() => setInviting(false)} />}
       <Row>
         <Button kind="ghost" icon="arrow-left" onClick={() => nav.push("/aktiviteter")}>
@@ -448,12 +545,14 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       toast(res.message ?? "Ändringen kunde inte sparas.", "error");
       return;
     }
-    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${replacedText(res.replaced)}${notifiedText(res.notified)}` : "Inget var ändrat.");
+    const what = v.activity.series ? "Tillfället är ändrat för alla deltagare. Kommande tillfällen är oförändrade." : "Aktiviteten är ändrad för alla deltagare.";
+    const dropped = res.dropped ? ` ${plural(res.dropped, "deltagare kan", "deltagare kan")} inte vara med vid den nya tiden och är ${res.dropped === 1 ? "borttagen" : "borttagna"}.` : "";
+    toast(res.changed ? `${what}${dropped}${replacedText(res.replaced)}${notifiedText(res.notified)}` : "Inget var ändrat.");
     onClose();
   };
   return (
     <Modal
-      title="Ändra aktiviteten"
+      title={v.activity.series ? "Ändra det här tillfället" : "Ändra aktiviteten"}
       wide
       onClose={onClose}
       dirty={JSON.stringify(value) !== JSON.stringify(initial)}
@@ -472,8 +571,20 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         error ? <ErrorNotice error={error as Error} onRetry={retry} /> : <Loading />
       ) : (
         <Stack>
-          <p className="m-0 text-body">Tid, längd, plats och typ ändras för alla deltagare. Tiden kan inte flyttas när närvaro är registrerad.</p>
-          <ActivityFields form={data} value={value} onChange={setValue} tried={tried} idPrefix="andra-akt" />
+          <p className="m-0 text-body">
+            {v.activity.series
+              ? "Ändringen gäller bara det här tillfället – kommande tillfällen ändras med Ändra alla kommande tillfällen. Plats och typ ändras för alla deltagare."
+              : "Tid, längd, plats och typ ändras för alla deltagare. Tiden kan inte flyttas när närvaro är registrerad."}
+            {v.activity.audience ? " Den som bjöds in automatiskt och inte kan vara med vid en ny tid tas bort ur aktiviteten." : ""}
+          </p>
+          <ActivityFields
+            form={data}
+            value={value}
+            onChange={setValue}
+            tried={tried}
+            idPrefix="andra-akt"
+            lockSchedule={v.activity.series ? `Dag, tid och längd gäller hela den återkommande aktiviteten (${v.activity.series.schedule}).` : undefined}
+          />
           {timeOrPlace && v.participants.length > 0 && (
             <NotifyCheck id="andra-meddela" checked={notify} onChange={setNotify} label="Skicka ny tid och plats till deltagarna" upcoming={upcoming} />
           )}
@@ -499,10 +610,19 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const resolved = data ? resolveChoice(choice, data, dayOf(v.activity.startsAt), already) : null;
   const caseIds = resolved?.caseIds ?? [];
   const upcoming = isUpcoming(v.activity.startsAt, v.now);
+  // Målgruppen kan bara väljas för en aktivitet utan målgrupp som inte har börjat – annars bjuds fler in en och en.
+  const audienceOpen = !v.activity.audience && upcoming;
+  const count = resolved?.count ?? 0;
+  const canSubmit = !!resolved && (resolved.audience ? true : caseIds.length > 0);
   const submit = async () => {
     setProblems([]);
-    if (!caseIds.length || !resolved) return;
-    const res = await withConfirm((c) => invite.run({ id: v.activity.id, caseIds, ...resolved.payload, notify: upcoming && notify, replaceOverlapping: c.replaceOverlapping }).catch(() => null));
+    if (!canSubmit || !resolved) return;
+    const res = await withConfirm((c) =>
+      invite.run({
+        id: v.activity.id, caseIds, ...(resolved.audience ? { audience: resolved.audience } : {}), ...resolved.payload, notify: upcoming && notify,
+        replaceOverlapping: c.replaceOverlapping,
+      }).catch(() => null),
+    );
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
@@ -517,14 +637,14 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       title="Bjud in deltagare"
       wide
       onClose={onClose}
-      dirty={caseIds.length > 0 || choice.groupingIds.length > 0}
+      dirty={caseIds.length > 0 || !!choice.audienceId}
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>
             Avbryt
           </Button>
-          <Button kind="primary" icon="users" pending={invite.pending} disabled={!caseIds.length} onClick={() => void submit()}>
-            {caseIds.length ? `Bjud in ${plural(caseIds.length, "deltagare", "deltagare")}` : "Bjud in"}
+          <Button kind="primary" icon="users" pending={invite.pending} disabled={!canSubmit} onClick={() => void submit()}>
+            {resolved?.audience ? "Bjud in målgruppen" : count ? `Bjud in ${plural(count, "deltagare", "deltagare")}` : "Bjud in"}
           </Button>
         </>
       }
@@ -533,8 +653,23 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         error ? <ErrorNotice error={error as Error} onRetry={retry} /> : <Loading />
       ) : (
         <Stack>
-          <InviteParticipants form={data} day={dayOf(v.activity.startsAt)} value={choice} onChange={setChoice} alreadyInvited={already} idPrefix="akt-bjud" />
-          {caseIds.length > 0 && <NotifyCheck id="akt-bjud-meddela" checked={notify} onChange={setNotify} label="Skicka inbjudan till deltagarna" upcoming={upcoming} />}
+          {v.activity.audience && (
+            <Notice tone="info" icon="users" title={`Målgrupp: ${v.activity.audience.label}`}>
+              De som tillkommer bjuds in automatiskt fram till aktiviteten. Här bjuder du in fler en och en.
+            </Notice>
+          )}
+          <InviteParticipants
+            form={data}
+            day={dayOf(v.activity.startsAt)}
+            value={choice}
+            onChange={setChoice}
+            alreadyInvited={already}
+            idPrefix="akt-bjud"
+            modes={audienceOpen ? undefined : ["enskilda"]}
+          />
+          {(caseIds.length > 0 || !!resolved?.audience) && (
+            <NotifyCheck id="akt-bjud-meddela" checked={notify} onChange={setNotify} label="Skicka inbjudan till deltagarna" upcoming={upcoming} />
+          )}
           {problems.length > 0 && (
             <Notice tone="critical" title="Några deltagare kan inte bjudas in">
               <ProblemList problems={problems} />

@@ -46,11 +46,13 @@ describe("demo.refs – uppslag av taggade ärenden", () => {
 });
 
 describe("scenariernas steg -> sökvägar", () => {
-  it("den gamla prototypens 13 scenarier (47 steg, s13 före s12) och röstinspelningen (s14, 6 steg) sist", () => {
-    expect(SCENARIOS.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s13", "s12", "s14"]);
-    expect(TOTAL_STEPS).toBe(53);
+  it("den gamla prototypens 13 scenarier (47 steg, s13 före s12), röstinspelningen (s14, 6 steg), byt yrkesområde (s15, 3 steg) och nivåerna (s16, 4 steg) sist", () => {
+    expect(SCENARIOS.map((s) => s.id)).toEqual(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s13", "s12", "s14", "s15", "s16"]);
+    expect(TOTAL_STEPS).toBe(60);
     expect(scenarioNumber("s12")).toBe(13);
     expect(scenarioNumber("s14")).toBe(14);
+    expect(scenarioNumber("s15")).toBe(15);
+    expect(scenarioNumber("s16")).toBe(16);
   });
 
   it("varje steg har rätt roll och sökväg", async () => {
@@ -82,6 +84,8 @@ describe("scenariernas steg -> sökvägar", () => {
         "coach /avstamning/case-260143", "coach /arenden/case-260143", "deltagare /rost", "coach /min-vecka", "kommun_handlaggare /portal/bestall",
         "coach /manadsbedomning/case-260143?manad=2027-01",
       ],
+      s15: ["coach /arenden/case-260163", "coach /grupper", "ekonom /ekonomi/arende/case-260163"],
+      s16: ["coach /grupper", "coach /kartlaggning/case-270012", "coach /arenden/case-260130", "coach /aktiviteter/ny?niva=grp-c-bot-niva-2&upprepa=1"],
     });
   });
 });

@@ -5,7 +5,6 @@
 // avrop@ (inbox.ts) om de saknas.
 import "server-only";
 import type { Ctx } from "@/api/server";
-import { SYSTEM_ACTOR } from "@/api/roles";
 import { appRepo } from "@/data/supabase";
 import { DataError, SupabaseRepo, type PgClient } from "@/data/supabase/repo";
 import { serverAi } from "../ai";
@@ -13,7 +12,8 @@ import { serverAttachments } from "../attachments";
 import { serverAudio } from "../audio";
 import { clockNow } from "../clock";
 import { lazyServerCrypto } from "../crypto";
-import { liveCtx, randomId, type Enqueue } from "../ctx";
+import { randomId, type Enqueue } from "../ctx";
+import { jobCtx, type JobCtxBase } from "./system-ctx";
 import { phoneGate, recipientGate } from "../notify/decision";
 import { notifyEnv, participantMessaging, phoneEnv } from "../notify/config";
 import type { ElksFetch } from "../notify/elks";
@@ -65,20 +65,15 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
   let voice: Ctx | null = null;
   // Utskick från systemstegen läggs i kön och skickas av cron.
   const enqueue: Enqueue = (sys, msg, at) => queueMessage(sys as unknown as NotifyRepo, msg, at, randomId, { appUrl: cfg.appUrl, phone: { sms: !!phone.sms, call: !!phone.call } });
+  // Alla jobbens Ctx (system-ctx.ts): utskicken läggs i kön och cron skickar dem, och läget för SMS, utringning och spärrlistan för
+  // e-post är detsamma som hanterarnas – också för inbjudningarna som rapportjobbet skickar.
+  const base: JobCtxBase = { system, enqueue, crypto: lazyServerCrypto, messaging: participantMessaging(env) };
   const voiceCtx = (): Ctx =>
-    (voice ??= liveCtx({
-      actor: SYSTEM_ACTOR,
+    (voice ??= jobCtx(base, {
       now,
-      repo: system,
-      system,
-      // Röstjobben skickar inga utskick själva; om det behövs läggs de i kön och cron skickar dem.
-      enqueue,
-      crypto: lazyServerCrypto,
       ai: serverAi(settings.environment),
       audio: (d) => serverAudio(d),
       attachments: (d) => serverAttachments(d),
-      // Samma läge som hanterarna (SMS, utringning och spärrlistan för e-post) – uppgiften när ett utskick till en deltagare stoppas.
-      messaging: participantMessaging(env),
     }));
   // Städningen av Auth-användare utan profil (självregistrering som aldrig slutfördes).
   const authCleanup = async () => {
@@ -99,15 +94,10 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
     const rows = await freshSettingsRows(client);
     const fresh = settingsFromRows(rows, clockMode());
     const at = clockNow(fresh.clock, Date.now());
-    const ctx = liveCtx({
-      actor: SYSTEM_ACTOR,
-      now: at,
-      repo: system,
-      system,
-      // Veckorapporter som publiceras direkt lägger "ny rapport" i utskickskön.
-      enqueue,
-      crypto: lazyServerCrypto,
-    });
+    // Veckorapporter som publiceras direkt lägger "ny rapport" i utskickskön; nya tillfällen och målgruppens synkning bjuder in
+    // deltagarna med samma kanaler som hanterarna (messaging i base). De förifyllda månadsbedömningarna lägger AI-utkasten i kön
+    // (draft_monthly) när AI är kopplat. Jobben tas av samma jobbkörning eller nästa (cron varje minut) – därför ingen direktkörning.
+    const ctx = jobCtx(base, { now: at, ai: serverAi(settings.environment), scheduleJobs: () => undefined });
     return { ctx, state: reportScheduleState(client as unknown as AppSettingsClient, rows, fresh.clock) };
   };
   try {
@@ -162,7 +152,7 @@ export async function runDueJobs(opts: { limit?: number } = {}): Promise<RunSumm
       const fresh = settingsFromRows(rows, clockMode());
       const at = clockNow(fresh.clock, Date.now());
       // Veckorapporter som publiceras lägger "ny rapport" i utskickskön.
-      const ctx = liveCtx({ actor: SYSTEM_ACTOR, now: at, repo: system, system, enqueue, crypto: lazyServerCrypto });
+      const ctx = jobCtx(base, { now: at });
       return { ctx, floor: fresh.clock.mode === "test" ? fresh.clock.demoEpoch : null };
     },
     // Mejlinläsningen från avrop@: systemstegens Ctx (service role, bilagor, krypto, utskickskön) och Graph via fetch.

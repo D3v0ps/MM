@@ -84,7 +84,9 @@ describe.skipIf(!hasProto)("paritet med den gamla prototypen", () => {
 
 describe("antal rader per tabell", () => {
   it("är prototypens antal (mappat till nya tabellnamn)", () => {
-    const n = (name: keyof Tables) => (seed[name] as unknown[]).length;
+    // Deltagarnas rader i nivåaktiviteterna och yrkesområdesträffarna (Karims beslut 2026-10-22) finns inte i prototypen –
+    // de räknas för sig nedan.
+    const n = (name: keyof Tables) => name === "activities" ? seed.activities.filter((a) => a.groupActivityId == null).length : (seed[name] as unknown[]).length;
     const samples = fs.existsSync(SAMPLES_FILE) ? (JSON.parse(fs.readFileSync(SAMPLES_FILE, "utf8")) as { counts: Record<string, number> }).counts : null;
     // [nytt tabellnamn, prototypens namn, antal i nuvarande prototyp]. Avvikelse: prototypen har två avtal – Miljonmatch har
     // bara kommunavtal, och det andra avtalet (med dess organisation och medlemskap) är borttaget ur testdatat (beslut 2026-10-06).
@@ -121,6 +123,8 @@ describe("antal rader per tabell", () => {
     expect(n("case_counters")).toBe(2);
     expect(n("organizations")).toBe(2); // Miljonbemanning och Botkyrka kommun
     expect(n("holidays")).toBe(32);
+    expect(seed.activities.filter((a) => a.groupActivityId != null).length).toBe(247);
+    expect(seed.activities.length).toBe(3861 + 247);
   });
 });
 
