@@ -60,9 +60,10 @@ export function GroupingCard({ caseId, title = "Nivå och yrkesområde", bare, r
 }
 
 /**
- * Raden i deltagarkortets huvud: nivå, yrkesområde och taggar (text + ikon), "Höj nivå" (ett klick till nästa nivå – inte på
- * nivå 5) och "Ändra", som öppnar samma val som i kartläggningen (Byt nivå, taggar, historiken). Visas inte för den som inte får
- * se medlemskapen (frågan svarar null).
+ * Raden i deltagarkortets huvud: nivå och taggar (text + ikon), "Höj nivå" (ett klick till nästa nivå – inte på nivå 5) och
+ * "Ändra", som öppnar samma val som i kartläggningen (Byt nivå, taggar, historiken). Yrkesområdet står på raden under, med Byt
+ * yrkesområde (src/features/arenden/screens/kort-yrkesomrade.tsx) – så att varje uppgift står en gång, bredvid sin knapp. Visas
+ * inte för den som inte får se medlemskapen (frågan svarar null).
  */
 export function CaseGroupingRow({ caseId, className }: { caseId: string; className?: string }) {
   const q = useQuery(caseGroupingsView, { caseId });
@@ -81,8 +82,8 @@ export function CaseGroupingRow({ caseId, className }: { caseId: string; classNa
   };
   return (
     <div className={className} data-grouping-row="">
-      <span className="text-text-muted">Nivå och yrkesområde:</span>
-      <GroupingSummary g={v.current} area={v.area} />
+      <span className="text-text-muted">Nivå och taggar:</span>
+      <GroupingSummary g={v.current} />
       {v.canEdit && v.current.level && v.nextLevel && (
         <Button kind="ghost" icon="trending-up" pending={raise.pending} onClick={() => void doRaise()}>
           Höj nivå<span className="sr-only"> till {v.nextLevel.name}</span>

@@ -382,9 +382,9 @@ function CaseSummary({ card: c, openModal }: { card: CaseCard; openModal: (m: Mo
         {fact("Handläggare", k ? k.name : "–")}
       </div>
       {warn.length > 0 && <div className="flex flex-wrap gap-1.5">{warn}</div>}
-      {/* Rad B2: nivå, grupper och taggar (internt – coachmötet 2026-10-09) med Ändra */}
+      {/* Rad B2: nivå och taggar (internt – coachmötet 2026-10-09 och Karims beslut 2026-10-22) med Höj nivå och Ändra */}
       <CaseGroupingRow caseId={c.caseId} className="flex flex-wrap items-center gap-x-3 gap-y-1.5" />
-      {/* Rad B3: yrkesområdet med Byt yrkesområde och bytena hittills (Karims beslut 2026-10-22) */}
+      {/* Rad B3: yrkesområdet (deltagarens grupp) med Byt yrkesområde och bytena hittills (Karims beslut 2026-10-22) */}
       <CaseAreaRow caseId={c.caseId} className="flex flex-wrap items-center gap-x-3 gap-y-1.5" />
       {/* Rad C: åtgärder */}
       <CaseActions card={c} openModal={openModal} />

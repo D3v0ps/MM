@@ -369,7 +369,7 @@ function ManadForm({ v }: { v: Ok }) {
             rows={v.areas}
             columns={[
               { key: "a", label: "Område", render: (r) => <span className="font-bold">{r.label}</span> },
-              { key: "l", label: "Nivå", nowrap: true, render: (r) => (r.level != null ? `${r.level} – ${v.scale[r.level]}` : "–") },
+              { key: "l", label: "Progressionsnivå", nowrap: true, render: (r) => (r.level != null ? `${r.level} – ${v.scale[r.level]}` : "–") },
               { key: "o", label: "Konkret observation", render: (r) => r.observation || <span className="text-text-muted">–</span> },
               { key: "n", label: "Nästa steg", render: (r) => r.nextStep || "–" },
             ]}
@@ -431,7 +431,7 @@ function ManadForm({ v }: { v: Ok }) {
         </Card>
         <Card title="Skala och statistik" icon="info">
           <Stack gap="sm">
-            <Kv items={([0, 1, 2, 3] as const).map((n) => [`Nivå ${n}`, v.scale[n]] as const)} />
+            <Kv items={([0, 1, 2, 3] as const).map((n) => [`Progressionsnivå ${n}`, v.scale[n]] as const)} />
             <Divider />
             <p className="text-body">
               <b>Tydlig progression</b> = {lcfirst(rule.clear)}. <b>Någon progression</b> = {lcfirst(rule.any)}. Bara de obligatoriska områdena räknas. Gränserna står i avtalet.
@@ -540,7 +540,7 @@ function ManadForm({ v }: { v: Ok }) {
                               <span className="mr-1.5 align-[1px]">
                                 <AiTag>AI</AiTag>
                               </span>
-                              AI-förslag: <b>{`nivå ${aiLvl} – ${v.scale[aiLvl]}`}</b>
+                              AI-förslag: <b>{`progressionsnivå ${aiLvl} – ${v.scale[aiLvl]}`}</b>
                             </span>
                             <q className="italic [overflow-wrap:anywhere]">{ev.quote}</q>
                             <span className="text-text-muted">
@@ -565,7 +565,7 @@ function ManadForm({ v }: { v: Ok }) {
                             <span className="mr-1.5 align-[1px]">
                               <AiTag>AI</AiTag>
                             </span>
-                            <span className="text-text-muted">Inget nivåförslag</span>
+                            <span className="text-text-muted">Inget AI-förslag</span>
                           </div>
                         )}
                         {/* Felet står vid det fält som saknas: nivån här, observationen i nästa cell. */}
@@ -756,7 +756,7 @@ function ManadForm({ v }: { v: Ok }) {
       {Object.keys(errors).length > 0 && (
         <Notice tone="critical" title="Bedömningen är inte komplett">
           {plural(areaErrors, "område är markerat", "områden är markerade")}
-          {errors.overall ? " och samlad status saknas" : ""}. Mallen kräver alltid belägg eller exempel från nivå {reqFrom}.
+          {errors.overall ? " och samlad status saknas" : ""}. Mallen kräver alltid belägg eller exempel från progressionsnivå {reqFrom}.
         </Notice>
       )}
       <Stack gap="sm">

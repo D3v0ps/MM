@@ -169,27 +169,17 @@ export function createMemoryRuntime(opts: {
           attendanceNext = nextDayEnd(now, "18:00");
         }
       }
+      // Samma ordning som jobbet report_schedule (src/server/jobs/reports.ts): rapportutkasten, nivåaktiviteternas tillfällen och
+      // målgruppernas inbjudningar, de förifyllda månadsbedömningarna och sist månadens fakturakörning. Varje steg för sig – ett
+      // fel i ett steg stoppar inte de andra och inte appen. Bara feltypen loggas.
       if (reportsDue) {
         // Golvet gör att inget skapas på nyinläst testdata (testdatat har raderna redan).
         try {
           await ensureReports(ctxFor(SYSTEM_ACTOR), reportState);
         } catch (e) {
-          // Ett fel här får inte stoppa appen – nästa försök vid nästa vecko- eller månadsgräns. Bara feltypen loggas.
+          // Nästa försök vid nästa vecko- eller månadsgräns.
           console.error("rapportutkast: kunde inte skapas", e instanceof Error ? e.name : typeof e);
         }
-        // Månadens fakturakörning när månaden är slut (samma golv: testdatat har sina körningar).
-        try {
-          await ensureBillingRuns(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
-        } catch (e) {
-          console.error("fakturakörning: kunde inte skapas", e instanceof Error ? e.name : typeof e);
-        }
-        // Förifyllda månadsbedömningar för månaden att bedöma nu (samma golv: testdatat har sina utkast).
-        try {
-          await ensureMonthlyAssessments(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
-        } catch (e) {
-          console.error("månadsbedömningar: kunde inte skapas", e instanceof Error ? e.name : typeof e);
-        }
-        checkedAt = now;
       }
       if (groupsDue) {
         try {
@@ -198,6 +188,21 @@ export function createMemoryRuntime(opts: {
           console.error("nivåaktiviteter: kunde inte skapas", e instanceof Error ? e.name : typeof e);
         }
         groupsCheckedDay = now.slice(0, 10);
+      }
+      if (reportsDue) {
+        // Förifyllda månadsbedömningar för månaden att bedöma nu (samma golv: testdatat har sina utkast).
+        try {
+          await ensureMonthlyAssessments(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+        } catch (e) {
+          console.error("månadsbedömningar: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        // Månadens fakturakörning när månaden är slut (samma golv: testdatat har sina körningar).
+        try {
+          await ensureBillingRuns(ctxFor(SYSTEM_ACTOR), { floor: reportState.floor });
+        } catch (e) {
+          console.error("fakturakörning: kunde inte skapas", e instanceof Error ? e.name : typeof e);
+        }
+        checkedAt = now;
       }
     })();
     try {

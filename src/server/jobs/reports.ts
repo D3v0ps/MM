@@ -4,11 +4,14 @@
 // högst var tionde minut. Två samtidiga körningar kan båda försöka lägga jobbet – den andra får ett dubblettfel som ignoreras.
 // Funktionen är idempotent, så ett nytt försök efter ett fel skapar bara det som fattas.
 // Samma jobb skapar också månadens fakturakörning när månaden är slut (ensureBillingRuns, src/features/ekonomi/ensure-runs.ts)
-// – med samma klocka och samma golv. Också den är idempotent. Sist skapas de återkommande nivåaktiviteternas tillfällen 14 dagar
-// framåt och målgruppernas inbjudningar stäms av som skyddsnät (ensureGroupActivities, src/features/aktiviteter/audience-sync.ts,
-// Karims beslut 2026-10-22) – idempotent; tillfällen som redan har börjat rörs aldrig – och de förifyllda månadsbedömningarna för
-// månaden att bedöma nu och AI-utkasten till dem (ensureMonthlyAssessments, src/features/coach/ensure-assessments.ts) – AI-jobben
-// läggs i kön och körs av samma jobbkörning eller nästa (cron).
+// – med samma klocka och samma golv. Också den är idempotent. Dessutom (Karims beslut 2026-10-22) de återkommande
+// nivåaktiviteternas tillfällen 14 dagar framåt och målgruppernas inbjudningar som skyddsnät (ensureGroupActivities,
+// src/features/aktiviteter/audience-sync.ts – tillfällen som redan har börjat rörs aldrig) och de förifyllda
+// månadsbedömningarna för månaden att bedöma nu med AI-utkasten till dem (ensureMonthlyAssessments,
+// src/features/coach/ensure-assessments.ts – AI-jobben läggs i kön och körs av samma jobbkörning eller nästa).
+// Ordningen: rapportutkasten, tillfällena och inbjudningarna, månadsbedömningarna, fakturakörningen. Ett fel i ett steg stoppar
+// inte de andra (som i minnesläget, src/data/memory-runtime.ts) – det första felet kastas efteråt, så att jobbet sparar
+// felorsaken och försöker igen. Alla steg är idempotenta, så ett nytt försök skapar bara det som fattas.
 //
 // Var körningarna har kommit sparas i app_settings och läses utan cache när jobbet körs (reportScheduleState):
 //   report_schedule_checked:<avtal>  högvattenmärket – appens klocka vid den senaste körningen där hela avtalet gicks igenom
@@ -89,20 +92,37 @@ export function reportScheduleState(db: AppSettingsClient, rows: readonly { key:
 export type ReportDeps = { reportSchedule?: () => Promise<{ ctx: Ctx; state: ReportScheduleState }> };
 
 /**
- * Jobbet: kör ensureReports, ensureBillingRuns (månadens fakturakörning), ensureGroupActivities (nivåaktiviteternas tillfällen
- * och målgruppernas inbjudningar) och ensureMonthlyAssessments (förifyllda månadsbedömningar). Utfallet är "created" (något
- * skapades eller ändrades) eller "none" – inga id:n eller namn.
+ * Jobbet: kör ensureReports, ensureGroupActivities (nivåaktiviteternas tillfällen och målgruppernas inbjudningar),
+ * ensureMonthlyAssessments (förifyllda månadsbedömningar) och ensureBillingRuns (månadens fakturakörning) – i den ordningen,
+ * alla steg också när ett tidigare steg kastar (det första felet kastas sist). Utfallet är "created" (något skapades eller
+ * ändrades) eller "none" – inga id:n eller namn.
  */
 export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
   return {
     async run(_job, d) {
       if (!d.reportSchedule) throw new JobError("Rapportutkasten kan inte skapas här", { retryable: false });
       const { ctx, state } = await d.reportSchedule();
-      const res = await ensureReports(ctx, state);
-      const runs = await ensureBillingRuns(ctx, { floor: state.floor });
-      const groups = await ensureGroupActivities(ctx);
-      const assessments = await ensureMonthlyAssessments(ctx, { floor: state.floor });
-      return res.created.length || runs.created.length || groups.created || groups.changed || assessments.created.length || assessments.aiQueued.length ? "created" : "none";
+      let changed = false;
+      const errors: unknown[] = [];
+      const step = async (fn: () => Promise<boolean>): Promise<void> => {
+        try {
+          if (await fn()) changed = true;
+        } catch (e) {
+          errors.push(e);
+        }
+      };
+      await step(async () => (await ensureReports(ctx, state)).created.length > 0);
+      await step(async () => {
+        const groups = await ensureGroupActivities(ctx);
+        return groups.created > 0 || groups.changed > 0;
+      });
+      await step(async () => {
+        const assessments = await ensureMonthlyAssessments(ctx, { floor: state.floor });
+        return assessments.created.length > 0 || assessments.aiQueued.length > 0;
+      });
+      await step(async () => (await ensureBillingRuns(ctx, { floor: state.floor })).created.length > 0);
+      if (errors.length > 0) throw errors[0];
+      return changed ? "created" : "none";
     },
   };
 }

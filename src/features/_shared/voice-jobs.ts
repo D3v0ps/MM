@@ -34,7 +34,7 @@ import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from
 import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, MonthlyPlan, ParticipantVoiceNote, Person } from "@/data/schema";
 import {
   AI_OFF_TEXT,
-  aiRunRow, approvedCheckIns, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
+  aiRunRow, approvedCheckIns, areaChangeNoteIds, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
   type AiRunMeta, type CheckInSuggestions, type DraftInput, type DraftOptions, type DraftTemplateKey, type DraftText, type RecordingBlock, type Transcript,
 } from "./ai-port";
 import { SIMULATED_PROVIDER } from "./ai-sim";
@@ -523,8 +523,8 @@ async function transcribeParticipant(ctx: Ctx, p: VoiceJobPayloads["transcribe_p
 /**
  * Underlaget för månadens utkast: godkända avstämningar, registrerad närvaro (tillfällen som redan varit) och – bara när
  * deltagaren har registrerat samtycke till AI (samma samtycke som inspelningen, aiAllowed) – månadens anteckningar i
- * deltagarkortet, med personnummer tvättade och utan författare (Karims beslut 4, 2026-10-09). Nivå, grupper och taggar läses
- * aldrig här och skickas aldrig till AI.
+ * deltagarkortet, med personnummer tvättade och utan författare (Karims beslut 4, 2026-10-09) – utom motiveringen till ett byte
+ * av yrkesområde (Karims beslut 2026-10-22). Nivå, grupper, taggar och gruppaktiviteter läses aldrig här och skickas aldrig till AI.
  */
 export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKey): Promise<DraftInput> {
   const now = ctx.now();
@@ -538,7 +538,10 @@ export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKe
   const byActivity = new Map(att.map((x) => [x.activityId, x]));
   const attendance = monthActs.map((a) => byActivity.get(a.id)).filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ status: x.status }));
   const person = c ? await ctx.system.table("persons").get(c.personId) : null;
-  const notes = aiAllowed(c, person) ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month) : [];
+  // Motiveringen till ett byte av yrkesområde är en anteckning men aldrig underlag till AI (areaChangeNoteIds).
+  const notes = aiAllowed(c, person)
+    ? draftNotes(await ctx.system.table("case_notes").list({ caseId }), month, { exclude: areaChangeNoteIds(await ctx.system.table("case_area_changes").list({ caseId })) })
+    : [];
   return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance, notes };
 }
 

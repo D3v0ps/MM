@@ -40,7 +40,7 @@ Sidopanelen har alltid:
 - Kallelser och inbjudningar till deltagaren innehåller bara tid, plats och vårt telefonnummer. Där står aldrig namn, personnummer, ärendenummer eller vad insatsen gäller.
 - Närvaro som inte är registrerad när dagen är slut registreras automatiskt som närvarande klockan 18.00. Frånvaro registrerar du själv, samma dag.
 - Personnummer visas maskerat. Trycker du på **visa** loggas det i revisionsloggen. Visningar av deltagarkort, rapporter och transkript loggas också.
-- AI föreslår – människan bedömer. AI sätter aldrig progressionsnivå, samlad status, avslutsorsak eller resultat. Du gör alltid ett aktivt val.
+- AI föreslår – människan bedömer. AI sätter aldrig progressionsnivå, samlad status, avslutsorsak eller resultat. Ett förslag från AI gäller först när du godtar det.
 - Rapporter byggs bara av godkända uppgifter, aldrig direkt från råtranskript.
 - Belopp i kronor syns bara för rollen ekonom.
 - Nivå, taggar och gruppmål är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå.
@@ -116,7 +116,18 @@ Den som kartlägger väljer deltagarens nivå och taggar i kortet **Nivå och yr
 3. Valen sparas direkt. Deltagaren bjuds in automatiskt till nivåns aktiviteter.
 4. Vill du skriva något till coacherna? Skriv i **En rad till coacherna (valfritt)** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet med dagens datum.
 
-Går deltagaren framåt? I deltagarkortet står nivån på raden **Nivå och yrkesområde**. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
+Går deltagaren framåt? I deltagarkortet står nivån på raden **Nivå och taggar**. Yrkesområdet står på raden under. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
+
+### Byt yrkesområde
+
+Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen, samordnaren och avtalsansvarig kan byta det i deltagarkortet.
+
+1. Tryck på **Byt yrkesområde** på raden **Yrkesområde**.
+2. Välj **Nytt yrkesområde**.
+3. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet.
+4. Tryck på **Byt yrkesområde**.
+
+Deltagaren bjuds direkt in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas. Den som du har bjudit in själv och den som har närvaro registrerad ligger kvar. Fakturan räknas på det nya yrkesområdet från och med månaden efter bytet. Kommunen ser bara det nya yrkesområdet.
 
 ### Grupper och nivåer
 
@@ -198,11 +209,15 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 
 ### Månadsbedömning
 
+Månadsbedömningen är redan ifylld när du öppnar den. Du går igenom den och rättar det som inte stämmer.
+
 1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**.
-2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
-3. Sätt progressionsnivån för varje progressionsområde själv och skriv en **Konkret observation**.
-4. Tryck på **Godkänn bedömningen**. Månadsrapporten till kommunen byggs av den.
-5. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
+2. Varje progressionsområde står på progressionsnivå 0 med märket **Automatiskt – inget belägg**, tills du väljer något annat. **Samlad status** kommer från din senaste godkända mötesrapport. Sammanfattningen och planen är ifyllda och märkta **Ifyllt automatiskt – kontrollera** tills du ändrar dem.
+3. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
+4. AI kan föreslå progressionsnivå 1–3, men bara med ett citat ur underlaget. Tryck på **Godta** vid ett förslag, eller **Godta alla AI-förslag**. Ett förslag gäller först när du godtar det.
+5. Kontrollera varje område. Välj en annan progressionsnivå där det behövs och skriv en **Konkret observation**.
+6. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**. Månadsrapporten till kommunen byggs av den.
+7. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
 
 Händelser och avslut registrerar du på fliken **Händelser och utfall** med **Registrera händelse** respektive **Avsluta insatsen**. Bara coachen kan avsluta en insats.
 

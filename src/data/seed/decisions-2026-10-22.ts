@@ -16,7 +16,7 @@
 import { attendanceStats } from "@/core/attendance";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { autoArea, prefillAssessment, previousMonth } from "@/core/monthly-prefill";
-import { approvedCheckIns, draftNotes, verifyLevelSuggestion, type DraftInput } from "@/features/_shared/ai-port";
+import { approvedCheckIns, areaChangeNoteIds, draftNotes, verifyLevelSuggestion, type DraftInput } from "@/features/_shared/ai-port";
 import { simulatedDraft } from "@/features/_shared/ai-sim";
 import { monthEnd, monthKey } from "@/core/time";
 import type { CaseAreaChange, CaseNote, Db } from "../schema";
@@ -74,7 +74,7 @@ export function applyDecisions20261022(db: Db): void {
             .map((a) => db.attendance.find((x) => x.activityId === a.id))
             .filter((x): x is NonNullable<typeof x> => !!x)
             .map((x) => ({ status: x.status })),
-          notes: draftNotes(db.case_notes.filter((n) => n.caseId === c.id), ASSESS_MONTH),
+          notes: draftNotes(db.case_notes.filter((n) => n.caseId === c.id), ASSESS_MONTH, { exclude: areaChangeNoteIds(db.case_area_changes.filter((x) => x.caseId === c.id)) }),
         }
       : null;
     const areas = { ...ma.areas };

@@ -171,7 +171,8 @@ const WRITES: Record<string, string[]> = {
   "grupper.nivaHoj": ["grouping_members", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   "grupper.nivaByt": ["grouping_members", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
   // Byt yrkesområde (Karims beslut 2026-10-22): anteckningen med motiveringen, bytet och ärendets yrkesområde.
-  "arenden.bytYrkesomrade": ["case_notes", "case_area_changes", "cases", AUDIT_CASE, AUDIT],
+  // Grupp och inbjudningar följer direkt (syncAudienceInvites): deltagarens rader i kommande aktiviteter med målgrupp.
+  "arenden.bytYrkesomrade": ["case_notes", "case_area_changes", "cases", "activities", "outbound_messages", "tasks", AUDIT_CASE, AUDIT],
 };
 
 /** Vilka loggrader en fråga som läser audit_log bryr sig om (se taggarna ovan). Nya läsare av loggen måste klassas här. */

@@ -104,8 +104,9 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns
   // inte i den gamla prototypen och har därför sökvägen som vy ("/rost").
-  { id: "s15", title: "Byt yrkesområde", lead: "Huvudcoachen byter deltagarens yrkesområde med en kort motivering. Fakturan räknas på det nya yrkesområdet från månaden efter.", steps: [
-    { role: "coach", view: "arende.kort", params: { caseId: "case-260163" }, text: "Öppna Linnea Olssons deltagarkort. Hon bytte från G till D den 27 januari – motiveringen står som anteckning. Prova Byt yrkesområde på ett annat ärende." },
+  { id: "s15", title: "Byt yrkesområde", lead: "Huvudcoachen byter deltagarens yrkesområde med en kort motivering. Yrkesområdet är deltagarens grupp: inbjudningarna följer direkt. Fakturan räknas på det nya yrkesområdet från månaden efter.", steps: [
+    { role: "coach", view: "arende.kort", params: { caseId: "case-260163" }, text: "Öppna Linnea Olssons deltagarkort. Hon bytte från G till D den 27 januari – motiveringen står som anteckning, och hon är inbjuden till D:s yrkesområdesträff i mars. Prova Byt yrkesområde på ett annat ärende: deltagaren bjuds in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas." },
+    { role: "coach", view: "/grupper", params: {}, text: "Grupper och nivåer: yrkesområdena räknar deltagarna efter ärendets yrkesområde just nu, med månadens träff. Nivåaktiviteterna följer nivån och påverkas inte av bytet." },
     { role: "ekonom", view: "eko.arende", params: { caseId: "case-260163" }, text: "Byt till ekonomen. Januari faktureras på G och februari på D – bytet gäller från månaden efter." },
   ] },
   { id: "s14", title: "Röstinspelning", lead: "Coachen spelar in mötet, kommunen talar in och deltagaren spelar in på sitt språk. AI föreslår – människan bedömer. Inget ljud sparas.", steps: [

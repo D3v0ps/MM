@@ -470,11 +470,11 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   expect(await selects.evaluateAll((els) => els.every((s) => (s as HTMLSelectElement).value === "0"))).toBeTruthy();
   await expect(table.getByText("Automatiskt – inget belägg").first()).toBeVisible();
   const suggestion = page.getByTestId("ai-nivaforslag").first();
-  await expect(suggestion).toContainText(/AI-förslag: nivå [123] – /);
+  await expect(suggestion).toContainText(/AI-förslag: progressionsnivå [123] – /);
   await expect(suggestion).toContainText(/Källa: (Avstämning|Anteckning) \d+ \w+/);
   const rows = table.locator("tbody tr");
   for (let i = 0; i < 10; i++) {
-    if (!(await rows.nth(i).getByText("Inget nivåförslag").count())) continue;
+    if (!(await rows.nth(i).getByText("Inget AI-förslag").count())) continue;
     await expect(rows.nth(i).getByTestId("ai-nivaforslag")).toHaveCount(0);
     await expect(btn(rows.nth(i), "Använd utkastet")).toHaveCount(0);
   }

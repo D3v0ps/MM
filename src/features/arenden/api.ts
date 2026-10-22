@@ -304,7 +304,14 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
   toArea: z.string().trim().min(1).max(10),
   motivation: z.string().max(2000),
 }), { invalidates: [...CASE_FACTS, INBOX] }).returns<
-  Result<{ changeId: string; noteId: string; effectiveMonth: MonthKey }, "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr">
+  Result<
+    {
+      changeId: string; noteId: string; effectiveMonth: MonthKey;
+      /** Kommande aktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
+      groups: { invited: number; removed: number } | null;
+    },
+    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr"
+  >
 >();
 
 /**

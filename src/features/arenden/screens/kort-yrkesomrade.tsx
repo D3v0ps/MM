@@ -5,6 +5,7 @@
 // månaden efter bytet. Bytena listas under raden ("22 okt: A → C (vem som bytte) – fakturan från november").
 import { useState } from "react";
 import { AREA_MOTIVATION_MAX, AREA_MOTIVATION_MIN } from "@/core/area-changes";
+import { plural } from "@/core/format";
 import { fmtDateShort, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import { Button, Field, Kv, Modal, Notice, Select, Stack, TextArea, toast } from "@/ui";
@@ -41,6 +42,15 @@ export function CaseAreaRow({ caseId, className }: { caseId: string; className?:
   );
 }
 
+/** Meningen om inbjudningarna efter bytet: det nya yrkesområdets kommande aktiviteter och det gamlas. */
+export function areaGroupsText(g: { invited: number; removed: number } | null): string {
+  if (!g) return "";
+  return [
+    g.invited ? `Deltagaren är inbjuden till ${plural(g.invited, "kommande aktivitet", "kommande aktiviteter")} för yrkesområdet.` : "",
+    g.removed ? `${plural(g.removed, "aktivitet", "aktiviteter")} för det förra yrkesområdet är borttagna.` : "",
+  ].filter(Boolean).join(" ");
+}
+
 function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
   const save = useCommand(caseChangeArea);
   const [toArea, setToArea] = useState("");
@@ -64,7 +74,7 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
       else toast(res && !res.ok && res.message ? res.message : "Yrkesområdet kunde inte bytas.", "error");
       return;
     }
-    toast(`Yrkesområdet är bytt. Fakturan räknas på det nya yrkesområdet från och med ${monthName(res.effectiveMonth)}.`);
+    toast([`Yrkesområdet är bytt. Fakturan räknas på det nya yrkesområdet från och med ${monthName(res.effectiveMonth)}.`, areaGroupsText(res.groups)].filter(Boolean).join(" "));
     onClose();
   };
   return (

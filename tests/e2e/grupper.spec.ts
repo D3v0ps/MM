@@ -47,8 +47,9 @@ test("kartläggningen: coachen sätter nivå och Vill arbeta – gruppen är yrk
   await go(page, info, `/arenden/${SC.amal}`);
   const row = page.locator("[data-grouping-row]");
   await expect(row).toContainText("Nivå 2 – Behöver stöd för att komma igång");
-  await expect(row).toContainText("L – Övrigt");
   await expect(row).toContainText("Vill arbeta: Deltid");
+  // Yrkesområdet står på raden under, med Byt yrkesområde (Karims beslut 2026-10-22).
+  await expect(page.locator("[data-area-row]")).toContainText("L – Övrigt");
   expect(relevant(errors)).toEqual([]);
 });
 
@@ -56,7 +57,7 @@ test("deltagarkortet: Höj nivå ett steg och Ändra öppnar samma val; ärendel
   const errors = await open(page, info, `/arenden/${SC.nadia}`, COACH);
   const row = page.locator("[data-grouping-row]");
   await expect(row).toContainText("Nivå 4 – Nära arbete");
-  await expect(row).toContainText("G – Lager och logistik");
+  await expect(page.locator("[data-area-row]")).toContainText("G – Lager och logistik");
   await btn(row, /^Höj nivå/).click();
   await expect(page.getByText(/Nivån är höjd till Nivå 5 – Redo för arbete\./)).toBeVisible();
   await expect(row).toContainText("Nivå 5 – Redo för arbete");
@@ -161,7 +162,7 @@ test("kommunen ser inget av nivåer och taggar", async ({ page }, info) => {
     await page.goto(`/portal/deltagare/${SC.nadia}`);
   }
   await expect(main(page)).toContainText("BOT-26-0143");
-  for (const word of ["Nivå 4", "Nära arbete", "Vill arbeta", "Heltid", "Nivå och yrkesområde", "Jobbsök och CV"]) await expect(main(page)).not.toContainText(word);
+  for (const word of ["Nivå 4", "Nära arbete", "Vill arbeta", "Heltid", "Nivå och yrkesområde", "Nivå och taggar", "Byt yrkesområde", "Jobbsök och CV"]) await expect(main(page)).not.toContainText(word);
   await go(page, info, "/portal/deltagare");
   await expect(main(page)).toContainText("Mina deltagare");
   await expect(main(page)).toContainText("Nadia Öztürk");

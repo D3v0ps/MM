@@ -4,20 +4,32 @@
 // (case_area_changes), ärendets yrkesområde (cases.primaryAreaCode) och revisionsloggen har skrivits. Ärendet har då redan det
 // nya yrkesområdet.
 //
-// I DAG EN MEDVETEN TOM FUNKTION (no-op) – kopplas till inbjudningarna i integrationen: yrkesområdena blir grupper i ett annat
-// spår, och där finns funktionen som lägger till och tar bort ärendets inbjudningar efter dess grupper (syncAudienceInvites).
-// Integrationen ersätter kroppen nedan med ett anrop till den, med samma ctx (aktörens behörighet – ctx.repo – och dess
-// revisionslogg). Kontraktet för integrationen:
-//   - ctx är kommandots Ctx (aktören är coach, samordnare eller avtalsansvarig med full åtkomst till ärendet).
-//   - caseId är ärendet som just bytt yrkesområde. Det gamla och det nya yrkesområdet finns i den senaste raden i
-//     case_area_changes för ärendet (läs den via ctx.repo om de behövs).
-//   - Funktionen får inte kasta för vanliga affärsfel (bytet är redan sparat) – det som inte går loggas som ett id/kod.
-//   - Inga personuppgifter i loggar eller revisionslogg (bara id:n och koder).
-//   - Kommandots omräkning (CASE_FACTS) täcker redan aktiviteterna, kortet och listorna.
+// Yrkesområdet är deltagarens grupp (spår A, src/core/audience.ts): deltagaren bjuds in till det nya yrkesområdets kommande
+// aktiviteter med målgrupp och tas bort ur det gamlas – samma systemsteg som efter en ändrad nivå, en startad och en avslutad
+// insats (syncAudienceInvites i src/features/aktiviteter/audience-sync.ts). Den rör aldrig manuellt inbjudna, rader med
+// registrerad närvaro eller aktiviteter som har börjat, loggar själv group_activity.audience_synced (id:n, koder och antal) och
+// skickar meddelandet bara när aktiviteten har det påslaget.
+//
+// Bytet är redan sparat när funktionen körs, så den kastar aldrig: ett oväntat fel (databasen) loggas bara som feltyp, och
+// jobbet report_schedule stämmer av inbjudningarna som skyddsnät vid nästa körning (ensureGroupActivities). Kommandots
+// omräkning (CASE_FACTS och INBOX) täcker aktiviteterna, kortet, listorna och inkorgen.
 import type { Ctx } from "@/api/server";
+import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 
-/** Grupp och inbjudningar efter ett byte av yrkesområde. Tom tills integrationen kopplar den (se ovan). */
-export async function afterCaseAreaChanged(ctx: Ctx, caseId: string): Promise<void> {
-  void ctx;
-  void caseId;
+/** Vad bytet gjorde med inbjudningarna: antal kommande aktiviteter deltagaren bjöds in till och togs bort ur. null = inte avstämt nu. */
+export type CaseAreaFollowUp = { invited: number; removed: number } | null;
+
+/** Grupp och inbjudningar efter ett byte av yrkesområde (se ovan). */
+export async function afterCaseAreaChanged(ctx: Ctx, caseId: string): Promise<CaseAreaFollowUp> {
+  try {
+    // Ärendet läses via aktörens behörighet (kommandot har redan kontrollerat full åtkomst).
+    const c = await ctx.repo.table("cases").get(caseId);
+    if (!c) return null;
+    const sync = await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
+    return { invited: sync.added, removed: sync.removed };
+  } catch (e) {
+    // Bara feltypen – aldrig felets text (den kan innehålla värden ur raderna).
+    console.error("byt yrkesområde: inbjudningarna kunde inte stämmas av", e instanceof Error ? e.name : typeof e);
+    return null;
+  }
 }

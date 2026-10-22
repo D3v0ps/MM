@@ -5,7 +5,8 @@
 //   Regler:     areaChangeProblem i src/core/area-changes.ts (bekräftat, pågående eller pausat ärende, ett annat aktivt yrkesområde
 //               i avtalet, motivering 10–300 tecken utan personnummer).
 //   Skrivning:  i ordning via ctx.repo (RLS): anteckningen med motiveringen (case_notes), bytet (case_area_changes), ärendets
-//               yrkesområde (cases), revisionsloggen och sist afterCaseAreaChanged (grupp och inbjudningar).
+//               yrkesområde (cases), revisionsloggen och sist afterCaseAreaChanged (grupp och inbjudningar – systemsteget
+//               syncAudienceInvites, som bjuder in till det nya yrkesområdets kommande aktiviteter och tar bort ur det gamlas).
 //   Logg:       case.area_changed med id:n och koder – aldrig motiveringen (CLAUDE.md punkt 2).
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
@@ -84,7 +85,7 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
     action: "case.area_changed", entity: "case", entityId: c.id, contractId: c.contractId,
     details: { caseId: c.id, fromArea, toArea, effectiveMonth, changeId: change.id, noteId },
   });
-  // 5. Grupp och inbjudningar (kopplas i integrationen – src/features/_shared/case-area-hooks.ts).
-  await afterCaseAreaChanged(ctx, c.id);
-  return ok({ changeId: change.id, noteId, effectiveMonth });
+  // 5. Grupp och inbjudningar: det nya yrkesområdets kommande aktiviteter med målgrupp (src/features/_shared/case-area-hooks.ts).
+  const groups = await afterCaseAreaChanged(ctx, c.id);
+  return ok({ changeId: change.id, noteId, effectiveMonth, groups });
 });

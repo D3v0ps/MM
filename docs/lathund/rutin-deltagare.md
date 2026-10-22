@@ -84,7 +84,8 @@ Närvaron ligger till grund för veckorapporten, närvarograden och fakturan. Ko
 Vem: alla som arbetar i ärendet.
 
 - Skriv anteckningar för flera deltagare under **Anteckningar**. Välj en nivå, ett yrkesområde eller en tagg och skriv en rad per deltagare. Tryck på knappen med antalet, till exempel **Spara 3 anteckningar**.
-- Går deltagaren framåt? Tryck på **Höj nivå** vid **Nivå och yrkesområde** i deltagarkortet, eller **Ändra** för att byta till en annan nivå. Deltagaren flyttas till den nya nivåns aktiviteter automatiskt.
+- Går deltagaren framåt? Tryck på **Höj nivå** vid **Nivå och taggar** i deltagarkortet, eller **Ändra** för att byta till en annan nivå. Deltagaren flyttas till den nya nivåns aktiviteter automatiskt.
+- Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen trycker på **Byt yrkesområde** i deltagarkortet och skriver en kort motivering. Deltagaren flyttas direkt till det nya yrkesområdets träffar. Fakturan räknas på det nya yrkesområdet från och med månaden efter.
 - Upprepad ogiltig frånvaro ger en flagga på Min vecka. Håll ett uppföljningsmöte och gör en plan.
 - Röd samlad status blir en avvikelse automatiskt. Fyll i åtgärd, ansvarig och datum för uppföljning. Behöver kommunen besluta något: tryck på **Kalla kommunen till uppföljning**.
 - Praktik, intervju, arbete och studier registreras med **Registrera händelse** under fliken **Händelser och utfall**. En praktik läggs in med **Ny praktik** under fliken **Praktik**.
@@ -94,10 +95,11 @@ Vem: alla som arbetar i ärendet.
 
 Vem: huvudcoachen.
 
-1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**.
-2. Underlaget är godkända mötesrapporter, närvaro och händelser. Har deltagaren registrerat samtycke till AI kan AI skriva ett utkast. Utkastet kan också bygga på månadens anteckningar, utan personnummer och med källan utskriven. Nivå, taggar och gruppmål skickas aldrig till AI.
-3. Välj nivå 0–3 för varje område själv och skriv en konkret observation. Tryck på **Godkänn bedömningen**.
-4. Tryck på **Öppna rapportutkastet**. Tryck på **Godkänn** och sedan på **Leverera till kommunen**.
+1. Öppna deltagarkortet, välj fliken **Månadsunderlag** och tryck på **Gör månadsbedömningen**. Den är redan ifylld: progressionsnivå 0 i varje område där inget belägg finns, samlad status från den senaste godkända mötesrapporten, och sammanfattning och plan märkta **Ifyllt automatiskt – kontrollera**.
+2. Underlaget är godkända mötesrapporter, närvaro och händelser. Har deltagaren registrerat samtycke till AI kan AI skriva ett utkast och föreslå progressionsnivå 1–3 – bara med ett citat ur underlaget. Utkastet kan också bygga på månadens anteckningar, utan personnummer och med källan utskriven. Nivå, taggar och gruppmål skickas aldrig till AI.
+3. Gå igenom varje område. Tryck på **Godta** för de AI-förslag som stämmer och välj själv där det inte stämmer. Skriv en konkret observation.
+4. Kryssa i **Jag har gått igenom bedömningen** och tryck på **Godkänn bedömningen**.
+5. Tryck på **Öppna rapportutkastet**. Tryck på **Godkänn** och sedan på **Leverera till kommunen**.
 
 ### 10. Avbrott – kommunen mejlar
 

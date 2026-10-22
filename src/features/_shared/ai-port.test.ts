@@ -13,7 +13,7 @@ import { participantMessage, PARTICIPANT_MESSAGES } from "@/data/seed/voice-text
 import type { AppRepo, CaseNote, CheckIn, Tables } from "@/data/schema";
 import { PNR_SCRUBBED } from "@/core/validation";
 import {
-  AI_CORE_INSTRUCTIONS, aiRunRow, approvedCheckIns, assertApprovedInput, CheckInExtractSchema, DRAFT_INPUT_KEYS, draftNotes, DraftTextSchema, EXTRACT_INSTRUCTIONS, EXTRACT_SCHEMAS, mmss,
+  AI_CORE_INSTRUCTIONS, aiRunRow, approvedCheckIns, areaChangeNoteIds, assertApprovedInput, CheckInExtractSchema, DRAFT_INPUT_KEYS, draftNotes, DraftTextSchema, EXTRACT_INSTRUCTIONS, EXTRACT_SCHEMAS, mmss,
   recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, TranslationSchema, type AiRunMeta, type DraftInput,
 } from "./ai-port";
 import { checkInSuggestionsFromTranscript, createSimulatedAi, SIMULATED_MODEL, SIMULATED_PROVIDER, simulatedDraft } from "./ai-sim";
@@ -229,6 +229,15 @@ describe("draft: coachernas anteckningar som underlag (Karims beslut 4, 2026-10-
       { id: "n-3", date: "2027-01-29", kind: "conversation", text: "Var med på gruppträffen. Ville prata om CV." },
     ]);
     expect(JSON.stringify(d)).not.toMatch(/u-amira|authorId|19850101/);
+  });
+
+  it("draftNotes: motiveringen till ett byte av yrkesområde skickas aldrig till AI (Karims beslut 2026-10-22)", () => {
+    const why = note("n-byte", "2027-01-27", "Byte av yrkesområde: G Lager och logistik → D Kök, restaurang och måltidsservice. Vill arbeta i kök.", { kind: "other", audience: "team" });
+    const d = draftNotes([...notes, why], "2027-01", { exclude: areaChangeNoteIds([{ noteId: "n-byte" }]) });
+    expect(d.map((x) => x.id)).toEqual(["n-1", "n-3"]);
+    expect(JSON.stringify(d)).not.toMatch(/yrkesområde|Kök/);
+    // Utan exclude följer den med som vilken anteckning som helst – därför läser anroparna case_area_changes.
+    expect(draftNotes([...notes, why], "2027-01").map((x) => x.id)).toEqual(["n-1", "n-byte", "n-3"]);
   });
 
   it("en lång anteckning med ”…” (Mac och iOS) stoppar inte utkastet: tvätten byter bara personnumren och texten blir aldrig längre än 2000 tecken", () => {

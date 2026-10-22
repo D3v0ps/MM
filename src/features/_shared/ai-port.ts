@@ -264,13 +264,18 @@ function clipNote(text: string): string {
 /**
  * Månadens anteckningar som underlag: inte borttagna, dagen i månaden, i tidsordning. Personnummer tvättas bort; bara id,
  * dag, typ och text följer med – aldrig författaren. Anroparen tar bara med dem när deltagaren har samtycke till AI.
+ * exclude: anteckningar som aldrig skickas till AI – motiveringen till ett byte av yrkesområde (case_area_changes.noteId,
+ * Karims beslut 2026-10-22: Miljonbemannings interna skäl, inget underlag för bedömningen). Se areaChangeNoteIds.
  */
-export function draftNotes(notes: readonly CaseNote[], month: MonthKey): DraftNote[] {
+export function draftNotes(notes: readonly CaseNote[], month: MonthKey, opts: { exclude?: ReadonlySet<string> } = {}): DraftNote[] {
   return notes
-    .filter((n) => n.removedAt == null && monthKey(n.occurredOn) === month)
+    .filter((n) => n.removedAt == null && monthKey(n.occurredOn) === month && !opts.exclude?.has(n.id))
     .sort((a, b) => (a.occurredOn < b.occurredOn ? -1 : a.occurredOn > b.occurredOn ? 1 : a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0))
     .map((n) => ({ id: n.id, date: n.occurredOn, kind: n.kind, text: clipNote(scrubPnr(n.body)) }));
 }
+
+/** Anteckningarna med motiveringen till ett byte av yrkesområde – aldrig underlag till AI (draftNotes exclude). */
+export const areaChangeNoteIds = (changes: readonly { noteId: string }[]): ReadonlySet<string> => new Set(changes.map((x) => x.noteId));
 
 /**
  * Källfiltret (CLAUDE.md punkt 6 och Karims beslut 4, 2026-10-09). Stoppar ett utkast som bygger på något annat än godkända

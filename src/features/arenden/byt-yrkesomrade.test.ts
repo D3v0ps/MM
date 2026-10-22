@@ -1,6 +1,6 @@
 // Byt yrkesområde (Karims beslut 2026-10-22): kommandot arenden.bytYrkesomrade och raden på deltagarkortet mot testdatat i
 // minnet (MemoryRuntime, samma hanterare som appen). Ordningen: anteckningen, bytet, ärendets yrkesområde, revisionsloggen och
-// sist afterCaseAreaChanged (kopplas till inbjudningarna i integrationen).
+// sist afterCaseAreaChanged – grupp och inbjudningar följer direkt (syncAudienceInvites, yrkesområdet är deltagarens grupp).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
@@ -12,6 +12,8 @@ import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
+import { SYSTEM_ACTOR } from "@/api/roles";
+import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
 import { caseAreaView, caseChangeArea } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -105,6 +107,68 @@ describe("Byt yrkesområde (arenden.bytYrkesomrade)", () => {
     const [feb] = billingLines(db, "2027-02", { now: "2027-03-20T09:00", cfg });
     expect(feb.areaCode).toBe("G");
     expect(feb.unitPriceOre).toBe(raw.all("price_items").find((p) => p.areaCode === "G")!.priceOre);
+  });
+});
+
+describe("Byt yrkesområde: grupp och inbjudningar följer direkt (Karims beslut 2026-10-22)", () => {
+  // Testdatats yrkesområdesträffar: G den 17 februari, F den 24 februari (vanliga aktiviteter med ett yrkesområde som målgrupp).
+  const G_MEETING = "ga-traff-c-bot-g-2027-02";
+  const F_MEETING = "ga-traff-c-bot-f-2027-02";
+  const rowsOf = (caseId: string) => rt.raw().all("activities").filter((a) => a.caseId === caseId && a.groupActivityId);
+
+  it("deltagaren tas bort ur det gamla yrkesområdets träff och bjuds in till det nyas – loggen har bara id:n, koder och antal", async () => {
+    expect(rowsOf(NADIA).filter((a) => a.groupActivityId === G_MEETING)).toEqual([expect.objectContaining({ inviteSource: "audience" })]);
+    expect(rowsOf(NADIA).some((a) => a.groupActivityId === F_MEETING)).toBe(false);
+    const res = await change({ caseId: NADIA, toArea: "F", motivation: WHY }, amira());
+    expect(res).toMatchObject({ ok: true, groups: { invited: 1, removed: 1 } });
+    expect(rowsOf(NADIA).some((a) => a.groupActivityId === G_MEETING)).toBe(false);
+    expect(rowsOf(NADIA).filter((a) => a.groupActivityId === F_MEETING)).toEqual([expect.objectContaining({ inviteSource: "audience", caseId: NADIA })]);
+    const synced = rt.raw().all("audit_log").filter((l) => l.action === "group_activity.audience_synced");
+    expect(synced.map((l) => l.entityId).sort()).toEqual([F_MEETING, G_MEETING]);
+    const text = JSON.stringify(synced);
+    expect(text).not.toContain("Nadia");
+    expect(text).not.toContain("Kartläggningen visade");
+    // Nivåaktiviteterna följer nivån, inte yrkesområdet – de rörs inte.
+    const levelRows = (caseId: string) => rowsOf(caseId).filter((a) => rt.raw().get("group_activities", a.groupActivityId!)?.audience === "level").map((a) => a.id).sort();
+    const before = levelRows(NADIA);
+    expect(await change({ caseId: NADIA, toArea: "G", motivation: WHY }, amira())).toMatchObject({ ok: true, groups: { invited: 1, removed: 1 } });
+    expect(levelRows(NADIA)).toEqual(before);
+  });
+
+  it("manuellt inbjudna och rader med närvaro rörs aldrig; meddelandet skickas bara när aktiviteten har det påslaget", async () => {
+    const raw = () => rt.raw();
+    const gRow = rowsOf(NADIA).find((a) => a.groupActivityId === G_MEETING)!;
+    // Inbjuden för hand i stället för av målgruppen (som om coachen bjudit in henne själv).
+    rt.store.updateRow("activities", gRow.id, { inviteSource: "manual" });
+    const out = raw().all("outbound_messages").length;
+    expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY }, amira())).toMatchObject({ ok: true, groups: { invited: 1, removed: 0 } });
+    expect(raw().get("activities", gRow.id)).toMatchObject({ caseId: NADIA, inviteSource: "manual" });
+    // Träffarna i testdatat har meddelandet av: inga utskick.
+    expect(raw().all("outbound_messages")).toHaveLength(out);
+  });
+
+  it("motiveringen skickas aldrig till AI: underlaget till månadens AI-utkast har andra anteckningar men inte den", async () => {
+    const c = rt.raw().all("cases").find((x) => x.aiConsentStatus === "given" && x.status === "active" && x.contractId === "c-bot" && x.primaryAreaCode)!;
+    expect(c).toBeDefined();
+    const res = await change({ caseId: c.id, toArea: c.primaryAreaCode === "C" ? "E" : "C", motivation: WHY }, sara());
+    if (!res.ok) throw new Error(res.error);
+    rt.store.insertRow("case_notes", {
+      id: "note-t-vanlig", contractId: c.contractId, caseId: c.id, authorId: "u-sara", occurredOn: "2027-02-01", kind: "conversation", audience: "full",
+      body: "Pratade om CV.", createdAt: "2027-02-01T10:00", updatedAt: null, removedAt: null, removedBy: null,
+    });
+    const input = await monthlyDraftInput(rt.ctxFor(SYSTEM_ACTOR), c.id, "2027-02");
+    expect(input.notes.map((n) => n.id)).toContain("note-t-vanlig");
+    expect(input.notes.map((n) => n.id)).not.toContain(res.noteId);
+    expect(JSON.stringify(input)).not.toContain("Kartläggningen visade");
+  });
+
+  it("ett bekräftat ärende som inte har startat byter yrkesområde utan inbjudningar (insatsen pågår inte än)", async () => {
+    const confirmed = rt.raw().all("cases").find((c) => c.status === "confirmed" && c.contractId === "c-bot" && c.primaryAreaCode)!;
+    expect(confirmed).toBeDefined();
+    const to = confirmed.primaryAreaCode === "F" ? "G" : "F";
+    const rows = rowsOf(confirmed.id).length;
+    expect(await change({ caseId: confirmed.id, toArea: to, motivation: WHY }, sara())).toMatchObject({ ok: true, groups: { invited: 0, removed: 0 } });
+    expect(rowsOf(confirmed.id)).toHaveLength(rows);
   });
 });
 
