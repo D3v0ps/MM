@@ -298,7 +298,7 @@ function Korning({ v, crumbs, filter, initialOpen }: { v: RunView & { month: str
               </Button>
             )}
             <span className="text-text-muted">{act && monthOpen ? monthOpen : "Registrera för hand i Fortnox eller i kommunens kostnadsfria fakturaportal."}</span>
-            <span className="w-full text-small text-text-muted">Excel-filen har fakturans fält som i Fortnox: en flik per faktura, en med raderna och en om hur du använder den.</span>
+            <span className="w-full text-small text-text-muted">Excel-filen har fakturans fält som i Fortnox: en flik med fakturorna, en med raderna och en om hur du använder den.</span>
           </>
         }
       >

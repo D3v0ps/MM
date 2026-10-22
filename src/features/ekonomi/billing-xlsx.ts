@@ -95,6 +95,8 @@ export function exportStatus(inv: MonthInvoice, now: LocalDateTime): string {
     !monthEnded(inv.month, now) && `månaden är inte slut, fakturan kan skapas från ${fmtDateFull(`${addMonths(inv.month, 1)}-01`)}`,
   ].filter((x): x is string => !!x);
   if (stops.length) return `Stoppad – ${stops.join(", ")}${waits.length ? `. Dessutom: ${waits.join(", ")}` : ""}`;
+  // En ny stoppande kontroll som inte har någon text här ska aldrig bli "Klar att skapa".
+  if (inv.blocked) return "Stoppad – se fakturakörningen i Miljonmatch";
   if (waits.length) return `Väntar – ${waits.join(", ")}`;
   return inv.storedStatus === "approved" ? "Godkänd – klar att skapa" : "Klar att skapa";
 }
