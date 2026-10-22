@@ -6,6 +6,7 @@ import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
 import { latestCheckIn } from "@/core/db-index";
 import { plural } from "@/core/format";
+import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
 import { addDays, dayOf, isoWeek, monthKey, timeOf, type LocalDate, type LocalDateTime } from "@/core/time";
 import { by, uniq } from "@/core/util";
 import { UniqueError } from "@/data/repo";
@@ -411,6 +412,11 @@ handleCommand(intakeSave, { roles: ["coach"] }, async (ctx, p) => {
   const table = ctx.repo.table("intake_assessments");
   const existing = await table.first({ caseId: c.id });
   if (versionMismatch(existing, p.expectedVersion)) return fail("conflict", CONFLICT);
+  // Nivån sätts i kartläggningen och krävs innan den godkänns (Karims beslut 2026-10-22: "Nivåerna bestäms efter kartläggningen").
+  // En människa väljer nivån i kortet Nivå och yrkesområde – AI sätter den aldrig.
+  if (p.approve && !(await ctx.repo.table("grouping_members").first({ caseId: c.id, kind: "level", removedAt: { isNull: true } }))) {
+    return fail("level", LEVEL_REQUIRED_TEXT);
+  }
   const ia: IntakeAssessment = { ...(existing ?? newIntake({ id: ctx.newId("ia"), caseId: c.id })), ...defined(p.data ?? {}), version: existing ? existing.version + 1 : 1 };
   if (p.approve) {
     ia.status = "approved";

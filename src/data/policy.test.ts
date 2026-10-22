@@ -236,7 +236,8 @@ describe("kommunen har bara rollen handläggare (beslut 2026-10-07)", () => {
 describe("ekonomen ser inga coachanteckningar", () => {
   it("ärenden, närvaro, priser och fakturor – men inga namn, anteckningar, rapporter eller meddelanden", async () => {
     expect(await count(LARS, "cases")).toBe(231);
-    expect(await count(LARS, "activities")).toBe(3861);
+    // Tillfällena i testdatat inklusive deltagarnas rader i nivåaktiviteterna och yrkesområdesträffarna (Karims beslut 2026-10-22).
+    expect(await count(LARS, "activities")).toBe(4108);
     expect(await count(LARS, "attendance")).toBe(3590);
     expect(await count(LARS, "price_items")).toBe(12);
     expect(await count(LARS, "billing_runs")).toBe(5);

@@ -4,8 +4,11 @@
 // coach.attendanceSet), "Markera övriga som närvarande" (coach.attendanceSetAll – bekräftelse med namnen, ändrar aldrig det som
 // redan är registrerat) och en rad anteckning per deltagare som sparas som vanlig anteckning med aktivitetens dag (ingen tid).
 // Spår G: gruppmålet – alla klarar det automatiskt (märkt "Automatiskt"), coachen markerar Klarade inte per deltagare och kan
-// ändra tillbaka (aktiviteter.malResultat). Internt: syns bara här. Bjud in per grupp, nivå eller enskilt, och kryssrutorna för
-// meddelandet till deltagarna när de bjuds in, när tid eller plats ändras, när en deltagare tas bort och när aktiviteten ställs in.
+// ändra tillbaka (aktiviteter.malResultat). Internt: syns bara här. Bjud in per yrkesområde, nivå eller enskilt, och kryssrutorna
+// för meddelandet till deltagarna när de bjuds in, när tid eller plats ändras, när en deltagare tas bort och när aktiviteten ställs in.
+// Karims beslut 2026-10-22: målgruppen (en nivå eller ett yrkesområde) visas, och de som målgruppen bjöd in tas inte bort för hand
+// (de bjuds in automatiskt). Ett tillfälle i en återkommande aktivitet visar "Del av återkommande aktivitet: tis och tor 10.00",
+// "Ställ in bara det här tillfället" och "Avsluta hela serien"; dag, tid och längd är seriens.
 import { useRef, useState } from "react";
 import { GROUP_KIND_LABEL } from "@/core/group-activities";
 import { plural } from "@/core/format";
@@ -25,6 +28,7 @@ import {
   type GroupActivityView, type GroupParticipant, type InviteProblem,
 } from "../api";
 import { EMPTY_CHOICE, InviteParticipants, resolveChoice, type InviteChoice } from "./bjud-in";
+import { useEndSeries } from "./serie";
 import {
   ActivityFields, formErrors, formOf, isUpcoming, notifiedText, NotifyCheck, payloadOf, ProblemList, replacedText, skippedText, useActivityConfirm, useActivityFormData,
   type ActivityFormState,
@@ -98,6 +102,7 @@ function Aktivitet({ v }: { v: Ok }) {
   const cancel = useCommand(groupActivityCancel);
   const saveNotes = useCommand(groupActivityNotes);
   const setGoal = useCommand(groupGoalResultSet);
+  const endSeries = useEndSeries();
   const notifyBox = useRef(true);
   const [editing, setEditing] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -241,6 +246,7 @@ function Aktivitet({ v }: { v: Ok }) {
     toast(`${plural(res.saved, "anteckning sparad", "anteckningar sparade")} i deltagarkorten.`);
   };
 
+  const series = a.series;
   const actions = v.canEdit ? (
     <Row gap="sm">
       <Button icon="users" onClick={() => setInviting(true)}>
@@ -250,7 +256,7 @@ function Aktivitet({ v }: { v: Ok }) {
         Ändra
       </Button>
       <Button kind="danger" icon="x" pending={cancel.pending} onClick={() => void cancelActivity()}>
-        Ställ in
+        {series ? "Ställ in bara det här tillfället" : "Ställ in"}
       </Button>
     </Row>
   ) : undefined;
@@ -268,6 +274,27 @@ function Aktivitet({ v }: { v: Ok }) {
           Aktiviteten ställdes in {fmtDateTime(a.cancelledAt)}. Deltagarnas tillfällen är borttagna.
         </Notice>
       )}
+      {series && (
+        <Notice tone="info" icon="refresh" title={`Del av återkommande aktivitet: ${series.schedule}`}>
+          <Stack gap="sm">
+            <span>
+              {series.ended
+                ? `Den återkommande aktiviteten är avslutad${series.endsOn ? ` ${fmtDate(series.endsOn)}` : ""}.`
+                : "Dag, tid och längd gäller hela serien. Ska tiden ändras avslutar du serien och skapar en ny."}
+            </span>
+            {v.canEdit && !series.ended && (
+              <Row gap="sm">
+                <Button kind="secondary" icon="x" pending={endSeries.pending} onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify })}>
+                  Avsluta hela serien
+                </Button>
+                <Button kind="ghost" icon="list" to="/aktiviteter">
+                  Alla återkommande aktiviteter
+                </Button>
+              </Row>
+            )}
+          </Stack>
+        </Notice>
+      )}
       {a.holiday && !a.cancelledAt && (
         <Notice tone="warn" icon="calendar" title="Helgdag">
           {fmtDate(day)} är en helgdag ({a.holiday}). Närvaron registreras inte automatiskt – registrera den här.
@@ -280,6 +307,7 @@ function Aktivitet({ v }: { v: Ok }) {
             ["Plats", a.location],
             ["Ansvarig", a.responsibleName ?? "Ingen ansvarig"],
             ["Gruppmål", a.goal ?? "Inget gruppmål"],
+            ["Målgrupp", a.audience ? `${a.audience.label} – de som tillkommer bjuds in automatiskt fram till aktiviteten` : "Inbjudna en och en"],
             ["Skapad av", a.createdByName],
           ]}
         />
@@ -337,10 +365,11 @@ function Aktivitet({ v }: { v: Ok }) {
                     <AttBadge at={p.attendance} />
                   ) : (
                     <Badge tone="outline" icon="clock">
-                      Inbjuden
+                      {p.inviteSource === "audience" ? "Inbjuden automatiskt" : "Inbjuden"}
                     </Badge>
                   )}
-                  {v.canEdit && !p.attendance && (
+                  {/* Målgruppen bjöd in deltagaren – hen skulle bjudas in igen. Registrera frånvaro eller byt nivå i stället. */}
+                  {v.canEdit && !p.attendance && !(a.audience && p.inviteSource === "audience") && (
                     <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeParticipant(p)} ariaLabel={`Ta bort ${p.name} från aktiviteten`}>
                       Ta bort
                     </Button>
@@ -473,7 +502,14 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       ) : (
         <Stack>
           <p className="m-0 text-body">Tid, längd, plats och typ ändras för alla deltagare. Tiden kan inte flyttas när närvaro är registrerad.</p>
-          <ActivityFields form={data} value={value} onChange={setValue} tried={tried} idPrefix="andra-akt" />
+          <ActivityFields
+            form={data}
+            value={value}
+            onChange={setValue}
+            tried={tried}
+            idPrefix="andra-akt"
+            lockSchedule={v.activity.series ? `Dag, tid och längd gäller hela den återkommande aktiviteten (${v.activity.series.schedule}).` : undefined}
+          />
           {timeOrPlace && v.participants.length > 0 && (
             <NotifyCheck id="andra-meddela" checked={notify} onChange={setNotify} label="Skicka ny tid och plats till deltagarna" upcoming={upcoming} />
           )}
@@ -499,10 +535,19 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
   const resolved = data ? resolveChoice(choice, data, dayOf(v.activity.startsAt), already) : null;
   const caseIds = resolved?.caseIds ?? [];
   const upcoming = isUpcoming(v.activity.startsAt, v.now);
+  // Målgruppen kan bara väljas för en aktivitet utan målgrupp som inte har börjat – annars bjuds fler in en och en.
+  const audienceOpen = !v.activity.audience && upcoming;
+  const count = resolved?.count ?? 0;
+  const canSubmit = !!resolved && (resolved.audience ? true : caseIds.length > 0);
   const submit = async () => {
     setProblems([]);
-    if (!caseIds.length || !resolved) return;
-    const res = await withConfirm((c) => invite.run({ id: v.activity.id, caseIds, ...resolved.payload, notify: upcoming && notify, replaceOverlapping: c.replaceOverlapping }).catch(() => null));
+    if (!canSubmit || !resolved) return;
+    const res = await withConfirm((c) =>
+      invite.run({
+        id: v.activity.id, caseIds, ...(resolved.audience ? { audience: resolved.audience } : {}), ...resolved.payload, notify: upcoming && notify,
+        replaceOverlapping: c.replaceOverlapping,
+      }).catch(() => null),
+    );
     if (!res) return;
     if (!res.ok) {
       if ("problems" in res) setProblems(res.problems);
@@ -517,14 +562,14 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       title="Bjud in deltagare"
       wide
       onClose={onClose}
-      dirty={caseIds.length > 0 || choice.groupingIds.length > 0}
+      dirty={caseIds.length > 0 || !!choice.audienceId}
       footer={
         <>
           <Button kind="ghost" onClick={onClose}>
             Avbryt
           </Button>
-          <Button kind="primary" icon="users" pending={invite.pending} disabled={!caseIds.length} onClick={() => void submit()}>
-            {caseIds.length ? `Bjud in ${plural(caseIds.length, "deltagare", "deltagare")}` : "Bjud in"}
+          <Button kind="primary" icon="users" pending={invite.pending} disabled={!canSubmit} onClick={() => void submit()}>
+            {resolved?.audience ? "Bjud in målgruppen" : count ? `Bjud in ${plural(count, "deltagare", "deltagare")}` : "Bjud in"}
           </Button>
         </>
       }
@@ -533,8 +578,23 @@ function InviteModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         error ? <ErrorNotice error={error as Error} onRetry={retry} /> : <Loading />
       ) : (
         <Stack>
-          <InviteParticipants form={data} day={dayOf(v.activity.startsAt)} value={choice} onChange={setChoice} alreadyInvited={already} idPrefix="akt-bjud" />
-          {caseIds.length > 0 && <NotifyCheck id="akt-bjud-meddela" checked={notify} onChange={setNotify} label="Skicka inbjudan till deltagarna" upcoming={upcoming} />}
+          {v.activity.audience && (
+            <Notice tone="info" icon="users" title={`Målgrupp: ${v.activity.audience.label}`}>
+              De som tillkommer bjuds in automatiskt fram till aktiviteten. Här bjuder du in fler en och en.
+            </Notice>
+          )}
+          <InviteParticipants
+            form={data}
+            day={dayOf(v.activity.startsAt)}
+            value={choice}
+            onChange={setChoice}
+            alreadyInvited={already}
+            idPrefix="akt-bjud"
+            modes={audienceOpen ? undefined : ["enskilda"]}
+          />
+          {(caseIds.length > 0 || !!resolved?.audience) && (
+            <NotifyCheck id="akt-bjud-meddela" checked={notify} onChange={setNotify} label="Skicka inbjudan till deltagarna" upcoming={upcoming} />
+          )}
           {problems.length > 0 && (
             <Notice tone="critical" title="Några deltagare kan inte bjudas in">
               <ProblemList problems={problems} />

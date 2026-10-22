@@ -48,6 +48,20 @@ Kontroll efteråt (som inloggad eller i SQL Editor): `select source from public.
 
 Kontroll efteråt: `select goal, goal_version from public.group_activities limit 1;` fungerar, `select count(*) from public.group_goal_results;` svarar 0 och `select indexname from pg_indexes where indexname = 'group_goal_results_activity_case_key';` ger en rad.
 
+### Migration 0035 (yrkesområden som grupper, nivåer och återkommande aktiviteter) – körs FÖRE koden
+
+`supabase/migrations/0035_yrkesomraden_nivaer.sql` i *SQL Editor* (hela filen – den tål att köras igen, och en andra körning ändrar ingenting): Karims beslut 2026-10-22 (SPEC §7.19 och §7.20).
+
+- **Fria grupper:** alla aktiva grupper (`groupings.kind = 'group'`) arkiveras och alla aktiva medlemskap i grupper avslutas – av `system`, med tiden när migrationen kördes. Inget raderas. Triggrarna `groupings_no_free_groups` och `grouping_members_no_free_groups` nekar därefter nya aktiva grupper och nya eller återupplivade aktiva medlemskap i grupper, också för servern (felkod 23514).
+- **Återkommande aktiviteter:** tabellen `group_activity_series` (veckodagar, tid, längd, målgrupp, första och sista dag) med RLS som `group_activities`.
+- **Målgruppen:** `group_activities.audience` (`manual`/`level`/`area`, befintliga får `manual`), `audience_level_id`, `audience_area_code`, `series_id` (unikt med `starts_at`) och `notify`; `activities.invite_source` (`manual`/`audience`, befintliga får `manual` – `audience` skrivs bara av servern).
+
+Kräver 0030, 0031 och 0033. Migrationen körs som postgres, så triggrarna från 0031 släpper igenom arkiveringen (bevisat i `src/data/supabase/migration-0035.test.ts`).
+
+**Driftordning:** 0035 ska vara applicerad **innan** koden med yrkesområden och nivåaktiviteter driftsätts. Koden läser och skriver de nya kolumnerna när en gruppaktivitet skapas eller visas och när ett tillfälle läggs till – utan dem slutar gruppaktiviteterna, Grupper och nivåer och kartläggningens godkännande att fungera. Jobbet `report_schedule` skapar sedan nivåaktiviteternas tillfällen 14 dagar framåt.
+
+Kontroll efteråt: `select audience, series_id, notify from public.group_activities limit 1;` och `select invite_source from public.activities limit 1;` fungerar, `select count(*) from public.group_activity_series;` svarar 0, `select count(*) from public.groupings where kind = 'group' and archived_at is null;` och `select count(*) from public.grouping_members where kind = 'group' and removed_at is null;` svarar 0.
+
 ### Så läggs kollegor till (ingen SQL)
 
 1. Logga in som systemadministratör (Karim eller Ali) → **Användare och roller** (`/admin/anvandare`) → **Lägg till kollega**.
@@ -94,6 +108,7 @@ E-post från:    notis@miljonmatch.se ("Miljonmatch") via Resend (EU). DNS för 
 | Migrationer 0023–0026 (beslut 2026-10-07) | **Skrivna, inte applicerade.** De appliceras tillsammans, i nummerordning, när båda omgångarna med synpunkterna från 2026-10-06 är sammanfogade – och i samma veva som koden (avsnitt 1.4) |
 | Migration 0030 (coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppaktiviteter och automatisk närvaro. Appliceras i SQL Editor **före** koden från spår A (se "Migration 0030" ovan) – koden skriver de nya kolumnerna vid varje närvaroregistrering och varje nytt tillfälle |
 | Migration 0033 (spår G, coachmötet 2026-10-09) | **Skriven, inte applicerad.** Gruppmål (`group_activities.goal`, `group_goal_results`). Appliceras i SQL Editor efter 0030–0032 och **före** koden från spår G (se "Migration 0033" ovan) |
+| Migration 0035 (Karims beslut 2026-10-22) | **Skriven, inte applicerad.** Yrkesområden som grupper (fria grupper arkiveras), målgrupp och återkommande aktiviteter (`group_activity_series`). Appliceras i SQL Editor efter 0030–0033 (och 0034 om den finns) och **före** koden (se "Migration 0035" ovan) |
 | Migration 0028 (beslut 4c, 2026-10-08) | **Skriven, inte applicerad.** `case_attachments.uploaded_by` får vara `system` (bilagor ur inlästa mejl). Appliceras i SQL Editor tillsammans med 0027 före koden med mejlinläsningen (avsnitt 12) |
 | Startdata och testdata | Inte inlästa. Startdatat (`supabase/bootstrap-staging.sql`) körs av samordnaren, resten läser testaren in i appen |
 | Supabase Auth | Inställt: självregistrering av, e-postkod med 6 siffror som gäller 10 minuter. **Supabase Auth skickar inga mejl längre** – appen tar fram koden och skickar den via Resend (beslut 2026-10-02, avsnitt 2.1). SMTP-inställningen ligger kvar som reserv. **Kontrollera URL:erna** (avsnitt 2.2): *Site URL* `https://www.miljonmatch.se` |

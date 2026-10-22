@@ -43,12 +43,19 @@
 //                 bara för en inbjuden deltagare i en aktivitet med mål som inte är inställd, för målets nuvarande version
 //                 (goal_version räknas upp när målet ändras) och deltagarens nuvarande tillfälle · bara valet ändras (eller förs
 //                 över till det nuvarande målet och tillfället) · raderas aldrig · aldrig kommunen
+//   Återkommande  group_activity_series (0035, Karims beslut 2026-10-22): som gruppaktiviteterna – Miljonbemanning i avtalet utom
+//   aktiviteter   ekonomen läser, de som arbetar i ärendena skapar (i eget namn) och ändrar namn, plats, ansvarig, gruppmål och
+//                 meddelandet · typ, målgrupp, dagar, tid, längd och första dag ändras aldrig · en avslutad ändras inte · raderas
+//                 aldrig. Tillfällena (group_activities med seriesId) skapas bara av servern (ctx.system); seriesId ändras aldrig.
+//                 Målgruppen (nivå eller yrkesområde) hör till aktivitetens avtal. activities.inviteSource: användare skapar bara
+//                 manual och ändrar aldrig källan – audience skrivs av servern (den automatiska synkningen)
 //   Närvaro       attendance.source (0030): användare skriver bara manuell närvaro – automatisk (auto) bara jobbet (ctx.system)
 //   Grupper       nivåer, grupper och taggar (groupings, grouping_members, 0031 – internt, Karims beslut 3 2026-10-09):
 //                 grupperingarna läses av MB i avtalet utom ekonomen och skrivs av samordnare, avtalsansvarig, coach och admin
 //                 (arkiveras, raderas aldrig) · medlemskapen läses som anteckningar (aldrig ekonom eller kommunen) och skrivs av
 //                 samordnare, avtalsansvarig och coach (inte admin – läsläge i ärendena) med full åtkomst till ärendet – ny rad
-//                 aktiv och i eget namn, ändring bara att ta bort
+//                 aktiv och i eget namn, ändring bara att ta bort. Fria grupper finns inte längre (0035): ingen ny aktiv grupp
+//                 eller aktivt medlemskap i en grupp – för alla (triggrarna gäller också service role)
 //   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -374,7 +381,7 @@ function savedReportWrite(x: SavedReportRow, a: Actor, raw: Raw): boolean {
 // ---------------------------------------------------------------- Gruppaktiviteter (0030)
 type GroupActivityRow = Tables["group_activities"];
 /** Fält som aldrig ändras efter att aktiviteten skapats (triggern group_activities_protect_columns, 0030). */
-const GROUP_FIXED = ["contractId", "createdBy", "createdAt"];
+const GROUP_FIXED = ["contractId", "createdBy", "createdAt", "seriesId"];
 const GROUP_KINDS: readonly string[] = ["yrkesmoment", "arbetsgivarbesök", "annat"];
 /** Tabellens kontroller (check i 0030 och 0033): namnets längd (btrim, kodpunkter), typen, längden, platsen, paren och gruppmålet. */
 function groupActivityShape(x: GroupActivityRow): boolean {
@@ -382,7 +389,66 @@ function groupActivityShape(x: GroupActivityRow): boolean {
   const nameChars = [...x.name.replace(/^ +| +$/g, "")].length;
   return nameChars >= 1 && nameChars <= 120 && GROUP_KINDS.includes(x.kind) && Number.isInteger(x.durationMin) && x.durationMin >= 1 && x.durationMin <= 720
     && [...x.location].length <= 200 && pair(x.updatedAt, x.updatedBy) && pair(x.cancelledAt, x.cancelledBy) && goalShape(x.goal)
-    && Number.isInteger(x.goalVersion) && x.goalVersion >= 0;
+    && Number.isInteger(x.goalVersion) && x.goalVersion >= 0 && audienceShape(x.audience, x.audienceLevelId, x.audienceAreaCode, true);
+}
+/** Målgruppens form (check group_activities_audience_shape och group_activity_series_audience_shape, 0035). */
+function audienceShape(audience: string, levelId: string | null, areaCode: string | null, manualAllowed: boolean): boolean {
+  if (audience === "manual") return manualAllowed && levelId == null && areaCode == null;
+  if (audience === "level") return levelId != null && areaCode == null;
+  if (audience === "area") return areaCode != null && levelId == null;
+  return false;
+}
+/**
+ * Målgruppen hör till avtalet (triggern group_activities_audience, 0035 – gäller också systemet där): nivån är en nivå i avtalet,
+ * yrkesområdet ett avtalsområde i avtalet.
+ */
+function audienceConsistent(x: { contractId: string; audience: string; audienceLevelId: string | null; audienceAreaCode: string | null }, raw: Raw): boolean {
+  if (x.audience === "level") {
+    const g = x.audienceLevelId ? raw.get("groupings", x.audienceLevelId) : undefined;
+    return !!g && g.kind === "level" && g.contractId === x.contractId;
+  }
+  if (x.audience === "area") return raw.all("contract_areas").some((ar) => ar.contractId === x.contractId && ar.code === x.audienceAreaCode);
+  return true;
+}
+/** Tillfället hör till seriens avtal (triggern group_activities_series, 0035). */
+function seriesConsistent(x: GroupActivityRow, raw: Raw): boolean {
+  if (x.seriesId == null) return true;
+  return raw.get("group_activity_series", x.seriesId)?.contractId === x.contractId;
+}
+
+// ---------------------------------------------------------------- Återkommande aktiviteter (0035)
+type SeriesRow = Tables["group_activity_series"];
+/**
+ * Fält som aldrig ändras (triggern group_activity_series_protect_columns): avtal, skapare, typ, målgrupp, dagar, tid, längd och
+ * första dag – en ny tid är en ny serie.
+ */
+const SERIES_FIXED = ["contractId", "createdBy", "createdAt", "kind", "audience", "audienceLevelId", "audienceAreaCode", "weekdays", "startTime", "durationMin", "startsOn"];
+/** Tabellens kontroller (check i 0035): namn, typ, målgrupp, veckodagar, tid, längd, plats, gruppmål, sista dagen och paren. */
+function seriesShape(x: SeriesRow): boolean {
+  const pair = (at: unknown, by: unknown) => (at == null) === (by == null);
+  const nameChars = [...x.name.replace(/^ +| +$/g, "")].length;
+  const days = x.weekdays;
+  const daysOk = Array.isArray(days) && days.length >= 1 && days.length <= 5 && days.every((d, i) => Number.isInteger(d) && d >= 1 && d <= 5 && (i === 0 || d > days[i - 1]));
+  return nameChars >= 1 && nameChars <= 120 && GROUP_KINDS.includes(x.kind) && audienceShape(x.audience, x.audienceLevelId, x.audienceAreaCode, false) && daysOk
+    && /^([01]\d|2[0-3]):[0-5]\d$/.test(x.startTime) && Number.isInteger(x.durationMin) && x.durationMin >= 1 && x.durationMin <= 720 && [...x.location].length <= 200
+    && goalShape(x.goal) && (x.endsOn == null || x.endsOn >= x.startsOn) && pair(x.updatedAt, x.updatedBy) && pair(x.endedAt, x.endedBy);
+}
+/**
+ * Ny rad: de som arbetar i ärendena, medlem i avtalet, i eget namn, varken ändrad eller avslutad. Ändring: den befintliga raden är
+ * inte avslutad; något ändras; de fasta fälten aldrig; ändrad och avslutad i eget namn; sista dagen bara när serien avslutas.
+ * Regeln stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som policyerna och triggern i 0035.
+ */
+function seriesWrite(x: SeriesRow, a: Actor, raw: Raw): boolean {
+  if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !seriesShape(x) || !audienceConsistent(x, raw)) return false;
+  const cur = raw.get("group_activity_series", x.id);
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.endedAt == null && x.endedBy == null;
+  if (cur.endedAt != null || !member(a, cur.contractId)) return false;
+  const changed = changedFields(cur, x);
+  if (!changed.length || changed.some((k) => SERIES_FIXED.includes(k))) return false;
+  if ((changed.includes("updatedAt") || changed.includes("updatedBy")) && (x.updatedAt == null || !self(a, x.updatedBy))) return false;
+  if ((changed.includes("endedAt") || changed.includes("endedBy")) && (x.endedAt == null || !self(a, x.endedBy))) return false;
+  if (changed.includes("endsOn") && !changed.includes("endedAt")) return false;
+  return true;
 }
 /** Gruppmålet (check group_activities_goal_length, 0033): null eller 1–300 tecken (btrim, kodpunkter). */
 function goalShape(goal: string | null | undefined): boolean {
@@ -396,9 +462,10 @@ function goalShape(goal: string | null | undefined): boolean {
  * stoppar också MemoryRepo.remove() (inget ändras – ingen radering). Samma regler som policyerna och triggern i 0030.
  */
 function groupActivityWrite(x: GroupActivityRow, a: Actor, raw: Raw): boolean {
-  if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !groupActivityShape(x)) return false;
+  if (!has(CASE_WORKERS, a) || !member(a, x.contractId) || !groupActivityShape(x) || !audienceConsistent(x, raw) || !seriesConsistent(x, raw)) return false;
   const cur = raw.get("group_activities", x.id);
-  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null;
+  // Ny rad: i eget namn, varken ändrad eller inställd, och utan serie – tillfällena skapas bara av servern (0035).
+  if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.updatedBy == null && x.cancelledAt == null && x.cancelledBy == null && x.seriesId == null;
   if (cur.cancelledAt != null || !member(a, cur.contractId)) return false;
   // Gruppmålets version följer målet (triggern group_activities_goal_version, 0033): ett ändrat mål räknar upp den med ett.
   if (x.goalVersion !== ((x.goal ?? null) !== (cur.goal ?? null) ? cur.goalVersion + 1 : cur.goalVersion)) return false;
@@ -460,6 +527,8 @@ function groupingShape(x: GroupingRow): boolean {
 function groupingWrite(x: GroupingRow, a: Actor, raw: Raw): boolean {
   if (!has(GROUPING_WRITERS, a) || !member(a, x.contractId) || !groupingShape(x)) return false;
   const cur = raw.get("groupings", x.id);
+  // Fria grupper finns inte längre (0035, triggern groupings_no_free_groups): ingen ny aktiv grupp och ingen återställd.
+  if (x.kind === "group" && x.archivedAt == null && (!cur || cur.archivedAt != null)) return false;
   if (!cur) return self(a, x.createdBy) && x.updatedAt == null && x.archivedAt == null;
   if (!member(a, cur.contractId)) return false;
   const changed = changedFields(cur, x);
@@ -486,6 +555,8 @@ function memberConsistent(x: GroupingMemberRow, raw: Raw, isNew: boolean): boole
 function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean {
   if (!has(GROUPING_MEMBER_WRITERS, a) || accessTo(raw, a, x.caseId) !== "full") return false;
   const cur = raw.get("grouping_members", x.id);
+  // Fria grupper finns inte längre (0035, triggern grouping_members_no_free_groups): inget nytt aktivt medlemskap i en grupp.
+  if (x.kind === "group" && x.removedAt == null && (!cur || cur.removedAt != null)) return false;
   if (!memberConsistent(x, raw, !cur)) return false;
   if (!cur) return self(a, x.addedBy) && x.removedAt == null && x.removedBy == null;
   if (cur.removedAt != null || accessTo(raw, a, cur.caseId) !== "full") return false;
@@ -569,7 +640,13 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   // Närvaro: även ekonom (debitering) och kommunen (veckorapport, orsakskategori)
   activities: {
     read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
-    write: (x, a, raw) => workOn(x.caseId, a, raw),
+    // Inbjudningens källa (0035, triggern activities_invite_source): en ny rad är manuell, och källan ändras aldrig – audience skrivs
+    // bara av servern (den automatiska synkningen, ctx.system). Borttagning (raden som den är) prövas som förut.
+    write: (x, a, raw) => {
+      if (!workOn(x.caseId, a, raw)) return false;
+      const cur = raw.get("activities", x.id);
+      return cur ? x.inviteSource === cur.inviteSource : x.inviteSource === "manual";
+    },
   },
   attendance: {
     read: (x, a, raw) => ["full", "team", "billing", "customer"].includes(accessTo(raw, a, x.caseId)),
@@ -578,6 +655,8 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   },
   // Gruppaktiviteter (0030): Miljonbemanning i avtalet utom ekonomen – aldrig kommunen.
   group_activities: { read: (x, a) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId), write: groupActivityWrite },
+  // Återkommande aktiviteter (0035): som gruppaktiviteterna.
+  group_activity_series: { read: (x, a) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId), write: seriesWrite },
   // Gruppmål (0033): som gruppaktiviteterna, och bara med full- eller teamåtkomst till ärendet – aldrig ekonomen eller kommunen.
   group_goal_results: {
     read: (x, a, raw) => has(GROUP_ACTIVITY_READERS, a) && member(a, x.contractId) && ["full", "team"].includes(accessTo(raw, a, x.caseId)),

@@ -11,10 +11,11 @@
 //   gen-voice.ts     röstinspelningen (finns inte i prototypen): länkar, röstmeddelanden och ljudfilernas spår
 //   gen-notes.ts     fria anteckningar i deltagarkortet (finns inte i prototypen, rapporter steg 2)
 //   gen-saved-reports.ts  sparade rapporter i rapportbyggaren (finns inte i prototypen, rapporter steg 4)
-//   gen-groupings.ts grupper, nivåer och taggar (finns inte i prototypen, coachmötet 2026-10-09)
+//   gen-groupings.ts nivåer och taggar (finns inte i prototypen, coachmötet 2026-10-09; fria grupper bara som historik, 2026-10-22)
 //   decisions-2026-10-07.ts  besluten 2026-10-07: kommunens chef bort, skyddade personuppgifter bort ur testdatat, omfattning i månader,
 //                    en faktura per avtal och månad
 //   decisions-2026-10-09-handledare.ts  rollen handledare bort: de tre handledarna får rollen coach (Karims beslut 2026-10-09)
+//   gen-group-activities.ts  återkommande nivåaktiviteter och månadens yrkesområdesträffar (Karims beslut 2026-10-22)
 import type { MemoryData } from "../memory";
 import type { Tables } from "../schema";
 import { NOW } from "./constants";
@@ -24,6 +25,7 @@ import { genActivities, genIntakeConsentsPlacements } from "./gen-coaching";
 import { genContractDeviations, genInbox, genPulse, genRest } from "./gen-other";
 import { genMonthly, genOtherReports } from "./gen-reports";
 import { applyDecisions20261007 } from "./decisions-2026-10-07";
+import { addGroupActivities } from "./gen-group-activities";
 import { addGroupings } from "./gen-groupings";
 import { applyNoSupervisorRole } from "./decisions-2026-10-09-handledare";
 import { addCaseNotes } from "./gen-notes";
@@ -65,6 +67,7 @@ export function createSeed(): MemoryData<Tables> {
   addGroupings(db);
   applyDecisions20261007(db, { invoiceStatus: S.invoiceStatus });
   applyNoSupervisorRole(db);
+  addGroupActivities(db);
   return db;
 }
 

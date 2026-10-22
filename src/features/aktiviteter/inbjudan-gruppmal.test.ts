@@ -1,6 +1,7 @@
 // Spår G (coachmötet 2026-10-09) genom samma execute() som appen och prototypen, mot testdatat i minnet:
-//   * bjud in per grupp eller nivå: formuläret ger nivåerna och grupperna med deltagarna, urvalet (selectByGroupings) ger rätt
-//     deltagare, hoppar över redan inbjudna och avslutade, och servern hoppar över dem som inte kan vara med (skipUninvitable)
+//   * bjud in per yrkesområde eller nivå (Karims beslut 2026-10-22): formuläret ger nivåerna och yrkesområdena med deltagarna,
+//     urvalet (selectByGroupings) ger rätt deltagare och hoppar över redan inbjudna och avslutade, och målgruppen (audience) låter
+//     servern bjuda in de aktiva deltagarna och hoppa över dem som inte kan vara med
 //   * meddelandet till deltagarna: inbjudan, ny tid eller plats, borttagen deltagare och inställd aktivitet – mallen, bara tid,
 //     plats och telefonnummer, aldrig för en aktivitet som har börjat, och samordnarens uppgift med den gamla tiden stängs
 //   * gruppmålet: alla klarar automatiskt, coachen markerar Klarade inte och ändrar tillbaka – internt: aldrig i veckomål,
@@ -30,8 +31,7 @@ import {
 const SEED: MemoryData<Tables> = createSeed();
 const NADIA = "case-260143";
 const ELIF = "case-270003";
-const MANDAG = "grp-c-bot-g-mandag";
-const LAGER = "grp-c-bot-g-lager";
+const NIVA_2 = "grp-c-bot-niva-2";
 const NIVA_3 = "grp-c-bot-niva-3";
 /** I övermorgon – aktiviteten har inte börjat (testklockan står på 2027-02-01 09.12). */
 const LATER = "2027-02-03T13:00";
@@ -73,55 +73,89 @@ function expectOnlyTimePlacePhone(texts: string[]) {
   }
 }
 
-// ================================================================ Bjud in per grupp, nivå eller enskilda
-describe("bjud in per grupp eller nivå", () => {
-  it("formuläret: avtalets nivåer och grupper (inte arkiverade, inte taggar) med deltagarna, och de i grupperna vars insats inte pågår", async () => {
+// ================================================================ Bjud in per yrkesområde, nivå eller enskilda
+describe("bjud in per yrkesområde eller nivå", () => {
+  it("formuläret: avtalets fem nivåer och yrkesområdena med deltagarna (inga fria grupper, inga taggar), och de i nivåerna vars insats inte pågår", async () => {
     rt.store.updateRow("cases", "case-260174", { status: "closed" });
     const f = await q(groupActivityForm, {}, amira());
-    expect(f.groupings.map((g) => [g.kind, g.name])).toEqual([
-      ["level", "Nivå 1 – Långt från arbete"], ["level", "Nivå 2 – Behöver stöd för att komma igång"], ["level", "Nivå 3 – På väg"], ["level", "Nivå 4 – Nära arbete"],
-      ["level", "Nivå 5 – Redo för arbete"], ["group", "Måndagsgruppen"], ["group", "Lagergruppen"],
+    expect(f.groupings.filter((g) => g.kind === "level").map((g) => g.name)).toEqual([
+      "Nivå 1 – Långt från arbete", "Nivå 2 – Behöver stöd för att komma igång", "Nivå 3 – På väg", "Nivå 4 – Nära arbete", "Nivå 5 – Redo för arbete",
     ]);
-    expect(f.groupings.find((g) => g.id === MANDAG)!.caseIds).toEqual(["case-260126", "case-260130", "case-260133", "case-260163", "case-260174"]);
-    // Den avslutade deltagaren är inte en kandidat – den räknas upp med orsaken.
+    const areas = f.groupings.filter((g) => g.kind === "area");
+    expect(areas.map((g) => g.id)).toEqual(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]);
+    expect(areas.find((g) => g.id === "G")!.name).toBe("G – Lager och logistik");
+    expect(f.groupings.every((g) => g.kind === "level" || g.kind === "area")).toBe(true);
+    expect(f.groupings.find((g) => g.id === NIVA_3)!.caseIds).toHaveLength(17);
+    // Yrkesområdet: de pågående (och pausade) ärendena med yrkesområdet – den avslutade är inte med.
+    expect(areas.find((g) => g.id === "E")!.caseIds).toEqual(["case-260130", "case-260167", "case-270009", "case-270016"]);
+    expect(areas.find((g) => g.id === "F")!.caseIds).not.toContain("case-260174");
+    // Den avslutade deltagaren i nivå 2 är inte en kandidat – den räknas upp med orsaken.
     expect(f.candidates.some((c) => c.caseId === "case-260174")).toBe(false);
     expect(f.others).toEqual([{ caseId: "case-260174", caseNumber: "BOT-26-0174", name: expect.any(String), reason: "Insatsen är avslutad" }]);
   });
 
-  it("urvalet för en grupp och en nivå: rätt deltagare en gång var – redan inbjudna och avslutade hoppas över med orsaken", async () => {
+  it("urvalet för en nivå och ett yrkesområde: rätt deltagare en gång var – redan inbjudna och avslutade hoppas över med orsaken", async () => {
     rt.store.updateRow("cases", "case-260174", { status: "closed" });
     const f = await q(groupActivityForm, {}, amira());
-    // Mehmet (case-260130) finns i både Måndagsgruppen och nivå 3 – en gång. Linnea (case-260163) är redan inbjuden.
-    const sel = selectByGroupings([MANDAG, NIVA_3], f.groupings, f.candidates, f.others, "2027-02-03", new Set(["case-260163"]));
-    expect(sel.invite.map((c) => c.caseId)).toEqual(["case-260126", "case-260130", "case-260133", "case-260142"]);
-    expect(sel.skipped.map((s) => [s.caseId, s.reason])).toEqual([["case-260163", "Redan inbjuden"], ["case-260174", "Insatsen är avslutad"]]);
+    // case-260130 hör till både nivå 3 och yrkesområde E – en gång. Linnea (case-260163) är redan inbjuden.
+    const sel = selectByGroupings([NIVA_3, "E"], f.groupings, f.candidates, f.others, "2027-02-03", new Set(["case-260163"]));
+    expect(sel.invite.map((c) => c.caseId)).toEqual([
+      "case-260130", "case-260135", "case-260139", "case-260142", "case-260150", "case-260155", "case-260158", "case-260164", "case-260167", "case-260176",
+      "case-260177", "case-260178", "case-260181", "case-270001", "case-270003", "case-270004", "case-270009", "case-270016", "case-270019",
+    ]);
+    expect(sel.skipped.map((s) => [s.caseId, s.reason])).toEqual([["case-260163", "Redan inbjuden"]]);
+    const two = selectByGroupings([NIVA_2], f.groupings, f.candidates, f.others, "2027-02-03", new Set());
+    expect(two.invite).toHaveLength(22);
+    expect(two.skipped.map((s) => [s.caseId, s.reason])).toEqual([["case-260174", "Insatsen är avslutad"]]);
   });
 
-  it("servern: per grupp hoppas de över som inte kan vara med (en annan aktivitet vid samma tid) – enskilt valda stoppar som förut; loggen har urvalet", async () => {
+  it("servern: målgruppen nivå bjuder in de aktiva deltagarna (källan audience) – den som har en annan aktivitet vid samma tid hoppas över; enskilt valda stoppar som förut", async () => {
     const other = await create(["case-260130"], { name: "Annan aktivitet" });
-    const f = await q(groupActivityForm, {}, amira());
-    const caseIds = selectByGroupings([MANDAG], f.groupings, f.candidates, f.others, "2027-02-03", new Set()).invite.map((c) => c.caseId);
-    // Enskilt (utan skipUninvitable): hela inbjudan stoppas.
-    expect(await run(groupActivityCreate, { ...base, caseIds }, amira())).toMatchObject({ ok: false, error: "not_invitable" });
-    const res = await create(caseIds, { via: "grupp", groupingIds: [MANDAG, "grp-finns-inte"], skipUninvitable: true });
-    expect(res.invited).toBe(4);
-    expect(res.skipped).toEqual([{ caseId: "case-260130", caseNumber: "BOT-26-0130", reason: expect.stringMatching(/^Är redan inbjuden till en annan aktivitet kl\. 13\.00–14\.30/) }]);
-    expect(partsOf(res.groupActivityId).map((a) => a.caseId).sort()).toEqual(["case-260126", "case-260133", "case-260163", "case-260174"]);
+    // Enskilt (utan målgrupp): hela inbjudan stoppas.
+    expect(await run(groupActivityCreate, { ...base, caseIds: ["case-260130", "case-260135"] }, amira())).toMatchObject({ ok: false, error: "not_invitable" });
+    // Målgrupp och enskilda blandas inte, och målgruppen måste finnas i avtalet.
+    expect(await run(groupActivityCreate, { ...base, caseIds: [NADIA], audience: { kind: "level", levelId: NIVA_3 } }, amira())).toMatchObject({ ok: false, error: "audience" });
+    expect(await run(groupActivityCreate, { ...base, caseIds: [], audience: { kind: "level", levelId: "grp-finns-inte" } }, amira())).toMatchObject({ ok: false, error: "audience" });
+    expect(await run(groupActivityCreate, { ...base, caseIds: [], audience: { kind: "area", areaCode: "Z" } }, amira())).toMatchObject({ ok: false, error: "audience" });
+    const res = await create([], { audience: { kind: "level", levelId: NIVA_3 }, via: "niva" });
+    // case-260130 är inbjuden till den andra aktiviteten och case-270019 har ett eget tillfälle vid samma tid i testdatat.
+    expect(res.invited).toBe(15);
+    expect(res.skipped).toEqual([
+      { caseId: "case-260130", caseNumber: "BOT-26-0130", reason: "Har en annan aktivitet vid samma tid" },
+      { caseId: "case-270019", caseNumber: "BOT-27-0019", reason: "Har en annan aktivitet vid samma tid" },
+    ]);
+    const parts = partsOf(res.groupActivityId);
+    expect(parts).toHaveLength(15);
+    expect(parts.every((a) => a.inviteSource === "audience")).toBe(true);
+    expect(rows("group_activities").find((g) => g.id === res.groupActivityId)).toMatchObject({ audience: "level", audienceLevelId: NIVA_3, audienceAreaCode: null, seriesId: null, notify: false });
     expect(partsOf(other.groupActivityId)).toHaveLength(1);
     const log = audit("group_activity.created").pop()!;
-    expect(log.details).toMatchObject({ count: 4, via: "grupp", groupingIds: [MANDAG], skippedCaseIds: ["case-260130"] });
-    // Bjud in en nivå till samma aktivitet: redan inbjudna räknas, de nya bjuds in.
-    const niva = selectByGroupings([NIVA_3], f.groupings, f.candidates, f.others, "2027-02-03", new Set(partsOf(res.groupActivityId).map((a) => a.caseId)));
-    expect(niva.invite.map((c) => c.caseId)).toEqual(["case-260130", "case-260142"]);
-    const inv = await run(groupActivityInvite, { id: res.groupActivityId, caseIds: niva.invite.map((c) => c.caseId), via: "niva", groupingIds: [NIVA_3], skipUninvitable: true }, amira());
-    expect(inv).toMatchObject({ ok: true, invited: 1, already: 0, skipped: [{ caseId: "case-260130" }] });
-    expect(audit("group_activity.invited").pop()!.details).toMatchObject({ caseIds: ["case-260142"], via: "niva", groupingIds: [NIVA_3], skippedCaseIds: ["case-260130"] });
+    expect(log.details).toMatchObject({ count: 15, via: "niva", audience: "level", audienceId: NIVA_3, skippedCaseIds: ["case-260130", "case-270019"] });
+    expect(JSON.stringify(log.details)).not.toMatch(/CV-verkstad|Alby|Nivå 3/);
+    // En målgruppsrad tas inte bort för hand – byt nivå i stället.
+    expect(await run(groupActivityRemove, { id: res.groupActivityId, caseId: ELIF }, amira())).toMatchObject({ ok: false, error: "audience" });
+    // Fler kan bjudas in enskilt (källan manual).
+    expect(await run(groupActivityInvite, { id: res.groupActivityId, caseIds: [NADIA], via: "enskilda" }, amira())).toMatchObject({ ok: true, invited: 1 });
+    expect(partsOf(res.groupActivityId).find((a) => a.caseId === NADIA)!.inviteSource).toBe("manual");
+  });
+
+  it("en aktivitet utan målgrupp får ett yrkesområde i efterhand – en gång, och inte efter att den har börjat", async () => {
+    const { groupActivityId: id } = await create([NADIA]);
+    const inv = await run(groupActivityInvite, { id, caseIds: [], audience: { kind: "area", areaCode: "E" }, via: "omrade" }, amira());
+    expect(inv).toMatchObject({ ok: true, invited: 4, already: 0, skipped: [] });
+    expect(partsOf(id).map((a) => [a.caseId, a.inviteSource]).sort()).toEqual([
+      ["case-260130", "audience"], ["case-260143", "manual"], ["case-260167", "audience"], ["case-270009", "audience"], ["case-270016", "audience"],
+    ]);
+    expect(audit("group_activity.invited").pop()!.details).toMatchObject({ count: 4, via: "omrade", audience: "area", audienceId: "E" });
+    expect(await run(groupActivityInvite, { id, caseIds: [], audience: { kind: "level", levelId: NIVA_3 } }, amira())).toMatchObject({ ok: false, error: "audience" });
+    const { groupActivityId: started } = await create([NADIA], { startsAt: STARTED });
+    expect(await run(groupActivityInvite, { id: started, caseIds: [], audience: { kind: "area", areaCode: "E" } }, amira())).toMatchObject({ ok: false, error: "audience" });
   });
 
   it("samma behörighet som förut: chef, systemadministratör, ekonom och kommunen bjuder inte in; formuläret nekas dem", async () => {
     const { groupActivityId } = await create([NADIA]);
     for (const actor of [as("u-karin", "chef"), as("u-robin", "admin"), as("u-lars", "ekonom"), as("k-maria")]) {
-      await expect(run(groupActivityInvite, { id: groupActivityId, caseIds: [ELIF], via: "grupp", groupingIds: [LAGER], skipUninvitable: true, notify: true }, actor), actor.role).rejects.toBeInstanceOf(ApiError);
+      await expect(run(groupActivityInvite, { id: groupActivityId, caseIds: [], audience: { kind: "area", areaCode: "G" }, via: "omrade", notify: true }, actor), actor.role).rejects.toBeInstanceOf(ApiError);
       await expect(q(groupActivityForm, {}, actor), actor.role).rejects.toBeInstanceOf(ApiError);
     }
     // Den vilande rollen handledare: regeln ligger kvar som i RLS.
@@ -407,30 +441,34 @@ describe("gruppmålet är internt: aldrig veckomål, progression, samlad status,
 });
 
 describe("resolveChoice – skärmens val till kommandot", () => {
-  it("enskilda: de valda som kan bjudas in; grupp och nivå: urvalet, grupperingarna och att servern hoppar över de som inte kan vara med", async () => {
+  it("enskilda: de valda som kan bjudas in; yrkesområde och nivå: målgruppen till servern, urvalet och de som hoppas över", async () => {
     const { resolveChoice } = await import("./screens/bjud-in");
-    // En deltagare utan nivå eller grupp pausas (testdatat har ingen pausad insats).
+    // En deltagare utan nivå pausas (testdatat har ingen pausad insats).
     const f0 = await q(groupActivityForm, {}, amira());
-    const loner = f0.candidates.find((c) => c.caseId !== NADIA && c.caseId !== ELIF && !f0.groupings.some((g) => g.caseIds.includes(c.caseId)))!;
+    const loner = f0.candidates.find((c) => c.caseId !== NADIA && c.caseId !== ELIF && !f0.groupings.some((g) => g.kind === "level" && g.caseIds.includes(c.caseId)))!;
     rt.store.updateRow("cases", loner.caseId, { status: "paused" });
     const f = await q(groupActivityForm, {}, amira());
-    const one = resolveChoice({ mode: "enskilda", groupingIds: [MANDAG], caseIds: [NADIA, ELIF] }, f, "2027-02-03", [ELIF]);
-    expect(one).toMatchObject({ caseIds: [NADIA], skipped: [], payload: { via: "enskilda" } });
+    const one = resolveChoice({ mode: "enskilda", audienceId: "G", caseIds: [NADIA, ELIF] }, f, "2027-02-03", [ELIF]);
+    expect(one).toMatchObject({ caseIds: [NADIA], audience: null, skipped: [], payload: { via: "enskilda" } });
     // En vald deltagare som inte kan vara med den dagen (här pausad) skickas ändå – servern nekar och säger vilka; ingen hoppas
     // tyst över.
     const paused = f.candidates.find((c) => c.caseId === loner.caseId && c.status === "paused")!;
-    const withPaused = resolveChoice({ mode: "enskilda", groupingIds: [], caseIds: [NADIA, paused.caseId] }, f, "2027-02-03");
+    const withPaused = resolveChoice({ mode: "enskilda", audienceId: null, caseIds: [NADIA, paused.caseId] }, f, "2027-02-03");
     expect(withPaused.caseIds.sort()).toEqual([NADIA, paused.caseId].sort());
     expect(withPaused.invite.map((c) => c.caseId)).toEqual([NADIA]);
     expect(withPaused.payload).toEqual({ via: "enskilda" });
+    const before = rows("group_activities").length;
     const res = await run(groupActivityCreate, { ...base, caseIds: withPaused.caseIds, ...withPaused.payload }, amira());
     expect(res).toMatchObject({ ok: false, error: "not_invitable", problems: [expect.objectContaining({ caseId: paused.caseId, reason: "Insatsen är pausad" })] });
-    expect(rows("group_activities")).toEqual([]);
-    const group = resolveChoice({ mode: "grupp", groupingIds: [LAGER, NIVA_3], caseIds: [ELIF] }, f, "2027-02-03", [NADIA]);
-    // Bara grupperna räknas på fliken Grupp (nivån som valts på fliken Nivå följer inte med).
-    expect(group.payload).toEqual({ via: "grupp", groupingIds: [LAGER], skipUninvitable: true });
-    expect(group.caseIds).toEqual(["case-260119", "case-260148"]);
-    expect(group.skipped.map((s) => [s.caseId, s.reason])).toEqual([[NADIA, "Redan inbjuden"]]);
-    expect(resolveChoice({ mode: "niva", groupingIds: [LAGER, NIVA_3], caseIds: [] }, f, "2027-02-03").payload).toEqual({ via: "niva", groupingIds: [NIVA_3], skipUninvitable: true });
+    expect(rows("group_activities")).toHaveLength(before);
+    // Yrkesområde: målgruppen går till servern (inga caseIds), knappen visar antalet som bjuds in nu.
+    const area = resolveChoice({ mode: "omrade", audienceId: "E", caseIds: [ELIF] }, f, "2027-02-03", ["case-260130"]);
+    expect(area).toMatchObject({ caseIds: [], audience: { kind: "area", areaCode: "E" }, count: 3, payload: { via: "omrade" } });
+    expect(area.skipped.map((s) => [s.caseId, s.reason])).toEqual([["case-260130", "Redan inbjuden"]]);
+    // Nivå: bara nivåfliken räknas (ett yrkesområde som id ger ingen målgrupp).
+    expect(resolveChoice({ mode: "niva", audienceId: NIVA_3, caseIds: [] }, f, "2027-02-03")).toMatchObject({ audience: { kind: "level", levelId: NIVA_3 }, count: 17, payload: { via: "niva" } });
+    expect(resolveChoice({ mode: "niva", audienceId: "E", caseIds: [] }, f, "2027-02-03")).toMatchObject({ audience: null, count: 0 });
+    const ok = await run(groupActivityCreate, { ...base, caseIds: area.caseIds, audience: area.audience!, ...area.payload }, amira());
+    expect(ok).toMatchObject({ ok: true, invited: 4 });
   });
 });

@@ -1,7 +1,7 @@
 // Kontrakt för området ärenden (frågor och kommandon). Importeras av skärmar – aldrig hanterarna.
 import { z } from "zod";
 import { command, query, type Result } from "@/api/contract";
-import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER } from "@/api/invalidation";
+import { NAV, LOG, CARD, CASES, COACH, PORTAL, REPORTS, MGMT, INBOX, BILLING, CASE_STATS, AKTIVITETER, GRUPPER } from "@/api/invalidation";
 import {
   ACTIVITY_KINDS, CASE_NOTE_AUDIENCES, CASE_NOTE_KINDS, CASE_SOURCES, END_REASONS, PREFERRED_CONTACTS, PRIOR_ASSESSMENTS, TEAM_ROLES, type PreferredContact, type PriorAssessment, type TeamRole,
   type ActivityKind, type CaseNoteAudience, type CaseNoteKind, type LocalDate, type LocalDateTime, type MonthKey, type AiConsentStatus, type AlertKind, type AlertSeverity, type AttendanceStatus, type CaseStatus, type CheckInMode, type FourRights,
@@ -78,7 +78,7 @@ export const caseCreate = command("arenden.caseCreate", z.object({
   background: z.string().max(4000).optional(),
   /** Bilagor som den inloggade redan har laddat upp (arenden.bilagaStart och arenden.bilagaKlar). */
   attachmentIds: z.array(IdSchema).max(10).optional(),
-}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, INBOX, PORTAL, "coach.casePicker", "coach.minVecka", MGMT, BILLING, REPORTS, ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   Result<{ caseId: string; caseNumber: string }, "buyer_ref" | "po_number" | "duplicate" | "referrer" | "forbidden" | "no_contract" | "order_period" | "unit" | "area" | "prior_assessment" | "attachments">
 >();
 
@@ -105,7 +105,7 @@ export const caseAccept = command("arenden.caseAccept", z.object({
   orderPeriodReason: z.string().max(ORDER_REASON_MAX).nullable().optional(),
   buyerReference: z.string().max(40).nullable().optional(),
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10).optional(),
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   /** invitation: hur kallelsen går, i klarspråk (t.ex. "Kallelsen skickas med e-post.") – notifyParticipant. */
   Result<{ reportId: string; caseNumber: string; invitation: string }, "not_found" | "buyer_ref" | "wrong_status" | "forbidden" | "coach" | "team" | "area" | "track" | "order_period">
 >();
@@ -115,7 +115,7 @@ export const caseAccept = command("arenden.caseAccept", z.object({
 export const caseDecline = command("arenden.caseDecline", z.object({
   caseId: IdSchema,
   reason: z.string().max(2000),
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<object, "not_found" | "reason" | "wrong_status" | "forbidden">>();
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<Result<object, "not_found" | "reason" | "wrong_status" | "forbidden">>();
 
 /** Fält som kan ändras med arenden.caseUpdate. Kommunens handläggare får bara ändra beställarens kontaktuppgifter. */
 export const CasePatchSchema = z.strictObject({
@@ -151,14 +151,14 @@ export const CUSTOMER_PATCH_FIELDS = ["referrerName", "referrerUnit", "referrerP
 export const caseUpdate = command("arenden.caseUpdate", z.object({
   caseId: IdSchema,
   patch: CasePatchSchema,
-}), { invalidates: [CASES, PORTAL, INBOX, BILLING, COACH, REPORTS, MGMT, NAV, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "forbidden" | "po_number">>();
+}), { invalidates: [CASES, PORTAL, INBOX, BILLING, COACH, REPORTS, MGMT, NAV, GRUPPER, ...LOG] }).returns<Result<{ changed: string[] }, "not_found" | "forbidden" | "po_number">>();
 
 /** Ändra beställarreferens (prototypens case.setBuyerRef). source = t.ex. uppgiftens id eller "ekonom". */
 export const caseSetBuyerRef = command("arenden.caseSetBuyerRef", z.object({
   caseId: IdSchema,
   reference: z.string().max(40),
   source: ShortText.optional(),
-}), { invalidates: [CASES, BILLING, INBOX, PORTAL, REPORTS, MGMT, "coach.minVecka", "admin.users", NAV, ...LOG] }).returns<Result<object, "not_found" | "buyer_ref" | "forbidden">>();
+}), { invalidates: [CASES, BILLING, INBOX, PORTAL, REPORTS, MGMT, "coach.minVecka", "admin.users", NAV, GRUPPER, ...LOG] }).returns<Result<object, "not_found" | "buyer_ref" | "forbidden">>();
 
 /**
  * Boka eller boka om första mötet (prototypens case.bookFirstMeeting). Slutdatumet, planerade veckor och ordervärdet i veckor
@@ -171,7 +171,7 @@ export const caseSetBuyerRef = command("arenden.caseSetBuyerRef", z.object({
 export const caseBookFirstMeeting = command("arenden.caseBookFirstMeeting", z.object({
   caseId: IdSchema,
   at: LocalDateTimeSchema,
-}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, INBOX, PORTAL, COACH, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, GRUPPER, ...LOG] }).returns<
   /** invitation: hur kallelsen gick, i klarspråk – till bekräftelsen efter bokningen. */
   Result<{ invitation: string }, "not_found" | "forbidden" | "order_period">
 >();
@@ -181,7 +181,7 @@ export const caseChangeCoach = command("arenden.caseChangeCoach", z.object({
   caseId: IdSchema,
   toCoachId: IdSchema,
   reason: z.string().max(2000),
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<Result<object, "not_found" | "reason" | "coach" | "forbidden">>();
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, GRUPPER, ...LOG] }).returns<Result<object, "not_found" | "reason" | "coach" | "forbidden">>();
 
 // ---- Starta insatsen, veckoplan, tillfällen och team (beslut 2026-10-08, skarp drift: i skarp drift blev ett ärende aldrig "Pågår")
 const TimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Klockslag ska skrivas TT:MM");
@@ -206,7 +206,7 @@ export const caseStart = command("arenden.caseStart", z.object({
   caseId: IdSchema,
   startDate: LocalDateSchema,
   plan: WeekPlanSchema,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, ...LOG] }).returns<
   Result<{ activities: number; firstActivityAt: string | null }, "not_found" | "forbidden" | "wrong_status" | "no_meeting" | "start_date" | "no_end" | "plan">
 >();
 
@@ -218,7 +218,7 @@ export const caseStart = command("arenden.caseStart", z.object({
 export const caseScheduleChange = command("arenden.caseScheduleChange", z.object({
   caseId: IdSchema,
   plan: WeekPlanSchema,
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "praktik.", ...CASE_STATS, NAV, AKTIVITETER, GRUPPER, ...LOG] }).returns<
   Result<{ removed: number; added: number }, "not_found" | "forbidden" | "wrong_status" | "no_end" | "plan">
 >();
 
@@ -249,7 +249,7 @@ export const activityRemove = command("arenden.activityRemove", z.object({ activ
 export const caseSetTeam = command("arenden.caseSetTeam", z.object({
   caseId: IdSchema,
   team: z.array(z.object({ userId: IdSchema, role: z.enum(TEAM_ROLES) })).max(10),
-}), { invalidates: [CASES, COACH, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", NAV, ...LOG] }).returns<
+}), { invalidates: [CASES, COACH, INBOX, MGMT, REPORTS, "praktik.", "rost.", "notiser.", GRUPPER, NAV, ...LOG] }).returns<
   Result<{ added: number; removed: number }, "not_found" | "forbidden" | "wrong_status" | "team">
 >();
 
@@ -280,7 +280,7 @@ export const caseClose = command("arenden.caseClose", z.object({
   endDate: z.union([LocalDateSchema, z.literal("")]).nullable().optional(),
   endReason: z.union([z.enum(END_REASONS), z.literal("")]).nullable().optional(),
   verified: z.boolean().optional(),
-}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "rost.", "puls.", ...CASE_STATS, NAV, ...LOG] }).returns<Result<{ reportId: string; resultClass: ResultClass }, "not_found" | "missing" | "forbidden" | "wrong_status">>();
+}), { invalidates: [CASES, COACH, PORTAL, INBOX, REPORTS, MGMT, BILLING, "rost.", "puls.", ...CASE_STATS, AKTIVITETER, GRUPPER, NAV, ...LOG] }).returns<Result<{ reportId: string; resultClass: ResultClass }, "not_found" | "missing" | "forbidden" | "wrong_status">>();
 
 /**
  * Säkert meddelande i ärendet (prototypens message.send). Från Miljonbemanning: kommunen får ett mejl utan innehåll.
@@ -457,10 +457,11 @@ export type CaseListModel = {
   /** De fyra senaste hela ISO-veckorna ("v. 1–4"). */
   weeks: { from: string; to: string; label: string };
   coaches: { id: string; name: string }[];
+  /** Avtalets yrkesområden (avtalsområdena A–L) – filtret Yrkesområde (ärendets yrkesområde, Karims beslut 2026-10-22). */
   areas: { code: string; name: string }[];
   phases: { no: number; name: string }[];
-  /** Filtren Nivå, Grupp och Tagg (aktiva grupperingar i aktörens avtal – internt, aldrig för kommunen). Fler avtal: prefixet efter namnet. */
-  groupings: { levels: { id: string; name: string }[]; groups: { id: string; name: string }[]; tags: { id: string; name: string }[] };
+  /** Filtren Nivå och Tagg (aktiva nivåer och taggar i aktörens avtal – internt, aldrig för kommunen). Fler avtal: prefixet efter namnet. */
+  groupings: { levels: { id: string; name: string }[]; tags: { id: string; name: string }[] };
   rows: CaseListRow[];
 };
 export const caseList = query("arenden.lista", z.object({})).returns<CaseListModel>();

@@ -44,10 +44,20 @@ export const COLUMNS = {
   inbound_emails: { id: "text", graphMessageId: "text", receivedAt: "timestamptz", fromAddress: "text", fromName: "text", subject: "text", bodyText: "text", attachments: "jsonb", parseMethod: "text", classification: "text", extracted: "jsonb", confidence: "jsonb", missingFields: "text[]", corrections: "jsonb", status: "text", caseId: "text | null", ackSentAt: "timestamptz | null", ackKind: "text | null", aiRunId: "text | null", linkedBy: "text | null", registeredBy: "text | null", registeredAt: "timestamptz | null", handledBy: "text | null", handledAt: "timestamptz | null" },
   intake_assessments: { id: "text", caseId: "text", workExperience: "text", education: "text", languageNotes: "text", digitalSkills: "text", drivingLicence: "text", workGoals: "text", chosenTrack: "text", adaptations: "text", firstWeekGoal: "text", status: "text", approvedBy: "text | null", approvedAt: "timestamptz | null", version: "integer" },
   // Gruppaktiviteter (0030_gruppaktiviteter.sql).
-  group_activities: { id: "text", contractId: "text", name: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", responsibleId: "text | null", createdBy: "text", createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", cancelledAt: "timestamptz | null", cancelledBy: "text | null", goal: "text | null", goalVersion: "integer" },
+  group_activities: {
+    id: "text", contractId: "text", name: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", responsibleId: "text | null", createdBy: "text",
+    createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", cancelledAt: "timestamptz | null", cancelledBy: "text | null", goal: "text | null",
+    goalVersion: "integer", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", seriesId: "text | null", notify: "boolean",
+  },
+  // Återkommande nivå- och yrkesområdesaktiviteter (0035_yrkesomraden_nivaer.sql)
+  group_activity_series: {
+    id: "text", contractId: "text", name: "text", kind: "text", audience: "text", audienceLevelId: "text | null", audienceAreaCode: "text | null", weekdays: "integer[]",
+    startTime: "text", durationMin: "integer", location: "text", responsibleId: "text | null", goal: "text | null", startsOn: "date", endsOn: "date | null", notify: "boolean",
+    createdBy: "text", createdAt: "timestamptz", updatedAt: "timestamptz | null", updatedBy: "text | null", endedAt: "timestamptz | null", endedBy: "text | null",
+  },
   // Gruppmål (0033_gruppmal.sql)
   group_goal_results: { id: "text", contractId: "text", groupActivityId: "text", caseId: "text", activityId: "text", goalVersion: "integer", achieved: "boolean", setBy: "text", setAt: "timestamptz" },
-  activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null" },
+  activities: { id: "text", caseId: "text", kind: "text", startsAt: "timestamptz", durationMin: "integer", location: "text", note: "text", groupActivityId: "text | null", inviteSource: "text" },
   attendance: { id: "text", activityId: "text", caseId: "text", status: "text", reason: "text", registeredBy: "text", registeredAt: "timestamptz", customerNotifiedAt: "timestamptz | null", source: "text" },
   check_ins: { id: "text", caseId: "text", heldAt: "timestamptz", durationMin: "integer | null", mode: "text | null", inputMethod: "text", goalStatus: "text | null", nextGoal: "text", phase: "integer | null", activitiesDone: "text[]", employerContacts: "jsonb", overallStatus: "text | null", obstacles: "text[]", note: "text", attendanceComment: "text | null", status: "text", approvedBy: "text | null", approvedAt: "timestamptz | null", aiRunId: "text | null", docMinutes: "integer | null", ai: "jsonb | null", version: "integer" },
   monthly_assessments: { id: "text", caseId: "text", month: "text", areas: "jsonb", status: "text", decidedBy: "text | null", decidedAt: "timestamptz | null", summary: "text", aiSummaryDraft: "text | null", overallStatus: "text | null", version: "integer" },

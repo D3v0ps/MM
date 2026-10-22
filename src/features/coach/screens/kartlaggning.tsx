@@ -1,6 +1,7 @@
 "use client";
 // Kartläggning vecka 1 (/kartlaggning/:caseId) – deltagarens reella kompetens, yrkesmål och valt yrkesspår. Längst ned
-// kortet "Nivå och grupp" (src/features/grupper/screens/grouping-card.tsx, coachmötet 2026-10-09) – sparas direkt.
+// kortet "Nivå och yrkesområde" (src/features/grupper/screens/grouping-card.tsx, coachmötet 2026-10-09) – sparas direkt. Nivån
+// krävs innan kartläggningen godkänns (Karims beslut 2026-10-22: "Nivåerna bestäms efter kartläggningen").
 // Anpassningar beskrivs funktionellt – aldrig diagnoser. Port av prototypens coach.kartlaggning. Utkastet sparas automatiskt
 // på servern tills kartläggningen är godkänd (useAutosave, beslut 2026-10-02) – en text som ser ut som en diagnos stoppar
 // autosparningen tills den är borttagen. Fälten ligger i utkastminnet (useDraft), så Tillbaka visar dem igen.
@@ -12,6 +13,8 @@ import { useCommand, useQuery } from "@/shell/backend";
 import { useDraft, useUnsavedGuard } from "@/shell/guard";
 import type { ScreenProps } from "@/shell/routes";
 import { AutosaveStatus, Badge, Button, Card, Field, FormGrid, Input, Notice, Page, Row, Seg, Select, Stack, TextArea, toast } from "@/ui";
+import { LEVEL_REQUIRED_TEXT } from "@/core/groupings";
+import { caseGroupingsView } from "@/features/grupper/api";
 import { GroupingCard } from "@/features/grupper/screens/grouping-card";
 import { intakePage, intakeSave, type IntakePage } from "../api";
 import { CaseHeadView, caseCrumbs, CasePicker, Chips, customerPerspective, GateView, PageState, Persp, useCaseView } from "./shared";
@@ -59,6 +62,8 @@ const trimmed = (f: F): F => Object.fromEntries(Object.entries(f).map(([k, x]) =
 
 function IntakeForm({ v }: { v: Ok }) {
   const save = useCommand(intakeSave);
+  // Nivån (kortet Nivå och yrkesområde) – krävs innan godkännandet. Samma fråga som kortet, så valet syns här direkt.
+  const levels = useQuery(caseGroupingsView, { caseId: v.head.caseId });
   // Automatisk utkastsparning räknar bara om deltagarlistan och kortet – inte sidan själv.
   const draftSave = useCommand(intakeSave, { invalidate: AUTOSAVE_INTAKE });
   const [editSession] = useState(newEditSession);
@@ -140,6 +145,12 @@ function IntakeForm({ v }: { v: Ok }) {
     setErrors(e);
     if (Object.keys(e).length) {
       toast(approve ? "Kartläggningen kan inte godkännas ännu. Se markerade fält." : "Ta bort diagnosen innan du sparar.", "error");
+      return;
+    }
+    // Nivån krävs innan godkännandet (servern prövar igen). Fokus till nivåvalet.
+    if (approve && levels.data && !levels.data.current.level) {
+      toast(LEVEL_REQUIRED_TEXT, "error");
+      document.getElementById(`gr-niva-${c.caseId}`)?.querySelector<HTMLElement>("button")?.focus();
       return;
     }
     // En pågående autosparning får bli klar först.
@@ -285,8 +296,8 @@ function IntakeForm({ v }: { v: Ok }) {
         </Stack>
       </Card>
 
-      {/* Nivå, grupper och Vill arbeta (coachmötet 2026-10-09) – sparas direkt, internt för Miljonbemanning. */}
-      <GroupingCard caseId={c.caseId} />
+      {/* Nivå, yrkesområde och Vill arbeta (coachmötet 2026-10-09, Karims beslut 2026-10-22) – sparas direkt, internt för Miljonbemanning. */}
+      <GroupingCard caseId={c.caseId} requiredForApproval={!approved} />
 
       <Row>
         {approved ? (

@@ -62,8 +62,11 @@
 //   (finns inte i prototypen)        -> saved_reports (rapportbyggaren, rapporter steg 4, 0021).
 //                                       Testdatat: src/data/seed/gen-saved-reports.ts
 //   (finns inte i prototypen)        -> group_activities (gruppaktiviteter, coachmötet 2026-10-09, 0030), activities.groupActivityId
-//                                       och attendance.source (automatisk närvaro). Testdatat har inga gruppaktiviteter.
+//                                       och attendance.source (automatisk närvaro).
 //   (finns inte i prototypen)        -> group_activities.goal och group_goal_results (gruppmål, Karims beslut 2, 0033).
+//   (finns inte i prototypen)        -> group_activity_series, group_activities.audience/seriesId/notify och activities.inviteSource
+//                                       (nivå- och yrkesområdesaktiviteter, Karims beslut 2026-10-22, 0035).
+//                                       Testdatat: src/data/seed/gen-group-activities.ts
 //
 // Fältbyten (prototyp -> här):
 //   contracts:  customerName/customerOrgNr/supplierName/supplierOrgNr -> customerId/supplierId (organizations.name/orgNr)
@@ -164,6 +167,16 @@ export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
  */
 export const GROUP_ACTIVITY_KINDS = ["yrkesmoment", "arbetsgivarbesök", "annat"] as const;
 export type GroupActivityKind = (typeof GROUP_ACTIVITY_KINDS)[number];
+/**
+ * Målgruppen för en gruppaktivitet (0035, Karims beslut 2026-10-22): manual = deltagarna bjuds in för hand; level = en nivå
+ * (audienceLevelId); area = ett yrkesområde (audienceAreaCode, ett av avtalets avtalsområden A–L). Med en målgrupp bjuder
+ * servern in de aktiva deltagarna i målgruppen och håller listan aktuell fram till aktiviteten.
+ */
+export const GROUP_AUDIENCES = ["manual", "level", "area"] as const;
+export type GroupAudience = (typeof GROUP_AUDIENCES)[number];
+/** Hur deltagaren bjöds in (0035): för hand, eller av målgruppen (den automatiska synkningen rör bara de senare). */
+export const INVITE_SOURCES = ["manual", "audience"] as const;
+export type InviteSource = (typeof INVITE_SOURCES)[number];
 
 export const ATTENDANCE_STATUSES = ["present", "late", "absent_valid", "absent_invalid"] as const;
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
@@ -705,6 +718,12 @@ export type Activity = {
    * närvarograden och fakturan räknar raderna som förut. Tid, längd, plats och typ följer gruppaktiviteten.
    */
   groupActivityId: string | null;
+  /**
+   * Hur deltagaren bjöds in till gruppaktiviteten (0035): manual (för hand – också alla tillfällen utanför gruppaktiviteter) eller
+   * audience (av aktivitetens målgrupp, en nivå eller ett yrkesområde). Den automatiska synkningen tar bara bort audience-rader.
+   * Användare skriver bara manual och ändrar aldrig källan (triggern activities_invite_source) – audience skrivs av servern.
+   */
+  inviteSource: InviteSource;
 };
 
 /**
@@ -739,7 +758,61 @@ export type GroupActivity = {
    * val (group_goal_results) gäller bara den version de gjordes för.
    */
   goalVersion: number;
+  /** Målgruppen (0035): manual, level eller area – se GROUP_AUDIENCES. */
+  audience: GroupAudience;
+  /** Nivån (groupings.id, kind level) när målgruppen är en nivå, annars null. */
+  audienceLevelId: string | null;
+  /** Yrkesområdet (avtalsområdets kod) när målgruppen är ett yrkesområde, annars null. */
+  audienceAreaCode: AreaCode | null;
+  /** Den återkommande aktiviteten tillfället hör till (0035), annars null. Unikt (seriesId, startsAt). Skapas bara av servern. */
+  seriesId: string | null;
+  /**
+   * Deltagarna som målgruppen bjuder in eller tar bort efter att aktiviteten skapats får meddelande (aktivitetsinbjudan,
+   * aktivitet_installd). Enstaka aktiviteter: kryssrutan när aktiviteten skapades; återkommande: seriens val (standard av).
+   */
+  notify: boolean;
 };
+
+/**
+ * Återkommande gruppaktivitet (0035, Karims beslut 2026-10-22: "Nivå aktiviteterna sker 1-3 gånger i veckan"): samma tid varje
+ * vecka på de valda veckodagarna, för en nivå eller ett yrkesområde. Tillfällena är vanliga group_activities med seriesId – servern
+ * skapar dem från i dag och 14 dagar framåt (aldrig på helgdagar, aldrig ett inställt tillfälle igen). Samma behörighet som
+ * gruppaktiviteterna: Miljonbemanning i avtalet utom ekonomen – aldrig kommunen. Raderas aldrig – avslutas (endedAt).
+ */
+export type GroupActivitySeries = {
+  id: string;
+  contractId: string;
+  /** 1–120 tecken, internt. */
+  name: string;
+  kind: GroupActivityKind;
+  /** level eller area – en återkommande aktivitet har alltid en målgrupp. */
+  audience: Exclude<GroupAudience, "manual">;
+  audienceLevelId: string | null;
+  audienceAreaCode: AreaCode | null;
+  /** ISO-veckodagar 1–5 (måndag–fredag), stigande, minst en. */
+  weekdays: number[];
+  /** "HH:MM". */
+  startTime: string;
+  durationMin: number;
+  location: string;
+  responsibleId: UserId | null;
+  /** Gruppmålet för varje tillfälle (internt), eller null. */
+  goal: string | null;
+  startsOn: LocalDate;
+  /** Sista dagen, eller null (tills vidare). Sätts till dagen när serien avslutas. */
+  endsOn: LocalDate | null;
+  /** Deltagarna får meddelande inför varje tillfälle (standard av – coachen ger tiderna). */
+  notify: boolean;
+  createdBy: UserId;
+  createdAt: LocalDateTime;
+  updatedAt: LocalDateTime | null;
+  updatedBy: UserId | null;
+  /** Avslutad: inga nya tillfällen, kommande tillfällen utan närvaro är inställda. */
+  endedAt: LocalDateTime | null;
+  endedBy: UserId | null;
+};
+/** Längsta längd för en serie (samma som en gruppaktivitet). */
+export const SERIES_NAME_MAX = 120;
 
 /** Gruppmålets längd (0033, group_activities_goal_length). */
 export const GROUP_GOAL_MAX = 300;
@@ -1780,6 +1853,7 @@ export type Tables = {
   case_team: CaseTeamMember;
   inbound_emails: InboundEmail;
   intake_assessments: IntakeAssessment;
+  group_activity_series: GroupActivitySeries;
   group_activities: GroupActivity;
   group_goal_results: GroupGoalResult;
   activities: Activity;
@@ -1845,7 +1919,9 @@ export const TABLE_NAMES = [
   "profiles", "memberships", "role_choices",
   "persons", "cases", "case_status_history", "case_counters", "case_team", "buyer_references",
   "inbound_emails",
-  "intake_assessments", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
+  // Grupperingarna före gruppaktiviteterna: group_activities.audience_level_id pekar på en nivå (0035).
+  "groupings", "grouping_members",
+  "intake_assessments", "group_activity_series", "group_activities", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "consents", "employers", "placements",
   "reports", "messages", "user_notifications", "notification_reads", "tasks", "outbound_messages", "case_seen",
   "contract_deviations", "alerts", "alert_acks", "deadlines", "kpi_snapshots", "pulse_invites", "pulse_responses", "bonus_claims",
   "billing_runs", "invoice_drafts", "invoice_lines", "billing_week_approvals", "invoice_credits", "fortnox_runs", "integrations",
@@ -1856,7 +1932,6 @@ export const TABLE_NAMES = [
   "case_notes",
   "saved_reports",
   "case_attachments",
-  "groupings", "grouping_members",
   "group_goal_results",
 ] as const satisfies readonly TableName[];
 // Kompileringskontroll: TABLE_NAMES innehåller varje tabell.
@@ -1877,6 +1952,8 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
   attendance: ["activityId"],
   // En rad per deltagare och gruppaktivitet (0030, activities_group_activity_case_key – bara rader med group_activity_id).
   activities: [{ fields: ["groupActivityId", "caseId"] }],
+  // Ett tillfälle per återkommande aktivitet och starttid (0035, group_activities_series_starts_key – bara rader med series_id).
+  group_activities: [{ fields: ["seriesId", "startsAt"] }],
   // Ett val per deltagare och gruppmål (0033, group_goal_results_activity_case_key).
   group_goal_results: [{ fields: ["groupActivityId", "caseId"] }],
   pulse_responses: ["inviteId"],

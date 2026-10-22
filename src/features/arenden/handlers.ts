@@ -50,6 +50,7 @@ import { freezeReport } from "../rapporter/freeze";
 import { monthlyGaps, monthlyPreview, type ReportDb, type ReportEnv } from "../rapporter/model";
 import { deliveredOk } from "../rapporter/report-helpers";
 import { buildTimeline, enrolledIn, monthReportState } from "./timeline";
+import { syncAudienceInvites } from "../aktiviteter/audience-sync";
 import "./attachment-handlers";
 import "./contact-handlers";
 import { caseBackground } from "./background";
@@ -414,7 +415,7 @@ handleCommand(caseChangeCoach, { roles: MANAGERS }, async (ctx, p) => {
 // mötet: startdatum, status, tillfällen enligt veckoplanen, statushistorik och logg.
 const START_ROLES: readonly Role[] = ["coach", "samordnare", "avtalsansvarig"];
 const NO_START = "Insatsen kan startas när avropet är accepterat.";
-const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null });
+const toActivity = (ctx: Ctx, caseId: string, r: PlannedActivity): Activity => ({ id: ctx.newId("a"), caseId, kind: r.kind, startsAt: r.startsAt, durationMin: r.durationMin, location: r.location, note: "", groupActivityId: null, inviteSource: "manual" });
 /** Planen i loggen: bara dag, tid och typ – inga personuppgifter. */
 const planKeys = (plan: readonly WeekPlanRow[]) => plan.map((r) => `${WEEKDAYS[r.weekday]} ${r.time} ${r.kind}`);
 const isPlanKind = (k: string) => (WEEK_PLAN_KINDS as readonly string[]).includes(k);
@@ -442,6 +443,8 @@ handleCommand(caseStart, { roles: START_ROLES }, async (ctx, p) => {
   });
   await addHistory(ctx, { caseId: c.id, fromStatus: c.status, toStatus: "active", toCoach: c.leadCoachId, reason: "Insatsen startad" });
   await ctx.audit({ action: "case.started", entity: "case", entityId: c.id, contractId: c.contractId, details: { startDate: p.startDate, plannedEnd: end, activities: rows.length, plan: planKeys(plan) } });
+  // Insatsen pågår: deltagaren bjuds in till kommande aktiviteter för sin nivå och sitt yrkesområde (Karims beslut 2026-10-22).
+  await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
   return ok({ activities: rows.length, firstActivityAt: rows[0]?.startsAt ?? null });
 });
 
@@ -487,7 +490,7 @@ handleCommand(activityAdd, { roles: CASE_WORKERS }, async (ctx, p) => {
   if (await ctx.repo.table("activities").first({ caseId: c.id, startsAt: p.startsAt, kind: p.kind })) return fail("duplicate", "Det finns redan ett sådant tillfälle vid den tiden.");
   const id = ctx.newId("a");
   // Skrivningen går via behörigheten (policyn/RLS för activities): alla som arbetar i avtalets ärenden, aldrig skyddade utan namngiven coach.
-  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null });
+  await ctx.repo.table("activities").insert({ id, caseId: c.id, kind: p.kind, startsAt: p.startsAt, durationMin: p.durationMin, location: p.location.trim(), note: "", groupActivityId: null, inviteSource: "manual" });
   await ctx.audit({ action: "activity.added", entity: "activity", entityId: id, contractId: c.contractId, details: { caseId: c.id, kind: p.kind, startsAt: p.startsAt } });
   return ok({ activityId: id });
 });
@@ -576,6 +579,8 @@ handleCommand(caseClose, { roles: ["coach"] }, async (ctx, p) => {
     });
   }
   await ctx.audit({ action: "case.closed", entity: "case", entityId: c.id, contractId: c.contractId, details: { endReason: p.endReason, resultClass } });
+  // Avslutad: kommande aktiviteter som målgruppen (nivån eller yrkesområdet) bjöd in till tas bort – utan registrerad närvaro.
+  await syncAudienceInvites(ctx, { contractId: c.contractId, caseIds: [c.id] });
   return ok({ reportId: rep.id, resultClass });
 });
 
@@ -1508,6 +1513,8 @@ const AUDIT_TEXT: Record<string, string> = {
   "group_activity.cancelled": "Gruppaktiviteten ställdes in", "group_activity.view": "Öppnade aktivitetsvyn",
   // Spår G: meddelandet till deltagaren och gruppmålet (internt – bara Miljonbemanning ser Historik).
   "group_activity.notified": "Fick meddelande om gruppaktivitet", "group_goal.marked": "Gruppmål markerades",
+  // Karims beslut 2026-10-22: målgruppen (nivå eller yrkesområde) bjuder in och tar bort automatiskt; återkommande aktiviteter.
+  "group_activity.audience_synced": "Inbjudan ändrades automatiskt (nivå eller yrkesområde)", "group_activity_series.updated": "Den återkommande aktiviteten ändrades",
 };
 /** Fälten i en ändrad gruppaktivitet som ord (Historik). */
 const GROUP_FIELD_WORD: Record<string, string> = {

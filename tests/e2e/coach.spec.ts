@@ -526,7 +526,7 @@ test("Månadsbedömning januari: 'Lägg till i sammanfattningen' lägger in ante
 });
 
 // ================================================================ Kartläggning
-test("Kartläggning: yrkesspår krävs och diagnoser stoppas (Amal)", async ({ page }, info) => {
+test("Kartläggning: yrkesspår och nivå krävs och diagnoser stoppas (Amal)", async ({ page }, info) => {
   const errors = await open(page, info, `/kartlaggning/${SC.amal}`, COACH);
   await noBadText(page);
   await expect(page.getByText(/Fastnat i fas 1/)).toBeVisible();
@@ -536,6 +536,13 @@ test("Kartläggning: yrkesspår krävs och diagnoser stoppas (Amal)", async ({ p
   await expect(page.getByText("Det ser ut som en diagnos")).toBeVisible();
   await page.locator("#ia-adapt").fill("Behöver tydlig struktur och schema i förväg");
   await btn(group(page, "Valt yrkesspår"), "Individuellt spår").click();
+  // Nivån krävs innan kartläggningen godkänns (Karims beslut 2026-10-22) – den väljs i kortet Nivå och yrkesområde.
+  await btn(page, "Godkänn kartläggningen").click();
+  await expect(page.getByText("Välj nivå innan du godkänner kartläggningen.").first()).toBeVisible();
+  await expect(page.getByText("Kartläggningen är godkänd", { exact: true })).toHaveCount(0);
+  const levels = card(page, "Nivå och yrkesområde");
+  await btn(levels, "Nivå 1 – Långt från arbete").click();
+  await expect(levels.locator("[data-grouping-status]")).toHaveText(/Sparat \d\d\.\d\d/);
   await btn(page, "Godkänn kartläggningen").click();
   await expect(page.getByText("Kartläggningen är godkänd", { exact: true })).toBeVisible();
   await expect(main(page)).toContainText("L Övrigt · Individuellt spår");
