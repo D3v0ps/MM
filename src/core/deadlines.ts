@@ -112,8 +112,8 @@ export function deadlines(db: DeadlineDb, opts: DeadlineOpts, env: Pick<DomainEn
         owner: "avtalsansvarig", link: viewLink("chef.avvikelser", { id: cd.id }),
       });
     }
-    const run = db.billing_runs.find((b) => b.status === "draft");
-    if (run) {
+    // En frist per pågående körning (körningen skapas automatiskt när månaden är slut – förra månadens kan vara öppen än).
+    for (const run of db.billing_runs.filter((b) => b.status === "draft").sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : 0))) {
       const n = env.org.billing.fortnoxWithinWorkingDays;
       push({
         id: `bill:${run.month}`, kind: "fakturering", label: `Fakturor för ${monthName(run.month)} i Fortnox (internt mål: ${n} arbetsdagar)`,

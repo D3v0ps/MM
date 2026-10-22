@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { createSeed } from "@/data/seed";
 import type { Db, InvoiceDraft, InvoiceLine } from "@/data/schema";
 import {
-  billableWeeks, billingLines, buyerRefProblem, CONTRACT_GROUP, groupingKeyOf, invoiceIdOf, invoiceLookup, invoiceRefProblem, invoiceStatus, monthInvoices, parseGroupingKey,
-  unbilledOld, vatBreakdown, weekText,
+  billableWeeks, billingLines, billingRunIdOf, buyerRefProblem, CONTRACT_GROUP, groupingKeyOf, invoiceIdOf, invoiceLookup, invoiceRefProblem, invoiceStatus, missingBillingRuns,
+  monthEnded, monthInvoices, parseGroupingKey, priceProblemOf, priceStopCheck, unbilledOld, vatBreakdown, weekText,
 } from "./billing";
 import { DEFAULT_ORG_SETTINGS } from "./config";
 import { domainEnv } from "./env";
@@ -332,5 +332,129 @@ describe("veckotext", () => {
     expect(weekText([w(1, "2027-01-04"), w(3, "2027-01-18"), w(4, "2027-01-25")])).toBe("v. 1, 3–4 2027");
     expect(weekText([w(1, "2027-01-04")])).toBe("v. 1 2027");
     expect(weekText([])).toBe("");
+  });
+});
+
+// ================================================================ Priset stoppar fakturan (exempelpris, 0 kr, inget pris)
+describe("priset på raden stoppar fakturan", () => {
+  // c2: pågående i januari (v. 1–4), med referens – bara priset kan stoppa fakturan.
+  const c2 = mkCase({ id: "c2", caseNumber: "BOT-27-0002", status: "closed", startDate: "2027-01-04", endDate: "2027-01-29", primaryAreaCode: "G" });
+  const c3 = mkCase({ id: "c3", caseNumber: "BOT-27-0003", status: "closed", startDate: "2027-01-04", endDate: "2027-01-29", primaryAreaCode: "E" });
+  const ref = (month: string) => draft(month, { buyerReference: "55102938" });
+  const db = (items: ReturnType<typeof mkPriceItem>[], drafts: InvoiceDraft[] = [ref("2027-01")]) => testDb({ cases: [c2, c3], price_items: items, invoice_drafts: drafts });
+
+  it("priceProblemOf: inget pris, exempelpris och 0 kr – annars inget problem", () => {
+    expect(priceProblemOf(null)).toBe("missing");
+    expect(priceProblemOf({ exampleOnly: true, priceOre: 139800 })).toBe("example");
+    expect(priceProblemOf({ exampleOnly: false, priceOre: 0 })).toBe("zero");
+    expect(priceProblemOf({ exampleOnly: false, priceOre: 139800 })).toBeNull();
+  });
+
+  it("inlagda priser: fakturan är inte stoppad och raderna har ingen priskontroll", () => {
+    const bm = monthInvoices(db(price), "2027-01", env);
+    expect(bm.invoices).toHaveLength(1);
+    expect(bm.invoices[0].blocked).toBe(false);
+    expect(bm.lines.every((l) => l.priceProblem === null && !l.checks.some((c) => c.kind === "price"))).toBe(true);
+  });
+
+  it("exempelpris: raden får Exempelpris och fakturan stoppas med en text till ekonomen (som när referensen saknas)", () => {
+    const items = [mkPriceItem({ areaCode: "G", priceOre: 139800, exampleOnly: true }), mkPriceItem({ areaCode: "E", priceOre: 156200 })];
+    const bm = monthInvoices(db(items), "2027-01", env);
+    const inv = bm.invoices[0];
+    expect(inv.blocked).toBe(true);
+    expect(inv.status).toBe("blocked");
+    expect(bm.blocked).toBe(1);
+    const stop = inv.checks.find((c) => c.kind === "price")!;
+    expect(stop).toMatchObject({ severity: "blocking", label: "Priserna är inte klara" });
+    expect(stop.text).toContain("1 rad har exempelpris (avtalsområde G).");
+    expect(stop.text).toContain("Kontrollera Prislistan och be systemadministratören lägga in avtalets riktiga priser.");
+    const g = inv.lines.find((l) => l.caseId === "c2")!;
+    expect(g.priceProblem).toBe("example");
+    expect(g.checks[0]).toMatchObject({ kind: "price", severity: "warning", label: "Exempelpris" });
+    expect(inv.lines.find((l) => l.caseId === "c3")!.checks.some((c) => c.kind === "price")).toBe(false);
+  });
+
+  it("pris 0 kr och inget pris för området stoppar också – texten säger vad som gäller för varje rad", () => {
+    const bm = monthInvoices(db([mkPriceItem({ areaCode: "G", priceOre: 0 })]), "2027-01", env);
+    const stop = bm.invoices[0].checks.find((c) => c.kind === "price")!;
+    expect(stop.text).toContain("1 rad saknar pris (avtalsområde E).");
+    expect(stop.text).toContain("1 rad har priset 0 kr (avtalsområde G).");
+    expect(bm.lines.map((l) => [l.caseId, l.priceProblem, l.checks[0]?.label])).toEqual([
+      ["c2", "zero", "Pris 0 kr"],
+      ["c3", "missing", "Pris saknas"],
+    ]);
+    // Ett pris som har slutat gälla räknas som inget pris.
+    const expired = monthInvoices(db([mkPriceItem({ areaCode: "G", priceOre: 139800, validTo: "2026-12-31" }), mkPriceItem({ areaCode: "E", priceOre: 156200 })]), "2027-01", env);
+    expect(expired.invoices[0].blocked).toBe(true);
+  });
+
+  it("båda stoppen samtidigt: utan referens och med exempelpris", () => {
+    const items = [mkPriceItem({ areaCode: "G", priceOre: 139800, exampleOnly: true }), mkPriceItem({ areaCode: "E", priceOre: 156200, exampleOnly: true })];
+    const inv = monthInvoices(db(items, []), "2027-01", env).invoices[0];
+    expect(inv.checks.map((c) => [c.kind, c.severity])).toEqual([["buyer_ref", "blocking"], ["price", "blocking"]]);
+    expect(inv.checks[1].text).toContain("2 rader har exempelpris (avtalsområde E och G).");
+  });
+
+  it("en skapad faktura stoppas aldrig av priset – raderna är frysta med priset som fakturerades", () => {
+    const items = [mkPriceItem({ areaCode: "G", priceOre: 139800, exampleOnly: true }), mkPriceItem({ areaCode: "E", priceOre: 156200, exampleOnly: true })];
+    const created = draft("2027-01", { buyerReference: "55102938", status: "manual", manualInvoiceNo: "20417" });
+    const weeks = ["2027-W01", "2027-W02", "2027-W03", "2027-W04"];
+    const lines = [frozen(created.id, "c2", weeks), frozen(created.id, "c3", weeks, 156200)];
+    const inv = monthInvoices(testDb({ cases: [c2, c3], price_items: items, invoice_drafts: [created], invoice_lines: lines }), "2027-01", env).invoices[0];
+    expect(inv.created).toBe(true);
+    expect(inv.blocked).toBe(false);
+    expect(inv.checks).toEqual([]);
+    expect(inv.lines.every((l) => l.frozen && !l.checks.some((c) => c.kind === "price"))).toBe(true);
+  });
+
+  it("priceStopCheck: inga problem ger ingen kontroll", () => {
+    expect(priceStopCheck([{ priceProblem: null, areaCode: "G" }])).toBeNull();
+  });
+});
+
+// ================================================================ Månadsskiftet och fakturakörningen
+describe("månaden är slut (Stockholmstid)", () => {
+  it("först när sista dagen har passerat", () => {
+    expect(monthEnded("2026-10", "2026-10-22T07:35")).toBe(false);
+    expect(monthEnded("2026-10", "2026-10-31T23:59")).toBe(false);
+    expect(monthEnded("2026-10", "2026-11-01T00:00")).toBe(true);
+    expect(monthEnded("2026-12", "2027-01-01T00:00")).toBe(true);
+    expect(monthEnded("2027-01", "2026-12-31T12:00")).toBe(false);
+  });
+});
+
+describe("månader som saknar fakturakörning", () => {
+  const contract = { id: "c-bot", startsOn: "2026-09-10" };
+  // Startade 9 oktober 2026 (som de första ärendena i piloten) och pågår.
+  const oct = mkCase({ id: "c5", startDate: "2026-10-09" });
+  const dbOf = (runs: ReturnType<typeof mkBillingRun>[] = [], cases = [oct], drafts: InvoiceDraft[] = []) => ({ cases, invoice_drafts: drafts, billing_runs: runs });
+
+  it("ingen körning innan månaden är slut; oktober från 1 november kl. 00.00; september saknar debiterbara veckor och får ingen", () => {
+    expect(missingBillingRuns(contract, dbOf(), "2026-10-31T23:59", null)).toEqual([]);
+    expect(missingBillingRuns(contract, dbOf(), "2026-11-01T00:00", null)).toEqual(["2026-10"]);
+    expect(missingBillingRuns(contract, dbOf(), "2027-01-15T10:00", null)).toEqual(["2026-10", "2026-11", "2026-12"]);
+  });
+
+  it("idempotent: en månad som redan har en körning (oavsett id och status) får ingen ny", () => {
+    const runs = [mkBillingRun({ month: "2026-10", id: "br-2026-10", status: "closed" }), mkBillingRun({ month: "2026-11", id: billingRunIdOf("c-bot", "2026-11"), status: "draft" })];
+    expect(missingBillingRuns(contract, dbOf(runs), "2027-01-15T10:00", null)).toEqual(["2026-12"]);
+    // Ett annat avtals körning räknas inte.
+    expect(missingBillingRuns(contract, dbOf([mkBillingRun({ month: "2026-12", contractId: "c-x" }), ...runs]), "2027-01-15T10:00", null)).toEqual(["2026-12"]);
+  });
+
+  it("golvet: månader som slutade senast vid testklockans start får ingen körning (testdatat har sina)", () => {
+    expect(missingBillingRuns(contract, dbOf(), "2027-02-01T09:12", "2027-02-01T09:12")).toEqual([]);
+    expect(missingBillingRuns(contract, dbOf(), "2027-03-01T00:05", "2027-02-01T09:12")).toEqual(["2027-02"]);
+  });
+
+  it("pausade veckor och ärenden utan startdatum ger ingen körning; en sparad faktura gör det", () => {
+    const paused = mkCase({ id: "c6", startDate: "2026-11-02", endDate: "2026-11-27", pausedWeeks: ["2026-W45", "2026-W46", "2026-W47", "2026-W48"] });
+    const notStarted = mkCase({ id: "c7", startDate: null });
+    expect(missingBillingRuns(contract, dbOf([], [paused, notStarted]), "2027-01-15T10:00", null)).toEqual([]);
+    expect(missingBillingRuns(contract, dbOf([], [paused], [draft("2026-11", { buyerReference: "55102938" })]), "2027-01-15T10:00", null)).toEqual(["2026-11"]);
+  });
+
+  it("körningens id är fast för avtalet och månaden", () => {
+    expect(billingRunIdOf("c-bot", "2026-10")).toBe("br-c-bot-2026-10");
   });
 });

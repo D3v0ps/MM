@@ -63,10 +63,13 @@ export function contractTables(db: Db) {
     { id: "c-bot", supplierId: ORG_MB, customerId: ORG_BOTKYRKA, name: "Yrkesförberedande och yrkesinriktade insatser", contractNumber: "332026110", dnr: "AVN/2026:00048",
       startsOn: "2026-09-10", endsOn: "2030-09-10", casePrefix: "BOT", dataRole: "processor", config: clone(BOTKYRKA_CONFIG), status: "active", contractManagerId: "u-johan" },
   );
+  // Prislistan: påhittade priser inom avtalets spann. I testdatats berättelse (fem månader in i piloten, fakturor för september–
+  // december är skapade och betalda) är priserna inlagda, så de är inte markerade som exempelpriser – en faktura med exempelpris
+  // är stoppad (src/core/billing.ts priceStopCheck). Produktionen har exempelpriser tills de riktiga är inlagda.
   for (const [code, name, price] of AREAS) {
     db.contract_areas.push({ id: `c-bot:${code}`, contractId: "c-bot", code, name, active: true });
     db.price_items.push({ id: `pi-${code}`, contractId: "c-bot", areaCode: code, code: `vecka-${code}`, unit: "participant_week", packageMonths: null, priceOre: price, vatRate: 25,
-      validFrom: "2026-09-10", validTo: "2027-09-09", fortnoxArticleNo: `BOT-${code}`, exampleOnly: true });
+      validFrom: "2026-09-10", validTo: "2027-09-09", fortnoxArticleNo: `BOT-${code}`, exampleOnly: false });
   }
   // Helgdagar 2026–2027 (samma som prototypens lista – beräknas i src/core/holidays.ts)
   for (const year of [2026, 2027]) for (const [date, name] of Object.entries(holidaysOf(year)).sort(([a], [b]) => (a < b ? -1 : 1))) db.holidays.push({ id: date, date, name });

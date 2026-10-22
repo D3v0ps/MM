@@ -16,13 +16,13 @@
 //   efterhand) får kontrollen "not_billable". En returnerad faktura görs om med raderna frysta på nytt från dagens underlag –
 //   bara de veckor som fortfarande är debiterbara (reissueLines). Återstår inga veckor krediteras fakturan utan ny faktura
 //   (status credited – täcker inga veckor).
-import type { BillingWeekApproval, Case, Db, InvoiceDisplayStatus, InvoiceDraft, InvoiceLine, InvoiceStatus, UserId } from "@/data/schema";
+import type { BillingRun, BillingWeekApproval, Case, Contract, Db, InvoiceDisplayStatus, InvoiceDraft, InvoiceLine, InvoiceStatus, PriceItem, UserId } from "@/data/schema";
 import type { OperationalConfig } from "./config";
 import { priceFor, priceItem } from "./cases";
 import { activitiesOf, attendanceFor, groupedBy } from "./db-index";
 import type { DomainEnv } from "./env";
 import { plural } from "./format";
-import { addDays, dayOf, diffDays, fmtWeekKey, isoWeek, monday, monthKey, weekMonday, weekMonthKey, type LocalDate, type LocalDateTime, type MonthKey, type WeekKey } from "./time";
+import { addDays, addMonths, dayOf, diffDays, fmtWeekKey, isoWeek, monday, monthKey, weekMonday, weekMonthKey, type LocalDate, type LocalDateTime, type MonthKey, type WeekKey } from "./time";
 import { by, sum } from "./util";
 import { buyerRefError, poNumberError, poNumberValid } from "./validation";
 
@@ -208,7 +208,8 @@ export function invoiceRefProblem(ref: string | null | undefined, db: Pick<Db, "
 }
 
 // ---------------------------------------------------------------- Fakturarader (underlaget per ärende och månad)
-export type BillingCheckKind = "buyer_ref" | "po" | "po_mixed" | "zero_week" | "missing_reg" | "too_many" | "over_order" | "overlap" | "paused" | "partial" | "not_billable";
+export type BillingCheckKind =
+  | "buyer_ref" | "po" | "po_mixed" | "price" | "zero_week" | "missing_reg" | "too_many" | "over_order" | "overlap" | "paused" | "partial" | "not_billable";
 export type BillingCheckSeverity = "blocking" | "needs_approval" | "approved" | "warning" | "info";
 export type ZeroWeekApproval = { by: UserId; at: LocalDateTime; note: string };
 export type BillingCheck = {
@@ -235,6 +236,8 @@ export type BillingLine = {
   vatRate: number;
   articleNo: string;
   priceItemId: string;
+  /** Priset går inte att fakturera: inget pris för området, ett exempelpris eller 0 kr (stoppar fakturan). null = priset är klart. */
+  priceProblem: PriceProblem | null;
   /** Ärendets beställarreferens (Miljonbemannings anteckning från mottagandet) – bara ett förslag till fakturans referens. */
   caseBuyerReference: string | null;
   /** Ärendets inköpsordernummer (kommunens 99-nummer), tom sträng om det saknas. */
@@ -254,6 +257,49 @@ export type BillingDb = Pick<
   Db,
   "cases" | "activities" | "attendance" | "price_items" | "buyer_references" | "invoice_drafts" | "invoice_lines" | "billing_runs" | "billing_week_approvals"
 >;
+
+// ---------------------------------------------------------------- Priset på raden (stoppar fakturan)
+/**
+ * Varför radens pris inte går att fakturera: ingen prisrad för området den veckan (missing), ett exempelpris i prislistan
+ * (example – price_items.example_only) eller priset 0 kr (zero). Fakturan stoppas tills priserna är rätt, som när
+ * beställarreferensen saknas – ett fel pris fryses annars på fakturan när den skapas.
+ */
+export type PriceProblem = "missing" | "example" | "zero";
+export function priceProblemOf(item: Pick<PriceItem, "exampleOnly" | "priceOre"> | null): PriceProblem | null {
+  if (!item) return "missing";
+  if (item.exampleOnly) return "example";
+  if (!(item.priceOre > 0)) return "zero";
+  return null;
+}
+const PRICE_LINE: Record<PriceProblem, { label: string; text: string }> = {
+  missing: { label: "Pris saknas", text: "Prislistan har inget pris för ärendets avtalsområde den här månaden." },
+  example: { label: "Exempelpris", text: "Priset i prislistan är ett exempelpris, inte avtalets pris." },
+  zero: { label: "Pris 0 kr", text: "Priset i prislistan är 0 kr." },
+};
+
+/** Områdena i klartext: "A", "A och C", "A, C och K". */
+const areaList = (codes: readonly string[]): string => (codes.length <= 1 ? (codes[0] ?? "") : `${codes.slice(0, -1).join(", ")} och ${codes[codes.length - 1]}`);
+
+/** Fakturans stoppande kontroll när minst en rad har ett pris som inte går att fakturera (null = alla priser är klara). */
+export function priceStopCheck(lines: readonly Pick<BillingLine, "priceProblem" | "areaCode">[]): BillingCheck | null {
+  const bad = lines.filter((l) => l.priceProblem);
+  if (!bad.length) return null;
+  const part = (p: PriceProblem, what: (rows: string, areas: string) => string): string | null => {
+    const rows = bad.filter((l) => l.priceProblem === p);
+    if (!rows.length) return null;
+    const areas = [...new Set(rows.map((l) => l.areaCode ?? "").filter(Boolean))].sort();
+    return what(plural(rows.length, "rad", "rader"), areas.length ? ` (avtalsområde ${areaList(areas)})` : "");
+  };
+  const parts = [
+    part("example", (r, a) => `${r} har exempelpris${a}.`),
+    part("missing", (r, a) => `${r} saknar pris${a}.`),
+    part("zero", (r, a) => `${r} har priset 0 kr${a}.`),
+  ].filter(Boolean);
+  return {
+    kind: "price", severity: "blocking", label: "Priserna är inte klara",
+    text: `${parts.join(" ")} Fakturan kan inte skapas eller markeras som fakturerad förrän priserna är rätt. Kontrollera Prislistan och be systemadministratören lägga in avtalets riktiga priser. Fakturan räknas om när priserna är ändrade.`,
+  };
+}
 
 /** Veckotext med luckor för pausade veckor: "v. 1, 3–4 2027". */
 export function weekText(weeks: readonly Pick<BillableWeek, "key" | "week" | "year" | "monday">[]): string {
@@ -336,9 +382,12 @@ export function billingLines(db: Omit<BillingDb, "invoice_drafts" | "invoice_lin
     }
 
     const item = priceItem(db.price_items, c.primaryAreaCode, first.monday, c.contractId);
+    // Priset först: det stoppar hela fakturan (priceStopCheck) – raden visar varför.
+    const priceProblem = priceProblemOf(item);
+    if (priceProblem) checks.unshift({ kind: "price", severity: "warning", ...PRICE_LINE[priceProblem] });
     lines.push({
       month, contractId: c.contractId, caseId: c.id, caseNumber: c.caseNumber, areaCode: c.primaryAreaCode, weeks, quantity: weeks.length, unitPriceOre: price,
-      amountOre: weeks.length * price, vatRate: item ? item.vatRate : 25, articleNo: item?.fortnoxArticleNo ?? "", priceItemId: item?.id ?? "",
+      amountOre: weeks.length * price, vatRate: item ? item.vatRate : 25, articleNo: item?.fortnoxArticleNo ?? "", priceItemId: item?.id ?? "", priceProblem,
       caseBuyerReference: c.buyerReference, casePurchaseOrderNumber: c.purchaseOrderNumber || "", orderWeeks, accruedWeeks,
       remainingWeeks: Math.max(0, orderWeeks - accruedWeeks), checks, needsApproval: checks.some((x) => x.severity === "needs_approval"),
       lineText: `${c.caseNumber} · ${weekText(weeks)}`,
@@ -441,11 +490,12 @@ function frozenLine(r: InvoiceLine, live: BillingLine | undefined, month: MonthK
   const weeks = r.isoWeeks.map((k) => liveWeeks.get(k) ?? weekFromKey(k));
   // Underlagets veckor är de debiterbara (pausade räknas inte): en fryst vecka som saknas där är inte längre debiterbar.
   const stale = r.isoWeeks.filter((k) => !liveWeeks.has(k));
-  const checks = (live?.checks ?? []).filter((c) => (!c.weekKey || keys.has(c.weekKey)) && !(stale.length && c.kind === "paused"));
+  // Priset på en fryst rad är det som fakturerades – dagens priskontroll gäller inte raden.
+  const checks = (live?.checks ?? []).filter((c) => (!c.weekKey || keys.has(c.weekKey)) && !(stale.length && c.kind === "paused") && c.kind !== "price");
   if (stale.length) checks.unshift(notBillableCheck(stale));
   return {
     month, contractId, caseId: r.caseId, caseNumber, areaCode: live?.areaCode ?? null, weeks, quantity: r.quantity, unitPriceOre: r.unitPriceOre,
-    amountOre: Math.round(r.quantity * r.unitPriceOre), vatRate: r.vatRate, articleNo: live?.articleNo ?? "", priceItemId: r.priceItemId,
+    amountOre: Math.round(r.quantity * r.unitPriceOre), vatRate: r.vatRate, articleNo: live?.articleNo ?? "", priceItemId: r.priceItemId, priceProblem: null,
     caseBuyerReference: live?.caseBuyerReference ?? null, casePurchaseOrderNumber: live?.casePurchaseOrderNumber ?? "", orderWeeks: live?.orderWeeks ?? 0,
     accruedWeeks: live?.accruedWeeks ?? 0, remainingWeeks: live?.remainingWeeks ?? 0, checks, needsApproval: false, lineText: r.description, frozen: true, lineId: r.id,
     note: r.note,
@@ -568,6 +618,9 @@ export function monthInvoices(db: BillingDb, month: MonthKey, env: Pick<DomainEn
             text: "Ärendena på fakturan har olika inköpsordernummer, men en faktura kan bara ha ett. Ange fakturans inköpsordernummer, eller lämna fältet tomt.",
           });
         }
+        // Exempelpris, pris 0 kr eller inget pris på någon rad: fakturan stoppas (priset fryses annars när den skapas).
+        const priceStop = isCreatedInv ? null : priceStopCheck(sorted.filter((l) => !l.frozen));
+        if (priceStop) checks.push(priceStop);
       }
       const blocked = checks.some((x) => x.severity === "blocking");
       const needsApproval = !isCreatedInv && sorted.some((l) => l.needsApproval);
@@ -639,6 +692,44 @@ export const findInvoice = (bm: BillingMonth, id: string): MonthInvoice | null =
 /** Fakturan som har ärendets rad (den öppna före en skapad om raden är delad), eller null. */
 export const invoiceOfCase = (bm: BillingMonth, caseId: string): MonthInvoice | null =>
   bm.invoices.find((x) => !x.created && x.lines.some((l) => l.caseId === caseId)) ?? bm.invoices.find((x) => x.lines.some((l) => l.caseId === caseId)) ?? null;
+
+// ---------------------------------------------------------------- Månadsskiftet och fakturakörningen
+/**
+ * Månaden är slut: sista dagen har passerat (appens klocka är Stockholms lokala tid). Månadens faktura godkänns och
+ * faktureras först då – annars hamnar resten av månadens veckor på en tilläggsfaktura.
+ */
+export const monthEnded = (month: MonthKey, now: LocalDateTime): boolean => monthKey(now) > month;
+
+/** När månaden tar slut: första dagen i nästa månad kl. 00.00. */
+export const monthEndAt = (month: MonthKey): LocalDateTime => `${addMonths(month, 1)}-01T00:00`;
+
+/**
+ * Månaderna som ska ha en fakturakörning men saknar en (ensureBillingRuns): varje månad från avtalets start som är slut
+ * (monthEnded), har något att fakturera (debiterbara veckor eller en sparad faktura) och slutade efter golvet. En månad
+ * utan något att fakturera får ingen körning – den kunde aldrig stängas. Golvet (testklockans start i testmiljön och
+ * prototypen) gör att inget skapas på nyinläst testdata; null i produktionen.
+ */
+export function missingBillingRuns(
+  contract: Pick<Contract, "id" | "startsOn">,
+  db: Pick<Db, "cases" | "invoice_drafts"> & { billing_runs: readonly Pick<BillingRun, "contractId" | "month">[] },
+  now: LocalDateTime,
+  floor: LocalDateTime | null,
+): MonthKey[] {
+  const has = new Set(db.billing_runs.filter((r) => r.contractId === contract.id).map((r) => r.month));
+  const months = new Set<MonthKey>();
+  // Bara månadens tillhörighet behövs (torsdagsregeln) – inte närvaron.
+  const none = { activities: [], attendance: [] };
+  for (const c of db.cases) {
+    if (c.contractId !== contract.id || !c.startDate) continue;
+    for (const w of billableWeeks(c, none, { now })) if (!w.paused) months.add(w.monthKey);
+  }
+  for (const d of db.invoice_drafts) if (d.contractId === contract.id && periodic(d)) months.add(d.month);
+  const first = monthKey(contract.startsOn);
+  return [...months].filter((m) => m >= first && monthEnded(m, now) && !has.has(m) && (!floor || monthEndAt(m) > floor)).sort();
+}
+
+/** Fakturakörningens id för avtalet och månaden – samma id varje gång, så att två samtidiga körningar aldrig skapar två. */
+export const billingRunIdOf = (contractId: string, month: MonthKey): string => `br-${contractId}-${month}`;
 
 // ---------------------------------------------------------------- Ofakturerade veckor
 export type UnbilledWeek = { case: Case; week: BillableWeek; age: number; status: InvoiceStatus; amountOre: number };

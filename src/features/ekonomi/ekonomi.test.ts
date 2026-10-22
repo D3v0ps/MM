@@ -16,7 +16,7 @@ import { createSeed, DEMO_START, decodeTestPnr, normalizePnr } from "@/data/seed
 import type { TableName, Tables } from "@/data/schema";
 import {
   billingApproveInvoice, billingApproveZeroWeek, billingExport, billingMarkManual, billingSendFortnox, ekoAskCoordinator, ekoCase, ekoCaseList, ekoCloseRun, ekoCsv, ekoFortnoxSync, ekoLine,
-  ekoPreview, ekoReissue, ekoRun, ekoStart, ekoTaskDone, invoiceSetBuyerRef,
+  ekoPreview, ekoPriceList, ekoReissue, ekoRun, ekoStart, ekoTaskDone, invoiceSetBuyerRef,
 } from "./api";
 import { invoiceSummary, invoiceText, invoiceTitle, monthRules, noteText, poText, prescText, priceSpan, refError, refFromTask, refInfo, weekText, type LedgerRow, type RefRules } from "./model";
 
@@ -480,5 +480,70 @@ describe("ekonomins åtgärder", () => {
     ]) {
       await expect(p).rejects.toBeInstanceOf(ApiError);
     }
+  });
+});
+
+// ================================================================ Månadsskiftet och priserna (stoppar godkännande och fakturering)
+describe("fakturan godkänns och faktureras först när månaden är slut", () => {
+  const FEB = "inv-c-bot-2027-02-avtal";
+  it("februari (pågår vid DEMO_START): Godkänn och Markera som manuellt fakturerad nekas på servern med en tydlig förklaring", async () => {
+    const v = await qry(ekoRun, { month: "2027-02" });
+    expect(v.monthOpen).toBe("Februari 2027 är inte slut än. Fakturan kan godkännas och faktureras från den 1 mars 2027.");
+    expect(v.invoices.map((x) => x.id)).toContain(FEB);
+    await cmd(invoiceSetBuyerRef, { month: "2027-02", invoiceId: FEB, reference: "55102938" });
+    const approve = await cmd(billingApproveInvoice, { month: "2027-02", invoiceId: FEB });
+    expect(approve).toMatchObject({ ok: false, error: "month_open", message: v.monthOpen });
+    const manual = await cmd(billingMarkManual, { month: "2027-02", invoiceId: FEB, invoiceNo: "20418" });
+    expect(manual).toMatchObject({ ok: false, error: "month_open" });
+    // Ingenting ändrades: ingen godkänd eller fakturerad faktura, och inget i loggen.
+    expect(rows("invoice_drafts").find((d) => d.id === FEB)?.status).toBe("draft");
+    expect(rows("invoice_lines").filter((l) => l.invoiceDraftId === FEB)).toEqual([]);
+    expect(rows("audit_log").filter((l) => ["billing.approved", "billing.manual"].includes(l.action))).toEqual([]);
+  });
+
+  it("januari (slut): monthOpen är null och fakturan kan godkännas som förut", async () => {
+    const v = await qry(ekoRun, { month: "2027-01" });
+    expect(v.monthOpen).toBeNull();
+    await approveZeroWeeks();
+    expect(await cmd(billingApproveInvoice, { month: "2027-01", invoiceId: JAN })).toMatchObject({ ok: true });
+  });
+});
+
+describe("exempelpris, pris 0 kr eller inget pris stoppar fakturan", () => {
+  it("ett exempelpris i prislistan: fakturan är stoppad, kan inte markeras som manuellt fakturerad, och prislistan märker priset", async () => {
+    rt.store.updateRow("price_items", "pi-G", { exampleOnly: true });
+    const v = await qry(ekoRun, { month: "2027-01" });
+    const inv = v.invoices.find((x) => x.id === JAN)!;
+    expect(inv.blocked).toBe(true);
+    const stop = inv.checks.find((c) => c.kind === "price")!;
+    expect(stop.severity).toBe("blocking");
+    expect(stop.text).toMatch(/^\d+ rader har exempelpris \(avtalsområde G\)\./);
+    expect(inv.lines.filter((l) => l.areaCode === "G").every((l) => l.checks[0]?.label === "Exempelpris" && l.remarks > 0)).toBe(true);
+    // Med giltig referens och godkända veckor är priset det enda som stoppar.
+    await cmd(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "55102938" });
+    await approveZeroWeeks();
+    const r = await cmd(billingMarkManual, { month: "2027-01", invoiceId: JAN, invoiceNo: "20417" });
+    expect(r).toMatchObject({ ok: false, error: "blocked" });
+    expect(r.ok ? "" : r.message).toContain("har exempelpris (avtalsområde G)");
+    expect(r.ok ? "" : r.message).toContain("be systemadministratören lägga in avtalets riktiga priser");
+    expect(rows("invoice_lines").filter((l) => l.invoiceDraftId === JAN)).toEqual([]);
+    // Startsidan räknar fakturan som stoppad av priserna.
+    const start = await qry(ekoStart, {});
+    expect(start.current?.counts).toMatchObject({ blocked: 1, priceBlocked: 1 });
+    // Prislistan: märket följer example_only (bara G).
+    const list = await qry(ekoPriceList, {});
+    expect(list.items.filter((x) => x.exampleOnly).map((x) => x.id)).toEqual(["pi-G"]);
+  });
+
+  it("utan exempelpris (testdatat): fakturan stoppas bara av referensen och kan sedan markeras som manuellt fakturerad", async () => {
+    const list = await qry(ekoPriceList, {});
+    expect(list.items.some((x) => x.exampleOnly)).toBe(false);
+    const before = (await qry(ekoRun, { month: "2027-01" })).invoices.find((x) => x.id === JAN)!;
+    expect(before.checks.map((c) => c.kind)).toEqual(["buyer_ref"]);
+    const blocked = await cmd(billingMarkManual, { month: "2027-01", invoiceId: JAN, invoiceNo: "20417" });
+    expect(blocked).toMatchObject({ ok: false, error: "blocked", message: "Fakturan är stoppad. Fyll i en giltig beställarreferens först." });
+    await cmd(invoiceSetBuyerRef, { month: "2027-01", invoiceId: JAN, reference: "55102938" });
+    await approveZeroWeeks();
+    expect(await cmd(billingMarkManual, { month: "2027-01", invoiceId: JAN, invoiceNo: "20417" })).toMatchObject({ ok: true });
   });
 });

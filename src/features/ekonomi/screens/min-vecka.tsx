@@ -83,7 +83,7 @@ function Week({ v }: { v: BillingStartView }) {
           value={num(cur?.blocked ?? 0)}
           tone={cur?.blocked ? "watch" : undefined}
           statusText="Fyll i referensen"
-          sub={cur?.blocked ? "Fel eller saknad beställarreferens" : "Inga stoppade"}
+          sub={cur?.blocked ? (cur.counts.priceBlocked ? "Exempelpris, saknat pris eller fel referens" : "Fel eller saknad beställarreferens") : "Inga stoppade"}
         />
         <Kpi
           className={AMOUNT_KPI}

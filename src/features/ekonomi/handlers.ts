@@ -11,7 +11,7 @@ import { loadDb } from "@/api/load";
 import type { Role } from "@/api/roles";
 import { ApiError, handleCommand, handleQuery, type Ctx } from "@/api/server";
 import {
-  BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceOfCase, isCreated, monthInvoices, reissueLines, reissueRound, unbilledOld,
+  BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceOfCase, isCreated, monthEnded, monthInvoices, reissueLines, reissueRound, unbilledOld,
   type BillingMonth, type InvoiceLineView, type MonthInvoice,
 } from "@/core/billing";
 import { CASE_NUMBER_RE, findCaseNumber, priceFor, priceItem } from "@/core/cases";
@@ -41,6 +41,20 @@ import {
 const BILLING: readonly Role[] = ["ekonom"];
 const NOT_FOUND = "Ärendet finns inte, eller så har du inte behörighet att se det.";
 const NO_INVOICE = "Fakturan finns inte för månaden.";
+
+/**
+ * Månaden är inte slut än (Stockholmstid): fakturan godkänns och faktureras först när sista dagen har passerat – annars hamnar
+ * resten av månadens veckor på en tilläggsfaktura. Kontrolleras på servern; knapparna är avstängda med samma förklaring.
+ */
+const monthOpenText = (month: MonthKey): string =>
+  `${cap(monthName(month))} är inte slut än. Fakturan kan godkännas och faktureras från den 1 ${monthName(addMonths(month, 1))}.`;
+
+/** Varför en stoppad faktura inte kan skapas: beställarreferensen, inköpsordernumret eller priserna (fakturans kontroller). */
+function blockedText(inv: MonthInvoice): string {
+  const stops = inv.checks.filter((c) => c.severity === "blocking");
+  if (stops.some((c) => c.kind === "buyer_ref") && stops.length === 1) return "Fakturan är stoppad. Fyll i en giltig beställarreferens först.";
+  return `Fakturan är stoppad. ${stops.map((c) => (c.kind === "buyer_ref" ? "Fyll i en giltig beställarreferens." : noteText(c.text))).join(" ")}`;
+}
 
 const BILLING_TABLES = ["cases", "activities", "attendance", "price_items", "buyer_references", "invoice_drafts", "billing_runs", "billing_week_approvals"] as const;
 
@@ -309,6 +323,7 @@ handleCommand(billingApproveInvoice, { roles: BILLING, commercial: true }, async
   const inv = findInvoice(bm, p.invoiceId);
   if (!inv) return fail("not_found", NO_INVOICE);
   if (inv.created) return fail("created", "Fakturan är redan skapad.");
+  if (!monthEnded(p.month, ctx.now())) return fail("month_open", monthOpenText(p.month));
   if (!inv.lines.length) return fail("empty", "Fakturan har inga rader.");
   if (inv.needsApproval) return fail("needs_approval", "Godkänn veckorna utan närvaro först.");
   await saveInvoice(ctx, b, db, inv, { status: "approved", approvedBy: ctx.actor.userId, approvedAt: ctx.now() });
@@ -377,8 +392,9 @@ handleCommand(billingMarkManual, { roles: BILLING, commercial: true }, async (ct
   const inv = findInvoice(bm, p.invoiceId);
   if (!inv) return fail("not_found", NO_INVOICE);
   if (inv.created) return fail("created", "Fakturan är redan skapad.");
-  // Referensen krävs också när fakturan registreras för hand (CLAUDE.md punkt 11).
-  if (inv.blocked) return fail("blocked", "Fakturan är stoppad. Fyll i en giltig beställarreferens först.");
+  if (!monthEnded(p.month, ctx.now())) return fail("month_open", monthOpenText(p.month));
+  // Referensen och priserna krävs också när fakturan registreras för hand (CLAUDE.md punkt 11).
+  if (inv.blocked) return fail("blocked", blockedText(inv));
   if (inv.needsApproval) return fail("needs_approval", "Godkänn veckorna utan närvaro först.");
   if (!inv.lines.length) return fail("empty", "Fakturan har inga rader.");
   // Raden i invoice_drafts skapas först (en faktura som ännu inte är sparad), sedan raderna och sist statusen.
@@ -555,7 +571,7 @@ handleQuery(ekoRun, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const month = p.month ?? currentRun(db)?.month ?? null;
   const rules = { weeks: [], notes: [], perContract: b.perContract, refLen: refLenText(b.cfg.billing), poText: poText(b.cfg.billing) };
   const empty: RunView = {
-    month: null, canAct: b.canAct, customerName: b.customer?.name ?? "", contractNumber: b.contract.contractNumber, runs: [], run: null, due: null, invoices: [], count: 0,
+    month: null, canAct: b.canAct, customerName: b.customer?.name ?? "", contractNumber: b.contract.contractNumber, runs: [], run: null, due: null, monthOpen: null, invoices: [], count: 0,
     totalOre: 0, weeks: 0, vatOre: 0, calendarWeeks: 0, rules, fortnoxRuns: [], fortnox: { connected: !fortnoxOff(ctx) }, priceSpan: null, refRules: b.refRules,
   };
   if (!month) return empty;
@@ -570,6 +586,7 @@ handleQuery(ekoRun, { roles: BILLING, commercial: true }, async (ctx, p) => {
   ]);
   return {
     ...empty, month, runs: runs.map((r) => ({ month: r.month, status: r.status })), run: run ? { status: run.status } : null,
+    monthOpen: monthEnded(month, ctx.now()) ? null : monthOpenText(month),
     due: run?.status === "draft" ? { at: dueAt, sla: pickSla(slaStatus(dueAt, null, b.env)), days } : null,
     invoices: bm.invoices.map((inv) => invoiceView(b, db, inv, tasks, credits)), count: bm.count, totalOre: bm.totalOre, weeks: bm.weeks,
     vatOre: sum(bm.invoices, (x) => x.vatOre), calendarWeeks: weeksOfMonth(month).length, rules: { ...rules, ...monthRules(month) },
@@ -720,7 +737,10 @@ handleQuery(ekoPriceList, { roles: BILLING, commercial: true }, async (ctx) => {
     items: items
       .slice()
       .sort(by((p) => `${p.areaCode ?? ""}:${p.validFrom}`))
-      .map((p) => ({ id: p.id, areaName: areaName(b.areas, p.areaCode), fortnoxArticleNo: p.fortnoxArticleNo, unit: p.unit, priceOre: p.priceOre, vatRate: p.vatRate, validFrom: p.validFrom, validTo: p.validTo })),
+      .map((p) => ({
+        id: p.id, areaName: areaName(b.areas, p.areaCode), fortnoxArticleNo: p.fortnoxArticleNo, unit: p.unit, priceOre: p.priceOre, vatRate: p.vatRate, validFrom: p.validFrom,
+        validTo: p.validTo, exampleOnly: p.exampleOnly,
+      })),
   };
 });
 
@@ -810,7 +830,9 @@ handleQuery(ekoStart, { roles: BILLING, commercial: true }, async (ctx) => {
       month: cur.month, status: cur.status, totalOre: bm.totalOre, invoices: bm.invoices.length, count: bm.count, weeks: bm.weeks, blocked: bm.blocked, due,
       dueRelative: cap(relative(due, ctx.now())), fortnoxDays: days, stepNow, perContract: b.perContract,
       counts: {
-        blocked: buckets.filter((x) => x === "blocked").length, zeroPending: zero.filter((z) => z.month === cur.month && !z.approved).length,
+        blocked: buckets.filter((x) => x === "blocked").length,
+        priceBlocked: bm.invoices.filter((x) => x.blocked && x.checks.some((ch) => ch.kind === "price")).length,
+        zeroPending: zero.filter((z) => z.month === cur.month && !z.approved).length,
         review: buckets.filter((x) => x === "review").length, ready: buckets.filter((x) => x === "ready").length,
       },
     };

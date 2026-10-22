@@ -80,18 +80,18 @@ insert into public.contract_areas (id, contract_id, code, name, active) values
 
 -- price_items (12)
 insert into public.price_items (id, contract_id, area_code, code, unit, package_months, price_ore, vat_rate, valid_from, valid_to, fortnox_article_no, example_only) values
-  ('pi-A', 'c-bot', 'A', 'vecka-A', 'participant_week', null, 152300, 25, '2026-09-10', '2027-09-09', 'BOT-A', true),
-  ('pi-B', 'c-bot', 'B', 'vecka-B', 'participant_week', null, 166800, 25, '2026-09-10', '2027-09-09', 'BOT-B', true),
-  ('pi-C', 'c-bot', 'C', 'vecka-C', 'participant_week', null, 159800, 25, '2026-09-10', '2027-09-09', 'BOT-C', true),
-  ('pi-D', 'c-bot', 'D', 'vecka-D', 'participant_week', null, 144500, 25, '2026-09-10', '2027-09-09', 'BOT-D', true),
-  ('pi-E', 'c-bot', 'E', 'vecka-E', 'participant_week', null, 156200, 25, '2026-09-10', '2027-09-09', 'BOT-E', true),
-  ('pi-F', 'c-bot', 'F', 'vecka-F', 'participant_week', null, 132300, 25, '2026-09-10', '2027-09-09', 'BOT-F', true),
-  ('pi-G', 'c-bot', 'G', 'vecka-G', 'participant_week', null, 139800, 25, '2026-09-10', '2027-09-09', 'BOT-G', true),
-  ('pi-H', 'c-bot', 'H', 'vecka-H', 'participant_week', null, 141200, 25, '2026-09-10', '2027-09-09', 'BOT-H', true),
-  ('pi-I', 'c-bot', 'I', 'vecka-I', 'participant_week', null, 147600, 25, '2026-09-10', '2027-09-09', 'BOT-I', true),
-  ('pi-J', 'c-bot', 'J', 'vecka-J', 'participant_week', null, 138900, 25, '2026-09-10', '2027-09-09', 'BOT-J', true),
-  ('pi-K', 'c-bot', 'K', 'vecka-K', 'participant_week', null, 153400, 25, '2026-09-10', '2027-09-09', 'BOT-K', true),
-  ('pi-L', 'c-bot', 'L', 'vecka-L', 'participant_week', null, 145000, 25, '2026-09-10', '2027-09-09', 'BOT-L', true);
+  ('pi-A', 'c-bot', 'A', 'vecka-A', 'participant_week', null, 152300, 25, '2026-09-10', '2027-09-09', 'BOT-A', false),
+  ('pi-B', 'c-bot', 'B', 'vecka-B', 'participant_week', null, 166800, 25, '2026-09-10', '2027-09-09', 'BOT-B', false),
+  ('pi-C', 'c-bot', 'C', 'vecka-C', 'participant_week', null, 159800, 25, '2026-09-10', '2027-09-09', 'BOT-C', false),
+  ('pi-D', 'c-bot', 'D', 'vecka-D', 'participant_week', null, 144500, 25, '2026-09-10', '2027-09-09', 'BOT-D', false),
+  ('pi-E', 'c-bot', 'E', 'vecka-E', 'participant_week', null, 156200, 25, '2026-09-10', '2027-09-09', 'BOT-E', false),
+  ('pi-F', 'c-bot', 'F', 'vecka-F', 'participant_week', null, 132300, 25, '2026-09-10', '2027-09-09', 'BOT-F', false),
+  ('pi-G', 'c-bot', 'G', 'vecka-G', 'participant_week', null, 139800, 25, '2026-09-10', '2027-09-09', 'BOT-G', false),
+  ('pi-H', 'c-bot', 'H', 'vecka-H', 'participant_week', null, 141200, 25, '2026-09-10', '2027-09-09', 'BOT-H', false),
+  ('pi-I', 'c-bot', 'I', 'vecka-I', 'participant_week', null, 147600, 25, '2026-09-10', '2027-09-09', 'BOT-I', false),
+  ('pi-J', 'c-bot', 'J', 'vecka-J', 'participant_week', null, 138900, 25, '2026-09-10', '2027-09-09', 'BOT-J', false),
+  ('pi-K', 'c-bot', 'K', 'vecka-K', 'participant_week', null, 153400, 25, '2026-09-10', '2027-09-09', 'BOT-K', false),
+  ('pi-L', 'c-bot', 'L', 'vecka-L', 'participant_week', null, 145000, 25, '2026-09-10', '2027-09-09', 'BOT-L', false);
 
 -- buyer_references (4)
 insert into public.buyer_references (id, customer_id, reference, unit, active, note) values

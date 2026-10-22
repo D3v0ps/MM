@@ -3,6 +3,8 @@
 // jobbkörning (cron varje minut och after()) om det saknas – samma id för hela tiominutersperioden gör att funktionen körs
 // högst var tionde minut. Två samtidiga körningar kan båda försöka lägga jobbet – den andra får ett dubblettfel som ignoreras.
 // Funktionen är idempotent, så ett nytt försök efter ett fel skapar bara det som fattas.
+// Samma jobb skapar också månadens fakturakörning när månaden är slut (ensureBillingRuns, src/features/ekonomi/ensure-runs.ts)
+// – med samma klocka och samma golv. Också den är idempotent.
 //
 // Var körningarna har kommit sparas i app_settings och läses utan cache när jobbet körs (reportScheduleState):
 //   report_schedule_checked:<avtal>  högvattenmärket – appens klocka vid den senaste körningen där hela avtalet gicks igenom
@@ -16,6 +18,7 @@ import type { LocalDateTime } from "@/core/time";
 import type { Repo } from "@/data/repo";
 import type { Job } from "@/data/schema";
 import { DataError, type PgError } from "@/data/supabase/repo";
+import { ensureBillingRuns } from "@/features/ekonomi/ensure-runs";
 import { ensureReports, type ReportScheduleState } from "@/features/rapporter/ensure";
 import { parseDemoEpoch, type ClockSettings } from "../clock";
 import { JobError } from "./errors";
@@ -79,14 +82,18 @@ export function reportScheduleState(db: AppSettingsClient, rows: readonly { key:
 /** Det jobbet behöver: en Ctx för systemsteg (service role, appens klocka) och läget. Byggs först när jobbet körs. */
 export type ReportDeps = { reportSchedule?: () => Promise<{ ctx: Ctx; state: ReportScheduleState }> };
 
-/** Jobbet: kör ensureReports. Utfallet är "created" eller "none" – inga id:n eller namn. */
+/**
+ * Jobbet: kör ensureReports och sedan ensureBillingRuns (månadens fakturakörning). Utfallet är "created" (något skapades)
+ * eller "none" – inga id:n eller namn.
+ */
 export function reportScheduleHandler<D extends ReportDeps>(): JobHandler<D> {
   return {
     async run(_job, d) {
       if (!d.reportSchedule) throw new JobError("Rapportutkasten kan inte skapas här", { retryable: false });
       const { ctx, state } = await d.reportSchedule();
       const res = await ensureReports(ctx, state);
-      return res.created.length ? "created" : "none";
+      const runs = await ensureBillingRuns(ctx, { floor: state.floor });
+      return res.created.length || runs.created.length ? "created" : "none";
     },
   };
 }
