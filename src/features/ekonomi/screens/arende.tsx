@@ -151,7 +151,13 @@ function Arende({ v, crumbs }: { v: CaseBillingView; crumbs: { label: string; to
                   {v.name}
                 </span>,
               ],
-              ["Avtalsområde", `${v.areaName} · artikel ${v.articleNo} · ${kr(v.priceOre)} per vecka`],
+              [v.currentArea ? "Avtalsområde vid start" : "Avtalsområde", `${v.areaName} · artikel ${v.articleNo} · ${kr(v.priceOre)} per vecka`],
+              ...(v.currentArea
+                ? [[
+                    `Avtalsområde i ${monthName(v.currentArea.month)}`,
+                    `${v.currentArea.areaName} · artikel ${v.currentArea.articleNo} · ${kr(v.currentArea.priceOre)} per vecka`,
+                  ] as [string, ReactNode]]
+                : []),
               ...(v.areaChanges.length
                 ? [[
                     "Byte av yrkesområde",

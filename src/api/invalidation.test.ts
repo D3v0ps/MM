@@ -120,7 +120,7 @@ const WRITES: Record<string, string[]> = {
   "arenden.noteRemove": ["case_notes", AUDIT_CASE, AUDIT], "arenden.visaPersonnummer": [AUDIT_CASE, AUDIT],
   "coach.attendanceSet": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.attendanceSetAll": ["attendance", "reports", "outbound_messages", AUDIT_CASE, AUDIT],
-  "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", AUDIT_CASE, AUDIT],
+  "coach.checkinSave": ["check_ins", "cases", "ai_field_decisions", "ai_runs", "deviations", "tasks", "monthly_assessments", "monthly_plans", AUDIT_CASE, AUDIT],
   "coach.deviationSave": ["deviations", "tasks", AUDIT_CASE, AUDIT], "coach.deviationCallCustomer": ["deviations", "messages", "outbound_messages", AUDIT_CASE, AUDIT],
   "coach.assessmentSave": ["monthly_assessments", "monthly_plans", "reports", AUDIT_CASE, AUDIT], "coach.intakeSave": ["intake_assessments", "cases", AUDIT_CASE, AUDIT],
   "coach.eventAdd": ["outcome_events", "audit_log:event", AUDIT_CASE, AUDIT], "coach.resultVerify": ["cases", "outcome_events", AUDIT_CASE, AUDIT],
@@ -239,6 +239,9 @@ const KNOWN: Known[] = [
   // Gruppaktiviteternas formulär (2026-10-09): deltagarna att bjuda in hämtas färskt varje gång formuläret öppnas (useQueryRunner,
   // ingen cache) och servern prövar varje inbjudan igen (not_invitable) – en ändring av ett ärende behöver inte räkna om något.
   { command: "*", query: "aktiviteter.form", table: "cases", reason: "formuläret hämtar deltagarna utan cache när det öppnas; inbjudan prövas av servern" },
+  // Aktivitetsvyn läser ärendena för namn och ärendenummer och för om deltagaren hör till målgruppen (då visas inte Ta bort). Ett
+  // kommando som ändrar ärendets nivå eller yrkesområde räknar om aktiviteter. (GRUPPER/AKTIVITETER); servern prövar Ta bort igen.
+  { command: "*", query: "aktiviteter.visa", table: "cases", reason: "målgruppens Ta bort prövas av servern (audience); nivå- och yrkesområdesbyten räknar om aktiviteter." },
   // Nivåerna, yrkesområdena och Grupper-sidan räknas om av alla kommandon som ändrar ett ärende (GRUPPER i CASE_FACTS, Karims
   // beslut 2026-10-22) – de tidigare undantagen för grupper.* och formulärets nivåer behövs inte längre.
 ];

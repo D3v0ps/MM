@@ -7,7 +7,8 @@
 // Läser via den repo som anroparen ger: ctx.repo (coachen – behörigheten gäller) eller ctx.system (jobbet).
 import { attendanceStats } from "@/core/attendance";
 import type { OperationalConfig } from "@/core/config";
-import { prefillAssessment, previousMonth, type PlanFields, type Prefill } from "@/core/monthly-prefill";
+import type { Ctx } from "@/api/server";
+import { prefillAssessment, previousMonth, refreshPrefill, type PlanFields, type Prefill } from "@/core/monthly-prefill";
 import { monthEnd, type LocalDateTime, type MonthKey } from "@/core/time";
 import type { AppRepo, Case, MonthlyAssessment, MonthlyPlan } from "@/data/schema";
 
@@ -22,6 +23,27 @@ export async function loadPrefill(repo: AppRepo, c: Pick<Case, "id">, month: Mon
   ]);
   const att = attendanceStats({ activities, attendance }, c.id, `${month}-01`, monthEnd(month), { now });
   return prefillAssessment({ month, areaKeys: cfg.progression.areas, checkIns, attendance: att, previousPlan: prev ?? null });
+}
+
+/**
+ * Förifyllnaden hålls aktuell (refreshPrefill i src/core/monthly-prefill.ts) efter att en mötesrapport i månaden godkänts: ett
+ * utkast som finns får de automatiskt märkta fältens nya värden. Villkorat på version och status – en samtidig sparning eller ett
+ * godkännande vinner. Raden får en ny version (ett öppet formulär får "ändrats i en annan flik" i stället för att skriva över).
+ * Läser och skriver via ctx.repo (coachen som godkände mötesrapporten). Revisionsloggen: ärendet, månaden och mötesrapporten.
+ */
+export async function refreshMonthlyPrefill(ctx: Ctx, c: Pick<Case, "id" | "contractId">, month: MonthKey, cfg: Pick<OperationalConfig, "progression">, checkInId: string): Promise<boolean> {
+  const table = ctx.repo.table("monthly_assessments");
+  const ma = await table.first({ caseId: c.id, month });
+  if (!ma || ma.status !== "draft") return false;
+  const plans = ctx.repo.table("monthly_plans");
+  const plan = await plans.first({ caseId: c.id, month });
+  const fresh = await loadPrefill(ctx.repo, c, month, cfg, ctx.now());
+  const r = refreshPrefill({ summary: ma.summary, overallStatus: ma.overallStatus, prefill: ma.prefill ?? {} }, plan && plan.status !== "approved" ? plan : null, fresh);
+  if (!r.changed) return false;
+  if (!(await table.updateIf(ma.id, { version: ma.version, status: "draft" }, { ...r.assessment, version: ma.version + 1 }))) return false;
+  if (plan && r.plan) await plans.update(plan.id, r.plan);
+  await ctx.audit({ action: "assessment.prefill_refreshed", entity: "monthly_assessment", entityId: ma.id, contractId: c.contractId, details: { caseId: c.id, month, checkInId, automatic: true } });
+  return true;
 }
 
 /** Den förifyllda månadsbedömningen (utkast). */

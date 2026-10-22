@@ -14,7 +14,7 @@ import {
   BILLED_STATUSES, billableWeeks, billingLines, findInvoice, fortnoxKeyOf, fortnoxNumber, invoiceOfCase, isCreated, monthEnded, monthInvoices, reissueLines, reissueRound, unbilledOld,
   type BillingMonth, type InvoiceLineView, type MonthInvoice,
 } from "@/core/billing";
-import { areaForMonth } from "@/core/area-changes";
+import { areaForMonth, inOrder } from "@/core/area-changes";
 import { CASE_NUMBER_RE, findCaseNumber, priceFor, priceItem } from "@/core/cases";
 import { bytesToBase64 } from "@/core/export/base64";
 import { XLSX_MIME } from "@/core/export/xlsx";
@@ -707,10 +707,17 @@ handleQuery(ekoCase, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const weeks = billableWeeks(c, db, b.env);
   const priceDate = c.startDate || today;
   // Byt yrkesområde (Karims beslut 2026-10-22): yrkesområdet som gällde månaden priset avser; bytena visas i en egen rad.
-  const changes = db.case_area_changes.filter((x) => x.caseId === c.id).sort((a, x) => (a.changedAt < x.changedAt ? -1 : 1));
+  const changes = inOrder(db.case_area_changes.filter((x) => x.caseId === c.id));
   const priceArea = areaForMonth(c, changes, monthKey(priceDate));
   const price = priceFor(db.price_items, priceArea, priceDate, c.contractId);
   const item = priceItem(db.price_items, priceArea, priceDate, c.contractId);
+  // Efter ett byte: det som faktureras nu (innevarande månad, eller sista månaden för en avslutad insats) – raden ovan är då "vid start".
+  const nowMk = monthKey(c.endDate && c.endDate < today ? c.endDate : today);
+  const nowArea = changes.length ? areaForMonth(c, changes, nowMk) : priceArea;
+  const nowDate = `${nowMk}-01` > priceDate ? `${nowMk}-01` : priceDate;
+  const currentArea = nowArea !== priceArea
+    ? { areaName: areaName(b.areas, nowArea), articleNo: priceItem(db.price_items, nowArea, nowDate, c.contractId)?.fortnoxArticleNo || "–", priceOre: priceFor(db.price_items, nowArea, nowDate, c.contractId), month: nowMk }
+    : null;
   const led = caseLedger(c, db, b.env);
   const curMk = monthKey(today);
   const runMonths = new Set(db.billing_runs.map((r) => r.month));
@@ -734,7 +741,7 @@ handleQuery(ekoCase, { roles: BILLING, commercial: true }, async (ctx, p) => {
   const qa = (t: { qty: number; amountOre: number }) => ({ qty: t.qty, amountOre: t.amountOre });
   return {
     canAct: b.canAct, caseId: c.id, caseNumber: c.caseNumber, name: "–", areaName: areaName(b.areas, priceArea), articleNo: item?.fortnoxArticleNo || "–",
-    areaChanges: changes.map((x) => ({ fromArea: x.fromArea, toArea: x.toArea, effectiveMonth: x.effectiveMonth, changedAt: x.changedAt })),
+    areaChanges: changes.map((x) => ({ fromArea: x.fromArea, toArea: x.toArea, effectiveMonth: x.effectiveMonth, changedAt: x.changedAt })), currentArea,
     priceOre: price, status: c.status, startDate: c.startDate, endDate: c.endDate, plannedEnd: c.plannedEnd, pausedWeeks: c.pausedWeeks, caseBuyerReference: c.buyerReference,
     referredAt: c.referredAt, referrerId: c.referrerId, orderWeeks: c.orderValueWeeks || c.plannedWeeks || 0, accrued: qa(tally(led)),
     billed: qa(tally(led.filter((x) => x.kind === "billed"))), returned: qa(tally(led.filter((x) => x.kind === "returned"))),

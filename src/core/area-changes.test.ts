@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { CaseAreaChange } from "@/data/schema";
-import { areaChangeProblem, areaChangesByCase, areaForMonth, effectiveMonthOf } from "./area-changes";
+import { areaChangeProblem, areaChangesByCase, areaForMonth, effectiveMonthOf, inOrder, nextAreaChangeSeq } from "./area-changes";
 
 const c = { id: "case-1", primaryAreaCode: "C" };
-const change = (id: string, fromArea: string, toArea: string, changedAt: string, caseId = "case-1"): CaseAreaChange => ({
-  id, contractId: "c-bot", caseId, fromArea, toArea, effectiveMonth: effectiveMonthOf(changedAt), changedBy: "u-amira", changedAt, noteId: `note-${id}`,
+const change = (id: string, fromArea: string, toArea: string, changedAt: string, caseId = "case-1", seq = Number(id.replace(/\D/g, "")) || 1): CaseAreaChange => ({
+  id, contractId: "c-bot", caseId, fromArea, toArea, effectiveMonth: effectiveMonthOf(changedAt), changedBy: "u-amira", changedAt, noteId: `note-${id}`, seq,
 });
 
 describe("effectiveMonthOf: månaden efter bytet", () => {
@@ -41,6 +41,18 @@ describe("areaForMonth: yrkesområdet som fakturan räknas på", () => {
     const xs = [change("ch1", "A", "C", "2026-10-05T09:00"), change("ch2", "C", "G", "2026-10-20T09:00")];
     expect(areaForMonth(c, xs, "2026-10")).toBe("A");
     expect(areaForMonth(c, xs, "2026-11")).toBe("G");
+  });
+
+  it("två byten samma minut (G → D, sedan rättat D → H): ordningen är bytets nummer, aldrig id:t – fakturan på H", () => {
+    // I produktionen är id:t slumpat (cac-<uuid>): det rättade bytet kan ha ett id som sorteras före det första.
+    const at = "2026-10-22T10:15";
+    const xs = [change("cac-ffff", "G", "D", at, "case-1", 1), change("cac-0000", "D", "H", at, "case-1", 2)];
+    expect(inOrder(xs).map((x) => x.toArea)).toEqual(["D", "H"]);
+    expect(areaForMonth({ id: "case-1", primaryAreaCode: "H" }, xs, "2026-11")).toBe("H");
+    expect(areaForMonth({ id: "case-1", primaryAreaCode: "H" }, [...xs].reverse(), "2026-11")).toBe("H");
+    expect(areaForMonth({ id: "case-1", primaryAreaCode: "H" }, xs, "2026-10")).toBe("G");
+    expect(nextAreaChangeSeq(xs)).toBe(3);
+    expect(nextAreaChangeSeq([])).toBe(1);
   });
 
   it("bara ärendets egna byten räknas", () => {

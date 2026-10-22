@@ -11,7 +11,8 @@
 // Bara Miljonbemanning – aldrig kommunen eller ekonomen (rutten och frågan). Inget raderas. Allt är internt.
 import { useState } from "react";
 import { plural } from "@/core/format";
-import { addWorkingDays, dayOf, fmtDateTimeLong, monthName, nthWorkingDay, type MonthKey } from "@/core/time";
+import { planMeetingDay } from "@/core/audience";
+import { fmtDateTimeLong, monthName } from "@/core/time";
 import { useCommand, useQuery } from "@/shell/backend";
 import type { ScreenProps } from "@/shell/routes";
 import { Link } from "@/shell/nav";
@@ -46,12 +47,6 @@ export function GrupperScreen({ query }: ScreenProps) {
 
 type Dialog = { mode: "rename"; g: GroupingOption } | { mode: "new-tag"; category: string | null } | { mode: "level"; member: OverviewMember; levelId: string };
 
-/** Planera: en dag i månaden att börja med i Ny aktivitet (i morgon i den här månaden, annars tionde arbetsdagen). */
-function planDay(month: MonthKey, today: string): string {
-  const tomorrow = addWorkingDays(today, 1);
-  if (dayOf(tomorrow).slice(0, 7) === month) return tomorrow;
-  return nthWorkingDay(month, 10);
-}
 
 function Overview({ v }: { v: GroupingOverview }) {
   const patch = useQueryPatch();
@@ -118,7 +113,9 @@ function Overview({ v }: { v: GroupingOverview }) {
             <li key={a.code} className="flex flex-col gap-1.5 border-b border-ljusgra py-3 last:border-b-0" data-testid="yrkesomrade">
               <Row between>
                 <span className="font-bold">{a.name}</span>
-                <span className="text-body text-text-muted">{plural(a.active, "aktiv deltagare", "aktiva deltagare")}</span>
+                <span className="text-body text-text-muted">
+                  {[plural(a.active, "aktiv deltagare", "aktiva deltagare"), a.paused ? `${a.paused} pausad${a.paused === 1 ? "" : "e"}` : "", a.waiting ? `${a.waiting} väntar på start` : ""].filter(Boolean).join(" · ")}
+                </span>
               </Row>
               {a.meetings.map((m) => (
                 <div key={m.month} className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -135,8 +132,8 @@ function Overview({ v }: { v: GroupingOverview }) {
                         <Badge tone="outline" icon="circle">Ingen träff</Badge>
                         Ingen träff planerad i {monthName(m.month)}
                       </span>
-                      {v.canPlan && (
-                        <Button kind="ghost" icon="plus" to={`/aktiviteter/ny?omrade=${encodeURIComponent(a.code)}&datum=${planDay(m.month, v.today)}`}>
+                      {v.canPlan && planMeetingDay(m.month, v.today) && (
+                        <Button kind="ghost" icon="plus" to={`/aktiviteter/ny?omrade=${encodeURIComponent(a.code)}&datum=${planMeetingDay(m.month, v.today)}`}>
                           Planera<span className="sr-only"> en träff för {a.name} i {monthName(m.month)}</span>
                         </Button>
                       )}

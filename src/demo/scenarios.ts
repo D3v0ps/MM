@@ -1,5 +1,6 @@
 // Testscenarierna – exakt port av den gamla prototypens MM.scenarios() (prototyp/src/90-feedback.js), plus scenario s14
-// "Röstinspelning" (nytt, beslut 2026-09-30) sist i listan.
+// "Röstinspelning" (nytt, beslut 2026-09-30) och sist s15 "Byt yrkesområde" och s16 "Fem nivåer och nivåaktiviteter" (Karims
+// beslut 2026-10-22).
 // Varje steg byter roll och öppnar en vy. Vyn anges som i den gamla prototypen (vy-id + parametrar) och översätts
 // till sökväg med pathForView (src/demo/paths.ts). Ärenden refereras med taggar i testdatat (demo_tags),
 // som slås upp med frågan demo.refs när steget öppnas – så att t.ex. Nadias januarirapport hittas även om den
@@ -63,7 +64,7 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   { id: "s7", title: "Månadsbedömning till kommunen", lead: "Progression per område enligt mall 02. Rapporten byggs bara av godkända uppgifter.", steps: [
     { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Öppna januaribedömningen för Nadia Warsame. Allt är ifyllt automatiskt: progressionsnivå 0 där inget belägg finns, AI-förslag med citat och källa, samlad status från senaste mötesrapporten, sammanfattning och plan." },
-    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Godta AI-förslagen som stämmer (eller Godta alla) och ändra det som inte stämmer. Utan konkret observation från nivå 1 stoppas godkännandet – mallen kräver belägg. Kryssa i Jag har gått igenom bedömningen och godkänn." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Godta AI-förslagen som stämmer (eller Godta alla) och ändra det som inte stämmer. Utan konkret observation från progressionsnivå 1 stoppas godkännandet – mallen kräver belägg. Kryssa i Jag har gått igenom bedömningen och godkänn." },
     { role: "coach", view: "rapport.visa", params: (r) => ({ reportId: reportOf(r, "nadia", "monthly", "2027-01") }), text: "Förhandsgranska månadsrapporten (avsnitt 1–8). Den bygger bara på godkända uppgifter. Godkänn och leverera till kommunen." },
     { role: "kommun_handlaggare", view: "kom.rapporter", params: {}, text: "Byt till kundens perspektiv och öppna rapporten. Den kvitteras som läst." },
   ] },
@@ -104,18 +105,25 @@ export const SCENARIOS: readonly Scenario[] = [
   ] },
   // Nytt (finns inte i den gamla prototypen): röstinspelningen, beslut 2026-09-30 (docs/PLAN-ROST.md). Deltagarens sida fanns
   // inte i den gamla prototypen och har därför sökvägen som vy ("/rost").
-  { id: "s15", title: "Byt yrkesområde", lead: "Huvudcoachen byter deltagarens yrkesområde med en kort motivering. Yrkesområdet är deltagarens grupp: inbjudningarna följer direkt. Fakturan räknas på det nya yrkesområdet från månaden efter.", steps: [
-    { role: "coach", view: "arende.kort", params: { caseId: "case-260163" }, text: "Öppna Linnea Olssons deltagarkort. Hon bytte från G till D den 27 januari – motiveringen står som anteckning, och hon är inbjuden till D:s yrkesområdesträff i mars. Prova Byt yrkesområde på ett annat ärende: deltagaren bjuds in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas." },
-    { role: "coach", view: "/grupper", params: {}, text: "Grupper och nivåer: yrkesområdena räknar deltagarna efter ärendets yrkesområde just nu, med månadens träff. Nivåaktiviteterna följer nivån och påverkas inte av bytet." },
-    { role: "ekonom", view: "eko.arende", params: { caseId: "case-260163" }, text: "Byt till ekonomen. Januari faktureras på G och februari på D – bytet gäller från månaden efter." },
-  ] },
   { id: "s14", title: "Röstinspelning", lead: "Coachen spelar in mötet, kommunen talar in och deltagaren spelar in på sitt språk. AI föreslår – människan bedömer. Inget ljud sparas.", steps: [
     { role: "coach", view: "coach.avstamning", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Välj Med AI-stöd och Spela in mötet (i prototypen: Simulera en inspelning). Pausa, fortsätt och stoppa. Ljudet laddas upp, transkriberas och raderas direkt. Förslagen har belägg – samlad status väljer du själv." },
     { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "nadia") }), text: "Nadia har spelat in ett röstmeddelande på somaliska. Läs den svenska översättningen, visa originaltexten och markera det som granskat. Skicka en ny inspelningslänk – utskicket innehåller inga personuppgifter." },
     { role: "deltagare", view: "/rost", params: {}, text: "Byt till deltagarens perspektiv: länken utan inloggning (arabiska som förval). Byt språk, ge samtycke, spela in och skicka." },
     { role: "coach", view: "coach.minvecka", params: {}, text: "Tillbaka som coach: det nya röstmeddelandet väntar på granskning på Min vecka. Använd texten som underlag i nästa möte." },
     { role: "kommun_handlaggare", view: "kom.bestall", params: {}, text: "Som handläggare: beställ en insats och tala in bakgrunden i stället för att skriva (steg 3). Texten hamnar i fältet och inget ljud sparas." },
-    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa nytt AI-utkast från godkända mötesrapporter. Utkasten har källor och bygger aldrig på råtranskript – AI föreslår nivå bara med ett citat, du godtar eller väljer själv." },
+    { role: "coach", view: "coach.manad", params: (r) => ({ caseId: sc(r, "nadia"), month: "2027-01" }), text: "Skapa nytt AI-utkast från godkända mötesrapporter. Utkasten har källor och bygger aldrig på råtranskript – AI föreslår progressionsnivå bara med ett citat, du godtar eller väljer själv." },
+  ] },
+  { id: "s15", title: "Byt yrkesområde", lead: "Huvudcoachen byter deltagarens yrkesområde med en kort motivering. Yrkesområdet är deltagarens grupp: inbjudningarna följer direkt. Fakturan räknas på det nya yrkesområdet från månaden efter.", steps: [
+    { role: "coach", view: "arende.kort", params: { caseId: "case-260163" }, text: "Öppna Linnea Olssons deltagarkort. Hon bytte från G till D den 27 januari – motiveringen står som anteckning, och hon är inbjuden till D:s yrkesområdesträff i mars. Prova Byt yrkesområde på ett annat ärende: deltagaren bjuds in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas." },
+    { role: "coach", view: "/grupper", params: {}, text: "Grupper och nivåer: yrkesområdena räknar deltagarna efter ärendets yrkesområde just nu, med månadens träff. Nivåaktiviteterna följer nivån och påverkas inte av bytet." },
+    { role: "ekonom", view: "eko.arende", params: { caseId: "case-260163" }, text: "Byt till ekonomen. Januari faktureras på G och februari på D – bytet gäller från månaden efter." },
+  ] },
+  // Karims beslut 2026-10-22: fem nivåer, Höj nivå och nivåaktiviteter som återkommer varje vecka.
+  { id: "s16", title: "Fem nivåer och nivåaktiviteter", lead: "Varje deltagare är på exakt en av fem nivåer. Nivån väljs i kartläggningen och höjs när deltagaren utvecklas. Nivåaktiviteterna återkommer varje vecka och bjuder in nivåns deltagare automatiskt.", steps: [
+    { role: "coach", view: "/grupper", params: {}, text: "Grupper och nivåer: de fem nivåerna med deltagarna och nivåns återkommande aktiviteter. Längst ned står Utan nivå – att kartlägga: de som ännu saknar nivå." },
+    { role: "coach", view: "coach.kartlaggning", params: (r) => ({ caseId: sc(r, "amal") }), text: "Amal saknar nivå. Välj nivå i kortet Nivå och yrkesområde längst ned – nivån krävs innan kartläggningen kan godkännas. Hon bjuds in till nivåns kommande aktiviteter direkt." },
+    { role: "coach", view: "arende.kort", params: (r) => ({ caseId: sc(r, "mehmet") }), text: "Mehmet är på nivå 3. Tryck Ändra i kortets huvud och sedan Höj nivå: han bjuds in till nivå 4:s kommande aktiviteter och tas bort ur nivå 3:s." },
+    { role: "coach", view: "/aktiviteter/ny?niva=grp-c-bot-niva-2&upprepa=1", params: {}, text: "Ny nivåaktivitet med Upprepa varje vecka: välj veckodagar och tid. Tillfällena skapas två veckor framåt och nivåns deltagare bjuds in automatiskt – också den som får nivån senare. Planera på Grupper och nivåer gör samma sak för månadens yrkesområdesträff." },
   ] },
 ];
 

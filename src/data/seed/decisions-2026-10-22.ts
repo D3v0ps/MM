@@ -29,7 +29,7 @@ const ASSESS_MONTH = "2027-01";
 export const SEED_AREA_CHANGES: readonly CaseAreaChange[] = [
   {
     id: "cac-seed-linnea", contractId: "c-bot", caseId: "case-260163", fromArea: "G", toArea: "D", effectiveMonth: "2027-02", changedBy: "u-amira",
-    changedAt: "2027-01-27T14:10", noteId: "note-byte-linnea",
+    changedAt: "2027-01-27T14:10", noteId: "note-byte-linnea", seq: 1,
   },
 ];
 /** Ärendets alternativa yrkesområde före bytet (det blev det nya). */

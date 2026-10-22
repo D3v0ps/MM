@@ -7,13 +7,15 @@
 //   * yrkesområde:  ärendets yrkesområde (cases.primaryAreaCode) är målgruppens avtalsområde
 //   * och insatsen pågår den dagen (inviteBlock i src/core/group-activities.ts: status active, startad, inte slutad, ingen
 //     uppehållsvecka). Bekräftade ärenden som inte har startat, pausade, avslutade och avböjda hör inte till målgruppen.
+//   * och personen har inte skyddade personuppgifter (vilande spärr, CLAUDE.md punkt 8): en skyddad deltagare bjuds aldrig in
+//     automatiskt – bara för hand av huvudcoachen eller avtalsansvarig, som förut. Kolumnen är alltid false i dag.
 // Synkningen (planAudienceSync): de som hör till målgruppen och saknar en rad bjuds in (källan audience) – utom den som redan har
 // ett annat tillfälle vid samma tid (hoppas över; deltagarens egna tillfällen ersätts aldrig automatiskt). Rader som målgruppen
 // bjöd in och som inte längre hör till (ny nivå, nytt yrkesområde, avslutad eller pausad insats) tas bort – men bara utan
 // registrerad närvaro. Manuellt inbjudna (källan manual) rörs aldrig.
 import type { AreaCode, GroupAudience, InviteSource, LocalDateTime } from "@/data/schema";
 import { inviteBlock, overlaps, type InviteCase } from "./group-activities";
-import { dayOf } from "./time";
+import { addWorkingDays, dayOf, nthWorkingDay, type MonthKey } from "./time";
 
 export type Audience = { kind: "level"; levelId: string } | { kind: "area"; areaCode: AreaCode };
 type AudienceColumns = { audience: GroupAudience; audienceLevelId: string | null; audienceAreaCode: AreaCode | null };
@@ -42,17 +44,17 @@ export function audienceLabel(a: Audience, names: { level?: string | null; area?
   return `Yrkesområde ${names.area ? areaLabel(a.areaCode, names.area) : a.areaCode}`;
 }
 
-/** Ett ärende som synkningen prövar. */
-export type AudienceCase = InviteCase & { id: string; caseNumber: string; primaryAreaCode: AreaCode | null };
+/** Ett ärende som synkningen prövar. protectedIdentity: personen har skyddade personuppgifter (vilande spärr – alltid false i dag). */
+export type AudienceCase = InviteCase & { id: string; caseNumber: string; primaryAreaCode: AreaCode | null; protectedIdentity?: boolean };
 
 /** Ärendet hör till målgruppen (oavsett dag): nivån eller yrkesområdet stämmer. levelOf: ärende -> aktiv nivå (grouping id). */
 export function inAudience(a: Audience, c: Pick<AudienceCase, "id" | "primaryAreaCode">, levelOf: ReadonlyMap<string, string>): boolean {
   return a.kind === "level" ? levelOf.get(c.id) === a.levelId : c.primaryAreaCode === a.areaCode;
 }
 
-/** Ärendet hör till målgruppen och kan vara med den dagen (insatsen pågår). */
+/** Ärendet hör till målgruppen och kan vara med den dagen (insatsen pågår, inga skyddade personuppgifter). */
 export function belongsOn(a: Audience, c: AudienceCase, levelOf: ReadonlyMap<string, string>, day: string): boolean {
-  return inAudience(a, c, levelOf) && inviteBlock(c, day) === null;
+  return !c.protectedIdentity && inAudience(a, c, levelOf) && inviteBlock(c, day) === null;
 }
 
 /** De som hör till målgruppen den dagen, i ärendenummerordning (formulärets antal "N deltagare just nu"). */
@@ -104,4 +106,19 @@ export function planAudienceSync(input: {
     if (!c || !belongsOn(g.audience, c, levelOf, day)) plan.remove.push(r);
   }
   return plan;
+}
+
+/**
+ * Planera en yrkesområdesträff (Grupper och nivåer): dagen som Ny aktivitet börjar med. Den här månaden: nästa arbetsdag om den
+ * ligger kvar i månaden, annars null – inga arbetsdagar återstår och Planera visas bara för nästa månad (formuläret skulle annars
+ * öppnas med ett datum i nästa månad). En senare månad: tionde arbetsdagen. today: dagens datum (YYYY-MM-DD).
+ */
+export function planMeetingDay(month: MonthKey, today: string): string | null {
+  const thisMonth = dayOf(today).slice(0, 7);
+  if (month < thisMonth) return null;
+  if (month === thisMonth) {
+    const next = addWorkingDays(dayOf(today), 1);
+    return dayOf(next).slice(0, 7) === month ? dayOf(next) : null;
+  }
+  return nthWorkingDay(month, 10);
 }

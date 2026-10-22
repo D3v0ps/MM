@@ -1,6 +1,6 @@
 // Hanterare för området coach (frågor och kommandon). Registreras via src/api/handlers.ts – importeras aldrig av skärmar.
 import { fail, ok } from "@/api/contract";
-import { AI_OFF_TEXT, aiOff } from "@/features/_shared/ai-port";
+import { AI_OFF_TEXT, aiOff, areaChangeNoteIds } from "@/features/_shared/ai-port";
 import type { Role } from "@/api/roles";
 import { handleCommand, type Ctx } from "@/api/server";
 import { aiAllowed } from "@/core/cases";
@@ -14,7 +14,7 @@ import type { Activity, AiRun, AiRunKind, Attendance, Case, CheckIn, CheckInAiDr
 import { simulateCheckInSuggestions, simulatedTranscript, type AiSource, type CheckInSuggestions } from "../_shared/ai-sim";
 import { canEditCase, contractOf, customerDecisionTask, notifyReferrer, upsert } from "../_shared/context";
 import { blankArea, newAssessment, newCheckIn, newIntake, newPlan } from "../_shared/rows";
-import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId } from "../_shared/monthly-prefill";
+import { loadPrefill, prefillAssessmentId, prefilledPlan, prefillPlanId, refreshMonthlyPrefill } from "../_shared/monthly-prefill";
 import { approvalCounts, keptPrefill, levelSourceOf, missingAreas, nextLevelSource, withAutoAreas } from "@/core/monthly-prefill";
 import {
   aiRun, assessmentSave, attendanceSet, attendanceSetAll, checkinSave, deviationCallCustomer, deviationSave, eventAdd, intakeSave, NOT_REVIEWED_TEXT, resultVerify,
@@ -50,7 +50,9 @@ const ASSESSMENT_APPROVED = "Bedömningen är redan godkänd och ändras inte. E
 type AutosaveParams = { autosave?: boolean; editSession?: string };
 /**
  * Versionskontrollen (0022, två flikar): expectedVersion är versionen skärmen senast såg eller sparade. Stämmer den inte
- * med radens har någon annan sparat sedan dess – "conflict", inget skrivs över. Utan expectedVersion ingen kontroll.
+ * med radens har någon annan sparat sedan dess – "conflict", inget skrivs över. 0 = skärmen visade en sida utan rad (t.ex. den
+ * förifyllda månadsbedömningen): finns raden nu har jobbet eller en annan flik skapat den – också "conflict". Utan
+ * expectedVersion ingen kontroll.
  */
 const versionMismatch = (existing: { version: number } | null, expected: number | undefined): boolean => !!existing && expected != null && existing.version !== expected;
 /**
@@ -290,6 +292,12 @@ handleCommand(checkinSave, { roles: ["coach"] }, async (ctx, p) => {
     if (dv.needsCustomerDecision && !p.autosave) await customerDecisionTask(ctx, c, dv);
   }
   await auditSave(ctx, { action: p.approve ? "check_in.approved" : "check_in.saved", entity: "check_in", entityId: ci.id, contractId: c.contractId, details: { caseId: c.id, aiUsed: !!ci.ai } }, p);
+  // Månadsbedömningens förifyllnad hålls aktuell (Karims beslut 2026-10-22): godkänns en mötesrapport i en månad som redan har
+  // ett förifyllt utkast får de automatiskt märkta fälten (samlad status, sammanfattningen, mål 1) den nya mötesrapporten.
+  if (p.approve) {
+    const { cfg } = await contractOf(ctx, c.contractId);
+    await refreshMonthlyPrefill(ctx, c, monthKey(ci.heldAt), cfg, ci.id);
+  }
   return ok({ checkInId: ci.id, deviationId, rawTranscriptDeletedAt: ci.ai?.rawTranscriptDeletedAt ?? null, savedAt: now, version: ci.version });
 });
 
@@ -347,10 +355,12 @@ handleCommand(assessmentSave, { roles: ["coach"] }, async (ctx, p) => {
   if (!(await canEditCase(ctx, c))) return fail("forbidden", NO_EDIT);
   const { cfg } = await contractOf(ctx, c.contractId);
   // Anteckningar som lagts in i sammanfattningen: läsbara via ctx.repo, samma ärende, från månaden och inte borttagna.
+  // Motiveringen till ett byte av yrkesområde är intern och går aldrig in i sammanfattningen (kommunens månadsrapport).
   const usedNotes = [...new Set(p.usedNoteIds ?? [])];
+  const internal = usedNotes.length ? areaChangeNoteIds(await ctx.repo.table("case_area_changes").pick(["noteId"], { caseId: c.id })) : new Set<string>();
   for (const id of usedNotes) {
     const n = await ctx.repo.table("case_notes").get(id);
-    if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month) {
+    if (!n || n.caseId !== c.id || n.removedAt || monthKey(n.occurredOn) !== p.month || internal.has(n.id)) {
       return fail("bad_note", "En av anteckningarna hör inte till den här månaden eller finns inte längre. Ladda om sidan och försök igen.");
     }
   }

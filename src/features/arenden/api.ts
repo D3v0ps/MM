@@ -305,6 +305,8 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
   caseId: IdSchema,
   toArea: z.string().trim().min(1).max(10),
   motivation: z.string().max(2000),
+  /** Yrkesområdet som dialogen visade – har ärendet ett annat nu blir det conflict (någon annan har bytt under tiden). */
+  fromArea: z.string().trim().min(1).max(10).optional(),
 }), { invalidates: [...CASE_FACTS, GRUPPER, INBOX] }).returns<
   Result<
     {
@@ -312,7 +314,7 @@ export const caseChangeArea = command("arenden.bytYrkesomrade", z.object({
       /** Kommande aktiviteter med målgrupp som deltagaren bjöds in till och togs bort ur. null = stäms av senare (jobbet). */
       groups: { invited: number; removed: number } | null;
     },
-    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr"
+    "not_found" | "forbidden" | "closed" | "no_area" | "area" | "same" | "motivation" | "pnr" | "conflict"
   >
 >();
 

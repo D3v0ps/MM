@@ -76,6 +76,8 @@ export function createMemoryRuntime(opts: {
 }) {
   // Samma unika nycklar som databasen (UNIQUE_KEYS): en dubblett stoppas med UniqueError, som i Postgres.
   const store = new MemoryStore<Tables>(opts.data, UNIQUE_KEYS);
+  // Policyerna ser samma klocka som hanterarna (byt yrkesområde registreras med aktuell tid – som mm.app_now() i databasen).
+  store.clock = opts.clock.now;
   let seq = 0;
   const newId = (prefix: string) => `${prefix}-n${String(++seq).padStart(5, "0")}`;
   const system = new MemoryRepo<Tables>(store, SYSTEM_ACTOR, POLICIES, { bypass: true }) as unknown as AppRepo;

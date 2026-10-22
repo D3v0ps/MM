@@ -127,7 +127,7 @@ describe("byt yrkesområde (Karims beslut 2026-10-22): raden räknas på yrkesom
   // Bytt från G till E den 20 januari: januari faktureras på G, februari på E. Ärendet har E nu.
   const c = mkCase({ id: "c7", caseNumber: "BOT-26-0007", startDate: "2026-12-01", primaryAreaCode: "E", orderValueWeeks: 20 });
   const change = {
-    id: "cac-1", contractId: "c-bot", caseId: "c7", fromArea: "G", toArea: "E", effectiveMonth: "2027-02", changedBy: "u-amira", changedAt: "2027-01-20T10:00", noteId: "note-1",
+    id: "cac-1", contractId: "c-bot", caseId: "c7", fromArea: "G", toArea: "E", effectiveMonth: "2027-02", changedBy: "u-amira", changedAt: "2027-01-20T10:00", noteId: "note-1", seq: 1,
   };
   const db = testDb({ cases: [c], price_items: price, case_area_changes: [change] });
 

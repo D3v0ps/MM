@@ -2,7 +2,7 @@
 // Månadsbedömning (/manadsbedomning/:caseId?manad=2027-01) – progressionsnivå 0–3 per progressionsområde, konkret observation
 // från avtalets nivå, samlad status och plan för nästa månad. Automatisk månadsbedömning (Karims beslut 2026-10-22): allt är
 // ifyllt när sidan öppnas – varje område har progressionsnivå 0 "Automatiskt – inget belägg" tills coachen väljer eller godtar
-// ett AI-förslag (nivå 1–3 med citat, källa och dag – "Godta", "Godta alla AI-förslag"), samlad status kommer från coachens
+// ett AI-förslag (progressionsnivå 1–3 med citat, källa och dag – "Godta", "Godta alla AI-förslag"), samlad status kommer från coachens
 // senaste godkända mötesrapport, sammanfattningen och planen är ifyllda och märkta "Ifyllt automatiskt – kontrollera" tills
 // coachen ändrar dem. Godkänn kräver kryssrutan "Jag har gått igenom bedömningen". Port av prototypens coach.manad. Utkastet sparas automatiskt på servern (useAutosave, beslut 2026-10-02): 2 s efter
 // senaste ändringen, när sidan lämnas och när den döljs – samma kommando som "Spara utkast" (autosave: true, en loggrad per
@@ -144,6 +144,7 @@ function ManadForm({ v }: { v: Ok }) {
   const [baseline, setBaseline] = [baselineDraft.value, baselineDraft.set];
   const savedAtDraft = useDraft<string | null>(`${draftKey}|sparadtid`, null);
   // Radens version (0022): skickas som expectedVersion – samma bedömning sparad i en annan flik ger "conflict", inget skrivs över.
+  // Visade sidan förifyllnaden utan rad skickas 0: har jobbet (eller AI-utkastet) skapat raden under tiden blir det "conflict".
   const versionDraft = useDraft<number | null>(`${draftKey}|version`, ma0?.version ?? null);
   const versionRef = useRef<number | null>(versionDraft.value);
   useEffect(() => {
@@ -187,6 +188,7 @@ function ManadForm({ v }: { v: Ok }) {
   const chosen = Object.values(areas).filter((a) => a.levelSource === "coach" || a.levelSource === "ai").length;
   // AI-förslag som inte är godtagna i områden som fortfarande är automatiska ("Godta alla AI-förslag (N)").
   const pendingAi = v.areas.filter((x) => x.aiLevelSuggestion != null && areas[x.key]?.levelSource === "auto");
+  const anyAi = v.areas.some((x) => x.aiLevelSuggestion != null);
   /** Godta AI:s förslag: nivån och – om observationen fortfarande är den automatiska – AI:s utkast till observation. */
   const acceptPatch = (k: string): Partial<AreaState> | null => {
     const src = v.areas.find((x) => x.key === k);
@@ -239,7 +241,7 @@ function ManadForm({ v }: { v: Ok }) {
         .run(
           {
             caseId: c.caseId, month, areas: areasPayload(), summary: summary.trim(), overallStatus: overall, approve: false, plan: { ...plan, status: "draft" },
-            usedNoteIds: usedNow.length ? usedNow : undefined, autosave: true, editSession, expectedVersion: versionRef.current ?? undefined,
+            usedNoteIds: usedNow.length ? usedNow : undefined, autosave: true, editSession, expectedVersion: versionRef.current ?? 0,
           },
           { keepalive },
         )
@@ -295,7 +297,7 @@ function ManadForm({ v }: { v: Ok }) {
         plan: { ...plan, status: approve ? "approved" : "draft" },
         usedNoteIds: used.length ? used : undefined,
         ...(approve ? { reviewed } : {}),
-        expectedVersion: versionRef.current ?? undefined,
+        expectedVersion: versionRef.current ?? 0,
       })
       .catch(() => null);
     if (!res) {
@@ -306,7 +308,7 @@ function ManadForm({ v }: { v: Ok }) {
       if (res.error === "incomplete") {
         const missing = "missing" in res ? res.missing : [];
         const e: Record<string, string> = {};
-        for (const k of missing) e[k] = areas[k]?.level == null ? "Välj progressionsnivå." : `Skriv en konkret observation. Mallen kräver belägg från nivå ${reqFrom}.`;
+        for (const k of missing) e[k] = areas[k]?.level == null ? "Välj progressionsnivå." : `Skriv en konkret observation. Mallen kräver belägg från progressionsnivå ${reqFrom}.`;
         if (!overall) e.overall = "Välj samlad status.";
         setErrors(e);
         toast(`Bedömningen kan inte godkännas: ${plural(missing.length, "område saknar", "områden saknar")} uppgifter${!overall ? " och samlad status saknas" : ""}.`, "error");
@@ -464,9 +466,17 @@ function ManadForm({ v }: { v: Ok }) {
         actions={
           <Row gap="sm">
             <span className="text-small text-text-muted">{chosen} av {v.areas.length} valda av dig</span>
-            {pendingAi.length > 0 && (
-              <Button kind="secondary" icon="sparkles" onClick={acceptAll}>
-                Godta alla AI-förslag ({pendingAi.length})
+            {/* Knappen ligger kvar när alla är godtagna (aria-disabled): fokus stannar på den och skärmläsaren hör det nya läget. */}
+            {(pendingAi.length > 0 || anyAi) && (
+              <Button
+                kind="secondary"
+                icon={pendingAi.length ? "sparkles" : "check"}
+                aria-disabled={pendingAi.length ? undefined : "true"}
+                onClick={() => {
+                  if (pendingAi.length) acceptAll();
+                }}
+              >
+                {pendingAi.length ? `Godta alla AI-förslag (${pendingAi.length})` : "Inga fler AI-förslag att godta"}
               </Button>
             )}
           </Row>
@@ -544,20 +554,24 @@ function ManadForm({ v }: { v: Ok }) {
                             </span>
                             <q className="italic [overflow-wrap:anywhere]">{ev.quote}</q>
                             <span className="text-text-muted">
-                              Källa: {ev.source} ({fmtDateShort(ev.date)})
+                              Källa: {ev.source}
                             </span>
-                            {a.levelSource === "ai" && a.level === aiLvl ? (
-                              <span className="inline-flex items-center gap-1.5 font-bold">
-                                <Icon name="check" />
-                                Godtaget
-                              </span>
-                            ) : (
-                              <div>
+                            {/* Samma knapp i båda lägena (aria-disabled när förslaget är godtaget): fokus stannar kvar, och raden
+                                med role=status läser upp det nya läget. */}
+                            <div>
+                              {a.levelSource === "ai" && a.level === aiLvl ? (
+                                <Button kind="secondary" icon="check" aria-disabled="true">
+                                  Godtaget<span className="sr-only"> – AI-förslaget för {lab}</span>
+                                </Button>
+                              ) : (
                                 <Button kind="secondary" icon="check" onClick={() => accept(k)}>
                                   Godta<span className="sr-only"> AI-förslaget för {lab}</span>
                                 </Button>
-                              </div>
-                            )}
+                              )}
+                            </div>
+                            <span role="status" className="sr-only">
+                              {a.levelSource === "ai" && a.level === aiLvl ? `AI-förslaget för ${lab} är godtaget.` : ""}
+                            </span>
                           </div>
                         )}
                         {noEv && (
@@ -652,12 +666,13 @@ function ManadForm({ v }: { v: Ok }) {
               id="cm-overall"
               required
               error={errors.overall}
+              // Meningen om mötesrapporten bara medan statusen är den förifyllda (märkt) – annars har coachen valt själv.
               help={
                 marks.overallStatus && overall === start.overall
-                  ? undefined
-                  : !start.overall
+                  ? "Din senaste godkända mötesrapport gav statusen. Ändra om den inte stämmer för hela månaden."
+                  : !overall && !marks.overallStatus
                     ? "Ingen godkänd mötesrapport i månaden – välj själv."
-                    : "Din senaste godkända mötesrapport gav statusen. Ändra om den inte stämmer för hela månaden."
+                    : "Välj den status som stämmer för hela månaden."
               }
             >
               <Seg<Rag>
@@ -909,6 +924,11 @@ function AiDraftCard({ v }: { v: Ok }) {
             </span>
           )}
         </Row>
+        {d?.status === "succeeded" && d.newerCheckIn && (
+          <Notice tone="info" title="En mötesrapport har godkänts efter AI-utkastet">
+            Den finns inte med i utkastet. Skapa ett nytt AI-utkast om den ska komma med.
+          </Notice>
+        )}
         {d?.status === "failed" && (
           <Notice tone="warn" title="AI-utkastet kunde inte skapas">
             {d.error ?? "Skriv observationerna själv."}

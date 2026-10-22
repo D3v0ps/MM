@@ -98,8 +98,10 @@ export type GroupParticipant = {
   caseNumber: string;
   name: string;
   attendance: AttMark;
-  /** Bjuden för hand eller av målgruppen (nivån eller yrkesområdet) – den som målgruppen bjöd in tas inte bort för hand. */
+  /** Bjuden för hand eller av målgruppen (nivån eller yrkesområdet). */
   inviteSource: InviteSource;
+  /** Hör till aktivitetens målgrupp i dag – tas inte bort för hand (synkningen skulle bjuda in hen igen), oavsett hur hen bjöds in. */
+  audienceMember: boolean;
   /**
    * Gruppmålet för deltagaren (null när aktiviteten saknar mål): achieved = Klarade eller Klarade inte, auto = ingen har valt –
    * alla klarar målet automatiskt (Karims beslut 2) och vyn märker det.
@@ -258,7 +260,8 @@ export const groupActivityCreate = command("aktiviteter.skapa", z.object({
  */
 export const groupActivityUpdate = command("aktiviteter.andra", z.object({ id: IdSchema, ...Fields, ...Notify }), { invalidates: ACTIVITY_WRITES }).returns<
   | Result<
-    { changed: number; replaced: number; notified: NotifyOutcome },
+    /** dropped: inbjudna av målgruppen som inte kan vara med vid den nya tiden och togs bort. */
+    { changed: number; replaced: number; dropped: number; notified: NotifyOutcome },
     "not_found" | "cancelled" | "has_attendance" | "holiday" | "not_invitable" | "overlap" | "responsible" | "restricted" | "goal" | "series"
   >
   | Problems<"not_invitable" | "overlap">

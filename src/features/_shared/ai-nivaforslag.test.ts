@@ -25,7 +25,7 @@ const input: DraftInput = {
 describe("verifyLevelSuggestion: citatet måste finnas ordagrant i källan", () => {
   it("citat ur en godkänd mötesrapport: nivån, citatet, källans namn och dag (ur underlaget, inte från modellen)", () => {
     expect(verifyLevelSuggestion({ level: 2, quote: "Klarade veckans moment utan stöd.", sourceId: "ci-3" }, input)).toEqual({
-      level: 2, evidence: { quote: "Klarade veckans moment utan stöd.", source: "Avstämning 22 jan", date: "2027-01-22" },
+      level: 2, evidence: { quote: "Klarade veckans moment utan stöd.", source: "Mötesrapport 22 jan", date: "2027-01-22" },
     });
   });
 
@@ -53,6 +53,26 @@ describe("verifyLevelSuggestion: citatet måste finnas ordagrant i källan", () 
       null,
     ];
     for (const raw of bad) expect(verifyLevelSuggestion(raw, input), JSON.stringify(raw)).toBeNull();
+  });
+
+  it("bara fri text är belägg: kryssrutornas fasta värden (hinder som Motivation, aktiviteter, kontakttyp) och ett par ord slängs", () => {
+    const withBoxes: DraftInput = {
+      ...input,
+      checkIns: approvedCheckIns([
+        ci("ci-4", "2027-01-29T10:00", {
+          obstacles: ["Motivation", "Behov av anpassning"], activitiesDone: ["Matchning mot arbetsgivare"], employerContacts: { count: "1", types: ["Intervjuträning"] },
+          note: "Behov av anpassning. Vill att jobba med lager.", nextGoal: "Söka två jobb i lager",
+        }),
+      ]),
+    };
+    for (const quote of ["Motivation", "Matchning mot arbetsgivare", "Intervjuträning", "Behov av anpassning", "Behov av anpassning.", "att jobba"]) {
+      expect(verifyLevelSuggestion({ level: 3, quote, sourceId: "ci-4" }, withBoxes), quote).toBeNull();
+    }
+    // Fri text med minst tre ord och 15 tecken: godtas, med källan Mötesrapport.
+    expect(verifyLevelSuggestion({ level: 1, quote: "Vill att jobba med lager.", sourceId: "ci-4" }, withBoxes)?.evidence).toEqual({
+      quote: "Vill att jobba med lager.", source: "Mötesrapport 29 jan", date: "2027-01-29",
+    });
+    expect(verifyLevelSuggestion({ level: 1, quote: "Söka två jobb i lager", sourceId: "ci-4" }, withBoxes)).not.toBeNull();
   });
 });
 

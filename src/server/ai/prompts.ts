@@ -7,7 +7,7 @@
 import { ACTIVITY_TYPES, OBSTACLES } from "@/data/seed/constants";
 import { EMPLOYER_CONTACT_COUNTS, GOAL_STATUSES } from "@/data/schema";
 import {
-  AI_CORE_INSTRUCTIONS, EXTRACT_INSTRUCTIONS, LEVEL_QUOTE_MAX, LEVEL_QUOTE_MIN, type DraftInput, type DraftOptions, type DraftTemplateKey, type Transcript,
+  AI_CORE_INSTRUCTIONS, EXTRACT_INSTRUCTIONS, LEVEL_QUOTE_MAX, LEVEL_QUOTE_MIN, LEVEL_QUOTE_MIN_WORDS, type DraftInput, type DraftOptions, type DraftTemplateKey, type Transcript,
 } from "@/features/_shared/ai-port";
 import type { AudioPurpose } from "@/features/_shared/audio-port";
 import { caseNoteKindLabel } from "@/core/labels";
@@ -152,7 +152,7 @@ export function draftInstructions(templateKey: DraftTemplateKey, opts: DraftOpti
     ? [
         "Nivån sätter coachen. Du får bara FÖRESLÅ progressionsnivå 1, 2 eller 3 i levelSuggestion – och bara när ett citat ur en godkänd avstämning eller en anteckning tydligt visar förändringen på den nivån jämfört med föregående månad.",
         ...(scale ? [`Skalan: ${scale}.`] : []),
-        `levelSuggestion.quote: ordagrant citat ur källan (${LEVEL_QUOTE_MIN}–${LEVEL_QUOTE_MAX} tecken), utan omskrivning. levelSuggestion.sourceId: källans id i underlaget. Närvarosiffror räcker inte som belägg för en nivå.`,
+        `levelSuggestion.quote: ordagrant citat ur källans fria text – mötesrapportens anteckning eller nästa veckas mål, eller anteckningens text (${LEVEL_QUOTE_MIN}–${LEVEL_QUOTE_MAX} tecken, minst ${LEVEL_QUOTE_MIN_WORDS} ord), utan omskrivning. levelSuggestion.sourceId: källans id i underlaget. Närvarosiffror och kryssrutornas värden (aktiviteter, hinder, typ av arbetsgivarkontakt) räcker inte som belägg för en nivå.`,
         "Finns inget sådant citat: levelSuggestion null. Nivå 0 föreslås aldrig – den är standard. Gissa aldrig och bedöm aldrig motivation eller personlighet.",
       ]
     : ["levelSuggestion: alltid null."];

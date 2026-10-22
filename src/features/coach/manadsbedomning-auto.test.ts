@@ -12,7 +12,7 @@ import type { MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import type { TableName, Tables } from "@/data/schema";
 import { createSeed, DEMO_START } from "@/data/seed";
-import { assessmentPage, assessmentSave, NOT_REVIEWED_TEXT } from "./api";
+import { assessmentPage, assessmentSave, checkinSave, minVecka, NOT_REVIEWED_TEXT } from "./api";
 import { assessMonthOf, ensureMonthlyAssessments, needsAssessment } from "./ensure-assessments";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -53,7 +53,7 @@ describe("sidan: allt är ifyllt när coachen öppnar bedömningen", () => {
     }
     const withSuggestion = v.areas.filter((a) => a.aiLevelSuggestion != null);
     expect(withSuggestion.length).toBeGreaterThan(0);
-    for (const a of withSuggestion) expect(a.aiLevelEvidence?.source).toMatch(/^(Avstämning|Anteckning) \d+ \w+/);
+    for (const a of withSuggestion) expect(a.aiLevelEvidence?.source).toMatch(/^(Mötesrapport|Anteckning) \d+ \w+/);
     expect(v.assessment).toMatchObject({ saved: true, status: "draft" });
     expect(v.assessment?.overallStatus).not.toBeNull();
     expect(v.assessment?.overallFrom).toMatch(/^2027-01-/);
@@ -205,5 +205,50 @@ describe("steget i rapportjobbet: utkasten skapas automatiskt (ensureMonthlyAsse
     expect(res.created.some((x) => x.caseId === NADIA)).toBe(false);
     expect(res.aiQueued).not.toContain(NADIA);
     expect(rows("monthly_assessments").filter((m) => m.caseId === NADIA && m.month === "2027-02")).toHaveLength(1);
+  });
+});
+
+describe("granskningen: förifyllnaden hålls aktuell och skrivs aldrig över i tysthet", () => {
+  it("en mötesrapport som godkänns efter att utkastet skapades: samlad status, sammanfattningen och mål 1 följer med (de automatiskt märkta)", async () => {
+    const before = structuredClone(maOf());
+    expect(before.prefill.overallStatus).toBeDefined();
+    const res = await run(checkinSave, {
+      caseId: NADIA, data: { heldAt: "2027-01-29T10:00", overallStatus: "yellow", nextGoal: "Gå på intervjun hos lagret", note: "Övade intervju.", goalStatus: "yes" }, approve: true,
+    }, amira());
+    expect(res).toMatchObject({ ok: true });
+    if (!res.ok) return;
+    const after = maOf();
+    expect(after.overallStatus).toBe("yellow");
+    expect(after.prefill.overallStatus).toEqual({ checkInId: res.checkInId, heldAt: "2027-01-29T10:00" });
+    expect(after.version).toBe(before.version + 1);
+    const plan = rows("monthly_plans").find((p) => p.caseId === NADIA && p.month === JAN);
+    if (before.prefill.plan?.goal1 === "check_in") expect(plan?.goal1).toBe("Gå på intervjun hos lagret");
+    expect(rows("audit_log").filter((l) => l.action === "assessment.prefill_refreshed").at(-1)?.details).toEqual({ caseId: NADIA, month: JAN, checkInId: res.checkInId, automatic: true });
+    // Sidan: statusen kommer nu från den nya mötesrapporten.
+    expect((await page()).assessment?.overallFrom).toBe("2027-01-29T10:00");
+  });
+
+  it("coachen har valt samlad status själv: den rörs inte av en ny mötesrapport", async () => {
+    expect(await run(assessmentSave, { caseId: NADIA, month: JAN, overallStatus: "red", expectedVersion: maOf().version }, amira())).toMatchObject({ ok: true });
+    expect(await run(checkinSave, { caseId: NADIA, data: { heldAt: "2027-01-29T10:00", overallStatus: "green", nextGoal: "Mål", goalStatus: "yes" }, approve: true }, amira())).toMatchObject({ ok: true });
+    expect(maOf().overallStatus).toBe("red");
+  });
+
+  it("sidan visade förifyllnaden utan rad (version 0) och jobbet skapade raden under tiden: conflict – inget skrivs över", async () => {
+    const v = await page(NADIA, "2027-02");
+    expect(v.assessment?.version).toBeNull();
+    // Jobbet skapar raden (samma fasta id) medan formuläret är öppet.
+    rt.store.insertRow("monthly_assessments", { ...maOf(), id: `ma-${NADIA}-2027-02`, month: "2027-02", summary: "AI:s sammanfattning.", prefill: { summary: "ai" }, version: 2 });
+    const res = await run(assessmentSave, { caseId: NADIA, month: "2027-02", summary: v.assessment!.summary, autosave: true, expectedVersion: 0 }, amira());
+    expect(res).toMatchObject({ ok: false, error: "conflict" });
+    expect(maOf(NADIA, "2027-02")).toMatchObject({ summary: "AI:s sammanfattning.", prefill: { summary: "ai" }, version: 2 });
+    // Utan rad går version 0 igenom.
+    expect(await run(assessmentSave, { caseId: NADIA, month: "2027-03", summary: "Mars.", expectedVersion: 0 }, amira())).toMatchObject({ ok: true });
+  });
+
+  it("Min vecka: de förifyllda bedömningarna märks Ifylld automatiskt – inte som manuellt underlag", async () => {
+    const v = await q(minVecka, {}, amira());
+    expect(v.monthly.open.length).toBeGreaterThan(0);
+    expect(v.monthly.open.every((r) => r.prefilled)).toBe(true);
   });
 });

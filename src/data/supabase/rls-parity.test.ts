@@ -2551,17 +2551,26 @@ describe("målgrupp, serie och inbjudningens källa på gruppaktiviteterna (0035
 describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS, triggern och policy.ts", () => {
   const LINNEA = "case-260163";
   const NADIA = "case-260143";
-  // Ett nytt byte i Linneas ärende (D → C) med anteckningen från testdatats byte. Den 1 februari – fakturan från mars.
-  const at = "2027-02-01T09:30";
+  // Ett nytt byte i Linneas ärende (D → C, nummer 2) med anteckningen från testdatats byte. Den 1 februari – fakturan från mars.
+  // Tiden är testklockans (mm.app_now(): klockan står på 09.12 när blocket börjar – se beforeEach nedan).
+  const at = "2027-02-01T09:12";
   const row = (id: string, changedBy: string, patch: Partial<Tables["case_area_changes"]> = {}): Tables["case_area_changes"] => ({
-    id, contractId: "c-bot", caseId: LINNEA, fromArea: "D", toArea: "C", effectiveMonth: "2027-03", changedBy, changedAt: at, noteId: "note-byte-linnea", ...patch,
+    id, contractId: "c-bot", caseId: LINNEA, fromArea: "D", toArea: "C", effectiveMonth: "2027-03", changedBy, changedAt: at, noteId: "note-byte-linnea", seq: 2, ...patch,
   });
   const ins = (r: Tables["case_area_changes"]) => insertSql("case_area_changes", r as unknown as Record<string, unknown>);
-  const memWrite = (r: Tables["case_area_changes"], key: string, rawAccess: RawAccess<Tables> = raw) => canWriteRow("case_area_changes", r, actorOf(findPersona(key)), rawAccess);
+  // Minnet med samma klocka som databasen (RawAccess.now – triggern jämför med mm.app_now()).
+  const clocked: RawAccess<Tables> = { get: (n, id) => raw.get(n, id), all: (n) => raw.all(n), now: () => at };
+  const memWrite = (r: Tables["case_area_changes"], key: string, rawAccess: RawAccess<Tables> = clocked) => canWriteRow("case_area_changes", r, actorOf(findPersona(key)), rawAccess);
   const pgWrite = async (key: string, sql: string) => allowed(await asPersona(findPersona(key), (tx) => attempt(tx, sql)));
+  // Testklockan startar om på 09.12 (som när seeden lästes in) – blocket kan köras långt efter att databasen skapades. Tiderna i
+  // raderna är Stockholms tid: samma tidszon som databasen har i drift (0001; en kopia av databasen i testet startar i UTC).
+  beforeEach(async () => {
+    await db.exec("set timezone to 'Europe/Stockholm'");
+    await db.query(`update public.app_settings set value = to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') where key = 'clock_real_epoch'`);
+  });
 
   it("testdatat: Linneas byte G → D den 27 januari med motiveringen i en anteckning, fakturan på D från februari", () => {
-    expect(data.case_area_changes).toEqual([expect.objectContaining({ id: "cac-seed-linnea", caseId: LINNEA, fromArea: "G", toArea: "D", effectiveMonth: "2027-02", noteId: "note-byte-linnea" })]);
+    expect(data.case_area_changes).toEqual([expect.objectContaining({ id: "cac-seed-linnea", caseId: LINNEA, fromArea: "G", toArea: "D", effectiveMonth: "2027-02", noteId: "note-byte-linnea", seq: 1 })]);
     expect(raw.get("case_notes", "note-byte-linnea")?.caseId).toBe(LINNEA);
     expect(raw.get("cases", LINNEA)?.primaryAreaCode).toBe("D");
   });
@@ -2616,6 +2625,31 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
     const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
     mem.rows("contract_areas").find((a) => a.contractId === "c-bot" && a.code === "C")!.active = false;
     expect(memWrite(row("cac-b7", "u-amira"), "u-amira", mem.raw())).toBe(false);
+    // Fel nummer (inte nästa i ärendet): nekas för alla, också servern.
+    for (const [label, r] of [["nummer 1 igen", row("cac-b8", "u-amira", { seq: 1 })], ["nummer 3", row("cac-b9", "u-amira", { seq: 3 })]] as const) {
+      expect({ pg: await pgWrite("u-amira", ins(r)), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      const service = await asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role" });
+      expect(service.ok, `${label} (service role)`).toBe(false);
+    }
+  });
+
+  it("kedjan för inloggade: ingen påhittad historik – från ärendets nuvarande yrkesområde, inte äldre än det förra bytet, med aktuell tid", async () => {
+    const bad: [string, Tables["case_area_changes"]][] = [
+      // Ett byte "från A" ändrar vilket yrkesområde tidigare månader faktureras på (areaForMonth) – Linnea har D.
+      ["från ett annat yrkesområde än ärendets", row("cac-k1", "u-amira", { fromArea: "A", toArea: "D" })],
+      ["från det gamla yrkesområdet före förra bytet", row("cac-k2", "u-amira", { fromArea: "G" })],
+      ["bakåtdaterat före förra bytet", row("cac-k3", "u-amira", { changedAt: "2027-01-20T10:00", effectiveMonth: "2027-02" })],
+      ["bakåtdaterat i samma månad", row("cac-k4", "u-amira", { changedAt: "2027-02-01T08:00" })],
+      ["framåtdaterat", row("cac-k5", "u-amira", { changedAt: "2027-02-01T10:00" })],
+    ];
+    for (const [label, r] of bad) {
+      expect({ pg: await pgWrite("u-amira", ins(r)), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+    }
+    const pg = await asPersona(findPersona("u-amira"), (tx) => attempt(tx, ins(row("cac-k1", "u-amira", { fromArea: "A", toArea: "D" }))));
+    expect(pg).toMatchObject({ ok: false, code: "23514" });
+    // Inom 10 minuter från klockan: giltigt.
+    const near = row("cac-k6", "u-amira", { changedAt: "2027-02-01T09:15" });
+    expect({ pg: await pgWrite("u-amira", ins(near)), mem: memWrite(near, "u-amira") }).toEqual({ pg: true, mem: true });
   });
 
   it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det eller av avtalsansvarig", async () => {

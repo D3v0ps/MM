@@ -47,6 +47,8 @@ test("byt yrkesområde: motivering krävs, inbjudningarna följer direkt och kom
   // Före bytet: Nadia är inbjuden till G:s träff av målgruppen, inte till F:s.
   const errors = await open(page, info, `/aktiviteter/${G_MEETING}`, COACH);
   await expect(main(page)).toContainText(NADIA_NO);
+  // Den som yrkesområdet bjöd in tas inte bort här: raden säger varför (byt yrkesområde, eller frånvaro när träffen har börjat).
+  await expect(page.getByTestId("automatisk-hjalp").first()).toContainText("Inbjuden automatiskt via yrkesområdet");
   await go(page, info, `/aktiviteter/${F_MEETING}`);
   await expect(main(page)).toContainText("Yrkesområdesträff: lokalvård");
   await expect(main(page)).not.toContainText(NADIA_NO);

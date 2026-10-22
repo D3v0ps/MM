@@ -1897,6 +1897,11 @@ export type CaseAreaChange = {
   changedAt: LocalDateTime;
   /** Anteckningen med motiveringen (case_notes.id). */
   noteId: string;
+  /**
+   * Bytets nummer i ärendet: 1, 2, 3 … i tur och ordning (unikt per ärende). Ordningen för faktureringen (areaForMonth) – två
+   * byten samma minut har samma changedAt, men aldrig samma nummer. Ett nytt byte utgår från det förra bytets nya yrkesområde.
+   */
+  seq: number;
 };
 
 // ================================================================ Tabellerna
@@ -2032,4 +2037,7 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
     { fields: ["caseId", "slot"], whenNull: ["removedAt"] },
     { fields: ["caseId", "groupingId"], whenNull: ["removedAt"] },
   ],
+  // Bytena av yrkesområde numreras i tur och ordning per ärende (0036, case_area_changes_case_seq_key): två samtidiga byten kan
+  // aldrig få samma nummer.
+  case_area_changes: [{ fields: ["caseId", "seq"] }],
 };

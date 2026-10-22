@@ -69,7 +69,8 @@ export const attendanceSetAll = command("coach.attendanceSetAll", z.object({
 const AutosaveFields = {
   autosave: z.boolean().optional(),
   editSession: z.string().regex(/^[a-z0-9]{12,32}$/).optional(),
-  expectedVersion: z.number().int().min(1).optional(),
+  /** Versionen skärmen såg (0 = raden fanns inte när sidan visades – finns den nu har någon annan, t.ex. jobbet, skapat den). */
+  expectedVersion: z.number().int().min(0).optional(),
 };
 /** Svaret från en sparning: serverns tid ("Utkast sparat 09.41") och radens nya version (nästa expectedVersion). */
 export type SavedInfo = { savedAt: LocalDateTime; version: number };
@@ -430,7 +431,8 @@ export type MinVeckaView = {
     dueNote: string;
     done: number;
     total: number;
-    open: { caseId: string; caseNumber: string; name: string; hasAi: boolean }[];
+    /** prefilled: något är fortfarande ifyllt automatiskt (eller raden finns inte än) – "Ifylld automatiskt – gå igenom". */
+    open: { caseId: string; caseNumber: string; name: string; hasAi: boolean; prefilled: boolean }[];
   };
   /**
    * Olästa meddelanden från kommunen, ett per ärende (det senaste) – samma räkning som deltagarkortets olästa (unread):
@@ -672,6 +674,8 @@ export type AssessmentPage = Gated<{
     createdAt: LocalDateTime;
     plan: { text: string; sources: string[]; noEvidence: boolean } | null;
     summary: { text: string; sources: string[]; noEvidence: boolean } | null;
+    /** En mötesrapport i månaden godkändes efter att utkastet skapades – den finns inte med i utkastet. */
+    newerCheckIn: boolean;
   } | null;
   /** AI-stödet är inte kopplat (produktion utan leverantör, beslut 2026-10-08): inga AI-utkast – skärmen säger det i klarspråk. */
   aiOff: boolean;

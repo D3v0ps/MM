@@ -297,6 +297,16 @@ test("Upprepa varje vecka: en nivåaktivitet tisdag och torsdag – tillfällena
   await expect(main(page)).toContainText("Del av återkommande aktivitet: tis och tor 15.00");
   await expect(btn(page, "Ställ in bara det här tillfället")).toBeVisible();
   await expect(btn(page, "Avsluta hela serien")).toBeVisible();
+  // Ändra i ett tillfälle gäller bara tillfället – hela serien ändras med Ändra alla kommande tillfällen.
+  await btn(page, "Ändra det här tillfället").click();
+  const edit = page.getByRole("dialog", { name: "Ändra det här tillfället" });
+  await expect(edit).toContainText("Ändringen gäller bara det här tillfället");
+  await btn(edit, "Avbryt").click();
+  await btn(page, "Ändra alla kommande tillfällen").click();
+  await expect(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" })).toBeVisible();
+  await btn(page.getByRole("dialog", { name: "Ändra den återkommande aktiviteten" }), "Avbryt").click();
+  // De som nivån bjöd in kan inte tas bort här – raden säger varför och vad man gör i stället.
+  await expect(page.getByTestId("automatisk-hjalp").first()).toContainText("Inbjuden automatiskt via nivån");
   // Listan: Återkommande med dagarna och tiden.
   await go(page, info, "/aktiviteter");
   const rec = card(page, "Återkommande");

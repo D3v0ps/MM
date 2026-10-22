@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AreaAssessment, MonthlyAssessment } from "@/data/schema";
 import {
-  applyAiDraft, approvalCounts, AUTO_OBSERVATION, autoArea, keptPrefill, latestGoal, levelSourceOf, missingAreas, nextLevelSource, prefillAssessment, rulesSummary,
+  applyAiDraft, approvalCounts, AUTO_OBSERVATION, autoArea, keptPrefill, latestGoal, levelSourceOf, missingAreas, nextLevelSource, prefillAssessment, refreshPrefill, rulesSummary,
   withAutoAreas, type PrefillCheckIn, type PrefillInput,
 } from "./monthly-prefill";
 
@@ -175,5 +175,32 @@ describe("applyAiDraft: AI-utkastet skriver aldrig nivån", () => {
     expect([a.ma.summary, a.ma.prefill.summary, a.plan?.plannedActivities, a.ma.prefill.plan?.plannedActivities, a.visible]).toEqual(["AI-sammanfattning.", "ai", "Mål: söka två jobb.", "ai", true]);
     const b = applyAiDraft(base({ prefill: {} }), plan, drafts);
     expect([b.ma.summary, b.plan?.plannedActivities, b.visible]).toEqual(["Regeltext.", "Gammalt", false]);
+  });
+});
+
+describe("refreshPrefill: en mötesrapport godkänd efter att utkastet skapades", () => {
+  const oct = (p: Partial<PrefillInput> = {}) => input({ month: "2026-10", ...p });
+  const before = prefillAssessment(oct({ checkIns: [ci("ci-1", "2026-10-22T10:00", { overallStatus: "green", nextGoal: "Söka två jobb" })] }));
+  const fresh = prefillAssessment(oct({
+    checkIns: [ci("ci-1", "2026-10-22T10:00", { overallStatus: "green", nextGoal: "Söka två jobb" }), ci("ci-2", "2026-10-30T10:00", { overallStatus: "yellow", nextGoal: "Gå på intervjun" })],
+  }));
+  const ma = { summary: before.summary, overallStatus: before.overallStatus, prefill: before.prefill };
+
+  it("automatiskt märkta fält får den nya mötesrapporten: samlad status, sammanfattningen och mål 1", () => {
+    const r = refreshPrefill(ma, { goal1: before.plan.goal1 }, fresh);
+    expect(r.changed).toBe(true);
+    expect(r.assessment.overallStatus).toBe("yellow");
+    expect(r.assessment.prefill.overallStatus).toEqual({ checkInId: "ci-2", heldAt: "2026-10-30T10:00" });
+    expect(r.assessment.summary).toBe(fresh.summary);
+    expect(r.assessment.summary).toMatch(/Godkända mötesrapporter: 2\./);
+    expect(r.plan).toEqual({ goal1: "Gå på intervjun" });
+  });
+
+  it("coachens ändringar och AI:s sammanfattning rörs aldrig; inget nytt – ingen ändring", () => {
+    const own = refreshPrefill({ summary: "Min text.", overallStatus: "red", prefill: {} }, { goal1: "Mitt mål" }, fresh);
+    expect(own).toEqual({ assessment: { summary: "Min text.", overallStatus: "red", prefill: {} }, plan: null, changed: false });
+    const ai = refreshPrefill({ ...ma, summary: "AI:s text.", prefill: { ...ma.prefill, summary: "ai" } }, null, fresh);
+    expect(ai.assessment.summary).toBe("AI:s text.");
+    expect(refreshPrefill({ summary: fresh.summary, overallStatus: fresh.overallStatus, prefill: fresh.prefill }, { goal1: fresh.plan.goal1 }, fresh).changed).toBe(false);
   });
 });

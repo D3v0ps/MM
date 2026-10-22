@@ -162,7 +162,10 @@ export type GroupingOverview = {
   areas: {
     code: string;
     name: string;
+    /** Pågående insatser (bjuds in till träffarna), pausade och bekräftade som väntar på start – summan är urvalet i Anteckningar. */
     active: number;
+    paused: number;
+    waiting: number;
     meetings: { month: MonthKey; items: { id: string; name: string; startsAt: LocalDateTime }[] }[];
   }[];
   /** De fem nivåerna med deltagarna (pågående och bekräftade insatser) och nivåns återkommande aktiviteter. */

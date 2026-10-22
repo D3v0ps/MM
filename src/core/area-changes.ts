@@ -24,18 +24,24 @@ export const AREA_MOTIVATION_MAX = 300;
 /** Månaden efter bytet ('YYYY-MM') – från den månaden faktureras det nya yrkesområdet (Stockholmstid). */
 export const effectiveMonthOf = (changedAt: LocalDateTime): MonthKey => addMonths(monthKey(dayOf(changedAt)), 1);
 
-/** Bytena i tidsordning (bytestid, sedan id – deterministiskt). */
-const inOrder = <T extends Pick<CaseAreaChange, "id" | "changedAt">>(changes: readonly T[]): T[] =>
-  [...changes].sort((a, b) => (a.changedAt < b.changedAt ? -1 : a.changedAt > b.changedAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+/**
+ * Bytena i den ordning de gjordes: bytets nummer i ärendet (seq – unikt per ärende, också för två byten samma minut), sedan
+ * bytestid och id. Id:t avgör aldrig ordningen mellan två byten i samma ärende (i produktionen är id:t slumpat).
+ */
+export const inOrder = <T extends Pick<CaseAreaChange, "id" | "changedAt" | "seq">>(changes: readonly T[]): T[] =>
+  [...changes].sort((a, b) => a.seq - b.seq || (a.changedAt < b.changedAt ? -1 : a.changedAt > b.changedAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+/** Nästa nummer för ett nytt byte i ärendet (seq): det högsta hittills plus ett. */
+export const nextAreaChangeSeq = (changes: readonly Pick<CaseAreaChange, "seq">[]): number => changes.reduce((m, x) => Math.max(m, x.seq), 0) + 1;
 
 /**
  * Yrkesområdet som gäller för fakturan en månad: det nya yrkesområdet i det senaste bytet som gäller från månaden eller
  * tidigare; annars det gamla yrkesområdet i det första bytet (månaden är före alla byten); annars ärendets yrkesområde (inga
- * byten). Bara ärendets egna byten räknas.
+ * byten). Bara ärendets egna byten räknas, i den ordning de gjordes (seq).
  */
 export function areaForMonth(
   c: Pick<Case, "id" | "primaryAreaCode">,
-  changes: readonly Pick<CaseAreaChange, "id" | "caseId" | "fromArea" | "toArea" | "effectiveMonth" | "changedAt">[],
+  changes: readonly Pick<CaseAreaChange, "id" | "caseId" | "fromArea" | "toArea" | "effectiveMonth" | "changedAt" | "seq">[],
   month: MonthKey,
 ): string | null {
   const own = inOrder(changes.filter((x) => x.caseId === c.id));

@@ -339,6 +339,11 @@ export type CaseBillingView = {
    * yrkesområdet och när bytet gjordes. Motiveringen är en anteckning i deltagarkortet – ekonomen ser den inte.
    */
   areaChanges: { fromArea: string; toArea: string; effectiveMonth: MonthKey; changedAt: LocalDateTime }[];
+  /**
+   * Efter ett byte av yrkesområde: yrkesområdet, artikeln och priset som faktureras nu (innevarande månad, eller sista månaden
+   * för en avslutad insats) – raden ovan är då yrkesområdet vid start. null utan byte eller när det är samma som vid start.
+   */
+  currentArea: { areaName: string; articleNo: string; priceOre: number | null; month: MonthKey } | null;
   status: CaseStatus;
   startDate: LocalDate | null;
   endDate: LocalDate | null;

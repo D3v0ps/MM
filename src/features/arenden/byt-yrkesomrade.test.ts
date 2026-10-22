@@ -14,6 +14,8 @@ import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
+import { assessmentPage, assessmentSave } from "@/features/coach/api";
+import { ekoCase } from "@/features/ekonomi/api";
 import { caseAreaView, caseChangeArea } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -57,7 +59,7 @@ describe("Byt yrkesområde (arenden.bytYrkesomrade)", () => {
     });
     const log = raw.all("audit_log").filter((l) => l.action === "case.area_changed");
     expect(log).toHaveLength(1);
-    expect(log[0].details).toEqual({ caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changeId: res.changeId, noteId: res.noteId });
+    expect(log[0].details).toEqual({ caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changeId: res.changeId, noteId: res.noteId, seq: 1 });
     // Revisionsloggen har aldrig motiveringen.
     expect(JSON.stringify(raw.all("audit_log"))).not.toContain("Kartläggningen visade");
   });
@@ -193,5 +195,62 @@ describe("Yrkesområdet på deltagarkortet (arenden.yrkesomrade)", () => {
   it("avslutat ärende: kan inte bytas och raden säger varför", async () => {
     const closed = rt.raw().all("cases").find((c) => c.status === "closed" && c.contractId === "c-bot")!;
     expect(await q(caseAreaView, { caseId: closed.id }, sara())).toMatchObject({ canChange: false, blockedText: "Insatsen är avslutad. Yrkesområdet kan inte bytas." });
+  });
+});
+
+describe("Byt yrkesområde: samtidiga byten och motiveringen (granskningen)", () => {
+  it("dialogen visade ett annat yrkesområde än ärendet har nu: conflict – inget skrivs", async () => {
+    const notes = rt.raw().all("case_notes").length;
+    expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "E" }, amira())).toMatchObject({ ok: false, error: "conflict" });
+    expect(rt.raw().all("case_notes")).toHaveLength(notes);
+    expect(rt.raw().get("cases", NADIA)?.primaryAreaCode).toBe("G");
+  });
+
+  it("en kollega hann skriva sitt byte (G → E) innan ärendet ändrades: mitt byte (G → C) får conflict och anteckningen tas bort igen", async () => {
+    // Kollegans byte är skrivet men ärendet har ännu inte fått det nya yrkesområdet (två samtidiga anrop).
+    rt.store.insertRow("case_area_changes", {
+      id: "cac-kollega", contractId: "c-bot", caseId: NADIA, fromArea: "G", toArea: "E", effectiveMonth: "2027-03", changedBy: "u-erik", changedAt: "2027-02-01T09:12",
+      noteId: "note-nadia-samtal", seq: 1,
+    });
+    const res = await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira());
+    expect(res).toMatchObject({ ok: false, error: "conflict" });
+    expect(rt.raw().all("case_area_changes").filter((x) => x.caseId === NADIA).map((x) => x.id)).toEqual(["cac-kollega"]);
+    expect(rt.raw().get("cases", NADIA)?.primaryAreaCode).toBe("G");
+    // Motiveringen ligger inte kvar som en anteckning om ett byte som aldrig blev av.
+    const orphan = rt.raw().all("case_notes").filter((n) => n.caseId === NADIA && n.body.startsWith("Byte av yrkesområde: G Lager och logistik → C"));
+    expect(orphan).toHaveLength(1);
+    expect(orphan[0].removedAt).not.toBeNull();
+  });
+
+  it("två byten samma minut: numreras 1 och 2, och fakturan följer det sista – oavsett id", async () => {
+    expect(await change({ caseId: NADIA, toArea: "D", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    expect(await change({ caseId: NADIA, toArea: "H", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    const own = rt.raw().all("case_area_changes").filter((x) => x.caseId === NADIA);
+    expect(own.map((x) => [x.seq, x.fromArea, x.toArea])).toEqual([[1, "G", "D"], [2, "D", "H"]]);
+  });
+
+  it("motiveringen är intern: den visas inte bland månadens anteckningar i månadsbedömningen och kan inte läggas i sammanfattningen", async () => {
+    const res = await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira());
+    if (!res.ok) throw new Error(res.message);
+    const page = await q(assessmentPage, { caseId: NADIA, month: "2027-02" }, amira());
+    expect(page.kind === "ok" && page.notes.map((n) => n.id)).not.toContain(res.noteId);
+    const linnea = await q(assessmentPage, { caseId: "case-260163", month: "2027-01" }, amira());
+    expect(linnea.kind === "ok" && linnea.notes.map((n) => n.id)).not.toContain("note-byte-linnea");
+    const saved = await rt.run("command", assessmentSave.key, { caseId: NADIA, month: "2027-02", summary: "Sammanfattning.", usedNoteIds: [res.noteId] }, amira());
+    expect(saved).toMatchObject({ ok: false, error: "bad_note" });
+  });
+});
+
+describe("Ekonomen: avtalsområdet vid start och det som faktureras nu", () => {
+  it("Linnea bytte G → D: raden vid start visar G, och D med sin artikel och sitt pris faktureras från februari", async () => {
+    const v = await q(ekoCase, { caseId: "case-260163" }, lars());
+    expect(v).not.toBeNull();
+    expect(v!.areaName).toMatch(/^G /);
+    expect(v!.currentArea).toMatchObject({ month: "2027-02" });
+    expect(v!.currentArea!.areaName).toMatch(/^D /);
+    const priceD = rt.raw().all("price_items").find((p) => p.areaCode === "D")!;
+    expect(v!.currentArea!.priceOre).toBe(priceD.priceOre);
+    // Ett ärende utan byte: ingen extra rad.
+    expect((await q(ekoCase, { caseId: NADIA }, lars()))!.currentArea).toBeNull();
   });
 });

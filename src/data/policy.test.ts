@@ -607,7 +607,7 @@ describe("byt yrkesområde (case_area_changes, 0036, Karims beslut 2026-10-22)",
   });
   const change = (patch: Partial<Tables["case_area_changes"]> = {}): Tables["case_area_changes"] => ({
     id: "cac-x", contractId: "c-bot", caseId: NADIA, fromArea: "G", toArea: "C", effectiveMonth: "2027-03", changedBy: "u-amira", changedAt: "2027-02-01T09:31",
-    noteId: "note-cac", ...patch,
+    noteId: "note-cac", seq: 1, ...patch,
   });
 
   it("läsning: Miljonbemanning i avtalet, också ekonomen – aldrig kommunen", async () => {
@@ -621,17 +621,50 @@ describe("byt yrkesområde (case_area_changes, 0036, Karims beslut 2026-10-22)",
     s.insertRow("case_notes", note("note-sara", "u-sara"));
     const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
     await expect(t(AMIRA).insert(change())).resolves.toBeTruthy();
-    await expect(t(SARA).insert(change({ id: "cac-sara", changedBy: "u-sara", noteId: "note-sara" }))).resolves.toBeTruthy();
-    // I någon annans namn, fel avtal, inaktivt eller okänt område, samma område, fel månad, anteckning i ett annat ärende.
+    // Nästa byte utgår från ärendets nya yrkesområde (hanteraren ändrar ärendet efter bytet) och får nästa nummer.
+    s.updateRow("cases", NADIA, { primaryAreaCode: "C" });
+    await expect(t(SARA).insert(change({ id: "cac-sara", changedBy: "u-sara", noteId: "note-sara", fromArea: "C", toArea: "G", seq: 2, changedAt: "2027-02-01T09:35" }))).resolves.toBeTruthy();
+    // I någon annans namn, fel avtal, inaktivt eller okänt område, samma område, fel månad, anteckning i ett annat ärende – på ett
+    // ärende utan byten, där raden annars är giltig.
+    const s2 = fresh();
+    s2.insertRow("case_notes", note("note-cac"));
+    const t2 = (a: Actor) => repoFor(a, s2).table("case_area_changes");
     const bad: Partial<Tables["case_area_changes"]>[] = [
       { id: "cac-1", changedBy: "u-sara" }, { id: "cac-2", contractId: "c-ny" }, { id: "cac-3", toArea: "Z" }, { id: "cac-4", toArea: "G" },
       { id: "cac-5", effectiveMonth: "2027-02" }, { id: "cac-6", noteId: "note-mehmet-handledare" },
     ];
-    for (const patch of bad) await expect(t(AMIRA).insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
+    for (const patch of bad) await expect(t2(AMIRA).insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
     // Läsläge, ekonomen, den vilande rollen handledare och kommunen skapar aldrig ett byte.
     for (const a of [KARIN, ROBIN, LARS, PETRA, MARIA]) {
-      await expect(t(a).insert(change({ id: `cac-${a.userId}`, changedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
+      await expect(t2(a).insert(change({ id: `cac-${a.userId}`, changedBy: a.userId })), a.userId).rejects.toBeInstanceOf(PolicyError);
     }
+    await expect(t2(AMIRA).insert(change({ id: "cac-ok" }))).resolves.toBeTruthy();
+  });
+
+  it("kedjan: nästa nummer, från ärendets nuvarande yrkesområde och det förra bytets nya, inte äldre än det förra – och med aktuell tid", async () => {
+    const s = fresh();
+    s.insertRow("case_notes", note("note-cac"));
+    const t = (a: Actor) => repoFor(a, s).table("case_area_changes");
+    // En påhittad historik: ett första byte som inte utgår från ärendets yrkesområde (G), eller med fel nummer.
+    for (const patch of [{ id: "cac-a", fromArea: "A", toArea: "G" }, { id: "cac-b", seq: 2 }, { id: "cac-c", seq: 0 }] as Partial<Tables["case_area_changes"]>[]) {
+      await expect(t(AMIRA).insert(change(patch)), patch.id).rejects.toBeInstanceOf(PolicyError);
+    }
+    await expect(t(AMIRA).insert(change({ id: "cac-1" }))).resolves.toBeTruthy();
+    // Samma nummer igen (två samtidiga byten): den unika nyckeln.
+    s.updateRow("cases", NADIA, { primaryAreaCode: "C" });
+    await expect(t(AMIRA).insert(change({ id: "cac-2", fromArea: "C", toArea: "D", seq: 1 }))).rejects.toThrow();
+    // Från det gamla yrkesområdet i stället för det förra bytets nya, eller äldre än det förra bytet.
+    await expect(t(AMIRA).insert(change({ id: "cac-3", fromArea: "G", toArea: "D", seq: 2 }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).insert(change({ id: "cac-4", fromArea: "C", toArea: "D", seq: 2, changedAt: "2027-02-01T09:00", effectiveMonth: "2027-03" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(t(AMIRA).insert(change({ id: "cac-5", fromArea: "C", toArea: "D", seq: 2 }))).resolves.toBeTruthy();
+    // Med klocka (minnesläget): bytet registreras med aktuell tid – högst 10 minuter ifrån.
+    const c = fresh();
+    c.insertRow("case_notes", note("note-cac"));
+    c.clock = () => "2027-02-01T09:12";
+    const tc = repoFor(AMIRA, c).table("case_area_changes");
+    await expect(tc.insert(change({ id: "cac-gammal", changedAt: "2026-11-03T10:00", effectiveMonth: "2026-12" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(tc.insert(change({ id: "cac-sen", changedAt: "2027-02-01T09:31" }))).rejects.toBeInstanceOf(PolicyError);
+    await expect(tc.insert(change({ id: "cac-nu", changedAt: "2027-02-01T09:12" }))).resolves.toBeTruthy();
   });
 
   it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det", async () => {

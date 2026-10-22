@@ -28,7 +28,7 @@ import {
   type GroupActivityView, type GroupParticipant, type InviteProblem,
 } from "../api";
 import { EMPTY_CHOICE, InviteParticipants, resolveChoice, type InviteChoice } from "./bjud-in";
-import { useEndSeries } from "./serie";
+import { SeriesEditModal, useEndSeries } from "./serie";
 import {
   ActivityFields, formErrors, formOf, isUpcoming, notifiedText, NotifyCheck, payloadOf, ProblemList, replacedText, skippedText, useActivityConfirm, useActivityFormData,
   type ActivityFormState,
@@ -105,6 +105,7 @@ function Aktivitet({ v }: { v: Ok }) {
   const endSeries = useEndSeries();
   const notifyBox = useRef(true);
   const [editing, setEditing] = useState(false);
+  const [editingSeries, setEditingSeries] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [inflight, setInflight] = useState<Record<string, true>>({});
@@ -253,7 +254,7 @@ function Aktivitet({ v }: { v: Ok }) {
         Bjud in deltagare
       </Button>
       <Button icon="edit" onClick={() => setEditing(true)}>
-        Ändra
+        {series ? "Ändra det här tillfället" : "Ändra"}
       </Button>
       <Button kind="danger" icon="x" pending={cancel.pending} onClick={() => void cancelActivity()}>
         {series ? "Ställ in bara det här tillfället" : "Ställ in"}
@@ -280,10 +281,13 @@ function Aktivitet({ v }: { v: Ok }) {
             <span>
               {series.ended
                 ? `Den återkommande aktiviteten är avslutad${series.endsOn ? ` ${fmtDate(series.endsOn)}` : ""}.`
-                : "Dag, tid och längd gäller hela serien. Ska tiden ändras avslutar du serien och skapar en ny."}
+                : "Ändringar här gäller bara det här tillfället. Med Ändra alla kommande tillfällen ändrar du namn, plats, ansvarig och gruppmål i hela serien. Dag, tid och längd gäller hela serien – ska tiden ändras avslutar du serien och skapar en ny."}
             </span>
             {v.canEdit && !series.ended && (
               <Row gap="sm">
+                <Button kind="secondary" icon="edit" onClick={() => setEditingSeries(true)}>
+                  Ändra alla kommande tillfällen
+                </Button>
                 <Button kind="secondary" icon="x" pending={endSeries.pending} onClick={() => void endSeries.run({ id: series.id, name: series.name, schedule: series.schedule, notify: series.notify })}>
                   Avsluta hela serien
                 </Button>
@@ -368,14 +372,19 @@ function Aktivitet({ v }: { v: Ok }) {
                       {p.inviteSource === "audience" ? "Inbjuden automatiskt" : "Inbjuden"}
                     </Badge>
                   )}
-                  {/* Målgruppen bjöd in deltagaren – hen skulle bjudas in igen. Registrera frånvaro eller byt nivå i stället. */}
-                  {v.canEdit && !p.attendance && !(a.audience && p.inviteSource === "audience") && (
+                  {/* Deltagaren hör till målgruppen – synkningen skulle bjuda in hen igen. Registrera frånvaro eller byt nivå i stället. */}
+                  {v.canEdit && !p.attendance && !p.audienceMember && (
                     <Button kind="ghost" icon="trash" pending={remove.pending} onClick={() => void removeParticipant(p)} ariaLabel={`Ta bort ${p.name} från aktiviteten`}>
                       Ta bort
                     </Button>
                   )}
                 </Row>
               </Row>
+              {v.canEdit && !p.attendance && p.audienceMember && a.audience && (
+                <p className="m-0 text-body text-text-muted" data-testid="automatisk-hjalp">
+                  {`Inbjuden automatiskt via ${a.audience.kind === "area" ? "yrkesområdet" : "nivån"} och kan inte tas bort här. Kommer deltagaren inte: registrera frånvaro när aktiviteten har börjat. Hör deltagaren inte längre hit: byt ${a.audience.kind === "area" ? "yrkesområde" : "nivå"} på deltagarkortet.`}
+                </p>
+              )}
               {started && v.canEdit && (
                 <>
                   <Seg
@@ -442,6 +451,7 @@ function Aktivitet({ v }: { v: Ok }) {
         {v.canEdit && !notesOpen && parts.length > 0 && <p className="m-0 border-t border-ljusgra px-[18px] py-3 text-body text-text-muted">Anteckningar skrivs från aktivitetens dag.</p>}
       </Card>
       {editing && <EditModal v={v} onClose={() => setEditing(false)} />}
+      {editingSeries && series && <SeriesEditModal s={series} onClose={() => setEditingSeries(false)} />}
       {inviting && <InviteModal v={v} onClose={() => setInviting(false)} />}
       <Row>
         <Button kind="ghost" icon="arrow-left" onClick={() => nav.push("/aktiviteter")}>
@@ -477,12 +487,14 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
       toast(res.message ?? "Ändringen kunde inte sparas.", "error");
       return;
     }
-    toast(res.changed ? `Aktiviteten är ändrad för alla deltagare.${replacedText(res.replaced)}${notifiedText(res.notified)}` : "Inget var ändrat.");
+    const what = v.activity.series ? "Tillfället är ändrat för alla deltagare. Kommande tillfällen är oförändrade." : "Aktiviteten är ändrad för alla deltagare.";
+    const dropped = res.dropped ? ` ${plural(res.dropped, "deltagare kan", "deltagare kan")} inte vara med vid den nya tiden och är ${res.dropped === 1 ? "borttagen" : "borttagna"}.` : "";
+    toast(res.changed ? `${what}${dropped}${replacedText(res.replaced)}${notifiedText(res.notified)}` : "Inget var ändrat.");
     onClose();
   };
   return (
     <Modal
-      title="Ändra aktiviteten"
+      title={v.activity.series ? "Ändra det här tillfället" : "Ändra aktiviteten"}
       wide
       onClose={onClose}
       dirty={JSON.stringify(value) !== JSON.stringify(initial)}
@@ -501,7 +513,12 @@ function EditModal({ v, onClose }: { v: Ok; onClose: () => void }) {
         error ? <ErrorNotice error={error as Error} onRetry={retry} /> : <Loading />
       ) : (
         <Stack>
-          <p className="m-0 text-body">Tid, längd, plats och typ ändras för alla deltagare. Tiden kan inte flyttas när närvaro är registrerad.</p>
+          <p className="m-0 text-body">
+            {v.activity.series
+              ? "Ändringen gäller bara det här tillfället – kommande tillfällen ändras med Ändra alla kommande tillfällen. Plats och typ ändras för alla deltagare."
+              : "Tid, längd, plats och typ ändras för alla deltagare. Tiden kan inte flyttas när närvaro är registrerad."}
+            {v.activity.audience ? " Den som bjöds in automatiskt och inte kan vara med vid en ny tid tas bort ur aktiviteten." : ""}
+          </p>
           <ActivityFields
             form={data}
             value={value}

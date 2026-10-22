@@ -57,7 +57,7 @@ export function AnteckningarScreen({ query }: ScreenProps) {
             <Select value={urval} onValueChange={(v) => patch({ urval: v === "mina" ? null : v, id: null })} options={MASS_NOTE_SCOPES.map((s) => ({ value: s, label: SCOPE_LABEL[s] }))} />
           </Field>
           {urval !== "mina" && (
-            <Field label={CHOICE_LABEL[urval].field} id="mn-id">
+            <Field label={CHOICE_LABEL[urval].field} id="mn-id" help="Antalet är deltagarna som får anteckningen: insatsen pågår, är pausad eller väntar på start.">
               <Select value={chosenId} placeholder={CHOICE_LABEL[urval].placeholder} onValueChange={(v) => patch({ id: v || null })} options={choices} />
             </Field>
           )}

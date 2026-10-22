@@ -20,7 +20,9 @@ export function CaseAreaChange({ caseId }: { caseId: string }) {
   const q = useQuery(caseAreaView, { caseId });
   const [open, setOpen] = useState(false);
   const v = q.data;
-  if (!v || !v.canChange) return null;
+  if (!v) return null;
+  // Ärendet kan inte byta (avslutat, inte bekräftat, inget yrkesområde än): orsaken i stället för knappen.
+  if (!v.canChange) return v.blockedText ? <p className="m-0 text-body" data-area-blocked="">{v.blockedText}</p> : null;
   return (
     <>
       <Button kind="ghost" icon="edit" onClick={() => setOpen(true)}>
@@ -72,7 +74,7 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
   const submit = async () => {
     setTried(true);
     if (!toArea || len < AREA_MOTIVATION_MIN || len > AREA_MOTIVATION_MAX) return;
-    const res = await save.run({ caseId: v.caseId, toArea, motivation: motivation.trim() }).catch(() => null);
+    const res = await save.run({ caseId: v.caseId, toArea, motivation: motivation.trim(), ...(v.current ? { fromArea: v.current.code } : {}) }).catch(() => null);
     if (!res || !res.ok) {
       if (res && !res.ok && (res.error === "area" || res.error === "same")) setServerErr({ area: res.message });
       else if (res && !res.ok && (res.error === "motivation" || res.error === "pnr")) setServerErr({ motivation: res.message });

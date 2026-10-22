@@ -15,7 +15,12 @@
 --      * ingen ändrar eller raderar (ingen update- eller delete-policy och inga sådana rättigheter) – historiken är raderna.
 --      * för alla (också service role, triggern case_area_changes_check): ärendet hör till avtalet, båda yrkesområdena hör till
 --        avtalet (främmande nycklar mot contract_areas), det nya är aktivt och skiljer sig från det gamla, anteckningen hör
---        till ärendet och effective_month är månaden efter changed_at (Stockholmstid).
+--        till ärendet, effective_month är månaden efter changed_at (Stockholmstid) och seq är ärendets nästa nummer (1, 2, 3 …;
+--        unikt per ärende – två samtidiga byten kan aldrig få samma nummer).
+--      * för inloggade (samma trigger): bytet utgår från ärendets nuvarande yrkesområde (from_area = cases.primary_area_code –
+--        hanteraren skriver bytet innan ärendet ändras) och från det förra bytets nya yrkesområde, är inte äldre än det förra
+--        bytet och registreras med aktuell tid (changed_at högst 10 minuter från mm.app_now()). Ingen kan alltså skriva in en
+--        påhittad historik som ändrar vilket yrkesområde tidigare månader faktureras på.
 -- 2. monthly_assessments.prefill: vad som fylldes i automatiskt och ännu inte ändrats av coachen ("Ifyllt automatiskt –
 --    kontrollera"). jsonb med bara id:n, dagar och källornas typ – aldrig text. Standard '{}' (inget förifyllt) – befintliga
 --    rader påverkas inte. Nivåns ursprung per område (levelSource auto/coach/ai) och AI-förslagets belägg ligger i areas (jsonb)
@@ -38,11 +43,22 @@ create table if not exists public.case_area_changes (
   changed_at        timestamptz not null,
   -- Anteckningen med motiveringen.
   note_id           text not null references public.case_notes (id),
+  -- Bytets nummer i ärendet (1, 2, 3 …) – ordningen för faktureringen (areaForMonth), också för två byten samma minut.
+  seq               integer not null,
   constraint case_area_changes_from_area_fkey foreign key (contract_id, from_area) references public.contract_areas (contract_id, code),
   constraint case_area_changes_to_area_fkey foreign key (contract_id, to_area) references public.contract_areas (contract_id, code),
   constraint case_area_changes_differ check (from_area <> to_area)
 );
 create index if not exists case_area_changes_case_id_idx on public.case_area_changes (case_id, changed_at);
+-- seq för en databas där tabellen skapades innan kolumnen fanns (raderna numreras i tidsordning), sedan obligatorisk och unik.
+alter table public.case_area_changes add column if not exists seq integer;
+update public.case_area_changes x set seq = n.n
+  from (select id, row_number() over (partition by case_id order by changed_at, id) as n from public.case_area_changes) n
+ where n.id = x.id and x.seq is null;
+alter table public.case_area_changes alter column seq set not null;
+alter table public.case_area_changes drop constraint if exists case_area_changes_seq_positive;
+alter table public.case_area_changes add constraint case_area_changes_seq_positive check (seq >= 1);
+create unique index if not exists case_area_changes_case_seq_key on public.case_area_changes (case_id, seq);
 create index if not exists case_area_changes_contract_id_idx on public.case_area_changes (contract_id, effective_month);
 create index if not exists case_area_changes_changed_by_idx on public.case_area_changes (changed_by);
 create index if not exists case_area_changes_note_id_idx on public.case_area_changes (note_id);
@@ -68,12 +84,29 @@ create policy case_area_changes_insert on public.case_area_changes for insert to
   and changed_by = (select mm.current_profile_id())
 );
 
+-- Ärendets nuvarande yrkesområde för triggern nedan (den inloggade läser inte public.cases direkt – samma mönster som
+-- mm.case_contract_id i 0019). Bara koden, inget annat ur ärendet.
+create or replace function mm.case_primary_area(p_case_id text) returns text
+language sql stable security definer set search_path = public, mm
+as $$ select c.primary_area_code from public.cases c where c.id = p_case_id $$;
+revoke all on function mm.case_primary_area(text) from public, anon;
+grant execute on function mm.case_primary_area(text) to authenticated, service_role;
+
 -- Raden stämmer med ärendet, avtalets yrkesområden, anteckningen och tiden (policy.ts caseAreaChangeConsistent – gäller alla,
 -- också service role). Uppslagen görs med den inloggades rättigheter: den som får skapa raden (full åtkomst) läser avtalets
--- yrkesområden och ärendets anteckningar; ärendets avtal med mm.case_contract_id (0019).
+-- yrkesområden, ärendets anteckningar och byten; ärendets avtal med mm.case_contract_id (0019) och dess yrkesområde med
+-- mm.case_primary_area.
+-- För inloggade dessutom kedjan och tiden (policy.ts caseAreaChangeChained): bytet utgår från ärendets nuvarande yrkesområde och
+-- det förra bytets nya, är inte äldre än det förra och registreras med aktuell tid. Servern (service role) och testdatat rörs
+-- inte av de kontrollerna.
 create or replace function mm.check_case_area_change() returns trigger
 language plpgsql set search_path = public, mm
 as $$
+declare
+  prior_seq  integer;
+  prior_to   text;
+  prior_at   timestamptz;
+  case_area  text;
 begin
   if mm.case_contract_id(new.case_id) is distinct from new.contract_id then
     raise exception 'Bytet ska höra till ärendets avtal' using errcode = '23514';
@@ -86,6 +119,25 @@ begin
   end if;
   if new.effective_month is distinct from to_char(date_trunc('month', new.changed_at at time zone 'Europe/Stockholm') + interval '1 month', 'YYYY-MM') then
     raise exception 'Bytet gäller fakturan från månaden efter bytet' using errcode = '23514';
+  end if;
+  if tg_op = 'INSERT' then
+    select x.seq, x.to_area, x.changed_at into prior_seq, prior_to, prior_at
+      from public.case_area_changes x where x.case_id = new.case_id order by x.seq desc limit 1;
+    if new.seq is distinct from coalesce(prior_seq, 0) + 1 then
+      raise exception 'Bytena numreras i tur och ordning' using errcode = '23514';
+    end if;
+    if current_user = 'authenticated' then
+      case_area := mm.case_primary_area(new.case_id);
+      if new.from_area is distinct from case_area or (prior_seq is not null and new.from_area is distinct from prior_to) then
+        raise exception 'Bytet ska utgå från ärendets nuvarande yrkesområde' using errcode = '23514';
+      end if;
+      if prior_at is not null and new.changed_at < prior_at then
+        raise exception 'Bytet kan inte vara äldre än det förra bytet' using errcode = '23514';
+      end if;
+      if abs(extract(epoch from (new.changed_at - mm.app_now()))) > 600 then
+        raise exception 'Bytet registreras med aktuell tid' using errcode = '23514';
+      end if;
+    end if;
   end if;
   return new;
 end

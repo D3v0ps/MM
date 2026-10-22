@@ -424,7 +424,10 @@ handleQuery(groupingOverview, { roles: GROUPING_READERS }, async (ctx, p): Promi
     canPlace: GROUPING_MEMBER_WRITERS.includes(ctx.actor.role),
     canPlan: ACTIVITY_PLANNERS.includes(ctx.actor.role),
     areas: catalog.areas.map((a) => ({
-      code: a.code, name: a.name, active: cases.filter((c) => c.status === "active" && c.primaryAreaCode === a.code).length,
+      code: a.code, name: a.name,
+      active: cases.filter((c) => c.status === "active" && c.primaryAreaCode === a.code).length,
+      paused: cases.filter((c) => c.status === "paused" && c.primaryAreaCode === a.code).length,
+      waiting: cases.filter((c) => c.status === "confirmed" && c.primaryAreaCode === a.code).length,
       meetings: months.map((m) => ({
         month: m, items: meetings.filter((g) => g.audienceAreaCode === a.code && monthKey(g.startsAt) === m).map((g) => ({ id: g.id, name: g.name, startsAt: g.startsAt })),
       })),

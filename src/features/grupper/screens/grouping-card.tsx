@@ -33,7 +33,7 @@ const shortLevel = (name: string) => name.split(" – ")[0] ?? name;
 export function levelChangeText(r: LevelChange): string {
   const parts = [
     r.invited ? `Deltagaren är inbjuden till ${plural(r.invited, "kommande aktivitet", "kommande aktiviteter")} för nivån.` : "",
-    r.removed ? `${plural(r.removed, "aktivitet", "aktiviteter")} för den förra nivån är borttagna.` : "",
+    r.removed ? `Deltagaren är borttagen ur ${plural(r.removed, "kommande aktivitet", "kommande aktiviteter")} för den förra nivån.` : "",
   ].filter(Boolean);
   return parts.join(" ");
 }

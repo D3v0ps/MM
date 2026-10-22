@@ -471,7 +471,7 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   await expect(table.getByText("Automatiskt – inget belägg").first()).toBeVisible();
   const suggestion = page.getByTestId("ai-nivaforslag").first();
   await expect(suggestion).toContainText(/AI-förslag: progressionsnivå [123] – /);
-  await expect(suggestion).toContainText(/Källa: (Avstämning|Anteckning) \d+ \w+/);
+  await expect(suggestion).toContainText(/Källa: (Mötesrapport|Anteckning) \d+ \w+/);
   const rows = table.locator("tbody tr");
   for (let i = 0; i < 10; i++) {
     if (!(await rows.nth(i).getByText("Inget AI-förslag").count())) continue;
@@ -486,7 +486,9 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   await btn(page, /^Godta alla AI-förslag \(\d+\)$/).click();
   await expect(page.getByText(/AI-förslag är godtag/).first()).toBeVisible();
   await expect(btn(page, /^Godta alla AI-förslag/)).toHaveCount(0);
-  await expect(table.getByText("Godtaget", { exact: true }).first()).toBeVisible();
+  // Knappen ligger kvar (fokus tappas inte) men går inte att använda.
+  await expect(btn(page, "Inga fler AI-förslag att godta")).toHaveAttribute("aria-disabled", "true");
+  await expect(table.getByRole("button", { name: /^Godtaget/ }).first()).toHaveAttribute("aria-disabled", "true");
   await expect(table.getByText("Ditt val (AI-förslag godtaget)").first()).toBeVisible();
   // Ett område som fortfarande är automatiskt: nivå 2 utan egen observation stoppas – den automatiska texten är inget belägg.
   let auto = -1;

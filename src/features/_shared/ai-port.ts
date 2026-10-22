@@ -175,7 +175,7 @@ export type DraftTemplateKey = "monthly_summary" | "monthly_plan" | `monthly_are
  */
 export type DraftLevelSuggestion = { level: 1 | 2 | 3; quote: string; sourceId: string };
 /** Citatets längd i tecken (efter att mellanslag slagits ihop). */
-export const LEVEL_QUOTE_MIN = 8;
+export const LEVEL_QUOTE_MIN = 15;
 export const LEVEL_QUOTE_MAX = 300;
 export const DraftLevelSuggestionSchema = z.strictObject({
   level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
@@ -203,32 +203,41 @@ const normQuote = (s: string) => s.normalize("NFC").replace(/\s+/g, " ").trim();
 /** Citattecken runt citatet räknas inte ("…", ”…”, »…«, '…'). */
 const unquote = (s: string) => s.replace(/^[\s"'”“»«„]+|[\s"'”“»«„]+$/g, "");
 
-/** Källans texter i underlaget, dess namn och dag – null om id:t inte finns i underlaget. Närvaron har ingen text att citera. */
-function quoteSource(input: DraftInput, sourceId: string): { label: string; date: LocalDate; texts: string[] } | null {
+/**
+ * Källans fria texter i underlaget, dess namn och dag – null om id:t inte finns i underlaget. Bara fritext kan citeras:
+ * mötesrapportens anteckning och nästa veckas mål, och anteckningens text. Kryssrutornas fasta värden (genomförda aktiviteter,
+ * hinder som "Motivation", arbetsgivarkontakternas typ) är inget belägg – lika lite som närvarosiffrorna – och ett citat som bara
+ * är ett sådant värde godtas inte (canned). Närvaron har ingen text att citera.
+ */
+function quoteSource(input: DraftInput, sourceId: string): { label: string; date: LocalDate; texts: string[]; canned: string[] } | null {
   const ci = input.checkIns.find((c) => c.id === sourceId);
-  if (ci) {
-    return {
-      label: `Avstämning ${fmtDateShort(ci.heldAt)}`, date: dayOf(ci.heldAt),
-      texts: [ci.note, ci.nextGoal, ...ci.activitiesDone, ...ci.obstacles, ...ci.employerContacts.types],
-    };
-  }
+  const canned = input.checkIns.flatMap((c) => [...c.activitiesDone, ...c.obstacles, ...c.employerContacts.types]);
+  if (ci) return { label: `Mötesrapport ${fmtDateShort(ci.heldAt)}`, date: dayOf(ci.heldAt), texts: [ci.note, ci.nextGoal], canned };
   const n = input.notes.find((x) => x.id === sourceId);
-  return n ? { label: noteSourceLabel(n), date: n.date, texts: [n.text] } : null;
+  return n ? { label: noteSourceLabel(n), date: n.date, texts: [n.text], canned } : null;
 }
+
+/** Ett citat är minst så många ord – ett par ord ("att jobba") är inget belägg. */
+export const LEVEL_QUOTE_MIN_WORDS = 3;
 
 /**
  * Kontrollen av AI:s nivåförslag (Karims beslut 2026-10-22), gjord på servern oavsett leverantör: förslaget gäller bara om
- * citatet (8–300 tecken, mellanslag hopslagna, citattecken runt bortplockade) finns ordagrant i källan med det id:t i
- * underlaget, och citatet inte ser ut som ett personnummer. Annars null – förslaget slängs. Källans namn och dag tas ur
- * underlaget, aldrig från modellen.
+ * citatet (15–300 tecken och minst tre ord, mellanslag hopslagna, citattecken runt bortplockade) finns ordagrant i en fri text
+ * i källan med det id:t i underlaget, inte bara är ett av kryssrutornas fasta värden och inte ser ut som ett personnummer.
+ * Annars null – förslaget slängs. Källans namn ("Mötesrapport 15 jan", "Anteckning 26 jan") och dag tas ur underlaget, aldrig
+ * från modellen.
  */
 export function verifyLevelSuggestion(raw: unknown, input: DraftInput): VerifiedLevelSuggestion | null {
   const p = DraftLevelSuggestionSchema.safeParse(raw);
   if (!p.success) return null;
   const quote = normQuote(unquote(p.data.quote));
   if (quote.length < LEVEL_QUOTE_MIN || quote.length > LEVEL_QUOTE_MAX || looksLikePnr(quote)) return null;
+  if (quote.split(" ").filter((w) => /[\p{L}\p{N}]/u.test(w)).length < LEVEL_QUOTE_MIN_WORDS) return null;
   const src = quoteSource(input, p.data.sourceId);
-  if (!src || !src.texts.some((t) => normQuote(t ?? "").includes(quote))) return null;
+  if (!src) return null;
+  const bare = (t: string) => normQuote(t).replace(/[.!?]+$/, "").toLocaleLowerCase("sv");
+  if (src.canned.some((c) => bare(c) === bare(quote))) return null;
+  if (!src.texts.some((t) => normQuote(t ?? "").includes(quote))) return null;
   return { level: p.data.level, evidence: { quote, source: src.label, date: src.date } };
 }
 

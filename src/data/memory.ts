@@ -17,6 +17,11 @@ export type Policies<TT extends Record<string, Row>> = { [N in keyof TT]?: RowPo
 export type RawAccess<TT extends Record<string, Row>> = {
   get<N extends keyof TT & string>(name: N, id: string): TT[N] | undefined;
   all<N extends keyof TT & string>(name: N): readonly TT[N][];
+  /**
+   * Databasens klocka (mm.app_now() för inloggade), när minnet har en: samma klocka som ctx.now() i minnesläget och prototypen.
+   * Saknas den (ett minne utan klocka, t.ex. i ett test) prövas inga regler som beror på tiden.
+   */
+  now?(): string;
 };
 
 export { PolicyError, UniqueError };
@@ -32,6 +37,8 @@ export class MemoryStore<TT extends Record<string, Row>> {
   private byId = new Map<string, Map<string, Row>>();
   /** Ökas vid varje skrivning – används för att veta när frågor behöver räknas om. */
   version = 0;
+  /** Klockan som policyerna ser (RawAccess.now) – sätts av minneslägets körning (memory-runtime.ts). */
+  clock: (() => string) | null = null;
 
   /** unique: samma unika nycklar som databasen (UNIQUE_KEYS i schema.ts) – en dubblett stoppas med UniqueError, som i Postgres. */
   constructor(public data: MemoryData<TT>, private unique: UniqueKeys<TT> = {}) {
@@ -60,9 +67,11 @@ export class MemoryStore<TT extends Record<string, Row>> {
     this.byId.set(name, m);
   }
   raw(): RawAccess<TT> {
+    const clock = this.clock;
     return {
       get: (name, id) => this.byId.get(name)?.get(id) as never,
       all: (name) => ((this.data as Record<string, Row[]>)[name] ?? []) as never,
+      ...(clock ? { now: () => clock() } : {}),
     };
   }
   rows<N extends keyof TT & string>(name: N): TT[N][] {

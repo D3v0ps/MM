@@ -385,6 +385,68 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
   });
 });
 
+describe("draft_monthly: coachen sparar eller godkänner medan AI arbetar (villkorad skrivning)", () => {
+  /** Systemet där coachen hinner skriva i månadsbedömningen precis innan jobbets villkorade skrivning. */
+  const racing = (system: AppRepo, coach: () => void): AppRepo => {
+    let done = false;
+    return {
+      table: (name: string) => {
+        const t = system.table(name as "monthly_assessments");
+        if (name !== "monthly_assessments") return t;
+        return {
+          ...t,
+          updateIf: async (...args: Parameters<typeof t.updateIf>) => {
+            if (!done) {
+              done = true;
+              coach();
+            }
+            return t.updateIf(...args);
+          },
+        };
+      },
+    } as unknown as AppRepo;
+  };
+
+  it("coachen sparar en ny nivå: jobbet läser om raden och lägger utkastet ovanpå – coachens val ligger kvar", async () => {
+    const t = setup();
+    const before = structuredClone(t.store.getRow("monthly_assessments", "ma-15934")!);
+    const key = Object.keys(before.areas)[0];
+    const ctx = {
+      ...t.amira,
+      system: racing(t.system, () => {
+        const cur = t.store.getRow("monthly_assessments", "ma-15934")!;
+        t.store.updateRow("monthly_assessments", "ma-15934", {
+          areas: { ...cur.areas, [key]: { ...cur.areas[key], level: 2, levelSource: "coach", observation: "Coachens egen observation." } }, version: cur.version + 1,
+        });
+      }),
+    };
+    const r = await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.status).toBe("succeeded");
+    const ma = t.store.getRow("monthly_assessments", "ma-15934")!;
+    expect(ma.areas[key]).toMatchObject({ level: 2, levelSource: "coach", observation: "Coachens egen observation." });
+    expect(ma.areas[key].aiObservationDraft).not.toBeNull();
+    expect(ma.version).toBeGreaterThanOrEqual(before.version + 1);
+    expect((t.run(r.aiRunId).output as MonthlyDraftOutput).assessmentId).toBe("ma-15934");
+  });
+
+  it("coachen godkänner under tiden: jobbet ändrar ingenting i den godkända bedömningen", async () => {
+    const t = setup();
+    let approved: Tables["monthly_assessments"] | null = null;
+    const ctx = {
+      ...t.amira,
+      system: racing(t.system, () => {
+        const cur = t.store.getRow("monthly_assessments", "ma-15934")!;
+        t.store.updateRow("monthly_assessments", "ma-15934", { status: "approved", decidedBy: "u-amira", decidedAt: "2027-02-01T09:20", version: cur.version + 1 });
+        approved = structuredClone(t.store.getRow("monthly_assessments", "ma-15934")!);
+      }),
+    };
+    const r = await enqueueVoiceJob(ctx, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    expect(r.status).toBe("succeeded");
+    expect(t.store.getRow("monthly_assessments", "ma-15934")).toEqual(approved);
+    expect((t.run(r.aiRunId).output as MonthlyDraftOutput).assessmentId).toBeNull();
+  });
+});
+
 describe("gallring", () => {
   it("ljud som inte transkriberats raderas senast efter 24 timmar – körningen avslutas som misslyckad", async () => {
     const t = setup({ jobs: true });

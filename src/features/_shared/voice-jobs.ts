@@ -32,6 +32,7 @@ import { aiLanguages, isOperational, progressionAreas, recordingEnabled, require
 import { applyAiDraft, type AiAreaDraft } from "@/core/monthly-prefill";
 import { addDays, addMinutes, monthKey, type LocalDateTime, type MonthKey } from "@/core/time";
 import type { AiRun, AiRunKind, AiRunStatus, AudioUpload, Case, CheckIn, CheckInAiDraft, Job, MonthlyAssessment, MonthlyPlan, ParticipantVoiceNote, Person } from "@/data/schema";
+import { UniqueError } from "@/data/repo";
 import {
   AI_OFF_TEXT,
   aiRunRow, approvedCheckIns, areaChangeNoteIds, draftNotes, EXTRACT_SCHEMAS, recordingBlock, requireAi, sumRuns, transcriptLines, TranscriptSchema, verifyLevelSuggestion,
@@ -545,6 +546,9 @@ export async function monthlyDraftInput(ctx: Ctx, caseId: string, month: MonthKe
   return { caseId, month, checkIns: approvedCheckIns(cis.filter((c) => monthKey(c.heldAt) === month)), attendance, notes };
 }
 
+/** Så många gånger skrivs AI-utkastet om när coachen sparade samtidigt (versionen ändrades) innan det bara finns i körningen. */
+const DRAFT_WRITE_ATTEMPTS = 3;
+
 async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Promise<string> {
   const run = await runFor(ctx, p.aiRunId);
   if (run.status === "succeeded") return "already_done";
@@ -585,36 +589,63 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   // rörs aldrig – coachen väljer själv (CLAUDE.md punkt 5). Nivåförslaget med belägg sparas bara som förslag. Sammanfattningen
   // och planens aktiviteter fylls i bara där de fortfarande är förifyllda eller tomma (applyAiDraft). Saknas raden skapas den
   // förifylld (Karims beslut 2026-10-22), med fasta id:n.
+  // Villkorat (version och status): coachen kan spara eller godkänna medan AI arbetar. Missar villkoret läses raden om och utkastet
+  // läggs in i den nya versionen – en godkänd bedömning ändras aldrig, och coachens sparade ändringar skrivs aldrig över. Skapas
+  // raden samtidigt av jobbet eller coachen (samma fasta id) läses den om på samma sätt.
   const table = ctx.system.table("monthly_assessments");
   const plans = ctx.system.table("monthly_plans");
-  const cur = await table.first({ caseId: cc.c.id, month: p.month });
+  const drafts: Record<string, AiAreaDraft> = {};
+  for (const [k, d] of Object.entries(areas)) drafts[k] = { observation: { text: d.text, sources: d.sources, noEvidence: d.noEvidence }, suggestion: verified[k] ?? null };
+  const aiSummaryDraft = summary.noEvidence ? null : summary.text;
   let assessmentId: string | null = null;
-  if (!cur || cur.status !== "approved") {
+  let approved = false;
+  for (let attempt = 0; attempt < DRAFT_WRITE_ATTEMPTS && !assessmentId && !approved; attempt++) {
+    const cur = await table.first({ caseId: cc.c.id, month: p.month });
+    if (cur?.status === "approved") {
+      approved = true;
+      break;
+    }
     const pre = cur ? null : await loadPrefill(ctx.system, cc.c, p.month, cfg, ctx.now());
     const ma: MonthlyAssessment = cur ?? prefilledAssessment(prefillAssessmentId(cc.c.id, p.month), cc.c.id, p.month, pre!);
     const curPlan = (await plans.first({ caseId: cc.c.id, month: p.month })) ?? (pre ? prefilledPlan(prefillPlanId(cc.c.id, p.month), cc.c.id, p.month, pre) : null);
-    const drafts: Record<string, AiAreaDraft> = {};
-    for (const [k, d] of Object.entries(areas)) drafts[k] = { observation: { text: d.text, sources: d.sources, noEvidence: d.noEvidence }, suggestion: verified[k] ?? null };
     const next = applyAiDraft(ma, curPlan ? planFieldsOf(curPlan) : null, {
       areas: drafts, summary: summary.noEvidence ? null : summary.text, plan: plan.noEvidence ? null : plan.text,
     });
-    const aiSummaryDraft = summary.noEvidence ? null : summary.text;
     // Ändras något som coachen ser i formuläret (sammanfattningen eller planen) får raden en ny version – ett öppet formulär
     // får då "ändrats i en annan flik" i stället för att skriva över utkastet.
-    const version = cur && next.visible ? cur.version + 1 : ma.version;
-    if (cur) await table.update(cur.id, { areas: next.ma.areas, aiSummaryDraft, summary: next.ma.summary, prefill: next.ma.prefill, version });
-    else await table.insert({ ...next.ma, aiSummaryDraft });
+    if (cur) {
+      const version = next.visible ? cur.version + 1 : cur.version;
+      const done = await table.updateIf(cur.id, { version: cur.version, status: cur.status }, { areas: next.ma.areas, aiSummaryDraft, summary: next.ma.summary, prefill: next.ma.prefill, version });
+      if (!done) continue;
+    } else {
+      try {
+        await table.insert({ ...next.ma, aiSummaryDraft });
+      } catch (e) {
+        if (e instanceof UniqueError) continue;
+        throw e;
+      }
+    }
     if (curPlan && next.plan) {
       const row: MonthlyPlan = { ...curPlan, ...next.plan };
-      if (await plans.get(curPlan.id)) await plans.update(curPlan.id, row);
-      else await plans.insert(row);
+      // Bara fälten som utkastet ändrade (planerade aktiviteter) – coachens samtidiga ändringar i andra fält ligger kvar.
+      const patch = Object.fromEntries(Object.entries(next.plan).filter(([k, v]) => curPlan[k as keyof MonthlyPlan] !== v)) as Partial<MonthlyPlan>;
+      if (await plans.get(curPlan.id)) {
+        if (Object.keys(patch).length) await plans.update(curPlan.id, patch);
+      } else {
+        try {
+          await plans.insert(row);
+        } catch (e) {
+          // Coachen hann spara planen (samma fasta id) – coachens plan gäller.
+          if (!(e instanceof UniqueError)) throw e;
+        }
+      }
     }
     assessmentId = ma.id;
   }
   const output: MonthlyDraftOutput = { month: p.month, areas, summary, plan, assessmentId };
   await finishRun(ctx, run, spent, { output, evidence: { sourceIds: [...new Set([...Object.values(areas), summary, plan].flatMap((d) => d.sourceIds))] } });
-  // Redan godkänd månadsbedömning: utkasten finns bara i körningen.
-  return assessmentId ? "succeeded" : "succeeded_approved";
+  // Redan godkänd månadsbedömning (eller ändrad hela tiden medan utkastet skrevs): utkasten finns bara i körningen.
+  return assessmentId ? "succeeded" : approved ? "succeeded_approved" : "succeeded_conflict";
 }
 
 // ---------------------------------------------------------------- Gallring

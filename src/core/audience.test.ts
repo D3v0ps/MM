@@ -1,7 +1,7 @@
 // Målgruppen (Karims beslut 2026-10-22): vem som hör till en nivå eller ett yrkesområde en viss dag, och vad den automatiska
 // synkningen gör – lägger till och tar bort, rör aldrig manuellt inbjudna eller rader med närvaro, och hoppar över krockar.
 import { describe, expect, it } from "vitest";
-import { areaLabel, audienceColumns, audienceLabel, audienceMembersOn, audienceOf, belongsOn, planAudienceSync, type Audience, type AudienceCase, type AudienceRow } from "./audience";
+import { areaLabel, audienceColumns, audienceLabel, audienceMembersOn, audienceOf, belongsOn, planAudienceSync, planMeetingDay, type Audience, type AudienceCase, type AudienceRow } from "./audience";
 
 const DAY = "2027-02-09";
 const at = `${DAY}T13:30`;
@@ -71,5 +71,29 @@ describe("planAudienceSync – den automatiska inbjudan", () => {
     const first = planAudienceSync({ activity: activity(AREA_G), cases: CASES, levelOf, rows: [row("case-2", "audience")], others: [] });
     const after = [...first.add.map((id) => row(id, "audience"))];
     expect(planAudienceSync({ activity: activity(AREA_G), cases: CASES, levelOf, rows: after, others: [] })).toEqual({ add: [], remove: [], skipped: [] });
+  });
+});
+
+describe("skyddade personuppgifter (vilande spärr): aldrig automatiskt inbjuden", () => {
+  it("en skyddad deltagare hör inte till målgruppen – hon bjuds inte in och en automatisk rad tas bort", () => {
+    const shielded = c(1, { protectedIdentity: true });
+    expect(belongsOn(AREA_G, shielded, new Map(), DAY)).toBe(false);
+    const plan = planAudienceSync({
+      activity: { id: "ga-1", startsAt: at, durationMin: 60, audience: AREA_G }, cases: [shielded], levelOf: new Map(),
+      rows: [{ id: "a-1", caseId: shielded.id, inviteSource: "audience", registered: false }], others: [],
+    });
+    expect(plan).toEqual({ add: [], remove: [{ id: "a-1", caseId: shielded.id, inviteSource: "audience", registered: false }], skipped: [] });
+  });
+});
+
+describe("planMeetingDay: dagen som Planera börjar med", () => {
+  it("den här månaden: nästa arbetsdag – men inget när inga arbetsdagar återstår (sista arbetsdagen fredag 30 oktober)", () => {
+    expect(planMeetingDay("2026-10", "2026-10-28")).toBe("2026-10-29");
+    expect(planMeetingDay("2026-10", "2026-10-30")).toBeNull();
+    expect(planMeetingDay("2026-10", "2026-10-31")).toBeNull();
+  });
+  it("nästa månad: tionde arbetsdagen; en passerad månad: inget", () => {
+    expect(planMeetingDay("2026-11", "2026-10-30")).toBe("2026-11-13");
+    expect(planMeetingDay("2026-09", "2026-10-30")).toBeNull();
   });
 });

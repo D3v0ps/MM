@@ -173,6 +173,45 @@ export function prefillAssessment(input: PrefillInput): Prefill {
 /** Månaden före (förra månadens plan). */
 export const previousMonth = (month: MonthKey): MonthKey => addMonths(month, -1);
 
+/**
+ * Förifyllnaden hålls aktuell när en mötesrapport i månaden godkänns efter att utkastet skapades (jobbet skapar det natten efter
+ * månadsskiftet – coachen godkänner ofta den sista mötesrapporten några dagar senare). Bara fält som fortfarande är märkta som
+ * automatiska, eller som inte har något värde, får den nya förifyllnadens värde:
+ *   samlad status   märkt (eller inte vald) -> den senaste godkända mötesrapportens status
+ *   sammanfattning  märkt "rules" (eller tom) -> den nya texten ur godkända uppgifter; AI:s utkast och coachens text rörs aldrig
+ *   mål 1           märkt "check_in" (eller tomt) -> det senaste godkända veckomålet
+ * changed = något ändrades. Ren funktion: samma regel i hanteraren och testerna.
+ */
+export function refreshPrefill(
+  ma: Pick<MonthlyAssessment, "summary" | "overallStatus" | "prefill">,
+  plan: Pick<PrefillPlan, "goal1"> | null,
+  fresh: Prefill,
+): { assessment: Pick<MonthlyAssessment, "summary" | "overallStatus" | "prefill">; plan: Pick<PrefillPlan, "goal1"> | null; changed: boolean } {
+  const marks: MonthlyPrefill = { ...ma.prefill, ...(ma.prefill.plan ? { plan: { ...ma.prefill.plan } } : {}) };
+  let { summary, overallStatus } = ma;
+  let changed = false;
+  const freshStatus = fresh.prefill.overallStatus;
+  if ((marks.overallStatus || overallStatus == null) && freshStatus && fresh.overallStatus != null
+    && (overallStatus !== fresh.overallStatus || marks.overallStatus?.checkInId !== freshStatus.checkInId)) {
+    overallStatus = fresh.overallStatus;
+    marks.overallStatus = freshStatus;
+    changed = true;
+  }
+  if ((marks.summary === "rules" || (!marks.summary && !summary.trim())) && fresh.prefill.summary === "rules" && summary !== fresh.summary) {
+    summary = fresh.summary;
+    marks.summary = "rules";
+    changed = true;
+  }
+  let planPatch: Pick<PrefillPlan, "goal1"> | null = null;
+  if (plan && fresh.prefill.plan?.goal1 === "check_in" && (marks.plan?.goal1 === "check_in" || (!marks.plan?.goal1 && !plan.goal1.trim()))
+    && plan.goal1 !== fresh.plan.goal1) {
+    planPatch = { goal1: fresh.plan.goal1 };
+    marks.plan = { ...marks.plan, goal1: "check_in" };
+    changed = true;
+  }
+  return { assessment: { summary, overallStatus, prefill: marks }, plan: planPatch, changed };
+}
+
 // ---------------------------------------------------------------- Coachens sparning
 /**
  * Nivåns ursprung efter en sparning av ett område (assessment.save). Coachen skickar ursprunget hon ser på skärmen:
