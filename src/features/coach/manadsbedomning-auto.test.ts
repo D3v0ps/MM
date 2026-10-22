@@ -118,7 +118,7 @@ describe("coachens sparning och godkännandet", () => {
     const acc = rows("audit_log").filter((l) => l.action === "assessment.ai_accepted");
     expect(acc).toHaveLength(1);
     expect(acc[0].details).toEqual({ caseId: NADIA, month: JAN, count: sug.length, areas: sug.map((a) => a.key) });
-    // Nivå 1 eller högre med den automatiska texten "Framgår inte …": observationen saknas.
+    // Nivå 1 eller högre med den automatiska texten "Ingen förändring noterad …": observationen saknas.
     const res = await run(assessmentSave, { ...base, approve: true, reviewed: true, expectedVersion: maOf().version }, amira());
     expect(res).toMatchObject({ ok: false, error: "incomplete" });
     if (!res.ok && res.error === "incomplete" && "missing" in res) expect(res.missing).toEqual(sug.map((a) => a.key));

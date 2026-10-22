@@ -124,11 +124,11 @@ Ska deltagaren arbeta mot ett annat yrkesområde? Huvudcoachen, samordnaren och 
 
 1. Tryck på **Ändra** vid nivån och yrkesområdet i deltagarkortets huvud och sedan på **Byt yrkesområde**. Tidigare byten står under raden i huvudet, med motiveringen.
 2. Välj **Nytt yrkesområde**.
-3. Välj **Yrkesspår i det nya yrkesområdet** om ni redan vet det. Annars väljs det i kartläggningen. Det gamla yrkesspåret följer inte med.
+3. Välj **Yrkesspår i det nya yrkesområdet** om ni redan vet det. Annars väljer coachen det i kartläggningen, och valet förs över till deltagarkortet. Det gamla yrkesspåret följer inte med.
 4. Skriv en kort **Motivering**, 10–300 tecken. Skriv inga personnummer. Motiveringen sparas som en anteckning i deltagarkortet och kan inte ändras eller tas bort efteråt.
 5. Tryck på **Byt yrkesområde**.
 
-Deltagaren bjuds direkt in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas. Den som du har bjudit in själv och den som har närvaro registrerad ligger kvar. Fakturan räknas på det nya yrkesområdet från och med månaden efter bytet. Kommunen ser bara det nya yrkesområdet.
+Deltagaren bjuds direkt in till det nya yrkesområdets kommande träffar och tas bort ur det gamlas. Den som du har bjudit in själv och den som har närvaro registrerad ligger kvar. Fakturan räknas på det nya yrkesområdet från och med månaden efter bytet. Kommunen ser det nya yrkesområdet i portalen. Rapporterna och fakturan för månaderna före det visar det gamla yrkesområdet och yrkesspåret.
 
 ### Grupper och nivåer
 
@@ -177,7 +177,7 @@ Nivåaktiviteterna är samma tid varje vecka, till exempel tisdag och torsdag kl
 4. **Meddela deltagarna inför varje tillfälle** är inte förvalt. Deltagarna får tiderna av sin coach.
 5. Tryck på **Skapa den återkommande aktiviteten**. Tillfällena skapas två veckor i förväg. Helgdagar hoppas över.
 
-Har någon i nivån redan ett annat tillfälle vid samma tid bjuds hen inte in till det tillfället. Det står i tillfället vilka det gäller. Är det deltagarens eget tillfälle kan du trycka på **Bjud in och ersätt deras egna tillfällen**.
+Har någon i nivån redan ett annat tillfälle vid samma tid bjuds hen inte in till det tillfället. Det står i tillfället vilka det gäller. Är det deltagarens eget tillfälle kan du trycka på **Bjud in och ersätt deras egna tillfällen**. Du ser vilket tillfälle som ersätts för varje deltagare. Rutan **Skicka inbjudan till deltagarna** är förvald om aktiviteten har meddelandet påslaget.
 
 Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle kan du trycka på **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Dag, tid och längd ändras inte efteråt – avsluta och skapa en ny i stället. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen.
 

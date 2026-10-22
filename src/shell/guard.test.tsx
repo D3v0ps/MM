@@ -230,5 +230,18 @@ describe("dropStaleDraft (minnet äldre än raden på servern)", () => {
     expect(dropStaleDraft(same.memory, o(4))).toBe(false);
     expect(dropStaleDraft(fake({ "f|a": "mitt" }).memory, o(4))).toBe(false);
     expect(dropStaleDraft(fake({ "f|version": 1 }).memory, o(null))).toBe(false);
+    // Ett sparat läge som inte går att läsa: minnet ligger kvar.
+    expect(dropStaleDraft(fake({ "f|a": "mitt", "f|sparat": "{trasigt", "f|version": 3 }).memory, o(4))).toBe(false);
+  });
+
+  it("servern ändrade ett fält som inte finns i minnet (t.ex. sammanfattningen när närvaron rättades): ingen osparad ändring – minnet glöms (granskningen, tredje rundan)", () => {
+    // Coachen ändrade bara a och autosparade. Sedan skrev servern om b (1 -> 2) och höjde versionen.
+    const { m, memory } = fake({ "f|a": "mitt", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3, "f|tid": "09.00" });
+    const server = { fields: [["f|a", "mitt"], ["f|b", 2]] as const, saved: "f|sparat", version: "f|version", others: ["f|tid"], serverVersion: 4 };
+    expect(dropStaleDraft(memory, server)).toBe(true);
+    expect([...m.keys()]).toEqual([]);
+    // Har coachen också ändrat a efter autosparningen ligger minnet kvar – det är en osparad ändring.
+    const dirty = fake({ "f|a": "ändrat igen", "f|sparat": JSON.stringify(["mitt", 1]), "f|version": 3 });
+    expect(dropStaleDraft(dirty.memory, server)).toBe(false);
   });
 });

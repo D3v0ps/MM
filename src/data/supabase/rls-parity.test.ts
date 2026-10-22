@@ -13,7 +13,7 @@ import { authUserIdFor, seedData, seedSql, sqlLiteral, TESTERS } from "../../../
 import { listPersonas, type Persona } from "../actors";
 import { MemoryRepo, MemoryStore, UniqueError, type RawAccess } from "../memory";
 import { canReadRow, canWriteRow, POLICIES } from "../policy";
-import { TABLE_NAMES, UNIQUE_KEYS, type TableName, type Tables } from "../schema";
+import { TABLE_NAMES, UNIQUE_KEYS, type Case, type TableName, type Tables } from "../schema";
 import {
   allowed, asUser, attempt, createMigratedDatabase, databaseFromSnapshot, loadSeed, MIGRATIONS_DIR, SEED_FILE, snapshotDatabase, type DatabaseSnapshot, type Tx,
 } from "./pglite";
@@ -2551,16 +2551,42 @@ describe("målgrupp, serie och inbjudningens källa på gruppaktiviteterna (0035
 describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS, triggern och policy.ts", () => {
   const LINNEA = "case-260163";
   const NADIA = "case-260143";
-  // Ett nytt byte i Linneas ärende (D → C, nummer 2) med anteckningen från testdatats byte. Den 1 februari – fakturan från mars.
+  // Ett nytt byte i Linneas ärende (D → C, nummer 2) – Linnea har D och yrkesspåret Restaurangbiträde sedan testdatats byte,
+  // inget alternativ. Den 1 februari – fakturan från mars. Varje byte har en egen ny anteckning (note-<id>) av den som byter.
   // Tiden är testklockans (mm.app_now(): klockan står på 09.12 när blocket börjar – se beforeEach nedan).
   const at = "2027-02-01T09:12";
   const row = (id: string, changedBy: string, patch: Partial<Tables["case_area_changes"]> = {}): Tables["case_area_changes"] => ({
-    id, contractId: "c-bot", caseId: LINNEA, fromArea: "D", toArea: "C", effectiveMonth: "2027-03", changedBy, changedAt: at, noteId: "note-byte-linnea", seq: 2, ...patch,
+    id, contractId: "c-bot", caseId: LINNEA, fromArea: "D", toArea: "C", effectiveMonth: "2027-03", changedBy, changedAt: at, noteId: `note-${id}`, seq: 2,
+    fromTrack: "Restaurangbiträde", toTrack: "", fromSecondaryArea: null, ...patch,
   });
   const ins = (r: Tables["case_area_changes"]) => insertSql("case_area_changes", r as unknown as Record<string, unknown>);
-  // Minnet med samma klocka som databasen (RawAccess.now – triggern jämför med mm.app_now()).
-  const clocked: RawAccess<Tables> = { get: (n, id) => raw.get(n, id), all: (n) => raw.all(n), now: () => at };
-  const memWrite = (r: Tables["case_area_changes"], key: string, rawAccess: RawAccess<Tables> = clocked) => canWriteRow("case_area_changes", r, actorOf(findPersona(key)), rawAccess);
+  /** Motiveringen till bytet: en ny anteckning av den som byter (eller det som patch säger), i bytets ärende. */
+  const noteFor = (r: Tables["case_area_changes"], patch: Partial<Tables["case_notes"]> = {}): Tables["case_notes"] => ({
+    id: `note-${r.id}`, contractId: "c-bot", caseId: r.caseId, authorId: r.changedBy, occurredOn: "2027-02-01", kind: "other", audience: "team",
+    body: "Byte av yrkesområde: motivering.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null, ...patch,
+  });
+  const insNote = (n: Tables["case_notes"]) => insertSql("case_notes", n as unknown as Record<string, unknown>);
+  // Minnet med samma klocka som databasen (RawAccess.now – triggern jämför med mm.app_now()) och anteckningen för bytet.
+  const clockedWith = (notes: Tables["case_notes"][] = []): RawAccess<Tables> => ({
+    get: ((n: TableName, id: string) => (n === "case_notes" ? notes.find((x) => x.id === id) ?? raw.get("case_notes", id) : raw.get(n, id))) as RawAccess<Tables>["get"],
+    all: ((n: TableName) => (n === "case_notes" ? [...raw.all("case_notes"), ...notes] : raw.all(n))) as RawAccess<Tables>["all"],
+    now: () => at,
+  });
+  const memWrite = (r: Tables["case_area_changes"], key: string, notes: Tables["case_notes"][] = [noteFor(r)]) => canWriteRow("case_area_changes", r, actorOf(findPersona(key)), clockedWith(notes));
+  /** Som testpersonen, med anteckningen (anteckningarna) inlagd först som postgres i samma transaktion. */
+  const asPersonaWith = <T,>(key: string, notes: Tables["case_notes"][], fn: (tx: Tx) => Promise<T>): Promise<T> => {
+    const p = findPersona(key);
+    const roles = new Set(data.memberships.filter((m) => m.userId === p.actor.userId).map((m) => m.role));
+    return asUser(db, authOf(p.actor.userId), fn, {
+      before: async (tx) => {
+        for (const n of notes) await tx.query(insNote(n));
+        if (roles.size > 1) await chooseRole(p.actor.userId, p.actor.role)(tx);
+      },
+    });
+  };
+  const pgChange = async (key: string, r: Tables["case_area_changes"], notes: Tables["case_notes"][] = [noteFor(r)]) => allowed(await asPersonaWith(key, notes, (tx) => attempt(tx, ins(r))));
+  const serviceChange = (r: Tables["case_area_changes"], notes: Tables["case_notes"][] = [noteFor(r)]) =>
+    asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role", before: async (tx) => { for (const n of notes) await tx.query(insNote(n)); } });
   const pgWrite = async (key: string, sql: string) => allowed(await asPersona(findPersona(key), (tx) => attempt(tx, sql)));
   // Testklockan startar om på 09.12 (som när seeden lästes in) – blocket kan köras långt efter att databasen skapades. Tiderna i
   // raderna är Stockholms tid: samma tidszon som databasen har i drift (0001; en kopia av databasen i testet startar i UTC).
@@ -2570,9 +2596,12 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
   });
 
   it("testdatat: Linneas byte G → D den 27 januari med motiveringen i en anteckning, fakturan på D från februari", () => {
-    expect(data.case_area_changes).toEqual([expect.objectContaining({ id: "cac-seed-linnea", caseId: LINNEA, fromArea: "G", toArea: "D", effectiveMonth: "2027-02", noteId: "note-byte-linnea", seq: 1 })]);
+    expect(data.case_area_changes).toEqual([expect.objectContaining({
+      id: "cac-seed-linnea", caseId: LINNEA, fromArea: "G", toArea: "D", effectiveMonth: "2027-02", noteId: "note-byte-linnea", seq: 1,
+      fromTrack: "Lagerarbetare – plock och pack", toTrack: "Restaurangbiträde", fromSecondaryArea: "D",
+    })]);
     expect(raw.get("case_notes", "note-byte-linnea")?.caseId).toBe(LINNEA);
-    expect(raw.get("cases", LINNEA)?.primaryAreaCode).toBe("D");
+    expect(raw.get("cases", LINNEA)).toMatchObject({ primaryAreaCode: "D", vocationalTrack: "Restaurangbiträde", secondaryAreaCode: null });
   });
 
   it("läsning per roll: Miljonbemanning i avtalet, också ekonomen – aldrig kommunen", async () => {
@@ -2600,7 +2629,7 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
       [SUPERVISOR, row("cac-t10", "u-petra"), false],
     ];
     for (const [key, r, want] of cases) {
-      expect({ pg: await pgWrite(key, ins(r)), mem: memWrite(r, key) }, `${key} ${r.id}`).toEqual({ pg: want, mem: want });
+      expect({ pg: await pgChange(key, r), mem: memWrite(r, key) }, `${key} ${r.id}`).toEqual({ pg: want, mem: want });
     }
   });
 
@@ -2614,23 +2643,31 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
       ["ärende i ett annat avtal än raden", row("cac-b6", "u-amira", { caseId: NADIA })],
     ];
     for (const [label, r] of bad) {
-      expect({ pg: await pgWrite("u-amira", ins(r)), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
-      const service = await asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role" });
+      expect({ pg: await pgChange("u-amira", r), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      const service = await serviceChange(r);
       expect(service.ok, `${label} (service role)`).toBe(false);
     }
     // Ett inaktivt yrkesområde i avtalet: nekas av triggern också för servern.
-    const inactive = async (tx: Tx) => { await tx.query("update public.contract_areas set active = false where contract_id = 'c-bot' and code = 'C'"); };
-    const pg = await asUser(db, authOf("u-amira"), (tx) => attempt(tx, ins(row("cac-b7", "u-amira"))), { before: inactive });
+    const b7 = row("cac-b7", "u-amira");
+    const inactive = async (tx: Tx) => {
+      await tx.query(insNote(noteFor(b7)));
+      await tx.query("update public.contract_areas set active = false where contract_id = 'c-bot' and code = 'C'");
+    };
+    const pg = await asUser(db, authOf("u-amira"), (tx) => attempt(tx, ins(b7)), { before: inactive });
     expect(pg).toMatchObject({ ok: false, code: "23514" });
     const mem = new MemoryStore<Tables>(structuredClone(data), UNIQUE_KEYS);
     mem.rows("contract_areas").find((a) => a.contractId === "c-bot" && a.code === "C")!.active = false;
-    expect(memWrite(row("cac-b7", "u-amira"), "u-amira", mem.raw())).toBe(false);
-    // Fel nummer (inte nästa i ärendet): nekas för alla, också servern.
-    for (const [label, r] of [["nummer 1 igen", row("cac-b8", "u-amira", { seq: 1 })], ["nummer 3", row("cac-b9", "u-amira", { seq: 3 })]] as const) {
-      expect({ pg: await pgWrite("u-amira", ins(r)), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
-      const service = await asUser(db, null, (tx) => attempt(tx, ins(r)), { role: "service_role" });
+    mem.insertRow("case_notes", noteFor(b7));
+    expect(canWriteRow("case_area_changes", b7, actorOf(findPersona("u-amira")), { ...mem.raw(), now: () => at })).toBe(false);
+    // Fel nummer (inte nästa i ärendet) och en anteckning som redan är motivering till ett annat byte (unik): nekas för alla,
+    // också servern.
+    const reused = row("cac-b10", "u-amira", { noteId: "note-byte-linnea" });
+    for (const [label, r] of [["nummer 1 igen", row("cac-b8", "u-amira", { seq: 1 })], ["nummer 3", row("cac-b9", "u-amira", { seq: 3 })], ["samma motivering igen", reused]] as const) {
+      expect({ pg: await pgChange("u-amira", r), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      const service = await serviceChange(r);
       expect(service.ok, `${label} (service role)`).toBe(false);
     }
+    expect(await serviceChange(reused)).toMatchObject({ ok: false, code: "23505" });
   });
 
   it("kedjan för inloggade: ingen påhittad historik – från ärendets nuvarande yrkesområde, inte äldre än det förra bytet, med aktuell tid", async () => {
@@ -2643,13 +2680,105 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
       ["framåtdaterat", row("cac-k5", "u-amira", { changedAt: "2027-02-01T10:00" })],
     ];
     for (const [label, r] of bad) {
-      expect({ pg: await pgWrite("u-amira", ins(r)), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      expect({ pg: await pgChange("u-amira", r), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
     }
-    const pg = await asPersona(findPersona("u-amira"), (tx) => attempt(tx, ins(row("cac-k1", "u-amira", { fromArea: "A", toArea: "D" }))));
+    const k1 = row("cac-k1", "u-amira", { fromArea: "A", toArea: "D" });
+    const pg = await asPersonaWith("u-amira", [noteFor(k1)], (tx) => attempt(tx, ins(k1)));
     expect(pg).toMatchObject({ ok: false, code: "23514" });
     // Inom 10 minuter från klockan: giltigt.
     const near = row("cac-k6", "u-amira", { changedAt: "2027-02-01T09:15" });
-    expect({ pg: await pgWrite("u-amira", ins(near)), mem: memWrite(near, "u-amira") }).toEqual({ pg: true, mem: true });
+    expect({ pg: await pgChange("u-amira", near), mem: memWrite(near, "u-amira") }).toEqual({ pg: true, mem: true });
+  });
+
+  it("bytet utgår från ärendets nuvarande yrkesspår och alternativ – annars nekas hela bytet (23514)", async () => {
+    const bad: [string, Tables["case_area_changes"]][] = [
+      ["ett annat yrkesspår än ärendets", row("cac-s1", "u-amira", { fromTrack: "Lagerarbetare – plock och pack" })],
+      ["ett alternativ som ärendet inte har", row("cac-s2", "u-amira", { fromSecondaryArea: "G" })],
+    ];
+    for (const [label, r] of bad) {
+      expect({ pg: await pgChange("u-amira", r), mem: memWrite(r, "u-amira") }, label).toEqual({ pg: false, mem: false });
+      expect(await asPersonaWith("u-amira", [noteFor(r)], (tx) => attempt(tx, ins(r))), label).toMatchObject({ ok: false, code: "23514" });
+    }
+    // Ett avslutat ärende: nekas.
+    const closed = row("cac-s3", "u-amira");
+    const pg = await asUser(db, authOf("u-amira"), (tx) => attempt(tx, ins(closed)), {
+      before: async (tx) => { await tx.query(insNote(noteFor(closed))); await tx.query(`update public.cases set status = 'closed' where id = '${LINNEA}'`); },
+    });
+    expect(pg).toMatchObject({ ok: false, code: "23514" });
+  });
+
+  it("motiveringen är en ny anteckning av den som byter: aldrig någon annans, en borttagen, en gammal eller en annan typ – samma i RLS och policy.ts", async () => {
+    const r = (id: string) => row(id, "u-amira");
+    const bad: [string, Tables["case_area_changes"], Tables["case_notes"]][] = [
+      ["Saras anteckning", r("cac-n1"), noteFor(r("cac-n1"), { authorId: "u-sara" })],
+      ["en borttagen anteckning", r("cac-n2"), noteFor(r("cac-n2"), { removedAt: at, removedBy: "u-amira" })],
+      ["en gammal anteckning", r("cac-n3"), noteFor(r("cac-n3"), { createdAt: "2027-01-20T10:00" })],
+      ["en kundkontakt", r("cac-n4"), noteFor(r("cac-n4"), { kind: "customer_contact", audience: "full" })],
+    ];
+    for (const [label, change, note] of bad) {
+      expect({ pg: await pgChange("u-amira", change, [note]), mem: memWrite(change, "u-amira", [note]) }, label).toEqual({ pg: false, mem: false });
+    }
+    // En befintlig anteckning i ärendet (testdatat – Saras samtalsanteckning i Nadias ärende) kan inte göras till motivering av
+    // någon annan, och blir alltså aldrig låst för sin författare.
+    const sara = raw.get("case_notes", "note-nadia-samtal")!;
+    expect(sara.authorId).not.toBe("u-erik");
+    const hijack: Tables["case_area_changes"] = {
+      ...row("cac-n5", "u-erik"), caseId: NADIA, fromArea: "G", toArea: "C", seq: 1, noteId: sara.id, fromTrack: raw.get("cases", NADIA)!.vocationalTrack,
+    };
+    expect({ pg: await pgChange("u-erik", hijack, []), mem: memWrite(hijack, "u-erik", []) }).toEqual({ pg: false, mem: false });
+  });
+
+  it("bytet och ärendet i samma transaktion: en enda sats ändrar ärendets yrkesområde, yrkesspår och alternativ – ett halvt byte kan inte bli kvar", async () => {
+    const r = row("cac-t1", "u-amira", { toTrack: "Bygg – grund och arbetsmiljö" });
+    const res = await asPersonaWith("u-amira", [noteFor(r)], async (tx) => {
+      const change = await attempt(tx, ins(r), [], { keep: true });
+      const after = (await tx.query<{ a: string; t: string; s: string | null }>(`select primary_area_code as a, vocational_track as t, secondary_area_code as s from public.cases_public where id = '${LINNEA}'`)).rows[0];
+      return { change, after };
+    });
+    expect(res).toEqual({ change: { ok: true, rows: 1 }, after: { a: "C", t: "Bygg – grund och arbetsmiljö", s: null } });
+    // Ett alternativt yrkesområde som blir det nya tas bort i samma sats.
+    const viaSecondary = row("cac-t2", "u-amira", { fromSecondaryArea: "C" });
+    const res2 = await asUser(db, authOf("u-amira"), async (tx) => {
+      const change = await attempt(tx, ins(viaSecondary), [], { keep: true });
+      const after = (await tx.query<{ a: string; s: string | null }>(`select primary_area_code as a, secondary_area_code as s from public.cases_public where id = '${LINNEA}'`)).rows[0];
+      return { change, after };
+    }, { before: async (tx) => { await tx.query(insNote(noteFor(viaSecondary))); await tx.query(`update public.cases set secondary_area_code = 'C' where id = '${LINNEA}'`); } });
+    expect(res2).toEqual({ change: { ok: true, rows: 1 }, after: { a: "C", s: null } });
+    // Servern (service role, t.ex. testdatat) skriver bara raden – ärendet ändras inte.
+    const sys = await asUser(db, null, async (tx) => {
+      await tx.query(insNote(noteFor(r)));
+      await tx.query(ins(r));
+      return (await tx.query<{ a: string }>(`select primary_area_code as a from public.cases where id = '${LINNEA}'`)).rows[0].a;
+    }, { role: "service_role" });
+    expect(sys).toBe("D");
+  });
+
+  it("ärendets yrkesområde ändras aldrig direkt efter bekräftelsen, och kommunen ändrar aldrig yrkesområdena efter mottagandet – samma i triggern och policy.ts", async () => {
+    const cur = (id: string) => raw.get("cases", id)!;
+    const memCase = (key: string, id: string, patch: Partial<Case>) => canWriteRow("cases", { ...cur(id), ...patch }, actorOf(findPersona(key)), raw);
+    const cases: [string, string, string, Partial<Case>, boolean][] = [
+      ["u-amira", LINNEA, "update public.cases set primary_area_code = 'C' where id = '${id}'", { primaryAreaCode: "C" }, false],
+      ["u-sara", LINNEA, "update public.cases set primary_area_code = 'C' where id = '${id}'", { primaryAreaCode: "C" }, false],
+      ["u-johan", NADIA, "update public.cases set primary_area_code = 'C', vocational_track = '' where id = '${id}'", { primaryAreaCode: "C", vocationalTrack: "" }, false],
+      ["k-maria", NADIA, "update public.cases set primary_area_code = 'C' where id = '${id}' and primary_area_code = 'G'", { primaryAreaCode: "C" }, false],
+      ["k-maria", NADIA, "update public.cases set secondary_area_code = 'C' where id = '${id}'", { secondaryAreaCode: "C" }, false],
+      // Det alternativa yrkesområdet (Miljonbemanning) och kommunens kontaktuppgifter ändras som förut.
+      ["u-sara", NADIA, "update public.cases set secondary_area_code = 'C' where id = '${id}'", { secondaryAreaCode: "C" }, true],
+      ["k-maria", NADIA, "update public.cases set referrer_phone = '08-000 00 00' where id = '${id}'", { referrerPhone: "08-000 00 00" }, true],
+    ];
+    for (const [key, id, sql, patch, want] of cases) {
+      expect({ pg: await pgWrite(key, sql.replace("${id}", id)), mem: memCase(key, id, patch) }, `${key} ${sql}`).toEqual({ pg: want, mem: want });
+    }
+    // Före bekräftelsen väljs yrkesområdet som förut (avropsinkorgen, accepten) – av Miljonbemanning, aldrig av kommunen.
+    const waiting = data.cases.find((c) => c.status === "acknowledged" && c.contractId === "c-bot")!;
+    expect({ pg: await pgWrite("u-sara", `update public.cases set primary_area_code = 'C' where id = '${waiting.id}'`), mem: memCase("u-sara", waiting.id, { primaryAreaCode: "C" }) }).toEqual({ pg: true, mem: true });
+    if (waiting.referrerId) {
+      const ref = personas.find((p) => p.actor.userId === waiting.referrerId);
+      if (ref) {
+        expect({ pg: await pgWrite(ref.actor.userId, `update public.cases set primary_area_code = 'C' where id = '${waiting.id}'`), mem: memCase(ref.actor.userId, waiting.id, { primaryAreaCode: "C" }) }).toEqual({ pg: false, mem: false });
+      }
+    }
+    expect(await asPersona(findPersona("u-amira"), (tx) => attempt(tx, `update public.cases set primary_area_code = 'C' where id = '${LINNEA}'`))).toMatchObject({ ok: false, code: "42501" });
   });
 
   it("ett byte ändras och raderas aldrig – inte heller av den som gjorde det eller av avtalsansvarig", async () => {
@@ -2661,34 +2790,25 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
     }
   });
 
-  it("hela bytet som SupabaseRepo skickar det: anteckningen, bytet och ärendet villkorat på det gamla yrkesområdet (läsrätt på primary_area_code)", async () => {
-    const note: Tables["case_notes"] = {
-      id: "note-r1", contractId: "c-bot", caseId: LINNEA, authorId: "u-amira", occurredOn: "2027-02-01", kind: "other", audience: "team",
-      body: "Byte av yrkesområde: D → C. Kartläggningen visade erfarenhet från bygg.", createdAt: at, updatedAt: null, removedAt: null, removedBy: null,
-    };
+  it("hela bytet som SupabaseRepo skickar det: anteckningen och bytet – två begäranden, ärendet följer med bytet", async () => {
     for (const key of ["u-amira", "u-sara", "u-johan"]) {
+      const r = row("cac-r1", key);
       const res = await asPersona(findPersona(key), async (tx) => ({
-        note: await attempt(tx, insertSql("case_notes", { ...note, authorId: key } as unknown as Record<string, unknown>), [], { keep: true }),
-        change: await attempt(tx, ins(row("cac-r1", key, { noteId: "note-r1" })), [], { keep: true }),
-        // SupabaseRepo.updateIf: update … where id = … and primary_area_code = … returning id (också alternativet och yrkesspåret).
-        moved: await attempt(tx, "update public.cases set primary_area_code = $1, secondary_area_code = null, vocational_track = $2 where id = $3 and primary_area_code = $4 returning id", ["C", "", LINNEA, "D"]),
-        stale: await attempt(tx, "update public.cases set primary_area_code = $1 where id = $2 and primary_area_code = $3 returning id", ["E", LINNEA, "G"]),
+        note: await attempt(tx, insNote(noteFor(r)), [], { keep: true }),
+        change: await attempt(tx, ins(r), [], { keep: true }),
+        area: (await tx.query<{ a: string }>(`select primary_area_code as a from public.cases_public where id = '${LINNEA}'`)).rows[0].a,
       }));
-      expect(res, key).toEqual({ note: { ok: true, rows: 1 }, change: { ok: true, rows: 1 }, moved: { ok: true, rows: 1 }, stale: { ok: true, rows: 0 } });
+      expect(res, key).toEqual({ note: { ok: true, rows: 1 }, change: { ok: true, rows: 1 }, area: "C" });
     }
   });
 
-  it("läsrätten på cases.primary_area_code lämnar inget nytt ut: samma ärenden och yrkesområden som cases_public, för alla roller", async () => {
-    for (const p of personas) {
-      const got = await asPersona(p, async (tx) => ({
-        table: (await tx.query<{ id: string; a: string | null }>("select id, primary_area_code as a from public.cases order by id")).rows,
-        view: (await tx.query<{ id: string; a: string | null }>("select id, primary_area_code as a from public.cases_public order by id")).rows,
-      }));
-      expect(got.table, personaKey(p)).toEqual(got.view);
+  it("inloggade läser fortfarande bara id direkt i public.cases – övriga kolumner via cases_public (0036 ger ingen ny läsrätt)", async () => {
+    for (const key of ["u-amira", "k-maria"]) {
+      const res = await asPersona(findPersona(key), (tx) => attempt(tx, "select primary_area_code from public.cases limit 1"));
+      expect(res, key).toMatchObject({ ok: false, code: "42501" });
     }
-    // Övriga kolumner läses fortfarande bara via vyn.
-    const other = await asPersona(findPersona("k-maria"), (tx) => attempt(tx, "select person_id from public.cases limit 1"));
-    expect(other).toMatchObject({ ok: false, code: "42501" });
+    const r = await db.query<{ a: boolean; b: boolean }>("select has_column_privilege('authenticated', 'public.cases', 'primary_area_code', 'select') as a, has_column_privilege('authenticated', 'public.cases', 'person_id', 'select') as b");
+    expect(r.rows[0]).toEqual({ a: false, b: false });
   });
 
   it("motiveringen är låst: ingen inloggad ändrar eller döljer anteckningen som ett byte pekar på – servern kan", async () => {
@@ -2733,13 +2853,15 @@ describe("byt yrkesområde (0036): läsning och skrivning – samma regler i RLS
       await tx.exec(sql);
       const after = await count();
       const policies = (await tx.query<{ n: number }>("select count(*)::int as n from pg_policies where tablename = 'case_area_changes'")).rows[0].n;
-      const triggers = (await tx.query<{ n: number }>("select count(*)::int as n from pg_trigger where tgname = 'case_area_changes_check'")).rows[0].n;
+      const triggers = (await tx.query<{ n: number }>(
+        "select count(*)::int as n from pg_trigger where tgname in ('case_area_changes_check', 'case_area_changes_apply', 'case_notes_area_change_lock', 'cases_area_guard')",
+      )).rows[0].n;
       res = { before, after, policies, triggers };
       await tx.rollback();
     });
     expect(res).not.toBeNull();
     expect(res!.after).toEqual(res!.before);
     expect(res!.policies).toBe(2);
-    expect(res!.triggers).toBe(1);
+    expect(res!.triggers).toBe(4);
   });
 });

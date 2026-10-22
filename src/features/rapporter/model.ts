@@ -14,7 +14,7 @@ import { pct } from "@/core/format";
 import { kpiValue, type KpiDb } from "@/core/kpi";
 import { areaName, endReasonLabel, eventLabel, personName } from "@/core/labels";
 import { orderPeriodText } from "@/core/cases";
-import { areaForMonth } from "@/core/area-changes";
+import { areaForMonth, secondaryAreaForMonth, trackForMonth } from "@/core/area-changes";
 import { addDays, addMonths, dayOf, diffDays, isoWeek, MONTHS, monday, monthEnd, monthKey, monthName, weekMonday, type LocalDate, type LocalDateTime, type MonthKey } from "@/core/time";
 import { by, groupBy, sum, uniq } from "@/core/util";
 import type { AttendanceStatus, Case, Db, MonthlyAssessment, MonthlyPlan, Report, ReportKind, TrafficLight } from "@/data/schema";
@@ -313,9 +313,9 @@ function buildMonthly(src: Src, env: ReportEnv, r: Report): MonthlyModel | null 
   return {
     kind: "monthly", caseId: c.id, caseNumber: c.caseNumber, month: mk, approved: ok,
     basics: [
-      // Avtalsområdet som gällde månaden (samma regel som fakturan, areaForMonth – ett byte gäller från månaden efter bytet).
-      // Yrkesspåret följer ärendet; efter ett byte hör det gamla spåret inte till rapportmånadens yrkesområde och visas inte.
-      ["Ärendenummer", c.caseNumber], ["Avtalsområde", areaName(src.db.contract_areas, monthArea)], ["Yrkesspår", monthArea === c.primaryAreaCode ? c.vocationalTrack || "Framgår inte" : "Framgår inte"],
+      // Avtalsområdet och yrkesspåret som gällde månaden (samma regel som fakturan, areaForMonth och trackForMonth – ett byte
+      // gäller från månaden efter bytet; före bytet visas spåret som ärendet hade då).
+      ["Ärendenummer", c.caseNumber], ["Avtalsområde", areaName(src.db.contract_areas, monthArea)], ["Yrkesspår", trackForMonth(c, src.db.case_area_changes, mk) || "Framgår inte"],
       ["Insatsen startade", dFull(c.startDate)],
       [end ? "Insatsen avslutades" : "Planerat slut", dFull(end || c.plannedEnd)], ["Fas vid månadens slut", phaseText(cfg, phase)], ["Huvudcoach", profileName(src.db, c.leadCoachId)],
       ["Beställare", personWithUnit(src.db, c.referrerId)],
@@ -380,10 +380,14 @@ function buildFinal(src: Src, env: ReportEnv, r: Report, frozen: boolean): Final
           ? "Inget resultat enligt resultatdefinitionen."
           : "Framgår inte.";
   const p = env.cfg.progression;
+  // Avtalsområdet och yrkesspåret som gällde insatsens sista månad – samma som den sista månadsrapporten och fakturan
+  // (areaForMonth, trackForMonth): ett byte som inte hann gälla innan insatsen avslutades syns inte.
+  const endMonth = monthKey(to);
   return {
     kind: "final", caseId: c.id, caseNumber: c.caseNumber, period: `${dFull(from)} – ${dFull(to)}`,
     basics: [
-      ["Ärendenummer", c.caseNumber], ["Avtalsområde", areaName(src.db.contract_areas, c.primaryAreaCode)], ["Yrkesspår", c.vocationalTrack || "Framgår inte"], ["Insatsen startade", dFull(c.startDate)],
+      ["Ärendenummer", c.caseNumber], ["Avtalsområde", areaName(src.db.contract_areas, areaForMonth(c, src.db.case_area_changes, endMonth))],
+      ["Yrkesspår", trackForMonth(c, src.db.case_area_changes, endMonth) || "Framgår inte"], ["Insatsen startade", dFull(c.startDate)],
       ["Insatsen avslutades", dFull(end)], ["Avslutsorsak", endReasonLabel(c.endReason)], ["Huvudcoach", profileName(src.db, c.leadCoachId)], ["Beställare", personWithUnit(src.db, c.referrerId)],
     ],
     months, total, reasons: reasonsText(total.reasons), repeated: rep,
@@ -435,9 +439,9 @@ function buildMonthlyFacts(src: Src, env: ReportEnv, r: Report): MonthlyFacts | 
   const monthArea = areaForMonth(c, src.db.case_area_changes, mk);
   return {
     factsVersion: FACTS_VERSION, kind: "monthly", caseNumber: c.caseNumber, month: mk,
-    // Avtalsområdet och yrkesspåret som gällde månaden – samma som rapportens grunduppgifter (monthlyModel).
-    referrerUnit: referrerUnitOf(src, c), primaryAreaCode: monthArea || null, secondaryAreaCode: c.secondaryAreaCode || null,
-    vocationalTrack: monthArea === c.primaryAreaCode ? c.vocationalTrack || null : null, startDate: c.startDate || null, plannedEnd: c.plannedEnd || null, endDate: end || null,
+    // Avtalsområdena och yrkesspåret som gällde månaden – samma som rapportens grunduppgifter (monthlyModel).
+    referrerUnit: referrerUnitOf(src, c), primaryAreaCode: monthArea || null, secondaryAreaCode: secondaryAreaForMonth(c, src.db.case_area_changes, mk) || null,
+    vocationalTrack: trackForMonth(c, src.db.case_area_changes, mk) || null, startDate: c.startDate || null, plannedEnd: c.plannedEnd || null, endDate: end || null,
     phase: Number.isInteger(phase) && phase >= 1 ? phase : null,
     weeks: weeks.length, pausedWeeks: weeks.filter((w) => w.paused).length,
     attendance: { planned: t.planned, present: t.present, late: t.late, absentValid: t.absentValid, absentInvalid: t.absentInvalid, unregistered: t.unregistered, rate: t.rate },
@@ -574,10 +578,11 @@ function buildSummary(src: Src, env: ReportEnv, r: Report, frozen: boolean): Sum
   });
   const started = new Set(all.filter((c) => (c.startDate as string) >= start && (c.startDate as string) <= end));
   const closed = new Set(all.filter((c) => src.closed(c) && c.endDate != null && c.endDate >= start && c.endDate <= end));
-  const byArea = Object.entries(groupBy(active, (c) => String(c.primaryAreaCode)))
+  // Yrkesområdet och yrkesspåret som gällde månaden (areaForMonth, trackForMonth – samma regel som månadsrapporten och fakturan).
+  const byArea = Object.entries(groupBy(active, (c) => String(areaForMonth(c, src.db.case_area_changes, mk))))
     .map(([code, cs]) => ({ code, name: areaName(src.db.contract_areas, code), active: cs.length, started: cs.filter((c) => started.has(c)).length, closed: cs.filter((c) => closed.has(c)).length }))
     .sort(by("code"));
-  const byTrack = Object.entries(groupBy(active, (c) => String(c.vocationalTrack ?? "")))
+  const byTrack = Object.entries(groupBy(active, (c) => String(trackForMonth(c, src.db.case_area_changes, mk) ?? "")))
     .map(([t, cs]) => ({ track: t === "undefined" || t === "null" ? "" : t, active: cs.length }))
     .sort(by("active", -1));
   const mas = src.db.monthly_assessments.filter((m) => m.month === mk && src.approved(m));

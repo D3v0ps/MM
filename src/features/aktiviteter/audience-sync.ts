@@ -28,7 +28,7 @@
 import type { Ctx } from "@/api/server";
 import { audienceOf, belongsOn, planAudienceSync, type Audience, type AudienceCase, type AudienceSlot } from "@/core/audience";
 import { isOperational } from "@/core/config";
-import { seriesOccurrenceStarts, SERIES_HORIZON_DAYS } from "@/core/group-series";
+import { isSystemSendTime, seriesOccurrenceStarts, SERIES_HORIZON_DAYS } from "@/core/group-series";
 import { addDays, dayOf, type LocalDate } from "@/core/time";
 import { uniq } from "@/core/util";
 import { PolicyError, UniqueError } from "@/data/repo";
@@ -302,9 +302,12 @@ export async function ensureSeriesOccurrences(ctx: Ctx, opts: { contractId?: str
 /**
  * Jobbets steg (report_schedule, högst var tionde minut; minnesläget en gång per dag): nya tillfällen i alla aktiva avtals serier,
  * och sedan målgruppernas inbjudningar som skyddsnät (en ändring som inte hann synkas, en insats som startade eller tog slut).
- * Idempotent. Returnerar antalet skapade tillfällen och ändrade inbjudningar.
+ * Idempotent. Returnerar antalet skapade tillfällen och ändrade inbjudningar. Bara dagtid (isSystemSendTime): på natten gör
+ * steget ingenting, så att inga inbjudningar (e-post, SMS, utringning) går till deltagare mitt i natten – nästa körning efter
+ * 08.00 skapar tillfällena och bjuder in.
  */
 export async function ensureGroupActivities(ctx: Ctx): Promise<{ created: number; changed: number }> {
+  if (!isSystemSendTime(ctx.now())) return { created: 0, changed: 0 };
   const contracts = (await ctx.system.table("contracts").list({ status: "active" }, { orderBy: "id" })).filter((c) => isOperational(c.config));
   let created = 0;
   let changed = 0;

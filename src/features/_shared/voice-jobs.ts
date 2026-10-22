@@ -559,17 +559,28 @@ const DRAFT_WRITE_ATTEMPTS = 3;
 /** Så många AI-anrop åt gången i ett månadsutkast. */
 export const DRAFT_CONCURRENCY = 4;
 
-/** fn för varje värde, högst limit åt gången; resultaten i samma ordning som värdena. Första felet kastas vidare. */
-async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+/**
+ * fn för varje värde, högst limit åt gången; resultaten i samma ordning som värdena. Efter första felet startas inga nya anrop,
+ * och de som redan pågår får bli klara innan felet kastas vidare – så att inget AI-anrop skickas efter att jobbet gett upp, och
+ * kostnaden för alla anrop som skickades kommer med i körningen (ai_runs).
+ */
+export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
+  let failure: { e: unknown } | null = null;
   const worker = async () => {
-    while (next < items.length) {
+    while (!failure && next < items.length) {
       const i = next++;
-      out[i] = await fn(items[i]);
+      try {
+        out[i] = await fn(items[i]);
+      } catch (e) {
+        failure ??= { e };
+        return;
+      }
     }
   };
   await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker));
+  if (failure) throw (failure as { e: unknown }).e;
   return out;
 }
 
@@ -585,14 +596,18 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   const input = await monthlyDraftInput(ctx, cc.c.id, p.month);
   const cfg = requireOperational(cc.config);
   const ai = requireAi(ctx);
+  // Alla anrop som skickades, också de som misslyckades (felets run) – kostnaden i körningen (ai_runs) även när jobbet ger upp.
   const spent: AiRunMeta[] = [];
+  const runOf = (e: unknown): unknown => (e && typeof e === "object" ? (e as { run?: unknown }).run : undefined);
   const draft = async (key: DraftTemplateKey, opts?: DraftOptions): Promise<DraftText> => {
     try {
       const r = await ai.draft(input, key, opts);
       spent.push(r.run);
       return r.value;
     } catch (e) {
-      throw toVoiceJobError(e, spent);
+      const run = runOf(e);
+      if (run && typeof run === "object") spent.push(run as AiRunMeta);
+      throw e;
     }
   };
   // Skalans texter ur avtalet till instruktionerna (nivåförslagen 1–3).
@@ -602,8 +617,15 @@ async function draftMonthly(ctx: Ctx, p: VoiceJobPayloads["draft_monthly"]): Pro
   // Utkasten hämtas några i taget (DRAFT_CONCURRENCY) i stället för ett i taget: Botkyrkas tio områden plus sammanfattning och plan
   // är tolv anrop, och jobbet ska bli klart långt inom jobbkörningens tidsgräns (maxDuration 60 s, src/server/jobs/runner.ts).
   const keys = progressionAreas(cc.config).map((a) => a.key);
-  const texts = await mapLimit([...keys.map((k) => `monthly_area:${k}` as DraftTemplateKey), "monthly_summary", "monthly_plan"] as DraftTemplateKey[], DRAFT_CONCURRENCY, (key) =>
-    draft(key, key.startsWith("monthly_area:") ? { levelScale } : undefined));
+  // Ett anrop som misslyckas: inga nya startas, de pågående blir klara, och felet får alla anrops kostnad (felets egen run
+  // räknas en gång – toVoiceJobError lägger till den).
+  let texts: DraftText[];
+  try {
+    texts = await mapLimit([...keys.map((k) => `monthly_area:${k}` as DraftTemplateKey), "monthly_summary", "monthly_plan"] as DraftTemplateKey[], DRAFT_CONCURRENCY, (key) =>
+      draft(key, key.startsWith("monthly_area:") ? { levelScale } : undefined));
+  } catch (e) {
+    throw toVoiceJobError(e, spent.filter((r) => r !== runOf(e)));
+  }
   keys.forEach((k, i) => {
     const d = texts[i];
     // Kontrollen på servern, oavsett leverantör: förslaget gäller bara om citatet finns i underlaget – annars slängs det.

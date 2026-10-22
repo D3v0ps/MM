@@ -494,7 +494,7 @@ test("Månadsbedömning januari: allt är ifyllt automatiskt – coachen går ig
   let auto = -1;
   for (let i = 0; i < 10 && auto < 0; i++) if (await rows.nth(i).getByText("Automatiskt – inget belägg").count()) auto = i;
   expect(auto).toBeGreaterThanOrEqual(0);
-  await expect(rows.nth(auto).locator("textarea")).toHaveValue("Ingen bedömning av förändring denna månad.");
+  await expect(rows.nth(auto).locator("textarea")).toHaveValue("Ingen förändring noterad denna månad.");
   await selects.nth(auto).selectOption("2");
   // Den automatiska texten är inget belägg: fältet töms när coachen väljer en nivå över 0.
   await expect(rows.nth(auto).locator("textarea")).toHaveValue("");

@@ -122,9 +122,13 @@ export type DraftMemory = ReturnType<typeof useDraftMemory>;
 
 /**
  * Glöm ett formulärs utkastminne när det är äldre än raden på servern (versionen i minnet < serverVersion) och saknar osparade
- * ändringar (fältens värden = det sparade läget). fields: fältens nycklar med serverns värde (gäller när fältet inte finns i
- * minnet), i samma ordning som det sparade läget (JSON); saved: nyckeln för det sparade läget; version: nyckeln för versionen;
- * others: övriga nycklar som glöms samtidigt. true = minnet glömdes.
+ * ändringar. fields: fältens nycklar (med serverns värde – används inte i jämförelsen), i samma ordning som det sparade läget
+ * (JSON-listan under saved); saved: nyckeln för det sparade läget; version: nyckeln för versionen; others: övriga nycklar som
+ * glöms samtidigt. true = minnet glömdes.
+ * Bara fälten som finns i minnet (som coachen har ändrat) kan ha osparade ändringar: de jämförs med sin plats i det sparade
+ * läget. Ett fält som inte finns i minnet visar alltid serverns värde – att servern har ändrat det (t.ex. en förifylld
+ * sammanfattning som skrevs om när närvaron rättades) är ingen osparad ändring. Går det sparade läget inte att läsa ligger
+ * minnet kvar.
  */
 export function dropStaleDraft(
   memory: Pick<DraftMemory, "peek" | "drop">,
@@ -133,13 +137,28 @@ export function dropStaleDraft(
   const v = memory.peek(o.version);
   if (!v.has || typeof v.value !== "number" || o.serverVersion == null || v.value >= o.serverVersion) return false;
   const saved = memory.peek(o.saved);
-  const current = JSON.stringify(o.fields.map(([key, server]) => {
-    const m = memory.peek(key);
-    return m.has ? m.value : server;
-  }));
-  if (saved.has && saved.value !== current) return false;
+  if (saved.has) {
+    const base = savedBaseline(saved.value, o.fields.length);
+    if (!base) return false;
+    const unsaved = o.fields.some(([key], i) => {
+      const m = memory.peek(key);
+      return m.has && JSON.stringify(m.value) !== JSON.stringify(base[i]);
+    });
+    if (unsaved) return false;
+  }
   memory.drop([...o.fields.map(([key]) => key), o.saved, o.version, ...(o.others ?? [])]);
   return true;
+}
+
+/** Det sparade läget (JSON-listan med fältens värden), eller null om det inte går att läsa eller har fel antal fält. */
+function savedBaseline(value: unknown, n: number): unknown[] | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) && parsed.length === n ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 export type Draft<T> = {

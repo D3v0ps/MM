@@ -2,17 +2,19 @@
 // och generatorerna ändras inte, så slumpen och ordningen ligger kvar.
 //
 //   Byt yrkesområde   Linnea Olssons ärende (BOT-26-0163, huvudcoach Amira) bytte yrkesområde från G Lager och logistik till
-//                     D Kök, restaurang och måltidsservice den 27 januari, med en motivering i deltagarkortet. Fakturan räknas
-//                     på G till och med januari och på D från februari (case_area_changes, 0036). Det alternativa yrkesområdet
-//                     (D) blev det nya och togs bort som alternativ. Paritetstestet mot den gamla prototypen jämför testdatat
-//                     utan bytet (withoutAreaChanges nedan).
+//                     D Kök, restaurang och måltidsservice den 27 januari, med en motivering i deltagarkortet. Fakturan och
+//                     rapporterna räknas på G till och med januari och på D från februari (case_area_changes, 0036). Det
+//                     alternativa yrkesområdet (D) blev det nya och togs bort som alternativ, och yrkesspåret blev
+//                     Restaurangbiträde (i ärendet och i kartläggningen – det gamla spåret sparas på bytet). Paritetstestet mot
+//                     den gamla prototypen jämför testdatat utan bytet (withoutAreaChanges nedan).
 //   Automatisk        januaris utkast till månadsbedömning (månaden att bedöma vid demoklockan) är ifyllda som jobbet fyller i
 //   månadsbedömning   dem (src/core/monthly-prefill.ts): progressionsnivå 0 "Automatiskt – inget belägg" i varje område, samlad
 //                     status från den senaste godkända mötesrapporten, sammanfattningen (AI-utkastet när det finns, annars ur
 //                     godkända uppgifter) och planen (senaste veckomålet och förra månadens plan) – märkta "Ifyllt automatiskt".
 //                     AI:s nivåförslag (deltagare med samtycke) räknas med den simulerade AI:n på testdatat och gäller bara med
 //                     ett citat som finns i underlaget (verifyLevelSuggestion) – de slumpade förslagen utan belägg är borta.
-//                     De godkända bedömningarna ändras inte (äldre rader – nivån är coachens val).
+//                     De godkända bedömningarna ändras inte (äldre rader – nivån är coachens val). AI-utkasten säger
+//                     "mötesrapport" i stället för prototypens "avstämning" (samma ord som den simulerade AI:n och Vertex).
 import { attendanceStats } from "@/core/attendance";
 import { BOTKYRKA_CONFIG } from "@/core/config";
 import { autoArea, prefillAssessment, previousMonth } from "@/core/monthly-prefill";
@@ -25,15 +27,25 @@ import { NOW } from "./constants";
 /** Månaden att bedöma vid demoklockan (1 februari 2027). */
 const ASSESS_MONTH = "2027-01";
 
+/**
+ * Prototypens AI-utkast skrev "avstämning" – appen och AI:n säger "mötesrapport" (samma ord som Vertex och skärmarna). Utkasten
+ * i testdatat får samma lydelse som den simulerade AI:n ger i dag (src/features/_shared/ai-sim.ts).
+ */
+const CURRENT_WORDING: readonly [RegExp, string][] = [
+  [/godkända avstämningar/g, "godkända mötesrapporter"],
+  [/godkända avstämningen/g, "godkända mötesrapporten"],
+  [/framgår av avstämningarna/g, "framgår av mötesrapporterna"],
+];
+const currentWording = (text: string): string => CURRENT_WORDING.reduce((t, [re, to]) => t.replace(re, to), text);
+
 /** Bytet av yrkesområde i testdatat. */
 export const SEED_AREA_CHANGES: readonly CaseAreaChange[] = [
   {
     id: "cac-seed-linnea", contractId: "c-bot", caseId: "case-260163", fromArea: "G", toArea: "D", effectiveMonth: "2027-02", changedBy: "u-amira",
-    changedAt: "2027-01-27T14:10", noteId: "note-byte-linnea", seq: 1,
+    changedAt: "2027-01-27T14:10", noteId: "note-byte-linnea", seq: 1, fromTrack: "Lagerarbetare – plock och pack", toTrack: "Restaurangbiträde",
+    fromSecondaryArea: "D",
   },
 ];
-/** Ärendets alternativa yrkesområde före bytet (det blev det nya). */
-const SECONDARY_BEFORE: Record<string, string | null> = { "case-260163": "D" };
 
 const motivation = (x: CaseAreaChange): CaseNote => ({
   id: x.noteId, contractId: x.contractId, caseId: x.caseId, authorId: x.changedBy, occurredOn: x.changedAt.slice(0, 10), kind: "other", audience: "team",
@@ -48,8 +60,18 @@ export function applyDecisions20261022(db: Db): void {
     if (!c) continue;
     db.case_notes.push(motivation(x));
     db.case_area_changes.push({ ...x });
+    // Samma ändring som triggern case_area_changes_apply gör (bytet skrivs här av systemet): yrkesområdet, yrkesspåret och
+    // alternativet – och kartläggningens valda spår som hanteraren för över.
     c.primaryAreaCode = x.toArea;
+    c.vocationalTrack = x.toTrack;
     if (c.secondaryAreaCode === x.toArea) c.secondaryAreaCode = null;
+    for (const ia of db.intake_assessments.filter((k) => k.caseId === c.id)) ia.chosenTrack = x.toTrack;
+  }
+
+  // ---- AI-utkastens lydelse i alla månadsbedömningar: "mötesrapport", som appen och AI:n (currentWording ovan).
+  for (const ma of db.monthly_assessments) {
+    if (ma.aiSummaryDraft) ma.aiSummaryDraft = currentWording(ma.aiSummaryDraft);
+    for (const a of Object.values(ma.areas)) if (a.aiObservationDraft) a.aiObservationDraft = { ...a.aiObservationDraft, text: currentWording(a.aiObservationDraft.text) };
   }
 
   // ---- Automatisk månadsbedömning: januaris utkast
@@ -101,7 +123,8 @@ export function applyDecisions20261022(db: Db): void {
 
 /**
  * Testdatat utan bytet av yrkesområde (paritetstestet mot den gamla prototypen, src/core/parity.test.ts): ärendets yrkesområden
- * som före bytet och inga byten. Anteckningen med motiveringen ligger kvar – paritetsavsnitten läser inga anteckningar.
+ * och yrkesspår som före bytet och inga byten. Anteckningen med motiveringen ligger kvar – paritetsavsnitten läser inga
+ * anteckningar.
  */
 export function withoutAreaChanges(db: Db): Db {
   const changed = new Map(SEED_AREA_CHANGES.map((x) => [x.caseId, x]));
@@ -110,7 +133,11 @@ export function withoutAreaChanges(db: Db): Db {
     case_area_changes: db.case_area_changes.filter((x) => !SEED_AREA_CHANGES.some((s) => s.id === x.id)),
     cases: db.cases.map((c) => {
       const x = changed.get(c.id);
-      return x ? { ...c, primaryAreaCode: x.fromArea, secondaryAreaCode: SECONDARY_BEFORE[c.id] ?? c.secondaryAreaCode } : c;
+      return x ? { ...c, primaryAreaCode: x.fromArea, secondaryAreaCode: x.fromSecondaryArea, vocationalTrack: x.fromTrack } : c;
+    }),
+    intake_assessments: db.intake_assessments.map((ia) => {
+      const x = changed.get(ia.caseId);
+      return x ? { ...ia, chosenTrack: x.fromTrack } : ia;
     }),
   };
 }

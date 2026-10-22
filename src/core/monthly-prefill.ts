@@ -5,7 +5,7 @@
 // "Nivå 0-3 ska ligga på default på 0 om vi inte har någon anteckning som tydligt visar bedömning på nivån."
 //
 // Reglerna (ersätter "bedömningsfälten är tomma tills coachen valt" – bara för månadsbedömningen):
-//   Områdena     varje progressionsområde har progressionsnivå 0 och observationen "Ingen bedömning av förändring denna månad.",
+//   Områdena     varje progressionsområde har progressionsnivå 0 och observationen "Ingen förändring noterad denna månad.",
 //                märkt Automatiskt – inget belägg (levelSource "auto"), tills coachen väljer något annat eller godtar ett
 //                AI-förslag. AI får bara FÖRESLÅ nivå 1–3 med ett ordagrant citat ur underlaget (aiLevelSuggestion,
 //                aiLevelEvidence) – servern och jobben skriver aldrig ett förslag i nivån.
@@ -25,10 +25,19 @@ import type { ProgressLevel } from "./config";
 import { addMonths, MONTHS, type MonthKey } from "./time";
 
 /**
- * Observationen i ett område utan belägg för en förändring. Neutral: den påstår aldrig att underlaget saknas (närvaron kan vara
- * registrerad hela månaden) – bara att ingen förändring är bedömd. Står i kommunens månadsrapport om coachen inte ändrar den.
+ * Observationen i ett område utan belägg för en förändring (Karims beslut). Neutral: den påstår aldrig att underlaget saknas
+ * (närvaron kan vara registrerad hela månaden) – bara att ingen förändring är noterad. Står i kommunens månadsrapport om
+ * coachen inte ändrar den.
  */
-export const AUTO_OBSERVATION = "Ingen bedömning av förändring denna månad.";
+export const AUTO_OBSERVATION = "Ingen förändring noterad denna månad.";
+/**
+ * Den automatiska texten, också i tidigare lydelser som kan finnas i sparade utkast (testdatat och rader som jobbet skapade före
+ * bytet av text). Ingen av dem räknas som en konkret observation (missingAreas och månadsbedömningen) – så att en äldre rad
+ * aldrig kan godkännas på progressionsnivå 1–3 med den automatiska texten som observation.
+ */
+export const AUTO_OBSERVATIONS: readonly string[] = [AUTO_OBSERVATION, "Ingen bedömning av förändring denna månad.", "Framgår inte av underlaget denna månad."];
+/** Är observationen den automatiska texten (någon av lydelserna)? */
+export const isAutoObservation = (text: string | null | undefined): boolean => AUTO_OBSERVATIONS.includes((text ?? "").trim());
 
 /** Varifrån nivån kommer. Äldre rader utan fältet: en satt nivå är coachens val, ingen nivå = inget val. */
 export function levelSourceOf(a: Pick<AreaAssessment, "level" | "levelSource"> | null | undefined): LevelSource | null {
@@ -37,7 +46,7 @@ export function levelSourceOf(a: Pick<AreaAssessment, "level" | "levelSource"> |
   return a.level != null ? "coach" : null;
 }
 
-/** Ett område som fyllts i automatiskt: nivå 0, "Framgår inte …", inget belägg. AI:s utkast behålls om de finns. */
+/** Ett område som fyllts i automatiskt: nivå 0, "Ingen förändring noterad denna månad.", inget belägg. AI:s utkast behålls om de finns. */
 export function autoArea(ai?: Pick<AreaAssessment, "aiLevelSuggestion" | "aiObservationDraft" | "aiLevelEvidence"> | null): AreaAssessment {
   return {
     level: 0, observation: AUTO_OBSERVATION, nextStep: "", aiLevelSuggestion: ai?.aiLevelSuggestion ?? null, aiObservationDraft: ai?.aiObservationDraft ?? null,
@@ -293,7 +302,7 @@ export function missingAreas(areas: Readonly<Record<string, AreaAssessment>>, ke
     const a = areas[k];
     if (!a || a.level == null) return true;
     const obs = String(a.observation ?? "").trim();
-    return a.level >= requiredFrom && (!obs || obs === AUTO_OBSERVATION);
+    return a.level >= requiredFrom && (!obs || isAutoObservation(obs));
   });
 }
 

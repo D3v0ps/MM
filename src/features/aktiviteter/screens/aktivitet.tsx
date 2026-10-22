@@ -44,9 +44,9 @@ const GOAL_OPTIONS: SegOption<"yes" | "no">[] = [
   { value: "no", label: "Klarade inte", icon: "x", tone: "red" },
 ];
 
-/** En kryssruta i en bekräftelsedialog (förvald). Valet läses ur boxRef när dialogen stängs. */
-function ConfirmCheck({ id, boxRef, label }: { id: string; boxRef: { current: boolean }; label: string }) {
-  const [on, setOn] = useState(true);
+/** En kryssruta i en bekräftelsedialog (förvald, eller initial). Valet läses ur boxRef när dialogen stängs. */
+function ConfirmCheck({ id, boxRef, label, initial = true }: { id: string; boxRef: { current: boolean }; label: string; initial?: boolean }) {
+  const [on, setOn] = useState(initial);
   return (
     <Check
       id={id}
@@ -211,9 +211,11 @@ function Aktivitet({ v }: { v: Ok }) {
   };
 
   // Målgruppens deltagare som har ett eget tillfälle vid samma tid: bjud in dem och ersätt deras egna tillfällen (samma som
-  // Bjud in en och en med Ersätt – en annan aktivitet eller registrerad närvaro ersätts aldrig).
+  // Bjud in en och en med Ersätt – en annan aktivitet eller registrerad närvaro ersätts aldrig). Dialogen visar vilket tillfälle
+  // som ersätts för varje deltagare, och inbjudan skickas som i Bjud in – förvalt när aktiviteten har meddelandet påslaget.
   const busyReplaceable = v.audienceBusy.filter((x) => x.replaceable);
   const inviteBusy = async () => {
+    notifyBox.current = a.notify;
     const ok = await confirm({
       title: `Bjuda in ${plural(busyReplaceable.length, "deltagare", "deltagare")} och ersätta deras egna tillfällen?`,
       body: (
@@ -222,19 +224,22 @@ function Aktivitet({ v }: { v: Ok }) {
           <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
             {busyReplaceable.map((x) => (
               <li key={x.caseId}>
-                {x.name} ({x.caseNumber})
+                {x.name} ({x.caseNumber}): {x.reason.charAt(0).toLocaleLowerCase("sv")}{x.reason.slice(1)}.
               </li>
             ))}
           </ul>
+          {upcoming && (
+            <ConfirmCheck id="akt-ersatt-meddela" boxRef={notifyBox} initial={a.notify} label="Skicka inbjudan till deltagarna (e-post eller SMS med tid och plats)" />
+          )}
         </Stack>
       ),
       confirmLabel: "Bjud in och ersätt",
       cancelLabel: "Avbryt",
     });
     if (!ok) return;
-    const res = await replaceBusy.run({ id: a.id, caseIds: busyReplaceable.map((x) => x.caseId), replaceOverlapping: true }).catch(() => null);
+    const res = await replaceBusy.run({ id: a.id, caseIds: busyReplaceable.map((x) => x.caseId), replaceOverlapping: true, notify: upcoming && notifyBox.current }).catch(() => null);
     if (!res || !res.ok) toast(res && !res.ok && res.message ? res.message : "Deltagarna kunde inte bjudas in.", "error");
-    else toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}${skippedText(res.skipped)}`);
+    else toast(`${plural(res.invited, "deltagare inbjuden", "deltagare inbjudna")}.${replacedText(res.replaced)}${skippedText(res.skipped)}${notifiedText(res.notified)}`);
   };
 
   const cancelActivity = async () => {

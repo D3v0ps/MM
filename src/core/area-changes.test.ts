@@ -5,6 +5,7 @@ import { areaChangeProblem, areaChangesByCase, areaForMonth, effectiveMonthOf, i
 const c = { id: "case-1", primaryAreaCode: "C" };
 const change = (id: string, fromArea: string, toArea: string, changedAt: string, caseId = "case-1", seq = Number(id.replace(/\D/g, "")) || 1): CaseAreaChange => ({
   id, contractId: "c-bot", caseId, fromArea, toArea, effectiveMonth: effectiveMonthOf(changedAt), changedBy: "u-amira", changedAt, noteId: `note-${id}`, seq,
+  fromTrack: `spår-${fromArea}`, toTrack: `spår-${toArea}`, fromSecondaryArea: null,
 });
 
 describe("effectiveMonthOf: månaden efter bytet", () => {

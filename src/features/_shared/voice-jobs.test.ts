@@ -333,6 +333,40 @@ describe("draft_monthly: utkasten några i taget (jobbet ska rymmas i jobbkörni
     expect(calls).toBe(areas + 2);
     expect(max).toBe(DRAFT_CONCURRENCY);
   });
+
+  it("ett anrop misslyckas: inga nya anrop efter det, de pågående blir klara innan jobbet ger upp, och alla anropens kostnad finns i körningen (granskningen, tredje rundan)", async () => {
+    const sim = createSimulatedAi();
+    let calls = 0;
+    let finishedAfterReturn = 0;
+    let returned = false;
+    const failRun = { provider: "vertex", model: "x", inputTokens: 10, outputTokens: 0, costOre: 1, latencyMs: 1 };
+    const ai: AiPort = {
+      ...sim,
+      draft: async (...args: Parameters<AiPort["draft"]>) => {
+        calls++;
+        if (calls === 1) {
+          await new Promise((r) => setTimeout(r, 1));
+          throw Object.assign(new Error("429"), { code: "unavailable", retryable: true, run: failRun });
+        }
+        await new Promise((r) => setTimeout(r, 20));
+        if (returned) finishedAfterReturn++;
+        const out = await sim.draft(...args);
+        return { ...out, run: { ...out.run, costOre: 2 } };
+      },
+    };
+    const t = setup({ ai });
+    const r = await enqueueVoiceJob(t.amira, { kind: "draft_monthly", caseId: MEHMET, month: "2027-01" });
+    returned = true;
+    const callsAtReturn = calls;
+    await new Promise((res) => setTimeout(res, 150));
+    expect(r.status).not.toBe("succeeded");
+    // Bara de anrop som startade innan felet (högst DRAFT_CONCURRENCY) – inget skickas efter att jobbet gett upp.
+    expect(callsAtReturn).toBeLessThanOrEqual(DRAFT_CONCURRENCY);
+    expect(calls).toBe(callsAtReturn);
+    expect(finishedAfterReturn).toBe(0);
+    // Kostnaden: det misslyckade anropet (1 öre) och de som hann bli klara (2 öre var).
+    expect(t.run(r.aiRunId).costOre).toBe(1 + 2 * (callsAtReturn - 1));
+  });
 });
 
 describe("draft_monthly (bara godkända uppgifter)", () => {
@@ -358,7 +392,7 @@ describe("draft_monthly (bara godkända uppgifter)", () => {
     expect(ma.aiSummaryDraft).toBe(
       `${before.aiSummaryDraft} Ur anteckningarna – 26 jan: Mehmet har fått egna skyddsskor och arbetskläder till yrkesmomenten.`,
     );
-    expect(before.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända avstämningar, 8 jan, 22 jan.)");
+    expect(before.aiSummaryDraft).toBe("Under januari deltog deltagaren i 10 av 11 registrerade tillfällen. Inga arbetsgivarkontakter framgår. (Källa: 2 godkända mötesrapporter, 8 jan, 22 jan.)");
     // Sammanfattningen var ifylld automatiskt från AI-utkastet och inte ändrad av coachen (Karims beslut 2026-10-22): det nya
     // utkastet ersätter den och märkningen står kvar. En sammanfattning som coachen skrivit rörs aldrig (monthly-prefill.test.ts).
     expect(before.prefill.summary).toBe("ai");

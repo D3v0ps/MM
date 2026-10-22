@@ -56,21 +56,38 @@ export async function refreshMonthlyPrefill(
  * Efter att närvaro registrerats eller ändrats (coachen, Markera alla, den automatiska närvaron): utkasten för de månader före
  * innevarande som tillfällena ligger i hålls aktuella (refreshMonthlyPrefill med ctx.system). Innevarande månad har inget utkast
  * än – det skapas när månaden är slut, med närvaron då.
+ * Bästa försök: närvaron är redan sparad när det här körs, så ett fel här (t.ex. ett tillfälligt databasfel) får aldrig stoppa
+ * det som kommer efter – veckorapporten publiceras ändå, och coachen får inget fel för en sparad närvaro. Sammanfattningen
+ * räknas om nästa gång (en ny närvaro, en godkänd mötesrapport eller AI-utkastet). Bara felets kod loggas. Returnerar antalet
+ * månader som inte kunde uppdateras.
  */
-export async function refreshPrefillAfterAttendance(ctx: Ctx, items: readonly { caseId: string; contractId: string; startsAt: LocalDateTime }[]): Promise<void> {
+export async function refreshPrefillAfterAttendance(ctx: Ctx, items: readonly { caseId: string; contractId: string; startsAt: LocalDateTime }[]): Promise<number> {
   const current = monthKey(dayOf(ctx.now()));
   const keys = [...new Set(items.filter((x) => monthKey(x.startsAt) < current).map((x) => `${x.contractId}|${x.caseId}|${monthKey(x.startsAt)}`))].sort();
   const cfgOf = new Map<string, OperationalConfig | null>();
+  let failed = 0;
   for (const k of keys) {
     const [contractId, caseId, month] = k.split("|");
-    if (!cfgOf.has(contractId)) {
-      const contract = await ctx.system.table("contracts").get(contractId);
-      cfgOf.set(contractId, contract && isOperational(contract.config) ? requireOperational(contract.config) : null);
+    try {
+      if (!cfgOf.has(contractId)) {
+        const contract = await ctx.system.table("contracts").get(contractId);
+        cfgOf.set(contractId, contract && isOperational(contract.config) ? requireOperational(contract.config) : null);
+      }
+      const cfg = cfgOf.get(contractId);
+      if (cfg) await refreshMonthlyPrefill(ctx, { id: caseId, contractId }, month, cfg, { attendance: true }, ctx.system);
+    } catch (e) {
+      failed++;
+      console.error("månadsbedömningen: förifyllningen kunde inte uppdateras efter närvaron", errorCode(e));
     }
-    const cfg = cfgOf.get(contractId);
-    if (cfg) await refreshMonthlyPrefill(ctx, { id: caseId, contractId }, month, cfg, { attendance: true }, ctx.system);
   }
+  return failed;
 }
+
+/** Felets kod eller namn till loggen – aldrig meddelandet (det kan innehålla värden). */
+const errorCode = (e: unknown): string => {
+  const x = e as { code?: unknown; name?: unknown } | null;
+  return typeof x?.code === "string" && x.code ? x.code : typeof x?.name === "string" && x.name ? x.name : "error";
+};
 
 /** Den förifyllda månadsbedömningen (utkast). */
 export function prefilledAssessment(id: string, caseId: string, month: MonthKey, p: Prefill): MonthlyAssessment {

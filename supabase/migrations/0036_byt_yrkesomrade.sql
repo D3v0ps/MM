@@ -4,35 +4,53 @@
 -- "Allt ska vara ifyllt, våra huvudcoacher ska bara 'gå igenom' och kontrollera att vi inte missat något."
 --
 -- 1. case_area_changes: ett byte av deltagarens yrkesområde (avtalsområde A–L, cases.primary_area_code). Motiveringen är en
---    vanlig anteckning i deltagarkortet (case_notes, note_id) – raden här har bara id:n, koder och tider, ingen fritext.
---    effective_month ('YYYY-MM') är månaden efter bytet: fakturan räknas på det gamla yrkesområdet till och med bytesmånaden
---    och på det nya från och med effective_month (areaForMonth i src/core/area-changes.ts). Grupp och inbjudningar ändras
---    direkt (hanteraren arenden.bytYrkesomrade).
+--    vanlig anteckning i deltagarkortet (case_notes, note_id) – raden här har bara id:n, koder, tider och yrkesspåren före och
+--    efter (spår ur listan för yrkesområdet), ingen fritext. effective_month ('YYYY-MM') är månaden efter bytet: fakturan och
+--    rapporterna räknas på det gamla yrkesområdet till och med bytesmånaden och på det nya från och med effective_month
+--    (areaForMonth och trackForMonth i src/core/area-changes.ts). Grupp och inbjudningar ändras direkt (hanteraren
+--    arenden.bytYrkesomrade).
+--    Bytet och ärendet i samma transaktion: när en inloggad skapar raden ändrar triggern case_area_changes_apply ärendets
+--    yrkesområde, yrkesspår och alternativa yrkesområde i samma sats (mm.apply_case_area_change). Går det inte (ärendet har
+--    hunnit ändras, är inte bekräftat, pågående eller pausat) nekas hela raden. Ett halvt byte – bytet utan ärendet eller
+--    ärendet utan bytet – kan alltså aldrig bli kvar, inte heller om servern stängs av mitt i.
 --    Behörighet (samma regler som src/data/policy.ts case_area_changes):
---      * läsa: Miljonbemannings roller i avtalet, också ekonomen (faktureringen behöver bytet – raden har ingen fritext).
---        Kommunen läser aldrig raden (kommunens vyer visar bara nuvarande yrkesområde, som förut).
+--      * läsa: Miljonbemannings roller i avtalet, också ekonomen (faktureringen behöver bytet – raden har ingen fritext;
+--        yrkesspåret visar cases_public redan för ekonomen). Kommunen läser aldrig raden.
 --      * skapa: coach, samordnare och avtalsansvarig med full åtkomst till ärendet, medlem i avtalet, i eget namn (changed_by).
 --      * ingen ändrar eller raderar (ingen update- eller delete-policy och inga sådana rättigheter) – historiken är raderna.
 --      * för alla (också service role, triggern case_area_changes_check): ärendet hör till avtalet, båda yrkesområdena hör till
 --        avtalet (främmande nycklar mot contract_areas), det nya är aktivt och skiljer sig från det gamla, anteckningen hör
---        till ärendet, effective_month är månaden efter changed_at (Stockholmstid) och seq är ärendets nästa nummer (1, 2, 3 …;
---        unikt per ärende – två samtidiga byten kan aldrig få samma nummer).
---      * för inloggade (samma trigger): bytet utgår från ärendets nuvarande yrkesområde (from_area = cases.primary_area_code –
---        hanteraren skriver bytet innan ärendet ändras) och från det förra bytets nya yrkesområde, är inte äldre än det förra
---        bytet och registreras med aktuell tid (changed_at högst 10 minuter från mm.app_now()). Ingen kan alltså skriva in en
---        påhittad historik som ändrar vilket yrkesområde tidigare månader faktureras på.
+--        till ärendet och är motivering till bara det här bytet (unik), effective_month är månaden efter changed_at
+--        (Stockholmstid) och seq är ärendets nästa nummer (1, 2, 3 …; unikt per ärende – två samtidiga byten kan aldrig få
+--        samma nummer).
+--      * för inloggade (samma trigger och case_area_changes_apply): bytet utgår från ärendets nuvarande yrkesområde,
+--        yrkesspår och alternativa yrkesområde och från det förra bytets nya yrkesområde, ärendet är bekräftat, pågående
+--        eller pausat, bytet är inte äldre än det förra och registreras med aktuell tid (changed_at högst 10 minuter från
+--        mm.app_now()), och motiveringen är en ny anteckning (typ other, inte borttagen, skriven högst 10 minuter från bytet)
+--        av den som byter. Ingen kan alltså skriva in en påhittad historik som ändrar vilket yrkesområde tidigare månader
+--        faktureras på, eller göra någon annans anteckning till en låst motivering.
 --      * motiveringen (anteckningen som note_id pekar på) är låst för inloggade: den ändras och tas aldrig bort (triggern
 --        case_notes_area_change_lock) – den visas i bytets historik på deltagarkortet.
---      * inloggade får läsa kolumnen cases.primary_area_code (hanteraren ändrar ärendet villkorat på det gamla yrkesområdet –
---        ett villkor kräver läsrätt; inget nytt lämnas ut, se nedan).
+--      * ärendets yrkesområde (triggern cases_area_guard på public.cases): i ett bekräftat, pågående, pausat eller avslutat
+--        ärende ändrar ingen inloggad cases.primary_area_code direkt – bara Byt yrkesområde (raden här). Kommunen ändrar
+--        aldrig yrkesområdena (primary_area_code, secondary_area_code) när beställningen väl tagits emot (status annan än
+--        received). Hanteraren skickar bara raden här (en begäran) – den läser eller villkorar aldrig på ärendets kolumner.
 -- 2. monthly_assessments.prefill: vad som fylldes i automatiskt och ännu inte ändrats av coachen ("Ifyllt automatiskt –
 --    kontrollera"). jsonb med bara id:n, dagar och källornas typ – aldrig text. Standard '{}' (inget förifyllt) – befintliga
 --    rader påverkas inte. Nivåns ursprung per område (levelSource auto/coach/ai) och AI-förslagets belägg ligger i areas (jsonb)
 --    och behöver ingen kolumn. Policyerna för monthly_assessments (0005) gäller oförändrat.
 --
--- Speglas i src/data/policy.ts (case_area_changes, caseAreaChangeWrite), src/data/schema.ts (TABLE_NAMES) och
--- scripts/db/columns.ts, och prövas i src/data/supabase/rls-parity.test.ts.
+-- Speglas i src/data/policy.ts (case_area_changes, caseAreaChangeWrite, caseAreaChangeApply, caseWrite), src/data/schema.ts
+-- (TABLE_NAMES, UNIQUE_KEYS) och scripts/db/columns.ts, och prövas i src/data/supabase/rls-parity.test.ts.
 -- Inga destruktiva satser. Idempotent (if not exists, or replace, drop … if exists) – tål att köras igen i SQL Editor.
+-- Befintliga objekt i produktionen som får något nytt: triggern case_notes_area_change_lock på public.case_notes och triggern
+-- cases_area_guard på public.cases (båda bara before update, inga rader ändras), och kolumnen monthly_assessments.prefill.
+--
+-- Lås: alter table och nya triggrar tar starka lås på heta tabeller (cases, case_notes, monthly_assessments). Väntar en sats
+-- längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i stället för att alla andra frågor köar bakom den – kör
+-- då filen igen, gärna utanför arbetstid. Inställningen gäller bara den här körningen (återställs sist i filen).
+set lock_timeout = '5s';
+set statement_timeout = '60s';
 
 -- ---------------------------------------------------------------- 1. Byten av yrkesområde
 create table if not exists public.case_area_changes (
@@ -49,6 +67,11 @@ create table if not exists public.case_area_changes (
   note_id           text not null references public.case_notes (id),
   -- Bytets nummer i ärendet (1, 2, 3 …) – ordningen för faktureringen (areaForMonth), också för två byten samma minut.
   seq               integer not null,
+  -- Ärendets yrkesspår och alternativa yrkesområde före bytet (rapporterna för månaderna före bytet – trackForMonth) och
+  -- yrkesspåret i det nya yrkesområdet ('' = väljs i kartläggningen). Triggern case_area_changes_apply skriver dem på ärendet.
+  from_track          text not null default '',
+  to_track            text not null default '' check (char_length(to_track) <= 200),
+  from_secondary_area text check (from_secondary_area is null or char_length(from_secondary_area) <= 10),
   constraint case_area_changes_from_area_fkey foreign key (contract_id, from_area) references public.contract_areas (contract_id, code),
   constraint case_area_changes_to_area_fkey foreign key (contract_id, to_area) references public.contract_areas (contract_id, code),
   constraint case_area_changes_differ check (from_area <> to_area)
@@ -65,7 +88,8 @@ alter table public.case_area_changes add constraint case_area_changes_seq_positi
 create unique index if not exists case_area_changes_case_seq_key on public.case_area_changes (case_id, seq);
 create index if not exists case_area_changes_contract_id_idx on public.case_area_changes (contract_id, effective_month);
 create index if not exists case_area_changes_changed_by_idx on public.case_area_changes (changed_by);
-create index if not exists case_area_changes_note_id_idx on public.case_area_changes (note_id);
+-- En anteckning är motivering till högst ett byte.
+create unique index if not exists case_area_changes_note_id_key on public.case_area_changes (note_id);
 -- De sammansatta främmande nycklarna mot contract_areas (contract_id, code) får var sitt index.
 create index if not exists case_area_changes_from_area_idx on public.case_area_changes (contract_id, from_area);
 create index if not exists case_area_changes_to_area_idx on public.case_area_changes (contract_id, to_area);
@@ -91,35 +115,25 @@ create policy case_area_changes_insert on public.case_area_changes for insert to
   and changed_by = (select mm.current_profile_id())
 );
 
--- Ärendets nuvarande yrkesområde för triggern nedan (den inloggade läser inte public.cases direkt – samma mönster som
--- mm.case_contract_id i 0019). Bara koden, inget annat ur ärendet.
-create or replace function mm.case_primary_area(p_case_id text) returns text
-language sql stable security definer set search_path = public, mm
-as $$ select c.primary_area_code from public.cases c where c.id = p_case_id $$;
-revoke all on function mm.case_primary_area(text) from public, anon;
-grant execute on function mm.case_primary_area(text) to authenticated, service_role;
-
--- Hanteraren ändrar ärendets yrkesområde villkorat på det gamla (SupabaseRepo.updateIf: update public.cases set
--- primary_area_code = … where id = … and primary_area_code = …). Ett villkor på en kolumn kräver läsrätt på kolumnen – sedan 0013
--- läser inloggade bara id direkt i public.cases (övriga kolumner via cases_public). Kolumnen lämnar inget nytt ut: cases_public
--- (mm.visible_cases) visar yrkesområdet omaskerat för samma ärenden som policyn cases_select släpper igenom.
-grant select (primary_area_code) on public.cases to authenticated;
-
 -- Raden stämmer med ärendet, avtalets yrkesområden, anteckningen och tiden (policy.ts caseAreaChangeConsistent – gäller alla,
 -- också service role). Uppslagen görs med den inloggades rättigheter: den som får skapa raden (full åtkomst) läser avtalets
--- yrkesområden, ärendets anteckningar och byten; ärendets avtal med mm.case_contract_id (0019) och dess yrkesområde med
--- mm.case_primary_area.
--- För inloggade dessutom kedjan och tiden (policy.ts caseAreaChangeChained): bytet utgår från ärendets nuvarande yrkesområde och
--- det förra bytets nya, är inte äldre än det förra och registreras med aktuell tid. Servern (service role) och testdatat rörs
--- inte av de kontrollerna.
+-- yrkesområden, ärendets anteckningar och byten; ärendets avtal med mm.case_contract_id (0019).
+-- För inloggade dessutom kedjan, tiden och motiveringen (policy.ts caseAreaChangeChained): bytet utgår från det förra bytets
+-- nya yrkesområde, är inte äldre än det förra och registreras med aktuell tid, och anteckningen är en ny anteckning (typ other,
+-- inte borttagen, skriven högst 10 minuter från bytet) av den som byter. Att bytet utgår från ärendets nuvarande yrkesområde,
+-- yrkesspår och alternativ prövar mm.apply_case_area_change nedan, när ärendet ändras. Servern (service role) och testdatat
+-- rörs inte av de kontrollerna.
 create or replace function mm.check_case_area_change() returns trigger
 language plpgsql set search_path = public, mm
 as $$
 declare
-  prior_seq  integer;
-  prior_to   text;
-  prior_at   timestamptz;
-  case_area  text;
+  prior_seq     integer;
+  prior_to      text;
+  prior_at      timestamptz;
+  note_author   text;
+  note_kind     text;
+  note_removed  timestamptz;
+  note_created  timestamptz;
 begin
   if mm.case_contract_id(new.case_id) is distinct from new.contract_id then
     raise exception 'Bytet ska höra till ärendets avtal' using errcode = '23514';
@@ -140,8 +154,7 @@ begin
       raise exception 'Bytena numreras i tur och ordning' using errcode = '23514';
     end if;
     if current_user = 'authenticated' then
-      case_area := mm.case_primary_area(new.case_id);
-      if new.from_area is distinct from case_area or (prior_seq is not null and new.from_area is distinct from prior_to) then
+      if prior_seq is not null and new.from_area is distinct from prior_to then
         raise exception 'Bytet ska utgå från ärendets nuvarande yrkesområde' using errcode = '23514';
       end if;
       if prior_at is not null and new.changed_at < prior_at then
@@ -149,6 +162,12 @@ begin
       end if;
       if abs(extract(epoch from (new.changed_at - mm.app_now()))) > 600 then
         raise exception 'Bytet registreras med aktuell tid' using errcode = '23514';
+      end if;
+      select n.author_id, n.kind, n.removed_at, n.created_at into note_author, note_kind, note_removed, note_created
+        from public.case_notes n where n.id = new.note_id;
+      if note_author is distinct from new.changed_by or note_kind is distinct from 'other' or note_removed is not null
+         or abs(extract(epoch from (new.changed_at - note_created))) > 600 then
+        raise exception 'Motiveringen ska vara en ny anteckning av den som byter' using errcode = '23514';
       end if;
     end if;
   end if;
@@ -159,9 +178,82 @@ drop trigger if exists case_area_changes_check on public.case_area_changes;
 create trigger case_area_changes_check before insert or update on public.case_area_changes
 for each row execute function mm.check_case_area_change();
 
+-- Ärendet ändras i samma transaktion som bytet skrivs (policy.ts caseAreaChangeApply – MemoryRepo gör samma ändring i samma
+-- steg som raden): yrkesområdet blir det nya, yrkesspåret det valda (eller tomt) och ett alternativt yrkesområde som blir det
+-- nya tas bort. Bara när ärendet fortfarande har bytets gamla yrkesområde, yrkesspår och alternativ och är bekräftat, pågående
+-- eller pausat – annars nekas hela bytet (23514) och inget skrivs. Security definer: den inloggade läser bara id direkt i
+-- public.cases (0013) och ändrar aldrig yrkesområdet direkt (cases_area_guard nedan). Funktionen ändrar bara ärendet enligt
+-- ärendets senaste byte, och ligger i schemat mm som inte nås via API:t.
+create or replace function mm.apply_case_area_change(p_change_id text) returns boolean
+language plpgsql security definer set search_path = public, mm
+as $$
+declare
+  x public.case_area_changes%rowtype;
+begin
+  select * into x from public.case_area_changes where id = p_change_id;
+  if not found then
+    return false;
+  end if;
+  if exists (select 1 from public.case_area_changes y where y.case_id = x.case_id and y.seq > x.seq) then
+    return false;
+  end if;
+  update public.cases c
+     set primary_area_code = x.to_area,
+         vocational_track = x.to_track,
+         secondary_area_code = case when c.secondary_area_code = x.to_area then null else c.secondary_area_code end
+   where c.id = x.case_id
+     and c.contract_id = x.contract_id
+     and c.primary_area_code = x.from_area
+     and c.vocational_track = x.from_track
+     and c.secondary_area_code is not distinct from x.from_secondary_area
+     and c.status in ('confirmed', 'active', 'paused');
+  return found;
+end
+$$;
+revoke all on function mm.apply_case_area_change(text) from public, anon;
+grant execute on function mm.apply_case_area_change(text) to authenticated, service_role;
+
+create or replace function mm.after_case_area_change() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+begin
+  if current_user = 'authenticated' and not mm.apply_case_area_change(new.id) then
+    raise exception 'Bytet ska utgå från ärendets nuvarande yrkesområde och yrkesspår' using errcode = '23514';
+  end if;
+  return null;
+end
+$$;
+drop trigger if exists case_area_changes_apply on public.case_area_changes;
+create trigger case_area_changes_apply after insert on public.case_area_changes
+for each row execute function mm.after_case_area_change();
+
+-- Ärendets yrkesområde byts bara med Byt yrkesområde (policy.ts caseWrite): i ett bekräftat, pågående, pausat eller avslutat
+-- ärende ändrar ingen inloggad primary_area_code direkt (bytet ändrar ärendet via mm.apply_case_area_change – security
+-- definer, som den här triggern släpper igenom). Kommunen ändrar aldrig yrkesområdena när beställningen väl tagits emot.
+-- Accepten (received/acknowledged → confirmed) och avropsinkorgen (received/acknowledged) väljer yrkesområdet som förut.
+create or replace function mm.guard_case_area() returns trigger
+language plpgsql set search_path = public, mm
+as $$
+begin
+  if current_user not in ('authenticated', 'anon') then
+    return new;
+  end if;
+  if new.primary_area_code is distinct from old.primary_area_code and old.status in ('confirmed', 'active', 'paused', 'closed') then
+    raise exception 'Yrkesområdet byts med Byt yrkesområde på deltagarkortet' using errcode = '42501';
+  end if;
+  if mm.current_role() = 'kommun_handlaggare' and old.status <> 'received'
+     and (new.primary_area_code is distinct from old.primary_area_code or new.secondary_area_code is distinct from old.secondary_area_code) then
+    raise exception 'Yrkesområdet i en beställning som tagits emot ändras av Miljonbemanning' using errcode = '42501';
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists cases_area_guard on public.cases;
+create trigger cases_area_guard before update of primary_area_code, secondary_area_code on public.cases
+for each row execute function mm.guard_case_area();
+
 -- Motiveringen är låst (policy.ts caseNoteWrite): en anteckning som ett byte pekar på (note_id) ändras och tas aldrig bort av
--- inloggade – inte heller av författaren, samordnaren eller avtalsansvarig. Servern (service role) rörs inte: systemsteget som tar
--- bort ett halvt byte (bytet skrevs men ärendet kunde inte ändras) raderar bytet och döljer sedan anteckningen.
+-- inloggade – inte heller av författaren, samordnaren eller avtalsansvarig. Servern (service role) rörs inte.
 -- Uppslaget med security definer: bytena läses annars med den inloggades rättigheter.
 create or replace function mm.is_area_change_note(p_note_id text) returns boolean
 language sql stable security definer set search_path = public, mm
@@ -187,3 +279,6 @@ for each row execute function mm.lock_area_change_note();
 alter table public.monthly_assessments add column if not exists prefill jsonb not null default '{}'::jsonb;
 alter table public.monthly_assessments drop constraint if exists monthly_assessments_prefill_object;
 alter table public.monthly_assessments add constraint monthly_assessments_prefill_object check (jsonb_typeof(prefill) = 'object');
+
+reset lock_timeout;
+reset statement_timeout;

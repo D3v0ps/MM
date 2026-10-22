@@ -43,6 +43,16 @@
 -- Inga destruktiva satser. Idempotent (if not exists, create or replace, drop … if exists) – tål att köras igen i SQL Editor.
 -- Driftordning (docs/DRIFT.md): 0035 appliceras FÖRE koden – koden skriver de nya kolumnerna vid varje ny gruppaktivitet och
 -- varje nytt tillfälle.
+-- Befintliga objekt i produktionen som ersätts eller skrivs om: policyn group_activities_insert (0030:s villkor plus
+-- series_id is null), funktionen mm.protect_group_activity_columns() (0030:s version plus series_id), och raderna i groupings
+-- och grouping_members (fria grupper arkiveras, se 1). Inget raderas.
+--
+-- Lås: alter table och de nya triggrarna tar starka lås på heta tabeller (activities, group_activities, groupings,
+-- grouping_members). Väntar en sats längre än 5 sekunder på ett lås avbryts körningen (felkod 55P03) i stället för att alla
+-- andra frågor (Min vecka, närvaron, jobben) köar bakom den – kör då filen igen, gärna utanför arbetstid. Inställningen gäller
+-- bara den här körningen (återställs sist i filen).
+set lock_timeout = '5s';
+set statement_timeout = '60s';
 
 -- ---------------------------------------------------------------- 1. Fria grupper bort
 -- Medlemskapen först (historiken visar när de avslutades), sedan grupperna.
@@ -319,3 +329,6 @@ $$;
 drop trigger if exists activities_invite_source on public.activities;
 create trigger activities_invite_source before insert or update on public.activities
 for each row execute function mm.protect_activity_invite_source();
+
+reset lock_timeout;
+reset statement_timeout;

@@ -171,15 +171,16 @@ describe("rapportutkasten i jobbkörningen", () => {
       },
     });
     const deps = { reportSchedule: async () => ({ ...(await (t.deps as { reportSchedule: () => Promise<{ ctx: Ctx; state: unknown }> }).reportSchedule()), ctx: { ...t.ctx, repo: failing, system: failing } }) } as unknown as JobDeps;
-    expect(await t.run("2027-03-01T00:03", deps)).toMatchObject({ claimed: 1, done: 0 });
+    // Dagtid (steget med aktiviteterna körs bara 08.00–20.00 – isSystemSendTime).
+    expect(await t.run("2027-03-01T08:03", deps)).toMatchObject({ claimed: 1, done: 0 });
     // Stegen efter det som kastade kördes: månadens fakturakörning och veckans rapporter finns.
     expect(t.store.rows("billing_runs").filter((r) => r.month === "2027-02").map((r) => r.id)).toEqual(["br-c-bot-2027-02"]);
     expect(t.store.rows("reports").some((r) => r.week === "2027-W08")).toBe(true);
-    const job = t.store.getRow("jobs", reportScheduleJobId("2027-03-01T00:03"))!;
+    const job = t.store.getRow("jobs", reportScheduleJobId("2027-03-01T08:03"))!;
     expect(job).toMatchObject({ status: "queued", lastError: "Oväntat fel (Error)" });
     expect(JSON.stringify(job)).not.toContain("Nadia");
     // Nästa försök (utan felet) skapar bara det som fattas.
-    expect(await t.run("2027-03-01T00:13")).toMatchObject({ failed: 0 });
+    expect(await t.run("2027-03-01T08:13")).toMatchObject({ failed: 0 });
     expect(t.store.rows("billing_runs").filter((r) => r.month === "2027-02")).toHaveLength(1);
   });
 

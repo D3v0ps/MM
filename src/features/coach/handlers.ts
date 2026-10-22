@@ -120,10 +120,11 @@ handleCommand(attendanceSet, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
     action: "attendance.registered", entity: "attendance", entityId: attendanceId, contractId: c.contractId,
     details: { caseId: act.caseId, status: p.status, ...(existing?.source === "auto" ? { wasAuto: true } : {}), ...(act.groupActivityId ? { groupActivityId: act.groupActivityId } : {}) },
   });
-  // Månadsbedömningens förifyllda sammanfattning (närvarosiffrorna) följer en rättad närvaro i en avslutad månad.
-  await refreshPrefillAfterAttendance(ctx, [{ caseId: c.id, contractId: c.contractId, startsAt: act.startsAt }]);
   // Veckorapporten publiceras automatiskt när alla handläggarens deltagare är registrerade.
   const published = await publishWeeklyIfComplete(ctx, c.contractId, c.referrerId, isoWeek(act.startsAt).key);
+  // Månadsbedömningens förifyllda sammanfattning (närvarosiffrorna) följer en rättad närvaro i en avslutad månad – bästa försök,
+  // efter veckorapporten: närvaron är sparad och ett fel här ger aldrig coachen ett fel.
+  await refreshPrefillAfterAttendance(ctx, [{ caseId: c.id, contractId: c.contractId, startsAt: act.startsAt }]);
   return ok({ attendanceId, published });
 });
 
@@ -172,8 +173,6 @@ handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
       },
     });
   }
-  // Månadsbedömningens förifyllda sammanfattning följer närvaron i en avslutad månad.
-  await refreshPrefillAfterAttendance(ctx, acts.filter((a) => marked.includes(a.id)).map((a) => ({ caseId: a.caseId, contractId: contractOfAct(a), startsAt: a.startsAt })));
   // Veckorapporterna: en kontroll per handläggare, avtal och vecka bland de markerade – i fast ordning.
   const published: WeeklyPublished[] = [];
   const keys = uniq(acts.filter((a) => marked.includes(a.id)).map((a) => {
@@ -185,6 +184,8 @@ handleCommand(attendanceSetAll, { roles: ATTENDANCE_ROLES }, async (ctx, p) => {
     const pub = await publishWeeklyIfComplete(ctx, contractId, referrerId || null, weekKey);
     if (pub) published.push(pub);
   }
+  // Månadsbedömningens förifyllda sammanfattning följer närvaron i en avslutad månad – bästa försök, efter veckorapporterna.
+  await refreshPrefillAfterAttendance(ctx, acts.filter((a) => marked.includes(a.id)).map((a) => ({ caseId: a.caseId, contractId: contractOfAct(a), startsAt: a.startsAt })));
   return ok({ marked, skipped, published, registeredAt: now });
 });
 
@@ -476,7 +477,9 @@ handleCommand(intakeSave, { roles: ["coach"] }, async (ctx, p) => {
   if (existing) {
     if (!(await table.updateIf(ia.id, { version: existing.version }, ia))) return fail("conflict", CONFLICT);
   } else await table.insert(ia);
-  if (p.approve && ia.chosenTrack) await ctx.repo.table("cases").update(c.id, { vocationalTrack: ia.chosenTrack });
+  // Det valda yrkesspåret gäller ärendet när kartläggningen är godkänd – också när det väljs om i en redan godkänd kartläggning
+  // (t.ex. efter Byt yrkesområde utan spår, som tömmer valet och ber kartläggningen välja igen).
+  if (ia.status === "approved" && ia.chosenTrack && ia.chosenTrack !== c.vocationalTrack) await ctx.repo.table("cases").update(c.id, { vocationalTrack: ia.chosenTrack });
   await auditSave(ctx, { action: p.approve ? "intake.approved" : "intake.saved", entity: "intake_assessment", entityId: ia.id, contractId: c.contractId, details: { caseId: c.id } }, p);
   return ok({ intakeId: ia.id, savedAt: ctx.now(), version: ia.version });
 });

@@ -169,7 +169,7 @@ async function caseData(ctx: Ctx, caseIds: string[]): Promise<Omit<ReportDb, "co
     s.table("monthly_plans").list(inCases),
     s.table("outcome_events").list(inCases),
     s.table("deviations").list(inCases),
-    // Bytena av yrkesområde: rapportmånadens avtalsområde (areaForMonth – samma regel som fakturan).
+    // Bytena av yrkesområde: rapportmånadens avtalsområde och yrkesspår (areaForMonth, trackForMonth – samma regel som fakturan).
     s.table("case_area_changes").list(inCases),
   ]);
   const devIds = deviations.map((d) => d.id);
@@ -219,15 +219,17 @@ export async function loadReportDb(ctx: Ctx, r: Report, info: ContractInfo): Pro
       const sla = !!info.cfg.customerVisibility.seesSlaStats;
       const activities = await s.table("activities").list({ ...inCases, startsAt: { gte: start, lte: `${end}T23:59` } });
       const actIds = activities.map((a) => a.id);
-      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports] = await Promise.all([
+      const [attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes] = await Promise.all([
         actIds.length ? s.table("attendance").list({ activityId: { in: actIds } }) : [],
         s.table("monthly_assessments").list({ ...inCases, month: mk }),
         s.table("pulse_responses").list(inCases),
         s.table("deviations").list(inCases),
         s.table("contract_deviations").list({ contractId: r.contractId }),
         sla ? s.table("reports").list({ contractId: r.contractId }) : [],
+        // Bytena av yrkesområde: månadens yrkesområde och yrkesspår per deltagare (areaForMonth – samma regel som månadsrapporten).
+        s.table("case_area_changes").list({ contractId: r.contractId }),
       ]);
-      return { ...base, cases, activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports };
+      return { ...base, cases, activities, attendance, monthly_assessments, pulse_responses, deviations, contract_deviations, reports, case_area_changes };
     }
     default:
       return base;

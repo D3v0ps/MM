@@ -6,10 +6,19 @@ import { applyOpts, checkJsonPaths, jsonAt, matches, pickFields, pickRow, Policy
 
 export type MemoryData<TT extends Record<string, Row>> = { [N in keyof TT]: TT[N][] };
 
+/** En ändring i en annan tabell som en ny rad för med sig (afterInsert). */
+export type Cascade<TT extends Record<string, Row>> = { [N in keyof TT & string]: { table: N; id: string; patch: Partial<TT[N]> } }[keyof TT & string];
+
 /** Policy för en tabell: får aktören läsa/skriva raden? `raw` ger ofiltrerad åtkomst för uppslag (t.ex. radens ärende). */
 export type RowPolicy<TT extends Record<string, Row>, T extends Row> = {
   read(row: T, actor: Actor, raw: RawAccess<TT>): boolean;
   write?(row: T, actor: Actor, raw: RawAccess<TT>): boolean;
+  /**
+   * Spegel av en trigger efter insert för inloggade (inte bypass): ändringar i andra tabeller som skrivs i samma synkrona steg
+   * som den nya raden – som i samma transaktion i Postgres (t.ex. ett byte av yrkesområde som ändrar ärendet, 0036). Anropas
+   * efter write och före raden skrivs; ett fel stoppar både raden och ändringarna.
+   */
+  afterInsert?(row: T, actor: Actor, raw: RawAccess<TT>): readonly Cascade<TT>[];
 };
 export type Policies<TT extends Record<string, Row>> = { [N in keyof TT]?: RowPolicy<TT, TT[N]> };
 
@@ -97,6 +106,14 @@ export class MemoryStore<TT extends Record<string, Row>> {
     this.version++;
     return cur;
   }
+  /** Raden som den var (återställning när en ändring i samma steg inte gick att skriva – MemoryRepo.insert med afterInsert). */
+  restoreRow<N extends keyof TT & string>(name: N, row: TT[N]) {
+    const cur = this.getRow(name, row.id);
+    if (!cur) return;
+    for (const k of Object.keys(cur)) if (!(k in row)) delete (cur as Record<string, unknown>)[k];
+    Object.assign(cur, row);
+    this.version++;
+  }
   removeRow<N extends keyof TT & string>(name: N, id: string) {
     const arr = this.rows(name);
     const i = arr.findIndex((r) => r.id === id);
@@ -149,7 +166,18 @@ export class MemoryRepo<TT extends Record<string, Row>> implements Repo<TT> {
       count: async (where) => visible(where).length,
       insert: async (row) => {
         if (!canWrite(row)) throw new PolicyError(name);
+        // Triggern efter insert (bara inloggade): raden och ändringarna i samma synkrona steg – allt eller inget, som en
+        // transaktion: går en ändring inte att skriva tas raden bort och de ändrade raderna återställs.
+        const cascade = !this.opts.bypass && policy?.afterInsert ? policy.afterInsert(row, this.actor, raw) : [];
+        const before = cascade.map((x) => ({ x, prev: clone(store.getRow(x.table, x.id)) }));
         store.insertRow(name, clone(row));
+        try {
+          for (const x of cascade) store.updateRow(x.table, x.id, clone(x.patch) as never);
+        } catch (e) {
+          store.removeRow(name, row.id);
+          for (const { x, prev } of before.reverse()) if (prev) store.restoreRow(x.table, prev as never);
+          throw e;
+        }
         return clone(row);
       },
       update: async (id, patch) => {

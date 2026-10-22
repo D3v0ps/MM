@@ -60,8 +60,11 @@
 //   område        också ekonomen (fakturan räknas på yrkesområdet per månad – raden har ingen fritext) · skapas av coach,
 //                 samordnare och avtalsansvarig med full åtkomst, i eget namn · stämmer med ärendet, avtalets yrkesområden,
 //                 anteckningen med motiveringen och tiden (månaden efter) · numreras i tur och ordning per ärende (seq) · för
-//                 inloggade dessutom i kedjan: utgår från ärendets nuvarande yrkesområde och det förra bytets nya, inte äldre än
-//                 det förra, registrerat med aktuell tid · ändras och raderas aldrig · aldrig kommunen
+//                 inloggade dessutom i kedjan: utgår från ärendets nuvarande yrkesområde, yrkesspår och alternativ och det förra
+//                 bytets nya, inte äldre än det förra, registrerat med aktuell tid, motiveringen en ny egen anteckning · en ny
+//                 rad ändrar ärendet i samma steg (afterInsert – bytet och ärendet skrivs alltid tillsammans) · ändras och
+//                 raderas aldrig · aldrig kommunen. Ärendets yrkesområde ändras aldrig direkt när ärendet är bekräftat (bara
+//                 med ett byte), och kommunen ändrar aldrig yrkesområdena när beställningen väl tagits emot
 //   Handledare    Rollen handledare – borttagen ur appen, Karims beslut 2026-10-09; vilande så att den kan slås på igen utan
 //                 migration. Ingen kan få rollen (src/api/roles.ts, DORMANT_ROLES), men reglerna nedan som nämner den ligger kvar
 //                 som spegel av RLS (CASE_WORKERS, rapporterna, bilagorna)
@@ -72,9 +75,10 @@
 // ctx.system (service role) och passerar inte policyn.
 import { isCustomerRole, isSupplierRole, type Actor, type Role } from "@/api/roles";
 import { canSeeNotes, canSeePerson, caseAccess, lookupsFor, type AccessSource, type CaseAccess } from "@/core/access";
-import type { Policies, RawAccess, RowPolicy } from "./memory";
+import type { Cascade, Policies, RawAccess, RowPolicy } from "./memory";
+import { PolicyError } from "./repo";
 import { GROUPING_MEMBER_WRITERS, GROUPING_READERS, GROUPING_WRITERS, slotOf } from "@/core/groupings";
-import { AREA_CHANGE_READERS, AREA_CHANGERS, effectiveMonthOf } from "@/core/area-changes";
+import { AREA_CHANGE_READERS, AREA_CHANGE_STATUSES, AREA_CHANGERS, effectiveMonthOf } from "@/core/area-changes";
 import type { Case, Report, TableName, Tables } from "./schema";
 import { diffMinutes } from "@/core/time";
 
@@ -168,6 +172,8 @@ const workOn = (caseId: string, a: Actor, raw: Raw) => {
 };
 /** Får ändra ärendet (och dess statushistorik och team). */
 function caseWrite(c: Case, a: Actor, raw: Raw): boolean {
+  const cur = raw.get("cases", c.id);
+  if (cur && !caseAreaGuard(cur, c, a)) return false;
   const acc = accessOfCase(raw, a, c);
   if (a.role === "samordnare" || a.role === "avtalsansvarig") return acc === "full";
   if (a.role === "coach") return acc === "full" && exists(raw, "cases", c.id); // coachen skapar inga ärenden
@@ -325,7 +331,7 @@ function caseNoteWrite(x: CaseNoteRow, a: Actor, raw: Raw): boolean {
   const changed = changedFields(cur, x);
   if (cur.removedAt != null || !changed.length || changed.some((k) => NOTE_FIXED.includes(k))) return false;
   // Motiveringen till ett byte av yrkesområde (case_area_changes.noteId) är låst: den ändras och tas aldrig bort (triggern
-  // case_notes_area_change_lock, 0036). Systemsteget som tar bort ett halvt byte döljer anteckningen först när bytet är borta.
+  // case_notes_area_change_lock, 0036). Bara servern (service role) kan ändra den.
   if (raw.all("case_area_changes").some((c) => c.noteId === cur.id)) return false;
   // Dölja: removedAt och removedBy sätts tillsammans, i eget namn.
   if ((changed.includes("removedAt") || changed.includes("removedBy")) && (x.removedAt == null || !self(a, x.removedBy))) return false;
@@ -578,15 +584,17 @@ function groupingMemberWrite(x: GroupingMemberRow, a: Actor, raw: Raw): boolean 
 // ---------------------------------------------------------------- Byt yrkesområde (0036)
 type CaseAreaChangeRow = Tables["case_area_changes"];
 /**
- * Raden stämmer med ärendet (triggern case_area_changes_check och de främmande nycklarna, 0036 – gäller också systemet där):
- * ärendets avtal, båda yrkesområdena finns i avtalet, det nya är aktivt och skiljer sig från det gamla, anteckningen hör till
- * ärendet och effectiveMonth är månaden efter changedAt.
+ * Raden stämmer med ärendet (triggern case_area_changes_check, de främmande nycklarna och de unika nycklarna, 0036 – gäller
+ * också systemet där): ärendets avtal, båda yrkesområdena finns i avtalet, det nya är aktivt och skiljer sig från det gamla,
+ * anteckningen hör till ärendet och är motivering till bara det här bytet, yrkesspåret är högst 200 tecken och effectiveMonth
+ * är månaden efter changedAt.
  */
 function caseAreaChangeConsistent(x: CaseAreaChangeRow, raw: Raw): boolean {
   if (raw.get("cases", x.caseId)?.contractId !== x.contractId || x.fromArea === x.toArea) return false;
   const areas = raw.all("contract_areas").filter((a) => a.contractId === x.contractId);
   if (!areas.some((a) => a.code === x.fromArea) || !areas.some((a) => a.code === x.toArea && a.active)) return false;
   if (!(raw.get("case_notes", x.noteId)?.caseId === x.caseId && /^\d{4}-(0[1-9]|1[0-2])$/.test(x.effectiveMonth) && x.effectiveMonth === effectiveMonthOf(x.changedAt))) return false;
+  if (raw.all("case_area_changes").some((y) => y.noteId === x.noteId && y.id !== x.id) || x.toTrack.length > 200) return false;
   // seq: ärendets nästa nummer (1, 2, 3 …).
   return x.seq === priorAreaChange(x, raw).seq + 1;
 }
@@ -598,16 +606,27 @@ function priorAreaChange(x: CaseAreaChangeRow, raw: Raw): { seq: number; toArea:
 }
 /** Högsta skillnaden i minuter mellan bytets tid och databasens klocka (triggern: 600 sekunder). */
 const AREA_CHANGE_CLOCK_MINUTES = 10;
+/** Ärendet har fortfarande bytets gamla yrkesområde, yrkesspår och alternativ och kan byta (mm.apply_case_area_change, 0036). */
+function caseAreaChangeApplies(x: CaseAreaChangeRow, raw: Raw): boolean {
+  const c = raw.get("cases", x.caseId);
+  return !!c && c.contractId === x.contractId && c.primaryAreaCode === x.fromArea && c.vocationalTrack === x.fromTrack
+    && (c.secondaryAreaCode ?? null) === (x.fromSecondaryArea ?? null) && AREA_CHANGE_STATUSES.includes(c.status);
+}
 /**
- * Kedjan och tiden för inloggade (triggern case_area_changes_check, 0036 – inte service role): bytet utgår från ärendets
- * nuvarande yrkesområde och från det förra bytets nya, är inte äldre än det förra bytet och registreras med aktuell tid (högst
- * 10 minuter från klockan – minnets klocka, RawAccess.now; ett minne utan klocka prövar inte tiden).
+ * Kedjan, tiden och motiveringen för inloggade (triggrarna case_area_changes_check och case_area_changes_apply, 0036 – inte
+ * service role): bytet utgår från ärendets nuvarande yrkesområde, yrkesspår och alternativ (ärendet bekräftat, pågående eller
+ * pausat) och från det förra bytets nya yrkesområde, är inte äldre än det förra bytet och registreras med aktuell tid (högst
+ * 10 minuter från klockan – minnets klocka, RawAccess.now; ett minne utan klocka prövar inte tiden). Motiveringen är en ny
+ * anteckning av den som byter: typ other, inte borttagen, skriven högst 10 minuter från bytet – ingen kan göra någon annans
+ * anteckning till en låst motivering.
  */
 function caseAreaChangeChained(x: CaseAreaChangeRow, raw: Raw): boolean {
-  if (raw.get("cases", x.caseId)?.primaryAreaCode !== x.fromArea) return false;
+  if (!caseAreaChangeApplies(x, raw)) return false;
   const prior = priorAreaChange(x, raw);
   if (prior.toArea != null && prior.toArea !== x.fromArea) return false;
   if (prior.changedAt != null && x.changedAt < prior.changedAt) return false;
+  const note = raw.get("case_notes", x.noteId);
+  if (!note || note.authorId !== x.changedBy || note.kind !== "other" || note.removedAt != null || Math.abs(diffMinutes(note.createdAt, x.changedAt)) > AREA_CHANGE_CLOCK_MINUTES) return false;
   const now = raw.now?.();
   return !now || Math.abs(diffMinutes(now, x.changedAt)) <= AREA_CHANGE_CLOCK_MINUTES;
 }
@@ -619,6 +638,28 @@ function caseAreaChangeWrite(x: CaseAreaChangeRow, a: Actor, raw: Raw): boolean 
   if (raw.get("case_area_changes", x.id)) return false;
   return has(AREA_CHANGERS, a) && accessTo(raw, a, x.caseId) === "full" && member(a, x.contractId) && self(a, x.changedBy) && caseAreaChangeConsistent(x, raw)
     && caseAreaChangeChained(x, raw);
+}
+/**
+ * Ärendet ändras i samma steg som bytet skrivs (triggern case_area_changes_apply, 0036 – bara inloggade): yrkesområdet blir det
+ * nya, yrkesspåret det valda och ett alternativt yrkesområde som blir det nya tas bort. Bytet och ärendet skrivs alltid
+ * tillsammans – ett halvt byte kan inte bli kvar.
+ */
+function caseAreaChangeApply(x: CaseAreaChangeRow, _a: Actor, raw: Raw): readonly Cascade<Tables>[] {
+  const c = raw.get("cases", x.caseId);
+  if (!c || !caseAreaChangeApplies(x, raw)) throw new PolicyError("case_area_changes");
+  return [{ table: "cases", id: c.id, patch: { primaryAreaCode: x.toArea, vocationalTrack: x.toTrack, ...(c.secondaryAreaCode === x.toArea ? { secondaryAreaCode: null } : {}) } }];
+}
+/** Ärenden där yrkesområdet bara byts med Byt yrkesområde (triggern cases_area_guard, 0036). */
+const AREA_LOCKED_STATUSES: readonly Case["status"][] = ["confirmed", "active", "paused", "closed"];
+/**
+ * Ärendets yrkesområde (triggern cases_area_guard, 0036): i ett bekräftat, pågående, pausat eller avslutat ärende ändras
+ * primaryAreaCode aldrig direkt – bara via ett byte (caseAreaChangeApply). Kommunen ändrar aldrig yrkesområdena när
+ * beställningen väl tagits emot.
+ */
+function caseAreaGuard(cur: Case, next: Case, a: Actor): boolean {
+  if (next.primaryAreaCode !== cur.primaryAreaCode && AREA_LOCKED_STATUSES.includes(cur.status)) return false;
+  if (isKom(a) && cur.status !== "received" && (next.primaryAreaCode !== cur.primaryAreaCode || (next.secondaryAreaCode ?? null) !== (cur.secondaryAreaCode ?? null))) return false;
+  return true;
 }
 
 // ---------------------------------------------------------------- Tabellerna
@@ -913,7 +954,7 @@ const RULES: { [N in TableName]: RowPolicy<Tables, Tables[N]> } = {
   grouping_members: { read: (x, a, raw) => notesRead(x.caseId, a, raw), write: groupingMemberWrite },
 
   // ---- Byt yrkesområde (0036). Bara koder och id:n – ekonomen läser för faktureringen, kommunen aldrig. Ändras aldrig.
-  case_area_changes: { read: (x, a) => has(AREA_CHANGE_READERS, a) && member(a, x.contractId), write: caseAreaChangeWrite },
+  case_area_changes: { read: (x, a) => has(AREA_CHANGE_READERS, a) && member(a, x.contractId), write: caseAreaChangeWrite, afterInsert: caseAreaChangeApply },
 };
 
 export const POLICIES: Policies<Tables> = RULES;

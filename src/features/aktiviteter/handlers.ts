@@ -18,10 +18,8 @@
 import { fail, ok, type Fail } from "@/api/contract";
 import type { Role } from "@/api/roles";
 import { handleCommand, handleQuery, type Ctx } from "@/api/server";
-import { areaLabel, audienceColumns, audienceLabel, audienceOf, belongsOn, type Audience } from "@/core/audience";
-import {
-  ACTIVITY_KIND_WORD, GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, overlaps, slotText, type InviteGrouping, type UninvitableMember,
-} from "@/core/group-activities";
+import { areaLabel, audienceColumns, audienceLabel, audienceOf, type Audience } from "@/core/audience";
+import { GROUP_KIND_LABEL, INVITE_BLOCK_TEXT, inviteBlock, type InviteGrouping, type UninvitableMember } from "@/core/group-activities";
 import { byOrder } from "@/core/groupings";
 import { normalizeWeekdays, seriesScheduleError, seriesScheduleText } from "@/core/group-series";
 import { ABSENCE_REASONS } from "@/core/labels";
@@ -35,7 +33,8 @@ import {
   groupActivitySeriesEnd, groupActivitySeriesUpdate, groupActivityUpdate, groupActivityView, groupGoalResultSet, type AudienceInput, type GroupActivityListRow,
   type GroupParticipant, type InviteProblem, type NotifyOutcome, type SeriesListRow,
 } from "./api";
-import { audienceCases, audienceMembers, ensureSeriesOccurrences, removeParticipantRow, syncAudienceInvites, type AudienceSyncDetail } from "./audience-sync";
+import { audienceMembers, ensureSeriesOccurrences, removeParticipantRow, syncAudienceInvites, type AudienceSyncDetail } from "./audience-sync";
+import { audienceBusyOf, mergeProblems, overlapsFor } from "./busy";
 import { notifyAll, supersedeTasks, upcoming } from "./notify-all";
 
 /**
@@ -68,15 +67,6 @@ async function holidayOn(ctx: Ctx, day: LocalDate): Promise<string | null> {
 }
 const holidayText = (day: LocalDate, name: string) => `${fmtDate(day)} är en helgdag (${name}). Vill du lägga aktiviteten där ändå?`;
 
-/** En rad per ärende (orsakerna slås ihop), i ärendenummerordning. */
-function mergeProblems(problems: readonly InviteProblem[]): InviteProblem[] {
-  const byCase = new Map<string, InviteProblem>();
-  for (const p of problems) {
-    const cur = byCase.get(p.caseId);
-    byCase.set(p.caseId, cur ? { ...cur, reason: `${cur.reason}. ${p.reason}` } : p);
-  }
-  return [...byCase.values()].sort((a, b) => (a.caseNumber < b.caseNumber ? -1 : 1));
-}
 /** Ärenden som inte kan bjudas in dagen – i ärendenummerordning. */
 function problemsOf(cases: readonly Case[], day: LocalDate): InviteProblem[] {
   return mergeProblems(
@@ -97,38 +87,6 @@ async function notWorkable(ctx: Ctx, cases: readonly Case[]): Promise<InviteProb
   return cases.filter((c) => !readable.has(c.personId)).map((c) => ({ caseId: c.id, caseNumber: c.caseNumber, reason: NOT_WORKABLE }));
 }
 
-/**
- * Deltagarnas andra tillfällen som överlappar aktivitetens tid (samma dag; aktivitetens egna rader räknas inte). Ett eget tillfälle
- * utan närvaro kan ersättas (replaceable); ett tillfälle med registrerad närvaro eller en annan gruppaktivitet stoppar (blocking).
- * Utan kontrollen får deltagaren två planerade tillfällen samtidigt – båda räknas i veckorapporten, närvarograden och den
- * automatiska närvaron (avtalets veckoplan har t.ex. yrkesmoment tisdag och torsdag 09.00).
- */
-async function overlapsFor(
-  ctx: Ctx, cases: readonly Case[], slot: { startsAt: string; durationMin: number }, groupActivityId: string | null,
-): Promise<{ blocking: InviteProblem[]; replace: InviteProblem[]; replaceable: Activity[] }> {
-  const none = { blocking: [], replace: [], replaceable: [] };
-  if (!cases.length) return none;
-  const day = dayOf(slot.startsAt);
-  const caseOf = new Map(cases.map((c) => [c.id, c]));
-  const same = (await ctx.repo.table("activities").list({ caseId: { in: [...caseOf.keys()] }, startsAt: { gte: `${day}T00:00`, lte: `${day}T23:59` } }, { orderBy: "startsAt" }))
-    .filter((a) => (!groupActivityId || a.groupActivityId !== groupActivityId) && overlaps(a, slot));
-  if (!same.length) return none;
-  const registered = new Set((await ctx.repo.table("attendance").pick(["activityId"], { activityId: { in: same.map((a) => a.id) } })).map((r) => r.activityId));
-  const blocking: InviteProblem[] = [];
-  const replace: InviteProblem[] = [];
-  const replaceable: Activity[] = [];
-  for (const a of same) {
-    const c = caseOf.get(a.caseId)!;
-    const p = (reason: string): InviteProblem => ({ caseId: c.id, caseNumber: c.caseNumber, reason });
-    if (a.groupActivityId) blocking.push(p(`Är redan inbjuden till en annan aktivitet ${slotText(a)}`));
-    else if (registered.has(a.id)) blocking.push(p(`Har redan ${ACTIVITY_KIND_WORD[a.kind]} ${slotText(a)} med registrerad närvaro`));
-    else {
-      replace.push(p(`Har redan ${ACTIVITY_KIND_WORD[a.kind]} ${slotText(a)}. Det ersätts av aktiviteten`));
-      replaceable.push(a);
-    }
-  }
-  return { blocking: mergeProblems(blocking), replace: mergeProblems(replace), replaceable };
-}
 const overlapText = (problems: readonly InviteProblem[]) =>
   `${problems.length === 1 ? "En deltagare har" : `${problems.length} deltagare har`} redan ett tillfälle vid samma tid. Det ersätts av aktiviteten om du fortsätter, så att deltagaren inte räknas två gånger i närvaron och veckorapporten.`;
 
@@ -366,27 +324,9 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
   const labelOf = await audienceNames(ctx, [g.contractId]);
   const series = g.seriesId ? await ctx.repo.table("group_activity_series").get(g.seriesId) : null;
   const audience = audienceOf(g);
-  // Målgruppens deltagare som synkningen hoppade över: de hör till målgruppen den dagen men har redan ett annat tillfälle vid samma
-  // tid (samma regel som planAudienceSync). Bara för en kommande aktivitet med målgrupp – och bara de aktören får se.
-  const audienceBusy: (InviteProblem & { name: string; replaceable: boolean })[] = [];
-  if (audience && !g.cancelledAt && upcoming(ctx, g.startsAt)) {
-    const invited = new Set(caseIds);
-    const { cases: all, levelOf } = await audienceCases(ctx, g.contractId, null);
-    const candidates = all.filter((c) => !invited.has(c.id) && belongsOn(audience, c, levelOf, day));
-    const visible = candidates.length ? await ctx.repo.table("cases").list({ id: { in: candidates.map((c) => c.id) } }) : [];
-    const ov = await overlapsFor(ctx, visible, g, g.id);
-    const persons = visible.length ? await ctx.repo.table("persons").list({ id: { in: uniq(visible.map((c) => c.personId)) } }) : [];
-    const personOf = new Map(persons.map((x) => [x.id, x]));
-    const caseOf = new Map(visible.map((c) => [c.id, c]));
-    for (const [list, replaceable] of [[ov.blocking, false], [ov.replace, true]] as const) {
-      for (const x of list) {
-        if (audienceBusy.some((b) => b.caseId === x.caseId)) continue;
-        const c = caseOf.get(x.caseId);
-        audienceBusy.push({ ...x, name: nameOf(c ? personOf.get(c.personId) ?? null : null), replaceable: replaceable && !ov.blocking.some((b) => b.caseId === x.caseId) });
-      }
-    }
-    audienceBusy.sort((x, y) => x.name.localeCompare(y.name, "sv") || (x.caseNumber < y.caseNumber ? -1 : 1));
-  }
+  // Målgruppens deltagare som synkningen hoppade över (busy.ts – samma uppslag som visningsloggen, så att varje namn som visas
+  // också loggas).
+  const audienceBusy = await audienceBusyOf(ctx, g, caseIds);
   return {
     kind: "ok" as const,
     now: ctx.now(),
@@ -395,6 +335,7 @@ handleQuery(groupActivityView, { roles: GROUP_READERS }, async (ctx, p) => {
       responsibleName: await profileName(g.responsibleId), createdByName: (await profileName(g.createdBy)) ?? "–", cancelledAt: g.cancelledAt, holiday: await holidayOn(ctx, day),
       goal: g.goal,
       audience: audience ? { kind: audience.kind, label: labelOf(g) ?? "" } : null,
+      notify: g.notify,
       series: series
         ? {
           id: series.id, name: series.name, schedule: seriesScheduleText(series.weekdays, series.startTime), startsOn: series.startsOn, endsOn: series.endsOn, ended: !!series.endedAt,

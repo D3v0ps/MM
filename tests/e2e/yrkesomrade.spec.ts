@@ -1,7 +1,7 @@
 // Byt yrkesområde (Karims beslut 2026-10-22). Samma steg mot prototypen och appen: huvudcoachen byter Nadias yrkesområde från
 // G (Lager och logistik) till F (Lokalvård) med en kort motivering i deltagarkortet. Yrkesområdet är deltagarens grupp:
 // inbjudningarna följer direkt – hon tas bort ur G:s yrkesområdesträff och bjuds in till F:s. Fakturan räknas på det nya
-// yrkesområdet från månaden efter. Kommunen ser bara det nya yrkesområdet, aldrig motiveringen eller knappen.
+// yrkesområdet från månaden efter. Kommunens portal visar bara det nya yrkesområdet, aldrig motiveringen eller knappen.
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { isDemo, open, switchPersona } from "./helpers";
 

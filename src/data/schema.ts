@@ -1880,10 +1880,12 @@ export type GroupingMember = {
 // ================================================================ Byt yrkesområde (0036, Karims beslut 2026-10-22)
 /**
  * Huvudcoachen (och samordnare, avtalsansvarig) byter deltagarens yrkesområde (avtalsområde A–L) med en kort motivering.
- * Motiveringen är en vanlig anteckning i deltagarkortet (case_notes, noteId) – raden här har bara koder, id:n och tider (ingen
- * fritext), så att ekonomen kan läsa den för faktureringen. Grupp och inbjudningar ändras direkt; fakturan räknas på det nya
- * yrkesområdet från och med månaden efter bytet (effectiveMonth, areaForMonth i src/core/area-changes.ts). Ändras och raderas
- * aldrig av användare. Kommunen läser den aldrig.
+ * Motiveringen är en vanlig anteckning i deltagarkortet (case_notes, noteId) – raden här har bara koder, id:n, tider och
+ * yrkesspåren (ingen fritext), så att ekonomen kan läsa den för faktureringen. Grupp och inbjudningar ändras direkt; fakturan
+ * räknas på det nya yrkesområdet från och med månaden efter bytet (effectiveMonth, areaForMonth i src/core/area-changes.ts).
+ * En ny rad ändrar ärendet i samma steg (yrkesområdet, yrkesspåret och alternativet – triggern case_area_changes_apply, 0036;
+ * policy.ts afterInsert): bytet och ärendet skrivs alltid tillsammans. Ändras och raderas aldrig av användare. Kommunen läser
+ * den aldrig.
  */
 export type CaseAreaChange = {
   id: string;
@@ -1895,13 +1897,19 @@ export type CaseAreaChange = {
   effectiveMonth: MonthKey;
   changedBy: UserId;
   changedAt: LocalDateTime;
-  /** Anteckningen med motiveringen (case_notes.id). */
+  /** Anteckningen med motiveringen (case_notes.id) – en ny anteckning av den som byter, en per byte. */
   noteId: string;
   /**
    * Bytets nummer i ärendet: 1, 2, 3 … i tur och ordning (unikt per ärende). Ordningen för faktureringen (areaForMonth) – två
    * byten samma minut har samma changedAt, men aldrig samma nummer. Ett nytt byte utgår från det förra bytets nya yrkesområde.
    */
   seq: number;
+  /** Ärendets yrkesspår före bytet – rapporterna för månaderna före bytet visar det (trackForMonth). */
+  fromTrack: string;
+  /** Yrkesspåret i det nya yrkesområdet ('' = väljs i kartläggningen). */
+  toTrack: string;
+  /** Ärendets alternativa yrkesområde före bytet (det tas bort när det blir det nya – secondaryAreaForMonth). */
+  fromSecondaryArea: AreaCode | null;
 };
 
 // ================================================================ Tabellerna
@@ -2038,6 +2046,6 @@ export const UNIQUE_KEYS: { [N in TableName]?: readonly UniqueKey<Tables[N]>[] }
     { fields: ["caseId", "groupingId"], whenNull: ["removedAt"] },
   ],
   // Bytena av yrkesområde numreras i tur och ordning per ärende (0036, case_area_changes_case_seq_key): två samtidiga byten kan
-  // aldrig få samma nummer.
-  case_area_changes: [{ fields: ["caseId", "seq"] }],
+  // aldrig få samma nummer. En anteckning är motivering till högst ett byte (case_area_changes_note_id_key).
+  case_area_changes: [{ fields: ["caseId", "seq"] }, "noteId"],
 };

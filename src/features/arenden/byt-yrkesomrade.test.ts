@@ -1,22 +1,25 @@
 // Byt yrkesområde (Karims beslut 2026-10-22): kommandot arenden.bytYrkesomrade och raden på deltagarkortet mot testdatat i
-// minnet (MemoryRuntime, samma hanterare som appen). Ordningen: anteckningen, bytet, ärendets yrkesområde, revisionsloggen och
-// sist afterCaseAreaChanged – grupp och inbjudningar följer direkt (syncAudienceInvites, yrkesområdet är deltagarens grupp).
+// minnet (MemoryRuntime, samma hanterare som appen). Ordningen: anteckningen, bytet (som ändrar ärendets yrkesområde och
+// yrkesspår i samma steg – triggern case_area_changes_apply), kartläggningens valda spår, revisionsloggen och sist
+// afterCaseAreaChanged – grupp och inbjudningar följer direkt (syncAudienceInvites, yrkesområdet är deltagarens grupp).
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ParamsOf, QueryDef, ResultOf } from "@/api/contract";
 import type { Actor, Role } from "@/api/roles";
 import { ApiError } from "@/api/server";
+import { areaForMonth } from "@/core/area-changes";
 import { billingLines } from "@/core/billing";
 import { requireOperational } from "@/core/config";
 import { listPersonas } from "@/data/actors";
-import type { MemoryData } from "@/data/memory";
+import { MemoryRepo, type MemoryData } from "@/data/memory";
 import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memory-runtime";
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { Tables } from "@/data/schema";
 import { SYSTEM_ACTOR } from "@/api/roles";
 import { monthlyDraftInput } from "@/features/_shared/voice-jobs";
-import { assessmentPage, assessmentSave } from "@/features/coach/api";
+import { assessmentPage, assessmentSave, intakeSave } from "@/features/coach/api";
 import { ekoCase } from "@/features/ekonomi/api";
-import { monthlyPreview, type ReportDb, type ReportEnv } from "@/features/rapporter/model";
+import { monthlyPreview, reportModel, type ReportDb, type ReportEnv, type SummaryModel } from "@/features/rapporter/model";
+import { newReport } from "@/features/_shared/rows";
 import { caseAreaView, caseChangeArea, caseNoteRemove, caseNoteSave, caseTimeline } from "./api";
 
 const SEED: MemoryData<Tables> = createSeed();
@@ -42,6 +45,14 @@ const karin = () => as("u-karin", "chef");
 const robin = () => as("u-robin", "admin");
 const lars = () => as("u-lars", "ekonom");
 const WHY = "Kartläggningen visade erfarenhet från bygg och ett tydligt mål att arbeta där.";
+/** Rapportunderlaget och rapportmiljön ur minnet (samma tabeller som rapporternas läsning). */
+const REPORT_TABLES = ["cases", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "tasks", "audit_log",
+  "contract_deviations", "pulse_responses", "contract_areas", "profiles", "price_items", "reports", "case_area_changes"] as const;
+const reportDb = (): ReportDb => Object.fromEntries(REPORT_TABLES.map((n) => [n, [...rt.raw().all(n)]])) as unknown as ReportDb;
+const reportEnv = (): ReportEnv => {
+  const contract = rt.raw().get("contracts", "c-bot")!;
+  return { cfg: requireOperational(contract.config), contract: { id: contract.id, startsOn: contract.startsOn, supplierName: "" }, now: rt.clock.now(), activityTypes: [] };
+};
 
 describe("Byt yrkesområde (arenden.bytYrkesomrade)", () => {
   it("huvudcoachen byter: anteckning, byte, ärendets yrkesområde, revisionslogg – fakturan från månaden efter", async () => {
@@ -213,16 +224,29 @@ describe("Byt yrkesområde: samtidiga byten och motiveringen (granskningen)", ()
     expect(rt.raw().get("cases", NADIA)?.primaryAreaCode).toBe("G");
   });
 
-  it("en kollega hann skriva sitt byte (G → E) innan ärendet ändrades: mitt byte (G → C) får conflict och anteckningen tas bort igen", async () => {
-    // Kollegans byte är skrivet men ärendet har ännu inte fått det nya yrkesområdet (två samtidiga anrop).
-    rt.store.insertRow("case_area_changes", {
-      id: "cac-kollega", contractId: "c-bot", caseId: NADIA, fromArea: "G", toArea: "E", effectiveMonth: "2027-03", changedBy: "u-erik", changedAt: "2027-02-01T09:12",
-      noteId: "note-nadia-samtal", seq: 1,
-    });
+  it("en kollega hann byta (G → E) mellan att jag läste ärendet och skrev mitt byte (G → C): conflict, anteckningen tas bort igen", async () => {
+    // Kollegans byte skrivs precis före mitt (två samtidiga anrop läste samma nummer) – med ärendet i samma steg, som triggern.
+    const orig = rt.store.insertRow.bind(rt.store);
+    let raced = false;
+    (rt.store as unknown as { insertRow: typeof orig }).insertRow = ((name: string, row: { id: string }) => {
+      if (!raced && name === "case_area_changes") {
+        raced = true;
+        orig("case_notes", {
+          id: "note-kollega", contractId: "c-bot", caseId: NADIA, authorId: "u-erik", occurredOn: "2027-02-01", kind: "other", audience: "team",
+          body: "Byte av yrkesområde: G Lager och logistik → E Transport. Kollegans motivering.", createdAt: "2027-02-01T09:12", updatedAt: null, removedAt: null, removedBy: null,
+        });
+        orig("case_area_changes", {
+          id: "cac-kollega", contractId: "c-bot", caseId: NADIA, fromArea: "G", toArea: "E", effectiveMonth: "2027-03", changedBy: "u-erik", changedAt: "2027-02-01T09:12",
+          noteId: "note-kollega", seq: 1, fromTrack: "Truckförare A+B", toTrack: "", fromSecondaryArea: null,
+        });
+        rt.store.updateRow("cases", NADIA, { primaryAreaCode: "E", vocationalTrack: "" });
+      }
+      return orig(name as never, row as never);
+    }) as typeof orig;
     const res = await change({ caseId: NADIA, toArea: "C", motivation: WHY, fromArea: "G" }, amira());
     expect(res).toMatchObject({ ok: false, error: "conflict" });
     expect(rt.raw().all("case_area_changes").filter((x) => x.caseId === NADIA).map((x) => x.id)).toEqual(["cac-kollega"]);
-    expect(rt.raw().get("cases", NADIA)?.primaryAreaCode).toBe("G");
+    expect(rt.raw().get("cases", NADIA)?.primaryAreaCode).toBe("E");
     // Motiveringen ligger inte kvar som en anteckning om ett byte som aldrig blev av.
     const orphan = rt.raw().all("case_notes").filter((n) => n.caseId === NADIA && n.body.startsWith("Byte av yrkesområde: G Lager och logistik → C"));
     expect(orphan).toHaveLength(1);
@@ -273,25 +297,55 @@ describe("Ekonomen: avtalsområdet vid start och det som faktureras nu", () => {
 });
 
 describe("Byt yrkesområde: granskningen, andra rundan", () => {
-  it("ärendet kan inte ändras efter att bytet skrivits: bytet tas bort, anteckningen döljs och bytet kan göras igen", async () => {
+  it("ett fel mitt i bytet (ärendet kunde inte ändras): inget halvt byte – varken bytet eller ärendet, anteckningen döljs och bytet kan göras igen", async () => {
+    // Ärendet ändras – och sedan går något fel i samma steg (som när transaktionen avbryts i Postgres): allt rullas tillbaka.
     const orig = rt.store.updateRow.bind(rt.store);
     let broken = true;
     (rt.store as unknown as { updateRow: typeof orig }).updateRow = ((name: string, id: string, patch: object) => {
+      const r = orig(name as never, id, patch as never);
       if (broken && name === "cases" && id === NADIA && "primaryAreaCode" in patch) throw new Error("ECONNRESET");
-      return orig(name as never, id, patch as never);
+      return r;
     }) as typeof orig;
     await expect(change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira())).rejects.toThrow();
     broken = false;
     const raw = rt.raw();
-    // Inget halvt byte: fakturan räknas inte på C, och nästa byte stoppas inte av kedjan.
+    // Inget halvt byte: fakturan räknas inte på C, ärendet har kvar G och sitt spår, och nästa byte stoppas inte av kedjan.
     expect(raw.all("case_area_changes").filter((x) => x.caseId === NADIA)).toEqual([]);
-    expect(raw.get("cases", NADIA)?.primaryAreaCode).toBe("G");
+    expect(raw.get("cases", NADIA)).toMatchObject({ primaryAreaCode: "G", vocationalTrack: "Truckförare A+B" });
     const notes = raw.all("case_notes").filter((n) => n.caseId === NADIA && n.body.startsWith("Byte av yrkesområde:"));
     expect(notes).toHaveLength(1);
     expect(notes[0].removedAt).not.toBeNull();
     const again = await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira());
     expect(again).toMatchObject({ ok: true });
     expect(rt.raw().all("case_area_changes").filter((x) => x.caseId === NADIA).map((x) => [x.seq, x.fromArea, x.toArea])).toEqual([[1, "G", "C"]]);
+  });
+
+  it("svaret kom inte fram efter att bytet skrevs (granskningen, tredje rundan): bytet står kvar, ärendet har bytt, loggen och grupperna görs", async () => {
+    // Bytet och ärendet skrivs (en transaktion) – sedan tappas svaret (nätverksfel efter commit). Ingen ångring.
+    const proto = MemoryRepo.prototype as unknown as { table: (name: string) => Record<string, unknown> };
+    const origTable = proto.table;
+    let lost = true;
+    proto.table = function (this: unknown, name: string) {
+      const t = origTable.call(this, name);
+      if (name !== "case_area_changes") return t;
+      const insert = t.insert as (row: unknown) => Promise<unknown>;
+      return { ...t, insert: async (row: unknown) => { await insert(row); if (lost) { lost = false; throw new Error("fetch failed"); } return row; } };
+    };
+    try {
+      const res = await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira());
+      expect(res).toMatchObject({ ok: true, groups: { invited: expect.any(Number), removed: expect.any(Number) } });
+      const raw = rt.raw();
+      expect(raw.get("cases", NADIA)?.primaryAreaCode).toBe("C");
+      expect(raw.all("case_area_changes").filter((x) => x.caseId === NADIA).map((x) => [x.fromArea, x.toArea])).toEqual([["G", "C"]]);
+      const note = raw.all("case_notes").find((n) => n.caseId === NADIA && n.body.startsWith("Byte av yrkesområde: G"))!;
+      expect(note.removedAt).toBeNull();
+      expect(raw.all("audit_log").filter((l) => l.action === "case.area_changed")).toHaveLength(1);
+      // Fakturan: februari på G, mars på C – som ett vanligt byte.
+      const changes = raw.all("case_area_changes");
+      expect([areaForMonth(raw.get("cases", NADIA)!, changes, "2027-02"), areaForMonth(raw.get("cases", NADIA)!, changes, "2027-03")]).toEqual(["G", "C"]);
+    } finally {
+      proto.table = origTable;
+    }
   });
 
   it("motiveringen är låst: den ändras och tas aldrig bort, och tidslinjen visar den som Byte av yrkesområde utan knappar", async () => {
@@ -317,21 +371,62 @@ describe("Byt yrkesområde: granskningen, andra rundan", () => {
     expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("");
     expect(await change({ caseId: NADIA, toArea: "G", motivation: WHY, vocationalTrack: "Lagerarbetare – plock och pack" }, amira())).toMatchObject({ ok: true });
     expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("Lagerarbetare – plock och pack");
-    expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY, vocationalTrack: "19730216-9545" }, amira())).toMatchObject({ ok: false, error: "track" });
+    // Bara ett av det nya yrkesområdets spår (listan i dialogen) – inte ett personnummer, fritext eller ett annat yrkesområdes spår.
+    for (const vocationalTrack of ["19730216-9545", "Något helt annat", "Truckförare A+B", "x".repeat(200)]) {
+      expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY, vocationalTrack }, amira()), vocationalTrack).toMatchObject({ ok: false, error: "track" });
+    }
   });
 
-  it("månadsrapporten: avtalsområdet som gällde månaden (samma som fakturan) – ett byte i februari ändrar inte januari", async () => {
+  it("utan spår frågar kartläggningen igen: det valda spåret töms, och spåret som väljs i den godkända kartläggningen blir ärendets och syns i nästa månadsrapport", async () => {
+    const ia = rt.raw().all("intake_assessments").find((x) => x.caseId === NADIA)!;
+    expect(ia).toMatchObject({ status: "approved", chosenTrack: "Truckförare A+B" });
+    expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    const after = rt.raw().get("intake_assessments", ia.id)!;
+    expect(after.chosenTrack).toBe("");
+    // Coachen väljer spåret i kartläggningen och sparar (utan att godkänna igen – den är redan godkänd).
+    const saved = await rt.run("command", intakeSave.key, { caseId: NADIA, data: { chosenTrack: "Bygg – grund och arbetsmiljö" }, expectedVersion: after.version }, amira());
+    expect(saved).toMatchObject({ ok: true });
+    expect(rt.raw().get("cases", NADIA)?.vocationalTrack).toBe("Bygg – grund och arbetsmiljö");
+    const db = reportDb();
+    const env = reportEnv();
+    expect(Object.fromEntries(monthlyPreview(db, NADIA, "2027-03", env)!.basics)).toMatchObject({ Avtalsområde: "C Bygg och anläggning", Yrkesspår: "Bygg – grund och arbetsmiljö" });
+    // Månaderna före bytet: det gamla yrkesområdet och spåret, som fakturan.
+    expect(Object.fromEntries(monthlyPreview(db, NADIA, "2027-02", env)!.basics)).toMatchObject({ Avtalsområde: "G Lager och logistik", Yrkesspår: "Truckförare A+B" });
+  });
+
+  it("månadsrapporten: avtalsområdet och yrkesspåret som gällde månaden (samma som fakturan) – ett byte i februari ändrar inte januari", async () => {
     expect(await change({ caseId: NADIA, toArea: "F", motivation: WHY }, amira())).toMatchObject({ ok: true });
-    const raw = rt.raw();
-    const names = ["cases", "activities", "attendance", "check_ins", "monthly_assessments", "monthly_plans", "outcome_events", "deviations", "tasks", "audit_log",
-      "contract_deviations", "pulse_responses", "contract_areas", "profiles", "price_items", "reports", "case_area_changes"] as const;
-    const db = Object.fromEntries(names.map((n) => [n, [...raw.all(n)]])) as unknown as ReportDb;
-    const contract = raw.get("contracts", "c-bot")!;
-    const env: ReportEnv = { cfg: requireOperational(contract.config), contract: { id: contract.id, startsOn: contract.startsOn, supplierName: "" }, now: rt.clock.now(), activityTypes: [] };
+    const db = reportDb();
+    const env = reportEnv();
     const jan = monthlyPreview(db, NADIA, "2027-01", env)!;
-    expect(Object.fromEntries(jan.basics)).toMatchObject({ Avtalsområde: "G Lager och logistik", Yrkesspår: "Framgår inte" });
+    // Spåret var känt i januari – det sparades på bytet (fromTrack) och visas, inte "Framgår inte".
+    expect(Object.fromEntries(jan.basics)).toMatchObject({ Avtalsområde: "G Lager och logistik", Yrkesspår: "Truckförare A+B" });
     // Utan bytet: ärendets yrkesområde som förut.
     const without = monthlyPreview({ ...db, case_area_changes: [] }, NADIA, "2027-01", env)!;
     expect(Object.fromEntries(without.basics)).toMatchObject({ Avtalsområde: "F Lokalvård" });
+  });
+
+  it("kommunens dokument följer samma regel: beställarrapporten och slutrapporten visar yrkesområdet som gällde månaden (granskningen, tredje rundan)", async () => {
+    expect(await change({ caseId: NADIA, toArea: "C", motivation: WHY }, amira())).toMatchObject({ ok: true });
+    const env = reportEnv();
+    const db = reportDb();
+    const summary = (d: ReportDb) => reportModel(d, newReport({
+      id: "rep-t-sum", contractId: "c-bot", kind: "customer_summary", status: "draft", periodStart: "2027-01-01", periodEnd: "2027-01-31", dueAt: "2027-02-10T12:00", month: "2027-01",
+    }), env) as SummaryModel;
+    // Januaris beställarrapport räknar Nadia under G, som januaris månadsrapport och faktura – exakt som om hon inte hade bytt.
+    const unchanged: ReportDb = {
+      ...db,
+      cases: db.cases.map((c) => (c.id === NADIA ? { ...c, primaryAreaCode: "G", vocationalTrack: "Truckförare A+B" } : c)),
+      case_area_changes: db.case_area_changes.filter((x) => x.caseId !== NADIA),
+    };
+    expect(summary(db).byArea).toEqual(summary(unchanged).byArea);
+    expect(summary(db).byTrack).toEqual(summary(unchanged).byTrack);
+    // Slutrapporten: insatsen avslutas 20 februari, innan bytet gäller (mars) – G och det gamla spåret, som februaris
+    // månadsrapport och faktura. Ett yrkesområde som aldrig fakturerades eller rapporterades syns inte.
+    const final = (to: string) => reportModel(db, newReport({
+      id: "rep-t-fin", contractId: "c-bot", kind: "final", caseId: NADIA, status: "draft", periodStart: null, periodEnd: to, dueAt: "2027-03-01T12:00",
+    }), env) as { basics: [string, string][] };
+    expect(Object.fromEntries(final("2027-02-20").basics)).toMatchObject({ Avtalsområde: "G Lager och logistik", Yrkesspår: "Truckförare A+B" });
+    expect(Object.fromEntries(final("2027-03-20").basics)).toMatchObject({ Avtalsområde: "C Bygg och anläggning", Yrkesspår: "Framgår inte" });
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AreaAssessment, MonthlyAssessment } from "@/data/schema";
 import {
-  applyAiDraft, approvalCounts, AUTO_OBSERVATION, autoArea, keptPrefill, latestGoal, levelSourceOf, missingAreas, nextLevelSource, prefillAssessment, refreshPrefill, rulesSummary,
+  applyAiDraft, approvalCounts, AUTO_OBSERVATION, autoArea, isAutoObservation, keptPrefill, latestGoal, levelSourceOf, missingAreas, nextLevelSource, prefillAssessment, refreshPrefill, rulesSummary,
   withAutoAreas, type PrefillCheckIn, type PrefillInput,
 } from "./monthly-prefill";
 
@@ -18,7 +18,7 @@ describe("prefillAssessment: allt ifyllt innan coachen går igenom (Karims beslu
     for (const a of Object.values(p.areas)) {
       expect(a).toMatchObject({ level: 0, observation: AUTO_OBSERVATION, levelSource: "auto", aiLevelSuggestion: null, aiLevelEvidence: null });
     }
-    expect(AUTO_OBSERVATION).toBe("Ingen bedömning av förändring denna månad.");
+    expect(AUTO_OBSERVATION).toBe("Ingen förändring noterad denna månad.");
   });
 
   it("samlad status: coachens senaste godkända mötesrapport i månaden med status – märkt med rapporten", () => {
@@ -141,6 +141,15 @@ describe("godkännandet", () => {
     expect(missingAreas(areas, KEYS, 1)).toEqual(["yrkesfardigheter"]);
     expect(missingAreas({ ...areas, narvaro_rutiner: { ...autoArea(), level: null } }, KEYS, 1)).toEqual(["narvaro_rutiner", "yrkesfardigheter"]);
     expect(missingAreas(areas, KEYS, 3)).toEqual([]);
+  });
+
+  it("missingAreas: också tidigare lydelser av den automatiska texten (sparade utkast) räknas aldrig som en konkret observation", () => {
+    for (const old of ["Ingen bedömning av förändring denna månad.", "Framgår inte av underlaget denna månad.", ` ${AUTO_OBSERVATION} `]) {
+      const legacy = { ...areas, yrkesfardigheter: { ...areas.yrkesfardigheter, observation: old } };
+      expect(missingAreas(legacy, KEYS, 1), old).toEqual(["yrkesfardigheter"]);
+      expect(isAutoObservation(old), old).toBe(true);
+    }
+    expect(isAutoObservation("Planerar själv sin vecka.")).toBe(false);
   });
 
   it("approvalCounts: automatiska, coachens val och godtagna AI-förslag", () => {

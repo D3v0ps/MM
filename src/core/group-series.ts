@@ -11,6 +11,18 @@ import { addDays, dayOf, weekday, type LocalDate, type LocalDateTime } from "./t
 
 /** Hur långt fram tillfällena skapas (dagar från i dag). */
 export const SERIES_HORIZON_DAYS = 14;
+/**
+ * Dagtid för jobbets steg med tillfällen och inbjudningar (Stockholms tid, [start, slut)): bara då skapas nya tillfällen och
+ * synkas målgrupperna – och bara då kan jobbet skicka inbjudningar till deltagare. En ny dag kommer in i fönstret vid midnatt,
+ * men tillfället (och inbjudan med e-post, SMS eller utringning) skapas först vid nästa körning efter 08.00. Ingen deltagare
+ * får meddelanden från systemet på natten (granskningen, tredje rundan).
+ */
+export const SYSTEM_SEND_DAYTIME = { start: "08:00", end: "20:00" } as const;
+/** Är det dagtid (SYSTEM_SEND_DAYTIME) – får jobbet skapa tillfällen och skicka inbjudningar nu? */
+export const isSystemSendTime = (now: LocalDateTime): boolean => {
+  const t = now.slice(11, 16);
+  return t >= SYSTEM_SEND_DAYTIME.start && t < SYSTEM_SEND_DAYTIME.end;
+};
 /** Veckodagarna som kan väljas (ISO: 1 = måndag … 5 = fredag). */
 export const SERIES_WEEKDAYS = [1, 2, 3, 4, 5] as const;
 /** Kryssrutornas etiketter (Måndag–Fredag, utskrivna – klarspråk). */

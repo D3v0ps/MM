@@ -133,6 +133,8 @@ export type GroupActivityView =
         goal: string | null;
         /** Målgruppen (nivå eller yrkesområde) i klarspråk, eller null (inbjudna för hand). */
         audience: { kind: "level" | "area"; label: string } | null;
+        /** Deltagarna får meddelanden om aktiviteten (inbjudan, ändring) – förvalet när fler bjuds in härifrån. */
+        notify: boolean;
         /** Den återkommande aktiviteten tillfället hör till, eller null. */
         series: {
           id: string; name: string; schedule: string; startsOn: LocalDate; endsOn: LocalDate | null; ended: boolean; notify: boolean; location: string; responsibleId: string | null;

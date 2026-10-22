@@ -111,17 +111,19 @@ export async function runAutoAttendance(ctx: Ctx, opts: { floor?: LocalDateTime 
       throw e;
     }
     await log(null);
-    // Månadsbedömningens förifyllda sammanfattning följer närvaron (en körning som fyller i dagar i en avslutad månad).
-    const startsOf = new Map(acts.map((a) => [a.id, a.startsAt]));
-    await refreshPrefillAfterAttendance(ctx, written.map((d) => ({ caseId: d.caseId, contractId: contract.id, startsAt: startsOf.get(d.activityId) ?? `${d.day}T00:00` })));
     run.contracts.push({ contractId: contract.id, registered: written.length, activityIds: written.map((d) => d.activityId) });
     run.registered += written.length;
-    // Veckorapporterna: en kontroll per handläggare och vecka bland de registrerade – i fast ordning.
+    // Veckorapporterna: en kontroll per handläggare och vecka bland de registrerade – i fast ordning. Före förifyllningen nedan:
+    // en omkörning hittar inga nya rader att registrera och skulle aldrig publicera en vecka som blev komplett här.
     const keys = uniq(written.filter((d) => d.referrerId).map((d) => `${d.referrerId}|${d.weekKey}`)).sort();
     for (const k of keys) {
       const [referrerId, weekKey] = k.split("|");
       if (await publishWeeklyIfComplete(ctx, contract.id, referrerId, weekKey)) run.published++;
     }
+    // Månadsbedömningens förifyllda sammanfattning följer närvaron (en körning som fyller i dagar i en avslutad månad). Bästa
+    // försök – ett fel här stoppar inte körningen (refreshPrefillAfterAttendance loggar bara felets kod).
+    const startsOf = new Map(acts.map((a) => [a.id, a.startsAt]));
+    await refreshPrefillAfterAttendance(ctx, written.map((d) => ({ caseId: d.caseId, contractId: contract.id, startsAt: startsOf.get(d.activityId) ?? `${d.day}T00:00` })));
   }
   return run;
 }

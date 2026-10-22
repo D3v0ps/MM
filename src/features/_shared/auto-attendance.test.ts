@@ -165,6 +165,46 @@ describe("avbruten körning", () => {
   });
 });
 
+describe("förifyllningen efter närvaron är bästa försök (granskningen, tredje rundan)", () => {
+  it("ett tillfälligt fel när månadsbedömningen läses: körningen går klart och veckorapporterna som blev kompletta publiceras ändå", async () => {
+    rt.clock.set("2027-02-01T18:05");
+    const ctx = systemCtx();
+    const w4 = () => rt.store.rows("reports").filter((r) => r.kind === "weekly_attendance" && r.week === "2027-W04").map((r) => r.status);
+    expect(w4()).toContain("waiting");
+    let left = 1;
+    const realTable = ctx.system.table.bind(ctx.system);
+    const failing = Object.create(ctx.system) as Ctx["system"];
+    failing.table = ((name: string) => {
+      const t = realTable(name as "monthly_assessments");
+      if (name !== "monthly_assessments") return t;
+      return { ...t, first: async (...a: Parameters<typeof t.first>) => { if (left-- > 0) throw Object.assign(new Error("timeout"), { code: "57014" }); return t.first(...a); } };
+    }) as Ctx["system"]["table"];
+    const r = await runAutoAttendance({ ...ctx, system: failing, repo: failing });
+    expect(r.registered).toBe(50);
+    expect(left).toBeLessThan(1);
+    expect(w4().every((s) => s === "delivered" || s === "opened")).toBe(true);
+    expect(r.published).toBeGreaterThan(0);
+  });
+
+  it("coachens närvaro: ett fel i förifyllningen ger inget fel för en sparad närvaro, och veckorapporten publiceras", async () => {
+    const coach = actor("u-amira", "coach");
+    // Ett utkast vars sammanfattning är förifylld ur reglerna – den skrivs om när närvaron i januari rättas.
+    const ma = rt.store.rows("monthly_assessments").find((m) => m.month === "2027-01" && m.status === "draft" && m.prefill.summary === "rules")!;
+    const act = rt.store.rows("activities").find((a) => a.caseId === ma.caseId && a.startsAt.startsWith("2027-01") && att().some((x) => x.activityId === a.id && x.status === "present"))!;
+    const orig = rt.store.updateRow.bind(rt.store);
+    let broken = true;
+    (rt.store as unknown as { updateRow: typeof orig }).updateRow = ((name: string, id: string, patch: object) => {
+      if (broken && name === "monthly_assessments") { broken = false; throw Object.assign(new Error("timeout"), { code: "57014" }); }
+      return orig(name as never, id, patch as never);
+    }) as typeof orig;
+    const res = await rt.run("command", attendanceSet.key, { activityId: act.id, status: "absent_invalid" }, coach);
+    expect(res).toMatchObject({ ok: true });
+    // Felet inträffade (förifyllningen försökte skriva) – och närvaron är sparad.
+    expect(broken).toBe(false);
+    expect(att().find((x) => x.activityId === act.id)?.status).toBe("absent_invalid");
+  });
+});
+
 describe("minnesläget och Kör nu", () => {
   const query = (userId: string) => rt.run("query", "session.ping", {}, actor(userId));
 

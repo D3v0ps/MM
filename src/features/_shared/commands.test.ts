@@ -493,7 +493,8 @@ describe("coach.attendanceSet (attendance.set)", () => {
     expect(res).toMatchObject({ ok: true, published: { reportId: "rep-16692", weekKey: "2027-W04", recipientName: "Maria Ekdahl", text: "Veckorapporten för v. 4 2027 till Maria Ekdahl publicerades automatiskt." } });
     expect(row("reports", "rep-16692")).toMatchObject({ status: "delivered", deliveredTo: ["k-maria"], deliveredAt: rt.store.data.attendance.at(-1)!.registeredAt });
     expect(outboundSince(n)).toMatchObject([{ template: "ny_rapport", to: "maria.ekdahl@botkyrka.se", caseId: null, body: "Veckorapporten för v. 4 2027 finns i portalen – logga in för att läsa." }]);
-    expect(rows("audit_log").pop()).toMatchObject({ action: "report.published", entityId: "rep-16692", details: { kind: "weekly_attendance", week: "2027-W04", automatic: true } });
+    // Publiceringen loggas (förifyllningen av januaris månadsbedömning kommer efter den – bästa försök, efter veckorapporten).
+    expect(rows("audit_log").filter((l) => l.action === "report.published").pop()).toMatchObject({ action: "report.published", entityId: "rep-16692", details: { kind: "weekly_attendance", week: "2027-W04", automatic: true } });
     expect(rows("attendance").find((a) => a.activityId === last.activityId)).toMatchObject({ status: "absent_valid", reason: "Sjukdom", registeredBy: last.coach });
   });
 

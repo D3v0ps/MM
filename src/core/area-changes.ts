@@ -2,9 +2,10 @@
 // av ett byte och vilket yrkesområde (avtalsområde A–L) som gäller för en månad i faktureringen.
 //
 // "Vi ska kunna ha möjligheten för huvudcoachen att byta yrkeskategori på deltagarna med någon kortare motivering."
-// Bytet gäller direkt för ärendet (cases.primaryAreaCode, grupp och inbjudningar). Fakturan räknas på det gamla yrkesområdet
-// till och med bytesmånaden och på det nya från och med månaden efter (effectiveMonth) – samma månad faktureras aldrig på två
-// yrkesområden. Bytena läses av ekonomen (case_area_changes har ingen fritext – motiveringen är en anteckning i case_notes).
+// Bytet gäller direkt för ärendet (cases.primaryAreaCode, grupp och inbjudningar). Fakturan och kommunens rapporter räknas på
+// det gamla yrkesområdet till och med bytesmånaden och på det nya från och med månaden efter (effectiveMonth) – samma månad
+// faktureras och rapporteras aldrig på två yrkesområden. Bytena läses av ekonomen (case_area_changes har ingen fritext –
+// motiveringen är en anteckning i case_notes).
 import type { Role } from "@/api/roles";
 import type { Case, CaseAreaChange, CaseStatus } from "@/data/schema";
 import { addMonths, dayOf, monthKey, type LocalDateTime, type MonthKey } from "./time";
@@ -21,7 +22,7 @@ export const AREA_CHANGE_STATUSES: readonly CaseStatus[] = ["confirmed", "active
 export const AREA_MOTIVATION_MIN = 10;
 export const AREA_MOTIVATION_MAX = 300;
 
-/** Yrkesspåret som kan väljas i dialogen (fritext ur listan för det nya yrkesområdet) – tomt = väljs i kartläggningen. */
+/** Yrkesspåret som kan väljas i dialogen (ett spår ur listan för det nya yrkesområdet) – tomt = väljs i kartläggningen. */
 export const AREA_TRACK_MAX = 200;
 
 /**
@@ -66,6 +67,37 @@ export function areaForMonth(
   return own[0].fromArea;
 }
 
+/**
+ * Ärendets första byte som ännu inte gäller månaden (effectiveMonth efter månaden), eller null när alla byten gäller. Det bytets
+ * "före"-värden (yrkesspåret och alternativet) är de som gällde månaden – efter det sista bytet gäller ärendets nuvarande.
+ */
+function nextChangeAfter<T extends Pick<CaseAreaChange, "id" | "caseId" | "effectiveMonth" | "changedAt" | "seq">>(caseId: string, changes: readonly T[], month: MonthKey): T | null {
+  return inOrder(changes.filter((x) => x.caseId === caseId)).find((x) => x.effectiveMonth > month) ?? null;
+}
+
+/**
+ * Yrkesspåret som gällde en månad (kommunens månadsrapport och resultatfil – samma regel som areaForMonth): före ett byte
+ * ärendets spår när bytet gjordes (fromTrack), efter det sista bytet ärendets nuvarande spår ('' = inte valt ännu).
+ */
+export function trackForMonth(
+  c: Pick<Case, "id" | "vocationalTrack">,
+  changes: readonly Pick<CaseAreaChange, "id" | "caseId" | "effectiveMonth" | "changedAt" | "seq" | "fromTrack">[],
+  month: MonthKey,
+): string {
+  const next = nextChangeAfter(c.id, changes, month);
+  return next ? next.fromTrack : c.vocationalTrack;
+}
+
+/** Det alternativa yrkesområdet som gällde en månad (samma regel som trackForMonth): före ett byte ärendets alternativ då. */
+export function secondaryAreaForMonth(
+  c: Pick<Case, "id" | "secondaryAreaCode">,
+  changes: readonly Pick<CaseAreaChange, "id" | "caseId" | "effectiveMonth" | "changedAt" | "seq" | "fromSecondaryArea">[],
+  month: MonthKey,
+): string | null {
+  const next = nextChangeAfter(c.id, changes, month);
+  return next ? next.fromSecondaryArea : c.secondaryAreaCode;
+}
+
 /** Bytena per ärende (uppslag för många ärenden, t.ex. hela avtalets fakturering). */
 export function areaChangesByCase<T extends Pick<CaseAreaChange, "caseId">>(changes: readonly T[]): Map<string, T[]> {
   const m = new Map<string, T[]>();
@@ -87,7 +119,7 @@ export type AreaChangeProblem = { code: "closed" | "area" | "same" | "no_area" |
  *   same        samma yrkesområde som nu
  *   motivation  motiveringen är kortare än 10 eller längre än 300 tecken
  *   pnr         motiveringen ser ut att innehålla ett personnummer
- *   track       yrkesspåret i det nya yrkesområdet är för långt eller ser ut som ett personnummer (tomt är tillåtet)
+ *   track       yrkesspåret är inte ett av spåren i det nya yrkesområdet (tracks – listan i dialogen; tomt är tillåtet)
  */
 export function areaChangeProblem(
   c: Pick<Case, "status" | "primaryAreaCode">,
@@ -95,6 +127,7 @@ export function areaChangeProblem(
   toArea: string,
   motivation: string,
   track?: string | null,
+  tracks: readonly string[] = [],
 ): AreaChangeProblem | null {
   if (!AREA_CHANGE_STATUSES.includes(c.status)) {
     return { code: "closed", text: c.status === "closed" ? "Insatsen är avslutad. Yrkesområdet kan inte bytas." : "Yrkesområdet kan bytas när beställningen är bekräftad." };
@@ -108,6 +141,8 @@ export function areaChangeProblem(
   }
   if (looksLikePnr(m)) return { code: "pnr", text: "Det ser ut som ett personnummer i motiveringen. Ta bort det – ärendenumret räcker." };
   const t = (track ?? "").trim();
-  if (t.length > AREA_TRACK_MAX || looksLikePnr(t)) return { code: "track", text: "Välj yrkesspåret i listan, eller lämna fältet tomt." };
+  if (t && (t.length > AREA_TRACK_MAX || looksLikePnr(t) || !tracks.includes(t))) {
+    return { code: "track", text: "Välj ett av yrkesspåren i det nya yrkesområdet, eller lämna fältet tomt." };
+  }
   return null;
 }

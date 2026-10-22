@@ -18,6 +18,7 @@ import { createMemoryRuntime, demoClock, type MemoryRuntime } from "@/data/memor
 import { createSeed, DEMO_START } from "@/data/seed";
 import type { TableName, Tables } from "@/data/schema";
 import { caseLevelSet } from "@/features/grupper/api";
+import { auditView } from "@/features/session/api";
 import "@/api/handlers";
 import {
   groupActivityCancel, groupActivityCreate, groupActivityInvite, groupActivityRemove, groupActivitySeriesCreate, groupActivitySeriesEnd, groupActivityUpdate, groupActivityView,
@@ -301,10 +302,46 @@ describe("granskningen, andra rundan", () => {
       expect(busyView!.participants.some((p) => p.caseId === x.caseId)).toBe(false);
       expect(x.reason).toMatch(/^(Har redan|Är redan inbjuden)/);
     }
+    // Visningsloggen (group_activity.view) har varje deltagare vars namn vyn visade – också de upptagna som inte är inbjudna
+    // (granskningen, tredje rundan): visningen syns i deras deltagarkorts Historik.
+    expect(await run(auditView, { action: "group_activity.view", entity: "group_activity", entityId: busyView!.activity.id }, amira())).toMatchObject({ ok: true });
+    const viewLog = rows("audit_log").filter((l) => l.action === "group_activity.view" && l.entityId === busyView!.activity.id).at(-1)!;
+    const logged = (viewLog.details as { caseIds: string[] }).caseIds;
+    for (const x of busyView!.audienceBusy) expect(logged, x.caseNumber).toContain(x.caseId);
+    for (const p of busyView!.participants) expect(logged).toContain(p.caseId);
+    expect(JSON.stringify(viewLog.details)).not.toMatch(/Morgonpass|Har redan/);
     const invited = await run(groupActivityInvite, { id: busyView!.activity.id, caseIds: busy.map((x) => x.caseId), replaceOverlapping: true }, amira());
     expect(invited).toMatchObject({ ok: true, invited: busy.length, replaced: expect.any(Number) });
     const after = await q(groupActivityView, { id: busyView!.activity.id }, amira());
     expect(after.kind === "ok" && after.audienceBusy.filter((x) => x.replaceable)).toEqual([]);
+  });
+
+  it("Bjud in och ersätt med meddelandet påslaget (som dialogen skickar det): inbjudan går till deltagarna – vyn säger om aktiviteten har meddelandet (granskningen, tredje rundan)", async () => {
+    const res = await run(groupActivitySeriesCreate, { ...plan, name: "Morgonpass", weekdays: [1, 3], startTime: "09:00", startsOn: "2027-02-01", notify: true, audience: { kind: "level", levelId: L(2) } }, amira());
+    if (!res.ok) throw new Error(res.message);
+    let busyView: Extract<ResultOf<typeof groupActivityView>, { kind: "ok" }> | null = null;
+    for (const g of occurrencesOf(res.seriesId)) {
+      const v = await q(groupActivityView, { id: g.id }, amira());
+      if (v.kind === "ok" && v.audienceBusy.some((x) => x.replaceable)) {
+        busyView = v;
+        break;
+      }
+    }
+    expect(busyView).not.toBeNull();
+    expect(busyView!.activity.notify).toBe(true);
+    const busy = busyView!.audienceBusy.filter((x) => x.replaceable);
+    // Dialogen visar vilket tillfälle som ersätts för varje deltagare.
+    for (const x of busy) expect(x.reason).toMatch(/^Har redan .+\. Det ersätts av aktiviteten$/);
+    const out = rows("outbound_messages").length;
+    const invited = await run(groupActivityInvite, { id: busyView!.activity.id, caseIds: busy.map((x) => x.caseId), replaceOverlapping: true, notify: true }, amira());
+    expect(invited).toMatchObject({ ok: true, invited: busy.length, notified: expect.objectContaining({ summary: expect.any(String) }) });
+    const sent = rows("outbound_messages").slice(out);
+    expect(sent.filter((m) => m.template === "aktivitetsinbjudan").length).toBeGreaterThan(0);
+    // Inbjudan har bara tid, plats och telefonnumret – inga namn eller ärendenummer (CLAUDE.md punkt 9).
+    for (const m of sent) {
+      expect(m.body).not.toMatch(/BOT-\d|Morgonpass/);
+      for (const x of busy) expect(m.body).not.toContain(x.name);
+    }
   });
 
   it("en inställd aktivitet och en aktivitet utan målgrupp listar inga upptagna deltagare", async () => {

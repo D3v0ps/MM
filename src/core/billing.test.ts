@@ -128,6 +128,7 @@ describe("byt yrkesområde (Karims beslut 2026-10-22): raden räknas på yrkesom
   const c = mkCase({ id: "c7", caseNumber: "BOT-26-0007", startDate: "2026-12-01", primaryAreaCode: "E", orderValueWeeks: 20 });
   const change = {
     id: "cac-1", contractId: "c-bot", caseId: "c7", fromArea: "G", toArea: "E", effectiveMonth: "2027-02", changedBy: "u-amira", changedAt: "2027-01-20T10:00", noteId: "note-1", seq: 1,
+    fromTrack: "", toTrack: "", fromSecondaryArea: null,
   };
   const db = testDb({ cases: [c], price_items: price, case_area_changes: [change] });
 

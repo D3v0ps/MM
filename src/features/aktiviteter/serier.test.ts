@@ -127,6 +127,29 @@ describe("tillfällena över tid, ändra och avsluta", () => {
     expect(await ensureGroupActivities(system())).toEqual({ created: 0, changed: 0 });
   });
 
+  it("jobbet skapar tillfällen och bjuder in bara dagtid: vid midnatt ingenting, efter 08.00 det nya tillfället med inbjudan (granskningen, tredje rundan)", async () => {
+    const res = await createSeries({ notify: true });
+    const before = occurrencesOf(res.seriesId).map((g) => g.startsAt);
+    const out = rows("outbound_messages").length;
+    // Tisdag 16 februari kommer in i fönstret (14 dagar) vid midnatt – men jobbet skapar ingenting och skickar inget på natten.
+    for (const at of ["2027-02-01T23:55", "2027-02-02T00:02", "2027-02-02T07:59"]) {
+      rt.clock.set(at);
+      expect(await ensureGroupActivities(system()), at).toEqual({ created: 0, changed: 0 });
+    }
+    expect(occurrencesOf(res.seriesId).map((g) => g.startsAt)).toEqual(before);
+    expect(rows("outbound_messages")).toHaveLength(out);
+    // Första körningen efter 08.00: tillfället skapas och deltagarna bjuds in (meddelandet går dagtid).
+    rt.clock.set("2027-02-02T08:05");
+    expect((await ensureGroupActivities(system())).created).toBeGreaterThan(0);
+    expect(occurrencesOf(res.seriesId).map((g) => g.startsAt)).toContain("2027-02-16T15:00");
+    const sent = rows("outbound_messages").slice(out);
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((m) => m.createdAt >= "2027-02-02T08:00")).toBe(true);
+    // Efter dagtid (20.00) väntar steget till nästa morgon.
+    rt.clock.set("2027-02-02T20:00");
+    expect(await ensureGroupActivities(system())).toEqual({ created: 0, changed: 0 });
+  });
+
   it("ett tillfälle i en serie får inte ny dag eller tid – men namnet går att ändra; serieAndra ändrar alla kommande", async () => {
     const res = await createSeries();
     const occ = occurrencesOf(res.seriesId);

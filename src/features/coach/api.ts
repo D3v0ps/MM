@@ -198,7 +198,7 @@ export const noteInSummary = (summary: string, text: string): boolean => {
 export const NOT_REVIEWED_TEXT = "Kryssa i att du har gått igenom bedömningen innan du godkänner den.";
 /**
  * Spara eller godkänn månadsbedömningen (prototypens assessment.save). Godkännande kräver nivå i varje område, observation
- * från avtalets nivå (observationRequiredFromLevel – den automatiska texten "Framgår inte …" räknas inte) och samlad status –
+ * från avtalets nivå (observationRequiredFromLevel – den automatiska texten "Ingen förändring noterad …" räknas inte) och samlad status –
  * annars incomplete med missing (områdesnycklarna). Godkännandet kräver också reviewed: true ("Jag har gått igenom
  * bedömningen", Karims beslut 2026-10-22) – annars not_reviewed. Revisionsloggen vid godkännandet får antalet automatiska
  * områden, coachens val och godtagna AI-förslag. Vid godkännande blir månadsrapporten "Granskad av coach". plan = planen för
@@ -232,7 +232,8 @@ export const assessmentSave = command("coach.assessmentSave", z.object({
 >();
 
 /**
- * Spara eller godkänn kartläggningen (prototypens intake.save). Vid godkännande blir valt yrkesspår ärendets yrkesspår. Godkännandet
+ * Spara eller godkänn kartläggningen (prototypens intake.save). När kartläggningen är godkänd blir valt yrkesspår ärendets
+ * yrkesspår – också när det väljs om efteråt (t.ex. efter Byt yrkesområde utan spår, som tömmer valet). Godkännandet
  * kräver att deltagaren har en nivå (level – Karims beslut 2026-10-22; nivån väljs i kortet Nivå och yrkesområde).
  */
 export const intakeSave = command("coach.intakeSave", z.object({

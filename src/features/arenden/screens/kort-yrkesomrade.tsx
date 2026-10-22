@@ -1,10 +1,11 @@
 "use client";
-// Yrkesområdet på deltagarkortet och Byt yrkesområde (Karims beslut 2026-10-22). Bara Miljonbemanning: kommunens vyer visar
-// som förut bara nuvarande yrkesområde. Huvudcoachen (och samordnare, avtalsansvarig) byter med en kort motivering – den sparas
-// som en anteckning i deltagarkortet. Grupp och inbjudningar ändras direkt; fakturan räknas på det nya yrkesområdet från och med
-// månaden efter bytet. Knappen står i dialogen Nivå och yrkesområde (Ändra i kortets huvud – yrkesområdet är deltagarens grupp)
-// och bytena listas under huvudets rad med yrkesområdenas namn och motiveringen. Yrkesspåret hör till yrkesområdet: dialogen
-// erbjuder det nya yrkesområdets spår, annars väljs det i kartläggningen.
+// Yrkesområdet på deltagarkortet och Byt yrkesområde (Karims beslut 2026-10-22). Bara Miljonbemanning: kommunens portal visar
+// som förut bara nuvarande yrkesområde; kommunens rapporter visar yrkesområdet som gällde rapportens månad. Huvudcoachen (och
+// samordnare, avtalsansvarig) byter med en kort motivering – den sparas som en anteckning i deltagarkortet. Grupp och
+// inbjudningar ändras direkt; fakturan räknas på det nya yrkesområdet från och med månaden efter bytet. Knappen står i dialogen
+// Nivå och yrkesområde (Ändra i kortets huvud – yrkesområdet är deltagarens grupp) och bytena listas under huvudets rad med
+// yrkesområdenas namn och motiveringen. Yrkesspåret hör till yrkesområdet: dialogen erbjuder det nya yrkesområdets spår, annars
+// väljs det i kartläggningen (valet där förs över till ärendet).
 import { useState } from "react";
 import { AREA_MOTIVATION_MAX, AREA_MOTIVATION_MIN } from "@/core/area-changes";
 import { plural } from "@/core/format";
@@ -69,21 +70,24 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
   const [track, setTrack] = useState("");
   const [motivation, setMotivation] = useState("");
   const [tried, setTried] = useState(false);
-  const [serverErr, setServerErr] = useState<{ area?: string; motivation?: string }>({});
+  const [serverErr, setServerErr] = useState<{ area?: string; track?: string; motivation?: string }>({});
   const len = motivation.trim().length;
-  const areaErr = tried && !toArea ? "Välj det nya yrkesområdet." : (serverErr.area ?? null);
+  const tracks = v.options.find((a) => a.code === toArea)?.tracks ?? [];
+  // Felet om yrkesspåret står vid fältet Yrkesspår – finns inget sådant fält (yrkesområdet har inga spår) vid yrkesområdet.
+  const trackErr = serverErr.track && tracks.length > 0 ? serverErr.track : null;
+  const areaErr = tried && !toArea ? "Välj det nya yrkesområdet." : (serverErr.area ?? (serverErr.track && !trackErr ? serverErr.track : null));
   const motErr = tried && (len < AREA_MOTIVATION_MIN || len > AREA_MOTIVATION_MAX)
     ? `Skriv en kort motivering, ${AREA_MOTIVATION_MIN}–${AREA_MOTIVATION_MAX} tecken.`
     : (serverErr.motivation ?? null);
   const dirty = !!toArea || !!track || motivation.trim() !== "";
-  const tracks = v.options.find((a) => a.code === toArea)?.tracks ?? [];
   const month = monthName(v.effectiveMonth);
   const submit = async () => {
     setTried(true);
     if (!toArea || len < AREA_MOTIVATION_MIN || len > AREA_MOTIVATION_MAX) return;
     const res = await save.run({ caseId: v.caseId, toArea, motivation: motivation.trim(), vocationalTrack: track, ...(v.current ? { fromArea: v.current.code } : {}) }).catch(() => null);
     if (!res || !res.ok) {
-      if (res && !res.ok && (res.error === "area" || res.error === "same" || res.error === "track")) setServerErr({ area: res.message });
+      if (res && !res.ok && (res.error === "area" || res.error === "same")) setServerErr({ area: res.message });
+      else if (res && !res.ok && res.error === "track") setServerErr({ track: res.message });
       else if (res && !res.ok && (res.error === "motivation" || res.error === "pnr")) setServerErr({ motivation: res.message });
       else toast(res && !res.ok && res.message ? res.message : "Yrkesområdet kunde inte bytas.", "error");
       return;
@@ -115,7 +119,7 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
               setToArea(x);
               // Yrkesspåret hör till yrkesområdet: ett nytt yrkesområde, ett nytt val.
               setTrack("");
-              setServerErr((e) => ({ ...e, area: undefined }));
+              setServerErr((e) => ({ ...e, area: undefined, track: undefined }));
             }}
             options={v.options.map((a) => ({ value: a.code, label: `${a.code} – ${a.name}` }))}
           />
@@ -124,13 +128,18 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
           <Field
             id="arn-area-track"
             label="Yrkesspår i det nya yrkesområdet"
-            help={`Välj om ni redan vet yrkesspåret. Annars väljs det i kartläggningen.${v.track ? ` Det nuvarande yrkesspåret (${v.track}) hör till det gamla yrkesområdet och tas bort.` : ""}`}
+            error={trackErr}
+            help={`Välj om ni redan vet yrkesspåret. Annars väljer coachen det i kartläggningen – valet där förs över till deltagarkortet.${v.track ? ` Det nuvarande yrkesspåret (${v.track}) hör till det gamla yrkesområdet och tas bort.` : ""}`}
           >
             <Select
               id="arn-area-track"
               value={track}
               placeholder="Väljs i kartläggningen"
-              onValueChange={setTrack}
+              invalid={!!trackErr}
+              onValueChange={(x) => {
+                setTrack(x);
+                setServerErr((e) => ({ ...e, track: undefined }));
+              }}
               options={tracks}
             />
           </Field>
@@ -155,7 +164,8 @@ function AreaModal({ v, onClose }: { v: CaseAreaView; onClose: () => void }) {
         </Field>
         <Notice tone="info" title="Det här händer">
           Grupp och inbjudningar ändras direkt. Fakturan räknas på det nya yrkesområdet från och med {month}. Motiveringen sparas som en anteckning i
-          deltagarkortet och kan inte ändras efteråt. Kommunen ser bara det nya yrkesområdet.
+          deltagarkortet och kan inte ändras efteråt. Kommunen ser det nya yrkesområdet i portalen. Rapporterna och fakturan för månaderna före {month} visar
+          det gamla.
         </Notice>
       </Stack>
     </Modal>

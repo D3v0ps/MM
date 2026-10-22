@@ -31,6 +31,7 @@ import { ensureReports, type ReportScheduleState } from "@/features/rapporter/en
 import { autoAttendanceTime, runAutoAttendance } from "@/features/_shared/auto-attendance";
 import { ensureGroupActivities } from "@/features/aktiviteter/audience-sync";
 import { nextDayEnd } from "@/core/auto-attendance";
+import { isSystemSendTime } from "@/core/group-series";
 import { selfRegister, selfRegisteredAudit, type SelfRegisterResult } from "@/features/session/self-register";
 import { MemoryRepo, MemoryStore, type MemoryData } from "./memory";
 import { POLICIES } from "./policy";
@@ -156,7 +157,8 @@ export function createMemoryRuntime(opts: {
     const now = opts.clock.now();
     const reportsDue = !checkedAt || nextScheduleBoundary(checkedAt) <= now;
     const attendanceDue = attendanceNext === null || attendanceNext <= now;
-    const groupsDue = now.slice(0, 10) !== groupsCheckedDay;
+    // Tillfällena och inbjudningarna bara dagtid (isSystemSendTime – som jobbet): på natten väntar steget till efter 08.00.
+    const groupsDue = now.slice(0, 10) !== groupsCheckedDay && isSystemSendTime(now);
     if (!reportsDue && !attendanceDue && !groupsDue) return;
     ensuring = (async () => {
       if (attendanceDue) {

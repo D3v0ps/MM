@@ -10,7 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AUTOSAVE_ASSESSMENT } from "@/api/invalidation";
 import { pct, plural } from "@/core/format";
-import { AUTO_OBSERVATION } from "@/core/monthly-prefill";
+import { isAutoObservation } from "@/core/monthly-prefill";
 import { addMonths, fmtDateShort, fmtDateTime, fmtWeekday, MONTHS, monthName } from "@/core/time";
 import { newEditSession, useAutosave, type AutosaveResult } from "@/shell/autosave";
 import { useCommand, useQuery } from "@/shell/backend";
@@ -209,7 +209,7 @@ function ManadForm({ v }: { v: Ok }) {
     const src = v.areas.find((x) => x.key === k);
     if (!src || src.aiLevelSuggestion == null) return null;
     const a = areas[k];
-    const auto = !a.observation.trim() || a.observation === AUTO_OBSERVATION;
+    const auto = !a.observation.trim() || isAutoObservation(a.observation);
     // AI:s utkast till observation när det finns – annars töms den automatiska texten (den är inget belägg för nivå 1–3).
     const obs = auto && src.aiObservationDraft && !src.aiObservationDraft.noEvidence ? { observation: src.aiObservationDraft.text } : auto ? { observation: "" } : {};
     return { level: src.aiLevelSuggestion as Level, levelSource: "ai", ...obs };
@@ -509,7 +509,7 @@ function ManadForm({ v }: { v: Ok }) {
         <div className="overflow-x-auto">
           {/* Nivåkolumnen rymmer den längsta nivån ("0 – Ingen / för tidigt att bedöma") utan att texten klipps. */}
           <table data-testid="progressionsomraden" className="w-full min-w-[920px] table-fixed border-collapse text-body max-[760px]:block max-[760px]:min-w-0">
-            <caption className="sr-only">Progressionsområden med nivå, observation och nästa steg</caption>
+            <caption className="sr-only">Progressionsområden med progressionsnivå, observation och nästa steg</caption>
             <colgroup className="max-[760px]:hidden">
               <col style={{ width: "15%" }} />
               <col style={{ width: "34%" }} />
@@ -532,7 +532,7 @@ function ManadForm({ v }: { v: Ok }) {
                 const err = errors[k];
                 const lab = src.label;
                 const needObs = a.level != null && a.level >= reqFrom;
-                const obsMissing = !a.observation.trim() || a.observation === AUTO_OBSERVATION;
+                const obsMissing = !a.observation.trim() || isAutoObservation(a.observation);
                 const aiObs = src.aiObservationDraft;
                 const noEv = !!aiObs?.noEvidence;
                 const aiLvl = !noEv ? src.aiLevelSuggestion : null;
@@ -570,7 +570,7 @@ function ManadForm({ v }: { v: Ok }) {
                             const level = x === "" ? null : (Number(x) as Level);
                             // Den automatiska texten är inget belägg: väljer coachen en nivå över 0 töms fältet, så att det syns att
                             // observationen ska skrivas.
-                            setArea(k, { level, levelSource: "coach", ...(level != null && level >= 1 && a.observation === AUTO_OBSERVATION ? { observation: "" } : {}) });
+                            setArea(k, { level, levelSource: "coach", ...(level != null && level >= 1 && isAutoObservation(a.observation) ? { observation: "" } : {}) });
                           }}
                           options={([0, 1, 2, 3] as const).map((n) => ({ value: String(n), label: `${n} – ${v.scale[n]}` }))}
                         />

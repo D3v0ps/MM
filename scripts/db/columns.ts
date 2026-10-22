@@ -142,7 +142,7 @@ export const COLUMNS = {
   // Byt yrkesområde (0036_byt_yrkesomrade.sql)
   case_area_changes: {
     id: "text", contractId: "text", caseId: "text", fromArea: "text", toArea: "text", effectiveMonth: "text", changedBy: "text", changedAt: "timestamptz", noteId: "text",
-    seq: "integer",
+    seq: "integer", fromTrack: "text", toTrack: "text", fromSecondaryArea: "text | null",
   },
 } as const satisfies ColumnManifest;
 

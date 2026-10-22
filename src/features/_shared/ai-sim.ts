@@ -280,7 +280,7 @@ const firstSentence = (t: string): string => {
 const byHeldAt = (a: ApprovedCheckIn, b: ApprovedCheckIn) => (a.heldAt < b.heldAt ? -1 : a.heldAt > b.heldAt ? 1 : 0);
 const srcLabel = (ci: Pick<ApprovedCheckIn, "heldAt">) => `Mötesrapport ${fmtDateShort(ci.heldAt)}`;
 const weeksText = (n: number) => (n === 1 ? "en vecka" : `${n} veckor`);
-const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända avstämningar.", sources: [], sourceIds: [], noEvidence: true };
+const NOT_FOUND: DraftText = { text: "Framgår inte av månadens godkända mötesrapporter.", sources: [], sourceIds: [], noEvidence: true };
 
 /**
  * Orden som visar att en mening i anteckningen handlar om området (simulerade nivåförslag). En mening som inte handlar om
@@ -317,7 +317,7 @@ function levelFrom(level: 1 | 2 | 3, used: readonly ApprovedCheckIn[], area: str
 
 /**
  * Utkast till observation, sammanfattning eller plan – samma texter som testdatats AI-utkast (src/data/seed/gen-reports.ts,
- * prototypens evidenceDraft). Bara från godkända avstämningar och registrerad närvaro; saknas underlag: "Framgår inte".
+ * prototypens evidenceDraft). Bara från godkända mötesrapporter och registrerad närvaro; saknas underlag: "Framgår inte".
  * Sammanfattningen citerar dessutom de två senaste anteckningarna (med samtycke, personnummer tvättade – beslut 4
  * 2026-10-09) med "Anteckning <datum>" som källa. Utan anteckningar är texterna exakt testdatats.
  * Nivåförslag (Karims beslut 2026-10-22, bara områdena med belägg i mötesrapporterna): yrkesfärdigheter, praktik och
@@ -348,21 +348,21 @@ export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey)
     const withNotes = (d: DraftText): DraftText =>
       used.length ? { ...d, text: `${d.text} Ur anteckningarna – ${fromNotes}`, sources: [...d.sources, ...used.map(noteSourceLabel)], sourceIds: [...d.sourceIds, ...used.map((n) => n.id)] } : d;
     if (!cis.length) {
-      if (!used.length) return { ...NOT_FOUND, text: "Framgår inte – det finns inga godkända avstämningar för månaden." };
-      return withNotes({ text: "Det finns inga godkända avstämningar för månaden.", sources: [], sourceIds: [], noEvidence: false });
+      if (!used.length) return { ...NOT_FOUND, text: "Framgår inte – det finns inga godkända mötesrapporter för månaden." };
+      return withNotes({ text: "Det finns inga godkända mötesrapporter för månaden.", sources: [], sourceIds: [], noEvidence: false });
     }
     const m = MONTHS[Number(input.month.slice(5)) - 1];
-    const text = `Under ${m} deltog deltagaren i ${attended} av ${att.length} registrerade tillfällen. ${contacts.length ? `Arbetsgivarkontakter fanns ${weeksText(contacts.length)}.` : "Inga arbetsgivarkontakter framgår."} (Källa: ${cis.length} godkända avstämningar, ${cis.map((x) => fmtDateShort(x.heldAt)).join(", ")}.)`;
+    const text = `Under ${m} deltog deltagaren i ${attended} av ${att.length} registrerade tillfällen. ${contacts.length ? `Arbetsgivarkontakter fanns ${weeksText(contacts.length)}.` : "Inga arbetsgivarkontakter framgår."} (Källa: ${cis.length} godkända mötesrapporter, ${cis.map((x) => fmtDateShort(x.heldAt)).join(", ")}.)`;
     return withNotes(from(text, cis));
   }
   if (templateKey === "monthly_plan") {
     const last = cis[cis.length - 1];
-    if (!last) return { ...NOT_FOUND, text: "Framgår inte – det finns inga godkända avstämningar för månaden." };
+    if (!last) return { ...NOT_FOUND, text: "Framgår inte – det finns inga godkända mötesrapporter för månaden." };
     const parts: string[] = [];
     if (last.nextGoal) parts.push(`Mål: ${last.nextGoal.replace(/[.!]$/, "")}.`);
     if (last.activitiesDone.length) parts.push(`Fortsatta aktiviteter: ${last.activitiesDone.map(lc).join(", ")}.`);
     if (last.obstacles.length) parts.push(`Hinder att arbeta vidare med: ${last.obstacles.map(lc).join(", ")}.`);
-    return parts.length ? from(parts.join(" "), [last]) : { ...from("Framgår inte av den senaste godkända avstämningen.", [last]), noEvidence: true };
+    return parts.length ? from(parts.join(" "), [last]) : { ...from("Framgår inte av den senaste godkända mötesrapporten.", [last]), noEvidence: true };
   }
   const key = templateKey.slice("monthly_area:".length);
   const withLevel = (d: DraftText, s: DraftLevelSuggestion | null): DraftText => (s ? { ...d, levelSuggestion: s } : d);
@@ -372,7 +372,7 @@ export function simulatedDraft(input: DraftInput, templateKey: DraftTemplateKey)
     return from(text, cis.slice(-1), ["Närvaroregistrering"]);
   }
   if (key === "arbetsgivarkontakter") {
-    if (!contacts.length) return from("Ingen arbetsgivarkontakt framgår av avstämningarna.", cis, [], true);
+    if (!contacts.length) return from("Ingen arbetsgivarkontakt framgår av mötesrapporterna.", cis, [], true);
     const d = from(`Arbetsgivarkontakt registrerad ${weeksText(contacts.length)} (${uniq(cis.flatMap((x) => (x.employerContacts && x.employerContacts.types) || [])).join(", ")}).`, contacts);
     return withLevel(d, levelFrom(contacts.length >= 2 ? 2 : 1, contacts, key));
   }

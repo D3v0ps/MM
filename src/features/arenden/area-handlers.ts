@@ -3,26 +3,28 @@
 //               personuppgifter, vilande spärr, bara namngiven huvudcoach och avtalsansvarig). Chef och systemadministratör ser
 //               bytena i läsläge. Kommunen och ekonomen nekas av rollkontrollen (ekonomen ser bytena i Ekonomi).
 //   Regler:     areaChangeProblem i src/core/area-changes.ts (bekräftat, pågående eller pausat ärende, ett annat aktivt yrkesområde
-//               i avtalet, motivering 10–300 tecken utan personnummer, yrkesspåret i det nya yrkesområdet eller tomt).
-//   Skrivning:  i ordning via ctx.repo (RLS): anteckningen med motiveringen (case_notes – låst efteråt: den ändras och tas aldrig
-//               bort, 0036), bytet (case_area_changes, nästa nummer i ärendet – seq), ärendets yrkesområde och yrkesspår (cases,
-//               villkorat på det gamla yrkesområdet), revisionsloggen och sist afterCaseAreaChanged (grupp och inbjudningar –
-//               systemsteget syncAudienceInvites, som bjuder in till det nya yrkesområdets kommande aktiviteter och tar bort ur det
-//               gamlas). Det gamla yrkesspåret hör till det gamla yrkesområdet och följer aldrig med.
+//               i avtalet, motivering 10–300 tecken utan personnummer, yrkesspåret ett av det nya yrkesområdets spår eller tomt).
+//   Skrivning:  via ctx.repo (RLS): först anteckningen med motiveringen (case_notes – låst efteråt: den ändras och tas aldrig bort,
+//               0036), sedan bytet (case_area_changes, nästa nummer i ärendet – seq). Bytet ändrar ärendets yrkesområde,
+//               yrkesspår och alternativ i samma transaktion (triggern case_area_changes_apply i 0036, policy.ts afterInsert i
+//               minnet): bytet och ärendet skrivs alltid tillsammans, aldrig det ena utan det andra – inte heller om servern
+//               stängs av mitt i. Sedan kartläggningens valda yrkesspår (samma som ärendets), revisionsloggen och sist
+//               afterCaseAreaChanged (grupp och inbjudningar – systemsteget syncAudienceInvites, som bjuder in till det nya
+//               yrkesområdets kommande aktiviteter och tar bort ur det gamlas). Det gamla yrkesspåret hör till det gamla
+//               yrkesområdet och följer aldrig med – det sparas på bytet (fromTrack) för rapporterna före bytet.
 //   Samtidigt:  två byten i samma ärende samtidigt – det andra får conflict (den unika nyckeln case_id + seq, och triggern som
-//               kräver att bytet utgår från ärendets nuvarande yrkesområde). Kan bytet inte skrivas tas anteckningen bort igen.
-//   Halvt byte: kan ärendet inte ändras efter att bytet skrivits (nätverksfel, tidsgräns, en samtidig ändring) tas bytet bort och
-//               anteckningen döljs igen i ett systemsteg (ctx.system) – annars skulle fakturan räknas på ett yrkesområde som
-//               ärendet aldrig fick, och kedjan i triggern skulle stoppa alla senare byten.
+//               kräver att bytet utgår från ärendets nuvarande yrkesområde). Kan bytet inte skrivas döljs anteckningen igen.
+//   Svaret      kom inte fram (nätverksfel, tidsgräns) efter att bytet skrevs: bytet läses om (ctx.repo) – finns det har ärendet
+//   saknas:     bytt, och loggen och grupperna görs som vanligt.
 //   Logg:       case.area_changed med id:n och koder – aldrig motiveringen (CLAUDE.md punkt 2).
 import { fail, ok } from "@/api/contract";
 import type { Role } from "@/api/roles";
-import { handleCommand, handleQuery, type Ctx } from "@/api/server";
+import { handleCommand, handleQuery } from "@/api/server";
 import {
   AREA_CHANGE_STATUSES, AREA_CHANGERS, areaChangeNoteBody, areaChangeProblem, effectiveMonthOf, inOrder, motivationOf, nextAreaChangeSeq,
 } from "@/core/area-changes";
 import { areaName, personName } from "@/core/labels";
-import { dayOf, type LocalDateTime } from "@/core/time";
+import { dayOf } from "@/core/time";
 import { PolicyError, UniqueError } from "@/data/repo";
 import type { CaseAreaChange, CaseNote } from "@/data/schema";
 import { TRACKS } from "@/data/seed/constants";
@@ -85,15 +87,6 @@ const code = (e: unknown): string => String((e as { code?: unknown } | null)?.co
 /** Ett byte som inte kunde skrivas: någon annan hann byta (nästa nummer tog slut, kedjan bröts) eller behörigheten nekade. */
 const lostRace = (e: unknown): boolean => e instanceof UniqueError || e instanceof PolicyError || ["23505", "23514", "42501"].includes(code(e));
 
-/**
- * Ett halvt byte tas bort (systemsteg – ingen användare får radera ett byte): bytet raderas och anteckningen med motiveringen
- * döljs, så att fakturan aldrig räknas på ett yrkesområde som ärendet inte fick och nästa byte kan göras.
- */
-async function undoChange(ctx: Ctx, change: CaseAreaChange, now: LocalDateTime): Promise<void> {
-  await ctx.system.table("case_area_changes").remove(change.id);
-  await ctx.system.table("case_notes").update(change.noteId, { removedAt: now, removedBy: change.changedBy });
-}
-
 handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
   const c = await ctx.repo.table("cases").get(p.caseId);
   if (!c) return fail("not_found", NOT_FOUND);
@@ -105,7 +98,7 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
   const areas = await ctx.repo.table("contract_areas").list({ contractId: c.contractId });
   const toArea = p.toArea.trim();
   const track = (p.vocationalTrack ?? "").trim();
-  const problem = areaChangeProblem(c, areas, toArea, p.motivation, track);
+  const problem = areaChangeProblem(c, areas, toArea, p.motivation, track, TRACKS[toArea as keyof typeof TRACKS] ?? []);
   if (problem) return fail(problem.code, problem.text);
   const fromArea = c.primaryAreaCode as string;
   const now = ctx.now();
@@ -124,30 +117,39 @@ handleCommand(caseChangeArea, { roles: AREA_CHANGERS }, async (ctx, p) => {
     body: areaChangeNoteBody(label(fromArea), label(toArea), p.motivation), createdAt: now, updatedAt: null, removedAt: null, removedBy: null,
   };
   await ctx.repo.table("case_notes").insert(note);
-  // 2. Bytet (bara koder, id:n och tider – ekonomen läser raden för faktureringen). Före ärendet: triggern prövar att bytet utgår
-  //    från ärendets nuvarande yrkesområde.
-  const change: CaseAreaChange = { id: ctx.newId("cac"), contractId: c.contractId, caseId: c.id, fromArea, toArea, effectiveMonth, changedBy: me, changedAt: now, noteId, seq };
+  const hideNote = () => ctx.repo.table("case_notes").update(noteId, { removedAt: now, removedBy: me });
+  // 2. Bytet (koder, id:n, tider och yrkesspåren – ekonomen läser raden för faktureringen). Ärendets yrkesområde, yrkesspår och
+  //    alternativ ändras i samma transaktion (triggern case_area_changes_apply): ett alternativt yrkesområde som blir det nya tas
+  //    bort (samma regel som när avropet accepteras). Har ärendet hunnit ändras nekas hela bytet.
+  const change: CaseAreaChange = {
+    id: ctx.newId("cac"), contractId: c.contractId, caseId: c.id, fromArea, toArea, effectiveMonth, changedBy: me, changedAt: now, noteId, seq,
+    fromTrack: c.vocationalTrack, toTrack: track, fromSecondaryArea: c.secondaryAreaCode ?? null,
+  };
   try {
     await ctx.repo.table("case_area_changes").insert(change);
   } catch (e) {
-    if (!lostRace(e)) throw e;
-    await ctx.repo.table("case_notes").update(noteId, { removedAt: now, removedBy: me });
-    return fail("conflict", CONFLICT);
+    if (lostRace(e)) {
+      await hideNote();
+      return fail("conflict", CONFLICT);
+    }
+    // Svaret kom inte fram: bytet och ärendet skrivs tillsammans, så finns raden har ärendet bytt.
+    const saved = await ctx.repo.table("case_area_changes").get(change.id).catch(() => null);
+    if (!saved) {
+      // Bytet skrevs inte. Anteckningen döljs (går inte det – t.ex. för att bytet ändå skrevs och anteckningen är låst – står
+      // den kvar som en vanlig anteckning).
+      await hideNote().catch(() => undefined);
+      throw e;
+    }
   }
-  // 3. Ärendets yrkesområde och yrkesspår, villkorat på det gamla yrkesområdet. Ett alternativt yrkesområde som blir det nya tas
-  //    bort (samma regel som när avropet accepteras). Går det inte (ett fel, eller ärendet hann ändras) tas bytet bort igen.
-  let moved = false;
+  // 3. Kartläggningens valda yrkesspår följer ärendets: det gamla hör till det gamla yrkesområdet. Utan valt spår frågar
+  //    kartläggningen igen, och spåret som väljs där förs över till ärendet (coach.intakeSave).
+  //    Bytet är redan gjort: går det inte (t.ex. en samtidig ändring i kartläggningen) står det gamla spåret kvar där tills
+  //    coachen väljer ett nytt.
   try {
-    moved = !!(await ctx.repo.table("cases").updateIf(
-      c.id, { primaryAreaCode: fromArea }, { primaryAreaCode: toArea, vocationalTrack: track, ...(c.secondaryAreaCode === toArea ? { secondaryAreaCode: null } : {}) },
-    ));
-  } catch (e) {
-    await undoChange(ctx, change, now);
-    throw e;
-  }
-  if (!moved) {
-    await undoChange(ctx, change, now);
-    return fail("conflict", CONFLICT);
+    const ia = await ctx.repo.table("intake_assessments").first({ caseId: c.id });
+    if (ia && ia.chosenTrack !== track) await ctx.repo.table("intake_assessments").updateIf(ia.id, { version: ia.version }, { chosenTrack: track, version: ia.version + 1 });
+  } catch {
+    // Inget att göra – se ovan.
   }
   // 4. Revisionsloggen: id:n och koder – aldrig motiveringen.
   await ctx.audit({
