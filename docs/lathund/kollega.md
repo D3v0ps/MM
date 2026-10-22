@@ -43,7 +43,7 @@ Sidopanelen har alltid:
 - AI föreslår – människan bedömer. AI sätter aldrig progressionsnivå, samlad status, avslutsorsak eller resultat. Du gör alltid ett aktivt val.
 - Rapporter byggs bara av godkända uppgifter, aldrig direkt från råtranskript.
 - Belopp i kronor syns bara för rollen ekonom.
-- Nivå, grupper, taggar och gruppmål är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå eller grupp.
+- Nivå, taggar och gruppmål är Miljonbemannings eget arbetsverktyg. Kommunen ser dem aldrig. De kommer aldrig med i rapporter, resultatfilen, exporter eller fakturor, och de skickas aldrig till AI. AI placerar aldrig någon i en nivå.
 
 ## Operativ samordnare
 
@@ -103,26 +103,38 @@ Samordnaren, avtalsansvarig, coachen och systemadministratören kan ändra konta
 
 Under **Mina ärenden** ser du ärendena där du ingår i teamet. Byt till **Alla ärenden i avtalet** i listan för att se alla ärenden.
 
-Du kan filtrera listan på **Nivå**, **Grupp** och **Tagg**. Kolumnen **Nivå** visar deltagarens nivå. Samma filter finns i **Närvaro**.
+Du kan filtrera listan på **Yrkesområde**, **Nivå** och **Tagg**. Kolumnen **Nivå** visar deltagarens nivå. Samma filter finns i **Närvaro**.
 
-### Nivå och grupp
+### Nivå och yrkesområde
 
-Den som kartlägger väljer deltagarens nivå, grupper och taggar i kortet **Nivå och grupp** längst ned i kartläggningen. I deltagarkortet står de på raden **Nivå och grupp** – tryck på **Ändra** för att ändra.
+Deltagarens grupp är yrkesområdet i beställningen, till exempel **G – Lager och logistik**. Den följer beställningen och väljs inte för hand.
 
-1. Välj **Nivå**: en av fem nivåer, från **Nivå 1 – Långt från arbete** till **Nivå 5 – Redo för arbete**. En deltagare har högst en nivå.
-2. Välj en eller flera **Grupper**. Finns inte gruppen? Tryck på **Ny grupp**, skriv namnet och tryck på **Skapa och välj**. Använd neutrala ord om stödet, till exempel ”Måndagsgruppen”. Aldrig omdömen om personer.
-3. Välj **Vill arbeta**: **Heltid**, **Deltid** eller **Vet inte än**. Det är deltagarens eget svar.
-4. Valen sparas direkt.
-5. Vill du skriva något till coacherna? Skriv i **En rad till coacherna (valfritt)** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet med dagens datum.
+Den som kartlägger väljer deltagarens nivå och taggar i kortet **Nivå och yrkesområde** längst ned i kartläggningen. Nivån måste vara vald innan du kan godkänna kartläggningen.
 
-Under **Grupper och nivåer** byter du namn på nivåer, grupper och taggar, arkiverar grupper och lägger till nya. Du når sidan från **Anteckningar**. Systemadministratören har den i sin flik. Inget raderas – en arkiverad grupp kan inte väljas för fler deltagare.
+1. Välj **Nivå**: en av fem nivåer, från **Nivå 1 – Långt från arbete** till **Nivå 5 – Redo för arbete**. En deltagare har alltid exakt en nivå.
+2. Välj **Vill arbeta**: **Heltid**, **Deltid** eller **Vet inte än**. Det är deltagarens eget svar.
+3. Valen sparas direkt. Deltagaren bjuds in automatiskt till nivåns aktiviteter.
+4. Vill du skriva något till coacherna? Skriv i **En rad till coacherna (valfritt)** och tryck på **Spara raden**. Raden blir en anteckning i deltagarkortet med dagens datum.
+
+Går deltagaren framåt? I deltagarkortet står nivån på raden **Nivå och yrkesområde**. Tryck på **Höj nivå** för att flytta deltagaren till nästa nivå. Tryck på **Ändra** för att byta till en annan nivå. Där ser du också nivåhistoriken. Deltagaren tas bort ur den förra nivåns kommande aktiviteter och bjuds in till den nya nivåns.
+
+### Grupper och nivåer
+
+Under **Grupper och nivåer** ser du:
+
+- **Yrkesområden**: hur många som är aktiva och om yrkesområdet har en träff den här och nästa månad. Står det **Ingen träff planerad**, tryck på **Planera** för att skapa träffen.
+- **Nivåer**: deltagarna på varje nivå och nivåns återkommande aktiviteter. Här finns också **Höj nivå** och **Byt nivå**.
+- **Utan nivå – att kartlägga**: insatser som saknar nivå. Tryck på **Öppna kartläggningen**.
+- **Taggar**: byt namn, arkivera och lägg till nya.
+
+Du når sidan från **Anteckningar**. Systemadministratören har den i sin flik. Inget raderas – en arkiverad tagg kan inte väljas för fler deltagare.
 
 ### Anteckningar för flera deltagare
 
 Med **Anteckningar** skriver du en rad per deltagare, till exempel efter en gruppträff.
 
 1. Öppna **Anteckningar**.
-2. Välj vilka deltagare som ska visas under **Visa**: **Mina ärenden**, **En nivå**, **En grupp** eller **En tagg**. Bara pågående ärenden visas.
+2. Välj vilka deltagare som ska visas under **Visa**: **Mina ärenden**, **En nivå**, **Ett yrkesområde** eller **En tagg**. Bara pågående ärenden visas.
 3. Kontrollera **Typ** och **Datum**. I dag är förvalt. Det finns ingen tid.
 4. Skriv en rad för varje deltagare du vill skriva om. Tomma rader sparas inte.
 5. Tryck på knappen som visar antalet, till exempel **Spara 3 anteckningar**. Varje rad blir en vanlig anteckning i deltagarens kort. Står det något som ser ut som ett personnummer på en rad sparas ingenting, och felet visas vid raden.
@@ -133,7 +145,7 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 
 1. Tryck på **Ny aktivitet** under **Aktiviteter** eller på Min vecka. Fyll i namn, typ, datum, tid, längd och plats.
 2. Vill du ha ett mål för hela gruppen? Skriv det i **Gruppmål**, till exempel ”Alla skriver ett CV”. Gruppmålet syns bara för Miljonbemanning.
-3. Välj deltagare under **Bjud in deltagare**: fliken **Grupp** (en eller flera grupper), **Nivå** (en eller flera nivåer) eller **Enskilda** (sök och välj en och en). Du ser hur många och vilka som bjuds in. De som redan är inbjudna eller vars insats inte pågår hoppas över – det står varför.
+3. Välj deltagare under **Bjud in deltagare**: fliken **Yrkesområde** (ett yrkesområde), **Nivå** (en nivå) eller **Enskilda** (sök och välj en och en). Du ser hur många och vilka som bjuds in. De som redan är inbjudna eller vars insats inte pågår hoppas över – det står varför. Med Yrkesområde eller Nivå bjuds de som tillkommer in automatiskt fram till aktiviteten, och de som byter nivå eller avslutas tas bort.
 4. **Skicka inbjudan till deltagarna** är förvalt. Deltagarna får e-post eller SMS med tid, plats och vårt telefonnummer – inga namn. Den som inte går att nå ringer samordnaren.
 5. Tryck på **Skapa aktiviteten**.
 
@@ -141,7 +153,21 @@ Med **Aktiviteter** samlar du flera deltagare till samma tillfälle, till exempe
 
 Samordnaren, avtalsansvarig och coachen skapar aktiviteter och tar närvaro. Chefen och systemadministratören kan bara läsa.
 
-En deltagare kan inte vara på två tillfällen samtidigt. Har deltagaren ett eget tillfälle utan närvaro vid samma tid frågar appen om det ska ersättas.
+En deltagare kan inte vara på två tillfällen samtidigt. Har deltagaren ett eget tillfälle utan närvaro vid samma tid frågar appen om det ska ersättas. Med Yrkesområde eller Nivå hoppas deltagaren över i stället.
+
+### Återkommande aktiviteter
+
+Nivåaktiviteterna är samma tid varje vecka, till exempel tisdag och torsdag klockan 10.00.
+
+1. Tryck på **Ny aktivitet** och fyll i namn, typ, första dag, tid, längd och plats.
+2. Kryssa i **Upprepa varje vecka** och välj veckodagarna. Ett till tre dagar i veckan brukar räcka. **Sista dagen** är valfri.
+3. Välj fliken **Nivå** eller **Yrkesområde** under **Bjud in deltagare**.
+4. **Meddela deltagarna inför varje tillfälle** är inte förvalt. Deltagarna får tiderna av sin coach.
+5. Tryck på **Skapa den återkommande aktiviteten**. Tillfällena skapas två veckor i förväg. Helgdagar hoppas över.
+
+Under **Aktiviteter** står de under **Återkommande**. I ett tillfälle kan du trycka på **Ställ in bara det här tillfället** eller **Avsluta hela serien**. Dag, tid och längd ändras inte efteråt – avsluta och skapa en ny i stället. Namn, plats, ansvarig och gruppmål kan ändras för alla kommande tillfällen.
+
+Yrkesområdena träffas en gång i månaden. Träffen är en vanlig aktivitet för yrkesområdet. Planera den från **Grupper och nivåer**.
 
 ### Ta närvaro i aktiviteten
 
@@ -173,7 +199,7 @@ Gruppmålet blir aldrig deltagarens veckomål och kommer aldrig med i rapportern
 ### Månadsbedömning
 
 1. Öppna fliken **Månadsunderlag** i deltagarkortet och tryck på **Gör månadsbedömningen**.
-2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå, grupper och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
+2. Under **Godkända mötesrapporter** och **Händelser** ser du underlaget. AI-utkastet bygger på godkända mötesrapporter, registrerad närvaro och – om deltagaren har registrerat samtycke till AI – månadens anteckningar i deltagarkortet. Personnummer tas bort innan något skickas, och AI får aldrig veta vem som skrev anteckningen. Nivå och taggar skickas aldrig. Varje förslag visar sin källa, till exempel ”Anteckning 26 jan”.
 3. Sätt progressionsnivån för varje progressionsområde själv och skriv en **Konkret observation**.
 4. Tryck på **Godkänn bedömningen**. Månadsrapporten till kommunen byggs av den.
 5. Tryck på **Öppna rapportutkastet**, sedan på **Godkänn** och **Leverera till kommunen**.
